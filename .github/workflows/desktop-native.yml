@@ -1,0 +1,128 @@
+# Experimental macOS builds on demand (docs/desktop.md): runs the unit tests
+# and packages a macOS build as a workflow artifact, on GitHub-hosted
+# runners. macOS is not a supported platform yet. Without signing secrets
+# the build is unsigned. No retail game data is used or packaged.
+name: Experimental macOS packaging (manual)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  # Let native packaging finish while development continues to checkpoint main.
+  # GitHub retains only the newest pending run in this concurrency group.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(node -p "require('./package.json').version")
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "Tag $GITHUB_REF_NAME does not match package.json version $version"; exit 1; }
+
+  package:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos
+            toolchain: mac x64 arm64
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+      actions: write
+    env:
+      # Sign only when the secrets exist; otherwise build unsigned.
+      CSC_IDENTITY_AUTO_DISCOVERY: ${{ (matrix.name == 'macos' && secrets.MAC_CSC_LINK != '') && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build:desktop
+      - name: Prepare portable host runtime
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node build/prepare-host-runtime.mjs
+
+      # Standalone Python with the tools' wheels, ffmpeg and KTX-Software,
+      # for every architecture this runner packages (electron-builder.yml).
+      - name: Cache toolchain downloads
+        uses: actions/cache@v6
+        with:
+          path: toolchain/.downloads
+          key: toolchain-${{ matrix.name }}-${{ hashFiles('build/fetch-toolchain.mjs') }}
+      - name: Fetch toolchain
+        shell: bash
+        run: node build/fetch-toolchain.mjs ${{ matrix.toolchain }}
+      - name: Check toolchain
+        shell: bash
+        run: |
+          for dir in toolchain/*-*/; do
+            echo "== $dir"; cat "$dir/toolchain.json"
+            if [ -x "$dir/bin/ffmpeg" ] || [ -f "$dir/bin/ffmpeg.exe" ]; then
+              exe=$(ls "$dir"/bin/ffmpeg* | head -1)
+              # Runs only where the binary matches the runner.
+              "$exe" -hide_banner -decoders 2>/dev/null | grep -i bink || true
+              "$exe" -hide_banner -encoders 2>/dev/null | grep -E "libvpx-vp9|libopus" || true
+            fi
+          done
+
+      - name: Package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS signing and notarization (optional).
+          CSC_LINK: ${{ matrix.name == 'macos' && secrets.MAC_CSC_LINK || matrix.name == 'windows' && secrets.WIN_CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.name == 'macos' && secrets.MAC_CSC_KEY_PASSWORD || matrix.name == 'windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Empty signing variables make electron-builder try to sign; drop them.
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            [ -n "${!name}" ] || unset "$name"
+          done
+          publish=never
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then publish=always; fi
+          npx electron-builder --publish "$publish"
+
+      - name: Verify packaged networking and resources
+        run: node build/check-packaged.mjs
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: battlefront-eternal-${{ matrix.name }}
+          retention-days: 1
+          if-no-files-found: error
+          path: |
+            release/*.AppImage
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/latest*.yml
+
+      - name: Remove superseded main-branch installers
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ARTIFACT_NAME: battlefront-eternal-${{ matrix.name }}
+        run: node build/prune-artifacts.mjs

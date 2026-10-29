@@ -1,0 +1,54 @@
+name: CI
+
+# Runs on GitHub-hosted runners only. No job in this repository may target a
+# self-hosted runner: pull requests from forks run the workflow files they
+# carry, so a self-hosted label here would hand a stranger's code a machine.
+# Official builds are signed and published by the project's release
+# pipeline, which lives outside this repository.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Gameplay, networking and runtime tests (no game files needed)
+        run: npm test
+      - name: Code-only browser bundle
+        run: node --input-type=module -e "import {build} from 'vite'; await build({build:{outDir:'dist-engine-ci',copyPublicDir:false}})"
+
+  release:
+    # Hands each tested main revision to the release pipeline, which builds,
+    # signs and publishes it from the project's private repository. Runs only
+    # for pushes to this repository's main, and only when the dispatch token
+    # is configured.
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'centrevilletech/battlefront-eternal'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.RELEASE_DISPATCH_TOKEN }}
+    steps:
+      - name: Request a preview build of this revision
+        if: env.GH_TOKEN != ''
+        run: gh api repos/centrevilletech/battlefront-eternal-dev/dispatches -f event_type=public-main -f "client_payload[sha]=$GITHUB_SHA"

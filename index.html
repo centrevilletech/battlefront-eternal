@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Battlefront Eternal</title>
+    <script>
+      // ?noreload: playtest while the code changes on disk. Vite's client
+      // reaches its server through a socket with the "vite-hmr" protocol
+      // (and "vite-ping" to wait for a restart); here those get a socket that
+      // never connects, so edits never reload or patch this page. Refresh by
+      // hand to pick them up. Every other socket is the real one.
+      (() => {
+        const value = new URLSearchParams(location.search).get("noreload");
+        if (value === null || value === "0") return;
+        const Real = window.WebSocket;
+        const vite = (protocols) => [].concat(protocols || []).some((p) => p === "vite-hmr" || p === "vite-ping");
+        function WebSocket(url, protocols) {
+          if (!vite(protocols)) return new Real(url, protocols);
+          window.__viteSocketsBlocked = (window.__viteSocketsBlocked || 0) + 1;
+          return { url: String(url), readyState: 0, CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3,
+            addEventListener() {}, removeEventListener() {}, send() {}, close() {} };
+        }
+        Object.assign(WebSocket, { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3, prototype: Real.prototype });
+        window.WebSocket = WebSocket;
+        console.info("[noreload] Vite hot reload is off for this page; refresh to pick up changes.");
+      })();
+    </script>
+    <style>
+      html,
+      body,
+      #app {
+        margin: 0;
+        height: 100%;
+        background: #0b0e12;
+      }
+      canvas {
+        display: block;
+      }
+      /* The rule above would otherwise show a canvas its hidden attribute hides. */
+      canvas[hidden] {
+        display: none;
+      }
+      #hud,
+      #stats {
+        position: fixed;
+        left: 16px;
+        color: #f2efe6;
+        font: 14px/1.4 sans-serif;
+        text-shadow: 0 1px 2px #000;
+        pointer-events: none;
+      }
+      #hud {
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        text-align: center;
+      }
+      #stats {
+        bottom: 6px;
+        font: 12px/1.4 monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="stats"></div>
+    <div id="hud"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

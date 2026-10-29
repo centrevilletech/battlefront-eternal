@@ -1,0 +1,336 @@
+/* The first-run loader: the shell's hologram rooms (deep blue, cyan lines),
+   then the game's own loading pictures once they have been prepared. */
+:root {
+  --cyan: #28beff;
+  --cyan-soft: rgba(40, 190, 255, 0.35);
+  --ink: #dff3ff;
+  --amber: #ffc24a;
+  --red: #ff5a4a;
+  --mono: "JetBrains Mono", "DejaVu Sans Mono", Consolas, monospace;
+  --display: "Eurostile", "Bank Gothic", "Orbitron", "Rajdhani", "Segoe UI", "DejaVu Sans", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #01040c;
+  color: var(--ink);
+  font-family: var(--display);
+  user-select: none;
+}
+
+#backdrop {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse at 40% 45%, #0c2858 0%, #061531 48%, #01040c 100%);
+}
+
+.art {
+  position: absolute;
+  inset: -4%;
+  background: center / cover no-repeat;
+  opacity: 0;
+  transition: opacity 2.4s ease;
+  filter: saturate(1.05) brightness(0.8);
+}
+.art.show { opacity: 1; animation: drift 26s ease-in-out infinite alternate; }
+
+@keyframes drift {
+  from { transform: scale(1) translate(0, 0); }
+  to { transform: scale(1.09) translate(-1.5%, -1%); }
+}
+
+.grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(40, 190, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(40, 190, 255, 0.07) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse at 50% 55%, #000 30%, transparent 75%);
+}
+
+.rings {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: 0;
+  height: 0;
+}
+.rings i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  border: 2px solid var(--cyan-soft);
+  transform: translate(-50%, -50%) rotateX(68deg);
+  animation: spin 40s linear infinite;
+}
+.rings i:nth-child(1) { width: 92vmin; height: 92vmin; border-style: dashed; }
+.rings i:nth-child(2) { width: 70vmin; height: 70vmin; animation-duration: 28s; animation-direction: reverse; opacity: 0.7; }
+.rings i:nth-child(3) { width: 48vmin; height: 48vmin; border-width: 1px; animation-duration: 18s; opacity: 0.5; }
+body.art-on .rings { opacity: 0.35; }
+
+@keyframes spin {
+  to { transform: translate(-50%, -50%) rotateX(68deg) rotateZ(360deg); }
+}
+
+.scan {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px);
+  pointer-events: none;
+}
+.scan::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 18vh;
+  background: linear-gradient(transparent, rgba(40, 190, 255, 0.06), transparent);
+  animation: sweep 7s linear infinite;
+}
+@keyframes sweep { from { top: -20vh; } to { top: 110vh; } }
+
+.vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 45%, rgba(0, 0, 0, 0.75) 100%);
+}
+
+header {
+  position: fixed;
+  left: 5vw;
+  top: 5vh;
+  right: 5vw;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.brand {
+  font-size: clamp(22px, 3.2vw, 46px);
+  font-weight: 800;
+  letter-spacing: 0.32em;
+  color: #fff;
+  text-shadow: 0 0 18px rgba(40, 190, 255, 0.55);
+}
+.brand span {
+  display: block;
+  font-size: 0.42em;
+  letter-spacing: 1.32em;
+  color: var(--cyan);
+  margin-top: 0.4em;
+}
+
+.planet {
+  font-size: clamp(14px, 1.4vw, 22px);
+  letter-spacing: 0.4em;
+  color: var(--cyan);
+  text-align: right;
+  text-shadow: 0 0 10px rgba(40, 190, 255, 0.6);
+}
+
+main {
+  position: fixed;
+  left: 50%;
+  bottom: 9vh;
+  width: min(880px, 86vw);
+  transform: translateX(-50%);
+  padding: 26px 32px 22px;
+  background: linear-gradient(180deg, rgba(4, 18, 42, 0.72), rgba(2, 8, 20, 0.86));
+  border: 1px solid rgba(40, 190, 255, 0.45);
+  clip-path: polygon(22px 0, 100% 0, 100% calc(100% - 22px), calc(100% - 22px) 100%, 0 100%, 0 22px);
+  box-shadow: inset 0 0 40px rgba(40, 190, 255, 0.08);
+  backdrop-filter: blur(3px);
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: clamp(16px, 1.6vw, 24px);
+  letter-spacing: 0.22em;
+  font-weight: 700;
+  color: #fff;
+}
+
+#detail {
+  margin: 0 0 18px;
+  font-size: 15px;
+  line-height: 1.55;
+  letter-spacing: 0.03em;
+  color: #b7d6ea;
+  white-space: pre-line;
+}
+#detail code {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--cyan);
+  word-break: break-all;
+}
+
+.bar {
+  position: relative;
+  height: 18px;
+  background: rgba(40, 190, 255, 0.08);
+  border: 1px solid rgba(40, 190, 255, 0.55);
+  transform: skewX(-24deg);
+  overflow: hidden;
+}
+.fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background:
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.25) 0 2px, transparent 2px 14px),
+    linear-gradient(90deg, #136ec2, var(--cyan));
+  box-shadow: 0 0 16px rgba(40, 190, 255, 0.8);
+  transition: width 0.8s ease;
+}
+.glint {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  width: 18%;
+  animation: glint 2.8s ease-in-out infinite;
+}
+#progress.estimating .glint { width: 30%; animation-duration: 1.6s; }
+
+@keyframes glint { from { left: -20%; } to { left: 110%; } }
+
+.readout {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 14px;
+  letter-spacing: 0.14em;
+  color: var(--cyan);
+}
+#step { color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#numbers { font-family: var(--mono); letter-spacing: 0.04em; white-space: nowrap; }
+
+#phases {
+  display: flex;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+}
+#phases li {
+  flex: 1;
+  padding: 6px 0;
+  font-size: 11px;
+  text-align: center;
+  letter-spacing: 0.18em;
+  color: rgba(223, 243, 255, 0.4);
+  border-top: 2px solid rgba(40, 190, 255, 0.18);
+}
+#phases[hidden] { display: none; }
+#phases li.active { color: #fff; border-color: var(--cyan); text-shadow: 0 0 8px var(--cyan); }
+#phases li.done { color: var(--cyan); border-color: rgba(40, 190, 255, 0.7); }
+#phases li.skipped { color: rgba(255, 194, 74, 0.6); border-color: rgba(255, 194, 74, 0.4); }
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+.actions:empty { display: none; }
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+.actions button {
+  padding: 11px 26px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: #fff;
+  background: rgba(40, 190, 255, 0.12);
+  border: 1px solid var(--cyan);
+  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.actions button:hover, .actions button:focus-visible {
+  outline: none;
+  background: rgba(40, 190, 255, 0.35);
+  box-shadow: 0 0 18px rgba(40, 190, 255, 0.6);
+}
+.actions button.primary {
+  background: linear-gradient(90deg, #1a7fd6, var(--cyan));
+  color: #001326;
+}
+.actions button.primary:hover { background: linear-gradient(90deg, #3a9bf0, #7dd8ff); }
+
+.link {
+  margin-top: 14px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: rgba(40, 190, 255, 0.7);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+}
+.link:hover { color: var(--cyan); }
+
+#log {
+  margin: 10px 0 0;
+  max-height: 22vh;
+  overflow: auto;
+  padding: 10px 12px;
+  font: 11px/1.45 var(--mono);
+  color: #9fc4dc;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(40, 190, 255, 0.25);
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+body.error h1 { color: var(--red); }
+body.warn h1 { color: var(--amber); }
+
+#disk {
+  position: fixed;
+  right: 6vw;
+  top: 16vh;
+  width: 132px;
+  height: 132px;
+  display: grid;
+  place-items: center;
+  transform: perspective(500px) rotateY(-30deg);
+}
+#disk .ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  border-top-color: var(--cyan);
+  border-right-color: var(--cyan-soft);
+  animation: turn 1.6s linear infinite;
+  filter: drop-shadow(0 0 6px var(--cyan));
+}
+#disk .ring.inner {
+  inset: 22px;
+  border-top-color: transparent;
+  border-bottom-color: var(--cyan);
+  animation-duration: 2.4s;
+  animation-direction: reverse;
+}
+#disk span {
+  font-size: 13px;
+  letter-spacing: 0.28em;
+  color: #fff;
+  transform: rotate(-14deg);
+  text-shadow: 0 0 8px var(--cyan);
+}
+body.idle #disk { display: none; }
+@keyframes turn { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

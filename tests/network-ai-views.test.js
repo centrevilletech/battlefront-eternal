@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import { networkViews } from '../src/runtime/network-views.js';
+import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
+
+test('online AI uses the nearby radius and authoritative view of every human', () => {
+  const world = {};
+  const game = {ai:{classic:{ai:{world}}}};
+  const player = x => ({unit:{alive:true,position:new THREE.Vector3(x,0,0),soldier:{aimYaw:0,aimPitch:0}}});
+  const first=player(0), second=player(1000), players=new Map([['a',first],['b',second]]);
+  const update = networkViews(game,players);
+  const scheduler = new ClassicScheduler({world,lodDisabled:()=>false,cameras:()=>world.cameras});
+  const bot = {position:new THREE.Vector3(1000,0,-40),velocity:new THREE.Vector3()};
+  update();
+  assert.equal(world.cameras.length,2);
+  assert.equal(scheduler.visibleOrNear(bot),true,'behind remote player but within 45m');
+  bot.position.z=-60;
+  assert.equal(scheduler.visibleOrNear(bot),false,'distant and behind every player');
+  bot.position.z=60;
+  assert.equal(scheduler.visibleOrNear(bot),true,'inside remote player view');
+  second.unit.soldier.aimYaw=Math.PI;
+  update();
+  assert.equal(scheduler.visibleOrNear(bot),false,'view follows server aim');
+  second.disconnectedAt=1;
+  update();
+  assert.equal(world.cameras.length,1);
+  assert.equal(scheduler.visibleOrNear(bot),false,'disconnected viewpoint is removed');
+  first.unit.alive=false;
+  update();
+  assert.equal(scheduler.visibleOrNear(bot),true,'empty server does not freeze the battle');
+});

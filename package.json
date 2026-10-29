@@ -1,0 +1,43 @@
+{
+  "name": "battlefront-eternal",
+  "productName": "Battlefront Eternal",
+  "desktopName": "battlefront-eternal.desktop",
+  "version": "0.1.0",
+  "description": "Fan-made engine reinvention for Star Wars: Battlefront (2004) and Battlefront II (2005).",
+  "license": "GPL-3.0-only",
+  "author": {
+    "name": "Josh Lambert"
+  },
+  "homepage": "https://battlefronteternal.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/centrevilletech/battlefront-eternal.git"
+  },
+  "private": true,
+  "type": "module",
+  "main": "electron/boot.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.js",
+    "desktop": "npm run host:prepare && vite build --mode desktop && electron .",
+    "desktop:dev": "electron . --dev-url=http://127.0.0.1:18449",
+    "dist": "npm run host:prepare && vite build --mode desktop && electron-builder --publish never",
+    "dist:dir": "npm run host:prepare && vite build --mode desktop && electron-builder --dir --publish never",
+    "build:desktop": "vite build --mode desktop",
+    "host:prepare": "node build/prepare-host-runtime.mjs"
+  },
+  "dependencies": {
+    "three": "^0.170.0",
+    "three-mesh-bvh": "^0.8.3",
+    "ws": "^8.22.0",
+    "yauzl": "3.4.0",
+    "yazl": "3.3.1"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
+    "vite": "^6.0.0"
+  }
+}

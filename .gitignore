@@ -1,0 +1,33 @@
+node_modules/
+dist/
+dist-desktop/
+.DS_Store
+*.log
+__pycache__/
+
+# Retail game data. Never commit an ISO, extract, or asset dump. The
+# extractor's output (public/maps, sides, common) is retail-derived too.
+*.iso
+*.mds
+*.mdf
+*.cue
+data/game/
+extract/
+public/maps/
+public/sides/
+public/common/
+# Decoded and enhanced game audio (tools/zero_sound.py, tools/enhance_audio.py)
+# is retail-derived too, as are any model weights the enhancer downloads.
+# The headphone decoder (tools/make_binaural.py) and the HRIRs it is built
+# from live there as well.
+public/audio/
+tools/models/
+# The optional audio tools' virtual environment (tools/requirements-audio.txt).
+.venv-audio/
+
+# Desktop packages (electron-builder)
+release/
+toolchain/
+
+# Bundled server code staging (no imported game assets).
+.host-runtime/

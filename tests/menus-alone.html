@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>The menus with no battle</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0b0e12; }
+      canvas { display: block; }
+    </style>
+  </head>
+  <body>
+    <!-- A page with only the interface kit, the menu stack and the
+    options, no map loaded: the front end's case (tests/pause-menu-browser.mjs
+    checks it; docs/menus.md). window.__alone.draw(dt) draws a frame. -->
+    <script type="module">
+      import * as THREE from "three";
+      import { InterfaceSurface, commonTextureUrl } from "/src/interface/index.js";
+      import { ScreenStack, ClassicTheme, optionsMenu, bindMenuInput } from "/src/menus/index.js";
+      import { Settings } from "/src/settings.js";
+      const common = await fetch("/common/common.json").then((r) => r.json());
+      const renderer = new THREE.WebGLRenderer({ preserveDrawingBuffer: true });
+      renderer.setSize(innerWidth, innerHeight);
+      document.body.appendChild(renderer.domElement);
+      const surface = new InterfaceSurface(renderer, { url: commonTextureUrl(common), fonts: common.fonts, strings: common.strings });
+      const stack = new ScreenStack({ theme: new ClassicTheme() });
+      const settings = new Settings();
+      bindMenuInput({ stack, element: renderer.domElement, toInterface: (x, y) => surface.toInterface(x, y) });
+      stack.push(optionsMenu({ settings, strings: common.strings, online: () => {}, credits: () => {} }));
+      window.__alone = {
+        stack,
+        settings,
+        draw(dt = 1 / 60) {
+          stack.update(dt);
+          renderer.setClearColor(0x102040);
+          renderer.clear();
+          surface.drawFrame((batch) => stack.draw(surface, batch));
+        },
+      };
+    </script>
+  </body>
+</html>

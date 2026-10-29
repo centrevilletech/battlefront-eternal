@@ -1,0 +1,39 @@
+{
+  "comment": "Synthetic entity and weapon classes (not retail data) for tools/zero_ai_classes.py. The test writes them into a ucfb archive; property names are hashed with the repository's FNV-1a, '#xxxxxxxx' keys are raw hashes.",
+  "weapons": [
+    {
+      "type": "test_weap_rifle",
+      "base": "cannon",
+      "props": [
+        ["MinRange", "2"], ["OptimalRange", "10"], ["MaxRange", "20"],
+        ["LockOnRange", "30"], ["ExtremeRange", "25"],
+        ["TargetAll", "0"], ["TargetPerson", "1"], ["TargetVehicle", "1"], ["TargetFriendly", "1"],
+        ["BarrageMin", "4"], ["BarrageMax", "7"], ["BarrageDelay", "1.5"],
+        ["ZoomMax", "0"], ["TriggerSingle", "1"], ["AnimationBank", "Pistol"],
+        ["#0badf00d", "kept"]
+      ]
+    },
+    {
+      "type": "test_weap_lob",
+      "base": "grenade",
+      "props": [
+        ["ExtremeRange", "40"], ["LockOnRange", "10"], ["MaxPressedTime", "1.0"], ["AnimationBank", "grenade"],
+        ["NextCharge", "0.5"], ["MaxRange", "15"], ["TargetAll", "1"]
+      ]
+    },
+    { "type": "test_weap_default", "base": "weapon", "props": [] }
+  ],
+  "classes": [
+    {
+      "type": "test_inf_soldier",
+      "base": "soldier",
+      "props": [
+        ["UnitType", "ANTI-ARMOR"], ["AISizeType", "medium"], ["MaxHealth", "250"],
+        ["WeaponName1", "test_weap_rifle"], ["WeaponAmmo1", "3"], ["WeaponChannel1", "0"],
+        ["WeaponName2", "test_weap_lob"], ["WeaponAmmo2", "2"], ["WeaponChannel2", "1"],
+        ["FleeSound", "test_flee"], ["AISCFieldMoveOutSound", "test_moveout"]
+      ]
+    },
+    { "type": "test_inf_blank", "base": "soldier", "props": [["UnitType", "Gunner"]] }
+  ]
+}

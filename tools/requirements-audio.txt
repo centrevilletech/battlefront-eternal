@@ -1,0 +1,15 @@
+# Optional: tools/enhance_audio.py (the enhanced mode's offline upscaling)
+# and tools/make_binaural.py (the enhanced mode's headphone decoder). The
+# game and tools/extract.py run without these. Install into a venv:
+#   python3 -m venv .venv-audio && .venv-audio/bin/pip install -r tools/requirements-audio.txt
+# Licenses are listed in docs/audio.md.
+numpy==2.5.3
+scipy==1.18.1
+soundfile==0.14.0
+soxr==1.1.0
+# make_binaural.py: spaudiopy and what it imports.
+spaudiopy==0.2.0
+h5py==3.16.0
+matplotlib==3.11.2
+resampy==0.4.3
+sounddevice==0.5.6

@@ -1,0 +1,898 @@
+{
+  "date": "2026-10-08",
+  "gameplayBaseline": "9a4e2be",
+  "conditions": {
+    "map": "nab2",
+    "warmupSeconds": 10,
+    "draw": false,
+    "physics": "per scenario",
+    "host": "shared Linux environment; no hardware FPS claim",
+    "initialStatesEqual": true
+  },
+  "cadence": [
+    {
+      "scenario": {
+        "rate": "60",
+        "hz": 30
+      },
+      "seconds": 12,
+      "frames": 360,
+      "timing": {
+        "p50Ms": 12.600000143051147,
+        "p95Ms": 22.5,
+        "p99Ms": 32.700000047683716,
+        "maxMs": 39.799999952316284
+      },
+      "events": {
+        "spawn": 38,
+        "vo": 21,
+        "board": 8,
+        "shot": 32,
+        "unboard": 1,
+        "damage": 3
+      },
+      "eventDrops": 0,
+      "posts": [
+        2,
+        1,
+        1,
+        2,
+        1,
+        2
+      ],
+      "errors": [],
+      "livingAtStart": 6,
+      "livingAtEnd": 44,
+      "calls": {
+        "ai": 720,
+        "playerMovement": 720,
+        "playerCombat": 360,
+        "projectiles": 360,
+        "capture": 360,
+        "vehicles": 720
+      }
+    },
+    {
+      "scenario": {
+        "rate": "60",
+        "hz": 60
+      },
+      "seconds": 12,
+      "frames": 720,
+      "timing": {
+        "p50Ms": 7.800000190734863,
+        "p95Ms": 15.099999904632568,
+        "p99Ms": 23.700000047683716,
+        "maxMs": 51.59999990463257
+      },
+      "events": {
+        "spawn": 38,
+        "vo": 30,
+        "board": 8,
+        "shot": 20,
+        "explosion": 2,
+        "damage": 7
+      },
+      "eventDrops": 0,
+      "posts": [
+        2,
+        1,
+        1,
+        2,
+        1,
+        2
+      ],
+      "errors": [],
+      "livingAtStart": 6,
+      "livingAtEnd": 44,
+      "calls": {
+        "ai": 719,
+        "playerMovement": 719,
+        "playerCombat": 720,
+        "projectiles": 720,
+        "capture": 720,
+        "vehicles": 719
+      }
+    },
+    {
+      "scenario": {
+        "rate": "60",
+        "hz": 144
+      },
+      "seconds": 12,
+      "frames": 1728,
+      "timing": {
+        "p50Ms": 5.199999809265137,
+        "p95Ms": 13.099999904632568,
+        "p99Ms": 15.5,
+        "maxMs": 30
+      },
+      "events": {
+        "spawn": 38,
+        "vo": 17,
+        "board": 8,
+        "shot": 9,
+        "explosion": 2
+      },
+      "eventDrops": 0,
+      "posts": [
+        2,
+        1,
+        1,
+        2,
+        1,
+        2
+      ],
+      "errors": [],
+      "livingAtStart": 6,
+      "livingAtEnd": 44,
+      "calls": {
+        "ai": 719,
+        "playerMovement": 719,
+        "playerCombat": 1728,
+        "projectiles": 1728,
+        "capture": 1728,
+        "vehicles": 719
+      }
+    },
+    {
+      "scenario": {
+        "rate": "60",
+        "hz": 240
+      },
+      "seconds": 12,
+      "frames": 2880,
+      "timing": {
+        "p50Ms": 3.700000047683716,
+        "p95Ms": 10.200000047683716,
+        "p99Ms": 14,
+        "maxMs": 29.09999990463257
+      },
+      "events": {
+        "spawn": 38,
+        "vo": 17,
+        "board": 8,
+        "shot": 9,
+        "explosion": 2
+      },
+      "eventDrops": 0,
+      "posts": [
+        2,
+        1,
+        1,
+        2,
+        1,
+        2
+      ],
+      "errors": [],
+      "livingAtStart": 6,
+      "livingAtEnd": 44,
+      "calls": {
+        "ai": 720,
+        "playerMovement": 720,
+        "playerCombat": 2880,
+        "projectiles": 2880,
+        "capture": 2880,
+        "vehicles": 720
+      }
+    },
+    {
+      "scenario": {
+        "rate": "60",
+        "hz": "jitter"
+      },
+      "seconds": 12,
+      "frames": 480,
+      "timing": {
+        "p50Ms": 6.099999904632568,
+        "p95Ms": 37.89999985694885,
+        "p99Ms": 46.200000047683716,
+        "maxMs": 54.700000047683716
+      },
+      "events": {
+        "spawn": 38,
+        "vo": 28,
+        "board": 8,
+        "shot": 17,
+        "explosion": 4,
+        "damage": 5,
+        "death": 1
+      },
+      "eventDrops": 0,
+      "posts": [
+        2,
+        1,
+        1,
+        2,
+        1,
+        2
+      ],
+      "errors": [],
+      "livingAtStart": 6,
+      "livingAtEnd": 43,
+      "calls": {
+        "ai": 720,
+        "playerMovement": 720,
+        "playerCombat": 480,
+        "projectiles": 480,
+        "capture": 480,
+        "vehicles": 720
+      }
+    },
+    {
+      "scenario": {
+        "rate": "unlocked",
+        "hz": 30
+      },
+      "seconds": 12,
+      "frames": 360,
+      "timing": {
+        "p50Ms": 10.899999856948853,
+        "p95Ms": 22,
+        "p99Ms": 31.59999990463257,
+        "maxMs": 43.200000047683716
+      },
+      "events": {
+        "spawn": 38,
+        "vo": 22,
+        "board": 8,
+        "shot": 1,
+        "explosion": 1
+      },
+      "eventDrops": 0,
+      "posts": [
+        2,
+        1,
+        1,
+        2,
+        1,
+        2
+      ],
+      "errors": [],
+      "livingAtStart": 6,
+      "livingAtEnd": 44,
+      "calls": {
+        "ai": 360,
+        "playerMovement": 360,
+        "playerCombat": 360,
+        "projectiles": 360,
+        "capture": 360,
+        "vehicles": 360
+      }
+    },
+    {
+      "scenario": {
+        "rate": "unlocked",
+        "hz": 144
+      },
+      "seconds": 12,
+      "frames": 1728,
+      "timing": {
+        "p50Ms": 7.3999998569488525,
+        "p95Ms": 12,
+        "p99Ms": 15.600000143051147,
+        "maxMs": 28.59999990463257
+      },
+      "events": {
+        "spawn": 38,
+        "vo": 29,
+        "board": 9,
+        "unboard": 2,
+        "shot": 2,
+        "explosion": 1
+      },
+      "eventDrops": 0,
+      "posts": [
+        2,
+        1,
+        1,
+        2,
+        1,
+        2
+      ],
+      "errors": [],
+      "livingAtStart": 6,
+      "livingAtEnd": 44,
+      "calls": {
+        "ai": 1728,
+        "playerMovement": 1728,
+        "playerCombat": 1728,
+        "projectiles": 1728,
+        "capture": 1728,
+        "vehicles": 1728
+      }
+    }
+  ],
+  "worker": {
+    "identicalMovement": true,
+    "crossOriginIsolated": false,
+    "mainStallMs": 150,
+    "ticksDuringMainStall": 8,
+    "skippedSnapshotPublications": 6,
+    "transport": [
+      {
+        "actors": 44,
+        "bytes": 2816,
+        "transfer": false,
+        "samples": 70,
+        "p50RoundTripMs": 0.2999999523162842,
+        "p95RoundTripMs": 0.6000001430511475
+      },
+      {
+        "actors": 44,
+        "bytes": 2816,
+        "transfer": true,
+        "samples": 70,
+        "p50RoundTripMs": 0.20000004768371582,
+        "p95RoundTripMs": 0.3000001907348633
+      },
+      {
+        "actors": 128,
+        "bytes": 8192,
+        "transfer": false,
+        "samples": 70,
+        "p50RoundTripMs": 0.40000009536743164,
+        "p95RoundTripMs": 0.5
+      },
+      {
+        "actors": 128,
+        "bytes": 8192,
+        "transfer": true,
+        "samples": 70,
+        "p50RoundTripMs": 0.20000004768371582,
+        "p95RoundTripMs": 0.40000009536743164
+      },
+      {
+        "actors": 256,
+        "bytes": 16384,
+        "transfer": false,
+        "samples": 70,
+        "p50RoundTripMs": 0.5999999046325684,
+        "p95RoundTripMs": 0.7999999523162842
+      },
+      {
+        "actors": 256,
+        "bytes": 16384,
+        "transfer": true,
+        "samples": 70,
+        "p50RoundTripMs": 0.2999999523162842,
+        "p95RoundTripMs": 0.40000009536743164
+      }
+    ],
+    "errors": []
+  },
+  "profilerBrowser": {
+    "passed": true,
+    "identicalState": true,
+    "observedInputs": 62,
+    "recordedFrames": 61
+  },
+  "steady": {
+    "warmupSeconds": 30,
+    "results": [
+      {
+        "scenario": {
+          "rate": "60",
+          "hz": 60
+        },
+        "seconds": 20,
+        "frames": 1200,
+        "timing": {
+          "p50Ms": 8.800000190734863,
+          "p95Ms": 16.899999856948853,
+          "p99Ms": 22.300000190734863,
+          "maxMs": 35.200000047683716
+        },
+        "metrics": {
+          "collisionGather": {
+            "calls": 144333,
+            "totalMs": 1324.0999953746796,
+            "maxCallMs": 2.3999998569488525,
+            "dtTotal": 0,
+            "p50Ms": 1,
+            "p95Ms": 2.000000476837158,
+            "p99Ms": 2.8999993801116943,
+            "maxMs": 5.299998998641968
+          },
+          "playerMovement": {
+            "calls": 1199,
+            "totalMs": 76.49999618530273,
+            "maxCallMs": 1.2999999523162842,
+            "dtTotal": 0,
+            "p50Ms": 0.09999990463256836,
+            "p95Ms": 0.20000004768371582,
+            "p99Ms": 0.20000004768371582,
+            "maxMs": 1.2999999523162842
+          },
+          "collisionCast": {
+            "calls": 56928,
+            "totalMs": 720.7999920845032,
+            "maxCallMs": 2,
+            "dtTotal": 0,
+            "p50Ms": 0.5,
+            "p95Ms": 1.2999999523162842,
+            "p99Ms": 2.40000057220459,
+            "maxMs": 4.599999666213989
+          },
+          "ai": {
+            "calls": 1199,
+            "totalMs": 881.1000053882599,
+            "maxCallMs": 3.0999999046325684,
+            "dtTotal": 19.98333333333348,
+            "p50Ms": 0.6000001430511475,
+            "p95Ms": 1.5999999046325684,
+            "p99Ms": 2.200000047683716,
+            "maxMs": 3.0999999046325684
+          },
+          "botTick": {
+            "calls": 83930,
+            "totalMs": 3040.5999932289124,
+            "maxCallMs": 6.700000047683716,
+            "dtTotal": 1398.8333333323899,
+            "p50Ms": 2.200000047683716,
+            "p95Ms": 4.200000047683716,
+            "p99Ms": 8.199999809265137,
+            "maxMs": 10.400000095367432
+          },
+          "vehicles": {
+            "calls": 1199,
+            "totalMs": 1153.7999992370605,
+            "maxCallMs": 4.5,
+            "dtTotal": 19.98333333333348,
+            "p50Ms": 0.8000001907348633,
+            "p95Ms": 1.6000001430511475,
+            "p99Ms": 2.3999998569488525,
+            "maxMs": 4.5
+          },
+          "playerCombat": {
+            "calls": 1200,
+            "totalMs": 65.99999904632568,
+            "maxCallMs": 1.6999998092651367,
+            "dtTotal": 20,
+            "p50Ms": 0,
+            "p95Ms": 0.10000014305114746,
+            "p99Ms": 0.20000004768371582,
+            "maxMs": 1.6999998092651367
+          },
+          "botPresentation": {
+            "calls": 84000,
+            "totalMs": 2325.899998188019,
+            "maxCallMs": 2.6000001430511475,
+            "dtTotal": 1399.9999999990396,
+            "p50Ms": 1.7000000476837158,
+            "p95Ms": 3.4000000953674316,
+            "p99Ms": 4.5,
+            "maxMs": 9.899999856948853
+          },
+          "audio": {
+            "calls": 1200,
+            "totalMs": 1.0000011920928955,
+            "maxCallMs": 0.10000014305114746,
+            "dtTotal": 20,
+            "p50Ms": 0,
+            "p95Ms": 0,
+            "p99Ms": 0,
+            "maxMs": 0.10000014305114746
+          },
+          "services": {
+            "calls": 1200,
+            "totalMs": 42.99999785423279,
+            "maxCallMs": 0.39999985694885254,
+            "dtTotal": 20,
+            "p50Ms": 0,
+            "p95Ms": 0.10000014305114746,
+            "p99Ms": 0.20000004768371582,
+            "maxMs": 0.39999985694885254
+          },
+          "projectiles": {
+            "calls": 1200,
+            "totalMs": 228.5,
+            "maxCallMs": 5,
+            "dtTotal": 20,
+            "p50Ms": 0.09999990463256836,
+            "p95Ms": 0.7999999523162842,
+            "p99Ms": 2.299999952316284,
+            "maxMs": 5
+          },
+          "foliage": {
+            "calls": 1200,
+            "totalMs": 2045.799997329712,
+            "maxCallMs": 7.200000047683716,
+            "dtTotal": 20,
+            "p50Ms": 1.5,
+            "p95Ms": 2.8999998569488525,
+            "p99Ms": 4.800000190734863,
+            "maxMs": 7.200000047683716
+          },
+          "items": {
+            "calls": 1200,
+            "totalMs": 62.900002002716064,
+            "maxCallMs": 1.7000000476837158,
+            "dtTotal": 20,
+            "p50Ms": 0,
+            "p95Ms": 0.19999980926513672,
+            "p99Ms": 0.20000004768371582,
+            "maxMs": 1.7000000476837158
+          },
+          "effects": {
+            "calls": 1200,
+            "totalMs": 993.2000005245209,
+            "maxCallMs": 7.800000190734863,
+            "dtTotal": 20,
+            "p50Ms": 0.7000000476837158,
+            "p95Ms": 1.9000000953674316,
+            "p99Ms": 2.700000047683716,
+            "maxMs": 7.800000190734863
+          },
+          "capture": {
+            "calls": 1200,
+            "totalMs": 88.09999656677246,
+            "maxCallMs": 1.5999999046325684,
+            "dtTotal": 20,
+            "p50Ms": 0.09999990463256836,
+            "p95Ms": 0.20000004768371582,
+            "p99Ms": 0.2999999523162842,
+            "maxMs": 1.5999999046325684
+          },
+          "battle": {
+            "calls": 1200,
+            "totalMs": 10.500001430511475,
+            "maxCallMs": 0.7999999523162842,
+            "dtTotal": 20,
+            "p50Ms": 0,
+            "p95Ms": 0.09999990463256836,
+            "p99Ms": 0.10000014305114746,
+            "maxMs": 0.7999999523162842
+          },
+          "actorAcquire": {
+            "calls": 14,
+            "totalMs": 0.10000014305114746,
+            "maxCallMs": 0.10000014305114746,
+            "dtTotal": 0,
+            "p50Ms": 0,
+            "p95Ms": 0,
+            "p99Ms": 0,
+            "maxMs": 0.10000014305114746
+          }
+        },
+        "events": {
+          "shot": 255,
+          "damage": 109,
+          "death": 14,
+          "explosion": 75,
+          "vo": 12,
+          "grenade": 4,
+          "unboard": 4,
+          "board": 1,
+          "spawn": 14
+        },
+        "eventDrops": 0,
+        "posts": [
+          2,
+          1,
+          1,
+          2,
+          1,
+          2
+        ],
+        "inputQueue": {
+          "first": true,
+          "second": false
+        },
+        "errors": [],
+        "livingAtStart": 41,
+        "livingAtEnd": 41
+      }
+    ]
+  },
+  "deploymentInclusiveMetrics": {
+    "collisionGather": {
+      "calls": 77246,
+      "totalMs": 740.100013256073,
+      "maxCallMs": 4.699999809265137,
+      "dtTotal": 0,
+      "p50Ms": 0.9000003337860107,
+      "p95Ms": 1.999999761581421,
+      "p99Ms": 2.500000238418579,
+      "maxMs": 5.499999761581421
+    },
+    "playerMovement": {
+      "calls": 719,
+      "totalMs": 47.999996185302734,
+      "maxCallMs": 1,
+      "dtTotal": 0,
+      "p50Ms": 0.09999990463256836,
+      "p95Ms": 0.20000004768371582,
+      "p99Ms": 0.20000004768371582,
+      "maxMs": 1
+    },
+    "ai": {
+      "calls": 719,
+      "totalMs": 607.6999945640564,
+      "maxCallMs": 18.299999952316284,
+      "dtTotal": 11.983333333333508,
+      "p50Ms": 0.6000001430511475,
+      "p95Ms": 1.9000000953674316,
+      "p99Ms": 6.400000095367432,
+      "maxMs": 18.299999952316284
+    },
+    "botTick": {
+      "calls": 50330,
+      "totalMs": 2034.600004196167,
+      "maxCallMs": 8.599999904632568,
+      "dtTotal": 838.8333333328991,
+      "p50Ms": 2.5,
+      "p95Ms": 5.299999952316284,
+      "p99Ms": 7.599999904632568,
+      "maxMs": 12.899999856948853
+    },
+    "collisionCast": {
+      "calls": 24983,
+      "totalMs": 311.10000133514404,
+      "maxCallMs": 1.2999999523162842,
+      "dtTotal": 0,
+      "p50Ms": 0.39999985694885254,
+      "p95Ms": 0.9000000953674316,
+      "p99Ms": 1.3000006675720215,
+      "maxMs": 2
+    },
+    "vehicles": {
+      "calls": 719,
+      "totalMs": 519.3000018596649,
+      "maxCallMs": 5.400000095367432,
+      "dtTotal": 11.983333333333508,
+      "p50Ms": 0.7000000476837158,
+      "p95Ms": 1.6000001430511475,
+      "p99Ms": 2.0999999046325684,
+      "maxMs": 5.400000095367432
+    },
+    "playerCombat": {
+      "calls": 720,
+      "totalMs": 44.099998474121094,
+      "maxCallMs": 1.4000000953674316,
+      "dtTotal": 12,
+      "p50Ms": 0.09999990463256836,
+      "p95Ms": 0.19999980926513672,
+      "p99Ms": 0.20000004768371582,
+      "maxMs": 1.4000000953674316
+    },
+    "botPresentation": {
+      "calls": 50400,
+      "totalMs": 962.3000042438507,
+      "maxCallMs": 2.299999952316284,
+      "dtTotal": 839.9999999995567,
+      "p50Ms": 1.2000000476837158,
+      "p95Ms": 2.4000000953674316,
+      "p99Ms": 3.5999999046325684,
+      "maxMs": 7.1000001430511475
+    },
+    "audio": {
+      "calls": 720,
+      "totalMs": 0.9999997615814209,
+      "maxCallMs": 0.10000014305114746,
+      "dtTotal": 12,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0.09999990463256836,
+      "maxMs": 0.10000014305114746
+    },
+    "services": {
+      "calls": 720,
+      "totalMs": 21.500001430511475,
+      "maxCallMs": 0.5,
+      "dtTotal": 12,
+      "p50Ms": 0,
+      "p95Ms": 0.10000014305114746,
+      "p99Ms": 0.19999980926513672,
+      "maxMs": 0.5
+    },
+    "projectiles": {
+      "calls": 720,
+      "totalMs": 31.199998378753662,
+      "maxCallMs": 2.5999999046325684,
+      "dtTotal": 12,
+      "p50Ms": 0,
+      "p95Ms": 0.10000014305114746,
+      "p99Ms": 0.2999999523162842,
+      "maxMs": 2.5999999046325684
+    },
+    "foliage": {
+      "calls": 720,
+      "totalMs": 1334.800001859665,
+      "maxCallMs": 14.600000143051147,
+      "dtTotal": 12,
+      "p50Ms": 1.5,
+      "p95Ms": 4,
+      "p99Ms": 7.5,
+      "maxMs": 14.600000143051147
+    },
+    "items": {
+      "calls": 720,
+      "totalMs": 1.0999999046325684,
+      "maxCallMs": 0.10000014305114746,
+      "dtTotal": 12,
+      "p50Ms": 0,
+      "p95Ms": 0,
+      "p99Ms": 0.09999990463256836,
+      "maxMs": 0.10000014305114746
+    },
+    "effects": {
+      "calls": 720,
+      "totalMs": 106.6000006198883,
+      "maxCallMs": 3,
+      "dtTotal": 12,
+      "p50Ms": 0.09999990463256836,
+      "p95Ms": 0.5,
+      "p99Ms": 0.9000000953674316,
+      "maxMs": 3
+    },
+    "capture": {
+      "calls": 720,
+      "totalMs": 60.09999632835388,
+      "maxCallMs": 0.7000000476837158,
+      "dtTotal": 12,
+      "p50Ms": 0.09999990463256836,
+      "p95Ms": 0.20000004768371582,
+      "p99Ms": 0.2999999523162842,
+      "maxMs": 0.7000000476837158
+    },
+    "battle": {
+      "calls": 720,
+      "totalMs": 5.699999809265137,
+      "maxCallMs": 0.40000009536743164,
+      "dtTotal": 12,
+      "p50Ms": 0,
+      "p95Ms": 0.09999990463256836,
+      "p99Ms": 0.10000014305114746,
+      "maxMs": 0.40000009536743164
+    }
+  },
+  "inputProbe": {
+    "twoPressesConsumed": [
+      true,
+      false
+    ],
+    "rawMouseCounts": 900,
+    "smoothYaw": -0.87890625,
+    "batchedYaw": -0.5333333333333333,
+    "synthetic": true
+  },
+  "effectsGpu": {
+    "conditions": "Same-browser CPU reference and GPU-track updates, alternating execution order each frame. No drawing in timings; shared Linux host, not hardware FPS. Synthetic texture; chamber case uses extracted emitter definitions.",
+    "source": "tools/audit-effects.mjs",
+    "measurements": [
+      {
+        "scenario": "5120 persistent smoke sprites",
+        "gpu": false,
+        "frames": 480,
+        "meanParticles": 5120,
+        "p50Ms": 4.3999998569488525,
+        "p95Ms": 8,
+        "totalMs": 2472.500002384186,
+        "uploadBytesPerFrame": 430080,
+        "batches": 1
+      },
+      {
+        "scenario": "5120 persistent smoke sprites",
+        "gpu": true,
+        "frames": 480,
+        "meanParticles": 5120,
+        "p50Ms": 0.2999999523162842,
+        "p95Ms": 0.6000001430511475,
+        "totalMs": 147.29999947547913,
+        "uploadBytesPerFrame": 3840,
+        "batches": 1
+      },
+      {
+        "scenario": "eight continuous emitters",
+        "gpu": false,
+        "frames": 480,
+        "meanParticles": 2400,
+        "p50Ms": 1.6000001430511475,
+        "p95Ms": 2.0999999046325684,
+        "totalMs": 796.6999986171722,
+        "uploadBytesPerFrame": 201600,
+        "batches": 1
+      },
+      {
+        "scenario": "eight continuous emitters",
+        "gpu": true,
+        "frames": 480,
+        "meanParticles": 2400,
+        "p50Ms": 0.10000014305114746,
+        "p95Ms": 0.8999998569488525,
+        "totalMs": 116.60000085830688,
+        "uploadBytesPerFrame": 31008,
+        "batches": 1
+      },
+      {
+        "scenario": "nine authored chamber sources",
+        "gpu": false,
+        "frames": 480,
+        "meanParticles": 78,
+        "p50Ms": 0.09999990463256836,
+        "p95Ms": 0.20000004768371582,
+        "totalMs": 47.19999980926514,
+        "uploadBytesPerFrame": 6552,
+        "batches": 1
+      },
+      {
+        "scenario": "nine authored chamber sources",
+        "gpu": true,
+        "frames": 480,
+        "meanParticles": 78,
+        "p50Ms": 0,
+        "p95Ms": 0.10000014305114746,
+        "totalMs": 13.000000953674316,
+        "uploadBytesPerFrame": 1542.9,
+        "batches": 1
+      }
+    ],
+    "visualChecks": {
+      "views": 153,
+      "authoredEffects": 33,
+      "texture": "synthetic atlas",
+      "maxMeanChannelErrorOutOf255": 0.02032696759259259,
+      "maxPixelsDifferentByMoreThan3": 83,
+      "pixelsPerView": 36864,
+      "webglErrors": 0
+    },
+    "retailMaps": {
+      "nab2": [
+        "classic",
+        "enhanced"
+      ],
+      "bes2": [
+        "classic",
+        "enhanced"
+      ],
+      "webglErrors": 0
+    },
+    "fullBattle": {
+      "conditions": "Separate same-build runs, Theed, 30 s warmup, 12 s capture, 60 Hz, drawing disabled. Shared-host timing varied widely even in unchanged bot/vehicle work; inconclusive for whole-frame performance.",
+      "sameEndEntities": true,
+      "sameEventCounts": true,
+      "cpuReference": {
+        "frame": {
+          "p50Ms": 6.099999904632568,
+          "p95Ms": 13.200000047683716,
+          "p99Ms": 18.300000190734863,
+          "maxMs": 47.799999952316284
+        },
+        "effects": {
+          "calls": 720,
+          "totalMs": 540.5999972820282,
+          "maxCallMs": 9.400000095367432,
+          "dtTotal": 12,
+          "p50Ms": 0.5999999046325684,
+          "p95Ms": 2.1000001430511475,
+          "p99Ms": 3.200000047683716,
+          "maxMs": 9.400000095367432
+        }
+      },
+      "gpuTracks": {
+        "frame": {
+          "p50Ms": 10.299999952316284,
+          "p95Ms": 21.899999856948853,
+          "p99Ms": 31.299999952316284,
+          "maxMs": 58.39999985694885
+        },
+        "effects": {
+          "calls": 720,
+          "totalMs": 648.099999666214,
+          "maxCallMs": 7.3999998569488525,
+          "dtTotal": 12,
+          "p50Ms": 0.6999998092651367,
+          "p95Ms": 2.5,
+          "p99Ms": 4.300000190734863,
+          "maxMs": 7.3999998569488525
+        }
+      }
+    },
+    "checks": {
+      "javascriptTests": 510,
+      "productionBuild": "pass; existing bundle-size advisory",
+      "broaderRenderingSuite": "Fails Water covers the foreground inside the camera near plane, pixel [255,255,255]; reproduced with checkpoint particles.js injected via browser route. Shared particle/soft-depth checks before it pass."
+    }
+  }
+}
