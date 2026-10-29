@@ -36,19 +36,3 @@ jobs:
         run: npm test
       - name: Code-only browser bundle
         run: node --input-type=module -e "import {build} from 'vite'; await build({build:{outDir:'dist-engine-ci',copyPublicDir:false}})"
-
-  release:
-    # Hands each tested main revision to the release pipeline, which builds,
-    # signs and publishes it from the project's private repository. Runs only
-    # for pushes to this repository's main, and only when the dispatch token
-    # is configured.
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'centrevilletech/battlefront-eternal'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      GH_TOKEN: ${{ secrets.RELEASE_DISPATCH_TOKEN }}
-    steps:
-      - name: Request a preview build of this revision
-        if: env.GH_TOKEN != ''
-        run: gh api repos/centrevilletech/battlefront-eternal-dev/dispatches -f event_type=public-main -f "client_payload[sha]=$GITHUB_SHA"
