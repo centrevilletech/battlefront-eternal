@@ -1,0 +1,187 @@
+name: Release
+
+# Builds the Windows and Linux desktop packages for every push to main that
+# changes more than documentation, and attaches them to a GitHub release
+# tagged preview-N. The project's release host then signs the update channel
+# and the APT repository and publishes the release to
+# get.battlefronteternal.com (build/publish-distribution.py). GitHub-hosted
+# runners only; no secrets beyond this workflow's own token.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Preview numbers continue from the releases published before this
+  # repository existed (the last was preview-319).
+  PREVIEW_OFFSET: 319
+
+jobs:
+  package:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    # The pinned builder container preserves the packaging environment.
+    container:
+      image: electronuserland/builder:wine@sha256:41ae540902461b6cbc988987db79547fcc10cda04d2a6c6367504f59d4b37c64
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends python3 python3-pip git ca-certificates curl gnupg openssl zstd xvfb xauth libnss3 libgtk-3-0 libgbm1 libasound2 libsecret-1-0
+      - run: npm ci
+      - run: npm test
+      - name: Signed distribution regression checks
+        run: python3 -m unittest discover -s tests -p test_distribution.py
+      - name: Assign a monotonically increasing preview version
+        id: release
+        shell: bash
+        run: |
+          number=$((GITHUB_RUN_NUMBER + PREVIEW_OFFSET))
+          npm pkg set "version=0.1.0-preview.$number"
+          # Installed clients follow this channel (docs/desktop-updates.md);
+          # local builds have none and never update themselves.
+          npm pkg set bfeUpdateChannel=development-preview
+          echo "tag=preview-$number" >> "$GITHUB_OUTPUT"
+          echo "version=0.1.0-preview.$number" >> "$GITHUB_OUTPUT"
+      - name: Bundle engine and portable host
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm run build:desktop
+          npm run host:prepare
+      - name: Verify automatic content repair in Electron
+        run: |
+          # npm's script policy may skip Electron's binary download. Install
+          # it explicitly, and keep test tooling outside locked app dependencies.
+          node node_modules/electron/install.js
+          npm install --prefix /tmp/bfe-playwright --no-save --package-lock=false playwright@1.64.1
+          export PLAYWRIGHT_MODULE=/tmp/bfe-playwright/node_modules/playwright/index.mjs
+          # A loaded runner sometimes misses Electron's 60 s launch window;
+          # a real failure fails twice.
+          xvfb-run -a node tests/desktop-startup-electron.mjs || xvfb-run -a node tests/desktop-startup-electron.mjs
+          xvfb-run -a node tests/desktop-transfer-electron.mjs || xvfb-run -a node tests/desktop-transfer-electron.mjs
+      - name: Fetch Linux import tools
+        run: |
+          node build/fetch-toolchain.mjs linux x64 arm64
+      - name: Package Linux
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npx electron-builder --linux AppImage deb --x64 --arm64 --publish never
+      - name: Verify packaged engine and resources
+        run: node build/check-packaged.mjs
+      - name: Update payloads, checked with the packaged updater
+        run: |
+          known=https://get.battlefronteternal.com/downloads/updates/blobs.json
+          node build/update-payload.mjs release/linux-unpacked linux-x64 release/update-linux-x64.tar --known "$known"
+          node build/update-payload.mjs release/linux-arm64-unpacked linux-arm64 release/update-linux-arm64.tar --known "$known"
+          node build/check-update.mjs release/linux-unpacked linux-x64 release/update-linux-x64.tar
+      - name: Record compatibility scope
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          Path('release/compatibility.json').write_text(json.dumps({'minimum_glibc':'2.28','targets':['Debian 10 and newer','Ubuntu 20.04 and newer','Omarchy'], 'qualification':'Package install and runtime smoke checks; GPU and gameplay qualification remains ongoing.', 'legacy_texture_compression':'Bundled KTX encoder requires glibc 2.34; older systems use the existing PNG fallback.'},indent=2))
+          PY
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-linux
+          retention-days: 3
+          if-no-files-found: error
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/update-*.tar
+            release/compatibility.json
+
+  windows:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - name: Verify Windows content transfers and consent persistence
+        run: node --test tests/content-archive.test.js tests/network-bridge.test.js
+      - name: Set matching preview version
+        shell: bash
+        run: npm pkg set "version=0.1.0-preview.$((GITHUB_RUN_NUMBER + PREVIEW_OFFSET))" bfeUpdateChannel=development-preview
+      - name: Bundle engine and host
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm run build:desktop
+          npm run host:prepare
+      - name: Fetch Windows import tools
+        run: node build/fetch-toolchain.mjs win x64
+      - name: Package and execute the Windows runtime checks
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npx electron-builder --win nsis --x64 --publish never
+          node build/check-packaged.mjs
+      - name: Update payload, checked with the packaged updater on Windows
+        shell: bash
+        run: |
+          node build/update-payload.mjs release/win-unpacked win32-x64 release/update-win32-x64.tar --known https://get.battlefronteternal.com/downloads/updates/blobs.json
+          node build/check-update.mjs release/win-unpacked win32-x64 release/update-win32-x64.tar
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-windows
+          retention-days: 3
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/update-win32-x64.tar
+
+  release:
+    # One release with every platform's files, created only when both builds
+    # pass, so the release host never sees a partial release.
+    needs: [package, windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.package.outputs.tag }}
+          VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          ls -l release
+          gh release create "$TAG" release/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Development preview $VERSION" \
+            --notes "Development preview built from $GITHUB_SHA. Install it from https://battlefronteternal.com/download; installed copies update themselves once it is published there."

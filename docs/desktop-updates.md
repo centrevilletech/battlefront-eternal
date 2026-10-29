@@ -158,8 +158,9 @@ steps the changed generations invalidate. Everything else is kept.
 
 ## Release pipeline
 
-The pipeline that builds, signs and publishes official builds is not part of
-this repository. These are the scripts it uses:
+`.github/workflows/release.yml` builds the packages and update payloads and
+attaches them to a GitHub release tagged `preview-N`; the project's release
+host then signs and publishes that release. The scripts involved:
 
 - Every packaged build records its own files in `resources/bfe-tree.json`
   (`build/tree-index.cjs`, after packing and again after signing).
@@ -179,8 +180,8 @@ this repository. These are the scripts it uses:
   adds it to the store and writes each platform's manifest into the
   release. After the release is live, it signs and replaces the channel
   file atomically, then deletes blobs no retained release lists.
-- The release pipeline sets `bfeUpdateChannel` (`development-preview`) in
-  the packaged `package.json`. Local builds have no channel and never update
+- `release.yml` sets `bfeUpdateChannel` (`development-preview`) in the
+  packaged `package.json`. Local builds have no channel and never update
   themselves or replace an installation.
 
 ## Measured

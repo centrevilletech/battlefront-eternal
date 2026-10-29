@@ -3,8 +3,8 @@ name: CI
 # Runs on GitHub-hosted runners only. No job in this repository may target a
 # self-hosted runner: pull requests from forks run the workflow files they
 # carry, so a self-hosted label here would hand a stranger's code a machine.
-# Official builds are signed and published by the project's release
-# pipeline, which lives outside this repository.
+# Desktop packages are built by release.yml; the project's release host
+# signs and publishes them (docs/desktop.md).
 
 on:
   push:

@@ -46,7 +46,10 @@ def sign(path, detached=False):
     run(*args, '--detach-sign' if detached else '--clearsign', str(path))
 
 def api(path):
-    request = urllib.request.Request('https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] + path,
+    # The repository whose GitHub release is published (BFE_RELEASE_REPOSITORY,
+    # else the one running this script).
+    repository = os.environ.get('BFE_RELEASE_REPOSITORY') or os.environ['GITHUB_REPOSITORY']
+    request = urllib.request.Request('https://api.github.com/repos/' + repository + path,
         headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
     with urllib.request.urlopen(request, timeout=60) as response:
         return json.load(response)

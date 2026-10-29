@@ -372,12 +372,15 @@ only when the repository defines the secrets `MAC_CSC_LINK` and
 notarizes only when it also defines `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`
 and `APPLE_TEAM_ID`.
 
-Official Windows and Linux preview builds are built, signed and published by
-the project's release pipeline, which is not part of this repository.
-`build/publish-distribution.py` is the script that publishes the downloads and
-signs the APT repository and the update channel
-([desktop-updates.md](desktop-updates.md)). A Windows installer without a
-code-signing certificate shows a SmartScreen warning.
+`.github/workflows/release.yml` builds the official Windows and Linux preview
+packages on GitHub-hosted runners for every push to main that changes more
+than documentation, and attaches them to a GitHub release tagged `preview-N`.
+The project's release host then publishes that release to
+get.battlefronteternal.com with `build/publish-distribution.py`, which signs
+the APT repository and the update channel
+([desktop-updates.md](desktop-updates.md)); the signing keys never leave that
+host. A Windows installer without a code-signing certificate shows a
+SmartScreen warning.
 
 ## Network process
 
