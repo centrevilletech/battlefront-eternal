@@ -147,7 +147,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
       remoteWorld?.exit(p.id);
       // His seat is vacated now, not when the grace period ends: a hull
       // held by an absent driver never sleeps, and bots may take the seat.
-      // His body stays where it rode (as a nextSpawn exit leaves it).
+      // His body stays where it rode.
       const u=p.unit;
       if(u?.seat?.vehicle)game.vehicles.unboard(u,{force:true,placement:false});
       else if(u?.seat?.turret)game.turretSeats?.leave(u,{placement:false});
@@ -228,11 +228,8 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
         for(const [action,kind,label]of [['squadMoveOut',0,'moveout'],['squadHold',2,'hold'],['squadFollow',3,'follow'],['squadAtEase',1,'atease']]){
           if(c.take(action)&&game.ai?.playerCommand){game.ai.playerCommand(kind,p.character);game.simEvents.emit('presentation',{event:{kind:'squad',ownerId:u.id,ownerGeneration:u.generation,label}});}
         }
-        if(c.take('nextSpawn')){
-          const eligible=game.spawnPort.posts(p.team).filter(post=>post.eligible);
-          const next=eligible[(eligible.findIndex(post=>post.name===p.spawn.post)+1)%eligible.length];
-          if(next){if(u.seat?.vehicle)game.vehicles.unboard(u,{force:true,placement:false});else if(u.seat?.turret)game.turretSeats.leave(u,{placement:false});spawn(p,p.className,next.name);u=p.unit;}
-        }
+        // Older clients still send N (nextSpawn): dropped, so it never piles up.
+        while(c.take('nextSpawn'));
         // Fire and seat keys as his seat reads them now (src/boarding.js).
         c.flightScheme=()=>seatScheme(u.seat?.vehicle,command.flightSettings?.bindings);
         if(typeof command.firstPerson==='boolean')u.combat.firstPerson=command.firstPerson;

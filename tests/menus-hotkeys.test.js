@@ -34,7 +34,8 @@ test("the list is built from src/input.js's bindings", () => {
   assert.equal(row("TURN RIGHT").keys, "");
   assert.equal(row("1ST/3RD VIEW").keys, "Q, MOUSE BUTTON 4");
   assert.equal(row("SHOW MAP").keys, "M");
-  assert.equal(row("NEXT COMMAND POST").keys, "N");
+  // The 2004 game has no key to move between command posts.
+  assert.equal(row("NEXT COMMAND POST"), undefined);
   assert.equal(row("SQUAD CMD-MOVE OUT").keys, "F3");
   // Every press and hold the game binds is listed.
   const listed = new Set(infantry.filter((r) => r.binding).map((r) => r.binding));

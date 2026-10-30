@@ -27,8 +27,6 @@ export const PRESSES = {
   zoom: ["KeyZ", "Mouse1"],
   perspective: ["KeyQ", "Mouse3"],
   map: ["KeyM"],
-  // This port's own: step through the command posts' spawns.
-  nextSpawn: ["KeyN"],
   stats: ["Backquote"],
   // Squad commands, as listed by the original PC controls screen.
   squadMoveOut: ["F3"],
