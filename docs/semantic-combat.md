@@ -54,7 +54,13 @@ Schema 5 carries short-lived explosions through shared `presentExplosion`, which
 plays effects, sound and light without applying client damage. Schemas 6 and 7
 carry dynamic projectile samples and removal. Grenades, missiles, shells and beams
 use authoritative absolute position/velocity/orientation or beam endpoints; the
-client does not replay collision, homing or random bounces. Samples retain at most
+client does not replay collision, homing or random bounces. Thrown items (mines
+and power-ups, which travel as item records, not combat schemas) are the one
+explicit exception: their flight is deterministic, so a page flies its copy
+with the shared `Items.fly` against its own collision and the server's item
+records steer it (`src/runtime/network-entity-items.js`,
+docs/snapshot-delta-design.md "Remote presentation"); the server alone decides
+where an item ends up and who takes it. Samples retain at most
 eight points, render three ticks behind, and extrapolate velocity by at most three
 ticks. Dynamic records expire after 18 ticks and cannot resurrect after removal.
 Their 81-byte sample payload is separate from the containing record/packet headers.

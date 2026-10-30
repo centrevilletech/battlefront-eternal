@@ -64,7 +64,10 @@ function buildEntry(record, { bounds = DEFAULT_SNAPSHOT_BOUNDS, mount = null, se
     // Quantize once; keep the previous array/object when the codes match.
     const pos = quantizePosition(record.position ?? [0, 0, 0], bounds);
     if (previous?.pos && pos[0] === previous.pos[0] && pos[1] === previous.pos[1] && pos[2] === previous.pos[2]) e.pos = previous.pos; else { e.pos = pos; same = false; }
-    const vel = quantizeVelocity(record.velocity ?? [0, 0, 0]);
+    // An item's velocity always goes at 1/32 m/s: a page flies a thrown
+    // item on from its records (network-entity-items.js), and 0.25 m/s
+    // steps would round a slow slide to rest.
+    const vel = quantizeVelocity(record.velocity ?? [0, 0, 0], record.kind === 'item');
     if (previous?.vel && vel.wide === previous.vel.wide && vel.v[0] === previous.vel.v[0] && vel.v[1] === previous.vel.v[1] && vel.v[2] === previous.vel.v[2]) e.vel = previous.vel; else { e.vel = vel; same = false; }
   }
   if (record.kind === 'soldier' || record.kind === 'droideka') {
