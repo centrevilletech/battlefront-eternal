@@ -433,7 +433,8 @@ online"), still within the 48 ticks the history keeps.
   through, not extrapolated.
 - **Snaps.** A `new` op or the discontinuity bit snaps.
 - `CorrectionSmoother` and the own-player path are unchanged.
-- Recon droids use the same interpolation.
+- Recon droids are drawn between the two records that bracket render time,
+  extrapolating at their last velocity for at most 6 ticks, as above.
 - Items (mines and power-ups) are flown on the page instead
   (`src/runtime/network-entity-items.js`). Their flight has no randomness,
   so the page seeds a copy from an item's first record and steps it with

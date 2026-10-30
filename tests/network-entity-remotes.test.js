@@ -55,3 +55,15 @@ test('recon capture reads shared owner controller slots and retains explicit dea
  assert.deepEqual(capture.capture(2),[{kind:'remote',id:0,generation:1,tick:2,active:false}]);
  assert.equal(capture.capture(3)[0].tick,2,'terminal identity stays exact until ACK');
 });
+
+test('another player\'s recon droid is drawn between the records bracketing the clock, then coasts at most 6 ticks',async()=>{
+ const {Scene,Object3D}=await import('three');const {RemoteDroids}=await import('../src/remote.js');const {EntityRemotePresentation}=await import('../src/runtime/network-entity-remotes.js');
+ const def={base:'droid',GeometryName:'probe',weapons:[]},remotes=new RemoteDroids({scene:new Scene(),camera:null,collision:{cast:()=>null},model:()=>()=>new Object3D(),lights:{flash(){}},fire(){},explode(){}});
+ const view=new EntityRemotePresentation(remotes,{definitions:new Map([[3,def]])}),at=(tick,x,yaw)=>({...live,tick,position:[x,20,30],velocity:[60,0,0],yaw});
+ for(const [tick,x,yaw]of [[100,10,3],[102,12,-3],[104,14,-2.9]])view.receive(at(tick,x,yaw),1);
+ const droid=remotes.droids[0],x=tick=>{view.present(tick);return droid.position.x;};
+ assert.equal(x(99),10,'held at its first record until the clock reaches it');
+ assert.ok(Math.abs(x(101)-11)<1e-9&&Math.abs(x(103.5)-13.5)<1e-9,'between the bracketing records, not the newest pair');
+ view.present(101);assert.ok(Math.abs(droid.yaw-(3+Math.atan2(Math.sin(-6),Math.cos(-6))/2))<1e-9,'yaw takes the short way round');
+ assert.ok(Math.abs(x(106)-16)<1e-9&&Math.abs(x(130)-20)<1e-9,'past the newest it coasts at its velocity for 6 ticks, then holds');
+});

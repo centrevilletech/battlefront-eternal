@@ -19,6 +19,11 @@ export class EntityRemoteCapture {
 
 // Shared model construction and placement only. Never advance these proxies
 // through RemoteDroids.update: that would run triggers, weapons and health drain.
+// Each life keeps its recent records and is drawn between the two that
+// bracket the playout clock (the first until the clock reaches it); past
+// the newest it goes on at its velocity for at most 6 ticks, then holds.
+const SAMPLES=16,EXTRAPOLATE=6;
+const angle=(a,b,t)=>a+Math.atan2(Math.sin(b-a),Math.cos(b-a))*t;
 export class EntityRemotePresentation {
  constructor(remotes,registry){this.remotes=remotes;this.registry=registry;this.slots=new Map();this.epoch=null;this.scratch=new Vector3();}
  retire(droid){
@@ -39,12 +44,15 @@ export class EntityRemotePresentation {
   let view=remotes.droids.find(droid=>droid.networkSlot===record.id&&droid.networkGeneration===record.generation);
   if(view&&view.def!==def)throw Error('remote identity definition changed');
   if(!view){view=remotes.createDroid(def,null,new Vector3().fromArray(record.position),new Vector3().fromArray(record.velocity),record.yaw,record.team);view.networkSlot=record.id;view.networkGeneration=record.generation;remotes.droids.push(view);}
-  this.slots.set(record.id,{record,previous:old?.record.active&&old.record.generation===record.generation?old.record:record,view});return true;
+  const samples=old?.record.active&&old.record.generation===record.generation?old.samples:[];samples.push(record);if(samples.length>SAMPLES)samples.shift();
+  this.slots.set(record.id,{record,samples,view});return true;
  }
  present(tick){
-  for(const {record,previous,view}of this.slots.values())if(view&&this.remotes.piloted!==view){
-   const f=record.tick>previous.tick?Math.max(0,Math.min(1,(tick-previous.tick)/(record.tick-previous.tick))):1;
-   view.position.fromArray(previous.position).lerp(this.scratch.fromArray(record.position),f);view.velocity.fromArray(record.velocity);view.yaw=previous.yaw+Math.atan2(Math.sin(record.yaw-previous.yaw),Math.cos(record.yaw-previous.yaw))*f;view.pitch=previous.pitch+(record.pitch-previous.pitch)*f;view.health=record.health;view.team=record.team;
+  for(const {samples,view}of this.slots.values())if(view&&this.remotes.piloted!==view){
+   let a=samples[0],b=a;for(const sample of samples){if(sample.tick<=tick)a=b=sample;else{b=sample;break;}}
+   const f=b.tick>a.tick?Math.max(0,Math.min(1,(tick-a.tick)/(b.tick-a.tick))):0,extra=a===b&&tick>a.tick&&a.health>0?Math.min(EXTRAPOLATE,tick-a.tick)/60:0;
+   view.position.fromArray(a.position).lerp(this.scratch.fromArray(b.position),f).addScaledVector(this.scratch.fromArray(a.velocity),extra);
+   view.velocity.fromArray(a.velocity).lerp(this.scratch.fromArray(b.velocity),f);view.yaw=angle(a.yaw,b.yaw,f);view.pitch=a.pitch+(b.pitch-a.pitch)*f;view.health=a.health;view.team=a.team;
    this.remotes.place(view);
   }
  }
