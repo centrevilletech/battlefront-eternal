@@ -266,10 +266,10 @@ and movies use one VP9 pass (2.8x faster than the two passes measured
 before, same quality). Finished steps are recorded in
 `game-data/.prepare.json`, so a run stopped by quitting resumes on the next
 launch; quitting stops the whole tool process tree. A step whose tool is
-missing is skipped and shown in amber. The loader shows the hologram rooms,
-then the game's own loading pictures for the map being prepared once the
-catalog is in. The log is in the app's user data folder,
-`logs/prepare.log` (Game → Open Preparation Log).
+missing is skipped, its phase marked in the look's note colour. The loader
+shows its look's backdrop, then the game's own loading pictures for the map
+being prepared once the catalog is in. The log is in the app's user data
+folder, `logs/prepare.log` (Game → Open Preparation Log).
 
 The bar and the time left are by expected time, not step count
 (`electron/prepare.js`: `estimate`): each step kind has a measured duration
@@ -292,6 +292,42 @@ holding `GameData`) and writes to `BFE_CONTENT_DIR` instead of `public/`
 BFE_GAME_DIR="$HOME/.local/share/Steam/steamapps/common/Star Wars Battlefront (Classic 2004)" \
   python3 tools/prepare.py
 ```
+
+### The loader's look
+
+The loader is drawn in the look the player chose for the front end: Eternal,
+Battlefront (2004) or Battlefront II (2005), the `menuTheme` setting. The
+three looks are defined once, in `electron/ui/looks.css`: their colours and
+surfaces (custom properties on `<html data-bfe-theme>`), the Saira font, the
+BATTLEFRONT / ETERNAL logo and the buttons' and titles' shapes. The menus'
+page theme (`src/menus/themes/page/style.js`) inlines the same file through
+Vite. It lives beside the loader because the app serves its own pages
+(`electron/ui/`, under `app://bfe/__desktop/`) as they are, outside the Vite
+build. `prepare.css` lays the loader out from those properties and defines
+no look of its own.
+
+`electron/ui/theme.js`, a blocking script at the top of the page, reads the
+setting as the front end does (`src/settings.js`): the settings file the
+desktop keeps (`electron/player-settings.js`, through the preload's
+`settingsStore`), else localStorage. It sets the look before the first frame
+is drawn and writes nothing. Without settings, as on a first run, the look
+is Eternal. A look changed in the menus applies the next time the loader
+opens.
+
+The page has the logo over a panel shaped as the front end's option pages:
+the state's title, its detail, the progress bar and the phases in the look's
+accent colours, and its buttons, the state's own choice lit as the front
+end lights its focused button (the 2005 look sets their labels in title
+case, as its menus do). A state that needs the player (game not found, data outdated)
+and one that failed mark their title in the look's note and red colours.
+While it works, the LOADING disk at the bottom right is the game's loading
+screen disk without its texture, drawn in SVG: 28 square lights with a lit
+tail chasing round them and translucent segments turning both ways, in the
+loading screen's own colours for the look (grey for 2004, amber for
+Eternal, red with silver rings for 2005).
+`tests/launcher-look.test.js` checks that the loader picks the same look as
+the front end for the same settings, and that neither keeps a copy of the
+looks.
 
 ### The toolchain
 

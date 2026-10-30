@@ -12,7 +12,7 @@ the game, on the player's machine.
 
 | Component | Where | Copyright | License |
 | --- | --- | --- | --- |
-| [Saira](https://github.com/Omnibus-Type/Saira) typeface | `src/menus/themes/page/fonts/saira-latin.woff2`; also used to draw `electron/assets/steam/` | Copyright 2020 The Saira Project Authors | SIL Open Font License 1.1 (full text in `src/menus/themes/page/fonts/OFL.txt`) |
+| [Saira](https://github.com/Omnibus-Type/Saira) typeface | `electron/ui/fonts/saira-latin.woff2`; also used to draw `electron/assets/steam/` | Copyright 2020 The Saira Project Authors | SIL Open Font License 1.1 (full text in `electron/ui/fonts/OFL.txt`) |
 | [OpenAL Soft](https://github.com/kcat/openal-soft) 1.20.1 | `src/audio/worklets/stabilizer.js` translates its band splitter and front stabilizer; `src/audio/layouts.js` carries its speaker decoder coefficients | Copyright the OpenAL Soft authors | LGPL-2.0-or-later. The derived code is distributed under GPL-3.0-only, as section 3 of that license allows. |
 | [libebur128](https://github.com/jiixyj/libebur128) | The K-weighting filter design in `src/audio/worklets/meter.js` and `tools/enhance_audio.py` | Copyright (c) 2011 Jan Kokemüller | MIT |
 | AMD FidelityFX Super Resolution 1 | The RCAS sharpening pass in `src/shell/video-sharpen.js` follows its design | Copyright (c) Advanced Micro Devices, Inc. | MIT |

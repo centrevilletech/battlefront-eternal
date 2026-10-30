@@ -32,7 +32,7 @@ pause menu, its OPTIONS and their four pages, the YES / NO popups).
 | `src/menus/option-pages.js` | `optionsMenu()`: OPTIONS and its GAME, VIDEO, AUDIO and CONTROL pages |
 | `src/menus/hotkeys.js` | The CONTROL page's key list, built from `src/input.js`'s bindings |
 | `src/menus/themes/classic/` | `ClassicTheme`: how each widget looks (`index.js`) and the drawing underneath (`draw.js`) |
-| `src/menus/themes/page/` | `PageTheme`: the same widgets as a page of elements in the front end's three looks (`index.js`, `style.js`, Saira in `fonts/`) |
+| `src/menus/themes/page/` | `PageTheme`: the same widgets as a page of elements in the front end's three looks (`index.js`, `style.js`). The looks themselves, the Saira font, the logo and the buttons' and titles' shapes are in `electron/ui/looks.css`, shared with the desktop launcher |
 | `src/pause/index.js` | `createPauseMenu()`: the pause menu over a battle |
 | `src/pause/overrides.js` | RESTART MISSION's URL carrying what the options changed |
 | `src/menu.js` | `HtmlOptionsMenu`: the same options as a plain HTML form, behind `?menu=html` |
