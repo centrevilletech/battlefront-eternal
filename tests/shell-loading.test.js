@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LoadingTimeline, STEP, STILL, approach, clock, handover, onScreen, planetName, pulse, zoomView } from "../src/shell/loading.js";
+import { LIGHTS, LOOKS, LoadingTimeline, LoadingView, STEP, STILL, approach, clock, handover, lightLevel, loadingLook, mixColor, onScreen, planetName, pulse, zoomView, diskPlace } from "../src/shell/loading.js";
 import { AV, LATE, LoadingSound, SOUNDS } from "../src/shell/loading-audio.js";
+import { THEMES } from "../src/menus/themes/page/looks.js";
+import { Settings } from "../src/settings.js";
 
 const close = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 
@@ -168,6 +170,88 @@ test("the planet's name: the map's own, its planet's string, or the planet's nam
   assert.equal(planetName("zzz9", {}), "ZZZ9");
 });
 
+// The disk's 28 lights, as drawDisk() lights them with the head `head`
+// turns round: how lit each is, from the last the head reached back.
+const LEDS = 28;
+const behindHead = (head) => Array.from({ length: LEDS }, (_, k) => lightLevel(head - (Math.floor(head * LEDS + 1e-9) - k) / LEDS));
+
+test("the lights: the head lit, each light behind it a little darker than the last down to off, no two neighbours alike", () => {
+  assert.equal(lightLevel(0), 1);
+  assert.equal(lightLevel(3), 1, "whole turns are the head");
+  assert.ok(close(lightLevel(-LIGHTS.ramp / 2), 0.5), "half up halfway through the ramp");
+  assert.equal(lightLevel(LIGHTS.tail), 0);
+  assert.equal(lightLevel((LIGHTS.tail + 1 - LIGHTS.ramp) / 2), 0, "off between the tail and the ramp");
+  // Along the tail it only ever darkens, and smoothly.
+  let last = 1;
+  for (let b = 0.001; b < LIGHTS.tail; b += 0.001) {
+    const level = lightLevel(b);
+    assert.ok(level < last && level >= 0, `darker at ${b.toFixed(3)} turns behind`);
+    last = level;
+  }
+  // On the ring, with the head on a light and between two: every lit
+  // light is darker than the one before it, by a small step, and over
+  // half the ring is lit.
+  for (const between of [0, 0.25, 0.5]) {
+    const levels = behindHead((7 + between) / LEDS);
+    const lit = levels.findIndex((level, k) => k > 0 && level === 0);
+    assert.ok(lit >= 15, `${lit} lights lit behind the head`);
+    for (let k = 1; k < lit; k++) {
+      assert.ok(levels[k] < levels[k - 1], `light ${k} darker than light ${k - 1}`);
+      assert.ok(levels[k - 1] - levels[k] < 0.12, `light ${k}: a step of ${(levels[k - 1] - levels[k]).toFixed(3)}`);
+    }
+    const shades = levels.slice(0, lit).filter((level) => level > 0.05).map((level) => mixColor(LOOKS.bf1.lights, level));
+    assert.ok(shades.length >= 12 && new Set(shades).size === shades.length, `${shades.length} lit lights, each its own shade`);
+  }
+});
+
+test("the lights fade in and out with the head, never jumping between shades from one frame to the next", () => {
+  // A 60 Hz frame of the head's turning.
+  const frame = LIGHTS.speed / 60;
+  let worst = 0;
+  for (let b = -1; b < 1; b += 0.0005) worst = Math.max(worst, Math.abs(lightLevel(b + frame) - lightLevel(b)));
+  assert.ok(worst < 0.45, `at most ${worst.toFixed(3)} of the way in a frame`);
+  // The light the head comes to rises through the ramp over a few frames,
+  // the way it then dims along the tail.
+  const rise = [];
+  for (let t = -LIGHTS.ramp; t <= 0; t += frame) rise.push(lightLevel(t));
+  assert.ok(rise.length >= 3 && rise.every((level, i) => i === 0 || level > rise[i - 1]), `up over ${rise.length} frames: ${rise.map((l) => l.toFixed(2))}`);
+  assert.ok(lightLevel(-1e-9) > 0.999 && lightLevel(LIGHTS.tail - 1e-9) < 1e-6 && lightLevel(-LIGHTS.ramp + 1e-9) < 1e-6, "continuous all round");
+});
+
+test("the lights' colours: mixed between the look's stops; the 2004 look keeps the original's greys at off, the middle and the head", () => {
+  assert.equal(mixColor(LOOKS.bf1.lights, 0), "rgb(11, 13, 15)");
+  assert.equal(mixColor(LOOKS.bf1.lights, 0.5), "rgb(92, 97, 102)");
+  assert.equal(mixColor(LOOKS.bf1.lights, 1), "rgb(185, 188, 190)");
+  assert.equal(mixColor(["#000000", "#ffffff"], 0.25), "rgb(64, 64, 64)");
+  assert.equal(mixColor(["#000000", "#ff0000", "#ffffff"], 0.75), "rgb(255, 128, 128)");
+  assert.equal(mixColor(["#102030", "#405060"], -1), "rgb(16, 32, 48)", "clamped");
+  assert.equal(mixColor(["#102030", "#405060"], 2), "rgb(64, 80, 96)");
+  // Every look's lights run from dark to bright.
+  const brightness = (color) => color.match(/\d+/g).map(Number).reduce((a, v) => a + v, 0);
+  for (const [id, look] of Object.entries(LOOKS)) {
+    for (let level = 0.1; level <= 1; level += 0.1) {
+      assert.ok(brightness(mixColor(look.lights, level)) > brightness(mixColor(look.lights, level - 0.1)), `${id} brighter at ${level.toFixed(1)}`);
+    }
+  }
+});
+
+test("the look: the player's menu theme, the original's under the original's menus; each theme has one", () => {
+  const params = new URLSearchParams("map=nab2");
+  for (const theme of ["bf1", "bf2", "eternal"]) assert.equal(loadingLook(params, theme), theme);
+  assert.equal(loadingLook(params, undefined), "eternal", "the default theme");
+  assert.equal(loadingLook(params, "nonsense"), "eternal");
+  assert.equal(loadingLook(new URLSearchParams("map=nab2&menus=classic"), "bf2"), "bf1");
+  assert.equal(loadingLook(params, new Settings({}, { store: null }).get("menuTheme")), "eternal", "the settings' default");
+  assert.equal(loadingLook(params, new Settings({ menuTheme: "bf2" }, { store: null }).get("menuTheme")), "bf2");
+  assert.deepEqual(Object.keys(LOOKS).sort(), THEMES.map((theme) => theme.id).sort());
+  // The view draws in it: the original's in the game's fonts, the others
+  // in Saira once it loads.
+  assert.equal(new LoadingView("nab2", { look: "bf2" }).look, LOOKS.bf2);
+  assert.equal(new LoadingView("nab2").look, LOOKS.eternal);
+  assert.equal(new LoadingView("nab2", { look: "bf1" }).typeface, null);
+  assert.equal(new LoadingView("nab2", { look: "eternal" }).typeface, "loading");
+});
+
 // A stand-in AudioContext: what starts and stops, and when. Its output
 // timestamp says context time `stamp` is heard at clock() ms `heard`.
 function fakeContext({ state = "running", current = 5, stamp = 4.96, heard = clock() } = {}) {
@@ -330,4 +414,23 @@ test("the hand-over waits for the battle and for the sequence, each capped", asy
   assert.equal(await handover({ loaded: new Promise(() => {}), isDone: () => true, tick, now: clockNow, load: 20 }), false);
   // A failed load still hands over (the page shows the error).
   assert.equal(await handover({ loaded: Promise.reject(new Error("no")), isDone: () => true, tick, now: clockNow }), false);
+});
+
+test("the LOADING disk keeps to the lower right corner on any screen", () => {
+  // 4:3: where the captures put it.
+  assert.deepEqual(diskPlace(1024, 768), { x: 772, y: 545, unit: 1 });
+  assert.deepEqual(diskPlace(1600, 1200), { x: 1600 - 252 * 1.5625, y: 1200 - 223 * 1.5625, unit: 1.5625 });
+  // Wider: the same offsets from the corner and size against the height.
+  for (const [w, h] of [[1920, 1080], [2560, 1080], [3440, 1440], [5120, 1440]]) {
+    const { x, y, unit } = diskPlace(w, h);
+    assert.equal(unit, h / 768);
+    assert.ok(Math.abs((h - y) / h - 223 / 768) < 1e-9, `${w}x${h} as high up as on 4:3`);
+    assert.ok(Math.abs((w - x) / h - 252 / 768) < 1e-9, `${w}x${h} as far in from the right, against the height`);
+  }
+  // A wide screen no longer carries it in towards the middle.
+  assert.ok(5120 - diskPlace(5120, 1440).x < 0.1 * 5120);
+  // Narrower than 4:3 (5:4): against the width, so it stays on screen.
+  const tall = diskPlace(1280, 1024);
+  assert.equal(tall.unit, 1.25);
+  assert.ok(tall.x - 120 * tall.unit > 0 && tall.y + 120 * tall.unit < 1024);
 });

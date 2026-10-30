@@ -1,4 +1,5 @@
 import { STYLE } from "./style.js";
+import { THEMES, DEFAULT_THEME, themeOf } from "./looks.js";
 
 // The Page theme: the menus as a page of their own over the front end's
 // backdrop, in one of three looks that share one layout and change only
@@ -40,13 +41,7 @@ import { STYLE } from "./style.js";
 // gone (it lets the pointer through) while no screen is up, but for a
 // line it may show (prompt(): CLICK TO RESUME).
 
-export const THEMES = [
-  { id: "bf1", label: "Battlefront (2004)" },
-  { id: "bf2", label: "Battlefront II (2005)" },
-  { id: "eternal", label: "Eternal" },
-];
-export const DEFAULT_THEME = "eternal";
-export const themeOf = (value) => (THEMES.some((theme) => theme.id === value) ? value : DEFAULT_THEME);
+export { THEMES, DEFAULT_THEME, themeOf };
 export const GATE_TEXT = "PRESS ANY KEY OR CLICK TO BEGIN";
 
 const LEAVE = 0.45; // s: about how long a screen takes to go

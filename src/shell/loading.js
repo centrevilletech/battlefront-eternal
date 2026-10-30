@@ -1,7 +1,8 @@
 import { loadShellData } from "./data.js";
-import { CanvasFonts } from "./text.js";
+import { CanvasFonts, tint } from "./text.js";
 import { LoadingSound } from "./loading-audio.js";
 import { Settings } from "../settings.js";
+import { themeOf } from "../menus/themes/page/looks.js";
 
 // The loading screen, shown over the battle page while the map loads, as the
 // original's LoadDisplay draws it (Load/load.lvl and Load/<map>.lvl;
@@ -15,8 +16,12 @@ import { Settings } from "../settings.js";
 //   lines ride the rectangle's edges out to the screen's.
 // - The planet's name top left (gamefont_tiny), except over the level.
 // - The LOADING disk bottom right: segments turning about a ring of lights
-//   that chase round it, turned in perspective, LOADING (gamefont_medium)
-//   across it.
+//   whose lit arc chases round it, each light behind the head a little
+//   darker than the last (lightLevel), turned in perspective, LOADING
+//   (gamefont_medium) across it.
+// - The disk and the name in the front end's look (LOOKS, the menuTheme
+//   setting): the 2004 look's are the original's; Eternal's and the 2005
+//   look's take the page theme's colours and its Saira.
 //
 // The timeline is the original game's, on the clock alone (LoadingTimeline):
 // each picture's lines track for TargetTime's 3.5 s (the horizontal pair in
@@ -62,10 +67,11 @@ export const LEAD = 0.1; // s
 
 const IW = 1024;
 // The disk's centre and the planet's name, in interface units, measured on
-// the retail captures: the disk 252 units from the right and 223 up from
-// the bottom, turned to 0.866 of its width, its 28 lights on a ring of 52
-// and LOADING tilted 14 degrees; the name 5 units into the safe area's top
-// left corner.
+// the retail captures (4:3): the disk 252 units from the right and 223 up
+// from the bottom, turned to 0.866 of its width, its 28 lights on a ring of
+// 52 and LOADING tilted 14 degrees; the name 5 units into the safe area's
+// top left corner. On other screens the disk keeps to the lower right
+// corner (diskPlace).
 const DISK = { right: 252, bottom: 223, turn: 0.866, ring: 52, leds: 28, text: -14,
   // [size, turn in radians a second, alpha] of each copy of the texture:
   // its thin ring (a quarter of its size out) lands at 60 and 44 units,
@@ -73,10 +79,58 @@ const DISK = { right: 252, bottom: 223, turn: 0.866, ring: 52, leds: 28, text: -
   layers: [[240, 0.25, 0.85], [176, -0.4, 0.75]] };
 const NAME = { x: 51.2, top: 0.05, y: 5 };
 const LINE = "rgba(40, 190, 255, 0.95)";
+// The lights' lit arc, in turns of the ring: its head goes round 0.6 times
+// a second; a light comes up over the light's spacing before the head
+// reaches it (ramp: a 28th of a turn) and darkens all along the tail
+// behind it, three quarters of the ring, faster at first (ease, a power).
+export const LIGHTS = { speed: 0.6, ramp: 1 / 28, tail: 0.75, ease: 2 };
 // How long the screen may outlast a ready battle waiting for its own
 // sequence (pictures that never arrive), and the battle at most.
 export const SEQUENCE_CAP = 30000; // ms
 export const LOAD_CAP = 60000; // ms
+
+// The disk and the name in each of the front end's looks
+// (src/menus/themes/page/style.js):
+// - lights: the lights' colours from off to the head, evenly spaced along
+//   how lit they are; edge: a rim round each light, or none.
+// - disk: the colours of the texture's segments and of its thin ring (one,
+//   or one for each copy) at a share of its alpha, or null for its own
+//   cyan; segments: the drawn disk's rings and its two layers, without the
+//   texture.
+// - text: LOADING's colour in the game's font. type: null for the game's
+//   bitmap fonts (the original's), else the page's Saira: its weight,
+//   LOADING's and the name's sizes (interface units), its letter spacing
+//   (of the size), colour, outline ([colour, width]) and shadow ([colour,
+//   blur]).
+export const LOOKS = {
+  // The original's: grey lights on the texture's cyan, the game's fonts.
+  bf1: {
+    lights: ["#0b0d0f", "#5c6166", "#b9bcbe"], edge: null,
+    disk: null,
+    segments: ["rgba(30, 170, 240, 0.9)", "rgba(40, 160, 220, 0.34)", "rgba(30, 140, 200, 0.28)"],
+    text: "#dcdcff", type: null,
+  },
+  // Eternal: amber cooling to embers on black glass with pale rings,
+  // off-white Saira spaced wide.
+  eternal: {
+    lights: ["#15100c", "#4a2407", "#b5560b", "#ff9a1f", "#ffd27a"], edge: null,
+    disk: { segments: "#05070b", ring: "#c4ccd8", alpha: 0.85 },
+    segments: ["rgba(196, 204, 216, 0.75)", "rgba(5, 7, 11, 0.3)", "rgba(5, 7, 11, 0.25)"],
+    text: "#e8ecf2",
+    type: { weight: 700, size: 13, name: 15, spacing: 0.24, color: "#e8ecf2", outline: null, shadow: ["rgba(0, 0, 0, 0.85)", 3] },
+  },
+  // Battlefront II: red on navy glass with silver rings, white Saira
+  // outlined in black, as its buttons.
+  bf2: {
+    lights: ["#101826", "#3d0c08", "#a5180e", "#e0362a", "#ff6450"], edge: "#06080c",
+    disk: { segments: "#1d3f73", ring: "#c9d4e2", alpha: 0.9 },
+    segments: ["rgba(201, 212, 226, 0.85)", "rgba(29, 63, 115, 0.34)", "rgba(29, 63, 115, 0.28)"],
+    text: "#ffffff",
+    type: { weight: 800, size: 15, name: 16, spacing: 0.04, color: "#ffffff", outline: ["#111111", 2], shadow: ["rgba(0, 0, 0, 0.6)", 3] },
+  },
+};
+// The page theme's typeface (src/menus/themes/page/fonts).
+const SAIRA = "BFE Saira";
 
 // The planet each map is on, for its name when shell.json doesn't give it.
 const PLANETS = {
@@ -218,6 +272,79 @@ export function onScreen(rect, view, w, h) {
   return [((x - vx) / vw) * w, ((y - vy) / vh) * h, (rw / vw) * w, (rh / vh) * h];
 }
 
+// Where the disk goes on a w x h screen: its centre (pixels) and the
+// pixels to one of its units. It keeps to the lower right corner, as on the
+// 4:3 captures, at any shape of screen: its offsets from the corner and its
+// size scale with the screen's height (with its width on a screen narrower
+// than 4:3), never stretched, so a wide screen doesn't carry it in towards
+// the middle.
+export function diskPlace(w, h) {
+  const unit = Math.min(w / IW, h / 768);
+  return { x: w - DISK.right * unit, y: h - DISK.bottom * unit, unit };
+}
+
+// How lit a light is, from 0 (off) to 1 (the head), `behind` turns behind
+// the lit arc's head (any number: a whole turn is the ring). It comes up in
+// a smooth step over the ramp just ahead of the head, then darkens all
+// along the tail, every light behind the head a little darker than the one
+// before it, to off. It is continuous all round, so as the head moves each
+// light fades in and out instead of jumping between shades.
+export function lightLevel(behind, { ramp = LIGHTS.ramp, tail = LIGHTS.tail, ease = LIGHTS.ease } = {}) {
+  const b = behind - Math.floor(behind);
+  if (b > 1 - ramp) {
+    const u = (b - (1 - ramp)) / ramp;
+    return u * u * (3 - 2 * u);
+  }
+  return b < tail ? (1 - b / tail) ** ease : 0;
+}
+
+// The colour `level` (0 to 1) of the way along evenly spaced colour stops
+// ("#rrggbb"), mixed between the two it falls between.
+export function mixColor(stops, level) {
+  const at = Math.min(Math.max(level, 0), 1) * (stops.length - 1);
+  const i = Math.min(Math.floor(at), stops.length - 2);
+  const [a, b] = [stops[i], stops[i + 1]].map((hex) => [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16)));
+  return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * (at - i))).join(", ")})`;
+}
+
+// Which of the front end's looks (LOOKS) the screen takes: the player's
+// (the menuTheme setting, `theme`), or the original's (bf1) under the
+// original's menus (?menus=classic).
+export function loadingLook(params, theme) {
+  return params.get("menus") === "classic" ? "bf1" : themeOf(theme);
+}
+
+// Saira, for the looks set in it, added to this thread's fonts (a worker
+// has its own). Resolves with whether it loaded.
+function loadSaira() {
+  const fonts = globalThis.document?.fonts ?? globalThis.fonts;
+  if (typeof FontFace !== "function" || !fonts) return Promise.resolve(false);
+  const url = new URL("../menus/themes/page/fonts/saira-latin.woff2", import.meta.url);
+  const face = new FontFace(SAIRA, `url(${url.href})`, { weight: "100 900", stretch: "50% 125%" });
+  return face.load().then(() => {
+    fonts.add(face);
+    return true;
+  }, () => false);
+}
+
+// A copy of the disk's texture (one colour, its shapes in its alpha) in a
+// look's colours for layer i: its segments in one, its thin ring (a
+// quarter of its size out, two of its 256 pixels wide) in another. Each
+// is a colour, or one per layer.
+function recolor(image, { segments, ring }, i) {
+  const pick = (value) => (Array.isArray(value) ? value[i] : value);
+  const copy = tint(image, pick(segments));
+  const c = copy.getContext("2d");
+  const r = copy.width / 2;
+  c.globalCompositeOperation = "source-atop";
+  c.fillStyle = pick(ring);
+  c.beginPath();
+  c.arc(r, r, copy.width * 0.258, 0, Math.PI * 2);
+  c.arc(r, r, copy.width * 0.243, 0, Math.PI * 2, true);
+  c.fill();
+  return copy;
+}
+
 // A picture as an ImageBitmap, or null (a missing file is Vite's index page).
 function bitmap(url) {
   if (!url) return Promise.resolve(null);
@@ -228,9 +355,10 @@ function bitmap(url) {
 }
 
 // The screen itself: its pictures, art and timeline, drawn onto a 2D
-// context (the page's or a worker's).
+// context (the page's or a worker's), the disk and the name in `look`
+// (LOOKS; loadingLook()).
 export class LoadingView {
-  constructor(map) {
+  constructor(map, { look = null } = {}) {
     this.map = String(map || "nab2").toLowerCase();
     this.timeline = new LoadingTimeline();
     this.stages = []; // [{ image, target }]
@@ -238,6 +366,12 @@ export class LoadingView {
     this.name = planetName(this.map);
     this.text = "LOADING";
     this.fonts = null;
+    this.look = LOOKS[themeOf(look)];
+    // The disk's texture in the look's colours, a copy for each layer.
+    this.disks = null;
+    // The look's Saira: null for the game's fonts, else "loading", "ready"
+    // or "failed" (the game's fonts stand in).
+    this.typeface = this.look.type ? "loading" : null;
     this.spin = 0;
     // When the sequence started (clock(), ms), once the page says (go()).
     this.start = null;
@@ -250,10 +384,12 @@ export class LoadingView {
     this.shown = [];
   }
 
-  // The map's pictures and the screen's art. Resolves with the sequence's
-  // plan once the pictures (and the lines' art) are in: the run of
-  // pictures that loaded, from the first.
+  // The map's pictures and the screen's art (the look's typeface comes in
+  // on its own). Resolves with the sequence's plan once the pictures (and
+  // the lines' art) are in: the run of pictures that loaded, from the
+  // first.
   async load(shell = null) {
+    if (this.typeface) loadSaira().then((ok) => { this.typeface = ok ? "ready" : "failed"; });
     shell ||= await loadShellData();
     const entry = shell.maps.find((m) => m.id === this.map);
     this.name = planetName(this.map, shell.strings, entry?.load);
@@ -266,6 +402,8 @@ export class LoadingView {
     const pictures = await Promise.all(stages.map((stage) => bitmap(stage.url)));
     const [disk, horz, vert, backdrop] = await art;
     this.art = { disk, horz, vert, backdrop };
+    // The disk's copies in the look's colours.
+    this.disks = disk && this.look.disk ? DISK.layers.map((_, i) => recolor(disk, this.look.disk, i)) : null;
     let count = 0;
     while (count < pictures.length && pictures[count]) count += 1;
     this.stages = stages.slice(0, count).map((stage, i) => ({ image: pictures[i], target: i < count - 1 ? stage.target : null }));
@@ -273,7 +411,7 @@ export class LoadingView {
     const targets = this.stages.map(({ image, target }) => (target ? [target[0] / image.width, target[1] / image.height, (target[0] + target[2]) / image.width, (target[1] + target[3]) / image.height] : null));
     this.timeline = new LoadingTimeline({ track: load.track, zoom: load.zoom, hold: load.hold, targets });
     this.sounds = this.timeline.sounds();
-    await this.prime([...this.stages.map((stage) => stage.image), disk, horz, vert].filter(Boolean));
+    await this.prime([...this.stages.map((stage) => stage.image), ...(this.disks || [disk]), horz, vert].filter(Boolean));
     return this.plan();
   }
 
@@ -325,10 +463,20 @@ export class LoadingView {
     // Interface units from here: 1024 across, H down (as the HUD's).
     const H = 768 + (h / w - 0.75) * 768;
     ctx.setTransform(w / IW, 0, 0, h / H, 0, 0);
-    if ((now.phase !== "hold" || !shown?.image) && this.fonts?.has("gamefont_tiny")) {
-      this.fonts.draw(ctx, NAME.x, NAME.top * H + NAME.y, this.name, "gamefont_tiny");
+    // Pixels to the unit, for the type's shadows (the transform leaves
+    // them alone).
+    this.scale = h / H;
+    if (now.phase !== "hold" || !shown?.image) {
+      // gamefont_tiny's capitals stand from 5 to 19 units under the line's
+      // top.
+      const top = NAME.top * H + NAME.y;
+      if (this.typeface === "ready") this.write(ctx, NAME.x, top + 12, this.name, this.look.type.name, "left");
+      else if (this.typeface !== "loading" && this.fonts?.has("gamefont_tiny")) this.fonts.draw(ctx, NAME.x, top, this.name, "gamefont_tiny", { color: this.look.type?.color });
     }
-    this.drawDisk(ctx, IW - DISK.right, H - DISK.bottom);
+    const disk = diskPlace(w, h);
+    ctx.setTransform(disk.unit, 0, 0, disk.unit, disk.x, disk.y);
+    this.scale = disk.unit;
+    this.drawDisk(ctx, 0, 0);
   }
 
   // The stage's picture (zooming, if it is), the next growing out of its
@@ -381,46 +529,81 @@ export class LoadingView {
   // vertical axis.
   drawDisk(ctx, cx, cy) {
     const spin = this.spin;
+    const look = this.look;
     ctx.save();
     ctx.translate(cx, cy);
     ctx.scale(DISK.turn, 1);
-    // load_rotating_disk twice, turning both ways.
+    // load_rotating_disk twice, turning both ways, in the look's colours.
     if (this.art.disk) {
-      for (const [size, speed, alpha] of DISK.layers) {
+      DISK.layers.forEach(([size, speed, alpha], i) => {
         ctx.save();
         ctx.rotate(spin * speed);
-        ctx.globalAlpha = alpha;
-        ctx.drawImage(this.art.disk, -size / 2, -size / 2, size, size);
+        ctx.globalAlpha = alpha * (look.disk?.alpha ?? 1);
+        ctx.drawImage(this.disks?.[i] || this.art.disk, -size / 2, -size / 2, size, size);
         ctx.restore();
-      }
+      });
     } else {
       this.drawSegments(ctx);
     }
     ctx.globalAlpha = 1;
     // The lights (load_led_0 is a plain square, tinted): a lit arc chasing
-    // round the ring.
-    const head = spin * Math.PI * 1.2;
+    // round the ring, each light's colour mixed from how lit it is.
+    const head = spin * LIGHTS.speed;
     for (let i = 0; i < DISK.leds; i++) {
-      const angle = (i / DISK.leds) * Math.PI * 2;
-      const behind = (((head - angle) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-      const level = behind < 1.3 ? 2 : behind < 2.3 ? 1 : 0;
       ctx.save();
-      ctx.rotate(angle);
+      ctx.rotate((i / DISK.leds) * Math.PI * 2);
       ctx.translate(DISK.ring, 0);
-      ctx.fillStyle = ["#0b0d0f", "#5c6166", "#b9bcbe"][level];
+      if (look.edge) {
+        ctx.fillStyle = look.edge;
+        ctx.fillRect(-4.5, -4.5, 9, 9);
+      }
+      ctx.fillStyle = mixColor(look.lights, lightLevel(head - i / DISK.leds));
       ctx.fillRect(-3.5, -3.5, 7, 7);
       ctx.restore();
     }
     // LOADING across the middle, tilted.
     ctx.rotate((DISK.text * Math.PI) / 180);
-    if (this.fonts?.has("gamefont_medium")) this.fonts.draw(ctx, 0, -12, this.text, "gamefont_medium", { align: 2, color: "#dcdcff" });
+    if (this.typeface === "ready") this.write(ctx, 0, 0, this.text, look.type.size, "center");
+    else if (this.typeface !== "loading" && this.fonts?.has("gamefont_medium")) this.fonts.draw(ctx, 0, -12, this.text, "gamefont_medium", { align: 2, color: look.text });
+    ctx.restore();
+  }
+
+  // Text in the look's Saira, its capitals' middle at y, from x (align
+  // "left") or about it ("center"), with the look's outline and shadow.
+  write(ctx, x, y, text, size, align) {
+    const type = this.look.type;
+    const spacing = type.spacing * size;
+    ctx.save();
+    ctx.font = `${type.weight} ${size}px "${SAIRA}"`;
+    ctx.letterSpacing = `${spacing}px`;
+    ctx.textAlign = align;
+    ctx.textBaseline = "alphabetic";
+    const box = ctx.measureText(text);
+    // Centred, the spacing after the last letter left out.
+    const from = align === "center" ? x + spacing / 2 : x;
+    const base = y + (box.actualBoundingBoxAscent - box.actualBoundingBoxDescent) / 2;
+    if (type.shadow) {
+      ctx.shadowColor = type.shadow[0];
+      ctx.shadowBlur = type.shadow[1] * (this.scale || 1);
+      ctx.shadowOffsetY = this.scale || 1;
+    }
+    if (type.outline) {
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = type.outline[0];
+      ctx.lineWidth = type.outline[1];
+      ctx.strokeText(text, from, base);
+      ctx.shadowColor = "transparent";
+    }
+    ctx.fillStyle = type.color;
+    ctx.fillText(text, from, base);
     ctx.restore();
   }
 
   // Without the disk's texture: its translucent segments and thin rings,
-  // drawn.
+  // drawn in the look's colours.
   drawSegments(ctx) {
-    ctx.strokeStyle = "rgba(30, 170, 240, 0.9)";
+    const [ring, ...fills] = this.look.segments;
+    ctx.strokeStyle = ring;
     ctx.lineWidth = 2;
     for (const r of [60, 44]) {
       ctx.beginPath();
@@ -431,7 +614,7 @@ export class LoadingView {
     for (const [speed, layer] of [[0.35, 0], [-0.55, 1]]) {
       ctx.save();
       ctx.rotate(this.spin * speed + layer);
-      ctx.fillStyle = layer ? "rgba(30, 140, 200, 0.28)" : "rgba(40, 160, 220, 0.34)";
+      ctx.fillStyle = fills[layer];
       const scale = layer ? 0.75 : 1;
       for (const [start, length, inner, outer] of pieces) {
         ctx.beginPath();
@@ -533,6 +716,10 @@ export function createLoadingScreen({ query = location.search, parent = document
   // The pulse and the zooms, at the player's volumes (?sound=0 for none).
   let settings = null;
   try { settings = new Settings(); } catch { settings = null; }
+  // The disk in the player's look of the front end (the page is a fresh
+  // one, without the front end's look on it, and a worker can't read the
+  // settings).
+  const look = loadingLook(params, settings?.get("menuTheme"));
   const audio = sound && params.get("sound") !== "0"
     ? new LoadingSound({ volumes: () => ({ master: settings?.get("masterVolume") ?? 1, interface: settings?.get("interfaceVolume") ?? 1 }) }).start()
     : null;
@@ -541,6 +728,8 @@ export function createLoadingScreen({ query = location.search, parent = document
   let closed = false;
   const screen = {
     canvas,
+    // The look the disk is drawn in (LOOKS).
+    look,
     // The last { stage, phase, done, cue, started, shown } the view
     // reported.
     sequence: { stage: 0, phase: "wait", done: false, cue: "still", started: false },
@@ -604,7 +793,7 @@ export function createLoadingScreen({ query = location.search, parent = document
     const thread = new Worker(new URL("./loading-worker.js", import.meta.url), { type: "module" });
     const surface = canvas.transferControlToOffscreen();
     [surface.width, surface.height] = size();
-    thread.postMessage({ type: "start", canvas: surface, map }, [surface]);
+    thread.postMessage({ type: "start", canvas: surface, map, look }, [surface]);
     thread.onmessage = (event) => {
       const message = event.data || {};
       if (message.type === "ready") {
@@ -617,7 +806,7 @@ export function createLoadingScreen({ query = location.search, parent = document
     send = (message) => thread.postMessage(message);
     stop = () => thread.terminate();
   } else {
-    const view = new LoadingView(map);
+    const view = new LoadingView(map, { look });
     view.load().then(go, (error) => {
       console.warn(`loading screen: ${error.message}`);
       go(view.plan());

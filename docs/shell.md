@@ -345,12 +345,43 @@ The original's screen behaves like this:
 - **The planet's name** (`planets.<planet>.name`) top left, 5 units into
   the safe area, in `gamefont_tiny`, over the first three pictures.
 - **The LOADING disk** bottom right, 252 units from the right and 223 up
-  from the bottom: `load_rotating_disk` twice (240 and 176 units, turning
-  both ways, so its thin ring falls outside and inside the lights), about a
-  ring of 28 square lights whose lit arc chases round, the whole turned to
-  0.866 of its width; LOADING (`common.loading`) across it in
-  `gamefont_medium`, tilted 14 degrees. Placements and sizes are measured
+  from the bottom of a 4:3 screen. On other screens it keeps to that
+  corner (`diskPlace()`): its offsets and size scale with the screen's
+  height (its width, below 4:3), never stretched, so a wide screen
+  doesn't carry it in towards the middle. The disk is `load_rotating_disk`
+  twice (240 and 176 units, turning both ways, so its thin ring falls
+  outside and inside the lights), about a ring of 28 square lights whose
+  lit arc chases round, the whole turned to 0.866 of its width; LOADING
+  (`common.loading`) across it in `gamefont_medium`, tilted 14 degrees. Placements and sizes are measured
   on the captures. Without the disk's texture its segments are drawn.
+- **The lights** (`lightLevel()`): the lit arc's head goes round the ring
+  0.6 times a second. Behind it each light is a little darker than the one
+  before, along a tail of three quarters of the ring that darkens fastest
+  near the head, down to off; the light the head comes to rises over the
+  28th of a turn before the head reaches it. How lit a light is depends
+  smoothly on how far it is behind the head, so as the head moves each
+  light fades in and out instead of jumping between shades. Its colour is
+  mixed by that level between its look's colour stops (`mixColor()`).
+- **The looks.** The disk and the planet's name follow the front end's
+  look, the `menuTheme` setting; with the original's menus
+  (`?menus=classic`) they take the Battlefront (2004) look. The battle page
+  is a fresh page, and the worker can't read the settings, so the page
+  picks the look (`loadingLook()`) and hands it to the view.
+  Battlefront (2004) is the original's: grey lights (#0b0d0f off, #5c6166
+  halfway, #b9bcbe at the head) on the texture's own cyan, in
+  `gamefont_medium` and `gamefont_tiny`. Eternal has amber lights cooling
+  to embers (#ffd27a at the head, the accent #ff9a1f, down to near black),
+  the disk's segments as black glass with pale grey rings, and LOADING and
+  the name in the page's Saira, bold, off-white and spaced wide.
+  Battlefront II (2005) has red lights (#ff6450 at the head, the accent
+  #e0362a, down to dark navy) with a dark rim, navy segments with silver
+  rings, and LOADING and the name in heavy white Saira outlined in black,
+  as its buttons are. The texture is one colour with its shapes in its
+  alpha, so each copy is recoloured on a canvas: the segments in one
+  colour, the thin ring's band in another. Saira is loaded with the
+  `FontFace` API into the fonts of the thread that draws (a worker has its
+  own); no text is drawn until it is in, and if it fails the game's fonts
+  stand in, in the look's colours.
 - **The sound** (`src/shell/loading-audio.js`): the original's, from the
   same timeline. `LoadingTimeline.sounds()` gives each pulse's start and
   end by the original's rule (`pulse()`: from the 50 ms step in which the
@@ -489,7 +520,10 @@ and tolerates its variants:
   original's stepwise lines and pulse rule, the sequence's end, each sound
   against the moment of the animation it goes with (within a
   millisecond), the whole plan on a stand-in `AudioContext`'s clock (and
-  joined late), and the hand-over's waits and caps.
+  joined late), the hand-over's waits and caps, the lights' gradient (each
+  lit light darker than the one before by a small step, each its own
+  shade, none jumping from one frame to the next), the looks' colours, and
+  the look picked from the menu theme.
 - `PLAYWRIGHT_MODULE=... node tests/shell-browser.mjs`: the front end,
   the gate, the press, the music's tracks, a dip, a menu sound, Back,
   `?screen=main`, Instant Action's preview, a missing `shell.json`, and
@@ -519,6 +553,8 @@ and tolerates its variants:
 - The page theme (above) is the port's own: the original's menus, on the
   canvas over each screen's movie, are `?menus=classic`.
 - Movies keep their shape on wide screens instead of stretching.
+- The loading screen's disk and planet name take the front end's look
+  (above); the Battlefront (2004) look's are the original's.
 - The loading screen has no model, panels or noise yet (above); it draws
   every frame where the original drew at most 20 a second.
 - The era of a playlist entry rides in the URL, but each map folder of an
