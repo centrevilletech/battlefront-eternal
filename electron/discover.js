@@ -1,6 +1,8 @@
-// Finds what the desktop app needs on this machine without asking: game data
-// already extracted from the player's copy (tools/extract.py's output), and
-// the Steam or GOG installation of Star Wars: Battlefront (2004) it comes from.
+// Finds what the desktop app needs on this machine: game data already
+// extracted from the player's copy (tools/extract.py's output), and the
+// copies of Star Wars: Battlefront (2004) it can come from, Steam's and GOG's
+// first (findGameInstalls). The app asks the player before preparing from
+// one it hasn't prepared from before (electron/main.js, the confirm screen).
 import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
@@ -386,8 +388,99 @@ export async function findGogInstall(options = {}) {
   return null;
 }
 
-// The player's copy: a folder they chose (extra), then Steam's, the
-// authenticity reference, then GOG's.
-export async function findGameInstall({ extra = [], steam = {}, gog = {} } = {}) {
-  return (await findSteamInstall({ ...steam, extra })) || (await findGogInstall(gog));
+// ---- Every copy ----
+
+// The Steam copy in a library, through its app manifest (the folder Steam
+// installed it to), or null.
+async function manifestInstall(library) {
+  const steamapps = await child(library, "steamapps");
+  const common = steamapps && (await child(steamapps, "common"));
+  const manifest = steamapps && (await child(steamapps, `appmanifest_${BF1_STEAM_APP}.acf`));
+  const installdir = manifest ? parseInstallDir(await fs.readFile(manifest, "utf8").catch(() => "")) : null;
+  return common && installdir ? inspectInstall(await child(common, installdir)) : null;
+}
+
+// The folders of a library's steamapps/common, whatever they hold.
+async function commonFolders(library) {
+  const steamapps = await child(library, "steamapps");
+  const common = steamapps && (await child(steamapps, "common"));
+  return common ? (await entries(common)).filter((entry) => entry.isDirectory()).map((entry) => path.join(common, entry.name)) : [];
+}
+
+// Every place a copy may be, in the order they are offered:
+// 1. the folder the player chose (extra);
+// 2. Steam's own copy, through its app manifest, in every library Steam
+//    lists, then in libraries found on the drives;
+// 3. GOG's, where GOG's records say;
+// 4. folders that only look like the game: any other steamapps/common
+//    folder (a copy placed there by hand, perhaps modded), a Battlefront
+//    folder where GOG games usually go.
+// Each { dir, source: "chosen" | "steam" | "gog" | "folder", how }, how
+// saying where it was found, for the confirm screen. Lazy, so the first
+// copy costs only what finding it takes (findGameInstall).
+async function* installCandidates({ extra = [], steam = {}, gog = {} } = {}) {
+  for (const dir of extra) {
+    const install = await inspectInstall(dir);
+    if (install) yield { ...install, source: "chosen", how: "the folder you chose" };
+  }
+  const listed = await libraries(steam.roots ?? (await steamRoots()));
+  for (const library of listed) {
+    const install = await manifestInstall(library);
+    if (install) yield { ...install, source: "steam", how: "your Steam library" };
+  }
+  // Libraries on the drives that Steam's records don't name (Windows).
+  const known = new Set(listed.map((library) => path.resolve(library).toLowerCase()));
+  const drives = steam.drives === false ? [] : (await driveLibraries(steam.drives || {})).filter((library) => !known.has(path.resolve(library).toLowerCase()));
+  for (const library of drives) {
+    const install = await manifestInstall(library);
+    if (install) yield { ...install, source: "steam", how: "your Steam library" };
+  }
+  for (const dir of await gogRecords(gog)) {
+    const install = await inspectInstall(dir);
+    if (install) yield { ...install, source: "gog", how: "your GOG library" };
+  }
+  for (const library of [...listed, ...drives]) {
+    for (const dir of await commonFolders(library)) {
+      const install = await inspectInstall(dir);
+      if (install) yield { ...install, source: "folder", how: `a copy in ${library} that Steam didn't install` };
+    }
+  }
+  for (const parent of await gogFolders(gog)) {
+    for (const entry of await entries(parent)) {
+      if (!entry.isDirectory() || !/battlefront/i.test(entry.name)) continue;
+      const install = await inspectInstall(path.join(parent, entry.name));
+      if (install) yield { ...install, source: "folder", how: `a copy in ${parent}` };
+    }
+  }
+}
+
+// One key per folder, links followed (a library linked in twice is one).
+async function folderKey(dir) {
+  const real = await fs.realpath(dir).catch(() => path.resolve(dir));
+  return process.platform === "linux" ? real : real.toLowerCase();
+}
+
+// Every copy of Battlefront (2004) on this machine, each once, in the order
+// installCandidates gives: the player's chosen folder, Steam's, GOG's, then
+// copies that only look like the game. A chosen folder that is also
+// Steam's or GOG's says so (its source and how), and stays first.
+export async function findGameInstalls(options = {}) {
+  const found = new Map();
+  for await (const install of installCandidates(options)) {
+    const key = await folderKey(install.dir);
+    const known = found.get(key);
+    if (!known) found.set(key, install);
+    else if (known.source === "chosen" && (install.source === "steam" || install.source === "gog")) {
+      found.set(key, { ...known, source: install.source, how: install.how, chosen: true });
+    }
+  }
+  return [...found.values()];
+}
+
+// The player's copy: the first of findGameInstalls, found without looking
+// further: a folder they chose (extra), then Steam's, the authenticity
+// reference, then GOG's, then a folder that only looks like the game.
+export async function findGameInstall(options = {}) {
+  for await (const install of installCandidates(options)) return install;
+  return null;
 }
