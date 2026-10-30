@@ -22,12 +22,31 @@ let artIndex = 0;
 let artMap = null;
 let showLog = false;
 
+// A button in the front end's shape for the look (looks.css .bfe-btn). As
+// in the front end, its text is kept in lower case for the look that sets
+// labels in title case (bf2; GOG stays in capitals), a click doesn't take
+// the focus, and the label as written is its name for screen readers.
 function button(label, action, primary = false) {
   const element = document.createElement("button");
-  element.textContent = label;
-  if (primary) element.className = "primary";
+  element.className = primary ? "bfe-btn small primary active" : "bfe-btn small";
+  element.setAttribute("aria-label", label);
+  const text = document.createElement("span");
+  text.className = "label";
+  text.textContent = label.toLowerCase().replace(/\bgog\b/g, "GOG");
+  element.append(text);
+  element.addEventListener("mousedown", (event) => event.preventDefault());
   element.addEventListener("click", () => desktop.prepare.action(action));
+  element.addEventListener("pointerenter", () => light(element));
+  element.addEventListener("focus", () => light(element));
   return element;
+}
+
+// One button lit at a time, as in the front end: the one under the pointer
+// or holding the keyboard's focus, else the state's own choice.
+function light(element = null) {
+  const buttons = [...$("actions").children];
+  const lit = element || buttons.find((item) => item.classList.contains("primary")) || null;
+  for (const item of buttons) item.classList.toggle("active", item === lit);
 }
 
 function setActions(list) {
@@ -62,6 +81,53 @@ const clock = (seconds) => {
   if (minutes < 60) return `${minutes} min`;
   return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, "0")} min`;
 };
+
+// ---- The LOADING disk ----
+//
+// As the game's loading screen draws it without its texture
+// (src/shell/loading.js: drawDisk, drawSegments), in its interface units:
+// translucent segments turning both ways, two thin rings, 28 lights with a
+// lit tail chasing round them, LOADING tilted across it, the whole turned to
+// 0.866 of its width. prepare.css gives it the look's colours and motion.
+
+const SVG = "http://www.w3.org/2000/svg";
+// [start, length] in radians and [inner, outer] radius of each segment.
+const SEGMENTS = [[0.1, 1.0, 74, 118], [1.5, 0.7, 80, 104], [2.6, 1.1, 66, 96], [3.9, 0.5, 78, 122], [4.8, 0.9, 70, 100], [5.7, 0.4, 84, 110]];
+const LIGHTS = 28;
+
+function svg(tag, attributes = {}) {
+  const node = document.createElementNS(SVG, tag);
+  for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, String(value));
+  return node;
+}
+
+function segment(start, length, inner, outer) {
+  const at = (radius, angle) => `${(radius * Math.cos(angle)).toFixed(2)} ${(radius * Math.sin(angle)).toFixed(2)}`;
+  const end = start + length;
+  return `M ${at(outer, start)} A ${outer} ${outer} 0 0 1 ${at(outer, end)} L ${at(inner, end)} A ${inner} ${inner} 0 0 0 ${at(inner, start)} Z`;
+}
+
+function drawDisk() {
+  const face = svg("g", { transform: "scale(0.866 1)" });
+  // The outer layer turns one way; the inner, smaller and a radian on, the other.
+  for (const [name, scale, offset] of [["outer", 1, 0], ["inner", 0.75, 1]]) {
+    const layer = svg("g", { class: `segments ${name}` });
+    const turned = svg("g", { transform: `rotate(${((offset * 180) / Math.PI).toFixed(2)})` });
+    for (const [start, length, inner, outer] of SEGMENTS) turned.append(svg("path", { d: segment(start, length, inner * scale, outer * scale) }));
+    layer.append(turned);
+    face.append(layer);
+  }
+  for (const radius of [60, 44]) face.append(svg("circle", { class: "ring", r: radius }));
+  const lights = svg("g", { class: "lights" });
+  for (let i = 0; i < LIGHTS; i++) {
+    lights.append(svg("rect", { x: -3.5, y: -3.5, width: 7, height: 7, style: `--at: ${(i / LIGHTS).toFixed(4)}`, transform: `rotate(${((i * 360) / LIGHTS).toFixed(3)}) translate(52 0)` }));
+  }
+  face.append(lights);
+  const label = svg("text", { transform: "rotate(-14)" });
+  label.textContent = "LOADING";
+  face.append(label);
+  $("disk").replaceChildren(face);
+}
 
 // ---- The loading pictures ----
 
@@ -292,6 +358,17 @@ $("toggle-log").addEventListener("click", () => {
   showLog = !showLog;
   draw();
 });
+
+// Leaving the buttons lights the state's own choice again, unless the
+// keyboard's focus is on one.
+$("actions").addEventListener("pointerleave", () => {
+  if (!$("actions").querySelector(":focus-visible")) light();
+});
+$("actions").addEventListener("focusout", (event) => {
+  if (!$("actions").contains(event.relatedTarget)) light();
+});
+
+drawDisk();
 
 desktop.prepare.onState((next) => {
   view = next;

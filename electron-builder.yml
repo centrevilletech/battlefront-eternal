@@ -42,7 +42,7 @@ extraResources:
   - from: .
     to: legal
     filter: ["LICENSE", "THIRD-PARTY-NOTICES.md"]
-  - from: src/menus/themes/page/fonts
+  - from: electron/ui/fonts
     to: legal
     filter: ["OFL.txt"]
 

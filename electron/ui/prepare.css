@@ -1,336 +1,353 @@
-/* The first-run loader: the shell's hologram rooms (deep blue, cyan lines),
-   then the game's own loading pictures once they have been prepared. */
+/* The first-run loader (prepare.html) in the player's look: theme.js picks
+   it, looks.css (shared with the front end) defines it. The look's
+   backdrop, and the game's own loading pictures once they have been
+   prepared, under the front end's wash, pattern and scrim; the logo over a
+   panel shaped as the front end's option pages, with the state, its
+   progress and its buttons; the LOADING disk at the bottom right, as on
+   the game's loading screen. */
+
 :root {
-  --cyan: #28beff;
-  --cyan-soft: rgba(40, 190, 255, 0.35);
-  --ink: #dff3ff;
-  --amber: #ffc24a;
-  --red: #ff5a4a;
+  --gutter: clamp(20px, 3vw, 56px);
   --mono: "JetBrains Mono", "DejaVu Sans Mono", Consolas, monospace;
-  --display: "Eurostile", "Bank Gothic", "Orbitron", "Rajdhani", "Segoe UI", "DejaVu Sans", sans-serif;
+  /* The disk's lights chase round once in this long (the game's 1.2 pi a second). */
+  --disk-period: 1.667s;
+}
+
+/* The LOADING disk in each look: its segments and rings, then its lights,
+   off, along the tail, lit, and at the head. */
+html[data-bfe-theme="eternal"] {
+  --disk-segment: rgba(255, 255, 255, .085); --disk-ring: rgba(255, 190, 110, .5); --disk-text: #e8ecf2;
+  --disk-off: #1d160d; --disk-tail: #6e3c0c; --disk-on: #ff9a1f; --disk-head: #ffe2b0;
+}
+html[data-bfe-theme="bf1"] {
+  --disk-segment: rgba(40, 160, 220, .3); --disk-ring: rgba(30, 170, 240, .9); --disk-text: #dcdcff;
+  --disk-off: #0b0d0f; --disk-tail: #5c6166; --disk-on: #b9bcbe; --disk-head: #ffffff;
+}
+html[data-bfe-theme="bf2"] {
+  --disk-segment: rgba(190, 205, 225, .12); --disk-ring: rgba(205, 214, 226, .65); --disk-text: #ffffff;
+  --disk-off: #262b33; --disk-tail: #7c1f17; --disk-on: #e0362a; --disk-head: #ffb4a8;
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
   height: 100%;
   overflow: hidden;
-  background: #01040c;
-  color: var(--ink);
-  font-family: var(--display);
-  user-select: none;
 }
+html { background: #030406; }
+body {
+  color: var(--bfe-text);
+  font-family: "BFE Saira", system-ui, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+
+/* ---- The backdrop ---- */
 
 #backdrop {
   position: fixed;
   inset: 0;
-  background: radial-gradient(ellipse at 40% 45%, #0c2858 0%, #061531 48%, #01040c 100%);
+  overflow: hidden;
+  background: var(--bfe-backdrop);
 }
+/* Eternal's black glass under a faint light, before there are pictures. */
+html[data-bfe-theme="eternal"] #backdrop { background: radial-gradient(ellipse 60% 55% at 50% 40%, rgba(150, 170, 200, .08), transparent 75%), var(--bfe-backdrop); }
+#backdrop > * { position: absolute; inset: 0; pointer-events: none; }
 
 .art {
-  position: absolute;
   inset: -4%;
   background: center / cover no-repeat;
   opacity: 0;
+  filter: var(--bfe-movie-filter);
   transition: opacity 2.4s ease;
-  filter: saturate(1.05) brightness(0.8);
 }
 .art.show { opacity: 1; animation: drift 26s ease-in-out infinite alternate; }
-
 @keyframes drift {
   from { transform: scale(1) translate(0, 0); }
   to { transform: scale(1.09) translate(-1.5%, -1%); }
 }
 
-.grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(40, 190, 255, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(40, 190, 255, 0.07) 1px, transparent 1px);
-  background-size: 64px 64px;
-  mask-image: radial-gradient(ellipse at 50% 55%, #000 30%, transparent 75%);
-}
+/* Over the pictures, as over the front end's movies: the look's wash (the
+   2004 look's blue) and the darkening behind a panel. */
+.wash { background: var(--bfe-side-wash); mix-blend-mode: var(--bfe-side-blend); }
+.dim { background: var(--bfe-dim); }
+.wash, .dim { opacity: 0; transition: opacity 2.4s ease; }
+body.art-on .wash { opacity: 1; }
+body.art-on .dim { opacity: .45; }
 
-.rings {
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  width: 0;
-  height: 0;
+/* The look's pattern (scan lines, the hologram grid, the blueprint) and the
+   scrim the front end lays down its middle, drawn wider for the panel. */
+.pattern {
+  background: var(--bfe-pattern);
+  opacity: var(--bfe-pattern-opacity);
+  -webkit-mask-image: radial-gradient(ellipse 60% 72% at 50% 46%, #000 0%, rgba(0, 0, 0, .5) 60%, transparent 100%);
+  mask-image: radial-gradient(ellipse 60% 72% at 50% 46%, #000 0%, rgba(0, 0, 0, .5) 60%, transparent 100%);
 }
-.rings i {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  border-radius: 50%;
-  border: 2px solid var(--cyan-soft);
-  transform: translate(-50%, -50%) rotateX(68deg);
-  animation: spin 40s linear infinite;
-}
-.rings i:nth-child(1) { width: 92vmin; height: 92vmin; border-style: dashed; }
-.rings i:nth-child(2) { width: 70vmin; height: 70vmin; animation-duration: 28s; animation-direction: reverse; opacity: 0.7; }
-.rings i:nth-child(3) { width: 48vmin; height: 48vmin; border-width: 1px; animation-duration: 18s; opacity: 0.5; }
-body.art-on .rings { opacity: 0.35; }
+.scrim { background: var(--bfe-scrim); transform: scaleX(1.9); }
+.vignette { background: radial-gradient(ellipse at 50% 45%, transparent 52%, rgba(0, 0, 0, .55) 100%); }
 
-@keyframes spin {
-  to { transform: translate(-50%, -50%) rotateX(68deg) rotateZ(360deg); }
-}
-
-.scan {
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.18) 0 1px, transparent 1px 3px);
-  pointer-events: none;
-}
-.scan::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 18vh;
-  background: linear-gradient(transparent, rgba(40, 190, 255, 0.06), transparent);
-  animation: sweep 7s linear infinite;
-}
-@keyframes sweep { from { top: -20vh; } to { top: 110vh; } }
-
-.vignette {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse at center, transparent 45%, rgba(0, 0, 0, 0.75) 100%);
-}
-
-header {
-  position: fixed;
-  left: 5vw;
-  top: 5vh;
-  right: 5vw;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-}
-
-.brand {
-  font-size: clamp(22px, 3.2vw, 46px);
-  font-weight: 800;
-  letter-spacing: 0.32em;
-  color: #fff;
-  text-shadow: 0 0 18px rgba(40, 190, 255, 0.55);
-}
-.brand span {
-  display: block;
-  font-size: 0.42em;
-  letter-spacing: 1.32em;
-  color: var(--cyan);
-  margin-top: 0.4em;
-}
-
+/* The planet being prepared, where the game's loading screen names it. */
 .planet {
-  font-size: clamp(14px, 1.4vw, 22px);
-  letter-spacing: 0.4em;
-  color: var(--cyan);
-  text-align: right;
-  text-shadow: 0 0 10px rgba(40, 190, 255, 0.6);
-}
-
-main {
   position: fixed;
-  left: 50%;
-  bottom: 9vh;
-  width: min(880px, 86vw);
-  transform: translateX(-50%);
-  padding: 26px 32px 22px;
-  background: linear-gradient(180deg, rgba(4, 18, 42, 0.72), rgba(2, 8, 20, 0.86));
-  border: 1px solid rgba(40, 190, 255, 0.45);
-  clip-path: polygon(22px 0, 100% 0, 100% calc(100% - 22px), calc(100% - 22px) 100%, 0 100%, 0 22px);
-  box-shadow: inset 0 0 40px rgba(40, 190, 255, 0.08);
-  backdrop-filter: blur(3px);
+  top: clamp(16px, 3.6vh, 36px);
+  left: var(--gutter);
+  font-size: clamp(13px, 1.9vh, 19px);
+  font-weight: 800;
+  letter-spacing: .42em;
+  color: var(--bfe-text);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, .85);
+}
+.planet:empty { display: none; }
+
+/* ---- The logo and the panel ---- */
+
+.page {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 13vh var(--gutter) 5vh;
+}
+header { flex: none; display: flex; justify-content: center; }
+header .bfe-logo { font-size: min(5vw, 9vh, 96px); }
+
+#panel {
+  flex: 0 1 auto;
+  min-height: 0;
+  width: min(860px, 100%);
+  margin-top: 6vh;
+  overflow-y: auto;
+  padding: clamp(18px, 3.4vh, 34px) clamp(20px, 2.6vw, 40px) clamp(18px, 3vh, 30px);
+  text-align: center;
+  background: var(--bfe-panel-bg);
+  border: var(--bfe-panel-border);
+  border-radius: var(--bfe-panel-radius);
+  clip-path: var(--bfe-panel-clip);
+  box-shadow: var(--bfe-panel-shadow);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  scrollbar-width: thin;
+  scrollbar-color: var(--bfe-scroll) transparent;
 }
 
-h1 {
-  margin: 0 0 8px;
-  font-size: clamp(16px, 1.6vw, 24px);
-  letter-spacing: 0.22em;
-  font-weight: 700;
-  color: #fff;
+/* The state: a title in the look's shape (looks.css .bfe-text-title) on a
+   rule across the panel. */
+#panel h1 {
+  margin: 0;
+  font-size: clamp(19px, 3vh, 29px);
+  text-wrap: balance;
+  border-bottom: 1px solid var(--bfe-tab-line);
 }
+
+/* A state that needs the player (missing, outdated) and one that failed. */
+html[data-bfe-theme="eternal"] body.warn #panel h1 span { color: var(--bfe-note); }
+html[data-bfe-theme="eternal"] body.error #panel h1 span { color: #ff6a5a; background-image: linear-gradient(90deg, transparent, #ff4a3a 25%, #ff4a3a 75%, transparent); }
+html[data-bfe-theme="bf1"] body.warn #panel h1 span { background: linear-gradient(180deg, #fbf68a 0%, #dfdf20 45%, #a9a90c 100%); }
+html[data-bfe-theme="bf1"] body.error #panel h1 span { color: #fff; background: linear-gradient(180deg, #ff8a7a 0%, #e0362a 45%, #a5180e 100%); }
+html[data-bfe-theme="bf2"] body.warn #panel h1 span { color: #2b1a02; text-shadow: none; border-color: #6b4304; background: linear-gradient(180deg, #ffe7a3, #ffc23a 50%, #d98c0c); }
 
 #detail {
-  margin: 0 0 18px;
-  font-size: 15px;
+  margin: clamp(12px, 2vh, 20px) 0 0;
+  font-size: clamp(14px, 1.85vh, 17px);
+  font-weight: 500;
   line-height: 1.55;
-  letter-spacing: 0.03em;
-  color: #b7d6ea;
+  letter-spacing: .015em;
+  color: color-mix(in srgb, var(--bfe-text) 80%, transparent);
   white-space: pre-line;
+  text-wrap: balance;
 }
+#detail:empty { display: none; }
 #detail code {
-  font-family: var(--mono);
-  font-size: 13px;
-  color: var(--cyan);
-  word-break: break-all;
+  display: inline-block;
+  margin-top: .35em;
+  font: 500 .8em/1.45 var(--mono);
+  color: color-mix(in srgb, var(--bfe-text) 52%, transparent);
+  text-wrap: wrap;
+  overflow-wrap: anywhere;
 }
 
+/* ---- Progress ---- */
+
+#progress { margin-top: clamp(14px, 2.4vh, 24px); }
 .bar {
   position: relative;
-  height: 18px;
-  background: rgba(40, 190, 255, 0.08);
-  border: 1px solid rgba(40, 190, 255, 0.55);
-  transform: skewX(-24deg);
+  height: clamp(8px, 1.2vh, 12px);
   overflow: hidden;
+  background: var(--bfe-track);
+  border-radius: var(--bfe-track-radius);
 }
 .fill {
   position: absolute;
   inset: 0 auto 0 0;
   width: 0;
-  background:
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.25) 0 2px, transparent 2px 14px),
-    linear-gradient(90deg, #136ec2, var(--cyan));
-  box-shadow: 0 0 16px rgba(40, 190, 255, 0.8);
-  transition: width 0.8s ease;
+  background: var(--bfe-accent-fill);
+  border-radius: inherit;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--bfe-accent) 55%, transparent);
+  transition: width .8s ease;
 }
-.glint {
+/* A glint along the bar while it runs, quicker while the time is estimated. */
+.bar::after {
+  content: "";
   position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
-  width: 18%;
+  top: 0;
+  bottom: 0;
+  left: -30%;
+  width: 22%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .3), transparent);
   animation: glint 2.8s ease-in-out infinite;
 }
-#progress.estimating .glint { width: 30%; animation-duration: 1.6s; }
-
-@keyframes glint { from { left: -20%; } to { left: 110%; } }
+#progress.estimating .bar::after { width: 30%; animation-duration: 1.6s; }
+@keyframes glint { from { left: -30%; } to { left: 110%; } }
 
 .readout {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 16px;
-  margin-top: 12px;
-  font-size: 14px;
-  letter-spacing: 0.14em;
-  color: var(--cyan);
+  margin-top: clamp(8px, 1.3vh, 12px);
+  font-size: clamp(12px, 1.6vh, 15px);
+  font-weight: 700;
 }
-#step { color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#numbers { font-family: var(--mono); letter-spacing: 0.04em; white-space: nowrap; }
+#step { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: .16em; color: var(--bfe-text); }
+#numbers { white-space: nowrap; letter-spacing: .04em; color: var(--bfe-text-dim); font-variant-numeric: tabular-nums; }
 
+/* The phases: a bar each, lit as the work reaches it. */
 #phases {
-  display: flex;
-  gap: 6px;
-  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: clamp(4px, .6vw, 8px);
+  margin: clamp(14px, 2.4vh, 22px) 0 0;
   padding: 0;
-  margin: 16px 0 0;
+  list-style: none;
 }
 #phases li {
-  flex: 1;
-  padding: 6px 0;
-  font-size: 11px;
+  position: relative;
+  padding-top: 10px;
+  overflow: hidden;
+  font-size: clamp(9.5px, 1.25vh, 12px);
+  font-weight: 700;
+  letter-spacing: .12em;
   text-align: center;
-  letter-spacing: 0.18em;
-  color: rgba(223, 243, 255, 0.4);
-  border-top: 2px solid rgba(40, 190, 255, 0.18);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--bfe-text-faint);
 }
-#phases[hidden] { display: none; }
-#phases li.active { color: #fff; border-color: var(--cyan); text-shadow: 0 0 8px var(--cyan); }
-#phases li.done { color: var(--cyan); border-color: rgba(40, 190, 255, 0.7); }
-#phases li.skipped { color: rgba(255, 194, 74, 0.6); border-color: rgba(255, 194, 74, 0.4); }
+#phases li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  background: var(--bfe-track);
+  border-radius: var(--bfe-track-radius);
+}
+#phases li.done { color: var(--bfe-text-dim); }
+#phases li.done::before { background: var(--bfe-accent-fill); opacity: .5; }
+#phases li.active { color: var(--bfe-text); }
+#phases li.active::before { background: var(--bfe-accent-fill); box-shadow: 0 0 10px var(--bfe-accent); animation: phase 1.4s ease-in-out infinite; }
+@keyframes phase { 50% { opacity: .55; } }
+/* A phase whose tool is missing is skipped. */
+#phases li.skipped { color: var(--bfe-note); }
+#phases li.skipped::before { background: repeating-linear-gradient(90deg, var(--bfe-note) 0 5px, transparent 5px 9px); opacity: .7; }
 
+/* ---- Buttons, the log ---- */
+
+/* The front end's buttons (looks.css .bfe-btn), the state's own choice lit. */
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 20px;
+  gap: clamp(8px, 1.2vh, 12px) clamp(8px, .8vw, 14px);
+  justify-content: center;
+  margin-top: clamp(16px, 2.8vh, 26px);
 }
 .actions:empty { display: none; }
-
-button {
-  font: inherit;
-  cursor: pointer;
-}
-.actions button {
-  padding: 11px 26px;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.22em;
-  color: #fff;
-  background: rgba(40, 190, 255, 0.12);
-  border: 1px solid var(--cyan);
-  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
-  transition: background 0.15s, box-shadow 0.15s;
-}
-.actions button:hover, .actions button:focus-visible {
-  outline: none;
-  background: rgba(40, 190, 255, 0.35);
-  box-shadow: 0 0 18px rgba(40, 190, 255, 0.6);
-}
-.actions button.primary {
-  background: linear-gradient(90deg, #1a7fd6, var(--cyan));
-  color: #001326;
-}
-.actions button.primary:hover { background: linear-gradient(90deg, #3a9bf0, #7dd8ff); }
+.actions .bfe-btn { font-size: clamp(13px, 1.75vh, 16px); }
 
 .link {
-  margin-top: 14px;
-  padding: 0;
+  display: block;
+  margin: clamp(12px, 2vh, 18px) auto 0;
+  padding: 2px 0;
   background: none;
   border: 0;
-  color: rgba(40, 190, 255, 0.7);
-  font-size: 11px;
-  letter-spacing: 0.2em;
+  font-size: clamp(11px, 1.4vh, 13px);
+  font-weight: 700;
+  letter-spacing: .2em;
+  color: var(--bfe-text-faint);
+  transition: color .14s ease;
 }
-.link:hover { color: var(--cyan); }
+.link:hover, .link:focus-visible { color: var(--bfe-accent); outline: none; }
 
 #log {
   margin: 10px 0 0;
   max-height: 22vh;
   overflow: auto;
   padding: 10px 12px;
-  font: 11px/1.45 var(--mono);
-  color: #9fc4dc;
-  background: rgba(0, 0, 0, 0.45);
-  border: 1px solid rgba(40, 190, 255, 0.25);
+  font: 11.5px/1.5 var(--mono);
+  color: var(--bfe-text-dim);
+  background: rgba(0, 0, 0, .38);
+  border: 1px solid color-mix(in srgb, var(--bfe-dialog-button-border) 55%, transparent);
+  border-radius: min(var(--bfe-panel-radius), 6px);
+  scrollbar-width: thin;
+  scrollbar-color: var(--bfe-scroll) transparent;
+  text-align: left;
   white-space: pre-wrap;
   user-select: text;
+  -webkit-user-select: text;
 }
 
-body.error h1 { color: var(--red); }
-body.warn h1 { color: var(--amber); }
+/* ---- The LOADING disk (prepare.js draws it) ---- */
 
 #disk {
   position: fixed;
-  right: 6vw;
-  top: 16vh;
-  width: 132px;
-  height: 132px;
-  display: grid;
-  place-items: center;
-  transform: perspective(500px) rotateY(-30deg);
+  right: clamp(16px, 3.4vw, 64px);
+  bottom: clamp(12px, 4vh, 48px);
+  width: clamp(130px, 13vw, 220px);
+  height: auto;
+  aspect-ratio: 1;
+  overflow: visible;
+  pointer-events: none;
+  transition: opacity .4s ease, visibility .4s;
 }
-#disk .ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 3px solid transparent;
-  border-top-color: var(--cyan);
-  border-right-color: var(--cyan-soft);
-  animation: turn 1.6s linear infinite;
-  filter: drop-shadow(0 0 6px var(--cyan));
+body.idle #disk { opacity: 0; visibility: hidden; }
+#disk .segments path { fill: var(--disk-segment); }
+#disk .ring { fill: none; stroke: var(--disk-ring); stroke-width: 1.6; }
+#disk .outer { animation: turn 18s linear infinite; }
+#disk .inner { animation: turn 11.4s linear infinite reverse; }
+#disk .lights rect {
+  fill: var(--disk-off);
+  animation: light var(--disk-period) linear infinite;
+  /* Each light's place round the ring (--at, 0 to 1) is when the head passes it. */
+  animation-delay: calc((var(--at) - 1) * var(--disk-period));
 }
-#disk .ring.inner {
-  inset: 22px;
-  border-top-color: transparent;
-  border-bottom-color: var(--cyan);
-  animation-duration: 2.4s;
-  animation-direction: reverse;
+#disk text {
+  fill: var(--disk-text);
+  font: 800 14px "BFE Saira", system-ui, sans-serif;
+  letter-spacing: .1em;
+  text-anchor: middle;
+  dominant-baseline: central;
 }
-#disk span {
-  font-size: 13px;
-  letter-spacing: 0.28em;
-  color: #fff;
-  transform: rotate(-14deg);
-  text-shadow: 0 0 8px var(--cyan);
-}
-body.idle #disk { display: none; }
+html[data-bfe-theme="bf2"] #disk text { stroke: #111; stroke-width: 3px; paint-order: stroke; }
 @keyframes turn { to { transform: rotate(360deg); } }
+/* Lit as the head passes, then fading down the tail. */
+@keyframes light {
+  0% { fill: var(--disk-head); }
+  8% { fill: var(--disk-on); }
+  22% { fill: var(--disk-tail); }
+  38%, 100% { fill: var(--disk-off); }
+}
 
+/* A narrow window: the disk beside the logo instead. */
+@media (max-width: 1200px) {
+  #disk { top: clamp(12px, 3vh, 32px); bottom: auto; width: clamp(96px, 12vw, 132px); }
+}
+
+/* Reduced motion: everything holds still where it is (the disk shows its
+   tail), and nothing fades. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
+  *, *::before, *::after { animation-play-state: paused !important; transition: none !important; }
 }

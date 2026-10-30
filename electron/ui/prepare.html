@@ -3,6 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <title>Battlefront Eternal</title>
+    <!-- The player's look, set before the first frame (theme.js); the looks
+         themselves are the front end's (looks.css). -->
+    <script src="theme.js"></script>
+    <link rel="preload" href="fonts/saira-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="stylesheet" href="looks.css" />
     <link rel="stylesheet" href="prepare.css" />
     <script type="module" src="prepare.js"></script>
   </head>
@@ -10,43 +15,47 @@
     <div id="backdrop">
       <div class="art" id="art-a"></div>
       <div class="art" id="art-b"></div>
-      <div class="grid"></div>
-      <div class="rings"><i></i><i></i><i></i></div>
-      <div class="scan"></div>
+      <div class="wash"></div>
+      <div class="dim"></div>
+      <div class="pattern"></div>
+      <div class="scrim"></div>
       <div class="vignette"></div>
     </div>
 
-    <header>
-      <div class="brand">BATTLEFRONT<span>ETERNAL</span></div>
-      <div class="planet" id="planet"></div>
-    </header>
+    <div class="planet" id="planet"></div>
 
-    <main id="panel">
-      <h1 id="title">SEARCHING FOR STAR WARS BATTLEFRONT</h1>
-      <p id="detail"></p>
+    <div class="page">
+      <header>
+        <div class="bfe-logo" role="img" aria-label="Battlefront Eternal"><span class="word" data-text="Battlefront">Battlefront</span><span class="tag">Eternal</span></div>
+      </header>
 
-      <section id="progress" hidden>
-        <div class="bar"><div class="fill" id="fill"></div><div class="glint"></div></div>
-        <div class="readout">
-          <span id="step"></span>
-          <span id="numbers"></span>
-        </div>
-        <ol id="phases">
-          <li data-phase="catalog">GALAXY</li>
-          <li data-phase="armies">ARMIES</li>
-          <li data-phase="shell">INTERFACE</li>
-          <li data-phase="maps">BATTLEFIELDS</li>
-          <li data-phase="audio">SOUND</li>
-          <li data-phase="textures">TEXTURES</li>
-          <li data-phase="movies">MOVIES</li>
-        </ol>
-      </section>
+      <main id="panel">
+        <h1 class="bfe-text bfe-text-title"><span id="title">SEARCHING FOR STAR WARS BATTLEFRONT</span></h1>
+        <p id="detail"></p>
 
-      <div class="actions" id="actions"></div>
-      <button class="link" id="toggle-log" hidden>SHOW DETAILS</button>
-      <pre id="log" hidden></pre>
-    </main>
+        <section id="progress" hidden>
+          <div class="bar"><div class="fill" id="fill"></div></div>
+          <div class="readout">
+            <span id="step"></span>
+            <span id="numbers"></span>
+          </div>
+          <ol id="phases">
+            <li data-phase="catalog">GALAXY</li>
+            <li data-phase="armies">ARMIES</li>
+            <li data-phase="shell">INTERFACE</li>
+            <li data-phase="maps">BATTLEFIELDS</li>
+            <li data-phase="audio">SOUND</li>
+            <li data-phase="textures">TEXTURES</li>
+            <li data-phase="movies">MOVIES</li>
+          </ol>
+        </section>
 
-    <div id="disk"><div class="ring"></div><div class="ring inner"></div><span>LOADING</span></div>
+        <div class="actions" id="actions"></div>
+        <button class="link" id="toggle-log" hidden>SHOW DETAILS</button>
+        <pre id="log" hidden></pre>
+      </main>
+    </div>
+
+    <svg id="disk" viewBox="-125 -125 250 250" aria-hidden="true"></svg>
   </body>
 </html>
