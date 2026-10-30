@@ -33,8 +33,10 @@ export function quantizePosition([x, y, z], b = DEFAULT_SNAPSHOT_BOUNDS) {
 export function dequantizePosition([cx, cy, cz], b = DEFAULT_SNAPSHOT_BOUNDS) {
   return [b.xMin + cx / 65535 * b.xExtent, b.yMin + cy / 65535 * b.yExtent, b.zMin + cz / 65535 * b.zExtent];
 }
-export function quantizeVelocity(v) {
-  if (v.every(x => Number.isFinite(x) && Math.abs(x) <= 31.75)) return { wide: false, v: v.map(x => clamp(Math.round(x / 0.25), -127, 127)) };
+// `wide` asks for the 1/32 m/s form whatever the speed; the reader takes
+// either form for any class.
+export function quantizeVelocity(v, wide = false) {
+  if (!wide && v.every(x => Number.isFinite(x) && Math.abs(x) <= 31.75)) return { wide: false, v: v.map(x => clamp(Math.round(x / 0.25), -127, 127)) };
   return { wide: true, v: v.map(x => clamp(Math.round(x * 32), -32767, 32767)) };
 }
 export function dequantizeVelocity({ wide, v }) { return wide ? v.map(x => x / 32) : v.map(x => x * 0.25); }

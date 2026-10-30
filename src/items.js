@@ -43,7 +43,7 @@ const GRAVITY = 9.8;
 const HARD = 1; // m/s into a surface that bounces rather than settles
 const PICKUP_DELAY = 0.5; // s a flying item can't be taken
 const FLOOR = -500;
-const MINE_SINK = 0.2; // m/s
+export const MINE_SINK = 0.2; // m/s
 const SOLDIER_RADIUS = 0.35; // m, the soldier's body for pickups
 const SOLDIER_HEIGHT = 1.55; // m
 const POOLS = { powerupitem: 25, mine: 50 };
@@ -105,30 +105,38 @@ export class Items {
     this.owned.clear();
   }
 
-  // A new item, unless the world has no room for its kind. Returns it or null.
-  spawn(def, position, velocity, yaw, { owner = null, team = 0 } = {}) {
-    const live = this.items.filter((item) => item.def.base === def.base).length;
-    if (live >= (this.pools[def.base] ?? Infinity)) return null;
-    const mesh = this.presentationMesh(def);
-    const item = {
+  // What fly() steps and place() draws: the world's items (spawn), and the
+  // copies a page online flies between their records
+  // (src/runtime/network-entity-items.js). The radius is the model's, so a
+  // copy sticks a mine where the world does.
+  itemState(def, mesh, position, velocity, yaw, radius = mesh ? radiusOf(mesh) : 0.3) {
+    return {
       def,
       mine: def.base === "mine",
-      owner,
-      team,
       mesh,
       position: position.clone(),
       previous: position.clone(),
       velocity: velocity.clone(),
       yaw,
       up: UP.clone(),
-      age: 0,
-      life: def.LifeSpan ?? Infinity,
-      health: def.MaxHealth ?? Infinity,
       landed: false,
       sinking: false,
       light: color01(def.LightColor),
-      radius: mesh ? radiusOf(mesh) : 0.3,
+      radius,
     };
+  }
+
+  // A new item, unless the world has no room for its kind. Returns it or null.
+  spawn(def, position, velocity, yaw, { owner = null, team = 0 } = {}) {
+    const live = this.items.filter((item) => item.def.base === def.base).length;
+    if (live >= (this.pools[def.base] ?? Infinity)) return null;
+    const item = Object.assign(this.itemState(def, this.presentationMesh(def), position, velocity, yaw), {
+      owner,
+      team,
+      age: 0,
+      life: def.LifeSpan ?? Infinity,
+      health: def.MaxHealth ?? Infinity,
+    });
     this.place(item);
     this.items.push(item);
     return item;

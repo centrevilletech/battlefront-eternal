@@ -250,7 +250,7 @@ round trip.
 | x, z absolute | u16 over the terrain extent (2048 m on BF1 maps: 256 cells × 8 m) | 3.1 cm |
 | y absolute | u16 from the terrain minimum minus 50 m up to `SetMaxFlyHeight` plus 100 m | under 1 cm on BF1 maps |
 | position small delta | 3 × i8 at 2 cm against the baseline, used only when every axis fits | 2 cm |
-| velocity | 3 × i8 at 0.25 m/s when every component is within ±31.75 m/s, otherwise 3 × i16 at 1/32 m/s; applies to every class | |
+| velocity | 3 × i8 at 0.25 m/s when every component is within ±31.75 m/s, otherwise 3 × i16 at 1/32 m/s; applies to every class, except that items always take the i16 form so a page can fly them from their records (the reader takes either form for any class) | |
 | yaw | u16 | 0.0055° |
 | pitch | i16 | 0.0055° |
 | vehicle orientation | smallest-three quaternion in 48 bits, 3 × 15 bits plus index | |
@@ -433,7 +433,26 @@ online"), still within the 48 ticks the history keeps.
   through, not extrapolated.
 - **Snaps.** A `new` op or the discontinuity bit snaps.
 - `CorrectionSmoother` and the own-player path are unchanged.
-- Items and recon droids use the same interpolation.
+- Recon droids are drawn between the two records that bracket render time,
+  extrapolating at their last velocity for at most 6 ticks, as above.
+- Items (mines and power-ups) are flown on the page instead
+  (`src/runtime/network-entity-items.js`). Their flight has no randomness,
+  so the page seeds a copy from an item's first record and steps it with
+  the shared `Items.fly` (gravity, the ray against the page's collision,
+  bounce and settle) one tick at a time as render time crosses ticks,
+  drawing it between its last two ticks at render time's fraction. Each
+  record steers the copy when render time reaches it: a copy more than
+  5 cm (or 1 m/s) off takes the record's state behind an offset that
+  fades over 80 ms; a closer one is nudged halfway, so the records'
+  rounding averages out. The wire has no landed bit, so a record at rest
+  (zero velocity) lands the copy where the server says, unless it already
+  rests within the record's rounding of that spot, and a resting item
+  never drifts or falls through ground the page lacks. An item appears
+  when render time reaches its first record and goes when it reaches its
+  removal, never on receipt. A render-time jump of more than 12 ticks, or
+  back, starts the copy again from the newest record at or before it. The
+  copy is presentation only: the server alone decides where an item ends
+  up and who takes it.
 - Projectiles keep their short coast (they are events).
 
 Own prediction collides with remote bodies drawn about one playout delay in
