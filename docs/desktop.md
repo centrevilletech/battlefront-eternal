@@ -240,8 +240,10 @@ prepares at all: it converts the game's maps, armies, sound and movies into
 formats it can read, once, taking about as long as the estimate says (from
 the check's counts of maps, armies and sound sub-levels, and this machine's
 measured step times), and the installation is only read, never changed.
-PREPARE starts; CHOOSE ANOTHER FOLDER opens the folder picker; with more than
-one copy found, each other one has USE THIS COPY, which checks it in turn.
+PREPARE starts; CHOOSE ANOTHER FOLDER opens the folder picker; IMPORT
+CONTENT EXPORT takes an export from another computer instead of preparing
+here; with more than one copy found, each other one has USE THIS COPY, which
+checks it in turn.
 When the check fails, the screen says exactly what is wrong and what to do
 (use another copy; repair this one with Steam's Verify integrity of game
 files, in the game's Properties > Installed Files, or GOG Galaxy's

@@ -241,7 +241,8 @@ function drawConfirm(view) {
   }
   const box = section.querySelector(".confirm-option input");
   if (box) box.checked = view.enhancedSound;
-  const others = [["CHOOSE ANOTHER FOLDER", "choose"]];
+  // A content export from another computer can stand in for preparing here.
+  const others = [["CHOOSE ANOTHER FOLDER", "choose"], ["IMPORT CONTENT EXPORT", "import"]];
   setActions(failed ? [["CHECK AGAIN", "recheck", true], ...others]
     : unchecked ? [["CHECK AGAIN", "recheck", true], ["PREPARE ANYWAY", "prepare"], ...others]
     : check ? [["PREPARE", "prepare", true], ...others] : others);

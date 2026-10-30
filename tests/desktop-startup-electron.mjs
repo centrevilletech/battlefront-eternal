@@ -173,6 +173,14 @@ try {
   await app.evaluate(() => { global.checkResult = null; });
   await page.getByRole('button', { name: 'CHECK AGAIN', exact: true }).click();
   await page.getByRole('button', { name: 'PREPARE', exact: true }).waitFor();
+  // A content export can stand in for preparing here; cancelling its picker
+  // leaves the screen as it was.
+  await app.evaluate(({ dialog }) => { global.importAsked = 0; dialog.showOpenDialog = async () => { global.importAsked++; return { canceled: true, filePaths: [] }; }; });
+  await page.getByRole('button', { name: 'IMPORT CONTENT EXPORT', exact: true }).click();
+  for (let i = 0; i < 100 && !(await app.evaluate(() => global.importAsked)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await app.evaluate(() => global.importAsked), 1);
+  await waitMode(page, 'confirm', (s) => s.check?.ok);
+  await page.getByRole('button', { name: 'PREPARE', exact: true }).waitFor();
   // Another copy can be picked (it is checked in turn), and picked back.
   await page.getByRole('button', { name: 'USE THIS COPY', exact: true }).click();
   await waitMode(page, 'confirm', (s) => s.install === stray && s.check);
@@ -220,5 +228,5 @@ try {
   const sound = await app.evaluate(() => global.repairOptions);
   assert.deepEqual([sound.game, sound.content, sound.enhancedSound], [steamGame, managed, true]);
   assert.equal((await app.evaluate(() => global.repairState)).game, path.join(steamGame, 'GameData/Data/_LVL_PC'), 'the same copy: nothing cleared');
-  console.log('PASS: automatic imported repair, source verification, menu gate, failure/restart recovery, current restart, changed-source isolation, a check that could not run, confirm before a first preparation (copies, check, PREPARE ANYWAY, sound choice), clearing what another copy left, add-on maps left out, and adding the Enhanced sound later');
+  console.log('PASS: automatic imported repair, source verification, menu gate, failure/restart recovery, current restart, changed-source isolation, a check that could not run, confirm before a first preparation (copies, check, PREPARE ANYWAY, import instead, sound choice), clearing what another copy left, add-on maps left out, and adding the Enhanced sound later');
 } finally { await app?.close(); await fs.rm(temp, { recursive: true, force: true }); }
