@@ -161,6 +161,9 @@ function addOnList(check) {
 
 function confirmParts(view) {
   const { check, copy } = view;
+  // The check couldn't run (electron/prepare.js: unavailable): nothing is
+  // known against the copy, so it can be prepared anyway.
+  const unchecked = !!check?.unavailable;
   const facts = element("dl", "confirm-facts");
   const fact = (name, value, className) => {
     const dd = element("dd", className);
@@ -170,11 +173,13 @@ function confirmParts(view) {
   fact("FOLDER", element("code", null, copy.dir), "confirm-folder");
   fact("FOUND", foundIn(copy), "confirm-found");
   fact("CHECK", !check ? "Looking at what preparation needs." : check.ok ? "Everything preparation needs is there."
-    : `${check.problems.length === 1 ? "A problem" : `${check.problems.length} problems`} found.`, `confirm-check ${!check ? "busy" : check.ok ? "ok" : "bad"}`);
+    : unchecked ? check.problems[0]?.message || "The check couldn't run."
+    : `${check.problems.length === 1 ? "A problem" : `${check.problems.length} problems`} found.`,
+  `confirm-check ${!check ? "busy" : check.ok ? "ok" : unchecked ? "unchecked" : "bad"}`);
   if (check?.ok) fact("ADD-ON MAPS", addOnList(check), "confirm-addons");
   const parts = [facts];
   const others = view.copies.map((entry, index) => ({ ...entry, index })).filter((entry) => !entry.selected);
-  if (check && !check.ok) {
+  if (check && !check.ok && !unchecked) {
     const problems = element("ul", "confirm-problems");
     for (const entry of check.problems.slice(0, 6)) problems.append(element("li", null, entry.message));
     if (check.problems.length > 6) problems.append(element("li", null, `And ${check.problems.length - 6} more.`));
@@ -215,11 +220,14 @@ function confirmParts(view) {
 function drawConfirm(view) {
   if (!view.copy) return;
   const check = view.check;
-  const failed = !!check && !check.ok;
+  const unchecked = !!check?.unavailable;
+  const failed = !!check && !check.ok && !unchecked;
   document.body.classList.toggle("error", failed);
-  $("title").textContent = !check ? "CHECKING YOUR COPY" : failed ? "THIS COPY CAN'T BE PREPARED" : "STAR WARS BATTLEFRONT FOUND";
+  document.body.classList.toggle("warn", unchecked);
+  $("title").textContent = !check ? "CHECKING YOUR COPY" : failed ? "THIS COPY CAN'T BE PREPARED" : unchecked ? "YOUR COPY COULDN'T BE CHECKED" : "STAR WARS BATTLEFRONT FOUND";
   const takes = view.time ? ` and takes about ${clock(view.time.total)} on this computer` : "";
   setDetail(failed ? "Battlefront Eternal looked at this copy before converting anything, and found what would stop it."
+    : unchecked ? "Battlefront Eternal couldn't look at this copy before converting it, so it doesn't know yet whether anything is missing. CHECK AGAIN tries once more. PREPARE ANYWAY starts now, and says what stopped it if a file turns out to be missing or damaged."
     : `Battlefront Eternal converts the game's maps, armies, sound and movies into formats it can read. This happens once${takes}. Your installation is only read, never changed.`);
   $("progress").hidden = true;
   $("toggle-log").hidden = $("log").hidden = true;
@@ -233,8 +241,10 @@ function drawConfirm(view) {
   }
   const box = section.querySelector(".confirm-option input");
   if (box) box.checked = view.enhancedSound;
-  setActions(failed ? [["CHECK AGAIN", "recheck", true], ["CHOOSE ANOTHER FOLDER", "choose"]]
-    : check ? [["PREPARE", "prepare", true], ["CHOOSE ANOTHER FOLDER", "choose"]] : [["CHOOSE ANOTHER FOLDER", "choose"]]);
+  const others = [["CHOOSE ANOTHER FOLDER", "choose"]];
+  setActions(failed ? [["CHECK AGAIN", "recheck", true], ...others]
+    : unchecked ? [["CHECK AGAIN", "recheck", true], ["PREPARE ANYWAY", "prepare"], ...others]
+    : check ? [["PREPARE", "prepare", true], ...others] : others);
 }
 
 // What was left out of the add-on maps (.prepare.json's addOnFailures).

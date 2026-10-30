@@ -313,7 +313,9 @@ export class Preparer {
 
   // The installation's check (tools/prepare.py --check), before anything is
   // converted: { ok, problems, addOns, counts, workers }, or { ok: false,
-  // problems } saying the check itself couldn't run. Writes nothing.
+  // unavailable: true, problems } saying the check itself couldn't run (no
+  // Python, the tool failing, too slow), which says nothing about the copy.
+  // Writes nothing.
   check({ game, content, jobs, timeoutMs = 120000 }) {
     return new Promise((resolve) => {
       const args = ["-u", path.join(this.paths.tools, "prepare.py"), "--check"];
@@ -325,7 +327,7 @@ export class Preparer {
         clearTimeout(timer);
         resolve(result);
       };
-      const failed = (message) => done({ ok: false, problems: [{ code: "check", path: null, message }], addOns: [] });
+      const failed = (message) => done({ ok: false, unavailable: true, problems: [{ code: "check", path: null, message }], addOns: [] });
       let child;
       try {
         child = execFile(this.paths.python, args, { cwd: this.paths.tools, env: toolEnv({ toolchain: this.paths.toolchain, game, content }), windowsHide: true, maxBuffer: 16 << 20 },

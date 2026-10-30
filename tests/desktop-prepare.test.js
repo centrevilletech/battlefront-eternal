@@ -261,15 +261,20 @@ test("the check runs the tools' --check and returns its event, or says why it co
   const good = await preparer.check({ game: "/good", content: path.join(temp, "check-out") });
   assert.equal(good.ok, true);
   assert.deepEqual(good.counts, { maps: 1, sides: 2, sublevels: 3 });
-  assert.equal((await preparer.check({ game: "/bad", content: path.join(temp, "check-out") })).ok, false);
+  const bad = await preparer.check({ game: "/bad", content: path.join(temp, "check-out") });
+  assert.equal(bad.ok, false);
+  assert.equal(bad.unavailable, undefined, "a copy the check found wrong is not a check that couldn't run");
   assert.equal(existsSync(path.join(temp, "check-out")), false, "a check writes nothing");
+  // A check that couldn't run says so (unavailable): it says nothing about the copy.
   writeFileSync(path.join(tools, "prepare.py"), "import time\ntime.sleep(30)\n");
   const slow = await preparer.check({ game: "/good", content: temp, timeoutMs: 300 });
   assert.equal(slow.ok, false);
+  assert.equal(slow.unavailable, true);
   assert.match(slow.problems[0].message, /took too long/);
   const missing = new Preparer({ paths: { python: path.join(temp, "no-python"), tools, toolchain: temp }, logFile: path.join(temp, "logs", "check.log") });
   const none = await missing.check({ game: "/good", content: temp });
   assert.equal(none.ok, false);
+  assert.equal(none.unavailable, true);
   assert.match(none.problems[0].message, /couldn't check/);
 });
 

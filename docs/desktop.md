@@ -245,7 +245,11 @@ one copy found, each other one has USE THIS COPY, which checks it in turn.
 When the check fails, the screen says exactly what is wrong and what to do
 (use another copy; repair this one with Steam's Verify integrity of game
 files, in the game's Properties > Installed Files, or GOG Galaxy's
-Verify / Repair, then CHECK AGAIN), and offers no PREPARE. The screen is in
+Verify / Repair, then CHECK AGAIN), and offers no PREPARE. A check that
+couldn't run at all (no Python, the tool failing, a drive too slow to answer
+in time) says nothing about the copy: the screen says so and offers CHECK
+AGAIN and PREPARE ANYWAY, so a fault in the check never keeps a working copy
+from being prepared. The screen is in
 the loader's look; its list (as the list of add-on maps left out, later)
 scrolls on its own and fades out at its foot when there is more, so the
 title, the explanation and the buttons stay in view in any window.
@@ -254,7 +258,8 @@ The copy the player prepares from becomes `gameDir`. Preparing that copy
 again, after an update whose content generations differ or a run cut short,
 goes ahead without asking, with the choices made then. Its check runs first
 all the same, and a copy that no longer passes it shows the confirm screen
-with the problem instead.
+with the problem instead. A check that couldn't run doesn't stop it: the
+copy prepares as it did before there was a check.
 
 **Enhanced sound** is a choice on the confirm screen, on unless the player
 turns it off (`enhancedSound` in `desktop-settings.json`). It is the

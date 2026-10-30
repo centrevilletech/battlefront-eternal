@@ -48,6 +48,8 @@ try {
       const {Preparer,CONTENT_VERSION}=await import(${JSON.stringify(pathToFileURL(path.join(root, 'electron/prepare.js')).href)});
       const fs=require('node:fs/promises'),path=require('node:path');
       global.checks=[];
+      // TEST_CHECK: what the checks find from the start (the startup check runs before a test can set checkResult).
+      global.checkResult=process.env.TEST_CHECK?JSON.parse(process.env.TEST_CHECK):null;
       Preparer.prototype.check=async function(options){
         global.checks.push(options.game);
         return global.checkResult||{event:'check',ok:true,problems:[],addOns:[{name:'tat3',folder:'Tat3',maps:[{id:'tat3',name:'TATOOINE: JABBA',problems:[]}],problems:[]}],counts:{maps:17,sides:11,sublevels:30},workers:4};
@@ -100,8 +102,13 @@ try {
   const message = (await loaderState(page)).message;
   assert.match(message, /Naboo: Theed \(map:nab2\): no archive for nab2/);
   assert.match(message, /Verify integrity of game files/);
+  // A check that couldn't run (here, too slow) says nothing about the copy:
+  // the copy confirmed before prepares again all the same.
+  process.env.TEST_CHECK = JSON.stringify({ event: 'check', ok: false, unavailable: true, problems: [{ code: 'check', path: null, message: "Checking this copy took too long. Is it on a drive that's asleep or disconnected?" }], addOns: [] });
   await app.close(); app = await launch(); page = await app.firstWindow();
+  delete process.env.TEST_CHECK;
   await waitMode(page, 'preparing');
+  assert.deepEqual(await app.evaluate(() => global.checks), [game]);
   assert.equal((await app.evaluate(() => global.repairOptions)).content, imported.path);
   await app.evaluate(() => global.finishRepair(true));
   await page.waitForURL(url => !url.pathname.includes('__desktop'));
@@ -154,6 +161,15 @@ try {
   await page.getByText("THIS COPY CAN'T BE PREPARED", { exact: true }).waitFor();
   await page.getByText('GameData/Data/_LVL_PC/SIDE/rep.lvl (an army) is missing.', { exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'PREPARE', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'PREPARE ANYWAY', exact: true }).count(), 0);
+  // A check that couldn't run blames nothing on the copy: PREPARE ANYWAY,
+  // and no repair advice.
+  await app.evaluate(() => { global.checkResult = { event: 'check', ok: false, unavailable: true, problems: [{ code: 'check', path: null, message: "The preparation tools couldn't check this copy (spawn python3 ENOENT)." }], addOns: [] }; });
+  await page.getByRole('button', { name: 'CHECK AGAIN', exact: true }).click();
+  await page.getByText("YOUR COPY COULDN'T BE CHECKED", { exact: true }).waitFor();
+  await page.getByText("The preparation tools couldn't check this copy (spawn python3 ENOENT).", { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'PREPARE ANYWAY', exact: true }).waitFor();
+  assert.equal(await page.getByText(/Verify integrity of game files/).count(), 0);
   await app.evaluate(() => { global.checkResult = null; });
   await page.getByRole('button', { name: 'CHECK AGAIN', exact: true }).click();
   await page.getByRole('button', { name: 'PREPARE', exact: true }).waitFor();
@@ -204,5 +220,5 @@ try {
   const sound = await app.evaluate(() => global.repairOptions);
   assert.deepEqual([sound.game, sound.content, sound.enhancedSound], [steamGame, managed, true]);
   assert.equal((await app.evaluate(() => global.repairState)).game, path.join(steamGame, 'GameData/Data/_LVL_PC'), 'the same copy: nothing cleared');
-  console.log('PASS: automatic imported repair, source verification, menu gate, failure/restart recovery, current restart, changed-source isolation, confirm before a first preparation (copies, check, sound choice), clearing what another copy left, add-on maps left out, and adding the Enhanced sound later');
+  console.log('PASS: automatic imported repair, source verification, menu gate, failure/restart recovery, current restart, changed-source isolation, a check that could not run, confirm before a first preparation (copies, check, PREPARE ANYWAY, sound choice), clearing what another copy left, add-on maps left out, and adding the Enhanced sound later');
 } finally { await app?.close(); await fs.rm(temp, { recursive: true, force: true }); }

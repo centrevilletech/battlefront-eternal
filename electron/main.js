@@ -306,10 +306,13 @@ async function chooseContent() {
   if (result.mode === "prepare") {
     if ((await hosting?.("status"))?.active) throw Error("Stop your hosted server before updating game data, then retry.");
     // A copy confirmed before prepares again without asking, unless it no
-    // longer passes its check: then the confirm screen says why.
+    // longer passes its check: then the confirm screen says why. A check
+    // that couldn't run says nothing about the copy, so it prepares as it
+    // did before there was a check, and the run reports what it finds.
     setLoader({ mode: "searching", phase: "checking", install: result.install.dir });
     const check = await preparer.check({ game: result.install.dir, content: result.content, jobs: os.cpus().length, timeoutMs: 60000 });
-    if (!check.ok) {
+    if (check.unavailable) console.warn("checking the game copy failed, preparing without it:", check.problems[0]?.message);
+    else if (!check.ok) {
       await askToPrepare(result, { check });
       return "loader";
     }
@@ -387,9 +390,12 @@ function confirmView() {
   };
 }
 
+// PREPARE, or PREPARE ANYWAY when the check couldn't run: never for a copy
+// the check found something wrong with.
 async function confirmPrepare() {
   const ask = confirm, copy = ask?.copies[ask.index];
-  if (!copy || !ask.checks.get(copy.dir)?.ok || preparer.running || starting) return;
+  const check = copy && ask.checks.get(copy.dir);
+  if (!check || !(check.ok || check.unavailable) || preparer.running || starting) return;
   // Asked and answered: a second click finds nothing to confirm (the screen
   // stays as it is until the run starts).
   confirm = null;

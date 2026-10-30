@@ -394,6 +394,7 @@ html[data-bfe-theme="bf2"] #disk text { stroke: #111; stroke-width: 3px; paint-o
 .confirm-check.ok { color: var(--bfe-text); }
 .confirm-check.bad { color: #ff6a5a; }
 .confirm-check.busy { color: var(--bfe-text-faint); }
+.confirm-check.unchecked { color: var(--bfe-note); }
 .confirm-addon-list, .left-out-list { margin: 0; padding: 0; list-style: none; }
 .confirm-addon-list li.left-out, .left-out-list li { color: var(--bfe-note); }
 .left-out-list li { margin: 2px 0; }
