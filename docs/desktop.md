@@ -245,7 +245,10 @@ one copy found, each other one has USE THIS COPY, which checks it in turn.
 When the check fails, the screen says exactly what is wrong and what to do
 (use another copy; repair this one with Steam's Verify integrity of game
 files, in the game's Properties > Installed Files, or GOG Galaxy's
-Verify / Repair, then CHECK AGAIN), and offers no PREPARE.
+Verify / Repair, then CHECK AGAIN), and offers no PREPARE. The screen is in
+the loader's look; its list (as the list of add-on maps left out, later)
+scrolls on its own and fades out at its foot when there is more, so the
+title, the explanation and the buttons stay in view in any window.
 
 The copy the player prepares from becomes `gameDir`. Preparing that copy
 again, after an update whose content generations differ or a run cut short,

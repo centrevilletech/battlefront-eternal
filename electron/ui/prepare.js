@@ -197,8 +197,12 @@ function confirmParts(view) {
     const list = element("div", "confirm-copies");
     list.append(element("h2", null, others.length === 1 ? "ANOTHER COPY FOUND" : "OTHER COPIES FOUND"));
     for (const entry of others) {
-      const use = element("button", null, "USE THIS COPY");
+      // The front end's button, lit while it has the pointer or the focus.
+      const use = element("button", "bfe-btn small");
+      use.setAttribute("aria-label", "USE THIS COPY");
+      use.append(element("span", "label", "use this copy"));
       use.addEventListener("click", () => desktop.prepare.action("pick-copy", entry.index));
+      for (const [event, lit] of [["pointerenter", true], ["pointerleave", false], ["focus", true], ["blur", false]]) use.addEventListener(event, () => use.classList.toggle("active", lit));
       const row = element("div", "confirm-copy");
       row.append(element("code", null, entry.dir), element("span", "confirm-copy-how", foundIn(entry)), use);
       list.append(row);
@@ -492,7 +496,18 @@ function draw() {
     setActions([["TRY AGAIN", "retry", true], ["CHOOSE FOLDER", "choose"]]);
   }
   if (snapshot) drawLog(snapshot);
+  // A list on show (the copy to prepare from, the add-on maps left out)
+  // scrolls on its own, so the buttons stay in view (prepare.css).
+  document.body.classList.toggle("listing", !$("confirm").hidden || !$("left-out").hidden);
+  markMore();
 }
+
+// A list with more below than it has room for fades out at its foot.
+function markMore() {
+  for (const list of [$("confirm"), $("left-out")]) list.classList.toggle("more", !list.hidden && list.scrollTop + list.clientHeight < list.scrollHeight - 2);
+}
+for (const id of ["confirm", "left-out"]) $(id).addEventListener("scroll", markMore, { passive: true });
+window.addEventListener("resize", markMore);
 
 $("toggle-log").addEventListener("click", () => {
   showLog = !showLog;
