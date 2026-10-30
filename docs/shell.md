@@ -345,11 +345,14 @@ The original's screen behaves like this:
 - **The planet's name** (`planets.<planet>.name`) top left, 5 units into
   the safe area, in `gamefont_tiny`, over the first three pictures.
 - **The LOADING disk** bottom right, 252 units from the right and 223 up
-  from the bottom: `load_rotating_disk` twice (240 and 176 units, turning
-  both ways, so its thin ring falls outside and inside the lights), about a
-  ring of 28 square lights whose lit arc chases round, the whole turned to
-  0.866 of its width; LOADING (`common.loading`) across it in
-  `gamefont_medium`, tilted 14 degrees. Placements and sizes are measured
+  from the bottom of a 4:3 screen. On other screens it keeps to that
+  corner (`diskPlace()`): its offsets and size scale with the screen's
+  height (its width, below 4:3), never stretched, so a wide screen
+  doesn't carry it in towards the middle. The disk is `load_rotating_disk`
+  twice (240 and 176 units, turning both ways, so its thin ring falls
+  outside and inside the lights), about a ring of 28 square lights whose
+  lit arc chases round, the whole turned to 0.866 of its width; LOADING
+  (`common.loading`) across it in `gamefont_medium`, tilted 14 degrees. Placements and sizes are measured
   on the captures. Without the disk's texture its segments are drawn.
 - **The lights** (`lightLevel()`): the lit arc's head goes round the ring
   0.6 times a second. Behind it each light is a little darker than the one

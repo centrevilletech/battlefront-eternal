@@ -67,10 +67,11 @@ export const LEAD = 0.1; // s
 
 const IW = 1024;
 // The disk's centre and the planet's name, in interface units, measured on
-// the retail captures: the disk 252 units from the right and 223 up from
-// the bottom, turned to 0.866 of its width, its 28 lights on a ring of 52
-// and LOADING tilted 14 degrees; the name 5 units into the safe area's top
-// left corner.
+// the retail captures (4:3): the disk 252 units from the right and 223 up
+// from the bottom, turned to 0.866 of its width, its 28 lights on a ring of
+// 52 and LOADING tilted 14 degrees; the name 5 units into the safe area's
+// top left corner. On other screens the disk keeps to the lower right
+// corner (diskPlace).
 const DISK = { right: 252, bottom: 223, turn: 0.866, ring: 52, leds: 28, text: -14,
   // [size, turn in radians a second, alpha] of each copy of the texture:
   // its thin ring (a quarter of its size out) lands at 60 and 44 units,
@@ -271,6 +272,17 @@ export function onScreen(rect, view, w, h) {
   return [((x - vx) / vw) * w, ((y - vy) / vh) * h, (rw / vw) * w, (rh / vh) * h];
 }
 
+// Where the disk goes on a w x h screen: its centre (pixels) and the
+// pixels to one of its units. It keeps to the lower right corner, as on the
+// 4:3 captures, at any shape of screen: its offsets from the corner and its
+// size scale with the screen's height (with its width on a screen narrower
+// than 4:3), never stretched, so a wide screen doesn't carry it in towards
+// the middle.
+export function diskPlace(w, h) {
+  const unit = Math.min(w / IW, h / 768);
+  return { x: w - DISK.right * unit, y: h - DISK.bottom * unit, unit };
+}
+
 // How lit a light is, from 0 (off) to 1 (the head), `behind` turns behind
 // the lit arc's head (any number: a whole turn is the ring). It comes up in
 // a smooth step over the ramp just ahead of the head, then darkens all
@@ -461,7 +473,10 @@ export class LoadingView {
       if (this.typeface === "ready") this.write(ctx, NAME.x, top + 12, this.name, this.look.type.name, "left");
       else if (this.typeface !== "loading" && this.fonts?.has("gamefont_tiny")) this.fonts.draw(ctx, NAME.x, top, this.name, "gamefont_tiny", { color: this.look.type?.color });
     }
-    this.drawDisk(ctx, IW - DISK.right, H - DISK.bottom);
+    const disk = diskPlace(w, h);
+    ctx.setTransform(disk.unit, 0, 0, disk.unit, disk.x, disk.y);
+    this.scale = disk.unit;
+    this.drawDisk(ctx, 0, 0);
   }
 
   // The stage's picture (zooming, if it is), the next growing out of its

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LIGHTS, LOOKS, LoadingTimeline, LoadingView, STEP, STILL, approach, clock, handover, lightLevel, loadingLook, mixColor, onScreen, planetName, pulse, zoomView } from "../src/shell/loading.js";
+import { LIGHTS, LOOKS, LoadingTimeline, LoadingView, STEP, STILL, approach, clock, handover, lightLevel, loadingLook, mixColor, onScreen, planetName, pulse, zoomView, diskPlace } from "../src/shell/loading.js";
 import { AV, LATE, LoadingSound, SOUNDS } from "../src/shell/loading-audio.js";
 import { THEMES } from "../src/menus/themes/page/looks.js";
 import { Settings } from "../src/settings.js";
@@ -414,4 +414,23 @@ test("the hand-over waits for the battle and for the sequence, each capped", asy
   assert.equal(await handover({ loaded: new Promise(() => {}), isDone: () => true, tick, now: clockNow, load: 20 }), false);
   // A failed load still hands over (the page shows the error).
   assert.equal(await handover({ loaded: Promise.reject(new Error("no")), isDone: () => true, tick, now: clockNow }), false);
+});
+
+test("the LOADING disk keeps to the lower right corner on any screen", () => {
+  // 4:3: where the captures put it.
+  assert.deepEqual(diskPlace(1024, 768), { x: 772, y: 545, unit: 1 });
+  assert.deepEqual(diskPlace(1600, 1200), { x: 1600 - 252 * 1.5625, y: 1200 - 223 * 1.5625, unit: 1.5625 });
+  // Wider: the same offsets from the corner and size against the height.
+  for (const [w, h] of [[1920, 1080], [2560, 1080], [3440, 1440], [5120, 1440]]) {
+    const { x, y, unit } = diskPlace(w, h);
+    assert.equal(unit, h / 768);
+    assert.ok(Math.abs((h - y) / h - 223 / 768) < 1e-9, `${w}x${h} as high up as on 4:3`);
+    assert.ok(Math.abs((w - x) / h - 252 / 768) < 1e-9, `${w}x${h} as far in from the right, against the height`);
+  }
+  // A wide screen no longer carries it in towards the middle.
+  assert.ok(5120 - diskPlace(5120, 1440).x < 0.1 * 5120);
+  // Narrower than 4:3 (5:4): against the width, so it stays on screen.
+  const tall = diskPlace(1280, 1024);
+  assert.equal(tall.unit, 1.25);
+  assert.ok(tall.x - 120 * tall.unit > 0 && tall.y + 120 * tall.unit < 1024);
 });
