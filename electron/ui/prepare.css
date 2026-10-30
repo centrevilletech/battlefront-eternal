@@ -13,19 +13,21 @@
   --disk-period: 1.667s;
 }
 
-/* The LOADING disk in each look: its segments and rings, then its lights,
-   off, along the tail, lit, and at the head. */
+/* The LOADING disk in each look, as the loading screen draws it
+   (src/shell/loading.js: LOOKS): its segments, rings and lights' rims, then
+   its lights fully lit (the head), three quarters, half and a quarter lit,
+   and off. tests/launcher-look.test.js keeps them the loading screen's. */
 html[data-bfe-theme="eternal"] {
-  --disk-segment: rgba(255, 255, 255, .085); --disk-ring: rgba(255, 190, 110, .5); --disk-text: #e8ecf2;
-  --disk-off: #1d160d; --disk-tail: #6e3c0c; --disk-on: #ff9a1f; --disk-head: #ffe2b0;
+  --disk-segment: rgba(5, 7, 11, 0.3); --disk-ring: rgba(196, 204, 216, 0.75); --disk-edge: none; --disk-text: #e8ecf2;
+  --disk-head: rgb(255, 210, 122); --disk-on: rgb(255, 154, 31); --disk-mid: rgb(181, 86, 11); --disk-tail: rgb(74, 36, 7); --disk-off: rgb(21, 16, 12);
 }
 html[data-bfe-theme="bf1"] {
-  --disk-segment: rgba(40, 160, 220, .3); --disk-ring: rgba(30, 170, 240, .9); --disk-text: #dcdcff;
-  --disk-off: #0b0d0f; --disk-tail: #5c6166; --disk-on: #b9bcbe; --disk-head: #ffffff;
+  --disk-segment: rgba(40, 160, 220, 0.34); --disk-ring: rgba(30, 170, 240, 0.9); --disk-edge: none; --disk-text: #dcdcff;
+  --disk-head: rgb(185, 188, 190); --disk-on: rgb(139, 143, 146); --disk-mid: rgb(92, 97, 102); --disk-tail: rgb(52, 55, 59); --disk-off: rgb(11, 13, 15);
 }
 html[data-bfe-theme="bf2"] {
-  --disk-segment: rgba(190, 205, 225, .12); --disk-ring: rgba(205, 214, 226, .65); --disk-text: #ffffff;
-  --disk-off: #262b33; --disk-tail: #7c1f17; --disk-on: #e0362a; --disk-head: #ffb4a8;
+  --disk-segment: rgba(29, 63, 115, 0.34); --disk-ring: rgba(201, 212, 226, 0.85); --disk-edge: #06080c; --disk-text: #ffffff;
+  --disk-head: rgb(255, 100, 80); --disk-on: rgb(224, 54, 42); --disk-mid: rgb(165, 24, 14); --disk-tail: rgb(61, 12, 8); --disk-off: rgb(16, 24, 38);
 }
 
 * { box-sizing: border-box; }
@@ -320,6 +322,8 @@ body.idle #disk { opacity: 0; visibility: hidden; }
 #disk .inner { animation: turn 11.4s linear infinite reverse; }
 #disk .lights rect {
   fill: var(--disk-off);
+  stroke: var(--disk-edge);
+  stroke-width: 1;
   animation: light var(--disk-period) linear infinite;
   /* Each light's place round the ring (--at, 0 to 1) is when the head passes it. */
   animation-delay: calc((var(--at) - 1) * var(--disk-period));
@@ -333,12 +337,17 @@ body.idle #disk { opacity: 0; visibility: hidden; }
 }
 html[data-bfe-theme="bf2"] #disk text { stroke: #111; stroke-width: 3px; paint-order: stroke; }
 @keyframes turn { to { transform: rotate(360deg); } }
-/* Lit as the head passes, then fading down the tail. */
+/* As the loading screen's lights (lightLevel): full as the head passes,
+   then darker all along three quarters of the ring (a light is lit
+   (1 - its place / 0.75) squared, so three quarters lit at 10.05% of the
+   turn, half at 21.97%, a quarter at 37.5%), off, and up again over the
+   28th of a turn before the head is back. */
 @keyframes light {
-  0% { fill: var(--disk-head); }
-  8% { fill: var(--disk-on); }
-  22% { fill: var(--disk-tail); }
-  38%, 100% { fill: var(--disk-off); }
+  0%, 100% { fill: var(--disk-head); }
+  10.05% { fill: var(--disk-on); }
+  21.97% { fill: var(--disk-mid); }
+  37.5% { fill: var(--disk-tail); }
+  75%, 96.43% { fill: var(--disk-off); }
 }
 
 /* A narrow window: the disk beside the logo instead. */

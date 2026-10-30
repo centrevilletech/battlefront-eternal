@@ -322,8 +322,9 @@ case, as its menus do). A state that needs the player (game not found, data outd
 and one that failed mark their title in the look's note and red colours.
 While it works, the LOADING disk at the bottom right is the game's loading
 screen disk without its texture, drawn in SVG: 28 square lights with a lit
-tail chasing round them and translucent segments turning both ways, in grey
-and white (2004), amber (Eternal) or red and silver (2005).
+tail chasing round them and translucent segments turning both ways, in the
+loading screen's own colours for the look (grey for 2004, amber for
+Eternal, red with silver rings for 2005).
 `tests/launcher-look.test.js` checks that the loader picks the same look as
 the front end for the same settings, and that neither keeps a copy of the
 looks.

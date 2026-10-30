@@ -129,7 +129,8 @@ export const LOOKS = {
     type: { weight: 800, size: 15, name: 16, spacing: 0.04, color: "#ffffff", outline: ["#111111", 2], shadow: ["rgba(0, 0, 0, 0.6)", 3] },
   },
 };
-// The page theme's typeface (src/menus/themes/page/fonts).
+// The page theme's typeface (electron/ui/fonts, which the desktop loader
+// shares).
 const SAIRA = "BFE Saira";
 
 // The planet each map is on, for its name when shell.json doesn't give it.
@@ -319,7 +320,7 @@ export function loadingLook(params, theme) {
 function loadSaira() {
   const fonts = globalThis.document?.fonts ?? globalThis.fonts;
   if (typeof FontFace !== "function" || !fonts) return Promise.resolve(false);
-  const url = new URL("../menus/themes/page/fonts/saira-latin.woff2", import.meta.url);
+  const url = new URL("../../electron/ui/fonts/saira-latin.woff2", import.meta.url);
   const face = new FontFace(SAIRA, `url(${url.href})`, { weight: "100 900", stretch: "50% 125%" });
   return face.load().then(() => {
     fonts.add(face);

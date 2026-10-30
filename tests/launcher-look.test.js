@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
+import { DEFAULT_THEME, THEMES as PAGE_LOOKS } from "../src/menus/themes/page/looks.js";
+import { LOOKS as SCREEN_LOOKS, mixColor } from "../src/shell/loading.js";
 
 const read = (file) => readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
 const LOOKS = read("electron/ui/looks.css");
@@ -14,10 +16,8 @@ const LAUNCHER_STYLE = read("electron/ui/prepare.css");
 const PAGE_THEME = read("src/menus/themes/page/index.js");
 const PAGE_STYLE = read("src/menus/themes/page/style.js");
 
-// The page theme's looks and default, from its source (its styles are a
-// Vite import, which plain Node can't load).
-const THEMES = [...PAGE_THEME.match(/export const THEMES = \[([\s\S]*?)\];/)[1].matchAll(/id: "(\w+)"/g)].map((match) => match[1]);
-const DEFAULT_THEME = /export const DEFAULT_THEME = "(\w+)"/.exec(PAGE_THEME)[1];
+// The page theme's looks, from its own list (looks.js has no styles).
+const THEMES = PAGE_LOOKS.map((look) => look.id);
 
 function memoryStorage(entries) {
   const map = new Map(Object.entries(entries));
@@ -125,4 +125,19 @@ test("the looks' font ships beside them, with its license", () => {
   assert.ok(existsSync(new URL(`../electron/ui/${font}`, import.meta.url)));
   assert.match(read("electron/ui/fonts/OFL.txt"), /SIL OPEN FONT LICENSE Version 1\.1/);
   assert.match(read("electron-builder.yml"), /- from: electron\/ui\/fonts\n\s+to: legal\n\s+filter: \["OFL\.txt"\]/);
+});
+
+test("the launcher's LOADING disk lights as the loading screen's", () => {
+  for (const id of THEMES) {
+    const block = new RegExp(`html\\[data-bfe-theme="${id}"\\] \\{([^}]*)\\}`).exec(LAUNCHER_STYLE)?.[1] ?? "";
+    const value = (name) => new RegExp(`--disk-${name}: ([^;]+);`).exec(block)?.[1];
+    const screen = SCREEN_LOOKS[id];
+    for (const [name, level] of [["head", 1], ["on", 0.75], ["mid", 0.5], ["tail", 0.25], ["off", 0]]) assert.equal(value(name), mixColor(screen.lights, level), `${id}: --disk-${name}`);
+    assert.equal(value("ring"), screen.segments[0], `${id}: --disk-ring`);
+    assert.equal(value("segment"), screen.segments[1], `${id}: --disk-segment`);
+    assert.equal(value("edge"), screen.edge ?? "none", `${id}: --disk-edge`);
+    assert.equal(value("text"), screen.text, `${id}: --disk-text`);
+  }
+  // The loading screen's worker loads the font from where it now lives.
+  assert.match(read("src/shell/loading.js"), /new URL\("\.\.\/\.\.\/electron\/ui\/fonts\/saira-latin\.woff2", import\.meta\.url\)/);
 });
