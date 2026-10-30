@@ -314,10 +314,12 @@ if (Number.isInteger(steamParent) && steamParent > 0) {
 // The options page's STEAM & DISCORD (src/shell/integrations.js).
 async function integrations(action, value) {
   if (action === "state") {
-    const detail = settings.presence?.discord ?? "full";
+    // Off until the player answers the main menu's one-time question.
+    const chosen = settings.presence?.discord;
+    const detail = ["full", "game", "off"].includes(chosen) ? chosen : "off";
     const status = discord.status();
     const bySteam = startedBySteam();
-    return { discord: { detail, ...status }, steam: { ...(await steam.state()), declined: !!settings.steam?.declined, startedBySteam: bySteam, lost: steamLost(),
+    return { discord: { detail, asked: typeof chosen === "string", ...status }, steam: { ...(await steam.state()), declined: !!settings.steam?.declined, startedBySteam: bySteam, lost: steamLost(),
       overlay: { ...overlaySupport(), on: settings.steam?.overlay === true, switches: overlay.length > 0, active: bySteam && overlayLoaded() } } };
   }
   if (action === "discord") {

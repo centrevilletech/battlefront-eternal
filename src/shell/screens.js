@@ -5,7 +5,7 @@ import { directConnect } from "./direct-connect.js";
 import { hostDialog } from "./host-dialog.js";
 import { profileDialog, cleanPlayerName, DEFAULT_PLAYER_NAME } from "./profile-dialog.js";
 import { quad, WHITE } from "../menus/themes/classic/draw.js";
-import { integrationsPage, offerSteam } from "./integrations.js";
+import { integrationsPage, offerDiscord, offerSteam } from "./integrations.js";
 import { versionText } from "./version.js";
 import { battleParams } from "../runtime/battle-query.js";
 import { serverBrowser } from "./server-browser.js";
@@ -234,8 +234,9 @@ export function createScreens({ data, settings, media, query = "", navigate = (u
     // This build, its simulation and its game data's generations (version.js).
     screen.widgets.push(new Text({ id: "version", look: "label", text: version, at: [1, 1], x: -8, y: -18, align: 1, alpha: 0.7 }));
     screen.backAction = push(profile);
-    // Once: put the game in the player's Steam library (integrations.js).
-    if (integrations) screen.onEnter = () => setTimeout(() => offerSteam(integrations), 1500);
+    // Once each: ask about Discord, then offer the player's Steam library
+    // (integrations.js).
+    if (integrations) screen.onEnter = () => setTimeout(async () => { await offerDiscord(integrations); await offerSteam(integrations); }, 1500);
     return screen;
   };
   return { main, sp: singleplayer, ia: instantAction, mp: multiplayer, profile, options };

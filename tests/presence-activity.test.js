@@ -118,6 +118,19 @@ test("the presence follows the window and the pages, and publishes only changes"
   assert.equal(shown.at(-1), null);
 });
 
+test("nothing goes to Discord until the player has chosen", async () => {
+  const shown = [];
+  const settings = {};
+  const presence = createPresence({ settings: () => settings, contentRoot: () => temp, discord: { setActivity: (activity) => shown.push(activity), stop() {} } });
+  presence.loader("preparing");
+  await presence.navigated(`${ORIGIN}/?screen=main`);
+  presence.report({ screen: "mp" });
+  assert.ok(shown.every((activity) => activity === null), "no activity before the answer");
+  settings.discord = "full";
+  presence.refresh();
+  assert.equal(shown.at(-1).details, "In the menus");
+});
+
 test("a battle reports its start, the player's side as it changes and, online, the players in", () => {
   const reports = [];
   const handlers = {};
@@ -164,8 +177,15 @@ test("STEAM & DISCORD says what is set up, and the offer asks only when it can h
   assert.equal(steamText({ available: true, added: false, problem: "snap" }), "SNAP STEAM CANNOT START IT");
   assert.equal(steamText({ available: true, added: false, problem: null }), "ADD TO STEAM");
   assert.equal(steamText({ available: true, added: true }), "IN LIBRARY: REMOVE");
-  // Nothing to offer: no dialog (there is no document here to show one).
-  // A fresh module each time: the offer is made once per page.
+  // Nothing to ask: no dialog (there is no document here to show one).
+  // A fresh module each time: each offer is made once per page.
+  for (const discord of [undefined, { state: "unavailable", asked: false }, { state: "searching", detail: "off", asked: true }, { state: "searching", detail: "full" }]) {
+    const asked = [];
+    const bridge = { request: async (action) => { asked.push(action); return { discord }; } };
+    assert.equal(await (await import(`../src/shell/integrations.js?${Math.random()}`)).offerDiscord(bridge), null);
+    assert.deepEqual(asked, ["state"]);
+  }
+  assert.equal(discordText({ state: "idle", detail: "off", asked: false }), "OFF");
   for (const steam of [{ available: false }, { available: true, added: true }, { available: true, declined: true }, { available: true, problem: "snap" }, { available: true, startedBySteam: true }]) {
     const asked = [];
     const bridge = { request: async (action) => { asked.push(action); return { steam }; } };
