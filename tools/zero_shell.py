@@ -1049,6 +1049,13 @@ def refresh_common(locl, game=GAME, public=PUBLIC):
     return common
 
 
+def instant_action_table(shell, game=GAME):
+    """Instant Action's list, the add-ons' maps after the game's
+    (catalog_table), from shell.lvl's bytes."""
+    table = global_tables(lua_load(mission_scripts(shell)["missionlist"])).get("sp_missionselect_listbox_contents") or []
+    return catalog_table(table, zero_addon.listed_maps(game))
+
+
 def write_catalog(locl, game=GAME, public=PUBLIC, music=None, whooshes=None):
     """shell.json, and the loading screen's pictures. Keeps the music and
     whooshes already there unless given."""
@@ -1063,8 +1070,7 @@ def write_catalog(locl, game=GAME, public=PUBLIC, music=None, whooshes=None):
     screen, load = loading_screen(load_config(paths["load"].read_bytes()), locl) if paths["load"].exists() else ({}, {})
     written = write_load_pictures(screen, load, game, public)
     scripts = zero_addon.missions(game)
-    table = global_tables(lua_load(mission_scripts(shell)["missionlist"])).get("sp_missionselect_listbox_contents") or []
-    table = catalog_table(table, zero_addon.listed_maps(game))
+    table = instant_action_table(shell, game)
     maps = map_catalog(table, scripts, locl, extracted_missions(public), catalog, load)
     data = {
         "movies": screen_movies(catalog, config),

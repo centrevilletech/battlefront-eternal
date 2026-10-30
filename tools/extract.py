@@ -2220,12 +2220,31 @@ def gathered_sides():
     return names, fp_names, wanted
 
 
+# What reading an archive the tools can't make sense of raises.
+UNREADABLE = (OSError, ValueError, IndexError, KeyError, TypeError, struct.error)
+
+
+def add_on_archive(path):
+    """Whether an archive is an add-on's (GameData/AddOn): one that can't be
+    read is passed over where every map is scanned, and its map is left out
+    (tools/prepare.py), rather than failing what every side shares."""
+    return zero_addon.source_name(path, GAME).startswith("AddOn/")
+
+
 def live_effects(map_paths, shared):
     """The explosions the maps' live objects (turrets, recharge droids) play,
     from each map archive's classes and the shared ones."""
     wanted = set()
-    for archive in [*shared, *(path.read_bytes() for path in map_paths)]:
-        for cls in entity_classes(archive).values():
+    for path, archive in [*((None, data) for data in shared), *((path, None) for path in map_paths)]:
+        try:
+            archive = path.read_bytes() if archive is None else archive
+            classes = entity_classes(archive).values()
+        except UNREADABLE as error:
+            if path is None or not add_on_archive(path):
+                raise
+            print(f"  {zero_addon.source_name(path, GAME)}: unreadable, passed over ({error})", flush=True)
+            continue
+        for cls in classes:
             if not live_class(cls):
                 continue
             blast = class_prop(cls, "ExplosionName") or class_prop(cls, "Explosion")
@@ -2248,7 +2267,13 @@ def effects_elsewhere(names, map_paths):
         hit = [n for n in sorted(missing) if struct.pack("<I", fnv1a(n)) in data]
         if not hit:
             continue
-        fx = effects(data)
+        try:
+            fx = effects(data)
+        except UNREADABLE as error:
+            if not add_on_archive(path):
+                raise
+            print(f"  {zero_addon.source_name(path, GAME)}: unreadable, passed over ({error})", flush=True)
+            continue
         for name in hit:
             emitters = effect([fx], name)
             if emitters is not None:
