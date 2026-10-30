@@ -52,8 +52,10 @@ stored in `.prepare.json` as `commonVersion`). The packaged client reads the sam
 smoke test imports it inside the actual Electron archive.
 After the application update check, startup checks the state, map, side and common
 versions of every selected, imported, managed or discovered content folder.
-Outdated or unfinished content automatically prepares from the installed Steam
-copy before the menu opens. For imports, original retail archive hashes must
+Outdated or unfinished content prepares again before the menu opens, from the
+installed copy: without asking when it is the copy the player confirmed before
+or the one this folder was prepared from, else after the confirm screen
+(below, "Asking first"). For imports, original retail archive hashes must
 match before relocating and reusing checkpoints; otherwise preparation uses a
 separate managed folder and leaves the import intact. Interrupted work resumes
 on the next launch. Failed preparation stays on the loader with a retry action.
@@ -119,8 +121,9 @@ the Enhanced sky's ships after that; a server needs nothing new.
 ## Moving prepared content to another computer
 
 Choose **EXPORT CONTENT** on the main menu to save one `.bfepack` file.
-It includes prepared maps, upscaled textures and movies, enhanced audio,
-SHA-256 checksums, and the unchanged preparation checkpoint/version records.
+It includes the prepared maps, textures and their KTX2 copies, the 4x HUD,
+the movies, the Enhanced sound when it was prepared, SHA-256 checksums, and
+the unchanged preparation checkpoint/version records.
 It excludes the engine, player identity, settings, saves and preparation locks.
 Shared audio remains deduplicated; identical filename case variants work on
 Windows as well as Linux. Export is unavailable while preparation runs.
@@ -128,7 +131,7 @@ Windows as well as Linux. Export is unavailable while preparation runs.
 On the other computer, install the desktop client and choose **IMPORT CONTENT
 EXPORT** on first launch, or **IMPORT CONTENT** on the main menu. Select the
 file, wait for verification, then choose Main Menu. That computer needs neither
-a Steam directory nor the extraction/upscaling toolchain. Imports stage in a
+a Steam directory nor the preparation toolchain. Imports stage in a
 new folder and become active only after every checksum passes. Cancellation or
 a damaged archive leaves the previous content selected. Allow about 7 GB free
 for a stock prepared collection, plus space for the downloaded archive.
@@ -160,23 +163,25 @@ Retail data is never packaged. On launch the app shows its loader
 2. The Steam copy of Star Wars: Battlefront (2004), app 1058020, found by
    `electron/discover.js`: the platform's Steam roots (the registry on
    Windows; native, Flatpak and Snap installs on Linux), every library in
-   `libraryfolders.vdf` (`steamapps/` and `config/`), the app manifest's
-   install folder, then any `steamapps/common` folder laid out like the game.
+   `libraryfolders.vdf` (`steamapps/` and `config/`), and the folder the app
+   manifest names in any of them. A `steamapps/common` folder that only looks
+   like the game counts only after the GOG copy (below, "Asking first").
    When Steam's records name no library holding it, every drive is looked at
    where libraries usually are (`SteamLibrary`, `Steam`, `Games\Steam` and
    the like), each look bounded so an absent network drive cannot stall
    startup: a library on another drive is found either way. When the app's own
    `game-data` folder (in its user data folder) was completely prepared from
-   that copy, with the add-ons it has now, the main menu opens; otherwise
-   preparation starts.
+   that copy, with the add-ons it has now, the main menu opens; otherwise the
+   app asks before preparing (below, "Asking first").
 3. Without a Steam copy, the GOG copy (`findGogInstall`), prepared the same
    way: it has the Steam copy's layout (`GameData/Battlefront.exe`,
    `GameData/Data/_LVL_PC`). Found where GOG's records say: each game's key
    under `HKLM\SOFTWARE\WOW6432Node\GOG.com\Games` (GOG Galaxy and the
    offline installers write one, with its `gameName` and `path`), and Heroic
    Games Launcher's `gog_store/installed.json` (native and Flatpak on Linux,
-   macOS, Windows). Then a folder whose name says Battlefront where GOG games
-   usually go: `GOG Games` and `GOG Galaxy\Games` on each Windows drive,
+   macOS, Windows). Then, after any folder that only looks like Steam's copy,
+   a folder whose name says Battlefront where GOG games usually go:
+   `GOG Games` and `GOG Galaxy\Games` on each Windows drive,
    `~/Games/Heroic`, and those Windows folders inside Wine prefixes
    (`~/.wine`, Lutris's in `~/Games`, CrossOver's bottles). Steam's copy wins
    when there are both, as the project's reference edition.
@@ -188,8 +193,118 @@ Retail data is never packaged. On launch the app shows its loader
    GET IT ON STEAM, GET IT ON GOG and SEARCH AGAIN. Import accepts a
    `.bfepack` export; the folder picker accepts a game installation from any
    store or disc (the folder holding `GameData`, or `GameData` itself) or
-   prepared data. The installation chosen is kept (`gameDir` in
+   prepared data. An installation chosen there is shown on the confirm screen
+   first. The one the player prepares from is kept (`gameDir` in
    `desktop-settings.json`) and looked at before Steam's and GOG's.
+
+### Asking first
+
+Discovery collects every copy it can find, each once (`findGameInstalls`),
+in the order the confirm screen offers them: the folder the player chose,
+Steam's own copy (the one its app manifest names) in any library, then GOG's
+(where GOG's records say), and only then folders that merely look like the
+game: another folder in a library's `steamapps/common` (a copy placed there
+by hand, perhaps modded), a Battlefront folder where GOG games usually go, or
+one found on a drive. So a hand-made copy in one library no longer wins over
+Steam's own copy in another. `findGameInstall` is still the first of them,
+found without looking further.
+
+Before anything is converted, the app runs `tools/prepare.py --check` on the
+copy (`tools/prepare_check.py`, about a second; it only reads, and writes
+nothing). It goes through the tools' own paths, so it reports what a
+run would trip over, in plain words, with paths from `GameData` on:
+
+- a folder or archive the tools read that is missing, empty, or isn't a
+  game archive (every one starts `ucfb`): the shell's archives, every stock
+  map's world, every army its battles field and every battle's sound;
+- a name spelled otherwise than the tools spell it (`_lvl_pc` for `_LVL_PC`,
+  `Side` for `SIDE`): Linux matches names exactly, so such a copy would fail
+  part way. Only the topmost folder is reported;
+- no English files (the tools read `Common/ENG` and `Shell/ENG`; a copy in
+  another language only is named as such);
+- a `Battlefront.exe` the maps' painted foliage can't be placed from
+  (`tools/zero_foliage.py` reads its placement table): missing, or modified
+  or replaced.
+
+The check can't tell an edited archive from the original: that would take
+the original files' checksums, which this project doesn't keep. A copy whose
+stock archives were replaced by a mod passes it, and then fails (or prepares
+as modded) in the steps that read them; online it is spectator-only, as the
+content fingerprint differs from the server's.
+
+The confirm screen (the loader's `confirm` mode) shows the folder, where it
+was found ("your Steam library", "your GOG library", "the folder you chose",
+"a copy in ... that Steam didn't install"), the check's result, the add-on
+maps the copy has (and any that will be left out, with why), and why the app
+prepares at all: it converts the game's maps, armies, sound and movies into
+formats it can read, once, taking about as long as the estimate says (from
+the check's counts of maps, armies and sound sub-levels, and this machine's
+measured step times), and the installation is only read, never changed.
+PREPARE starts; CHOOSE ANOTHER FOLDER opens the folder picker; with more than
+one copy found, each other one has USE THIS COPY, which checks it in turn.
+When the check fails, the screen says exactly what is wrong and what to do
+(use another copy; repair this one with Steam's Verify integrity of game
+files, in the game's Properties > Installed Files, or GOG Galaxy's
+Verify / Repair, then CHECK AGAIN), and offers no PREPARE.
+
+The copy the player prepares from becomes `gameDir`. Preparing that copy
+again, after an update whose content generations differ or a run cut short,
+goes ahead without asking, with the choices made then. Its check runs first
+all the same, and a copy that no longer passes it shows the confirm screen
+with the problem instead.
+
+**Enhanced sound** is a choice on the confirm screen, on unless the player
+turns it off (`enhancedSound` in `desktop-settings.json`). It is the
+original sound resampled and sharpened for modern speakers
+(`tools/enhance_audio.py`), by far the longest optional part (about 40 s per
+sound sub-level, 30 of them, on an 8-core laptop). Off, `prepare.py
+--no-enhanced-sound` leaves the `audio:<sublevel>` steps out (shown as off,
+not skipped) and records in `.prepare.json` that the folder lacks them
+(`extras.enhancedSound` false, and `soundSteps`, how many), so the folder
+is complete without them. The game then plays the original sound;
+OPTIONS > AUDIO > SOUND still offers ENHANCED, the 2026 sound stage over the
+original recordings, and its note says the Enhanced sound isn't prepared.
+Multiplayer is unaffected: the content fingerprint leaves sound out. To add
+it later, the loader's YOUR GAME CONTENT screen (the Game menu's Game Data
+Preparation; Alt shows the menu bar) has ADD ENHANCED SOUND, which prepares
+only those steps from the copy the folder was prepared from.
+
+When the copy to prepare from is a different one from the one the app's own
+`game-data` folder was prepared from (or the folder records none), what is
+there goes first: only preparation's outputs (`maps`, `sides`, `common`,
+`audio` and `.prepare.json`), and never in a folder the player picked or
+imported. A modded copy's maps can't linger in a clean copy's game data.
+
+### Add-on maps that can't be prepared
+
+An add-on's map that can't be prepared is left out, and the rest of the
+game is prepared and playable. Every run starts with the check's look at
+each add-on: one whose own files (`addme.script`, its `mission.lvl` or
+`core.lvl`) can't be read is left out whole, and none of the tools read it
+(`BFE_SKIP_ADDONS`, `tools/zero_addon.py`); a map that needs a file neither
+the add-on nor the game has (its world, an army, its sound) is left out by
+itself. During the run, a failed step of an add-on's map, or of an army only
+add-on maps field, leaves those maps out, and so does a map or army that
+comes out empty (no world or command posts, no units): the tools read what
+they can of an archive, so a broken one can "succeed" with nothing in it.
+What a left-out map wrote is removed and its step runs again next time, so
+the catalog marks it not prepared and the menus don't offer it. An add-on's
+failed sound (`audio:`) or effects (environment) leave only that part out.
+
+`.prepare.json` lists each in `addOnFailures` (`addOn`, `map`, `name`,
+`part`: "add-on", "map", "sound" or "effects", `step`, `reason`), apart
+from `failed`, so the run is complete once the game's own content is. The
+finished screen and YOUR GAME CONTENT list them, and the finished screen
+waits for PLAY rather than opening the menu. A left-out map is tried again
+whenever the folder is next prepared (choosing the game folder again does
+it). `common`, which scans every map archive for effects, passes over an
+add-on's archive it can't read.
+
+The game's own content failing still stops: the loader's SOMETHING WENT
+WRONG names each failed step and the line its tool ended with (`failures`
+in `.prepare.json`), says a game file is probably missing, changed or
+damaged, and points to Steam's and GOG Galaxy's repair, TRY AGAIN and
+CHOOSE FOLDER.
 
 A GOG copy (game 1668107107, version 1.3.7.4) matches the Steam copy: 164 of
 its 166 `GameData` files are byte for byte the Steam copy's, spelled the same,
@@ -224,12 +339,12 @@ Preparation runs `tools/prepare.py` with the bundled toolchain
 | What every side shares: clips, effects, HUD art (`common`) | `extract.py --only common` | every side | |
 | Interface: menus, music and sounds (`shell`) | `zero_shell.py` | common | ffmpeg |
 | Each map with all its battles' sides (`map:<map>`) | `extract.py <map> --side ... --skip-shared` | the catalog | |
-| The catalog again, marking the maps ready (`catalog-update`) | `zero_shell.py --catalog` | every map | |
-| Theed's fountains, Cloud City's steam (`environment`) | `zero_environment.py` | those maps | |
+| The catalog again, marking the maps ready (`catalog-update`) | `zero_shell.py --catalog` | every map and army | |
+| Theed's fountains, Cloud City's steam (`environment`) | `zero_environment.py` | every map and army | |
 | HUD and font atlases at 4x (`hud`) | `upscale_hud.py` | the shell | Pillow |
 | Enhanced sound per battle (`audio:<sublevel>`) | `enhance_audio.py` | its map, and the era's first | numpy, scipy, soundfile, soxr, ffmpeg |
 | KTX2 textures (`textures`) | `ktx2.py` | everything that writes textures | KTX-Software `ktx` |
-| Movies, upscaled to WebM (`movies`) | `zero_shell.py --movies` | the catalog | ffmpeg with Bink, VP9 and Opus |
+| Movies, converted to WebM (`movies`) | `zero_shell.py --movies` | the catalog | ffmpeg with Bink, VP9 and Opus |
 
 Steps run as soon as what they are after is done and the cores allow: the
 sides and maps several at once (one process each, as many as memory
@@ -266,7 +381,12 @@ and movies use one VP9 pass (2.8x faster than the two passes measured
 before, same quality). Finished steps are recorded in
 `game-data/.prepare.json`, so a run stopped by quitting resumes on the next
 launch; quitting stops the whole tool process tree. A step whose tool is
-missing is skipped, its phase marked in the look's note colour. The loader
+missing is skipped and recorded (`skipped`), which leaves the run
+incomplete: the loader says which tools are missing instead of opening the
+menu (the packaged app bundles them all), and a phase whose steps are all
+skipped is marked in the look's note colour. A map or army prepared again
+(one that failed before), or an add-on map left out, runs `catalog-update`
+and `environment` again so the catalog and the effects match. The loader
 shows its look's backdrop, then the game's own loading pictures for the map
 being prepared once the catalog is in. The log is in the app's user data
 folder, `logs/prepare.log` (Game → Open Preparation Log).
