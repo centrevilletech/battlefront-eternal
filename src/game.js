@@ -2018,9 +2018,6 @@ async function start() {
     droidInput.forward = input.forward;
     droidInput.right = input.right;
     droidInput.turn = input.turn;
-    // The port's own N key moves him to the next post; with the spawn screen
-    // only while he has a unit (it chooses where he spawns otherwise).
-    if (tickControls.take("nextSpawn") && (policy.auto || !combat.dead)) respawn(spawnIndex + 1);
     for (const [action, kind, label] of [["squadMoveOut", 0, "moveout"], ["squadHold", 2, "hold"], ["squadFollow", 3, "follow"], ["squadAtEase", 1, "atease"]]) {
       if (tickControls.take(action) && !combat.dead && ai?.playerCommand) {
         ai.playerCommand(kind); hud.squadCommand(label);

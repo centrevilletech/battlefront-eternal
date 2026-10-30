@@ -78,7 +78,6 @@ const ROWS = {
     ["LOOK LEFT/RIGHT AXIS", null, "MOUSE X AXIS"],
     ["LOOK UP/DOWN AXIS", null, "MOUSE Y AXIS"],
     ["SHOW MAP", null, "presses.map"],
-    ["NEXT COMMAND POST", null, "presses.nextSpawn"],
     ["PLAYER LIST", "ifs.controls.playerlist", "TAB"],
     ["CHAT", null, "T"],
     ["TEAM CHAT", null, "Y"],
