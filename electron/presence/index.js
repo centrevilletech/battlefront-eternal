@@ -72,9 +72,11 @@ export function createPresence({ settings, contentRoot, discord, image = "", now
   let names = null, namesRoot = null;
   let last = null, navigation = 0;
 
+  // Nothing goes to Discord until the player says so: the main menu asks
+  // once (src/shell/integrations.js: offerDiscord), and OPTIONS changes it.
   const detail = () => {
     const value = settings()?.discord;
-    return DETAIL_LEVELS.includes(value) ? value : "full";
+    return DETAIL_LEVELS.includes(value) ? value : "off";
   };
 
   async function mapName(map) {

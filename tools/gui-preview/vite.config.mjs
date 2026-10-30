@@ -23,6 +23,7 @@ const BRIDGE = `
   if (window.bfeDesktop) return;
   const json = (url) => fetch(url).then((response) => { if (!response.ok) throw new Error("GUI preview: " + response.status); return response.json(); });
   const off = () => Promise.reject(new Error("Joining is off in the GUI preview"));
+  let discordDetail = sessionStorage.getItem("bfe-gui-preview-discord");
   window.bfeDesktop = {
     preview: true,
     platform: "linux",
@@ -33,10 +34,14 @@ const BRIDGE = `
     contentTransfer: async () => false,
     presence: { update() {} },
     host: { request: async (action) => (action === "status" ? { active: false } : off()) },
+    // The main menu asks about Discord once a tab.
     integrations: {
-      request: async (action) => action === "state"
-        ? { discord: { detail: "full", state: "disconnected" }, steam: { available: true, added: true, declined: false, startedBySteam: false, lost: false, launch: false, overlay: { supported: false, on: false, switches: false, active: false } } }
-        : true,
+      request: async (action, value) => {
+        if (action === "discord") { discordDetail = value; sessionStorage.setItem("bfe-gui-preview-discord", value); return true; }
+        return action === "state"
+          ? { discord: { detail: discordDetail ?? "off", asked: discordDetail !== null, state: "disconnected" }, steam: { available: true, added: true, declined: false, startedBySteam: false, lost: false, launch: false, overlay: { supported: false, on: false, switches: false, active: false } } }
+          : true;
+      },
     },
     network: {
       request: async (action, value) => {

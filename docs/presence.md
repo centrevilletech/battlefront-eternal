@@ -12,7 +12,8 @@ The desktop client tells the player's friends what they are playing:
 - **Discord** shows "Playing Battlefront Eternal" with what the player is
   doing: in the menus, an Instant Action battle (map, era, side), or an online,
   LAN or hosted battle (map, server name, players), with the time since it
-  began.
+  began. It is off until the player says yes: the main menu asks once
+  ([What friends see](#what-friends-see)).
 
 Neither needs an account with us, a network service of ours, or a native
 module. Both are optional and never stand in the way of starting the game.
@@ -35,7 +36,7 @@ Locally generated identities stay the only identity the game uses
 | `electron/steam/index.js` | Adding and removing with Steam closed, artwork, keeping the entry current |
 | `electron/steam/relaunch.js` | A start from outside Steam going through it (at boot) |
 | `electron/steam/overlay.js` | Where Steam's overlay can work, the switches that let it draw (Windows), whether it loaded |
-| `src/shell/integrations.js` | OPTIONS > STEAM & DISCORD, and the one-time offer to add the game to Steam |
+| `src/shell/integrations.js` | OPTIONS > STEAM & DISCORD, and the main menu's one-time questions: Discord activity, and adding the game to Steam |
 | `electron/assets/steam/` | The library's artwork, drawn by `tools/steam-artwork.mjs` (original, no retail art) |
 
 ## Steam
@@ -48,7 +49,8 @@ it as a game: friends see the entry's name, play time is counted, and the
 library shows its artwork.
 
 The first time the main menu opens with Steam installed and the game not in
-its library, the client asks once (`offerSteam`): ADD TO STEAM or NOT NOW.
+its library, the client asks once (`offerSteam`, after the Discord question):
+ADD TO STEAM or NOT NOW.
 OPTIONS > STEAM & DISCORD adds or removes it later. The entry:
 
 - is named **Battlefront Eternal**;
@@ -238,9 +240,19 @@ against arRPC 3.6.0, the server Vesktop and browser Discord use.
 
 ### What friends see
 
-`DISCORD ACTIVITY` in OPTIONS > STEAM & DISCORD: MAP AND SERVER (the
-default), GAME ONLY ("Playing Battlefront Eternal" and the time), or OFF.
-Discord's own "Share my activity" setting applies on top.
+Nothing goes to Discord until the player chooses: the client does not even
+connect to it. The first time the main menu opens, it asks once
+(`offerDiscord`): "Show Discord friends what you play?", with MAP AND SERVER,
+GAME ONLY or NO THANKS, and says the answer can be changed any time in
+Options, Steam & Discord. Closing the question counts as no. Any answer is
+kept (`presence.discord` in `desktop-settings.json`), so it is never asked
+again; installs from before the question have no answer yet and are asked
+too.
+
+`DISCORD ACTIVITY` in OPTIONS > STEAM & DISCORD changes it: MAP AND SERVER,
+GAME ONLY ("Playing Battlefront Eternal" and the time), or OFF (the
+default until the player answers). Discord's own "Share my activity" setting
+applies on top.
 
 | Where | Details | State |
 | --- | --- | --- |

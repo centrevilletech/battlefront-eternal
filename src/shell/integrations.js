@@ -7,8 +7,10 @@ import { MenuScreen, Options, OptionRow, Button, Text, confirmPopup, okPopup } f
 // settings (desktop-settings.json), since the boot reads the Steam one
 // before any page loads; the page keeps the last state it was told.
 //
-// The first time the main menu shows and Steam is installed without the
-// game in its library, offerSteam asks once.
+// The first time the main menu shows, offerDiscord asks once whether
+// Discord friends may see what the player plays (nothing goes to Discord
+// before that), and, when Steam is installed without the game in its
+// library, offerSteam asks once.
 
 const DETAIL = [["full", "MAP AND SERVER"], ["game", "GAME ONLY"], ["off", "OFF"]];
 
@@ -42,7 +44,7 @@ export function integrationsPage({ bridge, strings = {}, every = 3000 }) {
   const rows = [
     new OptionRow({
       id: "discord", kind: "choice", label: "DISCORD ACTIVITY", choices: DETAIL,
-      get: () => state?.discord?.detail ?? "full",
+      get: () => state?.discord?.detail ?? "off",
       set: async (value) => {
         if (state) state.discord.detail = value;
         await bridge.request("discord", value).catch(() => {});
@@ -130,6 +132,33 @@ export function integrationsPage({ bridge, strings = {}, every = 3000 }) {
   });
 }
 
+// The one-time offers' dialogs (Steam's, Discord's) without a page theme;
+// the page theme restyles every dialog in its look (themes/page/style.js).
+function offerStyle(className) {
+  const style = document.createElement("style");
+  style.textContent = `
+    .${className} { box-sizing:border-box; width:min(660px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:auto; margin:auto; padding:24px; color:#f3f1dc; background:#101e32; border:1px solid #80c9ed; border-radius:8px; font:17px/1.5 system-ui,sans-serif; text-align:left; }
+    .${className}::backdrop { background:rgba(3,10,22,.8); }
+    .${className} h2 { font:600 28px/1.2 system-ui,sans-serif; margin:0 0 20px; }
+    .${className} p { margin:0 0 16px; }
+    .${className} .label { color:var(--bfe-note, #94cce9); font-size:13px; letter-spacing:.1em; text-transform:uppercase; margin-bottom:8px; }
+    .${className} .error { color:#ffb7a8; }
+    .${className} footer { display:flex; flex-wrap:wrap; gap:12px; padding-top:8px; }
+    .${className} button { flex:1 1 140px; white-space:nowrap; min-height:48px; padding:10px 16px; border:1px solid #8eb4ce; border-radius:4px; background:#20334c; color:#fff; font:600 16px/1.3 system-ui,sans-serif; cursor:pointer; }
+    .${className} button[data-accept] { background:#f1e5a6; color:#142136; border-color:#f1e5a6; }
+    .${className} button:focus-visible { outline:3px solid var(--bfe-value-focus, #7bdbff); outline-offset:3px; }
+    .${className} button:disabled { opacity:.6; cursor:wait; }
+  `;
+  return style;
+}
+
+const paragraph = (text, className) => {
+  const p = document.createElement("p");
+  p.textContent = text;
+  if (className) p.className = className;
+  return p;
+};
+
 // Adding the game to the Steam library: what happens, said plainly, then
 // the player's yes. Resolves true when it was added.
 export function steamDialog(bridge, steam) {
@@ -138,26 +167,7 @@ export function steamDialog(bridge, steam) {
     const dialog = document.createElement("dialog");
     dialog.className = "bfe-steam-dialog";
     dialog.setAttribute("aria-labelledby", "bfe-steam-title");
-    const style = document.createElement("style");
-    style.textContent = `
-      .bfe-steam-dialog { box-sizing:border-box; width:min(600px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); overflow:auto; margin:auto; padding:24px; color:#f3f1dc; background:#101e32; border:1px solid #80c9ed; border-radius:8px; font:17px/1.5 system-ui,sans-serif; text-align:left; }
-      .bfe-steam-dialog::backdrop { background:rgba(3,10,22,.8); }
-      .bfe-steam-dialog h2 { font:600 28px/1.2 system-ui,sans-serif; margin:0 0 20px; }
-      .bfe-steam-dialog p { margin:0 0 16px; }
-      .bfe-steam-dialog .label { color:#94cce9; font-size:13px; letter-spacing:.1em; text-transform:uppercase; margin-bottom:8px; }
-      .bfe-steam-dialog .error { color:#ffb7a8; }
-      .bfe-steam-dialog footer { display:flex; flex-wrap:wrap; gap:12px; padding-top:8px; }
-      .bfe-steam-dialog button { flex:1 1 140px; min-height:48px; padding:10px 16px; border:1px solid #8eb4ce; border-radius:4px; background:#20334c; color:#fff; font:600 16px/1.3 system-ui,sans-serif; cursor:pointer; }
-      .bfe-steam-dialog button[data-accept] { background:#f1e5a6; color:#142136; border-color:#f1e5a6; }
-      .bfe-steam-dialog button:focus-visible { outline:3px solid #7bdbff; outline-offset:3px; }
-      .bfe-steam-dialog button:disabled { opacity:.6; cursor:wait; }
-    `;
-    const paragraph = (text, className) => {
-      const p = document.createElement("p");
-      p.textContent = text;
-      if (className) p.className = className;
-      return p;
-    };
+    const style = offerStyle("bfe-steam-dialog");
     const title = document.createElement("h2");
     title.id = "bfe-steam-title";
     title.textContent = "Show Steam friends when you play";
@@ -227,6 +237,70 @@ export function steamDialog(bridge, steam) {
     dialog.showModal();
     cancel.focus();
   });
+}
+
+// Discord: whether friends see the game, and how much (DETAIL), asked
+// plainly. Resolves the player's answer, "off" when the dialog is closed.
+export function discordDialog() {
+  return new Promise((resolve) => {
+    const previousFocus = document.activeElement;
+    const dialog = document.createElement("dialog");
+    dialog.className = "bfe-discord-dialog";
+    dialog.setAttribute("aria-labelledby", "bfe-discord-title");
+    const style = offerStyle("bfe-discord-dialog");
+    const title = document.createElement("h2");
+    title.id = "bfe-discord-title";
+    title.textContent = "Show Discord friends what you play?";
+    const footer = document.createElement("footer");
+    const finish = (value) => {
+      dialog.close();
+      dialog.remove();
+      style.remove();
+      previousFocus?.focus?.();
+      resolve(value);
+    };
+    const choice = (text, value, accept = false) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = text;
+      button.dataset.choice = value;
+      if (accept) button.dataset.accept = "";
+      button.onclick = () => finish(value);
+      return button;
+    };
+    const no = choice("No thanks", "off");
+    footer.append(no, choice("Game only", "game"), choice("Map and server", "full", true));
+    dialog.addEventListener("cancel", (event) => { event.preventDefault(); finish("off"); });
+    // Menu input listens on window: keys and the wheel stay in the dialog.
+    dialog.addEventListener("keydown", (event) => event.stopPropagation());
+    dialog.addEventListener("wheel", (event) => event.stopPropagation());
+    dialog.append(
+      paragraph("Discord", "label"), title,
+      paragraph("Battlefront Eternal can show “Playing Battlefront Eternal” on your Discord profile while you play. With map and server, friends also see the battle you are in and the server's name."),
+      paragraph("Nothing is sent to Discord unless you say yes."),
+      paragraph("You can change this any time in Options, Steam & Discord."),
+      footer,
+    );
+    document.head.append(style);
+    document.body.append(dialog);
+    dialog.showModal();
+    no.focus();
+  });
+}
+
+// Once, on the main menu, before anything goes to Discord: the build can
+// reach Discord and the player has not answered yet. Any answer is kept.
+let discordOffered = false;
+export async function offerDiscord(bridge) {
+  if (discordOffered || !bridge) return null;
+  discordOffered = true;
+  let state;
+  try { state = await bridge.request("state"); } catch { return null; }
+  const discord = state?.discord;
+  if (!discord || discord.state === "unavailable" || discord.asked !== false) return null;
+  const detail = await discordDialog();
+  await bridge.request("discord", detail).catch(() => {});
+  return detail;
 }
 
 // Once, on the main menu: the game is not in an installed Steam's library

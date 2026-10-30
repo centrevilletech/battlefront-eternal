@@ -6,8 +6,9 @@
 //   BFE_CONTENT_DIR=/path/to/game-data PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs \
 //     xvfb-run -a node tests/desktop-presence-electron.mjs
 //
-// Checks: the first menu offers the Steam library once and adding writes
-// the entry (artwork included); Discord hears the menu, the Instant Action
+// Checks: the first menu asks about Discord once, and nothing reaches
+// Discord before the answer; then it offers the Steam library once and
+// adding writes the entry (artwork included); Discord hears the menu, the Instant Action
 // battle with the catalog's map name, the battle's start and side, the
 // player's choice of less detail; quitting clears it.
 import assert from "node:assert/strict";
@@ -79,19 +80,29 @@ try {
   const page = await app.firstWindow();
   await page.waitForURL((url) => url.protocol === "app:" && !url.pathname.includes("__desktop"), { timeout: 60000 });
 
+  // The click gate (pressed until it answers), then the main menu asks
+  // about Discord once. Nothing reaches Discord before the answer.
+  const ask = page.getByRole("dialog", { name: "Show Discord friends what you play?" });
+  for (let tries = 0; !(await ask.isVisible()); tries++) {
+    if (tries > 30) throw new Error("the Discord question never showed");
+    if (await page.evaluate(() => !!window.__shell?.gate)) await page.mouse.click(400, 300);
+    await page.waitForTimeout(1000);
+  }
+  assert.equal(frames.length, 0, "no connection to Discord before the answer");
+  assert.match(await ask.textContent(), /change this any time in Options, Steam & Discord/);
+  if (process.env.BFE_SHOTS) await page.screenshot({ path: path.join(process.env.BFE_SHOTS, "discord-question-electron.png") });
+  await ask.getByRole("button", { name: "Map and server" }).click();
+  await ask.waitFor({ state: "detached" });
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(data, "desktop-settings.json"), "utf8")).presence, { discord: "full" });
+
   // Discord: the handshake with the application id, then the front end.
   await until("the handshake", () => frames.some((frame) => frame.op === OP.HANDSHAKE));
   assert.deepEqual(frames.find((frame) => frame.op === OP.HANDSHAKE).payload, { v: 1, client_id: CLIENT_ID });
   await until("the menus", () => activities().some((activity) => activity?.details === "In the menus"));
 
-  // The click gate (pressed until it answers), then the main menu offers
-  // the Steam library once.
+  // Then the main menu offers the Steam library once.
   const dialog = page.getByRole("dialog", { name: "Show Steam friends when you play" });
-  for (let tries = 0; !(await dialog.isVisible()); tries++) {
-    if (tries > 30) throw new Error("the Steam offer never showed");
-    if (await page.evaluate(() => !!window.__shell?.gate)) await page.mouse.click(400, 300);
-    await page.waitForTimeout(1000);
-  }
+  await dialog.waitFor({ state: "visible", timeout: 30000 });
   assert.match(await dialog.textContent(), /Steam account: John Doe\./);
   await dialog.getByRole("button", { name: "Add to Steam" }).click();
   await dialog.waitFor({ state: "detached" });
