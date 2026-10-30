@@ -129,6 +129,132 @@ function drawDisk() {
   $("disk").replaceChildren(face);
 }
 
+// ---- Asking before preparing (the confirm screen), and add-ons left out ----
+
+// How the stores put back an installation's original files.
+const REPAIR = "In Steam: the game's Properties > Installed Files > Verify integrity of game files. In GOG Galaxy: the game's settings > Manage installation > Verify / Repair.";
+
+function element(tag, className = null, text = null) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== null) node.textContent = text;
+  return node;
+}
+
+// Where a copy was found (electron/discover.js: source, how).
+const foundIn = (copy) => copy.source === "chosen" ? "The folder you chose"
+  : copy.source === "steam" || copy.source === "gog" ? `In ${copy.how}` : copy.how.charAt(0).toUpperCase() + copy.how.slice(1);
+
+// The add-on maps a check found: each map, and those that will be left out
+// with why.
+function addOnList(check) {
+  const lines = [];
+  for (const addOn of check.addOns || []) {
+    if (addOn.problems.length) lines.push([`${addOn.folder}: will be left out. ${addOn.problems[0].message}`, true]);
+    else for (const map of addOn.maps) lines.push(map.problems.length ? [`${map.name} (${addOn.folder}): will be left out. ${map.problems[0].message}`, true] : [`${map.name} (${addOn.folder})`, false]);
+  }
+  if (!lines.length) return "None";
+  const list = element("ul", "confirm-addon-list");
+  for (const [text, out] of lines) list.append(element("li", out ? "left-out" : null, text));
+  return list;
+}
+
+function confirmParts(view) {
+  const { check, copy } = view;
+  const facts = element("dl", "confirm-facts");
+  const fact = (name, value, className) => {
+    const dd = element("dd", className);
+    dd.append(value);
+    facts.append(element("dt", null, name), dd);
+  };
+  fact("FOLDER", element("code", null, copy.dir), "confirm-folder");
+  fact("FOUND", foundIn(copy), "confirm-found");
+  fact("CHECK", !check ? "Looking at what preparation needs." : check.ok ? "Everything preparation needs is there."
+    : `${check.problems.length === 1 ? "A problem" : `${check.problems.length} problems`} found.`, `confirm-check ${!check ? "busy" : check.ok ? "ok" : "bad"}`);
+  if (check?.ok) fact("ADD-ON MAPS", addOnList(check), "confirm-addons");
+  const parts = [facts];
+  const others = view.copies.map((entry, index) => ({ ...entry, index })).filter((entry) => !entry.selected);
+  if (check && !check.ok) {
+    const problems = element("ul", "confirm-problems");
+    for (const entry of check.problems.slice(0, 6)) problems.append(element("li", null, entry.message));
+    if (check.problems.length > 6) problems.append(element("li", null, `And ${check.problems.length - 6} more.`));
+    const language = check.problems.every((entry) => entry.code === "language");
+    parts.push(problems, element("p", "confirm-help", language ? "Use an English copy of the game: the Steam and GOG copies include one."
+      : `${others.length ? "Use another copy below, or repair" : "Repair"} this one and choose CHECK AGAIN.`));
+    if (!language) parts.push(element("p", "confirm-repair", REPAIR));
+  } else if (check) {
+    const option = element("label", "confirm-option");
+    const box = element("input");
+    box.type = "checkbox";
+    box.checked = view.enhancedSound;
+    box.addEventListener("change", () => desktop.prepare.action("enhanced-sound", box.checked));
+    const adds = view.time?.sound > 0 ? ` Adds about ${clock(view.time.sound)}.` : "";
+    option.append(box, element("span", "confirm-option-name", "ENHANCED SOUND"),
+      element("span", "confirm-option-about", `The original sound, resampled and sharpened for modern speakers.${adds} Without it the game plays the original sound, and you can add it later.`));
+    parts.push(option);
+  }
+  if (others.length) {
+    const list = element("div", "confirm-copies");
+    list.append(element("h2", null, others.length === 1 ? "ANOTHER COPY FOUND" : "OTHER COPIES FOUND"));
+    for (const entry of others) {
+      const use = element("button", null, "USE THIS COPY");
+      use.addEventListener("click", () => desktop.prepare.action("pick-copy", entry.index));
+      const row = element("div", "confirm-copy");
+      row.append(element("code", null, entry.dir), element("span", "confirm-copy-how", foundIn(entry)), use);
+      list.append(row);
+    }
+    parts.push(list);
+  }
+  return parts;
+}
+
+function drawConfirm(view) {
+  if (!view.copy) return;
+  const check = view.check;
+  const failed = !!check && !check.ok;
+  document.body.classList.toggle("error", failed);
+  $("title").textContent = !check ? "CHECKING YOUR COPY" : failed ? "THIS COPY CAN'T BE PREPARED" : "STAR WARS BATTLEFRONT FOUND";
+  const takes = view.time ? ` and takes about ${clock(view.time.total)} on this computer` : "";
+  setDetail(failed ? "Battlefront Eternal looked at this copy before converting anything, and found what would stop it."
+    : `Battlefront Eternal converts the game's maps, armies, sound and movies into formats it can read. This happens once${takes}. Your installation is only read, never changed.`);
+  $("progress").hidden = true;
+  $("toggle-log").hidden = $("log").hidden = true;
+  // Made again only when what it shows changes: the page redraws every few seconds.
+  const section = $("confirm");
+  section.hidden = false;
+  const key = JSON.stringify([view.copies, check, view.time?.sound ?? null]);
+  if (section.dataset.key !== key) {
+    section.dataset.key = key;
+    section.replaceChildren(...confirmParts(view));
+  }
+  const box = section.querySelector(".confirm-option input");
+  if (box) box.checked = view.enhancedSound;
+  setActions(failed ? [["CHECK AGAIN", "recheck", true], ["CHOOSE ANOTHER FOLDER", "choose"]]
+    : check ? [["PREPARE", "prepare", true], ["CHOOSE ANOTHER FOLDER", "choose"]] : [["CHOOSE ANOTHER FOLDER", "choose"]]);
+}
+
+// What was left out of the add-on maps (.prepare.json's addOnFailures).
+function leftOutLine(entry) {
+  const named = entry.map ? `${entry.name} (${entry.addOn})` : entry.addOn;
+  if (entry.part === "sound") return `${named}: plays the original sound, its Enhanced sound couldn't be prepared. ${entry.reason}`;
+  if (entry.part === "effects") return `${named}: plays without its effects (fountains, steam, fires), which couldn't be prepared. ${entry.reason}`;
+  return `${named}: left out. ${entry.reason}`;
+}
+
+function drawLeftOut(failures) {
+  const section = $("left-out");
+  section.hidden = !failures?.length;
+  if (!failures?.length) return;
+  const key = JSON.stringify(failures);
+  if (section.dataset.key === key) return;
+  section.dataset.key = key;
+  const maps = failures.some((entry) => entry.part === "map" || entry.part === "add-on");
+  const list = element("ul", "left-out-list");
+  for (const entry of failures) list.append(element("li", null, leftOutLine(entry)));
+  section.replaceChildren(element("h2", null, maps ? "ADD-ON MAPS LEFT OUT" : "ADD-ON MAPS PREPARED IN PART"), list,
+    element("p", "left-out-help", "Everything else is ready. What was left out is tried again the next time your game data is prepared, for example when you choose the game folder again."));
+}
+
 // ---- The loading pictures ----
 
 async function loadCatalog() {
@@ -213,9 +339,11 @@ function drawProgress(snapshot, estimate) {
   const active = current ? phaseOf(current.key) : null;
   for (const item of $("phases").children) {
     const steps = byPhase.get(item.dataset.phase) || [];
-    const finished = steps.length && steps.every((step) => ["done", "failed", "unavailable"].includes(step.status));
+    const finished = steps.length && steps.every((step) => ["done", "failed", "unavailable", "off", "left-out"].includes(step.status));
     const skipped = steps.length && steps.every((step) => step.status === "unavailable");
-    item.className = item.dataset.phase === active ? "active" : skipped ? "skipped" : finished ? "done" : "";
+    // Left out by the player's choice (the Enhanced sound).
+    const off = steps.length && steps.every((step) => step.status === "off" || step.status === "left-out") && steps.some((step) => step.status === "off");
+    item.className = item.dataset.phase === active ? "active" : off ? "off" : skipped ? "skipped" : finished ? "done" : "";
   }
 
   const mapId = current?.key.startsWith("map:") ? current.key.split(":")[1] : null;
@@ -238,7 +366,11 @@ function draw() {
   const { mode, install, snapshot } = view;
   document.body.classList.toggle("error", mode === "error" || mode === "update-error" || snapshot?.status === "error");
   document.body.classList.toggle("warn", mode === "missing" || mode === "outdated");
-  document.body.classList.toggle("idle", mode !== "preparing" && mode !== "searching" && mode !== "update");
+  // The disk turns while something runs: not on a finished run, which may wait for PLAY.
+  const finished = snapshot?.status === "finished" || snapshot?.status === "finished-with-errors";
+  document.body.classList.toggle("idle", (mode !== "preparing" || finished) && mode !== "searching" && mode !== "update" && !(mode === "confirm" && !view.check));
+  $("confirm").hidden = mode !== "confirm";
+  $("left-out").hidden = true;
 
   if (mode === "update") {
     $("phases").hidden = true;
@@ -277,10 +409,13 @@ function draw() {
     $("toggle-log").hidden = $("log").hidden = true;
     setActions([["TRY AGAIN", "update-retry", true], ["PLAY WITHOUT UPDATING", "update-skip"]]);
   } else if (mode === "searching") {
-    $("title").textContent = "SEARCHING FOR STAR WARS BATTLEFRONT";
-    setDetail("Looking through your Steam and GOG libraries.");
+    const checking = view.phase === "checking";
+    $("title").textContent = checking ? "CHECKING YOUR COPY" : "SEARCHING FOR STAR WARS BATTLEFRONT";
+    setDetail(checking ? "Making sure your copy of Star Wars: Battlefront (2004) still has everything preparation needs." : "Looking through your Steam and GOG libraries.", checking ? install : null);
     $("progress").hidden = true;
     setActions([]);
+  } else if (mode === "confirm") {
+    drawConfirm(view);
   } else if (mode === "outdated") {
     $("title").textContent = "GAME DATA NEEDS AN UPDATE";
     setDetail("This content was prepared for a different version. Install Star Wars: Battlefront (2004) from Steam or GOG, or choose its folder, to update automatically, or import a current content export from your other computer.");
@@ -297,10 +432,13 @@ function draw() {
     $("progress").hidden = true;
     setActions([["IMPORT CONTENT EXPORT", "import", true], ["CHOOSE GAME FOLDER", "choose"], ["GET IT ON STEAM", "steam"], ["GET IT ON GOG", "gog"], ["SEARCH AGAIN", "search"]]);
   } else if (mode === "ready") {
+    const prepared = view.prepared || {};
     $("title").textContent = "YOUR GAME CONTENT";
-    setDetail("Export prepared content for another computer, import an existing export, or attach the original game for future content updates.");
+    setDetail("Export prepared content for another computer, import an existing export, or attach the original game for future content updates." +
+      (prepared.canAddSound ? `\nThe Enhanced sound was left out when this game data was prepared. ADD ENHANCED SOUND prepares it from your copy${prepared.soundTime ? `, in about ${clock(prepared.soundTime)}` : ""}.` : ""));
     $("progress").hidden = true;
-    setActions([["PLAY", "play", true], ["EXPORT CONTENT", "export"], ["IMPORT CONTENT EXPORT", "import"], ["CHOOSE GAME FOLDER", "choose"]]);
+    drawLeftOut(prepared.addOnFailures);
+    setActions([["PLAY", "play", true], ...(prepared.canAddSound ? [["ADD ENHANCED SOUND", "add-sound"]] : []), ["EXPORT CONTENT", "export"], ["IMPORT CONTENT EXPORT", "import"], ["CHOOSE GAME FOLDER", "choose"]]);
   } else if (mode === "transfer") {
     $("title").textContent = view.operation === "export" ? "EXPORTING YOUR CONTENT" : view.operation === "source" ? "CHECKING ORIGINAL GAME DATA" : "IMPORTING YOUR CONTENT";
     const progress = view.progress || {};
@@ -336,11 +474,13 @@ function draw() {
         : snapshot.playable
           ? "BATTLEFIELDS READY · FINISHING UP"
           : "PREPARING YOUR BATTLEFRONT";
+    const sound = snapshot.enhancedSound !== false;
     if (busy) setDetail("Another Battlefront Eternal is preparing this game data. This screen picks up as soon as it finishes or closes.");
     else if (failedRun) setDetail(snapshot.error || "Something went wrong.");
-    else if (done && snapshot.failed.length) setDetail(`Ready, though ${snapshot.failed.length} step(s) failed and will be retried next launch.`);
-    else if (snapshot.playable) setDetail("Every battlefield is in. Now the HUD, the enhanced sound, textures and the menu movies.");
-    else setDetail("Preparing maps, armies, sound and movies from your copy. This happens once.", install || null);
+    else if (done && snapshot.addOnFailures?.length) setDetail("Your game data is ready, with what could be prepared of your add-on maps.");
+    else if (snapshot.playable) setDetail(sound ? "Every battlefield is in. Now the HUD, the enhanced sound, textures and the menu movies." : "Every battlefield is in. Now the HUD, textures and the menu movies.");
+    else setDetail(sound ? "Preparing maps, armies, sound and movies from your copy. This happens once." : "Preparing maps, armies and movies from your copy. This happens once. The Enhanced sound is off: you can add it later.", install || null);
+    drawLeftOut(done ? snapshot.addOnFailures : null);
     drawProgress(snapshot, view.estimate);
     const actions = [];
     if (failedRun) actions.push(["TRY AGAIN", "retry", true]);

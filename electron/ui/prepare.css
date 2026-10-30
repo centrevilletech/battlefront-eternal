@@ -360,3 +360,90 @@ html[data-bfe-theme="bf2"] #disk text { stroke: #111; stroke-width: 3px; paint-o
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-play-state: paused !important; transition: none !important; }
 }
+
+/* The confirm screen (a copy to prepare from: #confirm) and the add-on maps
+   left out (#left-out), in the loader's look: its colours and buttons. */
+#confirm[hidden], #left-out[hidden] { display: none; }
+#confirm, #left-out {
+  margin: -4px 0 4px;
+  max-height: 48vh;
+  overflow-y: auto;
+  font-size: 14px;
+  line-height: 1.5;
+  letter-spacing: 0.02em;
+  color: #b7d6ea;
+}
+.confirm-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 18px;
+  margin: 0 0 14px;
+}
+.confirm-facts dt, .confirm-copies h2, #left-out h2 {
+  margin: 0;
+  padding-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--cyan);
+}
+.confirm-facts dd { margin: 0; }
+#confirm code { font-family: var(--mono); font-size: 13px; color: #fff; overflow-wrap: anywhere; }
+.confirm-check.ok { color: var(--cyan); }
+.confirm-check.bad { color: var(--red); }
+.confirm-check.busy { color: rgba(223, 243, 255, 0.6); }
+.confirm-addon-list, .left-out-list { margin: 0; padding: 0; list-style: none; }
+.confirm-addon-list li.left-out, .left-out-list li { color: var(--amber); }
+.left-out-list li { margin: 2px 0; }
+.confirm-problems { margin: 0 0 10px; padding-left: 20px; color: #fff; }
+.confirm-problems li { margin: 3px 0; }
+.confirm-help, .left-out-help { margin: 0; }
+.confirm-repair { margin: 4px 0 0; font-size: 13px; color: rgba(223, 243, 255, 0.6); }
+.confirm-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(40, 190, 255, 0.35);
+  background: rgba(40, 190, 255, 0.06);
+  cursor: pointer;
+}
+.confirm-option:hover { border-color: var(--cyan); }
+.confirm-option input { grid-row: span 2; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--cyan); cursor: pointer; }
+.confirm-option-name { font-size: 13px; font-weight: 700; letter-spacing: 0.22em; color: #fff; }
+.confirm-option-about { grid-column: 2; font-size: 13px; }
+.confirm-copies { margin-top: 14px; }
+.confirm-copies h2 { margin-bottom: 4px; }
+.confirm-copy {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 16px;
+  align-items: center;
+  padding: 7px 0;
+  border-top: 1px solid rgba(40, 190, 255, 0.18);
+}
+.confirm-copy-how { grid-column: 1; font-size: 12px; color: rgba(223, 243, 255, 0.6); }
+.confirm-copy button {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  padding: 7px 18px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: #fff;
+  background: rgba(40, 190, 255, 0.12);
+  border: 1px solid var(--cyan);
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.confirm-copy button:hover, .confirm-copy button:focus-visible {
+  outline: none;
+  background: rgba(40, 190, 255, 0.35);
+  box-shadow: 0 0 18px rgba(40, 190, 255, 0.6);
+}
+#left-out h2 { margin-bottom: 4px; }
+#progress:not([hidden]) + #left-out { margin-top: 16px; }
+#left-out .left-out-help { margin-top: 6px; }
+/* A phase the player left out (the Enhanced sound turned off). */
+#phases li.off { color: rgba(223, 243, 255, 0.3); border-top-style: dashed; border-color: rgba(223, 243, 255, 0.2); }
+#phases li.off::after { content: " OFF"; }

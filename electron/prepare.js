@@ -57,12 +57,13 @@ const versionFile = existsSync(checkoutVersion) ? checkoutVersion : path.join(pr
 export const CONTENT_VERSION = Object.freeze(JSON.parse(readFileSync(versionFile, 'utf8')));
 
 // Whether a full run left the game complete for this installation: nothing
-// failed or was skipped for a missing tool (tools/prepare.py's "complete").
+// of the game's own failed or was skipped for a missing tool
+// (tools/prepare.py's "complete", for the profile the player chose: without
+// the Enhanced sound, extras.enhancedSound false, it is complete too). An
+// add-on map that couldn't be prepared is left out (addOnFailures), not
+// failed, so a broken mod never keeps the game from starting.
 // mapImportVersion must match MAP_IMPORT_VERSION in tools/prepare.py (and
-// muzzleVersion and commonVersion its side and common versions). addOns
-// are the add-ons installed now (discover.js: installedAddOns); a run that
-// recorded others, or none before add-ons were read (Jabba's Palace missed),
-// prepares again, and only what they change runs.
+// muzzleVersion and commonVersion its side and common versions).
 export function preparedContentCurrent(state) {
   return !!state && state.version === CONTENT_VERSION.state
     && state.mapImportVersion === CONTENT_VERSION.maps && state.muzzleVersion === CONTENT_VERSION.sides
@@ -71,17 +72,71 @@ export function preparedContentCurrent(state) {
     && !(state.skipped?.length);
 }
 
-export function preparedFor(state, game, addOns = []) {
-  return preparedContentCurrent(state)
-    && typeof state.game === "string" && path.resolve(state.game) === path.resolve(game, "GameData", "Data", "_LVL_PC")
-    && (Array.isArray(state.addOns) ? state.addOns : []).join("\n") === [...addOns].join("\n");
+// The installation's _LVL_PC, as .prepare.json records the game.
+const gameData = (game) => path.resolve(game, "GameData", "Data", "_LVL_PC");
+
+// Whether this folder was prepared from that installation, finished or not.
+// Compared as the file system compares names: Windows and macOS fold case,
+// so C:\Games and c:\games are one copy (and its game data isn't cleared).
+export function preparedFrom(state, game, platform = process.platform) {
+  if (typeof state?.game !== "string") return false;
+  const [recorded, wanted] = [path.resolve(state.game), gameData(game)];
+  return platform === "linux" ? recorded === wanted : recorded.toLowerCase() === wanted.toLowerCase();
+}
+
+// Complete for this installation with the add-ons installed now
+// (discover.js: installedAddOns); a run that recorded others, or none before
+// add-ons were read (Jabba's Palace missed), prepares again, and only what
+// they change runs. wanted: the player's choices; Enhanced sound wanted and
+// left out before prepares only it.
+export function preparedFor(state, game, addOns = [], wanted = {}) {
+  return preparedContentCurrent(state) && preparedFrom(state, game)
+    && (Array.isArray(state.addOns) ? state.addOns : []).join("\n") === [...addOns].join("\n")
+    && !(wanted.enhancedSound === true && state.extras?.enhancedSound === false);
+}
+
+// What a finished folder lacks, for the loader: the add-on maps (or parts of
+// them) left out, and whether the Enhanced sound was left out by choice.
+export function preparedSummary(state) {
+  return {
+    addOnFailures: Array.isArray(state?.addOnFailures) ? state.addOnFailures : [],
+    enhancedSound: state?.extras?.enhancedSound !== false,
+    soundSteps: Number.isInteger(state?.extras?.soundSteps) ? state.extras.soundSteps : 0,
+    failures: Array.isArray(state?.failures) ? state.failures : [],
+  };
+}
+
+// What preparation writes into a game data folder (tools/prepare.py): all
+// of it comes from the installation it was prepared from.
+export const PREPARED_OUTPUTS = ["maps", "sides", "common", "audio", ".prepare.json"];
+
+// Before another installation is prepared into the app's own folder, what
+// the last one left goes (a modded copy's maps, say), so nothing of it
+// stays. Only the outputs above, and only when the folder was prepared from
+// another copy or from one it can't tell. Never for a folder the player
+// picked: the caller decides that. Whether anything was removed.
+export async function clearPreparedFor(content, game) {
+  const state = await readPrepareState(content);
+  if (preparedFrom(state, game)) return false;
+  let removed = false;
+  for (const name of PREPARED_OUTPUTS) {
+    const target = path.join(content, name);
+    if (!existsSync(target)) continue;
+    await fs.rm(target, { recursive: true, force: true });
+    removed = true;
+  }
+  return removed;
 }
 
 // Folds the tool's events into one snapshot the loader can draw from, even
 // after a reload.
 export function createSnapshot() {
-  return { status: "idle", total: 0, done: 0, known: false, steps: [], current: null, playable: false, failed: [], error: null, log: [], startedAt: null, game: null, running: 0, parallel: 1 };
+  return { status: "idle", total: 0, done: 0, known: false, steps: [], current: null, playable: false, failed: [], failures: [], addOnFailures: [], error: null, log: [], startedAt: null, game: null, running: 0, parallel: 1, enhancedSound: true };
 }
+
+// Steps that won't run: a tool is missing (unavailable), the player left the
+// Enhanced sound out (off), or the step is a left-out add-on map's.
+export const IDLE = new Set(["unavailable", "off", "left-out"]);
 
 export function applyEvent(snapshot, event) {
   if (event.event === "log") {
@@ -117,6 +172,8 @@ export function applyEvent(snapshot, event) {
   } else if (event.event === "finished") {
     snapshot.status = event.failed?.length ? "finished-with-errors" : "finished";
     snapshot.current = null;
+    snapshot.failures = Array.isArray(event.failures) ? event.failures : [];
+    snapshot.addOnFailures = Array.isArray(event.addOnFailures) ? event.addOnFailures : [];
   } else if (event.event === "busy") {
     snapshot.status = "busy";
     snapshot.error = event.message;
@@ -126,7 +183,7 @@ export function applyEvent(snapshot, event) {
   }
   // Progress counts the steps that can run; until the catalog has named the
   // maps (no map steps yet) there is no meaningful total.
-  const counted = snapshot.steps.filter((step) => step.status !== "unavailable");
+  const counted = snapshot.steps.filter((step) => !IDLE.has(step.status));
   snapshot.known = snapshot.steps.some((step) => step.key.startsWith("map:"));
   snapshot.total = counted.reduce((sum, step) => sum + step.weight, 0);
   snapshot.done = counted.reduce((sum, step) => sum + (["done", "failed"].includes(step.status) ? step.weight : 0), 0);
@@ -175,7 +232,7 @@ export function recordTiming(timings, step, seconds) {
 // finished steps compared with their expected times (the calibration,
 // 0.5 to 3) once three have finished.
 export function estimate(snapshot, { timings = null, now = Date.now() } = {}) {
-  const steps = (snapshot.steps || []).filter((step) => step.status !== "unavailable");
+  const steps = (snapshot.steps || []).filter((step) => !IDLE.has(step.status));
   let total = 0, done = 0, remaining = 0, measured = 0, expectedOfMeasured = 0, samples = 0;
   for (const step of steps) {
     const e = expectedSeconds(step, timings);
@@ -207,6 +264,24 @@ export function estimate(snapshot, { timings = null, now = Date.now() } = {}) {
   };
 }
 
+// Before a run, from the installation's check (tools/prepare.py --check:
+// counts, workers): about how long preparing takes ({ total, sound } in
+// seconds, sound being what the Enhanced sound adds), by the estimate above,
+// so it matches what the progress screen shows when the run starts.
+export function planEstimate({ counts, workers } = {}, { timings = null, enhancedSound = true } = {}) {
+  if (!counts) return null;
+  const step = (key) => ({ key, weight: 1, status: "pending" });
+  const steps = ["catalog", "common", "shell", "catalog-update", "environment", "hud", "textures", "movies"].map(step);
+  for (let i = 0; i < counts.sides; i++) steps.push(step(`side:${i}`));
+  for (let i = 0; i < counts.maps; i++) steps.push(step(`map:${i}`));
+  const sound = Array.from({ length: counts.sublevels || 0 }, (_, i) => step(`audio:${i}`));
+  const parallel = Math.max(1, workers || 1);
+  const seconds = (list) => estimate({ steps: list, known: true, parallel, status: "running" }, { timings }).remaining;
+  const withSound = seconds([...steps, ...sound]);
+  const without = seconds(steps);
+  return { total: enhancedSound ? withSound : without, sound: withSound - without };
+}
+
 export class Preparer {
   constructor({ paths, logFile, onEvent, timings = null, onTiming = null }) {
     this.paths = paths;
@@ -236,16 +311,56 @@ export class Preparer {
     this.onEvent?.(event, this.snapshot);
   }
 
-  async start({ game, content, jobs }) {
+  // The installation's check (tools/prepare.py --check), before anything is
+  // converted: { ok, problems, addOns, counts, workers }, or { ok: false,
+  // problems } saying the check itself couldn't run. Writes nothing.
+  check({ game, content, jobs, timeoutMs = 120000 }) {
+    return new Promise((resolve) => {
+      const args = ["-u", path.join(this.paths.tools, "prepare.py"), "--check"];
+      if (jobs) args.push("--jobs", String(jobs));
+      let output = "", settled = false, timer = null;
+      const done = (result) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const failed = (message) => done({ ok: false, problems: [{ code: "check", path: null, message }], addOns: [] });
+      let child;
+      try {
+        child = execFile(this.paths.python, args, { cwd: this.paths.tools, env: toolEnv({ toolchain: this.paths.toolchain, game, content }), windowsHide: true, maxBuffer: 16 << 20 },
+          (error, stdout) => {
+            output = stdout || output;
+            const line = String(output).split(/\r?\n/).find((entry) => entry.startsWith("@@") && entry.includes('"check"'));
+            try {
+              const event = line && JSON.parse(line.slice(2));
+              if (event?.event === "check") return done(event);
+            } catch {
+              // reported below
+            }
+            failed(`The preparation tools couldn't check this copy${error?.message ? ` (${error.message.split("\n")[0]})` : ""}.`);
+          });
+      } catch (error) {
+        return failed(`The preparation tools couldn't start (${error.message}).`);
+      }
+      timer = setTimeout(() => {
+        child.kill();
+        failed("Checking this copy took too long. Is it on a drive that's asleep or disconnected?");
+      }, timeoutMs);
+    });
+  }
+
+  async start({ game, content, jobs, enhancedSound = true }) {
     if (this.child) return;
-    this.last = { game, content, jobs };
+    this.last = { game, content, jobs, enhancedSound };
     await fs.mkdir(content, { recursive: true });
     await fs.mkdir(path.dirname(this.logFile), { recursive: true });
     const log = createWriteStream(this.logFile, { flags: "a" });
-    log.write(`\n=== ${new Date().toISOString()} prepare ${game} -> ${content}\n`);
-    this.snapshot = { ...createSnapshot(), status: "running", startedAt: Date.now(), game };
+    log.write(`\n=== ${new Date().toISOString()} prepare ${game} -> ${content}${enhancedSound ? "" : " (no Enhanced sound)"}\n`);
+    this.snapshot = { ...createSnapshot(), status: "running", startedAt: Date.now(), game, enhancedSound };
     const args = ["-u", path.join(this.paths.tools, "prepare.py")];
     if (jobs) args.push("--jobs", String(jobs));
+    if (!enhancedSound) args.push("--no-enhanced-sound");
     const child = spawn(this.paths.python, args, {
       cwd: this.paths.tools,
       env: toolEnv({ toolchain: this.paths.toolchain, game, content }),

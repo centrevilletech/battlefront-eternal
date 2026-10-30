@@ -10,13 +10,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHandler, DESKTOP_PREFIX, HOST, ORIGIN, SCHEME } from "./content.js";
-import { BF1_GOG_PAGE, BF1_STEAM_APP, findContent, findGameInstall, inspectInstall, installedAddOns } from "./discover.js";
+import { BF1_GOG_PAGE, BF1_STEAM_APP, findContent, findGameInstall, findGameInstalls, inspectInstall, installedAddOns } from "./discover.js";
 import { exportContent, importContent, relocatePreparation } from "./content-archive.js";
 import { adoptInstallerLauncher, integrateLinuxDesktop } from "./linux-integration.js";
 import { createNetworkBridge, loadNetworkIdentity } from "./network.js";
 import { createNetHost } from "./net-host.js";
 import { createHostController } from "./host.js";
-import { CONTENT_VERSION, preparedContentCurrent, Preparer, readPrepareState, toolchainPaths } from "./prepare.js";
+import { clearPreparedFor, CONTENT_VERSION, expectedSeconds, planEstimate, preparedContentCurrent, preparedSummary, Preparer, readPrepareState, toolchainPaths } from "./prepare.js";
 import { startupContent } from "./startup-content.js";
 import { createUpdater } from "./update/index.js";
 import { createPresence } from "./presence/index.js";
@@ -120,10 +120,19 @@ function likelyContentDirs() {
   ].filter(Boolean);
 }
 
-async function findInstall() {
-  const extra = [settings.gameDir, app.isPackaged ? null : path.join(projectRoot, "data", "game", "install")].filter(Boolean);
-  return findGameInstall({ extra });
-}
+// The copies of the game: the one the player chose or confirmed first
+// (gameDir), then Steam's, GOG's and any that only look like it
+// (electron/discover.js). findInstall stops at the first.
+const installOptions = () => ({ extra: [settings.gameDir, app.isPackaged ? null : path.join(projectRoot, "data", "game", "install")].filter(Boolean) });
+const findInstall = () => findGameInstall(installOptions());
+const findInstalls = () => findGameInstalls(installOptions());
+
+// Folders compare as the file system does: Windows and macOS fold case.
+const samePath = (a, b) => {
+  if (!a || !b) return false;
+  const [x, y] = [path.resolve(a), path.resolve(b)];
+  return process.platform === "linux" ? x === y : x.toLowerCase() === y.toLowerCase();
+};
 
 // ---- Preparation ----
 
@@ -159,12 +168,17 @@ async function loadTimings() {
   }
 }
 
-// What the loader shows: searching, missing (no copy found), preparing, error.
+// What the loader shows: searching, missing (no copy found), confirm (a copy
+// to prepare from, asking first), preparing, ready, error.
 let loader = { mode: "searching", install: null, message: null };
+// The confirm screen's copies and choices (askToPrepare): { copies, index,
+// content, selected, checks: dir -> check (null while it runs), enhancedSound }.
+let confirm = null;
 
 function loaderState() {
   const preparing = loader.mode === "preparing";
-  return { ...loader, hasContent: hasGameData(contentRoot()), content: contentRoot(), snapshot: preparing ? preparer.snapshot : null, estimate: preparing ? preparer.estimate() : null };
+  return { ...loader, ...(loader.mode === "confirm" && confirm ? confirmView() : {}), hasContent: hasGameData(contentRoot()), content: contentRoot(),
+    snapshot: preparing ? preparer.snapshot : null, estimate: preparing ? preparer.estimate() : null };
 }
 
 let stateTimer = null;
@@ -184,29 +198,72 @@ function setLoader(next) {
   sendState();
 }
 
-async function startPreparing(install, content = managedContentDir()) {
+// The player's choices for preparation (desktop-settings.json): the
+// Enhanced sound unless they turned it off.
+const enhancedSoundWanted = () => settings.enhancedSound !== false;
+
+// One start at a time: a second click on PREPARE or ADD ENHANCED SOUND while
+// the first is still starting joins it.
+let starting = null;
+function startPreparing(...args) {
+  starting ??= beginPreparing(...args).finally(() => { starting = null; });
+  return starting;
+}
+
+async function beginPreparing(install, content = managedContentDir(), { enhancedSound = enhancedSoundWanted() } = {}) {
   contentReady = false;
   activeContentDir = content;
+  confirm = null;
   delete settings.chosenContentDir;
   settings.preparingContentDir = content;
   settings.gameDir = install.dir;
   await saveSettings();
+  // Another copy into the app's own folder: what the last one left (a modded
+  // copy's maps, say) goes first. Never in a folder the player picked.
+  if (samePath(content, managedContentDir())) {
+    await clearPreparedFor(content, install.dir).catch((error) => console.warn("clearing the game data folder failed:", error.message));
+  }
   setLoader({ mode: "preparing", install: install.dir });
   openLoader();
   // Every core: nothing else runs while the loader is up. The tool sizes
   // what runs side by side to the memory available.
-  await preparer.start({ game: install.dir, content: activeContentDir, jobs: os.cpus().length });
+  await preparer.start({ game: install.dir, content: activeContentDir, jobs: os.cpus().length, enhancedSound });
   sendState();
+}
+
+// How the stores put back an installation's original files.
+const REPAIR = "In Steam: the game's Properties > Installed Files > Verify integrity of game files. In GOG Galaxy: the game's settings > Manage installation > Verify / Repair.";
+
+// What failed, for the error screen: each step of the game's own that
+// failed, with the line its tool ended with, and what the player can do.
+function failureMessage(state) {
+  const labels = new Map(preparer.snapshot.steps.map((step) => [step.key, step.label]));
+  const recorded = preparedSummary(state).failures;
+  const failures = recorded.length ? recorded : (state?.failed || []).map((key) => ({ key, label: labels.get(key) || key, reason: null }));
+  if (state?.skipped?.length) return `Some of the tools preparation needs are missing (${state.skipped.join(", ")}). See the preparation log for details.`;
+  if (!failures.length) return "Game data could not be fully updated. Retry preparation before playing. See the preparation log for details.";
+  const named = failures.slice(0, 3).map((failure) => `${failure.label && failure.label !== failure.key ? `${failure.label} (${failure.key})` : failure.key}${failure.reason ? `: ${failure.reason}` : ""}`);
+  if (failures.length > 3) named.push(`and ${failures.length - 3} more`);
+  return [
+    "These parts of the game could not be prepared from your copy:",
+    ...named,
+    "A game file is probably missing, changed or damaged, for example by a mod. Repair the copy, then choose TRY AGAIN, or CHOOSE FOLDER to use another copy.",
+    REPAIR,
+  ].join("\n");
 }
 
 // Only successful, current preparation can leave the loader. A failed map
 // step must not be mistaken for ready content just because common.json exists.
+// Add-on maps left out don't stop it, but the finished screen says which,
+// and waits for PLAY.
 async function finishPreparation() {
-  contentReady = preparedContentCurrent(await readPrepareState(contentRoot()));
+  const state = await readPrepareState(contentRoot());
+  contentReady = preparedContentCurrent(state);
   if (!contentReady) {
-    setLoader({ mode: "error", message: "Game data could not be fully updated. Retry preparation before playing. See the preparation log for details." });
+    setLoader({ mode: "error", message: failureMessage(state) });
     return;
   }
+  if (preparedSummary(state).addOnFailures.length) return;
   if (loaderOpen()) setTimeout(() => loaderOpen() && openMenu(), 2500);
 }
 
@@ -230,6 +287,9 @@ async function chooseContent() {
     managed: settings.preparingContentDir || managedContentDir(),
     hasGameData, findInstall, installedAddOns,
     findContent: () => findContent({ likely: likelyContentDirs(), home: app.getPath("home") }),
+    // The copy the player chose or confirmed prepares again without asking.
+    confirmed: (install) => samePath(settings.gameDir, install.dir),
+    wanted: { enhancedSound: enhancedSoundWanted() },
   });
   if (result.mode === "menu") {
     activeContentDir = result.content;
@@ -239,22 +299,155 @@ async function chooseContent() {
     contentReady = true;
     return "menu";
   }
+  if (result.mode === "confirm") {
+    await askToPrepare(result);
+    return "loader";
+  }
   if (result.mode === "prepare") {
     if ((await hosting?.("status"))?.active) throw Error("Stop your hosted server before updating game data, then retry.");
-    if (result.selected) {
-      await beginTransfer(async options => {
-        setLoader({ mode: "transfer", operation: "source" });
-        // Only verified source archives can reuse imported checkpoints.
-        const content = await preparationTarget(result.content, result.install.dir, options);
-        options.signal.throwIfAborted();
-        await startPreparing(result.install, content);
-        return true;
-      });
-    } else await startPreparing(result.install, result.content);
+    // A copy confirmed before prepares again without asking, unless it no
+    // longer passes its check: then the confirm screen says why.
+    setLoader({ mode: "searching", phase: "checking", install: result.install.dir });
+    const check = await preparer.check({ game: result.install.dir, content: result.content, jobs: os.cpus().length, timeoutMs: 60000 });
+    if (!check.ok) {
+      await askToPrepare(result, { check });
+      return "loader";
+    }
+    await prepareFrom(result.install, result.content, result.selected);
     return "loader";
   }
   setLoader({ mode: result.mode });
   return "loader";
+}
+
+// Prepares from a copy into content, or, for an imported folder, into it
+// once its source archives are verified (or into the app's own folder).
+async function prepareFrom(install, content, selected) {
+  if (!selected) return startPreparing(install, content);
+  return beginTransfer(async options => {
+    setLoader({ mode: "transfer", operation: "source" });
+    openLoader();
+    // Only verified source archives can reuse imported checkpoints.
+    const target = await preparationTarget(content, install.dir, options);
+    options.signal.throwIfAborted();
+    await startPreparing(install, target);
+    return true;
+  });
+}
+
+// ---- Asking before preparing ----
+//
+// A copy the app hasn't prepared from before is shown first (the loader's
+// confirm screen): its folder and where it was found, its check
+// (tools/prepare.py --check), the add-on maps it has, about how long
+// preparing takes, and the Enhanced sound choice. Nothing is converted until
+// the player chooses PREPARE. The choice is waited for outside chooseStart,
+// as an update's is, so the menu and the loader's other actions stay free.
+
+async function askToPrepare(result, { check = null, chosen = null } = {}) {
+  setLoader({ mode: "searching", install: result.install?.dir });
+  const found = await findInstalls().catch(() => []);
+  const first = chosen || found.find((copy) => samePath(copy.dir, result.install?.dir)) || (result.install && { source: "chosen", how: "the folder you chose", ...result.install });
+  const copies = [first, ...found.filter((copy) => !samePath(copy.dir, first?.dir))].filter(Boolean);
+  const previous = confirm;
+  confirm = {
+    copies,
+    index: 0,
+    content: result.content,
+    selected: !!result.selected,
+    checks: new Map(check ? [[first.dir, check]] : []),
+    enhancedSound: previous?.enhancedSound ?? enhancedSoundWanted(),
+  };
+  setLoader({ mode: "confirm" });
+  openLoader();
+  checkCopy(0);
+}
+
+function checkCopy(index) {
+  const ask = confirm, copy = ask?.copies[index];
+  if (!copy || ask.checks.has(copy.dir)) return;
+  ask.checks.set(copy.dir, null);
+  preparer.check({ game: copy.dir, content: ask.content, jobs: os.cpus().length }).then((result) => {
+    ask.checks.set(copy.dir, result);
+    if (confirm === ask && loader.mode === "confirm") sendState();
+  });
+}
+
+// The confirm screen's view (prepare.js draws it).
+function confirmView() {
+  const copy = confirm.copies[confirm.index];
+  const check = confirm.checks.get(copy.dir) ?? null;
+  return {
+    install: copy.dir,
+    copy: { dir: copy.dir, source: copy.source, how: copy.how },
+    copies: confirm.copies.map((entry, index) => ({ dir: entry.dir, source: entry.source, how: entry.how, selected: index === confirm.index })),
+    check,
+    enhancedSound: confirm.enhancedSound,
+    time: check?.ok ? planEstimate(check, { timings: preparer.timings, enhancedSound: confirm.enhancedSound }) : null,
+  };
+}
+
+async function confirmPrepare() {
+  const ask = confirm, copy = ask?.copies[ask.index];
+  if (!copy || !ask.checks.get(copy.dir)?.ok || preparer.running || starting) return;
+  // Asked and answered: a second click finds nothing to confirm (the screen
+  // stays as it is until the run starts).
+  confirm = null;
+  if ((await hosting?.("status"))?.active) {
+    setLoader({ mode: "error", message: "Stop your hosted server before updating game data, then retry." });
+    return;
+  }
+  settings.enhancedSound = ask.enhancedSound;
+  await prepareFrom({ dir: copy.dir }, ask.content, ask.selected);
+}
+
+// CHECK AGAIN: the copy shown, checked afresh (after Steam's or GOG's
+// repair, say).
+function recheckCopy() {
+  if (!confirm) return;
+  confirm.checks.delete(confirm.copies[confirm.index].dir);
+  checkCopy(confirm.index);
+  sendState();
+}
+
+function pickCopy(index) {
+  if (!confirm || !Number.isInteger(index) || index < 0 || index >= confirm.copies.length) return;
+  confirm.index = index;
+  sendState();
+  checkCopy(index);
+}
+
+function chooseSound(on) {
+  if (!confirm || typeof on !== "boolean") return;
+  confirm.enhancedSound = on;
+  sendState();
+}
+
+// The Enhanced sound, left out when the folder was prepared, prepared now
+// from the copy the folder was prepared from: only its steps run.
+async function addEnhancedSound() {
+  if (preparer.running || starting || forcedContentDir || settings.chosenContentDir) return;
+  const state = await readPrepareState(contentRoot());
+  const install = state?.game ? await inspectInstall(path.resolve(state.game, "..", "..", "..")) : null;
+  if (!install) {
+    setLoader({ mode: "error", message: "The Enhanced sound is made from your copy of Star Wars: Battlefront (2004), which isn't where this game data was prepared from any more. Choose its folder to prepare from it again." });
+    return;
+  }
+  if ((await hosting?.("status"))?.active) {
+    setLoader({ mode: "error", message: "Stop your hosted server before updating game data, then retry." });
+    return;
+  }
+  settings.enhancedSound = true;
+  await startPreparing(install, contentRoot(), { enhancedSound: true });
+}
+
+// The ready screen's view: what the game data in use lacks, and about how
+// long adding the Enhanced sound takes.
+async function readyView() {
+  const state = await readPrepareState(contentRoot());
+  const prepared = preparedSummary(state);
+  const canAddSound = !prepared.enhancedSound && !!state?.game && !forcedContentDir && !settings.chosenContentDir;
+  return { ...prepared, canAddSound, soundTime: canAddSound ? prepared.soundSteps * expectedSeconds({ key: "audio:" }, preparer.timings) : 0 };
 }
 
 async function preparationTarget(content, install, options) {
@@ -441,12 +634,18 @@ async function inUse() {
   }
 }
 
-// The loader's buttons.
-async function loaderAction(name) {
+// The loader's buttons; value: a copy's index (pick-copy), on or off
+// (enhanced-sound).
+async function loaderAction(name, value) {
   if (name === "update-skip") { updateAbort?.abort(); updateChoice?.(name); return; }
   if (name === "update-retry") { updateChoice?.(name); return; }
   if (name === "cancel-transfer") { transferController?.abort(); return; }
   if (transferTask) return;
+  if (name === "prepare") return confirmPrepare();
+  if (name === "pick-copy") return pickCopy(value);
+  if (name === "recheck") return recheckCopy();
+  if (name === "enhanced-sound") return chooseSound(value);
+  if (name === "add-sound") return addEnhancedSound();
   if (name === "import" || name === "export") return runContentTransfer(name);
   if (name === "play") { contentReady = false; return openMenu(); }
   if (name === "steam") return shell.openExternal(`https://store.steampowered.com/app/${BF1_STEAM_APP}/`);
@@ -476,20 +675,12 @@ async function chooseFolder() {
       openLoader();
       return;
     }
+    // Shown first, with its check: PREPARE starts it. An imported folder is
+    // prepared into once the copy's archives match its record.
     const imported = settings.chosenContentDir;
-    if (imported && existsSync(path.join(imported, ".bfe-import.json"))) {
-      return beginTransfer(async options => {
-        setLoader({ mode: "transfer", operation: "source" });
-        openLoader();
-        const target = await preparationTarget(imported, install.dir, options);
-        options.signal.throwIfAborted();
-        delete settings.chosenContentDir;
-        await startPreparing(install, target);
-        return true;
-      });
-    }
-    delete settings.chosenContentDir;
-    return startPreparing(install);
+    const fromImport = !!imported && existsSync(path.join(imported, ".bfe-import.json"));
+    return askToPrepare({ install, content: fromImport ? imported : managedContentDir(), selected: fromImport },
+      { chosen: { ...install, source: "chosen", how: "the folder you chose" } });
   }
   if (hasGameData(dir)) {
     delete settings.preparingContentDir;
@@ -661,12 +852,13 @@ function registerIpc() {
     return {
       version: app.getVersion(),
       wanted: { maps: CONTENT_VERSION.maps, sides: CONTENT_VERSION.sides, common: CONTENT_VERSION.common ?? null },
-      prepared: state ? { maps: state.mapImportVersion ?? null, sides: state.muzzleVersion ?? null, common: state.commonVersion ?? null, current: preparedContentCurrent(state) } : null,
+      prepared: state ? { maps: state.mapImportVersion ?? null, sides: state.muzzleVersion ?? null, common: state.commonVersion ?? null, current: preparedContentCurrent(state),
+        enhancedSound: preparedSummary(state).enhancedSound } : null,
     };
   });
-  ipcMain.handle("bfe:prepare-action", async (event, name) => {
+  ipcMain.handle("bfe:prepare-action", async (event, name, value) => {
     if (!fromTrustedFrame(event) || typeof name !== "string") return false;
-    await loaderAction(name);
+    await loaderAction(name, typeof value === "number" || typeof value === "boolean" ? value : undefined);
     return true;
   });
 }
@@ -680,7 +872,7 @@ const loaderOpen = () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow
 async function openMenu() {
   if (transferTask) return;
   if (!contentReady && (await chooseStart()) !== "menu") { openLoader(); return; }
-  if (!preparer.running && hasGameData(contentRoot())) setLoader({ mode: "ready" });
+  if (!preparer.running && hasGameData(contentRoot())) setLoader({ mode: "ready", prepared: await readyView() });
   mainWindow?.loadURL(`${devUrl || ORIGIN}/${!MENU_QUERY || MENU_QUERY.startsWith("?") ? MENU_QUERY : "?" + MENU_QUERY}`);
 }
 

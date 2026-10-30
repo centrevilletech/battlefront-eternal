@@ -2,7 +2,10 @@
 // CommonJS. Keep this narrow: no filesystem, shell or socket access.
 const { contextBridge, ipcRenderer } = require("electron");
 
-const ACTIONS = new Set(["play", "retry", "search", "choose", "steam", "gog", "import", "export", "cancel-transfer", "update-skip", "update-retry"]);
+const ACTIONS = new Set(["play", "retry", "search", "choose", "steam", "gog", "import", "export", "cancel-transfer", "update-skip", "update-retry",
+  "prepare", "pick-copy", "recheck", "enhanced-sound", "add-sound"]);
+// An action's value: a copy's index (pick-copy) or on and off (enhanced-sound).
+const actionValue = (value) => (typeof value === "number" || typeof value === "boolean" ? value : undefined);
 
 // Delivered to this page's own origin only.
 const pageOrigin = () => (window.location.origin && window.location.origin !== "null" ? window.location.origin : "*");
@@ -44,7 +47,7 @@ contextBridge.exposeInMainWorld("bfeDesktop", {
   // The first-run loader (electron/ui/prepare.js).
   prepare: {
     state: () => ipcRenderer.invoke("bfe:prepare-state"),
-    action: (name) => (ACTIONS.has(name) ? ipcRenderer.invoke("bfe:prepare-action", name) : Promise.resolve(false)),
+    action: (name, value) => (ACTIONS.has(name) ? ipcRenderer.invoke("bfe:prepare-action", name, actionValue(value)) : Promise.resolve(false)),
     onState: (callback) => {
       const listener = (_event, state) => callback(state);
       ipcRenderer.on("bfe:prepare-state", listener);

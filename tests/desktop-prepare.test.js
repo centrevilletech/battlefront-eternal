@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
-import { CONTENT_VERSION, applyEvent, createSnapshot, estimate, EXPECTED, expectedSeconds, preparedFor, Preparer, recordTiming, toolchainPaths, toolEnv } from "../electron/prepare.js";
+import { existsSync, readFileSync } from "node:fs";
+import { CONTENT_VERSION, applyEvent, clearPreparedFor, createSnapshot, estimate, EXPECTED, expectedSeconds, planEstimate, preparedContentCurrent, preparedFor, preparedFrom, preparedSummary, Preparer, recordTiming, toolchainPaths, toolEnv } from "../electron/prepare.js";
 
 const temp = mkdtempSync(path.join(tmpdir(), "bfe-prepare-"));
 after(() => rmSync(temp, { recursive: true, force: true }));
@@ -169,4 +170,124 @@ test("runs a preparation script and reports its events and exit", { skip: proces
   assert.match(preparer.snapshot.log[0], /working in .*out/);
   assert.deepEqual(preparer.timings, { catalog: [1.5] });
   assert.equal(preparer.estimate().fraction, 1);
+});
+
+test("a run's own statuses: the Enhanced sound off and add-on steps left out don't count toward progress", () => {
+  const snapshot = createSnapshot();
+  const step = (key) => ({ key, phase: "core", label: key, weight: 2, available: true });
+  applyEvent(snapshot, { event: "plan", total: 0, steps: [step("catalog"), step("map:nab2"), step("map:mod1"), step("audio:nab2cw")] });
+  applyEvent(snapshot, { event: "step", key: "audio:nab2cw", status: "off" });
+  applyEvent(snapshot, { event: "step", key: "map:mod1", status: "left-out" });
+  assert.equal(snapshot.total, 4);
+  applyEvent(snapshot, { event: "step", key: "catalog", status: "done" });
+  applyEvent(snapshot, { event: "step", key: "map:nab2", status: "done" });
+  assert.equal(snapshot.done, 4);
+  assert.deepEqual(snapshot.failed, [], "left out is not failed");
+  const left = [{ addOn: "Mod", map: "mod1", name: "MOD ONE", part: "map", step: "map:mod1", reason: "no archive" }];
+  applyEvent(snapshot, { event: "finished", failed: [], failures: [], addOnFailures: left });
+  assert.equal(snapshot.status, "finished");
+  assert.deepEqual(snapshot.addOnFailures, left);
+  assert.equal(estimate(snapshot).fraction, 1);
+});
+
+test("the gate: the chosen profile complete, add-on maps left out, the game's own failures not", () => {
+  const game = "/games/Star Wars Battlefront";
+  const state = { version: CONTENT_VERSION.state, mapImportVersion: CONTENT_VERSION.maps, muzzleVersion: CONTENT_VERSION.sides, commonVersion: CONTENT_VERSION.common, complete: true, failed: [], skipped: [], game: `${game}/GameData/Data/_LVL_PC`, addOns: [] };
+  const without = { ...state, extras: { enhancedSound: false, soundSteps: 30 } };
+  assert.equal(preparedContentCurrent(without), true);
+  assert.equal(preparedFor(without, game, [], { enhancedSound: false }), true);
+  assert.equal(preparedFor(without, game, [], { enhancedSound: true }), false, "wanted again: prepare only it");
+  assert.equal(preparedFor(without, game), true, "no wish given: as prepared");
+  assert.equal(preparedFor({ ...state, addOnFailures: [{ map: "mod1" }] }, game), true);
+  assert.equal(preparedFor({ ...state, failed: ["map:nab2"], failures: [{ key: "map:nab2" }] }, game), false);
+  assert.equal(preparedFrom(state, game), true);
+  assert.equal(preparedFrom({ ...state, complete: false, mapImportVersion: 1 }, game), true, "finished or not");
+  assert.equal(preparedFrom(state, "/elsewhere"), false);
+  assert.equal(preparedFrom(state, game.toUpperCase(), "win32"), true, "Windows folds case");
+  assert.equal(preparedFrom(state, game.toUpperCase(), "linux"), false);
+  assert.equal(preparedFrom(null, game), false);
+  assert.deepEqual(preparedSummary(without), { addOnFailures: [], enhancedSound: false, soundSteps: 30, failures: [] });
+  assert.deepEqual(preparedSummary(null), { addOnFailures: [], enhancedSound: true, soundSteps: 0, failures: [] });
+});
+
+test("another copy prepared into a folder clears what the last one left there, only preparation's own outputs", async () => {
+  const content = path.join(temp, "clear-content");
+  const game = path.join(temp, "clear-copy-a");
+  const fill = (state) => {
+    for (const name of ["maps/mod1", "sides/rep", "common/shell", "audio/enhanced"]) mkdirSync(path.join(content, name), { recursive: true });
+    writeFileSync(path.join(content, "maps/mod1/map.json"), "{}");
+    writeFileSync(path.join(content, ".prepare.json"), JSON.stringify(state));
+    writeFileSync(path.join(content, "keep.txt"), "not preparation's");
+    mkdirSync(path.join(content, ".locks"), { recursive: true });
+  };
+  fill({ game: path.join(game, "GameData", "Data", "_LVL_PC") });
+  assert.equal(await clearPreparedFor(content, game), false, "the same copy keeps everything (it resumes)");
+  assert.ok(existsSync(path.join(content, "maps/mod1/map.json")));
+  assert.equal(await clearPreparedFor(content, path.join(temp, "clear-copy-b")), true);
+  for (const name of ["maps", "sides", "common", "audio", ".prepare.json"]) assert.equal(existsSync(path.join(content, name)), false, name);
+  assert.equal(readFileSync(path.join(content, "keep.txt"), "utf8"), "not preparation's");
+  assert.ok(existsSync(path.join(content, ".locks")));
+  // Outputs nobody recorded (no .prepare.json) can't be told apart: they go too.
+  fill({});
+  rmSync(path.join(content, ".prepare.json"));
+  assert.equal(await clearPreparedFor(content, game), true);
+  assert.equal(existsSync(path.join(content, "maps")), false);
+  assert.equal(await clearPreparedFor(path.join(temp, "clear-nothing"), game), false);
+});
+
+test("before a run, the check's counts give about how long it takes and what the Enhanced sound adds", () => {
+  const check = { counts: { maps: 17, sides: 11, sublevels: 30 }, workers: 6 };
+  const time = planEstimate(check);
+  const fixed = EXPECTED.catalog + EXPECTED.common + EXPECTED.shell + EXPECTED["catalog-update"] + EXPECTED.environment + EXPECTED.hud + EXPECTED.textures + EXPECTED.movies;
+  assert.ok(Math.abs(time.sound - 30 * EXPECTED.audio) < 1e-6);
+  assert.ok(Math.abs(time.total - (fixed + (11 * EXPECTED.side + 17 * EXPECTED.map) / 6 + 30 * EXPECTED.audio)) < 1e-6);
+  assert.ok(Math.abs(planEstimate(check, { enhancedSound: false }).total - (time.total - time.sound)) < 1e-6);
+  // This machine's own measurements count, as during the run.
+  assert.ok(Math.abs(planEstimate(check, { timings: { audio: [10] } }).sound - 300) < 1e-6);
+  assert.equal(planEstimate({}), null);
+});
+
+test("the check runs the tools' --check and returns its event, or says why it couldn't", { skip: process.platform === "win32" }, async () => {
+  const tools = path.join(temp, "check-tools");
+  mkdirSync(tools, { recursive: true });
+  writeFileSync(path.join(tools, "prepare.py"), [
+    "import json, os, sys",
+    "assert '--check' in sys.argv",
+    "print('reading', os.environ['BFE_GAME_DIR'])",
+    "print('@@' + json.dumps({'event': 'check', 'ok': os.environ['BFE_GAME_DIR'] == '/good', 'problems': [], 'addOns': [], 'counts': {'maps': 1, 'sides': 2, 'sublevels': 3}, 'workers': 2}))",
+    "sys.exit(0 if os.environ['BFE_GAME_DIR'] == '/good' else 1)",
+  ].join("\n"));
+  const preparer = new Preparer({ paths: { python: "python3", tools, toolchain: path.join(temp, "none") }, logFile: path.join(temp, "logs", "check.log") });
+  const good = await preparer.check({ game: "/good", content: path.join(temp, "check-out") });
+  assert.equal(good.ok, true);
+  assert.deepEqual(good.counts, { maps: 1, sides: 2, sublevels: 3 });
+  assert.equal((await preparer.check({ game: "/bad", content: path.join(temp, "check-out") })).ok, false);
+  assert.equal(existsSync(path.join(temp, "check-out")), false, "a check writes nothing");
+  writeFileSync(path.join(tools, "prepare.py"), "import time\ntime.sleep(30)\n");
+  const slow = await preparer.check({ game: "/good", content: temp, timeoutMs: 300 });
+  assert.equal(slow.ok, false);
+  assert.match(slow.problems[0].message, /took too long/);
+  const missing = new Preparer({ paths: { python: path.join(temp, "no-python"), tools, toolchain: temp }, logFile: path.join(temp, "logs", "check.log") });
+  const none = await missing.check({ game: "/good", content: temp });
+  assert.equal(none.ok, false);
+  assert.match(none.problems[0].message, /couldn't check/);
+});
+
+test("a run without the Enhanced sound asks the tools to leave it out", { skip: process.platform === "win32" }, async () => {
+  const tools = path.join(temp, "flag-tools");
+  mkdirSync(tools, { recursive: true });
+  writeFileSync(path.join(tools, "prepare.py"), [
+    "import json, sys",
+    "print('@@' + json.dumps({'event': 'finished', 'failed': [], 'args': sys.argv[1:]}))",
+  ].join("\n"));
+  for (const [enhancedSound, flagged] of [[false, true], [true, false]]) {
+    const events = [];
+    const preparer = new Preparer({ paths: { python: "python3", tools, toolchain: path.join(temp, "none") }, logFile: path.join(temp, "logs", "flag.log"), onEvent: (event) => events.push(event) });
+    const finished = new Promise((resolve) => { preparer.onEvent = (event) => { events.push(event); if (event.event === "finished") resolve(); }; });
+    await preparer.start({ game: "/g", content: path.join(temp, "flag-out"), jobs: 2, enhancedSound });
+    await finished;
+    assert.equal(events.find((event) => event.event === "finished").args.includes("--no-enhanced-sound"), flagged);
+    assert.equal(preparer.snapshot.enhancedSound, enhancedSound);
+    assert.equal(preparer.last.enhancedSound, enhancedSound, "a busy retry keeps the choice");
+  }
 });
