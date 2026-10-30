@@ -18,8 +18,12 @@ loader does on Windows (Tat3 spells them _lvl_pc and Side).
 
 The tools read the installation through the functions here, so an add-on
 is found, cataloged and extracted like the stock maps, whatever its name.
+An add-on whose own files can't be read (tools/prepare.py checks each one
+before a run) is left out of the run: BFE_SKIP_ADDONS names it, and then
+none of the functions here returns it or anything of its.
 """
 
+import os
 import re
 import struct
 from collections import namedtuple
@@ -55,20 +59,28 @@ def child(base, *parts):
     return at
 
 
-def add_ons(game=GAME):
+def skipped():
+    """The add-ons this run leaves out (BFE_SKIP_ADDONS: their names, lower
+    case, separated by commas)."""
+    return {name.strip().lower() for name in os.environ.get("BFE_SKIP_ADDONS", "").split(",") if name.strip()}
+
+
+def add_ons(game=GAME, everything=False):
     """The installed add-ons in name order: (name, folder, its Data/_LVL_PC,
     its addme.script). game is the stock Data/_LVL_PC; the add-ons are in
     GameData/AddOn beside it. A folder without addme.script or Data/_LVL_PC
-    isn't one: the game skips it."""
+    isn't one: the game skips it. Those the run leaves out (skipped) are
+    not returned unless everything is asked for."""
     found = []
     folder = child(Path(game).parents[1], "AddOn")
     try:
         entries = sorted((entry for entry in folder.iterdir() if entry.is_dir()), key=lambda p: p.name.lower()) if folder else []
     except OSError:
         entries = []
+    left_out = set() if everything else skipped()
     for entry in entries:
         script, root = child(entry, "addme.script"), child(entry, "Data", "_LVL_PC")
-        if script and root:
+        if script and root and entry.name.lower() not in left_out:
             found.append(AddOn(entry.name.lower(), entry, root, script))
     return found
 
@@ -187,6 +199,17 @@ def localization(game=GAME, language="english"):
     return table
 
 
+def add_on_maps(add_on, key=LISTS[0]):
+    """The entries one add-on's addme script appends to one of the shell's
+    lists (listed_maps); raises when the script can't be read."""
+    out = []
+    for chunk in mission_scripts(add_on.script.read_bytes()).values():
+        found = global_tables(load(chunk), env={name: {} for name in LISTS}, builtins={"getn": getn})
+        out += [{**item, "addOn": add_on.name} for item in found.get(key) or []
+                if isinstance(item, dict) and isinstance(item.get("mapluafile"), str)]
+    return out
+
+
 def listed_maps(game=GAME, key=LISTS[0]):
     """The entries the add-ons' addme scripts append to one of the shell's
     lists, in add-on order: the stock missionlist's fields (mapluafile,
@@ -195,10 +218,7 @@ def listed_maps(game=GAME, key=LISTS[0]):
     out = []
     for add_on in add_ons(game):
         try:
-            for chunk in mission_scripts(add_on.script.read_bytes()).values():
-                found = global_tables(load(chunk), env={name: {} for name in LISTS}, builtins={"getn": getn})
-                out += [{**item, "addOn": add_on.name} for item in found.get(key) or []
-                        if isinstance(item, dict) and isinstance(item.get("mapluafile"), str)]
+            out += add_on_maps(add_on, key)
         except (OSError, ValueError, IndexError, struct.error):
             print(f"  add-on {add_on.name}: addme.script unreadable", flush=True)
     return out

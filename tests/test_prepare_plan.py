@@ -65,6 +65,21 @@ class PlanTests(unittest.TestCase):
         self.assertFalse(has_maps)
         self.assertEqual([k for k, *_ in steps if k in ("common", "shell", "catalog-update")], [])
 
+    def test_an_add_ons_steps_name_its_maps_and_the_games_none(self):
+        maps = MAPS + [{"id": "abc1", "name": "ABC: Test", "eras": {"cw": {"teams": ["rep", "cis"]}}}]
+        locals_of = {**LOCALS, "abc1": ["abc"]}
+        steps, _ = prepare.plan(8, maps=maps, locals_of=locals_of, sublevels={"abc1": ["abc1cw"], "geo1": ["geo1cw"]},
+                                add_on_maps={"abc1"})
+        owners = {item[0]: prepare.needs(item)["maps"] for item in steps}
+        self.assertEqual(owners["map:abc1"], ("abc1",))
+        self.assertEqual(owners["side:abc"], ("abc1",), "an army only the add-on fields is the add-on's")
+        self.assertEqual(owners["side:rep"], (), "the game's own armies stay the game's")
+        self.assertEqual(owners["audio:abc1cw"], ("abc1",))
+        self.assertEqual(owners["audio:geo1cw"], ())
+        for key in ("catalog", "common", "shell", "map:geo1", "movies", "environment", "catalog-update"):
+            self.assertEqual(owners[key], ())
+        self.assertEqual({item[0]: item[2] for item in steps}["movies"], "Converting the movies")
+
     def test_map_sides_keep_era_order_then_locals(self):
         self.assertEqual(prepare.map_sides(MAPS[0], LOCALS), ["rep", "cis", "all", "imp"])
         self.assertEqual(prepare.map_sides(MAPS[2], LOCALS), ["all", "imp", "ewk"])
@@ -76,7 +91,9 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(after["map:bes1"], ("catalog",))
         self.assertEqual(after["common"], ("side:",))
         self.assertEqual(after["shell"], ("common",))
-        self.assertEqual(after["catalog-update"], ("map:",))
+        # After the armies too: one only add-on maps field that fails leaves them out.
+        self.assertEqual(after["catalog-update"], ("map:", "side:"))
+        self.assertEqual(after["environment"], ("map:", "side:"))
         self.assertEqual(after["hud"], ("shell",))
         self.assertEqual(after["audio:bes1cw"], ("map:bes1",))
         self.assertEqual(after["audio:bes1gcw"], ("map:bes1",))

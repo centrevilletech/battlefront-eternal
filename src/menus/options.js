@@ -111,7 +111,7 @@ export const OPTIONS = [
   { key: "voiceVolume", page: "audio", label: "SPEECH VOLUME", labelKey: "ifs.soundopt.speechvol", kind: "slider", apply: "live", min: 0, max: 1, step: 0.05, format: percent },
   { key: "ambienceVolume", page: "audio", label: "AMBIENCE VOLUME", kind: "slider", apply: "live", min: 0, max: 1, step: 0.05, format: percent },
   { key: "interfaceVolume", page: "audio", label: "INTERFACE VOLUME", kind: "slider", apply: "live", min: 0, max: 1, step: 0.05, format: percent },
-  { key: "audioQuality", page: "audio", label: "SOUND", kind: "choice", apply: "live",
+  { key: "audioQuality", page: "audio", label: "SOUND", kind: "choice", apply: "live", note: () => enhancedSoundNote(),
     choices: AUDIO_QUALITIES.map(([k]) => [k, k === "enhanced" ? "ENHANCED" : "CLASSIC"]) },
   { key: "audioOutput", page: "audio", label: "OUTPUT MODE", labelKey: "ifs.soundopt.outputmode.title", kind: "choice", apply: "live",
     choices: AUDIO_OUTPUTS.map(([k, label]) => [k, SHORT[k] || upper(label)]) },
@@ -156,13 +156,28 @@ export const NOTES = {
   battle: "TAKES EFFECT WHEN A BATTLE STARTS (RESTART MISSION)",
   battleShell: "TAKES EFFECT WHEN A BATTLE STARTS",
   fixed: "THE BATTLE ALWAYS RUNS AT 60 HZ",
+  enhancedSound: "ENHANCED SOUND ISN'T PREPARED: GAME MENU (ALT) > GAME DATA PREPARATION ADDS IT",
 };
+
+// The SOUND row's note when the desktop client prepared the game data
+// without the Enhanced sound (the player's choice there): ENHANCED keeps the
+// 2026 sound stage over the original recordings, and the loader's ADD
+// ENHANCED SOUND prepares them. Asked of the desktop once; null meanwhile.
+const preparedOf = new WeakMap();
+export function enhancedSoundNote(desktop = globalThis.bfeDesktop) {
+  if (typeof desktop?.about !== "function") return null;
+  if (!preparedOf.has(desktop)) {
+    preparedOf.set(desktop, null);
+    desktop.about().then((about) => preparedOf.set(desktop, about?.prepared ?? null), () => {});
+  }
+  return preparedOf.get(desktop)?.enhancedSound === false ? NOTES.enhancedSound : null;
+}
 
 // An entry as an option row over a Settings: its label and choices in the
 // strings given (common.json's), else English. inBattle: the notes say so.
 export function optionRow(entry, settings, { strings = {}, inBattle = false } = {}) {
   const say = (key, fallback) => (key && strings[key]) || fallback;
-  const note = entry.apply === "map" ? NOTES.map : entry.apply === "battle" ? (inBattle ? NOTES.battle : NOTES.battleShell) : entry.apply === "fixed" ? NOTES.fixed : null;
+  const note = entry.note ?? (entry.apply === "map" ? NOTES.map : entry.apply === "battle" ? (inBattle ? NOTES.battle : NOTES.battleShell) : entry.apply === "fixed" ? NOTES.fixed : null);
   return new OptionRow({
     id: entry.key,
     key: entry.key,

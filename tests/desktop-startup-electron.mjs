@@ -1,5 +1,12 @@
 // Electron startup wiring with real discovery/import/source verification and a
 // controlled preparer. Run in an isolated checkout without public game data.
+//
+//   PLAYWRIGHT_MODULE=<playwright>/index.mjs BFE_ELECTRON=<electron binary> \
+//     xvfb-run -a node tests/desktop-startup-electron.mjs
+//
+// The preparer and its check (tools/prepare.py --check) are stood in for, so
+// no retail data is needed: finishRepair(success, extra) ends a run as the
+// tool would, writing .prepare.json, and checkResult is what a check finds.
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -36,38 +43,72 @@ try {
   // actions cannot expose old content while the preparer owns it.
   await fs.writeFile(bootstrap, `
     const {app}=require('electron');
-    app.setPath('home',${JSON.stringify(home)}); app.setPath('userData',${JSON.stringify(data)});
+    app.setPath('home',process.env.TEST_HOME); app.setPath('userData',process.env.TEST_DATA);
     (async()=>{
       const {Preparer,CONTENT_VERSION}=await import(${JSON.stringify(pathToFileURL(path.join(root, 'electron/prepare.js')).href)});
       const fs=require('node:fs/promises'),path=require('node:path');
+      global.checks=[];
+      // TEST_CHECK: what the checks find from the start (the startup check runs before a test can set checkResult).
+      global.checkResult=process.env.TEST_CHECK?JSON.parse(process.env.TEST_CHECK):null;
+      Preparer.prototype.check=async function(options){
+        global.checks.push(options.game);
+        return global.checkResult||{event:'check',ok:true,problems:[],addOns:[{name:'tat3',folder:'Tat3',maps:[{id:'tat3',name:'TATOOINE: JABBA',problems:[]}],problems:[]}],counts:{maps:17,sides:11,sublevels:30},workers:4};
+      };
       Preparer.prototype.start=async function(options){
         this.child={}; this.last=options; global.repairOptions=options;
+        this.snapshot={...this.snapshot,status:'running',enhancedSound:options.enhancedSound!==false,steps:[],failed:[],addOnFailures:[]};
         const state=JSON.parse(await fs.readFile(path.join(options.content,'.prepare.json'),'utf8').catch(()=>'{}'));
         global.repairState=state;
-        global.finishRepair=async success=>{
+        global.finishRepair=async (success,extra={})=>{
           await fs.mkdir(path.join(options.content,'common'),{recursive:true});
           await fs.writeFile(path.join(options.content,'common/common.json'),'{}');
-          await fs.writeFile(path.join(options.content,'.prepare.json'),JSON.stringify({...state,version:CONTENT_VERSION.state,mapImportVersion:CONTENT_VERSION.maps,muzzleVersion:CONTENT_VERSION.sides,commonVersion:CONTENT_VERSION.common,game:path.join(options.game,'GameData/Data/_LVL_PC'),addOns:[],complete:true,failed:success?[]:['map:nab2'],skipped:[]}));
-          this.child=null; this.emit({event:'finished',failed:success?[]:['map:nab2']});
+          const failures=success?[]:[{key:'map:nab2',label:'Naboo: Theed',reason:'no archive for nab2: expected GameData/Data/_LVL_PC/NAB/nab2.lvl'}];
+          await fs.writeFile(path.join(options.content,'.prepare.json'),JSON.stringify({...state,version:CONTENT_VERSION.state,mapImportVersion:CONTENT_VERSION.maps,muzzleVersion:CONTENT_VERSION.sides,commonVersion:CONTENT_VERSION.common,game:path.join(options.game,'GameData/Data/_LVL_PC'),addOns:[],complete:true,failed:failures.map(f=>f.key),failures,skipped:[],extras:{enhancedSound:options.enhancedSound!==false,soundSteps:options.enhancedSound===false?30:0},addOnFailures:[],...extra}));
+          this.child=null; this.emit({event:'finished',failed:failures.map(f=>f.key),failures,addOnFailures:extra.addOnFailures||[]});
         };
       };
       Preparer.prototype.stop=function(){this.child=null;};
       await import(${JSON.stringify(pathToFileURL(path.join(root, 'electron/main.js')).href)});
     })();
   `);
-  const launch = () => _electron.launch({ env: { ...process.env, HOME: home, USERPROFILE: home, BFE_CONTENT_DIR: '', BFE_DEV_URL: '' }, executablePath: process.env.BFE_ELECTRON || path.join(root, 'node_modules/electron/dist/electron'), args: [bootstrap, '--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'], timeout: 60000 });
+  const launch = ({ testHome = home, testData = data } = {}) => _electron.launch({ env: { ...process.env, HOME: testHome, USERPROFILE: testHome, TEST_HOME: testHome, TEST_DATA: testData, BFE_CONTENT_DIR: '', BFE_DEV_URL: '' }, executablePath: process.env.BFE_ELECTRON || path.join(root, 'node_modules/electron/dist/electron'), args: [bootstrap, '--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'], timeout: 60000 });
+  const loaderState = (page) => page.evaluate(() => window.bfeDesktop.prepare.state());
+  // Polls the loader's state until mode (and test(state)) hold. Not
+  // page.waitForFunction: a predicate's promise counts as truthy at once.
+  const waitMode = async (page, mode, test = () => true, timeout = 30000) => {
+    const deadline = Date.now() + timeout;
+    for (;;) {
+      const state = await loaderState(page).catch(() => null);
+      if (state?.mode === mode && test(state)) return state;
+      if (Date.now() > deadline) throw Error(`timed out waiting for ${mode}: ${JSON.stringify(state)?.slice(0, 400)}`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  };
+
+  // A copy the player chose before (gameDir) repairs an old import without
+  // asking, its check passing first.
   app = await launch(); let page = await app.firstWindow();
-  await page.waitForFunction(() => window.bfeDesktop.prepare.state().then(s => s.mode === 'preparing'));
+  await waitMode(page, 'preparing');
+  assert.deepEqual(await app.evaluate(() => global.checks), [game]);
   assert.equal((await app.evaluate(() => global.repairOptions)).content, imported.path);
   assert.deepEqual((await app.evaluate(() => global.repairState)).done, oldState.done);
   assert.equal((await app.evaluate(() => global.repairState)).game, path.join(game, 'GameData/Data/_LVL_PC'));
   await page.evaluate(() => window.bfeDesktop.prepare.action('play'));
   assert.ok(page.url().includes('__desktop'));
+  // A failed map of the game's own still blocks, and says what failed and what to do.
   await app.evaluate(() => global.finishRepair(false));
   await page.getByText('SOMETHING WENT WRONG', { exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'PLAY', exact: true }).count(), 0);
+  const message = (await loaderState(page)).message;
+  assert.match(message, /Naboo: Theed \(map:nab2\): no archive for nab2/);
+  assert.match(message, /Verify integrity of game files/);
+  // A check that couldn't run (here, too slow) says nothing about the copy:
+  // the copy confirmed before prepares again all the same.
+  process.env.TEST_CHECK = JSON.stringify({ event: 'check', ok: false, unavailable: true, problems: [{ code: 'check', path: null, message: "Checking this copy took too long. Is it on a drive that's asleep or disconnected?" }], addOns: [] });
   await app.close(); app = await launch(); page = await app.firstWindow();
-  await page.waitForFunction(() => window.bfeDesktop.prepare.state().then(s => s.mode === 'preparing'));
+  delete process.env.TEST_CHECK;
+  await waitMode(page, 'preparing');
+  assert.deepEqual(await app.evaluate(() => global.checks), [game]);
   assert.equal((await app.evaluate(() => global.repairOptions)).content, imported.path);
   await app.evaluate(() => global.finishRepair(true));
   await page.waitForURL(url => !url.pathname.includes('__desktop'));
@@ -80,9 +121,112 @@ try {
   await fs.writeFile(path.join(imported.path, '.prepare.json'), JSON.stringify({ ...oldState, game: path.join(game, 'GameData/Data/_LVL_PC') }));
   await fs.writeFile(path.join(game, 'GameData/Data/_LVL_PC/Common/ENG/common.lvl'), 'different archives');
   await setSettings(); app = await launch(); page = await app.firstWindow();
-  await page.waitForFunction(() => window.bfeDesktop.prepare.state().then(s => s.mode === 'preparing'));
+  await waitMode(page, 'preparing');
   assert.notEqual((await app.evaluate(() => global.repairOptions)).content, imported.path);
   assert.deepEqual(await app.evaluate(() => global.repairState), {});
   assert.equal(JSON.parse(await fs.readFile(path.join(imported.path, '.prepare.json'))).mapImportVersion, oldState.mapImportVersion);
-  console.log('PASS: automatic imported repair, source verification, menu gate, failure/restart recovery, current restart, and changed-source isolation');
+  await app.close();
+
+  // A first run: Steam's copy found (a copy placed by hand beside it too),
+  // and nothing starts before the player says so.
+  const freshHome = path.join(temp, 'fresh-home'), freshData = path.join(temp, 'fresh-data');
+  const library = path.join(freshHome, '.local/share/Steam');
+  const steamGame = path.join(library, 'steamapps/common/Star Wars Battlefront (Classic 2004)');
+  const stray = path.join(library, 'steamapps/common/SWBF Copy');
+  await fs.mkdir(freshData, { recursive: true });
+  await fs.cp(oldGame, steamGame, { recursive: true });
+  await fs.cp(oldGame, stray, { recursive: true });
+  await fs.writeFile(path.join(library, 'steamapps/appmanifest_1058020.acf'), '"AppState" { "installdir" "Star Wars Battlefront (Classic 2004)" }');
+  // The app's folder holds what the copy placed by hand left (a modded map).
+  const managed = path.join(freshData, 'game-data');
+  await fs.mkdir(path.join(managed, 'maps/oldmod'), { recursive: true });
+  await fs.mkdir(path.join(managed, 'common'), { recursive: true });
+  await fs.writeFile(path.join(managed, 'maps/oldmod/map.json'), '{}');
+  await fs.writeFile(path.join(managed, 'common/common.json'), '{}');
+  await fs.writeFile(path.join(managed, '.prepare.json'), JSON.stringify({ ...oldState, mapImportVersion: CONTENT_VERSION.maps, game: path.join(stray, 'GameData/Data/_LVL_PC'), addOns: [] }));
+  app = await launch({ testHome: freshHome, testData: freshData }); page = await app.firstWindow();
+  await waitMode(page, 'confirm', (s) => s.check?.ok);
+  await page.getByText('STAR WARS BATTLEFRONT FOUND', { exact: true }).waitFor();
+  let view = await loaderState(page);
+  assert.equal(view.install, steamGame);
+  assert.deepEqual(view.copy, { dir: steamGame, source: 'steam', how: 'your Steam library' });
+  assert.deepEqual(view.copies.map((copy) => [copy.dir, copy.source]), [[steamGame, 'steam'], [stray, 'folder']]);
+  assert.equal(view.enhancedSound, true);
+  assert.ok(view.time.total > view.time.sound && view.time.sound > 0);
+  await page.getByText('TATOOINE: JABBA (Tat3)', { exact: true }).waitFor();
+  assert.equal(await app.evaluate(() => !!global.repairOptions), false, 'nothing is prepared before PREPARE');
+  // A check that fails offers no PREPARE; CHECK AGAIN after a repair does.
+  await app.evaluate(() => { global.checkResult = { event: 'check', ok: false, problems: [{ code: 'missing', path: 'GameData/Data/_LVL_PC/SIDE/rep.lvl', message: 'GameData/Data/_LVL_PC/SIDE/rep.lvl (an army) is missing.' }], addOns: [] }; });
+  await page.evaluate(() => window.bfeDesktop.prepare.action('recheck'));
+  await page.getByText("THIS COPY CAN'T BE PREPARED", { exact: true }).waitFor();
+  await page.getByText('GameData/Data/_LVL_PC/SIDE/rep.lvl (an army) is missing.', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'PREPARE', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'PREPARE ANYWAY', exact: true }).count(), 0);
+  // A check that couldn't run blames nothing on the copy: PREPARE ANYWAY,
+  // and no repair advice.
+  await app.evaluate(() => { global.checkResult = { event: 'check', ok: false, unavailable: true, problems: [{ code: 'check', path: null, message: "The preparation tools couldn't check this copy (spawn python3 ENOENT)." }], addOns: [] }; });
+  await page.getByRole('button', { name: 'CHECK AGAIN', exact: true }).click();
+  await page.getByText("YOUR COPY COULDN'T BE CHECKED", { exact: true }).waitFor();
+  await page.getByText("The preparation tools couldn't check this copy (spawn python3 ENOENT).", { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'PREPARE ANYWAY', exact: true }).waitFor();
+  assert.equal(await page.getByText(/Verify integrity of game files/).count(), 0);
+  await app.evaluate(() => { global.checkResult = null; });
+  await page.getByRole('button', { name: 'CHECK AGAIN', exact: true }).click();
+  await page.getByRole('button', { name: 'PREPARE', exact: true }).waitFor();
+  // A content export can stand in for preparing here; cancelling its picker
+  // leaves the screen as it was.
+  await app.evaluate(({ dialog }) => { global.importAsked = 0; dialog.showOpenDialog = async () => { global.importAsked++; return { canceled: true, filePaths: [] }; }; });
+  await page.getByRole('button', { name: 'IMPORT CONTENT EXPORT', exact: true }).click();
+  for (let i = 0; i < 100 && !(await app.evaluate(() => global.importAsked)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await app.evaluate(() => global.importAsked), 1);
+  await waitMode(page, 'confirm', (s) => s.check?.ok);
+  await page.getByRole('button', { name: 'PREPARE', exact: true }).waitFor();
+  // Another copy can be picked (it is checked in turn), and picked back.
+  await page.getByRole('button', { name: 'USE THIS COPY', exact: true }).click();
+  await waitMode(page, 'confirm', (s) => s.install === stray && s.check);
+  assert.ok((await app.evaluate(() => global.checks)).includes(stray));
+  await page.getByRole('button', { name: 'USE THIS COPY', exact: true }).click();
+  await waitMode(page, 'confirm', (s) => s.install === steamGame && s.check?.ok);
+  // Enhanced sound off, then PREPARE: the choices are kept.
+  await page.getByRole('checkbox').uncheck();
+  await waitMode(page, 'confirm', (s) => s.enhancedSound === false);
+  await page.getByRole('button', { name: 'PREPARE', exact: true }).click();
+  await waitMode(page, 'preparing');
+  const options = await app.evaluate(() => global.repairOptions);
+  assert.equal(options.game, steamGame);
+  assert.equal(options.content, managed);
+  assert.equal(options.enhancedSound, false);
+  // Another copy than the folder was prepared from: what it left is gone.
+  assert.deepEqual(await app.evaluate(() => global.repairState), {});
+  await assert.rejects(fs.access(path.join(managed, 'maps/oldmod')));
+  const saved = JSON.parse(await fs.readFile(path.join(freshData, 'desktop-settings.json'), 'utf8'));
+  assert.equal(saved.gameDir, steamGame);
+  assert.equal(saved.enhancedSound, false);
+  // An add-on map left out doesn't stop the game: ready, saying which and
+  // why, and waiting for PLAY.
+  const left = [{ addOn: 'Mod1', map: 'mod1', name: 'MOD ONE', part: 'map', step: 'side:mod', reason: 'no archive for side mod' }];
+  await app.evaluate((_electron, failures) => global.finishRepair(true, { addOnFailures: failures }), left);
+  await page.getByText('ADD-ON MAPS LEFT OUT', { exact: true }).waitFor();
+  await page.getByText('MOD ONE (Mod1): left out. no archive for side mod', { exact: true }).waitFor();
+  await page.waitForTimeout(3500);
+  assert.ok(page.url().includes('__desktop'), 'it waits for PLAY');
+  await page.getByRole('button', { name: 'PLAY', exact: true }).click();
+  await page.waitForURL(url => !url.pathname.includes('__desktop'));
+  await app.close();
+
+  // Next launch: straight to the menu. The loader's YOUR GAME CONTENT adds
+  // the Enhanced sound from the same copy, without asking.
+  app = await launch({ testHome: freshHome, testData: freshData }); page = await app.firstWindow();
+  await page.waitForURL(url => !url.pathname.includes('__desktop'));
+  assert.equal(await app.evaluate(() => !!global.repairOptions), false);
+  await page.goto('app://bfe/__desktop/prepare.html');
+  await page.getByText('YOUR GAME CONTENT', { exact: true }).waitFor();
+  assert.equal((await loaderState(page)).prepared.addOnFailures.length, 1);
+  await page.getByText('MOD ONE (Mod1): left out. no archive for side mod', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'ADD ENHANCED SOUND', exact: true }).click();
+  await waitMode(page, 'preparing');
+  const sound = await app.evaluate(() => global.repairOptions);
+  assert.deepEqual([sound.game, sound.content, sound.enhancedSound], [steamGame, managed, true]);
+  assert.equal((await app.evaluate(() => global.repairState)).game, path.join(steamGame, 'GameData/Data/_LVL_PC'), 'the same copy: nothing cleared');
+  console.log('PASS: automatic imported repair, source verification, menu gate, failure/restart recovery, current restart, changed-source isolation, a check that could not run, confirm before a first preparation (copies, check, PREPARE ANYWAY, import instead, sound choice), clearing what another copy left, add-on maps left out, and adding the Enhanced sound later');
 } finally { await app?.close(); await fs.rm(temp, { recursive: true, force: true }); }

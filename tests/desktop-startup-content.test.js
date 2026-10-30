@@ -49,3 +49,39 @@ test('managed and discovered folders cannot bypass freshness when Steam is missi
 test('a removed selected folder falls back to managed preparation', async () => {
   assert.equal((await startupContent(setup({ chosen: '/removed', states: { '/managed': current }, install: { dir: '/steam' } }))).mode, 'menu');
 });
+
+test('a copy the player has not confirmed asks first; a confirmed or already prepared one prepares again without asking', async () => {
+  const install = { dir: '/steam' };
+  const unconfirmed = () => false;
+  // First run: nothing prepared, nothing confirmed.
+  assert.deepEqual(await startupContent({ ...setup({ install }), confirmed: unconfirmed }), { mode: 'confirm', content: '/managed', install });
+  // Confirmed before (the player's gameDir): an interrupted run resumes.
+  assert.equal((await startupContent({ ...setup({ install }), confirmed: () => true })).mode, 'prepare');
+  // Prepared here from this copy (an update's new generations): no question.
+  const older = { ...current, game: '/steam/GameData/Data/_LVL_PC', mapImportVersion: CONTENT_VERSION.maps - 1 };
+  assert.equal((await startupContent({ ...setup({ install, states: { '/managed': older } }), confirmed: unconfirmed })).mode, 'prepare');
+  // Prepared from another copy: asks before preparing this one.
+  const other = { ...current, game: '/modded/GameData/Data/_LVL_PC' };
+  assert.equal((await startupContent({ ...setup({ install, states: { '/managed': other } }), confirmed: unconfirmed })).mode, 'confirm');
+  // An import from another computer asks before this copy repairs it.
+  const imported = { ...current, mapImportVersion: CONTENT_VERSION.maps - 1, game: '/elsewhere/GameData/Data/_LVL_PC' };
+  assert.deepEqual(await startupContent({ ...setup({ chosen: '/imported', states: { '/imported': imported }, install }), confirmed: unconfirmed }),
+    { mode: 'confirm', content: '/imported', install, selected: true });
+});
+
+test('the Enhanced sound left out by choice is complete, and wanted again prepares only it', async () => {
+  const install = { dir: '/steam' };
+  const without = { ...current, game: '/steam/GameData/Data/_LVL_PC', extras: { enhancedSound: false } };
+  assert.equal(preparedContentCurrent(without), true);
+  assert.equal((await startupContent({ ...setup({ install, states: { '/managed': without } }), wanted: { enhancedSound: false } })).mode, 'menu');
+  assert.equal((await startupContent({ ...setup({ install, states: { '/managed': without } }), wanted: { enhancedSound: true }, confirmed: () => false })).mode, 'prepare');
+  // Prepared before the choice existed: everything, sound included.
+  assert.equal((await startupContent({ ...setup({ install, states: { '/managed': { ...current, game: '/steam/GameData/Data/_LVL_PC' } } }), wanted: { enhancedSound: true } })).mode, 'menu');
+});
+
+test('add-on maps left out do not keep the game from starting; the game\'s own failures do', async () => {
+  const install = { dir: '/steam' };
+  const leftOut = { ...current, game: '/steam/GameData/Data/_LVL_PC', addOnFailures: [{ addOn: 'Mod', map: 'mod1', name: 'MOD', part: 'map', step: 'map:mod1', reason: 'no archive' }] };
+  assert.equal((await startupContent(setup({ install, states: { '/managed': leftOut } }))).mode, 'menu');
+  assert.equal((await startupContent(setup({ install, states: { '/managed': { ...leftOut, failed: ['map:nab2'] } } }))).mode, 'prepare');
+});

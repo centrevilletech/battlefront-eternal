@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULTS } from "../src/settings.js";
-import { OPTIONS, OPTION_KEYS, PROFILE_KEYS, THEME_KEYS, PAGES, optionsFor, optionRow, applies, resetPage, NOTES } from "../src/menus/options.js";
+import { OPTIONS, OPTION_KEYS, PROFILE_KEYS, THEME_KEYS, PAGES, optionsFor, optionRow, applies, resetPage, NOTES, enhancedSoundNote } from "../src/menus/options.js";
 import { optionsMenu, gamePage, videoPage, audioPage, controlsPage } from "../src/menus/option-pages.js";
 import { ScreenStack } from "../src/menus/stack.js";
 
@@ -154,4 +154,25 @@ test("the controls page: the two rows, then the bindings list; Left and Right ch
   stack.key("ArrowLeft");
   assert.equal(tabs.active, 2);
   assert.ok(list.rowsNow().some(([action, keys]) => action === "TAKE OFF / LAND:" && keys === "SPACE"), "the STARFIGHTER tab");
+});
+
+test("SOUND says when the desktop prepared the game data without the Enhanced sound, and where to add it", async () => {
+  const desktop = (enhancedSound) => ({ asked: 0, about() { this.asked++; return Promise.resolve({ prepared: { maps: 16, enhancedSound } }); } });
+  const without = desktop(false);
+  assert.equal(enhancedSoundNote(without), null, "not known yet");
+  await Promise.resolve();
+  assert.equal(enhancedSoundNote(without), NOTES.enhancedSound);
+  assert.equal(enhancedSoundNote(without), NOTES.enhancedSound);
+  assert.equal(without.asked, 1, "asked once");
+  const prepared = desktop(true);
+  enhancedSoundNote(prepared);
+  await Promise.resolve();
+  assert.equal(enhancedSoundNote(prepared), null);
+  assert.equal(enhancedSoundNote(null), null, "a browser has no desktop to ask");
+  assert.equal(enhancedSoundNote({ about: () => Promise.reject(new Error("gone")) }), null);
+  // The row asks the page's desktop; the other rows keep their notes.
+  const row = optionRow(OPTIONS.find((entry) => entry.key === "audioQuality"), settingsStub());
+  assert.equal(typeof row.note, "function");
+  assert.equal(row.note(), null, "no desktop in the tests");
+  assert.equal(optionRow(OPTIONS.find((entry) => entry.apply === "map"), settingsStub()).note, NOTES.map);
 });

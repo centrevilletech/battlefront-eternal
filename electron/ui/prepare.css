@@ -360,3 +360,91 @@ html[data-bfe-theme="bf2"] #disk text { stroke: #111; stroke-width: 3px; paint-o
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-play-state: paused !important; transition: none !important; }
 }
+
+/* The confirm screen (a copy to prepare from: #confirm) and the add-on maps
+   left out (#left-out), in the look: its text, note and accent colours, its
+   rules and the front end's buttons. */
+#confirm[hidden], #left-out[hidden] { display: none; }
+#confirm, #left-out {
+  margin: clamp(12px, 2vh, 18px) 0 0;
+  max-height: 46vh;
+  overflow-y: auto;
+  text-align: left;
+  font-size: clamp(13px, 1.7vh, 15px);
+  line-height: 1.5;
+  letter-spacing: .015em;
+  color: var(--bfe-text-dim);
+}
+.confirm-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 18px;
+  margin: 0 0 14px;
+}
+.confirm-facts dt, .confirm-copies h2, #left-out h2 {
+  margin: 0;
+  padding-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .22em;
+  color: var(--bfe-text-faint);
+}
+.confirm-facts dd { margin: 0; color: var(--bfe-text); }
+#confirm code { font: 500 13px/1.45 var(--mono); color: var(--bfe-text); overflow-wrap: anywhere; }
+.confirm-check.ok { color: var(--bfe-text); }
+.confirm-check.bad { color: #ff6a5a; }
+.confirm-check.busy { color: var(--bfe-text-faint); }
+.confirm-check.unchecked { color: var(--bfe-note); }
+.confirm-addon-list, .left-out-list { margin: 0; padding: 0; list-style: none; }
+.confirm-addon-list li.left-out, .left-out-list li { color: var(--bfe-note); }
+.left-out-list li { margin: 2px 0; }
+.confirm-problems { margin: 0 0 10px; padding-left: 20px; color: var(--bfe-text); }
+.confirm-problems li { margin: 3px 0; }
+.confirm-help, .left-out-help { margin: 0; }
+.confirm-repair { margin: 4px 0 0; font-size: 13px; color: var(--bfe-text-faint); }
+.confirm-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--bfe-row-line);
+  border-radius: var(--bfe-track-radius);
+  background: var(--bfe-list-bg);
+  cursor: pointer;
+}
+.confirm-option:hover, .confirm-option:focus-within { border-color: var(--bfe-accent); background: var(--bfe-row-focus); }
+.confirm-option input { grid-row: span 2; width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--bfe-accent); cursor: pointer; }
+.confirm-option-name { font-size: 13px; font-weight: 700; letter-spacing: .22em; color: var(--bfe-text); }
+.confirm-option-about { grid-column: 2; font-size: 13px; }
+.confirm-copies { margin-top: 14px; }
+.confirm-copies h2 { margin-bottom: 4px; }
+.confirm-copy {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 16px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid var(--bfe-row-line);
+}
+.confirm-copy-how { grid-column: 1; font-size: 12px; color: var(--bfe-text-faint); }
+.confirm-copy .bfe-btn { grid-row: 1 / span 2; grid-column: 2; min-width: 0; }
+#left-out h2 { margin-bottom: 4px; }
+#progress:not([hidden]) + #left-out { margin-top: 16px; }
+#left-out .left-out-help { margin-top: 6px; }
+/* A phase the player left out (the Enhanced sound turned off). */
+#phases li.off { color: var(--bfe-text-faint); }
+#phases li.off::before { background: repeating-linear-gradient(90deg, var(--bfe-track) 0 5px, transparent 5px 9px); }
+#phases li.off::after { content: " OFF"; }
+/* A screen with a list (the copy to prepare from, the add-on maps left out):
+   the list scrolls instead of the panel, so the title, what it says and the
+   buttons stay in view however short the window. */
+body.listing #panel { display: flex; flex-direction: column; overflow: hidden; }
+body.listing #panel > * { flex: none; }
+body.listing #confirm, body.listing #left-out { flex: 0 1 auto; min-height: 5em; max-height: none; }
+/* The logo moves up a little to make room for the list, and a list longer
+   than its room fades out at its foot (prepare.js: markMore). */
+.page { transition: padding-top .35s ease; }
+#panel { transition: margin-top .35s ease; }
+body.listing .page { padding-top: 6vh; }
+body.listing #panel { margin-top: 3vh; }
+#confirm.more, #left-out.more { -webkit-mask-image: linear-gradient(#000 calc(100% - 32px), transparent); mask-image: linear-gradient(#000 calc(100% - 32px), transparent); }

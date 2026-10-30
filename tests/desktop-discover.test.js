@@ -8,6 +8,7 @@ import {
   driveLibraries,
   findContent,
   findGameInstall,
+  findGameInstalls,
   findGogInstall,
   findSteamInstall,
   gogFolders,
@@ -186,21 +187,72 @@ test("finds a GOG copy where GOG games usually go when nothing records it", asyn
   assert.deepEqual(await findGogInstall({ platform: "darwin", home: mac, env: {} }), { dir: bottle, source: "gog" });
 });
 
+// A Steam library with the game as Steam installs it: its app manifest
+// and the folder it names.
+function steamCopy(library, folder = "Star Wars Battlefront (Classic 2004)") {
+  touch(path.join(library, "steamapps", `appmanifest_${BF1_STEAM_APP}.acf`), `"AppState" { "installdir" "${folder}" }`);
+  install(path.join(library, "steamapps", "common", folder));
+  return path.join(library, "steamapps", "common", folder);
+}
+
 test("the chosen folder wins, then the Steam copy, then the GOG copy", async () => {
   const steam = path.join(temp, "both-steam");
-  const steamGame = path.join(steam, "steamapps", "common", "Star Wars Battlefront (Classic 2004)");
-  install(steamGame);
+  const steamGame = steamCopy(steam);
   const home = path.join(temp, "both-home");
   const gogGame = path.join(home, "Games", "Heroic", "Star Wars - Battlefront");
   install(gogGame);
+  touch(path.join(home, ".config", "heroic", "gog_store", "installed.json"), JSON.stringify({ installed: [{ install_path: gogGame }] }));
   const chosen = path.join(temp, "both-chosen");
   install(chosen);
   const gog = { platform: "linux", home, env: {} };
   const nowhere = { roots: [path.join(temp, "no-steam")], drives: false };
-  assert.deepEqual(await findGameInstall({ steam: { roots: [steam], drives: false }, gog }), { dir: steamGame, source: "steam" });
-  assert.deepEqual(await findGameInstall({ steam: nowhere, gog }), { dir: gogGame, source: "gog" });
-  assert.deepEqual(await findGameInstall({ extra: [chosen], steam: { roots: [steam], drives: false }, gog }), { dir: chosen, source: "local" });
+  assert.deepEqual(await findGameInstall({ steam: { roots: [steam], drives: false }, gog }), { dir: steamGame, source: "steam", how: "your Steam library" });
+  assert.deepEqual(await findGameInstall({ steam: nowhere, gog }), { dir: gogGame, source: "gog", how: "your GOG library" });
+  assert.deepEqual(await findGameInstall({ extra: [chosen], steam: { roots: [steam], drives: false }, gog }), { dir: chosen, source: "chosen", how: "the folder you chose" });
   assert.equal(await findGameInstall({ steam: nowhere, gog: { platform: "linux", home: path.join(temp, "nowhere"), env: {} } }), null);
+});
+
+test("every copy once, Steam's own in any library before a copy that only looks like the game", async () => {
+  // The first library holds a copy placed there by hand (no manifest: Steam
+  // didn't install it, and it may be modded); the second, Steam's own.
+  const steam = path.join(temp, "many-steam"), first = path.join(temp, "many-first"), second = path.join(temp, "many-second");
+  touch(path.join(steam, "steamapps", "libraryfolders.vdf"), `"libraryfolders" { "0" { "path" "${first}" } "1" { "path" "${second}" } }`);
+  const stray = path.join(first, "steamapps", "common", "SWBF Modded");
+  install(stray);
+  const real = steamCopy(second);
+  const home = path.join(temp, "many-home");
+  const gogGame = path.join(home, "Games", "Heroic", "Star Wars - Battlefront");
+  install(gogGame);
+  // Heroic's records name the GOG copy; it is in a GOG-style folder too.
+  touch(path.join(home, ".config", "heroic", "gog_store", "installed.json"), JSON.stringify({ installed: [{ install_path: gogGame }] }));
+  const options = { steam: { roots: [steam], drives: false }, gog: { platform: "linux", home, env: {} } };
+  assert.deepEqual(await findGameInstalls(options), [
+    { dir: real, source: "steam", how: "your Steam library" },
+    { dir: gogGame, source: "gog", how: "your GOG library" },
+    { dir: stray, source: "folder", how: `a copy in ${first} that Steam didn't install` },
+  ]);
+  assert.equal((await findGameInstall(options)).dir, real, "the stray copy in the earlier library no longer wins");
+  // The chosen folder stays first; when it is Steam's own it says so.
+  assert.deepEqual((await findGameInstalls({ ...options, extra: [real] }))[0], { dir: real, source: "steam", how: "your Steam library", chosen: true });
+  assert.deepEqual((await findGameInstalls({ ...options, extra: [stray] })).map((found) => [found.dir, found.source]),
+    [[stray, "chosen"], [real, "steam"], [gogGame, "gog"]]);
+  // A library linked in under a second name is still one copy.
+  const { symlinkSync } = await import("node:fs");
+  const linked = path.join(temp, "many-linked");
+  symlinkSync(second, linked);
+  touch(path.join(steam, "config", "libraryfolders.vdf"), `"libraryfolders" { "0" { "path" "${linked}" } }`);
+  assert.equal((await findGameInstalls(options)).filter((found) => found.source === "steam").length, 1);
+  assert.deepEqual(await findGameInstalls({ steam: { roots: [path.join(temp, "no-steam")], drives: false }, gog: { platform: "linux", home: path.join(temp, "nowhere"), env: {} } }), []);
+});
+
+test("libraries on the drives give Steam's copy before the folders that only look like it", async () => {
+  const drive = path.join(temp, "drives-d");
+  const library = path.join(drive, "SteamLibrary");
+  const real = steamCopy(library);
+  const stray = path.join(library, "steamapps", "common", "Battlefront Backup");
+  install(stray);
+  const found = await findGameInstalls({ steam: { roots: [path.join(temp, "no-steam")], drives: { drives: [drive] } }, gog: { platform: "linux", home: path.join(temp, "nowhere"), env: {} } });
+  assert.deepEqual(found.map((entry) => [entry.dir, entry.source]), [[real, "steam"], [stray, "folder"]]);
 });
 
 test("searches a home folder for extracted data, skipping noise", async () => {
