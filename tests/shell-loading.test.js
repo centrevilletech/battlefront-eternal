@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LIGHTS, LoadingTimeline, STEP, STILL, approach, clock, handover, lightLevel, mixColor, onScreen, planetName, pulse, zoomView } from "../src/shell/loading.js";
+import { LIGHTS, LOOKS, LoadingTimeline, LoadingView, STEP, STILL, approach, clock, handover, lightLevel, loadingLook, mixColor, onScreen, planetName, pulse, zoomView } from "../src/shell/loading.js";
 import { AV, LATE, LoadingSound, SOUNDS } from "../src/shell/loading-audio.js";
+import { THEMES } from "../src/menus/themes/page/looks.js";
+import { Settings } from "../src/settings.js";
 
 const close = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 
@@ -171,8 +173,6 @@ test("the planet's name: the map's own, its planet's string, or the planet's nam
 // The disk's 28 lights, as drawDisk() lights them with the head `head`
 // turns round: how lit each is, from the last the head reached back.
 const LEDS = 28;
-// The original's three shades of the lights: off, halfway and the head.
-const GREYS = ["#0b0d0f", "#5c6166", "#b9bcbe"];
 const behindHead = (head) => Array.from({ length: LEDS }, (_, k) => lightLevel(head - (Math.floor(head * LEDS + 1e-9) - k) / LEDS));
 
 test("the lights: the head lit, each light behind it a little darker than the last down to off, no two neighbours alike", () => {
@@ -199,7 +199,7 @@ test("the lights: the head lit, each light behind it a little darker than the la
       assert.ok(levels[k] < levels[k - 1], `light ${k} darker than light ${k - 1}`);
       assert.ok(levels[k - 1] - levels[k] < 0.12, `light ${k}: a step of ${(levels[k - 1] - levels[k]).toFixed(3)}`);
     }
-    const shades = levels.slice(0, lit).filter((level) => level > 0.05).map((level) => mixColor(GREYS, level));
+    const shades = levels.slice(0, lit).filter((level) => level > 0.05).map((level) => mixColor(LOOKS.bf1.lights, level));
     assert.ok(shades.length >= 12 && new Set(shades).size === shades.length, `${shades.length} lit lights, each its own shade`);
   }
 });
@@ -218,14 +218,38 @@ test("the lights fade in and out with the head, never jumping between shades fro
   assert.ok(lightLevel(-1e-9) > 0.999 && lightLevel(LIGHTS.tail - 1e-9) < 1e-6 && lightLevel(-LIGHTS.ramp + 1e-9) < 1e-6, "continuous all round");
 });
 
-test("the lights' colours: mixed between the stops, the original's greys at off, the middle and the head", () => {
-  assert.equal(mixColor(GREYS, 0), "rgb(11, 13, 15)");
-  assert.equal(mixColor(GREYS, 0.5), "rgb(92, 97, 102)");
-  assert.equal(mixColor(GREYS, 1), "rgb(185, 188, 190)");
+test("the lights' colours: mixed between the look's stops; the 2004 look keeps the original's greys at off, the middle and the head", () => {
+  assert.equal(mixColor(LOOKS.bf1.lights, 0), "rgb(11, 13, 15)");
+  assert.equal(mixColor(LOOKS.bf1.lights, 0.5), "rgb(92, 97, 102)");
+  assert.equal(mixColor(LOOKS.bf1.lights, 1), "rgb(185, 188, 190)");
   assert.equal(mixColor(["#000000", "#ffffff"], 0.25), "rgb(64, 64, 64)");
   assert.equal(mixColor(["#000000", "#ff0000", "#ffffff"], 0.75), "rgb(255, 128, 128)");
   assert.equal(mixColor(["#102030", "#405060"], -1), "rgb(16, 32, 48)", "clamped");
   assert.equal(mixColor(["#102030", "#405060"], 2), "rgb(64, 80, 96)");
+  // Every look's lights run from dark to bright.
+  const brightness = (color) => color.match(/\d+/g).map(Number).reduce((a, v) => a + v, 0);
+  for (const [id, look] of Object.entries(LOOKS)) {
+    for (let level = 0.1; level <= 1; level += 0.1) {
+      assert.ok(brightness(mixColor(look.lights, level)) > brightness(mixColor(look.lights, level - 0.1)), `${id} brighter at ${level.toFixed(1)}`);
+    }
+  }
+});
+
+test("the look: the player's menu theme, the original's under the original's menus; each theme has one", () => {
+  const params = new URLSearchParams("map=nab2");
+  for (const theme of ["bf1", "bf2", "eternal"]) assert.equal(loadingLook(params, theme), theme);
+  assert.equal(loadingLook(params, undefined), "eternal", "the default theme");
+  assert.equal(loadingLook(params, "nonsense"), "eternal");
+  assert.equal(loadingLook(new URLSearchParams("map=nab2&menus=classic"), "bf2"), "bf1");
+  assert.equal(loadingLook(params, new Settings({}, { store: null }).get("menuTheme")), "eternal", "the settings' default");
+  assert.equal(loadingLook(params, new Settings({ menuTheme: "bf2" }, { store: null }).get("menuTheme")), "bf2");
+  assert.deepEqual(Object.keys(LOOKS).sort(), THEMES.map((theme) => theme.id).sort());
+  // The view draws in it: the original's in the game's fonts, the others
+  // in Saira once it loads.
+  assert.equal(new LoadingView("nab2", { look: "bf2" }).look, LOOKS.bf2);
+  assert.equal(new LoadingView("nab2").look, LOOKS.eternal);
+  assert.equal(new LoadingView("nab2", { look: "bf1" }).typeface, null);
+  assert.equal(new LoadingView("nab2", { look: "eternal" }).typeface, "loading");
 });
 
 // A stand-in AudioContext: what starts and stops, and when. Its output

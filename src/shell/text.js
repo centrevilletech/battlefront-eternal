@@ -5,6 +5,21 @@
 // src/hud.js draws them; the pages are the 4x upscales where there are some.
 // The pages are white, so a colour is the page tinted.
 
+// A copy of an image in one colour, its shapes kept in its alpha (a font's
+// page, the loading screen's disk). A worker has no document, but has
+// OffscreenCanvas.
+export function tint(image, color) {
+  const canvas = typeof OffscreenCanvas === "function" ? new OffscreenCanvas(image.width, image.height) : document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const c = canvas.getContext("2d");
+  c.drawImage(image, 0, 0);
+  c.globalCompositeOperation = "source-in";
+  c.fillStyle = color;
+  c.fillRect(0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
 export class CanvasFonts {
   // fonts: common.json's fonts; pages: page name -> its file.
   constructor({ fonts = {}, pages = {} } = {}) {
@@ -98,15 +113,7 @@ export class CanvasFonts {
     const key = `${page}|${color}`;
     let tinted = this.tinted.get(key);
     if (!tinted) {
-      // A worker has no document, but has OffscreenCanvas.
-      tinted = typeof OffscreenCanvas === "function" ? new OffscreenCanvas(image.width, image.height) : document.createElement("canvas");
-      tinted.width = image.width;
-      tinted.height = image.height;
-      const c = tinted.getContext("2d");
-      c.drawImage(image, 0, 0);
-      c.globalCompositeOperation = "source-in";
-      c.fillStyle = color;
-      c.fillRect(0, 0, tinted.width, tinted.height);
+      tinted = tint(image, color);
       this.tinted.set(key, tinted);
     }
     return tinted;
