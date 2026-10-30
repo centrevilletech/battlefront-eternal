@@ -15,8 +15,9 @@ import { Settings } from "../settings.js";
 //   lines ride the rectangle's edges out to the screen's.
 // - The planet's name top left (gamefont_tiny), except over the level.
 // - The LOADING disk bottom right: segments turning about a ring of lights
-//   that chase round it, turned in perspective, LOADING (gamefont_medium)
-//   across it.
+//   whose lit arc chases round it, each light behind the head a little
+//   darker than the last (lightLevel), turned in perspective, LOADING
+//   (gamefont_medium) across it.
 //
 // The timeline is the original game's, on the clock alone (LoadingTimeline):
 // each picture's lines track for TargetTime's 3.5 s (the horizontal pair in
@@ -73,6 +74,14 @@ const DISK = { right: 252, bottom: 223, turn: 0.866, ring: 52, leds: 28, text: -
   layers: [[240, 0.25, 0.85], [176, -0.4, 0.75]] };
 const NAME = { x: 51.2, top: 0.05, y: 5 };
 const LINE = "rgba(40, 190, 255, 0.95)";
+// The lights' lit arc, in turns of the ring: its head goes round 0.6 times
+// a second; a light comes up over the light's spacing before the head
+// reaches it (ramp: a 28th of a turn) and darkens all along the tail
+// behind it, three quarters of the ring, faster at first (ease, a power).
+export const LIGHTS = { speed: 0.6, ramp: 1 / 28, tail: 0.75, ease: 2 };
+// Their colours from off to the head, evenly spaced along how lit they
+// are: the original's three shades, mixed between.
+const SHADES = ["#0b0d0f", "#5c6166", "#b9bcbe"];
 // How long the screen may outlast a ready battle waiting for its own
 // sequence (pictures that never arrive), and the battle at most.
 export const SEQUENCE_CAP = 30000; // ms
@@ -216,6 +225,30 @@ export function onScreen(rect, view, w, h) {
   const [x, y, rw, rh] = rect;
   const [vx, vy, vw, vh] = view;
   return [((x - vx) / vw) * w, ((y - vy) / vh) * h, (rw / vw) * w, (rh / vh) * h];
+}
+
+// How lit a light is, from 0 (off) to 1 (the head), `behind` turns behind
+// the lit arc's head (any number: a whole turn is the ring). It comes up in
+// a smooth step over the ramp just ahead of the head, then darkens all
+// along the tail, every light behind the head a little darker than the one
+// before it, to off. It is continuous all round, so as the head moves each
+// light fades in and out instead of jumping between shades.
+export function lightLevel(behind, { ramp = LIGHTS.ramp, tail = LIGHTS.tail, ease = LIGHTS.ease } = {}) {
+  const b = behind - Math.floor(behind);
+  if (b > 1 - ramp) {
+    const u = (b - (1 - ramp)) / ramp;
+    return u * u * (3 - 2 * u);
+  }
+  return b < tail ? (1 - b / tail) ** ease : 0;
+}
+
+// The colour `level` (0 to 1) of the way along evenly spaced colour stops
+// ("#rrggbb"), mixed between the two it falls between.
+export function mixColor(stops, level) {
+  const at = Math.min(Math.max(level, 0), 1) * (stops.length - 1);
+  const i = Math.min(Math.floor(at), stops.length - 2);
+  const [a, b] = [stops[i], stops[i + 1]].map((hex) => [1, 3, 5].map((k) => parseInt(hex.slice(k, k + 2), 16)));
+  return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * (at - i))).join(", ")})`;
 }
 
 // A picture as an ImageBitmap, or null (a missing file is Vite's index page).
@@ -398,16 +431,13 @@ export class LoadingView {
     }
     ctx.globalAlpha = 1;
     // The lights (load_led_0 is a plain square, tinted): a lit arc chasing
-    // round the ring.
-    const head = spin * Math.PI * 1.2;
+    // round the ring, each light's colour mixed from how lit it is.
+    const head = spin * LIGHTS.speed;
     for (let i = 0; i < DISK.leds; i++) {
-      const angle = (i / DISK.leds) * Math.PI * 2;
-      const behind = (((head - angle) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-      const level = behind < 1.3 ? 2 : behind < 2.3 ? 1 : 0;
       ctx.save();
-      ctx.rotate(angle);
+      ctx.rotate((i / DISK.leds) * Math.PI * 2);
       ctx.translate(DISK.ring, 0);
-      ctx.fillStyle = ["#0b0d0f", "#5c6166", "#b9bcbe"][level];
+      ctx.fillStyle = mixColor(SHADES, lightLevel(head - i / DISK.leds));
       ctx.fillRect(-3.5, -3.5, 7, 7);
       ctx.restore();
     }

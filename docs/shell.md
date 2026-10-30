@@ -351,6 +351,15 @@ The original's screen behaves like this:
   0.866 of its width; LOADING (`common.loading`) across it in
   `gamefont_medium`, tilted 14 degrees. Placements and sizes are measured
   on the captures. Without the disk's texture its segments are drawn.
+- **The lights** (`lightLevel()`): the lit arc's head goes round the ring
+  0.6 times a second. Behind it each light is a little darker than the one
+  before, along a tail of three quarters of the ring that darkens fastest
+  near the head, down to off; the light the head comes to rises over the
+  28th of a turn before the head reaches it. How lit a light is depends
+  smoothly on how far it is behind the head, so as the head moves each
+  light fades in and out instead of jumping between shades. Its colour is
+  mixed by that level between the original's three shades (#0b0d0f off,
+  #5c6166 halfway, #b9bcbe at the head; `mixColor()`).
 - **The sound** (`src/shell/loading-audio.js`): the original's, from the
   same timeline. `LoadingTimeline.sounds()` gives each pulse's start and
   end by the original's rule (`pulse()`: from the 50 ms step in which the
@@ -489,7 +498,9 @@ and tolerates its variants:
   original's stepwise lines and pulse rule, the sequence's end, each sound
   against the moment of the animation it goes with (within a
   millisecond), the whole plan on a stand-in `AudioContext`'s clock (and
-  joined late), and the hand-over's waits and caps.
+  joined late), the hand-over's waits and caps, and the lights' gradient
+  (each lit light darker than the one before by a small step, each its own
+  shade, none jumping from one frame to the next).
 - `PLAYWRIGHT_MODULE=... node tests/shell-browser.mjs`: the front end,
   the gate, the press, the music's tracks, a dip, a menu sound, Back,
   `?screen=main`, Instant Action's preview, a missing `shell.json`, and
