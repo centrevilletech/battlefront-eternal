@@ -124,7 +124,8 @@ test("the looks' font ships beside them, with its license", () => {
   assert.equal(font, "fonts/saira-latin.woff2");
   assert.ok(existsSync(new URL(`../electron/ui/${font}`, import.meta.url)));
   assert.match(read("electron/ui/fonts/OFL.txt"), /SIL OPEN FONT LICENSE Version 1\.1/);
-  assert.match(read("electron-builder.yml"), /- from: electron\/ui\/fonts\n\s+to: legal\n\s+filter: \["OFL\.txt"\]/);
+  // \r?: a Windows checkout (core.autocrlf) has CRLF line endings.
+  assert.match(read("electron-builder.yml"), /- from: electron\/ui\/fonts\r?\n\s+to: legal\r?\n\s+filter: \["OFL\.txt"\]/);
 });
 
 test("the launcher's LOADING disk lights as the loading screen's", () => {
