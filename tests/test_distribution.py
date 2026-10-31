@@ -11,6 +11,24 @@ spec = importlib.util.spec_from_file_location('distribution', Path(__file__).par
 distribution = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(distribution)
 
+def server_archive(source, arch, entries=None, version='0.0.0'):
+    """A dedicated server archive as build/server-archive.mjs lays it out."""
+    import io
+    import tarfile
+    path = source / f'battlefront-eternal-server_{version}_linux-{arch}.tar.xz'
+    with tarfile.open(path, 'w:xz') as archive:
+        for name in entries or ['host-runtime/server/src/main.js', 'host-runtime/engine/src/game.js', 'host-runtime/update/server.js',
+                                'tools/prepare.py', 'toolchain/python/bin/python3', 'legal/LICENSE', 'bfe-tree.json']:
+            data = f'{arch} {name}'.encode()
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+        link = tarfile.TarInfo('toolchain/python/bin/python')
+        link.type = tarfile.SYMTYPE
+        link.linkname = 'python3'
+        archive.addfile(link)
+    return path
+
 class DistributionTest(unittest.TestCase):
     def test_signed_repository_and_missing_asset_preserves_latest(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -30,6 +48,7 @@ class DistributionTest(unittest.TestCase):
                 (source / name).write_text('fixture')
             (source / 'compatibility.json').write_text('{"fixture":true}')
             for arch in ['amd64', 'arm64']:
+                server_archive(source, arch)
                 control = root / arch / 'DEBIAN'
                 control.mkdir(parents=True)
                 control.chmod(0o755)
@@ -40,6 +59,11 @@ class DistributionTest(unittest.TestCase):
             sums = public / 'downloads/latest/SHA256SUMS'
             subprocess.run(['gpg','--homedir',str(keyhome),'--verify',str(sums)+'.asc',str(sums)],check=True,capture_output=True)
             subprocess.run(['sha256sum','--check',str(sums)],cwd=sums.parent,check=True,capture_output=True)
+            # The dedicated server archives, named by the package version (docs/server-updates.md).
+            for arch in ['amd64', 'arm64']:
+                self.assertIn(f'  battlefront-eternal-server_0.1.0~preview.1_linux-{arch}.tar.xz\n', sums.read_text())
+                self.assertEqual((public / f'downloads/latest/battlefront-eternal-server_0.1.0~preview.1_linux-{arch}.tar.xz').read_bytes(),
+                                 (source / f'battlefront-eternal-server_0.0.0_linux-{arch}.tar.xz').read_bytes())
             release = public / 'apt/dists/stable/InRelease'
             subprocess.run(['gpg','--homedir',str(keyhome),'--verify',str(release)],check=True,capture_output=True)
             import hashlib
@@ -54,9 +78,24 @@ class DistributionTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 distribution.publish(source,'0.1.0~preview.2','preview-2','b'*40,'2026-10-16')
             self.assertEqual(os.readlink(public / 'downloads/latest'),old)
+            # A server archive reaching outside its layout, lacking the server, or
+            # missing for an architecture is refused the same way.
+            (source / 'test-win-x64.exe').write_text('fixture')
+            for entries in [['opt/evil', 'host-runtime/server/src/main.js', 'host-runtime/engine/src/game.js', 'tools/prepare.py', 'bfe-tree.json'],
+                            ['host-runtime/../escape', 'host-runtime/server/src/main.js', 'host-runtime/engine/src/game.js', 'tools/prepare.py', 'bfe-tree.json'],
+                            ['host-runtime/engine/src/game.js', 'tools/prepare.py', 'bfe-tree.json']]:
+                server_archive(source, 'arm64', entries)
+                with self.assertRaises(ValueError):
+                    distribution.publish(source,'0.1.0~preview.2','preview-2','b'*40,'2026-10-16')
+                self.assertEqual(os.readlink(public / 'downloads/latest'),old)
+            (source / 'battlefront-eternal-server_0.0.0_linux-arm64.tar.xz').unlink()
+            with self.assertRaises(ValueError):
+                distribution.publish(source,'0.1.0~preview.2','preview-2','b'*40,'2026-10-16')
+            self.assertEqual(os.readlink(public / 'downloads/latest'),old)
+            server_archive(source, 'arm64')
+            self.assertFalse(list(public.glob('downloads/.release-*')), 'a refused release leaves no stage behind')
             # A failed input cannot replace latest; a later successful release
             # ages out complete generations only after its catalogue is signed.
-            (source / 'test-win-x64.exe').write_text('fixture')
             from unittest.mock import patch
             with patch.dict(os.environ, {'BFE_KEEP_RELEASES': '2'}):
                 for number in [2, 3]:
@@ -99,6 +138,7 @@ class DistributionTest(unittest.TestCase):
                     (source / name).write_text('fixture')
                 (source / 'compatibility.json').write_text('{"fixture":true}')
                 for arch in ['amd64', 'arm64']:
+                    server_archive(source, arch)
                     control = root / f'deb-{arch}' / 'DEBIAN'
                     control.mkdir(parents=True, exist_ok=True)
                     control.chmod(0o755)
