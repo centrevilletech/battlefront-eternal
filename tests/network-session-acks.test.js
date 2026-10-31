@@ -107,3 +107,26 @@ test('a page that built another battle than the server plays loads the server\'s
   assert.equal(session.authenticated, false);
  } finally { globalThis.location = location; }
 });
+
+test('a welcome from another battle redirects even before the registry lands; one without a registry names the drop, not a version', async () => {
+ const { NetworkSession } = await import('../src/runtime/network-session.js');
+ const page = '?map=bes2&side=rep&ai=off&seed=1&network=1&server=abc';
+ const visited = [], location = globalThis.location;
+ globalThis.location = { search: page, assign: url => visited.push(url) };
+ try {
+  const rotated = new NetworkSession({ lifecycle: null, onEntityRegistry: () => ({ inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES }), onEntities: () => {} });
+  rotated.query = page; rotated.resolveReady = () => {};
+  // The server rotated while this page loaded: it joined as a spectator and
+  // its registry message was lost. The server's battle still loads.
+  await rotated.receive('events', JSON.stringify({ type: 'welcome', snapshotMode: 'snapshot-delta-v1', epoch: 1, spectator: true, query: '?map=bes2&side=imp&ai=off&seed=1&match=' + 'd'.repeat(32) }));
+  assert.equal(visited.length, 1);
+  assert.equal(new URLSearchParams(visited[0].slice(2)).get('side'), 'imp');
+  const dropped = new NetworkSession({ lifecycle: null, onEntityRegistry: () => ({}), onEntities: () => {} });
+  dropped.query = page; dropped.resolveReady = () => {};
+  await assert.rejects(dropped.receive('events', JSON.stringify({ type: 'welcome', snapshotMode: 'snapshot-delta-v1', epoch: 1, query: page })), /did not send its battle description/);
+  assert.equal(visited.length, 1, 'the same battle does not reload');
+  const older = new NetworkSession({ lifecycle: null, onEntityRegistry: () => ({}), onEntities: () => {} });
+  older.query = page; older.resolveReady = () => {};
+  await assert.rejects(older.receive('events', JSON.stringify({ type: 'welcome', snapshotMode: 'older', epoch: 1, query: page })), /Multiplayer version mismatch/);
+ } finally { globalThis.location = location; }
+});
