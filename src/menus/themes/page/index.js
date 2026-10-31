@@ -439,6 +439,9 @@ class ScreenView {
     const rows = screen.widgets.find((widget) => widget.kind === "rows" && widget.title);
     if (!titled && rows) head.append(titleOf(resolve(rows.title)));
     for (const place of places.values()) place.remove();
+    // The focused option's note under the panel, not after its last row: a
+    // long page (VIDEO OPTIONS) scrolls, and would hide it there.
+    for (const part of this.parts) if (part instanceof OptionsView) body.after(part.note);
   }
 
   buildPopup() {

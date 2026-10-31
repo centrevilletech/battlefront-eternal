@@ -6,6 +6,10 @@ import { motionVectors } from "./motion-vectors.js";
 // drawn afterwards at full resolution, so text and icons stay sharp whatever
 // the scene costs.
 //
+//   bilinear  the GPU's own texture filtering, one read a pixel: the
+//             cheapest way to fill the window with a smaller frame while
+//             the HUD stays sharp (graphics.js draws the plain composite
+//             straight to the window, so it costs no pass of its own).
 //   spatial   one pass: Catmull-Rom from the frame, held to its nearest
 //             texels' range so edges don't ring.
 //   temporal  the camera is shifted by a different fraction of a pixel each
@@ -39,6 +43,7 @@ import { motionVectors } from "./motion-vectors.js";
 
 export const UPSCALERS = {
   off: "Off (stretch to the window)",
+  bilinear: "Bilinear (sharp HUD)",
   spatial: "Sharp spatial",
   temporal: "Temporal (TAAU)",
 };
@@ -223,6 +228,12 @@ const SHARPEN = /* glsl */ `
   }
 `;
 
+const BILINEAR = /* glsl */ `
+  uniform sampler2D map;
+  varying vec2 vUv;
+  void main() { gl_FragColor = vec4(texture2D(map, vUv).rgb, 1.0); }
+`;
+
 const SPATIAL = /* glsl */ `
   uniform sampler2D map;
   uniform vec2 inputSize;
@@ -304,6 +315,7 @@ export class Upscaler {
     });
     this.sharpenPass = fullScreenPass(SHARPEN, { map: { value: null }, sharpness: { value: this.sharpness } });
     this.spatialPass = fullScreenPass(SPATIAL, { map: { value: null }, inputSize: { value: this.input }, outputSize: { value: this.output } });
+    this.bilinearPass = fullScreenPass(BILINEAR, { map: { value: null } });
   }
 
   resize(inputWidth, inputHeight, outputWidth, outputHeight) {
@@ -368,11 +380,12 @@ export class Upscaler {
     });
   }
 
-  // `image` (input resolution) to the screen at output resolution.
-  present(renderer, image, temporal) {
+  // `image` (input resolution) to the screen at output resolution, by
+  // `mode` (one of UPSCALERS but "off").
+  present(renderer, image, mode) {
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
-    if (temporal) {
+    if (mode === "temporal") {
       renderer.setRenderTarget(this.motion);
       renderer.render(this.motionPass, this.passCamera);
       const read = this.history[this.read], write = this.history[1 - this.read];
@@ -391,9 +404,10 @@ export class Upscaler {
       this.valid = true;
       this.frame++;
     } else {
-      this.spatialPass.material.uniforms.map.value = image;
+      const pass = mode === "bilinear" ? this.bilinearPass : this.spatialPass;
+      pass.material.uniforms.map.value = image;
       renderer.setRenderTarget(null);
-      renderer.render(this.spatialPass, this.passCamera);
+      renderer.render(pass, this.passCamera);
       this.valid = false;
     }
     renderer.autoClear = autoClear;
@@ -401,6 +415,6 @@ export class Upscaler {
 
   dispose() {
     for (const target of [...this.history, this.velocity, this.motion]) target.dispose();
-    for (const pass of [this.motionPass, this.resolvePass, this.sharpenPass, this.spatialPass]) pass.material.dispose();
+    for (const pass of [this.motionPass, this.resolvePass, this.sharpenPass, this.spatialPass, this.bilinearPass]) pass.material.dispose();
   }
 }

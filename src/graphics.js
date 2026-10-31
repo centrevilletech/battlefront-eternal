@@ -12,7 +12,7 @@ import { sniperLook } from "./sniper-trace.js";
 import { UPSCALERS, Upscaler } from "./upscaler.js";
 import { CSM } from "three/addons/csm/CSM.js";
 import { NO_FOG, fogs, lighting, setFog, setLighting } from "./materials.js";
-import { ANTIALIASING, SHADOW_PRESETS, VIEW_DISTANCES } from "./settings.js";
+import { ANTIALIASING, RENDER_SCALE_MIN, SHADOW_PRESETS, VIEW_DISTANCES } from "./settings.js";
 
 // scene.updateMatrixWorld(), but hidden subtrees (pooled soldiers, unheld
 // guns, idle effect meshes: about half the scene) are skipped and refreshed
@@ -56,7 +56,8 @@ function updateVisible(object, force) {
 //      Optional bloom is added separately; FXAA, when selected, runs last.
 //   4. With an upscaler (upscaler.js), steps 1-3 run at the render scale's
 //      resolution and the result is rebuilt to the window's, where the HUD
-//      is then drawn sharp. Without one, the whole canvas shrinks instead.
+//      is then drawn sharp (the bilinear one is the composite itself,
+//      drawn to the window). Without one, the whole canvas shrinks instead.
 //
 // Shadows are this port's own: cascaded shadow maps of the sun, where the
 // original had stencil shadow volumes. Each cascade is a hardware depth map
@@ -528,7 +529,9 @@ export class Graphics {
   // upscaler rebuilds at the canvas's full resolution; with the upscaler
   // off the canvas itself shrinks and the browser stretches it, HUD and all.
   applyScale() {
-    const scale = (Number(this.settings.get("renderScale")) || 1) * (this.adaptiveScale ?? 1);
+    // Adaptive resolution stops at the options' lowest render scale.
+    const base = Number(this.settings.get("renderScale")) || 1;
+    const scale = Math.max(Math.min(base, RENDER_SCALE_MIN), base * (this.adaptiveScale ?? 1));
     const native = Math.min(window.devicePixelRatio, 2);
     let mode = this.settings.get("upscaler");
     if (!UPSCALERS[mode]) mode = "temporal";
@@ -943,14 +946,18 @@ export class Graphics {
     this.composite.material.uniforms.bloomStrength.value = bloom ? 0.65 : 0;
     // The temporal upscaler antialiases on its own; FXAA would only blur it.
     const fxaa = !temporal && this.settings.get("antialiasing") !== "off";
-    renderer.setRenderTarget(fxaa || upscale ? this.postTarget : null);
+    // Bilinear, with nothing to composite but the frame itself: the
+    // composite draws straight to the window, its texture filtering the
+    // upscale, and no pass of its own follows.
+    const direct = upscale && this.upscaling === "bilinear" && !fxaa && !blur && !bloom && !(this.composite.material.uniforms.speedBlur.value > 0.0001);
+    renderer.setRenderTarget((fxaa || upscale) && !direct ? this.postTarget : null);
     renderer.render(this.composite, this.passCamera);
     if (fxaa) {
       renderer.setRenderTarget(upscale ? this.aaTarget : null);
       renderer.render(this.fxaa, this.passCamera);
     }
     // 4. Rebuilt at the window's resolution.
-    if (upscale) this.upscaler.present(renderer, fxaa ? this.aaTarget.texture : this.postTarget.texture, temporal);
+    if (upscale && !direct) this.upscaler.present(renderer, fxaa ? this.aaTarget.texture : this.postTarget.texture, this.upscaling);
     renderer.autoClear = true;
     // All scene, shadow and post passes; captured before the separate HUD.
     this.frameInfo = { ...renderer.info.render };

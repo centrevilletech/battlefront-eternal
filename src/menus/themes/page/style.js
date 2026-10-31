@@ -161,6 +161,9 @@ html[data-bfe-theme] { --bfe-gutter: clamp(20px, 3vw, 56px); --bfe-page-frame: m
   border: var(--bfe-thumb-border); border-radius: var(--bfe-thumb-radius); box-shadow: 0 1px 4px rgba(0, 0, 0, .6); }
 .bfe-options-note { min-height: 1.4em; margin: 1.2vh 0 0; font-size: clamp(11px, 1.5vh, 15px); font-weight: 700; letter-spacing: .12em;
   text-transform: uppercase; color: var(--bfe-note); text-align: center; }
+/* The note under the panel (index.js), the two centred together. */
+.bfe-screen > .bfe-options-note { flex: none; width: var(--bfe-frame); margin-bottom: auto; text-shadow: 0 1px 6px rgba(0, 0, 0, .9); }
+.bfe-screen[data-layout="options"] > .bfe-screen-body:has(+ .bfe-options-note) { margin-bottom: 0; }
 
 /* Tabs. */
 .bfe-tabs { display: flex; gap: .5vw; border-bottom: 2px solid var(--bfe-tab-line); }

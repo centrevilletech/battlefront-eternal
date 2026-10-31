@@ -1,4 +1,4 @@
-import { ANTIALIASING, BATTLE_SIZES, DEFAULTS, PERFORMANCE_PRESETS, SHADOW_PRESETS, VIEW_DISTANCES, WATER_QUALITIES } from "../settings.js";
+import { ANTIALIASING, BATTLE_SIZES, DEFAULTS, PERFORMANCE_PRESETS, RENDER_SCALE_MIN, SHADOW_PRESETS, VIEW_DISTANCES, WATER_QUALITIES } from "../settings.js";
 import { AUDIO_DYNAMICS, AUDIO_OUTPUTS, AUDIO_QUALITIES } from "../audio/options.js";
 import { UPSCALERS } from "../upscaler.js";
 import { OptionRow } from "./widgets.js";
@@ -31,6 +31,27 @@ export const PAGES = [
 ];
 
 const upper = (text) => String(text).toUpperCase();
+// The 3D view's size at a render scale, in the window as it is now (as
+// graphics.js applyScale sizes it): what the RENDER SCALE row's note says.
+export function renderResolution(scale, view = typeof window === "undefined" ? null : window) {
+  if (!view) return null;
+  const ratio = Math.min(view.devicePixelRatio || 1, 2);
+  const width = Math.max(1, Math.round(view.innerWidth * ratio)), height = Math.max(1, Math.round(view.innerHeight * ratio));
+  const s = Number(scale) || 1;
+  return { width: Math.max(1, Math.round(width * s)), height: Math.max(1, Math.round(height * s)), windowWidth: width, windowHeight: height };
+}
+const scaleNote = (scale) => {
+  const size = renderResolution(scale);
+  return size ? `3D VIEW ${size.width}X${size.height}, WINDOW ${size.windowWidth}X${size.windowHeight}` : null;
+};
+// What each upscaler costs, for the row's note: the window-sized passes are
+// what weak GPUs can't afford at full screen.
+const UPSCALER_NOTES = {
+  off: "STRETCHES THE WHOLE PICTURE, HUD INCLUDED: THE CHEAPEST",
+  bilinear: "STRETCHES THE 3D VIEW, HUD STAYS SHARP: ALMOST AS CHEAP AS OFF",
+  spatial: "SHARPER STRETCH: ONE EXTRA PASS AT WINDOW SIZE",
+  temporal: "REBUILDS DETAIL OVER FRAMES: SEVERAL PASSES AT WINDOW SIZE, HEAVY ON OLD GPUS",
+};
 const CLASSIC = [["classic", "CLASSIC"], ["enhanced", "ENHANCED"]];
 const ORIGINAL = [["original", "CLASSIC"], ["enhanced", "ENHANCED"]];
 const FPS = (none) => [["0", none], ...[30, 60, 120, 144, 240].map((fps) => [String(fps), `${fps} FPS`])];
@@ -68,9 +89,11 @@ export const OPTIONS = [
     choices: [["custom", "CUSTOM"], ...Object.entries(PERFORMANCE_PRESETS).map(([k, preset]) => [k, upper(preset.label).replace(/\s*\(.*\)$/, "")])] },
   { key: "frameLimit", page: "video", label: "FRAME LIMIT", kind: "choice", apply: "live", choices: FPS("DISPLAY") },
   { key: "dynamicResolution", page: "video", label: "ADAPTIVE RESOLUTION", kind: "choice", apply: "live", choices: FPS("OFF") },
-  { key: "renderScale", page: "video", label: "RENDER SCALE", kind: "slider", apply: "live", url: "scale", min: 0.5, max: 2, step: 0.05, format: (v) => `${Number(v).toFixed(2)}X` },
+  { key: "renderScale", page: "video", label: "RENDER SCALE", kind: "slider", apply: "live", url: "scale", min: RENDER_SCALE_MIN, max: 2, step: 0.05,
+    format: (v) => `${Number(v).toFixed(2)}X`, note: (settings) => scaleNote(settings.get("renderScale")) },
   { key: "upscaler", page: "video", label: "UPSCALER", kind: "choice", apply: "live",
-    choices: Object.keys(UPSCALERS).map((k) => [k, { off: "OFF", spatial: "SPATIAL", temporal: "TEMPORAL" }[k] || upper(UPSCALERS[k])]) },
+    choices: Object.keys(UPSCALERS).map((k) => [k, { off: "OFF", bilinear: "BILINEAR", spatial: "SPATIAL", temporal: "TEMPORAL" }[k] || upper(UPSCALERS[k])]),
+    note: (settings) => UPSCALER_NOTES[settings.get("upscaler")] ?? null },
   { key: "upscaleSharpness", page: "video", label: "SHARPENING", kind: "slider", apply: "live", min: 0, max: 1, step: 0.05, format: percent },
   { key: "antialiasing", page: "video", label: "ANTIALIASING", labelKey: "ifs.videopt.multisample", kind: "choice", apply: "live",
     choices: Object.keys(ANTIALIASING).map((k) => [k, k === "off" ? "OFF" : k === "fxaa" ? "FXAA" : `${upper(k)} MSAA`]) },
@@ -177,7 +200,8 @@ export function enhancedSoundNote(desktop = globalThis.bfeDesktop) {
 // strings given (common.json's), else English. inBattle: the notes say so.
 export function optionRow(entry, settings, { strings = {}, inBattle = false } = {}) {
   const say = (key, fallback) => (key && strings[key]) || fallback;
-  const note = entry.note ?? (entry.apply === "map" ? NOTES.map : entry.apply === "battle" ? (inBattle ? NOTES.battle : NOTES.battleShell) : entry.apply === "fixed" ? NOTES.fixed : null);
+  const note = typeof entry.note === "function" ? () => entry.note(settings)
+    : entry.note ?? (entry.apply === "map" ? NOTES.map : entry.apply === "battle" ? (inBattle ? NOTES.battle : NOTES.battleShell) : entry.apply === "fixed" ? NOTES.fixed : null);
   return new OptionRow({
     id: entry.key,
     key: entry.key,
