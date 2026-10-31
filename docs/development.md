@@ -40,8 +40,9 @@ kill messages and score changes. Implementation contracts and known fidelity
 limits are in [docs/ai.md](ai.md).
 
 Gameplay now uses one fixed 60 Hz clock, with rendering independent of it.
-Graphics settings offer Performance, Balanced and High quality presets, an
-optional frame cap, and adaptive resolution when GPU timing is supported.
+Graphics settings offer Minimum, Performance, Balanced and High quality
+presets, an optional frame cap, and adaptive resolution, judged by GPU timer
+queries or, where the browser has none, by a fence after each frame.
 Rendering defaults to the display's refresh rate. Performance targets 30 FPS
 on weaker hardware; this is a qualification target, not a measured minimum PC.
 The battle runs in a local server worker

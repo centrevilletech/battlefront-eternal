@@ -3027,6 +3027,7 @@ async function start() {
       graphics.render(clock);
       water?.drawUnderwater(graphics.renderer, camera);
       hud.render();
+      graphics.profiler.frameEnd();
     }
     runtimeProfile?.end(draw);
     inputTrace?.submit(draw);
@@ -3044,6 +3045,7 @@ async function start() {
   settings.onChange((key) => {
     if (key === "showStats") showStats();
   });
+  const pollFence = () => graphics.profiler.poll();
   // One frame's failure must not end the animation loop (a frozen picture
   // with no error shown); it is reported, and the next frame still comes.
   let frameFailures = 0;
@@ -3079,10 +3081,17 @@ async function start() {
     const dt = Math.min(presentDt ?? wallDt, 0.1);
     last = now;
     if (driving) {
-      const started = performance.now();
+      const started = performance.now(), profiler = graphics.profiler;
+      // Every display refresh looks at the last frame's fence, drawn or not:
+      // the sooner it is seen done, the more the GPU has to spare.
+      profiler.poll(started);
       frame(dt, presentDt !== null && !veiled, wallDt, presentDt !== null, true);
       if (presentDt !== null && !frozen && !document.hidden) {
-        graphics.setAdaptiveScale(resolution.sample(presentDt * 1000, performance.now() - started, graphics.profiler.gpu.at(-1)));
+        graphics.setAdaptiveScale(resolution.sample(presentDt * 1000, performance.now() - started, profiler.gpu.at(-1), profiler.behind, profiler.latency));
+        // Without a GPU timer, one more look halfway through the frame
+        // budget: a fence done by then is headroom (the next refresh comes
+        // a whole budget later when the cap is the display's rate).
+        if (resolution.target && !profiler.extension) setTimeout(pollFence, 500 / resolution.target);
       }
     }
     if (presentDt !== null && stats && !stats.hidden) {
