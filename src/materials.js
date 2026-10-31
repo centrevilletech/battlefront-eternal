@@ -434,6 +434,14 @@ const fragmentShader = /* glsl */ `
         gl_FragColor = vec4(sky.rgb, 1.0);
       #endif
     #else
+      #ifdef BUMP
+        // The bump fetch's gradients, taken where every pixel still runs.
+        // The fetch sits behind the BUMPMAPPING switch, and Direct3D's
+        // compiler moves an implicit-gradient fetch out of a branch, so the
+        // normal map would be read with bump mapping off.
+        vec2 bumpDx = dFdx(vUv);
+        vec2 bumpDy = dFdy(vUv);
+      #endif
       #ifdef FAR
         // Reject the hidden near portion before any material texture fetches.
         if (vDepth < fade.x) discard;
@@ -541,7 +549,7 @@ const fragmentShader = /* glsl */ `
         light = clamp((vAmbient + vSun * shadow + point) * tint, 0.0, 1.0);
         #ifdef BUMP
           if (bump > 0.5) {
-            vec4 bumpTexel = texture2D(bumpMap, vUv);
+            vec4 bumpTexel = textureGrad(bumpMap, vUv, bumpDx, bumpDy);
             vec3 n = bumpTexel.xyz * 2.0 - 1.0;
             normal = normalize(normalize(vTangent) * n.x + normalize(vBinormal) * n.y + normal * n.z);
             gloss = bumpTexel.a;
@@ -595,7 +603,9 @@ const fragmentShader = /* glsl */ `
         #else
           // Most pixels are fully near: don't spend a far-scene texture read
           // on every fragment unless this pixel is actually in the dissolve.
-          if (near < 1.0) color.rgb = mix(texture2D(farMap, gl_FragCoord.xy / resolution).rgb, color.rgb, near);
+          // An explicit level (the image has one) keeps the read inside the
+          // branch on Direct3D, whose compiler hoists implicit-gradient ones.
+          if (near < 1.0) color.rgb = mix(textureLod(farMap, gl_FragCoord.xy / resolution, 0.0).rgb, color.rgb, near);
           color.a = 1.0;
         #endif
       #endif

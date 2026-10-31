@@ -239,10 +239,14 @@ export class Graphics {
         uniform float speedBlur;
         uniform float speedTurn;
         varying vec2 vUv;
+        // Every read but the first sits behind a switch. Explicit levels (the
+        // targets have one each) keep them there on Direct3D, whose compiler
+        // otherwise hoists or flattens implicit-gradient reads: a plain frame
+        // would pay for the blur, the glow and five motion-blur taps.
         void main() {
           vec3 sharp = texture2D(map, vUv).rgb;
           vec3 color = sharp;
-          if (blend > 0.0) color = mix(color, texture2D(blurred, vUv).rgb, blend);
+          if (blend > 0.0) color = mix(color, textureLod(blurred, vUv, 0.0).rgb, blend);
           if (speedBlur > 0.0001) {
             vec2 radial = vUv - vec2(0.5);
             float iris = smoothstep(0.16, 0.62, length(radial));
@@ -250,11 +254,11 @@ export class Graphics {
             vec3 trail = sharp;
             for (int i = 1; i < 6; i++) {
               vec2 uv = clamp(vUv - streak * (float(i) / 5.0), vec2(0.001), vec2(0.999));
-              trail += texture2D(map, uv).rgb;
+              trail += textureLod(map, uv, 0.0).rgb;
             }
             color = mix(color, trail / 6.0, iris * 0.85);
           }
-          if (bloomStrength > 0.0) color += texture2D(glow, vUv).rgb * bloomStrength * (1.0 - color);
+          if (bloomStrength > 0.0) color += textureLod(glow, vUv, 0.0).rgb * bloomStrength * (1.0 - color);
           gl_FragColor = vec4(color, 1.0);
         }
       `,
