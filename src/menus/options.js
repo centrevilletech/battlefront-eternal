@@ -1,6 +1,7 @@
 import { ANTIALIASING, BATTLE_SIZES, DEFAULTS, PERFORMANCE_PRESETS, RENDER_SCALE_MIN, SHADOW_PRESETS, VIEW_DISTANCES, WATER_QUALITIES } from "../settings.js";
 import { AUDIO_DYNAMICS, AUDIO_OUTPUTS, AUDIO_QUALITIES } from "../audio/options.js";
 import { UPSCALERS } from "../upscaler.js";
+import { gpuNote, pageGpu } from "../gpu-info.js";
 import { OptionRow } from "./widgets.js";
 import { MAX_TEAM_SIZE } from '../battle-limits.js';
 
@@ -85,7 +86,8 @@ export const OPTIONS = [
 
   // VIDEO OPTIONS: the preset and pacing first, then the frame, then the
   // effects that have a Classic and an Enhanced look.
-  { key: "performancePreset", page: "video", label: "QUALITY PRESET", kind: "choice", apply: "live",
+  // Its note names the GPU, and warns when Chromium draws in software.
+  { key: "performancePreset", page: "video", label: "QUALITY PRESET", kind: "choice", apply: "live", note: () => gpuNote(pageGpu()),
     choices: [["custom", "CUSTOM"], ...Object.entries(PERFORMANCE_PRESETS).map(([k, preset]) => [k, upper(preset.label).replace(/\s*\(.*\)$/, "")])] },
   { key: "frameLimit", page: "video", label: "FRAME LIMIT", kind: "choice", apply: "live", choices: FPS("DISPLAY") },
   { key: "dynamicResolution", page: "video", label: "ADAPTIVE RESOLUTION", kind: "choice", apply: "live", choices: FPS("OFF") },

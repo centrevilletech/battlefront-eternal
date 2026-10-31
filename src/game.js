@@ -3107,11 +3107,11 @@ async function start() {
         const ran = worldClock.tick - (statsClock.tick ?? worldClock.tick), dropped = worldClock.dropped - (statsClock.dropped ?? worldClock.dropped);
         statsClock.tick = worldClock.tick; statsClock.dropped = worldClock.dropped;
         const speed = ran + dropped > 0 ? ran / (ran + dropped) : 1;
-        stats.textContent = client
+        stats.textContent = (client
           ? clientStats()
           : `${fps.toFixed(0)} fps  60 Hz${speed < 0.995 ? ` (world at ${Math.round(speed * 100)}% speed, ${worldClock.stepCost.toFixed(1)} ms/tick)` : worldClock.debt ? ` (${worldClock.debt} ticks behind)` : ""}  ${Math.hypot(v.x, v.z).toFixed(2)} m/s` +
           `  ${soldier.air || (soldier.grounded ? soldier.posture : "airborne")}` +
-          `  ${spawns[spawnIndex]?.[0] ?? ""}`;
+          `  ${spawns[spawnIndex]?.[0] ?? ""}`) + `  ${graphics.statsText()}`;
       }
     }
   }

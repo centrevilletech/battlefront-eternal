@@ -10,6 +10,7 @@ import { LocalLights } from "./local-lights.js";
 import { boltLook } from "./blaster-bolts.js";
 import { sniperLook } from "./sniper-trace.js";
 import { UPSCALERS, Upscaler } from "./upscaler.js";
+import { pageGpu, rendererName } from "./gpu-info.js";
 import { CSM } from "three/addons/csm/CSM.js";
 import { NO_FOG, fogs, lighting, setFog, setLighting } from "./materials.js";
 import { ANTIALIASING, RENDER_SCALE_MIN, SHADOW_PRESETS, VIEW_DISTANCES } from "./settings.js";
@@ -115,6 +116,9 @@ export class Graphics {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.info.autoReset = false;
     this.profiler = new RenderProfiler(this.renderer);
+    // Which GPU draws, and whether Chromium has it drawing in software
+    // (gpu-info.js): VIDEO OPTIONS and the stats line say so.
+    pageGpu({ renderer: () => rendererName(this.renderer.getContext()) });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(this.renderer.domElement);
 
@@ -965,6 +969,14 @@ export class Graphics {
     this.profiler.end();
   }
 
+  // The stats line's part: the 3D view's size (adaptive resolution moves
+  // it), and a warning when the GPU draws or composites in software.
+  statsText() {
+    const gpu = pageGpu();
+    const warning = gpu.software ? "  SOFTWARE GPU" : gpu.softwareCompositing || gpu.readback ? "  SOFTWARE COMPOSITING" : "";
+    return `3D ${this.renderSize.x}x${this.renderSize.y}${warning}`;
+  }
+
   diagnostics() {
     return {
       resolution: [this.sceneTarget.width, this.sceneTarget.height],
@@ -990,6 +1002,7 @@ export class Graphics {
       timings: this.profiler.report(),
       lampLights: { sources: this.localLights.sources.length, occlusionRays: this.localLights.rays },
       memory: { ...this.renderer.info.memory },
+      gpu: pageGpu(),
     };
   }
 }
