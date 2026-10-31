@@ -43,10 +43,12 @@ a remote one.
 - **Armies.** Local armies keep each mission's population, capped at 32 per
   team; online armies reject larger requests. The hosting UI allows at most 64
   human players in total, replacing bots within those same army slots.
-- **Graphics.** Performance, Balanced and High presets; an optional frame cap
-  (30 to 240) that skips presentation work, never gameplay ticks; and adaptive
-  resolution that changes only the back buffer, within 50 to 100% of the
-  selected scale, lowering slowly on sustained GPU evidence.
+- **Graphics.** Minimum, Performance, Balanced and High presets; an optional
+  frame cap (30 to 240) that skips presentation work, never gameplay ticks;
+  and adaptive resolution that changes only the back buffer, within 50 to
+  100% of the selected scale (never under a quarter of the window), lowering
+  slowly on sustained GPU evidence: timer queries, or per-frame fences where
+  there are none.
 - **Checks.** `tests/local-server-checks.js` and `tests/local-map-matrix.mjs`
   compare selected canonical gameplay state in one Chromium runtime (page
   corrections, a 720-tick replay, renderer-stall isolation, every imported

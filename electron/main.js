@@ -27,6 +27,7 @@ import { createSteamIntegration } from "./steam/index.js";
 import { overlayLoaded, overlaySupport, overlaySwitches } from "./steam/overlay.js";
 import { readSteamSettings } from "./steam/relaunch.js";
 import { readPlayerSettings, shadowedStorage, writePlayerSettings } from "./player-settings.js";
+import { gpuReport, gpuSwitches } from "./gpu.js";
 
 function argument(name) {
   const prefix = `--${name}=`;
@@ -58,6 +59,8 @@ if (!primaryInstance) app.quit();
 // player turned the overlay on. Read before anything starts the GPU.
 const overlay = overlaySwitches({ steam: readSteamSettings(app.getPath("userData")) });
 for (const [name, value] of overlay) app.commandLine.appendSwitch(name, value);
+// The discrete GPU on a laptop that has two (electron/gpu.js).
+for (const [name, value] of gpuSwitches()) app.commandLine.appendSwitch(name, value);
 
 // ---- Settings ----
 
@@ -852,6 +855,8 @@ function registerIpc() {
     return contentRoot();
   });
   ipcMain.handle("bfe:prepare-state", (event) => (fromTrustedFrame(event) ? loaderState() : null));
+  // How Chromium uses the GPU (VIDEO OPTIONS, src/gpu-info.js).
+  ipcMain.handle("bfe:gpu", (event) => (fromTrustedFrame(event) ? gpuReport({ electronApp: app }) : null));
   // The main menu's version line: this build, the content generations it
   // wants, and the ones the game data in use was prepared at.
   ipcMain.handle("bfe:about", async (event) => {

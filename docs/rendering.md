@@ -798,7 +798,10 @@ HUD included. The far scene, near scene, soft focus and bloom run at the
 render size. Upscaler set to "off" restores the old behaviour.
 
 - Settings:
-  - `upscaler`: `temporal` (default), `spatial` or `off`.
+  - `upscaler`: `temporal` (default), `spatial`, `bilinear` or `off`.
+    Bilinear stretches the frame with the texture filter (one read a pixel,
+    the composite itself when nothing else is composited): the Performance
+    preset's choice (`docs/performance.md`, "Old GPUs at full screen").
   - `upscaleSharpness`: 0 to 1, default 0.4.
   - The render-scale slider now steps by 0.05, so 0.5 (4K from 1080p) and
     0.65 to 0.7 (4K from about 1440p) are reachable.

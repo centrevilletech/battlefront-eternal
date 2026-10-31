@@ -25,6 +25,12 @@ export class FramePacer {
 // Conservative dynamic resolution. Evaluate sustained frame pressure, not a
 // single shader compilation or OS hitch. Never repeatedly shrink the image to
 // try to fix a CPU-bound simulation. No localStorage writes while adapting.
+//
+// The GPU's share comes from its timer where the browser offers one (gpuMs),
+// else from the render profiler's fences (render-profiler.js): `behind`, the
+// last frame's GPU work still unfinished when this one began, and `latency`,
+// how soon after a frame was sent its fence was seen signaled (ms, an upper
+// bound of the GPU's time past the frame's last command).
 export class ResolutionController {
   constructor(target = 0) { this.setTarget(target); }
   setTarget(target) {
@@ -35,18 +41,21 @@ export class ResolutionController {
     this.age = 0; this.time = 0; this.frames = 0; this.slow = 0;
     this.cpuBound = 0; this.headroom = 0; this.recover = 0;
   }
-  sample(intervalMs, cpuMs, gpuMs = null) {
+  sample(intervalMs, cpuMs, gpuMs = null, behind = null, latency = null) {
     if (!this.target || !(intervalMs > 0) || !Number.isFinite(intervalMs)) return this.scale;
     // Ignore resume gaps and large task stalls. They are not GPU evidence.
     if (intervalMs > 250) { this.reset(); return this.scale; }
     const budget = 1000 / this.target;
     const gpuKnown = Number.isFinite(gpuMs) && gpuMs > 0;
+    // Without any GPU evidence, 30 Hz display pacing is indistinguishable
+    // from a GPU taking 33 ms. Keep the chosen resolution rather than guessing.
+    const fenced = !gpuKnown && typeof behind === "boolean";
+    const gpuSlow = gpuKnown ? gpuMs > budget * .85 : fenced && behind;
+    const gpuQuick = gpuKnown ? gpuMs < budget * .7 : fenced && !behind && Number.isFinite(latency) && latency < budget * .7;
     this.time += intervalMs; this.age += intervalMs; this.frames++;
-    // Without a GPU timer, 30 Hz display pacing is indistinguishable from a
-    // GPU taking 33 ms. Keep the chosen resolution rather than guessing.
-    this.slow += Number(intervalMs > budget * 1.15 && gpuKnown && gpuMs > budget * .85);
+    this.slow += Number(intervalMs > budget * 1.15 && gpuSlow);
     this.cpuBound += Number(cpuMs > budget * .85 && (!gpuKnown || cpuMs > gpuMs * 1.2));
-    this.headroom += Number(intervalMs < budget * 1.08 && cpuMs < budget * .65 && gpuKnown && gpuMs < budget * .7);
+    this.headroom += Number(intervalMs < budget * 1.08 && cpuMs < budget * .65 && gpuQuick);
     // A two-second startup/window prevents a low refresh display or one
     // expensive frame from thrashing render targets.
     if (this.time < 2000 || this.frames < 20) return this.scale;

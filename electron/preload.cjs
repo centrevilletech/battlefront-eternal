@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld("bfeDesktop", {
   // The options page's STEAM & DISCORD: what is set up, and the player's
   // choices (add to or remove from the Steam library, Discord's detail).
   integrations: { request: (action, value) => ipcRenderer.invoke("bfe:integrations", action, value) },
+  // How Chromium uses the GPU (electron/gpu.js): VIDEO OPTIONS show it.
+  gpu: () => ipcRenderer.invoke("bfe:gpu"),
   platform: process.platform,
   versions: { electron: process.versions.electron, chrome: process.versions.chrome },
   contentTransfer: action => ["import", "export"].includes(action) ? ipcRenderer.invoke("bfe:content-transfer", action) : Promise.resolve(false),

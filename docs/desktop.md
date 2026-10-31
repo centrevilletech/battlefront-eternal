@@ -24,6 +24,11 @@ MULTIPLAYER.md covers the release plan; this note covers what exists today.
 - `electron/preload.cjs` is the only bridge: `window.bfeDesktop` reports the
   platform and the game data folder, opens the folder picker, and gives the
   loader its state and buttons.
+- `electron/gpu.js`: on Windows Chromium starts with
+  `force_high_performance_gpu` (a laptop's discrete GPU), and
+  `bfeDesktop.gpu()` reports Chromium's GPU feature status, as
+  `chrome://gpu` shows it. VIDEO OPTIONS and the stats line warn when the game
+  is drawn or composited in software (`docs/performance.md`).
 - Every battle runs in the world worker, as in a browser.
   `--query=<flags>` opens the main menu with dev flags that launch URLs keep.
 - F11 toggles fullscreen. The menu bar is hidden until Alt is pressed; its

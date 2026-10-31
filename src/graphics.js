@@ -10,9 +10,10 @@ import { LocalLights } from "./local-lights.js";
 import { boltLook } from "./blaster-bolts.js";
 import { sniperLook } from "./sniper-trace.js";
 import { UPSCALERS, Upscaler } from "./upscaler.js";
+import { pageGpu, rendererName } from "./gpu-info.js";
 import { CSM } from "three/addons/csm/CSM.js";
 import { NO_FOG, fogs, lighting, setFog, setLighting } from "./materials.js";
-import { ANTIALIASING, SHADOW_PRESETS, VIEW_DISTANCES } from "./settings.js";
+import { ANTIALIASING, RENDER_SCALE_MIN, SHADOW_PRESETS, VIEW_DISTANCES } from "./settings.js";
 
 // scene.updateMatrixWorld(), but hidden subtrees (pooled soldiers, unheld
 // guns, idle effect meshes: about half the scene) are skipped and refreshed
@@ -56,7 +57,8 @@ function updateVisible(object, force) {
 //      Optional bloom is added separately; FXAA, when selected, runs last.
 //   4. With an upscaler (upscaler.js), steps 1-3 run at the render scale's
 //      resolution and the result is rebuilt to the window's, where the HUD
-//      is then drawn sharp. Without one, the whole canvas shrinks instead.
+//      is then drawn sharp (the bilinear one is the composite itself,
+//      drawn to the window). Without one, the whole canvas shrinks instead.
 //
 // Shadows are this port's own: cascaded shadow maps of the sun, where the
 // original had stencil shadow volumes. Each cascade is a hardware depth map
@@ -114,6 +116,9 @@ export class Graphics {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.info.autoReset = false;
     this.profiler = new RenderProfiler(this.renderer);
+    // Which GPU draws, and whether Chromium has it drawing in software
+    // (gpu-info.js): VIDEO OPTIONS and the stats line say so.
+    pageGpu({ renderer: () => rendererName(this.renderer.getContext()) });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(this.renderer.domElement);
 
@@ -234,10 +239,14 @@ export class Graphics {
         uniform float speedBlur;
         uniform float speedTurn;
         varying vec2 vUv;
+        // Every read but the first sits behind a switch. Explicit levels (the
+        // targets have one each) keep them there on Direct3D, whose compiler
+        // otherwise hoists or flattens implicit-gradient reads: a plain frame
+        // would pay for the blur, the glow and five motion-blur taps.
         void main() {
           vec3 sharp = texture2D(map, vUv).rgb;
           vec3 color = sharp;
-          if (blend > 0.0) color = mix(color, texture2D(blurred, vUv).rgb, blend);
+          if (blend > 0.0) color = mix(color, textureLod(blurred, vUv, 0.0).rgb, blend);
           if (speedBlur > 0.0001) {
             vec2 radial = vUv - vec2(0.5);
             float iris = smoothstep(0.16, 0.62, length(radial));
@@ -245,11 +254,11 @@ export class Graphics {
             vec3 trail = sharp;
             for (int i = 1; i < 6; i++) {
               vec2 uv = clamp(vUv - streak * (float(i) / 5.0), vec2(0.001), vec2(0.999));
-              trail += texture2D(map, uv).rgb;
+              trail += textureLod(map, uv, 0.0).rgb;
             }
             color = mix(color, trail / 6.0, iris * 0.85);
           }
-          if (bloomStrength > 0.0) color += texture2D(glow, vUv).rgb * bloomStrength * (1.0 - color);
+          if (bloomStrength > 0.0) color += textureLod(glow, vUv, 0.0).rgb * bloomStrength * (1.0 - color);
           gl_FragColor = vec4(color, 1.0);
         }
       `,
@@ -528,7 +537,9 @@ export class Graphics {
   // upscaler rebuilds at the canvas's full resolution; with the upscaler
   // off the canvas itself shrinks and the browser stretches it, HUD and all.
   applyScale() {
-    const scale = (Number(this.settings.get("renderScale")) || 1) * (this.adaptiveScale ?? 1);
+    // Adaptive resolution stops at the options' lowest render scale.
+    const base = Number(this.settings.get("renderScale")) || 1;
+    const scale = Math.max(Math.min(base, RENDER_SCALE_MIN), base * (this.adaptiveScale ?? 1));
     const native = Math.min(window.devicePixelRatio, 2);
     let mode = this.settings.get("upscaler");
     if (!UPSCALERS[mode]) mode = "temporal";
@@ -943,19 +954,31 @@ export class Graphics {
     this.composite.material.uniforms.bloomStrength.value = bloom ? 0.65 : 0;
     // The temporal upscaler antialiases on its own; FXAA would only blur it.
     const fxaa = !temporal && this.settings.get("antialiasing") !== "off";
-    renderer.setRenderTarget(fxaa || upscale ? this.postTarget : null);
+    // Bilinear, with nothing to composite but the frame itself: the
+    // composite draws straight to the window, its texture filtering the
+    // upscale, and no pass of its own follows.
+    const direct = upscale && this.upscaling === "bilinear" && !fxaa && !blur && !bloom && !(this.composite.material.uniforms.speedBlur.value > 0.0001);
+    renderer.setRenderTarget((fxaa || upscale) && !direct ? this.postTarget : null);
     renderer.render(this.composite, this.passCamera);
     if (fxaa) {
       renderer.setRenderTarget(upscale ? this.aaTarget : null);
       renderer.render(this.fxaa, this.passCamera);
     }
     // 4. Rebuilt at the window's resolution.
-    if (upscale) this.upscaler.present(renderer, fxaa ? this.aaTarget.texture : this.postTarget.texture, temporal);
+    if (upscale && !direct) this.upscaler.present(renderer, fxaa ? this.aaTarget.texture : this.postTarget.texture, this.upscaling);
     renderer.autoClear = true;
     // All scene, shadow and post passes; captured before the separate HUD.
     this.frameInfo = { ...renderer.info.render };
     this.frameCount++;
     this.profiler.end();
+  }
+
+  // The stats line's part: the 3D view's size (adaptive resolution moves
+  // it), and a warning when the GPU draws or composites in software.
+  statsText() {
+    const gpu = pageGpu();
+    const warning = gpu.software ? "  SOFTWARE GPU" : gpu.softwareCompositing || gpu.readback ? "  SOFTWARE COMPOSITING" : "";
+    return `3D ${this.renderSize.x}x${this.renderSize.y}${warning}`;
   }
 
   diagnostics() {
@@ -983,6 +1006,7 @@ export class Graphics {
       timings: this.profiler.report(),
       lampLights: { sources: this.localLights.sources.length, occlusionRays: this.localLights.rays },
       memory: { ...this.renderer.info.memory },
+      gpu: pageGpu(),
     };
   }
 }

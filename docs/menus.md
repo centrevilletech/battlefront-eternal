@@ -269,11 +269,14 @@ DISCORD, [presence.md](presence.md)) and opens the pages:
 - **GAME OPTIONS:** VIEWPOINT (in a battle: `viewpoint`), FRIENDLY FIRE,
   INSTANT ACTION HEROES, DIFFICULTY, BATTLE AI, BATTLE SIZE, STATS LINE,
   SIMULATION RATE, RESET TO DEFAULTS.
-- **VIDEO OPTIONS:** the quality preset, frame limit, adaptive resolution,
-  render scale, upscaler and sharpening, antialiasing, shadows, texture
-  filtering, compressed textures, water, view distance, far terrain, bump
-  mapping, soft focus, bloom, motion blur, soft particles, lamp light; then
-  each effect's CLASSIC or ENHANCED (terrain, trees, water and steam, ocean
+- **VIDEO OPTIONS:** the quality preset (its note names the GPU, and warns
+  when Chromium draws or composites in software or a laptop's discrete GPU
+  idles), frame limit, adaptive resolution, render scale (0.25 to 2; its
+  note the 3D view's size), upscaler (its note what each costs) and
+  sharpening, antialiasing, shadows, texture filtering, compressed
+  textures, water, view distance, far terrain, bump mapping, soft focus,
+  bloom, motion blur, soft particles, lamp light; then each effect's
+  CLASSIC or ENHANCED (terrain, trees, water and steam, ocean
   and sky, rain, blaster bolts, jetpacks, droidekas, destruction, death
   camera). They scroll. RESET TO DEFAULTS in the middle (the original's AUTO
   DETECT place).

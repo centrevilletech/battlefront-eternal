@@ -338,12 +338,21 @@ export async function checkRendering() {
   settings.set('upscaler','spatial');settings.set('renderScale',2);const reference=canvas();
   settings.set('renderScale',.5);const spatial=canvas();
   assert('Spatial upscaling keeps the canvas at full resolution',spatial.w===reference.w&&spatial.h===reference.h&&g.renderSize.x===Math.round(reference.w/2),{canvas:[spatial.w,spatial.h],frame:g.renderSize.toArray()});
+  // Bilinear: the composite itself draws to the window (no pass of its
+  // own); with FXAA it stretches FXAA's output instead.
+  settings.set('upscaler','bilinear');const bilinear=canvas();const bilinearPasses=g.frameInfo.calls;
+  assert('Bilinear upscaling keeps the canvas at full resolution',bilinear.w===reference.w&&bilinear.h===reference.h&&g.renderSize.x===Math.round(reference.w/2),{canvas:[bilinear.w,bilinear.h],frame:g.renderSize.toArray()});
+  settings.set('upscaler','spatial');canvas();const spatialPasses=g.frameInfo.calls;
+  assert('Bilinear upscaling draws one pass fewer than spatial',bilinearPasses===spatialPasses-1,{bilinear:bilinearPasses,spatial:spatialPasses});
+  settings.set('upscaler','bilinear');settings.set('antialiasing','fxaa');const bilinearFxaa=canvas();settings.set('antialiasing','off');
+  assert('Bilinear upscaling after FXAA fills the canvas',bilinearFxaa.w===reference.w&&difference(bilinearFxaa.p,bilinear.p).mean<12,difference(bilinearFxaa.p,bilinear.p));
   settings.set('upscaler','temporal');g.resetHistory();
   let temporal;for(let i=0;i<32;i++)temporal=canvas();
   assert('Temporal upscaling keeps the canvas at full resolution',temporal.w===reference.w&&g.renderSize.x===Math.round(reference.w/2),{canvas:[temporal.w,temporal.h],frame:g.renderSize.toArray()});
   assert('Upscalers are WebGL error-free',gl.getError()===gl.NO_ERROR);
-  const quality={spatial:psnr(reference,spatial),temporal:psnr(reference,temporal)};
+  const quality={bilinear:psnr(reference,bilinear),spatial:psnr(reference,spatial),temporal:psnr(reference,temporal)};
   assert('Temporal upscaling recovers detail a single frame lacks',quality.temporal>quality.spatial+1,quality);
+  assert('Bilinear upscaling stays close to spatial',quality.bilinear>quality.spatial-3&&quality.bilinear>15,quality);
   const settled=canvas();
   assert('A settled temporal image holds still',difference(temporal.p,settled.p).mean<1.5,difference(temporal.p,settled.p));
   // An object the motion vectors don't track leaves no trail: history

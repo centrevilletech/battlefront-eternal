@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULTS } from "../src/settings.js";
-import { OPTIONS, OPTION_KEYS, PROFILE_KEYS, THEME_KEYS, PAGES, optionsFor, optionRow, applies, resetPage, NOTES, enhancedSoundNote } from "../src/menus/options.js";
+import { DEFAULTS, PERFORMANCE_PRESETS, RENDER_SCALE_MIN } from "../src/settings.js";
+import { UPSCALERS } from "../src/upscaler.js";
+import { OPTIONS, OPTION_KEYS, PROFILE_KEYS, THEME_KEYS, PAGES, optionsFor, optionRow, applies, resetPage, NOTES, enhancedSoundNote, renderResolution } from "../src/menus/options.js";
 import { optionsMenu, gamePage, videoPage, audioPage, controlsPage } from "../src/menus/option-pages.js";
 import { ScreenStack } from "../src/menus/stack.js";
 
@@ -40,7 +41,46 @@ test("when a change applies: live, on the next map, on the next battle, or never
   const settings = settingsStub();
   assert.equal(optionRow(OPTIONS.find((e) => e.key === "textureCompression"), settings).note, NOTES.map);
   assert.equal(optionRow(OPTIONS.find((e) => e.key === "aiMode"), settings, { inBattle: true }).note, NOTES.battle);
-  assert.equal(optionRow(OPTIONS.find((e) => e.key === "renderScale"), settings).note, null);
+  assert.equal(optionRow(OPTIONS.find((e) => e.key === "shadows"), settings).note, null);
+});
+
+test("the render scale goes down to a quarter, and its row says how big the 3D view is", () => {
+  const scale = OPTIONS.find((e) => e.key === "renderScale");
+  assert.equal(scale.min, RENDER_SCALE_MIN);
+  assert.equal(RENDER_SCALE_MIN, 0.25);
+  for (const preset of Object.values(PERFORMANCE_PRESETS)) {
+    const value = preset.values.renderScale;
+    assert.ok(value >= scale.min && value <= scale.max, `${preset.label} is on the slider`);
+  }
+  assert.deepEqual(renderResolution(0.5, { innerWidth: 1920, innerHeight: 1080, devicePixelRatio: 1 }), { width: 960, height: 540, windowWidth: 1920, windowHeight: 1080 });
+  // The pixels the canvas has: CSS pixels times the display's ratio (at most 2).
+  assert.deepEqual(renderResolution(0.25, { innerWidth: 1280, innerHeight: 720, devicePixelRatio: 3 }), { width: 640, height: 360, windowWidth: 2560, windowHeight: 1440 });
+  assert.equal(renderResolution(1, null), null);
+  const settings = settingsStub({ renderScale: 0.5 });
+  const row = optionRow(scale, settings);
+  assert.equal(typeof row.note, "function", "the note follows the setting");
+  const view = globalThis.window;
+  globalThis.window = { innerWidth: 1920, innerHeight: 1080, devicePixelRatio: 1 };
+  try {
+    assert.equal(row.note(), "3D VIEW 960X540, WINDOW 1920X1080");
+    settings.set("renderScale", 0.25);
+    assert.equal(row.note(), "3D VIEW 480X270, WINDOW 1920X1080");
+  } finally {
+    if (view === undefined) delete globalThis.window; else globalThis.window = view;
+  }
+});
+
+test("each upscaler's row says what it costs", () => {
+  const entry = OPTIONS.find((e) => e.key === "upscaler");
+  assert.deepEqual(entry.choices.map(([value]) => value), Object.keys(UPSCALERS));
+  assert.equal(entry.choices.find(([value]) => value === "bilinear")[1], "BILINEAR");
+  const settings = settingsStub();
+  const row = optionRow(entry, settings);
+  for (const mode of Object.keys(UPSCALERS)) {
+    settings.set("upscaler", mode);
+    assert.match(row.note(), /^[A-Z0-9 ,:]+$/, `${mode}: the 2004 font's letters`);
+    assert.ok(row.note().length <= 80, `${mode}: one line in the classic menu`);
+  }
 });
 
 test("each entry's choices hold its default, and a slider's range does", () => {

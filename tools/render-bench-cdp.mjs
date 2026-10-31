@@ -14,6 +14,7 @@
 //   BASE=http://127.0.0.1:18475 LABEL=before node tools/render-bench-cdp.mjs
 //   FRAMES=600 WARM=20 W=640 H=400 SETTINGS='{"shadows":"low"}' OUT=/tmp/bf-bench
 //   PRE='__bf.graphics.cacheShadows = false' (evaluated in the page after warm-up)
+//   CHROME=/path/to/chrome (the Chromium binary; /usr/bin/chromium by default)
 //   Q='map=nab2&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1'
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -33,7 +34,7 @@ const FRAMES = Number(process.env.FRAMES || 600), WARM = Number(process.env.WARM
 const W = Number(process.env.W || 640), H = Number(process.env.H || 400);
 const settings = JSON.parse(process.env.SETTINGS || '{}');
 fs.mkdirSync(out, { recursive: true });
-const chrome = spawn('/usr/bin/chromium', ['--headless=new', `--remote-debugging-port=${port}`, '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--no-sandbox', `--user-data-dir=${out}/chrome-${port}`, `--window-size=${W},${H}`, '--autoplay-policy=no-user-gesture-required', '--mute-audio', 'about:blank'], { stdio: 'ignore' });
+const chrome = spawn(process.env.CHROME || '/usr/bin/chromium', ['--headless=new', `--remote-debugging-port=${port}`, '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--no-sandbox', `--user-data-dir=${out}/chrome-${port}`, `--window-size=${W},${H}`, '--autoplay-policy=no-user-gesture-required', '--mute-audio', 'about:blank'], { stdio: 'ignore' });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let info; for (let i = 0; i < 50; i++) { try { info = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json(); break; } catch { await sleep(200); } }
 const ws = new WebSocket(info.webSocketDebuggerUrl); await new Promise(r => ws.onopen = r);
@@ -45,6 +46,7 @@ const send = (method, params = {}, sessionId) => new Promise((resolve, reject) =
 const { targetId } = await send('Target.createTarget', { url: 'about:blank' });
 const { sessionId: page } = await send('Target.attachToTarget', { targetId, flatten: true });
 await send('Runtime.enable', {}, page);
+await send('Page.enable', {}, page);
 await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: 1, mobile: false }, page);
 await send('Page.addScriptToEvaluateOnNewDocument', { source: `
   localStorage.setItem('battlefront-eternal.settings', ${JSON.stringify(JSON.stringify(settings))});

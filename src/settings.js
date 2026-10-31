@@ -13,8 +13,9 @@ export const DEFAULTS = {
   renderScale: 1,
   // How the 3D frame reaches the window when the render scale (or adaptive
   // resolution) shrinks it: rebuilt over several jittered frames
-  // ("temporal"), in one pass ("spatial"), or by stretching the canvas
-  // ("off"). With an upscaler the HUD stays at full resolution.
+  // ("temporal"), in one pass ("spatial"), stretched by the texture filter
+  // ("bilinear"), or by stretching the canvas ("off"). With an upscaler the
+  // HUD stays at full resolution.
   upscaler: "temporal",
   upscaleSharpness: 0.4,
   // GPU-compressed textures (KTX2/Basis from the import, textures.js): a
@@ -120,6 +121,10 @@ export const BATTLE_SIZES = {
 
 export const PHYSICS_RATES = [["60", "60 Hz"]];
 
+// The lowest render scale the options offer (a quarter of the window's
+// width): weak GPUs at full screen draw a small frame and stretch it.
+export const RENDER_SCALE_MIN = 0.25;
+
 // The settings the battle itself reads while it runs, which the pause menu
 // changes mid-battle (the rest reach it with each command, or at a restart).
 // A world worker keeps its own copy in step with the page's (WorkerHost
@@ -128,6 +133,11 @@ export const WORLD_SETTINGS = Object.freeze(["friendlyFire"]);
 
 // These only change presentation. Even the lightest preset keeps the same
 // population, collision, input, AI and 60 Hz gameplay rules.
+//
+// Neither preset for old PCs uses the temporal or spatial upscaler: their
+// passes run at the window's size whatever the render scale, and at full
+// screen on an old GPU they cost more than the smaller frame saves
+// (docs/performance.md, "Old GPUs at full screen").
 export const PERFORMANCE_PRESETS = {
   // For integrated GPUs of about 2011 (Intel HD 2000/3000, AMD Kabini): half
   // resolution, stretched by the browser (no upscaler or antialiasing pass,
@@ -141,8 +151,10 @@ export const PERFORMANCE_PRESETS = {
     viewDistance: "original", dynamicResolution: "30", boltEffects: "classic", terrainDetail: "original",
     destructionEffects: "classic", farTerrain: "reduced", arcCasterEffects: "classic", sniperEffects: "classic",
   } },
+  // Three-quarter resolution stretched by the bilinear upscaler (one read a
+  // pixel, the HUD sharp over it), with FXAA.
   performance: { label: "Performance (older PCs)", values: {
-    renderScale: .75, upscaler: "temporal", antialiasing: "fxaa", shadows: "off", anisotropy: 2,
+    renderScale: .75, upscaler: "bilinear", antialiasing: "fxaa", shadows: "off", anisotropy: 2,
     waterQuality: "low", treeDetail: "original", droidekaEffects: "classic",
     jetpackEffects: "classic", environmentEffects: "classic", rainEffects: "classic",
     oceanEffects: "classic", bumpMapping: false, softFocus: false, bloom: false,
