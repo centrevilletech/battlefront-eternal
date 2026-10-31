@@ -928,6 +928,11 @@ const STYLE = `
   opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility 0s linear .2s; }
 .bfe-spawn.open { opacity: 1; visibility: visible; transition: opacity .2s ease; }
 .bfe-spawn.open.covered { opacity: 0; visibility: hidden; transition: opacity .2s ease, visibility 0s linear .2s; }
+/* Shut or covered, its endless loops (the pulses, the sheen, the blinks) stop, to start
+   afresh when it opens: hidden, they would still cost the page style work every frame of
+   the battle. The one-shot animations (the flash, the sweep, the entrance) are left be. */
+.bfe-spawn:is(:not(.open), .covered) :is(.bfe-spawn-side-state, .bfe-spawn-side-count, .bfe-spawn-countdown, .bfe-spawn-hint, .bfe-spawn-go-slot, .bfe-spawn-go .label),
+.bfe-spawn:is(:not(.open), .covered) .bfe-spawn-class.picked::after { animation: none !important; }
 .bfe-spawn *, .bfe-spawn *::before, .bfe-spawn *::after { box-sizing: border-box; }
 .bfe-spawn button { font: inherit; color: inherit; }
 .bfe-spawn [hidden] { display: none !important; }
