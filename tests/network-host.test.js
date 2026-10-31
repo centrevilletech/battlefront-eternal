@@ -11,7 +11,7 @@ test('entity profile validates registry before welcome and acknowledges only app
   host.authenticated=true;
   host.resolveReady=()=>{};
   host.channels.set('state',{readyState:'open',bufferedAmount:0,send:value=>sent.push(value)});
-  await assert.rejects(host.receive('events',JSON.stringify({type:'welcome',snapshotMode:'snapshot-delta-v1'})),/version mismatch/);
+  await assert.rejects(host.receive('events',JSON.stringify({type:'welcome',snapshotMode:'snapshot-delta-v1'})),/did not send its battle description/);
   await host.receive('events',JSON.stringify({type:'entity-registry',registry}));
   await host.receive('events',JSON.stringify({type:'welcome',snapshotMode:'snapshot-delta-v1',inputMode:'split-v1'}));
   const packet=encodeEntities({...emptySnapshot(30,1)},null)[0];

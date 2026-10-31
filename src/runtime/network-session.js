@@ -72,13 +72,18 @@ export class NetworkSession {
       return;
     }
     if (message.type==='welcome') {
-      if(message.snapshotMode!=='snapshot-delta-v1'||!this.entityRegistry)throw Error('Multiplayer version mismatch. Update the desktop client and server.');
       // The welcome names the battle the server plays (its /info query). A
-      // page that built another loads the server's instead, before any of
-      // its entities lands; this battle never starts.
+      // page that built another (the server rotated while this one loaded,
+      // or its listing lagged) loads the server's instead, before any of
+      // its entities lands; this battle never starts. Decided before the
+      // registry check: a spectator's welcome is still the right one.
       if(typeof message.query==='string'&&message.query.length<=2048&&otherBattle(this.query,message.query)&&globalThis.location?.assign){
         clearTimeout(this.timeout);this.status('Loading the server\'s battle...');globalThis.location.assign(battleUrl(message.query));return;
       }
+      if(message.snapshotMode!=='snapshot-delta-v1')throw Error('Multiplayer version mismatch. Update the desktop client and server.');
+      // The registry precedes the welcome (server game-session.js); one
+      // that never came was dropped on the way, not a version difference.
+      if(!this.entityRegistry)throw Error('The server did not send its battle description. Try joining again.');
       this.authenticated=true;this.entityMode=this.splitInputs=true;this.epoch=message.epoch||1;this.welcome=message;
       this.ackTimer=setInterval(()=>{this.sendEntityAcknowledgement();this.sendEntityEdgeAcknowledgement();},100);
       if(message.spectator)this.status('Connected as a spectator.');
