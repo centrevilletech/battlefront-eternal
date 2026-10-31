@@ -79,6 +79,7 @@ build, preparing data with the Python tools, controls and testing.
 
 - [Development and playtesting](docs/development.md)
 - [Desktop app and packaging](docs/desktop.md)
+- [Dedicated server updates and the server archive](docs/server-updates.md)
 - [Game file formats](docs/formats.md)
 - [Runtime architecture](docs/runtime-architecture.md)
 - [Multiplayer design](MULTIPLAYER.md) and the [UDP transport](docs/native-udp-transport.md)

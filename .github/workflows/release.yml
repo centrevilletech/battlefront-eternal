@@ -49,7 +49,7 @@ jobs:
       - name: Install build tools
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends python3 python3-pip git ca-certificates curl gnupg openssl zstd xvfb xauth libnss3 libgtk-3-0 libgbm1 libasound2 libsecret-1-0
+          apt-get install -y --no-install-recommends python3 python3-pip git ca-certificates curl gnupg openssl zstd xz-utils xvfb xauth libnss3 libgtk-3-0 libgbm1 libasound2 libsecret-1-0
       - run: npm ci
       - run: npm test
       - name: Signed distribution regression checks
@@ -92,6 +92,13 @@ jobs:
           npx electron-builder --linux AppImage deb --x64 --arm64 --publish never
       - name: Verify packaged engine and resources
         run: node build/check-packaged.mjs
+      - name: Dedicated server archives, from the verified packages
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          # Published beside the .deb for hosts without the desktop app (docs/server-updates.md).
+          node build/server-archive.mjs release/linux-unpacked amd64 "release/battlefront-eternal-server_${VERSION}_linux-amd64.tar.xz"
+          node build/server-archive.mjs release/linux-arm64-unpacked arm64 "release/battlefront-eternal-server_${VERSION}_linux-arm64.tar.xz"
       - name: Update payloads, checked with the packaged updater
         run: |
           known=https://get.battlefronteternal.com/downloads/updates/blobs.json
@@ -113,6 +120,7 @@ jobs:
           path: |
             release/*.AppImage
             release/*.deb
+            release/battlefront-eternal-server_*.tar.xz
             release/update-*.tar
             release/compatibility.json
 

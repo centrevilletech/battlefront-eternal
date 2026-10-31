@@ -57,7 +57,7 @@ def api(path):
 def download_release(destination):
     release = api('/releases/tags/' + os.environ['BFE_RELEASE_TAG'])
     for asset in release['assets']:
-        if not asset['name'].endswith(('.AppImage', '.exe', '.deb', '.json', '.tar')):
+        if not asset['name'].endswith(('.AppImage', '.exe', '.deb', '.json', '.tar', '.tar.xz')):
             continue
         if Path(asset['name']).name != asset['name']:
             raise ValueError('Invalid release asset name')
@@ -71,6 +71,34 @@ SAFE_PART = re.compile(r'[^\\/:*?"<>|\x00-\x1f]+')
 def safe_relative(value):
     return (isinstance(value, str) and 0 < len(value) <= 512
             and all(part not in ('', '.', '..') and SAFE_PART.fullmatch(part) for part in value.split('/')))
+
+# The dedicated server archive (build/server-archive.mjs, docs/server-updates.md):
+# its root entries, and files every archive holds.
+SERVER_ENTRIES = {'bfe-tree.json', 'host-runtime', 'legal', 'toolchain', 'tools'}
+SERVER_FILES = ('host-runtime/server/src/main.js', 'host-runtime/engine/src/game.js', 'tools/prepare.py', 'bfe-tree.json')
+
+def archive_relative(name):
+    return isinstance(name, str) and '\x00' not in name and all(part not in ('', '.', '..') for part in name.split('/'))
+
+def check_server_archive(path):
+    """Only files, folders and links inside the server's own entries: nothing
+    the archive could write outside the folder it is unpacked into."""
+    names = set()
+    with tarfile.open(path, 'r:xz') as archive:
+        for member in archive:
+            name = member.name[2:] if member.name.startswith('./') else member.name
+            if not archive_relative(name) or name.split('/')[0] not in SERVER_ENTRIES:
+                raise ValueError(f'Unexpected entry {member.name} in {path.name}')
+            if member.issym() or member.islnk():
+                target = member.linkname if member.islnk() else os.path.join(os.path.dirname(name), member.linkname)
+                if member.linkname.startswith('/') or not archive_relative(os.path.normpath(target).replace(os.sep, '/')):
+                    raise ValueError(f'Unsafe link {member.name} in {path.name}')
+            elif not (member.isfile() or member.isdir()):
+                raise ValueError(f'Unexpected entry type for {member.name} in {path.name}')
+            names.add(name)
+    for file in SERVER_FILES:
+        if file not in names:
+            raise ValueError(f'{path.name} lacks {file}')
 
 def zstd_digest(path):
     """SHA-256 of a zstd blob's decompressed contents (zstd also checks the
@@ -235,6 +263,13 @@ def publish(source, version, release_id, revision, date):
             shutil.copyfile(package, stage / f'battlefront-eternal_{version}_{arch}.deb')
         if architectures != {'amd64', 'arm64'}:
             raise ValueError('Missing Debian architecture')
+        # The dedicated server archives, named by the packages' version.
+        for arch in ('amd64', 'arm64'):
+            archives = list(source.glob(f'*-server_*_linux-{arch}.tar.xz'))
+            if len(archives) != 1:
+                raise ValueError(f'Expected one dedicated server archive for {arch}, got {len(archives)}')
+            check_server_archive(archives[0])
+            shutil.copyfile(archives[0], stage / f'battlefront-eternal-server_{version}_linux-{arch}.tar.xz')
         store = downloads / 'updates' / 'blobs'
         store.mkdir(parents=True, exist_ok=True)
         updates = ingest_updates(source, stage, version.replace('~', '-'), release_id, store)

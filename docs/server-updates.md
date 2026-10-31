@@ -58,6 +58,43 @@ failures and the last error. `node <root>/update/server.js --status`
 prints it. Everything a run does is logged to the journal:
 `journalctl -u bfeserver-update`.
 
+## The server archive
+
+Hosts that run the server without the desktop app and its updater, under
+LinuxGSM or a container say, get the server's files on their own: every
+release publishes `battlefront-eternal-server_<version>_linux-amd64.tar.xz`
+and `_linux-arm64.tar.xz` beside the `.deb` in
+`https://get.battlefronteternal.com/downloads/latest/`, listed in that
+folder's `SHA256SUMS` (signed, `SHA256SUMS.asc`). The `<version>` is the
+package version, `0.1.0~preview.N`. `build/server-archive.mjs` packs it
+from the Linux build the `.deb` is made of, so an archive and its package
+hold the same files, and the release host refuses a release whose archive
+reaches outside this layout. Its root holds the package's
+`resources/host-runtime/` (the engine, the server adapter and this
+updater), `resources/tools/`, `resources/toolchain/` (the Python, ffmpeg
+and `ktx` the tools run on), `resources/legal/` and
+`resources/bfe-tree.json`, under those names without the `resources/`
+prefix:
+
+```
+host-runtime/   tools/   toolchain/   legal/   bfe-tree.json
+```
+
+With the archive unpacked into `<bfe>`, the game data is prepared from the
+owned game as the desktop app does it, and the server runs on Node.js 24
+(22.13 or later), which the archive does not carry:
+
+```sh
+BFE_GAME_DIR=<retail> BFE_CONTENT_DIR=<data> <bfe>/toolchain/python/bin/python3 <bfe>/tools/prepare.py --core-only
+BFE_ENGINE_DIR=<bfe>/host-runtime/engine BFE_DATA_DIR=<data> BFE_STATE_DIR=<state> node <bfe>/host-runtime/server/src/main.js --serve
+```
+
+The data only needs preparing again when a release changes `tools/` or
+`toolchain/`: compare their entries in `bfe-tree.json`, whose paths keep
+the `resources/` prefix of the full build. A host that unpacks the archive
+updates the server itself (LinuxGSM's `update` does); the updater above is
+for the systemd layout of the sections that follow.
+
 ## Layout
 
 | Path | What |
