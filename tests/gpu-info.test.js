@@ -99,3 +99,28 @@ test("the desktop app asks for the discrete GPU on Windows and reports Chromium'
   const none = await gpuReport({ electronApp: { getGPUFeatureStatus: () => ({ webgl2: "unavailable_off" }), getGPUInfo: () => Promise.reject(new Error("GPU access is disabled")) }, platform: "linux" });
   assert.deepEqual(none, { status: { webgl2: "unavailable_off" }, devices: [], switches: [] });
 });
+
+test("GPUs whose driver unpacks BC7 to RGBA8, and the old GPUs the Minimum preset is for", async () => {
+  const { oldGpu, unpacksBc7 } = await import("../src/gpu-info.js");
+  const snb = "ANGLE (Intel, Mesa Intel(R) HD Graphics 2000 (SNB GT1), OpenGL 3.3 (Core Profile) Mesa 22.3.6)";
+  assert.equal(unpacksBc7(snb), true);
+  assert.equal(unpacksBc7("Mesa Intel(R) HD Graphics 3000 (SNB GT2)"), true);
+  assert.equal(unpacksBc7("Mesa Intel(R) HD Graphics (ILK)"), true);
+  assert.equal(unpacksBc7("Mesa DRI Intel(R) Sandybridge Mobile"), true);
+  // Ivy Bridge on has BC7; Windows' driver offers it only where it has it.
+  assert.equal(unpacksBc7("ANGLE (Intel, Mesa Intel(R) HD Graphics 4000 (IVB GT2), OpenGL 4.2 (Core Profile) Mesa 22.3.6)"), false);
+  assert.equal(unpacksBc7("ANGLE (Intel, Intel(R) HD Graphics 3000 Direct3D11 vs_4_1 ps_4_1, D3D11)"), false);
+  assert.equal(unpacksBc7("Mesa Intel(R) UHD Graphics 620 (KBL GT2)"), false);
+
+  assert.equal(oldGpu(snb), true);
+  assert.equal(oldGpu("ANGLE (Intel, Intel(R) HD Graphics 3000 Direct3D11 vs_4_1 ps_4_1, D3D11-9.17.10.4459)"), true);
+  assert.equal(oldGpu("ANGLE (Intel, Intel(R) HD Graphics Direct3D11 vs_4_1 ps_4_1, D3D11)"), true);
+  assert.equal(oldGpu("ANGLE (Intel, Intel(R) HD Graphics 4000 Direct3D11 vs_5_0 ps_5_0, D3D11)"), false);
+  assert.equal(oldGpu("ANGLE (Intel, Intel(R) HD Graphics 520 Direct3D11 vs_5_0 ps_5_0, D3D11)"), false);
+  assert.equal(oldGpu("ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)"), false);
+  assert.equal(oldGpu("Mesa Intel(R) HD Graphics 4600 (HSW GT2)"), false);
+  assert.equal(oldGpu("ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 Direct3D11 vs_5_0 ps_5_0, D3D11)"), false);
+  // Software drawing is a driver to fix (the VIDEO OPTIONS say so), not a preset.
+  assert.equal(oldGpu("ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)"), false);
+  assert.equal(oldGpu(""), false);
+});

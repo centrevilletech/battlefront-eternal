@@ -1,3 +1,5 @@
+import { oldGpu } from "./gpu-info.js";
+
 // Player settings, kept in localStorage. These are this port's own options;
 // where one stands in for a setting of the 2004 game, the comment says so.
 const KEY = "battlefront-eternal.settings";
@@ -259,11 +261,24 @@ export class Settings {
     // What is saved: the stored settings and the player's own changes. The
     // overrides (the URL's, for this visit: ?ai=classic) apply on top and
     // are never saved, unless the player sets that setting himself.
+    // No settings stored at all: a first session (adoptGpuPreset).
+    this.fresh = !Object.keys(stored).some((key) => key in DEFAULTS);
     this.saved = { ...DEFAULTS, ...Object.fromEntries(Object.entries(stored).filter(([key]) => key in DEFAULTS)), physicsRate: "60" };
     this.values = { ...this.saved, ...overrides, physicsRate: "60" };
     this.listeners = new Set();
     // The first desktop session with the file: localStorage's settings move in.
     if (store && this.complete && !record?.complete) this.persist();
+  }
+
+  // A first session on an old GPU (gpu-info.js oldGpu) starts on the
+  // Minimum preset rather than the defaults, which are for current GPUs.
+  // Once: what the player picks after that stays theirs.
+  adoptGpuPreset(renderer, isOld = oldGpu) {
+    if (!this.fresh) return false;
+    this.fresh = false;
+    if (!isOld(renderer)) return false;
+    this.set("performancePreset", "minimum");
+    return true;
   }
 
   get(key) {
