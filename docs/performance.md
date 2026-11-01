@@ -221,3 +221,123 @@ alone does not. Interleave the configurations being compared: the host's
 load moves every timing. To compare images, compare trees that create the
 same GPU objects: the driver seeds `Math.random`, three's object IDs draw
 from it, and one more material moves every flower bed after it.
+
+## Old GPUs: vertex work, textures and memory
+
+Measured on a 2011 desktop: Intel Core i5-2400 with HD Graphics 2000 (Sandy
+Bridge GT1, six execution units), Mesa 22.3 (`crocus`), 4 GB of RAM, a
+1920x1080 60 Hz display, Debian 12 with MATE, the desktop app at full screen.
+Its owner's settings had already dropped everything to the floor: render
+scale 0.5, the bilinear upscaler, FXAA, no shadows or effects. Adaptive
+resolution then held about 25 FPS by shrinking the 3D view to 480x270, which
+is what made the distance a blur. At the defaults the same battle ran at 4
+FPS.
+
+### What the GPU spent its time on
+
+- **Not pixels.** Chromium's GPU process spent most of every frame waiting
+  in `SwapBuffers` for the GPU, which `intel_gpu_top` showed 100% busy at
+  its top clock. Yet the near scene took 19 ms at 480x270 and 22 ms at
+  960x540: four times the pixels, an eighth more time. It was vertex work.
+- **Every uniform read from memory.** Mesa on this generation places a
+  shader's uniforms in a buffer and fetches each vec4 a vertex uses with a
+  load of its own. The map's lit vertex shader was 657 instructions with
+  61 such loads a vertex. 56 of its 75 uniform vec4s were three's struct
+  array of the scene's 14 point lights (the command posts' six and the
+  ordnance pool's eight, idle ones at intensity zero), looped over at every
+  vertex. Hiding the lights alone took the near scene from 21 to 13 ms.
+- **Triangles off screen.** The static world's culling drew one range from
+  the first triangle in a visible cell to the last; with the buckets'
+  triangles in their original order, that was nearly every triangle. Each
+  off-screen vertex was still shaded before being clipped.
+- **FXAA.** 7.6 ms at 960x540 (28 ms at 1080p): BF1's textures leave few
+  pixels under its contrast threshold, so almost every one takes the edge
+  search.
+- **BC7 unpacked.** The driver offers BC7 but the GPU can't sample it:
+  Mesa unpacked every texture to RGBA8 on upload.
+- **The window-sized canvas.** At render scale 0.5, the bilinear upscaler
+  (canvas at 1920x1080) took about 5 ms a frame more than the browser's
+  stretch (canvas at 960x540): the stretch pass, the HUD and Chromium's own
+  copies of the canvas all run at the canvas's size.
+- **The desktop compositor.** MATE's compositing cost about 15% (27 to 31
+  FPS with it off). Marco ignores `_NET_WM_BYPASS_COMPOSITOR`, so the only
+  remedy there is turning compositing off.
+
+### Changes
+
+All but the last four leave the image as it was. Captures of the static
+world at rest, compared with the build before, differ outside the foliage
+(whose sway differs from one run to the next of the same build too) in
+under 0.1% of pixels, by a level or two: the light vectors are now taken in
+world space rather than view space.
+
+- **Point lights** (`point-lights.js`, `materials.js`): each scene packs the
+  lights that are on and in reach of its camera, and each draw loops only
+  over those that reach what it covers: the visible cells of a map bucket
+  (`render-culling.js`), a soldier's pose sphere (`actor.js`), an object's
+  bounds otherwise. A light left out added nothing; the count three
+  compiles the programs for still never changes. A light in the loop costs
+  every vertex a load and a test even when it lights nothing there, which
+  is why the list is per draw and not a mask.
+- **The map's meshes in world space** (`world.js` `WORLD_SPACE`): their model
+  matrix is the identity, so the shader takes the view matrix as the
+  model-view matrix and skips the model and normal matrices.
+- **One-bone skinning** (`actor.js` `RIGID_SKIN`): the soldiers' vertices
+  follow one bone at full weight under an identity bind matrix; three's
+  four-bone blend reduces to that one bone, term for term.
+- **Static culling draws only visible runs** (`render-culling.js`), in one
+  `WEBGL_multi_draw` call made with the state three has bound; the far
+  scene's buckets are culled too. 162,000 triangles a frame became 104,000
+  on the measured view.
+- **Fewer passes:** FXAA over a plain frame reads the scene's image instead
+  of a copy of it; FXAA reads its five-pixel cross before the diagonals.
+- **FXAA (FAST)** (`fxaa.js`): FXAA 3.11's console path, 2.9 ms against 7.6
+  at 960x540. The Performance preset uses it.
+- **BC1/BC3 where BC7 is unpacked** (`textures.js`, `gpu-info.js`):
+  `unpacksBc7` matches Mesa's names for Intel before Ivy Bridge. GPU memory
+  for a map fell by about 80 MB and the near scene by 0.8 ms.
+- **Audio:** on a PC with 4 GB or less, decoded stream audio is kept for two
+  minutes of sound instead of ten (`audio/streams.js`); ten minutes of the
+  game's music decoded is about 270 MB.
+- **First session on an old GPU** (`settings.js` `adoptGpuPreset`,
+  `gpu-info.js` `oldGpu`): Intel before Ivy Bridge, under Mesa or Windows'
+  driver, starts on the Minimum preset instead of the defaults. Settings
+  already stored stay as they are.
+
+### Measurements
+
+Theed, the same seeded battle and inputs, 270 frames driven one tick each
+after a 15 s warm-up, the GPU kept busy (frames pipelined, as in play, which
+also keeps it at its top clock), per-pass `TIME_ELAPSED` queries. The
+owner's settings with the render scale fixed at 0.5 (960x540, bilinear,
+FXAA). Milliseconds a frame:
+
+| | Before | After (FXAA) | After (FXAA (FAST)) |
+| --- | ---: | ---: | ---: |
+| Wall time a frame | 46.1 | 32.8 | 28.7 |
+| GPU, all passes | 39.3 | 27.1 | 22.8 |
+| Near scene | 24.4 | 13.3 | 13.4 |
+| Triangles | 161,792 | 103,671 | 103,671 |
+
+Waiting for every frame instead lets the GPU drop to its idle clock between
+frames; timings then move with the clock, not the work.
+
+In play, at full screen with vsync on the 60 Hz display:
+
+| Settings | Before | After |
+| --- | --- | --- |
+| The owner's (adaptive resolution at 30 FPS) | 25 FPS at 480x270 | 27 FPS at 720x405 to 840x473 |
+| Minimum preset (adaptive resolution at 30 FPS) | 27 FPS at 720x405 | 37 FPS at 960x540 |
+
+### What is left
+
+- A frame that misses 16.7 ms waits for the next refresh, so this GPU holds
+  30 FPS at best with vsync: the near scene's vertex work (10 ms at any
+  size) and the window's passes don't fit in 16.7 ms. Turning vsync off in
+  Chromium raised the average to 43 FPS but frames queued up behind the GPU
+  (62 ms at the 90th percentile).
+- The page allocates about 630 KB a frame (most of it in the battle's
+  snapshot replication, iterators, raycasts and particles), so collections
+  run often. The renderer's resident memory swings between 0.6 and 1.2 GB
+  with them; four battles in a row in one page once grew it to 2.45 GB and
+  the kernel killed it on this 4 GB PC.
