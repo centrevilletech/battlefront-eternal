@@ -43,6 +43,17 @@ export function gpuLabel(renderer) {
     .trim() || "Unknown GPU";
 }
 
+// Intel GPUs older than Ivy Bridge (Sandy Bridge's HD 2000 and 3000,
+// Ironlake, the GM45/G45 generation) have no BC7 (BPTC) sampling, but Mesa
+// still offers it and unpacks every BC7 texture to RGBA8 on the CPU as it
+// uploads: four times BC7's memory and bandwidth, and slow loads. They read
+// BC1 and BC3 (DXT) themselves. Mesa names them by codename:
+// "Mesa Intel(R) HD Graphics 2000 (SNB GT1)" (through ANGLE as well).
+const UNPACKED_BC7 = /\bMesa\b.*\((SNB|ILK|ELK|CTG|CL|BW)( GT\d)?\)|\bMesa DRI Intel\(R\) (Sandybridge|Ironlake|G45|GM45|G41|Q45|Q43|B43|965|G35)/i;
+export function unpacksBc7(renderer) {
+  return UNPACKED_BC7.test(String(renderer || ""));
+}
+
 const INTEL = 0x8086, NVIDIA = 0x10de, AMD = 0x1002;
 
 // What the page and the desktop app's report say: { renderer, label,

@@ -263,7 +263,9 @@ this:
   `TextureLoader` would, so materials can hold it from the start.
   - Three's `KTX2Loader` fetches the KTX2 and transcodes it in workers to
     what the GPU samples directly: BC7 on desktop, ASTC or ETC2 on mobile,
-    or BC1/BC3 failing those.
+    or BC1/BC3 failing those. Intel GPUs before Ivy Bridge under Mesa get
+    BC1/BC3 too: the driver offers BC7 there but unpacks it to RGBA8 on the
+    CPU as it uploads (`gpu-info.js` `unpacksBc7`).
   - The result fills the waiting texture: its mip chain (no
     `generateMipmaps`), `flipY = false`, and `NoColorSpace` so values are
     sampled raw, as with the PNGs.
