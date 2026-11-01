@@ -152,9 +152,9 @@ export const PERFORMANCE_PRESETS = {
     destructionEffects: "classic", farTerrain: "reduced", arcCasterEffects: "classic", sniperEffects: "classic",
   } },
   // Three-quarter resolution stretched by the bilinear upscaler (one read a
-  // pixel, the HUD sharp over it), with FXAA.
+  // pixel, the HUD sharp over it), with the fast FXAA.
   performance: { label: "Performance (older PCs)", values: {
-    renderScale: .75, upscaler: "bilinear", antialiasing: "fxaa", shadows: "off", anisotropy: 2,
+    renderScale: .75, upscaler: "bilinear", antialiasing: "fxaa-fast", shadows: "off", anisotropy: 2,
     waterQuality: "low", treeDetail: "original", droidekaEffects: "classic",
     jetpackEffects: "classic", environmentEffects: "classic", rainEffects: "classic",
     oceanEffects: "classic", bumpMapping: false, softFocus: false, bloom: false,
@@ -182,7 +182,9 @@ export const PERFORMANCE_PRESETS = {
 const PRESET_KEYS = new Set(Object.keys(PERFORMANCE_PRESETS.performance.values));
 
 // Multisampling followed by FXAA, so shader/specular edges are smoothed too.
-export const ANTIALIASING = { off: 0, fxaa: 0, "2x": 2, "4x": 4, "8x": 8 };
+// FXAA (FAST) is FXAA 3.11's console path, a third of FXAA's cost on old
+// integrated GPUs (fxaa.js).
+export const ANTIALIASING = { off: 0, "fxaa-fast": 0, fxaa: 0, "2x": 2, "4x": 4, "8x": 8 };
 
 export const WATER_QUALITIES = {
   low: { label: "Low (original)", scale: 0, maxSize: 512 },

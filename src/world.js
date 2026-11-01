@@ -1,8 +1,11 @@
 import * as THREE from "three";
 import { describe, lighting, zeroMaterial } from "./materials.js";
+import { cullColorOnly } from "./shadow-casters.js";
 import { TerrainPatches } from "./terrain-patches.js";
 import { addFabricWind } from "./fabric.js";
 import { TreeCanopies } from "./tree-canopies.js";
+
+const IDENTITY = new THREE.Matrix4();
 
 // A map's meshes as tools/extract.py writes them: one bucket per material in a
 // shared vertex buffer, each with its own vertex layout (position, normal, uv,
@@ -128,6 +131,7 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
           fade: lighting.fade.value, reduced: () => graphics.settings.get("farTerrain") === "reduced",
         });
         far.name = "far-terrain";
+        if (far.matrix.equals(IDENTITY)) farMaterial.defines.WORLD_SPACE = "";
         graphics.farScene.add(far);
       }
     } else {
@@ -171,9 +175,14 @@ export function buildWorld(graphics, map, geomBuf, indexBuf, textureFor) {
       continue;
     }
     // The map's meshes never move (the sky, above, follows the eye): skip
-    // recomposing their matrices every frame.
+    // recomposing their matrices every frame. Their vertices are in the
+    // world already: the shader skips the model and normal matrices.
     mesh.matrixAutoUpdate = false;
+    if (mesh.matrix.equals(IDENTITY)) for (const m of [].concat(mesh.material)) if (m?.defines) m.defines.WORLD_SPACE = "";
     if (look.far) {
+      // The far scene's buckets span the map too: each view draws only the
+      // cells in its frustum, as the near scene's do (render-culling.js).
+      if (!look.blending) cullColorOnly(mesh);
       graphics.farScene.add(mesh);
       continue;
     }

@@ -751,7 +751,7 @@ What it found, and what changed:
 | 6 programs were compiled at load and 47 in the first drawn frame; more as new materials came into view (getProgramInfoLog stalls; tens of milliseconds each on Windows/ANGLE). | `graphics.warmup()` compiles every material in the scenes, hidden ones included, plus one depth proxy per shadow variant, before the first frame. Ordnance creates its bolt batch first (`prepare()`). |
 | Every soldier body had `frustumCulled = false`: drawn in the view, the reflection and all four cascades from anywhere on the map. | A fixed sphere around any pose; culled like everything else. |
 | Three r170 draws every shadow caster with one depth material, so alternating skinned/instanced and ordinary casters re-derived the program (parameters and cache key) on every switch, for every cascade (about 2.7 s of a 600-frame profile). | Skinned and instanced casters get depth materials of their own kind. |
-| Static culling re-copied and re-uploaded whole visible index ranges per material whenever the view crossed a cell edge (bursts while moving or turning), and the shadow proxies did the same per cascade. | Views and cascades draw one range of a static index buffer (shadows: cells in Morton order). No per-frame copies or uploads. |
+| Static culling re-copied and re-uploaded whole visible index ranges per material whenever the view crossed a cell edge (bursts while moving or turning), and the shadow proxies did the same per cascade. | Views draw the runs of a static index buffer that lie in visible cells, in one multi-draw call (one range from the first to the last without `WEBGL_multi_draw`); cascades draw one range (cells in Morton order). No per-frame copies or uploads. |
 | Shadows were about 700 of 941 draws: every static material bucket, small static mesh and soldier material group in every cascade. | Opaque static casters merge into one depth-only mesh per face side (cell-range culled). Soldiers cast through a one-draw proxy sharing the skeleton; soldiers and their guns beyond 70 m, live props beyond 70 m and vehicles beyond 110 m cast none. 701 → 198 shadow draws. |
 | High water rendered the whole near scene again from a mirrored camera (171 draws, about a third of the frame's submission). | High reflects the near scene by a 24-step screen-space march over the opaque colour/depth copy the water already takes, over the far scene's planar mirror. Ultra keeps the full planar near reflection. |
 | Every renderer.render() re-walked and recomposed the whole scene (3,654 objects, half of them hidden: pooled soldiers, unheld guns, idle effect meshes); the soldier aim code forced each body's matrices (about 300 bones per soldier) on top; three recomputed every bone's Euler angles on every quaternion change. | One matrix update per frame that skips hidden subtrees; static map meshes never recompose; the aim code reads parent chains on demand; bones skip the Euler sync. |
@@ -910,8 +910,8 @@ frame, grouped by what drew them, before this pass:
 
 So "static props as individual meshes" was not the case here: the map's
 placed objects and buildings are merged into one bucket per material by
-`tools/extract.py`, and `world.js` draws one range of each bucket per view
-(`render-culling.js`). `BatchedMesh` has nothing left to batch there. The
+`tools/extract.py`, and `world.js` draws each bucket's runs in visible cells
+per view, in one multi-draw call (`render-culling.js`). `BatchedMesh` has nothing left to batch there. The
 individual meshes were the *live* objects (`props.js`) and the bots'
 shadows and guns.
 
