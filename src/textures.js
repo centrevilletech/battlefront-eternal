@@ -2,13 +2,15 @@ import * as THREE from "three";
 import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import transcoderScript from "three/addons/libs/basis/basis_transcoder.js?url";
 import transcoderBinary from "three/addons/libs/basis/basis_transcoder.wasm?url";
+import { rendererName, unpacksBc7 } from "./gpu-info.js";
 
 // The game's textures by URL, as GPU-compressed KTX2 where the import made
 // one (tools/ktx2.py) and as the extracted PNG otherwise.
 //
 // Each textures folder has a ktx2.json listing its PNGs that have a KTX2
 // twin: Basis UASTC with its full mip chain, transcoded in workers to what
-// this GPU samples directly (BC7 on desktop, ASTC or ETC2 on mobile). That
+// this GPU samples directly (BC7 on desktop, ASTC or ETC2 on mobile; BC1 and
+// BC3 on GPUs that only appear to take BC7, gpu-info.js unpacksBc7). That
 // is a quarter of the memory and bandwidth of RGBA8, and nothing to build
 // mipmaps from on the main thread. The values are stored raw, as the PNGs
 // are: the game lit and blended in gamma space.
@@ -37,6 +39,9 @@ export class TextureLibrary {
         return modify ? modify(url) : url;
       });
       this.ktx2 = new KTX2Loader(manager).setTranscoderPath("/basis/").detectSupport(renderer);
+      // BC7 the driver would unpack to RGBA8: BC1/BC3, which the GPU reads
+      // itself, instead (the next format in KTX2Loader's order here).
+      if (this.ktx2.workerConfig.bptcSupported && unpacksBc7(rendererName(renderer.getContext()))) this.ktx2.workerConfig.bptcSupported = false;
     }
   }
 

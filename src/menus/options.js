@@ -98,7 +98,7 @@ export const OPTIONS = [
     note: (settings) => UPSCALER_NOTES[settings.get("upscaler")] ?? null },
   { key: "upscaleSharpness", page: "video", label: "SHARPENING", kind: "slider", apply: "live", min: 0, max: 1, step: 0.05, format: percent },
   { key: "antialiasing", page: "video", label: "ANTIALIASING", labelKey: "ifs.videopt.multisample", kind: "choice", apply: "live",
-    choices: Object.keys(ANTIALIASING).map((k) => [k, k === "off" ? "OFF" : k === "fxaa" ? "FXAA" : `${upper(k)} MSAA`]) },
+    choices: Object.keys(ANTIALIASING).map((k) => [k, k === "off" ? "OFF" : k === "fxaa" ? "FXAA" : k === "fxaa-fast" ? "FXAA (FAST)" : `${upper(k)} MSAA`]) },
   { key: "shadows", page: "video", label: "SHADOW QUALITY", labelKey: "ifs.videopt.shadows", kind: "choice", apply: "live", url: "shadows",
     choices: Object.keys(SHADOW_PRESETS).map((k) => [k, upper(k)]) },
   { key: "anisotropy", page: "video", label: "TEXTURE FILTERING", kind: "choice", apply: "live",

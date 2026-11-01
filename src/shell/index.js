@@ -12,6 +12,7 @@ import { SOUNDTRACK } from "./audio.js";
 import { CanvasFonts } from "./text.js";
 import { showGate } from "./gate.js";
 import { reportPresence } from "../presence.js";
+import { pageGpu } from "../gpu-info.js";
 
 // The front end: the page when the URL names no battle (src/launch.js;
 // docs/shell.md). Its menus are drawn by the page theme
@@ -82,6 +83,7 @@ export async function createShell({ query = location.search, parent = document.b
 
   const data = await loadShellData();
   const settings = new Settings();
+  settings.adoptGpuPreset(pageGpu().renderer);
   const page = params.get("menus") !== "classic";
   const media = new ShellMedia({ data, settings, parent, screens: page ? PAGE_MEDIA : SCREEN_MEDIA });
   const fonts = new CanvasFonts({ fonts: data.fonts, pages: data.pages });

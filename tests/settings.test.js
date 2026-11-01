@@ -161,3 +161,30 @@ test("a browser has no file and keeps localStorage alone", () => {
   settings.set("playerName", "KEVIN");
   assert.equal(saved().playerName, "KEVIN");
 });
+
+test("a first session on an old GPU starts on the Minimum preset, once", async () => {
+  const { PERFORMANCE_PRESETS } = await import("../src/settings.js");
+  const hd2000 = "ANGLE (Intel, Mesa Intel(R) HD Graphics 2000 (SNB GT1), OpenGL 3.3 (Core Profile) Mesa 22.3.6)";
+  store.clear();
+  const first = new Settings();
+  assert.equal(first.fresh, true);
+  assert.equal(first.adoptGpuPreset(hd2000), true);
+  assert.equal(first.get("performancePreset"), "minimum");
+  for (const [key, value] of Object.entries(PERFORMANCE_PRESETS.minimum.values)) assert.equal(first.get(key), value, key);
+  assert.equal(saved().performancePreset, "minimum");
+  // Only the first time it asks.
+  first.set("renderScale", 1);
+  assert.equal(first.adoptGpuPreset(hd2000), false);
+  assert.equal(first.get("renderScale"), 1);
+  // Settings stored: the player's, whatever the GPU.
+  const later = new Settings();
+  assert.equal(later.fresh, false);
+  assert.equal(later.adoptGpuPreset(hd2000), false);
+  assert.equal(later.get("renderScale"), 1);
+  // A current GPU keeps the defaults.
+  store.clear();
+  const modern = new Settings();
+  assert.equal(modern.adoptGpuPreset("ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 Direct3D11 vs_5_0 ps_5_0, D3D11)"), false);
+  assert.equal(modern.get("renderScale"), DEFAULTS.renderScale);
+  assert.equal(modern.get("upscaler"), DEFAULTS.upscaler);
+});

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
+import { FXAAFastShader, FXAAShader } from "./fxaa.js";
 import { Bloom, fullScreenPass } from "./render-passes.js";
 import { ParticleDepth } from "./particle-depth.js";
 import { cullColorOnly, mergeStaticShadows, partitionShadowCaster } from "./shadow-casters.js";
@@ -7,6 +7,7 @@ import { CascadeWindow, planCascades } from "./shadow-cascades.js";
 import { drawFramebuffer } from "./render-targets.js";
 import { RenderProfiler } from "./render-profiler.js";
 import { LocalLights } from "./local-lights.js";
+import { installPointLights } from "./point-lights.js";
 import { boltLook } from "./blaster-bolts.js";
 import { sniperLook } from "./sniper-trace.js";
 import { UPSCALERS, Upscaler } from "./upscaler.js";
@@ -65,6 +66,8 @@ function updateVisible(object, force) {
 // (shadow-cascades.js): the map's static casters are cached per cascade
 // window, and only the moving casters are drawn each frame.
 THREE.ColorManagement.enabled = false;
+// Each scene packs the point lights its materials read as it draws.
+installPointLights();
 
 // The shadow pass's depth material: the transform and, for cut-out casters,
 // the alpha test, and nothing else. Three's own writes a packed depth colour
@@ -282,6 +285,9 @@ export class Graphics {
     this.upscaling = "off";
     this.fxaa = fullScreenPass(FXAAShader.fragmentShader, THREE.UniformsUtils.clone(FXAAShader.uniforms), FXAAShader.vertexShader);
     this.fxaa.material.uniforms.tDiffuse.value = this.postTarget.texture;
+    // Made when first used (fastFxaa): three's objects draw their IDs from
+    // Math.random, and seeded layouts (flower beds) follow the draws.
+    this.fxaaFast = null;
     this.blur = null;
     this.passCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
@@ -684,6 +690,7 @@ export class Graphics {
     this.aaTarget.setSize(width, height);
     this.upscaler.resize(width, height, Math.max(1, size.x), Math.max(1, size.y));
     this.fxaa.material.uniforms.resolution.value.set(1 / width, 1 / height);
+    this.fxaaFast?.material.uniforms.resolution.value.set(1 / width, 1 / height);
     this.bloom.resize(width, height);
     if (this.settings.get("softParticles")) this.particleDepth.prepare(width, height);
     const factor = this.blur?.downsize || 0.25;
@@ -954,15 +961,25 @@ export class Graphics {
     this.composite.material.uniforms.bloomStrength.value = bloom ? 0.65 : 0;
     // The temporal upscaler antialiases on its own; FXAA would only blur it.
     const fxaa = !temporal && this.settings.get("antialiasing") !== "off";
-    // Bilinear, with nothing to composite but the frame itself: the
-    // composite draws straight to the window, its texture filtering the
-    // upscale, and no pass of its own follows.
-    const direct = upscale && this.upscaling === "bilinear" && !fxaa && !blur && !bloom && !(this.composite.material.uniforms.speedBlur.value > 0.0001);
-    renderer.setRenderTarget((fxaa || upscale) && !direct ? this.postTarget : null);
-    renderer.render(this.composite, this.passCamera);
+    // Nothing to composite but the frame itself (no soft focus, bloom or
+    // motion blur): the composite would only copy it.
+    const plain = !blur && !bloom && !(this.composite.material.uniforms.speedBlur.value > 0.0001);
+    // Bilinear, with nothing to composite: the composite draws straight to
+    // the window, its texture filtering the upscale, and no pass of its own
+    // follows.
+    const direct = upscale && this.upscaling === "bilinear" && !fxaa && plain;
+    // FXAA over a plain frame reads the scene's image itself (the copy's
+    // colours are the same texels), one pass the fewer.
+    const fxaaSource = fxaa && plain ? this.sceneTarget : this.postTarget;
+    if (!(fxaa && plain)) {
+      renderer.setRenderTarget((fxaa || upscale) && !direct ? this.postTarget : null);
+      renderer.render(this.composite, this.passCamera);
+    }
     if (fxaa) {
+      const pass = this.settings.get("antialiasing") === "fxaa-fast" ? this.fastFxaa() : this.fxaa;
+      pass.material.uniforms.tDiffuse.value = fxaaSource.texture;
       renderer.setRenderTarget(upscale ? this.aaTarget : null);
-      renderer.render(this.fxaa, this.passCamera);
+      renderer.render(pass, this.passCamera);
     }
     // 4. Rebuilt at the window's resolution.
     if (upscale && !direct) this.upscaler.present(renderer, fxaa ? this.aaTarget.texture : this.postTarget.texture, this.upscaling);
@@ -971,6 +988,15 @@ export class Graphics {
     this.frameInfo = { ...renderer.info.render };
     this.frameCount++;
     this.profiler.end();
+  }
+
+  // FXAA (FAST)'s pass (fxaa.js), at the 3D frame's resolution.
+  fastFxaa() {
+    if (!this.fxaaFast) {
+      this.fxaaFast = fullScreenPass(FXAAFastShader.fragmentShader, THREE.UniformsUtils.clone(FXAAFastShader.uniforms), FXAAFastShader.vertexShader);
+      this.fxaaFast.material.uniforms.resolution.value.copy(this.fxaa.material.uniforms.resolution.value);
+    }
+    return this.fxaaFast;
   }
 
   // The stats line's part: the 3D view's size (adaptive resolution moves
@@ -989,7 +1015,7 @@ export class Graphics {
       antialiasing: this.settings.get("antialiasing"),
       samples: this.sceneTarget.samples,
       farSamples: this.farTarget.samples,
-      postAA: this.upscaling === "temporal" ? "temporal" : this.settings.get("antialiasing") !== "off" ? "fxaa" : "off",
+      postAA: this.upscaling === "temporal" ? "temporal" : this.settings.get("antialiasing") === "fxaa-fast" ? "fxaa-fast" : this.settings.get("antialiasing") !== "off" ? "fxaa" : "off",
       supportedSamples: this.supportedSamples,
       anisotropy: Math.max(1, Math.min(Number(this.settings.get("anisotropy")) || 1, this.maxAnisotropy)),
       maxAnisotropy: this.maxAnisotropy,

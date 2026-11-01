@@ -35,7 +35,10 @@ import { scale } from "./enhanced.js";
 // decoded off the main thread; only recently used ones stay decoded.
 
 const WHOLE_FILE = 8 << 20; // bytes: smaller stream files are fetched whole
-const CACHE_SECONDS = 600; // decoded audio kept, in seconds of sound
+// Decoded audio kept, in seconds of sound: ten minutes, or two on a PC with
+// 4 GB or less (decoded music runs to about 400 KB a second; ten minutes of
+// it is more than such a PC can spare beside the game).
+const CACHE_SECONDS = (globalThis.navigator?.deviceMemory ?? 8) <= 4 ? 120 : 600;
 const SMOOTH = 0.02;
 
 export class Streams {

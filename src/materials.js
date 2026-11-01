@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { localLighting } from "./local-lights.js";
+import { ZERO_LIGHTS, lightMask, packed, pointLighting, sphereLightMask, useLights } from "./point-lights.js";
 
 // Materials that light like the 2004 renderer: Direct3D 9 shaders working in
 // gamma space, lighting per vertex. The light environments:
@@ -59,6 +60,9 @@ export const lighting = {
   shadowStrength: { value: 1 },
   // Enhanced terrain shading (Graphics > Terrain); see TERRAIN_RELIGHT.
   terrainShade: { value: 1 },
+  // The point lights that reach what the draw covers (point-lights.js).
+  zeroLights: pointLighting.drawLights,
+  zeroLightCount: pointLighting.drawLightCount,
 };
 
 // Engine defaults when a map's sky leaves a light out.
@@ -112,6 +116,10 @@ const vertexShader = /* glsl */ `
   uniform vec2 ambientPull;
   uniform float time;
   uniform vec2 scroll;
+  #if !defined( NO_POINT ) && !defined( DYNAMIC ) && !defined( FAR )
+    uniform vec4 zeroLights[ZERO_LIGHTS * 2];
+    uniform int zeroLightCount;
+  #endif
   #ifdef HAS_COLOR
     attribute vec4 color;
   #endif
@@ -142,13 +150,37 @@ const vertexShader = /* glsl */ `
       vWeights1 = weights1;
     #endif
     #include <beginnormal_vertex>
-    #include <skinbase_vertex>
-    #include <skinnormal_vertex>
-    #include <defaultnormal_vertex>
-    #include <begin_vertex>
-    #include <skinning_vertex>
-    #include <project_vertex>
-    #include <worldpos_vertex>
+    #ifdef WORLD_SPACE
+      // The map's own meshes (world.js): vertices already in the world and
+      // a model matrix of identity, so the model-view matrix is the view
+      // matrix itself and the model and normal matrices are skipped. Older
+      // GPUs read every uniform a vertex uses from memory, a read each row.
+      #include <begin_vertex>
+      vec4 mvPosition = viewMatrix * vec4( transformed, 1.0 );
+      gl_Position = projectionMatrix * mvPosition;
+    #elif defined( USE_SKINNING ) && defined( RIGID_SKIN )
+      // One bone a vertex at full weight and a bind matrix of identity (the
+      // 2004 game's soldiers, actor.js). three's blend of four bones reduces
+      // to this term for term: the other weights are zero and multiplying by
+      // the identity bind matrix changes nothing. One bone's matrix is read
+      // instead of four (each four texel reads) and two matrix products go.
+      mat4 boneMatX = getBoneMatrix( skinIndex.x );
+      mat4 skinMatrix = bindMatrixInverse * ( skinWeight.x * boneMatX );
+      objectNormal = vec4( skinMatrix * vec4( objectNormal, 0.0 ) ).xyz;
+      #include <defaultnormal_vertex>
+      #include <begin_vertex>
+      transformed = ( bindMatrixInverse * ( boneMatX * vec4( transformed, 1.0 ) * skinWeight.x ) ).xyz;
+      #include <project_vertex>
+      #include <worldpos_vertex>
+    #else
+      #include <skinbase_vertex>
+      #include <skinnormal_vertex>
+      #include <defaultnormal_vertex>
+      #include <begin_vertex>
+      #include <skinning_vertex>
+      #include <project_vertex>
+      #include <worldpos_vertex>
+    #endif
 
     // Scrolling materials move at -speed * t, in repeats per second.
     vUv = uv;
@@ -160,11 +192,17 @@ const vertexShader = /* glsl */ `
     #else
       vColor = vec4(1.0);
     #endif
-    // transformedNormal includes skinning and the inverse-transpose normal
-    // matrix. A plain modelMatrix multiplication breaks nonuniform scales.
-    vec3 n = inverseTransformDirection(transformedNormal, viewMatrix);
-    vNormalW = n;
-    vWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
+    #ifdef WORLD_SPACE
+      vec3 n = normalize(objectNormal);
+      vNormalW = n;
+      vWorld = transformed;
+    #else
+      // transformedNormal includes skinning and the inverse-transpose normal
+      // matrix. A plain modelMatrix multiplication breaks nonuniform scales.
+      vec3 n = inverseTransformDirection(transformedNormal, viewMatrix);
+      vNormalW = n;
+      vWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
+    #endif
     vDepth = -mvPosition.z;
     #ifdef DYNAMIC
       vAmbient = mix(ambientTop, ambientBottom, 0.5 * (1.0 - n.y));
@@ -181,24 +219,31 @@ const vertexShader = /* glsl */ `
         tangentObject = mat3(skinMatrix) * tangentObject;
         binormalObject = mat3(skinMatrix) * binormalObject;
       #endif
-      vTangent = mat3(modelMatrix) * tangentObject;
-      vBinormal = mat3(modelMatrix) * binormalObject;
+      #ifdef WORLD_SPACE
+        vTangent = tangentObject;
+        vBinormal = binormalObject;
+      #else
+        vTangent = mat3(modelMatrix) * tangentObject;
+        vBinormal = mat3(modelMatrix) * binormalObject;
+      #endif
     #endif
-    // Point lights: max(0, N.toLight) * (1 - d^2 / r^2) * colour.
+    // Point lights: max(0, N.toLight) * (1 - d^2 / r^2) * colour, for the
+    // lights that are on and within reach of what is drawn (point-lights.js),
+    // in world space. Past its range a light adds nothing: its colour isn't
+    // even read.
     vPoint = vec3(0.0);
-    #if NUM_POINT_LIGHTS > 0 && !defined( NO_POINT ) && !defined( DYNAMIC )
-      vec3 nView = normalize(transformedNormal);
-      vec3 toLight;
-      float range;
-      float reach;
-      #pragma unroll_loop_start
-      for ( int i = 0; i < NUM_POINT_LIGHTS; i ++ ) {
-        toLight = pointLights[ i ].position - mvPosition.xyz;
-        range = pointLights[ i ].distance;
-        reach = range > 0.0 ? max(1.0 - dot(toLight, toLight) / (range * range), 0.0) : 1.0;
-        vPoint += max(dot(nView, normalize(toLight)), 0.0) * reach * pointLights[ i ].color;
+    #if !defined( NO_POINT ) && !defined( DYNAMIC ) && !defined( FAR )
+      for ( int i = 0; i < ZERO_LIGHTS; i ++ ) {
+        if ( i >= zeroLightCount ) break;
+        vec4 sphere = zeroLights[ 2 * i ];
+        vec3 toLight = sphere.xyz - vWorld;
+        float range = sphere.w;
+        float distanceSquared = dot(toLight, toLight);
+        if (range <= 0.0 || distanceSquared < range * range) {
+          float reach = range > 0.0 ? max(1.0 - distanceSquared / (range * range), 0.0) : 1.0;
+          vPoint += max(dot(n, normalize(toLight)), 0.0) * reach * zeroLights[ 2 * i + 1 ].rgb;
+        }
       }
-      #pragma unroll_loop_end
     #endif
   }
 `;
@@ -220,6 +265,10 @@ const fragmentShader = /* glsl */ `
     uniform vec4 localLightPositions[4];
     uniform vec3 localLightColors[4];
     uniform float localLightCount;
+    #if !defined( NO_POINT ) && !defined( FAR )
+      uniform vec4 zeroLights[ZERO_LIGHTS * 2];
+      uniform int zeroLightCount;
+    #endif
   #endif
   uniform vec2 fade;
   uniform sampler2D farMap;
@@ -497,23 +546,20 @@ const fragmentShader = /* glsl */ `
       vec3 normal = normalize(vNormalW);
       float gloss = texel.a;
       vec3 point = vPoint;
-      #if defined( DYNAMIC ) && NUM_POINT_LIGHTS > 0 && !defined( NO_POINT )
+      #if defined( DYNAMIC ) && !defined( NO_POINT ) && !defined( FAR )
+        // Per pixel, the packed lights in world space (as in the vertex shader).
         point = vec3(0.0);
-        vec3 viewPosition = (viewMatrix * vec4(vWorld, 1.0)).xyz;
-        vec3 viewNormal = mat3(viewMatrix) * normal;
-        vec3 delta;
-        float range;
-        float reach;
-        float distanceSquared;
-        #pragma unroll_loop_start
-        for ( int i = 0; i < NUM_POINT_LIGHTS; i ++ ) {
-          delta = pointLights[ i ].position - viewPosition;
-          range = pointLights[ i ].distance;
-          distanceSquared = dot(delta, delta);
-          reach = range > 0.0 ? max(1.0 - distanceSquared / (range * range), 0.0) : 1.0;
-          point += max(dot(viewNormal, delta * inversesqrt(max(distanceSquared, 0.0001))), 0.0) * reach * pointLights[ i ].color;
+        for ( int i = 0; i < ZERO_LIGHTS; i ++ ) {
+          if ( i >= zeroLightCount ) break;
+          vec4 sphere = zeroLights[ 2 * i ];
+          vec3 delta = sphere.xyz - vWorld;
+          float range = sphere.w;
+          float distanceSquared = dot(delta, delta);
+          if (range <= 0.0 || distanceSquared < range * range) {
+            float reach = range > 0.0 ? max(1.0 - distanceSquared / (range * range), 0.0) : 1.0;
+            point += max(dot(normal, delta * inversesqrt(max(distanceSquared, 0.0001))), 0.0) * reach * zeroLights[ 2 * i + 1 ].rgb;
+          }
         }
-        #pragma unroll_loop_end
       #endif
       vec3 light;
       #if defined( UNLIT )
@@ -624,7 +670,7 @@ const fragmentShader = /* glsl */ `
 //   (takes point lights), scroll [u, v], specular [exponent, r, g, b],
 //   alphaTest, blending ("normal" | "additive" | null), doubleSided, far.
 export function zeroMaterial(kind, options = {}) {
-  const defines = {};
+  const defines = { ZERO_LIGHTS };
   if (kind === "dynamic") defines.DYNAMIC = "";
   if (kind === "baked") defines.BAKED = "";
   if (kind === "unlit") defines.UNLIT = "";
@@ -684,11 +730,52 @@ export function zeroMaterial(kind, options = {}) {
   material.map = options.map || null;
   material.alphaTest = options.alphaTest ? 0.5 : 0;
   material.shadowSide = options.doubleSided ? THREE.DoubleSide : THREE.FrontSide;
-  if (kind === "dynamic") material.onBeforeRender = (renderer, scene, camera, geometry, object) => {
-    localLighting.select(object, scene.userData.isViewScene);
-    material.uniformsNeedUpdate = true;
+  // Whether its shaders add point lights at all (unlit, terrain, sky and the
+  // far scene's don't).
+  material.userData.pointLit = !options.far && options.lights !== false && (kind === "lit" || kind === "dynamic" || kind === "baked");
+  material.onBeforeRender = (renderer, scene, camera, geometry, object) => {
+    if (kind === "dynamic") {
+      localLighting.select(object, scene.userData.isViewScene);
+      material.uniformsNeedUpdate = true;
+    }
+    // The map's culled buckets chose theirs by the cells they draw
+    // (render-culling.js).
+    if (material.userData.pointLit && !object.userData.cellLights) selectLights(material, object, geometry, scene, camera);
   };
   return material;
+}
+
+// The point lights a zero material's draw reads (every draw of one sets
+// them, the derived ones too: destruction-debris.js): the scene's that
+// reach the object, by its bounds in the world. A soldier's body has the
+// pose sphere actor.js gives it, which any pose stays inside; other meshes
+// their geometry's box. Instanced meshes, and skinned ones without such a
+// sphere, draw outside their geometry's bounds and keep every light.
+const maskBox = new THREE.Box3(), maskCenter = new THREE.Vector3(), maskBoxes = [maskBox];
+const IDENTITY = new THREE.Matrix4();
+export function selectLights(material, object, geometry, scene, camera) {
+  const pack = packed(scene, camera);
+  let mask = -1;
+  if (object.isSkinnedMesh) {
+    const sphere = object.boundingSphere;
+    if (sphere && object.userData.poseSphere) {
+      maskCenter.copy(sphere.center).applyMatrix4(object.matrixWorld);
+      mask = sphereLightMask(pack, maskCenter, sphere.radius * object.matrixWorld.getMaxScaleOnAxis());
+    }
+  } else if (!object.isInstancedMesh) {
+    if (!geometry.boundingBox) geometry.computeBoundingBox();
+    maskBox.copy(geometry.boundingBox);
+    if (!object.matrixWorld.equals(IDENTITY)) maskBox.applyMatrix4(object.matrixWorld);
+    mask = lightMask(pack, maskBoxes);
+  }
+  setLightMask(material, pack, mask);
+}
+
+export function setLightMask(material, pack, mask) {
+  useLights(pack, mask);
+  // The same material can draw again with other lights (a reflection, a
+  // mirrored view): upload this draw's.
+  material.uniformsNeedUpdate = true;
 }
 
 let neutral = null;

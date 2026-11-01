@@ -85,6 +85,7 @@ import { playableClasses, spawnPolicy } from "./spawn-screen/policy.js";
 import { selectAIMission, selectMission } from "./mission.js";
 import { commonModel } from "./interface/common-models.js";
 import { nextUrl } from "./launch.js";
+import { pageGpu } from "./gpu-info.js";
 
 // onProgress(step, loaded, total): the load's progress, for the loading
 // screen (src/shell/loading.js): "data", "world", "shaders", and
@@ -113,6 +114,9 @@ if (params.has("size")) overrides.battleSize = params.get("size");
 const settings = new Settings({ ...savedSettings, ...overrides });
 
 const graphics = headless ? new HeadlessGraphics(settings) : new Graphics(app, settings);
+// A first session started straight from a battle URL: the preset its GPU
+// needs (the front end does this as it opens otherwise).
+if (!headless) settings.adoptGpuPreset(pageGpu().renderer);
 // The bots' shadows, bodies and guns, in one draw per cascade.
 if (!headless) graphics.crowdShadows = new CrowdShadows(graphics);
 const { scene, camera, renderer } = graphics;

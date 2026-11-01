@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { zeroMaterial } from "./materials.js";
 import { motionVectors } from "./motion-vectors.js";
 
+const IDENTITY = new THREE.Matrix4();
+
 // Geometry is immutable and shared by actors built from the same source.
 // Skeletons and lighting uniforms remain per actor.
 const geometryCache = new WeakMap();
@@ -103,11 +105,16 @@ export function buildActor(actor, actorBuf, actorIndexBuf, textureFor, graphics,
   // go stale as the clips play; with culling off, every soldier on the map
   // was drawn in the view, the reflection and all four shadow cascades.
   body.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 2.2);
+  // ...which also bounds which point lights can reach it (materials.js).
+  body.userData.poseSphere = true;
   body.receiveShadow = true;
   const skeleton = new THREE.Skeleton(bones);
   root.add(body);
   body.add(bones[0]);
   body.bind(skeleton);
+  // Every vertex follows one bone at full weight (above): with an identity
+  // bind matrix the shader reads that bone alone (materials.js RIGID_SKIN).
+  if (body.bindMatrix.equals(IDENTITY)) for (const material of materials) material.defines.RIGID_SKIN = "";
 
   // The body's shadow in one draw per cascade: its material groups were a
   // draw each, though a depth map needs no materials. This proxy shares the

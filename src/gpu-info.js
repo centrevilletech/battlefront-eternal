@@ -43,6 +43,29 @@ export function gpuLabel(renderer) {
     .trim() || "Unknown GPU";
 }
 
+// Intel GPUs older than Ivy Bridge (Sandy Bridge's HD 2000 and 3000,
+// Ironlake, the GM45/G45 generation) have no BC7 (BPTC) sampling, but Mesa
+// still offers it and unpacks every BC7 texture to RGBA8 on the CPU as it
+// uploads: four times BC7's memory and bandwidth, and slow loads. They read
+// BC1 and BC3 (DXT) themselves. Mesa names them by codename:
+// "Mesa Intel(R) HD Graphics 2000 (SNB GT1)" (through ANGLE as well).
+const UNPACKED_BC7 = /\bMesa\b.*\((SNB|ILK|ELK|CTG|CL|BW)( GT\d)?\)|\bMesa DRI Intel\(R\) (Sandybridge|Ironlake|G45|GM45|G41|Q45|Q43|B43|965|G35)/i;
+export function unpacksBc7(renderer) {
+  return UNPACKED_BC7.test(String(renderer || ""));
+}
+
+// GPUs the Minimum preset is for (settings.js PERFORMANCE_PRESETS): Intel's
+// before Ivy Bridge, under Mesa (above) or Windows' own driver ("Intel(R) HD
+// Graphics 3000", plain "HD Graphics" for Ironlake, the 4 Series). A first
+// session on one starts on it (Settings adoptGpuPreset): the defaults are
+// for current GPUs, and ran at a few frames a second on an HD 2000. Drawing
+// in software is a driver to fix, which the VIDEO OPTIONS say instead.
+const WINDOWS_OLD_INTEL = /\bIntel\(R\) (HD Graphics( 2000| 3000| Family)?|G41|G45|Q45|Q43|B43|4 Series)\b(?! \d)/i;
+export function oldGpu(renderer) {
+  const name = String(renderer || "");
+  return !SOFTWARE.test(name) && (unpacksBc7(name) || WINDOWS_OLD_INTEL.test(name));
+}
+
 const INTEL = 0x8086, NVIDIA = 0x10de, AMD = 0x1002;
 
 // What the page and the desktop app's report say: { renderer, label,

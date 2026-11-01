@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { localLighting } from "./local-lights.js";
 import { motionVectors } from "./motion-vectors.js";
+import { selectLights } from "./materials.js";
 
 // The pieces of a droid blown apart, for the Enhanced destruction effects
 // (src/destruction.js). Classic pieces stay with src/debris.js.
@@ -475,6 +476,8 @@ export function heatMaterial(source) {
   material.shadowSide = source.shadowSide;
   const dynamic = source.defines?.DYNAMIC !== undefined;
   material.onBeforeRender = (renderer, scene, camera, geometry, object) => {
+    // The point lights this draw reads, as its source's draws choose them.
+    if (source.userData.pointLit) selectLights(material, object, geometry, scene, camera);
     const look = object.userData.heated || NO_HEAT;
     uniforms.heat.value = look.heat;
     uniforms.heatTear.value.copy(look.tear);

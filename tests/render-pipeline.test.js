@@ -86,6 +86,57 @@ test('GPU profiling polls sparsely, never reads unavailable results, and discard
   assert.equal(profiler.pending.length,0);assert.equal(profiler.gpu.length,0);
 });
 
+test('static color culling multi-draws only visible runs, in their original order',async()=>{
+  const {partitionShadowCaster}=await import('../src/shadow-casters.js');
+  const {mergeGeometries}=await import('three/addons/utils/BufferGeometryUtils.js');
+  // Boxes in source order hop between distant cells, so visible runs are
+  // separated by hidden ones (one first-to-last range would draw them all).
+  const order=Array.from({length:100},(_,i)=>(i*37)%100);
+  const source=mergeGeometries(order.map(i=>new THREE.BoxGeometry(2,2,2).translate((i%10-5)*40,0,-Math.floor(i/10)*40)));
+  const original=source.index.array.slice();
+  const mesh=new THREE.Mesh(source,new THREE.MeshBasicMaterial());
+  partitionShadowCaster(mesh,()=>{},1);mesh.updateMatrixWorld(true);
+  const draws=[];
+  const multi={multiDrawElementsWEBGL:(mode,counts,countsOffset,type,offsets,offsetsOffset,n)=>draws.push({counts:[...counts.slice(0,n)],offsets:[...offsets.slice(0,n)],type})};
+  const info={render:{triangles:0}};
+  const gl={TRIANGLES:4,UNSIGNED_INT:5125,UNSIGNED_SHORT:5123};
+  const renderer={extensions:{has:name=>name==='WEBGL_multi_draw',get:()=>multi},getContext:()=>gl,info};
+  const bytes=original.BYTES_PER_ELEMENT;
+  const camera=new THREE.PerspectiveCamera(60,1,.5,150);
+  const matrix=new THREE.Matrix4(),frustum=new THREE.Frustum(),box=new THREE.Box3(),point=new THREE.Vector3();
+  let multiFrames=0;
+  for(let frame=0;frame<30;frame++) {
+    camera.position.set(Math.sin(frame*.4)*100,5,20);camera.rotation.y=Math.sin(frame*.2);camera.updateMatrixWorld();
+    draws.length=0;
+    mesh.onBeforeRender(renderer,null,camera,mesh.geometry,mesh.material,null);
+    mesh.onAfterRender(renderer,null,camera,mesh.geometry,mesh.material,null);
+    let selected;
+    if(draws.length){
+      multiFrames++;
+      assert.equal(mesh.geometry.drawRange.count,0);assert.equal(draws.length,1);
+      const {counts,offsets,type}=draws[0];assert.equal(type,bytes===4?5125:5123);
+      selected=[];let last=-1;
+      for(let k=0;k<counts.length;k++){const start=offsets[k]/bytes;assert.ok(start>last);last=start+counts[k];selected.push(...original.slice(start,start+counts[k]));}
+    } else { const {start,count}=mesh.geometry.drawRange;selected=[...original.slice(start,start+count)]; }
+    // Every drawn triangle is an original triangle, in original order.
+    let cursor=0;
+    for(let i=0;i<selected.length;i+=3) {
+      while(cursor<original.length && original[cursor]!==selected[i])cursor+=3;
+      assert.ok(cursor<original.length);assert.deepEqual(selected.slice(i,i+3),[...original.slice(cursor,cursor+3)]);cursor+=3;
+    }
+    // Every triangle touching the frustum is drawn.
+    frustum.setFromProjectionMatrix(matrix.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse).multiply(mesh.matrixWorld));
+    const kept=new Set();for(let i=0;i<selected.length;i+=3)kept.add(`${selected[i]},${selected[i+1]},${selected[i+2]}`);
+    for(let i=0;i<original.length;i+=3) {
+      box.makeEmpty();for(let j=0;j<3;j++)box.expandByPoint(point.fromBufferAttribute(source.attributes.position,original[i+j]));
+      if(frustum.intersectsBox(box))assert.ok(kept.has(`${original[i]},${original[i+1]},${original[i+2]}`));
+    }
+    assert.ok(selected.length<original.length);
+  }
+  assert.ok(multiFrames>0);
+  assert.deepEqual(source.index.array,original);
+});
+
 test('static color culling preserves source indices and triangle order across views and movement',async()=>{
   const {partitionShadowCaster}=await import('../src/shadow-casters.js');
   const {mergeGeometries}=await import('three/addons/utils/BufferGeometryUtils.js');
