@@ -103,7 +103,10 @@ class RustRender {
     this.worldCount = 0;
     this.farTexture = null;
     this.stats = null;
-    this.byProgram = !new URLSearchParams(location.search).has("rustOrder");
+    // three's own opaque order (by material) unless ?rustSort: sorting by
+    // program saves a few switches but moves which of two surfaces at the
+    // same depth wins at a few multisampled edges.
+    this.byProgram = new URLSearchParams(location.search).has("rustSort");
     this.enabled = true;
     this.active = !new URLSearchParams(location.search).has("rustOff");
     this.errors = [];
