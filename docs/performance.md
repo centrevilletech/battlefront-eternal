@@ -661,6 +661,36 @@ times as long in JavaScript as in the module (7.6 against 3.5 µs on Naboo
 Plains, 4.5 against 2.3 on Dune Sea, 5.4 against 2.5 on Bespin Platforms),
 and a ground probe 1.6 to 1.7 times as long (1.1 against 0.6 µs).
 
+### On a dedicated server
+
+bfeserver runs the same world in Node: its world thread calls the engine's
+`createGame` with the battle's query, and the engine loads the module there
+as it does in a page's worker, from `src/ray-kernel-wasm.js`, which the host
+runtime copies with the rest of `src/` (compiled once a thread in about
+10 ms; each battle's own instance and copies, 3 to 12 MB a map, made in 7 to
+20 ms as it loads). A server opts in with `BFE_RAYS=wasm` in its
+environment: under Node the engine takes it when the battle's query says
+neither `rays=wasm` nor `rays=js` (a query's `rays` would also reach the
+players, whose pages load the battle's query). Nothing in the server
+changes, and its default stays the JavaScript.
+
+If the module cannot be compiled or instantiated (no WebAssembly, no memory
+for it), the battle loads with the JavaScript and the server logs it once. If
+a query fails inside the module during a battle (a fault in it, or memory it
+cannot grow), the collision world drops the module and answers that query
+and every later one in JavaScript, and logs it once.
+
+Neither changes a tick. The module answers each query as the JavaScript
+does, to the last bit, so a tick's outcome does not depend on which one
+answered: a server using the module and pages that do not (or the other way
+round) compute the same world, and a page's replay of its own player against
+its own collision world makes the same corrections either way. The proofs
+are the ones above, run on both paths in the same process:
+`tests/ray-kernel.test.js` (and a query failing in the module half way
+through a battle), `tools/check-ray-kernel.mjs` on every map, and
+`tools/world-hash.mjs`, which forces one path or the other (`--rays wasm`,
+else `rays=js`) whatever the environment says.
+
 ### What porting more would take
 
 The rays kept their answers and lost a little over half their time.

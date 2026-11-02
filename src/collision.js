@@ -168,6 +168,15 @@ export class CollisionWorld {
     }
   }
 
+  // The ray kernel failed (it should not: a fault in it, or no memory left
+  // for it to grow): this query and every later one are answered by the
+  // JavaScript, which gives the same answers, so the battle goes on as it
+  // would have.
+  dropRays(error) {
+    console.warn(`The collision's WebAssembly failed (${error?.message ?? error}); its JavaScript answers from now on.`);
+    this.rays = null;
+  }
+
   // A body's copy in the ray kernel: its tree, and its place (a moving
   // body's as it moves, in moveBody).
   rayBody(body, moving) {
@@ -214,7 +223,7 @@ export class CollisionWorld {
     body.bounds = body.bvh.getBoundingBox(new THREE.Box3());
     this.bodies.push(body);
     this.bodiesVersion++;
-    if (this.rays) this.rayBody(body, false);
+    if (this.rays) try { this.rayBody(body, false); } catch (error) { this.dropRays(error); }
     return body;
   }
 
@@ -231,7 +240,7 @@ export class CollisionWorld {
       enabled: true, moving: true, owner };
     this.bodies.push(body);
     this.bodiesVersion++;
-    if (this.rays) this.rayBody(body, true);
+    if (this.rays) try { this.rayBody(body, true); } catch (error) { this.dropRays(error); }
     this.moveBody(body, matrix);
     return body;
   }
@@ -240,7 +249,7 @@ export class CollisionWorld {
     body.matrix.copy(matrix);
     body.inverse.copy(matrix).invert();
     body.bounds.copy(body.localBounds).applyMatrix4(matrix);
-    if (this.rays && body.raySlot !== undefined) this.rays.place(body.raySlot, body.bounds, body.matrix, body.inverse);
+    if (this.rays && body.raySlot !== undefined) try { this.rays.place(body.raySlot, body.bounds, body.matrix, body.inverse); } catch (error) { this.dropRays(error); }
   }
 
   removeBody(body) {
@@ -253,7 +262,7 @@ export class CollisionWorld {
   // Test only moving objects over a projectile's current flight segment.
   // Static impacts remain precomputed; a moving target is never snapshotted.
   castMoving(origin, direction, far, out, ignoreBody = null) {
-    if (this.rays) return this.rayCastMoving(origin, direction, far, out, ignoreBody);
+    if (this.rays) try { return this.rayCastMoving(origin, direction, far, out, ignoreBody); } catch (error) { this.dropRays(error); }
     this.ray.set(origin, direction);
     let closest = far;
     let found = false;
@@ -286,7 +295,7 @@ export class CollisionWorld {
   // vehicle: the vehicle-only barriers count too (a hull's query).
   // ignoreBody: a body whose polygons are left out (a dead rider's mount).
   gather(center, radius, vehicle = false, cache = null, ignoreBody = null) {
-    if (this.rays) return this.rayGather(center, radius, vehicle, cache, ignoreBody);
+    if (this.rays) try { return this.rayGather(center, radius, vehicle, cache, ignoreBody); } catch (error) { this.dropRays(error); }
     this.box.min.set(center.x - radius, center.y - radius, center.z - radius);
     this.box.max.set(center.x + radius, center.y + radius, center.z + radius);
     this.used = 0;
@@ -500,7 +509,7 @@ export class CollisionWorld {
   // Clearance for a swept posture, including live props. Unlike gather this
   // does not disturb the polygon contact list currently being resolved.
   overlapsSphere(center, radius, ignoreBody = null) {
-    if (this.rays) return this.rayOverlapsSphere(center, radius, ignoreBody);
+    if (this.rays) try { return this.rayOverlapsSphere(center, radius, ignoreBody); } catch (error) { this.dropRays(error); }
     this.box.min.copy(center).addScalar(-radius);
     this.box.max.copy(center).addScalar(radius);
     this.overlapCenter = center;
@@ -551,7 +560,9 @@ export class CollisionWorld {
     cached.x = x; cached.z = z; cached.top = top;
     this.ray.origin.set(x, top, z);
     this.ray.direction.copy(this.down);
-    const hit = this.rays ? this.rayGroundHit() : this.terrainGrid.raycastFirst(this.ray, Infinity);
+    let hit = null;
+    if (this.rays) try { hit = this.rayGroundHit(); } catch (error) { this.dropRays(error); }
+    if (!this.rays) hit = this.terrainGrid.raycastFirst(this.ray, Infinity);
     cached.hit = Boolean(hit);
     if (!hit) return null;
     out.height = hit.point.y;
@@ -568,9 +579,8 @@ export class CollisionWorld {
   terrainNear(center, radius) {
     const out = this.terrainNearList ||= [];
     empty(out);
-    if (this.rays) {
-      if (this.terrainGrid) this.rayTerrainNear(center, radius, out, this.terrainNearPool ||= []);
-    } else this.terrainGrid?.near(center, radius, out, this.terrainNearPool ||= []);
+    if (this.rays && this.terrainGrid) try { this.rayTerrainNear(center, radius, out, this.terrainNearPool ||= []); return out; } catch (error) { this.dropRays(error); empty(out); }
+    this.terrainGrid?.near(center, radius, out, this.terrainNearPool ||= []);
     return out;
   }
 
@@ -606,7 +616,7 @@ export class CollisionWorld {
   // and `body` which body, if one was. A firing turret can exclude its own
   // live body without excluding nearby architecture or other turrets.
   cast(origin, direction, far, out, ignoreBody = null, staticOnly = false) {
-    if (this.rays) return this.rayCast(origin, direction, far, out, ignoreBody, staticOnly);
+    if (this.rays) try { return this.rayCast(origin, direction, far, out, ignoreBody, staticOnly); } catch (error) { this.dropRays(error); }
     this.ray.origin.copy(origin);
     this.ray.direction.copy(direction);
     let hit = this.bvh.raycastFirst(this.ray, THREE.DoubleSide, 0, far);

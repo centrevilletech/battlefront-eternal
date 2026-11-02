@@ -165,3 +165,24 @@ test('the kernel gathers, overlaps and finds the terrain near a sphere as the Ja
   assert.ok(polygons > 3000 && triangles > 6000 && movingPolygons > 200 && blockerPolygons > 50 && overlaps > 1000 && near > 10000,
     JSON.stringify({ polygons, triangles, movingPolygons, blockerPolygons, overlaps, near }));
 });
+
+test('a query the kernel fails is answered by the JavaScript, and so is every later one', async () => {
+  const rays = await loadRayKernel();
+  const { w } = world(rays), reference = world(null).w;
+  const center = new THREE.Vector3(-18, 1.5, -18), down = new THREE.Vector3(0, -1, 0), above = new THREE.Vector3(-18, 9, -18);
+  const before = listed(w.gather(center, 2));
+  // The module traps on its next call (a fault in it, or no memory left).
+  rays.x = { ...rays.x, gather_begin() { throw new WebAssembly.RuntimeError('unreachable'); } };
+  const warn = console.warn, warnings = [];
+  console.warn = (message) => warnings.push(message);
+  try {
+    sameList(listed(w.gather(center, 2)), before, 'the failed gather');
+    assert.equal(w.rays, null, 'the kernel is dropped');
+    assert.equal(warnings.length, 1);
+    sameList(listed(w.gather(center, 2)), listed(reference.gather(center, 2)), 'a later gather');
+    const a = fresh(), b = fresh(), ra = w.cast(above, down, 20, a), rb = reference.cast(above, down, 20, b);
+    assert.ok(ra && rb && fields(a).every((v, i) => Object.is(v, fields(b)[i])), 'a later cast');
+    assert.deepEqual(a.body.owner, b.body.owner, 'the same body of the other world');
+    assert.equal(w.overlapsSphere(center, 1), reference.overlapsSphere(center, 1));
+  } finally { console.warn = warn; }
+});
