@@ -39,7 +39,7 @@ class FoliagePass {
   // its drawer (the classes it registered are drawn in the renderer's call).
   draw() {
     const foliage = this.core.graphics.scene.userData.foliage;
-    if (!foliage || foliage.drawer === this) return;
+    if (!foliage || foliage.drawer === this || this.on === false) return;
     if (foliage !== this.foliage) { this.foliage = foliage; this.classes = new Map(); }
     foliage.drawer = this;
   }
@@ -117,6 +117,8 @@ class FoliagePass {
   setActive(on) {
     for (const [kind, id] of this.classes) if (id != null) kind.batch.material.visible = !on;
     if (this.foliage) this.foliage.drawer = on ? this : null;
+    this.core.rust.foliage_on?.(on);
+    this.on = on;
   }
 
   restore() {

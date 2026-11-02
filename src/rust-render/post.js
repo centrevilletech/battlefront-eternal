@@ -118,7 +118,7 @@ class PostPass {
   // pass the renderer has a program for; true when it drew them.
   cover(renderer, steps) {
     const core = this.core;
-    if (!core.enabled || !core.active || !steps.length || steps.length > MAX_STEPS) return false;
+    if (!core.enabled || !core.active || this.on === false || !steps.length || steps.length > MAX_STEPS) return false;
     for (const step of steps) {
       if (!step.pass || !plainProgram(core, step.pass.material, ATTRIBUTES)) return false;
       if (step.target && this.target(step.target) < 0) return false;
@@ -128,6 +128,11 @@ class PostPass {
     core.phase("post", renderer, null, steps[0].camera);
     this.pending = null;
     return this.complete;
+  }
+
+  // Off (this pass alone): three draws the post passes.
+  setActive(on) {
+    this.on = on;
   }
 
   // A target of three's, by its colour texture (made again on a resize).

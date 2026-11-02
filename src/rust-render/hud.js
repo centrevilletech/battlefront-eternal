@@ -53,7 +53,7 @@ class HudPass {
 
   drawBatch(renderer, hud) {
     const core = this.core;
-    if (!core.enabled || !core.active || !core.rust.hud_init) return false;
+    if (!core.enabled || !core.active || this.on === false || !core.rust.hud_init) return false;
     const batch = hud.batch;
     // One program for every material of the batch (batch.js makes them all
     // from the same shaders): the first one three has made.
@@ -125,6 +125,11 @@ class HudPass {
     input[IN.GROUPS] = n;
     this.full = false;
     this.complete = true;
+  }
+
+  // Off (this pass alone): three draws the HUD.
+  setActive(on) {
+    this.on = on;
   }
 
   // A texture's renderer id once three has its pixels (uploading them as

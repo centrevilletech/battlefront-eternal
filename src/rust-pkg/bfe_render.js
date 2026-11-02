@@ -175,6 +175,12 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {boolean} on
+     */
+    foliage_on(on) {
+        wasm.bferenderer_foliage_on(this.__wbg_ptr, on);
+    }
+    /**
      * @param {number} _class
      * @returns {number}
      */

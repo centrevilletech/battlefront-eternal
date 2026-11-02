@@ -36,6 +36,8 @@ class ViewPass {
   }
 
   draw(ctx) {
+    // Off (this pass alone): three draws the scene.
+    if (this.on === false) return;
     this.complete = true;
     this.visit(ctx.scene, ctx.camera, ctx);
   }
@@ -104,6 +106,7 @@ class ViewPass {
 
   setActive(on) {
     for (const record of this.records) record.material.visible = !on;
+    this.on = on;
   }
 
   restore() {

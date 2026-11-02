@@ -17,4 +17,6 @@ impl BfeRenderer {
     // next near phase; the patches selected.
     pub fn foliage_frame(&mut self) -> u32 { self.r.foliage.select() }
     pub fn foliage_selected(&self, class: u32) -> u32 { self.r.foliage.selected(class) }
+    // Off: the renderer draws no foliage (three does).
+    pub fn foliage_on(&mut self, on: bool) { self.r.foliage.on = on }
 }

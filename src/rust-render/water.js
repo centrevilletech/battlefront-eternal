@@ -43,6 +43,8 @@ class WaterPass {
     if (!this.surfaces.length) return;
     core.views();
     const input = core.waterInput, camera = ctx.camera;
+    // Off (this pass alone): three draws the water.
+    if (this.on === false) { this.surfaces.forEach((surface, s) => { input[s * SURFACE + S.SHOWN] = 0; }); return; }
     frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     input[RING_UPLOAD] = 0; input[RING_UPLOAD + 1] = 0;
     this.surfaces.forEach((surface, s) => this.write(surface, s, input, camera, ctx.scene));
@@ -129,6 +131,7 @@ class WaterPass {
   }
 
   setActive(on) {
+    this.on = on;
     for (const surface of this.surfaces) surface.material.visible = !on;
     // Three's copy of the rings is whole: the renderer's needs every vertex
     // when it draws them again.
