@@ -1,7 +1,7 @@
 // Bundle code and its dependencies only. Imported game assets stay external.
 import { cp, mkdir, readFile, rm, writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 const root = resolve('.host-runtime');
 // electron/update/server.js and what it imports.
@@ -32,7 +32,9 @@ try {
   // patched WebRTC stack ships with the desktop host.
   for (const file of ['package.json', 'package-lock.json']) await cp(join(source, file), join(server, file));
   run('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], server);
-  await cp('src', join(engine, 'src'), { recursive: true });
+  // The server never draws: the Rust renderer's WebAssembly (src/rust-pkg)
+  // stays out of its copy of the engine.
+  await cp('src', join(engine, 'src'), { recursive: true, filter: (source) => relative('src', source) !== 'rust-pkg' });
   await writeFile(join(engine, 'package.json'), JSON.stringify({ type: 'module', private: true }));
   for (const dependency of ['three', 'three-mesh-bvh']) await cp(join('node_modules', dependency), join(engine, 'node_modules', dependency), { recursive: true });
   // The dedicated server's updater (docs/server-updates.md) and the signed

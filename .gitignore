@@ -31,6 +31,3 @@ toolchain/
 
 # Bundled server code staging (no imported game assets).
 .host-runtime/
-
-# The Rust renderer as wasm-bindgen builds it (rust/bfe-render).
-src/rust-pkg/
