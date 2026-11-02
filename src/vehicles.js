@@ -58,6 +58,7 @@ const CAMERA_SKIN = .08; // m: keeps the near plane off what the rays hit
 const RETURN_RATE = 6; // 1/s: a camera pulled in by a wall eases back out
 const FOV_RATE = 25; // 1/s
 const AIM_REACH = 512; // m along a seat's aim to the point its guns turn to
+const TO_LOCAL = new THREE.Matrix4(), DECOMPOSED_AT = new THREE.Vector3(), DECOMPOSED_SCALE = new THREE.Vector3();
 // m a wall probe's or spring's cached triangles reach past its sphere: a
 // hull at 30 m/s moves 0.25 m a 120 Hz step.
 const WALL_CACHE_MARGIN = 1.5;
@@ -1645,10 +1646,17 @@ export class Vehicle {
         if (!bone) continue;
         if (bone === view.turret) { a.facing.set(0, 0, 1).transformDirection(bone.matrixWorld); continue; }
         const rest = this.bind.get(bone);
+        // The parent's world matrix, from the root down; read as three's
+        // worldToLocal and getWorldQuaternion read it, without each walking
+        // the same chain to the same matrix again.
         bone.parent.updateWorldMatrix(true, false);
-        if (target) bone.parent.worldToLocal(s.v.copy(target)).sub(bone.position).applyQuaternion(s.q.copy(rest).invert());
+        const parentWorld = bone.parent.matrixWorld;
+        if (target) s.v.copy(target).applyMatrix4(TO_LOCAL.copy(parentWorld).invert()).sub(bone.position).applyQuaternion(s.q.copy(rest).invert());
         // Nothing to aim at: along the seat's aim.
-        else aimVector(seat.aimYaw, seat.pitch, s.v).applyQuaternion(bone.parent.getWorldQuaternion(s.q).multiply(rest).invert());
+        else {
+          parentWorld.decompose(DECOMPOSED_AT, s.q, DECOMPOSED_SCALE);
+          aimVector(seat.aimYaw, seat.pitch, s.v).applyQuaternion(s.q.multiply(rest).invert());
+        }
         if (dt > 0) {
           // As the 2004 game's aimer turns: the
           // shorter way round toward the target at its rate, then held
