@@ -128,8 +128,15 @@ function glowOf(object) {
 // it ends.
 function copy(data, at, src, from, to) {
   const n = to - from;
-  if (n <= 64) for (let i = 0; i < n; i++) data[at + i] = src[from + i];
+  if (n <= 16) for (let i = 0; i < n; i++) data[at + i] = src[from + i];
   else data.set(src.subarray(from, to), at);
+  return at + n;
+}
+// The same for 32-bit indices (kept apart: one array type each, for the JIT).
+function copyBits(bits, at, src, from, to) {
+  const n = to - from;
+  if (n <= 16) for (let i = 0; i < n; i++) bits[at + i] = src[from + i];
+  else bits.set(src.subarray(from, to), at);
   return at + n;
 }
 
@@ -395,7 +402,7 @@ class EffectsPass {
     const key = new Float64Array(6);
     this.keyOf(batch.mesh, key);
     const record = { batch, kind, id, attributes, values, samplers, arrays: null, mesh: batch.mesh, map, handle: this.handle(map), version: map?.version, key,
-      stride: attributes.reduce((sum, [, size]) => sum + size, 0), beforeRender: Boolean(spec.beforeRender), static: Boolean(spec.static), uploaded: 0,
+      stride: attributes.reduce((sum, [, size]) => sum + size, 0), sizes: attributes.map(([, size]) => size), beforeRender: Boolean(spec.beforeRender), static: Boolean(spec.static), uploaded: 0,
       hiddenBy: spec.hiddenBy ?? "external", synced: false, capacity: -1, from: this.frame };
     this.hide(record, true);
     this.records.push(record);
@@ -641,12 +648,9 @@ class EffectsPass {
         if (record.synced && record.capacity === b.capacity) from = Math.min(record.uploaded, count);
         record.uploaded = Math.max(from === 0 ? 0 : record.uploaded, count);
       }
-      const start = at, arrays = record.arrays;
-      for (let k = 0; k < arrays.length; k++) {
-        const size = attributes[k][1];
-        at = copy(data, at, arrays[k], from * size, count * size);
-      }
-      for (const [name] of record.values) at = put(data, at, b.material.uniforms[name].value);
+      const start = at, arrays = record.arrays, sizes = record.sizes;
+      for (let k = 0; k < arrays.length; k++) at = copy(data, at, arrays[k], from * sizes[k], count * sizes[k]);
+      if (record.values.length) for (const [name] of record.values) at = put(data, at, b.material.uniforms[name].value);
       const e = DRAW_AT + draws++ * DRAW_STRIDE;
       input[e] = KIND_BATCH; input[e + 1] = record.id; input[e + 2] = count; input[e + 3] = from; input[e + 4] = start; input[e + 5] = b.capacity;
       input.set(record.key, e + DRAW_KEY);
@@ -658,7 +662,7 @@ class EffectsPass {
       const { lightning, record } = lit, geometry = lightning.geometry, material = record.material;
       const vertices = lightning.vertex, indices = lightning.index, start = at;
       for (const [name, size] of record.attributes) at = copy(data, at, geometry.attributes[name].array, 0, vertices * size);
-      at = copy(bits, at, geometry.index.array, 0, indices);
+      at = copyBits(bits, at, geometry.index.array, 0, indices);
       at = this.basicValues(data, at, material, record.values);
       const e = DRAW_AT + draws++ * DRAW_STRIDE;
       input[e] = KIND_MESH; input[e + 1] = record.id; input[e + 2] = vertices; input[e + 3] = indices; input[e + 4] = start; input[e + 5] = 0;
