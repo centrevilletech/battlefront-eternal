@@ -190,6 +190,12 @@ export class Soldier {
     // A body this one passes through (a rider's mount, while his body falls
     // from its back: src/seats.js dropBody), until it spawns again.
     this.passThrough = null;
+    // Each body sphere's nearby-triangle cache (gatherCache), made on the
+    // first collision pass; and this soldier's id in the world's movement
+    // kernel (src/movement-kernel.js), -1 until its first tick there. Both
+    // here from the start, so every soldier keeps one shape.
+    this.gatherCaches = undefined;
+    this.mover = -1;
   }
 
   spawn(x, y, z, yaw) {
@@ -261,7 +267,10 @@ export class Soldier {
   }
 
   // input: forward, right, turn in [-1, 1]; jump, crouch, prone are presses.
+  // A world with a movement kernel (?movement=wasm) runs the tick there, with
+  // the same outcome to the last bit.
   tick(input, dt) {
+    if (this.world.movement?.tick(this, input, dt)) return;
     this.previous.copy(this.position);
     this.stateTime += dt;
     this.tickLength = dt;
