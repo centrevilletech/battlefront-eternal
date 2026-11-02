@@ -113,9 +113,18 @@ export function chooseSharedBaselines(tick, acks, max = MAX_SHARED_BASELINES) {
   }
   return chosen.sort((a, b) => b - a);
 }
+// The most ticks a local page waits between snapshots (a page drawing 20
+// frames a second or fewer).
+export const MAX_LOCAL_INTERVAL = 3;
 export function createSnapshotHost({ game, world, epoch = 1, local = false, stateBytesPerSecond, staleAfterMs = local ? Infinity : STALE_AFTER_MS, now = () => performance.now() } = {}) {
   if (!game || !world) throw Error('snapshot host requires a game and a multiplayer world');
-  const interval = local ? 1 : 2;
+  // A snapshot every `interval` ticks, each carrying every change since the
+  // client's acknowledged baseline: every 2nd tick online; locally every
+  // tick, or as many ticks as the page takes to draw a frame
+  // (setLocalInterval), so a page drawing 20 frames a second decodes one
+  // snapshot a frame, not three it has no frame to show.
+  let interval = local ? 1 : 2;
+  function setLocalInterval(ticks) { if (local) interval = Math.max(1, Math.min(MAX_LOCAL_INTERVAL, Math.floor(ticks) || 1)); }
   // A local client shares the process: no link to protect.
   const budget = local ? Infinity : readStateBudget({ stateBytesPerSecond }).bytesPerSecond;
   if (!(staleAfterMs > 0)) throw Error('invalid stale client time');
@@ -396,7 +405,7 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
     // Adapter ABI 3 send-outcome hooks; the snapshot host needs none of
     // them. They stay as no-ops until the server moves to ABI 4.
     ack() {}, admitted() {}, dropped() {},
-    advanceEdges, consumedEdges, publish, inspect, staleClients,
+    advanceEdges, consumedEdges, publish, inspect, staleClients, setLocalInterval,
     dispose() { presentationDispose?.(); combatDispose?.(); shots?.dispose(); presentationDispose = combatDispose = null; },
   };
 }

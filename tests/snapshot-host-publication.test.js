@@ -214,3 +214,22 @@ test('snapshot cadence survives skipped publications and is unchanged when on ti
   out = step(); assert.equal(out.shared[0]?.tick, odd + 2, 'then every interval again');
   host.dispose();
 });
+
+test('a local host publishes every tick, or every few for a page that draws slower; online stays every 2nd', owned, async () => {
+  const { MAX_LOCAL_INTERVAL } = await import('../src/runtime/snapshot-host.js');
+  const ticksOf = (step, n) => { const ticks = []; for (let i = 0; i < n; i++) { const out = step(); if (out.shared.length) ticks.push(out.shared[0].tick); } return ticks; };
+  const spacing = ticks => [...new Set(ticks.slice(1).map((t, i) => t - ticks[i]))];
+  const local = await battle(['page'], { local: true });
+  assert.deepEqual(spacing(ticksOf(local.step, 12)), [1]);
+  local.host.setLocalInterval(2.6);
+  assert.deepEqual(spacing(ticksOf(local.step, 24)), [2], 'a page drawing a frame every 2.6 ticks gets one every 2');
+  local.host.setLocalInterval(9);
+  assert.deepEqual(spacing(ticksOf(local.step, 24)), [MAX_LOCAL_INTERVAL], 'never more than MAX_LOCAL_INTERVAL ticks apart');
+  local.host.setLocalInterval(1);
+  assert.deepEqual(spacing(ticksOf(local.step, 12)), [1]);
+  local.host.dispose();
+  const online = await battle(['client']);
+  online.host.setLocalInterval(3);
+  assert.deepEqual(spacing(ticksOf(online.step, 24)), [2], 'only a local host follows its page');
+  online.host.dispose();
+});
