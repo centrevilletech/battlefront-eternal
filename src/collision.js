@@ -668,9 +668,12 @@ export class CollisionWorld {
     if (code === RAY_MISS) { out.terrain = false; return null; }
     out.terrain = code === RAY_TERRAIN;
     if (code >= 0) out.body = rays.bodies[code];
-    out.distance = io[10];
-    out.point.set(io[11], io[12], io[13]);
-    out.normal.set(io[14], io[15], io[16]);
+    // The hit through a fresh view: naming the candidates may have grown the
+    // module's memory (its broad phase made again), emptying views made before.
+    const hit = rays.view();
+    out.distance = hit[10];
+    out.point.set(hit[11], hit[12], hit[13]);
+    out.normal.set(hit[14], hit[15], hit[16]);
     return out;
   }
 
@@ -684,9 +687,10 @@ export class CollisionWorld {
     io[6] = far;
     const code = rays.x.world_cast_moving(this.rayWorld, this.rayCandidates(ignoreBody, false, true));
     if (code === RAY_MISS) return null;
-    out.point.set(io[11], io[12], io[13]);
-    out.normal.set(io[14], io[15], io[16]);
-    out.distance = io[10]; out.body = rays.bodies[code]; out.terrain = false;
+    const hit = rays.view();
+    out.point.set(hit[11], hit[12], hit[13]);
+    out.normal.set(hit[14], hit[15], hit[16]);
+    out.distance = hit[10]; out.body = rays.bodies[code]; out.terrain = false;
     return out;
   }
 
@@ -696,10 +700,10 @@ export class CollisionWorld {
     const io = this.rays.view(), o = this.ray.origin, d = this.ray.direction;
     io[0] = o.x; io[1] = o.y; io[2] = o.z; io[3] = d.x; io[4] = d.y; io[5] = d.z; io[6] = Infinity;
     if (!this.rays.x.grid_ray(this.rayGrid)) return null;
-    const hit = this.rayGround;
-    hit.distance = io[10];
-    hit.point.set(io[11], io[12], io[13]);
-    hit.normal.set(io[14], io[15], io[16]);
+    const hit = this.rayGround, at = this.rays.view();
+    hit.distance = at[10];
+    hit.point.set(at[11], at[12], at[13]);
+    hit.normal.set(at[14], at[15], at[16]);
     return hit;
   }
 }

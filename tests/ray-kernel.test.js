@@ -186,3 +186,33 @@ test('a query the kernel fails is answered by the JavaScript, and so is every la
     assert.equal(w.overlapsSphere(center, 1), reference.overlapsSphere(center, 1));
   } finally { console.warn = warn; }
 });
+
+test('every answer is read through views made after the call, however the module\'s memory grows', async () => {
+  const rays = await loadRayKernel();
+  const { w, bodies } = world(rays), reference = world(null).w;
+  reference.vehicleBlockers = reference.createBodyShape(box(3, 0.5, 0, 30, 1, 0.4).p, box(3, 0.5, 0, 30, 1, 0.4).i, box(3, 0.5, 0, 30, 1, 0.4).polygons);
+  w.vehicleBlockers = w.createBodyShape(box(3, 0.5, 0, 30, 1, 0.4).p, box(3, 0.5, 0, 30, 1, 0.4).i, box(3, 0.5, 0, 30, 1, 0.4).polygons);
+  // Every call into the module grows its memory, as any call that
+  // allocates may: views made before it are empty after it.
+  const exports = rays.x, grown = {};
+  for (const [name, value] of Object.entries(exports)) grown[name] = typeof value === 'function' ? (...args) => { const out = value(...args); rays.memory.grow(1); return out; } : value;
+  rays.x = grown;
+  const rand = random(5), caches = [w.gatherCache(), reference.gatherCache()];
+  for (let i = 0; i < 120; i++) {
+    if (i % 40 === 20) { for (const which of [w, reference]) which.removeBody(which.bodies[3]); }
+    const origin = new THREE.Vector3((rand() - 0.5) * 60, rand() * 6, (rand() - 0.5) * 60), dir = new THREE.Vector3(rand() - 0.5, -rand(), rand() - 0.5).normalize();
+    const far = [60, 6, 1][i % 3], a = fresh(), b = fresh();
+    const ra = w.cast(origin, dir, far, a), rb = reference.cast(origin, dir, far, b);
+    assert.ok((ra === null) === (rb === null) && fields(a).every((v, k) => Object.is(v, fields(b)[k])) && a.body?.owner === b.body?.owner || a.body?.owner?.i === b.body?.owner?.i, `cast ${i}`);
+    const c = fresh(), d = fresh(), rc = w.castMoving(origin, dir, 60, c), rd = reference.castMoving(origin, dir, 60, d);
+    assert.ok((rc === null) === (rd === null) && fields(c).every((v, k) => Object.is(v, fields(d)[k])), `castMoving ${i}`);
+    const g1 = { height: 0, normal: new THREE.Vector3() }, g2 = { height: 0, normal: new THREE.Vector3() };
+    assert.equal(w.ground(origin.x, origin.z, 1e4, g1) === null, reference.ground(origin.x, origin.z, 1e4, g2) === null);
+    assert.ok(Object.is(g1.height, g2.height), `ground ${i}`);
+    sameList(listed(w.gather(origin, 1.5, i % 2 === 0, caches[0])), listed(reference.gather(origin, 1.5, i % 2 === 0, caches[1])), `gather ${i}`);
+    assert.equal(w.overlapsSphere(origin, 1), reference.overlapsSphere(origin, 1), `overlap ${i}`);
+    assert.deepEqual(w.terrainNear(origin, 2).map((t) => t.a.toArray()), reference.terrainNear(origin, 2).map((t) => t.a.toArray()), `terrainNear ${i}`);
+  }
+  assert.ok(w.rays, 'the kernel answered throughout');
+  assert.equal(bodies.length > 0, true);
+});

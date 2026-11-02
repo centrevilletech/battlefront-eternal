@@ -6,13 +6,16 @@
 // and terrainNear lists go through both on the same world, and every field
 // of every answer must be the same number, bit for bit (Object.is: -0 is not
 // 0), the same body, the same miss, the same polygons in the same order with
-// the same triangles.
+// the same triangles. Every query the battle itself makes is answered both
+// ways too (the module's answer is the one the battle gets), so a fault
+// that shows only in the middle of a battle, after its bodies change, is
+// caught where it happens.
 //
 //   BFE_CONTENT_DIR=<game data> node tools/check-ray-kernel.mjs \
 //     [--map nab2] [--side rep] [--seed 1] [--ticks 1800] [--every 300] [--rays 4000]
 import { headlessGame, idleCommand } from './headless-world.mjs';
 import * as THREE from 'three';
-import { makeHit } from '../src/collision.js';
+import { CollisionWorld, makeHit } from '../src/collision.js';
 
 const argv = process.argv.slice(2);
 const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i < 0 ? fallback : argv[i + 1]; };
@@ -25,14 +28,6 @@ let draw = 991;
 Math.random = () => { draw = (Math.imul(draw, 1664525) + 1013904223) >>> 0; return draw / 4294967296; };
 let state = seed * 7919 + 17;
 const rnd = () => { state = (Math.imul(state, 1103515245) + 12345) >>> 0; return state / 4294967296; };
-
-const game = await headlessGame(`?map=${map}&side=${side}&era=${era}&ai=classic&seed=${seed}&rays=wasm`);
-const world = game.collision;
-if (!world.rays) throw Error('no ray kernel');
-const bounds = world.bvh.getBoundingBox(new THREE.Box3());
-if (world.terrain) bounds.union(world.terrain.getBoundingBox(new THREE.Box3()));
-bounds.expandByScalar(20);
-const size = bounds.getSize(new THREE.Vector3());
 
 const same = (a, b) => Object.is(a, b);
 const fields = (h) => [h.distance, h.point.x, h.point.y, h.point.z, h.normal.x, h.normal.y, h.normal.z, h.terrain];
@@ -49,9 +44,59 @@ function fail(kind, args, a, b) {
   failures++;
   if (failures <= 10) console.error(`MISMATCH ${kind}`, JSON.stringify(args), '\n  js  ', JSON.stringify(a).slice(0, 400), '\n  wasm', JSON.stringify(b).slice(0, 400));
 }
-// Callers' caches, as a soldier's body spheres and a hull's probes keep them,
-// each drifting about its own spot.
-const caches = Array.from({ length: 24 }, (_, i) => ({ cache: world.gatherCache(i % 3 ? 0.75 : 0.4), at: null }));
+// The battle's own queries from its loading on, each answered by both (the
+// check's rounds pass straight through: `checking`).
+let checking = false, battleQueries = 0;
+const jsOf = (w, fn) => { const rays = w.rays; w.rays = null; try { return fn(); } finally { w.rays = rays; } };
+function battle(name, run) {
+  const own = CollisionWorld.prototype[name];
+  CollisionWorld.prototype[name] = function (...args) {
+    if (checking || !this.rays) return own.apply(this, args);
+    battleQueries++;
+    return run(this, (...a) => own.apply(this, a), args);
+  };
+}
+// A reference record holding what the caller's held before the query (a
+// miss leaves some fields as they were).
+const like = (out) => { const h = makeHit(); h.distance = out.distance; h.point.copy(out.point); h.normal.copy(out.normal); h.terrain = out.terrain; h.body = out.body; return h; };
+battle('cast', (w, own, [origin, direction, far, out, ...rest]) => {
+  const ref = like(out), r = own(origin, direction, far, out, ...rest), rr = jsOf(w, () => own(origin, direction, far, ref, ...rest));
+  compare('battle cast', { origin, direction, far, rest: rest.map((x) => x?.raySlot ?? x) }, ref, out, rr, r);
+  return r;
+});
+battle('castMoving', (w, own, [origin, direction, far, out, ignore]) => {
+  const ref = like(out), r = own(origin, direction, far, out, ignore), rr = jsOf(w, () => own(origin, direction, far, ref, ignore));
+  compare('battle castMoving', { origin, direction, far, ignore: ignore?.raySlot ?? null }, ref, out, rr, r);
+  return r;
+});
+battle('ground', (w, own, [x, z, top, out]) => {
+  const ref = { height: 7, normal: new THREE.Vector3(8, 9, 10) };
+  w.lastGround.x = NaN; const r = own(x, z, top, out);
+  const height = out.height, normal = out.normal.clone();
+  w.lastGround.x = NaN; const rr = jsOf(w, () => own(x, z, top, ref));
+  checked++;
+  if ((r === null) !== (rr === null) || (r && (!same(height, ref.height) || !normal.toArray().every((v, i) => same(v, ref.normal.getComponent(i)))))) fail('battle ground', { x, z, top }, rr && [ref.height, ...ref.normal.toArray()], r && [height, ...normal.toArray()]);
+  if (r) { out.height = height; out.normal.copy(normal); }
+  return r;
+});
+battle('gather', (w, own, args) => {
+  const b = listed(own(...args)), a = listed(jsOf(w, () => own(...args)));
+  checked++;
+  if (!sameLists(a, b)) fail('battle gather', { center: args[0], radius: args[1], vehicle: args[2], cached: Boolean(args[3]), ignore: args[4]?.raySlot ?? null }, a, b);
+  return own(...args);
+});
+battle('overlapsSphere', (w, own, args) => {
+  const r = own(...args), rr = jsOf(w, () => own(...args));
+  checked++;
+  if (r !== rr) fail('battle overlapsSphere', { center: args[0], radius: args[1] }, rr, r);
+  return r;
+});
+battle('terrainNear', (w, own, args) => {
+  const b = own(...args).map(corners), a = jsOf(w, () => own(...args)).map(corners);
+  checked++;
+  if (a.length !== b.length || !a.every((t, j) => t.every((v, m) => Object.is(v, b[j][m])))) fail('battle terrainNear', { center: args[0], radius: args[1] }, a, b);
+  return own(...args);
+});
 function compare(kind, args, a, b, ra, rb) {
   checked++;
   const ok = (ra === null) === (rb === null) && fields(a).every((v, i) => same(v, fields(b)[i])) && a.body === b.body;
@@ -62,7 +107,18 @@ function compare(kind, args, a, b, ra, rb) {
   }
   return ok;
 }
-const js = (fn) => { const rays = world.rays; world.rays = null; try { return fn(); } finally { world.rays = rays; } };
+const game = await headlessGame(`?map=${map}&side=${side}&era=${era}&ai=classic&seed=${seed}&rays=wasm`);
+const world = game.collision;
+if (!world.rays) throw Error('no ray kernel');
+const bounds = world.bvh.getBoundingBox(new THREE.Box3());
+if (world.terrain) bounds.union(world.terrain.getBoundingBox(new THREE.Box3()));
+bounds.expandByScalar(20);
+const size = bounds.getSize(new THREE.Vector3());
+
+// Callers' caches, as a soldier's body spheres and a hull's probes keep them,
+// each drifting about its own spot.
+const caches = Array.from({ length: 24 }, (_, i) => ({ cache: world.gatherCache(i % 3 ? 0.75 : 0.4), at: null }));
+const js = (fn) => jsOf(world, fn);
 const point = () => new THREE.Vector3(bounds.min.x + rnd() * size.x, bounds.min.y + rnd() * size.y, bounds.min.z + rnd() * size.z);
 function direction() {
   const k = rnd();
@@ -123,7 +179,7 @@ function round() {
   }
 }
 for (let t = 0; t <= ticks; t++) {
-  if (t % every === 0) round();
+  if (t % every === 0) { checking = true; round(); checking = false; }
   if (t === ticks) break;
   now += 1000 / 60;
   game.step(idleCommand(game));
@@ -131,5 +187,6 @@ for (let t = 0; t <= ticks; t++) {
 const enabled = world.bodies.filter((b) => b.enabled).length, moving = world.bodies.filter((b) => b.moving).length;
 console.log(`${map} ${side} seed ${seed}: ${checked} answers compared over ${ticks} ticks (${world.bodies.length} bodies, ${moving} moving, ${enabled} enabled at the end); `
   + `casts hit ${hits} (${bodyHits} bodies, ${terrainHits} terrain), castMoving ${movingHits}, ground ${groundHits}; `
-  + `gathers ${polygons} polygons (${movingPolygons} moving) of ${triangles} triangles, overlaps ${overlaps}, terrainNear ${nearTriangles} triangles; ${failures} mismatches`);
+  + `gathers ${polygons} polygons (${movingPolygons} moving) of ${triangles} triangles, overlaps ${overlaps}, terrainNear ${nearTriangles} triangles; `
+  + `the battle's own ${battleQueries} queries; ${failures} mismatches`);
 process.exit(failures ? 1 : 0);

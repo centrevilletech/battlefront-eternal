@@ -49,9 +49,11 @@ export class RayKernel {
   // Views of the module's memory; growing it (as copies are made) detaches
   // the old ones.
   refresh() {
-    this.io = new Float64Array(this.memory.buffer, this.x.io_ptr(), 64);
-    this.enabled = new Uint8Array(this.memory.buffer, this.x.enabled_ptr(), 1 << 16);
-    this.candidateList = new Uint32Array(this.memory.buffer, this.x.candidates_ptr(), 1 << 16);
+    // (Each address is asked for before memory.buffer is read.)
+    const io = this.x.io_ptr(), enabled = this.x.enabled_ptr(), candidates = this.x.candidates_ptr(), buffer = this.memory.buffer;
+    this.io = new Float64Array(buffer, io, 64);
+    this.enabled = new Uint8Array(buffer, enabled, 1 << 16);
+    this.candidateList = new Uint32Array(buffer, candidates, 1 << 16);
   }
 
   // A view of memory at `ptr`, made after the call that returned `ptr` (which
@@ -140,7 +142,8 @@ export class RayKernel {
     const count = set.triBounds.length / 6;
     if (!(set.polygonOf.length >= count)) throw Error("A fixed triangle has no polygon number");
     id = this.x.set_new(this.tree(bvh), count, set.offset);
-    new Float32Array(this.memory.buffer, this.x.set_bounds(id), count * 6).set(set.triBounds);
+    const bounds = this.x.set_bounds(id);
+    new Float32Array(this.memory.buffer, bounds, count * 6).set(set.triBounds);
     this.u32(this.x.set_polygons(id), count).set(set.polygonOf.subarray(0, count));
     this.setIds.set(set, id);
     this.sets[id] = set;
