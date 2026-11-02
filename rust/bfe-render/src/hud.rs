@@ -1,8 +1,9 @@
 // The battle HUD (hud.js): the interface's quads (src/interface/batch.js),
 // drawn over the finished frame on the canvas through the interface's own
-// perspective camera, as three draws the batch's mesh: one draw a run of
-// quads with one texture (and mask), in the batch's order, alpha blended,
-// neither depth tested nor written, both sides. Three's program for the
+// perspective camera, as three draws the batch's mesh: each run of quads
+// with one texture (and mask), in the batch's order, alpha blended, neither
+// depth tested nor written, and, being blended and double-sided, drawn
+// twice: its back faces, then its front faces. Three's program for the
 // batch's material is used as three compiled it (Kind::Plain).
 //
 // The batch's vertex arrays are mirrored here (`position`, `uv`, `mask_uv`,
@@ -114,7 +115,8 @@ impl<C: HasContext> HudPass<C> {
             }
             stats.gl_calls += 2;
             state.depth_test(gl, stats, false);
-            state.set_state(gl, stats, 2, false, false);
+            state.alpha_to_coverage(gl, stats, false);
+            state.depth_write(gl, stats, false);
             state.blend(gl, stats, true);
             state.blend_equation(gl, stats, glow::FUNC_ADD, glow::FUNC_ADD);
             state.blend_func(gl, stats, glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA, glow::ONE, glow::ONE_MINUS_SRC_ALPHA);
@@ -168,9 +170,14 @@ impl<C: HasContext> HudPass<C> {
             core.state.bind_texture(&core.gl, &mut core.stats, 0, Some(map));
             core.state.bind_texture(&core.gl, &mut core.stats, 1, Some(mask));
             set(core, slots[2], Value::I(masked as i32));
-            unsafe { core.gl.draw_elements(glow::TRIANGLES, count, glow::UNSIGNED_INT, first * 4) };
-            core.stats.gl_calls += 1;
-            core.stats.pass_draws[PASS_HUD] += 1;
+            // Blended and double-sided, as three draws it: the run's back
+            // faces, then its front faces.
+            for side in [1, 0] {
+                core.state.cull(&core.gl, &mut core.stats, side);
+                unsafe { core.gl.draw_elements(glow::TRIANGLES, count, glow::UNSIGNED_INT, first * 4) };
+                core.stats.gl_calls += 1;
+                core.stats.pass_draws[PASS_HUD] += 1;
+            }
         }
     }
 }
