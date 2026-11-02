@@ -336,7 +336,7 @@ export function scan(controller, world, dispatch) {
   const p = controller.perception;
   if (!unit?.alive || !p) return 0;
   p.heap.clear();
-  scanTargets.length = 0;
+  while (scanTargets.length) scanTargets.pop(); // keeps its storage, unlike length = 0
   let special = false;
   // A human-driven walker or hover shares its driver's target with an AI
   // mount, past the cone (see docs/ai-combat.md).

@@ -1,6 +1,19 @@
 import * as THREE from "three";
 import { MeshBVH } from "three-mesh-bvh";
 
+// Polygon numbers of the vehicle-only barriers, apart from the buildings'
+// and the bodies'.
+const BLOCKER_POLYGONS = 0x70000000;
+// A gather finding more polygons than this files them in a Map (polygon()).
+const GROUP_SCAN = 16;
+
+// Empties a list kept for reuse. Setting its length to 0 is a runtime call
+// even on an empty list, and drops its storage for the next push to
+// allocate again; popping keeps it.
+function empty(list) {
+  while (list.length) list.pop();
+}
+
 // The map's collision, laid out the way the engine tests a soldier against it.
 //
 // Buildings and props are polygons. Each triangle knows the polygon it came
@@ -11,12 +24,6 @@ import { MeshBVH } from "three-mesh-bvh";
 // Bodies are collision that comes and goes (a turret built on its pad, a
 // droid's wreck): each is tested with the buildings while enabled, and a ray
 // that hits one says which.
-// Polygon numbers of the vehicle-only barriers, apart from the buildings'
-// and the bodies'.
-const BLOCKER_POLYGONS = 0x70000000;
-// A gather finding more polygons than this files them in a Map (polygon()).
-const GROUP_SCAN = 16;
-
 export class CollisionWorld {
   constructor(positions, indices, polygons, terrainPositions, terrainIndices) {
     this.bvh = buildBVH(positions, indices);
@@ -195,7 +202,7 @@ export class CollisionWorld {
       this.groups.clear();
       this.grouped = false;
     }
-    this.list.length = 0;
+    empty(this.list);
     this.gatherMatrix = null;
     const blockers = vehicle ? this.vehicleBlockers : null;
     if (cache) this.gatherCached(cache, blockers);
@@ -235,7 +242,7 @@ export class CollisionWorld {
     if (this.polygonUsed === this.polygonPool.length) this.polygonPool.push({ id: 0, triangles: [], done: false, moving: false });
     const polygon = this.polygonPool[this.polygonUsed++];
     polygon.id = id;
-    polygon.triangles.length = 0;
+    empty(polygon.triangles);
     polygon.done = false;
     polygon.moving = moving;
     list.push(polygon);
@@ -256,7 +263,7 @@ export class CollisionWorld {
   // one, and the fixed ones whose bounds meet the cache's box.
   cachedBodies(cache) {
     if (cache.bodiesVersion !== this.bodiesVersion || cache.bodiesFill !== cache.fill) {
-      cache.bodies.length = 0;
+      empty(cache.bodies);
       for (const body of this.bodies) if (body.moving || body.bounds.intersectsBox(cache.box)) cache.bodies.push(body);
       cache.bodiesVersion = this.bodiesVersion;
       cache.bodiesFill = cache.fill;
@@ -403,7 +410,7 @@ export class CollisionWorld {
   // terrain's steep faces as walls (Vehicle.pushWalls).
   terrainNear(center, radius) {
     const out = this.terrainNearList ||= [];
-    out.length = 0;
+    empty(out);
     this.terrainGrid?.near(center, radius, out, this.terrainNearPool ||= []);
     return out;
   }

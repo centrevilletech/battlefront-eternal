@@ -759,7 +759,8 @@ export class PlayerCombat {
   // Rendering must never decide when a projectile enters the world.
   flushMuzzles() {
     for (const payload of this.pendingMuzzles) this.emitGunRound(payload);
-    this.pendingMuzzles.length = 0;
+    // Popped empty: setting the length to 0 costs a runtime call every tick.
+    while (this.pendingMuzzles.length) this.pendingMuzzles.pop();
   }
 
   emitGunRound({ shot, selected, target, forward, kick }) {
