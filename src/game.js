@@ -2986,6 +2986,7 @@ async function start() {
     // (Graphics.cullOffView); his own body is always drawn.
     graphics.cullRoots.length = 0;
     for (const unit of factory?.built || []) if (!unit.removed && unit !== playerUnit) graphics.cullRoots.push(unit.actor.root);
+    graphics.playerRoot = actor?.root ?? null;
     game.predictedShots?.update(client?.clock ?? null);
     if (!frozen) vehicles?.present?.(presentAlpha, dt);
     if (!frozen && client?.vehiclePrediction && driver?.vehicle) {

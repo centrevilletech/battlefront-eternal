@@ -1,0 +1,18 @@
+[package]
+name = "bfe-render"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Battle renderer spike: the static world and soldiers drawn through glow"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+glow = "0.18"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.130"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["WebGl2RenderingContext", "WebGlTexture", "WebglMultiDraw"] }
