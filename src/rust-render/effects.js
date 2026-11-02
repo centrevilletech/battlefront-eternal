@@ -9,6 +9,9 @@
 //   the ordnance's, the effects', the map's environment effects').
 // - The Classic arc caster's lightning (lightning.js): one mesh rebuilt each
 //   frame, drawn twice as three draws a double-sided transparent material.
+// - Glow models (game.js glowModel: the muzzle flashes, the effects' model
+//   particles): additive basic materials on models, each part a mesh with a
+//   world matrix, found in three's transparent list as it first draws them.
 //
 // Each is registered the first time three has drawn it (which gives its
 // material a program), then marked external: three is shown it no more and
@@ -20,17 +23,17 @@
 // matrix, as three's projectObject takes it) and its id.
 //
 // What the Enhanced looks draw (blaster-bolts.js, sniper-trace.js, the
-// arcs, the destruction and jetpack effects) stays with three for now, as
-// do the muzzle flashes and the effects' models.
+// arcs, the destruction and jetpack effects) stays with three for now.
 import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
 import { classicLightning } from "../lightning.js";
 import { particleDepth } from "../particle-depth.js";
 import { blendOf, stateOf, sidesOf } from "./transparent.js";
 
-// add_program's kind for these programs (web/mod.rs: the identity for a
-// model matrix, read as modelViewMatrix).
-const EFFECT = 4;
+// add_program's kinds (web/mod.rs): the world's (a model's model-view
+// matrix set per draw), and the effects' (the identity for a model matrix,
+// read as modelViewMatrix).
+const WORLD = 0, EFFECT = 4;
 // The material values a batch's program reads, set by the renderer from
 // the frame (soft particles) and the batch's owner (its rows).
 const MATERIAL = new Set(["softParticles", "depthResolution", "cameraRange", "trackRows", "emitterRows"]);
@@ -39,6 +42,7 @@ const POLICY = { uniforms: new Set(["modelViewMatrix", "map", "sceneDepth", "tra
 // writes them for a mesh: name, size.
 const BASIC = [["diffuse", 3], ["opacity", 1], ["mapTransform", 9]];
 const MESH_POLICY = { uniforms: new Set(["modelViewMatrix", "map", ...BASIC.map(([name]) => name)]), material: new Set() };
+const MODEL_POLICY = MESH_POLICY;
 // The instance attributes of each kind of batch, in the order this pass
 // writes them; and the lightning's vertex attributes.
 const KINDS = {
@@ -50,7 +54,7 @@ const LIGHTNING = [["position", 3], ["uv", 2], ["color", 4]];
 const IN_DRAWS = 0, IN_OWNERS = 1, IN_SOFT = 2;
 const OWNER_AT = 8, OWNER_STRIDE = 4, MAX_OWNERS = 8;
 const DRAW_AT = OWNER_AT + MAX_OWNERS * OWNER_STRIDE, DRAW_STRIDE = 12, DRAW_KEY = 6, MAX_DRAWS = 512;
-const KIND_BATCH = 0, KIND_MESH = 1;
+const KIND_BATCH = 0, KIND_MESH = 1, KIND_MODEL = 2;
 // Floats of an emitter row (effects-gpu.js).
 const EMITTER_FLOATS = 12;
 const center = new THREE.Vector4();
@@ -63,6 +67,13 @@ function kindOf(batch) {
   if (a.iShape && a.iPosition) return "cpu";
   if (a.spawnMeta && a.spawnPosition) return "analytic";
   return null;
+}
+
+// A glow model's part (game.js glowModel: one material for its parts, kept
+// on its group).
+function glowOf(object) {
+  const m = object.material;
+  return object.isMesh && !object.isSkinnedMesh && !object.isInstancedMesh && m?.isMeshBasicMaterial && m.transparent && object.parent?.userData?.material === m;
 }
 
 // The order of the nearest Group above an object, as three's projectObject
@@ -107,6 +118,9 @@ class EffectsPass {
     this.byBatch = new Map(); // batch -> its record, or null (three draws it)
     this.owners = new Map(); // GpuEffects -> { id }
     this.meshes = new Map(); // the lightning's material -> its record, or null
+    this.glows = new Map(); // a glow model's part -> its record, or null (three draws it)
+    this.glowList = []; // the records, in registration order
+    this.models = new Map(); // what a model is made of -> its id
     this.batchCount = -1;
     this.pending = false;
     this.frame = 0;
@@ -117,6 +131,77 @@ class EffectsPass {
     core.addView("fxInput", Float64Array, () => core.rust.fx_input_ptr(), () => core.rust.fx_input_len());
     core.addView("fxData", Float32Array, () => core.rust.fx_data_ptr(), () => core.rust.fx_data_len());
     core.addView("fxBits", Uint32Array, () => core.rust.fx_data_ptr(), () => core.rust.fx_data_len());
+    core.addView("fxMatrices", Float64Array, () => core.rust.fx_matrices_ptr(), () => core.rust.fx_matrices_len());
+  }
+
+  // three's render list of the near scene being drawn: the one whose opaque
+  // list holds the far scene's image (lists are kept per render depth).
+  threeList(renderer, scene) {
+    const background = this.core.graphics.background;
+    for (let depth = 0; depth < 4; depth++) {
+      const list = renderer.renderLists.get(scene, depth);
+      if (!list.opaque.length) return null;
+      if (list.opaque.some((item) => item.object === background)) return list;
+    }
+    return null;
+  }
+
+  // Glow models three draws this frame that this pass has not seen: each
+  // registered with its group's other parts (they share its material) once
+  // three has drawn it, then hidden from three (its material).
+  glowModels(ctx) {
+    const list = this.threeList(ctx.renderer, ctx.scene);
+    for (const item of list?.transparent || []) {
+      const object = item.object;
+      if (this.glows.has(object) || !glowOf(object)) continue;
+      this.registerGlow(object.parent);
+    }
+    // Now and then, the records of parts no longer in the scene let go.
+    if (this.frame % 600 === 0) {
+      this.glowList = this.glowList.filter((record) => {
+        let o = record.mesh;
+        while (o.parent) o = o.parent;
+        if (o === ctx.scene) return true;
+        this.glows.delete(record.mesh);
+        return false;
+      });
+    }
+  }
+
+  registerGlow(group) {
+    const core = this.core, renderer = core.renderer, material = group.userData.material;
+    const parts = group.children.filter((o) => o.isMesh && o.material === material);
+    const props = renderer.properties.get(material);
+    if (!props.currentProgram || props.__version !== material.version) return; // three draws it first
+    const fail = (why) => { core.errors.push(`effects glow: ${why}`); for (const mesh of parts) this.glows.set(mesh, null); };
+    const blend = blendOf(material), state = stateOf(material);
+    if (!blend || !state) return fail("state");
+    const sides = sidesOf(material);
+    const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, WORLD, material, MODEL_POLICY); });
+    if (programs.some((p) => !p)) return fail("program");
+    const map = material.map ?? null;
+    const texture = map ? core.texture(map) : -1;
+    if (map && texture < 0) return; // its texture first
+    const values = BASIC.filter(([name]) => programs.some((p) => p.names.has(name)));
+    const records = [];
+    for (const mesh of parts) {
+      const geometry = mesh.geometry;
+      if (geometry.groups.length || Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count < (geometry.index?.count ?? 0)) return fail("geometry");
+      const geometries = programs.map((p) => core.geometry(geometry, p));
+      if (geometries.some((g) => g === null || g === undefined)) return fail("geometry");
+      const key = `${geometry.uuid}|${texture}|${blend.join()}|${state.func}|${state.flags}|${programs.map((p) => p.id).join()}|${sides.join()}`;
+      let model = this.models.get(key);
+      if (model === undefined) {
+        if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+        const s = geometry.boundingSphere;
+        model = core.rust.fx_add_model(texture, new Uint32Array(blend), state.flags & 3, state.func, values.map(([name, size]) => `${name}:${size}`).join(","), new Float64Array([s.center.x, s.center.y, s.center.z, s.radius]));
+        sides.forEach((side, i) => core.rust.fx_model_pass(model, programs[i].id, side, geometries[i]));
+        this.models.set(key, model);
+      }
+      records.push({ mesh, model, material, map, values, from: this.frame });
+    }
+    for (const record of records) { this.glows.set(record.mesh, record); this.glowList.push(record); }
+    material.visible = false;
   }
 
   // The near scene's particle renderers' batches, looked over again when
@@ -269,6 +354,7 @@ class EffectsPass {
       return;
     }
     this.batches();
+    this.glowModels(ctx);
     const bolt = this.lightning();
     // Textures three uploaded anew, or made anew (a new handle: registered
     // again). Registering may move the renderer's memory: views after.
@@ -289,18 +375,21 @@ class EffectsPass {
     // drew what was registered this frame itself).
     const drawn = this.records.filter((record) => record.from !== this.frame && record.batch.count > 0 && record.batch.material.visible !== false && this.shown(record.mesh, ctx.camera));
     const lit = bolt && bolt.record.from !== this.frame && bolt.lightning.index > 0 && bolt.record.material.visible !== false && this.shown(bolt.lightning.mesh, ctx.camera) ? bolt : null;
+    // Glow models shown (three culls them by their spheres: the renderer does).
+    const glowing = this.glowList.filter((record) => record.from !== this.frame && record.mesh.visible && this.shown(record.mesh, ctx.camera));
     // The floats this frame needs; the renderer's memory grows first if need be.
     let need = 0;
     for (const record of drawn) need += record.batch.count * (record.kind === "cpu" ? 21 : 18);
     for (const gpu of this.owners.keys()) need += Math.min(gpu.count, gpu.uniforms.emitterRows.value) * EMITTER_FLOATS;
     if (lit) need += lit.lightning.vertex * 9 + lit.lightning.index + 13;
+    need += glowing.length * 13;
     core.views();
     if (need > core.fxData.length) {
       core.rust.fx_reserve(Math.max(need * 2, core.fxData.length * 2));
       core.buffer = null;
       core.views();
     }
-    const input = core.fxInput, data = core.fxData, bits = core.fxBits;
+    const input = core.fxInput, data = core.fxData, bits = core.fxBits, matrices = core.fxMatrices;
     let at = 0, owners = 0, draws = 0, instances = 0;
     for (const [gpu, o] of this.owners) {
       if (owners === MAX_OWNERS) break;
@@ -342,19 +431,21 @@ class EffectsPass {
       }
       bits.set(geometry.index.array.subarray(0, indices), at);
       at += indices;
-      for (const [name] of record.values) {
-        if (name === "diffuse") { data[at++] = material.color.r; data[at++] = material.color.g; data[at++] = material.color.b; }
-        else if (name === "opacity") data[at++] = material.opacity;
-        else if (name === "mapTransform") {
-          const map = material.map;
-          if (map?.matrixAutoUpdate) map.updateMatrix();
-          data.set(map ? map.matrix.elements : [1, 0, 0, 0, 1, 0, 0, 0, 1], at);
-          at += 9;
-        }
-      }
+      at = this.basicValues(data, at, material, record.values);
       const e = DRAW_AT + draws++ * DRAW_STRIDE;
       input[e] = KIND_MESH; input[e + 1] = record.id; input[e + 2] = vertices; input[e + 3] = indices; input[e + 4] = start; input[e + 5] = 0;
       this.key(input, e, lightning.mesh);
+    }
+    let models = 0;
+    for (const record of glowing) {
+      if (draws === MAX_DRAWS) break;
+      const { mesh, material } = record, m = models++ * 16;
+      matrices.set(mesh.matrixWorld.elements, m);
+      const start = at;
+      at = this.basicValues(data, at, material, record.values);
+      const e = DRAW_AT + draws++ * DRAW_STRIDE;
+      input[e] = KIND_MODEL; input[e + 1] = record.model; input[e + 2] = m; input[e + 3] = start; input[e + 4] = 0; input[e + 5] = 0;
+      this.key(input, e, mesh);
     }
     input[IN_DRAWS] = draws;
     input[IN_OWNERS] = draws ? owners : 0;
@@ -364,6 +455,22 @@ class EffectsPass {
     input[IN_SOFT + 5] = depth;
     this.draws = draws;
     this.instances = instances;
+  }
+
+  // A basic material's values, as three's refreshUniformsCommon sets them,
+  // into `data` from `at`; where they end.
+  basicValues(data, at, material, values) {
+    for (const [name] of values) {
+      if (name === "diffuse") { data[at++] = material.color.r; data[at++] = material.color.g; data[at++] = material.color.b; }
+      else if (name === "opacity") data[at++] = material.opacity;
+      else if (name === "mapTransform") {
+        const map = material.map;
+        if (map?.matrixAutoUpdate) map.updateMatrix();
+        data.set(map ? map.matrix.elements : [1, 0, 0, 0, 1, 0, 0, 0, 1], at);
+        at += 9;
+      }
+    }
+    return at;
   }
 
   // Off: three draws everything again, everything uploaded anew; on: it
@@ -390,6 +497,7 @@ class EffectsPass {
       for (const name of ["position", "uv", "color"]) lightning.geometry.attributes[name].needsUpdate = true;
       lightning.geometry.index.needsUpdate = true;
     }
+    for (const record of this.glowList) record.material.visible = !on;
     if (!on) this.draws = this.instances = 0;
   }
 

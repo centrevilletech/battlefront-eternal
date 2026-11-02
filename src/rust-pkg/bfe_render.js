@@ -173,6 +173,36 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} texture
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_flags
+     * @param {number} depth_func
+     * @param {string} values
+     * @param {Float64Array | number[]} sphere
+     * @returns {number}
+     */
+    fx_add_model(texture, blend, depth_flags, depth_func, values, sphere) {
+        const val4 = +texture;
+        const val5 = +depth_flags;
+        const val6 = +depth_func;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(values, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArrayF64ToWasm0(sphere, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 8, 8); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_fx_add_model(this.__wbg_ptr, val4, ptr0, len0, val5, val6, ptr1, len1, ptr2, len2);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} tracks
      * @param {number} track_rows
      * @returns {number}
@@ -217,6 +247,20 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @returns {number}
+     */
+    fx_matrices_len() {
+        const ret = wasm.bferenderer_fx_matrices_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    fx_matrices_ptr() {
+        const ret = wasm.bferenderer_fx_matrices_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} mesh
      * @param {number} program
      * @param {number} side
@@ -238,6 +282,17 @@ export class BfeRenderer {
      */
     fx_mesh_texture(mesh, texture) {
         wasm.bferenderer_fx_mesh_texture(this.__wbg_ptr, mesh, texture);
+    }
+    /**
+     * @param {number} model
+     * @param {number} program
+     * @param {number} side
+     * @param {number} geometry
+     * @returns {number}
+     */
+    fx_model_pass(model, program, side, geometry) {
+        const ret = wasm.bferenderer_fx_model_pass(this.__wbg_ptr, model, program, side, geometry);
+        return ret >>> 0;
     }
     /**
      * @param {number} floats

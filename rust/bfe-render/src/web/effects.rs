@@ -10,6 +10,8 @@ impl BfeRenderer {
     pub fn fx_input_len(&self) -> u32 { self.r.effects.input.len() as u32 }
     pub fn fx_data_ptr(&mut self) -> u32 { self.r.effects.data.as_mut_ptr() as u32 }
     pub fn fx_data_len(&self) -> u32 { self.r.effects.data.len() as u32 }
+    pub fn fx_matrices_ptr(&mut self) -> u32 { self.r.effects.matrices.as_mut_ptr() as u32 }
+    pub fn fx_matrices_len(&self) -> u32 { self.r.effects.matrices.len() as u32 }
     // Room for `floats` of instances a frame (the data moves: views again).
     pub fn fx_reserve(&mut self, floats: u32) { self.r.effects.reserve(floats as usize) }
 
@@ -35,4 +37,15 @@ impl BfeRenderer {
     }
     pub fn fx_mesh_pass(&mut self, mesh: u32, program: u32, side: u32, locations: &[u32]) -> u32 { self.r.effects.mesh_pass(&self.r.core, mesh, program, side, locations) }
     pub fn fx_mesh_texture(&mut self, mesh: u32, texture: i32) { self.r.effects.mesh_texture(&self.r.core, mesh, texture) }
+
+    // A model: texture (-1 none), three's blending (7 values), depth flags
+    // (1 test, 2 write) and function, its material values ("name:size,...",
+    // in the order the page writes them), its geometry's bounding sphere
+    // (centre, radius); then each of three's passes of it, in drawing order:
+    // program, side, the geometry registered for that program.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fx_add_model(&mut self, texture: i32, blend: &[u32], depth_flags: u32, depth_func: u32, values: &str, sphere: &[f64]) -> u32 {
+        self.r.effects.add_model(&self.r.core, texture, blend, depth_flags, depth_func, values, sphere)
+    }
+    pub fn fx_model_pass(&mut self, model: u32, program: u32, side: u32, geometry: u32) -> u32 { self.r.effects.model_pass(&self.r.core, model, program, side, geometry) }
 }

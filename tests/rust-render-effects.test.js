@@ -29,7 +29,7 @@ const BASIC = ["projectionMatrix", "modelViewMatrix", "mapTransform", "diffuse",
 function bridge() {
   const calls = [];
   const memory = { buffer: new ArrayBuffer(1 << 17) };
-  const next = { program: 0, texture: 0, batch: 0, owner: 0, mesh: 0 };
+  const next = { program: 0, texture: 0, batch: 0, owner: 0, mesh: 0, model: 0, geometry: 0 };
   class BfeRenderer {
     input_ptr() { return 0; }
     input_len() { return 200 + 76 * 4; }
@@ -55,6 +55,15 @@ function bridge() {
     fx_add_mesh(texture, blend, flags, func, sizes, values) { calls.push(["fx_add_mesh", texture, [...blend], flags, func, [...sizes], values]); return next.mesh++; }
     fx_mesh_pass(mesh, program, side, locations) { calls.push(["fx_mesh_pass", mesh, program, side, [...locations]]); }
     fx_mesh_texture(mesh, texture) { calls.push(["fx_mesh_texture", mesh, texture]); }
+    fx_matrices_ptr() { return 90112; }
+    fx_matrices_len() { return 1024; }
+    fx_add_model(texture, blend, flags, func, values, sphere) { calls.push(["fx_add_model", texture, [...blend], flags, func, values, [...sphere]]); return next.model++; }
+    fx_model_pass(model, program, side, geometry) { calls.push(["fx_model_pass", model, program, side, geometry]); }
+    add_geometry() { calls.push(["add_geometry"]); return next.geometry++; }
+    geometry_buffer() { return 0; }
+    geometry_pointer() {}
+    geometry_index() {}
+    geometry_group() {}
     sort() {}
     frame() { calls.push(["frame"]); return STATS; }
     transparent_frame(three) { calls.push(["transparent_frame", three]); return STATS; }
@@ -84,7 +93,9 @@ function bridge() {
     setRenderTarget() {},
     resetState() { calls.push(["resetState"]); },
   };
-  const graphics = { renderer, scene, camera, sceneTarget, farTarget, background: new THREE.Object3D(), settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
+  const background = new THREE.Object3D();
+  list.opaque.push({ object: background });
+  const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
   const core = new RustRender(graphics, { memory }, BfeRenderer);
   // A frame's transparent phase, as the transparent pass runs it.
   const frame = () => core.phase("transparent", renderer, scene, camera);
@@ -96,7 +107,7 @@ function bridge() {
     props.__version = material.version;
   };
   const entry = (d) => [...core.fxInput.subarray(DRAW_AT + d * DRAW_STRIDE, DRAW_AT + (d + 1) * DRAW_STRIDE)];
-  return { core, calls, scene, camera, renderer, frame, drawn, entry, fx: core.byName.effects };
+  return { core, calls, scene, camera, renderer, list, frame, drawn, entry, fx: core.byName.effects };
 }
 
 test("the effects are the transparent phase's second pass, after the map's blended buckets", () => {
@@ -234,4 +245,51 @@ test("the Classic lightning: both of three's sides, its buffers as far as used, 
   core.setActive(false);
   assert.equal(lightning.external, false);
   assert.equal(lightning.mesh.visible, true);
+});
+
+test("glow models: found in three's list, registered with their group once three drew them, then each part drawn with its world matrix", () => {
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  // As game.js glowModel makes one: a material its parts share, on the group.
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  material.color.setRGB(1, 0.5, 0.25);
+  material.opacity = 0.75;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
+  geometry.setIndex([0, 1, 2]);
+  const group = new THREE.Group(), part = new THREE.Mesh(geometry, material), other = new THREE.Mesh(geometry, material);
+  group.add(part, other);
+  group.userData.material = material;
+  group.position.set(1, 2, -6);
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  list.transparent.push({ object: part, material, group: null });
+  // In three's list, not drawn by it yet: nothing.
+  frame();
+  assert.equal(calls.some((c) => c[0] === "fx_add_model"), false);
+  const back = program(BASIC, ["position", "uv"], "#define FLIP_SIDED\nvertex"), front = program(BASIC, ["position", "uv"]);
+  drawn(material, front, [back, front]);
+  frame();
+  const models = calls.filter((c) => c[0] === "fx_add_model");
+  assert.equal(models.length, 1, "one model serves both parts (one geometry, programs, texture, state)");
+  assert.deepEqual(models[0].slice(2, 6), [[1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], 1, 0x0203, "diffuse:3,opacity:1,mapTransform:9"]);
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_model_pass").map((c) => c.slice(3)), [[1, 0], [0, 1]], "back then front, a geometry for each program");
+  assert.equal(calls.find((c) => c[0] === "add_program")[1], 0, "world programs: the model-view matrix is set per draw");
+  assert.equal(material.visible, false, "hidden from three");
+  assert.equal(core.fxInput[0], 0, "three drew them this frame");
+  list.transparent.length = 0;
+  frame();
+  assert.equal(core.fxInput[0], 2, "both parts");
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 4), [2, 0, 0, 0]);
+  assert.deepEqual([...core.fxMatrices.subarray(0, 16)], part.matrixWorld.elements);
+  assert.deepEqual([...core.fxData.subarray(0, 4)], [1, 0.5, 0.25, 0.75].map(Math.fround), "its colour and opacity");
+  assert.deepEqual(e.slice(6), [0, 0, 1.5, 2.5, -6, part.id], "three's key: the group's order, its sphere's centre in the world");
+  assert.equal(entry(1)[2], 16, "the second part's matrix after the first's");
+  // Hidden part: not drawn.
+  other.visible = false;
+  frame();
+  assert.equal(core.fxInput[0], 1);
+  core.setActive(false);
+  assert.equal(material.visible, true);
 });

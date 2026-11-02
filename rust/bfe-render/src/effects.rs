@@ -20,12 +20,19 @@
 //   they are used (three uploads its whole buffers), drawn in each of
 //   three's passes for it (a double-sided transparent material: back faces,
 //   then front), its material's values set as three sets them.
+// - Models (the muzzle flashes, the effects' model particles: game.js
+//   glowModel): a registered geometry drawn with a world matrix the page
+//   writes each frame (the model-view matrix worked out here as three works
+//   it out), culled by its bounding sphere as three culls it, in each of
+//   three's passes, with its material's values. One model serves every
+//   object of the same geometry, programs, texture and state.
 //
 // The page lists the frame's draws (src/rust-render/effects.js), each with
 // the key three would have sorted it by in its transparent list; each is an
 // item of the transparent pass's list (transparent.rs Source), drawn where
 // three would have drawn it among everything else that blends.
 use crate::core::{bytes, Core, GlState, MultiDraw, Stats, Value, PASS_EFFECTS, UNIT_MAP};
+use crate::math::{self, Mat4};
 use crate::transparent::{three_z, Item, Source, View};
 use glow::HasContext;
 use std::collections::HashMap;
@@ -49,16 +56,21 @@ pub const DRAW_AT: usize = OWNER_AT + MAX_OWNERS * OWNER_STRIDE;
 //   a batch (KIND_BATCH): batch, instances, first written, where in `data`, capacity;
 //   a mesh (KIND_MESH): mesh, vertices, indices, where in `data` (its
 //   attributes, then its indices' bits, then its material values);
+//   a model (KIND_MODEL): model, where its world matrix is in `matrices`,
+//   where its material values are in `data`;
 // then three's sort key for it (DRAW_KEY: group order, render order, the
 // centre of its bounding sphere through its world matrix, its id).
 pub const DRAW_KEY: usize = 6;
 pub const DRAW_STRIDE: usize = 12;
 pub const KIND_BATCH: usize = 0;
 pub const KIND_MESH: usize = 1;
+pub const KIND_MODEL: usize = 2;
 pub const MAX_DRAWS: usize = 512;
 pub const INPUT_LEN: usize = DRAW_AT + MAX_DRAWS * DRAW_STRIDE;
 // Floats of data a frame, to start with (the page asks for more).
 pub const DATA_LEN: usize = 1 << 18;
+// The models' world matrices a frame (f64, 16 each).
+pub const MATRICES_LEN: usize = MAX_DRAWS * 16;
 // Floats of an emitter row (effects-gpu.js: three RGBA texels).
 const EMITTER_FLOATS: usize = 12;
 
@@ -120,17 +132,40 @@ struct Mesh<C: HasContext> {
     values: Vec<(String, usize)>,
 }
 
+// One of three's passes of a model: its program for the side drawn, the
+// geometry (core.rs) at that program's locations, where the program keeps
+// its model-view matrix and each of the model's material values.
+struct ModelPass<C: HasContext> {
+    program: usize,
+    side: u32,
+    geometry: usize,
+    model_view: Option<C::UniformLocation>,
+    slots: Vec<Option<C::UniformLocation>>,
+}
+
+struct Model<C: HasContext> {
+    passes: Vec<ModelPass<C>>,
+    texture: Option<C::Texture>,
+    blend: Blend,
+    depth: (bool, u32, bool),
+    values: Vec<(String, usize)>,
+    // Its geometry's bounding sphere (object space): centre, radius.
+    sphere: ([f64; 3], f64),
+}
+
 pub struct EffectsPass<C: HasContext> {
     quad: C::Buffer,
     quad_index: C::Buffer,
     batches: Vec<Batch<C>>,
     owners: Vec<Owner<C>>,
     meshes: Vec<Mesh<C>>,
-    // What the meshes' programs hold of their material values (by program
-    // and name).
+    models: Vec<Model<C>>,
+    // What the meshes' and models' programs hold of their material values
+    // (by program and name).
     held: HashMap<(usize, String), Vec<f32>>,
     pub input: Vec<f64>,
     pub data: Vec<f32>,
+    pub matrices: Vec<f64>,
     staging: Vec<f32>,
 }
 
@@ -143,10 +178,36 @@ const UNPACK_PREMULTIPLY_ALPHA_WEBGL: u32 = 0x9241;
 
 // A draw's culling and winding as three's setMaterial makes them: side 0
 // front (back faces culled), 1 back (three culls back faces with clockwise
-// front faces), 2 both (no culling).
-fn sides<C: HasContext>(gl: &C, state: &mut GlState<C>, stats: &mut Stats, side: u32) {
+// front faces), 2 both (no culling); an object whose world matrix mirrors
+// winds the other way (three's frontFaceCW).
+fn sides<C: HasContext>(gl: &C, state: &mut GlState<C>, stats: &mut Stats, side: u32, mirrored: bool) {
     state.cull(gl, stats, if side == 2 { 2 } else { 0 });
-    state.front_face(gl, stats, if side == 1 { glow::CW } else { glow::CCW });
+    state.front_face(gl, stats, if (side == 1) != mirrored { glow::CW } else { glow::CCW });
+}
+
+// A material value into a program, when it holds another (`held`, by
+// program and name).
+#[allow(clippy::too_many_arguments)]
+fn set_value<C: HasContext>(gl: &C, stats: &mut Stats, held: &mut HashMap<(usize, String), Vec<f32>>, program: usize, name: &str, location: Option<&C::UniformLocation>, values: &[f32]) {
+    let Some(location) = location else { return };
+    let held = held.entry((program, name.to_string())).or_default();
+    if held.as_slice() == values {
+        return;
+    }
+    unsafe {
+        match values.len() {
+            1 => gl.uniform_1_f32(Some(location), values[0]),
+            2 => gl.uniform_2_f32(Some(location), values[0], values[1]),
+            3 => gl.uniform_3_f32(Some(location), values[0], values[1], values[2]),
+            4 => gl.uniform_4_f32(Some(location), values[0], values[1], values[2], values[3]),
+            9 => gl.uniform_matrix_3_f32_slice(Some(location), false, values),
+            16 => gl.uniform_matrix_4_f32_slice(Some(location), false, values),
+            _ => return,
+        }
+    }
+    held.clear();
+    held.extend_from_slice(values);
+    stats.gl_calls += 1;
 }
 
 fn blending<C: HasContext>(gl: &C, state: &mut GlState<C>, stats: &mut Stats, blend: &Blend) {
@@ -188,8 +249,8 @@ impl<C: HasContext> EffectsPass<C> {
             (quad, index)
         };
         EffectsPass {
-            quad, quad_index, batches: vec![], owners: vec![], meshes: vec![], held: HashMap::new(),
-            input: vec![0.0; INPUT_LEN], data: vec![0.0; DATA_LEN], staging: vec![],
+            quad, quad_index, batches: vec![], owners: vec![], meshes: vec![], models: vec![], held: HashMap::new(),
+            input: vec![0.0; INPUT_LEN], data: vec![0.0; DATA_LEN], matrices: vec![0.0; MATRICES_LEN], staging: vec![],
         }
     }
 
@@ -321,6 +382,33 @@ impl<C: HasContext> EffectsPass<C> {
         (m.passes.len() - 1) as u32
     }
 
+    // A model: its texture (-1 none), blending, depth (flags: 1 test, 2
+    // write; and its function), its material values (name:size,
+    // comma-separated, in the order the page writes them) and its geometry's
+    // bounding sphere (centre, radius). Its passes follow (model_pass).
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_model<M: MultiDraw>(&mut self, core: &Core<C, M>, texture: i32, blend: &[u32], depth_flags: u32, depth_func: u32, values: &str, sphere: &[f64]) -> u32 {
+        let mut b = [0u32; 7];
+        b.copy_from_slice(&blend[..7]);
+        let values = values.split(',').filter(|s| !s.is_empty()).filter_map(|s| { let (n, k) = s.split_once(':')?; Some((n.to_string(), k.parse().ok()?)) }).collect();
+        self.models.push(Model {
+            passes: vec![], texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
+            depth: (depth_flags & 1 != 0, depth_func, depth_flags & 2 != 0), values, sphere: ([sphere[0], sphere[1], sphere[2]], sphere[3]),
+        });
+        (self.models.len() - 1) as u32
+    }
+
+    // One of three's passes of a model, in drawing order: the program for its
+    // side, and the geometry registered for that program (core.rs).
+    pub fn model_pass<M: MultiDraw>(&mut self, core: &Core<C, M>, model: u32, program: u32, side: u32, geometry: u32) -> u32 {
+        let gl = &core.gl;
+        let m = &mut self.models[model as usize];
+        let p = core.programs[program as usize].program;
+        let (model_view, slots) = unsafe { (gl.get_uniform_location(p, "modelViewMatrix"), m.values.iter().map(|(name, _)| gl.get_uniform_location(p, name)).collect()) };
+        m.passes.push(ModelPass { program: program as usize, side, geometry: geometry as usize, model_view, slots });
+        (m.passes.len() - 1) as u32
+    }
+
     // What every effect's draw leaves alike, set at the start of a run (three
     // drew in between): every channel written, no stencil, polygon offset or
     // alpha to coverage; the scene's depth on its unit for soft particles,
@@ -410,7 +498,7 @@ impl<C: HasContext> EffectsPass<C> {
             }
             // A particle material: double-sided, depth tested less-or-equal
             // and not written.
-            sides(gl, state, stats, 2);
+            sides(gl, state, stats, 2, false);
             state.depth_test(gl, stats, true);
             state.depth_func(gl, stats, glow::LEQUAL);
             state.depth_write(gl, stats, false);
@@ -459,30 +547,13 @@ impl<C: HasContext> EffectsPass<C> {
                 // The material's values, each set when the program holds another.
                 let mut v = values_at;
                 for (k, (name, size)) in m.values.iter().enumerate() {
-                    let values = &self.data[v..v + size];
+                    set_value(gl, stats, &mut self.held, pass.program, name, pass.slots[k].as_ref(), &self.data[v..v + size]);
                     v += size;
-                    let Some(location) = pass.slots[k].as_ref() else { continue };
-                    let held = self.held.entry((pass.program, name.clone())).or_default();
-                    if held.as_slice() == values {
-                        continue;
-                    }
-                    match size {
-                        1 => gl.uniform_1_f32(Some(location), values[0]),
-                        2 => gl.uniform_2_f32(Some(location), values[0], values[1]),
-                        3 => gl.uniform_3_f32(Some(location), values[0], values[1], values[2]),
-                        4 => gl.uniform_4_f32(Some(location), values[0], values[1], values[2], values[3]),
-                        9 => gl.uniform_matrix_3_f32_slice(Some(location), false, values),
-                        16 => gl.uniform_matrix_4_f32_slice(Some(location), false, values),
-                        _ => continue,
-                    }
-                    held.clear();
-                    held.extend_from_slice(values);
-                    stats.gl_calls += 1;
                 }
                 if m.texture.is_some() {
                     state.bind_texture(gl, stats, UNIT_MAP, m.texture);
                 }
-                sides(gl, state, stats, pass.side);
+                sides(gl, state, stats, pass.side, false);
                 state.depth_test(gl, stats, m.depth.0);
                 state.depth_func(gl, stats, m.depth.1);
                 state.depth_write(gl, stats, m.depth.2);
@@ -492,6 +563,52 @@ impl<C: HasContext> EffectsPass<C> {
                 stats.gl_calls += 2;
                 stats.pass_draws[PASS_EFFECTS] += 1;
             }
+        }
+    }
+
+    // A model with its world matrix: the model-view matrix as three makes
+    // it (the camera's inverse world times the object's, in doubles), then
+    // each of its passes.
+    fn draw_model<M: MultiDraw>(&mut self, core: &mut Core<C, M>, view: &View, e: [usize; 5]) {
+        let [mi, matrix_at, values_at, _, _] = e;
+        let Some(m) = self.models.get(mi) else { return };
+        let mut world: Mat4 = [0.0; 16];
+        world.copy_from_slice(&self.matrices[matrix_at..matrix_at + 16]);
+        let model_view = math::mul(&view.camera.view, &world);
+        let mut mv = [0.0f32; 16];
+        for (k, v) in mv.iter_mut().enumerate() {
+            *v = model_view[k] as f32;
+        }
+        let mirrored = math::mirrors(&world);
+        let gl = &core.gl;
+        let (state, stats) = (&mut core.state, &mut core.stats);
+        for pass in &m.passes {
+            let program = &core.programs[pass.program];
+            state.use_program(gl, stats, program.program);
+            if let Some(l) = pass.model_view.as_ref() {
+                unsafe { gl.uniform_matrix_4_f32_slice(Some(l), false, &mv) };
+                stats.gl_calls += 1;
+            }
+            let mut v = values_at;
+            for (k, (name, size)) in m.values.iter().enumerate() {
+                set_value(gl, stats, &mut self.held, pass.program, name, pass.slots[k].as_ref(), &self.data[v..v + size]);
+                v += size;
+            }
+            if m.texture.is_some() {
+                state.bind_texture(gl, stats, UNIT_MAP, m.texture);
+            }
+            sides(gl, state, stats, pass.side, mirrored);
+            state.depth_test(gl, stats, m.depth.0);
+            state.depth_func(gl, stats, m.depth.1);
+            state.depth_write(gl, stats, m.depth.2);
+            blending(gl, state, stats, &m.blend);
+            let geo = &core.geometries[pass.geometry];
+            unsafe {
+                gl.bind_vertex_array(Some(geo.vao));
+                gl.draw_elements(glow::TRIANGLES, geo.index_count, geo.index_type, 0);
+            }
+            stats.gl_calls += 2;
+            stats.pass_draws[PASS_EFFECTS] += 1;
         }
     }
 
@@ -544,6 +661,16 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
         }
         self.upload_owners(core);
         for d in 0..draws {
+            // A model three culls by its bounding sphere, through its world matrix.
+            if let (KIND_MODEL, e) = self.entry(d) {
+                let Some(m) = self.models.get(e[0]) else { continue };
+                let mut world: Mat4 = [0.0; 16];
+                world.copy_from_slice(&self.matrices[e[1]..e[1] + 16]);
+                let (center, radius) = math::sphere_to_world(&world, &m.sphere.0, m.sphere.1);
+                if !view.camera.frustum.sphere(&center, radius) {
+                    continue;
+                }
+            }
             let k = &self.input[DRAW_AT + d * DRAW_STRIDE + DRAW_KEY..DRAW_AT + (d + 1) * DRAW_STRIDE];
             items.push(Item {
                 group_order: k[0], render_order: k[1], z: three_z(&view.view_projection, None, &[k[2], k[3], k[4]]), id: k[5],
@@ -552,12 +679,13 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
         }
     }
 
-    fn draw_run(&mut self, core: &mut Core<C, M>, _view: &View, run: &[Item]) {
+    fn draw_run(&mut self, core: &mut Core<C, M>, view: &View, run: &[Item]) {
         self.common(core);
         for item in run {
             match self.entry(item.record as usize) {
                 (KIND_BATCH, e) => self.draw_batch(core, e),
                 (KIND_MESH, e) => self.draw_mesh(core, e),
+                (KIND_MODEL, e) => self.draw_model(core, view, e),
                 _ => {}
             }
         }
