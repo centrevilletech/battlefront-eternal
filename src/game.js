@@ -408,8 +408,12 @@ async function start() {
   // The collision's queries in WebAssembly (src/ray-kernel.js), with the
   // same answers as its JavaScript: ?rays=wasm or ?rays=js decides; else
   // the caller's default (rays), then, under Node (a dedicated server),
-  // BFE_RAYS=wasm in its environment; else JavaScript.
-  const rays = (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm" ? await loadRays() : null;
+  // BFE_RAYS=wasm in its environment; else JavaScript. ?movement=wasm: the
+  // soldiers' movement there too (src/movement-kernel.js), the world's
+  // ticks and the page's replay of his own soldier alike; it brings the ray
+  // kernel with it.
+  const movement = params.get("movement") === "wasm";
+  const rays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm" ? await loadRays() : null;
   const collision = new CollisionWorld(
     new Float32Array(collBuf),
     new Uint32Array(collIndexBuf),
@@ -418,6 +422,8 @@ async function start() {
     new Uint32Array(groundIndexBuf),
     rays,
   );
+  // (Not if the ray kernel did not load: the JavaScript answers for both.)
+  collision.movement = movement && rays ? new (await import("./movement-kernel.js")).MovementKernel(collision) : null;
   // Below the battlefield: KILL_Y, or 10 m under the lowest ground where the
   // ground lies lower (Naboo Plains runs from -95 m down to -140 m, its posts'
   // spawn paths below -110 m).

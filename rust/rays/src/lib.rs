@@ -22,6 +22,7 @@
 
 use std::ptr::addr_of_mut;
 
+pub mod movement;
 pub mod spheres;
 pub mod broad;
 

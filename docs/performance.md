@@ -875,3 +875,132 @@ only what the world decides.
   lateness the world itself causes (a tick that ran long holding his
   commands in its batch); recovering it as online does is a tolerance
   change, left for a decision.
+
+## The soldiers' movement in WebAssembly
+
+A soldier's movement tick (`Soldier.tick`, src/soldier.js) runs for every
+soldier in the world worker's step, and the page runs it again for his own
+soldier every frame, over each command the world has not acknowledged yet
+(the replay above). In the emulated worker's profiles it was a tenth of the
+step on Naboo Plains and a twentieth on Dune Sea and Bespin Platforms, and on
+the page about half of what the replay cost.
+
+`rust/rays/src/movement` runs the whole tick in the ray kernel's module, for a
+battle whose query has `movement=wasm` (which loads the ray kernel with it):
+the world worker's ticks (and a dedicated server's) and the page's replay
+alike, each with its own instance of the module. The JavaScript stays the
+default.
+
+### What it computes, and how it is called
+
+The module repeats soldier.js's tick: the posture, jump, dive and fall states,
+both kinds of jetpack, the drive along the ground, and the collision pass (the
+terrain's column under each body sphere, the nearest polygon of the buildings
+and bodies one contact at a time, the step up stairs, the ground snap and the
+headroom ray). Its queries are the module's own (the sphere gathers, the
+overlap test and the ground of `rust/rays/src/spheres.rs`, and the casts of
+`lib.rs`), against the copies of the trees, the terrain grid and the bodies
+the ray kernel keeps anyway, so a tick makes no call back into JavaScript.
+
+The soldier object stays the only copy of his state between ticks, so the
+bots, seats, corrections and explosions that read and set its fields go on as
+before. `src/movement-kernel.js` copies about forty numbers into the module's
+slots (his state, his input and the class's per-tick numbers), makes the call,
+and copies 27 back. Bodies are switched on and off by a plain field, so each
+one's `enabled` goes in before every tick, in the world's order (59 to 120 of
+them on these maps). A soldier gets an id in the module on his first tick
+there, with his class's numbers, and the module keeps his body spheres' gather
+caches. A tick in a state the module does not know (an air or posture of
+another kind) is left to the JavaScript.
+
+### The same answers
+
+Each method repeats the JavaScript's operation by operation, in the same
+order, in f64, with three.js's Vector3 and Triangle methods spelt out as they
+compute; Math.min and Math.max keep JavaScript's rules for NaN and signed
+zeros. Math.hypot of two numbers is V8's own algorithm (the larger magnitude
+divides both, the squares are summed with Kahan's compensation, and the root
+is scaled back), which matched V8 on ten million pairs in both Node 22 and
+Electron 44. Sines and cosines are not computed in the module, as V8's last
+bit can differ from any Rust sine's: JavaScript hands in those of the aim's
+yaw (and, for a hovering jetpack, its pitch), and a tick that turns the aim
+stops after the turn for the turned yaw's (a second call).
+
+- `tests/movement-kernel.test.js` ticks soldiers and their twins in one
+  world, one by the JavaScript and one by the kernels, and compares every
+  field the tick reads or writes with `Object.is`: eighteen bots of six
+  classes on a course (stairs, walls, ramps, a low slab, a tower, terrain,
+  props switching on and off, two moving hulls) for 1,500 ticks, then
+  scripted climbs, a crawl, a fall and dives.
+- `tools/world-hash.mjs --movement wasm` gave the same fingerprint as the
+  default for every tick: 2,400 ticks on 24 maps, sides, seeds and modes
+  (Naboo Plains, Dune Sea, Bespin Platforms and Hoth in several of each, seven
+  other maps, acknowledgements, a page's interval and shots judged rewound),
+  and 6,000 to 9,000 ticks on seven more.
+- `tools/prediction-timing.mjs`, `tools/own-player-correction-check.mjs` and
+  `tools/ground-player-correction-check.mjs` with `BFE_MOVEMENT=wasm` print
+  the same results and the same digests of every replayed tick as without it.
+
+### Measurements
+
+On the emulated laptop and on the laptop itself, one battle at a time
+(medium AI, on foot, walking and strafing), the kernel was switched on and off
+every 5 seconds on the page and in the world worker together, 16 periods in
+ABBA order, with each soldier tick and each world step timed: two battles a
+map on the emulator, two on the laptop for Naboo Plains and Bespin Platforms
+and one for Dune Sea and Hoth. Both variants have the ray kernel, whose
+gathers already answer the JavaScript tick's queries. Means of the periods
+(the median and 90th percentile, of each battle's), JavaScript then
+WebAssembly; gaps are counted over the battles:
+
+| | Naboo Plains | Dune Sea | Bespin Platforms | Hoth |
+| --- | ---: | ---: | ---: | ---: |
+| Emulator: soldiers' ticks, ms a world tick | 0.87, 0.59 | 1.16, 0.80 | 1.16, 0.74 | 1.24, 0.87 |
+| World step median, ms | 8.07, 7.90 | 17.71, 16.61 | 16.18, 15.94 | 14.75, 14.78 |
+| World step 90th percentile, ms | 13.56, 14.06 | 25.56, 24.78 | 23.30, 23.01 | 21.12, 21.15 |
+| Ticks a second | 67.2, 67.1 | 58.6, 60.8 | 63.1, 63.1 | 65.1, 65.4 |
+| Gaps between ticks over 40 ms | 7, 7 | 24, 16 | 21, 17 | 19, 10 |
+| His replay's soldier ticks, ms a frame | 0.35, 0.18 | 0.53, 0.26 | 0.53, 0.36 | 0.32, 0.18 |
+| The page's simulation phase median, ms | 5.58, 5.42 | 7.21, 7.48 | 6.74, 6.60 | 6.37, 6.18 |
+| Laptop: soldiers' ticks, ms a world tick | 1.20, 0.81 | 1.28, 0.86 | 1.02, 0.68 | 1.40, 0.98 |
+| World step median, ms | 10.75, 10.60 | 18.95, 17.23 | 17.99, 17.85 | 15.51, 14.90 |
+| World step 90th percentile, ms | 14.90, 15.17 | 24.98, 22.94 | 22.44, 21.81 | 19.59, 19.43 |
+| Ticks a second | 70.7, 70.0 | 58.1, 63.6 | 62.0, 62.6 | 69.2, 69.5 |
+| Gaps between ticks over 40 ms | 0, 4 | 16, 9 | 22, 18 | 6, 2 |
+| His replay's soldier ticks, ms a frame | 0.30, 0.14 | 0.56, 0.29 | 0.78, 0.50 | 0.39, 0.25 |
+| The page's simulation phase median, ms | 6.92, 6.78 | 8.89, 8.68 | 8.36, 7.97 | 7.21, 7.18 |
+
+The soldiers' ticks take about a third less, 0.28 to 0.43 ms a world tick,
+and steadily: in all 112 pairs of neighbouring periods the kernel's were the
+shorter. The world step falls by about as much, which is less than it
+wanders from period to period as a battle goes on (0.5 to 2.4 ms between
+neighbours), so one map's change in the step is mostly within its noise; over
+all the pairs the kernel's step was the shorter in 74 of 112. Dune Sea's
+world, the slowest, kept more ticks a second with the kernel on both
+machines, and the gaps over 40 ms were fewer on six of the eight map and
+machine pairs. On the page his replay's soldier ticks take 35 to 55% less,
+0.13 to 0.28 ms a frame (4 to 14 replayed ticks a frame), within a simulation
+phase of 5 to 9 ms that wanders by more than that.
+
+Under Node on the development machine, switching the kernel every tick of a
+3,000-tick battle, a soldier's tick took 10.6 to 21.2 µs with the kernel
+against 16.3 to 37.1 µs without it, and the soldiers' ticks 0.48 against
+0.81 ms a world tick on Naboo Plains, 0.60 against 0.81 on Dune Sea, 0.67
+against 1.17 on Bespin Platforms and 0.45 against 0.69 on Hoth.
+
+### What is left
+
+- What a tick costs around the module's own work: copying the state in and
+  out, each body's `enabled`, and the sines and cosines JavaScript computes,
+  about a quarter of the kernel's time under Node (the bodies' flags alone
+  three tenths of that). The module could name the few bodies a tick can
+  reach, so that only theirs are read; on these maps that would save under
+  1% of the step.
+- The replay's other work stays in JavaScript: each weapon's state captured
+  and restored, recoil, and the crowd push against the other soldiers. Half
+  of the page's simulation phase is taking in the world's packets, which this
+  leaves as it was.
+- Droidekas walk by their own clips and collision pass (src/droideka.js),
+  still in JavaScript, as are the hulls.
+- The kernel stays behind `movement=wasm`; making it the default goes with
+  the ray kernel's.

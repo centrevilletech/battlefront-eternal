@@ -175,6 +175,8 @@ export class CollisionWorld {
   dropRays(error) {
     console.warn(`The collision's WebAssembly failed (${error?.message ?? error}); its JavaScript answers from now on.`);
     this.rays = null;
+    // The soldiers' movement runs in the same module (src/movement-kernel.js).
+    if (this.movement) this.movement = null;
   }
 
   // A body's copy in the ray kernel: its tree, and its place (a moving
