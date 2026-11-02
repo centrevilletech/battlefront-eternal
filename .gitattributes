@@ -1,0 +1,6 @@
+# WebAssembly built from rust/ by tools/build-rust.mjs, committed so the game
+# builds without Rust; CI checks each byte against a rebuild
+# (docs/development.md, "The Rust parts"). Check them out exactly as
+# committed, and on a merge conflict rebuild them instead of merging lines.
+src/ray-kernel-wasm.js -text -merge linguist-generated
+src/rust-pkg/** -text -merge linguist-generated

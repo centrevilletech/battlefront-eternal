@@ -5,7 +5,7 @@ For the project overview and roadmap, see the [README](../README.md).
 
 This repository is the engine and the notes. The retail game stays on disk. ISOs, extracts, and asset dumps are gitignored under `data/game/` and `extract/`, and they are never pushed.
 
-You need Node.js 24 with npm, Python 3, and your own copy of the game.
+You need Node.js 24 with npm, Python 3, and your own copy of the game. Rust is needed only to change the parts written in it (see "The Rust parts" below).
 
 ```bash
 npm ci
@@ -214,3 +214,26 @@ The soldier runs on the game's own data and rules:
 - Movement, jumping, diving, the soldier's collision body and contact handling, mouse look, and the chase camera follow the 2004 game (see `docs/formats.md`).
 
 The original game, its code, and its assets remain the property of their rights holders. Nothing in this repo is a copy of them.
+
+## The Rust parts
+
+Two parts of the engine are written in Rust and compiled to WebAssembly, in the Cargo workspace under `rust/`:
+
+- `rust/rays`, the collision's ray kernel (`?rays=wasm`; [docs/performance.md](performance.md), "The collision's rays in WebAssembly"), committed as base64 in `src/ray-kernel-wasm.js`, which the world worker, the page and the dedicated server load as a JavaScript import.
+- `rust/bfe-render`, the battle renderer behind `?rust`, committed as wasm-bindgen's output in `src/rust-pkg/`: an ES module and the `.wasm` it fetches, which Vite bundles as an asset. The desktop app serves it from its archive as `application/wasm`; the dedicated server's copy of the engine leaves it out.
+
+`rust/glbench` and `rust/bfe-native` are measuring tools; nothing ships them.
+
+Because the WebAssembly is committed, building, testing and packaging the game needs no Rust. Changing it needs rustup, which installs the release `rust/rust-toolchain.toml` pins, with the wasm32 target, when cargo first runs under `rust/` (or run `rustup toolchain install` there), and the wasm-bindgen CLI of the version `rust/Cargo.lock` locks:
+
+```bash
+cargo install wasm-bindgen-cli --version 0.2.130 --locked
+npm run rust:build    # both; node tools/build-rust.mjs rays (or renderer) builds one
+npm run rust:check    # rebuild both and compare with the committed files
+```
+
+`tools/build-rust.mjs` builds with `Cargo.lock` as it is (`--locked`) and writes Cargo's home folder as `/cargo` in the file names that panic messages carry, so the bytes do not depend on where the repository or Cargo's downloads are. On Windows, Rust writes those names with backslashes, which changes the bytes: build in WSL there, or take the files CI rebuilt.
+
+Commit the rebuilt files with the Rust change that made them; `npm run rust:check` before committing a change under `rust/` fails if one is out of date. After a merge, rebuild them rather than merging their lines (`.gitattributes` makes Git keep one side of a generated file that conflicts). A new toolchain or wasm-bindgen version changes the bytes as well, so commit the rebuilt files with it.
+
+CI's `rust` job (`.github/workflows/ci.yml`) installs the pinned toolchain and wasm-bindgen, then runs `node tools/build-rust.mjs --check` and the two crates' unit tests. When the check fails, the run keeps the rebuilt files as its `rust-generated` artifact, laid out as `src/` is: committing those is as good as building them. The release jobs package the committed files as they are, and `build/check-packaged.mjs` fails a package whose `app.asar` lacks the renderer.

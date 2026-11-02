@@ -1,13 +1,15 @@
-// The collision world's ray casts in WebAssembly (rust/rays), for
-// CollisionWorld's cast, castMoving and ground when a battle asks for them
-// (?rays=wasm). The JavaScript in src/collision.js stays the default; the
-// module answers every cast as it does, to the last bit (rust/rays says how).
+// The collision world's queries in WebAssembly (rust/rays), for
+// CollisionWorld's cast, castMoving, ground, gather, overlapsSphere and
+// terrainNear when a battle asks for them (?rays=wasm). The JavaScript in
+// src/collision.js stays the default; the module answers every query as it
+// does, to the last bit (rust/rays says how).
 //
-// The module holds copies of what the casts read: each tree's packed nodes
-// from three-mesh-bvh, its triangles' corners, index and indirect buffers,
-// the terrain's grid, and each body's bounds and matrices. Trees never change
-// once built, so each is copied once; a body's place is copied as it moves;
-// and before each cast, whether the bodies the ray can meet are enabled.
+// The module holds copies of what the queries read: each tree's packed nodes
+// from three-mesh-bvh, its triangles' corners, index and indirect buffers
+// and polygon numbers, the terrain's grid, the fixed sets gathers file
+// (each triangle's bounds), and each body's bounds and matrices. Trees never
+// change once built, so each is copied once; a body's place is copied as it
+// moves; and before each query, whether the bodies it can meet are enabled.
 import { RAY_KERNEL_WASM } from "./ray-kernel-wasm.js";
 
 let compiling = null;
@@ -29,11 +31,18 @@ export class RayKernel {
   constructor(exports) {
     this.x = exports;
     this.memory = exports.memory;
-    // Copies made, by the array or tree they copy.
+    // Copies made, by the array, tree or set they copy.
     this.positionIds = new WeakMap();
     this.treeIds = new WeakMap();
-    // Every body by its slot.
+    this.setIds = new WeakMap();
+    // Trees whose polygon numbers are copied.
+    this.treePolygons = new Set();
+    // Every body by its slot, and every fixed set by its id.
     this.bodies = [];
+    this.sets = [];
+    // Views of a gather's output and terrainNear's (outF64, outU32).
+    this.f64Out = null;
+    this.u32Out = null;
     this.refresh();
   }
 
@@ -105,13 +114,62 @@ export class RayKernel {
     return this.x.world_new(tree, terrain, grid);
   }
 
-  // A body's slot: its tree, and whether it moves.
+  // A body's slot: its tree (with its polygon numbers), whether it moves,
+  // and the offset of its polygon numbers.
   body(body, moving) {
-    const slot = this.x.body_new(this.tree(body.bvh), moving ? 1 : 0);
+    const tree = this.tree(body.bvh);
+    if (!this.treePolygons.has(tree)) {
+      // Every triangle's polygon number is a number in JavaScript too.
+      if (!(body.polygonOf.length >= body.bvh.geometry.index.count / 3)) throw Error("A body's triangle has no polygon number");
+      this.u32(this.x.tree_polygons(tree, body.polygonOf.length), body.polygonOf.length).set(body.polygonOf);
+      this.treePolygons.add(tree);
+    }
+    const slot = this.x.body_new(tree, moving ? 1 : 0);
     if (slot < 0) throw Error("Too many bodies for the ray kernel");
+    this.x.body_offset(slot, body.offset);
     this.bodies[slot] = body;
     this.refresh();
     return slot;
+  }
+
+  // A fixed set of collision.js (the buildings, the vehicle-only barriers):
+  // its tree, each triangle's bounds and polygon number, and their offset.
+  fixedSet(set, bvh) {
+    let id = this.setIds.get(set);
+    if (id !== undefined) return id;
+    const count = set.triBounds.length / 6;
+    if (!(set.polygonOf.length >= count)) throw Error("A fixed triangle has no polygon number");
+    id = this.x.set_new(this.tree(bvh), count, set.offset);
+    new Float32Array(this.memory.buffer, this.x.set_bounds(id), count * 6).set(set.triBounds);
+    this.u32(this.x.set_polygons(id), count).set(set.polygonOf.subarray(0, count));
+    this.setIds.set(set, id);
+    this.sets[id] = set;
+    this.refresh();
+    return id;
+  }
+
+  // A gather cache's id in the module (made the first time).
+  cache(cache) {
+    if (cache.ray < 0) {
+      cache.ray = this.x.cache_new(cache.margin);
+      this.refresh();
+    }
+    return cache.ray;
+  }
+
+  // The module's output at `ptr` (a gather's, terrainNear's), as f64s or
+  // u32s: one view to the end of memory, re-made when the output moves or
+  // memory grows.
+  outF64(ptr) {
+    const view = this.f64Out;
+    if (view && view.byteOffset === ptr && view.byteLength) return view;
+    return this.f64Out = new Float64Array(this.memory.buffer, ptr, (this.memory.buffer.byteLength - ptr) >> 3);
+  }
+
+  outU32(ptr) {
+    const view = this.u32Out;
+    if (view && view.byteOffset === ptr && view.byteLength) return view;
+    return this.u32Out = new Uint32Array(this.memory.buffer, ptr, (this.memory.buffer.byteLength - ptr) >> 2);
   }
 
   // A body's bounds (Box3) and, if it moves, its matrix and inverse.

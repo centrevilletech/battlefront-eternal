@@ -110,3 +110,58 @@ test('a body\'s enabled keeps its value and its copy in the kernel', async () =>
   assert.equal(body.enabled, false);
   assert.notEqual(w.cast(above, down, 5, hit)?.body, body);
 });
+
+// A gather's list as plain values: each polygon's id, moving and done, and
+// each triangle's nine corners.
+const listed = (list) => list.map((p) => [p.id, p.moving, p.done, p.triangles.map((t) => [...t.a.toArray(), ...t.b.toArray(), ...t.c.toArray()])]);
+function sameList(a, b, what) {
+  assert.equal(a.length, b.length, `${what}: polygons`);
+  for (let i = 0; i < a.length; i++) {
+    const [ida, ma, da, ta] = a[i], [idb, mb, db, tb] = b[i];
+    assert.ok(Object.is(ida, idb) && ma === mb && da === db && ta.length === tb.length, `${what}: polygon ${i} ${ida}/${idb} ${ta.length}/${tb.length}`);
+    ta.forEach((t, j) => t.forEach((v, k) => assert.ok(Object.is(v, tb[j][k]), `${what}: polygon ${i} triangle ${j} corner ${k} ${v} != ${tb[j][k]}`)));
+  }
+}
+
+test('the kernel gathers, overlaps and finds the terrain near a sphere as the JavaScript does', async () => {
+  const rays = await loadRayKernel();
+  const { w, bodies, shape } = world(rays);
+  // The vehicle-only barriers: a low wall across the middle.
+  const wall = box(3, 0.5, 0, 30, 1, 0.4);
+  w.vehicleBlockers = w.createBodyShape(wall.p, wall.i, wall.polygons);
+  const rand = random(37), matrix = new THREE.Matrix4(), js = (fn) => { w.rays = null; try { return fn(); } finally { w.rays = rays; } };
+  // Callers' caches, each reused at nearby spots as a soldier's are.
+  const caches = Array.from({ length: 6 }, (_, i) => w.gatherCache(i % 2 ? 0.75 : 0.3));
+  const spots = caches.map(() => new THREE.Vector3((rand() - 0.5) * 50, rand() * 5 - 2, (rand() - 0.5) * 50));
+  let polygons = 0, triangles = 0, movingPolygons = 0, blockerPolygons = 0, overlaps = 0, near = 0;
+  for (let pass = 0; pass < 80; pass++) {
+    for (const body of bodies) if (rand() < 0.15) body.enabled = !body.enabled;
+    for (const body of bodies) if (body.moving && rand() < 0.5) w.moveBody(body, matrix.makeRotationY(rand() * 6.3).setPosition((rand() - 0.5) * 40, rand() * 3 - 1, (rand() - 0.5) * 40));
+    if (pass % 10 === 5) w.removeBody(bodies.splice(Math.floor(rand() * bodies.length), 1)[0]);
+    if (pass % 10 === 7) bodies.push(w.addMovingBody(shape, matrix.makeRotationY(rand()).setPosition(rand() * 20, 1, rand() * 20), { late: pass }));
+    for (let i = 0; i < 120; i++) {
+      const k = i % caches.length, cache = rand() < 0.7 ? caches[k] : null;
+      // Cached callers drift; others query anywhere, some far out.
+      const center = cache ? spots[k].add(new THREE.Vector3(rand() - 0.5, (rand() - 0.5) * 0.3, rand() - 0.5).multiplyScalar(0.8)).clone()
+        : new THREE.Vector3((rand() - 0.5) * 70, rand() * 8 - 3, (rand() - 0.5) * 70);
+      // Now and then the whole map: the module's output and memory grow.
+      const radius = i === 60 && pass % 20 === 0 ? 90 + pass : [0.3, 0.6, 1.2, 3, 9][Math.floor(rand() * 5)], vehicle = rand() < 0.3;
+      const ignore = rand() < 0.2 ? bodies[Math.floor(rand() * bodies.length)] : null;
+      const a = listed(js(() => w.gather(center, radius, vehicle, cache, ignore)));
+      const b = listed(w.gather(center, radius, vehicle, cache, ignore));
+      sameList(a, b, `gather ${pass}/${i}`);
+      polygons += a.length; triangles += a.reduce((n, p) => n + p[3].length, 0);
+      movingPolygons += a.filter((p) => p[1]).length; blockerPolygons += a.filter((p) => p[0] >= 0x70000000 && p[0] < 0x71000000).length;
+      const o1 = js(() => w.overlapsSphere(center, radius * 0.5, ignore)), o2 = w.overlapsSphere(center, radius * 0.5, ignore);
+      assert.equal(o1, o2, `overlapsSphere ${pass}/${i}`);
+      if (o1) overlaps++;
+      const n1 = js(() => w.terrainNear(center, radius)).map((t) => [...t.a.toArray(), ...t.b.toArray(), ...t.c.toArray()]);
+      const n2 = w.terrainNear(center, radius).map((t) => [...t.a.toArray(), ...t.b.toArray(), ...t.c.toArray()]);
+      assert.deepEqual(n1, n2, `terrainNear ${pass}/${i}`);
+      near += n1.length;
+    }
+  }
+  // Every kind of answer came up.
+  assert.ok(polygons > 3000 && triangles > 6000 && movingPolygons > 200 && blockerPolygons > 50 && overlaps > 1000 && near > 10000,
+    JSON.stringify({ polygons, triangles, movingPolygons, blockerPolygons, overlaps, near }));
+});

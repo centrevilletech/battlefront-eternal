@@ -23,6 +23,7 @@
 use std::ptr::addr_of_mut;
 
 pub mod movement;
+pub mod spheres;
 
 /// The f64 slots calls exchange: 0-2 ray origin, 3-5 direction, 6 far,
 /// 7 Math.hypot(direction.x, direction.z), 8 near; 10 hit distance,
@@ -35,7 +36,7 @@ static mut IO: [f64; IO_LEN] = [0.0; IO_LEN];
 /// before the cast itself (`world_cast`). Fixed statics, so their addresses
 /// never move.
 pub const MAX_BODIES: usize = 1 << 16;
-static mut CANDIDATES: [u32; MAX_BODIES] = [0; MAX_BODIES];
+pub(crate) static mut CANDIDATES: [u32; MAX_BODIES] = [0; MAX_BODIES];
 static mut ENABLED: [u8; MAX_BODIES] = [0; MAX_BODIES];
 
 /// Return codes of the world casts.
@@ -99,6 +100,9 @@ pub struct Tree {
     pub index: Vec<u32>,
     pub indexed: bool,
     pub indirect: Vec<u32>,
+    /// Each triangle's polygon number, for a body's tree (`tree_polygons`;
+    /// spheres.rs); empty until set.
+    pub polygons: Vec<u32>,
 }
 
 pub struct Grid {
@@ -115,6 +119,8 @@ pub struct Grid {
 pub struct Body {
     pub tree: usize,
     pub moving: bool,
+    /// What its polygon numbers are offset by (collision.js body.offset).
+    pub offset: f64,
     /// Box3: min x, y, z, max x, y, z.
     pub bounds: [f64; 6],
     /// Matrix4.elements (column-major), and its inverse.
@@ -128,6 +134,11 @@ pub struct World {
     pub grid: Option<usize>,
     /// The world's bodies in its list's order, by slot.
     pub order: Vec<u32>,
+    /// Bumped whenever `order` is set (gather caches keep their bodies until
+    /// it changes, as collision.js's do with bodiesVersion).
+    pub version: u64,
+    /// The buildings as a fixed set for gathers (spheres.rs), once set.
+    pub statics: Option<usize>,
 }
 
 #[derive(Default)]
@@ -137,24 +148,28 @@ pub struct State {
     pub grids: Vec<Grid>,
     pub bodies: Vec<Body>,
     pub worlds: Vec<World>,
+    /// Fixed sets of triangles for gathers (spheres.rs).
+    pub sets: Vec<spheres::FixedSet>,
 }
 
 static mut STATE: Option<State> = None;
 
-fn state() -> &'static mut State {
+/// The module's state. One thread: JavaScript calls in one at a time, and
+/// a function of this crate that holds it must not call back into an export.
+pub fn state() -> &'static mut State {
     // One thread: JavaScript calls in one at a time.
     unsafe { (*addr_of_mut!(STATE)).get_or_insert_with(State::default) }
 }
 
-fn io() -> &'static mut [f64; IO_LEN] {
+pub(crate) fn io() -> &'static mut [f64; IO_LEN] {
     unsafe { &mut *addr_of_mut!(IO) }
 }
 
-fn enabled(c: usize) -> bool {
+pub(crate) fn enabled(c: usize) -> bool {
     unsafe { (*addr_of_mut!(ENABLED))[c] != 0 }
 }
 
-fn candidate(c: usize) -> usize {
+pub(crate) fn candidate(c: usize) -> usize {
     unsafe { (*addr_of_mut!(CANDIDATES))[c] as usize }
 }
 
@@ -174,7 +189,7 @@ pub fn js_max(a: f64, b: f64) -> f64 {
 
 /// Vector3.dot: x * x' + y * y' + z * z', left to right.
 #[inline(always)]
-fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+pub fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
@@ -185,7 +200,7 @@ fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 }
 
 #[inline(always)]
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+pub fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
@@ -246,7 +261,7 @@ pub fn triangle_normal(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> [f64; 3] {
 }
 
 #[inline(always)]
-fn f32_at(words: &[u32], i: usize) -> f64 {
+pub(crate) fn f32_at(words: &[u32], i: usize) -> f64 {
     f32::from_bits(words[i]) as f64
 }
 
@@ -335,7 +350,7 @@ fn intersects_box(ray: &Ray, inv: &Inverse, b: &[f64; 6]) -> bool {
 
 /// Vector3.applyMatrix4(m).
 #[inline(always)]
-fn apply_matrix4(e: &[f64; 16], v: [f64; 3]) -> [f64; 3] {
+pub fn apply_matrix4(e: &[f64; 16], v: [f64; 3]) -> [f64; 3] {
     let (x, y, z) = (v[0], v[1], v[2]);
     let w = 1.0 / (e[3] * x + e[7] * y + e[11] * z + e[15]);
     [
@@ -674,7 +689,7 @@ pub extern "C" fn positions_at(id: u32) -> *mut u8 {
 #[no_mangle]
 pub extern "C" fn tree_new(positions: u32, indices: u32, indirect: u32) -> u32 {
     let s = state();
-    s.trees.push(Tree { roots: Vec::new(), positions: positions as usize, index: vec![0; indices as usize], indexed: indices > 0, indirect: vec![0; indirect as usize] });
+    s.trees.push(Tree { roots: Vec::new(), positions: positions as usize, index: vec![0; indices as usize], indexed: indices > 0, indirect: vec![0; indirect as usize], polygons: Vec::new() });
     (s.trees.len() - 1) as u32
 }
 
@@ -718,7 +733,7 @@ pub extern "C" fn grid_start(id: u32) -> *mut u32 { state().grids[id as usize].s
 pub extern "C" fn body_new(tree: u32, moving: u32) -> i32 {
     let s = state();
     if s.bodies.len() >= MAX_BODIES { return -1; }
-    s.bodies.push(Body { tree: tree as usize, moving: moving != 0, bounds: [0.0; 6], matrix: [0.0; 16], inverse: [0.0; 16] });
+    s.bodies.push(Body { tree: tree as usize, moving: moving != 0, offset: 0.0, bounds: [0.0; 6], matrix: [0.0; 16], inverse: [0.0; 16] });
     (s.bodies.len() - 1) as i32
 }
 
@@ -739,7 +754,7 @@ pub extern "C" fn body_set(slot: u32) {
 #[no_mangle]
 pub extern "C" fn world_new(tree: u32, terrain: i32, grid: i32) -> u32 {
     let s = state();
-    s.worlds.push(World { tree: tree as usize, terrain: (terrain >= 0).then_some(terrain as usize), grid: (grid >= 0).then_some(grid as usize), order: Vec::new() });
+    s.worlds.push(World { tree: tree as usize, terrain: (terrain >= 0).then_some(terrain as usize), grid: (grid >= 0).then_some(grid as usize), order: Vec::new(), version: 0, statics: None });
     (s.worlds.len() - 1) as u32
 }
 
@@ -749,6 +764,7 @@ pub extern "C" fn world_order(id: u32, count: u32) -> *mut u32 {
     let w = &mut state().worlds[id as usize];
     w.order.clear();
     w.order.resize(count as usize, 0);
+    w.version += 1;
     w.order.as_mut_ptr()
 }
 
