@@ -31,7 +31,10 @@ const ONLY = (process.env.BENCH_ONLY || "").split(",").filter(Boolean);
 const wanted = (name) => !ONLY.length || ONLY.some((o) => name.includes(o));
 
 // The render thread's CPU time, from /proc (Linux), for the browser whose
-// profile is `dir`.
+// profile is `dir`. A graph with worklets renders on the worklet's thread
+// ("Offline Audio..."); one without (the light mix) on "OfflineAudioRen...",
+// which exits the moment the render is done, so the threads are read every
+// few ms while it runs and each one's last reading counts.
 const linux = fs.existsSync("/proc/self/task");
 const cmdline = (p) => {
   try {
@@ -47,12 +50,13 @@ const parent = (p) => {
     return null;
   }
 };
-function renderThreadNs(dir) {
+function renderers(dir) {
   const pids = fs.readdirSync("/proc").filter((p) => /^\d+$/.test(p));
   const browser = pids.find((p) => cmdline(p).includes(dir) && !cmdline(p).includes("--type="));
-  let ns = 0;
+  return pids.filter((p) => cmdline(p).includes("--type=renderer") && parent(parent(p)) === browser);
+}
+function readThreads(pids, seen) {
   for (const p of pids) {
-    if (!cmdline(p).includes("--type=renderer") || parent(parent(p)) !== browser) continue;
     let tasks = [];
     try {
       tasks = fs.readdirSync(`/proc/${p}/task`);
@@ -61,14 +65,33 @@ function renderThreadNs(dir) {
     }
     for (const t of tasks) {
       try {
-        if (!fs.readFileSync(`/proc/${p}/task/${t}/comm`, "utf8").startsWith("Offline Audio")) continue;
-        ns += Number(fs.readFileSync(`/proc/${p}/task/${t}/schedstat`, "utf8").split(" ")[0]);
+        if (!/^Offline ?Audio/.test(fs.readFileSync(`/proc/${p}/task/${t}/comm`, "utf8"))) continue;
+        const ns = Number(fs.readFileSync(`/proc/${p}/task/${t}/schedstat`, "utf8").split(" ")[0]);
+        seen.set(`${p}/${t}`, Math.max(seen.get(`${p}/${t}`) || 0, ns));
       } catch {
         // gone
       }
     }
   }
-  return ns;
+}
+// Runs `render` (a promise maker): { result, ns }, ns the render threads'
+// CPU time meanwhile.
+async function renderThreadNs(dir, render) {
+  const pids = renderers(dir);
+  const before = new Map();
+  readThreads(pids, before);
+  const seen = new Map(before);
+  const timer = setInterval(() => readThreads(pids, seen), 2);
+  let result;
+  try {
+    result = await render();
+  } finally {
+    clearInterval(timer);
+  }
+  readThreads(pids, seen);
+  let ns = 0;
+  for (const [t, v] of seen) ns += v - (before.get(t) || 0);
+  return { result, ns };
 }
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "audio-bench-"));
@@ -95,13 +118,15 @@ try {
     let info = "";
     for (let rep = 0; rep < REPS; rep++) {
       info = await page.evaluate(setup, args);
-      const before = linux ? renderThreadNs(dir) : 0;
-      const { wall, handlers } = await page.evaluate(async () => {
-        const t0 = performance.now();
-        await window.job.ctx.startRendering();
-        return { wall: performance.now() - t0, handlers: window.job.handlers?.() || 0 };
-      });
-      const ms = linux ? (renderThreadNs(dir) - before) / 1e6 : wall - handlers;
+      const render = () =>
+        page.evaluate(async () => {
+          const t0 = performance.now();
+          await window.job.ctx.startRendering();
+          return { wall: performance.now() - t0, handlers: window.job.handlers?.() || 0 };
+        });
+      const timed = linux ? await renderThreadNs(dir, render) : { result: await render(), ns: 0 };
+      const { wall, handlers } = timed.result;
+      const ms = linux ? timed.ns / 1e6 : wall - handlers;
       best = Math.min(best, ms);
       await page.evaluate(() => {
         window.job = null;
@@ -118,8 +143,11 @@ try {
         const RATE = 48000;
         const ctx = new OfflineAudioContext(channels, RATE * seconds, RATE);
         const r = new Renderer(ctx);
-        await r.load(decoder ? "/audio" : null);
-        r.configure({ quality, output, dynamics: "normal", mono: false });
+        // As a battle loads it: the light mix (the original on stereo) with
+        // no worklet loaded.
+        const config = { quality, output, dynamics: "normal", mono: false };
+        await r.load(decoder ? "/audio" : null, config);
+        r.configure(config);
         let seed = 12345;
         const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296);
         // Noise at 22.05 kHz, the rate of most of the game's samples.
@@ -128,11 +156,13 @@ try {
         for (let i = 0; i < d.length; i++) d[i] = (rand() * 2 - 1) * 0.05;
         const vs = [];
         for (let v = 0; v < voices; v++) {
+          // As the engine builds a voice: in the light mix its level goes on
+          // its speaker gains, with no gain of its own.
           const source = new AudioBufferSourceNode(ctx, { buffer: noise, loop: true });
-          const gain = new GainNode(ctx, { gain: 0 });
-          source.connect(gain);
           const out = r.voice({ mode3D: 1 });
-          out.attach(gain);
+          const gain = r.light ? null : new GainNode(ctx, { gain: 0 });
+          if (gain) source.connect(gain);
+          out.attach(gain || source, Boolean(gain));
           source.start(0, (v * 0.013) % 1);
           vs.push({ source, gain, out });
         }
@@ -151,7 +181,8 @@ try {
             local.y /= n;
             local.z /= n;
             const level = Math.min(1, 12 / dist);
-            if (first) s.gain.gain.setValueAtTime(level, now);
+            if (!s.gain) s.out.level = level;
+            else if (first) s.gain.gain.setValueAtTime(level, now);
             else s.gain.gain.setTargetAtTime(level, now, 0.015);
             s.source.playbackRate.setTargetAtTime(0.459 * (1 + 0.02 * Math.sin(t * 2 + v)), now, 0.015);
             const cutoff = dist > 10 ? Math.min(Math.max(20000 / (1 + (dist - 10) / 35), 1800), 20000) : 20000;
@@ -276,7 +307,7 @@ try {
   console.log(`${linux ? "render thread CPU" : "render wall time"}, % of real time on one core, best of ${REPS}, ${SECONDS} s renders at 48 kHz`);
 
   const renderings = [
-    ["Original, stereo", "original", "stereo", 2, false],
+    ["Original, stereo (light mix)", "original", "stereo", 2, false],
     ["Original, 5.1", "original", "5.1", 6, false],
     ["Original, headphones (HRTF)", "original", "headphones", 2, false],
     ["Enhanced, stereo", "enhanced", "stereo", 2, false],
@@ -366,8 +397,9 @@ try {
             samples: { "0x00000100": [0, pcm.length, 22050] },
           };
           const engine = new AudioEngine({ context: ctx });
-          await engine.renderer.load(null);
-          engine.renderer.configure({ quality, output: "stereo", dynamics: "normal", mono: false });
+          const config = { quality, output: "stereo", dynamics: "normal", mono: false };
+          await engine.renderer.load(null, config);
+          engine.renderer.configure(config);
           engine.setData(new SoundData(manifest, pcm.buffer));
           engine.shape = (voice) => {
             const e = voice.extra;

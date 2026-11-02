@@ -32,7 +32,8 @@ ARM64), and update themselves.
   Minimum (integrated graphics of about 2011) up to High. Gameplay always
   runs at a fixed 60 Hz, whatever the frame rate.
 - **Sound.** Original (2004) and Enhanced (2026) modes, with 3D audio on
-  headphones and speaker layouts up to 7.1.4.
+  headphones and speaker layouts up to 7.1.4, and a light stereo mix of the
+  original for slow PCs.
 - **Multiplayer.** Server-authoritative battles at 60 Hz over an encrypted
   UDP transport, up to 32 versus 32 with bots filling empty slots. An online
   server browser with measured ping, LAN games, direct connect and hosting

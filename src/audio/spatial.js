@@ -1,19 +1,22 @@
 import { Target } from "./automation.js";
-import { ALSOFT, ALSOFT_STREAM_ANGLES, LAYOUTS, autoLayout } from "./layouts.js";
+import { ALSOFT, ALSOFT_STREAM_ANGLES, LAYOUTS, alsoftStereo, autoLayout } from "./layouts.js";
 
 // Where sound goes once it leaves a voice: the output layout, the panning,
 // the reverb, the LFE, and the master chain.
 //
 // Two renderings, switched live:
 // - "original": what the Steam build's OpenAL Soft 1.20.1 output gives.
-//   Speakers: its own panning, 2D ambisonic decoders of first order on
-//   stereo, second on 5.1, third on 7.1 (src/audio/layouts.js, ALSOFT), and
-//   streams' channels at its fixed angles; on surround, its front
-//   stabilizer (the Steam build's alsoft.ini turns it on), which alone
-//   feeds the centre. No LFE. Headphones: OpenAL Soft turns on its HRTF
-//   when Windows reports headphones, so every source and stream channel
-//   goes through an HRTF (the browser's, standing in for OpenAL Soft's MIT
-//   KEMAR set). No extra reverb; a limiter in place of OpenAL Soft's.
+//   Stereo speakers: the light mix (buildLight), the game's voices summed
+//   as a PC of 2004 summed them, each panned by OpenAL Soft's stereo law;
+//   no reverb and no worklet, so it costs the audio thread little more than
+//   the voices themselves. Surround: its own panning, 2D ambisonic decoders
+//   of second order on 5.1, third on 7.1 (src/audio/layouts.js, ALSOFT),
+//   and streams' channels at its fixed angles; its front stabilizer (the
+//   Steam build's alsoft.ini turns it on), which alone feeds the centre. No
+//   LFE. Headphones: OpenAL Soft turns on its HRTF when Windows reports
+//   headphones, so every source and stream channel goes through an HRTF
+//   (the browser's, standing in for OpenAL Soft's MIT KEMAR set). The
+//   sub-level's reverb space, and a limiter in place of OpenAL Soft's.
 // - "enhanced": the 2026 sound stage. Speakers: equal-power panning on
 //   stereo, pairwise amplitude panning (VBAP) over the layout on surround,
 //   the height ring on 7.1.4, spread for close sources, explosions sent to
@@ -96,6 +99,45 @@ export const DYNAMICS = {
   // Night: a narrow range, so quiet sounds carry and blasts don't startle.
   night: { label: "Night (narrow range)", threshold: -30, ratio: 5, knee: 10, attack: 0.004, release: 0.35, makeup: 10.6 },
 };
+// The light mix has no compressor: each profile is a level there (dB,
+// after what enters the dynamics), set from tests/audio-loudness.mjs as the
+// makeups are (2026-11-02, 60 s of Theed: Home -22.9 LUFS, Normal -18.8,
+// Night -18.4, against the enhanced mode's -21.8, -18.7 and -18.2 on the
+// same battle; true peak at most -1.3 dBTP, so the soft clip only guards).
+export const LIGHT_LEVELS = { home: -10.2, normal: -6.1, night: -5.7 };
+
+// The light mix's speaker gains carry a voice's level and its panning, eased
+// as the engine eases a voice's level (its SMOOTH); a change of PAN_STEP
+// of the gain or less (0.009 dB) isn't sent at all.
+const LIGHT_TAU = 0.015; // s
+const PAN_STEP = 1e-3;
+// The light mix's overs: what passes full scale is clipped softly rather
+// than by the output. Unity up to -1 dBFS, then a knee that reaches full
+// scale only 6 dB over it (the shaper's input is halved, CLIP_RANGE, so
+// its curve covers +-2).
+const CLIP_KNEE = 10 ** (-1 / 20);
+const CLIP_RANGE = 2;
+let clipCurve = null;
+export function softClip(x) {
+  const a = Math.abs(x);
+  return a <= CLIP_KNEE ? x : Math.sign(x) * (CLIP_KNEE + (1 - CLIP_KNEE) * Math.tanh((a - CLIP_KNEE) / (1 - CLIP_KNEE)));
+}
+function clipShape() {
+  // An odd length puts a point at 0, so silence stays silence.
+  if (!clipCurve) clipCurve = Float32Array.from({ length: 4097 }, (_, i) => softClip(CLIP_RANGE * ((2 * i) / 4096 - 1)));
+  return clipCurve;
+}
+
+// The light mix's dynamics for a profile: its level, halved into the soft
+// clip. { input, output, nodes }; tests/audio-loudness.mjs measures through
+// the same.
+export function lightDynamics(ctx, profile) {
+  const level = ctx.createGain();
+  level.gain.value = 10 ** ((LIGHT_LEVELS[profile] ?? LIGHT_LEVELS.normal) / 20) / CLIP_RANGE;
+  const clip = new WaveShaperNode(ctx, { curve: clipShape() });
+  level.connect(clip);
+  return { input: level, output: clip, nodes: [level, clip] };
+}
 
 export class Renderer {
   constructor(ctx) {
@@ -113,13 +155,27 @@ export class Renderer {
 
   // Load the worklets, and the headphone decoder from under `root` (the
   // audio folder) when given; until then voices fall back to stereo panners.
-  load(root = null) {
+  // `config`, the settings about to be built: the light mix needs no
+  // worklet, and a context that never loads one renders on the device's own
+  // audio thread rather than handing every block across from a worklet
+  // thread. A later graph that needs them loads them then (configure).
+  load(root = null, config = null) {
     if (!this.loaded) {
-      const add = (file) => this.ctx.audioWorklet.addModule(new URL(`./worklets/${file}`, import.meta.url));
-      const worklets = Promise.all(["spatial-mixer.js", "limiter.js", "reverb.js", "meter.js", "stabilizer.js", "clarity.js"].map(add));
+      if (config) this.config = { ...this.config, ...config };
+      const worklets = this.lightFor(this.config) ? null : this.worklets();
       this.loaded = Promise.all([worklets, root ? this.loadDecoder(root) : null]).then(() => true);
     }
     return this.loaded;
+  }
+
+  worklets() {
+    if (!this.modules) {
+      const add = (file) => this.ctx.audioWorklet.addModule(new URL(`./worklets/${file}`, import.meta.url));
+      this.modules = Promise.all(["spatial-mixer.js", "limiter.js", "reverb.js", "meter.js", "stabilizer.js", "clarity.js"].map(add)).then(() => {
+        this.workletsReady = true;
+      });
+    }
+    return this.modules;
   }
 
   // The headphone decoder: per ambisonic channel, a stereo filter (left
@@ -169,9 +225,19 @@ export class Renderer {
     return mode;
   }
 
+  // Settings to build: a graph that runs worklets the light mix never
+  // loaded is built once they are (the light mix playing meanwhile), and
+  // the promise of that is returned; null when built at once.
   configure(config) {
     this.config = { ...this.config, ...config };
+    if (!this.lightFor(this.config) && !this.workletsReady) return this.worklets().then(() => this.build());
     this.build();
+    return null;
+  }
+
+  // Whether these settings are the light mix: the original, on stereo.
+  lightFor(config) {
+    return config.quality === "original" && this.resolve(config.output) === "stereo";
   }
 
   build() {
@@ -186,6 +252,10 @@ export class Renderer {
     this.layout = layout;
     this.channels = N;
     this.enhanced = enhanced;
+    // The original on stereo speakers is the light mix.
+    this.light = !enhanced && mode === "stereo";
+    this.pair = null;
+    if (this.light) return this.buildLight();
     // Headphones: the ambisonic decoder when enhanced and loaded, else an
     // HRTF panner per voice.
     this.binaural = enhanced && mode === "headphones" && Boolean(this.decoder);
@@ -386,6 +456,86 @@ export class Renderer {
     for (const b of this.beds) b.rebuild();
   }
 
+  // The original on stereo speakers, light: the game's voices summed as a
+  // PC of 2004 summed them, each a gain to each speaker carrying its level
+  // and OpenAL Soft's stereo law for its direction, so the image is the
+  // Steam build's; streams' channels at its fixed angles; the level the
+  // dynamics profile plays at, and overs clipped softly. Every node is the
+  // browser's own: no worklet runs (nothing in JavaScript on the audio
+  // thread) and there is no reverb, no decoder, no limiter's lookahead, so
+  // the audio thread spends its time on the voices themselves.
+  buildLight() {
+    const ctx = this.ctx;
+    const config = this.config;
+    const N = 2;
+    this.binaural = false;
+    this.hrtf = false;
+    this.alsoft = null;
+    this.mixer = null;
+    this.hrtfOut = null;
+    this.lfe = null;
+    this.reverb = null;
+    this.reverbIn = null;
+    this.reverbHP = null;
+    this.limiter = null;
+    this.batch.length = 0;
+    const dest = ctx.destination;
+    dest.channelCount = N;
+    dest.channelCountMode = "explicit";
+    dest.channelInterpretation = "speakers";
+    const discrete = (node, channels = N) => {
+      node.channelCount = channels;
+      node.channelCountMode = "explicit";
+      node.channelInterpretation = channels > 2 ? "discrete" : "speakers";
+      return node;
+    };
+    this.discrete = discrete;
+    const nodes = [];
+    const keep = (node) => {
+      nodes.push(node);
+      return node;
+    };
+    this.nodes = nodes;
+
+    // Every voice's two speaker gains sum into the pair, which goes into
+    // the mix with the beds, at the original's level on stereo.
+    this.mix = keep(discrete(ctx.createGain()));
+    this.mix.gain.value = 10 ** (ORIGINAL_LEVEL.stereo / 20);
+    this.pair = keep(ctx.createChannelMerger(N));
+    this.pair.connect(this.mix);
+    // No mixer slots here.
+    for (const v of this.voices) v.slot = -1;
+    for (const b of this.beds) b.slots = [];
+    this.slots = [];
+
+    let tail = this.mix;
+    if (config.mono) {
+      const fold = keep(ctx.createGain());
+      fold.channelCount = 1;
+      fold.channelCountMode = "explicit";
+      fold.channelInterpretation = "speakers";
+      tail.connect(fold);
+      const spread = keep(ctx.createChannelMerger(N));
+      fold.connect(spread, 0, 0);
+      fold.connect(spread, 0, 1);
+      tail = spread;
+    }
+    this.preDynamics = tail;
+    // The profile as a level, and the soft clip.
+    const dynamics = lightDynamics(ctx, config.dynamics);
+    dynamics.nodes.forEach(keep);
+    tail.connect(discrete(dynamics.input));
+    this.volume = keep(discrete(ctx.createGain()));
+    this.volume.gain.value = this.masterVolume ?? 1;
+    dynamics.output.connect(this.volume);
+    this.volume.connect(dest);
+    this.output = this.volume;
+    if (this.meterOn) this.meter(true);
+
+    for (const v of this.voices) v.rebuild();
+    for (const b of this.beds) b.rebuild();
+  }
+
   teardown() {
     for (const node of this.nodes || []) {
       try {
@@ -406,6 +556,10 @@ export class Renderer {
   // A loudness meter on the output (for the overlay and the tests).
   meter(on) {
     this.meterOn = on;
+    if (on && !this.workletsReady) {
+      this.worklets().then(() => this.meter(this.meterOn), () => {});
+      return;
+    }
     if (on && !this.meterNode) {
       const N = this.channels;
       const weights = this.layout.names.map((n) => (n === "LFE" ? 0 : /^(SL|SR|BL|BR|TFL|TFR|TBL|TBR)$/.test(n) ? 1.41 : 1));
@@ -460,7 +614,9 @@ export class Renderer {
 // One voice's chain after its gain: an air-and-occlusion lowpass (enhanced),
 // then a mixer slot, or an HRTF panner on headphones without the decoder,
 // or a stereo panner (a 2D voice on headphones, or out of slots); and its
-// reverb send.
+// reverb send. In the light mix, a gain to each speaker and nothing else:
+// an engine voice has no gain of its own there (attach(source, false)), and
+// its level (this.level) goes on these two with its panning.
 class VoiceOut {
   constructor(renderer, voice) {
     this.r = renderer;
@@ -468,7 +624,10 @@ class VoiceOut {
     this.slot = -1;
     this.nodes = [];
     this.source = null;
+    this.leveled = true;
+    this.level = 1;
     this.cutoff = 20000;
+    this.sides = null;
   }
 
   rebuild() {
@@ -476,6 +635,37 @@ class VoiceOut {
     const ctx = r.ctx;
     this.release();
     this.nodes = [];
+    if (r.light) {
+      this.filter = null;
+      this.send = null;
+      this.panner = null;
+      this.pan = null;
+      this.position = null;
+      this.sent = null;
+      this.entry = null;
+      this.head = null;
+      // Left and right, into the renderer's pair; the first gains a
+      // direction gives apply at once (placed).
+      this.sides = [0, 1].map((c) => {
+        const side = ctx.createGain();
+        side.gain.value = 0;
+        side.connect(r.pair, 0, c);
+        this.nodes.push(side);
+        return side;
+      });
+      this.gains = [0, 0];
+      this.levels = [0, 0];
+      this.placed = false;
+      if (this.source) this.attach(this.source, this.leveled);
+      return;
+    }
+    this.sides = null;
+    // A voice with no gain of its own (it started in the light mix) stays
+    // out of the other graphs: its engine starts it again (Voice.apply).
+    if (this.source && !this.leveled) {
+      this.source = null;
+      this.leveled = true;
+    }
     const enhanced = r.enhanced;
     let head = null;
     if (enhanced) {
@@ -547,9 +737,15 @@ class VoiceOut {
     else if (this.slot >= 0) node.connect(r.mixer, 0, this.slot);
   }
 
-  // The voice's gain node feeds this.
-  attach(node) {
+  // The voice's gain node feeds this; in the light mix the voice's source
+  // itself can (leveled false: this.level is its level).
+  attach(node, leveled = true) {
     this.source = node;
+    if (this.sides) {
+      this.leveled = leveled;
+      for (const side of this.sides) node.connect(side);
+      return;
+    }
     if (this.head) node.connect(this.head);
     else this.connectEntry(node);
     node.connect(this.send);
@@ -573,6 +769,10 @@ class VoiceOut {
       x = Math.sin(a);
       y = 0;
       z = -Math.cos(a);
+    }
+    if (this.sides) {
+      this.place(x, y, z, now);
+      return;
     }
     // Close in, a point source spreads out (and its direction means little).
     // OpenAL Soft has no spread (its sources have no radius).
@@ -604,6 +804,34 @@ class VoiceOut {
       this.filter.frequency.setTargetAtTime(Math.min(this.cutoff, r.ctx.sampleRate / 2), now, 0.03);
     }
     if (extra.send !== undefined) this.sendLevel.set(this.send.gain, extra.send, now, 0.05);
+  }
+
+  // The light mix: the level times OpenAL Soft's stereo gains for the
+  // direction, the first at once (so an attack isn't softened), then eased
+  // as the engine eases a voice's level; a change of a thousandth or less
+  // isn't sent (PAN_STEP).
+  place(x, y, z, now) {
+    const gains = alsoftStereo(x, y, z, this.gains);
+    for (let c = 0; c < 2; c++) {
+      const g = gains[c] * this.level;
+      if (!Number.isFinite(g)) continue;
+      const param = this.sides[c].gain;
+      const last = this.levels[c];
+      if (!this.placed) param.value = g;
+      else if (Math.abs(g - last) > PAN_STEP * Math.max(Math.abs(g), Math.abs(last)) || (g === 0) !== (last === 0)) param.setTargetAtTime(g, now, LIGHT_TAU);
+      else continue;
+      this.levels[c] = g;
+    }
+    this.placed = true;
+  }
+
+  // The light mix: a voice without a gain of its own fades out here (its
+  // release).
+  fade(now, tau) {
+    for (const side of this.sides || []) {
+      side.gain.cancelScheduledValues(now);
+      side.gain.setTargetAtTime(0, now, tau);
+    }
   }
 
   release() {
@@ -660,6 +888,10 @@ class BedOut {
       this.gain.disconnect();
     } catch {
       // first build
+    }
+    if (r.light && ALSOFT_STREAM_ANGLES[this.channels]) {
+      this.light();
+      return;
     }
     const layout = r.layout;
     const N = r.channels;
@@ -787,6 +1019,54 @@ class BedOut {
       to(2, rearL);
       to(3, rearR);
     }
+  }
+
+  // The light mix: each channel to both speakers by OpenAL Soft's stereo
+  // law at its angle for it, the angles ahead taken 3 times wider, in as
+  // few nodes as that takes (each one costs the audio thread every block):
+  // a stereo stream straight into the mix (its pair lands hard left and
+  // right), a mono one through one gain into both speakers alike, a quad
+  // bed's front pair straight to its own speakers and its rear pair
+  // through a gain to each.
+  light() {
+    const r = this.r;
+    const ctx = r.ctx;
+    const keep = (n) => {
+      this.nodes.push(n);
+      return n;
+    };
+    const wide = ALSOFT.stereo.streamFront;
+    const gains = ALSOFT_STREAM_ANGLES[this.channels].map((az) => {
+      const a = ((Math.abs(az) < 90 ? Math.sign(az) * Math.min(Math.abs(az) * wide, 90) : az) * Math.PI) / 180;
+      return alsoftStereo(-Math.sin(a), 0, -Math.cos(a), [0, 0]).map((g) => (Math.abs(g) < 1e-6 ? 0 : Math.abs(g - 1) < 1e-6 ? 1 : g));
+    });
+    if (gains.every(([left, right], c) => left === (c === 0 ? 1 : 0) && right === (c === 1 ? 1 : 0))) {
+      this.gain.connect(r.mix);
+      return;
+    }
+    if (this.channels === 1) {
+      // Mono into two channels plays on both alike ("speakers").
+      const both = keep(r.discrete(ctx.createGain(), 2));
+      both.gain.value = gains[0][0];
+      this.gain.connect(both);
+      both.connect(r.mix);
+      return;
+    }
+    const split = keep(ctx.createChannelSplitter(this.channels));
+    const route = keep(ctx.createChannelMerger(2));
+    this.gain.connect(split);
+    route.connect(r.mix);
+    gains.forEach((pair, from) =>
+      pair.forEach((g, c) => {
+        if (g === 1) split.connect(route, from, c);
+        else if (g) {
+          const amp = keep(ctx.createGain());
+          amp.gain.value = g;
+          split.connect(amp, from);
+          amp.connect(route, 0, c);
+        }
+      }),
+    );
   }
 
   // A light upmix for stereo music: the side (L - R) through decorrelating

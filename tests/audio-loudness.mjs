@@ -6,12 +6,14 @@
 // the master chain's dynamics, once in the enhanced mode and once in the
 // original, the same battle both times (a seeded Math.random). Each
 // recording then goes, offline, through the master chain's limiter worklet
-// with each profile, and the output is measured: integrated
-// loudness (gated), loudness range (EBU Tech 3342, from 3 s short-term
-// readings), and true peak. Targets: Home theater -24 LUFS (ASWG-R001's
-// home figure), Normal -20, Night -18, each within 2 LU; true peak at or
-// under -1 dBTP; the original and enhanced modes within 1.5 LU of each other
-// on the same profile (a fair A/B). The battle runs in the world worker,
+// with each profile (the original on stereo is the light mix: its level for
+// the profile and its soft clip, LIGHT_LEVELS), and the output is measured:
+// integrated loudness (gated), loudness range (EBU Tech 3342, from 3 s
+// short-term readings), and true peak. Targets: Home theater -24 LUFS
+// (ASWG-R001's home figure), Normal -20, Night -18, each within 2 LU; true
+// peak at or under -1 dBTP (the light mix's soft clip: at full scale); the
+// original and enhanced modes within 1.5 LU of each other on the same
+// profile (a fair A/B). The battle runs in the world worker,
 // stepped by the page's frames (tests/battle-page.mjs) at 60 a second in
 // real time; the page plays what the world's ticks send it.
 //
@@ -66,9 +68,12 @@ async function battle(quality) {
       const engine = b.audio.engine;
       const ctx = engine.ctx;
       await ctx.resume();
-      const { DYNAMICS } = await import("/src/audio/spatial.js");
+      const { DYNAMICS, LIGHT_LEVELS, lightDynamics } = await import("/src/audio/spatial.js");
       const r = engine.renderer;
       if (r.enhanced !== (quality === "enhanced") || r.mode !== "stereo") throw new Error(`renderer is ${r.enhanced ? "enhanced" : "original"} ${r.mode}`);
+      // The original on stereo is the light mix: a level per profile and
+      // a soft clip in place of the limiter.
+      const light = Boolean(r.light);
 
       // A tap on what enters the dynamics.
       const code = `class Tap extends AudioWorkletProcessor {
@@ -134,20 +139,22 @@ async function battle(quality) {
         buffer.copyToChannel(pcm[0], 0);
         buffer.copyToChannel(pcm[1], 1);
         const src = new AudioBufferSourceNode(off, { buffer });
-        const limiter = new AudioWorkletNode(off, "true-peak-limiter", {
-          numberOfInputs: 1,
-          numberOfOutputs: 1,
-          outputChannelCount: [2],
-          channelCount: 2,
-          channelCountMode: "explicit",
-          channelInterpretation: "discrete",
-          processorOptions: { ceiling: -1, release: quality === "enhanced" ? 0.08 : 0.06, dynamics: { ...DYNAMICS[profile], skip: -1 } },
-        });
+        const limiter = light
+          ? lightDynamics(off, profile)
+          : new AudioWorkletNode(off, "true-peak-limiter", {
+              numberOfInputs: 1,
+              numberOfOutputs: 1,
+              outputChannelCount: [2],
+              channelCount: 2,
+              channelCountMode: "explicit",
+              channelInterpretation: "discrete",
+              processorOptions: { ceiling: -1, release: quality === "enhanced" ? 0.08 : 0.06, dynamics: { ...DYNAMICS[profile], skip: -1 } },
+            });
         const meter = new AudioWorkletNode(off, "loudness-meter", { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 2, channelCountMode: "explicit", channelInterpretation: "discrete", processorOptions: { weights: [1, 1] } });
         const readings = [];
         meter.port.onmessage = (e) => readings.push(e.data);
-        src.connect(limiter);
-        limiter.connect(meter);
+        src.connect(light ? limiter.input : limiter);
+        (light ? limiter.output : limiter).connect(meter);
         src.start();
         await off.startRendering();
         await new Promise((res) => setTimeout(res, 300));
@@ -162,7 +169,7 @@ async function battle(quality) {
           const at = (p) => kept[Math.min(kept.length - 1, Math.max(0, Math.round(p * (kept.length - 1))))];
           lra = at(0.95) - at(0.1);
         }
-        return { profile, makeup: DYNAMICS[profile].makeup, integrated: last.integrated, lra, truePeak: Math.max(...readings.map((m) => m.truePeak)) };
+        return { profile, makeup: light ? LIGHT_LEVELS[profile] : DYNAMICS[profile].makeup, light, integrated: last.integrated, lra, truePeak: Math.max(...readings.map((m) => m.truePeak)) };
       };
       const rows = [];
       for (const profile of Object.keys(DYNAMICS)) rows.push(await measure(profile));
@@ -184,9 +191,11 @@ try {
   for (const [quality, run] of Object.entries(runs)) {
     for (const r of run.rows) {
       const target = TARGETS[r.profile];
-      const ok = Math.abs(r.integrated - target) <= 2 && r.truePeak <= -0.9;
+      // The light mix clips softly at full scale rather than limiting at
+      // -1 dBTP.
+      const ok = Math.abs(r.integrated - target) <= 2 && r.truePeak <= (r.light ? 0.5 : -0.9);
       if (!ok) failed = true;
-      console.log(`${quality.padEnd(9)} ${r.profile.padEnd(7)} ${f(r.makeup)} ${f(r.integrated)} LUFS ${f(r.lra)} LU ${f(r.truePeak)} dBTP ${String(target).padStart(4)} ${ok ? "ok" : "OFF"}`);
+      console.log(`${(r.light ? "light" : quality).padEnd(9)} ${r.profile.padEnd(7)} ${f(r.makeup)} ${f(r.integrated)} LUFS ${f(r.lra)} LU ${f(r.truePeak)} dBTP ${String(target).padStart(4)} ${ok ? "ok" : "OFF"}`);
     }
   }
   for (const profile of Object.keys(TARGETS)) {

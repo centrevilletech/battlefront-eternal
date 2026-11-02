@@ -524,11 +524,16 @@ class Voice {
     const source = ctx.createBufferSource();
     source.buffer = this.buffer;
     source.loop = this.loop;
-    const gain = ctx.createGain();
-    gain.gain.value = 0;
-    source.connect(gain);
+    // The light mix puts the voice's level on its two speaker gains, so
+    // the voice there has no gain of its own: a node less a voice, every
+    // block (src/audio/spatial.js).
+    const gain = e.renderer.light ? null : ctx.createGain();
+    if (gain) {
+      gain.gain.value = 0;
+      source.connect(gain);
+    }
     const out = e.renderer.voice(this);
-    out.attach(gain);
+    out.attach(gain || source, Boolean(gain));
     const rate = this.rate();
     source.playbackRate.value = rate;
     source.start(ctx.currentTime, Math.max(offset, 0));
@@ -564,14 +569,26 @@ class Voice {
     const raw = this.audible * e.categoryVolume(this.category) * (extra.gain ?? 1);
     const level = Number.isFinite(raw) ? raw : 0;
     const nodes = this.nodes;
-    const g = nodes.gain.gain;
-    // A voice's first gain applies at once, so its attack isn't softened.
-    if (nodes.fresh) {
-      g.setValueAtTime(level, now);
-      nodes.level.hold(level);
-      nodes.fresh = false;
+    if (!nodes.gain) {
+      // Started in the light mix, which a settings change has since put
+      // another graph in place of: it starts again there, next frame.
+      if (!nodes.out.sides) {
+        this.release(STOP_FADE);
+        this.real = false;
+        return;
+      }
+      // Its level goes on with its panning (VoiceOut.place, below).
+      nodes.out.level = level;
     } else {
-      nodes.level.set(g, level, now, SMOOTH);
+      const g = nodes.gain.gain;
+      // A voice's first gain applies at once, so its attack isn't softened.
+      if (nodes.fresh) {
+        g.setValueAtTime(level, now);
+        nodes.level.hold(level);
+        nodes.fresh = false;
+      } else {
+        nodes.level.set(g, level, now, SMOOTH);
+      }
     }
     nodes.rate.set(nodes.source.playbackRate, this.rate(), now, SMOOTH);
     extra.send = (extra.send ?? 0) * (e.renderer?.enhanced ? this.reverbGain : 1);
@@ -591,8 +608,12 @@ class Voice {
     if (!nodes) return;
     this.nodes = null;
     const now = this.engine.ctx.currentTime;
-    nodes.gain.gain.cancelScheduledValues(now);
-    nodes.gain.gain.setTargetAtTime(0, now, Math.max(fade, 1e-3) / 3);
+    if (nodes.gain) {
+      nodes.gain.gain.cancelScheduledValues(now);
+      nodes.gain.gain.setTargetAtTime(0, now, Math.max(fade, 1e-3) / 3);
+    } else {
+      nodes.out.fade(now, Math.max(fade, 1e-3) / 3);
+    }
     try {
       nodes.source.stop(now + fade + 0.01);
     } catch {
@@ -600,7 +621,7 @@ class Voice {
     }
     setTimeout(() => {
       nodes.source.disconnect();
-      nodes.gain.disconnect();
+      nodes.gain?.disconnect();
       nodes.out.dispose();
     }, (fade + 0.1) * 1000);
   }
