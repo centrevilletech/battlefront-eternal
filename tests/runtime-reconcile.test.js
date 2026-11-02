@@ -10,9 +10,12 @@ const HZ = 60;
 // on one modelled wall clock (seconds): the worker's pump runs a tick when
 // one is due and is busy for its cost (a batch holds its mail until it
 // ends, as a thread does); packets leave at the end of the batch; the page
-// stamps commands with the InputLead and the input clock. Returns what the
-// mailbox saw after the first second.
-function play({ fps = 60, seconds = 10, transit = 0.001, cost = () => 0.003, late = 0, lock = 0, recover = false, rtt = 0, lossEvery = 0 } = {}) {
+// stamps commands with the InputLead and the input clock. `stall` ({ at,
+// length } seconds) holds the page still a while (a long frame): the
+// packets that come meanwhile wait for it, and the browser draws its next
+// frame before it has taken them all (the first half, taken then). Returns
+// what the mailbox saw after the first second.
+function play({ fps = 60, seconds = 10, transit = 0.001, cost = () => 0.003, late = 0, lock = 0, recover = false, rtt = 0, lossEvery = 0, stall = null } = {}) {
   const mailbox = new InputMailbox(1), worker = new FixedClock({ maxSteps: 4 });
   const lead = new InputLead({ recover }), input = new FixedClock();
   const toWorker = [], toPage = [];
@@ -39,17 +42,20 @@ function play({ fps = 60, seconds = 10, transit = 0.001, cost = () => 0.003, lat
         if (mailbox.late > before) { lateSeen += mailbox.late - before; if (t > 1) lateAfterWarmup += mailbox.late - before; }
       }
     }
-    if (t >= nextFrame) {
+    const stalled = stall && t >= stall.at && t < stall.at + stall.length;
+    if (stalled) nextFrame = Math.max(nextFrame, stall.at + stall.length);
+    if (t >= nextFrame && !stalled) {
       const frameDt = 1 / fps;
       nextFrame += frameDt;
-      while (toPage.length && toPage[0].at !== null && toPage[0].at <= t) {
+      const end = stall ? stall.at + stall.length : 0, first = stall && t >= end && t < end + frameDt;
+      while (toPage.length && toPage[0].at !== null && toPage[0].at <= (first ? stall.at + stall.length / 2 : t)) {
         const packet = toPage.shift();
-        latest = packet.tick; lead.arrive(packet.tick, packet.at, 0);
+        latest = packet.tick; lead.arrive(packet.tick, stall && packet.at >= stall.at && packet.at < end ? t : packet.at, 0);
         // Only the consumed watermark has an execution tick. Earlier
         // commands may have been superseded or lost, never executed late.
         while (pending.length && pending[0].sequence <= packet.ack) {
           const c = pending.shift();
-          if (c.sequence === packet.ack) lead.acknowledge(packet.ackTick - c.tick);
+          if (c.sequence === packet.ack) lead.acknowledge(packet.ackTick - c.tick, 1, c.capped);
         }
       }
       const target = lead.target(t, latest, rtt);
@@ -58,7 +64,7 @@ function play({ fps = 60, seconds = 10, transit = 0.001, cost = () => 0.003, lat
       advanceInputClock(input, target, frameDt, (h, tick) => {
         if (lastStamp && tick > lastStamp + 1 && t > 1) skipped += tick - lastStamp - 1;
         lastStamp = tick;
-        const command = { epoch: 1, generation: 1, sequence: ++sequence, tick, down: ['KeyW'], actions: [], look: [] };
+        const command = { epoch: 1, generation: 1, sequence: ++sequence, tick, down: ['KeyW'], actions: [], look: [], capped: lead.capped };
         pending.push(command);
         if (!lossEvery || sequence % lossEvery) toWorker.push({ at: t + transit, command });
       }, latest + lead.maxLead + 7, { lock });
@@ -157,6 +163,25 @@ test('bunched downstream arrivals cannot push the lead far past the round trip',
   // packet seen; the stamp needs that much. What it must not add is the
   // whole hole again as slack (the old measure put this near 16).
   assert.ok(lead.lead <= 9.5, `lead ${lead.lead} ticks at 18 ms round trip`);
+});
+
+test('a page that stalls stamps its next commands at the cap, and their lateness leaves the margin as it was', () => {
+  // Half a second to two seconds still: its next frame stamps against a
+  // newest tick far behind the world, held there by the cap, and those
+  // commands land late. No margin could have moved them.
+  for (const length of [0.6, 1.2, 1.8]) {
+    const r = play({ fps: 30, seconds: 30, stall: { at: 5, length } });
+    assert.ok(r.lateSeen > 0, `the ${length} s stall made commands late`);
+    assert.equal(r.lead.extra, 0, `no margin left raised after a ${length} s stall`);
+    assert.ok(r.lead.lead <= 4, `lead ${r.lead.lead} back to the steady stream's after a ${length} s stall`);
+  }
+  // A late command the margin stamped still raises it.
+  const lead = new InputLead();
+  lead.acknowledge(5, 1, true);
+  assert.equal(lead.extra, 0, 'capped: the margin stays');
+  lead.acknowledge(5, 1, false);
+  assert.equal(lead.extra, 5, 'stamped by the margin: raised');
+  assert.equal(lead.late, 2, 'both counted late');
 });
 
 test('a transient upstream stall sheds its extra lead without pausing input production', () => {

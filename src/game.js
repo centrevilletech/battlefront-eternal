@@ -2607,8 +2607,9 @@ async function start() {
       lead: new InputLead(params.has("network") ? { maxLead: 24, extrapolate: true, recover: true } : {}), target: 0, held: [], heldGeneration: 0,
       // Online, lateness is measured from the server's input-ack (the tick a
       // command actually ran, against the stamp below), not from the 20 Hz
-      // correction that later retires it.
-      commandStamps: new Map(), leadAck: 0, leadAckTick: 0, leadDropped: 0, entityReceiptAt: 0,
+      // correction that later retires it. The stamps the lead's cap set
+      // are kept apart: their lateness is the cap's (reconcile.js acknowledge).
+      commandStamps: new Map(), cappedStamps: new Set(), leadAck: 0, leadAckTick: 0, leadDropped: 0, entityReceiptAt: 0,
       predictionWindow: new PredictionWindow(), remoteReplay: new RemotePredictionContext(), vehicleWindow: new PredictionWindow(), continuationState: new Map(),
       vehicleSmoother: new CorrectionSmoother({ snap: 3, tau: .05 }),
       smoother: new CorrectionSmoother({ snap: 2.5, tau: .05 }), predictedTick: 0, predictedPosition: new THREE.Vector3(),
@@ -2709,10 +2710,10 @@ async function start() {
         // goes through arrive(), which resets the estimator's window.
         if (ack.generation === playerUnit.generation && ack.ack > client.leadAck) {
           const stamp = client.commandStamps.get(ack.ack);
-          if (stamp !== undefined) client.lead.acknowledge(Math.max(0, ack.ackTick - stamp), client.leadAckTick ? ack.serverTick-client.leadAckTick : 1);
+          if (stamp !== undefined) client.lead.acknowledge(Math.max(0, ack.ackTick - stamp), client.leadAckTick ? ack.serverTick-client.leadAckTick : 1, client.cappedStamps.has(ack.ack));
           client.leadAckTick = ack.serverTick;
           client.leadAck = ack.ack;
-          for (const sequence of client.commandStamps.keys()) if (sequence <= ack.ack) client.commandStamps.delete(sequence);
+          for (const sequence of client.commandStamps.keys()) if (sequence <= ack.ack) { client.commandStamps.delete(sequence); client.cappedStamps.delete(sequence); }
         }
         if (Number.isSafeInteger(ack.dropped) && ack.dropped !== client.leadDropped) {
           client.leadDropped = ack.dropped;
@@ -2760,7 +2761,7 @@ async function start() {
         client.pendingActions.length = 0;
         client.inputClock.rebase();
         client.playout.reset();
-        client.lead.reset(); client.commandStamps.clear(); client.leadAck = 0; client.leadAckTick = 0; client.leadDropped = 0; client.smoother.reset(); client.predictedTick = 0;
+        client.lead.reset(); client.commandStamps.clear(); client.cappedStamps.clear(); client.leadAck = 0; client.leadAckTick = 0; client.leadDropped = 0; client.smoother.reset(); client.predictedTick = 0;
         presentation.reset();
         client.playerAlpha = 1;
         previewYaw = previewPitch = 0;
@@ -2793,7 +2794,8 @@ async function start() {
       inputTrace?.command(command);
       {
         client.commandStamps.set(command.sequence, command.tick);
-        while (client.commandStamps.size > 512) client.commandStamps.delete(client.commandStamps.keys().next().value);
+        if (client.lead.capped) client.cappedStamps.add(command.sequence);
+        while (client.commandStamps.size > 512) { const oldest = client.commandStamps.keys().next().value; client.commandStamps.delete(oldest); client.cappedStamps.delete(oldest); }
       }
       if (discreteActions(command).length || command.human?.length) {
         // A spun mouse wheel outruns the server's results: the oldest gives
