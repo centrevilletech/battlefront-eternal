@@ -83,7 +83,7 @@ impl BfeRenderer {
     // The phases (renderer.rs). Each returns its stats: [world draws,
     // instanced draws, instances, program switches, GL calls], then each
     // pass's draws in pass order (world, instances, far, terrain,
-    // transparent, effects, foliage, view, post).
+    // transparent, effects, foliage, view, post, hud, water).
     pub fn far_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.far_frame().map_err(|e| JsValue::from_str(&e))?.values())
     }
@@ -98,5 +98,9 @@ impl BfeRenderer {
     }
     pub fn post_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.post_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    // records: how many the page wrote for the mirror's camera.
+    pub fn mirror_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.mirror_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
 }

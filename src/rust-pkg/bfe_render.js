@@ -337,6 +337,19 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} records
+     * @returns {Uint32Array}
+     */
+    mirror_frame(records) {
+        const ret = wasm.bferenderer_mirror_frame(this.__wbg_ptr, records);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @param {WebGL2RenderingContext} context
      */
     constructor(context) {
