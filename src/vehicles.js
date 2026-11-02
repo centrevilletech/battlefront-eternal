@@ -1,4 +1,4 @@
-import { poseFlightGear, poseGearAt, gearFoot } from './flight/gear.js';
+import { poseFlightGear, poseGearAt, gearFoot, ownGear } from './flight/gear.js';
 import { updateFlightTarget, assistShot } from './flight/targeting.js';
 import { abandonLift, initFlight, stepFlight, standHeight } from './flight/model.js';
 import { groundMotion } from './vehicle-motion.js';
@@ -1561,9 +1561,20 @@ export class Vehicle {
   // dt is 0 on a page showing a worker's battle). Its effects and sounds
   // are the page's, from the hull's state (src/vehicle-effects.js,
   // src/audio/vehicles.js).
-  render(alpha, dt) {
+  //
+  // ticked: aimTick has just posed the hull at this alpha (Vehicles.update).
+  // A craft in flight whose flight this host steps, with no walk pose and
+  // no legs, is then drawn as aimTick posed it: its root has no bob, its
+  // gear is posed at its own, its seats from the same angles, and nothing
+  // else of it moves; only its barrels' kick, on the clock, is read again.
+  render(alpha, dt, ticked = false) {
     if (!this.alive) return;
     if (dt > 0 && this.sleeping && !this.repulsor && !this.occupied && !this.pose && this.health >= this.maxHealth * .35) return;
+    if (ticked && this.flying && !this.pose && !this.def.fx?.legs && ownGear(this)) {
+      this.recoilBarrels();
+      for (const seat of this.seats) for (const w of seat.weapons) for (const m of w.muzzles) if (m.barrel && m.rest) m.barrel.updateMatrixWorld(true);
+      return;
+    }
     this.placeRoot(alpha);
     this.feelLegs(dt);
     this.applyPose();
@@ -1651,13 +1662,15 @@ export class Vehicle {
         // the same chain to the same matrix again.
         bone.parent.updateWorldMatrix(true, false);
         const parentWorld = bone.parent.matrixWorld;
-        if (target) s.v.copy(target).applyMatrix4(TO_LOCAL.copy(parentWorld).invert()).sub(bone.position).applyQuaternion(s.q.copy(rest).invert());
-        // Nothing to aim at: along the seat's aim.
-        else {
-          parentWorld.decompose(DECOMPOSED_AT, s.q, DECOMPOSED_SCALE);
-          aimVector(seat.aimYaw, seat.pitch, s.v).applyQuaternion(s.q.multiply(rest).invert());
-        }
         if (dt > 0) {
+          // Where to turn, in the node's rest frame: the target (only a
+          // turn reads it; a pose with no time, dt 0, keeps the angles).
+          if (target) s.v.copy(target).applyMatrix4(TO_LOCAL.copy(parentWorld).invert()).sub(bone.position).applyQuaternion(s.q.copy(rest).invert());
+          // Nothing to aim at: along the seat's aim.
+          else {
+            parentWorld.decompose(DECOMPOSED_AT, s.q, DECOMPOSED_SCALE);
+            aimVector(seat.aimYaw, seat.pitch, s.v).applyQuaternion(s.q.multiply(rest).invert());
+          }
           // As the 2004 game's aimer turns: the
           // shorter way round toward the target at its rate, then held
           // inside its limits (0..2pi for an arc round the back), so a
@@ -2078,7 +2091,7 @@ export class Vehicles {
     // The tick's pose in both hosts; the drawn one only where something
     // is drawn (a world worker leaves it to the page showing it).
     for (const v of this.vehicles) v.aimTick(v.flying ? 1 : this.tickAlpha, dt);
-    if (this.cosmetic !== false) for (const v of this.vehicles) v.render(v.flying ? 1 : this.tickAlpha, dt);
+    if (this.cosmetic !== false) for (const v of this.vehicles) v.render(v.flying ? 1 : this.tickAlpha, dt, true);
     this.presented = false;
     this.fireCrews(dt);
     this.updateTethers();
