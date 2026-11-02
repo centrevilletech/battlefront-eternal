@@ -7,6 +7,9 @@ const BLOCKER_POLYGONS = 0x70000000;
 // A gather finding more polygons than this files them in a PolygonIndex
 // (polygon()).
 const GROUP_SCAN = 16;
+// The ray kernel's answers for no hit and a terrain hit (rust/rays MISS and
+// TERRAIN); a body's slot is 0 or more, and -1 the buildings.
+const RAY_MISS = -2, RAY_TERRAIN = -3;
 
 // The current gather's polygons past GROUP_SCAN of them, by polygon number:
 // open addressing over typed arrays, emptied by moving on to the next stamp,
@@ -66,8 +69,11 @@ function empty(list) {
 // Bodies are collision that comes and goes (a turret built on its pad, a
 // droid's wreck): each is tested with the buildings while enabled, and a ray
 // that hits one says which.
+//
+// rays: a RayKernel (src/ray-kernel.js) to answer cast, castMoving and the
+// ground's ray in WebAssembly, with the same answers; null for JavaScript.
 export class CollisionWorld {
-  constructor(positions, indices, polygons, terrainPositions, terrainIndices) {
+  constructor(positions, indices, polygons, terrainPositions, terrainIndices, rays = null) {
     this.bvh = buildBVH(positions, indices);
     this.polygonOf = polygons;
     this.positions = positions;
@@ -150,6 +156,44 @@ export class CollisionWorld {
         return this.nearest.distanceToSquared(this.overlapCenter) < this.overlapRadiusSq;
       },
     };
+    this.rays = rays;
+    if (rays) {
+      this.rayGrid = this.terrainGrid ? rays.grid(this.terrainGrid) : -1;
+      this.rayWorld = rays.world(rays.tree(this.bvh), this.terrain ? rays.tree(this.terrain) : -1, this.rayGrid);
+      // The bodies' order the module last had (bodiesVersion).
+      this.rayOrder = -1;
+      this.rayGround = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
+    }
+  }
+
+  // A body's copy in the ray kernel: its tree, and its place (a moving
+  // body's as it moves, in moveBody).
+  rayBody(body, moving) {
+    body.raySlot = this.rays.body(body, moving);
+    if (!moving) this.rays.place(body.raySlot, body.bounds, null, null);
+  }
+
+  // The ray kernel's list of bodies, when bodies came or went since.
+  rayBodies() {
+    if (this.rayOrder === this.bodiesVersion) return;
+    this.rays.order(this.rayWorld, this.bodies);
+    this.rayOrder = this.bodiesVersion;
+  }
+
+  // The bodies the cast whose ray is in the kernel must try (its own tests:
+  // the ignored body, static-only, moving-only, bounds), and whether each is
+  // enabled now. Props, traps and hulls switch bodies on and off by setting
+  // `enabled`, a plain field the kernel cannot see, so it is read here for
+  // these few. (An accessor that told the kernel would give each body its
+  // own hidden class, and slow every loop over bodies down.)
+  rayCandidates(ignoreBody, staticOnly, movingOnly) {
+    const rays = this.rays, bodies = this.bodies;
+    const count = rays.x.world_candidates(this.rayWorld, ignoreBody?.raySlot ?? -1, staticOnly ? 1 : 0, movingOnly ? 1 : 0);
+    if (count) {
+      const candidates = rays.candidates(), enabled = rays.flags();
+      for (let c = 0; c < count; c++) enabled[c] = bodies[candidates[c]].enabled ? 1 : 0;
+    }
+    return count;
   }
 
   // A body from triangles (indices into positions) and each triangle's
@@ -168,6 +212,7 @@ export class CollisionWorld {
     body.bounds = body.bvh.getBoundingBox(new THREE.Box3());
     this.bodies.push(body);
     this.bodiesVersion++;
+    if (this.rays) this.rayBody(body, false);
     return body;
   }
 
@@ -184,6 +229,7 @@ export class CollisionWorld {
       enabled: true, moving: true, owner };
     this.bodies.push(body);
     this.bodiesVersion++;
+    if (this.rays) this.rayBody(body, true);
     this.moveBody(body, matrix);
     return body;
   }
@@ -192,6 +238,7 @@ export class CollisionWorld {
     body.matrix.copy(matrix);
     body.inverse.copy(matrix).invert();
     body.bounds.copy(body.localBounds).applyMatrix4(matrix);
+    if (this.rays && body.raySlot !== undefined) this.rays.place(body.raySlot, body.bounds, body.matrix, body.inverse);
   }
 
   removeBody(body) {
@@ -204,6 +251,7 @@ export class CollisionWorld {
   // Test only moving objects over a projectile's current flight segment.
   // Static impacts remain precomputed; a moving target is never snapshotted.
   castMoving(origin, direction, far, out, ignoreBody = null) {
+    if (this.rays) return this.rayCastMoving(origin, direction, far, out, ignoreBody);
     this.ray.set(origin, direction);
     let closest = far;
     let found = false;
@@ -436,7 +484,7 @@ export class CollisionWorld {
     cached.x = x; cached.z = z; cached.top = top;
     this.ray.origin.set(x, top, z);
     this.ray.direction.copy(this.down);
-    const hit = this.terrainGrid.raycastFirst(this.ray, Infinity);
+    const hit = this.rays ? this.rayGroundHit() : this.terrainGrid.raycastFirst(this.ray, Infinity);
     cached.hit = Boolean(hit);
     if (!hit) return null;
     out.height = hit.point.y;
@@ -472,6 +520,7 @@ export class CollisionWorld {
   // and `body` which body, if one was. A firing turret can exclude its own
   // live body without excluding nearby architecture or other turrets.
   cast(origin, direction, far, out, ignoreBody = null, staticOnly = false) {
+    if (this.rays) return this.rayCast(origin, direction, far, out, ignoreBody, staticOnly);
     this.ray.origin.copy(origin);
     this.ray.direction.copy(direction);
     let hit = this.bvh.raycastFirst(this.ray, THREE.DoubleSide, 0, far);
@@ -504,6 +553,58 @@ export class CollisionWorld {
     }
     if (out.normal.dot(direction) > 0) out.normal.negate();
     return out;
+  }
+
+  // cast, in the ray kernel: `out` and the world's ray as cast leaves them.
+  // `far` must be a number, as every caller's is (the JavaScript would take
+  // an undefined one as Infinity; the kernel's slot would hold NaN).
+  rayCast(origin, direction, far, out, ignoreBody, staticOnly) {
+    this.ray.origin.copy(origin);
+    this.ray.direction.copy(direction);
+    this.rayBodies();
+    const rays = this.rays, io = rays.view();
+    io[0] = origin.x; io[1] = origin.y; io[2] = origin.z;
+    io[3] = direction.x; io[4] = direction.y; io[5] = direction.z;
+    // castTerrain's choice of grid or tree reads Math.hypot, V8's own.
+    io[6] = far; io[7] = Math.hypot(direction.x, direction.z);
+    const code = rays.x.world_cast(this.rayWorld, this.rayCandidates(ignoreBody, staticOnly, false));
+    out.body = null;
+    if (code === RAY_MISS) { out.terrain = false; return null; }
+    out.terrain = code === RAY_TERRAIN;
+    if (code >= 0) out.body = rays.bodies[code];
+    out.distance = io[10];
+    out.point.set(io[11], io[12], io[13]);
+    out.normal.set(io[14], io[15], io[16]);
+    return out;
+  }
+
+  // castMoving, in the ray kernel.
+  rayCastMoving(origin, direction, far, out, ignoreBody) {
+    this.ray.set(origin, direction);
+    this.rayBodies();
+    const rays = this.rays, io = rays.view();
+    io[0] = origin.x; io[1] = origin.y; io[2] = origin.z;
+    io[3] = direction.x; io[4] = direction.y; io[5] = direction.z;
+    io[6] = far;
+    const code = rays.x.world_cast_moving(this.rayWorld, this.rayCandidates(ignoreBody, false, true));
+    if (code === RAY_MISS) return null;
+    out.point.set(io[11], io[12], io[13]);
+    out.normal.set(io[14], io[15], io[16]);
+    out.distance = io[10]; out.body = rays.bodies[code]; out.terrain = false;
+    return out;
+  }
+
+  // The terrain grid's first hit along the world's ray (ground), in the ray
+  // kernel, as { distance, point, normal } the next call reuses.
+  rayGroundHit() {
+    const io = this.rays.view(), o = this.ray.origin, d = this.ray.direction;
+    io[0] = o.x; io[1] = o.y; io[2] = o.z; io[3] = d.x; io[4] = d.y; io[5] = d.z; io[6] = Infinity;
+    if (!this.rays.x.grid_ray(this.rayGrid)) return null;
+    const hit = this.rayGround;
+    hit.distance = io[10];
+    hit.point.set(io[11], io[12], io[13]);
+    hit.normal.set(io[14], io[15], io[16]);
+    return hit;
   }
 }
 

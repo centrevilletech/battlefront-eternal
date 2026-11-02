@@ -394,12 +394,16 @@ async function start() {
     if (hurt > 0) health.damage(hurt);
   };
   const groundPositions = new Float32Array(groundBuf);
+  // ?rays=wasm: the collision's ray casts in WebAssembly (src/ray-kernel.js),
+  // with the same answers as its JavaScript, the default.
+  const rays = params.get("rays") === "wasm" ? await (await import("./ray-kernel.js")).loadRayKernel() : null;
   const collision = new CollisionWorld(
     new Float32Array(collBuf),
     new Uint32Array(collIndexBuf),
     new Uint32Array(collPolyBuf),
     groundPositions,
     new Uint32Array(groundIndexBuf),
+    rays,
   );
   // Below the battlefield: KILL_Y, or 10 m under the lowest ground where the
   // ground lies lower (Naboo Plains runs from -95 m down to -140 m, its posts'
