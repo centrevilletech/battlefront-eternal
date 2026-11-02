@@ -1,8 +1,9 @@
 // The collision world's queries in WebAssembly (rust/rays), for
 // CollisionWorld's cast, castMoving, ground, gather, overlapsSphere and
-// terrainNear when a battle asks for them (?rays=wasm). The JavaScript in
-// src/collision.js stays the default; the module answers every query as it
-// does, to the last bit (rust/rays says how).
+// terrainNear: in the offline world worker unless its battle's query says
+// rays=js, and on a page or a dedicated server when asked (?rays=wasm,
+// BFE_RAYS=wasm). The module answers every query as the JavaScript in
+// src/collision.js does, to the last bit (rust/rays says how).
 //
 // The module holds copies of what the queries read: each tree's packed nodes
 // from three-mesh-bvh, its triangles' corners, index and indirect buffers

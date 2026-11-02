@@ -101,7 +101,7 @@ async function loadRays() {
   }
 }
 
-export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, rays: raysDefault = null } = {}) {
+export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, rays: raysDefault = null, movement: movementDefault = null } = {}) {
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
 const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
 const params = new URLSearchParams(query);
@@ -408,11 +408,12 @@ async function start() {
   // The collision's queries in WebAssembly (src/ray-kernel.js), with the
   // same answers as its JavaScript: ?rays=wasm or ?rays=js decides; else
   // the caller's default (rays), then, under Node (a dedicated server),
-  // BFE_RAYS=wasm in its environment; else JavaScript. ?movement=wasm: the
-  // soldiers' movement there too (src/movement-kernel.js), the world's
-  // ticks and the page's replay of his own soldier alike; it brings the ray
-  // kernel with it.
-  const movement = params.get("movement") === "wasm";
+  // BFE_RAYS=wasm in its environment; else JavaScript. ?movement=wasm or
+  // ?movement=js (else JavaScript after ?rays=js, else the caller's
+  // default): the soldiers' movement there too (src/movement-kernel.js),
+  // the world's ticks and the page's replay of his own soldier alike; it
+  // brings the ray kernel with it.
+  const movement = (params.get("movement") ?? (params.get("rays") === "js" ? "js" : movementDefault)) === "wasm";
   const rays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm" ? await loadRays() : null;
   const collision = new CollisionWorld(
     new Float32Array(collBuf),

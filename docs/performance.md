@@ -579,8 +579,9 @@ logic, the battle, snapshot capture) is logic over the battle's objects.
 The rays are the largest of the four, and they come from all over the step:
 a flyer's sweep and landing probes, a seat's aim, line-of-sight tests, a
 soldier's steps and ground, rounds in flight. `rust/rays` computes them, and
-the sphere queries after them, in Rust compiled to WebAssembly, for a battle
-whose query has `rays=wasm`. The JavaScript stays the default.
+the sphere queries after them, in Rust compiled to WebAssembly: in the
+offline world worker unless the battle's query has `rays=js`, and on a page
+or a dedicated server when asked (`rays=wasm`, `BFE_RAYS=wasm`).
 
 ### What it computes, and how it is loaded
 
@@ -827,6 +828,27 @@ these settings and the module's memory lies outside the JavaScript heap.
 Why is not known yet; it matters before the page's replay runs in the
 module. The page therefore keeps the JavaScript unless its query asks.
 
+As shipped (the offline world worker with the collision's module and the
+soldiers' movement in it by default, the page in JavaScript), against
+everything in JavaScript (`rays=js&movement=js`), on the emulated laptop
+(one build, the same recordings):
+
+| | Naboo Plains, JS | default | Dune Sea, JS | default | Bespin Platforms, JS | default | Hoth, JS | default |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Recordings | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 |
+| World step, mean ms | 9.8 | 9.2 | 23.7 | 16.6 | 18.9 | 14.5 | 17.9 | 14.9 |
+| Median, ms | 8.8 | 8.2 | 23.4 | 16.1 | 18.1 | 13.8 | 16.9 | 14.3 |
+| 90th percentile, ms | 15.1 | 14.6 | 33.4 | 23.3 | 26.6 | 20.6 | 25.8 | 21.6 |
+| Ticks a second | 60.0 | 60.0 | 41.2 | 55.6 | 51.0 | 58.8 | 53.2 | 58.1 |
+| Gaps between ticks over 40 ms | 4.0 | 2.5 | 49.5 | 13.0 | 30.5 | 16.5 | 16.5 | 11.5 |
+| Frames the playout clock waited | 41 | 29 | 425 | 164 | 262 | 76 | 209 | 88 |
+| Frames a second (page) | 26.2 | 26.7 | 26.2 | 27.0 | 31.3 | 31.1 | 26.7 | 26.3 |
+
+The world's step is 7 to 31% shorter at the median (Dune Sea now keeps 56
+ticks a second instead of 41, Bespin Platforms 59 instead of 51, Hoth 58
+instead of 53), and the page, in JavaScript either way, drew the same frames
+a second within 0.8.
+
 ### On a dedicated server
 
 bfeserver runs the same world in Node: its world thread calls the engine's
@@ -1070,8 +1092,9 @@ the page about half of what the replay cost.
 `rust/rays/src/movement` runs the whole tick in the ray kernel's module, for a
 battle whose query has `movement=wasm` (which loads the ray kernel with it):
 the world worker's ticks (and a dedicated server's) and the page's replay
-alike, each with its own instance of the module. The JavaScript stays the
-default.
+alike, each with its own instance of the module. The offline world worker
+uses it unless the battle's query has `movement=js` or `rays=js`; a page and
+a dedicated server keep the JavaScript unless asked.
 
 ### What it computes, and how it is called
 
