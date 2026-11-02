@@ -35,7 +35,7 @@ for(let tick=1;tick<=180;tick++){
 const a=game.vehicles.vehicles.find(v=>v.flying&&/tie/i.test(v.name));assert.ok(a);for(const occupant of game.units.all())if(occupant.seat?.vehicle===a)game.vehicles.unboard(occupant,{force:true,placement:false});assert.ok(game.vehicles.board(u,a));a.driver={};a.seatIndex=0;a.captureTick();const initial=predictionVehicle(a);let b,flightBytes=0;
 for(let tick=1;tick<=300;tick++){
  const input={takeoff:tick===1,forward:tick<220?1:-1,stickX:tick>160?.1:0};u.intent.flight=input;a.captureTick();a.tick(1/60,input);
- if(tick===90){b=predictionVehicle(initial);target.seat={vehicle:b,index:0};const r=captureOwnPlayer({unit:u,vehicle:a,vehicleId:99,vehicleGeneration:1,tick:tick+180,epoch:1,registry,classId:1,held:['KeyW'],view});const p=encodeEntityPacket({epoch:1,packetId:2,tick:tick+180,records:[r]});flightBytes=p.length;applyOwnPlayer({unit:target,vehicle:b,vehicleId:99,vehicleGeneration:1,epoch:1,registry,record:decodeEntityPacket(p).records[0],previous:context});}
+ if(tick===90){b=predictionVehicle(initial);target.seat={vehicle:b,index:0};const r=captureOwnPlayer({unit:u,vehicle:a,vehicleId:a.aiTarget.id,vehicleGeneration:a.aiTarget.generation,tick:tick+180,epoch:1,registry,classId:1,held:['KeyW'],view});const p=encodeEntityPacket({epoch:1,packetId:2,tick:tick+180,records:[r]});flightBytes=p.length;applyOwnPlayer({unit:target,vehicle:b,vehicleId:a.aiTarget.id,vehicleGeneration:a.aiTarget.generation,epoch:1,registry,record:decodeEntityPacket(p).records[0],previous:context});}
  else if(b){b.captureTick();b.tick(1/60,input);}
  if(b)assert.deepEqual(captureFlightCorrection(b),captureFlightCorrection(a),`owned TIE envelope replay${tick}`);
 }
