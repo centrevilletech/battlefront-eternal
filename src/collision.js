@@ -4,8 +4,50 @@ import { MeshBVH } from "./mesh-bvh.js";
 // Polygon numbers of the vehicle-only barriers, apart from the buildings'
 // and the bodies'.
 const BLOCKER_POLYGONS = 0x70000000;
-// A gather finding more polygons than this files them in a Map (polygon()).
+// A gather finding more polygons than this files them in a PolygonIndex
+// (polygon()).
 const GROUP_SCAN = 16;
+
+// The current gather's polygons past GROUP_SCAN of them, by polygon number:
+// open addressing over typed arrays, emptied by moving on to the next stamp,
+// so a gather makes nothing. A Map did this, and once a full collection had
+// moved it to the old generation, every table it grew or was cleared to was
+// made there too: several a tick, growing to 64 entries, garbage only the
+// next full collection takes.
+class PolygonIndex {
+  constructor(bits = 8) { this.stamp = 1; this.allocate(bits); }
+  allocate(bits) {
+    const size = 1 << bits;
+    this.bits = bits; this.mask = size - 1; this.count = 0;
+    this.ids = new Float64Array(size); this.at = new Int32Array(size); this.stamps = new Uint32Array(size);
+  }
+  clear() {
+    this.count = 0;
+    if (++this.stamp > 0xffffffff) { this.stamps.fill(0); this.stamp = 1; }
+  }
+  // The slot holding `id`, or the free slot it would take.
+  slot(id) {
+    let h = Math.imul(id >>> 0, 0x9e3779b1) >>> (32 - this.bits);
+    while (this.stamps[h] === this.stamp && this.ids[h] !== id) h = (h + 1) & this.mask;
+    return h;
+  }
+  // The list position filed under `id`, or -1.
+  get(id) {
+    const h = this.slot(id);
+    return this.stamps[h] === this.stamp ? this.at[h] : -1;
+  }
+  set(id, at) {
+    if (2 * (this.count + 1) > this.mask + 1) this.grow();
+    const h = this.slot(id);
+    if (this.stamps[h] !== this.stamp) { this.stamps[h] = this.stamp; this.ids[h] = id; this.count++; }
+    this.at[h] = at;
+  }
+  grow() {
+    const { ids, at, stamps, stamp } = this;
+    this.allocate(this.bits + 1);
+    for (let i = 0; i < ids.length; i++) if (stamps[i] === stamp) this.set(ids[i], at[i]);
+  }
+}
 
 // Empties a list kept for reuse. Setting its length to 0 is a runtime call
 // even on an empty list, and drops its storage for the next push to
@@ -48,7 +90,7 @@ export class CollisionWorld {
     this.polygonPool = [];
     this.polygonUsed = 0;
     // The gather's polygons by number once its list is long (polygon()).
-    this.groups = new Map();
+    this.groups = new PolygonIndex();
     this.grouped = false;
     this.list = [];
     this.bodies = [];
@@ -225,17 +267,17 @@ export class CollisionWorld {
   // The current gather's record of polygon `id` (a new one, at the end of
   // the list, the first time). A gather finds few polygons, and a
   // polygon's triangles come together, so the list is searched from its
-  // end; past GROUP_SCAN polygons a Map takes over, cleared only after a
-  // gather that used it.
+  // end; past GROUP_SCAN polygons an index of their places in the list takes
+  // over, emptied only after a gather that used it.
   polygon(id, moving) {
     const list = this.list;
     if (this.grouped) {
-      const found = this.groups.get(id);
-      if (found) return found;
+      const at = this.groups.get(id);
+      if (at >= 0) return list[at];
     } else {
       for (let i = list.length - 1; i >= 0; i--) if (list[i].id === id) return list[i];
       if (list.length >= GROUP_SCAN) {
-        for (const polygon of list) this.groups.set(polygon.id, polygon);
+        for (let i = 0; i < list.length; i++) this.groups.set(list[i].id, i);
         this.grouped = true;
       }
     }
@@ -246,7 +288,7 @@ export class CollisionWorld {
     polygon.done = false;
     polygon.moving = moving;
     list.push(polygon);
-    if (this.grouped) this.groups.set(id, polygon);
+    if (this.grouped) this.groups.set(id, list.length - 1);
     return polygon;
   }
 

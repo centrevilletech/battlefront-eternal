@@ -4,6 +4,9 @@ import { Vector3, Scene } from 'three';
 import { Units } from '../src/registry.js';
 import { Ordnance } from '../src/ordnance.js';
 import { HitHistory } from '../src/runtime/hit-history.js';
+import { makeUnitHit, segmentShape, segmentSphere, shapeNormal, strikeable } from '../src/registry.js';
+import { networkShotFor } from '../src/runtime/network-shot-aim.js';
+import { rewindBudgetTicks } from '../src/runtime/hit-history.js';
 
 function fixture({wall=Infinity,targetZ=8}={}) {
   const units=new Units();
@@ -163,4 +166,151 @@ test('the rewind clamp is per client: round trip plus input lead plus playout ma
  assert.equal(f.history.shotTick(f.shooter),32,'the default budget is held to the 48 ticks kept');
  f.shooter.networkShot={viewTick:70};
  assert.equal(f.history.shotTick(f.shooter),70,'a view inside the budget is used as claimed');
+});
+
+// The history's records are pools filled from the front, so bodies coming
+// and going and changing shape make no garbage. The truncating history it
+// replaced is kept below as the oracle: over a battle of bodies that live,
+// die, respawn, teleport, ride and change shape count and kind, both answer
+// every ray, rewound tick and position alike, at whole and fractional ticks.
+const MAX_INTERPOLATION_STEP = 2.5;
+class TruncatingHistory {
+  constructor(units, maxTicks=48) {
+    this.units=units;this.maxTicks=maxTicks;this.tick=-1;
+    this.frames=Array.from({length:maxTicks+1},()=>({tick:-1,entries:[],byUnit:new Map()}));
+    this.interpolated={tick:-1,entries:[]};this.sampledAt=-1;
+  }
+  capture(tick) {
+    const frame=this.frames[tick%this.frames.length];frame.tick=tick;this.tick=tick;frame.byUnit.clear();this.sampledAt=-1;
+    let count=0;
+    for(const unit of this.units.all()) {
+      if(!unit.alive || unit.removed || !unit.position)continue;
+      const entry=frame.entries[count] ||= {position:new Vector3(),center:new Vector3(),shapes:[]};count++;
+      entry.unit=unit;entry.generation=unit.generation;entry.position.copy(unit.position);
+      frame.byUnit.set(unit,entry);
+      entry.center.copy(unit.sphere?.center || unit.position);entry.radius=unit.sphere?.radius || 0;
+      // On foot, or a rider in the open (src/rider-pose.js): what a round meets.
+      const shapes=strikeable(unit) ? unit.hitShapes() : [];
+      let n=0;
+      for(const shape of shapes) {
+        const saved=entry.shapes[n] ||= {center:new Vector3()};n++;
+        saved.type=shape.type;saved.part=shape.part;saved.center.copy(shape.center);saved.radius=shape.radius;saved.yaw=shape.yaw;
+        if(shape.half?.isVector3){if(!saved.half?.isVector3)saved.half=new Vector3();saved.half.copy(shape.half);}
+        else saved.half=shape.half;
+      }
+      entry.shapes.length=n;
+    }
+    frame.entries.length=count;
+  }
+  frame(tick) {const frame=this.frames[tick%this.frames.length];return frame?.tick===tick?frame:null;}
+  sample(tick) {
+    if(Number.isInteger(tick))return this.frame(tick);
+    if(!Number.isFinite(tick))return null;
+    if(this.sampledAt===tick)return this.interpolated;
+    const from=this.frame(Math.floor(tick)),to=this.frame(Math.ceil(tick));if(!from||!to)return null;
+    const frame=this.interpolated;frame.tick=tick;let count=0;
+    for(const a of from.entries){
+      const b=to.byUnit.get(a.unit);
+      if(!b||a.generation!==b.generation||a.position.distanceToSquared(b.position)>MAX_INTERPOLATION_STEP**2)continue;
+      // A stance can replace the shape topology. Keep its earlier exact pose
+      // for that interval rather than inventing correspondence between limbs.
+      const alpha=a.shapes.length===b.shapes.length&&a.shapes.every((s,i)=>s.type===b.shapes[i].type&&s.part===b.shapes[i].part)?tick-Math.floor(tick):0;
+      const entry=frame.entries[count]||={position:new Vector3(),center:new Vector3(),shapes:[]};count++;
+      entry.unit=a.unit;entry.generation=a.generation;entry.position.copy(a.position).lerp(b.position,alpha);entry.center.copy(a.center).lerp(b.center,alpha);entry.radius=a.radius+(b.radius-a.radius)*alpha;
+      for(let i=0;i<a.shapes.length;i++){
+        const first=a.shapes[i],next=alpha?b.shapes[i]:first,saved=entry.shapes[i]||={center:new Vector3()};
+        saved.type=first.type;saved.part=first.part;saved.center.copy(first.center).lerp(next.center,alpha);
+        saved.radius=first.radius===undefined?undefined:first.radius+(next.radius-first.radius)*alpha;
+        saved.yaw=first.yaw===undefined?undefined:first.yaw+Math.atan2(Math.sin(next.yaw-first.yaw),Math.cos(next.yaw-first.yaw))*alpha;
+        if(first.half?.isVector3){if(!saved.half?.isVector3)saved.half=new Vector3();saved.half.copy(first.half).lerp(next.half,alpha);}
+        else saved.half=first.half===undefined?undefined:first.half+(next.half-first.half)*alpha;
+      }
+      entry.shapes.length=a.shapes.length;
+    }
+    frame.entries.length=count;this.sampledAt=tick;return frame;
+  }
+  shotTick(owner,channel=0) {
+    const shot=networkShotFor(owner,channel),view=shot?.viewTick ?? owner?.networkViewTick;
+    if(!owner?.networkHuman || !owner.alive || owner.seat || !Number.isFinite(view) || view<0 || view>this.tick)return null;
+    // Subsequent automatic rounds use the latest validated rendered tick.
+    // Stale movement input clears that tick; an old edge cannot hold time back.
+    const tick=Math.max(view,this.tick-Math.min(this.maxTicks,rewindBudgetTicks(owner))),frame=this.sample(tick);
+    return frame?.entries.some(e=>e.unit===owner&&e.generation===owner.generation)?tick:null;
+  }
+  position(unit,tick) {return this.sample(tick)?.entries.find(e=>e.unit===unit&&e.generation===unit.generation)?.position;}
+  // riders: as the registry's (Units.raycast), riders shown on exposed seats too.
+  raycast(tick,origin,direction,far,exclude=null,out=makeUnitHit(),filter=null,riders=false) {
+    const frame=this.sample(tick);if(!frame)return null;
+    let best=far,found=null,shape=null;
+    for(const entry of frame.entries) {
+      const unit=entry.unit;
+      if(!unit.alive || unit.removed || unit.seat&&!(riders&&unit.seat.exposed) || unit.generation!==entry.generation || unit===exclude || filter&&!filter(unit))continue;
+      if(segmentSphere(origin,direction,best,entry.center,entry.radius)===null)continue;
+      for(const candidate of entry.shapes) {
+        const distance=segmentShape(origin,direction,best,candidate);
+        if(distance!==null&&distance<best){best=distance;found=unit;shape=candidate;}
+      }
+    }
+    if(!found)return null;
+    out.unit=found;out.distance=best;out.part=shape.part;out.point.copy(origin).addScaledVector(direction,best);
+    shapeNormal(out.point,shape,direction,out.normal);return out;
+  }
+}
+
+test('pooled hit history answers as the truncating one did, and keeps its records', () => {
+  let seed = 7;
+  const rand = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+  const parts = ['head', 'body', 'legs'];
+  const shapeOf = (kind, at) => {
+    const center = at.clone().add(new Vector3(rand() - .5, rand() * 1.8, rand() - .5)), part = parts[Math.floor(rand() * 3)];
+    if (kind === 0) return { type: 'sphere', part, center, radius: .2 + rand() * .3 };
+    if (kind === 1) return { type: 'capsule', part, center, half: new Vector3(0, .2 + rand() * .4, 0), radius: .15 + rand() * .2 };
+    if (kind === 2) return { type: 'box', part, center, half: new Vector3(.2 + rand() * .3, .3 + rand() * .5, .2 + rand() * .3), yaw: rand() * 6 };
+    return { type: 'cylinder', part, center, radius: .3 + rand() * .3, half: .4 + rand() * .5 };
+  };
+  const units = Array.from({ length: 30 }, (_, id) => ({
+    id, alive: rand() < .8, removed: false, dead: false, generation: 1, seat: null, networkHuman: true,
+    position: new Vector3(rand() * 40 - 20, 0, rand() * 40 - 20), sphere: { center: new Vector3(), radius: 1.2 }, shapes: [],
+    hitShapes() { return this.shapes; },
+  }));
+  const reshape = (u) => { const n = Math.floor(rand() * 7); u.shapes = Array.from({ length: n }, () => shapeOf(Math.floor(rand() * 4), u.position)); };
+  for (const u of units) { u.sphere.center.copy(u.position); reshape(u); }
+  const list = { all: () => units.filter((u) => !u.gone) };
+  const pooled = new HitHistory(list), oracle = new TruncatingHistory(list);
+  const hit = (h) => h && [h.unit.id, h.distance, h.part, ...h.point.toArray(), ...h.normal.toArray()];
+  let hits = 0, rewound = 0, queries = 0;
+  const firstRecord = () => pooled.frames[0].entries[0];
+  let kept = null;
+  for (let tick = 0; tick < 600; tick++) {
+    for (const u of units) {
+      const r = rand();
+      if (r < .02) { u.alive = !u.alive; u.dead = !u.alive; if (u.alive) u.generation++; }
+      else if (r < .03) u.position.x += 8;
+      else if (r < .05) reshape(u);
+      else if (r < .06) u.seat = u.seat ? null : { exposed: rand() < .5 };
+      else if (r < .065) u.gone = !u.gone;
+      u.position.x += (rand() - .5) * .3; u.position.z += (rand() - .5) * .3;
+      u.sphere.center.copy(u.position);
+      for (const s of u.shapes) s.center.x += (rand() - .5) * .3;
+    }
+    pooled.capture(tick); oracle.capture(tick);
+    if (tick === 0) kept = firstRecord();
+    for (let q = 0; q < 12; q++) {
+      const back = rand() < .5 ? Math.floor(rand() * 40) : rand() * 40, at = Math.max(0, tick - back);
+      const target = units[Math.floor(rand() * units.length)], origin = new Vector3(rand() * 60 - 30, 1, rand() * 60 - 30);
+      const direction = target.position.clone().add(new Vector3(0, 1, 0)).sub(origin).add(new Vector3(rand() - .5, rand() - .5, rand() - .5).multiplyScalar(.2)).normalize();
+      const exclude = units[Math.floor(rand() * units.length)], riders = rand() < .5;
+      const a = hit(pooled.raycast(at, origin, direction, 80, exclude, undefined, null, riders)), b = hit(oracle.raycast(at, origin, direction, 80, exclude, undefined, null, riders));
+      assert.deepEqual(a, b, `ray at tick ${at} after capture ${tick}`);
+      if (a) hits++;
+      assert.deepEqual(pooled.position(target, at)?.toArray(), oracle.position(target, at)?.toArray());
+      target.networkViewTick = at;
+      const shot = pooled.shotTick(target);
+      assert.equal(shot, oracle.shotTick(target));
+      if (shot !== null) rewound++;
+      queries++;
+    }
+  }
+  assert.ok(hits > 300 && rewound > 500, `${hits} hits and ${rewound} rewound shots in ${queries} queries`);
+  assert.equal(firstRecord(), kept, 'a frame keeps its records from capture to capture');
 });

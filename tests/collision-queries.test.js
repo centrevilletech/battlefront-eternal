@@ -155,24 +155,27 @@ function treeOrder(world, center, radius) {
 }
 
 test('a gather meeting many polygons files them in the tree order, cached or not', () => {
-  // A floor of 40 x 40 cells whose triangles are dealt round 97 polygons: a
-  // sphere over it meets far more polygons than the gather scans for before
-  // it takes a Map, each polygon's triangles scattered through the tree.
-  const floor = new THREE.PlaneGeometry(40, 40, 40, 40).rotateX(-Math.PI / 2);
-  const p = floor.attributes.position.array, i = Uint32Array.from(floor.index.array);
-  const world = new CollisionWorld(p, i, Uint32Array.from({ length: i.length / 3 }, (_, k) => (k * 7) % 97));
-  const cache = world.gatherCache(), rand = random(), center = new THREE.Vector3();
-  const serialize = (polygons) => polygons.map((polygon) => polygon.triangles.map(key));
-  let most = 0;
-  for (let pass = 0; pass < 60; pass++) {
-    center.set(rand() * 30 - 15, rand() * 2 - 1, rand() * 30 - 15);
-    const radius = pass % 3 ? 0.4 + rand() : 3 + rand() * 3;
-    const expected = treeOrder(world, center, radius);
-    most = Math.max(most, expected.length);
-    assert.deepEqual(serialize(world.gather(center, radius)), expected);
-    assert.deepEqual(serialize(world.gather(center, radius, false, cache)), expected);
+  // A floor of 40 x 40 cells whose triangles are dealt round 97 polygons (or
+  // 1,201, past the 128 the polygon index holds before it grows): a sphere
+  // over it meets far more polygons than the gather scans for before it
+  // takes the index, each polygon's triangles scattered through the tree.
+  for (const [polygons, many] of [[97, 32], [1201, 128]]) {
+    const floor = new THREE.PlaneGeometry(40, 40, 40, 40).rotateX(-Math.PI / 2);
+    const p = floor.attributes.position.array, i = Uint32Array.from(floor.index.array);
+    const world = new CollisionWorld(p, i, Uint32Array.from({ length: i.length / 3 }, (_, k) => (k * 7) % polygons));
+    const cache = world.gatherCache(), rand = random(), center = new THREE.Vector3();
+    const serialize = (list) => list.map((polygon) => polygon.triangles.map(key));
+    let most = 0;
+    for (let pass = 0; pass < 60; pass++) {
+      center.set(rand() * 30 - 15, rand() * 2 - 1, rand() * 30 - 15);
+      const radius = pass % 3 ? 0.4 + rand() : 3 + rand() * 3;
+      const expected = treeOrder(world, center, radius);
+      most = Math.max(most, expected.length);
+      assert.deepEqual(serialize(world.gather(center, radius)), expected);
+      assert.deepEqual(serialize(world.gather(center, radius, false, cache)), expected);
+    }
+    assert.ok(most > many, `some gathers met over ${many} polygons (${most})`);
   }
-  assert.ok(most > 32, 'some gathers met many polygons');
 });
 
 test('a hull probe\'s cached gather matches its uncached one, barriers and moving hulls included', () => {

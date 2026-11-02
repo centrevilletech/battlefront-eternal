@@ -36,7 +36,7 @@ import { INPUT_CODES, DEFAULT_BINDING_PROFILES, decodeEntityInput, isSnapshotAck
 import { EntityEdges } from './network-entity-edge-host.js';
 import { encodeEntities } from './snapshot-codec.js';
 import { SnapshotRing } from './snapshot-ring.js';
-import { SnapshotSlotTable, WorldFieldStagger, snapshotFromRecords, ownSummaryFields } from './snapshot-records.js';
+import { SnapshotSlotTable, WorldFieldStagger, EntrySpare, snapshotFromRecords, ownSummaryFields } from './snapshot-records.js';
 import { encodeOwnDatagram } from './snapshot-own.js';
 import { encodeWordDeltaView, encodeWorldSectionView, SNAPSHOT_MAX_DATAGRAM, SNAPSHOT_HEADER_BYTES } from './snapshot-codec.js';
 import { isGameplayCombat, encodeCosmeticEvent } from './snapshot-cosmetics.js';
@@ -129,7 +129,9 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
   const budget = local ? Infinity : readStateBudget({ stateBytesPerSecond }).bytesPerSecond;
   if (!(staleAfterMs > 0)) throw Error('invalid stale client time');
   const clients = new Map();
-  const ring = new SnapshotRing(128);
+  // A snapshot leaving the ring hands its entries to the next captures.
+  const spare = new EntrySpare();
+  const ring = new SnapshotRing(128, (snapshot, held) => spare.recycle(snapshot, held.get(held.oldestTick)));
   const slots = new SnapshotSlotTable();
   const stagger = new WorldFieldStagger();
   let registry, capture, shots, combatCapture, combatDispose, presentationDispose;
@@ -259,7 +261,7 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
     for (const u of game.units.all()) if (u.soldier && u.combat && !u.removed && stagger.isFieldDue(tick, UNIT_STATE_SCHEMA, UNIT_STATE_ID + u.id)) unitStates.push(captureUnitState(u, registry, tick));
     // Stations and tows the stagger would not take now are not built.
     stagger.take(tick, [...common, ...unitStates, ...captureWorldPresentation(game, tick, epoch, (schema, id, stateTeam) => stagger.held(tick, schema, id, stateTeam))], complete);
-    const snapshot = snapshotFromRecords({ tick, epoch, records, world: stagger.world(), slots, previous: lastSnapshot });
+    const snapshot = snapshotFromRecords({ tick, epoch, records, world: stagger.world(), slots, previous: lastSnapshot, spare });
     ring.set(tick, epoch, snapshot);
     lastSnapshot = snapshot; capturedTick = tick;
     encodeCache.tick = tick; encodeCache.parts.clear();

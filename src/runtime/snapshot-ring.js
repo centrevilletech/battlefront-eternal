@@ -6,10 +6,12 @@
 // miss. Storing a tick older than every held one in a full ring keeps
 // nothing, so the ring always holds the newest ticks it was given: a host
 // and a client that keep the same capacity agree on what a baseline can be.
+// onEvict(value, ring): called with each value the ring lets go to make
+// room, the ring already without it.
 export class SnapshotRing {
-  constructor(capacity = 128) {
+  constructor(capacity = 128, onEvict = null) {
     if (!Number.isSafeInteger(capacity) || capacity < 1) throw Error('invalid snapshot ring capacity');
-    this.capacity = capacity;
+    this.capacity = capacity; this.onEvict = onEvict;
     this.entries = new Map(); // tick -> { tick, epoch, value }
     this.ticks = []; // held ticks, ascending
     this.newestTick = -1;
@@ -23,7 +25,9 @@ export class SnapshotRing {
     const ticks = this.ticks;
     if (ticks.length >= this.capacity) {
       if (tick < ticks[0]) return;
-      this.entries.delete(ticks.shift());
+      const oldest = ticks.shift(), evicted = this.entries.get(oldest);
+      this.entries.delete(oldest);
+      this.onEvict?.(evicted.value, this);
     }
     // Ticks arrive in order on the host; a late snapshot on a client is the
     // rare out-of-order insert.
