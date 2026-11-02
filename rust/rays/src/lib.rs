@@ -22,6 +22,8 @@
 
 use std::ptr::addr_of_mut;
 
+pub mod movement;
+
 /// The f64 slots calls exchange: 0-2 ray origin, 3-5 direction, 6 far,
 /// 7 Math.hypot(direction.x, direction.z), 8 near; 10 hit distance,
 /// 11-13 point, 14-16 normal; 20-57 a body's bounds, matrix and inverse
