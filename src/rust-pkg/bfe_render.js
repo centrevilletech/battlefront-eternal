@@ -241,6 +241,96 @@ export class BfeRenderer {
         wasm.bferenderer_geometry_pointer(this.__wbg_ptr, g, buffer, location, size, ty, normalized, stride, offset);
     }
     /**
+     * @returns {Uint32Array}
+     */
+    hud_frame() {
+        const ret = wasm.bferenderer_hud_frame(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @param {Uint32Array | number[]} index
+     */
+    hud_init(index) {
+        const ptr0 = passArray32ToWasm0(index, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_hud_init(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @returns {number}
+     */
+    hud_input_len() {
+        const ret = wasm.bferenderer_hud_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_input_ptr() {
+        const ret = wasm.bferenderer_hud_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_mask_uv_len() {
+        const ret = wasm.bferenderer_hud_mask_uv_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_mask_uv_ptr() {
+        const ret = wasm.bferenderer_hud_mask_uv_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_position_len() {
+        const ret = wasm.bferenderer_hud_position_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_position_ptr() {
+        const ret = wasm.bferenderer_hud_position_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_tint_len() {
+        const ret = wasm.bferenderer_hud_tint_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_tint_ptr() {
+        const ret = wasm.bferenderer_hud_tint_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_uv_len() {
+        const ret = wasm.bferenderer_hud_uv_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_uv_ptr() {
+        const ret = wasm.bferenderer_hud_uv_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @returns {number}
      */
     input_len() {
@@ -488,6 +578,18 @@ function __wbg_get_imports() {
         },
         __wbg_bindVertexArray_cc64c48bf67ab8d4: function(arg0, arg1) {
             arg0.bindVertexArray(arg1);
+        },
+        __wbg_blendEquationSeparate_0dceb23863585a87: function(arg0, arg1, arg2) {
+            arg0.blendEquationSeparate(arg1 >>> 0, arg2 >>> 0);
+        },
+        __wbg_blendEquationSeparate_156fe040a9aebfd6: function(arg0, arg1, arg2) {
+            arg0.blendEquationSeparate(arg1 >>> 0, arg2 >>> 0);
+        },
+        __wbg_blendFuncSeparate_6db2212299fd7f1e: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.blendFuncSeparate(arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4 >>> 0);
+        },
+        __wbg_blendFuncSeparate_eb9098d760f4a25c: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.blendFuncSeparate(arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4 >>> 0);
         },
         __wbg_bufferData_2fb8740d60478bf0: function(arg0, arg1, arg2, arg3) {
             arg0.bufferData(arg1 >>> 0, arg2, arg3 >>> 0);

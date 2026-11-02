@@ -478,6 +478,7 @@ async function start() {
     strings: common.strings,
     map: world,
     mapImage: world.minimap?.texture ? `${mapDir}/${world.minimap.texture}` : null,
+    graphics,
   });
   // The key a craft's prompt names (src/hud.js flightPrompt): the flight
   // action's first binding, as the original names keys.

@@ -269,8 +269,11 @@ class Fader {
 export class BattleHud extends InterfaceSurface {
   // renderer: the WebGL renderer; url(name) finds a texture's file; fonts and
   // strings come from common.json; map is the map's manifest.
-  constructor(renderer, { url, fonts, strings, map, mapImage }) {
+  // graphics: the battle's Graphics, whose Rust renderer may draw the HUD's
+  // batch (render).
+  constructor(renderer, { url, fonts, strings, map, mapImage, graphics = null }) {
     super(renderer, { url, fonts, strings });
+    this.graphics = graphics;
     this.frame = map.minimap;
     this.mapScale = map.commandPost?.mapScale ?? 1;
     this.vehicle = null;
@@ -652,7 +655,7 @@ export class BattleHud extends InterfaceSurface {
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
     layer?.renderBefore?.(renderer, this);
-    renderer.render(this.scene, this.camera);
+    if (!this.graphics?.rust?.coverHud(renderer, this)) renderer.render(this.scene, this.camera);
     layer?.renderAfter?.(renderer, this);
     // Quads over everything, the layer's models included: the layer's own
     // (its pointer) unless it is covered, then the overlay's.

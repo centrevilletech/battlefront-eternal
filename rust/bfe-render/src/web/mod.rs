@@ -5,6 +5,7 @@
 mod effects;
 mod far;
 mod foliage;
+mod hud;
 mod instances;
 mod post;
 mod terrain;
@@ -104,5 +105,8 @@ impl BfeRenderer {
     // records: how many the page wrote for the mirror's camera.
     pub fn mirror_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.mirror_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    pub fn hud_frame(&mut self) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.hud_frame().map_err(|e| JsValue::from_str(&e))?.values())
     }
 }

@@ -39,6 +39,7 @@ import { effectsPass } from "./effects.js";
 import { foliagePass } from "./foliage.js";
 import { viewPass } from "./view.js";
 import { postPass } from "./post.js";
+import { hudPass } from "./hud.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -64,6 +65,7 @@ const PHASES = {
   transparent: { view: null, draw: (rust) => rust.transparent_frame() },
   view: { view: VIEW_FIRST_PERSON, draw: (rust, ctx) => rust.view_frame(ctx.records) },
   post: { view: null, draw: (rust, ctx) => rust.post_frame(ctx.steps ?? 0) },
+  hud: { view: null, draw: (rust) => rust.hud_frame() },
   // The near phase's passes from a mirror camera (water.js's reflection).
   mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
 };
@@ -143,7 +145,7 @@ export class RustRender {
     // A mirror draws the near phase's passes.
     this.phases.mirror = this.phases.near;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass]) this.addPass(make(this));
   }
 
   // A pass: { name, phase, register?(), draw?(ctx), setActive?(on),
@@ -416,6 +418,11 @@ export class RustRender {
   // post pass when it can draw every one; true when it did.
   post(renderer, steps) {
     return this.byName.post?.cover(renderer, steps) ?? false;
+  }
+
+  // hud.js: the battle HUD's batch, drawn by the HUD pass; true when it was.
+  coverHud(renderer, hud) {
+    return this.byName.hud?.cover(renderer, hud) ?? false;
   }
 
   // The near phase's stats and the time its renderer call took, as the

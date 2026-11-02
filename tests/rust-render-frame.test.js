@@ -271,3 +271,41 @@ test("the post steps: drawn by the renderer when every one is a pass it has a pr
   // A step only three can draw (bloom): three draws them all.
   assert.equal(core.post(renderer, [{ run: () => {} }, ...steps]), false);
 });
+
+test("the HUD's batch: every vertex the first time, the batch's update range after, three's own copy made whole when it draws again", async () => {
+  const { core, calls, renderer, properties } = bridge();
+  const { Batch } = await import("../src/interface/batch.js");
+  const batch = new Batch();
+  const texture = new THREE.Texture();
+  texture.name = "hud1";
+  texture.image = { width: 1, height: 1 };
+  texture.version = 1;
+  const hud = { batch, scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera() };
+  const m = new THREE.Matrix4();
+  batch.begin();
+  batch.quad(m, 0, 0, 10, 10, texture, [0, 0, 1, 1], [1, 1, 1, 1]);
+  batch.quad(m, 0, 0, 20, 20, texture, [0, 0, 1, 1], [1, 1, 1, 1]);
+  batch.end();
+  properties.get(batch.mesh.material[0]).currentProgram = program([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["mask", GL.SAMPLER_2D], ["masked", GL.BOOL]],
+    ["position", "uv", "maskUv", "tint"]);
+  assert.equal(core.coverHud(renderer, hud), true);
+  assert.deepEqual(calls.find((c) => c[0] === "hud_init"), ["hud_init", 2048 * 6]);
+  assert.ok(calls.some((c) => c[0] === "initTexture" && c[1] === "hud1"), "a loaded texture goes up as three's draw would send it");
+  const input = core.hudInput, IN = { GROUPS: 0, UPLOAD: 41, VIEWPORT: 43, FIRST: 45 };
+  assert.deepEqual([input[IN.GROUPS], input[IN.UPLOAD], input[IN.UPLOAD + 1], input[IN.VIEWPORT], input[IN.VIEWPORT + 1]], [1, 0, 8, 800, 600]);
+  assert.deepEqual([...input.subarray(IN.FIRST, IN.FIRST + 5)], [0, 12, 0, 0, 0], "one run of two quads, its texture as its mask, unmasked");
+  assert.deepEqual([...core.hudPosition.subarray(12, 24)], [...batch.position.subarray(12, 24)]);
+  // Next frame only the second quad changes: only it is copied.
+  batch.begin();
+  batch.quad(m, 0, 0, 10, 10, texture, [0, 0, 1, 1], [1, 1, 1, 1]);
+  batch.quad(m, 0, 0, 30, 30, texture, [0, 0, 1, 1], [1, 1, 1, 1]);
+  batch.end();
+  assert.equal(core.coverHud(renderer, hud), true);
+  assert.deepEqual([input[IN.UPLOAD], input[IN.UPLOAD + 1]], [4, 8]);
+  // Off: three draws, and sends its whole arrays.
+  core.setActive(false);
+  const position = batch.geometry.attributes.position, version = position.version;
+  assert.equal(core.coverHud(renderer, hud), false);
+  assert.equal(position.updateRanges.length, 0);
+  assert.equal(position.version, version + 1);
+});

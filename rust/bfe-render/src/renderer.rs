@@ -13,9 +13,10 @@
 // A frame is drawn in phases, each a call from the page at its point in
 // three's frame, which draws its passes in order: the far scene (far_frame),
 // the near scene (frame), what it blends (transparent_frame), the
-// first-person view (view_frame) and the post passes (post_frame). A mirror's
-// render of the near scene (water.js) draws the near phase's passes for its
-// own camera (mirror_frame).
+// first-person view (view_frame), the post passes (post_frame) and, over the
+// finished frame, the HUD (hud_frame). A mirror's render of the near scene
+// (water.js) draws the near phase's passes for its own camera
+// (mirror_frame).
 //
 // The page writes the frame's inputs (camera, lights, each soldier) into
 // `input` and `bones` before a phase (web/, src/rust-render/).
@@ -23,6 +24,7 @@ use crate::core::{Core, MultiDraw, Stats, VIEW_FIRST_PERSON, VIEW_NEAR, VIEW_SPA
 use crate::effects::EffectsPass;
 use crate::far::FarPass;
 use crate::foliage::FoliagePass;
+use crate::hud::HudPass;
 use crate::instances::{InstancePass, BONES_LEN, INPUT_LEN};
 use crate::post::PostPass;
 use crate::terrain::TerrainPass;
@@ -42,6 +44,7 @@ pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub foliage: FoliagePass<C>,
     pub view: ViewPass<C>,
     pub post: PostPass<C>,
+    pub hud: HudPass<C>,
 }
 
 impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
@@ -56,7 +59,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let foliage = FoliagePass::new(&mut core);
         let view = ViewPass::new(&mut core);
         let post = PostPass::new(&mut core);
-        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post }
+        let hud = HudPass::new(&mut core);
+        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud }
     }
 
     // The far scene's phase, drawn into the far target before the near scene.
@@ -122,5 +126,12 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let stats = self.frame(records);
         self.core.swap_views(VIEW_NEAR, VIEW_SPARE);
         stats
+    }
+
+    // The HUD's phase, over the finished frame on the canvas (hud.rs).
+    pub fn hud_frame(&mut self) -> Result<Stats, String> {
+        self.core.begin_phase();
+        self.hud.draw(&mut self.core);
+        Ok(self.core.end_phase())
     }
 }
