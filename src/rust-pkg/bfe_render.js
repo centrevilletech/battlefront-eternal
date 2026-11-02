@@ -102,6 +102,87 @@ export class BfeRenderer {
         return v1;
     }
     /**
+     * @param {number} program
+     * @param {number} texture
+     * @param {boolean} grass
+     * @param {number} wiggle
+     * @param {Float32Array | number[]} vertices
+     * @param {Uint32Array | number[]} index
+     * @param {Int32Array | number[]} locations
+     * @param {Float32Array | number[]} rows
+     * @param {Float64Array | number[]} bounds
+     * @param {Float32Array | number[]} map_matrix
+     * @param {Float32Array | number[]} diffuse
+     * @param {number} opacity
+     * @param {number} alpha_test
+     * @returns {number}
+     */
+    foliage_class(program, texture, grass, wiggle, vertices, index, locations, rows, bounds, map_matrix, diffuse, opacity, alpha_test) {
+        const val8 = +program;
+        const val9 = +texture;
+        const val10 = +grass;
+        const val11 = +wiggle;
+        const val12 = +opacity;
+        const val13 = +alpha_test;
+        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6;
+        try {
+            ptr0 = passArrayF32ToWasm0(vertices, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(index, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArray32ToWasm0(locations, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+            ptr3 = passArrayF32ToWasm0(rows, wasm.__wbindgen_malloc);
+            len3 = WASM_VECTOR_LEN;
+            ptr4 = passArrayF64ToWasm0(bounds, wasm.__wbindgen_malloc);
+            len4 = WASM_VECTOR_LEN;
+            ptr5 = passArrayF32ToWasm0(map_matrix, wasm.__wbindgen_malloc);
+            len5 = WASM_VECTOR_LEN;
+            ptr6 = passArrayF32ToWasm0(diffuse, wasm.__wbindgen_malloc);
+            len6 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr6) { wasm.__wbindgen_free(ptr6, len6 * 4, 4); }
+            if (ptr5) { wasm.__wbindgen_free(ptr5, len5 * 4, 4); }
+            if (ptr4) { wasm.__wbindgen_free(ptr4, len4 * 8, 8); }
+            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 4, 4); }
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 4, 4); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_foliage_class(this.__wbg_ptr, val8, val9, val10, val11, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, val12, val13);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    foliage_frame() {
+        const ret = wasm.bferenderer_foliage_frame(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    foliage_input_len() {
+        const ret = wasm.bferenderer_foliage_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    foliage_input_ptr() {
+        const ret = wasm.bferenderer_foliage_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} _class
+     * @returns {number}
+     */
+    foliage_selected(_class) {
+        const ret = wasm.bferenderer_foliage_selected(this.__wbg_ptr, _class);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} records
      * @returns {Uint32Array}
      */
@@ -674,11 +755,29 @@ function __wbg_get_imports() {
         __wbg_uniformBlockBinding_61c5a97721e0f36b: function(arg0, arg1, arg2, arg3) {
             arg0.uniformBlockBinding(arg1, arg2 >>> 0, arg3 >>> 0);
         },
+        __wbg_uniformMatrix3fv_15b2b1f5505b8506: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix3fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
+        },
+        __wbg_uniformMatrix3fv_df1958f8b617c8d6: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix3fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
+        },
+        __wbg_uniformMatrix4fv_cd0ba72d1d780759: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix4fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
+        },
+        __wbg_uniformMatrix4fv_edd2b51dbb1caffd: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix4fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
+        },
         __wbg_useProgram_d9c24a7d8632c4c1: function(arg0, arg1) {
             arg0.useProgram(arg1);
         },
         __wbg_useProgram_f6341ea2eeea1e5a: function(arg0, arg1) {
             arg0.useProgram(arg1);
+        },
+        __wbg_vertexAttribDivisorANGLE_5bec9a774ccd1cf8: function(arg0, arg1, arg2) {
+            arg0.vertexAttribDivisorANGLE(arg1 >>> 0, arg2 >>> 0);
+        },
+        __wbg_vertexAttribDivisor_5b64fc697c0496e1: function(arg0, arg1, arg2) {
+            arg0.vertexAttribDivisor(arg1 >>> 0, arg2 >>> 0);
         },
         __wbg_vertexAttribPointer_39b706eb26c50057: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6) {
             arg0.vertexAttribPointer(arg1 >>> 0, arg2, arg3 >>> 0, arg4 !== 0, arg5, arg6);

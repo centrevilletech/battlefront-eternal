@@ -142,3 +142,41 @@ test("a mirror's render of the near scene draws the near phase's passes for the 
   core.pass(renderer, scene, new THREE.PerspectiveCamera());
   assert.deepEqual(calls, [], "any other camera: nothing");
 });
+
+test("foliage: the drawer selects for the classes it registered, three keeps the rest", async () => {
+  const { core, calls, renderer, scene, properties } = bridge();
+  const geometry = new THREE.InstancedBufferGeometry();
+  const card = (name, size) => geometry.setAttribute(name, new THREE.BufferAttribute(new Float32Array(4 * size).map((_, i) => i), size));
+  for (const [name, size] of [["position", 3], ["color", 4], ["uv", 2], ["foliageCorner", 2], ["foliageShape", 4], ["foliageRate", 1]]) card(name, size);
+  geometry.setIndex(new THREE.BufferAttribute(new Uint32Array([0, 2, 1, 1, 2, 3]), 1));
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), alphaTest: 0.25 });
+  properties.get(material).currentProgram = program([["modelViewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["foliageEye", GL.FLOAT_VEC3]],
+    ["position", "color", "uv", "foliageCorner", "foliageShape", "foliageRate", "foliagePatch", "foliageTint", "foliageAxisX", "foliageAxisY", "foliageAxisZ", "foliageDistance"]);
+  const batch = { geometry, material, uniforms: { foliageWiggle: { value: 0.11 } } };
+  const instance = { position: new THREE.Vector3(1, 2, 3), matrix: new THREE.Matrix4().makeTranslation(1, 2, 3), tint: [0.5, 0.6, 0.7], sphere: null, cullDistance: Infinity, maxDistance: 100 };
+  const kind = { grass: true, batch, instances: [instance] };
+  const other = { grass: false, batch: { geometry: new THREE.BufferGeometry(), material: new THREE.MeshBasicMaterial() }, instances: [] };
+  const foliage = { kinds: new Map([["a", kind], ["b", other]]), time: 2.5, nearEnd: () => 200, drawer: null };
+  scene.userData.foliage = foliage;
+  core.pass(renderer, scene, core.graphics.camera);
+  assert.equal(foliage.drawer, core.byName.foliage, "the near phase attaches the drawer");
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(4, 5, 6);
+  camera.updateMatrixWorld(true);
+  foliage.drawer.select(foliage, camera);
+  const added = calls.find((c) => c[0] === "foliage_class");
+  assert.equal(added[3], true, "grass");
+  assert.deepEqual([...added[7]], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], "attribute locations: the card's, then the patch row's");
+  assert.deepEqual([...added[8]].slice(0, 6).map((v) => +v.toFixed(2)), [1, 2, 3, 0.5, 0.6, 0.7]);
+  assert.deepEqual([...added[8]].slice(15, 16), [100]);
+  assert.deepEqual([...added[9]].slice(6, 9), [-1, Infinity, 100], "no sphere, always tested");
+  assert.equal(material.visible, false);
+  assert.ok(foliage.drawer.covers(kind));
+  assert.ok(!foliage.drawer.covers(other), "a CPU batch stays three's");
+  assert.ok(calls.some((c) => c[0] === "foliage_frame"));
+  const input = core.foliageInput;
+  assert.deepEqual([input[48], input[49], input[50], input[51], input[52]], [4, 5, 6, 200, 2.5]);
+  core.setActive(false);
+  assert.equal(material.visible, true);
+  assert.equal(foliage.drawer, null);
+});
