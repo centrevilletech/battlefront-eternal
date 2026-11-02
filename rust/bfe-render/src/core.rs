@@ -42,7 +42,9 @@ pub const PASS_EFFECTS: usize = 5;
 pub const PASS_FOLIAGE: usize = 6;
 pub const PASS_VIEW: usize = 7;
 pub const PASS_POST: usize = 8;
-pub const PASSES: usize = 9;
+pub const PASS_HUD: usize = 9;
+pub const PASS_WATER: usize = 10;
+pub const PASSES: usize = 11;
 
 // The multi-draw call, which glow does not wrap (WEBGL_multi_draw on the web).
 pub trait MultiDraw {
@@ -503,6 +505,13 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     // The far scene's image on its unit, for the programs that read it (farMap).
     pub fn bind_far_map(&mut self) {
         self.state.bind_texture(&self.gl, &mut self.stats, UNIT_FAR, self.far_map);
+    }
+
+    // Two views' frame block buffers swapped: a phase that draws one view's
+    // passes for another camera (renderer.rs mirror_frame) uploads into a
+    // buffer of its own, not one the frame's draws may still be reading.
+    pub fn swap_views(&mut self, a: usize, b: usize) {
+        self.frame_ubos.swap(a, b);
     }
 
     // A phase's end: no vertex array bound and counter-clockwise front faces,
