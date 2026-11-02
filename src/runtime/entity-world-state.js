@@ -9,12 +9,30 @@
 export const BUILDING_STATE_SCHEMA=7, TOW_STATE_SCHEMA=8, CREATURE_STATE_SCHEMA=9, CREATURE_STATE_ID=400000, TRAP_STATE_SCHEMA=10, TRAP_STATE_ID=500000;
 const encode=new TextEncoder(),decode=new TextDecoder('utf-8',{fatal:true});
 function make(id,generation,tick,schema,value){const payload=encode.encode(JSON.stringify(value));if(payload.length>900)throw Error('World presentation record too large');return {kind:'summary',id,generation,tick,schema,payload};}
-export function captureWorldPresentation(game,tick,epoch){
-  const records=[];
-  for(const [index,b]of (game.live?.buildings||[]).entries())if(!(game.turretSeats?.turrets||[]).includes(b))records.push(make(200000+index,epoch,tick,7,[index,b.state,Number.isFinite(b.health)?b.health:null,b.team||0,b.mode??null,b.active||0,b.pulse||0,b.facing||0,b.yaw||0,b.servedHealth||false,b.servedAmmo||false]));
+// A station's state or team as buildingStateTeam (snapshot-records.js) reads
+// it back from the record's JSON: `${value}` after the round trip.
+const jsonText=v=>typeof v==='string'?v:typeof v==='number'&&Number.isFinite(v)?`${v}`:`${JSON.parse(JSON.stringify([v]))[0]}`;
+// held(schema,id,stateTeam): a snapshot host's WorldFieldStagger.held at this
+// tick. A station or tow it would take no fresh record of goes as the record
+// it holds (or not at all) and is never built: JSON and UTF-8 for every one
+// of them every tick were most of a snapshot's world cost, while the stagger
+// keeps the last value it took between refreshes anyway. Creatures and traps
+// refresh on any change of their record, so theirs are always built.
+export function captureWorldPresentation(game,tick,epoch,held=null){
+  const records=[],turrets=game.turretSeats?.turrets||[];
+  for(const [index,b]of (game.live?.buildings||[]).entries())if(!turrets.includes(b)){
+    const value=[index,b.state,Number.isFinite(b.health)?b.health:null,b.team||0,b.mode??null,b.active||0,b.pulse||0,b.facing||0,b.yaw||0,b.servedHealth||false,b.servedAmmo||false];
+    const kept=held?.(BUILDING_STATE_SCHEMA,200000+index,`${jsonText(value[1])}:${jsonText(value[3])}`);
+    if(kept!==undefined){if(kept)records.push(kept);continue;}
+    records.push(make(200000+index,epoch,tick,7,value));
+  }
   for(const [index,prop]of (game.live?.animated||[]).entries())if(prop.grabs?.length&&prop.slot>=0)records.push(make(CREATURE_STATE_ID+index,epoch,tick,CREATURE_STATE_SCHEMA,[index,...prop.state()]));
   for(const [index,trap]of (game.live?.traps||[]).entries())records.push(make(TRAP_STATE_ID+index,epoch,tick,TRAP_STATE_SCHEMA,[index,...trap.stateRecord()]));
-  for(const v of game.vehicles?.vehicles||[])if(v.alive){const target=game.vehicles.vehicles[v.towTarget];records.push(make(300000+v.aiTarget.id,v.aiTarget.generation,tick,8,[v.aiTarget.id,target?.aiTarget.id||0,target?.aiTarget.generation||0,v.towLocal?.toArray()||[0,0,0],v.towLeg||'',v.towAngle||0,v.towWinding||0]));}
+  for(const v of game.vehicles?.vehicles||[])if(v.alive){
+    const kept=held?.(TOW_STATE_SCHEMA,300000+v.aiTarget.id);
+    if(kept!==undefined){if(kept)records.push(kept);continue;}
+    const target=game.vehicles.vehicles[v.towTarget];records.push(make(300000+v.aiTarget.id,v.aiTarget.generation,tick,8,[v.aiTarget.id,target?.aiTarget.id||0,target?.aiTarget.generation||0,v.towLocal?.toArray()||[0,0,0],v.towLeg||'',v.towAngle||0,v.towWinding||0]));
+  }
   return records;
 }
 export function applyWorldPresentation(game,record){

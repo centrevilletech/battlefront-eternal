@@ -146,9 +146,10 @@ export function mountRecordFromEntry(entry, tick) {
 // Assemble one snapshot from a publication's capture records. Mount records
 // merge into their vehicle entry; seat records become the rider's seat
 // slot; tombstones free their slot; summary records given as worldRecords
-// become world fields. Teleports within one life (displacement beyond a
-// speed allowance since the previous snapshot) set the discontinuity bit.
-export function snapshotFromRecords({ tick, epoch = 1, records, worldRecords = [], slots, bounds = DEFAULT_SNAPSHOT_BOUNDS, previous = null }) {
+// become world fields (or `world`, WorldFieldStagger.world(), is the world
+// as is). Teleports within one life (displacement beyond a speed allowance
+// since the previous snapshot) set the discontinuity bit.
+export function snapshotFromRecords({ tick, epoch = 1, records, worldRecords = [], world = null, slots, bounds = DEFAULT_SNAPSHOT_BOUNDS, previous = null }) {
   const snapshot = emptySnapshot(tick, epoch);
   const mounts = new Map(), seats = new Map();
   for (const r of records) { if (r.kind === 'mount') mounts.set(r.id, r); else if (r.kind === 'seat') seats.set(r.id, r); }
@@ -181,7 +182,8 @@ export function snapshotFromRecords({ tick, epoch = 1, records, worldRecords = [
       snapshot.slots.set(slot, before && reusableEntry(built, before) ? before : built.entry);
     }
   }
-  for (const r of worldRecords) {
+  if (world) snapshot.world = world;
+  else for (const r of worldRecords) {
     const key = worldFieldKey(r), before = previous?.world.get(key);
     snapshot.world.set(key, before && before.payload === r.payload && before.id === r.id && before.schema === r.schema && before.generation === r.generation
       ? before : { id: r.id, schema: r.schema, generation: r.generation, payload: r.payload });
@@ -215,35 +217,73 @@ function buildingStateTeam(payload) {
   try { const value = JSON.parse(jsonDecoder.decode(payload)); return Array.isArray(value) ? `${value[1]}:${value[3]}` : null; } catch { return null; }
 }
 export class WorldFieldStagger {
-  constructor(cadence = SNAPSHOT_WORLD_CADENCE_TICKS) { this.cadence = cadence; this.fields = new Map(); }
-  update(tick, records, completeSchemas = new Set()) {
-    const seen = new Set();
+  constructor(cadence = SNAPSHOT_WORLD_CADENCE_TICKS) {
+    this.cadence = cadence;
+    // Fields by key in the order first offered (their order in every
+    // snapshot's world section), and the same entries by schema, then id, so
+    // a lookup builds no key string. `round` marks the fields offered to the
+    // newest update.
+    this.fields = new Map(); this.bySchema = new Map(); this.round = 0;
+  }
+  entry(schema, id) { return this.bySchema.get(schema)?.get(id); }
+  update(tick, records, completeSchemas = new Set()) { this.take(tick, records, completeSchemas); return this.values(); }
+  // update() without building the list of values.
+  take(tick, records, completeSchemas = new Set()) {
+    const round = ++this.round;
     for (const record of records) {
-      const key = worldFieldKey(record); seen.add(key);
-      const cadence = this.cadence[record.schema] ?? 6;
-      let entry = this.fields.get(key);
+      const schema = record.schema, cadence = this.cadence[schema] ?? 6;
+      let entry = this.entry(schema, record.id);
       // A creature's state is taken at once (it changes only when it acts).
-      if (!entry) { entry = { record: null, schema: record.schema, stateTeam: null, nextDue: record.schema === 9 || record.schema === 10 ? tick : tick + (((record.id * 2654435761) >>> 0) % cadence) }; this.fields.set(key, entry); }
+      if (!entry) {
+        entry = { key: worldFieldKey(record), id: record.id, schema, record: null, field: null, stateTeam: null, round,
+          nextDue: schema === 9 || schema === 10 ? tick : tick + (((record.id * 2654435761) >>> 0) % cadence) };
+        this.fields.set(entry.key, entry);
+        let ids = this.bySchema.get(schema);
+        if (!ids) this.bySchema.set(schema, ids = new Map());
+        ids.set(record.id, entry);
+      }
+      entry.round = round;
+      // The held record offered again (held()): the comparisons below would
+      // find it unchanged.
+      if (record === entry.record && tick < entry.nextDue) continue;
       // A building's state and team are parsed once per capture, not again
       // for the stored record.
-      const stateTeam = record.schema === 7 && entry.record ? buildingStateTeam(record.payload) : null;
-      const immediate = record.schema === 7 && entry.record && stateTeam !== entry.stateTeam
-        || (record.schema === 9 || record.schema === 10) && entry.record && !samePayload(entry.record.payload, record.payload);
+      const stateTeam = schema === 7 && entry.record ? buildingStateTeam(record.payload) : null;
+      const immediate = schema === 7 && entry.record && stateTeam !== entry.stateTeam
+        || (schema === 9 || schema === 10) && entry.record && !samePayload(entry.record.payload, record.payload);
       if (immediate || tick >= entry.nextDue) {
         entry.record = record; entry.nextDue = tick + cadence;
-        if (record.schema === 7) entry.stateTeam = stateTeam ?? buildingStateTeam(record.payload);
+        entry.field = { id: record.id, schema, generation: record.generation, payload: record.payload };
+        if (schema === 7) entry.stateTeam = stateTeam ?? buildingStateTeam(record.payload);
       }
     }
-    for (const [key, entry] of this.fields) if (!seen.has(key) && completeSchemas.has(entry.record?.schema)) this.fields.delete(key);
-    return this.values();
+    for (const [key, entry] of this.fields) if (entry.round !== round && completeSchemas.has(entry.record?.schema)) { this.fields.delete(key); this.bySchema.get(entry.schema).delete(entry.id); }
   }
-  values() { return [...this.fields.values()].map(e => e.record).filter(Boolean); }
+  values() { const records = []; for (const entry of this.fields.values()) if (entry.record) records.push(entry.record); return records; }
+  // The values as a snapshot's world fields, keyed and ordered as
+  // snapshotFromRecords would make them from values(). A field object lasts
+  // as long as its record, so an unchanged field is the same object from
+  // snapshot to snapshot (the encoder's identity fast path).
+  world() { const world = new Map(); for (const entry of this.fields.values()) if (entry.record) world.set(entry.key, entry.field); return world; }
+  // For a field held that update() at `tick` would take no fresh record of:
+  // the record it holds (null when none is taken yet), to offer again
+  // instead of building one. Undefined when a fresh record is needed: a
+  // field never offered (update() adds fields in offer order), a due one, a
+  // building whose state or team text (`stateTeam`, as buildingStateTeam
+  // reads it) changed, a creature or trap (compared by payload).
+  held(tick, schema, id, stateTeam = null) {
+    const entry = this.entry(schema, id);
+    if (!entry || tick >= entry.nextDue) return undefined;
+    if (entry.record && (schema === 7 ? stateTeam !== entry.stateTeam : schema === 9 || schema === 10)) return undefined;
+    return entry.record;
+  }
   // Capture-side hints so the host can skip capturing fields whose refresh
   // is not due yet (their cached value stays in the snapshot either way).
   isDue(tick, key) { const entry = this.fields.get(key); return !entry || tick >= entry.nextDue; }
+  isFieldDue(tick, schema, id) { const entry = this.entry(schema, id); return !entry || tick >= entry.nextDue; }
   anyDue(tick, schemas) {
     if (!this.fields.size) return true;
-    for (const [key, entry] of this.fields) if (entry.record && schemas.has(entry.record.schema) && tick >= entry.nextDue) return true;
+    for (const schema of schemas) for (const entry of this.bySchema.get(schema)?.values() ?? []) if (entry.record && tick >= entry.nextDue) return true;
     return false;
   }
   // Whether capturing `schemas` now could change anything: a held field is
@@ -253,7 +293,7 @@ export class WorldFieldStagger {
   // leaves the stagger exactly as capturing would.
   schemaDue(tick, schemas) {
     let seen = false;
-    for (const entry of this.fields.values()) if (schemas.has(entry.schema)) { seen = true; if (tick >= entry.nextDue) return true; }
+    for (const schema of schemas) for (const entry of this.bySchema.get(schema)?.values() ?? []) { seen = true; if (tick >= entry.nextDue) return true; }
     return !seen;
   }
 }

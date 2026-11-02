@@ -1,6 +1,6 @@
 import { entityPostNames } from './entity-spawn-posts.js';
 import { attachPresentationCapture } from './entity-presentation-events.js';
-import { captureUnitState, UNIT_STATE_ID } from './entity-unit-state.js';
+import { captureUnitState, UNIT_STATE_ID, UNIT_STATE_SCHEMA } from './entity-unit-state.js';
 import { captureWorldPresentation } from './entity-world-state.js';
 // The snapshot-delta host (docs/snapshot-delta-design.md): one authoritative
 // world owes each client a snapshot every publication interval (30 Hz
@@ -246,12 +246,11 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
       common.push(...captureRecordSummaries(game.battle, registry, { tick, epoch, quantum: game.battle.gameOver ? 1 : 1000 }));
       complete.add(5);
     }
-    const worldRecords = stagger.update(tick, [
-      ...common,
-      ...[...game.units.all()].filter(u => u.soldier && u.combat && !u.removed && stagger.isDue(tick, `6:${UNIT_STATE_ID + u.id}`)).map(u => captureUnitState(u, registry, tick)),
-      ...captureWorldPresentation(game, tick, epoch),
-    ], complete);
-    const snapshot = snapshotFromRecords({ tick, epoch, records, worldRecords, slots, previous: lastSnapshot });
+    const unitStates = [];
+    for (const u of game.units.all()) if (u.soldier && u.combat && !u.removed && stagger.isFieldDue(tick, UNIT_STATE_SCHEMA, UNIT_STATE_ID + u.id)) unitStates.push(captureUnitState(u, registry, tick));
+    // Stations and tows the stagger would not take now are not built.
+    stagger.take(tick, [...common, ...unitStates, ...captureWorldPresentation(game, tick, epoch, (schema, id, stateTeam) => stagger.held(tick, schema, id, stateTeam))], complete);
+    const snapshot = snapshotFromRecords({ tick, epoch, records, world: stagger.world(), slots, previous: lastSnapshot });
     ring.set(tick, epoch, snapshot);
     lastSnapshot = snapshot; capturedTick = tick;
     encodeCache.tick = tick; encodeCache.parts.clear();
