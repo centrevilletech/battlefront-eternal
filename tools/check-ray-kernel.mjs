@@ -1,9 +1,12 @@
 // The ray kernel (src/ray-kernel.js, ?rays=wasm) against collision.js's own
 // JavaScript, on a real battle: every few hundred ticks of a headless battle
 // (hulls moving, bodies switching on and off), thousands of random casts,
-// castMovings and ground probes go through both on the same world, and every
-// field of every answer must be the same number, bit for bit (Object.is: -0
-// is not 0), the same body, the same miss.
+// castMovings and ground probes, and sphere gathers (cached as a soldier's
+// are, and not; with the vehicle-only barriers and without), overlap tests
+// and terrainNear lists go through both on the same world, and every field
+// of every answer must be the same number, bit for bit (Object.is: -0 is not
+// 0), the same body, the same miss, the same polygons in the same order with
+// the same triangles.
 //
 //   BFE_CONTENT_DIR=<game data> node tools/check-ray-kernel.mjs \
 //     [--map nab2] [--side rep] [--seed 1] [--ticks 1800] [--every 300] [--rays 4000]
@@ -35,6 +38,20 @@ const same = (a, b) => Object.is(a, b);
 const fields = (h) => [h.distance, h.point.x, h.point.y, h.point.z, h.normal.x, h.normal.y, h.normal.z, h.terrain];
 const fill = (h) => { h.distance = 123.5; h.point.set(1, 2, 3); h.normal.set(4, 5, 6); h.terrain = 'unset'; h.body = 'unset'; return h; };
 let checked = 0, hits = 0, bodyHits = 0, terrainHits = 0, movingHits = 0, groundHits = 0, failures = 0;
+let polygons = 0, triangles = 0, movingPolygons = 0, overlaps = 0, nearTriangles = 0;
+const corners = (t) => [t.a.x, t.a.y, t.a.z, t.b.x, t.b.y, t.b.z, t.c.x, t.c.y, t.c.z];
+const listed = (list) => list.map((p) => [p.id, p.moving, p.done, p.triangles.map(corners)]);
+function sameLists(a, b) {
+  return a.length === b.length && a.every((p, i) => Object.is(p[0], b[i][0]) && p[1] === b[i][1] && p[2] === b[i][2] && p[3].length === b[i][3].length
+    && p[3].every((t, j) => t.every((v, k) => Object.is(v, b[i][3][j][k]))));
+}
+function fail(kind, args, a, b) {
+  failures++;
+  if (failures <= 10) console.error(`MISMATCH ${kind}`, JSON.stringify(args), '\n  js  ', JSON.stringify(a).slice(0, 400), '\n  wasm', JSON.stringify(b).slice(0, 400));
+}
+// Callers' caches, as a soldier's body spheres and a hull's probes keep them,
+// each drifting about its own spot.
+const caches = Array.from({ length: 24 }, (_, i) => ({ cache: world.gatherCache(i % 3 ? 0.75 : 0.4), at: null }));
 function compare(kind, args, a, b, ra, rb) {
   checked++;
   const ok = (ra === null) === (rb === null) && fields(a).every((v, i) => same(v, fields(b)[i])) && a.body === b.body;
@@ -82,6 +99,27 @@ function round() {
     if ((r1 === null) !== (r2 === null) || !same(g1.height, g2.height) || !same(g1.normal.x, g2.normal.x) || !same(g1.normal.y, g2.normal.y) || !same(g1.normal.z, g2.normal.z)) {
       failures++; if (failures <= 10) console.error('MISMATCH ground', x, z, top, r1 && [g1.height, ...g1.normal.toArray()], r2 && [g2.height, ...g2.normal.toArray()]);
     } else if (r1) groundHits++;
+    // A sphere: around a cached caller's spot, or anywhere, at a body or not.
+    const k = i % caches.length, caller = rnd() < 0.6 ? caches[k] : null;
+    let center = point();
+    if (caller) {
+      if (!caller.at || rnd() < 0.02) caller.at = point();
+      caller.at.add(new THREE.Vector3(rnd() - 0.5, (rnd() - 0.5) * 0.4, rnd() - 0.5).multiplyScalar(0.6));
+      center = caller.at.clone();
+    } else if (bodies.length && rnd() < 0.4) center = bodies[Math.floor(rnd() * bodies.length)].bounds.getCenter(new THREE.Vector3()).add(new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(8));
+    const radius = [0.35, 0.5, 0.8, 1.5, 4][Math.floor(rnd() * 5)], vehicle = rnd() < 0.3;
+    const l1 = listed(js(() => world.gather(center, radius, vehicle, caller?.cache ?? null, ignore))), l2 = listed(world.gather(center, radius, vehicle, caller?.cache ?? null, ignore));
+    checked++;
+    if (!sameLists(l1, l2)) fail('gather', { center, radius, vehicle, cached: Boolean(caller), ignore: ignore?.raySlot ?? null }, l1, l2);
+    else { polygons += l1.length; triangles += l1.reduce((n, p) => n + p[3].length, 0); movingPolygons += l1.filter((p) => p[1]).length; }
+    const o1 = js(() => world.overlapsSphere(center, radius, ignore)), o2 = world.overlapsSphere(center, radius, ignore);
+    checked++;
+    if (o1 !== o2) fail('overlapsSphere', { center, radius, ignore: ignore?.raySlot ?? null }, o1, o2);
+    else if (o1) overlaps++;
+    const n1 = js(() => world.terrainNear(center, radius)).map(corners), n2 = world.terrainNear(center, radius).map(corners);
+    checked++;
+    if (n1.length !== n2.length || !n1.every((t, j) => t.every((v, m) => Object.is(v, n2[j][m])))) fail('terrainNear', { center, radius }, n1, n2);
+    else nearTriangles += n1.length;
   }
 }
 for (let t = 0; t <= ticks; t++) {
@@ -92,5 +130,6 @@ for (let t = 0; t <= ticks; t++) {
 }
 const enabled = world.bodies.filter((b) => b.enabled).length, moving = world.bodies.filter((b) => b.moving).length;
 console.log(`${map} ${side} seed ${seed}: ${checked} answers compared over ${ticks} ticks (${world.bodies.length} bodies, ${moving} moving, ${enabled} enabled at the end); `
-  + `casts hit ${hits} (${bodyHits} bodies, ${terrainHits} terrain), castMoving ${movingHits}, ground ${groundHits}; ${failures} mismatches`);
+  + `casts hit ${hits} (${bodyHits} bodies, ${terrainHits} terrain), castMoving ${movingHits}, ground ${groundHits}; `
+  + `gathers ${polygons} polygons (${movingPolygons} moving) of ${triangles} triangles, overlaps ${overlaps}, terrainNear ${nearTriangles} triangles; ${failures} mismatches`);
 process.exit(failures ? 1 : 0);
