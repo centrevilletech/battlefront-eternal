@@ -421,3 +421,51 @@ they are paired runs' medians and only a guide to the laptop.
   declaring those two waits for a replay review.
 - Most of the step is now the Classic AI, the soldiers' own physics and the
   hulls' seats, each spread over many small functions.
+
+### When the world's ticks run
+
+On the same laptop the world also stood still longer than its steps took.
+Its worker slept until the next tick counted from when its clock read the
+time, before the steps it then ran: each tick started a step's length late, and the tick
+after a long step, due while it ran, waited up to a whole tick more, so a
+27 ms step showed the page a 40 ms gap. Behind, it rested 4 ms between
+catch-up batches, as a chain of `setTimeout(0)` calls is held to 4 ms. The
+world fell behind until its clock dropped ticks: it ran 59.0 to 59.8 ticks
+a second in a Theed battle on the emulated laptop. `src/runtime/local-world-pump.js`
+counts the wait from when the steps finish, rounded up to whole
+milliseconds, and runs a tick already due as soon as the page's queued
+commands have, through a MessageChannel. The same ticks run with the same
+clock limits; only their timing changes.
+
+An explosion also asked, for every soldier on the field, whether terrain or
+a building shielded him (a ray through the map) before it looked at his
+distance: in 40 seconds of a Theed battle 71 explosions cast 2,619 of those
+rays, 4 of them for soldiers in reach. `Combat.explode` now makes the sight
+test only when the blast would push him, hurt him or show him where it came
+from. The fingerprints were identical for 2,400 ticks on eleven maps, sides
+and seeds, and for 6,000 ticks on six more.
+
+Measured on a desktop emulating the laptop (each renderer thread in a cgroup
+at the laptop's speed, the page's WebGL draw calls made no-ops), Theed,
+medium AI, on foot; three interleaved pairs of 40-second recordings, means:
+
+| World | Before | After |
+| --- | ---: | ---: |
+| Gaps between ticks over 40 ms | 10.3 | 3.7 |
+| The same, after a recording's first second | 10.0 | 1.3 |
+| Ticks a second | 59.65 | 59.94 |
+| The page's input lead, 90th percentile (ticks) | 9.7 | 5.6 |
+| Frames the page's playout clock waited on the world | 53 | 40 |
+
+The first second of each recording holds a few long steps in both builds:
+the recorder attaching to the worker. Step times varied more with each
+battle than between builds (p50 8.0 to 11.8 ms, p90 14.0 to 18.5 ms over
+the six recordings).
+
+What still stops the world for over 40 ms there is mostly its own garbage
+collection and the heaviest fights' steps. A full collection's final pause
+took 10 to 31 ms, one or two in each recording, and the 25 to 28 young
+collections 5 to 18 ms each, mostly between ticks. About 25 to 30 KB a tick
+outlives a young collection; the largest shares are the snapshot host's
+captures, which the 128-snapshot ring keeps for two seconds, and the hit
+history's capture (each frame's Map is cleared and refilled every tick).

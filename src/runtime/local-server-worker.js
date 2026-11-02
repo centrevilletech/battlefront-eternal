@@ -4,19 +4,14 @@ import { contentHash } from './content-hash.js';
 import { FixedClock } from './fixed-clock.js';
 import { worldState } from './world-state.js';
 import { batchedPoster } from './local-message-batch.js';
+import { createWorldPump } from './local-world-pump.js';
 
 const clock=new FixedClock({maxSteps:4,budget:.05,maxDebt:8});
-let server=null,timer=null,last=0,initializing=false;
+let server=null,initializing=false;
 // Each step's messages go to the page together, right after the step.
 const {send,flush}=batchedPoster((message,transfer)=>self.postMessage(message,transfer));
-function fail(error){clearTimeout(timer);server?.dispose();send('events',JSON.stringify({type:'gameplay-error',message:error.message}));}
-function pump(){
-  if(!server?.running)return;
-  try{
-    const now=performance.now();clock.advance((now-last)/1000,()=>{server.step();flush();});last=now;
-    timer=setTimeout(pump,clock.debt?0:Math.max(1,(clock.dt-(clock.elapsed-clock.time))*1000));
-  }catch(error){fail(error);}
-}
+const pump=createWorldPump(clock,()=>{server.step();flush();},{fail});
+function fail(error){pump.stop();server?.dispose();send('events',JSON.stringify({type:'gameplay-error',message:error.message}));}
 let messages=Promise.resolve();
 self.onmessage=({data})=>{messages=messages.then(async()=>{
   if(data.type==='init'){
@@ -36,6 +31,6 @@ self.onmessage=({data})=>{messages=messages.then(async()=>{
     if(m.type==='call'&&m.method==='worldState'){send('events',JSON.stringify({type:'reply',id:m.id,state:worldState(server.game)}));return;}
   }
   server.receive(data.channel,data.payload);
-  if(server.running&&!before){clock.tick=server.game.worldClock.tick;clock.rebase();last=performance.now();timer=setTimeout(pump,0);}
-  if(!server.running&&before){clearTimeout(timer);timer=null;}
+  if(server.running&&!before){clock.tick=server.game.worldClock.tick;clock.rebase();pump.start();}
+  if(!server.running&&before)pump.stop();
 }).catch(fail);};
