@@ -32,6 +32,11 @@ function hideOwnershipProxy(unit) {
 
 // The soldier states that leave him in the air as they are named.
 const AIRBORNE = new Set(['jump', 'fall', 'thrown', 'jet']);
+// Mount records kept a hull, enough to span the playout delay.
+const MOUNT_HISTORY = 12;
+// The shortest way round from one angle (or cycle phase) to another, on a
+// circle `length` round.
+const turn = (d, length) => d - length * Math.round(d / length);
 
 // A datagram's records sorted by the kinds EntityGameState.receive applies,
 // each kind's in their order; kinds it does not apply are left out.
@@ -76,6 +81,9 @@ export class EntityGameState {
     // Slots named by mount records, so a hull the client has never built can be
     // made from its vehicle record; seats whose mount has not arrived yet.
     this.slots = new Map(); this.pendingSeats = new Map(); this.pendingState = new Map(); this.deferred = 0; this.presentedTick = null;
+    // Each hull's recent mount records (lean, walk cycle, seat aims), newest
+    // last: drawn at the playout clock with its position (presentMounts).
+    this.mounts = new Map();
   }
   initialize() {
     const g=this.game;
@@ -104,7 +112,7 @@ export class EntityGameState {
     if (!this.ready) throw Error('Entity state arrived before world baseline application');
     const packet = this.receiver.receive(bytes); if (!packet) return;
     this.beforeApply();
-    if (packet.epochChanged) { this.timeline.reset(packet.epoch); this.presentation.reset(); this.items?.reset(packet.epoch); this.remotes?.reset(packet.epoch); this.previous = null; this.pendingCorrection = null; this.pendingEligibility = null; this.slots.clear(); this.pendingSeats.clear(); }
+    if (packet.epochChanged) { this.timeline.reset(packet.epoch); this.presentation.reset(); this.items?.reset(packet.epoch); this.remotes?.reset(packet.epoch); this.previous = null; this.pendingCorrection = null; this.pendingEligibility = null; this.slots.clear(); this.pendingSeats.clear(); this.mounts.clear(); }
     // The datagram's records by kind, in their order, in one pass (over a
     // hundred datagrams a second): each kind is applied in turn below.
     const by = recordsByKind(packet.records);
@@ -335,17 +343,49 @@ export class EntityGameState {
   // The crew pose beside the hull: lean, walk cycle and every seat's aim, for
   // Vehicle.present/poseCrew and the riders. Own seats included: the driver's
   // preview adds the look the server has not seen yet on top.
+  // A hull's lean, walk cycle and seat aims. They are drawn with its
+  // position, which the playout clock samples a few ticks behind the newest
+  // packet: applied as they arrived, a nearby walker's legs, a tank's lean
+  // and its turrets ran ahead of its body and jumped a packet at a time. Each
+  // record is kept and presentMounts poses the hull from the two around the
+  // clock. His own hull's walk cycle is his prediction's to step from the
+  // newest, as are the seats he aims.
   mount(record) {
     const vehicle = this.game.vehicles?.vehicles.find(v => v.aiTarget.id === record.id);
     if (!vehicle || !vehicle.alive || vehicle.aiTarget.generation !== record.generation) return;
-    if (!this.ownsMountAim(vehicle, 0)) {
-      vehicle.tilt = vehicle.previousTilt = record.tilt; vehicle.roll = vehicle.previousRoll = record.roll;
+    let list = this.mounts.get(record.id);
+    if (!list || list.generation !== record.generation) this.mounts.set(record.id, list = Object.assign([], { generation: record.generation }));
+    if (!list.length || record.tick > list.at(-1).tick) { list.push(record); if (list.length > MOUNT_HISTORY) list.shift(); }
+    if (this.ownsMountAim(vehicle, 0)) { vehicle.walkPhase = record.walkPhase; vehicle.walkBlend = record.walkBlend; }
+    // Until a frame draws it, a new hull stands as its first record has it.
+    if (list.length === 1) this.poseMount(vehicle, record, record, 0);
+  }
+  // The hulls' mount records at `tick` (fractional): between the two around
+  // it, else the nearest.
+  presentMounts(tick) {
+    for (const vehicle of this.game.vehicles?.vehicles || []) {
+      const list = this.mounts.get(vehicle.aiTarget.id);
+      if (!list?.length || !vehicle.alive || vehicle.aiTarget.generation !== list.generation) continue;
+      let at = 0;
+      while (at + 1 < list.length && list[at + 1].tick <= tick) at++;
+      const a = list[at], b = list[at + 1];
+      this.poseMount(vehicle, a, b ?? a, b && tick > a.tick ? (tick - a.tick) / (b.tick - a.tick) : 0);
+      // Records the clock has passed are not drawn again.
+      if (at > 0) list.splice(0, at);
     }
-    vehicle.walkPhase = record.walkPhase; vehicle.walkBlend = record.walkBlend;
-    for (let i = 0; i < vehicle.seats.length && i < record.seats.length; i++) {
+  }
+  poseMount(vehicle, a, b, f) {
+    const lerp = (x, y) => x + (y - x) * f;
+    if (!this.ownsMountAim(vehicle, 0)) {
+      vehicle.tilt = vehicle.previousTilt = lerp(a.tilt, b.tilt); vehicle.roll = vehicle.previousRoll = lerp(a.roll, b.roll);
+      const length = vehicle.walkLength;
+      vehicle.walkPhase = length > 0 ? ((a.walkPhase + turn(b.walkPhase - a.walkPhase, length) * f) % length + length) % length : b.walkPhase;
+      vehicle.walkBlend = lerp(a.walkBlend, b.walkBlend);
+    }
+    for (let i = 0; i < vehicle.seats.length && i < a.seats.length && i < b.seats.length; i++) {
       const seat = vehicle.seats[i];
       if (this.ownsMountAim(vehicle, i)) continue;
-      seat.aimYaw = record.seats[i].yaw; seat.pitch = record.seats[i].pitch;
+      seat.aimYaw = a.seats[i].yaw + turn(b.seats[i].yaw - a.seats[i].yaw, 2 * Math.PI) * f; seat.pitch = lerp(a.seats[i].pitch, b.seats[i].pitch);
       if (seat.lastYaw === null) seat.lastYaw = seat.aimYaw;
     }
   }
@@ -533,6 +573,7 @@ export class EntityGameState {
     const g = this.game, dt = this.presentedTick === null ? 0 : Math.max(0, Math.min(.25, (tick - this.presentedTick) / 60));
     this.presentedTick = tick;
     this.presentation.update(tick, { playerId: g.playerUnit.id, vehicleId: g.driver?.active ? g.driver.vehicle.aiTarget.id : null });
+    this.presentMounts(tick);
     // Vehicle.present reads the frame's dt from the pose to turn the aimers.
     for (const vehicle of g.vehicles?.vehicles || []) if (vehicle.networkPose) vehicle.networkPose.dt = dt;
     // Manned turrets: the drum and gun at the replicated angles, the body in the
