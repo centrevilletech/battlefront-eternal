@@ -60,6 +60,7 @@ export class InputLead {
     this.gaps.fill(0); this.gapAt = 0; this.gapCount = 0;
     this.arrivedAt = null; this.arrivedTick = 0; this.latest = 0;
     this.lead = this.margin + 1; this.late = 0; this.worstGap = 0; this.extra = 0; this.cooldown = 0; this.calm = 0; this.measuredKey = -1;
+    this.capped = false;
   }
   // A packet for `tick` arrived at `now` (seconds); `dropped` is the world's
   // count of ticks it has given up.
@@ -86,11 +87,22 @@ export class InputLead {
   // that the clock hits its bound and stops sampling input. Without a
   // measured RTT, extra also covers steady transit, so retain the slower
   // one-tick reduction per calm interval for the local/unknown-RTT case.
-  acknowledge(late, elapsedTicks = 1) {
+  // `capped`: the command was stamped while maxLead held the target below
+  // where the margin put it (target), because the page had not heard from
+  // the world for longer than the cap covers. A page that stalls (a long
+  // frame) does so on the world's packets too: it draws its next frame
+  // before it has taken all that came, and stamps at the cap over a newest
+  // tick some way behind the world. Those commands land late however wide
+  // the margin (the cap holds them), so their lateness neither raises the
+  // margin, which offline would then take two minutes to come down, nor
+  // counts against its calm.
+  acknowledge(late, elapsedTicks = 1, capped = false) {
     const elapsed = Math.max(1, Math.min(60, elapsedTicks));
     if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - elapsed);
     if (late > 0) {
-      this.late++; this.calm = 0;
+      this.late++;
+      if (capped) return;
+      this.calm = 0;
       if (!this.cooldown) { this.extra = Math.min(this.maxLead, this.extra + late); this.cooldown = this.cooldownAcks; }
     } else if ((this.calm += elapsed) >= this.calmAcks) {
       this.calm = this.recover ? this.calmAcks : 0;
@@ -130,6 +142,8 @@ export class InputLead {
     // lost. Do not turn that loss into a stopped upstream input stream.
     const reference = this.extrapolate && estimate !== null ? Math.max(latest, estimate) : latest;
     const bounded = Math.min(Math.max(target, reference + 1), reference + this.maxLead);
+    // The cap, not the margin, set this position (acknowledge's `capped`).
+    this.capped = target > bounded;
     this.lead = bounded - latest;
     return bounded;
   }
