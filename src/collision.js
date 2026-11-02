@@ -168,6 +168,17 @@ export class CollisionWorld {
     }
   }
 
+  // The ray kernel failed (it should not: a fault in it, or no memory left
+  // for it to grow): this query and every later one are answered by the
+  // JavaScript, which gives the same answers, so the battle goes on as it
+  // would have.
+  dropRays(error) {
+    console.warn(`The collision's WebAssembly failed (${error?.message ?? error}); its JavaScript answers from now on.`);
+    this.rays = null;
+    // The soldiers' movement runs in the same module (src/movement-kernel.js).
+    if (this.movement) this.movement = null;
+  }
+
   // A body's copy in the ray kernel: its tree, and its place (a moving
   // body's as it moves, in moveBody).
   rayBody(body, moving) {
@@ -214,7 +225,7 @@ export class CollisionWorld {
     body.bounds = body.bvh.getBoundingBox(new THREE.Box3());
     this.bodies.push(body);
     this.bodiesVersion++;
-    if (this.rays) this.rayBody(body, false);
+    if (this.rays) try { this.rayBody(body, false); } catch (error) { this.dropRays(error); }
     return body;
   }
 
@@ -231,7 +242,7 @@ export class CollisionWorld {
       enabled: true, moving: true, owner };
     this.bodies.push(body);
     this.bodiesVersion++;
-    if (this.rays) this.rayBody(body, true);
+    if (this.rays) try { this.rayBody(body, true); } catch (error) { this.dropRays(error); }
     this.moveBody(body, matrix);
     return body;
   }
@@ -240,7 +251,7 @@ export class CollisionWorld {
     body.matrix.copy(matrix);
     body.inverse.copy(matrix).invert();
     body.bounds.copy(body.localBounds).applyMatrix4(matrix);
-    if (this.rays && body.raySlot !== undefined) this.rays.place(body.raySlot, body.bounds, body.matrix, body.inverse);
+    if (this.rays && body.raySlot !== undefined) try { this.rays.place(body.raySlot, body.bounds, body.matrix, body.inverse); } catch (error) { this.dropRays(error); }
   }
 
   removeBody(body) {
@@ -253,7 +264,7 @@ export class CollisionWorld {
   // Test only moving objects over a projectile's current flight segment.
   // Static impacts remain precomputed; a moving target is never snapshotted.
   castMoving(origin, direction, far, out, ignoreBody = null) {
-    if (this.rays) return this.rayCastMoving(origin, direction, far, out, ignoreBody);
+    if (this.rays) try { return this.rayCastMoving(origin, direction, far, out, ignoreBody); } catch (error) { this.dropRays(error); }
     this.ray.set(origin, direction);
     let closest = far;
     let found = false;
@@ -286,7 +297,7 @@ export class CollisionWorld {
   // vehicle: the vehicle-only barriers count too (a hull's query).
   // ignoreBody: a body whose polygons are left out (a dead rider's mount).
   gather(center, radius, vehicle = false, cache = null, ignoreBody = null) {
-    if (this.rays) return this.rayGather(center, radius, vehicle, cache, ignoreBody);
+    if (this.rays) try { return this.rayGather(center, radius, vehicle, cache, ignoreBody); } catch (error) { this.dropRays(error); }
     this.box.min.set(center.x - radius, center.y - radius, center.z - radius);
     this.box.max.set(center.x + radius, center.y + radius, center.z + radius);
     this.used = 0;
@@ -458,6 +469,38 @@ export class CollisionWorld {
     return list;
   }
 
+  // A hull's wall probes (vehicles.js pushWalls) in the ray kernel, whole:
+  // each probe's gather (through its cache) and terrain triangles, and every
+  // push out of them, in pushWalls' order; position and velocity are set
+  // to where they leave the hull, and true comes back if its turn is to be
+  // undone (a push deeper than 0.15 m). q, own: Quaternions (own null
+  // unless the hull walks); previous: its place a step ago.
+  rayPushWalls(probes, radius, caches, q, own, previous, position, velocity, terrain) {
+    const rays = this.rays, bodies = this.bodies, n = probes.length;
+    this.rayBodies();
+    // Ids first: making a cache or a set may grow the module's memory.
+    const blockers = this.vehicleBlockers ? rays.fixedSet(this.blockerSet(this.vehicleBlockers), this.vehicleBlockers.bvh) : -1;
+    for (let i = 0; i < n; i++) if (caches[i]) rays.cache(caches[i]);
+    const input = rays.input(22 + n * 4);
+    input[0] = q.x; input[1] = q.y; input[2] = q.z; input[3] = q.w;
+    if (own) { input[4] = own.x; input[5] = own.y; input[6] = own.z; input[7] = own.w; input[8] = 1; } else input[8] = 0;
+    input[9] = previous.x; input[10] = previous.y; input[11] = previous.z;
+    input[12] = position.x; input[13] = position.y; input[14] = position.z;
+    input[15] = velocity.x; input[16] = velocity.y; input[17] = velocity.z;
+    input[18] = radius; input[19] = terrain ? 1 : 0; input[20] = blockers; input[21] = n;
+    for (let i = 0, o = 22; i < n; i++, o += 4) {
+      const p = probes[i];
+      input[o] = p.x; input[o + 1] = p.y; input[o + 2] = p.z; input[o + 3] = caches[i] ? caches[i].ray : -1;
+    }
+    const places = rays.places();
+    for (let i = 0; i < bodies.length; i++) places[i] = bodies[i].enabled ? 1 : 0;
+    rays.x.push_walls_ray(this.rayWorld);
+    const io = rays.view();
+    position.set(io[0], io[1], io[2]);
+    velocity.set(io[3], io[4], io[5]);
+    return io[6] !== 0;
+  }
+
   // Whether each of the `count` bodies the kernel's query just named is
   // enabled (ENABLED), read from the bodies' plain field.
   rayEnabled(count) {
@@ -500,7 +543,7 @@ export class CollisionWorld {
   // Clearance for a swept posture, including live props. Unlike gather this
   // does not disturb the polygon contact list currently being resolved.
   overlapsSphere(center, radius, ignoreBody = null) {
-    if (this.rays) return this.rayOverlapsSphere(center, radius, ignoreBody);
+    if (this.rays) try { return this.rayOverlapsSphere(center, radius, ignoreBody); } catch (error) { this.dropRays(error); }
     this.box.min.copy(center).addScalar(-radius);
     this.box.max.copy(center).addScalar(radius);
     this.overlapCenter = center;
@@ -551,7 +594,9 @@ export class CollisionWorld {
     cached.x = x; cached.z = z; cached.top = top;
     this.ray.origin.set(x, top, z);
     this.ray.direction.copy(this.down);
-    const hit = this.rays ? this.rayGroundHit() : this.terrainGrid.raycastFirst(this.ray, Infinity);
+    let hit = null;
+    if (this.rays) try { hit = this.rayGroundHit(); } catch (error) { this.dropRays(error); }
+    if (!this.rays) hit = this.terrainGrid.raycastFirst(this.ray, Infinity);
     cached.hit = Boolean(hit);
     if (!hit) return null;
     out.height = hit.point.y;
@@ -568,9 +613,8 @@ export class CollisionWorld {
   terrainNear(center, radius) {
     const out = this.terrainNearList ||= [];
     empty(out);
-    if (this.rays) {
-      if (this.terrainGrid) this.rayTerrainNear(center, radius, out, this.terrainNearPool ||= []);
-    } else this.terrainGrid?.near(center, radius, out, this.terrainNearPool ||= []);
+    if (this.rays && this.terrainGrid) try { this.rayTerrainNear(center, radius, out, this.terrainNearPool ||= []); return out; } catch (error) { this.dropRays(error); empty(out); }
+    this.terrainGrid?.near(center, radius, out, this.terrainNearPool ||= []);
     return out;
   }
 
@@ -606,7 +650,7 @@ export class CollisionWorld {
   // and `body` which body, if one was. A firing turret can exclude its own
   // live body without excluding nearby architecture or other turrets.
   cast(origin, direction, far, out, ignoreBody = null, staticOnly = false) {
-    if (this.rays) return this.rayCast(origin, direction, far, out, ignoreBody, staticOnly);
+    if (this.rays) try { return this.rayCast(origin, direction, far, out, ignoreBody, staticOnly); } catch (error) { this.dropRays(error); }
     this.ray.origin.copy(origin);
     this.ray.direction.copy(direction);
     let hit = this.bvh.raycastFirst(this.ray, THREE.DoubleSide, 0, far);
@@ -658,9 +702,12 @@ export class CollisionWorld {
     if (code === RAY_MISS) { out.terrain = false; return null; }
     out.terrain = code === RAY_TERRAIN;
     if (code >= 0) out.body = rays.bodies[code];
-    out.distance = io[10];
-    out.point.set(io[11], io[12], io[13]);
-    out.normal.set(io[14], io[15], io[16]);
+    // The hit through a fresh view: naming the candidates may have grown the
+    // module's memory (its broad phase made again), emptying views made before.
+    const hit = rays.view();
+    out.distance = hit[10];
+    out.point.set(hit[11], hit[12], hit[13]);
+    out.normal.set(hit[14], hit[15], hit[16]);
     return out;
   }
 
@@ -674,9 +721,10 @@ export class CollisionWorld {
     io[6] = far;
     const code = rays.x.world_cast_moving(this.rayWorld, this.rayCandidates(ignoreBody, false, true));
     if (code === RAY_MISS) return null;
-    out.point.set(io[11], io[12], io[13]);
-    out.normal.set(io[14], io[15], io[16]);
-    out.distance = io[10]; out.body = rays.bodies[code]; out.terrain = false;
+    const hit = rays.view();
+    out.point.set(hit[11], hit[12], hit[13]);
+    out.normal.set(hit[14], hit[15], hit[16]);
+    out.distance = hit[10]; out.body = rays.bodies[code]; out.terrain = false;
     return out;
   }
 
@@ -686,10 +734,10 @@ export class CollisionWorld {
     const io = this.rays.view(), o = this.ray.origin, d = this.ray.direction;
     io[0] = o.x; io[1] = o.y; io[2] = o.z; io[3] = d.x; io[4] = d.y; io[5] = d.z; io[6] = Infinity;
     if (!this.rays.x.grid_ray(this.rayGrid)) return null;
-    const hit = this.rayGround;
-    hit.distance = io[10];
-    hit.point.set(io[11], io[12], io[13]);
-    hit.normal.set(io[14], io[15], io[16]);
+    const hit = this.rayGround, at = this.rays.view();
+    hit.distance = at[10];
+    hit.point.set(at[11], at[12], at[13]);
+    hit.normal.set(at[14], at[15], at[16]);
     return hit;
   }
 }
