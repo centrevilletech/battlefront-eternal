@@ -184,8 +184,8 @@ export function cullColorOnly(mesh, cellSize = 48) {
   for (let i = 0; i < index.count; i += 3) {
     const a = index.getX(i), b = index.getX(i + 1), c = index.getX(i + 2);
     const x = (position.getX(a) + position.getX(b) + position.getX(c)) / 3, z = (position.getZ(a) + position.getZ(b) + position.getZ(c)) / 3;
-    const key = `${Math.floor(x / cellSize)},${Math.floor(z / cellSize)}`;
-    if (!cells.has(key)) cells.set(key, { id: cells.size, bounds: new THREE.Box3() });
+    const cx = Math.floor(x / cellSize), cz = Math.floor(z / cellSize), key = `${cx},${cz}`;
+    if (!cells.has(key)) cells.set(key, { id: cells.size, x: cx, z: cz, bounds: new THREE.Box3() });
     const cell = cells.get(key);
     triangleCells[i / 3] = cell.id;
     for (const vertex of [a, b, c]) cell.bounds.expandByPoint(point.fromBufferAttribute(position, vertex));

@@ -734,13 +734,12 @@ export function zeroMaterial(kind, options = {}) {
   // far scene's don't).
   material.userData.pointLit = !options.far && options.lights !== false && (kind === "lit" || kind === "dynamic" || kind === "baked");
   material.onBeforeRender = (renderer, scene, camera, geometry, object) => {
-    if (kind === "dynamic") {
-      localLighting.select(object, scene.userData.isViewScene);
-      material.uniformsNeedUpdate = true;
-    }
+    const again = drawsAgain(material);
+    if (kind === "dynamic") localLighting.select(object, scene.userData.isViewScene);
     // The map's culled buckets chose theirs by the cells they draw
     // (render-culling.js).
     if (material.userData.pointLit && !object.userData.cellLights) selectLights(material, object, geometry, scene, camera);
+    if (again && (kind === "dynamic" || material.userData.pointLit)) material.uniformsNeedUpdate = true;
   };
   return material;
 }
@@ -771,11 +770,25 @@ export function selectLights(material, object, geometry, scene, camera) {
   setLightMask(material, pack, mask);
 }
 
+// The draw's lights. Who sends them decides (a zero material's own hook:
+// drawsAgain), so the uniforms do not go up twice.
 export function setLightMask(material, pack, mask) {
   useLights(pack, mask);
-  // The same material can draw again with other lights (a reflection, a
-  // mirrored view): upload this draw's.
-  material.uniformsNeedUpdate = true;
+}
+
+// A draw's own values (its lights, a soldier's local lights) reach the GPU
+// with three's upload when the draw before was another material's (setProgram
+// refreshes a material on a change of material or program). After a draw of
+// the same material three sends nothing, so they are sent again
+// (uniformsNeedUpdate): the same material can draw again with other lights.
+// Asking for it on every draw would send every uniform twice whenever the
+// material changed. Every draw of a zero material passes here, so the last
+// one seen is the one three drew last, if three's was a zero material at all.
+let lastDrawn = null;
+export function drawsAgain(material) {
+  const again = lastDrawn === material;
+  lastDrawn = material;
+  return again;
 }
 
 let neutral = null;

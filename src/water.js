@@ -965,7 +965,13 @@ export class Water extends WaterState {
         q++;
       }
     }
-    for (const attribute of [pos, uv, alpha]) attribute.needsUpdate = true;
+    // Only the quads drawn go up, and none when there are none: the buffers
+    // have room for many more and were sent whole every frame.
+    if (q) for (const attribute of [pos, uv, alpha]) {
+      attribute.clearUpdateRanges();
+      attribute.addUpdateRange(0, q * 4 * attribute.itemSize);
+      attribute.needsUpdate = true;
+    }
     geometry.setDrawRange(0, q * 6);
   }
 
@@ -975,7 +981,6 @@ export class Water extends WaterState {
   reflect(camera) {
     this.farGroup.visible = false;
     if (this.ocean) { this.group.visible = false; this.underwaterFog.visible = false; return; }
-    this.graphics.updateScene?.();
     camera.updateMatrixWorld();
     this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.matrix);
@@ -1104,6 +1109,9 @@ export class Water extends WaterState {
         lighting.resolution.value.set(this.target.width, this.target.height);
         lighting.farMap.value = this.reflectionFar.texture;
         graphics.background.material.uniforms.map.value = this.reflectionFar.texture;
+        // The near scene's matrices, once a frame (Graphics.updateScene):
+        // only this mirror draws it before render() does.
+        graphics.updateScene?.();
         renderer.setRenderTarget(this.target);
         renderer.render(graphics.scene, mirror);
       }

@@ -4,6 +4,9 @@ const NUMBERS=['heat','wait','reloadLeft','throwTime','charge','held','lockElaps
 const DEFAULTS={throwTime:-1,charge:1};
 const FLAGS=['overheated','released','hidden','charging','lockComplete'];
 export const UNIT_STATE_SCHEMA=6, UNIT_STATE_ID=100000;
+// decodeUnitState and applyUnitState spell these fields out, in this order.
+if(NUMBERS.join()!=='heat,wait,reloadLeft,throwTime,charge,held,lockElapsed'||FLAGS.join()!=='overheated,released,hidden,charging,lockComplete'
+  ||DEFAULTS.throwTime!==-1||DEFAULTS.charge!==1||Object.keys(DEFAULTS).length!==2)throw Error('unit state fields changed: update decodeUnitState and applyUnitState');
 const encoder=new TextEncoder(),decoder=new TextDecoder('utf-8',{fatal:true});
 export function captureUnitState(unit,registry,tick){
   const weapons=unit.combat.arsenal.weapons;
@@ -29,24 +32,38 @@ export function captureUnitState(unit,registry,tick){
   }
   return {kind:'summary',id:UNIT_STATE_ID+unit.id,generation:unit.generation,tick,schema:UNIT_STATE_SCHEMA,payload:payload.slice(0,at)};
 }
+// Read in place: every remote body's state arrives every snapshot, so no
+// reader closures over a shared offset. Checks and errors as written.
+const finite=n=>{if(!Number.isFinite(n))throw Error('Invalid unit presentation number');return n;};
 export function decodeUnitState(record,registry){
   const {payload}=record;if(record.schema!==UNIT_STATE_SCHEMA||!(payload instanceof Uint8Array)||payload.length<21)throw Error('Invalid unit presentation');
-  const v=new DataView(payload.buffer,payload.byteOffset,payload.byteLength);let at=0;
-  const u8=()=>v.getUint8(at++),u16=()=>{const n=v.getUint16(at,true);at+=2;return n;},u32=()=>{const n=v.getUint32(at,true);at+=4;return n;},f=()=>{const n=v.getFloat32(at,true);at+=4;if(!Number.isFinite(n))throw Error('Invalid unit presentation number');return n;};
-  const id=u32(),flags=u8(),deadTime=f(),stateTime=f(),slot=u16(),selected=[u16(),u16()],count=u8();
-  const size=u8();if(record.id!==UNIT_STATE_ID+id||flags>15||size>128||count>12||payload.length<21+size+5*count)throw Error('Invalid unit presentation layout');
-  const repairLock=decoder.decode(payload.subarray(at,at+size));at+=size;
+  const v=new DataView(payload.buffer,payload.byteOffset,payload.byteLength);
+  const id=v.getUint32(0,true),flags=v.getUint8(4),deadTime=finite(v.getFloat32(5,true)),stateTime=finite(v.getFloat32(9,true)),slot=v.getUint16(13,true);
+  const first=v.getUint16(15,true),second=v.getUint16(17,true),count=v.getUint8(19),size=v.getUint8(20);let at=21;
+  if(record.id!==UNIT_STATE_ID+id||flags>15||size>128||count>12||payload.length<21+size+5*count)throw Error('Invalid unit presentation layout');
+  const repairLock=size?decoder.decode(payload.subarray(at,at+size)):'';at+=size;
   const weapons=[];
   for(let i=0;i<count;i++){
-    const name=registry.weapons.get(u16()),level=u8(),bits=u8();if(!name||bits>31)throw Error('Invalid unit weapon');
-    const mask=u8(),w={name,level};for(const [i,k]of FLAGS.entries())w[k]=!!(bits&(1<<i));
-    for(const [i,k]of NUMBERS.entries())w[k]=mask&(1<<i)?f():(DEFAULTS[k]??0);
-    w.lockTargetId=mask&128?u32():0xffffffff;if(w.lockTargetId===0xffffffff)w.lockTargetId=-1;
-    w.lockGeneration=mask&128?u16():-1;if(w.lockGeneration===65535&&w.lockTargetId===-1)w.lockGeneration=-1;weapons.push(w);
+    const name=registry.weapons.get(v.getUint16(at,true)),level=v.getUint8(at+2),bits=v.getUint8(at+3);at+=4;if(!name||bits>31)throw Error('Invalid unit weapon');
+    // NUMBERS in order, each present when its mask bit is (DEFAULTS else);
+    // one literal per weapon, the fields in FLAGS then NUMBERS order.
+    const mask=v.getUint8(at++);
+    let heat=0,wait=0,reloadLeft=0,throwTime=-1,charge=1,held=0,lockElapsed=0;
+    if(mask&1){heat=finite(v.getFloat32(at,true));at+=4;}
+    if(mask&2){wait=finite(v.getFloat32(at,true));at+=4;}
+    if(mask&4){reloadLeft=finite(v.getFloat32(at,true));at+=4;}
+    if(mask&8){throwTime=finite(v.getFloat32(at,true));at+=4;}
+    if(mask&16){charge=finite(v.getFloat32(at,true));at+=4;}
+    if(mask&32){held=finite(v.getFloat32(at,true));at+=4;}
+    if(mask&64){lockElapsed=finite(v.getFloat32(at,true));at+=4;}
+    let lockTargetId=-1,lockGeneration=-1;
+    if(mask&128){const target=v.getUint32(at,true),generation=v.getUint16(at+4,true);at+=6;lockTargetId=target===0xffffffff?-1:target;lockGeneration=generation===65535&&lockTargetId===-1?-1:generation;}
+    weapons.push({name,level,overheated:!!(bits&1),released:!!(bits&2),hidden:!!(bits&4),charging:!!(bits&8),lockComplete:!!(bits&16),
+      heat,wait,reloadLeft,throwTime,charge,held,lockElapsed,lockTargetId,lockGeneration});
   }
   if(at!==payload.length)throw Error('Invalid unit presentation layout');
-  if(selected.some(id=>id&&!registry.weapons.has(id)))throw Error('Unknown selected weapon');
-  return {id,hero:!!(flags&1),targetable:!!(flags&2),visible:!!(flags&4),blowApart:!!(flags&8),repairLock,deadTime,stateTime,slot:slot===65535?null:slot,selected:selected.map(id=>id?registry.weapons.get(id):null),weapons};
+  if((first&&!registry.weapons.has(first))||(second&&!registry.weapons.has(second)))throw Error('Unknown selected weapon');
+  return {id,hero:!!(flags&1),targetable:!!(flags&2),visible:!!(flags&4),blowApart:!!(flags&8),repairLock,deadTime,stateTime,slot:slot===65535?null:slot,selected:[first?registry.weapons.get(first):null,second?registry.weapons.get(second):null],weapons};
 }
 export function applyUnitState(game,record,registry){
   const state=decodeUnitState(record,registry),unit=game.units.byId(state.id);
@@ -64,7 +81,9 @@ export function applyUnitState(game,record,registry){
   // never overwrite the private weapon state used for local replay and HUD.
   if(unit!==game.playerUnit)for(let i=0;i<resolved.length;i++){
     const w=resolved[i],s=state.weapons[i];w.def=w.levels[s.level];
-    for(const k of [...NUMBERS,...FLAGS,'lockTargetId','lockGeneration'])w[k]=s[k];
+    w.heat=s.heat;w.wait=s.wait;w.reloadLeft=s.reloadLeft;w.throwTime=s.throwTime;w.charge=s.charge;w.held=s.held;w.lockElapsed=s.lockElapsed;
+    w.overheated=s.overheated;w.released=s.released;w.hidden=s.hidden;w.charging=s.charging;w.lockComplete=s.lockComplete;
+    w.lockTargetId=s.lockTargetId;w.lockGeneration=s.lockGeneration;
   }
   if(unit!==game.playerUnit)for(const name of state.selected){const w=arsenal.weapons.find(w=>w.name===name);if(w)arsenal.select(w);}
   unit.combat.updateHeld?.();return true;

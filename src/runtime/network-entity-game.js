@@ -30,6 +30,29 @@ function hideOwnershipProxy(unit) {
   unit.combat?.clearCharge?.();
 }
 
+// The soldier states that leave him in the air as they are named.
+const AIRBORNE = new Set(['jump', 'fall', 'thrown', 'jet']);
+
+// A datagram's records sorted by the kinds EntityGameState.receive applies,
+// each kind's in their order; kinds it does not apply are left out.
+function recordsByKind(records) {
+  const by = { correction: [], mount: [], vehicle: [], turret: [], droideka: [], soldier: [], tombstone: [], summary: [], remote: [], item: [], combat: [] };
+  for (const record of records) switch (record.kind) {
+    case 'correction': by.correction.push(record); break;
+    case 'mount': by.mount.push(record); break;
+    case 'vehicle': by.vehicle.push(record); break;
+    case 'turret': by.turret.push(record); break;
+    case 'droideka': by.droideka.push(record); break;
+    case 'soldier': by.soldier.push(record); break;
+    case 'tombstone': by.tombstone.push(record); break;
+    case 'summary': by.summary.push(record); break;
+    case 'remote': by.remote.push(record); break;
+    case 'item': by.item.push(record); break;
+    case 'combat': by.combat.push(record); break;
+  }
+  return by;
+}
+
 // The shared gameplay adapter for local and remote servers. Content builds
 // models; independently versioned records establish all live world state.
 //
@@ -53,6 +76,7 @@ export class EntityGameState {
     // Slots named by mount records, so a hull the client has never built can be
     // made from its vehicle record; seats whose mount has not arrived yet.
     this.slots = new Map(); this.pendingSeats = new Map(); this.pendingState = new Map(); this.deferred = 0; this.presentedTick = null;
+    this.batching = false; this.batchTick = null;
   }
   initialize() {
     const g=this.game;
@@ -82,46 +106,63 @@ export class EntityGameState {
     const packet = this.receiver.receive(bytes); if (!packet) return;
     this.beforeApply();
     if (packet.epochChanged) { this.timeline.reset(packet.epoch); this.presentation.reset(); this.items?.reset(packet.epoch); this.remotes?.reset(packet.epoch); this.previous = null; this.pendingCorrection = null; this.pendingEligibility = null; this.slots.clear(); this.pendingSeats.clear(); }
-    const corrected = packet.records.some(record => record.kind === 'correction');
-    for (const record of packet.records) if (record.kind === 'correction') this.prepareOwn(record);
-    for (const record of packet.records) if (record.kind === 'mount' && record.slot !== null) this.slots.set(record.id, { index: record.slot, generation: record.generation });
-    for (const record of packet.records) if (record.kind === 'vehicle') this.vehicle(record);
+    // The datagram's records by kind, in their order, in one pass (over a
+    // hundred datagrams a second): each kind is applied in turn below.
+    const by = recordsByKind(packet.records);
+    const corrected = by.correction.length > 0;
+    for (const record of by.correction) this.prepareOwn(record);
+    for (const record of by.mount) if (record.slot !== null) this.slots.set(record.id, { index: record.slot, generation: record.generation });
+    for (const record of by.vehicle) this.vehicle(record);
     // An unordered vehicle packet may have arrived before its slot metadata.
     // Reuse the receiver's bounded latest state once that prerequisite exists;
     // a stored tombstone or another generation must never create a stale hull.
-    for (const record of packet.records) if (record.kind === 'mount' && record.slot !== null) {
+    for (const record of by.mount) if (record.slot !== null) {
       const latest = this.receiver.get('vehicle', record.id);
       if (latest?.kind === 'vehicle' && latest.generation === record.generation &&
-          !packet.records.some(value => value.kind === 'vehicle' && value.id === record.id)) this.vehicle(latest);
+          !by.vehicle.some(value => value.id === record.id)) this.vehicle(latest);
     }
-    for (const record of packet.records) if (record.kind === 'turret') this.turret(record);
-    for (const record of packet.records) if (record.kind === 'droideka') this.droideka(record);
-    for (const record of packet.records) if (record.kind === 'soldier') this.soldier(record, corrected);
-    for (const record of packet.records) if (record.kind === 'tombstone') this.remove(record);
+    for (const record of by.turret) this.turret(record);
+    for (const record of by.droideka) this.droideka(record);
+    for (const record of by.soldier) this.soldier(record, corrected);
+    for (const record of by.tombstone) this.remove(record);
     for (const change of packet.seatChanges) this.seat(change);
     for (const [id, change] of [...this.pendingSeats]) { this.pendingSeats.delete(id); this.seat(change); }
-    for (const record of packet.records) if (record.kind === 'mount') this.mount(record);
-    for (const record of packet.records) if (record.kind === 'summary') {
+    for (const record of by.mount) this.mount(record);
+    for (const record of by.summary) {
       if (record.schema >= 6) { this.pendingState.set(record.id, record); continue; }
       if (record.schema === 3) {
         const summary = decodeWorldSummary(record, this.registry);
         this.pendingEligibility = { record, summary };
       } else applyWorldSummary(this.game, record, { registry: this.registry });
     }
-    for (const record of packet.records) if (record.kind === 'correction') {
+    for (const record of by.correction) {
       if (!this.pendingCorrection || record.tick >= this.pendingCorrection.record.tick) this.pendingCorrection = { record, packet };
     }
-    this.retryCorrection(packet.tick);
+    // In a frame's batch (beginBatch) the newest correction is applied once,
+    // at its end: each one restores his whole state and is superseded by
+    // the next.
+    if (this.batching) this.batchTick = packet.tick;
+    else this.retryCorrection(packet.tick);
     this.applyEligibility();
     for(const [id,record]of this.pendingState){
       const applied=record.schema===UNIT_STATE_SCHEMA?applyUnitState(this.game,record,this.registry):applyWorldPresentation(this.game,record);
       if(applied||packet.tick-record.tick>120)this.pendingState.delete(id);
     }
-    for(const record of packet.records)if(record.kind==='remote'){if(!this.remotes)throw Error('missing remote presentation');this.remotes.receive(record,packet.ack.epoch);}
-    for(const record of packet.records)if(record.kind==='item'){if(!this.items)throw Error('missing item presentation');this.items.receive(record,packet.ack.epoch);}
-    for(const record of packet.records)if(record.kind==='combat')this.combat.receive(record,{epoch:packet.ack.epoch,tick:packet.tick});
-    if (packet.sample) this.timeline.addSnapshot(packet.sample.tick, packet.sample.poses, packet.sample.epoch);
+    for(const record of by.remote){if(!this.remotes)throw Error('missing remote presentation');this.remotes.receive(record,packet.ack.epoch);}
+    for(const record of by.item){if(!this.items)throw Error('missing item presentation');this.items.receive(record,packet.ack.epoch);}
+    for(const record of by.combat)this.combat.receive(record,{epoch:packet.ack.epoch,tick:packet.tick});
+    if (packet.sample) this.timeline.addSnapshot(packet.sample.tick, packet.sample.poses, packet.sample.epoch, true);
     this.onApplied(packet);
+  }
+  // The datagrams drained for one frame, applied as they come, his own
+  // correction (the newest of them) once at the end: on a slow PC two or
+  // three arrive a frame, and the frame's prediction starts from the last.
+  beginBatch() { this.batching = true; this.batchTick = null; }
+  endBatch() {
+    this.batching = false;
+    const tick = this.batchTick;
+    this.batchTick = null;
+    if (tick !== null) this.retryCorrection(tick);
   }
   applyEligibility() {
     const pending = this.pendingEligibility, own = this.game.playerUnit;
@@ -203,7 +244,7 @@ export class EntityGameState {
     unit.combat.health = record.health; s.position.fromArray(record.position); s.velocity.fromArray(record.velocity);
     s.aimYaw = record.yaw; s.aimPitch = record.pitch; s.posture = ENTITY_POSTURES[record.posture];
     // A body still flying after a blast killed it keeps the thrown pose.
-    s.air = state === 'thrownDead' ? 'thrown' : ['jump','fall','thrown','jet'].includes(state) ? state : null;
+    s.air = state === 'thrownDead' ? 'thrown' : AIRBORNE.has(state) ? state : null;
     s.dive = state === 'diveRight' ? 1 : state === 'diveLeft' ? -1 : 0;
     if (record.weapon) {
       const name = this.registry.weapons.get(record.weapon), weapon = unit.combat.arsenal.weapons.find(w => w.name === name);

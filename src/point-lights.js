@@ -19,9 +19,14 @@ import * as THREE from "three";
 export const ZERO_LIGHTS = 16;
 
 // What the materials read: the lights of the draw in hand (useLights), two
-// vec4 a light (position and range, then colour times intensity).
+// vec4 a light (position and range, then colour times intensity), packed
+// flat. three uploads a flat array as it is, and only its length: the value
+// is a view of the lights in use (at least one light's slots), so a draw
+// sends what it reads instead of all of them, unpacked from vectors.
+const drawLightData = new Float32Array(ZERO_LIGHTS * 8);
+const drawLightViews = Array.from({ length: ZERO_LIGHTS + 1 }, (_, n) => drawLightData.subarray(0, Math.max(n, 1) * 8));
 export const pointLighting = {
-  drawLights: { value: Array.from({ length: ZERO_LIGHTS * 2 }, () => new THREE.Vector4()) },
+  drawLights: { value: drawLightViews[0] },
   drawLightCount: { value: 0 },
 };
 
@@ -135,14 +140,16 @@ export function sphereLightMask(pack, center, radius) {
 // Each one still in the loop is read and tested at every vertex (or pixel),
 // which on an old GPU costs even with nothing lit.
 export function useLights(pack, mask) {
-  const count = pack.count, from = pack.lights, to = pointLighting.drawLights.value;
+  const count = pack.count, from = pack.lights, to = drawLightData;
   let n = 0;
   for (let i = 0; i < count; i++) {
     if (!(mask & (1 << i))) continue;
-    to[2 * n].copy(from[2 * i]);
-    to[2 * n + 1].copy(from[2 * i + 1]);
+    const at = from[2 * i], color = from[2 * i + 1], o = 8 * n;
+    to[o] = at.x; to[o + 1] = at.y; to[o + 2] = at.z; to[o + 3] = at.w;
+    to[o + 4] = color.x; to[o + 5] = color.y; to[o + 6] = color.z; to[o + 7] = color.w;
     n++;
   }
+  pointLighting.drawLights.value = drawLightViews[n];
   pointLighting.drawLightCount.value = n;
 }
 

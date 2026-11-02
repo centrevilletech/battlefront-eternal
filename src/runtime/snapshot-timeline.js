@@ -17,15 +17,29 @@ export class SnapshotTimeline {
   reset(epoch) { this.epoch = epoch; this.snapshots = []; this.fire = new Map(); }
   remove(id) { for (const snap of this.snapshots) snap.poses.delete(id); this.fire.delete(id); }
   // poses: Map<entityId, record-shaped pose> for one snapshot tick. A later
-  // part of the same tick replaces it. Poses are copied on the way in.
-  addSnapshot(tick, poses, epoch = this.epoch) {
+  // part of the same tick replaces it. Poses are copied on the way in,
+  // unless `owned`: the caller made them for the timeline alone and hands
+  // them over (SnapshotClient.samplePoses), so they are kept as they are.
+  addSnapshot(tick, poses, epoch = this.epoch, owned = false) {
     if (epoch < this.epoch) return false;
     if (epoch > this.epoch) this.reset(epoch);
-    const copy = new Map();
+    const snapshots = this.snapshots;
+    // The tick's place: almost always the newest, so found from the end.
+    let at = snapshots.length, existing = null;
+    for (let i = snapshots.length - 1; i >= 0; i--) {
+      const t = snapshots[i].tick;
+      if (t === tick) { existing = snapshots[i]; break; }
+      if (t < tick) break;
+      at = i;
+    }
+    const copy = existing ? existing.poses : new Map();
     for (const [id, record] of poses) {
       if (!poseKinds.has(record.kind)) continue;
-      const sample = { ...record, position: [...record.position], velocity: [...record.velocity] };
-      if (record.quaternion) sample.quaternion = [...record.quaternion];
+      let sample = record;
+      if (!owned) {
+        sample = { ...record, position: [...record.position], velocity: [...record.velocity] };
+        if (record.quaternion) sample.quaternion = [...record.quaternion];
+      }
       // Unwrap the u8 fire counter to a monotonic count per life; a jump
       // over half the range is a wrap the other way and does not count.
       if (record.fireCounter !== undefined) {
@@ -38,23 +52,26 @@ export class SnapshotTimeline {
       }
       copy.set(id, sample);
     }
-    const existing = this.snapshots.findIndex(s => s.tick === tick);
-    if (existing >= 0) for (const [id, sample] of copy) this.snapshots[existing].poses.set(id, sample);
-    else {
-      this.snapshots.push({ tick, poses: copy });
-      this.snapshots.sort((a, b) => a.tick - b.tick);
-      while (this.snapshots.length > this.maxSnapshots) this.snapshots.shift();
+    if (!existing) {
+      snapshots.splice(at, 0, { tick, poses: copy });
+      while (snapshots.length > this.maxSnapshots) snapshots.shift();
     }
     return true;
   }
   sample(id, tick, out = {}) {
     if (!Number.isFinite(tick)) throw Error('invalid presentation tick');
+    // The brackets: its newest pose at or before `tick` and its first after
+    // it. Snapshots are in tick order and render time trails the newest by
+    // a few, so the walk goes back from the newest.
     let a = null, aTick = 0, b = null, bTick = 0;
-    for (const snap of this.snapshots) {
-      const pose = snap.poses.get(id);
+    const snapshots = this.snapshots;
+    for (let i = snapshots.length - 1; i >= 0; i--) {
+      const snap = snapshots[i], pose = snap.poses.get(id);
       if (!pose) continue;
-      if (snap.tick <= tick) { a = pose; aTick = snap.tick; b = pose; bTick = snap.tick; }
-      else { b = pose; bTick = snap.tick; break; }
+      if (snap.tick > tick) { b = pose; bTick = snap.tick; continue; }
+      a = pose; aTick = snap.tick;
+      if (!b) { b = pose; bTick = snap.tick; }
+      break;
     }
     if (!a) return null;
     // Never blend across a new life, a class change or a discontinuity:

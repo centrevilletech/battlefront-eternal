@@ -38,6 +38,7 @@ export function cullStaticColor(mesh, parts, triangleCells) {
   // cell (materials.js selectLights): tighter than the bucket's own bounds,
   // which span the map.
   const boxes = parts.map((part) => part.bounds);
+  const shared = parts.map((part) => sharedCell(part));
   mesh.userData.cellLights = true;
   mesh.onBeforeRender = function(renderer, scene, camera, drawGeometry, material, group) {
     previous.call(this, renderer, scene, camera, drawGeometry, material, group);
@@ -46,7 +47,14 @@ export function cullStaticColor(mesh, parts, triangleCells) {
     if (!view) { view = views[next++ % views.length]; view.camera = camera; view.valid = false; }
     if (!view.valid || !view.matrix.equals(matrix)) {
       frustum.setFromProjectionMatrix(matrix);
-      for (let i = 0; i < parts.length; i++) view.visible[i] = frustum.intersectsBox(parts[i].bounds) ? 1 : 0;
+      // A part in a cell wholly out of view is out, one in a cell wholly in
+      // view is in (its box lies inside its cell's): only the cells the
+      // view's edge crosses test their parts' own boxes.
+      const cells = cellStates(matrix, frustum);
+      for (let i = 0; i < parts.length; i++) {
+        const state = shared[i] < 0 ? EDGE : cells[shared[i]];
+        view.visible[i] = state === OUT ? 0 : state === IN ? 1 : frustum.intersectsBox(parts[i].bounds) ? 1 : 0;
+      }
       // The visible runs, a run that starts where the last ended joining it.
       let ranges = 0, start = -1, end = 0;
       for (let i = 0; i < runs.length; i += 3) {
@@ -81,6 +89,48 @@ export function cullStaticColor(mesh, parts, triangleCells) {
     multi.multiDrawElementsWEBGL(gl.TRIANGLES, view.counts, 0, bytes === 4 ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, view.offsets, 0, view.ranges);
     info.render.triangles += view.drawn / 3;
   };
+}
+
+// Every bucket's parts in one map cell share that cell: its box (all their
+// boxes together, each in its own mesh's space: a box holding them all
+// holds each) is placed in a view once, not once a bucket. A part without
+// cell coordinates is tested on its own.
+const OUT = 0, IN = 1, EDGE = 2;
+const cellIndex = new Map(), cellBoxes = [], cellViews = [];
+let cellNext = 0;
+function sharedCell(part) {
+  if (!Number.isInteger(part.x) || !Number.isInteger(part.z)) return -1;
+  const key = (part.x + 32768) * 65536 + (part.z + 32768);
+  let index = cellIndex.get(key);
+  if (index === undefined) { index = cellBoxes.length; cellIndex.set(key, index); cellBoxes.push(new THREE.Box3()); }
+  cellBoxes[index].union(part.bounds);
+  cellViews.length = 0;
+  return index;
+}
+
+// Each cell's place in the view `matrix` (its frustum), worked out once for
+// all the buckets drawn with that matrix (the last few kept: a mesh placed
+// in the world draws with a matrix of its own).
+function cellStates(matrix, frustum) {
+  for (const view of cellViews) if (view.matrix.equals(matrix)) return view.states;
+  let view;
+  if (cellViews.length < 4) cellViews.push(view = { matrix: new THREE.Matrix4(), states: new Uint8Array(cellBoxes.length) });
+  else view = cellViews[cellNext++ % cellViews.length];
+  view.matrix.copy(matrix);
+  const planes = frustum.planes, states = view.states;
+  for (let c = 0; c < cellBoxes.length; c++) {
+    const { min, max } = cellBoxes[c];
+    let state = IN;
+    for (let p = 0; p < 6; p++) {
+      const { normal: n, constant } = planes[p];
+      // Its corner farthest in front of the plane, as Frustum.intersectsBox
+      // takes it, then its nearest.
+      if (n.x * (n.x > 0 ? max.x : min.x) + n.y * (n.y > 0 ? max.y : min.y) + n.z * (n.z > 0 ? max.z : min.z) + constant < 0) { state = OUT; break; }
+      if (n.x * (n.x > 0 ? min.x : max.x) + n.y * (n.y > 0 ? min.y : max.y) + n.z * (n.z > 0 ? min.z : max.z) + constant < 0) state = EDGE;
+    }
+    states[c] = state;
+  }
+  return states;
 }
 
 function viewSlot(parts, runs) {

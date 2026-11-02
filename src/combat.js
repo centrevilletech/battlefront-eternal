@@ -452,7 +452,14 @@ export class PlayerCombat {
     const weapon = thrown?.busy || thrown?.shownAtWork > 0 ? thrown : this.arsenal.current(0);
     const name = weapon?.def.GeometryName || null;
     const hide = weapon?.handEmpty || this.mounted;
-    for (const [model, held] of this.held) held.group.visible = !this.dead && !hide && model === name;
+    // The one model in the hand, if any. Every remote body's record calls
+    // this; its models are made hidden and shown only here, so they are
+    // touched only when that model changes.
+    const model = !this.dead && !hide ? name : null;
+    if (model !== this.heldModel) {
+      for (const [key, held] of this.held) held.group.visible = key === model;
+      this.heldModel = model;
+    }
     // The weapon in the hand, for the first-person view, and its bank for
     // the body's upper layer.
     this.shown = this.dead || this.mounted ? null : weapon;

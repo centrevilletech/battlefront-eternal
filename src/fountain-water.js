@@ -257,7 +257,8 @@ export class FountainWater {
       if(g.sky)g.sky.position.copy(m.position);r.autoClear=true;r.shadowMap.autoUpdate=false;particleDepth.enabled.value=0;
       r.setClearColor(0,0);r.setRenderTarget(this.farTarget);r.render(g.farScene,m);
       lighting.farMap.value=this.farTarget.texture;g.background.material.uniforms.map.value=this.farTarget.texture;
-      lighting.resolution.value.set(256,256);r.setRenderTarget(this.target);r.render(g.scene,m);
+      // The near scene's matrices before this mirror draws it (Graphics.updateScene).
+      lighting.resolution.value.set(256,256);g.updateScene?.();r.setRenderTarget(this.target);r.render(g.scene,m);
       this.reflectionUniforms.hasReflection.value=1;this.lastReflection=this.time;
     }finally{
       this.reflectionUniforms.reflection.value=reflectionTexture;

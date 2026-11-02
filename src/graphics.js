@@ -20,6 +20,10 @@ import { ANTIALIASING, RENDER_SCALE_MIN, SHADOW_PRESETS, VIEW_DISTANCES } from "
 // guns, idle effect meshes: about half the scene) are skipped and refreshed
 // when shown. Classes with their own update (cameras) keep it.
 const updateObject = THREE.Object3D.prototype.updateMatrixWorld;
+// Graphics.cullOffView: a soldier's reach from 1 m above his root (body,
+// raised gun, a body thrown in death).
+const cullFrustum = new THREE.Frustum(), cullMatrix = new THREE.Matrix4();
+const cullSphere = new THREE.Sphere(new THREE.Vector3(), 5);
 function updateVisible(object, force) {
   if (object.updateMatrixWorld !== updateObject && !object.isSkinnedMesh) { object.updateMatrixWorld(force); return; }
   if (object.matrixAutoUpdate) object.updateMatrix();
@@ -132,6 +136,10 @@ export class Graphics {
     this.scene.matrixWorldAutoUpdate = false;
     this.sceneFrame = -1;
     this.frameCount = 0;
+    // Soldiers' roots (game.js, each frame) that the near scene's own pass
+    // may leave out while out of view (cullOffView), and those left out.
+    this.cullRoots = [];
+    this.offView = [];
     this.farScene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.5, 200);
     this.farCamera = new THREE.PerspectiveCamera();
@@ -389,6 +397,32 @@ export class Graphics {
     if (this.sceneFrame === this.frameCount) return;
     this.sceneFrame = this.frameCount;
     updateVisible(this.scene, false);
+  }
+
+  // A soldier wholly out of the camera's view is hidden for the near
+  // scene's own pass: neither its bones' matrices (updateVisible skips a
+  // hidden subtree and refreshes it when shown) nor the renderer's walk
+  // over it. Nothing else may draw the near scene this frame: not with
+  // shadows (a soldier out of view casts into it), the temporal upscaler
+  // (its motion proxies) or a reflection that already updated the scene.
+  cullOffView() {
+    this.restoreOffView();
+    if (this.csm || this.upscaling === "temporal" || this.sceneFrame === this.frameCount || !this.cullRoots.length) return;
+    const camera = this.camera;
+    cullFrustum.setFromProjectionMatrix(cullMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    for (const root of this.cullRoots) {
+      if (!root.visible || root.parent !== this.scene) continue;
+      cullSphere.center.copy(root.position);
+      cullSphere.center.y += 1;
+      if (cullFrustum.intersectsSphere(cullSphere)) continue;
+      root.visible = false;
+      this.offView.push(root);
+    }
+  }
+
+  restoreOffView() {
+    for (const root of this.offView) root.visible = true;
+    this.offView.length = 0;
   }
 
   // warmup() a program or so at a time, `settle()` awaited after each
@@ -912,6 +946,7 @@ export class Graphics {
     renderer.render(this.farScene, far);
 
     // 2. The near scene over it, then the first-person weapon.
+    this.cullOffView();
     this.updateScene();
     if (temporal) this.upscaler.shift(camera);
     renderer.setRenderTarget(this.sceneTarget);
@@ -984,6 +1019,7 @@ export class Graphics {
     // 4. Rebuilt at the window's resolution.
     if (upscale && !direct) this.upscaler.present(renderer, fxaa ? this.aaTarget.texture : this.postTarget.texture, this.upscaling);
     renderer.autoClear = true;
+    this.restoreOffView();
     // All scene, shadow and post passes; captured before the separate HUD.
     this.frameInfo = { ...renderer.info.render };
     this.frameCount++;

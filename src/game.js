@@ -163,6 +163,9 @@ async function start() {
   const gameplayRandom = () => streams.get("gameplay").uniform();
   let vehicles = null, driver = null, gunner = null, turretSeats = null, vehicleEffects = null;
   let humanReticleTarget = null;
+  // A correction drained: the reticle's target is worked out once, after the
+  // frame's packets (clientFrame), from the last of them.
+  let targetHudDue = false;
   let factory = null, ai = null, randomB = null, networkRemotes = null;
   let markReady = () => {};
   const ready = new Promise((resolve) => {
@@ -2182,13 +2185,19 @@ async function start() {
     const body = (unit) => unit.walker ? [1, 2, 1] : MAIN_BODY[unit.hitPosture] || MAIN_BODY.stand;
     const [r, h, y] = body(playerUnit);
     const volume = Math.PI * r * r * h, bottom = soldier.position.y + y - h / 2, top = soldier.position.y + y + h / 2;
+    // Replayed every predicted tick against every body: one farther away
+    // than both radii could reach (none is wider than a droideka's, 1 m) is
+    // passed over before its shape is looked up.
+    const far = (r + 1) * (r + 1);
     for (const unit of units.all()) {
       if (unit === playerUnit || unit.seat || unit.held || !unit.soldier || unit.removed || !(unit.alive || unit.dead)) continue;
-      const [or, oh, oy] = body(unit);
       const p = unit.position;
-      if (top <= p.y + oy - oh / 2 || p.y + oy + oh / 2 <= bottom) continue;
       let dx = soldier.position.x - p.x, dz = soldier.position.z - p.z;
-      const reach = r + or, d2 = dx * dx + dz * dz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= far) continue;
+      const [or, oh, oy] = body(unit);
+      if (top <= p.y + oy - oh / 2 || p.y + oy + oh / 2 <= bottom) continue;
+      const reach = r + or;
       if (d2 >= reach * reach) continue;
       let d = Math.sqrt(d2);
       if (d < 1e-4) { dx = Math.sin(playerUnit.id); dz = Math.cos(playerUnit.id); d = 1; }
@@ -2626,7 +2635,7 @@ async function start() {
             client.host.entityInput.applied(context.tick);
             client.ackActions = 0;
             client.pendingActions = client.pendingActions.filter(command => command.generation === context.generation && (client.host.entityInput.pendingActions(command.sequence).length || client.host.entityInput.pendingHuman(command.sequence)));
-            updateTargetHud(1 / 20);
+            targetHudDue = true;
             // His death and his next life as the local world shows them: the
             // death camera over the corpse, stopped once he has a body again.
             // A creature that seizes him with its class's flag turns his view
@@ -2737,7 +2746,13 @@ async function start() {
     if (!run) return;
     // Entity packets that arrived since last frame go on here, inside the
     // frame, before the playout clock and prediction consume them.
-    client.host.drainEntities?.();
+    // One batch: his own correction is applied once, the newest (EntityGameState.beginBatch).
+    const entity = client.entity;
+    entity?.beginBatch();
+    try { client.host.drainEntities?.(); } finally { entity?.endBatch(); }
+    // The reticle's target from the last correction drained: two or three
+    // come in a frame on a slow PC, and only the last one's is ever shown.
+    if (targetHudDue) { targetHudDue = false; updateTargetHud(1 / 20); }
     client.pending = expireMovement(client.pending, client.latest, playerUnit.generation);
     // His input, a command per 60 Hz tick on a clock of its own, stamped
     // for the tick the worker will be at when each arrives plus a margin
@@ -2922,6 +2937,10 @@ async function start() {
     unitView.position.copy(camera.position);
     unitView.frustum.setFromProjectionMatrix(unitView.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     for (const unit of factory?.built || []) unit.present(frozen ? 0 : dt, presentAlpha, lightActor, effects, unitView);
+    // The soldiers the near scene's pass may leave out when out of view
+    // (Graphics.cullOffView); his own body is always drawn.
+    graphics.cullRoots.length = 0;
+    for (const unit of factory?.built || []) if (!unit.removed && unit !== playerUnit) graphics.cullRoots.push(unit.actor.root);
     game.predictedShots?.update(client?.clock ?? null);
     if (!frozen) vehicles?.present?.(presentAlpha, dt);
     if (!frozen && client?.vehiclePrediction && driver?.vehicle) {

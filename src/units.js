@@ -35,6 +35,8 @@ const DEATH_LINGER = 4;
 // step while their bodies glided: everything in view out to POSE_FAR poses
 // every frame; farther (a few pixels tall) every 2nd; out of view, every 6th.
 const POSE_FAR = 120; // m
+// Unit.present: a body as drawn, for whether it is in view (any pose's reach).
+const poseSphere = new THREE.Sphere(new THREE.Vector3(), 1.5);
 const heldScale = new THREE.Vector3();
 const SHADOW_NEAR = 70; // m: soldiers (and their guns) cast shadows within this
 const JET_EFFECT_BONE = "bone_ribcage";
@@ -566,8 +568,11 @@ export class Unit {
     let every = 1;
     if (view && !this.walker) {
       const d2 = view.position.distanceToSquared(this.position);
-      const s = this.sphere;
-      every = !view.frustum.intersectsSphere(s) ? 6 : d2 > POSE_FAR * POSE_FAR ? 2 : 1;
+      // In view or not by where his body is drawn: the hit shapes (sphere)
+      // are rebuilt each tick, a cost only those that strike or aim need.
+      poseSphere.center.copy(this.presentation.position);
+      poseSphere.center.y += 0.9;
+      every = !view.frustum.intersectsSphere(poseSphere) ? 6 : d2 > POSE_FAR * POSE_FAR ? 2 : 1;
     }
     // Shadows only for soldiers near the camera: far away a soldier's shadow
     // is a few blurred texels in the outer cascades, at a draw per cascade

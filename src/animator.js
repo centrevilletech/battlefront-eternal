@@ -179,6 +179,7 @@ export class SoldierAnimator {
     this.twistQ = new THREE.Quaternion();
     this.parentQ = new THREE.Quaternion();
     this.deltaQ = new THREE.Quaternion();
+    this.inverseQ = new THREE.Quaternion();
     this.right = new THREE.Vector3();
     this.reset(0);
   }
@@ -692,17 +693,20 @@ export class SoldierAnimator {
     for (let i = 0; i < bones.length; i++) {
       const step = eighths[i] - done;
       done = eighths[i];
-      this.rotateWorld(bones[i], UP, yaw * step);
-      this.rotateWorld(bones[i], this.right, tilt * step);
+      this.rotateWorld(bones[i], yaw * step, tilt * step);
     }
   }
 
-  rotateWorld(bone, axis, angle) {
-    if (!bone || Math.abs(angle) < 1e-5) return;
+  // The bone turned by `yaw` about the world's up, then by `tilt` about the
+  // facing's right. Its parent's turn is read once for both: turning the
+  // bone doesn't move its parent.
+  rotateWorld(bone, yaw, tilt) {
+    const turnYaw = Math.abs(yaw) >= 1e-5, turnTilt = Math.abs(tilt) >= 1e-5;
+    if (!bone || !(turnYaw || turnTilt)) return;
     bone.parent.getWorldQuaternion(this.parentQ);
-    this.twistQ.setFromAxisAngle(axis, angle);
+    this.inverseQ.copy(this.parentQ).invert();
     // local' = parent^-1 * R * parent * local
-    this.deltaQ.copy(this.parentQ).invert().multiply(this.twistQ).multiply(this.parentQ);
-    bone.quaternion.premultiply(this.deltaQ);
+    if (turnYaw) bone.quaternion.premultiply(this.deltaQ.copy(this.inverseQ).multiply(this.twistQ.setFromAxisAngle(UP, yaw)).multiply(this.parentQ));
+    if (turnTilt) bone.quaternion.premultiply(this.deltaQ.copy(this.inverseQ).multiply(this.twistQ.setFromAxisAngle(this.right, tilt)).multiply(this.parentQ));
   }
 }

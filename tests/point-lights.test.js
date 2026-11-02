@@ -51,8 +51,14 @@ test("a draw reads the packed lights that reach its boxes or sphere, in order", 
   assert.equal(sphereLightMask(pack, new THREE.Vector3(-22, 1, 5), 1), 0b110);
   useLights(pack, 0b101);
   assert.equal(pointLighting.drawLightCount.value, 2);
-  assert.deepEqual(pointLighting.drawLights.value[0].toArray(), [10, 1, 0, 8]);
-  assert.deepEqual(pointLighting.drawLights.value[2].toArray(), [-20, 1, 5, 5]);
+  // Flat, two vec4 a light, and only the lights in use go up.
+  const drawn = pointLighting.drawLights.value;
+  assert.equal(drawn.length, 16);
+  assert.deepEqual([...drawn.subarray(0, 4)], [10, 1, 0, 8]);
+  assert.deepEqual([...drawn.subarray(8, 12)], [-20, 1, 5, 5]);
+  useLights(pack, 0);
+  assert.equal(pointLighting.drawLightCount.value, 0);
+  assert.equal(pointLighting.drawLights.value.length, 8);
 });
 
 test("a render made inside another leaves the outer one's lights alone", () => {
