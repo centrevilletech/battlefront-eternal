@@ -2766,7 +2766,7 @@ async function start() {
         previewYaw = previewPitch = 0;
       }
     }
-    if (!run) return;
+    if (!run) { client.clockDt = client.inputDt = null; return; }
     // Entity packets that arrived since last frame go on here, inside the
     // frame, before the playout clock and prediction consume them.
     client.host.drainEntities?.();
@@ -2781,6 +2781,7 @@ async function start() {
     const input = client.inputClock, batch = client.batch;
     batch.length = 0;
     client.target = client.lead.target(performance.now() / 1000, client.latest, (client.host.path?.rtt || 0) / 1000);
+    const inputFrom = input.elapsed;
     advanceInputClock(input, client.target, dt, (h, tick) => {
       const command = controls.command(tick, commandHistory.epoch, playerUnit.generation);
       if (client.spectator) return;
@@ -2814,7 +2815,13 @@ async function start() {
     // the newest that has arrived by a delay measured from how unevenly the
     // packets arrive, at wall speed trimmed by at most 10%, so bodies move
     // evenly however the packets bunch up. Far behind (a stall), it jumps.
+    const clockFrom = client.clock;
     client.clock = client.playout.advance(dt);
+    // How far the clock the world's bodies are drawn at has moved, and the
+    // one his own predicted body is, since a frame last drew them (a capped
+    // frame rate skips drawing some): their clips run on these.
+    client.clockDt = (client.clockDt ?? 0) + Math.max(0, client.clock - clockFrom) / 60;
+    client.inputDt = (client.inputDt ?? 0) + Math.max(0, input.elapsed - inputFrom);
     presentAlpha = 1;
     client.predicted = predict();
     client.playerAlpha = client.predicted ? (client.predictedTick > worldClock.tick ? input.alpha : 1) : presentAlpha;
@@ -2951,12 +2958,20 @@ async function start() {
     // At a turret, his body stands at its seat in the gunner's pose, as
     // every other page draws him and the world strikes him (Gunner.poseBody).
     else if (gunner?.active) gunner.poseBody(renderedSoldier, actor.root);
-    animator.update(frozen ? 0 : dt, renderedSoldier);
+    // A body's clips run on the clock its position is drawn at: the world's
+    // bodies on the playout clock, his own predicted one on his commands'.
+    // When packets are late that clock holds, and the body stands still
+    // with it, as a slow frame in the original holds everything, instead of
+    // running in place on the spot it holds.
+    const streamed = client && !lockstep.on, clockDt = client?.clockDt, inputDt = client?.inputDt;
+    if (client) client.clockDt = client.inputDt = null;
+    animator.update(frozen ? 0 : streamed && client.predicted && inputDt != null ? Math.min(inputDt, 0.25) : dt, renderedSoldier);
     if (held) held.frame.decompose(actor.root.position, actor.root.quaternion, heldScale);
     unitView.frame += 1;
     unitView.position.copy(camera.position);
     unitView.frustum.setFromProjectionMatrix(unitView.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    for (const unit of factory?.built || []) unit.present(frozen ? 0 : dt, presentAlpha, lightActor, effects, unitView);
+    const bodyDt = frozen ? 0 : streamed && clockDt != null ? Math.min(clockDt, 0.25) : dt;
+    for (const unit of factory?.built || []) unit.present(bodyDt, presentAlpha, lightActor, effects, unitView);
     // The soldiers the near scene's pass may leave out when out of view
     // (Graphics.cullOffView); his own body is always drawn.
     graphics.cullRoots.length = 0;
