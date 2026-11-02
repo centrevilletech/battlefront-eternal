@@ -149,6 +149,8 @@ fn main() {
             "world_uniform" => { r.world.world_uniform(&r.core, n(0) as u32, a[1].as_str().unwrap(), &f32s(b(2)), a[3].as_bool().unwrap()); }
             "world_cells" => r.world.world_cells(n(0) as u32, &f32s(b(1)), &u32s(b(2)), n(3)),
             "sort" => r.world.sort(a[0].as_bool().unwrap()),
+            "world_runs" => r.world.world_runs(n(0) as u32, &u32s(b(1)), &f64s(b(2))),
+            "world_shown" => r.world.world_shown(n(0) as u32, a[1].as_bool().unwrap()),
             other => eprintln!("skipped call {other}"),
         }
     }

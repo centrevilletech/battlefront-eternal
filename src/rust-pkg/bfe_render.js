@@ -393,6 +393,33 @@ export class BfeRenderer {
     }
     /**
      * @param {number} w
+     * @param {Uint32Array | number[]} ranges
+     * @param {Float64Array | number[]} boxes
+     */
+    world_runs(w, ranges, boxes) {
+        const val3 = +w;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(ranges, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF64ToWasm0(boxes, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 8, 8); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        wasm.bferenderer_world_runs(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1);
+    }
+    /**
+     * @param {number} w
+     * @param {boolean} shown
+     */
+    world_shown(w, shown) {
+        wasm.bferenderer_world_shown(this.__wbg_ptr, w, shown);
+    }
+    /**
+     * @param {number} w
      * @param {number} unit
      * @param {number} texture
      */

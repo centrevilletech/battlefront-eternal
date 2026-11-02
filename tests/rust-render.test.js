@@ -34,6 +34,10 @@ function bridge() {
     transparent_bucket_shown() {}
   }
   for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame"]) BfeRenderer.prototype[name] = entry(name);
+  // Registration calls, logged with their arguments (the world pass's and the ground's).
+  for (const name of ["add_world", "world_runs", "world_shown", "world_texture", "world_uniform", "world_cells"]) {
+    BfeRenderer.prototype[name] = function (...args) { calls.push([name, ...args]); return name === "add_world" ? 9 : true; };
+  }
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
   camera.updateMatrixWorld(true);
   const sceneTarget = { name: "scene" }, farTarget = { texture: new THREE.Texture() };
@@ -191,4 +195,64 @@ test("the transparent list follows at once when the far scene's image is three's
   setSegments([0, 0]);
   core.pass(renderer, scene, camera);
   assert.deepEqual(calls.map((c) => c[0]).filter((n) => n.endsWith("frame")), ["frame", "transparent_frame"]);
+});
+
+// The core's program, geometry and texture calls, stood in for: every
+// program reads what `names` lists.
+function standIns(core, names) {
+  core.program = () => ({ id: 5, names: new Set(names), attributes: [] });
+  core.geometry = () => 3;
+  core.texture = () => 0;
+}
+
+test("the ground registers once three has drawn it as it is now, as a world bucket with the patches' cells", () => {
+  const { core, calls, renderer, scene, camera } = bridge();
+  standIns(core, ["map", "layer1Map", "brightness", "layerScales"]);
+  const material = new THREE.ShaderMaterial({ defines: { TERRAIN: "", WORLD_SPACE: "" }, uniforms: { brightness: { value: 1 }, layerScales: { value: new THREE.Vector2(8, 4) } } });
+  const group = new THREE.Group(), index = new THREE.BufferAttribute(new Uint32Array(6), 1), geometry = new THREE.BufferGeometry();
+  geometry.setIndex(index);
+  group.add(new THREE.Mesh(geometry, material));
+  group.material = material;
+  const box = (x) => new THREE.Box3(new THREE.Vector3(x, 0, 0), new THREE.Vector3(x + 1, 1, 1));
+  group.userData.patches = { full: { index, cells: [{ start: 0, end: 3, box: box(0) }, { start: 3, end: 6, box: box(5) }] }, bounds: new THREE.Sphere(new THREE.Vector3(), 9) };
+  scene.add(group);
+  const props = renderer.properties.get(material);
+  core.pass(renderer, scene, camera);
+  assert.equal(calls.filter((c) => c[0] === "add_world").length, 0, "not drawn by three yet");
+  props.currentProgram = {};
+  props.__version = material.version;
+  core.pass(renderer, scene, camera);
+  const add = calls.find((c) => c[0] === "add_world");
+  assert.ok(add && add[4] & 32 && add[4] & 8, "a world bucket counted for the terrain, writing depth");
+  assert.deepEqual([...calls.find((c) => c[0] === "world_runs")[2]], [0, 3, 3, 6]);
+  assert.deepEqual([...calls.find((c) => c[0] === "world_uniform" && c[2] === "layerScales")[3]], [8, 4]);
+  assert.equal(material.visible, false);
+  assert.equal(group.userData.drawnElsewhere, true);
+  // Changed since: three's again, until it has drawn it.
+  material.needsUpdate = true;
+  calls.length = 0;
+  core.pass(renderer, scene, camera);
+  assert.deepEqual(calls.find((c) => c[0] === "world_shown"), ["world_shown", 9, false]);
+  assert.equal(material.visible, true);
+  assert.equal(group.userData.drawnElsewhere, false);
+});
+
+test("a bucket culled by cell registers whatever draw range three's last view left it", () => {
+  const { core, calls, renderer, scene, camera } = bridge();
+  standIns(core, ["map"]);
+  const material = new THREE.ShaderMaterial({ defines: { WORLD_SPACE: "" }, uniforms: {} });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setIndex([0, 1, 2]);
+  geometry.setDrawRange(0, 0);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.matrixAutoUpdate = false;
+  mesh.userData.cellLights = true;
+  scene.add(mesh);
+  const props = renderer.properties.get(material);
+  props.currentProgram = {};
+  props.__version = material.version;
+  core.pass(renderer, scene, camera);
+  assert.equal(calls.filter((c) => c[0] === "add_world").length, 1);
+  assert.equal(calls.filter((c) => c[0] === "world_cells").length, 1);
 });

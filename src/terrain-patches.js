@@ -153,6 +153,10 @@ export class TerrainPatches {
   view(scene, material, { fade = null, receiveShadow = false, reduced = () => false } = {}) {
     const group = new THREE.Group();
     group.matrixAutoUpdate = false;
+    // The patches it draws, for a renderer that draws the ground itself
+    // (rust-render/terrain.js), which sets drawnElsewhere while it does.
+    group.userData.patches = this;
+    group.userData.drawnElsewhere = false;
     const add = () => {
       const mesh = new THREE.Mesh(this.geometry(), material);
       mesh.matrixAutoUpdate = false;
@@ -166,7 +170,7 @@ export class TerrainPatches {
     const previous = scene.onBeforeRender;
     scene.onBeforeRender = (...args) => {
       previous?.apply(scene, args);
-      if (group.visible && group.parent) this.update(group, args[2], fade, add, this.level(reduced()));
+      if (group.visible && group.parent && !group.userData.drawnElsewhere) this.update(group, args[2], fade, add, this.level(reduced()));
     };
     return group;
   }

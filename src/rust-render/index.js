@@ -51,6 +51,11 @@ const FRAME = [
   ["fogColor", 60, 3], ["cascadeFar", 63, 1], ["fade", 64, 2], ["resolution", 66, 2], ["fogRange", 68, 2],
 ];
 const FRAME_NAMES = new Set(FRAME.map(([name]) => name));
+// A material's uniform that is one of the frame's values under another name
+// (the same object: fabric.js's fabricTime is lighting.time) reads the frame
+// block's member instead: its declaration becomes a #define of the member.
+const FRAME_BY_VALUE = new Map(FRAME.filter(([name]) => lighting[name]).map(([name, , size]) => [lighting[name], { name, size }]));
+const UNIFORM_SIZES = { 0x1406: 1, 0x8b50: 2, 0x8b51: 3, 0x8b5c: 16 };
 const LIGHT_COUNT = 70, LIGHTS = 72, MAX_LIGHTS = 16;
 const GL_TYPES = { Float32Array: 0x1406, Uint16Array: 0x1403, Uint8Array: 0x1401, Int16Array: 0x1402, Int8Array: 0x1400, Uint32Array: 0x1405 };
 // The phases of a frame, in the order three draws them: the view whose frame
@@ -204,7 +209,7 @@ export class RustRender {
     if (entry !== undefined) return entry;
     entry = null;
     const gl = this.gl, p = threeProgram.program;
-    const names = [];
+    const names = [], aliases = [];
     let ok = true;
     for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
       const u = gl.getActiveUniform(p, i), name = u.name.replace(/\[0\]$/, "");
@@ -212,7 +217,11 @@ export class RustRender {
       if (FRAME_NAMES.has(name)) {
         // A frame value this material keeps of its own can't come from the block.
         if (!["projectionMatrix", "viewMatrix", "cameraPosition"].includes(name) && material.uniforms?.[name] !== lighting[name]) ok = false;
-      } else if (!policy.uniforms.has(name)) ok = false;
+      } else if (!policy.uniforms.has(name)) {
+        const member = FRAME_BY_VALUE.get(material.uniforms?.[name]);
+        if (member && u.size === 1 && UNIFORM_SIZES[u.type] === member.size) aliases.push([name, member.name]);
+        else ok = false;
+      }
       if (!ok) { this.errors.push(`p${threeProgram.id} ${name}`); break; }
     }
     if (ok) {
@@ -222,9 +231,10 @@ export class RustRender {
         attributes.push(`${a.name}:${gl.getAttribLocation(p, a.name)}`);
       }
       const [vs, fs] = gl.getAttachedShaders(p).sort((a) => (gl.getShaderParameter(a, gl.SHADER_TYPE) === gl.VERTEX_SHADER ? -1 : 1));
+      const source = (shader) => aliases.reduce((text, [name, member]) => text.replace(new RegExp(`^\\s*uniform\\s+(?:(?:highp|mediump|lowp)\\s+)?\\w+\\s+${name}\\s*;\\s*$`, "m"), `#define ${name} ${member}`), gl.getShaderSource(shader));
       try {
-        entry = { id: this.rust.add_program(kind, gl.getShaderSource(vs), gl.getShaderSource(fs), attributes.join(","), names.filter((name) => policy.material.has(name)).join(",")),
-          attributes: attributes.map((a) => { const [name, location] = a.split(":"); return [name, Number(location)]; }), names: new Set(names) };
+        entry = { id: this.rust.add_program(kind, source(vs), source(fs), attributes.join(","), names.filter((name) => policy.material.has(name)).join(",")),
+          attributes: attributes.map((a) => { const [name, location] = a.split(":"); return [name, Number(location)]; }), names: new Set(names), aliased: aliases.length > 0 };
       } catch (error) {
         this.errors.push(`p${threeProgram.id}: ${String(error).slice(0, 300)}`);
       }
