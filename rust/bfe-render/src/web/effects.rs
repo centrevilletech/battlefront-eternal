@@ -25,6 +25,10 @@ impl BfeRenderer {
         self.r.effects.add_batch(&self.r.core, program, texture, blend, corner, attributes, owner)
     }
     pub fn fx_batch_texture(&mut self, batch: u32, texture: i32) { self.r.effects.batch_texture(&self.r.core, batch, texture) }
+    // A batch's own material values ("name:size:form,..."), written after its
+    // instances; a texture its program samples by name, on a unit.
+    pub fn fx_batch_values(&mut self, batch: u32, values: &str) { self.r.effects.batch_values(&self.r.core, batch, values) }
+    pub fn fx_batch_sampler(&mut self, batch: u32, name: &str, unit: u32, texture: i32) { self.r.effects.batch_sampler(&self.r.core, batch, name, unit, texture) }
 
     // A dynamic mesh: texture (-1 none), three's blending (7 values), depth
     // flags (1 test, 2 write) and function, its vertex attributes' sizes and

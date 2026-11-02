@@ -213,10 +213,34 @@ export class BfeRenderer {
     }
     /**
      * @param {number} batch
+     * @param {string} name
+     * @param {number} unit
+     * @param {number} texture
+     */
+    fx_batch_sampler(batch, name, unit, texture) {
+        const val2 = +batch;
+        const val3 = +unit;
+        const val4 = +texture;
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_fx_batch_sampler(this.__wbg_ptr, val2, ptr0, len0, val3, val4);
+    }
+    /**
+     * @param {number} batch
      * @param {number} texture
      */
     fx_batch_texture(batch, texture) {
         wasm.bferenderer_fx_batch_texture(this.__wbg_ptr, batch, texture);
+    }
+    /**
+     * @param {number} batch
+     * @param {string} values
+     */
+    fx_batch_values(batch, values) {
+        const val2 = +batch;
+        const ptr0 = passStringToWasm0(values, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_fx_batch_values(this.__wbg_ptr, val2, ptr0, len0);
     }
     /**
      * @returns {number}

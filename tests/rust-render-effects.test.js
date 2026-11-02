@@ -52,6 +52,8 @@ function bridge() {
     fx_add_owner(tracks, rows) { calls.push(["fx_add_owner", tracks, rows]); return next.owner++; }
     fx_add_batch(program, texture, blend, corner, attributes, owner) { calls.push(["fx_add_batch", program, texture, [...blend], corner, [...attributes], owner]); return next.batch++; }
     fx_batch_texture(batch, texture) { calls.push(["fx_batch_texture", batch, texture]); }
+    fx_batch_values(batch, values) { calls.push(["fx_batch_values", batch, values]); }
+    fx_batch_sampler(batch, name, unit, texture) { calls.push(["fx_batch_sampler", batch, name, unit, texture]); }
     fx_add_mesh(texture, blend, flags, func, sizes, values) { calls.push(["fx_add_mesh", texture, [...blend], flags, func, [...sizes], values]); return next.mesh++; }
     fx_mesh_pass(mesh, program, side, locations) { calls.push(["fx_mesh_pass", mesh, program, side, [...locations]]); }
     fx_mesh_texture(mesh, texture) { calls.push(["fx_mesh_texture", mesh, texture]); }
@@ -327,4 +329,57 @@ test("a droideka's shield: its uniforms as the model's values, the frame's own l
   assert.equal(data[6], 0, "inside, as its onBeforeRender set it");
   assert.equal(data[2], Math.fround(material.uniforms.shieldFade.value), "its fade");
   assert.deepEqual(entry(0).slice(6, 8), [0, 4], "three's key: render order 4");
+});
+
+test("the atmosphere's squares: a batch with values of its own after its instances", async () => {
+  const { Atmosphere, squareBatches } = await import("../src/atmosphere.js");
+  const { core, calls, scene, camera, frame, drawn, entry } = bridge();
+  const atmosphere = new Atmosphere({ data: { fogCloud: { texture: "fog", color: [255, 128, 64], size: 20 } }, scene, collision: { cast: () => null }, texture: () => new THREE.Texture() });
+  const [batch] = squareBatches.get(scene);
+  assert.equal(batch, atmosphere.fog.batch);
+  batch.begin(); batch.push(10, 1, 2, -10, 4, 0.5, 0.75); batch.push(5, 3, 2, -5, 4, 0.25, 0.5); batch.end();
+  assert.equal(batch.mesh.visible, true);
+  drawn(batch.material, program(["projectionMatrix", "viewMatrix", "map", "tint", "axisU", "axisV", "fade", "sceneDepth", "softParticles", "depthResolution", "cameraRange"], ["corner", "center", "spin"]));
+  frame();
+  assert.deepEqual(calls.find((c) => c[0] === "fx_batch_values").slice(2), ["tint:4:0,axisU:3:0,axisV:3:0"]);
+  assert.equal(batch.external, true);
+  batch.begin(); batch.push(10, 1, 2, -10, 4, 0.5, 0.75); batch.push(5, 3, 2, -5, 4, 0.25, 0.5); batch.end();
+  assert.equal(batch.mesh.visible, false, "hidden from three");
+  frame();
+  const e = entry(0), data = core.fxData;
+  assert.deepEqual(e.slice(0, 5), [0, 0, 2, 0, 0]);
+  assert.deepEqual(e.slice(6, 8), [0, 10], "render order 10");
+  assert.deepEqual([...data.subarray(0, 8)], [1, 2, -10, 4, 3, 2, -5, 4], "centres, farthest first as atmosphere.js sorts them");
+  assert.deepEqual([...data.subarray(8, 12)], [0.5, 0.75, 0.25, 0.5].map(Math.fround), "spins");
+  assert.deepEqual([...data.subarray(12, 16)], [1, 128 / 255, 64 / 255, 1].map(Math.fround), "then the tint");
+  core.setActive(false);
+  assert.equal(batch.external, false);
+  assert.equal(batch.mesh.visible, true);
+});
+
+test("the snow: no instances of its own, its flakes and boxes in data textures on units of their own, an int value", async () => {
+  const { Snow } = await import("../src/snow.js");
+  const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
+  const snow = new Snow({ data: { precipitation: { ParticleDensity: [4], Range: [10] } }, scene, collision: { cast: () => null }, texture: () => new THREE.Texture() });
+  camera.position.set(0, 2, 0); camera.updateMatrixWorld(true);
+  snow.update(1 / 60, camera);
+  const mesh = snow.mesh;
+  assert.ok(mesh.visible && mesh.geometry.instanceCount > 0);
+  list.transparent.push({ object: mesh, material: mesh.material, group: null });
+  drawn(mesh.material, program(["projectionMatrix", "viewMatrix", "flakes", "boxes", "flakeCount", "size", "cameraRight", "cameraUp", "map", "cover", "sceneDepth", "tint", "coverCell", "coverSize", "softParticles", "depthResolution", "cameraRange"], ["corner"]));
+  frame();
+  const added = calls.find((c) => c[0] === "fx_add_batch");
+  assert.deepEqual(added[5], [], "no instance attributes");
+  assert.deepEqual(calls.find((c) => c[0] === "fx_batch_values").slice(2), ["flakeCount:1:2,size:1:0,cameraRight:3:0,cameraUp:3:0,tint:4:0,coverCell:1:0,coverSize:1:0"]);
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_batch_sampler").map((c) => c.slice(2, 4)), [["flakes", 7], ["boxes", 8], ["cover", 9]]);
+  assert.equal(mesh.material.visible, false, "hidden by its material");
+  list.transparent.length = 0;
+  snow.update(1 / 60, camera);
+  frame();
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 5), [0, 0, mesh.geometry.instanceCount, 0, 0]);
+  assert.deepEqual(e.slice(6, 8), [0, 20], "render order 20");
+  assert.equal(core.fxData[0], 4, "its flake count first");
+  core.setActive(false);
+  assert.equal(mesh.material.visible, true);
 });

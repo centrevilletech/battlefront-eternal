@@ -93,12 +93,19 @@ struct Batch<C: HasContext> {
     vbo: C::Buffer,
     // Instances the vertex buffer has room for.
     capacity: usize,
-    // The instance attributes' sizes (floats), as the page writes them.
+    // The instance attributes' sizes (floats), as the page writes them
+    // (none: a batch whose program finds its instances by their number).
     sizes: Vec<usize>,
     stride: usize,
     owner: Option<usize>,
     // Where the program keeps NAMES (its material values), if it reads them.
     slots: [Option<usize>; 5],
+    // Its own material values (batch_values), written after its instances,
+    // and where its program keeps them.
+    values: Vec<MaterialValue>,
+    value_slots: Vec<Option<C::UniformLocation>>,
+    // Textures on units of their own (batch_sampler).
+    samplers: Vec<(u32, Option<C::Texture>)>,
 }
 
 struct Owner<C: HasContext> {
@@ -189,8 +196,8 @@ fn sides<C: HasContext>(gl: &C, state: &mut GlState<C>, stats: &mut Stats, side:
 }
 
 // A material value: its name, its size in floats and its form (0 a float
-// or vector of that size, or a matrix of 9 or 16; 1 an array of floats; 4
-// an array of vec4s), as the page names them ("name:size" or
+// or vector of that size, or a matrix of 9 or 16; 1 an array of floats; 2
+// an int; 4 an array of vec4s), as the page names them ("name:size" or
 // "name:size:form", comma-separated).
 pub type MaterialValue = (String, usize, u32);
 
@@ -216,6 +223,7 @@ fn set_value<C: HasContext>(gl: &C, stats: &mut Stats, held: &mut HashMap<(usize
     unsafe {
         match (value.2, values.len()) {
             (1, _) => gl.uniform_1_f32_slice(Some(location), values),
+            (2, _) => gl.uniform_1_i32(Some(location), values[0] as i32),
             (4, _) => gl.uniform_4_f32_slice(Some(location), values),
             (_, 1) => gl.uniform_1_f32(Some(location), values[0]),
             (_, 2) => gl.uniform_2_f32(Some(location), values[0], values[1]),
@@ -326,6 +334,7 @@ impl<C: HasContext> EffectsPass<C> {
         self.batches.push(Batch {
             program: program as usize, texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
             vao, vbo, capacity: 0, sizes, stride, owner: if owner < 0 { None } else { Some(owner as usize) }, slots,
+            values: vec![], value_slots: vec![], samplers: vec![],
         });
         // Its samplers besides the map on their units.
         unsafe {
@@ -338,6 +347,36 @@ impl<C: HasContext> EffectsPass<C> {
             gl.use_program(None);
         }
         (self.batches.len() - 1) as u32
+    }
+
+    // A batch's own material values ("name:size" or "name:size:form",
+    // comma-separated: form 2 an int), which the page writes after its
+    // instances each frame.
+    pub fn batch_values<M: MultiDraw>(&mut self, core: &Core<C, M>, batch: u32, values: &str) {
+        let Some(b) = self.batches.get_mut(batch as usize) else { return };
+        let p = core.programs[b.program].program;
+        b.values = material_values(values);
+        b.value_slots = b.values.iter().map(|v| unsafe { core.gl.get_uniform_location(p, &v.0) }).collect();
+    }
+
+    // A texture a batch's program samples by `name`, on `unit` (its sampler
+    // set there; every batch of the program has it there).
+    pub fn batch_sampler<M: MultiDraw>(&mut self, core: &Core<C, M>, batch: u32, name: &str, unit: u32, texture: i32) {
+        let Some(b) = self.batches.get_mut(batch as usize) else { return };
+        let gl = &core.gl;
+        let p = core.programs[b.program].program;
+        unsafe {
+            if let Some(l) = gl.get_uniform_location(p, name) {
+                gl.use_program(Some(p));
+                gl.uniform_1_i32(Some(&l), unit as i32);
+                gl.use_program(None);
+            }
+        }
+        let t = if texture < 0 { None } else { core.textures.get(texture as usize).copied() };
+        match b.samplers.iter_mut().find(|(u, _)| *u == unit) {
+            Some(entry) => entry.1 = t,
+            None => b.samplers.push((unit, t)),
+        }
     }
 
     // A batch's texture again (three made it anew).
@@ -486,13 +525,22 @@ impl<C: HasContext> EffectsPass<C> {
                 b.capacity = capacity.max(count);
                 stats.gl_calls += 1;
             }
-            if from < count {
+            if from < count && b.stride > 0 {
                 interleave(&mut self.staging, &self.data, at, count - from, &b.sizes, b.stride);
                 gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (from * b.stride * 4) as i32, bytes(&self.staging));
                 stats.gl_calls += 1;
             }
             let program = &mut core.programs[b.program];
             state.use_program(gl, stats, program.program);
+            // Its own values, after its instances.
+            let mut v = at + (count - from.min(count)) * b.stride;
+            for (k, value) in b.values.iter().enumerate() {
+                set_value(gl, stats, &mut self.held, b.program, value, b.value_slots[k].as_ref(), &self.data[v..v + value.1]);
+                v += value.1;
+            }
+            for &(unit, t) in &b.samplers {
+                state.bind_texture(gl, stats, unit, t);
+            }
             // The frame's soft particle values, and the owner's rows.
             let input = &self.input;
             let owner = b.owner.map(|o| &self.owners[o]);

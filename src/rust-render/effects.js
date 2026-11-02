@@ -15,6 +15,11 @@
 // - The droidekas' shields (droideka-shield.js): a shader material on a
 //   sphere, its values read from its uniforms each frame (after its
 //   onBeforeRender, as three would call it), found the same way.
+// - The map's haze and weather: atmosphere.js's square batches (dust, the
+//   FogCloud), drawn like particle batches with values of their own, and
+//   snow.js's flakes, a batch with no instance attributes (its program
+//   finds each flake and box by instance number in data textures, which
+//   three uploads as they change and the renderer samples).
 //
 // Each is registered the first time three has drawn it (which gives its
 // material a program), then marked external: three is shown it no more and
@@ -29,6 +34,7 @@
 // arcs, the destruction and jetpack effects) stays with three for now.
 import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
+import { squareBatches } from "../atmosphere.js";
 import { classicLightning } from "../lightning.js";
 import { particleDepth } from "../particle-depth.js";
 import { lighting } from "../materials.js";
@@ -42,17 +48,24 @@ const WORLD = 0, EFFECT = 4;
 // the frame (soft particles) and the batch's owner (its rows).
 const MATERIAL = new Set(["softParticles", "depthResolution", "cameraRange", "trackRows", "emitterRows"]);
 const POLICY = { uniforms: new Set(["modelViewMatrix", "map", "sceneDepth", "tracks", "emitters", ...MATERIAL]), material: MATERIAL };
+const policyOf = (kind) => ({ uniforms: new Set([...POLICY.uniforms, ...kind.values, ...kind.samplers]), material: MATERIAL });
 // A basic material's values (three's refreshUniformsCommon), as the page
 // writes them for a mesh: name, size.
 const BASIC = [["diffuse", 3], ["opacity", 1], ["mapTransform", 9]];
 const MESH_POLICY = { uniforms: new Set(["modelViewMatrix", "map", ...BASIC.map(([name]) => name)]), material: new Set() };
 const MODEL_POLICY = MESH_POLICY;
-// The instance attributes of each kind of batch, in the order this pass
-// writes them; and the lightning's vertex attributes.
+// Each kind of batch: its instance attributes, in the order this pass
+// writes them; the material values of its own the page writes after them
+// (names; ints among them by `ints`); the textures it samples on units of
+// their own (SAMPLER_UNITS). Shown to three never by `external` (it then
+// uploads nothing either), or by its material (snow: nothing to upload).
 const KINDS = {
-  cpu: [["iPosition", 3], ["iColor", 4], ["iShape", 4], ["iAxis", 3], ["iAxis2", 3], ["iFrame", 4]],
-  analytic: [["spawnPosition", 3], ["spawnVelocity", 3], ["spawnColor", 4], ["spawnShape", 4], ["spawnMeta", 4]],
+  cpu: { attributes: [["iPosition", 3], ["iColor", 4], ["iShape", 4], ["iAxis", 3], ["iAxis2", 3], ["iFrame", 4]], values: [], samplers: [] },
+  analytic: { attributes: [["spawnPosition", 3], ["spawnVelocity", 3], ["spawnColor", 4], ["spawnShape", 4], ["spawnMeta", 4]], values: [], samplers: [] },
+  square: { attributes: [["center", 4], ["spin", 2]], values: ["tint", "axisU", "axisV"], samplers: [] },
+  snow: { attributes: [], values: ["flakeCount", "size", "cameraRight", "cameraUp", "tint", "coverCell", "coverSize"], ints: ["flakeCount"], samplers: ["flakes", "boxes", "cover"], hiddenBy: "material" },
 };
+const SAMPLER_UNITS = { flakes: 7, boxes: 8, cover: 9 };
 const LIGHTNING = [["position", 3], ["uv", 2], ["color", 4]];
 // The frame's inputs (effects.rs IN_*, OWNER_*, DRAW_*).
 const IN_DRAWS = 0, IN_OWNERS = 1, IN_SOFT = 2;
@@ -71,6 +84,21 @@ function kindOf(batch) {
   if (a.iShape && a.iPosition) return "cpu";
   if (a.spawnMeta && a.spawnPosition) return "analytic";
   return null;
+}
+
+// A batch as this pass reads one, for those that keep their instances
+// otherwise: atmosphere.js's squares, snow.js's flakes (no instances of its
+// own: its draw's instance count).
+function squares(batch) {
+  return {
+    mesh: batch.mesh, material: batch.material, geometry: batch.geometry, source: batch,
+    get count() { return batch.geometry.instanceCount; }, capacity: batch.center.count,
+    arrays: { center: batch.center.array, spin: batch.spin.array },
+    get external() { return batch.external; }, set external(on) { batch.external = on; },
+  };
+}
+function flakes(mesh) {
+  return { mesh, material: mesh.material, geometry: mesh.geometry, get count() { return mesh.geometry.instanceCount; }, capacity: 0, arrays: {}, external: false };
 }
 
 // A glow model's part (game.js glowModel: one material for its parts, kept
@@ -206,6 +234,10 @@ class EffectsPass {
       if (this.glows.has(object)) continue;
       if (glowOf(object)) this.registerGlow(object.parent);
       else if (shieldOf(object)) this.registerShader(object);
+      else if (object.name === "map-snow" && object.material?.isShaderMaterial && !this.byBatch.has(object)) {
+        const record = this.registerBatch(flakes(object), "snow", null);
+        if (record !== undefined) this.byBatch.set(object, record);
+      }
     }
     // Now and then, the records of parts no longer in the scene let go.
     if (this.frame % 600 === 0) {
@@ -258,38 +290,42 @@ class EffectsPass {
   // The near scene's particle renderers' batches, looked over again when
   // one was added: new ones registered (or left to three).
   batches() {
-    const renderers = particleRenderers.get(this.core.graphics.scene) || [];
-    let n = 0;
+    const scene = this.core.graphics.scene;
+    const renderers = particleRenderers.get(scene) || [], haze = squareBatches.get(scene) || [];
+    let n = haze.length;
     for (const r of renderers) n += r.batches.size;
     if (n === this.batchCount && !this.pending) return;
     this.batchCount = n;
     this.pending = false;
+    const add = (key, make) => {
+      if (this.byBatch.has(key)) return;
+      const record = make();
+      if (record === undefined) this.pending = true;
+      else this.byBatch.set(key, record);
+    };
     for (const r of renderers) {
       for (const batch of r.batches.values()) {
-        if (this.byBatch.has(batch)) continue;
         const kind = kindOf(batch);
-        if (!kind) { this.byBatch.set(batch, null); continue; }
-        const record = this.registerBatch(batch, kind, r);
-        if (record === undefined) this.pending = true;
-        else this.byBatch.set(batch, record);
+        add(batch, () => (kind ? this.registerBatch(batch, kind, r) : null));
       }
     }
+    for (const batch of haze) add(batch, () => this.registerBatch(squares(batch), "square", null));
   }
 
   // A batch's record, or null when the renderer can't draw it; undefined
   // while three has not drawn it yet.
   registerBatch(batch, kind, renderer) {
-    const core = this.core, material = batch.material;
+    const core = this.core, material = batch.material, spec = KINDS[kind];
     const threeProgram = core.renderer.properties.get(material).currentProgram;
     if (!threeProgram) return undefined;
     const fail = (why) => { core.errors.push(`effects ${kind}: ${why}`); return null; };
     const blend = blendOf(material), state = stateOf(material);
     // A particle material: depth tested less-or-equal, not written, double-sided.
     if (!blend || !state || state.func !== 0x0203 || state.flags !== 5 || material.side !== THREE.DoubleSide) return fail("state");
-    const program = core.program(threeProgram, EFFECT, material, POLICY);
+    const program = core.program(threeProgram, EFFECT, material, policyOf(spec));
     if (!program) return fail("program");
     const at = new Map(program.attributes);
-    const attributes = KINDS[kind];
+    const attributes = spec.attributes;
     for (const [name, size] of attributes) if (!at.has(name) || batch.geometry.getAttribute(name)?.itemSize !== size) return fail(`attribute ${name}`);
     if (!at.has("corner") || batch.geometry.index?.array.constructor !== Uint16Array) return fail("quad");
     const map = material.uniforms.map?.value ?? null;
@@ -302,17 +338,42 @@ class EffectsPass {
       owner = this.owner(gpu);
       if (owner < 0) return fail("tracks");
     }
+    // Its own values: what its program reads of them (ints as ints).
+    const values = [];
+    for (const name of spec.values) {
+      if (!program.names.has(name)) continue;
+      const form = formOf(material.uniforms[name]?.value);
+      if (!form) return fail(`value ${name}`);
+      values.push([name, form[0], spec.ints?.includes(name) ? 2 : form[1]]);
+    }
+    const samplers = [];
+    for (const name of spec.samplers) {
+      const tex = material.uniforms[name]?.value ?? null;
+      const id = tex ? core.texture(tex) : -1;
+      if (tex && id < 0) return undefined; // not uploaded yet: next time
+      samplers.push({ name, unit: SAMPLER_UNITS[name], map: tex, handle: this.handle(tex), id });
+    }
     const id = core.rust.fx_add_batch(program.id, texture, new Uint32Array(blend), at.get("corner"), new Uint32Array(attributes.flatMap(([name, size]) => [at.get(name), size])), owner);
+    if (values.length) core.rust.fx_batch_values(id, values.map(([name, size, form]) => `${name}:${size}:${form}`).join(","));
+    for (const sampler of samplers) core.rust.fx_batch_sampler(id, sampler.name, sampler.unit, sampler.id);
     // Its key but z, which never changes: no group above it but the map's
     // environment effects', the origin for a centre (no positions), the
     // identity for a world matrix.
     const key = new Float64Array(6);
     this.keyOf(batch.mesh, key);
-    const record = { batch, kind, id, attributes, arrays: null, mesh: batch.mesh, map, handle: this.handle(map), version: map?.version, key, synced: false, capacity: -1, from: this.frame };
-    batch.external = true;
-    batch.mesh.visible = false;
+    const record = { batch, kind, id, attributes, values, samplers, arrays: null, mesh: batch.mesh, map, handle: this.handle(map), version: map?.version, key,
+      hiddenBy: spec.hiddenBy ?? "external", synced: false, capacity: -1, from: this.frame };
+    this.hide(record, true);
     this.records.push(record);
     return record;
+  }
+
+  // Hidden from three (the renderer draws it), or shown again.
+  hide(record, hidden) {
+    const b = record.batch;
+    if (record.hiddenBy === "material") { b.material.visible = !hidden; return; }
+    b.external = hidden;
+    b.mesh.visible = hidden ? false : b.count > 0;
   }
 
   // An owner of analytic batches (effects-gpu.js GpuEffects), registered once.
@@ -483,9 +544,18 @@ class EffectsPass {
     let need = 0;
     for (const record of this.records) {
       const b = record.batch;
-      if (record.from === frame || b.count <= 0 || b.material.visible === false || !this.shown(record.mesh, camera)) continue;
+      if (record.from === frame || b.count <= 0 || (record.hiddenBy !== "material" && b.material.visible === false) || !b.mesh.visible && record.hiddenBy === "material" || !this.shown(record.mesh, camera)) continue;
       drawn.push(record);
-      need += b.count * (record.kind === "cpu" ? 21 : 18);
+      need += b.count * (record.kind === "cpu" ? 21 : record.kind === "analytic" ? 18 : record.attributes.length ? 6 : 0);
+      for (const [, size] of record.values) need += size;
+      // Its data textures, uploaded by three as they change.
+      for (const sampler of record.samplers) {
+        const tex = b.material.uniforms[sampler.name].value ?? null, handle = this.handle(tex);
+        if (tex !== sampler.map || handle !== sampler.handle) {
+          sampler.map = tex; sampler.handle = handle;
+          core.rust.fx_batch_sampler(record.id, sampler.name, sampler.unit, tex ? core.texture(tex) : -1);
+        }
+      }
     }
     const lit = bolt && bolt.record.from !== frame && bolt.lightning.index > 0 && bolt.record.material.visible !== false && this.shown(bolt.lightning.mesh, camera) ? bolt : null;
     if (lit) need += lit.lightning.vertex * 9 + lit.lightning.index + 13;
@@ -536,6 +606,7 @@ class EffectsPass {
         const size = attributes[k][1];
         at = copy(data, at, arrays[k], from * size, count * size);
       }
+      for (const [name] of record.values) at = put(data, at, b.material.uniforms[name].value);
       const e = DRAW_AT + draws++ * DRAW_STRIDE;
       input[e] = KIND_BATCH; input[e + 1] = record.id; input[e + 2] = count; input[e + 3] = from; input[e + 4] = start; input[e + 5] = b.capacity;
       input.set(record.key, e + DRAW_KEY);
@@ -598,10 +669,9 @@ class EffectsPass {
     this.active = on;
     for (const record of this.records) {
       const b = record.batch;
-      b.external = on;
+      this.hide(record, on);
       record.synced = false;
-      if (on) { b.mesh.visible = false; continue; }
-      b.mesh.visible = b.count > 0;
+      if (on) continue;
       for (const [name] of record.attributes) {
         const a = b.geometry.getAttribute(name);
         a.clearUpdateRanges();
