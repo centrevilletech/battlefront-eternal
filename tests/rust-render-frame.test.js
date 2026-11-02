@@ -378,3 +378,17 @@ test("water: its Low surface and rings are items of the transparent list, with t
   core.setActive(false);
   assert.equal(lowPass.material.visible, true);
 });
+
+test("an error in a pass gives everything back to three, its state reset and its target bound again", () => {
+  const { core, calls, renderer, scene, camera, setTarget } = bridge();
+  const target = { name: "drawing" };
+  setTarget(target);
+  core.addPass({ name: "broken", phase: "view", draw() { throw new Error("broken pass"); } });
+  const warn = console.warn;
+  console.warn = () => {};
+  try { assert.equal(core.cover("view", renderer, scene, camera), false); } finally { console.warn = warn; }
+  assert.equal(core.enabled, false);
+  assert.ok(core.errors.some((e) => e.startsWith("failed: Error: broken pass")));
+  assert.deepEqual(calls.slice(-2), [["resetState"], ["setRenderTarget", target]]);
+  assert.equal(core.cover("view", renderer, scene, camera), false, "and stays three's");
+});

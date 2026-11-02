@@ -52,6 +52,10 @@ class FoliagePass {
   // Foliage.update's selection, for every class the renderer draws; a class
   // three has a program for is registered first.
   select(foliage, camera) {
+    try { this.selectClasses(foliage, camera); } catch (error) { this.core.fail(error); }
+  }
+
+  selectClasses(foliage, camera) {
     for (const kind of foliage.kinds.values()) if (!this.classes.has(kind)) this.registerClass(kind);
     if (!this.classes.size) return;
     const core = this.core;

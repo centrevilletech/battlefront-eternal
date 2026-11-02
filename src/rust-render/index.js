@@ -386,17 +386,34 @@ export class RustRender {
   // multisampled), the scene's onAfterRender.
   cover(name, renderer, scene, camera) {
     if (!this.enabled || !this.active) return false;
-    if (scene.matrixWorldAutoUpdate) scene.updateMatrixWorld();
-    scene.onBeforeRender(renderer, scene, camera, renderer.getRenderTarget());
-    const passes = this.phases[name];
-    for (const pass of passes) pass.complete = false;
-    this.phase(name, renderer, scene, camera);
-    const complete = this.enabled && passes.length > 0 && passes.every((pass) => pass.complete === true);
-    if (complete) {
-      this.resolve(renderer.getRenderTarget());
-      if (scene.isScene) scene.onAfterRender(renderer, scene, camera);
+    const target = renderer.getRenderTarget();
+    try {
+      if (scene.matrixWorldAutoUpdate) scene.updateMatrixWorld();
+      scene.onBeforeRender(renderer, scene, camera, target);
+      const passes = this.phases[name];
+      for (const pass of passes) pass.complete = false;
+      this.phase(name, renderer, scene, camera);
+      const complete = this.enabled && passes.length > 0 && passes.every((pass) => pass.complete === true);
+      if (complete) {
+        this.resolve(renderer.getRenderTarget());
+        if (scene.isScene) scene.onAfterRender(renderer, scene, camera);
+      }
+      return complete;
+    } catch (error) {
+      this.fail(error, renderer, target);
+      return false;
     }
-    return complete;
+  }
+
+  // An error in a pass: kept, and everything given back to three for good
+  // (restore), three's state reset and the target it was drawing into bound
+  // again, so the frame goes on with three.
+  fail(error, renderer = this.renderer, target = renderer.getRenderTarget()) {
+    this.errors.push(`failed: ${String(error?.stack || error).slice(0, 400)}`);
+    console.warn("Rust renderer failed, three draws everything:", error);
+    try { this.restore(); } catch (e) { this.errors.push(`restore: ${String(e).slice(0, 200)}`); }
+    renderer.resetState();
+    renderer.setRenderTarget(target);
   }
 
   // A multisampled target's samples into its texture, as three's
@@ -422,12 +439,14 @@ export class RustRender {
   // graphics.js: the frame's post passes (Graphics.postSteps), drawn by the
   // post pass when it can draw every one; true when it did.
   post(renderer, steps) {
-    return this.byName.post?.cover(renderer, steps) ?? false;
+    const target = renderer.getRenderTarget();
+    try { return this.byName.post?.cover(renderer, steps) ?? false; } catch (error) { this.fail(error, renderer, target); return false; }
   }
 
   // hud.js: the battle HUD's batch, drawn by the HUD pass; true when it was.
   coverHud(renderer, hud) {
-    return this.byName.hud?.cover(renderer, hud) ?? false;
+    const target = renderer.getRenderTarget();
+    try { return this.byName.hud?.cover(renderer, hud) ?? false; } catch (error) { this.fail(error, renderer, target); return false; }
   }
 
   // The near phase's stats and the time its renderer call took, as the
