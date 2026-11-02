@@ -154,3 +154,29 @@ test('single-player flight retains target-dependent steering assist', () => {
   assisted.v.tick(1/60,{stickX:.4});unassisted.v.tick(1/60,{stickX:.4});
   assert.ok(Math.abs(assisted.v.yawRate)<Math.abs(unassisted.v.yawRate));
 });
+
+test('a hover pilot\'s correction is the prediction exactly when the world stepped the same commands', async () => {
+  const { captureGroundCorrection, restoreGroundCorrection } = await import('../src/runtime/network-entity-ground.js');
+  const { predictedExactly } = await import('../src/runtime/vehicle-prediction.js');
+  const authority = fixture().v, source = fixture().v;
+  for (const v of [authority, source]) { v.flying = false; v.repulsor = true; v.rotation = new THREE.Euler(); }
+  const commands = Array.from({ length: 30 }, (_, i) => ({ ...command(i + 1), actions: [], look: i > 10 ? [[.3, 0]] : [] }));
+  const predicted = predictVehicle(source, commands.slice(0, 24), 0, 1);
+  const controls = new CommandControls();
+  for (const c of commands.slice(0, 20)) {
+    controls.accept(c);
+    const input = networkVehicleInput(authority, 0, controls, c);
+    authority.tick(1 / 120, input); authority.tick(1 / 120, input);
+  }
+  // A page's hull has its presentation history (Vehicle.captureTick).
+  source.previous ||= new THREE.Vector3(); source.tickFrom ||= new THREE.Vector3();
+  restoreGroundCorrection(source, captureGroundCorrection(authority));
+  assert.equal(predictedExactly(predicted, source, 20), true, 'the world\'s tick 20 is the predicted tick 20');
+  assert.equal(predictedExactly(predicted, source, 19), false, 'not another tick\'s');
+  // A continuation keeps what the prediction reached for earlier ticks.
+  const continued = predictVehicle(predicted, commands.slice(24), 24, 1, commands[23].down);
+  assert.equal(predictedExactly(continued, source, 20), true);
+  assert.equal(continued.predictionTick, 30);
+  source.position.x += 1e-9;
+  assert.equal(predictedExactly(continued, source, 20), false, 'any difference replays');
+});

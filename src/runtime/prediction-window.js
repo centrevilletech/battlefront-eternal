@@ -5,10 +5,14 @@
 export class PredictionWindow {
   constructor(limit = 120) { this.limit = limit; this.reset(); }
   reset() { this.checkpoint = null; }
-  select({ source, identity, epoch, generation, authorityTick, pending, held }) {
+  // `exact(checkpoint)`: whether the new authoritative state is the one the
+  // checkpoint's prediction reached for its tick; the checkpoint then goes on
+  // as if nothing had arrived (a replay from it would come out the same).
+  select({ source, identity, epoch, generation, authorityTick, pending, held }, exact = null) {
     const c = this.checkpoint;
     const sameLife = c && c.source === source && c.identity === identity && c.epoch === epoch && c.generation === generation;
-    const checkpoint = sameLife && (authorityTick === c.authorityTick || authorityTick < c.tick - this.limit) ? c : null;
+    let checkpoint = sameLife && (authorityTick === c.authorityTick || authorityTick < c.tick - this.limit) ? c : null;
+    if (!checkpoint && sameLife && authorityTick > c.authorityTick && authorityTick <= c.tick && exact?.(c)) { c.authorityTick = authorityTick; checkpoint = c; }
     if (!checkpoint) this.reset();
     return {
       checkpoint, from: checkpoint?.tick ?? authorityTick,

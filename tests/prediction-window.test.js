@@ -97,3 +97,25 @@ test('local worker clock retains its existing bounded behavior',()=>{
   assert.ok(worker.target(6,60)<=84);
   assert.ok(network.target(6,60)>360);
 });
+
+test('a new authoritative state the checkpoint predicted exactly keeps the checkpoint', () => {
+  const window = new PredictionWindow(), source = {};
+  const save = () => window.save({ source, identity: 1, epoch: 1, generation: 1, authorityTick: 10, tick: 16, commands: [{ sequence: 5, down: ['KeyW'] }], held: [], state: {} });
+  const context = authorityTick => ({ source, identity: 1, epoch: 1, generation: 1, authorityTick, pending: [{ sequence: 5, down: ['KeyW'] }, { sequence: 6, down: ['KeyD'] }], held: [] });
+  save();
+  let seen = null;
+  let selected = window.select(context(13), checkpoint => { seen = checkpoint; return true; });
+  assert.equal(seen?.tick, 16, 'asked about the checkpoint');
+  assert.equal(selected.checkpoint?.tick, 16, 'the prediction goes on');
+  assert.equal(selected.from, 16);
+  assert.deepEqual(selected.commands.map(c => c.sequence), [6], 'only commands it has not taken');
+  assert.equal(window.checkpoint.authorityTick, 13, 'compared against the newer authority from now on');
+  assert.equal(window.select(context(13), () => assert.fail('same authority needs no comparison')).checkpoint?.tick, 16);
+  selected = window.select(context(15), () => false);
+  assert.equal(selected.checkpoint, null, 'a state it did not predict replays from the authority');
+  assert.equal(selected.from, 15);
+  save();
+  assert.equal(window.select(context(20), () => true).checkpoint, null, 'an authority past the checkpoint replays');
+  save();
+  assert.equal(window.select(context(13)).checkpoint, null, 'without a comparison, any new authority replays');
+});
