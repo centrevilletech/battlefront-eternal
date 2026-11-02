@@ -499,35 +499,7 @@ impl<C: HasContext> FarPass<C> {
             Draw::Terrain(t) => {
                 let level = (input[item.slot + 1] as usize).min(t.levels.len().saturating_sub(1));
                 let Some(l) = t.levels.get(level).and_then(|l| l.as_ref()) else { return };
-                ranges = 0;
-                let (mut from, mut to) = (-1i64, 0u32);
-                for &(s, e, min, max) in &l.cells {
-                    let mut shown = frustum.aabb(&min, &max);
-                    if shown && limit > 0.0 {
-                        let dx = (eye[0] - min[0]).abs().max((eye[0] - max[0]).abs());
-                        let dy = (eye[1] - min[1]).abs().max((eye[1] - max[1]).abs());
-                        let dz = (eye[2] - min[2]).abs().max((eye[2] - max[2]).abs());
-                        shown = dx * dx + dy * dy + dz * dz >= limit;
-                    }
-                    if !shown {
-                        if from >= 0 {
-                            t.offsets[ranges] = from as i32 * 4;
-                            t.counts[ranges] = (to as i64 - from) as i32;
-                            ranges += 1;
-                            from = -1;
-                        }
-                        continue;
-                    }
-                    if from < 0 {
-                        from = s as i64;
-                    }
-                    to = e;
-                }
-                if from >= 0 {
-                    t.offsets[ranges] = from as i32 * 4;
-                    t.counts[ranges] = (to as i64 - from) as i32;
-                    ranges += 1;
-                }
+                ranges = terrain_runs(&l.cells, frustum, eye, limit, &mut t.offsets, &mut t.counts);
                 if ranges == 0 {
                     return;
                 }
@@ -673,6 +645,43 @@ impl<C: HasContext> FarPass<C> {
     }
 }
 
+// terrain-patches.js update(): the cells in view and wholly past the fade
+// start (`limit`: its square), consecutive ones (in the cells' order, empty
+// cells having none) joined in one range. Writes each range's byte offset
+// and index count; returns how many.
+fn terrain_runs(cells: &[(u32, u32, [f64; 3], [f64; 3])], frustum: &math::Frustum, eye: &[f64; 3], limit: f64, offsets: &mut [i32], counts: &mut [i32]) -> usize {
+    let mut ranges = 0;
+    let (mut from, mut to) = (-1i64, 0u32);
+    for &(s, e, min, max) in cells {
+        let mut shown = frustum.aabb(&min, &max);
+        if shown && limit > 0.0 {
+            let dx = (eye[0] - min[0]).abs().max((eye[0] - max[0]).abs());
+            let dy = (eye[1] - min[1]).abs().max((eye[1] - max[1]).abs());
+            let dz = (eye[2] - min[2]).abs().max((eye[2] - max[2]).abs());
+            shown = dx * dx + dy * dy + dz * dz >= limit;
+        }
+        if !shown {
+            if from >= 0 {
+                offsets[ranges] = from as i32 * 4;
+                counts[ranges] = (to as i64 - from) as i32;
+                ranges += 1;
+                from = -1;
+            }
+            continue;
+        }
+        if from < 0 {
+            from = s as i64;
+        }
+        to = e;
+    }
+    if from >= 0 {
+        offsets[ranges] = from as i32 * 4;
+        counts[ranges] = (to as i64 - from) as i32;
+        ranges += 1;
+    }
+    ranges
+}
+
 // An item's matrix: the input's, for a placed one; else the identity (the
 // map's own meshes, in the world already).
 fn matrix_of<C: HasContext>(item: &Item<C>, input: &[f64]) -> Mat4 {
@@ -741,5 +750,25 @@ mod tests {
         // Opaque: render order, material, near to far, id; then blended:
         // render order, far to near.
         assert_eq!(ids, [3.0, 4.0, 7.0, 2.0, 6.0, 5.0, 1.0]);
+    }
+
+    #[test]
+    fn terrain_runs_as_terrain_patches_draws_them() {
+        // Clip space as the frustum; four cells along x, the second wholly
+        // within 0.5 of the eye (hidden by the fade start), the fourth out
+        // of view.
+        let mut identity = [0.0; 16];
+        for i in 0..4 {
+            identity[i * 5] = 1.0;
+        }
+        let frustum = math::Frustum::from_matrix(&identity);
+        let cell = |s: u32, e: u32, x: f64| (s, e, [x, -0.1, -0.1], [x + 0.1, 0.1, 0.1]);
+        let cells = [cell(0, 30, -0.9), cell(30, 60, -0.05), cell(60, 66, 0.5), cell(66, 90, 2.0)];
+        let (mut offsets, mut counts) = (vec![0; 4], vec![0; 4]);
+        let n = terrain_runs(&cells, &frustum, &[0.0; 3], 0.5 * 0.5, &mut offsets, &mut counts);
+        assert_eq!((n, &offsets[..n], &counts[..n]), (2, &[0, 60 * 4][..], &[30, 6][..]));
+        // No fade start: the three in view, one range.
+        let n = terrain_runs(&cells, &frustum, &[0.0; 3], 0.0, &mut offsets, &mut counts);
+        assert_eq!((n, &offsets[..n], &counts[..n]), (1, &[0][..], &[66][..]));
     }
 }

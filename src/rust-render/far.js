@@ -102,7 +102,9 @@ class FarPass {
     this.plainPrograms = new Map(); // three's program -> a plain Rust program, or null
     this.failed = new WeakMap(); // object -> the material it couldn't be an item with
     this.nextSlot = SLOTS;
+    // This frame's meshes ({ object, material, item }), the first `count`.
     this.found = [];
+    this.count = 0;
     this.scratch = [];
     this.color = new THREE.Color();
     this.frustum = new THREE.Frustum();
@@ -123,13 +125,13 @@ class FarPass {
   // culls is drawn by neither); else the renderer draws nothing.
   draw(ctx) {
     const { renderer, scene, camera } = ctx;
-    const found = this.found;
-    found.length = 0;
+    this.count = 0;
     this.threeObjects = 0;
     this.camera = camera;
     if (this.on) this.walk(scene, camera, 0);
     this.frustum.setFromProjectionMatrix(this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-    for (const f of found) {
+    for (let i = 0; i < this.count; i++) {
+      const f = this.found[i];
       if (f.item) continue;
       if (f.object.frustumCulled && !f.object.isGroup && !this.frustum.intersectsObject(f.object)) continue;
       this.threeObjects++;
@@ -163,16 +165,22 @@ class FarPass {
     let item = null;
     for (const i of this.items.get(object) || []) if (i.material === material && i.threeProgram === program) { item = i; break; }
     if (!item && program && this.failed.get(object) !== material) {
+      // null: never (as it is); undefined: not yet (a texture still loading).
       item = this.registerItem(object, material, program, groupOrder, this.camera);
-      if (item) { let list = this.items.get(object); if (!list) this.items.set(object, list = []); list.push(item); this.all.push(item); } else this.failed.set(object, material);
+      if (item) { let list = this.items.get(object); if (!list) this.items.set(object, list = []); list.push(item); this.all.push(item); } else if (item === null) this.failed.set(object, material);
+      item ||= null;
     }
     // A cube map to read (the Enhanced sky probe): three's to draw for now.
     if (item?.cubes.length && item.cubes.some((name) => material.uniforms[name]?.value)) item = null;
-    this.found.push({ object, material, item });
+    // This frame's meshes, in entries kept from frame to frame.
+    const f = this.found[this.count] ??= {};
+    f.object = object; f.material = material; f.item = item;
+    this.count++;
   }
 
-  // An item for a mesh of the far scene (or the far terrain's group), or null
-  // when the renderer can't draw it as three would.
+  // An item for a mesh of the far scene (or the far terrain's group); null
+  // when the renderer can't draw it as three would, undefined when it can't
+  // yet (a texture three hasn't made yet).
   registerItem(object, material, threeProgram, groupOrder, camera) {
     const core = this.core, rust = core.rust, gl = core.gl;
     const terrain = object.userData.terrain || null;
@@ -237,7 +245,7 @@ class FarPass {
         if (fixed) {
           if (!value?.isTexture) return null;
           const id = core.texture(value);
-          if (id < 0) return null;
+          if (id < 0) return undefined;
           sources.push([index, SRC.TEXTURE, null, id]);
           // A data texture's contents can change (three uploads them before
           // its next draw).
@@ -353,8 +361,8 @@ class FarPass {
   // range), the textures they read now, the terrain's level.
   prepare(renderer, scene, camera) {
     const core = this.core;
-    for (const f of this.found) {
-      const item = f.item;
+    for (let i = 0; i < this.count; i++) {
+      const item = this.found[i].item;
       if (!item) continue;
       for (const hook of item.hooks) {
         if (hook === "object") item.mesh.onBeforeRender(renderer, scene, camera, item.mesh.geometry, item.material, null);
@@ -387,8 +395,8 @@ class FarPass {
     input[CLEAR] = this.color.r * pre; input[CLEAR + 1] = this.color.g * pre; input[CLEAR + 2] = this.color.b * pre; input[CLEAR + 3] = alpha;
     for (const item of this.all) input[item.slot] = 0;
     const floats = this.scratch;
-    for (const f of this.found) {
-      const item = f.item;
+    for (let i = 0; i < this.count; i++) {
+      const item = this.found[i].item;
       if (!item) continue;
       const slot = item.slot;
       input[slot] = 1;
