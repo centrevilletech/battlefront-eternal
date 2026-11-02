@@ -216,3 +216,48 @@ test('every answer is read through views made after the call, however the module
   assert.ok(w.rays, 'the kernel answered throughout');
   assert.equal(bodies.length > 0, true);
 });
+
+test('a hull\'s wall probes push it in the kernel as in the JavaScript', async () => {
+  const { Vehicle } = await import('../src/vehicles.js');
+  const rays = await loadRayKernel();
+  const { w, bodies, shape } = world(rays);
+  const wall = box(3, 0.5, 0, 30, 1, 0.4);
+  w.vehicleBlockers = w.createBodyShape(wall.p, wall.i, wall.polygons);
+  const rand = random(23), matrix = new THREE.Matrix4(), js = (fn) => { w.rays = null; try { return fn(); } finally { w.rays = rays; } };
+  // A stand-in hull: what pushWalls and pushOut read and write.
+  const hull = (walking) => {
+    const h = { system: { collision: w }, probeRadius: 0.5 + rand() * 1.5, walking, previousYaw: rand() * 6, yaw: 1,
+      position: new THREE.Vector3(), velocity: new THREE.Vector3(), previous: new THREE.Vector3(),
+      point: new THREE.Vector3(), normal: new THREE.Vector3(), nearest: new THREE.Vector3(), probeStart: new THREE.Vector3(), ownStart: new THREE.Quaternion(),
+      probes: Array.from({ length: 6 }, (_, i) => new THREE.Vector3((i % 2 - 0.5) * 3, 0.4 + (i % 3) * 0.6, (Math.floor(i / 2) - 1) * 2.5)) };
+    h.wallCaches = h.probes.map(() => w.gatherCache(0.75));
+    h.pushWalls = Vehicle.prototype.pushWalls; h.pushOut = Vehicle.prototype.pushOut;
+    return h;
+  };
+  const hulls = [hull(false), hull(true), hull(false), hull(true)];
+  let moved = 0, undone = 0;
+  for (let pass = 0; pass < 150; pass++) {
+    for (const body of bodies) if (rand() < 0.1) body.enabled = !body.enabled;
+    for (const body of bodies) if (body.moving && rand() < 0.3) w.moveBody(body, matrix.makeRotationY(rand() * 6.3).setPosition((rand() - 0.5) * 50, rand() * 2 - 1, (rand() - 0.5) * 50));
+    if (pass === 70) bodies.push(w.addMovingBody(shape, matrix.makeRotationY(1).setPosition(5, 0.5, 5), { late: true }));
+    for (const h of hulls) {
+      // Near a body or the barrier, sometimes inside them; a walker's last step behind it.
+      const near = rand() < 0.5 ? bodies[Math.floor(rand() * bodies.length)].bounds.getCenter(new THREE.Vector3()) : new THREE.Vector3(3 + (rand() - 0.5) * 30, 0, 0);
+      const position = near.add(new THREE.Vector3(rand() - 0.5, rand() * 0.5, rand() - 0.5).multiplyScalar(5));
+      const velocity = new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).multiplyScalar(12), previous = position.clone().add(new THREE.Vector3(rand() - 0.5, 0, rand() - 0.5));
+      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler((rand() - 0.5) * 0.3, rand() * 6.3, (rand() - 0.5) * 0.3, 'YXZ'));
+      const terrain = rand() < 0.5, oldYaw = rand();
+      const run = (kernel) => {
+        h.position.copy(position); h.velocity.copy(velocity); h.previous.copy(previous); h.yaw = 7;
+        if (kernel) h.pushWalls(oldYaw, q, terrain); else js(() => h.pushWalls(oldYaw, q, terrain));
+        return [...h.position.toArray(), ...h.velocity.toArray(), h.yaw];
+      };
+      const a = run(false), b = run(true);
+      a.forEach((v, i) => assert.ok(Object.is(v, b[i]), `pass ${pass} hull ${hulls.indexOf(h)} value ${i}: ${v} != ${b[i]}`));
+      if (!position.equals(h.position)) moved++;
+      if (a[6] === oldYaw) undone++;
+    }
+  }
+  assert.ok(w.rays, 'the kernel answered throughout');
+  assert.ok(moved > 100 && undone > 20, JSON.stringify({ moved, undone }));
+});

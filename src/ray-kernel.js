@@ -40,9 +40,12 @@ export class RayKernel {
     // Every body by its slot, and every fixed set by its id.
     this.bodies = [];
     this.sets = [];
-    // Views of a gather's output and terrainNear's (outF64, outU32).
+    // Views of a gather's output and terrainNear's (outF64, outU32), of a
+    // whole query's input (input) and of the bodies' flags by place (places).
     this.f64Out = null;
     this.u32Out = null;
+    this.inputView = null;
+    this.placesView = null;
     this.refresh();
   }
 
@@ -167,6 +170,22 @@ export class RayKernel {
     const view = this.f64Out;
     if (view && view.byteOffset === ptr && view.byteLength) return view;
     return this.f64Out = new Float64Array(this.memory.buffer, ptr, (this.memory.buffer.byteLength - ptr) >> 3);
+  }
+
+  // Room for `count` f64s of a query's input, as a view (made again when
+  // the room moves or memory grows).
+  input(count) {
+    const ptr = this.x.input_reserve(count), view = this.inputView;
+    if (view && view.byteOffset === ptr && view.length >= count && view.byteLength) return view;
+    return this.inputView = new Float64Array(this.memory.buffer, ptr, Math.max(count, 256));
+  }
+
+  // Each body's enabled flag by its place in the world's order.
+  places() {
+    const view = this.placesView;
+    if (view && view.byteLength) return view;
+    const ptr = this.x.places_ptr();
+    return this.placesView = new Uint8Array(this.memory.buffer, ptr, 1 << 16);
   }
 
   outU32(ptr) {

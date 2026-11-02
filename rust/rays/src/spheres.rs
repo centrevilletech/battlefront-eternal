@@ -21,7 +21,7 @@
 //! JavaScript's, the flags of the candidates the query's first call names
 //! (as the casts do).
 
-use crate::{apply_matrix4, candidate, dot, enabled, f32_at, grid_raycast, io, js_max, js_min, state, sub, Corner, Corners, Ray, State, Tree};
+use crate::{apply_matrix4, candidate, dot, enabled, f32_at, grid_raycast, io, js_max, js_min, state, sub, triangle_normal, Corner, Corners, Ray, State, Tree, MAX_BODIES};
 use std::ptr::addr_of_mut;
 
 /// collision.js BLOCKER_POLYGONS: the vehicle-only barriers' polygon numbers
@@ -693,6 +693,97 @@ pub fn ground(s: &mut State, world: usize, x: f64, z: f64, top: f64) -> Option<(
     Some((hit.py, n))
 }
 
+/// Vector3.applyQuaternion(q), q as x, y, z, w.
+#[inline(always)]
+pub fn apply_quaternion(v: [f64; 3], q: [f64; 4]) -> [f64; 3] {
+    let (vx, vy, vz) = (v[0], v[1], v[2]);
+    let (qx, qy, qz, qw) = (q[0], q[1], q[2], q[3]);
+    let tx = 2.0 * (qy * vz - qz * vy);
+    let ty = 2.0 * (qz * vx - qx * vz);
+    let tz = 2.0 * (qx * vy - qy * vx);
+    [vx + qw * tx + qy * tz - qz * ty, vy + qw * ty + qz * tx - qx * tz, vz + qw * tz + qx * ty - qy * tx]
+}
+
+/// A hull's wall probes as vehicles.js pushWalls runs them: the probes'
+/// places in the hull's frame and their radius, the hull's turn (q), a
+/// walker's turn and place a step ago (own, previous; its probes give way
+/// to another hull only as far as they came), and whether the terrain's
+/// steep faces count.
+pub struct Probes<'a> {
+    pub points: &'a [[f64; 3]],
+    pub radius: f64,
+    pub q: [f64; 4],
+    pub own: Option<[f64; 4]>,
+    pub previous: [f64; 3],
+    pub terrain: bool,
+}
+
+/// The hull a probe pushes (vehicles.js pushOut's state): its place and
+/// velocity, and whether its turn this tick is to be undone (yaw).
+pub struct Pushed {
+    pub position: [f64; 3],
+    pub velocity: [f64; 3],
+    pub undo_turn: bool,
+}
+
+/// vehicles.js pushOut(tri, oldYaw, hull): a probe at `point` out of a wall
+/// triangle (not a floor: suspension handles those), and the hull with it.
+fn push_out(a: [f64; 3], b: [f64; 3], c: [f64; 3], point: &mut [f64; 3], start: &[f64; 3], hull: bool, radius: f64, h: &mut Pushed) {
+    let face = triangle_normal(a, b, c);
+    if face[1].abs() > 0.65 { return; }
+    let nearest = closest_point_to_point(a, b, c, *point);
+    let v = sub(*point, nearest);
+    let distance = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if distance >= radius || distance < 1e-6 { return; }
+    let k = 1.0 / distance;
+    let n = [v[0] * k, v[1] * k, v[2] * k];
+    let mut depth = radius - distance + 0.002;
+    if hull {
+        // How far this probe came toward the other hull this step.
+        let came = -(n[0] * (point[0] - start[0]) + n[1] * (point[1] - start[1]) + n[2] * (point[2] - start[2]));
+        depth = js_min(depth, js_max(0.0, came));
+        if !(depth > 0.0) { return; }
+    }
+    h.position = add_scaled(h.position, n, depth);
+    *point = add_scaled(*point, n, depth);
+    let into = dot(h.velocity, n);
+    if into < 0.0 { h.velocity = add_scaled(h.velocity, n, -into); }
+    if depth > 0.15 { h.undo_turn = true; }
+}
+
+/// vehicles.js pushWalls: two passes over the probes, each pushed out of the
+/// polygons of the buildings, props, barriers (blockers) and other hulls
+/// gathered about it (through its cache), then out of the terrain's
+/// triangles near it. enabled: each body's flag by its place in the world's
+/// order (the hull's own body off). `out` and `near` are scratch.
+#[allow(clippy::too_many_arguments)]
+pub fn push_walls(s: &mut State, world: usize, p: &Probes, caches: &mut [Option<&mut GatherCache>], blockers: Option<usize>, enabled: &[u8], h: &mut Pushed, out: &mut Gathered, near: &mut Vec<u32>) {
+    let grid = s.worlds[world].grid;
+    let mut start = [0.0; 3];
+    for _pass in 0..2 {
+        for (i, probe) in p.points.iter().enumerate() {
+            let at = apply_quaternion(*probe, p.q);
+            let mut point = [at[0] + h.position[0], at[1] + h.position[1], at[2] + h.position[2]];
+            if let Some(own) = p.own {
+                let was = apply_quaternion(*probe, own);
+                start = [was[0] + p.previous[0], was[1] + p.previous[1], was[2] + p.previous[2]];
+            }
+            gather(s, world, point, p.radius, blockers, caches[i].as_deref_mut(), -1, enabled, out);
+            for polygon in out.list() {
+                let hull = p.own.is_some() && polygon.moving;
+                for t in &polygon.tris { push_out(t.a, t.b, t.c, &mut point, &start, hull, p.radius, h); }
+            }
+            if let (true, Some(g)) = (p.terrain, grid) {
+                terrain_near(s, g, point, p.radius, near);
+                for &t in near.iter() {
+                    let (a, b, c) = terrain_triangle(s, g, t as usize);
+                    push_out(a, b, c, &mut point, &start, false, p.radius, h);
+                }
+            }
+        }
+    }
+}
+
 // The exports for collision.js. A JavaScript gather or overlap runs in two
 // calls: the first does the fixed parts and names the bodies to try in
 // CANDIDATES; JavaScript writes whether each is enabled in ENABLED; the
@@ -706,6 +797,12 @@ static mut QUERY: Bounds = EMPTY;
 /// (-1 for a body's) and number, and a body's its nine corners.
 static mut OUT: Vec<f64> = Vec::new();
 static mut NEAR: Vec<u32> = Vec::new();
+/// Inputs too long for IO (push_walls'), and each body's enabled flag by its
+/// place in the world's order, for queries JavaScript runs whole.
+static mut INPUT: Vec<f64> = Vec::new();
+static mut PLACES: [u8; MAX_BODIES] = [0; MAX_BODIES];
+static mut PUSH_OUT: Option<Gathered> = None;
+static mut PUSH_NEAR: Vec<u32> = Vec::new();
 
 fn gathered() -> &'static mut Gathered {
     unsafe { (*addr_of_mut!(GATHERED)).get_or_insert_with(Gathered::new) }
@@ -816,6 +913,54 @@ pub extern "C" fn gather_end(world: u32, count: u32) -> u32 {
     v[58] = w.as_ptr() as usize as f64;
     v[59] = w.len() as f64;
     list.len() as u32
+}
+
+/// Room for `count` f64s of input; its address.
+#[no_mangle]
+pub extern "C" fn input_reserve(count: u32) -> *mut f64 {
+    let v = unsafe { &mut *addr_of_mut!(INPUT) };
+    if v.len() < count as usize { v.resize(count as usize, 0.0); }
+    v.as_mut_ptr()
+}
+
+/// Where each body's enabled flag goes, by its place in the world's order.
+#[no_mangle]
+pub extern "C" fn places_ptr() -> *mut u8 { addr_of_mut!(PLACES) as *mut u8 }
+
+/// pushWalls for a hull, its input written at input_reserve's address: 0-3
+/// its turn q, 4-7 its turn a step ago and 8 1 if it has one, 9-11 its
+/// place a step ago, 12-14 its place, 15-17 its velocity, 18 the probes'
+/// radius, 19 1 if the terrain counts, 20 the barriers' set (-1 none), 21
+/// the probe count, then from 22 each probe's place in the hull's frame and
+/// its cache (-1 none), four each; bodies' flags at places_ptr. Its place
+/// and velocity come back in IO 0-5, and in IO 6 1 if its turn is undone.
+#[no_mangle]
+pub extern "C" fn push_walls_ray(world: u32) {
+    let v = unsafe { &*addr_of_mut!(INPUT) };
+    let s = state();
+    let count = v[21] as usize;
+    let mut points = Vec::with_capacity(count);
+    for i in 0..count { let o = 22 + i * 4; points.push([v[o], v[o + 1], v[o + 2]]); }
+    let p = Probes { points: &points, radius: v[18], q: [v[0], v[1], v[2], v[3]], own: (v[8] != 0.0).then_some([v[4], v[5], v[6], v[7]]),
+        previous: [v[9], v[10], v[11]], terrain: v[19] != 0.0 };
+    let mut h = Pushed { position: [v[12], v[13], v[14]], velocity: [v[15], v[16], v[17]], undo_turn: false };
+    let ids: Vec<i64> = (0..count).map(|i| v[22 + i * 4 + 3] as i64).collect();
+    let all = caches();
+    let mut owned: Vec<Option<&mut GatherCache>> = Vec::with_capacity(count);
+    // Each probe's own cache (distinct per probe, as a hull keeps them).
+    let base = all.as_mut_ptr();
+    for &id in &ids { owned.push(if id >= 0 { Some(unsafe { &mut *base.add(id as usize) }) } else { None }); }
+    let blockers = (v[20] >= 0.0).then_some(v[20] as usize);
+    let n = s.worlds[world as usize].order.len();
+    let places: &[u8; MAX_BODIES] = unsafe { &*addr_of_mut!(PLACES) };
+    let enabled = &places[..n];
+    let out = unsafe { (*addr_of_mut!(PUSH_OUT)).get_or_insert_with(Gathered::new) };
+    let near = unsafe { &mut *addr_of_mut!(PUSH_NEAR) };
+    push_walls(s, world as usize, &p, &mut owned, blockers, enabled, &mut h, out, near);
+    let io = io();
+    io[0] = h.position[0]; io[1] = h.position[1]; io[2] = h.position[2];
+    io[3] = h.velocity[0]; io[4] = h.velocity[1]; io[5] = h.velocity[2];
+    io[6] = if h.undo_turn { 1.0 } else { 0.0 };
 }
 
 /// overlapsSphere's first call, the center in IO 0-2 and the radius in 3:

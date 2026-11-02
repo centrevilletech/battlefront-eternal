@@ -1158,6 +1158,12 @@ export class Vehicle {
   pushWalls(oldYaw, q, terrain) {
     const c = this.system.collision;
     const own = this.walking ? this.ownStart.setFromAxisAngle(UP, this.previousYaw) : null;
+    // In the collision's WebAssembly, whole: the same pushes in the same
+    // order, with no polygon or triangle lists made for them here.
+    if (c.rays) try {
+      if (c.rayPushWalls(this.probes, this.probeRadius, this.wallCaches, q, own, this.previous, this.position, this.velocity, terrain)) this.yaw = oldYaw;
+      return;
+    } catch (error) { c.dropRays(error); }
     for (let pass = 0; pass < 2; pass++) for (let i = 0; i < this.probes.length; i++) {
       const probe = this.probes[i];
       this.point.copy(probe).applyQuaternion(q).add(this.position);

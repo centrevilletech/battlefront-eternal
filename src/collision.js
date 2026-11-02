@@ -467,6 +467,38 @@ export class CollisionWorld {
     return list;
   }
 
+  // A hull's wall probes (vehicles.js pushWalls) in the ray kernel, whole:
+  // each probe's gather (through its cache) and terrain triangles, and every
+  // push out of them, in pushWalls' order; position and velocity are set
+  // to where they leave the hull, and true comes back if its turn is to be
+  // undone (a push deeper than 0.15 m). q, own: Quaternions (own null
+  // unless the hull walks); previous: its place a step ago.
+  rayPushWalls(probes, radius, caches, q, own, previous, position, velocity, terrain) {
+    const rays = this.rays, bodies = this.bodies, n = probes.length;
+    this.rayBodies();
+    // Ids first: making a cache or a set may grow the module's memory.
+    const blockers = this.vehicleBlockers ? rays.fixedSet(this.blockerSet(this.vehicleBlockers), this.vehicleBlockers.bvh) : -1;
+    for (let i = 0; i < n; i++) if (caches[i]) rays.cache(caches[i]);
+    const input = rays.input(22 + n * 4);
+    input[0] = q.x; input[1] = q.y; input[2] = q.z; input[3] = q.w;
+    if (own) { input[4] = own.x; input[5] = own.y; input[6] = own.z; input[7] = own.w; input[8] = 1; } else input[8] = 0;
+    input[9] = previous.x; input[10] = previous.y; input[11] = previous.z;
+    input[12] = position.x; input[13] = position.y; input[14] = position.z;
+    input[15] = velocity.x; input[16] = velocity.y; input[17] = velocity.z;
+    input[18] = radius; input[19] = terrain ? 1 : 0; input[20] = blockers; input[21] = n;
+    for (let i = 0, o = 22; i < n; i++, o += 4) {
+      const p = probes[i];
+      input[o] = p.x; input[o + 1] = p.y; input[o + 2] = p.z; input[o + 3] = caches[i] ? caches[i].ray : -1;
+    }
+    const places = rays.places();
+    for (let i = 0; i < bodies.length; i++) places[i] = bodies[i].enabled ? 1 : 0;
+    rays.x.push_walls_ray(this.rayWorld);
+    const io = rays.view();
+    position.set(io[0], io[1], io[2]);
+    velocity.set(io[3], io[4], io[5]);
+    return io[6] !== 0;
+  }
+
   // Whether each of the `count` bodies the kernel's query just named is
   // enabled (ENABLED), read from the bodies' plain field.
   rayEnabled(count) {

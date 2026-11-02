@@ -16,6 +16,7 @@
 import { headlessGame, idleCommand } from './headless-world.mjs';
 import * as THREE from 'three';
 import { CollisionWorld, makeHit } from '../src/collision.js';
+import { Vehicle } from '../src/vehicles.js';
 
 const argv = process.argv.slice(2);
 const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i < 0 ? fallback : argv[i + 1]; };
@@ -56,6 +57,23 @@ function battle(name, run) {
     return run(this, (...a) => own.apply(this, a), args);
   };
 }
+// A hull's wall probes (pushWalls), run whole in the module: the
+// JavaScript's pushes first, then the module's, which the battle keeps.
+let pushes = 0;
+const pushWalls = Vehicle.prototype.pushWalls;
+Vehicle.prototype.pushWalls = function (oldYaw, q, terrain) {
+  const c = this.system.collision;
+  if (checking || !c.rays) return pushWalls.call(this, oldYaw, q, terrain);
+  pushes++;
+  const position = this.position.clone(), velocity = this.velocity.clone(), yaw = this.yaw;
+  jsOf(c, () => pushWalls.call(this, oldYaw, q, terrain));
+  const a = [...this.position.toArray(), ...this.velocity.toArray(), this.yaw];
+  this.position.copy(position); this.velocity.copy(velocity); this.yaw = yaw;
+  pushWalls.call(this, oldYaw, q, terrain);
+  const b = [...this.position.toArray(), ...this.velocity.toArray(), this.yaw];
+  checked++;
+  if (!a.every((v, i) => Object.is(v, b[i]))) fail('battle pushWalls', { hull: this.name, position, velocity, terrain }, a, b);
+};
 // A reference record holding what the caller's held before the query (a
 // miss leaves some fields as they were).
 const like = (out) => { const h = makeHit(); h.distance = out.distance; h.point.copy(out.point); h.normal.copy(out.normal); h.terrain = out.terrain; h.body = out.body; return h; };
@@ -188,5 +206,5 @@ const enabled = world.bodies.filter((b) => b.enabled).length, moving = world.bod
 console.log(`${map} ${side} seed ${seed}: ${checked} answers compared over ${ticks} ticks (${world.bodies.length} bodies, ${moving} moving, ${enabled} enabled at the end); `
   + `casts hit ${hits} (${bodyHits} bodies, ${terrainHits} terrain), castMoving ${movingHits}, ground ${groundHits}; `
   + `gathers ${polygons} polygons (${movingPolygons} moving) of ${triangles} triangles, overlaps ${overlaps}, terrainNear ${nearTriangles} triangles; `
-  + `the battle's own ${battleQueries} queries; ${failures} mismatches`);
+  + `the battle's own ${battleQueries} queries and ${pushes} hulls' wall probes; ${failures} mismatches`);
 process.exit(failures ? 1 : 0);
