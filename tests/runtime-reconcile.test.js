@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { WorldTickEstimator, InputLead, advanceInputClock, replayTicks, CorrectionSmoother } from '../src/runtime/reconcile.js';
 import { FixedClock } from '../src/runtime/fixed-clock.js';
 import { InputMailbox } from '../src/runtime/transport.js';
+import { NetworkInputs } from '../src/runtime/network-inputs.js';
 
 const HZ = 60;
 
@@ -319,6 +320,40 @@ test('replayTicks merges pending commands per tick exactly as the mailbox takes 
   }
   // Nothing of this life pending: nothing replayed.
   assert.equal(replayTicks([{ generation: 9, tick: 5, down: [], actions: [], look: [] }], 1, 3, [], () => assert.fail('replayed')), 1);
+});
+
+test('replayTicks turns him by the look the world takes, on the tick it takes it, from what the page sent', () => {
+  // A page frame makes a command a tick, its mouse look in the first; the
+  // sender offers the world the frame's last command (and a held
+  // transition), carrying the running look total, and some frames go
+  // unsent (an online page coalesces unchanged held state).
+  const frames = [
+    { ticks: [3, 4], look: [[2.5, -1], [3, 0.25]], down: ['KeyW'] },
+    { ticks: [5, 6, 7], look: [[1, 1]], down: ['KeyW'] },
+    { ticks: [8, 9], look: [[-4, 2]], down: ['KeyW', 'KeyA'] },
+    { ticks: [10], look: [[0.5, 0.5]], down: ['KeyW', 'KeyA'], unsent: true },
+    { ticks: [11, 12], look: [[7, -3], [1, 1]], down: ['KeyW', 'KeyA'] },
+    { ticks: [13, 14], look: [], down: [] },
+  ];
+  const wire = [], mailbox = new InputMailbox(1), pending = [];
+  let sequence = 0, unsent = false;
+  const sender = new NetworkInputs({ state: (m) => { if (unsent) return false; wire.push(m); return true; }, events: () => true, fire: () => true });
+  for (const frame of frames) {
+    const batch = frame.ticks.map((tick, i) => ({ epoch: 1, generation: 1, sequence: ++sequence, tick, down: frame.down, actions: [], look: i ? [] : frame.look, mouseScale: 1 }));
+    unsent = !!frame.unsent;
+    sender.send(batch);
+    pending.push(...batch);
+  }
+  for (const message of wire) for (const command of message.commands) mailbox.push(command);
+  const expected = [];
+  for (let tick = 3; tick <= 14; tick++) { const c = mailbox.take(tick, 1); expected.push({ tick, down: c.down, look: c.look }); }
+  const got = [];
+  replayTicks(pending, 2, 1, [], (tick, c) => got.push({ tick, down: c.down, look: c.look }));
+  assert.deepEqual(got, expected, 'the same keys and look samples, tick by tick');
+  // The unsent frame's look went with the next frame's command; until then
+  // it was the page's alone (shown, not replayed).
+  assert.deepEqual(got.find((t) => t.tick === 10).look, []);
+  assert.ok(pending.every((c) => c.lookSent), 'every command\'s look has gone');
 });
 
 test('replay starts with correction view context across a gap before fresh input', () => {
