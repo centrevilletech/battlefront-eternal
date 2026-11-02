@@ -39,6 +39,15 @@ export function checkCorrectionRecordFits(payload){
  if(!(payload instanceof Uint8Array))throw Error('invalid correction payload');
  if(17+payload.length>ENTITY_PACKET_BYTES-HEADER-2)throw Error('entity record cannot fit one message');
 }
+// encodeEntityRecord's checks of a payload record (correction, summary,
+// combat), in its order and with its errors, for callers that need only
+// them: encoding allocated a writer and a copy just to throw them away.
+export function checkPayloadRecordFits(record){
+ if(!kinds[record.kind])throw Error('unknown entity kind');
+ integer(record.id,0,0xffffffff);integer(record.generation,0,0xffffffff);integer(record.tick,0,0xffffffff);integer(record.schema,0,65535);
+ if(!(record.payload instanceof Uint8Array))throw Error('invalid correction payload');
+ integer(record.payload.length,0,65535);if(17+record.payload.length>ENTITY_PACKET_BYTES-HEADER-2)throw Error('entity record cannot fit one message');
+}
 export function encodeEntityRecord(record){
  const w=new Writer(),kind=kinds[record.kind];if(!kind)throw Error('unknown entity kind');
  w.u8(kind);w.u32(record.id);w.u32(record.generation);w.u32(record.tick);

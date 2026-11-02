@@ -289,12 +289,13 @@ function writeChangedDelta(w, current, baseline) {
     w.length = at;
   }
 }
-export function encodeWordDelta(current, baseline) {
-  const w = wordWriter.reset(), changed = changedWords(current, baseline);
+function writeWordDelta(w, current, baseline) {
+  const changed = changedWords(current, baseline);
   if (deltaWins(current.length, changed)) writeChangedDelta(w, current, baseline);
   else { w.u8(WORD_DELTA_ABSOLUTE); w.u16(current.length); w.raw(current); }
-  return w.finish();
+  return w;
 }
+export function encodeWordDelta(current, baseline) { return writeWordDelta(wordWriter.reset(), current, baseline).finish(); }
 export function decodeWordDelta(bytes, baseline) {
   const r = new Reader(bytes), mode = r.u8();
   if (mode === WORD_DELTA_ABSOLUTE) { const out = r.raw(r.u16()); if (r.at !== bytes.length) throw Error('word delta trailing bytes'); return out; }
@@ -338,12 +339,13 @@ function writeWorldEntries(w, current, baseline) {
   if (baseWorld) for (const [key, field] of baseWorld) if (!current.world.has(key)) { const at = w.length; writeWorldField(w, field, true); ranges.push(at, w.length); }
   return ranges;
 }
-function encodeWorld(current, baseline) {
-  const scratch = arena.reset(), ranges = writeWorldEntries(scratch, current, baseline), w = partWriter.reset();
-  w.varint(ranges.length / 2);
+function writeWorld(current, baseline, scratch, w) {
+  const ranges = writeWorldEntries(scratch.reset(), current, baseline);
+  w.reset().varint(ranges.length / 2);
   for (let i = 0; i < ranges.length; i += 2) w.rawFrom(scratch.buffer, ranges[i], ranges[i + 1] - ranges[i]);
-  return w.finish();
+  return w;
 }
+function encodeWorld(current, baseline) { return writeWorld(current, baseline, arena, partWriter).finish(); }
 function decodeWorld(r, baselineWorld = null) {
   const count = r.varint(); if (count > 4096) throw Error('snapshot world field count');
   const fields = [];
@@ -486,6 +488,14 @@ export { Writer as SnapshotWriter, Reader as SnapshotReader, writeHeader as writ
 // ride in the `own` datagram with the same delta rule.
 export function encodeWorldSection(currentWorld, baselineWorld) {
   return encodeWorld({ world: currentWorld }, baselineWorld ? { world: baselineWorld } : null);
+}
+// encodeWordDelta and encodeWorldSection as views of scratch of their own,
+// for a caller that copies the bytes at once (the host, into the own
+// datagram): each view holds until the next call of the same one.
+const deltaView = new Writer(2048), sectionArena = new Writer(1 << 12), sectionView = new Writer(2048);
+export function encodeWordDeltaView(current, baseline) { return writeWordDelta(deltaView.reset(), current, baseline).bytes; }
+export function encodeWorldSectionView(currentWorld, baselineWorld) {
+  return writeWorld({ world: currentWorld }, baselineWorld ? { world: baselineWorld } : null, sectionArena, sectionView).bytes;
 }
 export function decodeWorldSection(bytes, baselineWorld = null) {
   const r = new Reader(bytes), fields = decodeWorld(r, baselineWorld);

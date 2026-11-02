@@ -7,11 +7,17 @@ const vectors = ['position', 'velocity', 'normal'];
 if (vectors.join() !== 'position,velocity,normal') throw Error('Soldier vectors changed: update captureCompactSoldier');
 const postures = ['stand', 'crouch', 'prone'];
 const airs = [null, 'jump', 'fall', 'thrown', 'jet'];
-export function captureCompactSoldier(s) {
+export function captureCompactSoldier(s) { return capture(s, null); }
+// The same correction written into `into` ({bytes, view} over at least 149
+// bytes) and returned as a view of it, valid until the next capture into
+// it: a checkpoint copies the correction straight into its own payload.
+export function captureCompactSoldierInto(s, into) { return capture(s, into); }
+function capture(s, into) {
   if (s.contactCount !== 0 || s.contactMean.lengthSq() !== 0) throw Error('Soldier correction requires completed collision pass');
   const settled = !(Object.is(s.settled.x, s.position.x) && Object.is(s.settled.y, s.position.y) && Object.is(s.settled.z, s.position.z)), diving = s.dive !== 0;
-  const bytes = new Uint8Array(124 + (settled ? 24 : 0) + (diving ? 1 : 0));
-  const view = new DataView(bytes.buffer); let at = 4;
+  const length = 124 + (settled ? 24 : 0) + (diving ? 1 : 0);
+  const bytes = into ? into.bytes : new Uint8Array(length);
+  const view = into ? into.view : new DataView(bytes.buffer); let at = 4;
   const number = n => { if (!Number.isFinite(n)) throw Error('nonfinite Soldier correction'); view.setFloat64(at, n, true); at += 8; };
   const posture = postures.indexOf(s.posture), air = airs.indexOf(s.air);
   if (posture < 0 || air < 0 || typeof s.grounded !== 'boolean') throw Error('invalid Soldier state');
@@ -23,7 +29,7 @@ export function captureCompactSoldier(s) {
   vector(s.position, 'position'); vector(s.velocity, 'velocity'); vector(s.normal, 'normal');
   if (settled) vector(s.settled, 'settled');
   if (diving) { const n = postures.indexOf(s.diveFrom); if (n < 0) throw Error('invalid dive posture'); bytes[at++] = n; }
-  return bytes;
+  return into ? bytes.subarray(0, length) : bytes;
 }
 export function restoreCompactSoldier(s, bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < 124 || bytes[0] > 3 || bytes[1] > 2 || bytes[2] > 4 || bytes[3] > 1) throw Error('invalid compact Soldier correction');

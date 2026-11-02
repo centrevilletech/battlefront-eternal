@@ -40,6 +40,8 @@ export function cosmeticEvent(record, view, bytes) {
   return { record, view, bytes, key: `e${id}`, kind: 'presentation', projectile: null, must: false, expires: record.tick + LAUNCH_PRESENTATION_TICKS };
 }
 
+// Packing writes into these (it is synchronous); the bytes are copied out.
+const firstWriter = new Writer(2048), secondWriter = new Writer(2048);
 export class CosmeticOutbox {
   constructor({ range = 300 } = {}) {
     this.range = range;
@@ -89,7 +91,7 @@ export class CosmeticOutbox {
     }
     // Order only matters when something has to wait.
     if (bytes > firstBudget) candidates.sort((a, b) => a.rank - b.rank || a.d2 - b.d2);
-    const first = new Writer(), second = new Writer(), owed = [];
+    const first = firstWriter.reset(), second = secondWriter.reset(), owed = [];
     let refinements = 0;
     for (const entry of candidates) {
       const event = entry.event, size = 2 + event.bytes.length, w = first.length + size <= firstBudget ? first : second.length + size <= secondBudget ? second : null;

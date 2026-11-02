@@ -8,7 +8,14 @@
 // draws its clip from; its built state, health and team go as any building's.
 export const BUILDING_STATE_SCHEMA=7, TOW_STATE_SCHEMA=8, CREATURE_STATE_SCHEMA=9, CREATURE_STATE_ID=400000, TRAP_STATE_SCHEMA=10, TRAP_STATE_ID=500000;
 const encode=new TextEncoder(),decode=new TextDecoder('utf-8',{fatal:true});
-function make(id,generation,tick,schema,value){const payload=encode.encode(JSON.stringify(value));if(payload.length>900)throw Error('World presentation record too large');return {kind:'summary',id,generation,tick,schema,payload};}
+// A record whose JSON is what that field last had keeps that payload object:
+// no encoding, and comparisons of it end on identity.
+const payloads=new Map();
+function make(id,generation,tick,schema,value){
+  const json=JSON.stringify(value),key=schema*4294967296+id,kept=payloads.get(key);let payload;
+  if(kept?.json===json)payload=kept.payload;else{payload=encode.encode(json);if(payloads.size>=4096)payloads.clear();payloads.set(key,{json,payload});}
+  if(payload.length>900)throw Error('World presentation record too large');return {kind:'summary',id,generation,tick,schema,payload};
+}
 // A station's state or team as buildingStateTeam (snapshot-records.js) reads
 // it back from the record's JSON: `${value}` after the round trip.
 const jsonText=v=>typeof v==='string'?v:typeof v==='number'&&Number.isFinite(v)?`${v}`:`${JSON.parse(JSON.stringify([v]))[0]}`;

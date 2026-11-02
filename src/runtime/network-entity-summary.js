@@ -1,6 +1,6 @@
 import {entitySpawnPosts} from './entity-spawn-posts.js';
 import {eligiblePosts as eligibleSpawnPosts} from '../human-spawn.js';
-import {encodeEntityRecord} from './network-entity-codec.js';
+import {checkPayloadRecordFits} from './network-entity-codec.js';
 import {Character} from '../battle.js';
 import {packRecord,applyRecord,SHARED_TALLIES,FAVOURITES} from '../battle-stats.js';
 const PHASES=['unspawned','alive','dying','awaiting'];
@@ -19,15 +19,33 @@ class Fields{
  bool(...v){if(v.length){if(typeof v[0]!=='boolean')throw Error('invalid summary boolean');this.u8(v[0]?1:0);return;}const b=this.u8();if(b>1)throw Error('invalid summary boolean');return !!b;}
  nullable(...v){if(v.length){this.bool(v[0]!==null);if(v[0]!==null)this.f64(v[0]);return;}return this.bool()?this.f64():null;}
 }
+// Capture writes each record into one of these (it is synchronous) and
+// slices its payload out, rather than allocating a buffer per record; a
+// record summary's entries are written in the second one, beside the chunk
+// they join.
+const scratch=new Fields(),entryScratch=new Fields(new Uint8Array(4096));
+const writer=()=>{scratch.at=0;return scratch;};
+// Names change rarely: each is encoded once (the cache is cleared if it
+// ever grows large).
+const encodedNames=new Map();
+function nameBytes(name){let bytes=encodedNames.get(name);if(!bytes){if(encodedNames.size>=4096)encodedNames.clear();bytes=encoder.encode(name);encodedNames.set(name,bytes);}return bytes;}
 const lookup=(map,name,nullable=true)=>{if(name==null&&nullable)return 0;for(const[id,value]of map)if(value===name)return id;throw Error(`summary registry missing ${name}`);};
 const resolve=(map,id)=>{if(!id)return null;if(!map?.has(id))throw Error('summary registry prerequisite missing');return map.get(id);};
-function record(w,{id,generation,tick,schema}){const r={kind:'summary',id,generation,tick,schema,payload:w.bytes.slice(0,w.at)};encodeEntityRecord(r);return r;}
+// A summary whose bytes are what that field last had keeps that payload
+// object (most refresh unchanged): no copy, and comparisons of it end on
+// identity. Only equal bytes are shared, so the cache needs no owner.
+const payloads=new Map();
+function record(w,{id,generation,tick,schema}){
+ const key=schema*4294967296+id;let payload=payloads.get(key);
+ if(payload?.length!==w.at||!payload.every((byte,i)=>byte===w.bytes[i])){payload=w.bytes.slice(0,w.at);if(payloads.size>=4096)payloads.clear();payloads.set(key,payload);}
+ const r={kind:'summary',id,generation,tick,schema,payload};checkPayloadRecordFits(r);return r;
+}
 export function createPostRegistry(posts){const names=posts.map(p=>p.name).sort();if(new Set(names).size!==names.length||names.length>65535)throw Error('invalid post registry');return new Map(names.map((name,i)=>[i+1,name]));}
-export function captureBattleSummary(battle,{tick,epoch}){const w=new Fields(),teams=Object.keys(battle.reinforcements).map(Number).sort((a,b)=>a-b);if(teams.length>7)throw Error('summary team limit');w.u8(teams.length);for(const team of teams){w.u8(team);for(const key of ['reinforcements','start','noPost','bleed'])w.f64(battle[key]?.[team]??0);}for(const k of ['over','gameOver','finished','losing'])w.bool(!!battle[k]);w.u8(battle.loser||0);w.f64(battle.overTime);w.nullable(battle.victoryClock);w.nullable(battle.countdown);return record(w,{id:0,generation:epoch,tick,schema:1});}
-export function capturePostSummary(post,{tick,epoch,registry}){const w=new Fields(),id=lookup(registry.posts,post.name,false);w.u16(id);w.u8(post.team);w.u8(post.toward);w.f64(post.progress);w.f64(post.neutralize);w.bool(post.contested);w.bool(post.active!==false);const counts=[...post.counts];if(counts.length>7)throw Error('summary post team limit');w.u8(counts.length);for(const[team,count]of counts){w.u8(team);w.u16(count);}return record(w,{id,generation:epoch,tick,schema:2});}
+export function captureBattleSummary(battle,{tick,epoch}){const w=writer(),teams=Object.keys(battle.reinforcements).map(Number).sort((a,b)=>a-b);if(teams.length>7)throw Error('summary team limit');w.u8(teams.length);for(const team of teams){w.u8(team);for(const key of ['reinforcements','start','noPost','bleed'])w.f64(battle[key]?.[team]??0);}for(const k of ['over','gameOver','finished','losing'])w.bool(!!battle[k]);w.u8(battle.loser||0);w.f64(battle.overTime);w.nullable(battle.victoryClock);w.nullable(battle.countdown);return record(w,{id:0,generation:epoch,tick,schema:1});}
+export function capturePostSummary(post,{tick,epoch,registry}){const w=writer(),id=lookup(registry.posts,post.name,false);w.u16(id);w.u8(post.team);w.u8(post.toward);w.f64(post.progress);w.f64(post.neutralize);w.bool(post.contested);w.bool(post.active!==false);const counts=[...post.counts];if(counts.length>7)throw Error('summary post team limit');w.u8(counts.length);for(const[team,count]of counts){w.u8(team);w.u16(count);}return record(w,{id,generation:epoch,tick,schema:2});}
 // Eligibility is provided by authoritative spawn policy, never derived from
 // partial CP samples on the client. Allowed classes and posts are complete sets.
-export function captureSpawnSummary(player,{tick,epoch,registry,eligiblePosts,eligibleClasses,slot=NO_SLOT}){if(!Array.isArray(eligiblePosts)||!Array.isArray(eligibleClasses)||eligiblePosts.length>64||eligibleClasses.length>64)throw Error('spawn eligibility limit');const s=player.spawn,w=new Fields();w.u32(player.unit?.id||0);w.u32(player.unit?.generation||0);w.u8(player.team);const phase=PHASES.indexOf(s.phase);if(phase<0)throw Error('invalid spawn phase');w.u8(phase);w.u16(lookup(registry.classes,s.className));w.u16(lookup(registry.posts,s.post));w.bool(!!s.spawnedOnce);w.bool(!!s.ended);w.f64(s.deadTime);w.bool(!!s.pending);if(s.pending){w.u16(lookup(registry.classes,s.pending.className,false));w.u16(lookup(registry.posts,s.pending.post));}w.bool(!!s.auto);if(s.auto){w.u8(s.auto.team);w.u16(lookup(registry.classes,s.auto.className,false));w.u16(lookup(registry.posts,s.auto.post));}for(const[list,map]of [[eligiblePosts,registry.posts],[eligibleClasses,registry.classes]]){w.u8(list.length);for(const name of list)w.u16(lookup(map,name,false));}
+export function captureSpawnSummary(player,{tick,epoch,registry,eligiblePosts,eligibleClasses,slot=NO_SLOT}){if(!Array.isArray(eligiblePosts)||!Array.isArray(eligibleClasses)||eligiblePosts.length>64||eligibleClasses.length>64)throw Error('spawn eligibility limit');const s=player.spawn,w=writer();w.u32(player.unit?.id||0);w.u32(player.unit?.generation||0);w.u8(player.team);const phase=PHASES.indexOf(s.phase);if(phase<0)throw Error('invalid spawn phase');w.u8(phase);w.u16(lookup(registry.classes,s.className));w.u16(lookup(registry.posts,s.post));w.bool(!!s.spawnedOnce);w.bool(!!s.ended);w.f64(s.deadTime);w.bool(!!s.pending);if(s.pending){w.u16(lookup(registry.classes,s.pending.className,false));w.u16(lookup(registry.posts,s.pending.post));}w.bool(!!s.auto);if(s.auto){w.u8(s.auto.team);w.u16(lookup(registry.classes,s.auto.className,false));w.u16(lookup(registry.posts,s.auto.post));}for(const[list,map]of [[eligiblePosts,registry.posts],[eligibleClasses,registry.classes]]){w.u8(list.length);for(const name of list)w.u16(lookup(map,name,false));}
  // His own slot in the roster (battle.characters): the scoreboard's and the HUD's personal stats.
  w.u8(Number.isInteger(slot)&&slot>=0&&slot<NO_SLOT?slot:NO_SLOT);return record(w,{id:65536,generation:epoch,tick,schema:3});}
 // players: Map of Character to { link } for every player attached. A
@@ -36,11 +54,11 @@ export function captureSpawnSummary(player,{tick,epoch,registry,eligiblePosts,el
 export function captureRosterSummaries(battle,players=new Map(),{tick,epoch}){
  const characters=battle?.characters||[],records=[];if(characters.length>ROSTER_CHUNK*200)throw Error('roster summary limit');
  for(let start=0;start<characters.length;start+=ROSTER_CHUNK){
-  const w=new Fields(),slice=characters.slice(start,start+ROSTER_CHUNK);w.u16(characters.length);w.u16(start);w.u8(slice.length);
+  const w=writer(),slice=characters.slice(start,start+ROSTER_CHUNK);w.u16(characters.length);w.u16(start);w.u8(slice.length);
   for(const c of slice){const player=players.get(c),link=player?.link,human=players.has(c);w.u8(!human&&c.human?0:Math.max(0,Math.min(255,c.team|0)));w.u8(human?1:0);
    for(const key of ['kills','teamKills','deaths','captures'])w.u16(Math.max(0,Math.min(65535,c[key]|0)));
    w.u16(link&&Number.isFinite(link.rtt)?Math.min(65534,Math.max(0,Math.round(link.rtt))):65535);w.u8(linkCode(link?.path));
-   let bytes=encoder.encode(String(c.name??''));if(bytes.length>ROSTER_NAME_BYTES)bytes=bytes.subarray(0,ROSTER_NAME_BYTES);w.u8(bytes.length);for(const b of bytes)w.u8(b);}
+   const bytes=nameBytes(String(c.name??'')),length=Math.min(bytes.length,ROSTER_NAME_BYTES);w.u8(length);for(let i=0;i<length;i++)w.u8(bytes[i]);}
   records.push(record(w,{id:ROSTER_SUMMARY_ID+start/ROSTER_CHUNK,generation:epoch,tick,schema:4}));
  }
  return records;
@@ -121,11 +139,11 @@ export function captureRecordSummaries(battle,registry,{tick,epoch,only=null,id=
   // A team slot he never played in (all nought) is left out; nothing at all, he is.
   const packed=packRecord(characters[slot],characters)?.map(p=>SHARED_TALLIES.some(key=>p[key])||p.victims.length||FAVOURITES.some(table=>p[table])?p:null);
   if(!packed||packed.every(p=>!p))continue;
-  const entry=new Fields(new Uint8Array(4096));writeRecord(entry,slot,packed,registry,quantum);
+  const entry=entryScratch;entry.at=0;writeRecord(entry,slot,packed,registry,quantum);
   if(entry.at>RECORD_BYTES)continue;
   if(w&&(w.at+entry.at>RECORD_BYTES||count===255))close();
-  if(!w){w=new Fields();countAt=w.at;w.u8(0);count=0;}
-  w.bytes.set(entry.bytes.subarray(0,entry.at),w.at);w.at+=entry.at;count++;
+  if(!w){w=writer();countAt=w.at;w.u8(0);count=0;}
+  for(let i=0;i<entry.at;i++)w.bytes[w.at+i]=entry.bytes[i];w.at+=entry.at;count++;
  }
  close();
  return records;

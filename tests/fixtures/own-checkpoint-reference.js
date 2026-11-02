@@ -1,10 +1,12 @@
-// Frozen reference: the own player's checkpoint capture as it was before
-// its writer, weapon and soldier captures were sped up (engine 4ffa3a3).
+// Frozen reference: the own player's checkpoint capture and own datagram
+// encoder as they were before they were sped up and stopped allocating
+// scratch for every capture (engine 4ffa3a3).
 // Copied unchanged: captureArsenalWeapon (network-arsenal-state.js),
 // captureCompactSoldier (network-entity-soldier-compact.js), captureOwnPlayer
-// with its writer (network-entity-player.js) and capturePlayerCorrection
-// (network-entity-capture.js), each calling the copies here. A checkpoint
-// must keep its exact bytes; tests/own-checkpoint-identity.test.js and
+// with its writer (network-entity-player.js), capturePlayerCorrection
+// (network-entity-capture.js), each calling the copies here, and the own
+// datagram's encoder (snapshot-own.js). A checkpoint and a datagram must
+// keep their exact bytes; tests/own-checkpoint-identity.test.js and
 // tests/snapshot-capture-identity.test.js compare them. Never edit this copy
 // to follow a capture change: a deliberate format change replaces the
 // identity tests instead.
@@ -18,6 +20,7 @@ import {captureGroundCorrection,GROUND_CORRECTION_SCHEMA} from '../../src/runtim
 import {captureCompactFlight,COMPACT_FLIGHT_SCHEMA} from '../../src/runtime/network-entity-flight-compact.js';
 import {checkCorrectionRecordFits} from '../../src/runtime/network-entity-codec.js';
 import {OWN_PLAYER_SCHEMA,OwnPlayerPrerequisiteError} from '../../src/runtime/network-entity-player.js';
+import {SNAPSHOT_OWN_MAGIC,SNAPSHOT_MAX_DATAGRAM,SnapshotWriter as Writer,writeSnapshotHeader,encodeWorldSection,encodeWordDelta} from '../../src/runtime/snapshot-codec.js';
 
 // network-arsenal-state.js
 // Lossless differences from the authenticated definition's initial state.
@@ -179,4 +182,29 @@ export function capturePlayerCorrection(game,world,playerId,{tick=game.worldCloc
  // callers may still supply only the forward table; never cache mutable tables.
  const vehicle=unit.seat?.index===0?unit.seat.vehicle||null:null,classId=required(registry.classIds??reverse(registry.classes),unit.className);
  return captureOwnPlayer({unit,vehicle,vehicleId:vehicle?.aiTarget.id||0,vehicleGeneration:vehicle?.aiTarget.generation||0,tick,epoch,registry,classId,bindingProfileId,held:player.mailbox.down,view:player.mailbox.view,discardedInput:player.mailbox.discarded||0});
+}
+// snapshot-own.js
+const SECTION_CORRECTION = 1, SECTION_SUMMARIES = 2, SECTION_COSMETICS = 4, SECTION_SECOND = 8;
+// correction: {id, generation, schema, payload} with baselinePayload the
+// own payload of the baseline tick (null for absolute). summaries are
+// world-field maps (current vs baseline). cosmeticBytes are pre-packed by
+// snapshot-cosmetics.js. The caller owns fitting cosmetics into the budget;
+// this throws rather than exceed one datagram.
+export function encodeOwnDatagram({ epoch, tick, interval = 2, baselineTick = 0, ackInput = 0, correction = null, baselinePayload = null, correctionDelta = null, summaries = null, baselineSummaries = null, summariesSection = null, cosmeticBytes = null, second = false, ownParts = second ? 2 : 1 }) {
+  const w = new Writer();
+  writeSnapshotHeader(w, { magic: SNAPSHOT_OWN_MAGIC, epoch, tick, interval, baselineTick, partIndex: second ? 1 : 0, partCount: ownParts, ackInput });
+  let flags = second ? SECTION_SECOND : 0;
+  const sections = [];
+  if (correction) {
+    flags |= SECTION_CORRECTION;
+    const s = new Writer(); s.u32(correction.id); s.u32(correction.generation); s.u16(correction.schema); s.raw(correctionDelta ?? encodeWordDelta(correction.payload, baselinePayload));
+    sections.push(s.finish());
+  }
+  if (summaries || summariesSection) { flags |= SECTION_SUMMARIES; sections.push(summariesSection ?? encodeWorldSection(summaries, baselineSummaries)); }
+  if (cosmeticBytes?.length) { flags |= SECTION_COSMETICS; sections.push(cosmeticBytes); }
+  w.u8(flags);
+  for (const section of sections) { w.u16(section.length); w.raw(section); }
+  const bytes = w.finish();
+  if (bytes.length > SNAPSHOT_MAX_DATAGRAM) throw Error('own datagram exceeds budget');
+  return bytes;
 }

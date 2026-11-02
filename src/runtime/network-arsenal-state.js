@@ -29,6 +29,9 @@ function baseValues(weapon){
 // (writer raw()), so returning the cached array cannot alias into a packet.
 const captureCache=new WeakMap();
 const scratch=new Float64Array(WEAPON_STATE_NUMBERS.length);
+// A changed weapon is written here and its bytes sliced out; its cache entry
+// is updated in place.
+const out=new Uint8Array(2+WEAPON_STATE_NUMBERS.length*8+14),outView=new DataView(out.buffer);
 // The fields are read by name, in WEAPON_STATE_FLAGS and WEAPON_STATE_NUMBERS
 // order, with the same checks: reads by key (27 names a weapon, every
 // checkpoint) were most of the work.
@@ -55,7 +58,7 @@ export function captureArsenalWeapon(weapon){
   for(let i=0;same&&i<scratch.length;i++)same=Object.is(cached.values[i],scratch[i]);
   if(same
     &&(melee===null?cached.melee===null:cached.melee!==null&&Object.is(cached.melee.time,melee.time)&&cached.melee.index===melee.index&&cached.melee.active===melee.active))return cached.bytes;
-  const base=baseValues(weapon),out=new Uint8Array(2+WEAPON_STATE_NUMBERS.length*8+14),view=new DataView(out.buffer);
+  const base=baseValues(weapon),view=outView;
   out[0]=level;out[1]=flags;let mask=0,at=6;
   for(let i=0;i<WEAPON_STATE_NUMBERS.length;i++){
     if(Object.is(scratch[i],base[i]))continue;
@@ -64,7 +67,8 @@ export function captureArsenalWeapon(weapon){
   view.setUint32(2,mask,true);
   if(melee){view.setFloat64(at,melee.time,true);out[at+8]=melee.index;out[at+9]=Number(melee.active);at+=10;}
   const bytes=out.slice(0,at);
-  captureCache.set(weapon,{level,flags,values:Float64Array.from(scratch),melee:melee?{...melee}:null,bytes});
+  if(cached){cached.level=level;cached.flags=flags;cached.values.set(scratch);cached.melee=melee?{...melee}:null;cached.bytes=bytes;}
+  else captureCache.set(weapon,{level,flags,values:Float64Array.from(scratch),melee:melee?{...melee}:null,bytes});
   return bytes;
 }
 export function validateArsenalWeapon(weapon,bytes){

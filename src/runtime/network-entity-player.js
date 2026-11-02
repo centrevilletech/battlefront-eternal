@@ -8,7 +8,7 @@ import {captureArsenalWeapon,validateArsenalWeapon,applyArsenalWeapon} from './n
 import {captureRemoteReplay,restoreRemoteReplay} from './network-remote-replay.js';
 import {encodeRemoteCorrection,decodeRemoteCorrection} from './network-remote-codec.js';
 import {captureGroundCorrection,restoreGroundCorrection,GROUND_CORRECTION_SCHEMA} from './network-entity-ground.js';
-import {captureCompactSoldier,restoreCompactSoldier,COMPACT_SOLDIER_SCHEMA} from './network-entity-soldier-compact.js';
+import {captureCompactSoldierInto,restoreCompactSoldier,COMPACT_SOLDIER_SCHEMA} from './network-entity-soldier-compact.js';
 import {captureCompactFlight,restoreCompactFlight,COMPACT_FLIGHT_SCHEMA} from './network-entity-flight-compact.js';
 import {checkCorrectionRecordFits} from './network-entity-codec.js';
 import {PlayerCombat} from '../combat.js';
@@ -60,23 +60,26 @@ function weaponId(registry,weapon){
  for(const[id,name]of registry.weapons)if(name===weapon.name)return id;
  throw new OwnPlayerPrerequisiteError('weapon definition prerequisite missing');
 }
-// One writer for every checkpoint (capture is synchronous): the payload is
-// sliced out of it.
-const checkpoint=new Fields();
+// One writer for every checkpoint (capture is synchronous), with scratch for
+// the soldier body and held keys it copies in. The payload is sliced out of
+// it, unless it is the bytes the unit's last checkpoint had: that payload is
+// kept (a resting or dead player's checkpoint allocates nothing).
+const checkpoint=new Fields(),soldierBody={bytes:new Uint8Array(149)},heldBits=new Uint8Array(16),payloads=new WeakMap();
+soldierBody.view=new DataView(soldierBody.bytes.buffer);
 export function captureOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneration=0,tick,epoch,registry,classId,bindingProfileId=0,held=[],view={},discardedInput=0}){
  requireState(Number.isInteger(unit.team)&&unit.team>=1&&unit.team<=2,'invalid own team');registryChecks(registry,registry.contentEpoch,classId,unit);const mounted=unit.seat?captureMountedControl(unit):null;requireState(vehicle?unit.seat?.vehicle===vehicle&&unit.seat.index===0:!unit.seat||mounted,'pilot lease prerequisite missing');requireState(vehicle?vehicleId>0&&vehicleGeneration>0:vehicleId===0&&vehicleGeneration===0,'vehicle lease prerequisite missing');const combat=unit.combat,arsenal=combat.arsenal;
  requireState(Boolean(vehicle)===(mounted?.[0]===VEHICLE_PILOT_CONTROL),'pilot control mode mismatch');
  requireState(!vehicle||mounted&&vehicle.aiTarget?.id===vehicleId&&vehicle.aiTarget.generation===vehicleGeneration,'pilot weapon identity mismatch');
  requireState(registry.bindingProfiles?.has(bindingProfileId),'binding profile prerequisite missing');
  requireState(canonical(view.flightSettings?.bindings)===canonical(registry.bindingProfiles.get(bindingProfileId)),'binding profile mismatch');
- const body=vehicle?(vehicle.flying?captureCompactFlight(vehicle):captureGroundCorrection(vehicle)):unit.walker?captureDroidekaState(unit.soldier):captureCompactSoldier(unit.soldier),bodySchema=vehicle?(vehicle.flying?COMPACT_FLIGHT_SCHEMA:GROUND_CORRECTION_SCHEMA):unit.walker?DROIDEKA_BODY_SCHEMA:COMPACT_SOLDIER_SCHEMA,w=checkpoint;w.at=0;
+ const body=vehicle?(vehicle.flying?captureCompactFlight(vehicle):captureGroundCorrection(vehicle)):unit.walker?captureDroidekaState(unit.soldier):captureCompactSoldierInto(unit.soldier,soldierBody),bodySchema=vehicle?(vehicle.flying?COMPACT_FLIGHT_SCHEMA:GROUND_CORRECTION_SCHEMA):unit.walker?DROIDEKA_BODY_SCHEMA:COMPACT_SOLDIER_SCHEMA,w=checkpoint;w.at=0;
  w.u32(epoch);w.u32(registry.contentEpoch);w.u16(classId);w.u8(uint(unit.team,2));w.u8(bodySchema);w.u32(vehicleId);w.u32(vehicleGeneration);w.u16(body.length);w.raw(body);
  // Both channels and every inventory slot form the weapon replay checkpoint.
  w.number(combat.health);w.u8(combat.dead?1:0);w.number(combat.deathTime??0);w.number(unit.deadTime??0);w.u8(unit.removed?1:0);for(const key of ['rate','hold','offset'])w.number(combat.kick[key]);w.u8(combat.zoomStep);w.number(combat.zoom);w.u8((combat.firstPerson?1:0)|(combat.gunUnderwater?2:0));
  for(let channel=0;channel<2;channel++)w.u8(arsenal.current(channel)?uint(arsenal.selected[channel],254):255);
  w.u8(arsenal.weapons.length);
  for(const weapon of arsenal.weapons){const state=captureArsenalWeapon(weapon);w.u16(weaponId(registry,weapon));w.u16(state.length);w.raw(state);}
- const bits=new Uint8Array(16);for(const code of held){const index=registry.inputCodes.indexOf(code);requireState(index>=0,'held code missing from registry');bits[index>>3]|=1<<(index&7);}w.raw(bits);
+ const bits=heldBits.fill(0);for(const code of held){const index=registry.inputCodes.indexOf(code);requireState(index>=0,'held code missing from registry');bits[index>>3]|=1<<(index&7);}w.raw(bits);
  const fields=['mouseScale','aspect','viewTick'],fs=view.flightSettings;
  let flags=(view.invertMouse?1:0)|(view.firstPerson?2:0)|(fs?4:0)|(fs?.invert?8:0)|(view.gamepad?16:0);
  for(let i=0;i<fields.length;i++)if(view[fields[i]]!==undefined)flags|=1<<(5+i);
@@ -86,7 +89,9 @@ export function captureOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneratio
  if(view.gamepad){for(let i=0;i<4;i++)w.number(view.gamepad.axes?.[i]??0);let buttons=0;for(let i=0;i<16;i++)if(view.gamepad.buttons?.[i]?.pressed)buttons|=1<<i;w.u16(buttons);}
  w.u32(discardedInput);
  const remotes=combat.remotes,droid=remotes?.piloted;requireState(!(droid&&mounted),'conflicting own control modes');w.u8(droid?1:mounted?mounted[0]:0);if(mounted){w.u16(mounted.length);w.raw(mounted);}if(droid){requireState(!vehicle&&typeof remotes.identityFor==='function','recon identity prerequisite missing');const identity=remotes.identityFor(droid);requireState(identity.id<4096,'recon slot out of range');w.u16(identity.id);w.u32(identity.generation);w.u16(registry.combat.definitionId(droid.def));const payload=encodeRemoteCorrection(captureRemoteReplay(remotes,droid),droid);w.u16(payload.length);w.raw(payload);}
- const record={kind:'correction',id:unit.id,generation:unit.generation,tick,schema:OWN_PLAYER_SCHEMA,payload:w.bytes.slice(0,w.at)};
+ let payload=payloads.get(unit);
+ if(payload?.length!==w.at||!payload.every((byte,i)=>byte===w.bytes[i])){payload=w.bytes.slice(0,w.at);payloads.set(unit,payload);}
+ const record={kind:'correction',id:unit.id,generation:unit.generation,tick,schema:OWN_PLAYER_SCHEMA,payload};
  // Both the record and its mandatory containing message must fit. No fragments.
  // The check reserves the enclosing packet header and length, as encoding did.
  checkCorrectionRecordFits(record.payload);return record;

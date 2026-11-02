@@ -38,7 +38,7 @@ import { encodeEntities } from './snapshot-codec.js';
 import { SnapshotRing } from './snapshot-ring.js';
 import { SnapshotSlotTable, WorldFieldStagger, snapshotFromRecords, ownSummaryFields } from './snapshot-records.js';
 import { encodeOwnDatagram } from './snapshot-own.js';
-import { encodeWordDelta, encodeWorldSection, SNAPSHOT_MAX_DATAGRAM, SNAPSHOT_HEADER_BYTES } from './snapshot-codec.js';
+import { encodeWordDeltaView, encodeWorldSectionView, SNAPSHOT_MAX_DATAGRAM, SNAPSHOT_HEADER_BYTES } from './snapshot-codec.js';
 import { isGameplayCombat, encodeCosmeticEvent } from './snapshot-cosmetics.js';
 import { CosmeticOutbox, cosmeticEvent } from './snapshot-cosmetic-outbox.js';
 
@@ -339,8 +339,9 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
         const correction = actor.spectator ? null : capturePlayerCorrection(game, world, client, { registry, bindingProfileId: 0, epoch });
         const baselineOwn = state.ownRing.get(baselineTick, epoch);
         state.ownRing.set(tick, epoch, { payload: correction?.payload ?? baselineOwn?.payload ?? null, summaries: ownSummaries });
-        const correctionDelta = correction ? encodeWordDelta(correction.payload, baselineOwn?.payload ?? null) : null;
-        const summariesSection = encodeWorldSection(ownSummaries, baselineOwn?.summaries ?? null);
+        // Views of the codec's scratch, copied into the own datagram below.
+        const correctionDelta = correction ? encodeWordDeltaView(correction.payload, baselineOwn?.payload ?? null) : null;
+        const summariesSection = encodeWorldSectionView(ownSummaries, baselineOwn?.summaries ?? null);
         const header = { epoch, tick, interval, baselineTick, ackInput: actor.mailbox.ack, correction, correctionDelta, summariesSection };
         const cosmeticBudget = Math.max(0, SNAPSHOT_MAX_DATAGRAM - SNAPSHOT_HEADER_BYTES - 1 - (correction ? 12 + correctionDelta.length : 0) - (2 + summariesSection.length) - 2);
         const spare = budget - budgetUsed(state, at) - (full ? parts.reduce((n, part) => n + part.byteLength, 0) : 0) - (SNAPSHOT_MAX_DATAGRAM - cosmeticBudget);

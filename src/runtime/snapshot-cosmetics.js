@@ -53,9 +53,11 @@ function compact(e, b) {
     && (e.schema !== 1 || e.offset.every((n) => Math.abs(n) * 256 <= 32767));
 }
 
-// `view`: decodeCombat(record), when the caller has it already.
+// `view`: decodeCombat(record), when the caller has it already. Written into
+// one scratch (encoding is synchronous) and copied out.
+const eventWriter = new Writer(1024);
 export function encodeCosmeticEvent(record, bounds = DEFAULT_SNAPSHOT_BOUNDS, view = null) {
-  const w = new Writer();
+  const w = eventWriter.reset();
   w.u32(record.id); w.u32(record.generation); w.u32(record.tick); w.u16(record.schema);
   const e = record.schema === 1 || record.schema === 2 ? view ?? decodeCombat(record) : null;
   if (e && compact(e, bounds)) {

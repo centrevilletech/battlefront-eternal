@@ -9,6 +9,8 @@ import { captureArsenalWeapon } from '../src/runtime/network-arsenal-state.js';
 import { captureCompactSoldier } from '../src/runtime/network-entity-soldier-compact.js';
 import { captureOwnPlayer } from '../src/runtime/network-entity-player.js';
 import { mountFixture } from './mount-fixture.js';
+import { encodeOwnDatagram } from '../src/runtime/snapshot-own.js';
+import { encodeWordDelta, encodeWordDeltaView, encodeWorldSection, encodeWorldSectionView, encodeEntities, worldFieldKey } from '../src/runtime/snapshot-codec.js';
 import * as reference from './fixtures/own-checkpoint-reference.js';
 
 // The own checkpoint is captured for every player every snapshot. Its
@@ -111,4 +113,34 @@ test('player checkpoints: the reference bytes on foot and in a gunner seat, with
     if (u.team === 3) u.team = 1;
     if (!(c.zoomStep >= 0 && c.zoomStep <= 1 && Number.isInteger(c.zoomStep))) c.zoomStep = 1;
   }
+});
+
+// The host passes the correction's delta and the summaries' section as views
+// of the codec's scratch (encodeWordDeltaView, encodeWorldSectionView); the
+// datagram is written into scratch of its own and copied out once.
+test('own datagrams: the reference bytes for every mix of sections, from views or fresh encodings', () => {
+  const r = rng(10), bytes = n => Uint8Array.from({ length: n }, () => Math.floor(r() * 256));
+  const world = () => { const map = new Map(); for (let id = 1; id <= Math.floor(r() * 6); id++) { const field = { id, schema: 2 + (id % 3), generation: 1, payload: bytes(1 + Math.floor(r() * 120)) }; map.set(worldFieldKey(field), field); } return map; };
+  for (let i = 0; i < 2000; i++) {
+    const payload = bytes(80 + Math.floor(r() * 500)), baseline = r() < 0.6 ? payload.map(b => r() < 0.1 ? b ^ 1 : b) : r() < 0.5 ? null : bytes(payload.length + 8);
+    const correction = r() < 0.8 ? { id: Math.floor(r() * 100), generation: pick(r, [1, 7, 2 ** 32 - 1, 2 ** 32]), schema: 11, payload } : null;
+    const summaries = r() < 0.7 ? world() : null, baselineSummaries = summaries && r() < 0.7 ? world() : null;
+    const options = { epoch: 1, tick: 100 + i, interval: pick(r, [1, 2]), baselineTick: Math.floor(r() * 100), ackInput: Math.floor(r() * 1000), correction,
+      cosmeticBytes: r() < 0.5 ? bytes(Math.floor(r() * (r() < 0.1 ? 1200 : 400))) : null, second: r() < 0.2 };
+    if (!options.second) options.ownParts = pick(r, [1, 2]);
+    const fresh = { ...options, baselinePayload: baseline, summaries, baselineSummaries };
+    const expected = outcome(() => reference.encodeOwnDatagram(fresh));
+    assert.deepEqual(outcome(() => encodeOwnDatagram(fresh)), expected, `step ${i}: fresh`);
+    // As the host builds it: delta and section precomputed as views.
+    const viewed = { ...options, correctionDelta: correction ? encodeWordDeltaView(payload, baseline) : null, summariesSection: summaries ? encodeWorldSectionView(summaries, baselineSummaries) : null };
+    const precomputed = { ...options, correctionDelta: correction ? encodeWordDelta(payload, baseline) : null, summariesSection: summaries ? encodeWorldSection(summaries, baselineSummaries) : null };
+    assert.deepEqual(outcome(() => encodeOwnDatagram(viewed)), outcome(() => reference.encodeOwnDatagram(precomputed)), `step ${i}: views`);
+  }
+  // A view holds until the next call of the same one, whatever else encodes
+  // in between (the host encodes entity parts and cosmetics meanwhile).
+  const a = world(), b = world(), payload = bytes(300), delta = encodeWordDeltaView(payload, null), section = encodeWorldSectionView(a, null);
+  encodeWordDelta(bytes(200), null); encodeWorldSection(b, null);
+  encodeEntities({ tick: 2, epoch: 1, slots: new Map(), world: b }, null);
+  assert.deepEqual([...delta], [...encodeWordDelta(payload, null)]);
+  assert.deepEqual([...section], [...encodeWorldSection(a, null)]);
 });

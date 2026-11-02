@@ -8,11 +8,16 @@ export const UNIT_STATE_SCHEMA=6, UNIT_STATE_ID=100000;
 if(NUMBERS.join()!=='heat,wait,reloadLeft,throwTime,charge,held,lockElapsed'||FLAGS.join()!=='overheated,released,hidden,charging,lockComplete'
   ||DEFAULTS.throwTime!==-1||DEFAULTS.charge!==1||Object.keys(DEFAULTS).length!==2)throw Error('unit state fields changed: update decodeUnitState and applyUnitState');
 const encoder=new TextEncoder(),decoder=new TextDecoder('utf-8',{fatal:true});
+// A record is written into one scratch (capture is synchronous; the most a
+// record can take is 21 + 128 + 12 * 39 bytes) and its payload sliced out,
+// unless it is the bytes the unit's last record had: that payload is kept,
+// so an unchanged state allocates nothing and compares by identity.
+const NO_REPAIR=new Uint8Array(0),scratch=new Uint8Array(21+128+12*39),scratchView=new DataView(scratch.buffer),payloads=new WeakMap();
 export function captureUnitState(unit,registry,tick){
   const weapons=unit.combat.arsenal.weapons;
   if(weapons.length>12)throw Error('Unit weapon count exceeds presentation limit');
-  const repair=encoder.encode(unit.combat.repairLock||'');if(repair.length>128)throw Error('Repair identity too long');
-  const payload=new Uint8Array(21+repair.length+weapons.length*39),v=new DataView(payload.buffer);let at=0;
+  const repair=unit.combat.repairLock?encoder.encode(unit.combat.repairLock):NO_REPAIR;if(repair.length>128)throw Error('Repair identity too long');
+  const payload=scratch,v=scratchView;let at=0;
   const u8=n=>v.setUint8(at++,n),u16=n=>{v.setUint16(at,n,true);at+=2;},u32=n=>{v.setUint32(at,n,true);at+=4;},f=n=>{if(!Number.isFinite(n))throw Error('Invalid unit presentation number');v.setFloat32(at,n,true);at+=4;};
   u32(unit.id);u8((unit.hero?1:0)|(unit.targetable?2:0)|(unit.actor?.root.visible?4:0)|(unit.combat.blowApart?8:0));f(unit.deadTime||0);f(unit.soldier.stateTime||0);
   u16(unit.character?unit.character.rosterSlot??65535:65535);
@@ -30,7 +35,9 @@ export function captureUnitState(unit,registry,tick){
     u8(mask);for(const [i,k]of NUMBERS.entries())if(mask&(1<<i))f(w[k]);
     if(mask&128){u32(target);u16(generation);}
   }
-  return {kind:'summary',id:UNIT_STATE_ID+unit.id,generation:unit.generation,tick,schema:UNIT_STATE_SCHEMA,payload:payload.slice(0,at)};
+  let kept=payloads.get(unit);
+  if(kept?.length!==at||!kept.every((byte,i)=>byte===payload[i])){kept=payload.slice(0,at);payloads.set(unit,kept);}
+  return {kind:'summary',id:UNIT_STATE_ID+unit.id,generation:unit.generation,tick,schema:UNIT_STATE_SCHEMA,payload:kept};
 }
 // Read in place: every remote body's state arrives every snapshot, so no
 // reader closures over a shared offset. Checks and errors as written.

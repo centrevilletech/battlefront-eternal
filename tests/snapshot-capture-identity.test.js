@@ -6,6 +6,7 @@ import { snapshotFromRecords, SnapshotSlotTable, WorldFieldStagger } from '../sr
 import { captureWorldPresentation } from '../src/runtime/entity-world-state.js';
 import * as reference from './fixtures/snapshot-capture-reference.js';
 import * as ownReference from './fixtures/own-checkpoint-reference.js';
+import { checkPayloadRecordFits, encodeEntityRecord } from '../src/runtime/network-entity-codec.js';
 
 // Capture builds less than it did (no record for a station or tow the
 // stagger keeps, no fresh entry for an unchanged actor), but every snapshot
@@ -213,6 +214,19 @@ test('world fields: stations and tows the stagger keeps are never built, and the
   }
   assert.equal(offered, 100 * 16);
   assert.ok(built <= 100 * (12 / 48 + 4 / 12) + 1, `${built} of ${offered} built`);
+});
+
+// Summaries were encoded once just to check them; they are now checked as
+// encoding would check them, with the same errors, and not encoded.
+test('a payload record is checked as encoding it checks it, without encoding it', () => {
+  const r = rng(13), odd = [0, 1, -1, 1.5, 2 ** 32 - 1, 2 ** 32, NaN, '3', null];
+  const attempt = check => { try { check(); return 'fits'; } catch (error) { return error.message; } };
+  for (let i = 0; i < 4000; i++) {
+    const record = { kind: pick(r, ['summary', 'summary', 'correction', 'combat', 'bogus']), id: r() < 0.9 ? Math.floor(r() * 1e6) : pick(r, odd),
+      generation: r() < 0.9 ? 1 : pick(r, odd), tick: r() < 0.9 ? Math.floor(r() * 1e5) : pick(r, odd), schema: r() < 0.9 ? Math.floor(r() * 12) : pick(r, [65535, 65536, -1, 2.5]),
+      payload: r() < 0.95 ? new Uint8Array(pick(r, [0, 10, 900, 1051, 1052, 1083, 1084, 2000, 70000])) : pick(r, [[1, 2], null, 'abc']) };
+    assert.equal(attempt(() => checkPayloadRecordFits(record)), attempt(() => encodeEntityRecord(record)), JSON.stringify({ ...record, payload: record.payload?.length }));
+  }
 });
 
 const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
