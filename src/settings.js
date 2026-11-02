@@ -1,3 +1,4 @@
+import { lowEndCpu } from "./cpu-info.js";
 import { oldGpu } from "./gpu-info.js";
 
 // Player settings, kept in localStorage. These are this port's own options;
@@ -95,9 +96,10 @@ export const DEFAULTS = {
   aiHeroes: false,
   battleSize: "full",
   // Audio (src/audio): "enhanced" is the 2026 sound stage, "original" the
-  // 2004 game's own output; the output layout ("auto" asks the device), the
-  // dynamics profile, a mono fold, the enhanced mode's clarity stage, and the
-  // volume sliders (0..1).
+  // 2004 game's own output (on stereo the light mix, which a first session
+  // on a low-end CPU starts on: adoptHardwareDefaults); the output layout
+  // ("auto" asks the device), the dynamics profile, a mono fold, the
+  // enhanced mode's clarity stage, and the volume sliders (0..1).
   audioQuality: "enhanced",
   audioOutput: "auto",
   audioDynamics: "normal",
@@ -261,7 +263,7 @@ export class Settings {
     // What is saved: the stored settings and the player's own changes. The
     // overrides (the URL's, for this visit: ?ai=classic) apply on top and
     // are never saved, unless the player sets that setting himself.
-    // No settings stored at all: a first session (adoptGpuPreset).
+    // No settings stored at all: a first session (adoptHardwareDefaults).
     this.fresh = !Object.keys(stored).some((key) => key in DEFAULTS);
     this.saved = { ...DEFAULTS, ...Object.fromEntries(Object.entries(stored).filter(([key]) => key in DEFAULTS)), physicsRate: "60" };
     this.values = { ...this.saved, ...overrides, physicsRate: "60" };
@@ -271,12 +273,16 @@ export class Settings {
   }
 
   // A first session on an old GPU (gpu-info.js oldGpu) starts on the
-  // Minimum preset rather than the defaults, which are for current GPUs.
-  // Once: what the player picks after that stays theirs.
-  adoptGpuPreset(renderer, isOld = oldGpu) {
+  // Minimum preset rather than the defaults, which are for current GPUs; on
+  // a low-end CPU (cpu-info.js lowEndCpu), on Classic sound, whose light mix
+  // the audio thread can afford there. Once: what the player picks after
+  // that stays theirs. Whether anything was adopted.
+  adoptHardwareDefaults(renderer, { isOld = oldGpu, isLowEnd = lowEndCpu } = {}) {
     if (!this.fresh) return false;
     this.fresh = false;
-    if (!isOld(renderer)) return false;
+    const lowEnd = isLowEnd();
+    if (lowEnd) this.set("audioQuality", "original");
+    if (!isOld(renderer)) return lowEnd;
     this.set("performancePreset", "minimum");
     return true;
   }

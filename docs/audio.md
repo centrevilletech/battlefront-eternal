@@ -68,7 +68,10 @@ own header), falling back to plain loops without it.
 Settings → Audio (`src/audio/options.js`; the defaults are in
 `src/settings.js`):
 
-- **Sound**: Enhanced (2026 sound stage) or Original (2004).
+- **Sound**: Enhanced (2026 sound stage) or Original (2004), shown as
+  ENHANCED and CLASSIC. A first session on a low-end CPU starts on Classic
+  (below, "The light mix"); the row says what Classic is on stereo, and on
+  such a CPU with Enhanced chosen, that Classic is much lighter there.
 - **Output**: Automatic, Headphones (binaural), Stereo speakers, 5.1, 7.1,
   or 7.1.4. Automatic follows the device's channel count: 12 or more is
   7.1.4, 8 to 11 is 7.1, 6 or 7 is 5.1, anything else stereo. Headphones
@@ -256,6 +259,14 @@ within one block, the light mix over 15 ms).
 On surround and headphones the original keeps OpenAL Soft's output as
 above. Settings → Audio → Classic, Output Stereo picks the light mix on any
 device.
+
+A first session (no settings stored) on a low-end CPU starts on Classic:
+four threads or fewer and, as Chromium reports it, 4 GB of memory or less
+(`src/cpu-info.js` `lowEndCpu`, `Settings.adoptHardwareDefaults`), which is
+the A8 laptop above and a 2011 quad-core with 4 GB; current PCs keep
+Enhanced. A choice the player makes stays theirs, and settings already
+stored aren't changed: there the SOUND row says that Classic is much
+lighter on that CPU.
 
 ## The enhanced mode
 

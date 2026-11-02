@@ -165,26 +165,63 @@ test("a browser has no file and keeps localStorage alone", () => {
 test("a first session on an old GPU starts on the Minimum preset, once", async () => {
   const { PERFORMANCE_PRESETS } = await import("../src/settings.js");
   const hd2000 = "ANGLE (Intel, Mesa Intel(R) HD Graphics 2000 (SNB GT1), OpenGL 3.3 (Core Profile) Mesa 22.3.6)";
+  const cpu = { isLowEnd: () => false };
   store.clear();
   const first = new Settings();
   assert.equal(first.fresh, true);
-  assert.equal(first.adoptGpuPreset(hd2000), true);
+  assert.equal(first.adoptHardwareDefaults(hd2000, cpu), true);
   assert.equal(first.get("performancePreset"), "minimum");
   for (const [key, value] of Object.entries(PERFORMANCE_PRESETS.minimum.values)) assert.equal(first.get(key), value, key);
   assert.equal(saved().performancePreset, "minimum");
+  assert.equal(first.get("audioQuality"), "enhanced", "the GPU alone leaves the sound");
   // Only the first time it asks.
   first.set("renderScale", 1);
-  assert.equal(first.adoptGpuPreset(hd2000), false);
+  assert.equal(first.adoptHardwareDefaults(hd2000, cpu), false);
   assert.equal(first.get("renderScale"), 1);
   // Settings stored: the player's, whatever the GPU.
   const later = new Settings();
   assert.equal(later.fresh, false);
-  assert.equal(later.adoptGpuPreset(hd2000), false);
+  assert.equal(later.adoptHardwareDefaults(hd2000, cpu), false);
   assert.equal(later.get("renderScale"), 1);
   // A current GPU keeps the defaults.
   store.clear();
   const modern = new Settings();
-  assert.equal(modern.adoptGpuPreset("ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 Direct3D11 vs_5_0 ps_5_0, D3D11)"), false);
+  assert.equal(modern.adoptHardwareDefaults("ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 Direct3D11 vs_5_0 ps_5_0, D3D11)", cpu), false);
   assert.equal(modern.get("renderScale"), DEFAULTS.renderScale);
   assert.equal(modern.get("upscaler"), DEFAULTS.upscaler);
+});
+
+test("a first session on a low-end CPU starts on Classic sound, once; a choice made stays", async () => {
+  const { lowEndCpu } = await import("../src/cpu-info.js");
+  // The laptop the light mix is for (4 threads, 4.7 GB: Chromium says 4),
+  // a 2011 quad-core with 3.8 GB, and what a current PC or Node says.
+  assert.equal(lowEndCpu({ hardwareConcurrency: 4, deviceMemory: 4 }), true);
+  assert.equal(lowEndCpu({ hardwareConcurrency: 2, deviceMemory: 2 }), true);
+  assert.equal(lowEndCpu({ hardwareConcurrency: 4, deviceMemory: 8 }), false, "a quad-core with 8 GB keeps Enhanced");
+  assert.equal(lowEndCpu({ hardwareConcurrency: 12, deviceMemory: 4 }), false);
+  assert.equal(lowEndCpu({ hardwareConcurrency: 16, deviceMemory: 8 }), false);
+  assert.equal(lowEndCpu({ hardwareConcurrency: 2 }), false, "no memory figure: nothing known");
+  assert.equal(lowEndCpu({}), false);
+  assert.equal(lowEndCpu(undefined), false);
+  const gtx = "ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 Direct3D11 vs_5_0 ps_5_0, D3D11)";
+  store.clear();
+  const first = new Settings();
+  assert.equal(first.adoptHardwareDefaults(gtx, { isLowEnd: () => true }), true);
+  assert.equal(first.get("audioQuality"), "original");
+  assert.equal(saved().audioQuality, "original");
+  assert.equal(first.get("performancePreset"), DEFAULTS.performancePreset, "the CPU alone leaves the video");
+  // Asked once; the player's own choice after that stays, as does a
+  // returning player's, whatever the CPU.
+  first.set("audioQuality", "enhanced");
+  assert.equal(first.adoptHardwareDefaults(gtx, { isLowEnd: () => true }), false);
+  assert.equal(first.get("audioQuality"), "enhanced");
+  const later = new Settings();
+  assert.equal(later.adoptHardwareDefaults(gtx, { isLowEnd: () => true }), false);
+  assert.equal(later.get("audioQuality"), "enhanced");
+  // A current CPU keeps Enhanced.
+  store.clear();
+  const modern = new Settings();
+  assert.equal(modern.adoptHardwareDefaults(gtx, { isLowEnd: () => false }), false);
+  assert.equal(modern.get("audioQuality"), DEFAULTS.audioQuality);
+  assert.equal(DEFAULTS.audioQuality, "enhanced");
 });

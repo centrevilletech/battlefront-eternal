@@ -299,7 +299,7 @@ world space rather than view space.
 - **Audio:** on a PC with 4 GB or less, decoded stream audio is kept for two
   minutes of sound instead of ten (`audio/streams.js`); ten minutes of the
   game's music decoded is about 270 MB.
-- **First session on an old GPU** (`settings.js` `adoptGpuPreset`,
+- **First session on an old GPU** (`settings.js` `adoptHardwareDefaults`,
   `gpu-info.js` `oldGpu`): Intel before Ivy Bridge, under Mesa or Windows'
   driver, starts on the Minimum preset instead of the defaults. Settings
   already stored stay as they are.
@@ -341,3 +341,23 @@ In play, at full screen with vsync on the 60 Hz display:
   run often. The renderer's resident memory swings between 0.6 and 1.2 GB
   with them; four battles in a row in one page once grew it to 2.45 GB and
   the kernel killed it on this 4 GB PC.
+
+## Sound on slow CPUs
+
+A 2014 laptop with an A8-6410 (four 2 GHz cores sharing 15 W with the GPU)
+ran its page's main thread flat out and its world worker near its limit in
+a battle, while Chromium's real-time audio thread took 31 to 43% of a core
+for the original (Classic) sound, ahead of both. On stereo speakers the
+original now plays through the light mix (`docs/audio.md`, "The light
+mix"): each voice is its buffer source and two gains, no worklet, no
+reverb, no limiter, and a context that never loads a worklet renders on
+the device's own audio thread. Measured on a desktop Xeon in headless
+Chromium (`docs/audio.md`, "Cost"), the page's audio threads in a battle
+went from 24.5% to 16.7% of a core on Theed (13 voices heard) and from
+22.5% to 11.6% on Kamino, whose reverb the full output ran; the engine's
+update on the main thread from about 196 to 115 µs. Enhanced is unchanged.
+
+A first session on a low-end CPU starts on Classic (`cpu-info.js`
+`lowEndCpu`: four threads or fewer and 4 GB of memory or less, as Chromium
+reports them); settings already stored stay as they are, and the AUDIO
+page's SOUND row says Classic is much lighter there.

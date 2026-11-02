@@ -115,8 +115,9 @@ const settings = new Settings({ ...savedSettings, ...overrides });
 
 const graphics = headless ? new HeadlessGraphics(settings) : new Graphics(app, settings);
 // A first session started straight from a battle URL: the preset its GPU
-// needs (the front end does this as it opens otherwise).
-if (!headless) settings.adoptGpuPreset(pageGpu().renderer);
+// needs and the sound its CPU can afford (the front end does this as it
+// opens otherwise).
+if (!headless) settings.adoptHardwareDefaults(pageGpu().renderer);
 // The bots' shadows, bodies and guns, in one draw per cascade.
 if (!headless) graphics.crowdShadows = new CrowdShadows(graphics);
 const { scene, camera, renderer } = graphics;
