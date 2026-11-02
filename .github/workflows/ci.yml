@@ -36,3 +36,50 @@ jobs:
         run: npm test
       - name: Code-only browser bundle
         run: node --input-type=module -e "import {build} from 'vite'; await build({build:{outDir:'dist-engine-ci',copyPublicDir:false}})"
+
+  rust:
+    # The WebAssembly built from rust/ is committed (src/ray-kernel-wasm.js
+    # and src/rust-pkg/), so the test job and the release builds need no
+    # Rust. This job rebuilds it with the toolchain rust/rust-toolchain.toml
+    # pins and fails when a committed byte differs, keeping the rebuilt files
+    # as the run's rust-generated artifact (docs/development.md, "The Rust
+    # parts").
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: The Rust toolchain rust/rust-toolchain.toml pins
+        working-directory: rust
+        run: rustup toolchain install
+      - name: Restore Cargo's downloads and the wasm-bindgen CLI
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/bin/wasm-bindgen
+          key: rust-${{ runner.os }}-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: rust-${{ runner.os }}-
+      - name: The wasm-bindgen CLI of the version rust/Cargo.lock locks
+        working-directory: rust
+        run: |
+          version=$(sed -n '/^name = "wasm-bindgen"$/{n;s/^version = "\(.*\)"$/\1/p;}' Cargo.lock)
+          [ "$(wasm-bindgen --version 2>/dev/null)" = "wasm-bindgen $version" ] || cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: Rebuild the committed WebAssembly and compare
+        run: node tools/build-rust.mjs --check
+      - name: Rust unit tests
+        working-directory: rust
+        run: cargo test --locked -p rays -p bfe-render
+      - name: Keep the rebuilt files
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-generated
+          retention-days: 7
+          if-no-files-found: ignore
+          path: rust/target/generated/
