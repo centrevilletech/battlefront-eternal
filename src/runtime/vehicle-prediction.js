@@ -2,7 +2,6 @@ import { CommandControls } from './commands.js';
 import { replayTicks } from './reconcile.js';
 import { networkVehicleInput } from './network-vehicle.js';
 import { captureGroundCorrection } from './network-entity-ground.js';
-import { captureCompactFlight } from './network-entity-flight-compact.js';
 
 const copy = value => value?.isVector3 || value?.isQuaternion || value?.isEuler || value?.isMatrix4 ? value.clone() : value;
 const collisionViews = new WeakMap();
@@ -43,10 +42,25 @@ export function predictionVehicle(source) {
   return clone;
 }
 
-// A hull's state as the world sends it to its pilot (network-entity-player.js),
-// or null where it has none.
+// A ground hull's state as the world sends it to its pilot
+// (network-entity-player.js), less how fast his aim turns and turned from
+// (aimSeats steps them for his rider's pose; no replay does), or null for
+// a flyer (its compact correction is rounded: a replay from it is not
+// the prediction going on).
 export function hullState(vehicle) {
-  try { return vehicle.flying ? captureCompactFlight(vehicle) : captureGroundCorrection(vehicle); } catch { return null; }
+  const seat = vehicle.seats?.[0];
+  if (vehicle.flying || !seat) return null;
+  const { yawRate, lastYaw } = seat;
+  seat.yawRate = 0; seat.lastYaw = null;
+  try { return captureGroundCorrection(vehicle); } catch { return null; } finally { seat.yawRate = yawRate; seat.lastYaw = lastYaw; }
+}
+
+// What the world steps on a hull and no replay does: the other seats' aim
+// (their gunners') and how fast his own turns (his rider's pose). A
+// prediction going on takes them from its source as a replay would.
+function refreshCrew(vehicle, source) {
+  for (let i = 1; i < source.seats.length && i < vehicle.seats.length; i++) Object.assign(vehicle.seats[i], source.seats[i], { lease: null });
+  vehicle.seats[0].yawRate = source.seats[0].yawRate; vehicle.seats[0].lastYaw = source.seats[0].lastYaw;
 }
 
 // Whether the world's state for tick `tick`, restored onto `source`, is the
@@ -76,6 +90,7 @@ export function predictVehicle(source, pending, from, generation, held = []) {
   for (const name of ['predictionPath', 'predictionStates']) {
     if (source[name]) for (const [tick, value] of source[name]) if (tick > from - HISTORY) vehicle[name].set(tick, value);
   }
+  if (vehicle.predictionSource !== source) refreshCrew(vehicle, vehicle.predictionSource);
   const enabled = source.body.enabled;
   try {
     replayTicks(pending, from, generation, held, (_tick, command) => {
