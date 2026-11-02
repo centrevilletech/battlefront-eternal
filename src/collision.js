@@ -556,6 +556,8 @@ export class CollisionWorld {
   }
 
   // cast, in the ray kernel: `out` and the world's ray as cast leaves them.
+  // `far` must be a number, as every caller's is (the JavaScript would take
+  // an undefined one as Infinity; the kernel's slot would hold NaN).
   rayCast(origin, direction, far, out, ignoreBody, staticOnly) {
     this.ray.origin.copy(origin);
     this.ray.direction.copy(direction);

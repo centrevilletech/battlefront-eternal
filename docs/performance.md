@@ -515,6 +515,182 @@ Gaps over 40 ms between ticks and the page's playout waits moved less than
 the battles did. Young collections came as often as before: what the world
 allocates is unchanged, only what outlives them.
 
+## The collision's rays in WebAssembly
+
+A profile of the world worker on the emulated laptop finds no single hot spot
+in its step. Sorted by what moving each part of it to another language would
+take (an unminified build with the profiler on, 30 seconds of a battle each,
+medium AI, on foot; ms of each tick's server step, publication included):
+
+| Part of the step | Naboo Plains | Dune Sea | Bespin Platforms |
+| --- | ---: | ---: | ---: |
+| The collision's rays (cast, castMoving, ground) | 1.59 (14%) | 4.20 (18%) | 5.62 (23%) |
+| Sphere gathers and the contact searches over them | 1.18 (11%) | 1.64 (7%) | 0.86 (3%) |
+| Rays against soldiers' hit shapes | 0.60 (5%) | 1.24 (5%) | 0.50 (2%) |
+| Snapshot byte encoding | 0.34 (3%) | 0.36 (2%) | 0.33 (1%) |
+| three.js transforms under game objects (rigs, seats, poses) | 1.54 (14%) | 3.83 (16%) | 4.36 (18%) |
+| Game logic over objects | 5.96 (53%) | 12.63 (53%) | 13.15 (53%) |
+| The whole step | 11.22 | 23.89 | 24.83 |
+
+The first four read and write only numbers: each could move behind an
+interface of a few typed arrays. The transforms are numbers too, but they
+belong to three.js object trees that game code walks and changes, so moving
+them means moving those trees. The rest (the AI, weapons, hulls' and seats'
+logic, the battle, snapshot capture) is logic over the battle's objects.
+
+The rays are the largest of the four, and they come from all over the step:
+a flyer's sweep and landing probes, a seat's aim, line-of-sight tests, a
+soldier's steps and ground, rounds in flight. `rust/rays` computes them in
+Rust compiled to WebAssembly, for a battle whose query has `rays=wasm`. The
+JavaScript stays the default.
+
+### What it computes, and how it is loaded
+
+The module does what `cast`, `castMoving` and the ground's ray (`ground`) do
+in collision.js: three-mesh-bvh's walk of a tree to its first hit (indirect,
+double-sided) through the buildings, each body and the terrain; the terrain
+grid's walk; and cast's loop over the bodies, each moving one's ray taken into
+its frame and its hit brought back. It keeps copies of what those read. Trees
+never change once built, so each is copied once: three-mesh-bvh's packed
+nodes, the corners (as f32 where JavaScript holds a Float32Array, widened as
+it widens them), the index and indirect buffers, and the grid's cells. A
+moving body's bounds and matrices are copied as it moves. Props, traps and
+hulls switch bodies on and off by setting `enabled`, a plain field, so a cast
+first asks the module which bodies its ray can meet, in the bodies' order,
+and tells it which of those are enabled. A cast writes its ray to eight f64
+slots in the module's memory and makes those two calls; the hit comes back in
+seven slots and a code (no hit, terrain, the buildings, or a body's slot).
+
+Two first designs cost more than they saved. An accessor on each body that
+told the module as `enabled` changed gave each body object a hidden class of
+its own, and the JavaScript loops over bodies slowed down (a gather took 1.8
+times as long in one probe). Copying every body's `enabled` before every cast
+cost 0.56 ms a tick on Bespin Platforms, a quarter of what the rays still
+took there.
+
+`tools/build-ray-kernel.mjs` builds the crate (`cargo build --release --target
+wasm32-unknown-unknown -p rays`; no wasm-bindgen, as the module imports
+nothing) and writes `src/ray-kernel-wasm.js`, the module as base64 (52 KB of
+WebAssembly). That file is committed, so building the game needs no Rust.
+game.js imports `src/ray-kernel.js` only for a battle that asks for it, so
+Vite makes it a chunk of its own (72 KB, 26 KB compressed) that the page and
+the world worker share, and the default bundle loads nothing more. The world
+worker, the page and plain Node (the dedicated server, which copies `src/` as
+it is; `tools/world-hash.mjs`) all load it the same way, with
+`WebAssembly.compile` and `instantiate`: there is no wasm file to bundle,
+serve from the app's archive, or stub out under Node. The desktop app's
+content policy already allows `wasm-unsafe-eval`. The module is compiled once
+per thread (about 10 ms under Node), and each battle gets an instance of its
+own, whose copies (3 to 12 MB a map, made in 7 to 20 ms) go with it when the
+battle ends.
+
+### The same answers
+
+Each function repeats the JavaScript it stands for operation by operation, in
+the same order, in f64: three.js's Ray, Vector3 and Triangle methods,
+three-mesh-bvh's traversal, and collision.js's grid walk and body loop. None
+uses a function whose last bit could differ from V8's: there is no sine,
+cosine, exponential or power, and square roots and floors are exact in both.
+The one such value a cast needs, `Math.hypot` of its direction (which decides
+between the terrain's grid and its tree), comes in from JavaScript.
+`Math.min` and `Math.max` keep JavaScript's rules for NaN and signed zeros.
+WebAssembly has no fused multiply-add unless asked for, and Rust never
+contracts f64 operations by itself.
+
+- `tests/ray-kernel.test.js` compares every cast, castMoving and ground probe
+  with the JavaScript's, field by field with `Object.is`, the body by
+  identity, on a made-up world whose bodies switch on and off, move, come and
+  go.
+- `tools/check-ray-kernel.mjs` does the same in a running battle on every map:
+  45,000 answers on each of the 17, every one the same.
+- `tools/world-hash.mjs --rays wasm` fingerprints a battle cast this way.
+  The branch's start, this branch without `rays=wasm`, and this branch with
+  it gave the same fingerprint for every tick: 2,400 ticks on 24 maps, sides,
+  seeds and modes (Naboo Plains, Dune Sea, Bespin Platforms and Hoth in
+  several of each, seven other maps, acknowledgements, a page's interval and
+  shots judged rewound), and 6,000 to 9,000 ticks on seven more.
+
+### Measurements
+
+On the emulated laptop (one build, with and without `rays=wasm`; 40-second
+recordings of a battle, medium AI, on foot, interleaved: without, with,
+without, with; means of each):
+
+| | Naboo Plains, JS | WASM | Dune Sea, JS | WASM | Bespin Platforms, JS | WASM |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Recordings | 3 | 3 | 3 | 3 | 3 | 4 |
+| Server step, mean ms | 10.9 | 9.8 | 21.3 | 19.9 | 25.7 | 20.9 |
+| Median, ms | 9.9 | 8.8 | 20.5 | 19.2 | 24.8 | 20.1 |
+| 90th percentile, ms | 16.5 | 14.9 | 29.9 | 28.1 | 35.7 | 29.8 |
+| Ticks a second | 60.0 | 60.0 | 45.7 | 48.9 | 38.2 | 46.4 |
+| Gaps between ticks over 40 ms | 3.7 | 3.3 | 29.7 | 17.3 | 75.7 | 32.0 |
+| Frames the playout clock waited | 43 | 46 | 246 | 227 | 354 | 252 |
+
+With the module every Bespin Platforms recording's step was shorter than
+every one's without it, and on Naboo Plains each pair's was (the first by a
+tenth); on Dune Sea two pairs' of three were, and the third's was 0.3 ms
+longer. On Dune Sea and Bespin Platforms the world cannot keep 60 ticks a
+second here with or without it, but it falls behind less often and less far.
+
+In the profiles above, run again with the module, the rays took 0.68 ms a
+tick instead of 1.59 on Naboo Plains, 1.74 instead of 4.20 on Dune Sea, and
+2.72 instead of 5.62 on Bespin Platforms, where half of what is left is
+cast's test of every body's bounds (96 of them) for every ray: a broad phase
+over the bodies, still visited in their order, would cut that without
+changing an answer. The rest of the step stays as it was, give or
+take what one battle differs from another. The module makes 2 to 4% less
+garbage than the JavaScript did (it made a few objects for every triangle a
+ray met), so the worker's collections stay as they were: the gaps it saved
+on Dune Sea and Bespin Platforms are long steps'.
+
+Under Node 22 on the development machine (`tools/world-hash.mjs`, 2,400 ticks,
+mean world step after tick 900, the two alternated over four rounds):
+
+| World step after tick 900, ms | JavaScript | WebAssembly | Change |
+| --- | ---: | ---: | ---: |
+| Naboo Plains | 6.32 (5.56 to 7.28) | 5.92 (5.51 to 6.22) | -6% |
+| Dune Sea | 11.98 (11.48 to 12.35) | 10.43 (10.21 to 10.71) | -13% |
+| Bespin Platforms | 12.18 (11.45 to 12.95) | 11.17 (10.24 to 11.86) | -8% |
+
+Other work shared the machine, so runs of the same build differ by up to 30%:
+read these as a guide, not to the last tenth.
+
+Each call alone, in a battle's world 600 ticks in (best of ten passes over
+20,000 random rays through the map, under Node), a cast took 1.9 to 2.2
+times as long in JavaScript as in the module (7.6 against 3.5 µs on Naboo
+Plains, 4.5 against 2.3 on Dune Sea, 5.4 against 2.5 on Bespin Platforms),
+and a ground probe 1.6 to 1.7 times as long (1.1 against 0.6 µs).
+
+### What porting more would take
+
+The rays kept their answers and lost a little over half their time.
+WebAssembly walks a tree 2.1 to 2.8 times as fast as three-mesh-bvh does,
+and only part of that is the layout: the same walk written in JavaScript over
+the same flat arrays (no allocation, one reciprocal a ray, results in a typed
+array) is 1.1 to 1.6 times as fast as three-mesh-bvh, and WebAssembly is 1.8
+to 2.1 times as fast as that. A call into the module costs about 4 ns under
+Node and 30 ns in the emulated worker (60 ns with a cast's slot writes and
+reads), and a step makes 100 to 700 of them, well under a tenth of a
+millisecond: crossings do not limit a kernel like this one, though they would
+limit one called for every triangle.
+
+The other three parts that read only numbers make up 5 to 16% of the step,
+and each is harder to cut out than the rays: a sphere gather hands soldier and
+hull code lists of polygons and triangles that the code walks itself, so the
+contact searches over them would have to move with it; soldiers' hit shapes
+move every tick, so they would be copied every tick; and snapshot capture
+walks the battle's objects before its encoding packs any numbers.
+
+The rest, about 70% of the step, is the transforms and the logic over
+objects: the AI, weapons, hulls, seats and the battle, some 60,000 lines of
+the worker's engine code, with the three.js object trees they pose. Moving it
+would take the worker's garbage collections out of the step too, but the
+rays' gain says little about what it would get, as they were the most
+array-like part of the step. Each of its sines, arc tangents, powers and
+hypots would need V8's last bits; its iteration and sort orders would have to
+be kept; and the page's prediction, which runs the same soldier and hull code,
+would need the same module.
+
 ## His controls on a slow CPU
 
 His own controls run on the input clock (`src/runtime/reconcile.js`): a
