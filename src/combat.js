@@ -974,6 +974,15 @@ export class PlayerCombat {
     const away = new THREE.Vector3().subVectors(center, position);
     const span = away.length();
     const distance = blastDistance(position, center, radius);
+    let push = (explosion.Push || 0) * falloff(distance, explosion.PushRadiusInner || 0, explosion.PushRadiusOuter || 0);
+    const damage = scale * (explosion.Damage || 0) * blastShare(explosion, distance), typed = explosion[this.scale] ?? 1;
+    // What the blast does to him: throws him, or hurts him (damage() takes
+    // any amount that is not zero or less) and shows him where it came
+    // from. Beyond its reach it does neither, so nothing has to shield him:
+    // the sight test, a ray through the map that every explosion made for
+    // every soldier on the field, is not made.
+    const hurts = !wasDead && (damage > 0 || !(damage * typed <= 0));
+    if (!(push > 0) && !hurts) return;
     // Terrain or a building between the blast and his sight point shields him.
     if (blastBlocked(this.collision, position, SIGHT_POINT.set(s.position.x, s.position.y + sight, s.position.z))) return;
     if (span > 1e-3) away.divideScalar(span);
@@ -982,14 +991,12 @@ export class PlayerCombat {
     // unpushed by this blast. A turret's gunner (the only one seated a
     // blast reaches: SeatLease.blastable) is never pushed while he mans
     // it, as the 2004 game's push skips a soldier in a seat.
-    let push = (explosion.Push || 0) * falloff(distance, explosion.PushRadiusInner || 0, explosion.PushRadiusOuter || 0);
     if (push > 0 && this.chunks && !wasDead && !this.mounted && s.air !== "thrown" && (this.random || Math.random)() <= this.chunks) {
       this.blowApart = true;
       push = 0;
     }
     if (!wasDead) {
-      const damage = scale * (explosion.Damage || 0) * blastShare(explosion, distance);
-      const info = { kind: "explosion", amount: damage, typed: explosion[this.scale] ?? 1, generic: explosion.ShieldScale ?? 1, known: false, point: null };
+      const info = { kind: "explosion", amount: damage, typed, generic: explosion.ShieldScale ?? 1, known: false, point: null };
       this.damage(damage * info.typed, damage * info.generic, position, owner, info);
       // The HUD shows which side it came from (positive to the right).
       if (damage > 0 && this.hud) {

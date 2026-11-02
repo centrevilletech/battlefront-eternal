@@ -103,6 +103,34 @@ test('a wall between the blast and the soldier shields him from damage and push'
   assert.equal(soldier.air, null);
 });
 
+test('only a blast that can reach him asks whether anything shields him', () => {
+  const { soldier, combat } = fixture();
+  let casts = 0;
+  const cast = soldier.world.cast.bind(soldier.world);
+  soldier.world.cast = (...args) => { casts++; return cast(...args); };
+  // 40 m off: past the damage (6.5 m) and the push (4.5 m) alike.
+  combat.explode(GRENADE, at(40, 1), null, 1);
+  assert.equal(casts, 0);
+  assert.equal(combat.health, 300);
+  assert.deepEqual(soldier.velocity.toArray(), [0, 0, 0]);
+  // 6.5 m off, 5.77 m to his blast sphere: hurt but not pushed.
+  combat.explode(GRENADE, at(6.5, 1), null, 1);
+  assert.equal(casts, 1);
+  assert.ok(combat.health < 300);
+  assert.deepEqual(soldier.velocity.toArray(), [0, 0, 0]);
+  // A body lying dead takes no damage: only a blast that pushes it asks.
+  const dead = fixture();
+  dead.combat.dead = true;
+  let deadCasts = 0;
+  const deadCast = dead.soldier.world.cast.bind(dead.soldier.world);
+  dead.soldier.world.cast = (...args) => { deadCasts++; return deadCast(...args); };
+  dead.combat.explode(GRENADE, at(6.5, 1), null, 1);
+  assert.equal(deadCasts, 0);
+  dead.combat.explode(GRENADE, at(3, 1), null, 1);
+  assert.equal(deadCasts, 1);
+  assert.ok(dead.soldier.velocity.x < 0, 'thrown away from the blast');
+});
+
 test('the push adds (away + 0.6 up) x Push x falloff to the velocity and throws the soldier', () => {
   const { soldier, combat } = fixture();
   combat.explode(SHOVE, at(3, 0.1), null, 1);
