@@ -465,10 +465,55 @@ the six recordings).
 What still stops the world for over 40 ms there is mostly its own garbage
 collection and the heaviest fights' steps. A full collection's final pause
 took 10 to 31 ms, one or two in each recording, and the 25 to 28 young
-collections 5 to 18 ms each, mostly between ticks. About 25 to 30 KB a tick
-outlives a young collection; the largest shares are the snapshot host's
-captures, which the 128-snapshot ring keeps for two seconds, and the hit
-history's capture (each frame's Map is cleared and refilled every tick).
+collections 5 to 18 ms each, mostly between ticks.
+
+### What the worker's full collections took
+
+A full collection comes when the old generation has grown past a limit set
+from what the last one kept (about half again, in these traces), so it
+comes as often as the world fills the old generation. In a Theed battle on the emulated laptop the world worker's old
+generation took on about 20 KB a tick, little of it data the world keeps:
+
+- V8 makes a Map's or Set's new table (when it grows, or is cleared) in the
+  generation its current table is in, and a Map that lives as long as the
+  world is moved to the old generation by the first full collection. Each
+  table such a Map was cleared or grown to every tick was garbage only the
+  next full collection took: the collision world's polygon lookup (several
+  gathers a tick grow it to 64 entries), the hit history's Map for each
+  frame, each hover spring's Set and each command post's counts. The polygon
+  lookup is now open addressing over typed arrays (`PolygonIndex`, emptied
+  by a stamp); the hit history finds a body's record in the next frame by
+  its place in the battle's list; a spring keeps the three polygons it met
+  in a list; a post clears its counts only when it has some.
+- The hit history cut its records to the bodies alive each capture and made
+  new ones when more came; its frames are now pools with counts.
+- The snapshot host keeps 128 snapshots as baselines, so every new entry a
+  capture made (each moving soldier's, every publication) outlived the young
+  generation. When the ring lets a snapshot go, the entries, positions and
+  velocities that its successor does not hold at the same slot are held by
+  none (a capture reuses only the previous snapshot's values, slot by slot),
+  and `EntrySpare` hands them to the next captures to fill.
+
+Headless, under Node 22 with the young generation sized as the worker's
+(a young collection every 90 to 95 ticks), a full collection forced mid-
+battle (so long-lived Maps are old, as they are after the worker's first)
+and acknowledgements as a page sends them, the old generation of a Theed
+battle grew 34 KB a tick; the hit history saved 5.0 of it, the polygon
+lookup 6.7, the springs and posts 3.0, the snapshot entries 5.0, and 14
+were left (pointers there are twice the worker's size). On the emulated
+laptop, four interleaved pairs of 60-second recordings (Theed, medium AI,
+on foot):
+
+| World worker | Before | After |
+| --- | ---: | ---: |
+| Old generation growth, KB a tick | 19.9 | 11.3 |
+| Full collections in the 4 minutes | 5 | 2 |
+| Their final pauses, ms | 25, 27, 37, 48, 51 | 23, 31 |
+| Young collections' time a minute, ms | 394 | 315 |
+
+Gaps over 40 ms between ticks and the page's playout waits moved less than
+the battles did. Young collections came as often as before: what the world
+allocates is unchanged, only what outlives them.
 
 ## His controls on a slow CPU
 
