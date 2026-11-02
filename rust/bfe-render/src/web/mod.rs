@@ -97,8 +97,9 @@ impl BfeRenderer {
     pub fn view_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.view_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
-    pub fn post_frame(&mut self) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.post_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    // steps: how many the page wrote (web/post.rs).
+    pub fn post_frame(&mut self, steps: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.post_frame(steps as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
     // records: how many the page wrote for the mirror's camera.
     pub fn mirror_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {

@@ -106,10 +106,11 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         Ok(core.end_phase())
     }
 
-    // The post passes' phase, once the scenes are drawn.
-    pub fn post_frame(&mut self) -> Result<Stats, String> {
+    // The post passes' phase, once the scenes are drawn: the steps the page
+    // wrote (post.rs), in order.
+    pub fn post_frame(&mut self, steps: usize) -> Result<Stats, String> {
         self.core.begin_phase();
-        self.post.draw(&mut self.core);
+        self.post.draw(&mut self.core, steps);
         Ok(self.core.end_phase())
     }
 

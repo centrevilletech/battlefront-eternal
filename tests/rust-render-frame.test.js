@@ -244,3 +244,30 @@ test("the view scene: a part the renderer can't draw leaves three to render the 
   assert.equal(part.material.visible, true);
   assert.equal(core.cover("view", renderer, viewScene, view), false);
 });
+
+test("the post steps: drawn by the renderer when every one is a pass it has a program for", () => {
+  const { core, calls, renderer, graphics, properties } = bridge();
+  const pass = (uniforms, values) => {
+    const material = new THREE.ShaderMaterial({ uniforms: values });
+    properties.get(material).currentProgram = program(uniforms);
+    const mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
+    return mesh;
+  };
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const postTarget = { width: 8, height: 4, texture: new THREE.Texture() };
+  const composite = pass([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["glow", GL.SAMPLER_2D], ["blend", GL.FLOAT]],
+    { map: { value: graphics.farTarget.texture }, glow: { value: null }, blend: { value: 0.3 } });
+  const fxaa = pass([["tDiffuse", GL.SAMPLER_2D], ["resolution", GL.FLOAT_VEC2]], { tDiffuse: { value: postTarget.texture }, resolution: { value: new THREE.Vector2(1 / 8, 1 / 4) } });
+  const steps = [{ pass: composite, target: postTarget, camera }, { pass: fxaa, target: null, camera }];
+  assert.equal(core.post(renderer, steps), true);
+  assert.deepEqual(calls.filter((c) => c[0] === "add_program").map((c) => c.slice(1)), [[3, "position:0,uv:1", "projectionMatrix,modelViewMatrix,map,glow,blend"], [3, "position:0,uv:1", "tDiffuse,resolution"]]);
+  assert.deepEqual(calls.find((c) => c[0] === "post_frame"), ["post_frame", 2]);
+  const input = core.postInput, step = 5 + 12 * 18;
+  assert.deepEqual([...input.subarray(0, 5)], [0, 0, 8, 4, 5], "program, target, its size, five uniforms");
+  assert.deepEqual([...input.subarray(5 + 3 * 18, 5 + 3 * 18 + 3)], [3, 32, -1], "a sampler of none: three's empty texture");
+  assert.deepEqual([...input.subarray(5 + 4 * 18, 5 + 4 * 18 + 3)].map((v) => +v.toFixed(3)), [4, 1, 0.3]);
+  assert.deepEqual([...input.subarray(step, step + 5)], [1, -1, 800, 600, 2], "the canvas: three's viewport in pixels");
+  assert.deepEqual([...input.subarray(step + 5 + 18, step + 5 + 18 + 4)], [1, 2, 0.125, 0.25]);
+  // A step only three can draw (bloom): three draws them all.
+  assert.equal(core.post(renderer, [{ run: () => {} }, ...steps]), false);
+});

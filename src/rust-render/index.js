@@ -63,7 +63,7 @@ const PHASES = {
   near: { view: VIEW_NEAR, draw: (rust, ctx) => rust.frame(ctx.records) },
   transparent: { view: null, draw: (rust) => rust.transparent_frame() },
   view: { view: VIEW_FIRST_PERSON, draw: (rust, ctx) => rust.view_frame(ctx.records) },
-  post: { view: null, draw: (rust) => rust.post_frame() },
+  post: { view: null, draw: (rust, ctx) => rust.post_frame(ctx.steps ?? 0) },
   // The near phase's passes from a mirror camera (water.js's reflection).
   mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
 };
@@ -410,6 +410,12 @@ export class RustRender {
     state.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
     state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
     state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, p.__webglMultisampledFramebuffer);
+  }
+
+  // graphics.js: the frame's post passes (Graphics.postSteps), drawn by the
+  // post pass when it can draw every one; true when it did.
+  post(renderer, steps) {
+    return this.byName.post?.cover(renderer, steps) ?? false;
   }
 
   // The near phase's stats and the time its renderer call took, as the
