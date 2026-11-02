@@ -10,6 +10,28 @@ const CORNERS = [[-.5,-.5],[.5,-.5],[-.5,.5],[.5,.5]];
 // Only patch selection/tint is uploaded when visibility changes. Orientation,
 // wind and distance fade use uniforms, so looking around doesn't rebuild and
 // upload every leaf vertex on the input thread.
+// The patches of one class by map cell (x/z): those with a cull distance in
+// the cells their position falls in, cells as wide as the longest of those
+// distances (so the camera's cell and its neighbours hold every patch it can
+// show), the rest in `always`. Built once, the first time a class is drawn.
+const CELL_KEY = 1 << 20, MIN_CELL = 8, ascending = (a, b) => a - b;
+function patchIndex(instances) {
+  let reach = 0;
+  for (const inst of instances) if (Number.isFinite(inst.cullDistance) && inst.cullDistance > reach) reach = inst.cullDistance;
+  const cell = Math.max(MIN_CELL, reach), lists = new Map(), always = [];
+  for (let i = 0; i < instances.length; i++) {
+    const inst = instances[i];
+    if (!Number.isFinite(inst.cullDistance)) { always.push(i); continue; }
+    const key = Math.floor(inst.position.x / cell) * CELL_KEY + Math.floor(inst.position.z / cell);
+    let list = lists.get(key);
+    if (!list) lists.set(key, list = []);
+    list.push(i);
+  }
+  const cells = new Map();
+  for (const [key, list] of lists) cells.set(key, Int32Array.from(list));
+  return { instances, cell, reach: 1, cells, always };
+}
+
 export class FoliageGpuBatch {
   constructor(scene, map, cards, def, grass, capacity) {
     this.grass = grass; this.def = def; this.cardCount = cards.length;
@@ -118,21 +140,36 @@ export class FoliageGpuBatch {
     scene.add(mesh);
   }
 
+  // A patch passes when its sphere is in view, it is within its cull
+  // distance, and its depth along the view is within its fade.
+  test(inst, i, camera, back, frustum, nearEnd, selected) {
+    const maxDist=inst.maxDistance || nearEnd;
+    if(inst.sphere && !frustum.intersectsSphere(inst.sphere))return;
+    if(Math.hypot(inst.position.x-camera.position.x,inst.position.z-camera.position.z)>inst.cullDistance)return;
+    const depth=-this.delta.subVectors(inst.position,camera.position).dot(back);
+    if(this.grass ? depth>maxDist || depth< -5 : depth>maxDist+20 || depth< -25)return;
+    selected.push(i);
+  }
+
   update(instances, time, camera, right, up, back, frustum, nearEnd) {
     const u = this.uniforms;
     u.foliageTime.value=time; u.foliageEnd.value=nearEnd;
     u.foliageEye.value.copy(camera.position); u.foliageRight.value.copy(right);
     u.foliageUp.value.copy(up); u.foliageBack.value.copy(back);
     const selected=this.nextSelected; selected.length=0;
-    for(let i=0;i<instances.length;i++) {
-      const inst=instances[i];
-      const maxDist=inst.maxDistance || nearEnd;
-      if(inst.sphere && !frustum.intersectsSphere(inst.sphere))continue;
-      if(Math.hypot(inst.position.x-camera.position.x,inst.position.z-camera.position.z)>inst.cullDistance)continue;
-      const depth=-this.delta.subVectors(inst.position,camera.position).dot(back);
-      if(this.grass ? depth>maxDist || depth< -5 : depth>maxDist+20 || depth< -25)continue;
-      selected.push(i);
+    // Only the patches that can pass are tested: the ones without a cull
+    // distance, and those in the cells within the longest cull distance of
+    // the camera. Theed's terrain grows some two hundred thousand patches of
+    // grass, and testing every one each frame took over half a slow CPU's
+    // frame. Kept in index order, the selection is the same as testing all.
+    const index=this.index?.instances===instances ? this.index : (this.index=patchIndex(instances));
+    const eye=camera.position, cx=Math.floor(eye.x/index.cell), cz=Math.floor(eye.z/index.cell), r=index.reach;
+    for(const i of index.always) this.test(instances[i],i,camera,back,frustum,nearEnd,selected);
+    for(let x=cx-r;x<=cx+r;x++) for(let z=cz-r;z<=cz+r;z++) {
+      const cell=index.cells.get(x*CELL_KEY+z);
+      if(cell) for(let k=0;k<cell.length;k++) this.test(instances[cell[k]],cell[k],camera,back,frustum,nearEnd,selected);
     }
+    if(index.cells.size) selected.sort(ascending);
     const changed=selected.length!==this.selected.length || selected.some((id,i)=>id!==this.selected[i]);
     if(changed) {
       for(let i=0;i<selected.length;i++) {
