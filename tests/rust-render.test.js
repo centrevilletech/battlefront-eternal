@@ -13,6 +13,8 @@ const STATS = [1, 2, 3, 4, 5, 1, 2, 0, 0, 0, 0, 0, 0, 0];
 function bridge() {
   const calls = [];
   const memory = { buffer: new ArrayBuffer(1 << 16) };
+  // The segments the renderer found (transparent.rs), as the page reads them.
+  const segments = [0, 0];
   const entry = (name) => function (...args) { calls.push([name, ...args]); return STATS; };
   class BfeRenderer {
     input_ptr() { return 0; }
@@ -24,6 +26,12 @@ function bridge() {
     add_texture() { calls.push(["add_texture"]); return 0; }
     set_far_map(texture) { calls.push(["set_far_map", texture]); }
     sort(byProgram) { calls.push(["sort", byProgram]); }
+    transparent_keys_ptr() { return 16384; }
+    transparent_keys_len() { return 64; }
+    transparent_segments_ptr() { return 32768; }
+    transparent_segments_len() { return segments.length; }
+    transparent_segment(k) { calls.push(["transparent_segment", k]); return STATS; }
+    transparent_bucket_shown() {}
   }
   for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame"]) BfeRenderer.prototype[name] = entry(name);
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
@@ -31,7 +39,10 @@ function bridge() {
   const sceneTarget = { name: "scene" }, farTarget = { texture: new THREE.Texture() };
   const properties = new Map();
   let target = sceneTarget;
+  // three's render list of the near scene (opaque, transparent: render items).
+  const list = { opaque: [], transmissive: [], transparent: [] };
   const renderer = {
+    renderLists: { get: () => list },
     getContext: () => ({}),
     properties: { get: (o) => { if (!properties.has(o)) properties.set(o, { __webglTexture: {} }); return properties.get(o); } },
     initTexture() {},
@@ -40,9 +51,11 @@ function bridge() {
     setRenderTarget(t) { calls.push(["setRenderTarget", t]); target = t; },
     resetState() { calls.push(["resetState"]); },
   };
-  const graphics = { renderer, scene, camera, sceneTarget, farTarget, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
+  const background = new THREE.Object3D();
+  const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
   const core = new RustRender(graphics, { memory }, BfeRenderer);
-  return { core, calls, graphics, renderer, scene, camera, memory, setTarget: (t) => { target = t; } };
+  const setSegments = (values) => { segments.length = 0; segments.push(...values); new Uint32Array(memory.buffer, 32768, values.length).set(values); };
+  return { core, calls, graphics, renderer, scene, camera, memory, list, setSegments, setTarget: (t) => { target = t; } };
 }
 
 test("the passes are made in the renderer's order, each in its phase", () => {
@@ -141,4 +154,41 @@ test("an anchor is drawn with no fragments and calls back after three draws it",
   assert.deepEqual([m.transparent, m.colorWrite, m.depthWrite, m.depthTest, anchor.frustumCulled, anchor.renderOrder], [true, false, false, false, false, -5]);
   anchor.onAfterRender(renderer, scene, camera, anchor.geometry, m, null);
   assert.deepEqual(fired, [[renderer, scene, camera]]);
+});
+
+test("the transparent list: armed after the near phase on three's last opaque item, later segments on three's own items", () => {
+  const { core, calls, renderer, scene, camera, graphics, list, setSegments } = bridge();
+  const item = (object, z, extra = {}) => ({ object, material: {}, group: null, groupOrder: 0, renderOrder: 0, z, id: object.id, ...extra });
+  const wall = new THREE.Object3D(), a = new THREE.Object3D(), b = new THREE.Object3D();
+  list.opaque.push(item(graphics.background, 0), item(wall, 0.5));
+  list.transparent.push(item(a, 0.9), item(b, 0.2, { renderOrder: 3 }));
+  // Segment 0 holds one item, none falls between three's two, two follow b.
+  setSegments([0, 1, 1, 3]);
+  core.pass(renderer, scene, camera);
+  assert.ok(Object.prototype.hasOwnProperty.call(wall, "onAfterRender"), "the last opaque item is armed");
+  calls.length = 0;
+  // Elsewhere (another camera) the hook does nothing.
+  wall.onAfterRender(renderer, scene, new THREE.PerspectiveCamera(), null, list.opaque[1].material, null);
+  assert.deepEqual(calls, []);
+  wall.onAfterRender(renderer, scene, camera, null, list.opaque[1].material, null);
+  assert.equal(calls.filter((c) => c[0] === "transparent_frame").length, 1);
+  assert.deepEqual(calls.find((c) => c[0] === "transparent_frame").slice(1), [2]);
+  assert.ok(!Object.prototype.hasOwnProperty.call(wall, "onAfterRender"), "its hook is taken off once it ran");
+  // three's items' keys, in three's order.
+  assert.deepEqual([...core.transparentKeys.subarray(0, 8)], [0, 0, 0.9, a.id, 0, 3, 0.2, b.id]);
+  // Nothing after a; segment 2 right after b.
+  assert.ok(!Object.prototype.hasOwnProperty.call(a, "onAfterRender"));
+  calls.length = 0;
+  b.onAfterRender(renderer, scene, camera, null, list.transparent[1].material, null);
+  assert.deepEqual(calls.map((c) => c[0]), ["transparent_segment", "resetState", "setRenderTarget"]);
+  assert.equal(calls[0][1], 2);
+  assert.ok(!Object.prototype.hasOwnProperty.call(b, "onAfterRender"));
+});
+
+test("the transparent list follows at once when the far scene's image is three's only opaque item", () => {
+  const { core, calls, renderer, scene, camera, graphics, list, setSegments } = bridge();
+  list.opaque.push({ object: graphics.background, material: {}, group: null, groupOrder: 0, renderOrder: -1e9, z: 0, id: graphics.background.id });
+  setSegments([0, 0]);
+  core.pass(renderer, scene, camera);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => n.endsWith("frame")), ["frame", "transparent_frame"]);
 });

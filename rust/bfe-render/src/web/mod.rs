@@ -90,8 +90,10 @@ impl BfeRenderer {
     pub fn frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
-    pub fn transparent_frame(&mut self) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.transparent_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    // three: how many of three's own transparent items the page wrote the
+    // keys of (web/transparent.rs).
+    pub fn transparent_frame(&mut self, three: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.transparent_frame(three as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
     pub fn view_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.view_frame().map_err(|e| JsValue::from_str(&e))?.values())
