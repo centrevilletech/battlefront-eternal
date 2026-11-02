@@ -428,16 +428,141 @@ export class BfeRenderer {
         wasm.bferenderer_sort(this.__wbg_ptr, by_program);
     }
     /**
+     * @param {number} geometry
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_func
+     * @param {number} flags
+     * @param {boolean} point_lit
+     * @param {Float64Array | number[]} ids
+     * @param {Float64Array | number[]} bounds
+     * @returns {number}
+     */
+    transparent_bucket(geometry, blend, depth_func, flags, point_lit, ids, bounds) {
+        const val4 = +geometry;
+        const val5 = +depth_func;
+        const val6 = +flags;
+        const val7 = +point_lit;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF64ToWasm0(ids, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArrayF64ToWasm0(bounds, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 8, 8); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 8, 8); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_transparent_bucket(this.__wbg_ptr, val4, ptr0, len0, val5, val6, val7, ptr1, len1, ptr2, len2);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} b
+     * @param {number} program
+     * @param {number} side
+     * @returns {number}
+     */
+    transparent_bucket_pass(b, program, side) {
+        const ret = wasm.bferenderer_transparent_bucket_pass(this.__wbg_ptr, b, program, side);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} b
+     * @param {boolean} shown
+     */
+    transparent_bucket_shown(b, shown) {
+        wasm.bferenderer_transparent_bucket_shown(this.__wbg_ptr, b, shown);
+    }
+    /**
+     * @param {number} b
+     * @param {number} unit
+     * @param {number} texture
+     */
+    transparent_bucket_texture(b, unit, texture) {
+        wasm.bferenderer_transparent_bucket_texture(this.__wbg_ptr, b, unit, texture);
+    }
+    /**
+     * @param {number} b
+     * @param {number} pass
+     * @param {string} name
+     * @param {Float32Array | number[]} values
+     * @param {boolean} int
+     * @returns {boolean}
+     */
+    transparent_bucket_uniform(b, pass, name, values, int) {
+        const val3 = +b;
+        const val4 = +pass;
+        const val5 = +int;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF32ToWasm0(values, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_transparent_bucket_uniform(this.__wbg_ptr, val3, val4, ptr0, len0, ptr1, len1, val5);
+        return ret !== 0;
+    }
+    /**
+     * @param {number} three
      * @returns {Uint32Array}
      */
-    transparent_frame() {
-        const ret = wasm.bferenderer_transparent_frame(this.__wbg_ptr);
+    transparent_frame(three) {
+        const ret = wasm.bferenderer_transparent_frame(this.__wbg_ptr, three);
         if (ret[3]) {
             throw takeFromExternrefTable0(ret[2]);
         }
         var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    transparent_keys_len() {
+        const ret = wasm.bferenderer_transparent_keys_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    transparent_keys_ptr() {
+        const ret = wasm.bferenderer_transparent_keys_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} k
+     * @returns {Uint32Array}
+     */
+    transparent_segment(k) {
+        const ret = wasm.bferenderer_transparent_segment(this.__wbg_ptr, k);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    transparent_segments_len() {
+        const ret = wasm.bferenderer_transparent_segments_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    transparent_segments_ptr() {
+        const ret = wasm.bferenderer_transparent_segments_ptr(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @param {number} records

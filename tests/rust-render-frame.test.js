@@ -58,6 +58,12 @@ function bridge() {
     hud_tint_ptr() { return 524288; }
     hud_tint_len() { return 64 * 4; }
     hud_init(index) { calls.push(["hud_init", index.length]); }
+    transparent_keys_ptr() { return 589824; }
+    transparent_keys_len() { return 64; }
+    transparent_segments_ptr() { return 655360; }
+    transparent_segments_len() { return 2; }
+    transparent_segment(k) { calls.push(["transparent_segment", k]); return STATS; }
+    transparent_bucket_shown() {}
   }
   for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame", "hud_frame", "mirror_frame"]) BfeRenderer.prototype[name] = entry(name);
   const gl = {
@@ -78,7 +84,10 @@ function bridge() {
   const properties = new Map();
   properties.set(sceneTarget, { __webglMultisampledFramebuffer: "ms", __webglFramebuffer: "fb" });
   let target = sceneTarget;
+  // three's render list of the near scene (empty).
+  const list = { opaque: [], transmissive: [], transparent: [] };
   const renderer = {
+    renderLists: { get: () => list },
     getContext: () => gl,
     properties: { get: (o) => { if (!properties.has(o)) properties.set(o, { __webglTexture: {} }); return properties.get(o); } },
     initTexture(texture) { calls.push(["initTexture", texture.name]); properties.get(texture).__version = texture.version; },
@@ -90,7 +99,7 @@ function bridge() {
     getViewport: (v) => v.set(0, 0, 400, 300),
     getPixelRatio: () => 2,
   };
-  const graphics = { renderer, scene, camera, sceneTarget, farTarget, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
+  const graphics = { renderer, scene, camera, sceneTarget, farTarget, background: new THREE.Object3D(), settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
   const core = new RustRender(graphics, { memory }, BfeRenderer);
   return { core, calls, gl, graphics, renderer, scene, camera, memory, properties: renderer.properties, setTarget: (t) => { target = t; } };
 }
