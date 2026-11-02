@@ -1,3 +1,5 @@
+import { combatSource } from '../combat-sources.js';
+
 // References come only from matched local content; wire messages carry IDs.
 export function createCombatRegistry(data) {
   const paths=[], definitions=new Map(), ids=new WeakMap(), seen=new WeakSet();
@@ -15,5 +17,7 @@ export function createCombatRegistry(data) {
     for(const key of Object.keys(value).sort())visit(value[key],[...path,key]);
   }
   visit(data,[]);
-  return {paths,definitions,definitionId(def){const id=ids.get(def);if(!id)throw Error('combat definition absent from matched registry');return id;}};
+  // A definition made at run time goes by the content one it came from
+  // (combat-sources.js): the registry, and so the wire, stay content only.
+  return {paths,definitions,definitionId(def){const id=ids.get(def)??ids.get(combatSource(def));if(!id)throw Error('combat definition absent from matched registry');return id;}};
 }

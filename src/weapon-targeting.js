@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { unitsArray, defaultRelation, lockSpan } from './hud-units.js';
 import { weaponAI, categoryOf, relationBit } from './ai/classic/weapons-ai.js';
+import { derivedFrom } from './combat-sources.js';
 
 export const hasMissileLock = def => def?.base === 'launcher' && def.ordnance?.base === 'missile';
 
@@ -11,12 +12,12 @@ export const hasMissileLock = def => def?.base === 'launcher' && def.ordnance?.b
 const tankMissiles = new Set(['rep_weap_hover_fightertank_missile', 'imp_weap_hover_fightertank_missile', 'all_weap_hover_combatspeeder_missile']);
 export function vehicleMissileDefinition(def) {
   if (!tankMissiles.has(def?.class)) return def;
-  return { ...def, base: 'launcher', LockOnRange: 150, LockOnAngle: 6,
+  return derivedFrom({ ...def, base: 'launcher', LockOnRange: 150, LockOnAngle: 6,
     LockOffAngle: 10, LockTime: 1, ClearLockOnFire: 1,
     TargetEnemy: 1, TargetFriendly: 0, TargetNeutral: 0,
     TargetPerson: 0, TargetAnimal: 0, TargetDroid: 0, TargetVehicle: 1, TargetBuilding: 0,
     ai: { ...weaponAI(def), relationMask: 1, categoryMask: 8, extremeRange: 150 },
-    ordnance: { ...def.ordnance, base: 'missile', TurnRate: 6, ScaleTime: 1 } };
+    ordnance: derivedFrom({ ...def.ordnance, base: 'missile', TurnRate: 6, ScaleTime: 1 }, def.ordnance) }, def);
 }
 
 export function targetingWeapon(arsenal) {
