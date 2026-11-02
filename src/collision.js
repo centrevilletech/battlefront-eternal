@@ -70,8 +70,9 @@ function empty(list) {
 // droid's wreck): each is tested with the buildings while enabled, and a ray
 // that hits one says which.
 //
-// rays: a RayKernel (src/ray-kernel.js) to answer cast, castMoving and the
-// ground's ray in WebAssembly, with the same answers; null for JavaScript.
+// rays: a RayKernel (src/ray-kernel.js) to answer cast, castMoving, the
+// ground's ray, gather, overlapsSphere and terrainNear in WebAssembly, with
+// the same answers; null for JavaScript.
 export class CollisionWorld {
   constructor(positions, indices, polygons, terrainPositions, terrainIndices, rays = null) {
     this.bvh = buildBVH(positions, indices);
@@ -160,6 +161,7 @@ export class CollisionWorld {
     if (rays) {
       this.rayGrid = this.terrainGrid ? rays.grid(this.terrainGrid) : -1;
       this.rayWorld = rays.world(rays.tree(this.bvh), this.terrain ? rays.tree(this.terrain) : -1, this.rayGrid);
+      rays.x.world_statics(this.rayWorld, rays.fixedSet(this.staticSet, this.bvh));
       // The bodies' order the module last had (bodiesVersion).
       this.rayOrder = -1;
       this.rayGround = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
@@ -284,6 +286,7 @@ export class CollisionWorld {
   // vehicle: the vehicle-only barriers count too (a hull's query).
   // ignoreBody: a body whose polygons are left out (a dead rider's mount).
   gather(center, radius, vehicle = false, cache = null, ignoreBody = null) {
+    if (this.rays) return this.rayGather(center, radius, vehicle, cache, ignoreBody);
     this.box.min.set(center.x - radius, center.y - radius, center.z - radius);
     this.box.max.set(center.x + radius, center.y + radius, center.z + radius);
     this.used = 0;
@@ -346,7 +349,9 @@ export class CollisionWorld {
       // for a hull's query (set: the barriers they were filled from).
       statics: { set: null, list: new Uint32Array(64), count: 0 },
       blockers: { set: null, list: new Uint32Array(16), count: 0 },
-      bodies: [], bodiesVersion: -1, bodiesFill: -1 };
+      bodies: [], bodiesVersion: -1, bodiesFill: -1,
+      // Its copy in the ray kernel, once a query through it runs there.
+      ray: -1 };
   }
 
   // The bodies a cached query can meet, in the world's order: every moving
@@ -401,16 +406,64 @@ export class CollisionWorld {
       // Fixed triangles never move. Materialize each encountered triangle
       // once instead of copying nine coordinates per body sphere every
       // physics tick. Moving hulls still use the transient world pool.
-      let out = triangles[index];
-      if (!out) {
-        out = triangles[index] = new THREE.Triangle();
-        const t = index * 3;
-        out.a.fromArray(p, ix[t] * 3);
-        out.b.fromArray(p, ix[t + 1] * 3);
-        out.c.fromArray(p, ix[t + 2] * 3);
-      }
-      polygon.triangles.push(out);
+      polygon.triangles.push(triangles[index] || fixedTriangle(set, index));
     }
+  }
+
+  // gather, in the ray kernel: the same polygons in the same order, each
+  // with the same triangles (a fixed set's own Triangles, as gatherSet
+  // gives them; a body's copied into the pool, as triangle() does). Bodies'
+  // `enabled` is read here for the few the sphere can meet (rayCandidates).
+  rayGather(center, radius, vehicle, cache, ignoreBody) {
+    this.rayBodies();
+    const rays = this.rays, io = rays.view(), world = this.rayWorld;
+    io[0] = center.x; io[1] = center.y; io[2] = center.z; io[3] = radius;
+    const blockers = vehicle && this.vehicleBlockers ? this.blockerSet(this.vehicleBlockers) : null;
+    const count = rays.x.gather_begin(world, cache ? rays.cache(cache) : -1, blockers ? rays.fixedSet(blockers, blockers.shape.bvh) : -1, ignoreBody?.raySlot ?? -1);
+    this.rayEnabled(count);
+    const polygons = rays.x.gather_end(world, count);
+    // Both calls may have grown the module's memory (views made before
+    // are empty then): the output's address is read from a fresh view.
+    const out = rays.outF64(rays.view()[58]), list = this.list, pool = this.pool, polygonPool = this.polygonPool, sets = rays.sets;
+    this.used = 0;
+    this.polygonUsed = 0;
+    empty(list);
+    for (let p = 0, k = 0; p < polygons; p++) {
+      if (this.polygonUsed === polygonPool.length) polygonPool.push({ id: 0, triangles: [], done: false, moving: false });
+      const polygon = polygonPool[this.polygonUsed++], triangles = polygon.triangles;
+      polygon.id = out[k];
+      empty(triangles);
+      polygon.done = false;
+      polygon.moving = out[k + 1] !== 0;
+      list.push(polygon);
+      const n = out[k + 2];
+      k += 3;
+      for (let t = 0; t < n; t++) {
+        const set = out[k], index = out[k + 1];
+        if (set >= 0) {
+          const fixed = sets[set];
+          triangles.push(fixed.triangles[index] || fixedTriangle(fixed, index));
+          k += 2;
+        } else {
+          if (this.used === pool.length) pool.push(new THREE.Triangle());
+          const tri = pool[this.used++];
+          tri.a.set(out[k + 2], out[k + 3], out[k + 4]);
+          tri.b.set(out[k + 5], out[k + 6], out[k + 7]);
+          tri.c.set(out[k + 8], out[k + 9], out[k + 10]);
+          triangles.push(tri);
+          k += 11;
+        }
+      }
+    }
+    return list;
+  }
+
+  // Whether each of the `count` bodies the kernel's query just named is
+  // enabled (ENABLED), read from the bodies' plain field.
+  rayEnabled(count) {
+    if (!count) return;
+    const rays = this.rays, bodies = this.bodies, candidates = rays.candidates(), enabled = rays.flags();
+    for (let c = 0; c < count; c++) enabled[c] = bodies[candidates[c]].enabled ? 1 : 0;
   }
 
   // The vehicle-only barriers (Vehicles sets vehicleBlockers, a body shape
@@ -447,6 +500,7 @@ export class CollisionWorld {
   // Clearance for a swept posture, including live props. Unlike gather this
   // does not disturb the polygon contact list currently being resolved.
   overlapsSphere(center, radius, ignoreBody = null) {
+    if (this.rays) return this.rayOverlapsSphere(center, radius, ignoreBody);
     this.box.min.copy(center).addScalar(-radius);
     this.box.max.copy(center).addScalar(radius);
     this.overlapCenter = center;
@@ -465,6 +519,19 @@ export class CollisionWorld {
       if (hit) return true;
     }
     return false;
+  }
+
+  // overlapsSphere, in the ray kernel: the buildings and the terrain in the
+  // first call, the enabled bodies it names in the second.
+  rayOverlapsSphere(center, radius, ignoreBody) {
+    this.rayBodies();
+    const rays = this.rays, io = rays.view();
+    io[0] = center.x; io[1] = center.y; io[2] = center.z; io[3] = radius;
+    const count = rays.x.overlap_begin(this.rayWorld, ignoreBody?.raySlot ?? -1);
+    if (count < 0) return true;
+    if (count === 0) return false;
+    this.rayEnabled(count);
+    return rays.x.overlap_end(this.rayWorld, count) !== 0;
   }
 
   // Ground height and face normal straight under (x, z), searched from `top`
@@ -501,8 +568,27 @@ export class CollisionWorld {
   terrainNear(center, radius) {
     const out = this.terrainNearList ||= [];
     empty(out);
-    this.terrainGrid?.near(center, radius, out, this.terrainNearPool ||= []);
+    if (this.rays) {
+      if (this.terrainGrid) this.rayTerrainNear(center, radius, out, this.terrainNearPool ||= []);
+    } else this.terrainGrid?.near(center, radius, out, this.terrainNearPool ||= []);
     return out;
+  }
+
+  // TriangleGrid.near, in the ray kernel: the triangles' numbers from the
+  // module, their corners copied as near() copies them.
+  rayTerrainNear(center, radius, out, pool) {
+    const rays = this.rays, io = rays.view(), grid = this.terrainGrid, p = grid.positions, ix = grid.indices;
+    io[0] = center.x; io[1] = center.y; io[2] = center.z; io[3] = radius;
+    const count = rays.x.terrain_near_ray(this.rayGrid);
+    const near = rays.outU32(rays.view()[58]);
+    for (let i = 0; i < count; i++) {
+      if (out.length === pool.length) pool.push(new THREE.Triangle());
+      const tri = pool[out.length], t = near[i] * 3;
+      tri.a.fromArray(p, ix[t] * 3);
+      tri.b.fromArray(p, ix[t + 1] * 3);
+      tri.c.fromArray(p, ix[t + 2] * 3);
+      out.push(tri);
+    }
   }
 
   // The terrain's nearest hit: the grid for rays that cross few of its cells
@@ -606,6 +692,16 @@ export class CollisionWorld {
     hit.normal.set(io[14], io[15], io[16]);
     return hit;
   }
+}
+
+// A fixed set's Triangle for triangle `index`, made the first time it is
+// gathered (gatherSet) and kept.
+function fixedTriangle(set, index) {
+  const out = set.triangles[index] = new THREE.Triangle(), p = set.positions, ix = set.indices, t = index * 3;
+  out.a.fromArray(p, ix[t] * 3);
+  out.b.fromArray(p, ix[t + 1] * 3);
+  out.c.fromArray(p, ix[t + 2] * 3);
+  return out;
 }
 
 // Each triangle's bounds: min x, y, z, then max x, y, z.
