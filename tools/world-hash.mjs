@@ -54,9 +54,11 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const game = await headlessGame(`?map=${map}&side=${side}&era=${era}&ai=classic&seed=${seed}${rays === 'wasm' ? '&rays=wasm' : ''}${movement === 'wasm' ? '&movement=wasm' : ''}`);
-if (rays === 'wasm' && !game.collision.rays) throw Error('ray kernel not loaded');
-if (movement === 'wasm' && !game.collision.movement) throw Error('movement kernel not loaded');
+const game = await headlessGame(`?map=${map}&side=${side}&era=${era}&ai=classic&seed=${seed}&rays=${rays}&movement=${movement}`);
+// Each kernel on or off as asked, whatever the environment says (the
+// movement kernel brings the ray kernel with it).
+if ((rays === 'wasm' || movement === 'wasm') !== Boolean(game.collision.rays)) throw Error(rays === 'wasm' || movement === 'wasm' ? 'ray kernel not loaded' : 'ray kernel loaded for a JavaScript run');
+if ((movement === 'wasm') !== Boolean(game.collision.movement)) throw Error(movement === 'wasm' ? 'movement kernel not loaded' : 'movement kernel loaded for a JavaScript run');
 let sent = [];
 const server = await createLocalServer(game, { name: 'Player', send: (channel, payload) => sent.push([channel, payload]) });
 server.welcome();

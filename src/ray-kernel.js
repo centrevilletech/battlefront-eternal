@@ -1,8 +1,9 @@
 // The collision world's queries in WebAssembly (rust/rays), for
 // CollisionWorld's cast, castMoving, ground, gather, overlapsSphere and
-// terrainNear when a battle asks for them (?rays=wasm). The JavaScript in
-// src/collision.js stays the default; the module answers every query as it
-// does, to the last bit (rust/rays says how).
+// terrainNear: in the offline world worker unless its battle's query says
+// rays=js, and on a page or a dedicated server when asked (?rays=wasm,
+// BFE_RAYS=wasm). The module answers every query as the JavaScript in
+// src/collision.js does, to the last bit (rust/rays says how).
 //
 // The module holds copies of what the queries read: each tree's packed nodes
 // from three-mesh-bvh, its triangles' corners, index and indirect buffers
@@ -40,18 +41,23 @@ export class RayKernel {
     // Every body by its slot, and every fixed set by its id.
     this.bodies = [];
     this.sets = [];
-    // Views of a gather's output and terrainNear's (outF64, outU32).
+    // Views of a gather's output and terrainNear's (outF64, outU32), of a
+    // whole query's input (input) and of the bodies' flags by place (places).
     this.f64Out = null;
     this.u32Out = null;
+    this.inputView = null;
+    this.placesView = null;
     this.refresh();
   }
 
   // Views of the module's memory; growing it (as copies are made) detaches
   // the old ones.
   refresh() {
-    this.io = new Float64Array(this.memory.buffer, this.x.io_ptr(), 64);
-    this.enabled = new Uint8Array(this.memory.buffer, this.x.enabled_ptr(), 1 << 16);
-    this.candidateList = new Uint32Array(this.memory.buffer, this.x.candidates_ptr(), 1 << 16);
+    // (Each address is asked for before memory.buffer is read.)
+    const io = this.x.io_ptr(), enabled = this.x.enabled_ptr(), candidates = this.x.candidates_ptr(), buffer = this.memory.buffer;
+    this.io = new Float64Array(buffer, io, 64);
+    this.enabled = new Uint8Array(buffer, enabled, 1 << 16);
+    this.candidateList = new Uint32Array(buffer, candidates, 1 << 16);
   }
 
   // A view of memory at `ptr`, made after the call that returned `ptr` (which
@@ -140,7 +146,8 @@ export class RayKernel {
     const count = set.triBounds.length / 6;
     if (!(set.polygonOf.length >= count)) throw Error("A fixed triangle has no polygon number");
     id = this.x.set_new(this.tree(bvh), count, set.offset);
-    new Float32Array(this.memory.buffer, this.x.set_bounds(id), count * 6).set(set.triBounds);
+    const bounds = this.x.set_bounds(id);
+    new Float32Array(this.memory.buffer, bounds, count * 6).set(set.triBounds);
     this.u32(this.x.set_polygons(id), count).set(set.polygonOf.subarray(0, count));
     this.setIds.set(set, id);
     this.sets[id] = set;
@@ -164,6 +171,22 @@ export class RayKernel {
     const view = this.f64Out;
     if (view && view.byteOffset === ptr && view.byteLength) return view;
     return this.f64Out = new Float64Array(this.memory.buffer, ptr, (this.memory.buffer.byteLength - ptr) >> 3);
+  }
+
+  // Room for `count` f64s of a query's input, as a view (made again when
+  // the room moves or memory grows).
+  input(count) {
+    const ptr = this.x.input_reserve(count), view = this.inputView;
+    if (view && view.byteOffset === ptr && view.length >= count && view.byteLength) return view;
+    return this.inputView = new Float64Array(this.memory.buffer, ptr, Math.max(count, 256));
+  }
+
+  // Each body's enabled flag by its place in the world's order.
+  places() {
+    const view = this.placesView;
+    if (view && view.byteLength) return view;
+    const ptr = this.x.places_ptr();
+    return this.placesView = new Uint8Array(this.memory.buffer, ptr, 1 << 16);
   }
 
   outU32(ptr) {

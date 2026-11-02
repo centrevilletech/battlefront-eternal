@@ -42,6 +42,7 @@ import { lighting } from "./materials.js";
 import { DeathCamera, SoldierCamera, deadFov } from "./camera.js";
 import { DeathShot } from "./death-shot.js";
 import { DeathTrace } from "./death-trace.js";
+import { setAnimKernel } from "./anim.js";
 import { CollisionWorld } from "./collision.js";
 import { CommandPosts } from "./commandposts.js";
 import { Effects } from "./effects.js";
@@ -90,7 +91,18 @@ import { pageGpu } from "./gpu-info.js";
 // onProgress(step, loaded, total): the load's progress, for the loading
 // screen (src/shell/loading.js): "data", "world", "shaders", and
 // "textures" with how many of how many have arrived.
-export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null } = {}) {
+// The collision's WebAssembly, or null (JavaScript, which gives the same
+// answers) if it cannot load here.
+async function loadRays() {
+  try {
+    return await (await import("./ray-kernel.js")).loadRayKernel();
+  } catch (error) {
+    console.warn(`The collision's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
+    return null;
+  }
+}
+
+export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, rays: raysDefault = null, movement: movementDefault = null } = {}) {
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
 const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
 const params = new URLSearchParams(query);
@@ -394,13 +406,23 @@ async function start() {
     if (hurt > 0) health.damage(hurt);
   };
   const groundPositions = new Float32Array(groundBuf);
-  // ?rays=wasm: the collision's ray casts in WebAssembly (src/ray-kernel.js),
-  // with the same answers as its JavaScript, the default. ?movement=wasm:
-  // the soldiers' movement there too (src/movement-kernel.js), the world's
-  // ticks and the page's replay of his own soldier alike; it brings the ray
-  // kernel with it.
-  const movement = params.get("movement") === "wasm";
-  const rays = params.get("rays") === "wasm" || movement ? await (await import("./ray-kernel.js")).loadRayKernel() : null;
+  // The collision's queries in WebAssembly (src/ray-kernel.js), with the
+  // same answers as its JavaScript: ?rays=wasm or ?rays=js decides; else
+  // the caller's default (rays), then, under Node (a dedicated server),
+  // BFE_RAYS=wasm in its environment; else JavaScript. ?movement=wasm or
+  // ?movement=js (else JavaScript after ?rays=js, else the caller's
+  // default): the soldiers' movement there too (src/movement-kernel.js),
+  // the world's ticks and the page's replay of his own soldier alike; it
+  // brings the ray kernel with it.
+  const movement = (params.get("movement") ?? (params.get("rays") === "js" ? "js" : movementDefault)) === "wasm";
+  const rays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm" ? await loadRays() : null;
+  // ?anim=wasm: the pose sampling in WebAssembly (src/anim-kernel.js), to
+  // the last bit as its JavaScript (the default). The page's poses only:
+  // a headless world (the local worker, a dedicated server) reads rider
+  // poses for its ticks and keeps the JavaScript, so its worlds cannot
+  // change. Poses made before this take the kernel up as they clear.
+  const anim = !headless && params.get("anim") === "wasm" ? await (await import("./anim-kernel.js")).loadAnimKernel() : null;
+  setAnimKernel(anim);
   const collision = new CollisionWorld(
     new Float32Array(collBuf),
     new Uint32Array(collIndexBuf),
@@ -409,7 +431,8 @@ async function start() {
     new Uint32Array(groundIndexBuf),
     rays,
   );
-  collision.movement = movement ? new (await import("./movement-kernel.js")).MovementKernel(collision) : null;
+  // (Not if the ray kernel did not load: the JavaScript answers for both.)
+  collision.movement = movement && rays ? new (await import("./movement-kernel.js")).MovementKernel(collision) : null;
   // Below the battlefield: KILL_Y, or 10 m under the lowest ground where the
   // ground lies lower (Naboo Plains runs from -95 m down to -140 m, its posts'
   // spawn paths below -110 m).
@@ -3576,6 +3599,10 @@ async function start() {
   })());
   // What the load still waits on, for checks: texture URLs with requests out.
   game.texturesPending = () => [...texturesOut.keys()];
+  // The pose sampler's switch (?anim=wasm's kernel), for measuring it
+  // against the JavaScript within one battle. Poses follow it as they
+  // clear, so nothing changes mid-blend.
+  game.animWasm = (on) => setAnimKernel(on && anim ? anim : null);
   // The loading screen's last two frames: the battle is drawn under them.
   game.unveil = () => { veiled = false; };
   // The loading screen is gone: the battle starts now, not while it showed.
