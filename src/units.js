@@ -81,6 +81,14 @@ function soldierShapes(posture, s) {
     { type: "sphere", part: "head", at: [-0.09, 1.65 * s, 0.16], radius: 0.17 * S },
   ];
 }
+// soldierShapes' tables by scale, then posture: the same few every tick,
+// built once (nothing writes to them).
+const SHAPE_TABLES = new Map();
+function shapeTable(posture, s) {
+  let tables = SHAPE_TABLES.get(s);
+  if (!tables) SHAPE_TABLES.set(s, tables = { stand: soldierShapes("stand", s), crouch: soldierShapes("crouch", s), prone: soldierShapes("prone", s) });
+  return posture === "prone" ? tables.prone : posture === "crouch" ? tables.crouch : tables.stand;
+}
 // The broadphase sphere (bounds { center, radius }) around a body's first
 // `count` hit shapes: about the middle of their centres, reaching past the
 // farthest shape.
@@ -345,18 +353,18 @@ export class Unit {
     } else {
       const sin = Math.sin(s.aimYaw);
       const cos = Math.cos(s.aimYaw);
-      const parts = soldierShapes(this.hitPosture, this.rootScale);
-      parts.forEach((part, i) => {
-        const shape = this.shapes[i];
-        const [x, y, z] = part.at;
+      const parts = shapeTable(this.hitPosture, this.rootScale);
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i], shape = this.shapes[i];
+        const x = part.at[0], y = part.at[1], z = part.at[2];
         // The soldier's left is (cos yaw, 0, -sin yaw), forward (sin yaw, 0, cos yaw).
         shape.center.set(p.x + cos * x + sin * z, p.y + y, p.z - sin * x + cos * z);
         shape.type = part.type;
         shape.part = part.part;
         shape.radius = part.radius || 0;
-        shape.half = part.type === "box" ? shape.halfSize.set(...part.half) : part.half || 0;
+        shape.half = part.type === "box" ? shape.halfSize.set(part.half[0], part.half[1], part.half[2]) : part.half || 0;
         shape.yaw = s.aimYaw;
-      });
+      }
       this.shapeCount = parts.length;
       boundShapes(this.shapes, parts.length, this.bounds);
     }

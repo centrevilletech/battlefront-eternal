@@ -550,7 +550,8 @@ export class PlayerCombat {
     // by presentCharge). A throw plays shoot3 above 0.7 of a charge, shoot2
     // above 0.4, else shoot.
     for (const weapon of this.arsenal.weapons) {
-      const was = this.seen.get(weapon) || { reloading: false, throwing: false };
+      let was = this.seen.get(weapon);
+      if (!was) this.seen.set(weapon, was = { reloading: false, throwing: false });
       if (weapon === primary) {
         if (weapon.reloading && !was.reloading) this.weaponAction("reload", weapon.bank, s.posture);
         if (!weapon.reloading && was.reloading) this.endWeaponAction("reload");
@@ -563,7 +564,8 @@ export class PlayerCombat {
         if (this.firstPerson) this.view?.play("prepareThrow", weapon);
         this.animator.fire();
       }
-      this.seen.set(weapon, { reloading: weapon.reloading, throwing: weapon.busy });
+      was.reloading = weapon.reloading;
+      was.throwing = weapon.busy;
     }
     for (const shot of shots) this.fire(shot);
     this.updateKick(dt);

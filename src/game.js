@@ -2141,42 +2141,57 @@ async function start() {
   // to (each player's view is his own): createMultiplayerWorld sets this so
   // the server separates every pair, everywhere, deterministically.
   const separationScope = { global: false };
+  const WALKER_BODY = [1, 2, 1];
+  // The pushers, and their cylinders and places in flat arrays: every pair
+  // is visited each tick. Their x and z there move with each push, as their
+  // positions do (both are written).
   const pushers = [];
+  let push = null;
   function separateSoldiers() {
     pushers.length = 0;
     for (const unit of units.all()) {
       if (unit.seat || unit.held || !unit.soldier || unit.removed || !(unit.alive || unit.dead)) continue;
       if (unit === playerUnit && (driver?.active || gunner.active || combat.dead)) continue;
       if (!separationScope.global && unit.position.distanceToSquared(simulationCamera.position) > 60 * 60) continue;
-      const [r, h, y] = unit.walker ? [1, 2, 1] : MAIN_BODY[unit.hitPosture] || MAIN_BODY.stand;
-      pushers.push({ unit, r, bottom: unit.position.y + y - h / 2, top: unit.position.y + y + h / 2, volume: Math.PI * r * r * h });
+      pushers.push(unit);
     }
-    for (let i = 0; i < pushers.length; i++) {
-      for (let k = i + 1; k < pushers.length; k++) {
-        const a = pushers[i];
-        const b = pushers[k];
-        if (a.top <= b.bottom || b.top <= a.bottom) continue;
-        const pa = a.unit.position;
-        const pb = b.unit.position;
-        let dx = pa.x - pb.x;
-        let dz = pa.z - pb.z;
-        const reach = a.r + b.r;
+    const n = pushers.length;
+    if (!push || push.r.length < n) {
+      const size = Math.max(64, n * 2);
+      push = { r: new Float64Array(size), bottom: new Float64Array(size), top: new Float64Array(size), volume: new Float64Array(size), x: new Float64Array(size), z: new Float64Array(size) };
+    }
+    const { r: rs, bottom, top, volume, x: xs, z: zs } = push;
+    for (let i = 0; i < n; i++) {
+      const unit = pushers[i], p = unit.position;
+      const body = unit.walker ? WALKER_BODY : MAIN_BODY[unit.hitPosture] || MAIN_BODY.stand;
+      const r = body[0], h = body[1], y = body[2];
+      rs[i] = r; bottom[i] = p.y + y - h / 2; top[i] = p.y + y + h / 2; volume[i] = Math.PI * r * r * h;
+      xs[i] = p.x; zs[i] = p.z;
+    }
+    for (let i = 0; i < n; i++) {
+      for (let k = i + 1; k < n; k++) {
+        if (top[i] <= bottom[k] || top[k] <= bottom[i]) continue;
+        let dx = xs[i] - xs[k];
+        let dz = zs[i] - zs[k];
+        const reach = rs[i] + rs[k];
         const d2 = dx * dx + dz * dz;
         if (d2 >= reach * reach) continue;
+        const a = pushers[i], b = pushers[k];
         let d = Math.sqrt(d2);
         if (d < 1e-4) {
-          dx = Math.sin(a.unit.id);
-          dz = Math.cos(a.unit.id);
+          dx = Math.sin(a.id);
+          dz = Math.cos(a.id);
           d = 1;
         }
         const depth = reach - Math.sqrt(d2);
-        const share = depth / (a.volume + b.volume);
-        pa.x += (dx / d) * share * b.volume;
-        pa.z += (dz / d) * share * b.volume;
-        pb.x -= (dx / d) * share * a.volume;
-        pb.z -= (dz / d) * share * a.volume;
-        a.unit.tickCount += 1;
-        b.unit.tickCount += 1;
+        const share = depth / (volume[i] + volume[k]);
+        const pa = a.position, pb = b.position;
+        pa.x = xs[i] += (dx / d) * share * volume[k];
+        pa.z = zs[i] += (dz / d) * share * volume[k];
+        pb.x = xs[k] -= (dx / d) * share * volume[i];
+        pb.z = zs[k] -= (dz / d) * share * volume[i];
+        a.tickCount += 1;
+        b.tickCount += 1;
       }
     }
   }
