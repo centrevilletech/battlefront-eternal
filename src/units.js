@@ -219,6 +219,29 @@ export class Unit {
     this.onDeath = () => {};
     this.onRemoved = () => {};
     this.onMoved = () => {};
+    // Set later: by the factory (navRadius to itemTarget), a life
+    // (targetable), water (waterContact), an open seat or a creature's grip
+    // (riderHits, held), a bot's driving (steer) or a network player (the
+    // rest). They start here as they read before they are set, undefined,
+    // so every unit keeps one shape and the code that walks the battle's
+    // units stays optimized instead of falling back on every new one.
+    this.navRadius = undefined;
+    this.crowdSlot = undefined;
+    this.enhancedDeath = undefined;
+    this.supply = undefined;
+    this.itemTarget = undefined;
+    this.targetable = undefined;
+    this.waterContact = undefined;
+    this.riderHits = undefined;
+    this.held = undefined;
+    this.steer = undefined;
+    this.networkHuman = undefined;
+    this.networkShot = undefined;
+    this.networkShots = undefined;
+    this.networkViewTick = undefined;
+    this.networkInputLeadTicks = undefined;
+    this.networkPlayoutMaxTicks = undefined;
+    this.remoteStep = undefined;
   }
 
   get position() {

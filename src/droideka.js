@@ -90,6 +90,12 @@ export function goneUp(state) {
 export class Droideka {
   constructor(world, def, clips, actor) {
     this.world = world;
+    // Set later (collision, water, firing), undefined till then as before:
+    // here so every droideka keeps one shape (Unit's constructor).
+    this.gatherCaches = undefined;
+    this.waterRule = undefined;
+    this.waterClock = undefined;
+    this.lastGun = undefined;
     this.def = def;
     this.clips = clips;
     this.actor = actor;

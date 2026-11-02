@@ -157,6 +157,7 @@ export class PlayerCombat {
   constructor({ soldier, def, actor, animator, collision, camera, ordnance, lights, weaponModels, firePoints, flashModel, texture, hud, caster = () => {}, owner = "player", player = true }) {
     this.owner = owner;
     this.player = player;
+    this.lastAttacker = undefined; // set by the first damage (one shape, as Unit's)
     this.aimOverride = null; // a bot's filtered aim direction, or null
     this.onDamaged = () => {}; // (amount, attacker, info) after health drops
     this.soldier = soldier;
