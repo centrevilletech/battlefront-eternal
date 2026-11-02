@@ -232,13 +232,13 @@ export class Graphics {
     );
     this.background.renderOrder = -1e9;
     this.scene.add(this.background);
-    // The Rust battle renderer (rust-render.js), behind ?rust: it draws the
+    // The Rust battle renderer (rust-render/), behind ?rust: it draws the
     // map's opaque buckets and the soldiers right after this image, inside
     // the near scene's pass.
     this.rust = null;
     this.playerRoot = null;
     if (typeof location !== "undefined" && new URLSearchParams(location.search).has("rust")) {
-      import("./rust-render.js").then((m) => m.createRustRender(this)).then((rust) => { this.rust = rust; })
+      import("./rust-render/index.js").then((m) => m.createRustRender(this)).then((rust) => { this.rust = rust; })
         .catch((error) => console.warn("Rust renderer unavailable:", error));
     }
     this.background.onAfterRender = (renderer, scene, camera) => this.rust?.pass(renderer, scene, camera);

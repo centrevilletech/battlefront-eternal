@@ -133,8 +133,8 @@ export function buildActor(actor, actorBuf, actorIndexBuf, textureFor, graphics,
   graphics.caster(shadow);
   // Its screen motion for the temporal upscaler.
   motionVectors.track(body);
-  // What the Rust renderer (rust-render.js) draws of him: the body, and the
-  // guns combat.js hangs in his hand.
+  // What the Rust renderer (rust-render/instances.js) draws of him: the
+  // body, and the guns combat.js hangs in his hand.
   root.userData.parts = { body, hand: byName[actor.attach] };
 
   return { root, bones, byName, skeleton, body, shadow, hand: byName[actor.attach], materials };

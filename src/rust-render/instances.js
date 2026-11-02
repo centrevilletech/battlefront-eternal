@@ -1,0 +1,234 @@
+// The instance pass (instances.rs): every visible soldier's body and the
+// guns in his hand, and behind ?rustRigs the scene's other skinned meshes
+// (vehicles' and props' rigs), each a record the renderer draws instanced
+// in the near phase, after the world. Each is registered the first time
+// three has drawn it (which gives its material a program), then hidden from
+// three; a body wearing materials of its own for now (a dissolve) goes back
+// to three.
+const SKINNED = 1, RIGID = 2;
+// Record layout (instances.rs REC_*).
+const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, BONE_AT: 9, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56, BIND: 60 };
+const MAX_RECORDS = 256;
+// A record's state flags (instances.rs REC_FLAGS): its material's side, then
+// alpha to coverage and depth write.
+const flagsOf = (m) => m.side | (m.alphaToCoverage ? 4 : 0) | (m.depthWrite ? 8 : 0);
+// The material values these programs read, each instance's from its row
+// (writeBody, writeMesh).
+const LOOK = new Set(["sunScale", "ambientPull", "brightness"]);
+// Uniforms each kind of program may read besides the frame block: its
+// textures, what the renderer gives each instance from its row (matrices,
+// look, point lights), and lamp lighting's, read only while lamps are off
+// (each soldier's four nearest lamps would be per instance otherwise).
+const INSTANCE = ["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "bindMatrix", ...LOOK, "zeroLights", "zeroLightCount"];
+const LAMPS = ["localLightPositions", "localLightColors", "localLightCount"];
+const policy = (samplers) => ({ uniforms: new Set([...samplers, ...INSTANCE, ...LAMPS]), material: LOOK });
+const POLICIES = { [SKINNED]: policy(["map", "farMap", "boneTexture"]), [RIGID]: policy(["map", "farMap"]) };
+
+function inScene(object, scene) {
+  let o = object;
+  while (o.parent) o = o.parent;
+  return o === scene;
+}
+
+class InstancePass {
+  constructor(core) {
+    this.core = core;
+    this.name = "instances";
+    this.phase = "near";
+    this.bodies = new WeakMap(); // root -> its body's record, or null
+    this.meshes = new WeakMap(); // a gun's mesh -> its record, or null
+    // ?rustRigs: vehicles' and props' skinned meshes too.
+    this.rigsOn = new URLSearchParams(location.search).has("rustRigs");
+    this.rigList = null;
+    this.bodyRecords = [];
+    this.meshRecords = [];
+    this.frames = 0;
+  }
+
+  // ctx: the phase's camera, and what has been written to the renderer's
+  // input so far (records, bones, skeletons).
+  draw(ctx) {
+    const { camera } = ctx, graphics = this.core.graphics;
+    for (const root of graphics.cullRoots) this.soldier(root, camera, ctx);
+    if (graphics.playerRoot) this.soldier(graphics.playerRoot, camera, ctx);
+    if (this.rigsOn) this.rigs(camera, ctx);
+    this.frames++;
+  }
+
+  // A soldier's body and the guns in his hand as records; registers them
+  // (and hides them from three) the first time each is seen drawn by three.
+  soldier(root, camera, at) {
+    const parts = root.userData.parts;
+    if (!parts || !root.visible) return at;
+    const { body, hand } = parts;
+    let record = this.bodies.get(body);
+    if (record === undefined) record = this.registerBody(body);
+    if (record && body.visible && camera.layers.test(body.layers) && body.material === record.materials) {
+      at = this.writeBody(record, at);
+    } else if (record && body.material !== record.materials) {
+      // Materials of its own for now (a dissolve, units.js): three draws them.
+      for (const m of [].concat(body.material)) m.visible = true;
+    }
+    for (const group of hand?.children || []) {
+      if (!group.visible || !group.isGroup) continue;
+      for (const mesh of group.children) {
+        if (!mesh.isMesh || !mesh.visible || !camera.layers.test(mesh.layers)) continue;
+        let rec = this.meshes.get(mesh);
+        if (rec === undefined) rec = this.registerMesh(mesh);
+        if (rec && mesh.material === rec.material) at = this.writeMesh(rec, at);
+        else if (rec) mesh.material.visible = true;
+      }
+    }
+    return at;
+  }
+
+  registerBody(body) {
+    const core = this.core;
+    let record = null;
+    // The materials its groups draw with: the array is the actor's own
+    // (actor.js), to which combat.js adds the guns' materials too.
+    const all = [].concat(body.material);
+    const merged = core.groups(body.geometry);
+    const used = [...new Set(merged.length ? merged.map((g) => all[g.materialIndex]) : [all[0]])];
+    const programs = used.map((m) => m && core.renderer.properties.get(m).currentProgram);
+    const why = !programs[0] ? "" : !programs.every((p) => p === programs[0]) ? "programs differ" : merged.length > 4 ? "groups" : !("RIGID_SKIN" in (used[0].defines || {})) ? "not rigid" : null;
+    if (why) core.errors.push(`body: ${why}`);
+    if (programs[0] && why === null) {
+      const program = core.program(programs[0], SKINNED, used[0], POLICIES[SKINNED]);
+      const geometry = program && core.geometry(body.geometry, program);
+      if (geometry !== null && geometry !== undefined) {
+        const groups = merged.length ? merged : [{ materialIndex: 0 }];
+        const textures = groups.map((g) => core.texture(all[g.materialIndex]?.uniforms.map?.value));
+        if (textures.every((t) => t >= 0)) {
+          record = { body, materials: body.material, used, program: program.id, geometry, textures, whole: !merged.length, look: used[0].uniforms };
+          for (const m of used) m.visible = false;
+          this.bodyRecords.push(record);
+        }
+      }
+    }
+    if (programs[0] || record) this.bodies.set(body, record);
+    return record;
+  }
+
+  // The scene's other skinned meshes (vehicle-rig.js: hulls, walkers,
+  // animated props), looked for again now and then; soldiers' bodies are
+  // found through their roots.
+  findRigs() {
+    const found = [];
+    this.core.graphics.scene.traverse((o) => { if (o.isSkinnedMesh && !o.userData.poseSphere && o.name !== "body-shadow" && !Array.isArray(o.material)) found.push(o); });
+    this.rigList = found;
+  }
+
+  rigs(camera, at) {
+    const scene = this.core.graphics.scene;
+    if (!this.rigList || this.frames % 120 === 0) this.findRigs();
+    for (const mesh of this.rigList) {
+      let rec = this.bodies.get(mesh);
+      if (rec === undefined) rec = this.registerRig(mesh);
+      if (!rec) continue;
+      if (mesh.material !== rec.materials) { mesh.material.visible = true; continue; }
+      if (!camera.layers.test(mesh.layers)) continue;
+      let shown = true;
+      for (let o = mesh; o && o !== scene; o = o.parent) if (!o.visible) { shown = false; break; }
+      if (shown && inScene(mesh, scene)) at = this.writeBody(rec, at);
+    }
+    return at;
+  }
+
+  registerRig(mesh) {
+    const core = this.core;
+    let record = null;
+    const material = mesh.material, threeProgram = core.renderer.properties.get(material).currentProgram;
+    if (threeProgram && !material.transparent && !mesh.geometry.groups.length && mesh.skeleton) {
+      const program = core.program(threeProgram, SKINNED, material, POLICIES[SKINNED]);
+      const geometry = program && core.geometry(mesh.geometry, program);
+      const texture = core.texture(material.uniforms?.map?.value);
+      if (geometry !== null && geometry !== undefined && texture >= 0) {
+        record = { body: mesh, materials: material, used: [material], program: program.id, geometry, textures: [texture], whole: true, look: material.uniforms };
+        material.visible = false;
+        this.bodyRecords.push(record);
+      }
+    }
+    if (threeProgram || record) this.bodies.set(mesh, record);
+    return record;
+  }
+
+  registerMesh(mesh) {
+    const core = this.core;
+    let record = null;
+    const material = mesh.material, threeProgram = !Array.isArray(material) && core.renderer.properties.get(material).currentProgram;
+    if (threeProgram && !material.transparent && !mesh.geometry.groups.length && "DYNAMIC" in (material.defines || {})) {
+      const program = core.program(threeProgram, RIGID, material, POLICIES[RIGID]);
+      const geometry = program && core.geometry(mesh.geometry, program);
+      const texture = core.texture(material.uniforms.map?.value);
+      if (geometry !== null && geometry !== undefined && texture >= 0) {
+        if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+        if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+        record = { mesh, material, program: program.id, geometry, texture };
+        material.visible = false;
+        this.meshRecords.push(record);
+      }
+    }
+    if (threeProgram || record) this.meshes.set(mesh, record);
+    return record;
+  }
+
+  writeBody(record, at) {
+    if (at.records >= MAX_RECORDS) return at;
+    const core = this.core;
+    core.views();
+    const { body } = record, input = core.input, skeleton = body.skeleton;
+    const bones = skeleton.bones.length;
+    let boneAt = at.skeletons.get(skeleton);
+    if (boneAt === undefined) {
+      if (at.bones + bones > core.bones.length / 16) return at;
+      skeleton.update();
+      core.bones.set(skeleton.boneMatrices, at.bones * 16);
+      boneAt = at.bones; at.skeletons.set(skeleton, boneAt); at.bones += bones;
+    }
+    const o = core.recordsAt + at.records * core.stride;
+    input[o + R.KIND] = SKINNED; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
+    input[o + R.GROUPS] = record.whole ? 0 : record.textures.length;
+    for (let g = 0; g < record.textures.length; g++) input[o + R.TEXTURES + g] = record.textures[g];
+    input[o + R.BONES] = bones; input[o + R.BONE_AT] = boneAt;
+    const s = body.boundingSphere;
+    input[o + R.SPHERE] = s.center.x; input[o + R.SPHERE + 1] = s.center.y; input[o + R.SPHERE + 2] = s.center.z; input[o + R.SPHERE + 3] = s.radius;
+    const w = body.matrixWorld.elements, b = body.bindMatrixInverse.elements, bind = body.bindMatrix.elements;
+    for (let k = 0; k < 16; k++) { input[o + R.WORLD + k] = w[k]; input[o + R.BIND_INVERSE + k] = b[k]; input[o + R.BIND + k] = bind[k]; }
+    const look = record.look;
+    input[o + R.LOOK] = look.sunScale.value; input[o + R.LOOK + 1] = look.ambientPull.value.x; input[o + R.LOOK + 2] = look.ambientPull.value.y; input[o + R.LOOK + 3] = look.brightness.value;
+    input[o + R.FLAGS] = flagsOf(record.used[0]);
+    at.records++;
+    return at;
+  }
+
+  writeMesh(record, at) {
+    if (at.records >= MAX_RECORDS) return at;
+    const core = this.core;
+    core.views();
+    const { mesh, material } = record, input = core.input, geometry = mesh.geometry;
+    const o = core.recordsAt + at.records * core.stride;
+    input[o + R.KIND] = RIGID; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
+    input[o + R.GROUPS] = 0; input[o + R.TEXTURES] = record.texture; input[o + R.BONES] = 0;
+    const s = geometry.boundingSphere, b = geometry.boundingBox;
+    input[o + R.SPHERE] = s.center.x; input[o + R.SPHERE + 1] = s.center.y; input[o + R.SPHERE + 2] = s.center.z; input[o + R.SPHERE + 3] = s.radius;
+    input[o + R.BOX] = b.min.x; input[o + R.BOX + 1] = b.min.y; input[o + R.BOX + 2] = b.min.z; input[o + R.BOX + 3] = b.max.x; input[o + R.BOX + 4] = b.max.y; input[o + R.BOX + 5] = b.max.z;
+    const w = mesh.matrixWorld.elements;
+    for (let k = 0; k < 16; k++) { input[o + R.WORLD + k] = w[k]; input[o + R.BIND_INVERSE + k] = 0; }
+    const u = material.uniforms;
+    input[o + R.LOOK] = u.sunScale.value; input[o + R.LOOK + 1] = u.ambientPull.value.x; input[o + R.LOOK + 2] = u.ambientPull.value.y; input[o + R.LOOK + 3] = u.brightness.value;
+    input[o + R.FLAGS] = flagsOf(material);
+    at.records++;
+    return at;
+  }
+
+  setActive(on) {
+    const set = (m) => { if (m) m.visible = !on; };
+    for (const record of this.bodyRecords) for (const m of record.used) set(m);
+    for (const record of this.meshRecords) set(record.material);
+  }
+}
+
+export function instancesPass(core) {
+  return new InstancePass(core);
+}
