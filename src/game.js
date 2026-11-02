@@ -2047,7 +2047,11 @@ async function start() {
     else if (gunner.active) gunner.updateCamera(dt, 1, firstPerson, true);
     else {
       simulationZoom = combat.zoom;
-      simulationView.update(dt, soldier.position, soldier.aimYaw, soldier.aimPitch,
+      // A server world's own player has no body (createMultiplayerWorld):
+      // nothing reads his chase camera there (the AI watches the players'
+      // views, src/runtime/network-views.js), and its five wall rays a tick
+      // are left out.
+      if (!(game.serverWorld && playerUnit.removed)) simulationView.update(dt, soldier.position, soldier.aimYaw, soldier.aimPitch,
         soldier.air ? "stand" : soldier.posture, combat.zoom, eyes, eyes ? simulationEye : null);
     }
     simulationCamera.updateMatrixWorld();
