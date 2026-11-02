@@ -1,0 +1,12 @@
+[package]
+name = "rays"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+
+# A raw WebAssembly module (no wasm-bindgen): src/ray-kernel.js instantiates
+# it with plain WebAssembly APIs, in a worker, a page or Node alike. The rlib
+# is for the native unit tests.
+[lib]
+crate-type = ["cdylib", "rlib"]

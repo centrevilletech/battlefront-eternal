@@ -29,12 +29,16 @@
 //                 and presses say his page showed the battle T ticks ago
 //                 (fractions allowed), so his shots are judged against the
 //                 hit history, rewound and interpolated, as online.
+//
+// --rays wasm runs the collision's ray casts in WebAssembly (?rays=wasm,
+// src/ray-kernel.js); its fingerprints must match the default's.
 import crypto from 'node:crypto';
 
 const argv = process.argv.slice(2);
 const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i < 0 ? fallback : argv[i + 1]; };
 const map = opt('map', 'nab2'), side = opt('side', 'rep'), seed = Number(opt('seed', 1)), ticks = Number(opt('ticks', 2400));
 const interval = Number(opt('interval', 1)), ack = argv.includes('--ack'), view = opt('view', null) === null ? null : Number(opt('view', 0));
+const rays = opt('rays', 'js');
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 
 const wallNow = performance.now.bind(performance);
@@ -48,7 +52,8 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const game = await headlessGame(`?map=${map}&side=${side}&era=${era}&ai=classic&seed=${seed}`);
+const game = await headlessGame(`?map=${map}&side=${side}&era=${era}&ai=classic&seed=${seed}${rays === 'wasm' ? '&rays=wasm' : ''}`);
+if (rays === 'wasm' && !game.collision.rays) throw Error('ray kernel not loaded');
 let sent = [];
 const server = await createLocalServer(game, { name: 'Player', send: (channel, payload) => sent.push([channel, payload]) });
 server.welcome();
@@ -99,5 +104,5 @@ for (let i = 0; i < ticks; i++) {
   await new Promise((resolve) => setImmediate(resolve));
 }
 process.stdout.write(lines.join('\n') + '\n');
-console.error(`${map} ${side} seed ${seed}: ${ticks} ticks, ${game.units.all().filter((u) => u.alive && u.soldier).length} soldiers alive at the end, world step ${(stepMs / Math.max(1, measured)).toFixed(2)} ms mean after tick 900`);
+console.error(`${map} ${side} seed ${seed}${rays === 'wasm' ? ' (rays wasm)' : ''}: ${ticks} ticks, ${game.units.all().filter((u) => u.alive && u.soldier).length} soldiers alive at the end, world step ${(stepMs / Math.max(1, measured)).toFixed(2)} ms mean after tick 900`);
 process.exit(0);

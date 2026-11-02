@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["glbench"]
+members = ["glbench", "rays"]
 
 [profile.release]
 opt-level = 3
