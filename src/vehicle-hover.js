@@ -46,7 +46,7 @@ const s = {
   center: new THREE.Vector3(), normal: new THREE.Vector3(), nearest: new THREE.Vector3(), ray: new THREE.Vector3(),
   hit: { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null },
   ground: { height: 0, normal: new THREE.Vector3() },
-  used: new Set(), compression: new Float64Array(SPRINGS),
+  used: [], usedCount: 0, compression: new Float64Array(SPRINGS),
 };
 
 // The class's hover keys, as HoverClass's parser reads them over the
@@ -217,6 +217,10 @@ function springContact(v, spring, compression, n, depth) {
 // water: the depth of its bottom under the surface over its
 // travel, and once it is in past its travel and sinking, the hull's fall is
 // halved and its other speeds and turn rates lose a tenth.
+function usedBy(s, p) {
+  for (let k = 0; k < s.usedCount; k++) if (s.used[k] === p) return true;
+  return false;
+}
 export function hoverContacts(v) {
   const h = hoverClass(v.def), c = v.system.collision, water = v.system.water;
   for (let i = 0; i < h.springs.length; i++) {
@@ -236,11 +240,13 @@ export function hoverContacts(v) {
     // The polygons near it, searched again from where each contact leaves
     // it (gather's list holds until its next call).
     const polygons = c.gather(s.center, r, true, v.springCaches?.[i] ?? null);
-    s.used.clear();
+    // The polygons this spring has met (three at most), in a list kept for
+    // the next spring: a Set cleared every spring made a table each time.
+    s.usedCount = 0;
     for (let pass = 0; pass < 3; pass++) {
       let best = r, polygon = null;
       for (const p of polygons) {
-        if (p.moving || s.used.has(p)) continue;
+        if (p.moving || usedBy(s, p)) continue;
         for (const tri of p.triangles) {
           tri.closestPointToPoint(s.center, s.ray);
           const d = s.ray.distanceTo(s.center);
@@ -253,7 +259,7 @@ export function hoverContacts(v) {
         }
       }
       if (!polygon) break;
-      s.used.add(polygon);
+      s.used[s.usedCount++] = polygon;
       if (best >= 1e-6) s.normal.subVectors(s.center, s.nearest).divideScalar(best);
       compression = springContact(v, spring, compression, s.normal, r - best);
       s.center.copy(spring.at).applyQuaternion(s.q).add(v.position);

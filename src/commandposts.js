@@ -384,7 +384,9 @@ export class CommandPosts {
         this.events.push({ post, ...post.destroy() });
         continue;
       }
-      post.counts.clear();
+      // Clearing a Map makes it a new table, even an empty one: most posts
+      // stand empty most ticks.
+      if (post.counts.size) post.counts.clear();
       for (const soldier of soldiers) {
         const team = this.teams ? this.teams.captureTeam(soldier.team) : soldier.team;
         if (!team || !post.contains(soldier.position, this.scratch)) continue;
