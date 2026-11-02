@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["glbench", "bfe-render"]
+members = ["glbench", "bfe-render", "bfe-native"]
 
 [profile.release]
 opt-level = 3

@@ -43,6 +43,23 @@ const INSTANCE = new Set(["modelMatrix", "modelViewMatrix", "normalMatrix", "bin
 const GL_TYPES = { Float32Array: 0x1406, Uint16Array: 0x1403, Uint8Array: 0x1401, Int16Array: 0x1402, Int8Array: 0x1400, Uint32Array: 0x1405 };
 const IDENTITY = new THREE.Matrix4();
 
+// The renderer with each registration call it is given kept (typed arrays
+// copied), so another build of it can be given the same scene.
+function recorder(rust, recording) {
+  return new Proxy(rust, {
+    get(target, name) {
+      const value = target[name];
+      if (typeof value !== "function") return value;
+      if (/^(frame|input_|bones_|records_at|record_stride)/.test(String(name))) return value.bind(target);
+      return (...args) => {
+        const result = value.apply(target, args);
+        recording.calls.push([name, args.map((a) => (ArrayBuffer.isView(a) ? a.slice() : a?.constructor?.name === "WebGLTexture" ? null : a)), result]);
+        return result;
+      };
+    },
+  });
+}
+
 // A geometry's groups with consecutive ranges of one material merged: a
 // soldier's two ranges with the same material draw as one.
 const mergedGroups = new WeakMap();
@@ -72,6 +89,10 @@ class RustRender {
     this.gl = this.renderer.getContext();
     this.wasm = wasm;
     this.rust = new BfeRenderer(this.gl);
+    // ?rustRecord: every call made to the renderer, and each frame's inputs,
+    // kept for a replay outside the browser (rust/bfe-native).
+    this.recording = new URLSearchParams(location.search).has("rustRecord") ? { calls: [], textures: [], frames: [], keepFrames: 0 } : null;
+    if (this.recording) this.rust = recorder(this.rust, this.recording);
     this.buffer = null;
     this.programs = new Map(); // three's program -> Rust's (or null: unsupported)
     this.geometries = new Map(); // "geometry uuid:program" -> Rust geometry
@@ -114,7 +135,11 @@ class RustRender {
     const handle = this.renderer.properties.get(texture).__webglTexture;
     if (!handle) return -1;
     let id = this.textures.get(handle);
-    if (id === undefined) { id = this.rust.add_texture(handle); this.textures.set(handle, id); }
+    if (id === undefined) {
+      id = this.rust.add_texture(handle);
+      this.textures.set(handle, id);
+      if (this.recording) this.recording.textures[id] = { handle, width: texture.image?.width ?? texture.mipmaps?.[0]?.width ?? texture.width ?? 0, height: texture.image?.height ?? texture.mipmaps?.[0]?.height ?? texture.height ?? 0 };
+    }
     return id;
   }
 
@@ -403,6 +428,10 @@ class RustRender {
     const at = { records: 0, bones: 0 };
     for (const root of this.graphics.cullRoots) this.soldier(root, camera, at);
     if (this.graphics.playerRoot) this.soldier(this.graphics.playerRoot, camera, at);
+    if (this.recording?.keepFrames > 0) {
+      this.recording.keepFrames--;
+      this.recording.frames.push({ records: at.records, input: this.input.slice(0, this.recordsAt + at.records * this.stride), bones: this.bones.slice(0, at.bones * 16) });
+    }
     const t0 = performance.now();
     this.stats = this.rust.frame(at.records);
     this.frameMs = performance.now() - t0;
