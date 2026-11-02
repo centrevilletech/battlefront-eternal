@@ -30,8 +30,9 @@
 // render order, the centre of its bounding sphere (through its world
 // matrix, as three's projectObject takes it) and its id.
 //
-// What the Enhanced looks draw (blaster-bolts.js, sniper-trace.js, the
-// arcs, the destruction and jetpack effects) stays with three for now.
+// Of what the Enhanced looks draw, the bolts (blaster-bolts.js) are drawn
+// here too; the sniper's trace, the arcs, and the destruction and jetpack
+// effects stay with three for now.
 import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
 import { squareBatches } from "../atmosphere.js";
@@ -64,6 +65,9 @@ const KINDS = {
   analytic: { attributes: [["spawnPosition", 3], ["spawnVelocity", 3], ["spawnColor", 4], ["spawnShape", 4], ["spawnMeta", 4]], values: [], samplers: [] },
   square: { attributes: [["center", 4], ["spin", 2]], values: ["tint", "axisU", "axisV"], samplers: [] },
   snow: { attributes: [], values: ["flakeCount", "size", "cameraRight", "cameraUp", "tint", "coverCell", "coverSize"], ints: ["flakeCount"], samplers: ["flakes", "boxes", "cover"], hiddenBy: "material" },
+  // The Enhanced bolts (blaster-bolts.js): capsules fitted on the image
+  // plane, their pixel's angle set by their onBeforeRender.
+  blaster: { attributes: [["iHead", 3], ["iTail", 3], ["iColor", 4], ["iSize", 4]], values: ["pixelAngle"], samplers: [], beforeRender: true },
 };
 const SAMPLER_UNITS = { flakes: 7, boxes: 8, cover: 9 };
 const LIGHTNING = [["position", 3], ["uv", 2], ["color", 4]];
@@ -83,6 +87,7 @@ function kindOf(batch) {
   if (!a || !m?.isShaderMaterial || !batch.mesh || !batch.geometry?.isInstancedBufferGeometry) return null;
   if (a.iShape && a.iPosition) return "cpu";
   if (a.spawnMeta && a.spawnPosition) return "analytic";
+  if (a.iHead && a.iSize && !a.iMisc) return "blaster";
   return null;
 }
 
@@ -200,7 +205,7 @@ class EffectsPass {
     this.glowing = [];
     this.models = new Map(); // what a model is made of -> its id
     this.batchCount = -1;
-    this.pending = false;
+    this.waiting = new Map(); // batch -> its registration, until three has drawn it
     this.frame = 0;
     this.active = true;
     // What the measurement tools read: last frame's draws and instances.
@@ -294,22 +299,26 @@ class EffectsPass {
     const renderers = particleRenderers.get(scene) || [], haze = squareBatches.get(scene) || [];
     let n = haze.length;
     for (const r of renderers) n += r.batches.size;
-    if (n === this.batchCount && !this.pending) return;
-    this.batchCount = n;
-    this.pending = false;
-    const add = (key, make) => {
-      if (this.byBatch.has(key)) return;
-      const record = make();
-      if (record === undefined) this.pending = true;
-      else this.byBatch.set(key, record);
-    };
-    for (const r of renderers) {
-      for (const batch of r.batches.values()) {
-        const kind = kindOf(batch);
-        add(batch, () => (kind ? this.registerBatch(batch, kind, r) : null));
+    if (n !== this.batchCount) {
+      this.batchCount = n;
+      for (const r of renderers) {
+        for (const batch of r.batches.values()) {
+          if (this.byBatch.has(batch) || this.waiting.has(batch)) continue;
+          const kind = kindOf(batch);
+          if (!kind) this.byBatch.set(batch, null);
+          else this.waiting.set(batch, () => this.registerBatch(batch, kind, r));
+        }
       }
+      for (const batch of haze) if (!this.byBatch.has(batch) && !this.waiting.has(batch)) this.waiting.set(batch, () => this.registerBatch(squares(batch), "square", null));
     }
-    for (const batch of haze) add(batch, () => this.registerBatch(squares(batch), "square", null));
+    // Those waiting for three to draw them first (the Enhanced bolts' batch
+    // never is in Classic): a look at their program each frame.
+    for (const [batch, register] of this.waiting) {
+      const record = register();
+      if (record === undefined) continue;
+      this.byBatch.set(batch, record);
+      this.waiting.delete(batch);
+    }
   }
 
   // A batch's record, or null when the renderer can't draw it; undefined
@@ -362,6 +371,7 @@ class EffectsPass {
     const key = new Float64Array(6);
     this.keyOf(batch.mesh, key);
     const record = { batch, kind, id, attributes, values, samplers, arrays: null, mesh: batch.mesh, map, handle: this.handle(map), version: map?.version, key,
+      stride: attributes.reduce((sum, [, size]) => sum + size, 0), beforeRender: Boolean(spec.beforeRender),
       hiddenBy: spec.hiddenBy ?? "external", synced: false, capacity: -1, from: this.frame };
     this.hide(record, true);
     this.records.push(record);
@@ -546,8 +556,10 @@ class EffectsPass {
       const b = record.batch;
       if (record.from === frame || b.count <= 0 || (record.hiddenBy !== "material" && b.material.visible === false) || !b.mesh.visible && record.hiddenBy === "material" || !this.shown(record.mesh, camera)) continue;
       drawn.push(record);
-      need += b.count * (record.kind === "cpu" ? 21 : record.kind === "analytic" ? 18 : record.attributes.length ? 6 : 0);
+      need += b.count * record.stride;
       for (const [, size] of record.values) need += size;
+      // Values its onBeforeRender sets, as three would call it.
+      if (record.beforeRender) record.mesh.onBeforeRender(ctx.renderer, ctx.scene, camera, b.geometry, b.material, null);
       // Its data textures, uploaded by three as they change.
       for (const sampler of record.samplers) {
         const tex = b.material.uniforms[sampler.name].value ?? null, handle = this.handle(tex);

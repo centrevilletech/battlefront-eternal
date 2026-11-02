@@ -201,8 +201,10 @@ export class BlasterBatch {
 
   end() {
     this.geometry.instanceCount = this.count;
-    this.mesh.visible = this.count > 0;
-    if (!this.count) return;
+    // Drawn by another renderer (external: src/rust-render/effects.js reads
+    // its arrays), it is shown to three never and uploads it nothing.
+    this.mesh.visible = this.count > 0 && !this.external;
+    if (!this.count || this.external) return;
     for (const name of Object.keys(ATTRIBUTES)) {
       const attribute = this.geometry.getAttribute(name);
       attribute.clearUpdateRanges();

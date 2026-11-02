@@ -82,7 +82,7 @@ function bridge() {
   };
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
   camera.updateMatrixWorld(true);
-  const sceneTarget = { name: "scene" }, farTarget = { texture: new THREE.Texture() };
+  const sceneTarget = { name: "scene", width: 800, height: 600 }, farTarget = { texture: new THREE.Texture() };
   const properties = new Map();
   const list = { opaque: [], transmissive: [], transparent: [] };
   const renderer = {
@@ -382,4 +382,26 @@ test("the snow: no instances of its own, its flakes and boxes in data textures o
   assert.equal(core.fxData[0], 4, "its flake count first");
   core.setActive(false);
   assert.equal(mesh.material.visible, true);
+});
+
+test("the Enhanced bolts: a batch whose pixel angle its onBeforeRender sets, as three would call it", async () => {
+  const { BlasterBatch } = await import("../src/blaster-bolts.js");
+  const { core, calls, scene, camera, frame, drawn, entry } = bridge();
+  const particles = new ParticleRenderer(scene);
+  const batch = particles.custom("blaster", () => new BlasterBatch());
+  const fill = () => { particles.begin(); batch.push(new THREE.Vector3(0, 0, -5), new THREE.Vector3(0, 0, -8), [1, 0.2, 0.1], 1, 0.02, 0.1, 0.5, 0.6); particles.end(); };
+  fill();
+  drawn(batch.material, program(["projectionMatrix", "modelViewMatrix", "pixelAngle", "fade", "time", "sceneDepth", "softParticles", "depthResolution", "cameraRange"], ["corner", "iHead", "iTail", "iColor", "iSize"]));
+  frame();
+  assert.deepEqual(calls.find((c) => c[0] === "fx_add_batch")[3], [1, 0x8006, 0x8006, 1, 0x0303, 1, 0x0303], "three's custom blending: one, one minus source alpha");
+  assert.deepEqual(calls.find((c) => c[0] === "fx_batch_values").slice(2), ["pixelAngle:1:0"]);
+  fill();
+  assert.equal(batch.mesh.visible, false);
+  batch.material.uniforms.pixelAngle.value = 0;
+  frame();
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 5), [0, 0, 1, 0, 0]);
+  assert.deepEqual(e.slice(6, 8), [0, 11], "render order 11");
+  const angle = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / 600;
+  assert.equal(core.fxData[14], Math.fround(angle), "its pixel angle after its 14 floats of instance, as onBeforeRender set it for the target's height");
 });
