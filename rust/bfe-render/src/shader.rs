@@ -87,6 +87,7 @@ pub const ROW_BIND_INVERSE: usize = 11;
 pub const ROW_LOOK: usize = 15;
 pub const ROW_COUNTS: usize = 16;
 pub const ROW_LIGHTS: usize = 17;
+pub const ROW_BIND: usize = 21;
 pub const ROW_TEXELS: usize = 32;
 
 const INSTANCE_COMMON: &str = "uniform highp sampler2D bfeInstances;
@@ -105,7 +106,7 @@ vec4 bfeLightColor(int i) { return bfePointLights[2 * bfeLightIndex[i >> 2][i & 
 const INSTANCE_VERTEX: &str = "uniform int bfeInstanceBase;
 flat out int vBfeRow;
 int bfeRow;
-mat4 modelMatrix; mat4 modelViewMatrix; mat3 normalMatrix; mat4 bindMatrixInverse;
+mat4 modelMatrix; mat4 modelViewMatrix; mat3 normalMatrix; mat4 bindMatrixInverse; mat4 bindMatrix;
 ";
 
 const INSTANCE_VERTEX_LOAD: &str = "void bfeLoad() {
@@ -114,6 +115,7 @@ const INSTANCE_VERTEX_LOAD: &str = "void bfeLoad() {
   modelViewMatrix = mat4(bfeTexel(4), bfeTexel(5), bfeTexel(6), bfeTexel(7));
   normalMatrix = mat3(bfeTexel(8).xyz, bfeTexel(9).xyz, bfeTexel(10).xyz);
   bindMatrixInverse = mat4(bfeTexel(11), bfeTexel(12), bfeTexel(13), bfeTexel(14));
+  bindMatrix = mat4(bfeTexel(21), bfeTexel(22), bfeTexel(23), bfeTexel(24));
   bfeLoadLook();
 }
 ";
@@ -127,7 +129,7 @@ const INSTANCE_FRAGMENT_LOAD: &str = "void bfeLoad() { bfeRow = vBfeRow; bfeLoad
 
 // Uniforms an instanced program takes from its row instead.
 const PER_INSTANCE: &[&str] = &[
-    "modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse",
+    "modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "bindMatrix",
     "sunScale", "ambientPull", "brightness", "zeroLights", "zeroLightCount",
 ];
 

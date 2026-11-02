@@ -29,8 +29,9 @@ pub const REC_BOX: usize = 14; // object space: min, max (the light mask of a ri
 pub const REC_WORLD: usize = 20; // matrixWorld
 pub const REC_BIND_INVERSE: usize = 36;
 pub const REC_LOOK: usize = 52; // sunScale, ambientPull, brightness
-pub const REC_FLAGS: usize = 56; // cull side (0 front, 1 back, 2 both)
-pub const REC_STRIDE: usize = 60;
+pub const REC_FLAGS: usize = 56; // cull side (0 front, 1 back, 2 both) | 4 alpha to coverage | 8 depth write
+pub const REC_BIND: usize = 60; // bindMatrix (skinned)
+pub const REC_STRIDE: usize = 76;
 pub const MAX_RECORDS: usize = 256;
 pub const MAX_ROWS: usize = 512;
 pub const BONE_TEXELS: usize = 1024; // a bone texture row
@@ -664,6 +665,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
                 row[shader::ROW_MODEL * 4 + k] = world[k] as f32;
                 row[shader::ROW_MODEL_VIEW * 4 + k] = model_view[k] as f32;
                 row[shader::ROW_BIND_INVERSE * 4 + k] = rec[REC_BIND_INVERSE + k] as f32;
+                row[shader::ROW_BIND * 4 + k] = rec[REC_BIND + k] as f32;
             }
             for c in 0..3 {
                 for k in 0..3 {
@@ -692,7 +694,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
             let mirrored = math::mirrors(&world) as u32;
             let groups = (rec[REC_GROUPS] as usize).max(1);
             for g in 0..groups.min(4) {
-                let key = [rec[REC_PROGRAM] as u32, rec[REC_GEOMETRY] as u32, g as u32, rec[REC_TEXTURES + g] as u32, (rec[REC_FLAGS] as u32 & 3) | mirrored << 2, rec[REC_GROUPS] as u32];
+                let key = [rec[REC_PROGRAM] as u32, rec[REC_GEOMETRY] as u32, g as u32, rec[REC_TEXTURES + g] as u32, (rec[REC_FLAGS] as u32 & 15) | mirrored << 4, rec[REC_GROUPS] as u32];
                 if self.draws.len() < MAX_ROWS {
                     self.draws.push((key, template, g));
                 }
@@ -729,8 +731,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
                     gl.uniform_1_i32(program.instance_base.as_ref(), i as i32);
                     let geo = &self.geometries[g];
                     bind_texture!(UNIT_MAP, self.textures[key[3] as usize]);
-                    set_state!(key[4] & 3, false, true);
-                    let want = if key[4] & 4 != 0 { glow::CW } else { glow::CCW };
+                    set_state!(key[4] & 3, key[4] & 4 != 0, key[4] & 8 != 0);
+                    let want = if key[4] & 16 != 0 { glow::CW } else { glow::CCW };
                     if want != front {
                         gl.front_face(want);
                         front = want;

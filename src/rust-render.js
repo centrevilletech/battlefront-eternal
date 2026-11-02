@@ -31,7 +31,10 @@ const FRAME = [
 const FRAME_NAMES = new Set(FRAME.map(([name]) => name));
 const LIGHT_COUNT = 70, LIGHTS = 72, MAX_LIGHTS = 16;
 // Record layout (renderer.rs REC_*).
-const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, BONE_AT: 9, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56 };
+const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, BONE_AT: 9, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56, BIND: 60 };
+// A record's state flags (renderer.rs REC_FLAGS): its material's side, then
+// alpha to coverage and depth write.
+const flagsOf = (m) => m.side | (m.alphaToCoverage ? 4 : 0) | (m.depthWrite ? 8 : 0);
 // Uniforms each kind of program may read besides the frame block.
 const SAMPLERS = { [WORLD]: new Set(["map", "farMap", "bumpMap"]), [SKINNED]: new Set(["map", "farMap", "boneTexture"]), [RIGID]: new Set(["map", "farMap"]) };
 const MATERIAL = new Set(["sunScale", "brightness", "ambientPull", "specular"]);
@@ -39,9 +42,15 @@ const LIGHTING = new Set(["zeroLights", "zeroLightCount"]);
 // Lamp lighting's uniforms: read only while lamps are off (each soldier's
 // four nearest lamps would be per instance otherwise).
 const LAMPS = new Set(["localLightPositions", "localLightColors", "localLightCount"]);
-const INSTANCE = new Set(["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"]);
+const INSTANCE = new Set(["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "bindMatrix", "sunScale", "ambientPull", "brightness"]);
 const GL_TYPES = { Float32Array: 0x1406, Uint16Array: 0x1403, Uint8Array: 0x1401, Int16Array: 0x1402, Int8Array: 0x1400, Uint32Array: 0x1405 };
 const IDENTITY = new THREE.Matrix4();
+
+function o_inScene(object, scene) {
+  let o = object;
+  while (o.parent) o = o.parent;
+  return o === scene;
+}
 
 // The renderer with each registration call it is given kept (typed arrays
 // copied), so another build of it can be given the same scene.
@@ -111,6 +120,8 @@ class RustRender {
     this.active = !new URLSearchParams(location.search).has("rustOff");
     this.errors = [];
     this.worldMeshes = [];
+    // ?rustRigs: vehicles' and props' skinned meshes too.
+    this.rigsOn = new URLSearchParams(location.search).has("rustRigs");
     this.bodyRecords = [];
     this.meshRecords = [];
   }
@@ -322,6 +333,47 @@ class RustRender {
     return record;
   }
 
+  // The scene's other skinned meshes (vehicle-rig.js: hulls, walkers,
+  // animated props), looked for again now and then; soldiers' bodies are
+  // found through their roots.
+  findRigs() {
+    const found = [];
+    this.graphics.scene.traverse((o) => { if (o.isSkinnedMesh && !o.userData.poseSphere && o.name !== "body-shadow" && !Array.isArray(o.material)) found.push(o); });
+    this.rigList = found;
+  }
+
+  rigs(camera, at) {
+    if (!this.rigList || this.frames % 120 === 0) this.findRigs();
+    for (const mesh of this.rigList) {
+      let rec = this.bodies.get(mesh);
+      if (rec === undefined) rec = this.registerRig(mesh);
+      if (!rec) continue;
+      if (mesh.material !== rec.materials) { mesh.material.visible = true; continue; }
+      if (!camera.layers.test(mesh.layers)) continue;
+      let shown = true;
+      for (let o = mesh; o && o !== this.graphics.scene; o = o.parent) if (!o.visible) { shown = false; break; }
+      if (shown && o_inScene(mesh, this.graphics.scene)) at = this.writeBody(rec, at);
+    }
+    return at;
+  }
+
+  registerRig(mesh) {
+    let record = null;
+    const material = mesh.material, threeProgram = this.renderer.properties.get(material).currentProgram;
+    if (threeProgram && !material.transparent && !mesh.geometry.groups.length && mesh.skeleton) {
+      const program = this.program(threeProgram, SKINNED, material);
+      const geometry = program && this.geometry(mesh.geometry, program);
+      const texture = this.texture(material.uniforms?.map?.value);
+      if (geometry !== null && geometry !== undefined && texture >= 0) {
+        record = { body: mesh, materials: material, used: [material], program: program.id, geometry, textures: [texture], whole: true, look: material.uniforms };
+        material.visible = false;
+        this.bodyRecords.push(record);
+      }
+    }
+    if (threeProgram || record) this.bodies.set(mesh, record);
+    return record;
+  }
+
   registerMesh(mesh) {
     let record = null;
     const material = mesh.material, threeProgram = !Array.isArray(material) && this.renderer.properties.get(material).currentProgram;
@@ -346,22 +398,26 @@ class RustRender {
     this.views();
     const { body } = record, input = this.input, skeleton = body.skeleton;
     const bones = skeleton.bones.length;
-    if (at.bones + bones > this.bones.length / 16) return at;
-    skeleton.update();
-    this.bones.set(skeleton.boneMatrices, at.bones * 16);
+    let boneAt = at.skeletons.get(skeleton);
+    if (boneAt === undefined) {
+      if (at.bones + bones > this.bones.length / 16) return at;
+      skeleton.update();
+      this.bones.set(skeleton.boneMatrices, at.bones * 16);
+      boneAt = at.bones; at.skeletons.set(skeleton, boneAt); at.bones += bones;
+    }
     const o = this.recordsAt + at.records * this.stride;
     input[o + R.KIND] = SKINNED; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
     input[o + R.GROUPS] = record.whole ? 0 : record.textures.length;
     for (let g = 0; g < record.textures.length; g++) input[o + R.TEXTURES + g] = record.textures[g];
-    input[o + R.BONES] = bones; input[o + R.BONE_AT] = at.bones;
+    input[o + R.BONES] = bones; input[o + R.BONE_AT] = boneAt;
     const s = body.boundingSphere;
     input[o + R.SPHERE] = s.center.x; input[o + R.SPHERE + 1] = s.center.y; input[o + R.SPHERE + 2] = s.center.z; input[o + R.SPHERE + 3] = s.radius;
-    const w = body.matrixWorld.elements, b = body.bindMatrixInverse.elements;
-    for (let k = 0; k < 16; k++) { input[o + R.WORLD + k] = w[k]; input[o + R.BIND_INVERSE + k] = b[k]; }
+    const w = body.matrixWorld.elements, b = body.bindMatrixInverse.elements, bind = body.bindMatrix.elements;
+    for (let k = 0; k < 16; k++) { input[o + R.WORLD + k] = w[k]; input[o + R.BIND_INVERSE + k] = b[k]; input[o + R.BIND + k] = bind[k]; }
     const look = record.look;
     input[o + R.LOOK] = look.sunScale.value; input[o + R.LOOK + 1] = look.ambientPull.value.x; input[o + R.LOOK + 2] = look.ambientPull.value.y; input[o + R.LOOK + 3] = look.brightness.value;
-    input[o + R.FLAGS] = record.used[0].side;
-    at.records++; at.bones += bones;
+    input[o + R.FLAGS] = flagsOf(record.used[0]);
+    at.records++;
     return at;
   }
 
@@ -379,7 +435,7 @@ class RustRender {
     for (let k = 0; k < 16; k++) { input[o + R.WORLD + k] = w[k]; input[o + R.BIND_INVERSE + k] = 0; }
     const u = material.uniforms;
     input[o + R.LOOK] = u.sunScale.value; input[o + R.LOOK + 1] = u.ambientPull.value.x; input[o + R.LOOK + 2] = u.ambientPull.value.y; input[o + R.LOOK + 3] = u.brightness.value;
-    input[o + R.FLAGS] = material.side;
+    input[o + R.FLAGS] = flagsOf(material);
     at.records++;
     return at;
   }
@@ -428,9 +484,11 @@ class RustRender {
     if (far !== this.farTexture) { this.farTexture = far; this.rust.set_far_map(this.texture(this.graphics.farTarget.texture)); }
     if (!this.worldPending || this.worldPending.length) this.registerWorld();
     this.writeFrame(scene, camera);
-    const at = { records: 0, bones: 0 };
+    const at = { records: 0, bones: 0, skeletons: new Map() };
     for (const root of this.graphics.cullRoots) this.soldier(root, camera, at);
     if (this.graphics.playerRoot) this.soldier(this.graphics.playerRoot, camera, at);
+    if (this.rigsOn) this.rigs(camera, at);
+    this.frames = (this.frames || 0) + 1;
     if (this.recording?.keepFrames > 0) {
       this.recording.keepFrames--;
       this.recording.frames.push({ records: at.records, input: this.input.slice(0, this.recordsAt + at.records * this.stride), bones: this.bones.slice(0, at.bones * 16) });
