@@ -10,7 +10,7 @@ const reach={distance:0};
 function inCone(v,t,cone) {
   if(!t?.alive || t===v.aiTarget)return false;
   const units=v.system.units;
-  const relation=units?.relation?.(v.aiTarget,t) ?? (t.team===v.team?1:-1);
+  const relation=units?.relation?.(v.team,t.team) ?? (t.team===v.team?1:-1);
   if(relation>=0)return false;
   if(t.aimPoint)t.aimPoint(point);else point.copy(t.position);
   d.subVectors(point,v.position);const distance=d.length();
