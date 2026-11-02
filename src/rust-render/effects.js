@@ -1,89 +1,59 @@
 // The effects pass (effects.rs): the battle's effects, their simulation
-// left here in the page. So far the particle batches: particles.js's (the
-// Classic bolts and their glow, the effects' CPU particles) and
-// effects-gpu.js's analytic ones, every particle renderer's of the near
-// scene (particles.js particleRenderers: the ordnance's, the effects', the
-// map's environment effects').
+// left here in the page, drawn as items of the near scene's transparent
+// list (transparent.js: the renderer sorts every source's items with what
+// three still draws, as three would sort them all). So far:
 //
-// A batch is registered the first time three has drawn it (which gives its
+// - The particle batches: particles.js's (the Classic bolts and their glow,
+//   the effects' CPU particles) and effects-gpu.js's analytic ones, every
+//   particle renderer's of the near scene (particles.js particleRenderers:
+//   the ordnance's, the effects', the map's environment effects').
+// - The Classic arc caster's lightning (lightning.js): one mesh rebuilt each
+//   frame, drawn twice as three draws a double-sided transparent material.
+//
+// Each is registered the first time three has drawn it (which gives its
 // material a program), then marked external: three is shown it no more and
-// uploads it nothing (particles.js), and each frame this pass writes its
-// instances into the renderer's memory, a CPU batch's all of them, an
-// analytic batch's from the first that changed, and lists its draw. Every
-// batch three would draw at the particles' place in its transparent list
-// (renderOrder 10, the world's origin for a centre, so in the order they
-// were made) is drawn there, until the transparent pass draws them among its
-// items: from an anchor placed after everything else at that renderOrder.
+// uploads it nothing, and each frame this pass writes what it draws into the
+// renderer's memory (a CPU batch's instances, an analytic batch's from the
+// first that changed, the lightning's vertices and indices as far as they
+// are used), with the key three would have sorted it by: group order,
+// render order, the centre of its bounding sphere (through its world
+// matrix, as three's projectObject takes it) and its id.
 //
 // What the Enhanced looks draw (blaster-bolts.js, sniper-trace.js, the
 // arcs, the destruction and jetpack effects) stays with three for now, as
-// do the muzzle flashes and the effects' models (transparent meshes that
-// sort among the map's own).
+// do the muzzle flashes and the effects' models.
 import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
+import { classicLightning } from "../lightning.js";
 import { particleDepth } from "../particle-depth.js";
+import { blendOf, stateOf, sidesOf } from "./transparent.js";
 
 // add_program's kind for these programs (web/mod.rs: the identity for a
 // model matrix, read as modelViewMatrix).
-const EFFECT = 3;
+const EFFECT = 4;
 // The material values a batch's program reads, set by the renderer from
 // the frame (soft particles) and the batch's owner (its rows).
 const MATERIAL = new Set(["softParticles", "depthResolution", "cameraRange", "trackRows", "emitterRows"]);
 const POLICY = { uniforms: new Set(["modelViewMatrix", "map", "sceneDepth", "tracks", "emitters", ...MATERIAL]), material: MATERIAL };
+// A basic material's values (three's refreshUniformsCommon), as the page
+// writes them for a mesh: name, size.
+const BASIC = [["diffuse", 3], ["opacity", 1], ["mapTransform", 9]];
+const MESH_POLICY = { uniforms: new Set(["modelViewMatrix", "map", ...BASIC.map(([name]) => name)]), material: new Set() };
 // The instance attributes of each kind of batch, in the order this pass
-// writes them.
+// writes them; and the lightning's vertex attributes.
 const KINDS = {
   cpu: [["iPosition", 3], ["iColor", 4], ["iShape", 4], ["iAxis", 3], ["iAxis2", 3], ["iFrame", 4]],
   analytic: [["spawnPosition", 3], ["spawnVelocity", 3], ["spawnColor", 4], ["spawnShape", 4], ["spawnMeta", 4]],
 };
-// Where the batches sit in three's transparent list (particles.js,
-// effects-gpu.js).
-const ORDER = 10;
+const LIGHTNING = [["position", 3], ["uv", 2], ["color", 4]];
 // The frame's inputs (effects.rs IN_*, OWNER_*, DRAW_*).
 const IN_DRAWS = 0, IN_OWNERS = 1, IN_SOFT = 2;
 const OWNER_AT = 8, OWNER_STRIDE = 4, MAX_OWNERS = 8;
-const DRAW_AT = OWNER_AT + MAX_OWNERS * OWNER_STRIDE, DRAW_STRIDE = 5, MAX_DRAWS = 512;
+const DRAW_AT = OWNER_AT + MAX_OWNERS * OWNER_STRIDE, DRAW_STRIDE = 12, DRAW_KEY = 6, MAX_DRAWS = 512;
+const KIND_BATCH = 0, KIND_MESH = 1;
 // Floats of an emitter row (effects-gpu.js).
 const EMITTER_FLOATS = 12;
-
-// Three's blending for a material as setBlending makes it: enabled, then the
-// rgb and alpha equations, then the source and destination factors for rgb
-// and for alpha (GL enums).
-const GL = {
-  ADD: 0x8006, SUBTRACT: 0x800a, REVERSE_SUBTRACT: 0x800b, MIN: 0x8007, MAX: 0x8008,
-  ZERO: 0, ONE: 1, SRC_COLOR: 0x0300, ONE_MINUS_SRC_COLOR: 0x0301, SRC_ALPHA: 0x0302, ONE_MINUS_SRC_ALPHA: 0x0303,
-  DST_ALPHA: 0x0304, ONE_MINUS_DST_ALPHA: 0x0305, DST_COLOR: 0x0306, ONE_MINUS_DST_COLOR: 0x0307, SRC_ALPHA_SATURATE: 0x0308,
-  CONSTANT_COLOR: 0x8001, ONE_MINUS_CONSTANT_COLOR: 0x8002, CONSTANT_ALPHA: 0x8003, ONE_MINUS_CONSTANT_ALPHA: 0x8004,
-};
-const EQUATIONS = {
-  [THREE.AddEquation]: GL.ADD, [THREE.SubtractEquation]: GL.SUBTRACT, [THREE.ReverseSubtractEquation]: GL.REVERSE_SUBTRACT,
-  [THREE.MinEquation]: GL.MIN, [THREE.MaxEquation]: GL.MAX,
-};
-const FACTORS = {
-  [THREE.ZeroFactor]: GL.ZERO, [THREE.OneFactor]: GL.ONE, [THREE.SrcColorFactor]: GL.SRC_COLOR, [THREE.OneMinusSrcColorFactor]: GL.ONE_MINUS_SRC_COLOR,
-  [THREE.SrcAlphaFactor]: GL.SRC_ALPHA, [THREE.OneMinusSrcAlphaFactor]: GL.ONE_MINUS_SRC_ALPHA, [THREE.DstAlphaFactor]: GL.DST_ALPHA,
-  [THREE.OneMinusDstAlphaFactor]: GL.ONE_MINUS_DST_ALPHA, [THREE.DstColorFactor]: GL.DST_COLOR, [THREE.OneMinusDstColorFactor]: GL.ONE_MINUS_DST_COLOR,
-  [THREE.SrcAlphaSaturateFactor]: GL.SRC_ALPHA_SATURATE, [THREE.ConstantColorFactor]: GL.CONSTANT_COLOR,
-  [THREE.OneMinusConstantColorFactor]: GL.ONE_MINUS_CONSTANT_COLOR, [THREE.ConstantAlphaFactor]: GL.CONSTANT_ALPHA,
-  [THREE.OneMinusConstantAlphaFactor]: GL.ONE_MINUS_CONSTANT_ALPHA,
-};
-export function blendOf(m) {
-  const { ADD, ZERO, ONE, SRC_ALPHA, ONE_MINUS_SRC_ALPHA, SRC_COLOR, ONE_MINUS_SRC_COLOR } = GL;
-  const b = m.blending;
-  if (b === THREE.NoBlending || (b === THREE.NormalBlending && !m.transparent)) return [0, ADD, ADD, ONE, ZERO, ONE, ZERO];
-  if (b === THREE.CustomBlending) {
-    const equation = m.blendEquation, src = m.blendSrc, dst = m.blendDst;
-    return [1, EQUATIONS[equation], EQUATIONS[m.blendEquationAlpha || equation], FACTORS[src], FACTORS[dst], FACTORS[m.blendSrcAlpha || src], FACTORS[m.blendDstAlpha || dst]];
-  }
-  const pre = m.premultipliedAlpha;
-  switch (b) {
-    case THREE.NormalBlending: return pre ? [1, ADD, ADD, ONE, ONE_MINUS_SRC_ALPHA, ONE, ONE_MINUS_SRC_ALPHA] : [1, ADD, ADD, SRC_ALPHA, ONE_MINUS_SRC_ALPHA, ONE, ONE_MINUS_SRC_ALPHA];
-    case THREE.AdditiveBlending: return pre ? [1, ADD, ADD, ONE, ONE, ONE, ONE] : [1, ADD, ADD, SRC_ALPHA, ONE, SRC_ALPHA, ONE];
-    case THREE.SubtractiveBlending: return [1, ADD, ADD, ZERO, ONE_MINUS_SRC_COLOR, ZERO, ONE];
-    case THREE.MultiplyBlending: return pre ? [1, ADD, ADD, ZERO, SRC_COLOR, ZERO, SRC_ALPHA] : [1, ADD, ADD, ZERO, SRC_COLOR, ZERO, SRC_COLOR];
-    default: return null;
-  }
-}
+const center = new THREE.Vector4();
 
 // What kind of batch a particle renderer's batch is (null: one this pass
 // doesn't draw, such as the Enhanced bolts').
@@ -95,43 +65,58 @@ function kindOf(batch) {
   return null;
 }
 
+// The order of the nearest Group above an object, as three's projectObject
+// passes it down (0 without one).
+function groupOrderOf(object) {
+  for (let o = object.parent; o; o = o.parent) if (o.isGroup) return o.renderOrder;
+  return 0;
+}
+
+// three's program for a material drawn with `side` (0 front, 1 back): the
+// one it last drew with for that side among the material's programs (they
+// differ by FLIP_SIDED). The same as transparent.js's, which keeps its own
+// private.
+function programForSide(renderer, material, side) {
+  const props = renderer.properties.get(material), current = props.currentProgram;
+  if (!current) return null;
+  const gl = renderer.getContext();
+  const vertexOf = (program) => {
+    const [vs] = gl.getAttachedShaders(program.program).filter((s) => gl.getShaderParameter(s, gl.SHADER_TYPE) === gl.VERTEX_SHADER);
+    return gl.getShaderSource(vs);
+  };
+  const flipped = (source) => /^#define FLIP_SIDED$/m.test(source);
+  const strip = (source) => source.replace(/^#define (FLIP|DOUBLE)_SIDED\n/gm, "");
+  const want = side === 1;
+  const currentSource = vertexOf(current);
+  if (flipped(currentSource) === want && !/^#define DOUBLE_SIDED$/m.test(currentSource)) return current;
+  const base = strip(currentSource);
+  for (const program of props.programs?.values() || []) {
+    if (program === current) continue;
+    const source = vertexOf(program);
+    if (flipped(source) === want && !/^#define DOUBLE_SIDED$/m.test(source) && strip(source) === base) return program;
+  }
+  return null;
+}
+
 class EffectsPass {
   constructor(core) {
     this.core = core;
     this.name = "effects";
-    this.phase = "effects";
-    this.records = []; // registered batches, in three's order (their meshes' ids)
+    this.phase = "transparent";
+    this.records = []; // registered batches
     this.byBatch = new Map(); // batch -> its record, or null (three draws it)
     this.owners = new Map(); // GpuEffects -> { id }
+    this.meshes = new Map(); // the lightning's material -> its record, or null
     this.batchCount = -1;
+    this.pending = false;
     this.frame = 0;
-    this.anchor = null;
     this.active = true;
-    // Stats the measurement tools read: draws and instances last frame.
+    // What the measurement tools read: last frame's draws and instances.
     this.draws = 0;
     this.instances = 0;
     core.addView("fxInput", Float64Array, () => core.rust.fx_input_ptr(), () => core.rust.fx_input_len());
     core.addView("fxData", Float32Array, () => core.rust.fx_data_ptr(), () => core.rust.fx_data_len());
-  }
-
-  // The anchor three calls back from, after everything else at the
-  // particles' renderOrder: the near view's draws only.
-  register() {
-    const core = this.core, graphics = core.graphics;
-    this.anchor = core.anchor(graphics.scene, { transparent: true, renderOrder: ORDER + 1e-6 }, (renderer, scene, camera) => {
-      if (camera !== graphics.camera || renderer.getRenderTarget() !== graphics.sceneTarget || !core.enabled || !core.active || !this.active) return;
-      this.frame++;
-      // Nothing to draw: no phase (three's state is left as it is).
-      this.batches();
-      if (this.records.some((record) => this.drawable(record))) core.phase("effects", renderer, scene, camera);
-      else this.draws = this.instances = 0;
-    });
-  }
-
-  // Whether a record draws this frame: registered before it (three drew
-  // it as it was registered), with instances, shown as three would show it.
-  drawable(record) {
-    return record.from !== this.frame && record.batch.count > 0 && record.batch.material.visible !== false && this.shown(record.mesh);
+    core.addView("fxBits", Uint32Array, () => core.rust.fx_data_ptr(), () => core.rust.fx_data_len());
   }
 
   // The near scene's particle renderers' batches, looked over again when
@@ -161,11 +146,10 @@ class EffectsPass {
     const core = this.core, material = batch.material;
     const threeProgram = core.renderer.properties.get(material).currentProgram;
     if (!threeProgram) return undefined;
-    const blend = blendOf(material);
     const fail = (why) => { core.errors.push(`effects ${kind}: ${why}`); return null; };
-    if (!blend || material.depthFunc !== THREE.LessEqualDepth || !material.depthTest || material.depthWrite || !material.colorWrite
-      || material.side !== THREE.DoubleSide || material.stencilWrite || material.polygonOffset || material.alphaToCoverage) return fail("state");
-    if (batch.mesh.renderOrder !== ORDER || batch.mesh.parent?.isGroup && batch.mesh.parent.renderOrder !== 0) return fail("order");
+    const blend = blendOf(material), state = stateOf(material);
+    // A particle material: depth tested less-or-equal, not written, double-sided.
+    if (!blend || !state || state.func !== 0x0203 || state.flags !== 5 || material.side !== THREE.DoubleSide) return fail("state");
     const program = core.program(threeProgram, EFFECT, material, POLICY);
     if (!program) return fail("program");
     const at = new Map(program.attributes);
@@ -183,11 +167,10 @@ class EffectsPass {
       if (owner < 0) return fail("tracks");
     }
     const id = core.rust.fx_add_batch(program.id, texture, new Uint32Array(blend), at.get("corner"), new Uint32Array(attributes.flatMap(([name, size]) => [at.get(name), size])), owner);
-    const record = { batch, kind, id, attributes, mesh: batch.mesh, map, handle: map && core.renderer.properties.get(map).__webglTexture, synced: false, capacity: 0, from: this.frame };
+    const record = { batch, kind, id, attributes, mesh: batch.mesh, map, handle: this.handle(map), synced: false, capacity: 0, from: this.frame };
     batch.external = true;
     batch.mesh.visible = false;
     this.records.push(record);
-    this.records.sort((a, b) => a.mesh.id - b.mesh.id);
     return record;
   }
 
@@ -203,60 +186,133 @@ class EffectsPass {
     return o.id;
   }
 
-  // Shown as three would show it: in the scene, it and its parents visible.
-  shown(mesh) {
+  // The Classic lightning of the near scene, while its material is one the
+  // renderer has (registered once three drew it); null otherwise. While it
+  // wears a material three has not drawn yet, three draws it.
+  lightning() {
+    const lightning = classicLightning.get(this.core.graphics.scene);
+    if (!lightning || lightning.isEnhanced()) return null;
+    const material = lightning.mesh.material;
+    if (!material) return null;
+    let record = this.meshes.get(material);
+    if (record === undefined) {
+      record = this.registerMesh(lightning.mesh, material, LIGHTNING);
+      if (record !== undefined) this.meshes.set(material, record);
+    }
+    lightning.external = Boolean(record);
+    return record ? { lightning, record } : null;
+  }
+
+  // A mesh drawn as three draws it (each of its sides in turn); undefined
+  // while three has not drawn it as it is yet, null when the renderer can't.
+  registerMesh(mesh, material, attributes) {
+    const core = this.core, renderer = core.renderer;
+    const props = renderer.properties.get(material);
+    if (!props.currentProgram || props.__version !== material.version) return undefined;
+    const fail = (why) => { core.errors.push(`effects mesh: ${why}`); return null; };
+    const blend = blendOf(material), state = stateOf(material);
+    if (!blend || !state) return fail("state");
+    const sides = sidesOf(material);
+    const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, EFFECT, material, MESH_POLICY); });
+    if (programs.some((p) => !p)) return fail("program");
+    const locations = programs.map((p) => { const at = new Map(p.attributes); return attributes.map(([name]) => at.get(name)); });
+    if (locations.some((l) => l.some((v) => v === undefined))) return fail("attributes");
+    for (const [name, size] of attributes) if (mesh.geometry.getAttribute(name)?.itemSize !== size) return fail(`attribute ${name}`);
+    if (!(mesh.geometry.index?.array instanceof Uint32Array)) return fail("index");
+    const map = material.map ?? null;
+    const texture = map ? core.texture(map) : -1;
+    if (map && texture < 0) return undefined;
+    const values = BASIC.filter(([name]) => programs.some((p) => p.names.has(name)));
+    const id = core.rust.fx_add_mesh(texture, new Uint32Array(blend), state.flags & 3, state.func, new Uint32Array(attributes.map(([, size]) => size)), values.map(([name, size]) => `${name}:${size}`).join(","));
+    sides.forEach((side, i) => core.rust.fx_mesh_pass(id, programs[i].id, side, new Uint32Array(locations[i])));
+    return { id, mesh, material, map, handle: this.handle(map), values, attributes, from: this.frame };
+  }
+
+  // A texture's GL handle, uploaded first if three has a newer version of
+  // it than it last uploaded (three uploads one only as it draws with it).
+  handle(map) {
+    if (!map) return null;
+    const renderer = this.core.renderer, props = renderer.properties.get(map);
+    if (props.__webglTexture && props.__version !== map.version) renderer.initTexture(map);
+    return props.__webglTexture ?? null;
+  }
+
+  // Shown as three would show it: in the scene, it and its parents visible,
+  // in the camera's layers.
+  shown(mesh, camera) {
     const scene = this.core.graphics.scene;
+    if (!mesh.layers.test(camera.layers)) return false;
     let o = mesh.parent;
     for (; o && o !== scene; o = o.parent) if (!o.visible) return false;
     return o === scene;
   }
 
-  // The frame's draws and their instances, in three's order.
+  // three's sort key for an object, into a draw entry: group order, render
+  // order, its bounding sphere's centre through its world matrix, its id.
+  key(input, e, object) {
+    const geometry = object.geometry;
+    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+    center.copy(geometry.boundingSphere.center).applyMatrix4(object.matrixWorld);
+    const k = e + DRAW_KEY;
+    input[k] = groupOrderOf(object); input[k + 1] = object.renderOrder;
+    input[k + 2] = center.x; input[k + 3] = center.y; input[k + 4] = center.z; input[k + 5] = object.id;
+  }
+
+  // The transparent phase, before the renderer's call: the frame's draws.
   draw(ctx) {
     const core = this.core;
+    this.frame++;
+    if (!this.active) {
+      // Off (three draws them): none of last frame's draws again.
+      core.views();
+      core.fxInput[IN_DRAWS] = 0;
+      return;
+    }
     this.batches();
-    // A texture three made again (a new handle) is registered again; any
-    // registration may move the renderer's memory, so this comes first.
+    const bolt = this.lightning();
+    // Textures three uploaded anew, or made anew (a new handle: registered
+    // again). Registering may move the renderer's memory: views after.
     for (const record of this.records) {
-      if (!record.map) continue;
-      const handle = core.renderer.properties.get(record.map).__webglTexture;
+      const handle = this.handle(record.map);
       if (handle && handle !== record.handle) { record.handle = handle; core.rust.fx_batch_texture(record.id, core.texture(record.map)); }
+    }
+    if (bolt) {
+      const record = bolt.record, handle = this.handle(record.map);
+      if (handle && handle !== record.handle) { record.handle = handle; core.rust.fx_mesh_texture(record.id, core.texture(record.map)); }
     }
     // Soft particles: the scene's depth, taken before the first of them as
     // three's batches take it (particle-depth.js).
     const soft = particleDepth.enabled.value > 0.5;
     if (soft) particleDepth.capture(ctx.renderer, ctx.scene, ctx.camera);
     const depth = soft && particleDepth.map.value ? core.texture(particleDepth.map.value) : -1;
-    core.views();
-    let input = core.fxInput, data = core.fxData;
-    // The floats this frame needs: every shown batch's written instances
-    // and the owners' rows; the renderer's memory grows first if need be.
+    // What three would have drawn this frame, registered before it (three
+    // drew what was registered this frame itself).
+    const drawn = this.records.filter((record) => record.from !== this.frame && record.batch.count > 0 && record.batch.material.visible !== false && this.shown(record.mesh, ctx.camera));
+    const lit = bolt && bolt.record.from !== this.frame && bolt.lightning.index > 0 && bolt.record.material.visible !== false && this.shown(bolt.lightning.mesh, ctx.camera) ? bolt : null;
+    // The floats this frame needs; the renderer's memory grows first if need be.
     let need = 0;
-    for (const record of this.records) {
-      const b = record.batch;
-      if (b.count > 0) need += b.count * (record.kind === "cpu" ? 21 : 18);
-    }
+    for (const record of drawn) need += record.batch.count * (record.kind === "cpu" ? 21 : 18);
     for (const gpu of this.owners.keys()) need += Math.min(gpu.count, gpu.uniforms.emitterRows.value) * EMITTER_FLOATS;
-    if (need > data.length) {
-      core.rust.fx_reserve(Math.max(need * 2, data.length * 2));
+    if (lit) need += lit.lightning.vertex * 9 + lit.lightning.index + 13;
+    core.views();
+    if (need > core.fxData.length) {
+      core.rust.fx_reserve(Math.max(need * 2, core.fxData.length * 2));
       core.buffer = null;
       core.views();
-      input = core.fxInput; data = core.fxData;
     }
-    let at = 0, owners = 0;
+    const input = core.fxInput, data = core.fxData, bits = core.fxBits;
+    let at = 0, owners = 0, draws = 0, instances = 0;
     for (const [gpu, o] of this.owners) {
-      const rows = gpu.uniforms.emitterRows.value, written = Math.min(gpu.count, rows);
       if (owners === MAX_OWNERS) break;
+      const rows = gpu.uniforms.emitterRows.value, written = Math.min(gpu.count, rows);
       const e = OWNER_AT + owners++ * OWNER_STRIDE;
       input[e] = o.id; input[e + 1] = rows; input[e + 2] = written; input[e + 3] = at;
       data.set(gpu.data.subarray(0, written * EMITTER_FLOATS), at);
       at += written * EMITTER_FLOATS;
     }
-    let draws = 0, instances = 0;
-    for (const record of this.records) {
-      const b = record.batch, count = b.count;
-      if (!this.drawable(record)) continue;
+    for (const record of drawn) {
       if (draws === MAX_DRAWS) break;
+      const b = record.batch, count = b.count;
       // An analytic batch's instances from the first that changed since it
       // was last read (effects-gpu.js unread), when the renderer holds the
       // rest; all of them otherwise.
@@ -271,10 +327,34 @@ class EffectsPass {
         at += (count - from) * size;
       }
       const e = DRAW_AT + draws++ * DRAW_STRIDE;
-      input[e] = record.id; input[e + 1] = count; input[e + 2] = from; input[e + 3] = start; input[e + 4] = b.capacity;
+      input[e] = KIND_BATCH; input[e + 1] = record.id; input[e + 2] = count; input[e + 3] = from; input[e + 4] = start; input[e + 5] = b.capacity;
+      this.key(input, e, record.mesh);
       record.synced = true;
       record.capacity = b.capacity;
       instances += count;
+    }
+    if (lit && draws < MAX_DRAWS) {
+      const { lightning, record } = lit, geometry = lightning.geometry, material = record.material;
+      const vertices = lightning.vertex, indices = lightning.index, start = at;
+      for (const [name, size] of record.attributes) {
+        data.set(geometry.attributes[name].array.subarray(0, vertices * size), at);
+        at += vertices * size;
+      }
+      bits.set(geometry.index.array.subarray(0, indices), at);
+      at += indices;
+      for (const [name] of record.values) {
+        if (name === "diffuse") { data[at++] = material.color.r; data[at++] = material.color.g; data[at++] = material.color.b; }
+        else if (name === "opacity") data[at++] = material.opacity;
+        else if (name === "mapTransform") {
+          const map = material.map;
+          if (map?.matrixAutoUpdate) map.updateMatrix();
+          data.set(map ? map.matrix.elements : [1, 0, 0, 0, 1, 0, 0, 0, 1], at);
+          at += 9;
+        }
+      }
+      const e = DRAW_AT + draws++ * DRAW_STRIDE;
+      input[e] = KIND_MESH; input[e + 1] = record.id; input[e + 2] = vertices; input[e + 3] = indices; input[e + 4] = start; input[e + 5] = 0;
+      this.key(input, e, lightning.mesh);
     }
     input[IN_DRAWS] = draws;
     input[IN_OWNERS] = draws ? owners : 0;
@@ -286,8 +366,8 @@ class EffectsPass {
     this.instances = instances;
   }
 
-  // Off: three draws the batches again, everything they hold uploaded anew;
-  // on: they come back here, written in full the first frame.
+  // Off: three draws everything again, everything uploaded anew; on: it
+  // comes back here, written in full the first frame.
   setActive(on) {
     this.active = on;
     for (const record of this.records) {
@@ -303,6 +383,14 @@ class EffectsPass {
         a.needsUpdate = true;
       }
     }
+    const lightning = classicLightning.get(this.core.graphics.scene);
+    if (lightning && !on && lightning.external) {
+      lightning.external = false;
+      lightning.mesh.visible = lightning.index > 0 && !lightning.isEnhanced();
+      for (const name of ["position", "uv", "color"]) lightning.geometry.attributes[name].needsUpdate = true;
+      lightning.geometry.index.needsUpdate = true;
+    }
+    if (!on) this.draws = this.instances = 0;
   }
 
   restore() {

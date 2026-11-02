@@ -132,7 +132,7 @@ fn main() {
             }
             "set_far_map" => r.core.set_far_map(n(0) as u32),
             "add_program" => {
-                let kind = match n(0) as u32 { 1 => Kind::Skinned, 2 => Kind::Rigid, 3 => Kind::Effect, _ => Kind::World };
+                let kind = match n(0) as u32 { 1 => Kind::Skinned, 2 => Kind::Rigid, 4 => Kind::Effect, _ => Kind::World };
                 let attrs: Vec<(String, u32)> = a[3].as_str().unwrap().split(',').filter(|s| !s.is_empty())
                     .map(|s| { let (k, v) = s.split_once(':').unwrap(); (k.to_string(), v.parse().unwrap()) }).collect();
                 let uniforms: Vec<String> = a[4].as_str().unwrap().split(',').filter(|s| !s.is_empty()).map(String::from).collect();

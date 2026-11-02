@@ -62,9 +62,6 @@ const PHASES = {
   transparent: { view: VIEW_NEAR, draw: (rust, ctx) => rust.transparent_frame(ctx.three ?? 0) },
   view: { view: VIEW_FIRST_PERSON, draw: (rust) => rust.view_frame() },
   post: { view: null, draw: (rust) => rust.post_frame() },
-  // The effects at a place of their own in the near scene's transparent
-  // list (effects.js), until the transparent pass draws them among its items.
-  effects: { view: VIEW_NEAR, draw: (rust) => rust.effects_frame() },
 };
 
 // The renderer with each registration call it is given kept (typed arrays

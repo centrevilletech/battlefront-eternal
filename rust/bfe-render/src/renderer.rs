@@ -129,17 +129,6 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         Ok(core.end_phase())
     }
 
-    // The effects (effects.rs) at a point of their own in three's
-    // transparent list, until the transparent pass draws them among its
-    // items: the near view's frame block, then the page's draws.
-    pub fn effects_frame(&mut self) -> Result<Stats, String> {
-        let core = &mut self.core;
-        core.begin_phase();
-        core.upload_frame(VIEW_NEAR);
-        self.effects.draw(core);
-        Ok(core.end_phase())
-    }
-
     // The first-person view scene's phase.
     pub fn view_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();

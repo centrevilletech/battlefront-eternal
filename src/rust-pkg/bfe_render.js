@@ -92,18 +92,6 @@ export class BfeRenderer {
     /**
      * @returns {Uint32Array}
      */
-    effects_frame() {
-        const ret = wasm.bferenderer_effects_frame(this.__wbg_ptr);
-        if (ret[3]) {
-            throw takeFromExternrefTable0(ret[2]);
-        }
-        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-        return v1;
-    }
-    /**
-     * @returns {Uint32Array}
-     */
     far_frame() {
         const ret = wasm.bferenderer_far_frame(this.__wbg_ptr);
         if (ret[3]) {
@@ -155,6 +143,36 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} texture
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_flags
+     * @param {number} depth_func
+     * @param {Uint32Array | number[]} sizes
+     * @param {string} values
+     * @returns {number}
+     */
+    fx_add_mesh(texture, blend, depth_flags, depth_func, sizes, values) {
+        const val4 = +texture;
+        const val5 = +depth_flags;
+        const val6 = +depth_func;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(sizes, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(values, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_fx_add_mesh(this.__wbg_ptr, val4, ptr0, len0, val5, val6, ptr1, len1, ptr2, len2);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} tracks
      * @param {number} track_rows
      * @returns {number}
@@ -197,6 +215,29 @@ export class BfeRenderer {
     fx_input_ptr() {
         const ret = wasm.bferenderer_fx_input_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} mesh
+     * @param {number} program
+     * @param {number} side
+     * @param {Uint32Array | number[]} locations
+     * @returns {number}
+     */
+    fx_mesh_pass(mesh, program, side, locations) {
+        const val2 = +mesh;
+        const val3 = +program;
+        const val4 = +side;
+        const ptr0 = passArray32ToWasm0(locations, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_fx_mesh_pass(this.__wbg_ptr, val2, val3, val4, ptr0, len0);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} mesh
+     * @param {number} texture
+     */
+    fx_mesh_texture(mesh, texture) {
+        wasm.bferenderer_fx_mesh_texture(this.__wbg_ptr, mesh, texture);
     }
     /**
      * @param {number} floats
@@ -893,6 +934,18 @@ function __wbg_get_imports() {
         },
         __wbg_uniformBlockBinding_61c5a97721e0f36b: function(arg0, arg1, arg2, arg3) {
             arg0.uniformBlockBinding(arg1, arg2 >>> 0, arg3 >>> 0);
+        },
+        __wbg_uniformMatrix3fv_15b2b1f5505b8506: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix3fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
+        },
+        __wbg_uniformMatrix3fv_df1958f8b617c8d6: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix3fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
+        },
+        __wbg_uniformMatrix4fv_cd0ba72d1d780759: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix4fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
+        },
+        __wbg_uniformMatrix4fv_edd2b51dbb1caffd: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix4fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
         },
         __wbg_useProgram_d9c24a7d8632c4c1: function(arg0, arg1) {
             arg0.useProgram(arg1);

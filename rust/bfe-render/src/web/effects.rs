@@ -23,4 +23,16 @@ impl BfeRenderer {
         self.r.effects.add_batch(&self.r.core, program, texture, blend, corner, attributes, owner)
     }
     pub fn fx_batch_texture(&mut self, batch: u32, texture: i32) { self.r.effects.batch_texture(&self.r.core, batch, texture) }
+
+    // A dynamic mesh: texture (-1 none), three's blending (7 values), depth
+    // flags (1 test, 2 write) and function, its vertex attributes' sizes and
+    // its material values ("name:size,..."), in the order the page writes
+    // them; then each of three's passes of it, in drawing order: program,
+    // side (0 front, 1 back, 2 both), the attributes' locations.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fx_add_mesh(&mut self, texture: i32, blend: &[u32], depth_flags: u32, depth_func: u32, sizes: &[u32], values: &str) -> u32 {
+        self.r.effects.add_mesh(&self.r.core, texture, blend, depth_flags, depth_func, sizes, values)
+    }
+    pub fn fx_mesh_pass(&mut self, mesh: u32, program: u32, side: u32, locations: &[u32]) -> u32 { self.r.effects.mesh_pass(&self.r.core, mesh, program, side, locations) }
+    pub fn fx_mesh_texture(&mut self, mesh: u32, texture: i32) { self.r.effects.mesh_texture(&self.r.core, mesh, texture) }
 }

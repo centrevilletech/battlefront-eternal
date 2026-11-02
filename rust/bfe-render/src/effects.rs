@@ -1,24 +1,34 @@
 // The battle's effects, drawn in the near scene's transparent list; their
-// simulation stays in the page.
+// simulation stays in the page. Two kinds of item, each drawn with the
+// program three compiled for it and three's GL state for its material:
 //
-// Particle batches: particles.js's (bolts and their glow, sparks, smoke,
-// the effects' particles worked out on the CPU) and effects-gpu.js's
-// analytic ones (particles placed in the vertex shader from their spawn
-// values and their effect's emitter). Each is one instanced draw of quads,
-// with the program three compiled for it and three's GL state for its
-// material. The page writes each shown batch's instances into `data` (a CPU
-// batch's all, an analytic batch's from the first that changed), attribute
-// by attribute as the batch keeps them; here they are interleaved and
-// uploaded with one call into a vertex buffer of the batch's own, which its
-// vertex array reads. An analytic batch's owner (effects-gpu.js GpuEffects:
-// its tracks, and the frame's emitters, a row an effect) is a texture of
-// three's for the tracks and one of the renderer's for the emitters, a row
-// of which the page writes for each effect that is playing.
+// - Particle batches: particles.js's (bolts and their glow, sparks, smoke,
+//   the effects' particles worked out on the CPU) and effects-gpu.js's
+//   analytic ones (particles placed in the vertex shader from their spawn
+//   values and their effect's emitter). Each is one instanced draw of
+//   quads. The page writes each shown batch's instances into `data` (a CPU
+//   batch's all, an analytic batch's from the first that changed),
+//   attribute by attribute as the batch keeps them; here they are
+//   interleaved and uploaded with one call into a vertex buffer of the
+//   batch's own, which its vertex array reads. An analytic batch's owner
+//   (effects-gpu.js GpuEffects: its tracks, and the frame's emitters, a row
+//   an effect) is a texture of three's for the tracks and one of the
+//   renderer's for the emitters, a row of which the page writes for each
+//   effect playing.
+// - Dynamic meshes (the Classic arc caster's lightning, lightning.js):
+//   vertices and indices the page rebuilds every frame, uploaded as far as
+//   they are used (three uploads its whole buffers), drawn in each of
+//   three's passes for it (a double-sided transparent material: back faces,
+//   then front), its material's values set as three sets them.
 //
-// The page lists the frame's draws in three's order (src/rust-render/
-// effects.js), each batch's GL state as three's setMaterial sets it.
-use crate::core::{bytes, Core, MultiDraw, Value, PASS_EFFECTS, UNIT_MAP};
+// The page lists the frame's draws (src/rust-render/effects.js), each with
+// the key three would have sorted it by in its transparent list; each is an
+// item of the transparent pass's list (transparent.rs Source), drawn where
+// three would have drawn it among everything else that blends.
+use crate::core::{bytes, Core, GlState, MultiDraw, Stats, Value, PASS_EFFECTS, UNIT_MAP};
+use crate::transparent::{three_z, Item, Source, View};
 use glow::HasContext;
+use std::collections::HashMap;
 
 // The texture units of the analytic batches' owners (tracks, emitters),
 // and of the scene's depth (soft particles).
@@ -35,10 +45,19 @@ pub const OWNER_AT: usize = 8;
 pub const OWNER_STRIDE: usize = 4; // owner, rows, rows written, where in `data`
 pub const MAX_OWNERS: usize = 8;
 pub const DRAW_AT: usize = OWNER_AT + MAX_OWNERS * OWNER_STRIDE;
-pub const DRAW_STRIDE: usize = 5; // batch, instances, first written, where in `data`, capacity
+// A draw: its kind, then
+//   a batch (KIND_BATCH): batch, instances, first written, where in `data`, capacity;
+//   a mesh (KIND_MESH): mesh, vertices, indices, where in `data` (its
+//   attributes, then its indices' bits, then its material values);
+// then three's sort key for it (DRAW_KEY: group order, render order, the
+// centre of its bounding sphere through its world matrix, its id).
+pub const DRAW_KEY: usize = 6;
+pub const DRAW_STRIDE: usize = 12;
+pub const KIND_BATCH: usize = 0;
+pub const KIND_MESH: usize = 1;
 pub const MAX_DRAWS: usize = 512;
 pub const INPUT_LEN: usize = DRAW_AT + MAX_DRAWS * DRAW_STRIDE;
-// Floats of instance data a frame, to start with (the page asks for more).
+// Floats of data a frame, to start with (the page asks for more).
 pub const DATA_LEN: usize = 1 << 18;
 // Floats of an emitter row (effects-gpu.js: three RGBA texels).
 const EMITTER_FLOATS: usize = 12;
@@ -75,11 +94,41 @@ struct Owner<C: HasContext> {
     rows: usize,
 }
 
+// One of three's passes of a mesh: its program for the side drawn (0 front,
+// 1 back, 2 both), a vertex array at that program's locations, and where
+// the program keeps each of the mesh's material values.
+struct MeshPass<C: HasContext> {
+    program: usize,
+    side: u32,
+    vao: C::VertexArray,
+    slots: Vec<Option<C::UniformLocation>>,
+}
+
+struct Mesh<C: HasContext> {
+    passes: Vec<MeshPass<C>>,
+    texture: Option<C::Texture>,
+    blend: Blend,
+    // Depth test, its function, depth write.
+    depth: (bool, u32, bool),
+    vbo: C::Buffer,
+    ebo: C::Buffer,
+    vertex_capacity: usize,
+    index_capacity: usize,
+    sizes: Vec<usize>,
+    stride: usize,
+    // The material values' names and sizes, in the order the page writes them.
+    values: Vec<(String, usize)>,
+}
+
 pub struct EffectsPass<C: HasContext> {
     quad: C::Buffer,
     quad_index: C::Buffer,
     batches: Vec<Batch<C>>,
     owners: Vec<Owner<C>>,
+    meshes: Vec<Mesh<C>>,
+    // What the meshes' programs hold of their material values (by program
+    // and name).
+    held: HashMap<(usize, String), Vec<f32>>,
     pub input: Vec<f64>,
     pub data: Vec<f32>,
     staging: Vec<f32>,
@@ -88,6 +137,41 @@ pub struct EffectsPass<C: HasContext> {
 // The quad every batch draws (particles.js QUAD, QUAD_INDEX).
 const QUAD: [f32; 8] = [-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0];
 const QUAD_INDEX: [u16; 6] = [0, 1, 2, 0, 2, 3];
+
+const UNPACK_FLIP_Y_WEBGL: u32 = 0x9240;
+const UNPACK_PREMULTIPLY_ALPHA_WEBGL: u32 = 0x9241;
+
+// A draw's culling and winding as three's setMaterial makes them: side 0
+// front (back faces culled), 1 back (three culls back faces with clockwise
+// front faces), 2 both (no culling).
+fn sides<C: HasContext>(gl: &C, state: &mut GlState<C>, stats: &mut Stats, side: u32) {
+    state.cull(gl, stats, if side == 2 { 2 } else { 0 });
+    state.front_face(gl, stats, if side == 1 { glow::CW } else { glow::CCW });
+}
+
+fn blending<C: HasContext>(gl: &C, state: &mut GlState<C>, stats: &mut Stats, blend: &Blend) {
+    state.blend(gl, stats, blend[0] != 0);
+    if blend[0] != 0 {
+        state.blend_equation(gl, stats, blend[1], blend[2]);
+        state.blend_func(gl, stats, blend[3], blend[4], blend[5], blend[6]);
+    }
+}
+
+// Interleaves `n` items of planar attributes (sizes, one plane after
+// another from `data[at..]`) into `out`, `stride` floats an item.
+fn interleave(out: &mut Vec<f32>, data: &[f32], at: usize, n: usize, sizes: &[usize], stride: usize) {
+    out.clear();
+    out.resize(n * stride, 0.0);
+    let (mut src, mut offset) = (at, 0);
+    for &size in sizes {
+        let plane = &data[src..src + n * size];
+        for i in 0..n {
+            out[i * stride + offset..i * stride + offset + size].copy_from_slice(&plane[i * size..(i + 1) * size]);
+        }
+        src += n * size;
+        offset += size;
+    }
+}
 
 impl<C: HasContext> EffectsPass<C> {
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> EffectsPass<C> {
@@ -103,10 +187,13 @@ impl<C: HasContext> EffectsPass<C> {
             gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
             (quad, index)
         };
-        EffectsPass { quad, quad_index, batches: vec![], owners: vec![], input: vec![0.0; INPUT_LEN], data: vec![0.0; DATA_LEN], staging: vec![] }
+        EffectsPass {
+            quad, quad_index, batches: vec![], owners: vec![], meshes: vec![], held: HashMap::new(),
+            input: vec![0.0; INPUT_LEN], data: vec![0.0; DATA_LEN], staging: vec![],
+        }
     }
 
-    // Room for `floats` of instance data a frame.
+    // Room for `floats` of data a frame.
     pub fn reserve(&mut self, floats: usize) {
         if floats > self.data.len() {
             self.data.resize(floats, 0.0);
@@ -125,6 +212,7 @@ impl<C: HasContext> EffectsPass<C> {
     // locations of its corner and of its instance attributes, with their
     // sizes (location, size pairs, in the order the page writes them); its
     // owner (an analytic batch's; none: -1).
+    #[allow(clippy::too_many_arguments)]
     pub fn add_batch<M: MultiDraw>(&mut self, core: &Core<C, M>, program: u32, texture: i32, blend: &[u32], corner: u32, attributes: &[u32], owner: i32) -> u32 {
         let gl = &core.gl;
         let sizes: Vec<usize> = attributes.chunks(2).map(|a| a[1] as usize).collect();
@@ -177,26 +265,69 @@ impl<C: HasContext> EffectsPass<C> {
         }
     }
 
-    // The frame's draws (as the page wrote them), each batch's instances
-    // uploaded first, in the state of the transparent list: depth tested,
-    // not written; the near view's frame block bound.
-    pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
-        let draws = (self.input[IN_DRAWS] as usize).min(MAX_DRAWS);
-        if draws == 0 {
-            return;
+    // A dynamic mesh: its texture (-1 none), blending, depth (flags: 1 test,
+    // 2 write; and its function), its vertex attributes' sizes and its
+    // material values (name:size, comma-separated), both in the order the
+    // page writes them. Its passes follow (mesh_pass).
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_mesh<M: MultiDraw>(&mut self, core: &Core<C, M>, texture: i32, blend: &[u32], depth_flags: u32, depth_func: u32, sizes: &[u32], values: &str) -> u32 {
+        let gl = &core.gl;
+        let (vbo, ebo) = unsafe { (gl.create_buffer().unwrap(), gl.create_buffer().unwrap()) };
+        let mut b = [0u32; 7];
+        b.copy_from_slice(&blend[..7]);
+        let sizes: Vec<usize> = sizes.iter().map(|&s| s as usize).collect();
+        let values = values.split(',').filter(|s| !s.is_empty()).filter_map(|s| { let (n, k) = s.split_once(':')?; Some((n.to_string(), k.parse().ok()?)) }).collect();
+        self.meshes.push(Mesh {
+            passes: vec![], texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
+            depth: (depth_flags & 1 != 0, depth_func, depth_flags & 2 != 0), vbo, ebo, vertex_capacity: 0, index_capacity: 0,
+            stride: sizes.iter().sum(), sizes, values,
+        });
+        (self.meshes.len() - 1) as u32
+    }
+
+    // A mesh's texture again (its material changed, or three made it anew).
+    pub fn mesh_texture<M: MultiDraw>(&mut self, core: &Core<C, M>, mesh: u32, texture: i32) {
+        if let Some(m) = self.meshes.get_mut(mesh as usize) {
+            m.texture = if texture < 0 { None } else { core.textures.get(texture as usize).copied() };
         }
-        self.upload_owners(core);
+    }
+
+    // One of three's passes of a mesh, in drawing order: the program for its
+    // side, and the locations that program reads the mesh's attributes at
+    // (in add_mesh's order).
+    pub fn mesh_pass<M: MultiDraw>(&mut self, core: &Core<C, M>, mesh: u32, program: u32, side: u32, locations: &[u32]) -> u32 {
+        let gl = &core.gl;
+        let m = &mut self.meshes[mesh as usize];
+        let p = core.programs[program as usize].program;
+        let vao = unsafe {
+            let vao = gl.create_vertex_array().unwrap();
+            gl.bind_vertex_array(Some(vao));
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(m.vbo));
+            let mut offset = 0;
+            for (k, &size) in m.sizes.iter().enumerate() {
+                if let Some(&l) = locations.get(k) {
+                    gl.enable_vertex_attrib_array(l);
+                    gl.vertex_attrib_pointer_f32(l, size as i32, glow::FLOAT, false, (m.stride * 4) as i32, (offset * 4) as i32);
+                }
+                offset += size;
+            }
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(m.ebo));
+            gl.bind_vertex_array(None);
+            gl.bind_buffer(glow::ARRAY_BUFFER, None);
+            vao
+        };
+        let slots = m.values.iter().map(|(name, _)| unsafe { gl.get_uniform_location(p, name) }).collect();
+        m.passes.push(MeshPass { program: program as usize, side, vao, slots });
+        (m.passes.len() - 1) as u32
+    }
+
+    // What every effect's draw leaves alike, set at the start of a run (three
+    // drew in between): every channel written, no stencil, polygon offset or
+    // alpha to coverage; the scene's depth on its unit for soft particles,
+    // else nothing there (never read then).
+    fn common<M: MultiDraw>(&self, core: &mut Core<C, M>) {
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
-        // What setMaterial leaves for every batch alike: no culling,
-        // counter-clockwise front faces, depth tested less-or-equal and not
-        // written, every channel written, no stencil, polygon offset or
-        // alpha to coverage.
-        state.cull(gl, stats, 2);
-        state.front_face(gl, stats, glow::CCW);
-        state.depth_test(gl, stats, true);
-        state.depth_func(gl, stats, glow::LEQUAL);
-        state.depth_write(gl, stats, false);
         state.color_mask(gl, stats, [true; 4]);
         state.alpha_to_coverage(gl, stats, false);
         unsafe {
@@ -204,87 +335,160 @@ impl<C: HasContext> EffectsPass<C> {
             gl.disable(glow::POLYGON_OFFSET_FILL);
         }
         stats.gl_calls += 2;
-        let soft = [self.input[IN_SOFT] as f32, self.input[IN_SOFT + 1] as f32, self.input[IN_SOFT + 2] as f32, self.input[IN_SOFT + 3] as f32, self.input[IN_SOFT + 4] as f32];
-        // The scene's depth for soft particles, else nothing on its unit
-        // (never read then).
         let depth = self.input[IN_SOFT + 5];
-        let depth = if soft[0] > 0.5 && depth >= 0.0 { core.textures.get(depth as usize).copied() } else { None };
+        let depth = if self.input[IN_SOFT] > 0.5 && depth >= 0.0 { core.textures.get(depth as usize).copied() } else { None };
         state.bind_texture(gl, stats, UNIT_SCENE_DEPTH, depth);
-        for d in 0..draws {
-            let e = &self.input[DRAW_AT + d * DRAW_STRIDE..DRAW_AT + (d + 1) * DRAW_STRIDE];
-            let (bi, count, from, at, capacity) = (e[0] as usize, e[1] as usize, e[2] as usize, e[3] as usize, e[4] as usize);
-            let Some(b) = self.batches.get_mut(bi) else { continue };
-            if count == 0 {
-                continue;
-            }
-            unsafe {
-                // The instances written this frame, interleaved, into the
-                // batch's buffer (made again when the batch's room grew).
-                gl.bind_buffer(glow::ARRAY_BUFFER, Some(b.vbo));
+    }
+
+    // The frame's draw `d` as the page wrote it.
+    fn entry(&self, d: usize) -> (usize, [usize; 5]) {
+        let at = DRAW_AT + d * DRAW_STRIDE;
+        let mut e = [0usize; 5];
+        for (k, v) in e.iter_mut().enumerate() {
+            *v = self.input[at + 1 + k] as usize;
+        }
+        (self.input[at] as usize, e)
+    }
+
+    // A batch: its instances written this frame, interleaved, into its
+    // buffer (made again when the batch's room grew), then one draw.
+    fn draw_batch<M: MultiDraw>(&mut self, core: &mut Core<C, M>, e: [usize; 5]) {
+        let [bi, count, from, at, capacity] = e;
+        let Some(b) = self.batches.get_mut(bi) else { return };
+        if count == 0 {
+            return;
+        }
+        let gl = &core.gl;
+        let (state, stats) = (&mut core.state, &mut core.stats);
+        unsafe {
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(b.vbo));
+            stats.gl_calls += 1;
+            if capacity != b.capacity {
+                gl.buffer_data_size(glow::ARRAY_BUFFER, (capacity.max(count) * b.stride * 4) as i32, glow::DYNAMIC_DRAW);
+                b.capacity = capacity.max(count);
                 stats.gl_calls += 1;
-                if capacity != b.capacity {
-                    gl.buffer_data_size(glow::ARRAY_BUFFER, (capacity.max(count) * b.stride * 4) as i32, glow::DYNAMIC_DRAW);
-                    b.capacity = capacity.max(count);
-                    stats.gl_calls += 1;
-                }
-                if from < count {
-                    let n = count - from;
-                    self.staging.clear();
-                    self.staging.resize(n * b.stride, 0.0);
-                    let mut src = at;
-                    let mut offset = 0;
-                    for &size in &b.sizes {
-                        let plane = &self.data[src..src + n * size];
-                        for i in 0..n {
-                            self.staging[i * b.stride + offset..i * b.stride + offset + size].copy_from_slice(&plane[i * size..(i + 1) * size]);
+            }
+            if from < count {
+                interleave(&mut self.staging, &self.data, at, count - from, &b.sizes, b.stride);
+                gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (from * b.stride * 4) as i32, bytes(&self.staging));
+                stats.gl_calls += 1;
+            }
+            let program = &mut core.programs[b.program];
+            state.use_program(gl, stats, program.program);
+            // The frame's soft particle values, and the owner's rows.
+            let input = &self.input;
+            let owner = b.owner.map(|o| &self.owners[o]);
+            let f = |k: usize| input[IN_SOFT + k] as f32;
+            let values: [Option<Value>; 5] = [
+                Some(Value::F(1, [f(0), 0.0, 0.0, 0.0])),
+                Some(Value::F(2, [f(1), f(2), 0.0, 0.0])),
+                Some(Value::F(2, [f(3), f(4), 0.0, 0.0])),
+                owner.map(|o| Value::F(1, [o.track_rows, 0.0, 0.0, 0.0])),
+                owner.map(|o| Value::F(1, [o.rows as f32, 0.0, 0.0, 0.0])),
+            ];
+            for (k, slot) in b.slots.iter().enumerate() {
+                let (Some(slot), Some(value)) = (slot, values[k]) else { continue };
+                let u = &mut program.uniforms[*slot];
+                if u.2 != Some(value) {
+                    if let Value::F(n, v) = value {
+                        if n == 1 {
+                            gl.uniform_1_f32(u.1.as_ref(), v[0]);
+                        } else {
+                            gl.uniform_2_f32(u.1.as_ref(), v[0], v[1]);
                         }
-                        src += n * size;
-                        offset += size;
                     }
-                    gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (from * b.stride * 4) as i32, bytes(&self.staging));
+                    u.2 = Some(value);
                     stats.gl_calls += 1;
                 }
-                let program = &mut core.programs[b.program];
+            }
+            if b.texture.is_some() {
+                state.bind_texture(gl, stats, UNIT_MAP, b.texture);
+            }
+            if let Some(o) = owner {
+                state.bind_texture(gl, stats, UNIT_TRACKS, Some(o.tracks));
+                state.bind_texture(gl, stats, UNIT_EMITTERS, Some(o.emitters));
+            }
+            // A particle material: double-sided, depth tested less-or-equal
+            // and not written.
+            sides(gl, state, stats, 2);
+            state.depth_test(gl, stats, true);
+            state.depth_func(gl, stats, glow::LEQUAL);
+            state.depth_write(gl, stats, false);
+            blending(gl, state, stats, &b.blend);
+            gl.bind_vertex_array(Some(b.vao));
+            gl.draw_elements_instanced(glow::TRIANGLES, 6, glow::UNSIGNED_SHORT, 0, count as i32);
+            stats.gl_calls += 2;
+            stats.pass_draws[PASS_EFFECTS] += 1;
+        }
+    }
+
+    // A mesh: its vertices and indices uploaded as far as they are used,
+    // then each of its passes drawn.
+    fn draw_mesh<M: MultiDraw>(&mut self, core: &mut Core<C, M>, e: [usize; 5]) {
+        let [mi, vertices, indices, at, _] = e;
+        let Some(m) = self.meshes.get_mut(mi) else { return };
+        if indices == 0 || vertices == 0 || m.passes.is_empty() {
+            return;
+        }
+        let gl = &core.gl;
+        let (state, stats) = (&mut core.state, &mut core.stats);
+        let index_at = at + vertices * m.stride;
+        let values_at = index_at + indices;
+        unsafe {
+            interleave(&mut self.staging, &self.data, at, vertices, &m.sizes, m.stride);
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(m.vbo));
+            if vertices > m.vertex_capacity {
+                m.vertex_capacity = vertices.next_power_of_two();
+                gl.buffer_data_size(glow::ARRAY_BUFFER, (m.vertex_capacity * m.stride * 4) as i32, glow::DYNAMIC_DRAW);
+                stats.gl_calls += 1;
+            }
+            gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(&self.staging));
+            // The indices through the first pass's vertex array, whose
+            // element buffer they are.
+            gl.bind_vertex_array(Some(m.passes[0].vao));
+            if indices > m.index_capacity {
+                m.index_capacity = indices.next_power_of_two();
+                gl.buffer_data_size(glow::ELEMENT_ARRAY_BUFFER, (m.index_capacity * 4) as i32, glow::DYNAMIC_DRAW);
+                stats.gl_calls += 1;
+            }
+            gl.buffer_sub_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, 0, bytes(&self.data[index_at..index_at + indices]));
+            stats.gl_calls += 4;
+            for pass in &m.passes {
+                let program = &core.programs[pass.program];
                 state.use_program(gl, stats, program.program);
-                // The frame's soft particle values, and the owner's rows.
-                let owner = b.owner.map(|o| &self.owners[o]);
-                let values: [Option<Value>; 5] = [
-                    Some(Value::F(1, [soft[0], 0.0, 0.0, 0.0])),
-                    Some(Value::F(2, [soft[1], soft[2], 0.0, 0.0])),
-                    Some(Value::F(2, [soft[3], soft[4], 0.0, 0.0])),
-                    owner.map(|o| Value::F(1, [o.track_rows, 0.0, 0.0, 0.0])),
-                    owner.map(|o| Value::F(1, [o.rows as f32, 0.0, 0.0, 0.0])),
-                ];
-                for (k, slot) in b.slots.iter().enumerate() {
-                    let (Some(slot), Some(value)) = (slot, values[k]) else { continue };
-                    let u = &mut program.uniforms[*slot];
-                    if u.2 != Some(value) {
-                        if let Value::F(n, v) = value {
-                            if n == 1 {
-                                gl.uniform_1_f32(u.1.as_ref(), v[0]);
-                            } else {
-                                gl.uniform_2_f32(u.1.as_ref(), v[0], v[1]);
-                            }
-                        }
-                        u.2 = Some(value);
-                        stats.gl_calls += 1;
+                // The material's values, each set when the program holds another.
+                let mut v = values_at;
+                for (k, (name, size)) in m.values.iter().enumerate() {
+                    let values = &self.data[v..v + size];
+                    v += size;
+                    let Some(location) = pass.slots[k].as_ref() else { continue };
+                    let held = self.held.entry((pass.program, name.clone())).or_default();
+                    if held.as_slice() == values {
+                        continue;
                     }
+                    match size {
+                        1 => gl.uniform_1_f32(Some(location), values[0]),
+                        2 => gl.uniform_2_f32(Some(location), values[0], values[1]),
+                        3 => gl.uniform_3_f32(Some(location), values[0], values[1], values[2]),
+                        4 => gl.uniform_4_f32(Some(location), values[0], values[1], values[2], values[3]),
+                        9 => gl.uniform_matrix_3_f32_slice(Some(location), false, values),
+                        16 => gl.uniform_matrix_4_f32_slice(Some(location), false, values),
+                        _ => continue,
+                    }
+                    held.clear();
+                    held.extend_from_slice(values);
+                    stats.gl_calls += 1;
                 }
-                if b.texture.is_some() {
-                    state.bind_texture(gl, stats, UNIT_MAP, b.texture);
+                if m.texture.is_some() {
+                    state.bind_texture(gl, stats, UNIT_MAP, m.texture);
                 }
-                if let Some(o) = owner {
-                    state.bind_texture(gl, stats, UNIT_TRACKS, Some(o.tracks));
-                    state.bind_texture(gl, stats, UNIT_EMITTERS, Some(o.emitters));
-                }
-                let blend = &b.blend;
-                state.blend(gl, stats, blend[0] != 0);
-                if blend[0] != 0 {
-                    state.blend_equation(gl, stats, blend[1], blend[2]);
-                    state.blend_func(gl, stats, blend[3], blend[4], blend[5], blend[6]);
-                }
-                gl.bind_vertex_array(Some(b.vao));
-                gl.draw_elements_instanced(glow::TRIANGLES, 6, glow::UNSIGNED_SHORT, 0, count as i32);
+                sides(gl, state, stats, pass.side);
+                state.depth_test(gl, stats, m.depth.0);
+                state.depth_func(gl, stats, m.depth.1);
+                state.depth_write(gl, stats, m.depth.2);
+                blending(gl, state, stats, &m.blend);
+                gl.bind_vertex_array(Some(pass.vao));
+                gl.draw_elements(glow::TRIANGLES, indices as i32, glow::UNSIGNED_INT, 0);
                 stats.gl_calls += 2;
                 stats.pass_draws[PASS_EFFECTS] += 1;
             }
@@ -329,9 +533,33 @@ impl<C: HasContext> EffectsPass<C> {
     }
 }
 
-const UNPACK_FLIP_Y_WEBGL: u32 = 0x9240;
-const UNPACK_PREMULTIPLY_ALPHA_WEBGL: u32 = 0x9241;
+// The effects as a source of the transparent list's items: each of the
+// frame's draws one item, with the key the page wrote for it, z worked out
+// as three works it out; the owners' emitters uploaded as the list is made.
+impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
+    fn emit(&mut self, core: &mut Core<C, M>, view: &View, source: u32, items: &mut Vec<Item>) {
+        let draws = (self.input[IN_DRAWS] as usize).min(MAX_DRAWS);
+        if draws == 0 {
+            return;
+        }
+        self.upload_owners(core);
+        for d in 0..draws {
+            let k = &self.input[DRAW_AT + d * DRAW_STRIDE + DRAW_KEY..DRAW_AT + (d + 1) * DRAW_STRIDE];
+            items.push(Item {
+                group_order: k[0], render_order: k[1], z: three_z(&view.view_projection, None, &[k[2], k[3], k[4]]), id: k[5],
+                source, batch: d as u32, record: d as u32,
+            });
+        }
+    }
 
-// The effects as a source of the transparent list's items (transparent.rs):
-// none yet.
-impl<C: HasContext, M: MultiDraw> crate::transparent::Source<C, M> for EffectsPass<C> {}
+    fn draw_run(&mut self, core: &mut Core<C, M>, _view: &View, run: &[Item]) {
+        self.common(core);
+        for item in run {
+            match self.entry(item.record as usize) {
+                (KIND_BATCH, e) => self.draw_batch(core, e),
+                (KIND_MESH, e) => self.draw_mesh(core, e),
+                _ => {}
+            }
+        }
+    }
+}
