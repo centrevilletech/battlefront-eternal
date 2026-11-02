@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { encodeEntities } from '../src/runtime/snapshot-codec.js';
-import { snapshotFromRecords, SnapshotSlotTable, WorldFieldStagger } from '../src/runtime/snapshot-records.js';
+import { snapshotFromRecords, SnapshotSlotTable, WorldFieldStagger, EntrySpare } from '../src/runtime/snapshot-records.js';
+import { SnapshotRing } from '../src/runtime/snapshot-ring.js';
 import { captureWorldPresentation } from '../src/runtime/entity-world-state.js';
 import * as reference from './fixtures/snapshot-capture-reference.js';
 import * as ownReference from './fixtures/own-checkpoint-reference.js';
@@ -168,6 +169,34 @@ function worldBattle(seed) {
   } };
 }
 const summary = (id, schema, tick, bytes) => ({ kind: 'summary', id, generation: 1, tick, schema, payload: Uint8Array.from(bytes) });
+
+// The host refills entries, positions and velocities from the snapshots its
+// ring lets go (EntrySpare). Every snapshot the ring still holds stays the
+// reference's, so a baseline of any age encodes as it did, through deaths,
+// seats, slot reuse and teleports; and once the ring is full most new
+// entries are refilled ones, not new objects.
+test('entries refilled from snapshots the ring lets go leave every held snapshot as the reference\'s', () => {
+  for (const seed of [4, 5]) {
+    const spare = new EntrySpare(), ring = new SnapshotRing(128, (snapshot, held) => spare.recycle(snapshot, held.get(held.oldestTick)));
+    const table = new SnapshotSlotTable(), referenceTable = new reference.SnapshotSlotTable(), expected = new Map();
+    let previous = null, theirs = null, made = 0, refilled = 0;
+    for (const { tick, records } of recordBattle(seed, 700)) {
+      const before = { soldier: spare.byClass.soldier.length, pos: spare.pos.length };
+      const actual = snapshotFromRecords({ tick, records, slots: table, previous, spare });
+      const wanted = reference.snapshotFromRecords({ tick, records, slots: referenceTable, previous: theirs });
+      if (tick > 300) { refilled += before.soldier - spare.byClass.soldier.length; for (const [slot, entry] of actual.slots) if (entry.cls === 'soldier' && entry !== previous.slots.get(slot)) made++; }
+      ring.set(tick, 1, actual); expected.set(tick, wanted); expected.delete(tick - 128);
+      const label = `seed ${seed} tick ${tick}`;
+      // The newest snapshot against held baselines of several ages, and
+      // every held snapshot every 50 ticks.
+      const bases = [1, 16, 64, 127].filter(age => ring.has(tick - age)).map(age => [ring.get(tick - age), expected.get(tick - age)]);
+      sameSnapshot(actual, wanted, [[null, null], ...bases], label);
+      if (tick % 50 === 0) for (const held of ring.ticks) sameSnapshot(ring.get(held), expected.get(held), [], `${label}: held ${held}`);
+      previous = actual; theirs = wanted;
+    }
+    assert.ok(made > 1000 && refilled > 0.9 * made, `seed ${seed}: ${refilled} of ${made} new soldier entries refilled`);
+  }
+});
 
 test('world fields: stations and tows the stagger keeps are never built, and the world is the reference\'s', () => {
   for (const seed of [11, 12]) {

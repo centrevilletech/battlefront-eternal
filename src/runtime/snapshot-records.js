@@ -65,6 +65,35 @@ function sameMount(mount, prev) {
 }
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const NO_MOTION = Object.freeze([0, 0, 0]);
+// Entries, and their positions and velocities, from snapshots the host's
+// ring has let go (snapshot-host.js), for the next captures to fill in
+// place of new ones. The ring keeps every snapshot for 128 publications,
+// long enough that each new entry was moved to the old generation, and most
+// of the worker's full collections went on taking them back. Turrets,
+// soldiers, droidekas and hulls are reused; items and remotes are rare.
+const SPARE_CLASSES = ['turret', 'soldier', 'droideka', 'vehicle'];
+export class EntrySpare {
+  constructor(limit = 2048) {
+    this.limit = limit; this.pos = []; this.vel = [];
+    this.byClass = Object.fromEntries(SPARE_CLASSES.map(cls => [cls, []]));
+  }
+  // `evicted` has left the ring, and `next` is the oldest snapshot it still
+  // holds. A capture reuses only the previous snapshot's entry (or its
+  // position or velocity) at the same slot, so what `next` does not hold
+  // at that slot no snapshot holds.
+  recycle(evicted, next) {
+    for (const [slot, entry] of evicted.slots) {
+      const kept = next?.slots.get(slot);
+      if (kept === entry) continue;
+      const list = this.byClass[entry.cls];
+      if (list && list.length < this.limit) list.push(entry);
+      if (entry.pos && entry.pos !== kept?.pos && this.pos.length < this.limit) this.pos.push(entry.pos);
+      if (entry.vel && entry.vel !== kept?.vel && this.vel.length < this.limit) this.vel.push(entry.vel);
+    }
+  }
+}
+function spareFor(spare, cls) { return spare ? spare.byClass[cls].pop() : undefined; }
+
 // The entry for `record`, equality with `previous` decided where the
 // comparisons happen anyway. When every value matches and `previous` carries
 // no discontinuity (its disc described its own arrival and must not stick to
@@ -73,14 +102,18 @@ const NO_MOTION = Object.freeze([0, 0, 0]);
 // fresh entry, each class's fields in one literal (snapshotFromRecords then
 // sets its disc). The quantization is snapshot-codec.js's quantize* written
 // out for the three-element arrays records carry.
-function buildEntry(record, bounds, mount, seatSlot, seatIndex, previous) {
+function buildEntry(record, bounds, mount, seatSlot, seatIndex, previous, spare = null) {
   const kind = record.kind, prev = previous ?? null;
   if (kind === 'turret') {
     const classId = record.building, team = record.team ?? 0, health = record.health, state = TURRET_STATES.indexOf(record.state);
     const yaw = angleCode(record.yaw), pitch = angleCode(record.pitch), gunYaw = angleCode(record.gunYaw), gunPitch = angleCode(record.gunPitch);
     if (prev !== null && !prev.disc && prev.cls === kind && prev.entityId === record.id && prev.generation === record.generation && prev.classId === classId
       && prev.yaw === yaw && prev.pitch === pitch && prev.gunYaw === gunYaw && prev.gunPitch === gunPitch && prev.health === health && prev.state === state && prev.team === team) return prev;
-    return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, yaw, pitch, gunYaw, gunPitch, health, state };
+    const e = spareFor(spare, kind);
+    if (!e) return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, yaw, pitch, gunYaw, gunPitch, health, state };
+    e.cls = kind; e.entityId = record.id; e.generation = record.generation; e.classId = classId; e.team = team; e.disc = false;
+    e.yaw = yaw; e.pitch = pitch; e.gunYaw = gunYaw; e.gunPitch = gunPitch; e.health = health; e.state = state;
+    return e;
   }
   const classId = record.classId ?? 0, team = record.team ?? 0;
   let same = prev !== null && prev.cls === kind && prev.entityId === record.id && prev.generation === record.generation && prev.classId === classId && prev.team === team;
@@ -90,7 +123,11 @@ function buildEntry(record, bounds, mount, seatSlot, seatIndex, previous) {
   const y = clamp(Math.round((p[1] - bounds.yMin) / bounds.yExtent * 65535), 0, 65535);
   const z = clamp(Math.round((p[2] - bounds.zMin) / bounds.zExtent * 65535), 0, 65535);
   let pos = prev?.pos;
-  if (!(pos && x === pos[0] && y === pos[1] && z === pos[2])) { pos = [x, y, z]; same = false; }
+  if (!(pos && x === pos[0] && y === pos[1] && z === pos[2])) {
+    pos = spare?.pos.pop();
+    if (pos) { pos[0] = x; pos[1] = y; pos[2] = z; } else pos = [x, y, z];
+    same = false;
+  }
   // An item's velocity always goes at 1/32 m/s: a page flies a thrown
   // item on from its records (network-entity-items.js), and 0.25 m/s
   // steps would round a slow slide to rest.
@@ -100,7 +137,11 @@ function buildEntry(record, bounds, mount, seatSlot, seatIndex, previous) {
   const c1 = wide ? clamp(Math.round(v1 * 32), -32767, 32767) : clamp(Math.round(v1 / 0.25), -127, 127);
   const c2 = wide ? clamp(Math.round(v2 * 32), -32767, 32767) : clamp(Math.round(v2 / 0.25), -127, 127);
   let vel = prev?.vel;
-  if (!(vel && wide === vel.wide && c0 === vel.v[0] && c1 === vel.v[1] && c2 === vel.v[2])) { vel = { wide, v: [c0, c1, c2] }; same = false; }
+  if (!(vel && wide === vel.wide && c0 === vel.v[0] && c1 === vel.v[1] && c2 === vel.v[2])) {
+    vel = spare?.vel.pop();
+    if (vel) { vel.wide = wide; vel.v[0] = c0; vel.v[1] = c1; vel.v[2] = c2; } else vel = { wide, v: [c0, c1, c2] };
+    same = false;
+  }
   if (kind === 'soldier' || kind === 'droideka') {
     const yaw = quantizeYaw(record.yaw), pitch = quantizePitch(record.pitch), health = record.health, posture = record.posture & 3,
       state = record.state, weapon = record.weapon, fireCounter = (record.fireCounter ?? 0) & 0xff;
@@ -109,14 +150,23 @@ function buildEntry(record, bounds, mount, seatSlot, seatIndex, previous) {
     if (kind === 'soldier') {
       const charge = record.charge ?? 0;
       if (same && charge === prev.charge && !prev.disc) return prev;
-      return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, pos, vel,
+      const e = spareFor(spare, kind);
+      if (!e) return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, pos, vel,
         yaw, pitch, health, posture, charge, state, weapon, seatSlot, seatIndex, fireCounter };
+      e.cls = kind; e.entityId = record.id; e.generation = record.generation; e.classId = classId; e.team = team; e.disc = false; e.pos = pos; e.vel = vel;
+      e.yaw = yaw; e.pitch = pitch; e.health = health; e.posture = posture; e.charge = charge; e.state = state; e.weapon = weapon; e.seatSlot = seatSlot; e.seatIndex = seatIndex; e.fireCounter = fireCounter;
+      return e;
     }
     const anim = prev?.anim && prev.anim[0] === record.time && prev.anim[1] === record.roll && prev.anim[2] === record.lean && prev.anim[3] === record.legs && prev.anim[4] === record.shield
       ? prev.anim : [record.time, record.roll, record.lean, record.legs, record.shield];
     if (same && record.mode === prev.mode && record.reverse === prev.reverse && record.dead === prev.dead && record.shieldOn === prev.shieldOn && anim === prev.anim && !prev.disc) return prev;
-    return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, pos, vel,
+    const e = spareFor(spare, kind);
+    if (!e) return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, pos, vel,
       yaw, pitch, health, posture, state, weapon, seatSlot, seatIndex, fireCounter, mode: record.mode, reverse: record.reverse, dead: record.dead, shieldOn: record.shieldOn, anim };
+    e.cls = kind; e.entityId = record.id; e.generation = record.generation; e.classId = classId; e.team = team; e.disc = false; e.pos = pos; e.vel = vel;
+    e.yaw = yaw; e.pitch = pitch; e.health = health; e.posture = posture; e.state = state; e.weapon = weapon; e.seatSlot = seatSlot; e.seatIndex = seatIndex; e.fireCounter = fireCounter;
+    e.mode = record.mode; e.reverse = record.reverse; e.dead = record.dead; e.shieldOn = record.shieldOn; e.anim = anim;
+    return e;
   }
   if (kind === 'vehicle') {
     const quat = quantizeQuaternion(record.quaternion), mountValue = mountEntry(mount);
@@ -124,8 +174,12 @@ function buildEntry(record, bounds, mount, seatSlot, seatIndex, previous) {
     const mountSame = prev !== null && sameMount(mountValue, prev.mount);
     const health = record.health, state = record.state, power = record.power, fireCounter = (record.fireCounter ?? 0) & 0xff;
     if (same && quatSame && mountSame && health === prev.health && state === prev.state && power === prev.power && fireCounter === prev.fireCounter && !prev.disc) return prev;
-    return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, pos, vel,
+    const e = spareFor(spare, kind);
+    if (!e) return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, pos, vel,
       quat: quatSame ? prev.quat : quat, health, state, power, fireCounter, mount: mountSame ? prev.mount : mountValue };
+    e.cls = kind; e.entityId = record.id; e.generation = record.generation; e.classId = classId; e.team = team; e.disc = false; e.pos = pos; e.vel = vel;
+    e.quat = quatSame ? prev.quat : quat; e.health = health; e.state = state; e.power = power; e.fireCounter = fireCounter; e.mount = mountSame ? prev.mount : mountValue;
+    return e;
   }
   if (kind === 'item') {
     const up = record.up ?? [0, 1, 0];
@@ -182,7 +236,7 @@ export function mountRecordFromEntry(entry, tick) {
 // become world fields (or `world`, WorldFieldStagger.world(), is the world
 // as is). Teleports within one life (displacement beyond a speed allowance
 // since the previous snapshot) set the discontinuity bit.
-export function snapshotFromRecords({ tick, epoch = 1, records, worldRecords = [], world = null, slots, bounds = DEFAULT_SNAPSHOT_BOUNDS, previous = null }) {
+export function snapshotFromRecords({ tick, epoch = 1, records, worldRecords = [], world = null, slots, bounds = DEFAULT_SNAPSHOT_BOUNDS, previous = null, spare = null }) {
   const snapshot = emptySnapshot(tick, epoch);
   const mounts = new Map(), seats = new Map();
   for (const r of records) { if (r.kind === 'mount') mounts.set(r.id, r); else if (r.kind === 'seat') seats.set(r.id, r); }
@@ -197,7 +251,7 @@ export function snapshotFromRecords({ tick, epoch = 1, records, worldRecords = [
       const seat = seats.get(r.id);
       const seatSlot = seat?.vehicleId ? slots.slotForUnit(seat.vehicleId) : -1;
       const before = previousSlots?.get(slot);
-      const entry = buildEntry(r, bounds, mounts.get(r.id), seatSlot >= 0 ? seatSlot : -1, seat?.seatIndex ?? 0, before);
+      const entry = buildEntry(r, bounds, mounts.get(r.id), seatSlot >= 0 ? seatSlot : -1, seat?.seatIndex ?? 0, before, spare);
       if (entry !== before && before && before.generation === entry.generation && before.cls === entry.cls) {
         if (entry.seatSlot !== undefined && before.seatSlot !== entry.seatSlot) entry.disc = true;
         if (entry.pos && before.pos) {
@@ -214,7 +268,7 @@ export function snapshotFromRecords({ tick, epoch = 1, records, worldRecords = [
       snapshot.slots.set(slot, entry);
     } else if (kind === 'item' || kind === 'remote') {
       const slot = slots.assign(kind === 'item' ? itemKey(r.id) : remoteKey(r.id));
-      snapshot.slots.set(slot, buildEntry(r, bounds, null, -1, 0, previousSlots?.get(slot)));
+      snapshot.slots.set(slot, buildEntry(r, bounds, null, -1, 0, previousSlots?.get(slot), spare));
     }
   }
   if (world) snapshot.world = world;
