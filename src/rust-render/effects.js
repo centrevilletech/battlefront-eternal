@@ -12,6 +12,9 @@
 // - Glow models (game.js glowModel: the muzzle flashes, the effects' model
 //   particles): additive basic materials on models, each part a mesh with a
 //   world matrix, found in three's transparent list as it first draws them.
+// - The droidekas' shields (droideka-shield.js): a shader material on a
+//   sphere, its values read from its uniforms each frame (after its
+//   onBeforeRender, as three would call it), found the same way.
 //
 // Each is registered the first time three has drawn it (which gives its
 // material a program), then marked external: three is shown it no more and
@@ -28,6 +31,7 @@ import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
 import { classicLightning } from "../lightning.js";
 import { particleDepth } from "../particle-depth.js";
+import { lighting } from "../materials.js";
 import { blendOf, stateOf, sidesOf } from "./transparent.js";
 
 // add_program's kinds (web/mod.rs): the world's (a model's model-view
@@ -83,6 +87,40 @@ function copy(data, at, src, from, to) {
   if (n <= 64) for (let i = 0; i < n; i++) data[at + i] = src[from + i];
   else data.set(src.subarray(from, to), at);
   return at + n;
+}
+
+// A droideka's shield (droideka-shield.js).
+function shieldOf(object) {
+  return object.isMesh && object.material?.isShaderMaterial && object.material.name === "droideka-energy-shield";
+}
+
+// A uniform's value as floats: [size, form] (effects.rs MaterialValue: 0 a
+// float, vector or matrix; 1 a float array; 4 a vec4 array), or null for
+// one the renderer doesn't take.
+function formOf(v) {
+  if (typeof v === "number" || typeof v === "boolean") return [1, 0];
+  if (v?.isVector2) return [2, 0];
+  if (v?.isVector3 || v?.isColor) return [3, 0];
+  if (v?.isVector4) return [4, 0];
+  if (v?.isMatrix3) return [9, 0];
+  if (v?.isMatrix4) return [16, 0];
+  if (ArrayBuffer.isView(v) || (Array.isArray(v) && v.every((x) => typeof x === "number"))) return [v.length, 1];
+  if (Array.isArray(v) && v.length && v.every((x) => x?.isVector4)) return [4 * v.length, 4];
+  return null;
+}
+
+// A uniform's value into data from `at`; where it ends.
+function put(data, at, v) {
+  if (typeof v === "number") data[at++] = v;
+  else if (typeof v === "boolean") data[at++] = v ? 1 : 0;
+  else if (v.isColor) { data[at++] = v.r; data[at++] = v.g; data[at++] = v.b; }
+  else if (v.isVector2) { data[at++] = v.x; data[at++] = v.y; }
+  else if (v.isVector3) { data[at++] = v.x; data[at++] = v.y; data[at++] = v.z; }
+  else if (v.isVector4) { data[at++] = v.x; data[at++] = v.y; data[at++] = v.z; data[at++] = v.w; }
+  else if (v.isMatrix3 || v.isMatrix4) { data.set(v.elements, at); at += v.elements.length; }
+  else if (Array.isArray(v) && v[0]?.isVector4) for (const x of v) at = put(data, at, x);
+  else at = copy(data, at, v, 0, v.length);
+  return at;
 }
 
 // The order of the nearest Group above an object, as three's projectObject
@@ -165,8 +203,9 @@ class EffectsPass {
     const list = this.threeList(ctx.renderer, ctx.scene);
     for (const item of list?.transparent || []) {
       const object = item.object;
-      if (this.glows.has(object) || !glowOf(object)) continue;
-      this.registerGlow(object.parent);
+      if (this.glows.has(object)) continue;
+      if (glowOf(object)) this.registerGlow(object.parent);
+      else if (shieldOf(object)) this.registerShader(object);
     }
     // Now and then, the records of parts no longer in the scene let go.
     if (this.frame % 600 === 0) {
@@ -330,6 +369,51 @@ class EffectsPass {
     return { id, mesh, material, map, handle: this.handle(map), values, attributes, from: this.frame };
   }
 
+  // A mesh with a shader material of its own, its values read from its
+  // uniforms each frame (a droideka's shield). Registered once three has
+  // drawn it as it is.
+  registerShader(mesh) {
+    const core = this.core, renderer = core.renderer, material = mesh.material, geometry = mesh.geometry;
+    const props = renderer.properties.get(material);
+    if (!props.currentProgram || props.__version !== material.version) return; // three draws it first
+    const fail = (why) => { core.errors.push(`effects ${mesh.name}: ${why}`); this.glows.set(mesh, null); };
+    const blend = blendOf(material), state = stateOf(material);
+    if (!blend || !state) return fail("state");
+    const sides = sidesOf(material);
+    // The uniforms it may read: its own, the matrices set per draw. Its one
+    // sampler is drawn from the map's unit.
+    const uniforms = material.uniforms, names = Object.keys(uniforms);
+    const samplers = names.filter((name) => uniforms[name].value?.isTexture || (uniforms[name].value === null && /map$/i.test(name)));
+    if (samplers.length > 1) return fail("samplers");
+    const policy = { uniforms: new Set([...names, "modelViewMatrix", "normalMatrix"]), material: new Set() };
+    const programs = sides.map((side) => { const p = side === 2 ? props.currentProgram : programForSide(renderer, material, side); return p && core.program(p, WORLD, material, policy); });
+    if (programs.some((p) => !p)) return fail("program");
+    if (geometry.groups.length || Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count < (geometry.index?.count ?? 0)) return fail("geometry");
+    const geometries = programs.map((p) => core.geometry(geometry, p));
+    if (geometries.some((g) => g === null || g === undefined)) return fail("geometry");
+    // Its values: what its programs read of its uniforms but the frame's
+    // (the frame block holds those) and its sampler.
+    const values = [];
+    for (const name of names) {
+      // (A value the frame block holds is materials.js lighting's own: the program check made sure.)
+      if (samplers.includes(name) || !programs.some((p) => p.names.has(name)) || uniforms[name] === lighting[name]) continue;
+      const form = formOf(uniforms[name].value);
+      if (!form) return fail(`value ${name}`);
+      values.push([name, ...form]);
+    }
+    const map = samplers.length ? uniforms[samplers[0]].value : null;
+    const texture = map ? core.texture(map) : -1;
+    if (map && texture < 0) return; // its texture first
+    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+    const s = geometry.boundingSphere;
+    const model = core.rust.fx_add_model(texture, new Uint32Array(blend), state.flags & 3, state.func, values.map(([name, size, form]) => `${name}:${size}:${form}`).join(","), new Float64Array([s.center.x, s.center.y, s.center.z, s.radius]));
+    sides.forEach((side, i) => core.rust.fx_model_pass(model, programs[i].id, side, geometries[i]));
+    const record = { mesh, model, material, map, handle: this.handle(map), sampler: samplers[0] ?? null, values, shader: true, from: this.frame };
+    this.glows.set(mesh, record);
+    this.glowList.push(record);
+    material.visible = false;
+  }
+
   // A texture's GL handle, uploaded first if three has a newer version of
   // it than it last uploaded (three uploads one only as it draws with it).
   handle(map) {
@@ -405,9 +489,19 @@ class EffectsPass {
     }
     const lit = bolt && bolt.record.from !== frame && bolt.lightning.index > 0 && bolt.record.material.visible !== false && this.shown(bolt.lightning.mesh, camera) ? bolt : null;
     if (lit) need += lit.lightning.vertex * 9 + lit.lightning.index + 13;
-    // Glow models shown (three culls them by their spheres: the renderer does).
-    for (const record of this.glowList) if (record.from !== frame && record.mesh.visible && this.shown(record.mesh, camera)) glowing.push(record);
-    need += glowing.length * 13;
+    // Glow models and shields shown (three culls them by their spheres: the
+    // renderer does). A shield's onBeforeRender runs first, as three's would
+    // (it sets whether the camera is inside it); its texture follows three's.
+    for (const record of this.glowList) {
+      if (record.from === frame || !record.mesh.visible || !this.shown(record.mesh, camera)) continue;
+      glowing.push(record);
+      if (!record.shader) { need += 13; continue; }
+      record.mesh.onBeforeRender(ctx.renderer, ctx.scene, camera, record.mesh.geometry, record.material, null);
+      for (const [, size] of record.values) need += size;
+      const map = record.sampler ? record.material.uniforms[record.sampler].value : null;
+      const handle = this.handle(map);
+      if (map !== record.map || handle !== record.handle) { record.map = map; record.handle = handle; core.rust.fx_model_texture(record.model, map ? core.texture(map) : -1); }
+    }
     for (const gpu of this.owners.keys()) need += Math.min(gpu.count, gpu.uniforms.emitterRows.value) * EMITTER_FLOATS;
     core.views();
     if (need > core.fxData.length) {
@@ -465,7 +559,9 @@ class EffectsPass {
       const { mesh, material } = record, m = models++ * 16;
       matrices.set(mesh.matrixWorld.elements, m);
       const start = at;
-      at = this.basicValues(data, at, material, record.values);
+      if (record.shader) {
+        for (const [name] of record.values) at = put(data, at, material.uniforms[name].value);
+      } else at = this.basicValues(data, at, material, record.values);
       const e = DRAW_AT + draws++ * DRAW_STRIDE;
       input[e] = KIND_MODEL; input[e + 1] = record.model; input[e + 2] = m; input[e + 3] = start; input[e + 4] = 0; input[e + 5] = 0;
       this.keyOf(mesh, input, e + DRAW_KEY);
@@ -519,6 +615,9 @@ class EffectsPass {
       lightning.mesh.visible = lightning.index > 0 && !lightning.isEnhanced();
       for (const name of ["position", "uv", "color"]) lightning.geometry.attributes[name].needsUpdate = true;
       lightning.geometry.index.needsUpdate = true;
+    } else if (lightning && on && this.meshes.get(lightning.mesh.material)) {
+      lightning.external = true;
+      lightning.mesh.visible = false;
     }
     for (const record of this.glowList) record.material.visible = !on;
     if (!on) this.draws = this.instances = 0;

@@ -21,11 +21,13 @@
 //   three's passes for it (a double-sided transparent material: back faces,
 //   then front), its material's values set as three sets them.
 // - Models (the muzzle flashes, the effects' model particles: game.js
-//   glowModel): a registered geometry drawn with a world matrix the page
-//   writes each frame (the model-view matrix worked out here as three works
-//   it out), culled by its bounding sphere as three culls it, in each of
-//   three's passes, with its material's values. One model serves every
-//   object of the same geometry, programs, texture and state.
+//   glowModel; the droidekas' shields, droideka-shield.js): a registered
+//   geometry drawn with a world matrix the page writes each frame (the
+//   model-view matrix, and the normal matrix where the program reads one,
+//   worked out here as three works them out), culled by its bounding sphere
+//   as three culls it, in each of three's passes, with its material's
+//   values. One model serves every object of the same geometry, programs,
+//   texture and state.
 //
 // The page lists the frame's draws (src/rust-render/effects.js), each with
 // the key three would have sorted it by in its transparent list; each is an
@@ -128,8 +130,8 @@ struct Mesh<C: HasContext> {
     index_capacity: usize,
     sizes: Vec<usize>,
     stride: usize,
-    // The material values' names and sizes, in the order the page writes them.
-    values: Vec<(String, usize)>,
+    // The material values, in the order the page writes them.
+    values: Vec<MaterialValue>,
 }
 
 // One of three's passes of a model: its program for the side drawn, the
@@ -140,6 +142,7 @@ struct ModelPass<C: HasContext> {
     side: u32,
     geometry: usize,
     model_view: Option<C::UniformLocation>,
+    normal: Option<C::UniformLocation>,
     slots: Vec<Option<C::UniformLocation>>,
 }
 
@@ -148,7 +151,7 @@ struct Model<C: HasContext> {
     texture: Option<C::Texture>,
     blend: Blend,
     depth: (bool, u32, bool),
-    values: Vec<(String, usize)>,
+    values: Vec<MaterialValue>,
     // Its geometry's bounding sphere (object space): centre, radius.
     sphere: ([f64; 3], f64),
 }
@@ -185,23 +188,41 @@ fn sides<C: HasContext>(gl: &C, state: &mut GlState<C>, stats: &mut Stats, side:
     state.front_face(gl, stats, if (side == 1) != mirrored { glow::CW } else { glow::CCW });
 }
 
+// A material value: its name, its size in floats and its form (0 a float
+// or vector of that size, or a matrix of 9 or 16; 1 an array of floats; 4
+// an array of vec4s), as the page names them ("name:size" or
+// "name:size:form", comma-separated).
+pub type MaterialValue = (String, usize, u32);
+
+fn material_values(values: &str) -> Vec<MaterialValue> {
+    values.split(',').filter(|s| !s.is_empty()).filter_map(|s| {
+        let mut parts = s.split(':');
+        let name = parts.next()?.to_string();
+        let size = parts.next()?.parse().ok()?;
+        let form = parts.next().and_then(|f| f.parse().ok()).unwrap_or(0);
+        Some((name, size, form))
+    }).collect()
+}
+
 // A material value into a program, when it holds another (`held`, by
 // program and name).
 #[allow(clippy::too_many_arguments)]
-fn set_value<C: HasContext>(gl: &C, stats: &mut Stats, held: &mut HashMap<(usize, String), Vec<f32>>, program: usize, name: &str, location: Option<&C::UniformLocation>, values: &[f32]) {
+fn set_value<C: HasContext>(gl: &C, stats: &mut Stats, held: &mut HashMap<(usize, String), Vec<f32>>, program: usize, value: &MaterialValue, location: Option<&C::UniformLocation>, values: &[f32]) {
     let Some(location) = location else { return };
-    let held = held.entry((program, name.to_string())).or_default();
+    let held = held.entry((program, value.0.clone())).or_default();
     if held.as_slice() == values {
         return;
     }
     unsafe {
-        match values.len() {
-            1 => gl.uniform_1_f32(Some(location), values[0]),
-            2 => gl.uniform_2_f32(Some(location), values[0], values[1]),
-            3 => gl.uniform_3_f32(Some(location), values[0], values[1], values[2]),
-            4 => gl.uniform_4_f32(Some(location), values[0], values[1], values[2], values[3]),
-            9 => gl.uniform_matrix_3_f32_slice(Some(location), false, values),
-            16 => gl.uniform_matrix_4_f32_slice(Some(location), false, values),
+        match (value.2, values.len()) {
+            (1, _) => gl.uniform_1_f32_slice(Some(location), values),
+            (4, _) => gl.uniform_4_f32_slice(Some(location), values),
+            (_, 1) => gl.uniform_1_f32(Some(location), values[0]),
+            (_, 2) => gl.uniform_2_f32(Some(location), values[0], values[1]),
+            (_, 3) => gl.uniform_3_f32(Some(location), values[0], values[1], values[2]),
+            (_, 4) => gl.uniform_4_f32(Some(location), values[0], values[1], values[2], values[3]),
+            (_, 9) => gl.uniform_matrix_3_f32_slice(Some(location), false, values),
+            (_, 16) => gl.uniform_matrix_4_f32_slice(Some(location), false, values),
             _ => return,
         }
     }
@@ -337,7 +358,7 @@ impl<C: HasContext> EffectsPass<C> {
         let mut b = [0u32; 7];
         b.copy_from_slice(&blend[..7]);
         let sizes: Vec<usize> = sizes.iter().map(|&s| s as usize).collect();
-        let values = values.split(',').filter(|s| !s.is_empty()).filter_map(|s| { let (n, k) = s.split_once(':')?; Some((n.to_string(), k.parse().ok()?)) }).collect();
+        let values = material_values(values);
         self.meshes.push(Mesh {
             passes: vec![], texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
             depth: (depth_flags & 1 != 0, depth_func, depth_flags & 2 != 0), vbo, ebo, vertex_capacity: 0, index_capacity: 0,
@@ -377,7 +398,7 @@ impl<C: HasContext> EffectsPass<C> {
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
             vao
         };
-        let slots = m.values.iter().map(|(name, _)| unsafe { gl.get_uniform_location(p, name) }).collect();
+        let slots = m.values.iter().map(|v| unsafe { gl.get_uniform_location(p, &v.0) }).collect();
         m.passes.push(MeshPass { program: program as usize, side, vao, slots });
         (m.passes.len() - 1) as u32
     }
@@ -390,12 +411,19 @@ impl<C: HasContext> EffectsPass<C> {
     pub fn add_model<M: MultiDraw>(&mut self, core: &Core<C, M>, texture: i32, blend: &[u32], depth_flags: u32, depth_func: u32, values: &str, sphere: &[f64]) -> u32 {
         let mut b = [0u32; 7];
         b.copy_from_slice(&blend[..7]);
-        let values = values.split(',').filter(|s| !s.is_empty()).filter_map(|s| { let (n, k) = s.split_once(':')?; Some((n.to_string(), k.parse().ok()?)) }).collect();
+        let values = material_values(values);
         self.models.push(Model {
             passes: vec![], texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
             depth: (depth_flags & 1 != 0, depth_func, depth_flags & 2 != 0), values, sphere: ([sphere[0], sphere[1], sphere[2]], sphere[3]),
         });
         (self.models.len() - 1) as u32
+    }
+
+    // A model's texture again (three made it anew).
+    pub fn model_texture<M: MultiDraw>(&mut self, core: &Core<C, M>, model: u32, texture: i32) {
+        if let Some(m) = self.models.get_mut(model as usize) {
+            m.texture = if texture < 0 { None } else { core.textures.get(texture as usize).copied() };
+        }
     }
 
     // One of three's passes of a model, in drawing order: the program for its
@@ -404,8 +432,10 @@ impl<C: HasContext> EffectsPass<C> {
         let gl = &core.gl;
         let m = &mut self.models[model as usize];
         let p = core.programs[program as usize].program;
-        let (model_view, slots) = unsafe { (gl.get_uniform_location(p, "modelViewMatrix"), m.values.iter().map(|(name, _)| gl.get_uniform_location(p, name)).collect()) };
-        m.passes.push(ModelPass { program: program as usize, side, geometry: geometry as usize, model_view, slots });
+        let (model_view, normal, slots) = unsafe {
+            (gl.get_uniform_location(p, "modelViewMatrix"), gl.get_uniform_location(p, "normalMatrix"), m.values.iter().map(|v| gl.get_uniform_location(p, &v.0)).collect())
+        };
+        m.passes.push(ModelPass { program: program as usize, side, geometry: geometry as usize, model_view, normal, slots });
         (m.passes.len() - 1) as u32
     }
 
@@ -546,9 +576,9 @@ impl<C: HasContext> EffectsPass<C> {
                 state.use_program(gl, stats, program.program);
                 // The material's values, each set when the program holds another.
                 let mut v = values_at;
-                for (k, (name, size)) in m.values.iter().enumerate() {
-                    set_value(gl, stats, &mut self.held, pass.program, name, pass.slots[k].as_ref(), &self.data[v..v + size]);
-                    v += size;
+                for (k, value) in m.values.iter().enumerate() {
+                    set_value(gl, stats, &mut self.held, pass.program, value, pass.slots[k].as_ref(), &self.data[v..v + value.1]);
+                    v += value.1;
                 }
                 if m.texture.is_some() {
                     state.bind_texture(gl, stats, UNIT_MAP, m.texture);
@@ -580,6 +610,13 @@ impl<C: HasContext> EffectsPass<C> {
             *v = model_view[k] as f32;
         }
         let mirrored = math::mirrors(&world);
+        // three's normalMatrix, for the programs that read one.
+        let mut normal = [0.0f32; 9];
+        if m.passes.iter().any(|p| p.normal.is_some()) {
+            for (k, v) in math::normal_matrix(&model_view).iter().enumerate() {
+                normal[k] = *v as f32;
+            }
+        }
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
         for pass in &m.passes {
@@ -589,10 +626,14 @@ impl<C: HasContext> EffectsPass<C> {
                 unsafe { gl.uniform_matrix_4_f32_slice(Some(l), false, &mv) };
                 stats.gl_calls += 1;
             }
+            if let Some(l) = pass.normal.as_ref() {
+                unsafe { gl.uniform_matrix_3_f32_slice(Some(l), false, &normal) };
+                stats.gl_calls += 1;
+            }
             let mut v = values_at;
-            for (k, (name, size)) in m.values.iter().enumerate() {
-                set_value(gl, stats, &mut self.held, pass.program, name, pass.slots[k].as_ref(), &self.data[v..v + size]);
-                v += size;
+            for (k, value) in m.values.iter().enumerate() {
+                set_value(gl, stats, &mut self.held, pass.program, value, pass.slots[k].as_ref(), &self.data[v..v + value.1]);
+                v += value.1;
             }
             if m.texture.is_some() {
                 state.bind_texture(gl, stats, UNIT_MAP, m.texture);

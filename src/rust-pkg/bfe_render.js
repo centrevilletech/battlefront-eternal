@@ -295,6 +295,13 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} model
+     * @param {number} texture
+     */
+    fx_model_texture(model, texture) {
+        wasm.bferenderer_fx_model_texture(this.__wbg_ptr, model, texture);
+    }
+    /**
      * @param {number} floats
      */
     fx_reserve(floats) {
@@ -956,6 +963,12 @@ function __wbg_get_imports() {
         },
         __wbg_uniform1f_fe417acc7c7a1dc5: function(arg0, arg1, arg2) {
             arg0.uniform1f(arg1, arg2);
+        },
+        __wbg_uniform1fv_19f7e96820e32a42: function(arg0, arg1, arg2, arg3) {
+            arg0.uniform1fv(arg1, getArrayF32FromWasm0(arg2, arg3));
+        },
+        __wbg_uniform1fv_a71814c5c9b8550c: function(arg0, arg1, arg2, arg3) {
+            arg0.uniform1fv(arg1, getArrayF32FromWasm0(arg2, arg3));
         },
         __wbg_uniform1i_385ebc488d4d763f: function(arg0, arg1, arg2) {
             arg0.uniform1i(arg1, arg2);

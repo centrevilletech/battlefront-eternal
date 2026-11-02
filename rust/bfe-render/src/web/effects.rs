@@ -39,8 +39,9 @@ impl BfeRenderer {
     pub fn fx_mesh_texture(&mut self, mesh: u32, texture: i32) { self.r.effects.mesh_texture(&self.r.core, mesh, texture) }
 
     // A model: texture (-1 none), three's blending (7 values), depth flags
-    // (1 test, 2 write) and function, its material values ("name:size,...",
-    // in the order the page writes them), its geometry's bounding sphere
+    // (1 test, 2 write) and function, its material values ("name:size" or
+    // "name:size:form", comma-separated, form 1 a float array, 4 a vec4
+    // array; in the order the page writes them), its geometry's bounding sphere
     // (centre, radius); then each of three's passes of it, in drawing order:
     // program, side, the geometry registered for that program.
     #[allow(clippy::too_many_arguments)]
@@ -48,4 +49,5 @@ impl BfeRenderer {
         self.r.effects.add_model(&self.r.core, texture, blend, depth_flags, depth_func, values, sphere)
     }
     pub fn fx_model_pass(&mut self, model: u32, program: u32, side: u32, geometry: u32) -> u32 { self.r.effects.model_pass(&self.r.core, model, program, side, geometry) }
+    pub fn fx_model_texture(&mut self, model: u32, texture: i32) { self.r.effects.model_texture(&self.r.core, model, texture) }
 }

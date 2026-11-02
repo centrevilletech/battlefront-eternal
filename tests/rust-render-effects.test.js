@@ -293,3 +293,38 @@ test("glow models: found in three's list, registered with their group once three
   core.setActive(false);
   assert.equal(material.visible, true);
 });
+
+test("a droideka's shield: its uniforms as the model's values, the frame's own left to the frame block, its onBeforeRender run", async () => {
+  const { ShieldBubble } = await import("../src/droideka-shield.js");
+  const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
+  const bubble = new ShieldBubble(scene, { Radius: 2 }, () => null, { get: () => "classic" });
+  const droideka = { position: new THREE.Vector3(0, 0, -8), aimYaw: 0, shield: { on: true, def: {}, value: 1, max: 1 }, dead: false, rolled: false };
+  bubble.update(0.1, droideka);
+  scene.updateMatrixWorld(true);
+  const mesh = bubble.mesh, material = mesh.material;
+  assert.ok(mesh.visible);
+  list.transparent.push({ object: mesh, material, group: null });
+  const shader = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "viewMatrix", "fieldMap", "hasMap", "shieldTime", "shieldFade", "charge", "enhanced", "birth", "inside", "flash",
+    "fieldColor", "specularColor", "sunDirection", "sunColor", "impacts[0]", "powers[0]", "blasts[0]"], ["position", "normal", "uv"]);
+  drawn(material, shader);
+  frame();
+  const model = calls.find((c) => c[0] === "fx_add_model");
+  assert.ok(model, "registered");
+  assert.equal(model[1], -1, "no texture: the field has no map");
+  assert.deepEqual(model[2], [1, 0x8006, 0x8006, 0x0302, 0x0303, 1, 0x0303], "normal blending");
+  assert.equal(model[5], "hasMap:1:0,shieldTime:1:0,shieldFade:1:0,charge:1:0,enhanced:1:0,birth:1:0,inside:1:0,flash:1:0,fieldColor:3:0,specularColor:3:0,impacts:24:4,powers:6:1,blasts:6:1",
+    "its own values; the sun's from the frame block");
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_model_pass").map((c) => c[3]), [2], "one pass, both sides");
+  assert.equal(material.visible, false);
+  // Next frame: drawn, its values written from its uniforms after its
+  // onBeforeRender (the camera far outside: inside 0).
+  list.transparent.length = 0;
+  material.uniforms.inside.value = 1;
+  frame();
+  assert.equal(core.fxInput[0], 1);
+  assert.deepEqual(entry(0).slice(0, 2), [2, 0]);
+  const data = core.fxData;
+  assert.equal(data[6], 0, "inside, as its onBeforeRender set it");
+  assert.equal(data[2], Math.fround(material.uniforms.shieldFade.value), "its fade");
+  assert.deepEqual(entry(0).slice(6, 8), [0, 4], "three's key: render order 4");
+});
