@@ -95,7 +95,8 @@ export class Units {
 
   // Living units whose broadphase sphere meets the ball.
   query(center, radius, out = [], filter = null) {
-    out.length = 0;
+    // Emptied by popping: setting the length to 0 drops the list's storage.
+    while (out.length) out.pop();
     for (const unit of this.list) {
       if (!unit.alive) continue;
       const s = unit.sphere;

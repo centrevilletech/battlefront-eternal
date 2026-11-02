@@ -81,6 +81,14 @@ function soldierShapes(posture, s) {
     { type: "sphere", part: "head", at: [-0.09, 1.65 * s, 0.16], radius: 0.17 * S },
   ];
 }
+// soldierShapes' tables by scale, then posture: the same few every tick,
+// built once (nothing writes to them).
+const SHAPE_TABLES = new Map();
+function shapeTable(posture, s) {
+  let tables = SHAPE_TABLES.get(s);
+  if (!tables) SHAPE_TABLES.set(s, tables = { stand: soldierShapes("stand", s), crouch: soldierShapes("crouch", s), prone: soldierShapes("prone", s) });
+  return posture === "prone" ? tables.prone : posture === "crouch" ? tables.crouch : tables.stand;
+}
 // The broadphase sphere (bounds { center, radius }) around a body's first
 // `count` hit shapes: about the middle of their centres, reaching past the
 // farthest shape.
@@ -219,6 +227,29 @@ export class Unit {
     this.onDeath = () => {};
     this.onRemoved = () => {};
     this.onMoved = () => {};
+    // Set later: by the factory (navRadius to itemTarget), a life
+    // (targetable), water (waterContact), an open seat or a creature's grip
+    // (riderHits, held), a bot's driving (steer) or a network player (the
+    // rest). They start here as they read before they are set, undefined,
+    // so every unit keeps one shape and the code that walks the battle's
+    // units stays optimized instead of falling back on every new one.
+    this.navRadius = undefined;
+    this.crowdSlot = undefined;
+    this.enhancedDeath = undefined;
+    this.supply = undefined;
+    this.itemTarget = undefined;
+    this.targetable = undefined;
+    this.waterContact = undefined;
+    this.riderHits = undefined;
+    this.held = undefined;
+    this.steer = undefined;
+    this.networkHuman = undefined;
+    this.networkShot = undefined;
+    this.networkShots = undefined;
+    this.networkViewTick = undefined;
+    this.networkInputLeadTicks = undefined;
+    this.networkPlayoutMaxTicks = undefined;
+    this.remoteStep = undefined;
   }
 
   get position() {
@@ -322,18 +353,18 @@ export class Unit {
     } else {
       const sin = Math.sin(s.aimYaw);
       const cos = Math.cos(s.aimYaw);
-      const parts = soldierShapes(this.hitPosture, this.rootScale);
-      parts.forEach((part, i) => {
-        const shape = this.shapes[i];
-        const [x, y, z] = part.at;
+      const parts = shapeTable(this.hitPosture, this.rootScale);
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i], shape = this.shapes[i];
+        const x = part.at[0], y = part.at[1], z = part.at[2];
         // The soldier's left is (cos yaw, 0, -sin yaw), forward (sin yaw, 0, cos yaw).
         shape.center.set(p.x + cos * x + sin * z, p.y + y, p.z - sin * x + cos * z);
         shape.type = part.type;
         shape.part = part.part;
         shape.radius = part.radius || 0;
-        shape.half = part.type === "box" ? shape.halfSize.set(...part.half) : part.half || 0;
+        shape.half = part.type === "box" ? shape.halfSize.set(part.half[0], part.half[1], part.half[2]) : part.half || 0;
         shape.yaw = s.aimYaw;
-      });
+      }
       this.shapeCount = parts.length;
       boundShapes(this.shapes, parts.length, this.bounds);
     }

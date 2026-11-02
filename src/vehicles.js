@@ -58,6 +58,10 @@ const CAMERA_SKIN = .08; // m: keeps the near plane off what the rays hit
 const RETURN_RATE = 6; // 1/s: a camera pulled in by a wall eases back out
 const FOV_RATE = 25; // 1/s
 const AIM_REACH = 512; // m along a seat's aim to the point its guns turn to
+const TO_LOCAL = new THREE.Matrix4(), DECOMPOSED_AT = new THREE.Vector3(), DECOMPOSED_SCALE = new THREE.Vector3();
+// m a wall probe's or spring's cached triangles reach past its sphere: a
+// hull at 30 m/s moves 0.25 m a 120 Hz step.
+const WALL_CACHE_MARGIN = 1.5;
 const AIMED = DEG; // rad: a barrel this close to its target fires at it exactly
 const TURRET_PITCH = 1.5; // rad: the port's bound on a turret's pitch when its section sets none
 
@@ -398,6 +402,11 @@ export class Vehicle {
     const width = Math.max(0, this.size.x * .5 - this.probeRadius);
     const columns = width > this.probeRadius ? [-width, 0, width] : [0];
     for (let row = 0; row <= rows; row++) for (const x of columns) this.probes.push(new THREE.Vector3(this.center.x + x, this.bounds.min.y + this.probeRadius + .12, this.center.z - length + row * length * 2 / rows));
+    // Each wall probe and hover spring keeps its own nearby-triangle cache
+    // (CollisionWorld.gather): they query around the same spots tick after
+    // tick, twice a tick at 120 Hz, and the probes twice a step.
+    this.wallCaches = this.probes.map(() => system.collision.gatherCache?.(WALL_CACHE_MARGIN) ?? null);
+    this.springCaches = (this.def.springs || []).map(() => system.collision.gatherCache?.(WALL_CACHE_MARGIN) ?? null);
     this.itemTarget = { position: this.position, center: new THREE.Vector3(), velocity: this.velocity,
       radius: this.radius, relation: team => this.system.units?.relation(this.team, team) ?? (team === this.team ? 1 : team === 0 ? 0 : -1),
       give: def => {
@@ -1149,10 +1158,11 @@ export class Vehicle {
   pushWalls(oldYaw, q, terrain) {
     const c = this.system.collision;
     const own = this.walking ? this.ownStart.setFromAxisAngle(UP, this.previousYaw) : null;
-    for (let pass = 0; pass < 2; pass++) for (const probe of this.probes) {
+    for (let pass = 0; pass < 2; pass++) for (let i = 0; i < this.probes.length; i++) {
+      const probe = this.probes[i];
       this.point.copy(probe).applyQuaternion(q).add(this.position);
       if (own) this.probeStart.copy(probe).applyQuaternion(own).add(this.previous);
-      for (const polygon of c.gather(this.point, this.probeRadius, true)) for (const tri of polygon.triangles) this.pushOut(tri, oldYaw, own && polygon.moving);
+      for (const polygon of c.gather(this.point, this.probeRadius, true, this.wallCaches[i])) for (const tri of polygon.triangles) this.pushOut(tri, oldYaw, own && polygon.moving);
       if (terrain) for (const tri of c.terrainNear(this.point, this.probeRadius)) this.pushOut(tri, oldYaw);
     }
   }
@@ -1636,10 +1646,17 @@ export class Vehicle {
         if (!bone) continue;
         if (bone === view.turret) { a.facing.set(0, 0, 1).transformDirection(bone.matrixWorld); continue; }
         const rest = this.bind.get(bone);
+        // The parent's world matrix, from the root down; read as three's
+        // worldToLocal and getWorldQuaternion read it, without each walking
+        // the same chain to the same matrix again.
         bone.parent.updateWorldMatrix(true, false);
-        if (target) bone.parent.worldToLocal(s.v.copy(target)).sub(bone.position).applyQuaternion(s.q.copy(rest).invert());
+        const parentWorld = bone.parent.matrixWorld;
+        if (target) s.v.copy(target).applyMatrix4(TO_LOCAL.copy(parentWorld).invert()).sub(bone.position).applyQuaternion(s.q.copy(rest).invert());
         // Nothing to aim at: along the seat's aim.
-        else aimVector(seat.aimYaw, seat.pitch, s.v).applyQuaternion(bone.parent.getWorldQuaternion(s.q).multiply(rest).invert());
+        else {
+          parentWorld.decompose(DECOMPOSED_AT, s.q, DECOMPOSED_SCALE);
+          aimVector(seat.aimYaw, seat.pitch, s.v).applyQuaternion(s.q.multiply(rest).invert());
+        }
         if (dt > 0) {
           // As the 2004 game's aimer turns: the
           // shorter way round toward the target at its rate, then held

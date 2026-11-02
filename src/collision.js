@@ -1,6 +1,19 @@
 import * as THREE from "three";
 import { MeshBVH } from "three-mesh-bvh";
 
+// Polygon numbers of the vehicle-only barriers, apart from the buildings'
+// and the bodies'.
+const BLOCKER_POLYGONS = 0x70000000;
+// A gather finding more polygons than this files them in a Map (polygon()).
+const GROUP_SCAN = 16;
+
+// Empties a list kept for reuse. Setting its length to 0 is a runtime call
+// even on an empty list, and drops its storage for the next push to
+// allocate again; popping keeps it.
+function empty(list) {
+  while (list.length) list.pop();
+}
+
 // The map's collision, laid out the way the engine tests a soldier against it.
 //
 // Buildings and props are polygons. Each triangle knows the polygon it came
@@ -34,13 +47,27 @@ export class CollisionWorld {
     this.used = 0;
     this.polygonPool = [];
     this.polygonUsed = 0;
+    // The gather's polygons by number once its list is long (polygon()).
     this.groups = new Map();
+    this.grouped = false;
     this.list = [];
     this.bodies = [];
     this.bodySerial = 0;
     // Bumped whenever a body is added or removed (gather caches).
     this.bodiesVersion = 0;
     this.vehicleBlockers = null;
+    // The buildings, and the vehicle-only barriers once a cached gather
+    // asks for them (blockerSet): fixed triangles a cache files by number.
+    this.staticSet = { shape: null, polygonOf: polygons, positions, indices, triBounds: this.triBounds, triangles: this.staticTriangles, offset: 0 };
+    this.blockers = null;
+    // The scratch state of the query running now.
+    this.gatherMatrix = null;
+    this.gatherPolygonOf = polygons;
+    this.gatherOffset = 0;
+    this.filling = null;
+    this.fillBounds = null;
+    this.overlapCenter = null;
+    this.overlapRadiusSq = 0;
     // Queries run synchronously. Keep their callbacks and contact records
     // across ticks instead of allocating them for every body and sphere.
     this.gatherQuery = {
@@ -49,27 +76,16 @@ export class CollisionWorld {
         this.triBox.min.copy(tri.a).min(tri.b).min(tri.c);
         this.triBox.max.copy(tri.a).max(tri.b).max(tri.c);
         if (!this.triBox.intersectsBox(this.box)) return false;
-        const id = this.gatherPolygonOf[index] + this.gatherOffset;
-        let polygon = this.groups.get(id);
-        if (!polygon) {
-          if (this.polygonUsed === this.polygonPool.length) this.polygonPool.push({ triangles: [], done: false, moving: false });
-          polygon = this.polygonPool[this.polygonUsed++];
-          polygon.triangles.length = 0;
-          polygon.done = false;
-          polygon.moving = this.gatherMatrix !== null;
-          this.groups.set(id, polygon);
-          this.list.push(polygon);
-        }
-        polygon.triangles.push(this.triangle(tri));
+        this.polygon(this.gatherPolygonOf[index] + this.gatherOffset, this.gatherMatrix !== null).triangles.push(this.triangle(tri));
         return false;
       },
     };
-    // Fills a caller's cache with every building triangle near its query,
-    // in the tree's own order (see gather).
+    // Fills a caller's cache with every fixed triangle near its query, in
+    // the tree's own order (see gather).
     this.cacheQuery = {
       intersectsBounds: (box) => box.intersectsBox(this.cacheBox),
       intersectsTriangle: (tri, index) => {
-        const b = this.triBounds, o = index * 6, box = this.cacheBox;
+        const b = this.fillBounds, o = index * 6, box = this.cacheBox;
         if (b[o + 3] < box.min.x || b[o] > box.max.x || b[o + 4] < box.min.y || b[o + 1] > box.max.y
           || b[o + 5] < box.min.z || b[o + 2] > box.max.z) return false;
         const cache = this.filling;
@@ -83,6 +99,8 @@ export class CollisionWorld {
       },
     };
     this.cacheBox = new THREE.Box3();
+    this.terrainNearList = [];
+    this.terrainNearPool = [];
     this.overlapQuery = {
       intersectsBounds: (box) => box.intersectsBox(this.box),
       intersectsTriangle: (tri) => {
@@ -166,24 +184,32 @@ export class CollisionWorld {
   // list of triangles. The result is reused by the next call.
   //
   // A caller that queries around the same spot every tick (a soldier's body
-  // sphere) can pass a cache from gatherCache(). The buildings never change,
-  // so their triangles near the sphere are fetched from the tree once, with a
-  // margin, and each later query only filters that short list with the same
-  // bounds test, until the sphere leaves the margin. The tree visits
-  // triangles in a fixed order and the filter keeps it, so the polygons and
-  // their triangles come out exactly as without the cache.
+  // sphere, a hull's wall probe) can pass a cache from gatherCache(). The
+  // buildings and the vehicle-only barriers never change, so their triangles
+  // near the sphere are fetched from their trees once, with a margin, and
+  // each later query only filters those short lists with the same bounds
+  // test, until the sphere leaves the margin. A tree visits triangles in a
+  // fixed order and the filter keeps it, so the polygons and their triangles
+  // come out exactly as without the cache.
+  // vehicle: the vehicle-only barriers count too (a hull's query).
   // ignoreBody: a body whose polygons are left out (a dead rider's mount).
   gather(center, radius, vehicle = false, cache = null, ignoreBody = null) {
     this.box.min.set(center.x - radius, center.y - radius, center.z - radius);
     this.box.max.set(center.x + radius, center.y + radius, center.z + radius);
     this.used = 0;
     this.polygonUsed = 0;
-    this.groups.clear();
-    this.list.length = 0;
+    if (this.grouped) {
+      this.groups.clear();
+      this.grouped = false;
+    }
+    empty(this.list);
     this.gatherMatrix = null;
-    if (cache) this.gatherCached(cache);
-    else this.gatherFrom(this.bvh, this.polygonOf, 0);
-    if (vehicle && this.vehicleBlockers) this.gatherFrom(this.vehicleBlockers.bvh, this.vehicleBlockers.polygonOf, 0x70000000);
+    const blockers = vehicle ? this.vehicleBlockers : null;
+    if (cache) this.gatherCached(cache, blockers);
+    else {
+      this.gatherFrom(this.bvh, this.polygonOf, 0);
+      if (blockers) this.gatherFrom(blockers.bvh, blockers.polygonOf, BLOCKER_POLYGONS);
+    }
     this.worldBox.copy(this.box);
     for (const body of cache ? this.cachedBodies(cache) : this.bodies) {
       if (!body.enabled || body === ignoreBody || !body.bounds.intersectsBox(this.worldBox)) continue;
@@ -196,16 +222,48 @@ export class CollisionWorld {
     return this.list;
   }
 
+  // The current gather's record of polygon `id` (a new one, at the end of
+  // the list, the first time). A gather finds few polygons, and a
+  // polygon's triangles come together, so the list is searched from its
+  // end; past GROUP_SCAN polygons a Map takes over, cleared only after a
+  // gather that used it.
+  polygon(id, moving) {
+    const list = this.list;
+    if (this.grouped) {
+      const found = this.groups.get(id);
+      if (found) return found;
+    } else {
+      for (let i = list.length - 1; i >= 0; i--) if (list[i].id === id) return list[i];
+      if (list.length >= GROUP_SCAN) {
+        for (const polygon of list) this.groups.set(polygon.id, polygon);
+        this.grouped = true;
+      }
+    }
+    if (this.polygonUsed === this.polygonPool.length) this.polygonPool.push({ id: 0, triangles: [], done: false, moving: false });
+    const polygon = this.polygonPool[this.polygonUsed++];
+    polygon.id = id;
+    empty(polygon.triangles);
+    polygon.done = false;
+    polygon.moving = moving;
+    list.push(polygon);
+    if (this.grouped) this.groups.set(id, polygon);
+    return polygon;
+  }
+
   gatherCache(margin = 0.75) {
-    return { box: new THREE.Box3().makeEmpty(), list: new Uint32Array(64), count: 0, margin,
-      bodies: [], bodiesVersion: -1, bodiesFill: -1, fill: 0 };
+    return { box: new THREE.Box3().makeEmpty(), margin, fill: 0,
+      // The buildings' triangles in the box, and the vehicle-only barriers'
+      // for a hull's query (set: the barriers they were filled from).
+      statics: { set: null, list: new Uint32Array(64), count: 0 },
+      blockers: { set: null, list: new Uint32Array(16), count: 0 },
+      bodies: [], bodiesVersion: -1, bodiesFill: -1 };
   }
 
   // The bodies a cached query can meet, in the world's order: every moving
   // one, and the fixed ones whose bounds meet the cache's box.
   cachedBodies(cache) {
     if (cache.bodiesVersion !== this.bodiesVersion || cache.bodiesFill !== cache.fill) {
-      cache.bodies.length = 0;
+      empty(cache.bodies);
       for (const body of this.bodies) if (body.moving || body.bounds.intersectsBox(cache.box)) cache.bodies.push(body);
       cache.bodiesVersion = this.bodiesVersion;
       cache.bodiesFill = cache.fill;
@@ -213,39 +271,49 @@ export class CollisionWorld {
     return cache.bodies;
   }
 
-  gatherCached(cache) {
+  // blockers: the vehicle-only barriers too (a hull's query), else null.
+  gatherCached(cache, blockers) {
     const box = this.box;
-    if (!cache.box.containsBox(box)) {
+    const set = blockers ? this.blockerSet(blockers) : null;
+    if (!cache.box.containsBox(box) || cache.blockers.set !== set) {
       this.cacheBox.copy(box).expandByScalar(cache.margin);
       cache.box.copy(this.cacheBox);
-      cache.count = 0;
       cache.fill++;
-      this.filling = cache;
-      this.bvh.shapecast(this.cacheQuery);
-      this.filling = null;
+      this.fillCache(this.bvh, this.staticSet, cache.statics);
+      if (set) this.fillCache(blockers.bvh, set, cache.blockers);
+      else cache.blockers.set = null;
     }
-    const b = this.triBounds, p = this.positions, ix = this.indices, list = cache.list;
+    this.gatherSet(cache.statics);
+    if (set) this.gatherSet(cache.blockers);
+  }
+
+  // A cache's list of a set's triangles whose bounds meet cacheBox.
+  fillCache(bvh, set, into) {
+    into.set = set;
+    into.count = 0;
+    this.filling = into;
+    this.fillBounds = set.triBounds;
+    bvh.shapecast(this.cacheQuery);
+    this.filling = null;
+    this.fillBounds = null;
+  }
+
+  // A cache's triangles of a fixed set whose bounds meet the query's box,
+  // filed by polygon as the tree's own query files them.
+  gatherSet(cached) {
+    const set = cached.set, list = cached.list, count = cached.count;
+    const box = this.box, b = set.triBounds, p = set.positions, ix = set.indices, polygonOf = set.polygonOf, triangles = set.triangles;
     const minX = box.min.x, minY = box.min.y, minZ = box.min.z, maxX = box.max.x, maxY = box.max.y, maxZ = box.max.z;
-    for (let i = 0; i < cache.count; i++) {
+    for (let i = 0; i < count; i++) {
       const index = list[i], o = index * 6;
       if (b[o + 3] < minX || b[o] > maxX || b[o + 4] < minY || b[o + 1] > maxY || b[o + 5] < minZ || b[o + 2] > maxZ) continue;
-      const id = this.polygonOf[index];
-      let polygon = this.groups.get(id);
-      if (!polygon) {
-        if (this.polygonUsed === this.polygonPool.length) this.polygonPool.push({ triangles: [], done: false, moving: false });
-        polygon = this.polygonPool[this.polygonUsed++];
-        polygon.triangles.length = 0;
-        polygon.done = false;
-        polygon.moving = false;
-        this.groups.set(id, polygon);
-        this.list.push(polygon);
-      }
-      // Cached building triangles never move. Materialize each encountered
-      // triangle once instead of copying nine coordinates per body sphere
-      // every physics tick. Moving hulls still use the transient world pool.
-      let out = this.staticTriangles[index];
+      const polygon = this.polygon(polygonOf[index] + set.offset, false);
+      // Fixed triangles never move. Materialize each encountered triangle
+      // once instead of copying nine coordinates per body sphere every
+      // physics tick. Moving hulls still use the transient world pool.
+      let out = triangles[index];
       if (!out) {
-        out = this.staticTriangles[index] = new THREE.Triangle();
+        out = triangles[index] = new THREE.Triangle();
         const t = index * 3;
         out.a.fromArray(p, ix[t] * 3);
         out.b.fromArray(p, ix[t + 1] * 3);
@@ -253,6 +321,17 @@ export class CollisionWorld {
       }
       polygon.triangles.push(out);
     }
+  }
+
+  // The vehicle-only barriers (Vehicles sets vehicleBlockers, a body shape
+  // in world space) as a fixed set for cached gathers.
+  blockerSet(shape) {
+    if (this.blockers?.shape !== shape) {
+      const geometry = shape.bvh.geometry, positions = geometry.attributes.position.array, indices = geometry.index.array;
+      this.blockers = { shape, polygonOf: shape.polygonOf, positions, indices, triBounds: triangleBounds(positions, indices),
+        triangles: new Array(indices.length / 3), offset: BLOCKER_POLYGONS };
+    }
+    return this.blockers;
   }
 
   gatherFrom(bvh, polygonOf, offset) {
@@ -331,7 +410,7 @@ export class CollisionWorld {
   // terrain's steep faces as walls (Vehicle.pushWalls).
   terrainNear(center, radius) {
     const out = this.terrainNearList ||= [];
-    out.length = 0;
+    empty(out);
     this.terrainGrid?.near(center, radius, out, this.terrainNearPool ||= []);
     return out;
   }

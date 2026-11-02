@@ -430,6 +430,10 @@ export class UnitController extends Fsm {
     this.perception = null; // Combat's per-controller state
     this.difficulty = null;
     this.traceLog = [];
+    // Set by Combat's dodge and alert, undefined till then as before: here so
+    // every controller keeps one shape (Unit's constructor).
+    this.dodge = undefined;
+    this.alertAnim = undefined;
   }
 
   // -- lifetime ---------------------------------------------------------------
