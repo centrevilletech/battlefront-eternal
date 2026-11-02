@@ -16,11 +16,25 @@
 //
 // It also reports the mean world step (the simulation without publishing)
 // over the ticks after the first 900, while the battle fills, on stderr.
+//
+// Three options bring in what a page does, each off by default (so the
+// fingerprints above stay comparable):
+//   --interval N  a snapshot every N ticks, as for a page drawing 60/N
+//                 frames a second (the worker's local interval);
+//   --ack         the player acknowledges snapshots, with a lag that rises
+//                 from 2 to 121 ticks and falls back, so snapshots are sent
+//                 as deltas against baselines up to 121 ticks old;
+//   --view T      he also pulls his trigger (the edges a page sends; a
+//                 held key alone fires nothing for him), and his commands
+//                 and presses say his page showed the battle T ticks ago
+//                 (fractions allowed), so his shots are judged against the
+//                 hit history, rewound and interpolated, as online.
 import crypto from 'node:crypto';
 
 const argv = process.argv.slice(2);
 const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i < 0 ? fallback : argv[i + 1]; };
 const map = opt('map', 'nab2'), side = opt('side', 'rep'), seed = Number(opt('seed', 1)), ticks = Number(opt('ticks', 2400));
+const interval = Number(opt('interval', 1)), ack = argv.includes('--ack'), view = opt('view', null) === null ? null : Number(opt('view', 0));
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 
 const wallNow = performance.now.bind(performance);
@@ -33,11 +47,13 @@ Math.random = () => { draw = (Math.imul(draw, 1664525) + 1013904223) >>> 0; retu
 const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
+const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
 const game = await headlessGame(`?map=${map}&side=${side}&era=${era}&ai=classic&seed=${seed}`);
 let sent = [];
 const server = await createLocalServer(game, { name: 'Player', send: (channel, payload) => sent.push([channel, payload]) });
 server.welcome();
 sent = [];
+if (interval !== 1) server.host.setLocalInterval(interval);
 const world = server.world, step = world.step.bind(world);
 let stepMs = 0, measured = 0;
 world.step = () => { const start = wallNow(); try { return step(); } finally { if (game.worldClock.tick > 900) { stepMs += wallNow() - start; measured++; } } };
@@ -60,14 +76,21 @@ function digest() {
 }
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 const lines = [];
+let fireEdges = 0;
 draw = 991;
 for (let i = 0; i < ticks; i++) {
   now += 1000 / 60;
   const tick = game.worldClock.tick + 1, phase = i % 240;
   const down = phase < 160 ? ['KeyW'] : phase < 200 ? ['KeyA', 'Mouse0'] : ['KeyD'];
-  world.input(server.id, { epoch: 1, sequence: tick, tick, generation: server.actor.unit.generation, down, actions: [],
-    look: [[Math.round(12 * Math.sin(i * 0.05)), Math.round(3 * Math.cos(i * 0.07))]] });
+  const generation = server.actor.unit.generation, viewTick = view === null ? null : Math.max(0, tick - view);
+  world.input(server.id, { epoch: 1, sequence: tick, tick, generation, down, actions: [],
+    look: [[Math.round(12 * Math.sin(i * 0.05)), Math.round(3 * Math.cos(i * 0.07))]], ...(view === null ? {} : { viewTick }) });
+  if (view !== null && (phase === 160 || phase === 200)) world.fire(server.id, { epoch: 1, id: ++fireEdges, tick, generation, button: 0, pressed: phase === 160, ...(phase === 160 ? { viewTick } : {}) });
   server.step();
+  // The lag rises a tick a tick (the acknowledged tick holds, the baseline
+  // ages) and falls two at a time; of the two ticks named, a page has the
+  // one that was published.
+  if (ack) { const k = i % 238, lag = 2 + (k < 119 ? k : 238 - k); for (const at of [tick - lag - 1, tick - lag]) if (at > 0) server.host.input(server.id, encodeSnapshotAckKeepalive({ epoch: 1, tick: at })); }
   const published = crypto.createHash('sha1');
   for (const [channel, payload] of sent) { published.update(channel); published.update(payload instanceof ArrayBuffer ? new Uint8Array(payload) : String(payload)); }
   sent = [];
