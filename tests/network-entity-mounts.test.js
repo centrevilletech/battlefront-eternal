@@ -45,6 +45,9 @@ function client(classes = ['tank']) {
 }
 const packet = (packetId, tick, records) => encodeEntityPacket({ epoch: 1, packetId, tick, records });
 const send = (c, tick, records) => c.sender.send(tick, records);
+// Sent and drawn at its tick: a hull's lean, walk cycle and seat aims are
+// posed at the clock the page draws it at (EntityGameState.presentMounts).
+const shown = (c, tick, records) => { send(c, tick, records); c.adapter.present(tick); };
 const seatRecord = (unit, tick, mount, seatIndex, leaseVersion) => ({ kind: 'seat', id: unit.id, generation: unit.generation, tick, vehicleId: mount?.aiTarget.id ?? 0, vehicleGeneration: mount?.aiTarget.generation ?? 0, seatIndex, leaseVersion });
 
 test('remote pose packets cannot replace exact own pilot or passenger aim baselines', () => {
@@ -53,7 +56,7 @@ test('remote pose packets cannot replace exact own pilot or passenger aim baseli
   c.adapter.previous = { id: c.own.id, generation: c.own.generation, vehicleId: 40, vehicleGeneration: hull.aiTarget.generation };
   c.v.position.set(7, 8, 9); c.v.seats[0].aimYaw = .123456789; c.v.tilt = .23456789;
   hull.position.set(20, 30, 40); hull.seats[0].aimYaw = .8; hull.seats[1].aimYaw = .5;
-  send(c, 20, [captureEntityVehicle(hull, { tick: 20, classId: 2 }), captureEntityMount(hull, { tick: 20, slot: 0 })]);
+  shown(c, 20, [captureEntityVehicle(hull, { tick: 20, classId: 2 }), captureEntityMount(hull, { tick: 20, slot: 0 })]);
   assert.deepEqual(c.v.position.toArray(), [7, 8, 9]);
   assert.equal(c.v.seats[0].aimYaw, .123456789);
   assert.equal(c.v.tilt, .23456789);
@@ -64,12 +67,12 @@ test('remote pose packets cannot replace exact own pilot or passenger aim baseli
   // A driven hull moves, so its next snapshot carries the position and aim
   // again (an unchanged snapshot entry is not resent under delta encoding).
   hull.position.set(21, 30, 40); hull.seats[0].aimYaw = .81;
-  send(c, 40, [captureEntityVehicle(hull, { tick: 40, classId: 2 }), captureEntityMount(hull, { tick: 40, slot: 0 })]);
+  shown(c, 40, [captureEntityVehicle(hull, { tick: 40, classId: 2 }), captureEntityMount(hull, { tick: 40, slot: 0 })]);
   assert.ok(Math.abs(c.v.position.x-21)<.04&&Math.abs(c.v.position.y-30)<.04&&Math.abs(c.v.position.z-40)<.04, 'passenger hull still receives remote motion');
   assert.equal(c.v.seats[1].aimYaw, .23456789);
   assert.ok(Math.abs(c.v.seats[0].aimYaw - .81) <= ANGLE);
   hull.seats[0].aimYaw = .82;
-  send(c, 50, [captureEntitySoldier(c.own, { tick: 50, classId: 1, weaponId: 1 }), seatRecord(c.own, 50, null, 0, 3), captureEntityMount(hull, { tick: 50, slot: 0 })]);
+  shown(c, 50, [captureEntitySoldier(c.own, { tick: 50, classId: 1, weaponId: 1 }), seatRecord(c.own, 50, null, 0, 3), captureEntityMount(hull, { tick: 50, slot: 0 })]);
   assert.ok(Math.abs(c.v.seats[1].aimYaw - .5) <= ANGLE, 'exit resumes remote aim despite old correction context');
 });
 
@@ -251,4 +254,22 @@ test('a mount captured before its hull supplies the crew pose when the hull snap
   assert.ok(Math.abs(remote.tilt-.2)<.01);assert.ok(Math.abs(remote.roll+.1)<.01);
   assert.ok(Math.abs(remote.seats[0].aimYaw-.5)<.01);assert.ok(Math.abs(remote.seats[0].pitch+.25)<.01);
   assert.ok(Math.abs(remote.walkPhase-.35)<.01);assert.ok(Math.abs(remote.walkBlend-.6)<.01);
+});
+
+test('a remote hull\'s lean and seat aims are drawn at the clock its position is, between the records around it', () => {
+  const c = client(), server = mountFixture(), hull = server.v; hull.aiTarget.id = 40;
+  const TILT = Math.PI / 32767 * 4;
+  hull.tilt = 0; hull.roll = .1; hull.seats[0].aimYaw = 3; hull.seats[1].aimYaw = .2;
+  send(c, 10, [captureEntityVehicle(hull, { tick: 10, classId: 2 }), captureEntityMount(hull, { tick: 10, slot: 0 })]);
+  assert.ok(Math.abs(c.v.roll - .1) <= TILT, 'a new hull stands as its first record has it');
+  hull.tilt = .4; hull.roll = .3; hull.seats[0].aimYaw = -3; hull.seats[1].aimYaw = .6;
+  send(c, 14, [captureEntityVehicle(hull, { tick: 14, classId: 2 }), captureEntityMount(hull, { tick: 14, slot: 0 })]);
+  assert.ok(Math.abs(c.v.roll - .1) <= TILT, 'a newer record waits for the clock');
+  c.adapter.present(12);
+  assert.ok(Math.abs(c.v.tilt - .2) <= TILT && Math.abs(c.v.roll - .2) <= TILT, `halfway: tilt ${c.v.tilt}, roll ${c.v.roll}`);
+  assert.ok(Math.abs(c.v.seats[1].aimYaw - .4) <= 4 * ANGLE);
+  // From 3 to -3 the short way, across the half turn.
+  assert.ok(Math.abs(Math.abs(c.v.seats[0].aimYaw) - Math.PI) < .01, `the turret turns the short way: ${c.v.seats[0].aimYaw}`);
+  c.adapter.present(20);
+  assert.ok(Math.abs(c.v.tilt - .4) <= TILT, 'past the newest record it holds');
 });
