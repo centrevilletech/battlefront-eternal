@@ -53,10 +53,11 @@ function compact(e, b) {
     && (e.schema !== 1 || e.offset.every((n) => Math.abs(n) * 256 <= 32767));
 }
 
-export function encodeCosmeticEvent(record, bounds = DEFAULT_SNAPSHOT_BOUNDS) {
+// `view`: decodeCombat(record), when the caller has it already.
+export function encodeCosmeticEvent(record, bounds = DEFAULT_SNAPSHOT_BOUNDS, view = null) {
   const w = new Writer();
   w.u32(record.id); w.u32(record.generation); w.u32(record.tick); w.u16(record.schema);
-  const e = record.schema === 1 || record.schema === 2 ? decodeCombat(record) : null;
+  const e = record.schema === 1 || record.schema === 2 ? view ?? decodeCombat(record) : null;
   if (e && compact(e, bounds)) {
     w.u8(record.schema === 1 ? TAG_LAUNCH : TAG_IMPACT);
     w.u32(e.expiryTick); w.u32(e.definitionId); w.u32(e.ownerId); w.u32(e.ownerGeneration); w.u32(e.fireId);

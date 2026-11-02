@@ -50,8 +50,9 @@ export class CombatCapture {
   // projectile's newest sample), except a bolt's terminal: it queues beside
   // its undrained launch. A bolt that ends before the next drain (a short
   // flight, or one flown to its end inside its lag-compensated launch) would
-  // otherwise reach every client as an impact with no bolt to draw.
-  emit(record){const tick=this.tick();if(this.prunedTick!==tick){for(const [id,event]of this.pending)if(event.expiresTick<tick)this.pending.delete(id);this.prunedTick=tick;}const key=record.schema===2&&this.pending.get(record.id)?.record.schema===1?-record.id:record.id;if(!this.pending.has(key)&&this.pending.size>=this.maxRecords)throw Error('combat capture capacity exceeded');this.pending.set(key,{record,expiresTick:decodeCombat(record).expiryTick,retention:[3,4,5,PRESENTATION_SCHEMA].includes(record.schema)?'cosmetic':'projectile'});}
+  // otherwise reach every client as an impact with no bolt to draw. The
+  // decoded view goes with it, so publication need not decode it again.
+  emit(record){const tick=this.tick();if(this.prunedTick!==tick){for(const [id,event]of this.pending)if(event.expiresTick<tick)this.pending.delete(id);this.prunedTick=tick;}const key=record.schema===2&&this.pending.get(record.id)?.record.schema===1?-record.id:record.id;if(!this.pending.has(key)&&this.pending.size>=this.maxRecords)throw Error('combat capture capacity exceeded');const view=decodeCombat(record);this.pending.set(key,{record,view,expiresTick:view.expiryTick,retention:[3,4,5,PRESENTATION_SCHEMA].includes(record.schema)?'cosmetic':'projectile'});}
   launch(bolt,{tick:sampleTick}={}){
     if(this.nextId>0xffffffff)throw Error('combat identity exhausted');
     const tick=this.tick(),launchTick=sampleTick??tick,state={launchTick,executionTick:tick,id:this.nextId++,generation:this.generation,expiryTick:Math.ceil(launchTick+bolt.life*60)+120,definitionId:this.definitionId(bolt.def),ownerId:bolt.networkFireUnit,ownerGeneration:bolt.networkFireGeneration,fireId:bolt.networkFireId,channel:bolt.networkFireChannel??0};

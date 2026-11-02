@@ -284,9 +284,10 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
       if (combatCapture) {
         for (const event of combatCapture.drain()) {
           try {
-            const view = decodeCombat(event.record);
+            // Decoded once, when captured.
+            const view = event.view ?? decodeCombat(event.record);
             if (isGameplayCombat(event.record)) gameplay.push({ record: event.record, view });
-            else cosmetics.push(cosmeticEvent(event.record, view, encodeCosmeticEvent(event.record)));
+            else cosmetics.push(cosmeticEvent(event.record, view, encodeCosmeticEvent(event.record, undefined, view)));
           } catch { /* malformed cosmetic content is dropped, never fatal */ }
         }
       }

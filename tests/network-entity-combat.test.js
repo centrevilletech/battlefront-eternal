@@ -5,6 +5,7 @@ import {CombatCapture,CombatPresentation,decodeCombat} from '../src/runtime/netw
 import {encodeEntityPacket,decodeEntityPacket} from '../src/runtime/network-entity-codec.js';
 import {PredictedShots} from '../src/runtime/predicted-shots.js';
 import {presentEntityEvent,presentationRecord} from '../src/runtime/entity-presentation-events.js';
+import {encodeCosmeticEvent} from '../src/runtime/snapshot-cosmetics.js';
 const def={Velocity:60,LifeSpan:.07123,LaserLength:2,ImpactEffectStatic:'spark'};
 function fixture(){let tick=10;const capture=new CombatCapture({tick:()=>tick,definitionId:()=>1});const effects=[];
  const authority=new Ordnance({scene:new Scene(),collision:{cast:()=>({distance:3,point:new Vector3(0,0,3),normal:new Vector3(0,0,-1)})},effects:{play(){}},lights:{add(){}},texture:()=>null});
@@ -231,6 +232,15 @@ test('a bolt that ends before the next drain keeps its launch beside its termina
  f.presentation.present(13);assert.equal(f.effects.length,1);
  // A launch repeated after its terminal (its first copy lost) is not drawn twice.
  assert.equal(f.presentation.receive(records[0],{epoch:1,tick:12}),false);
+});
+test('a drained event carries its record decoded at capture, as publication would decode it',()=>{
+ const f=fixture(),bolt=f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),{id:7,generation:2,networkShot:{id:9}});
+ f.capture.explosion({...def,Damage:5},new Vector3(4,5,6));f.setTick(11);f.authority.stepBolt(bolt,.06,false);
+ const events=f.capture.drain();assert.deepEqual(events.map(e=>e.record.schema),[1,5,2]);
+ for(const event of events){
+  assert.deepEqual(event.view,decodeCombat(event.record));
+  assert.deepEqual(encodeCosmeticEvent(event.record,undefined,event.view),encodeCosmeticEvent(event.record),'the cosmetic bytes are those of a fresh decode');
+ }
 });
 test('a launch lost and sent again after its terminal still flies to that impact',()=>{
  const f=fixture(),bolt=f.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);f.authority.stepBolt(bolt,.06,false);
