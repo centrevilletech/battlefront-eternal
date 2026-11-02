@@ -22,8 +22,13 @@ const uint=(v,max)=>{if(!Number.isSafeInteger(v)||v<0||v>max)throw Error('invali
 class Fields {
  constructor(bytes=new Uint8Array(1100)){this.bytes=bytes;this.view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);this.at=0;}
  field(type,value){const size={Uint8:1,Uint16:2,Uint32:4,Float64:8}[type];if(this.at+size>this.bytes.length)throw Error('own-player envelope exceeds budget');const at=this.at;this.at+=size;if(arguments.length===1)return this.view['get'+type](at,true);this.view['set'+type](at,value,true);}
- u8(v){return arguments.length?this.field('Uint8',uint(v,255)):this.field('Uint8');}u16(v){return arguments.length?this.field('Uint16',uint(v,65535)):this.field('Uint16');}u32(v){return arguments.length?this.field('Uint32',uint(v,0xffffffff)):this.field('Uint32');}
- number(value,infinite=false){const v=arguments.length?value:this.field('Float64');if(!Number.isFinite(v)&&!(infinite&&v===Infinity))throw Error('invalid own-player number');if(arguments.length)this.field('Float64',v);return v;}
+ // Room for one write, checked as field() checks it. Writes skip field()'s
+ // lookup by type name: a checkpoint makes dozens of them.
+ put(size){if(this.at+size>this.bytes.length)throw Error('own-player envelope exceeds budget');const at=this.at;this.at+=size;return at;}
+ u8(v){if(!arguments.length)return this.field('Uint8');v=uint(v,255);this.view.setUint8(this.put(1),v);}
+ u16(v){if(!arguments.length)return this.field('Uint16');v=uint(v,65535);this.view.setUint16(this.put(2),v,true);}
+ u32(v){if(!arguments.length)return this.field('Uint32');v=uint(v,0xffffffff);this.view.setUint32(this.put(4),v,true);}
+ number(value,infinite=false){if(!arguments.length)return this.readNumber(infinite);if(!Number.isFinite(value)&&!(infinite&&value===Infinity))throw Error('invalid own-player number');this.view.setFloat64(this.put(8),value,true);return value;}
  readNumber(infinite=false){const value=this.field('Float64');if(!Number.isFinite(value)&&!(infinite&&value===Infinity))throw Error('invalid own-player number');return value;}
  raw(bytes){if(this.at+bytes.length>this.bytes.length)throw Error('own-player envelope exceeds budget');this.bytes.set(bytes,this.at);this.at+=bytes.length;}
  take(n){if(this.at+n>this.bytes.length)throw Error('truncated own-player payload');const bytes=this.bytes.slice(this.at,this.at+n);this.at+=n;return bytes;}
@@ -55,13 +60,16 @@ function weaponId(registry,weapon){
  for(const[id,name]of registry.weapons)if(name===weapon.name)return id;
  throw new OwnPlayerPrerequisiteError('weapon definition prerequisite missing');
 }
+// One writer for every checkpoint (capture is synchronous): the payload is
+// sliced out of it.
+const checkpoint=new Fields();
 export function captureOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneration=0,tick,epoch,registry,classId,bindingProfileId=0,held=[],view={},discardedInput=0}){
  requireState(Number.isInteger(unit.team)&&unit.team>=1&&unit.team<=2,'invalid own team');registryChecks(registry,registry.contentEpoch,classId,unit);const mounted=unit.seat?captureMountedControl(unit):null;requireState(vehicle?unit.seat?.vehicle===vehicle&&unit.seat.index===0:!unit.seat||mounted,'pilot lease prerequisite missing');requireState(vehicle?vehicleId>0&&vehicleGeneration>0:vehicleId===0&&vehicleGeneration===0,'vehicle lease prerequisite missing');const combat=unit.combat,arsenal=combat.arsenal;
  requireState(Boolean(vehicle)===(mounted?.[0]===VEHICLE_PILOT_CONTROL),'pilot control mode mismatch');
  requireState(!vehicle||mounted&&vehicle.aiTarget?.id===vehicleId&&vehicle.aiTarget.generation===vehicleGeneration,'pilot weapon identity mismatch');
  requireState(registry.bindingProfiles?.has(bindingProfileId),'binding profile prerequisite missing');
  requireState(canonical(view.flightSettings?.bindings)===canonical(registry.bindingProfiles.get(bindingProfileId)),'binding profile mismatch');
- const body=vehicle?(vehicle.flying?captureCompactFlight(vehicle):captureGroundCorrection(vehicle)):unit.walker?captureDroidekaState(unit.soldier):captureCompactSoldier(unit.soldier),bodySchema=vehicle?(vehicle.flying?COMPACT_FLIGHT_SCHEMA:GROUND_CORRECTION_SCHEMA):unit.walker?DROIDEKA_BODY_SCHEMA:COMPACT_SOLDIER_SCHEMA,w=new Fields();
+ const body=vehicle?(vehicle.flying?captureCompactFlight(vehicle):captureGroundCorrection(vehicle)):unit.walker?captureDroidekaState(unit.soldier):captureCompactSoldier(unit.soldier),bodySchema=vehicle?(vehicle.flying?COMPACT_FLIGHT_SCHEMA:GROUND_CORRECTION_SCHEMA):unit.walker?DROIDEKA_BODY_SCHEMA:COMPACT_SOLDIER_SCHEMA,w=checkpoint;w.at=0;
  w.u32(epoch);w.u32(registry.contentEpoch);w.u16(classId);w.u8(uint(unit.team,2));w.u8(bodySchema);w.u32(vehicleId);w.u32(vehicleGeneration);w.u16(body.length);w.raw(body);
  // Both channels and every inventory slot form the weapon replay checkpoint.
  w.number(combat.health);w.u8(combat.dead?1:0);w.number(combat.deathTime??0);w.number(unit.deadTime??0);w.u8(unit.removed?1:0);for(const key of ['rate','hold','offset'])w.number(combat.kick[key]);w.u8(combat.zoomStep);w.number(combat.zoom);w.u8((combat.firstPerson?1:0)|(combat.gunUnderwater?2:0));

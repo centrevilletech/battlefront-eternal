@@ -3,11 +3,13 @@
 export const COMPACT_SOLDIER_SCHEMA = 6;
 const numbers = ['fuel', 'aimYaw', 'aimPitch', 'dive', 'stateTime', 'lock'];
 const vectors = ['position', 'velocity', 'normal'];
+// captureCompactSoldier spells these out, in this order.
+if (vectors.join() !== 'position,velocity,normal') throw Error('Soldier vectors changed: update captureCompactSoldier');
 const postures = ['stand', 'crouch', 'prone'];
 const airs = [null, 'jump', 'fall', 'thrown', 'jet'];
 export function captureCompactSoldier(s) {
   if (s.contactCount !== 0 || s.contactMean.lengthSq() !== 0) throw Error('Soldier correction requires completed collision pass');
-  const settled = !['x','y','z'].every(key => Object.is(s.settled[key], s.position[key])), diving = s.dive !== 0;
+  const settled = !(Object.is(s.settled.x, s.position.x) && Object.is(s.settled.y, s.position.y) && Object.is(s.settled.z, s.position.z)), diving = s.dive !== 0;
   const bytes = new Uint8Array(124 + (settled ? 24 : 0) + (diving ? 1 : 0));
   const view = new DataView(bytes.buffer); let at = 4;
   const number = n => { if (!Number.isFinite(n)) throw Error('nonfinite Soldier correction'); view.setFloat64(at, n, true); at += 8; };
@@ -15,10 +17,11 @@ export function captureCompactSoldier(s) {
   if (posture < 0 || air < 0 || typeof s.grounded !== 'boolean') throw Error('invalid Soldier state');
   bytes[0] = Number(settled) | (Number(diving) << 1); bytes[1] = posture; bytes[2] = air; bytes[3] = Number(s.grounded);
   for (const key of numbers) number(s[key]);
-  for (const key of [...vectors, ...(settled ? ['settled'] : [])]) {
-    if (!s[key]?.isVector3) throw Error(`missing Soldier vector ${key}`);
-    for (const n of s[key].toArray()) number(n);
-  }
+  // The vectors in order (position, velocity, normal, then settled), each x,
+  // y, z: a correction is captured for every player every snapshot.
+  const vector = (v, key) => { if (!v?.isVector3) throw Error(`missing Soldier vector ${key}`); number(v.x); number(v.y); number(v.z); };
+  vector(s.position, 'position'); vector(s.velocity, 'velocity'); vector(s.normal, 'normal');
+  if (settled) vector(s.settled, 'settled');
   if (diving) { const n = postures.indexOf(s.diveFrom); if (n < 0) throw Error('invalid dive posture'); bytes[at++] = n; }
   return bytes;
 }

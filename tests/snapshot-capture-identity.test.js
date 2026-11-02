@@ -5,6 +5,7 @@ import { encodeEntities } from '../src/runtime/snapshot-codec.js';
 import { snapshotFromRecords, SnapshotSlotTable, WorldFieldStagger } from '../src/runtime/snapshot-records.js';
 import { captureWorldPresentation } from '../src/runtime/entity-world-state.js';
 import * as reference from './fixtures/snapshot-capture-reference.js';
+import * as ownReference from './fixtures/own-checkpoint-reference.js';
 
 // Capture builds less than it did (no record for a station or tow the
 // stagger keeps, no fresh entry for an unchanged actor), but every snapshot
@@ -218,7 +219,8 @@ const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.
 const owned = { skip: !existsSync(`${content}/maps/nab2/map.json`) };
 // A real battle: the host publishes as usual while the reference capture
 // takes the same world state each tick; every shared part the host sends
-// must be what the reference snapshot encodes to against the same baseline.
+// must be what the reference snapshot encodes to against the same baseline,
+// and every player's own checkpoint the reference's.
 async function realBattle(query, { ticks, local, clients }) {
   process.env.BFE_CONTENT_DIR ||= content;
   const { headlessGame } = await import('../tools/headless-world.mjs');
@@ -228,6 +230,8 @@ async function realBattle(query, { ticks, local, clients }) {
   const { SnapshotClient } = await import('../src/runtime/snapshot-client.js');
   const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
   const { publicationBuffersFor } = await import('../src/runtime/snapshot-host.js');
+  const { capturePlayerCorrection } = await import('../src/runtime/network-entity-capture.js');
+  const own = capture => { try { return [...capture().payload]; } catch (error) { return error.message; } };
   const game = await headlessGame(query);
   await game.factory.prepareSoldiers();
   const world = createMultiplayerWorld(game, local ? { maxPlayers: 1, armySize: null } : { armySize: 16 });
@@ -260,6 +264,10 @@ async function realBattle(query, { ticks, local, clients }) {
       compared++;
     }
     entities = Math.max(entities, expected.slots.size);
+    for (const id of clients) {
+      const options = { registry: host.registry, bindingProfileId: 0, epoch: 1 };
+      assert.deepEqual(own(() => capturePlayerCorrection(game, world, id, options)), own(() => ownReference.capturePlayerCorrection(game, world, id, options)), `${query} tick ${tick}: ${id}'s checkpoint`);
+    }
     // Each client acknowledges a couple of publications late, as a page does.
     for (const id of clients) {
       for (const buffer of publicationBuffersFor(out, id)) receivers.get(id).receive(new Uint8Array(buffer));

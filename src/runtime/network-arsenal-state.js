@@ -29,24 +29,31 @@ function baseValues(weapon){
 // (writer raw()), so returning the cached array cannot alias into a packet.
 const captureCache=new WeakMap();
 const scratch=new Float64Array(WEAPON_STATE_NUMBERS.length);
+// The fields are read by name, in WEAPON_STATE_FLAGS and WEAPON_STATE_NUMBERS
+// order, with the same checks: reads by key (27 names a weapon, every
+// checkpoint) were most of the work.
+if(WEAPON_STATE_FLAGS.join()!=='deployed,firing,overheated,released,hidden,charging,lockComplete'
+  ||WEAPON_STATE_NUMBERS.join()!=='timer,clip,reserve,heat,kick,spreadScale,sniperScale,yawSpreadOverride,wait,reloadLeft,throwTime,held,charge,pattern,salvosLeft,salvoWait,lockTargetId,lockGeneration,lockElapsed,limit')
+  throw Error('weapon state fields changed: update captureArsenalWeapon');
+const flag=(value,bit)=>{if(typeof value!=='boolean')throw Error('invalid weapon state flag');return Number(value)<<bit;};
+const finite=value=>{if(!Number.isFinite(value))throw Error('invalid weapon state number');return value;};
 export function captureArsenalWeapon(weapon){
   const level=weapon.levels.indexOf(weapon.def);
   if(level<0||level>255)throw Error('weapon state definition mismatch');
-  let flags=0;
-  for(let i=0;i<WEAPON_STATE_FLAGS.length;i++){
-    const value=weapon[WEAPON_STATE_FLAGS[i]];
-    if(typeof value!=='boolean')throw Error('invalid weapon state flag');
-    flags|=Number(value)<<i;
-  }
-  for(let i=0;i<WEAPON_STATE_NUMBERS.length;i++){
-    const key=WEAPON_STATE_NUMBERS[i],value=weapon[key];
-    if(!Number.isFinite(value)&&!(key==='reserve'&&value===Infinity)&&!(key==='yawSpreadOverride'&&value===null))throw Error('invalid weapon state number');
-    scratch[i]=value===null?Number.NaN:value;
-  }
+  const w=weapon;
+  const flags=flag(w.deployed,0)|flag(w.firing,1)|flag(w.overheated,2)|flag(w.released,3)|flag(w.hidden,4)|flag(w.charging,5)|flag(w.lockComplete,6);
+  scratch[0]=finite(w.timer);scratch[1]=finite(w.clip);
+  const reserve=w.reserve;if(!Number.isFinite(reserve)&&reserve!==Infinity)throw Error('invalid weapon state number');scratch[2]=reserve;
+  scratch[3]=finite(w.heat);scratch[4]=finite(w.kick);scratch[5]=finite(w.spreadScale);scratch[6]=finite(w.sniperScale);
+  const override=w.yawSpreadOverride;if(!Number.isFinite(override)&&override!==null)throw Error('invalid weapon state number');scratch[7]=override===null?Number.NaN:override;
+  scratch[8]=finite(w.wait);scratch[9]=finite(w.reloadLeft);scratch[10]=finite(w.throwTime);scratch[11]=finite(w.held);scratch[12]=finite(w.charge);
+  scratch[13]=finite(w.pattern);scratch[14]=finite(w.salvosLeft);scratch[15]=finite(w.salvoWait);scratch[16]=finite(w.lockTargetId);
+  scratch[17]=finite(w.lockGeneration);scratch[18]=finite(w.lockElapsed);scratch[19]=finite(w.limit);
   const melee=weapon.melee?weapon.melee.captureState():null;
   const cached=captureCache.get(weapon);
-  if(cached&&cached.level===level&&cached.flags===flags
-    &&cached.values.every((value,i)=>Object.is(value,scratch[i]))
+  let same=!!cached&&cached.level===level&&cached.flags===flags;
+  for(let i=0;same&&i<scratch.length;i++)same=Object.is(cached.values[i],scratch[i]);
+  if(same
     &&(melee===null?cached.melee===null:cached.melee!==null&&Object.is(cached.melee.time,melee.time)&&cached.melee.index===melee.index&&cached.melee.active===melee.active))return cached.bytes;
   const base=baseValues(weapon),out=new Uint8Array(2+WEAPON_STATE_NUMBERS.length*8+14),view=new DataView(out.buffer);
   out[0]=level;out[1]=flags;let mask=0,at=6;
