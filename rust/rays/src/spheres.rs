@@ -318,32 +318,31 @@ fn corners<P: Corner + ?Sized>(t: &Tree, p: &P, tri: usize) -> ([f64; 3], [f64; 
 
 /// MeshBVH.shapecast({ intersectsBounds, intersectsTriangle }) over every
 /// root of a tree: `bounds` decides which children to go down to, and
-/// `triangle` gets each leaf triangle met (its number and corners) and ends
-/// the cast by returning true, which the cast returns.
-fn shapecast<P, B, T>(t: &Tree, p: &P, bounds: &mut B, triangle: &mut T) -> bool
-where P: Corner + ?Sized, B: FnMut(&Bounds) -> bool, T: FnMut(usize, [f64; 3], [f64; 3], [f64; 3]) -> bool {
+/// `triangle` gets the number of each leaf triangle met (its corners are
+/// corners(), for a visitor that reads them) and ends the cast by returning
+/// true, which the cast returns.
+fn shapecast<B, T>(t: &Tree, bounds: &mut B, triangle: &mut T) -> bool
+where B: FnMut(&Bounds) -> bool, T: FnMut(usize) -> bool {
     for words in &t.roots {
-        if traverse(t, p, words, 0, bounds, triangle) { return true; }
+        if traverse(t, words, 0, bounds, triangle) { return true; }
     }
     false
 }
 
-fn traverse<P, B, T>(t: &Tree, p: &P, words: &[u32], node: usize, bounds: &mut B, triangle: &mut T) -> bool
-where P: Corner + ?Sized, B: FnMut(&Bounds) -> bool, T: FnMut(usize, [f64; 3], [f64; 3], [f64; 3]) -> bool {
+fn traverse<B, T>(t: &Tree, words: &[u32], node: usize, bounds: &mut B, triangle: &mut T) -> bool
+where B: FnMut(&Bounds) -> bool, T: FnMut(usize) -> bool {
     let w7 = words[node + 7];
     if (w7 >> 16) == 0xffff {
         let offset = words[node + 6] as usize;
         let count = (w7 & 0xffff) as usize;
         for i in offset..offset + count {
-            let tri = t.indirect[i] as usize;
-            let (a, b, c) = corners(t, p, tri);
-            if triangle(tri, a, b, c) { return true; }
+            if triangle(t.indirect[i] as usize) { return true; }
         }
         return false;
     }
     let (left, right) = (node + 8, words[node + 6] as usize);
-    if bounds(&node_bounds(words, left)) && traverse(t, p, words, left, bounds, triangle) { return true; }
-    if bounds(&node_bounds(words, right)) && traverse(t, p, words, right, bounds, triangle) { return true; }
+    if bounds(&node_bounds(words, left)) && traverse(t, words, left, bounds, triangle) { return true; }
+    if bounds(&node_bounds(words, right)) && traverse(t, words, right, bounds, triangle) { return true; }
     false
 }
 
@@ -365,7 +364,8 @@ fn gather_tree(s: &State, tree: usize, polygons: &[u32], offset: f64, matrix: Op
 }
 
 fn gather_walk<P: Corner + ?Sized>(t: &Tree, p: &P, polygons: &[u32], offset: f64, matrix: Option<&[f64; 16]>, set: u32, bounds: &Bounds, out: &mut Gathered) {
-    shapecast(t, p, &mut |node| box_intersects(node, bounds), &mut |index, a, b, c| {
+    shapecast(t, &mut |node| box_intersects(node, bounds), &mut |index| {
+        let (a, b, c) = corners(t, p, index);
         let tri_bounds = [
             js_min(js_min(a[0], b[0]), c[0]), js_min(js_min(a[1], b[1]), c[1]), js_min(js_min(a[2], b[2]), c[2]),
             js_max(js_max(a[0], b[0]), c[0]), js_max(js_max(a[1], b[1]), c[1]), js_max(js_max(a[2], b[2]), c[2]),
@@ -387,17 +387,14 @@ fn fill_cache(s: &State, set: usize, bounds: &Bounds, list: &mut Vec<u32>) {
     let t = &s.trees[f.tree];
     list.clear();
     let b = &f.bounds;
-    let mut visit = |index: usize, _: [f64; 3], _: [f64; 3], _: [f64; 3]| {
+    // Only each triangle's bounds are read (not its corners).
+    shapecast(t, &mut |node| box_intersects(node, bounds), &mut |index: usize| {
         let o = index * 6;
         if (b[o + 3] as f64) < bounds[0] || (b[o] as f64) > bounds[3] || (b[o + 4] as f64) < bounds[1] || (b[o + 1] as f64) > bounds[4]
             || (b[o + 5] as f64) < bounds[2] || (b[o + 2] as f64) > bounds[5] { return false; }
         list.push(index as u32);
         false
-    };
-    match &s.positions[t.positions] {
-        Corners::F32(p) => shapecast(t, p.as_slice(), &mut |node| box_intersects(node, bounds), &mut visit),
-        Corners::F64(p) => shapecast(t, p.as_slice(), &mut |node| box_intersects(node, bounds), &mut visit),
-    };
+    });
 }
 
 /// collision.js gatherSet: the cached triangles of a fixed set whose bounds
@@ -556,10 +553,9 @@ fn overlaps_triangle(a: [f64; 3], b: [f64; 3], c: [f64; 3], center: [f64; 3], ra
 fn tree_overlaps(s: &State, tree: usize, bounds: &Bounds, center: [f64; 3], radius_sq: f64) -> bool {
     let t = &s.trees[tree];
     let mut node = |n: &Bounds| box_intersects(n, bounds);
-    let mut tri = |_: usize, a, b, c| overlaps_triangle(a, b, c, center, radius_sq);
     match &s.positions[t.positions] {
-        Corners::F32(p) => shapecast(t, p.as_slice(), &mut node, &mut tri),
-        Corners::F64(p) => shapecast(t, p.as_slice(), &mut node, &mut tri),
+        Corners::F32(p) => shapecast(t, &mut node, &mut |i| { let (a, b, c) = corners(t, p.as_slice(), i); overlaps_triangle(a, b, c, center, radius_sq) }),
+        Corners::F64(p) => shapecast(t, &mut node, &mut |i| { let (a, b, c) = corners(t, p.as_slice(), i); overlaps_triangle(a, b, c, center, radius_sq) }),
     }
 }
 
