@@ -27,7 +27,9 @@
     "dist:dir": "npm run host:prepare && vite build --mode desktop && electron-builder --dir --publish never",
     "build:desktop": "vite build --mode desktop",
     "host:prepare": "node build/prepare-host-runtime.mjs",
-    "rust:web": "sh rust/build-web.sh"
+    "rust:build": "node tools/build-rust.mjs",
+    "rust:check": "node tools/build-rust.mjs --check",
+    "rust:web": "node tools/build-rust.mjs renderer"
   },
   "dependencies": {
     "three": "^0.170.0",

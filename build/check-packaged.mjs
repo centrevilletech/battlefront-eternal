@@ -19,10 +19,14 @@ if (!files.length) throw Error('No packaged app.asar was found');
 for (const archive of files) {
   const paths = new Set(listPackage(archive).map(path => path.replaceAll('\\', '/')));
   for (const file of ['/src/runtime/network-contract.js', '/src/battle-limits.js', '/electron/network.js', '/electron/preload.cjs', '/electron/net-host.js', '/electron/net-process.js', '/electron/net-service.js', '/src/net/endpoint.js', '/src/net/connection.js', '/src/net/handshake.js', '/src/net/crypto.js', '/src/net/codec.js', '/src/net/stun.js', '/src/net/turn.js', '/node_modules/ws/index.js', '/node_modules/ws/wrapper.mjs', '/node_modules/ws/package.json', '/dist-desktop/index.html', '/electron/boot.js', '/electron/update/index.js', '/electron/update/install.js', '/electron/update/feed.js', '/electron/update/keys.js', '/electron/update/fs.js', '/src/launch.js', '/electron/presence/index.js', '/electron/presence/activity.js', '/electron/presence/discord.js', '/electron/presence/application.js', '/electron/steam/index.js', '/electron/steam/client.js', '/electron/steam/launcher.js', '/electron/steam/relaunch.js', '/electron/steam/shortcut.js', '/electron/steam/vdf.js', '/electron/steam/overlay.js', '/electron/assets/steam/capsule.jpg', '/electron/assets/steam/portrait.jpg', '/electron/assets/steam/hero.jpg', '/electron/assets/steam/logo.png', '/electron/assets/steam/icon.png']) if (!paths.has(file)) throw Error(`Missing ${file} in ${archive}`);
+  // The Rust renderer's WebAssembly, a hashed asset of the Vite build
+  // (docs/development.md, "The Rust parts").
+  if (![...paths].some(path => /^\/dist-desktop\/assets\/bfe_render_bg-[\w-]+\.wasm$/.test(path))) throw Error(`Missing the Rust renderer's WebAssembly in ${archive}`);
   if ([...paths].some(path => /^\/(?:public|data|extract)\//.test(path) || /^\/dist-desktop\/(?:maps|sides|common|audio)\//.test(path))) throw Error(`Retail data entered ${archive}`);
   console.log('Packaged resources verified:', archive);
   const resources = dirname(archive), app = dirname(resources);
   for (const file of ['server/src/main.js', 'server/src/udp-server.js', 'server/node_modules/ws/package.json', 'engine/src/game.js', 'engine/src/net/endpoint.js', 'engine/node_modules/three/package.json']) if (!existsSync(join(resources, 'host-runtime', file))) throw Error(`Missing bundled host resource ${file}`);
+  if (existsSync(join(resources, 'host-runtime/engine/src/rust-pkg'))) throw Error('The host runtime must not carry the Rust renderer');
   for (const stack of ['node-datachannel', 'werift']) if (existsSync(join(resources, 'host-runtime/server/node_modules', stack))) throw Error(`Host package must not contain the retired WebRTC stack (${stack})`);
   if (!existsSync(join(resources, 'tools/content-version.json'))) throw Error('Missing preparation version resource');
   // The updater reuses an installed build's files by this index (build/tree-index.cjs).
