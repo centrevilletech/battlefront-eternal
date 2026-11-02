@@ -96,7 +96,9 @@ function bridge() {
   let target = sceneTarget;
   // three's render list of the near scene (empty).
   const list = { opaque: [], transmissive: [], transparent: [] };
+  const canvas = new EventTarget();
   const renderer = {
+    domElement: canvas,
     renderLists: { get: () => list },
     getContext: () => gl,
     properties: { get: (o) => { if (!properties.has(o)) properties.set(o, { __webglTexture: {} }); return properties.get(o); } },
@@ -391,4 +393,14 @@ test("an error in a pass gives everything back to three, its state reset and its
   assert.ok(core.errors.some((e) => e.startsWith("failed: Error: broken pass")));
   assert.deepEqual(calls.slice(-2), [["resetState"], ["setRenderTarget", target]]);
   assert.equal(core.cover("view", renderer, scene, camera), false, "and stays three's");
+});
+
+test("a lost context gives everything back to three for good", () => {
+  const { core, renderer } = bridge();
+  const warn = console.warn;
+  console.warn = () => {};
+  try { renderer.domElement.dispatchEvent(new Event("webglcontextlost")); } finally { console.warn = warn; }
+  assert.equal(core.lost, true);
+  assert.equal(core.enabled, false);
+  assert.ok(core.errors.some((e) => e.includes("WebGL context lost")));
 });
