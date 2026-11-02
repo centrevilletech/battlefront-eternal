@@ -59,7 +59,7 @@ const GL_TYPES = { Float32Array: 0x1406, Uint16Array: 0x1403, Uint8Array: 0x1401
 const PHASES = {
   far: { view: VIEW_FAR, draw: (rust) => rust.far_frame() },
   near: { view: VIEW_NEAR, draw: (rust, ctx) => rust.frame(ctx.records) },
-  transparent: { view: null, draw: (rust) => rust.transparent_frame() },
+  transparent: { view: VIEW_NEAR, draw: (rust, ctx) => rust.transparent_frame(ctx.three ?? 0) },
   view: { view: VIEW_FIRST_PERSON, draw: (rust) => rust.view_frame() },
   post: { view: null, draw: (rust) => rust.post_frame() },
   // The effects at a place of their own in the near scene's transparent
@@ -75,7 +75,7 @@ function recorder(rust, recording) {
     get(target, name) {
       const value = target[name];
       if (typeof value !== "function") return value;
-      if (/frame$|_(ptr|len)$|^(records_at|record_stride)$/.test(String(name))) return value.bind(target);
+      if (/frame$|_segment$|_(ptr|len)$|^(records_at|record_stride)$/.test(String(name))) return value.bind(target);
       return (...args) => {
         const result = value.apply(target, args);
         recording.calls.push([name, args.map((a) => (ArrayBuffer.isView(a) ? a.slice() : a?.constructor?.name === "WebGLTexture" ? null : a)), result]);
@@ -144,12 +144,15 @@ export class RustRender {
   }
 
   // A pass: { name, phase, register?(), draw?(ctx), setActive?(on),
-  // restore?() }. register() runs once, as it is added; draw(ctx) in each
-  // of its phase's frames, in the order the passes were added, to register
-  // what it draws (the first time three has drawn it, which gives its
-  // material a program) and write its inputs; setActive(on) moves what it
-  // registered back to three (off) or to the renderer (on); restore() gives
-  // three anything it hid outside the near scene, for good.
+  // restore?(), afterPhase?(name, ctx) }. register() runs once, as it is
+  // added; draw(ctx) in each of its phase's frames, in the order the passes
+  // were added, to register what it draws (the first time three has drawn
+  // it, which gives its material a program) and write its inputs;
+  // setActive(on) moves what it registered back to three (off) or to the
+  // renderer (on); restore() gives three anything it hid outside the near
+  // scene, for good; afterPhase(name, ctx) runs for every pass after any
+  // phase's renderer call (a pass that draws later in the same render of
+  // three's, such as the transparent list, arms itself there).
   addPass(pass) {
     if (!this.phases[pass.phase]) throw new Error(`rust-render: pass ${pass.name} has no phase ${pass.phase}`);
     this.passes.push(pass);
@@ -359,6 +362,7 @@ export class RustRender {
     this.phaseMs[name] = performance.now() - t0;
     renderer.resetState();
     renderer.setRenderTarget(target);
+    for (const pass of this.passes) pass.afterPhase?.(name, ctx);
   }
 
   // The near phase's stats and the time its renderer call took, as the

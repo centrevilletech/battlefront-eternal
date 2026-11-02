@@ -331,3 +331,7 @@ impl<C: HasContext> EffectsPass<C> {
 
 const UNPACK_FLIP_Y_WEBGL: u32 = 0x9240;
 const UNPACK_PREMULTIPLY_ALPHA_WEBGL: u32 = 0x9241;
+
+// The effects as a source of the transparent list's items (transparent.rs):
+// none yet.
+impl<C: HasContext, M: MultiDraw> crate::transparent::Source<C, M> for EffectsPass<C> {}

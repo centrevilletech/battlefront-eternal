@@ -5,7 +5,7 @@
 // Drawn in three's opaque order (material creation) unless sorted by
 // program (?rustSort), each bucket's material values and point lights set
 // only when they differ from what its program holds.
-use crate::core::{Camera, Core, MultiDraw, Value, PASS_WORLD};
+use crate::core::{Camera, Core, MultiDraw, Program, Stats, Value, PASS_WORLD};
 use crate::lights::light_mask;
 use crate::shader::{FRAME_LIGHTS, MAX_LIGHTS};
 use glow::HasContext;
@@ -187,40 +187,9 @@ impl<C: HasContext> WorldPass<C> {
             unsafe {
                 state.use_program(gl, stats, programs[w.program].program);
                 let program = &mut programs[w.program];
-                for &(slot, value) in &w.uniforms {
-                    let u = &mut program.uniforms[slot];
-                    if u.2 != Some(value) {
-                        match value {
-                            Value::F(1, v) => gl.uniform_1_f32(u.1.as_ref(), v[0]),
-                            Value::F(2, v) => gl.uniform_2_f32(u.1.as_ref(), v[0], v[1]),
-                            Value::F(3, v) => gl.uniform_3_f32(u.1.as_ref(), v[0], v[1], v[2]),
-                            Value::F(_, v) => gl.uniform_4_f32(u.1.as_ref(), v[0], v[1], v[2], v[3]),
-                            Value::I(i) => gl.uniform_1_i32(u.1.as_ref(), i),
-                        }
-                        u.2 = Some(value);
-                        stats.gl_calls += 1;
-                    }
-                }
-                if w.point_lit && program.zero_light_count.is_some() {
-                    // useLights: the masked lights in pack order.
-                    light_list.clear();
-                    for i in 0..light_count {
-                        if mask & (1 << i) != 0 {
-                            light_list.extend_from_slice(&lights32[8 * i..8 * i + 8]);
-                        }
-                    }
-                    let n = (light_list.len() / 8) as i32;
-                    if n > 0 && program.lights != light_list {
-                        gl.uniform_4_f32_slice(program.zero_lights.as_ref(), &light_list);
-                        program.lights.clear();
-                        program.lights.extend_from_slice(&light_list);
-                        stats.gl_calls += 1;
-                    }
-                    if program.light_count != n {
-                        gl.uniform_1_i32(program.zero_light_count.as_ref(), n);
-                        program.light_count = n;
-                        stats.gl_calls += 1;
-                    }
+                material_values(gl, stats, program, &w.uniforms);
+                if w.point_lit {
+                    point_lights(gl, stats, program, lights32, light_count, mask, &mut light_list);
                 }
                 for &(unit, t) in &w.textures {
                     state.bind_texture(gl, stats, unit, Some(t));
@@ -238,6 +207,57 @@ impl<C: HasContext> WorldPass<C> {
                 stats.world_draws += 1;
                 stats.pass_draws[PASS_WORLD] += 1;
             }
+        }
+    }
+}
+
+// A draw's material values (the uniforms add_program was told of, by slot),
+// each set only when it differs from what the program holds.
+pub(crate) fn material_values<C: HasContext>(gl: &C, stats: &mut Stats, program: &mut Program<C>, values: &[(usize, Value)]) {
+    for &(slot, value) in values {
+        let u = &mut program.uniforms[slot];
+        if u.2 != Some(value) {
+            unsafe {
+                match value {
+                    Value::F(1, v) => gl.uniform_1_f32(u.1.as_ref(), v[0]),
+                    Value::F(2, v) => gl.uniform_2_f32(u.1.as_ref(), v[0], v[1]),
+                    Value::F(3, v) => gl.uniform_3_f32(u.1.as_ref(), v[0], v[1], v[2]),
+                    Value::F(_, v) => gl.uniform_4_f32(u.1.as_ref(), v[0], v[1], v[2], v[3]),
+                    Value::I(i) => gl.uniform_1_i32(u.1.as_ref(), i),
+                }
+            }
+            u.2 = Some(value);
+            stats.gl_calls += 1;
+        }
+    }
+}
+
+// A draw's point lights, as useLights gives them for its mask: the masked
+// lights of the frame's (lights32, the frame block's f32 values) in pack
+// order, set only when they differ from what the program holds. `list` is
+// scratch space.
+pub(crate) fn point_lights<C: HasContext>(gl: &C, stats: &mut Stats, program: &mut Program<C>, lights32: &[f32], light_count: usize, mask: u32, list: &mut Vec<f32>) {
+    if program.zero_light_count.is_none() {
+        return;
+    }
+    list.clear();
+    for i in 0..light_count {
+        if mask & (1 << i) != 0 {
+            list.extend_from_slice(&lights32[8 * i..8 * i + 8]);
+        }
+    }
+    let n = (list.len() / 8) as i32;
+    unsafe {
+        if n > 0 && program.lights != *list {
+            gl.uniform_4_f32_slice(program.zero_lights.as_ref(), list);
+            program.lights.clear();
+            program.lights.extend_from_slice(list);
+            stats.gl_calls += 1;
+        }
+        if program.light_count != n {
+            gl.uniform_1_i32(program.zero_light_count.as_ref(), n);
+            program.light_count = n;
+            stats.gl_calls += 1;
         }
     }
 }
