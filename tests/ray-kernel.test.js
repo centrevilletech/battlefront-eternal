@@ -165,3 +165,99 @@ test('the kernel gathers, overlaps and finds the terrain near a sphere as the Ja
   assert.ok(polygons > 3000 && triangles > 6000 && movingPolygons > 200 && blockerPolygons > 50 && overlaps > 1000 && near > 10000,
     JSON.stringify({ polygons, triangles, movingPolygons, blockerPolygons, overlaps, near }));
 });
+
+test('a query the kernel fails is answered by the JavaScript, and so is every later one', async () => {
+  const rays = await loadRayKernel();
+  const { w } = world(rays), reference = world(null).w;
+  const center = new THREE.Vector3(-18, 1.5, -18), down = new THREE.Vector3(0, -1, 0), above = new THREE.Vector3(-18, 9, -18);
+  const before = listed(w.gather(center, 2));
+  // The module traps on its next call (a fault in it, or no memory left).
+  rays.x = { ...rays.x, gather_begin() { throw new WebAssembly.RuntimeError('unreachable'); } };
+  const warn = console.warn, warnings = [];
+  console.warn = (message) => warnings.push(message);
+  try {
+    sameList(listed(w.gather(center, 2)), before, 'the failed gather');
+    assert.equal(w.rays, null, 'the kernel is dropped');
+    assert.equal(warnings.length, 1);
+    sameList(listed(w.gather(center, 2)), listed(reference.gather(center, 2)), 'a later gather');
+    const a = fresh(), b = fresh(), ra = w.cast(above, down, 20, a), rb = reference.cast(above, down, 20, b);
+    assert.ok(ra && rb && fields(a).every((v, i) => Object.is(v, fields(b)[i])), 'a later cast');
+    assert.deepEqual(a.body.owner, b.body.owner, 'the same body of the other world');
+    assert.equal(w.overlapsSphere(center, 1), reference.overlapsSphere(center, 1));
+  } finally { console.warn = warn; }
+});
+
+test('every answer is read through views made after the call, however the module\'s memory grows', async () => {
+  const rays = await loadRayKernel();
+  const { w, bodies } = world(rays), reference = world(null).w;
+  reference.vehicleBlockers = reference.createBodyShape(box(3, 0.5, 0, 30, 1, 0.4).p, box(3, 0.5, 0, 30, 1, 0.4).i, box(3, 0.5, 0, 30, 1, 0.4).polygons);
+  w.vehicleBlockers = w.createBodyShape(box(3, 0.5, 0, 30, 1, 0.4).p, box(3, 0.5, 0, 30, 1, 0.4).i, box(3, 0.5, 0, 30, 1, 0.4).polygons);
+  // Every call into the module grows its memory, as any call that
+  // allocates may: views made before it are empty after it.
+  const exports = rays.x, grown = {};
+  for (const [name, value] of Object.entries(exports)) grown[name] = typeof value === 'function' ? (...args) => { const out = value(...args); rays.memory.grow(1); return out; } : value;
+  rays.x = grown;
+  const rand = random(5), caches = [w.gatherCache(), reference.gatherCache()];
+  for (let i = 0; i < 120; i++) {
+    if (i % 40 === 20) { for (const which of [w, reference]) which.removeBody(which.bodies[3]); }
+    const origin = new THREE.Vector3((rand() - 0.5) * 60, rand() * 6, (rand() - 0.5) * 60), dir = new THREE.Vector3(rand() - 0.5, -rand(), rand() - 0.5).normalize();
+    const far = [60, 6, 1][i % 3], a = fresh(), b = fresh();
+    const ra = w.cast(origin, dir, far, a), rb = reference.cast(origin, dir, far, b);
+    assert.ok((ra === null) === (rb === null) && fields(a).every((v, k) => Object.is(v, fields(b)[k])) && a.body?.owner === b.body?.owner || a.body?.owner?.i === b.body?.owner?.i, `cast ${i}`);
+    const c = fresh(), d = fresh(), rc = w.castMoving(origin, dir, 60, c), rd = reference.castMoving(origin, dir, 60, d);
+    assert.ok((rc === null) === (rd === null) && fields(c).every((v, k) => Object.is(v, fields(d)[k])), `castMoving ${i}`);
+    const g1 = { height: 0, normal: new THREE.Vector3() }, g2 = { height: 0, normal: new THREE.Vector3() };
+    assert.equal(w.ground(origin.x, origin.z, 1e4, g1) === null, reference.ground(origin.x, origin.z, 1e4, g2) === null);
+    assert.ok(Object.is(g1.height, g2.height), `ground ${i}`);
+    sameList(listed(w.gather(origin, 1.5, i % 2 === 0, caches[0])), listed(reference.gather(origin, 1.5, i % 2 === 0, caches[1])), `gather ${i}`);
+    assert.equal(w.overlapsSphere(origin, 1), reference.overlapsSphere(origin, 1), `overlap ${i}`);
+    assert.deepEqual(w.terrainNear(origin, 2).map((t) => t.a.toArray()), reference.terrainNear(origin, 2).map((t) => t.a.toArray()), `terrainNear ${i}`);
+  }
+  assert.ok(w.rays, 'the kernel answered throughout');
+  assert.equal(bodies.length > 0, true);
+});
+
+test('a hull\'s wall probes push it in the kernel as in the JavaScript', async () => {
+  const { Vehicle } = await import('../src/vehicles.js');
+  const rays = await loadRayKernel();
+  const { w, bodies, shape } = world(rays);
+  const wall = box(3, 0.5, 0, 30, 1, 0.4);
+  w.vehicleBlockers = w.createBodyShape(wall.p, wall.i, wall.polygons);
+  const rand = random(23), matrix = new THREE.Matrix4(), js = (fn) => { w.rays = null; try { return fn(); } finally { w.rays = rays; } };
+  // A stand-in hull: what pushWalls and pushOut read and write.
+  const hull = (walking) => {
+    const h = { system: { collision: w }, probeRadius: 0.5 + rand() * 1.5, walking, previousYaw: rand() * 6, yaw: 1,
+      position: new THREE.Vector3(), velocity: new THREE.Vector3(), previous: new THREE.Vector3(),
+      point: new THREE.Vector3(), normal: new THREE.Vector3(), nearest: new THREE.Vector3(), probeStart: new THREE.Vector3(), ownStart: new THREE.Quaternion(),
+      probes: Array.from({ length: 6 }, (_, i) => new THREE.Vector3((i % 2 - 0.5) * 3, 0.4 + (i % 3) * 0.6, (Math.floor(i / 2) - 1) * 2.5)) };
+    h.wallCaches = h.probes.map(() => w.gatherCache(0.75));
+    h.pushWalls = Vehicle.prototype.pushWalls; h.pushOut = Vehicle.prototype.pushOut;
+    return h;
+  };
+  const hulls = [hull(false), hull(true), hull(false), hull(true)];
+  let moved = 0, undone = 0;
+  for (let pass = 0; pass < 150; pass++) {
+    for (const body of bodies) if (rand() < 0.1) body.enabled = !body.enabled;
+    for (const body of bodies) if (body.moving && rand() < 0.3) w.moveBody(body, matrix.makeRotationY(rand() * 6.3).setPosition((rand() - 0.5) * 50, rand() * 2 - 1, (rand() - 0.5) * 50));
+    if (pass === 70) bodies.push(w.addMovingBody(shape, matrix.makeRotationY(1).setPosition(5, 0.5, 5), { late: true }));
+    for (const h of hulls) {
+      // Near a body or the barrier, sometimes inside them; a walker's last step behind it.
+      const near = rand() < 0.5 ? bodies[Math.floor(rand() * bodies.length)].bounds.getCenter(new THREE.Vector3()) : new THREE.Vector3(3 + (rand() - 0.5) * 30, 0, 0);
+      const position = near.add(new THREE.Vector3(rand() - 0.5, rand() * 0.5, rand() - 0.5).multiplyScalar(5));
+      const velocity = new THREE.Vector3(rand() - 0.5, rand() - 0.5, rand() - 0.5).multiplyScalar(12), previous = position.clone().add(new THREE.Vector3(rand() - 0.5, 0, rand() - 0.5));
+      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler((rand() - 0.5) * 0.3, rand() * 6.3, (rand() - 0.5) * 0.3, 'YXZ'));
+      const terrain = rand() < 0.5, oldYaw = rand();
+      const run = (kernel) => {
+        h.position.copy(position); h.velocity.copy(velocity); h.previous.copy(previous); h.yaw = 7;
+        if (kernel) h.pushWalls(oldYaw, q, terrain); else js(() => h.pushWalls(oldYaw, q, terrain));
+        return [...h.position.toArray(), ...h.velocity.toArray(), h.yaw];
+      };
+      const a = run(false), b = run(true);
+      a.forEach((v, i) => assert.ok(Object.is(v, b[i]), `pass ${pass} hull ${hulls.indexOf(h)} value ${i}: ${v} != ${b[i]}`));
+      if (!position.equals(h.position)) moved++;
+      if (a[6] === oldYaw) undone++;
+    }
+  }
+  assert.ok(w.rays, 'the kernel answered throughout');
+  assert.ok(moved > 100 && undone > 20, JSON.stringify({ moved, undone }));
+});

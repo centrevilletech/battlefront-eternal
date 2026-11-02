@@ -422,6 +422,44 @@ they are paired runs' medians and only a guide to the laptop.
 - Most of the step is now the Classic AI, the soldiers' own physics and the
   hulls' seats, each spread over many small functions.
 
+### Hulls posed twice a tick
+
+`Vehicles.update` poses every hull for the tick (`aimTick`: placed at the
+tick's pose, its seats' aim turned and its fire points read) and then draws
+it (`render`) unless the host sets `cosmetic` to false, which none does, so
+the world worker and `bfeserver` pose each hull twice a tick. For most
+hulls the second pose is not the first, and the world reads the second: a
+hover hull's bob and wobble read its age after aimTick has advanced it, and
+a walker's legs feel the ground and take their walk pose in render. Both
+stay. For a craft in flight whose flight the host steps, with no walk pose
+and no legs, render gives back exactly aimTick's pose (no bob, its gear at
+its own, its seats from the angles aimTick just turned), so right after
+aimTick it now only moves the barrels' kick again, which reads the clock.
+A seat posed with no time (dt 0) also no longer works out where each aimer
+would turn, which only a turn reads. On Bespin Platforms, all of whose 20
+hulls are craft, render took 9.4% of the world step under Node and takes
+0.3%; Dune Sea and Hoth have four craft each, Naboo Plains none.
+`tools/world-hash.mjs` gave the same fingerprints as before for every tick
+of eight battles with and without the collision's WebAssembly.
+
+On Bespin Platforms with the collision in JavaScript (`rays=js`; builds
+before and after, the player on foot, 40-second recordings interleaved, two
+of each):
+
+| | Emulator, before | after | Laptop, before | after |
+| --- | ---: | ---: | ---: | ---: |
+| Recordings | 2 | 2 | 2 | 2 |
+| World step, mean ms | 20.1 | 20.0 | 22.5 | 19.7 |
+| Median, ms | 19.8 | 19.6 | 21.6 | 18.8 |
+| 90th percentile, ms | 27.6 | 27.5 | 27.2 | 24.5 |
+| Ticks a second | 48.2 | 48.3 | 43.5 | 49.5 |
+| Gaps between ticks over 40 ms | 23.5 | 33.0 | 31.5 | 21.5 |
+| Frames the playout clock waited | 330 | 319 | 436 | 294 |
+| Frames a second (page) | 32.9 | 30.4 | 29.2 | 28.4 |
+
+On the laptop the step fell by an eighth and the world kept up better; on
+the emulated laptop the two pairs did not separate.
+
 ### When the world's ticks run
 
 On the same laptop the world also stood still longer than its steps took.
@@ -540,9 +578,10 @@ logic, the battle, snapshot capture) is logic over the battle's objects.
 
 The rays are the largest of the four, and they come from all over the step:
 a flyer's sweep and landing probes, a seat's aim, line-of-sight tests, a
-soldier's steps and ground, rounds in flight. `rust/rays` computes them in
-Rust compiled to WebAssembly, for a battle whose query has `rays=wasm`. The
-JavaScript stays the default.
+soldier's steps and ground, rounds in flight. `rust/rays` computes them, and
+the sphere queries after them, in Rust compiled to WebAssembly: in the
+offline world worker unless the battle's query has `rays=js`, and on a page
+or a dedicated server when asked (`rays=wasm`, `BFE_RAYS=wasm`).
 
 ### What it computes, and how it is loaded
 
@@ -601,20 +640,95 @@ contracts f64 operations by itself.
   with the JavaScript's, field by field with `Object.is`, the body by
   identity, on a made-up world whose bodies switch on and off, move, come and
   go.
-- `tools/check-ray-kernel.mjs` does the same in a running battle on every map:
-  45,000 answers on each of the 17, every one the same.
+- `tools/check-ray-kernel.mjs` does the same in a running battle on every map,
+  with gathers, overlaps and terrainNear too, and also answers every query the
+  battle itself makes and runs every hull's wall probes both ways, from its
+  loading on: 168,000 answers of its own on each of the 17 maps, 170,000 to
+  560,000 of the battle's queries a map and 6,000 to 22,000 wall-probe runs
+  on each map with hulls, every one the same.
 - `tools/world-hash.mjs --rays wasm` fingerprints a battle cast this way.
   The branch's start, this branch without `rays=wasm`, and this branch with
   it gave the same fingerprint for every tick: 2,400 ticks on 24 maps, sides,
   seeds and modes (Naboo Plains, Dune Sea, Bespin Platforms and Hoth in
   several of each, seven other maps, acknowledgements, a page's interval and
-  shots judged rewound), and 6,000 to 9,000 ticks on seven more.
+  shots judged rewound), and 6,000 to 9,000 ticks on seven more. With the
+  sphere queries, the broad phase and the wall probes in the module too, the
+  same 31 battles gave the same fingerprints without and with it, and without
+  it the same as before these changes; six of them gave the same
+  fingerprints in all four ways the collision's module and the soldiers'
+  movement's can be on or off.
+
+### Sphere queries
+
+The queries soldiers, hulls and droidekas make about a sphere run in the
+module too: `gather` (the polygons whose triangles' bounds meet the
+sphere's, each with those triangles), its cached form, `overlapsSphere` and
+`terrainNear`. `rust/rays/src/spheres.rs` repeats collision.js and
+three-mesh-bvh's shapecast: the same walk of a tree (a child's bounds tested
+before going down to it, never the root's; a leaf's triangles in their
+indirect order), the same bounds tests written the same way (`a < b` and
+`!(a >= b)` part ways when a number is NaN), each caller's cache filled and
+kept as collision.js keeps it, and a moving body's box and triangles taken
+through its matrices. The polygons come out in the same order with the same
+triangles, to the last bit. The module keeps each body's polygon numbers and
+offset, and the buildings and the vehicle-only barriers as fixed sets with
+each triangle's bounds.
+
+A JavaScript caller makes two calls, as a cast does: the first does the
+buildings and the barriers and names the bodies the sphere can meet;
+JavaScript writes whether each is enabled; the second does those bodies and
+writes the polygons out (each one's number and whether it moves, and each
+triangle: a fixed set's by its number, a body's by its nine corners).
+collision.js fills its pooled lists from that, a fixed set's triangles being
+its own Triangles as before, so the callers' contact searches see what they
+saw. The same functions are public in the crate (`gather`,
+`overlaps_sphere`, `ground`, `terrain_near`, `closest_point_to_point`) for
+other kernel modules, such as the soldiers' movement, which pass every body's
+flag by its place in the world's order and own their caches and lists, all
+within one call.
+
+A hull's wall probes (`Vehicle.pushWalls`) run whole in the module: both
+passes over the probes, each placed by the hull's turn, its gather through
+its cache and the terrain's triangles near it, and the push out of each wall
+triangle (`pushOut`, operation by operation as vehicles.js writes it, a
+walker's probes giving way to another hull only as far as they came).
+JavaScript writes the probes, the hull's place, velocity and turns and each
+body's flag once, and gets back the hull's place and velocity and whether
+its turn is undone: no polygon or triangle list comes back to be walked
+once. On Dune Sea, with a dozen hover hulls, pushWalls took 4.1% of the
+world step under Node with the gathers in the module, a third of it copying
+the terrain's triangles out, and takes 2.5%.
+
+### The bodies a cast tries
+
+A cast tries, in the world's order, every body that is not left out and
+whose bounds its ray meets; the ray's test ignores how far the cast reaches,
+so every body's bounds were tested for every cast. Bespin Platforms has 96
+bodies, four casts in five there reach less than 5 m (0.9 m at the median),
+and on average a tenth of a body passed: the walk was 4% of the world step.
+`rust/rays/src/broad.rs` files the fixed bodies in a grid over x and z, made
+again when the world's order or a fixed body's bounds change. A cast with a
+finite reach whose segment covers at most 16 cells takes the fixed bodies
+filed there whose bounds come within a millimetre of the segment's, and
+every moving body, and gives each the walk's own tests in the world's order.
+A fixed body it leaves out lies wholly clear of the segment, by far more
+than any rounding, so none of its triangles can be hit within the cast's
+reach and it could never have changed an answer. Moving bodies are cast
+against in their own frames and keep the ray's test, and longer casts, and
+casts with no finite reach, test every body as before. Under Node the walk's
+share of Bespin Platforms' step fell from 4.0% to 1.3%.
+
+The module's memory grows as it makes these structures, and growing it
+empties every typed-array view made over it before: each answer is read
+through a view made after the calls before it. `tests/ray-kernel.test.js`
+makes every call grow the memory and compares every kind of query with the
+JavaScript's.
 
 ### Measurements
 
-On the emulated laptop (one build, with and without `rays=wasm`; 40-second
-recordings of a battle, medium AI, on foot, interleaved: without, with,
-without, with; means of each):
+With the casts alone (the first module), on the emulated laptop (one build,
+with and without `rays=wasm`; 40-second recordings of a battle, medium AI,
+on foot, interleaved: without, with, without, with; means of each):
 
 | | Naboo Plains, JS | WASM | Dune Sea, JS | WASM | Bespin Platforms, JS | WASM |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -635,9 +749,8 @@ second here with or without it, but it falls behind less often and less far.
 In the profiles above, run again with the module, the rays took 0.68 ms a
 tick instead of 1.59 on Naboo Plains, 1.74 instead of 4.20 on Dune Sea, and
 2.72 instead of 5.62 on Bespin Platforms, where half of what is left is
-cast's test of every body's bounds (96 of them) for every ray: a broad phase
-over the bodies, still visited in their order, would cut that without
-changing an answer. The rest of the step stays as it was, give or
+cast's test of every body's bounds (96 of them) for every ray (the broad
+phase above cuts that). The rest of the step stays as it was, give or
 take what one battle differs from another. The module makes 2 to 4% less
 garbage than the JavaScript did (it made a few objects for every triangle a
 ray met), so the worker's collections stay as they were: the gaps it saved
@@ -661,6 +774,111 @@ times as long in JavaScript as in the module (7.6 against 3.5 µs on Naboo
 Plains, 4.5 against 2.3 on Dune Sea, 5.4 against 2.5 on Bespin Platforms),
 and a ground probe 1.6 to 1.7 times as long (1.1 against 0.6 µs).
 
+With the sphere queries and the broad phase too (one build, before the
+hulls' wall probes moved in, with `rays=js` and with `rays=wasm`, which
+turns the module on in the page as well as in the world worker; the player
+spawned and on foot, medium AI, 40-second recordings interleaved, two of
+each; the hulls posed once a tick in both), on the emulated laptop:
+
+| | Naboo Plains, JS | WASM | Dune Sea, JS | WASM | Bespin Platforms, JS | WASM |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Recordings | 2 | 2 | 2 | 2 | 2 | 2 |
+| World step, mean ms | 11.9 | 10.2 | 21.1 | 18.1 | 18.7 | 15.3 |
+| Median, ms | 11.0 | 9.3 | 20.6 | 17.2 | 17.9 | 15.1 |
+| 90th percentile, ms | 18.2 | 15.5 | 30.4 | 26.3 | 26.8 | 21.5 |
+| Ticks a second | 59.8 | 60.0 | 45.6 | 52.6 | 50.9 | 57.9 |
+| Gaps between ticks over 40 ms | 5.5 | 1.0 | 34.5 | 20.0 | 21.0 | 12.5 |
+| Frames the playout clock waited | 52 | 48 | 359 | 220 | 279 | 101 |
+| Frames a second (page) | 27.5 | 27.6 | 26.8 | 25.5 | 30.4 | 30.9 |
+
+On the laptop itself (the same build and recordings; Dune Sea one of each):
+
+| | Naboo Plains, JS | WASM | Dune Sea, JS | WASM | Bespin Platforms, JS | WASM |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Recordings | 2 | 2 | 1 | 1 | 2 | 2 |
+| World step, mean ms | 12.6 | 11.8 | 22.6 | 19.9 | 20.0 | 16.7 |
+| Median, ms | 12.0 | 10.9 | 21.8 | 19.2 | 19.2 | 15.9 |
+| 90th percentile, ms | 16.6 | 16.1 | 27.5 | 24.2 | 24.3 | 21.1 |
+| Ticks a second | 60.0 | 60.0 | 43.3 | 49.1 | 49.0 | 57.2 |
+| Gaps between ticks over 40 ms | 5.5 | 5.5 | 33.0 | 12.0 | 16.0 | 15.0 |
+| Frames the playout clock waited | 25 | 28 | 422 | 310 | 312 | 107 |
+| Frames a second (page) | 29.6 | 28.5 | 23.2 | 22.1 | 28.2 | 26.8 |
+
+The world's step is 9 to 17% shorter at the median and 3 to 20% at the 90th
+percentile, and where the world could not keep 60 ticks a second it falls
+behind less often and less far (Bespin Platforms runs 57 or 58 ticks a second
+instead of 49 to 51, Dune Sea 49 to 53 instead of 43 to 46). The page drew 1
+to 1.5 frames a second fewer with the module on the laptop, on each map, and
+on the emulated laptop about the same on Naboo Plains and Bespin Platforms
+and 1.3 fewer on Dune Sea, where the world ran 15% more ticks a second for it
+to show.
+
+A query's `rays=wasm` also gives the page a module of its own, through which
+its collision world answers: about 9 to 12 casts, 10 to 13 ground probes and
+10 to 13 gathers a frame, nearly all from replaying his own soldier. In one
+battle on the emulated laptop with only the page's queries switched between
+the module and the JavaScript every 5 seconds (16 periods, about 1,230 frames
+each), the page's simulation phase was within a quarter of a millisecond
+either way (its gathers come back to JavaScript as lists for one soldier,
+no cheaper than the JavaScript's cache), and its render phase was 0.4 to
+0.5 ms slower at the median with the module (12.68 against 12.13 ms on Naboo
+Plains, 8.15 against 7.73 on Bespin Platforms, whose mean was 10.21 against
+8.61 with a heavier tail), though that phase makes no collision query in
+these settings and the module's memory lies outside the JavaScript heap.
+Why is not known yet; it matters before the page's replay runs in the
+module. The page therefore keeps the JavaScript unless its query asks.
+
+As shipped (the offline world worker with the collision's module and the
+soldiers' movement in it by default, the page in JavaScript), against
+everything in JavaScript (`rays=js&movement=js`), on the emulated laptop
+(one build, the same recordings):
+
+| | Naboo Plains, JS | default | Dune Sea, JS | default | Bespin Platforms, JS | default | Hoth, JS | default |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Recordings | 2 | 2 | 2 | 2 | 2 | 2 | 2 | 2 |
+| World step, mean ms | 9.8 | 9.2 | 23.7 | 16.6 | 18.9 | 14.5 | 17.9 | 14.9 |
+| Median, ms | 8.8 | 8.2 | 23.4 | 16.1 | 18.1 | 13.8 | 16.9 | 14.3 |
+| 90th percentile, ms | 15.1 | 14.6 | 33.4 | 23.3 | 26.6 | 20.6 | 25.8 | 21.6 |
+| Ticks a second | 60.0 | 60.0 | 41.2 | 55.6 | 51.0 | 58.8 | 53.2 | 58.1 |
+| Gaps between ticks over 40 ms | 4.0 | 2.5 | 49.5 | 13.0 | 30.5 | 16.5 | 16.5 | 11.5 |
+| Frames the playout clock waited | 41 | 29 | 425 | 164 | 262 | 76 | 209 | 88 |
+| Frames a second (page) | 26.2 | 26.7 | 26.2 | 27.0 | 31.3 | 31.1 | 26.7 | 26.3 |
+
+The world's step is 7 to 31% shorter at the median (Dune Sea now keeps 56
+ticks a second instead of 41, Bespin Platforms 59 instead of 51, Hoth 58
+instead of 53), and the page, in JavaScript either way, drew the same frames
+a second within 0.8.
+
+### On a dedicated server
+
+bfeserver runs the same world in Node: its world thread calls the engine's
+`createGame` with the battle's query, and the engine loads the module there
+as it does in a page's worker, from `src/ray-kernel-wasm.js`, which the host
+runtime copies with the rest of `src/` (compiled once a thread in about
+10 ms; each battle's own instance and copies, 3 to 12 MB a map, made in 7 to
+20 ms as it loads). A server opts in with `BFE_RAYS=wasm` in its
+environment: under Node the engine takes it when the battle's query says
+neither `rays=wasm` nor `rays=js` (a query's `rays` would also reach the
+players, whose pages load the battle's query). Nothing in the server
+changes, and its default stays the JavaScript.
+
+If the module cannot be compiled or instantiated (no WebAssembly, no memory
+for it), the battle loads with the JavaScript and the server logs it once. If
+a query fails inside the module during a battle (a fault in it, or memory it
+cannot grow), the collision world drops the module and answers that query
+and every later one in JavaScript, and logs it once.
+
+Neither changes a tick. The module answers each query as the JavaScript
+does, to the last bit, so a tick's outcome does not depend on which one
+answered: a server using the module and pages that do not (or the other way
+round) compute the same world, and a page's replay of its own player against
+its own collision world makes the same corrections either way. The proofs
+are the ones above, run on both paths in the same process:
+`tests/ray-kernel.test.js` (and a query failing in the module half way
+through a battle), `tools/check-ray-kernel.mjs` on every map, and
+`tools/world-hash.mjs`, which forces one path or the other (`--rays wasm`,
+else `rays=js`) whatever the environment says.
+
 ### What porting more would take
 
 The rays kept their answers and lost a little over half their time.
@@ -674,12 +892,28 @@ reads), and a step makes 100 to 700 of them, well under a tenth of a
 millisecond: crossings do not limit a kernel like this one, though they would
 limit one called for every triangle.
 
-The other three parts that read only numbers make up 5 to 16% of the step,
-and each is harder to cut out than the rays: a sphere gather hands soldier and
-hull code lists of polygons and triangles that the code walks itself, so the
-contact searches over them would have to move with it; soldiers' hit shapes
-move every tick, so they would be copied every tick; and snapshot capture
-walks the battle's objects before its encoding packs any numbers.
+With the sphere queries, the broad phase and the hulls' wall probes the
+module answers every query the step makes of the collision world; the hover
+springs' and the droidekas' contact searches over their gathers stay in
+JavaScript, the springs because each contact feeds the hull's physics before
+the next is searched. Of the parts above, two more read only numbers, and
+neither pays as a kernel:
+
+- Rays against soldiers' hit shapes (`Units.raycast`, and the hit history's
+  for shots judged rewound) are 2.5 to 3.7% of the step under Node, but
+  little of that is the rays. A unit's hit shapes are made when something
+  first asks for them in a tick (`unit.sphere`), from its pose with V8's
+  sines and cosines: 1.6% of the step on Naboo Plains and Dune Sea, which
+  stays in JavaScript, and when it happens is part of the battle's outcome
+  (a unit asked for before it moves has the shapes of where it was). The
+  segment tests are 0.1 to 0.2% of the step; the rest is the loop over the
+  battle's units, whose filters are JavaScript callbacks.
+- Snapshot byte encoding is 5% of the step under Node and 1 to 3% on the
+  emulated laptop. The encoder writes each entity's record against its
+  baseline from JavaScript objects (each class's groups of fields, Maps of
+  slots and world fields), so a kernel would first need every entry copied
+  into its memory for every publication: the same walk over the same objects
+  the encoder makes now, leaving only the byte writes to gain.
 
 The rest, about 70% of the step, is the transforms and the logic over
 objects: the AI, weapons, hulls, seats and the battle, some 60,000 lines of
@@ -943,8 +1177,9 @@ the page about half of what the replay cost.
 `rust/rays/src/movement` runs the whole tick in the ray kernel's module, for a
 battle whose query has `movement=wasm` (which loads the ray kernel with it):
 the world worker's ticks (and a dedicated server's) and the page's replay
-alike, each with its own instance of the module. The JavaScript stays the
-default.
+alike, each with its own instance of the module. The offline world worker
+uses it unless the battle's query has `movement=js` or `rays=js`; a page and
+a dedicated server keep the JavaScript unless asked.
 
 ### What it computes, and how it is called
 
