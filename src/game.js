@@ -2746,10 +2746,7 @@ async function start() {
     if (!run) return;
     // Entity packets that arrived since last frame go on here, inside the
     // frame, before the playout clock and prediction consume them.
-    // One batch: his own correction is applied once, the newest (EntityGameState.beginBatch).
-    const entity = client.entity;
-    entity?.beginBatch();
-    try { client.host.drainEntities?.(); } finally { entity?.endBatch(); }
+    client.host.drainEntities?.();
     // The reticle's target from the last correction drained: two or three
     // come in a frame on a slow PC, and only the last one's is ever shown.
     if (targetHudDue) { targetHudDue = false; updateTargetHud(1 / 20); }

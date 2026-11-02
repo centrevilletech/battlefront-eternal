@@ -76,7 +76,6 @@ export class EntityGameState {
     // Slots named by mount records, so a hull the client has never built can be
     // made from its vehicle record; seats whose mount has not arrived yet.
     this.slots = new Map(); this.pendingSeats = new Map(); this.pendingState = new Map(); this.deferred = 0; this.presentedTick = null;
-    this.batching = false; this.batchTick = null;
   }
   initialize() {
     const g=this.game;
@@ -138,11 +137,7 @@ export class EntityGameState {
     for (const record of by.correction) {
       if (!this.pendingCorrection || record.tick >= this.pendingCorrection.record.tick) this.pendingCorrection = { record, packet };
     }
-    // In a frame's batch (beginBatch) the newest correction is applied once,
-    // at its end: each one restores his whole state and is superseded by
-    // the next.
-    if (this.batching) this.batchTick = packet.tick;
-    else this.retryCorrection(packet.tick);
+    this.retryCorrection(packet.tick);
     this.applyEligibility();
     for(const [id,record]of this.pendingState){
       const applied=record.schema===UNIT_STATE_SCHEMA?applyUnitState(this.game,record,this.registry):applyWorldPresentation(this.game,record);
@@ -153,16 +148,6 @@ export class EntityGameState {
     for(const record of by.combat)this.combat.receive(record,{epoch:packet.ack.epoch,tick:packet.tick});
     if (packet.sample) this.timeline.addSnapshot(packet.sample.tick, packet.sample.poses, packet.sample.epoch, true);
     this.onApplied(packet);
-  }
-  // The datagrams drained for one frame, applied as they come, his own
-  // correction (the newest of them) once at the end: on a slow PC two or
-  // three arrive a frame, and the frame's prediction starts from the last.
-  beginBatch() { this.batching = true; this.batchTick = null; }
-  endBatch() {
-    this.batching = false;
-    const tick = this.batchTick;
-    this.batchTick = null;
-    if (tick !== null) this.retryCorrection(tick);
   }
   applyEligibility() {
     const pending = this.pendingEligibility, own = this.game.playerUnit;
