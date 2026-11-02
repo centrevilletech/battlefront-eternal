@@ -2542,8 +2542,13 @@ async function start() {
     const last = replayTicks(commands, from, playerUnit.generation, predictedHeld, (tick, command, sequences) => {
       if (command.last) presentation.beforeStep();
       const yawBefore = soldier.aimYaw;
-      const scale = command.mouseScale ?? settings.mouseScale, invert = command.invertMouse ?? settings.get("invertMouse");
-      for (const [dx, dy] of command.look) (soldier.lookRaw || soldier.look).call(soldier, dx / combat.zoom, dy / combat.zoom, scale, invert);
+      // His look as the world turns him (multiplayer-world.js): each sample
+      // bounded, the sensitivity at most 2.
+      const scale = Math.min(command.mouseScale ?? settings.mouseScale, 2), invert = command.invertMouse || false;
+      for (const [dx, dy] of command.look) {
+        const x = Math.max(-10000, Math.min(10000, dx)), y = Math.max(-10000, Math.min(10000, dy));
+        (soldier.lookRaw || soldier.look).call(soldier, x / combat.zoom, y / combat.zoom, scale, invert);
+      }
       const lookYaw = soldier.aimYaw - yawBefore;
       predictKeys.down.clear();
       for (const key of command.down) predictKeys.down.add(key);
@@ -2845,10 +2850,12 @@ async function start() {
     client.playerAlpha = client.predicted ? (client.predictedTick > worldClock.tick ? input.alpha : 1) : presentAlpha;
     // The look he has made since, over the aim: predicted, or the
     // acknowledged one plus every command's look the worker hasn't taken.
+    // Predicted, the look of commands not yet gone to the worker too: the
+    // replay turns him only by the look the worker will take, when it does.
     lookPreview.aimYaw = soldier.aimYaw; lookPreview.aimPitch = soldier.aimPitch;
     if (!combat.dead && !walker) {
       const scale = settings.mouseScale, invert = settings.get("invertMouse");
-      if (!client.predicted) for (const { look } of client.pending) for (const [dx, dy] of look) lookPreview.lookRaw(dx / combat.zoom, dy / combat.zoom, scale, invert);
+      for (const command of client.pending) if (!client.predicted || command.lookSent === false) for (const [dx, dy] of command.look) lookPreview.lookRaw(dx / combat.zoom, dy / combat.zoom, scale, invert);
       for (const [dx, dy] of controls.looks) lookPreview.lookRaw(dx / combat.zoom, dy / combat.zoom, scale, invert);
     }
     previewYaw = lookPreview.aimYaw - soldier.aimYaw;

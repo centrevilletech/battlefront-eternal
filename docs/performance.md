@@ -489,6 +489,20 @@ between two ticks was 46 to 78 ms.
   then also holds through a page stall long enough to fill its window
   with packets taken late (on the emulator, where the page gets a packet a
   frame, even a 4.5 s stall did not fill it).
+- His replay takes keys and look only from the commands the world gets,
+  and look as the world takes it. The page sends the world a frame's last
+  command (and the first when held keys change), each carrying the running
+  total of his mouse look, and the world takes the change in that total
+  since the last command it took as one sample on that command's tick
+  (`InputMailbox.take`). The replay turned him by each command's own
+  samples on the frame's first tick, so while he turned, the world's state
+  for a corrected tick was the predicted one in only 20 to 32% of
+  corrections and his drawn body was pulled about a thousand times a
+  minute. The sender marks each command with whether it went, the look the
+  world takes with it and whether its own look has gone
+  (`network-inputs.js`); look not gone yet is shown over the aim. Hulls,
+  mounted guns and the recon droid replay through the same merge: a hull
+  steered by mouse had matched its prediction too seldom to go on.
 
 ### Measurements
 
@@ -503,6 +517,10 @@ twice interleaved with the build before it. Ranges are the runs'.
 | Page simulation phase, p50 | 7.1 ms | 6.0 to 6.7 ms |
 | Frames at the cap in a battle's first 6 s (a run each) | 36 of 241 | 1 of 242 |
 | Lead with packets timed by the worker, p50 (p90) | 4.0 to 4.4 (6.2 to 6.5) | 3.2 to 3.8 (5.5 to 7.4) |
+| Corrections the world's state matched, walking and turning | 19.6 to 31.8% | 99.3 to 99.8% |
+| Corrections that moved his drawn body, a minute | 1,042 to 1,057 | 1 to 28 |
+| Frames his drawn body was off its prediction by over 1 mm | 40 to 48% | 1 to 3% |
+| Hull corrections matched, driving and steering by mouse (a run each) | 55 of 506 | 472 of 472 |
 
 "One long stall" is the measuring harness's start, which began the battle
 before the loading screen's last frames, so the page's first draw of it
@@ -538,11 +556,12 @@ only what the world decides.
 - Every new correction replays every pending tick: 5 to 7 at the lead's
   usual size, 0.7 to 1 ms of a frame (2.5 ms at the 90th percentile). A
   hull's prediction goes on when the world's state for the corrected tick
-  is the one predicted for it; a soldier's was, bit for bit, in 57% of
-  corrections with the mouse moving. The rest differ in aim: the page
-  sends the world one command a frame, with the frame's mouse look summed
-  into it, so the world turns him on that frame's last tick and the replay
-  on its first.
+  is the one predicted for it, and a soldier's now nearly always is. His
+  could go on too, but a replay of his starts from more than his body: his
+  recoil and every weapon's state would have to match as well, and the
+  crowd push takes other soldiers where the page has them now, which a
+  prediction going on would not see again. The few corrections left differ
+  in his position first.
 - A world that cannot run at real time still holds the lead at its cap
   and the input clock at its bound. Reporting the ticks the local world
   gives up (its acknowledgements always say none, so the estimate's reset
