@@ -45,18 +45,20 @@ export class NetworkSession {
     this.timeout=setTimeout(()=>this.fail(Error('Battle connection timed out')),30000);
     try {
       await this.transport.connect({query,settings,content:this.content,playerName:this.playerName,channels:this.channels,
-        receive:(label,raw,at)=>this.receive(label,raw,at),fail:error=>this.fail(error),status:text=>this.status(text)});
+        receive:(label,raw,at,sentAt)=>this.receive(label,raw,at,sentAt),fail:error=>this.fail(error),status:text=>this.status(text)});
     } catch(error) { this.fail(error); }
     return ready;
   }
   // `at` is the transport's receipt time (performance.now() milliseconds)
-  // when it knows better than this thread when a packet actually arrived.
-  async receive(label, raw, at) {
+  // when it knows better than this thread when a packet actually arrived;
+  // `sentAt`, when the world sent it, where the transport knows (the local
+  // worker's posts: the same clock).
+  async receive(label, raw, at, sentAt) {
     if (this.closed) return;
     if (raw instanceof ArrayBuffer) {
       const magic=raw.byteLength>=4?new DataView(raw).getUint32(0,true):0;
       if (label!=='state'||raw.byteLength<20||raw.byteLength>1100||(magic!==0x31534e42&&magic!==0x314f4e42)) throw Error('Invalid entity packet');
-      this.entityQueue.push({bytes:new Uint8Array(raw),at:(Number.isFinite(at)?at:performance.now())/1000});
+      this.entityQueue.push({bytes:new Uint8Array(raw),at:(Number.isFinite(at)?at:performance.now())/1000,sentAt:Number.isFinite(sentAt)?sentAt/1000:undefined});
       for(const waiter of this.entityWaiters.splice(0)){clearTimeout(waiter.timer);waiter.resolve();}
       // Local delivery is reliable: never silently discard a paused world's final tick.
       if(this.entityQueue.length>(this.entityMode?4096:128))throw Error('Entity receive backlog exceeded');
@@ -152,7 +154,7 @@ export class NetworkSession {
   drainEntities() {
     if(!this.entityQueue.length||this.closed)return;
     const queue=this.entityQueue;this.entityQueue=[];
-    for(const {bytes,at} of queue){if(this.closed)return;try{this.onEntities(bytes,at);}catch(error){this.fail(error);return;}}
+    for(const {bytes,at,sentAt} of queue){if(this.closed)return;try{this.onEntities(bytes,at,sentAt);}catch(error){this.fail(error);return;}}
   }
   sendEntityInput(bytes) {
     if(this.welcome?.spectator)return false;

@@ -11,7 +11,9 @@ export class LocalTransport {
     let incoming=Promise.resolve();
     this.worker.onmessage=({data})=>{
       if(this.closed)return;
-      for(const {channel,payload} of postedItems(data))incoming=incoming.then(()=>receive(channel,payload)).catch(fail);
+      // When the world posted them, on this page's clock (local-message-batch.js).
+      const sentAt=Number.isFinite(data.sentAt)?data.sentAt-performance.timeOrigin:undefined;
+      for(const {channel,payload} of postedItems(data))incoming=incoming.then(()=>receive(channel,payload,undefined,sentAt)).catch(fail);
     };
     this.worker.onerror=event=>fail(Error(event.message || 'Local server worker failed'));
     for(const label of ['state','events','bulk'])channels.set(label,{readyState:'open',bufferedAmount:0,send:payload=>{

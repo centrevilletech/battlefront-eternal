@@ -13,9 +13,11 @@ const HZ = 60;
 // stamps commands with the InputLead and the input clock. `stall` ({ at,
 // length } seconds) holds the page still a while (a long frame): the
 // packets that come meanwhile wait for it, and the browser draws its next
-// frame before it has taken them all (the first half, taken then). Returns
-// what the mailbox saw after the first second.
-function play({ fps = 60, seconds = 10, transit = 0.001, cost = () => 0.003, late = 0, lock = 0, recover = false, rtt = 0, lossEvery = 0, stall = null } = {}) {
+// frame before it has taken them all (the first half, taken then); `sent`,
+// the page knows when the world sent each (the local worker stamps its
+// posts) and times them by that. Returns what the mailbox saw after the
+// first second.
+function play({ fps = 60, seconds = 10, transit = 0.001, cost = () => 0.003, late = 0, lock = 0, recover = false, rtt = 0, lossEvery = 0, stall = null, sent = false } = {}) {
   const mailbox = new InputMailbox(1), worker = new FixedClock({ maxSteps: 4 });
   const lead = new InputLead({ recover }), input = new FixedClock();
   const toWorker = [], toPage = [];
@@ -50,7 +52,7 @@ function play({ fps = 60, seconds = 10, transit = 0.001, cost = () => 0.003, lat
       const end = stall ? stall.at + stall.length : 0, first = stall && t >= end && t < end + frameDt;
       while (toPage.length && toPage[0].at !== null && toPage[0].at <= (first ? stall.at + stall.length / 2 : t)) {
         const packet = toPage.shift();
-        latest = packet.tick; lead.arrive(packet.tick, stall && packet.at >= stall.at && packet.at < end ? t : packet.at, 0);
+        latest = packet.tick; lead.arrive(packet.tick, stall && !sent && packet.at >= stall.at && packet.at < end ? t : packet.at, 0);
         // Only the consumed watermark has an execution tick. Earlier
         // commands may have been superseded or lost, never executed late.
         while (pending.length && pending[0].sequence <= packet.ack) {
@@ -174,6 +176,16 @@ test('a page that stalls stamps its next commands at the cap, and their lateness
     assert.ok(r.lateSeen > 0, `the ${length} s stall made commands late`);
     assert.equal(r.lead.extra, 0, `no margin left raised after a ${length} s stall`);
     assert.ok(r.lead.lead <= 4, `lead ${r.lead.lead} back to the steady stream's after a ${length} s stall`);
+  }
+  // A stall long enough to fill the estimator's window with packets taken
+  // late leaves it behind the world, its stamps no longer capped; timed
+  // by when the world sent them, the packets keep it where the world is.
+  const long = play({ fps: 30, seconds: 30, stall: { at: 5, length: 4 } });
+  assert.ok(long.lead.extra > 0, 'timed by the page, a 4 s stall still raised the margin');
+  for (const length of [4, 8]) {
+    const r = play({ fps: 30, seconds: 30, stall: { at: 5, length }, sent: true });
+    assert.ok(r.lateSeen > 0, `the ${length} s stall made commands late`);
+    assert.equal(r.lead.extra, 0, `timed by the world, no margin left raised after a ${length} s stall`);
   }
   // A late command the margin stamped still raises it.
   const lead = new InputLead();

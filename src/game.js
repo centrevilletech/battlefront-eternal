@@ -2609,7 +2609,7 @@ async function start() {
       // command actually ran, against the stamp below), not from the 20 Hz
       // correction that later retires it. The stamps the lead's cap set
       // are kept apart: their lateness is the cap's (reconcile.js acknowledge).
-      commandStamps: new Map(), cappedStamps: new Set(), leadAck: 0, leadAckTick: 0, leadDropped: 0, entityReceiptAt: 0, resumedAt: 0,
+      commandStamps: new Map(), cappedStamps: new Set(), leadAck: 0, leadAckTick: 0, leadDropped: 0, entityReceiptAt: 0, entitySentAt: 0, resumedAt: 0,
       predictionWindow: new PredictionWindow(), remoteReplay: new RemotePredictionContext(), vehicleWindow: new PredictionWindow(), continuationState: new Map(),
       vehicleSmoother: new CorrectionSmoother({ snap: 3, tau: .05 }),
       smoother: new CorrectionSmoother({ snap: 2.5, tau: .05 }), predictedTick: 0, predictedPosition: new THREE.Vector3(),
@@ -2672,13 +2672,21 @@ async function start() {
           },
           onApplied: packet => {
             const now = client.entityReceiptAt || performance.now() / 1000;
+            // The input lead places the world's tick by when the world sent
+            // each packet, where the transport knows it (the local worker),
+            // not by when this page took it: a busy page takes its packets
+            // up to a frame late, each by a different amount, which the
+            // lead read as the world bunching its ticks, stamping his
+            // commands a tick or so further ahead than they needed. The
+            // playout clock keeps the page's own times: those are when it
+            // can draw them.
             // A packet that came before the worker's clock went on again
             // counts, for the input lead, as arriving when it went on: the
             // world stood still in between (offline; a server's world runs
             // on). Its own arrival time put the lead's estimate of the world
             // seconds ahead, and the lead at its cap for the first second and
             // a half of a battle and of every resume.
-            const arrived = Math.max(now, client.resumedAt);
+            const arrived = Math.max(client.entitySentAt || now, client.resumedAt);
             // A publication is up to ten datagrams with one tick. The clocks
             // measure arrival gaps once per tick, not once per datagram:
             // same-tick repeats rewrite the last arrival time and shrink the
@@ -2690,8 +2698,8 @@ async function start() {
         client.entity.initialize();
         return registry;
       },
-      onEntities: (bytes, at) => { client.entityReceiptAt = at || 0; client.entity.receive(bytes); },
-      onGameplayEvents: (records, tick) => { client.entityReceiptAt = performance.now() / 1000; client.entity.receiveGameplay(records, tick); },
+      onEntities: (bytes, at, sentAt) => { client.entityReceiptAt = at || 0; client.entitySentAt = sentAt || 0; client.entity.receive(bytes); },
+      onGameplayEvents: (records, tick) => { client.entityReceiptAt = performance.now() / 1000; client.entitySentAt = 0; client.entity.receiveGameplay(records, tick); },
       onEntityDiagnostics: actors => {
         client.entityDiagnostics = actors;
         if(actors.length && !client.entityLimitShown){client.entityLimitShown=true;hud.message?.('Multiplayer: this scene contains an unsupported actor.');}
