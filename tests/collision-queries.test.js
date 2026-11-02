@@ -135,3 +135,83 @@ test('bounded ray queries preserve nearest point, normal, live owner, ignored bo
     }
   }
 });
+
+// The tree's own visit order, grouped by polygon on first sight: what an
+// uncached gather files, written out independently of it.
+function treeOrder(world, center, radius) {
+  const box = new THREE.Box3(center.clone().addScalar(-radius), center.clone().addScalar(radius));
+  const groups = new Map(), triBox = new THREE.Box3();
+  world.bvh.shapecast({
+    intersectsBounds: (bounds) => bounds.intersectsBox(box),
+    intersectsTriangle: (tri, index) => {
+      if (!triBox.setFromPoints([tri.a, tri.b, tri.c]).intersectsBox(box)) return false;
+      const id = world.polygonOf[index];
+      if (!groups.has(id)) groups.set(id, []);
+      groups.get(id).push(key(tri));
+      return false;
+    },
+  });
+  return [...groups.values()];
+}
+
+test('a gather meeting many polygons files them in the tree order, cached or not', () => {
+  // A floor of 40 x 40 cells whose triangles are dealt round 97 polygons: a
+  // sphere over it meets far more polygons than the gather scans for before
+  // it takes a Map, each polygon's triangles scattered through the tree.
+  const floor = new THREE.PlaneGeometry(40, 40, 40, 40).rotateX(-Math.PI / 2);
+  const p = floor.attributes.position.array, i = Uint32Array.from(floor.index.array);
+  const world = new CollisionWorld(p, i, Uint32Array.from({ length: i.length / 3 }, (_, k) => (k * 7) % 97));
+  const cache = world.gatherCache(), rand = random(), center = new THREE.Vector3();
+  const serialize = (polygons) => polygons.map((polygon) => polygon.triangles.map(key));
+  let most = 0;
+  for (let pass = 0; pass < 60; pass++) {
+    center.set(rand() * 30 - 15, rand() * 2 - 1, rand() * 30 - 15);
+    const radius = pass % 3 ? 0.4 + rand() : 3 + rand() * 3;
+    const expected = treeOrder(world, center, radius);
+    most = Math.max(most, expected.length);
+    assert.deepEqual(serialize(world.gather(center, radius)), expected);
+    assert.deepEqual(serialize(world.gather(center, radius, false, cache)), expected);
+  }
+  assert.ok(most > 32, 'some gathers met many polygons');
+});
+
+test('a hull probe\'s cached gather matches its uncached one, barriers and moving hulls included', () => {
+  const { world } = fixture();
+  // Vehicle-only barriers: a ring of walls only hulls meet.
+  const walls = [];
+  for (let k = 0; k < 12; k++) {
+    const a = k / 12 * 2 * Math.PI;
+    walls.push(box(Math.cos(a) * 15, 1, Math.sin(a) * 15, 4, 2, 0.5));
+  }
+  const positions = new Float32Array(walls.flatMap((w) => [...w.p]));
+  let base = 0;
+  const indices = Uint32Array.from(walls.flatMap((w) => { const out = [...w.i].map((v) => v + base); base += w.p.length / 3; return out; }));
+  world.vehicleBlockers = world.createBodyShape(positions, indices, Uint32Array.from({ length: indices.length / 3 }, (_, k) => k >> 1));
+  // Two hulls driving circles, turning as they go.
+  const hull = box(0, 0, 0, 3, 2, 6), shape = world.createBodyShape(hull.p, hull.i, hull.polygons);
+  const matrix = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  const hulls = [0, 1].map((k) => world.addMovingBody(shape, matrix.identity(), { k }));
+  const caches = [0, 1, 2].map(() => world.gatherCache(1.5));
+  const serialize = (polygons) => polygons.map((polygon) => [polygon.moving, ...polygon.triangles.map(key)]);
+  const center = new THREE.Vector3();
+  let blocked = 0, moving = 0;
+  for (let pass = 0; pass < 400; pass++) {
+    hulls.forEach((body, k) => {
+      const a = pass * 0.02 + k * Math.PI;
+      matrix.compose(new THREE.Vector3(Math.cos(a) * 14, 1, Math.sin(a) * 14), q.setFromAxisAngle(up, -a), new THREE.Vector3(1, 1, 1));
+      world.moveBody(body, matrix);
+    });
+    // The probes of a third hull following the first, a little behind it.
+    const a = pass * 0.02 - 0.3;
+    for (let k = 0; k < caches.length; k++) {
+      center.set(Math.cos(a) * (13 + k * 0.8), 0.9, Math.sin(a) * (13 + k * 0.8));
+      const expected = serialize(world.gather(center, 2.6, true));
+      const actual = serialize(world.gather(center, 2.6, true, caches[k]));
+      assert.deepEqual(actual, expected, `pass ${pass}, probe ${k}`);
+      blocked += world.list.some((polygon) => polygon.id >= 0x70000000);
+      moving += world.list.some((polygon) => polygon.moving);
+    }
+  }
+  assert.ok(blocked > 0 && moving > 0, 'the probes met barriers and hulls');
+  assert.ok(caches.every((cache) => cache.fill < 200), 'the probes reused their caches');
+});

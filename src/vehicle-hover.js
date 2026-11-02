@@ -235,7 +235,7 @@ export function hoverContacts(v) {
     }
     // The polygons near it, searched again from where each contact leaves
     // it (gather's list holds until its next call).
-    const polygons = c.gather(s.center, r, true);
+    const polygons = c.gather(s.center, r, true, v.springCaches?.[i] ?? null);
     s.used.clear();
     for (let pass = 0; pass < 3; pass++) {
       let best = r, polygon = null;
