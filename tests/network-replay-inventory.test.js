@@ -19,6 +19,7 @@ test('every Soldier field has an explicit replay ownership classification',()=>{
   presentation:'previous groundAdjustment',
   aiOnly:'avoidance',
   deadBody:'passThrough',
+  machineLocal:'gatherCaches mover',
  };
  assert.deepEqual(Object.keys(new Soldier({},{})).sort(),classified(groups),'Classify new fields in docs/network-replay-contract.md and add a shared-simulation continuation case');
 });
