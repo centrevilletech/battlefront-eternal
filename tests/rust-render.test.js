@@ -21,11 +21,15 @@ function bridge() {
     bones_len() { return 64; }
     records_at() { return 200; }
     record_stride() { return 76; }
+    fx_input_ptr() { return 20480; }
+    fx_input_len() { return 2600; }
+    fx_data_ptr() { return 41600; }
+    fx_data_len() { return 4096; }
     add_texture() { calls.push(["add_texture"]); return 0; }
     set_far_map(texture) { calls.push(["set_far_map", texture]); }
     sort(byProgram) { calls.push(["sort", byProgram]); }
   }
-  for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame"]) BfeRenderer.prototype[name] = entry(name);
+  for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame", "effects_frame"]) BfeRenderer.prototype[name] = entry(name);
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
   camera.updateMatrixWorld(true);
   const sceneTarget = { name: "scene" }, farTarget = { texture: new THREE.Texture() };
@@ -49,7 +53,7 @@ test("the passes are made in the renderer's order, each in its phase", () => {
   const { core } = bridge();
   assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post"]);
   const phases = Object.fromEntries(Object.entries(core.phases).map(([name, passes]) => [name, passes.map((p) => p.name)]));
-  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage"], transparent: ["transparent", "effects"], view: ["view"], post: ["post"] });
+  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage"], transparent: ["transparent"], view: ["view"], post: ["post"], effects: ["effects"] });
   assert.throws(() => core.addPass({ name: "x", phase: "nowhere" }), /no phase nowhere/);
 });
 
@@ -86,7 +90,7 @@ test("every other phase calls its own renderer entry and binds back the target i
   setTarget(target);
   core.phase("far", renderer, scene, camera);
   assert.deepEqual(calls, [["far_frame"], ["resetState"], ["setRenderTarget", target]]);
-  for (const [name, entry] of [["transparent", "transparent_frame"], ["view", "view_frame"], ["post", "post_frame"]]) {
+  for (const [name, entry] of [["transparent", "transparent_frame"], ["view", "view_frame"], ["post", "post_frame"], ["effects", "effects_frame"]]) {
     calls.length = 0;
     core.phase(name, renderer, scene, camera);
     assert.equal(calls.filter((c) => c[0].endsWith("frame"))[0][0], entry);

@@ -92,6 +92,18 @@ export class BfeRenderer {
     /**
      * @returns {Uint32Array}
      */
+    effects_frame() {
+        const ret = wasm.bferenderer_effects_frame(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
     far_frame() {
         const ret = wasm.bferenderer_far_frame(this.__wbg_ptr);
         if (ret[3]) {
@@ -113,6 +125,84 @@ export class BfeRenderer {
         var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @param {number} program
+     * @param {number} texture
+     * @param {Uint32Array | number[]} blend
+     * @param {number} corner
+     * @param {Uint32Array | number[]} attributes
+     * @param {number} owner
+     * @returns {number}
+     */
+    fx_add_batch(program, texture, blend, corner, attributes, owner) {
+        const val3 = +program;
+        const val4 = +texture;
+        const val5 = +corner;
+        const val6 = +owner;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(attributes, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_fx_add_batch(this.__wbg_ptr, val3, val4, ptr0, len0, val5, ptr1, len1, val6);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} tracks
+     * @param {number} track_rows
+     * @returns {number}
+     */
+    fx_add_owner(tracks, track_rows) {
+        const ret = wasm.bferenderer_fx_add_owner(this.__wbg_ptr, tracks, track_rows);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} batch
+     * @param {number} texture
+     */
+    fx_batch_texture(batch, texture) {
+        wasm.bferenderer_fx_batch_texture(this.__wbg_ptr, batch, texture);
+    }
+    /**
+     * @returns {number}
+     */
+    fx_data_len() {
+        const ret = wasm.bferenderer_fx_data_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    fx_data_ptr() {
+        const ret = wasm.bferenderer_fx_data_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    fx_input_len() {
+        const ret = wasm.bferenderer_fx_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    fx_input_ptr() {
+        const ret = wasm.bferenderer_fx_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} floats
+     */
+    fx_reserve(floats) {
+        wasm.bferenderer_fx_reserve(this.__wbg_ptr, floats);
     }
     /**
      * @param {number} g
@@ -365,6 +455,18 @@ function __wbg_get_imports() {
         __wbg_bindVertexArray_cc64c48bf67ab8d4: function(arg0, arg1) {
             arg0.bindVertexArray(arg1);
         },
+        __wbg_blendEquationSeparate_0dceb23863585a87: function(arg0, arg1, arg2) {
+            arg0.blendEquationSeparate(arg1 >>> 0, arg2 >>> 0);
+        },
+        __wbg_blendEquationSeparate_156fe040a9aebfd6: function(arg0, arg1, arg2) {
+            arg0.blendEquationSeparate(arg1 >>> 0, arg2 >>> 0);
+        },
+        __wbg_blendFuncSeparate_6db2212299fd7f1e: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.blendFuncSeparate(arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4 >>> 0);
+        },
+        __wbg_blendFuncSeparate_eb9098d760f4a25c: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.blendFuncSeparate(arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4 >>> 0);
+        },
         __wbg_bufferData_2fb8740d60478bf0: function(arg0, arg1, arg2, arg3) {
             arg0.bufferData(arg1 >>> 0, arg2, arg3 >>> 0);
         },
@@ -592,6 +694,12 @@ function __wbg_get_imports() {
         __wbg_multiDrawElementsWEBGL_792aac30dde30bf8: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
             arg0.multiDrawElementsWEBGL(arg1 >>> 0, getArrayI32FromWasm0(arg2, arg3), arg4 >>> 0, arg5 >>> 0, getArrayI32FromWasm0(arg6, arg7), arg8 >>> 0, arg9);
         },
+        __wbg_pixelStorei_43dc7945a0d4d49c: function(arg0, arg1, arg2) {
+            arg0.pixelStorei(arg1 >>> 0, arg2);
+        },
+        __wbg_pixelStorei_6dd56b4da047c480: function(arg0, arg1, arg2) {
+            arg0.pixelStorei(arg1 >>> 0, arg2);
+        },
         __wbg_shaderSource_519d0f56b613b2f9: function(arg0, arg1, arg2, arg3) {
             arg0.shaderSource(arg1, getStringFromWasm0(arg2, arg3));
         },
@@ -666,6 +774,12 @@ function __wbg_get_imports() {
         },
         __wbg_useProgram_f6341ea2eeea1e5a: function(arg0, arg1) {
             arg0.useProgram(arg1);
+        },
+        __wbg_vertexAttribDivisorANGLE_5bec9a774ccd1cf8: function(arg0, arg1, arg2) {
+            arg0.vertexAttribDivisorANGLE(arg1 >>> 0, arg2 >>> 0);
+        },
+        __wbg_vertexAttribDivisor_5b64fc697c0496e1: function(arg0, arg1, arg2) {
+            arg0.vertexAttribDivisor(arg1 >>> 0, arg2 >>> 0);
         },
         __wbg_vertexAttribPointer_39b706eb26c50057: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6) {
             arg0.vertexAttribPointer(arg1 >>> 0, arg2, arg3 >>> 0, arg4 !== 0, arg5, arg6);
