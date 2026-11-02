@@ -75,7 +75,7 @@ export class GameAudio {
     if (!sublevel) throw new Error(`no sound for ${world.mission?.name || world.name}: run tools/extract.py`);
     const data = await SoundData.load(AUDIO_ROOT, sublevel);
     this.engine.ensureContext();
-    await this.engine.renderer.load(AUDIO_ROOT);
+    await this.engine.renderer.load(AUDIO_ROOT, this.config());
     this.engine.enhanced = await EnhancedAssets.open(this.engine.ctx, AUDIO_ROOT, sublevel);
     this.engine.missing = (name) => this.note(`missing ${name}`);
     this.data = data;
@@ -167,7 +167,16 @@ export class GameAudio {
   configure() {
     const r = this.engine.renderer;
     if (!r?.loaded) return;
-    r.configure(this.config());
+    // A graph whose worklets the light mix never loaded is built once they
+    // are; what follows waits for it (if they can't load, the light mix
+    // plays on).
+    const later = r.configure(this.config());
+    if (later) later.then(() => this.configured(), (error) => console.warn(`audio: ${error.message}`));
+    else this.configured();
+  }
+
+  configured() {
+    const r = this.engine.renderer;
     this.engine.applyVolumes();
     if (r.enhanced) this.engine.enhanced?.preload();
     // The original's reverb is the sub-level's space; the enhanced mode's

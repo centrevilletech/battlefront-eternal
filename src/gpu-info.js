@@ -57,9 +57,10 @@ export function unpacksBc7(renderer) {
 // GPUs the Minimum preset is for (settings.js PERFORMANCE_PRESETS): Intel's
 // before Ivy Bridge, under Mesa (above) or Windows' own driver ("Intel(R) HD
 // Graphics 3000", plain "HD Graphics" for Ironlake, the 4 Series). A first
-// session on one starts on it (Settings adoptGpuPreset): the defaults are
-// for current GPUs, and ran at a few frames a second on an HD 2000. Drawing
-// in software is a driver to fix, which the VIDEO OPTIONS say instead.
+// session on one starts on it (Settings adoptHardwareDefaults): the
+// defaults are for current GPUs, and ran at a few frames a second on an HD
+// 2000. Drawing in software is a driver to fix, which the VIDEO OPTIONS say
+// instead.
 const WINDOWS_OLD_INTEL = /\bIntel\(R\) (HD Graphics( 2000| 3000| Family)?|G41|G45|Q45|Q43|B43|4 Series)\b(?! \d)/i;
 export function oldGpu(renderer) {
   const name = String(renderer || "");

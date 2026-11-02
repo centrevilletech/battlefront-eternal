@@ -94,6 +94,31 @@ export function alsoftGains(layout, x, y, z, front = ALSOFT[layout].front) {
   return rows.map((row) => (row ? row.reduce((s, g, k) => s + g * h[k], 0) : 0));
 }
 
+// The same stereo gains, [left, right] into `out`, for any direction (it
+// needn't be unit length; none at all is ahead) and without a new array:
+// the light mix pans every voice with it every frame (src/audio/spatial.js).
+export function alsoftStereo(x, y, z, out, front = ALSOFT.stereo.front) {
+  const len = Math.sqrt(x * x + y * y + z * z);
+  if (len < 1e-6) {
+    x = 0;
+    y = 0;
+    z = -1;
+  } else {
+    x /= len;
+    y /= len;
+    z /= len;
+  }
+  let az = Math.atan2(x, -z);
+  if (front > 0 && Math.abs(az) < Math.PI / 2) az = Math.sign(az) * Math.min(Math.abs(az) * front, Math.PI / 2);
+  const ce = Math.cos(Math.asin(Math.max(-1, Math.min(1, y))));
+  const X = Math.sqrt(3) * Math.cos(az) * ce;
+  const Y = -Math.sqrt(3) * Math.sin(az) * ce;
+  const [left, right] = ALSOFT.stereo.rows;
+  out[0] = left[0] + left[1] * Y + left[2] * X;
+  out[1] = right[0] + right[1] * Y + right[2] * X;
+  return out;
+}
+
 // The layout for a device's channel count, when the output is "auto".
 export function autoLayout(maxChannels) {
   if (maxChannels >= 12) return "7.1.4";

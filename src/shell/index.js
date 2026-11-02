@@ -83,7 +83,7 @@ export async function createShell({ query = location.search, parent = document.b
 
   const data = await loadShellData();
   const settings = new Settings();
-  settings.adoptGpuPreset(pageGpu().renderer);
+  settings.adoptHardwareDefaults(pageGpu().renderer);
   const page = params.get("menus") !== "classic";
   const media = new ShellMedia({ data, settings, parent, screens: page ? PAGE_MEDIA : SCREEN_MEDIA });
   const fonts = new CanvasFonts({ fonts: data.fonts, pages: data.pages });

@@ -2,6 +2,7 @@ import { ANTIALIASING, BATTLE_SIZES, DEFAULTS, PERFORMANCE_PRESETS, RENDER_SCALE
 import { AUDIO_DYNAMICS, AUDIO_OUTPUTS, AUDIO_QUALITIES } from "../audio/options.js";
 import { UPSCALERS } from "../upscaler.js";
 import { gpuNote, pageGpu } from "../gpu-info.js";
+import { lowEndCpu } from "../cpu-info.js";
 import { OptionRow } from "./widgets.js";
 import { MAX_TEAM_SIZE } from '../battle-limits.js';
 
@@ -136,7 +137,7 @@ export const OPTIONS = [
   { key: "voiceVolume", page: "audio", label: "SPEECH VOLUME", labelKey: "ifs.soundopt.speechvol", kind: "slider", apply: "live", min: 0, max: 1, step: 0.05, format: percent },
   { key: "ambienceVolume", page: "audio", label: "AMBIENCE VOLUME", kind: "slider", apply: "live", min: 0, max: 1, step: 0.05, format: percent },
   { key: "interfaceVolume", page: "audio", label: "INTERFACE VOLUME", kind: "slider", apply: "live", min: 0, max: 1, step: 0.05, format: percent },
-  { key: "audioQuality", page: "audio", label: "SOUND", kind: "choice", apply: "live", note: () => enhancedSoundNote(),
+  { key: "audioQuality", page: "audio", label: "SOUND", kind: "choice", apply: "live", note: (settings) => enhancedSoundNote() ?? soundNote(settings),
     choices: AUDIO_QUALITIES.map(([k]) => [k, k === "enhanced" ? "ENHANCED" : "CLASSIC"]) },
   { key: "audioOutput", page: "audio", label: "OUTPUT MODE", labelKey: "ifs.soundopt.outputmode.title", kind: "choice", apply: "live",
     choices: AUDIO_OUTPUTS.map(([k, label]) => [k, SHORT[k] || upper(label)]) },
@@ -182,7 +183,17 @@ export const NOTES = {
   battleShell: "TAKES EFFECT WHEN A BATTLE STARTS",
   fixed: "THE BATTLE ALWAYS RUNS AT 60 HZ",
   enhancedSound: "ENHANCED SOUND ISN'T PREPARED: GAME MENU (ALT) > GAME DATA PREPARATION ADDS IT",
+  classicSound: "CLASSIC ON STEREO: THE LIGHT 2004 MIX, NO REVERB",
+  lighterSound: "CLASSIC SOUND IS MUCH LIGHTER ON THIS CPU",
 };
+
+// The SOUND row's note otherwise: what Classic is on stereo (the light mix,
+// docs/audio.md), or, with Enhanced on a low-end CPU (cpu-info.js), that
+// Classic would cost it far less.
+export function soundNote(settings, isLowEnd = lowEndCpu) {
+  if (settings?.get("audioQuality") === "original") return NOTES.classicSound;
+  return isLowEnd() ? NOTES.lighterSound : null;
+}
 
 // The SOUND row's note when the desktop client prepared the game data
 // without the Enhanced sound (the player's choice there): ENHANCED keeps the

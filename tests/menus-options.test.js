@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULTS, PERFORMANCE_PRESETS, RENDER_SCALE_MIN } from "../src/settings.js";
 import { UPSCALERS } from "../src/upscaler.js";
-import { OPTIONS, OPTION_KEYS, PROFILE_KEYS, THEME_KEYS, PAGES, optionsFor, optionRow, applies, resetPage, NOTES, enhancedSoundNote, renderResolution } from "../src/menus/options.js";
+import { OPTIONS, OPTION_KEYS, PROFILE_KEYS, THEME_KEYS, PAGES, optionsFor, optionRow, applies, resetPage, NOTES, enhancedSoundNote, renderResolution, soundNote } from "../src/menus/options.js";
 import { optionsMenu, gamePage, videoPage, audioPage, controlsPage } from "../src/menus/option-pages.js";
 import { ScreenStack } from "../src/menus/stack.js";
 
@@ -215,4 +215,20 @@ test("SOUND says when the desktop prepared the game data without the Enhanced so
   assert.equal(typeof row.note, "function");
   assert.equal(row.note(), null, "no desktop in the tests");
   assert.equal(optionRow(OPTIONS.find((entry) => entry.apply === "map"), settingsStub()).note, NOTES.map);
+});
+
+test("SOUND says what Classic is, and on a low-end CPU that it is lighter", () => {
+  const settings = settingsStub();
+  const row = optionRow(OPTIONS.find((entry) => entry.key === "audioQuality"), settings);
+  assert.equal(row.note(), null, "Enhanced on a current CPU: nothing to say");
+  assert.equal(soundNote(settings, () => true), NOTES.lighterSound);
+  assert.equal(soundNote(settings, () => false), null);
+  settings.set("audioQuality", "original");
+  assert.equal(row.note(), NOTES.classicSound);
+  assert.equal(soundNote(settings, () => true), NOTES.classicSound, "chosen: no nudge");
+  assert.deepEqual(row.choices.map(([value, label]) => [value, label]), [["enhanced", "ENHANCED"], ["original", "CLASSIC"]]);
+  for (const note of [NOTES.classicSound, NOTES.lighterSound]) {
+    assert.match(note, /^[A-Z0-9 ,:]+$/, "the 2004 font's letters");
+    assert.ok(note.length <= 80, "one line in the classic menu");
+  }
 });

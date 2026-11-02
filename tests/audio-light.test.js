@@ -1,0 +1,453 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { ALSOFT, alsoftGains, alsoftStereo } from "../src/audio/layouts.js";
+import { LIGHT_LEVELS, ORIGINAL_LEVEL, Renderer, softClip } from "../src/audio/spatial.js";
+import { AudioEngine } from "../src/audio/engine.js";
+import { SoundData } from "../src/audio/data.js";
+
+// The light mix (Classic on stereo speakers) against a stand-in for the
+// browser's audio graph that records nodes and connections; the rendered
+// sound is checked in Chromium (tests/audio-checks.js).
+
+let ids = 0;
+class Param {
+  constructor(value) {
+    this.value = value;
+    this.events = [];
+    this.automationRate = "a-rate";
+  }
+  setValueAtTime(value, time) {
+    this.events.push(["set", value, time]);
+    this.value = value;
+    return this;
+  }
+  setTargetAtTime(value, time, tau) {
+    this.events.push(["target", value, time, tau]);
+    return this;
+  }
+  cancelScheduledValues(time) {
+    this.events.push(["cancel", time]);
+    return this;
+  }
+  linearRampToValueAtTime(value, time) {
+    this.events.push(["ramp", value, time]);
+    return this;
+  }
+}
+class Node {
+  constructor(ctx, kind, options = {}) {
+    this.ctx = ctx;
+    this.kind = kind;
+    this.options = options;
+    this.id = ids++;
+    this.channelCount = options.channelCount ?? 2;
+    this.channelCountMode = options.channelCountMode ?? "max";
+    this.channelInterpretation = options.channelInterpretation ?? "speakers";
+    ctx.nodes.push(this);
+  }
+  connect(to, output = 0, input = 0) {
+    this.ctx.edges.push({ from: this, output, to, input });
+    return to;
+  }
+  disconnect() {
+    this.ctx.edges = this.ctx.edges.filter((e) => e.from !== this);
+  }
+  // What tells two nodes apart in a graph's description.
+  detail() {
+    const params = Object.entries(this)
+      .filter(([, v]) => v instanceof Param)
+      .map(([k, v]) => `${k}=${+v.value.toFixed(6)}`);
+    const own = this.kind === "AudioWorkletNode" ? [this.name, JSON.stringify(this.options)] : this.kind === "WaveShaperNode" ? [this.curve?.length] : [this.type ?? "", this.panningModel ?? ""];
+    return [...own, ...params, this.channelCount, this.channelCountMode, this.channelInterpretation].join(",");
+  }
+}
+class FakeContext {
+  constructor({ channels = 2 } = {}) {
+    this.nodes = [];
+    this.edges = [];
+    this.sampleRate = 48000;
+    this.currentTime = 1;
+    this.state = "running";
+    this.destination = new Node(this, "destination");
+    this.destination.maxChannelCount = channels;
+    this.modules = [];
+    this.audioWorklet = { addModule: (url) => (this.modules.push(String(url).split("/").pop()), Promise.resolve()) };
+  }
+  createGain() {
+    const n = new Node(this, "GainNode");
+    n.gain = new Param(1);
+    return n;
+  }
+  createBiquadFilter() {
+    const n = new Node(this, "BiquadFilterNode");
+    n.type = "lowpass";
+    n.frequency = new Param(350);
+    n.Q = new Param(1);
+    n.gain = new Param(0);
+    return n;
+  }
+  createStereoPanner() {
+    const n = new Node(this, "StereoPannerNode");
+    n.pan = new Param(0);
+    return n;
+  }
+  createDelay() {
+    const n = new Node(this, "DelayNode");
+    n.delayTime = new Param(0);
+    return n;
+  }
+  createChannelMerger(inputs = 6) {
+    return Object.assign(new Node(this, "ChannelMergerNode"), { inputs });
+  }
+  createChannelSplitter(outputs = 6) {
+    return Object.assign(new Node(this, "ChannelSplitterNode"), { outputs });
+  }
+  createBuffer(channels, length, sampleRate) {
+    const data = Array.from({ length: channels }, () => new Float32Array(length));
+    return { numberOfChannels: channels, length, sampleRate, duration: length / sampleRate, getChannelData: (c) => data[c] };
+  }
+  createBufferSource() {
+    const n = new Node(this, "AudioBufferSourceNode");
+    n.playbackRate = new Param(1);
+    n.start = () => {};
+    n.stop = () => {};
+    return n;
+  }
+}
+globalThis.AudioWorkletNode = class extends Node {
+  constructor(ctx, name, options = {}) {
+    super(ctx, "AudioWorkletNode", options);
+    this.name = name;
+    this.port = { postMessage: () => {} };
+  }
+};
+globalThis.ConvolverNode = class extends Node {
+  constructor(ctx, options = {}) {
+    super(ctx, "ConvolverNode", options);
+  }
+};
+globalThis.PannerNode = class extends Node {
+  constructor(ctx, options = {}) {
+    super(ctx, "PannerNode", options);
+    this.panningModel = options.panningModel;
+    for (const k of ["positionX", "positionY", "positionZ"]) this[k] = new Param(0);
+  }
+};
+globalThis.WaveShaperNode = class extends Node {
+  constructor(ctx, options = {}) {
+    super(ctx, "WaveShaperNode", options);
+    this.curve = options.curve;
+  }
+};
+
+// The live graph as lines, from the output back: each node by what it is,
+// its inputs in order (so two graphs built alike read alike, whenever their
+// nodes were made).
+function describe(ctx) {
+  const sig = (n) => `${n.kind}(${n.detail()})`;
+  const label = new Map([[ctx.destination, 0]]);
+  const queue = [ctx.destination];
+  const lines = [];
+  while (queue.length) {
+    const node = queue.shift();
+    const ins = ctx.edges
+      .filter((e) => e.to === node)
+      .sort((a, b) => a.input - b.input || a.output - b.output || sig(a.from).localeCompare(sig(b.from)) || a.from.id - b.from.id);
+    for (const e of ins) {
+      if (!label.has(e.from)) {
+        label.set(e.from, label.size);
+        queue.push(e.from);
+      }
+      lines.push(`${label.get(e.from)} ${sig(e.from)}[${e.output}] -> ${label.get(node)}[${e.input}]`);
+    }
+  }
+  return { lines, nodes: [...label.keys()] };
+}
+const kinds = (ctx) => describe(ctx).nodes.map((n) => n.kind);
+const into = (ctx, node) => ctx.edges.filter((e) => e.from === node);
+
+async function renderer(config, options) {
+  const ctx = new FakeContext(options);
+  const r = new Renderer(ctx);
+  await r.load();
+  r.configure(config);
+  return { ctx, r };
+}
+
+// A playing voice's own nodes (as the engine makes them) through r.voice.
+function voice(ctx, r, mode3D = 1) {
+  const source = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  source.connect(gain);
+  const out = r.voice({ mode3D });
+  out.attach(gain);
+  return { source, gain, out };
+}
+
+test("OpenAL Soft's stereo law without allocating, as alsoftGains gives it", () => {
+  const out = [0, 0];
+  let worst = 0;
+  for (let az = -180; az <= 180; az += 7.5) {
+    for (const el of [-60, 0, 25, 89]) {
+      const a = (az * Math.PI) / 180;
+      const e = (el * Math.PI) / 180;
+      const dir = [-Math.sin(a) * Math.cos(e), Math.sin(e), -Math.cos(a) * Math.cos(e)];
+      alsoftStereo(...dir, out);
+      const want = alsoftGains("stereo", ...dir);
+      worst = Math.max(worst, Math.abs(out[0] - want[0]), Math.abs(out[1] - want[1]));
+      // Not unit length: the same.
+      alsoftStereo(...dir.map((v) => v * 3), out);
+      worst = Math.max(worst, Math.abs(out[0] - want[0]), Math.abs(out[1] - want[1]));
+    }
+  }
+  assert.ok(worst < 1e-12, `worst ${worst}`);
+  // Ahead 0.5957 a side; no direction at all is ahead; hard right.
+  assert.deepEqual(alsoftStereo(0, 0, -1, out).map((g) => +g.toFixed(4) || 0), [0.5957, 0.5957]);
+  assert.deepEqual(alsoftStereo(0, 0, 0, out).map((g) => +g.toFixed(4) || 0), [0.5957, 0.5957]);
+  assert.deepEqual(alsoftStereo(1, 0, 0, out).map((g) => +g.toFixed(4) || 0), [0, 1]);
+  assert.equal(ALSOFT.stereo.front, 1.5);
+});
+
+test("the soft clip leaves everything under -1 dBFS alone and never passes full scale", () => {
+  for (const x of [0, 0.1, -0.5, 0.89, -0.891]) assert.equal(softClip(x), x);
+  let last = -Infinity;
+  for (let x = -2; x <= 2; x += 0.001) {
+    const y = softClip(x);
+    assert.ok(Math.abs(y) <= 1, `${x} -> ${y}`);
+    assert.ok(y >= last, "rising");
+    last = y;
+  }
+  assert.ok(softClip(1) > 0.97 && softClip(1) < 0.98, "full scale in: 0.97 out");
+  assert.ok(softClip(2) > 0.9999, "6 dB over: full scale");
+});
+
+test("Classic on stereo is the light mix: the browser's own nodes, two speaker gains a voice", async () => {
+  const { ctx, r } = await renderer({ quality: "original", output: "auto", dynamics: "normal", mono: false, clarity: true });
+  assert.equal(r.mode, "stereo", "a stereo device");
+  assert.equal(r.light, true);
+  assert.equal(r.enhanced, false);
+  for (const gone of ["mixer", "reverb", "reverbIn", "limiter", "lfe", "hrtfOut"]) assert.equal(r[gone], null, gone);
+  const a = voice(ctx, r);
+  const b = voice(ctx, r, 0);
+  a.out.update({ x: 1, y: 0, z: 0 }, 12, 0, { send: 1, cutoff: 3000, lfe: 1 });
+  // A 2D voice: the engine gives the original no pan (centred).
+  b.out.update(null, 0, 0, { send: 1 });
+  r.flush();
+  const used = kinds(ctx);
+  for (const heavy of ["AudioWorkletNode", "ConvolverNode", "PannerNode", "BiquadFilterNode", "DelayNode", "StereoPannerNode"]) {
+    assert.ok(!used.includes(heavy), `no ${heavy}`);
+  }
+  // Each voice's gain feeds two gains, one into each side of the pair.
+  for (const [v, want] of [[a, [0, 1]], [b, [0.5957, 0.5957]]]) {
+    const sides = into(ctx, v.gain).map((e) => e.to);
+    assert.equal(sides.length, 2);
+    sides.forEach((side, c) => {
+      assert.equal(side.kind, "GainNode");
+      assert.deepEqual(into(ctx, side).map((e) => [e.to, e.input]), [[r.pair, c]]);
+      assert.ok(Math.abs(side.gain.value - want[c]) < 1e-4, `side ${c}: ${side.gain.value}`);
+    });
+  }
+  // The master: the pair into the mix at the original's stereo level, the
+  // profile's level halved into the soft clip, the volume, the output.
+  const chain = [];
+  for (let n = ctx.destination; n !== r.pair; ) {
+    const ins = ctx.edges.filter((e) => e.to === n);
+    assert.equal(ins.length, 1, `${n.kind} has one input`);
+    n = ins[0].from;
+    chain.push(n.kind);
+    if (n === r.mix) assert.ok(Math.abs(n.gain.value - 10 ** (ORIGINAL_LEVEL.stereo / 20)) < 1e-9);
+    if (n.kind === "GainNode" && n !== r.mix && n !== r.volume) assert.ok(Math.abs(n.gain.value - 10 ** (LIGHT_LEVELS.normal / 20) / 2) < 1e-9);
+  }
+  assert.deepEqual(chain, ["GainNode", "WaveShaperNode", "GainNode", "GainNode", "ChannelMergerNode"]);
+  assert.equal(r.preDynamics, r.mix);
+  // The next frame eases toward the new direction; a change too small to
+  // hear sends nothing.
+  const [left] = into(ctx, a.gain).map((e) => e.to);
+  a.out.update({ x: 0, y: 0, z: -1 }, 12, 0, {});
+  assert.deepEqual(left.gain.events.at(-1).slice(0, 2), ["target", alsoftStereo(0, 0, -1, [0, 0])[0]]);
+  const sent = left.gain.events.length;
+  a.out.update({ x: 1e-4, y: 0, z: -1 }, 12, 0, {});
+  assert.equal(left.gain.events.length, sent);
+});
+
+test("the light mix plays streams at OpenAL Soft's angles, in as few nodes as that takes", async () => {
+  const { ctx, r } = await renderer({ quality: "original", output: "stereo", dynamics: "home", mono: false });
+  const bed = (channels, kind) => {
+    const out = ctx.createGain();
+    r.bed(channels, out, kind);
+    return out;
+  };
+  // Music: its pair lands hard left and right, so straight into the mix.
+  assert.deepEqual(into(ctx, bed(2, "music")).map((e) => e.to), [r.mix]);
+  // Voice-over: ahead, one gain into both speakers alike.
+  const [both] = into(ctx, bed(1, "voice")).map((e) => e.to);
+  assert.deepEqual([both.kind, +both.gain.value.toFixed(4), both.channelCount, both.channelCountMode, both.channelInterpretation], ["GainNode", 0.5957, 2, "explicit", "speakers"]);
+  assert.deepEqual(into(ctx, both).map((e) => e.to), [r.mix]);
+  // A quad bed: the front pair straight to its speakers, the rear pair
+  // mostly on its own side.
+  const [split] = into(ctx, bed(4, "ambience")).map((e) => e.to);
+  assert.equal(split.kind, "ChannelSplitterNode");
+  const routes = into(ctx, split).map((e) => (e.to.kind === "GainNode" ? [e.output, into(ctx, e.to)[0].input, +e.to.gain.value.toFixed(4)] : [e.output, e.input, 1])).sort();
+  assert.deepEqual(routes, [[0, 0, 1], [1, 1, 1], [2, 0, 0.6672], [2, 1, 0.1672], [3, 0, 0.1672], [3, 1, 0.6672]]);
+  assert.ok(!kinds(ctx).includes("AudioWorkletNode"));
+});
+
+test("Enhanced builds the same graph before and after a trip through the light mix", async () => {
+  for (const output of ["stereo", "5.1", "headphones"]) {
+    const config = { quality: "enhanced", output, dynamics: "normal", mono: false, clarity: true };
+    const { ctx, r } = await renderer(config, { channels: 8 });
+    const a = voice(ctx, r);
+    const b = voice(ctx, r, 0);
+    const frame = () => {
+      a.out.update({ x: 0.6, y: 0, z: -0.8 }, 30, 0, { send: 0.4, cutoff: 9000, lfe: 1, spread: 0 });
+      b.out.update(null, 0, 0, { send: 0 });
+      r.flush();
+    };
+    const bed = ctx.createGain();
+    r.bed(2, bed, "music");
+    frame();
+    // Rebuilt as any audio setting rebuilds it (a voice's air filter starts
+    // where it was), and then after the light mix: the same.
+    r.configure(config);
+    frame();
+    const before = describe(ctx).lines;
+    r.configure({ quality: "original", output: "stereo" });
+    frame();
+    assert.equal(r.light, true, output);
+    r.configure(config);
+    frame();
+    assert.equal(r.light, false);
+    assert.deepEqual(describe(ctx).lines, before, `${output}: the same graph`);
+    // And it is the enhanced stage: the mixer and its law, the room, the
+    // clarity stage, the limiter; a 3D voice through its air filter.
+    const worklets = describe(ctx).nodes.filter((n) => n.kind === "AudioWorkletNode").map((n) => n.name);
+    for (const name of ["spatial-mixer", "fdn-reverb", "clarity", "true-peak-limiter"]) assert.ok(worklets.includes(name), `${output}: ${name}`);
+    assert.equal(into(ctx, a.gain).map((e) => e.to.kind).sort().join(), "BiquadFilterNode,GainNode", `${output}: air filter and send`);
+  }
+});
+
+test("a battle that starts in the light mix loads no worklet; another graph loads them and builds once they are in", async () => {
+  const ctx = new FakeContext({ channels: 8 });
+  const r = new Renderer(ctx);
+  const config = { quality: "original", output: "stereo", dynamics: "normal" };
+  await r.load(null, config);
+  assert.equal(r.configure(config), null, "built at once");
+  assert.deepEqual(ctx.modules, [], "no worklet: the device's own thread renders");
+  const v = voice(ctx, r);
+  v.out.update(null, 0, 0, {});
+  // The meter (the audio panel) wants one.
+  r.meter(true);
+  await r.modules;
+  assert.ok(ctx.modules.includes("meter.js"));
+  // Enhanced asked for: the light mix plays until the graph can be built.
+  const later = new Renderer(new FakeContext({ channels: 8 }));
+  await later.load(null, config);
+  later.configure(config);
+  const pending = later.configure({ quality: "enhanced" });
+  assert.ok(pending instanceof Promise);
+  assert.equal(later.light, true, "still the light mix");
+  await pending;
+  assert.equal(later.light, false);
+  assert.equal(later.enhanced, true);
+  assert.ok(describe(later.ctx).nodes.some((n) => n.name === "spatial-mixer"));
+  // Loaded from the start for any other graph, as before.
+  const enhanced = new Renderer(new FakeContext());
+  await enhanced.load(null, { quality: "enhanced" });
+  assert.equal(enhanced.ctx.modules.length, 6);
+  assert.equal(enhanced.configure({ quality: "enhanced" }), null);
+});
+
+test("Classic on headphones and on surround keeps OpenAL Soft's output", async () => {
+  const { ctx, r } = await renderer({ quality: "original", output: "5.1", dynamics: "home" }, { channels: 8 });
+  assert.equal(r.light, false);
+  const nodes = describe(ctx).nodes;
+  const mixer = nodes.find((n) => n.name === "spatial-mixer");
+  assert.equal(mixer.options.processorOptions.law, "alsoft");
+  assert.ok(nodes.some((n) => n.name === "front-stabilizer"));
+  r.configure({ output: "headphones" });
+  assert.equal(r.light, false);
+  assert.equal(r.hrtf, true);
+  const v = voice(ctx, r);
+  assert.equal(into(ctx, v.gain).map((e) => e.to.kind).sort().join(), "GainNode,PannerNode");
+  // Stereo again: the light mix, the voice moved over to it.
+  r.configure({ output: "stereo" });
+  assert.equal(r.light, true);
+  assert.deepEqual(into(ctx, v.gain).map((e) => e.to.kind), ["GainNode", "GainNode"]);
+  assert.deepEqual(into(ctx, v.gain).map((e) => into(ctx, e.to)[0].to), [r.pair, r.pair]);
+});
+
+// An engine with one looping 3D sound (made up), on a stand-in context.
+async function engineWith(config) {
+  const ctx = new FakeContext({ channels: 8 });
+  const pcm = new Int16Array(22050).fill(1000);
+  const data = new SoundData(
+    {
+      objects: [
+        { type: "Bus", Name: "0x00000001", Gain: 1 },
+        { type: "SoundProperties", Name: "0x0000c001", Bus: "0x00000001", Mode3D: 1, MinDistance: 5, MaxDistance: 100, MuteDistance: 100, Looping: 1, ModeDoppler: 0, SampleList: [["0x00000100", 1]] },
+      ],
+      samples: { "0x00000100": [0, pcm.length, 22050] },
+    },
+    pcm.buffer,
+  );
+  const engine = new AudioEngine({ context: ctx });
+  await engine.renderer.load();
+  engine.renderer.configure(config);
+  engine.setData(data);
+  engine.setListener({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }, { x: 0, y: 1, z: 0 });
+  return { ctx, engine };
+}
+
+test("the engine plays through the light mix: the voice's level and OpenAL Soft's panning on two gains", async () => {
+  const { ctx, engine } = await engineWith({ quality: "original", output: "stereo", dynamics: "normal" });
+  // To the listener's left, 20 m off (past the curve's MinDistance).
+  const v = engine.play("0x0000c001", { position: { x: -20, y: 0, z: -2 }, category: "effects" });
+  engine.update(1 / 60);
+  assert.ok(v.real, "heard");
+  assert.equal(v.nodes.gain, null, "no gain of its own");
+  // Its source straight into the two speaker gains: three nodes a voice.
+  const sides = into(ctx, v.nodes.source).map((e) => e.to);
+  assert.deepEqual(sides.map((n) => into(ctx, n)[0].to), [engine.renderer.pair, engine.renderer.pair]);
+  const pan = alsoftStereo(v.local.x, v.local.y, v.local.z, [0, 0]);
+  assert.ok(pan[0] > 0.9 && pan[1] < 0.1, "mostly left");
+  // The voice's level is the original mode's: the library's curve and the
+  // Steam build's falloff past half of MaxDistance (none here).
+  assert.ok(v.audible > 0 && v.audible < 1);
+  sides.forEach((side, c) => assert.ok(Math.abs(side.gain.value - v.audible * pan[c]) < 1e-9, `side ${c}`));
+  // Closer: the level and the panning move together, eased.
+  engine.setListener({ x: -12, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }, { x: 0, y: 1, z: 0 });
+  engine.update(1 / 60);
+  const now = alsoftStereo(v.local.x, v.local.y, v.local.z, [0, 0]);
+  sides.forEach((side, c) => assert.deepEqual(side.gain.events.at(-1), ["target", v.audible * now[c], ctx.currentTime, 0.015]));
+  // Stopped: both fade out, the source stops.
+  v.stop(0.03);
+  sides.forEach((side) => assert.deepEqual(side.gain.events.at(-1), ["target", 0, ctx.currentTime, 0.01]));
+});
+
+test("a voice playing when the light mix comes or goes carries on in the new graph", async () => {
+  const { ctx, engine } = await engineWith({ quality: "original", output: "stereo", dynamics: "normal" });
+  const r = engine.renderer;
+  const v = engine.play("0x0000c001", { position: { x: 8, y: 0, z: -10 }, category: "effects" });
+  engine.update(1 / 60);
+  const lightSource = v.nodes.source;
+  // To Enhanced: a voice with no gain of its own leaves the graph at once
+  // (never heard at the light mix's level there) and starts again next
+  // frame, with one.
+  r.configure({ quality: "enhanced", output: "stereo" });
+  assert.deepEqual(into(ctx, lightSource), [], "out of the new graph");
+  engine.update(1 / 60);
+  assert.equal(v.real, false);
+  engine.update(1 / 60);
+  assert.ok(v.real && v.nodes.gain && v.nodes.source !== lightSource, "started again");
+  assert.equal(into(ctx, v.nodes.gain).map((e) => e.to.kind).sort().join(), "BiquadFilterNode,GainNode");
+  // Back to the light mix: a voice with a gain of its own just moves over.
+  const gain = v.nodes.gain;
+  r.configure({ quality: "original", output: "stereo" });
+  engine.update(1 / 60);
+  assert.equal(v.nodes.gain, gain, "the same voice");
+  const sides = into(ctx, gain).map((e) => e.to);
+  assert.deepEqual(sides.map((n) => into(ctx, n)[0].to), [r.pair, r.pair]);
+  const pan = alsoftStereo(v.local.x, v.local.y, v.local.z, [0, 0]);
+  sides.forEach((side, c) => assert.ok(Math.abs(side.gain.value - pan[c]) < 1e-9, "panning alone: the level is its gain's"));
+  v.stop(0);
+});

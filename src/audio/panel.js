@@ -100,6 +100,7 @@ export class AudioPanel {
     if (r.binaural) return "headphones: 3rd-order ambisonics through a KU 100 dummy head (SADIE II)";
     if (r.hrtf && !r.enhanced) return "headphones: every source and stream channel through an HRTF (the browser's, for OpenAL Soft's)";
     if (r.hrtf) return "headphones: the browser's HRTF per voice (tools/make_binaural.py builds the dummy-head decoder)";
+    if (r.light) return "panning: OpenAL Soft 1.20.1's stereo law, the light mix (no reverb, no worklet)";
     if (r.alsoft) return `panning: OpenAL Soft 1.20.1's decoders${r.layout.center >= 0 ? " and front stabilizer" : ""}`;
     if (r.channels <= 2) return "panning: equal-power stereo";
     return `panning: pairwise (VBAP)${r.mode === "7.1.4" ? " with the height ring" : ""}`;

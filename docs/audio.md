@@ -2,11 +2,13 @@
 
 The port's sound has two modes, switched live in Settings → Audio:
 
-- **Original (2004)** plays what the Steam build plays, when and how it
-  plays it: the same sounds from the same archives, picked, gated, mixed,
-  and placed by the game's sound library's rules, through what the build's
-  OpenAL Soft 1.20.1 output does with them. `docs/formats.md` ("Sound") has
-  the rules.
+- **Original (2004)** (CLASSIC in the menus) plays what the Steam build
+  plays, when and how it plays it: the same sounds from the same archives,
+  picked, gated, mixed, and placed by the game's sound library's rules,
+  through what the build's OpenAL Soft 1.20.1 output does with them.
+  `docs/formats.md` ("Sound") has the rules. On stereo speakers it plays
+  through the light mix (below): the same mix without the reverb, summed by
+  the browser's own nodes, so a slow PC's audio thread can afford it.
 - **Enhanced (2026)** keeps every one of those decisions (which sound, when,
   how loud in the mix, from where) and renders them for a 2026 room: a
   spatial sound stage for headphones, stereo, 5.1, 7.1 and 7.1.4, rooms and
@@ -66,7 +68,10 @@ own header), falling back to plain loops without it.
 Settings → Audio (`src/audio/options.js`; the defaults are in
 `src/settings.js`):
 
-- **Sound**: Enhanced (2026 sound stage) or Original (2004).
+- **Sound**: Enhanced (2026 sound stage) or Original (2004), shown as
+  ENHANCED and CLASSIC. A first session on a low-end CPU starts on Classic
+  (below, "The light mix"); the row says what Classic is on stereo, and on
+  such a CPU with Enhanced chosen, that Classic is much lighter there.
 - **Output**: Automatic, Headphones (binaural), Stereo speakers, 5.1, 7.1,
   or 7.1.4. Automatic follows the device's channel count: 12 or more is
   7.1.4, 8 to 11 is 7.1, 6 or 7 is 5.1, anything else stereo. Headphones
@@ -166,7 +171,8 @@ What stands in for something:
   its stereo panning: choose Stereo instead.
 - **The limiter.** OpenAL Soft's own output limiter is replaced by the
   master chain's (true peak at −1 dBTP), and the dynamics profile applies
-  to both modes. Home theater leaves the mix as it was.
+  to both modes. Home theater leaves the mix as it was. The light mix has a
+  soft clip instead, and the profile is a level there.
 - **Level.** The original mode is raised by the power OpenAL Soft's
   decoders give a source ahead (1.5 dB on stereo, 3.3 on 5.1, 0.9 on 7.1),
   so the two modes match in loudness. Nothing else in the mix changes.
@@ -200,6 +206,67 @@ Online, other players' and the server's bots' shots, hurts and deaths play
 (from their rounds' launches and their replicated health), but not their
 reloads or overheats (their weapons' states aren't sent), and not the
 bots' chatter: the AI's "vo" records stay on the server.
+
+### The light mix (stereo)
+
+On stereo speakers (and Automatic on a stereo device, which is every laptop)
+the original plays through the light mix (`Renderer.buildLight` in
+`src/audio/spatial.js`). A 2014 laptop with an A8-6410 (four 2 GHz cores
+sharing 15 W with the GPU) spent 31 to 43% of a core on the audio thread in
+a battle in the original's full output, at real-time priority, taking it
+from the page and the world worker that already had none to spare. The
+light mix keeps every decision the game makes (which sound, when, how loud,
+the distance curve and the Steam build's falloff, Doppler, the pitch
+glides, the 32 heard voices of 64 and how they are ranked and stolen) and
+sums the result the way a PC of 2004 did, in the browser's own nodes:
+
+- Each voice is its buffer source and two gains, one into each speaker,
+  carrying its level times OpenAL Soft's first-order stereo law for its
+  direction (front azimuths widened 1.5 times, as before): three nodes, as
+  many as before, with no gain node of its own, no filter, no send and no
+  mixer input. Both gains ease as the engine eases a level (15 ms), the
+  first at once, and a change of a thousandth or less isn't sent.
+- Streams play at OpenAL Soft's angles for their channels, in as few nodes
+  as that takes: a stereo pair lands hard left and right, so a music stream
+  goes straight into the mix; a mono line ahead through one gain into both
+  speakers (0.5957 each); a quad bed's front pair straight to its speakers
+  and its rear pair through a gain to each (0.667 on its own side, 0.167 on
+  the other).
+- The master: the mix at the original's stereo level (+1.5 dB), the mono
+  fold if chosen, the dynamics profile as a level (Home theater −10.2 dB,
+  Normal −6.1, Night −5.7), a soft clip (unity to −1 dBFS, then a knee that
+  reaches full scale 6 dB over it), the master volume. With no compressor
+  the levels are what put a battle at the enhanced mode's loudness:
+  `tests/audio-loudness.mjs` on 60 s of Theed gave Home −22.9 LUFS, Normal
+  −18.8, Night −18.4 against the enhanced mode's −21.8, −18.7 and −18.2,
+  true peak at most −1.3 dBTP (the soft clip only guards), and a loudness
+  range of 9.3 LU in every profile.
+- No worklet, no reverb, no limiter. A context that never loads a worklet
+  renders on the device's own audio thread, without a second real-time
+  thread to hand each block across; the worklets load if the player later
+  picks a graph that needs them (Enhanced, surround, headphones, or the
+  audio panel's meter), the light mix playing until they are in.
+
+Against the full original output on stereo it drops the sub-level's reverb
+(Theed, the Dune Sea and Endor's are dry; on the other maps it is the
+reverb a PC without EAX hardware never had), the dynamics' compression
+(Night no longer narrows the range there), the true-peak limiter, and its
+1.5 ms of lookahead. The rest renders the same: the same 16 moving voices
+through both, aligned for that lookahead, differ by 0.01 dB a channel, the
+residual 47 dB under the signal (the old mixer moved a voice's panning
+within one block, the light mix over 15 ms).
+
+On surround and headphones the original keeps OpenAL Soft's output as
+above. Settings → Audio → Classic, Output Stereo picks the light mix on any
+device.
+
+A first session (no settings stored) on a low-end CPU starts on Classic:
+four threads or fewer and, as Chromium reports it, 4 GB of memory or less
+(`src/cpu-info.js` `lowEndCpu`, `Settings.adoptHardwareDefaults`), which is
+the A8 laptop above and a 2011 quad-core with 4 GB; current PCs keep
+Enhanced. A choice the player makes stays theirs, and settings already
+stored aren't changed: there the SOUND row says that Classic is much
+lighter on that CPU.
 
 ## The enhanced mode
 
@@ -400,7 +467,9 @@ gates).
   or touch; suspended while the page is hidden and resumed when it shows.
 - The DSP runs in AudioWorklets (panning, stabilizer, reverb, dynamics,
   meter) and native nodes (filters, convolvers); the main thread only
-  decides, and sends each frame's voice directions in one message.
+  decides, and sends each frame's voice directions in one message. The
+  light mix runs no worklet: its panning is two native gains a voice, set
+  from the main thread.
 - Per-battle decoding: only the sub-level's samples load (24 MB of PCM, or
   the enhanced FLACs in the background, six at a time). Streams are
   fetched by byte range per segment, decoded in a worker, and kept for at
@@ -466,6 +535,51 @@ core), and on 7.1.4 the meter while the audio panel shows it. A JavaScript
 FFT convolver wouldn't beat the browser's convolvers; a WebAssembly one
 might, and was left for later.
 
+### The light mix
+
+The original on stereo before the light mix (its full output: the spatial
+mixer, the reverb and the limiter in worklets) against the light mix, on a
+16-core Xeon E5-2690 v4 in a virtual machine shared with other work (single
+runs move by up to half, so these are medians of runs alternating between
+the two versions), as a percentage of one core:
+
+| `tests/audio-bench.mjs`'s scene, offline at 48 kHz | Full output | Light mix |
+| --- | --- | --- |
+| A stereo music bed, no voices | 5.7% | 1.2% |
+| and 8 voices moving every frame | 12.5% | 6.6% |
+| and 16 | 18.4% | 11.6% |
+| and 32 | 22.1% | 19.7% |
+
+| A battle (the Classic AI, a scripted player, 20 s at 44.1 kHz) | Voices heard, streams | Full output | Light mix |
+| --- | --- | --- | --- |
+| Theed | 13, 2.5 | 24.5% | 16.7% |
+| Kamino (the full output runs its reverb) | 4, 3.2 | 22.5% | 11.6% |
+
+In the battles that is every audio thread of the page: the full output's
+worklet thread and the device's (which hands each block across, about 2%),
+the light mix's device thread alone. The engine's update on the main thread
+(48 voices, 12 heard) went from about 196 to 115 µs: the light mix sends no
+mixer batch and no reverb sends.
+
+What is left is the voices themselves: the browser resamples a voice by
+interpolating whenever it plays at any rate but its sample's own (the
+game's samples are mostly 22.05 kHz), about 13 to 14% of a core for 32
+voices at 48 kHz against 0.9% at their own rate, and in real time every
+node costs something each block. Two ways further, measured and not taken:
+
+- A context at 22.05 kHz, the rate of most of the game's samples: the
+  light mix measured 10% of a core on Theed against 17%. But the music and
+  ambience (48 and 44.1 kHz) have about −30 dB of their energy above 11
+  kHz, which it would cut, and Theed's 52 samples at 44.1 kHz −29 dB (one
+  −16 dB), which the browser's interpolation would fold back down unless
+  they were first resampled with a low-pass; and a context's rate holds for
+  its battle, so Enhanced chosen mid-battle would play at it too.
+- Every voice resampled, levelled and panned in one AudioWorklet: 3.5 to
+  3.9% of a core for 32 voices against 9 to 14% for the browser's buffer
+  sources, the same linear interpolation. It moves the playing of every
+  voice (starts, loops, offsets, fades, ends) into the worklet, a larger
+  change.
+
 ## Upscaling (`tools/enhance_audio.py`)
 
 Offline, local, repeatable (pinned packages, no randomness). Each sample
@@ -522,9 +636,10 @@ The game's sound is the user's own copy and stays out of git.
 ```
 node --test tests/audio-units.test.js            # 20: hashing, ADPCM, distance, picks, graphs, panning, Doppler, music, voice-over, footsteps
 node --test tests/audio-soldiers.test.js         # 9: other soldiers' weapons and voices, out of earshot, the chatter's queue and lines, online hurts
+node --test tests/audio-light.test.js            # 9: the light mix's graph, panning law and soft clip; Enhanced's graph after a trip through it; worklets loaded only when needed; voices moving between graphs
 python3 -m unittest tests/test_zero_sound.py      # 5: the archive reader on made-up chunks
 PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio.mjs
-                                                  # 66 offline checks in Chromium (no game assets)
+                                                  # 71 offline checks in Chromium (no game assets)
 PLAYWRIGHT_MODULE=... GAME_URL=http://127.0.0.1:18449 node tests/audio-loudness.mjs
                                                   # the loudness table above (needs the extracted map)
 PLAYWRIGHT_MODULE=... AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-bench.mjs
@@ -542,7 +657,9 @@ reverb's decay time and decorrelation, the voice engine's ranking, limit,
 bus gains and duck, OpenAL Soft's decoders against hand-worked gains, the
 front stabilizer (its delay, a side signal untouched, a low centre sound a
 third of the way to the centre), a 2D sound through the whole original
-chain on 5.1, the clarity stage (a top octave in proportion, nothing added
+chain on 5.1, the light mix (voices where OpenAL Soft's stereo law puts
+them, with no worklet; streams at its angles; overs clipped softly; an
+engine voice's level on its speaker gains), the clarity stage (a top octave in proportion, nothing added
 under its band, an attack lifted while a steady bed stays put, the LFE
 untouched), and the headphone decoder (the encoder's harmonics against
 spaudiopy's, spread keeping the energy, each ear's level per direction
@@ -576,6 +693,10 @@ Things only a person with the hardware can check, in rough order:
    their character, just fuller at the top; anything that sounds smeared,
    metallic, or louder than before is worth a note (the panel lists the
    voices playing; the manifest lists each file with its checks).
+9. **The light mix** (Classic, Output Stereo): on Theed it should sound as
+   the original did on stereo before it (the same levels and placing); on a
+   map whose original space has a reverb (Kamino, Bespin) it is dry. Moving
+   sources should pan smoothly, and the loudest moments shouldn't crackle.
 
 ## Open questions
 

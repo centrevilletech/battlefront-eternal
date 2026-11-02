@@ -1,5 +1,5 @@
 import { ALSOFT, LAYOUTS, alsoftGains, vbap } from "../src/audio/layouts.js";
-import { DYNAMICS, ORIGINAL_LEVEL, Renderer } from "../src/audio/spatial.js";
+import { DYNAMICS, LIGHT_LEVELS, ORIGINAL_LEVEL, Renderer } from "../src/audio/spatial.js";
 import { AudioEngine } from "../src/audio/engine.js";
 import { SoundData } from "../src/audio/data.js";
 
@@ -393,6 +393,115 @@ export async function checkAudio() {
     const trim = 10 ** (-(DYNAMICS.home.makeup + ORIGINAL_LEVEL["5.1"]) / 20) / (0.25 / Math.SQRT2);
     const levels = [0, 1, 2, 3, 4, 5].map((c) => rms(rendered.getChannelData(c), RATE / 4) * trim);
     assert("original: a 2D sound on 5.1 as OpenAL Soft plays it", Math.abs(levels[0] - 0.4481) < 0.01 && Math.abs(levels[1] - 0.4481) < 0.01 && Math.abs(levels[2] - 0.2587) < 0.01 && levels[3] < 1e-4 && Math.abs(levels[4] - 0.0357) < 0.005, levels.map((x) => +x.toFixed(4)));
+  }
+  {
+    // The light mix (the original on stereo): every voice where OpenAL
+    // Soft's stereo law puts it, at the original's level on stereo and the
+    // profile's, with no worklet in the graph; a stereo stream hard left
+    // and right; overs clipped softly, never past full scale.
+    const light = async (feed, dynamics = "home") => {
+      const ctx = new OfflineAudioContext(2, RATE / 8, RATE);
+      const r = new Renderer(ctx);
+      await r.load();
+      r.configure({ quality: "original", output: "stereo", dynamics });
+      feed(ctx, r);
+      const rendered = await ctx.startRendering();
+      return { r, at: (c, i = RATE / 16) => rendered.getChannelData(c)[i], peak: Math.max(...[0, 1].map((c) => Math.max(...rendered.getChannelData(c).map(Math.abs)))) };
+    };
+    const scale = 10 ** ((ORIGINAL_LEVEL.stereo + LIGHT_LEVELS.home) / 20);
+    let worst = 0;
+    let graph = true;
+    for (const az of [0, 40, -75, 90, 150, -180]) {
+      for (const el of [0, 35]) {
+        const a = (az * Math.PI) / 180;
+        const e = (el * Math.PI) / 180;
+        const dir = { x: -Math.sin(a) * Math.cos(e), y: Math.sin(e), z: -Math.cos(a) * Math.cos(e) };
+        const { r, at } = await light((ctx, r) => {
+          const one = new ConstantSourceNode(ctx, { offset: 0.5 });
+          const out = r.voice({ mode3D: 1 });
+          out.attach(one);
+          out.update(dir, 20, 0, { send: 1, lfe: 1 });
+          one.start();
+        });
+        const want = alsoftGains("stereo", dir.x, dir.y, dir.z);
+        for (let c = 0; c < 2; c++) worst = Math.max(worst, Math.abs(at(c) / (0.5 * scale) - want[c]));
+        graph &&= r.light && !r.nodes.some((n) => n instanceof AudioWorkletNode);
+      }
+    }
+    assert("light: a voice pans by OpenAL Soft's stereo law, at the original's level", worst < 1e-4 && graph, { worst, graph });
+    const music = await light((ctx, r) => {
+      const left = new ConstantSourceNode(ctx, { offset: 0.25 });
+      const merge = new ChannelMergerNode(ctx, { numberOfInputs: 2 });
+      left.connect(merge, 0, 0);
+      const gain = new GainNode(ctx);
+      merge.connect(gain);
+      r.bed(2, gain, "music");
+      left.start();
+    });
+    assert("light: a stereo stream's left channel plays on the left alone", Math.abs(music.at(0) - 0.25 * scale) < 1e-5 && Math.abs(music.at(1)) < 1e-6, [music.at(0), music.at(1)]);
+    // A mono line ahead on both alike; a quad bed's rear left mostly left.
+    const stream = (channels, channel) =>
+      light((ctx, r) => {
+        const one = new ConstantSourceNode(ctx, { offset: 0.25 });
+        const merge = new ChannelMergerNode(ctx, { numberOfInputs: channels });
+        one.connect(merge, 0, channel);
+        const input = new GainNode(ctx, { channelCount: channels, channelCountMode: "explicit", channelInterpretation: "discrete" });
+        merge.connect(input);
+        const gain = new GainNode(ctx);
+        input.connect(gain);
+        r.bed(channels, gain, channels === 1 ? "voice" : "ambience");
+        one.start();
+      });
+    const mono = await stream(1, 0);
+    const rear = await stream(4, 2);
+    const ahead = alsoftGains("stereo", 0, 0, -1);
+    const rearLeft = alsoftGains("stereo", -Math.sin((150 * Math.PI) / 180), 0, -Math.cos((150 * Math.PI) / 180));
+    const near = (got, want) => [0, 1].every((c) => Math.abs(got.at(c) - 0.25 * scale * want[c]) < 1e-5);
+    assert("light: a mono line plays ahead, a quad bed's rear pair mostly on its own side", near(mono, ahead) && near(rear, rearLeft), { mono: [mono.at(0), mono.at(1)], rear: [rear.at(0), rear.at(1)] });
+    // Normal, a sound four times full scale in the mix: under full scale
+    // out; a quiet one: exactly the level.
+    const loud = await light((ctx, r) => {
+      const src = sine(ctx, 200, 4);
+      const out = r.voice({ mode3D: 0 });
+      out.attach(src);
+      out.update(null, 0, 0, {});
+      src.start();
+    }, "normal");
+    const quiet = await light((ctx, r) => {
+      const one = new ConstantSourceNode(ctx, { offset: 0.1 });
+      const out = r.voice({ mode3D: 0 });
+      out.attach(one);
+      out.update(null, 0, 0, {});
+      one.start();
+    }, "normal");
+    const unity = 0.1 * 0.5957 * 10 ** ((ORIGINAL_LEVEL.stereo + LIGHT_LEVELS.normal) / 20);
+    assert("light: overs clip softly under full scale; the rest is untouched", loud.peak <= 1 && loud.peak > 0.95 && Math.abs(quiet.at(0) - unity) < 1e-5, { peak: loud.peak, quiet: quiet.at(0), unity });
+    // An engine voice there has no gain of its own: its level rides on its
+    // two speaker gains, from its first block.
+    const ctx = new OfflineAudioContext(2, RATE / 8, RATE);
+    const pcm = new Int16Array(22050).fill(16384);
+    const data = new SoundData(
+      {
+        objects: [
+          { type: "Bus", Name: "0x00000001", Gain: 1 },
+          { type: "SoundProperties", Name: "0x0000c001", Bus: "0x00000001", Mode3D: 1, MinDistance: 5, MaxDistance: 100, MuteDistance: 100, Looping: 1, ModeDoppler: 0, SampleList: [["0x00000100", 1]] },
+        ],
+        samples: { "0x00000100": [0, pcm.length, 22050] },
+      },
+      pcm.buffer,
+    );
+    const engine = new AudioEngine({ context: ctx });
+    await engine.renderer.load();
+    engine.renderer.configure({ quality: "original", output: "stereo", dynamics: "home" });
+    engine.setData(data);
+    engine.setListener({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }, { x: 0, y: 1, z: 0 });
+    const v = engine.play("0x0000c001", { position: { x: 15, y: 0, z: -14 }, category: "effects", offline: true });
+    engine.update(1 / 60);
+    const pan = alsoftGains("stereo", v.local.x, v.local.y, v.local.z);
+    const rendered = await ctx.startRendering();
+    const got = [0, 1].map((c) => rendered.getChannelData(c)[RATE / 16]);
+    const want = pan.map((g) => 0.5 * v.audible * g * scale);
+    assert("light: an engine voice plays at its level and OpenAL Soft's panning, with no gain of its own", !v.nodes.gain && got.every((x, c) => Math.abs(x - want[c]) < 1e-4), { got, want });
   }
 
   // 9. The enhanced mode's clarity stage (worklets/clarity.js): a top
