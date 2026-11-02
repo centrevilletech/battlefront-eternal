@@ -95,17 +95,35 @@ function bridge() {
   return { core, calls, gl, graphics, renderer, scene, camera, memory, properties: renderer.properties, setTarget: (t) => { target = t; } };
 }
 
+// A part's geometry: one triangle, indexed, no groups.
+function partGeometry() {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
+  geometry.setIndex([0, 1, 2]);
+  return geometry;
+}
+
+// A zero material's stand-in: a rigid part (DYNAMIC) with its look.
+function partMaterial(props) {
+  const material = new THREE.ShaderMaterial({ defines: { DYNAMIC: "" }, uniforms: {
+    map: { value: new THREE.Texture() }, sunScale: { value: 0.5 }, ambientPull: { value: new THREE.Vector2(0.1, 0.2) }, brightness: { value: 0.9 } } });
+  props.get(material).currentProgram = program([["modelViewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["sunScale", GL.FLOAT]], ["position", "normal", "uv"]);
+  return material;
+}
+
 test("cover: three's start of a render, the phase, and three's end when every pass of the phase drew all of the scene", () => {
   const { core, calls, renderer } = bridge();
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
   const child = new THREE.Object3D();
   child.position.set(1, 2, 3);
   scene.add(child);
-  let before = 0, after = 0, complete = true;
+  let before = 0, after = 0, complete = false;
   scene.onBeforeRender = () => before++;
   scene.onAfterRender = () => after++;
   core.addPass({ name: "spy", phase: "view", draw() { this.complete = complete; } });
-  assert.equal(core.cover("view", renderer, scene, camera), false, "the view pass (empty) draws nothing: three renders the scene");
+  assert.equal(core.cover("view", renderer, scene, camera), false, "a pass of the phase short of the scene: three renders it");
   assert.equal(before, 1, "the scene's onBeforeRender (its lights packed) before the phase");
   assert.equal(child.matrixWorld.elements[12], 1, "its world matrices brought up to date first");
   assert.ok(calls.some((c) => c[0] === "view_frame"));
@@ -113,6 +131,7 @@ test("cover: three's start of a render, the phase, and three's end when every pa
   // Every pass of the phase complete: three is left out, and what its render
   // does as it ends is done here.
   core.byName.view.draw = function () { this.complete = true; };
+  complete = true;
   calls.length = 0;
   assert.equal(core.cover("view", renderer, scene, camera), true);
   assert.equal(after, 1);
@@ -179,4 +198,49 @@ test("foliage: the drawer selects for the classes it registered, three keeps the
   core.setActive(false);
   assert.equal(material.visible, true);
   assert.equal(foliage.drawer, null);
+});
+
+test("the view scene: three's start of a render, the phase, and three left out when every part was drawn", () => {
+  const { core, calls, renderer, properties } = bridge();
+  const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();
+  view.updateMatrixWorld(true);
+  const hand = new THREE.Group();
+  const material = partMaterial(properties);
+  const mesh = new THREE.Mesh(partGeometry(), material);
+  hand.add(mesh);
+  viewScene.add(hand);
+  let before = 0;
+  viewScene.onBeforeRender = () => before++;
+  assert.equal(core.cover("view", renderer, viewScene, view), true);
+  assert.equal(before, 1, "the scene's onBeforeRender (its lights packed) before the phase");
+  assert.equal(material.visible, false, "the part is hidden from three");
+  const frame = calls.find((c) => c[0] === "view_frame");
+  assert.deepEqual(frame, ["view_frame", 1], "one record");
+  const o = core.recordsAt;
+  assert.equal(core.input[o], 2, "a rigid record");
+  assert.deepEqual([core.input[o + 52], core.input[o + 53], core.input[o + 54], core.input[o + 55]].map((v) => +v.toFixed(3)), [0.5, 0.1, 0.2, 0.9]);
+  // three's resolve of the multisampled target, as its render ends.
+  const blit = calls.find((c) => c[0] === "blitFramebuffer");
+  assert.deepEqual(blit.slice(1), [0, 0, 8, 4, 0, 0, 8, 4, GL.COLOR_BUFFER_BIT, GL.NEAREST]);
+  assert.deepEqual(calls.filter((c) => c[0] === "bindFramebuffer").map((c) => c.slice(1)), [[GL.READ_FRAMEBUFFER, "ms"], [GL.DRAW_FRAMEBUFFER, "fb"], [GL.READ_FRAMEBUFFER, null], [GL.DRAW_FRAMEBUFFER, null], [GL.DRAW_FRAMEBUFFER, "ms"]]);
+});
+
+test("the view scene: a part the renderer can't draw leaves three to render the scene, without the parts it drew", () => {
+  const { core, calls, renderer, properties } = bridge();
+  const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();
+  const part = new THREE.Mesh(partGeometry(), partMaterial(properties));
+  const flash = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial({ transparent: true }));
+  properties.get(flash.material).currentProgram = program([["map", GL.SAMPLER_2D]]);
+  viewScene.add(part, flash);
+  assert.equal(core.cover("view", renderer, viewScene, view), false);
+  assert.equal(part.material.visible, false);
+  assert.equal(flash.material.visible, true);
+  assert.equal(calls.filter((c) => c[0] === "blitFramebuffer").length, 0, "three's render resolves the target");
+  // Hidden objects, and their subtrees, are not three's to draw.
+  flash.visible = false;
+  assert.equal(core.cover("view", renderer, viewScene, view), true);
+  // Off: three draws everything; the phase does nothing.
+  core.setActive(false);
+  assert.equal(part.material.visible, true);
+  assert.equal(core.cover("view", renderer, viewScene, view), false);
 });

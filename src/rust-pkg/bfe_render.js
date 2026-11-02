@@ -327,10 +327,11 @@ export class BfeRenderer {
         return v1;
     }
     /**
+     * @param {number} records
      * @returns {Uint32Array}
      */
-    view_frame() {
-        const ret = wasm.bferenderer_view_frame(this.__wbg_ptr);
+    view_frame(records) {
+        const ret = wasm.bferenderer_view_frame(this.__wbg_ptr, records);
         if (ret[3]) {
             throw takeFromExternrefTable0(ret[2]);
         }

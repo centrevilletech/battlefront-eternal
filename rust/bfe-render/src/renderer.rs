@@ -13,14 +13,13 @@
 // A frame is drawn in phases, each a call from the page at its point in
 // three's frame, which draws its passes in order: the far scene (far_frame),
 // the near scene (frame), what it blends (transparent_frame), the
-// first-person view (view_frame) and the post passes (post_frame). Only the
-// near phase draws anything yet; the others' passes are empty. A mirror's
+// first-person view (view_frame) and the post passes (post_frame). A mirror's
 // render of the near scene (water.js) draws the near phase's passes for its
 // own camera (mirror_frame).
 //
 // The page writes the frame's inputs (camera, lights, each soldier) into
 // `input` and `bones` before a phase (web/, src/rust-render/).
-use crate::core::{Core, MultiDraw, Stats, VIEW_NEAR, VIEW_SPARE};
+use crate::core::{Core, MultiDraw, Stats, VIEW_FIRST_PERSON, VIEW_NEAR, VIEW_SPARE};
 use crate::effects::EffectsPass;
 use crate::far::FarPass;
 use crate::foliage::FoliagePass;
@@ -93,11 +92,18 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         Ok(self.core.end_phase())
     }
 
-    // The first-person view scene's phase.
-    pub fn view_frame(&mut self) -> Result<Stats, String> {
-        self.core.begin_phase();
-        self.view.draw(&mut self.core);
-        Ok(self.core.end_phase())
+    // The first-person view scene's phase, after the depth clear three makes
+    // for it: its parts (records: how many the page wrote), read with the
+    // view camera's frame block.
+    pub fn view_frame(&mut self, records: usize) -> Result<Stats, String> {
+        let core = &mut self.core;
+        core.begin_phase();
+        core.upload_frame(VIEW_FIRST_PERSON);
+        let camera = core.camera();
+        core.opaque();
+        core.bind_far_map();
+        self.view.draw(core, &camera, &mut self.instances, records);
+        Ok(core.end_phase())
     }
 
     // The post passes' phase, once the scenes are drawn.

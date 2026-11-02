@@ -62,7 +62,7 @@ const PHASES = {
   far: { view: VIEW_FAR, draw: (rust) => rust.far_frame() },
   near: { view: VIEW_NEAR, draw: (rust, ctx) => rust.frame(ctx.records) },
   transparent: { view: null, draw: (rust) => rust.transparent_frame() },
-  view: { view: VIEW_FIRST_PERSON, draw: (rust) => rust.view_frame() },
+  view: { view: VIEW_FIRST_PERSON, draw: (rust, ctx) => rust.view_frame(ctx.records) },
   post: { view: null, draw: (rust) => rust.post_frame() },
   // The near phase's passes from a mirror camera (water.js's reflection).
   mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },

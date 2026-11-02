@@ -980,7 +980,7 @@ export class Graphics {
       if (temporal) this.upscaler.shift(view);
       renderer.autoClear = false;
       renderer.clearDepth();
-      renderer.render(this.viewScene, view);
+      if (!this.rust?.cover("view", renderer, this.viewScene, view)) renderer.render(this.viewScene, view);
       renderer.autoClear = true;
     }
     if (temporal) {
