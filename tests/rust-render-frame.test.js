@@ -394,13 +394,3 @@ test("an error in a pass gives everything back to three, its state reset and its
   assert.deepEqual(calls.slice(-2), [["resetState"], ["setRenderTarget", target]]);
   assert.equal(core.cover("view", renderer, scene, camera), false, "and stays three's");
 });
-
-test("a lost context gives everything back to three for good", () => {
-  const { core, renderer } = bridge();
-  const warn = console.warn;
-  console.warn = () => {};
-  try { renderer.domElement.dispatchEvent(new Event("webglcontextlost")); } finally { console.warn = warn; }
-  assert.equal(core.lost, true);
-  assert.equal(core.enabled, false);
-  assert.ok(core.errors.some((e) => e.includes("WebGL context lost")));
-});

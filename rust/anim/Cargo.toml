@@ -1,0 +1,12 @@
+[package]
+name = "anim"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+
+# A raw WebAssembly module (no wasm-bindgen): src/anim-kernel.js instantiates
+# it with plain WebAssembly APIs, as src/ray-kernel.js does for rust/rays.
+# The rlib is for the native unit tests.
+[lib]
+crate-type = ["cdylib", "rlib"]
