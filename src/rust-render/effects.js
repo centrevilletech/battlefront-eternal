@@ -76,6 +76,15 @@ function glowOf(object) {
   return object.isMesh && !object.isSkinnedMesh && !object.isInstancedMesh && m?.isMeshBasicMaterial && m.transparent && object.parent?.userData?.material === m;
 }
 
+// src[from..to) into data from `at`, without a view for a short run; where
+// it ends.
+function copy(data, at, src, from, to) {
+  const n = to - from;
+  if (n <= 64) for (let i = 0; i < n; i++) data[at + i] = src[from + i];
+  else data.set(src.subarray(from, to), at);
+  return at + n;
+}
+
 // The order of the nearest Group above an object, as three's projectObject
 // passes it down (0 without one).
 function groupOrderOf(object) {
@@ -120,6 +129,9 @@ class EffectsPass {
     this.meshes = new Map(); // the lightning's material -> its record, or null
     this.glows = new Map(); // a glow model's part -> its record, or null (three draws it)
     this.glowList = []; // the records, in registration order
+    // This frame's batches and glow models drawn (kept, not made each frame).
+    this.drawn = [];
+    this.glowing = [];
     this.models = new Map(); // what a model is made of -> its id
     this.batchCount = -1;
     this.pending = false;
@@ -252,7 +264,12 @@ class EffectsPass {
       if (owner < 0) return fail("tracks");
     }
     const id = core.rust.fx_add_batch(program.id, texture, new Uint32Array(blend), at.get("corner"), new Uint32Array(attributes.flatMap(([name, size]) => [at.get(name), size])), owner);
-    const record = { batch, kind, id, attributes, mesh: batch.mesh, map, handle: this.handle(map), synced: false, capacity: 0, from: this.frame };
+    // Its key but z, which never changes: no group above it but the map's
+    // environment effects', the origin for a centre (no positions), the
+    // identity for a world matrix.
+    const key = new Float64Array(6);
+    this.keyOf(batch.mesh, key);
+    const record = { batch, kind, id, attributes, arrays: null, mesh: batch.mesh, map, handle: this.handle(map), version: map?.version, key, synced: false, capacity: -1, from: this.frame };
     batch.external = true;
     batch.mesh.visible = false;
     this.records.push(record);
@@ -332,15 +349,15 @@ class EffectsPass {
     return o === scene;
   }
 
-  // three's sort key for an object, into a draw entry: group order, render
-  // order, its bounding sphere's centre through its world matrix, its id.
-  key(input, e, object) {
+  // three's sort key for an object (but z, which the renderer works out):
+  // group order, render order, its bounding sphere's centre through its
+  // world matrix, its id; into out from `at`.
+  keyOf(object, out, at = 0) {
     const geometry = object.geometry;
     if (!geometry.boundingSphere) geometry.computeBoundingSphere();
     center.copy(geometry.boundingSphere.center).applyMatrix4(object.matrixWorld);
-    const k = e + DRAW_KEY;
-    input[k] = groupOrderOf(object); input[k + 1] = object.renderOrder;
-    input[k + 2] = center.x; input[k + 3] = center.y; input[k + 4] = center.z; input[k + 5] = object.id;
+    out[at] = groupOrderOf(object); out[at + 1] = object.renderOrder;
+    out[at + 2] = center.x; out[at + 3] = center.y; out[at + 4] = center.z; out[at + 5] = object.id;
   }
 
   // The transparent phase, before the renderer's call: the frame's draws.
@@ -357,10 +374,14 @@ class EffectsPass {
     this.glowModels(ctx);
     const bolt = this.lightning();
     // Textures three uploaded anew, or made anew (a new handle: registered
-    // again). Registering may move the renderer's memory: views after.
+    // again); looked at when their version moved. Registering may move the
+    // renderer's memory: views after.
     for (const record of this.records) {
-      const handle = this.handle(record.map);
-      if (handle && handle !== record.handle) { record.handle = handle; core.rust.fx_batch_texture(record.id, core.texture(record.map)); }
+      const map = record.map;
+      if (!map || map.version === record.version) continue;
+      record.version = map.version;
+      const handle = this.handle(map);
+      if (handle && handle !== record.handle) { record.handle = handle; core.rust.fx_batch_texture(record.id, core.texture(map)); }
     }
     if (bolt) {
       const record = bolt.record, handle = this.handle(record.map);
@@ -372,17 +393,22 @@ class EffectsPass {
     if (soft) particleDepth.capture(ctx.renderer, ctx.scene, ctx.camera);
     const depth = soft && particleDepth.map.value ? core.texture(particleDepth.map.value) : -1;
     // What three would have drawn this frame, registered before it (three
-    // drew what was registered this frame itself).
-    const drawn = this.records.filter((record) => record.from !== this.frame && record.batch.count > 0 && record.batch.material.visible !== false && this.shown(record.mesh, ctx.camera));
-    const lit = bolt && bolt.record.from !== this.frame && bolt.lightning.index > 0 && bolt.record.material.visible !== false && this.shown(bolt.lightning.mesh, ctx.camera) ? bolt : null;
-    // Glow models shown (three culls them by their spheres: the renderer does).
-    const glowing = this.glowList.filter((record) => record.from !== this.frame && record.mesh.visible && this.shown(record.mesh, ctx.camera));
-    // The floats this frame needs; the renderer's memory grows first if need be.
+    // drew what was registered this frame itself), and the floats it needs.
+    const camera = ctx.camera, frame = this.frame, drawn = this.drawn, glowing = this.glowing;
+    drawn.length = glowing.length = 0;
     let need = 0;
-    for (const record of drawn) need += record.batch.count * (record.kind === "cpu" ? 21 : 18);
-    for (const gpu of this.owners.keys()) need += Math.min(gpu.count, gpu.uniforms.emitterRows.value) * EMITTER_FLOATS;
+    for (const record of this.records) {
+      const b = record.batch;
+      if (record.from === frame || b.count <= 0 || b.material.visible === false || !this.shown(record.mesh, camera)) continue;
+      drawn.push(record);
+      need += b.count * (record.kind === "cpu" ? 21 : 18);
+    }
+    const lit = bolt && bolt.record.from !== frame && bolt.lightning.index > 0 && bolt.record.material.visible !== false && this.shown(bolt.lightning.mesh, camera) ? bolt : null;
     if (lit) need += lit.lightning.vertex * 9 + lit.lightning.index + 13;
+    // Glow models shown (three culls them by their spheres: the renderer does).
+    for (const record of this.glowList) if (record.from !== frame && record.mesh.visible && this.shown(record.mesh, camera)) glowing.push(record);
     need += glowing.length * 13;
+    for (const gpu of this.owners.keys()) need += Math.min(gpu.count, gpu.uniforms.emitterRows.value) * EMITTER_FLOATS;
     core.views();
     if (need > core.fxData.length) {
       core.rust.fx_reserve(Math.max(need * 2, core.fxData.length * 2));
@@ -396,12 +422,13 @@ class EffectsPass {
       const rows = gpu.uniforms.emitterRows.value, written = Math.min(gpu.count, rows);
       const e = OWNER_AT + owners++ * OWNER_STRIDE;
       input[e] = o.id; input[e + 1] = rows; input[e + 2] = written; input[e + 3] = at;
-      data.set(gpu.data.subarray(0, written * EMITTER_FLOATS), at);
-      at += written * EMITTER_FLOATS;
+      at = copy(data, at, gpu.data, 0, written * EMITTER_FLOATS);
     }
     for (const record of drawn) {
       if (draws === MAX_DRAWS) break;
-      const b = record.batch, count = b.count;
+      const b = record.batch, count = b.count, attributes = record.attributes;
+      // The batch's arrays (made anew as it grows).
+      if (record.capacity !== b.capacity) record.arrays = attributes.map(([name]) => b.arrays[name]);
       // An analytic batch's instances from the first that changed since it
       // was last read (effects-gpu.js unread), when the renderer holds the
       // rest; all of them otherwise.
@@ -410,14 +437,14 @@ class EffectsPass {
         if (record.synced && record.capacity === b.capacity) from = Math.min(Math.max(b.unread ?? 0, 0), count);
         b.unread = Infinity;
       }
-      const start = at;
-      for (const [name, size] of record.attributes) {
-        data.set(b.arrays[name].subarray(from * size, count * size), at);
-        at += (count - from) * size;
+      const start = at, arrays = record.arrays;
+      for (let k = 0; k < arrays.length; k++) {
+        const size = attributes[k][1];
+        at = copy(data, at, arrays[k], from * size, count * size);
       }
       const e = DRAW_AT + draws++ * DRAW_STRIDE;
       input[e] = KIND_BATCH; input[e + 1] = record.id; input[e + 2] = count; input[e + 3] = from; input[e + 4] = start; input[e + 5] = b.capacity;
-      this.key(input, e, record.mesh);
+      input.set(record.key, e + DRAW_KEY);
       record.synced = true;
       record.capacity = b.capacity;
       instances += count;
@@ -425,16 +452,12 @@ class EffectsPass {
     if (lit && draws < MAX_DRAWS) {
       const { lightning, record } = lit, geometry = lightning.geometry, material = record.material;
       const vertices = lightning.vertex, indices = lightning.index, start = at;
-      for (const [name, size] of record.attributes) {
-        data.set(geometry.attributes[name].array.subarray(0, vertices * size), at);
-        at += vertices * size;
-      }
-      bits.set(geometry.index.array.subarray(0, indices), at);
-      at += indices;
+      for (const [name, size] of record.attributes) at = copy(data, at, geometry.attributes[name].array, 0, vertices * size);
+      at = copy(bits, at, geometry.index.array, 0, indices);
       at = this.basicValues(data, at, material, record.values);
       const e = DRAW_AT + draws++ * DRAW_STRIDE;
       input[e] = KIND_MESH; input[e + 1] = record.id; input[e + 2] = vertices; input[e + 3] = indices; input[e + 4] = start; input[e + 5] = 0;
-      this.key(input, e, lightning.mesh);
+      this.keyOf(lightning.mesh, input, e + DRAW_KEY);
     }
     let models = 0;
     for (const record of glowing) {
@@ -445,7 +468,7 @@ class EffectsPass {
       at = this.basicValues(data, at, material, record.values);
       const e = DRAW_AT + draws++ * DRAW_STRIDE;
       input[e] = KIND_MODEL; input[e + 1] = record.model; input[e + 2] = m; input[e + 3] = start; input[e + 4] = 0; input[e + 5] = 0;
-      this.key(input, e, mesh);
+      this.keyOf(mesh, input, e + DRAW_KEY);
     }
     input[IN_DRAWS] = draws;
     input[IN_OWNERS] = draws ? owners : 0;
