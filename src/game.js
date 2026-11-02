@@ -90,7 +90,18 @@ import { pageGpu } from "./gpu-info.js";
 // onProgress(step, loaded, total): the load's progress, for the loading
 // screen (src/shell/loading.js): "data", "world", "shaders", and
 // "textures" with how many of how many have arrived.
-export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null } = {}) {
+// The collision's WebAssembly, or null (JavaScript, which gives the same
+// answers) if it cannot load here.
+async function loadRays() {
+  try {
+    return await (await import("./ray-kernel.js")).loadRayKernel();
+  } catch (error) {
+    console.warn(`The collision's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
+    return null;
+  }
+}
+
+export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, rays: raysDefault = null, movement: movementDefault = null } = {}) {
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
 const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
 const params = new URLSearchParams(query);
@@ -394,13 +405,16 @@ async function start() {
     if (hurt > 0) health.damage(hurt);
   };
   const groundPositions = new Float32Array(groundBuf);
-  // ?rays=wasm: the collision's ray casts in WebAssembly (src/ray-kernel.js),
-  // with the same answers as its JavaScript, the default. ?movement=wasm:
-  // the soldiers' movement there too (src/movement-kernel.js), the world's
-  // ticks and the page's replay of his own soldier alike; it brings the ray
-  // kernel with it.
-  const movement = params.get("movement") === "wasm";
-  const rays = params.get("rays") === "wasm" || movement ? await (await import("./ray-kernel.js")).loadRayKernel() : null;
+  // The collision's queries in WebAssembly (src/ray-kernel.js), with the
+  // same answers as its JavaScript: ?rays=wasm or ?rays=js decides; else
+  // the caller's default (rays), then, under Node (a dedicated server),
+  // BFE_RAYS=wasm in its environment; else JavaScript. ?movement=wasm or
+  // ?movement=js (else JavaScript after ?rays=js, else the caller's
+  // default): the soldiers' movement there too (src/movement-kernel.js),
+  // the world's ticks and the page's replay of his own soldier alike; it
+  // brings the ray kernel with it.
+  const movement = (params.get("movement") ?? (params.get("rays") === "js" ? "js" : movementDefault)) === "wasm";
+  const rays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm" ? await loadRays() : null;
   const collision = new CollisionWorld(
     new Float32Array(collBuf),
     new Uint32Array(collIndexBuf),
@@ -409,7 +423,8 @@ async function start() {
     new Uint32Array(groundIndexBuf),
     rays,
   );
-  collision.movement = movement ? new (await import("./movement-kernel.js")).MovementKernel(collision) : null;
+  // (Not if the ray kernel did not load: the JavaScript answers for both.)
+  collision.movement = movement && rays ? new (await import("./movement-kernel.js")).MovementKernel(collision) : null;
   // Below the battlefield: KILL_Y, or 10 m under the lowest ground where the
   // ground lies lower (Naboo Plains runs from -95 m down to -140 m, its posts'
   // spawn paths below -110 m).

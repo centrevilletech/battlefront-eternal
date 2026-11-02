@@ -24,6 +24,7 @@ use std::ptr::addr_of_mut;
 
 pub mod movement;
 pub mod spheres;
+pub mod broad;
 
 /// The f64 slots calls exchange: 0-2 ray origin, 3-5 direction, 6 far,
 /// 7 Math.hypot(direction.x, direction.z), 8 near; 10 hit distance,
@@ -53,10 +54,10 @@ pub struct Ray {
 /// 1 / direction, as three-mesh-bvh's intersectRay and three's
 /// intersectBox compute it at every box (the same division, made once).
 #[derive(Clone, Copy, Debug)]
-struct Inverse { x: f64, y: f64, z: f64 }
+pub(crate) struct Inverse { x: f64, y: f64, z: f64 }
 
 #[inline(always)]
-fn inverse(ray: &Ray) -> Inverse {
+pub(crate) fn inverse(ray: &Ray) -> Inverse {
     Inverse { x: 1.0 / ray.dx, y: 1.0 / ray.dy, z: 1.0 / ray.dz }
 }
 
@@ -139,6 +140,8 @@ pub struct World {
     pub version: u64,
     /// The buildings as a fixed set for gathers (spheres.rs), once set.
     pub statics: Option<usize>,
+    /// Its fixed bodies by place, for the casts (broad.rs).
+    pub broad: broad::Broad,
 }
 
 #[derive(Default)]
@@ -150,6 +153,8 @@ pub struct State {
     pub worlds: Vec<World>,
     /// Fixed sets of triangles for gathers (spheres.rs).
     pub sets: Vec<spheres::FixedSet>,
+    /// Bumped whenever a fixed body is made or placed (broad.rs).
+    pub fixed_version: u64,
 }
 
 static mut STATE: Option<State> = None;
@@ -312,7 +317,7 @@ fn intersect_node(words: &[u32], node: usize, ray: &Ray, inv: &Inverse, near: f6
 
 /// three's Ray.intersectsBox(box): Ray.intersectBox(box) !== null.
 #[inline(always)]
-fn intersects_box(ray: &Ray, inv: &Inverse, b: &[f64; 6]) -> bool {
+pub(crate) fn intersects_box(ray: &Ray, inv: &Inverse, b: &[f64; 6]) -> bool {
     let (mut tmin, mut tmax);
     let (invdirx, invdiry, invdirz) = (inv.x, inv.y, inv.z);
     if invdirx >= 0.0 {
@@ -742,11 +747,14 @@ pub extern "C" fn body_new(tree: u32, moving: u32) -> i32 {
 #[no_mangle]
 pub extern "C" fn body_set(slot: u32) {
     let v = io();
-    let b = &mut state().bodies[slot as usize];
+    let s = state();
+    let b = &mut s.bodies[slot as usize];
     b.bounds.copy_from_slice(&v[20..26]);
     if b.moving {
         b.matrix.copy_from_slice(&v[26..42]);
         b.inverse.copy_from_slice(&v[42..58]);
+    } else {
+        s.fixed_version += 1;
     }
 }
 
@@ -754,7 +762,7 @@ pub extern "C" fn body_set(slot: u32) {
 #[no_mangle]
 pub extern "C" fn world_new(tree: u32, terrain: i32, grid: i32) -> u32 {
     let s = state();
-    s.worlds.push(World { tree: tree as usize, terrain: (terrain >= 0).then_some(terrain as usize), grid: (grid >= 0).then_some(grid as usize), order: Vec::new(), version: 0, statics: None });
+    s.worlds.push(World { tree: tree as usize, terrain: (terrain >= 0).then_some(terrain as usize), grid: (grid >= 0).then_some(grid as usize), order: Vec::new(), version: 0, statics: None, broad: Default::default() });
     (s.worlds.len() - 1) as u32
 }
 
@@ -772,7 +780,7 @@ pub extern "C" fn world_order(id: u32, count: u32) -> *mut u32 {
 /// many. `ignore` is the ignored body's slot (-1 none).
 #[no_mangle]
 pub extern "C" fn world_candidates(id: u32, ignore: i32, static_only: u32, moving_only: u32) -> u32 {
-    world_candidates_for(state(), id as usize, &read_ray(), ignore as i64, static_only != 0, moving_only != 0) as u32
+    broad::world_candidates_near(state(), id as usize, &read_ray(), io()[6], ignore as i64, static_only != 0, moving_only != 0) as u32
 }
 
 /// cast(origin, direction, far, out, ignoreBody, staticOnly) with the ray,

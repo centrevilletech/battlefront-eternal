@@ -122,6 +122,13 @@ export function shownGear(v, dt = 0) {
   return view.value;
 }
 
+// Whether the gear drawn is the hull's own (shownGear's first case): then
+// it is drawn where the world's pose has it.
+export function ownGear(v) {
+  const view = views.get(v);
+  return !view?.follows || view.generation !== (v.aiTarget?.generation ?? 0);
+}
+
 // The takeoff clip at the drawn gear (dt: the frame's, for a hull following
 // its flight state).
 export function poseFlightGear(v, dt = 0) {
