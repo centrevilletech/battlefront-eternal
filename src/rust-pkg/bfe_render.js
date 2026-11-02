@@ -226,30 +226,26 @@ export class BfeRenderer {
      * @param {number} depth_func
      * @param {number} flags
      * @param {boolean} point_lit
-     * @param {Float64Array | number[]} ids
      * @param {Float64Array | number[]} bounds
      * @returns {number}
      */
-    transparent_bucket(geometry, blend, depth_func, flags, point_lit, ids, bounds) {
-        const val4 = +geometry;
-        const val5 = +depth_func;
-        const val6 = +flags;
-        const val7 = +point_lit;
-        let ptr0, len0, ptr1, len1, ptr2, len2;
+    transparent_bucket(geometry, blend, depth_func, flags, point_lit, bounds) {
+        const val3 = +geometry;
+        const val4 = +depth_func;
+        const val5 = +flags;
+        const val6 = +point_lit;
+        let ptr0, len0, ptr1, len1;
         try {
             ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
             len0 = WASM_VECTOR_LEN;
-            ptr1 = passArrayF64ToWasm0(ids, wasm.__wbindgen_malloc);
+            ptr1 = passArrayF64ToWasm0(bounds, wasm.__wbindgen_malloc);
             len1 = WASM_VECTOR_LEN;
-            ptr2 = passArrayF64ToWasm0(bounds, wasm.__wbindgen_malloc);
-            len2 = WASM_VECTOR_LEN;
         } catch (e) {
-            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 8, 8); }
             if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 8, 8); }
             if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
             throw e;
         }
-        const ret = wasm.bferenderer_transparent_bucket(this.__wbg_ptr, val4, ptr0, len0, val5, val6, val7, ptr1, len1, ptr2, len2);
+        const ret = wasm.bferenderer_transparent_bucket(this.__wbg_ptr, val3, ptr0, len0, val4, val5, val6, ptr1, len1);
         return ret >>> 0;
     }
     /**
@@ -261,13 +257,6 @@ export class BfeRenderer {
     transparent_bucket_pass(b, program, side) {
         const ret = wasm.bferenderer_transparent_bucket_pass(this.__wbg_ptr, b, program, side);
         return ret >>> 0;
-    }
-    /**
-     * @param {number} b
-     * @param {boolean} shown
-     */
-    transparent_bucket_shown(b, shown) {
-        wasm.bferenderer_transparent_bucket_shown(this.__wbg_ptr, b, shown);
     }
     /**
      * @param {number} b
@@ -328,6 +317,64 @@ export class BfeRenderer {
      */
     transparent_keys_ptr() {
         const ret = wasm.bferenderer_transparent_keys_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} kind
+     * @param {number} geometry
+     * @param {number} start
+     * @param {number} count
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_func
+     * @param {number} flags
+     * @returns {number}
+     */
+    transparent_object(kind, geometry, start, count, blend, depth_func, flags) {
+        const val2 = +kind;
+        const val3 = +geometry;
+        const val4 = +start;
+        const val5 = +count;
+        const val6 = +depth_func;
+        const val7 = +flags;
+        const ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_transparent_object(this.__wbg_ptr, val2, val3, val4, val5, ptr0, len0, val6, val7);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} o
+     * @param {number} program
+     * @param {number} side
+     */
+    transparent_object_pass(o, program, side) {
+        wasm.bferenderer_transparent_object_pass(this.__wbg_ptr, o, program, side);
+    }
+    /**
+     * @returns {number}
+     */
+    transparent_object_stride() {
+        const ret = wasm.bferenderer_transparent_object_stride(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} o
+     * @param {number} texture
+     */
+    transparent_object_texture(o, texture) {
+        wasm.bferenderer_transparent_object_texture(this.__wbg_ptr, o, texture);
+    }
+    /**
+     * @returns {number}
+     */
+    transparent_objects_len() {
+        const ret = wasm.bferenderer_transparent_objects_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    transparent_objects_ptr() {
+        const ret = wasm.bferenderer_transparent_objects_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -824,6 +871,18 @@ function __wbg_get_imports() {
         },
         __wbg_uniformBlockBinding_61c5a97721e0f36b: function(arg0, arg1, arg2, arg3) {
             arg0.uniformBlockBinding(arg1, arg2 >>> 0, arg3 >>> 0);
+        },
+        __wbg_uniformMatrix3fv_15b2b1f5505b8506: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix3fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
+        },
+        __wbg_uniformMatrix3fv_df1958f8b617c8d6: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix3fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
+        },
+        __wbg_uniformMatrix4fv_cd0ba72d1d780759: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix4fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
+        },
+        __wbg_uniformMatrix4fv_edd2b51dbb1caffd: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.uniformMatrix4fv(arg1, arg2 !== 0, getArrayF32FromWasm0(arg3, arg4));
         },
         __wbg_useProgram_d9c24a7d8632c4c1: function(arg0, arg1) {
             arg0.useProgram(arg1);
