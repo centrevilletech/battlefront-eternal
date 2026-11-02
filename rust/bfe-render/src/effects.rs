@@ -106,6 +106,8 @@ struct Batch<C: HasContext> {
     value_slots: Vec<Option<C::UniformLocation>>,
     // Textures on units of their own (batch_sampler).
     samplers: Vec<(u32, Option<C::Texture>)>,
+    // Indices an instance draws: the corner quad's 6, or its own base's.
+    index_count: i32,
 }
 
 struct Owner<C: HasContext> {
@@ -178,6 +180,9 @@ pub struct EffectsPass<C: HasContext> {
     pub matrices: Vec<f64>,
     staging: Vec<f32>,
 }
+
+// add_batch's corner for a batch with a base of its own (batch_base).
+pub const NO_CORNER: u32 = u32::MAX;
 
 // The quad every batch draws (particles.js QUAD, QUAD_INDEX).
 const QUAD: [f32; 8] = [-1.0, -1.0, 1.0, -1.0, 1.0, 1.0, -1.0, 1.0];
@@ -310,10 +315,13 @@ impl<C: HasContext> EffectsPass<C> {
         let (vao, vbo) = unsafe {
             let vao = gl.create_vertex_array().unwrap();
             gl.bind_vertex_array(Some(vao));
-            gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.quad));
-            gl.enable_vertex_attrib_array(corner);
-            gl.vertex_attrib_pointer_f32(corner, 2, glow::FLOAT, false, 0, 0);
-            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(self.quad_index));
+            // The corner quad (none: a base of its own follows, batch_base).
+            if corner != NO_CORNER {
+                gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.quad));
+                gl.enable_vertex_attrib_array(corner);
+                gl.vertex_attrib_pointer_f32(corner, 2, glow::FLOAT, false, 0, 0);
+                gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(self.quad_index));
+            }
             let vbo = gl.create_buffer().unwrap();
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
             let mut offset = 0;
@@ -334,7 +342,7 @@ impl<C: HasContext> EffectsPass<C> {
         self.batches.push(Batch {
             program: program as usize, texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
             vao, vbo, capacity: 0, sizes, stride, owner: if owner < 0 { None } else { Some(owner as usize) }, slots,
-            values: vec![], value_slots: vec![], samplers: vec![],
+            values: vec![], value_slots: vec![], samplers: vec![], index_count: 6,
         });
         // Its samplers besides the map on their units.
         unsafe {
@@ -347,6 +355,36 @@ impl<C: HasContext> EffectsPass<C> {
             gl.use_program(None);
         }
         (self.batches.len() - 1) as u32
+    }
+
+    // A batch's base, for one drawn without the corner quad: its vertex
+    // attributes (location, size pairs) and their data (attribute after
+    // attribute, `vertices` each), and its indices (16 bits).
+    pub fn batch_base<M: MultiDraw>(&mut self, core: &Core<C, M>, batch: u32, attributes: &[u32], vertices: u32, data: &[f32], index: &[u16]) {
+        let Some(b) = self.batches.get_mut(batch as usize) else { return };
+        let gl = &core.gl;
+        let sizes: Vec<usize> = attributes.chunks(2).map(|a| a[1] as usize).collect();
+        let stride: usize = sizes.iter().sum();
+        let mut interleaved = vec![];
+        interleave(&mut interleaved, data, 0, vertices as usize, &sizes, stride);
+        unsafe {
+            gl.bind_vertex_array(Some(b.vao));
+            let vbo = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, bytes(&interleaved), glow::STATIC_DRAW);
+            let mut offset = 0;
+            for a in attributes.chunks(2) {
+                gl.enable_vertex_attrib_array(a[0]);
+                gl.vertex_attrib_pointer_f32(a[0], a[1] as i32, glow::FLOAT, false, (stride * 4) as i32, (offset * 4) as i32);
+                offset += a[1] as usize;
+            }
+            let ebo = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ebo));
+            gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, bytes(index), glow::STATIC_DRAW);
+            gl.bind_vertex_array(None);
+            gl.bind_buffer(glow::ARRAY_BUFFER, None);
+        }
+        b.index_count = index.len() as i32;
     }
 
     // A batch's own material values ("name:size" or "name:size:form",
@@ -582,7 +620,7 @@ impl<C: HasContext> EffectsPass<C> {
             state.depth_write(gl, stats, false);
             blending(gl, state, stats, &b.blend);
             gl.bind_vertex_array(Some(b.vao));
-            gl.draw_elements_instanced(glow::TRIANGLES, 6, glow::UNSIGNED_SHORT, 0, count as i32);
+            gl.draw_elements_instanced(glow::TRIANGLES, b.index_count, glow::UNSIGNED_SHORT, 0, count as i32);
             stats.gl_calls += 2;
             stats.pass_draws[PASS_EFFECTS] += 1;
         }

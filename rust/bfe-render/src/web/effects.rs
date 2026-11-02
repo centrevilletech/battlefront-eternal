@@ -29,6 +29,12 @@ impl BfeRenderer {
     // instances; a texture its program samples by name, on a unit.
     pub fn fx_batch_values(&mut self, batch: u32, values: &str) { self.r.effects.batch_values(&self.r.core, batch, values) }
     pub fn fx_batch_sampler(&mut self, batch: u32, name: &str, unit: u32, texture: i32) { self.r.effects.batch_sampler(&self.r.core, batch, name, unit, texture) }
+    // A batch's base instead of the corner quad (add_batch's corner then
+    // 4294967295): its vertex attributes (location, size pairs), their data
+    // (attribute after attribute, `vertices` each), its 16-bit indices.
+    pub fn fx_batch_base(&mut self, batch: u32, attributes: &[u32], vertices: u32, data: &[f32], index: &[u16]) {
+        self.r.effects.batch_base(&self.r.core, batch, attributes, vertices, data, index)
+    }
 
     // A dynamic mesh: texture (-1 none), three's blending (7 values), depth
     // flags (1 test, 2 write) and function, its vertex attributes' sizes and

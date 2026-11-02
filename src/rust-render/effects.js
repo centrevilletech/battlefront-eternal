@@ -16,10 +16,11 @@
 //   sphere, its values read from its uniforms each frame (after its
 //   onBeforeRender, as three would call it), found the same way.
 // - The map's haze and weather: atmosphere.js's square batches (dust, the
-//   FogCloud), drawn like particle batches with values of their own, and
+//   FogCloud), drawn like particle batches with values of their own;
 //   snow.js's flakes, a batch with no instance attributes (its program
 //   finds each flake and box by instance number in data textures, which
-//   three uploads as they change and the renderer samples).
+//   three uploads as they change and the renderer samples); weather.js's
+//   rain, a batch of fixed seeds on a streak plane of its own.
 //
 // Each is registered the first time three has drawn it (which gives its
 // material a program), then marked external: three is shown it no more and
@@ -68,7 +69,13 @@ const KINDS = {
   // The Enhanced bolts (blaster-bolts.js): capsules fitted on the image
   // plane, their pixel's angle set by their onBeforeRender.
   blaster: { attributes: [["iHead", 3], ["iTail", 3], ["iColor", 4], ["iSize", 4]], values: ["pixelAngle"], samplers: [], beforeRender: true },
+  // The rain's drops (weather.js): streaks on a plane of their own (its
+  // base: position, uv), each drop's seed fixed (uploaded as it grows).
+  rain: { attributes: [["seed", 4]], base: [["position", 3], ["uv", 2]], static: true, hiddenBy: "material",
+    values: ["eye", "cameraMotion", "wind", "rainTime", "range", "velocity", "velocityRange", "width", "streak", "enhanced", "effect", "coverCell", "coverSize", "color", "alpha"], samplers: ["cover"] },
 };
+// add_batch's corner for a batch with a base of its own (effects.rs NO_CORNER).
+const NO_CORNER = 0xffffffff;
 const SAMPLER_UNITS = { flakes: 7, boxes: 8, cover: 9 };
 const LIGHTNING = [["position", 3], ["uv", 2], ["color", 4]];
 // The frame's inputs (effects.rs IN_*, OWNER_*, DRAW_*).
@@ -104,6 +111,10 @@ function squares(batch) {
 }
 function flakes(mesh) {
   return { mesh, material: mesh.material, geometry: mesh.geometry, get count() { return mesh.geometry.instanceCount; }, capacity: 0, arrays: {}, external: false };
+}
+function drops(mesh) {
+  const seed = mesh.geometry.getAttribute("seed");
+  return { mesh, material: mesh.material, geometry: mesh.geometry, get count() { return mesh.geometry.instanceCount; }, capacity: seed.count, arrays: { seed: seed.array }, external: false };
 }
 
 // A glow model's part (game.js glowModel: one material for its parts, kept
@@ -242,6 +253,9 @@ class EffectsPass {
       else if (object.name === "map-snow" && object.material?.isShaderMaterial && !this.byBatch.has(object)) {
         const record = this.registerBatch(flakes(object), "snow", null);
         if (record !== undefined) this.byBatch.set(object, record);
+      } else if (object.name === "map-precipitation" && object.material?.isShaderMaterial && !this.byBatch.has(object)) {
+        const record = this.registerBatch(drops(object), "rain", null);
+        if (record !== undefined) this.byBatch.set(object, record);
       }
     }
     // Now and then, the records of parts no longer in the scene let go.
@@ -336,7 +350,9 @@ class EffectsPass {
     const at = new Map(program.attributes);
     const attributes = spec.attributes;
     for (const [name, size] of attributes) if (!at.has(name) || batch.geometry.getAttribute(name)?.itemSize !== size) return fail(`attribute ${name}`);
-    if (!at.has("corner") || batch.geometry.index?.array.constructor !== Uint16Array) return fail("quad");
+    if (batch.geometry.index?.array.constructor !== Uint16Array) return fail("index");
+    for (const [name, size] of spec.base || []) if (!at.has(name) || batch.geometry.getAttribute(name)?.itemSize !== size || batch.geometry.getAttribute(name).isInstancedBufferAttribute) return fail(`base ${name}`);
+    if (!spec.base && !at.has("corner")) return fail("quad");
     const map = material.uniforms.map?.value ?? null;
     const texture = map ? core.texture(map) : -1;
     if (map && texture < 0) return undefined; // not uploaded yet: next time
@@ -362,7 +378,15 @@ class EffectsPass {
       if (tex && id < 0) return undefined; // not uploaded yet: next time
       samplers.push({ name, unit: SAMPLER_UNITS[name], map: tex, handle: this.handle(tex), id });
     }
-    const id = core.rust.fx_add_batch(program.id, texture, new Uint32Array(blend), at.get("corner"), new Uint32Array(attributes.flatMap(([name, size]) => [at.get(name), size])), owner);
+    const id = core.rust.fx_add_batch(program.id, texture, new Uint32Array(blend), spec.base ? NO_CORNER : at.get("corner"), new Uint32Array(attributes.flatMap(([name, size]) => [at.get(name), size])), owner);
+    if (spec.base) {
+      // Its own vertices and indices, as its geometry has them.
+      const g = batch.geometry, vertices = g.getAttribute(spec.base[0][0]).count;
+      const data = new Float32Array(spec.base.reduce((sum, [, size]) => sum + size * vertices, 0));
+      let o = 0;
+      for (const [name, size] of spec.base) { data.set(g.getAttribute(name).array.subarray(0, vertices * size), o); o += vertices * size; }
+      core.rust.fx_batch_base(id, new Uint32Array(spec.base.flatMap(([name, size]) => [at.get(name), size])), vertices, data, new Uint16Array(g.index.array.subarray(0, g.drawRange.count === Infinity ? g.index.count : Math.min(g.drawRange.count, g.index.count))));
+    }
     if (values.length) core.rust.fx_batch_values(id, values.map(([name, size, form]) => `${name}:${size}:${form}`).join(","));
     for (const sampler of samplers) core.rust.fx_batch_sampler(id, sampler.name, sampler.unit, sampler.id);
     // Its key but z, which never changes: no group above it but the map's
@@ -371,7 +395,7 @@ class EffectsPass {
     const key = new Float64Array(6);
     this.keyOf(batch.mesh, key);
     const record = { batch, kind, id, attributes, values, samplers, arrays: null, mesh: batch.mesh, map, handle: this.handle(map), version: map?.version, key,
-      stride: attributes.reduce((sum, [, size]) => sum + size, 0), beforeRender: Boolean(spec.beforeRender),
+      stride: attributes.reduce((sum, [, size]) => sum + size, 0), beforeRender: Boolean(spec.beforeRender), static: Boolean(spec.static), uploaded: 0,
       hiddenBy: spec.hiddenBy ?? "external", synced: false, capacity: -1, from: this.frame };
     this.hide(record, true);
     this.records.push(record);
@@ -612,6 +636,10 @@ class EffectsPass {
       if (record.kind === "analytic") {
         if (record.synced && record.capacity === b.capacity) from = Math.min(Math.max(b.unread ?? 0, 0), count);
         b.unread = Infinity;
+      } else if (record.static) {
+        // Fixed instances: those it did not have yet.
+        if (record.synced && record.capacity === b.capacity) from = Math.min(record.uploaded, count);
+        record.uploaded = Math.max(from === 0 ? 0 : record.uploaded, count);
       }
       const start = at, arrays = record.arrays;
       for (let k = 0; k < arrays.length; k++) {

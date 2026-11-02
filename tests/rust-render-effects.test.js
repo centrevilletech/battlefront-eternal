@@ -54,6 +54,7 @@ function bridge() {
     fx_batch_texture(batch, texture) { calls.push(["fx_batch_texture", batch, texture]); }
     fx_batch_values(batch, values) { calls.push(["fx_batch_values", batch, values]); }
     fx_batch_sampler(batch, name, unit, texture) { calls.push(["fx_batch_sampler", batch, name, unit, texture]); }
+    fx_batch_base(batch, attributes, vertices, data, index) { calls.push(["fx_batch_base", batch, [...attributes], vertices, data.length, [...index]]); }
     fx_add_mesh(texture, blend, flags, func, sizes, values) { calls.push(["fx_add_mesh", texture, [...blend], flags, func, [...sizes], values]); return next.mesh++; }
     fx_mesh_pass(mesh, program, side, locations) { calls.push(["fx_mesh_pass", mesh, program, side, [...locations]]); }
     fx_mesh_texture(mesh, texture) { calls.push(["fx_mesh_texture", mesh, texture]); }
@@ -404,4 +405,31 @@ test("the Enhanced bolts: a batch whose pixel angle its onBeforeRender sets, as 
   assert.deepEqual(e.slice(6, 8), [0, 11], "render order 11");
   const angle = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / 600;
   assert.equal(core.fxData[14], Math.fround(angle), "its pixel angle after its 14 floats of instance, as onBeforeRender set it for the target's height");
+});
+
+test("the rain: fixed seeds uploaded once on a streak plane of its own, its clock its own", async () => {
+  const { Weather } = await import("../src/weather.js");
+  const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
+  const settings = { get: () => "classic", onChange: () => () => {} };
+  const weather = new Weather({ data: { precipitation: { Type: ["Streaks"], ParticleDensity: [64] } }, scene, collision: { cast: () => null }, water: null, settings });
+  weather.update(1 / 60, camera);
+  const mesh = weather.mesh;
+  assert.ok(mesh.visible);
+  assert.equal(mesh.material.uniforms.rainTime.value, 1 / 60, "its own clock");
+  list.transparent.push({ object: mesh, material: mesh.material, group: null });
+  drawn(mesh.material, program(["projectionMatrix", "viewMatrix", "eye", "cameraMotion", "wind", "rainTime", "range", "velocity", "velocityRange", "width", "streak", "enhanced", "effect",
+    "cover", "coverCell", "coverSize", "color", "ambient", "alpha", "sceneDepth", "softParticles", "depthResolution", "cameraRange"], ["position", "uv", "seed"]));
+  frame();
+  const added = calls.find((c) => c[0] === "fx_add_batch");
+  assert.equal(added[4], 0xffffffff, "no corner quad");
+  assert.deepEqual(added[5], [2, 4], "its seed, per instance");
+  const base = calls.find((c) => c[0] === "fx_batch_base");
+  assert.deepEqual(base.slice(2, 4), [[0, 3, 1, 2], 4], "position and uv of its four vertices");
+  assert.equal(base[5].length, 6, "its six indices");
+  assert.equal(mesh.material.visible, false);
+  list.transparent.length = 0;
+  frame();
+  assert.deepEqual(entry(0).slice(0, 5), [0, 0, 64, 0, 0], "every seed the first time");
+  frame();
+  assert.deepEqual(entry(0).slice(2, 4), [64, 64], "none again");
 });

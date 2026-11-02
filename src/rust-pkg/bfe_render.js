@@ -213,6 +213,32 @@ export class BfeRenderer {
     }
     /**
      * @param {number} batch
+     * @param {Uint32Array | number[]} attributes
+     * @param {number} vertices
+     * @param {Float32Array | number[]} data
+     * @param {Uint16Array | number[]} index
+     */
+    fx_batch_base(batch, attributes, vertices, data, index) {
+        const val4 = +batch;
+        const val5 = +vertices;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passArray32ToWasm0(attributes, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF32ToWasm0(data, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArray16ToWasm0(index, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 2, 2); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        wasm.bferenderer_fx_batch_base(this.__wbg_ptr, val4, ptr0, len0, val5, ptr1, len1, ptr2, len2);
+    }
+    /**
+     * @param {number} batch
      * @param {string} name
      * @param {number} unit
      * @param {number} texture
@@ -1303,6 +1329,13 @@ function handleError(f, args) {
 
 function isLikeNone(x) {
     return x === undefined || x === null;
+}
+
+function passArray16ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 2, 2) >>> 0;
+    getUint16ArrayMemory0().set(arg, ptr / 2);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
 }
 
 function passArray32ToWasm0(arg, malloc) {
