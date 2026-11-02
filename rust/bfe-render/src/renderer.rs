@@ -31,6 +31,7 @@ use crate::post::PostPass;
 use crate::terrain::TerrainPass;
 use crate::transparent::{self, Source, TransparentPass};
 use crate::view::ViewPass;
+use crate::water::WaterPass;
 use crate::world::WorldPass;
 use glow::HasContext;
 
@@ -46,6 +47,7 @@ pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub view: ViewPass<C>,
     pub post: PostPass<C>,
     pub hud: HudPass<C>,
+    pub water: WaterPass<C>,
 }
 
 impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
@@ -61,7 +63,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let view = ViewPass::new(&mut core);
         let post = PostPass::new(&mut core);
         let hud = HudPass::new(&mut core);
-        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud }
+        let water = WaterPass::new(&mut core);
+        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water }
     }
 
     // The far scene's phase, drawn into the far target before the near scene.
@@ -101,14 +104,14 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let mut list = std::mem::take(&mut self.transparent.list);
         list.items.clear();
         {
-            let mut sources: [&mut dyn Source<C, M>; 2] = [&mut self.transparent, &mut self.effects];
+            let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
             for (s, source) in sources.iter_mut().enumerate() {
                 source.emit(core, &view, s as u32, &mut list.items);
             }
         }
         list.order(&self.transparent.keys, three.min(transparent::MAX_THREE));
         {
-            let mut sources: [&mut dyn Source<C, M>; 2] = [&mut self.transparent, &mut self.effects];
+            let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
             transparent::draw_segment(core, &view, list.segment(0), &mut sources);
         }
         list.view = Some(view);
@@ -126,7 +129,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
             if !list.segment(k).is_empty() {
                 core.bind_frame(VIEW_NEAR);
                 core.bind_far_map();
-                let mut sources: [&mut dyn Source<C, M>; 2] = [&mut self.transparent, &mut self.effects];
+                let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
                 transparent::draw_segment(core, view, list.segment(k), &mut sources);
             }
         }

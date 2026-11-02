@@ -11,6 +11,7 @@ mod post;
 mod terrain;
 mod transparent;
 mod view;
+mod water;
 mod world;
 
 use crate::core::MultiDraw;

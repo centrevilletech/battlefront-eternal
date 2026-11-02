@@ -578,6 +578,106 @@ export class BfeRenderer {
         return v1;
     }
     /**
+     * @returns {number}
+     */
+    water_input_len() {
+        const ret = wasm.bferenderer_water_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_input_ptr() {
+        const ret = wasm.bferenderer_water_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {Uint32Array | number[]} index
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_func
+     * @param {number} flags
+     * @param {number} side
+     * @returns {number}
+     */
+    water_rings(index, blend, depth_func, flags, side) {
+        const val3 = +depth_func;
+        const val4 = +flags;
+        const val5 = +side;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(index, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_water_rings(this.__wbg_ptr, ptr0, len0, ptr1, len1, val3, val4, val5);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_alpha_len() {
+        const ret = wasm.bferenderer_water_rings_alpha_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_alpha_ptr() {
+        const ret = wasm.bferenderer_water_rings_alpha_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_position_len() {
+        const ret = wasm.bferenderer_water_rings_position_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_position_ptr() {
+        const ret = wasm.bferenderer_water_rings_position_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_uv_len() {
+        const ret = wasm.bferenderer_water_rings_uv_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_uv_ptr() {
+        const ret = wasm.bferenderer_water_rings_uv_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} geometry
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_func
+     * @param {number} flags
+     * @param {number} side
+     * @returns {number}
+     */
+    water_surface(geometry, blend, depth_func, flags, side) {
+        const val2 = +geometry;
+        const val3 = +depth_func;
+        const val4 = +flags;
+        const val5 = +side;
+        const ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_water_surface(this.__wbg_ptr, val2, ptr0, len0, val3, val4, val5);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} w
      * @param {Float32Array | number[]} positions
      * @param {Uint32Array | number[]} index

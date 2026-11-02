@@ -64,6 +64,7 @@ export function plainProgram(core, material, attributes) {
 // A uniform's value as three would set it for a full-screen pass (the
 // object's and camera's matrices, else the material's), into f64 slots at
 // `o` (slot, type, values); false when it has none the renderer can give.
+const eye = new THREE.Vector3();
 export function writeUniform(core, out, o, slot, uniform, material, object, camera) {
   const { name, type } = uniform;
   let value;
@@ -71,6 +72,7 @@ export function writeUniform(core, out, o, slot, uniform, material, object, came
   else if (name === "modelViewMatrix") value = object.modelViewMatrix.multiplyMatrices(camera.matrixWorldInverse, object.matrixWorld);
   else if (name === "modelMatrix") value = object.matrixWorld;
   else if (name === "viewMatrix") value = camera.matrixWorldInverse;
+  else if (name === "cameraPosition") value = eye.setFromMatrixPosition(camera.matrixWorld);
   else if (name === "isOrthographic") value = camera.isOrthographicCamera === true;
   else {
     const u = material.uniforms?.[name];

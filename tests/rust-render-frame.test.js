@@ -64,6 +64,16 @@ function bridge() {
     transparent_segments_len() { return 2; }
     transparent_segment(k) { calls.push(["transparent_segment", k]); return STATS; }
     transparent_bucket_shown() {}
+    water_input_ptr() { return 720896; }
+    water_input_len() { return 8 * (27 + 24 * 18) + 2; }
+    water_rings_position_ptr() { return 786432; }
+    water_rings_position_len() { return 16 * 3; }
+    water_rings_uv_ptr() { return 851968; }
+    water_rings_uv_len() { return 16 * 2; }
+    water_rings_alpha_ptr() { return 917504; }
+    water_rings_alpha_len() { return 16; }
+    water_surface(...args) { calls.push(["water_surface", ...args]); return 0; }
+    water_rings(...args) { calls.push(["water_rings", ...args]); return 1; }
   }
   for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame", "hud_frame", "mirror_frame"]) BfeRenderer.prototype[name] = entry(name);
   const gl = {
@@ -317,4 +327,54 @@ test("the HUD's batch: every vertex the first time, the batch's update range aft
   assert.equal(core.coverHud(renderer, hud), false);
   assert.equal(position.updateRanges.length, 0);
   assert.equal(position.version, version + 1);
+});
+
+test("water: its Low surface and rings are items of the transparent list, with three's sort key, range and uniforms", () => {
+  const { core, calls, scene, camera, properties } = bridge();
+  const surface = (renderOrder, uniforms, values, attributes) => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(12), 3));
+    geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(8), 2));
+    geometry.setIndex([0, 1, 2, 2, 1, 3]);
+    const material = new THREE.ShaderMaterial({ uniforms: values, transparent: true, side: THREE.DoubleSide, forceSinglePass: true });
+    properties.get(material).currentProgram = program(uniforms, attributes);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.renderOrder = renderOrder;
+    mesh.frustumCulled = false;
+    return mesh;
+  };
+  const lowPass = surface(-20, [["modelMatrix", GL.FLOAT_MAT4], ["viewMatrix", GL.FLOAT_MAT4], ["projectionMatrix", GL.FLOAT_MAT4], ["cameraPosition", GL.FLOAT_VEC3], ["time", GL.FLOAT], ["mainMap", GL.SAMPLER_2D]],
+    { time: { value: 12.5 }, mainMap: { value: null } });
+  const rings = surface(-18, [["modelViewMatrix", GL.FLOAT_MAT4], ["projectionMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D]], { map: { value: null } }, ["position", "uv", "alpha"]);
+  rings.geometry.setAttribute("alpha", new THREE.BufferAttribute(new Float32Array(4), 1));
+  rings.geometry.setDrawRange(0, 0);
+  const group = new THREE.Group();
+  group.add(lowPass);
+  scene.add(group, rings);
+  scene.updateMatrixWorld(true);
+  scene.userData.water = { lowPass, tintPass: null, mirrorPass: null, rings };
+  camera.position.set(0, 0, 1);
+  camera.updateMatrixWorld(true);
+  core.phase("transparent", core.renderer, scene, camera);
+  assert.equal(calls.filter((c) => c[0] === "water_surface").length, 1);
+  assert.equal(calls.filter((c) => c[0] === "water_rings").length, 1);
+  assert.deepEqual(calls.find((c) => c[0] === "water_surface").slice(3), [0x0203, 1 | 2 | 4, 2], "depth test, write and colour, both sides at once");
+  assert.equal(lowPass.material.visible, false);
+  const input = core.waterInput, SURFACE = 27 + 24 * 18;
+  assert.deepEqual([...input.subarray(0, 5)], [1, 0, 0, -20, lowPass.id], "shown, program, group order, render order, id");
+  assert.deepEqual([input[24], input[25], input[26]], [0, 6, 6], "the index's range, six uniforms");
+  assert.deepEqual([...input.subarray(27 + 3 * 18, 27 + 3 * 18 + 5)], [3, 3, 0, 0, 1], "the camera's position");
+  assert.deepEqual([...input.subarray(27 + 4 * 18, 27 + 4 * 18 + 3)], [4, 1, 12.5], "the water's own time");
+  assert.equal(input[SURFACE], 0, "rings with nothing in their range: not listed");
+  rings.geometry.setDrawRange(0, 6);
+  rings.geometry.attributes.position.array.set([1, 2, 3], 3);
+  core.phase("transparent", core.renderer, scene, camera);
+  assert.deepEqual([input[SURFACE], input[SURFACE + 3]], [1, -18]);
+  assert.deepEqual([...core.waterRingsPosition.subarray(3, 6)], [1, 2, 3], "every vertex of the rings the first time");
+  assert.deepEqual([input[8 * SURFACE], input[8 * SURFACE + 1]], [0, 4]);
+  group.visible = false;
+  core.phase("transparent", core.renderer, scene, camera);
+  assert.equal(input[0], 0, "a hidden parent hides it");
+  core.setActive(false);
+  assert.equal(lowPass.material.visible, true);
 });

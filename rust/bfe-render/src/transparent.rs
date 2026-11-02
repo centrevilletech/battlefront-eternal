@@ -52,6 +52,7 @@ use std::cmp::Ordering;
 // The sources, in the order renderer.rs lists them.
 pub const SOURCE_TRANSPARENT: u32 = 0;
 pub const SOURCE_EFFECTS: u32 = 1;
+pub const SOURCE_WATER: u32 = 2;
 
 // One entry of the transparent list.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
