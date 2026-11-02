@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { MeshBVH } from "three-mesh-bvh";
+import { MeshBVH } from "./mesh-bvh.js";
 
 // Polygon numbers of the vehicle-only barriers, apart from the buildings'
 // and the bodies'.

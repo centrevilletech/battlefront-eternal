@@ -361,3 +361,63 @@ A first session on a low-end CPU starts on Classic (`cpu-info.js`
 `lowEndCpu`: four threads or fewer and 4 GB of memory or less, as Chromium
 reports them); settings already stored stay as they are, and the AUDIO
 page's SOUND row says Classic is much lighter there.
+
+## The world step on a slow CPU
+
+On a laptop with an AMD A8-6410 (four cores held near 1.9 GHz) the offline
+world worker took 17.3 ms a tick on average against the 16.7 ms a 60 Hz tick
+has, so a full Theed battle ran about 15% slow, and stopped for 100 to 200 ms
+whenever the worker collected its garbage. The bot count, the tick rate and
+every tick's outcome stay as they were; these changes only do the same work
+with less:
+
+- A hull's wall probes and hover springs keep nearby-triangle caches, as a
+  soldier's body spheres do, the vehicle-only barriers included. They walked
+  the building tree 60 to 80 times a tick on Theed, mostly finding nothing.
+- A polygon gather no longer clears a Map on every call (clearing allocates
+  a table); it searches its short list, and takes a Map past 16 polygons.
+- A server world (the worker, `bfeserver`) no longer steps the chase camera
+  of the headless game's own player, who has no body there.
+- Units, droidekas, combats and bots' controllers declare every field in
+  their constructors (as undefined, what they read before), so each keeps
+  one layout: fields added later gave Theed's units six, and the code that
+  walks the battle's units went megamorphic and kept deoptimizing.
+- A unit's hit shapes, the crowd push and a soldier's weapon records stopped
+  making garbage every tick; lists reused per query are popped empty
+  (setting a length to 0 is a runtime call and drops the list's storage).
+- three-mesh-bvh made three typed-array views over a tree's buffer for every
+  cast: 550 a tick on Theed, 1,300 on Hoth. `src/mesh-bvh.js` makes each
+  buffer's views once.
+
+`tools/world-hash.mjs` fingerprints every tick of a scripted battle (the
+replay parity state, every unit, hull and round in full precision, and the
+published snapshot bytes). Before and after these changes the fingerprints
+were identical for 2,400 ticks on ten maps, sides and seeds, and for 6,000
+ticks on six more.
+
+### Measurements
+
+Node 22 on a shared Xeon, Theed unless named; the before column is the
+branch's start. Timings there moved by up to 20% between identical runs, so
+they are paired runs' medians and only a guide to the laptop.
+
+| World step | Before | After |
+| --- | ---: | ---: |
+| Typed arrays made a tick | 551 (Hoth 1,300) | 2 (Hoth 0.4) |
+| Garbage a tick | 608 KB | 415 KB |
+| Scavenges in 1,800 ticks, publication included | 133 (Hoth 182) | 108 (Hoth 149) |
+| Time a tick | 1 | 0.80 to 0.87 |
+
+### What is left
+
+- A vehicle's barrel recoil runs on the wall clock (`clockSeconds` in
+  `src/vehicles.js`) and moves the fire points its rounds leave from, and a
+  few gameplay paths draw `Math.random` (an idle turret's turn, a missile's
+  waver): two runs of the same battle part after a minute or so.
+- A weapon's numeric fields start as small integers and become fractions as
+  it fires, and a soldier gains `dead` and `gatherCaches` after it spawns;
+  each change of layout deoptimizes the code that read the old one once.
+  Soldier fields are listed in `tests/network-replay-inventory.test.js`, so
+  declaring those two waits for a replay review.
+- Most of the step is now the Classic AI, the soldiers' own physics and the
+  hulls' seats, each spread over many small functions.
