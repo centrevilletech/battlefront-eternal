@@ -16,6 +16,15 @@ export async function createLocalServer(game, {name='Player', send=()=>{}} = {})
   const host=createSnapshotHost({game,world,local:true});
   host.addClient(id);host.setReady(id);host.setStarted(id,true);
   let running=false,stepping=false;
+  // The page sends its commands once a frame: their spacing is its frame
+  // time, and a snapshot every that many ticks is one a frame it draws.
+  let inputAt=0,framePeriod=1000/60;
+  function pageFrame(){
+    const at=performance.now();
+    if(inputAt)framePeriod+=(Math.min(at-inputAt,100)-framePeriod)*.1;
+    inputAt=at;host.setLocalInterval(framePeriod*.06+.2);
+  }
+  function stepsEveryTick(){inputAt=0;framePeriod=1000/60;host.setLocalInterval(1);}
   const event=message=>send('events',JSON.stringify(message));
   function publish(){
     const out=host.publish();
@@ -36,15 +45,15 @@ export async function createLocalServer(game, {name='Player', send=()=>{}} = {})
     get running(){return running;},get stepping(){return stepping;},
     welcome(){event({type:'entity-registry',registry:host.descriptor()});event({type:'welcome',epoch:1,snapshotMode:'snapshot-delta-v1',...world.player(id)});publish();},
     receive(label,raw){
-      if(raw instanceof ArrayBuffer){if(label!=='state')throw Error('Invalid local input channel');if(running||stepping)host.input(id,raw);return;}
+      if(raw instanceof ArrayBuffer){if(label!=='state')throw Error('Invalid local input channel');if(running||stepping)host.input(id,raw);if(running)pageFrame();return;}
       const message=JSON.parse(raw);
       if(message.type==='entity-edge-ack'){host.edgeAck(id,message);return;}
       if(message.type!=='call')throw Error('Invalid local control message');
       const {method,args={},id:request}=message;
       try {
         let result={};
-        if(method==='start'){running=true;stepping=false;}
-        else if(method==='suspend'||method==='lockstep'){running=false;stepping=method==='lockstep';world.clearInput(id);}
+        if(method==='start'){running=true;stepping=false;stepsEveryTick();}
+        else if(method==='suspend'||method==='lockstep'){running=false;stepping=method==='lockstep';world.clearInput(id);stepsEveryTick();}
         else if(method==='advance'){
           if(running)throw Error('Cannot step a running world');
           if(!Number.isInteger(args.ticks)||args.ticks<1||args.ticks>120)throw Error('Invalid step count');
