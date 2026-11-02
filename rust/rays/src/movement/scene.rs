@@ -5,8 +5,8 @@
 //! JavaScript field, so the caller hands in each one's `enabled`, by its
 //! place in the world's order, before the tick.
 
-use super::interim::{closest_point_to_point, gather, overlaps_sphere, GatherCache, Gathered, Polygon, Tri};
 use super::soldier::{js_hypot2, PART_CACHES, V3};
+use crate::spheres::{closest_point_to_point, gather, ground, overlaps_sphere, GatherCache, Gathered, Polygon, Tri};
 use crate::{candidate, triangle_normal, world_candidates_for, world_cast_ray, State, MISS, TERRAIN};
 use std::ptr::addr_of_mut;
 
@@ -56,7 +56,7 @@ impl Scene<'_> {
     /// ground(x, z, top): the terrain's height and face normal (its y made
     /// positive) straight under (x, z), searched down from `top`.
     pub fn ground(&mut self, x: f64, z: f64, top: f64) -> Option<(f64, V3)> {
-        let grid = self.s.worlds[self.world].grid?;
+        self.s.worlds[self.world].grid?;
         let cached = &mut *self.ground_cache;
         if cached.x == x && cached.z == z && cached.top == top {
             return cached.hit;
@@ -64,14 +64,7 @@ impl Scene<'_> {
         cached.x = x;
         cached.z = z;
         cached.top = top;
-        let ray = crate::Ray { ox: x, oy: top, oz: z, dx: 0.0, dy: -1.0, dz: 0.0 };
-        let hit = crate::grid_raycast(self.s, grid, &ray, f64::INFINITY).map(|hit| {
-            let mut normal = V3::new(hit.nx, hit.ny, hit.nz);
-            if normal.y < 0.0 {
-                normal.negate();
-            }
-            (hit.py, normal)
-        });
+        let hit = ground(self.s, self.world, x, z, top).map(|(height, normal)| (height, V3::from(normal)));
         cached.hit = hit;
         hit
     }
@@ -96,7 +89,7 @@ impl Scene<'_> {
     /// gather(center, radius, false, the part's cache, ignore): the polygons
     /// near a body sphere, in `polygons()`.
     pub fn gather(&mut self, center: V3, radius: f64, cache: usize, ignore: i64) -> usize {
-        gather(self.s, self.world, center.arr(), radius, false, Some(&mut self.caches[cache]), ignore, self.flags, self.gathered)
+        gather(self.s, self.world, center.arr(), radius, None, Some(&mut self.caches[cache]), ignore, self.flags, self.gathered)
     }
 
     pub fn polygons(&self) -> &[Polygon] {

@@ -10,12 +10,11 @@
 //! stops after the turn with the yaw in `TURNED_YAW`, and `mover_resume`
 //! goes on once `SIN1` and `COS1` hold them.
 
-pub mod interim;
 pub mod scene;
 pub mod soldier;
 
+use crate::spheres::{GatherCache, Gathered};
 use crate::{state, MAX_BODIES};
-use interim::{polygons_mut, GatherCache, Gathered};
 use scene::{GroundCache, Scene};
 use soldier::{Air, Input, Mover, Posture, Rest, Trig, PART_CACHES, V3};
 use std::ptr::addr_of_mut;
@@ -267,28 +266,4 @@ pub extern "C" fn mover_resume(id: u32) -> u32 {
     pending.trig.cos1 = v[COS1];
     finish(id, pending);
     0
-}
-
-/// Room for tree `tree`'s `count` polygon numbers (polygonOf), to fill at
-/// the pointer. (Until the shared sphere queries keep them.)
-#[no_mangle]
-pub extern "C" fn movement_tree_polygons(tree: u32, count: u32) -> *mut u32 {
-    let p = polygons_mut();
-    let tree = tree as usize;
-    if p.trees.len() <= tree {
-        p.trees.resize_with(tree + 1, || None);
-    }
-    p.trees[tree] = Some(vec![0; count as usize]);
-    p.trees[tree].as_mut().unwrap().as_mut_ptr()
-}
-
-/// Body `slot`'s polygon number offset (its `offset`).
-#[no_mangle]
-pub extern "C" fn movement_body_offset(slot: u32, offset: f64) {
-    let p = polygons_mut();
-    let slot = slot as usize;
-    if p.offsets.len() <= slot {
-        p.offsets.resize(slot + 1, 0.0);
-    }
-    p.offsets[slot] = offset;
 }

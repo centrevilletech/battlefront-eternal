@@ -42,11 +42,6 @@ export class MovementKernel {
     this.io = null;
     this.flags = null;
     this.refresh();
-    // The polygon numbers of each tree, and each body's offset, as the
-    // module's gathers file them (until the shared sphere queries keep them).
-    this.trees = new WeakSet();
-    this.bodiesVersion = -1;
-    this.polygons(collision.bvh, collision.polygonOf);
   }
 
   // Views of the module's memory; growing it detaches the old ones.
@@ -61,28 +56,12 @@ export class MovementKernel {
     return this.io;
   }
 
-  polygons(bvh, polygonOf) {
-    if (this.trees.has(bvh)) return;
-    const tree = this.rays.tree(bvh);
-    // The call may grow the memory: the view comes after it.
-    const at = this.x.movement_tree_polygons(tree, polygonOf.length);
-    new Uint32Array(this.x.memory.buffer, at, polygonOf.length).set(polygonOf);
-    this.trees.add(bvh);
-    this.refresh();
-  }
-
   // The bodies as the tick will meet them: the module's list in the world's
-  // order, each one's polygon numbers, and whether each is enabled now.
+  // order (each one's polygon numbers went in with it, src/ray-kernel.js),
+  // and whether each is enabled now.
   prepare() {
     const collision = this.collision, bodies = collision.bodies;
     collision.rayBodies();
-    if (this.bodiesVersion !== collision.bodiesVersion) {
-      for (const body of bodies) {
-        this.polygons(body.bvh, body.polygonOf);
-        this.x.movement_body_offset(body.raySlot, body.offset);
-      }
-      this.bodiesVersion = collision.bodiesVersion;
-    }
     let flags = this.flags;
     if (flags.byteLength === 0) { this.refresh(); flags = this.flags; }
     for (let i = 0; i < bodies.length; i++) flags[i] = bodies[i].enabled ? 1 : 0;
