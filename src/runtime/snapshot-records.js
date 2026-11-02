@@ -6,7 +6,7 @@
 // by those, not by slot.
 import {
   SNAPSHOT_SLOT_COUNT, DEFAULT_SNAPSHOT_BOUNDS, emptySnapshot, worldFieldKey,
-  quantizePosition, dequantizePosition, quantizeVelocity, dequantizeVelocity,
+  dequantizePosition, dequantizeVelocity,
   quantizeYaw, dequantizeYaw, quantizePitch, dequantizePitch,
   quantizeQuaternion, dequantizeQuaternion,
 } from './snapshot-codec.js';
@@ -25,6 +25,9 @@ export class SnapshotSlotTable {
     if (unitId !== null) this.byUnitId.set(unitId, slot);
     return slot;
   }
+  // assign(`unit:${unitId}`, unitId) without building the key when the unit
+  // holds a slot: byUnitId names exactly the slots unit keys hold.
+  assignUnit(unitId) { return this.byUnitId.get(unitId) ?? this.assign(unitKey(unitId), unitId); }
   slotFor(key) { return this.byKey.get(key) ?? -1; }
   slotForUnit(unitId) { return this.byUnitId.get(unitId) ?? -1; }
   release(key) {
@@ -32,14 +35,21 @@ export class SnapshotSlotTable {
     this.byKey.delete(key); this.free.push(slot);
     for (const [id, value] of this.byUnitId) if (value === slot) this.byUnitId.delete(id);
   }
-  releaseUnit(unitId) { for (const [key, slot] of [...this.byKey]) if (slot === this.byUnitId.get(unitId)) this.release(key); }
+  // A tombstone repeats every snapshot until its id lives again: once the
+  // slot is freed there is nothing to look for.
+  releaseUnit(unitId) {
+    const slot = this.byUnitId.get(unitId); if (slot === undefined) return;
+    for (const [key, value] of this.byKey) if (value === slot) { this.release(key); return; }
+  }
 }
-const unitKey = id => `unit:${id}`, itemKey = id => `item:${id}`, remoteKey = id => `remote:${id}`;
+// Item and remote ids are small slot indices: each key is built once.
+const itemKeys = [], remoteKeys = [];
+const unitKey = id => `unit:${id}`, itemKey = id => itemKeys[id] ??= `item:${id}`, remoteKey = id => remoteKeys[id] ??= `remote:${id}`;
 // `previous` is the prior snapshot's entry for the same slot. Nested
 // quantized values that come out identical keep the previous object, and
-// snapshotFromRecords reuses the whole entry when every group compares
-// equal, so unchanged actors cost the encoder one identity check instead
-// of fresh objects plus per-group walks. Nested entry values are never
+// the whole entry is reused when every group compares equal, so unchanged
+// actors cost the encoder one identity check instead of fresh objects plus
+// per-group walks. Nested entry values are never
 // mutated after capture (codec readers replace them), so sharing is safe.
 function mountEntry(mount) {
   return mount ? { slot: mount.slot, tilt: angleCode(mount.tilt), roll: angleCode(mount.roll),
@@ -53,67 +63,90 @@ function sameMount(mount, prev) {
     && prev.walkPhase === mount.walkPhase && prev.walkBlend === mount.walkBlend
     && prev.seats.length === mount.seats.length && mount.seats.every((s, i) => prev.seats[i][0] === s[0] && prev.seats[i][1] === s[1]);
 }
-// Builds the entry and reports whether every field matches `previous`
-// exactly. Equality is decided at construction, where the comparisons
-// already happen, instead of a second per-group walk after the fact.
-function buildEntry(record, { bounds = DEFAULT_SNAPSHOT_BOUNDS, mount = null, seatSlot = -1, seatIndex = 0, previous = null } = {}) {
-  const e = { cls: record.kind, entityId: record.id, generation: record.generation, classId: record.classId ?? 0, team: record.team ?? 0, disc: false };
-  let same = previous !== null && previous !== undefined && previous.cls === e.cls && previous.entityId === e.entityId
-    && previous.generation === e.generation && previous.classId === e.classId && previous.team === e.team;
-  if (record.kind !== 'turret') {
-    // Quantize once; keep the previous array/object when the codes match.
-    const pos = quantizePosition(record.position ?? [0, 0, 0], bounds);
-    if (previous?.pos && pos[0] === previous.pos[0] && pos[1] === previous.pos[1] && pos[2] === previous.pos[2]) e.pos = previous.pos; else { e.pos = pos; same = false; }
-    // An item's velocity always goes at 1/32 m/s: a page flies a thrown
-    // item on from its records (network-entity-items.js), and 0.25 m/s
-    // steps would round a slow slide to rest.
-    const vel = quantizeVelocity(record.velocity ?? [0, 0, 0], record.kind === 'item');
-    if (previous?.vel && vel.wide === previous.vel.wide && vel.v[0] === previous.vel.v[0] && vel.v[1] === previous.vel.v[1] && vel.v[2] === previous.vel.v[2]) e.vel = previous.vel; else { e.vel = vel; same = false; }
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const NO_MOTION = Object.freeze([0, 0, 0]);
+// The entry for `record`, equality with `previous` decided where the
+// comparisons happen anyway. When every value matches and `previous` carries
+// no discontinuity (its disc described its own arrival and must not stick to
+// this snapshot), `previous` itself is the entry and nothing is allocated:
+// snapshotFromRecords' disc checks could find nothing on it. Otherwise a
+// fresh entry, each class's fields in one literal (snapshotFromRecords then
+// sets its disc). The quantization is snapshot-codec.js's quantize* written
+// out for the three-element arrays records carry.
+function buildEntry(record, bounds, mount, seatSlot, seatIndex, previous) {
+  const kind = record.kind, prev = previous ?? null;
+  if (kind === 'turret') {
+    const classId = record.building, team = record.team ?? 0, health = record.health, state = TURRET_STATES.indexOf(record.state);
+    const yaw = angleCode(record.yaw), pitch = angleCode(record.pitch), gunYaw = angleCode(record.gunYaw), gunPitch = angleCode(record.gunPitch);
+    if (prev !== null && !prev.disc && prev.cls === kind && prev.entityId === record.id && prev.generation === record.generation && prev.classId === classId
+      && prev.yaw === yaw && prev.pitch === pitch && prev.gunYaw === gunYaw && prev.gunPitch === gunPitch && prev.health === health && prev.state === state && prev.team === team) return prev;
+    return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, yaw, pitch, gunYaw, gunPitch, health, state };
   }
-  if (record.kind === 'soldier' || record.kind === 'droideka') {
-    Object.assign(e, { yaw: quantizeYaw(record.yaw), pitch: quantizePitch(record.pitch), health: record.health,
-      posture: record.posture & 3, charge: record.charge ?? 0, state: record.state, weapon: record.weapon,
-      seatSlot, seatIndex, fireCounter: (record.fireCounter ?? 0) & 0xff });
-    same &&= e.yaw === previous.yaw && e.pitch === previous.pitch && e.health === previous.health && e.posture === previous.posture
-      && e.state === previous.state && e.weapon === previous.weapon && e.seatSlot === previous.seatSlot && e.seatIndex === previous.seatIndex
-      && e.fireCounter === previous.fireCounter;
-    if (record.kind === 'droideka') { delete e.charge; Object.assign(e, { mode: record.mode, reverse: record.reverse, dead: record.dead, shieldOn: record.shieldOn,
-      anim: previous?.anim && previous.anim[0] === record.time && previous.anim[1] === record.roll && previous.anim[2] === record.lean && previous.anim[3] === record.legs && previous.anim[4] === record.shield
-        ? previous.anim : [record.time, record.roll, record.lean, record.legs, record.shield] });
-      same &&= e.mode === previous.mode && e.reverse === previous.reverse && e.dead === previous.dead && e.shieldOn === previous.shieldOn && e.anim === previous.anim;
-    } else same &&= e.charge === previous.charge;
-  } else if (record.kind === 'vehicle') {
+  const classId = record.classId ?? 0, team = record.team ?? 0;
+  let same = prev !== null && prev.cls === kind && prev.entityId === record.id && prev.generation === record.generation && prev.classId === classId && prev.team === team;
+  // Quantize once; keep the previous array/object when the codes match.
+  const p = record.position ?? NO_MOTION;
+  const x = clamp(Math.round((p[0] - bounds.xMin) / bounds.xExtent * 65535), 0, 65535);
+  const y = clamp(Math.round((p[1] - bounds.yMin) / bounds.yExtent * 65535), 0, 65535);
+  const z = clamp(Math.round((p[2] - bounds.zMin) / bounds.zExtent * 65535), 0, 65535);
+  let pos = prev?.pos;
+  if (!(pos && x === pos[0] && y === pos[1] && z === pos[2])) { pos = [x, y, z]; same = false; }
+  // An item's velocity always goes at 1/32 m/s: a page flies a thrown
+  // item on from its records (network-entity-items.js), and 0.25 m/s
+  // steps would round a slow slide to rest.
+  const v = record.velocity ?? NO_MOTION, v0 = v[0], v1 = v[1], v2 = v[2];
+  const wide = kind === 'item' || !(Number.isFinite(v0) && Math.abs(v0) <= 31.75 && Number.isFinite(v1) && Math.abs(v1) <= 31.75 && Number.isFinite(v2) && Math.abs(v2) <= 31.75);
+  const c0 = wide ? clamp(Math.round(v0 * 32), -32767, 32767) : clamp(Math.round(v0 / 0.25), -127, 127);
+  const c1 = wide ? clamp(Math.round(v1 * 32), -32767, 32767) : clamp(Math.round(v1 / 0.25), -127, 127);
+  const c2 = wide ? clamp(Math.round(v2 * 32), -32767, 32767) : clamp(Math.round(v2 / 0.25), -127, 127);
+  let vel = prev?.vel;
+  if (!(vel && wide === vel.wide && c0 === vel.v[0] && c1 === vel.v[1] && c2 === vel.v[2])) { vel = { wide, v: [c0, c1, c2] }; same = false; }
+  if (kind === 'soldier' || kind === 'droideka') {
+    const yaw = quantizeYaw(record.yaw), pitch = quantizePitch(record.pitch), health = record.health, posture = record.posture & 3,
+      state = record.state, weapon = record.weapon, fireCounter = (record.fireCounter ?? 0) & 0xff;
+    same &&= yaw === prev.yaw && pitch === prev.pitch && health === prev.health && posture === prev.posture && state === prev.state
+      && weapon === prev.weapon && seatSlot === prev.seatSlot && seatIndex === prev.seatIndex && fireCounter === prev.fireCounter;
+    if (kind === 'soldier') {
+      const charge = record.charge ?? 0;
+      if (same && charge === prev.charge && !prev.disc) return prev;
+      return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, pos, vel,
+        yaw, pitch, health, posture, charge, state, weapon, seatSlot, seatIndex, fireCounter };
+    }
+    const anim = prev?.anim && prev.anim[0] === record.time && prev.anim[1] === record.roll && prev.anim[2] === record.lean && prev.anim[3] === record.legs && prev.anim[4] === record.shield
+      ? prev.anim : [record.time, record.roll, record.lean, record.legs, record.shield];
+    if (same && record.mode === prev.mode && record.reverse === prev.reverse && record.dead === prev.dead && record.shieldOn === prev.shieldOn && anim === prev.anim && !prev.disc) return prev;
+    return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, pos, vel,
+      yaw, pitch, health, posture, state, weapon, seatSlot, seatIndex, fireCounter, mode: record.mode, reverse: record.reverse, dead: record.dead, shieldOn: record.shieldOn, anim };
+  }
+  if (kind === 'vehicle') {
     const quat = quantizeQuaternion(record.quaternion), mountValue = mountEntry(mount);
-    const quatSame = previous?.quat && quat.index === previous.quat.index && quat.v[0] === previous.quat.v[0] && quat.v[1] === previous.quat.v[1] && quat.v[2] === previous.quat.v[2];
-    const mountSame = previous !== null && previous !== undefined && sameMount(mountValue, previous.mount);
-    Object.assign(e, { quat: quatSame ? previous.quat : quat,
-      health: record.health, state: record.state, power: record.power,
-      fireCounter: (record.fireCounter ?? 0) & 0xff,
-      mount: mountSame ? previous.mount : mountValue });
-    same &&= !!quatSame && mountSame && e.health === previous.health && e.state === previous.state && e.power === previous.power && e.fireCounter === previous.fireCounter;
-  } else if (record.kind === 'turret') {
-    e.classId = record.building;
-    Object.assign(e, { yaw: angleCode(record.yaw), pitch: angleCode(record.pitch), gunYaw: angleCode(record.gunYaw), gunPitch: angleCode(record.gunPitch),
-      health: record.health, state: TURRET_STATES.indexOf(record.state) });
-    same = previous !== null && previous !== undefined && previous.cls === e.cls && previous.entityId === e.entityId && previous.generation === e.generation
-      && previous.classId === e.classId && e.yaw === previous.yaw && e.pitch === previous.pitch && e.gunYaw === previous.gunYaw && e.gunPitch === previous.gunPitch
-      && e.health === previous.health && e.state === previous.state && e.team === previous.team;
-  } else if (record.kind === 'item') {
+    const quatSame = prev?.quat && quat.index === prev.quat.index && quat.v[0] === prev.quat.v[0] && quat.v[1] === prev.quat.v[1] && quat.v[2] === prev.quat.v[2];
+    const mountSame = prev !== null && sameMount(mountValue, prev.mount);
+    const health = record.health, state = record.state, power = record.power, fireCounter = (record.fireCounter ?? 0) & 0xff;
+    if (same && quatSame && mountSame && health === prev.health && state === prev.state && power === prev.power && fireCounter === prev.fireCounter && !prev.disc) return prev;
+    return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, pos, vel,
+      quat: quatSame ? prev.quat : quat, health, state, power, fireCounter, mount: mountSame ? prev.mount : mountValue };
+  }
+  if (kind === 'item') {
     const up = record.up ?? [0, 1, 0];
-    const upSame = previous?.up !== undefined && up.every((x, i) => previous.up[i] === Math.max(-32767, Math.min(32767, Math.round(x * 32767))));
-    Object.assign(e, { yaw: quantizeYaw(record.yaw ?? 0), active: record.active, definitionId: record.definitionId ?? 0,
-      up: upSame ? previous.up : up.map(x => Math.max(-32767, Math.min(32767, Math.round(x * 32767)))) });
-    same &&= upSame && e.yaw === previous.yaw && e.active === previous.active && e.definitionId === previous.definitionId;
-  } else if (record.kind === 'remote') {
-    Object.assign(e, { yaw: quantizeYaw(record.yaw ?? 0), pitch: quantizePitch(record.pitch ?? 0), active: record.active, definitionId: record.definitionId ?? 0, health: record.health ?? 0 });
-    same &&= e.yaw === previous.yaw && e.pitch === previous.pitch && e.active === previous.active && e.definitionId === previous.definitionId && e.health === previous.health;
-  } else throw Error(`snapshot entry from ${record.kind} record`);
-  return { entry: e, same };
+    const upSame = prev?.up !== undefined && up.every((x, i) => prev.up[i] === Math.max(-32767, Math.min(32767, Math.round(x * 32767))));
+    const yaw = quantizeYaw(record.yaw ?? 0), active = record.active, definitionId = record.definitionId ?? 0;
+    if (same && upSame && yaw === prev.yaw && active === prev.active && definitionId === prev.definitionId && !prev.disc) return prev;
+    return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, pos, vel,
+      yaw, active, definitionId, up: upSame ? prev.up : up.map(x => Math.max(-32767, Math.min(32767, Math.round(x * 32767)))) };
+  }
+  if (kind === 'remote') {
+    const yaw = quantizeYaw(record.yaw ?? 0), pitch = quantizePitch(record.pitch ?? 0), active = record.active, definitionId = record.definitionId ?? 0, health = record.health ?? 0;
+    if (same && yaw === prev.yaw && pitch === prev.pitch && active === prev.active && definitionId === prev.definitionId && health === prev.health && !prev.disc) return prev;
+    return { cls: kind, entityId: record.id, generation: record.generation, classId, team, disc: false, pos, vel, yaw, pitch, active, definitionId, health };
+  }
+  throw Error(`snapshot entry from ${record.kind} record`);
 }
-export function entryFromRecord(record, options = {}) { return buildEntry(record, options).entry; }
-// Whole-entry reuse also needs a clear disc on both sides: the previous
-// entry's disc described its own arrival and must not stick to this snapshot.
-const reusableEntry = (built, before) => built.same && !built.entry.disc && !before.disc;
+// A fresh entry, even when every value matches `previous`.
+export function entryFromRecord(record, { bounds = DEFAULT_SNAPSHOT_BOUNDS, mount = null, seatSlot = -1, seatIndex = 0, previous = null } = {}) {
+  const entry = buildEntry(record, bounds, mount, seatSlot, seatIndex, previous);
+  return entry === previous ? { ...previous } : entry;
+}
 export function recordFromEntry(entry, tick, bounds = DEFAULT_SNAPSHOT_BOUNDS) {
   const base = { kind: entry.cls, id: entry.entityId, generation: entry.generation, tick, classId: entry.classId, team: entry.team };
   if (entry.cls === 'turret') { delete base.classId; return { ...base, building: entry.classId, state: TURRET_STATES[entry.state],
@@ -154,32 +187,34 @@ export function snapshotFromRecords({ tick, epoch = 1, records, worldRecords = [
   const mounts = new Map(), seats = new Map();
   for (const r of records) { if (r.kind === 'mount') mounts.set(r.id, r); else if (r.kind === 'seat') seats.set(r.id, r); }
   const byId = new Map();
-  for (const r of records) if (r.kind === 'vehicle') byId.set(r.id, slots.assign(unitKey(r.id), r.id));
+  for (const r of records) if (r.kind === 'vehicle') byId.set(r.id, slots.assignUnit(r.id));
+  const previousSlots = previous?.slots;
   for (const r of records) {
-    if (r.kind === 'tombstone') { slots.releaseUnit(r.id); continue; }
-    if (r.kind === 'vehicle' || r.kind === 'soldier' || r.kind === 'droideka' || r.kind === 'turret') {
-      const slot = byId.get(r.id) ?? slots.assign(unitKey(r.id), r.id);
+    const kind = r.kind;
+    if (kind === 'tombstone') { slots.releaseUnit(r.id); continue; }
+    if (kind === 'vehicle' || kind === 'soldier' || kind === 'droideka' || kind === 'turret') {
+      const slot = byId.get(r.id) ?? slots.assignUnit(r.id);
       const seat = seats.get(r.id);
       const seatSlot = seat?.vehicleId ? slots.slotForUnit(seat.vehicleId) : -1;
-      const before = previous?.slots.get(slot);
-      const built = buildEntry(r, { bounds, mount: mounts.get(r.id), seatSlot: seatSlot >= 0 ? seatSlot : -1, seatIndex: seat?.seatIndex ?? 0, previous: before });
-      const entry = built.entry;
-      if (before && before.generation === entry.generation && before.cls === entry.cls && entry.seatSlot !== undefined && before.seatSlot !== entry.seatSlot) entry.disc = true;
-      if (before && before.generation === entry.generation && before.cls === entry.cls && entry.pos && before.pos) {
-        const gap = Math.max(1 / 60, (tick - previous.tick) / 60);
-        const v = dequantizeVelocity(entry.vel);
-        const allowance = 3 + Math.max(entry.cls === 'vehicle' ? 60 : 12, Math.hypot(v[0], v[1], v[2])) * gap;
-        const dx = (entry.pos[0] - before.pos[0]) * bounds.xExtent / 65535;
-        const dy = (entry.pos[1] - before.pos[1]) * bounds.yExtent / 65535;
-        const dz = (entry.pos[2] - before.pos[2]) * bounds.zExtent / 65535;
-        entry.disc = entry.disc || Math.hypot(dx, dy, dz) > allowance;
+      const before = previousSlots?.get(slot);
+      const entry = buildEntry(r, bounds, mounts.get(r.id), seatSlot >= 0 ? seatSlot : -1, seat?.seatIndex ?? 0, before);
+      if (entry !== before && before && before.generation === entry.generation && before.cls === entry.cls) {
+        if (entry.seatSlot !== undefined && before.seatSlot !== entry.seatSlot) entry.disc = true;
+        if (entry.pos && before.pos) {
+          const gap = Math.max(1 / 60, (tick - previous.tick) / 60);
+          // dequantizeVelocity's values, unallocated.
+          const v = entry.vel.v, speed = entry.vel.wide ? Math.hypot(v[0] / 32, v[1] / 32, v[2] / 32) : Math.hypot(v[0] * 0.25, v[1] * 0.25, v[2] * 0.25);
+          const allowance = 3 + Math.max(entry.cls === 'vehicle' ? 60 : 12, speed) * gap;
+          const dx = (entry.pos[0] - before.pos[0]) * bounds.xExtent / 65535;
+          const dy = (entry.pos[1] - before.pos[1]) * bounds.yExtent / 65535;
+          const dz = (entry.pos[2] - before.pos[2]) * bounds.zExtent / 65535;
+          entry.disc = entry.disc || Math.hypot(dx, dy, dz) > allowance;
+        }
       }
-      snapshot.slots.set(slot, before && reusableEntry(built, before) ? before : entry);
-    } else if (r.kind === 'item' || r.kind === 'remote') {
-      const slot = slots.assign(r.kind === 'item' ? itemKey(r.id) : remoteKey(r.id));
-      const before = previous?.slots.get(slot);
-      const built = buildEntry(r, { bounds, previous: before });
-      snapshot.slots.set(slot, before && reusableEntry(built, before) ? before : built.entry);
+      snapshot.slots.set(slot, entry);
+    } else if (kind === 'item' || kind === 'remote') {
+      const slot = slots.assign(kind === 'item' ? itemKey(r.id) : remoteKey(r.id));
+      snapshot.slots.set(slot, buildEntry(r, bounds, null, -1, 0, previousSlots?.get(slot)));
     }
   }
   if (world) snapshot.world = world;

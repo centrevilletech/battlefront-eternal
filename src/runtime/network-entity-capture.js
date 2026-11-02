@@ -16,10 +16,12 @@ const boundedHealth=value=>{if(!Number.isFinite(value)||value>65535)throw Error(
 const required=(map,name)=>{const id=map.get(name);if(id===undefined)throw Error(`entity registry missing ${name}`);return id;};
 export function captureEntitySoldier(unit,{tick,classId,weaponId=0,fireCounter=0}){
  const s=unit.soldier,state=unit.dead?(s.air==='thrown'?'thrownDead':'dead'):s.dive?(s.dive>0?'diveRight':'diveLeft'):s.air||'ground';
- return {kind:'soldier',id:unit.id,generation:unit.generation,tick,classId,team:unit.team,position:s.position.toArray(),velocity:s.velocity.toArray(),yaw:s.aimYaw,pitch:s.aimPitch,health:boundedHealth(unit.combat.health),posture:enumerate(ENTITY_POSTURES,s.posture),state:enumerate(ENTITY_SOLDIER_STATES,state),weapon:weaponId,fireCounter,charge:unit.dead?0:chargeStep(unit.combat.arsenal?.current(0))};
+ const p=s.position,v=s.velocity;
+ return {kind:'soldier',id:unit.id,generation:unit.generation,tick,classId,team:unit.team,position:[p.x,p.y,p.z],velocity:[v.x,v.y,v.z],yaw:s.aimYaw,pitch:s.aimPitch,health:boundedHealth(unit.combat.health),posture:enumerate(ENTITY_POSTURES,s.posture),state:enumerate(ENTITY_SOLDIER_STATES,state),weapon:weaponId,fireCounter,charge:unit.dead?0:chargeStep(unit.combat.arsenal?.current(0))};
 }
 export function captureEntityVehicle(vehicle,{tick,classId}){
- return {kind:'vehicle',id:vehicle.aiTarget.id,generation:vehicle.aiTarget.generation,tick,classId,team:vehicle.team,position:vehicle.position.toArray(),velocity:vehicle.velocity.toArray(),quaternion:vehicle.quaternion.toArray(),health:boundedHealth(vehicle.health),state:enumerate(ENTITY_VEHICLE_STATES,vehicle.dying>0?'Dying':vehicle.flightState||'Ground'),
+ const p=vehicle.position,v=vehicle.velocity;
+ return {kind:'vehicle',id:vehicle.aiTarget.id,generation:vehicle.aiTarget.generation,tick,classId,team:vehicle.team,position:[p.x,p.y,p.z],velocity:[v.x,v.y,v.z],quaternion:vehicle.quaternion.toArray(),health:boundedHealth(vehicle.health),state:enumerate(ENTITY_VEHICLE_STATES,vehicle.dying>0?'Dying':vehicle.flightState||'Ground'),
   power:vehicle.dying>0?Math.min(65535,Math.ceil(vehicle.dying*1000)):Math.round(vehicle.power||0)};
 }
 // A hull's crew pose: the lean its physics gave it, the walk cycle a walker is
@@ -49,9 +51,13 @@ export class EntityWorldCapture {
    live.set(unit.id,record);records.push(record);
    // A seat names its mount by registry id: a hull or a stationary turret.
    // The same lease record covers both; the client resolves the id.
-   const lease=unit.seat,mount=(lease?.vehicle||lease?.turret)?.aiTarget||null;
-   const signature=`${unit.generation}:${mount?.id||0}:${mount?.generation||0}:${lease?.index||0}`,old=this.seats.get(unit.id);
-   if(mount||old){if(old?.signature!==signature)this.seats.set(unit.id,{signature,record:{kind:'seat',id:unit.id,generation:unit.generation,tick,vehicleId:mount?.id||0,vehicleGeneration:mount?.generation||0,seatIndex:lease?.index||0,leaseVersion:++this.leaseSerial}});records.push(this.seats.get(unit.id).record);}
+   // A new record (and lease version) only when the lease changed.
+   const lease=unit.seat,mount=(lease?.vehicle||lease?.turret)?.aiTarget||null,old=this.seats.get(unit.id);
+   if(mount||old){
+    const vehicleId=mount?.id||0,vehicleGeneration=mount?.generation||0,seatIndex=lease?.index||0,held=old?.record;
+    if(!held||held.generation!==unit.generation||held.vehicleId!==vehicleId||held.vehicleGeneration!==vehicleGeneration||held.seatIndex!==seatIndex)this.seats.set(unit.id,{record:{kind:'seat',id:unit.id,generation:unit.generation,tick,vehicleId,vehicleGeneration,seatIndex,leaseVersion:++this.leaseSerial}});
+    records.push(this.seats.get(unit.id).record);
+   }
   }
   const system=this.game.vehicles;
   // A dying walker stays (its record says so); its crew pose has nothing to say.

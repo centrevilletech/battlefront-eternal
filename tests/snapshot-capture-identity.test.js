@@ -2,19 +2,140 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { encodeEntities } from '../src/runtime/snapshot-codec.js';
-import { WorldFieldStagger } from '../src/runtime/snapshot-records.js';
+import { snapshotFromRecords, SnapshotSlotTable, WorldFieldStagger } from '../src/runtime/snapshot-records.js';
 import { captureWorldPresentation } from '../src/runtime/entity-world-state.js';
 import * as reference from './fixtures/snapshot-capture-reference.js';
 
 // Capture builds less than it did (no record for a station or tow the
-// stagger keeps), but every snapshot must hold exactly what the frozen
-// reference capture (fixtures/snapshot-capture-reference.js) put in it: the
-// same entries in the same slots, the same world fields in the same order,
-// so the same datagrams. A synthetic world covers the edges; a real battle,
-// when game data is present, covers everything the world does.
+// stagger keeps, no fresh entry for an unchanged actor), but every snapshot
+// must hold exactly what the frozen reference capture
+// (fixtures/snapshot-capture-reference.js) put in it: the same entries in
+// the same slots, the same world fields in the same order, so the same
+// datagrams. Synthetic battles cover the edges; a real one, when game data
+// is present, covers everything the world does.
 function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const ri = (r, lo, hi) => lo + Math.floor(r() * (hi - lo + 1));
 const pick = (r, list) => list[ri(r, 0, list.length - 1)];
+
+// Both snapshots hold the same entries (strictly: -0 is not 0) and world
+// fields, in the same world order, and encode alike against `baselines`.
+function sameSnapshot(actual, expected, baselines, label) {
+  assert.deepEqual([...actual.slots.keys()].sort((a, b) => a - b), [...expected.slots.keys()].sort((a, b) => a - b), `${label}: slots`);
+  for (const [slot, entry] of expected.slots) assert.deepStrictEqual(actual.slots.get(slot), entry, `${label}: slot ${slot}`);
+  assert.deepStrictEqual([...actual.world.keys()], [...expected.world.keys()], `${label}: world order`);
+  for (const [key, field] of expected.world) assert.deepStrictEqual(actual.world.get(key), field, `${label}: world ${key}`);
+  for (const [base, expectedBase] of baselines) {
+    const a = encodeEntities(actual, base, { interval: 1 }), b = encodeEntities(expected, expectedBase, { interval: 1 });
+    assert.deepEqual(a.map(p => Buffer.from(p).toString('hex')), b.map(p => Buffer.from(p).toString('hex')), `${label}: datagrams against ${base?.tick ?? 0}`);
+  }
+}
+const sameTable = (actual, expected, label) => {
+  assert.deepEqual([...actual.byKey], [...expected.byKey], `${label}: slot keys`);
+  assert.deepEqual([...actual.byUnitId], [...expected.byUnitId], `${label}: unit slots`);
+  assert.deepEqual([actual.free, actual.next], [expected.free, expected.next], `${label}: free slots`);
+};
+
+// The records EntityWorldCapture makes, in its order (items, remotes,
+// soldiers with their seats, vehicles with their mounts, turrets,
+// tombstones), for a battle that moves, teleports, boards, dies, respawns
+// and leaves. Values sit on and around the quantization edges.
+function recordBattle(seed, ticks) {
+  const r = rng(seed), frames = [];
+  const v3 = (scale) => [(r() - 0.5) * scale, (r() - 0.5) * scale, (r() - 0.5) * scale];
+  const soldiers = Array.from({ length: 30 }, (_, i) => ({ id: 1 + i, generation: 1, alive: true, droideka: i >= 26, position: v3(1500), velocity: v3(20), seat: null, classId: ri(r, 1, 60), team: 1 + (i % 2) }));
+  const vehicles = Array.from({ length: 5 }, (_, i) => ({ id: 100 + i, generation: 1, alive: true, position: v3(1500), velocity: v3(40), q: [0, 0, 0, 1], classId: 70 + i, team: 1 + (i % 2), seats: i + 1 }));
+  const turrets = Array.from({ length: 6 }, (_, i) => ({ id: 200 + i, generation: 1, building: i * 3, state: 'built', team: 1 + (i % 2), yaw: 0, pitch: 0, gunYaw: 0, gunPitch: 0, health: 400 }));
+  const items = Array.from({ length: 8 }, (_, i) => ({ id: i, generation: 1, active: r() < 0.5, record: null }));
+  const remotes = Array.from({ length: 3 }, (_, i) => ({ id: i, generation: 1, active: true, position: v3(1500), health: 300 }));
+  const known = new Map();
+  for (let tick = 2; tick < 2 + ticks; tick++) {
+    const records = [], live = new Map();
+    for (const item of items) {
+      if (r() < 0.03) { item.active = !item.active; if (item.active) item.generation++; item.record = null; }
+      // An unchanged item keeps its record object, as EntityItemCapture does;
+      // a changed one may differ in a single value.
+      const old = item.record?.active ? item.record : null;
+      if (!item.record || item.active && r() < 0.3) item.record = item.active
+        ? { kind: 'item', id: item.id, generation: item.generation, tick, active: true, definitionId: old && r() < 0.7 ? old.definitionId : ri(r, 1, 9), position: old && r() < 0.6 ? old.position : v3(1500),
+          velocity: r() < 0.5 ? [0, 0, 0] : v3(6), yaw: old && r() < 0.6 ? old.yaw : r() * 7 - 1, up: old && r() < 0.5 ? old.up : [r() - 0.5, r(), r() - 0.5] }
+        : { kind: 'item', id: item.id, generation: item.generation, tick, active: false };
+      records.push(item.record);
+    }
+    for (const remote of remotes) {
+      if (r() < 0.02) { remote.active = !remote.active; if (remote.active) remote.generation++; }
+      if (r() < 0.3) remote.position = v3(1500);
+      if (r() < 0.2) remote.health = ri(r, 0, 300);
+      records.push(remote.active ? { kind: 'remote', id: remote.id, generation: remote.generation, tick, active: true, definitionId: 5, team: 1, position: remote.position.slice(), velocity: [0, 0, 0], yaw: 1, pitch: 0, health: remote.health }
+        : { kind: 'remote', id: remote.id, generation: remote.generation, tick, active: false });
+    }
+    for (const s of soldiers) {
+      if (s.alive && r() < 0.01) { s.alive = false; continue; }
+      if (!s.alive) { if (r() < 0.05) { s.alive = true; s.generation++; s.position = v3(1500); } else continue; }
+      if (r() < 0.02) s.position = v3(1500); // a teleport
+      else if (r() < 0.8) s.position = s.position.map(x => x + (r() - 0.5) * 0.6);
+      // Fast, at rest, on either side of the narrow form's 31.75 m/s, or
+      // beyond any range (the wide form, clamped).
+      if (r() < 0.3) s.velocity = r() < 0.05 ? [Infinity, -Infinity, 0] : r() < 0.1 ? pick(r, [[31.75, -31.75, 31.75], [0, 31.76, 0], [0, 0, -31.76]]) : r() < 0.2 ? [0, -0, 0] : v3(r() < 0.2 ? 80 : 20);
+      if (r() < 0.04) s.seat = s.seat ? null : r() < 0.6 ? { vehicle: pick(r, vehicles), index: ri(r, 0, 2) } : { vehicle: pick(r, turrets), index: 0 };
+      const still = r() < 0.4;
+      const record = { kind: 'soldier', id: s.id, generation: s.generation, tick, classId: s.classId, team: s.team, position: s.position.slice(), velocity: s.velocity.slice(),
+        yaw: still ? s.yaw ?? 0 : (s.yaw = r() * 20 - 10), pitch: still ? s.pitch ?? 0 : (s.pitch = r() * 3 - 1.5), health: still ? s.health ?? 100 : (s.health = ri(r, 0, 300)),
+        posture: ri(r, 0, 2), state: still ? 0 : ri(r, 0, 8), weapon: still ? 3 : ri(r, 0, 9), fireCounter: s.fire = (s.fire ?? 0) + (r() < 0.2 ? 1 : 0), charge: still ? 0 : ri(r, 0, 5) };
+      if (s.droideka) {
+        // Its animation goes as f32 and is kept when equal (so 0 keeps -0).
+        const zero = r() < 0.5 ? 0 : -0;
+        Object.assign(record, { kind: 'droideka', mode: ri(r, 0, 3), reverse: r() < 0.3, dead: false, shieldOn: r() < 0.5, shield: still ? 1 : Math.fround(r()), time: still ? zero : Math.fround(r() * 3), roll: zero, lean: r() < 0.5 ? 0.25 : -0.25, legs: 1 });
+      }
+      live.set(s.id, record); records.push(record);
+      if (s.seat || s.wasSeated) {
+        const mount = s.seat ? s.seat.vehicle : null;
+        records.push({ kind: 'seat', id: s.id, generation: s.generation, tick, vehicleId: mount?.id || 0, vehicleGeneration: mount?.generation || 0, seatIndex: s.seat?.index || 0, leaseVersion: tick });
+        s.wasSeated = !!s.seat;
+      }
+    }
+    for (const v of vehicles) {
+      if (v.alive && r() < 0.005) v.alive = false;
+      else if (!v.alive && r() < 0.05) { v.alive = true; v.generation++; }
+      if (!v.alive) continue;
+      // Parked hulls keep still while their crew aims (the mount alone
+      // changes), or turn on the spot (the orientation alone).
+      const moving = r() < 0.5, turn = () => { const q = [r() - 0.5, r() - 0.5, r() - 0.5, r() - 0.5], n = Math.hypot(...q); v.q = q.map(x => x / n); };
+      if (moving) { v.position = v.position.map(x => x + (r() - 0.5) * 2); turn(); } else if (r() < 0.2) turn();
+      if (r() < 0.05) v.health = ri(r, 0, 2000);
+      const record = { kind: 'vehicle', id: v.id, generation: v.generation, tick, classId: v.classId, team: v.team, position: v.position.slice(), velocity: moving ? v3(60) : [0, 0, 0], quaternion: v.q.slice(), health: v.health ?? 900, state: 5, power: 100 };
+      live.set(v.id, record); records.push(record);
+      if (!v.mount || r() < 0.3) v.mount = { slot: r() < 0.5 ? 2 : null, tilt: r() < 0.5 ? 0 : r() - 0.5, roll: 0, walkPhase: r() * 70, walkBlend: r() * 1.2, seats: Array.from({ length: v.seats }, () => ({ yaw: r() < 0.5 ? 0 : r() * 6, pitch: 0 })) };
+      records.push({ kind: 'mount', id: v.id, generation: v.generation, tick, ...v.mount });
+    }
+    for (const t of turrets) {
+      if (r() < 0.2) { t.yaw = r() * 6 - 3; t.gunPitch = r() - 0.5; }
+      if (r() < 0.02) t.state = pick(r, ['built', 'destroyed', 'unbuilt']);
+      if (r() < 0.01) t.team = 3 - t.team;
+      records.push({ kind: 'turret', id: t.id, generation: t.generation, tick, building: t.building, state: t.state, team: t.team, health: t.health, yaw: t.yaw, pitch: t.pitch, gunYaw: t.gunYaw, gunPitch: t.gunPitch });
+    }
+    for (const [id, old] of known) if (!live.has(id)) { const tombstone = old.kind === 'tombstone' ? old : { kind: 'tombstone', id, generation: old.generation, tick }; records.push(tombstone); live.set(id, tombstone); }
+    known.clear(); for (const [id, record] of live) known.set(id, record);
+    frames.push({ tick, records });
+  }
+  return frames;
+}
+
+test('snapshot entries: the same entries as the reference capture, through deaths, seats, slot reuse and teleports', () => {
+  for (const seed of [1, 2, 3]) {
+    const tables = [new SnapshotSlotTable(), new reference.SnapshotSlotTable()];
+    const ours = [], theirs = [];
+    for (const { tick, records } of recordBattle(seed, 400)) {
+      const actual = snapshotFromRecords({ tick, records, slots: tables[0], previous: ours.at(-1) ?? null });
+      const expected = reference.snapshotFromRecords({ tick, records, slots: tables[1], previous: theirs.at(-1) ?? null });
+      const label = `seed ${seed} tick ${tick}`;
+      sameSnapshot(actual, expected, [[null, null], ...[1, 3].filter(n => ours.length >= n).map(n => [ours.at(-n), theirs.at(-n)])], label);
+      sameTable(tables[0], tables[1], label);
+      // An unchanged actor is the previous entry itself (the encoder skips it).
+      for (const [slot, entry] of actual.slots) if (expected.slots.get(slot) === theirs.at(-1)?.slots.get(slot)) assert.equal(entry, ours.at(-1).slots.get(slot), `${label}: slot ${slot} reused`);
+      ours.push(actual); theirs.push(expected);
+    }
+  }
+});
 
 // A world of stations, tows, a creature and a trap whose values change on
 // and off the stagger's cadence, including values a JSON round trip alters

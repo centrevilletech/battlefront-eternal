@@ -20,7 +20,7 @@ export class EntityItemCapture {
    if(slot.bytes&&bytes.length===slot.bytes.length&&bytes.every((value,i)=>i>=9&&i<=12||value===slot.bytes[i]))continue;
    slot.record=record;slot.bytes=bytes;
   }
-  return this.slots.flatMap(slot=>slot.record?[slot.record]:[]);
+  const records=[];for(const slot of this.slots)if(slot.record)records.push(slot.record);return records;
  }
 }
 
