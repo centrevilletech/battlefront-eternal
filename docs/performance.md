@@ -691,6 +691,91 @@ hypots would need V8's last bits; its iteration and sort orders would have to
 be kept; and the page's prediction, which runs the same soldier and hull code,
 would need the same module.
 
+## The battle renderer in Rust
+
+Behind `?rust`, `rust/bfe-render` (Rust compiled to WebAssembly, built by
+`npm run rust:web` into `src/rust-pkg/`) draws part of the near scene inside
+three.js's own pass, on the same WebGL2 context: the map's opaque buckets,
+then every visible soldier's body and the guns in his hand, instanced, with
+programs made from the GLSL three compiled for them. `?rustRigs` adds
+vehicles' and props' skinned rigs. Three.js draws everything else, and
+everything in a configuration the renderer does not cover (shadows, lamp
+lighting, the temporal upscaler). `?rustOff` loads it switched off,
+`?rustSort` orders the map's buckets by program rather than as three does,
+and `?rustRecord` keeps every call made to it, so that `rust/bfe-native` can
+replay the scene natively.
+
+### Passes and phases
+
+The renderer is made of passes, a module each on both sides of the
+boundary, so that each part of the frame can move to it on its own:
+
+| Pass | Rust (`rust/bfe-render/src`) | Page (`src/rust-render`) | Phase | Draws |
+| --- | --- | --- | --- | --- |
+| World | `world.rs` | `world.js` | near | The map's opaque buckets |
+| Instances | `instances.rs` | `instances.js` | near | Soldiers' bodies, held guns, rigs |
+| Far | `far.rs` | `far.js` | far | Nothing yet (the far scene) |
+| Terrain | `terrain.rs` | `terrain.js` | near | Nothing yet (terrain patches and painted layers) |
+| Transparent | `transparent.rs` | `transparent.js` | transparent | Nothing yet (what the near scene blends) |
+| Effects | `effects.rs` | `effects.js` | transparent | Nothing yet (bolts, flashes, particles, debris, lightning) |
+| Foliage | `foliage.rs` | `foliage.js` | near | Nothing yet |
+| View | `view.rs` | `view.js` | view | Nothing yet (the first-person weapon) |
+| Post | `post.rs` | `post.js` | post | Nothing yet (composite, FXAA, upscale) |
+
+`core.rs` holds what the passes share: the context and its multi-draw, the
+programs, geometries and textures, the inputs the page writes each frame, a
+frame block (one uniform buffer) for each view (near, far, first person and
+a spare), and the GL state the passes leave behind them (`GlState`), which
+is unknown at the start of each phase since three draws in between. A
+phase is one call from the page that draws its passes in order: `far_frame`,
+`frame` (the near phase), `transparent_frame`, `view_frame` and
+`post_frame`. Each returns its stats: the five counts the page has always
+read (world draws, instanced draws, instances, program switches, GL calls),
+then each pass's draws in the table's order. Only the near phase is called
+so far, from the far scene's image (`graphics.background`'s
+`onAfterRender`) at the start of the near scene's pass.
+
+On the page, `src/rust-render/index.js` loads the module and keeps the
+registry. `addPass({ name, phase, register, draw, setActive, restore })`
+adds a pass to its phase, and `phase(name, renderer, scene, camera)` writes
+the frame block for the phase's view, runs its passes' `draw(ctx)` in order
+(each registers what three has drawn once, so its material has a program,
+and writes its records), makes the phase's call, then resets three's state
+and binds back the target three was drawing into. A pass keeps its own typed
+views of the module's memory (`addView`), made again whenever the memory
+grows. A pass that must draw at a point inside three's render lists, such as
+the start of the transparent list, can put an anchor there (`anchor`): a
+mesh three draws with no fragments whose `onAfterRender` calls back.
+
+### The same frame
+
+Splitting the renderer and its page side into passes changed nothing they
+draw or call. Against the commit before the split:
+
+- The module alone. Two scenes recorded with `?rustRecord` on Kashyyyk
+  Docks with `?rustRigs` (1,082 registration calls and 120 frames of inputs
+  each) were replayed under Node into the module from before the split and
+  from after it, against a stand-in WebGL2 context that logs every call with
+  its arguments and a hash of any data it is given. Apart from the three
+  frame blocks the new core makes as it starts, both made the same calls:
+  62,152 and 62,171 of them (4,979 draws in the first), with the same data,
+  and the same stats in every frame.
+- The page side and the module together. A test build carried both, from
+  before the split and from after it, made fresh at the same moment in one
+  battle on the emulator (SwiftShader, 800x600, 2x multisampling), and each
+  drew the same frames in turn at points of a walk. On Theed and Kashyyyk
+  Docks, with `?rust` and with `?rust&rustRigs`, the near scene's image and
+  the screen were the same to the pixel at every point, and so were the
+  stats and the WebGL calls, but for the GPU profiler's timer queries, which
+  depend on when the GPU finishes. Whichever side drew first after frames
+  three drew alone posed a few soldiers slightly differently than in later
+  frames; drawing in a later turn, the new code matched the old call for
+  call, the instance rows and bones it uploads included.
+- Without `?rust`, builds from before and after the split drew the same
+  pixels at the same points of the same seeded battles, but for a few
+  hundred pixels of flickering flames on Kashyyyk Docks, which differed as
+  much between two runs of the build from before.
+
 ## His controls on a slow CPU
 
 His own controls run on the input clock (`src/runtime/reconcile.js`): a

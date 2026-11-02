@@ -1,5 +1,16 @@
+pub mod core;
+pub mod effects;
+pub mod far;
+pub mod foliage;
+pub mod instances;
+pub mod lights;
 pub mod math;
+pub mod post;
 pub mod renderer;
 pub mod shader;
+pub mod terrain;
+pub mod transparent;
+pub mod view;
 #[cfg(target_arch = "wasm32")]
 pub mod web;
+pub mod world;

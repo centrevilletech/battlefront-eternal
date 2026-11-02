@@ -5,7 +5,8 @@
 // threads too). The same code the page runs in WASM, without the browser.
 //
 // env: W, H (framebuffer, default 1600x900), SAMPLES (default 2), SECS (20).
-use bfe_render::renderer::{MultiDraw, Renderer};
+use bfe_render::core::MultiDraw;
+use bfe_render::renderer::Renderer;
 use bfe_render::shader::Kind;
 use glow::HasContext;
 use glutin::api::egl::{device::Device, display::Display};
@@ -126,28 +127,28 @@ fn main() {
         match name {
             "add_texture" => {
                 let (id, t) = created.iter().find(|(id, _)| *id == texture_next).copied().expect("texture");
-                assert_eq!(r.add_texture(t) as usize, id);
+                assert_eq!(r.core.add_texture(t) as usize, id);
                 texture_next += 1;
             }
-            "set_far_map" => r.set_far_map(n(0) as u32),
+            "set_far_map" => r.core.set_far_map(n(0) as u32),
             "add_program" => {
                 let kind = match n(0) as u32 { 1 => Kind::Skinned, 2 => Kind::Rigid, _ => Kind::World };
                 let attrs: Vec<(String, u32)> = a[3].as_str().unwrap().split(',').filter(|s| !s.is_empty())
                     .map(|s| { let (k, v) = s.split_once(':').unwrap(); (k.to_string(), v.parse().unwrap()) }).collect();
                 let uniforms: Vec<String> = a[4].as_str().unwrap().split(',').filter(|s| !s.is_empty()).map(String::from).collect();
-                let id = r.add_program(kind, a[1].as_str().unwrap(), a[2].as_str().unwrap(), &attrs, &uniforms).unwrap_or_else(|e| panic!("program: {e}"));
+                let id = r.core.add_program(kind, a[1].as_str().unwrap(), a[2].as_str().unwrap(), &attrs, &uniforms).unwrap_or_else(|e| panic!("program: {e}"));
                 assert_eq!(id as f64, call[2].as_f64().unwrap());
             }
-            "add_geometry" => { r.add_geometry(); }
-            "geometry_buffer" => { r.geometry_buffer(n(0) as u32, &cast(b(1), 1)); }
-            "geometry_pointer" => r.geometry_pointer(n(0) as u32, n(1) as u32, n(2) as u32, n(3) as i32, n(4) as u32, a[5].as_bool().unwrap(), n(6) as i32, n(7) as i32),
-            "geometry_index" => r.geometry_index(n(0) as u32, b(1), n(2) as u32),
-            "geometry_group" => r.geometry_group(n(0) as u32, n(1) as i32, n(2) as i32),
-            "add_world" => { r.add_world(n(0) as u32, n(1) as u32, n(2) as u32, n(3) as u32, &f64s(b(4))); }
-            "world_texture" => r.world_texture(n(0) as u32, n(1) as u32, n(2) as u32),
-            "world_uniform" => { r.world_uniform(n(0) as u32, a[1].as_str().unwrap(), &f32s(b(2)), a[3].as_bool().unwrap()); }
-            "world_cells" => r.world_cells(n(0) as u32, &f32s(b(1)), &u32s(b(2)), n(3)),
-            "sort" => r.sort(a[0].as_bool().unwrap()),
+            "add_geometry" => { r.core.add_geometry(); }
+            "geometry_buffer" => { r.core.geometry_buffer(n(0) as u32, &cast(b(1), 1)); }
+            "geometry_pointer" => r.core.geometry_pointer(n(0) as u32, n(1) as u32, n(2) as u32, n(3) as i32, n(4) as u32, a[5].as_bool().unwrap(), n(6) as i32, n(7) as i32),
+            "geometry_index" => r.core.geometry_index(n(0) as u32, b(1), n(2) as u32),
+            "geometry_group" => r.core.geometry_group(n(0) as u32, n(1) as i32, n(2) as i32),
+            "add_world" => { r.world.add_world(n(0) as u32, n(1) as u32, n(2) as u32, n(3) as u32, &f64s(b(4))); }
+            "world_texture" => r.world.world_texture(&r.core, n(0) as u32, n(1) as u32, n(2) as u32),
+            "world_uniform" => { r.world.world_uniform(&r.core, n(0) as u32, a[1].as_str().unwrap(), &f32s(b(2)), a[3].as_bool().unwrap()); }
+            "world_cells" => r.world.world_cells(n(0) as u32, &f32s(b(1)), &u32s(b(2)), n(3)),
+            "sort" => r.world.sort(a[0].as_bool().unwrap()),
             other => eprintln!("skipped call {other}"),
         }
     }
@@ -180,26 +181,26 @@ fn main() {
             measured_start = Instant::now();
         }
         let (records, input, bones) = &frames[i % frames.len()];
-        r.input[..input.len()].copy_from_slice(input);
-        r.bones[..bones.len()].copy_from_slice(bones);
+        r.core.input[..input.len()].copy_from_slice(input);
+        r.core.bones[..bones.len()].copy_from_slice(bones);
         let (t0, w0) = (thread_cpu(), Instant::now());
         unsafe {
-            r.gl.clear_color(0.2, 0.2, 0.3, 1.0);
-            r.gl.depth_mask(true);
-            r.gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
+            r.core.gl.clear_color(0.2, 0.2, 0.3, 1.0);
+            r.core.gl.depth_mask(true);
+            r.core.gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT);
         }
         let stats = r.frame(*records).unwrap();
-        unsafe { r.gl.flush() };
+        unsafe { r.core.gl.flush() };
         cpu.push(thread_cpu() - t0);
         calls += stats.gl_calls as u64;
         if std::env::var("FINISH").is_ok() {
-            unsafe { r.gl.finish() };
+            unsafe { r.core.gl.finish() };
         } else { unsafe {
-            fences.push_back(r.gl.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0).unwrap());
+            fences.push_back(r.core.gl.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0).unwrap());
             if fences.len() > 2 {
                 let f = fences.pop_front().unwrap();
-                r.gl.client_wait_sync(f, glow::SYNC_FLUSH_COMMANDS_BIT, 1_000_000_000);
-                r.gl.delete_sync(f);
+                r.core.gl.client_wait_sync(f, glow::SYNC_FLUSH_COMMANDS_BIT, 1_000_000_000);
+                r.core.gl.delete_sync(f);
             }
         } }
         wall.push(w0.elapsed().as_secs_f64() * 1e3);
@@ -211,7 +212,7 @@ fn main() {
     let stat = |v: &mut Vec<f64>| { v.sort_by(|a, b| a.partial_cmp(b).unwrap()); (v[v.len() / 2], v[v.len() * 9 / 10], v.iter().sum::<f64>() / v.len() as f64) };
     let (c50, c90, cmean) = stat(&mut cpu);
     let (w50, w90, wmean) = stat(&mut wall);
-    let last = r.stats;
+    let last = r.core.stats;
     println!("frames {} in {:.1} s ({:.0} fps), {}x{} x{} samples", i, elapsed / 1e3, i as f64 / elapsed * 1e3, w, h, samples);
     println!("last frame: world draws {}, instanced draws {}, instances {}, program switches {}, GL calls {} (mean {:.0})",
         last.world_draws, last.instance_draws, last.instances, last.program_switches, last.gl_calls, calls as f64 / i as f64);

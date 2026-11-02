@@ -90,6 +90,18 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @returns {Uint32Array}
+     */
+    far_frame() {
+        const ret = wasm.bferenderer_far_frame(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @param {number} records
      * @returns {Uint32Array}
      */
@@ -171,6 +183,18 @@ export class BfeRenderer {
         return this;
     }
     /**
+     * @returns {Uint32Array}
+     */
+    post_frame() {
+        const ret = wasm.bferenderer_post_frame(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @returns {number}
      */
     record_stride() {
@@ -195,6 +219,30 @@ export class BfeRenderer {
      */
     sort(by_program) {
         wasm.bferenderer_sort(this.__wbg_ptr, by_program);
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    transparent_frame() {
+        const ret = wasm.bferenderer_transparent_frame(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    view_frame() {
+        const ret = wasm.bferenderer_view_frame(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * @param {number} w
