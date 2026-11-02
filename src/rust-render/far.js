@@ -1,8 +1,8 @@
 // The far pass (far.rs): the far scene (graphics.farScene, seen from the
 // far camera into graphics.farTarget), drawn by the renderer in place of
-// three's render of it. graphics.js asks it first (render()); it draws the
-// frame and answers true, or answers false and three draws the frame as it
-// always has.
+// three's render of it. graphics.js asks the core to cover the far phase
+// first (index.js cover(): three's start of render, the phase, three's end);
+// when this pass drew it all, three doesn't render the far scene.
 //
 // Each frame (draw(), in the far phase) it walks the far scene as three's
 // projectObject does (what is shown, on the camera's layers) and finds each
@@ -10,10 +10,10 @@
 // material has a program (graphics.warmup compiles them at load; else three
 // draws it once first). The far terrain is one item for all its runs. When
 // every mesh three would draw is an item, the renderer clears the target as
-// three would, draws them in three's order, and the multisampled image is
-// resolved as three resolves it; else (a mesh it can't draw yet) it draws
-// nothing and three draws the frame. Nothing is hidden from three: the
-// water's mirror and the sky probe render the far scene with three too.
+// three would and draws them in three's order (complete); else (a mesh it
+// can't draw yet) it draws nothing and three draws the frame. Nothing is
+// hidden from three: the water's mirror and the sky probe render the far
+// scene with three too.
 //
 // A material that reads only the frame's shared values gets a program with
 // the frame block; any other (the water's, which keeps a time of its own) a
@@ -116,22 +116,6 @@ class FarPass {
 
   register() {
     this.core.addView("farInput", Float64Array, () => this.core.rust.far_input_ptr(), () => this.core.rust.far_input_len());
-  }
-
-  // graphics.js's far scene in place of three's render of it: what three's
-  // render does first (the scene's matrices: the sky stands around the
-  // eye), the far phase (core.phase: the frame block, this pass, the
-  // renderer's call), and what it does last (the target resolved). True
-  // when the pass drew all of it; else three renders it.
-  render(renderer, scene, camera) {
-    const core = this.core;
-    if (!this.on || !core.enabled || !core.active) return false;
-    if (scene.matrixWorldAutoUpdate === true) scene.updateMatrixWorld();
-    this.complete = false;
-    core.phase("far", renderer, scene, camera);
-    if (!this.complete || !core.enabled) return false;
-    this.resolve(renderer, renderer.getRenderTarget());
-    return true;
   }
 
   // The far phase's part: what it hasn't registered yet, then this frame's
@@ -440,22 +424,6 @@ class FarPass {
   upload(texture) {
     const renderer = this.core.renderer, properties = renderer.properties.get(texture);
     if (texture.version > 0 && properties.__version !== texture.version) renderer.initTexture(texture);
-  }
-
-  // The multisampled image resolved into the target's texture, as three's
-  // render ends (WebGLTextures.updateMultisampleRenderTarget: colour only,
-  // as the far target doesn't resolve its depth).
-  resolve(renderer, target) {
-    if (!(target?.samples > 0)) return;
-    const properties = renderer.properties.get(target), framebuffer = properties.__webglMultisampledFramebuffer;
-    if (!framebuffer) return;
-    const gl = this.core.gl, state = renderer.state, w = target.width, h = target.height;
-    state.bindFramebuffer(gl.READ_FRAMEBUFFER, framebuffer);
-    state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, properties.__webglFramebuffer);
-    gl.blitFramebuffer(0, 0, w, h, 0, 0, w, h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
-    state.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-    state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
-    state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, framebuffer);
   }
 }
 

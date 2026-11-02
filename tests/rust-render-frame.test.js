@@ -29,6 +29,8 @@ function bridge() {
     input_len() { return 200 + 76 * 8; }
     bones_ptr() { return 16384; }
     bones_len() { return 64; }
+    far_input_ptr() { return 589824; }
+    far_input_len() { return 1024; }
     records_at() { return 200; }
     record_stride() { return 76; }
     add_texture() { calls.push(["add_texture"]); return 0; }

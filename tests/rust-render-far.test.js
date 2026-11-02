@@ -112,7 +112,7 @@ test("a far scene it covers whole: the renderer clears, draws it in three's orde
   sky.position.set(5, 6, 7);
   const a = mesh("zero:lit", BUCKET, { values: values() }), b = mesh("zero:lit", BUCKET, { values: values() });
   farScene.add(b, sky, a);
-  assert.equal(far.render(renderer, farScene, camera), true);
+  assert.equal(core.cover("far", renderer, farScene, camera), true);
   assert.equal(far.mode, "full");
   // One item a mesh, each program's uniform table once.
   assert.equal(calls.filter((c) => c[0] === "far_item").length, 3);
@@ -134,7 +134,7 @@ test("a far scene it covers whole: the renderer clears, draws it in three's orde
   const sources = calls.filter((c) => c[0] === "far_source" && c[1] === far.all.find((i) => i.object === a).id);
   assert.deepEqual(sources.map((c) => c[3]), [0, 2]); // brightness (floats), map (texture)
   calls.length = 0;
-  far.render(renderer, farScene, camera);
+  core.cover("far", renderer, farScene, camera);
   assert.equal(calls.filter((c) => c[0].startsWith("far_") && c[0] !== "far_frame").length, 0);
 });
 
@@ -142,7 +142,7 @@ test("a mesh it can't draw in view: the renderer draws nothing and three the fra
   const { core, calls, renderer, farScene, camera, far } = bridge();
   const dust = mesh("dust", BUCKET, { renderOrder: 5, points: true, values: values() });
   farScene.add(mesh("zero:sky", SKY, { renderOrder: -1e9, values: values(), matrixAutoUpdate: true }), mesh("zero:lit", BUCKET, { values: values() }), dust);
-  assert.equal(far.render(renderer, farScene, camera), false);
+  assert.equal(core.cover("far", renderer, farScene, camera), false);
   assert.deepEqual([far.mode, far.threeObjects], ["three", 1]);
   core.views();
   assert.equal(core.farInput[4], 0);
@@ -153,9 +153,12 @@ test("a mesh it can't draw in view: the renderer draws nothing and three the fra
   dust.position.set(0, 0, 100);
   dust.updateMatrix();
   dust.updateMatrixWorld();
-  assert.equal(far.render(renderer, farScene, camera), true);
+  assert.equal(core.cover("far", renderer, farScene, camera), true);
+  // Off (for comparisons): the phase draws nothing, three the frame.
   far.on = false;
   calls.length = 0;
-  assert.equal(far.render(renderer, farScene, camera), false);
-  assert.deepEqual(calls, []);
+  assert.equal(core.cover("far", renderer, farScene, camera), false);
+  core.views();
+  assert.equal(core.farInput[4], 0);
+  assert.equal(calls.some((c) => c[0] === "blitFramebuffer"), false);
 });
