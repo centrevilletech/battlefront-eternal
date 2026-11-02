@@ -1,5 +1,7 @@
+import { postedItems } from './local-message-batch.js';
 // The same three session channels over one ordered worker port. State buffers
 // transfer ownership; no JSON object snapshots or alternate simulation path.
+// The world sends a step's messages as one (local-message-batch.js).
 export class LocalTransport {
   constructor({workerFactory = () => new Worker(new URL('./local-server-worker.js', import.meta.url), {type:'module'})} = {}) {
     this.workerFactory=workerFactory;this.local=true;this.path={kind:'local',rtt:0};
@@ -9,7 +11,7 @@ export class LocalTransport {
     let incoming=Promise.resolve();
     this.worker.onmessage=({data})=>{
       if(this.closed)return;
-      incoming=incoming.then(()=>receive(data.channel,data.payload)).catch(fail);
+      for(const {channel,payload} of postedItems(data))incoming=incoming.then(()=>receive(channel,payload)).catch(fail);
     };
     this.worker.onerror=event=>fail(Error(event.message || 'Local server worker failed'));
     for(const label of ['state','events','bulk'])channels.set(label,{readyState:'open',bufferedAmount:0,send:payload=>{

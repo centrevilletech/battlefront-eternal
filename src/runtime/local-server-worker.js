@@ -3,15 +3,17 @@ import { createLocalServer } from './local-server.js';
 import { contentHash } from './content-hash.js';
 import { FixedClock } from './fixed-clock.js';
 import { worldState } from './world-state.js';
+import { batchedPoster } from './local-message-batch.js';
 
 const clock=new FixedClock({maxSteps:4,budget:.05,maxDebt:8});
 let server=null,timer=null,last=0,initializing=false;
-const send=(channel,payload)=>self.postMessage({channel,payload},payload instanceof ArrayBuffer?[payload]:[]);
+// Each step's messages go to the page together, right after the step.
+const {send,flush}=batchedPoster((message,transfer)=>self.postMessage(message,transfer));
 function fail(error){clearTimeout(timer);server?.dispose();send('events',JSON.stringify({type:'gameplay-error',message:error.message}));}
 function pump(){
   if(!server?.running)return;
   try{
-    const now=performance.now();clock.advance((now-last)/1000,()=>server.step());last=now;
+    const now=performance.now();clock.advance((now-last)/1000,()=>{server.step();flush();});last=now;
     timer=setTimeout(pump,clock.debt?0:Math.max(1,(clock.dt-(clock.elapsed-clock.time))*1000));
   }catch(error){fail(error);}
 }
