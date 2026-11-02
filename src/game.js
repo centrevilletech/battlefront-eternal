@@ -42,6 +42,7 @@ import { lighting } from "./materials.js";
 import { DeathCamera, SoldierCamera, deadFov } from "./camera.js";
 import { DeathShot } from "./death-shot.js";
 import { DeathTrace } from "./death-trace.js";
+import { setAnimKernel } from "./anim.js";
 import { CollisionWorld } from "./collision.js";
 import { CommandPosts } from "./commandposts.js";
 import { Effects } from "./effects.js";
@@ -401,6 +402,13 @@ async function start() {
   // kernel with it.
   const movement = params.get("movement") === "wasm";
   const rays = params.get("rays") === "wasm" || movement ? await (await import("./ray-kernel.js")).loadRayKernel() : null;
+  // ?anim=wasm: the pose sampling in WebAssembly (src/anim-kernel.js), to
+  // the last bit as its JavaScript (the default). The page's poses only:
+  // a headless world (the local worker, a dedicated server) reads rider
+  // poses for its ticks and keeps the JavaScript, so its worlds cannot
+  // change. Poses made before this take the kernel up as they clear.
+  const anim = !headless && params.get("anim") === "wasm" ? await (await import("./anim-kernel.js")).loadAnimKernel() : null;
+  setAnimKernel(anim);
   const collision = new CollisionWorld(
     new Float32Array(collBuf),
     new Uint32Array(collIndexBuf),
@@ -3576,6 +3584,10 @@ async function start() {
   })());
   // What the load still waits on, for checks: texture URLs with requests out.
   game.texturesPending = () => [...texturesOut.keys()];
+  // The pose sampler's switch (?anim=wasm's kernel), for measuring it
+  // against the JavaScript within one battle. Poses follow it as they
+  // clear, so nothing changes mid-blend.
+  game.animWasm = (on) => setAnimKernel(on && anim ? anim : null);
   // The loading screen's last two frames: the battle is drawn under them.
   game.unveil = () => { veiled = false; };
   // The loading screen is gone: the battle starts now, not while it showed.
