@@ -2609,7 +2609,7 @@ async function start() {
       // command actually ran, against the stamp below), not from the 20 Hz
       // correction that later retires it. The stamps the lead's cap set
       // are kept apart: their lateness is the cap's (reconcile.js acknowledge).
-      commandStamps: new Map(), cappedStamps: new Set(), leadAck: 0, leadAckTick: 0, leadDropped: 0, entityReceiptAt: 0,
+      commandStamps: new Map(), cappedStamps: new Set(), leadAck: 0, leadAckTick: 0, leadDropped: 0, entityReceiptAt: 0, resumedAt: 0,
       predictionWindow: new PredictionWindow(), remoteReplay: new RemotePredictionContext(), vehicleWindow: new PredictionWindow(), continuationState: new Map(),
       vehicleSmoother: new CorrectionSmoother({ snap: 3, tau: .05 }),
       smoother: new CorrectionSmoother({ snap: 2.5, tau: .05 }), predictedTick: 0, predictedPosition: new THREE.Vector3(),
@@ -2672,11 +2672,18 @@ async function start() {
           },
           onApplied: packet => {
             const now = client.entityReceiptAt || performance.now() / 1000;
+            // A packet that came before the worker's clock went on again
+            // counts, for the input lead, as arriving when it went on: the
+            // world stood still in between (offline; a server's world runs
+            // on). Its own arrival time put the lead's estimate of the world
+            // seconds ahead, and the lead at its cap for the first second and
+            // a half of a battle and of every resume.
+            const arrived = Math.max(now, client.resumedAt);
             // A publication is up to ten datagrams with one tick. The clocks
             // measure arrival gaps once per tick, not once per datagram:
             // same-tick repeats rewrite the last arrival time and shrink the
             // next measured gap.
-            if (packet.tick > client.latest) { client.latest = packet.tick; client.playout.arrive(packet.tick,now,packet.interval); client.lead.arrive(packet.tick,now,client.leadDropped); }
+            if (packet.tick > client.latest) { client.latest = packet.tick; client.playout.arrive(packet.tick,now,packet.interval); client.lead.arrive(packet.tick,arrived,client.leadDropped); }
             if (packet.snapshotAck) client.host.setSnapshotAck(packet.snapshotAck);
           },
         });
@@ -2753,6 +2760,7 @@ async function start() {
     if (run !== client.running) {
       client.running = run;
       client.host.call(run ? "start" : "suspend").catch(() => {});
+      if (run && !params.has("network")) client.resumedAt = performance.now() / 1000;
       if (!run) {
         restorePrediction();
         game.predictedShots?.clear();
