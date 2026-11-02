@@ -15,7 +15,7 @@ import { discreteActions, predictionCommands, expireMovement } from './runtime/n
 import { commandBodyAim } from './runtime/command-body-aim.js';
 import { PredictedShots } from './runtime/predicted-shots.js';
 import { renderedViewTick } from './runtime/view-tick.js';
-import { predictVehicle } from './runtime/vehicle-prediction.js';
+import { predictVehicle, predictedExactly } from './runtime/vehicle-prediction.js';
 import { transportPosts } from './flight/spawn.js';
 import { FLIGHT_CLASSES } from './flight/config.js';
 import { flightBindings } from './flight/controls.js';
@@ -2468,7 +2468,10 @@ async function start() {
     if (driver?.active && driver.vehicle.seatIndex === 0 && !combat.dead && hullCorrected) {
       const context = { source: driver.vehicle, identity: playerUnit.id, epoch: commandHistory.epoch, generation: playerUnit.generation,
         authorityTick: worldClock.tick, pending, held: client.heldGeneration === playerUnit.generation ? client.held : [] };
-      const continuation = client.vehicleWindow.select(context);
+      // Its state for the corrected tick exactly as predicted (as it nearly
+      // always is): the prediction goes on, rather than replaying every
+      // pending tick of hull physics, every frame, to the same result.
+      const continuation = client.vehicleWindow.select(context, (checkpoint) => predictedExactly(checkpoint.state, driver.vehicle, context.authorityTick));
       client.vehiclePrediction = continuation.checkpoint && !continuation.commands.length ? continuation.checkpoint.state
         : predictVehicle(continuation.checkpoint?.state || driver.vehicle, continuation.commands, continuation.from, playerUnit.generation, continuation.held);
       if (client.vehiclePrediction) {

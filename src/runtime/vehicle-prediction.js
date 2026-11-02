@@ -1,6 +1,8 @@
 import { CommandControls } from './commands.js';
 import { replayTicks } from './reconcile.js';
 import { networkVehicleInput } from './network-vehicle.js';
+import { captureGroundCorrection } from './network-entity-ground.js';
+import { captureCompactFlight } from './network-entity-flight-compact.js';
 
 const copy = value => value?.isVector3 || value?.isQuaternion || value?.isEuler || value?.isMatrix4 ? value.clone() : value;
 const collisionViews = new WeakMap();
@@ -41,11 +43,39 @@ export function predictionVehicle(source) {
   return clone;
 }
 
+// A hull's state as the world sends it to its pilot (network-entity-player.js),
+// or null where it has none.
+export function hullState(vehicle) {
+  try { return vehicle.flying ? captureCompactFlight(vehicle) : captureGroundCorrection(vehicle); } catch { return null; }
+}
+
+// Whether the world's state for tick `tick`, restored onto `source`, is the
+// state `prediction` reached for that tick: then replaying the pending
+// commands from it would come out exactly as the prediction did (the same
+// rules on the same input), and the prediction goes on as it is.
+export function predictedExactly(prediction, source, tick) {
+  const predicted = prediction?.predictionStates?.get(tick);
+  const authority = predicted && hullState(source);
+  if (!authority || authority.length !== predicted.length) return false;
+  for (let i = 0; i < authority.length; i++) if (authority[i] !== predicted[i]) return false;
+  return true;
+}
+
+// Ticks of a prediction's history a continuation keeps: a correction can be
+// for any tick the page predicted since the last one.
+const HISTORY = 60;
+
 export function predictVehicle(source, pending, from, generation, held = []) {
   if (!source?.alive) return null;
   const vehicle = predictionVehicle(source), controls = new CommandControls();
   vehicle.predictionTick = from;
   vehicle.predictionPath = new Map();
+  vehicle.predictionStates = new Map();
+  // Continuing an earlier prediction: what it reached for each tick, so the
+  // world's state for one of them is compared against it.
+  for (const name of ['predictionPath', 'predictionStates']) {
+    if (source[name]) for (const [tick, value] of source[name]) if (tick > from - HISTORY) vehicle[name].set(tick, value);
+  }
   const enabled = source.body.enabled;
   try {
     replayTicks(pending, from, generation, held, (_tick, command) => {
@@ -61,6 +91,7 @@ export function predictVehicle(source, pending, from, generation, held = []) {
       vehicle.walkFromPhase = vehicle.walkPhase; vehicle.walkFromBlend = vehicle.walkBlend;
       vehicle.walk(1 / 60);
       vehicle.predictionPath.set(command.tick, vehicle.position.clone());
+      vehicle.predictionStates.set(command.tick, hullState(vehicle));
       vehicle.predictionTick = command.tick;
     });
   } finally { source.body.enabled = enabled; }
