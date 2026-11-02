@@ -421,3 +421,139 @@ they are paired runs' medians and only a guide to the laptop.
   declaring those two waits for a replay review.
 - Most of the step is now the Classic AI, the soldiers' own physics and the
   hulls' seats, each spread over many small functions.
+
+## His controls on a slow CPU
+
+His own controls run on the input clock (`src/runtime/reconcile.js`): a
+command for each 60 Hz tick, stamped for the world tick it should run on
+plus a margin (`InputLead`), his body predicted by replaying the commands
+the world has not acknowledged, and drawn at the clock's phase. Recorded
+frame by frame on a slow-PC emulator (four throttled cores calibrated
+against the A8-6410 laptop; Theed, medium AI, on foot, 26 to 30 FPS),
+what made them stop or lag:
+
+- **The lead pinned at its cap after the page stalled.** When the page
+  stops for a third of a second or more, the world worker's packets queue
+  up, and the browser draws the next frame before it has taken them all.
+  That frame stamped his commands from a newest tick some way behind the
+  world, the 12-tick cap held them there, and they reached the world 5 to
+  100 ticks late. Each late acknowledgement raised the extra margin by its
+  lateness: a 0.3 s stall raised it to 7 ticks, one of 0.6 s or more to
+  the cap, 12 ticks (200 ms), and offline it comes down a tick per ten
+  seconds. For about two minutes after, each correction replayed 14 ticks
+  instead of 6 or 7 (about 1 ms more of a frame while he walks), and the
+  input clock ran within a few ticks of its bound (the target plus 7): a
+  world stall of 160 ms stopped his controls for 60 to 80 ms, one of
+  240 ms for 90 to 150 ms. With the lead in place a 240 ms world stall did
+  not stop them.
+- **The first second and a half of a battle, and of every resume.**
+  Packets that came just before the worker stopped (behind the loading
+  screen, the pause menu) kept their arrival times from before, which put
+  the lead's estimate of the world seconds ahead and the lead at its cap
+  until some 60 newer packets had pushed them out.
+- **The page's own lateness read as the world's.** The lead took a
+  packet's arrival as when the page got round to it: on the emulator 16 ms
+  after the worker posted it at the median, 34 ms at the 90th percentile.
+  It read the differences as the world bunching its ticks (its arrival-gap
+  term at 0.8 of a tick, where the worker's own post times put it at
+  0.25), and stamped his commands a tick further ahead than they needed.
+- **A world that cannot keep real time.** In a busier battle (Hoth, 28 a
+  side) the emulated world ran at 87 to 94% of real time, its step 14 to
+  16 ms at the median and 21 to 24 ms at the 90th percentile. Its worker
+  gives up the ticks it cannot run but reported none to the page, so the
+  lead's estimate ran ahead of it and the lead sat at the cap much of the
+  time, the input clock at its bound 19 ticks above the newest packet:
+  it stopped whenever the packets paused (0 to 7 stops of 50 to 100 ms
+  in 90 s).
+
+With the lead where it belongs the input clock never stopped in the
+emulator's ordinary Theed recordings, where the world's longest gap
+between two ticks was 46 to 78 ms.
+
+### Changes
+
+- Lateness on a command stamped while the cap held the target
+  (`InputLead.capped`, the `capped` argument of `acknowledge`) neither
+  raises the margin nor resets its calm count: no margin moves a stamp the
+  cap holds. The cap, the margin, the bound and the recovery rate are
+  unchanged. Online the cap sits 24 ticks above the extrapolated world
+  clock and sets stamps only past 300 to 375 ms of round trip.
+- Offline, a packet that came before the worker's clock went on again
+  counts, for the lead, as arriving when it went on (`resumedAt` in
+  `src/game.js`).
+- The worker stamps each post with when it left, on the clock the page and
+  the worker share (`local-message-batch.js`; the page never took a post
+  before its stamp), and the lead places the world's tick by that; the
+  playout clock keeps the page's own arrival times, which are when it can
+  draw the packets. Online the transports pass no send time. The estimate
+  then also holds through a page stall long enough to fill its window
+  with packets taken late (on the emulator, where the page gets a packet a
+  frame, even a 4.5 s stall did not fill it).
+
+### Measurements
+
+The emulator, Theed, medium AI, on foot; 40 s recordings, each build run
+twice interleaved with the build before it. Ranges are the runs'.
+
+| His controls | Before | After |
+| --- | ---: | ---: |
+| Margin after a page stall of 0.3, 0.6, 1.2 and 2 s | 7, 12, 12, 12 ticks | 0 |
+| Lead after one long stall, p50 (p90) | 12 (12) | 4.0 to 4.2 (7.6) |
+| Ticks pending at a correction, p50 | 14 | 6 to 7 |
+| Page simulation phase, p50 | 7.1 ms | 6.0 to 6.7 ms |
+| Frames at the cap in a battle's first 6 s (a run each) | 36 of 241 | 1 of 242 |
+| Lead with packets timed by the worker, p50 (p90) | 4.0 to 4.4 (6.2 to 6.5) | 3.2 to 3.8 (5.5 to 7.4) |
+
+"One long stall" is the measuring harness's start, which began the battle
+before the loading screen's last frames, so the page's first draw of it
+(some 4 s linking shaders under SwiftShader, which has no parallel shader
+compile) came after the battle had begun. In the loading screen's own order
+that draw comes before, and no command was late at the start. With the
+lead reset by hand the first two builds measured the same (lead 4.0 to
+4.7, 7 ticks pending).
+
+World stalls (the worker held in a loop, three of each length) stopped
+the input clock, with the lead pinned, for 60 to 80 ms at 160 ms and 90
+to 150 ms at 240 ms; after these changes none of 120 or 160 ms did, one
+of three of 240 ms did (for 70 ms), and those of 320 ms for 90 to 180 ms.
+
+On Hoth (90 s from the battle's eighth second, two runs before and three
+after) the runs spread more than the builds differed: 2 and 4 stops of
+50 to 83 ms before, 7, 0 and 1 of 50 to 100 ms after; the lead at the
+median 12 and 6.4 ticks before, 7.5, 9.1 and 5.0 after, its 90th
+percentile at the cap in every run.
+
+The input clock's jumps past wall time (60 to 100 a minute, a tick or so
+a second in all) and its 10% catch-downs measured the same with each
+change, as did key-to-body latency: W pressed at a random moment moved his
+drawn body 33 to 40 ms later at the median, 45 to 50 ms at the 90th
+percentile (one or two frames; 5 to 7 presses a run where nothing blocked
+him), pinned lead or not. His own movement is predicted; the lead delays
+only what the world decides.
+
+### What is left
+
+- The page's own long frames still freeze everything while they last; the
+  changes only stop them from leaving his controls worse afterwards.
+- Every new correction replays every pending tick: 5 to 7 at the lead's
+  usual size, 0.7 to 1 ms of a frame (2.5 ms at the 90th percentile). A
+  hull's prediction goes on when the world's state for the corrected tick
+  is the one predicted for it; a soldier's was, bit for bit, in 57% of
+  corrections with the mouse moving. The rest differ in aim: the page
+  sends the world one command a frame, with the frame's mouse look summed
+  into it, so the world turns him on that frame's last tick and the replay
+  on its first.
+- A world that cannot run at real time still holds the lead at its cap
+  and the input clock at its bound. Reporting the ticks the local world
+  gives up (its acknowledgements always say none, so the estimate's reset
+  for them never fires) was tried on Hoth: the lead's 90th percentile
+  came off the cap (8.2 and 9.9 ticks against 12), but each report lowers
+  the target, and the bound with it, under a clock already ahead of it,
+  and the clock stood still more and longer (9 and 10 stops in two 90 s
+  runs, up to 317 ms). The input clock's 90% catch-down sheds at most six
+  ticks a second, fewer than a world at 87% of real time gives up: a
+  world step that keeps up is what helps.
+- Offline the margin still comes down a tick per ten seconds after
+  lateness the world itself causes (a tick that ran long holding his
+  commands in its batch); recovering it as online does is a tolerance
+  change, left for a decision.
