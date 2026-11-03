@@ -2393,7 +2393,7 @@ impl Core {
                 None => true,
                 Some(p) => {
                     let snap = w.post(p);
-                    !patrol::has_capture_region(snap) || patrol::friendly_spawn_eligible(snap, team, population, &|a, b| self.relation(a, b))
+                    !patrol::has_capture_region_pop(snap, population) || patrol::friendly_spawn_eligible(snap, team, population, &|a, b| self.relation(a, b))
                 }
             };
             if stale {
@@ -2415,7 +2415,7 @@ impl Core {
                     (Some(u), Some(p)) => goals::post_contains(w.post(p), w.unit(u).position),
                     _ => false,
                 };
-                let has_region = post.map(|p| patrol::has_capture_region(w.post(p))).unwrap_or(false);
+                let has_region = post.map(|p| patrol::has_capture_region_pop(w.post(p), population)).unwrap_or(false);
                 if let (Some((true, false)), Some(_)) = (helper, unit) {
                     if has_region && !inside {
                         let (centered, expires) = match self.objective(ci) {
@@ -2787,13 +2787,7 @@ impl Core {
         if max == 0.0 {
             return true;
         }
-        let item_class = snap.item_class.as_deref();
-        let count = w
-            .items()
-            .iter()
-            .filter(|item| !item.gone && item.owner == Some(unit) && item.def_class.as_deref() == item_class)
-            .count();
-        (count as f64) < max
+        snap.owned_count < max
     }
 
     fn mine_weapon(&self, w: &dyn AiWorld, ci: usize) -> Option<usize> {
@@ -3064,18 +3058,17 @@ impl Core {
         let weapons = &w.unit(unit).weapons;
         (0..weapons.len()).find(|&i| {
             let wp = &weapons[i];
-            let serves = if wp.base.as_deref() == Some("repair") {
-                wp.has_service
+            let qty = if wp.base.as_deref() == Some("repair") {
+                Some(&wp.qty_def)
             } else if wp.base.as_deref() == Some("dispenser") && self.dispenser_available(w, unit, i) {
-                wp.has_service
+                Some(&wp.qty_item)
             } else {
-                false
+                None
             };
-            if !serves || ty >= 7 {
-                return false;
+            match qty {
+                Some(q) => classes::quantity(q, ty as f64, ammo) > 0.0,
+                None => false,
             }
-            let q = if ammo { wp.service_ammo[ty] } else { wp.service_health[ty] };
-            q > 0.0
         })
     }
 
@@ -3267,8 +3260,7 @@ impl Core {
             })
             .take(10)
             .any(|item| {
-                item.def_base.as_deref() == Some("powerupitem")
-                    && (if ammo { item.service_ammo[ty] } else { item.service_health[ty] }) > 0.0
+                item.def_base.as_deref() == Some("powerupitem") && classes::quantity(&item.qty, ty as f64, ammo) > 0.0
             })
     }
 
@@ -3284,7 +3276,7 @@ impl Core {
         let unit = self.agent_unit(ci)?;
         let now = self.now(w);
         let distance = agents::horizontal_distance_sq(w.unit(unit).position, w.unit(target).position);
-        let current = w.combat_repair_target(ci);
+        let current = w.combat_repair_target(unit).or_else(|| self.controllers[ci].target.map(|t| t.unit));
         let selected = w.weapons_selected(ci);
         let range_weapon = selected.unwrap_or(weapon);
         let range = w.weapons_effective_range(ci, range_weapon);
@@ -3352,7 +3344,7 @@ impl Core {
             }
             return Some((target, true));
         }
-        let (has_aimer, _) = w.perception_flags(ci);
+        let (_, has_aimer) = w.perception_flags(ci);
         let snap = w.unit(unit);
         let has_origin_forward = snap.origin.is_some() && snap.forward.is_some();
         if has_aimer && has_origin_forward {

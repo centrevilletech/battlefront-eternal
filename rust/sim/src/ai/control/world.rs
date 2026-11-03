@@ -95,11 +95,26 @@ pub struct WeaponSnap {
     pub item_class: Option<String>,
     pub item_life_span: Option<f64>,
     pub item_life_missing: bool,
-    /// The repair/dispenser service quantities by health type 0..6
-    /// (classes.js quantity(): the def's own numbers, or its item's).
-    pub service_health: [f64; 7],
-    pub service_ammo: [f64; 7],
-    pub has_service: bool,
+    /// Service quantities of the weapon's def and of its item def
+    /// (classes.js quantity() reads one of the two by base).
+    pub qty_def: QtySnap,
+    pub qty_item: QtySnap,
+    /// Items of this dispenser's class the owner has about, not gone
+    /// (items.js ownedBy), for the MaxItems test.
+    pub owned_count: f64,
+}
+
+/// A def's service quantities as classes.js quantity() reads them:
+/// def.service[kind][type] when that array exists, else
+/// def[TypeHealth]/def[TypeAmmo] (def[Type] itself for building
+/// health, type 5 and 6).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct QtySnap {
+    pub svc_health: Option<[Option<f64>; 7]>,
+    pub svc_ammo: Option<[Option<f64>; 7]>,
+    pub named_health: [Option<f64>; 7],
+    pub named_ammo: [Option<f64>; 7],
+    pub bare: [Option<f64>; 7],
 }
 
 /// A unit (or target, or seat controllable) as the core sees it in one
@@ -282,11 +297,22 @@ pub struct PostSnap {
     pub ai: PostAi,
     pub region: Option<RegionSnap>,
     /// The map capture block patrol.js falls back to (post.desc.capture
-    /// or post.capture), as a built region with its origin.
-    pub desc_region: Option<RegionSnap>,
+    /// or post.capture), raw as captureRegion reads it.
+    pub desc_capture: Option<RawCapture>,
     pub desc_spawn_path: bool,
     pub desc_spawn_points: f64,
     pub desc_ally_path: bool,
+}
+
+/// A raw capture block (a map region or a built one) as patrol.js
+/// captureRegion reads it: a center array or a matrix, a size, a
+/// built half when the object already is a built region.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RawCapture {
+    pub center: Option<[f64; 3]>,
+    pub matrix: Option<Vec<f64>>,
+    pub size: Option<[f64; 3]>,
+    pub half: Option<[f64; 3]>,
 }
 
 /// A roster Character as the core reads and writes it (battle.js
@@ -553,8 +579,7 @@ pub struct ItemSnap {
     pub radius: Option<f64>,
     pub team: f64,
     pub owner: Option<UKey>,
-    pub service_health: [f64; 7],
-    pub service_ammo: [f64; 7],
+    pub qty: QtySnap,
 }
 
 /// The rest of the battle, as the core asks for it. Controller and
@@ -635,7 +660,9 @@ pub trait AiWorld {
     fn weapons_select(&mut self, controller: usize, index: usize);
     fn weapons_effective_range(&mut self, controller: usize, weapon: usize) -> f64;
     fn weapons_firing_cone(&mut self, controller: usize, point: Vec3) -> bool;
-    fn combat_repair_target(&mut self, controller: usize) -> Option<UKey>;
+    /// unit.combat's repair target (weapons'; classes.js:384 reads it
+    /// before the controller's own target).
+    fn combat_repair_target(&mut self, unit: UKey) -> Option<UKey>;
 
     // -- Vehicle AI services (classic/index.js VEHICLE_SERVICES; the
     // vehicle AI package's, with its mounted policies).

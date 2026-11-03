@@ -139,16 +139,18 @@ fn apply_matrix4(p: Vec3, e: &[f64; 16]) -> Vec3 {
     )
 }
 
-/// inRegion (regions.js:41).
+/// inRegion (regions.js:50): the inverse carries the centre, so the
+/// point goes through it as it is; a sphere skips the matrix.
 pub fn in_region(region: &RegionSnap, point: Vec3) -> bool {
-    let local = apply_matrix4(super::vec::sub(point, region.center), &region.inverse);
     match region.kind {
-        RegionKind::Sphere => super::vec::length_sq(local) <= region.radius * region.radius,
+        RegionKind::Sphere => super::vec::length(super::vec::sub(point, region.center)) < region.radius,
         RegionKind::Box => {
-            v8math::abs(local.x) <= region.half[0] && v8math::abs(local.y) <= region.half[1] && v8math::abs(local.z) <= region.half[2]
+            let local = apply_matrix4(point, &region.inverse);
+            v8math::abs(local.x) < region.half[0] && v8math::abs(local.y) < region.half[1] && v8math::abs(local.z) < region.half[2]
         }
         RegionKind::Cylinder => {
-            local.x * local.x + local.z * local.z <= region.radius * region.radius && v8math::abs(local.y) <= region.half[1]
+            let local = apply_matrix4(point, &region.inverse);
+            v8math::hypot(local.x, local.z) < region.radius && v8math::abs(local.y) < region.half[1]
         }
         RegionKind::Other => false,
     }

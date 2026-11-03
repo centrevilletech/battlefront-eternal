@@ -4,7 +4,7 @@
 //! priorities; perception's own heaps store ints). The behavior is
 //! the core's dispatch (mod.rs).
 
-use super::world::{AiUnit, EntRef, UKey};
+use super::world::{AiUnit, EntRef, QtySnap, UKey};
 
 pub const FLT_MAX: f64 = 3.4028234663852886e38;
 pub const INT_MAX: f64 = 2147483647.0;
@@ -74,6 +74,22 @@ pub fn needs(target: &AiUnit, ammo: bool) -> bool {
 /// serviceAlive (classes.js:269).
 pub fn service_alive(target: &AiUnit) -> bool {
     !target.removed && (target.alive || health_type(target) >= 5.0)
+}
+
+/// quantity (classes.js:274).
+pub fn quantity(qty: &QtySnap, ty: f64, ammo: bool) -> f64 {
+    let idx = if ty >= 0.0 && ty == v8math::trunc(ty) { ty as usize } else { return 0.0 };
+    if idx >= 7 {
+        return 0.0;
+    }
+    let svc = if ammo { qty.svc_ammo } else { qty.svc_health };
+    if let Some(arr) = svc {
+        return arr[idx].unwrap_or(0.0);
+    }
+    if ty >= 5.0 && !ammo {
+        return qty.bare[idx].unwrap_or(0.0);
+    }
+    (if ammo { qty.named_ammo } else { qty.named_health })[idx].unwrap_or(0.0)
 }
 
 /// A repair reservation (classes.js RepairServices): the job, its

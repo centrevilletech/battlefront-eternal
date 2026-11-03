@@ -50,19 +50,48 @@ impl Patrol {
     }
 }
 
-/// captureRegion (patrol.js:44): the mission capture wins, the map's
+/// captureRegion (patrol.js:47): the mission capture wins, the map's
 /// capture block is the fallback. Returns (origin, sizeX, sizeZ).
 pub fn capture_region(post: &PostSnap) -> Option<(Vec3, f64, f64)> {
-    if let Some(capture) = &post.ai.capture {
-        return Some((capture.center, capture.half[0], capture.half[2]));
+    capture_region_pop(post, true)
+}
+
+pub fn capture_region_pop(post: &PostSnap, population: bool) -> Option<(Vec3, f64, f64)> {
+    if population {
+        if let Some(capture) = &post.ai.capture {
+            return Some((capture.center, capture.half[0], capture.half[2]));
+        }
     }
-    post.desc_region.as_ref().map(|r| (r.center, r.half[0], r.half[2]))
+    let raw = post.desc_capture.as_ref()?;
+    let origin = if let Some(c) = raw.center {
+        Vec3::new(c[0], c[1], c[2])
+    } else if let Some(m) = &raw.matrix {
+        if m.len() >= 16 {
+            Vec3::new(m[12], m[13], m[14])
+        } else if m.len() == 12 {
+            Vec3::new(m[9], m[10], m[11])
+        } else {
+            post.position
+        }
+    } else {
+        post.position
+    };
+    let size = match (raw.half, raw.size) {
+        (Some(half), _) => half,
+        (None, Some(size)) => size,
+        (None, None) => [3.0, 3.0, 3.0],
+    };
+    Some((origin, size[0], size[2]))
 }
 
 /// Whether the post has a capture region at all (the revalidate
 /// check and the state 2 containment test read this).
 pub fn has_capture_region(post: &PostSnap) -> bool {
-    post.ai.capture.is_some() || post.desc_region.is_some()
+    capture_region(post).is_some()
+}
+
+pub fn has_capture_region_pop(post: &PostSnap, population: bool) -> bool {
+    capture_region_pop(post, population).is_some()
 }
 
 /// cpCenter (patrol.js:71): Population's centre when bound (the same
@@ -71,7 +100,7 @@ pub fn cp_center(post: &PostSnap, population: bool) -> Vec3 {
     if population {
         return goals::objective_center(post);
     }
-    match capture_region(post) {
+    match capture_region_pop(post, population) {
         Some((origin, _, _)) => origin,
         None => post.position,
     }
@@ -84,7 +113,7 @@ pub fn cp_offset(post: &PostSnap, population: bool, draws: &mut dyn Draws) -> Ve
     if population {
         return goals::objective_offset(post, &mut || draws.a_uniform());
     }
-    let (sx, sz) = match capture_region(post) {
+    let (sx, sz) = match capture_region_pop(post, population) {
         Some((_, x, z)) => (x, z),
         None => (3.0, 3.0),
     };
@@ -114,7 +143,7 @@ pub fn arrived_at_objective(
     let dx = center.x - position.x;
     let dz = center.z - position.z;
     let d2 = dx * dx + dz * dz;
-    if has_capture_region(post) {
+    if has_capture_region_pop(post, population) {
         if goals::post_contains(post, position) {
             return true;
         }
