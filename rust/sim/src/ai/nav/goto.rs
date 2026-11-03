@@ -14,7 +14,7 @@
 
 use super::analogs::{analogs, apply_jet_and_posture, Intent};
 use super::cursor::GraphCursor;
-use super::math::{d2, f32, flat_dir, h2, normalize, same, tiny, Vec3, FLT_MAX};
+use super::math::{d2, f32, flat_dir, h2, same, tiny, Vec3, FLT_MAX};
 use super::planner::PathNode;
 use super::units::{has_jetpack, is_soldier, is_soldier_or_droid, kind, nominal_speed, traversal_mask, traversal_radius, NavUnit, UnitRef};
 use super::{ControlHost, Nav};
@@ -201,7 +201,7 @@ impl Nav {
         let x = 2.0 * f32(rng.uniform() - 0.5) * far;
         let mut forward = leader.forward.unwrap_or(Vec3::new(0.0, 0.0, 1.0));
         forward.y = 0.0;
-        normalize(&mut forward);
+        super::math::three_normalize(&mut forward);
         let lp = leader.position;
         // leader.position + forward * z + (forward.z * x, 0, -forward.x * x)
         let point = Vec3::new(lp.x + forward.x * z + forward.z * x, lp.y + forward.y * z, lp.z + forward.z * z - forward.x * x);

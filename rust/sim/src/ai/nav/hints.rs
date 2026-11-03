@@ -159,14 +159,7 @@ fn scan_float(text: &str, fallback: f64) -> f64 {
     f32(value)
 }
 
-/// three.js Vector3.normalize: divideScalar(length || 1).
-fn three_normalize(v: &mut Vec3) {
-    let len = v8math::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-    let scalar = if len != 0.0 && !len.is_nan() { len } else { 1.0 };
-    v.x /= scalar;
-    v.y /= scalar;
-    v.z /= scalar;
-}
+use super::math::three_normalize;
 
 /// three.js Vector3.crossVectors(a, b).
 fn three_cross(a: Vec3, b: Vec3) -> Vec3 {

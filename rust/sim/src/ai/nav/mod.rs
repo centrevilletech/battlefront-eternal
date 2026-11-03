@@ -25,6 +25,8 @@ pub mod jet_hints;
 pub mod math;
 pub mod planner;
 pub mod search;
+#[cfg(test)]
+mod tests;
 pub mod units;
 
 use barriers::{BarrierSet, Work};

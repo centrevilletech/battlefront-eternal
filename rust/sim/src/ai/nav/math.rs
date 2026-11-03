@@ -83,6 +83,19 @@ pub fn flat_dir(x: f64, z: f64) -> Vec3 {
     }
 }
 
+/// three.js Vector3.normalize: divideScalar(length || 1), and
+/// divideScalar multiplies by the reciprocal (three r170), which is not
+/// the same last bit as dividing. Used where the JavaScript calls the
+/// THREE method (hint rings, the follow trail), not math.js normalize.
+pub fn three_normalize(v: &mut Vec3) {
+    let len = v8math::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+    let scalar = if len != 0.0 && !len.is_nan() { len } else { 1.0 };
+    let inv = 1.0 / scalar;
+    v.x *= inv;
+    v.y *= inv;
+    v.z *= inv;
+}
+
 /// Lowest set bit's index; 0 for 0 (math.js:75). The argument is a
 /// JavaScript number first reduced by `>>>= 0`.
 pub fn lowest_bit(mask: f64) -> f64 {
