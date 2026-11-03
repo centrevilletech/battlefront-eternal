@@ -22,9 +22,13 @@
 // anything of the list is drawn, as three makes it. The Ultra mirror's
 // render of the near scene hides the water, and the eye under the surface
 // draws the underwater pass (three's, which copies the scene again). The
-// spray's onBeforeRender takes the soft particles' depth, as the effects
-// pass takes it, at the start of the phase.
+// spray reads the scene's depth: three copies it in the spray's
+// onBeforeRender (particle-depth.js), after whatever transparent item before
+// it writes depth; the pass asks for that copy before the spray as three
+// starts the near scene's render (particleDepth.request: a copier three draws
+// just before it), and runs the spray's hook ahead of its turn.
 import * as THREE from "three";
+import { particleDepth } from "../particle-depth.js";
 import { uniformType, writeUniform } from "./post.js";
 import { blendOf, sidesOf, stateOf } from "./transparent.js";
 
@@ -37,6 +41,7 @@ const RING_UPLOAD = MAX_SURFACES * SURFACE, SETS = RING_UPLOAD + 2;
 const RINGS = [["position", "waterRingsPosition", 3, "water_rings_position"], ["uv", "waterRingsUv", 2, "water_rings_uv"], ["alpha", "waterRingsAlpha", 1, "water_rings_alpha"]];
 const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4();
 const BASE_BEFORE = THREE.Object3D.prototype.onBeforeRender;
+const point = new THREE.Vector3();
 
 // Rust's program for a water material's three program, as three compiled
 // it, with its uniforms ({ name, type } in slot order) and its one uniform
@@ -85,6 +90,32 @@ class WaterPass {
     this.input = false;
     // The renderer's copy of the rings needs every vertex.
     this.full = true;
+    // The scene's depth asked for before the spray, as three starts the
+    // frame's render of the near scene (particle-depth.js requester).
+    this.depthKey = new Float64Array(6);
+    this.unrequest = core.graphics?.scene ? particleDepth.requester(core.graphics.scene, (camera) => {
+      try { this.requestDepth(camera); } catch (error) { core.errors.push(`water depth request failed: ${String(error?.stack || error).slice(0, 400)}`); }
+    }) : null;
+  }
+
+  // The copy of the scene's depth before the crest spray, when the renderer
+  // draws it this frame: its key as three's projectObject will make it
+  // (group order, render order, its geometry's sphere centre in the world,
+  // its id). Required: the spray's onBeforeRender passes its geometry where
+  // capture() takes `required`, so three copies whatever the setting.
+  requestDepth(camera) {
+    const core = this.core;
+    for (const surface of this.surfaces) surface.requested = false;
+    if (this.on === false || !core.enabled || !core.active) return;
+    const spray = this.water?.ocean?.waves?.spray;
+    const surface = spray && this.surfaces.find((s) => s.mesh === spray);
+    if (!surface || !this.shown(surface, camera, core.graphics.scene, false)) return;
+    const mesh = surface.mesh, key = this.depthKey;
+    let groupOrder = 0;
+    for (let n = mesh.parent; n; n = n.parent) if (n.isGroup) { groupOrder = n.renderOrder; break; }
+    const c = point.copy(mesh.geometry.boundingSphere.center).applyMatrix4(mesh.matrixWorld);
+    key[0] = groupOrder; key[1] = mesh.renderOrder; key[2] = c.x; key[3] = c.y; key[4] = c.z; key[5] = mesh.id;
+    surface.requested = particleDepth.request(key, true);
   }
 
   draw(ctx) {
@@ -110,7 +141,10 @@ class WaterPass {
     // item of the list is drawn.
     for (const surface of this.surfaces) {
       if (surface.mesh.onBeforeRender === BASE_BEFORE || !this.shown(surface, camera, ctx.scene)) continue;
-      surface.mesh.onBeforeRender(ctx.renderer, ctx.scene, camera, surface.mesh.geometry, surface.material, null);
+      const hook = () => surface.mesh.onBeforeRender(ctx.renderer, ctx.scene, camera, surface.mesh.geometry, surface.material, null);
+      // The spray's copy of the scene's depth: the copier's, before it, when
+      // it was asked for (else taken now, as before).
+      particleDepth.ahead(hook, surface.requested === true);
     }
     core.views();
     this.surfaces.forEach((surface, s) => this.write(surface, s, input, camera, ctx.scene));
@@ -182,12 +216,13 @@ class WaterPass {
   }
 
   // Whether three would list it in this render: shown with every parent,
-  // on the camera's layers, its material the same, in view when culled.
-  shown(surface, camera, scene) {
+  // on the camera's layers, its material the same, in view when culled
+  // (culled: the frustum this frame's phase made).
+  shown(surface, camera, scene, culled = true) {
     const { mesh, material } = surface;
     for (let n = mesh; n && n !== scene; n = n.parent) if (!n.visible) return false;
     if (!mesh.layers.test(camera.layers) || mesh.material !== material) return false;
-    return !(mesh.frustumCulled && !frustum.intersectsObject(mesh));
+    return !(culled && mesh.frustumCulled && !frustum.intersectsObject(mesh));
   }
 
   // Its values this frame, as three would have listed and drawn it.
@@ -269,6 +304,8 @@ class WaterPass {
 
   restore() {
     this.setActive(false);
+    this.unrequest?.();
+    this.unrequest = null;
   }
 }
 
