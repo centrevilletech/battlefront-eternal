@@ -151,10 +151,13 @@ fn radix_value(digits: &str, radix: u32) -> Option<f64> {
     if round && (sticky || mantissa & 1 == 1) {
         mantissa += 1;
     }
-    let shift = (bits.len() - 53) as i32;
-    // mantissa < 2^54, exact in f64; scaling by a power of two is exact
-    // until it overflows to infinity, as the literal's value does.
-    Some(mantissa as f64 * 2f64.powi(shift))
+    // mantissa < 2^54, exact in f64; each doubling is exact until it
+    // overflows to infinity, as the literal's value does.
+    let mut value = mantissa as f64;
+    for _ in 0..(bits.len() - 53) {
+        value *= 2.0;
+    }
+    Some(value)
 }
 
 /// `Number(string)` (StringToNumber): white space trimmed at both ends, the
@@ -355,9 +358,9 @@ pub fn relative_range(length: usize, start: f64, end: Option<f64>) -> (usize, us
     let rel = |x: f64| {
         let r = to_integer_or_infinity(x);
         if r < 0.0 {
-            (len + r).max(0.0)
+            js_max(len + r, 0.0)
         } else {
-            r.min(len)
+            js_min(r, len)
         }
     };
     let from = rel(start);
@@ -365,7 +368,7 @@ pub fn relative_range(length: usize, start: f64, end: Option<f64>) -> (usize, us
         None => len,
         Some(e) => rel(e),
     };
-    let to = to.max(from);
+    let to = js_max(to, from);
     (from as usize, to as usize)
 }
 
