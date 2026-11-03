@@ -10,7 +10,10 @@
 //   varuint length of the rest | u8 type | varuint tick | string name | value
 // Types: 1 the header (the file's first record), 2 a frame (a phase or a
 // method of one, captured), 3 a tick (what every phase drew, and the
-// tick's fingerprints). Strings and object identities are counted afresh in
+// tick's fingerprints), 4 a definition from the game's content (named by
+// its key; written once, before the first record that names it is read
+// through), 5 the world (the units' lives, teams and classes before a frame
+// that asks for them). Strings and object identities are counted afresh in
 // every record, so a reader can skip any record by its length.
 //
 // Values, a tag byte and what follows:
@@ -35,7 +38,7 @@
 // numbered in the order they are first met (from 0 in each record).
 // Strings are numbered the same way, apart from objects.
 export const MAGIC = 'BFECAP01';
-export const RECORD = { header: 1, frame: 2, tick: 3 };
+export const RECORD = { header: 1, frame: 2, tick: 3, def: 4, world: 5 };
 export const TAG = {
   undefined: 0x00, null: 0x01, false: 0x02, true: 0x03, f64: 0x04, int: 0x05, utf8: 0x06, utf16: 0x07, stringRef: 0x08,
   objectRef: 0x09, array: 0x0a, object: 0x0b, vec3: 0x0c, quat: 0x0d, mat4: 0x0e, mat3: 0x0f, euler: 0x10, box3: 0x11,

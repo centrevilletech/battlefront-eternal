@@ -10,9 +10,13 @@
 // state(...) returns the roots to record at the frame's start and end (live
 // objects, written out whole; units, hulls, bodies and definitions they
 // reach become handles, tools/sim-capture/plugin.mjs). boundaries lists
-// the calls to record: [label, target(game), method name]. A boundary call
-// made inside another of the same frame's is part of the outer one and not
-// recorded on its own; the draws made inside one are recorded with it.
+// the calls to record: [label, target(game), method name, extra(game)?],
+// extra naming state of the frame's own that the call changes, recorded
+// with its result. A boundary call made inside another of the same frame's
+// is part of the outer one and not recorded on its own; the draws made
+// inside one are recorded with it. world: true writes the units' lives,
+// teams and classes before the frame; whole: [class names] writes
+// instances of those classes out instead of naming them.
 //
 // Until each package declares its kinds' schemas (rust/sim, the store's
 // generator), state is the raw JavaScript objects; a package's schemas then
@@ -47,12 +51,12 @@ const ordnanceBoundaries = (game) => [
 // (a rider behind a hull, an explosion's fan-out, the impact effect's pick).
 const ordnance = {
   frames: [
-    { phase: 'ordnance', state: (game) => ({ bolts: game.ordnance.bolts, beams: game.ordnance.beams, grenades: game.ordnance.grenades, rounds: game.ordnance.rounds }),
+    { phase: 'ordnance', world: true, state: (game) => ({ bolts: game.ordnance.bolts, beams: game.ordnance.beams, grenades: game.ordnance.grenades, rounds: game.ordnance.rounds }),
       boundaries: ordnanceBoundaries },
     { method: 'ordnance.stepBolt', target: (game) => game.ordnance,
       state: (game, args) => ({ bolt: args[0], canHit: game.ordnance.canHit, striking: game.ordnance.striking, hitHistory: game.ordnance.hitHistory ?? null, water: game.ordnance.water ?? null, units: game.ordnance.units ?? null }),
       boundaries: (game) => [...ordnanceBoundaries(game),
-        ['ordnance.riderBehind', game.ordnance, 'riderBehind'],
+        ['ordnance.riderBehind', game.ordnance, 'riderBehind', (g) => ({ striking: g.ordnance.striking })],
         ['ordnance.explosion', game.ordnance, 'explosion'],
         ['ordnance.unitImpactEffect', game.ordnance, 'unitImpactEffect']] },
   ],

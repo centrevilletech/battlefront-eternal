@@ -90,12 +90,29 @@ function identify(v) {
   if (system) return new Handle('system', system);
   if (v.isObject3D) return new Handle('object3d', v.uuid);
   if (v.isBufferGeometry || v.isMaterial || v.isTexture || v.isSkeleton) return new Handle(v.type ?? 'three', v.uuid);
-  if (isDef(v)) return new Handle('def', v.class);
+  if (isDef(v)) return new Handle('def', defKey(v));
   if (v instanceof WeakMap || v instanceof WeakSet || v instanceof Promise || v instanceof WeakRef) return new Omitted(v.constructor.name);
   const proto = Object.getPrototypeOf(v);
   if (proto === Object.prototype || proto === null || Array.isArray(v) || ArrayBuffer.isView(v) || v instanceof Map || v instanceof Set) return undefined;
   const name = proto.constructor?.name || '?';
   return VALUE_CLASSES.has(name) || wholeClasses.has(name) ? undefined : instanceHandle(v, name);
+}
+
+// Content definitions a record names are written once each, whole, in a
+// "def" record of their own (keyed by class; a second object of the same
+// class, were there one, by class#2 and on), so a capture carries the
+// content its frames read.
+const defKeys = new Map(), defClassCounts = new Map(), defQueue = [];
+function defKey(def) {
+  let key = defKeys.get(def);
+  if (key === undefined) {
+    const n = (defClassCounts.get(def.class) ?? 0) + 1;
+    defClassCounts.set(def.class, n);
+    key = n === 1 ? def.class : `${def.class}#${n}`;
+    defKeys.set(def, key);
+    defQueue.push([key, def]);
+  }
+  return key;
 }
 
 // ---- The writer and the file.
@@ -110,7 +127,23 @@ function write(type, at, name, value) {
   writer.record(type, at, name, value);
   records++;
   if (type === RECORD.frame) counts[name] = (counts[name] ?? 0) + (value.k === 'enter' ? 1 : 0);
+  // The definitions it named for the first time (and those they name).
+  while (defQueue.length) {
+    const [key, def] = defQueue.shift();
+    writer.whole.add(def);
+    writer.record(RECORD.def, at, key, def);
+    writer.whole.clear();
+    records++;
+  }
   flush();
+}
+// The units as a frame finds them (their lives, teams and classes), before
+// a frame that asks for it (its spec's world: true), for what its replay
+// reads of units it only names: whose a round is, what a hit unit is made of.
+function writeWorld() {
+  const list = game.units.all().map((u) => ({ id: u.id, generation: u.generation, alive: Boolean(u.alive), dead: Boolean(u.dead), removed: Boolean(u.removed),
+    team: u.team ?? null, className: typeof u.className === 'string' ? u.className : null, classDef: u.classDef && typeof u.classDef === 'object' ? u.classDef : null }));
+  write(RECORD.world, current, 'world', { units: list });
 }
 // A frame's state: its roots written out, those wrapped in expand() whole.
 function stateValue(roots) {
@@ -147,6 +180,7 @@ function onDraw(label, value) {
 const open = [];
 let nextFrame = 0;
 function openFrame(spec, args) {
+  if (spec.world) writeWorld();
   const frame = { id: nextFrame++, spec, depth: 0, pending: [], inner: null, boundaries: new Set(spec.labels) };
   const parent = open.length ? open[open.length - 1].id : null;
   write(RECORD.frame, current, spec.name, { k: 'enter', f: frame.id, p: parent, a: args, s: stateValue(spec.state(game, args)) });
@@ -193,8 +227,9 @@ function shim(target, method, make) {
 function installShims() {
   for (const spec of frameSpecs) {
     spec.labels = [];
-    for (const [label, target, method] of spec.boundaries?.(game) ?? []) {
+    for (const [label, target, method, extra] of spec.boundaries?.(game) ?? []) {
       spec.labels.push(label);
+      if (extra) (spec.extras ??= new Map()).set(label, extra);
       if (!target || boundaryShims.has(label)) continue;
       boundaryShims.add(label);
       shim(target, method, (base) => function boundary(...args) {
@@ -207,8 +242,10 @@ function installShims() {
         finally {
           for (const f of frames) {
             f.depth--;
+            const extra = f.spec.extras?.get(label);
             write(RECORD.frame, current, f.spec.name, { k: 'ret', f: f.id, n: label, r: threw ? new Omitted('threw') : result,
-              o: args.map((a) => (a && typeof a === 'object' ? a : undefined)), i: f.inner });
+              o: args.map((a) => (a && typeof a === 'object' ? a : undefined)), i: f.inner, ...(extra ? { x: stateValue(extra(game)) } : {}) });
+            writer.whole.clear();
             f.inner = null;
           }
         }
