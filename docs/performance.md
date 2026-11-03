@@ -1045,8 +1045,10 @@ then a captured one) on the emulator (SwiftShader, 1599x899, 4x
 multisampling). On Naboo: Theed, Tatooine: Dune Sea, Bespin: Platforms,
 Hoth: Echo Base, Kashyyyk: Docks and Geonosis: Spire the far image and the
 near scene's image over it were the same to the pixel at every point (5.75
-million pixels a map), and so were two frames three drew alone. In each of
-the far pass's frames three drew none of the far scene:
+million pixels a map), and so were two frames three drew alone; aimed at
+the flyers on Tatooine: Dune Sea and Geonosis: Spire (a ship on screen, up
+to 108,000 pixels of it), the two were the same to the pixel too. In each
+of the far pass's frames three drew none of the far scene:
 
 | Map | Three's far draws a frame | Far pass's draws | Far scene's part of the frame, ms (p50) |
 | --- | --- | --- | --- |
