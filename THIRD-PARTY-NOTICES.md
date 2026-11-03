@@ -18,6 +18,8 @@ the game, on the player's machine.
 | AMD FidelityFX Super Resolution 1 | The RCAS sharpening pass in `src/shell/video-sharpen.js` follows its design | Copyright (c) Advanced Micro Devices, Inc. | MIT |
 | fdlibm, as ported to C++ in [V8](https://v8.dev) 13.6 (`src/base/ieee754.cc`), and V8's `math::pow` (`src/numbers/ieee754.cc`) | `rust/v8math/src/trig.rs`, `explog.rs`, `inv.rs` and the first part of `pow.rs` translate them to Rust | Copyright (C) 1993 by Sun Microsystems, Inc.; Copyright 2011 and 2016 the V8 project authors | fdlibm: "Permission to use, copy, modify, and distribute this software is freely granted, provided that this notice is preserved." V8: BSD-3-Clause (below) |
 | The double-precision `pow` of Arm's [optimized-routines](https://github.com/ARM-software/optimized-routines) (`math/pow.c` and its tables), which glibc ships as its `pow` | `rust/v8math/src/pow.rs` and `pow_data.rs` translate it to Rust | Copyright (c) 2018-2026, Arm Limited | MIT (offered as MIT OR Apache-2.0 WITH LLVM-exception; used here under MIT) |
+| [three.js](https://threejs.org) r170 math collections | `rust/three` transliterates its `src/math` classes and `Object3D`'s transform semantics to Rust, operation by operation, for the simulation port | Copyright 2010-2024 three.js authors | MIT |
+| TimSort, as V8 runs it for `Array.prototype.sort` | `rust/jsrt/src/sort.rs` transliterates V8 13.6's `array-sort.tq`, itself a port of CPython's listsort | Copyright (c) 2001-2018 Python Software Foundation (the algorithm text V8's file carries); V8's port copyright the V8 project authors | Python Software Foundation License 2.0; BSD-3-Clause (V8) |
 
 ## Libraries bundled in builds
 

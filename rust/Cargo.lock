@@ -178,6 +178,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsrt"
+version = "0.1.0"
+
+[[package]]
 name = "khronos_api"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -381,6 +385,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "three"
+version = "0.1.0"
+dependencies = [
+ "jsrt",
 ]
 
 [[package]]

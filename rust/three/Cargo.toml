@@ -1,0 +1,13 @@
+[package]
+name = "three"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "The three.js r170 math subset the simulation uses, transliterated operation by operation so every result is three's own to the last bit."
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+jsrt = { path = "../jsrt" }
