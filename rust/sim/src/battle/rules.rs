@@ -49,6 +49,8 @@ pub struct Character {
     pub slot: f64,
     /// Its place in the manager's (and the battle's) list.
     pub manager_index: f64,
+    /// A player's id (-1 a bot's).
+    pub player_id: f64,
     /// Its class in its team's list, or none yet.
     pub class_index: Option<f64>,
     /// Its next life's schedule.

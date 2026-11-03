@@ -17,6 +17,8 @@ import { buildRegion, inRegion } from "../src/regions.js";
 import { killRegion } from "../src/objectives.js";
 import { CommandPosts } from "../src/commandposts.js";
 import { BattleStats } from "../src/battle-stats.js";
+import { Character } from "../src/battle.js";
+import { ClassicSpawning } from "../src/ai/classic/spawning.js";
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -176,6 +178,58 @@ for (let r = 0; r < 10; r++) {
   statRuns.push({ classes, ops });
 }
 
-fs.writeFileSync(path.join(outDir, "ops.json"), JSON.stringify({ seed, regions, kills, posts: postRuns, stats: statRuns }));
+// ---------------------------------------------------------------- rosters
+// The spawn manager's match start: the mission's calls, the teams, the
+// humans and the bots (named by their teams' generators), padded class
+// targets, and each Character's class, post and queue place.
+const rosterRuns = [];
+const SIDES = ["all", "IMP", "rep", "cis", "neutral", "locals", "", "republic"];
+const CLASS_NAMES = ["trooper", "sniper", "engineer", "officer", "pilot", "heavy", "special"];
+const arg = () => (u() < 0.85 ? Math.floor(between(0, 30)) : pick(["12", " 7 ", "x", "", "0x10", 3.7]));
+for (let r = 0; r < 30; r++) {
+  const calls = [];
+  for (let t = 1; t <= 4; t++) {
+    calls.push({ name: "SetTeamName", args: [t, pick(SIDES)] });
+    for (let c = Math.floor(between(0, 7)); c > 0; c--) calls.push({ name: "AddUnitClass", args: [t, pick(CLASS_NAMES), arg()] });
+    calls.push({ name: "SetUnitCount", args: [t, Math.floor(between(0, 24))] });
+    if (u() < 0.7) calls.push({ name: "SetReinforcementCount", args: [t, Math.floor(between(0, 300))] });
+    if (u() < 0.3) calls.push({ name: "SetHeroClass", args: [t, pick(["hero_a", "hero_b"])] });
+    if (u() < 0.2) calls.push({ name: "ActivateBonus", args: [t, pick(["hero", "sabotage", "training", "other"])] });
+  }
+  for (let k = Math.floor(between(0, 5)); k > 0; k--) calls.push({ name: pick(["SetTeamAsFriend", "SetTeamAsEnemy", "SetTeamAsNeutral"]), args: [Math.floor(between(0, 8)), Math.floor(between(0, 8))] });
+  if (u() < 0.6) calls.push({ name: "SetSpawnDelay", args: [between(5, 20), between(0.2, 2)] });
+  const posts = Array.from({ length: 1 + Math.floor(u() * 6) }, () => {
+    const path = () => (u() < 0.7 ? { present: u() < 0.9, points: Array.from({ length: Math.floor(between(0, 6)) }, () => [between(-50, 50), 0, between(-50, 50), between(-3, 3)]) } : null);
+    return {
+      team: pick([0, 1, 1, 2, 2, 3, 4]), active: u() < 0.9, position: new THREE.Vector3(between(-100, 100), between(-5, 5), between(-100, 100)),
+      ai: { spawnPath: path(), allyPath: path(), allyCount: Math.floor(between(0, 4)), classSpawnPoints: u() < 0.2 ? 2 : 0, classSpawnWorld: [], yaw: between(-3, 3) },
+      desc: {},
+    };
+  });
+  const humans = Array.from({ length: Math.floor(between(0, 3)) }, (_, i) => ({ team: pick([1, 2, 0, 9]), ...(u() < 0.5 ? { id: 100 + i } : {}), ...(u() < 0.5 ? { name: `P${i}` } : {}) }));
+  const names = u() < 0.7 ? { 0: { first: ["ZERO"], last: [] }, 1: { first: ["LUKE", "HAN"], last: ["SOLO", "ONE"] }, 3: { first: [], last: ["CLONE"] }, local: pick(["EWOK", ""]) } : null;
+  const heroes = u() < 0.3, unitScale = pick([1, 1, 0.5, 1.5]), rseed = Math.floor(u() * 0xffffffff);
+  const characters = [];
+  const spawning = new ClassicSpawning({
+    unitScale, calls, posts, random: new ClassicRandom(rseed), humans, heroes, names, heroName: (name) => name.toUpperCase(),
+    makeCharacter: (slot, team, human) => new Character(slot, team, human), objectives: null, start: true,
+  });
+  characters.push(...spawning.characters);
+  line("delays", r, spawning.A, spawning.B, spawning.Q, spawning.waveCountdown, spawning.random.state);
+  spawning.teams.forEach((t) => line("team", r, t.index, t.name, t.faction, t.unitCount, t.tickets, t.heroCount, t.heroClass, t.bonus, t.aggressiveness, ...t.relations, t.capacity,
+    ...t.classes.flatMap((c) => [c.name, c.target, c.hero]), "|", ...t.characters.map((c) => characters.indexOf(c))));
+  characters.forEach((c, i) => line("character", r, i, c.team, c.human, c.slot, c.managerIndex, c.playerId, c.name, c.classIndex, c.className, c.hero,
+    c.spawn.timer, c.spawn.wave, c.spawn.ordinal, c.spawn.post ? posts.indexOf(c.spawn.post) : null, c.spawn.ready));
+  for (const [post, q] of spawning.queues) line("queue", r, posts.indexOf(post), ...q);
+  rosterRuns.push({
+    calls: calls.map((c) => ({ name: c.name, args: c.args.map((a) => (typeof a === "number" ? { n: n(a) } : { s: a })) })),
+    posts: posts.map((p) => ({ team: p.team, active: p.active, position: [n(p.position.x), n(p.position.y), n(p.position.z)],
+      ai: { ...p.ai, yaw: n(p.ai.yaw), spawnPath: p.ai.spawnPath && { present: p.ai.spawnPath.present, points: p.ai.spawnPath.points.map((q) => q.map(n)) },
+        allyPath: p.ai.allyPath && { present: p.ai.allyPath.present, points: p.ai.allyPath.points.map((q) => q.map(n)) } } })),
+    humans, names, heroes, unitScale: n(unitScale), seed: rseed,
+  });
+}
+
+fs.writeFileSync(path.join(outDir, "ops.json"), JSON.stringify({ seed, regions, kills, posts: postRuns, stats: statRuns, rosters: rosterRuns }));
 fs.writeFileSync(path.join(outDir, "js-trace.txt"), trace.join("\n") + "\n");
 console.log(`battle-twin: ${trace.length} trace lines in ${outDir}`);

@@ -391,6 +391,7 @@ fn spawning(v: V, placed: usize) -> ClassicSpawning {
                     characters: t.get("characters").items().map(|c| num(c) as u32).collect(),
                     living: num(t.get("living")),
                     capacity: num(t.get("capacity")),
+                    ..Default::default()
                 }
             })
             .collect(),
@@ -404,6 +405,8 @@ fn spawning(v: V, placed: usize) -> ClassicSpawning {
         locals_cap: num(v.get("localsCap")),
         queues: v.get("queues").items().map(|q| (post_id(num(q.at(0)), placed), nums::<4>(q.at(1)))).collect(),
         demo: v.get("demo").bool(),
+        started: true,
+        ..Default::default()
     }
 }
 

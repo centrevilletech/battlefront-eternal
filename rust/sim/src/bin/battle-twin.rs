@@ -11,7 +11,10 @@ use bfe_content::json;
 use bfe_content::Value;
 use bfe_sim::battle::mobile::Pad;
 use bfe_sim::battle::objectives::kill_region;
-use bfe_sim::battle::posts::{Capturer, Change, CommandPosts, Post, PostId, PostRules};
+use bfe_sim::battle::names::NameLists;
+use bfe_sim::battle::posts::{Capturer, Change, CommandPosts, Post, PostAi, PostId, PostRules, SpawnPath};
+use bfe_sim::battle::rules::Battle;
+use bfe_sim::battle::spawning::{Arg, Call, ClassicSpawning, HumanSpec, TEAM_CAPACITY};
 use bfe_sim::battle::regions::{build_region, in_region, Region, RegionType};
 use bfe_sim::battle::rules::Character;
 use bfe_sim::battle::stats::{BattleStats, Seen};
@@ -77,7 +80,8 @@ fn opt_str(v: Option<&Value>) -> Option<String> {
     v.and_then(Value::as_str).map(str::to_string)
 }
 
-/// The world the twin's command posts ask: the capture team table.
+/// The world the twin's command posts and rosters ask: the capture team
+/// table, hero names (upper case), no AI objectives.
 struct Twin {
     capture: Vec<f64>,
 }
@@ -128,14 +132,12 @@ impl BattleWorld for Twin {
     fn health(&mut self, _: u32) -> f64 {
         unreachable!()
     }
-    fn request_objective(&mut self, _: &mut Character, _: u32) {
-        unreachable!()
-    }
+    fn request_objective(&mut self, _: &mut Character, _: u32) {}
     fn republish(&mut self, _: &mut Character, _: u32) {
         unreachable!()
     }
-    fn hero_name(&mut self, _: &str) -> Option<String> {
-        unreachable!()
+    fn hero_name(&mut self, name: &str) -> Option<String> {
+        Some(name.to_uppercase())
     }
     fn living(&mut self, _: f64) -> Option<f64> {
         unreachable!()
@@ -332,6 +334,116 @@ fn stats(ops: &Value, t: &mut Trace) {
     }
 }
 
+fn path(v: Option<&Value>) -> Option<SpawnPath> {
+    let v = v?;
+    v.as_object()?;
+    Some(SpawnPath {
+        present: v.get("present").map(Value::truthy).unwrap_or(false),
+        points: arr(v, "points").iter().map(|p| p.as_array().unwrap().iter().map(num).collect()).collect(),
+    })
+}
+
+fn opt_bits(x: Option<f64>) -> String {
+    x.map(bits).unwrap_or_else(|| "-".into())
+}
+
+fn rosters(ops: &Value, t: &mut Trace) {
+    for (r, run) in arr(ops, "rosters").iter().enumerate() {
+        let calls: Vec<Call> = arr(run, "calls")
+            .iter()
+            .map(|c| Call {
+                name: c.get("name").and_then(Value::as_str).unwrap().to_string(),
+                args: arr(c, "args")
+                    .iter()
+                    .map(|a| match (a.get("n"), a.get("s").and_then(Value::as_str)) {
+                        (Some(x), _) => Arg::Num(num(x)),
+                        (None, Some(s)) => Arg::Str(s.to_string()),
+                        _ => Arg::Other,
+                    })
+                    .collect(),
+                ..Default::default()
+            })
+            .collect();
+        let names = run.get("names").filter(|n| n.as_object().is_some()).map(|n| NameLists {
+            sides: (0..5)
+                .map(|i| {
+                    let side = n.get(&i.to_string());
+                    let list = |key: &str| side.map(|s| arr(s, key).iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+                    (list("first"), list("last"))
+                })
+                .collect(),
+            local: opt_str(n.get("local")),
+        });
+        let heroes = run.get("heroes").map(Value::truthy).unwrap_or(false);
+        let mut sp = ClassicSpawning::new(&calls, num(run.get("unitScale").unwrap()), heroes, false, names, TEAM_CAPACITY, &|_| true);
+        let mut posts = CommandPosts::default();
+        for p in arr(run, "posts") {
+            let ai = p.get("ai").unwrap();
+            posts.posts.push(Post {
+                team: num(p.get("team").unwrap()),
+                active: p.get("active").map(Value::truthy).unwrap_or(false),
+                position: vec3(p.get("position").unwrap()),
+                ai: PostAi {
+                    spawn_path: path(ai.get("spawnPath")),
+                    ally_path: path(ai.get("allyPath")),
+                    ally_count: num(ai.get("allyCount").unwrap()),
+                    class_spawn_points: num(ai.get("classSpawnPoints").unwrap()),
+                    class_spawn_world: Vec::new(),
+                    yaw: num(ai.get("yaw").unwrap()),
+                },
+                ..Default::default()
+            });
+        }
+        let humans: Vec<HumanSpec> = arr(run, "humans")
+            .iter()
+            .map(|h| HumanSpec { team: num(h.get("team").unwrap()), id: h.get("id").and_then(Value::as_f64), name: opt_str(h.get("name")) })
+            .collect();
+        let mut battle = Battle::default();
+        let mut world = Twin { capture: Vec::new() };
+        let mut random = jsrt::rng::ClassicRandom::new(run.get("seed").and_then(Value::as_f64).unwrap());
+        sp.begin(&humans, &mut battle, &mut posts, &mut world, &mut random);
+        let rb = bits(r as f64);
+        t.line(&["delays".into(), rb.clone(), bits(sp.a), bits(sp.b), bits(sp.q), bits(sp.wave_countdown), bits(random.state as f64)]);
+        for team in &sp.teams {
+            let mut parts = vec!["team".to_string(), rb.clone(), bits(team.index), team.name.clone().unwrap_or_else(|| "-".into())];
+            parts.extend([team.faction, team.unit_count, team.tickets, team.hero_count].iter().map(|x| bits(*x)));
+            parts.push(team.hero_class.clone().unwrap_or_else(|| "-".into()));
+            parts.extend([team.bonus, team.aggressiveness].iter().map(|x| bits(*x)));
+            parts.extend(team.relations.iter().map(|x| bits(*x)));
+            parts.push(bits(team.capacity));
+            for c in &team.classes {
+                parts.push(c.name.clone());
+                parts.push(bits(c.target));
+                parts.push(b(c.hero));
+            }
+            parts.push("|".into());
+            parts.extend(team.characters.iter().map(|c| bits(*c as f64)));
+            t.line(&parts);
+        }
+        for (i, c) in battle.characters.iter().enumerate() {
+            let post = c.spawn.post.map(|p| match p {
+                PostId::Placed(i) => i as f64,
+                PostId::Mobile(_) => unreachable!(),
+            });
+            let mut parts = vec!["character".to_string(), rb.clone(), bits(i as f64), bits(c.team), b(c.human), bits(c.slot), bits(c.manager_index), bits(c.player_id)];
+            parts.push(c.name.clone().unwrap_or_else(|| "-".into()));
+            parts.push(opt_bits(c.class_index));
+            parts.push(c.class_name.clone().unwrap_or_else(|| "-".into()));
+            parts.push(b(c.hero));
+            parts.extend([c.spawn.timer, c.spawn.wave, c.spawn.ordinal].iter().map(|x| bits(*x)));
+            parts.push(opt_bits(post));
+            parts.push(b(c.spawn.ready));
+            t.line(&parts);
+        }
+        for (p, q) in &sp.queues {
+            let PostId::Placed(i) = p else { unreachable!() };
+            let mut parts = vec!["queue".to_string(), rb.clone(), bits(*i as f64)];
+            parts.extend(q.iter().map(|x| bits(*x)));
+            t.line(&parts);
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 3 {
@@ -345,6 +457,7 @@ fn main() {
     kills(&ops, &mut t);
     posts(&ops, &mut t);
     stats(&ops, &mut t);
+    rosters(&ops, &mut t);
     let mut out = t.0;
     if !out.ends_with('\n') {
         let _ = writeln!(out);

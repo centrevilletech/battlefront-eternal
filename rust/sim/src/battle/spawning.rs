@@ -16,6 +16,7 @@
 //! Characters are named by their place in the battle's list, which is the
 //! manager's (`managerIndex`).
 
+use super::names::{human_name, BotNames, NameLists};
 use super::posts::{CommandPosts, PostId, SpawnView};
 use super::rules::{Battle, Character};
 use super::world::BattleWorld;
@@ -70,7 +71,15 @@ pub struct SpawnClass {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SpawnTeam {
     pub index: f64,
+    pub name: Option<String>,
     pub faction: f64,
+    /// SetHeroClass's registration.
+    pub hero_class: Option<String>,
+    pub bonus: f64,
+    /// Stored, never read.
+    pub aggressiveness: f64,
+    /// Its bot name generator, made with its first bot.
+    pub bot_names: Option<BotNames>,
     pub unit_count: f64,
     pub tickets: f64,
     pub classes: Vec<SpawnClass>,
@@ -100,6 +109,224 @@ pub struct ClassicSpawning {
     pub queues: Vec<(PostId, [f64; 4])>,
     /// Attract mode: no humans, quick first waves.
     pub demo: bool,
+    /// Heroes On.
+    pub heroes: bool,
+    /// The bots' name lists (ai-mission.json `names`).
+    pub names: Option<NameLists>,
+    pub started: bool,
+}
+
+/// An argument of a mission's AI call (ai-mission.json), as the script gave
+/// it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Arg {
+    Num(f64),
+    Str(String),
+    Other,
+}
+
+/// A mission's AI call: its name and arguments, and what the extraction
+/// decoded of it (a team name's faction, a bonus's mask).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Call {
+    pub name: String,
+    pub args: Vec<Arg>,
+    pub faction: Option<f64>,
+    pub mask: Option<f64>,
+}
+
+pub const HERO_BONUS: f64 = 8.0;
+pub const DEFAULT_SPAWN_DELAY: [f64; 2] = [15.0, 0.5];
+
+/// The hero a team fields when its mission named none, by faction.
+fn default_hero(faction: f64) -> Option<&'static str> {
+    match faction as i64 {
+        1 => Some("all_inf_lukeskywalker"),
+        2 => Some("imp_inf_darthvader"),
+        3 => Some("rep_inf_macewindu"),
+        4 => Some("cis_inf_countdooku"),
+        _ => None,
+    }
+}
+
+/// factionOf(name) (goals.js:50): SetTeamName's parser.
+pub fn faction_of(name: Option<&str>) -> f64 {
+    let Some(name) = name.filter(|n| !n.is_empty()) else { return super::names::LOCALS };
+    match name.to_lowercase().as_str() {
+        "all" | "alliance" => 1.0,
+        "imp" | "empire" => 2.0,
+        "rep" | "republic" => 3.0,
+        "cis" => 4.0,
+        "neutral" => 0.0,
+        _ => super::names::LOCALS,
+    }
+}
+
+/// bonusMask(name) (spawning.js:53).
+pub fn bonus_mask(name: Option<&str>) -> f64 {
+    match name.map(str::to_lowercase).as_deref() {
+        Some("sabotage") => 32.0,
+        Some("hero") => HERO_BONUS,
+        Some("training") => 128.0,
+        _ => 0.0,
+    }
+}
+
+/// Number(value) of an argument, as luaInt and SetSpawnDelay read it.
+fn number(arg: Option<&Arg>) -> f64 {
+    match arg {
+        Some(Arg::Num(x)) => *x,
+        Some(Arg::Str(s)) => {
+            let t = s.trim();
+            if t.is_empty() {
+                0.0
+            } else {
+                t.parse::<f64>().unwrap_or(f64::NAN)
+            }
+        }
+        Some(Arg::Other) => f64::NAN,
+        None => f64::NAN,
+    }
+}
+
+/// luaInt(value): Math.trunc(f32(Number(value) || 0)).
+fn lua_int(arg: Option<&Arg>) -> f64 {
+    let x = number(arg);
+    let x = if x == 0.0 || x.is_nan() { 0.0 } else { x };
+    v8math::trunc(fround(x))
+}
+
+/// makeTeams(capacity) (spawning.js:72): team 0 holds nobody; each team its
+/// own friend and every other team's enemy, neutral to team 0; teams 3-7
+/// with unlimited reinforcements.
+pub fn make_teams(capacity: f64) -> Vec<SpawnTeam> {
+    (0..TEAM_COUNT)
+        .map(|index| {
+            let mut relations = [0.0; TEAM_COUNT];
+            if index != 0 {
+                for (other, r) in relations.iter_mut().enumerate().skip(1) {
+                    *r = if other == index { 1.0 } else { -1.0 };
+                }
+            }
+            SpawnTeam {
+                index: index as f64,
+                tickets: if index <= 2 { 0.0 } else { LOCALS_TICKETS },
+                aggressiveness: 1.0,
+                relations,
+                capacity: if index != 0 { capacity } else { 0.0 },
+                ..Default::default()
+            }
+        })
+        .collect()
+}
+
+/// applyMission(teams, calls, { hasClass }) (spawning.js:97): the mission's
+/// calls in source order; returns the spawn delay the last SetSpawnDelay
+/// left.
+pub fn apply_mission(teams: &mut [SpawnTeam], calls: &[Call], has_class: &dyn Fn(&str) -> bool) -> [f64; 2] {
+    let mut spawn_delay = DEFAULT_SPAWN_DELAY;
+    for call in calls {
+        let args = &call.args;
+        let t = lua_int(args.first());
+        let team = (t >= 0.0 && t < TEAM_COUNT as f64).then_some(t as usize);
+        let s = |i: usize| match args.get(i) {
+            Some(Arg::Str(s)) => Some(s.as_str()),
+            _ => None,
+        };
+        match call.name.as_str() {
+            "SetTeamName" => {
+                if let Some(t) = team {
+                    teams[t].name = s(1).map(str::to_string);
+                    teams[t].faction = call.faction.unwrap_or_else(|| faction_of(teams[t].name.as_deref()));
+                }
+            }
+            "AddUnitClass" => {
+                if let (Some(t), Some(name)) = (team, s(1)) {
+                    if has_class(name) && teams[t].classes.len() < CLASS_CAPACITY {
+                        let target = match args.get(2) {
+                            Some(Arg::Num(_)) => lua_int(args.get(2)),
+                            _ => 0.0,
+                        };
+                        teams[t].classes.push(SpawnClass { name: name.to_string(), target, hero: false });
+                    }
+                }
+            }
+            "SetUnitCount" => {
+                if let Some(t) = team {
+                    teams[t].unit_count = lua_int(args.get(1));
+                }
+            }
+            "SetReinforcementCount" => {
+                if let Some(t) = team {
+                    teams[t].tickets = lua_int(args.get(1));
+                }
+            }
+            "SetHeroClass" => {
+                if let (Some(t), Some(name)) = (team, s(1)) {
+                    teams[t].hero_class = Some(name.to_string());
+                }
+            }
+            "ActivateBonus" => {
+                if let Some(t) = team {
+                    let mask = call.mask.unwrap_or_else(|| bonus_mask(s(1)));
+                    teams[t].bonus = (to_int32(teams[t].bonus) | to_int32(mask)) as f64;
+                }
+            }
+            "SetTeamAggressiveness" => {
+                if let Some(t) = team {
+                    teams[t].aggressiveness = fround(number(args.get(1)));
+                }
+            }
+            "SetTeamAsFriend" | "SetTeamAsEnemy" | "SetTeamAsNeutral" => {
+                let other = lua_int(args.get(1));
+                if let Some(t) = team {
+                    if other >= 0.0 && other < TEAM_COUNT as f64 {
+                        teams[t].relations[other as usize] = match call.name.as_str() {
+                            "SetTeamAsFriend" => 1.0,
+                            "SetTeamAsEnemy" => -1.0,
+                            _ => 0.0,
+                        };
+                    }
+                }
+            }
+            "SetSpawnDelay" => {
+                if args.len() >= 2 {
+                    spawn_delay = [fround(number(args.first())), fround(number(args.get(1)))];
+                }
+            }
+            _ => {}
+        }
+    }
+    spawn_delay
+}
+
+/// appendHeroes(teams, { heroes, hasClass }) (spawning.js:185): teams 1 and
+/// 2 field their hero when heroes are on (or the mission's bonus asks): the
+/// hero class appended with a target of 1, the first class's target one
+/// less.
+pub fn append_heroes(teams: &mut [SpawnTeam], heroes: bool, has_class: &dyn Fn(&str) -> bool) {
+    for t in [1, 2] {
+        let team = &mut teams[t];
+        if !heroes && (to_int32(team.bonus) & HERO_BONUS as i32) == 0 {
+            continue;
+        }
+        let name = team.hero_class.clone().filter(|n| !n.is_empty()).or_else(|| default_hero(team.faction).map(str::to_string));
+        let Some(name) = name else { continue };
+        if !has_class(&name) || team.classes.len() >= CLASS_CAPACITY {
+            continue;
+        }
+        team.classes.push(SpawnClass { name, target: 1.0, hero: true });
+        team.hero_count += 1.0;
+        team.classes[0].target -= 1.0;
+    }
+}
+
+/// A local human as the manager takes him: his team, id and name.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HumanSpec {
+    pub team: f64,
+    pub id: Option<f64>,
+    pub name: Option<String>,
 }
 
 /// ownerOf(post): post.team | 0.
@@ -137,6 +364,139 @@ impl ClassicSpawning {
 
     fn team_mut(&mut self, t: f64) -> &mut SpawnTeam {
         &mut self.teams[t as usize]
+    }
+
+    // ---- The roster.
+
+    /// The manager after the mission's calls (the constructor, spawning.js
+    /// 238, without begin()): its teams, spawn delays and clocks.
+    pub fn new(calls: &[Call], unit_scale: f64, heroes: bool, demo: bool, names: Option<NameLists>, capacity: f64, has_class: &dyn Fn(&str) -> bool) -> ClassicSpawning {
+        let mut teams = make_teams(capacity);
+        let [a, b] = apply_mission(&mut teams, calls, has_class);
+        if unit_scale != 1.0 {
+            for team in teams.iter_mut() {
+                if team.unit_count > 0.0 {
+                    team.unit_count = v8math::max(1.0, v8math::round(team.unit_count * unit_scale));
+                }
+            }
+        }
+        append_heroes(&mut teams, heroes, has_class);
+        let (a, b) = (fround(a), fround(b));
+        ClassicSpawning { teams, a, b, q: v8math::trunc(fround(a / b)), wave_countdown: a, demo, heroes, names, ..Default::default() }
+    }
+
+    /// begin() (spawning.js:339): humans join their teams, bots fill each
+    /// team to its unit count (named by their team), then each team pads
+    /// its class targets and activates its Characters in order.
+    pub fn begin(&mut self, humans: &[HumanSpec], battle: &mut Battle, posts: &mut CommandPosts, world: &mut dyn BattleWorld, random: &mut dyn Draws) {
+        if self.started {
+            return;
+        }
+        self.started = true;
+        self.wave_countdown = if self.demo { fround(0.1) } else { self.a };
+        self.wave = 0.0;
+        self.stagger = 0.0;
+        self.released = 0.0;
+        let mut registered = [0.0; TEAM_COUNT];
+        if !self.demo {
+            for (i, spec) in humans.iter().enumerate() {
+                let team = to_int32(spec.team);
+                if team > 0 && team < TEAM_COUNT as i32 {
+                    let name = spec.name.clone().unwrap_or_else(|| human_name(i as f64));
+                    self.insert(team as f64, true, spec.id.unwrap_or(i as f64), name, battle);
+                    registered[team as usize] += 1.0;
+                }
+            }
+        }
+        for t in 1..TEAM_COUNT {
+            let mut i = registered[t];
+            while i < self.teams[t].unit_count {
+                let name = self.bot_name(t);
+                self.insert(t as f64, false, -1.0, name, battle);
+                i += 1.0;
+            }
+        }
+        for t in 0..TEAM_COUNT {
+            self.setup_team(t, battle, posts, world, random);
+        }
+    }
+
+    /// insert(t, human, playerId, name) (spawning.js:362): a new Character
+    /// at the end of its team's roster and of the manager's list.
+    pub fn insert(&mut self, t: f64, human: bool, player_id: f64, name: String, battle: &mut Battle) -> Option<usize> {
+        let team = &mut self.teams[t as usize];
+        if team.characters.len() as f64 >= team.capacity {
+            return None;
+        }
+        let slot = team.characters.len() as f64;
+        let place = battle.characters.len();
+        let mut c = Character::new(slot, t, human);
+        c.slot = slot;
+        c.manager_index = place as f64;
+        c.player_id = player_id;
+        c.name = Some(name);
+        c.class_index = None;
+        c.hero = false;
+        c.spawn = super::rules::Spawn::default();
+        team.characters.push(place as u32);
+        battle.characters.push(c);
+        Some(place)
+    }
+
+    /// botName(team) (spawning.js:387): from the team's own generator, made
+    /// with its first bot.
+    pub fn bot_name(&mut self, t: usize) -> String {
+        let faction = self.teams[t].faction;
+        let names = self.names.clone();
+        self.teams[t].bot_names.get_or_insert_with(|| BotNames::new(names.as_ref(), faction)).next()
+    }
+
+    /// setupTeam(team) (spawning.js:392).
+    fn setup_team(&mut self, t: usize, battle: &mut Battle, posts: &mut CommandPosts, world: &mut dyn BattleWorld, random: &mut dyn Draws) {
+        self.pad_quotas(t, random);
+        let list = self.teams[t].characters.clone();
+        for place in list {
+            self.activate(place as usize, battle, posts, world, random);
+        }
+    }
+
+    /// padQuotas(team) (spawning.js:400): class targets short of the team's
+    /// Characters gain one at a time at class max(RNG % 4n - 3n, 0).
+    pub fn pad_quotas(&mut self, t: usize, random: &mut dyn Draws) {
+        let team = &mut self.teams[t];
+        let n = team.classes.len() as f64 - team.hero_count;
+        if n <= 0.0 {
+            return; // the 2004 game would divide by zero here
+        }
+        let mut sum: f64 = team.classes.iter().map(|c| c.target).sum();
+        while sum < team.characters.len() as f64 {
+            let index = v8math::max((random.next() % (4.0 * n)) - 3.0 * n, 0.0);
+            team.classes[index as usize].target += 1.0;
+            sum += 1.0;
+        }
+    }
+
+    /// activate(character) (spawning.js:422): class 0, the final heroCount
+    /// slots take the hero classes, a bot draws its objective, then it
+    /// prepares.
+    pub fn activate(&mut self, place: usize, battle: &mut Battle, posts: &mut CommandPosts, world: &mut dyn BattleWorld, random: &mut dyn Draws) {
+        let t = battle.characters[place].team;
+        self.set_class(&mut battle.characters[place], 0.0, world);
+        if !battle.characters[place].human {
+            let team = &self.teams[t as usize];
+            let mut k = team.hero_count;
+            while k > 0.0 {
+                let at = team.characters.len() as f64 - k;
+                if at >= 0.0 && team.characters.get(at as usize) == Some(&(place as u32)) {
+                    let index = team.classes.len() as f64 - k;
+                    self.set_class(&mut battle.characters[place], index, world);
+                    break;
+                }
+                k -= 1.0;
+            }
+            world.request_objective(&mut battle.characters[place], place as u32);
+        }
+        self.prepare(place, battle, posts, world, random);
     }
 
     // ---- Spawn posts (src/ai/classic/goals.js).

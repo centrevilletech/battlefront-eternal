@@ -9,6 +9,7 @@
 
 pub mod battlefield;
 pub mod mobile;
+pub mod names;
 pub mod objectives;
 pub mod posts;
 pub mod regions;
