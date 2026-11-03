@@ -4,9 +4,13 @@
 // its Rust replay is served from the capture, their arguments checked).
 //
 // A spec is { frames: [...] } where each frame is either a phase of the
-// tick (tools/sim-capture/phases.mjs) or a method of a live object:
-//   { phase: 'ordnance', state(game), boundaries }
-//   { method: 'ordnance.stepBolt', target(game), state(game, args), boundaries }
+// tick (tools/sim-capture/phases.mjs) or a method of a live object or of a
+// prototype (every instance's, as each hull's tick):
+//   { phase: 'ordnance', state(game, args, cap), boundaries }
+//   { method: 'ordnance.stepBolt', target(game), state(game, args, cap, self), boundaries }
+// A method frame's receiver is `self` in its state() and `t` in its enter
+// record (a handle, for a hull or a unit); a target(game) of null (a map
+// without hulls) leaves the frame out of that battle.
 // state(game, args, cap) returns the roots to record at the frame's start
 // and end: live objects, written out whole (units, hulls, bodies and
 // definitions they reach become handles, tools/sim-capture/plugin.mjs), or,

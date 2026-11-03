@@ -107,6 +107,11 @@ impl Frame {
     pub fn args(&self) -> V<'_> {
         self.enter.root().get("a")
     }
+    /// The object a method frame was called on (a handle for a hull or a
+    /// unit; undefined for a phase).
+    pub fn receiver(&self) -> V<'_> {
+        self.enter.root().get("t")
+    }
     pub fn arg(&self, i: usize) -> V<'_> {
         self.args().at(i)
     }

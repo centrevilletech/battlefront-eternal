@@ -128,6 +128,8 @@ fn frames_hold_their_calls_and_draws_in_order() {
 
     let inner = capture.frames("test.inner").next().unwrap().unwrap();
     assert_eq!((inner.id, inner.parent), (1, Some(0)));
+    assert_eq!(inner.receiver().handle_num("vehicle"), Some(4.0), "the object the method was called on");
+    assert!(frame.receiver().is_undefined(), "a phase has none");
     assert_eq!(inner.after().get("n").num(), 2.0);
     let ticks: Vec<_> = capture.ticks().collect::<Result<_, _>>().unwrap();
     assert_eq!(ticks.len(), 1);
