@@ -41,8 +41,9 @@ const OBJECT = { modelMatrix: SRC.MODEL, modelViewMatrix: SRC.MODEL_VIEW, normal
 const SAMPLER_2D = 0x8B5E, SAMPLER_CUBE = 0x8B60;
 const FLOATS = { 0x1406: 1, 0x8B50: 2, 0x8B51: 3, 0x8B52: 4, 0x1404: 1, 0x8B56: 1, 0x8B5B: 9, 0x8B5C: 16, [SAMPLER_2D]: 1, [SAMPLER_CUBE]: 1 };
 const IDENTITY = new THREE.Matrix4();
-// core.program's policy for a zero material: every uniform it reads besides
-// the frame block is the far pass's to set (none through the core's table).
+// core.program's policy for a program with the frame block: every uniform it
+// reads besides the block is the far pass's to set (none through the core's
+// table).
 const ANY = { uniforms: { has: () => true }, material: { has: () => false } };
 
 // A uniform's value as the floats three would upload, appended to `out`;
