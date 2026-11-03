@@ -140,6 +140,9 @@ pub struct List {
     pub segments: Vec<u32>,
     // The view the frame's items were emitted for (its later segments draw for it too).
     pub view: Option<View>,
+    // The frame block that view reads (core.rs VIEW_*: the near scene's, or
+    // a mirror's), bound again for the later segments.
+    pub frame: usize,
 }
 
 impl List {
