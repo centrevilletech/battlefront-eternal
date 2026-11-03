@@ -26,12 +26,15 @@ import { register } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { Writer, Handle, Omitted, RECORD, MAGIC } from './format.mjs';
 import { PHASE_NAMES } from './phases.mjs';
-import { SPECS, Expand } from './specs.mjs';
 import { ClassicRandom, RandomStreams } from '../../src/ai/random.js';
 import { exportState, ExportContext } from '../../src/sim/runtime.js';
 import { KIND_TABLE, RECORD_CLASSES } from '../../src/sim/gen/index.js';
 
 register('./hooks.mjs', import.meta.url);
+// Specs can import simulation classes, including weapons through vehicles.
+// Register first so those modules' seeded draws and phase markers are
+// instrumented before any spec causes them to load.
+const { SPECS, Expand } = await import('./specs.mjs');
 
 const argv = process.argv.slice(2);
 const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i < 0 ? fallback : argv[i + 1]; };
