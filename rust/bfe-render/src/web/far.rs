@@ -35,4 +35,9 @@ impl BfeRenderer {
     pub fn far_mirror_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.far_mirror_frame().map_err(|e| JsValue::from_str(&e))?.values())
     }
+
+    // A face (0-5) of a sky probe's capture (renderer.rs far_probe_frame).
+    pub fn far_probe_frame(&mut self, face: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.far_probe_frame(face as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
 }

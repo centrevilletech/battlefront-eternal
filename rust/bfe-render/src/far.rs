@@ -23,11 +23,13 @@
 // order, render order, back to front, id) and draws them, setting a
 // uniform or a piece of state only when it differs from what is set.
 //
-// The Enhanced look, shadows, lamp lighting and the temporal upscaler fall
-// back to three for now (far.js); each needs only more items or values here:
-// the storm sky and ocean (plain items), the Enhanced flyers' sky probe (a
-// cube sampler), and the upscaler's jitter (the far camera's projection, in
-// the frame block already).
+// The Enhanced sky's flyers and the Enhanced ocean read a sky probe, a cube
+// map (sky-probe.js): a cube sampler's source binds it by its target. The
+// probe's captures are the far pass too, each face a phase of its own (the
+// probe phase) with a frame block of its own, and the cube's mipmaps made
+// after the last face as three makes them. Shadows, lamp lighting and the
+// temporal upscaler need nothing more of the far pass (the upscaler's jitter
+// is in the far camera's projection, in the frame block already).
 use crate::core::{Core, MultiDraw, PASS_FAR, UNIT_BUMP, UNIT_FAR, UNIT_MAP};
 use crate::math::{self, Mat4};
 use glow::HasContext;
@@ -44,6 +46,10 @@ use std::collections::HashMap;
 pub const FAR_CLEAR: usize = 0;
 pub const FAR_DRAW: usize = 4;
 pub const FAR_KEEP: usize = 5;
+// A sky probe's face (far_probe_frame): 1 + the cube texture whose mipmaps
+// the pass makes once it has drawn (three makes them after the last face:
+// CubeCamera.update), 0 for none.
+pub const FAR_MIPMAPS: usize = 6;
 pub const FAR_SLOTS: usize = 8;
 pub const FAR_INPUT_LEN: usize = 16384;
 
@@ -58,6 +64,7 @@ pub const SRC_EYE: u32 = 6;
 pub const SRC_MODEL: u32 = 7;
 pub const SRC_MODEL_VIEW: u32 = 8;
 pub const SRC_NORMAL: u32 = 9;
+pub const SRC_CUBE_INPUT: u32 = 10; // the cube map the input names at `at` (-1: none, left unbound)
 
 // An item's flags (far_item): its material's side (0 front, 1 back, 2 both),
 // then these.
@@ -122,6 +129,7 @@ enum Source {
     Model,
     ModelView,
     Normal,
+    CubeInput(usize),
 }
 
 // A bucket's spatial cells (render-culling.js): runs of consecutive
@@ -192,11 +200,14 @@ pub struct FarPass<C: HasContext> {
     vao: Option<C::VertexArray>,
     // Programs whose samplers are on units already (unit by name).
     units: HashMap<(usize, String), u32>,
+    // A sky probe's frame blocks, one a cube face (made the first time a
+    // probe is drawn): a capture's six faces read their own.
+    probe_ubos: Vec<C::Buffer>,
 }
 
 impl<C: HasContext> FarPass<C> {
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> FarPass<C> {
-        FarPass { input: vec![0.0; FAR_INPUT_LEN], tables: vec![], items: vec![], list: vec![], value: vec![], vao: None, units: HashMap::new() }
+        FarPass { input: vec![0.0; FAR_INPUT_LEN], tables: vec![], items: vec![], list: vec![], value: vec![], vao: None, units: HashMap::new(), probe_ubos: vec![] }
     }
 
     // The uniforms of a program the pass sets (all it reads besides the frame
@@ -214,8 +225,8 @@ impl<C: HasContext> FarPass<C> {
             let floats = floats_of(ty)? * counts[i].max(1) as usize;
             let location = unsafe { gl.get_uniform_location(handle, name) };
             let mut unit = 0;
-            // A cube sampler gets a unit of its own and is left unbound (none
-            // of the far scene's reads one in Classic: far.js).
+            // A cube sampler (the Enhanced sky probe's) gets a unit of its own,
+            // its cube map bound there (SRC_CUBE_INPUT).
             if ty == SAMPLER_2D || ty == SAMPLER_CUBE {
                 unit = match name {
                     "map" => UNIT_MAP,
@@ -285,6 +296,7 @@ impl<C: HasContext> FarPass<C> {
             SRC_EYE => Source::Eye,
             SRC_MODEL => Source::Model,
             SRC_MODEL_VIEW => Source::ModelView,
+            SRC_CUBE_INPUT => Source::CubeInput(at as usize),
             _ => Source::Normal,
         };
         self.items[item as usize].sources.push((uniform as usize, source));
@@ -416,6 +428,54 @@ impl<C: HasContext> FarPass<C> {
             return;
         }
         core.upload_frame(frame);
+        self.draw_items(core);
+    }
+
+    // A face of a sky probe's capture (sky-probe.js, renderer.rs
+    // far_probe_frame): the far pass for the face's camera into the face
+    // three bound, with a frame block of the probe's own for the face; after
+    // the last face, the cube's mipmaps when three would make them.
+    pub fn draw_probe<M: MultiDraw>(&mut self, core: &mut Core<C, M>, face: usize) {
+        if self.input[FAR_DRAW] == 0.0 {
+            return;
+        }
+        let gl = &core.gl;
+        while self.probe_ubos.len() < 6 {
+            let ubo = unsafe {
+                let ubo = gl.create_buffer().unwrap();
+                gl.bind_buffer(glow::UNIFORM_BUFFER, Some(ubo));
+                gl.buffer_data_size(glow::UNIFORM_BUFFER, (crate::shader::FRAME_FLOATS * 4) as i32, glow::DYNAMIC_DRAW);
+                gl.bind_buffer(glow::UNIFORM_BUFFER, None);
+                ubo
+            };
+            self.probe_ubos.push(ubo);
+        }
+        // The frame block's values (core.upload_frame), into the face's buffer.
+        let ubo = self.probe_ubos[face.min(5)];
+        for i in 0..crate::shader::FRAME_FLOATS {
+            core.frame[i] = core.input[i] as f32;
+        }
+        unsafe {
+            gl.bind_buffer(glow::UNIFORM_BUFFER, Some(ubo));
+            gl.buffer_sub_data_u8_slice(glow::UNIFORM_BUFFER, 0, crate::core::bytes(&core.frame));
+            gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(ubo));
+        }
+        core.stats.gl_calls += 3;
+        self.draw_items(core);
+        let cube = self.input[FAR_MIPMAPS];
+        if cube > 0.0 {
+            if let Some(&texture) = core.textures.get(cube as usize - 1) {
+                core.state.bind_texture_target(&core.gl, &mut core.stats, crate::core::UNIT_MAP, glow::TEXTURE_CUBE_MAP, Some(texture));
+                unsafe { core.gl.generate_mipmap(glow::TEXTURE_CUBE_MAP) };
+                core.stats.gl_calls += 1;
+            }
+        }
+    }
+
+    // This frame's items for the camera whose frame block is bound: the
+    // target cleared as three clears it (unless three's autoClear is off),
+    // then the items in three's order.
+    fn draw_items<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
         let camera = core.camera();
         let mut projection = [0.0; 16];
         projection.copy_from_slice(&core.input[0..16]);
@@ -580,6 +640,15 @@ impl<C: HasContext> FarPass<C> {
                 Source::TextureInput(at) => {
                     let t = input[*at];
                     state.bind_texture(gl, stats, uniform.unit, if t >= 0.0 { core.textures.get(t as usize).copied() } else { None });
+                    continue;
+                }
+                Source::CubeInput(at) => {
+                    // A cube sampler given none (the Classic flyers') is never
+                    // read: nothing is bound for it.
+                    let t = input[*at];
+                    if t >= 0.0 {
+                        state.bind_texture_target(gl, stats, uniform.unit, glow::TEXTURE_CUBE_MAP, core.textures.get(t as usize).copied());
+                    }
                     continue;
                 }
                 Source::Projection => push16(value, projection),

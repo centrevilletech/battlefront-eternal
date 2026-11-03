@@ -212,6 +212,19 @@ export class BfeRenderer {
         return v1;
     }
     /**
+     * @param {number} face
+     * @returns {Uint32Array}
+     */
+    far_probe_frame(face) {
+        const ret = wasm.bferenderer_far_probe_frame(this.__wbg_ptr, face);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @param {number} item
      * @param {number} start
      * @param {number} count
@@ -1630,6 +1643,12 @@ function __wbg_get_imports() {
         },
         __wbg_frontFace_8bbd77ca3b8f90a6: function(arg0, arg1) {
             arg0.frontFace(arg1 >>> 0);
+        },
+        __wbg_generateMipmap_41bc066b35a6cd3d: function(arg0, arg1) {
+            arg0.generateMipmap(arg1 >>> 0);
+        },
+        __wbg_generateMipmap_e1a3b00736bb27bf: function(arg0, arg1) {
+            arg0.generateMipmap(arg1 >>> 0);
         },
         __wbg_getExtension_30c10f49f67eb05d: function() { return handleError(function (arg0, arg1, arg2) {
             const ret = arg0.getExtension(getStringFromWasm0(arg1, arg2));

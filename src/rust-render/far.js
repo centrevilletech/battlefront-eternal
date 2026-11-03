@@ -29,8 +29,8 @@ import { VIEW_FAR } from "./index.js";
 // add_program's kinds (web/mod.rs).
 const WORLD = 0, PLAIN = 3;
 // The far input's layout and the uniform sources and item flags (far.rs).
-const CLEAR = 0, DRAW = 4, KEEP = 5, SLOTS = 8;
-const SRC = { FLOATS: 0, INPUT: 1, TEXTURE: 2, TEXTURE_INPUT: 3, PROJECTION: 4, VIEW: 5, EYE: 6, MODEL: 7, MODEL_VIEW: 8, NORMAL: 9 };
+const CLEAR = 0, DRAW = 4, KEEP = 5, MIPMAPS = 6, SLOTS = 8;
+const SRC = { FLOATS: 0, INPUT: 1, TEXTURE: 2, TEXTURE_INPUT: 3, PROJECTION: 4, VIEW: 5, EYE: 6, MODEL: 7, MODEL_VIEW: 8, NORMAL: 9, CUBE_INPUT: 10 };
 const F = { DEPTH_TEST: 4, DEPTH_WRITE: 8, COLOR_WRITE: 16, A2C: 32, TRANSPARENT: 64, PLACED: 128, CULLED: 256, BLEND: 512 };
 // The frame block's members (shader.rs FRAME_MEMBERS); those three takes from
 // the camera, and the object's matrices.
@@ -144,10 +144,20 @@ class FarPass {
   }
 
   frame(ctx) {
-    const { renderer, scene, camera } = ctx;
+    const { renderer, scene, camera } = ctx, core = this.core;
     this.count = 0;
     this.threeObjects = 0;
     this.camera = camera;
+    // A sky probe's face (sky-probe.js): which one (far_probe_frame).
+    const cube = camera.parent?.type === "CubeCamera" ? camera.parent : null;
+    ctx.face = cube ? Math.max(0, cube.children.indexOf(camera)) : 0;
+    // Its cube's mipmaps, made after the face drawn now as three's render
+    // makes them (updateRenderTargetMipmap: whenever the texture asks for
+    // them; CubeCamera.update holds them back until the last face): 1 + the
+    // texture's id, else 0. Registered here, before the input is written
+    // (registering can move the module's memory).
+    const texture = cube?.renderTarget?.texture;
+    this.mipmaps = texture?.generateMipmaps ? 1 + core.texture(texture) : 0;
     if (this.on && !this.sharing) this.share(scene);
     if (this.on) this.walk(scene, camera, 0);
     this.frustum.setFromProjectionMatrix(this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
@@ -191,8 +201,6 @@ class FarPass {
       if (item) { let list = this.items.get(object); if (!list) this.items.set(object, list = []); list.push(item); this.all.push(item); } else if (item === null) this.failed.set(object, material);
       item ||= null;
     }
-    // A cube map to read (the Enhanced sky probe): three's to draw for now.
-    if (item?.cubes.length && item.cubes.some((name) => material.uniforms[name]?.value)) item = null;
     // This frame's meshes, in entries kept from frame to frame.
     const f = this.found[this.count] ??= {};
     f.object = object; f.material = material; f.item = item;
@@ -249,13 +257,16 @@ class FarPass {
     const placed = own.some((u) => u.name in OBJECT) || !mesh.matrixWorld.equals(IDENTITY) || (mesh.matrixAutoUpdate && !terrain);
     const slot = this.nextSlot;
     let at = slot + 1 + (placed ? 16 : 0) + (terrain ? 1 : 0);
-    const sources = [], dynamic = [], watched = [], cubes = [];
+    const sources = [], dynamic = [], watched = [];
     for (let index = 0; index < own.length; index++) {
       const { name, type, size } = own[index];
       if (type === SAMPLER_CUBE) {
-        // Left unset while it has none (the Classic flyers' sky probe).
-        if (material.uniforms?.[name]?.value) return null;
-        cubes.push(name);
+        // A cube map (the Enhanced sky probe: sky-probe.js), named each
+        // frame; none (the Classic flyers') is never read.
+        if (!(name in (material.uniforms || {}))) return null;
+        dynamic.push({ name, at, sampler: true, cube: true, id: -1 });
+        sources.push([index, SRC.CUBE_INPUT, null, at]);
+        at += 1;
         continue;
       }
       if (name in CAMERA) { sources.push([index, CAMERA[name], null, 0]); continue; }
@@ -353,7 +364,7 @@ class FarPass {
     const hooks = !fixed && [mesh.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender ? "object" : null,
       material.onBeforeRender !== THREE.Material.prototype.onBeforeRender ? "material" : null].filter(Boolean);
     return { id, object, mesh, material, threeProgram, slot, placed, terrain, levels: terrain ? [true, Boolean(terrain.patches.reduced)] : null, level: 0,
-      dynamic, watched, cubes, hooks: hooks || [], instances, countAt };
+      dynamic, watched, hooks: hooks || [], instances, countAt };
   }
 
   // The map's far buckets (zero materials, their vertices in the world) that
@@ -489,8 +500,9 @@ class FarPass {
         if (!d.sampler) continue;
         const value = uniforms[d.name].value;
         if (value?.isTexture) this.upload(value);
-        // None: three's empty texture, as for a fixed one.
-        d.id = core.texture(value?.isTexture ? value : this.emptyTexture());
+        // None: three's empty texture, as for a fixed one (a cube sampler
+        // given none is never read: none).
+        d.id = d.cube ? (value?.isTexture ? core.texture(value) : -1) : core.texture(value?.isTexture ? value : this.emptyTexture());
       }
     }
   }
@@ -507,6 +519,7 @@ class FarPass {
     // far scene drawn over its sky): the colour (a render target's: the
     // working space), premultiplied by its alpha as the context is.
     input[KEEP] = renderer.autoClear ? 0 : 1;
+    input[MIPMAPS] = this.mipmaps;
     renderer.getClearColor(this.color);
     const alpha = renderer.getClearAlpha(), pre = renderer.getContextAttributes()?.premultipliedAlpha !== false ? alpha : 1;
     input[CLEAR] = this.color.r * pre; input[CLEAR + 1] = this.color.g * pre; input[CLEAR + 2] = this.color.b * pre; input[CLEAR + 3] = alpha;

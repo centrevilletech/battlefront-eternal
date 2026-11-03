@@ -12,7 +12,8 @@
 // (core.rs: the context, programs, geometries, textures, inputs, GL state).
 // A frame is drawn in phases, each a call from the page at its point in
 // three's frame, which draws its passes in order: the far scene (far_frame;
-// far_mirror_frame from a water's mirror camera, before the frame's own),
+// far_mirror_frame from a water's mirror camera and far_probe_frame for a
+// sky probe's faces, both before the frame's own),
 // the near scene (frame), what it blends (transparent_frame, in segments
 // around what three still blends itself: transparent_segment), the
 // first-person view (view_frame), the post passes (post_frame) and, over the
@@ -82,6 +83,15 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     pub fn far_mirror_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();
         self.far.draw(&mut self.core, VIEW_FAR_MIRROR);
+        Ok(self.core.end_phase())
+    }
+
+    // A face of a sky probe's capture (sky-probe.js), into the cube face
+    // three bound: the far pass for the face's camera, with a frame block of
+    // the probe's own for the face (far.rs draw_probe).
+    pub fn far_probe_frame(&mut self, face: usize) -> Result<Stats, String> {
+        self.core.begin_phase();
+        self.far.draw_probe(&mut self.core, face);
         Ok(self.core.end_phase())
     }
 

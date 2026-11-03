@@ -22,7 +22,8 @@
 // transparent pass, effects, foliage, the first-person view and the post
 // passes. Each draws in a phase of the frame: far, near, transparent, view,
 // post (and mirror: the near phase's passes from a mirror's camera;
-// farMirror: the far phase's, from a water mirror's camera). A
+// farMirror and probe: the far phase's, from a water mirror's camera and for
+// a sky probe's faces). A
 // scene whose passes draw all of it is left out of three's frame (cover).
 // This file is their core: the WASM renderer and what every pass
 // registers through it (textures, programs, geometries), the frame block,
@@ -84,6 +85,10 @@ const PHASES = {
   // The far phase's passes from a water's mirror camera (water.js reflect),
   // into the mirror's target, before the frame's own far scene.
   farMirror: { view: VIEW_FAR_MIRROR, draw: (rust) => rust.far_mirror_frame() },
+  // The far phase's passes for a sky probe's cube face (sky-probe.js), into
+  // the face three bound; its frame blocks are the far pass's own, one a
+  // face (ctx.face, which the far pass reads off the face's camera).
+  probe: { view: VIEW_FAR, draw: (rust, ctx) => rust.far_probe_frame(ctx.face ?? 0) },
 };
 
 // three's renderer's entry points that read or change its state cache, each
@@ -178,6 +183,7 @@ export class RustRender {
     this.phases.mirror = this.phases.near;
     this.phases.mirrorTransparent = this.phases.transparent;
     this.phases.farMirror = this.phases.far;
+    this.phases.probe = this.phases.far;
     this.byName = {};
     for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass]) this.addPass(make(this));
   }

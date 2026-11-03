@@ -255,3 +255,45 @@ test("a water mirror's far scene: its sky pass cleared, the rest drawn over it u
   core.views();
   assert.equal(core.farInput[5], 0);
 });
+
+const SAMPLER_CUBE = 0x8B60;
+const FLYER = [["modelMatrix", MAT4], ["projectionMatrix", MAT4], ["reach", FLOAT], ["map", SAMPLER_2D], ["skyProbe", SAMPLER_CUBE]];
+
+test("a cube map a material reads (the Enhanced sky probe) is named each frame and drawn by the renderer; none is never bound", () => {
+  const { core, calls, renderer, farScene, camera, far } = bridge();
+  const probe = new THREE.CubeTexture();
+  const flyer = mesh("sky-flyer", FLYER, { values: { reach: { value: 900 }, map: { value: new THREE.Texture() }, skyProbe: { value: probe } } });
+  const classic = mesh("sky-flyer-classic", FLYER, { values: { reach: { value: 900 }, map: { value: new THREE.Texture() }, skyProbe: { value: null } } });
+  farScene.add(flyer, classic);
+  assert.equal(core.cover("far", renderer, farScene, camera), true);
+  assert.equal(far.mode, "full");
+  const item = far.all.find((i) => i.object === flyer), bare = far.all.find((i) => i.object === classic);
+  const cube = (it) => calls.filter((c) => c[0] === "far_source" && c[1] === it.id).find((c) => c[3] === 10);
+  assert.ok(cube(item) && cube(bare), "each its cube sampler's source");
+  core.views();
+  const at = cube(item)[5];
+  assert.equal(core.farInput[at], core.textures.get(renderer.properties.get(probe).__webglTexture), "the probe's texture, registered");
+  assert.equal(core.farInput[cube(bare)[5]], -1, "none: left unbound");
+  assert.equal(core.farInput[6], 0, "no mipmaps: not a probe's face");
+});
+
+test("a sky probe's faces: each its own phase call, the mipmaps after the last face when the texture asks for them", () => {
+  const { core, calls, renderer, farScene, far } = bridge();
+  const sky = mesh("zero:sky", SKY, { renderOrder: -1e9, values: values(), matrixAutoUpdate: true });
+  sky.layers.enable(3);
+  farScene.add(sky);
+  const target = { texture: new THREE.CubeTexture(), isWebGLCubeRenderTarget: true };
+  target.texture.generateMipmaps = false;
+  const cubeCamera = new THREE.CubeCamera(0.05, 50, target);
+  for (const face of cubeCamera.children) face.layers.set(3);
+  cubeCamera.updateMatrixWorld(true);
+  cubeCamera.children.forEach((face, i) => {
+    if (i === 5) target.texture.generateMipmaps = true;
+    assert.equal(core.cover("probe", renderer, farScene, face), true);
+    core.views();
+    const texture = core.textures.get(renderer.properties.get(target.texture).__webglTexture);
+    assert.equal(core.farInput[6], i === 5 ? 1 + texture : 0, `face ${i}`);
+  });
+  assert.deepEqual(calls.filter((c) => c[0] === "far_probe_frame").map((c) => c[1]), [0, 1, 2, 3, 4, 5]);
+  assert.ok(far.all.some((i) => i.object === sky));
+});
