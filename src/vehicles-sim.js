@@ -100,36 +100,58 @@ export class VehiclesSim {
     try { call(); } finally { this.bridge.write(KIND_VEHICLE, this.vehicles.vehicles); }
   }
 
+  // Each import's handler. The arguments object (and its vectors) is the
+  // bridge's, reused for the next call of the same import: every argument
+  // is read before anything that can come back into the module runs, and a
+  // vector handed on that the battle may keep is copied.
   handlers() {
     const w = this.world, vs = this.vehicles;
     const hullAt = (i) => vs.vehicles[i];
+    const origin = new THREE.Vector3(), direction = new THREE.Vector3(), position = new THREE.Vector3(), velocity = new THREE.Vector3();
+    const previous = new THREE.Vector3(), q = new THREE.Quaternion(), own = new THREE.Quaternion(), matrix = new THREE.Matrix4();
+    const center = new THREE.Vector3(), point = new THREE.Vector3();
+    const probes = [];
     return {
       vehCast: (a) => {
-        const hit = w.cast(a.origin, a.direction, a.far, this.hit, this.body(a.ignore));
+        origin.copy(a.origin); direction.copy(a.direction);
+        const hit = w.cast(origin, direction, a.far, this.hit, this.body(a.ignore));
         return hit ? { found: true, distance: hit.distance, point: hit.point, normal: hit.normal, terrain: Boolean(hit.terrain), body: this.bodySlot(hit.body) } : MISS;
       },
       vehPushWalls: (a) => {
-        const undo = w.pushWalls(hullAt(a.hull), a.probes, a.radius, a.q, a.own, a.previous, a.position, a.velocity, a.terrain);
-        return { undo: Boolean(undo), position: a.position, velocity: a.velocity };
+        const hull = hullAt(a.hull), radius = a.radius, terrain = a.terrain;
+        probes.length = a.probes.length;
+        for (let i = 0; i < probes.length; i++) (probes[i] ??= new THREE.Vector3()).copy(a.probes[i]);
+        q.copy(a.q); previous.copy(a.previous); position.copy(a.position); velocity.copy(a.velocity);
+        const mine = a.own ? own.copy(a.own) : null;
+        const undo = w.pushWalls(hull, probes, radius, q, mine, previous, position, velocity, terrain);
+        return { undo: Boolean(undo), position, velocity };
       },
       vehGround: (a) => {
         const g = w.ground(a.x, a.z, a.top, this.groundHit);
         return g ? { found: true, height: g.height, normal: g.normal } : NO_GROUND;
       },
-      vehSpringPolygons: (a) => ({ polygons: w.springPolygons(hullAt(a.hull), a.index, a.center, a.radius).map((p) => ({ id: p.id, moving: Boolean(p.moving), triangles: p.triangles })) }),
-      vehMoveBody: (a) => { w.moveBody(this.body(a.body), a.matrix); },
+      vehSpringPolygons: (a) => {
+        const hull = hullAt(a.hull), index = a.index, radius = a.radius;
+        center.copy(a.center);
+        return { polygons: w.springPolygons(hull, index, center, radius).map((p) => ({ id: p.id, moving: Boolean(p.moving), triangles: p.triangles })) };
+      },
+      vehMoveBody: (a) => { const body = this.body(a.body); matrix.copy(a.matrix); w.moveBody(body, matrix); },
       vehEnableBody: (a) => { w.enableBody(this.body(a.body), a.enabled); },
       vehBodyEnabled: (a) => { this.flag.value = Boolean(w.bodyEnabled(this.body(a.body))); return this.flag; },
       vehHasWater: () => { this.flag.value = Boolean(vs.water); return this.flag; },
       vehWaterOver: (a) => { this.flag.value = Boolean(w.waterOver(a.x, a.z)); return this.flag; },
       vehWaterLevel: () => { this.number.value = w.waterLevel(); return this.number; },
-      vehInDeathRegion: (a) => { this.flag.value = Boolean(w.inDeathRegion(a.position)); return this.flag; },
+      vehInDeathRegion: (a) => { point.copy(a.position); this.flag.value = Boolean(w.inDeathRegion(point)); return this.flag; },
       vehRaycastUnits: (a) => {
-        const hit = w.raycastUnits(a.origin, a.direction, a.far, this.unitHit);
+        origin.copy(a.origin); direction.copy(a.direction);
+        const hit = w.raycastUnits(origin, direction, a.far, this.unitHit);
         return hit ? { ...MISS, found: true, distance: hit.distance } : MISS;
       },
       vehClock: () => { this.number.value = w.clock(); return this.number; },
-      vehDamaged: (a) => { const v = hullAt(a.hull); this.hook(() => w.damaged(v, a.amount, a.attacker)); },
+      vehDamaged: (a) => {
+        const v = hullAt(a.hull), amount = a.amount, attacker = a.attacker;
+        this.hook(() => w.damaged(v, amount, attacker));
+      },
       vehDestroyedCrew: (a) => { const v = hullAt(a.hull); this.hook(() => vs.destroyedCrew?.(v)); },
       vehDestroyed: (a) => { const v = hullAt(a.hull); this.hook(() => w.destroyed(v)); },
       vehRespawnClock: (a) => { const v = hullAt(a.hull); v.slot.remaining = v.slot.desc.respawnTime; },
@@ -144,12 +166,13 @@ export class VehiclesSim {
       },
       vehExplosion: (a) => {
         const v = hullAt(a.hull);
-        // A blast with no offset goes off at the hull's own position (the
-        // very vector, as the JavaScript hands it).
+        // At the hull's own position (the very vector, as the JavaScript
+        // hands it) when its class sets no offset, else a point of its own.
         const def = a.final ? v.def.finalExplosion || v.def.explosion : v.def.explosion;
-        this.hook(() => w.explosion(def, a.final || v.def.fx?.explosionOffset ? a.position : v.position, v));
+        const at = a.final || v.def.fx?.explosionOffset ? a.position.clone() : v.position;
+        this.hook(() => w.explosion(def, at, v));
       },
-      vehEffect: (a) => { w.effect(a.name, a.position); },
+      vehEffect: (a) => { const name = a.name, at = a.position.clone(); w.effect(name, at); },
     };
   }
 }
