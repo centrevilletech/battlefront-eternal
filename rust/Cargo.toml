@@ -6,5 +6,9 @@ members = ["glbench", "bfe-render", "bfe-native", "sim", "sim-replay", "content"
 opt-level = 3
 lto = true
 codegen-units = 1
-panic = "abort"
+# Native builds unwind on a panic: `cargo test --release` builds a crate's
+# library once for its tests and its bins alike, which it cannot do with
+# the test harness unwinding and the bins aborting (the two builds collide
+# in one output file). The WebAssembly modules abort: tools/build-rust.mjs
+# builds them with CARGO_PROFILE_RELEASE_PANIC=abort.
 debug = false

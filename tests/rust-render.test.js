@@ -108,7 +108,10 @@ test("on, off and restore go through the passes", () => {
   assert.deepEqual(calls, [], "off: three draws everything");
   core.setActive(true);
   assert.deepEqual(seen, [false, true]);
-  // A configuration the renderer does not cover gives everything back.
+  // The configuration the battle started in is the one the renderer covers
+  // (its first phase's); another one mid-battle gives everything back.
+  core.pass(renderer, scene, camera);
+  assert.equal(core.enabled, true);
   const hidden = new THREE.ShaderMaterial();
   hidden.visible = false;
   scene.add(new THREE.Mesh(new THREE.BufferGeometry(), hidden));
