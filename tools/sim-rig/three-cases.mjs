@@ -61,7 +61,7 @@ const ORDERS = ['XYZ', 'YXZ', 'ZXY', 'ZYX', 'YZX', 'XZY'];
 
 // The oracle: what three's transcendental calls answered.
 const oracle = new Map();
-const CODES = { sin: 1, cos: 2, atan2: 3, asin: 4, acos: 5 };
+const CODES = { sin: 1, cos: 2, atan2: 3, asin: 4, acos: 5, atan: 6, exp: 7 };
 const f64 = new Float64Array(1), u32 = new Uint32Array(f64.buffer);
 const bits = (x) => { f64[0] = x; return `${u32[0]}:${u32[1]}`; };
 for (const [name, code] of Object.entries(CODES)) {

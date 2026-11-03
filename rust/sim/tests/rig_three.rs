@@ -1,9 +1,10 @@
 //! The rigs' three.js r170 subset (rust/sim/src/rig/three.rs, tree.rs)
 //! against three itself: cases tools/sim-rig/three-cases.mjs recorded under
 //! the production server's Node, replayed here, every number compared by its
-//! bits. The transcendental functions are answered from the recording's
-//! oracle (rig::math), so what is proven is the arithmetic around them, in
-//! three's order; a call the JavaScript never made is a miss.
+//! bits. The transcendental functions are rust/v8math's, each call also
+//! checked against what V8 answered in the recording (rig::math's oracle):
+//! a different answer is a mismatch, and a call the JavaScript never made is
+//! a miss.
 //!
 //!   node tools/sim-rig/three-cases.mjs CASES.bfecap
 //!   BFE_RIG_THREE=CASES.bfecap cargo test -p sim --features replay --test rig_three
@@ -256,10 +257,14 @@ fn three_subset_matches_r170() {
             }
         }
     });
-    eprintln!("{checked} cases checked, {} oracle answers ({} used, {} misses)", answers, table.answered, table.misses.len());
+    eprintln!("{checked} cases checked, {} oracle answers ({} calls agreed, {} misses, {} mismatches)", answers, table.answered, table.misses.len(), table.mismatches.len());
+    for (f, a, b, v8, mine) in table.mismatches.iter().take(5) {
+        eprintln!("mismatch: {}({a:e}, {b:e}): V8 {v8:e}, v8math {mine:e}", f.name());
+    }
     for (f, a, b) in table.misses.iter().take(5) {
         eprintln!("miss: {}({a:e}, {b:e})", f.name());
     }
     assert!(failures.is_empty(), "{} methods differ from three r170:\n{}", failures.len(), failures.join("\n"));
     assert!(table.misses.is_empty(), "{} transcendental calls the JavaScript never made", table.misses.len());
+    assert!(table.mismatches.is_empty(), "{} transcendental answers not V8's", table.mismatches.len());
 }
