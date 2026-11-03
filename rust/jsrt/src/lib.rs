@@ -11,12 +11,10 @@
 //! ties-away `round`, NaN-ignoring `min`/`max`, unstable or differently
 //! stable sorts, `HashMap` iteration order).
 //!
-//! Transcendental `Math` functions (sin, cos, pow, ...) are not here:
-//! they belong to `rust/v8math`, which ports V8's own implementations.
-//! Until that crate lands, [`v8math`] holds a feature-gated stub with
-//! the same signatures so callers can be written now; its values are
-//! the host libm's and are NOT bit-identical. The algebraic functions
-//! in this crate (conversions, `js_round`, `js_min`/`js_max`, `fround`,
+//! Transcendental `Math` functions (sin, cos, ...) are not here: they
+//! belong to `rust/v8math`, which ports V8's own implementations, and
+//! [`v8math`] re-exports them for the sim. The algebraic functions in
+//! this crate (conversions, `js_round`, `js_min`/`js_max`, `fround`,
 //! `hypot` of two and three numbers, integer ops) are exact and proven
 //! against Node by the differential harness in `tools/`.
 //!

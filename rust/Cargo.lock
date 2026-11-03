@@ -180,6 +180,9 @@ dependencies = [
 [[package]]
 name = "jsrt"
 version = "0.1.0"
+dependencies = [
+ "v8math",
+]
 
 [[package]]
 name = "khronos_api"
