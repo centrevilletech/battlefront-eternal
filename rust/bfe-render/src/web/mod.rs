@@ -2,11 +2,13 @@
 // textures used where they are, inputs the page writes into WASM memory.
 // Here the core's bindings and each phase's; each pass's own are in a file
 // of their own here, a `#[wasm_bindgen] impl BfeRenderer` block each.
+mod canopies;
 mod effects;
 mod far;
 mod foliage;
 mod hud;
 mod instances;
+mod motion;
 mod post;
 mod shadow;
 mod terrain;
@@ -71,11 +73,11 @@ impl BfeRenderer {
 
     pub fn set_far_map(&mut self, texture: u32) { self.r.core.set_far_map(texture) }
 
-    // kind 0 world, 1 skinned, 2 rigid, 3 plain, 4 effect; attributes
+    // kind 0 world, 1 skinned, 2 rigid, 3 plain, 4 effect, 9 motion; attributes
     // "name:location,..."; the material uniforms the program reads,
     // comma-separated.
     pub fn add_program(&mut self, kind: u32, vs: &str, fs: &str, attributes: &str, uniforms: &str) -> Result<u32, JsValue> {
-        let kind = match kind { 1 => Kind::Skinned, 2 => Kind::Rigid, 3 => Kind::Plain, 4 => Kind::Effect, _ => Kind::World };
+        let kind = match kind { 1 => Kind::Skinned, 2 => Kind::Rigid, 3 => Kind::Plain, 4 => Kind::Effect, 9 => Kind::Motion, _ => Kind::World };
         let attributes: Vec<(String, u32)> = attributes.split(',').filter(|s| !s.is_empty())
             .filter_map(|s| { let (n, l) = s.split_once(':')?; Some((n.to_string(), l.parse().ok()?)) }).collect();
         let uniforms: Vec<String> = uniforms.split(',').filter(|s| !s.is_empty()).map(String::from).collect();
@@ -108,7 +110,8 @@ impl BfeRenderer {
     // The phases (renderer.rs). Each returns its stats: [world draws,
     // instanced draws, instances, program switches, GL calls], then each
     // pass's draws in pass order (world, instances, far, terrain,
-    // transparent, effects, foliage, view, post, hud, water).
+    // transparent, effects, foliage, view, post, hud, water, shadow, motion,
+    // canopies).
     pub fn far_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.far_frame().map_err(|e| JsValue::from_str(&e))?.values())
     }
@@ -135,6 +138,10 @@ impl BfeRenderer {
     // What a mirror's render blends: three, as for transparent_frame.
     pub fn mirror_transparent_frame(&mut self, three: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.mirror_transparent_frame(three as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    // records: how many the page wrote (web/motion.rs).
+    pub fn motion_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.motion_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
     pub fn hud_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.hud_frame().map_err(|e| JsValue::from_str(&e))?.values())

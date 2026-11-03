@@ -35,6 +35,14 @@ pub enum Kind {
     // shader reads as modelViewMatrix (the effects' particle batches): the
     // view matrix, from the frame block.
     Effect,
+    // The temporal upscaler's motion (motion-vectors.js: a moving body's
+    // proxy, the first-person view's locked mask), drawn by the motion pass
+    // (motion.rs): instanced as Skinned and Rigid are, each instance's
+    // matrices, bones' base and last frame's placement read from its row
+    // (motion()); its programs read no frame block, the pass sets the
+    // uniforms the frame shares (the projection, the view-projections now
+    // and last frame, the depth range).
+    Motion,
 }
 
 // BfeFrame's members as three declares them, in block order. Offsets are in
@@ -274,6 +282,9 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
 // rewrite, with the lamps (lamps: lamp lighting is on and the program's pass
 // gives each draw its lamps) read from the lamp table.
 pub fn rewrite_lamps(source: &str, stage: Stage, kind: Kind, lamps: bool) -> Result<String, String> {
+    if kind == Kind::Motion {
+        return if stage == Stage::Vertex { motion(source) } else { Ok(source.to_string()) };
+    }
     if kind == Kind::Plain {
         return Ok(source.to_string());
     }
@@ -374,6 +385,71 @@ pub fn rewrite_lamps(source: &str, stage: Stage, kind: Kind, lamps: bool) -> Res
         let at = main + "void main() {".len() + if instanced { "\n  bfeLoad();".len() } else { 0 };
         out.insert_str(at, load);
     }
+    Ok(out)
+}
+
+// A motion program's row (Kind::Motion; motion.rs writes it): an
+// instance's matrices where an instance row has them (ROW_MODEL,
+// ROW_MODEL_VIEW, ROW_NORMAL, ROW_BIND_INVERSE, ROW_BIND), its bones' base
+// in the bone texture at ROW_COUNTS .y and last frame's in previousBones at
+// .z, last frame's model matrix in the point lights' texels and last
+// frame's bind inverse in the extras' (a motion program reads neither).
+pub const ROW_PREVIOUS_MODEL: usize = ROW_LIGHTS;
+pub const ROW_PREVIOUS_BIND_INVERSE: usize = ROW_EXTRA;
+
+const MOTION_VERTEX: &str = "uniform highp sampler2D bfeInstances;
+uniform int bfeInstanceBase;
+int bfeRow; int bfeBoneBase; int bfePreviousBoneBase;
+mat4 modelMatrix; mat4 modelViewMatrix; mat3 normalMatrix; mat4 bindMatrixInverse; mat4 bindMatrix; mat4 previousModel; mat4 previousBindInverse;
+vec4 bfeTexel(int x) { return texelFetch(bfeInstances, ivec2(x, bfeRow), 0); }
+void bfeLoad() {
+  bfeRow = bfeInstanceBase + gl_InstanceID;
+  modelMatrix = mat4(bfeTexel(0), bfeTexel(1), bfeTexel(2), bfeTexel(3));
+  modelViewMatrix = mat4(bfeTexel(4), bfeTexel(5), bfeTexel(6), bfeTexel(7));
+  normalMatrix = mat3(bfeTexel(8).xyz, bfeTexel(9).xyz, bfeTexel(10).xyz);
+  bindMatrixInverse = mat4(bfeTexel(11), bfeTexel(12), bfeTexel(13), bfeTexel(14));
+  vec4 counts = bfeTexel(16); bfeBoneBase = int(counts.y); bfePreviousBoneBase = int(counts.z);
+  previousModel = mat4(bfeTexel(17), bfeTexel(18), bfeTexel(19), bfeTexel(20));
+  bindMatrix = mat4(bfeTexel(21), bfeTexel(22), bfeTexel(23), bfeTexel(24));
+  previousBindInverse = mat4(bfeTexel(25), bfeTexel(26), bfeTexel(27), bfeTexel(28));
+}
+";
+
+// The uniforms a motion program takes from its row instead.
+const MOTION_PER_INSTANCE: &[&str] = &["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "bindMatrix", "previousModel", "previousBindInverse"];
+
+// Kind::Motion's vertex stage: the row's inputs (MOTION_VERTEX) where
+// three's prefix declares its first uniform, the declarations they replace
+// dropped, three's bone read (getBoneMatrix) and the proxy's read of last
+// frame's bones (motion-vectors.js previousBone) offset by the row's bases,
+// and the row loaded first in main. The rest is three's as it compiled it:
+// its projection and the frame's other values stay uniforms.
+fn motion(source: &str) -> Result<String, String> {
+    let mut out = String::with_capacity(source.len() + 2048);
+    let mut inserted = false;
+    for line in source.lines() {
+        if let Some((_, name)) = declaration(line) {
+            if !inserted {
+                out.push_str(MOTION_VERTEX);
+                inserted = true;
+            }
+            if MOTION_PER_INSTANCE.contains(&name) {
+                continue;
+            }
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    if !inserted {
+        return Err("no uniform declarations found".into());
+    }
+    out = out.replacen("int j = int( i ) * 4;", "int j = ( bfeBoneBase + int( i ) ) * 4;", 1);
+    out = out.replacen("int j = int(i) * 4;", "int j = (bfePreviousBoneBase + int(i)) * 4;", 1);
+    if out.contains("previousBones") && !out.contains("bfePreviousBoneBase + int(i)") {
+        return Err("previousBone not found".into());
+    }
+    let main = out.find("void main() {").ok_or("no main")?;
+    out.insert_str(main + "void main() {".len(), "\n  bfeLoad();");
     Ok(out)
 }
 
@@ -496,5 +572,36 @@ mod tests {
             at += size;
         }
         assert_eq!(at, 70);
+    }
+
+    #[test]
+    fn a_motion_proxy_reads_its_placement_and_both_frames_bones_from_its_row() {
+        // three's prefix, its skinning chunk and the proxy's own declarations
+        // (motion-vectors.js), as three compiles a skinned proxy.
+        let vs = "#version 300 es\n#define USE_SKINNING\nuniform mat4 modelMatrix;\nuniform mat4 modelViewMatrix;\nuniform mat4 projectionMatrix;\nuniform mat4 viewMatrix;\nuniform mat3 normalMatrix;\n\
+            uniform mat4 bindMatrix;\nuniform mat4 bindMatrixInverse;\nuniform highp sampler2D boneTexture;\nmat4 getBoneMatrix( const in float i ) {\n  int j = int( i ) * 4;\n  return mat4(float(j));\n}\n\
+            uniform mat4 currentViewProjection;\nuniform mat4 previousModel;\nuniform mat4 previousBindInverse;\nuniform highp sampler2D previousBones;\n\
+            mat4 previousBone(const in float i) {\n  int j = int(i) * 4;\n  return mat4(float(j));\n}\nin vec3 position;\nvoid main() {\n  gl_Position = projectionMatrix * modelViewMatrix * previousModel * vec4(position, 1.0);\n}\n";
+        let out = rewrite(vs, Stage::Vertex, Kind::Motion).unwrap();
+        for gone in ["uniform mat4 modelMatrix;", "uniform mat4 modelViewMatrix;", "uniform mat3 normalMatrix;", "uniform mat4 bindMatrix;", "uniform mat4 bindMatrixInverse;",
+            "uniform mat4 previousModel;", "uniform mat4 previousBindInverse;"] {
+            assert!(!out.contains(gone), "{gone} declared still");
+        }
+        for kept in ["uniform mat4 projectionMatrix;", "uniform mat4 viewMatrix;", "uniform mat4 currentViewProjection;", "uniform highp sampler2D boneTexture;", "uniform highp sampler2D previousBones;"] {
+            assert!(out.contains(kept), "{kept} is the pass's to set");
+        }
+        assert!(!out.contains("BfeFrame"), "no frame block");
+        assert!(out.contains("int j = ( bfeBoneBase + int( i ) ) * 4;") && out.contains("int j = (bfePreviousBoneBase + int(i)) * 4;"));
+        assert!(out.contains("void main() {\n  bfeLoad();"));
+        assert!(out.find("uniform highp sampler2D bfeInstances;").unwrap() < out.find("uniform mat4 projectionMatrix;").unwrap(), "the row's inputs where the prefix starts");
+        assert!(out.contains("previousModel = mat4(bfeTexel(17)") && out.contains("previousBindInverse = mat4(bfeTexel(25)"));
+        // The fragment stage is three's as it is; a source that reads last
+        // frame's bones in a form the rewrite does not know is refused.
+        let fs = "#version 300 es\nuniform highp sampler2D sceneDepth;\nvoid main() {}\n";
+        assert_eq!(rewrite(fs, Stage::Fragment, Kind::Motion).unwrap(), fs);
+        assert!(rewrite(&vs.replace("int j = int(i) * 4;", "int j = 4 * int(i);"), Stage::Vertex, Kind::Motion).is_err());
+        // The locked mask: no skinning, no last frame.
+        let locked = rewrite("#version 300 es\nuniform mat4 modelViewMatrix;\nuniform mat4 projectionMatrix;\nin vec3 position;\nvoid main() {\n  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);\n}\n", Stage::Vertex, Kind::Motion).unwrap();
+        assert!(locked.contains("bfeLoad();") && !locked.contains("uniform mat4 modelViewMatrix;"));
     }
 }

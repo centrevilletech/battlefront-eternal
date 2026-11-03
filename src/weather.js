@@ -152,7 +152,7 @@ export class Weather {
     this.material=new THREE.ShaderMaterial({...options,uniforms});
     this.mesh=new THREE.Mesh(geometry(this.capacity),this.material);this.mesh.name='map-precipitation';
     this.mist=new THREE.Mesh(geometry(48),new THREE.ShaderMaterial({...options,uniforms:{...uniforms,effect:{value:1}}}));this.mist.name='rain-ground-mist';
-    for(const mesh of [this.mesh,this.mist]){mesh.frustumCulled=false;mesh.visible=false;mesh.renderOrder=20;mesh.onBeforeRender=(...args)=>{if(this.enhanced)particleDepth.capture(...args);};scene.add(mesh);}
+    for(const mesh of [this.mesh,this.mist]){mesh.frustumCulled=false;mesh.visible=false;mesh.renderOrder=20;mesh.onBeforeRender=(r,s,c)=>{if(this.enhanced)particleDepth.capture(r,s,c);};scene.add(mesh);}
     this.impacts=new RainImpacts({scene,collision,water});this.previousEye=new THREE.Vector3();
     this.sheets=new RainSheets(scene,uniforms);
     this.applyMode();this.unsubscribe=settings?.onChange(key=>{if(key==='rainEffects')this.applyMode();});

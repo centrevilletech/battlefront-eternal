@@ -1,10 +1,14 @@
 // The frame's last passes over the near scene's image, as graphics.js plans
-// them (postSteps): the soft focus's quarter-size copy, the composite (the
-// soft-focus blur, and bloom and speed blur where three still draws those),
-// FXAA or FXAA (FAST), and the bilinear upscale to the window. Each is one
-// full-screen triangle with three's program for the pass's material (made
-// as three compiled it: Kind::Plain), into a target: one of three's (its
-// texture under a framebuffer of this pass's own) or the canvas.
+// them (postSteps): the soft focus's quarter-size copy, bloom's extract and
+// two blurs, the composite (the soft-focus blur, the glow and the speed
+// blur), FXAA or FXAA (FAST), and the upscale to the window (bilinear,
+// spatial, or the temporal upscaler's motion resolve, resolve into its
+// history and sharpen). Each is one full-screen triangle with three's
+// program for the pass's material (made as three compiled it: Kind::Plain),
+// into a target: one of three's (its texture under a framebuffer of this
+// pass's own; the temporal upscaler's are half floats) or the canvas. A
+// pass drawn twice in a frame (bloom's blur) is two steps, each with its
+// own values.
 //
 // The page writes the frame's steps into `input` (STEP f64 each): the
 // program, the target (-1: the canvas; -2: the framebuffer bound now, its

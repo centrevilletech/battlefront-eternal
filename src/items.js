@@ -79,6 +79,10 @@ export class Items {
     // Everything the items ask of the rest of the battle
     // (src/ordnance-world.js).
     this.world = new ItemsWorld(this);
+    // The items on the simulation's module (src/items-sim.js), once a world
+    // hands them over: update and the commands below run there and the
+    // lists hold mirrors of what it holds.
+    this.sim = null;
     this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
     this.ray = new THREE.Vector3();
     this.start = new THREE.Vector3();
@@ -140,6 +144,7 @@ export class Items {
 
   // A new item, unless the world has no room for its kind. Returns it or null.
   spawn(def, position, velocity, yaw, { owner = null, team = 0 } = {}) {
+    if (this.sim) return this.sim.spawn(def, position, velocity, yaw, { owner, team });
     const live = this.items.filter((item) => item.def.base === def.base).length;
     if (live >= (this.pools[def.base] ?? Infinity)) return null;
     const model = this.world.model(def);
@@ -166,6 +171,7 @@ export class Items {
   }
 
   dispense(weapon, maxItems, def, position, velocity, yaw, owner, team) {
+    if (this.sim) return this.sim.dispense(weapon, maxItems, def, position, velocity, yaw, owner, team);
     const key = `${weapon}:${this.world.ownerKey(owner)}`;
     const list = (this.owned.get(key) || []).filter((item) => !item.gone);
     if (maxItems > 0 && list.length >= maxItems) this.destroy(list.shift());
@@ -177,6 +183,7 @@ export class Items {
 
   // A soldier's drop at death: one roll down the class's drop list.
   dropFor(drops, classes, position, velocity, yaw) {
+    if (this.sim) return this.sim.dropFor(drops, classes, position, velocity, yaw);
     let r = this.world.dropRoll();
     for (const drop of drops || []) {
       r -= drop.probability ?? 0;
@@ -220,6 +227,7 @@ export class Items {
 
   // Damage to one item (a mine at 0 health pops).
   hurt(item, amount) {
+    if (this.sim) return this.sim.hurt(item, amount);
     if (item.gone || !item.mine || !Number.isFinite(item.health)) return;
     item.health -= amount;
     if (item.health <= 0) this.destroy(item);
@@ -229,6 +237,7 @@ export class Items {
   // unless the class says otherwise; one still in flight is out of its
   // reach.
   blast(explosion, position) {
+    if (this.sim) return this.sim.blast(explosion, position);
     for (const item of this.items) {
       if (item.gone || !item.mine || !item.landed || !Number.isFinite(item.health)) continue;
       const damage = blastDamage(explosion, blastDistance(position, item.position, item.radius), item.def.HealthType);
@@ -242,6 +251,7 @@ export class Items {
   // position, velocity, team, relation(team) (below 0 an enemy, above 0 a
   // friend), healthType, and give(def) -> whether anything was taken.
   update(dt, targets = []) {
+    if (this.sim) return this.sim.update(dt, targets);
     for (const item of this.items) {
       if (item.gone) continue;
       item.age += dt;

@@ -30,6 +30,16 @@ export class TreeCanopies {
     this.lastMatrix = new THREE.Matrix4();
     this.lastProjection = new THREE.Matrix4();
     this.lastEnabled = null;
+    // Whether any leaf draws (some canopy near), and whether the Rust
+    // renderer draws them (src/rust-render/canopies.js: external): three
+    // then neither lists the mesh nor uploads its leaves, and the instances
+    // whose slots changed since the renderer last copied them are kept for
+    // it [dirtyFirst, dirtyEnd).
+    this.drawn = false;
+    this.external = false;
+    this.capacity = MAX_GROUPS * LEAVES;
+    this.dirtyFirst = Infinity;
+    this.dirtyEnd = 0;
     const direction = new THREE.Vector3();
     for (const [index, source] of data.instances.entries()) {
       const matrix = new THREE.Matrix4().fromArray(source.matrix);
@@ -177,14 +187,19 @@ export class TreeCanopies {
         const attribute = geometry.attributes[name];
         const offset = i * LEAVES * attribute.itemSize;
         attribute.array.set(values, offset);
-        attribute.addUpdateRange(offset, values.length);
-        attribute.needsUpdate = true;
+        if (!this.external) {
+          attribute.addUpdateRange(offset, values.length);
+          attribute.needsUpdate = true;
+        }
       }
       this.active[i] = group;
+      this.dirtyFirst = Math.min(this.dirtyFirst, i * LEAVES);
+      this.dirtyEnd = Math.max(this.dirtyEnd, (i + 1) * LEAVES);
     }
     geometry.instanceCount = count * LEAVES;
     // Nothing to draw (Original tree detail, or no canopy near): no draw at all.
-    this.mesh.visible = count > 0;
+    this.drawn = count > 0;
+    this.mesh.visible = this.drawn && !this.external;
     if (changed) {
       this.active.length = count;
       this.states.fill(0);
@@ -192,6 +207,34 @@ export class TreeCanopies {
       this.stateMap.needsUpdate = true;
     }
 
+  }
+
+  // The Rust renderer draws the leaves (on) or three does (off): three's copy
+  // of them made whole again when it draws them, the renderer's when it does.
+  setExternal(on) {
+    if (on === this.external) return;
+    this.external = on;
+    if (on) {
+      this.dirtyFirst = 0;
+      this.dirtyEnd = this.capacity;
+    } else {
+      for (const name of ["leafCenter", "leafSize", "leafShade"]) {
+        const attribute = this.mesh.geometry.attributes[name];
+        attribute.clearUpdateRanges();
+        attribute.needsUpdate = true;
+      }
+    }
+    this.mesh.visible = this.drawn && !on;
+  }
+
+  // The instances whose leaves changed since the renderer last took them
+  // ([first, end)), or null.
+  takeDirty() {
+    if (!(this.dirtyEnd > this.dirtyFirst)) return null;
+    const range = [this.dirtyFirst, this.dirtyEnd];
+    this.dirtyFirst = Infinity;
+    this.dirtyEnd = 0;
+    return range;
   }
 
   adapt(mesh, record) {

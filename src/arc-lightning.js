@@ -272,10 +272,10 @@ export class ArcBatch {
     this.mesh.visible = false;
     arcBatches.set(this.mesh, this);
     const size = new THREE.Vector2();
-    this.mesh.onBeforeRender = (renderer, scene, camera, ...rest) => {
+    this.mesh.onBeforeRender = (renderer, scene, camera) => {
       // Shown empty only to have its program built while a battle loads.
       if (!this.count) return;
-      if (this.soft) particleDepth.capture(renderer, scene, camera, ...rest);
+      if (this.soft) particleDepth.capture(renderer, scene, camera);
       if (camera.isPerspectiveCamera) {
         // The pixels being drawn: under an upscaler, the 3D frame's.
         const target = renderer.getRenderTarget();
@@ -352,7 +352,8 @@ export class ArcBatch {
 }
 
 // The crackling glow over a shocked soldier: his body's own buffers and
-// skeleton drawn again, a little proud of the skin, in light. Veins of
+// skeleton drawn again, a little proud of the skin, in light. Its clock is
+// its own (shockTime, not the frame's time). Veins of
 // noise fixed to the skin (its bind pose) jump to a new pattern 24 times a
 // second, brightest edge on.
 const shockVertex = /* glsl */ `
@@ -379,7 +380,7 @@ const shockVertex = /* glsl */ `
 `;
 
 const shockFragment = /* glsl */ `
-  uniform float time;
+  uniform float shockTime;
   uniform float intensity;
   uniform float seed;
   uniform vec3 color;
@@ -398,7 +399,7 @@ const shockFragment = /* glsl */ `
     vec3 V = normalize(-vView);
     float facing = abs(dot(normalize(vNormalView), V));
     float rim = pow(1.0 - facing, 2.2);
-    float step = floor(time * 24.0);
+    float step = floor(shockTime * 24.0);
     vec3 q = vBind * 6.5 + vec3(seed, step * 1.37, step * 0.71);
     float n = noise(q) * 0.62 + noise(q * 2.15 + 3.1) * 0.38;
     float m = noise(q * 1.3 + vec3(5.2, -step * 0.9, 1.7));
@@ -414,7 +415,7 @@ const shockFragment = /* glsl */ `
 function shockMaterial() {
   return new THREE.ShaderMaterial({
     name: "arc-shock",
-    uniforms: { time: { value: 0 }, intensity: { value: 0 }, seed: { value: 0 }, color: { value: new THREE.Color() }, inflate: { value: 0.012 } },
+    uniforms: { shockTime: { value: 0 }, intensity: { value: 0 }, seed: { value: 0 }, color: { value: new THREE.Color() }, inflate: { value: 0.012 } },
     vertexShader: shockVertex,
     fragmentShader: shockFragment,
     transparent: true,
@@ -1137,7 +1138,7 @@ export class ArcLightning {
       overlay.visible = intensity > 0.01 && actor.body.visible;
       overlay.layers.mask = actor.body.layers.mask;
       const u = overlay.material.uniforms;
-      u.time.value = this.time;
+      u.shockTime.value = this.time;
       u.intensity.value = intensity * 0.7;
       u.seed.value = (shock.seed % 1000) * 0.37;
       u.color.value.fromArray(shock.rgb);

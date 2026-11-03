@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { loadSim } from '../src/sim/module.js';
-import { ExportContext, Identity, SimBridge, exportState, undeclared } from '../src/sim/runtime.js';
+import { ExportContext, Identity, SimBridge, bridgeFor, exportState, undeclared } from '../src/sim/runtime.js';
 import { KIND_BEAM, KIND_BODY, KIND_BOLT, KIND_EMITTER, KIND_GRENADE, KIND_ORDNANCE, KIND_OWNER_SNAPSHOT, KIND_ROUND, KIND_TABLE, KIND_UNIT, KIND_VEHICLE, BOLT_KEYS } from '../src/sim/gen/index.js';
 import { generate } from '../tools/sim-schema.mjs';
 
@@ -281,6 +281,19 @@ test('an import asks JavaScript in the middle of a command and takes its answer'
   assert.equal(b.command('echo', { value: 1, at, count: 2, note: null, events: 0 }).value, 2);
   delete b.handlers.ask;
   assert.throws(() => b.command('relay', { value: 1, at, count: 0, note: null, events: 0 }), /nothing serves/);
+});
+
+test('an instance has one bridge, which every phase joins and serves its own imports through', async () => {
+  const instance = await loadSim();
+  const b = bridgeFor(instance, { tests: { emitter: () => false } });
+  assert.equal(bridgeFor(instance, { tests: { ownerSnapshot: () => false } }), b);
+  assert.throws(() => new SimBridge(instance), /has a bridge already/);
+  assert.ok(b.refs[KIND_EMITTER].test && b.refs[KIND_OWNER_SNAPSHOT].test);
+  b.register({ ask: (args) => args });
+  assert.throws(() => b.register({ ask: (args) => args }), /served already/);
+  assert.throws(() => b.register({ noSuchImport: () => null }), /no schema declares/);
+  // A tool that empties the store and starts over may replace it.
+  assert.notEqual(new SimBridge(instance, { replace: true }), b);
 });
 
 test('a module whose kinds were made from other schemas is refused', async () => {

@@ -5,6 +5,8 @@ import * as THREE from "three";
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
+const { Bloom } = await import("../src/render-passes.js");
+const { Upscaler } = await import("../src/upscaler.js");
 
 import { GL, fakeProgram as program, standinModule, standinThree } from "./support/rust-standin.mjs";
 
@@ -209,8 +211,67 @@ test("the post steps: drawn by the renderer when every one is a pass it has a pr
   assert.deepEqual([...input.subarray(5 + 4 * 18, 5 + 4 * 18 + 3)].map((v) => +v.toFixed(3)), [4, 1, 0.3]);
   assert.deepEqual([...input.subarray(step, step + 5)], [1, -1, 800, 600, 2], "the canvas: three's viewport in pixels");
   assert.deepEqual([...input.subarray(step + 5 + 18, step + 5 + 18 + 4)], [1, 2, 0.125, 0.25]);
-  // A step only three can draw (bloom): three draws them all.
+  // A step only three can draw (one that draws itself): three draws them all.
   assert.equal(core.post(renderer, [{ run: () => {} }, ...steps]), false);
+});
+
+test("the post steps' values: set on a step's material as it is written, bloom's blur drawn twice with other values", () => {
+  const { core, calls, renderer, properties } = bridge();
+  const programOf = (mesh) => { properties.get(mesh.material).currentProgram = program(Object.keys(mesh.material.uniforms).map((name) => [name, name === "texel" || name === "direction" ? GL.FLOAT_VEC2 : GL.SAMPLER_2D])); };
+  const bloom = new Bloom(new THREE.Texture());
+  bloom.resize(16, 8);
+  programOf(bloom.extract);
+  programOf(bloom.blur);
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const steps = bloom.steps(camera);
+  assert.deepEqual(steps.map((s) => s.target), [bloom.target, bloom.scratch, bloom.target], "extract, blur across, blur down");
+  assert.equal(core.post(renderer, steps), true);
+  assert.deepEqual(calls.find((c) => c[0] === "post_frame"), ["post_frame", 3]);
+  const input = core.postInput, step = 5 + 12 * 18;
+  // add_texture's ids, in the order the steps registered them: the source,
+  // the target (as the extract's target), the scratch target.
+  const texture = (t) => core.textures.get(properties.get(t).__webglTexture);
+  const uniform = (s, k, n) => [...input.subarray(s * step + 5 + k * 18, s * step + 5 + k * 18 + n)];
+  assert.deepEqual(uniform(1, 0, 3), [0, 32, texture(bloom.target.texture)], "across: the extract's target");
+  assert.deepEqual(uniform(1, 1, 4), [1, 2, 1 / 4, 0], "one texel across the quarter-size target");
+  assert.deepEqual(uniform(2, 0, 3), [0, 32, texture(bloom.scratch.texture)], "down: the scratch target");
+  assert.deepEqual(uniform(2, 1, 4), [1, 2, 0, 1 / 2]);
+  assert.equal(bloom.blur.material.uniforms.map.value, bloom.scratch.texture, "the material left as three's draws leave it");
+});
+
+test("the temporal upscaler's steps: the motion resolve, the resolve into the history, the sharpen, then its commit", () => {
+  const { core, calls, renderer, properties } = bridge();
+  const upscaler = new Upscaler({ extensions: { has: () => true } });
+  upscaler.resize(8, 4, 16, 8);
+  const types = { inverseJittered: GL.FLOAT_MAT4, currentViewProjection: GL.FLOAT_MAT4, previousViewProjection: GL.FLOAT_MAT4, inputSize: GL.FLOAT_VEC2, outputSize: GL.FLOAT_VEC2,
+    jitter: GL.FLOAT_VEC2, reset: GL.FLOAT, maxWeight: GL.FLOAT, kernel: GL.FLOAT, sharpness: GL.FLOAT };
+  for (const pass of [upscaler.motionPass, upscaler.resolvePass, upscaler.sharpenPass]) {
+    properties.get(pass.material).currentProgram = program(Object.keys(pass.material.uniforms).map((name) => [name, types[name] ?? GL.SAMPLER_2D]));
+  }
+  upscaler.motionPass.material.uniforms.depthMap.value = new THREE.Texture();
+  const image = new THREE.Texture();
+  let steps = upscaler.steps(image, "temporal");
+  assert.deepEqual(steps.map((s) => s.target), [upscaler.motion, upscaler.history[1], null]);
+  assert.equal(core.post(renderer, steps), true);
+  assert.deepEqual(calls.find((c) => c[0] === "post_frame"), ["post_frame", 3]);
+  const input = core.postInput, step = 5 + 12 * 18;
+  const texture = (t) => core.textures.get(properties.get(t).__webglTexture);
+  const uniform = (s, name, n) => { const k = Object.keys(steps[s].pass.material.uniforms).indexOf(name); return [...input.subarray(s * step + 5 + k * 18 + 2, s * step + 5 + k * 18 + 2 + n)]; };
+  assert.deepEqual(uniform(1, "colorMap", 1), [texture(image)]);
+  assert.deepEqual(uniform(1, "historyMap", 1), [texture(upscaler.history[0].texture)]);
+  assert.deepEqual(uniform(1, "reset", 1), [1], "no history yet");
+  assert.deepEqual(uniform(2, "map", 1), [texture(upscaler.history[1].texture)], "the sharpen reads the history just resolved");
+  assert.equal(upscaler.frame, 0, "the commit is graphics.js's to run");
+  for (const s of steps) s.after?.();
+  assert.deepEqual([upscaler.read, upscaler.valid, upscaler.frame], [1, true, 1]);
+  steps = upscaler.steps(image, "temporal");
+  assert.equal(steps[1].target, upscaler.history[0], "the other history written next");
+  assert.equal(steps[1].values.historyMap, upscaler.history[1].texture);
+  assert.equal(steps[1].values.reset, 0);
+  // Spatial: one step to the screen, and no history.
+  steps = upscaler.steps(image, "spatial");
+  assert.deepEqual(steps.map((s) => [s.pass, s.target, s.values.map]), [[upscaler.spatialPass, null, image]]);
+  assert.equal(upscaler.valid, false);
 });
 
 test("the HUD's batch: every vertex the first time, the batch's update range after, three's own copy made whole when it draws again", async () => {
@@ -282,7 +343,7 @@ test("water: its Low surface and rings are items of the transparent list, with t
   assert.equal(calls.filter((c) => c[0] === "water_rings").length, 1);
   assert.deepEqual(calls.find((c) => c[0] === "water_surface").slice(3), [0x0203, 1 | 2 | 4, 2], "depth test, write and colour, both sides at once");
   assert.equal(lowPass.material.visible, false);
-  const input = core.waterInput, SURFACE = 27 + 24 * 18;
+  const input = core.waterInput, SURFACE = 27 + 32 * 18 + 35;
   assert.deepEqual([...input.subarray(0, 5)], [1, 0, 0, -20, lowPass.id], "shown, program, group order, render order, id");
   assert.deepEqual([input[24], input[25], input[26]], [0, 6, 6], "the index's range, six uniforms");
   assert.deepEqual([...input.subarray(27 + 3 * 18, 27 + 3 * 18 + 5)], [3, 3, 0, 0, 1], "the camera's position");
@@ -299,6 +360,86 @@ test("water: its Low surface and rings are items of the transparent list, with t
   assert.equal(input[0], 0, "a hidden parent hides it");
   core.setActive(false);
   assert.equal(lowPass.material.visible, true);
+});
+
+test("water at High and Ultra: the tint and mirror passes with their waders, the opaque copy first, and the shore drawn instanced", () => {
+  const { core, calls, scene, camera, properties, graphics } = bridge();
+  const geometry = () => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(12), 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(8), 2));
+    g.setIndex([0, 1, 2, 2, 1, 3]);
+    return g;
+  };
+  const waders = { value: Array.from({ length: 8 }, (_, i) => new THREE.Vector4(i, 2 * i, 3 * i, i === 0 ? 1 : 0)) };
+  const pass = (renderOrder, uniforms, values, options = {}) => {
+    const material = new THREE.ShaderMaterial({ uniforms: values, transparent: true, side: THREE.DoubleSide, forceSinglePass: true, ...options });
+    properties.get(material).currentProgram = program(uniforms);
+    const mesh = new THREE.Mesh(geometry(), material);
+    mesh.renderOrder = renderOrder;
+    mesh.frustumCulled = false;
+    return mesh;
+  };
+  const WADERS = ["waders[0]", GL.FLOAT_VEC4, 8];
+  const tintPass = pass(-20, [["modelMatrix", GL.FLOAT_MAT4], ["time", GL.FLOAT], ["sceneColor", GL.SAMPLER_2D], WADERS], { time: { value: 3 }, sceneColor: { value: null }, waders }, { blending: THREE.NoBlending });
+  const mirrorPass = pass(-19, [["modelMatrix", GL.FLOAT_MAT4], WADERS, ["reflection", GL.SAMPLER_2D]], { waders, reflection: { value: null } });
+  // The shore: one quad, instanced, two materials.
+  const shoreGeometry = new THREE.InstancedBufferGeometry();
+  const plane = geometry();
+  shoreGeometry.index = plane.index;
+  shoreGeometry.attributes.position = plane.attributes.position;
+  shoreGeometry.attributes.uv = plane.attributes.uv;
+  const shore = new THREE.InstancedBufferAttribute(new Float32Array(4 * 4), 4), phase = new THREE.InstancedBufferAttribute(new Float32Array(4), 1);
+  shoreGeometry.setAttribute("shore", shore);
+  shoreGeometry.setAttribute("phase", phase);
+  shoreGeometry.instanceCount = 0;
+  const shoreMeshes = [0, 1].map((splash) => {
+    const material = new THREE.ShaderMaterial({ uniforms: { splash: { value: splash } }, transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true });
+    properties.get(material).currentProgram = program([["splash", GL.FLOAT]], ["position", "uv", "shore", "phase"]);
+    const mesh = new THREE.Mesh(shoreGeometry, material);
+    mesh.renderOrder = -17;
+    mesh.frustumCulled = false;
+    return mesh;
+  });
+  const group = new THREE.Group();
+  group.add(tintPass, mirrorPass, ...shoreMeshes);
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  // The tint pass's onBeforeRender copies the opaque scene (water.js captureSurface).
+  const captures = [];
+  tintPass.onBeforeRender = (renderer, s, cam) => { captures.push(cam); tintPass.material.uniforms.time.value = 4; };
+  scene.userData.water = { lowPass: null, tintPass, mirrorPass, rings: null, shore: { meshes: shoreMeshes } };
+  core.phase("transparent", core.renderer, scene, camera);
+  assert.equal(calls.filter((c) => c[0] === "water_surface").length, 4);
+  assert.equal(captures.length, 1, "the opaque scene copied once, before the list");
+  const input = core.waterInput, SURFACE = 27 + 32 * 18 + 35, ARRAY = 27 + 32 * 18;
+  assert.deepEqual([...input.subarray(27 + 18, 27 + 18 + 3)], [1, 1, 4], "the tint's time as the copy left it");
+  assert.deepEqual([input[ARRAY], input[ARRAY + 1], input[ARRAY + 2]], [3, 4, 8], "the waders: after its three uniforms, vec4 x 8");
+  assert.deepEqual([...input.subarray(ARRAY + 3, ARRAY + 3 + 8)], [0, 0, 0, 1, 1, 2, 3, 0]);
+  assert.deepEqual([input[SURFACE + ARRAY], input[SURFACE + ARRAY + 3 + 4]], [2, 1], "the mirror pass's waders after its two uniforms");
+  assert.equal(tintPass.material.visible, false);
+  // The shore: one set for its geometry, both meshes reading it.
+  assert.deepEqual(calls.filter((c) => c[0] === "water_set").map((c) => [c[1], [...c[2]]]), [[4, [4, 1]]]);
+  assert.deepEqual(calls.filter((c) => c[0] === "water_instanced").map((c) => c.slice(2)), [[0, 0, 2], [0, 1, 3], [0, 0, 2], [0, 1, 3]]);
+  const SETS = 8 * SURFACE + 2;
+  assert.deepEqual([input[SETS], input[SETS + 1]], [1, 0], "its values sent the first time, no instances");
+  shore.array.set([1, 2, 3, 4], 4);
+  shore.needsUpdate = true;
+  shoreGeometry.instanceCount = 2;
+  input[SETS] = 0;
+  core.phase("transparent", core.renderer, scene, camera);
+  assert.deepEqual([input[SETS], input[SETS + 1]], [1, 2], "sent again when three would upload them");
+  assert.deepEqual([...core.waterInstances.subarray(4, 8)], [1, 2, 3, 4]);
+  assert.equal(captures.length, 2);
+  input[SETS] = 0;
+  core.phase("transparent", core.renderer, scene, camera);
+  assert.deepEqual([input[SETS], input[SETS + 1]], [0, 2], "unchanged: not sent");
+  // Hidden (the eye under the surface, a mirror's render): no copy.
+  group.visible = false;
+  core.phase("transparent", core.renderer, scene, camera);
+  assert.equal(captures.length, 3, "no copy with the tint pass hidden");
+  assert.equal(input[0], 0);
+  assert.equal(graphics.scene, scene);
 });
 
 test("an error in a pass gives everything back to three, its state reset and its target bound again", () => {
