@@ -23,7 +23,10 @@
 // is part of the outer one and not recorded on its own; the draws made
 // inside one are recorded with it. world: true writes the units' lives,
 // teams and classes before the frame; whole: [class names] writes
-// instances of those classes out instead of naming them.
+// instances of those classes out instead of naming them. A spec's
+// events(game, note), called at the end of every tick of the scan, notes
+// what makes that tick worth sampling for its frames (note(kind, what)),
+// beside the deaths, spawns, boardings and explosions every scan notes.
 //
 // Until each package declares its kinds' schemas (rust/sim, the store's
 // generator), state is the raw JavaScript objects; a package's schemas then

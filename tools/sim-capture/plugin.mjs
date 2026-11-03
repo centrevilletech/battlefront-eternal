@@ -15,7 +15,8 @@
 //   --capture-every N       sample every Nth tick (default 7)
 //   --capture-keep FILE     also sample the ticks this JSON array lists
 //   --capture-scan FILE     only find the ticks with deaths, spawns,
-//                           boardings and explosions, and write them there
+//                           boardings and explosions (and the chosen
+//                           specs' own events), and write them there
 // It changes nothing in the battle: the module hook adds markers that only
 // call back here, the shims call through, and nothing it writes reads a
 // getter or calls game code. tools/sim-capture.mjs checks that the
@@ -344,6 +345,8 @@ function noteEvents() {
   }
   lastUnits = seen;
   if (explosions) { note('explosion', explosions); explosions = 0; }
+  // A spec's own events (a post changing hands, a respawn's preparation).
+  for (const name of specNames) SPECS[name].events?.(game, note);
   if (tickEvents.length) eventTicks.add(current);
 }
 

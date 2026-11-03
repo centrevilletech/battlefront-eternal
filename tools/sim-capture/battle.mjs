@@ -293,6 +293,31 @@ const spawnDeath = {
   boundaries: spawnBoundaries,
 };
 
+// What makes a tick worth sampling for these frames, beyond deaths and
+// spawns: a post changing hands or going down, a Character's respawn timer
+// running out (his preparation: class, post and queue), a countdown
+// outside the battlefield, and the battle's end.
+let last = null;
+function events(game, note) {
+  const b = game.battle;
+  const now = {
+    posts: game.posts.posts.map((p) => `${p.team}:${p.active}`),
+    mobile: (game.posts.mobile?.posts ?? []).map((p) => `${p.team}:${p.active}:${p.life}`),
+    timers: b.characters.map((c) => c.spawn?.timer ?? 0),
+    outside: b.characters.map((c) => c.outOfBounds >= 0),
+    over: b.over, gameOver: b.gameOver,
+  };
+  if (last) {
+    now.posts.forEach((p, i) => { if (p !== last.posts[i]) note('post', game.posts.posts[i].name); });
+    now.mobile.forEach((p, i) => { if (p !== last.mobile[i]) note('mobilePost', i); });
+    now.timers.forEach((t, i) => { if (last.timers[i] > 0 && !(t > 0)) note('prepare', i); });
+    now.outside.forEach((o, i) => { if (o || last.outside[i]) note('outside', i); });
+    if (now.over !== last.over || now.gameOver !== last.gameOver) note('over', b.loser ?? 0);
+  }
+  last = now;
+}
+
 export const battle = {
   frames: [postsUpdate, battleUpdate, battlefieldUpdate, spawnClock, spawnCharacters, spawnDeath],
+  events,
 };

@@ -70,7 +70,7 @@ const plugin = ['--plugin', 'tools/sim-capture/plugin.mjs'];
 async function capture({ label, args }) {
   const at = (ext) => path.join(out, `${label}.${ext}`);
   const started = Date.now();
-  const scanCode = await worldHash([...args, ...plugin, '--capture-scan', at('scan.json')], at('scan.hash.txt'), at('scan.err'));
+  const scanCode = await worldHash([...args, ...plugin, '--capture-scan', at('scan.json'), '--capture-specs', specs], at('scan.hash.txt'), at('scan.err'));
   if (scanCode !== 0) return { label, ok: false, why: `the scan failed (${at('scan.err')})` };
   const scan = JSON.parse(fs.readFileSync(at('scan.json'), 'utf8'));
   const keep = new Set();
