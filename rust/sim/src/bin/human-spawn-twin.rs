@@ -60,7 +60,7 @@ fn command(strings: &Strings, v: &Value) -> Option<Command> {
 struct Twin<'s> {
     strings: &'s Strings, r: f64, k: f64, trace: Vec<String>,
     team: f64, dead: bool, over: bool, classic: bool, present: bool,
-    unit: bool, timer: f64, can: bool, accept: bool, spawn_ok: bool,
+    unit: bool, timer: f64, can: bool, accept: bool, spawn_ok: bool, ready_sync: bool,
 }
 impl Twin<'_> {
     fn text(&self, n: StrId) -> String { String::from_utf16_lossy(self.strings.units(n)) }
@@ -89,7 +89,7 @@ impl Twin<'_> {
             self.optional(s.auto.as_ref().map(|a| a.class_name)), self.optional(s.auto.as_ref().and_then(|a| a.post)),
             self.optional(s.pending.as_ref().map(|p| p.class_name)), self.optional(s.pending.as_ref().and_then(|p| p.post))]);
         self.line("state", parts);
-        self.line("world", vec![bits(self.team), flag(self.dead), flag(self.over), flag(self.classic), flag(self.present), flag(self.unit), bits(self.timer), flag(self.can), flag(self.accept), flag(self.spawn_ok)]);
+        self.line("world", vec![bits(self.team), flag(self.dead), flag(self.over), flag(self.classic), flag(self.present), flag(self.unit), bits(self.timer), flag(self.can), flag(self.accept), flag(self.spawn_ok), flag(self.ready_sync)]);
         self.line("queue", vec![bits(events.len() as f64)]);
         for e in events { self.event("queued", e); }
     }
@@ -128,8 +128,14 @@ impl World for Twin<'_> {
         let strings = self.strings;
         human::spawned(s, events, choice.class_name, Some(choice.post.unwrap_or_else(|| id(strings, "cp1"))), strings, self);
     }
-    fn ready(&mut self, _: &mut HumanSpawn, _: &mut Vec<Event>, choice: &HumanPick) -> bool {
+    fn ready(&mut self, s: &mut HumanSpawn, events: &mut Vec<Event>, choice: &HumanPick) -> bool {
         self.call("ready", vec![self.text(choice.class_name), self.optional(choice.post)]);
+        if self.accept && self.ready_sync {
+            self.dead = false;
+            self.unit = true;
+            let strings = self.strings;
+            human::spawned(s, events, choice.class_name, Some(choice.post.unwrap_or_else(|| id(strings, "cp1"))), strings, self);
+        }
         self.accept
     }
     fn kill(&mut self, s: &mut HumanSpawn, events: &mut Vec<Event>) {
@@ -159,7 +165,7 @@ fn main() {
         let mut s = human::new(class_name, automatic, post);
         let mut events = Vec::new();
         let mut w = Twin { strings: &strings, r: r as f64, k: -1.0, trace: Vec::new(), team: 1.0, dead: true, over: false,
-            classic: boolean(config, "classic"), present: true, unit: false, timer: 0.0, can: true, accept: true, spawn_ok: true };
+            classic: boolean(config, "classic"), present: true, unit: false, timer: 0.0, can: true, accept: true, spawn_ok: true, ready_sync: boolean(config, "readySync") };
         w.dump(&s, &events);
         for (k, op) in array(run, "ops").iter().enumerate() {
             w.k = k as f64;

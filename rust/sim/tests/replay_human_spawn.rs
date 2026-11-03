@@ -148,5 +148,6 @@ fn human_spawn_updates_match_real_battles() {
         Ok(()) => Outcome::Same, Err(e) => Outcome::Failed(e),
     }).expect("the capture reads");
     println!("{}", report.summary());
+    assert!(report.replayed() > 0, "the corpus contains no HumanSpawn.update frames");
     report.assert_clean();
 }

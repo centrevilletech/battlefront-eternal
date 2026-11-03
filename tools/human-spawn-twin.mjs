@@ -28,11 +28,11 @@ const phase = ['unspawned', 'alive', 'dying', 'awaiting'];
 const runs = [];
 
 for (let r = 0; r < 24; r++) {
-  const config = { classic: Boolean(r & 1), auto: Boolean(r & 2), className: 'b', post: r & 4 ? 'cp1' : null };
+  const config = { classic: Boolean(r & 1), auto: Boolean(r & 2), readySync: Boolean(r & 8), className: 'b', post: r & 4 ? 'cp1' : null };
   const ops = [];
   let k = -1;
   const w = { teamNow: 1, deadNow: true, overNow: false, classic: config.classic, present: true, unit: false, timer: 0,
-    can: true, accept: true, spawnOk: true };
+    can: true, accept: true, spawnOk: true, readySync: config.readySync };
   let spawn;
   const call = (...a) => line('call', r, k, ...a);
   Object.assign(w, {
@@ -42,7 +42,12 @@ for (let r = 0; r < 24; r++) {
     canSpawn: () => w.can,
     setTeam(team) { call('team', team); const previous = w.teamNow; w.teamNow = team; spawn.teamChanged(team, previous); return true; },
     spawn(className, post) { call('spawn', className, post); if (!w.spawnOk) return false; w.deadNow = false; w.unit = true; spawn.spawned(className, post || 'cp1'); return true; },
-    ready(className, post) { call('ready', className, post); return w.accept; },
+    ready(className, post) {
+      call('ready', className, post);
+      // A transport post calls spawnHuman synchronously from readyHuman.
+      if (w.accept && w.readySync) { w.deadNow = false; w.unit = true; spawn.spawned(className, post || 'cp1'); }
+      return w.accept;
+    },
     kill() { call('kill'); w.deadNow = true; w.unit = false; w.timer = 4; spawn.died(); },
     cancel() { call('cancel'); },
   });
@@ -58,7 +63,7 @@ for (let r = 0; r < 24; r++) {
   const dump = () => {
     line('state', r, k, ...state(spawn.state()), spawn.spawnedOnce, spawn.deadTime, spawn.ended,
       spawn.auto?.team, spawn.auto?.className, spawn.auto?.post, spawn.pending?.className, spawn.pending?.post);
-    line('world', r, k, w.teamNow, w.deadNow, w.overNow, w.classic, w.present, w.unit, w.timer, w.can, w.accept, w.spawnOk);
+    line('world', r, k, w.teamNow, w.deadNow, w.overNow, w.classic, w.present, w.unit, w.timer, w.can, w.accept, w.spawnOk, w.readySync);
     line('queue', r, k, spawn.queue.length);
     for (const [name, d] of spawn.queue) event('queued', name, d);
   };
