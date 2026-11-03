@@ -68,16 +68,19 @@ export function seatRole(seats, index) {
 }
 
 // A shared weapon survives changes of occupant. Return its aiming modifiers
-// and random source to the player's defaults when a human takes the seat;
-// the Classic combat binding installs the bot's random source on bind.
-export function seatWeaponPolicy(weapon, human) {
+// to the player's defaults when a human takes the seat, and its generator to
+// the seat's: random, the world's seat stream (null: none, for a page's own
+// player, whose seat fire gives it one). The Classic combat binding gives a
+// bot's weapons the AI's generator when its seat controller binds, so the
+// seat stream draws a network gunner's spread and a bot's before that.
+export function seatWeaponPolicy(weapon, human, random = null) {
   if (!weapon) return;
   weapon.floor = human ? -(weapon.def.SpreadThreshold || 0) : 0;
   if (weapon.kick < weapon.floor) weapon.kick = weapon.floor;
   weapon.spreadScale = 1;
   weapon.sniperScale = 0;
   weapon.yawSpreadOverride = null;
-  weapon.random = null;
+  weapon.random = random;
 }
 
 export class SeatLease {
@@ -786,6 +789,7 @@ export class TurretSeats {
     this.leases = [];
     this.time = 0;
     this.ticks = 0;
+    this.seatRandom = null; // () => [0, 1): the world's seat stream (seatWeaponPolicy)
     this.exit = { position: new THREE.Vector3(), forward: new THREE.Vector3(), candidate: -1 };
     this.seatPoint = new THREE.Vector3();
     this.dropPoint = new THREE.Vector3();
@@ -837,7 +841,7 @@ export class TurretSeats {
     turret.gunner = unit.soldier;
     turret.crew = this;
     turret.yawVel = turret.pitchVel = 0;
-    seatWeaponPolicy(turret.weapon, Boolean(unit.networkHuman));
+    seatWeaponPolicy(turret.weapon, Boolean(unit.networkHuman), this.seatRandom);
     if (!unit.networkHuman) lease.controllable = new SeatUnit(lease);
     unit.seat = lease;
     seatBody(unit);
