@@ -155,7 +155,11 @@ const NOISE3 = /* glsl */`
 
 // The map's light, as the water sees it.
 const SKY = /* glsl */`
-  uniform vec3 sunDirection, sunColor, ambient, ambientTop, ambientBottom;
+  uniform vec3 sunDirection;
+  uniform vec3 sunColor;
+  uniform vec3 ambient;
+  uniform vec3 ambientTop;
+  uniform vec3 ambientBottom;
   // The sun, a little less yellow than the map's (tuned for its lightmaps).
   vec3 sunLight() { return mix(sunColor, vec3(dot(sunColor, vec3(0.3333))), 0.35); }
   vec3 skyAbove() { return ambientTop * 1.3 + vec3(0.1, 0.13, 0.27); }
@@ -336,7 +340,7 @@ const columnVertex = /* glsl */`
   attribute vec3 sweep; // part (0 the jet, 1 the dome), along it from the bottom, around
   uniform vec4 sources[5];
   uniform float levels[5];
-  uniform float time;
+  uniform float jetTime;
   uniform vec3 sunDirection;
   varying vec3 vWorld, vNormal, vFlow;
   varying float vY, vAbove, vAlpha, vLit, vPart, vDepth;
@@ -355,15 +359,15 @@ const columnVertex = /* glsl */`
       float radius = 0.1 + 0.06 * y + 0.01 * sin(turn * 3.0 + y * 1.7);
       local = vec3(around.x * radius, y, around.y * radius);
       normal = vec3(around.x, -0.05, around.y);
-      vFlow = vec3(around, time - (launch - sqrt(max(launch * launch - 2.0 * G * y, 0.0))) / G);
+      vFlow = vec3(around, jetTime - (launch - sqrt(max(launch * launch - 2.0 * G * y, 0.0))) / G);
       vY = y;
     } else {
       // Heaving up around the jet's foot and spreading over the pool.
-      float t = sweep.y, heave = 0.05 * sin(time * 5.3 + turn * 3.0) + 0.04 * sin(time * 7.9 - turn * 5.0 + t * 4.0);
+      float t = sweep.y, heave = 0.05 * sin(jetTime * 5.3 + turn * 3.0) + 0.04 * sin(jetTime * 7.9 - turn * 5.0 + t * 4.0);
       float radius = mix(0.95, 0.12, t);
       local = vec3(around.x * radius, level + (0.18 + heave) * sin(t * 1.5708), around.y * radius);
       normal = vec3(around.x * cos(t * 1.5708), 1.0, around.y * cos(t * 1.5708));
-      vFlow = vec3(local.xz * 3.0, time * 1.6);
+      vFlow = vec3(local.xz * 3.0, jetTime * 1.6);
       vY = t;
     }
     vec3 world = origin.xyz + local;
@@ -381,8 +385,9 @@ const columnVertex = /* glsl */`
 
 const columnFragment = /* glsl */`
   uniform sampler2D sceneDepth;
-  uniform vec2 depthResolution, cameraRange, fade;
-  uniform float hasDepth, time;
+  uniform vec2 depthResolution, cameraRange;
+  uniform vec2 fade;
+  uniform float hasDepth, jetTime;
   varying vec3 vWorld, vNormal, vFlow;
   varying float vY, vAbove, vAlpha, vLit, vPart, vDepth;
   const float TOP = ${TOP.toFixed(2)};
@@ -397,7 +402,7 @@ const columnFragment = /* glsl */`
     if (vPart < 0.5) {
       // Streaks: fine around the jet, long along it; one layer rides with
       // the water, one slips along it, and fine bubbles churn through both.
-      float a = noise3(vec3(vFlow.xy * 6.0, vFlow.z * 9.0)), b = noise3(vec3(vFlow.xy * 17.0 + 3.0, vFlow.z * 5.0 - time * 1.3));
+      float a = noise3(vec3(vFlow.xy * 6.0, vFlow.z * 9.0)), b = noise3(vec3(vFlow.xy * 17.0 + 3.0, vFlow.z * 5.0 - jetTime * 1.3));
       float c = noise3(vec3(vFlow.xy * 34.0 + 7.0, vFlow.z * 23.0));
       vec3 tangent = normalize(cross(vec3(0.0, 1.0, 0.0), axis) + vec3(1e-4, 0.0, 0.0));
       N = normalize(axis + tangent * (b - 0.5) * 0.9 + vec3(0.0, c - 0.5, 0.0) * 0.7);
@@ -437,8 +442,9 @@ const ribbonVertex = /* glsl */`
   attribute float rope; // its number
   uniform vec4 sources[5];
   uniform float levels[5], lows[5]; // the tier's pool and the outer pool
-  uniform float time, side;
-  uniform vec3 wind, sunDirection;
+  uniform float jetTime, side;
+  uniform vec3 wind;
+  uniform vec3 sunDirection;
   uniform vec2 depthResolution;
   varying vec3 vWorld, vSide, vAlong, vFlow;
   varying vec4 vRope;
@@ -456,9 +462,9 @@ const ribbonVertex = /* glsl */`
     float j = rope, salt = float(i) * 2.17, pool = ropeOuter(j) ? lows[i] : levels[i], level = pool - source.y;
     // The whole ribbon in one half, by the way it falls now.
     vec2 dir; vec4 start;
-    ropeStart(j, salt, time, dir, start);
+    ropeStart(j, salt, jetTime, dir, start);
     if ((dot(dir, cameraPosition.xz - source.xz) >= 0.0 ? 1.0 : 0.0) != side) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
-    float age = LIFE * pow(strip.x, 1.5), born = time - age;
+    float age = LIFE * pow(strip.x, 1.5), born = jetTime - age;
     ropeStart(j, salt, born, dir, start);
     vec3 p = ropeAt(dir, start, age);
     // Along the path: where water that left a moment earlier is now.
@@ -496,8 +502,9 @@ const ribbonVertex = /* glsl */`
 
 const ribbonFragment = /* glsl */`
   uniform sampler2D sceneDepth;
-  uniform vec2 depthResolution, cameraRange, fade;
-  uniform float hasDepth, time;
+  uniform vec2 depthResolution, cameraRange;
+  uniform vec2 fade;
+  uniform float hasDepth, jetTime;
   varying vec3 vWorld, vSide, vAlong, vFlow;
   varying vec4 vRope;
   varying float vAcross, vHalf, vSpeed, vFall, vLit, vCover, vDepth, vLevel, vPixel;
@@ -511,7 +518,7 @@ const ribbonFragment = /* glsl */`
     // It carries the same water as it speeds up, so it thins; it swells and
     // necks as its water passes, and wavers.
     float r = vRope.x * sqrt(1.5 / max(vSpeed, 1.5)) * (0.8 + 0.4 * noise1(f * 4.0 + salt));
-    float across = vAcross * vHalf + 0.5 * r * (noise1(f * 17.0 - time * 1.7 + salt * 5.3) - 0.5);
+    float across = vAcross * vHalf + 0.5 * r * (noise1(f * 17.0 - jetTime * 1.7 + salt * 5.3) - 0.5);
     // Past its break point it beads and parts into drops (Plateau-Rayleigh):
     // a bead every few diameters, each the water that left the crown in that
     // moment, so the drops ride with it; some beads come to nothing.
@@ -549,7 +556,7 @@ const ribbonFragment = /* glsl */`
     // however far, more of them looking toward the sun.
     vec2 g = vec2(f / 0.035, (vAcross + 1.0) * 2.0), gi = floor(g), gp = (fract(g) - 0.5) * vec2(0.035 * vSpeed, 0.5 * vHalf) / px;
     float chance = (0.04 + 0.08 * forward(V)) * vLit * vLit;
-    float glint = step(1.0 - chance, hash1(gi.x * 7.13 + gi.y * 1.7 + floor(time * 14.0 + hash1(gi.x) * 3.0) * 0.37 + salt));
+    float glint = step(1.0 - chance, hash1(gi.x * 7.13 + gi.y * 1.7 + floor(jetTime * 14.0 + hash1(gi.x) * 3.0) * 0.37 + salt));
     gl_FragColor.rgb += sunLight() * 2.5 * glint * (1.0 - smoothstep(0.4, 1.2, length(gp))) * min(cover * 3.0, 1.0);
   }
 `;
@@ -576,7 +583,7 @@ const filmVertex = /* glsl */`
   attribute vec3 film; // side of the tier, along it, down its face from the lip
   uniform vec4 sources[5];
   uniform float levels[5], lows[5];
-  uniform float time, side;
+  uniform float jetTime, side;
   uniform vec3 sunDirection;
   varying vec3 vWorld, vNormal, vDown;
   varying vec2 vFlow;
@@ -608,7 +615,7 @@ const filmVertex = /* glsl */`
     vWorld = world;
     vNormal = normal;
     vDown = down;
-    vFlow = vec2((film.x + film.y) * LIP * TAU / SIDES, time - tau);
+    vFlow = vec2((film.x + film.y) * LIP * TAU / SIDES, jetTime - tau);
     vS = film.z;
     vLit = 0.25 + 0.75 * sunThrough(local);
     vec4 view = viewMatrix * vec4(world, 1.0);
@@ -619,8 +626,9 @@ const filmVertex = /* glsl */`
 
 const filmFragment = /* glsl */`
   uniform sampler2D sceneDepth;
-  uniform vec2 depthResolution, cameraRange, fade;
-  uniform float hasDepth, time;
+  uniform vec2 depthResolution, cameraRange;
+  uniform vec2 fade;
+  uniform float hasDepth, jetTime;
   varying vec3 vWorld, vNormal, vDown;
   varying vec2 vFlow;
   varying float vS, vLit, vDepth;
@@ -632,7 +640,7 @@ const filmFragment = /* glsl */`
     // Rivulets: fine across the face, long down it, riding down with the
     // water (born is when the water here left the lip; it runs at 1-3 m/s).
     float u = vFlow.x, born = vFlow.y;
-    float a = noise3(vec3(u * 9.0, born * 1.5, 0.0)), b = noise3(vec3(u * 26.0 + 3.0, born * 3.0, 5.0)), c = noise3(vec3(u * 60.0, born * 6.0 - time * 0.5, 9.0));
+    float a = noise3(vec3(u * 9.0, born * 1.5, 0.0)), b = noise3(vec3(u * 26.0 + 3.0, born * 3.0, 5.0)), c = noise3(vec3(u * 60.0, born * 6.0 - jetTime * 0.5, 9.0));
     vec3 V = normalize(cameraPosition - vWorld), across = normalize(cross(vNormal, vDown));
     // Over the lip the sheet curls, smooth and glassy; below it ripples.
     float curl = 1.0 - smoothstep(0.0, 0.14, vS);
@@ -682,7 +690,7 @@ const vertexShader = /* glsl */`
   attribute vec3 seed; // kind, phase within its life, salt (a splash's: its event, and part in eighths)
   uniform vec4 sources[5]; // nozzle; w is 1 while the fountain is drawn
   uniform float levels[5], lows[5]; // the tier's pool and the outer pool
-  uniform float time, side;
+  uniform float jetTime, side;
   uniform vec3 wind;
   uniform vec2 depthResolution;
   varying vec2 vUv;
@@ -718,7 +726,7 @@ const vertexShader = /* glsl */`
     // level: the tier's pool, low: the outer pool, pool: the one this
     // particle belongs to (all from the nozzle).
     float launch = sqrt(2.0 * G * APEX), level = levels[i] - source.y, low = lows[i] - source.y, pool = level, salt = float(i) * 2.17;
-    float clock = time + fract(seed.y + salt) * life, cycle = floor(clock / life), age = clock - cycle * life, t = age / life;
+    float clock = jetTime + fract(seed.y + salt) * life, cycle = floor(clock / life), age = clock - cycle * life, t = age / life;
     // A splash's parts share its event (r): where it strikes, how hard.
     vec4 r = hash4((kind == SPLASH ? floor(seed.z) : seed.z) * 97.13 + cycle * 3.71 + salt), s = hash4(seed.z * 41.7 + cycle * 1.93 + 17.3 + salt);
     vec2 dir = vec2(cos(r.x * TAU), sin(r.x * TAU));
@@ -738,7 +746,7 @@ const vertexShader = /* glsl */`
       trail = 1.0 / 25.0; cap = 0.35;
       coverage = 0.75 * smoothstep(0.0, 0.04, age) * (1.0 - smoothstep(0.5 * life, life, age));
       aerated = 0.3 + 0.6 * smoothstep(level + 0.2, level + 1.2, p.y);
-      born = time - age;
+      born = jetTime - age;
       glint = 1.0;
     } else if (kind == CLUMP) {
       // Aerated water boiling up the column and churning in the crown.
@@ -760,7 +768,7 @@ const vertexShader = /* glsl */`
         // Shaken off a stream, with a kick from the water around it.
         float j = pick(s.x, 0.15), a0 = 0.05 + 0.75 * s.y;
         if (ropeOuter(j)) pool = low;
-        vec2 rd; vec4 st; ropeStart(j, salt, time - age - a0, rd, st);
+        vec2 rd; vec4 st; ropeStart(j, salt, jetTime - age - a0, rd, st);
         vec3 v0 = vec3(rd.x * st.y, st.w - G * a0, rd.y * st.y) + vec3(dir.x, 0.0, dir.y) * (0.3 + 0.9 * r.z) + vec3(0.0, 0.2 + 0.8 * r.w, 0.0);
         p = ropeAt(rd, st, a0) + v0 * age;
         v = v0;
@@ -777,13 +785,13 @@ const vertexShader = /* glsl */`
       coverage = smoothstep(0.0, 0.08, age);
       drop = true;
       // Some catch the sun, flashing as they wobble and turn.
-      glint = step(0.5, s.w) * pow(0.5 + 0.5 * sin(time * (7.0 + 9.0 * s.z) + s.w * 40.0), 10.0);
+      glint = step(0.5, s.w) * pow(0.5 + 0.5 * sin(jetTime * (7.0 + 9.0 * s.z) + s.w * 40.0), 10.0);
     } else if (kind == SPRAY) {
       // Fine spray torn from a rope: drag holds it back a little and lets it
       // drift out, so it falls with the rope as a soft veil of streaks,
       // smeared along its fall, widening.
       float j = floor(s.x * ROPES);
-      vec2 rd; vec4 st; ropeStart(j, salt, time - age, rd, st);
+      vec2 rd; vec4 st; ropeStart(j, salt, jetTime - age, rd, st);
       p = ropeAt(rd, st, age) + vec3(rd.x, 0.0, rd.y) * (0.1 + 0.3 * r.z) * age + vec3(0.0, 1.2 * r.w * age * age, 0.0);
       v = vec3(rd.x * st.y, st.w - G * age, rd.y * st.y);
       size = vec2(mix(0.06, 0.2, t) * (0.8 + 0.4 * s.y), 0.0);
@@ -806,7 +814,7 @@ const vertexShader = /* glsl */`
       // Spray thrown up where the water lands, hanging over the pool.
       float j = pick(s.x, 0.25);
       if (ropeOuter(j)) pool = low;
-      vec2 rd; vec3 at = ropeLanding(j, salt, time - age - 1.25, pool, rd);
+      vec2 rd; vec3 at = ropeLanding(j, salt, jetTime - age - 1.25, pool, rd);
       // A metre at most: up to 1.4 m/s, slowed as it spreads.
       float up = 0.5 + 0.9 * r.w, out_ = 0.15 + 0.5 * r.z;
       p = vec3(at.x + rd.x * out_ * age, pool + 0.05 + max(up * age - 0.5 * age * age, 0.0), at.z + rd.y * out_ * age) + wind * age * 0.3;
@@ -833,7 +841,7 @@ const vertexShader = /* glsl */`
       int part = int(fract(seed.z) * 8.0 + 0.5);
       float j = pick(r.y, 0.3);
       if (ropeOuter(j)) pool = low;
-      vec2 rd; vec3 at = ropeLanding(j, salt, time - age - 1.25, pool, rd);
+      vec2 rd; vec3 at = ropeLanding(j, salt, jetTime - age - 1.25, pool, rd);
       if (part == 0) {
         float width = (0.04 + 0.06 * r.z) * (0.5 + t), height = (0.05 + 0.09 * r.w) * sin(3.14159 * min(t * 1.4, 1.0));
         p = vec3(at.x, pool + 0.5 * height, at.z);
@@ -874,7 +882,7 @@ const vertexShader = /* glsl */`
       // A ripple spreading from a strike.
       float j = pick(r.y, 0.3);
       if (ropeOuter(j)) pool = low;
-      vec2 rd; vec3 at = ropeLanding(j, salt, time - age - 1.25, pool, rd);
+      vec2 rd; vec3 at = ropeLanding(j, salt, jetTime - age - 1.25, pool, rd);
       float radius = 0.04 + 0.5 * pow(t, 0.6);
       p = vec3(at.x, pool + 0.01, at.z);
       size = vec2(radius + 0.08);
@@ -889,7 +897,7 @@ const vertexShader = /* glsl */`
       float j = pick(r.y, 0.45);
       bool outer = ropeOuter(j);
       if (outer) pool = low;
-      vec2 rd; vec3 at = ropeLanding(j, salt, time - age - 1.25, pool, rd);
+      vec2 rd; vec3 at = ropeLanding(j, salt, jetTime - age - 1.25, pool, rd);
       if (outer && s.x < 0.5) at.xz = rd * FOOT * (0.94 + 0.04 * s.y);
       vec2 radial = normalize(at.xz + vec2(1e-4, 0.0));
       float limit = outer ? WALL : LIP - 0.15, reach = min(length(at.xz) + (0.12 + 0.25 * r.z) * age, limit);
@@ -963,8 +971,9 @@ const vertexShader = /* glsl */`
 
 const fragmentShader = /* glsl */`
   uniform sampler2D atlas, foamMap, sceneDepth;
-  uniform vec2 depthResolution, cameraRange, fade;
-  uniform float hasDepth, hasFoam, time;
+  uniform vec2 depthResolution, cameraRange;
+  uniform vec2 fade;
+  uniform float hasDepth, hasFoam, jetTime;
   varying vec2 vUv;
   varying vec4 vCell, vLook;
   varying vec2 vFlow;
@@ -1026,7 +1035,7 @@ const fragmentShader = /* glsl */`
       thick = 0.3;
     } else if (kind == CORE) {
       // A streak of water, round across, swelling and wavering with the flow.
-      float n1 = noise1(vFlow.x * 9.0 + vFlow.y), n2 = noise1(vFlow.x * 23.0 - time * 3.1 + vFlow.y * 1.7);
+      float n1 = noise1(vFlow.x * 9.0 + vFlow.y), n2 = noise1(vFlow.x * 23.0 - jetTime * 3.1 + vFlow.y * 1.7);
       float half_ = mix(0.55, 0.95, n1), x = q.x + 0.15 * (n2 - 0.5);
       cover = (1.0 - smoothstep(half_ * 0.55, half_, abs(x))) * (1.0 - smoothstep(0.6, 1.0, abs(q.y)));
       float nx = clamp(x / half_, -1.0, 1.0);
@@ -1062,6 +1071,10 @@ const fragmentShader = /* glsl */`
   }
 `;
 
+// Each jet mesh's FountainJets, for a renderer that draws the jets itself
+// (src/rust-render/effects.js).
+export const fountainJets = new WeakMap();
+
 export class FountainJets {
   // The jets share the fountains' sources with the basin splashes (spray);
   // `graphics` gives the frame they draw into; `foam` is the stock foam
@@ -1077,13 +1090,15 @@ export class FountainJets {
     // before the first jet draws; the jets read it blurred, through its mipmaps.
     this.behind = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
     this.captured = false;
-    // The soft spray's half-size target, and frame pixels per pixel of it.
-    this.sprayTarget = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
+    // The soft spray's half-size targets, one a half (so that a renderer can
+    // draw both before laying either over the frame), and frame pixels per
+    // pixel of them.
+    this.sprayTargets = [];
     this.sprayResolution = { value: new THREE.Vector2(1, 1) };
     this.fragScale = { value: new THREE.Vector2(2, 2) };
     this.clearColor = new THREE.Color();
     const uniforms = {
-      time: { value: 0 }, sources: { value: spray.sources }, levels: { value: this.levels }, lows: { value: this.lows }, visible: { value: this.visible },
+      jetTime: { value: 0 }, sources: { value: spray.sources }, levels: { value: this.levels }, lows: { value: this.lows }, visible: { value: this.visible },
       wind: { value: new THREE.Vector3(0.45, 0, 0.2) }, atlas: { value: this.atlas },
       foamMap: { value: foam }, hasFoam: { value: foam ? 1 : 0 },
       sceneDepth: particleDepth.map, depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange, hasDepth: { value: 0 },
@@ -1154,8 +1169,10 @@ export class FountainJets {
       transparent: true, depthWrite: false, premultipliedAlpha: true, blending: THREE.NormalBlending, toneMapped: false,
     }));
     this.core.name = 'fountain-jets-core';
-    // The soft spray draws in scenes of its own, into the half-size target.
+    // The soft spray draws in scenes of its own, into half-size targets.
     const soft = order => {
+      const target = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
+      this.sprayTargets.push(target);
       const mesh = draw(`fountain-spray-${order}`, particles('soft', order), [vertexShader, fragmentShader, order === 'before' ? 1 : 0, { fragScale: this.fragScale }]);
       mesh.frustumCulled = false;
       mesh.onBeforeRender = () => { mesh.material.uniforms.hasDepth.value = 1; mesh.material.uniformsNeedUpdate = true; };
@@ -1163,7 +1180,7 @@ export class FountainJets {
       sprayScene.add(mesh);
       const composite = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
         vertexShader: 'void main(){gl_Position=vec4(position.xy,0.,1.);}', fragmentShader: compositeFragment,
-        uniforms: { sprayMap: { value: this.sprayTarget.texture }, sprayResolution: this.sprayResolution, enabled: { value: 0 },
+        uniforms: { sprayMap: { value: target.texture }, sprayResolution: this.sprayResolution, enabled: { value: 0 },
           sceneDepth: particleDepth.map, depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange },
         transparent: true, depthWrite: false, depthTest: false, toneMapped: false,
         blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
@@ -1173,6 +1190,7 @@ export class FountainJets {
       composite.name = `fountain-spray-${order}`;
       composite.userData.spray = mesh;
       composite.userData.scene = sprayScene;
+      composite.userData.target = target;
       return composite;
     };
     // Far to near.
@@ -1188,6 +1206,22 @@ export class FountainJets {
       draw('fountain-ropes-near', ribbons('before'), [ribbonVertex, ribbonFragment, 1]),
       soft('before'),
     ];
+    // The frame so far is copied just before the first jet draws, by this
+    // object (it draws nothing) three draws just before them: a renderer
+    // that draws the jets itself (src/rust-render/effects.js) leaves it to
+    // three, so the copy is made at the same point of the list either way.
+    const copierGeometry = new THREE.BufferGeometry();
+    copierGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3));
+    this.copier = new THREE.Mesh(copierGeometry, new THREE.ShaderMaterial({
+      vertexShader: 'void main(){gl_Position=vec4(2.,2.,2.,1.);}', fragmentShader: 'void main(){gl_FragColor=vec4(0.);}',
+      transparent: true, depthTest: false, depthWrite: false, colorWrite: false,
+    }));
+    this.copier.name = 'fountain-frame-copy';
+    this.copier.renderOrder = 9 - 0.025;
+    this.copier.frustumCulled = false;
+    this.copier.visible = false;
+    this.copier.onBeforeRender = (r) => this.capture(r);
+    scene.add(this.copier);
     for (const [k, mesh] of this.meshes.entries()) {
       mesh.renderOrder = 9 + k * 0.05;
       mesh.frustumCulled = false;
@@ -1200,9 +1234,10 @@ export class FountainJets {
         mesh.material.uniformsNeedUpdate = true;
       };
       scene.add(mesh);
+      fountainJets.set(mesh, this);
     }
   }
-  // Draws one half's soft spray into the half-size target, just before its
+  // Draws one half's soft spray into its half-size target, just before its
   // composite lays it over the frame.
   drawSpray(renderer, camera, composite) {
     const source = renderer.getRenderTarget(), enabled = composite.material.uniforms.enabled;
@@ -1210,7 +1245,8 @@ export class FountainJets {
     composite.material.uniformsNeedUpdate = true;
     if (!enabled.value) return;
     const width = Math.max(1, Math.ceil(source.width / 2)), height = Math.max(1, Math.ceil(source.height / 2));
-    this.sprayTarget.setSize(width, height);
+    const target = composite.userData.target;
+    target.setSize(width, height);
     this.sprayResolution.value.set(width, height);
     this.fragScale.value.set(source.width / width, source.height / height);
     renderer.getClearColor(this.clearColor);
@@ -1218,7 +1254,7 @@ export class FountainJets {
     try {
       renderer.autoClear = true;
       renderer.setClearColor(0, 0);
-      renderer.setRenderTarget(this.sprayTarget);
+      renderer.setRenderTarget(target);
       renderer.render(composite.userData.scene, camera);
     } finally {
       renderer.setRenderTarget(source);
@@ -1245,6 +1281,22 @@ export class FountainJets {
     this.core.material.uniforms.sceneResolution.value.set(width, height);
     return true;
   }
+  // For a renderer that draws the jets itself (src/rust-render/effects.js),
+  // before it draws any: what their onBeforeRender sets, the scene's depth
+  // taken, and the target the copier copies the frame so far into sized
+  // now (so that the jets' texture stays the same through the frame).
+  prepare(renderer, camera) {
+    const source = renderer.getRenderTarget();
+    if (source !== this.graphics.sceneTarget) return;
+    const u = this.core.material.uniforms, { width, height } = source;
+    u.hasDepth.value = particleDepth.capture(renderer, null, camera, true) ? 1 : 0;
+    u.hasScene.value = 1;
+    if (this.behind.width !== width || this.behind.height !== height || !renderer.properties.get(this.behind.texture).__webglTexture) {
+      this.behind.setSize(width, height);
+      renderer.initRenderTarget(this.behind);
+    }
+    u.sceneResolution.value.set(width, height);
+  }
   // `fountains` are the visible ones, each with its slot and the levels of
   // its pools (the tier's, and the outer one's if it has one).
   update(time, fountains) {
@@ -1257,10 +1309,11 @@ export class FountainJets {
     }
     for (const mesh of this.meshes) {
       const drawn = mesh.userData.spray || mesh;
-      drawn.material.uniforms.time.value = time;
+      drawn.material.uniforms.jetTime.value = time;
       drawn.geometry.instanceCount = drawn.geometry.userData.perFountain * shown;
       mesh.visible = shown > 0;
     }
+    this.copier.visible = shown > 0;
   }
   dispose() {
     for (const mesh of this.meshes) {
@@ -1268,8 +1321,9 @@ export class FountainJets {
       if (spray) { spray.removeFromParent(); spray.geometry.dispose(); spray.material.dispose(); }
       mesh.removeFromParent(); mesh.geometry.dispose(); mesh.material.dispose();
     }
+    this.copier.removeFromParent(); this.copier.geometry.dispose(); this.copier.material.dispose();
     this.atlas.dispose();
     this.behind.dispose();
-    this.sprayTarget.dispose();
+    for (const target of this.sprayTargets) target.dispose();
   }
 }

@@ -59,6 +59,10 @@ dependencies = [
 [[package]]
 name = "content"
 version = "0.1.0"
+dependencies = [
+ "sim",
+ "v8math",
+]
 
 [[package]]
 name = "dispatch2"
