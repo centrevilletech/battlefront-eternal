@@ -18,6 +18,7 @@ import { hasMissileLock } from '../../src/weapon-targeting.js';
 import { networkVehicle } from '../../src/runtime/network-vehicle.js';
 import { networkSeat } from '../../src/runtime/network-seat.js';
 import { boardingReach } from '../../src/boarding.js';
+import { Handle } from './format.mjs';
 
 // The leases that hold a seat, hulls first (hull by hull, seat by seat),
 // then the turrets' (in the order they were manned), then any the frame
@@ -56,6 +57,26 @@ function unitValue(cap, u) {
   };
 }
 
+// The store's hull, its seats' leases as its tick reads them
+// (Vehicle.seatLeases, rust/sim/schema/vehicles.mjs SeatLeaseView: an empty
+// seat's every field undefined), made here: the store's exporter writes an
+// object once a state, in the shape it first met it in, so a lease this
+// state has already written whole (the `seats` list) would come out whole
+// in the hull too. A unit's handle is its registry id (plugin.mjs handleOf).
+function hullExport(cap, v) {
+  const hull = cap.export('vehicle', v);
+  hull.seatLeases = v.seats.map(({ lease }) => {
+    const u = lease?.unit, i = lease?.input;
+    return {
+      human: lease?.human,
+      unit: u === null || u === undefined ? u : Number.isSafeInteger(u.id) ? new Handle('unit', u.id) : cap.export('unit', u).$id,
+      networkHuman: u?.networkHuman,
+      forward: i?.forward, right: i?.right, turn: i?.turn, pitch: i?.pitch, brake: i?.brake,
+    };
+  });
+  return hull;
+}
+
 // A hull as its seats read it: the store's hull (its team, flight state and
 // stick among the flight package's fields), its place in the battle's list,
 // and what its seats read beyond the store (its last attacker; its class's
@@ -63,7 +84,7 @@ function unitValue(cap, u) {
 function hullValue(cap, game, v) {
   return {
     index: game.vehicles.vehicles.indexOf(v),
-    hull: cap.export('vehicle', v),
+    hull: hullExport(cap, v),
     side: {
       lastAttacker: v.lastAttacker ?? null,
       hover: v.base === 'hover', animal: v.healthType === 'animal',
@@ -262,7 +283,7 @@ const networkSeatFrame = {
   state: (game, args, cap) => {
     const [v, , controls] = args;
     return {
-      index: game.vehicles.vehicles.indexOf(v), hull: cap.export('vehicle', v),
+      index: game.vehicles.vehicles.indexOf(v), hull: hullExport(cap, v),
       keys: { forward: controls.axis('forward'), right: controls.axis('right'), turn: controls.axis('turn'), space: controls.down.has('Space') },
     };
   },
