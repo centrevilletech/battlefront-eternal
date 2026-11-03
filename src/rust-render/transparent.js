@@ -195,8 +195,11 @@ class TransparentPass {
       const last = before[before.length - 1];
       const phase = name === "near" ? "transparent" : "mirrorTransparent";
       const start = () => this.core.phase(phase, ctx.renderer, ctx.scene, ctx.camera, ctx.defer);
-      // The far scene's image drawn last: the transparent list follows now.
-      if (last.object === this.core.graphics.background) start();
+      // Nothing of three's drawn after the near phase's own hook (or the
+      // scene walked, all of it the renderer's): the transparent list
+      // follows now. Else right after three's last opaque item (the far
+      // scene's image, drawn last of them).
+      if (ctx.walked || last.object === this.core.nearAnchor) start();
       else this.arm(last, start, ctx);
     } else if (name === "transparent" || name === "mirrorTransparent") {
       const core = this.core, rust = core.rust;
