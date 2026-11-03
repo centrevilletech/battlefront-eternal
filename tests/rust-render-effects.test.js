@@ -496,4 +496,10 @@ test("the Enhanced sniper's trace: two batches, their instances written interlea
   assert.deepEqual(e.slice(0, 5), [0, 0, 2, 0, 0]);
   assert.deepEqual(e.slice(6, 8), [0, 11], "render order 11");
   assert.deepEqual([...core.fxData.subarray(0, 36)], Array.from({ length: 36 }, (_, i) => i), "interleaved, as kept");
+  // Off: three draws them again, their shared buffer marked for upload whole.
+  core.setActive(false);
+  assert.equal(streaks.external, false);
+  assert.deepEqual(streaks.buffer.updateRanges, [{ start: 0, count: 36 }]);
+  core.setActive(true);
+  assert.equal(streaks.external, true);
 });

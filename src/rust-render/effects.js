@@ -740,8 +740,19 @@ class EffectsPass {
       this.hide(record, on);
       record.synced = false;
       if (on) continue;
+      // Each attribute, or the interleaved buffer they share (the sniper's
+      // trace), marked for three to upload whole.
+      let shared = null;
       for (const [name] of record.attributes) {
         const a = b.geometry.getAttribute(name);
+        if (a.isInterleavedBufferAttribute) {
+          if (shared === a.data) continue;
+          shared = a.data;
+          shared.clearUpdateRanges();
+          shared.addUpdateRange(0, b.count * shared.stride);
+          shared.needsUpdate = true;
+          continue;
+        }
         a.clearUpdateRanges();
         a.addUpdateRange(0, b.count * a.itemSize);
         a.needsUpdate = true;
