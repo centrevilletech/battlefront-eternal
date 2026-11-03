@@ -452,7 +452,7 @@ impl Hulls {
             self.vacate(st, w, r, Vacate { placement: false, promote: Some(false), reason: Reason::Destroyed, ..Vacate::default() });
             if let Some(u) = st.seat_lease.get(r).unwrap().unit {
                 let unit = st.unit.get(u).unwrap();
-                if unit.alive && !unit.combat_dead {
+                if unit.alive && !unit.combat.dead {
                     dying.push(u.slot);
                 }
             }

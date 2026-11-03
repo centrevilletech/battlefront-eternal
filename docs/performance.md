@@ -1447,7 +1447,19 @@ leave to stay on with them.
   the canopies pass draws it in the near phase (a mirror's too) with three's
   program for it, and three neither lists the mesh nor uploads its leaves:
   each frame the page copies the instances whose slots changed into the
-  renderer's copy.
+  renderer's copy. They are drawn after the near scene's world, soldiers,
+  ground and foliage, as three's own draw of them already came after the
+  renderer's world. This order differs from three alone on purpose, as the
+  far scene's image drawn last does: three sorts the canopies by their
+  material's id, which on Naboo: Theed puts them before every one of the
+  map's buckets, so every leaf fragment is shaded and most are then
+  covered; drawn after what hides them, the hidden ones fail the depth test
+  before they are shaded (on the slow laptop the frame's GPU time there fell
+  from 33 to 20 ms, below). Where a leaf card and a surface meet at the same
+  depth, the order decides the sample: at three points of a walk on Theed,
+  three alone with only the canopies moved after every other opaque item
+  gave the renderer's image to the pixel at all three, and differed from
+  three as it is by 0, 8 and 0 pixels.
 - The Enhanced ocean. The sea's surface is a mesh of its own in the near and
   far scenes, with crest spray over it, and on a sea the map rains on
   (Kamino) a storm: a panorama of clouds drawn over the sky by a
@@ -1474,7 +1486,7 @@ afresh and the probes captured afresh in every compared frame:
 | Water at High (far mirror, surfaces, shore) | Kashyyyk: Docks, Naboo: Theed | frame, reflection | 0 at every point |
 | Water at Ultra (far and near mirrors, surfaces) | Kashyyyk: Docks, Naboo: Theed | frame, reflection, its far image | frame 0; reflection 1 and 247 at one point each, as many as three against itself there |
 | Enhanced sky (flyers, probe) | Tatooine: Dune Sea, Bespin: Platforms, Geonosis: Spire | frame, far image, the probe's six faces | 0 at every point |
-| Enhanced trees (canopies) | Yavin 4: Temple, Naboo: Theed (and at Ultra) | frame | 0 on Yavin 4; 1 pixel at one point on Theed, the same with the canopies given back to three |
+| Enhanced trees (canopies) | Yavin 4: Temple, Naboo: Theed (and at Ultra) | frame | 0 on Yavin 4; on Theed 1 and 8 pixels at one point each, as many as three alone gives with only the canopies drawn after the rest (0 against the renderer) |
 | Enhanced ocean | Kashyyyk: Islands, Kamino (its storm) | frame, far image, the probe's six faces (Islands), the storm's clouds (Kamino) | 0 at every point |
 
 In the renderer's frames three drew none of the far scene, the mirror's far
@@ -1496,7 +1508,45 @@ scenes, the probe or the water.
 On the emulator with its draws made no-ops, a water mirror's far scene on
 Kashyyyk: Docks at High, drawn on the same frames alternately by the far
 pass and by three, cost 0.73 ms (median) and 1.01 ms (mean) with the far
-pass against 1.05 and 1.50 ms with three's two renders.
+pass against 1.05 and 1.50 ms with three's two renders. In lockstep frames
+of one battle alternating, in blocks, between the renderer with these
+features and the renderer with them given back to three (as before them),
+the eye at the feature, Graphics.render took (median and mean, ms):
+
+| Map, feature | Given back to three | Drawn by the renderer | Three's draws a frame |
+| --- | --- | --- | --- |
+| Kashyyyk: Docks, water at High | 3.94, 4.30 | 3.85, 4.12 | 7 -> 2 |
+| Bespin: Platforms, Enhanced sky | 5.11, 5.63 | 4.88, 5.55 | 20 -> 2 |
+| Kashyyyk: Islands, Enhanced ocean | 3.94, 4.25 | 3.39, 3.68 | 13 -> 2 |
+| Kamino, Enhanced ocean and storm | 2.76, 3.24 | 2.44, 2.70 | 9 -> 2 |
+| Naboo: Theed, Enhanced trees | 6.29, 6.62 | 6.37, 6.71 (within the noise) | 3 -> 2 |
+
+The water's reflection and the sky probes are drawn before Graphics.render
+and are not in these times (the reflection's is above).
+
+On the slow laptop (fast FXAA, no multisampling, full resolution, each
+feature's setting on, the eye at the feature), three alone against the whole
+renderer, lockstep blocks in one battle, three rounds (means):
+
+| Map, feature | Graphics.render, ms | GPU process CPU, ms a frame | GPU time of Graphics.render, ms | GPU time before it (mirrors, probes, clouds), ms |
+| --- | --- | --- | --- | --- |
+| Kashyyyk: Docks, water at High | 9.67 -> 6.15 | 12.3 -> 9.1 | 134.0 -> 137.0 (rounds 128 to 147) | 0.58 -> 0.47 |
+| Kashyyyk: Docks, water at Ultra | 5.86 -> 6.04 | 25.8 -> 21.7 | 48.3 -> 47.9 | 10.5 -> 7.5 |
+| Bespin: Platforms, Enhanced sky | 9.69 -> 6.88 | 18.7 -> 15.9 | 15.4 -> 14.8 | 0.01 -> 0.01 |
+| Naboo: Theed, Enhanced trees | 8.38 -> 5.65 | 20.9 -> 17.5 | 33.1 -> 20.3 | 0 -> 0 |
+| Kashyyyk: Islands, Enhanced ocean | 6.76 -> 6.73 | 13.6 -> 10.3 | 81.0 -> 81.3 | 0.01 -> 0.02 |
+| Kamino, Enhanced ocean and storm | 9.25 -> 4.62 | 9.0 -> 6.2 | 86.3 -> 85.5 | 2.19 -> 1.94 |
+
+The first block on Kashyyyk: Docks at High (three's, 17.9 ms, just after the
+load) weighs on its mean; its other rounds were 5.2 to 5.9 ms with three and
+5.8 to 6.7 ms with the renderer. The GPU time on Naboo: Theed falls with the
+canopies' order (above). In these views the laptop is held back by its GPU
+with water at High (its reflection's march over the screen) and with the
+Enhanced ocean: their shaders, the same whichever renderer draws them. The probe's capture,
+six faces once a second, costs a little more drawn by the renderer: each
+face is a phase of its own, with three's state reset after it, and the sky
+flyers' update (which captures it) took 0.11 ms a frame on average against
+0.08 ms with three.
 
 ## His controls on a slow CPU
 

@@ -21,7 +21,7 @@
 // A world only; boarding, the other ways out, a destroyed hull's crew and
 // the turret crews stay JavaScript's until they move.
 import * as THREE from "three";
-import { KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_SEATS, KIND_UNIT, KIND_VEHICLE } from "./sim/gen/index.js";
+import { CombatMirror, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_SEATS, KIND_UNIT, KIND_VEHICLE } from "./sim/gen/index.js";
 import { makeHit } from "./collision.js";
 
 const NO_BUTTONS = [0, 0];
@@ -43,6 +43,8 @@ export class SeatsSim {
     this.controls = []; // the seat control records, reused
     this.answer = null;
     this.keep = new Set();
+    this.combats = []; // the riders' combats, kept out of the sync
+    this.scratch = []; // what the sync writes their combats' records into
     bridge.register(this.handlers());
   }
 
@@ -84,7 +86,19 @@ export class SeatsSim {
     const out = (this.answer = b.command("seatLatch", a, this.answer));
     b.sync(KIND_SEAT_LEASE);
     b.sync(KIND_VEHICLE);
-    b.sync(KIND_UNIT);
+    // The riders back from the store, but for their combats (the combat
+    // package's): what the batch writes into one (mounted, aimOverride,
+    // gunUnderwater, the zoom) is among its effects below, and the rest it
+    // only reads (a JavaScript PlayerCombat has fields the store's record
+    // names only through getters).
+    const combats = this.combats;
+    combats.length = units.length;
+    for (let i = 0; i < units.length; i++) {
+      combats[i] = units[i].combat;
+      units[i].combat = this.scratch[i] ??= new CombatMirror();
+    }
+    try { b.sync(KIND_UNIT); } finally { for (let i = 0; i < units.length; i++) units[i].combat = combats[i]; }
+    combats.fill(null);
     vs.ticks = out.ticks;
     // SeatInput.latch took these edges from the seat's intent it played.
     for (const seat of out.latched) {

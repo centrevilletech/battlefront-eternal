@@ -12,7 +12,7 @@
 //! them as the capture recorded it.
 
 use super::weapons::{Admission, Shot, WeaponDraws};
-use crate::gen::{Attacker, Combat, RepairTarget, Unit};
+use crate::gen::{Attacker, Combat, RepairTarget, Unit, Weapon};
 use crate::store::StrId;
 use three::Vector3;
 
@@ -94,14 +94,17 @@ pub trait CombatWorld: WeaponDraws {
 
     // ---- A repair tool (src/props.js lockOn, repair).
     #[allow(clippy::too_many_arguments)]
-    fn lock_on(&mut self, eye: &Vector3, dir: &Vector3, weapon: u32, current: Option<RepairTarget>, held: bool, team: f64) -> Option<RepairTarget>;
+    /// (`tool`: the weapon at `weapon` as it is now, its level its `def`.)
+    fn lock_on(&mut self, eye: &Vector3, dir: &Vector3, weapon: u32, tool: &Weapon, current: Option<RepairTarget>, held: bool, team: f64) -> Option<RepairTarget>;
     /// repairLockKey: the lock as a plain key ("" for none), in the
     /// battle's strings.
     fn lock_key(&mut self, target: Option<RepairTarget>) -> StrId;
     fn repair(&mut self, weapon: u32, target: Option<RepairTarget>, team: f64, unit: &mut Unit, combat: &mut Combat) -> bool;
 
     /// lockPick(weapon, origin, dir): what a launcher locks onto.
-    fn lock_pick(&mut self, weapon: u32, origin: &Vector3, dir: &Vector3) -> LockPick;
+    /// (`launcher`: the weapon at `weapon` as it is now: its level and its
+    /// lock, which the pick reads.)
+    fn lock_pick(&mut self, weapon: u32, launcher: &Weapon, origin: &Vector3, dir: &Vector3) -> LockPick;
 
     // ---- What he fires.
     /// fireRound(def, from, dir, shot, bind, selected): Ordnance.fire with
@@ -135,7 +138,8 @@ pub trait CombatWorld: WeaponDraws {
     fn next_gun(&mut self, unit: &mut Unit, combat: &mut Combat) -> Option<Vector3>;
     /// gunAt(out, selected).
     fn gun_at(&mut self, selected: (f64, f64)) -> Option<Vector3>;
-    fn shield_hit(&mut self, taken: f64, source: Option<Vector3>, explosion: bool);
+    /// (`left`: the shield's value after it took `taken`, as the hook finds it.)
+    fn shield_hit(&mut self, taken: f64, left: f64, source: Option<Vector3>, explosion: bool);
 
     /// combat.random (the battle's gameplay stream), or the legacy stream
     /// for a combat with none.

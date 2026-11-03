@@ -43,5 +43,6 @@ export function validateWeaponState(weapon, state) {
 
 export function applyValidatedWeaponState({ weapon, state }) {
   weapon.def = weapon.levels[state.level];
+  weapon.level = state.level;
   for (const key of [...WEAPON_STATE_NUMBERS, ...WEAPON_STATE_FLAGS]) weapon[key] = state[key];
 }

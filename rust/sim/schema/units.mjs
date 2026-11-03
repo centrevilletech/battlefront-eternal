@@ -1,9 +1,10 @@
 // The battle's units (src/units.js, src/registry.js, src/soldier.js,
 // src/droideka.js): the registry and its members in its order, each unit's
-// life, intent, controls and hit shapes, and its body, a soldier's or a
-// droideka's. The fields of other packages' objects a unit's code reads
-// (its combat, its hold by a creature) are declared here through their
-// paths, unmirrored, until those packages declare their kinds.
+// life, intent, controls and hit shapes, its body, a soldier's or a
+// droideka's, and its combat (the combat package's record). The fields of
+// other packages' objects a unit's code reads (its recon droids, its hold
+// by a creature) are declared here through their paths, unmirrored, until
+// those packages declare their kinds.
 // docs/sim-store.md says how a schema is written; tools/sim-schema.mjs
 // makes the code from it.
 export default {
@@ -162,20 +163,17 @@ export default {
         held: 'rec:Held|null|undefined',
         networkHuman: 'bool|undefined',
         soldier: 'union:UnitBody',
-        // What the unit's code reads of its combat (src/combat.js, the
-        // combat package's) and writes into it.
-        combatDead: { type: 'bool', js: 'combat.dead', mirror: false },
-        aimOverride: { type: 'vec3|null|undefined', js: 'combat.aimOverride', mirror: false },
-        mounted: { type: 'bool|undefined', js: 'combat.mounted', mirror: false },
+        // Its side of the fight (src/combat.js PlayerCombat, the combat
+        // package's record, rust/sim/schema/combat.mjs).
+        combat: 'rec:Combat',
+        // Whether he flies a recon droid now (the droids' controller,
+        // src/remote.js, which his combat holds).
         remotesActive: { type: 'bool|undefined', js: 'combat.remotes.active', mirror: false },
-        pivot: { type: 'vec3', js: 'combat.pivot', mirror: false },
-        gunUnderwater: { type: 'bool|undefined', js: 'combat.gunUnderwater', mirror: false },
       },
       skip: {
         hitSet: 'which of its arrays the hit shapes are: riderHits exactly when shapeCount is over 2 (a rider set has 6 or 10, its own 1 or 2)',
         actor: 'its model and skeleton (content, and the page\'s drawing)',
         animator: 'the page\'s pose (a droideka\'s hidden gun rig is its body\'s)',
-        combat: 'the combat package\'s PlayerCombat (the fields read here are declared through paths)',
         presentation: 'the page\'s smoothing (a world\'s reads nothing back)',
         jetFlame: 'the page\'s effect', bubble: 'the page\'s shield', poseClock: 'the page\'s posing', gone: 'the page\'s dissolve',
         ownMaterials: 'the page\'s materials', crowdSlot: 'the page\'s crowd shadows', shadowNear: 'the page\'s shadows',

@@ -16,7 +16,7 @@ const game=await createGame({headless:true,query:`?map=bes1&side=all&ai=classic&
 assert.equal(Boolean(game.collision.movement),movement,'movement kernel as asked');
 const infantryDigest=createHash('sha1'),flightDigest=createHash('sha1');
 const className=game.spawnPort.roster(1).find(c=>/sniper|marksman|scout/i.test(c.className))?.className;assert.ok(className);
-await world.addPlayer('probe',{team:1,className});const u=world.players.get('probe').unit,local=game.factory.build(className),reference=game.factory.build(className);
+await world.addPlayer('probe',{team:1,className});const u=world.players.get('probe').unit,local=game.factory.build(className,{page:true}),reference=game.factory.build(className,{page:true});
 const view={mouseScale:1.25,aspect:16/9,invertMouse:false,firstPerson:false};let fired=false,zoomed=false,crouched=false;
 const beforeClip=u.combat.arsenal.current(0).clip;
 for(let tick=1;tick<=180;tick++){
