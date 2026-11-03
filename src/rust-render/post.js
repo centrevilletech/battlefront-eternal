@@ -155,7 +155,7 @@ class PostPass {
     }
     this.pending = steps;
     this.complete = false;
-    core.phase("post", renderer, null, steps[0].camera);
+    core.phase("post", renderer, null, steps[0].camera, true);
     this.pending = null;
     return this.complete;
   }

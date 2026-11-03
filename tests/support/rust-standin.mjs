@@ -110,6 +110,7 @@ export function standinContext(calls) {
     getShaderParameter: (s) => s.type,
     getShaderSource: (s) => (s.type === GL.VERTEX_SHADER ? "vs" : "fs"),
     blitFramebuffer: (...args) => calls.push(["blitFramebuffer", ...args]),
+    bindFramebuffer: (t, fb) => calls.push(["bindFramebuffer", t, fb]),
   };
 }
 

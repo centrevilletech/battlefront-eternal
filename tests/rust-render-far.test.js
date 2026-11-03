@@ -59,6 +59,7 @@ function bridge() {
     getShaderParameter: (s) => s.type,
     getShaderSource: () => "void main() {}",
     blitFramebuffer: (...args) => calls.push(["blitFramebuffer", ...args]),
+    bindFramebuffer: (t, f) => calls.push(["bindFramebuffer", t, f]),
   };
   const scene = new THREE.Scene(), farScene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(60, 1, 2, 1000);
   camera.position.set(0, 0, 10);
@@ -110,11 +111,12 @@ test("a far scene it covers whole: the renderer clears, draws it in three's orde
   // One item a mesh, each program's uniform table once.
   assert.equal(calls.filter((c) => c[0] === "far_item").length, 3);
   assert.equal(calls.filter((c) => c[0] === "far_table").length, 2);
-  // The renderer's call, three's state reset, the target bound again, then
-  // the multisampled image resolved (colour only), and no render by three.
+  // The renderer's call, then the multisampled image resolved (colour only),
+  // and no render by three. Three's state is reset when three is next used
+  // (the core's settle), once, whatever the renderer drew in between.
   const after = calls.slice(calls.findIndex((c) => c[0] === "far_frame"));
-  assert.deepEqual(after.map((c) => c[0]), ["far_frame", "resetState", "setRenderTarget", "bindFramebuffer", "bindFramebuffer", "blitFramebuffer", "bindFramebuffer", "bindFramebuffer", "bindFramebuffer"]);
-  assert.deepEqual(after[5].slice(1), [0, 0, 4, 4, 0, 0, 4, 4, GL.COLOR_BUFFER_BIT, GL.NEAREST]);
+  assert.deepEqual(after.map((c) => c[0]), ["far_frame", "bindFramebuffer", "bindFramebuffer", "blitFramebuffer", "bindFramebuffer", "bindFramebuffer", "bindFramebuffer"]);
+  assert.deepEqual(after[3].slice(1), [0, 0, 4, 4, 0, 0, 4, 4, GL.COLOR_BUFFER_BIT, GL.NEAREST]);
   // The input: the clear colour premultiplied, the pass drawing, each item
   // drawn, the sky's matrix where it stands this frame.
   core.views();
@@ -126,6 +128,10 @@ test("a far scene it covers whole: the renderer clears, draws it in three's orde
   // Its fixed values (a zero material's) go once, at registration.
   const sources = calls.filter((c) => c[0] === "far_source" && c[1] === far.all.find((i) => i.object === a).id);
   assert.deepEqual(sources.map((c) => c[3]), [0, 2]); // brightness (floats), map (texture)
+  calls.length = 0;
+  renderer.setRenderTarget(null);
+  assert.deepEqual(calls.map((c) => c[0]), ["resetState", "setRenderTarget", "setRenderTarget"]);
+  assert.equal(calls[1][1], "far", "the target three believed bound, bound again");
   calls.length = 0;
   core.cover("far", renderer, farScene, camera);
   assert.equal(calls.filter((c) => c[0].startsWith("far_") && c[0] !== "far_frame").length, 0);
@@ -139,9 +145,11 @@ test("a mesh it can't draw in view: the renderer draws nothing and three the fra
   assert.deepEqual([far.mode, far.threeObjects], ["three", 1]);
   core.views();
   assert.equal(core.farInput[4], 0);
-  // The phase's call (which draws nothing), three's state reset after the
-  // registering, and no resolve.
-  assert.deepEqual(calls.slice(calls.findIndex((c) => c[0] === "far_frame")).map((c) => c[0]), ["far_frame", "resetState", "setRenderTarget"]);
+  // The phase's call (which draws nothing) and no resolve; three's state is
+  // reset as three renders the frame.
+  assert.deepEqual(calls.slice(calls.findIndex((c) => c[0] === "far_frame")).map((c) => c[0]), ["far_frame"]);
+  renderer.render(farScene, camera);
+  assert.deepEqual(calls.slice(-3).map((c) => c[0]), ["resetState", "setRenderTarget", "render"]);
   // Out of view, three would draw it no more than the renderer.
   dust.position.set(0, 0, 100);
   dust.updateMatrix();

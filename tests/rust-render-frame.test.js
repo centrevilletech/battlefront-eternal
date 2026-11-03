@@ -349,3 +349,23 @@ test("the view scene: an unlit part (a sight whose texture scrolls) is drawn as 
   assert.deepEqual([...input.subarray(1 + 17 + 4 * 18, 1 + 17 + 4 * 18 + 3)], [4, 1, 3], "the material's own time");
   assert.equal(input[1 + DRAW + 2], 1, "then the flash, blended");
 });
+
+test("phases drawn between three's renders reset three's state once, when three is next used", () => {
+  const { core, calls, renderer, scene, camera } = bridge();
+  core.addPass({ name: "a", phase: "view", draw() { this.complete = true; } });
+  core.byName.view.draw = function () { this.complete = true; };
+  const viewScene = new THREE.Scene();
+  assert.equal(core.cover("view", renderer, viewScene, camera), true);
+  core.phase("post", renderer, null, camera, true);
+  core.phase("hud", renderer, scene, camera, true);
+  assert.equal(calls.filter((c) => c[0] === "resetState").length, 0, "none yet");
+  assert.equal(core.stale, true);
+  renderer.setRenderTarget(null);
+  assert.deepEqual(calls.slice(-3).map((c) => c[0]), ["resetState", "setRenderTarget", "setRenderTarget"]);
+  assert.equal(calls.filter((c) => c[0] === "resetState").length, 1, "one for the three phases");
+  // A phase drawn inside three's render resets at once.
+  calls.length = 0;
+  core.phase("near", renderer, scene, camera);
+  assert.deepEqual(calls.slice(-2).map((c) => c[0]), ["resetState", "setRenderTarget"]);
+  assert.equal(core.stale, false);
+});

@@ -76,6 +76,12 @@ const PHASES = {
   mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
 };
 
+// three's renderer's entry points that read or change its state cache, each
+// settling a deferred phase's GL state first (watchThree).
+const SETTLES = ["render", "setRenderTarget", "clear", "clearColor", "clearDepth", "clearStencil", "setClearColor", "setClearAlpha", "readRenderTargetPixels",
+  "readRenderTargetPixelsAsync", "copyFramebufferToTexture", "copyTextureToTexture", "copyTextureToTexture3D", "initTexture", "initRenderTarget", "compile",
+  "compileAsync", "setViewport", "setScissor", "setScissorTest", "resetState", "dispose"];
+
 // The renderer with each registration call it is given kept (typed arrays
 // copied), so another build of it can be given the same scene. The phases'
 // calls and the memory layout's are not registration.
@@ -145,6 +151,11 @@ export class RustRender {
     this.stride = this.rust.record_stride();
     this.addView("input", Float64Array, () => this.rust.input_ptr(), () => this.rust.input_len());
     this.addView("bones", Float32Array, () => this.rust.bones_ptr(), () => this.rust.bones_len());
+    // Phases drawn between three's renders reset three's state once, when
+    // three is next used.
+    this.stale = false;
+    this.settleThree = null;
+    this.watchThree();
     // A lost context takes every object the renderer made with it (three
     // makes its own again when it is restored): three draws everything.
     this.lost = false;
@@ -368,7 +379,11 @@ export class RustRender {
   // for its view, its passes in order, then the renderer's call that draws
   // them. Three's state is reset after it, and the target it was drawing
   // into bound again.
-  phase(name, renderer, scene, camera) {
+  // defer: three draws nothing right after this phase (a scene's phase drawn
+  // in place of three's render, between three's renders): its state is reset
+  // only when three is next used (settle), so that phases drawn one after
+  // another reset it once.
+  phase(name, renderer, scene, camera, defer = false) {
     if (!this.enabled || !this.active) return;
     if (!this.supported()) { this.restore(); return; }
     const phase = PHASES[name], target = renderer.getRenderTarget();
@@ -387,10 +402,43 @@ export class RustRender {
     this.phaseMs[name] = performance.now() - t0;
     // A phase that made no GL call left three's state as it was.
     if (stats?.[4] !== 0) {
-      renderer.resetState();
-      renderer.setRenderTarget(target);
+      if (defer) this.stale = true;
+      else {
+        this.stale = false;
+        renderer.resetState();
+        renderer.setRenderTarget(target);
+      }
     }
     for (const pass of this.passes) pass.afterPhase?.(name, ctx);
+  }
+
+  // Three's state cache, out of date after a deferred phase, made good before
+  // three is next used: every entry point of three's renderer that uses it
+  // (render, targets, clears, reads, uploads, compiles, viewport) settles
+  // first. Settling resets three's state and binds again the target three
+  // believes bound (a phase leaves three's own idea of it unchanged).
+  watchThree() {
+    const renderer = this.renderer;
+    if (renderer.__rustSettles) return;
+    renderer.__rustSettles = true;
+    const resetState = renderer.resetState?.bind(renderer), setRenderTarget = renderer.setRenderTarget?.bind(renderer), getRenderTarget = renderer.getRenderTarget?.bind(renderer);
+    this.settleThree = () => {
+      if (!this.stale) return;
+      this.stale = false;
+      const target = getRenderTarget();
+      resetState();
+      setRenderTarget(target);
+    };
+    for (const name of SETTLES) {
+      const f = renderer[name];
+      if (typeof f !== "function") continue;
+      const bridge = this;
+      renderer[name] = function (...args) { bridge.settleThree?.(); return f.apply(this, args); };
+    }
+  }
+
+  settle() {
+    this.settleThree?.();
   }
 
   // A scene's phase drawn in place of three's render of it (graphics.js
@@ -409,7 +457,7 @@ export class RustRender {
       scene.onBeforeRender(renderer, scene, camera, target);
       const passes = this.phases[name];
       for (const pass of passes) pass.complete = false;
-      this.phase(name, renderer, scene, camera);
+      this.phase(name, renderer, scene, camera, true);
       const complete = this.enabled && passes.length > 0 && passes.every((pass) => pass.complete === true);
       if (complete) {
         this.resolve(renderer.getRenderTarget());
@@ -436,10 +484,13 @@ export class RustRender {
   // A multisampled target's samples into its texture, as three's
   // updateMultisampleRenderTarget blits them (r170, one colour texture; the
   // depth too where the target resolves it), with its state cache kept.
+  // With three's state stale (a deferred phase), the binds are made directly
+  // (three's cache is reset before its next use anyway).
   resolve(target) {
     if (!target || !(target.samples > 0)) return;
-    const gl = this.gl, state = this.renderer.state, p = this.renderer.properties.get(target);
+    const gl = this.gl, p = this.renderer.properties.get(target);
     if (!p.__webglMultisampledFramebuffer) return;
+    const state = this.stale ? { bindFramebuffer: (t, f) => gl.bindFramebuffer(t, f) } : this.renderer.state;
     let mask = gl.COLOR_BUFFER_BIT;
     if (target.resolveDepthBuffer) {
       if (target.depthBuffer) mask |= gl.DEPTH_BUFFER_BIT;

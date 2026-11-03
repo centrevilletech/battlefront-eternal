@@ -69,7 +69,7 @@ class HudPass {
     }
     this.pending = hud;
     this.complete = false;
-    core.phase("hud", renderer, hud.scene, hud.camera);
+    core.phase("hud", renderer, hud.scene, hud.camera, true);
     this.pending = null;
     return this.complete;
   }
