@@ -45,6 +45,40 @@ impl Default for PostRules {
     }
 }
 
+/// A spawn path as a post's AI record names it: whether the world has it,
+/// and its points ([x, y, z, yaw], as the record lists them).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpawnPath {
+    pub present: bool,
+    pub points: Vec<Vec<f64>>,
+}
+
+/// What the spawn manager reads of a placed post's AI record
+/// (src/ai/classic/goals.js postAI, attached as the battle starts).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PostAi {
+    pub spawn_path: Option<SpawnPath>,
+    pub ally_path: Option<SpawnPath>,
+    pub ally_count: f64,
+    pub class_spawn_points: f64,
+    pub class_spawn_world: Vec<Vec<f64>>,
+    pub yaw: f64,
+}
+
+/// A post as the spawn manager sees it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpawnView {
+    pub active: bool,
+    /// ownerOf(post): post.team | 0.
+    pub owner: f64,
+    pub position: [f64; 3],
+    pub spawn_path: Option<SpawnPath>,
+    pub ally_path: Option<SpawnPath>,
+    pub ally_count: f64,
+    pub class_spawn_points: f64,
+    pub yaw: f64,
+}
+
 /// A post changing: what Post.update and destroy() return.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Change {
@@ -79,6 +113,8 @@ pub struct Post {
     /// `objectives`).
     pub building: Option<u32>,
     pub active: bool,
+    /// Its AI record (goals.js postAI).
+    pub ai: PostAi,
 }
 
 impl Post {
@@ -210,6 +246,58 @@ impl CommandPosts {
             PostId::Mobile(i) => {
                 let m = &self.mobile.as_ref().unwrap().posts[i];
                 (m.team, m.active)
+            }
+        }
+    }
+
+    /// What the spawn manager reads of a post in all()'s list.
+    pub fn spawn_view(&self, p: PostId, world: &mut dyn BattleWorld) -> SpawnView {
+        let owner = |team: f64| jsrt::conv::to_int32(team) as f64;
+        match p {
+            PostId::Placed(i) => {
+                let post = &self.posts[i];
+                SpawnView {
+                    active: post.active,
+                    owner: owner(post.team),
+                    position: [post.position.x, post.position.y, post.position.z],
+                    spawn_path: post.ai.spawn_path.clone(),
+                    ally_path: post.ai.ally_path.clone(),
+                    ally_count: post.ai.ally_count,
+                    class_spawn_points: post.ai.class_spawn_points,
+                    yaw: post.ai.yaw,
+                }
+            }
+            PostId::Mobile(i) => {
+                let post = &self.mobile.as_ref().unwrap().posts[i];
+                let position = match post.vehicle {
+                    Some(v) if post.active => world.vehicle_position(v),
+                    _ => post.last_position,
+                };
+                SpawnView {
+                    active: post.active,
+                    owner: owner(post.team),
+                    position,
+                    spawn_path: None,
+                    ally_path: None,
+                    ally_count: 0.0,
+                    class_spawn_points: post.ai.class_spawn_points,
+                    yaw: post.yaw,
+                }
+            }
+        }
+    }
+
+    /// A post's class spawn points where its hull is now (a command
+    /// vehicle's: classSpawnWorld); a placed post's are its record's.
+    pub fn class_spawn_world(&self, p: PostId, world: &mut dyn BattleWorld) -> Vec<Vec<f64>> {
+        match p {
+            PostId::Placed(i) => self.posts[i].ai.class_spawn_world.clone(),
+            PostId::Mobile(i) => {
+                let post = &self.mobile.as_ref().unwrap().posts[i];
+                match post.vehicle {
+                    Some(_) if post.active => world.class_spawn_world(i),
+                    _ => Vec::new(),
+                }
             }
         }
     }

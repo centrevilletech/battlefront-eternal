@@ -13,14 +13,17 @@
 use bfe_sim::battle::battlefield::Battlefield;
 use bfe_sim::battle::boundary::{Boundary, Edge};
 use bfe_sim::battle::mobile::{ClassRecord, Hull, MobileAi, MobileDesc, MobilePost, MobilePosts, Pad, Reported};
-use bfe_sim::battle::posts::{Capturer, Change, CommandPosts, Post, PostRules};
+use bfe_sim::battle::posts::{Capturer, Change, CommandPosts, Post, PostAi, PostId, PostRules, SpawnPath};
 use bfe_sim::battle::regions::{build_region, Built, Region, RegionType};
-use bfe_sim::battle::rules::{Battle, Character, TeamDesc};
+use bfe_sim::battle::rules::{Battle, Character, Spawn, TeamDesc};
+use bfe_sim::battle::spawning::{ClassicSpawning, Draws, SpawnClass, SpawnTeam, TEAM_COUNT};
 use bfe_sim::battle::stats::{BattleStats, Record, Ring, Seen, Slot, TimeEntry, RING_SIZE};
 use bfe_sim::battle::teams::TeamMap;
 use bfe_sim::battle::world::{BattleWorld, Body};
 use bfe_sim::store::Nullable;
 use sim_replay::{check_value, replay_corpus, Arena, Capture, Corpus, Frame, Log, Mismatch, Outcome, Typed, Value, V};
+use std::cell::RefCell;
+use std::rc::Rc;
 use three::{Matrix4, Vector3};
 
 // ---- Reading the capture's values.
@@ -110,6 +113,43 @@ fn post(v: V) -> Post {
         contested: v.get("contested").bool(),
         building: (!v.get("building").is_nullish()).then(|| num(v.get("building").get("index")) as u32),
         active: v.get("active").bool(),
+        ai: post_ai(v.get("ai")),
+    }
+}
+
+fn path(v: V) -> Option<SpawnPath> {
+    (!v.is_nullish()).then(|| SpawnPath { present: v.get("present").bool(), points: v.get("points").items().map(|p| p.items().map(num).collect()).collect() })
+}
+
+fn post_ai(v: V) -> PostAi {
+    if v.is_nullish() {
+        return PostAi::default();
+    }
+    PostAi {
+        spawn_path: path(v.get("spawnPath")),
+        ally_path: path(v.get("allyPath")),
+        ally_count: num(v.get("allyCount")),
+        class_spawn_points: num(v.get("classSpawnPoints")),
+        class_spawn_world: v.get("classSpawnWorld").items().map(|p| p.items().map(num).collect()).collect(),
+        yaw: num(v.get("yaw")),
+    }
+}
+
+/// A post's place in all()'s list (the placed ones, then the command
+/// vehicles') as a PostId.
+fn post_id(place: f64, placed: usize) -> PostId {
+    let place = place as usize;
+    if place < placed {
+        PostId::Placed(place)
+    } else {
+        PostId::Mobile(place - placed)
+    }
+}
+
+fn post_place(p: PostId, placed: usize) -> f64 {
+    match p {
+        PostId::Placed(i) => i as f64,
+        PostId::Mobile(i) => (placed + i) as f64,
     }
 }
 
@@ -222,6 +262,11 @@ fn mobile_post(v: V) -> (MobilePost, Pad, Vec<(u32, [f64; 3])>) {
     (post, pad, places)
 }
 
+/// Each command vehicle's post's class spawn points where its hull is.
+fn class_spawn_worlds(v: V) -> Vec<Vec<Vec<f64>>> {
+    v.get("mobile").items().map(|m| m.get("classSpawnWorld").items().map(|p| p.items().map(num).collect()).collect()).collect()
+}
+
 /// The command posts, the pads' hulls by post, and where every hull is.
 fn posts(v: V) -> (CommandPosts, Vec<Pad>, Vec<(u32, [f64; 3])>) {
     let mut pads = Vec::new();
@@ -295,6 +340,69 @@ fn character(v: V) -> Character {
         captures: num(v.get("captures")),
         out_of_bounds: num(v.get("outOfBounds")),
         record: record(v.get("record")),
+        ..Default::default()
+    }
+}
+
+/// The spawn manager's view of a Character (spawnCharacterValue) laid on
+/// one.
+fn spawn_character(v: V, c: &mut Character, placed: usize) {
+    c.team = num(v.get("team"));
+    c.human = v.get("human").bool();
+    c.hero = v.get("hero").bool();
+    c.name = opt_str(v.get("name"));
+    c.class_name = opt_str(v.get("className"));
+    c.class_index = opt_num(v.get("classIndex"));
+    c.slot = num(v.get("slot"));
+    c.manager_index = num(v.get("managerIndex"));
+    c.unit = opt_num(v.get("unit")).map(|u| u as u32);
+    c.objective = opt_num(v.get("objective")).map(|p| post_id(p, placed));
+    let sp = v.get("spawn");
+    if !sp.is_nullish() {
+        c.spawn = Spawn {
+            timer: num(sp.get("timer")),
+            wave: num(sp.get("wave")),
+            ordinal: num(sp.get("ordinal")),
+            post: opt_num(sp.get("post")).map(|p| post_id(p, placed)),
+            ready: sp.get("ready").bool(),
+        };
+    }
+}
+
+fn spawning(v: V, placed: usize) -> ClassicSpawning {
+    ClassicSpawning {
+        teams: v
+            .get("teams")
+            .items()
+            .map(|t| {
+                let mut relations = [0.0; TEAM_COUNT];
+                for (i, r) in t.get("relations").items().enumerate().take(TEAM_COUNT) {
+                    relations[i] = num(r);
+                }
+                SpawnTeam {
+                    index: num(t.get("index")),
+                    faction: num(t.get("faction")),
+                    unit_count: num(t.get("unitCount")),
+                    tickets: num(t.get("tickets")),
+                    classes: t.get("classes").items().map(|c| SpawnClass { name: opt_str(c.get("name")).unwrap_or_default(), target: num(c.get("target")), hero: c.get("hero").bool() }).collect(),
+                    hero_count: num(t.get("heroCount")),
+                    relations,
+                    characters: t.get("characters").items().map(|c| num(c) as u32).collect(),
+                    living: num(t.get("living")),
+                    capacity: num(t.get("capacity")),
+                }
+            })
+            .collect(),
+        a: num(v.get("A")),
+        b: num(v.get("B")),
+        q: num(v.get("Q")),
+        wave_countdown: num(v.get("waveCountdown")),
+        wave: num(v.get("wave")),
+        stagger: num(v.get("stagger")),
+        released: num(v.get("released")),
+        locals_cap: num(v.get("localsCap")),
+        queues: v.get("queues").items().map(|q| (post_id(num(q.at(0)), placed), nums::<4>(q.at(1)))).collect(),
+        demo: v.get("demo").bool(),
     }
 }
 
@@ -594,7 +702,12 @@ fn posts_over(arena: &mut Arena, at: &Value, p: &CommandPosts) {
 
 /// What a frame's state says of the rest of the world, and its calls.
 struct Served<'f> {
-    log: Log<'f>,
+    log: Rc<RefCell<Log<'f>>>,
+    placed: usize,
+    class_spawn_worlds: Vec<Vec<Vec<f64>>>,
+    hero_names: Vec<(String, Option<String>)>,
+    health: Vec<(u32, f64)>,
+
     capture_teams: Vec<f64>,
     relations: Vec<Vec<f64>>,
     living: Vec<Option<f64>>,
@@ -610,7 +723,11 @@ struct Served<'f> {
 impl<'f> Served<'f> {
     fn new(frame: &'f Frame) -> Served<'f> {
         Served {
-            log: Log::new(frame),
+            log: Rc::new(RefCell::new(Log::new(frame))),
+            placed: 0,
+            class_spawn_worlds: Vec::new(),
+            hero_names: Vec::new(),
+            health: Vec::new(),
             capture_teams: Vec::new(),
             relations: Vec::new(),
             living: Vec::new(),
@@ -634,7 +751,9 @@ impl<'f> Served<'f> {
 
     /// A served kill: the call, then the bodies as it left them.
     fn serve(&mut self, label: &str) {
-        match self.log.call(label) {
+        let log = self.log.clone();
+        let mut log = log.borrow_mut();
+        match log.call(label) {
             Ok(call) => {
                 let after = call.extra().get("bodies");
                 self.bodies = after.items().filter_map(|b| Some((num(b.get("id")) as u32, body(b)?))).collect();
@@ -644,7 +763,107 @@ impl<'f> Served<'f> {
     }
 }
 
+/// The shared generator A, served from the frame's draws.
+struct LogDraws<'f> {
+    log: Rc<RefCell<Log<'f>>>,
+    failure: Option<String>,
+}
+
+impl Draws for LogDraws<'_> {
+    fn next(&mut self) -> f64 {
+        match self.log.borrow_mut().draw("A") {
+            Ok(v) => v,
+            Err(Mismatch(m)) => {
+                self.failure.get_or_insert(m);
+                0.0
+            }
+        }
+    }
+}
+
+impl Served<'_> {
+    /// A served call of the spawn manager's: checked, then the Character it
+    /// was made for as it left him (the fields `fields` names), and the
+    /// manager's own state it changed, kept for the caller to apply.
+    fn serve_spawn(&mut self, label: &str, c: &mut Character, place: u32, fields: &[&str]) {
+        let log = self.log.clone();
+        let mut log = log.borrow_mut();
+        let call = match log.call(label) {
+            Ok(call) => call,
+            Err(Mismatch(m)) => {
+                self.fail(m);
+                return;
+            }
+        };
+        let mut theirs = c.clone();
+        spawn_character(call.extra().get("characters").at(place as usize), &mut theirs, self.placed);
+        for f in fields {
+            match *f {
+                "unit" => c.unit = theirs.unit,
+                "className" => c.class_name = theirs.class_name.clone(),
+                "objective" => c.objective = theirs.objective,
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
 impl BattleWorld for Served<'_> {
+    fn spawn_unit(&mut self, character: &mut Character, place: u32, class_name: &str, post: Option<PostId>, at: [f64; 3], yaw: Option<f64>) -> Option<u32> {
+        let log = self.log.clone();
+        let call = {
+            let peek = log.borrow();
+            match peek.peek() {
+                Some(sim_replay::Event::Call(c)) if c.name == "spawning.spawnUnit" => Some(c),
+                _ => None,
+            }
+        };
+        let Some(call) = call else {
+            self.fail(format!("spawnUnit({class_name}): the capture has no such call next"));
+            return None;
+        };
+        // Its arguments: (character, className, post, [x, y, z], yaw).
+        let args = call.args();
+        let mut why = None;
+        if args.at(1).str() != Some(class_name) {
+            why = Some(format!("spawnUnit's class: the capture has {}, the port {class_name}", args.at(1).show()));
+        } else if nums::<3>(args.at(3)).iter().zip(at).any(|(a, b)| !sim_replay::same_number(*a, b)) {
+            why = Some(format!("spawnUnit's point: the capture has {}, the port {at:?}", args.at(3).show()));
+        } else if !sim_replay::same_number(opt_num(args.at(4)).unwrap_or(f64::NAN), yaw.unwrap_or(f64::NAN)) || args.at(4).is_undefined() != yaw.is_none() {
+            why = Some(format!("spawnUnit's yaw: the capture has {}, the port {yaw:?}", args.at(4).show()));
+        }
+        let _ = post;
+        if let Some(why) = why {
+            self.fail(why);
+        }
+        let unit = call.result().handle_num("unit").map(|u| u as u32);
+        self.serve_spawn("spawning.spawnUnit", character, place, &["unit", "className", "objective"]);
+        unit
+    }
+    fn force_kill(&mut self, place: u32, _unit: u32) {
+        self.fail(format!("forceKill({place}): a forced kill is not served yet"));
+    }
+    fn health(&mut self, unit: u32) -> f64 {
+        match self.health.iter().find(|(u, _)| *u == unit) {
+            Some((_, h)) => *h,
+            None => {
+                self.fail(format!("unit {unit}'s health: not captured"));
+                0.0
+            }
+        }
+    }
+    fn request_objective(&mut self, character: &mut Character, place: u32) {
+        self.serve_spawn("objectives.request", character, place, &["objective"]);
+    }
+    fn republish(&mut self, character: &mut Character, place: u32) {
+        self.serve_spawn("objectives.republish", character, place, &["objective"]);
+    }
+    fn hero_name(&mut self, class_name: &str) -> Option<String> {
+        self.hero_names.iter().find(|(n, _)| n == class_name).and_then(|(_, h)| h.clone())
+    }
+    fn class_spawn_world(&mut self, post: usize) -> Vec<Vec<f64>> {
+        self.class_spawn_worlds.get(post).cloned().unwrap_or_default()
+    }
     fn relation(&mut self, a: f64, b: f64) -> f64 {
         match (a >= 0.0 && a < 8.0 && a.fract() == 0.0, b >= 0.0 && b < 8.0 && b.fract() == 0.0) {
             (true, true) => self.relations[a as usize][b as usize],
@@ -724,6 +943,115 @@ impl BattleWorld for Served<'_> {
     fn battle_over(&mut self, _loser: f64) {}
 }
 
+/// Each command vehicle's pad's hulls, by the pad's slot.
+fn pads_by_slot(posts: &CommandPosts, pads: Vec<Pad>) -> Vec<Pad> {
+    let mut by_slot = Vec::new();
+    if let Some(m) = &posts.mobile {
+        for (i, p) in m.posts.iter().enumerate() {
+            if by_slot.len() <= p.slot {
+                by_slot.resize(p.slot + 1, Pad::default());
+            }
+            by_slot[p.slot] = pads[i].clone();
+        }
+    }
+    by_slot
+}
+
+/// The port's spawn manager over the capture's.
+fn spawning_over(arena: &mut Arena, at: &Value, sp: &ClassicSpawning, placed: usize) {
+    arena.assign(at, "waveCountdown", n(sp.wave_countdown));
+    arena.assign(at, "wave", n(sp.wave));
+    arena.assign(at, "stagger", n(sp.stagger));
+    arena.assign(at, "released", n(sp.released));
+    arena.assign(at, "localsCap", n(sp.locals_cap));
+    for (i, t) in sp.teams.iter().enumerate() {
+        let at_t = node_at(arena, at, &["teams", &i.to_string()]);
+        arena.assign(&at_t, "tickets", n(t.tickets));
+        arena.assign(&at_t, "living", n(t.living));
+        let chars: Vec<f64> = t.characters.iter().map(|c| *c as f64).collect();
+        let chars = arr(arena, &chars);
+        arena.assign(&at_t, "characters", chars);
+        let classes = t
+            .classes
+            .iter()
+            .map(|c| arena.object("", vec![("name", Value::str(&c.name)), ("target", n(c.target)), ("hero", Value::Bool(c.hero))]))
+            .collect();
+        let classes = arena.array(classes);
+        arena.assign(&at_t, "classes", classes);
+    }
+    let queues = sp
+        .queues
+        .iter()
+        .map(|(p, q)| {
+            let q = arr(arena, q);
+            arena.array(vec![n(post_place(*p, placed)), q])
+        })
+        .collect();
+    let queues = arena.array(queues);
+    arena.assign(at, "queues", queues);
+}
+
+/// The port's Characters over the capture's (spawnCharacterValue).
+fn characters_over(arena: &mut Arena, at: &Value, chars: &[Character], placed: usize) {
+    for (i, c) in chars.iter().enumerate() {
+        let at_c = node_at(arena, at, &[&i.to_string()]);
+        arena.assign(&at_c, "team", n(c.team));
+        arena.assign(&at_c, "human", Value::Bool(c.human));
+        arena.assign(&at_c, "hero", Value::Bool(c.hero));
+        arena.assign(&at_c, "name", s(&c.name));
+        arena.assign(&at_c, "className", s(&c.class_name));
+        arena.assign(&at_c, "classIndex", opt(c.class_index));
+        arena.assign(&at_c, "unit", opt(c.unit.map(|u| u as f64)));
+        arena.assign(&at_c, "objective", opt(c.objective.map(|p| post_place(p, placed))));
+        let sp = node_at(arena, &at_c, &["spawn"]);
+        if !matches!(sp, Value::Null | Value::Undefined) {
+            arena.assign(&sp, "timer", n(c.spawn.timer));
+            arena.assign(&sp, "wave", n(c.spawn.wave));
+            arena.assign(&sp, "ordinal", n(c.spawn.ordinal));
+            arena.assign(&sp, "post", opt(c.spawn.post.map(|p| post_place(p, placed))));
+            arena.assign(&sp, "ready", Value::Bool(c.spawn.ready));
+        }
+    }
+}
+
+/// The spawn manager, its Characters and the battle's reinforcements as a
+/// frame's state has them, and a world serving the rest.
+fn spawn_frame(frame: &Frame) -> (ClassicSpawning, Battle, CommandPosts, Served<'_>) {
+    let before = frame.before();
+    let (posts, pads, places) = posts(before.get("posts"));
+    let placed = posts.posts.len();
+    let sp = spawning(before.get("spawning"), placed);
+    let mut battle = Battle { reinforcements: team_map(before.get("reinforcements"), num), ..Default::default() };
+    battle.characters = before
+        .get("characters")
+        .items()
+        .map(|v| {
+            let mut c = Character::default();
+            spawn_character(v, &mut c, placed);
+            c
+        })
+        .collect();
+    let mut world = Served::new(frame);
+    world.placed = placed;
+    world.pads = pads_by_slot(&posts, pads);
+    world.places = places;
+    world.class_spawn_worlds = class_spawn_worlds(before.get("posts"));
+    world.hero_names = before.get("heroNames").items().map(|p| (opt_str(p.at(0)).unwrap_or_default(), opt_str(p.at(1)))).collect();
+    world.health = battle.characters.iter().zip(before.get("health").items()).filter_map(|(c, h)| c.unit.map(|u| (u, num(h)))).collect();
+    (sp, battle, posts, world)
+}
+
+/// The spawn manager's frame's end state against the port's.
+fn compare_spawn(frame: &Frame, sp: &ClassicSpawning, battle: &Battle, placed: usize) -> Result<(), Mismatch> {
+    compare(frame, "spawning", |arena, at| spawning_over(arena, at, sp, placed))
+        .and_then(|_| compare(frame, "characters", |arena, at| characters_over(arena, at, &battle.characters, placed)))
+        .and_then(|_| {
+            let mut arena = Arena::default();
+            let mine = team_map_out(&mut arena, &battle.reinforcements, |_, x| n(*x));
+            check_value("reinforcements", frame.after().get("reinforcements"), arena.view(&mine))
+        })
+}
+
 /// Whether the port's state, laid over the capture's end state, is it.
 fn compare(frame: &Frame, root: &str, mine: impl FnOnce(&mut Arena, &Value)) -> Result<(), Mismatch> {
     let after = frame.after().get(root);
@@ -789,7 +1117,7 @@ fn command_posts_replay_as_captured() {
             .map(|p| (num(p.get("building").get("index")) as u32, p.get("building").get("alive").bool()))
             .collect();
         posts.update(num(frame.arg(0)), &soldiers, &mut world);
-        let r = compare(frame, "posts", |arena, at| posts_over(arena, at, &posts)).and_then(|_| world.log.finish());
+        let r = compare(frame, "posts", |arena, at| posts_over(arena, at, &posts)).and_then(|_| world.log.borrow().finish());
         outcome(r, Some(&world))
     });
 }
@@ -808,24 +1136,67 @@ fn battle_rules_replay_as_captured() {
         world.living = before.get("living").items().map(opt_num).collect();
         world.seen = before.get("seen").items().map(seen).collect();
         world.alive = b.characters.iter().zip(before.get("alive").items()).filter_map(|(c, a)| c.unit.map(|u| (u, a.bool()))).collect();
-        world.pads = vec![Pad::default(); pads.len()];
-        if let Some(m) = &posts.mobile {
-            // Each post's pad, by its slot.
-            let mut by_slot = Vec::new();
-            for (i, p) in m.posts.iter().enumerate() {
-                if by_slot.len() <= p.slot {
-                    by_slot.resize(p.slot + 1, Pad::default());
-                }
-                by_slot[p.slot] = pads[i].clone();
-            }
-            world.pads = by_slot;
-        }
+        world.pads = pads_by_slot(&posts, pads);
         world.places = places;
         // (BattleStats.tick asks in the Characters' order, by place.)
         b.update(num(frame.arg(0)), &mut posts, |i, _| active.get(i).copied().unwrap_or(false), &mut world);
         let r = compare(frame, "battle", |arena, at| battle_over(arena, at, &b))
             .and_then(|_| compare(frame, "posts", |arena, at| posts_over(arena, at, &posts)))
-            .and_then(|_| world.log.finish());
+            .and_then(|_| world.log.borrow().finish());
+        outcome(r, Some(&world))
+    });
+}
+
+/// ClassicSpawning.clock: the wave and release clocks, the locals' cap.
+#[test]
+fn spawn_clock_replays_as_captured() {
+    run("ClassicSpawning.clock", |_, frame| {
+        let before = frame.before();
+        let (mut posts, pads, places) = posts(before.get("posts"));
+        let placed = posts.posts.len();
+        let mut sp = spawning(before.get("spawning"), placed);
+        let mut world = Served::new(frame);
+        world.placed = placed;
+        world.pads = pads_by_slot(&posts, pads);
+        world.places = places;
+        sp.clock(num(frame.arg(0)), &mut posts, &mut world);
+        let r = compare(frame, "spawning", |arena, at| spawning_over(arena, at, &sp, placed)).and_then(|_| world.log.borrow().finish());
+        outcome(r, Some(&world))
+    });
+}
+
+/// ClassicSpawning.updateCharacters: each Character's respawn (served:
+/// spawnUnit and the AI's objectives; the draws checked in order).
+#[test]
+fn spawn_characters_replay_as_captured() {
+    run("ClassicSpawning.updateCharacters", |_, frame| {
+        if !frame.before().get("battleCharacters").bool() {
+            return Outcome::Skipped("the battle's Characters are not the manager's".into());
+        }
+        let (mut sp, mut battle, mut posts, mut world) = spawn_frame(frame);
+        let placed = posts.posts.len();
+        let mut draws = LogDraws { log: world.log.clone(), failure: None };
+        sp.update_characters(num(frame.arg(0)), &mut battle, &mut posts, &mut world, &mut draws);
+        if let Some(f) = draws.failure {
+            return Outcome::Failed(f);
+        }
+        let r = compare_spawn(frame, &sp, &battle, placed).and_then(|_| world.log.borrow().finish());
+        outcome(r, Some(&world))
+    });
+}
+
+/// ClassicSpawning.onDeath: a Character's body died.
+#[test]
+fn spawn_deaths_replay_as_captured() {
+    run("ClassicSpawning.onDeath", |_, frame| {
+        let place = num(frame.before().get("place"));
+        if !(place >= 0.0) {
+            return Outcome::Skipped("a Character not in the manager's list".into());
+        }
+        let (mut sp, mut battle, posts, mut world) = spawn_frame(frame);
+        let placed = posts.posts.len();
+        sp.on_death(place as usize, &mut battle, &mut world);
+        let r = compare_spawn(frame, &sp, &battle, placed).and_then(|_| world.log.borrow().finish());
         outcome(r, Some(&world))
     });
 }
@@ -854,7 +1225,7 @@ fn battlefield_replays_as_captured() {
                 arena.assign(&at_c, "outOfBounds", n(c.out_of_bounds));
             }
         })
-        .and_then(|_| world.log.finish());
+        .and_then(|_| world.log.borrow().finish());
         outcome(r, Some(&world))
     });
 }

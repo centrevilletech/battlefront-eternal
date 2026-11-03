@@ -31,6 +31,8 @@ pub struct Character {
     pub class_name: Option<String>,
     /// The living (or dying) body: its unit's registry id.
     pub unit: Option<u32>,
+    /// The command post the AI sends it to (a bot's objective).
+    pub objective: Option<super::posts::PostId>,
     /// A hero's (heroes do not count among the living).
     pub hero: bool,
     pub kills: f64,
@@ -42,6 +44,33 @@ pub struct Character {
     pub out_of_bounds: f64,
     /// The end-of-match tallies (src/battle-stats.js), made when needed.
     pub record: Option<Record>,
+    // ---- The spawn manager's (src/ai/classic/spawning.js insert).
+    /// Its place in its team's roster as it joined.
+    pub slot: f64,
+    /// Its place in the manager's (and the battle's) list.
+    pub manager_index: f64,
+    /// Its class in its team's list, or none yet.
+    pub class_index: Option<f64>,
+    /// Its next life's schedule.
+    pub spawn: Spawn,
+}
+
+/// A Character's next life (character.spawn): the respawn timer, the wave
+/// it is scheduled for, its place in its post's queue (-1 none), the post
+/// and whether it is ready (a human waits for his choice).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Spawn {
+    pub timer: f64,
+    pub wave: f64,
+    pub ordinal: f64,
+    pub post: Option<super::posts::PostId>,
+    pub ready: bool,
+}
+
+impl Default for Spawn {
+    fn default() -> Self {
+        Spawn { timer: 0.0, wave: 0.0, ordinal: -1.0, post: None, ready: true }
+    }
 }
 
 impl Character {
