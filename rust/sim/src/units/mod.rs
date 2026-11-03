@@ -8,6 +8,8 @@
 //!   their broadphase sphere and the segment tests against each kind;
 //! - `registry`: the registry's members in its order, the teams' relations,
 //!   `query` and `raycast`;
+//! - `soldier`: a store soldier's movement by the module's own (no exchange
+//!   through JavaScript);
 //! - `unit`: a unit (its life, intent, controls and hit shapes), its tick
 //!   and its spawn;
 //! - `body`: what the battle asks of a body between ticks (a player's look,
@@ -36,6 +38,7 @@ pub mod factory;
 pub mod registry;
 pub mod separate;
 pub mod shapes;
+pub mod soldier;
 pub mod unit;
 pub mod water;
 pub mod world;

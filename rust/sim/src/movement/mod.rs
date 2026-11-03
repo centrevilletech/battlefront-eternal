@@ -166,7 +166,48 @@ fn finish(id: u32, rest: Rest, input: &Input, dt: f64, trig: &Trig) {
     let count = s.worlds[world].order.len();
     let mut scene = Scene { s, world, flags: flags(count), gathered: &mut ms.gathered, caches: &mut ms.caches[id as usize], ground_cache: &mut ms.ground };
     m.finish(rest, input, dt, trig, &mut scene);
-    store(m, io());
+}
+
+/// One tick of mover `id` from the state it holds (Soldier.tick): the
+/// sines and cosines it reads, as V8 computes them, once each.
+///
+/// The JavaScript takes Math.sin and Math.cos of the aim's yaw wherever it
+/// needs them: of the yaw before the tick's turn while it drives, of the
+/// turned yaw from there on (the jump, the jetpack's kick, every body
+/// sphere's place in the collision pass), and a hovering jet's pitch.
+pub fn advance(id: u32, input: &Input, dt: f64) {
+    let m = &mut movers().list[id as usize];
+    let yaw = m.aim_yaw;
+    let mut trig = Trig { sin0: v8math::sin(yaw), cos0: v8math::cos(yaw), sin_pitch: 0.0, cos_pitch: 0.0, sin1: 0.0, cos1: 0.0 };
+    // jetTick's lift and climb read its pitch (a hovering jet's only).
+    if m.air == Air::Jet && m.jet.hover {
+        trig.sin_pitch = v8math::sin(m.aim_pitch);
+        trig.cos_pitch = v8math::cos(m.aim_pitch);
+    }
+    let rest = m.begin(input, dt, &trig);
+    if m.aim_yaw.to_bits() != yaw.to_bits() {
+        trig.sin1 = v8math::sin(m.aim_yaw);
+        trig.cos1 = v8math::cos(m.aim_yaw);
+    } else {
+        trig.sin1 = trig.sin0;
+        trig.cos1 = trig.cos0;
+    }
+    finish(id, rest, input, dt, &trig);
+}
+
+/// A new mover of world `world`, its class's numbers set by `class`; its id.
+pub fn new_mover(world: usize, class: impl FnOnce(&mut Mover)) -> u32 {
+    let ms = movers();
+    let mut m = Mover::new(world);
+    class(&mut m);
+    ms.list.push(m);
+    ms.caches.push(std::array::from_fn(|_| GatherCache::new(0.75)));
+    (ms.list.len() - 1) as u32
+}
+
+/// Mover `id`, whose state a caller loads before `advance` and reads after.
+pub fn mover(id: u32) -> &'static mut Mover {
+    &mut movers().list[id as usize]
 }
 
 // The module's exports, for src/movement-kernel.js.
@@ -185,64 +226,39 @@ pub extern "C" fn movement_flags_ptr() -> *mut u8 {
 #[no_mangle]
 pub extern "C" fn mover_new(world: u32) -> u32 {
     let v = io();
-    let ms = movers();
-    let mut m = Mover::new(world as usize);
     let c = &v[CLASS..];
-    m.max_speed = c[0];
-    m.max_strafe = c[1];
-    m.max_jump = c[2];
-    m.max_turn = c[3];
-    m.max_pitch = c[4];
-    m.accel = c[5];
-    m.pitch_limits = [c[6], c[7]];
-    m.jet.jump = c[8];
-    m.jet.push = c[9];
-    m.jet.recharge = c[10];
-    m.jet.cost = c[11];
-    m.jet.initial = c[12];
-    m.jet.min_border = c[13];
-    m.jet.hover = c[14] != 0.0;
-    m.threshold = [c[15], c[16], c[17]];
-    m.scale = [c[18], c[19], c[20]];
-    ms.list.push(m);
-    ms.caches.push(std::array::from_fn(|_| GatherCache::new(0.75)));
-    (ms.list.len() - 1) as u32
+    let id = new_mover(world as usize, |m| {
+        m.max_speed = c[0];
+        m.max_strafe = c[1];
+        m.max_jump = c[2];
+        m.max_turn = c[3];
+        m.max_pitch = c[4];
+        m.accel = c[5];
+        m.pitch_limits = [c[6], c[7]];
+        m.jet.jump = c[8];
+        m.jet.push = c[9];
+        m.jet.recharge = c[10];
+        m.jet.cost = c[11];
+        m.jet.initial = c[12];
+        m.jet.min_border = c[13];
+        m.jet.hover = c[14] != 0.0;
+        m.threshold = [c[15], c[16], c[17]];
+        m.scale = [c[18], c[19], c[20]];
+    });
+    id
 }
 
 /// Soldier.tick for mover `id`: its state, input and dt in the slots. 0:
 /// done, the state back in the slots; 2: a state the kernel does not know
 /// (the JavaScript runs that tick instead).
-///
-/// The JavaScript takes Math.sin and Math.cos of the aim's yaw wherever it
-/// needs them: of the yaw before the tick's turn while it drives, of the
-/// turned yaw from there on (the jump, the jetpack's kick, every body
-/// sphere's place in the collision pass), and a hovering jet's pitch.
-/// Each is computed once here, as V8 computes it (`v8math`).
 #[no_mangle]
 pub extern "C" fn mover_tick(id: u32) -> u32 {
     let v = io();
-    let ms = movers();
-    let m = &mut ms.list[id as usize];
-    if !load(m, v) {
+    if !load(mover(id), v) {
         return 2;
     }
     let input = input(v);
-    let dt = v[DT];
-    let yaw = m.aim_yaw;
-    let mut trig = Trig { sin0: v8math::sin(yaw), cos0: v8math::cos(yaw), sin_pitch: 0.0, cos_pitch: 0.0, sin1: 0.0, cos1: 0.0 };
-    // jetTick's lift and climb read its pitch (a hovering jet's only).
-    if m.air == Air::Jet && m.jet.hover {
-        trig.sin_pitch = v8math::sin(m.aim_pitch);
-        trig.cos_pitch = v8math::cos(m.aim_pitch);
-    }
-    let rest = m.begin(&input, dt, &trig);
-    if m.aim_yaw.to_bits() != yaw.to_bits() {
-        trig.sin1 = v8math::sin(m.aim_yaw);
-        trig.cos1 = v8math::cos(m.aim_yaw);
-    } else {
-        trig.sin1 = trig.sin0;
-        trig.cos1 = trig.cos0;
-    }
-    finish(id, rest, &input, dt, &trig);
+    advance(id, &input, v[DT]);
+    store(mover(id), io());
     0
 }
