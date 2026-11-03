@@ -153,13 +153,12 @@ export class TerrainPatches {
   view(scene, material, { fade = null, receiveShadow = false, reduced = () => false } = {}) {
     const group = new THREE.Group();
     group.matrixAutoUpdate = false;
-    // For a renderer that draws the runs itself (src/rust-render/far.js):
-    // these cells and the level the scene draws.
-    group.userData.terrain = { patches: this, reduced };
     // The patches it draws, for a renderer that draws the ground itself
-    // (rust-render/terrain.js), which sets drawnElsewhere while it does.
+    // (rust-render/terrain.js), which sets drawnElsewhere while it does, and
+    // the level it draws (rust-render/far.js, the far terrain).
     group.userData.patches = this;
     group.userData.drawnElsewhere = false;
+    group.userData.reduced = reduced;
     const add = () => {
       const mesh = new THREE.Mesh(this.geometry(), material);
       mesh.matrixAutoUpdate = false;

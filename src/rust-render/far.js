@@ -163,7 +163,7 @@ class FarPass {
     if (object.visible === false) return;
     if (object.layers.test(camera.layers)) {
       if (object.isGroup) groupOrder = object.renderOrder;
-      if (object.userData.terrain) { this.find(object, object.children[0]?.material, groupOrder); return; }
+      if (object.userData.patches) { this.find(object, object.children[0]?.material, groupOrder); return; }
       if (object.isMesh || object.isLine || object.isPoints || object.isSprite) {
         const material = object.material;
         if (Array.isArray(material) ? material.some((m) => m?.visible) : material?.visible) this.find(object, material, groupOrder);
@@ -197,7 +197,8 @@ class FarPass {
   // yet (a texture three hasn't made yet).
   registerItem(object, material, threeProgram, groupOrder, camera) {
     const core = this.core, rust = core.rust, gl = core.gl;
-    const terrain = object.userData.terrain || null;
+    // The terrain's group: its patches (terrain-patches.js) and level.
+    const terrain = object.userData.patches ? { patches: object.userData.patches, reduced: object.userData.reduced } : null;
     const mesh = terrain ? object.children[0] : object;
     if (!mesh?.isMesh || mesh.isSkinnedMesh || mesh.isBatchedMesh || mesh.morphTargetInfluences) return null;
     // An instanced mesh three culls by its instances' bounds: not here.
