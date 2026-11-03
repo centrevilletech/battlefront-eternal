@@ -834,6 +834,20 @@ export class BfeRenderer {
     }
     /**
      * @param {number} g
+     * @param {number} slot
+     * @param {number} offset
+     * @param {Uint8Array | number[]} data
+     */
+    geometry_buffer_sub_data(g, slot, offset, data) {
+        const val2 = +g;
+        const val3 = +slot;
+        const val4 = +offset;
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_geometry_buffer_sub_data(this.__wbg_ptr, val2, val3, val4, ptr0, len0);
+    }
+    /**
+     * @param {number} g
      * @param {number} start
      * @param {number} count
      */
@@ -861,6 +875,18 @@ export class BfeRenderer {
         const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         wasm.bferenderer_geometry_index_data(this.__wbg_ptr, val2, ptr0, len0);
+    }
+    /**
+     * @param {number} g
+     * @param {number} offset
+     * @param {Uint8Array | number[]} data
+     */
+    geometry_index_sub_data(g, offset, data) {
+        const val2 = +g;
+        const val3 = +offset;
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_geometry_index_sub_data(this.__wbg_ptr, val2, val3, ptr0, len0);
     }
     /**
      * @param {number} g

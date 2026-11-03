@@ -271,3 +271,49 @@ test("a caster the renderer can't draw leaves the whole pass to three", () => {
   assert.equal(new Float64Array(memory.buffer, region("caster_input"), 4)[0], -1, "the renderer draws nothing");
   assert.match(core.byName.shadow.why, /three's own depth material/);
 });
+
+test("a caster's geometry rewritten since: sent as three sends it, its update ranges merged, into the buffer as made", () => {
+  const { core, calls, scene, camera, renderer, properties } = bridge({ shadows: true });
+  const light = cascade(), mesh = caster(properties);
+  mesh.geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(12), 1));
+  scene.add(mesh);
+  scene.updateMatrixWorld(true);
+  assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
+  const sent = (from) => calls.slice(from).filter((c) => /^geometry_(index|buffer)_/.test(c[0])).map((c) => [c[0], ...c.slice(2).map((v) => (ArrayBuffer.isView(v) ? v.byteLength : v))]);
+  // Two ranges three merges (adjacent ones), as the crowd's mesh marks its
+  // drawn index when it packs it again.
+  const index = mesh.geometry.index;
+  index.addUpdateRange(6, 3);
+  index.addUpdateRange(3, 3);
+  index.needsUpdate = true;
+  let at = calls.length;
+  assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
+  assert.deepEqual(sent(at), [["geometry_index_sub_data", 12, 24]], "elements 3 to 8 at their bytes, into the index as made");
+  assert.equal(index.updateRanges.length, 2, "three's ranges left for three");
+  at = calls.length;
+  core.coverShadow(renderer, light, scene, camera, null);
+  assert.deepEqual(sent(at), [], "nothing again while its version stands");
+  // No ranges: all of it, into the index as made.
+  index.clearUpdateRanges();
+  index.needsUpdate = true;
+  at = calls.length;
+  core.coverShadow(renderer, light, scene, camera, null);
+  assert.deepEqual(sent(at), [["geometry_index_sub_data", 0, 48]]);
+  // A vertex source's range, in elements (a vertex's three floats each).
+  const position = mesh.geometry.attributes.position;
+  position.addUpdateRange(3, 6);
+  position.needsUpdate = true;
+  at = calls.length;
+  core.coverShadow(renderer, light, scene, camera, null);
+  assert.deepEqual(sent(at), [["geometry_buffer_sub_data", 0, 12, 24]], "slot 0, its bytes from the fourth float");
+  // An array of another size: all of it, into an index made again.
+  index.array = new Uint32Array(24);
+  index.needsUpdate = true;
+  at = calls.length;
+  core.coverShadow(renderer, light, scene, camera, null);
+  assert.deepEqual(sent(at), [["geometry_index_data", 96]]);
+  // Another index altogether: three makes buffers for it, so three draws the pass.
+  mesh.geometry.setIndex([0, 1, 2]);
+  assert.equal(core.coverShadow(renderer, light, scene, camera, null), false);
+  assert.match(core.byName.shadow.why, /geometry/);
+});

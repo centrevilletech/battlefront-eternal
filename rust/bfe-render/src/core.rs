@@ -585,6 +585,34 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         self.stats.gl_calls += 4;
     }
 
+    // Part of a geometry's vertex buffer (its slot) or index given new
+    // contents at a byte offset, as three sends an attribute's update ranges
+    // (bufferSubData: the buffer keeps its size and its other contents).
+    pub fn geometry_buffer_sub_data(&mut self, g: u32, slot: u32, offset: i32, data: &[u8]) {
+        let gl = &self.gl;
+        let geo = &self.geometries[g as usize];
+        unsafe {
+            gl.bind_vertex_array(None);
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(geo.buffers[slot as usize]));
+            gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, offset, data);
+            gl.bind_buffer(glow::ARRAY_BUFFER, None);
+        }
+        self.stats.gl_calls += 4;
+    }
+
+    pub fn geometry_index_sub_data(&mut self, g: u32, offset: i32, data: &[u8]) {
+        let gl = &self.gl;
+        let geo = &self.geometries[g as usize];
+        let Some(&index) = geo.buffers.last() else { return };
+        unsafe {
+            gl.bind_vertex_array(Some(geo.vao));
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index));
+            gl.buffer_sub_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, offset, data);
+            gl.bind_vertex_array(None);
+        }
+        self.stats.gl_calls += 4;
+    }
+
     pub fn geometry_group(&mut self, g: u32, start: i32, count: i32) {
         self.geometries[g as usize].groups.push((start, count));
     }
