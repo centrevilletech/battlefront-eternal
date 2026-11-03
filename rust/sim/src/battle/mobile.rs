@@ -9,14 +9,16 @@
 use super::world::BattleWorld;
 
 /// The class defaults for the AI's attack and defence weights.
-pub const DEFAULT_VALUES: [f64; 6] = [100.0; 6];
+pub fn default_values() -> Vec<f64> {
+    vec![100.0; 6]
+}
 
 /// A command class's post data as ai-mission.json `commandClasses` gives
 /// it (the original game's class parser).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClassRecord {
-    pub atk: Option<[f64; 6]>,
-    pub def: Option<[f64; 6]>,
+    pub atk: Option<Vec<f64>>,
+    pub def: Option<Vec<f64>>,
     pub value_bleed: Option<f64>,
     /// Spawn points [x, y, z, yawDeg] (missing numbers 0).
     pub spawn_points: Vec<[f64; 4]>,
@@ -25,8 +27,8 @@ pub struct ClassRecord {
 /// What a post takes from its hull's class (classData).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClassData {
-    pub atk: [f64; 6],
-    pub def: [f64; 6],
+    pub atk: Vec<f64>,
+    pub def: Vec<f64>,
     pub value_bleed: f64,
     pub points: Vec<[f64; 4]>,
 }
@@ -37,14 +39,14 @@ pub struct ClassData {
 pub fn class_data(value_bleed_setting: f64, record: Option<&ClassRecord>) -> ClassData {
     if let Some(r) = record {
         return ClassData {
-            atk: r.atk.unwrap_or(DEFAULT_VALUES),
-            def: r.def.unwrap_or(DEFAULT_VALUES),
+            atk: r.atk.clone().unwrap_or_else(default_values),
+            def: r.def.clone().unwrap_or_else(default_values),
             value_bleed: r.value_bleed.unwrap_or(100.0),
             points: r.spawn_points.clone(),
         };
     }
     let bleed = value_bleed_setting;
-    ClassData { atk: DEFAULT_VALUES, def: DEFAULT_VALUES, value_bleed: if bleed.is_finite() { bleed } else { 100.0 }, points: Vec::new() }
+    ClassData { atk: default_values(), def: default_values(), value_bleed: if bleed.is_finite() { bleed } else { 100.0 }, points: Vec::new() }
 }
 
 /// A hull on a pad as a command post reads it.
@@ -96,8 +98,8 @@ pub struct Reported {
 /// spawn points.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MobileAi {
-    pub atk: [f64; 6],
-    pub def: [f64; 6],
+    pub atk: Vec<f64>,
+    pub def: Vec<f64>,
     pub value_bleed: f64,
     pub points: Vec<[f64; 4]>,
     pub class_spawn_points: f64,
@@ -105,7 +107,7 @@ pub struct MobileAi {
 
 impl Default for MobileAi {
     fn default() -> Self {
-        MobileAi { atk: DEFAULT_VALUES, def: DEFAULT_VALUES, value_bleed: 100.0, points: Vec::new(), class_spawn_points: 0.0 }
+        MobileAi { atk: default_values(), def: default_values(), value_bleed: 100.0, points: Vec::new(), class_spawn_points: 0.0 }
     }
 }
 

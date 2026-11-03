@@ -242,12 +242,13 @@ impl BattleStats {
     }
 
     /// tick(dt, characters, active, see) (battle-stats.js:210): one world
-    /// tick for each Character whose tallies run. `see(i)` is observe(the
-    /// Character), asked only for one with a class or a unit.
-    pub fn tick(&mut self, dt: f64, characters: &mut [Character], active: impl Fn(&Character) -> bool, mut see: impl FnMut(u32, &Character) -> Option<Seen>) {
+    /// tick for each Character whose tallies run (`active(place, him)`).
+    /// `see(place, him)` is observe(him), asked only for one with a class or
+    /// a unit.
+    pub fn tick(&mut self, dt: f64, characters: &mut [Character], active: impl Fn(usize, &Character) -> bool, mut see: impl FnMut(u32, &Character) -> Option<Seen>) {
         self.time += dt;
         for i in 0..characters.len() {
-            if !active(&characters[i]) {
+            if !active(i, &characters[i]) {
                 continue;
             }
             let character = &characters[i];

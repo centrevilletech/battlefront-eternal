@@ -199,9 +199,9 @@ impl Battle {
         n
     }
 
-    /// update(dt) (battle.js:205). `stats_active(character)`: whether his
-    /// tallies run this tick (battle.statsActive).
-    pub fn update(&mut self, dt: f64, posts: &mut CommandPosts, stats_active: impl Fn(&Character) -> bool, world: &mut dyn BattleWorld) {
+    /// update(dt) (battle.js:205). `stats_active(place, character)`:
+    /// whether his tallies run this tick (battle.statsActive).
+    pub fn update(&mut self, dt: f64, posts: &mut CommandPosts, stats_active: impl Fn(usize, &Character) -> bool, world: &mut dyn BattleWorld) {
         if !self.game_over {
             self.stats.tick(dt, &mut self.characters, stats_active, |i, c| -> Option<Seen> {
                 world.observe(i, c.unit)
