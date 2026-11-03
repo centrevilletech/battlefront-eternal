@@ -1,4 +1,4 @@
-// The Classic AI control core's capture spec (plan-claude row P15): the
+// The Classic AI control core's capture spec: the
 // AI's whole decide-and-execute step (ClassicAI.update), a controller's
 // bind and unbind, and the objective reactions to post events. State is
 // hand-built values: controllers and agents have no store key and no home
@@ -40,7 +40,25 @@ let responseBefore = null;
 let patrolPublications = null;
 let patrolCompletedPublications = [];
 let patrolStateBefore = null;
+let patrolSupportBefore = null;
 let snapshotServiceCandidates = null;
+let coreEffects = null;
+let completedCoreEffects = [];
+
+// Effects returned by the input/foreign-agent services. Keep their own
+// event order, including nested calls, rather than infer publications
+// from a controller queue or restore unrelated frame state.
+function withCoreEffects(run) {
+  const outer = coreEffects;
+  const effects = [];
+  coreEffects = effects;
+  try { return run(); }
+  finally {
+    coreEffects = outer;
+    outer?.push(...effects);
+    completedCoreEffects = effects;
+  }
+}
 
 const v3 = (p) => (p ? [p.x, p.y, p.z] : null);
 const num = (v) => (typeof v === 'number' ? v : null);
@@ -63,9 +81,9 @@ const own = (o, k) => {
 //   below). The instances created before this runs are documented by
 //   their state alone.
 const foreignHooks = {
-  create(kind, make) { foreignBefore = foreignSharedSnap(current); return (lastForeignAgent = make()); },
-  tick(agent, dt, phase) { foreignBefore = foreignSharedSnap(current); lastForeignAgent = agent; return agent.__aiTick(dt, phase); },
-  exit(agent) { foreignBefore = foreignSharedSnap(current); lastForeignAgent = agent; agent.__aiExit(); },
+  create(kind, make) { foreignBefore = foreignSharedSnap(current); return withCoreEffects(() => (lastForeignAgent = make())); },
+  tick(agent, dt, phase) { foreignBefore = foreignSharedSnap(current); lastForeignAgent = agent; return withCoreEffects(() => agent.__aiTick(dt, phase)); },
+  exit(agent) { foreignBefore = foreignSharedSnap(current); lastForeignAgent = agent; withCoreEffects(() => agent.__aiExit()); },
 };
 const policyMethods = new WeakMap();
 const policyHooks = {
@@ -98,8 +116,14 @@ function prepare(game) {
     const publish = objectives.publish;
     objectives.publish = function (character, post) {
       patrolPublications?.push({ character, before: character.objective ?? null, post: post ?? null });
+      coreEffects?.push({ kind: 'publish', character, before: character.objective ?? null, after: post ?? null });
       return publish.call(this, character, post);
     };
+  }
+  for (const name of ['navigationInput', 'analogs']) {
+    if (typeof ai[name] !== 'function') continue;
+    const method = ai[name];
+    ai[name] = function (...args) { return withCoreEffects(() => method.apply(this, args)); };
   }
   for (const name of ['hazardResponse', 'alertResponse', 'acousticResponse']) {
     if (typeof ai.combat?.[name] !== 'function') continue;
@@ -180,11 +204,54 @@ function prepare(game) {
   // currentControllable): rebind the bag through the service object
   // so one shim on the service records both paths, identically.
   const vehicleService = vehicleServiceOf(ai);
+  // Flyer services write these two P15 fields directly, without going
+  // through objectives.publish. Observe only the fields their source
+  // methods write, at that call, including other AI crew members.
+  for (const name of ['requestExit', 'disembarkPassengers', 'abandonPad']) {
+    if (typeof vehicleService?.[name] !== 'function') continue;
+    const method = vehicleService[name];
+    vehicleService[name] = function (controller, ...args) {
+      if (!coreEffects) return method.call(this, controller, ...args);
+      const lease = this.controllerLease(controller);
+      const characters = name === 'requestExit' ? [lease?.unit?.character] :
+        (lease?.vehicle?.seats ?? []).slice(1).filter((s) => s.lease && !s.lease.human).map((s) => s.lease.unit?.character);
+      const objectives = name === 'abandonPad' ? [] : characters.filter(Boolean).map((character) => [character, character.objective ?? null]);
+      const crew = name === 'abandonPad' ? (lease?.vehicle?.seats ?? []).map((s) => s.lease).filter((l) => l && !l.human && !l.unit?.networkHuman)
+        .map((l) => l.unit?.character?.controller ?? l.controllable?.controller).filter(Boolean) : [];
+      const reboards = crew.map((c) => [c, c.reboardAt]);
+      const result = method.call(this, controller, ...args);
+      for (const [character, before] of objectives) {
+        const after = character.objective ?? null;
+        if (before !== after) coreEffects.push({ kind: 'objective', character, before, after });
+      }
+      for (const [c, before] of reboards) {
+        if (!Object.is(before, c.reboardAt)) coreEffects.push({ kind: 'reboard', controller: c, before, after: c.reboardAt });
+      }
+      return result;
+    };
+  }
+  for (const name of ['holdHint', 'closeHint']) {
+    if (typeof vehicleService?.[name] !== 'function') continue;
+    const method = vehicleService[name];
+    vehicleService[name] = function (hint, ...args) {
+      if (!coreEffects || !hint) return method.call(this, hint, ...args);
+      const chain = [];
+      let h = hint;
+      do { chain.push([h, num(h.reservedAt)]); h = h.link; } while (h && h !== hint);
+      const result = method.call(this, hint, ...args);
+      for (const [item, before] of chain) {
+        const after = num(item.reservedAt);
+        if (!Object.is(before, after)) coreEffects.push({ kind: 'hint', hint: item, before, after });
+      }
+      return result;
+    };
+  }
   if (typeof vehicleService?.patrolMounted === 'function') {
     const patrol = vehicleService.patrolMounted;
     vehicleService.patrolMounted = function (...args) {
       patrolBefore = foreignSharedSnap(current);
       patrolStateBefore = mountedPatrolSnap(game, args[0]);
+      patrolSupportBefore = num(args[0]?.agent?.supportHolds);
       const previous = patrolPublications;
       patrolPublications = [];
       try { return patrol.apply(this, args); }
@@ -504,6 +571,7 @@ function agentSnap(ctx, agent, ai) {
     snap.offset = v3(agent.offset) ?? [0, 0, 0];
     snap.entryTime = agent.entryTime ?? 0;
     snap.support = Boolean(agent.support);
+    snap.supportHolds = num(agent.supportHolds);
     snap.mineTries = num(agent.mineTries) ?? 0;
     snap.deadline = num(agent.deadline) ?? 0;
     snap.jobAt = num(agent.jobAt) ?? -1;
@@ -905,6 +973,7 @@ const afterCurrent = () => {
 
 const foreignAfter = () => ({
   ...afterCurrent(),
+  coreEffects: completedCoreEffects,
   before: foreignBefore, shared: foreignSharedSnap(current),
   state: lastForeignAgent?.state ?? 0, pending: lastForeignAgent?.pending ?? 0,
   h: helperSnap(lastForeignAgent?.helper),
@@ -945,6 +1014,8 @@ const helperMadeExtra = () => ({
   h: helperSnap(lastHelperMade),
   helperOwner: lastHelperMade?.controller ?? null,
 });
+
+const inputExtra = () => ({ ...afterCurrent(), coreEffects: completedCoreEffects });
 
 function alertExtra(game) {
   const ai = game.ai.classic.ai;
@@ -1017,7 +1088,8 @@ function mountedPatrolSnap(game, patrol) {
 
 function patrolExtra(game) {
   return { ...afterCurrent(), before: patrolBefore, shared: foreignSharedSnap(current),
-    patrolBefore: patrolStateBefore, patrol: mountedPatrolSnap(game, current?.agent?.patrol), publications: patrolCompletedPublications };
+    patrolBefore: patrolStateBefore, patrol: mountedPatrolSnap(game, current?.agent?.patrol), publications: patrolCompletedPublications,
+    supportHolds: { before: patrolSupportBefore, after: num(current?.agent?.supportHolds) } };
 }
 
 function queryExtra() {
@@ -1099,8 +1171,8 @@ function aiBoundaries(game) {
   if (typeof world.mineGroundHeight === 'function') out.push(['world.mineGroundHeight', world, 'mineGroundHeight']);
   out.push(['events.emit', world.events, 'emit']);
   // Navigation input and the helper/control seams.
-  out.push(['ai.navigationInput', ai, 'navigationInput', afterCurrent]);
-  out.push(['ai.analogs', ai, 'analogs']);
+  out.push(['ai.navigationInput', ai, 'navigationInput', inputExtra]);
+  out.push(['ai.analogs', ai, 'analogs', inputExtra]);
   const nav = world.nav;
   if (nav) {
     out.push(['nav.helper', nav, 'helper', helperMadeExtra]);

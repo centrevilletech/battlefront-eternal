@@ -1,10 +1,8 @@
-//! What the AI control core asks of the rest of the battle: the AI's seam
-//! (plan-claude 1.3: the `aiWorld` object game.js builds, and the service
-//! bags classic/index.js binds). The JavaScript reaches everything
-//! through those bags with `?.`, so a missing service is a silent no-op;
-//! the bags bound in a real battle were measured (tools/p15 in the
-//! port's notes: every name below is bound except the ones marked
-//! absent). This trait is the same list, each method present exactly
+//! What the AI control core asks of the rest of the battle: the
+//! `aiWorld` object game.js builds and the service bags classic/index.js
+//! binds. The JavaScript reaches everything through those bags with
+//! `?.`, so a missing service is a silent no-op. This trait describes
+//! those bindings, each method present exactly
 //! where the JavaScript's bag has it; `Bind` says which optional parts
 //! exist at all. In the replay tests a capture serves it; at the flip
 //! the other Rust packages implement it (perception/combat/aim: the AI
@@ -527,6 +525,7 @@ pub struct JobRef {
 pub struct MountedPatrol {
     pub patrol: super::patrol::Patrol,
     pub publications: Vec<(usize, Option<usize>)>,
+    pub support_holds: Option<f64>,
 }
 
 /// What one helper call left observable (the goto helpers' arrived /
@@ -734,7 +733,7 @@ pub trait AiWorld {
     /// publications. `objectives` is the characters' current objective
     /// table, checked before any callback writes are applied. None means
     /// the hook is absent (patrol.js then asks out), not a false return.
-    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: super::patrol::Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>]) -> Option<MountedPatrol>;
+    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: super::patrol::Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>], support_holds: Option<f64>) -> Option<MountedPatrol>;
     /// controllerPolicy(unit) and its bind/controller/agent effects.
     fn vehicles_policy_of(&mut self, unit: UKey) -> Policy;
     fn vehicles_policy_home_facing(&mut self, policy: Policy, unit: UKey) -> Option<bool>;
@@ -751,7 +750,7 @@ pub trait AiWorld {
     /// in the state and pending state it reports.
     fn foreign_agent_tick(&mut self, controller: usize, dt: f64, phase: f64, shared: &ForeignShared) -> ForeignTick;
     /// Agent.exit(): dispose follows separately, as on a local agent.
-    fn foreign_agent_exit(&mut self, controller: usize, shared: &ForeignShared) -> Option<ForeignShared>;
+    fn foreign_agent_exit(&mut self, controller: usize, shared: &ForeignShared) -> (Option<ForeignShared>, Vec<CoreEffect>);
 
     // -- Movement helpers and the navigation control (navigation's;
     // the direct helper is the core's own and never reaches here).
@@ -791,8 +790,8 @@ pub trait AiWorld {
     fn network_secondary_active(&self) -> bool;
     /// nav/analogs.js navigationInput (executor step, posture/jet,
     /// analogs into the intent) and analogs alone.
-    fn nav_navigation_input(&mut self, controller: usize, step: f64, aim: Option<Vec3>) -> Option<HelperObs>;
-    fn nav_analogs(&mut self, controller: usize, aim: Option<Vec3>, step: f64) -> [f64; 4];
+    fn nav_navigation_input(&mut self, controller: usize, step: f64, aim: Option<Vec3>) -> (Option<HelperObs>, Vec<CoreEffect>);
+    fn nav_analogs(&mut self, controller: usize, aim: Option<Vec3>, step: f64) -> ([f64; 4], Vec<CoreEffect>);
 }
 
 /// A seated Character's crew (ai/index.js:24 objectiveCrew).
@@ -856,6 +855,18 @@ pub struct ForeignTick {
     pub helper: super::agents::Helper,
     pub interrupts: super::agents::Interrupts,
     pub shared: Option<ForeignShared>,
+    pub effects: Vec<CoreEffect>,
+}
+
+/// P15-owned writes from mounted steering and the foreign flyer: an
+/// objective publication runs P15's own queue update, while a saved post
+/// on disembark only changes the Character. Every write checks its input
+/// before applying; no controller or character snapshot is restored.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CoreEffect {
+    Publish { character: usize, before: Option<usize>, after: Option<usize> },
+    Objective { character: usize, before: Option<usize>, after: Option<usize> },
+    Reboard { controller: usize, before: f64, after: f64 },
 }
 
 /// Controller fields a foreign agent can change through shared agent

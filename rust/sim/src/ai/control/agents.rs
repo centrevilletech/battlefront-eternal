@@ -92,6 +92,8 @@ pub struct ObjectiveAgent {
     pub offset: Vec3,
     pub entry_time: f64,
     pub support: bool,
+    /// The mounted patrol's repeated support-point waits.
+    pub support_holds: Option<f64>,
     pub mine_tries: f64,
     // scout
     pub deadline: f64,
@@ -115,6 +117,7 @@ impl ObjectiveAgent {
             offset: Vec3::default(),
             entry_time: 0.0,
             support: false,
+            support_holds: None,
             mine_tries: 0.0,
             deadline: 0.0,
             job_at: -1.0,

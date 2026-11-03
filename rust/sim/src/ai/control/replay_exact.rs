@@ -84,7 +84,7 @@ fields!(Mine, fsm, full, hint, placement, aim_point, fired_at, retry_at);
 fields!(JobRef, target, ammo);
 fields!(ServiceState, approach_at, progress_at, saved_health, toward, closing, workable);
 fields!(ObjectiveAgent, flavor, enhanced, post, patrol, snipe, mine, start_position, center, offset,
-    entry_time, support, mine_tries, deadline, job_at, job, service);
+    entry_time, support, support_holds, mine_tries, deadline, job_at, job, service);
 
 impl Exact for AgentKind {
     fn exact(&self, other: &Self) -> bool {
