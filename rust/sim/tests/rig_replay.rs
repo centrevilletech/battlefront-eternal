@@ -128,6 +128,31 @@ fn shapes_of(shapes: &[HitShape]) -> Vec<f64> {
     out
 }
 
+/// The battle's content as rust/content loads it, to build the rigs' inputs
+/// from (feature `content`, with BFE_CONTENT_DIR): each must be what the
+/// JavaScript built the recorded rig from.
+#[cfg(feature = "content")]
+mod from_content {
+    use bfe_content::battle::{Battle, Loader};
+    use bfe_content::content::Content;
+    use bfe_content::files::DirFiles;
+    use sim_replay::V;
+
+    /// The recording's battle, loaded as world-hash asked the game for it.
+    pub fn load(header: V) -> Option<Content> {
+        let root = std::env::var_os("BFE_CONTENT_DIR")?;
+        let b = header.get("battle");
+        let (map, side, seed) = (b.get("map").str()?.to_string(), b.get("side").str()?.to_string(), b.get("seed").num());
+        let ai = b.get("ai").str().unwrap_or("classic").to_string();
+        let era = if side == "rep" || side == "cis" { "cw" } else { "gcw" };
+        let query = format!("?map={map}&side={side}&era={era}&ai={ai}&seed={seed}&rays=js&movement=js");
+        let files = DirFiles::new(std::path::Path::new(&root));
+        let loader = Loader::new(&files);
+        let battle = Battle::load(&loader, &map, &query).expect("the battle's content");
+        Some(Content::build(battle).expect("the battle's content"))
+    }
+}
+
 struct Body {
     rider: RiderSkeleton,
     scratch: RiderScratch,
@@ -158,6 +183,10 @@ impl Tally {
 }
 
 struct Replay {
+    #[cfg(feature = "content")]
+    content: Option<bfe_content::content::Content>,
+    #[cfg(feature = "content")]
+    clips_checked: std::collections::HashSet<(String, i32)>,
     bodies: HashMap<String, Body>,
     clips: HashMap<i32, Clip>,
     droidekas: HashMap<i32, Droideka>,
@@ -326,8 +355,27 @@ fn compare_hull(rig: &mut HullRig, r: V) -> Option<String> {
     None
 }
 
+fn same_clip(a: &Clip, b: &Clip) -> Option<String> {
+    if a.frames != b.frames || a.fps.to_bits() != b.fps.to_bits() || a.root_motion != b.root_motion || a.tracks != b.tracks {
+        return Some(format!("frames {}/{}, fps {}/{}, root motion {}/{}, tracks {:?}/{:?}", a.frames, b.frames, a.fps, b.fps, a.root_motion, b.root_motion, a.tracks, b.tracks));
+    }
+    let (x, y): (Vec<f64>, Vec<f64>) = (a.data.iter().map(|&v| v as f64).collect(), b.data.iter().map(|&v| v as f64).collect());
+    differ(&x, &y).map(|d| format!("samples: {d}"))
+}
+
 fn replay(name: &str, records: &[Record], tally: &mut Tally) {
-    let mut s = Replay { bodies: HashMap::new(), clips: HashMap::new(), droidekas: HashMap::new(), hulls: HashMap::new() };
+    #[cfg(feature = "content")]
+    let content = records.iter().find(|r| r.name == "rig.header").and_then(|r| from_content::load(r.root()));
+    let mut s = Replay {
+        #[cfg(feature = "content")]
+        content,
+        #[cfg(feature = "content")]
+        clips_checked: Default::default(),
+        bodies: HashMap::new(),
+        clips: HashMap::new(),
+        droidekas: HashMap::new(),
+        hulls: HashMap::new(),
+    };
     for record in records {
         let r = record.root();
         let at = format!("{name} tick {}", record.tick);
@@ -339,6 +387,21 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
                     .items()
                     .map(|b| BoneDesc { name: b.get("name").str().unwrap().to_string(), parent: b.get("parent").num() as i32, local: floats(b.get("local")).try_into().unwrap() })
                     .collect();
+                #[cfg(feature = "content")]
+                if let Some(c) = &s.content {
+                    let outcome = match c.actor(&key) {
+                        None => Some("no such body in the content".to_string()),
+                        Some(actor) => {
+                            let mine = bfe_sim::rig::content::actor_bones(actor);
+                            if mine.len() != descs.len() || mine.iter().zip(&descs).any(|(a, b)| a.name != b.name || a.parent != b.parent) {
+                                Some("bones' names or parents".to_string())
+                            } else {
+                                differ(&descs.iter().flat_map(|d| d.local).collect::<Vec<_>>(), &mine.iter().flat_map(|d| d.local).collect::<Vec<_>>())
+                            }
+                        }
+                    };
+                    tally.check("content: body bones", &format!("{at} {key}"), outcome);
+                }
                 let skeleton = Skeleton::actor(&descs);
                 let bind: Vec<f64> = skeleton
                     .bind
@@ -357,7 +420,21 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
             }
             "rig.rider" => {
                 let body = s.bodies.get_mut(r.get("skeleton").str().unwrap()).expect("the rider's skeleton");
-                let clip = &s.clips[&(r.get("clip").num() as i32)];
+                let clip_id = r.get("clip").num() as i32;
+                #[cfg(feature = "content")]
+                if let Some(c) = &s.content {
+                    let key = r.get("skeleton").str().unwrap().to_string();
+                    if s.clips_checked.insert((key.clone(), clip_id)) {
+                        let recorded = &s.clips[&clip_id];
+                        let name = records.iter().find(|x| x.name == "rig.clip" && x.root().get("id").num() as i32 == clip_id).and_then(|x| x.root().get("name").str().map(str::to_string)).unwrap_or_default();
+                        let outcome = match c.body_clips.iter().find(|(k, _)| *k == key).and_then(|(_, clips)| clips.get(&name)) {
+                            None => Some(format!("no clip {name} for {key} in the content")),
+                            Some(clip) => same_clip(recorded, &bfe_sim::rig::content::clip(clip)),
+                        };
+                        tally.check("content: rider clips", &format!("{at} {key} {name}"), outcome);
+                    }
+                }
+                let clip = &s.clips[&clip_id];
                 let (bone_q, bone_p) = if r.get("posed").is_null() {
                     (body.bind_q.clone(), body.bind_p.clone())
                 } else {
@@ -416,6 +493,40 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
                         barrels: g.get("barrels").items().map(|b| if b.is_null() { Barrel::GunBone } else { Barrel::Marker(v3(&floats(b))) }).collect(),
                     })
                     .collect();
+                #[cfg(feature = "content")]
+                if let Some(c) = &s.content {
+                    let class = r.get("class").str().unwrap_or("").to_string();
+                    let mut outcome = Some(format!("no droideka class {class} in the content"));
+                    for side in &c.battle.sides {
+                        let Some(def) = side.units.get(&class) else { continue };
+                        let model = def.get("model").and_then(|m| m.as_str()).unwrap_or("");
+                        let Some(actor) = c.actor(&format!("{}/{model}", side.name)) else { continue };
+                        let from = bfe_sim::rig::content::droideka_guns(&bfe_content::derived::droideka_guns(actor, def.get("weapons")));
+                        let mine: Vec<f64> = from.iter().flat_map(|g| std::iter::once(g.bone as f64).chain(g.barrels.iter().flat_map(|b| match b { Barrel::Marker(p) => vec![p.x, p.y, p.z], Barrel::GunBone => vec![f64::NAN] }))).collect();
+                        let theirs: Vec<f64> = guns.iter().flat_map(|g| std::iter::once(g.bone as f64).chain(g.barrels.iter().flat_map(|b| match b { Barrel::Marker(p) => vec![p.x, p.y, p.z], Barrel::GunBone => vec![f64::NAN] }))).collect();
+                        let bind = bfe_sim::rig::content::actor_skeleton(actor);
+                        let mine_bind: Vec<f64> = bind.bind.iter().flat_map(|b| [b.position.x, b.position.y, b.position.z, b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w, b.scale.x, b.scale.y, b.scale.z]).collect();
+                        let walker = c.walker_clips.iter().find(|(k, _)| *k == format!("{}/{class}", side.name)).map(|(_, clips)| clips);
+                        let ids = ints(r.get("clips"));
+                        let mut clip_outcome = None;
+                        for (m, &id) in ids.iter().enumerate() {
+                            let name = bfe_sim::rig::droideka::CLIPS[m];
+                            let theirs = if id >= 0 { s.clips.get(&id) } else { None };
+                            let mine = name.and_then(|n| walker.and_then(|w| w.get(n))).map(bfe_sim::rig::content::clip);
+                            clip_outcome = clip_outcome.or(match (theirs, mine) {
+                                (None, None) => None,
+                                (Some(a), Some(b)) => same_clip(a, &b).map(|d| format!("mode {m}'s clip: {d}")),
+                                (a, b) => Some(format!("mode {m}'s clip: recorded {}, content {}", a.is_some(), b.is_some())),
+                            });
+                        }
+                        outcome = differ(&theirs, &mine)
+                            .map(|d| format!("guns: {d}"))
+                            .or_else(|| differ(&floats(k.get("bind")), &mine_bind).map(|d| format!("bind pose: {d}")))
+                            .or(clip_outcome);
+                        break;
+                    }
+                    tally.check("content: droideka rigs", &format!("{at} {class}"), outcome);
+                }
                 let rig = DroidekaRig::new(&skeleton, &guns, v3(&floats(r.get("rollCenter"))));
                 let clips: [i32; 14] = ints(r.get("clips")).try_into().unwrap();
                 s.droidekas.insert(r.get("id").num() as i32, Droideka { rig, clips });
@@ -486,6 +597,32 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
             }
             "rig.hull" => {
                 let desc = hull_desc(r.get("desc"));
+                #[cfg(feature = "content")]
+                if let Some(c) = &s.content {
+                    let class = r.get("class").str().unwrap_or("");
+                    let def = c.battle.vehicle_def.as_ref().and_then(|v| v.get("classes")).and_then(|cl| cl.get(class));
+                    let outcome = match def {
+                        None => Some(format!("no vehicle class {class} in the content")),
+                        Some(def) => {
+                            let model = def.get("model").and_then(|m| m.as_str()).unwrap_or("");
+                            match c.vehicle_templates.iter().find(|t| t.name == model) {
+                                None => Some(format!("no template {model}")),
+                                Some(t) => {
+                                    let mine = bfe_sim::rig::content::hull_desc(def, t);
+                                    let (a, b) = (format!("{desc:?}"), format!("{mine:?}"));
+                                    if a != b {
+                                        let at = a.chars().zip(b.chars()).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
+                                        Some(format!("descriptions part at {at}: recorded ...{}..., content ...{}...", &a[at.saturating_sub(60)..(at + 60).min(a.len())], &b[at.saturating_sub(60)..(at + 60).min(b.len())]))
+                                    } else {
+                                        let mut rig = HullRig::new(&mine);
+                                        compare_hull(&mut rig, r.get("rig"))
+                                    }
+                                }
+                            }
+                        }
+                    };
+                    tally.check("content: hull rigs", &format!("{at} {class}"), outcome);
+                }
                 let mut rig = HullRig::new(&desc);
                 let outcome = compare_hull(&mut rig, r.get("rig"));
                 tally.check("hull rig", &format!("{at} {}", r.get("class").str().unwrap_or("?")), outcome);
