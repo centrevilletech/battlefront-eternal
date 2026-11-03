@@ -78,6 +78,14 @@ export function claimSeat(vehicle, index) {
 // faces (LiveObjects.enterable). Null for nothing, or when he may not board.
 // world: { vehicles, live }.
 export function mountInReach(world, unit, person = personUnit(unit)) {
+  return boardingReach.mount(world, unit, person);
+}
+
+// The same, on an object the simulation's capture can watch
+// (tools/sim-capture/seats.mjs): a module's own functions cannot be.
+export const boardingReach = { mount };
+
+function mount(world, unit, person) {
   if (!canBoard(unit, person)) return null;
   const s = unit.soldier;
   eye.set(s.position.x, s.position.y + UP_EYE, s.position.z);

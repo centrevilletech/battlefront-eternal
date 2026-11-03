@@ -196,6 +196,10 @@ export class Ordnance {
     // Everything the rounds ask of the rest of the battle
     // (src/ordnance-world.js).
     this.world = new OrdnanceWorld(this);
+    // The rounds on the simulation's module (src/ordnance-sim.js), once a
+    // world hands them over: fire, update and flightMissile run there and
+    // the lists hold mirrors of what it flies.
+    this.sim = null;
     this.behind = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null };
     this.water = null; // the map's water, when it has some
     this.wet = new THREE.Vector3();
@@ -237,11 +241,23 @@ export class Ordnance {
 
   // fire() with the shot's numbers taken out of it.
   fireRound(def, origin, direction, owner, visual, ignoreBody, emitter, channel, targetId, targetGeneration) {
+    if (this.sim) return this.sim.fire(def, origin, direction, owner, visual, ignoreBody, emitter, channel, targetId, targetGeneration);
     if (def.base === "beam") this.beam(def, origin, direction, owner, ignoreBody, emitter, channel);
     else if (def.base === "sticky" || def.base === "grenade") this.throw(def, origin, direction, owner, channel);
     else if (def.base === "bullet" || def.base === "missile" || def.base === "shell") return this.round(def, origin, direction, owner, ignoreBody, channel, targetId, targetGeneration);
     else if (def.base === "fatray") return this.fatray(def, origin, direction, owner, ignoreBody, channel);
     else return this.bolt(def, origin, direction, owner, visual, ignoreBody, channel);
+  }
+
+  // A flyer's missile (vehicles.js fireSeat): steered by its seeker
+  // (flight/targeting.js navigateMissile) for the class's missile lifetime
+  // at its missile speed. The round's own writes, kept here with the rest.
+  flightMissile(round, flightClass, life, speed) {
+    if (this.sim) return this.sim.flightMissile(round, flightClass, life, speed);
+    round.flightMissile = true;
+    round.flightClass = flightClass;
+    round.life = life;
+    round.velocity.normalize().multiplyScalar(speed);
   }
 
   // A fat ray (the Geonosian LR1K sonic cannon's round, base fatray): a
@@ -491,6 +507,8 @@ export class Ordnance {
   }
 
   update(dt, draw = true) {
+    // A world's rounds on the module: nothing to draw there.
+    if (this.sim) return this.sim.update(dt);
     if (draw) this.renderer.begin();
     for (const beam of this.beams) this.stepBeam(beam, dt, draw);
     this.beams = this.beams.filter(b => b.life > 0);

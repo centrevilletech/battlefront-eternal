@@ -156,7 +156,7 @@ export function syncFullPlannerRequest(b, f, at, h, m) {
 
 // Object `o`'s import fields into a row (lists to `heap`).
 export function putPlannerRequest(b, o, f, at, heap) {
-  { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f.fill(0, at + 3, at + 5); } else { f[at + 2] = 0; b.refs[KIND_NAV_CONTROL].put($x, f, at + 3); } }
+  { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; } else { f[at + 2] = 0; b.refs[KIND_NAV_CONTROL].put($x, f, at + 3); } }
   f[at + 5] = o.serial;
   { const $v = o.start; f[at + 6] = $v.x; f[at + 7] = $v.y; f[at + 8] = $v.z; }
   { const $v = o.end; f[at + 9] = $v.x; f[at + 10] = $v.y; f[at + 11] = $v.z; }
@@ -168,7 +168,7 @@ export function putPlannerRequest(b, o, f, at, heap) {
 
 // Every field of object `o` into a row.
 export function putFullPlannerRequest(b, o, f, at, heap) {
-  { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f.fill(0, at + 3, at + 5); } else { f[at + 2] = 0; b.refs[KIND_NAV_CONTROL].put($x, f, at + 3); } }
+  { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; } else { f[at + 2] = 0; b.refs[KIND_NAV_CONTROL].put($x, f, at + 3); } }
   f[at + 5] = o.serial;
   { const $v = o.start; f[at + 6] = $v.x; f[at + 7] = $v.y; f[at + 8] = $v.z; }
   { const $v = o.end; f[at + 9] = $v.x; f[at + 10] = $v.y; f[at + 11] = $v.z; }

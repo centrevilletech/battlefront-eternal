@@ -57,7 +57,7 @@ export class VehiclesSim {
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
     this.flag = { value: false };
     this.number = { value: 0 };
-    Object.assign(bridge.handlers, this.handlers());
+    bridge.register(this.handlers());
   }
 
   // The hulls into the store: each one's fields, and the battle's list.

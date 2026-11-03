@@ -958,10 +958,11 @@ boundary, so that each part of the frame can move to it on its own:
 | Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam, fountain and wake effects, the Enhanced arcs, the droideka's dust, the jetpack's flame and wake, the destruction's fire, smoke and arcs, the droideka's aura and the death camera's trace |
 | Foliage | `foliage.rs` | `foliage.js` | near | Placed foliage, instanced, its patches chosen there too |
 | View | `view.rs` | `view.js` | view | The first-person arms and weapon, and the muzzle flash |
-| Post | `post.rs` | `post.js` | post | Soft focus, composite, FXAA, the bilinear upscale |
+| Post | `post.rs` | `post.js` | post | Soft focus, bloom, composite, FXAA, the upscale (bilinear, spatial, temporal) |
 | HUD | `hud.rs` | `hud.js` | hud | The battle HUD's quads |
 | Water | `water.rs` | `water.js` | transparent | Terrain water among the blended items: Low's textured surface, High and Ultra's tint and reflection passes, the rings, the shore's lapping, the Enhanced ocean's crest spray |
 | Canopies | `canopies.rs` | `canopies.js` | near | The Enhanced tree canopies' leaves |
+| Motion | `motion.rs` | `motion.js` | motion | The temporal upscaler's motion of the bodies that move on their own, and the first-person view's locked mask |
 
 `core.rs` holds what the passes share: the context and its multi-draw, the
 programs, geometries and textures, the inputs the page writes each frame, a
@@ -1255,13 +1256,38 @@ These passes take the rest of a Classic frame's own scenes from three:
   then resolving a multisampled target), draws the phase, and says whether
   its passes drew the whole scene: `graphics.js` renders the view scene
   with three only when they did not.
-- The post passes: `Graphics.postSteps` plans them (each a full-screen
-  pass with its target, or a step that draws itself: bloom and the
-  temporal and spatial upscalers), then hands the plan to the bridge. The
-  post pass draws every step with three's program for the pass's material,
-  used as three compiled it (`Kind::Plain`), into a framebuffer of its own
-  over the target's texture or onto the canvas, or leaves them all to
-  three when one is a step it cannot draw.
+- The post passes: `Graphics.postSteps` plans them, each a full-screen
+  pass with its target and the uniform values it is drawn with (`values`,
+  set on the pass's material by whichever renderer draws the step), then
+  hands the plan to the bridge. Bloom is three steps (its extract, then
+  its one blur pass twice, across and down, with other values), the
+  spatial upscaler one, and the temporal upscaler three (the motion
+  resolve, the resolve into its history and the sharpen to the screen);
+  the temporal frame's commit (the history swapped, the jitter moved on)
+  is the last step's `after`, which `graphics.js` runs once the steps are
+  drawn, whoever drew them. The post pass draws every step with three's
+  program for the pass's material, used as three compiled it
+  (`Kind::Plain`), into a framebuffer of its own over the target's texture
+  (the temporal upscaler's history and motion targets are half floats) or
+  onto the canvas, or leaves them all to three when one is a step it
+  cannot draw.
+- The temporal upscaler's motion (`motion-vectors.js`): each body that
+  moves on its own (soldiers, the player's guns, vehicles, debris) has a
+  proxy sharing its buffers that draws how far its surface moved on screen
+  since the last frame, then the first-person view is drawn over that in a
+  material that marks it fixed on screen. `MotionVectors.render` keeps its
+  per-proxy bookkeeping (last frame's matrices and bones, the first frame
+  and teleport rules) and asks the motion pass to draw: each proxy three
+  would list (shown, on the camera's layers, in its frustum) is a record in
+  three's order (by material: each proxy has its own), drawn instanced with
+  three's program for it (`Kind::Motion`: its matrices now and last frame
+  and both frames' bone bases read from its row, both frames' bones from two
+  textures), then each part of the view scene three's override render would
+  list, the view pass's hidden parts included, with the locked material's
+  program and the view's camera. The sky's ships, which draw their own
+  motion, stay three's and draw first, where the near scene drew nothing (no
+  proxy keeps a pixel there). Until three has drawn a proxy of each kind and
+  the mask once, three draws the frame's motion.
 - The HUD: `BattleHud.render` asks the bridge to draw its batch once it is
   built. The renderer keeps a copy of the batch's vertex arrays, updated
   from the vertices the batch changed, and draws each run of quads with its

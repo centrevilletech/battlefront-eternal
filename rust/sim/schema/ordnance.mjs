@@ -35,6 +35,108 @@ export default {
       unit: 'ref:unit|undefined',
       part: 'enum:HitPart|null|undefined',
     },
+
+    // What the rounds ask of the rest of the battle (src/ordnance-world.js
+    // OrdnanceWorld, rust/sim/src/ordnance/world.rs), as the module's
+    // imports: each call's arguments and answer. An answer that can be
+    // "none" says so in `found`.
+    NoArgs: {},
+    NumberAnswer: { value: 'f64' },
+    FlagAnswer: { value: 'bool' },
+    PointAnswer: { found: 'bool', point: 'vec3' },
+    // cast and castMoving: `behind` names the ordnance's record the cast
+    // fills (its `behind`, else its `hit`).
+    CastArgs: { origin: 'vec3', direction: 'vec3', far: 'f64', behind: 'bool', ignoreBody: 'ref:body|null|undefined', staticOnly: 'bool|undefined' },
+    CastAnswer: { found: 'bool', distance: 'f64', point: 'vec3', normal: 'vec3', terrain: 'bool', body: 'ref:body|null' },
+    UnitCastArgs: { origin: 'vec3', direction: 'vec3', far: 'f64', owner: 'union:OrdnanceOwner', historyTick: 'f64|undefined', ignoreBody: 'ref:body|null', mount: 'ref:vehicle|null' },
+    UnitCastAnswer: { found: 'bool', unit: 'ref:unit|null', distance: 'f64', point: 'vec3', normal: 'vec3', part: 'enum:HitPart|null|undefined' },
+    BodyArgs: { body: 'ref:body|null|undefined' },
+    MountAnswer: { found: 'bool', vehicle: 'ref:vehicle|null', boundRadius: 'f64', body: 'ref:body|null|undefined' },
+    NearArgs: { center: 'vec3', radius: 'f64', owner: 'union:OrdnanceOwner', struck: 'set:unit', ignoreBody: 'ref:body|null' },
+    NearAnswer: { found: 'bool', units: 'list:unit' },
+    UnitArgs: { unit: 'ref:unit' },
+    SphereAnswer: { found: 'bool', center: 'vec3', radius: 'f64' },
+    GoneArgs: { subject: 'union:BeamSource' },
+    SourceArgs: { source: 'union:BeamSource', origin: 'vec3' },
+    BeamPoseArgs: { source: 'union:BeamSource', localOrigin: 'vec3', position: 'vec3', direction: 'vec3' },
+    BeamPoseAnswer: { position: 'vec3', direction: 'vec3' },
+    ShotArgs: { owner: 'union:OrdnanceOwner', channel: 'f64' },
+    TickAnswer: { value: 'f64|null|undefined' },
+    ShooterAnswer: { fireId: 'f64', unit: 'f64', generation: 'f64' },
+    TargetArgs: { targetId: 'f64', targetGeneration: 'f64' },
+    SeekArgs: { position: 'vec3', velocity: 'vec3', flightClass: 'str|undefined', targetId: 'f64', targetGeneration: 'f64', dt: 'f64' },
+    SeekAnswer: { velocity: 'vec3', targetId: 'f64' },
+    SegmentArgs: { from: 'vec3', to: 'vec3' },
+    // An explosion: its definition as the class's field holds it (`defTag`:
+    // 0 undefined, 1 null, 2 false, 3 true, 4 a number, 5 a string, 6 an
+    // explosion, `def` the number, the string's or the explosion's index).
+    BlastArgs: { defTag: 'u32', def: 'f64', position: 'vec3', owner: 'union:OrdnanceOwner' },
+    // Damage done: by the round's class, or (`beam` given; for a unit,
+    // `beamDef`) by the beam's copy of it holding this step's share of the
+    // Damage (`damage`). `at` says which vector
+    // the unit's hit is handed (0 one of its own, 1 the beam's end, 2 the
+    // ordnance's unit raycast record's point, 3 the ordnance's start: a
+    // damage event keeps it).
+    StrikeArgs: { body: 'ref:body', def: 'def:ordnance', beam: 'ref:beam|null', damage: 'f64|undefined', owner: 'union:OrdnanceOwner', direction: 'vec3' },
+    UnitStrikeArgs: { unit: 'ref:unit', def: 'def:ordnance', beam: 'ref:beam|null', beamDef: 'bool', damage: 'f64|undefined', at: 'u32', point: 'vec3', owner: 'union:OrdnanceOwner', part: 'enum:HitPart|null|undefined', direction: 'vec3' },
+    // A round handed to the capture's observers: its kind's code, then,
+    // after these words, its row as the store exports it (slot, generation,
+    // its mirrored fields), so its mirror is the round as it is now.
+    // `type`: 0 a round, 1 a grenade, 2 a beam (projectile's).
+    ProjectileArgs: { kind: 'u32', type: 'u32' },
+    LaunchArgs: { kind: 'u32', tick: 'f64|null|undefined' },
+    // An end: `struck` the bolt's impact record when it struck what it was
+    // fired at, else the point and normal given.
+    ImpactArgs: { kind: 'u32', point: 'vec3', normal: 'vec3', surface: 'f64', struck: 'rec:Impact|null' },
+    ContactArgs: { kind: 'u32' },
+    BounceArgs: { def: 'def:ordnance', position: 'vec3', speed: 'f64' },
+
+    // What JavaScript asks of the rounds (src/ordnance-sim.js), written into
+    // the call block for the module's exports (rust/sim/src/ordnance/
+    // module.rs): a round fired (ordnance.js fireRound's arguments) and a
+    // flyer's missile set up (flightMissile's).
+    FireArgs: {
+      def: 'def:ordnance',
+      origin: 'vec3',
+      direction: 'vec3',
+      owner: 'union:OrdnanceOwner',
+      visual: 'vec3|null',
+      ignoreBody: 'ref:body|null',
+      emitter: 'union:BeamSource',
+      channel: 'f64',
+      targetId: 'f64|undefined',
+      targetGeneration: 'f64|undefined',
+    },
+    FlightMissileArgs: { round: 'ref:round', flightClass: 'str|undefined', life: 'f64', speed: 'f64' },
+  },
+
+  imports: {
+    cast: { args: 'CastArgs', result: 'CastAnswer' },
+    castMoving: { args: 'CastArgs', result: 'CastAnswer' },
+    raycastUnits: { args: 'UnitCastArgs', result: 'UnitCastAnswer' },
+    riderMount: { args: 'BodyArgs', result: 'MountAnswer' },
+    fatQuery: { args: 'NearArgs', result: 'NearAnswer' },
+    unitSphere: { args: 'UnitArgs', result: 'SphereAnswer' },
+    isDroid: { args: 'UnitArgs', result: 'FlagAnswer' },
+    gone: { args: 'GoneArgs', result: 'FlagAnswer' },
+    beamLocalOrigin: { args: 'SourceArgs', result: 'PointAnswer' },
+    beamPose: { args: 'BeamPoseArgs', result: 'BeamPoseAnswer' },
+    shotTick: { args: 'ShotArgs', result: 'TickAnswer' },
+    historyTick: { args: 'NoArgs', result: 'NumberAnswer' },
+    shooter: { args: 'ShotArgs', result: 'ShooterAnswer' },
+    missileTarget: { args: 'TargetArgs', result: 'PointAnswer' },
+    navigateMissile: { args: 'SeekArgs', result: 'SeekAnswer' },
+    waterCrossing: { args: 'SegmentArgs', result: 'PointAnswer' },
+    waver: { args: 'NoArgs', result: 'NumberAnswer' },
+    spin: { args: 'NoArgs', result: 'NumberAnswer' },
+    explosion: { args: 'BlastArgs', result: null },
+    hit: { args: 'StrikeArgs', result: null },
+    hitUnit: { args: 'UnitStrikeArgs', result: null },
+    projectile: { args: 'ProjectileArgs', result: null },
+    launch: { args: 'LaunchArgs', result: null },
+    impact: { args: 'ImpactArgs', result: null },
+    grenadeContact: { args: 'ContactArgs', result: null },
+    bounce: { args: 'BounceArgs', result: null },
   },
 
   kinds: {
