@@ -53,6 +53,7 @@ function bridge() {
     fx_add_batch(program, texture, blend, corner, attributes, owner) { calls.push(["fx_add_batch", program, texture, [...blend], corner, [...attributes], owner]); return next.batch++; }
     fx_batch_texture(batch, texture) { calls.push(["fx_batch_texture", batch, texture]); }
     fx_batch_values(batch, values) { calls.push(["fx_batch_values", batch, values]); }
+    fx_batch_interleaved(batch) { calls.push(["fx_batch_interleaved", batch]); }
     fx_batch_sampler(batch, name, unit, texture) { calls.push(["fx_batch_sampler", batch, name, unit, texture]); }
     fx_batch_base(batch, attributes, vertices, data, index) { calls.push(["fx_batch_base", batch, [...attributes], vertices, data.length, [...index]]); }
     fx_add_mesh(texture, blend, flags, func, sizes, values) { calls.push(["fx_add_mesh", texture, [...blend], flags, func, [...sizes], values]); return next.mesh++; }
@@ -473,4 +474,26 @@ test("flying models: parts of tagged groups as rigid records, lit and unlit, hid
   assert.equal(b.children[0].layers.mask, 1, "off: back to its layers");
   core.setActive(true);
   assert.equal(b.children[0].layers.mask, 1 << 30);
+});
+
+test("the Enhanced sniper's trace: two batches, their instances written interleaved as the trace keeps them", async () => {
+  const { SniperTrace } = await import("../src/sniper-trace.js");
+  const { core, calls, scene, camera, frame, drawn, entry } = bridge();
+  const particles = new ParticleRenderer(scene);
+  const trace = particles.custom("sniper", () => new SniperTrace({ add() {}, flash() {} }, () => camera, () => null));
+  const streaks = trace.streaks, flares = trace.flares;
+  drawn(streaks.mesh.material, program(["projectionMatrix", "modelViewMatrix", "pixelAngle", "fade", "time", "sceneDepth", "softParticles", "depthResolution", "cameraRange"], ["corner", "iHead", "iTail", "iColor", "iSize", "iMisc"]));
+  drawn(flares.mesh.material, program(["projectionMatrix", "modelViewMatrix"], ["corner", "iCenter", "iAxis", "iColor", "iParam"]));
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "fx_batch_interleaved").length, 2, "both kept interleaved");
+  assert.equal(streaks.external, true);
+  assert.equal(flares.external, true);
+  // Two streaks this frame, as the trace leaves them.
+  streaks.data.set(Array.from({ length: 36 }, (_, i) => i));
+  streaks.count = 2;
+  frame();
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 5), [0, 0, 2, 0, 0]);
+  assert.deepEqual(e.slice(6, 8), [0, 11], "render order 11");
+  assert.deepEqual([...core.fxData.subarray(0, 36)], Array.from({ length: 36 }, (_, i) => i), "interleaved, as kept");
 });

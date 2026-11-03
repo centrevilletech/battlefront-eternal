@@ -31,9 +31,9 @@
 // render order, the centre of its bounding sphere (through its world
 // matrix, as three's projectObject takes it) and its id.
 //
-// Of what the Enhanced looks draw, the bolts (blaster-bolts.js) are drawn
-// here too; the sniper's trace, the arcs, and the destruction and jetpack
-// effects stay with three for now.
+// Of what the Enhanced looks draw, the bolts (blaster-bolts.js) and the
+// sniper's trace (sniper-trace.js) are drawn here too; the arcs, and the
+// destruction and jetpack effects stay with three for now.
 import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
 import { squareBatches } from "../atmosphere.js";
@@ -69,6 +69,11 @@ const KINDS = {
   // The Enhanced bolts (blaster-bolts.js): capsules fitted on the image
   // plane, their pixel's angle set by their onBeforeRender.
   blaster: { attributes: [["iHead", 3], ["iTail", 3], ["iColor", 4], ["iSize", 4]], values: ["pixelAngle"], samplers: [], beforeRender: true },
+  // The Enhanced sniper's streaks and flares (sniper-trace.js): batches
+  // kept interleaved, one buffer each; the streaks' pixel angle (and the
+  // camera the trace aims by) set by their onBeforeRender.
+  sniperStreaks: { attributes: [["iHead", 3], ["iTail", 3], ["iColor", 4], ["iSize", 4], ["iMisc", 4]], interleaved: true, values: ["pixelAngle"], samplers: [], beforeRender: true },
+  sniperFlares: { attributes: [["iCenter", 3], ["iAxis", 3], ["iColor", 4], ["iParam", 4]], interleaved: true, values: [], samplers: [] },
   // The rain's drops (weather.js): streaks on a plane of their own (its
   // base: position, uv), each drop's seed fixed (uploaded as it grows).
   rain: { attributes: [["seed", 4]], base: [["position", 3], ["uv", 2]], static: true, hiddenBy: "material",
@@ -111,6 +116,16 @@ function squares(batch) {
 }
 function flakes(mesh) {
   return { mesh, material: mesh.material, geometry: mesh.geometry, get count() { return mesh.geometry.instanceCount; }, capacity: 0, arrays: {}, external: false };
+}
+// A sniper trace's batch (sniper-trace.js instanced): its instances in one
+// interleaved array, `stride` floats each.
+function interleavedBatch(batch) {
+  return {
+    mesh: batch.mesh, material: batch.mesh.material, geometry: batch.geometry, source: batch,
+    get count() { return batch.count; }, get capacity() { return batch.capacity; },
+    get arrays() { return { interleaved: batch.data }; },
+    get external() { return batch.external; }, set external(on) { batch.external = on; },
+  };
 }
 function drops(mesh) {
   const seed = mesh.geometry.getAttribute("seed");
@@ -325,6 +340,12 @@ class EffectsPass {
       for (const r of renderers) {
         for (const batch of r.batches.values()) {
           if (this.byBatch.has(batch) || this.waiting.has(batch)) continue;
+          // The Enhanced sniper's trace: two batches of its own.
+          if (batch.streaks?.data && batch.flares?.data) {
+            this.byBatch.set(batch, null);
+            for (const [part, kind] of [[batch.streaks, "sniperStreaks"], [batch.flares, "sniperFlares"]]) this.waiting.set(part, () => this.registerBatch(interleavedBatch(part), kind, r));
+            continue;
+          }
           const kind = kindOf(batch);
           if (!kind) this.byBatch.set(batch, null);
           else this.waiting.set(batch, () => this.registerBatch(batch, kind, r));
@@ -394,6 +415,7 @@ class EffectsPass {
       for (const [name, size] of spec.base) { data.set(g.getAttribute(name).array.subarray(0, vertices * size), o); o += vertices * size; }
       core.rust.fx_batch_base(id, new Uint32Array(spec.base.flatMap(([name, size]) => [at.get(name), size])), vertices, data, new Uint16Array(g.index.array.subarray(0, g.drawRange.count === Infinity ? g.index.count : Math.min(g.drawRange.count, g.index.count))));
     }
+    if (spec.interleaved) core.rust.fx_batch_interleaved(id);
     if (values.length) core.rust.fx_batch_values(id, values.map(([name, size, form]) => `${name}:${size}:${form}`).join(","));
     for (const sampler of samplers) core.rust.fx_batch_sampler(id, sampler.name, sampler.unit, sampler.id);
     // Its key but z, which never changes: no group above it but the map's
@@ -403,6 +425,7 @@ class EffectsPass {
     this.keyOf(batch.mesh, key);
     const record = { batch, kind, id, attributes, values, samplers, arrays: null, mesh: batch.mesh, map, handle: this.handle(map), version: map?.version, key,
       stride: attributes.reduce((sum, [, size]) => sum + size, 0), sizes: attributes.map(([, size]) => size), beforeRender: Boolean(spec.beforeRender), static: Boolean(spec.static), uploaded: 0,
+      interleaved: Boolean(spec.interleaved),
       hiddenBy: spec.hiddenBy ?? "external", synced: false, capacity: -1, from: this.frame };
     this.hide(record, true);
     this.records.push(record);
@@ -635,7 +658,7 @@ class EffectsPass {
       if (draws === MAX_DRAWS) break;
       const b = record.batch, count = b.count, attributes = record.attributes;
       // The batch's arrays (made anew as it grows).
-      if (record.capacity !== b.capacity) record.arrays = attributes.map(([name]) => b.arrays[name]);
+      if (record.capacity !== b.capacity && !record.interleaved) record.arrays = attributes.map(([name]) => b.arrays[name]);
       // An analytic batch's instances from the first that changed since it
       // was last read (effects-gpu.js unread), when the renderer holds the
       // rest; all of them otherwise.
@@ -649,7 +672,8 @@ class EffectsPass {
         record.uploaded = Math.max(from === 0 ? 0 : record.uploaded, count);
       }
       const start = at, arrays = record.arrays, sizes = record.sizes;
-      for (let k = 0; k < arrays.length; k++) at = copy(data, at, arrays[k], from * sizes[k], count * sizes[k]);
+      if (record.interleaved) at = copy(data, at, b.arrays.interleaved, from * record.stride, count * record.stride);
+      else for (let k = 0; k < arrays.length; k++) at = copy(data, at, arrays[k], from * sizes[k], count * sizes[k]);
       if (record.values.length) for (const [name] of record.values) at = put(data, at, b.material.uniforms[name].value);
       const e = DRAW_AT + draws++ * DRAW_STRIDE;
       input[e] = KIND_BATCH; input[e + 1] = record.id; input[e + 2] = count; input[e + 3] = from; input[e + 4] = start; input[e + 5] = b.capacity;

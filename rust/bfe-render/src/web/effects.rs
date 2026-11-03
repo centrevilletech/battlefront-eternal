@@ -28,6 +28,8 @@ impl BfeRenderer {
     // A batch's own material values ("name:size:form,..."), written after its
     // instances; a texture its program samples by name, on a unit.
     pub fn fx_batch_values(&mut self, batch: u32, values: &str) { self.r.effects.batch_values(&self.r.core, batch, values) }
+    // A batch whose instances the page writes interleaved, as it keeps them.
+    pub fn fx_batch_interleaved(&mut self, batch: u32) { self.r.effects.batch_interleaved(batch) }
     pub fn fx_batch_sampler(&mut self, batch: u32, name: &str, unit: u32, texture: i32) { self.r.effects.batch_sampler(&self.r.core, batch, name, unit, texture) }
     // A batch's base instead of the corner quad (add_batch's corner then
     // 4294967295): its vertex attributes (location, size pairs), their data

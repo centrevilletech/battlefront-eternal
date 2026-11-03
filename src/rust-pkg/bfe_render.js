@@ -239,6 +239,12 @@ export class BfeRenderer {
     }
     /**
      * @param {number} batch
+     */
+    fx_batch_interleaved(batch) {
+        wasm.bferenderer_fx_batch_interleaved(this.__wbg_ptr, batch);
+    }
+    /**
+     * @param {number} batch
      * @param {string} name
      * @param {number} unit
      * @param {number} texture

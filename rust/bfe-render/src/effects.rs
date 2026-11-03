@@ -8,9 +8,10 @@
 //   values and their effect's emitter). Each is one instanced draw of
 //   quads. The page writes each shown batch's instances into `data` (a CPU
 //   batch's all, an analytic batch's from the first that changed),
-//   attribute by attribute as the batch keeps them; here they are
-//   interleaved and uploaded with one call into a vertex buffer of the
-//   batch's own, which its vertex array reads. An analytic batch's owner
+//   attribute by attribute as the batch keeps them (or interleaved, for one
+//   that keeps them so: the Enhanced sniper's); here they are interleaved
+//   and uploaded with one call into a vertex buffer of the batch's own,
+//   which its vertex array reads. An analytic batch's owner
 //   (effects-gpu.js GpuEffects: its tracks, and the frame's emitters, a row
 //   an effect) is a texture of three's for the tracks and one of the
 //   renderer's for the emitters, a row of which the page writes for each
@@ -108,6 +109,8 @@ struct Batch<C: HasContext> {
     samplers: Vec<(u32, Option<C::Texture>)>,
     // Indices an instance draws: the corner quad's 6, or its own base's.
     index_count: i32,
+    // Its instances come interleaved already (batch_interleaved).
+    interleaved: bool,
 }
 
 struct Owner<C: HasContext> {
@@ -342,7 +345,7 @@ impl<C: HasContext> EffectsPass<C> {
         self.batches.push(Batch {
             program: program as usize, texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
             vao, vbo, capacity: 0, sizes, stride, owner: if owner < 0 { None } else { Some(owner as usize) }, slots,
-            values: vec![], value_slots: vec![], samplers: vec![], index_count: 6,
+            values: vec![], value_slots: vec![], samplers: vec![], index_count: 6, interleaved: false,
         });
         // Its samplers besides the map on their units.
         unsafe {
@@ -385,6 +388,14 @@ impl<C: HasContext> EffectsPass<C> {
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
         }
         b.index_count = index.len() as i32;
+    }
+
+    // A batch whose instances the page writes interleaved, as it keeps them
+    // (one buffer of all its attributes, in add_batch's order).
+    pub fn batch_interleaved(&mut self, batch: u32) {
+        if let Some(b) = self.batches.get_mut(batch as usize) {
+            b.interleaved = true;
+        }
     }
 
     // A batch's own material values ("name:size" or "name:size:form",
@@ -564,8 +575,13 @@ impl<C: HasContext> EffectsPass<C> {
                 stats.gl_calls += 1;
             }
             if from < count && b.stride > 0 {
-                interleave(&mut self.staging, &self.data, at, count - from, &b.sizes, b.stride);
-                gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (from * b.stride * 4) as i32, bytes(&self.staging));
+                let n = count - from;
+                if b.interleaved {
+                    gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (from * b.stride * 4) as i32, bytes(&self.data[at..at + n * b.stride]));
+                } else {
+                    interleave(&mut self.staging, &self.data, at, n, &b.sizes, b.stride);
+                    gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, (from * b.stride * 4) as i32, bytes(&self.staging));
+                }
                 stats.gl_calls += 1;
             }
             let program = &mut core.programs[b.program];
