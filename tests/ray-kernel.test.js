@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { CollisionWorld, makeHit } from '../src/collision.js';
 import { loadRayKernel } from '../src/ray-kernel.js';
 
-// The ray kernel (src/ray-kernel.js, rust/rays) must answer cast, castMoving
+// The ray kernel (src/ray-kernel.js, rust/sim/src/collision) must answer cast, castMoving
 // and ground exactly as collision.js's JavaScript does: the same numbers to
 // the last bit, the same body, the same misses, as bodies switch on and off,
 // move, come and go.

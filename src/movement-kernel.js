@@ -1,5 +1,5 @@
 // A soldier's movement (Soldier.tick, src/soldier.js) in WebAssembly: the
-// ray kernel's module (rust/rays/src/movement) runs the whole tick, the
+// ray kernel's module (rust/sim/src/movement) runs the whole tick, the
 // collision pass included, against its own copies of the collision world,
 // with the same answers as the JavaScript to the last bit. ?movement=wasm
 // turns it on (it needs the ray kernel, which it loads); the world's ticks
@@ -14,7 +14,7 @@
 // after a turn for the turned yaw's. Bodies are switched on and off by a
 // plain field, so their `enabled` goes in before each tick.
 
-// The exchange slots (rust/rays/src/movement/mod.rs).
+// The exchange slots (rust/sim/src/movement/mod.rs).
 const POSITION = 0, SETTLED = 3, VELOCITY = 6, NORMAL = 9, AVOIDANCE = 12, YAW = 15, PITCH = 16, STATE_TIME = 17, LOCK = 18,
   FUEL = 19, DIVE = 20, POSTURE = 21, AIR = 22, DIVE_FROM = 23, GROUNDED = 24, GROUND_ADJUSTMENT = 25, DAMAGE = 26,
   MAX_FLY = 27, GETUP = 28, DIVE_TIME = 29, PASS_THROUGH = 30, DT = 31, FORWARD = 32, RIGHT = 33, TURN = 34,
