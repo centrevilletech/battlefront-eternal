@@ -144,7 +144,12 @@ export class AnalyticParticleBatch {
   end() {
     // Release dead references; capacity is the historical peak as with CPU batches.
     this.records.length=this.slots.length=this.epochs.length=this.count;
-    this.mesh.visible=this.count>0;this.geometry.instanceCount=this.count;
+    // Drawn by another renderer (external, as particles.js's batches): never
+    // shown to three, nothing marked for it to upload.
+    this.mesh.visible=this.count>0&&!this.external;this.geometry.instanceCount=this.count;
+    // What it has not read yet: from the first instance changed since (it
+    // sets unread to Infinity as it reads).
+    if(this.external){this.unread=Math.min(this.unread??0,this.dirty);return;}
     if(this.dirty>=this.count)return;
     for(const name of Object.keys(ATTRIBUTES)) {
       const a=this.geometry.getAttribute(name);
@@ -158,6 +163,8 @@ export class AnalyticParticleBatch {
 export class GpuEffects {
   constructor(library, renderer) {
     this.renderer=renderer;this.definitions=new Map();
+    // Its batches' owner, for a renderer that draws them (src/rust-render/effects.js).
+    renderer.gpu=this;
     const rows=[];
     const visit=defs=>{for(const def of defs){
       visit(def.geometry?.emitters||[]);

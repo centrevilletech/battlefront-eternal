@@ -31,6 +31,10 @@ pub enum Kind {
     // values of their own under a frame block member's name (a water's own
     // `time`).
     Plain,
+    // One draw an object whose model matrix is the identity, which its
+    // shader reads as modelViewMatrix (the effects' particle batches): the
+    // view matrix, from the frame block.
+    Effect,
 }
 
 // BfeFrame's members as three declares them, in block order. Offsets are in
@@ -161,7 +165,7 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
     if kind == Kind::Plain {
         return Ok(source.to_string());
     }
-    let instanced = kind != Kind::World;
+    let instanced = kind == Kind::Skinned || kind == Kind::Rigid;
     let mut out = String::with_capacity(source.len() + 4096);
     let mut inserted = false;
     for line in source.lines() {
@@ -171,6 +175,9 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
                 // outside any condition: the block and the instance inputs go
                 // there, where every define they test is already set.
                 out.push_str(FRAME_BLOCK);
+                if kind == Kind::Effect {
+                    out.push_str("#define modelViewMatrix viewMatrix\n");
+                }
                 if instanced {
                     out.push_str(if stage == Stage::Vertex { INSTANCE_VERTEX } else { INSTANCE_FRAGMENT });
                     out.push_str(INSTANCE_COMMON);
@@ -185,6 +192,9 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
                 continue;
             }
             if instanced && PER_INSTANCE.contains(&name) {
+                continue;
+            }
+            if kind == Kind::Effect && name == "modelViewMatrix" {
                 continue;
             }
         }
@@ -223,6 +233,18 @@ mod tests {
         assert_eq!(declaration("  uniform vec4 zeroLights[ZERO_LIGHTS * 2];"), Some(("vec4", "zeroLights")));
         assert_eq!(declaration("\tuniform highp sampler2D boneTexture;"), Some(("sampler2D", "boneTexture")));
         assert_eq!(declaration("vec3 x;"), None);
+    }
+    #[test]
+    fn an_effect_reads_the_view_matrix_for_its_model_view() {
+        let vs = "#version 300 es\nuniform mat4 modelMatrix;\nuniform mat4 modelViewMatrix;\nuniform mat4 projectionMatrix;\nuniform mat4 viewMatrix;\nin vec3 p;\nvoid main() {\n  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);\n}\n";
+        let out = rewrite(vs, Stage::Vertex, Kind::Effect).unwrap();
+        assert!(out.contains("#define modelViewMatrix viewMatrix"));
+        assert!(!out.contains("uniform mat4 modelViewMatrix;"));
+        assert!(!out.contains("uniform mat4 viewMatrix;") && !out.contains("uniform mat4 projectionMatrix;"));
+        assert!(out.contains("uniform mat4 modelMatrix;"), "the rest of three's declarations stay");
+        assert!(!out.contains("bfeLoad"), "not instanced");
+        let world = rewrite(vs, Stage::Vertex, Kind::World).unwrap();
+        assert!(world.contains("uniform mat4 modelViewMatrix;") && !world.contains("#define modelViewMatrix"));
     }
     #[test]
     fn frame_offsets_are_std140() {

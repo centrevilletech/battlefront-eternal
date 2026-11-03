@@ -25,6 +25,12 @@ function bridge() {
     far_input_len() { return 1024; }
     records_at() { return 200; }
     record_stride() { return 76; }
+    fx_input_ptr() { return 40960; }
+    fx_input_len() { return 600; }
+    fx_data_ptr() { return 49152; }
+    fx_data_len() { return 2048; }
+    fx_matrices_ptr() { return 57344; }
+    fx_matrices_len() { return 512; }
     add_texture() { calls.push(["add_texture"]); return 0; }
     set_far_map(texture) { calls.push(["set_far_map", texture]); }
     sort(byProgram) { calls.push(["sort", byProgram]); }

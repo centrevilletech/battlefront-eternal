@@ -21,7 +21,7 @@ function program(uniforms, attributes = ["position", "uv"]) {
 // memory), WebGL and the page's graphics.
 function bridge() {
   const calls = [];
-  const memory = { buffer: new ArrayBuffer(1 << 20) };
+  const memory = { buffer: new ArrayBuffer(1 << 21) };
   const entry = (name) => function (...args) { calls.push([name, ...args]); return STATS; };
   let programs = 0, targets = 0;
   class BfeRenderer {
@@ -69,6 +69,7 @@ function bridge() {
     hud_tint_ptr() { return 524288; }
     hud_tint_len() { return 64 * 4; }
     hud_init(index) { calls.push(["hud_init", index.length]); }
+    // The transparent pass's memory and the effects pass's (transparent.rs, effects.rs).
     transparent_keys_ptr() { return 589824; }
     transparent_keys_len() { return 64; }
     transparent_segments_ptr() { return 655360; }
@@ -87,6 +88,12 @@ function bridge() {
     view_input_len() { return 1 + 16 * (17 + 12 * 18); }
     water_surface(...args) { calls.push(["water_surface", ...args]); return 0; }
     water_rings(...args) { calls.push(["water_rings", ...args]); return 1; }
+    fx_input_ptr() { return 1048576; }
+    fx_input_len() { return 600; }
+    fx_data_ptr() { return 1056768; }
+    fx_data_len() { return 2048; }
+    fx_matrices_ptr() { return 1073152; }
+    fx_matrices_len() { return 512; }
   }
   for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame", "hud_frame", "mirror_frame"]) BfeRenderer.prototype[name] = entry(name);
   const gl = {

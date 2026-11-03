@@ -180,6 +180,9 @@ export class BlasterBatch {
       this.arrays[name] = array;
       this.geometry.setAttribute(name, new THREE.InstancedBufferAttribute(array, size).setUsage(THREE.DynamicDrawUsage));
     }
+    // three keeps the instance limit of the buffers it first bound until the
+    // geometry is disposed: grown, the new instances would not be drawn.
+    delete this.geometry._maxInstanceCount;
     this.capacity = capacity;
   }
 
@@ -201,8 +204,10 @@ export class BlasterBatch {
 
   end() {
     this.geometry.instanceCount = this.count;
-    this.mesh.visible = this.count > 0;
-    if (!this.count) return;
+    // Drawn by another renderer (external: src/rust-render/effects.js reads
+    // its arrays), it is shown to three never and uploads it nothing.
+    this.mesh.visible = this.count > 0 && !this.external;
+    if (!this.count || this.external) return;
     for (const name of Object.keys(ATTRIBUTES)) {
       const attribute = this.geometry.getAttribute(name);
       attribute.clearUpdateRanges();
