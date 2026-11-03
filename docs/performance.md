@@ -955,10 +955,12 @@ boundary, so that each part of the frame can move to it on its own:
 | Far | `far.rs` | `far.js` | far | The far scene: sky and its layers, low-detail buckets, far terrain, far water, the sky's flyers |
 | Terrain | `terrain.rs` | `terrain.js` | near | The ground and its painted layers (drawn by the world pass) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | What the near scene blends, in three's order: blended buckets, holograms, flares |
-| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam and wake effects |
-| Foliage | `foliage.rs` | `foliage.js` | near | Nothing yet |
-| View | `view.rs` | `view.js` | view | Nothing yet (the first-person weapon) |
-| Post | `post.rs` | `post.js` | post | Nothing yet (composite, FXAA, upscale) |
+| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam, fountain and wake effects |
+| Foliage | `foliage.rs` | `foliage.js` | near | Placed foliage, instanced, its patches chosen there too |
+| View | `view.rs` | `view.js` | view | The first-person arms and weapon, and the muzzle flash |
+| Post | `post.rs` | `post.js` | post | Soft focus, composite, FXAA, the bilinear upscale |
+| HUD | `hud.rs` | `hud.js` | hud | The battle HUD's quads |
+| Water | `water.rs` | `water.js` | transparent | Classic terrain water and its rings, among the blended items |
 
 `core.rs` holds what the passes share: the context and its multi-draw, the
 programs, geometries and textures, the inputs the page writes each frame, a
@@ -972,7 +974,10 @@ read (world draws, instanced draws, instances, program switches, GL calls),
 then each pass's draws in the table's order. The near phase is called from
 the far scene's image (`graphics.background`'s `onAfterRender`) at the start
 of the near scene's pass, and the transparent phase from the item three
-draws just before its transparent list (see below).
+draws just before its transparent list (see below); `view_frame`,
+`post_frame` and `hud_frame` from their places in `graphics.js` and
+`hud.js`, and `mirror_frame` (the near phase's passes from a mirror camera)
+from a water reflection's render of the near scene.
 
 On the page, `src/rust-render/index.js` loads the module and keeps the
 registry. `addPass({ name, phase, register, draw, setActive, restore })`
@@ -1101,6 +1106,8 @@ has drawn it, with three's own program, then hidden from three:
 | Enhanced rain's sheets | `rain-sheets.js` | shader model, never culled | its material |
 | Enhanced steam's wisps, wake splashes | `steam-wisps.js`, `fountain-spray.js` | instanced quads, base plane, single-sided | its material |
 | Enhanced steam's volumes | `environment-volume.js` | shader model over the screen | its material |
+| Enhanced fountains' jets | `fountain-jets.js` | instanced, bases of their own, reading the frame so far | its material |
+| Enhanced fountains' soft spray | `fountain-jets.js` | shader models over the screen | its material |
 
 A batch's instances go into the module's memory attribute by attribute as
 the batch keeps them (an analytic batch's from the first that changed since
@@ -1119,8 +1126,13 @@ there (a scene of their own, at half size), and the renderer composites
 that image where three would have; the steam's wisps, the wake splashes
 and the volumes take the scene's depth whatever the soft particle setting,
 so the pass binds it whenever something drawn reads it. The fountains' jets
-stay with three: they copy the frame drawn so far part way through the
-transparent list, and their two halves of soft spray share one target.
+read the frame drawn so far, blurred through its mipmaps, copied just
+before the first jet draws. An object that draws nothing does the copy in
+its `onBeforeRender`, ordered just before the jets; three still draws it,
+so the renderer's list splits there and the copy is made at the same point
+whichever renderer draws the jets. Their two halves of soft spray have a
+target each, so that both can be drawn before either is laid over the
+frame.
 
 The flying models (rounds, grenades, droids' pieces, items: `game.js`
 flyingModel, tagged `userData.flying`) are opaque and are drawn by the
@@ -1143,8 +1155,10 @@ The same check with the Enhanced environment and rain: on Kamino the rain's
 drops, mist, splashes and sheets (about 9,000 instances a frame), with soft
 particles off and on, and on Bespin, from two command posts near steam
 vents, the steam's wisps and volumes, differed in no pixel at any of the
-points. The wake splashes only show where a soldier wades in a fountain
-and were not seen in the battles checked.
+points. On Theed, walking up to a fountain from two command posts (soft
+particles off and on), the fountains' jets, both halves of their soft spray
+and the wake splashes the soldier made in the basin differed in no pixel
+either.
 
 ### The same frame
 
@@ -1174,6 +1188,82 @@ draw or call. Against the commit before the split:
   pixels at the same points of the same seeded battles, but for a few
   hundred pixels of flickering flames on Kashyyyk Docks, which differed as
   much between two runs of the build from before.
+
+### The view, foliage, water, post passes and the HUD
+
+These passes take the rest of a Classic frame's own scenes from three:
+
+- Foliage: each class of placed foliage (grass beds, leaf patches, vines)
+  is one instanced draw in the near phase, with three's program for its
+  cards. The renderer also chooses the patches each time the page updates
+  its foliage (`Foliage.drawer`), as `FoliageGpuBatch.update` does: the
+  cells of the patch index around the camera, each patch's sphere against
+  the frustum, its distance across the ground and its depth along the view.
+  A frame drawn without an update (paused) draws the last selection, as
+  three would.
+- The first-person view: its parts are rigid meshes with zero materials,
+  written as records and drawn instanced as the soldiers' guns are, with
+  the view camera's frame block; the muzzle flash (a basic material that
+  blends) is drawn after them in three's transparent order, both sides in
+  turn as three draws a double-sided one. `RustRender.cover(phase,
+  renderer, scene, camera)` does what three's render would do around its
+  draws (the scene's matrices and `onBeforeRender`, which packs its lights;
+  then resolving a multisampled target), draws the phase, and says whether
+  its passes drew the whole scene: `graphics.js` renders the view scene
+  with three only when they did not.
+- The post passes: `Graphics.postSteps` plans them (each a full-screen
+  pass with its target, or a step that draws itself: bloom and the
+  temporal and spatial upscalers), then hands the plan to the bridge. The
+  post pass draws every step with three's program for the pass's material,
+  used as three compiled it (`Kind::Plain`), into a framebuffer of its own
+  over the target's texture or onto the canvas, or leaves them all to
+  three when one is a step it cannot draw.
+- The HUD: `BattleHud.render` asks the bridge to draw its batch once it is
+  built. The renderer keeps a copy of the batch's vertex arrays, updated
+  from the vertices the batch changed, and draws each run of quads with its
+  texture, as three does.
+- Classic water: the surface drawn with the look's own textures and the
+  rings are items of the transparent list (sources of the transparent
+  pass), with three's sort keys. The Enhanced refraction and reflection
+  stay with three.
+- Reflections: water at Ultra renders the near scene again from a mirror
+  camera, which water.js marks; the near scene's hook then draws the near
+  phase's passes for that camera (`mirror_frame`), so what the renderer
+  draws shows in the reflection too.
+- The near scene itself, behind `?rustNear` (`near.js`): on a frame when
+  everything three would list in it is drawn by a pass, the renderer
+  draws the scene in place of three's render. It does what three's render
+  does first (the scene's `onBeforeRender`), walks the scene as three's
+  `projectObject` does (shown, on the camera's layers, in view) for what
+  three would list, and at the first item no pass draws leaves the frame
+  to three. Otherwise it clears the target as three would, draws the far
+  scene's image with three's program for it, then the near and
+  transparent phases (the transparent pass's objects keyed from the walk
+  as three keys them), and resolves the target. Phases drawn between
+  three's renders (the far scene, the view, the post passes, the HUD, and
+  this one) reset three's state once, when three is next used.
+
+If the WebGL context is lost, or a pass throws, the bridge gives
+everything back to three for good (`RustRender.fail`): a lost context
+takes every object the renderer made with it.
+
+On the slow-PC emulator (SwiftShader, 800x600, the laptop's live settings
+with 2x multisampling), each pass switched on alone against three in the
+same frames of one battle drew the same pixels: Theed's foliage, FXAA,
+HUD and first-person view (also while firing), Kashyyyk Docks' foliage and
+water, and Theed's reflection at Ultra (0 of 1,440,000 pixels each over
+three points, 0 of 960,000 for the reflection over two). With draws off
+and the emulator's CPUs throttled, frames alternating between three and
+the pass (median and mean, ms): the foliage's update on Naboo: Plains,
+whose terrain grows 197,000 patches, went from 3.46 and 3.90 to 0.50 and
+0.57 and the frame from 27.7 and 29.0 to 22.2 and 23.6; on Kashyyyk Docks
+from 0.135 and 0.165 to 0.055 and 0.067. The HUD's render went from 0.90
+and 1.19 to 0.77 and 1.01, and three's render of the first-person view
+(0.56 a frame) became 0.16 of three's plus 0.17 of the renderer's. The
+post passes and the water were within noise: each phase costs about as
+much as a scene of one or two draws saves (the page's side, the call, and
+three's state reset after it, which three then sends again), which only
+a frame drawn with fewer phases will save.
 
 ### The far scene
 

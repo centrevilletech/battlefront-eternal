@@ -19,11 +19,11 @@ crate-type = ["cdylib", "rlib"]
 # Reading and writing the replay harness's values (rust/sim-replay, native
 # only): `cargo test -p sim --features replay` replays captured phases.
 replay = ["dep:sim-replay"]
-# The rigs' inputs from rust/content's loaders (rig/content.rs).
-content = ["dep:content"]
 
 [dependencies]
-sim-replay = { path = "../sim-replay", optional = true }
-# JavaScript's Math as the production server's V8 computes it (rig/math.rs).
+# The game's content as JavaScript loads it, and the JavaScript and
+# three.js arithmetic its loaders share with the simulation.
+content = { path = "../content" }
+# JavaScript's Math as the production server's V8 computes it.
 v8math = { path = "../v8math" }
-content = { path = "../content", optional = true }
+sim-replay = { path = "../sim-replay", optional = true }

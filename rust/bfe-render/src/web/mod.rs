@@ -5,11 +5,13 @@
 mod effects;
 mod far;
 mod foliage;
+mod hud;
 mod instances;
 mod post;
 mod terrain;
 mod transparent;
 mod view;
+mod water;
 mod world;
 
 use crate::core::MultiDraw;
@@ -96,14 +98,24 @@ impl BfeRenderer {
     pub fn transparent_frame(&mut self, three: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.transparent_frame(three as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
-    pub fn view_frame(&mut self) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.view_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    // records: how many the page wrote for the view's parts.
+    pub fn view_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.view_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
-    pub fn post_frame(&mut self) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.post_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    // steps: how many the page wrote (web/post.rs).
+    pub fn post_frame(&mut self, steps: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.post_frame(steps as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
     // records: how many the page wrote for the mirror's camera.
     pub fn mirror_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.mirror_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    pub fn hud_frame(&mut self) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.hud_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    // clear: three's clear colour (rgba, premultiplied); steps: the post
+    // steps the page wrote for the far scene's image (near.js).
+    pub fn near_begin(&mut self, clear: &[f64], steps: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.near_begin(clear, steps as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
 }

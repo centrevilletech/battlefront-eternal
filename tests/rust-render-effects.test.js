@@ -5,6 +5,7 @@ import * as THREE from "three";
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
+const { standinModule } = await import("./support/rust-standin.mjs");
 const { ParticleRenderer, particleRenderers, STREAK } = await import("../src/particles.js");
 const { GpuEffects } = await import("../src/effects-gpu.js");
 const { Lightning, classicLightning } = await import("../src/lightning.js");
@@ -27,58 +28,39 @@ const BASIC = ["projectionMatrix", "modelViewMatrix", "mapTransform", "diffuse",
 // the calls made to it), three's renderer (its render lists, empty) and its
 // context (enough of it for a program's uniforms, attributes and shaders).
 function bridge() {
-  const calls = [];
-  const memory = { buffer: new ArrayBuffer(1 << 17) };
   const next = { program: 0, texture: 0, batch: 0, owner: 0, mesh: 0, model: 0, geometry: 0 };
-  class BfeRenderer {
-    input_ptr() { return 0; }
-    input_len() { return 200 + 76 * 4; }
-    bones_ptr() { return 8192; }
-    bones_len() { return 64; }
-    records_at() { return 200; }
-    record_stride() { return 76; }
-    fx_input_ptr() { return 16384; }
-    fx_input_len() { return 2600; }
-    fx_data_ptr() { return 40960; }
-    fx_data_len() { return 16384; }
-    transparent_keys_ptr() { return 12288; }
-    transparent_keys_len() { return 64; }
-    transparent_segments_ptr() { return 106496; }
-    transparent_segments_len() { return 2; }
-    transparent_objects_ptr() { return 114688; }
-    transparent_objects_len() { return 1 + 2 * 40; }
-    transparent_object_stride() { return 40; }
-    far_input_ptr() { return 118784; }
-    far_input_len() { return 1024; }
-    transparent_bucket_shown() {}
-    add_texture() { calls.push(["add_texture"]); return next.texture++; }
-    set_far_map(texture) { calls.push(["set_far_map", texture]); }
-    add_program(kind, vs, fs, attributes, uniforms) { calls.push(["add_program", kind, vs, attributes, uniforms]); return next.program++; }
-    fx_add_owner(tracks, rows) { calls.push(["fx_add_owner", tracks, rows]); return next.owner++; }
-    fx_add_batch(program, texture, blend, corner, attributes, owner) { calls.push(["fx_add_batch", program, texture, [...blend], corner, [...attributes], owner]); return next.batch++; }
-    fx_batch_texture(batch, texture) { calls.push(["fx_batch_texture", batch, texture]); }
-    fx_batch_values(batch, values) { calls.push(["fx_batch_values", batch, values]); }
-    fx_batch_interleaved(batch) { calls.push(["fx_batch_interleaved", batch]); }
-    fx_batch_side(batch, side) { calls.push(["fx_batch_side", batch, side]); }
-    fx_batch_sampler(batch, name, unit, texture) { calls.push(["fx_batch_sampler", batch, name, unit, texture]); }
-    fx_batch_base(batch, attributes, vertices, data, index) { calls.push(["fx_batch_base", batch, [...attributes], vertices, data.length, [...index]]); }
-    fx_add_mesh(texture, blend, flags, func, sizes, values) { calls.push(["fx_add_mesh", texture, [...blend], flags, func, [...sizes], values]); return next.mesh++; }
-    fx_mesh_pass(mesh, program, side, locations) { calls.push(["fx_mesh_pass", mesh, program, side, [...locations]]); }
-    fx_mesh_texture(mesh, texture) { calls.push(["fx_mesh_texture", mesh, texture]); }
-    fx_matrices_ptr() { return 90112; }
-    fx_matrices_len() { return 1024; }
-    fx_add_model(texture, blend, flags, func, values, sphere) { calls.push(["fx_add_model", texture, [...blend], flags, func, values, [...sphere]]); return next.model++; }
-    fx_model_pass(model, program, side, geometry) { calls.push(["fx_model_pass", model, program, side, geometry]); }
-    fx_model_sampler(model, name, unit, texture) { calls.push(["fx_model_sampler", model, name, unit, texture]); }
-    add_geometry() { calls.push(["add_geometry"]); return next.geometry++; }
-    geometry_buffer() { return 0; }
-    geometry_pointer() {}
-    geometry_index() {}
-    geometry_group() {}
-    sort() {}
-    frame(records) { calls.push(["frame", records]); return STATS; }
-    transparent_frame(three) { calls.push(["transparent_frame", three]); return STATS; }
-  }
+  // The shared stand-in for the WASM renderer (every pass's views), with the
+  // effects' registration calls as this test reads them.
+  const { BfeRenderer, memory, calls } = standinModule({
+    methods: ({ calls }) => ({
+      transparent_bucket_shown() {},
+      add_texture() { calls.push(["add_texture"]); return next.texture++; },
+      set_far_map(texture) { calls.push(["set_far_map", texture]); },
+      add_program(kind, vs, fs, attributes, uniforms) { calls.push(["add_program", kind, vs, attributes, uniforms]); return next.program++; },
+      fx_add_owner(tracks, rows) { calls.push(["fx_add_owner", tracks, rows]); return next.owner++; },
+      fx_add_batch(program, texture, blend, corner, attributes, owner) { calls.push(["fx_add_batch", program, texture, [...blend], corner, [...attributes], owner]); return next.batch++; },
+      fx_batch_texture(batch, texture) { calls.push(["fx_batch_texture", batch, texture]); },
+      fx_batch_values(batch, values) { calls.push(["fx_batch_values", batch, values]); },
+      fx_batch_interleaved(batch) { calls.push(["fx_batch_interleaved", batch]); },
+      fx_batch_side(batch, side) { calls.push(["fx_batch_side", batch, side]); },
+      fx_batch_sampler(batch, name, unit, texture) { calls.push(["fx_batch_sampler", batch, name, unit, texture]); },
+      fx_batch_base(batch, attributes, vertices, data, index) { calls.push(["fx_batch_base", batch, [...attributes], vertices, data.length, [...index]]); },
+      fx_add_mesh(texture, blend, flags, func, sizes, values) { calls.push(["fx_add_mesh", texture, [...blend], flags, func, [...sizes], values]); return next.mesh++; },
+      fx_mesh_pass(mesh, program, side, locations) { calls.push(["fx_mesh_pass", mesh, program, side, [...locations]]); },
+      fx_mesh_texture(mesh, texture) { calls.push(["fx_mesh_texture", mesh, texture]); },
+      fx_add_model(texture, blend, flags, func, values, sphere) { calls.push(["fx_add_model", texture, [...blend], flags, func, values, [...sphere]]); return next.model++; },
+      fx_model_pass(model, program, side, geometry) { calls.push(["fx_model_pass", model, program, side, geometry]); },
+      fx_model_sampler(model, name, unit, texture) { calls.push(["fx_model_sampler", model, name, unit, texture]); },
+      add_geometry() { calls.push(["add_geometry"]); return next.geometry++; },
+      geometry_buffer() { return 0; },
+      geometry_pointer() {},
+      geometry_index() {},
+      geometry_group() {},
+      sort() {},
+      frame(records) { calls.push(["frame", records]); return STATS; },
+      transparent_frame(three) { calls.push(["transparent_frame", three]); return STATS; },
+    }),
+  });
   const gl = {
     ...GL,
     getProgramParameter: (p, what) => (what === GL.ACTIVE_UNIFORMS ? p.uniforms.length : p.attributes.length),
@@ -99,6 +81,7 @@ function bridge() {
     getContext: () => gl,
     properties: { get: (o) => { if (!properties.has(o)) properties.set(o, { __webglTexture: {} }); return properties.get(o); } },
     initTexture() {},
+    initRenderTarget() {},
     shadowMap: { enabled: false },
     getRenderTarget: () => sceneTarget,
     setRenderTarget() {},
@@ -123,7 +106,7 @@ function bridge() {
 
 test("the effects are the transparent phase's second pass, after the map's blended buckets", () => {
   const { core } = bridge();
-  assert.deepEqual(core.phases.transparent.map((p) => p.name), ["transparent", "effects"]);
+  assert.deepEqual(core.phases.transparent.map((p) => p.name), ["transparent", "effects", "water"]);
 });
 
 test("a CPU batch: registered once three drew it, then hidden from three and written each frame with its key", () => {
@@ -303,6 +286,34 @@ test("glow models: found in three's list, registered with their group once three
   assert.equal(core.fxInput[0], 1);
   core.setActive(false);
   assert.equal(material.visible, true);
+});
+
+test("the effects' programs are their own, apart from another pass's for the same three program, whose values can't leak in", () => {
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
+  geometry.setIndex([0, 1, 2]);
+  const group = new THREE.Group(), part = new THREE.Mesh(geometry, material);
+  group.add(part);
+  group.userData.material = material;
+  group.position.set(0, 0, -6);
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  const shared = program(BASIC, ["position", "uv"]);
+  drawn(material, shared);
+  // Another pass (the transparent pass's command post beams) made one for
+  // the same three program first, and sets its colour and opacity itself.
+  const theirs = core.program(core.renderer.properties.get(material).currentProgram, 0, material, { uniforms: new Set(BASIC), material: new Set() });
+  list.transparent.push({ object: part, material, group: null });
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "add_program").length, 2, "made again for the effects");
+  const pass = calls.find((c) => c[0] === "fx_model_pass");
+  assert.notEqual(pass[2], theirs.id, "the glow drawn with its own");
+  list.transparent.length = 0;
+  frame();
+  assert.equal(entry(0)[0], 2, "drawn");
 });
 
 test("a droideka's shield: its uniforms as the model's values, the frame's own left to the frame block, its onBeforeRender run", async () => {
@@ -527,6 +538,46 @@ test("the steam's wisps and the wake splashes: single-sided batches of fixed see
   } finally {
     particleDepth.map.value = null;
   }
+});
+
+test("the fountains' jets: batches on bases of their own after three's copy of the frame so far; their spray halves composited", async () => {
+  const { FountainJets } = await import("../src/fountain-jets.js");
+  const { FountainSpray } = await import("../src/fountain-spray.js");
+  const { EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { core, calls, scene, list, frame, drawn, renderer } = bridge();
+  const spray = new FountainSpray(new THREE.Group(), new EnvironmentWakes());
+  const jets = new FountainJets(scene, spray, core.graphics, { foam: new THREE.Texture(), tier: true });
+  jets.update(1, [{ slot: 0, position: new THREE.Vector3(0, 0, -8), level: 0.8, low: 0 }]);
+  const sky = ["sunDirection", "sunColor", "ambient", "ambientTop", "ambientBottom", "fade"];
+  const shared = ["projectionMatrix", "viewMatrix", "jetTime", "side", "perFountain", "sources[0]", "levels[0]", "lows[0]", "visible[0]", "wind",
+    "atlas", "foamMap", "hasFoam", "sceneDepth", "depthResolution", "cameraRange", "hasDepth", "sceneColor", "sceneResolution", "hasScene", "fragScale", ...sky];
+  const base = { "fountain-pool": ["corner", "seed"], "fountain-jets": ["corner", "seed"], "fountain-jets-near": ["corner", "seed"], "fountain-ropes": ["strip", "rope"],
+    "fountain-ropes-near": ["strip", "rope"], "fountain-jets-core": ["sweep"], "fountain-overflow": ["film"], "fountain-overflow-near": ["film"] };
+  for (const mesh of jets.meshes) {
+    list.transparent.push({ object: mesh, material: mesh.material, group: null });
+    if (mesh.userData.spray) drawn(mesh.material, program(["sprayMap", "sceneDepth", "sprayResolution", "depthResolution", "cameraRange", "enabled"], ["position"]));
+    // The column's material is the shared values' own: no side, no blocks.
+    else drawn(mesh.material, program(mesh === jets.core ? shared.filter((n) => n !== "side" && n !== "perFountain") : shared, base[mesh.name]));
+  }
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "fx_add_batch").length, 8, `eight batches (${core.errors.join("; ")})`);
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_batch_side").map((c) => c[2]), [0], "the column single-sided");
+  const bases = calls.filter((c) => c[0] === "fx_batch_base");
+  assert.equal(bases.length, 8);
+  assert.deepEqual(bases[0].slice(2, 4), [[0, 2], 4], "the pool's corner quad, its own base");
+  assert.equal(calls.filter((c) => c[0] === "fx_add_model").length, 2, "the two halves of soft spray");
+  const values = calls.find((c) => c[0] === "fx_batch_values")[2];
+  assert.ok(values.includes("jetTime:1:0") && values.includes("visible:5:1") && values.includes("sources:20:4") && !values.includes("sunDirection"));
+  assert.ok(jets.meshes.every((m) => m.material.visible === false));
+  assert.ok(jets.copier.visible && jets.copier.material.visible, "the copier left to three, just before the jets");
+  assert.ok(jets.copier.renderOrder < jets.meshes[0].renderOrder);
+  list.transparent.length = 0;
+  frame();
+  assert.equal(core.fxInput[0], 10, "eight batches and two composites");
+  assert.deepEqual([jets.behind.width, jets.behind.height], [800, 600], "the copy's target at the frame's size");
+  assert.equal(jets.core.material.uniforms.hasScene.value, 1);
+  assert.notEqual(jets.meshes.find((m) => m.userData.spray).material.uniforms.sprayMap.value, jets.meshes.findLast((m) => m.userData.spray).material.uniforms.sprayMap.value, "a target each half");
+  assert.equal(renderer.getRenderTarget().name, "scene");
 });
 
 test("flying models: parts of tagged groups as rigid records, lit and unlit, hidden by their layers not their shared material", () => {

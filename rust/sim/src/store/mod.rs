@@ -19,6 +19,7 @@
 //! number as its slot, with generation 0.
 
 pub mod block;
+pub mod calls;
 #[cfg(feature = "replay")]
 pub mod replay;
 mod slab;
@@ -143,6 +144,40 @@ pub fn word_u32(w: f64) -> u32 {
 pub fn word_i32(w: f64) -> i32 {
     debug_assert!(w >= i32::MIN as f64 && w <= i32::MAX as f64 && w == w.trunc(), "not an i32 word: {w}");
     w as i32
+}
+
+/// A JavaScript Map with string keys: its entries in insertion order (a
+/// key set again keeps its place; one deleted and set again goes last).
+#[derive(Clone, Debug, PartialEq)]
+pub struct StrMap<V> {
+    pub entries: Vec<(StrId, V)>,
+}
+
+impl<V> Default for StrMap<V> {
+    fn default() -> Self { StrMap { entries: Vec::new() } }
+}
+
+impl<V> StrMap<V> {
+    pub fn get(&self, key: StrId) -> Option<&V> { self.entries.iter().find(|(k, _)| *k == key).map(|(_, v)| v) }
+    pub fn get_mut(&mut self, key: StrId) -> Option<&mut V> { self.entries.iter_mut().find(|(k, _)| *k == key).map(|(_, v)| v) }
+    pub fn has(&self, key: StrId) -> bool { self.get(key).is_some() }
+    /// Map.set.
+    pub fn set(&mut self, key: StrId, value: V) {
+        match self.get_mut(key) {
+            Some(v) => *v = value,
+            None => self.entries.push((key, value)),
+        }
+    }
+    /// Map.delete.
+    pub fn delete(&mut self, key: StrId) -> bool {
+        match self.entries.iter().position(|(k, _)| *k == key) {
+            Some(i) => { self.entries.remove(i); true }
+            None => false,
+        }
+    }
+    pub fn len(&self) -> usize { self.entries.len() }
+    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
+    pub fn clear(&mut self) { self.entries.clear(); }
 }
 
 /// Object.is for numbers: NaN is NaN whatever its bits, and -0 is not 0.

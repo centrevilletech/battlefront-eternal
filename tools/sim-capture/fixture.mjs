@@ -2,8 +2,21 @@
 // and record, for rust/sim-replay's format test: node fixture.mjs OUT
 // The values are the test's expectations: change them together.
 import fs from 'node:fs';
-import * as THREE from 'three';
 import { Writer, MAGIC, RECORD, Handle, Omitted } from './format.mjs';
+
+// three.js's values as the writer reads them (it needs no three.js: this
+// runs where no node_modules are installed, as in CI's Rust job).
+class Vector3 { constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; } set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; } }
+Vector3.prototype.isVector3 = true;
+class Quaternion { constructor(x, y, z, w) { this._x = x; this._y = y; this._z = z; this._w = w; } }
+Quaternion.prototype.isQuaternion = true;
+class Matrix4 { constructor() { this.elements = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]; } makeTranslation(x, y, z) { this.elements[12] = x; this.elements[13] = y; this.elements[14] = z; return this; } }
+Matrix4.prototype.isMatrix4 = true;
+class Euler { constructor(x, y, z, order) { this._x = x; this._y = y; this._z = z; this._order = order; } }
+Euler.prototype.isEuler = true;
+class Box3 { constructor(min, max) { this.min = min; this.max = max; } }
+Box3.prototype.isBox3 = true;
+const THREE = { Vector3, Quaternion, Matrix4, Euler, Box3 };
 
 const out = process.argv[2];
 if (!out) throw Error('usage: node tools/sim-capture/fixture.mjs OUT');
@@ -29,7 +42,7 @@ const values = [0, -0, 0.1, -1, 2 ** 52 - 1, -(2 ** 52) + 1, 2 ** 52, 2 ** 53 + 
 // inside it and an out parameter, the inner frame, the end.
 const hit = { unit: null, distance: 0, point: new THREE.Vector3() };
 w.record(RECORD.frame, 2, 'test.frame', { k: 'enter', f: 0, p: null, a: values, s: { list: [1, 2], hit } });
-w.record(RECORD.frame, 2, 'test.inner', { k: 'enter', f: 1, p: 0, a: [], s: { n: 1 } });
+w.record(RECORD.frame, 2, 'test.inner', { k: 'enter', f: 1, p: 0, t: new Handle('vehicle', 4), a: [], s: { n: 1 } });
 w.record(RECORD.frame, 2, 'test.frame', { k: 'call', f: 0, n: 'units.raycast', a: [new THREE.Vector3(0, 1, 0), 25.5, hit], d: [['A', 4294967295], ['stream:gameplay', 12]] });
 hit.unit = new Handle('unit', 3); hit.distance = 12.25; hit.point.set(0, 1, 12.25);
 w.record(RECORD.frame, 2, 'test.frame', { k: 'ret', f: 0, n: 'units.raycast', r: hit, o: [undefined, undefined, hit], i: [['B', 7]], x: { striking: { owner: null } } });

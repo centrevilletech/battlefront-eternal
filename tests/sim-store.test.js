@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { loadSim } from '../src/sim/module.js';
 import { ExportContext, Identity, SimBridge, exportState, undeclared } from '../src/sim/runtime.js';
-import { KIND_BEAM, KIND_BODY, KIND_BOLT, KIND_EMITTER, KIND_GRENADE, KIND_ORDNANCE, KIND_OWNER_SNAPSHOT, KIND_ROUND, KIND_TABLE, KIND_TURRET, KIND_UNIT, KIND_VEHICLE, BOLT_KEYS } from '../src/sim/gen/index.js';
+import { KIND_BEAM, KIND_BODY, KIND_BOLT, KIND_EMITTER, KIND_GRENADE, KIND_ORDNANCE, KIND_OWNER_SNAPSHOT, KIND_ROUND, KIND_TABLE, KIND_UNIT, KIND_VEHICLE, BOLT_KEYS } from '../src/sim/gen/index.js';
 import { generate } from '../tools/sim-schema.mjs';
 
 // The entity store (docs/sim-store.md): what JavaScript writes into a
@@ -68,7 +68,9 @@ function battle() {
       quaternion: new THREE.Quaternion(), targetId: -1, targetGeneration: -1, gone: true,
       impact: { point: v(75, 0, 0), normal: v(-1, 0, 0), terrain: false, body: undefined, unit: undefined, part: undefined } },
   ];
-  return { units, vehicles, turrets, bodies, emitters, snapshot, ordnance: { bolts, beams, grenades, rounds } };
+  // (A round's mount and muzzle are the firing code's own, on the mirror:
+  // the store keeps none of them.)
+  return { units, vehicles, turrets, bodies, emitters, snapshot, ordnance: { bolts, beams, grenades, rounds, start: v(0.5, -0, 2) } };
 }
 
 // A bridge whose identities tell the kinds a union holds apart.
@@ -76,7 +78,6 @@ async function bridge(world) {
   const b = new SimBridge(await loadSim());
   b.setRefs(KIND_UNIT, new Identity(KIND_UNIT, { test: (o) => o instanceof Unit }));
   b.setRefs(KIND_VEHICLE, new Identity(KIND_VEHICLE, { test: (o) => o instanceof Vehicle }));
-  b.setRefs(KIND_TURRET, new Identity(KIND_TURRET, { test: (o) => o instanceof Turret }));
   b.setRefs(KIND_EMITTER, new Identity(KIND_EMITTER, { test: (o) => world.emitters.includes(o) }));
   b.setRefs(KIND_OWNER_SNAPSHOT, new Identity(KIND_OWNER_SNAPSHOT, { test: (o) => o === world.snapshot }));
   return b;
@@ -105,6 +106,7 @@ test('every field of every round written into the store comes back bit for bit',
   }
   const [{ object: system }] = b.read(KIND_ORDNANCE, () => ({}));
   for (const [, list] of LISTS) assert.deepEqual(system[list].map((x) => world.ordnance[list].indexOf(x)), world.ordnance[list].map((_, i) => i));
+  assert.ok(Object.is(system.start.y, -0) && system.start.x === 0.5 && system.start.z === 2);
   // Every reference came back as the very object written.
   const [first, second, third] = b.read(KIND_BOLT).map((r) => r.object);
   assert.equal(first.owner, world.units[0]);
@@ -119,14 +121,14 @@ test('every field of every round written into the store comes back bit for bit',
   assert.deepEqual([...rounds[1].struck], [world.units[2], world.units[1]]);
   assert.equal(rounds[0].flightClass, 'fighter');
   assert.equal(rounds[2].impact.body, undefined);
-  assert.equal(rounds[1].muzzleGeneration, null);
+  assert.equal('muzzleGeneration' in rounds[1], false);
   const beams = b.read(KIND_BEAM).map((r) => r.object);
   assert.ok(Object.is(beams[1].damageDef.Damage, -0));
 });
 
 // A kind with a home list (a bolt's is ordnance.bolts) is listed in that
 // list's order, so its home goes in with it.
-const system = (lists) => ({ bolts: [], beams: [], grenades: [], rounds: [], ...lists });
+const system = (lists) => ({ bolts: [], beams: [], grenades: [], rounds: [], start: new THREE.Vector3(), ...lists });
 
 test('a kind JavaScript still owns comes in by its import fields, and one that leaves its list leaves the store', async () => {
   const world = battle();
@@ -174,6 +176,33 @@ test('mirrors keep their identity and their Vector3s, and a new life of a slot g
   assert.equal(pool.objects[mirror.simSlot].simGen, mirror.simGen + 1);
 });
 
+test('a retired entity\'s last state reaches the mirror JavaScript still holds, and its slot\'s next life is a new mirror', async () => {
+  const world = battle();
+  const b = await bridge(world);
+  b.write(KIND_GRENADE, world.ordnance.grenades);
+  b.write(KIND_ORDNANCE, [system({ grenades: world.ordnance.grenades })]);
+  const pool = b.own(KIND_GRENADE);
+  b.sync(KIND_GRENADE);
+  const [first, second] = pool.objects;
+  // A sim event kept the first grenade's position, as one keeps g.position.
+  const kept = first.position;
+  // The store moves it (as Rust would, by slot) and retires it: it went off.
+  const last = { ...world.ordnance.grenades[0], position: new THREE.Vector3(9, 8, 7), gone: true, simSlot: first.simSlot, simGen: first.simGen };
+  const other = { ...world.ordnance.grenades[1], simSlot: second.simSlot, simGen: second.simGen };
+  b.write(KIND_GRENADE, [last, other]);
+  b.write(KIND_ORDNANCE, [system({ grenades: [last, other] })]);
+  b.retire(KIND_GRENADE, first.simSlot, first.simGen);
+  b.write(KIND_ORDNANCE, [system({ grenades: [other] })]);
+  // The detector leaves the retired for the sync; the sync hands them over once.
+  assert.deepEqual(b.check(KIND_GRENADE), []);
+  assert.equal(b.sync(KIND_GRENADE), 2);
+  assert.deepEqual(kept.toArray(), [9, 8, 7]);
+  assert.equal(first.gone, true);
+  assert.equal(pool.objects[first.simSlot], undefined);
+  assert.equal(b.sync(KIND_GRENADE), 1);
+  assert.throws(() => b.retire(KIND_GRENADE, first.simSlot, first.simGen), /no entity/);
+});
+
 test('the mirror write detector names a field JavaScript changed without a command', async () => {
   const world = battle();
   const b = await bridge(world);
@@ -204,6 +233,39 @@ test('views are made again when the memory grows, and what was written is still 
   assert.equal(b.strings.at(id), 'fighter');
 });
 
+test('a command runs at once on its arguments, and its events come out in order', async () => {
+  const world = battle();
+  const b = await bridge(world);
+  const at = new THREE.Vector3(1, -0, 3);
+  const result = b.command('echo', { value: 1.5, at, count: 7, note: 'hi', events: 3 });
+  assert.equal(result.value, 2.5);
+  assert.equal(result.count, 7);
+  assert.equal(result.note, 'hi');
+  assert.ok(Object.is(result.at.y, -0) && result.at !== at);
+  const seen = [];
+  assert.equal(b.drain({ echoed: (e) => seen.push(e) }), 3);
+  assert.deepEqual(seen.map((e) => [e.value, e.note, e.at.z]), [[0, 'hi', 3], [1, 'hi', 3], [2, 'hi', 3]]);
+  assert.equal(b.drain({}), 0);
+  assert.equal(b.command('echo', { value: -0, at, count: 0, note: null, events: 0 }).note, null);
+  assert.throws(() => b.command('nothing', {}), /no command nothing/);
+});
+
+test('room made as a battle loads keeps the memory from growing in play', async () => {
+  const world = battle();
+  const b = await bridge(world);
+  const pages = b.reserve(8 << 20);
+  assert.ok(pages * 65536 >= 8 << 20);
+  const grown = b.grown;
+  for (let i = 0; i < 50; i++) {
+    writeAll(b, world.ordnance, true);
+    for (const [kind] of LISTS) b.read(kind);
+    b.command('fill', { kind: KIND_BOLT, count: 20 });
+    b.write(KIND_BOLT, world.ordnance.bolts);
+  }
+  assert.equal(b.x.sim_memory_pages(), pages);
+  assert.equal(b.grown, grown);
+});
+
 test('a module whose kinds were made from other schemas is refused', async () => {
   const { exports } = await loadSim();
   const stale = { exports: { ...exports, sim_kind_hash: (k) => (k === KIND_BOLT ? 1 : exports.sim_kind_hash(k)) } };
@@ -215,7 +277,7 @@ test('a module whose kinds were made from other schemas is refused', async () =>
 // values (the replay harness makes its handles here).
 function exporting(world) {
   return new ExportContext({
-    classes: { Unit, Vehicle, Turret },
+    classes: { Unit, Vehicle },
     tests: { emitter: (o) => world.emitters.includes(o), ownerSnapshot: (o) => o === world.snapshot },
     ref: (kind, object) => ({ kind, object }),
     def: (table, def) => ({ table, def }),
@@ -226,7 +288,7 @@ test('the replay harness gets plain values in the schema\'s order, one value an 
   const world = battle();
   const cx = exporting(world);
   const value = exportState('ordnance', world.ordnance, cx);
-  assert.deepEqual(Object.keys(value), ['bolts', 'beams', 'grenades', 'rounds']);
+  assert.deepEqual(Object.keys(value), ['bolts', 'beams', 'grenades', 'rounds', 'start']);
   const bolt = value.bolts[0];
   assert.deepEqual(Object.keys(bolt).slice(0, 4), ['def', 'owner', 'networkFireId', 'networkFireChannel']);
   assert.deepEqual(bolt.owner, { kind: 'unit', object: world.units[0] });
@@ -237,7 +299,7 @@ test('the replay harness gets plain values in the schema\'s order, one value an 
   assert.equal(value.bolts[1].owner, 'player');
   assert.deepEqual(value.bolts[2].owner, { kind: 'ownerSnapshot', object: world.snapshot });
   assert.deepEqual(value.beams[0].source, { kind: 'emitter', object: world.emitters[0] });
-  assert.deepEqual(value.rounds[1].mount, { kind: 'turret', object: world.turrets[0] });
+  assert.equal('mount' in value.rounds[1], false);
   assert.deepEqual([...value.rounds[1].struck].map((r) => r.object), [world.units[2], world.units[1]]);
   assert.equal(value.beams[0].damage, 12.5);
   assert.equal('damageDef' in value.beams[0], false);

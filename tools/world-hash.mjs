@@ -33,14 +33,20 @@
 //                 (fractions allowed), so his shots are judged against the
 //                 hit history, rewound and interpolated, as online.
 //
-// Three more change the battle itself:
+// More change the battle itself:
 //   --ai enhanced the Enhanced AI instead of the Classic (?ai=);
 //   --heroes      the heroes join the battle (?heroes=1);
-//   --battles N   the battle N times over in one process, each started as
-//                 the first (the same clock and draws): what a module keeps
-//                 from one battle to the next shows as a later battle
-//                 parting from the first. Their fingerprints follow each
-//                 other, each from its tick 1.
+//   --unit CLASS  the player spawns as this class (?unit=), a droideka say;
+//   --mount T     from tick T the player mans the nearest turret he may for
+//                 480 ticks, then takes the nearest hull's free armed seat
+//                 (between steps, as his use key would within one), so a
+//                 network gunner's fire paths run (with --view, his shots);
+//   --battles N   the battle N times over in one process, each after the
+//                 one before (its clock running on, the server put away):
+//                 what a module keeps from one battle to the next shows as
+//                 a later battle parting from the first. A later battle's
+//                 lines carry its number ("2:1 ..." is the second's tick 1).
+//                 --twice is --battles 2.
 //
 // --rays wasm runs the collision's ray casts in WebAssembly (?rays=wasm,
 // src/ray-kernel.js), and --movement wasm the soldiers' movement too
@@ -64,8 +70,9 @@ const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i 
 const map = opt('map', 'nab2'), side = opt('side', 'rep'), seed = Number(opt('seed', 1)), ticks = Number(opt('ticks', 2400));
 const interval = Number(opt('interval', 1)), ack = argv.includes('--ack'), view = opt('view', null) === null ? null : Number(opt('view', 0));
 const rays = opt('rays', 'js'), movement = opt('movement', 'js');
+const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = argv.includes('--twice') ? 2 : Number(opt('battles', 1));
+const unit = opt('unit', null), mount = Number(opt('mount', -1));
 const nativeRandom = opt('random', 'seeded') === 'native';
-const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = Number(opt('battles', 1));
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
 if (!(Number.isInteger(battles) && battles >= 1)) throw Error(`--battles ${opt('battles')}: a whole number from 1`);
@@ -87,15 +94,13 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}&rays=${rays}&movement=${movement}${heroes ? '&heroes=1' : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, ai, heroes, battles, query };
+const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}&rays=${rays}&movement=${movement}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}`;
+const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, ai, heroes, unit, mount, battles, nativeRandom, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
-const lines = [];
 
 async function battle(index) {
-  // A later battle starts as the first did: the same clock and draws.
-  if (index > 0) { now = 1000; draw = 991; }
+  const prefix = index ? `${index + 1}:` : '';
   const game = await headlessGame(query);
   // Each kernel on or off as asked, whatever the environment says (the
   // movement kernel brings the ray kernel with it).
@@ -125,11 +130,29 @@ async function battle(index) {
     const rounds = [o.bolts, o.grenades, o.rounds].map((list) => list.map((r) => [xyz(r.position), xyz(r.velocity), r.life]));
     return JSON.stringify({ units, hulls, rounds });
   }
-  let fireEdges = 0;
+  let fireEdges = 0, mounted = 0, mountedAt = 0;
+  const near = (list, p) => list.map((x) => [x, x.position.distanceToSquared(p)]).sort((a, b) => a[1] - b[1]).map(([x]) => x);
+  function mountStep(i) {
+    const u = server.actor.unit;
+    if (!u?.alive || u.removed) return;
+    if (mounted === 0) {
+      const turret = near((game.turretSeats?.turrets || []).filter((t) => game.turretSeats.canMan(u, t)), u.position)[0];
+      if (turret && game.turretSeats.man(u, turret)) { mounted = 1; mountedAt = i; } else mounted = 2;
+    } else if (mounted === 1 && i - mountedAt >= 480) {
+      if (u.seat?.turret) game.turretSeats.leave(u, { placement: true });
+      mounted = 2;
+    } else if (mounted === 2 && !u.seat) {
+      for (const v of near((game.vehicles?.vehicles || []).filter((v) => v.alive), u.position)) {
+        const k = v.seats.findIndex((s, k) => s.weapons.length && v.seatFree(k));
+        if (k >= 0 && game.vehicles.board(u, v, k)) { mounted = 3; break; }
+      }
+    }
+  }
   draw = 991;
   call('battle', { game, server, world, index, options });
   for (let i = 0; i < ticks; i++) {
     now += 1000 / 60;
+    if (mount >= 0 && i >= mount) mountStep(i);
     const tick = game.worldClock.tick + 1, phase = i % 240;
     call('tick', tick);
     const down = phase < 160 ? ['KeyW'] : phase < 200 ? ['KeyA', 'Mouse0'] : ['KeyD'];
@@ -146,16 +169,17 @@ async function battle(index) {
     for (const [channel, payload] of sent) { published.update(channel); published.update(payload instanceof ArrayBuffer ? new Uint8Array(payload) : String(payload)); }
     sent = [];
     const line = `${tick} ${hash(JSON.stringify(worldState(game)))} ${hash(digest())} ${published.digest('hex').slice(0, 16)}`;
-    lines.push(line);
+    // Each line as it comes: a battle that dies keeps the ticks before it.
+    process.stdout.write(`${prefix}${line}\n`);
     call('ticked', tick, line);
     // A worker yields between ticks: prepared classes' spawns settle here.
     await new Promise((resolve) => setImmediate(resolve));
   }
   call('ended', { game, index });
-  console.error(`${map} ${side} seed ${seed}${ai === 'classic' ? '' : ` (${ai} AI)`}${heroes ? ' (heroes)' : ''}${battles > 1 ? ` (battle ${index + 1} of ${battles})` : ''}${rays === 'wasm' ? ' (rays wasm)' : ''}${movement === 'wasm' ? ' (movement wasm)' : ''}: ${ticks} ticks, ${game.units.all().filter((u) => u.alive && u.soldier).length} soldiers alive at the end, world step ${(stepMs / Math.max(1, measured)).toFixed(2)} ms mean after tick 900`);
+  console.error(`${map} ${side} seed ${seed}${ai === 'classic' ? '' : ` (${ai} AI)`}${heroes ? ' (heroes)' : ''}${unit ? ` (unit ${unit})` : ''}${mount >= 0 ? ` (mount ${mount}: ${['none', 'turret', 'none', 'hull'][mounted]})` : ''}${battles > 1 ? ` (battle ${index + 1} of ${battles})` : ''}${rays === 'wasm' ? ' (rays wasm)' : ''}${movement === 'wasm' ? ' (movement wasm)' : ''}${nativeRandom ? ' (random native)' : ''}: ${ticks} ticks, ${game.units.all().filter((u) => u.alive && u.soldier).length} soldiers alive at the end, world step ${(stepMs / Math.max(1, measured)).toFixed(2)} ms mean after tick 900`);
+  server.dispose?.();
 }
 
 for (let index = 0; index < battles; index++) await battle(index);
 for (const plugin of plugins) await plugin.finish?.();
-process.stdout.write(lines.join('\n') + '\n');
 process.exit(0);

@@ -18,7 +18,7 @@
 //!   walk pose aims its guns (src/vehicles.js, src/muzzles.js);
 //! - `clips`: what the simulation reads of a clip (its duration, stride
 //!   and speed; a soldier's get-up and dive times);
-//! - `content` (feature `content`): the rigs' inputs from rust/content.
+//! - `content`: the rigs' inputs from rust/content.
 //!
 //! `math` computes with rust/v8math (V8 13.6's functions, bit for bit).
 //! `three` and `tree` stand in for rust/three (the port's three.js crate,
@@ -27,7 +27,6 @@
 //! r170 under the production server's V8 meanwhile.
 
 pub mod clips;
-#[cfg(feature = "content")]
 pub mod content;
 pub mod droideka;
 pub mod hull;

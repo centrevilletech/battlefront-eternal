@@ -129,9 +129,8 @@ fn shapes_of(shapes: &[HitShape]) -> Vec<f64> {
 }
 
 /// The battle's content as rust/content loads it, to build the rigs' inputs
-/// from (feature `content`, with BFE_CONTENT_DIR): each must be what the
+/// from (with BFE_CONTENT_DIR): each must be what the
 /// JavaScript built the recorded rig from.
-#[cfg(feature = "content")]
 mod from_content {
     use bfe_content::battle::{Battle, Loader};
     use bfe_content::content::Content;
@@ -185,10 +184,8 @@ impl Tally {
 }
 
 struct Replay {
-    #[cfg(feature = "content")]
-    content: Option<bfe_content::content::Content>,
-    #[cfg(feature = "content")]
-    clips_checked: std::collections::HashSet<(String, i32)>,
+        content: Option<bfe_content::content::Content>,
+        clips_checked: std::collections::HashSet<(String, i32)>,
     bodies: HashMap<String, Body>,
     clips: HashMap<i32, Clip>,
     droidekas: HashMap<i32, Droideka>,
@@ -366,13 +363,10 @@ fn same_clip(a: &Clip, b: &Clip) -> Option<String> {
 }
 
 fn replay(name: &str, records: &[Record], tally: &mut Tally) {
-    #[cfg(feature = "content")]
-    let content = records.iter().find(|r| r.name == "rig.header").and_then(|r| from_content::load(r.root()));
+        let content = records.iter().find(|r| r.name == "rig.header").and_then(|r| from_content::load(r.root()));
     let mut s = Replay {
-        #[cfg(feature = "content")]
-        content,
-        #[cfg(feature = "content")]
-        clips_checked: Default::default(),
+                content,
+                clips_checked: Default::default(),
         bodies: HashMap::new(),
         clips: HashMap::new(),
         droidekas: HashMap::new(),
@@ -389,8 +383,7 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
                     .items()
                     .map(|b| BoneDesc { name: b.get("name").str().unwrap().to_string(), parent: b.get("parent").num() as i32, local: floats(b.get("local")).try_into().unwrap() })
                     .collect();
-                #[cfg(feature = "content")]
-                if let Some(c) = &s.content {
+                                if let Some(c) = &s.content {
                     let outcome = match c.actor(&key) {
                         None => Some("no such body in the content".to_string()),
                         Some(actor) => {
@@ -423,8 +416,7 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
             "rig.rider" => {
                 let body = s.bodies.get_mut(r.get("skeleton").str().unwrap()).expect("the rider's skeleton");
                 let clip_id = r.get("clip").num() as i32;
-                #[cfg(feature = "content")]
-                if let Some(c) = &s.content {
+                                if let Some(c) = &s.content {
                     let key = r.get("skeleton").str().unwrap().to_string();
                     if s.clips_checked.insert((key.clone(), clip_id)) {
                         let recorded = &s.clips[&clip_id];
@@ -503,8 +495,7 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
                         barrels: g.get("barrels").items().map(|b| if b.is_null() { Barrel::GunBone } else { Barrel::Marker(v3(&floats(b))) }).collect(),
                     })
                     .collect();
-                #[cfg(feature = "content")]
-                if let Some(c) = &s.content {
+                                if let Some(c) = &s.content {
                     let class = r.get("class").str().unwrap_or("").to_string();
                     let mut outcome = Some(format!("no droideka class {class} in the content"));
                     for side in &c.battle.sides {
@@ -607,8 +598,7 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
             }
             "rig.hull" => {
                 let desc = hull_desc(r.get("desc"));
-                #[cfg(feature = "content")]
-                if let Some(c) = &s.content {
+                                if let Some(c) = &s.content {
                     let class = r.get("class").str().unwrap_or("");
                     let def = c.battle.vehicle_def.as_ref().and_then(|v| v.get("classes")).and_then(|cl| cl.get(class));
                     let outcome = match def {

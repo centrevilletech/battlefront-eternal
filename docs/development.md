@@ -224,7 +224,7 @@ Two parts of the engine are written in Rust and compiled to WebAssembly, in the 
 
 `rust/glbench` and `rust/bfe-native` are measuring tools; nothing ships them.
 
-`rust/v8math` is a library for the Rust that must compute what the JavaScript simulation computes, to the last bit: JavaScript's `Math` as V8 13.6 computes it, the V8 in Node 24, which runs the dedicated server. Rust code that has to agree with the simulation calls it and never Rust's own `sin`, `exp` and so on, whose last bits differ.
+`rust/v8math` is a library for the Rust that must compute what the JavaScript simulation computes, to the last bit: JavaScript's `Math` as V8 13.6 computes it, the V8 in Node 24, which runs the dedicated server. Rust code that has to agree with the simulation calls it and never Rust's own `sin`, `exp` and so on, whose last bits differ. Node 24 hands `Math.pow` and `**` to the C library, so their results depend on the server: `v8math::pow` computes what glibc's `pow` computes on an x86-64 CPU with FMA and AVX2, which the game's servers have.
 
 Because the WebAssembly is committed, building, testing and packaging the game needs no Rust. Changing it needs rustup, which installs the release `rust/rust-toolchain.toml` pins, with the wasm32 target, when cargo first runs under `rust/` (or run `rustup toolchain install` there), and the wasm-bindgen CLI of the version `rust/Cargo.lock` locks:
 

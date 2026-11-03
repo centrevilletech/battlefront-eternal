@@ -1,8 +1,9 @@
 // Rounds in flight (src/ordnance.js): the bolts, beams, grenades and rounds
 // (rockets, missiles, shells, fat rays) the battle's Ordnance holds, every
 // field each record gets, from where it is made or from the modules that
-// add to it later (combat.js, muzzles.js, vehicles.js), with the fields only
-// a page's drawing reads listed apart (`skip`). docs/sim-store.md says how a
+// add to it later (vehicles.js), with the fields only a page's drawing or
+// the firing code's own bookkeeping read listed apart (`skip`: those stay
+// JavaScript's, on the mirrors). docs/sim-store.md says how a
 // schema is written; tools/sim-schema.mjs makes the code from it.
 export default {
   enums: {
@@ -21,9 +22,6 @@ export default {
     // What a beam follows (ordnance.js:285): the seat's or hull's emitter,
     // else its owner.
     BeamSource: ['null', 'lit:player', 'ref:emitter', 'ref:unit', 'ref:vehicle', 'ref:ownerSnapshot'],
-    // What a vehicle's or turret's round is drawn from (src/muzzles.js
-    // bindMountedRound).
-    Mount: ['ref:vehicle', 'ref:turret'],
   },
 
   records: {
@@ -40,7 +38,7 @@ export default {
   },
 
   kinds: {
-    // The battle's Ordnance (ordnance.js:165): its four lists, in the order
+    // The battle's Ordnance (ordnance.js:177): its four lists, in the order
     // they are stepped (and filtered, keeping order) each tick.
     ordnance: {
       singleton: true,
@@ -49,6 +47,10 @@ export default {
         beams: 'list:beam',
         grenades: 'list:grenade',
         rounds: 'list:round',
+        // Where the last bolt step started, and where a fat ray struck
+        // (sweepFat): a unit's damage event keeps this vector as where the
+        // hit came from, and the world's digest reads it at the tick's end.
+        start: 'vec3',
       },
     },
 
@@ -82,6 +84,15 @@ export default {
         visualMuzzle: 'a page muzzle callback (combat.js)',
         mountResolved: 'page drawing',
         presented: 'page drawing',
+        seed: 'page drawing (its flicker)',
+        weapon: 'the gun drawn firing it (combat.js bindRoundMuzzle), for the muzzle the page draws it from',
+        muzzleGeneration: 'the same',
+        muzzleIndex: 'the same',
+        muzzleBarrel: 'the same',
+        mount: 'the hull or turret drawn firing it (muzzles.js bindMountedRound), for the same',
+        mountSeat: 'the same',
+        mountWeapon: 'the same',
+        mountBarrel: 'the same',
       },
     },
 
@@ -102,9 +113,10 @@ export default {
         end: 'vec3',
         direction: 'vec3',
         localOrigin: 'vec3|null',
-        // `damageDef` is the definition's copy whose Damage each step sets
-        // (306): its Damage is the state.
-        damage: { type: 'f64', js: 'damageDef.Damage', mirror: false },
+        // `damageDef` is the definition's copy whose Damage each step that
+        // strikes sets (stepBeam): its Damage is the state (undefined until
+        // then when the class names none).
+        damage: { type: 'f64|undefined', js: 'damageDef.Damage', mirror: false },
       },
       skip: {
         damageDef: 'a copy of the definition; its Damage is `damage`',
@@ -139,13 +151,14 @@ export default {
         mesh: 'its model, drawn by the page',
         trail: 'its trail effect, drawn by the page',
         light: 'colour from the definition, for drawing',
+        contactTime: 'when it first touched anything, written by the battle (game.js onGrenadeContact) for the AI\'s danger warnings',
+        aiDanger: 'the AI\'s own record of warning soldiers of it (ai/classic/combat.js grenadeUpdate)',
       },
     },
 
-    // A rocket, missile, shell or fat ray (ordnance.js:350 round(), 240
-    // fatray(), 558 stepRound()), with what combat.js (784) and
-    // muzzles.js (bindMountedRound) and a flyer's missiles (vehicles.js
-    // 1933) add.
+    // A rocket, missile, shell or fat ray (ordnance.js round(), fatray(),
+    // stepRound()), with what a flyer's missiles add (vehicles.js
+    // fireSeat).
     round: {
       home: 'ordnance.rounds',
       fields: {
@@ -172,37 +185,35 @@ export default {
         gone: 'bool|undefined',
         flightMissile: 'bool|undefined',
         flightClass: 'str|undefined',
-        weapon: 'ref:weapon|undefined',
-        muzzleGeneration: 'f64|null|undefined',
-        muzzleIndex: 'f64|undefined',
-        muzzleBarrel: 'f64|undefined',
-        mount: 'union:Mount|undefined',
-        mountSeat: 'f64|undefined',
-        mountWeapon: 'f64|undefined',
-        mountBarrel: 'f64|undefined',
       },
       skip: {
         mesh: 'its model, drawn by the page',
         trail: 'its trail effect, drawn by the page',
         light: 'colour from the definition, for drawing',
-        visualMuzzle: 'a page muzzle callback (combat.js 788)',
+        visualMuzzle: 'a page muzzle callback (combat.js bindRoundMuzzle)',
         muzzleOffset: 'page drawing',
         mountResolved: 'page drawing',
+        weapon: 'the gun drawn firing it (combat.js bindRoundMuzzle), for the muzzle the page draws it from',
+        muzzleGeneration: 'the same',
+        muzzleIndex: 'the same',
+        muzzleBarrel: 'the same',
+        mount: 'the hull or turret drawn firing it (muzzles.js bindMountedRound), for the same',
+        mountSeat: 'the same',
+        mountWeapon: 'the same',
+        mountBarrel: 'the same',
       },
     },
 
     // Kinds the ordnance refers to, owned elsewhere: a unit is known by its
     // id (src/registry.js), the others by identity alone. `class` names the
     // JavaScript classes a union tells them apart by (src/units.js Unit,
-    // src/vehicles.js Vehicle, src/props.js Turret); an emitter (a hull's
-    // or seat's beamSource) and an owner snapshot (src/ordnance-owner.js)
-    // are plain objects, told apart by the tests the battle gives.
+    // src/vehicles.js Vehicle); an emitter (a hull's or seat's beamSource)
+    // and an owner snapshot (src/ordnance-owner.js) are plain objects, told
+    // apart by the tests the battle gives.
     unit: { key: 'id', class: 'Unit' },
     vehicle: { class: 'Vehicle' },
     body: {},
     emitter: {},
     ownerSnapshot: {},
-    weapon: { class: 'Weapon' },
-    turret: { class: 'Turret' },
   },
 };

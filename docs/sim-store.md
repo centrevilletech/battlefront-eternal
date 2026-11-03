@@ -135,6 +135,7 @@ A field's type is one of:
 | `union:Name` | null, undefined, a literal string or an object of one of several kinds | an `enum` | 3 |
 | `rec:Name` | a plain object with declared fields, held by value | a struct | its fields' |
 | `list:kind`, `set:kind` | an array or a Set of objects of that kind, in order | `Vec<Ref<Kind>>`, `RefSet<Kind>` | 2 (and the heap) |
+| `map:type` | a Map with string keys, in insertion order, its values of a type (not null) | `StrMap<T>` | 2 (and the heap) |
 
 `|null`, `|undefined` or both after a type make it nullable (`Option<T>`, or
 `Nullable<T>` when both are possible, since code can tell them apart). A
@@ -150,6 +151,19 @@ declares the fields it reads of another's kinds, and the generator joins
 them into one kind (a field declared twice must be declared the same). A
 kind declared with no fields (`unit: { key: 'id' }` above) is one the store
 only refers to.
+
+### The generator's own tests
+
+The generator has a schema of its own, `rust/sim/schema-test/shelf.mjs`,
+with every type a field can have (maps of lists, records and references,
+entities that name each other, a union that holds a kind the store holds).
+Its code is generated alike, into `rust/sim/src/gen_test/` (compiled into
+the crate's tests only, so nothing of it reaches the module) and
+`tests/sim-gen/`, and `rust/sim/src/gen_tests.rs` and
+`tests/sim-schema.test.js` put it through the rows and the replay values on
+both sides, a map's words checked word for word on each. The shipped
+schemas belong to the packages that port each subsystem; the generator's
+features are proven on its own.
 
 ### What the generator makes
 
@@ -182,9 +196,20 @@ and then rows of slot, generation and the fields in the schema's order (a
 boolean 0 or 1, an enum its index, a reference its slot and generation, a
 string or definition its index, a Vector3 three numbers, a nullable field a
 tag first: 0 a value follows, 1 null, 2 undefined), then the heap, where a
-row's lists and sets are. A kind has three layouts: export (the fields
-JavaScript reads once Rust owns the kind), import (the fields a Rust phase
-reads while JavaScript owns it) and full (every field, for tests and tools).
+row's lists and sets are. A map's entries are in the heap too, each
+its key's string and its value's words, with the lists its values hold after
+them. A kind has three layouts: export (the fields JavaScript reads once
+Rust owns the kind), import (the fields a Rust phase reads while JavaScript
+owns it) and full (every field, for tests and tools).
+
+An entity Rust removes in a phase may still be held by JavaScript: a sim
+event keeps a grenade's position, and the world's digest reads it after the
+grenade went off. So a port retires an entity (`Slab::retire`) rather than
+dropping it: its slot is freed as by `remove`, and its last state stays in
+the slab until the kind's next export, which writes it first (the header's
+fifth word says how many rows are retired ones). The sync gives that last
+state to the entity's mirror, whoever holds it, and the pool lets the mirror
+go, so a later life of the slot gets a new one.
 
 `SimBridge` (`src/sim/runtime.js`) moves them:
 
@@ -194,12 +219,13 @@ reads while JavaScript owns it) and full (every field, for tests and tools).
   JavaScript list;
 - `sync(kind, target)` copies an export block into the kind's mirrors (a
   singleton's into `target`), updating each mirror's Vector3s in place so
-  whatever holds them keeps seeing them;
+  whatever holds them keeps seeing them, retired entities' last states
+  first;
 - `read(kind)` gives every field of every entity as new objects;
 - `check(kind)` is the mirror write detector: after a JavaScript phase, any
   mirrored field that is not what the store holds, which is a write
   JavaScript made to Rust's state without a command; a debug run fails on
-  the first.
+  the first. It leaves retired entities for the next sync.
 
 References go through each kind's identity on the JavaScript side
 (`bridge.refs[kind]`): an `Identity` while JavaScript owns the kind (a slot
@@ -247,23 +273,37 @@ other key gets the next slot of its kind) and definition handles to
 indices, and back, so the values come out with the handles they went in
 with. `rust/sim/tests/replay_values.rs` holds the store to that.
 
-### Commands, events and the memory reserve (next)
+### Commands, events and imports
 
-Still to come in this package, with the shapes the ports will use:
+What crosses outside a kind's rows is declared in a schema too, and each
+one's arguments, result or payload is a record, so it crosses as that
+record's words (the store's own schema, `rust/sim/schema/store.mjs`, has
+the `echo` command its tests and benchmarks use):
 
-- Commands: a JavaScript write into state Rust owns becomes a call with
-  numbers for arguments (`sim.boltDamage(bolt, amount)` calling
-  `cmd_bolt_damage(slot, gen, amount)`), declared in a schema and applied
-  at once so the order of writes is kept; the touched entity's mirror is
-  synced again where the caller reads it back.
-- Events: what Rust emits for JavaScript (sim events, presentation, sounds,
-  the HUD) goes into a ring in the module's memory and is drained in order
-  at the end of the phase; an event whose handler changes state the same
-  phase reads back is an imported call instead.
-- Imports: the JavaScript functions a Rust phase calls while their state is
-  still JavaScript's (a unit raycast before the units move), declared in a
-  schema with the import object made from them.
-- `sim_reserve`: the store's slabs and the margin made as a battle loads.
+- A command (`commands: { fire: { args: 'FireArgs', result: 'FireResult',
+  rust: 'ordnance::fire' } }`) is JavaScript writing into state Rust owns:
+  `bridge.command('fire', args)` writes the arguments into the call block,
+  the module runs `crate::ordnance::fire(sim, args)` at once (so writes keep
+  their order) and the result comes back as a new object. A caller that
+  reads the touched entity back syncs its kind.
+- An event (`events: { impact: 'ImpactEvent' }`) is Rust telling
+  JavaScript: `event.emit(&mut sim.events)` adds it to the phase's events,
+  and `bridge.drain({ impact: (e) => ... })` hands them over in the order
+  they were emitted at the end of the phase. An event whose handler
+  changes state the same phase reads back is an import instead.
+- An import (`imports: { raycastUnits: { args: 'RaycastArgs', result:
+  'RaycastHit' } }`) is Rust asking JavaScript while the state asked about
+  is still JavaScript's: `gen::import_raycast_units(&mut sim.calls, &args)`
+  calls out of the module, the bridge serves it with
+  `bridge.handlers.raycastUnits(args)`, and the result comes back. The
+  module's loader gives every instance the imports' functions, which reach
+  the bridge attached to it. A port reaches other subsystems through a
+  trait of its own; on the module, its JavaScript side is these imports,
+  and in the replay tests the capture serves it.
+
+Still to come in this package: `sim_reserve` (the store's slabs and a
+margin made as a battle loads) and the measurements of what crossing
+costs on the emulated laptop.
 
 ## Determinism
 

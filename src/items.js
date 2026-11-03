@@ -1,7 +1,6 @@
 import * as THREE from "three";
-import { blastBlocked, blastDamage, blastDistance } from "./ordnance.js";
-import { emitSound } from "./audio/events.js";
-import { legacyRandom } from "./ai/random.js";
+import { blastDamage, blastDistance } from "./ordnance.js";
+import { ItemsWorld } from "./ordnance-world.js";
 
 // Things lying about: mines and power-ups, thrown by dispensers or dropped by
 // the dead, following the 2004 game (EntityItem, EntityMine,
@@ -44,8 +43,6 @@ const GRAVITY = 9.8;
 const HARD = 1; // m/s into a surface that bounces rather than settles
 const PICKUP_DELAY = 0.5; // s a flying item can't be taken
 const FLOOR = -500;
-// The drop roll with no generator given (random null): Math.random.
-const legacyDrop = legacyRandom("item-drop");
 export const MINE_SINK = 0.2; // m/s
 const SOLDIER_RADIUS = 0.35; // m, the soldier's body for pickups
 const SOLDIER_HEIGHT = 1.55; // m
@@ -79,8 +76,9 @@ export class Items {
     this.items = [];
     this.views = new Set(); // items a client online shows (network-entity-items.js), for their sounds
     this.owned = new Map(); // dispenser class + owner -> its items, oldest first
-    this.ownerIds = new WeakMap();
-    this.nextOwnerId = 1;
+    // Everything the items ask of the rest of the battle
+    // (src/ordnance-world.js).
+    this.world = new ItemsWorld(this);
     this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
     this.ray = new THREE.Vector3();
     this.start = new THREE.Vector3();
@@ -97,6 +95,14 @@ export class Items {
     return mesh;
   }
 
+  // An item's model, made to show it (its mesh, null without one), with
+  // its size and middle: the largest of its parts' bounding spheres.
+  presentationModel(def) {
+    const mesh = this.presentationMesh(def);
+    const radius = mesh ? radiusOf(mesh) : 0.3;
+    return { mesh, radius, center: mesh?.userData.center ?? null };
+  }
+
   presentLight(item) {
     if (item.def.LightRadius > 0) this.lights.add(item.position, item.light ||= color01(item.def.LightColor), item.def.LightRadius);
   }
@@ -111,8 +117,9 @@ export class Items {
   // What fly() steps and place() draws: the world's items (spawn), and the
   // copies a page online flies between their records
   // (src/runtime/network-entity-items.js). The radius is the model's, so a
-  // copy sticks a mine where the world does.
-  itemState(def, mesh, position, velocity, yaw, radius = mesh ? radiusOf(mesh) : 0.3) {
+  // copy sticks a mine where the world does; the model's middle, turned as
+  // the model is (`turn`, place()), is where a power-up is taken from.
+  itemState(def, mesh, position, velocity, yaw, radius = mesh ? radiusOf(mesh) : 0.3, center = mesh?.userData.center ?? null) {
     return {
       def,
       mine: def.base === "mine",
@@ -126,6 +133,8 @@ export class Items {
       sinking: false,
       light: color01(def.LightColor),
       radius,
+      center,
+      turn: mesh ? new THREE.Quaternion() : null,
     };
   }
 
@@ -133,7 +142,8 @@ export class Items {
   spawn(def, position, velocity, yaw, { owner = null, team = 0 } = {}) {
     const live = this.items.filter((item) => item.def.base === def.base).length;
     if (live >= (this.pools[def.base] ?? Infinity)) return null;
-    const item = Object.assign(this.itemState(def, this.presentationMesh(def), position, velocity, yaw), {
+    const model = this.world.model(def);
+    const item = Object.assign(this.itemState(def, model.mesh, position, velocity, yaw, model.radius, model.center), {
       owner,
       team,
       age: 0,
@@ -148,9 +158,7 @@ export class Items {
   // A dispenser's throw. An owner already with maxItems of this weapon's
   // items about loses the oldest first (a mine pops).
   ownerKey(owner) {
-    if (!owner || typeof owner !== "object") return String(owner);
-    if (!this.ownerIds.has(owner)) this.ownerIds.set(owner, this.nextOwnerId++);
-    return `unit:${this.ownerIds.get(owner)}:${owner.generation ?? 0}`;
+    return this.world.ownerKey(owner);
   }
 
   ownedBy(weapon, owner) {
@@ -158,7 +166,7 @@ export class Items {
   }
 
   dispense(weapon, maxItems, def, position, velocity, yaw, owner, team) {
-    const key = `${weapon}:${this.ownerKey(owner)}`;
+    const key = `${weapon}:${this.world.ownerKey(owner)}`;
     const list = (this.owned.get(key) || []).filter((item) => !item.gone);
     if (maxItems > 0 && list.length >= maxItems) this.destroy(list.shift());
     const item = this.spawn(def, position, velocity, yaw, { owner, team });
@@ -169,7 +177,7 @@ export class Items {
 
   // A soldier's drop at death: one roll down the class's drop list.
   dropFor(drops, classes, position, velocity, yaw) {
-    let r = (this.random || legacyDrop)();
+    let r = this.world.dropRoll();
     for (const drop of drops || []) {
       r -= drop.probability ?? 0;
       if (r >= 0) continue;
@@ -192,7 +200,7 @@ export class Items {
     // chain instead of the two setting each other off without end.
     this.remove(item);
     if (item.mine && item.def.ExplosionDeath && typeof item.def.ExplosionDeath === "object") {
-      this.explode(item.def.ExplosionDeath, item.position.clone(), item.owner);
+      this.world.explode(item.def.ExplosionDeath, item.position.clone(), item.owner);
     }
   }
 
@@ -207,7 +215,7 @@ export class Items {
   expire(item) {
     if (item.gone) return;
     this.remove(item);
-    if (item.mine && typeof item.def.ExplosionExpire === "object") this.explode(item.def.ExplosionExpire, item.position.clone(), item.owner);
+    if (item.mine && typeof item.def.ExplosionExpire === "object") this.world.explode(item.def.ExplosionExpire, item.position.clone(), item.owner);
   }
 
   // Damage to one item (a mine at 0 health pops).
@@ -224,7 +232,7 @@ export class Items {
     for (const item of this.items) {
       if (item.gone || !item.mine || !item.landed || !Number.isFinite(item.health)) continue;
       const damage = blastDamage(explosion, blastDistance(position, item.position, item.radius), item.def.HealthType);
-      if (!(damage > 0) || blastBlocked(this.collision, position, item.position)) continue;
+      if (!(damage > 0) || this.world.blocked(position, item.position)) continue;
       item.health -= damage;
       if (item.health <= 0) this.destroy(item);
     }
@@ -266,7 +274,7 @@ export class Items {
     item.previous.copy(item.position);
     item.position.addScaledVector(v, dt);
     if (!item.sinking) v.y += g * 0.5 * dt;
-    if (item.mine && !item.sinking && this.water?.crossing(item.previous, item.position, this.wet)) {
+    if (item.mine && !item.sinking && this.world.waterCrossing(item.previous, item.position, this.wet)) {
       item.sinking = true;
       v.set(0, -MINE_SINK, 0);
       this.water.ripple(this.wet, 1.5, 0.01);
@@ -282,7 +290,7 @@ export class Items {
     if (length < 1e-6) return;
     ray.divideScalar(length);
     this.start.copy(item.previous).addScaledVector(ray, -0.05);
-    const hit = this.collision.cast(this.start, ray, length + 0.1, this.hit);
+    const hit = this.world.cast(this.start, ray, length + 0.1, this.hit);
     if (!hit) return;
     const n = hit.normal;
     const v = item.velocity;
@@ -314,17 +322,21 @@ export class Items {
     item.up.copy(normal);
   }
 
-  // The model at the item, upright on its surface, facing its way.
+  // The model at the item, upright on its surface, facing its way (its
+  // turn), and drawn there.
   place(item) {
-    if (!item.mesh) return;
-    item.mesh.position.copy(item.position);
+    if (!item.turn) return;
     const up = item.up;
     const forward = this.forward.set(Math.sin(item.yaw), 0, Math.cos(item.yaw));
     forward.addScaledVector(up, -forward.dot(up));
     if (forward.lengthSq() < 1e-8) forward.set(0, 0, 1).addScaledVector(up, -up.z);
     forward.normalize();
     const right = this.right.crossVectors(up, forward).normalize();
-    item.mesh.quaternion.setFromRotationMatrix(this.basis.makeBasis(right, up, forward));
+    item.turn.setFromRotationMatrix(this.basis.makeBasis(right, up, forward));
+    if (item.mesh) {
+      item.mesh.position.copy(item.position);
+      item.mesh.quaternion.copy(item.turn);
+    }
   }
 
   // A mine: set off by an enemy near enough and no longer closing in, unless
@@ -333,8 +345,10 @@ export class Items {
     const def = item.def;
     if (!item.landed || !def.ExplosionTrigger || !(def.TriggerRadius > 0)) return;
     let fire = false;
-    for (const target of targets) {
-      const relation = target.relation(item.team);
+    this.world.targets = targets;
+    for (let i = 0; i < targets.length; i++) {
+      const target = this.world.watch(i, item.team);
+      const relation = target.relation;
       if (relation === 0) continue;
       const toward = this.ray.subVectors(target.center, item.position);
       const gap = toward.lengthSq();
@@ -345,23 +359,24 @@ export class Items {
       if (gap < (def.TriggerRadius + target.radius) ** 2 && target.velocity.dot(toward) >= 0) fire = true;
     }
     if (!fire) return;
-    if (typeof def.ExplosionTrigger === "object") this.explode(def.ExplosionTrigger, item.position.clone(), item.owner);
+    if (typeof def.ExplosionTrigger === "object") this.world.explode(def.ExplosionTrigger, item.position.clone(), item.owner);
     this.remove(item);
   }
 
   // A power-up: taken by the first soldier touching it that gets something.
   offer(item, targets) {
     if (!item.landed && item.age <= PICKUP_DELAY) return;
-    const c = this.start.copy(item.mesh?.userData.center || ORIGIN);
-    if (item.mesh) c.applyQuaternion(item.mesh.quaternion);
+    const c = this.start.copy(item.center || ORIGIN);
+    if (item.turn) c.applyQuaternion(item.turn);
     c.add(item.position);
-    for (const target of targets) {
-      const p = target.position;
+    this.world.targets = targets;
+    for (let i = 0; i < targets.length; i++) {
+      const p = this.world.standing(i);
       const across = Math.hypot(c.x - p.x, c.z - p.z);
       if (across > SOLDIER_RADIUS + item.radius) continue;
       if (c.y < p.y - item.radius || c.y > p.y + SOLDIER_HEIGHT + item.radius) continue;
-      if (target.give(item.def)) {
-        emitSound("pickup", item.def, item.position);
+      if (this.world.give(i, item.def)) {
+        this.world.pickup(item.def, item.position);
         this.remove(item);
         return;
       }
