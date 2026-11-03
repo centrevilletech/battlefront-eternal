@@ -15,11 +15,14 @@
 // the near scene (frame), what it blends (transparent_frame, in segments
 // around what three still blends itself: transparent_segment), the
 // first-person view (view_frame) and the post passes (post_frame). The near
-// and transparent phases draw so far; the others' passes are empty.
+// and transparent phases draw so far; the others' passes are empty. A
+// mirror's render of the near scene (water.js) draws the near phase's
+// passes for its own camera (mirror_frame); what the near scene blends is
+// left to three there.
 //
 // The page writes the frame's inputs (camera, lights, each soldier) into
 // `input` and `bones` before a phase (web/, src/rust-render/).
-use crate::core::{Core, MultiDraw, Stats, VIEW_NEAR};
+use crate::core::{Core, MultiDraw, Stats, VIEW_NEAR, VIEW_SPARE};
 use crate::effects::EffectsPass;
 use crate::far::FarPass;
 use crate::foliage::FoliagePass;
@@ -148,5 +151,15 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.core.begin_phase();
         self.post.draw(&mut self.core);
         Ok(self.core.end_phase())
+    }
+
+    // The near phase from a mirror (water.js's reflection of the near scene,
+    // drawn before the frame's own): the same passes for the mirror camera,
+    // its frame block in VIEW_SPARE's buffer.
+    pub fn mirror_frame(&mut self, records: usize) -> Result<Stats, String> {
+        self.core.swap_views(VIEW_NEAR, VIEW_SPARE);
+        let stats = self.frame(records);
+        self.core.swap_views(VIEW_NEAR, VIEW_SPARE);
+        stats
     }
 }
