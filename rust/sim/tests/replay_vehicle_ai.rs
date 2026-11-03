@@ -1711,18 +1711,19 @@ fn replay_agent(capture: &Capture, frame: &Frame, nav: Option<&mut Nav>) -> Outc
 }
 
 fn run_agent(w: &mut Rw, vai: &mut VehicleAI, frame: &Frame, agent: V) {
+    let before = vai.reservations.records.clone();
     run_agent_body(w, vai, frame, agent);
     // An interrupt calls back into the service (a target or a seat reserved
     // as it takes over, the table pruned as it reads it): the table after
     // the frame is the one the interrupts left, unless the agent went on to
-    // work the table itself. Only a boarding agent the interrupts left
-    // running does (it prunes the table and renews its own reservation:
-    // pruning again what the interrupts pruned changes nothing, and they
-    // add only as they take over); the flyer and leaving agents read it no
-    // more after their interrupts.
+    // work the table itself after them. The interrupts add only as they
+    // take over (and the agent then stops); otherwise they only prune. The
+    // port's table moves only after a read that prunes (holdReservation,
+    // reserveSeat), which drops the same records at the same time. So where
+    // the port's table moved during the frame it holds what the
+    // JavaScript's did; where it did not, the interrupts' is the answer.
     if let Some((taken, records)) = w.reentry.take() {
-        let boarding = frame.name.starts_with("boardAgent.");
-        if taken || !boarding {
+        if taken || vai.reservations.records == before {
             vai.reservations.records = records;
         }
     }
