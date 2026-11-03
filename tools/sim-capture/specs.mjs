@@ -31,6 +31,7 @@
 // object the game holds, such as game.items) is a handle wherever it is met
 // unless the state asks for it whole: expand(object).
 import { units } from './units.mjs';
+import { seats } from './seats.mjs';
 
 export class Expand {
   constructor(value) { this.value = value; }
@@ -189,5 +190,7 @@ const vehicles = {
 const ticks = { frames: [] };
 
 // The units package (flip F3): a unit's tick, the registry's queries and
-// the soldiers pushed apart (tools/sim-capture/units.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units };
+// the soldiers pushed apart (tools/sim-capture/units.mjs). The seats (flip
+// F2 with the hulls and flight): the hulls' seats and the turret crews
+// (tools/sim-capture/seats.mjs).
+export const SPECS = { ordnance, items, vehicles, ticks, units, seats };
