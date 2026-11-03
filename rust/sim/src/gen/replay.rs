@@ -151,7 +151,7 @@ impl Beam {
             end: { let p = format!("{path}.end"); vec3(v.get("end"), &p)? },
             direction: { let p = format!("{path}.direction"); vec3(v.get("direction"), &p)? },
             local_origin: { let p = format!("{path}.localOrigin"); match v.get("localOrigin").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(vec3(v.get("localOrigin"), &p)?) } },
-            damage: { let p = format!("{path}.damage"); num(v.get("damage"), &p)? },
+            damage: { let p = format!("{path}.damage"); match v.get("damage").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("damage"), &p)?) } },
         })
     }
 
@@ -171,7 +171,7 @@ impl Beam {
             ("end", a.vec3(self.end)),
             ("direction", a.vec3(self.direction)),
             ("localOrigin", match &self.local_origin { Some(v) => a.vec3((*v)), None => Value::Null }),
-            ("damage", Value::Num(self.damage)),
+            ("damage", match &self.damage { Some(v) => Value::Num((*v)), None => Value::Undefined }),
         ];
         a.object("", fields)
     }

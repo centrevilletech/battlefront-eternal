@@ -113,9 +113,10 @@ export default {
         end: 'vec3',
         direction: 'vec3',
         localOrigin: 'vec3|null',
-        // `damageDef` is the definition's copy whose Damage each step sets
-        // (306): its Damage is the state.
-        damage: { type: 'f64', js: 'damageDef.Damage', mirror: false },
+        // `damageDef` is the definition's copy whose Damage each step that
+        // strikes sets (stepBeam): its Damage is the state (undefined until
+        // then when the class names none).
+        damage: { type: 'f64|undefined', js: 'damageDef.Damage', mirror: false },
       },
       skip: {
         damageDef: 'a copy of the definition; its Damage is `damage`',

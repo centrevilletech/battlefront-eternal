@@ -42,7 +42,11 @@ const ORDNANCE_WORLD = ['cast', 'castMoving', 'raycastUnits', 'riderMount', 'fat
   'waver', 'spin', 'explosion', 'hit', 'hitUnit', 'projectile', 'launch', 'impact', 'grenadeContact', 'bounce'];
 const ITEMS_WORLD = ['cast', 'blocked', 'waterCrossing', 'model', 'ownerKey', 'dropRoll', 'explode', 'watch', 'standing', 'give', 'pickup'];
 const ordnanceWorld = (game) => ORDNANCE_WORLD.map((m) => [`ordnance.world.${m}`, game.ordnance.world, m]);
-const itemsWorld = (game) => ITEMS_WORLD.map((m) => [`items.world.${m}`, game.items.world, m]);
+// An item's explosion reaches back into the items (a mine's blast sets off
+// the mines beside it, a death drops one): the items as the call leaves
+// them come with its return, for a replay that serves the call.
+const itemsAfter = (game, cap) => ({ items: cap.export('items', game.items) });
+const itemsWorld = (game) => ITEMS_WORLD.map((m) => [`items.world.${m}`, game.items.world, m, ...(m === 'explode' ? [itemsAfter] : [])]);
 
 // The rounds: a tick's flight (Ordnance.update) and every round fired
 // (Ordnance.fireRound, the fire command, with the lag-compensated bolt's
@@ -56,8 +60,9 @@ const ordnance = {
 
 // The items: a tick's (Items.update, its targets as its argument) and the
 // commands JavaScript gives them (a dispenser's throw, a death's drop, a
-// blast's damage, a hit to one mine).
-const itemsState = (game, args, cap) => cap.export('items', game.items);
+// blast's damage, a hit to one mine), with the battle's item pools (its
+// configuration, not the store's).
+const itemsState = (game, args, cap) => ({ items: cap.export('items', game.items), pools: game.items.pools });
 const items = {
   frames: [
     { method: 'items.update', target: (game) => game.items, state: itemsState, boundaries: itemsWorld },
@@ -65,7 +70,7 @@ const items = {
     { method: 'items.dropFor', target: (game) => game.items, state: itemsState, boundaries: itemsWorld },
     { method: 'items.blast', target: (game) => game.items, state: itemsState, boundaries: itemsWorld },
     { method: 'items.hurt', target: (game) => game.items,
-      state: (game, args, cap) => ({ items: cap.export('items', game.items), item: cap.export('item', args[0]) }), boundaries: itemsWorld },
+      state: (game, args, cap) => ({ ...itemsState(game, args, cap), item: cap.export('item', args[0]) }), boundaries: itemsWorld },
   ],
 };
 

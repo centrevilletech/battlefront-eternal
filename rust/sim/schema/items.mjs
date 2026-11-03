@@ -30,7 +30,7 @@ export default {
         model: 'models, made for the page',
         explode: 'the battle\'s explosion, reached through the boundary',
         water: 'the water, reached through the boundary',
-        pools: 'the mission\'s pool sizes, set as the battle loads',
+        pools: 'how many of each base the world holds at most: the battle\'s configuration, given with its definitions',
         views: 'the items a page online shows (network-entity-items.js)',
         world: 'the boundary itself (src/ordnance-world.js)',
         random: 'the battle\'s gameplay stream, drawn through the boundary',

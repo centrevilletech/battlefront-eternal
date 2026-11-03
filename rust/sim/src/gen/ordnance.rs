@@ -175,18 +175,18 @@ pub struct Beam {
     pub end: Vec3,
     pub direction: Vec3,
     pub local_origin: Option<Vec3>,
-    pub damage: f64,
+    pub damage: Option<f64>,
 }
 
 impl Beam {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
     pub const EXPORT_STRIDE: usize = 31;
-    pub const IMPORT_STRIDE: usize = 32;
-    pub const FULL_STRIDE: usize = 32;
+    pub const IMPORT_STRIDE: usize = 33;
+    pub const FULL_STRIDE: usize = 33;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 32] = (&mut row[..32]).try_into().unwrap();
+        let row: &mut [f64; 33] = (&mut row[..33]).try_into().unwrap();
         row[2] = self.network_fire_channel;
         match &self.history_tick { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v); } None => { row[3] = 1.0; row[3 + 1..3 + 2].fill(0.0); } }
         row[5] = self.def.0 as f64;
@@ -200,11 +200,11 @@ impl Beam {
         row[21..21 + 3].copy_from_slice(&self.end);
         row[24..24 + 3].copy_from_slice(&self.direction);
         match &self.local_origin { Some(v) => { row[27] = 0.0; row[27 + 1..27 + 1 + 3].copy_from_slice(&(*v)); } None => { row[27] = 1.0; row[27 + 1..27 + 4].fill(0.0); } }
-        row[31] = self.damage;
+        match &self.damage { Some(v) => { row[31] = 0.0; row[31 + 1] = (*v); } None => { row[31] = 2.0; row[31 + 1..31 + 2].fill(0.0); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 32] = (&row[..32]).try_into().unwrap();
+        let row: &[f64; 33] = (&row[..33]).try_into().unwrap();
         self.network_fire_channel = row[2];
         self.history_tick = if row[3] == 0.0 { Some(row[3 + 1]) } else { None };
         self.def = DefId(word_u32(row[5]));
@@ -218,7 +218,7 @@ impl Beam {
         self.end = [row[21], row[21 + 1], row[21 + 2]];
         self.direction = [row[24], row[24 + 1], row[24 + 2]];
         self.local_origin = if row[27] == 0.0 { Some([row[27 + 1], row[27 + 1 + 1], row[27 + 1 + 2]]) } else { None };
-        self.damage = row[31];
+        self.damage = if row[31] == 0.0 { Some(row[31 + 1]) } else { None };
     }
 
     pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) {

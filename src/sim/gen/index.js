@@ -13,7 +13,7 @@ export * from "./store.js";
 // numeric field that names an object), home (singleton kind and list field),
 // whether the store holds fields of it, row strides, and its functions.
 export const KIND_TABLE = [null,
-  { name: "beam", code: 1, hash: 0xfc8a10be, singleton: false, key: null, home: { kind: 8, field: "beams" }, stored: true, classes: [], exportStride: 31, importStride: 32, fullStride: 32, Mirror: BeamMirror, sync: syncBeam, syncFull: syncFullBeam, put: putBeam, putFull: putFullBeam, check: checkBeam, same: sameBeam, export: exportBeam, keys: BEAM_KEYS },
+  { name: "beam", code: 1, hash: 0x4adbee26, singleton: false, key: null, home: { kind: 8, field: "beams" }, stored: true, classes: [], exportStride: 31, importStride: 33, fullStride: 33, Mirror: BeamMirror, sync: syncBeam, syncFull: syncFullBeam, put: putBeam, putFull: putFullBeam, check: checkBeam, same: sameBeam, export: exportBeam, keys: BEAM_KEYS },
   { name: "body", code: 2, hash: 0xfe7bf1ca, singleton: false, key: null, home: null, stored: false, classes: [] },
   { name: "bolt", code: 3, hash: 0xaccf5409, singleton: false, key: null, home: { kind: 8, field: "bolts" }, stored: true, classes: [], exportStride: 48, importStride: 48, fullStride: 48, Mirror: BoltMirror, sync: syncBolt, syncFull: syncFullBolt, put: putBolt, putFull: putFullBolt, check: checkBolt, same: sameBolt, export: exportBolt, keys: BOLT_KEYS },
   { name: "emitter", code: 4, hash: 0xc667f062, singleton: false, key: null, home: null, stored: false, classes: [] },

@@ -166,7 +166,7 @@ export class BeamMirror {
 }
 
 export const BEAM_KEYS = new Set(["networkFireChannel", "historyTick", "def", "owner", "source", "ignoreBody", "life", "duration", "effectTime", "position", "end", "direction", "localOrigin", "damageDef", "axis", "color"]);
-export const BEAM_EXPORT_STRIDE = 31, BEAM_IMPORT_STRIDE = 32, BEAM_FULL_STRIDE = 32;
+export const BEAM_EXPORT_STRIDE = 31, BEAM_IMPORT_STRIDE = 33, BEAM_FULL_STRIDE = 33;
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncBeam(b, f, at, h, m) {
@@ -201,7 +201,7 @@ export function syncFullBeam(b, f, at, h, m) {
   (m.end ??= new THREE.Vector3()).set(f[at + 21], f[at + 22], f[at + 23]);
   (m.direction ??= new THREE.Vector3()).set(f[at + 24], f[at + 25], f[at + 26]);
   { const tag = f[at + 27]; if (tag === 0) { (m.localOrigin ??= new THREE.Vector3()).set(f[at + 28], f[at + 29], f[at + 30]); } else m.localOrigin = tag === 1 ? null : undefined; }
-  (m.damageDef ??= {}).Damage = f[at + 31];
+  { const tag = f[at + 31]; if (tag === 0) { (m.damageDef ??= {}).Damage = f[at + 32]; } else (m.damageDef ??= {}).Damage = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -220,7 +220,7 @@ export function putBeam(b, o, f, at, heap) {
   { const v = o.end; f[at + 21] = v.x; f[at + 22] = v.y; f[at + 23] = v.z; }
   { const v = o.direction; f[at + 24] = v.x; f[at + 25] = v.y; f[at + 26] = v.z; }
   { const x = o.localOrigin; if (x === null || x === undefined) { f[at + 27] = x === null ? 1 : 2; f.fill(0, at + 28, at + 31); } else { f[at + 27] = 0; { const v = x; f[at + 28] = v.x; f[at + 29] = v.y; f[at + 30] = v.z; } } }
-  f[at + 31] = o.damageDef?.Damage;
+  { const x = o.damageDef?.Damage; if (x === null || x === undefined) { f[at + 31] = x === null ? 1 : 2; f.fill(0, at + 32, at + 33); } else { f[at + 31] = 0; f[at + 32] = x; } }
 }
 
 // Every field of object `o` into a row.
@@ -238,7 +238,7 @@ export function putFullBeam(b, o, f, at, heap) {
   { const v = o.end; f[at + 21] = v.x; f[at + 22] = v.y; f[at + 23] = v.z; }
   { const v = o.direction; f[at + 24] = v.x; f[at + 25] = v.y; f[at + 26] = v.z; }
   { const x = o.localOrigin; if (x === null || x === undefined) { f[at + 27] = x === null ? 1 : 2; f.fill(0, at + 28, at + 31); } else { f[at + 27] = 0; { const v = x; f[at + 28] = v.x; f[at + 29] = v.y; f[at + 30] = v.z; } } }
-  f[at + 31] = o.damageDef?.Damage;
+  { const x = o.damageDef?.Damage; if (x === null || x === undefined) { f[at + 31] = x === null ? 1 : 2; f.fill(0, at + 32, at + 33); } else { f[at + 31] = 0; f[at + 32] = x; } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -275,7 +275,7 @@ export function sameBeam(a, b) {
   if (!sameVec(a.end, b.end)) return ".end";
   if (!sameVec(a.direction, b.direction)) return ".direction";
   { const p = a.localOrigin, q = b.localOrigin; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".localOrigin"; } else { if (!sameVec(p, q)) return ".localOrigin"; } }
-  if (!Object.is(a.damageDef?.Damage, b.damageDef?.Damage)) return ".damage";
+  { const p = a.damageDef?.Damage, q = b.damageDef?.Damage; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".damage"; } else { if (!Object.is(p, q)) return ".damage"; } }
   return null;
 }
 
