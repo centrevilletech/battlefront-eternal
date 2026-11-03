@@ -82,6 +82,13 @@ fn number_text(x: f64) -> String {
     }
 }
 
+/// strikeable(unit) (registry.js): whether a round can meet this unit's
+/// body: a soldier on foot or a body lying where it fell, or a rider shown
+/// on an exposed seat; not one inside a vehicle or turret.
+pub fn strikeable(id: u32, unit: &Unit, world: &mut dyn UnitsWorld) -> bool {
+    (unit.alive || (unit.dead && !unit.removed)) && (unit.seat.is_none() || world.seat_exposed(id, unit))
+}
+
 /// A target member's registry id.
 pub fn target_id(m: Member) -> u32 {
     match m {
@@ -132,6 +139,20 @@ impl Units {
         } else {
             None
         }
+    }
+
+    /// unitsClear(units, from, to, exclude) (registry.js): whether a segment
+    /// from `from` to `to` passes clear of every living unit but those
+    /// excluded (a sight test: seated units are left out).
+    pub fn units_clear(&self, units: &mut Slab<Unit>, from: &Vector3, to: &Vector3, exclude: Exclude, world: &mut dyn UnitsWorld) -> bool {
+        let mut d = Vector3::default();
+        d.sub_vectors(to, from);
+        let span = d.length();
+        if span < 1e-6 {
+            return true;
+        }
+        d.divide_scalar(span);
+        self.raycast(units, from, &d, span, exclude, None, false, world).is_none()
     }
 
     /// relation(a, b) (registry.js): team a's relation to team b, 1 friend,
