@@ -142,6 +142,12 @@ impl Collision {
         self.colliders.get(body as usize).and_then(Option::as_ref)
     }
 
+    /// Body `body`'s kernel slot, if JavaScript named it (the units'
+    /// phase: the body a soldier falls through, src/units-sim.js).
+    pub fn kernel_slot(&self, body: BodyId) -> Option<usize> {
+        self.kernel(body)
+    }
+
     fn kernel(&self, body: BodyId) -> Option<usize> {
         match self.kernel_of.get(body as usize) {
             Some(&k) if k >= 0 => Some(k as usize),

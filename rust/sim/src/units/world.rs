@@ -87,6 +87,9 @@ pub trait UnitsWorld {
     fn flush_muzzles(&mut self, id: u32, unit: &mut Unit);
     /// combat.clearCharge() (undraw).
     fn clear_charge(&mut self, id: u32, unit: &mut Unit);
+    /// s.sampleMuzzles(h) for a droideka whose gun rig the battle holds
+    /// (its tick had no DroidekaParts: the battle's JavaScript poses it).
+    fn sample_muzzles(&mut self, _id: u32, _unit: &mut Unit, _h: f64) {}
     /// A droideka's blast during its death clip (onDeathBlast: the game's
     /// deathBlast hook).
     fn death_blast(&mut self, id: u32, unit: &mut Unit);

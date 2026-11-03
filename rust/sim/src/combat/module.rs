@@ -52,6 +52,12 @@ fn content() -> &'static mut Content {
     unsafe { (*addr_of_mut!(CONTENT)).get_or_insert_with(|| Content { defs: Rc::new(CombatDefs::default()), explosions: Vec::new() }) }
 }
 
+/// The combat classes and weapons the battle has given the module (a
+/// command's or the units' phase's own handle on them).
+pub(crate) fn defs() -> Rc<CombatDefs> {
+    content().defs.clone()
+}
+
 /// Each unit's trigger edges as its last command brought them.
 static mut EDGES: Vec<Edges> = Vec::new();
 
@@ -199,7 +205,7 @@ fn feed_unit(u: &mut Unit, i: &CbIn) {
     }
 }
 
-fn edge(e: &CbEdge) -> Edge {
+pub(crate) fn edge(e: &CbEdge) -> Edge {
     Edge { button: e.button, id: e.id, late: e.late, aim_yaw: e.aim_yaw, aim_pitch: e.aim_pitch }
 }
 
@@ -262,18 +268,44 @@ fn answer(r: Ref<Unit>, flag: bool) -> *const f64 {
     s.calls.block.ptr()
 }
 
+/// The unit a command or the units' phase has out of the store, if any
+/// (its slot holds an empty unit until it goes back): what JavaScript must
+/// not write into meanwhile, and what the phase's syncs leave out.
+static mut TAKEN: Option<u32> = None;
+
+/// The slot of the unit out of the store now.
+pub(crate) fn taken() -> Option<u32> {
+    // SAFETY: one thread, a copy out.
+    unsafe { *addr_of_mut!(TAKEN) }
+}
+
+fn mark_taken(slot: Option<u32>) {
+    // SAFETY: one thread, no reference kept.
+    unsafe { *addr_of_mut!(TAKEN) = slot }
+}
+
 /// The unit out of the store for a command to work on (the store keeps an
 /// empty one in its place until it goes back).
-fn take(r: Ref<Unit>) -> (Unit, Combat) {
+pub(crate) fn take(r: Ref<Unit>) -> (Unit, Combat) {
     let s = sim();
     let mut u = std::mem::take(s.store.unit.get_mut(r).expect("a unit the store holds"));
     let c = std::mem::take(&mut u.combat);
+    mark_taken(Some(r.slot));
     (u, c)
 }
 
-fn put(r: Ref<Unit>, mut u: Unit, c: Combat) {
+pub(crate) fn put(r: Ref<Unit>, mut u: Unit, c: Combat) {
     u.combat = c;
     *sim().store.unit.get_mut(r).expect("a unit the store holds") = u;
+    mark_taken(None);
+}
+
+/// Unit `slot` as the store holds it, for a field JavaScript sets on his
+/// combat: never the empty one in the place of a unit out of the store (a
+/// write there would be lost when he goes back).
+fn held(slot: u32) -> &'static mut Unit {
+    assert!(taken() != Some(slot), "unit {slot}'s combat set while he is out of the store");
+    sim().store.unit.get_mut(unit_ref(slot)).expect("a unit the store holds")
 }
 
 /// Runs `f` on unit `r` and its combat taken out of the store, with the
@@ -465,27 +497,39 @@ pub extern "C" fn cmb_next(unit: u32, channel: u32, direction: f64) -> *const f6
 }
 
 /// A field the battle sets on a combat (src/combat-sim.js CombatFacade's
-/// setters): 0 health, 1 zoomStep, 2 dead, 3 deathTime, 4 blowApart.
+/// setters): 0 health, 1 zoomStep, 2 dead, 3 deathTime, 4 blowApart; and
+/// what the battle's JavaScript keeps on a combat, which the units' phase
+/// reads from the store: 5 mounted, 6 gunUnderwater, 7 team, 8 player,
+/// 9 deferMuzzles, 10 whether it has a generator (random), 11 whether it
+/// has recon droids (remotes).
 #[no_mangle]
 pub extern "C" fn cmb_set(unit: u32, field: u32, value: f64) {
-    let s = sim();
-    let c = &mut s.store.unit.get_mut(unit_ref(unit)).expect("a unit the store holds").combat;
+    let c = &mut held(unit).combat;
     match field {
         0 => c.health = value,
         1 => c.zoom_step = value,
         2 => c.dead = value != 0.0,
         3 => c.death_time = value,
         4 => c.blow_apart = value != 0.0,
+        5 => c.mounted = Some(value != 0.0),
+        6 => c.gun_underwater = value != 0.0,
+        7 => c.team = value,
+        8 => c.player = value != 0.0,
+        9 => c.defer_muzzles = value != 0.0,
+        10 => c.random = value != 0.0,
+        11 => c.has_remotes = value != 0.0,
         _ => panic!("no combat field {field} to set"),
     }
 }
 
 /// A field the battle sets on a weapon (WeaponFacade's setters): 0
-/// reserve, 1 kick, 2 clip, 3 heat, 4 floor.
+/// reserve, 1 kick, 2 clip, 3 heat, 4 floor; and what the battle's
+/// JavaScript keeps on a weapon, which the units' phase reads from the
+/// store: 5 whether it has a generator (random), 6 spreadScale, 7
+/// yawSpreadOverride, 8 yawSpreadOverride null (the value unread).
 #[no_mangle]
 pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64) {
-    let s = sim();
-    let c = &mut s.store.unit.get_mut(unit_ref(unit)).expect("a unit the store holds").combat;
+    let c = &mut held(unit).combat;
     let w = &mut c.weapons[weapon as usize];
     match field {
         0 => w.reserve = value,
@@ -493,6 +537,10 @@ pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64)
         2 => w.clip = value,
         3 => w.heat = value,
         4 => w.floor = value,
+        5 => w.random = value != 0.0,
+        6 => w.spread_scale = value,
+        7 => w.yaw_spread_override = Some(value),
+        8 => w.yaw_spread_override = None,
         _ => panic!("no weapon field {field} to set"),
     }
 }
@@ -522,7 +570,7 @@ fn a3(v: &Vector3) -> Vec3 {
 }
 
 /// The battle as the module's imports give it, for unit `unit`'s combat.
-struct JsWorld {
+pub(crate) struct JsWorld {
     unit: f64,
     r: Ref<Unit>,
     /// Whether he has recon droids (combat.remotes): without, no droid of
@@ -531,6 +579,11 @@ struct JsWorld {
 }
 
 impl JsWorld {
+    /// The battle for unit `r`'s combat (`remotes`: combat.remotes).
+    pub(crate) fn new(r: Ref<Unit>, remotes: bool) -> JsWorld {
+        JsWorld { unit: r.slot as f64, r, remotes }
+    }
+
     /// An import that runs the battle's code: the unit and his combat back
     /// in the store for it (JavaScript syncs from them first and gives his
     /// view back after), then out again as the battle left them.

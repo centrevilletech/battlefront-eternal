@@ -95,6 +95,8 @@ export class CombatSim {
     this.damageRecord = { words: words(3), put: putCbDamageIn };
     this.explodeRecord = { words: words(4), put: putCbExplodeIn };
     this.damage$ = { in: null, amount: 0, onShield: 0, source: null, attacker: null, explosion: false };
+    // The units' phase on the module, when it runs too (src/units-sim.js).
+    this.unitsSim = null;
     this.explode$ = { in: null, explosion: 0, position: null, owner: null, scale: 1 };
     bridge.register(this.handlers());
   }
@@ -157,9 +159,21 @@ export class CombatSim {
     const gun = { found: false, point: new THREE.Vector3(), gun: 0, hasLast: false, lastIndex: 0, lastBarrel: 0 };
     const point = { found: false, point: new THREE.Vector3() };
     const arcs = { targets: [] };
+    // An import that runs the battle's code: the unit's view out of the
+    // store and back in after it (current, feed); for the unit the units'
+    // phase is ticking (src/units-sim.js), the phase's way: every unit it
+    // changed synced first and every unit written back after.
     const changing = (c, run) => {
+      const units = this.unitsSim;
+      if (units?.ticking(c.owner.id)) return units.hook(run);
       c.current();
       try { run(); } finally { c.feed(); }
+    };
+    // An import that reads the battle: inside the units' phase, the units
+    // it changed synced first.
+    const reading = (run) => {
+      const units = this.unitsSim;
+      return units?.active ? units.reading(run) : run();
     };
     return {
       combatCast: (a) => {
@@ -211,7 +225,8 @@ export class CombatSim {
         const c = at(a), w = c.arsenal.weapons[a.weapon], m = w.w;
         // The launcher as it is now (its mirror has it after the command).
         m.level = a.level; m.lockComplete = a.lockComplete; m.lockTargetId = a.lockTargetId; m.lockGeneration = a.lockGeneration;
-        const picked = c.world.lockPick(w, v(a.origin), v(a.dir));
+        const origin = v(a.origin), dir = v(a.dir);
+        const picked = reading(() => c.world.lockPick(w, origin, dir));
         pick.pick = picked === undefined ? 0 : picked === null ? 1 : 2;
         pick.id = picked ? picked.unit.id : 0;
         pick.generation = picked ? picked.unit.generation ?? 0 : 0;
@@ -235,7 +250,7 @@ export class CombatSim {
       },
       combatMeleeStrike: (a) => { const c = at(a); changing(c, () => c.world.meleeStrike()); },
       combatArcTargets: (a) => {
-        const list = at(a).world.arcTargets();
+        const c = at(a), list = reading(() => c.world.arcTargets());
         arcs.targets = list.map((t) => ({ origin: t.origin, center: t.center ?? null, radius: t.radius ?? null }));
         return arcs;
       },
@@ -330,17 +345,24 @@ class WeaponFacade {
     this.repair = def.base === "repair";
     this.bank = def.AnimationBank || "rifle";
     this.rounds = def.RoundsPerClip;
-    // What the battle sets on a weapon (the AI's settings, its generator).
-    this.random = null;
-    this.spreadScale = 1;
+    // What the battle sets on a weapon (the AI's settings, its generator):
+    // its generator and spread settings are written into the store as they
+    // are set (the units' phase reads them there); its sniper scale only
+    // the AI reads.
+    this.kept = { random: null, spreadScale: 1, yawSpreadOverride: null };
     this.sniperScale = 0;
-    this.yawSpreadOverride = null;
     this.shownAtWork = 0;
     this.meleeView = def.base === "melee" ? new MeleeView(this) : null;
   }
 
   // Its mirror (the store's weapon record).
   get w() { return this.combat.state.arsenal.weapons[this.index]; }
+  get random() { return this.kept.random; }
+  set random(value) { this.kept.random = value; this.keep(5, value ? 1 : 0); }
+  get spreadScale() { return this.kept.spreadScale; }
+  set spreadScale(value) { this.kept.spreadScale = value; this.keep(6, value); }
+  get yawSpreadOverride() { return this.kept.yawSpreadOverride; }
+  set yawSpreadOverride(value) { this.kept.yawSpreadOverride = value; this.keep(value === null ? 8 : 7, value === null ? 0 : value); }
   get def() { return this.levels[this.w.level]; }
   get level() { return this.w.level; }
   get admitShot() { return this.w.admits ? this.combat.admitRemoteLaunch : null; }
@@ -397,6 +419,14 @@ class WeaponFacade {
     c.sim.x.cmb_weapon_set(c.owner.id, this.index, field, value);
     this.w[name] = value;
   }
+
+  // What the battle keeps on the weapon, into the store's record of it: a
+  // weapon of this life's arsenal only (one the AI still holds from an
+  // earlier life is nobody's).
+  keep(field, value) {
+    const c = this.combat;
+    if (c.made && c.arsenal?.weapons[this.index] === this) c.sim.x.cmb_weapon_set(c.owner.id, this.index, field, value);
+  }
 }
 
 // A melee weapon's swing (src/heroes.js MeleeSwing) as its mirror has it.
@@ -445,7 +475,6 @@ export class CombatFacade {
   constructor(sim, { soldier, def, actor, animator, collision, camera = null, ordnance, lights, owner, player = false }) {
     this.sim = sim;
     this.owner = owner;
-    this.player = player;
     this.worldBoundary = new CombatWorld(this);
     this.aimOverride = null;
     this.onDamaged = () => {};
@@ -462,19 +491,18 @@ export class CombatFacade {
     this.onRespawn = () => {};
     this.onBlowApart = () => {};
     this.items = null;
-    this.team = 0;
     this.live = null;
-    this.remotes = null;
+    // What the battle's JavaScript keeps on a combat that the module reads
+    // (the units' phase reads them from the store): written into the store
+    // as they are set, once the combat has its record.
+    this.kept = { mounted: false, gunUnderwater: false, team: 0, player, deferMuzzles: false, random: undefined, remotes: null };
     this.admitRemoteLaunch = (weapon) => this.world.admitRemote(weapon);
     this.lightning = null;
     this.glow = null;
     this.arcTargets = () => [];
     this.effects = null;
     this.firstPerson = false;
-    this.mounted = false;
-    this.gunUnderwater = false;
     this.view = null;
-    this.deferMuzzles = false;
     this.held = new Map(); // no weapon models in a world
     this.shown = null;
     this.droideka = def.base === "walkerdroid";
@@ -514,6 +542,36 @@ export class CombatFacade {
     this.arsenal = new ArsenalFacade(this, this.def.weapons || []);
     this.made = true;
     this.answer(sim.x.cmb_new(id, cls, this.player ? 1 : 0, this.maxHealthOf, this.chunksOf, sim.bridge.strings.id(this.scaleOf)), false);
+    // What the battle set on the combat before it had its record.
+    const k = this.kept;
+    for (const [field, value] of [[5, k.mounted], [6, k.gunUnderwater], [7, k.team], [9, k.deferMuzzles], [10, k.random], [11, k.remotes]]) sim.x.cmb_set(id, field, Number(field >= 10 ? Boolean(value) : value));
+    this.state.mounted = k.mounted; this.state.gunUnderwater = k.gunUnderwater; this.state.team = k.team; this.state.deferMuzzles = k.deferMuzzles;
+    this.state.hasRandom = Boolean(k.random); this.state.hasRemotes = Boolean(k.remotes);
+  }
+
+  // ---- what the battle keeps on the combat (cmb_set's 5 to 11) ----
+  get mounted() { return this.kept.mounted; }
+  set mounted(value) { this.keep(5, "mounted", value, Boolean(value)); }
+  get gunUnderwater() { return this.kept.gunUnderwater; }
+  set gunUnderwater(value) { this.keep(6, "gunUnderwater", value, Boolean(value)); }
+  get team() { return this.kept.team; }
+  set team(value) { this.keep(7, "team", value, value); }
+  get player() { return this.kept.player; }
+  set player(value) { this.keep(8, "player", value, Boolean(value)); }
+  get deferMuzzles() { return this.kept.deferMuzzles; }
+  set deferMuzzles(value) { this.keep(9, "deferMuzzles", value, Boolean(value)); }
+  get random() { return this.kept.random; }
+  set random(value) { this.kept.random = value; if (this.made) { this.sim.x.cmb_set(this.owner.id, 10, value ? 1 : 0); this.state.hasRandom = Boolean(value); } }
+  get remotes() { return this.kept.remotes; }
+  set remotes(value) { this.kept.remotes = value; if (this.made) { this.sim.x.cmb_set(this.owner.id, 11, value ? 1 : 0); this.state.hasRemotes = Boolean(value); } }
+
+  // A field the battle keeps here, into the store and the mirror at once
+  // (`stored`: as the store's record has it).
+  keep(field, name, value, stored) {
+    this.kept[name] = value;
+    if (!this.made) return;
+    this.sim.x.cmb_set(this.owner.id, field, Number(stored));
+    this.state[name] = stored;
   }
 
   // ---- the mirror ----
