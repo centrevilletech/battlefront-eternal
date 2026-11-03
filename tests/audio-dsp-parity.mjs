@@ -1,11 +1,12 @@
-// The Rust audio DSP (rust/audio, ?audio=wasm) against the JavaScript
-// worklets, sample for sample: each processor is fed the same blocks
-// through its own process() here in Node (the worklet files loaded with
-// their globals stubbed, the WebAssembly from src/audio-dsp-wasm.js with
-// this process's Math as its host), and every output Float32 must be
-// bit-identical, for the parameter sets battles use (the panning laws and
-// layouts, the rooms, the dynamics profiles) and directed signals
-// (impulses, noise, full-scale, silence, denormal-tiny, a NaN).
+// The Rust audio DSP (rust/audio, which the game runs) against the
+// JavaScript worklets (what ?audio=js runs), sample for sample: each
+// processor is fed the same blocks through its own process() here in Node
+// (the worklet files loaded with their globals stubbed, the WebAssembly
+// from src/audio-dsp-wasm.js with this process's Math as its host), and
+// every output Float32 must be bit-identical, for the parameter sets
+// battles use (the panning laws and layouts, the rooms, the dynamics
+// profiles) and directed signals (impulses, noise, full-scale, silence,
+// denormal-tiny, a NaN).
 //
 //   node tests/audio-dsp-parity.mjs [name...]
 import assert from "node:assert/strict";

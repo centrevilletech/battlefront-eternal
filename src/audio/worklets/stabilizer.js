@@ -27,12 +27,12 @@ const LOW_COS = Math.cos(Math.PI / 6);
 const LOW_SIN = Math.sin(Math.PI / 6);
 const HIGH_COS = Math.cos(Math.PI / 8);
 const HIGH_SIN = Math.sin(Math.PI / 8);
-// The same DSP in WebAssembly (rust/audio, ?audio=wasm):
+// The same DSP in WebAssembly (rust/audio), which the game runs:
 // processorOptions.dsp is the compiled module the page hands over
-// (src/audio/wasm-dsp.js). With it, blocks go to the module, whose
-// answers are this file's own to the last bit
-// (tests/audio-dsp-parity.mjs); without it, the JavaScript below runs as
-// it always has.
+// (src/audio/wasm-dsp.js), and blocks go to it, whose answers are this
+// file's own to the last bit (tests/audio-dsp-parity.mjs). The JavaScript
+// below runs without it: with ?audio=js (an A/B switch), or when the
+// module cannot be instantiated.
 const DSP_MATH = { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin, js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10 };
 function dspExports(options) {
   const m = options?.processorOptions?.dsp;
