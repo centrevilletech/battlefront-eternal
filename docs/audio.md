@@ -98,7 +98,9 @@ panner.
 `stats`, `culled` among them: one-shots asked for out of earshot),
 `engine.renderer` (the graph; its `dsp` is the WebAssembly module, built
 from `rust/audio`, that the worklets run, or null with `?audio=js`, which
-runs their JavaScript instead: the same samples to the bit, for A/B), `streams` (`queues`: the lines waiting),
+runs their JavaScript instead: the same samples to the bit, for A/B; its
+`engine` is whether the enhanced voices play in the module, which
+`?voices=rust` turns on: see "The voice engine"), `streams` (`queues`: the lines waiting),
 `music`, `vo`, `player`, `soldiers`, `chatter`, `scene`, `ambience`,
 `acoustics`, `data`, and `log` (sounds asked for that don't exist).
 
@@ -580,7 +582,89 @@ node costs something each block. Two ways further, measured and not taken:
   3.9% of a core for 32 voices against 9 to 14% for the browser's buffer
   sources, the same linear interpolation. It moves the playing of every
   voice (starts, loops, offsets, fades, ends) into the worklet, a larger
-  change.
+  change, now under way: the enhanced mode's voices play that way behind
+  a switch, and the light mix is next (see "The voice engine").
+
+## The voice engine (`?voices=rust`)
+
+Behind a switch for now: with `?voices=rust` in the address, the enhanced
+mode's voices on speakers play in the spatial mixer's WebAssembly
+(`rust/audio/src/voices.rs`) instead of each through its own browser
+nodes (a buffer source, a gain, a low-pass and a reverb send). Without
+the switch nothing changes. On headphones without the dummy-head decoder
+the voices keep the browser's HRTF panners. Not built yet, in this order:
+the light mix (Classic on stereo, the low-end default), the enhanced
+master chain and the stream beds, Classic on surround, and headphones.
+
+The page still decides everything (ranking, distance, Doppler, levels,
+air, sends). Instead of AudioParam calls it sends one message a frame of
+commands, each carrying the context time its AudioParam call would have
+had. The module plays each voice as Chromium's nodes compute it: the
+buffer source's linear interpolation at a double-precision read position,
+from its start frame to its stop frame; the AudioParam timeline's
+arithmetic for setValueAtTime, setTargetAtTime and cancelScheduledValues
+(`rust/audio/src/timeline.rs`, including the four-values-at-a-time fill
+Chromium's x86 build uses for setTargetAtTime); and the low-pass's
+coefficients from fdlibm, as the browser's are. Each sample is posted to
+the worklet once, and nothing allocates while it renders.
+
+### Exactness
+
+The engine must sound exactly as the browser's own nodes do, and is held
+to this gate:
+
+1. Each voice's chain is bit-identical to Chromium's nodes wherever
+   Chromium reproduces its own output: one or two voices into an input,
+   across automation, starts, stops, loops and playback rates.
+2. With three or more voices into one input, the engine sums them in slot
+   order, and its render may differ from a native render by no more than
+   two native renders of the same scene differ from each other (the
+   largest difference over several pairs of pages).
+
+The second rule is there because Chromium's own output is not
+reproducible in that case. A node input adds up its connections in the
+order of a hash set of their outputs' addresses
+(`AudioSummingJunction::outputs_` is a `HashSet<AudioNodeOutput*>`,
+copied to `rendering_outputs_` in its order, which
+`AudioNodeInput::SumAllConnections` follows). Floating-point addition is
+not associative, so the order shows in the last bits, and it changes from
+one graph to the next: one graph of three sources into one GainNode,
+rendered eight times in one page, summed (a+b)+c five times and (a+c)+b
+three times. Two pages rendering the same scene (Chromium offline on
+Linux, each frame's messages applied before its block renders):
+
+| Scene | Native against native | Engine against native |
+| --- | --- | --- |
+| Enhanced, reverb silent, 12 to 32 voices | identical | identical |
+| Enhanced, reverb on, 2 voices | identical | identical |
+| Enhanced, reverb on, 3 voices | -118.3 dBFS at most, -135.2 rms | -118.3 dBFS at most, -135.1 rms |
+| Enhanced, reverb on, 24 voices | -109.5 dBFS at most, -130.5 rms | -111.4 dBFS at most, -130.8 rms |
+| Light mix, 2 voices | identical | not built yet |
+| Light mix, 3 voices | -132.5 dBFS at most | not built yet |
+| Light mix, 24 voices | -126.4 dBFS at most, -146.3 rms | not built yet |
+
+That spread is far below hearing and below 16-bit resolution (-96 dBFS).
+The engine sums in a fixed order, so its own output is the same every
+time.
+
+The reference is Chromium on Linux on x86. Elsewhere the browser's nodes
+compute some things differently (on macOS its biquads run through vDSP;
+off x86 setTargetAtTime fills one value at a time), so there the engine
+and the nodes can differ at the same rounding level.
+`tests/audio-checks.js` holds the engine to the first rule (twelve voices
+with the reverb silent, and two with it on, bit for bit).
+
+### What it saves
+
+Offline in Chromium (32 voices moving every frame, 48 kHz, the render
+thread's own CPU): 339 ms a second of sound down to 138 on stereo, 313 to
+198 on 5.1. The engine's update on the main thread with 32 voices went
+from 385 to 194 µs a frame. In battles on a calibrated emulation of a
+2014 low-power laptop CPU (Bespin Platforms and Hoth, Enhanced on stereo,
+six interleaved pairs), the AudioWorklet thread went from 47% of a core
+to 25% on average. Most of what is left is the worklets themselves (the
+mixer with the engine is about half of that), then the master chain's
+gains and filters and the stream beds' nodes.
 
 ## Upscaling (`tools/enhance_audio.py`)
 
@@ -641,7 +725,7 @@ node --test tests/audio-soldiers.test.js         # 9: other soldiers' weapons an
 node --test tests/audio-light.test.js            # 9: the light mix's graph, panning law and soft clip; Enhanced's graph after a trip through it; worklets loaded only when needed; voices moving between graphs
 python3 -m unittest tests/test_zero_sound.py      # 5: the archive reader on made-up chunks
 PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio.mjs
-                                                  # 71 offline checks in Chromium (no game assets)
+                                                  # 73 offline checks in Chromium (no game assets)
 PLAYWRIGHT_MODULE=... GAME_URL=http://127.0.0.1:18449 node tests/audio-loudness.mjs
                                                   # the loudness table above (needs the extracted map)
 PLAYWRIGHT_MODULE=... AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-bench.mjs
@@ -663,7 +747,9 @@ chain on 5.1, the light mix (voices where OpenAL Soft's stereo law puts
 them, with no worklet; streams at its angles; overs clipped softly; an
 engine voice's level on its speaker gains), the clarity stage (a top octave in proportion, nothing added
 under its band, an attack lifted while a steady bed stays put, the LFE
-untouched), and the headphone decoder (the encoder's harmonics against
+untouched), the voice engine against the browser's own nodes (bit for
+bit: twelve voices moving with the reverb silent, two with it on), and
+the headphone decoder (the encoder's harmonics against
 spaudiopy's, spread keeping the energy, each ear's level per direction
 against the decoder's own, a 2D sound left as stereo). The decoder checks
 are skipped when `tools/make_binaural.py` hasn't been run.
