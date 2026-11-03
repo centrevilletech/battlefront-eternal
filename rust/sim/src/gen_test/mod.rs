@@ -97,8 +97,10 @@ impl Store {
 
     /// Takes in an import block JavaScript wrote, its import fields or all of them
     /// (`full`): each row's entity (made if its slot holds none of that generation)
-    /// gets the row's fields, and what the block no longer lists is removed.
-    pub fn import(&mut self, kind: KindCode, block: &Block, full: bool) -> bool {
+    /// gets the row's fields, and what the block no longer lists is removed, unless
+    /// the block holds `some` of the kind (then every entity it does not list is left
+    /// as it is).
+    pub fn import(&mut self, kind: KindCode, block: &Block, full: bool, some: bool) -> bool {
         match kind {
             KIND_SHELF => {
                 let (row, heap) = block.read(0);
@@ -115,7 +117,7 @@ impl Store {
                     if listed.len() <= s { listed.resize(s + 1, false); }
                     listed[s] = true;
                 }
-                self.thing.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+                if !some { self.thing.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             _ => return false,
         }
