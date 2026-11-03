@@ -823,17 +823,20 @@ export class Graphics {
       const light = csm.lights[i], window = this.cascadeWindows[i], live = this.shadowMaps[i], cache = this.shadowCaches[i];
       if (plan[i].static) {
         light.shadow.map = cache;
-        renderShadows([light], scene, staticCamera);
+        // The Rust renderer's shadow pass draws it when it can (rust-render/shadow.js).
+        if (!this.rust?.coverShadow(renderer, light, scene, staticCamera, null)) renderShadows([light], scene, staticCamera);
         light.shadow.map = live;
         window.dirty = false;
         this.shadowPasses.static++;
       }
       if (plan[i].dynamic) {
-        renderer.clear = () => this.copyDepth(cache, live);
-        try {
-          renderShadows([light], scene, dynamicCamera);
-        } finally {
-          renderer.clear = clear;
+        if (!this.rust?.coverShadow(renderer, light, scene, dynamicCamera, cache)) {
+          renderer.clear = () => this.copyDepth(cache, live);
+          try {
+            renderShadows([light], scene, dynamicCamera);
+          } finally {
+            renderer.clear = clear;
+          }
         }
         this.shadowPasses.dynamic++;
       }

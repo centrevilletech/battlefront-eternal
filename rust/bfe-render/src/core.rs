@@ -65,7 +65,10 @@ pub const PASS_VIEW: usize = 7;
 pub const PASS_POST: usize = 8;
 pub const PASS_HUD: usize = 9;
 pub const PASS_WATER: usize = 10;
-pub const PASSES: usize = 11;
+// The Enhanced passes: the shadow cascades (11), the motion vectors (12), the
+// tree canopies (13).
+pub const PASS_SHADOW: usize = 11;
+pub const PASSES: usize = 14;
 
 // The multi-draw call, which glow does not wrap (WEBGL_multi_draw on the web).
 pub trait MultiDraw {
@@ -546,6 +549,36 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         geo.index_type = ty;
         geo.index_bytes = if ty == glow::UNSIGNED_SHORT { 2 } else { 4 };
         geo.index_count = data.len() as i32 / geo.index_bytes;
+    }
+
+    // A geometry's vertex buffer (its slot) or index given new contents, for
+    // a geometry the page rewrites (the crowd's shadow mesh as its soldiers
+    // come and go). Its layout stays as made.
+    pub fn geometry_buffer_data(&mut self, g: u32, slot: u32, data: &[u8]) {
+        let gl = &self.gl;
+        let geo = &self.geometries[g as usize];
+        unsafe {
+            gl.bind_vertex_array(None);
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(geo.buffers[slot as usize]));
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, data, glow::DYNAMIC_DRAW);
+            gl.bind_buffer(glow::ARRAY_BUFFER, None);
+        }
+        self.stats.gl_calls += 4;
+    }
+
+    // The index's (the last buffer) new contents; its count follows.
+    pub fn geometry_index_data(&mut self, g: u32, data: &[u8]) {
+        let gl = &self.gl;
+        let geo = &mut self.geometries[g as usize];
+        let Some(&index) = geo.buffers.last() else { return };
+        unsafe {
+            gl.bind_vertex_array(Some(geo.vao));
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(index));
+            gl.buffer_data_u8_slice(glow::ELEMENT_ARRAY_BUFFER, data, glow::DYNAMIC_DRAW);
+            gl.bind_vertex_array(None);
+        }
+        geo.index_count = data.len() as i32 / geo.index_bytes;
+        self.stats.gl_calls += 4;
     }
 
     pub fn geometry_group(&mut self, g: u32, start: i32, count: i32) {

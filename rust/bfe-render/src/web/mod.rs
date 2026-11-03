@@ -8,6 +8,7 @@ mod foliage;
 mod hud;
 mod instances;
 mod post;
+mod shadow;
 mod terrain;
 mod transparent;
 mod view;
