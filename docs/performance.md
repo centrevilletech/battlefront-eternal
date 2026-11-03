@@ -952,9 +952,11 @@ boundary, so that each part of the frame can move to it on its own:
 | Terrain | `terrain.rs` | `terrain.js` | near | Nothing yet (terrain patches and painted layers) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | Nothing yet (what the near scene blends) |
 | Effects | `effects.rs` | `effects.js` | transparent | Nothing yet (bolts, flashes, particles, debris, lightning) |
-| Foliage | `foliage.rs` | `foliage.js` | near | Nothing yet |
-| View | `view.rs` | `view.js` | view | Nothing yet (the first-person weapon) |
-| Post | `post.rs` | `post.js` | post | Nothing yet (composite, FXAA, upscale) |
+| Foliage | `foliage.rs` | `foliage.js` | near | Placed foliage, instanced, its patches chosen there too |
+| View | `view.rs` | `view.js` | view | The first-person arms and weapon, and the muzzle flash |
+| Post | `post.rs` | `post.js` | post | Soft focus, composite, FXAA, the bilinear upscale |
+| HUD | `hud.rs` | `hud.js` | hud | The battle HUD's quads |
+| Water | `water.rs` | `water.js` | transparent | Classic terrain water and its rings, among the blended items |
 
 `core.rs` holds what the passes share: the context and its multi-draw, the
 programs, geometries and textures, the inputs the page writes each frame, a
@@ -965,9 +967,12 @@ phase is one call from the page that draws its passes in order: `far_frame`,
 `frame` (the near phase), `transparent_frame`, `view_frame` and
 `post_frame`. Each returns its stats: the five counts the page has always
 read (world draws, instanced draws, instances, program switches, GL calls),
-then each pass's draws in the table's order. Only the near phase is called
-so far, from the far scene's image (`graphics.background`'s
-`onAfterRender`) at the start of the near scene's pass.
+then each pass's draws in the table's order. The near phase is called from
+the far scene's image (`graphics.background`'s `onAfterRender`) at the
+start of the near scene's pass; `view_frame`, `post_frame` and `hud_frame`
+from their places in `graphics.js` and `hud.js`, and `mirror_frame` (the
+near phase's passes from a mirror camera) from a water reflection's render
+of the near scene.
 
 On the page, `src/rust-render/index.js` loads the module and keeps the
 registry. `addPass({ name, phase, register, draw, setActive, restore })`
@@ -1009,6 +1014,71 @@ draw or call. Against the commit before the split:
   pixels at the same points of the same seeded battles, but for a few
   hundred pixels of flickering flames on Kashyyyk Docks, which differed as
   much between two runs of the build from before.
+
+### The view, foliage, water, post passes and the HUD
+
+These passes take the rest of a Classic frame's own scenes from three:
+
+- Foliage: each class of placed foliage (grass beds, leaf patches, vines)
+  is one instanced draw in the near phase, with three's program for its
+  cards. The renderer also chooses the patches each time the page updates
+  its foliage (`Foliage.drawer`), as `FoliageGpuBatch.update` does: the
+  cells of the patch index around the camera, each patch's sphere against
+  the frustum, its distance across the ground and its depth along the view.
+  A frame drawn without an update (paused) draws the last selection, as
+  three would.
+- The first-person view: its parts are rigid meshes with zero materials,
+  written as records and drawn instanced as the soldiers' guns are, with
+  the view camera's frame block; the muzzle flash (a basic material that
+  blends) is drawn after them in three's transparent order, both sides in
+  turn as three draws a double-sided one. `RustRender.cover(phase,
+  renderer, scene, camera)` does what three's render would do around its
+  draws (the scene's matrices and `onBeforeRender`, which packs its lights;
+  then resolving a multisampled target), draws the phase, and says whether
+  its passes drew the whole scene: `graphics.js` renders the view scene
+  with three only when they did not.
+- The post passes: `Graphics.postSteps` plans them (each a full-screen
+  pass with its target, or a step that draws itself: bloom and the
+  temporal and spatial upscalers), then hands the plan to the bridge. The
+  post pass draws every step with three's program for the pass's material,
+  used as three compiled it (`Kind::Plain`), into a framebuffer of its own
+  over the target's texture or onto the canvas, or leaves them all to
+  three when one is a step it cannot draw.
+- The HUD: `BattleHud.render` asks the bridge to draw its batch once it is
+  built. The renderer keeps a copy of the batch's vertex arrays, updated
+  from the vertices the batch changed, and draws each run of quads twice
+  (back faces, then front) as three draws a double-sided material that
+  blends.
+- Classic water: the surface drawn with the look's own textures and the
+  rings are items of the transparent list (sources of the transparent
+  pass), with three's sort keys. The Enhanced refraction and reflection
+  stay with three.
+- Reflections: water at Ultra renders the near scene again from a mirror
+  camera, which water.js marks; the near scene's hook then draws the near
+  phase's passes for that camera (`mirror_frame`), so what the renderer
+  draws shows in the reflection too.
+
+If the WebGL context is lost, or a pass throws, the bridge gives
+everything back to three for good (`RustRender.fail`): a lost context
+takes every object the renderer made with it.
+
+On the slow-PC emulator (SwiftShader, 800x600, the laptop's live settings
+with 2x multisampling), each pass switched on alone against three in the
+same frames of one battle drew the same pixels: Theed's foliage, FXAA,
+HUD and first-person view (also while firing), Kashyyyk Docks' foliage and
+water, and Theed's reflection at Ultra (0 of 1,440,000 pixels each over
+three points, 0 of 960,000 for the reflection over two). With draws off
+and the emulator's CPUs throttled, frames alternating between three and
+the pass (median and mean, ms): the foliage's update on Naboo: Plains,
+whose terrain grows 197,000 patches, went from 3.46 and 3.90 to 0.50 and
+0.57 and the frame from 27.7 and 29.0 to 22.2 and 23.6; on Kashyyyk Docks
+from 0.135 and 0.165 to 0.055 and 0.067. The HUD's render went from 0.90
+and 1.19 to 0.77 and 1.01, and three's render of the first-person view
+(0.56 a frame) became 0.16 of three's plus 0.17 of the renderer's. The
+post passes and the water were within noise: each phase costs about as
+much as a scene of one or two draws saves (the page's side, the call, and
+three's state reset after it, which three then sends again), which only
+a frame drawn with fewer phases will save.
 
 ## His controls on a slow CPU
 
