@@ -60,8 +60,11 @@ pub fn or_zero(x: f64) -> f64 {
 pub struct Lease {
     pub human: bool,
     pub network_human: bool,
+    pub forward: f64,
+    pub right: f64,
     pub turn: f64,
     pub pitch: f64,
+    pub brake: bool,
     /// The unit on the seat (a tripped walker's credit).
     pub unit: Option<crate::store::Ref<crate::gen::Unit>>,
 }
@@ -489,7 +492,9 @@ impl Hull {
         if attacker != OrdnanceOwner::Null {
             self.last_attacker = attacker;
         }
+        w.current(self);
         w.damaged(self.index, amount, &attacker);
+        w.reload(self);
         self.set_health(w, self.health - amount);
     }
 
@@ -523,7 +528,9 @@ impl Hull {
         let mut at = Vector3::new(o[0], o[1], o[2]);
         apply_axis_angle(&mut at, &UP, self.yaw);
         at.add(&self.position);
+        w.current(self);
         w.explosion(self.index, true, &at);
+        w.reload(self);
     }
 
     /// vehicles.js setHealth: down to 0, the hull is destroyed.
@@ -543,9 +550,14 @@ impl Hull {
         if self.flying {
             self.flight.state = Some(crate::flight::FlightState::Destroyed);
         }
-        // (Its slot's respawn clock is the system's: not a hull's state.)
+        // Its pad's respawn clock starts.
+        w.respawn_clock(self.index);
+        w.current(self);
         w.destroyed_crew(self.index);
+        w.reload(self);
+        w.current(self);
         w.destroyed(self.index);
+        w.reload(self);
         // Its own tow cable lets go with it (releaseTow 'destroyed': no sound).
         if self.tow_target >= 0.0 {
             self.tow_target = -1.0;
@@ -553,6 +565,7 @@ impl Hull {
             self.tow_leg.clear();
         }
         self.driver = false;
+        w.release_crew(self.index);
         for seat in &mut self.seats {
             seat.lease = None;
         }
@@ -567,7 +580,9 @@ impl Hull {
             None => self.position,
         };
         if self.has_explosion {
+            w.current(self);
             w.explosion(self.index, false, &at);
+            w.reload(self);
         } else if !self.creature {
             w.effect("explosion", &at);
         }

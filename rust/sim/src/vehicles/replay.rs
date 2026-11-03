@@ -170,7 +170,7 @@ pub fn pose_from_value(v: V, index: usize, mut rig: crate::rig::hull::HullRig) -
                     None
                 } else {
                     let l = s.get("lease");
-                    Some(Lease { human: l.get("human").bool(), network_human: l.get("networkHuman").bool(), turn: 0.0, pitch: 0.0, unit: None })
+                    Some(Lease { human: l.get("human").bool(), network_human: l.get("networkHuman").bool(), ..Lease::default() })
                 },
                 ..Seat::default()
             })

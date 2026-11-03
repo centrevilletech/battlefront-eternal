@@ -105,20 +105,25 @@ impl Hull {
         self.driver = v.driver.is_some();
         self.wheels = v.wheels.iter().map(|w| Wheel { x: w.x, radius: w.radius, phase: w.phase, previous: w.previous, tick_from: w.tick_from }).collect();
         self.seats.resize(v.seats.len(), Seat { turn_rate: f64::NAN, pitch_rate: f64::NAN, ..Seat::default() });
-        for (seat, s) in self.seats.iter_mut().zip(&v.seats) {
-            seat.pitch_limits = s.pitch_limits;
-            seat.yaw_limits = s.yaw_limits;
-            seat.wrap_yaw = s.wrap_yaw;
+        for (i, (seat, s)) in self.seats.iter_mut().zip(&v.seats).enumerate() {
+            let view = &v.seat_views[i];
+            seat.pitch_limits = view.pitch_limits;
+            seat.yaw_limits = view.yaw_limits;
+            seat.wrap_yaw = view.wrap_yaw;
             seat.aim_yaw = s.aim_yaw;
             seat.pitch = s.pitch;
             seat.look_yaw = s.look_yaw;
             seat.look_pitch = s.look_pitch;
+            let l = &v.seat_leases[i];
             seat.lease = s.lease.map(|_| Lease {
-                human: s.lease_human == Some(true),
-                network_human: s.lease_network_human == Some(true),
-                turn: s.lease_turn.unwrap_or(f64::NAN),
-                pitch: s.lease_pitch.unwrap_or(f64::NAN),
-                unit: match s.lease_unit {
+                human: l.human == Some(true),
+                network_human: l.network_human == Some(true),
+                forward: l.forward.unwrap_or(f64::NAN),
+                right: l.right.unwrap_or(f64::NAN),
+                turn: l.turn.unwrap_or(f64::NAN),
+                pitch: l.pitch.unwrap_or(f64::NAN),
+                brake: l.brake == Some(true),
+                unit: match l.unit {
                     Nullable::Value(u) => Some(u),
                     _ => None,
                 },
@@ -187,18 +192,15 @@ impl Hull {
         v.tow_winding = self.tow_winding;
         v.last_attacker = self.last_attacker;
         v.target_generation = self.target_generation;
-        for (s, mine) in v.seats.iter_mut().zip(&self.seats) {
+        for (i, (s, mine)) in v.seats.iter_mut().zip(&self.seats).enumerate() {
             s.aim_yaw = mine.aim_yaw;
             s.pitch = mine.pitch;
             s.look_yaw = mine.look_yaw;
             s.look_pitch = mine.look_pitch;
             if mine.lease.is_none() {
+                // An empty seat's lease view: every field undefined.
                 s.lease = None;
-                s.lease_human = None;
-                s.lease_network_human = None;
-                s.lease_turn = None;
-                s.lease_pitch = None;
-                s.lease_unit = Nullable::Undefined;
+                v.seat_leases[i] = crate::gen::SeatLeaseView { unit: Nullable::Undefined, ..Default::default() };
             }
         }
     }

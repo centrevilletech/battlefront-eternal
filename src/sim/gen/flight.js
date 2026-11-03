@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { KIND_BODY, KIND_VEHICLE_DRIVER } from "./kinds.js";
 import { exportOrdnanceOwner, putOrdnanceOwner, sameOrdnanceOwner, syncOrdnanceOwner } from "./ordnance.js";
-import { VehicleSeatMirror, VehicleWheelMirror, WaterRuleMirror, exportVehicleSeat, exportVehicleWheel, exportWaterRule, putVehicleSeat, putVehicleWheel, putWaterRule, sameVehicleSeat, sameVehicleWheel, sameWaterRule, syncVehicleSeat, syncVehicleWheel, syncWaterRule } from "./vehicles.js";
+import { SeatLeaseViewMirror, SeatViewMirror, VehicleSeatMirror, VehicleWheelMirror, WaterRuleMirror, exportSeatLeaseView, exportSeatView, exportVehicleSeat, exportVehicleWheel, exportWaterRule, putSeatLeaseView, putSeatView, putVehicleSeat, putVehicleWheel, putWaterRule, sameSeatLeaseView, sameSeatView, sameVehicleSeat, sameVehicleWheel, sameWaterRule, syncSeatLeaseView, syncSeatView, syncVehicleSeat, syncVehicleWheel, syncWaterRule } from "./vehicles.js";
 
 export const FlightState_NAMES = ["Landed","TakingOff","Flying","Landing","Destroyed"];
 export const FlightState_INDEX = new Map(FlightState_NAMES.map((name, i) => [name, i]));
@@ -82,6 +82,7 @@ export class VehicleMirror {
     this.waterClock = NaN;
     this.quaternion = new THREE.Quaternion();
     this.matrix = new THREE.Matrix4();
+    this.itemCenter = new THREE.Vector3();
     this.supportNormal = new THREE.Vector3();
     this.legSide = undefined;
     this.seatIndex = NaN;
@@ -103,8 +104,8 @@ export class VehicleMirror {
   }
 }
 
-export const VEHICLE_KEYS = new Set(["flightState", "grounded", "altitude", "throttle", "airspeed", "stateTime", "floorY", "bank", "gearFoot", "radius", "team", "flightClass", "minSpeed", "midSpeed", "boostSpeed", "power", "stickX", "stickY", "flightRollRate", "rollLock", "boosting", "trick", "trickTime", "trickCooldown", "trickPending", "trickDirection", "gear", "landingMessage", "landingMessageTime", "flightTrickRight", "flightClock", "boostExhausted", "landingReason", "flightWarning", "terrainWarning", "flightAssistId", "flightLockId", "flightLockGeneration", "flightLockTimer", "flightLostLOS", "flightLockState", "flightStart", "flightEnd", "flightStartQ", "flightTrickLoopQ", "flightTrickEndQ", "flightPreviousQ", "flightTickQ", "flightActionHeld", "trickHeld", "immelmannHeld", "flightFrameQ", "name", "flying", "walking", "creature", "wheeled", "repulsor", "speed", "reverseSpeed", "strafeSpeed", "acceleration", "deceleration", "turnRate", "hover", "bounds", "center", "size", "boundRadius", "probeRadius", "probes", "supportProbes", "maxHealth", "waterRule", "waterDepth", "body", "position", "previous", "velocity", "yaw", "previousYaw", "tilt", "roll", "previousTilt", "previousRoll", "yawRate", "tiltRate", "rollRate", "support", "forwardInput", "rightInput", "alive", "sleeping", "health", "dying", "waterClock", "quaternion", "matrix", "itemTarget", "supportNormal", "legSide", "seatIndex", "driver", "wheels", "seats", "tickFrom", "tickFromYaw", "tickFromTilt", "tickFromRoll", "root", "towTarget", "towLocal", "towLeg", "towAngle", "towWinding", "lastAttacker", "slotIndex", "aiTarget", "flightConfig", "flightLeanQ"]);
-export const VEHICLE_EXPORT_STRIDE = 192, VEHICLE_IMPORT_STRIDE = 248, VEHICLE_FULL_STRIDE = 248;
+export const VEHICLE_KEYS = new Set(["flightState", "grounded", "altitude", "throttle", "airspeed", "stateTime", "floorY", "bank", "gearFoot", "radius", "team", "flightClass", "minSpeed", "midSpeed", "boostSpeed", "power", "stickX", "stickY", "flightRollRate", "rollLock", "boosting", "trick", "trickTime", "trickCooldown", "trickPending", "trickDirection", "gear", "landingMessage", "landingMessageTime", "flightTrickRight", "flightClock", "boostExhausted", "landingReason", "flightWarning", "terrainWarning", "flightAssistId", "flightLockId", "flightLockGeneration", "flightLockTimer", "flightLostLOS", "flightLockState", "flightStart", "flightEnd", "flightStartQ", "flightTrickLoopQ", "flightTrickEndQ", "flightPreviousQ", "flightTickQ", "flightActionHeld", "trickHeld", "immelmannHeld", "flightFrameQ", "name", "flying", "walking", "creature", "wheeled", "repulsor", "speed", "reverseSpeed", "strafeSpeed", "acceleration", "deceleration", "turnRate", "hover", "bounds", "center", "size", "boundRadius", "probeRadius", "probes", "supportProbes", "maxHealth", "waterRule", "waterDepth", "body", "position", "previous", "velocity", "yaw", "previousYaw", "tilt", "roll", "previousTilt", "previousRoll", "yawRate", "tiltRate", "rollRate", "support", "forwardInput", "rightInput", "alive", "sleeping", "health", "dying", "waterClock", "quaternion", "matrix", "itemCenter", "supportNormal", "legSide", "seatIndex", "driver", "wheels", "seats", "seatViews", "seatLeases", "tickFrom", "tickFromYaw", "tickFromTilt", "tickFromRoll", "root", "towTarget", "towLocal", "towLeg", "towAngle", "towWinding", "lastAttacker", "slotIndex", "aiTarget", "flightConfig", "flightLeanQ"]);
+export const VEHICLE_EXPORT_STRIDE = 195, VEHICLE_IMPORT_STRIDE = 252, VEHICLE_FULL_STRIDE = 252;
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncVehicle(b, f, at, h, m) {
@@ -176,22 +177,23 @@ export function syncVehicle(b, f, at, h, m) {
   m.waterClock = f[at + 137];
   (m.quaternion ??= new THREE.Quaternion()).set(f[at + 138], f[at + 139], f[at + 140], f[at + 141]);
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 142 + i]; }
-  (m.supportNormal ??= new THREE.Vector3()).set(f[at + 158], f[at + 159], f[at + 160]);
-  { const tag = f[at + 161]; if (tag === 0) { { const items = (m.legSide ??= []), start = h + f[at + 162], n = f[at + 163]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.legSide = tag === 1 ? null : undefined; }
-  m.seatIndex = f[at + 164];
-  { const tag = f[at + 165]; if (tag === 0) { m.driver = b.refs[KIND_VEHICLE_DRIVER].at(f[at + 166], f[at + 167]); } else m.driver = tag === 1 ? null : undefined; }
-  { const items = (m.wheels ??= []), start = h + f[at + 168], n = f[at + 169]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncVehicleWheel(b, f, at + 0, h, v ?? new VehicleWheelMirror()); } items[i] = v; } }
-  { const items = (m.seats ??= []), start = h + f[at + 170], n = f[at + 171]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 26; v = syncVehicleSeat(b, f, at + 0, h, v ?? new VehicleSeatMirror()); } items[i] = v; } }
-  { const tag = f[at + 172]; if (tag === 0) { (m.tickFrom ??= new THREE.Vector3()).set(f[at + 173], f[at + 174], f[at + 175]); } else m.tickFrom = tag === 1 ? null : undefined; }
-  { const tag = f[at + 176]; if (tag === 0) { m.tickFromYaw = f[at + 177]; } else m.tickFromYaw = tag === 1 ? null : undefined; }
-  { const tag = f[at + 178]; if (tag === 0) { m.tickFromTilt = f[at + 179]; } else m.tickFromTilt = tag === 1 ? null : undefined; }
-  { const tag = f[at + 180]; if (tag === 0) { m.tickFromRoll = f[at + 181]; } else m.tickFromRoll = tag === 1 ? null : undefined; }
-  m.towTarget = f[at + 182];
-  (m.towLocal ??= new THREE.Vector3()).set(f[at + 183], f[at + 184], f[at + 185]);
-  m.towLeg = b.strings.at(f[at + 186]);
-  m.towAngle = f[at + 187];
-  m.towWinding = f[at + 188];
-  m.lastAttacker = syncOrdnanceOwner(b, f, at + 189, h, m.lastAttacker);
+  (m.itemCenter ??= new THREE.Vector3()).set(f[at + 158], f[at + 159], f[at + 160]);
+  (m.supportNormal ??= new THREE.Vector3()).set(f[at + 161], f[at + 162], f[at + 163]);
+  { const tag = f[at + 164]; if (tag === 0) { { const items = (m.legSide ??= []), start = h + f[at + 165], n = f[at + 166]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.legSide = tag === 1 ? null : undefined; }
+  m.seatIndex = f[at + 167];
+  { const tag = f[at + 168]; if (tag === 0) { m.driver = b.refs[KIND_VEHICLE_DRIVER].at(f[at + 169], f[at + 170]); } else m.driver = tag === 1 ? null : undefined; }
+  { const items = (m.wheels ??= []), start = h + f[at + 171], n = f[at + 172]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncVehicleWheel(b, f, at + 0, h, v ?? new VehicleWheelMirror()); } items[i] = v; } }
+  { const items = (m.seats ??= []), start = h + f[at + 173], n = f[at + 174]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncVehicleSeat(b, f, at + 0, h, v ?? new VehicleSeatMirror()); } items[i] = v; } }
+  { const tag = f[at + 175]; if (tag === 0) { (m.tickFrom ??= new THREE.Vector3()).set(f[at + 176], f[at + 177], f[at + 178]); } else m.tickFrom = tag === 1 ? null : undefined; }
+  { const tag = f[at + 179]; if (tag === 0) { m.tickFromYaw = f[at + 180]; } else m.tickFromYaw = tag === 1 ? null : undefined; }
+  { const tag = f[at + 181]; if (tag === 0) { m.tickFromTilt = f[at + 182]; } else m.tickFromTilt = tag === 1 ? null : undefined; }
+  { const tag = f[at + 183]; if (tag === 0) { m.tickFromRoll = f[at + 184]; } else m.tickFromRoll = tag === 1 ? null : undefined; }
+  m.towTarget = f[at + 185];
+  (m.towLocal ??= new THREE.Vector3()).set(f[at + 186], f[at + 187], f[at + 188]);
+  m.towLeg = b.strings.at(f[at + 189]);
+  m.towAngle = f[at + 190];
+  m.towWinding = f[at + 191];
+  m.lastAttacker = syncOrdnanceOwner(b, f, at + 192, h, m.lastAttacker);
   return m;
 }
 
@@ -296,27 +298,29 @@ export function syncFullVehicle(b, f, at, h, m) {
   m.waterClock = f[at + 186];
   (m.quaternion ??= new THREE.Quaternion()).set(f[at + 187], f[at + 188], f[at + 189], f[at + 190]);
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 191 + i]; }
-  ((m.itemTarget ??= {}).center ??= new THREE.Vector3()).set(f[at + 207], f[at + 208], f[at + 209]);
+  (m.itemCenter ??= new THREE.Vector3()).set(f[at + 207], f[at + 208], f[at + 209]);
   (m.supportNormal ??= new THREE.Vector3()).set(f[at + 210], f[at + 211], f[at + 212]);
   { const tag = f[at + 213]; if (tag === 0) { { const items = (m.legSide ??= []), start = h + f[at + 214], n = f[at + 215]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.legSide = tag === 1 ? null : undefined; }
   m.seatIndex = f[at + 216];
   { const tag = f[at + 217]; if (tag === 0) { m.driver = b.refs[KIND_VEHICLE_DRIVER].at(f[at + 218], f[at + 219]); } else m.driver = tag === 1 ? null : undefined; }
   { const items = (m.wheels ??= []), start = h + f[at + 220], n = f[at + 221]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncVehicleWheel(b, f, at + 0, h, v ?? new VehicleWheelMirror()); } items[i] = v; } }
-  { const items = (m.seats ??= []), start = h + f[at + 222], n = f[at + 223]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 26; v = syncVehicleSeat(b, f, at + 0, h, v ?? new VehicleSeatMirror()); } items[i] = v; } }
-  { const tag = f[at + 224]; if (tag === 0) { (m.tickFrom ??= new THREE.Vector3()).set(f[at + 225], f[at + 226], f[at + 227]); } else m.tickFrom = tag === 1 ? null : undefined; }
-  { const tag = f[at + 228]; if (tag === 0) { m.tickFromYaw = f[at + 229]; } else m.tickFromYaw = tag === 1 ? null : undefined; }
-  { const tag = f[at + 230]; if (tag === 0) { m.tickFromTilt = f[at + 231]; } else m.tickFromTilt = tag === 1 ? null : undefined; }
-  { const tag = f[at + 232]; if (tag === 0) { m.tickFromRoll = f[at + 233]; } else m.tickFromRoll = tag === 1 ? null : undefined; }
-  (m.root ??= {}).visible = f[at + 234] !== 0;
-  m.towTarget = f[at + 235];
-  (m.towLocal ??= new THREE.Vector3()).set(f[at + 236], f[at + 237], f[at + 238]);
-  m.towLeg = b.strings.at(f[at + 239]);
-  m.towAngle = f[at + 240];
-  m.towWinding = f[at + 241];
-  m.lastAttacker = syncOrdnanceOwner(b, f, at + 242, h, m.lastAttacker);
-  m.slotIndex = f[at + 245];
-  (m.aiTarget ??= {}).id = f[at + 246];
-  (m.aiTarget ??= {}).generation = f[at + 247];
+  { const items = (m.seats ??= []), start = h + f[at + 222], n = f[at + 223]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncVehicleSeat(b, f, at + 0, h, v ?? new VehicleSeatMirror()); } items[i] = v; } }
+  { const items = (m.seatViews ??= []), start = h + f[at + 224], n = f[at + 225]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSeatView(b, f, at + 0, h, v ?? new SeatViewMirror()); } items[i] = v; } }
+  { const items = (m.seatLeases ??= []), start = h + f[at + 226], n = f[at + 227]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSeatLeaseView(b, f, at + 0, h, v ?? new SeatLeaseViewMirror()); } items[i] = v; } }
+  { const tag = f[at + 228]; if (tag === 0) { (m.tickFrom ??= new THREE.Vector3()).set(f[at + 229], f[at + 230], f[at + 231]); } else m.tickFrom = tag === 1 ? null : undefined; }
+  { const tag = f[at + 232]; if (tag === 0) { m.tickFromYaw = f[at + 233]; } else m.tickFromYaw = tag === 1 ? null : undefined; }
+  { const tag = f[at + 234]; if (tag === 0) { m.tickFromTilt = f[at + 235]; } else m.tickFromTilt = tag === 1 ? null : undefined; }
+  { const tag = f[at + 236]; if (tag === 0) { m.tickFromRoll = f[at + 237]; } else m.tickFromRoll = tag === 1 ? null : undefined; }
+  (m.root ??= {}).visible = f[at + 238] !== 0;
+  m.towTarget = f[at + 239];
+  (m.towLocal ??= new THREE.Vector3()).set(f[at + 240], f[at + 241], f[at + 242]);
+  m.towLeg = b.strings.at(f[at + 243]);
+  m.towAngle = f[at + 244];
+  m.towWinding = f[at + 245];
+  m.lastAttacker = syncOrdnanceOwner(b, f, at + 246, h, m.lastAttacker);
+  m.slotIndex = f[at + 249];
+  (m.aiTarget ??= {}).id = f[at + 250];
+  (m.aiTarget ??= {}).generation = f[at + 251];
   return m;
 }
 
@@ -421,27 +425,29 @@ export function putVehicle(b, o, f, at, heap) {
   f[at + 186] = o.waterClock;
   { const $v = o.quaternion; f[at + 187] = $v.x; f[at + 188] = $v.y; f[at + 189] = $v.z; f[at + 190] = $v.w; }
   { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 191 + i] = e[i]; }
-  { const $v = o.itemTarget?.center; f[at + 207] = $v.x; f[at + 208] = $v.y; f[at + 209] = $v.z; }
+  { const $v = o.itemCenter; f[at + 207] = $v.x; f[at + 208] = $v.y; f[at + 209] = $v.z; }
   { const $v = o.supportNormal; f[at + 210] = $v.x; f[at + 211] = $v.y; f[at + 212] = $v.z; }
   { const $x = o.legSide; if ($x === null || $x === undefined) { f[at + 213] = $x === null ? 1 : 2; f.fill(0, at + 214, at + 216); } else { f[at + 213] = 0; heap.items($x, f, at + 214, 1, (f, at, v) => { f[at + 0] = v; }); } }
   f[at + 216] = o.seatIndex;
   { const $x = o.driver; if ($x === null || $x === undefined) { f[at + 217] = $x === null ? 1 : 2; f.fill(0, at + 218, at + 220); } else { f[at + 217] = 0; b.refs[KIND_VEHICLE_DRIVER].put($x, f, at + 218); } }
   heap.items(o.wheels, f, at + 220, 6, (f, at, v) => { putVehicleWheel(b, v, f, at + 0, heap); });
-  heap.items(o.seats, f, at + 222, 26, (f, at, v) => { putVehicleSeat(b, v, f, at + 0, heap); });
-  { const $x = o.tickFrom; if ($x === null || $x === undefined) { f[at + 224] = $x === null ? 1 : 2; f.fill(0, at + 225, at + 228); } else { f[at + 224] = 0; { const $v = $x; f[at + 225] = $v.x; f[at + 226] = $v.y; f[at + 227] = $v.z; } } }
-  { const $x = o.tickFromYaw; if ($x === null || $x === undefined) { f[at + 228] = $x === null ? 1 : 2; f.fill(0, at + 229, at + 230); } else { f[at + 228] = 0; f[at + 229] = $x; } }
-  { const $x = o.tickFromTilt; if ($x === null || $x === undefined) { f[at + 230] = $x === null ? 1 : 2; f.fill(0, at + 231, at + 232); } else { f[at + 230] = 0; f[at + 231] = $x; } }
-  { const $x = o.tickFromRoll; if ($x === null || $x === undefined) { f[at + 232] = $x === null ? 1 : 2; f.fill(0, at + 233, at + 234); } else { f[at + 232] = 0; f[at + 233] = $x; } }
-  f[at + 234] = o.root?.visible ? 1 : 0;
-  f[at + 235] = o.towTarget;
-  { const $v = o.towLocal; f[at + 236] = $v.x; f[at + 237] = $v.y; f[at + 238] = $v.z; }
-  f[at + 239] = b.strings.id(o.towLeg);
-  f[at + 240] = o.towAngle;
-  f[at + 241] = o.towWinding;
-  putOrdnanceOwner(b, o.lastAttacker, f, at + 242, heap);
-  f[at + 245] = o.slotIndex;
-  f[at + 246] = o.aiTarget?.id;
-  f[at + 247] = o.aiTarget?.generation;
+  heap.items(o.seats, f, at + 222, 9, (f, at, v) => { putVehicleSeat(b, v, f, at + 0, heap); });
+  heap.items(o.seatViews, f, at + 224, 6, (f, at, v) => { putSeatView(b, v, f, at + 0, heap); });
+  heap.items(o.seatLeases, f, at + 226, 17, (f, at, v) => { putSeatLeaseView(b, v, f, at + 0, heap); });
+  { const $x = o.tickFrom; if ($x === null || $x === undefined) { f[at + 228] = $x === null ? 1 : 2; f.fill(0, at + 229, at + 232); } else { f[at + 228] = 0; { const $v = $x; f[at + 229] = $v.x; f[at + 230] = $v.y; f[at + 231] = $v.z; } } }
+  { const $x = o.tickFromYaw; if ($x === null || $x === undefined) { f[at + 232] = $x === null ? 1 : 2; f.fill(0, at + 233, at + 234); } else { f[at + 232] = 0; f[at + 233] = $x; } }
+  { const $x = o.tickFromTilt; if ($x === null || $x === undefined) { f[at + 234] = $x === null ? 1 : 2; f.fill(0, at + 235, at + 236); } else { f[at + 234] = 0; f[at + 235] = $x; } }
+  { const $x = o.tickFromRoll; if ($x === null || $x === undefined) { f[at + 236] = $x === null ? 1 : 2; f.fill(0, at + 237, at + 238); } else { f[at + 236] = 0; f[at + 237] = $x; } }
+  f[at + 238] = o.root?.visible ? 1 : 0;
+  f[at + 239] = o.towTarget;
+  { const $v = o.towLocal; f[at + 240] = $v.x; f[at + 241] = $v.y; f[at + 242] = $v.z; }
+  f[at + 243] = b.strings.id(o.towLeg);
+  f[at + 244] = o.towAngle;
+  f[at + 245] = o.towWinding;
+  putOrdnanceOwner(b, o.lastAttacker, f, at + 246, heap);
+  f[at + 249] = o.slotIndex;
+  f[at + 250] = o.aiTarget?.id;
+  f[at + 251] = o.aiTarget?.generation;
 }
 
 // Every field of object `o` into a row.
@@ -545,27 +551,29 @@ export function putFullVehicle(b, o, f, at, heap) {
   f[at + 186] = o.waterClock;
   { const $v = o.quaternion; f[at + 187] = $v.x; f[at + 188] = $v.y; f[at + 189] = $v.z; f[at + 190] = $v.w; }
   { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 191 + i] = e[i]; }
-  { const $v = o.itemTarget?.center; f[at + 207] = $v.x; f[at + 208] = $v.y; f[at + 209] = $v.z; }
+  { const $v = o.itemCenter; f[at + 207] = $v.x; f[at + 208] = $v.y; f[at + 209] = $v.z; }
   { const $v = o.supportNormal; f[at + 210] = $v.x; f[at + 211] = $v.y; f[at + 212] = $v.z; }
   { const $x = o.legSide; if ($x === null || $x === undefined) { f[at + 213] = $x === null ? 1 : 2; f.fill(0, at + 214, at + 216); } else { f[at + 213] = 0; heap.items($x, f, at + 214, 1, (f, at, v) => { f[at + 0] = v; }); } }
   f[at + 216] = o.seatIndex;
   { const $x = o.driver; if ($x === null || $x === undefined) { f[at + 217] = $x === null ? 1 : 2; f.fill(0, at + 218, at + 220); } else { f[at + 217] = 0; b.refs[KIND_VEHICLE_DRIVER].put($x, f, at + 218); } }
   heap.items(o.wheels, f, at + 220, 6, (f, at, v) => { putVehicleWheel(b, v, f, at + 0, heap); });
-  heap.items(o.seats, f, at + 222, 26, (f, at, v) => { putVehicleSeat(b, v, f, at + 0, heap); });
-  { const $x = o.tickFrom; if ($x === null || $x === undefined) { f[at + 224] = $x === null ? 1 : 2; f.fill(0, at + 225, at + 228); } else { f[at + 224] = 0; { const $v = $x; f[at + 225] = $v.x; f[at + 226] = $v.y; f[at + 227] = $v.z; } } }
-  { const $x = o.tickFromYaw; if ($x === null || $x === undefined) { f[at + 228] = $x === null ? 1 : 2; f.fill(0, at + 229, at + 230); } else { f[at + 228] = 0; f[at + 229] = $x; } }
-  { const $x = o.tickFromTilt; if ($x === null || $x === undefined) { f[at + 230] = $x === null ? 1 : 2; f.fill(0, at + 231, at + 232); } else { f[at + 230] = 0; f[at + 231] = $x; } }
-  { const $x = o.tickFromRoll; if ($x === null || $x === undefined) { f[at + 232] = $x === null ? 1 : 2; f.fill(0, at + 233, at + 234); } else { f[at + 232] = 0; f[at + 233] = $x; } }
-  f[at + 234] = o.root?.visible ? 1 : 0;
-  f[at + 235] = o.towTarget;
-  { const $v = o.towLocal; f[at + 236] = $v.x; f[at + 237] = $v.y; f[at + 238] = $v.z; }
-  f[at + 239] = b.strings.id(o.towLeg);
-  f[at + 240] = o.towAngle;
-  f[at + 241] = o.towWinding;
-  putOrdnanceOwner(b, o.lastAttacker, f, at + 242, heap);
-  f[at + 245] = o.slotIndex;
-  f[at + 246] = o.aiTarget?.id;
-  f[at + 247] = o.aiTarget?.generation;
+  heap.items(o.seats, f, at + 222, 9, (f, at, v) => { putVehicleSeat(b, v, f, at + 0, heap); });
+  heap.items(o.seatViews, f, at + 224, 6, (f, at, v) => { putSeatView(b, v, f, at + 0, heap); });
+  heap.items(o.seatLeases, f, at + 226, 17, (f, at, v) => { putSeatLeaseView(b, v, f, at + 0, heap); });
+  { const $x = o.tickFrom; if ($x === null || $x === undefined) { f[at + 228] = $x === null ? 1 : 2; f.fill(0, at + 229, at + 232); } else { f[at + 228] = 0; { const $v = $x; f[at + 229] = $v.x; f[at + 230] = $v.y; f[at + 231] = $v.z; } } }
+  { const $x = o.tickFromYaw; if ($x === null || $x === undefined) { f[at + 232] = $x === null ? 1 : 2; f.fill(0, at + 233, at + 234); } else { f[at + 232] = 0; f[at + 233] = $x; } }
+  { const $x = o.tickFromTilt; if ($x === null || $x === undefined) { f[at + 234] = $x === null ? 1 : 2; f.fill(0, at + 235, at + 236); } else { f[at + 234] = 0; f[at + 235] = $x; } }
+  { const $x = o.tickFromRoll; if ($x === null || $x === undefined) { f[at + 236] = $x === null ? 1 : 2; f.fill(0, at + 237, at + 238); } else { f[at + 236] = 0; f[at + 237] = $x; } }
+  f[at + 238] = o.root?.visible ? 1 : 0;
+  f[at + 239] = o.towTarget;
+  { const $v = o.towLocal; f[at + 240] = $v.x; f[at + 241] = $v.y; f[at + 242] = $v.z; }
+  f[at + 243] = b.strings.id(o.towLeg);
+  f[at + 244] = o.towAngle;
+  f[at + 245] = o.towWinding;
+  putOrdnanceOwner(b, o.lastAttacker, f, at + 246, heap);
+  f[at + 249] = o.slotIndex;
+  f[at + 250] = o.aiTarget?.id;
+  f[at + 251] = o.aiTarget?.generation;
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -640,6 +648,7 @@ export function checkVehicle(b, f, at, h, m) {
   if (!Object.is(m.waterClock, want.waterClock)) return ".waterClock";
   if (!sameQuat(m.quaternion, want.quaternion)) return ".quaternion";
   if (!sameArray(m.matrix?.elements, want.matrix?.elements, 16)) return ".matrix";
+  if (!sameVec(m.itemCenter, want.itemCenter)) return ".itemCenter";
   if (!sameVec(m.supportNormal, want.supportNormal)) return ".supportNormal";
   { const p = m.legSide, q = want.legSide; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".legSide"; } else { if (!sameEach(p, q, (x, y) => Object.is(x, y))) return ".legSide"; } }
   if (!Object.is(m.seatIndex, want.seatIndex)) return ".seatIndex";
@@ -759,13 +768,15 @@ export function sameVehicle(a, b) {
   if (!Object.is(a.waterClock, b.waterClock)) return ".waterClock";
   if (!sameQuat(a.quaternion, b.quaternion)) return ".quaternion";
   if (!sameArray(a.matrix?.elements, b.matrix?.elements, 16)) return ".matrix";
-  if (!sameVec(a.itemTarget?.center, b.itemTarget?.center)) return ".itemCenter";
+  if (!sameVec(a.itemCenter, b.itemCenter)) return ".itemCenter";
   if (!sameVec(a.supportNormal, b.supportNormal)) return ".supportNormal";
   { const p = a.legSide, q = b.legSide; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".legSide"; } else { if (!sameEach(p, q, (x, y) => Object.is(x, y))) return ".legSide"; } }
   if (!Object.is(a.seatIndex, b.seatIndex)) return ".seatIndex";
   { const p = a.driver, q = b.driver; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".driver"; } else { if (!Object.is(p, q)) return ".driver"; } }
   if (!sameEach(a.wheels, b.wheels, (x, y) => sameVehicleWheel(x, y) === null)) return ".wheels";
   if (!sameEach(a.seats, b.seats, (x, y) => sameVehicleSeat(x, y) === null)) return ".seats";
+  if (!sameEach(a.seatViews, b.seatViews, (x, y) => sameSeatView(x, y) === null)) return ".seatViews";
+  if (!sameEach(a.seatLeases, b.seatLeases, (x, y) => sameSeatLeaseView(x, y) === null)) return ".seatLeases";
   { const p = a.tickFrom, q = b.tickFrom; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".tickFrom"; } else { if (!sameVec(p, q)) return ".tickFrom"; } }
   { const p = a.tickFromYaw, q = b.tickFromYaw; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".tickFromYaw"; } else { if (!Object.is(p, q)) return ".tickFromYaw"; } }
   { const p = a.tickFromTilt, q = b.tickFromTilt; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".tickFromTilt"; } else { if (!Object.is(p, q)) return ".tickFromTilt"; } }
@@ -888,13 +899,15 @@ export function exportVehicle(o, cx) {
   v.waterClock = o.waterClock;
   v.quaternion = o.quaternion.clone();
   v.matrix = o.matrix.clone();
-  v.itemCenter = o.itemTarget?.center.clone();
+  v.itemCenter = o.itemCenter.clone();
   v.supportNormal = o.supportNormal.clone();
   v.legSide = ((x) => (x === null || x === undefined ? x : x.map((x) => x)))(o.legSide);
   v.seatIndex = o.seatIndex;
   v.driver = ((x) => (x === null || x === undefined ? x : cx.ref("vehicleDriver", x)))(o.driver);
   v.wheels = o.wheels.map((x) => exportVehicleWheel(x, cx));
   v.seats = o.seats.map((x) => exportVehicleSeat(x, cx));
+  v.seatViews = o.seatViews.map((x) => exportSeatView(x, cx));
+  v.seatLeases = o.seatLeases.map((x) => exportSeatLeaseView(x, cx));
   v.tickFrom = ((x) => (x === null || x === undefined ? x : x.clone()))(o.tickFrom);
   v.tickFromYaw = o.tickFromYaw;
   v.tickFromTilt = o.tickFromTilt;

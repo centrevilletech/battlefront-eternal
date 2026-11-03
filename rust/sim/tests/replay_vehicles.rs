@@ -860,7 +860,7 @@ fn compare_built(c: &mut Cmp, made: V, hull: &Hull, extras: &bfe_sim::vehicles::
         return;
     }
     for (i, seat) in hull.seats.iter().enumerate() {
-        let s = h.get("seats").at(i);
+        let s = h.get("seatViews").at(i);
         c.arr(&format!("seats[{i}].pitchLimits"), s.get("pitchLimits"), &seat.pitch_limits);
         match seat.yaw_limits {
             None if s.get("yawLimits").is_null() => {}

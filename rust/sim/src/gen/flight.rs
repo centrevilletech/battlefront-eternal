@@ -160,6 +160,8 @@ pub struct Vehicle {
     pub driver: Option<Ref<VehicleDriver>>,
     pub wheels: Vec<VehicleWheel>,
     pub seats: Vec<VehicleSeat>,
+    pub seat_views: Vec<SeatView>,
+    pub seat_leases: Vec<SeatLeaseView>,
     pub tick_from: Option<Vec3>,
     pub tick_from_yaw: Option<f64>,
     pub tick_from_tilt: Option<f64>,
@@ -179,12 +181,12 @@ pub struct Vehicle {
 impl Vehicle {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 192;
-    pub const IMPORT_STRIDE: usize = 248;
-    pub const FULL_STRIDE: usize = 248;
+    pub const EXPORT_STRIDE: usize = 195;
+    pub const IMPORT_STRIDE: usize = 252;
+    pub const FULL_STRIDE: usize = 252;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 248] = (&mut row[..248]).try_into().unwrap();
+        let row: &mut [f64; 252] = (&mut row[..252]).try_into().unwrap();
         match &self.flight_state { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v) as u8 as f64; } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
         row[4] = if self.grounded { 1.0 } else { 0.0 };
         row[5] = self.altitude;
@@ -290,25 +292,27 @@ impl Vehicle {
         row[216] = self.seat_index;
         match &self.driver { Some(v) => { row[217] = 0.0; row[217 + 1] = (*v).slot as f64; row[217 + 1 + 1] = (*v).gen as f64; } None => { row[217] = 1.0; row[217 + 1..217 + 3].fill(0.0); } }
         { let at = heap.len(); row[220] = at as f64; row[220 + 1] = self.wheels.len() as f64; heap.resize(at + self.wheels.len() * 6, 0.0); for (i, e) in self.wheels.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
-        { let at = heap.len(); row[222] = at as f64; row[222 + 1] = self.seats.len() as f64; heap.resize(at + self.seats.len() * 26, 0.0); for (i, e) in self.seats.iter().enumerate() { let mut item = [0.0f64; 26]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 26..at + (i + 1) * 26].copy_from_slice(&item); } }
-        match &self.tick_from { Some(v) => { row[224] = 0.0; row[224 + 1..224 + 1 + 3].copy_from_slice(&(*v)); } None => { row[224] = 2.0; row[224 + 1..224 + 4].fill(0.0); } }
-        match &self.tick_from_yaw { Some(v) => { row[228] = 0.0; row[228 + 1] = (*v); } None => { row[228] = 2.0; row[228 + 1..228 + 2].fill(0.0); } }
-        match &self.tick_from_tilt { Some(v) => { row[230] = 0.0; row[230 + 1] = (*v); } None => { row[230] = 2.0; row[230 + 1..230 + 2].fill(0.0); } }
-        match &self.tick_from_roll { Some(v) => { row[232] = 0.0; row[232 + 1] = (*v); } None => { row[232] = 2.0; row[232 + 1..232 + 2].fill(0.0); } }
-        row[234] = if self.visible { 1.0 } else { 0.0 };
-        row[235] = self.tow_target;
-        row[236..236 + 3].copy_from_slice(&self.tow_local);
-        row[239] = self.tow_leg.0 as f64;
-        row[240] = self.tow_angle;
-        row[241] = self.tow_winding;
-        self.last_attacker.put(&mut row[242..242 + 3], heap);
-        row[245] = self.slot_index;
-        row[246] = self.target_id;
-        row[247] = self.target_generation;
+        { let at = heap.len(); row[222] = at as f64; row[222 + 1] = self.seats.len() as f64; heap.resize(at + self.seats.len() * 9, 0.0); for (i, e) in self.seats.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } }
+        { let at = heap.len(); row[224] = at as f64; row[224 + 1] = self.seat_views.len() as f64; heap.resize(at + self.seat_views.len() * 6, 0.0); for (i, e) in self.seat_views.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
+        { let at = heap.len(); row[226] = at as f64; row[226 + 1] = self.seat_leases.len() as f64; heap.resize(at + self.seat_leases.len() * 17, 0.0); for (i, e) in self.seat_leases.iter().enumerate() { let mut item = [0.0f64; 17]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 17..at + (i + 1) * 17].copy_from_slice(&item); } }
+        match &self.tick_from { Some(v) => { row[228] = 0.0; row[228 + 1..228 + 1 + 3].copy_from_slice(&(*v)); } None => { row[228] = 2.0; row[228 + 1..228 + 4].fill(0.0); } }
+        match &self.tick_from_yaw { Some(v) => { row[232] = 0.0; row[232 + 1] = (*v); } None => { row[232] = 2.0; row[232 + 1..232 + 2].fill(0.0); } }
+        match &self.tick_from_tilt { Some(v) => { row[234] = 0.0; row[234 + 1] = (*v); } None => { row[234] = 2.0; row[234 + 1..234 + 2].fill(0.0); } }
+        match &self.tick_from_roll { Some(v) => { row[236] = 0.0; row[236 + 1] = (*v); } None => { row[236] = 2.0; row[236 + 1..236 + 2].fill(0.0); } }
+        row[238] = if self.visible { 1.0 } else { 0.0 };
+        row[239] = self.tow_target;
+        row[240..240 + 3].copy_from_slice(&self.tow_local);
+        row[243] = self.tow_leg.0 as f64;
+        row[244] = self.tow_angle;
+        row[245] = self.tow_winding;
+        self.last_attacker.put(&mut row[246..246 + 3], heap);
+        row[249] = self.slot_index;
+        row[250] = self.target_id;
+        row[251] = self.target_generation;
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 248] = (&row[..248]).try_into().unwrap();
+        let row: &[f64; 252] = (&row[..252]).try_into().unwrap();
         self.flight_state = if row[2] == 0.0 { Some(FlightState::from_u8(word_u32(row[2 + 1]) as u8).unwrap_or_default()) } else { None };
         self.grounded = row[4] != 0.0;
         self.altitude = row[5];
@@ -414,25 +418,27 @@ impl Vehicle {
         self.seat_index = row[216];
         self.driver = if row[217] == 0.0 { Some(Ref::new(word_u32(row[217 + 1]), word_u32(row[217 + 1 + 1]))) } else { None };
         self.wheels = { let (at, n) = (word_u32(row[220]) as usize, word_u32(row[220 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 6..at + (i + 1) * 6]; out.push(VehicleWheel::take(&row[0..], heap)); } out };
-        self.seats = { let (at, n) = (word_u32(row[222]) as usize, word_u32(row[222 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 26..at + (i + 1) * 26]; out.push(VehicleSeat::take(&row[0..], heap)); } out };
-        self.tick_from = if row[224] == 0.0 { Some([row[224 + 1], row[224 + 1 + 1], row[224 + 1 + 2]]) } else { None };
-        self.tick_from_yaw = if row[228] == 0.0 { Some(row[228 + 1]) } else { None };
-        self.tick_from_tilt = if row[230] == 0.0 { Some(row[230 + 1]) } else { None };
-        self.tick_from_roll = if row[232] == 0.0 { Some(row[232 + 1]) } else { None };
-        self.visible = row[234] != 0.0;
-        self.tow_target = row[235];
-        self.tow_local = [row[236], row[236 + 1], row[236 + 2]];
-        self.tow_leg = StrId(word_u32(row[239]));
-        self.tow_angle = row[240];
-        self.tow_winding = row[241];
-        self.last_attacker = OrdnanceOwner::take(&row[242..242 + 3], heap);
-        self.slot_index = row[245];
-        self.target_id = row[246];
-        self.target_generation = row[247];
+        self.seats = { let (at, n) = (word_u32(row[222]) as usize, word_u32(row[222 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 9..at + (i + 1) * 9]; out.push(VehicleSeat::take(&row[0..], heap)); } out };
+        self.seat_views = { let (at, n) = (word_u32(row[224]) as usize, word_u32(row[224 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 6..at + (i + 1) * 6]; out.push(SeatView::take(&row[0..], heap)); } out };
+        self.seat_leases = { let (at, n) = (word_u32(row[226]) as usize, word_u32(row[226 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 17..at + (i + 1) * 17]; out.push(SeatLeaseView::take(&row[0..], heap)); } out };
+        self.tick_from = if row[228] == 0.0 { Some([row[228 + 1], row[228 + 1 + 1], row[228 + 1 + 2]]) } else { None };
+        self.tick_from_yaw = if row[232] == 0.0 { Some(row[232 + 1]) } else { None };
+        self.tick_from_tilt = if row[234] == 0.0 { Some(row[234 + 1]) } else { None };
+        self.tick_from_roll = if row[236] == 0.0 { Some(row[236 + 1]) } else { None };
+        self.visible = row[238] != 0.0;
+        self.tow_target = row[239];
+        self.tow_local = [row[240], row[240 + 1], row[240 + 2]];
+        self.tow_leg = StrId(word_u32(row[243]));
+        self.tow_angle = row[244];
+        self.tow_winding = row[245];
+        self.last_attacker = OrdnanceOwner::take(&row[246..246 + 3], heap);
+        self.slot_index = row[249];
+        self.target_id = row[250];
+        self.target_generation = row[251];
     }
 
     pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 192] = (&mut row[..192]).try_into().unwrap();
+        let row: &mut [f64; 195] = (&mut row[..195]).try_into().unwrap();
         match &self.flight_state { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v) as u8 as f64; } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
         row[4] = if self.grounded { 1.0 } else { 0.0 };
         row[5] = self.altitude;
@@ -501,26 +507,27 @@ impl Vehicle {
         row[137] = self.water_clock;
         row[138..138 + 4].copy_from_slice(&self.quaternion);
         row[142..142 + 16].copy_from_slice(&self.matrix);
-        row[158..158 + 3].copy_from_slice(&self.support_normal);
-        match &self.leg_side { Some(v) => { row[161] = 0.0; { let at = heap.len(); row[161 + 1] = at as f64; row[161 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[161] = 2.0; row[161 + 1..161 + 3].fill(0.0); } }
-        row[164] = self.seat_index;
-        match &self.driver { Some(v) => { row[165] = 0.0; row[165 + 1] = (*v).slot as f64; row[165 + 1 + 1] = (*v).gen as f64; } None => { row[165] = 1.0; row[165 + 1..165 + 3].fill(0.0); } }
-        { let at = heap.len(); row[168] = at as f64; row[168 + 1] = self.wheels.len() as f64; heap.resize(at + self.wheels.len() * 6, 0.0); for (i, e) in self.wheels.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
-        { let at = heap.len(); row[170] = at as f64; row[170 + 1] = self.seats.len() as f64; heap.resize(at + self.seats.len() * 26, 0.0); for (i, e) in self.seats.iter().enumerate() { let mut item = [0.0f64; 26]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 26..at + (i + 1) * 26].copy_from_slice(&item); } }
-        match &self.tick_from { Some(v) => { row[172] = 0.0; row[172 + 1..172 + 1 + 3].copy_from_slice(&(*v)); } None => { row[172] = 2.0; row[172 + 1..172 + 4].fill(0.0); } }
-        match &self.tick_from_yaw { Some(v) => { row[176] = 0.0; row[176 + 1] = (*v); } None => { row[176] = 2.0; row[176 + 1..176 + 2].fill(0.0); } }
-        match &self.tick_from_tilt { Some(v) => { row[178] = 0.0; row[178 + 1] = (*v); } None => { row[178] = 2.0; row[178 + 1..178 + 2].fill(0.0); } }
-        match &self.tick_from_roll { Some(v) => { row[180] = 0.0; row[180 + 1] = (*v); } None => { row[180] = 2.0; row[180 + 1..180 + 2].fill(0.0); } }
-        row[182] = self.tow_target;
-        row[183..183 + 3].copy_from_slice(&self.tow_local);
-        row[186] = self.tow_leg.0 as f64;
-        row[187] = self.tow_angle;
-        row[188] = self.tow_winding;
-        self.last_attacker.put(&mut row[189..189 + 3], heap);
+        row[158..158 + 3].copy_from_slice(&self.item_center);
+        row[161..161 + 3].copy_from_slice(&self.support_normal);
+        match &self.leg_side { Some(v) => { row[164] = 0.0; { let at = heap.len(); row[164 + 1] = at as f64; row[164 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[164] = 2.0; row[164 + 1..164 + 3].fill(0.0); } }
+        row[167] = self.seat_index;
+        match &self.driver { Some(v) => { row[168] = 0.0; row[168 + 1] = (*v).slot as f64; row[168 + 1 + 1] = (*v).gen as f64; } None => { row[168] = 1.0; row[168 + 1..168 + 3].fill(0.0); } }
+        { let at = heap.len(); row[171] = at as f64; row[171 + 1] = self.wheels.len() as f64; heap.resize(at + self.wheels.len() * 6, 0.0); for (i, e) in self.wheels.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
+        { let at = heap.len(); row[173] = at as f64; row[173 + 1] = self.seats.len() as f64; heap.resize(at + self.seats.len() * 9, 0.0); for (i, e) in self.seats.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } }
+        match &self.tick_from { Some(v) => { row[175] = 0.0; row[175 + 1..175 + 1 + 3].copy_from_slice(&(*v)); } None => { row[175] = 2.0; row[175 + 1..175 + 4].fill(0.0); } }
+        match &self.tick_from_yaw { Some(v) => { row[179] = 0.0; row[179 + 1] = (*v); } None => { row[179] = 2.0; row[179 + 1..179 + 2].fill(0.0); } }
+        match &self.tick_from_tilt { Some(v) => { row[181] = 0.0; row[181 + 1] = (*v); } None => { row[181] = 2.0; row[181 + 1..181 + 2].fill(0.0); } }
+        match &self.tick_from_roll { Some(v) => { row[183] = 0.0; row[183 + 1] = (*v); } None => { row[183] = 2.0; row[183 + 1..183 + 2].fill(0.0); } }
+        row[185] = self.tow_target;
+        row[186..186 + 3].copy_from_slice(&self.tow_local);
+        row[189] = self.tow_leg.0 as f64;
+        row[190] = self.tow_angle;
+        row[191] = self.tow_winding;
+        self.last_attacker.put(&mut row[192..192 + 3], heap);
     }
 
     pub fn take_export(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 192] = (&row[..192]).try_into().unwrap();
+        let row: &[f64; 195] = (&row[..195]).try_into().unwrap();
         self.flight_state = if row[2] == 0.0 { Some(FlightState::from_u8(word_u32(row[2 + 1]) as u8).unwrap_or_default()) } else { None };
         self.grounded = row[4] != 0.0;
         self.altitude = row[5];
@@ -589,22 +596,23 @@ impl Vehicle {
         self.water_clock = row[137];
         self.quaternion = [row[138], row[138 + 1], row[138 + 2], row[138 + 3]];
         self.matrix = { let mut m = [0.0; 16]; m.copy_from_slice(&row[142..142 + 16]); m };
-        self.support_normal = [row[158], row[158 + 1], row[158 + 2]];
-        self.leg_side = if row[161] == 0.0 { Some({ let (at, n) = (word_u32(row[161 + 1]) as usize, word_u32(row[161 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out }) } else { None };
-        self.seat_index = row[164];
-        self.driver = if row[165] == 0.0 { Some(Ref::new(word_u32(row[165 + 1]), word_u32(row[165 + 1 + 1]))) } else { None };
-        self.wheels = { let (at, n) = (word_u32(row[168]) as usize, word_u32(row[168 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 6..at + (i + 1) * 6]; out.push(VehicleWheel::take(&row[0..], heap)); } out };
-        self.seats = { let (at, n) = (word_u32(row[170]) as usize, word_u32(row[170 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 26..at + (i + 1) * 26]; out.push(VehicleSeat::take(&row[0..], heap)); } out };
-        self.tick_from = if row[172] == 0.0 { Some([row[172 + 1], row[172 + 1 + 1], row[172 + 1 + 2]]) } else { None };
-        self.tick_from_yaw = if row[176] == 0.0 { Some(row[176 + 1]) } else { None };
-        self.tick_from_tilt = if row[178] == 0.0 { Some(row[178 + 1]) } else { None };
-        self.tick_from_roll = if row[180] == 0.0 { Some(row[180 + 1]) } else { None };
-        self.tow_target = row[182];
-        self.tow_local = [row[183], row[183 + 1], row[183 + 2]];
-        self.tow_leg = StrId(word_u32(row[186]));
-        self.tow_angle = row[187];
-        self.tow_winding = row[188];
-        self.last_attacker = OrdnanceOwner::take(&row[189..189 + 3], heap);
+        self.item_center = [row[158], row[158 + 1], row[158 + 2]];
+        self.support_normal = [row[161], row[161 + 1], row[161 + 2]];
+        self.leg_side = if row[164] == 0.0 { Some({ let (at, n) = (word_u32(row[164 + 1]) as usize, word_u32(row[164 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out }) } else { None };
+        self.seat_index = row[167];
+        self.driver = if row[168] == 0.0 { Some(Ref::new(word_u32(row[168 + 1]), word_u32(row[168 + 1 + 1]))) } else { None };
+        self.wheels = { let (at, n) = (word_u32(row[171]) as usize, word_u32(row[171 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 6..at + (i + 1) * 6]; out.push(VehicleWheel::take(&row[0..], heap)); } out };
+        self.seats = { let (at, n) = (word_u32(row[173]) as usize, word_u32(row[173 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 9..at + (i + 1) * 9]; out.push(VehicleSeat::take(&row[0..], heap)); } out };
+        self.tick_from = if row[175] == 0.0 { Some([row[175 + 1], row[175 + 1 + 1], row[175 + 1 + 2]]) } else { None };
+        self.tick_from_yaw = if row[179] == 0.0 { Some(row[179 + 1]) } else { None };
+        self.tick_from_tilt = if row[181] == 0.0 { Some(row[181 + 1]) } else { None };
+        self.tick_from_roll = if row[183] == 0.0 { Some(row[183 + 1]) } else { None };
+        self.tow_target = row[185];
+        self.tow_local = [row[186], row[186 + 1], row[186 + 2]];
+        self.tow_leg = StrId(word_u32(row[189]));
+        self.tow_angle = row[190];
+        self.tow_winding = row[191];
+        self.last_attacker = OrdnanceOwner::take(&row[192..192 + 3], heap);
     }
 
     #[inline(always)]

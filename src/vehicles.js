@@ -35,6 +35,7 @@ const vector = (v, fallback) => v ? String(v).split(/\s+/).map(Number) : fallbac
 const angle = (v) => Math.atan2(Math.sin(v), Math.cos(v));
 const approach = (v, target, delta) => v + THREE.MathUtils.clamp(target - v, -delta, delta);
 const idle = Object.freeze({ forward: 0, right: 0, turn: 0, brake: false });
+const NO_LEASE = Object.freeze({});
 const noTrigger = Object.freeze({ held: false, pressed: false });
 const ZERO = Object.freeze(new THREE.Vector3());
 const vec3 = (v, fallback = null) => {
@@ -654,6 +655,12 @@ export class Vehicle {
 
   // Its spawn pad's place in the battle's list (the store names a pad so).
   get slotIndex() { return this.system.slots.indexOf(this.slot); }
+  // What the store reads of its seats beside their aim (rust/sim/schema/
+  // vehicles.mjs): each one's limits, and its lease (an empty seat's none),
+  // and its item target's centre, kept in place.
+  get seatViews() { return this.seats.map((seat) => seat.view); }
+  get seatLeases() { return this.seats.map((seat) => seat.lease ?? NO_LEASE); }
+  get itemCenter() { return this.itemTarget.center; }
   get weapons() { return this.seats.flatMap(s => s.weapons.map(w => w.state)); }
   get seat() { return this.seats[this.seatIndex]; }
   get weapon() { return this.seat.weapons[0]?.state; }
@@ -2055,7 +2062,12 @@ export class Vehicles {
     this.time += dt;
     this.updateSpawns(dt);
     this.latchCrews();
-    for (const v of this.vehicles) if (v.alive && !v.flying) v.captureTick();
+    // The ground hulls' tick start (captureTick) and substeps run on the
+    // simulation's module where the world asked for it (src/vehicles-sim.js),
+    // after the crafts' flight: no craft's step reads a ground hull's tick
+    // start, so the order is the same as here.
+    const ground = this.sim && !driven;
+    if (!ground) for (const v of this.vehicles) if (v.alive && !v.flying) v.captureTick();
     this.flightAcc = (this.flightAcc || 0) + dt;
     this.flightEdges ||= {};
     for (const key of ['takeoff','trick','immelmann','targetLock']) this.flightEdges[key] ||= Boolean(input[key]);
@@ -2063,10 +2075,13 @@ export class Vehicles {
       for (const v of this.vehicles) if (v.alive && v.flying) { v.captureTick(); v.tick(1/60, v.crewed(0) ? v.seats[0].lease.input : v === driven ? { ...input, ...this.flightEdges } : idle); }
       this.flightEdges = {}; this.flightAcc -= 1/60;
     }
-    this.acc += dt;
-    while (this.acc + 1e-9 >= FIXED_STEP) {
-      for (const v of this.vehicles) if (v.alive && !v.flying) v.tick(FIXED_STEP, v.crewed(0) ? v.seats[0].lease.input : v === driven ? input : idle);
-      this.acc -= FIXED_STEP;
+    if (ground) this.acc = this.sim.ground(dt, this.acc);
+    else {
+      this.acc += dt;
+      while (this.acc + 1e-9 >= FIXED_STEP) {
+        for (const v of this.vehicles) if (v.alive && !v.flying) v.tick(FIXED_STEP, v.crewed(0) ? v.seats[0].lease.input : v === driven ? input : idle);
+        this.acc -= FIXED_STEP;
+      }
     }
     for (const v of this.vehicles) if (!v.alive && v.dying > 0) v.dyingTick(dt);
     this.tickAlpha = Math.max(0, this.acc / FIXED_STEP);
