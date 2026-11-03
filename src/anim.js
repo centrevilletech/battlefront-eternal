@@ -37,8 +37,8 @@ export function loadClips(meta, buffer, boneNames = null) {
   return clips;
 }
 
-// The WebAssembly pose sampler (src/anim-kernel.js, ?anim=wasm), when a
-// battle loads one. It blends clips to the last bit as the JavaScript
+// The WebAssembly pose sampler (src/anim-kernel.js; the page's default,
+// ?anim=js turns it off), when a battle loads one. It blends clips to the last bit as the JavaScript
 // below does (rust/anim says how); poses take it up as they are made or
 // cleared, and drop it the same way, so a battle can switch it live.
 let animKernel = null;
