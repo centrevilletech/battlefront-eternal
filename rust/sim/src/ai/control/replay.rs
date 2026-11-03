@@ -52,6 +52,7 @@ pub struct Tables {
     pub network_views: bool,
     pub lod_disabled: bool,
     pub network_secondary: bool,
+    pub world_mark_hint: bool,
     pub crews: Vec<Option<CrewSnap>>,
     /// Per controller (roster order): perception's fire/aimer presence.
     pub perception: Vec<(bool, bool)>,
@@ -64,6 +65,8 @@ pub struct Tables {
     weapon_handles: HashMap<(String, HKey), (usize, usize)>,
     building_handles: HashMap<(String, HKey), usize>,
     hint_handles: HashMap<(String, HKey), usize>,
+    /// Loaded hints are plain objects, identified by buildHints' index.
+    hint_indices: HashMap<HKey, usize>,
     /// Agent handle -> its controller's roster index.
     agent_handles: HashMap<(String, HKey), usize>,
     /// Per controller: which helper prototype its helper calls use
@@ -764,6 +767,7 @@ fn unit_read(v: V, key: UKey) -> AiUnit {
         origin: arr3_opt(v.get("origin")),
         aim_point: arr3_opt(v.get("aimPoint")),
         building_alive: v.get("buildingAlive").opt_bool(),
+        repair_aliases: Vec::new(),
     }
 }
 
@@ -993,6 +997,7 @@ pub fn read_state(s: V, spheres: Option<V>) -> (Core, Tables) {
         network_views: s.get("lodWorld").bool(),
         lod_disabled: s.get("lodDisabled").bool(),
         network_secondary: s.get("networkSecondary").bool(),
+        world_mark_hint: bind.get("worldMarkHint").opt_bool().unwrap_or(false),
         crews: s
             .get("crews")
             .items()
@@ -1036,6 +1041,7 @@ pub fn read_state(s: V, spheres: Option<V>) -> (Core, Tables) {
         weapon_handles: HashMap::new(),
         building_handles: HashMap::new(),
         hint_handles: HashMap::new(),
+        hint_indices: HashMap::new(),
         agent_handles: HashMap::new(),
         order: Vec::new(),
         unit_selfs: Vec::new(),
@@ -1057,6 +1063,10 @@ pub fn read_state(s: V, spheres: Option<V>) -> (Core, Tables) {
         if let Some(h) = handle_of(u.get("building")) {
             tables.building_handles.insert(h, i);
         }
+    }
+    for (i, u) in s.get("units").items().enumerate() {
+        tables.units[i].repair_aliases = [u.get("building"), u.get("vehicle")].into_iter()
+            .filter_map(|alias| handle_of(alias).and_then(|h| tables.unit_handles.get(&h).copied())).collect();
     }
     for (i, c) in s.get("controllers").items().enumerate() {
         let self_v = c.get("self");
@@ -1082,6 +1092,8 @@ pub fn read_state(s: V, spheres: Option<V>) -> (Core, Tables) {
     for (i, h) in s.get("hints").items().enumerate() {
         if let Some(k) = handle_of(h.get("self")) {
             tables.hint_handles.insert(k, i);
+        } else if h.get("self").get("index").opt_num().is_some() {
+            tables.hint_indices.insert(hkey(h.get("self").get("index")), i);
         }
     }
     for (i, c) in s.get("controllers").items().enumerate() {
@@ -1092,7 +1104,7 @@ pub fn read_state(s: V, spheres: Option<V>) -> (Core, Tables) {
     tables.writes = core
         .controllers
         .iter()
-        .map(|c| CombatWrites { fire_a: c.fire_a, fire_b: c.fire_b, target: c.target, aim_state: c.aim_state, aim_point: c.aim_point, stance: c.stance, facing: c.facing, wanted_mode: c.wanted_mode })
+        .map(|c| CombatWrites { fire_a: c.fire_a, fire_b: c.fire_b, target: c.target, aim_state: c.aim_state, aim_point: c.aim_point, stance: c.stance, facing: c.facing, wanted_mode: c.wanted_mode, dodge: c.dodge, alert_anim: c.alert_anim })
         .collect();
     tables.order = s.get("order").items().map(|c| c.value.clone()).collect();
     (core, tables)
@@ -1118,6 +1130,13 @@ pub struct ServedDraws<'f> {
 }
 
 impl<'f> Served<'f> {
+    fn hint_of(&self, hint: V) -> Option<usize> {
+        if let Some(handle) = handle_of(hint) {
+            self.tables.hint_handles.get(&handle).copied()
+        } else {
+            self.tables.hint_indices.get(&hkey(hint.get("index"))).copied()
+        }
+    }
     pub fn new(frame: &'f sim_replay::Frame, tables: Tables) -> (Served<'f>, ServedDraws<'f>) {
         let log = Rc::new(RefCell::new(Log::new(frame)));
         let error = Rc::new(RefCell::new(None));
@@ -1300,6 +1319,8 @@ impl<'f> Served<'f> {
                     stance: w.get("stance").num(),
                     facing: w.get("facing").bool(),
                     wanted_mode: w.get("wantedMode").num(),
+                    dodge: num_opt(w.get("dodge")),
+                    alert_anim: w.get("alertAnim").opt_bool(),
                 };
                 if ci < self.tables.writes.len() {
                     self.tables.writes[ci] = writes;
@@ -1453,7 +1474,13 @@ impl<'f> AiWorld for Served<'f> {
         if fields.get("property").str() != Some(property) {
             self.fail(format!("emit property: the capture has {}, the port {property:?}", fields.get("property").show()));
         }
-        self.check(check_num("emit command", fields.get("command"), command));
+        if command == -1.0 {
+            if !fields.get("command").is_nullish() {
+                self.fail(format!("emit command: capture {}, port absent", fields.get("command").show()));
+            }
+        } else {
+            self.check(check_num("emit command", fields.get("command"), command));
+        }
         if let Some(c) = context {
             self.check(check_num("emit context", fields.get("context"), c));
         }
@@ -1864,15 +1891,16 @@ impl<'f> AiWorld for Served<'f> {
         self.check_agent("boardTick agent", call.arg(0), controller);
         self.extra(call, Some(controller));
     }
-    fn vehicles_patrol_mounted(&mut self, controller: usize, _patrol: Patrol) -> Option<Patrol> {
+    fn vehicles_patrol_mounted(&mut self, controller: usize, _patrol: Patrol, shared: &mut ForeignShared) -> Option<Patrol> {
         let call = self.call("vehicles.patrolMounted")?;
+        self.check_foreign_shared(call, shared);
         self.extra(call, Some(controller));
-        if !call.result().truthy() {
-            return None;
-        }
+        if let Some(after) = self.foreign_shared_read(call.extra().get("shared")) { *shared = after; }
+        // PatrolHelper checks whether the hook exists, not its return
+        // value. A bound hook returning false still suppresses fallback.
         let p = call.extra().get("patrol");
         if p.is_nullish() {
-            self.fail("patrolMounted: true without its patrol".to_string());
+            self.fail("patrolMounted: missing patrol state".to_string());
             return None;
         }
         Some(patrol_read(p))
@@ -2120,13 +2148,13 @@ impl<'f> AiWorld for Served<'f> {
         }
         self.check_unit_opt("queryHints requester", q.get("requester"), requester);
         self.extra(call, None);
-        call.result()
-            .items()
-            .filter_map(|h| {
-                let k = handle_of(h)?;
-                self.tables.hint_handles.get(&k).copied()
-            })
-            .collect()
+        call.result().items().filter_map(|hint| {
+            let key = self.hint_of(hint);
+            if key.is_none() {
+                self.fail(format!("queryHints returned an unknown hint: {}", hint.show()));
+            }
+            key
+        }).collect()
     }
     fn nav_hints_len(&self) -> usize {
         self.tables.hints.len()
@@ -2136,16 +2164,17 @@ impl<'f> AiWorld for Served<'f> {
     }
     fn nav_hint_available(&mut self, hint: usize) -> bool {
         let Some(call) = self.call("nav.hintAvailable") else { return true };
-        let theirs = handle_of(call.arg(0)).and_then(|h| self.tables.hint_handles.get(&h).copied());
+        let theirs = self.hint_of(call.arg(0));
         if theirs != Some(hint) {
             self.fail(format!("hintAvailable hint: the capture has {}, the port {hint}", call.arg(0).show()));
         }
         self.extra(call, None);
         call.result().truthy()
     }
-    fn nav_mark_hint(&mut self, hint: usize, unit: Option<UKey>) {
-        let Some(call) = self.call("nav.markHint") else { return };
-        let theirs = handle_of(call.arg(0)).and_then(|h| self.tables.hint_handles.get(&h).copied());
+    fn nav_mark_hint(&mut self, hint: usize, unit: Option<UKey>, prefer_world: bool) {
+        let name = if prefer_world && self.tables.world_mark_hint { "world.nav.markHint" } else { "nav.markHint" };
+        let Some(call) = self.call(name) else { return };
+        let theirs = self.hint_of(call.arg(0));
         if theirs != Some(hint) {
             self.fail(format!("markHint hint: the capture has {}, the port {hint}", call.arg(0).show()));
         }
@@ -2175,16 +2204,18 @@ impl<'f> AiWorld for Served<'f> {
             stance: 0.0,
             facing: false,
             wanted_mode: 0.0,
+            dodge: None,
+            alert_anim: None,
         })
     }
     fn network_secondary_active(&self) -> bool {
         self.tables.network_secondary
     }
-    fn nav_navigation_input(&mut self, controller: usize, step: f64, aim: Option<Vec3>) {
-        let Some(call) = self.call("ai.navigationInput") else { return };
+    fn nav_navigation_input(&mut self, controller: usize, step: f64, aim: Option<Vec3>) -> Option<HelperObs> {
+        let call = self.call("ai.navigationInput")?;
         self.check(check_num("navigationInput step", call.arg(3), step));
         self.check_vec_opt("navigationInput aim", call.arg(4), aim);
-        self.extra(call, Some(controller));
+        self.extra(call, Some(controller))
     }
     fn nav_analogs(&mut self, controller: usize, aim: Option<Vec3>, step: f64) -> [f64; 4] {
         let Some(call) = self.call("ai.analogs") else { return [0.0; 4] };
@@ -2208,11 +2239,11 @@ impl<'f> Served<'f> {
         }
         let x = call.extra();
         Some(Response {
-            mode: r.get("mode").num(),
+            mode: r.get("mode").opt_num().unwrap_or(0.0),
             point: arr3_opt(r.get("point")),
             target: self.ref_of(r.get("target")),
-            exit: r.get("exit").bool(),
-            alert: r.get("alert").bool(),
+            exit: r.get("exit").truthy(),
+            alert: r.get("alert").truthy(),
             enhanced: {
                 let e = x.get("enhanced");
                 if e.is_nullish() {

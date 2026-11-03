@@ -35,6 +35,7 @@ let noteLens = new Map(); // controller -> vehicle-notes refs last recorded
 let lastHelperMade = null;
 let lastForeignAgent = null;
 let foreignBefore = null;
+let patrolBefore = null;
 let snapshotServiceCandidates = null;
 
 const v3 = (p) => (p ? [p.x, p.y, p.z] : null);
@@ -141,6 +142,13 @@ function prepare(game) {
   // currentControllable): rebind the bag through the service object
   // so one shim on the service records both paths, identically.
   const vehicleService = vehicleServiceOf(ai);
+  if (typeof vehicleService?.patrolMounted === 'function') {
+    const patrol = vehicleService.patrolMounted;
+    vehicleService.patrolMounted = function (...args) {
+      patrolBefore = foreignSharedSnap(current);
+      return patrol.apply(this, args);
+    };
+  }
   // Constructors have not assigned controller.agent/helper when the
   // factory returns. Capture the actual returned helper at this seam.
   for (const [owner, name] of [[vehicleService, 'createHelper'], [ai.world.nav, 'helper']]) {
@@ -267,7 +275,9 @@ function unitSnap(ctx, u) {
     // The lazy sphere: its bounds as they stand, and whether they are
     // stale (the replay takes the frame-end bounds then, the value the
     // game's own read computed).
-    boundsRadius: num(u.bounds?.radius),
+    // Repair wrappers have a separate, non-lazy sphere getter. Their
+    // bounds are needed by both candidate filtering and closeIn.
+    boundsRadius: u.building && typeof u.building.sphere === 'function' ? num(u.sphere?.radius) : num(u.bounds?.radius),
     spheresStale: u.spheresTick !== undefined && u.tickCount !== undefined ? u.spheresTick !== u.tickCount : false,
     radius: num(own(u, 'radius') ?? undefined) ?? num(u.radius),
     navRadius: num(u.navRadius), navMask: num(u.navMask),
@@ -288,6 +298,7 @@ function unitSnap(ctx, u) {
     // A repair wrapper is a plain object (no handle of its own); its
     // building names it across states and calls.
     building: u.building ?? null,
+    vehicle: u.vehicle ?? null,
   };
   return snap;
 }
@@ -602,7 +613,7 @@ function postSnap(post) {
 }
 
 // The frame state: everything the core reads or writes in a step.
-function aiState(game) {
+function aiState(game, retained = [], remember = null) {
   const classic = game.ai.classic;
   const ai = classic.ai;
   const world = ai.world;
@@ -684,6 +695,19 @@ function aiState(game) {
       occupants: crew.occupants.map((o) => characterIndex.get(o) ?? null),
     };
   });
+  // A reference can disappear during this frame (unbind, a replaced
+  // goal), but its final writes still belong in the replay comparison.
+  for (const unit of retained) keyOf(unit);
+  for (const item of world.items?.items ?? []) if (item.owner) keyOf(item.owner);
+  // Finish the table before Array.map snapshots it. unitSnap must not
+  // assign an index beyond the array's initial length.
+  for (let i = 0; i < table.length; i++) {
+    const unit = table[i];
+    if (unit.combat?.repairTarget) keyOf(unit.combat.repairTarget);
+    if (unit.building) keyOf(unit.building);
+    if (unit.vehicle) keyOf(unit.vehicle);
+  }
+  remember?.(table.slice());
   const difficulty = world.difficulty;
   const objectives = spawning?.objectives;
   const teams = spawning?.teams ?? [];
@@ -703,6 +727,7 @@ function aiState(game) {
       enhanced: ai.agents?.trooper === EnhancedTrooperAgent,
       mineGround: typeof world.mineGroundHeight === 'function',
       vehicleAdapter: Boolean(own(ai, 'vehicleAdapter')),
+      worldMarkHint: world.nav !== ai.nav && typeof world.nav?.markHint === 'function',
     },
     fallbackSensorRange: ai.fallbackSensorRange ?? 75,
     lodWorld: Boolean(world.networkViews),
@@ -817,6 +842,8 @@ function writesOf(controller) {
     aimPoint: v3(controller.aimPoint) ?? [0, 0, 0],
     stance: controller.stance ?? 0, facing: Boolean(controller.facing),
     wantedMode: controller.wantedMode ?? 0,
+    dodge: num(controller.dodge),
+    alertAnim: typeof controller.alertAnim === 'boolean' ? controller.alertAnim : null,
   };
 }
 
@@ -944,7 +971,7 @@ function patrolExtra(game) {
   const hintIndex = new Map(hintList.map((h, i) => [h, i]));
   const ctx = { postIndex, hintIndex };
   const patrol = current?.agent?.patrol;
-  return { ...afterCurrent(), patrol: patrol ? patrolSnap(ctx, patrol) : null };
+  return { ...afterCurrent(), before: patrolBefore, shared: foreignSharedSnap(current), patrol: patrol ? patrolSnap(ctx, patrol) : null };
 }
 
 function queryExtra() {
@@ -1028,6 +1055,9 @@ function aiBoundaries(game) {
   if (nav) {
     out.push(['nav.helper', nav, 'helper', helperMadeExtra]);
     out.push(['nav.control', nav, 'control', afterCurrent]);
+    // Class jobs prefer the world's reservation service; patrol uses
+    // the AI binding. Give each seam a distinct boundary label.
+    if (nav !== ai.nav && typeof nav.markHint === 'function') out.push(['world.nav.markHint', nav, 'markHint', afterCurrent]);
     const helperClasses = [
       ['ground', GroundGotoHelper], ['fly', NavFlyGotoHelper],
       ['vfly', VehicleFlyGotoHelper], ['stationary', StationaryHelper],
@@ -1060,14 +1090,23 @@ const objectivesTickProto = (game) => {
   return proto && typeof proto.tick === 'function' ? proto : null;
 };
 
+function frameState() {
+  const entries = new Map();
+  return (game, _args, _exporter, self) => {
+    const retained = entries.get(self);
+    if (retained) entries.delete(self);
+    return aiState(game, retained ?? [], retained ? null : (units) => entries.set(self, units));
+  };
+}
+
 export const ai = {
   frames: [
-    { method: 'ai.update', target: aiTarget, state: (game) => aiState(game), boundaries: aiBoundaries },
-    { method: 'controller.bind', target: () => UnitController.prototype, state: (game) => aiState(game), boundaries: aiBoundaries },
-    { method: 'controller.unbind', target: () => UnitController.prototype, state: (game) => aiState(game), boundaries: aiBoundaries },
-    { method: 'objectives.onOwnerChanged', target: objectivesProto, state: (game) => aiState(game), boundaries: aiBoundaries },
-    { method: 'objectives.onDeactivated', target: objectivesProto, state: (game) => aiState(game), boundaries: aiBoundaries },
-    { method: 'objectives.tick', target: objectivesTickProto, state: (game) => aiState(game), boundaries: aiBoundaries },
+    { method: 'ai.update', target: aiTarget, state: frameState(), boundaries: aiBoundaries },
+    { method: 'controller.bind', target: () => UnitController.prototype, state: frameState(), boundaries: aiBoundaries },
+    { method: 'controller.unbind', target: () => UnitController.prototype, state: frameState(), boundaries: aiBoundaries },
+    { method: 'objectives.onOwnerChanged', target: objectivesProto, state: frameState(), boundaries: aiBoundaries },
+    { method: 'objectives.onDeactivated', target: objectivesProto, state: frameState(), boundaries: aiBoundaries },
+    { method: 'objectives.tick', target: objectivesTickProto, state: frameState(), boundaries: aiBoundaries },
   ],
 };
 

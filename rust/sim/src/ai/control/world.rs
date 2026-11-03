@@ -175,6 +175,9 @@ pub struct AiUnit {
     /// A building wrapper's wrapped building health fields are read
     /// through health/max_health above, as its getters give them.
     pub building_alive: Option<bool>,
+    /// Repair wrappers can stand for a building or vehicle body. A
+    /// weapon's held repair target may name that body directly.
+    pub repair_aliases: Vec<UKey>,
 }
 
 impl AiUnit {
@@ -233,7 +236,7 @@ impl Default for AiUnit {
             sphere_radius: None, radius: None, nav_radius: None, nav_mask: None,
             seat: false, seat_vehicle_pos: None, has_lease: false, lease_is_self: false, is_seat_unit: false, character: None, human_piloted: false,
             has_turret: false, mine: false, intent: Intent::default(),
-            forward: None, origin: None, aim_point: None, building_alive: None,
+            forward: None, origin: None, aim_point: None, building_alive: None, repair_aliases: Vec::new(),
         }
     }
 }
@@ -455,6 +458,8 @@ pub struct CombatWrites {
     pub stance: f64,
     pub facing: bool,
     pub wanted_mode: f64,
+    pub dodge: Option<f64>,
+    pub alert_anim: Option<bool>,
 }
 
 /// One controller's alert state after combat's ingest.
@@ -699,7 +704,7 @@ pub trait AiWorld {
     fn vehicles_board_tick(&mut self, controller: usize, dt: f64);
     /// The mounted patrol: takes the patrol state, returns it as the
     /// call left it (None when not bound: patrol.js then asks out).
-    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: super::patrol::Patrol) -> Option<super::patrol::Patrol>;
+    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: super::patrol::Patrol, shared: &mut ForeignShared) -> Option<super::patrol::Patrol>;
     /// controllerPolicy(unit) and its bind/controller/agent effects.
     fn vehicles_policy_of(&mut self, unit: UKey) -> Policy;
     fn vehicles_policy_home_facing(&mut self, policy: Policy, unit: UKey) -> Option<bool>;
@@ -746,7 +751,7 @@ pub trait AiWorld {
     fn nav_hints_len(&self) -> usize;
     fn nav_hint(&self, hint: usize) -> &HintSnap;
     fn nav_hint_available(&mut self, hint: usize) -> bool;
-    fn nav_mark_hint(&mut self, hint: usize, unit: Option<UKey>);
+    fn nav_mark_hint(&mut self, hint: usize, unit: Option<UKey>, prefer_world: bool);
     fn nav_hint_set_reserved(&mut self, hint: usize, at: f64);
     /// controller.perception's presence the class jobs test.
     fn perception_flags(&mut self, controller: usize) -> (bool, bool);
@@ -756,7 +761,7 @@ pub trait AiWorld {
     fn network_secondary_active(&self) -> bool;
     /// nav/analogs.js navigationInput (executor step, posture/jet,
     /// analogs into the intent) and analogs alone.
-    fn nav_navigation_input(&mut self, controller: usize, step: f64, aim: Option<Vec3>);
+    fn nav_navigation_input(&mut self, controller: usize, step: f64, aim: Option<Vec3>) -> Option<HelperObs>;
     fn nav_analogs(&mut self, controller: usize, aim: Option<Vec3>, step: f64) -> [f64; 4];
 }
 

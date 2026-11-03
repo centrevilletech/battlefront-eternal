@@ -681,6 +681,12 @@ impl Core {
         c.stance = writes.stance;
         c.facing = writes.facing;
         c.wanted_mode = writes.wanted_mode;
+        if let Some(dodge) = writes.dodge {
+            c.dodge = Some(dodge);
+        }
+        if let Some(alert) = writes.alert_anim {
+            c.alert_anim = Some(alert);
+        }
     }
 
     fn make_agent(&mut self, w: &mut dyn AiWorld, d: &mut dyn Draws, ci: usize) {
@@ -2262,7 +2268,10 @@ impl Core {
             1.0 => {
                 if unit.is_some() && self.options.bind.vehicles && w.vehicles_boarded(ci) {
                     let patrol = self.objective(ci).map(|o| o.patrol.clone()).unwrap_or_else(patrol::Patrol::new);
-                    match w.vehicles_patrol_mounted(ci, patrol) {
+                    let mut shared = world::ForeignShared::read(&self.controllers[ci]);
+                    let after = w.vehicles_patrol_mounted(ci, patrol, &mut shared);
+                    shared.apply(&mut self.controllers[ci]);
+                    match after {
                         Some(after) => {
                             if let Some(o) = self.objective_mut(ci) {
                                 o.patrol = after;
@@ -2319,7 +2328,7 @@ impl Core {
             3.0 => {
                 let hint = self.objective(ci).and_then(|o| o.patrol.hint);
                 if let Some(hint) = hint {
-                    w.nav_mark_hint(hint, unit);
+                    w.nav_mark_hint(hint, unit, false);
                     let position = w.nav_hint(hint).position;
                     self.helper_goto(w, ci, position, world::GotoMode::Route);
                 }
@@ -2465,7 +2474,7 @@ impl Core {
                     return;
                 }
                 if let Some(hint) = self.objective(ci).and_then(|o| o.patrol.hint) {
-                    w.nav_mark_hint(hint, self.agent_unit(ci));
+                    w.nav_mark_hint(hint, self.agent_unit(ci), false);
                 }
             }
             4.0 => {
@@ -2482,7 +2491,7 @@ impl Core {
                     return;
                 }
                 if let Some(hint) = self.objective(ci).and_then(|o| o.patrol.hint) {
-                    w.nav_mark_hint(hint, self.agent_unit(ci));
+                    w.nav_mark_hint(hint, self.agent_unit(ci), false);
                 }
                 return;
             }
@@ -2500,7 +2509,7 @@ impl Core {
 
     fn mark_hint(&mut self, w: &mut dyn AiWorld, ci: usize, hint: Option<usize>) {
         if let Some(hint) = hint {
-            w.nav_mark_hint(hint, self.agent_unit(ci));
+            w.nav_mark_hint(hint, self.agent_unit(ci), true);
         }
     }
 
@@ -2523,9 +2532,10 @@ impl Core {
             w.service_candidates(center, range)
         } else {
             // The predicate runs inside the registry query too; the
-            // outer filter re-applies it (classes.js:26). Predicates
-            // here are pure, so the outer pass decides.
-            w.units_query(center, range, &mut |_| true)
+            // outer filter re-applies it (classes.js:26). Snapshot the
+            // pure answers so the query can borrow the world mutably.
+            let accepted: Vec<bool> = (0..w.units_len()).map(|key| pred(self, w as &dyn AiWorld, key)).collect();
+            w.units_query(center, range, &mut |unit| accepted.get(unit.key).copied().unwrap_or(false))
         };
         let mut out = Vec::new();
         for key in candidates {
@@ -2643,10 +2653,10 @@ impl Core {
             if !self.hint_available_at(w, hint) {
                 continue;
             }
-            attempts += 1;
             if attempts > 10 {
                 break;
             }
+            attempts += 1;
             if self.snipe_suitable(w, ci, hint) && self.snipe_corridor_clear(w, ci, hint) {
                 if let Some(o) = self.objective_mut(ci) {
                     o.snipe.hint = Some(hint);
@@ -3294,7 +3304,7 @@ impl Core {
         let selected = w.weapons_selected(ci);
         let range_weapon = selected.unwrap_or(weapon);
         let range = w.weapons_effective_range(ci, range_weapon);
-        let locked = current == Some(target);
+        let locked = current.is_some_and(|current| current == target || w.unit(target).repair_aliases.contains(&current));
         let close = distance < range * range && (locked || distance < 25.0);
         // Reservation touch.
         let owner_ref = EntRef { unit, generation: w.unit(unit).generation };
@@ -4565,7 +4575,9 @@ impl Core {
             // navigationInput (vehicles.analogs path inside it);
             // the world implements the whole step.
             let _seat = w.unit(unit).is_seat_unit;
-            w.nav_navigation_input(ci, step, aim_point);
+            if let Some(obs) = w.nav_navigation_input(ci, step, aim_point) {
+                self.set_obs(ci, obs);
+            }
             self.sync_control(w, ci);
         } else {
             self.apply_posture(w, ci);
