@@ -224,7 +224,18 @@ Two parts of the engine are written in Rust and compiled to WebAssembly, in the 
 
 `rust/glbench` and `rust/bfe-native` are measuring tools; nothing ships them.
 
-`rust/v8math` is a library for the Rust that must compute what the JavaScript simulation computes, to the last bit: JavaScript's `Math` as V8 13.6 computes it, the V8 in Node 24, which runs the dedicated server. Rust code that has to agree with the simulation calls it and never Rust's own `sin`, `exp` and so on, whose last bits differ. Node 24 hands `Math.pow` and `**` to the C library, so their results depend on the server: `v8math::pow` computes what glibc's `pow` computes on an x86-64 CPU with FMA and AVX2, which the game's servers have.
+`rust/v8math` is a library for the Rust that must compute what the JavaScript simulation computes, to the last bit: JavaScript's `Math` as V8 13.6 computes it, the V8 in Node 24, which runs the dedicated server. Rust code that has to agree with the simulation calls it and never Rust's own `sin`, `exp` and so on, whose last bits differ. Node 24 hands `Math.pow` and `**` to the C library, so their results depend on the server: `v8math::pow` computes what glibc's `pow` computes on an x86-64 CPU with FMA and AVX2, which the game's servers have. `rust/v8math-check` compares it with V8, natively and as WebAssembly, and should run again whenever the server's Node or C library changes:
+
+```bash
+cd rust
+cargo build --release -p v8math-check
+cargo build --release --target wasm32-unknown-unknown -p v8math-check --lib
+target/release/v8math-check --node "$(command -v node)" --special all       # the special values
+target/release/v8math-check --node "$(command -v node)" --chunks 0..64 --jobs 8 all
+node v8math-check/check-wasm.mjs --chunks 0..64 --jobs 8 all             # the same, as WebAssembly
+```
+
+Each chunk is 2^20 inputs made from bit patterns; the comments at the top of `v8math-check/src/main.rs` and `check-wasm.mjs` give the options.
 
 Because the WebAssembly is committed, building, testing and packaging the game needs no Rust. Changing it needs rustup, which installs the release `rust/rust-toolchain.toml` pins, with the wasm32 target, when cargo first runs under `rust/` (or run `rustup toolchain install` there), and the wasm-bindgen CLI of the version `rust/Cargo.lock` locks:
 
