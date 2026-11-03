@@ -35,3 +35,7 @@ C-tat2-imp-3 --map tat2 --side imp --seed 3 --ticks 2400
 C-bes2-rep-1 --map bes2 --side rep --seed 1 --ticks 2400
 C-bes2-cis-2 --map bes2 --side cis --seed 2 --ticks 2400
 C-bes2-all-3 --map bes2 --side all --seed 3 --ticks 2400
+# The player's shots judged in the past (a view 2.5 ticks behind, snapshots
+# acknowledged), so rounds are cast against the hit history as online.
+C-nab2-rep-1-view --map nab2 --side rep --seed 1 --ticks 2400 --ack --view 2.5
+C-bes1-rep-3-view --map bes1 --side rep --seed 3 --ticks 2400 --ack --view 2.5
