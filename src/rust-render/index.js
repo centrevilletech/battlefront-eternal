@@ -541,14 +541,27 @@ export class RustRender {
 
   // The scene's onBeforeRender, as three starts a render of it (before it
   // lists and sorts it): each pass's beforeSort(renderer, scene, camera,
-  // target), which can register what is new and hide it from three before
-  // three lists it, so that the renderer draws it from its first frame.
+  // target, added), which can register what is new and hide it from three
+  // before three lists it, so that the renderer draws it from its first
+  // frame. added: for the frame's own render, what was added to the scene
+  // since the last one (the scene itself the first time; every object of it
+  // is told of its children added), else null.
   watchScene(scene) {
-    const previous = scene.onBeforeRender;
+    const previous = scene.onBeforeRender, watched = new WeakSet();
+    let added = null;
+    const onAdded = ({ child }) => { added?.push(child); };
+    const watch = (root) => root.traverse((o) => { if (!watched.has(o)) { watched.add(o); o.addEventListener("childadded", onAdded); } });
     scene.onBeforeRender = (...args) => {
       previous?.apply(scene, args);
       if (!this.enabled || !this.active || this.lost || !this.supported()) return;
-      for (const pass of this.passes) pass.beforeSort?.(...args);
+      const [, , camera, target] = args;
+      let roots = null;
+      if (camera === this.graphics.camera && target === this.graphics.sceneTarget) {
+        roots = added ?? [scene];
+        added = [];
+        for (const root of roots) watch(root);
+      }
+      for (const pass of this.passes) pass.beforeSort?.(...args, roots);
     };
   }
 
