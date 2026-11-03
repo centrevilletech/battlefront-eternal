@@ -86,7 +86,9 @@ function runtimeOf(binary) {
   if (r.status !== 0) throw Error(`${binary} does not run: ${r.stderr}`);
   return JSON.parse(r.stdout);
 }
+// (BFE_COMMIT names it where the checkout's history is not at hand.)
 function commitOf() {
+  if (process.env.BFE_COMMIT) return process.env.BFE_COMMIT;
   const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim() || null;
   const dirty = spawnSync('git', ['status', '--porcelain', '--', 'src', 'tools', 'rust'], { cwd: root, encoding: 'utf8' }).stdout.trim();
   return head && dirty ? `${head}+changes` : head;

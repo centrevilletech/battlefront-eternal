@@ -347,9 +347,11 @@ export function battle({ game: g, index, options }) {
   for (const method of ['explosion', 'explode']) shim(game.ordnance, method, (base) => function counted(...args) { if (ticking) explosions++; return base.apply(this, args); });
   if (scanFile) return;
   installShims();
+  // The commit, from git, or from BFE_COMMIT where the checkout's history
+  // is not at hand (a copy of the worktree on another machine).
   const root = fileURLToPath(new URL('../../', import.meta.url));
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
-  const dirty = spawnSync('git', ['status', '--porcelain', '--', 'src', 'tools', 'rust'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+  const head = process.env.BFE_COMMIT || spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+  const dirty = process.env.BFE_COMMIT ? '' : spawnSync('git', ['status', '--porcelain', '--', 'src', 'tools', 'rust'], { cwd: root, encoding: 'utf8' }).stdout.trim();
   fd = fs.openSync(outFile, 'w');
   fs.writeSync(fd, MAGIC);
   header = { format: 1, tool: 'sim-capture', node: process.version, v8: process.versions.v8, commit: dirty ? `${head}+changes` : head,
