@@ -23,8 +23,10 @@
 //! (no wasm-bindgen), named as each bridge calls them.
 
 pub mod abi;
+pub mod ai;
 pub mod battle;
 pub mod collision;
+pub mod combat;
 pub mod gen;
 // The generator's test schemas' code (rust/sim/schema-test), for its tests.
 #[cfg(test)]

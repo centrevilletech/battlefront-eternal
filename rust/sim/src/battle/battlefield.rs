@@ -7,13 +7,14 @@
 //! each thing still outside is killed outright, nobody credited: his body,
 //! a hull with everyone aboard, a droid.
 
-use super::boundary::Boundary;
+use crate::ai::nav::boundary::Boundary;
+use crate::ai::nav::math::Vec3;
 use super::rules::Character;
 use super::world::{BattleWorld, Body};
 
 pub const LEAVING_TIME: f64 = 10.0;
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct Battlefield {
     pub boundary: Boundary,
 }
@@ -21,7 +22,7 @@ pub struct Battlefield {
 impl Battlefield {
     /// outside(position).
     pub fn outside(&self, p: &[f64; 3]) -> bool {
-        self.boundary.outside(p[0], p[2])
+        self.boundary.outside(Vec3 { x: p[0], y: p[1], z: p[2] })
     }
 
     /// update(dt, characters) (battlefield.js:76).

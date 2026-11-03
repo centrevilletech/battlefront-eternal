@@ -11,7 +11,8 @@
 #![cfg(feature = "replay")]
 
 use bfe_sim::battle::battlefield::Battlefield;
-use bfe_sim::battle::boundary::{Boundary, Edge};
+use bfe_sim::ai::nav::boundary::Boundary;
+use bfe_sim::ai::nav::math::Vec3;
 use bfe_sim::battle::mobile::{ClassRecord, Hull, MobileAi, MobileDesc, MobilePost, MobilePosts, Pad, Reported};
 use bfe_sim::battle::posts::{Capturer, Change, CommandPosts, Post, PostAi, PostId, PostRules, SpawnPath};
 use bfe_sim::battle::regions::{build_region, Built, Region, RegionType};
@@ -1207,9 +1208,20 @@ fn spawn_deaths_replay_as_captured() {
 fn battlefield_replays_as_captured() {
     run("Battlefield.update", |_, frame| {
         let before = frame.before();
-        let boundary = Boundary {
-            polygons: before.get("boundary").items().map(|edges| edges.items().map(|e| Edge { x: num(e.at(0)), z: num(e.at(1)), nx: num(e.at(2)), nz: num(e.at(3)) }).collect()).collect(),
-        };
+        // The boundary's points again from its edges' starts (an edge from
+        // the last point to the first, then one from each point to the
+        // next): they make the same edges.
+        let polygons: Vec<Vec<Vec3>> = before
+            .get("boundary")
+            .items()
+            .map(|edges| {
+                let starts: Vec<Vec3> = edges.items().map(|e| Vec3 { x: num(e.at(0)), y: 0.0, z: num(e.at(1)) }).collect();
+                let mut points = starts.get(1..).map(<[Vec3]>::to_vec).unwrap_or_default();
+                points.extend(starts.first().copied());
+                points
+            })
+            .collect();
+        let boundary = Boundary::new(&polygons);
         let field = Battlefield { boundary };
         let mut characters: Vec<Character> = before
             .get("characters")

@@ -25,7 +25,7 @@ uniform vec3 color;
 uniform float head;
 uniform float opacity;
 uniform float span;
-uniform float time;
+uniform float traceTime;
 varying vec2 vLine;
 void main() {
   float along = vLine.x;
@@ -36,7 +36,7 @@ void main() {
   float behind = (head - along) * span;
   float spark = exp(-behind * behind * 0.6);
   float tail = 0.35 + 0.65 * exp(-behind / max(span * 0.5, 6.0));
-  float pulse = 0.9 + 0.1 * sin(along * span * 0.5 - time * 14.0);
+  float pulse = 0.9 + 0.1 * sin(along * span * 0.5 - traceTime * 14.0);
   float ends = smoothstep(0.0, 0.02, along);
   float light = (core * 1.4 + glow * 0.35) * (tail * pulse + spark * 1.8) * ends * opacity;
   gl_FragColor = vec4(color * light, 1.0);
@@ -50,7 +50,7 @@ export class DeathTrace {
     geometry.setAttribute("line", new THREE.BufferAttribute(new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]), 2));
     geometry.setIndex([0, 2, 1, 1, 2, 3]);
     this.material = new THREE.ShaderMaterial({
-      uniforms: { color: { value: ENEMY.clone() }, head: { value: 0 }, opacity: { value: 0 }, span: { value: 1 }, time: { value: 0 } },
+      uniforms: { color: { value: ENEMY.clone() }, head: { value: 0 }, opacity: { value: 0 }, span: { value: 1 }, traceTime: { value: 0 } },
       vertexShader: VERTEX,
       fragmentShader: FRAGMENT,
       transparent: true,
@@ -60,6 +60,8 @@ export class DeathTrace {
       blending: THREE.AdditiveBlending,
     });
     this.mesh = new THREE.Mesh(geometry, this.material);
+    // Found by this name by a renderer that draws it itself (src/rust-render/effects.js).
+    this.mesh.name = "death-trace";
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 990;
     this.mesh.visible = false;
@@ -81,7 +83,7 @@ export class DeathTrace {
     u.color.value.copy(friendly ? FRIEND : ENEMY);
     u.head.value = head;
     u.opacity.value = opacity;
-    u.time.value = time;
+    u.traceTime.value = time;
     const dir = this.dir.subVectors(to, from);
     u.span.value = Math.max(dir.length(), 1e-3);
     dir.normalize();

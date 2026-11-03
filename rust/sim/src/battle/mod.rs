@@ -8,7 +8,6 @@
 //! the rest of the world goes through [`world::BattleWorld`].
 
 pub mod battlefield;
-pub mod boundary;
 pub mod mobile;
 pub mod objectives;
 pub mod posts;
