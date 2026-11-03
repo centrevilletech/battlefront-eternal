@@ -306,6 +306,34 @@ test("glow models: found in three's list, registered with their group once three
   assert.equal(material.visible, true);
 });
 
+test("the effects' programs are their own, apart from another pass's for the same three program, whose values can't leak in", () => {
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
+  geometry.setIndex([0, 1, 2]);
+  const group = new THREE.Group(), part = new THREE.Mesh(geometry, material);
+  group.add(part);
+  group.userData.material = material;
+  group.position.set(0, 0, -6);
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  const shared = program(BASIC, ["position", "uv"]);
+  drawn(material, shared);
+  // Another pass (the transparent pass's command post beams) made one for
+  // the same three program first, and sets its colour and opacity itself.
+  const theirs = core.program(core.renderer.properties.get(material).currentProgram, 0, material, { uniforms: new Set(BASIC), material: new Set() });
+  list.transparent.push({ object: part, material, group: null });
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "add_program").length, 2, "made again for the effects");
+  const pass = calls.find((c) => c[0] === "fx_model_pass");
+  assert.notEqual(pass[2], theirs.id, "the glow drawn with its own");
+  list.transparent.length = 0;
+  frame();
+  assert.equal(entry(0)[0], 2, "drawn");
+});
+
 test("a droideka's shield: its uniforms as the model's values, the frame's own left to the frame block, its onBeforeRender run", async () => {
   const { ShieldBubble } = await import("../src/droideka-shield.js");
   const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();

@@ -214,8 +214,11 @@ export class RustRender {
   // policy: { uniforms, material }, what the pass gives a program of the
   // kind besides the frame block (per draw or per instance), and which of
   // those come from a draw's material (the renderer is told their names).
-  program(threeProgram, kind, material, policy) {
-    let entry = this.programs.get(threeProgram);
+  // cache: where it is kept (made once each): a pass that keeps what it last
+  // set in a program's uniforms passes a cache of its own, so that no other
+  // pass sets them behind its back.
+  program(threeProgram, kind, material, policy, cache = this.programs) {
+    let entry = cache.get(threeProgram);
     if (entry !== undefined) return entry;
     entry = null;
     const gl = this.gl, p = threeProgram.program;
@@ -249,7 +252,7 @@ export class RustRender {
         this.errors.push(`p${threeProgram.id}: ${String(error).slice(0, 300)}`);
       }
     }
-    this.programs.set(threeProgram, entry);
+    cache.set(threeProgram, entry);
     return entry;
   }
 

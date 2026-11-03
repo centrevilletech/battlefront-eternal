@@ -275,6 +275,11 @@ class EffectsPass {
     this.drawn = [];
     this.glowing = [];
     this.models = new Map(); // what a model is made of -> its id
+    // The renderer's programs for this pass's draws, made for it alone:
+    // effects.rs keeps the values it last set in each program's uniforms
+    // (`held`) and skips setting them again, so no other pass may set them
+    // (a command post's beam can draw with a glow model's three program).
+    this.programs = new Map();
     this.batchCount = -1;
     this.waiting = new Map(); // batch -> its registration, until three has drawn it
     this.frame = 0;
@@ -347,7 +352,7 @@ class EffectsPass {
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state) return fail("state");
     const sides = sidesOf(material);
-    const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, WORLD, material, MODEL_POLICY); });
+    const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, WORLD, material, MODEL_POLICY, this.programs); });
     if (programs.some((p) => !p)) return fail("program");
     const map = material.map ?? null;
     const texture = map ? core.texture(map) : -1;
@@ -421,7 +426,7 @@ class EffectsPass {
     // A particle material: depth tested less-or-equal, not written, drawn in
     // one pass (double-sided, or the side three draws).
     if (!blend || !state || state.func !== 0x0203 || state.flags !== 5 || sides.length !== 1) return fail("state");
-    const program = core.program(threeProgram, EFFECT, material, policyOf(spec));
+    const program = core.program(threeProgram, EFFECT, material, policyOf(spec), this.programs);
     if (!program) return fail("program");
     // Attributes as its geometry has them: instance ones, then its base.
     if (spec.attributes === "instanced") {
@@ -536,7 +541,7 @@ class EffectsPass {
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state) return fail("state");
     const sides = sidesOf(material);
-    const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, EFFECT, material, MESH_POLICY); });
+    const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, EFFECT, material, MESH_POLICY, this.programs); });
     if (programs.some((p) => !p)) return fail("program");
     const locations = programs.map((p) => { const at = new Map(p.attributes); return attributes.map(([name]) => at.get(name)); });
     if (locations.some((l) => l.some((v) => v === undefined))) return fail("attributes");
@@ -571,7 +576,7 @@ class EffectsPass {
     const textures = samplers.filter((name) => name !== "sceneDepth");
     if (textures.length > 1 + MODEL_UNITS.length) return fail("samplers");
     const policy = { uniforms: new Set([...names, "modelViewMatrix", "normalMatrix"]), material: new Set() };
-    const programs = sides.map((side) => { const p = side === 2 ? props.currentProgram : programForSide(renderer, material, side); return p && core.program(p, WORLD, material, policy); });
+    const programs = sides.map((side) => { const p = side === 2 ? props.currentProgram : programForSide(renderer, material, side); return p && core.program(p, WORLD, material, policy, this.programs); });
     if (programs.some((p) => !p)) return fail("program");
     if (geometry.groups.length || Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count < (geometry.index?.count ?? 0)) return fail("geometry");
     const geometries = programs.map((p) => core.geometry(geometry, p));
