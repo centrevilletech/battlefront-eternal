@@ -26,6 +26,11 @@ pub enum Kind {
     Skinned,
     // Instanced, no skin (a held gun).
     Rigid,
+    // Three's GLSL as it is, every uniform its own: the pass that draws with
+    // it sets each one (far.rs), the camera's too. For materials that keep
+    // values of their own under a frame block member's name (a water's own
+    // `time`).
+    Plain,
     // One draw an object whose model matrix is the identity, which its
     // shader reads as modelViewMatrix (the effects' particle batches): the
     // view matrix, from the frame block.
@@ -157,6 +162,9 @@ fn declaration(line: &str) -> Option<(&str, &str)> {
 }
 
 pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String> {
+    if kind == Kind::Plain {
+        return Ok(source.to_string());
+    }
     let instanced = kind == Kind::Skinned || kind == Kind::Rigid;
     let mut out = String::with_capacity(source.len() + 4096);
     let mut inserted = false;
