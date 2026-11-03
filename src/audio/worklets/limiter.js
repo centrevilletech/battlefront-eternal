@@ -45,6 +45,12 @@ function dspExports(options) {
   }
 }
 
+// Views of `count` runs of 128 samples (a block each) from `ptr` in the
+// module's memory: the staging a call reads or fills.
+function dspViews(x, ptr, count) {
+  return Array.from({ length: count }, (_, i) => new Float32Array(x.memory.buffer, ptr + i * 512, 128));
+}
+
 
 function interpolator() {
   // Windowed-sinc lowpass at the original Nyquist, split into 4 phases.
@@ -147,14 +153,14 @@ class TruePeakLimiter extends AudioWorkletProcessor {
       for (const c of output) c.fill(0);
       return true;
     }
-    if (!d.inView || d.inView.byteLength === 0) {
-      d.inView = new Float32Array(x.memory.buffer, x.limiter_in(h), 16 * 128);
-      d.outView = new Float32Array(x.memory.buffer, x.limiter_out(h), 16 * 128);
+    if (!d.ins || d.ins[0].byteLength === 0) {
+      d.ins = dspViews(x, x.limiter_in(h), 16);
+      d.outs = dspViews(x, x.limiter_out(h), 16);
       d.io = new Float64Array(x.memory.buffer, x.limiter_io(h), 1);
     }
-    for (let c = 0; c < input.length; c++) d.inView.set(input[c], c * 128);
+    for (let c = 0; c < input.length; c++) d.ins[c].set(input[c]);
     if (x.limiter_process(h, input.length, Math.min(output.length, 16))) this.port.postMessage({ reduction: d.io[0] });
-    for (let c = 0; c < output.length && c < 16; c++) output[c].set(d.outView.subarray(c * 128, (c + 1) * 128));
+    for (let c = 0; c < output.length && c < 16; c++) output[c].set(d.outs[c]);
     return true;
   }
 
