@@ -16,4 +16,6 @@ impl BfeRenderer {
     // Cells given whole: [first index, end] and a box [min, max] each.
     pub fn world_runs(&mut self, w: u32, ranges: &[u32], boxes: &[f64]) { self.r.world.world_runs(w, ranges, boxes) }
     pub fn world_shown(&mut self, w: u32, shown: bool) { self.r.world.world_shown(w, shown) }
+    // A DYNAMIC bucket's lamps this frame: 4 lamp table indices (-1: none), count.
+    pub fn world_lamps(&mut self, w: u32, values: &[f32]) { self.r.world.world_lamps(&self.r.core, w, values) }
 }
