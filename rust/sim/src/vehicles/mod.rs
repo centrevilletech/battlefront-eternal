@@ -8,7 +8,9 @@
 //! - `hover`: a hover on its springs (`hoverPhysics`, `hoverContacts`,
 //!   `hoverSprings`), the springs' contact search included;
 //! - `walker`: a walker or riding animal on the ground (`walkGround`,
-//!   `standOnLegs`, `alignGround`).
+//!   `standOnLegs`, `alignGround`);
+//! - `pose`: a hull's pose at the tick (`aimTick`, `render`): its root,
+//!   its seats' aim targets, turrets and aimers, its barrels' kick.
 //!
 //! A hull reaches the rest of the battle through [`VehicleWorld`] alone, the
 //! calls src/vehicles-world.js makes for the JavaScript hull, in the order
@@ -23,6 +25,7 @@
 
 pub mod hover;
 pub mod hull;
+pub mod pose;
 pub mod walker;
 #[cfg(feature = "replay")]
 pub mod replay;
@@ -100,4 +103,8 @@ pub trait VehicleWorld {
     fn explosion(&mut self, hull: usize, final_explosion: bool, position: &Vector3);
     /// An effect at a point (recorded by a world for its page).
     fn effect(&mut self, name: &str, position: &Vector3);
+    /// Units.raycast: the distance to the first unit along a ray within `far`.
+    fn raycast_units(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<f64>;
+    /// The clock barrels kick back on (a world's tick clock).
+    fn clock(&mut self) -> f64;
 }
