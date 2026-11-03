@@ -14,9 +14,14 @@ use bfe_sim::ai::control::replay::replay_frame;
 use sim_replay::{Corpus, Event, Frame, Outcome, Report};
 
 fn port(frame: &Frame) -> Outcome {
-    match replay_frame(frame) {
-        Ok(()) => Outcome::Same,
-        Err(e) => Outcome::Failed(e),
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| replay_frame(frame))) {
+        Ok(Ok(())) => Outcome::Same,
+        Ok(Err(e)) => Outcome::Failed(e),
+        Err(panic) => {
+            let message = panic.downcast_ref::<String>().map(String::as_str)
+                .or_else(|| panic.downcast_ref::<&str>().copied()).unwrap_or("unknown panic");
+            Outcome::Failed(format!("{}: replay panic: {message}", frame.place()))
+        }
     }
 }
 
