@@ -230,6 +230,11 @@ go, so a later life of the slot gets a new one.
   singleton's one object) in their order and has the store take them; an
   entity the block no longer lists is gone from the store, as it left the
   JavaScript list;
+- `writeSome(kind, objects, full)` writes the rows of some of a kind's
+  entities and leaves every other entity of the kind as the store holds it
+  (and whatever the store keeps of the ones it writes beyond their rows,
+  such as a unit's combat record): the way to write a few units, a seat's
+  riders or the units a hook changed, without dropping the rest;
 - `sync(kind, target)` copies an export block into the kind's mirrors (a
   singleton's into `target`), updating each mirror's Vector3s in place so
   whatever holds them keeps seeing them, retired entities' last states

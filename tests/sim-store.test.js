@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { loadSim } from '../src/sim/module.js';
 import { ExportContext, Identity, SimBridge, bridgeFor, exportState, undeclared } from '../src/sim/runtime.js';
-import { KIND_BEAM, KIND_BODY, KIND_BOLT, KIND_EMITTER, KIND_GRENADE, KIND_ORDNANCE, KIND_OWNER_SNAPSHOT, KIND_ROUND, KIND_TABLE, KIND_UNIT, KIND_VEHICLE, BOLT_KEYS } from '../src/sim/gen/index.js';
+import { KIND_BEAM, KIND_BODY, KIND_BOLT, KIND_EMITTER, KIND_GRENADE, KIND_ORDNANCE, KIND_OWNER_SNAPSHOT, KIND_ROUND, KIND_TABLE, KIND_UNIT, KIND_VEHICLE, BOLT_KEYS,
+  CombatMirror, DroidekaMirror, SoldierMirror, UnitMirror, sameCombat, sameUnit } from '../src/sim/gen/index.js';
 import { generate } from '../tools/sim-schema.mjs';
 
 // The entity store (docs/sim-store.md): what JavaScript writes into a
@@ -214,6 +215,42 @@ test('the mirror write detector names a field JavaScript changed without a comma
   b.refs[KIND_BOLT].objects[2].life = 5;
   b.refs[KIND_BOLT].objects[0].position.x = -0;
   assert.deepEqual(b.check(KIND_BOLT), ['bolt[0].position', 'bolt[2].life']);
+});
+
+test('a write of some units leaves the others in the store as they were, their combat too', async () => {
+  const b = new SimBridge(await loadSim(), { classes: { Soldier: SoldierMirror, Droideka: DroidekaMirror } });
+  const def = { class: 'rep_inf_ep3_rifleman' };
+  const unit = (id, health) => {
+    const u = new UnitMirror();
+    Object.assign(u, { id, generation: 1, side: 'rep', className: def.class, classDef: def, alive: true, deadTime: 0, soldier: new SoldierMirror() });
+    u.soldier.position.set(id, 0.5, -id);
+    const c = new CombatMirror();
+    Object.assign(c, { owner: u, health, maxHealth: 300, dead: false, deathTime: 0, team: 1, repairLock: '', scale: 'PersonScale', chunks: 0, zoomStep: 0,
+      mounted: false, pendingShots: [], hasRandom: true, hasRemotes: false, arsenal: { weapons: [], selected: [0, 1] }, seenList: [] });
+    Object.assign(c.kick, { rate: 0.5, hold: 1, offset: -0 });
+    u.combat = c;
+    return u;
+  };
+  const units = [unit(3, 300), unit(5, 120), unit(8, 75)];
+  // Every field, the combat records with them (as a capture or a tool does).
+  b.write(KIND_UNIT, units, true);
+  const rows = () => new Map(b.read(KIND_UNIT).map(({ slot, object }) => [slot, object]));
+  const before = rows();
+  // Unit 5 moves, and his combat changes on the JavaScript side; only his
+  // import fields go in, and only his.
+  units[1].soldier.position.x = 42;
+  units[1].deadTime = 2.5;
+  units[1].combat.health = 1;
+  b.writeSome(KIND_UNIT, [units[1]]);
+  const after = rows();
+  assert.deepEqual([...after.keys()].sort((x, y) => x - y), [3, 5, 8]);
+  for (const id of [3, 8]) assert.equal(sameUnit(after.get(id), before.get(id)), null, `unit ${id}'s rows as they were`);
+  for (const id of [3, 5, 8]) assert.equal(sameCombat(after.get(id).combat, before.get(id).combat), null, `unit ${id}'s combat as the store had it`);
+  assert.equal(after.get(5).soldier.position.x, 42);
+  assert.equal(after.get(5).deadTime, 2.5);
+  // write() is the kind's whole list: an entity it does not list leaves.
+  b.write(KIND_UNIT, [units[1]]);
+  assert.deepEqual(b.read(KIND_UNIT).map(({ slot }) => slot), [5]);
 });
 
 test('views are made again when the memory grows, and what was written is still there', async () => {
