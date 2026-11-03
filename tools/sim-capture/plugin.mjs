@@ -342,8 +342,23 @@ export function battle({ game: g, index, options }) {
   game = g;
   buildSystems();
   refreshIdentity();
-  if (game.ai?.randomA) labels.set(game.ai.randomA, 'A');
-  if (game.ai?.randomB && game.ai.randomB !== game.ai.randomA) labels.set(game.ai.randomB, 'B');
+  // The AI's two generators, A and B (src/ai/index.js), told apart from the
+  // rest by the states game.randomState() reports for them: found in a
+  // shallow walk of game.ai's own data (no getters read).
+  const states = game.randomState?.() ?? {};
+  const walked = new Set(), queue = [[game.ai, 0]];
+  while (queue.length) {
+    const [o, depth] = queue.shift();
+    if (!o || typeof o !== 'object' || walked.has(o) || depth > 3) continue;
+    walked.add(o);
+    if (o instanceof ClassicRandom) {
+      // (Over the provisional label a draw while loading gave it.)
+      if (o.state === states.ai) labels.set(o, 'A');
+      else if (o.state === states.game) labels.set(o, 'B');
+      continue;
+    }
+    for (const desc of Object.values(Object.getOwnPropertyDescriptors(o))) if ('value' in desc && desc.value && typeof desc.value === 'object') queue.push([desc.value, depth + 1]);
+  }
   for (const method of ['explosion', 'explode']) shim(game.ordnance, method, (base) => function counted(...args) { if (ticking) explosions++; return base.apply(this, args); });
   if (scanFile) return;
   installShims();
