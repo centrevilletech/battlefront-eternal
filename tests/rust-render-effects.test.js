@@ -5,6 +5,7 @@ import * as THREE from "three";
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
+const { standinModule } = await import("./support/rust-standin.mjs");
 const { ParticleRenderer, particleRenderers, STREAK } = await import("../src/particles.js");
 const { GpuEffects } = await import("../src/effects-gpu.js");
 const { Lightning, classicLightning } = await import("../src/lightning.js");
@@ -27,58 +28,39 @@ const BASIC = ["projectionMatrix", "modelViewMatrix", "mapTransform", "diffuse",
 // the calls made to it), three's renderer (its render lists, empty) and its
 // context (enough of it for a program's uniforms, attributes and shaders).
 function bridge() {
-  const calls = [];
-  const memory = { buffer: new ArrayBuffer(1 << 17) };
   const next = { program: 0, texture: 0, batch: 0, owner: 0, mesh: 0, model: 0, geometry: 0 };
-  class BfeRenderer {
-    input_ptr() { return 0; }
-    input_len() { return 200 + 76 * 4; }
-    bones_ptr() { return 8192; }
-    bones_len() { return 64; }
-    records_at() { return 200; }
-    record_stride() { return 76; }
-    fx_input_ptr() { return 16384; }
-    fx_input_len() { return 2600; }
-    fx_data_ptr() { return 40960; }
-    fx_data_len() { return 16384; }
-    transparent_keys_ptr() { return 12288; }
-    transparent_keys_len() { return 64; }
-    transparent_segments_ptr() { return 106496; }
-    transparent_segments_len() { return 2; }
-    transparent_objects_ptr() { return 114688; }
-    transparent_objects_len() { return 1 + 2 * 40; }
-    transparent_object_stride() { return 40; }
-    far_input_ptr() { return 118784; }
-    far_input_len() { return 1024; }
-    transparent_bucket_shown() {}
-    add_texture() { calls.push(["add_texture"]); return next.texture++; }
-    set_far_map(texture) { calls.push(["set_far_map", texture]); }
-    add_program(kind, vs, fs, attributes, uniforms) { calls.push(["add_program", kind, vs, attributes, uniforms]); return next.program++; }
-    fx_add_owner(tracks, rows) { calls.push(["fx_add_owner", tracks, rows]); return next.owner++; }
-    fx_add_batch(program, texture, blend, corner, attributes, owner) { calls.push(["fx_add_batch", program, texture, [...blend], corner, [...attributes], owner]); return next.batch++; }
-    fx_batch_texture(batch, texture) { calls.push(["fx_batch_texture", batch, texture]); }
-    fx_batch_values(batch, values) { calls.push(["fx_batch_values", batch, values]); }
-    fx_batch_interleaved(batch) { calls.push(["fx_batch_interleaved", batch]); }
-    fx_batch_side(batch, side) { calls.push(["fx_batch_side", batch, side]); }
-    fx_batch_sampler(batch, name, unit, texture) { calls.push(["fx_batch_sampler", batch, name, unit, texture]); }
-    fx_batch_base(batch, attributes, vertices, data, index) { calls.push(["fx_batch_base", batch, [...attributes], vertices, data.length, [...index]]); }
-    fx_add_mesh(texture, blend, flags, func, sizes, values) { calls.push(["fx_add_mesh", texture, [...blend], flags, func, [...sizes], values]); return next.mesh++; }
-    fx_mesh_pass(mesh, program, side, locations) { calls.push(["fx_mesh_pass", mesh, program, side, [...locations]]); }
-    fx_mesh_texture(mesh, texture) { calls.push(["fx_mesh_texture", mesh, texture]); }
-    fx_matrices_ptr() { return 90112; }
-    fx_matrices_len() { return 1024; }
-    fx_add_model(texture, blend, flags, func, values, sphere) { calls.push(["fx_add_model", texture, [...blend], flags, func, values, [...sphere]]); return next.model++; }
-    fx_model_pass(model, program, side, geometry) { calls.push(["fx_model_pass", model, program, side, geometry]); }
-    fx_model_sampler(model, name, unit, texture) { calls.push(["fx_model_sampler", model, name, unit, texture]); }
-    add_geometry() { calls.push(["add_geometry"]); return next.geometry++; }
-    geometry_buffer() { return 0; }
-    geometry_pointer() {}
-    geometry_index() {}
-    geometry_group() {}
-    sort() {}
-    frame(records) { calls.push(["frame", records]); return STATS; }
-    transparent_frame(three) { calls.push(["transparent_frame", three]); return STATS; }
-  }
+  // The shared stand-in for the WASM renderer (every pass's views), with the
+  // effects' registration calls as this test reads them.
+  const { BfeRenderer, memory, calls } = standinModule({
+    methods: ({ calls }) => ({
+      transparent_bucket_shown() {},
+      add_texture() { calls.push(["add_texture"]); return next.texture++; },
+      set_far_map(texture) { calls.push(["set_far_map", texture]); },
+      add_program(kind, vs, fs, attributes, uniforms) { calls.push(["add_program", kind, vs, attributes, uniforms]); return next.program++; },
+      fx_add_owner(tracks, rows) { calls.push(["fx_add_owner", tracks, rows]); return next.owner++; },
+      fx_add_batch(program, texture, blend, corner, attributes, owner) { calls.push(["fx_add_batch", program, texture, [...blend], corner, [...attributes], owner]); return next.batch++; },
+      fx_batch_texture(batch, texture) { calls.push(["fx_batch_texture", batch, texture]); },
+      fx_batch_values(batch, values) { calls.push(["fx_batch_values", batch, values]); },
+      fx_batch_interleaved(batch) { calls.push(["fx_batch_interleaved", batch]); },
+      fx_batch_side(batch, side) { calls.push(["fx_batch_side", batch, side]); },
+      fx_batch_sampler(batch, name, unit, texture) { calls.push(["fx_batch_sampler", batch, name, unit, texture]); },
+      fx_batch_base(batch, attributes, vertices, data, index) { calls.push(["fx_batch_base", batch, [...attributes], vertices, data.length, [...index]]); },
+      fx_add_mesh(texture, blend, flags, func, sizes, values) { calls.push(["fx_add_mesh", texture, [...blend], flags, func, [...sizes], values]); return next.mesh++; },
+      fx_mesh_pass(mesh, program, side, locations) { calls.push(["fx_mesh_pass", mesh, program, side, [...locations]]); },
+      fx_mesh_texture(mesh, texture) { calls.push(["fx_mesh_texture", mesh, texture]); },
+      fx_add_model(texture, blend, flags, func, values, sphere) { calls.push(["fx_add_model", texture, [...blend], flags, func, values, [...sphere]]); return next.model++; },
+      fx_model_pass(model, program, side, geometry) { calls.push(["fx_model_pass", model, program, side, geometry]); },
+      fx_model_sampler(model, name, unit, texture) { calls.push(["fx_model_sampler", model, name, unit, texture]); },
+      add_geometry() { calls.push(["add_geometry"]); return next.geometry++; },
+      geometry_buffer() { return 0; },
+      geometry_pointer() {},
+      geometry_index() {},
+      geometry_group() {},
+      sort() {},
+      frame(records) { calls.push(["frame", records]); return STATS; },
+      transparent_frame(three) { calls.push(["transparent_frame", three]); return STATS; },
+    }),
+  });
   const gl = {
     ...GL,
     getProgramParameter: (p, what) => (what === GL.ACTIVE_UNIFORMS ? p.uniforms.length : p.attributes.length),
@@ -123,7 +105,7 @@ function bridge() {
 
 test("the effects are the transparent phase's second pass, after the map's blended buckets", () => {
   const { core } = bridge();
-  assert.deepEqual(core.phases.transparent.map((p) => p.name), ["transparent", "effects"]);
+  assert.deepEqual(core.phases.transparent.map((p) => p.name), ["transparent", "effects", "water"]);
 });
 
 test("a CPU batch: registered once three drew it, then hidden from three and written each frame with its key", () => {

@@ -269,8 +269,11 @@ class Fader {
 export class BattleHud extends InterfaceSurface {
   // renderer: the WebGL renderer; url(name) finds a texture's file; fonts and
   // strings come from common.json; map is the map's manifest.
-  constructor(renderer, { url, fonts, strings, map, mapImage }) {
+  // graphics: the battle's Graphics, whose Rust renderer may draw the HUD's
+  // batch (render).
+  constructor(renderer, { url, fonts, strings, map, mapImage, graphics = null }) {
     super(renderer, { url, fonts, strings });
+    this.graphics = graphics;
     this.frame = map.minimap;
     this.mapScale = map.commandPost?.mapScale ?? 1;
     this.vehicle = null;
@@ -648,12 +651,16 @@ export class BattleHud extends InterfaceSurface {
     if (!covered) this.drawBanner();
     batch.end();
     const renderer = this.renderer;
-    renderer.setRenderTarget(null);
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
-    layer?.renderBefore?.(renderer, this);
-    renderer.render(this.scene, this.camera);
-    layer?.renderAfter?.(renderer, this);
+    // Three's draws go onto the canvas, bound before its first one; the Rust
+    // renderer's HUD pass binds it itself (and three's state, left to it,
+    // is reset only when three is next used).
+    let bound = false;
+    const canvas = () => { if (!bound) { renderer.setRenderTarget(null); bound = true; } };
+    if (layer?.renderBefore) { canvas(); layer.renderBefore(renderer, this); }
+    if (!this.graphics?.rust?.coverHud(renderer, this)) { canvas(); renderer.render(this.scene, this.camera); }
+    if (layer?.renderAfter) { canvas(); layer.renderAfter(renderer, this); }
     // Quads over everything, the layer's models included: the layer's own
     // (its pointer) unless it is covered, then the overlay's.
     const layerOver = !covered && layer?.drawOver;
@@ -667,9 +674,10 @@ export class BattleHud extends InterfaceSurface {
       if (layerOver) layer.drawOver(this, this.overBatch);
       overlay?.draw?.(this, this.overBatch);
       this.overBatch.end();
+      canvas();
       renderer.render(this.overScene, this.camera);
     }
-    overlay?.renderAfter?.(renderer, this);
+    if (overlay?.renderAfter) { canvas(); overlay.renderAfter(renderer, this); }
     renderer.autoClear = autoClear;
   }
 

@@ -175,6 +175,30 @@ impl Store {
         true
     }
 
+    /// `count` new entities of a kind (its fields' defaults) at the end of its home
+    /// list, if it has one (tests and benchmarks).
+    pub fn fill(&mut self, kind: KindCode, count: usize) {
+        match kind {
+            KIND_BEAM => for _ in 0..count {
+                let r = self.beam.insert(Default::default());
+                self.ordnance.beams.push(r);
+            },
+            KIND_BOLT => for _ in 0..count {
+                let r = self.bolt.insert(Default::default());
+                self.ordnance.bolts.push(r);
+            },
+            KIND_GRENADE => for _ in 0..count {
+                let r = self.grenade.insert(Default::default());
+                self.ordnance.grenades.push(r);
+            },
+            KIND_ROUND => for _ in 0..count {
+                let r = self.round.insert(Default::default());
+                self.ordnance.rounds.push(r);
+            },
+            _ => {}
+        }
+    }
+
     /// Retires an entity of a kind the store holds by slot (`Slab::retire`).
     pub fn retire(&mut self, kind: KindCode, slot: u32, gen: u32) -> bool {
         match kind {
@@ -254,7 +278,8 @@ impl Store {
 }
 
 pub const COMMAND_ECHO: u32 = 1;
-pub const COMMAND_NAMES: [&str; 2] = ["", "echo"];
+pub const COMMAND_FILL: u32 = 2;
+pub const COMMAND_NAMES: [&str; 3] = ["", "echo", "fill"];
 
 pub const EVENT_ECHOED: u32 = 1;
 pub const EVENT_NAMES: [&str; 2] = ["", "echoed"];
@@ -270,9 +295,35 @@ pub fn run_command(sim: &mut crate::abi::Sim, code: u32) -> bool {
             let result = crate::abi::echo(sim, args);
             sim.calls.result(Echo::WORDS, |row, heap| result.put(row, heap));
         }
+        COMMAND_FILL => {
+            let args = { let (row, heap) = sim.calls.args(); Fill::take(row, heap) };
+            crate::abi::fill(sim, args);
+            sim.calls.result(0, |_, _| {});
+        }
         _ => return false,
     }
     true
+}
+
+/// The command echo, its arguments' words as parameters.
+#[no_mangle]
+pub extern "C" fn cmd_echo(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64) -> *const f64 {
+    let row: [f64; 8] = [w0, w1, w2, w3, w4, w5, w6, w7];
+    let args = Echo::take(&row, &[]);
+    let sim = crate::abi::sim();
+    let result = crate::abi::echo(sim, args);
+    sim.calls.result(Echo::WORDS, |row, heap| result.put(row, heap));
+    sim.calls.block.ptr()
+}
+
+/// The command fill, its arguments' words as parameters.
+#[no_mangle]
+pub extern "C" fn cmd_fill(w0: f64, w1: f64) -> *const f64 {
+    let row: [f64; 2] = [w0, w1];
+    let args = Fill::take(&row, &[]);
+    let sim = crate::abi::sim();
+    crate::abi::fill(sim, args);
+    std::ptr::null()
 }
 
 impl Echo {

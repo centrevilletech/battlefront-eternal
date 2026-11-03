@@ -320,6 +320,11 @@ export class Foliage {
     this.v = Array.from({ length: 12 }, () => new THREE.Vector3());
     this.frustum = new THREE.Frustum();
     this.viewProjection = new THREE.Matrix4();
+    // A drawer of the scene's own may take classes over (the Rust renderer's
+    // foliage pass, src/rust-render/foliage.js): it selects and draws those
+    // (drawer.covers(kind)), each update given the camera (drawer.select).
+    this.drawer = null;
+    scene.userData.foliage = this;
   }
 
   update(dt, camera) {
@@ -330,7 +335,10 @@ export class Foliage {
     const right = this.v[0].set(e[0], e[1], e[2]);
     const up = this.v[1].set(e[4], e[5], e[6]);
     const back = this.v[2].set(e[8], e[9], e[10]); // toward the camera
+    const drawer = this.drawer;
+    drawer?.select(this, camera);
     for (const kind of this.kinds.values()) {
+      if (drawer?.covers(kind)) continue;
       if (this.gpu) {
         kind.batch.update(kind.instances, this.time, camera, right, up, back, this.frustum, this.nearEnd());
         continue;

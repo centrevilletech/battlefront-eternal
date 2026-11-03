@@ -272,6 +272,93 @@ export class BfeRenderer {
         wasm.bferenderer_far_terrain(this.__wbg_ptr, val3, val4, ptr0, len0, ptr1, len1);
     }
     /**
+     * @param {number} program
+     * @param {number} texture
+     * @param {boolean} grass
+     * @param {number} wiggle
+     * @param {Float32Array | number[]} vertices
+     * @param {Uint32Array | number[]} index
+     * @param {Int32Array | number[]} locations
+     * @param {Float32Array | number[]} rows
+     * @param {Float64Array | number[]} bounds
+     * @param {Float32Array | number[]} map_matrix
+     * @param {Float32Array | number[]} diffuse
+     * @param {number} opacity
+     * @param {number} alpha_test
+     * @returns {number}
+     */
+    foliage_class(program, texture, grass, wiggle, vertices, index, locations, rows, bounds, map_matrix, diffuse, opacity, alpha_test) {
+        const val8 = +program;
+        const val9 = +texture;
+        const val10 = +grass;
+        const val11 = +wiggle;
+        const val12 = +opacity;
+        const val13 = +alpha_test;
+        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6;
+        try {
+            ptr0 = passArrayF32ToWasm0(vertices, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(index, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArray32ToWasm0(locations, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+            ptr3 = passArrayF32ToWasm0(rows, wasm.__wbindgen_malloc);
+            len3 = WASM_VECTOR_LEN;
+            ptr4 = passArrayF64ToWasm0(bounds, wasm.__wbindgen_malloc);
+            len4 = WASM_VECTOR_LEN;
+            ptr5 = passArrayF32ToWasm0(map_matrix, wasm.__wbindgen_malloc);
+            len5 = WASM_VECTOR_LEN;
+            ptr6 = passArrayF32ToWasm0(diffuse, wasm.__wbindgen_malloc);
+            len6 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr6) { wasm.__wbindgen_free(ptr6, len6 * 4, 4); }
+            if (ptr5) { wasm.__wbindgen_free(ptr5, len5 * 4, 4); }
+            if (ptr4) { wasm.__wbindgen_free(ptr4, len4 * 8, 8); }
+            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 4, 4); }
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 4, 4); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_foliage_class(this.__wbg_ptr, val8, val9, val10, val11, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4, ptr5, len5, ptr6, len6, val12, val13);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    foliage_frame() {
+        const ret = wasm.bferenderer_foliage_frame(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    foliage_input_len() {
+        const ret = wasm.bferenderer_foliage_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    foliage_input_ptr() {
+        const ret = wasm.bferenderer_foliage_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {boolean} on
+     */
+    foliage_on(on) {
+        wasm.bferenderer_foliage_on(this.__wbg_ptr, on);
+    }
+    /**
+     * @param {number} _class
+     * @returns {number}
+     */
+    foliage_selected(_class) {
+        const ret = wasm.bferenderer_foliage_selected(this.__wbg_ptr, _class);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} records
      * @returns {Uint32Array}
      */
@@ -600,6 +687,96 @@ export class BfeRenderer {
         wasm.bferenderer_geometry_pointer(this.__wbg_ptr, g, buffer, location, size, ty, normalized, stride, offset);
     }
     /**
+     * @returns {Uint32Array}
+     */
+    hud_frame() {
+        const ret = wasm.bferenderer_hud_frame(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @param {Uint32Array | number[]} index
+     */
+    hud_init(index) {
+        const ptr0 = passArray32ToWasm0(index, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_hud_init(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @returns {number}
+     */
+    hud_input_len() {
+        const ret = wasm.bferenderer_hud_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_input_ptr() {
+        const ret = wasm.bferenderer_hud_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_mask_uv_len() {
+        const ret = wasm.bferenderer_hud_mask_uv_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_mask_uv_ptr() {
+        const ret = wasm.bferenderer_hud_mask_uv_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_position_len() {
+        const ret = wasm.bferenderer_hud_position_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_position_ptr() {
+        const ret = wasm.bferenderer_hud_position_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_tint_len() {
+        const ret = wasm.bferenderer_hud_tint_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_tint_ptr() {
+        const ret = wasm.bferenderer_hud_tint_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_uv_len() {
+        const ret = wasm.bferenderer_hud_uv_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    hud_uv_ptr() {
+        const ret = wasm.bferenderer_hud_uv_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @returns {number}
      */
     input_len() {
@@ -627,6 +804,23 @@ export class BfeRenderer {
         return v1;
     }
     /**
+     * @param {Float64Array | number[]} clear
+     * @param {number} steps
+     * @returns {Uint32Array}
+     */
+    near_begin(clear, steps) {
+        const val2 = +steps;
+        const ptr0 = passArrayF64ToWasm0(clear, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_near_begin(this.__wbg_ptr, ptr0, len0, val2);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v3 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v3;
+    }
+    /**
      * @param {WebGL2RenderingContext} context
      */
     constructor(context) {
@@ -636,16 +830,39 @@ export class BfeRenderer {
         return this;
     }
     /**
+     * @param {number} steps
      * @returns {Uint32Array}
      */
-    post_frame() {
-        const ret = wasm.bferenderer_post_frame(this.__wbg_ptr);
+    post_frame(steps) {
+        const ret = wasm.bferenderer_post_frame(this.__wbg_ptr, steps);
         if (ret[3]) {
             throw takeFromExternrefTable0(ret[2]);
         }
         var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    post_input_len() {
+        const ret = wasm.bferenderer_post_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    post_input_ptr() {
+        const ret = wasm.bferenderer_post_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} texture
+     * @returns {number}
+     */
+    post_target(texture) {
+        const ret = wasm.bferenderer_post_target(this.__wbg_ptr, texture);
+        return ret >>> 0;
     }
     /**
      * @returns {number}
@@ -858,16 +1075,131 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} records
      * @returns {Uint32Array}
      */
-    view_frame() {
-        const ret = wasm.bferenderer_view_frame(this.__wbg_ptr);
+    view_frame(records) {
+        const ret = wasm.bferenderer_view_frame(this.__wbg_ptr, records);
         if (ret[3]) {
             throw takeFromExternrefTable0(ret[2]);
         }
         var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    view_input_len() {
+        const ret = wasm.bferenderer_view_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    view_input_ptr() {
+        const ret = wasm.bferenderer_view_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_input_len() {
+        const ret = wasm.bferenderer_water_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_input_ptr() {
+        const ret = wasm.bferenderer_water_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {Uint32Array | number[]} index
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_func
+     * @param {number} flags
+     * @param {number} side
+     * @returns {number}
+     */
+    water_rings(index, blend, depth_func, flags, side) {
+        const val3 = +depth_func;
+        const val4 = +flags;
+        const val5 = +side;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(index, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_water_rings(this.__wbg_ptr, ptr0, len0, ptr1, len1, val3, val4, val5);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_alpha_len() {
+        const ret = wasm.bferenderer_water_rings_alpha_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_alpha_ptr() {
+        const ret = wasm.bferenderer_water_rings_alpha_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_position_len() {
+        const ret = wasm.bferenderer_water_rings_position_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_position_ptr() {
+        const ret = wasm.bferenderer_water_rings_position_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_uv_len() {
+        const ret = wasm.bferenderer_water_rings_uv_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_rings_uv_ptr() {
+        const ret = wasm.bferenderer_water_rings_uv_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} geometry
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_func
+     * @param {number} flags
+     * @param {number} side
+     * @returns {number}
+     */
+    water_surface(geometry, blend, depth_func, flags, side) {
+        const val2 = +geometry;
+        const val3 = +depth_func;
+        const val4 = +flags;
+        const val5 = +side;
+        const ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_water_surface(this.__wbg_ptr, val2, ptr0, len0, val3, val4, val5);
+        return ret >>> 0;
     }
     /**
      * @param {number} w
@@ -1005,6 +1337,12 @@ function __wbg_get_imports() {
         __wbg_bindBuffer_cbc9075f76fffa51: function(arg0, arg1, arg2) {
             arg0.bindBuffer(arg1 >>> 0, arg2);
         },
+        __wbg_bindFramebuffer_79534f24b57b7b95: function(arg0, arg1, arg2) {
+            arg0.bindFramebuffer(arg1 >>> 0, arg2);
+        },
+        __wbg_bindFramebuffer_b245cd93a150dd96: function(arg0, arg1, arg2) {
+            arg0.bindFramebuffer(arg1 >>> 0, arg2);
+        },
         __wbg_bindTexture_6f822943b2790466: function(arg0, arg1, arg2) {
             arg0.bindTexture(arg1 >>> 0, arg2);
         },
@@ -1077,6 +1415,14 @@ function __wbg_get_imports() {
         },
         __wbg_createBuffer_ca6ca40e9fb13678: function(arg0) {
             const ret = arg0.createBuffer();
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_createFramebuffer_cdf686778c61014d: function(arg0) {
+            const ret = arg0.createFramebuffer();
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_createFramebuffer_f52399034cb1a200: function(arg0) {
+            const ret = arg0.createFramebuffer();
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
         __wbg_createProgram_de0881c688a8e43b: function(arg0) {
@@ -1159,6 +1505,12 @@ function __wbg_get_imports() {
         __wbg_disable_8a9e81e6d64d046b: function(arg0, arg1) {
             arg0.disable(arg1 >>> 0);
         },
+        __wbg_drawArrays_a9c18db2e94f4a82: function(arg0, arg1, arg2, arg3) {
+            arg0.drawArrays(arg1 >>> 0, arg2, arg3);
+        },
+        __wbg_drawArrays_fe5a51410bfabb5b: function(arg0, arg1, arg2, arg3) {
+            arg0.drawArrays(arg1 >>> 0, arg2, arg3);
+        },
         __wbg_drawElementsInstancedANGLE_470ce8b489eeafa5: function(arg0, arg1, arg2, arg3, arg4, arg5) {
             arg0.drawElementsInstancedANGLE(arg1 >>> 0, arg2, arg3 >>> 0, arg4, arg5);
         },
@@ -1182,6 +1534,12 @@ function __wbg_get_imports() {
         },
         __wbg_enable_e955d456ef6b93f7: function(arg0, arg1) {
             arg0.enable(arg1 >>> 0);
+        },
+        __wbg_framebufferTexture2D_2c69ac0ce67faf7d: function(arg0, arg1, arg2, arg3, arg4, arg5) {
+            arg0.framebufferTexture2D(arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4, arg5);
+        },
+        __wbg_framebufferTexture2D_b6250a0c37eb48c2: function(arg0, arg1, arg2, arg3, arg4, arg5) {
+            arg0.framebufferTexture2D(arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4, arg5);
         },
         __wbg_frontFace_124bb11a73cc0dd1: function(arg0, arg1) {
             arg0.frontFace(arg1 >>> 0);
@@ -1285,6 +1643,12 @@ function __wbg_get_imports() {
         },
         __wbg_shaderSource_c4c06a3cbc2e7bf3: function(arg0, arg1, arg2, arg3) {
             arg0.shaderSource(arg1, getStringFromWasm0(arg2, arg3));
+        },
+        __wbg_stencilMask_1fe24adb96500c11: function(arg0, arg1) {
+            arg0.stencilMask(arg1 >>> 0);
+        },
+        __wbg_stencilMask_6d5dbf91337de94e: function(arg0, arg1) {
+            arg0.stencilMask(arg1 >>> 0);
         },
         __wbg_texImage2D_20b5002326193fe6: function() { return handleError(function (arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
             arg0.texImage2D(arg1 >>> 0, arg2, arg3, arg4, arg5, arg6, arg7 >>> 0, arg8 >>> 0, arg9);
@@ -1402,6 +1766,12 @@ function __wbg_get_imports() {
         },
         __wbg_vertexAttribPointer_9e0e4517b8d274bd: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6) {
             arg0.vertexAttribPointer(arg1 >>> 0, arg2, arg3 >>> 0, arg4 !== 0, arg5, arg6);
+        },
+        __wbg_viewport_aaac6dd8cff1831a: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.viewport(arg1, arg2, arg3, arg4);
+        },
+        __wbg_viewport_cdae9e8b2f33343d: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.viewport(arg1, arg2, arg3, arg4);
         },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(F32)) -> NamedExternref("Float32Array")`.

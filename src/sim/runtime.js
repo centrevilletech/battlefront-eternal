@@ -286,6 +286,8 @@ export class SimBridge extends SimContext {
     this.handlers = {};
     if (instance.holder) instance.holder.bridge = this;
     this.commandCodes = new Map(COMMAND_TABLE.filter(Boolean).map((c) => [c.name, c.code]));
+    // A flat command's argument words (its binding fills them, then calls).
+    this.words = new Float64Array(Math.max(16, ...COMMAND_TABLE.filter(Boolean).map((c) => c.args.words)));
   }
 
   // A call's record into the call block: its words, then its heap.
@@ -297,28 +299,35 @@ export class SimBridge extends SimContext {
     record.put(this, value, rows, 0, heap);
     const ptr = this.x.sim_call_room(words, heap.words.length);
     this.views();
-    const base = ptr / 8;
-    this.f.set(rows.subarray(0, words), base + HEADER);
-    this.f.set(heap.words, base + HEADER + words);
+    const f = this.f, at = ptr / 8 + HEADER, hw = heap.words;
+    for (let i = 0; i < words; i++) f[at + i] = rows[i];
+    for (let i = 0; i < hw.length; i++) f[at + words + i] = hw[i];
   }
 
-  // A record out of a block Rust wrote at `ptr`, as a new object.
-  callResult(record, ptr) {
+  // A record out of a block Rust wrote at `ptr`, into `into` (a new
+  // object if none).
+  callResult(record, ptr, into = null) {
     this.views();
     const f = this.f, base = ptr / 8;
-    return record.sync(this, f, base + HEADER, base + f[base + 2], new record.Mirror());
+    return record.sync(this, f, base + HEADER, base + f[base + 2], into ?? new record.Mirror());
   }
 
-  // Runs a command (by name or code) on its arguments (an object with its
-  // args record's fields) at once, and gives its result (a new object), or
-  // undefined for a command that has none.
-  command(name, args) {
+  // Runs a command (by name, or by code, which is quicker) on its arguments
+  // (an object with its args record's fields) at once, and gives its result
+  // (into `into`, else a new object), or undefined for a command that has
+  // none. A command whose arguments hold no list, set or map takes them as
+  // the parameters of one call.
+  command(name, args, into = null) {
     const c = COMMAND_TABLE[typeof name === "number" ? name : this.commandCodes.get(name)];
     if (!c) throw Error(`no command ${name}`);
-    this.callArgs(c.args, args);
-    const ptr = this.x.sim_command(c.code);
-    if (!ptr) throw Error(`the simulation's module has no command ${c.name}`);
-    return c.result ? this.callResult(c.result, ptr) : undefined;
+    let ptr;
+    if (c.fast) ptr = c.fast(this, args);
+    else {
+      this.callArgs(c.args, args);
+      ptr = this.x.sim_command(c.code);
+      if (!ptr) throw Error(`the simulation's module has no command ${c.name}`);
+    }
+    return c.result ? this.callResult(c.result, ptr, into) : undefined;
   }
 
   // Hands the events emitted since the last drain to handlers[name](event),
@@ -356,6 +365,14 @@ export class SimBridge extends SimContext {
     this.buffer = this.memory.buffer;
     this.f = new Float64Array(this.buffer);
     this.u8 = new Uint8Array(this.buffer);
+  }
+
+  // Room for `bytes` more bytes of the battle's data, made as it loads so
+  // play does not grow the memory (sim_reserve); returns the memory's pages.
+  reserve(bytes) {
+    const pages = this.x.sim_reserve(bytes);
+    this.views();
+    return pages;
   }
 
   // Bytes into the scratch buffer.

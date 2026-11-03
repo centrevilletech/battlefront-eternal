@@ -70,7 +70,26 @@ impl Actor {
     pub fn bone_by_name(&self, name: &str) -> Option<usize> {
         self.bones.iter().rposition(|b| b.name == name)
     }
+
+    /// animator.js 148 (SoldierAnimator bindLengths): the joints that keep
+    /// their bind translation, as (bone, bind position), in BIND_LENGTH's
+    /// order, those the skeleton has.
+    pub fn bind_lengths(&self) -> Vec<(usize, Vector3)> {
+        BIND_LENGTH.iter().filter_map(|name| self.bone_by_name(name)).map(|i| (i, self.bones[i].position)).collect()
+    }
+
+    /// animator.js 149 (rootBind): DummyRoot's bind position.
+    pub fn root_bind(&self) -> Option<Vector3> {
+        self.bone_by_name("DummyRoot").map(|i| self.bones[i].position)
+    }
 }
+
+/// animator.js BIND_LENGTH.
+pub const BIND_LENGTH: [&str; 22] = [
+    "bone_pelvis", "bone_a_spine", "bone_b_spine", "bone_ribcage", "bone_neck", "bone_head",
+    "bone_l_clavicle", "bone_l_upperarm", "bone_l_forearm", "bone_l_hand", "bone_l_thigh", "bone_l_calf", "bone_l_foot", "bone_l_toe",
+    "bone_r_clavicle", "bone_r_upperarm", "bone_r_forearm", "bone_r_hand", "bone_r_thigh", "bone_r_calf", "bone_r_foot", "bone_r_toe",
+];
 
 /// buildActor(actor, actorBuf, actorIndexBuf): the simulation's parts.
 pub fn build_actor(def: &Value, verts: &[f32]) -> Result<Actor, String> {

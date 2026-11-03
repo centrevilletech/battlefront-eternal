@@ -75,6 +75,18 @@ impl Store {
         true
     }
 
+    /// `count` new entities of a kind (its fields' defaults) at the end of its home
+    /// list, if it has one (tests and benchmarks).
+    pub fn fill(&mut self, kind: KindCode, count: usize) {
+        match kind {
+            KIND_THING => for _ in 0..count {
+                let r = self.thing.insert(Default::default());
+                self.shelf.things.push(r);
+            },
+            _ => {}
+        }
+    }
+
     /// Retires an entity of a kind the store holds by slot (`Slab::retire`).
     pub fn retire(&mut self, kind: KindCode, slot: u32, gen: u32) -> bool {
         match kind {

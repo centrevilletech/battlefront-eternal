@@ -16,7 +16,7 @@
 // Use of V8's code is governed by a BSD-style license; see
 // THIRD-PARTY-NOTICES.md in the repository root.
 
-use crate::{from_words, hi, lo, with_hi, with_lo, SIGNALING_NAN};
+use crate::{from_words, hi, lo, scalbn, with_hi, with_lo, SIGNALING_NAN};
 
 const HUGE: f64 = 1.0e+300;
 const LN2_HI: f64 = 6.93147180369123816490e-01;
@@ -525,4 +525,265 @@ pub fn cbrt(x: f64) -> f64 {
     r = (r - t) / (w + r);
     t = t + t * r;
     t
+}
+
+/// fdlibm's `pow`, V8's own: what `Math.pow` and `**` computed up to V8
+/// 12.4 (Node 22), and what V8 13.6 keeps as `legacy::pow` for
+/// `--no-use-std-math-pow`. `pow` is what V8 13.6 computes.
+pub fn pow_legacy(x: f64, y: f64) -> f64 {
+    const BP: [f64; 2] = [1.0, 1.5];
+    const DP_H: [f64; 2] = [0.0, 5.84962487220764160156e-01];
+    const DP_L: [f64; 2] = [0.0, 1.35003920212974897128e-08];
+    const TWO53: f64 = 9007199254740992.0;
+    const TINY: f64 = 1.0e-300;
+    const L1: f64 = 5.99999999999994648725e-01;
+    const L2: f64 = 4.28571428578550184252e-01;
+    const L3: f64 = 3.33333329818377432918e-01;
+    const L4: f64 = 2.72728123808534006489e-01;
+    const L5: f64 = 2.30660745775561754067e-01;
+    const L6: f64 = 2.06975017800338417784e-01;
+    const P1: f64 = 1.66666666666666019037e-01;
+    const P2: f64 = -2.77777777770155933842e-03;
+    const P3: f64 = 6.61375632143793436117e-05;
+    const P4: f64 = -1.65339022054652515390e-06;
+    const P5: f64 = 4.13813679705723846039e-08;
+    const LG2: f64 = 6.93147180559945286227e-01;
+    const LG2_H: f64 = 6.93147182464599609375e-01;
+    const LG2_L: f64 = -1.90465429995776804525e-09;
+    const OVT: f64 = 8.0085662595372944372e-17;
+    const CP: f64 = 9.61796693925975554329e-01;
+    const CP_H: f64 = 9.61796700954437255859e-01;
+    const CP_L: f64 = -7.02846165095275826516e-09;
+    const IVLN2: f64 = 1.44269504088896338700e+00;
+    const IVLN2_H: f64 = 1.44269502162933349609e+00;
+    const IVLN2_L: f64 = 1.92596299112661746887e-08;
+
+    let hx = hi(x) as i32;
+    let lx = lo(x);
+    let hy = hi(y) as i32;
+    let ly = lo(y);
+    let ix = hx & 0x7FFF_FFFF;
+    let iy = hy & 0x7FFF_FFFF;
+
+    if ((iy as u32) | ly) == 0 {
+        return 1.0;
+    }
+    if ix > 0x7FF0_0000
+        || (ix == 0x7FF0_0000 && lx != 0)
+        || iy > 0x7FF0_0000
+        || (iy == 0x7FF0_0000 && ly != 0)
+    {
+        return x + y;
+    }
+
+    let mut yisint = 0i32;
+    if hx < 0 {
+        if iy >= 0x4340_0000 {
+            yisint = 2;
+        } else if iy >= 0x3FF0_0000 {
+            let k = (iy >> 20) - 0x3FF;
+            if k > 20 {
+                let j = ly >> (52 - k);
+                if (j << (52 - k)) == ly {
+                    yisint = 2 - ((j as i32) & 1);
+                }
+            } else if ly == 0 {
+                let j = iy >> (20 - k);
+                if (j << (20 - k)) == iy {
+                    yisint = 2 - (j & 1);
+                }
+            }
+        }
+    }
+
+    if ly == 0 {
+        if iy == 0x7FF0_0000 {
+            if ((ix.wrapping_sub(0x3FF0_0000) as u32) | lx) as i32 == 0 {
+                return y - y;
+            } else if ix >= 0x3FF0_0000 {
+                return if hy >= 0 { y } else { 0.0 };
+            } else {
+                return if hy < 0 { -y } else { 0.0 };
+            }
+        }
+        if iy == 0x3FF0_0000 {
+            if hy < 0 {
+                return 1.0 / x;
+            } else {
+                return x;
+            }
+        }
+        if hy == 0x4000_0000 {
+            return x * x;
+        }
+        if hy == 0x3FE0_0000 && hx >= 0 {
+            return x.sqrt();
+        }
+    }
+
+    let mut ax = x.abs();
+    if lx == 0 {
+        if ix == 0x7FF0_0000 || ix == 0 || ix == 0x3FF0_0000 {
+            let mut z = ax;
+            if hy < 0 {
+                z = 1.0 / z;
+            }
+            if hx < 0 {
+                if ((ix.wrapping_sub(0x3FF0_0000)) | yisint) == 0 {
+                    z = SIGNALING_NAN; // (-1)**non-int is NaN
+                } else if yisint == 1 {
+                    z = -z;
+                }
+            }
+            return z;
+        }
+    }
+
+    let mut n = (hx >> 31) + 1;
+    if (n | yisint) == 0 {
+        return SIGNALING_NAN; // (x<0)**(non-int) is NaN
+    }
+    let mut s = 1.0f64;
+    if (n | (yisint - 1)) == 0 {
+        s = -1.0;
+    }
+
+    let t1;
+    let t2;
+    if iy > 0x41E0_0000 {
+        if iy > 0x43F0_0000 {
+            if ix <= 0x3FEF_FFFF {
+                return if hy < 0 {
+                    HUGE * HUGE
+                } else {
+                    TINY * TINY
+                };
+            }
+            if ix >= 0x3FF0_0000 {
+                return if hy > 0 {
+                    HUGE * HUGE
+                } else {
+                    TINY * TINY
+                };
+            }
+        }
+        if ix < 0x3FEF_FFFF {
+            return if hy < 0 {
+                s * HUGE * HUGE
+            } else {
+                s * TINY * TINY
+            };
+        }
+        if ix > 0x3FF0_0000 {
+            return if hy > 0 {
+                s * HUGE * HUGE
+            } else {
+                s * TINY * TINY
+            };
+        }
+        let t = ax - 1.0;
+        let w = (t * t) * (0.5 - t * (0.3333333333333333333333 - t * 0.25));
+        let u = IVLN2_H * t;
+        let v = t * IVLN2_L - w * IVLN2;
+        let tt1 = with_lo(u + v, 0);
+        t1 = tt1;
+        t2 = v - (t1 - u);
+    } else {
+        n = 0;
+        let mut ixv = ix;
+        if ixv < 0x0010_0000 {
+            ax *= TWO53;
+            n -= 53;
+            ixv = hi(ax) as i32;
+        }
+        n += (ixv >> 20) - 0x3FF;
+        let j = ixv & 0x000F_FFFF;
+        ixv = j | 0x3FF0_0000;
+        let k;
+        if j <= 0x3_988E {
+            k = 0i32;
+        } else if j < 0xB_B67A {
+            k = 1;
+        } else {
+            k = 0;
+            n += 1;
+            ixv -= 0x0010_0000;
+        }
+        ax = with_hi(ax, ixv as u32);
+        let u = ax - BP[k as usize];
+        let v = 1.0 / (ax + BP[k as usize]);
+        let ss = u * v;
+        let s_h = with_lo(ss, 0);
+        let t_h = from_words((((ixv >> 1) | 0x2000_0000) + 0x0008_0000 + (k << 18)) as u32, 0);
+        let t_l = ax - (t_h - BP[k as usize]);
+        let s_l = v * ((u - s_h * t_h) - s_h * t_l);
+        let mut s2 = ss * ss;
+        let mut r = s2
+            * s2
+            * (L1 + s2 * (L2 + s2 * (L3 + s2 * (L4 + s2 * (L5 + s2 * L6)))));
+        r += s_l * (s_h + ss);
+        s2 = s_h * s_h;
+        let t_h = with_lo(3.0 + s2 + r, 0);
+        let t_l = r - ((t_h - 3.0) - s2);
+        let u = s_h * t_h;
+        let v = s_l * t_h + t_l * ss;
+        let p_h = with_lo(u + v, 0);
+        let p_l = v - (p_h - u);
+        let z_h = CP_H * p_h;
+        let z_l = CP_L * p_h + p_l * CP + DP_L[k as usize];
+        let t = n as f64;
+        let tt1 = with_lo(((z_h + z_l) + DP_H[k as usize]) + t, 0);
+        t1 = tt1;
+        t2 = z_l - (((t1 - t) - DP_H[k as usize]) - z_h);
+    }
+
+    let y1 = with_lo(y, 0);
+    let p_l = (y - y1) * t1 + y * t2;
+    let mut p_h = y1 * t1;
+    let z = p_l + p_h;
+    let j = hi(z) as i32;
+    let i_low = lo(z) as i32;
+    if j >= 0x4090_0000 {
+        if ((j.wrapping_sub(0x4090_0000)) | i_low) != 0 {
+            return s * HUGE * HUGE;
+        } else if p_l + OVT > z - p_h {
+            return s * HUGE * HUGE;
+        }
+    } else if (j & 0x7FFF_FFFF) >= 0x4090_CC00 {
+        if ((j.wrapping_sub(0xC090_CC00u32 as i32)) | i_low) != 0 {
+            return s * TINY * TINY;
+        } else if p_l <= z - p_h {
+            return s * TINY * TINY;
+        }
+    }
+    let i = j & 0x7FFF_FFFF;
+    let mut k = (i >> 20) - 0x3FF;
+    let mut n = 0i32;
+    if i > 0x3FE0_0000 {
+        n = j.wrapping_add(0x0010_0000 >> (k + 1));
+        k = ((n & 0x7FFF_FFFF) >> 20) - 0x3FF;
+        let t = from_words((n & !(0x000F_FFFF >> k)) as u32, 0);
+        n = ((n & 0x000F_FFFF) | 0x0010_0000) >> (20 - k);
+        if j < 0 {
+            n = -n;
+        }
+        p_h -= t;
+    }
+    let t = with_lo(p_l + p_h, 0);
+    let u = t * LG2_H;
+    let v = (p_l - (t - p_h)) * LG2 + t * LG2_L;
+    let z = u + v;
+    let w = v - (z - u);
+    let t = z * z;
+    let t1 = z - t * (P1 + t * (P2 + t * (P3 + t * (P4 + t * P5))));
+    let r = (z * t1) / ((t1 - 2.0) - (w + z * w));
+    let mut z = 1.0 - (r - z);
+    let jj = (hi(z) as i32).wrapping_add(((n as u32) << 20) as i32);
+    if (jj >> 20) <= 0 {
+        z = scalbn(z, n);
+    } else {
+        let tmp = hi(z) as i32;
+        z = with_hi(z, tmp.wrapping_add(((n as u32) << 20) as i32) as u32);
+    }
+    s * z
 }

@@ -154,6 +154,12 @@ class TransparentPass {
     // this frame, registered in the transparent phase.
     this.taken = new Map();
     this.candidates = [];
+    // The objects' programs, made for this pass alone: the renderer keeps
+    // the values it last set in each (transparent.rs), and the effects'
+    // glow models can draw with the same three program, keeping theirs.
+    this.objectPrograms = new Map();
+    // The list near.js's walk stands for (walkedList).
+    this.walked = { opaque: [], transmissive: [], transparent: [], image: { object: null } };
     this.buckets = 0;
     this.objectCount = 0;
     this.takenCount = 0;
@@ -166,21 +172,25 @@ class TransparentPass {
   // take what this pass draws out of three's transparent list, then arm the
   // transparent phase on the item three draws just before that list. After
   // the transparent phase: arm each later segment on the item three draws
-  // just before it.
+  // just before it. When the near scene is drawn in place of three's render
+  // (near.js), its walk's items stand for three's list, all of them this
+  // pass's, and the transparent phase follows at once, as deferred as the
+  // near phase.
   afterPhase(name, ctx) {
     if (name === "near") {
       this.disarm();
       this.frameNo++;
       this.list = null;
       this.takenCount = 0;
-      // Off (a comparison): three draws its whole list, as before this pass.
-      if (!this.active) return;
-      this.list = this.threeList(ctx.renderer, ctx.scene);
+      this.list = ctx.walked ? this.walkedList(ctx.walked) : this.threeList(ctx.renderer, ctx.scene);
       if (!this.list) return;
-      this.take(this.list.transparent);
+      // Off (a comparison): three draws every item of its list, and the
+      // other sources' items still draw around them.
+      if (this.active) this.take(this.list.transparent);
+      else this.takeNone();
       const before = this.list.transmissive.length ? this.list.transmissive : this.list.opaque;
       const last = before[before.length - 1];
-      const start = () => this.core.phase("transparent", ctx.renderer, ctx.scene, ctx.camera);
+      const start = () => this.core.phase("transparent", ctx.renderer, ctx.scene, ctx.camera, ctx.defer);
       // The far scene's image drawn last: the transparent list follows now.
       if (last.object === this.core.graphics.background) start();
       else this.arm(last, start);
@@ -192,6 +202,24 @@ class TransparentPass {
         if (segments[k + 1] > segments[k]) { const segment = k; this.arm(this.three[k - 1], () => this.drawSegment(segment)); }
       }
     }
+  }
+
+  // The list three would have made of the near scene, as near.js walked it:
+  // the far scene's image alone opaque, and the walk's items.
+  walkedList(items) {
+    this.walked.opaque[0] = this.walked.image;
+    this.walked.image.object = this.core.graphics.background;
+    this.walked.transparent = items;
+    return this.walked;
+  }
+
+  // Whether this pass draws an item three would list in the near scene's
+  // next render (take()'s test, before that frame's near phase).
+  takes(item) {
+    const entry = this.taken.get(item.object);
+    if (!this.active || !entry || entry.material !== item.material || item.group) return false;
+    const props = this.core.renderer.properties.get(entry.material);
+    return props.currentProgram === entry.program && props.__version === entry.material.version && entry.frame <= this.frameNo;
   }
 
   // three's render list for the near scene being drawn: the one whose
@@ -278,6 +306,12 @@ class TransparentPass {
     this.takenCount = n;
   }
 
+  takeNone() {
+    this.core.views();
+    this.core.transparentObjects[0] = 0;
+    this.candidates.length = 0;
+  }
+
   // Whether three's item is one this pass could draw: one of the map's
   // blended buckets, or an object with a material it knows.
   candidate(item) {
@@ -337,13 +371,14 @@ class TransparentPass {
 
   // Three's passes for a material (transparent.rs), each its program for
   // the renderer, or null: [{ side, program }], three's program for the
-  // front pass (the one it draws last) first among `three`.
-  passesOf(material, policy) {
+  // front pass (the one it draws last) first among `three`. cache: where
+  // the programs are kept (core.program).
+  passesOf(material, policy, cache = undefined) {
     const core = this.core, renderer = core.renderer;
     const sides = sidesOf(material);
     const three = sides.map((side) => programForSide(renderer, material, side));
     if (three.some((p) => !p)) return null;
-    const programs = three.map((p) => core.program(p, WORLD, material, policy));
+    const programs = three.map((p) => core.program(p, WORLD, material, policy, cache));
     if (programs.some((p) => !p) || programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
     return { sides, programs, current: renderer.properties.get(material).currentProgram };
   }
@@ -398,7 +433,7 @@ class TransparentPass {
     if (material.alphaMap || material.alphaTest > 0 || material.alphaHash || material.vertexColors || material.envMap || material.lightMap || material.aoMap || material.specularMap || material.wireframe) return null;
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state || !geometry.index || Object.keys(geometry.morphAttributes).length) return null;
-    const passes = this.passesOf(material, OBJECT_POLICY);
+    const passes = this.passesOf(material, OBJECT_POLICY, this.objectPrograms);
     if (!passes) return null;
     const g = core.geometry(geometry, passes.programs[0]);
     if (g === null) return null;
