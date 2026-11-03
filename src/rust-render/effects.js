@@ -50,10 +50,11 @@
 // sniper's trace (sniper-trace.js), the arc caster's lightning
 // (arc-lightning.js: its capsules; the glow over a shocked body stays
 // three's), the droideka's rolling dust (droideka-trail.js), the
-// jetpack's wake (jetpack-wake.js) and the death camera's trace of the
-// killing shot (death-trace.js: a mesh rebuilt each frame with a shader
-// material of its own) are drawn here too; the destruction effects and the
-// jetpack's flame (jetpack-volume.js) stay with three for now.
+// jetpack's wake (jetpack-wake.js), the destruction's fire and smoke
+// (destruction-fx.js) and the death camera's trace of the killing shot
+// (death-trace.js: a mesh rebuilt each frame with a shader material of its
+// own) are drawn here too; the destruction's arcs and its pieces, and the
+// jetpack's flame (jetpack-volume.js), stay with three for now.
 import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
 import { squareBatches } from "../atmosphere.js";
@@ -61,6 +62,7 @@ import { classicLightning } from "../lightning.js";
 import { arcBatches } from "../arc-lightning.js";
 import { droidekaTrails } from "../droideka-trail.js";
 import { jetpackWakes } from "../jetpack-wake.js";
+import { destructionPools } from "../destruction-fx.js";
 import { rainImpacts } from "../rain-impacts.js";
 import { fountainJets } from "../fountain-jets.js";
 import { particleDepth } from "../particle-depth.js";
@@ -112,6 +114,10 @@ const KINDS = {
   // smoke and embers, particles on a quad of their own placed by their
   // program from their births and the wake's clock.
   wake: { attributes: [["birth", 4], ["flow", 4], ["axis", 4], ["style", 2]], base: [["position", 3], ["uv", 2]], values: ["wakeTime", "kind", "drag"], samplers: [] },
+  // The Enhanced destruction's fire and smoke (destruction-fx.js): pools of
+  // records on a quad of their own, as many attributes as each keeps,
+  // placed by their program from their births and the effects' clock.
+  pool: { attributes: "instanced", base: "rest", values: ["fxTime", "wind"], samplers: [] },
   // The rain's drops (weather.js): streaks on a plane of their own (its
   // base: position, uv), each drop's seed fixed (uploaded as it grows).
   rain: { attributes: [["seed", 4]], base: [["position", 3], ["uv", 2]], static: true, hiddenBy: "material",
@@ -230,6 +236,17 @@ function wakeOf(pool) {
   for (const [name, attribute] of Object.entries(pool.attributes)) arrays[name] = attribute.array;
   return {
     mesh: pool.mesh, material: pool.mesh.material, geometry: pool.mesh.geometry, source: pool,
+    get count() { return pool.count; }, capacity: pool.capacity, arrays,
+    get external() { return pool.external; }, set external(on) { pool.external = on; },
+  };
+}
+// A pool of the Enhanced destruction's fire or smoke (destruction-fx.js):
+// its records as the pool keeps them; hidden from three by `external`.
+function poolOf(pool) {
+  const g = pool.mesh.geometry, arrays = {};
+  for (const [name, attribute] of Object.entries(g.attributes)) if (attribute.isInstancedBufferAttribute) arrays[name] = attribute.array;
+  return {
+    mesh: pool.mesh, material: pool.material, geometry: g, source: pool,
     get count() { return pool.count; }, capacity: pool.capacity, arrays,
     get external() { return pool.external; }, set external(on) { pool.external = on; },
   };
@@ -354,8 +371,8 @@ class EffectsPass {
   // registered once three has drawn it, then hidden from three: glow models
   // (with their group's other parts: they share its material), shields and
   // the other shader models, the snow, the rain, the environment's batches,
-  // the Enhanced arcs', the droideka's dust, the jetpack's wake and the
-  // death camera's trace.
+  // the Enhanced arcs', the droideka's dust, the jetpack's wake, the
+  // destruction's fire and smoke and the death camera's trace.
   listed(ctx) {
     const list = this.threeList(ctx.renderer, ctx.scene);
     for (const item of list?.transparent || []) {
@@ -383,6 +400,9 @@ class EffectsPass {
         if (record !== undefined) this.byBatch.set(object, record);
       } else if (object.name.startsWith("jetpack-wake-") && jetpackWakes.has(object) && object.material?.isShaderMaterial) {
         const record = this.registerBatch(wakeOf(jetpackWakes.get(object)), "wake", null);
+        if (record !== undefined) this.byBatch.set(object, record);
+      } else if (destructionPools.has(object) && object.material?.isShaderMaterial) {
+        const record = this.registerBatch(poolOf(destructionPools.get(object)), "pool", null);
         if (record !== undefined) this.byBatch.set(object, record);
       } else if (object.name === "death-trace" && object.material?.isShaderMaterial && !this.shaderMeshes.has(object)) {
         const record = this.registerShaderMesh(object);

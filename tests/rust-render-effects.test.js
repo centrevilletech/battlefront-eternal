@@ -1028,6 +1028,38 @@ test("the Enhanced jetpack's wake: its three pools batches on a quad of their ow
   assert.ok(pools.every((pool) => !pool.external));
 });
 
+test("the Enhanced destruction's fire and smoke: each pool a batch on a quad of its own, as many attributes as it keeps", async () => {
+  const { DestructionFx, FIRE, SMOKE } = await import("../src/destruction-fx.js");
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const fx = new DestructionFx(scene, { hot: 16, smoke: 16, arcs: 2 });
+  const at = new THREE.Vector3(0, 0, -5), up = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < 3; i++) fx.hotParticle(FIRE, at, up, 2, 0.5, 1, 0, 0, 1);
+  for (let i = 0; i < 2; i++) fx.smokeParticle(SMOKE, at, up, 3, 1, 2, -0.1, 0.5, 0.5);
+  fx.update(1 / 60);
+  const depth = ["sceneDepth", "softParticles", "depthResolution", "cameraRange"];
+  list.transparent.push({ object: fx.hot.mesh, material: fx.hot.material, group: null }, { object: fx.smoke.mesh, material: fx.smoke.material, group: null });
+  drawn(fx.hot.material, program(["projectionMatrix", "viewMatrix", "fxTime", "fogRange", ...depth], ["position", "uv", "a0", "a1", "a2", "a3"]));
+  drawn(fx.smoke.material, program(["projectionMatrix", "viewMatrix", "fxTime", "wind", "sunDirection", "fogColor", "fogRange", ...depth], ["position", "uv", "a0", "a1", "a2", "a3", "a4"]));
+  frame();
+  const added = calls.filter((c) => c[0] === "fx_add_batch");
+  assert.equal(added.length, 2, "a batch a pool");
+  assert.deepEqual(added.map((c) => c[5].length / 2), [4, 5], "four records' attributes of fire, five of smoke");
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_batch_values").map((c) => c[2]), ["fxTime:1:0", "fxTime:1:0,wind:3:0"]);
+  assert.ok(fx.hot.external && fx.smoke.external);
+  list.transparent.length = 0;
+  const version = fx.hot.attributes[0].version;
+  fx.hotParticle(FIRE, at, up, 2, 0.5, 1, 0, 0, 1);
+  fx.update(1 / 60);
+  assert.equal(fx.hot.mesh.visible, false, "shown to three never");
+  assert.equal(fx.hot.attributes[0].version, version, "uploaded nothing by three");
+  frame();
+  const fire = [0, 1].map(entry).find((e) => e[2] === 4);
+  assert.ok(fire, "every record of the fire, each frame");
+  assert.deepEqual([...core.fxData.subarray(fire[4], fire[4] + 16)], [...fx.hot.arrays[0].subarray(0, 16)]);
+  core.setActive(false);
+  assert.ok(!fx.hot.external && !fx.smoke.external);
+});
+
 test("the death camera's trace: a mesh rebuilt each frame, its vertices, indices and own values written as three draws it", async () => {
   const { DeathTrace } = await import("../src/death-trace.js");
   const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
