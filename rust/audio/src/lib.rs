@@ -37,6 +37,8 @@ pub mod meter;
 pub mod mixer;
 pub mod reverb;
 pub mod stabilizer;
+pub mod timeline;
+pub mod voices;
 
 /// A block of samples handed to a processor: `channels` runs of `frames`
 /// f32 samples, one after another (channel-major). Inputs are read widened
@@ -210,6 +212,8 @@ impl<T> Staged<T> {
 #[derive(Default)]
 struct State {
     mixers: Vec<Staged<mixer::Mixer>>,
+    // A mixer's voice engine, by the mixer's handle (?voices=rust).
+    engines: Vec<Option<voices::Engine>>,
     reverbs: Vec<Staged<reverb::Reverb>>,
     stabilizers: Vec<Staged<stabilizer::Stabilizer>>,
     limiters: Vec<Staged<limiter::Limiter>>,
@@ -264,7 +268,63 @@ pub extern "C" fn mixer_new(slots: u32, channels: u32) -> u32 {
         (channels as usize + 1) * FRAMES,
         slots as usize,
     ));
+    s.engines.push(None);
     (s.mixers.len() - 1) as u32
+}
+
+/// Gives the mixer a voice engine (src/voices.rs): voices it renders into
+/// its slots itself, at the context's `rate`, with the lowpass's Q in dB;
+/// x86=1 fills automation as Chromium's x86 build does.
+#[no_mangle]
+pub extern "C" fn mixer_engine(h: u32, rate: f64, q_db: f64, x86: u32) {
+    let s = state();
+    let slots = s.mixers[h as usize].present.len();
+    s.engines[h as usize] = Some(voices::Engine::new(rate, slots, q_db, x86 != 0));
+}
+
+/// Room for sample `id` (`frames` f32 at `rate`) in the mixer's engine, to
+/// fill at the pointer.
+#[no_mangle]
+pub extern "C" fn mixer_sample(h: u32, id: u32, frames: u32, rate: f64) -> *mut f32 {
+    match &mut state().engines[h as usize] {
+        Some(e) => e.sample_storage(id as usize, frames as usize, rate).as_mut_ptr(),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Room for `len` command numbers, to fill before mixer_commands.
+#[no_mangle]
+pub extern "C" fn mixer_commands_ptr(h: u32, len: u32) -> *mut f64 {
+    match &mut state().engines[h as usize] {
+        Some(e) => e.command_storage(len as usize).as_mut_ptr(),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// The voices' commands (voices.rs: START, GAIN, ...), applied at once.
+#[no_mangle]
+pub extern "C" fn mixer_commands(h: u32, len: u32) {
+    if let Some(e) = &mut state().engines[h as usize] {
+        e.apply_commands(len as usize);
+    }
+}
+
+/// The context frame the next block starts at (the worklet's currentFrame),
+/// before mixer_process.
+#[no_mangle]
+pub extern "C" fn mixer_frame(h: u32, frame: f64) {
+    if let Some(e) = &mut state().engines[h as usize] {
+        e.frame = frame;
+    }
+}
+
+/// The engine's reverb send for the last block (128 f32).
+#[no_mangle]
+pub extern "C" fn mixer_send(h: u32) -> *mut f32 {
+    match &mut state().engines[h as usize] {
+        Some(e) => e.send.as_mut_ptr(),
+        None => std::ptr::null_mut(),
+    }
 }
 
 /// The mixer's per-slot present flags (1 where an input is connected).
@@ -342,7 +402,12 @@ pub extern "C" fn mixer_start(h: u32, slot: u32) { state().mixers[h as usize].pr
 /// has_lfe is 1.
 #[no_mangle]
 pub extern "C" fn mixer_process(h: u32, out_channels: u32, has_lfe: u32) {
-    let st = &mut state().mixers[h as usize];
+    let s = state();
+    let st = &mut s.mixers[h as usize];
+    // The engine's voices into their slots first, as if they came in.
+    if let Some(e) = &mut s.engines[h as usize] {
+        e.render(&mut st.input, &mut st.present);
+    }
     let oc = out_channels as usize;
     let (main, rest) = st.output.split_at_mut(oc * FRAMES);
     let mut out = BlockMut { data: main, channels: oc, frames: FRAMES };
