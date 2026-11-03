@@ -13,11 +13,14 @@
 //     test -p sim --features replay).
 //
 //   BFE_CONTENT_DIR=<game data> node tools/world-hash.mjs --map nab2 --side rep \
-//     --plugin tools/sim-store-check.mjs [--store-every 7] [--store-values FILE]
+//     --plugin tools/sim-store-check.mjs [--store-every 7] [--store-values FILE] \
+//     [--store-report FILE] [--store-strict]
 //
 // It reads plain fields and never calls game code, so the battle's
-// fingerprints are the same with it and without it. The first difference
-// fails the run (finish() throws), with its path.
+// fingerprints are the same with it and without it (compare them with a
+// plain run's). What it finds goes to stderr and, with --store-report, as
+// JSON to FILE; with --store-strict any problem fails the run instead
+// (finish() throws, and world-hash prints no fingerprints).
 import fs from 'node:fs';
 import { loadSim } from '../src/sim/module.js';
 import { SimBridge, ExportContext, exportState, undeclared } from '../src/sim/runtime.js';
@@ -28,7 +31,7 @@ import { Writer, Handle, RECORD, MAGIC } from './sim-capture/format.mjs';
 const argv = process.argv.slice(2);
 const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i < 0 ? fallback : argv[i + 1]; };
 const every = Number(opt('store-every', 7));
-const valuesFile = opt('store-values', null);
+const valuesFile = opt('store-values', null), reportFile = opt('store-report', null), strict = argv.includes('--store-strict');
 if (!(Number.isInteger(every) && every >= 1)) throw Error(`--store-every ${opt('store-every')}`);
 
 const instance = await loadSim();
@@ -130,7 +133,9 @@ export function ticked(tick) {
 export function finish() {
   if (fd !== null) fs.closeSync(fd);
   const kinds = Object.entries(stats.byKind).map(([k, n]) => `${n} ${k}`).join(', ');
-  console.error(`sim-store-check ${label}: ${stats.ticks} ticks sampled, ${stats.records} records (${kinds}), ${stats.fields} row words through the store`);
-  if (unlisted.size) failures.unshift(`fields no schema lists: ${[...unlisted].map(([k, n]) => `${k} (${n})`).join(', ')}`);
-  if (failures.length) throw Error(`sim-store-check: ${failures.length} problem(s):\n  ${failures.join('\n  ')}`);
+  console.error(`sim-store-check ${label}: ${stats.ticks} ticks sampled, ${stats.records} records (${kinds}), ${stats.fields} row words through the store, ${failures.length} differences`);
+  if (unlisted.size) console.error(`sim-store-check ${label}: fields no schema lists: ${[...unlisted].map(([k, n]) => `${k} (${n})`).join(', ')}`);
+  for (const f of failures) console.error(`sim-store-check ${f}`);
+  if (reportFile) fs.writeFileSync(reportFile, JSON.stringify({ label, ...stats, differences: failures, unlisted: Object.fromEntries(unlisted) }, null, 1));
+  if (strict && (failures.length || unlisted.size)) throw Error(`sim-store-check: ${failures.length} differences, ${unlisted.size} fields no schema lists`);
 }

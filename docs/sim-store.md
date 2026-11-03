@@ -273,23 +273,37 @@ other key gets the next slot of its kind) and definition handles to
 indices, and back, so the values come out with the handles they went in
 with. `rust/sim/tests/replay_values.rs` holds the store to that.
 
-### Commands, events and the memory reserve (next)
+### Commands, events and imports
 
-Still to come in this package, with the shapes the ports will use:
+What crosses outside a kind's rows is declared in a schema too, and each
+one's arguments, result or payload is a record, so it crosses as that
+record's words (the store's own schema, `rust/sim/schema/store.mjs`, has
+the `echo` command its tests and benchmarks use):
 
-- Commands: a JavaScript write into state Rust owns becomes a call with
-  numbers for arguments (`sim.boltDamage(bolt, amount)` calling
-  `cmd_bolt_damage(slot, gen, amount)`), declared in a schema and applied
-  at once so the order of writes is kept; the touched entity's mirror is
-  synced again where the caller reads it back.
-- Events: what Rust emits for JavaScript (sim events, presentation, sounds,
-  the HUD) goes into a ring in the module's memory and is drained in order
-  at the end of the phase; an event whose handler changes state the same
-  phase reads back is an imported call instead.
-- Imports: the JavaScript functions a Rust phase calls while their state is
-  still JavaScript's (a unit raycast before the units move), declared in a
-  schema with the import object made from them.
-- `sim_reserve`: the store's slabs and the margin made as a battle loads.
+- A command (`commands: { fire: { args: 'FireArgs', result: 'FireResult',
+  rust: 'ordnance::fire' } }`) is JavaScript writing into state Rust owns:
+  `bridge.command('fire', args)` writes the arguments into the call block,
+  the module runs `crate::ordnance::fire(sim, args)` at once (so writes keep
+  their order) and the result comes back as a new object. A caller that
+  reads the touched entity back syncs its kind.
+- An event (`events: { impact: 'ImpactEvent' }`) is Rust telling
+  JavaScript: `event.emit(&mut sim.events)` adds it to the phase's events,
+  and `bridge.drain({ impact: (e) => ... })` hands them over in the order
+  they were emitted at the end of the phase. An event whose handler
+  changes state the same phase reads back is an import instead.
+- An import (`imports: { raycastUnits: { args: 'RaycastArgs', result:
+  'RaycastHit' } }`) is Rust asking JavaScript while the state asked about
+  is still JavaScript's: `gen::import_raycast_units(&mut sim.calls, &args)`
+  calls out of the module, the bridge serves it with
+  `bridge.handlers.raycastUnits(args)`, and the result comes back. The
+  module's loader gives every instance the imports' functions, which reach
+  the bridge attached to it. A port reaches other subsystems through a
+  trait of its own; on the module, its JavaScript side is these imports,
+  and in the replay tests the capture serves it.
+
+Still to come in this package: `sim_reserve` (the store's slabs and a
+margin made as a battle loads) and the measurements of what crossing
+costs on the emulated laptop.
 
 ## Determinism
 

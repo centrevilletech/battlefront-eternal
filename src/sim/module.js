@@ -10,6 +10,7 @@
 // whose memory, and every copy and entity in it, go with the battle (a
 // dedicated server loads one battle after another).
 import { SIM_WASM } from "../sim-wasm.js";
+import { IMPORT_SYMBOLS } from "./gen/imports.js";
 
 let compiling = null;
 
@@ -23,8 +24,20 @@ export function simModule() {
   })();
 }
 
-// A new instance for a battle. `imports`: what the module imports from
-// JavaScript (none yet).
-export async function loadSim(imports = {}) {
-  return WebAssembly.instantiate(await simModule(), imports);
+// A new instance for a battle. What the module imports from JavaScript
+// (a schema's imports) is served by the store's bridge once one is
+// attached (src/sim/runtime.js SimBridge): until then an import throws.
+export async function loadSim() {
+  const holder = { bridge: null };
+  const bfe = {};
+  for (const imp of IMPORT_SYMBOLS) {
+    if (!imp) continue;
+    bfe[imp.symbol] = () => {
+      if (!holder.bridge) throw Error(`the simulation's module asked JavaScript for ${imp.name} with no bridge attached`);
+      holder.bridge.serve(imp.code);
+    };
+  }
+  const instance = await WebAssembly.instantiate(await simModule(), IMPORT_SYMBOLS.length > 1 ? { bfe } : {});
+  instance.holder = holder;
+  return instance;
 }

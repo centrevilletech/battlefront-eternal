@@ -99,6 +99,50 @@ export function exportSpot(o, cx) {
   return v;
 }
 
+export class AskMirror {
+  constructor() {
+    this.n = NaN;
+    this.who = null;
+    this.things = [];
+    this.spot = null;
+  }
+}
+
+export function syncAsk(b, f, at, h, m) {
+  m.n = f[at + 0];
+  { const tag = f[at + 1]; if (tag === 0) { m.who = b.refs[KIND_PERSON].at(f[at + 2], f[at + 3]); } else m.who = tag === 1 ? null : undefined; }
+  m.things = b.list(KIND_THING, f, h + f[at + 4], f[at + 5], m.things ?? []);
+  { const tag = f[at + 6]; if (tag === 0) { m.spot = syncSpot(b, f, at + 7, h, m.spot ?? new SpotMirror()); } else m.spot = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putAsk(b, o, f, at, heap) {
+  f[at + 0] = o.n;
+  { const x = o.who; if (x === null || x === undefined) { f[at + 1] = x === null ? 1 : 2; f.fill(0, at + 2, at + 4); } else { f[at + 1] = 0; b.refs[KIND_PERSON].put(x, f, at + 2); } }
+  heap.list(b.refs[KIND_THING], o.things, f, at + 4);
+  { const x = o.spot; if (x === null || x === undefined) { f[at + 6] = x === null ? 1 : 2; f.fill(0, at + 7, at + 22); } else { f[at + 6] = 0; putSpot(b, x, f, at + 7, heap); } }
+}
+
+export function sameAsk(a, b) {
+  if (!Object.is(a.n, b.n)) return ".n";
+  { const p = a.who, q = b.who; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".who"; } else { if (!Object.is(p, q)) return ".who"; } }
+  if (!sameList(a.things, b.things)) return ".things";
+  { const p = a.spot, q = b.spot; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".spot"; } else { { const d = sameSpot(p, q); if (d) return ".spot" + d; } } }
+  return null;
+}
+
+export function exportAsk(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.n = o.n;
+  v.who = ((x) => (x === null || x === undefined ? x : cx.ref("person", x)))(o.who);
+  v.things = o.things.map((x) => exportThing(x, cx));
+  v.spot = ((x) => (x === null || x === undefined ? x : exportSpot(x, cx)))(o.spot);
+  return v;
+}
+
 // shelf: from rust/sim/schema-test/shelf.mjs.
 export class ShelfMirror {
   constructor() {

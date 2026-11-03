@@ -104,6 +104,32 @@ impl Impact {
     }
 }
 
+impl Echo {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(Echo {
+            value: { let p = format!("{path}.value"); num(v.get("value"), &p)? },
+            at: { let p = format!("{path}.at"); vec3(v.get("at"), &p)? },
+            count: { let p = format!("{path}.count"); (int(v.get("count"), &p, 0.0, u32::MAX as f64)? as u32) },
+            note: { let p = format!("{path}.note"); match v.get("note").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.str_in(v.get("note"), &p)?) } },
+            events: { let p = format!("{path}.events"); (int(v.get("events"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let fields = vec![
+            ("value", Value::Num(self.value)),
+            ("at", a.vec3(self.at)),
+            ("count", Value::Num(self.count as f64)),
+            ("note", match &self.note { Some(v) => cx.str_out((*v)), None => Value::Null }),
+            ("events", Value::Num(self.events as f64)),
+        ];
+        a.object("", fields)
+    }
+}
+
 impl Beam {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
