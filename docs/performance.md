@@ -578,8 +578,9 @@ logic, the battle, snapshot capture) is logic over the battle's objects.
 
 The rays are the largest of the four, and they come from all over the step:
 a flyer's sweep and landing probes, a seat's aim, line-of-sight tests, a
-soldier's steps and ground, rounds in flight. `rust/rays` computes them, and
-the sphere queries after them, in Rust compiled to WebAssembly: in the
+soldier's steps and ground, rounds in flight. The collision module of
+`rust/sim` (once the crate `rust/rays`) computes them, and the sphere queries
+after them, in Rust compiled to WebAssembly: in the
 offline world worker unless the battle's query has `rays=js`, and on a page
 or a dedicated server when asked (`rays=wasm`, `BFE_RAYS=wasm`).
 
@@ -607,13 +608,16 @@ times as long in one probe). Copying every body's `enabled` before every cast
 cost 0.56 ms a tick on Bespin Platforms, a quarter of what the rays still
 took there.
 
-`tools/build-ray-kernel.mjs` builds the crate (`cargo build --release --target
-wasm32-unknown-unknown -p rays`; no wasm-bindgen, as the module imports
-nothing) and writes `src/ray-kernel-wasm.js`, the module as base64 (52 KB of
-WebAssembly). That file is committed, so building the game needs no Rust.
-game.js imports `src/ray-kernel.js` only for a battle that asks for it, so
-Vite makes it a chunk of its own (72 KB, 26 KB compressed) that the page and
-the world worker share, and the default bundle loads nothing more. The world
+`tools/build-rust.mjs` builds the crate (`cargo build --release --target
+wasm32-unknown-unknown -p sim`; no wasm-bindgen, as the module imports
+nothing) and writes `src/sim-wasm.js`, the module as base64 (52 KB of
+WebAssembly when it held the rays alone; 141 KB, 199 KB as base64 and 73 KB
+compressed, now that the simulation's module holds the movement, the pose
+sampler and the entity store too, docs/sim-store.md). That file is
+committed, so building the game needs no Rust. game.js imports
+`src/sim/module.js` only for a battle that asks for one of its kernels, so
+Vite makes it a chunk of its own that the page and the world worker share,
+and the default bundle loads nothing more. The world
 worker, the page and plain Node (the dedicated server, which copies `src/` as
 it is; `tools/world-hash.mjs`) all load it the same way, with
 `WebAssembly.compile` and `instantiate`: there is no wasm file to bundle,
@@ -663,7 +667,7 @@ contracts f64 operations by itself.
 The queries soldiers, hulls and droidekas make about a sphere run in the
 module too: `gather` (the polygons whose triangles' bounds meet the
 sphere's, each with those triangles), its cached form, `overlapsSphere` and
-`terrainNear`. `rust/rays/src/spheres.rs` repeats collision.js and
+`terrainNear`. `rust/sim/src/collision/spheres.rs` repeats collision.js and
 three-mesh-bvh's shapecast: the same walk of a tree (a child's bounds tested
 before going down to it, never the root's; a leaf's triangles in their
 indirect order), the same bounds tests written the same way (`a < b` and
@@ -706,7 +710,7 @@ whose bounds its ray meets; the ray's test ignores how far the cast reaches,
 so every body's bounds were tested for every cast. Bespin Platforms has 96
 bodies, four casts in five there reach less than 5 m (0.9 m at the median),
 and on average a tenth of a body passed: the walk was 4% of the world step.
-`rust/rays/src/broad.rs` files the fixed bodies in a grid over x and z, made
+`rust/sim/src/collision/broad.rs` files the fixed bodies in a grid over x and z, made
 again when the world's order or a fixed body's bounds change. A cast with a
 finite reach whose segment covers at most 16 cells takes the fixed bodies
 filed there whose bounds come within a millimetre of the segment's, and
@@ -853,7 +857,7 @@ a second within 0.8.
 
 bfeserver runs the same world in Node: its world thread calls the engine's
 `createGame` with the battle's query, and the engine loads the module there
-as it does in a page's worker, from `src/ray-kernel-wasm.js`, which the host
+as it does in a page's worker, from `src/sim-wasm.js`, which the host
 runtime copies with the rest of `src/` (compiled once a thread in about
 10 ms; each battle's own instance and copies, 3 to 12 MB a map, made in 7 to
 20 ms as it loads). A server opts in with `BFE_RAYS=wasm` in its
@@ -929,10 +933,14 @@ would need the same module.
 
 Behind `?rust`, `rust/bfe-render` (Rust compiled to WebAssembly, built by
 `npm run rust:web` into `src/rust-pkg/`) draws part of the near scene inside
-three.js's own pass, on the same WebGL2 context: the map's opaque buckets,
-then every visible soldier's body and the guns in his hand, instanced, with
-programs made from the GLSL three compiled for them. `?rustRigs` adds
-vehicles' and props' skinned rigs. Three.js draws everything else, and
+three.js's own pass, on the same WebGL2 context: the map's opaque buckets
+(scrolling ones, the banners' wind and the leaves the tree canopies take
+over included) and the ground, then every visible soldier's body and the
+guns in his hand, instanced, then what the near scene blends: the map's
+blended buckets and the command posts' holograms and flares, in three's
+order. Its programs are made from the GLSL three compiled for each
+material. `?rustRigs` adds vehicles' and props' skinned rigs. Three.js
+draws everything else, and
 everything in a configuration the renderer does not cover (shadows, lamp
 lighting, the temporal upscaler). `?rustOff` loads it switched off,
 `?rustSort` orders the map's buckets by program rather than as three does,
@@ -946,12 +954,12 @@ boundary, so that each part of the frame can move to it on its own:
 
 | Pass | Rust (`rust/bfe-render/src`) | Page (`src/rust-render`) | Phase | Draws |
 | --- | --- | --- | --- | --- |
-| World | `world.rs` | `world.js` | near | The map's opaque buckets |
-| Instances | `instances.rs` | `instances.js` | near | Soldiers' bodies, held guns, rigs |
-| Far | `far.rs` | `far.js` | far | Nothing yet (the far scene) |
-| Terrain | `terrain.rs` | `terrain.js` | near | Nothing yet (terrain patches and painted layers) |
-| Transparent | `transparent.rs` | `transparent.js` | transparent | Nothing yet (what the near scene blends) |
-| Effects | `effects.rs` | `effects.js` | transparent | Nothing yet (bolts, flashes, particles, debris, lightning) |
+| World | `world.rs` | `world.js` | near | The map's opaque buckets, those with shader hooks included |
+| Instances | `instances.rs` | `instances.js` | near | Soldiers' bodies, held guns, rigs, flying models |
+| Far | `far.rs` | `far.js` | far | The far scene: sky and its layers, low-detail buckets, far terrain, far water |
+| Terrain | `terrain.rs` | `terrain.js` | near | The ground and its painted layers (drawn by the world pass) |
+| Transparent | `transparent.rs` | `transparent.js` | transparent | What the near scene blends, in three's order: blended buckets, holograms, flares |
+| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain |
 | Foliage | `foliage.rs` | `foliage.js` | near | Nothing yet |
 | View | `view.rs` | `view.js` | view | Nothing yet (the first-person weapon) |
 | Post | `post.rs` | `post.js` | post | Nothing yet (composite, FXAA, upscale) |
@@ -965,9 +973,10 @@ phase is one call from the page that draws its passes in order: `far_frame`,
 `frame` (the near phase), `transparent_frame`, `view_frame` and
 `post_frame`. Each returns its stats: the five counts the page has always
 read (world draws, instanced draws, instances, program switches, GL calls),
-then each pass's draws in the table's order. Only the near phase is called
-so far, from the far scene's image (`graphics.background`'s
-`onAfterRender`) at the start of the near scene's pass.
+then each pass's draws in the table's order. The near phase is called from
+the far scene's image (`graphics.background`'s `onAfterRender`) at the start
+of the near scene's pass, and the transparent phase from the item three
+draws just before its transparent list (see below).
 
 On the page, `src/rust-render/index.js` loads the module and keeps the
 registry. `addPass({ name, phase, register, draw, setActive, restore })`
@@ -980,6 +989,145 @@ views of the module's memory (`addView`), made again whenever the memory
 grows. A pass that must draw at a point inside three's render lists, such as
 the start of the transparent list, can put an anchor there (`anchor`): a
 mesh three draws with no fragments whose `onAfterRender` calls back.
+
+### What the near scene blends
+
+Blended draws look right only in the order three sorts its transparent
+list: group order, render order, the farthest first (the clip-space z of
+each object's bounding sphere centre), then the object's id. Whichever
+draws the renderer has taken over and whichever three still makes, they
+must keep that one order, so the transparent pass owns the list. Every pass
+whose draws blend is a source of items for it (`transparent.rs`, `Source`):
+each frame it emits an item per thing three would have listed, with three's
+sort key and a record of its own, and later draws runs of its consecutive
+items. The pass sorts every source's items as three would and merges in
+what three still draws itself, whose keys the page reads from three's own
+sorted list. The items between two of three's own make a segment: the first
+is drawn at the start of three's transparent list, from a hook on the
+`onAfterRender` of the item three draws just before it (armed after the
+near phase, through the registry's `afterPhase`), and each later one right
+after three draws the item before it (`transparent_segment`). The frame
+then blends in the order one list sorted by three would have. Each segment
+costs three a state reset and its next draw a full upload of its uniforms,
+so the fewer of three's own items are left between the renderer's, the
+cheaper the list.
+
+The pass's own items are the map's blended buckets and the objects drawn
+with three's basic and sprite materials: the command posts' holograms,
+their beams and flares. Three still lists them, so its culling, its keys
+and the game's own visibility stand: after the near phase, the page takes
+those it has registered out of three's list, in the near scene's own render
+only (a mirror's still draws them with three), and writes a record for
+each: its key, and an object's matrix and material values. The renderer
+draws each as three would: a double-sided basic or sprite material twice,
+back faces then front, each with three's program for that side, and a
+double-sided zero material (a `ShaderMaterial`, which three draws in one
+pass) once without culling.
+
+### Shader hooks and the ground
+
+The world pass also draws the map's buckets whose shaders three's hooks
+change: scrolling ones (their scroll and the frame block's time), the
+banners' wind (`fabric.js`: its `fabricTime` is the frame's time, and a
+uniform of a material's that is a frame value under another name is read
+from the frame block, its declaration made a `#define` of the block's
+member) and the leaves the tree canopies take over (`tree-canopies.js`: the
+canopies' state texture and count). The canopies' own mesh is drawn only
+while it has leaves to draw (Enhanced tree detail near a canopy).
+
+The ground (`terrain-patches.js`) is one of the world pass's buckets too:
+three sorts it among the map's buckets by its material, and its cells are
+the patches' own, each a range of the patches' index culled by its box and
+drawn in runs, as three's patches draw them, in one multi-draw. Its painted
+layers are read from the same texture units in every program. While the
+renderer draws the ground, the patches skip their per-render walk over the
+cells for the near scene.
+
+A bucket is registered once three has drawn it as its material now is
+(three's program for it, and the version it was made for, are current),
+not from the program three's warm-up compiled; one whose material changed
+since goes back to three until three has drawn it again. A bucket culled by
+cell (`render-culling.js`) keeps the draw range of the last view three drew
+it in, which the renderer ignores: it draws its cells from the whole index.
+
+### What the transparent list, the hooked buckets and the ground drew
+
+On the emulator (SwiftShader, 800x600, 2x multisampling, Classic
+settings), at three points of a seeded walk on each of Theed, Mos Eisley,
+Bespin Platforms, Kashyyyk Docks and Hoth, the near scene's image with the
+renderer on was compared with three alone on the same frames (time stopped
+between the captures), and with the renderer on but each of these passes
+given back to three. It was the same to the pixel at every point but one:
+on Hoth's third, where two captures of the same variant already differed
+by 133 pixels (a distant walker's legs), the renderer and three differed by
+103. The
+same held with the Enhanced tree and terrain detail, bloom and soft focus
+on (the ground's Enhanced shading drawn by the renderer), and with shadows
+on, where the renderer gives everything back to three. No WebGL context was
+lost during any of these runs.
+
+Three's own draws in the near scene's pass fell from 27 to 15.5 a frame on
+Theed, 13.75 to 2 on Mos Eisley, 33 to 3 on Bespin Platforms and 22.5 to
+11.25 on Kashyyyk Docks. What three still draws there is the foliage, the
+water, the weather and the map's effects, the far scene's image, props'
+unlit skinned meshes, and on Bespin Platforms two vehicles' blended skinned
+parts. On the emulator with its draws made no-ops, in lockstep frames
+alternating between the renderer without these passes and with them, the
+frame's render time changed by +0.01 to -0.9 ms (median and mean, two
+rounds) on four maps and by -0.7 to -2.6 ms on Mos Eisley; switched every
+five seconds in one battle on the game's own loop, the difference was
+within the noise.
+
+### The effects
+
+The battle's effects are drawn by the effects pass as items of the near
+scene's transparent list (`transparent.rs`'s `Source`): each frame the page
+writes each draw with the key three would have sorted it by (group order,
+render order, the centre of its bounding sphere through its world matrix,
+its id), and the renderer works out z as three's `projectObject` does and
+draws the item between the items three still draws, where three would have.
+Their simulation stays in the page. Each is registered the first time three
+has drawn it, with three's own program, then hidden from three:
+
+| What | Page | Kind | Hidden from three by |
+| --- | --- | --- | --- |
+| Particle batches (Classic bolts and their glow, effects' CPU particles) | `particles.js` | instanced quads | `external` (shown and uploaded nothing) |
+| Analytic particles (placed in the vertex shader) | `effects-gpu.js` | instanced quads, emitters texture | `external` |
+| Enhanced bolts | `blaster-bolts.js` | instanced capsules | `external` |
+| Haze (dust, FogCloud) | `atmosphere.js` | instanced quads | `external` |
+| Snow | `snow.js` | instanced quads, data textures | its material |
+| Rain | `weather.js` | instanced streaks, base plane | its material |
+| Classic arc caster lightning | `lightning.js` | dynamic mesh, two passes | `external` |
+| Muzzle flashes, effects' model particles | `game.js` glowModel | models, two passes | its material |
+| Droidekas' shields | `droideka-shield.js` | shader model | its material |
+
+A batch's instances go into the module's memory attribute by attribute as
+the batch keeps them (an analytic batch's from the first that changed since
+it was last read; fixed ones once), and the renderer interleaves them into
+a vertex buffer of the batch's own with one upload. Three would upload each
+attribute of each batch, and every vertex of the lightning's buffers, every
+frame. Hiding a dynamic batch from three needs the batch's own flag: three
+uploads a visible mesh's changed attributes as it lists it, whether or not
+its material is shown. A shader that kept a value of its own under a name the
+frame block gives the frame's (the shield's and the rain's clocks, their
+fades) has it renamed, so its program can take the frame block.
+
+The flying models (rounds, grenades, droids' pieces, items: `game.js`
+flyingModel, tagged `userData.flying`) are opaque and are drawn by the
+instance pass as rigid records in the near phase. Their parts share their
+materials with every copy of their model, so a part the renderer draws is
+hidden from three by its layers (layer 30) rather than by its material.
+
+Checked on the slow-PC emulator (SwiftShader, 800x600, 2x multisampling,
+the Classic looks): at six points of a seeded battle on Bespin, Hoth and
+Kashyyyk Docks, walking and firing, the same frame drawn again with the
+effects pass on and off (the rest of the Rust renderer on), and with the
+whole renderer on and off, differed in no pixel, while the effects drew
+hundreds to tens of thousands of them (up to 38 effect draws and 1,956
+particles a frame). In alternating lockstep frames of busy battles three's
+draws a frame fell from 71 to 62 (Bespin), 50 to 41 (Hoth) and 91 to 74
+(Kashyyyk Docks), and Graphics.render's median from 10.1 to 9.8, 9.1 to 8.3
+and 15.9 to 14.3 ms.
 
 ### The same frame
 
@@ -1174,7 +1322,7 @@ soldier every frame, over each command the world has not acknowledged yet
 step on Naboo Plains and a twentieth on Dune Sea and Bespin Platforms, and on
 the page about half of what the replay cost.
 
-`rust/rays/src/movement` runs the whole tick in the ray kernel's module, for a
+`rust/sim/src/movement` runs the whole tick in the ray kernel's module, for a
 battle whose query has `movement=wasm` (which loads the ray kernel with it):
 the world worker's ticks (and a dedicated server's) and the page's replay
 alike, each with its own instance of the module. The offline world worker
@@ -1188,8 +1336,9 @@ both kinds of jetpack, the drive along the ground, and the collision pass (the
 terrain's column under each body sphere, the nearest polygon of the buildings
 and bodies one contact at a time, the step up stairs, the ground snap and the
 headroom ray). Its queries are the module's own (the sphere gathers, the
-overlap test and the ground of `rust/rays/src/spheres.rs`, and the casts of
-`lib.rs`), against the copies of the trees, the terrain grid and the bodies
+overlap test and the ground of `rust/sim/src/collision/spheres.rs`, and the
+casts of `collision/mod.rs`), against the copies of the trees, the terrain
+grid and the bodies
 the ray kernel keeps anyway, so a tick makes no call back into JavaScript.
 
 The soldier object stays the only copy of his state between ticks, so the

@@ -15,7 +15,7 @@
 //! distance), so they all keep the ray's test. Long casts, and casts with no
 //! finite reach, test every body as before.
 
-use crate::{intersects_box, inverse, js_max, js_min, Body, Ray, State, World, CANDIDATES};
+use crate::collision::{intersects_box, inverse, js_max, js_min, Body, Ray, State, World, CANDIDATES};
 use std::ptr::addr_of_mut;
 
 /// How far a fixed body's bounds and a cast's segment are grown before they
@@ -116,7 +116,7 @@ impl Broad {
 pub fn world_candidates_near(s: &mut State, world: usize, ray: &Ray, far: f64, ignore: i64, static_only: bool, moving_only: bool) -> usize {
     let length = (ray.dx * ray.dx + ray.dy * ray.dy + ray.dz * ray.dz).sqrt();
     if moving_only || !(far >= 0.0 && far.is_finite() && length > 0.0 && length.is_finite()) {
-        return crate::world_candidates_for(s, world, ray, ignore, static_only, moving_only);
+        return crate::collision::world_candidates_for(s, world, ray, ignore, static_only, moving_only);
     }
     let reach = far / length;
     let (o, d) = ([ray.ox, ray.oy, ray.oz], [ray.dx, ray.dy, ray.dz]);
@@ -128,7 +128,7 @@ pub fn world_candidates_near(s: &mut State, world: usize, ray: &Ray, far: f64, i
         seg[k + 3] = js_max(o[k], end) + pad;
     }
     if seg.iter().any(|v| !v.is_finite()) {
-        return crate::world_candidates_for(s, world, ray, ignore, static_only, moving_only);
+        return crate::collision::world_candidates_for(s, world, ray, ignore, static_only, moving_only);
     }
     let key = Some((s.worlds[world].version, s.fixed_version));
     if s.worlds[world].broad.made_for != key {
@@ -150,7 +150,7 @@ pub fn world_candidates_near(s: &mut State, world: usize, ray: &Ray, far: f64, i
     };
     let ((x0, x1), (z0, z1)) = cells;
     if !clear && (x1 - x0 + 1) * (z1 - z0 + 1) > MAX_CELLS {
-        return crate::world_candidates_for(s, world, ray, ignore, static_only, moving_only);
+        return crate::collision::world_candidates_for(s, world, ray, ignore, static_only, moving_only);
     }
     let State { worlds, bodies, .. } = s;
     let w = &mut worlds[world];
@@ -196,7 +196,7 @@ pub fn world_candidates_near(s: &mut State, world: usize, ray: &Ray, far: f64, i
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Body, World, CANDIDATES};
+    use crate::collision::{Body, World, CANDIDATES};
 
     fn random(seed: &mut u32) -> f64 {
         *seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
@@ -233,7 +233,7 @@ mod tests {
             let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
             let ray = Ray { ox: o[0], oy: o[1], oz: o[2], dx: d[0] / length, dy: d[1] / length, dz: d[2] / length };
             let (ignore, static_only) = (if i % 9 == 0 { 40 } else { -1 }, i % 4 == 1);
-            let all = list(crate::world_candidates_for(&s, 0, &ray, ignore, static_only, false));
+            let all = list(crate::collision::world_candidates_for(&s, 0, &ray, ignore, static_only, false));
             let some = list(world_candidates_near(&mut s, 0, &ray, far, ignore, static_only, false));
             // In the walk's order, and only fixed bodies wholly clear of the
             // cast's segment (by more than the margin) left out.
@@ -260,7 +260,7 @@ mod tests {
         s.worlds[0].order.truncate(100);
         s.worlds[0].version += 1;
         let ray = Ray { ox: 0.0, oy: 100.0, oz: 0.0, dx: 0.0, dy: -1.0, dz: 0.0 };
-        let all = list(crate::world_candidates_for(&s, 0, &ray, -1, false, false));
+        let all = list(crate::collision::world_candidates_for(&s, 0, &ray, -1, false, false));
         let some = list(world_candidates_near(&mut s, 0, &ray, 500.0, -1, false, false));
         assert!(some.iter().all(|p| all.contains(p)) && some.iter().all(|&p| p < 100));
     }

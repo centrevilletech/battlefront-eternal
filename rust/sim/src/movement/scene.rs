@@ -6,8 +6,8 @@
 //! place in the world's order, before the tick.
 
 use super::soldier::{js_hypot2, PART_CACHES, V3};
-use crate::spheres::{closest_point_to_point, gather, ground, overlaps_sphere, GatherCache, Gathered, Polygon, Tri};
-use crate::{candidate, triangle_normal, world_candidates_for, world_cast_ray, State, MISS, TERRAIN};
+use crate::collision::spheres::{closest_point_to_point, gather, ground, overlaps_sphere, GatherCache, Gathered, Polygon, Tri};
+use crate::collision::{candidate, triangle_normal, world_candidates_for, world_cast_ray, State, MISS, TERRAIN};
 use std::ptr::addr_of_mut;
 
 /// What a contact may hurt him on (collision-damage.js): terrain counts in
@@ -72,10 +72,10 @@ impl Scene<'_> {
     /// cast(origin, direction, far, out): the first hit against the
     /// buildings, the enabled bodies and the terrain.
     pub fn cast(&mut self, origin: V3, direction: V3, far: f64) -> Option<CastHit> {
-        let ray = crate::Ray { ox: origin.x, oy: origin.y, oz: origin.z, dx: direction.x, dy: direction.y, dz: direction.z };
+        let ray = crate::collision::Ray { ox: origin.x, oy: origin.y, oz: origin.z, dx: direction.x, dy: direction.y, dz: direction.z };
         let count = world_candidates_for(self.s, self.world, &ray, -1, false, false);
         // The candidates' enabled flags, as rayCandidates writes them.
-        let enabled = unsafe { &mut *addr_of_mut!(crate::ENABLED) };
+        let enabled = unsafe { &mut *addr_of_mut!(crate::collision::ENABLED) };
         for c in 0..count {
             enabled[c] = self.flags[candidate(c)];
         }

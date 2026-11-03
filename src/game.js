@@ -91,13 +91,14 @@ import { pageGpu } from "./gpu-info.js";
 // onProgress(step, loaded, total): the load's progress, for the loading
 // screen (src/shell/loading.js): "data", "world", "shaders", and
 // "textures" with how many of how many have arrived.
-// The collision's WebAssembly, or null (JavaScript, which gives the same
+// The battle's instance of the simulation's WebAssembly (src/sim/module.js),
+// which its kernels share, or null (JavaScript, which gives the same
 // answers) if it cannot load here.
-async function loadRays() {
+async function loadSimInstance() {
   try {
-    return await (await import("./ray-kernel.js")).loadRayKernel();
+    return await (await import("./sim/module.js")).loadSim();
   } catch (error) {
-    console.warn(`The collision's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
+    console.warn(`The simulation's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
     return null;
   }
 }
@@ -415,13 +416,18 @@ async function start() {
   // the world's ticks and the page's replay of his own soldier alike; it
   // brings the ray kernel with it.
   const movement = (params.get("movement") ?? (params.get("rays") === "js" ? "js" : movementDefault)) === "wasm";
-  const rays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm" ? await loadRays() : null;
-  // ?anim=wasm: the pose sampling in WebAssembly (src/anim-kernel.js), to
-  // the last bit as its JavaScript (the default). The page's poses only:
-  // a headless world (the local worker, a dedicated server) reads rider
-  // poses for its ticks and keeps the JavaScript, so its worlds cannot
-  // change. Poses made before this take the kernel up as they clear.
-  const anim = !headless && params.get("anim") === "wasm" ? await (await import("./anim-kernel.js")).loadAnimKernel() : null;
+  const wantRays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm";
+  // The page's pose sampling in WebAssembly (src/anim-kernel.js) unless
+  // ?anim=js, to the last bit as its JavaScript, which stays the fallback
+  // when the module cannot load. The page's poses only: a headless world
+  // (the local worker, a dedicated server) reads rider poses for its ticks
+  // and keeps the JavaScript, so its worlds cannot change. Poses made
+  // before this take the kernel up as they clear.
+  const wantAnim = !headless && params.get("anim") !== "js";
+  // Both kernels on the battle's one instance of the module.
+  const simInstance = wantRays || wantAnim ? await loadSimInstance() : null;
+  const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
+  const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
   const collision = new CollisionWorld(
     new Float32Array(collBuf),
@@ -714,6 +720,8 @@ async function start() {
       group.addEventListener("removed", () => {
         for (const child of group.children) graphics.casters.delete(child);
       });
+      // For a renderer that draws them itself (src/rust-render/instances.js).
+      group.userData.flying = true;
       return group;
     };
   };
@@ -728,6 +736,9 @@ async function start() {
   // worker records the call for the page (src/runtime/network-entity-game.js).
   simEvents.listen((record) => record.kind === "vo" && audio.on("vo", record));
   let simTime = 0;
+  // s: the host's wall time for the step running (game.step), the one clock
+  // a world reads: nothing in a world step calls a clock of its own.
+  let hostSeconds = 0;
   // Whose side a round or blast is on: a unit's team; the player's for his
   // own recon droid and its strike.
   const teamOf = (owner) => (owner && typeof owner === "object" ? owner.team ?? 0 : owner === "player" ? playerTeam : 0);
@@ -1271,6 +1282,8 @@ async function start() {
     vehicles.flightAssists = settings.get('aiDifficulty') !== 'hard';
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
+    // A world's barrels kick back on its host's time (a page's on its own).
+    if (headless) vehicles.clock = () => hostSeconds;
     driver.onRelease = () => { controls.clear(); worldControls.clear(); };
     driver.aimView = new VehicleCamera(simulationCamera, collision, true);
     hud.vehicles = vehicles;
@@ -3485,13 +3498,17 @@ async function start() {
     frame,
     lockstep: lockstepFrame,
     // A tick of the world, for whatever runs it (the world worker, a server,
-    // a Node check). A page shows a battle and runs none.
-    step(command) {
+    // a Node check). A page shows a battle and runs none. at: the host's wall
+    // time for it (ms, as performance.now() gives it), its one clock input.
+    // One call is one tick, so the clock's budget (a page's pacing) has no
+    // part in it and reads no clock.
+    step(command, at = performance.now()) {
       if (!headless) throw new Error("the page runs no battle: step the world worker (game.lockstep)");
       if (command.tick !== worldClock.tick + 1) throw new Error("nonconsecutive world command");
+      hostSeconds = at / 1000;
       worldClock.advance(1 / 60, (h, tick) => {
         presentation.beforeStep(); step(h, tick, command); presentation.afterStep();
-      });
+      }, false);
     },
     units,
     simEvents,

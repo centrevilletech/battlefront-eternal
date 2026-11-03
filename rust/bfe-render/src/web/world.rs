@@ -13,4 +13,7 @@ impl BfeRenderer {
     pub fn world_uniform(&mut self, w: u32, name: &str, values: &[f32], int: bool) -> bool { self.r.world.world_uniform(&self.r.core, w, name, values, int) }
     pub fn world_cells(&mut self, w: u32, positions: &[f32], index: &[u32], cell_size: f64) { self.r.world.world_cells(w, positions, index, cell_size) }
     pub fn sort(&mut self, by_program: bool) { self.r.world.sort(by_program) }
+    // Cells given whole: [first index, end] and a box [min, max] each.
+    pub fn world_runs(&mut self, w: u32, ranges: &[u32], boxes: &[f64]) { self.r.world.world_runs(w, ranges, boxes) }
+    pub fn world_shown(&mut self, w: u32, shown: bool) { self.r.world.world_shown(w, shown) }
 }

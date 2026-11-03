@@ -2,6 +2,9 @@
 # builds without Rust; CI checks each byte against a rebuild
 # (docs/development.md, "The Rust parts"). Check them out exactly as
 # committed, and on a merge conflict rebuild them instead of merging lines.
-src/ray-kernel-wasm.js -text -merge linguist-generated
-src/anim-kernel-wasm.js -text -merge linguist-generated
+src/sim-wasm.js -text -merge linguist-generated
 src/rust-pkg/** -text -merge linguist-generated
+# The entity store's code, generated from rust/sim/schema/ by
+# tools/sim-schema.mjs (docs/sim-store.md): regenerate it on a conflict.
+rust/sim/src/gen/** -merge linguist-generated
+src/sim/gen/** -merge linguist-generated

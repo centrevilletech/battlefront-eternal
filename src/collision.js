@@ -7,8 +7,9 @@ const BLOCKER_POLYGONS = 0x70000000;
 // A gather finding more polygons than this files them in a PolygonIndex
 // (polygon()).
 const GROUP_SCAN = 16;
-// The ray kernel's answers for no hit and a terrain hit (rust/rays MISS and
-// TERRAIN); a body's slot is 0 or more, and -1 the buildings.
+// The ray kernel's answers for no hit and a terrain hit (MISS and TERRAIN
+// in rust/sim/src/collision); a body's slot is 0 or more, and -1 the
+// buildings.
 const RAY_MISS = -2, RAY_TERRAIN = -3;
 
 // The current gather's polygons past GROUP_SCAN of them, by polygon number:

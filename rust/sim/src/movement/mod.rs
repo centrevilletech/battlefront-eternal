@@ -13,8 +13,8 @@
 pub mod scene;
 pub mod soldier;
 
-use crate::spheres::{GatherCache, Gathered};
-use crate::{state, MAX_BODIES};
+use crate::collision::spheres::{GatherCache, Gathered};
+use crate::collision::{state, MAX_BODIES};
 use scene::{GroundCache, Scene};
 use soldier::{Air, Input, Mover, Posture, Rest, Trig, PART_CACHES, V3};
 use std::ptr::addr_of_mut;

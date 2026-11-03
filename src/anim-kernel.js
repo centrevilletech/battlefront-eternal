@@ -1,8 +1,10 @@
-// The pose sampling of src/anim.js in WebAssembly (rust/anim), for a
-// battle that asks for it (?anim=wasm). The JavaScript in src/anim.js
-// stays the default; the module blends every clip as it does, to the
-// last bit (rust/anim says how), so the skeleton the page draws does not
-// move and the rider poses the simulation reads keep their answers.
+// The pose sampling of src/anim.js in WebAssembly (rust/sim/src/pose, in
+// the simulation's module, src/sim/module.js), the page's default (?anim=js
+// keeps the JavaScript in src/anim.js, which is also the fallback when the
+// module cannot load); the module blends every clip as it does, to the
+// last bit (rust/sim/src/pose says how), so the skeleton the page draws
+// does not move and the rider poses the simulation reads keep their
+// answers.
 //
 // The module holds a copy of each clip it samples (its frames and which
 // bone each track drives), made the first time the clip is sampled, and
@@ -10,21 +12,14 @@
 // JavaScript reads them (the animator's overlays, a rider's points), as
 // views of the module's memory; a copy can grow that memory and detach
 // the views, so they are made again after every call that can copy.
-import { ANIM_KERNEL_WASM } from "./anim-kernel-wasm.js";
+import { loadSim } from "./sim/module.js";
 
-let compiling = null;
-
-// A kernel of its own for a battle: the module is compiled once per
-// thread, and each battle gets its own instance, whose copies go with
-// it when the battle ends.
-export async function loadAnimKernel() {
-  compiling ||= (async () => {
-    const text = atob(ANIM_KERNEL_WASM);
-    const bytes = new Uint8Array(text.length);
-    for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
-    return WebAssembly.compile(bytes);
-  })();
-  return new AnimKernel((await WebAssembly.instantiate(await compiling, {})).exports);
+// The kernel of a battle, on its instance of the simulation's module (the
+// one its other kernels use), or on an instance of its own: the module is
+// compiled once per thread, and each battle gets its own instance, whose
+// copies go with it when the battle ends.
+export async function loadAnimKernel(instance = null) {
+  return new AnimKernel((instance ?? await loadSim()).exports);
 }
 
 export class AnimKernel {
@@ -82,7 +77,7 @@ export class AnimKernel {
     };
   }
 
-  // The pose's apply finals (rust/anim pose_out): count * 7 f64.
+  // The pose's apply finals (rust/sim/src/pose pose_out): count * 7 f64.
   applyOut(id) {
     const at = this.x.pose_out(id);
     const kept = this.outByPose[id];
