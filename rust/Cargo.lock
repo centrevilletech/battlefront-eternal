@@ -3,10 +3,6 @@
 version = 4
 
 [[package]]
-name = "anim"
-version = "0.1.0"
-
-[[package]]
 name = "bfe-native"
 version = "0.1.0"
 dependencies = [
@@ -293,10 +289,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
-name = "rays"
-version = "0.1.0"
-
-[[package]]
 name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -343,6 +335,17 @@ dependencies = [
  "serde_core",
  "zmij",
 ]
+
+[[package]]
+name = "sim"
+version = "0.1.0"
+dependencies = [
+ "sim-replay",
+]
+
+[[package]]
+name = "sim-replay"
+version = "0.1.0"
 
 [[package]]
 name = "slab"
