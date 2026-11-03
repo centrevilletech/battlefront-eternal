@@ -21,7 +21,7 @@
 // A world only; boarding, the other ways out, a destroyed hull's crew and
 // the turret crews stay JavaScript's until they move.
 import * as THREE from "three";
-import { CombatMirror, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_SEATS, KIND_UNIT, KIND_VEHICLE, KIND_VEHICLES } from "./sim/gen/index.js";
+import { CombatMirror, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_SEATS, KIND_TABLE, KIND_UNIT, KIND_VEHICLE, KIND_VEHICLES } from "./sim/gen/index.js";
 import { makeHit } from "./collision.js";
 
 const NO_BUTTONS = [0, 0];
@@ -37,7 +37,7 @@ export class SeatsSim {
     this.bridge = bridge;
     this.leases = [];
     this.units = [];
-    this.written = []; // the units written: every one the store may hold
+    this.riders = new Set(); // only these units cross the seat phase's boundary
     this.seats = { leases: this.leases };
     this.args = { time: 0, ticks: 0, hulls: [], controls: [] };
     this.facts = new WeakMap(); // a hull -> its facts record (its class's are fixed)
@@ -53,6 +53,8 @@ export class SeatsSim {
   latchCrews() {
     const vs = this.vehicles, b = this.bridge, leases = this.leases, units = this.units;
     leases.length = units.length = 0;
+    const riders = this.riders;
+    riders.clear();
     let bots = 0;
     for (const v of vs.vehicles) for (const seat of v.seats) {
       const lease = seat.lease;
@@ -60,19 +62,14 @@ export class SeatsSim {
       leases.push(lease);
       if (!lease.human) bots++;
       const unit = lease.unit;
-      if (unit && !units.includes(unit)) units.push(unit);
+      if (unit && !riders.has(unit)) { riders.add(unit); units.push(unit); }
     }
     // No bot aboard anything: the batch is counted and that is all.
     if (!bots) { vs.ticks += 1; return; }
     this.release();
-    // The store keeps only the units a write lists, and may hold others'
-    // rows (with the combats on the module, every unit's combat): every
-    // unit the bridge has numbered goes in, the riders among them.
-    const ids = b.refs[KIND_UNIT], written = this.written;
-    for (const unit of units) ids.slotOf(unit);
-    written.length = 0;
-    for (const unit of ids.objects) if (unit && (!ids.test || ids.test(unit))) written.push(unit);
-    b.write(KIND_UNIT, written);
+    // Other phases may own the non-riders' rows, including their combats.
+    // Leave those rows alone instead of rewriting every numbered unit.
+    b.writeSome(KIND_UNIT, units);
     b.write(KIND_SEAT_LEASE, leases);
     b.write(KIND_SEATS, [this.seats]);
     // (The hulls' list is the hull kind's home: the store gives back the
@@ -103,12 +100,20 @@ export class SeatsSim {
     // only reads (a JavaScript PlayerCombat has fields the store's record
     // names only through getters; a combat on the module keeps its own).
     const combats = this.combats;
-    combats.length = written.length;
-    for (let i = 0; i < written.length; i++) {
-      combats[i] = written[i].combat;
-      written[i].combat = this.scratch[i] ??= new CombatMirror();
+    combats.length = units.length;
+    for (let i = 0; i < units.length; i++) {
+      combats[i] = units[i].combat;
+      units[i].combat = this.scratch[i] ??= new CombatMirror();
     }
-    try { b.sync(KIND_UNIT); } finally { for (let i = 0; i < written.length; i++) written[i].combat = combats[i]; }
+    try {
+      // Non-riders may have moved in JavaScript since their rows were
+      // written. Sync only the riders, and leave retirement rows for the
+      // phase that owns them (export mode 2 does not consume them).
+      b.exported(KIND_UNIT, 2, (f, at, h, slot, gen, retired) => {
+        const unit = b.refs[KIND_UNIT].objects[slot];
+        if (!retired && riders.has(unit)) KIND_TABLE[KIND_UNIT].sync(b, f, at, h, unit);
+      });
+    } finally { for (let i = 0; i < units.length; i++) units[i].combat = combats[i]; }
     combats.fill(null);
     vs.ticks = out.ticks;
     // SeatInput.latch took these edges from the seat's intent it played.
