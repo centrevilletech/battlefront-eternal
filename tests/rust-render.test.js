@@ -209,6 +209,28 @@ test("objects the transparent pass draws leave three's list as records with thre
   assert.deepEqual([...r.subarray(22, 26)], [material.color.r, material.color.g, material.color.b, 0.25]);
 });
 
+test("with the transparent pass off, three keeps its whole list and the other sources' items still draw around it", () => {
+  const { core, calls, renderer, scene, camera, graphics, list, setSegments } = bridge();
+  const pass = core.byName.transparent;
+  const material = new THREE.MeshBasicMaterial({ transparent: true });
+  const holo = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  const program = { id: 3 };
+  renderer.properties.get(material).currentProgram = program;
+  renderer.properties.get(material).__version = material.version;
+  pass.taken.set(holo, { bucket: false, id: 7, material, program, frame: 0 });
+  list.opaque.push({ object: graphics.background, material: {}, group: null, groupOrder: 0, renderOrder: 0, z: 0, id: graphics.background.id });
+  list.transparent.push({ object: holo, material, group: null, groupOrder: 0, renderOrder: 0, z: 0.75, id: holo.id });
+  setSegments([0, 0, 0]);
+  core.views();
+  core.transparentObjects[0] = 5;
+  pass.setActive(false);
+  core.pass(renderer, scene, camera);
+  assert.deepEqual(list.transparent.map((item) => item.object), [holo], "three draws what the pass would have taken");
+  assert.equal(core.transparentObjects[0], 0, "the pass draws none of its own");
+  assert.equal(calls.filter((c) => c[0] === "transparent_frame").length, 1, "the phase still runs");
+  assert.deepEqual([...core.transparentKeys.subarray(0, 4)], [0, 0, 0.75, holo.id]);
+});
+
 test("an item whose program three changed goes back to three, to be registered again", () => {
   const { core, renderer, scene, camera, graphics, list, setSegments } = bridge();
   const pass = core.byName.transparent;

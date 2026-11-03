@@ -173,11 +173,12 @@ class TransparentPass {
       this.frameNo++;
       this.list = null;
       this.takenCount = 0;
-      // Off (a comparison): three draws its whole list, as before this pass.
-      if (!this.active) return;
       this.list = this.threeList(ctx.renderer, ctx.scene);
       if (!this.list) return;
-      this.take(this.list.transparent);
+      // Off (a comparison): three draws every item of its list, and the
+      // other sources' items still draw around them.
+      if (this.active) this.take(this.list.transparent);
+      else this.takeNone();
       const before = this.list.transmissive.length ? this.list.transmissive : this.list.opaque;
       const last = before[before.length - 1];
       const start = () => this.core.phase("transparent", ctx.renderer, ctx.scene, ctx.camera);
@@ -276,6 +277,12 @@ class TransparentPass {
     items.length = kept;
     records[0] = n;
     this.takenCount = n;
+  }
+
+  takeNone() {
+    this.core.views();
+    this.core.transparentObjects[0] = 0;
+    this.candidates.length = 0;
   }
 
   // Whether three's item is one this pass could draw: one of the map's
