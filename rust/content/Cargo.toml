@@ -1,0 +1,15 @@
+[package]
+name = "content"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "The game's content as the world simulation reads it: its files parsed and the numbers derived from them, to the last bit as the JavaScript loaders make them."
+
+# A plain library: the simulation module (rust/sim, once it lands) links it
+# natively and as WebAssembly, and hands it the bytes JavaScript fetched.
+# The binary content-dump writes the canonical dump tools/content-dump.mjs
+# compares with the JavaScript's.
+[lib]
+name = "bfe_content"
+crate-type = ["rlib"]
