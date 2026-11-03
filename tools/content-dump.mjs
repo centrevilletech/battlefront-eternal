@@ -43,6 +43,8 @@ const { setting } = await import('../src/seats.js');
 const { classSetting } = await import('../src/vehicle-motion.js');
 const { scanVector } = await import('../src/props.js');
 const { routeWords } = await import('../src/ai/classic/nav/data.js');
+const { vehicleBatches } = await import('../src/vehicle-rig.js');
+const { gearFoot } = await import('../src/flight/gear.js');
 const { ENGINE } = await import('../src/soldier.js');
 const { createEntityRegistry } = await import('../src/runtime/network-entity-registry.js');
 const { INPUT_CODES, DEFAULT_BINDING_PROFILES } = await import('../src/runtime/network-entity-input.js');
@@ -345,7 +347,9 @@ export function decode(b) {
           else seen.add(joint);
         }
       }
-      c.vehicleTemplates.push({ name, shape, clips, wheelRadii, muzzleTips });
+      const batches = vehicleBatches(rig, parts, () => null);
+      const takeoff = clips?.get('takeoff');
+      c.vehicleTemplates.push({ name, shape, clips, wheelRadii, muzzleTips, gearFoot: takeoff ? gearFoot(rig, batches, takeoff) : null });
     }
     if (data.blockers?.indices.length) {
       const bl = data.blockers;
@@ -553,6 +557,7 @@ export function dumpBattle(b, c, full = false) {
     d.value('vehicle', `${t.name}/wheels`, [...t.wheelRadii]);
     d.value('vehicle', `${t.name}/muzzles`, [...t.muzzleTips]);
     d.value('vehicle', `${t.name}/shape`, [typed(t.shape.positions), typed(t.shape.indices), typed(t.shape.polygons)]);
+    d.line('vehicle', `${t.name}/gearFoot`, enc(t.gearFoot));
     if (t.clips) clipsGroup(d, `vehicle/${t.name}`, t.clips, full);
     else d.line('vehicle', `${t.name}/clips`, 'null');
   }

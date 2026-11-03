@@ -361,6 +361,7 @@ pub fn dump_battle(c: &Content, cache: &mut PayloadCache, full: bool) -> String 
         d.line("vehicle", &format!("{}/wheels", t.name), &dump::payload(&list(t.wheel_radii.iter().map(|(k, r)| list(vec![st(k), n(*r)])))));
         d.line("vehicle", &format!("{}/muzzles", t.name), &dump::payload(&list(t.muzzle_tips.iter().map(|(k, p)| list(vec![st(k), nums(p)])))));
         d.line("vehicle", &format!("{}/shape", t.name), &dump::payload(&list(vec![dump::typed(&t.shape.positions), dump::typed(&t.shape.indices), dump::typed(&t.shape.polygons)].into_iter().map(|s| st(&s)))));
+        d.line("vehicle", &format!("{}/gearFoot", t.name), &t.gear_foot.map(n).unwrap_or_else(|| "null".into()));
         match &t.clips {
             Some(clips) => clips_group(&mut d, &format!("vehicle/{}", t.name), clips, full),
             None => d.line("vehicle", &format!("{}/clips", t.name), "null"),

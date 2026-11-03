@@ -25,6 +25,9 @@ pub struct VehicleTemplate {
     pub clips: Option<Clips>,
     pub wheel_radii: Vec<(String, f64)>,
     pub muzzle_tips: Vec<(String, [f64; 3])>,
+    /// flight/gear.js gearFoot: how far below its origin it stands on its
+    /// gear (a craft with a takeoff clip), else None.
+    pub gear_foot: Option<f64>,
 }
 
 /// A prop instance's collision bodies (props.js `body(range)`), by look.
@@ -210,7 +213,12 @@ impl Content {
                     }
                     None => None,
                 };
-                vehicle_templates.push(VehicleTemplate { name: name.to_string(), rig: rig.clone(), parts, shape, clips, wheel_radii, muzzle_tips });
+                // A flyer with a takeoff clip stands on its gear (vehicles.js 2002-2004).
+                let gear_foot = match clips.as_ref().and_then(|c| c.get("takeoff")) {
+                    Some(takeoff) => crate::gear::gear_foot(rig, &crate::gear::vehicle_batches(rig, &parts), takeoff),
+                    None => None,
+                };
+                vehicle_templates.push(VehicleTemplate { name: name.to_string(), rig: rig.clone(), parts, shape, clips, wheel_radii, muzzle_tips, gear_foot });
             }
             if let Some(blockers) = def.get("blockers").filter(|x| x.truthy()) {
                 let has = blockers.get("indices").and_then(Value::as_array).map(|a| !a.is_empty()).unwrap_or(false);

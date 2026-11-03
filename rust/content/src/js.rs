@@ -430,6 +430,51 @@ pub fn number_to_string(x: f64) -> String {
     out
 }
 
+/// `JSON.stringify(value)` for a content value: numbers in their
+/// `Number::toString` text (a non-finite one as null), strings escaped as
+/// JSON.stringify escapes them, an absent array element (undefined) as null.
+pub fn json_stringify(value: Option<&Value>) -> String {
+    let mut out = String::new();
+    fn write(out: &mut String, v: Option<&Value>) {
+        match v {
+            None | Some(Value::Null) => out.push_str("null"),
+            Some(Value::Bool(b)) => out.push_str(if *b { "true" } else { "false" }),
+            Some(Value::Number(n)) => {
+                if n.is_finite() {
+                    out.push_str(&number_to_string(*n));
+                } else {
+                    out.push_str("null");
+                }
+            }
+            Some(Value::String(s)) => crate::dump::string(out, s),
+            Some(Value::Array(items)) => {
+                out.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    write(out, Some(item));
+                }
+                out.push(']');
+            }
+            Some(Value::Object(o)) => {
+                out.push('{');
+                for (i, (k, item)) in o.entries().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    crate::dump::string(out, k);
+                    out.push(':');
+                    write(out, Some(item));
+                }
+                out.push('}');
+            }
+        }
+    }
+    write(&mut out, value);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
