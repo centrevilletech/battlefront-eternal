@@ -67,7 +67,8 @@ export function exportAttacker(x, cx) {
 
 export function variantOfRepairTarget(b, x) {
   if (b?.refs[KIND_BUILDING].is(x)) return 0;
-  if (x !== null && typeof x === "object") return 1;
+  if (b?.refs[KIND_TURRET].is(x)) return 1;
+  if (x !== null && typeof x === "object") return 2;
   return -1;
 }
 
@@ -82,7 +83,8 @@ export function whichRepairTarget(b, x) {
 export function syncRepairTarget(b, f, at, h, current) {
   switch (f[at]) {
     case 0: return b.refs[KIND_BUILDING].at(f[at + 1], f[at + 2]);
-    case 1: return b.refs[KIND_VEHICLE].at(f[at + 1], f[at + 2]);
+    case 1: return b.refs[KIND_TURRET].at(f[at + 1], f[at + 2]);
+    case 2: return b.refs[KIND_VEHICLE].at(f[at + 1], f[at + 2]);
     default: throw Error('RepairTarget: no such variant');
   }
 }
@@ -93,7 +95,8 @@ export function putRepairTarget(b, x, f, at, heap) {
   f[at] = i;
   switch (i) {
     case 0: b.refs[KIND_BUILDING].put(x, f, at + 1); break;
-    case 1: b.refs[KIND_VEHICLE].put(x, f, at + 1); break;
+    case 1: b.refs[KIND_TURRET].put(x, f, at + 1); break;
+    case 2: b.refs[KIND_VEHICLE].put(x, f, at + 1); break;
   }
 }
 
@@ -106,7 +109,8 @@ export function sameRepairTarget(x, y) {
 export function exportRepairTarget(x, cx) {
   switch (whichRepairTarget(cx, x)) {
     case 0: return cx.ref("building", x);
-    case 1: return cx.ref("vehicle", x);
+    case 1: return cx.ref("turret", x);
+    case 2: return cx.ref("vehicle", x);
   }
 }
 

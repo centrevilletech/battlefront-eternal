@@ -42,7 +42,7 @@ impl Attacker {
 impl RepairTarget {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         match v.value {
-            Value::Handle(kind, _) => match kind.as_str() { "building" => return Ok(RepairTarget::Building(cx.ref_in(KIND_BUILDING, v, path)?)), "vehicle" => return Ok(RepairTarget::Vehicle(Vehicle::ref_in(v, cx, path)?)), _ => {} },
+            Value::Handle(kind, _) => match kind.as_str() { "building" => return Ok(RepairTarget::Building(cx.ref_in(KIND_BUILDING, v, path)?)), "turret" => return Ok(RepairTarget::Turret(cx.ref_in(KIND_TURRET, v, path)?)), "vehicle" => return Ok(RepairTarget::Vehicle(Vehicle::ref_in(v, cx, path)?)), _ => {} },
             _ => {}
         }
         Err(format!("{path}: none of RepairTarget's variants ({})", v.show()))
@@ -51,6 +51,7 @@ impl RepairTarget {
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
         match self {
             RepairTarget::Building(r) => cx.ref_out(KIND_BUILDING, *r),
+            RepairTarget::Turret(r) => cx.ref_out(KIND_TURRET, *r),
             RepairTarget::Vehicle(r) => Vehicle::ref_out(*r, cx, a),
         }
     }

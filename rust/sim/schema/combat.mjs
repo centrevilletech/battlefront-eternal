@@ -29,9 +29,10 @@ export default {
     // player, a unit, a hull, a snapshot of a unit whose life has ended),
     // or a turret.
     Attacker: ['undefined', 'null', 'lit:player', 'ref:unit', 'ref:vehicle', 'ref:ownerSnapshot', 'ref:turret'],
-    // What a repair tool's lock is on (src/props.js lockOn): a building of
-    // the live props, or a hull (live.vehicleTargets is the battle's hulls).
-    RepairTarget: ['ref:building', 'ref:vehicle'],
+    // What a repair tool's lock is on (src/props.js lockOn): one of the live
+    // props' buildings (a turret among them), or a hull (live.vehicleTargets
+    // is the battle's hulls).
+    RepairTarget: ['ref:building', 'ref:turret', 'ref:vehicle'],
   },
 
   records: {

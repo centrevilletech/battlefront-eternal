@@ -52,6 +52,7 @@ impl Attacker {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RepairTarget {
     Building(Ref<Building>),
+    Turret(Ref<Turret>),
     Vehicle(Ref<Vehicle>),
 }
 
@@ -67,14 +68,16 @@ impl RepairTarget {
         row[1..3].fill(0.0);
         match self {
             RepairTarget::Building(r) => { row[0] = 0.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
-            RepairTarget::Vehicle(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            RepairTarget::Turret(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            RepairTarget::Vehicle(r) => { row[0] = 2.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
         }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
         match word_u32(row[0]) {
             0 => RepairTarget::Building(Ref::new(word_u32(row[1]), word_u32(row[2]))),
-            1 => RepairTarget::Vehicle(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            1 => RepairTarget::Turret(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            2 => RepairTarget::Vehicle(Ref::new(word_u32(row[1]), word_u32(row[2]))),
             _ => RepairTarget::default(),
         }
     }

@@ -124,9 +124,10 @@ const opened = new WeakMap();
 // boundaries' `after`).
 const current = [];
 
-// Every unit's life (its id, generation and whether it lives), for what a
-// launcher's lock reads of the unit it picks (an update's).
-const livesValue = (game) => game.units.all().filter(isUnit).map((u) => ({ id: u.id, generation: u.generation, alive: Boolean(u.alive) }));
+// Every registry member's life (its id, generation and whether it lives:
+// a unit, or a hull's, a turret's or a building's target), for what a
+// launcher's lock reads of what it picks (an update's).
+const livesValue = (game) => game.units.all().map((m) => ({ id: m.id, generation: m.generation ?? 0, alive: Boolean(m.alive) }));
 
 function combatState(game, cap, self, full, lives) {
   if (!full) return { skipped: true };
