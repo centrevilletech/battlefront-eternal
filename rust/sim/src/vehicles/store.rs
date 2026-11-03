@@ -106,6 +106,9 @@ impl Hull {
                 })
                 .collect(),
             pose: None,
+            // A craft's flight comes with its class's keys
+            // (crate::flight::store, Flight::from_store).
+            flight: crate::flight::Flight::default(),
         }
     }
 

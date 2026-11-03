@@ -36,6 +36,7 @@
 import { units } from './units.mjs';
 import { combat } from './combat.mjs';
 import { battle } from './battle.mjs';
+import { flightSpec } from './flight.mjs';
 
 export class Expand {
   constructor(value) { this.value = value; }
@@ -219,10 +220,15 @@ const navPlanner = {
 // the cheapest capture, for the draw order of every phase.
 const ticks = { frames: [] };
 
+// The flight package (flip F2 with the hulls): a craft's tick and its pose
+// at the tick, with what its targeting reads of the registry
+// (tools/sim-capture/flight.mjs).
+const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries });
+
 // The units package (flip F3): a unit's tick, the registry's queries and
 // the soldiers pushed apart (tools/sim-capture/units.mjs).
 // The combat package (flip F3 with units): a soldier's combat, what hurts
 // him and his new lives (tools/sim-capture/combat.mjs).
 // The battle package (flip F4): the posts, the battle's rules, leaving the
 // battlefield and the spawn manager (tools/sim-capture/battle.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, battle };
+export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, battle };
