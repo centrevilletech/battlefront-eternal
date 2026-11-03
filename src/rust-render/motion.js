@@ -83,6 +83,8 @@ class MotionPass {
     this.skeletons = new Map();
     this.drawn = 0;
     this.left = 0;
+    // Why the last frame was left to three (for the measurement tools).
+    this.why = null;
   }
 
   // The motion pass draws for motion-vectors.js from now on.
@@ -99,6 +101,22 @@ class MotionPass {
     if (motionVectors.drawer === this) motionVectors.drawer = null;
   }
 
+  // motion-vectors.js: while three draws the view scene's locked mask
+  // itself (a frame left to three), the parts the view pass hides from
+  // three shown to it (on), then hidden again (off). Its program for the
+  // mask is then made on that frame, so the pass can draw the next.
+  showView(on) {
+    const shown = this.shown ??= [];
+    if (on) {
+      for (const record of this.core.byName.view?.records ?? []) {
+        if (record.material.visible === false) { record.material.visible = true; shown.push(record.material); }
+      }
+    } else {
+      for (const material of shown) material.visible = false;
+      shown.length = 0;
+    }
+  }
+
   // motion-vectors.js (render, after prepare): the frame's motion drawn here
   // when every proxy three would draw and every part of the view's mask is
   // one the renderer has a program for; true when it drew it. frame: the
@@ -106,7 +124,7 @@ class MotionPass {
   // view scene to mark fixed (or null) and its camera, the scene's depth.
   cover(renderer, motion, { target, camera, viewScene, view, depth }) {
     const core = this.core;
-    if (!core.enabled || !core.active || core.lost || this.on === false || !core.supported()) return false;
+    if (!core.enabled || !core.active || core.lost || this.on === false || !core.supported()) return this.decline("off");
     const records = this.records;
     records.length = 0;
     this.skeletons.clear();
@@ -131,13 +149,13 @@ class MotionPass {
       // The source's buffers, which the proxy shares (one registration for
       // every proxy of a model).
       const geometry = source.geometry.index === proxy.geometry.index && program ? core.geometry(source.geometry, program) : null;
-      if (geometry === null || geometry === undefined || records.length >= MAX_RECORDS) { this.left++; return false; }
+      if (geometry === null || geometry === undefined || records.length >= MAX_RECORDS) return this.decline(!threeProgram ? `proxy ${kind ? "skinned" : "rigid"}: no program yet` : !program ? "proxy: program" : geometry === null || geometry === undefined ? "proxy: geometry" : "records");
       const record = { kind: KIND_PROXY, object: proxy, program: program.id, geometry, first: 0, count: proxy.geometry.index.count, side: proxy.material.side, bones: -1 };
       if (proxy.isSkinnedMesh) {
         const skeleton = proxy.skeleton;
         let at = this.skeletons.get(skeleton);
         if (at === undefined) {
-          if (bones + skeleton.bones.length > MAX_BONES) { this.left++; return false; }
+          if (bones + skeleton.bones.length > MAX_BONES) return this.decline("bones");
           at = bones;
           bones += skeleton.bones.length;
           this.skeletons.set(skeleton, at);
@@ -148,10 +166,10 @@ class MotionPass {
     }
     // The view's parts three's override render would list, a part the view
     // pass hides from three among them.
-    if (viewScene && !this.lockedParts(viewScene, view, motion.locked, records)) { this.left++; return false; }
+    if (viewScene && !this.lockedParts(viewScene, view, motion.locked, records)) return this.decline(`mask: ${this.maskWhy}`);
     const targetTexture = core.renderer.properties.get(target.texture).__webglTexture ? core.texture(target.texture) : -1;
     const depthTexture = depth && core.renderer.properties.get(depth).__webglTexture ? core.texture(depth) : -1;
-    if (targetTexture < 0 || depthTexture < 0) { this.left++; return false; }
+    if (targetTexture < 0 || depthTexture < 0) return this.decline(targetTexture < 0 ? "target" : "depth");
     // The sky's ships, three's: into the target three clears.
     let clear = true;
     for (const extra of motion.extras) {
@@ -169,9 +187,15 @@ class MotionPass {
       this.complete = false;
     }
     this.pending = null;
-    if (this.complete) this.drawn++;
-    else this.left++;
+    if (this.complete) { this.drawn++; this.why = null; } else this.decline("phase");
     return this.complete;
+  }
+
+  // A frame left to three, and why.
+  decline(why) {
+    this.left++;
+    this.why = why;
+    return false;
   }
 
   // The view scene walked as three's projectObject walks it (shown, on the
@@ -183,6 +207,7 @@ class MotionPass {
   lockedParts(viewScene, view, locked, records) {
     const core = this.core;
     const threeProgram = core.renderer.properties.get(locked).currentProgram;
+    this.maskWhy = !threeProgram ? "no program yet" : "program";
     if (!threeProgram || skinned(core.gl, threeProgram)) return false;
     const program = core.program(threeProgram, MOTION, locked, POLICY, this.programs);
     if (!program) return false;
@@ -193,17 +218,18 @@ class MotionPass {
     const visit = (object) => {
       if (!object.visible) return true;
       if (object.layers.test(view.layers)) {
-        if (object.isSprite || object.isLine || object.isPoints || object.isSkinnedMesh || object.isInstancedMesh || object.isBatchedMesh) return false;
+        if (object.isSprite || object.isLine || object.isPoints || object.isSkinnedMesh || object.isInstancedMesh || object.isBatchedMesh) { this.maskWhy = object.type; return false; }
         if (object.isMesh && (!object.frustumCulled || frustum.intersectsObject(object))) {
           const material = object.material, groups = Array.isArray(material) ? object.geometry.groups.filter((g) => shown(object, material[g.materialIndex])) : shown(object, material) ? [null] : [];
           if (groups.length) {
+            this.maskWhy = "geometry";
             if (!object.geometry.index) return false;
             const geometry = core.geometry(object.geometry, program);
             if (geometry === null || geometry === undefined) return false;
             for (const group of groups) {
               const range = rangeOf(object.geometry, group);
               if (!range) continue;
-              if (records.length >= MAX_RECORDS) return false;
+              if (records.length >= MAX_RECORDS) { this.maskWhy = "records"; return false; }
               records.push({ kind: KIND_LOCKED, object, program: program.id, geometry, first: range[0], count: range[1], side: locked.side, bones: -1 });
             }
           }

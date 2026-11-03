@@ -296,14 +296,19 @@ export class MotionVectors {
   }
 
   // three's render of the frame's motion (render): the target cleared, the
-  // proxies and the extras, then the view scene in the locked material.
+  // proxies and the extras, then the view scene in the locked material,
+  // every part of it: those the Rust renderer's view pass hides from three
+  // shown to it meanwhile (the drawer's showView), or its override render
+  // would leave them out of the mask.
   draw(renderer, { target, camera, viewScene, view, drawn }) {
     const restore = this.into(renderer, target);
     if (drawn) renderer.render(this.scene, camera);
     if (viewScene) {
+      this.drawer?.showView(true);
       viewScene.overrideMaterial = this.locked;
       renderer.render(viewScene, view);
       viewScene.overrideMaterial = null;
+      this.drawer?.showView(false);
     }
     restore();
   }

@@ -14,7 +14,8 @@ import { GL, fakeProgram as program, standinModule, standinThree } from "./suppo
 function bridge() {
   const { BfeRenderer, memory, calls } = standinModule({ lengths: { motion_input: 106 + 256 * 88, motion_bones: 8192 * 16, motion_previous: 8192 * 16 } });
   const { renderer, graphics, properties } = standinThree(calls);
-  renderer.render = (scene, camera) => calls.push(["render", scene.isScene ? scene.type : scene, camera.type]);
+  // An override render notes whether its scene's first part was shown to three then.
+  renderer.render = (scene, camera) => calls.push(["render", scene.isScene ? scene.type : scene, camera.type, scene.overrideMaterial ? scene.children[0]?.material.visible : null]);
   renderer.clear = () => calls.push(["clear"]);
   renderer.setClearColor = () => {};
   renderer.getClearColor = (c) => c.setRGB(0, 0, 0);
@@ -86,6 +87,7 @@ test("the motion pass: the proxies three would draw, in its order, then the view
     viewScene.add(part, gone);
     viewScene.updateMatrixWorld(true);
     core.byName.view.parts.set(part, { material: part.material });
+    core.byName.view.records.push({ mesh: part, material: part.material });
     const target = { texture: new THREE.Texture(), width: 8, height: 4 }, depth = new THREE.DepthTexture(8, 4);
     const current = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), previous = current.clone();
     // Until three has drawn a proxy of each kind and the mask: three.
@@ -122,11 +124,15 @@ test("the motion pass: the proxies three would draw, in its order, then the view
     assert.deepEqual(calls.find((c) => c[0] === "motion_frame"), ["motion_frame", 4]);
     assert.ok(!calls.some((c) => c[0] === "render" || c[0] === "add_program"), "no program made again");
     motionVectors.release(fresh);
-    // The mask's program not made by three yet: three draws the frame's motion.
+    // The mask's program not made by three yet: three draws the frame's
+    // motion, the part the view pass hides shown to its override render.
     properties.get(motionVectors.locked).currentProgram = undefined;
     calls.length = 0;
     motionVectors.render(renderer, { target, root, camera, viewScene, view, depth, current, previous });
-    assert.ok(calls.some((c) => c[0] === "render") && !calls.some((c) => c[0] === "motion_frame"));
+    assert.ok(!calls.some((c) => c[0] === "motion_frame"));
+    assert.deepEqual(calls.filter((c) => c[0] === "render").map((c) => c[3]), [null, true], "the proxies, then the mask with the hidden part shown");
+    assert.equal(part.material.visible, false, "hidden again after");
+    assert.equal(core.byName.motion.why, "mask: no program yet");
     // Off: three.
     programs(properties, [], motionVectors.locked);
     core.setActive(false);
