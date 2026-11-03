@@ -803,7 +803,10 @@ export class UnitFactory {
     if (!free.includes(unit)) free.push(unit);
   }
 
-  build(className) {
+  // `page`: a body a page draws and predicts its own player with (a tool's
+  // stand-in for one): its combat is the JavaScript's even where the
+  // world's combats are on the simulation's module.
+  build(className, { page = false } = {}) {
     const c = this.context;
     const sideName = this.sideOf(className);
     if (!sideName) throw new Error(`no side has the class ${className}`);
@@ -827,7 +830,7 @@ export class UnitFactory {
     unit.navRadius = Math.fround(0.25 * Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z));
     // A world's combats on the simulation's module (src/combat-sim.js), where
     // it asked for them: the same shape, its state the store's.
-    const combat = (c.combatSim ? c.combatSim.make.bind(c.combatSim) : (options) => new PlayerCombat(options))({
+    const combat = (c.combatSim && !page ? c.combatSim.make.bind(c.combatSim) : (options) => new PlayerCombat(options))({
       soldier, def, actor, animator,
       collision: c.collision,
       camera: null,
