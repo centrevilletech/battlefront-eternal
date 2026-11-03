@@ -24,10 +24,16 @@ export default {
     // An item's explosion, its definition as the class's field holds it
     // (`defTag` and `def` as the rounds' BlastArgs).
     ItemBlastArgs: { defTag: 'u32', def: 'f64', position: 'vec3', owner: 'union:ItemOwner' },
-    // A target of Items.update (its place in the targets given).
-    WatchArgs: { index: 'u32', team: 'f64' },
-    WatchAnswer: { relation: 'f64', center: 'vec3', radius: 'f64', velocity: 'vec3' },
-    IndexArgs: { index: 'u32' },
+    // The targets of Items.update (ItemsWorld.targets), read once an update
+    // and again after anything that can move them (an explosion): where each
+    // stands, its middle, size and velocity (what watch and standing give),
+    // and each one's side toward a team (watch's relation). Reading them
+    // has no effect, so reading them all at once is what reading them one
+    // by one was, as long as nothing moved them in between.
+    TargetState: { position: 'vec3', center: 'vec3', radius: 'f64', velocity: 'vec3' },
+    TargetsAnswer: { targets: 'list:rec:TargetState' },
+    TeamArgs: { team: 'f64' },
+    RelationsAnswer: { relations: 'list:f64' },
     GiveArgs: { index: 'u32', def: 'def:item' },
     PickupArgs: { def: 'def:item', position: 'vec3' },
 
@@ -52,8 +58,8 @@ export default {
     ownerKey: { args: 'OwnerArgs', result: 'KeyAnswer' },
     dropRoll: { args: 'NoArgs', result: 'NumberAnswer' },
     explode: { args: 'ItemBlastArgs', result: null },
-    watch: { args: 'WatchArgs', result: 'WatchAnswer' },
-    standing: { args: 'IndexArgs', result: 'PointAnswer' },
+    itemTargets: { args: 'NoArgs', result: 'TargetsAnswer' },
+    itemRelations: { args: 'TeamArgs', result: 'RelationsAnswer' },
     give: { args: 'GiveArgs', result: 'FlagAnswer' },
     pickup: { args: 'PickupArgs', result: null },
   },

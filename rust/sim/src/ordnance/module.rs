@@ -26,7 +26,7 @@ use super::Cx;
 use crate::abi::{sim, Sim};
 use crate::gen::*;
 use crate::store::calls::{import_out, Calls};
-use crate::store::{word_u32, DefId, KindCode, Nullable, Ref, RefSet, StrId, Strings, Vec3};
+use crate::store::{same_f64, word_u32, DefId, KindCode, Nullable, Ref, RefSet, StrId, Strings, Vec3};
 
 static mut DEFS: Option<Defs> = None;
 
@@ -134,7 +134,7 @@ pub extern "C" fn ord_args_words(which: u32) -> u32 {
 #[no_mangle]
 pub extern "C" fn ord_update(dt: f64) {
     let (store, strings) = parts();
-    let mut world = JsWorld { store, strings };
+    let mut world = JsWorld::new(store, strings);
     // SAFETY: the module's note.
     let mut cx = unsafe { Cx::new(store, strings, defs(), &mut world) };
     cx.update(dt);
@@ -150,7 +150,7 @@ pub extern "C" fn ord_fire() -> *const f64 {
         FireArgs::take(row, heap)
     };
     let (store, strings) = parts();
-    let mut world = JsWorld { store, strings };
+    let mut world = JsWorld::new(store, strings);
     // SAFETY: the module's note.
     let mut cx = unsafe { Cx::new(store, strings, defs(), &mut world) };
     let shot = cx.fire_round(a.def, a.origin, a.direction, a.owner, a.visual, a.ignore_body, a.emitter, a.channel, a.target_id, a.target_generation);
@@ -166,7 +166,7 @@ pub extern "C" fn ord_flight_missile() -> *const f64 {
         FlightMissileArgs::take(row, heap)
     };
     let (store, strings) = parts();
-    let mut world = JsWorld { store, strings };
+    let mut world = JsWorld::new(store, strings);
     // SAFETY: the module's note.
     let mut cx = unsafe { Cx::new(store, strings, defs(), &mut world) };
     let flying = cx.flight_missile(a.round, a.flight_class, a.life, a.speed);
@@ -232,12 +232,35 @@ extern "C" {
 pub struct JsWorld {
     store: *mut Store,
     strings: *mut Strings,
+    /// The items' targets as last read (None: read them again before the
+    /// next use), and their sides toward each team asked about.
+    targets: Option<Vec<TargetState>>,
+    relations: Vec<(f64, Vec<f64>)>,
 }
 
 impl JsWorld {
     /// The world over the store and strings `parts()` gives.
     pub(crate) fn new(store: *mut Store, strings: *mut Strings) -> Self {
-        JsWorld { store, strings }
+        JsWorld { store, strings, targets: None, relations: Vec::new() }
+    }
+
+    /// The items' target `index` as it is now (the batch read once, and
+    /// again after an explosion).
+    fn target(&mut self, index: usize) -> &TargetState {
+        let targets = self.targets.get_or_insert_with(|| import_item_targets(&NoArgs {}).targets);
+        &targets[index]
+    }
+
+    /// Target `index`'s side toward `team` (relation(team)).
+    fn relation(&mut self, index: usize, team: f64) -> f64 {
+        let at = match self.relations.iter().position(|(t, _)| same_f64(*t, team)) {
+            Some(at) => at,
+            None => {
+                self.relations.push((team, import_item_relations(&TeamArgs { team }).relations));
+                self.relations.len() - 1
+            }
+        };
+        self.relations[at].1[index]
     }
 
     fn string(&self, id: StrId) -> String {
@@ -459,15 +482,18 @@ impl World for JsWorld {
         // SAFETY: the module's note.
         let (def_tag, def) = field_words(def, unsafe { &mut *self.strings });
         import_explode(&ItemBlastArgs { def_tag, def, position, owner });
+        // An explosion moves what it reaches: the targets are read again.
+        self.targets = None;
     }
 
     fn watch(&mut self, index: usize, team: f64) -> Watched {
-        let a = import_watch(&WatchArgs { index: index as u32, team });
-        Watched { relation: a.relation, center: a.center, radius: a.radius, velocity: a.velocity }
+        let relation = self.relation(index, team);
+        let t = self.target(index);
+        Watched { relation, center: t.center, radius: t.radius, velocity: t.velocity }
     }
 
     fn standing(&mut self, index: usize) -> Vec3 {
-        import_standing(&IndexArgs { index: index as u32 }).point
+        self.target(index).position
     }
 
     fn give(&mut self, index: usize, def: DefId) -> bool {

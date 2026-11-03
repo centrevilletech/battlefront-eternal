@@ -46,7 +46,8 @@ export class ItemsSim {
     this.castAnswer = { found: false, distance: 0, point: ZERO, normal: ZERO, terrain: false, body: null };
     this.pointAnswer = { found: false, point: ZERO };
     this.modelAnswer = { mesh: false, radius: 0, center: null };
-    this.watchAnswer = { relation: 0, center: ZERO, radius: 0, velocity: ZERO };
+    this.targetsAnswer = { targets: [] };
+    this.relationsAnswer = { relations: [] };
     this.sendPools();
     Object.assign(b.handlers, this.handlers());
   }
@@ -165,16 +166,25 @@ export class ItemsSim {
       ownerKey: (a) => { this.key.key = w().ownerKey(a.owner); return this.key; },
       dropRoll: () => { this.number.value = w().dropRoll(); return this.number; },
       explode: (a) => w().explode(this.rounds.fieldValue(a.defTag, a.def), a.position, a.owner),
-      watch: (a) => {
-        const t = w().watch(a.index, a.team), r = this.watchAnswer;
-        r.relation = t.relation;
-        // Where it is, its size and velocity only for a side the item has.
-        r.center = t.relation === 0 ? ZERO : t.center;
-        r.radius = t.relation === 0 ? 0 : t.radius;
-        r.velocity = t.relation === 0 ? ZERO : t.velocity;
-        return r;
+      // The targets all at once (what watch and standing read of each).
+      itemTargets: () => {
+        const list = w().targets, out = this.targetsAnswer.targets;
+        out.length = list.length;
+        for (let i = 0; i < list.length; i++) {
+          const t = list[i], s = (out[i] ??= { position: null, center: null, radius: 0, velocity: null });
+          s.position = t.position;
+          s.center = t.center ?? ZERO;
+          s.radius = t.radius;
+          s.velocity = t.velocity ?? ZERO;
+        }
+        return this.targetsAnswer;
       },
-      standing: (a) => point(w().standing(a.index)),
+      itemRelations: (a) => {
+        const list = w().targets, out = this.relationsAnswer.relations;
+        out.length = list.length;
+        for (let i = 0; i < list.length; i++) out[i] = list[i].relation(a.team);
+        return this.relationsAnswer;
+      },
       give: (a) => flag(Boolean(w().give(a.index, a.def))),
       pickup: (a) => w().pickup(a.def, a.position),
     };

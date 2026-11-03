@@ -293,110 +293,134 @@ export function exportItemBlastArgs(o, cx) {
   return v;
 }
 
-export class WatchArgsMirror {
+export class TargetStateMirror {
   constructor() {
-    this.index = 0;
-    this.team = NaN;
-  }
-}
-
-export function syncWatchArgs(b, f, at, h, m) {
-  m.index = f[at + 0];
-  m.team = f[at + 1];
-  return m;
-}
-
-export function putWatchArgs(b, o, f, at, heap) {
-  f[at + 0] = o.index;
-  f[at + 1] = o.team;
-}
-
-export function sameWatchArgs(a, b) {
-  if (!Object.is(a.index, b.index)) return ".index";
-  if (!Object.is(a.team, b.team)) return ".team";
-  return null;
-}
-
-export function exportWatchArgs(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.index = o.index;
-  v.team = o.team;
-  return v;
-}
-
-export class WatchAnswerMirror {
-  constructor() {
-    this.relation = NaN;
+    this.position = new THREE.Vector3();
     this.center = new THREE.Vector3();
     this.radius = NaN;
     this.velocity = new THREE.Vector3();
   }
 }
 
-export function syncWatchAnswer(b, f, at, h, m) {
-  m.relation = f[at + 0];
-  (m.center ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
-  m.radius = f[at + 4];
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+export function syncTargetState(b, f, at, h, m) {
+  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  (m.center ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  m.radius = f[at + 6];
+  (m.velocity ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
   return m;
 }
 
-export function putWatchAnswer(b, o, f, at, heap) {
-  f[at + 0] = o.relation;
-  { const $v = o.center; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
-  f[at + 4] = o.radius;
-  { const $v = o.velocity; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
+export function putTargetState(b, o, f, at, heap) {
+  { const $v = o.position; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+  { const $v = o.center; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+  f[at + 6] = o.radius;
+  { const $v = o.velocity; f[at + 7] = $v.x; f[at + 8] = $v.y; f[at + 9] = $v.z; }
 }
 
-export function sameWatchAnswer(a, b) {
-  if (!Object.is(a.relation, b.relation)) return ".relation";
+export function sameTargetState(a, b) {
+  if (!sameVec(a.position, b.position)) return ".position";
   if (!sameVec(a.center, b.center)) return ".center";
   if (!Object.is(a.radius, b.radius)) return ".radius";
   if (!sameVec(a.velocity, b.velocity)) return ".velocity";
   return null;
 }
 
-export function exportWatchAnswer(o, cx) {
+export function exportTargetState(o, cx) {
   let v = cx.seen.get(o);
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.relation = o.relation;
+  v.position = o.position.clone();
   v.center = o.center.clone();
   v.radius = o.radius;
   v.velocity = o.velocity.clone();
   return v;
 }
 
-export class IndexArgsMirror {
+export class TargetsAnswerMirror {
   constructor() {
-    this.index = 0;
+    this.targets = [];
   }
 }
 
-export function syncIndexArgs(b, f, at, h, m) {
-  m.index = f[at + 0];
+export function syncTargetsAnswer(b, f, at, h, m) {
+  { const items = (m.targets ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 10; v = syncTargetState(b, f, at + 0, h, v ?? new TargetStateMirror()); } items[i] = v; } }
   return m;
 }
 
-export function putIndexArgs(b, o, f, at, heap) {
-  f[at + 0] = o.index;
+export function putTargetsAnswer(b, o, f, at, heap) {
+  heap.items(o.targets, f, at + 0, 10, (f, at, v) => { putTargetState(b, v, f, at + 0, heap); });
 }
 
-export function sameIndexArgs(a, b) {
-  if (!Object.is(a.index, b.index)) return ".index";
+export function sameTargetsAnswer(a, b) {
+  if (!sameEach(a.targets, b.targets, (x, y) => sameTargetState(x, y) === null)) return ".targets";
   return null;
 }
 
-export function exportIndexArgs(o, cx) {
+export function exportTargetsAnswer(o, cx) {
   let v = cx.seen.get(o);
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.index = o.index;
+  v.targets = o.targets.map((x) => exportTargetState(x, cx));
+  return v;
+}
+
+export class TeamArgsMirror {
+  constructor() {
+    this.team = NaN;
+  }
+}
+
+export function syncTeamArgs(b, f, at, h, m) {
+  m.team = f[at + 0];
+  return m;
+}
+
+export function putTeamArgs(b, o, f, at, heap) {
+  f[at + 0] = o.team;
+}
+
+export function sameTeamArgs(a, b) {
+  if (!Object.is(a.team, b.team)) return ".team";
+  return null;
+}
+
+export function exportTeamArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.team = o.team;
+  return v;
+}
+
+export class RelationsAnswerMirror {
+  constructor() {
+    this.relations = [];
+  }
+}
+
+export function syncRelationsAnswer(b, f, at, h, m) {
+  { const items = (m.relations ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  return m;
+}
+
+export function putRelationsAnswer(b, o, f, at, heap) {
+  heap.items(o.relations, f, at + 0, 1, (f, at, v) => { f[at + 0] = v; });
+}
+
+export function sameRelationsAnswer(a, b) {
+  if (!sameEach(a.relations, b.relations, (x, y) => Object.is(x, y))) return ".relations";
+  return null;
+}
+
+export function exportRelationsAnswer(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.relations = o.relations.map((x) => x);
   return v;
 }
 
