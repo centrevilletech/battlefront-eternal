@@ -7,6 +7,7 @@ import { standinModule, standinThree, fakeProgram, GL } from "./support/rust-sta
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
 const { lighting } = await import("../src/materials.js");
+globalThis.__pointLights = await import("../src/point-lights.js");
 
 const WORLD = 0, SKINNED = 1, EFFECT = 4;
 // A shadow receiver's active uniforms as three's GLSL for a zero material
@@ -184,3 +185,24 @@ test("a draw's lamps: the sources select() gives, as lamp table indices, in its 
   const none = core.lamps(object);
   assert.deepEqual([...none.indices, none.count], [-1, -1, -1, -1, 0]);
 });
+
+test("the frame block survives the renderer's memory growing while the Enhanced inputs are written", () => withCascades(() => {
+  const { installPointLights } = globalThis.__pointLights;
+  installPointLights();
+  const { core, memory, region, scene, camera, renderer, graphics } = bridge({ shadows: true, lamps: true });
+  graphics.localLights = { sources: [{ position: new THREE.Vector3(1, 2, 3), radius: 6, color: new THREE.Vector3(1, 1, 1) }], select: () => [] };
+  const light = new THREE.PointLight(0xffffff, 1, 10);
+  light.position.set(4, 5, 6);
+  scene.add(light);
+  scene.updateMatrixWorld(true);
+  scene.onBeforeRender(renderer, scene, camera);
+  // Sending the lamp table grows the memory: every view of the old one detaches.
+  let grown = 0;
+  core.rust.set_lamps = () => { const old = new Uint8Array(memory.buffer); memory.buffer = new ArrayBuffer(old.length * 2); new Uint8Array(memory.buffer).set(old); grown++; };
+  core.writeFrame(scene, camera, 0);
+  assert.equal(grown, 1);
+  const input = new Float64Array(memory.buffer, region("input"), 200);
+  assert.equal(input[70], 1, "the point light counted in the memory as it is now");
+  assert.deepEqual([...input.subarray(72, 75)], [4, 5, 6], "and its position written there");
+  assert.deepEqual([...input.subarray(0, 16)], camera.projectionMatrix.elements, "the camera too");
+}));

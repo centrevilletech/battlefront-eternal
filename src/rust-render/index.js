@@ -410,6 +410,11 @@ export class RustRender {
       const far = this.renderer.properties.get(image).__webglTexture;
       if (far !== this.farTexture) { this.farTexture = far; this.rust.set_far_map(this.texture(image)); }
     }
+    // The Enhanced inputs first: they may register the cascades' maps and send
+    // the lamp table, which can grow the renderer's memory (every view is made
+    // again then): the frame block's view is taken after them.
+    if (view !== VIEW_FAR && view !== VIEW_FIRST_PERSON) this.writeShadow();
+    if (view !== VIEW_FAR) this.writeLamps();
     this.views();
     const input = this.input;
     input.set(camera.projectionMatrix.elements, 0);
@@ -422,8 +427,6 @@ export class RustRender {
       if (size === 1) input[at] = v;
       else { input[at] = v.x; input[at + 1] = v.y; if (size === 3) input[at + 2] = v.z; }
     }
-    if (view !== VIEW_FAR && view !== VIEW_FIRST_PERSON) this.writeShadow();
-    if (view !== VIEW_FAR) this.writeLamps();
     const pack = packed(scene, camera);
     const count = Math.min(pack.count, MAX_LIGHTS);
     input[LIGHT_COUNT] = count;
