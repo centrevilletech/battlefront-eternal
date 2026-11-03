@@ -15,14 +15,14 @@ const VERTEX = /* glsl */ `
   attribute vec4 flow;  // initial world velocity, lifetime
   attribute vec4 axis;  // exhaust axis, initial radius
   attribute vec2 style; // random phase, opacity
-  uniform float time;
+  uniform float wakeTime;
   uniform float kind;
   uniform float drag;
   varying vec2 wakeUv;
   varying vec4 wakeState;
   varying float viewDepth;
   void main() {
-    float seconds = max(0.0, time - birth.w);
+    float seconds = max(0.0, wakeTime - birth.w);
     float age = clamp(seconds / flow.w, 0.0, 1.0);
     vec3 direction = normalize(axis.xyz);
     vec3 tangent = cross(direction, abs(direction.y) > 0.9 ? vec3(1,0,0) : vec3(0,1,0));
@@ -114,12 +114,20 @@ const FRAGMENT = /* glsl */ `
   }
 `;
 
+// The pools by their meshes, for a renderer that draws them itself
+// (src/rust-render/effects.js): while a pool is `external`, three is shown
+// it never and uploads it nothing.
+export const jetpackWakes = new WeakMap();
+
+// A pool of one kind of wake particle. Their clock is the wake's own
+// (wakeTime, not the frame's time).
 class WakePool {
   constructor(scene, kind, clock) {
     this.kind = kind;
     this.spec = TYPES[kind];
     this.capacity = this.spec.capacity;
     this.count = 0;
+    this.external = false;
     this.dirty = false;
     this.attributes = {};
     const plane = new THREE.PlaneGeometry(2, 2);
@@ -136,7 +144,7 @@ class WakePool {
     geometry.instanceCount = 0;
     const material = new THREE.ShaderMaterial({
       uniforms: {
-        time: clock, kind: { value: kind }, drag: { value: this.spec.drag },
+        wakeTime: clock, kind: { value: kind }, drag: { value: this.spec.drag },
         fogColor: lighting.fogColor, fogRange: lighting.fogRange,
         sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
         depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
@@ -152,6 +160,7 @@ class WakePool {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = kind === 1 ? 8 : 11;
     this.mesh.onBeforeRender = (...args) => particleDepth.capture(...args);
+    jetpackWakes.set(this.mesh, this);
     scene.add(this.mesh);
   }
 
@@ -191,7 +200,9 @@ class WakePool {
       }
       this.dirty = true;
     }
-    if (this.dirty) {
+    // Drawn by another renderer (external), it is shown to three never and
+    // uploads it nothing (the renderer is given every particle each frame).
+    if (this.dirty && !this.external) {
       for (const attribute of this.attributeList) {
         attribute.clearUpdateRanges();
         if (this.count) {
@@ -202,7 +213,7 @@ class WakePool {
       this.dirty = false;
     }
     this.mesh.geometry.instanceCount = this.count;
-    this.mesh.visible = this.count > 0;
+    this.mesh.visible = this.count > 0 && !this.external;
   }
 
   clear() {

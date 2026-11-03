@@ -245,13 +245,22 @@ if (wanted("reverb")) {
 // --- The stabilizer -------------------------------------------------------
 if (wanted("stabilizer")) {
   const Stab = loadProcessor("stabilizer.js");
-  const js = new Stab({ processorOptions: { channels: 6, left: 0, right: 1, centre: 2 } });
-  const h = x.stabilizer_new(RATE, 6, 0, 1, 2);
-  runPair({
-    label: "stabilizer 6ch", js,
-    rust: { input: () => x.stabilizer_in(h), output: () => x.stabilizer_out(h), process: (i, o) => x.stabilizer_process(h, i, o) },
-    inputs: signal("noise", 6, 120), inChannels: 6, outChannels: 6,
-  });
+  // 5.1 and 7.1 (the front pair's filters run side by side), fewer
+  // inputs than channels, no centre, a layout whose centre is its left
+  // (one channel after the other, as the worklet), and signals down to
+  // subnormals.
+  for (const [label, channels, centre, kind, inChannels = channels] of [
+    ["6ch", 6, 2, "noise"], ["8ch", 8, 2, "noise"], ["6ch, 4 inputs", 6, 2, "noise", 4], ["4ch, no centre", 4, 5, "noise"],
+    ["6ch, centre on left", 6, 0, "noise"], ["6ch tiny", 6, 2, "tiny"], ["6ch impulse", 6, 2, "impulse"],
+  ]) {
+    const js = new Stab({ processorOptions: { channels, left: 0, right: 1, centre } });
+    const h = x.stabilizer_new(RATE, channels, 0, 1, centre);
+    runPair({
+      label: `stabilizer ${label}`, js,
+      rust: { input: () => x.stabilizer_in(h), output: () => x.stabilizer_out(h), process: (i, o) => x.stabilizer_process(h, i, o) },
+      inputs: signal(kind, inChannels, 120), inChannels, outChannels: channels,
+    });
+  }
 }
 
 // --- The limiter ----------------------------------------------------------
@@ -311,14 +320,20 @@ if (wanted("limiter")) {
 // --- The clarity stage ----------------------------------------------------
 if (wanted("clarity")) {
   const Clarity = loadProcessor("clarity.js");
-  for (const [label, channels, kind] of [["2ch noise", 2, "noise"], ["6ch square", 6, "square"], ["2ch sine", 2, "sine"]]) {
-    const skip = channels > 2 ? 3 : -1;
+  // Channels run their filters two at a time, an odd one alone: odd and
+  // even counts, the LFE skipped, fewer inputs than channels, and signals
+  // that take the filters' state down to subnormals and zeros.
+  for (const [label, channels, kind, skip = channels > 2 ? 3 : -1, inChannels = channels, blocks = 200] of [
+    ["2ch noise", 2, "noise"], ["6ch square", 6, "square"], ["2ch sine", 2, "sine"],
+    ["3ch noise", 3, "noise", -1], ["12ch noise", 12, "noise"], ["6ch, 3 inputs", 6, "noise", 3, 3],
+    ["2ch tiny", 2, "tiny"], ["2ch impulse", 2, "impulse", -1, 2, 400], ["2ch nan", 2, "nan"],
+  ]) {
     const js = new Clarity({ processorOptions: { channels, skip } });
     const h = x.clarity_new(RATE, channels, skip);
     runPair({
       label: `clarity ${label}`, js,
       rust: { input: () => x.clarity_in(h), output: () => x.clarity_out(h), process: (i, o) => x.clarity_process(h, i, o) },
-      inputs: signal(kind, channels, 200), inChannels: channels, outChannels: channels,
+      inputs: signal(kind, inChannels, blocks), inChannels, outChannels: channels,
     });
   }
 }
