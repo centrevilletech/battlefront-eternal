@@ -229,11 +229,17 @@ export class Ordnance {
 
   // `visual` (optional) is where the bolt is drawn from: the muzzle.
   // A mounted weapon can exclude its own live collision body from its shot.
+  // `guidance` (optional): the shot (src/weapons.js), whose weapon's
+  // channel a round answers and whose target a missile seeks.
   fire(def, origin, direction, owner, visual = null, ignoreBody = null, emitter = null, guidance = null) {
-    const channel=guidance?.weapon?.channel??0;
+    return this.fireRound(def, origin, direction, owner, visual, ignoreBody, emitter, guidance?.weapon?.channel ?? 0, guidance?.targetId, guidance?.targetGeneration);
+  }
+
+  // fire() with the shot's numbers taken out of it.
+  fireRound(def, origin, direction, owner, visual, ignoreBody, emitter, channel, targetId, targetGeneration) {
     if (def.base === "beam") this.beam(def, origin, direction, owner, ignoreBody, emitter, channel);
     else if (def.base === "sticky" || def.base === "grenade") this.throw(def, origin, direction, owner, channel);
-    else if (def.base === "bullet" || def.base === "missile" || def.base === "shell") return this.round(def, origin, direction, owner, ignoreBody, guidance);
+    else if (def.base === "bullet" || def.base === "missile" || def.base === "shell") return this.round(def, origin, direction, owner, ignoreBody, channel, targetId, targetGeneration);
     else if (def.base === "fatray") return this.fatray(def, origin, direction, owner, ignoreBody, channel);
     else return this.bolt(def, origin, direction, owner, visual, ignoreBody, channel);
   }
@@ -352,7 +358,7 @@ export class Ordnance {
   }
 
   // A rocket, missile, or shell: a model flown nose first.
-  round(def, origin, direction, owner, ignoreBody = null, guidance = null) {
+  round(def, origin, direction, owner, ignoreBody = null, channel = 0, targetId = undefined, targetGeneration = undefined) {
     const kind = def.base;
     const bullet = kind === "bullet";
     const speed = def.Velocity ?? (bullet ? 150 : 35);
@@ -370,7 +376,7 @@ export class Ordnance {
     const velocity = dir.clone().multiplyScalar(speed);
     const round = {
       kind,
-      networkFireChannel:guidance?.weapon?.channel??0,
+      networkFireChannel:channel,
       ignoreBody,
       def,
       owner,
@@ -386,8 +392,8 @@ export class Ordnance {
       // Missiles ease into their turning and waver over ScaleTime.
       ramp: 0,
       desired: dir.clone(),
-      targetId: guidance?.targetId ?? -1,
-      targetGeneration: guidance?.targetGeneration ?? -1,
+      targetId: targetId ?? -1,
+      targetGeneration: targetGeneration ?? -1,
       phase: [this.world.waver() * 2 * Math.PI, this.world.waver() * 2 * Math.PI],
       light: color01(def.LightColor),
       quaternion: new THREE.Quaternion(),
