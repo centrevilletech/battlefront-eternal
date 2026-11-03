@@ -192,6 +192,16 @@ pub mod oracle {
         (result, oracle)
     }
 
+    /// Runs `f` with no oracle installed (what it computes is not in the
+    /// recording, as the content a battle loads is not), then puts the
+    /// oracle back.
+    pub fn without<T>(f: impl FnOnce() -> T) -> T {
+        let held = ORACLE.with(|o| o.borrow_mut().take());
+        let result = f();
+        ORACLE.with(|o| *o.borrow_mut() = held);
+        result
+    }
+
     /// A call checked against the installed oracle, if there is one.
     pub(super) fn check(f: MathFn, a: f64, b: f64, value: f64) {
         ORACLE.with(|o| {
