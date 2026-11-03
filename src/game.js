@@ -122,12 +122,12 @@ async function attachSimStore(instance, ordnance, items) {
 // phase and synced after it, the imports it asks the battle).
 // map: the death regions' data and the kill height; pack: the vehicle pack
 // the hulls' rigs are made from (VehiclesSim).
-async function attachHullPhase(instance, vehicles, map, pack) {
+async function attachHullPhase(instance, vehicles, map, pack, unitClass) {
   const [{ bridgeFor }, { attachVehiclesSim }] = await Promise.all([import("./sim/runtime.js"), import("./vehicles-sim.js")]);
   // The instance's one bridge, joined if the rounds made it (bridgeFor).
   const bridge = bridgeFor(instance, { classes: { Unit, Vehicle } });
   bridge.reserve(4 << 20);
-  return attachVehiclesSim(vehicles, bridge, map, pack);
+  return attachVehiclesSim(vehicles, bridge, map, pack, unitClass);
 }
 
 export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, rays: raysDefault = null, movement: movementDefault = null } = {}) {
@@ -1325,7 +1325,7 @@ async function start() {
     vehicles.random = gameplayRandom;
     vehicles.seatRandom = seatRandom;
     if (wantHulls && simInstance) await attachHullPhase(simInstance, vehicles, { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
-      { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) });
+      { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) }, Unit);
     // A world's barrels kick back on the tick clock (a page's on its own):
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;
@@ -2098,7 +2098,7 @@ async function start() {
     }
     commandHistory.put(command);
     if (!worldControls.accept(command)) throw new Error("stale world command");
-    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key,value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value>0) FLIGHT_CLASSES[name][key]=value;
+    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key,value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value>0) { FLIGHT_CLASSES[name][key]=value; vehicles?.sim?.retune(name, key, value); }
     const fs = command.flightSettings || {};
     if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
     const yawBeforeLook = soldier.aimYaw;

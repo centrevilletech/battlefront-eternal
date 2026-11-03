@@ -2073,12 +2073,15 @@ export class Vehicles {
     // start, so the order is the same as here.
     const ground = this.sim && !driven;
     if (!ground) for (const v of this.vehicles) if (v.alive && !v.flying) v.captureTick();
-    this.flightAcc = (this.flightAcc || 0) + dt;
-    this.flightEdges ||= {};
-    for (const key of ['takeoff','trick','immelmann','targetLock']) this.flightEdges[key] ||= Boolean(input[key]);
-    while (this.flightAcc + 1e-9 >= 1/60) {
-      for (const v of this.vehicles) if (v.alive && v.flying) { v.captureTick(); v.tick(1/60, v.crewed(0) ? v.seats[0].lease.input : v === driven ? { ...input, ...this.flightEdges } : idle); }
-      this.flightEdges = {}; this.flightAcc -= 1/60;
+    // (On the module the crafts' flight runs in the phase, first.)
+    if (!ground || !this.sim.flight) {
+      this.flightAcc = (this.flightAcc || 0) + dt;
+      this.flightEdges ||= {};
+      for (const key of ['takeoff','trick','immelmann','targetLock']) this.flightEdges[key] ||= Boolean(input[key]);
+      while (this.flightAcc + 1e-9 >= 1/60) {
+        for (const v of this.vehicles) if (v.alive && v.flying) { v.captureTick(); v.tick(1/60, v.crewed(0) ? v.seats[0].lease.input : v === driven ? { ...input, ...this.flightEdges } : idle); }
+        this.flightEdges = {}; this.flightAcc -= 1/60;
+      }
     }
     if (ground) this.acc = this.sim.ground(dt, this.acc);
     else {

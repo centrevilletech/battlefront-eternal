@@ -2841,6 +2841,40 @@ impl VehEffect {
     }
 }
 
+impl VehMembers {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(VehMembers {
+            indices: { let p = format!("{path}.indices"); { let mut out = Vec::new(); for (i, e) in list(v.get("indices"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = { let mut items = Vec::new(); for e in self.indices.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("indices", x)); }
+        a.object("", fields)
+    }
+}
+
+impl VehPoints {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(VehPoints {
+            points: { let p = format!("{path}.points"); { let mut out = Vec::new(); for (i, e) in list(v.get("points"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(vec3(e, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = { let mut items = Vec::new(); for e in self.points.iter() { let x = a.vec3((*e)); items.push(x); } a.array(items) }; fields.push(("points", x)); }
+        a.object("", fields)
+    }
+}
+
 impl WaterRule {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
