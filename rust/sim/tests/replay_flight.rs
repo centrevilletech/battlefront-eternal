@@ -531,8 +531,49 @@ fn load<'c>(content: &'c mut Contents, label: &str, header: V) -> &'c bfe_conten
     &content.as_ref().unwrap().1
 }
 
+/// What a replayed tick exercised beyond its path (the corpus's coverage).
+fn features(frame: &sim_replay::Frame, network: bool) -> Vec<String> {
+    let (b, a) = (frame.before().get("hull"), frame.after().get("hull"));
+    let mut out = Vec::new();
+    let text = |v: V, key: &str| v.get(key).str().unwrap_or("").to_string();
+    let (from, to) = (text(b, "flightState"), text(a, "flightState"));
+    if from != to {
+        out.push(format!("state {from} -> {to}"));
+    }
+    if !text(a, "trick").is_empty() || !text(b, "trick").is_empty() {
+        out.push(format!("trick {}", if text(b, "trick").is_empty() { text(a, "trick") } else { text(b, "trick") }));
+    }
+    for key in ["boosting", "terrainWarning", "boostExhausted", "rollLock"] {
+        if a.get(key).truthy() {
+            out.push(key.to_string());
+        }
+    }
+    let warning = text(a, "flightWarning");
+    if !warning.is_empty() {
+        out.push(format!("warning {warning}"));
+    }
+    let lock = text(a, "flightLockState");
+    if !lock.is_empty() {
+        out.push(format!("lock {lock}"));
+    }
+    if a.get("flightAssistId").num() >= 0.0 {
+        out.push("assist target".into());
+    }
+    for c in frame.calls() {
+        if ["world.damaged", "world.destroyed", "world.explosion", "vehicles.inDeathRegion", "water.over"].contains(&c.name.as_str()) {
+            out.push(format!("call {}", c.name));
+        }
+    }
+    if network {
+        out.push("network pilot".into());
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Replays one flyer.tick frame; the path it took and its outcome.
-fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<String, HullClass>, frame: &sim_replay::Frame) -> (&'static str, Outcome) {
+fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<String, HullClass>, frame: &sim_replay::Frame, seen: &mut BTreeMap<String, (usize, usize)>) -> (&'static str, Outcome) {
     let before = frame.before();
     if before.get("skipped").truthy() {
         return ("ground hull", Outcome::Skipped("a ground hull's tick (the hulls package's)".into()));
@@ -580,10 +621,22 @@ fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<St
     let pilot = before.get("pilot");
     let network = if !idle && pilot.get("networkHuman").bool() && pilot.get("flight").node().is_some() { Some(flight_input(pilot.get("flight"))) } else { None };
     hull.flyer_tick(&mut served, dt, &input, network.as_ref());
+    let exercised = if idle { Vec::new() } else { features(frame, network.is_some()) };
+    let tally = |seen: &mut BTreeMap<String, (usize, usize)>, same: bool| {
+        for f in &exercised {
+            let t = seen.entry(f.clone()).or_default();
+            t.0 += 1;
+            if same {
+                t.1 += 1;
+            }
+        }
+    };
     if let Some(e) = served.error {
+        tally(seen, false);
         return (path, Outcome::Failed(e));
     }
     if let Err(e) = served.log.finish() {
+        tally(seen, false);
         return (path, Outcome::Failed(e.0));
     }
     {
@@ -595,13 +648,16 @@ fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<St
     let mine = Vehicle::value_out(r, &mut cx, &mut arena);
     let after = frame.after();
     if let Some(d) = diff(after.get("hull"), arena.view(&mine)) {
+        tally(seen, false);
         return (path, Outcome::Failed(format!("{}: hull {d} (capture | port)", frame.place())));
     }
     if !idle {
         if let Err(e) = check_locks(after.get("locks"), before.get("locks"), hull.flight.lock) {
+            tally(seen, false);
             return (path, Outcome::Failed(format!("{}: {e}", frame.place())));
         }
     }
+    tally(seen, true);
     (path, Outcome::Same)
 }
 
@@ -613,6 +669,7 @@ fn flyers_tick_as_captured() {
         return;
     }
     let mut paths: BTreeMap<&'static str, (usize, usize)> = Default::default();
+    let mut seen: BTreeMap<String, (usize, usize)> = Default::default();
     let mut content: Contents = None;
     let mut classes: HashMap<String, HullClass> = Default::default();
     let mut label_seen = String::new();
@@ -623,7 +680,7 @@ fn flyers_tick_as_captured() {
             label_seen = label.clone();
         }
         let c = load(&mut content, &label, capture.header.root());
-        let (path, outcome) = replay_tick(c, &mut classes, frame);
+        let (path, outcome) = replay_tick(c, &mut classes, frame, &mut seen);
         let tally = paths.entry(path).or_default();
         tally.0 += 1;
         if matches!(outcome, Outcome::Same) {
@@ -635,6 +692,10 @@ fn flyers_tick_as_captured() {
     eprintln!("{}", report.summary());
     for (path, (frames, same)) in &paths {
         eprintln!("  {path}: {frames} frames, {same} the same");
+    }
+    eprintln!("  exercised:");
+    for (what, (frames, same)) in &seen {
+        eprintln!("    {what}: {frames} frames, {same} the same");
     }
     report.assert_clean();
 }
