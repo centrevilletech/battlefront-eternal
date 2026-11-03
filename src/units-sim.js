@@ -15,8 +15,8 @@
 // the phase is given what it reads of it (UnitsCombatView).
 //
 // What the Rust asks of the battle comes back as the module's imports
-// (rust/sim/schema/units.mjs): the AI's aimer, a droideka's body (its clips
-// and gun rig are the battle's JavaScript's for now), a network player's
+// (rust/sim/schema/units.mjs): the AI's aimer, a droideka's muzzle rig
+// (posed in JavaScript for now) and death hooks, a network player's
 // recon droid, a JavaScript combat, a unit taken off the field. Inside the
 // phase the battle's JavaScript sees the units as the phase has left them:
 // an import that reads the battle has the units the phase changed synced
@@ -31,9 +31,12 @@ import { KIND_BODY, KIND_UNIT, UNIT_EXPORT_STRIDE, putUnitsCombatViews, putUnits
 import { giveMapRules } from "./vehicles-sim.js";
 import { droidekaWaterDepth, waterDamageRule } from "./vehicle-water.js";
 import { unitWatch } from "./units.js";
+import { AnimKernel } from "./anim-kernel.js";
 
 // A block's header words (rust/sim/src/store/block.rs).
 const HEADER = 5;
+const DROIDEKA_CLIPS = ["idle", "turnl", "turnr", "death01", null, "idle_to_leftfoot", null,
+  "walk_leftfoot_rightfoot", "walk_rightfoot_leftfoot", "leftfoot_to_idle", "rightfoot_to_idle", "fold", "roll", "unfold"];
 
 // The units' phase on the battle's instance of the module, through its one
 // bridge (bridgeFor). `game`: the battle's factory, combats on the module
@@ -72,11 +75,9 @@ export class UnitsSim {
     // The units the phase ticks (every built one on the field: one taken
     // off it does nothing in the loop, and is neither written nor synced).
     this.live = [];
-    // A droideka's body ticking in JavaScript (unitBodyTick), and whether
-    // its blow-apart ran the battle's code meanwhile.
-    this.body = null;
-    this.bodyHooked = false;
-    this.wrapped = new WeakSet();
+    this.anim = new AnimKernel(this.x);
+    this.droidekaClasses = new WeakMap();
+    this.droidekaBodies = new WeakSet();
     this.one = [];
     this.x.units_setup(combatSim ? 1 : 0, collision.rayWorld);
     giveMapRules(bridge, water, map);
@@ -110,7 +111,7 @@ export class UnitsSim {
         info.droidekaWater = null;
         if (u.walker) {
           info.droidekaWater = this.droidekaWater(u.soldier.def);
-          this.watch(u.soldier);
+          this.droideka(u);
         }
         units[i] = info;
       }
@@ -123,21 +124,30 @@ export class UnitsSim {
     }
   }
 
-  // A droideka's blow-apart (onExploded: the battle's blast) while its body
-  // ticks in JavaScript: the battle's code runs there, so the other units
-  // as the phase has left them first, and every unit back into the store
-  // after the tick (unitBodyTick).
-  watch(body) {
-    if (this.wrapped.has(body)) return;
-    this.wrapped.add(body);
-    const exploded = body.onExploded;
-    body.onExploded = (...args) => {
-      if (this.body === body && !this.bodyHooked) {
-        this.syncDirty(1);
-        this.bodyHooked = true;
+  // The class and clips the native body tick reads, once per class, and
+  // collision caches retained for each pooled body across its lives.
+  droideka(unit) {
+    const body = unit.soldier;
+    if (this.droidekaBodies.has(body)) return;
+    let id = this.droidekaClasses.get(body.def);
+    if (id === undefined) {
+      const words = [];
+      for (const key of ["MaxPitchSpeed", "BallTurnSpeed", "BallMaxLean", "BallAcceleration", "BallRollingFriction"]) {
+        const value = body.def[key];
+        words.push(value == null ? 0 : 1, value ?? 0);
       }
-      return exploded.apply(body, args);
-    };
+      for (const name of DROIDEKA_CLIPS) {
+        const clip = name === null ? null : body.clips.get(name);
+        words.push(clip ? this.anim.clip(clip) : -1);
+      }
+      const ptr = this.x.sim_call_room(words.length, 0);
+      this.bridge.views();
+      this.bridge.f.set(words, ptr / 8 + HEADER);
+      id = this.x.units_droideka_class();
+      this.droidekaClasses.set(body.def, id);
+    }
+    this.x.units_droideka_attach(unit.id, id);
+    this.droidekaBodies.add(body);
   }
 
   // A droideka class's water rule (game.js droidekaWater: waterDamageRule
@@ -292,20 +302,9 @@ export class UnitsSim {
         this.aim.aim = u.intent.aim;
         return this.aim;
       },
-      unitBodyTick: (a) => {
-        // A droideka's body reads and moves only itself (its clips, the
-        // collision world), unless it blows apart (watch): his rows out
-        // and back in, or every unit's after a blast.
-        const u = unit(a.unit), dt = a.dt, one = this.one;
-        this.syncDirty(2);
-        this.body = u.soldier;
-        this.bodyHooked = false;
-        try {
-          u.soldier.tick(u.input, dt);
-        } finally {
-          this.body = null;
-          if (this.bodyHooked) { this.writeAll(); this.bodiesIn(); } else { one[0] = u; this.bridge.writeSome(KIND_UNIT, one); }
-        }
+      unitBodyEvent: (a) => {
+        const u = unit(a.unit), exploded = a.exploded;
+        this.hook(() => exploded ? u.soldier.onExploded() : u.soldier.onDeathBlast());
       },
       unitSampleMuzzles: (a) => {
         // Its hidden gun rig posed from its body: his rows alone.

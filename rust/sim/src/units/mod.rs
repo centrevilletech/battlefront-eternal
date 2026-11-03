@@ -39,6 +39,8 @@ pub mod droideka;
 pub mod factory;
 #[cfg(target_arch = "wasm32")]
 pub mod module;
+#[cfg(target_arch = "wasm32")]
+mod native;
 pub mod registry;
 pub mod separate;
 pub mod shapes;

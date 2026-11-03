@@ -1326,6 +1326,40 @@ export function exportUnitStep(o, cx) {
   return v;
 }
 
+export class UnitBodyEventMirror {
+  constructor() {
+    this.unit = NaN;
+    this.exploded = false;
+  }
+}
+
+export function syncUnitBodyEvent(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.exploded = f[at + 1] !== 0;
+  return m;
+}
+
+export function putUnitBodyEvent(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.exploded ? 1 : 0;
+}
+
+export function sameUnitBodyEvent(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.exploded, b.exploded)) return ".exploded";
+  return null;
+}
+
+export function exportUnitBodyEvent(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.exploded = o.exploded;
+  return v;
+}
+
 export class UnitAimArgsMirror {
   constructor() {
     this.unit = NaN;

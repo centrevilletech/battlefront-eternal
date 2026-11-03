@@ -118,6 +118,7 @@ export default {
     // The calls the phase makes into the battle (rust/sim/src/units/module.rs).
     UnitRef: { unit: 'f64' },
     UnitStep: { unit: 'f64', dt: 'f64' },
+    UnitBodyEvent: { unit: 'f64', exploded: 'bool' },
     // The AI's aimer (unit.onMoved: ai.aim) with his body's aim after it
     // moved; it answers with his intent's aim (the aimer's direction).
     UnitAimArgs: { unit: 'f64', dt: 'f64', aimYaw: 'f64', aimPitch: 'f64' },
@@ -152,9 +153,9 @@ export default {
   imports: {
     // The AI's aimer between moving and firing.
     unitAim: { args: 'UnitAimArgs', result: 'UnitAimAnswer' },
-    // A droideka's body tick (Droideka.tick) and its gun rig's posing
-    // (sampleMuzzles), JavaScript's until its clips and rig are the module's.
-    unitBodyTick: { args: 'UnitStep', result: null },
+    // A droideka's death clip emits its blasts and final explosion at the
+    // same points in its native body tick. Its gun rig still poses in JS.
+    unitBodyEvent: { args: 'UnitBodyEvent', result: null },
     unitSampleMuzzles: { args: 'UnitStep', result: null },
     unitRemoteStep: { args: 'UnitRemoteStep', result: null },
     // A combat that is JavaScript's: its update with its muzzles flushed,

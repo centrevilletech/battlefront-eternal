@@ -15,7 +15,7 @@
 //!   the arc caster's targets) first has the units the phase changed since
 //!   the last such import synced into their objects (`units_sync`);
 //! - an import that runs the battle's code (a hook: a death, a round fired,
-//!   a droideka's body) does that, and has every unit written back into the
+//!   a droideka's blast) does that, and has every unit written back into the
 //!   store after (the code may have changed any of them).
 //!
 //! The unit being ticked is out of the store meanwhile (combat's module's
@@ -37,6 +37,8 @@
 //! the collision world (rust/sim/src/vehicles/native.rs: the same instances
 //! the hull phase uses, which src/units-sim.js sets up when it does not).
 
+use super::droideka;
+use super::native::{self, DroidekaBody, DroidekaClass};
 use super::soldier::tick_soldier;
 use super::shapes::{Bounds, HitShape};
 use super::water::{soldier_step_at, WaterEffects};
@@ -66,6 +68,8 @@ struct Phase {
     marked: Vec<bool>,
     /// What `units_sync` hands JavaScript.
     block: Block,
+    droideka_classes: Vec<DroidekaClass>,
+    droidekas: Vec<Option<DroidekaBody>>,
 }
 
 static mut PHASE: Option<Phase> = None;
@@ -81,6 +85,8 @@ fn phase() -> &'static mut Phase {
             dirty: Vec::new(),
             marked: Vec::new(),
             block: Block::default(),
+            droideka_classes: Vec::new(),
+            droidekas: Vec::new(),
         })
     }
 }
@@ -123,6 +129,28 @@ pub extern "C" fn units_setup(combat: u32, world: u32) {
     let p = phase();
     p.combat = combat != 0;
     p.world = world as usize;
+}
+
+/// A droideka class's movement numbers and clip ids, written once in the
+/// call block (native.rs). Returns its number for units_droideka_attach.
+#[no_mangle]
+pub extern "C" fn units_droideka_class() -> u32 {
+    let (row, _) = sim().calls.args();
+    let class = DroidekaClass::read(row);
+    let classes = &mut phase().droideka_classes;
+    classes.push(class);
+    (classes.len() - 1) as u32
+}
+
+/// The class and persistent collision caches for one pooled body.
+#[no_mangle]
+pub extern "C" fn units_droideka_attach(unit: u32, class: u32) {
+    let p = phase();
+    let body = DroidekaBody::new(&p.droideka_classes[class as usize]);
+    if p.droidekas.len() <= unit as usize {
+        p.droidekas.resize_with(unit as usize + 1, || None);
+    }
+    p.droidekas[unit as usize] = Some(body);
 }
 
 /// The unit being ticked, or -1 between units (src/units-sim.js tells a
@@ -174,7 +202,7 @@ pub extern "C" fn units_combat_views() {
 /// unit the phase changed since the last such call (the one being ticked
 /// among them, unless he is out of the store mid-combat: he is left for
 /// the next); 1 the same but the one being ticked (whose objects the
-/// battle's JavaScript is changing now: a droideka's body); 2 only the one
+/// battle's JavaScript is changing now); 2 only the one
 /// being ticked (the others stay marked).
 #[no_mangle]
 pub extern "C" fn units_sync(which: u32) -> *const f64 {
@@ -236,9 +264,13 @@ pub extern "C" fn units_phase() {
         let (mut unit, c) = cm::take(unit_ref(id));
         unit.combat = c;
         let edges = Edges { shots: info.edges.as_ref().map(|list| list.iter().map(cm::edge).collect()), shot: info.edge.as_ref().map(cm::edge) };
-        let mut w = ModuleWorld { combat, world, remote: info.remote, edges };
+        let droideka = phase().droidekas.get_mut(id as usize).and_then(Option::take);
+        let mut w = ModuleWorld { combat, world, remote: info.remote, edges, droideka };
         unit.tick(id, dt, &mut w, None);
         after_tick(id, &mut unit, info, args.level, dt, &mut w);
+        if let Some(body) = w.droideka.take() {
+            phase().droidekas[id as usize] = Some(body);
+        }
         let c = std::mem::take(&mut unit.combat);
         cm::put(unit_ref(id), unit, c);
         phase().current = None;
@@ -332,6 +364,7 @@ struct ModuleWorld {
     remote: bool,
     /// His trigger edges (a network player's).
     edges: Edges,
+    droideka: Option<DroidekaBody>,
 }
 
 impl ModuleWorld {
@@ -353,12 +386,12 @@ impl ModuleWorld {
 }
 
 impl UnitsWorld for ModuleWorld {
-    fn cast(&mut self, _origin: &Vector3, _direction: &Vector3, _far: f64) -> Option<CastHit> {
-        unreachable!("a droideka's body ticks in JavaScript (unitBodyTick)")
+    fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit> {
+        native::cast(self.world, origin, direction, far)
     }
 
-    fn gather(&mut self, _id: u32, _center: &Vector3, _radius: f64, _cache: usize, _out: &mut Vec<GatherPolygon>) {
-        unreachable!("a droideka's body ticks in JavaScript (unitBodyTick)")
+    fn gather(&mut self, _id: u32, center: &Vector3, radius: f64, cache: usize, out: &mut Vec<GatherPolygon>) {
+        self.droideka.as_mut().expect("the droideka's collision caches").gather(self.world, center, radius, cache, out);
     }
 
     fn seat_exposed(&mut self, _id: u32, _unit: &Unit) -> bool {
@@ -396,9 +429,10 @@ impl UnitsWorld for ModuleWorld {
                 };
                 tick_soldier(s, &unit.input, h, self.world, pass_through);
             }
-            // A droideka's body is the battle's JavaScript's for now (its
-            // clips and gun rig): its tick may set off its death's blasts.
-            UnitBody::Droideka(_) => out_and_back(id, unit, || import_unit_body_tick(&UnitStep { unit: id as f64, dt: h })),
+            UnitBody::Droideka(_) => {
+                let mut parts = self.droideka.as_ref().expect("the droideka's class and clips").parts();
+                droideka::tick(id, unit, h, self, &mut parts);
+            }
         }
     }
 
@@ -467,12 +501,13 @@ impl UnitsWorld for ModuleWorld {
         // (In unitRemoved, as Unit.undraw calls it.)
     }
 
-    fn death_blast(&mut self, _id: u32, _unit: &mut Unit) {
-        unreachable!("a droideka's body ticks in JavaScript (unitBodyTick)")
+    fn death_blast(&mut self, id: u32, unit: &mut Unit) {
+        out_and_back(id, unit, || import_unit_body_event(&UnitBodyEvent { unit: id as f64, exploded: false }));
     }
 
-    fn blow_apart(&mut self, _id: u32, _unit: &mut Unit, _health: f64) {
-        unreachable!("a droideka's body ticks in JavaScript (unitBodyTick)")
+    fn blow_apart(&mut self, id: u32, unit: &mut Unit, _health: f64) {
+        // Droideka.enter's onExploded calls combat.onBlowApart(0).
+        out_and_back(id, unit, || import_unit_body_event(&UnitBodyEvent { unit: id as f64, exploded: true }));
     }
 
     fn let_go_of_character(&mut self, _id: u32, _unit: &mut Unit) {

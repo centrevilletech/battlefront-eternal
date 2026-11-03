@@ -671,7 +671,7 @@ pub const IMPORT_SHOOTER: u32 = 64;
 pub const IMPORT_SHOT_TICK: u32 = 65;
 pub const IMPORT_SPIN: u32 = 66;
 pub const IMPORT_UNIT_AIM: u32 = 67;
-pub const IMPORT_UNIT_BODY_TICK: u32 = 68;
+pub const IMPORT_UNIT_BODY_EVENT: u32 = 68;
 pub const IMPORT_UNIT_COMBAT: u32 = 69;
 pub const IMPORT_UNIT_DAMAGE: u32 = 70;
 pub const IMPORT_UNIT_REMOTE_STEP: u32 = 71;
@@ -703,7 +703,7 @@ pub const IMPORT_VEH_WATER_LEVEL: u32 = 96;
 pub const IMPORT_VEH_WATER_OVER: u32 = 97;
 pub const IMPORT_WATER_CROSSING: u32 = 98;
 pub const IMPORT_WAVER: u32 = 99;
-pub const IMPORT_NAMES: [&str; 100] = ["", "ask", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "pickup", "projectile", "raycastUnits", "riderMount", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spin", "unitAim", "unitBodyTick", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver"];
+pub const IMPORT_NAMES: [&str; 100] = ["", "ask", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "pickup", "projectile", "raycastUnits", "riderMount", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spin", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -843,7 +843,7 @@ extern "C" {
     fn bfe_import_shot_tick();
     fn bfe_import_spin();
     fn bfe_import_unit_aim();
-    fn bfe_import_unit_body_tick();
+    fn bfe_import_unit_body_event();
     fn bfe_import_unit_combat();
     fn bfe_import_unit_damage();
     fn bfe_import_unit_remote_step();
@@ -1523,13 +1523,13 @@ pub fn import_unit_aim(args: &UnitAimArgs) -> UnitAimAnswer {
     crate::store::calls::import_in(|row, heap| UnitAimAnswer::take(row, heap))
 }
 
-/// Asks JavaScript (the import unitBodyTick): its arguments go out in the import block,
+/// Asks JavaScript (the import unitBodyEvent): its arguments go out in the import block,
 /// its result comes back there (store::calls). The module only (a native build serves
 /// its boundary from elsewhere: the replay harness, or Rust).
 #[cfg(target_arch = "wasm32")]
-pub fn import_unit_body_tick(args: &UnitStep) -> () {
-    crate::store::calls::import_out(UnitStep::WORDS, |row, heap| args.put(row, heap));
-    unsafe { bfe_import_unit_body_tick() };
+pub fn import_unit_body_event(args: &UnitBodyEvent) -> () {
+    crate::store::calls::import_out(UnitBodyEvent::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_unit_body_event() };
 }
 
 /// Asks JavaScript (the import unitCombat): its arguments go out in the import block,

@@ -3644,6 +3644,25 @@ impl UnitStep {
     }
 }
 
+impl UnitBodyEvent {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(UnitBodyEvent {
+            unit: { let p = format!("{path}.unit"); num(v.get("unit"), &p)? },
+            exploded: { let p = format!("{path}.exploded"); boolean(v.get("exploded"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.unit); fields.push(("unit", x)); }
+        { let x = Value::Bool(self.exploded); fields.push(("exploded", x)); }
+        a.object("", fields)
+    }
+}
+
 impl UnitAimArgs {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

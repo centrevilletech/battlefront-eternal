@@ -984,6 +984,31 @@ impl UnitStep {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitBodyEvent {
+    pub unit: f64,
+    pub exploded: bool,
+}
+
+impl UnitBodyEvent {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = if self.exploded { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            exploded: row[1] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct UnitAimArgs {
     pub unit: f64,
     pub dt: f64,
