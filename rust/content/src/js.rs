@@ -5,9 +5,10 @@
 //! JavaScript reads with `parseFloat` or `Number`, so a number derived from
 //! one in Rust must come from the same rules, prefix and all.
 //!
-//! These are private copies of what `rust/jsrt` (the port's JavaScript
-//! semantics crate) provides or will provide; once it is part of the build,
-//! callers move to it and the content dump re-proves the result.
+//! The Math functions come from rust/v8math. The rest are private copies of
+//! what `rust/jsrt` (the port's JavaScript semantics crate) provides or will
+//! provide; once it is part of the build, callers move to it and the content
+//! dump re-proves the result.
 
 use crate::value::Value;
 
@@ -244,73 +245,31 @@ pub fn to_number(value: Option<&Value>) -> f64 {
     }
 }
 
-/// `Math.min(a, b)`: NaN if either is, and -0 below +0.
+/// `Math.min(a, b)`: NaN if either is, and -0 below +0 (rust/v8math).
 #[inline]
 pub fn js_min(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        return f64::NAN;
-    }
-    if a == 0.0 && b == 0.0 {
-        return if a.is_sign_negative() { a } else { b };
-    }
-    if a < b {
-        a
-    } else {
-        b
-    }
+    v8math::min(a, b)
 }
 
-/// `Math.max(a, b)`: NaN if either is, and +0 above -0.
+/// `Math.max(a, b)`: NaN if either is, and +0 above -0 (rust/v8math).
 #[inline]
 pub fn js_max(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        return f64::NAN;
-    }
-    if a == 0.0 && b == 0.0 {
-        return if a.is_sign_negative() { b } else { a };
-    }
-    if a > b {
-        a
-    } else {
-        b
-    }
+    v8math::max(a, b)
 }
 
-/// `Math.hypot(...values)` as V8 computes it: every value divided by the
-/// largest magnitude, the squares summed with Kahan's compensation in
-/// argument order, the root scaled back; an infinity wins over NaN.
+/// `Math.hypot(...values)` as V8 computes it (rust/v8math): every value
+/// divided by the largest magnitude, the squares summed with Kahan's
+/// compensation in argument order, the root scaled back; an infinity wins
+/// over NaN.
+#[inline]
 pub fn js_hypot(values: &[f64]) -> f64 {
-    let mut max = 0.0f64;
-    let mut any_nan = false;
-    for &v in values {
-        if v.is_nan() {
-            any_nan = true;
-        } else {
-            let a = v.abs();
-            if a > max {
-                max = a;
-            }
-        }
-    }
-    if max == f64::INFINITY {
-        return f64::INFINITY;
-    }
-    if any_nan {
-        return f64::NAN;
-    }
-    if max == 0.0 {
-        return 0.0;
-    }
-    let mut sum = 0.0f64;
-    let mut compensation = 0.0f64;
-    for &v in values {
-        let n = v.abs() / max;
-        let summand = n * n - compensation;
-        let preliminary = sum + summand;
-        compensation = (preliminary - sum) - summand;
-        sum = preliminary;
-    }
-    sum.sqrt() * max
+    v8math::hypot_n(values)
+}
+
+/// `Math.atan2(y, x)` (rust/v8math).
+#[inline]
+pub fn js_atan2(y: f64, x: f64) -> f64 {
+    v8math::atan2(y, x)
 }
 
 /// `Math.fround(x)`.

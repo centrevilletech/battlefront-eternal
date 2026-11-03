@@ -343,6 +343,11 @@ pub fn dump_battle(c: &Content, cache: &mut PayloadCache, full: bool) -> String 
         }
     }
 
+    // The placed power-ups' places, headings and teams.
+    for p in &c.placed_items {
+        d.line("placed", &p.index.to_string(), &list(vec![vec3(&p.position), n(p.yaw), dump::value_text(&p.team)]));
+    }
+
     // The map's collision.
     let col = &c.collision;
     d.typed("collision", "triBounds", &col.tri_bounds);

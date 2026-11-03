@@ -38,6 +38,19 @@ pub struct PropBodies {
     pub unbuilt: Option<BodyTriangles>,
 }
 
+/// A placed power-up as src/placed-items.js spawns it at the battle's
+/// start: its item, its place (the matrix's translation), its heading (the
+/// forward axis about up, Math.atan2(e[8], e[10])) and team.
+pub struct PlacedItem {
+    /// Its place in props.json's `items`.
+    pub index: usize,
+    pub item: Value,
+    pub position: crate::three::Vector3,
+    pub yaw: f64,
+    /// `entry.team || 0`.
+    pub team: Value,
+}
+
 pub struct Content {
     pub battle: Battle,
     /// Each side's weapons.bin pack, in `sides` order.
@@ -65,6 +78,8 @@ pub struct Content {
     pub death_regions: Vec<(Value, BuiltRegion)>,
     /// ai-nav.bin's routing words (nav/data.js routeWords).
     pub route_words: Option<Result<Vec<u32>, String>>,
+    /// The placed power-ups a world spawns at the start.
+    pub placed_items: Vec<PlacedItem>,
 }
 
 fn floats(bytes: &[u8]) -> Result<Rc<[f32]>, String> {
@@ -301,6 +316,24 @@ impl Content {
                 }
             }
         }
+        // placed-items.js spawnPlacedItems.
+        let mut placed_items = Vec::new();
+        for (index, entry) in b.props.as_ref().and_then(|p| p.get("items")).and_then(Value::as_array).unwrap_or(&[]).iter().enumerate() {
+            let Some(item) = entry.get("item").filter(|i| i.truthy()) else { continue };
+            let Some(matrix) = entry.get("matrix").and_then(Value::as_array).filter(|m| m.len() == 16) else { continue };
+            let e = |i: usize| crate::js::to_number(matrix.get(i));
+            let team = match entry.get("team") {
+                Some(t) if t.truthy() => t.clone(),
+                _ => Value::Number(0.0),
+            };
+            placed_items.push(PlacedItem {
+                index,
+                item: item.clone(),
+                position: crate::three::Vector3::new(e(12), e(13), e(14)),
+                yaw: crate::js::js_atan2(e(8), e(10)),
+                team,
+            });
+        }
         let death_regions = death_regions(&b.world);
         let route_words = route_words(b.nav_bin.as_deref(), b.nav.as_ref().and_then(|n| n.get("graph")).filter(|g| g.truthy()).and_then(|g| g.get("routes")));
         Ok(Content {
@@ -320,6 +353,7 @@ impl Content {
             prop_clips,
             death_regions,
             route_words,
+            placed_items,
             battle,
         })
     }

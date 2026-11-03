@@ -45,6 +45,7 @@ const { scanVector } = await import('../src/props.js');
 const { routeWords } = await import('../src/ai/classic/nav/data.js');
 const { vehicleBatches } = await import('../src/vehicle-rig.js');
 const { gearFoot } = await import('../src/flight/gear.js');
+const { spawnPlacedItems } = await import('../src/placed-items.js');
 const { ENGINE } = await import('../src/soldier.js');
 const { createEntityRegistry } = await import('../src/runtime/network-entity-registry.js');
 const { INPUT_CODES, DEFAULT_BINDING_PROFILES } = await import('../src/runtime/network-entity-input.js');
@@ -542,6 +543,14 @@ export function dumpBattle(b, c, full = false) {
   (b.propsDef?.items || []).forEach((entry, i) => {
     if (entry?.item && typeof entry.item === 'object' && !Array.isArray(entry.item)) itemLine(`placed/${i}`, entry.item);
   });
+
+  // placed-items.js: each placed power-up's place, heading and team, as the
+  // world spawns it (the items' spawn recorded).
+  const placedEntries = b.propsDef?.items || [];
+  spawnPlacedItems({ spawn: (def, position, velocity, yaw, { team }) => {
+    d.line('placed', String(placedEntries.findIndex((entry) => entry?.item === def)), enc([vec3(position), yaw, team]));
+    return {};
+  } }, b.propsDef?.items);
 
   const col = c.collision;
   d.typed('collision', 'triBounds', col.triBounds);

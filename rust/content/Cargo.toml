@@ -14,6 +14,10 @@ description = "The game's content as the world simulation reads it: its files pa
 name = "bfe_content"
 crate-type = ["rlib"]
 
+[dependencies]
+# V8's Math, bit for bit (hypot, min, max, atan2).
+v8math = { path = "../v8math" }
+
 [dev-dependencies]
 # Only tests/collision.rs, which installs a world in the simulation module's
 # collision state (src/install.rs): the simulation module links this crate,
