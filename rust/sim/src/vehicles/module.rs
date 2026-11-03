@@ -59,7 +59,16 @@ static mut CHANGES: Vec<f64> = Vec::new();
 /// JavaScript, and this phase's clock (the barrels' kick).
 static mut TEMPLATES: Option<HashMap<String, VehicleTemplate>> = None;
 static mut DEFS: Option<HashMap<String, Value>> = None;
-static mut POSES: Vec<Option<(f64, HullPose)>> = Vec::new();
+static mut POSES: Vec<Option<Posed>> = Vec::new();
+static mut RIDERS: Vec<f64> = Vec::new();
+
+/// A ground hull's pose kept in the module: the life it was taken for, the
+/// pose, and its seats' turn rates (seatView's turnRate, the 9-pose's).
+struct Posed {
+    generation: f64,
+    pose: HullPose,
+    turn_rates: Vec<f64>,
+}
 static mut POSED: Vec<f64> = Vec::new();
 static mut CLOCK: Option<f64> = None;
 static mut BYTES: Vec<u8> = Vec::new();
@@ -78,7 +87,7 @@ fn input() -> &'static mut Vec<f64> {
     unsafe { &mut *addr_of_mut!(INPUT) }
 }
 
-fn poses() -> &'static mut Vec<Option<(f64, HullPose)>> {
+fn poses() -> &'static mut Vec<Option<Posed>> {
     unsafe { &mut *addr_of_mut!(POSES) }
 }
 
@@ -230,15 +239,17 @@ pub extern "C" fn veh_pack(def_len: u32, floats: u32, indices: u32, animations: 
 }
 
 /// A ground hull's pose as the constructor makes it from its class and
-/// model (build.rs), or None where the pack lacks either.
-fn new_pose(name: &str) -> Option<HullPose> {
+/// model (build.rs), with its seats' turn rates, or None where the pack
+/// lacks either.
+fn new_pose(name: &str) -> Option<(HullPose, Vec<f64>)> {
     let defs = unsafe { (*addr_of_mut!(DEFS)).as_ref()? };
     let templates = unsafe { (*addr_of_mut!(TEMPLATES)).as_ref()? };
     let def = defs.get(name)?;
     let model = def.get("model").and_then(Value::as_str)?;
     let template = templates.get(model)?;
     let source = super::build::HullSource { name, def, template, slot: 0, slot_matrix: &[0.0; 16] };
-    super::build::build(&source, 0, Ref::default(), 0).0.pose
+    let (hull, extras) = super::build::build(&source, 0, Ref::default(), 0);
+    Some((hull.pose?, extras.seat_turn_rates))
 }
 
 /// A hull's whole pose state from JavaScript (posing::pull), `count`
@@ -257,13 +268,13 @@ pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32) -> u32 {
         all.resize_with(slot as usize + 1, || None);
     }
     // The rig is the class's: made once a hull, kept over its lives.
-    let pose = match all[slot as usize].take() {
-        Some((_, pose)) => Some(pose),
+    let made = match all[slot as usize].take() {
+        Some(p) => Some((p.pose, p.turn_rates)),
         None => new_pose(&name),
     };
-    let Some(mut pose) = pose else { return 0 };
+    let Some((mut pose, turn_rates)) = made else { return 0 };
     let ok = posing::pull(&mut pose, &input()[..count as usize]);
-    all[slot as usize] = Some((if ok { generation } else { f64::NAN }, pose));
+    all[slot as usize] = Some(Posed { generation: if ok { generation } else { f64::NAN }, pose, turn_rates });
     ok as u32
 }
 
@@ -278,8 +289,8 @@ pub extern "C" fn veh_pose_inputs(count: u32) {
     while i < v.len() {
         let slot = v[i] as usize;
         i += 1;
-        let Some(Some((_, pose))) = all.get_mut(slot) else { panic!("pose inputs for a hull the module does not pose") };
-        i += posing::inputs(pose, &v[i..]);
+        let Some(Some(p)) = all.get_mut(slot) else { panic!("pose inputs for a hull the module does not pose") };
+        i += posing::inputs(&mut p.pose, &v[i..]);
     }
 }
 
@@ -289,6 +300,68 @@ pub extern "C" fn veh_pose_inputs(count: u32) {
 #[no_mangle]
 pub extern "C" fn veh_posed() -> *const f64 {
     unsafe { (*addr_of_mut!(POSED)).as_ptr() }
+}
+
+/// Vehicles.syncCrews' part for the hulls the module poses (the crafts'
+/// riders stay JavaScript's): for each live posed hull in the battle's
+/// order, each seat a bot holds (a lease not a person's), its rider as
+/// poseRider places him: the hull slot and seat, the point he rides at
+/// (his seat's rider node in the world, else the hull's middle), the
+/// seat's aim, the hull's velocity, whether he shows (a rider node), and a
+/// 9-pose's pitch and turn (riderSample: ninePose for a turret seat, the
+/// pitch alone for the pilot's); JavaScript picks his clip, poses him and
+/// counts his tick (src/vehicles.js syncRiderFrom). Returns the list's
+/// address: [riders, then 13 numbers each].
+#[no_mangle]
+pub extern "C" fn veh_riders() -> *const f64 {
+    let out = unsafe { &mut *addr_of_mut!(RIDERS) };
+    out.clear();
+    out.push(0.0);
+    let mut count = 0;
+    for (i, &r) in hull_refs().iter().enumerate() {
+        let v = sim().store.vehicle.get(r).expect("a hull the store holds");
+        if !v.alive || v.flying {
+            continue;
+        }
+        let generation = v.target_generation;
+        let Some(Some(p)) = poses().get_mut(r.slot as usize) else { continue };
+        if p.generation != generation {
+            continue;
+        }
+        let hull = load(r, i);
+        for (k, seat) in hull.seats.iter().enumerate() {
+            match seat.lease {
+                Some(lease) if !lease.human => {}
+                _ => continue,
+            }
+            let rider = p.pose.rig.seats.get(k).and_then(|s| s.rider.as_ref());
+            let node = rider.and_then(|r| r.node);
+            let point = match node {
+                Some(node) => {
+                    let mut at = Vector3::default();
+                    p.pose.rig.tree.get_world_position(node, &mut at)
+                }
+                None => {
+                    let mut at = hull.position;
+                    at.add_scaled_vector(&super::hull::UP, hull.size.y * 0.5);
+                    at
+                }
+            };
+            let (pitch, turn) = match rider {
+                Some(r) if r.nine_pose && k > 0 => {
+                    let yaw_rate = super::hull::or_zero(p.pose.seats[k].yaw_rate);
+                    let turn_rate = p.turn_rates.get(k).copied().unwrap_or(f64::NAN);
+                    super::pose::nine_pose(seat.pitch_limits, seat.yaw_limits, seat.wrap_yaw, turn_rate, super::hull::angle(seat.aim_yaw - hull.yaw), seat.pitch, yaw_rate)
+                }
+                Some(r) if r.nine_pose => (-seat.pitch / 0.7, 0.0),
+                _ => (0.0, 0.0),
+            };
+            out.extend_from_slice(&[r.slot as f64, k as f64, point.x, point.y, point.z, seat.aim_yaw, seat.pitch, hull.velocity.x, hull.velocity.y, hull.velocity.z, if node.is_some() { 1.0 } else { 0.0 }, pitch, turn]);
+            count += 1;
+        }
+    }
+    out[0] = count as f64;
+    out.as_ptr()
 }
 
 /// The battle's hulls, in its list's order.
@@ -380,7 +453,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, level: f64, clock: f64, poses_on
         .enumerate()
         .filter(|&(_, &r)| {
             let v = sim().store.vehicle.get(r).expect("a hull the store holds");
-            !v.flying && matches!(poses().get(r.slot as usize), Some(Some((generation, _))) if *generation == v.target_generation)
+            !v.flying && matches!(poses().get(r.slot as usize), Some(Some(p)) if p.generation == v.target_generation)
         })
         .map(|(i, &r)| (i, r))
         .collect();
@@ -393,7 +466,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, level: f64, clock: f64, poses_on
             let mut hull = load(r, i);
             // The hull holds its pose while it poses (nothing it calls
             // reaches the poses).
-            let (generation, pose) = poses()[r.slot as usize].take().expect("the hull's pose");
+            let Posed { generation, pose, turn_rates } = poses()[r.slot as usize].take().expect("the hull's pose");
             hull.pose = Some(pose);
             if hull.alive && !hull.rests(dt) {
                 posed[k] = true;
@@ -403,7 +476,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, level: f64, clock: f64, poses_on
                     hull.render(&mut world, alpha, dt, true);
                 }
             }
-            poses()[r.slot as usize] = Some((generation, hull.pose.take().expect("the hull's pose")));
+            poses()[r.slot as usize] = Some(Posed { generation, pose: hull.pose.take().expect("the hull's pose"), turn_rates });
             store(&hull);
         }
     }
@@ -414,7 +487,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, level: f64, clock: f64, poses_on
             continue;
         }
         numbers.clear();
-        posing::out(&mut poses()[r.slot as usize].as_mut().expect("the hull's pose").1, &mut numbers);
+        posing::out(&mut poses()[r.slot as usize].as_mut().expect("the hull's pose").pose, &mut numbers);
         out.push(r.slot as f64);
         out.push(numbers.len() as f64);
         out.extend_from_slice(&numbers);

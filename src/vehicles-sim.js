@@ -183,6 +183,24 @@ export class VehiclesSim {
     }
   }
 
+  // Vehicles.syncCrews for the hulls the module poses: each bot rider's
+  // point, aim, velocity and 9-pose from the module (veh_riders), applied
+  // where his seat is still his (a tow cable may have tripped his walker
+  // since the phase).
+  syncRiders() {
+    const ptr = this.x.veh_riders();
+    this.bridge.views();
+    const f = this.bridge.f, objects = this.bridge.refs[KIND_VEHICLE].objects, vs = this.vehicles;
+    let o = ptr / 8;
+    const count = f[o++];
+    for (let k = 0; k < count; k++, o += 13) {
+      const v = objects[f[o]];
+      if (!v.alive) continue;
+      const lease = v.seats[f[o + 1]].lease;
+      if (lease && !lease.human) vs.syncRiderFrom(lease, f, o + 2);
+    }
+  }
+
   // The hulls into the store: each one's fields, and the battle's list.
   write() {
     const b = this.bridge, vs = this.vehicles;
