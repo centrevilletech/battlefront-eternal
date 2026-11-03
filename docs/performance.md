@@ -948,7 +948,7 @@ boundary, so that each part of the frame can move to it on its own:
 | --- | --- | --- | --- | --- |
 | World | `world.rs` | `world.js` | near | The map's opaque buckets |
 | Instances | `instances.rs` | `instances.js` | near | Soldiers' bodies, held guns, rigs |
-| Far | `far.rs` | `far.js` | far | Nothing yet (the far scene) |
+| Far | `far.rs` | `far.js` | far | The far scene: sky, low-detail buckets, far terrain and water, flyers |
 | Terrain | `terrain.rs` | `terrain.js` | near | Nothing yet (terrain patches and painted layers) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | Nothing yet (what the near scene blends) |
 | Effects | `effects.rs` | `effects.js` | transparent | Nothing yet (bolts, flashes, particles, debris, lightning) |
@@ -1009,6 +1009,69 @@ draw or call. Against the commit before the split:
   pixels at the same points of the same seeded battles, but for a few
   hundred pixels of flickering flames on Kashyyyk Docks, which differed as
   much between two runs of the build from before.
+
+### The far scene
+
+`far.rs` and `far.js` draw the far scene (the sky dome and the models on
+its horizon, the map's low-detail buckets, the far terrain, the far water
+and the sky's flyers) in place of three's render of it. graphics.js asks
+the core to cover the far phase (`cover("far", ...)`): three's start of a
+render (the far scene's world matrices, its onBeforeRender), the phase,
+and, when the far pass drew all of the scene, three's end of one (the
+multisampled target resolved). Three renders the far scene only when the
+pass could not draw all of it.
+
+Each frame the pass walks the far scene as three's render does (what is
+shown, on the camera's layers) and finds each mesh three would draw among
+its items, registering one the first time its material has a program. An
+item is a program made from the GLSL three compiled for its material, its
+geometry and state, and where each uniform the program reads comes from: a
+fixed value, a value the page writes each frame, a texture, the camera, or
+the object's own matrices (computed as three computes them, in doubles).
+A material that reads only the frame's shared values takes them from the
+far camera's frame block; any other, such as the water's, which keeps a
+time of its own, gets a program of the Plain kind, three's GLSL as it is,
+with every uniform set by the pass. The map's buckets are culled by spatial
+cell as render-culling.js culls them, each visible run in one multi-draw;
+the terrain's cells by the frustum and the fade start as terrain-patches.js
+culls them, its visible runs in one multi-draw too; the flyers draw
+instanced from the matrices the page writes each frame. The items are
+sorted as three sorts its render lists and drawn with a uniform or a piece
+of state set only when it differs from what is set.
+
+In one battle with `?rust`, at four points of a walk, the far pass and
+three's far render drew the same lockstep frame in turn (two settle frames,
+then a captured one) on the emulator (SwiftShader, 1599x899, 4x
+multisampling). On Naboo: Theed, Tatooine: Dune Sea, Bespin: Platforms,
+Hoth: Echo Base, Kashyyyk: Docks and Geonosis: Spire the far image and the
+near scene's image over it were the same to the pixel at every point (5.75
+million pixels a map), and so were two frames three drew alone. In each of
+the far pass's frames three drew none of the far scene:
+
+| Map | Three's far draws a frame | Far pass's draws | Far scene's part of the frame, ms (p50) |
+| --- | --- | --- | --- |
+| nab2 | 46 | 37-39 | 0.77, 0.74 -> 0.42, 0.37 |
+| tat1 | 22.5 | 15-16 | 0.48, 0.43 -> 0.35, 0.30 |
+| kas2 | 26 | 17-21 | 0.36, 0.31 -> 0.23, 0.20 |
+| bes1 | 14 | 14 | 0.24, 0.21 -> 0.17, 0.16 |
+| hot1 | 12.6 | 6 | 0.21, 0.19 -> 0.19, 0.17 |
+
+The times are the emulator's (draws switched off, CPU throttled as the
+slow laptop runs), from lockstep frames alternating between the two in one
+battle, two runs a map: three's render of the far scene against
+`cover("far")` with all it does, the far scene's matrices and hooks and the
+target's resolve included. Of what is left on Theed (0.38 ms), the
+renderer's call is about half (0.18 ms for some 180 WebGL calls), the page's
+side of the pass 0.06 ms, and the far scene's own hooks (the terrain's runs
+for three, the tree canopies) 0.03 ms.
+
+The Enhanced sky's flyers read a sky probe (a cube map), the Enhanced
+ocean's storm draws lightning from vertices it rewrites, and water at High
+or Ultra and the sky probe render the far scene again from cameras of their
+own; three draws those for now. Shadows, lamp lighting and the temporal
+upscaler need nothing of the far pass itself (its materials read neither
+shadows nor lamps, and the upscaler's jitter is in the far camera's
+projection), only the core's leave to stay on with them.
 
 ## His controls on a slow CPU
 
