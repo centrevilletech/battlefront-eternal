@@ -92,7 +92,48 @@ pub fn target_id(m: Member) -> u32 {
     }
 }
 
+/// A reference held across a death (registry.js `ref`): the unit and the
+/// life it was taken in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UnitRef {
+    pub unit: u32,
+    pub generation: f64,
+}
+
 impl Units {
+    /// add(unit) (registry.js): the next id, the member at the list's end.
+    /// Returns the id (a unit's slot).
+    pub fn add(&mut self, kind: impl FnOnce(u32) -> Member) -> u32 {
+        let id = self.next_id as u32;
+        self.next_id += 1.0;
+        self.list.push(kind(id));
+        id
+    }
+
+    /// remove(unit) (registry.js): out of the list (the next keep their order).
+    pub fn remove(&mut self, m: Member) {
+        if let Some(i) = self.list.iter().position(|x| *x == m) {
+            self.list.remove(i);
+        }
+    }
+
+    /// byId(id): the member with that id, or none.
+    pub fn by_id(&self, id: u32) -> Option<Member> {
+        self.list.iter().copied().find(|m| target_id(*m) == id)
+    }
+
+    /// resolve(ref): the unit a reference names, while it is the same life
+    /// of that unit (and alive).
+    pub fn resolve(&self, units: &Slab<Unit>, r: Option<UnitRef>) -> Option<u32> {
+        let r = r?;
+        let u = units.get(crate::store::Ref::new(r.unit, 0))?;
+        if u.generation == r.generation && u.alive {
+            Some(r.unit)
+        } else {
+            None
+        }
+    }
+
     /// relation(a, b) (registry.js): team a's relation to team b, 1 friend,
     /// 0 neutral, -1 enemy.
     pub fn relation(&self, a: f64, b: f64, teams: Option<&TeamTable>, strings: &mut Strings) -> f64 {

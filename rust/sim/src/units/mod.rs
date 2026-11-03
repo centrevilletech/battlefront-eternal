@@ -15,6 +15,7 @@
 //! - `droideka`: a droideka's body, its modes, walk, ball and collision;
 //! - `damage`: what hitting the ground or a wall too hard does
 //!   (collision damage) and the world's bounds;
+//! - `factory`: each class's free bodies, taken back last in, first out;
 //! - `separate`: the soldiers pushed apart, every pair;
 //! - `water`: the map's water and what it does to a soldier each tick.
 //!
@@ -28,6 +29,7 @@
 pub mod body;
 pub mod damage;
 pub mod droideka;
+pub mod factory;
 pub mod registry;
 pub mod separate;
 pub mod shapes;
