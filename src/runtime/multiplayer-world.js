@@ -46,6 +46,10 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
   const roster = createMultiplayerRoster(game, armySize);
   const updateViews = networkViews(game, players);
   const relation = (a,b) => game.units.relation(a,b);
+  // A network player's weapons draw what no press seeds (a held trigger's
+  // repeats, a charge's release, a throw, a melee swing) from the world's
+  // network-weapons stream; a press's own fire cycle keeps its spread seed.
+  const networkWeapons = game.randomStream?.('network-weapons') ?? null;
   // His input stops: he left, paused (a suspended local world), or nothing
   // came from him for half a second. Whatever he controls is stilled, a
   // hull's sticks and a flown recon droid's keys alike; leaving also hands
@@ -92,6 +96,8 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
     p.unit = unit; p.className = className;
     if (previous && previous !== unit) unit.generation = Math.max(unit.generation, previous.generation);
     unit.spawn(...spawnPointAt(post,p.team,() => ((p.ordinal * 0.381966) % 1)));
+    // The life's arsenal is new (PlayerCombat.reset): its generator.
+    if (networkWeapons) for (const weapon of unit.combat.arsenal.weapons) weapon.random = networkWeapons;
     p.spawn.phase = 'alive'; p.spawn.spawnedOnce = true; p.spawn.className = className; p.spawn.post = post.name;
     game.simEvents.emit('spawn', { target: game.units.ref(unit), team:p.team, position:unit.position, className, post:post.name });
     return true;

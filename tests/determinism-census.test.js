@@ -70,7 +70,7 @@ const CENSUS = {
 
 // The legacy streams, and what reaches each in a world step today.
 const LEGACY_STREAMS = {
-  'weapon-spread': 'a weapon with no generator: network players\' own weapons (seats and turrets draw the seat-weapons stream)',
+  'weapon-spread': 'none in a world (bots\' weapons have the AI\'s generator, network players\' the network-weapons stream, seats and turrets the seat-weapons stream); a page\'s weapons with no generator',
   'grenade-spin': 'every thrown grenade\'s spin (Ordnance.spinRandom unset)',
   'missile-waver': 'none in a world (Ordnance.random is the gameplay stream)',
   'arc-link': 'none in a world (PlayerCombat.random is the gameplay stream)',
@@ -78,13 +78,13 @@ const LEGACY_STREAMS = {
   'item-drop': 'none in a world (Items.random is the gameplay stream)',
   'gunner-spread': 'none in a world (Gunner.random is the gameplay stream)',
   'recon-strike': 'none in a world (each recon context has its own stream)',
-  'melee-swing': 'a network player\'s melee weapon (it has no generator)',
+  'melee-swing': 'none in a world (a network player\'s melee weapon draws the network-weapons stream)',
   'kill-region': 'none in a world (objectiveDestroyed passes the gameplay stream)',
   'spawn-post': 'none in a world step (the spawn screen\'s pick of a default post)',
 };
 // The legacy streams a world step may still draw (a seeded stream replaces
 // each in turn; then none).
-const STEP_LEGACY = new Set(['weapon-spread', 'grenade-spin', 'melee-swing']);
+const STEP_LEGACY = new Set(['grenade-spin']);
 
 const KEYWORDS = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'new', 'delete', 'void', 'throw', 'yield', 'await', 'instanceof']);
 // The source with its comments, strings, template text and regular

@@ -3508,6 +3508,8 @@ async function start() {
     factory,
     playerUnit,
     randomState: () => ({ ai: random.seed, game: randomB?.seed ?? null, streams: Object.fromEntries([...streams.streams].map(([name, value]) => [name, value.seed])) }),
+    // A draw function of the world's named stream (src/ai/random.js RandomStreams).
+    randomStream: (name) => () => streams.get(name).uniform(),
     get ai() {
       return ai;
     },
