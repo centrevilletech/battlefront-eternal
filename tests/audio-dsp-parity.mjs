@@ -245,13 +245,22 @@ if (wanted("reverb")) {
 // --- The stabilizer -------------------------------------------------------
 if (wanted("stabilizer")) {
   const Stab = loadProcessor("stabilizer.js");
-  const js = new Stab({ processorOptions: { channels: 6, left: 0, right: 1, centre: 2 } });
-  const h = x.stabilizer_new(RATE, 6, 0, 1, 2);
-  runPair({
-    label: "stabilizer 6ch", js,
-    rust: { input: () => x.stabilizer_in(h), output: () => x.stabilizer_out(h), process: (i, o) => x.stabilizer_process(h, i, o) },
-    inputs: signal("noise", 6, 120), inChannels: 6, outChannels: 6,
-  });
+  // 5.1 and 7.1 (the front pair's filters run side by side), fewer
+  // inputs than channels, no centre, a layout whose centre is its left
+  // (one channel after the other, as the worklet), and signals down to
+  // subnormals.
+  for (const [label, channels, centre, kind, inChannels = channels] of [
+    ["6ch", 6, 2, "noise"], ["8ch", 8, 2, "noise"], ["6ch, 4 inputs", 6, 2, "noise", 4], ["4ch, no centre", 4, 5, "noise"],
+    ["6ch, centre on left", 6, 0, "noise"], ["6ch tiny", 6, 2, "tiny"], ["6ch impulse", 6, 2, "impulse"],
+  ]) {
+    const js = new Stab({ processorOptions: { channels, left: 0, right: 1, centre } });
+    const h = x.stabilizer_new(RATE, channels, 0, 1, centre);
+    runPair({
+      label: `stabilizer ${label}`, js,
+      rust: { input: () => x.stabilizer_in(h), output: () => x.stabilizer_out(h), process: (i, o) => x.stabilizer_process(h, i, o) },
+      inputs: signal(kind, inChannels, 120), inChannels, outChannels: channels,
+    });
+  }
 }
 
 // --- The limiter ----------------------------------------------------------
