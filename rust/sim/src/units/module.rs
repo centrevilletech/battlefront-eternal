@@ -13,7 +13,7 @@
 //!
 //! - an import that reads the battle (the Enhanced aimer, a launcher's lock,
 //!   the arc caster's targets) first has the units the phase changed since
-//!   the last such import synced into their objects (`units_dirty`);
+//!   the last such import synced into their objects (`units_sync`);
 //! - an import that runs the battle's code (a hook: a death, a round fired,
 //!   a droideka's body) does that, and has every unit written back into the
 //!   store after (the code may have changed any of them).
@@ -64,7 +64,7 @@ struct Phase {
     /// current one aside, each once.
     dirty: Vec<u32>,
     marked: Vec<bool>,
-    /// What `units_dirty` hands JavaScript.
+    /// What `units_sync` hands JavaScript.
     block: Block,
 }
 
@@ -167,22 +167,28 @@ pub extern "C" fn units_combat_views() {
     }
 }
 
-/// The units the phase changed since the last call, for JavaScript to sync
-/// into its objects: a block of rows, each the unit's export row, then
-/// with combat on the module his combat's record, then whether his gun is
-/// under water (the water step's, which JavaScript keeps on his combat).
-/// A unit out of the store now (the one being ticked, mid-combat) is left
-/// for the next call.
+/// Units the phase changed, for JavaScript to sync into its objects: a
+/// block of rows, each the unit's export row, then with combat on the
+/// module his combat's record, then whether his gun is under water (the
+/// water step's, which JavaScript keeps on his combat). `which`: 0 every
+/// unit the phase changed since the last such call (the one being ticked
+/// among them, unless he is out of the store mid-combat: he is left for
+/// the next); 1 the same but the one being ticked (whose objects the
+/// battle's JavaScript is changing now: a droideka's body); 2 only the one
+/// being ticked (the others stay marked).
 #[no_mangle]
-pub extern "C" fn units_dirty() -> *const f64 {
+pub extern "C" fn units_sync(which: u32) -> *const f64 {
     let p = phase();
     let taken = cm::taken();
-    let mut list = std::mem::take(&mut p.dirty);
-    for &id in &list {
-        p.marked[id as usize] = false;
+    let mut list = Vec::new();
+    if which != 2 {
+        list = std::mem::take(&mut p.dirty);
+        for &id in &list {
+            p.marked[id as usize] = false;
+        }
     }
     if let Some(id) = p.current {
-        if taken != Some(id) && !list.contains(&id) {
+        if which != 1 && taken != Some(id) && !list.contains(&id) {
             list.push(id);
         }
     }

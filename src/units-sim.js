@@ -69,6 +69,15 @@ export class UnitsSim {
     this.viewsRecord = { words: this.x.units_words(1), put: putUnitsCombatViews };
     this.combatWords = this.x.units_words(2);
     this.aim = { aim: null };
+    // The units the phase ticks (every built one on the field: one taken
+    // off it does nothing in the loop, and is neither written nor synced).
+    this.live = [];
+    // A droideka's body ticking in JavaScript (unitBodyTick), and whether
+    // its blow-apart ran the battle's code meanwhile.
+    this.body = null;
+    this.bodyHooked = false;
+    this.wrapped = new WeakSet();
+    this.one = [];
     this.x.units_setup(combatSim ? 1 : 0, collision.rayWorld);
     giveMapRules(bridge, water, map);
     if (combatSim) combatSim.unitsSim = this;
@@ -79,7 +88,9 @@ export class UnitsSim {
 
   // The step's loop over the units (game.js), on the module.
   phase(dt) {
-    const built = this.factory.built, n = built.length;
+    const built = this.factory.built, n = built.length, live = this.live;
+    live.length = 0;
+    for (let i = 0; i < n; i++) if (!built[i].removed) live.push(built[i]);
     this.active = true;
     try {
       this.writeAll();
@@ -87,16 +98,20 @@ export class UnitsSim {
       const a = this.args, units = a.units;
       a.dt = dt;
       a.level = this.water ? this.water.level : NaN;
-      units.length = n;
-      for (let i = 0; i < n; i++) {
-        const u = built[i], info = (this.infos[i] ??= { unit: 0, remote: false, edges: null, edge: null, droidekaWater: null });
+      units.length = live.length;
+      for (let i = 0; i < live.length; i++) {
+        const u = live[i], info = (this.infos[i] ??= { unit: 0, remote: false, edges: null, edge: null, droidekaWater: null });
         info.unit = u.id;
         info.remote = typeof u.remoteStep === "function";
         // A network player's presses, which a combat on the module reads
         // (a JavaScript combat reads them itself).
         info.edges = this.combatSim && Array.isArray(u.networkShots) ? u.networkShots : null;
         info.edge = this.combatSim ? u.networkShot ?? null : null;
-        info.droidekaWater = u.walker ? this.droidekaWater(u.soldier.def) : null;
+        info.droidekaWater = null;
+        if (u.walker) {
+          info.droidekaWater = this.droidekaWater(u.soldier.def);
+          this.watch(u.soldier);
+        }
         units[i] = info;
       }
       this.bridge.callArgs(this.phaseRecord, a);
@@ -106,6 +121,23 @@ export class UnitsSim {
     } finally {
       this.active = false;
     }
+  }
+
+  // A droideka's blow-apart (onExploded: the battle's blast) while its body
+  // ticks in JavaScript: the battle's code runs there, so the other units
+  // as the phase has left them first, and every unit back into the store
+  // after the tick (unitBodyTick).
+  watch(body) {
+    if (this.wrapped.has(body)) return;
+    this.wrapped.add(body);
+    const exploded = body.onExploded;
+    body.onExploded = (...args) => {
+      if (this.body === body && !this.bodyHooked) {
+        this.syncDirty(1);
+        this.bodyHooked = true;
+      }
+      return exploded.apply(body, args);
+    };
   }
 
   // A droideka class's water rule (game.js droidekaWater: waterDamageRule
@@ -119,17 +151,17 @@ export class UnitsSim {
     return rule;
   }
 
-  // Every unit into the store (the units' import fields), the others the
-  // store holds left as they are (writeSome), and with a JavaScript combat
-  // what the phase reads of it.
+  // The units the phase ticks into the store (their import fields), every
+  // other entity the store holds left as it is (writeSome), and with a
+  // JavaScript combat what the phase reads of theirs.
   writeAll() {
-    const built = this.factory.built;
-    this.bridge.writeSome(KIND_UNIT, built);
+    const live = this.live;
+    this.bridge.writeSome(KIND_UNIT, live);
     if (!this.combatSim) {
       const list = this.viewList;
-      list.length = built.length;
-      for (let i = 0; i < built.length; i++) {
-        const u = built[i], c = u.combat, v = (list[i] ??= { unit: 0, dead: false, pivot: null, origin: null });
+      list.length = live.length;
+      for (let i = 0; i < live.length; i++) {
+        const u = live[i], c = u.combat, v = (list[i] ??= { unit: 0, dead: false, pivot: null, origin: null });
         v.unit = u.id; v.dead = c.dead; v.pivot = c.pivot; v.origin = c.origin;
       }
       this.views.list = list;
@@ -138,11 +170,13 @@ export class UnitsSim {
     }
   }
 
-  // The rows of the units the phase changed since the last time into their
-  // objects (and, with combat on the module, each one's combat into its
-  // facade's mirror; the water step's gun under water onto his combat).
-  syncDirty() {
-    const b = this.bridge, ptr = this.x.units_dirty();
+  // The rows of the units the phase changed into their objects (and, with
+  // combat on the module, each one's combat into its facade's mirror; the
+  // water step's gun under water onto his combat). `which` (units_sync): 0
+  // every one changed since the last time, 1 all of them but the one being
+  // ticked, 2 the one being ticked alone.
+  syncDirty(which = 0) {
+    const b = this.bridge, ptr = this.x.units_sync(which);
     b.views();
     const f = b.f, base = ptr / 8, rows = f[base], stride = f[base + 1], h = base + f[base + 2];
     const refs = b.refs[KIND_UNIT], combat = Boolean(this.combatSim);
@@ -259,18 +293,34 @@ export class UnitsSim {
         return this.aim;
       },
       unitBodyTick: (a) => {
-        const u = unit(a.unit), dt = a.dt;
-        this.hook(() => u.soldier.tick(u.input, dt));
+        // A droideka's body reads and moves only itself (its clips, the
+        // collision world), unless it blows apart (watch): his rows out
+        // and back in, or every unit's after a blast.
+        const u = unit(a.unit), dt = a.dt, one = this.one;
+        this.syncDirty(2);
+        this.body = u.soldier;
+        this.bodyHooked = false;
+        try {
+          u.soldier.tick(u.input, dt);
+        } finally {
+          this.body = null;
+          if (this.bodyHooked) { this.writeAll(); this.bodiesIn(); } else { one[0] = u; this.bridge.writeSome(KIND_UNIT, one); }
+        }
       },
       unitSampleMuzzles: (a) => {
-        const u = unit(a.unit), dt = a.dt;
-        this.syncDirty();
+        // Its hidden gun rig posed from its body: his rows alone.
+        const u = unit(a.unit), dt = a.dt, one = this.one;
+        this.syncDirty(2);
         u.soldier.sampleMuzzles(dt);
-        this.bridge.writeSome(KIND_UNIT, [u]);
+        one[0] = u;
+        this.bridge.writeSome(KIND_UNIT, one);
       },
       unitRemoteStep: (a) => {
-        const u = unit(a.unit), dt = a.dt, active = a.active;
-        this.hook(() => u.remoteStep(dt, active ? u.intent : null, u.controls));
+        const u = unit(a.unit), dt = a.dt, active = a.active, r = u.combat.remotes;
+        // With no droid of his out, nothing flying and no strike called,
+        // the step only counts the tick (src/runtime/network-remote-world.js).
+        if (r && !r.droids.length && !r.strikes.length && !r.piloted) u.remoteStep(dt, active ? u.intent : null, u.controls);
+        else this.hook(() => u.remoteStep(dt, active ? u.intent : null, u.controls));
       },
       unitCombat: (a) => {
         const u = unit(a.unit), dt = a.dt, stick = a.stick;

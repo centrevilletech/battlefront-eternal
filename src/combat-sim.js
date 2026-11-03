@@ -358,11 +358,15 @@ class WeaponFacade {
   // Its mirror (the store's weapon record).
   get w() { return this.combat.state.arsenal.weapons[this.index]; }
   get random() { return this.kept.random; }
-  set random(value) { this.kept.random = value; this.keep(5, value ? 1 : 0); }
+  set random(value) { const had = Boolean(this.kept.random); this.kept.random = value; if (had !== Boolean(value)) this.keep(5, value ? 1 : 0); }
   get spreadScale() { return this.kept.spreadScale; }
-  set spreadScale(value) { this.kept.spreadScale = value; this.keep(6, value); }
+  set spreadScale(value) { if (Object.is(this.kept.spreadScale, value)) return; this.kept.spreadScale = value; this.keep(6, value); }
   get yawSpreadOverride() { return this.kept.yawSpreadOverride; }
-  set yawSpreadOverride(value) { this.kept.yawSpreadOverride = value; this.keep(value === null ? 8 : 7, value === null ? 0 : value); }
+  set yawSpreadOverride(value) {
+    if (Object.is(this.kept.yawSpreadOverride, value)) return;
+    this.kept.yawSpreadOverride = value;
+    this.keep(value === null ? 8 : 7, value === null ? 0 : value);
+  }
   get def() { return this.levels[this.w.level]; }
   get level() { return this.w.level; }
   get admitShot() { return this.w.admits ? this.combat.admitRemoteLaunch : null; }
@@ -568,6 +572,7 @@ export class CombatFacade {
   // A field the battle keeps here, into the store and the mirror at once
   // (`stored`: as the store's record has it).
   keep(field, name, value, stored) {
+    if (Object.is(this.kept[name], value)) return;
     this.kept[name] = value;
     if (!this.made) return;
     this.sim.x.cmb_set(this.owner.id, field, Number(stored));
