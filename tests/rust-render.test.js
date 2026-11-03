@@ -51,9 +51,9 @@ function bridge() {
 
 test("the passes are made in the renderer's order, each in its phase", () => {
   const { core } = bridge();
-  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post", "hud", "water", "near", "canopies", "sea", "motion"]);
+  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post", "hud", "water", "near", "canopies", "sea", "motion", "image"]);
   const phases = Object.fromEntries(Object.entries(core.phases).map(([name, passes]) => [name, passes.map((p) => p.name)]));
-  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage", "canopies", "sea"], transparent: ["transparent", "effects", "water"], view: ["view"], post: ["post"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage", "canopies", "sea"], mirrorTransparent: ["transparent", "effects", "water"], begin: ["near"], farMirror: ["far"], probe: ["far"], motion: ["motion"] });
+  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage", "canopies", "sea"], transparent: ["transparent", "effects", "water", "image"], view: ["view"], post: ["post"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage", "canopies", "sea"], mirrorTransparent: ["transparent", "effects", "water", "image"], begin: ["near"], farMirror: ["far"], probe: ["far"], motion: ["motion"] });
   assert.throws(() => core.addPass({ name: "x", phase: "nowhere" }), /no phase nowhere/);
 });
 
@@ -166,7 +166,7 @@ test("the transparent list: armed after the near phase on three's last opaque it
   assert.deepEqual(calls, []);
   wall.onAfterRender(renderer, scene, camera, null, list.opaque[1].material, null);
   assert.equal(calls.filter((c) => c[0] === "transparent_frame").length, 1);
-  assert.deepEqual(calls.find((c) => c[0] === "transparent_frame").slice(1), [2]);
+  assert.deepEqual(calls.find((c) => c[0] === "transparent_frame").slice(1), [2, 0], "three's two items' keys; no image of the renderer's (three draws it)");
   assert.ok(!Object.prototype.hasOwnProperty.call(wall, "onAfterRender"), "its hook is taken off once it ran");
   // three's items' keys, in three's order.
   assert.deepEqual([...core.transparentKeys.subarray(0, 8)], [0, 0, 0.9, a.id, 0, 3, 0.2, b.id]);

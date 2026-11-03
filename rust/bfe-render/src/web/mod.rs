@@ -110,7 +110,7 @@ impl BfeRenderer {
     // instanced draws, instances, program switches, GL calls], then each
     // pass's draws in pass order (world, instances, far, terrain,
     // transparent, effects, foliage, view, post, hud, water, shadow, motion,
-    // canopies).
+    // canopies, screen).
     pub fn far_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.far_frame().map_err(|e| JsValue::from_str(&e))?.values())
     }
@@ -118,9 +118,10 @@ impl BfeRenderer {
         Ok(self.r.frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
     // three: how many of three's own transparent items the page wrote the
-    // keys of (web/transparent.rs).
-    pub fn transparent_frame(&mut self, three: u32) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.transparent_frame(three as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    // keys of (web/transparent.rs); image: the post steps it wrote for the
+    // far scene's image, drawn first.
+    pub fn transparent_frame(&mut self, three: u32, image: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.transparent_frame(three as usize, image as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
     // records: how many the page wrote for the view's parts.
     pub fn view_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
@@ -134,9 +135,9 @@ impl BfeRenderer {
     pub fn mirror_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.mirror_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
-    // What a mirror's render blends: three, as for transparent_frame.
-    pub fn mirror_transparent_frame(&mut self, three: u32) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.mirror_transparent_frame(three as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    // What a mirror's render blends: three and image, as for transparent_frame.
+    pub fn mirror_transparent_frame(&mut self, three: u32, image: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.mirror_transparent_frame(three as usize, image as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
     // records: how many the page wrote (web/motion.rs).
     pub fn motion_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
@@ -149,5 +150,10 @@ impl BfeRenderer {
     // steps the page wrote for the far scene's image (near.js).
     pub fn near_begin(&mut self, clear: &[f64], steps: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.near_begin(clear, steps as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    // steps: the post steps the page wrote for a full-screen pass outside the
+    // post chain, each with its own state (web/post.rs post_states_ptr).
+    pub fn screen_frame(&mut self, steps: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.screen_frame(steps as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
 }

@@ -202,7 +202,8 @@ class TransparentPass {
       // Nothing of three's drawn after the near phase's own hook (or the
       // scene walked, all of it the renderer's): the transparent list
       // follows now. Else right after three's last opaque item (the far
-      // scene's image, drawn last of them).
+      // scene's image where three draws it, last of them; where it doesn't,
+      // the image is the transparent phase's first draw: screen.js).
       if (ctx.walked || last.object === this.core.nearAnchor) start();
       else this.arm(last, start, ctx);
     } else if (name === "transparent" || name === "mirrorTransparent") {
@@ -233,16 +234,9 @@ class TransparentPass {
     return props.currentProgram === entry.program && props.__version === entry.material.version && entry.frame <= this.frameNo;
   }
 
-  // three's render list for the near scene being drawn: the one whose
-  // opaque list holds the far scene's image (lists are kept per render depth).
+  // three's render list for the near scene being drawn (core.nearList).
   threeList(renderer, scene) {
-    const background = this.core.graphics.background;
-    for (let depth = 0; depth < 4; depth++) {
-      const list = renderer.renderLists.get(scene, depth);
-      if (!list.opaque.length) return null;
-      if (list.opaque.some((item) => item.object === background)) return list;
-    }
-    return null;
+    return this.core.nearList(renderer, scene);
   }
 
   // fn right after three draws `item` (its object's onAfterRender for that

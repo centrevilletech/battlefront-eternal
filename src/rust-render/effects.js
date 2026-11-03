@@ -425,16 +425,9 @@ class EffectsPass {
     core.addView("fxMatrices", Float64Array, () => core.rust.fx_matrices_ptr(), () => core.rust.fx_matrices_len());
   }
 
-  // three's render list of the near scene being drawn: the one whose opaque
-  // list holds the far scene's image (lists are kept per render depth).
+  // three's render list of the near scene being drawn (core.nearList).
   threeList(renderer, scene) {
-    const background = this.core.graphics.background;
-    for (let depth = 0; depth < 4; depth++) {
-      const list = renderer.renderLists.get(scene, depth);
-      if (!list.opaque.length) return null;
-      if (list.opaque.some((item) => item.object === background)) return list;
-    }
-    return null;
+    return this.core.nearList(renderer, scene);
   }
 
   // What three draws this frame that this pass has not seen, each

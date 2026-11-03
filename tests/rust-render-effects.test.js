@@ -106,7 +106,7 @@ function bridge() {
 
 test("the effects are the transparent phase's second pass, after the map's blended buckets", () => {
   const { core } = bridge();
-  assert.deepEqual(core.phases.transparent.map((p) => p.name), ["transparent", "effects", "water"]);
+  assert.deepEqual(core.phases.transparent.map((p) => p.name), ["transparent", "effects", "water", "image"]);
 });
 
 test("a CPU batch: registered once three drew it, then hidden from three and written each frame with its key", () => {

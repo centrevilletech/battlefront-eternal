@@ -68,10 +68,14 @@ pub const PASS_POST: usize = 8;
 pub const PASS_HUD: usize = 9;
 pub const PASS_WATER: usize = 10;
 // 11 is the shadow pass's (registry); 12 the temporal upscaler's motion
-// (motion.rs), 13 the Enhanced tree canopies (canopies.rs).
+// (motion.rs), 13 the Enhanced tree canopies (canopies.rs), 14 the
+// full-screen passes outside the post chain (post.rs draw_screen: the far
+// scene's image in the near scene, the underwater passes, the storm's
+// cloud panorama).
 pub const PASS_MOTION: usize = 12;
 pub const PASS_CANOPIES: usize = 13;
-pub const PASSES: usize = 14;
+pub const PASS_SCREEN: usize = 14;
+pub const PASSES: usize = 15;
 
 // The multi-draw call, which glow does not wrap (WEBGL_multi_draw on the web).
 pub trait MultiDraw {
