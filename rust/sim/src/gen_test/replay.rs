@@ -66,6 +66,30 @@ impl Spot {
     }
 }
 
+impl Ask {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(Ask {
+            n: { let p = format!("{path}.n"); num(v.get("n"), &p)? },
+            who: { let p = format!("{path}.who"); match v.get("who").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_PERSON, v.get("who"), &p)?) } },
+            things: { let p = format!("{path}.things"); { let mut out = Vec::new(); for (i, e) in list(v.get("things"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Thing::ref_in(e, cx, &at)?); } out } },
+            spot: { let p = format!("{path}.spot"); match v.get("spot").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Spot::from_value(v.get("spot"), cx, &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let fields = vec![
+            ("n", Value::Num(self.n)),
+            ("who", match &self.who { Some(v) => cx.ref_out(KIND_PERSON, (*v)), None => Value::Null }),
+            ("things", { let mut items = Vec::new(); for &r in self.things.iter() { items.push(Thing::ref_out(r, cx, a)); } a.array(items) }),
+            ("spot", match &self.spot { Some(v) => v.to_value(cx, a), None => Value::Null }),
+        ];
+        a.object("", fields)
+    }
+}
+
 impl Shelf {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

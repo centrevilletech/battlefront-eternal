@@ -10,8 +10,9 @@
 
 use std::ptr::addr_of_mut;
 
-use crate::gen::{Store, KINDS, KIND_HASHES};
+use crate::gen::{Echo, Store, KINDS, KIND_HASHES};
 use crate::store::block::Block;
+use crate::store::calls::{Calls, Events};
 use crate::store::{KindCode, StrId, Strings};
 
 /// The version of these exports and of the block format (src/sim/runtime.js
@@ -23,6 +24,10 @@ pub struct Sim {
     pub strings: Strings,
     /// A sync block per kind, by code.
     pub blocks: Vec<Block>,
+    /// Where a command's arguments and result (and an import's) cross.
+    pub calls: Calls,
+    /// The phase's events, drained by JavaScript at its end.
+    pub events: Events,
     scratch: Vec<u8>,
 }
 
@@ -32,6 +37,8 @@ impl Sim {
             store: Store::default(),
             strings: Strings::default(),
             blocks: (0..=KINDS).map(|_| Block::default()).collect(),
+            calls: Calls::default(),
+            events: Events::default(),
             scratch: Vec::new(),
         }
     }
@@ -120,6 +127,41 @@ pub extern "C" fn sim_import(kind: u32, full: u32) -> i32 {
     let ok = s.store.import(kind as KindCode, &block, full != 0);
     s.blocks[kind as usize] = block;
     if ok { 0 } else { -1 }
+}
+
+/// Room for a call's record (`words` words, then `heap` heap words): a
+/// command's arguments, or an import's result.
+#[no_mangle]
+pub extern "C" fn sim_call_room(words: u32, heap: u32) -> *mut f64 { sim().calls.room(words as usize, heap as usize) }
+
+/// The call block (an import's arguments, as Rust wrote them).
+#[no_mangle]
+pub extern "C" fn sim_calls() -> *const f64 { sim().calls.block.ptr() }
+
+/// Runs command `code` on the arguments in the call block: where its result
+/// is (the call block), or null for no such command.
+#[no_mangle]
+pub extern "C" fn sim_command(code: u32) -> *const f64 {
+    let s = sim();
+    if crate::gen::run_command(s, code) { s.calls.block.ptr() } else { std::ptr::null() }
+}
+
+/// The events emitted since they were last cleared: their words' count,
+/// then each event's code, length and words.
+#[no_mangle]
+pub extern "C" fn sim_events() -> *const f64 { sim().events.ptr() }
+
+#[no_mangle]
+pub extern "C" fn sim_events_clear() { sim().events.clear() }
+
+/// The store's own command (rust/sim/schema/store.mjs), for its tests and
+/// benchmarks: its arguments back, `value` one more, after emitting
+/// `events` echoed events.
+pub fn echo(sim: &mut Sim, args: Echo) -> Echo {
+    for i in 0..args.events {
+        Echo { value: i as f64, ..args.clone() }.emit(&mut sim.events);
+    }
+    Echo { value: args.value + 1.0, ..args }
 }
 
 /// Empties the store (a battle gets an instance of its own; this is for
