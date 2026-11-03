@@ -127,8 +127,14 @@ class WorldPass {
     rust.sort(this.byProgram);
   }
 
+  // Off (this pass alone, or the whole renderer): three draws the buckets
+  // again and the renderer none of them; on: they come back.
   setActive(on) {
-    for (const entry of this.meshes) if (!entry.stale && entry.mesh.material) entry.mesh.material.visible = !on;
+    for (const entry of this.meshes) {
+      if (entry.stale || !entry.mesh.material) continue;
+      entry.mesh.material.visible = !on;
+      this.core.rust.world_shown(entry.id, on);
+    }
   }
 
   // Shown to three while one of three's own renders needs them (index.js

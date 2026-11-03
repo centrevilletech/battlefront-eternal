@@ -180,8 +180,11 @@ test("a mirror's render draws what blends too: the transparent phase for the mir
     fill(3);
     calls.length = 0;
     // The far scene's image is the last opaque item: the mirror's
-    // transparent phase follows its near phase at once.
+    // transparent phase follows it, in the mirror's render.
     core.pass(renderer, scene, mirror);
+    assert.equal(calls.some((c) => c[0] === "mirror_transparent_frame"), false, "not before the image");
+    const image = list.opaque[list.opaque.length - 1];
+    core.graphics.background.onAfterRender(renderer, scene, mirror, null, image.material, image.group);
   } finally {
     renderer.getRenderTarget = target;
   }
@@ -322,6 +325,26 @@ test("glow models: found in three's list, registered with their group once three
   assert.equal(material.visible, true);
 });
 
+test("glow models under shadows: a program that reads modelMatrix (three's world position for USE_SHADOWMAP) is taken", () => {
+  const { calls, scene, list, frame, drawn } = bridge();
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
+  geometry.setIndex([0, 1, 2]);
+  const group = new THREE.Group(), part = new THREE.Mesh(geometry, material);
+  group.add(part);
+  group.userData.material = material;
+  group.position.set(0, 0, -6);
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  drawn(material, program([...BASIC, "modelMatrix"], ["position", "uv"]));
+  list.transparent.push({ object: part, material, group: null });
+  frame();
+  assert.ok(calls.some((c) => c[0] === "fx_add_model"), "registered");
+  assert.equal(material.visible, false);
+});
+
 test("the effects' programs are their own, apart from another pass's for the same three program, whose values can't leak in", () => {
   const { core, calls, scene, list, frame, drawn, entry } = bridge();
   const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
@@ -383,6 +406,31 @@ test("a droideka's shield: its uniforms as the model's values, the frame's own l
   assert.equal(data[6], 0, "inside, as its onBeforeRender set it");
   assert.equal(data[2], Math.fround(material.uniforms.shieldFade.value), "its fade");
   assert.deepEqual(entry(0).slice(6, 8), [0, 4], "three's key: render order 4");
+});
+
+test("a droideka's Enhanced aura: a shader model with the shield's values, front faces only, added", async () => {
+  const { ShieldBubble } = await import("../src/droideka-shield.js");
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const bubble = new ShieldBubble(scene, { Radius: 2 }, () => null, { get: () => "enhanced" });
+  const droideka = { position: new THREE.Vector3(0, 0, -8), aimYaw: 0, shield: { on: true, def: {}, value: 1, max: 1 }, dead: false, rolled: false };
+  bubble.update(0.1, droideka);
+  scene.updateMatrixWorld(true);
+  const aura = bubble.aura, material = aura.material;
+  assert.ok(aura.visible, "shown with the Enhanced look");
+  list.transparent.push({ object: aura, material, group: null });
+  drawn(material, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "shieldTime", "shieldFade", "birth", "inside", "flash"], ["position", "normal"]));
+  frame();
+  const model = calls.find((c) => c[0] === "fx_add_model");
+  assert.ok(model, "registered");
+  assert.deepEqual(model[2], [1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], "added");
+  assert.equal(model[5], "shieldTime:1:0,shieldFade:1:0,birth:1:0,inside:1:0,flash:1:0", "the shield's values it reads");
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_model_pass").map((c) => c[3]), [0], "front faces only");
+  assert.equal(material.visible, false);
+  list.transparent.length = 0;
+  frame();
+  assert.equal(core.fxInput[0], 1);
+  assert.deepEqual(entry(0).slice(0, 2), [2, 0]);
+  assert.equal(core.fxMatrices[0], aura.matrixWorld.elements[0], "its world matrix: the shield's, a little larger");
 });
 
 test("the atmosphere's squares: a batch with values of its own after its instances", async () => {
@@ -789,6 +837,30 @@ test("flying models: parts of tagged groups as rigid records, lit and unlit, hid
   assert.equal(b.children[0].layers.mask, 1 << 30);
 });
 
+test("a burning piece: a flying part made with a heated material, its heat and look its object's", async () => {
+  const { heatMaterial } = await import("../src/destruction-debris.js");
+  const { core, scene, camera, renderer, drawn } = bridge();
+  const source = new THREE.ShaderMaterial({ name: "zero:dynamic", defines: { DYNAMIC: "" }, fragmentShader: "void main() { vec4 color = vec4(1.0); gl_FragColor = color; }",
+    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
+  const hot = heatMaterial(source);
+  drawn(hot, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness", "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve"], ["position"]));
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setIndex([0, 1, 2]);
+  const group = new THREE.Group(), piece = new THREE.Mesh(geometry, hot);
+  group.add(piece); group.userData.flying = true; group.position.z = -5;
+  piece.userData.heated = { heat: 0.75, tear: new THREE.Vector4(1, 2, 3, 0.5), base: 0.2, scale: 0.8, soot: 0.5, dissolve: 0.125, sun: 0.8, brightness: 1.2, darken: 0.3, lighten: 0.4 };
+  scene.add(group);
+  // Another piece's look in the shared material's uniforms (its onBeforeRender ran last for it).
+  hot.uniforms.sunScale.value = 0.1;
+  scene.updateMatrixWorld(true);
+  core.pass(renderer, scene, camera);
+  const at = core.recordsAt, R = { LOOK: 52, EXTRA: 76 };
+  assert.equal(piece.layers.mask, 1 << 30, "the renderer's");
+  assert.deepEqual([...core.input.subarray(at + R.LOOK, at + R.LOOK + 4)].map((v) => +v.toFixed(3)), [0.8, 0.3, 0.4, 1.2], "its look, its object's");
+  assert.deepEqual([...core.input.subarray(at + R.EXTRA + 4, at + R.EXTRA + 13)].map((v) => +v.toFixed(3)), [0.75, 0.2, 0.8, 0.5, 1, 2, 3, 0.5, 0.125], "its heat, base, scale, soot, tear and dissolve");
+});
+
 test("a flying part that blends: a rigid record of its own kind, one blend for every copy, three's key for the transparent list", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
   const glow = new THREE.ShaderMaterial({ name: "zero:unlit", defines: { UNLIT: "", SCROLL: "", BLENDED: "" }, transparent: true, depthWrite: false, side: THREE.DoubleSide,
@@ -822,6 +894,48 @@ test("a flying part that blends: a rigid record of its own kind, one blend for e
   assert.equal(core.input[at(0)], 4, "a blending part's record");
   assert.deepEqual([...core.input.subarray(at(0) + 97, at(0) + 100)], [2, 0, a.children[0].id], "three's key: its group's order, its own, its id");
   assert.deepEqual([...core.input.subarray(at(0) + 76, at(0) + 78)], [0.5, 0], "its scroll in its row");
+});
+
+test("reveal: what the instance pass took shown to three for a render of three's own, then taken again", () => {
+  const { core, scene, camera, renderer, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  const inst = core.byName.instances;
+  const uniforms = () => ({ map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } });
+  // A rig and a flying part, both registered.
+  const rigMaterial = new THREE.ShaderMaterial({ uniforms: uniforms() });
+  drawn(rigMaterial, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"], ["position", "skinIndex", "skinWeight"]));
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+  geometry.setIndex([0, 1, 2]);
+  const rig = new THREE.SkinnedMesh(geometry, rigMaterial), bone = new THREE.Bone();
+  rig.add(bone); rig.bind(new THREE.Skeleton([bone]));
+  rig.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2);
+  rig.position.z = -10;
+  scene.add(rig);
+  const partMaterial = new THREE.ShaderMaterial({ defines: { DYNAMIC: "" }, uniforms: uniforms() });
+  drawn(partMaterial, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]));
+  const group = new THREE.Group(); group.add(new THREE.Mesh(geometry, partMaterial)); group.userData.flying = true; group.position.z = -5;
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  renderer.info.render.frame++;
+  core.pass(renderer, scene, camera);
+  const part = group.children[0];
+  assert.equal(rigMaterial.visible, false);
+  assert.equal(part.layers.mask, 1 << 30);
+  inst.reveal(true);
+  assert.equal(rigMaterial.visible, true, "the rig shown");
+  assert.equal(part.layers.mask, 1, "the part on its own layers");
+  assert.equal(partMaterial.visible, true, "a part's material, shared with every copy, never touched");
+  inst.reveal(false);
+  assert.equal(rigMaterial.visible, false);
+  assert.equal(part.layers.mask, 1 << 30);
+  // The renderer off: three has it all already, and reveal leaves it so.
+  core.setActive(false);
+  inst.reveal(false);
+  assert.equal(rigMaterial.visible, true);
+  assert.equal(part.layers.mask, 1);
 });
 
 test("soldiers: only those three's render would list are written, with the bones three worked out in that render", () => {
@@ -1058,6 +1172,37 @@ test("the Enhanced destruction's fire and smoke: each pool a batch on a quad of 
   assert.deepEqual([...core.fxData.subarray(fire[4], fire[4] + 16)], [...fx.hot.arrays[0].subarray(0, 16)]);
   core.setActive(false);
   assert.ok(!fx.hot.external && !fx.smoke.external);
+});
+
+test("the Enhanced destruction's arcs: a mesh rebuilt each frame, as many vertices and indices as its arcs used, hidden by its flag", async () => {
+  const { DestructionFx } = await import("../src/destruction-fx.js");
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const fx = new DestructionFx(scene, { hot: 4, smoke: 4, arcs: 4 });
+  fx.arc(null, new THREE.Vector3(-1, 0, -6), null, new THREE.Vector3(1, 0.5, -6), 2);
+  fx.update(1 / 60);
+  const arcs = fx.arcs;
+  assert.ok(arcs.index > 0 && arcs.mesh.visible);
+  list.transparent.push({ object: arcs.mesh, material: arcs.material, group: null });
+  drawn(arcs.material, program(["projectionMatrix", "viewMatrix", "resolution", "fogRange"], ["position", "tangent", "meta"], "#define DOUBLE_SIDED\nvertex"));
+  frame();
+  const added = calls.find((c) => c[0] === "fx_add_mesh");
+  assert.deepEqual(added.slice(5, 7), [[3, 3, 4], ""], "its attributes; no values of its own (the frame's resolution and fog)");
+  assert.equal(arcs.external, true);
+  assert.equal(arcs.material.visible, true, "hidden by its flag, not its material");
+  list.transparent.length = 0;
+  const version = arcs.mesh.geometry.getAttribute("position").version;
+  fx.update(1 / 60);
+  assert.equal(arcs.mesh.visible, false, "shown to three never");
+  assert.equal(arcs.mesh.geometry.getAttribute("position").version, version, "uploaded nothing by three");
+  frame();
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 4), [1, 0, arcs.vertex, arcs.index], "the vertices and indices its arcs used");
+  assert.deepEqual([...core.fxData.subarray(0, 3 * arcs.vertex)], [...arcs.positions.subarray(0, 3 * arcs.vertex)]);
+  assert.deepEqual([...core.fxBits.subarray(10 * arcs.vertex, 10 * arcs.vertex + arcs.index)], [...arcs.indices.subarray(0, arcs.index)]);
+  core.setActive(false);
+  assert.equal(arcs.external, false);
+  assert.equal(arcs.mesh.visible, true);
+  assert.deepEqual(arcs.mesh.geometry.index.updateRanges, [{ start: 0, count: arcs.index }], "what it holds marked for three to upload");
 });
 
 test("the death camera's trace: a mesh rebuilt each frame, its vertices, indices and own values written as three draws it", async () => {

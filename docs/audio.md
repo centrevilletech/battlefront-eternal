@@ -96,7 +96,9 @@ panner.
 
 `window.__bf.audio` is the `GameAudio` object: `engine` (voices, buses,
 `stats`, `culled` among them: one-shots asked for out of earshot),
-`engine.renderer` (the graph), `streams` (`queues`: the lines waiting),
+`engine.renderer` (the graph; its `dsp` is the WebAssembly module, built
+from `rust/audio`, that the worklets run, or null with `?audio=js`, which
+runs their JavaScript instead: the same samples to the bit, for A/B), `streams` (`queues`: the lines waiting),
 `music`, `vo`, `player`, `soldiers`, `chatter`, `scene`, `ambience`,
 `acoustics`, `data`, and `log` (sounds asked for that don't exist).
 

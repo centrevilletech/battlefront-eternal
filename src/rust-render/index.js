@@ -3,15 +3,16 @@
 // static world and its soldiers with far fewer WebGL calls than three makes
 // for them. Three.js still draws everything else and stays the default.
 //
-// It draws inside the near scene's pass, right after the far scene's image
-// (graphics.background): the map's opaque buckets, then every visible
-// soldier's body and held gun, instanced. Three's state is reset after it
-// (renderer.resetState) and three draws the rest of the scene. What it draws
-// three does not (each such material is set invisible, which three's render
-// lists respect), but three's scene update still composes their matrices
-// and bones, which the page's other code reads. It draws them with programs
-// made from the GLSL three compiled for them (shader.rs), so they light as
-// three's do.
+// It draws inside the near scene's pass, first of its opaque objects (from
+// an anchor at the start of three's opaque list; the far scene's image,
+// graphics.background, is drawn last of them): the map's opaque buckets,
+// then every visible soldier's body and held gun, instanced. Three's state
+// is reset after it (renderer.resetState) and three draws the rest of the
+// scene. What it draws three does not (each such material is set
+// invisible, which three's render lists respect), but three's scene update
+// still composes their matrices and bones, which the page's other code
+// reads. It draws them with programs made from the GLSL three compiled for
+// them (shader.rs), so they light as three's do.
 //
 // Only what it supports moves; everything else stays with three, item by
 // item: a program that reads what the renderer can't give it yet (the
@@ -193,6 +194,9 @@ export class RustRender {
     this.phases.mirrorTransparent = this.phases.transparent;
     this.byName = {};
     for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass]) this.addPass(make(this));
+    // The near phase's hook: first in three's opaque list of the near scene
+    // (graphics.background, the far scene's image, is drawn last of it).
+    this.nearAnchor = graphics.scene ? this.anchor(graphics.scene, { renderOrder: -1e9 }, (renderer, scene, camera) => this.pass(renderer, scene, camera)) : null;
   }
 
   // A pass: { name, phase, register?(), draw?(ctx), setActive?(on),
@@ -472,8 +476,8 @@ export class RustRender {
     for (const pass of this.passes) pass.setActive?.(on);
   }
 
-  // graphics.background's onAfterRender: the near scene's pass, the far
-  // scene's image just drawn behind it.
+  // The near anchor's onAfterRender: the near scene's pass, at the start of
+  // three's opaque list.
   pass(renderer, scene, camera) {
     if (camera === this.graphics.camera && renderer.getRenderTarget() === this.graphics.sceneTarget) this.phase("near", renderer, scene, camera);
     // A mirror's render of the near scene (camera.userData.mirror: water.js)
