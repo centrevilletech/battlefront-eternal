@@ -1315,7 +1315,7 @@ impl MobilePosts {
 
 }
 
-/// A post, from rust/sim/schema/battle.mjs, rust/sim/schema/seats.mjs.
+/// A post, from rust/sim/schema/ai.mjs, rust/sim/schema/battle.mjs, rust/sim/schema/seats.mjs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Post {
     pub name: StrId,

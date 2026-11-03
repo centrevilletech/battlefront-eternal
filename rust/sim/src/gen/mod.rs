@@ -8,6 +8,8 @@ pub use crate::store::block::Block;
 pub use crate::store::{word_i32, word_u32, DefId, KindCode, Mat4, Nullable, Quat, Ref, RefSet, Slab, StrId, StrMap, Vec3};
 pub use crate::store::{IntObj, NumMap, RefMap, TypedArray};
 
+mod ai;
+pub use self::ai::*;
 mod battle;
 pub use self::battle::*;
 mod combat;
@@ -39,45 +41,47 @@ pub const KIND_BODY: KindCode = 3;
 pub const KIND_BOLT: KindCode = 4;
 pub const KIND_BUILDING: KindCode = 5;
 pub const KIND_CHARACTER: KindCode = 6;
-pub const KIND_COMMAND_POSTS: KindCode = 7;
-pub const KIND_CONTROLLER: KindCode = 8;
-pub const KIND_EMITTER: KindCode = 9;
-pub const KIND_GRENADE: KindCode = 10;
-pub const KIND_HUMAN_SPAWN: KindCode = 11;
-pub const KIND_ITEM: KindCode = 12;
-pub const KIND_ITEMS: KindCode = 13;
-pub const KIND_MOBILE_POST: KindCode = 14;
-pub const KIND_MOBILE_POSTS: KindCode = 15;
-pub const KIND_NAV_CONTROL: KindCode = 16;
-pub const KIND_OBJECTIVE_TARGET: KindCode = 17;
-pub const KIND_ORDNANCE: KindCode = 18;
-pub const KIND_OWNER_SNAPSHOT: KindCode = 19;
-pub const KIND_PATH_PLANNER: KindCode = 20;
-pub const KIND_PLANNER_REQUEST: KindCode = 21;
-pub const KIND_POST: KindCode = 22;
-pub const KIND_PROP: KindCode = 23;
-pub const KIND_ROUND: KindCode = 24;
-pub const KIND_SEAT_LEASE: KindCode = 25;
-pub const KIND_SEAT_UNIT: KindCode = 26;
-pub const KIND_SEATS: KindCode = 27;
-pub const KIND_SPAWNING: KindCode = 28;
-pub const KIND_TURRET: KindCode = 29;
-pub const KIND_TURRET_SEATS: KindCode = 30;
-pub const KIND_TURRET_TARGET: KindCode = 31;
-pub const KIND_UNIT: KindCode = 32;
-pub const KIND_UNITS: KindCode = 33;
-pub const KIND_VEHICLE: KindCode = 34;
-pub const KIND_VEHICLE_DRIVER: KindCode = 35;
-pub const KIND_VEHICLE_TARGET: KindCode = 36;
-pub const KIND_VEHICLES: KindCode = 37;
+pub const KIND_CLASSIC_AI: KindCode = 7;
+pub const KIND_COMMAND_POSTS: KindCode = 8;
+pub const KIND_CONTROLLER: KindCode = 9;
+pub const KIND_EMITTER: KindCode = 10;
+pub const KIND_GRENADE: KindCode = 11;
+pub const KIND_HUMAN_SPAWN: KindCode = 12;
+pub const KIND_ITEM: KindCode = 13;
+pub const KIND_ITEMS: KindCode = 14;
+pub const KIND_MOBILE_POST: KindCode = 15;
+pub const KIND_MOBILE_POSTS: KindCode = 16;
+pub const KIND_NAV_CONTROL: KindCode = 17;
+pub const KIND_OBJECTIVE_TARGET: KindCode = 18;
+pub const KIND_ORDNANCE: KindCode = 19;
+pub const KIND_OWNER_SNAPSHOT: KindCode = 20;
+pub const KIND_PATH_PLANNER: KindCode = 21;
+pub const KIND_PLANNER_REQUEST: KindCode = 22;
+pub const KIND_POST: KindCode = 23;
+pub const KIND_PROP: KindCode = 24;
+pub const KIND_ROUND: KindCode = 25;
+pub const KIND_SEAT_LEASE: KindCode = 26;
+pub const KIND_SEAT_UNIT: KindCode = 27;
+pub const KIND_SEATS: KindCode = 28;
+pub const KIND_SERVICE_TARGET: KindCode = 29;
+pub const KIND_SPAWNING: KindCode = 30;
+pub const KIND_TURRET: KindCode = 31;
+pub const KIND_TURRET_SEATS: KindCode = 32;
+pub const KIND_TURRET_TARGET: KindCode = 33;
+pub const KIND_UNIT: KindCode = 34;
+pub const KIND_UNITS: KindCode = 35;
+pub const KIND_VEHICLE: KindCode = 36;
+pub const KIND_VEHICLE_DRIVER: KindCode = 37;
+pub const KIND_VEHICLE_TARGET: KindCode = 38;
+pub const KIND_VEHICLES: KindCode = 39;
 /// How many kinds there are (codes run 1 to KINDS).
-pub const KINDS: usize = 37;
-pub const KIND_NAMES: [&str; 38] = ["", "battle", "beam", "body", "bolt", "building", "character", "commandPosts", "controller", "emitter", "grenade", "humanSpawn", "item", "items", "mobilePost", "mobilePosts", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "post", "prop", "round", "seatLease", "seatUnit", "seats", "spawning", "turret", "turretSeats", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
+pub const KINDS: usize = 39;
+pub const KIND_NAMES: [&str; 40] = ["", "battle", "beam", "body", "bolt", "building", "character", "classicAI", "commandPosts", "controller", "emitter", "grenade", "humanSpawn", "item", "items", "mobilePost", "mobilePosts", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "post", "prop", "round", "seatLease", "seatUnit", "seats", "serviceTarget", "spawning", "turret", "turretSeats", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 38] = [0, 0x4df890db, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0xa6ce9011, 0xa0adafe0, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0xf310d66e, 0x6fbbce3d, 0xb7430d64, 0x9fea083b, 0x28884b1f, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x0c2115b7, 0x9b924a1b, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0xf7223e60, 0x512f6f6c, 0x2547f2df, 0xfbd22c8d, 0x19c3d924, 0x03866fa6, 0xb30b4400, 0x7252759a, 0x02390125, 0x4998e382];
+pub const KIND_HASHES: [u32; 40] = [0, 0x4df890db, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0xa6ce9011, 0x9a4379ca, 0xa0adafe0, 0xc34c0510, 0xc667f062, 0xa3e130ff, 0xf310d66e, 0x6fbbce3d, 0xb7430d64, 0x9fea083b, 0x28884b1f, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x0c2115b7, 0x9b924a1b, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0x28cdb4e2, 0xf7223e60, 0x512f6f6c, 0x2547f2df, 0xfbd22c8d, 0x19c3d924, 0x03866fa6, 0xb30b4400, 0x7252759a, 0x02390125, 0x4998e382];
 /// Whether each kind's objects carry their own number (its slot), by code.
-pub const KIND_KEYED: [bool; 38] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false];
+pub const KIND_KEYED: [bool; 40] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false];
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
@@ -86,10 +90,6 @@ pub struct Body;
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Building;
-
-/// A kind the store holds no fields of (only references to).
-#[derive(Clone, Copy, Debug, Default)]
-pub struct Controller;
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
@@ -117,6 +117,10 @@ pub struct SeatUnit;
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
+pub struct ServiceTarget;
+
+/// A kind the store holds no fields of (only references to).
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Turret;
 
 /// A kind the store holds no fields of (only references to).
@@ -138,7 +142,9 @@ pub struct Store {
     pub beam: Slab<Beam>,
     pub bolt: Slab<Bolt>,
     pub character: Slab<Character>,
+    pub classic_ai: ClassicAI,
     pub command_posts: CommandPosts,
+    pub controller: Slab<Controller>,
     pub grenade: Slab<Grenade>,
     pub human_spawn: HumanSpawn,
     pub item: Slab<Item>,
@@ -234,10 +240,35 @@ impl Store {
                     if let Some(v) = self.character.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
                 }
             }
+            KIND_CLASSIC_AI => {
+                block.begin(1, if full { ClassicAI::FULL_STRIDE } else { ClassicAI::EXPORT_STRIDE });
+                let (row, heap) = block.row(0);
+                if full { self.classic_ai.put_full(row, heap) } else { self.classic_ai.put_export(row, heap) }
+            }
             KIND_COMMAND_POSTS => {
                 block.begin(1, if full { CommandPosts::FULL_STRIDE } else { CommandPosts::EXPORT_STRIDE });
                 let (row, heap) = block.row(0);
                 if full { self.command_posts.put_full(row, heap) } else { self.command_posts.put_export(row, heap) }
+            }
+            KIND_CONTROLLER => {
+                let list = self.classic_ai.controllers.clone();
+                let retired = if mode == 0 { std::mem::take(&mut self.controller.retired) } else { Vec::new() };
+                let shown = if mode == 2 { self.controller.retired.len() } else { retired.len() };
+                block.begin(shown + list.len(), if full { Controller::FULL_STRIDE } else { Controller::EXPORT_STRIDE });
+                block.set_retired(shown);
+                let old = if mode == 2 { &self.controller.retired } else { &retired };
+                for (i, (r, v)) in old.iter().enumerate() {
+                    let (row, heap) = block.row(i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    v.put_export(row, heap);
+                }
+                for (i, &r) in list.iter().enumerate() {
+                    let (row, heap) = block.row(shown + i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    if let Some(v) = self.controller.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
+                }
             }
             KIND_GRENADE => {
                 let list = self.ordnance.grenades.clone();
@@ -491,6 +522,10 @@ impl Store {
                 let r = self.character.insert(Default::default());
                 self.battle.characters.push(r);
             },
+            KIND_CONTROLLER => for _ in 0..count {
+                let r = self.controller.insert(Default::default());
+                self.classic_ai.controllers.push(r);
+            },
             KIND_GRENADE => for _ in 0..count {
                 let r = self.grenade.insert(Default::default());
                 self.ordnance.grenades.push(r);
@@ -533,6 +568,7 @@ impl Store {
             KIND_BEAM => self.beam.retire(Ref::new(slot, gen)),
             KIND_BOLT => self.bolt.retire(Ref::new(slot, gen)),
             KIND_CHARACTER => self.character.retire(Ref::new(slot, gen)),
+            KIND_CONTROLLER => self.controller.retire(Ref::new(slot, gen)),
             KIND_GRENADE => self.grenade.retire(Ref::new(slot, gen)),
             KIND_ITEM => self.item.retire(Ref::new(slot, gen)),
             KIND_MOBILE_POST => self.mobile_post.retire(Ref::new(slot, gen)),
@@ -596,9 +632,26 @@ impl Store {
                 }
                 if !some { self.character.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
+            KIND_CLASSIC_AI => {
+                let (row, heap) = block.read(0);
+                if full { self.classic_ai.take_full(row, heap) } else { self.classic_ai.take_import(row, heap) }
+            }
             KIND_COMMAND_POSTS => {
                 let (row, heap) = block.read(0);
                 if full { self.command_posts.take_full(row, heap) } else { self.command_posts.take_import(row, heap) }
+            }
+            KIND_CONTROLLER => {
+                let mut listed: Vec<bool> = Vec::new();
+                for i in 0..block.rows() {
+                    let (row, heap) = block.read(i);
+                    let r = Ref::new(word_u32(row[0]), word_u32(row[1]));
+                    let v = self.controller.ensure(r);
+                    if full { v.take_full(row, heap) } else { v.take_import(row, heap) }
+                    let s = r.slot as usize;
+                    if listed.len() <= s { listed.resize(s + 1, false); }
+                    listed[s] = true;
+                }
+                if !some { self.controller.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             KIND_GRENADE => {
                 let mut listed: Vec<bool> = Vec::new();
