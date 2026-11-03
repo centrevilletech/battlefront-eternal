@@ -43,9 +43,12 @@ function bridge() {
   const { BfeRenderer, memory, calls } = standinModule({
     quiet: ["set_far_map", "sort", "transparent_bucket_shown", "foliage_on"],
     methods: ({ calls }) => {
-      const methods = { far_frame() { calls.push(["far_frame"]); return [0, 0, 0, 1, 10, 0, 0, 3, 0, 0, 0, 0, 0, 0]; } };
-      for (const name of ["add_texture", "add_program", "add_geometry", "geometry_buffer", "far_table", "far_item"]) methods[name] = (...args) => { calls.push([name, ...args]); return next++; };
-      for (const name of ["geometry_pointer", "geometry_index", "geometry_group", "far_source", "far_range", "far_cells", "far_terrain", "far_instanced"]) methods[name] = (...args) => { calls.push([name, ...args]); };
+      const methods = {
+        far_frame() { calls.push(["far_frame"]); return [0, 0, 0, 1, 10, 0, 0, 3, 0, 0, 0, 0, 0, 0]; },
+        geometry_buffer(...args) { calls.push(["geometry_buffer", ...args]); return 0; },
+      };
+      for (const name of ["add_texture", "add_program", "add_geometry", "far_table", "far_item"]) methods[name] = (...args) => { calls.push([name, ...args]); return next++; };
+      for (const name of ["geometry_pointer", "geometry_index", "geometry_group", "far_source", "far_range", "far_base", "far_cells", "far_terrain", "far_instanced"]) methods[name] = (...args) => { calls.push([name, ...args]); };
       return methods;
     },
   });
@@ -173,4 +176,30 @@ test("an error in the far pass leaves the far scene to three for good", () => {
   assert.match(core.errors.at(-1), /^far: Error: no/);
   core.views();
   assert.equal(core.farInput[4], 0);
+});
+
+test("the map's far buckets laid out alike share one vertex array, each drawn from where its index starts", () => {
+  const { core, calls, renderer, farScene, camera, far } = bridge();
+  const bucket = (vertices, index) => {
+    const object = mesh("zero:lit", BUCKET, { values: values() });
+    const data = new THREE.InterleavedBuffer(new Float32Array(vertices), 3);
+    object.geometry = new THREE.BufferGeometry();
+    object.geometry.setAttribute("position", new THREE.InterleavedBufferAttribute(data, 3, 0));
+    object.geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(index), 1));
+    object.material.defines = { FAR: "", WORLD_SPACE: "" };
+    return object;
+  };
+  const a = bucket([0, 0, 0, 1, 0, 0, 0, 1, 0], [0, 1, 2]), b = bucket([0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1], [0, 1, 2, 1, 3, 2]);
+  farScene.add(a, b);
+  assert.equal(core.cover("far", renderer, farScene, camera), true);
+  // One geometry for both: their vertices one after the other, b's indices
+  // offset by a's three vertices.
+  assert.equal(calls.filter((c) => c[0] === "add_geometry").length, 1);
+  const vertex = calls.find((c) => c[0] === "geometry_buffer")[2], index = calls.find((c) => c[0] === "geometry_index")[2];
+  assert.deepEqual([...new Float32Array(vertex.buffer, vertex.byteOffset, vertex.byteLength / 4)], [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1]);
+  assert.deepEqual([...new Uint32Array(index.buffer, index.byteOffset, index.byteLength / 4)], [0, 1, 2, 3, 4, 5, 4, 6, 5]);
+  // Each drawn from its own start, over its own indices.
+  const item = (o) => far.all.find((i) => i.object === o).id;
+  assert.deepEqual(calls.filter((c) => c[0] === "far_base").map((c) => c.slice(1)), [[item(a), 0], [item(b), 3]]);
+  assert.deepEqual(calls.filter((c) => c[0] === "far_range").map((c) => c.slice(1)), [[item(a), 0, 3], [item(b), 0, 6]]);
 });

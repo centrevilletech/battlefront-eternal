@@ -91,6 +91,13 @@ export class BfeRenderer {
     }
     /**
      * @param {number} item
+     * @param {number} base
+     */
+    far_base(item, base) {
+        wasm.bferenderer_far_base(this.__wbg_ptr, item, base);
+    }
+    /**
+     * @param {number} item
      * @param {Float32Array | number[]} positions
      * @param {Uint32Array | number[]} index
      * @param {number} cell_size

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { segmentShape } from "./registry.js";
+import { legacyRandom } from "./ai/random.js";
 
 // Shared actor health, not hero immunity.
 export function regenerate(combat, dt) {
@@ -25,6 +26,8 @@ export function prepareMelee(arsenal) {
 }
 
 const meleeSwings=weapon=>weapon.def.swings?.length?weapon.def.swings.slice(0,3):[{duration:1,hit:.5,sound:null}];
+// The swing pick for a weapon with no generator (random null): Math.random.
+const legacySwing = legacyRandom("melee-swing");
 export class MeleeSwing {
   constructor(weapon) {
     this.weapon = weapon;
@@ -46,7 +49,7 @@ export class MeleeSwing {
     }
     if (!this.swing && selected && trigger.pressed) {
       const swings = meleeSwings(w);
-      const random = w.random || Math.random;
+      const random = w.random || legacySwing;
       this.index = Math.max(0, Math.min(swings.length - 1, Math.trunc(random() * swings.length - .001)));
       this.swing = swings[this.index];
       this.time = -1;
