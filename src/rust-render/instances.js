@@ -1,11 +1,17 @@
 // The instance pass (instances.rs): every visible soldier's body and the
-// guns in his hand, and behind ?rustRigs the scene's other skinned meshes
-// (vehicles' and props' rigs), each a record the renderer draws instanced
-// in the near phase, after the world; and the flying models (rounds,
-// grenades, droids' pieces, items: flying()). Each is registered the first time
+// guns in his hand, and the scene's other skinned meshes (vehicles' and
+// props' rigs; ?rustRigs=0 leaves those to three, for comparisons), each a
+// record the renderer draws instanced in the near phase, after the world;
+// and the flying models (rounds, grenades, droids' pieces, items:
+// flying()). Each is registered the first time
 // three has drawn it (which gives its material a program), then hidden from
-// three; a body wearing materials of its own for now (a dissolve) goes back
-// to three.
+// three. A dying droideka's body dissolves in heated copies of its
+// materials (units.js dissolve): a record of its own, its heat and dissolve
+// its row's (writeExtras); a body in other materials of its own goes back
+// to three. A rig whose material blends (bes1's jedi fighter) is drawn by
+// the renderer as an item of the transparent list (instances.rs
+// KIND_BLENDED), at the place three's sort would draw it, and so is a
+// flying model's part that blends (a round's glow: KIND_BLENDED_RIGID).
 //
 // Only what three's render lists by the camera's frustum is written, culled
 // here as three culls it (the renderer culls the records again by the same
@@ -14,13 +20,14 @@
 // in this render (or drew its shadow), as its own draw of it would read
 // them; worked out here only when three has not (writeBody).
 import * as THREE from "three";
+import { blendOf, stateOf, sidesOf, programForSide } from "./transparent.js";
 
-const SKINNED = 1, RIGID = 2;
+const SKINNED = 1, RIGID = 2, BLENDED = 3, BLENDED_RIGID = 4;
 // The layer a flying model's part goes on while the renderer draws it: no
 // camera renders it (graphics.js uses 1, 2 and 4, sky-probe.js 3, water.js 5).
 const FLYING_LAYER = 30;
 // Record layout (instances.rs REC_*).
-const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, BONE_AT: 9, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56, BIND: 60 };
+const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, BONE_AT: 9, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56, BIND: 60, EXTRA: 76, BLEND: 96 };
 const MAX_RECORDS = 256;
 // A record's state flags (instances.rs REC_FLAGS): its material's side, then
 // alpha to coverage and depth write.
@@ -32,10 +39,51 @@ const LOOK = new Set(["sunScale", "ambientPull", "brightness"]);
 // textures, what the renderer gives each instance from its row (matrices,
 // look, point lights), and lamp lighting's, read only while lamps are off
 // (each soldier's four nearest lamps would be per instance otherwise).
-const INSTANCE = ["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "bindMatrix", ...LOOK, "zeroLights", "zeroLightCount"];
+// A material's own values an instance gives from its row (shader.rs
+// EXTRAS): a scrolling texture's speed, and a heated copy's (destruction-
+// debris.js heatMaterial).
+const EXTRAS = ["scroll", "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve"];
+const INSTANCE = ["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "bindMatrix", ...LOOK, "zeroLights", "zeroLightCount", ...EXTRAS];
 const LAMPS = ["localLightPositions", "localLightColors", "localLightCount"];
 const policy = (samplers) => ({ uniforms: new Set([...samplers, ...INSTANCE, ...LAMPS]), material: LOOK });
 const POLICIES = { [SKINNED]: policy(["map", "farMap", "boneTexture"]), [RIGID]: policy(["map", "farMap"]) };
+// A material's map as the renderer's texture: -1 for none (the renderer
+// binds what three's empty texture gives), undefined while it isn't
+// uploaded yet.
+function mapOf(core, material) {
+  const map = material?.uniforms?.map?.value ?? null;
+  if (!map) return -1;
+  const id = core.texture(map);
+  return id >= 0 ? id : undefined;
+}
+
+// The render order of the nearest Group above an object, as three's
+// projectObject passes it down (0 without one).
+function groupOrderOf(object) {
+  for (let o = object.parent; o; o = o.parent) if (o.isGroup) return o.renderOrder;
+  return 0;
+}
+
+// Whether two of a body's materials (one, or an array of them) are the same.
+function sameMaterials(a, b) {
+  if (a === b) return true;
+  return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((m, i) => m === b[i]);
+}
+
+// A record's material values from its row's ROW_EXTRA (shader.rs EXTRAS):
+// its scroll, then a heated body's heat, base, scale and soot, its tear,
+// its dissolve (heatMaterial's onBeforeRender's values from the object).
+function writeExtras(input, o, uniforms, heated) {
+  const e = o + R.EXTRA, scroll = uniforms?.scroll?.value;
+  input[e] = scroll ? scroll.x : 0; input[e + 1] = scroll ? scroll.y : 0; input[e + 2] = 0; input[e + 3] = 0;
+  if (heated) {
+    input[e + 4] = heated.heat; input[e + 5] = heated.base || 0; input[e + 6] = heated.scale || 1; input[e + 7] = heated.soot;
+    const t = heated.tear;
+    input[e + 8] = t.x; input[e + 9] = t.y; input[e + 10] = t.z; input[e + 11] = t.w;
+    input[e + 12] = heated.dissolve;
+  } else for (let k = 4; k < 13; k++) input[e + k] = 0;
+  for (let k = 13; k < 20; k++) input[e + k] = 0;
+}
 
 // three works out a skeleton's bones as its render lists a skinned mesh of
 // it or draws one's shadow (WebGLObjects.update: once for each count of its
@@ -61,9 +109,11 @@ class InstancePass {
     this.name = "instances";
     this.phase = "near";
     this.bodies = new WeakMap(); // root -> its body's record, or null
+    this.heated = new WeakMap(); // a dissolving body -> its heated record, or null
     this.meshes = new WeakMap(); // a gun's mesh -> its record, or null
-    // ?rustRigs: vehicles' and props' skinned meshes too.
-    this.rigsOn = new URLSearchParams(location.search).has("rustRigs");
+    // Vehicles' and props' skinned meshes too, but with ?rustRigs=0 (a
+    // developer's comparison).
+    this.rigsOn = new URLSearchParams(location.search).get("rustRigs") !== "0";
     this.rigList = null;
     this.bodyRecords = [];
     this.meshRecords = [];
@@ -114,12 +164,19 @@ class InstancePass {
     const { body, hand } = parts;
     let record = this.bodies.get(body);
     if (record === undefined) record = this.registerBody(body);
-    if (record && body.visible && camera.layers.test(body.layers) && body.material === record.materials) {
-      if (this.inView(body)) at = this.writeBody(record, at);
-    } else if (record && body.material !== record.materials) {
-      // Materials of its own for now (a dissolve, units.js): three draws them.
-      for (const m of [].concat(body.material)) m.visible = true;
+    if (record && body.material !== record.materials) {
+      // Dissolving (units.js dissolve): its heated record, registered once
+      // three has drawn the heated materials; any other materials of its
+      // own: three draws them.
+      let heated = body.userData.heated ? this.heated.get(body) : null;
+      if (heated !== null && (heated === undefined || !sameMaterials(heated.materials, body.material))) {
+        heated = this.registerBody(body, true);
+        if (heated !== undefined) this.heated.set(body, heated);
+      }
+      if (heated) record = heated;
+      else { for (const m of [].concat(body.material)) m.visible = true; record = null; }
     }
+    if (record && body.visible && camera.layers.test(body.layers) && this.inView(body)) at = this.writeBody(record, at);
     for (const group of hand?.children || []) {
       if (!group.visible || !group.isGroup) continue;
       for (const mesh of group.children) {
@@ -134,7 +191,10 @@ class InstancePass {
     return at;
   }
 
-  registerBody(body) {
+  // A body's record (or, `heated`, the record of the heated copies of its
+  // materials it dissolves in), or null when the renderer can't draw it;
+  // undefined while three has not drawn it as it is yet.
+  registerBody(body, heated = false) {
     const core = this.core;
     let record = null;
     // The materials its groups draw with: the array is the actor's own
@@ -150,14 +210,14 @@ class InstancePass {
       const geometry = program && core.geometry(body.geometry, program);
       if (geometry !== null && geometry !== undefined) {
         const groups = merged.length ? merged : [{ materialIndex: 0 }];
-        const textures = groups.map((g) => core.texture(all[g.materialIndex]?.uniforms.map?.value));
-        if (textures.every((t) => t >= 0)) {
-          record = { body, materials: body.material, used, program: program.id, geometry, textures, whole: !merged.length, look: used[0].uniforms };
-          for (const m of used) m.visible = false;
-          this.bodyRecords.push(record);
-        }
+        const textures = groups.map((g) => mapOf(core, all[g.materialIndex]));
+        if (textures.some((t) => t === undefined)) return undefined; // its textures first
+        record = { body, materials: body.material, used, program: program.id, geometry, textures, whole: !merged.length, look: used[0].uniforms, heated };
+        for (const m of used) m.visible = false;
+        this.bodyRecords.push(record);
       }
     }
+    if (heated) return programs[0] || record ? record : undefined;
     if (programs[0] || record) this.bodies.set(body, record);
     return record;
   }
@@ -192,17 +252,43 @@ class InstancePass {
     const core = this.core;
     let record = null;
     const material = mesh.material, threeProgram = core.renderer.properties.get(material).currentProgram;
-    if (threeProgram && !material.transparent && !mesh.geometry.groups.length && mesh.skeleton) {
+    if (threeProgram && material.transparent && !mesh.geometry.groups.length && mesh.skeleton) {
+      record = this.registerBlended(mesh);
+      if (record === undefined) return undefined;
+    } else if (threeProgram && !material.transparent && !mesh.geometry.groups.length && mesh.skeleton) {
       const program = core.program(threeProgram, SKINNED, material, POLICIES[SKINNED]);
       const geometry = program && core.geometry(mesh.geometry, program);
-      const texture = core.texture(material.uniforms?.map?.value);
-      if (geometry !== null && geometry !== undefined && texture >= 0) {
+      const texture = mapOf(core, material);
+      if (texture === undefined) return undefined; // its texture first
+      if (geometry !== null && geometry !== undefined) {
         record = { body: mesh, materials: material, used: [material], program: program.id, geometry, textures: [texture], whole: true, look: material.uniforms };
         material.visible = false;
         this.bodyRecords.push(record);
       }
     }
     if (threeProgram || record) this.bodies.set(mesh, record);
+    return record;
+  }
+
+  // A rig whose material blends: an item of the transparent list
+  // (instances.rs KIND_BLENDED), drawn with three's program for each side
+  // three draws it with (back faces, then front, for a double-sided one),
+  // its blending and depth as three sets them. Null when the renderer
+  // can't draw it; undefined while its texture isn't uploaded yet.
+  registerBlended(mesh) {
+    const core = this.core, renderer = core.renderer, material = mesh.material;
+    const blend = blendOf(material), state = stateOf(material), sides = sidesOf(material);
+    if (!blend || !state) return null;
+    const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, SKINNED, material, POLICIES[SKINNED]); });
+    if (programs.some((p) => !p) || programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
+    const texture = mapOf(core, material);
+    if (texture === undefined) return undefined;
+    const geometry = core.geometry(mesh.geometry, programs[0]);
+    if (geometry === null || geometry === undefined) return null;
+    const blendId = core.rust.inst_add_blend(new Uint32Array(blend), state.flags & 3, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]])));
+    const record = { body: mesh, materials: material, used: [material], program: programs[programs.length - 1].id, geometry, textures: [texture], whole: true, look: material.uniforms, blend: blendId };
+    material.visible = false;
+    this.bodyRecords.push(record);
     return record;
   }
 
@@ -213,8 +299,9 @@ class InstancePass {
     if (threeProgram && !material.transparent && !mesh.geometry.groups.length && "DYNAMIC" in (material.defines || {})) {
       const program = core.program(threeProgram, RIGID, material, POLICIES[RIGID]);
       const geometry = program && core.geometry(mesh.geometry, program);
-      const texture = core.texture(material.uniforms.map?.value);
-      if (geometry !== null && geometry !== undefined && texture >= 0) {
+      const texture = mapOf(core, material);
+      if (texture === undefined) return undefined; // its texture first
+      if (geometry !== null && geometry !== undefined) {
         if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
         record = { mesh, material, program: program.id, geometry, texture };
@@ -243,16 +330,22 @@ class InstancePass {
       boneAt = at.bones; at.skeletons.set(skeleton, boneAt); at.bones += bones;
     }
     const o = core.recordsAt + at.records * core.stride;
-    input[o + R.KIND] = SKINNED; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
+    input[o + R.KIND] = record.blend === undefined ? SKINNED : BLENDED; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
     input[o + R.GROUPS] = record.whole ? 0 : record.textures.length;
+    // A blending rig's blend and three's key for it (but z, the renderer's).
+    if (record.blend !== undefined) { input[o + R.BLEND] = record.blend; input[o + R.BLEND + 1] = groupOrderOf(body); input[o + R.BLEND + 2] = body.renderOrder; input[o + R.BLEND + 3] = body.id; }
     for (let g = 0; g < record.textures.length; g++) input[o + R.TEXTURES + g] = record.textures[g];
     input[o + R.BONES] = bones; input[o + R.BONE_AT] = boneAt;
     const s = body.boundingSphere;
     input[o + R.SPHERE] = s.center.x; input[o + R.SPHERE + 1] = s.center.y; input[o + R.SPHERE + 2] = s.center.z; input[o + R.SPHERE + 3] = s.radius;
     const w = body.matrixWorld.elements, b = body.bindMatrixInverse.elements, bind = body.bindMatrix.elements;
     for (let k = 0; k < 16; k++) { input[o + R.WORLD + k] = w[k]; input[o + R.BIND_INVERSE + k] = b[k]; input[o + R.BIND + k] = bind[k]; }
-    const look = record.look;
-    input[o + R.LOOK] = look.sunScale.value; input[o + R.LOOK + 1] = look.ambientPull.value.x; input[o + R.LOOK + 2] = look.ambientPull.value.y; input[o + R.LOOK + 3] = look.brightness.value;
+    // A heated body's look is its own (heatMaterial's onBeforeRender sets it
+    // from the object), as are its heat and dissolve.
+    const heated = record.heated ? body.userData.heated : null;
+    if (heated) { input[o + R.LOOK] = heated.sun; input[o + R.LOOK + 1] = heated.darken; input[o + R.LOOK + 2] = heated.lighten; input[o + R.LOOK + 3] = heated.brightness; }
+    else { const look = record.look; input[o + R.LOOK] = look.sunScale.value; input[o + R.LOOK + 1] = look.ambientPull.value.x; input[o + R.LOOK + 2] = look.ambientPull.value.y; input[o + R.LOOK + 3] = look.brightness.value; }
+    writeExtras(input, o, record.used[0].uniforms, heated);
     input[o + R.FLAGS] = flagsOf(record.used[0]);
     at.records++;
     return at;
@@ -264,8 +357,10 @@ class InstancePass {
     core.views();
     const { mesh, material } = record, input = core.input, geometry = mesh.geometry;
     const o = core.recordsAt + at.records * core.stride;
-    input[o + R.KIND] = RIGID; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
+    input[o + R.KIND] = record.blend === undefined ? RIGID : BLENDED_RIGID; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
     input[o + R.GROUPS] = 0; input[o + R.TEXTURES] = record.texture; input[o + R.BONES] = 0;
+    // A blending part's blend and three's key for it (but z, the renderer's).
+    if (record.blend !== undefined) { input[o + R.BLEND] = record.blend; input[o + R.BLEND + 1] = groupOrderOf(mesh); input[o + R.BLEND + 2] = mesh.renderOrder; input[o + R.BLEND + 3] = mesh.id; }
     const s = geometry.boundingSphere, b = geometry.boundingBox;
     input[o + R.SPHERE] = s.center.x; input[o + R.SPHERE + 1] = s.center.y; input[o + R.SPHERE + 2] = s.center.z; input[o + R.SPHERE + 3] = s.radius;
     input[o + R.BOX] = b.min.x; input[o + R.BOX + 1] = b.min.y; input[o + R.BOX + 2] = b.min.z; input[o + R.BOX + 3] = b.max.x; input[o + R.BOX + 4] = b.max.y; input[o + R.BOX + 5] = b.max.z;
@@ -273,6 +368,7 @@ class InstancePass {
     for (let k = 0; k < 16; k++) { input[o + R.WORLD + k] = w[k]; input[o + R.BIND_INVERSE + k] = 0; }
     const u = material.uniforms;
     input[o + R.LOOK] = u.sunScale.value; input[o + R.LOOK + 1] = u.ambientPull.value.x; input[o + R.LOOK + 2] = u.ambientPull.value.y; input[o + R.LOOK + 3] = u.brightness.value;
+    writeExtras(input, o, u, null);
     input[o + R.FLAGS] = flagsOf(material);
     at.records++;
     return at;
@@ -293,9 +389,10 @@ class InstancePass {
   // the renderer may not draw (one not yet registered, one inside another
   // object), so a part it draws is hidden from three by its layers (on
   // FLYING_LAYER), not by its material; its own layers stay in its record,
-  // tested against the camera's as three would test them. A part three
-  // gives another material (destruction.js heats a wreck's) goes back to
-  // three.
+  // tested against the camera's as three would test them. A part whose
+  // material blends is an item of the transparent list (registerFlying). A
+  // part three gives another material (destruction.js heats a wreck's)
+  // goes back to three.
   flying(camera, at) {
     if (!this.flyingRecords) this.watchFlying();
     if (this.flyingPending.size) {
@@ -333,6 +430,7 @@ class InstancePass {
     const scene = this.core.graphics.scene;
     this.flyingRecords = [];
     this.flyingByMesh = new WeakMap(); // part -> its record, or null (three draws it)
+    this.flyingBlends = new WeakMap(); // a blending part's material -> its blend (inst_add_blend) and programs
     this.flyingPending = new Set(scene.children.filter((o) => o.userData?.flying));
     scene.addEventListener("childadded", ({ child }) => { if (child.userData?.flying) this.flyingPending.add(child); });
     scene.addEventListener("childremoved", ({ child }) => {
@@ -357,14 +455,32 @@ class InstancePass {
     const threeProgram = core.renderer.properties.get(material).currentProgram;
     if (!threeProgram) return undefined;
     const defines = material.defines || {};
-    if (material.transparent || mesh.geometry.groups.length || !("DYNAMIC" in defines || "UNLIT" in defines)) return null;
-    const program = core.program(threeProgram, RIGID, material, POLICIES[RIGID]);
-    const geometry = program && core.geometry(mesh.geometry, program);
-    const texture = core.texture(material.uniforms.map?.value);
-    if (geometry === null || geometry === undefined || texture < 0) return null;
+    if (mesh.geometry.groups.length || !("DYNAMIC" in defines || "UNLIT" in defines)) return null;
+    // One that blends: drawn with three's program for each side three draws
+    // it with, its blending and depth as three sets them (one blend for all
+    // the copies of a part, which share its material).
+    let blend, programs;
+    if (material.transparent) {
+      const sides = sidesOf(material), state = stateOf(material), how = blendOf(material);
+      if (!how || !state) return null;
+      programs = sides.map((side) => { const p = programForSide(core.renderer, material, side); return p && core.program(p, RIGID, material, POLICIES[RIGID]); });
+      if (programs.some((p) => !p) || programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
+      const key = programs.map((p, i) => `${p.id}:${sides[i]}`).join();
+      let held = this.flyingBlends.get(material);
+      if (!held || held.key !== key) {
+        held = { key, blend: core.rust.inst_add_blend(new Uint32Array(how), state.flags & 3, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]]))) };
+        this.flyingBlends.set(material, held);
+      }
+      blend = held.blend;
+    } else programs = [core.program(threeProgram, RIGID, material, POLICIES[RIGID])];
+    const program = programs[programs.length - 1];
+    const geometry = program && core.geometry(mesh.geometry, programs[0]);
+    const texture = mapOf(core, material);
+    if (texture === undefined) return undefined; // its texture first
+    if (geometry === null || geometry === undefined) return null;
     if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
     if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-    const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask };
+    const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask, blend };
     if (this.core.active) mesh.layers.set(FLYING_LAYER);
     this.flyingRecords.push(record);
     return record;

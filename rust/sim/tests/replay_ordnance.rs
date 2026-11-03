@@ -290,7 +290,6 @@ impl<'f> LogWorld<'f> {
 
     fn shot_value(&mut self, shot: Shot, a: &mut Arena) -> Value {
         let cx = self.cx();
-        cx.next_record();
         fn find<T: Clone>(slab: &bfe_sim::store::Slab<T>, r: Ref<T>) -> T {
             slab.get(r).cloned().or_else(|| slab.retired.iter().find(|(x, _)| *x == r).map(|(_, v)| v.clone())).expect("an entity of the store")
         }
@@ -309,38 +308,11 @@ impl<'f> LogWorld<'f> {
     }
 
     /// The items as an explosion's call left them: each item the store held
-    /// takes its state there, and those the call made join the list.
+    /// takes its state there (by its handle), and those the call made join.
     fn apply_items(&mut self, after: V) {
-        let frame = self.frame;
         let cx = self.cx();
-        cx.next_record();
-        let list: Vec<V> = after.get("items").items().collect();
-        let mine = cx.store.items.items.clone();
-        if list.len() < mine.len() {
-            fail(format!("{}: the items after an explosion are fewer than before ({} < {})", frame.place(), list.len(), mine.len()));
-        }
-        let mut by_node: HashMap<u32, Ref<Item>> = HashMap::new();
-        for (i, v) in list.iter().enumerate() {
-            let r = if i < mine.len() {
-                let fresh = Item::from_value(*v, cx, "items").unwrap_or_else(|e| fail(e));
-                *cx.store.item.get_mut(mine[i]).expect("an item the store holds") = fresh;
-                mine[i]
-            } else {
-                let r = Item::ref_in(*v, cx, "items").unwrap_or_else(|e| fail(e));
-                cx.store.items.items.push(r);
-                r
-            };
-            if let Some(n) = v.node_id() {
-                by_node.insert(n, r);
-            }
-        }
-        let mut owned = StrMap::default();
-        for (key, items) in after.get("owned").entries() {
-            let key = cx.str_in(key, "owned").unwrap_or_else(|e| fail(e));
-            let refs = items.items().map(|v| *v.node_id().and_then(|n| by_node.get(&n)).unwrap_or_else(|| fail("an owned item not in the list".into()))).collect();
-            owned.set(key, refs);
-        }
-        cx.store.items.owned = owned;
+        let items = Items::from_value(after, cx, "items after an explosion").unwrap_or_else(|e| fail(e));
+        cx.store.items = items;
     }
 }
 
@@ -729,7 +701,7 @@ fn ordnance_owner(cx: &mut Replay, v: V) -> OrdnanceOwner {
 
 /// Runs `port` on a frame from the state `read` reads, then checks the
 /// calls were all made and the end state is the capture's.
-fn replay<R>(capture: &Capture, frame: &Frame, read: impl FnOnce(&mut Replay), port: impl FnOnce(&mut Cx<LogWorld>, &mut Replay) -> R, check: impl FnOnce(&mut Replay, &LogWorld, R)) -> Outcome {
+fn replay<R>(capture: &Capture, frame: &Frame, read: impl FnOnce(&mut Replay), port: impl FnOnce(&mut Cx<LogWorld>, &mut Replay) -> R, check: impl FnOnce(&mut Replay, &LogWorld, R, &Existing)) -> Outcome {
     let run = catch_unwind(AssertUnwindSafe(|| {
         let mut cx = Replay::default();
         read(&mut cx);
@@ -740,6 +712,7 @@ fn replay<R>(capture: &Capture, frame: &Frame, read: impl FnOnce(&mut Replay), p
         for (k, v) in frame.before().get("pools").fields() {
             defs.pools.push((k.to_string(), field_of(v, &mut book)));
         }
+        let existing = Existing::of(&cx.store);
         let cxp: *mut Replay = &mut cx;
         let mut world = LogWorld { frame, log: Log::new(frame), cx: cxp, book: &book };
         // SAFETY: the store, strings and definitions outlive the context,
@@ -752,7 +725,7 @@ fn replay<R>(capture: &Capture, frame: &Frame, read: impl FnOnce(&mut Replay), p
         if let Err(e) = world.log.finish() {
             fail(e.0);
         }
-        check(unsafe { &mut *cxp }, &world, result);
+        check(unsafe { &mut *cxp }, &world, result, &existing);
     }));
     match run {
         Ok(()) => Outcome::Same,
@@ -769,15 +742,54 @@ fn state_same(frame: &Frame, what: &str, captured: V, mine: V) {
     }
 }
 
-fn ordnance_after(cx: &mut Replay, frame: &Frame) {
-    cx.next_record();
+/// The entities the store holds as a frame starts (those the port makes
+/// later are the frame's own).
+struct Existing(std::collections::HashSet<(u16, u32, u32)>);
+
+impl Existing {
+    fn of(s: &Store) -> Existing {
+        let mut set = std::collections::HashSet::new();
+        set.extend(s.bolt.iter().map(|(r, _)| (KIND_BOLT, r.slot, r.gen)));
+        set.extend(s.beam.iter().map(|(r, _)| (KIND_BEAM, r.slot, r.gen)));
+        set.extend(s.grenade.iter().map(|(r, _)| (KIND_GRENADE, r.slot, r.gen)));
+        set.extend(s.round.iter().map(|(r, _)| (KIND_ROUND, r.slot, r.gen)));
+        set.extend(s.item.iter().map(|(r, _)| (KIND_ITEM, r.slot, r.gen)));
+        Existing(set)
+    }
+}
+
+/// An entity the port made in the frame takes the handle the capture gave
+/// the one at its place in its list (the capture numbers a kind's
+/// entities over the whole battle, the replay over the frame).
+fn name_made<T>(cx: &mut Replay, existing: &Existing, kind: u16, mine: &[Ref<T>], theirs: V) {
+    for (i, r) in mine.iter().enumerate() {
+        if existing.0.contains(&(kind, r.slot, r.gen)) {
+            continue;
+        }
+        let v = theirs.at(i);
+        if v.is_undefined() {
+            break;
+        }
+        let (slot, gen) = (r.slot, r.gen);
+        let _ = cx.stored_in(kind, v.get("$id"), "made", |_, _| (slot, gen));
+    }
+}
+
+fn ordnance_after(cx: &mut Replay, frame: &Frame, existing: &Existing) {
+    let after = frame.after();
+    let (bolts, beams, grenades, rounds) = (cx.store.ordnance.bolts.clone(), cx.store.ordnance.beams.clone(), cx.store.ordnance.grenades.clone(), cx.store.ordnance.rounds.clone());
+    name_made(cx, existing, KIND_BOLT, &bolts, after.get("bolts"));
+    name_made(cx, existing, KIND_BEAM, &beams, after.get("beams"));
+    name_made(cx, existing, KIND_GRENADE, &grenades, after.get("grenades"));
+    name_made(cx, existing, KIND_ROUND, &rounds, after.get("rounds"));
     let mut a = Arena::default();
     let mine = cx.write_value(KIND_ORDNANCE, &mut a);
     state_same(frame, "the ordnance", frame.after(), a.view(&mine));
 }
 
-fn items_after(cx: &mut Replay, frame: &Frame, after: V) {
-    cx.next_record();
+fn items_after(cx: &mut Replay, frame: &Frame, after: V, existing: &Existing) {
+    let items = cx.store.items.items.clone();
+    name_made(cx, existing, KIND_ITEM, &items, after.get("items"));
     let mut a = Arena::default();
     let mine = cx.write_value(KIND_ITEMS, &mut a);
     state_same(frame, "the items", after, a.view(&mine));
@@ -795,7 +807,7 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
             }
             let dt = frame.arg(0).num();
             let dt = if NUDGE.load(Ordering::Relaxed) { f64::from_bits(dt.to_bits() + 1) } else { dt };
-            replay(capture, frame, |cx| cx.read_value(KIND_ORDNANCE, frame.before()).unwrap_or_else(|e| fail(e)), |o, _| o.update(dt), |cx, _, ()| ordnance_after(cx, frame))
+            replay(capture, frame, |cx| cx.read_value(KIND_ORDNANCE, frame.before()).unwrap_or_else(|e| fail(e)), |o, _| o.update(dt), |cx, _, (), e| ordnance_after(cx, frame, e))
         }
         "ordnance.fireRound" => replay(
             capture,
@@ -813,8 +825,8 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
                 let emitter = if a(6).is_nullish() { BeamSource::Null } else { BeamSource::from_value(a(6), cx, "emitter").unwrap_or_else(|e| fail(e)) };
                 o.fire_round(def, a(1).vec3().unwrap(), a(2).vec3().unwrap(), owner, visual, ignore_body, emitter, a(7).num(), opt_num(a(8)), opt_num(a(9)))
             },
-            |cx, world, made| {
-                ordnance_after(cx, frame);
+            |cx, world, made, e| {
+                ordnance_after(cx, frame, e);
                 let result = frame.result();
                 match made {
                     None => {
@@ -836,7 +848,7 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
         "items.update" => {
             let dt = frame.arg(0).num();
             let targets = frame.arg(1).len();
-            replay(capture, frame, |cx| cx.read_value(KIND_ITEMS, frame.before().get("items")).unwrap_or_else(|e| fail(e)), |o, _| o.items_update(dt, targets), |cx, _, ()| items_after(cx, frame, frame.after().get("items")))
+            replay(capture, frame, |cx| cx.read_value(KIND_ITEMS, frame.before().get("items")).unwrap_or_else(|e| fail(e)), |o, _| o.items_update(dt, targets), |cx, _, (), e| items_after(cx, frame, frame.after().get("items"), e))
         }
         "items.dispense" => replay(
             capture,
@@ -852,7 +864,7 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
                 let owner = ItemOwner::from_value(a(6), cx, "owner").unwrap_or_else(|e| fail(e));
                 o.dispense(&weapon, a(1).num(), def, a(3).vec3().unwrap(), a(4).vec3().unwrap(), a(5).num(), owner, a(7).num())
             },
-            |cx, _, _| items_after(cx, frame, frame.after().get("items")),
+            |cx, _, _, e| items_after(cx, frame, frame.after().get("items"), e),
         ),
         "items.dropFor" => {
             let drops_v = frame.arg(0);
@@ -880,7 +892,7 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
                         .collect();
                     o.drop_for(&drops, frame.arg(2).vec3().unwrap(), frame.arg(3).vec3().unwrap(), frame.arg(4).num())
                 },
-                |cx, _, _| items_after(cx, frame, frame.after().get("items")),
+                |cx, _, _, e| items_after(cx, frame, frame.after().get("items"), e),
             )
         }
         "items.blast" => {
@@ -897,7 +909,7 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
                     let id = book_id(o, &key);
                     o.blast(id, frame.arg(1).vec3().unwrap())
                 },
-                |cx, _, ()| items_after(cx, frame, frame.after().get("items")),
+                |cx, _, (), e| items_after(cx, frame, frame.after().get("items"), e),
             )
         }
         "items.hurt" => replay(
@@ -905,13 +917,13 @@ fn replay_frame(capture: &Capture, frame: &Frame) -> Outcome {
             frame,
             |cx| {
                 cx.read_value(KIND_ITEMS, frame.before().get("items")).unwrap_or_else(|e| fail(e));
-                Item::ref_in(frame.before().get("item"), cx, "item").unwrap_or_else(|e| fail(e));
             },
             |o, cx| {
-                let r = Item::ref_in(frame.before().get("item"), cx, "item").unwrap();
+                let v = frame.before().get("item");
+                let r = if v.handle().is_some() { Item::ref_in(v, cx, "item") } else { Item::value_in(v, cx, "item") }.unwrap_or_else(|e| fail(e));
                 o.hurt(r, frame.arg(1).num())
             },
-            |cx, _, ()| items_after(cx, frame, frame.after().get("items")),
+            |cx, _, (), e| items_after(cx, frame, frame.after().get("items"), e),
         ),
         other => Outcome::Skipped(format!("no replay of {other}")),
     }
@@ -968,4 +980,45 @@ fn rounds_and_items_replay_as_captured() {
         failed |= !r.failures.is_empty();
     }
     assert!(!failed, "frames parted from their captures");
+}
+
+/// What the corpus exercises: every boundary call by label, and the rounds
+/// and items its frames start with by kind (BFE_REPLAY_CORPUS; run with
+/// --ignored --nocapture).
+#[test]
+#[ignore]
+fn corpus_coverage() {
+    let Some(corpus) = Corpus::from_env().expect("the corpus BFE_REPLAY_CORPUS names") else { return };
+    let mut calls: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut kinds: std::collections::BTreeMap<String, usize> = Default::default();
+    for capture in corpus.captures() {
+        let capture = capture.expect("a capture");
+        for name in FRAMES {
+            for frame in capture.frames(name) {
+                let frame = frame.expect("a frame");
+                for call in frame.calls() {
+                    *calls.entry(call.name.clone()).or_default() += 1;
+                }
+                if name == "ordnance.update" {
+                    for list in ["bolts", "beams", "grenades", "rounds"] {
+                        for e in frame.before().get(list).items() {
+                            let kind = if list == "rounds" { format!("rounds.{}", e.get("kind").str().unwrap_or("?")) } else { list.to_string() };
+                            *kinds.entry(kind).or_default() += 1;
+                        }
+                    }
+                }
+                if name == "items.update" {
+                    for e in frame.before().get("items").get("items").items() {
+                        *kinds.entry(if e.get("mine").bool() { "items.mine".into() } else { "items.powerup".into() }).or_default() += 1;
+                    }
+                }
+            }
+        }
+    }
+    for (k, n) in &kinds {
+        eprintln!("{n:>9}  {k}");
+    }
+    for (k, n) in &calls {
+        eprintln!("{n:>9}  {k}");
+    }
 }

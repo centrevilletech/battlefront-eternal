@@ -27,6 +27,24 @@
 
 const PHASES = 4;
 const TAPS = 12; // per phase: a 48-tap interpolator, as in BS.1770's example
+const DSP_DYN = ["threshold", "ratio", "knee", "attack", "release", "makeup", "skip"];
+// The same DSP in WebAssembly (rust/audio, ?audio=wasm):
+// processorOptions.dsp is the compiled module the page hands over
+// (src/audio/wasm-dsp.js). With it, blocks go to the module, whose
+// answers are this file's own to the last bit
+// (tests/audio-dsp-parity.mjs); without it, the JavaScript below runs as
+// it always has.
+const DSP_MATH = { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin, js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10 };
+function dspExports(options) {
+  const m = options?.processorOptions?.dsp;
+  if (!m) return null;
+  try {
+    return new WebAssembly.Instance(m, { env: DSP_MATH }).exports;
+  } catch {
+    return null;
+  }
+}
+
 
 function interpolator() {
   // Windowed-sinc lowpass at the original Nyquist, split into 4 phases.
@@ -79,18 +97,65 @@ class TruePeakLimiter extends AudioWorkletProcessor {
     this.size = 0;
     this.clock = 0;
     this.setDynamics(o.dynamics || {});
+    const x = dspExports(options);
+    if (x) {
+      this.dsp = { x, h: x.limiter_new(sampleRate, o.ceiling ?? -1, o.release ?? 0.08, o.lookahead ?? 0.0015) };
+      this.dspDynamics(o.dynamics || {});
+    }
     this.compGain = 1;
     this.ms = 0;
     this.msCoef = 1 - Math.exp(-1 / (0.01 * sampleRate));
     this.block = 0;
     this.port.onmessage = (e) => {
-      if (e.data.ceiling !== undefined) this.ceiling = 10 ** (e.data.ceiling / 20);
+      if (e.data.ceiling !== undefined) {
+        this.ceiling = 10 ** (e.data.ceiling / 20);
+        if (this.dsp) this.dsp.x.limiter_ceiling(this.dsp.h, e.data.ceiling);
+      }
       if (e.data.release !== undefined) {
         this.release = e.data.release;
         this.relCoef = 1 - Math.exp(-1 / (this.release * sampleRate));
+        if (this.dsp) this.dsp.x.limiter_release(this.dsp.h, e.data.release);
       }
-      if (e.data.dynamics) this.setDynamics(e.data.dynamics);
+      if (e.data.dynamics) {
+        this.setDynamics(e.data.dynamics);
+        if (this.dsp) this.dspDynamics(e.data.dynamics);
+      }
     };
+  }
+
+  dspDynamics(d) {
+    const { x, h } = this.dsp;
+    const io = new Float64Array(x.memory.buffer, x.limiter_io(h), 8);
+    let mask = 0;
+    DSP_DYN.forEach((k, i) => {
+      if (d[k] !== undefined) {
+        io[i] = d[k];
+        mask |= 1 << i;
+      }
+    });
+    io[7] = mask;
+    x.limiter_dynamics(h);
+  }
+
+  // One block through the module (128 frames, as worklets always get).
+  processDsp(inputs, outputs) {
+    const d = this.dsp;
+    const { x, h } = d;
+    const input = inputs[0] || [];
+    const output = outputs[0];
+    if (!input.length) {
+      for (const c of output) c.fill(0);
+      return true;
+    }
+    if (!d.inView || d.inView.byteLength === 0) {
+      d.inView = new Float32Array(x.memory.buffer, x.limiter_in(h), 16 * 128);
+      d.outView = new Float32Array(x.memory.buffer, x.limiter_out(h), 16 * 128);
+      d.io = new Float64Array(x.memory.buffer, x.limiter_io(h), 1);
+    }
+    for (let c = 0; c < input.length; c++) d.inView.set(input[c], c * 128);
+    if (x.limiter_process(h, input.length, Math.min(output.length, 16))) this.port.postMessage({ reduction: d.io[0] });
+    for (let c = 0; c < output.length && c < 16; c++) output[c].set(d.outView.subarray(c * 128, (c + 1) * 128));
+    return true;
   }
 
   setDynamics(d) {
@@ -141,6 +206,7 @@ class TruePeakLimiter extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs) {
+    if (this.dsp && outputs[0][0]?.length === 128 && outputs[0].length <= 16 && ((inputs[0] || []).length || 0) <= 16) return this.processDsp(inputs, outputs);
     const input = inputs[0];
     const output = outputs[0];
     if (!input.length) {

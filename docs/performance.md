@@ -935,8 +935,8 @@ over included) and the ground, then every visible soldier's body and the
 guns in his hand, instanced, then what the near scene blends: the map's
 blended buckets and the command posts' holograms and flares, in three's
 order. Its programs are made from the GLSL three compiled for each
-material. `?rustRigs` adds vehicles' and props' skinned rigs. Three.js
-draws everything else, and
+material, and vehicles' and props' skinned rigs (`?rustRigs=0` leaves
+those to three, for comparisons). Three.js draws everything else, and
 everything in a configuration the renderer does not cover (shadows, lamp
 lighting, the temporal upscaler). `?rustOff` loads it switched off,
 `?rustSort` orders the map's buckets by program rather than as three does,
@@ -1540,10 +1540,13 @@ compute; Math.min and Math.max keep JavaScript's rules for NaN and signed
 zeros. Math.hypot of two numbers is V8's own algorithm (the larger magnitude
 divides both, the squares are summed with Kahan's compensation, and the root
 is scaled back), which matched V8 on ten million pairs in both Node 22 and
-Electron 44. Sines and cosines are not computed in the module, as V8's last
-bit can differ from any Rust sine's: JavaScript hands in those of the aim's
-yaw (and, for a hovering jetpack, its pitch), and a tick that turns the aim
-stops after the turn for the turned yaw's (a second call).
+Electron 44. The sines and cosines a tick reads (of the aim's yaw before
+and after its turn and, for a hovering jetpack, of its pitch) are computed in
+the module once each, as the production server's V8 computes Math.sin and
+Math.cos (`rust/v8math`, V8 13.6's fdlibm): the same as the JavaScript tick's
+in Node, and the server's in a game client whose own V8 (Electron 44's)
+parts from it in the last bit of some of them, so a client's soldiers move as
+the server's do.
 
 - `tests/movement-kernel.test.js` ticks soldiers and their twins in one
   world, one by the JavaScript and one by the kernels, and compares every
@@ -1610,8 +1613,8 @@ against 1.17 on Bespin Platforms and 0.45 against 0.69 on Hoth.
 ### What is left
 
 - What a tick costs around the module's own work: copying the state in and
-  out, each body's `enabled`, and the sines and cosines JavaScript computes,
-  about a quarter of the kernel's time under Node (the bodies' flags alone
+  out and each body's `enabled` (with the sines and cosines JavaScript
+  computed for it then), about a quarter of the kernel's time under Node (the bodies' flags alone
   three tenths of that). The module could name the few bodies a tick can
   reach, so that only theirs are read; on these maps that would save under
   1% of the step.

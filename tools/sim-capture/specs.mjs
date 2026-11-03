@@ -30,6 +30,8 @@
 // replace its raw roots with their exporters. A system of the game (an
 // object the game holds, such as game.items) is a handle wherever it is met
 // unless the state asks for it whole: expand(object).
+import { units } from './units.mjs';
+
 export class Expand {
   constructor(value) { this.value = value; }
 }
@@ -78,8 +80,114 @@ const items = {
   ],
 };
 
+// The hulls (P7, flip F2 with flight and seats): each hull's tick, a 1/120 s
+// substep on the ground or a 1/60 s one in flight (Vehicle.tick, on every
+// hull: the method of their prototype), the hull as the store holds it
+// (rust/sim/schema/vehicles.mjs), its calls to the rest of the battle
+// through src/vehicles-world.js; and each hull's pose at the tick (aimTick,
+// render), its rig written by hand until the store holds rigs.
+const vec = (v) => v.clone();
+const hullBoundaries = (game) => {
+  const w = game.vehicles?.world ?? null;
+  return [
+    ['world.pushWalls', w, 'pushWalls'],
+    ['world.springPolygons', w, 'springPolygons'],
+    ['collision.cast', game.collision, 'cast'],
+    ['collision.ground', game.collision, 'ground'],
+    ['collision.moveBody', game.collision, 'moveBody'],
+    ['world.enableBody', w, 'enableBody'],
+    ['world.bodyEnabled', w, 'bodyEnabled'],
+    ['water.over', game.vehicles?.water ?? null, 'over'],
+    ['world.inDeathRegion', w, 'inDeathRegion'],
+    ['world.damaged', w, 'damaged'],
+    ['vehicles.destroyedCrew', game.vehicles ?? null, 'destroyedCrew'],
+    ['world.destroyed', w, 'destroyed'],
+    ['world.explosion', w, 'explosion'],
+    ['world.effect', w, 'effect'],
+    ['world.sound', w, 'sound'],
+  ];
+};
+// A hull's rig nodes in the order rust/sim/src/rig/hull.rs makes them: the
+// root, the bones, the static bone, the markers (as tools/sim-rig/record.mjs
+// lists them).
+const rigNodeLists = new WeakMap();
+function rigNodes(v) {
+  let nodes = rigNodeLists.get(v);
+  if (!nodes) {
+    const bones = new Set(v.bones);
+    const statics = v.root.children.filter((c) => c.isBone && !bones.has(c));
+    const markers = [];
+    v.root.traverse((o) => { if (o !== v.root && !bones.has(o) && !statics.includes(o) && !o.isSkinnedMesh) markers.push(o); });
+    markers.sort((a, b) => a.id - b.id);
+    rigNodeLists.set(v, nodes = [v.root, ...v.bones, ...statics, ...markers]);
+  }
+  return nodes;
+}
+// A hull as its pose (aimTick, render) reads and writes it: what placeRoot,
+// the walk cycle, aimSeats, poseSeat and recoilBarrels read, and its rig's
+// nodes (each one's position, quaternion and scale, and after the frame its
+// world matrix) where the frame poses it: a ground hull that does not
+// rest (a flyer's pose is the flight package's).
+export function poseState(v, args, end) {
+  const dt = args[1];
+  const rests = !v.alive || dt > 0 && v.sleeping && !v.repulsor && !v.occupied && !v.pose && v.health >= v.maxHealth * .35;
+  const nodes = rigNodes(v), at = (node) => (node ? nodes.indexOf(node) : null);
+  const posed = !rests && !v.flying;
+  return {
+    name: v.name, alive: v.alive, sleeping: v.sleeping, repulsor: v.repulsor, flying: v.flying, creature: v.creature, health: v.health,
+    maxHealth: v.maxHealth, pose: Boolean(v.pose), legs: Boolean(v.def.fx?.legs), body: v.body,
+    position: vec(v.position), previous: vec(v.previous), visual: vec(v.visual), velocity: vec(v.velocity),
+    yaw: v.yaw, previousYaw: v.previousYaw, tilt: v.tilt, previousTilt: v.previousTilt, roll: v.roll, previousRoll: v.previousRoll,
+    age: v.age, hoverPhase: v.hoverPhase, walkPhase: v.walkPhase, walkBlend: v.walkBlend, legSide: v.legSide ? [...v.legSide] : null,
+    quaternion: v.quaternion.clone(), seatIndex: v.seatIndex, driver: Boolean(v.driver),
+    wheels: v.wheels.map((w) => ({ bone: at(w.bone), axis: vec(w.axis), phase: w.phase, previous: w.previous })),
+    seats: v.seats.map((seat) => ({
+      aimYaw: seat.aimYaw, pitch: seat.pitch, lastYaw: seat.lastYaw, yawRate: seat.yawRate, target: seat.target ? vec(seat.target) : null,
+      lease: seat.lease ? { human: seat.lease.human, networkHuman: Boolean(seat.lease.unit?.networkHuman), aiming: seat.lease.input.aiming, aim: vec(seat.lease.input.aim) } : null,
+      eye: vec(seat.view.eye), pivot: vec(seat.view.pivot), up: vec(seat.view.up), yawFactor: seat.view.yawFactor, pitchFactor: seat.view.pitchFactor,
+      turret: at(seat.view.turret),
+      weapons: seat.weapons.map((w) => ({
+        barrel: w.barrel,
+        aimers: w.aimers.map((a) => ({ bone: at(a.bone), yaw: a.yaw, pitch: a.pitch, inLimits: a.inLimits, onTarget: a.onTarget, facing: vec(a.facing),
+          posed: a.posed, owner: a.owner, yawRate: a.yawRate, pitchRate: a.pitchRate, yawLimits: [...a.yawLimits], pitchLimits: [...a.pitchLimits], wrapYaw: a.wrapYaw })),
+        muzzles: w.muzzles.map((m) => ({ barrel: at(m.barrel), rest: m.rest ? vec(m.rest) : null, recoil: m.recoil ?? null, kickAt: m.kickAt ?? null })),
+      })),
+    })),
+    rig: posed ? nodes.flatMap((o) => [o.position.x, o.position.y, o.position.z, o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w, o.scale.x, o.scale.y, o.scale.z]) : null,
+    world: posed && end ? nodes.flatMap((o) => o.matrixWorld.elements) : null,
+  };
+}
+const poseBoundaries = (game) => {
+  const w = game.vehicles?.world ?? null;
+  return [
+    ['collision.cast', game.collision, 'cast'],
+    ['units.raycast', game.units, 'raycast'],
+    ['world.clock', w, 'clock'],
+    ['world.enableBody', w, 'enableBody'],
+    ['world.bodyEnabled', w, 'bodyEnabled'],
+  ];
+};
+const hullPrototype = (game) => (game.vehicles?.vehicles?.length ? Object.getPrototypeOf(game.vehicles.vehicles[0]) : null);
+// Enter and exit states of a pose frame (exit: with the rig's world matrices).
+const poseFrame = (method) => {
+  let entering = true;
+  return { method, target: hullPrototype, whole: ['SeatInput'], boundaries: poseBoundaries,
+    state: (game, args, cap, self) => { const end = !entering; entering = !entering; return { hull: poseState(self, args, end) }; } };
+};
+const vehicles = {
+  frames: [
+    poseFrame('vehicle.aimTick'),
+    poseFrame('vehicle.render'),
+    { method: 'vehicle.tick', target: hullPrototype, whole: ['SeatInput'],
+      state: (game, args, cap, self) => ({ hull: cap.export('vehicle', self), water: game.vehicles.water ? { level: game.vehicles.water.level } : null }),
+      boundaries: hullBoundaries },
+  ],
+};
+
 // Nothing but the tick records (every phase's draws and the fingerprints):
 // the cheapest capture, for the draw order of every phase.
 const ticks = { frames: [] };
 
-export const SPECS = { ordnance, items, ticks };
+// The units package (flip F3): a unit's tick, the registry's queries and
+// the soldiers pushed apart (tools/sim-capture/units.mjs).
+export const SPECS = { ordnance, items, vehicles, ticks, units };

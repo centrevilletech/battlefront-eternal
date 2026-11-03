@@ -6,10 +6,9 @@
 //
 // Needs three r170 importable as "three" (the repo's node_modules,
 // after npm ci), or set BFE_THREE_MODULE to a three module path.
-// Modes labelled (libm) reach a transcendental: while rust/v8math
-// is in flight those run on jsrt's stub, so they are reported with
-// mismatch counts and worst ulp distance but do not gate. Every
-// other mode must be bit-identical (Object.is, NaNs alike).
+// Every mode must be bit-identical (Object.is, NaNs alike), those
+// that reach a transcendental (sin, cos, asin, acos, atan2, exp)
+// included: jsrt's seam is rust/v8math, V8 13.6's own functions.
 
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
@@ -63,7 +62,7 @@ function check(name, got, want, gated) {
     }
   }
   if (gated) { totalBad += bad; totalCases += want.length; }
-  console.log(`${name.padEnd(20)} ${String(want.length).padStart(11)} cases  ${bad} mismatches${gated ? '' : ' (libm stub, not gated)'}${bad ? `  worst ${worstUlp} ulp  first: ${first}` : ''}`);
+  console.log(`${name.padEnd(20)} ${String(want.length).padStart(11)} cases  ${bad} mismatches${gated ? '' : ' (not gated)'}${bad ? `  worst ${worstUlp} ulp  first: ${first}` : ''}`);
 }
 
 // Case shapes.
@@ -138,7 +137,7 @@ const N = Math.floor(200_000 * scale);
     want.push(cy.radius, cy.theta, cy.y);
     P(new THREE.Vector3().setFromCylindricalCoords(a.x, angle, b.y));
   }
-  check('v3libm (libm)', runProbe('v3libm', flat(cs)), want, false);
+  check('v3libm', runProbe('v3libm', flat(cs)), want, true);
 }
 // v3m
 {
@@ -206,9 +205,9 @@ const N = Math.floor(200_000 * scale);
     THREE.Quaternion.slerpFlat(dst, 0, [q.x, q.y, q.z, q.w], 0, [r.x, r.y, r.z, r.w], 0, t);
     want.push(...dst);
   }
-  check('quatlibm (libm)', runProbe('quatlibm', flat(cs)), want, false);
+  check('quatlibm', runProbe('quatlibm', flat(cs)), want, true);
 }
-// euler + eulerm (libm)
+// euler + eulerm
 {
   const orders = ['XYZ', 'YXZ', 'ZXY', 'ZYX', 'YZX', 'XZY'];
   const cs = cases(N, i => [R(-7, 7), R(-7, 7), R(-7, 7), i % 6]);
@@ -223,7 +222,7 @@ const N = Math.floor(200_000 * scale);
     const re = e.clone().reorder(orders[(c[3] + 1) % 6]);
     want.push(re.x, re.y, re.z);
   }
-  check('euler (libm)', runProbe('euler', flat(cs)), want, false);
+  check('euler', runProbe('euler', flat(cs)), want, true);
 
   const cs2 = cases(N, i => [...matrix(i % 5 === 0 ? 'raw' : 'rotation'), i % 6]);
   const want2 = [];
@@ -232,7 +231,7 @@ const N = Math.floor(200_000 * scale);
     const e = new THREE.Euler().setFromRotationMatrix(m, orders[c[16]]);
     want2.push(e.x, e.y, e.z);
   }
-  check('eulerm (libm)', runProbe('eulerm', flat(cs2)), want2, false);
+  check('eulerm', runProbe('eulerm', flat(cs2)), want2, true);
 }
 // mat4
 {
@@ -390,7 +389,7 @@ const N = Math.floor(200_000 * scale);
     wantL.push(U.damp(x, y, a, t), U.ceilPowerOfTwo(Math.abs(x)), U.floorPowerOfTwo(Math.abs(x)));
   }
   check('mathutils', runProbe('mathutils', flat(cs)), want, true);
-  check('mathutils (libm)', runProbe('mathutilslibm', flat(cs)), wantL, false);
+  check('mathutils libm', runProbe('mathutilslibm', flat(cs)), wantL, true);
 }
 // v24
 {
@@ -420,11 +419,8 @@ const N = Math.floor(200_000 * scale);
     const aa = new THREE.Vector4().setAxisAngleFromRotationMatrix(m);
     want.push(aa.x, aa.y, aa.z, aa.w);
   }
-  // setAxisAngleFromRotationMatrix ends in acos: the last 4 outputs
-  // ride the stub. Report the mode gated except that tail, by
-  // checking twice with the tail zeroed in a copy? Simpler: whole
-  // mode reported; acos inputs here come from matrix traces, and
-  // the harness splits: everything but the last 4 per case.
+  // setAxisAngleFromRotationMatrix ends in acos: its 4 outputs are
+  // reported as a mode of their own.
   const got = runProbe('v24', flat(cs));
   const stride = 29 - 13 + 9; // unused; outputs counted below
   void stride;
@@ -437,7 +433,7 @@ const N = Math.floor(200_000 * scale);
     wantTail.push(...want.slice(i * perOut + perOut - 4, (i + 1) * perOut));
   }
   check('v24', gotExact, wantExact, true);
-  check('v24 axisangle (libm)', gotTail, wantTail, false);
+  check('v24 axisangle', gotTail, wantTail, true);
 }
 // tree
 {
@@ -504,8 +500,8 @@ const N = Math.floor(200_000 * scale);
     want.push(...nodes[2].matrixWorld.elements);
   }
   // The tree runs through Euler syncs (asin/atan2) whenever a
-  // quaternion is written, so it rides the stub today.
-  check('tree (libm)', runProbe('tree', flat(cs)), want, false);
+  // quaternion is written.
+  check('tree', runProbe('tree', flat(cs)), want, true);
 }
 
 console.log(`TOTAL gated: ${totalCases} cases, ${totalBad} mismatches`);

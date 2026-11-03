@@ -38,13 +38,11 @@
 //! remove, and three's own UUID draws are among the leaks P0
 //! routes).
 //!
-//! Every transcendental goes through `jsrt::v8math` (the seam to
-//! rust/v8math, W13). While that crate is in flight the seam holds
-//! a stub, so the methods that reach sin/cos/asin/atan2/acos/exp
-//! are exact in structure but not yet in their last bits; the
-//! differential harness in `tools/` reports those separately from
-//! the algebraic methods, which are proven bit for bit against
-//! three r170 under Node 24.22 (V8 13.6). `Math.min`/`Math.max`,
+//! Every transcendental goes through `jsrt::v8math`, rust/v8math's
+//! functions (V8 13.6's, bit for bit), so every method here, the ones
+//! that reach sin/cos/asin/atan2/acos/exp included, is proven bit for
+//! bit against three r170 under Node 24.22 (V8 13.6) by the
+//! differential harness in `tools/`. `Math.min`/`Math.max`,
 //! `Math.round` and friends come from `jsrt`, never from Rust.
 
 pub mod euler;

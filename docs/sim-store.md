@@ -53,9 +53,18 @@ The module was 141 KB of WebAssembly with the three kernels; the store and
 the first schema's code (four kinds of round and their records) make it
 181 KB. Code is generated row by row, so it grows with the fields declared:
 identical layouts share their code, and each row is taken as a fixed-length
-array so its fields need no bounds checks. Whether the module should become
-a `.wasm` asset once it is larger (it would load by streaming on a page) is
-measured, not assumed.
+array so its fields need no bounds checks.
+
+Loading it costs each thread that does (the world worker, the page) a
+decode and a compile, once: in Node on one core of a fast desktop, atob
+0.9 ms and the copy into bytes 3.3 ms more, then 9 to 10 ms to compile
+(6.1 ms compiling a `.wasm` file's bytes as they stream in). Where the
+engine has `Uint8Array.fromBase64` the loader uses it instead of the copy.
+On the emulated laptop the instance a page makes for its pose sampler cost
+nothing measurable (interleaved 40-second runs, three of each: page CPU
+33.0 against 33.2 ms a frame, render 15.5 against 15.7 ms, with and without
+it). A `.wasm` asset would save the decode and some of the compile; it is
+worth it when the module is several times larger, measured then.
 
 ## Memory
 
@@ -126,21 +135,23 @@ A field's type is one of:
 | --- | --- | --- | ---: |
 | `f64`, `f32`, `i32`, `u32`, `u8` | a number (`f32`: one Math.fround or a Float32Array keeps) | `f64`, `f32`, ... | 1 |
 | `bool` | a boolean | `bool` | 1 |
-| `vec3`, `quat` | a three.js Vector3 or Quaternion, kept and updated in place | `[f64; 3]`, `[f64; 4]` | 3, 4 |
+| `vec3`, `quat`, `mat4` | a three.js Vector3, Quaternion or Matrix4, kept and updated in place | `[f64; 3]`, `[f64; 4]`, `[f64; 16]` | 3, 4, 16 |
 | `f64xN` (N 2 to 16) | an array of N numbers | `[f64; N]` | N |
 | `str` | a string the simulation compares | `StrId` | 1 |
 | `enum:Name` | one of a fixed list of strings | `#[repr(u8)] enum` | 1 |
 | `def:table` | a content definition object | `DefId` | 1 |
 | `ref:kind` | an object of that kind | `Ref<Kind>` | 2 |
-| `union:Name` | null, undefined, a literal string or an object of one of several kinds | an `enum` | 3 |
+| `union:Name` | null, undefined, a literal string, an object of one of several kinds, or a value of one of several types (a number or a Vector3; one of two records, told apart by the classes they name with `$class`) | an `enum` with data | 1 + its largest variant's |
+| `index:list` | one item of an earlier field of the same object, a list of records, by identity (a unit's `hitSet`, one of its `shapes`) | `u32`, the item's place | 1 |
 | `rec:Name` | a plain object with declared fields, held by value | a struct | its fields' |
 | `list:kind`, `set:kind` | an array or a Set of objects of that kind, in order | `Vec<Ref<Kind>>`, `RefSet<Kind>` | 2 (and the heap) |
+| `list:type` | an array of any other type that is never null: records by value (a hull's seats), numbers, vectors, booleans, strings, enums, unions; its items updated in place | `Vec<T>` | 2 (and the heap) |
 | `map:type` | a Map with string keys, in insertion order, its values of a type (not null) | `StrMap<T>` | 2 (and the heap) |
 
 `|null`, `|undefined` or both after a type make it nullable (`Option<T>`, or
 `Nullable<T>` when both are possible, since code can tell them apart). A
 field written `{ type, js: 'damageDef.Damage', mirror: false }` reads a
-nested JavaScript path; `mirror: false` keeps a field out of the mirrors and
+nested JavaScript path (`shapes.0.radius` reads through an array); `mirror: false` keeps a field out of the mirrors and
 `import: false` out of what a Rust phase is given. `skip` lists what an
 object of the kind holds that is not simulation state (its model, its
 trail, a page's drawing state), each with why: anything else an object holds
@@ -262,11 +273,36 @@ found by its kinds' tests, which the context makes from the classes the
 schema names (`class: 'Vehicle'`, the constructors passed in as
 `classes`) or takes by kind name (`tests`).
 
+A union may hold one kind the store holds fields of without a test of its
+own: an object that no other variant's test claims is of that kind. A union
+of several such kinds (a round's owner, a unit or a hull, once both are
+the store's) tells every object by a test, and each of those kinds must
+name its class, or the generator refuses the schema. Null and literals are
+matched first, then the tests, most specific first: the kinds the store
+holds (by their mirror's class once Rust owns them, else by the
+constructors the battle passes), then the other kinds that name classes,
+then the plain objects a battle tells by shape (`tests`, such as a beam's
+emitter), which an instance of a class could also pass. A value no test
+claims is refused (`which...` throws) rather than taken for the last
+variant. The variant crosses as its index, so Rust never tests.
+
+An entity of a kind the store holds is written out whole only where it
+lives, its home list, led by its own handle (`$id`); a reference to it
+anywhere else (another entity's field, a list, a union) is that handle, as
+a reference to anything the store does not hold is, so a unit named by a
+hundred bolts is written once.
+
+In a union of several records, a record's value starts with `$record` (its
+name), so the replay can tell which it is; an index is the very value the
+list's item was written as, so the capture holds one object where
+JavaScript held one.
+
 On the Rust side, with the crate's `replay` feature (it adds the harness's
 crate), the generated `from_value` and `to_value` read those values into the
 store's structs and write them back: `Replay::read_value(KIND_ORDNANCE, v)`
 makes the singleton and every entity its lists hold, and
-`Replay::write_value` gives the same values back, which `sim_replay::diff`
+`Replay::write_value` gives the same values back (`Replay::reset` starts a
+frame's state anew), which `sim_replay::diff`
 compares with a capture's, the first difference with its path. `Replay`
 maps the harness's handles to slots (a keyed kind's key is its slot; any
 other key gets the next slot of its kind) and definition handles to
@@ -293,9 +329,12 @@ the `echo` command its tests and benchmarks use):
   changes state the same phase reads back is an import instead.
 - An import (`imports: { raycastUnits: { args: 'RaycastArgs', result:
   'RaycastHit' } }`) is Rust asking JavaScript while the state asked about
-  is still JavaScript's: `gen::import_raycast_units(&mut sim.calls, &args)`
-  calls out of the module, the bridge serves it with
-  `bridge.handlers.raycastUnits(args)`, and the result comes back. The
+  is still JavaScript's: `gen::import_raycast_units(&args)` calls out of the
+  module, the bridge serves it with `bridge.handlers.raycastUnits(args)`,
+  and the result comes back. Its arguments and result cross in a block of
+  their own, outside the store, reached only for a moment before and after
+  the call: the Rust that asks holds the store, so a handler must not call
+  back into it. The
   module's loader gives every instance the imports' functions, which reach
   the bridge attached to it. A port reaches other subsystems through a
   trait of its own; on the module, its JavaScript side is these imports,
@@ -314,8 +353,6 @@ the reference does: the production server's V8 (Node 24.22, V8 13.6). The
 game client's Electron computes some Math functions differently in their
 last bit (sin, cos, tan, atan, atan2, acos, exp, log, cbrt, tanh), so client
 and server already part there today; Rust that computes with the reference's
-functions (`rust/v8math`) makes them agree. The movement kernel still takes
-the sines and cosines of its yaw and pitch from the JavaScript of the host
-it runs in; it will compute them with `rust/v8math` once that lands, which
-moves a client's soldier ticks to the server's results, a change worth
-naming when it ships.
+functions (`rust/v8math`) makes them agree. The movement kernel computes
+the sines and cosines of its yaw and pitch with `rust/v8math`, so a client's
+soldier ticks there come out as the server's do.

@@ -17,7 +17,8 @@
 // first-person view (view_frame), the post passes (post_frame) and, over the
 // finished frame, the HUD (hud_frame). A mirror's render of the near scene
 // (water.js) draws the near phase's passes for its own camera
-// (mirror_frame); what the near scene blends is left to three there.
+// (mirror_frame), then what it blends, as the frame's own render does
+// (mirror_transparent_frame, and its segments).
 //
 // The page writes the frame's inputs (camera, lights, each soldier) into
 // `input` and `bones` before a phase (web/, src/rust-render/).
@@ -96,18 +97,34 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     // own remaining items (`three` keys the page wrote) merged in, and the
     // first segment drawn; transparent_segment draws the others.
     pub fn transparent_frame(&mut self, three: usize) -> Result<Stats, String> {
+        self.transparent_list(three, VIEW_NEAR)
+    }
+
+    // What a mirror's render of the near scene blends (water.js's
+    // reflection, drawn before the frame's own): the transparent phase for
+    // the mirror camera, read with its frame block (VIEW_SPARE's), which its
+    // later segments bind again.
+    pub fn mirror_transparent_frame(&mut self, three: usize) -> Result<Stats, String> {
+        self.transparent_list(three, VIEW_SPARE)
+    }
+
+    // The transparent phase for the camera whose values the page wrote last
+    // (the frame's own, or a mirror's), with its frame block in `frame`'s
+    // buffer.
+    fn transparent_list(&mut self, three: usize, frame: usize) -> Result<Stats, String> {
         let core = &mut self.core;
         core.begin_phase();
         let view = transparent::view(core);
         let mut list = std::mem::take(&mut self.transparent.list);
         list.items.clear();
         {
-            let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
+            let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
             for (s, source) in sources.iter_mut().enumerate() {
                 source.emit(core, &view, s as u32, &mut list.items);
             }
         }
         list.order(&self.transparent.keys, three.min(transparent::MAX_THREE));
+        list.frame = frame;
         if list.items.is_empty() {
             // Nothing to draw: no GL call at all, so three's state stands
             // (the page skips its reset).
@@ -115,10 +132,10 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
             self.transparent.list = list;
             return Ok(core.stats);
         }
-        core.upload_frame(VIEW_NEAR);
+        core.upload_frame(frame);
         core.bind_far_map();
         {
-            let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
+            let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
             transparent::draw_segment(core, &view, list.segment(0), &mut sources);
         }
         list.view = Some(view);
@@ -134,9 +151,9 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let list = std::mem::take(&mut self.transparent.list);
         if let Some(view) = &list.view {
             if !list.segment(k).is_empty() {
-                core.bind_frame(VIEW_NEAR);
+                core.bind_frame(list.frame);
                 core.bind_far_map();
-                let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
+                let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
                 transparent::draw_segment(core, view, list.segment(k), &mut sources);
             }
         }

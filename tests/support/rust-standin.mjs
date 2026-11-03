@@ -26,7 +26,7 @@ import * as THREE from "three";
 export const STATS = [1, 2, 3, 4, 5, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
 export const LENGTHS = {
-  input: 200 + 76 * 8, bones: 64,
+  input: 200 + 100 * 8, bones: 64,
   far_input: 1024,
   transparent_keys: 64, transparent_objects: 1 + 2 * 40, transparent_segments: 0,
   fx_input: 2600, fx_data: 16384, fx_matrices: 1024,
@@ -36,7 +36,7 @@ export const LENGTHS = {
   water_input: 8 * (27 + 24 * 18) + 2, water_rings_position: 16 * 3, water_rings_uv: 16 * 2, water_rings_alpha: 16,
   view_input: 1 + 16 * (17 + 32 * 18),
 };
-export const LAYOUT = { records_at: 200, record_stride: 76, transparent_object_stride: 40 };
+export const LAYOUT = { records_at: 200, record_stride: 100, transparent_object_stride: 40 };
 
 export const QUIET = ["transparent_bucket_shown", "foliage_on"];
 

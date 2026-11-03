@@ -1286,9 +1286,10 @@ export class FountainJets {
   // taken, and the target the copier copies the frame so far into sized
   // now (so that the jets' texture stays the same through the frame).
   prepare(renderer, camera) {
-    const source = renderer.getRenderTarget();
-    if (source !== this.graphics.sceneTarget) return;
-    const u = this.core.material.uniforms, { width, height } = source;
+    const source = renderer.getRenderTarget(), u = this.core.material.uniforms;
+    // Another render's (a mirror's): no depth and no copy, as capture() finds.
+    if (source !== this.graphics.sceneTarget) { u.hasDepth.value = 0; u.hasScene.value = 0; return; }
+    const { width, height } = source;
     u.hasDepth.value = particleDepth.capture(renderer, null, camera, true) ? 1 : 0;
     u.hasScene.value = 1;
     if (this.behind.width !== width || this.behind.height !== height || !renderer.properties.get(this.behind.texture).__webglTexture) {

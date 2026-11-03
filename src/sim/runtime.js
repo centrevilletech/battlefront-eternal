@@ -4,9 +4,9 @@
 // (slots, definitions, strings), the pools of mirror objects that stand for
 // entities Rust owns, and SimBridge, which moves a kind's rows in and out of
 // a battle's instance of the module.
-import { COMMAND_TABLE, DEF_TABLES, EVENT_TABLE, IMPORT_TABLE, KIND_TABLE } from "./gen/index.js";
+import { COMMAND_TABLE, DEF_TABLES, EVENT_TABLE, IMPORT_TABLE, KIND_TABLE, RECORD_CLASSES } from "./gen/index.js";
 
-export { sameArray, sameList, sameMap, sameQuat, sameVec } from "./compare.js";
+export { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "./compare.js";
 
 // A sync block's header: rows, stride, where the heap starts, its length,
 // and how many of the rows (the first) are retired entities'
@@ -183,6 +183,16 @@ export class Heap {
     f[at] = start;
     f[at + 1] = n;
   }
+  // An array: its items' words (`size` each) and after them whatever their
+  // records' lists hold; put(words, at, item) writes an item.
+  items(items, f, at, size, put) {
+    const words = this.words, start = words.length, n = items.length;
+    for (let i = 0; i < n * size; i++) words.push(0);
+    for (let i = 0; i < n; i++) put(words, start + i * size, items[i]);
+    f[at] = start;
+    f[at + 1] = n;
+  }
+
   // A Map with string keys: its entries' words (the key's string, then the
   // value, `size` words in all) and after them whatever its values' lists
   // hold; put(words, at, value) writes a value.
@@ -211,8 +221,13 @@ export class Heap {
 export class SimContext {
   // `kinds` and `defTables`: a generated kind table and its definition
   // tables (the store's by default; the generator's tests pass theirs).
-  constructor({ classes = {}, tests = {}, kinds = KIND_TABLE, defTables = DEF_TABLES } = {}) {
+  constructor({ classes = {}, tests = {}, kinds = KIND_TABLE, defTables = DEF_TABLES, recordClasses = RECORD_CLASSES } = {}) {
     this.kinds = kinds;
+    // A union of records tells them apart by these (a record's $class).
+    this.recordTests = Object.fromEntries(Object.entries(recordClasses).map(([name, names]) => {
+      const ctors = names.map((n) => classes[n]).filter(Boolean);
+      return [name, tests[name] ?? ((o) => ctors.some((c) => o instanceof c))];
+    }));
     this.defs = Object.fromEntries(defTables.map((name) => [name, new DefTable(name)]));
     this.refs = kinds.map((k) => {
       if (!k) return null;
@@ -348,13 +363,23 @@ export class SimBridge extends SimContext {
     return count;
   }
 
-  // Serves an import the module called: its arguments out of the call
-  // block, handlers[name](args), the result back in.
+  // Serves an import the module called: its arguments out of the import
+  // block, handlers[name](args), the result back in. A handler must not
+  // call back into the store (the Rust that called holds it).
   serve(code) {
     const imp = IMPORT_TABLE[code], handler = this.handlers[imp.name];
     if (!handler) throw Error(`the simulation's module asked for ${imp.name}, which nothing serves`);
-    const result = handler(this.callResult(imp.args, this.x.sim_calls()));
-    if (imp.result) this.callArgs(imp.result, result);
+    const result = handler(this.callResult(imp.args, this.x.sim_import_args()));
+    if (!imp.result) return;
+    const record = imp.result, heap = this.heap, words = record.words;
+    if (this.rows.length < words) this.rows = new Float64Array(Math.max(words, this.rows.length * 2));
+    heap.clear();
+    record.put(this, result, this.rows, 0, heap);
+    const ptr = this.x.sim_import_result_room(words, heap.words.length);
+    this.views();
+    const f = this.f, at = ptr / 8 + HEADER, hw = heap.words;
+    for (let i = 0; i < words; i++) f[at + i] = this.rows[i];
+    for (let i = 0; i < hw.length; i++) f[at + words + i] = hw[i];
   }
 
   // The memory's views, made again if it grew (a grown memory's old buffer
