@@ -16,7 +16,7 @@ use bfe_sim::flight::config::{Config, Tuning, Tunings, TUNING_KEYS};
 use bfe_sim::flight::model::FlightInput;
 use bfe_sim::flight::state::GearClip;
 use bfe_sim::flight::{Environment, Flight, FlightClass, FlightWorld, Member, Team, Zone};
-use bfe_sim::gen::{Replay, Vehicle};
+use bfe_sim::gen::{OrdnanceOwner, Replay, Vehicle};
 use bfe_sim::vehicles::class::HullClass;
 use bfe_sim::vehicles::replay::{body_of, pose_from_value, pose_to_value};
 use bfe_sim::vehicles::{BodyId, Ground, Hit, Hull, Polygon, VehicleWorld};
@@ -311,15 +311,20 @@ impl<'f> VehicleWorld for Served<'f> {
         call.result().truthy()
     }
 
-    fn damaged(&mut self, hull: usize, amount: f64) {
+    fn damaged(&mut self, hull: usize, amount: f64, attacker: &OrdnanceOwner) {
         let Some(call) = self.call("world.damaged") else { return };
         debug_assert_eq!(hull, self.hull);
         self.check_hull("damaged hull", call.arg(0));
         self.check(check_num("damaged amount", call.arg(1), amount));
-        if !call.arg(2).is_nullish() {
-            self.fail(format!("damaged attacker: the capture has {}, the port none", call.arg(2).show()));
+        if !call.arg(2).is_nullish() || *attacker != OrdnanceOwner::Null {
+            self.fail(format!("damaged attacker: the capture has {}, the port {attacker:?}", call.arg(2).show()));
         }
         self.changed(call);
+    }
+
+    fn tow_released(&mut self, hull: usize, reason: &str) {
+        // A craft's tick lets no cable go (updateTethers does).
+        self.fail(format!("tow released: hull {hull} ({reason}) in a craft's tick"));
     }
 
     fn destroyed_crew(&mut self, hull: usize) {
@@ -640,7 +645,7 @@ fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<St
         return ("?", Outcome::Failed(format!("{}: no class {name} in the content", frame.place())));
     };
     let class = classes.entry(name.clone()).or_insert_with(|| HullClass::new(def, stored.turn_rate));
-    let mut hull = Hull::from_store(&stored, class, index);
+    let mut hull = Hull::from_store(r, &stored, class, index, &cx.strings);
     hull.body = body_of(before.get("hull").get("body"));
     hull.flight = match Flight::from_store(&stored, &cx.strings, Config::of(def), None) {
         Ok(f) => f,
@@ -690,7 +695,7 @@ fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<St
     }
     {
         let v = cx.store.vehicle.get_mut(r).unwrap();
-        hull.to_store(v);
+        hull.to_store(v, &mut cx.strings);
         hull.flight.to_store(v, &mut cx.strings);
     }
     let mut arena = Arena::default();
