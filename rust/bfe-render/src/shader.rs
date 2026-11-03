@@ -153,6 +153,37 @@ pub fn receives_shadows(source: &str) -> bool {
     source.lines().any(|l| l.trim() == "#define USE_SHADOWMAP")
 }
 
+// Lamp lighting (materials.js DYNAMIC, while lamps are on): the up to four
+// lamps a draw's object has (local-lights.js select) come from the lamp
+// table, a texture of every lamp source of the map (two RGBA32F texels a
+// source, rows of LAMP_TABLE_WIDTH texels: position and radius, colour),
+// by their index there (-1: none) and a count, in place of the uniforms
+// three sets each draw. An instance's indices are its row's (the record's
+// EXTRA + 16..19), its count too (EXTRA + 13); a world draw's are uniforms
+// of its own (bfeLampIndex, bfeLampCount), set each frame.
+pub const LAMP_TABLE_WIDTH: usize = 1024;
+const LAMP_UNIFORMS: &[(&str, &str)] = &[("localLightPositions", "vec4"), ("localLightColors", "vec3"), ("localLightCount", "float")];
+const LAMP_COMMON: &str = "uniform highp sampler2D bfeLamps;
+vec4 localLightPositions[4]; vec3 localLightColors[4]; float localLightCount;
+vec4 bfeLampTexel(int t) { int w = textureSize(bfeLamps, 0).x; return texelFetch(bfeLamps, ivec2(t % w, t / w), 0); }
+void bfeLoadLamps(ivec4 index, float count) {
+  localLightCount = count;
+  for (int k = 0; k < 4; k++) {
+    localLightPositions[k] = index[k] < 0 ? vec4(0.0) : bfeLampTexel(2 * index[k]);
+    localLightColors[k] = index[k] < 0 ? vec3(0.0) : bfeLampTexel(2 * index[k] + 1).rgb;
+  }
+}
+";
+// The world draw's own lamp inputs (names add_program gives its uniforms).
+pub const WORLD_LAMP_UNIFORMS: &[&str] = &["bfeLampIndex", "bfeLampCount"];
+const WORLD_LAMPS: &str = "uniform vec4 bfeLampIndex; uniform float bfeLampCount;\n";
+
+// Whether a source declares three's lamp uniforms (a DYNAMIC zero material's
+// fragment shader).
+pub fn reads_lamps(source: &str) -> bool {
+    LAMP_UNIFORMS.iter().all(|&(n, t)| source.lines().any(|l| declaration(l) == Some((t, n))))
+}
+
 const INSTANCE_COMMON: &str = "uniform highp sampler2D bfeInstances;
 float sunScale; vec2 ambientPull; float brightness;
 int zeroLightCount; int bfeBoneBase; ivec4 bfeLightIndex[4];
@@ -237,6 +268,12 @@ fn extras(source: &str) -> String {
 }
 
 pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String> {
+    rewrite_lamps(source, stage, kind, false)
+}
+
+// rewrite, with the lamps (lamps: lamp lighting is on and the program's pass
+// gives each draw its lamps) read from the lamp table.
+pub fn rewrite_lamps(source: &str, stage: Stage, kind: Kind, lamps: bool) -> Result<String, String> {
     if kind == Kind::Plain {
         return Ok(source.to_string());
     }
@@ -244,6 +281,8 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
     // Shadow receivers read the BfeShadow block (World and instanced kinds;
     // a Classic source has no USE_SHADOWMAP and stays as it was).
     let shadows = (kind == Kind::World || instanced) && receives_shadows(source);
+    let lamps = lamps && (kind == Kind::World || instanced) && reads_lamps(source);
+    let mut lamped = false;
     let mut block = false;
     let mut out = String::with_capacity(source.len() + 4096);
     let mut inserted = false;
@@ -288,6 +327,16 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
             if shadows && instanced && SHADOW_EXTRAS.iter().any(|&(n, t, _, _)| n == name && t == ty) {
                 continue;
             }
+            if lamps && LAMP_UNIFORMS.contains(&(name, ty)) {
+                if !lamped {
+                    out.push_str(LAMP_COMMON);
+                    if kind == Kind::World {
+                        out.push_str(WORLD_LAMPS);
+                    }
+                    lamped = true;
+                }
+                continue;
+            }
             if kind == Kind::Effect && name == "modelViewMatrix" {
                 continue;
             }
@@ -317,6 +366,13 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
         }
         let main = out.find("void main() {").ok_or("no main")?;
         out.insert_str(main + "void main() {".len(), "\n  bfeLoad();");
+    }
+    if lamped {
+        // After bfeLoad (an instance's row), before anything main computes.
+        let load = if instanced { "\n  bfeLoadLamps(ivec4(bfeTexel(29)), bfeTexel(28).y);" } else { "\n  bfeLoadLamps(ivec4(bfeLampIndex), bfeLampCount);" };
+        let main = out.find("void main() {").ok_or("no main")?;
+        let at = main + "void main() {".len() + if instanced { "\n  bfeLoad();".len() } else { 0 };
+        out.insert_str(at, load);
     }
     Ok(out)
 }
@@ -379,6 +435,27 @@ mod tests {
         assert!(!rewrite(RECEIVER, Stage::Fragment, Kind::Plain).unwrap().contains("BfeShadow"));
         // Offsets in floats as std140 lays the block out.
         assert_eq!((SHADOW_VALUES, SHADOW_MATRICES, SHADOW_PLANES, SHADOW_SLICES, SHADOW_FLOATS), (0, 4 * 8, 4 * 8 + 4 * 16, 4 * 8 + 4 * 16 + 4 * 12, 4 * 8 + 4 * 16 + 4 * 12 + 4 * 4));
+    }
+
+    // A DYNAMIC zero material's fragment shader as three compiles it, lamps included.
+    const DYNAMIC_FS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nuniform mat4 viewMatrix;\nuniform float sunScale;\n#ifdef DYNAMIC\n    uniform vec4 localLightPositions[4];\n    uniform vec3 localLightColors[4];\n    uniform float localLightCount;\n#endif\nuniform sampler2D map;\nout vec4 c;\nvoid main() {\n  vec3 lamp = vec3(0.0);\n  for (int i = 0; i < 4; i++) {\n    if (float(i) >= localLightCount) break;\n    lamp += localLightColors[i] * localLightPositions[i].w;\n  }\n  c = vec4(lamp, sunScale);\n}\n";
+
+    #[test]
+    fn lamps_come_from_the_lamp_table_when_the_pass_gives_them() {
+        // Off (Classic, or a pass that doesn't give lamps): three's uniforms as they are.
+        for kind in [Kind::World, Kind::Skinned] {
+            let out = rewrite(DYNAMIC_FS, Stage::Fragment, kind).unwrap();
+            assert!(out.contains("uniform vec4 localLightPositions[4];") && !out.contains("bfeLamps"), "{kind:?}");
+        }
+        let skinned = rewrite_lamps(DYNAMIC_FS, Stage::Fragment, Kind::Skinned, true).unwrap();
+        assert!(!skinned.contains("uniform vec4 localLightPositions[4];") && !skinned.contains("uniform float localLightCount;"));
+        assert!(skinned.contains(LAMP_COMMON) && skinned.contains("void main() {\n  bfeLoad();\n  bfeLoadLamps(ivec4(bfeTexel(29)), bfeTexel(28).y);"));
+        let world = rewrite_lamps(DYNAMIC_FS, Stage::Fragment, Kind::World, true).unwrap();
+        assert!(world.contains(LAMP_COMMON) && world.contains(WORLD_LAMPS) && world.contains("void main() {\n  bfeLoadLamps(ivec4(bfeLampIndex), bfeLampCount);"));
+        assert!(world.find("uniform highp sampler2D bfeLamps;").unwrap() > world.find("#ifdef DYNAMIC").unwrap(), "where three declared them");
+        // A source without lamps (a vertex shader) is left as it is.
+        let vs = "#version 300 es\nuniform mat4 viewMatrix;\nuniform float sunScale;\nin vec3 position;\nvoid main() { gl_Position = viewMatrix * vec4(position, sunScale); }\n";
+        assert!(!rewrite_lamps(vs, Stage::Vertex, Kind::World, true).unwrap().contains("bfeLamps"));
     }
 
     #[test]

@@ -139,3 +139,48 @@ test("Classic: no shadow block written and no maps given", () => {
   core.writeShadow();
   assert.equal(calls.filter((c) => c[0] === "set_shadow_maps" || c[0] === "shadow_input_ptr").length, 0);
 });
+
+test("with lamps on, a pass that gives lamps gets a program reading them from the lamp table, kept apart from three's", () => {
+  const { core, calls, material } = bridge({ lamps: true });
+  const uniforms = new Set(["map", "localLightPositions", "localLightColors", "localLightCount"]);
+  const three = fakeProgram([["map", GL.SAMPLER_2D], ...LAMPS]);
+  const fed = core.program(three, SKINNED, material, { uniforms, material: new Set(), lamps: true });
+  assert.ok(fed && fed.lamps);
+  assert.equal(calls.filter((c) => c[0] === "add_program_lamps").length, 1);
+  assert.equal(core.program(three, SKINNED, material, { uniforms, material: new Set() }), null, "the same three program, from a pass that doesn't give lamps");
+  assert.equal(core.program(three, SKINNED, material, { uniforms, material: new Set(), lamps: true }), fed, "made once");
+  // A program reading no lamps is an ordinary one even from such a pass.
+  const plain = core.program(fakeProgram([["map", GL.SAMPLER_2D]]), SKINNED, material, { uniforms, material: new Set(), lamps: true });
+  assert.ok(plain && !plain.lamps);
+});
+
+test("the lamp table: every lamp source, given again only when there are more", () => {
+  const { core, calls, graphics } = bridge({ lamps: true });
+  const source = (x, r) => ({ position: new THREE.Vector3(x, 2, 3), radius: r, color: new THREE.Vector3(0.5, 0.25, 0.125) });
+  graphics.localLights = { sources: [source(1, 6), source(4, 9)], select: () => [] };
+  core.writeLamps();
+  const sent = calls.filter((c) => c[0] === "set_lamps");
+  assert.equal(sent.length, 1);
+  assert.deepEqual([...sent[0][1]], [1, 2, 3, 6, 0.5, 0.25, 0.125, 0, 4, 2, 3, 9, 0.5, 0.25, 0.125, 0]);
+  core.writeLamps();
+  assert.equal(calls.filter((c) => c[0] === "set_lamps").length, 1, "the same sources: nothing sent");
+  graphics.localLights.sources.push(source(7, 6));
+  core.writeLamps();
+  assert.equal(calls.filter((c) => c[0] === "set_lamps").length, 2);
+});
+
+test("a draw's lamps: the sources select() gives, as lamp table indices, in its order, and their count", () => {
+  const { core, graphics } = bridge({ lamps: true });
+  const sources = [0, 1, 2, 3, 4].map((i) => ({ position: new THREE.Vector3(i, 0, 0), radius: 5, color: new THREE.Vector3(1, 1, 1) }));
+  const asked = [];
+  graphics.localLights = { sources, select: (object, viewModel) => { asked.push([object, viewModel]); return [sources[3], sources[1]]; } };
+  core.writeLamps();
+  const object = {};
+  const lamps = core.lamps(object, true);
+  assert.deepEqual([...lamps.indices, lamps.count], [3, 1, -1, -1, 2]);
+  assert.deepEqual(asked, [[object, true]], "selected as three's onBeforeRender would (a view model's)");
+  // Classic (lamps off): select() gives none.
+  graphics.localLights.select = () => [];
+  const none = core.lamps(object);
+  assert.deepEqual([...none.indices, none.count], [-1, -1, -1, -1, 0]);
+});

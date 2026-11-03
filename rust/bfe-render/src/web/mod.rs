@@ -81,6 +81,20 @@ impl BfeRenderer {
         self.r.core.add_program(kind, vs, fs, &attributes, &uniforms).map_err(|e| JsValue::from_str(&e))
     }
 
+    // add_program with the lamps read from the lamp table (lamp lighting on,
+    // the program's pass giving each draw its lamps: set_lamps, the records'
+    // lamp indices, world_lamps).
+    pub fn add_program_lamps(&mut self, kind: u32, vs: &str, fs: &str, attributes: &str, uniforms: &str) -> Result<u32, JsValue> {
+        let kind = match kind { 1 => Kind::Skinned, 2 => Kind::Rigid, 3 => Kind::Plain, 4 => Kind::Effect, _ => Kind::World };
+        let attributes: Vec<(String, u32)> = attributes.split(',').filter(|s| !s.is_empty())
+            .filter_map(|s| { let (n, l) = s.split_once(':')?; Some((n.to_string(), l.parse().ok()?)) }).collect();
+        let uniforms: Vec<String> = uniforms.split(',').filter(|s| !s.is_empty()).map(String::from).collect();
+        self.r.core.add_program_lamps(kind, vs, fs, &attributes, &uniforms, true).map_err(|e| JsValue::from_str(&e))
+    }
+
+    // The lamp table: eight floats a lamp source (position, radius, colour, pad).
+    pub fn set_lamps(&mut self, data: &[f32]) { self.r.core.set_lamps(data) }
+
     pub fn add_geometry(&mut self) -> u32 { self.r.core.add_geometry() }
     pub fn geometry_buffer(&mut self, g: u32, data: &[u8]) -> u32 { self.r.core.geometry_buffer(g, data) }
     #[allow(clippy::too_many_arguments)]

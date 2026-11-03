@@ -21,13 +21,15 @@ export const UNIT_TREE_STATES = 3, UNIT_LAYER1 = 4, UNIT_DETAIL = 5, UNIT_LAYERS
 const MATERIAL = new Set(["sunScale", "brightness", "ambientPull", "specular", "scroll", "treeStateCount", "receiveShadow"]);
 // Uniforms a world program may read besides the frame block: its textures,
 // those material values, the point lights the renderer gives each draw, and
-// lamp lighting's, read only while lamps are off (core.program()). shadows:
-// this pass gives a draw its receiveShadow and shows three's shadow pass the
+// lamp lighting's (with lamps on, from the lamp table: lamps). shadows: this
+// pass gives a draw its receiveShadow and shows three's shadow pass the
 // casters it hides (reveal), so a shadow receiver's program is its to draw.
+// lamps: it gives each DYNAMIC bucket's draw its lamps each frame.
 const POLICY = {
   uniforms: new Set(["map", "farMap", "bumpMap", "treeStates", ...MATERIAL, "zeroLights", "zeroLightCount", "localLightPositions", "localLightColors", "localLightCount"]),
   material: MATERIAL,
   shadows: true,
+  lamps: true,
 };
 
 // Whether three has drawn the material as it is now: its program is current.
@@ -45,6 +47,8 @@ class WorldPass {
     this.pending = null;
     this.count = 0;
     this.meshes = []; // { mesh, id, version (its material's, registered), stale }
+    this.lamped = []; // the entries whose program reads lamps from the lamp table
+    this.lampValues = new Float32Array(5);
     this.stateTextures = []; // { texture, version }: the tree canopies' state
     // three's own opaque order (by material) unless ?rustSort: sorting by
     // program saves a few switches but moves which of two surfaces at the
@@ -65,6 +69,14 @@ class WorldPass {
     // The canopies' state, when it changed (three uploads it as it binds it;
     // it no longer draws these materials).
     for (const t of this.stateTextures) if (t.texture.version !== t.version) { this.core.renderer.initTexture(t.texture); t.version = t.texture.version; }
+    // A DYNAMIC bucket's lamps, as its material's onBeforeRender selects them
+    // (its object is the bucket, at the identity).
+    for (const entry of this.lamped) {
+      if (entry.stale) continue;
+      const lamps = this.core.lamps(entry.mesh, false);
+      this.lampValues.set(lamps.indices); this.lampValues[4] = lamps.count;
+      this.core.rust.world_lamps(entry.id, this.lampValues);
+    }
     if (!this.pending || this.pending.length) this.registerWorld();
   }
 
@@ -120,7 +132,9 @@ class WorldPass {
       material.visible = false;
       // hooked: drawn here only with a shader hook's inputs (scroll, the canopies' state, a frame-value alias).
       const hooked = ["scroll", "treeStates"].some((n) => program.names.has(n)) || program.aliased;
-      this.meshes.push({ mesh, id: w, version: material.version, stale: false, hooked });
+      const entry = { mesh, id: w, version: material.version, stale: false, hooked };
+      this.meshes.push(entry);
+      if (program.lamps) this.lamped.push(entry);
       this.count++;
       return false;
     });

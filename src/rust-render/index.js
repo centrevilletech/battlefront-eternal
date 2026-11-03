@@ -170,6 +170,13 @@ export class RustRender {
     this.config = null;
     this.shadowMaps = "";
     this.shadowView = false;
+    // Programs whose lamps come from the lamp table (a pass that gives each
+    // draw its lamps, lamp lighting on), kept apart from the same three
+    // programs' others; the lamp table's sources and their indices there.
+    this.lampPrograms = new Map();
+    this.lampSources = 0;
+    this.lampIndex = new Map();
+    this.lampOut = { indices: [-1, -1, -1, -1], count: 0 };
     // The renderer's inputs: the frame block's values, then the passes'
     // records (f64), where they start and a record's size (instances.rs);
     // and the bones of the rigs drawn (f32).
@@ -302,13 +309,18 @@ export class RustRender {
   // lamps are on only when its pass feeds them (policy.lamps). Anything else
   // makes the program three's.
   program(threeProgram, kind, material, policy, cache = this.programs) {
+    const lampsOn = Boolean(this.graphics.settings.get("lampLighting"));
+    // A pass that gives its draws their lamps: its programs read them from the
+    // lamp table (add_program_lamps), kept apart from three's same programs.
+    const fed = lampsOn && Boolean(policy.lamps) && RECEIVER_KINDS.has(kind);
+    if (fed && cache === this.programs) cache = this.lampPrograms;
     let entry = cache.get(threeProgram);
     if (entry !== undefined) return entry;
     entry = null;
     const gl = this.gl, p = threeProgram.program;
     const names = [], aliases = [];
     const shadows = Boolean(policy.shadows) && RECEIVER_KINDS.has(kind) && this.shadowsOn();
-    const lamps = !this.graphics.settings.get("lampLighting") || Boolean(policy.lamps);
+    const lamps = !lampsOn || fed;
     let ok = true, why = "";
     for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
       const u = gl.getActiveUniform(p, i), name = u.name.replace(/\[0\]$/, "");
@@ -336,8 +348,10 @@ export class RustRender {
       const [vs, fs] = gl.getAttachedShaders(p).sort((a) => (gl.getShaderParameter(a, gl.SHADER_TYPE) === gl.VERTEX_SHADER ? -1 : 1));
       const source = (shader) => aliases.reduce((text, [name, member]) => text.replace(new RegExp(`^\\s*uniform\\s+(?:(?:highp|mediump|lowp)\\s+)?\\w+\\s+${name}\\s*;\\s*$`, "m"), `#define ${name} ${member}`), gl.getShaderSource(shader));
       try {
-        entry = { id: this.rust.add_program(kind, source(vs), source(fs), attributes.join(","), names.filter((name) => policy.material.has(name)).join(",")),
-          attributes: attributes.map((a) => { const [name, location] = a.split(":"); return [name, Number(location)]; }), names: new Set(names), aliased: aliases.length > 0 };
+        const lamped = fed && names.some((name) => LAMP_UNIFORMS.has(name));
+        const add = lamped ? this.rust.add_program_lamps : this.rust.add_program;
+        entry = { id: add.call(this.rust, kind, source(vs), source(fs), attributes.join(","), names.filter((name) => policy.material.has(name)).join(",")),
+          attributes: attributes.map((a) => { const [name, location] = a.split(":"); return [name, Number(location)]; }), names: new Set(names), aliased: aliases.length > 0, lamps: lamped };
       } catch (error) {
         this.errors.push(`p${threeProgram.id}: ${String(error).slice(0, 300)}`);
       }
@@ -409,6 +423,7 @@ export class RustRender {
       else { input[at] = v.x; input[at + 1] = v.y; if (size === 3) input[at + 2] = v.z; }
     }
     if (view !== VIEW_FAR && view !== VIEW_FIRST_PERSON) this.writeShadow();
+    if (view !== VIEW_FAR) this.writeLamps();
     const pack = packed(scene, camera);
     const count = Math.min(pack.count, MAX_LIGHTS);
     input[LIGHT_COUNT] = count;
@@ -446,6 +461,36 @@ export class RustRender {
       if (e) for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) out[SHADOW.PLANES + 12 * i + 4 * c + r] = e[3 * c + r];
     }
     for (let i = 0; i < Math.min(slices.length, SHADOW.CASCADES); i++) { out[SHADOW.SLICES + 4 * i] = slices[i].x; out[SHADOW.SLICES + 4 * i + 1] = slices[i].y; }
+  }
+
+  // The lamp table (shader.rs LAMP_*): every lamp source of the map (two
+  // texels each: position and radius, colour), given again when the sources
+  // grow (they do as the self-lit textures arrive, early in the battle).
+  writeLamps() {
+    const local = this.graphics.localLights;
+    if (!local || !this.graphics.settings.get("lampLighting")) return;
+    const sources = local.sources;
+    if (sources.length === this.lampSources) return;
+    const data = new Float32Array(8 * sources.length);
+    for (let i = 0; i < sources.length; i++) {
+      const s = sources[i];
+      data.set([s.position.x, s.position.y, s.position.z, s.radius, s.color.x, s.color.y, s.color.z, 0], 8 * i);
+      this.lampIndex.set(s, i);
+    }
+    this.lampSources = sources.length;
+    if (sources.length) this.rust.set_lamps(data);
+  }
+
+  // The lamps a pass's draw of `object` has this frame (four lamp table
+  // indices, -1 for none, and a count), as three's onBeforeRender of a
+  // DYNAMIC zero material selects them (local-lights.js select, with its
+  // cache and occlusion rays); viewModel: a first-person part's. The object
+  // returned is reused.
+  lamps(object, viewModel = false) {
+    const out = this.lampOut, lights = this.graphics.localLights?.select(object, viewModel) ?? [];
+    out.count = Math.min(4, lights.length);
+    for (let k = 0; k < 4; k++) out.indices[k] = k < out.count ? this.lampIndex.get(lights[k]) ?? -1 : -1;
+    return out;
   }
 
   // A point inside three's render lists, for a pass that must draw there

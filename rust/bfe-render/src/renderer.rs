@@ -83,6 +83,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         core.begin_phase();
         core.upload_frame(VIEW_NEAR);
         core.upload_shadow();
+        core.bind_lamps();
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();
@@ -135,6 +136,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         }
         core.upload_frame(frame);
         core.upload_shadow();
+        core.bind_lamps();
         core.bind_far_map();
         {
             let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
@@ -155,6 +157,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
             if !list.segment(k).is_empty() {
                 core.bind_frame(list.frame);
                 core.bind_shadow();
+                core.bind_lamps();
                 core.bind_far_map();
                 let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
                 transparent::draw_segment(core, view, list.segment(k), &mut sources);
@@ -171,6 +174,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let core = &mut self.core;
         core.begin_phase();
         core.upload_frame(VIEW_FIRST_PERSON);
+        core.bind_lamps();
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();
