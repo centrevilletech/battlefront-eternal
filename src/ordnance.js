@@ -244,6 +244,16 @@ export class Ordnance {
     else return this.bolt(def, origin, direction, owner, visual, ignoreBody, channel);
   }
 
+  // A flyer's missile (vehicles.js fireSeat): steered by its seeker
+  // (flight/targeting.js navigateMissile) for the class's missile lifetime
+  // at its missile speed. The round's own writes, kept here with the rest.
+  flightMissile(round, flightClass, life, speed) {
+    round.flightMissile = true;
+    round.flightClass = flightClass;
+    round.life = life;
+    round.velocity.normalize().multiplyScalar(speed);
+  }
+
   // A fat ray (the Geonosian LR1K sonic cannon's round, base fatray): a
   // thick, slow ball flying straight at Velocity for LifeSpan (the
   // retail class: 100 m/s for 0.45 s, so 45 m, no gravity, no explosion)
