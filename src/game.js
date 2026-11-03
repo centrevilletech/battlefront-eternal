@@ -129,6 +129,16 @@ async function attachHullPhase(instance, vehicles, map, pack) {
   bridge.reserve(4 << 20);
   return attachVehiclesSim(vehicles, bridge, map, pack);
 }
+// The hulls' input batch on the battle's instance of the module (the
+// leases, hulls and riders written in before it and synced after it), on
+// the instance's one bridge (src/seats-sim.js).
+async function attachSeatPhase(instance, vehicles) {
+  const [{ bridgeFor }, { attachSeatsSim }, { Soldier }, { Droideka }, { SeatLease, SeatUnit }, { Turret }] = await Promise.all([
+    import("./sim/runtime.js"), import("./seats-sim.js"), import("./soldier.js"), import("./droideka.js"), import("./seats.js"), import("./props.js")]);
+  const bridge = bridgeFor(instance, { classes: { Unit, Vehicle, Soldier, Droideka, SeatLease, SeatUnit, Turret } });
+  bridge.reserve(4 << 20);
+  return attachSeatsSim(vehicles, bridge);
+}
 
 // A world's combats on the battle's instance of the module, through the
 // store's one bridge (src/combat-sim.js).
@@ -474,12 +484,16 @@ async function start() {
   // for them: ?hulls=rust, or under Node BFE_HULLS=rust. Off by default until
   // the hull phase moves whole (flight, seats and fire with it).
   const wantHulls = headless && (params.get("hulls") ?? globalThis.process?.env?.BFE_HULLS) === "rust";
+  // The hulls' seats' input batch on the module (src/seats-sim.js), where a
+  // world asks for it: ?seats=rust, or under Node BFE_SEATS=rust. Off by
+  // default until the seats move whole with the hulls (F2).
+  const wantSeats = headless && (params.get("seats") ?? globalThis.process?.env?.BFE_SEATS) === "rust";
   // A world's combats on the module (src/combat-sim.js), where it asks for
   // them: ?combat=rust, or under Node BFE_COMBAT=rust. Off by default until
   // units and combat move over together.
   const wantCombat = headless && (params.get("combat") ?? globalThis.process?.env?.BFE_COMBAT) === "rust";
   // The kernels and the store on the battle's one instance of the module.
-  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantCombat ? await loadSimInstance() : null;
+  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantSeats || wantCombat ? await loadSimInstance() : null;
   const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
   const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
@@ -1340,6 +1354,7 @@ async function start() {
     vehicles.seatRandom = seatRandom;
     if (wantHulls && simInstance) await attachHullPhase(simInstance, vehicles, { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
       { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) });
+    if (wantSeats && simInstance) await attachSeatPhase(simInstance, vehicles);
     // A world's barrels kick back on the tick clock (a page's on its own):
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;

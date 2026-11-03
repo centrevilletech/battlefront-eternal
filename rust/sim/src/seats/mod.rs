@@ -41,11 +41,12 @@ pub mod bodies;
 pub mod exits;
 pub mod hulls;
 pub mod lease;
+pub mod module;
 pub mod network;
 pub mod targets;
 pub mod turrets;
 
-use crate::gen::{Body, Post, SeatLease, SeatUnit, Unit};
+use crate::gen::{Body, Post, SeatLease, SeatRole, SeatUnit, Unit};
 use crate::store::Ref;
 use three::Vector3;
 
@@ -139,12 +140,30 @@ pub trait SeatWorld {
     fn sync_rider(&mut self, lease: Ref<SeatLease>, unit: &mut Unit);
     /// The AI controller's state of a unit, or None (undefined).
     fn controller_state(&mut self, unit: Option<u32>) -> Option<f64>;
-    /// The seat as the AI drives it, made for a bot's lease (SeatUnit).
-    fn controllable(&mut self, lease: Ref<SeatLease>) -> Ref<SeatUnit>;
+    /// The seat as the AI drives it, made for a bot's lease (SeatUnit), the
+    /// lease in seat `index` with `role` by then.
+    fn controllable(&mut self, lease: Ref<SeatLease>, index: usize, role: SeatRole) -> Ref<SeatUnit>;
     /// The battle's hooks: a seat taken, left, changed.
     fn boarded(&mut self, unit: u32, holder: Holder, index: usize);
     fn unboarded(&mut self, unit: Option<u32>, holder: Holder, index: usize, post: Option<Ref<Post>>, reason: Reason);
     fn moved(&mut self, unit: Option<u32>, holder: Holder, index: usize);
+    /// What the seats do beyond the store as a body takes a seat, leaves
+    /// one, is set down or is let go where it rode (seatBody, unseatBody,
+    /// placeOnFoot, dropBody): its combat's flags (mounted, aimOverride,
+    /// gunUnderwater, zoomed: the combat package's) and its drawing
+    /// (animator, model root, presentation). `yaw`: its aim's yaw as it
+    /// left (unseated), the way it was set down facing (placed). None of
+    /// it is read back by the seats; the replays have nothing of it to
+    /// check, and the module hands it to JavaScript once its phase is over.
+    fn seated(&mut self, _unit: u32) {}
+    fn unseated(&mut self, _unit: u32, _yaw: f64) {}
+    fn placed(&mut self, _unit: u32, _yaw: f64) {}
+    fn dropped(&mut self, _unit: u32, _at: &Vector3) {}
+    /// The spread rule of a seat's weapons (Vehicle.setSeatPolicy, a
+    /// turret's seatWeaponPolicy): the player's, or the AI's floor while a
+    /// bot holds it; `random`: with the world's seat stream. The combat
+    /// package's records.
+    fn seat_policy(&mut self, _holder: Holder, _index: usize, _player: bool, _random: bool) {}
 }
 
 /// `x || 0` for a number: 0 (+0) for 0, -0 and NaN.

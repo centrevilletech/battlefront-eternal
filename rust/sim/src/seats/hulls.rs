@@ -14,7 +14,7 @@ use super::boarding::{boarding_seat, can_board, claim_seat, crewed, in_flight, m
 use super::exits::{classic_seat_exit, person_exit_point, ExitFrame, ExitSpot, HullFrame};
 use super::lease::{latch_lease, live, network_human, new_lease, person_lease, seat_role, Controls};
 use super::{unit_ref, Attacker, Holder, Reason, SeatWorld};
-use crate::gen::{ExitRequest, Post, SeatLease, SeatLeaseView, Store, Unit, Vehicle};
+use crate::gen::{ExitRequest, Post, SeatLease, SeatLeaseView, SeatUnit, Store, Unit, Vehicle};
 use crate::rig::math;
 use crate::store::{Nullable, Ref};
 use crate::vehicles::hull::angle;
@@ -64,6 +64,10 @@ pub struct Hulls {
     /// Leases made since this was last emptied, in the order made (a
     /// replay names them as the capture does).
     pub made: Vec<Ref<SeatLease>>,
+    /// The seat controls whose intents the input batches took edges from
+    /// since this was last emptied, in that order (the module's JavaScript
+    /// takes them from its SeatUnits' intents too).
+    pub latched: Vec<Ref<SeatUnit>>,
 }
 
 /// Vehicles.vacate's options.
@@ -218,9 +222,9 @@ impl Hulls {
         seat.pitch = if index == 0 && !flying && (!hover || network) { -0.12 } else { 0.0 };
         seat.look_yaw = None;
         seat.look_pitch = None;
-        // (setSeatPolicy: the seat's weapons, the combat package's records.)
+        w.seat_policy(Holder::Hull(self.hulls[hull].index), index, network, true);
         if !network {
-            let c = w.controllable(r);
+            let c = w.controllable(r, index, role);
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         let mut combat = self.facts(unit).combat;
@@ -228,6 +232,7 @@ impl Hulls {
         u.seat = Some(r);
         seat_body(u, &mut combat);
         self.facts(unit).combat = combat;
+        w.seated(unit);
         st.vehicle.get_mut(vref).unwrap().sleeping = Some(false);
         w.sync_rider(r, st.unit.get_mut(unit_ref(unit)).unwrap());
         w.boarded(unit, Holder::Hull(self.hulls[hull].index), index);
@@ -322,12 +327,18 @@ impl Hulls {
             if u.seat == Some(r) {
                 u.seat = None;
                 unseat_body(u, &mut combat);
+                // `unit.soldier?.aimYaw ?? 0`.
+                let yaw = super::bodies::soldier(u).map_or(0.0, |s| s.aim_yaw);
+                self.facts(id).combat = combat;
+                w.unseated(id, yaw);
+            } else {
+                self.facts(id).combat = combat;
             }
-            self.facts(id).combat = combat;
         }
         if let Some(fall) = fall {
             let mount = if self.hulls[hull].animal { Some(st.vehicle.get(vref).unwrap().body) } else { None };
             drop_body(st.unit.get_mut(unit_ref(unit.unwrap())).unwrap(), &fall, mount);
+            w.dropped(unit.unwrap(), &fall);
         }
         let promote = match how.reason {
             Reason::Killed => how.promote.unwrap_or(true),
@@ -343,6 +354,7 @@ impl Hulls {
         if let Some(spot) = spot {
             let u = st.unit.get_mut(unit_ref(unit.unwrap())).unwrap();
             place_on_foot(w, u, &spot, yaw, airborne && person);
+            w.placed(unit.unwrap(), yaw);
         }
         w.unboarded(unit, Holder::Hull(self.hulls[hull].index), index, how.post, how.reason);
         true
@@ -396,9 +408,9 @@ impl Hulls {
         lease.input.pressed[1] = false;
         lease.input.reload = false;
         lease.input.exit = false;
-        // (setSeatPolicy: the seat's weapons, the combat package's records.)
+        w.seat_policy(Holder::Hull(self.hulls[hull].index), index, human || network, !human);
         if !human && !network {
-            let c = w.controllable(r);
+            let c = w.controllable(r, index, role);
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         w.moved(unit, Holder::Hull(self.hulls[hull].index), index);
@@ -448,6 +460,8 @@ impl Hulls {
         for unit in dying {
             w.kill(st, super::Seating::Hulls(self), unit, attacker);
         }
+        // It runs inside the hull's tick (setHealth), which reads on.
+        lease_views(st, vref);
     }
 
     /// Vehicles.latchCrews (2085): the seat contract's input batch: stale
@@ -470,7 +484,9 @@ impl Hulls {
                     self.vacate(st, w, r, Vacate { placement: false, promote: Some(false), reason: Reason::Stale, ..Vacate::default() });
                     continue;
                 }
-                latch_lease(&mut st.seat_lease, &mut st.unit, &mut self.controls, r);
+                if let Some(c) = latch_lease(&mut st.seat_lease, &mut st.unit, &mut self.controls, r) {
+                    self.latched.push(c);
+                }
                 let lease = st.seat_lease.get(r).unwrap();
                 if lease.input.exit || lease.exit_request.is_some() {
                     exits.push(r);
@@ -487,6 +503,11 @@ impl Hulls {
                 None => (true, None, None),
             };
             self.vacate(st, w, r, Vacate { placement, promote, post, ..Vacate::default() });
+        }
+        // The hulls' tick reads each seat's lease through seatLeases, which
+        // JavaScript's getter keeps current.
+        for side in &self.hulls {
+            lease_views(st, side.vehicle);
         }
     }
 }

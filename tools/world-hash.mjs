@@ -83,6 +83,8 @@ const combat = opt('combat', 'js');
 if (!['rust', 'js'].includes(combat)) throw Error(`--combat ${combat}: rust or js`);
 // --hulls rust: the ground hulls' phase on the module (?hulls=rust, src/vehicles-sim.js).
 const hulls = opt('hulls', 'js');
+// --seats rust: the hulls' seats' input batch on the module (?seats=rust, src/seats-sim.js).
+const seats = opt('seats', 'js');
 const nativeRandom = opt('random', 'seeded') === 'native';
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
@@ -106,8 +108,8 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}&rays=${rays}&movement=${movement}${sim === 'js' ? '&sim=js' : ''}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${hulls === 'rust' ? '&hulls=rust' : ''}${combat === 'rust' ? '&combat=rust' : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, sim, hulls, combat, ai, heroes, unit, mount, battles, nativeRandom, query };
+const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}&rays=${rays}&movement=${movement}${sim === 'js' ? '&sim=js' : ''}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${hulls === 'rust' ? '&hulls=rust' : ''}${combat === 'rust' ? '&combat=rust' : ''}${seats === 'rust' ? '&seats=rust' : ''}`;
+const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, sim, hulls, combat, seats, ai, heroes, unit, mount, battles, nativeRandom, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 
