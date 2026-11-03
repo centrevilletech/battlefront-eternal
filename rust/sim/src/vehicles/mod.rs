@@ -84,6 +84,8 @@ pub trait VehicleWorld {
     fn move_body(&mut self, body: BodyId, matrix: &Matrix4);
     /// A body in or out of the collision's queries.
     fn enable_body(&mut self, body: BodyId, enabled: bool);
+    /// Whether a body takes part in the collision's queries.
+    fn body_enabled(&mut self, body: BodyId) -> bool;
     /// Whether the map has water, and then whether (x, z) is over it.
     fn water_over(&mut self, x: f64, z: f64) -> bool;
     /// The water's level now (only asked after water_over said yes, or for a

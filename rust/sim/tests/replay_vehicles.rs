@@ -166,6 +166,12 @@ impl<'f> VehicleWorld for Served<'f> {
         }
     }
 
+    fn body_enabled(&mut self, body: BodyId) -> bool {
+        let Some(call) = self.call("world.bodyEnabled") else { return false };
+        self.check_body("bodyEnabled body", call.arg(0), Some(body));
+        call.result().truthy()
+    }
+
     fn enable_body(&mut self, body: BodyId, enabled: bool) {
         let Some(call) = self.call("world.enableBody") else { return };
         self.check_body("enableBody body", call.arg(0), Some(body));
@@ -347,12 +353,16 @@ fn content_of(header: V) -> Option<bfe_content::content::Content> {
     Some(bfe_content::content::Content::build(battle).expect("the battle's content"))
 }
 
-/// A hull class's rig, built from the content as the Vehicle constructor builds it.
-fn rig_of(content: &bfe_content::content::Content, class: &str) -> Option<bfe_sim::rig::hull::HullRig> {
+type Built = (bfe_sim::rig::hull::HullRig, Option<bfe_sim::vehicles::pose::WalkClips>, Option<bfe_sim::vehicles::pose::LegPairs>);
+
+/// A hull class's rig, built from the content as the Vehicle constructor
+/// builds it, with its walk clips and its legs.
+fn rig_of(content: &bfe_content::content::Content, class: &str) -> Option<Built> {
     let def = content.battle.vehicle_def.as_ref()?.get("classes")?.get(class)?;
     let model = def.get("model").and_then(|m| m.as_str())?;
     let template = content.vehicle_templates.iter().find(|t| t.name == model)?;
-    Some(bfe_sim::rig::hull::HullRig::new(&bfe_sim::rig::content::hull_desc(def, template)))
+    let rig = bfe_sim::rig::hull::HullRig::new(&bfe_sim::rig::content::hull_desc(def, template));
+    Some((rig, bfe_sim::vehicles::pose::walk_clips(template), bfe_sim::vehicles::pose::leg_pairs(def)))
 }
 
 #[test]
@@ -365,7 +375,7 @@ fn hulls_pose_as_captured() {
     }
     for name in ["vehicle.aimTick", "vehicle.render"] {
         let mut content: Option<(String, bfe_content::content::Content)> = None;
-        let mut rigs: std::collections::HashMap<String, Option<bfe_sim::rig::hull::HullRig>> = Default::default();
+        let mut rigs: std::collections::HashMap<String, Option<Built>> = Default::default();
         let mut posed_same = 0usize;
         let report = replay_corpus(&corpus, name, |capture, frame| {
             let label = capture.label();
@@ -377,12 +387,9 @@ fn hulls_pose_as_captured() {
             if before.get("flying").bool() {
                 return Outcome::Skipped("a flyer's pose (the flight package's)".into());
             }
-            if before.get("pose").bool() || before.get("legs").bool() {
-                return Outcome::Skipped("a walker's pose (the walk cycle: next)".into());
-            }
             let class = before.get("name").str().unwrap_or("?").to_string();
             let c = &content.as_ref().unwrap().1;
-            let Some(rig) = rigs.entry(class.clone()).or_insert_with(|| rig_of(c, &class)).clone() else {
+            let Some((rig, clips, legs)) = rigs.entry(class.clone()).or_insert_with(|| rig_of(c, &class)).clone() else {
                 return Outcome::Failed(format!("{}: no rig for {class} in the content", frame.place()));
             };
             let Some(index) = frame.receiver().handle_num("vehicle") else {
@@ -390,6 +397,9 @@ fn hulls_pose_as_captured() {
             };
             let posed = !before.get("rig").is_null();
             let mut hull = pose_from_value(before, index as usize, rig);
+            let pose = hull.pose.as_mut().unwrap();
+            pose.clips = clips;
+            pose.leg_pairs = legs;
             let (alpha, dt) = (frame.arg(0).num(), frame.arg(1).num());
             let mut served = Served { log: Log::new(frame), hull: index as usize, water: None, error: None };
             if name == "vehicle.aimTick" {

@@ -6,12 +6,14 @@
 //! their rates, its barrels' kick, and one pass over the rig for the
 //! muzzles, eyes and riders the rest of the tick reads.
 //!
-//! The rig is rust/sim/src/rig/hull.rs's, posed here; a flyer's pose (its
-//! gear, its drawn bank) is the flight package's, and a walker's walk
-//! cycle (walk, applyPose, liftLegs, feelLegs) comes next.
+//! A walker also advances its walk cycle and is posed from its clips (walk,
+//! applyPose, liftLegs), and as drawn feels the ground under its feet
+//! (feelLegs). The rig is rust/sim/src/rig/hull.rs's, posed here; a flyer's
+//! pose (its gear, its drawn bank) is the flight package's.
 
-use super::hull::{angle, approach, Hull, UP};
+use super::hull::{angle, approach, Hull, DOWN, UP};
 use super::VehicleWorld;
+use crate::pose::{Clip, Pose};
 use crate::rig::hull::HullRig;
 use crate::rig::math;
 use three::{clamp, lerp, EulerOrder, Matrix4, NodeId, Quaternion, Vector3};
@@ -80,6 +82,41 @@ pub struct SeatPose {
     pub aim: Vector3,
 }
 
+/// A clip of the hull's (its frames for the sampler, its length in seconds
+/// and its stride).
+#[derive(Clone)]
+pub struct WalkClip {
+    pub clip: std::rc::Rc<Clip>,
+    pub duration: f64,
+    pub stride: f64,
+}
+
+impl std::fmt::Debug for WalkClip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WalkClip({} frames, {} s)", self.clip.frames, self.duration)
+    }
+}
+
+/// The clips a hull's walk pose reads (`this.clips`: none without any).
+#[derive(Clone, Debug, Default)]
+pub struct WalkClips {
+    pub idle: Option<WalkClip>,
+    pub left: Option<WalkClip>,
+    pub right: Option<WalkClip>,
+    pub lift_left: Option<WalkClip>,
+    pub lift_right: Option<WalkClip>,
+}
+
+/// A walker's leg pairs as its pose reads them (the class's `fx.legs`):
+/// each foot's place in the hull's frame, each pair's leg bones by name,
+/// the rays' length.
+#[derive(Clone, Debug, Default)]
+pub struct LegPairs {
+    pub ray_length: f64,
+    pub at: Vec<[[f64; 3]; 2]>,
+    pub names: Vec<[String; 2]>,
+}
+
 /// What a hull's pose keeps beside its tick's state.
 #[derive(Clone, Debug)]
 pub struct HullPose {
@@ -96,6 +133,9 @@ pub struct HullPose {
     /// Its wheels' bones and axles, by wheel.
     pub wheel_bones: Vec<(Option<NodeId>, Vector3)>,
     pub seats: Vec<SeatPose>,
+    /// Its clips (None: `this.clips` null) and its legs (a walker's).
+    pub clips: Option<WalkClips>,
+    pub leg_pairs: Option<LegPairs>,
 }
 
 /// `aimVector(yaw, pitch, out)`: a direction from a yaw (positive to the
@@ -151,8 +191,12 @@ impl Hull {
         if !self.alive || self.rests(dt) {
             return;
         }
-        debug_assert!(!self.flying && !self.pose.as_ref().unwrap().has_pose, "a flyer's or walker's pose is not here yet");
+        debug_assert!(!self.flying, "a flyer's pose is the flight package's");
         self.place_root(alpha);
+        self.walk(dt);
+        if self.pose.as_ref().unwrap().rig.aimed_by_pose {
+            self.apply_pose();
+        }
         self.pose_mut().age += dt;
         if dt > 0.0 {
             self.aim_seats(w, dt);
@@ -175,8 +219,10 @@ impl Hull {
         if !self.alive || self.rests(dt) {
             return;
         }
-        debug_assert!(!self.flying && !self.pose.as_ref().unwrap().has_pose && !self.pose.as_ref().unwrap().legs, "a flyer's or walker's pose is not here yet");
+        debug_assert!(!self.flying, "a flyer's pose is the flight package's");
         self.place_root(alpha);
+        self.feel_legs(w, dt);
+        self.apply_pose();
         self.pose_seat(self.seat_index, 0.0);
         for i in 0..self.seats.len() {
             if i != self.seat_index && self.crewed(i) {
@@ -415,4 +461,199 @@ impl Hull {
             }
         }
     }
+
+    /// vehicles.js walk: the walk cycle advanced by a tick.
+    fn walk(&mut self, dt: f64) {
+        let speed = hypot(self.velocity.x, self.velocity.z);
+        let (vx, vz, yaw, creature) = (self.velocity.x, self.velocity.z, self.yaw, self.creature);
+        let p = self.pose.as_mut().unwrap();
+        if !p.has_pose || dt <= 0.0 {
+            return;
+        }
+        let clips = p.clips.as_ref();
+        let (left, right) = (clips.and_then(|c| c.left.as_ref()), clips.and_then(|c| c.right.as_ref()));
+        let length = left.map_or(0.0, |c| or_zero(c.duration)) + right.map_or(0.0, |c| or_zero(c.duration));
+        let moving = speed > 0.05 && left.is_some() && right.is_some() && length > 0.0;
+        p.walk_blend += ((if moving { 1.0 } else { 0.0 }) - p.walk_blend) * (1.0 - math::exp(-8.0 * dt));
+        if let (true, Some(left), Some(right), true) = (p.walk_blend > 0.0001, left, right, length > 0.0) {
+            let natural = v8math::max(0.1, (left.stride + right.stride) / length);
+            let forward_speed = vx * math::sin(yaw) + vz * math::cos(yaw);
+            let direction = if creature && forward_speed < 0.0 { -1.0 } else { 1.0 };
+            p.walk_phase = ((p.walk_phase + dt * speed / natural * direction) % length + length) % length;
+        }
+    }
+
+    /// vehicles.js applyPose: the bones from the walk cycle (the idle clip
+    /// at the hull's age under the walk clips at its phase, by its blend),
+    /// then the legs lifted toward the higher ground.
+    fn apply_pose(&mut self) {
+        let p = self.pose.as_mut().unwrap();
+        if !p.has_pose {
+            return;
+        }
+        let (phase, blend, age) = (p.walk_phase, p.walk_blend, p.age);
+        let count = p.rig.bones.len();
+        let root = p.rig.pose_root.unwrap_or(-1);
+        let mut pose = Pose::new(count, root);
+        let clips = p.clips.as_ref();
+        let (left, right) = (clips.and_then(|c| c.left.as_ref()), clips.and_then(|c| c.right.as_ref()));
+        let length = left.map_or(0.0, |c| or_zero(c.duration)) + right.map_or(0.0, |c| or_zero(c.duration));
+        pose.clear();
+        add(&mut pose, clips.and_then(|c| c.idle.as_ref()), age, 1.0 - blend, true);
+        if let (true, Some(left), Some(right), true) = (blend > 0.0001, left, right, length > 0.0) {
+            let (clip, time) = if phase < left.duration { (left, phase) } else { (right, phase - left.duration) };
+            add(&mut pose, Some(clip), time, blend, false);
+        }
+        apply(&mut pose, &mut p.rig);
+        self.lift_legs();
+    }
+
+    /// vehicles.js liftLegs: each leg pair's legs drawn toward the pose with
+    /// the foot on the higher ground lifted, by how much higher it is.
+    fn lift_legs(&mut self) {
+        let Some(sides) = self.leg_side.clone() else { return };
+        let p = self.pose.as_mut().unwrap();
+        let (Some(legs), Some(clips)) = (p.leg_pairs.as_ref(), p.clips.as_ref()) else { return };
+        let (Some(up_left), Some(up_right)) = (clips.lift_left.as_ref(), clips.lift_right.as_ref()) else { return };
+        let count = p.rig.bones.len();
+        // legBones: the bones under each pair's two leg bones, in bone order.
+        let leg_bones: Vec<Vec<usize>> = legs
+            .names
+            .iter()
+            .map(|pair| {
+                let mut under: Vec<NodeId> = Vec::new();
+                for name in pair {
+                    if let Some(node) = p.rig.by_name.get(name).map(|i| p.rig.bones[i]) {
+                        p.rig.tree.traverse(node, &mut |b| under.push(b));
+                    }
+                }
+                (0..count).filter(|&i| under.contains(&p.rig.bones[i])).collect()
+            })
+            .collect();
+        let mut lp = Pose::new(count, p.rig.pose_root.unwrap_or(-1));
+        for (n, bones) in leg_bones.iter().enumerate() {
+            let side = or_zero(sides.get(n).copied().unwrap_or(f64::NAN));
+            let weight = v8math::min(1.0, v8math::abs(side));
+            if weight < 1e-3 {
+                continue;
+            }
+            lp.clear();
+            add(&mut lp, Some(if side < 0.0 { up_left } else { up_right }), 0.0, 1.0, false);
+            for &i in bones {
+                let w = lp.w[i] as f64;
+                if w <= 1e-6 {
+                    continue;
+                }
+                let mut q = Quaternion::new(lp.q[i * 4] as f64, lp.q[i * 4 + 1] as f64, lp.q[i * 4 + 2] as f64, lp.q[i * 4 + 3] as f64);
+                q.normalize();
+                let target = Vector3::new(lp.t[i * 3] as f64 / w, lp.t[i * 3 + 1] as f64 / w, lp.t[i * 3 + 2] as f64 / w);
+                let bone = p.rig.tree.node_mut(p.rig.bones[i]);
+                bone.slerp_quaternion(&q, weight);
+                bone.position.lerp(&target, weight);
+            }
+        }
+    }
+
+    /// vehicles.js feelLegs: each leg pair's ground under its feet as drawn
+    /// (legSide, from the placed root), the hull's own body out of the casts.
+    fn feel_legs<W: VehicleWorld>(&mut self, w: &mut W, dt: f64) {
+        let p = self.pose.as_ref().unwrap();
+        let Some(legs) = p.leg_pairs.clone() else { return };
+        if self.creature || !(dt > 0.0) {
+            return;
+        }
+        let l = legs.ray_length;
+        let root = p.rig.root;
+        let mut tree_root = p.rig.tree.node(root).clone();
+        let r = tree_root.rotation();
+        let root_position = tree_root.position;
+        let mut q = Quaternion::default();
+        q.set_from_euler(&three::Euler::new(r.x, r.y, r.z, EulerOrder::YXZ));
+        if self.leg_side.is_none() {
+            self.leg_side = Some(vec![0.0; legs.at.len()]);
+        }
+        let enabled = w.body_enabled(self.body);
+        w.enable_body(self.body, false);
+        for (i, pair) in legs.at.iter().enumerate() {
+            let mut h = [0.0; 2];
+            for (j, at) in pair.iter().enumerate() {
+                let mut from = Vector3::new(at[0], at[1], at[2]);
+                from.apply_quaternion(&q).add(&root_position);
+                from.y += l;
+                h[j] = match w.cast(&from, &DOWN, 2.0 * l, None) {
+                    Some(hit) => l - hit.distance,
+                    None => -l,
+                };
+            }
+            let sides = self.leg_side.as_mut().unwrap();
+            sides[i] += (clamp(-0.6 * (h[0] - h[1]), -1.0, 1.0) - sides[i]) * v8math::min(1.0, 0.4 * dt * 60.0);
+        }
+        w.enable_body(self.body, enabled);
+    }
+}
+
+/// `x || 0` for a clip's duration.
+fn or_zero(x: f64) -> f64 {
+    super::hull::or_zero(x)
+}
+
+/// Pose.add: nothing for a missing clip or a weight at or under 1e-4.
+fn add(pose: &mut Pose, clip: Option<&WalkClip>, time: f64, weight: f64, looping: bool) {
+    let Some(clip) = clip else { return };
+    if weight <= 1e-4 {
+        return;
+    }
+    pose.add(&clip.clip, time, weight, looping);
+}
+
+/// Pose.apply: each touched bone's normalized quaternion and its
+/// translation over its weight.
+fn apply(pose: &mut Pose, rig: &mut HullRig) {
+    pose.apply_out();
+    for i in 0..rig.bones.len() {
+        if pose.w[i] as f64 <= 1e-6 {
+            continue;
+        }
+        let o = i * 7;
+        let node = rig.tree.node_mut(rig.bones[i]);
+        node.set_quaternion(pose.out[o], pose.out[o + 1], pose.out[o + 2], pose.out[o + 3]);
+        node.position = Vector3::new(pose.out[o + 4], pose.out[o + 5], pose.out[o + 6]);
+    }
+}
+
+/// A hull class's walk clips, from its template (rust/content): the pose
+/// sampler's copy of each, its length and its stride. None for a template
+/// without clips (`this.clips` null).
+pub fn walk_clips(template: &bfe_content::content::VehicleTemplate) -> Option<WalkClips> {
+    let clips = template.clips.as_ref()?;
+    let get = |name: &str| {
+        clips.get(name).map(|c| WalkClip { clip: std::rc::Rc::new(crate::rig::content::clip(c)), duration: c.duration, stride: c.stride })
+    };
+    Some(WalkClips {
+        idle: get("idle"),
+        left: get("walk_leftfoot_rightfoot"),
+        right: get("walk_rightfoot_leftfoot"),
+        lift_left: get("leftfoot_up"),
+        lift_right: get("rightfoot_up"),
+    })
+}
+
+/// A walker class's leg pairs (`def.fx.legs`), or None without legs.
+pub fn leg_pairs(def: &bfe_content::value::Value) -> Option<LegPairs> {
+    let legs = def.get("fx")?.get("legs")?;
+    let num = |v: Option<&bfe_content::value::Value>| v.and_then(|v| v.as_f64()).unwrap_or(f64::NAN);
+    let mut out = LegPairs { ray_length: num(legs.get("rayLength")), at: Vec::new(), names: Vec::new() };
+    for pair in legs.get("pairs").and_then(|p| p.as_array()).map(|a| a.iter().collect::<Vec<_>>()).unwrap_or_default() {
+        let foot = |which: &str| {
+            let f = pair.get(which);
+            let at = f.and_then(|f| f.get("at"));
+            let c = |i: usize| at.and_then(|a| a.as_array()).and_then(|a| a.get(i)).and_then(|x| x.as_f64()).unwrap_or(f64::NAN);
+            let name = f.and_then(|f| f.get("leg")).and_then(|l| l.as_str()).unwrap_or("").to_string();
+            ([c(0), c(1), c(2)], name)
+        };
+        let (left, right) = (foot("left"), foot("right"));
+        out.at.push([left.0, right.0]);
+        out.names.push([left.1, right.1]);
+    }
+    Some(out)
 }

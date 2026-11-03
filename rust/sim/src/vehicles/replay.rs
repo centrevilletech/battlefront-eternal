@@ -503,6 +503,8 @@ pub fn pose_from_value(v: V, index: usize, mut rig: crate::rig::hull::HullRig) -
             has_pose: v.get("pose").bool(),
             legs: v.get("legs").bool(),
             seats,
+            clips: None,
+            leg_pairs: None,
         }),
         ..Hull::default()
     }
