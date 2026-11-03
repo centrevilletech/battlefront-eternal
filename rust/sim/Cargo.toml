@@ -19,6 +19,17 @@ crate-type = ["cdylib", "rlib"]
 # Reading and writing the replay harness's values (rust/sim-replay, native
 # only): `cargo test -p sim --features replay` replays captured phases.
 replay = ["dep:sim-replay"]
+# The navigation port's twin runner (src/bin/nav-twin.rs, tools/nav-twin.mjs),
+# off by default so `cargo test` builds no binary beside the tests: the
+# release profile aborts on a panic and tests unwind, so the lib would be
+# built twice into the same file (cargo's output filename collision), and a
+# test could link the other build's dependencies.
+nav-twin = []
+
+[[bin]]
+name = "nav-twin"
+path = "src/bin/nav-twin.rs"
+required-features = ["nav-twin"]
 
 [dependencies]
 # The game's content as JavaScript loads it, and the JavaScript and
