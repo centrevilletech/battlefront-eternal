@@ -282,7 +282,7 @@ fn run(r: Ref<Unit>, f: impl FnOnce(&mut Combat, &mut Unit, &CombatDefs, &Edges,
     let defs = content().defs.clone();
     let edges = edges_of(r.slot);
     let (mut u, mut c) = take(r);
-    let mut w = JsWorld { unit: r.slot as f64, r };
+    let mut w = JsWorld { unit: r.slot as f64, r, remotes: c.has_remotes };
     f(&mut c, &mut u, &defs, &edges, &mut w);
     put(r, u, c);
 }
@@ -524,6 +524,9 @@ fn a3(v: &Vector3) -> Vec3 {
 struct JsWorld {
     unit: f64,
     r: Ref<Unit>,
+    /// Whether he has recon droids (combat.remotes): without, no droid of
+    /// his is out and nobody is asked.
+    remotes: bool,
 }
 
 impl JsWorld {
@@ -573,6 +576,10 @@ impl WeaponDraws for JsWorld {
     fn seeded(&mut self, _seed: f64, _value: f64) {}
 
     fn admit(&mut self, weapon: u32) -> Admission {
+        // CombatWorld.admitRemote: `remotes?.admitLaunch?.(weapon) ?? true`.
+        if !self.remotes {
+            return Admission::Yes;
+        }
         let a = import_combat_admit(&CbWeapon { unit: self.unit, weapon: weapon as f64 });
         match word_u32(a.kind) {
             0 => Admission::Yes,
@@ -589,6 +596,10 @@ impl CombatWorld for JsWorld {
     }
 
     fn remote_of(&mut self, weapon: u32) -> Option<Droid> {
+        // CombatWorld.remoteOf: `remotes?.of(weapon) || null`.
+        if !self.remotes {
+            return None;
+        }
         let d = import_combat_remote_of(&CbWeapon { unit: self.unit, weapon: weapon as f64 });
         d.found.then_some(Droid(d.droid as u32))
     }
