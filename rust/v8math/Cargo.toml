@@ -1,0 +1,10 @@
+[package]
+name = "v8math"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "JavaScript's Math as V8 13.6 (Node 24) computes it, bit for bit"
+
+[lib]
+path = "src/lib.rs"

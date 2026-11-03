@@ -1,4 +1,5 @@
 import { resolveOrdnanceOwner } from "./ordnance-owner.js";
+import { legacyRandom } from "./ai/random.js";
 import { strikeable } from "./registry.js";
 import { linearBoltFrame } from './runtime/linear-bolt.js';
 import { networkShotFor } from './runtime/network-shot-aim.js';
@@ -80,6 +81,17 @@ const glowLength = (def) => def.GlowLength ?? (def.LaserLength ? def.LaserLength
 // worker's packet described (src/runtime/replica.js carries no arrays),
 // taken from its definition on first use.
 const lightOf = (round) => round.light || (round.light = color01(round.def?.LightColor));
+// Draws with no generator given (spinRandom, random null): Math.random.
+const legacySpin = legacyRandom("grenade-spin");
+const legacyWaver = legacyRandom("missile-waver");
+// A uniform direction (three's Vector3.randomDirection, its two draws from
+// `random`: the angle about y, then the height).
+function randomDirection(out, random) {
+  const theta = random() * Math.PI * 2;
+  const u = random() * 2 - 1;
+  const c = Math.sqrt(1 - u * u);
+  return out.set(c * Math.cos(theta), u, c * Math.sin(theta));
+}
 
 // Short-lived point lights (muzzle flashes, bolts, explosions) on a fixed set
 // of scene lights, so the shaders' light count never changes. Each frame the
@@ -184,6 +196,7 @@ export class Ordnance {
     this.onLaunch = () => {}; // observation only: authoritative projectile created
     this.onImpact = () => {}; // observation only: terminal bolt outcome
     this.grenadeTurn = new THREE.Quaternion();
+    this.spinRandom = null; // the grenades' spin draws: () => [0, 1), or null for the legacy spin stream
     this.onGrenadeContact = () => {}; // (grenade) at its first touch of anything
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
     // The round castUnits is testing, for its filter (mayStrike).
@@ -383,7 +396,7 @@ export class Ordnance {
       desired: dir.clone(),
       targetId: guidance?.targetId ?? -1,
       targetGeneration: guidance?.targetGeneration ?? -1,
-      phase: [(this.random || Math.random)() * 2 * Math.PI, (this.random || Math.random)() * 2 * Math.PI],
+      phase: [(this.random || legacyWaver)() * 2 * Math.PI, (this.random || legacyWaver)() * 2 * Math.PI],
       light: color01(def.LightColor),
       quaternion: new THREE.Quaternion(),
     };
@@ -470,7 +483,7 @@ export class Ordnance {
       flight: 0,
       fuse: null,
       mesh,
-      spin: new THREE.Vector3().randomDirection(),
+      spin: randomDirection(new THREE.Vector3(), this.spinRandom || legacySpin),
       quaternion: mesh?.quaternion.clone() ?? new THREE.Quaternion(),
       trail: def.TrailEffect ? this.effects.play(def.TrailEffect, origin, UP, velocity) : null,
       light: color01(def.LightColor),
@@ -655,8 +668,8 @@ export class Ordnance {
       const w = this.axis.copy(up).multiplyScalar(Math.sin(r.phase[1])).addScaledVector(this.right, Math.sin(r.phase[0]));
       const size = w.length();
       if (size > 1e-6) v.applyAxisAngle(w.divideScalar(size), amp * dt * size);
-      r.phase[0] += (this.random || Math.random)() * 2 * (def.WaverRate || 0) * dt;
-      r.phase[1] += (this.random || Math.random)() * 2 * (def.WaverRate || 0) * dt;
+      r.phase[0] += (this.random || legacyWaver)() * 2 * (def.WaverRate || 0) * dt;
+      r.phase[1] += (this.random || legacyWaver)() * 2 * (def.WaverRate || 0) * dt;
     }
   }
 

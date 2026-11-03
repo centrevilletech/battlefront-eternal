@@ -646,7 +646,9 @@ AT-ST's `cube5`, the spider walker's `turret_y_*`).
 - The AT-ST pilot's twin guns fire from `hp_cannon_1` and `hp_cannon_2` in
   turn.
 - A barrel that fires kicks back `BarrelRecoil` along its own z, decaying
-  over a quarter second; drawn on every page from the shot.
+  over a quarter second: in a world on the tick clock (its fire point moves
+  with it, so a round fired during the kick leaves from further back), and
+  on every page from the shot, on the page's own clock.
 - `FireOutsideLimits` is per aimer (0 unless set): an aimer whose step had
   to be held back at its `AimerYawLimits` or `AimerPitchLimits` fires no
   round (the shot's turn still passes) unless it says 1. An axis

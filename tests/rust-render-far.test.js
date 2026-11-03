@@ -5,6 +5,7 @@ import * as THREE from "three";
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
+const { standinModule } = await import("./support/rust-standin.mjs");
 const { lighting } = await import("../src/materials.js");
 
 const GL = {
@@ -35,43 +36,22 @@ function mesh(name, uniforms, { renderOrder = 0, transparent = false, values = {
 }
 
 function bridge() {
-  const calls = [];
-  const memory = { buffer: new ArrayBuffer(1 << 17) };
+  // The shared stand-in for the WASM renderer (every pass's views), with
+  // the far pass's calls as this test reads them: ids from one counter, the
+  // far phase's stats.
   let next = 0;
-  const id = (name) => function (...args) { calls.push([name, ...args]); return next++; };
-  class BfeRenderer {
-    input_ptr() { return 0; }
-    input_len() { return 200 + 76 * 4; }
-    bones_ptr() { return 8192; }
-    bones_len() { return 64; }
-    far_input_ptr() { return 16384; }
-    far_input_len() { return 1024; }
-    // The transparent pass's views (src/rust-render/transparent.js): an empty list.
-    transparent_keys_ptr() { return 32768; }
-    transparent_keys_len() { return 64; }
-    transparent_objects_ptr() { return 40960; }
-    transparent_objects_len() { return 1 + 2 * 40; }
-    transparent_object_stride() { return 40; }
-    transparent_segments_ptr() { return 49152; }
-    transparent_segments_len() { return 0; }
-    transparent_segment() { return []; }
-    // The effects pass's views (src/rust-render/effects.js): none drawn here.
-    fx_input_ptr() { return 57344; }
-    fx_input_len() { return 16; }
-    fx_data_ptr() { return 61440; }
-    fx_data_len() { return 16; }
-    fx_matrices_ptr() { return 65536; }
-    fx_matrices_len() { return 16; }
-    records_at() { return 200; }
-    record_stride() { return 76; }
-    set_far_map() {}
-    sort() {}
-    far_frame() { calls.push(["far_frame"]); return [0, 0, 0, 1, 10, 0, 0, 3, 0, 0, 0, 0, 0, 0]; }
-  }
-  for (const name of ["add_texture", "add_program", "add_geometry", "geometry_buffer", "far_table", "far_item"]) BfeRenderer.prototype[name] = id(name);
-  for (const name of ["geometry_pointer", "geometry_index", "geometry_group", "far_source", "far_range", "far_cells", "far_terrain", "far_instanced"]) {
-    BfeRenderer.prototype[name] = function (...args) { calls.push([name, ...args]); };
-  }
+  const { BfeRenderer, memory, calls } = standinModule({
+    quiet: ["set_far_map", "sort", "transparent_bucket_shown", "foliage_on"],
+    methods: ({ calls }) => {
+      const methods = {
+        far_frame() { calls.push(["far_frame"]); return [0, 0, 0, 1, 10, 0, 0, 3, 0, 0, 0, 0, 0, 0]; },
+        geometry_buffer(...args) { calls.push(["geometry_buffer", ...args]); return 0; },
+      };
+      for (const name of ["add_texture", "add_program", "add_geometry", "far_table", "far_item"]) methods[name] = (...args) => { calls.push([name, ...args]); return next++; };
+      for (const name of ["geometry_pointer", "geometry_index", "geometry_group", "far_source", "far_range", "far_base", "far_cells", "far_terrain", "far_instanced"]) methods[name] = (...args) => { calls.push([name, ...args]); };
+      return methods;
+    },
+  });
   const gl = {
     ...GL,
     getProgramParameter: (p, what) => (what === GL.ACTIVE_UNIFORMS ? p.uniforms.length : p.attributes.length),
@@ -82,6 +62,7 @@ function bridge() {
     getShaderParameter: (s) => s.type,
     getShaderSource: () => "void main() {}",
     blitFramebuffer: (...args) => calls.push(["blitFramebuffer", ...args]),
+    bindFramebuffer: (t, f) => calls.push(["bindFramebuffer", t, f]),
   };
   const scene = new THREE.Scene(), farScene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(60, 1, 2, 1000);
   camera.position.set(0, 0, 10);
@@ -133,11 +114,12 @@ test("a far scene it covers whole: the renderer clears, draws it in three's orde
   // One item a mesh, each program's uniform table once.
   assert.equal(calls.filter((c) => c[0] === "far_item").length, 3);
   assert.equal(calls.filter((c) => c[0] === "far_table").length, 2);
-  // The renderer's call, three's state reset, the target bound again, then
-  // the multisampled image resolved (colour only), and no render by three.
+  // The renderer's call, then the multisampled image resolved (colour only),
+  // and no render by three. Three's state is reset when three is next used
+  // (the core's settle), once, whatever the renderer drew in between.
   const after = calls.slice(calls.findIndex((c) => c[0] === "far_frame"));
-  assert.deepEqual(after.map((c) => c[0]), ["far_frame", "resetState", "setRenderTarget", "bindFramebuffer", "bindFramebuffer", "blitFramebuffer", "bindFramebuffer", "bindFramebuffer", "bindFramebuffer"]);
-  assert.deepEqual(after[5].slice(1), [0, 0, 4, 4, 0, 0, 4, 4, GL.COLOR_BUFFER_BIT, GL.NEAREST]);
+  assert.deepEqual(after.map((c) => c[0]), ["far_frame", "bindFramebuffer", "bindFramebuffer", "blitFramebuffer", "bindFramebuffer", "bindFramebuffer", "bindFramebuffer"]);
+  assert.deepEqual(after[3].slice(1), [0, 0, 4, 4, 0, 0, 4, 4, GL.COLOR_BUFFER_BIT, GL.NEAREST]);
   // The input: the clear colour premultiplied, the pass drawing, each item
   // drawn, the sky's matrix where it stands this frame.
   core.views();
@@ -149,6 +131,10 @@ test("a far scene it covers whole: the renderer clears, draws it in three's orde
   // Its fixed values (a zero material's) go once, at registration.
   const sources = calls.filter((c) => c[0] === "far_source" && c[1] === far.all.find((i) => i.object === a).id);
   assert.deepEqual(sources.map((c) => c[3]), [0, 2]); // brightness (floats), map (texture)
+  calls.length = 0;
+  renderer.setRenderTarget(null);
+  assert.deepEqual(calls.map((c) => c[0]), ["resetState", "setRenderTarget", "setRenderTarget"]);
+  assert.equal(calls[1][1], "far", "the target three believed bound, bound again");
   calls.length = 0;
   core.cover("far", renderer, farScene, camera);
   assert.equal(calls.filter((c) => c[0].startsWith("far_") && c[0] !== "far_frame").length, 0);
@@ -162,9 +148,11 @@ test("a mesh it can't draw in view: the renderer draws nothing and three the fra
   assert.deepEqual([far.mode, far.threeObjects], ["three", 1]);
   core.views();
   assert.equal(core.farInput[4], 0);
-  // The phase's call (which draws nothing), three's state reset after the
-  // registering, and no resolve.
-  assert.deepEqual(calls.slice(calls.findIndex((c) => c[0] === "far_frame")).map((c) => c[0]), ["far_frame", "resetState", "setRenderTarget"]);
+  // The phase's call (which draws nothing) and no resolve; three's state is
+  // reset as three renders the frame.
+  assert.deepEqual(calls.slice(calls.findIndex((c) => c[0] === "far_frame")).map((c) => c[0]), ["far_frame"]);
+  renderer.render(farScene, camera);
+  assert.deepEqual(calls.slice(-3).map((c) => c[0]), ["resetState", "setRenderTarget", "render"]);
   // Out of view, three would draw it no more than the renderer.
   dust.position.set(0, 0, 100);
   dust.updateMatrix();
@@ -188,4 +176,30 @@ test("an error in the far pass leaves the far scene to three for good", () => {
   assert.match(core.errors.at(-1), /^far: Error: no/);
   core.views();
   assert.equal(core.farInput[4], 0);
+});
+
+test("the map's far buckets laid out alike share one vertex array, each drawn from where its index starts", () => {
+  const { core, calls, renderer, farScene, camera, far } = bridge();
+  const bucket = (vertices, index) => {
+    const object = mesh("zero:lit", BUCKET, { values: values() });
+    const data = new THREE.InterleavedBuffer(new Float32Array(vertices), 3);
+    object.geometry = new THREE.BufferGeometry();
+    object.geometry.setAttribute("position", new THREE.InterleavedBufferAttribute(data, 3, 0));
+    object.geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(index), 1));
+    object.material.defines = { FAR: "", WORLD_SPACE: "" };
+    return object;
+  };
+  const a = bucket([0, 0, 0, 1, 0, 0, 0, 1, 0], [0, 1, 2]), b = bucket([0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1], [0, 1, 2, 1, 3, 2]);
+  farScene.add(a, b);
+  assert.equal(core.cover("far", renderer, farScene, camera), true);
+  // One geometry for both: their vertices one after the other, b's indices
+  // offset by a's three vertices.
+  assert.equal(calls.filter((c) => c[0] === "add_geometry").length, 1);
+  const vertex = calls.find((c) => c[0] === "geometry_buffer")[2], index = calls.find((c) => c[0] === "geometry_index")[2];
+  assert.deepEqual([...new Float32Array(vertex.buffer, vertex.byteOffset, vertex.byteLength / 4)], [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1]);
+  assert.deepEqual([...new Uint32Array(index.buffer, index.byteOffset, index.byteLength / 4)], [0, 1, 2, 3, 4, 5, 4, 6, 5]);
+  // Each drawn from its own start, over its own indices.
+  const item = (o) => far.all.find((i) => i.object === o).id;
+  assert.deepEqual(calls.filter((c) => c[0] === "far_base").map((c) => c.slice(1)), [[item(a), 0], [item(b), 3]]);
+  assert.deepEqual(calls.filter((c) => c[0] === "far_range").map((c) => c.slice(1)), [[item(a), 0, 3], [item(b), 0, 6]]);
 });

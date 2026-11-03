@@ -515,18 +515,18 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         self.state.bind_texture(&self.gl, &mut self.stats, UNIT_FAR, self.far_map);
     }
 
-    // A view's frame block as last uploaded, bound again where the programs
-    // read it (a phase drawn later in the same frame).
-    pub fn bind_frame(&mut self, view: usize) {
-        unsafe { self.gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(self.frame_ubos[view])) };
-        self.stats.gl_calls += 1;
-    }
-
     // Two views' frame block buffers swapped: a phase that draws one view's
     // passes for another camera (renderer.rs mirror_frame) uploads into a
     // buffer of its own, not one the frame's draws may still be reading.
     pub fn swap_views(&mut self, a: usize, b: usize) {
         self.frame_ubos.swap(a, b);
+    }
+
+    // A view's frame block as last uploaded, bound again where the programs
+    // read it (a phase drawn later in the same frame).
+    pub fn bind_frame(&mut self, view: usize) {
+        unsafe { self.gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(self.frame_ubos[view])) };
+        self.stats.gl_calls += 1;
     }
 
     // A phase's end: no vertex array bound and counter-clockwise front faces,

@@ -91,13 +91,14 @@ import { pageGpu } from "./gpu-info.js";
 // onProgress(step, loaded, total): the load's progress, for the loading
 // screen (src/shell/loading.js): "data", "world", "shaders", and
 // "textures" with how many of how many have arrived.
-// The collision's WebAssembly, or null (JavaScript, which gives the same
+// The battle's instance of the simulation's WebAssembly (src/sim/module.js),
+// which its kernels share, or null (JavaScript, which gives the same
 // answers) if it cannot load here.
-async function loadRays() {
+async function loadSimInstance() {
   try {
-    return await (await import("./ray-kernel.js")).loadRayKernel();
+    return await (await import("./sim/module.js")).loadSim();
   } catch (error) {
-    console.warn(`The collision's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
+    console.warn(`The simulation's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
     return null;
   }
 }
@@ -174,6 +175,9 @@ async function start() {
   });
   const streams = new RandomStreams(SEED);
   const gameplayRandom = () => streams.get("gameplay").uniform();
+  // The seats' and turrets' weapons (src/seats.js seatWeaponPolicy): a
+  // network gunner's spread, and a bot's until its seat controller binds.
+  const seatRandom = () => streams.get("seat-weapons").uniform();
   let vehicles = null, driver = null, gunner = null, turretSeats = null, vehicleEffects = null;
   let humanReticleTarget = null;
   // A correction drained: the reticle's target is worked out once, after the
@@ -415,16 +419,18 @@ async function start() {
   // the world's ticks and the page's replay of his own soldier alike; it
   // brings the ray kernel with it.
   const movement = (params.get("movement") ?? (params.get("rays") === "js" ? "js" : movementDefault)) === "wasm";
-  const rays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm" ? await loadRays() : null;
+  const wantRays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm";
   // The page's pose sampling in WebAssembly (src/anim-kernel.js) unless
   // ?anim=js, to the last bit as its JavaScript, which stays the fallback
   // when the module cannot load. The page's poses only: a headless world
   // (the local worker, a dedicated server) reads rider poses for its ticks
   // and keeps the JavaScript, so its worlds cannot change. Poses made
   // before this take the kernel up as they clear.
-  const anim = !headless && params.get("anim") !== "js"
-    ? await import("./anim-kernel.js").then((m) => m.loadAnimKernel()).catch((error) => { console.warn("Pose sampling stays in JavaScript:", error); return null; })
-    : null;
+  const wantAnim = !headless && params.get("anim") !== "js";
+  // Both kernels on the battle's one instance of the module.
+  const simInstance = wantRays || wantAnim ? await loadSimInstance() : null;
+  const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
+  const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
   const collision = new CollisionWorld(
     new Float32Array(collBuf),
@@ -504,6 +510,7 @@ async function start() {
     strings: common.strings,
     map: world,
     mapImage: world.minimap?.texture ? `${mapDir}/${world.minimap.texture}` : null,
+    graphics,
   });
   // The key a craft's prompt names (src/hud.js flightPrompt): the flight
   // action's first binding, as the original names keys.
@@ -1276,6 +1283,10 @@ async function start() {
     vehicles.flightAssists = settings.get('aiDifficulty') !== 'hard';
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
+    vehicles.seatRandom = seatRandom;
+    // A world's barrels kick back on the tick clock (a page's on its own):
+    // the kick moves the fire points its rounds leave from.
+    if (headless) vehicles.clock = () => simTime;
     driver.onRelease = () => { controls.clear(); worldControls.clear(); };
     driver.aimView = new VehicleCamera(simulationCamera, collision, true);
     hud.vehicles = vehicles;
@@ -1305,6 +1316,7 @@ async function start() {
   gunner.aimCamera = simulationCamera;
   gunner.random = gameplayRandom;
   turretSeats = new TurretSeats({ live, ordnance, collision, units });
+  turretSeats.seatRandom = seatRandom;
   // The destructible posts (src/objectives.js): each its post's building,
   // and a target in the units registry while it stands.
   posts.attachBuildings(live);
@@ -1824,6 +1836,8 @@ async function start() {
 
   remotes.aimCamera = simulationCamera;
   for (const system of [ordnance, items, remotes]) system.random = gameplayRandom;
+  // A thrown grenade's tumble (its orientation travels in projectile records).
+  ordnance.spinRandom = () => streams.get("grenade-spin").uniform();
 
   // The body he plays, connected to the rest of the game: the Unit and his
   // team, what his weapons reach (mines and power-ups, droids, lightning,
@@ -3490,19 +3504,23 @@ async function start() {
     frame,
     lockstep: lockstepFrame,
     // A tick of the world, for whatever runs it (the world worker, a server,
-    // a Node check). A page shows a battle and runs none.
+    // a Node check). A page shows a battle and runs none. One call is one
+    // tick, so the clock's budget (a page's pacing) has no part in it and
+    // reads no clock.
     step(command) {
       if (!headless) throw new Error("the page runs no battle: step the world worker (game.lockstep)");
       if (command.tick !== worldClock.tick + 1) throw new Error("nonconsecutive world command");
       worldClock.advance(1 / 60, (h, tick) => {
         presentation.beforeStep(); step(h, tick, command); presentation.afterStep();
-      });
+      }, false);
     },
     units,
     simEvents,
     factory,
     playerUnit,
     randomState: () => ({ ai: random.seed, game: randomB?.seed ?? null, streams: Object.fromEntries([...streams.streams].map(([name, value]) => [name, value.seed])) }),
+    // A draw function of the world's named stream (src/ai/random.js RandomStreams).
+    randomStream: (name) => () => streams.get(name).uniform(),
     get ai() {
       return ai;
     },
