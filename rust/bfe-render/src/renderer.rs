@@ -11,7 +11,9 @@
 // It is made of passes, each a module of its own, sharing the core
 // (core.rs: the context, programs, geometries, textures, inputs, GL state).
 // A frame is drawn in phases, each a call from the page at its point in
-// three's frame, which draws its passes in order: the far scene (far_frame),
+// three's frame, which draws its passes in order: the far scene (far_frame;
+// far_mirror_frame from a water's mirror camera and far_probe_frame for a
+// sky probe's faces, both before the frame's own),
 // the near scene (frame), what it blends (transparent_frame, in segments
 // around what three still blends itself: transparent_segment), the
 // first-person view (view_frame), the post passes (post_frame) and, over the
@@ -22,7 +24,8 @@
 //
 // The page writes the frame's inputs (camera, lights, each soldier) into
 // `input` and `bones` before a phase (web/, src/rust-render/).
-use crate::core::{Core, MultiDraw, Stats, VIEW_FIRST_PERSON, VIEW_NEAR, VIEW_SPARE};
+use crate::canopies::CanopiesPass;
+use crate::core::{Core, MultiDraw, Stats, VIEW_FAR, VIEW_FAR_MIRROR, VIEW_FIRST_PERSON, VIEW_NEAR, VIEW_SPARE};
 use crate::effects::EffectsPass;
 use crate::far::FarPass;
 use crate::foliage::FoliagePass;
@@ -49,6 +52,7 @@ pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub post: PostPass<C>,
     pub hud: HudPass<C>,
     pub water: WaterPass<C>,
+    pub canopies: CanopiesPass<C>,
 }
 
 impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
@@ -65,23 +69,45 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let post = PostPass::new(&mut core);
         let hud = HudPass::new(&mut core);
         let water = WaterPass::new(&mut core);
-        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water }
+        let canopies = CanopiesPass::new(&mut core);
+        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water, canopies }
     }
 
     // The far scene's phase, drawn into the far target before the near scene.
     pub fn far_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();
-        self.far.draw(&mut self.core);
+        self.far.draw(&mut self.core, VIEW_FAR);
+        Ok(self.core.end_phase())
+    }
+
+    // The far scene from a water's mirror (water.js reflect, before the
+    // frame's own far scene), into the mirror's target: the far pass for the
+    // mirror camera, its frame block in VIEW_FAR_MIRROR's buffer.
+    pub fn far_mirror_frame(&mut self) -> Result<Stats, String> {
+        self.core.begin_phase();
+        self.far.draw(&mut self.core, VIEW_FAR_MIRROR);
+        Ok(self.core.end_phase())
+    }
+
+    // A face of a sky probe's capture (sky-probe.js), into the cube face
+    // three bound: the far pass for the face's camera, with a frame block of
+    // the probe's own for the face (far.rs draw_probe).
+    pub fn far_probe_frame(&mut self, face: usize) -> Result<Stats, String> {
+        self.core.begin_phase();
+        self.far.draw_probe(&mut self.core, face);
         Ok(self.core.end_phase())
     }
 
     // The near scene's phase, inside three's near-scene pass right after the
     // far scene's image: the static world, then the soldiers (records: how
-    // many the page wrote), then the terrain and foliage.
+    // many the page wrote), then the terrain, foliage and tree canopies, and
+    // the Enhanced ocean's surface (the far pass's items from the near scene).
     pub fn frame(&mut self, records: usize) -> Result<Stats, String> {
         let core = &mut self.core;
         core.begin_phase();
         core.upload_frame(VIEW_NEAR);
+        core.upload_shadow();
+        core.bind_lamps();
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();
@@ -89,6 +115,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.instances.draw(core, &camera, records);
         self.terrain.draw(core);
         self.foliage.draw(core);
+        self.canopies.draw(core);
+        self.far.draw_near(core);
         Ok(core.end_phase())
     }
 
@@ -133,6 +161,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
             return Ok(core.stats);
         }
         core.upload_frame(frame);
+        core.upload_shadow();
+        core.bind_lamps();
         core.bind_far_map();
         {
             let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
@@ -152,6 +182,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         if let Some(view) = &list.view {
             if !list.segment(k).is_empty() {
                 core.bind_frame(list.frame);
+                core.bind_shadow();
+                core.bind_lamps();
                 core.bind_far_map();
                 let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
                 transparent::draw_segment(core, view, list.segment(k), &mut sources);
@@ -168,6 +200,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let core = &mut self.core;
         core.begin_phase();
         core.upload_frame(VIEW_FIRST_PERSON);
+        core.bind_lamps();
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();

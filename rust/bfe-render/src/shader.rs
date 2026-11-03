@@ -118,6 +118,72 @@ const EXTRAS: &[(&str, &str, usize, &str)] = &[
     ("color", "vec3", 2, "xyz"),
 ];
 
+// The shadow receivers' inputs (three's USE_SHADOWMAP programs, the near
+// scene's), one std140 block for every program, written once a frame, in
+// place of what three sets each program: each cascade's shadow values (three's
+// DirectionalLightShadow struct), its world-to-map matrix, the inverse
+// transpose that carries plane normals into its map (materials.js
+// cascadePlanes) and its slice of the view (cascades). Arrays of four, the
+// most cascades a preset has; a program reads the first NUM_DIR_LIGHT_SHADOWS.
+// The depth maps stay samplers (cascadeMaps[i], on the core's units 16 + i).
+// Offsets in floats: SHADOW_VALUES (8 a cascade: intensity, bias, normal
+// bias, radius, map size, 2 pad), SHADOW_MATRICES (16), SHADOW_PLANES (12:
+// three columns of four), SHADOW_SLICES (4: the slice, 2 pad).
+pub const SHADOW_VALUES: usize = 0;
+pub const SHADOW_MATRICES: usize = 32;
+pub const SHADOW_PLANES: usize = 96;
+pub const SHADOW_SLICES: usize = 144;
+pub const SHADOW_FLOATS: usize = 160;
+const SHADOW_BLOCK: &str = "layout(std140) uniform BfeShadow {
+  DirectionalLightShadow directionalLightShadows[4];
+  mat4 directionalShadowMatrix[4];
+  mat3 cascadePlanes[4];
+  vec2 cascades[4];
+};
+";
+// What the block holds that the source declares again later (after three's
+// struct): dropped there.
+const SHADOW_MEMBERS: &[(&str, &str)] = &[("directionalShadowMatrix", "mat4"), ("cascadePlanes", "mat3"), ("cascades", "vec2")];
+// An instance's own shadow value, from its row (the record's EXTRA + 14),
+// when the program receives shadows.
+const SHADOW_EXTRAS: &[(&str, &str, usize, &str)] = &[("receiveShadow", "bool", 3, "z")];
+
+// Whether a program's source is one of three's shadow receivers'.
+pub fn receives_shadows(source: &str) -> bool {
+    source.lines().any(|l| l.trim() == "#define USE_SHADOWMAP")
+}
+
+// Lamp lighting (materials.js DYNAMIC, while lamps are on): the up to four
+// lamps a draw's object has (local-lights.js select) come from the lamp
+// table, a texture of every lamp source of the map (two RGBA32F texels a
+// source, rows of LAMP_TABLE_WIDTH texels: position and radius, colour),
+// by their index there (-1: none) and a count, in place of the uniforms
+// three sets each draw. An instance's indices are its row's (the record's
+// EXTRA + 16..19), its count too (EXTRA + 13); a world draw's are uniforms
+// of its own (bfeLampIndex, bfeLampCount), set each frame.
+pub const LAMP_TABLE_WIDTH: usize = 1024;
+const LAMP_UNIFORMS: &[(&str, &str)] = &[("localLightPositions", "vec4"), ("localLightColors", "vec3"), ("localLightCount", "float")];
+const LAMP_COMMON: &str = "uniform highp sampler2D bfeLamps;
+vec4 localLightPositions[4]; vec3 localLightColors[4]; float localLightCount;
+vec4 bfeLampTexel(int t) { int w = textureSize(bfeLamps, 0).x; return texelFetch(bfeLamps, ivec2(t % w, t / w), 0); }
+void bfeLoadLamps(ivec4 index, float count) {
+  localLightCount = count;
+  for (int k = 0; k < 4; k++) {
+    localLightPositions[k] = index[k] < 0 ? vec4(0.0) : bfeLampTexel(2 * index[k]);
+    localLightColors[k] = index[k] < 0 ? vec3(0.0) : bfeLampTexel(2 * index[k] + 1).rgb;
+  }
+}
+";
+// The world draw's own lamp inputs (names add_program gives its uniforms).
+pub const WORLD_LAMP_UNIFORMS: &[&str] = &["bfeLampIndex", "bfeLampCount"];
+const WORLD_LAMPS: &str = "uniform vec4 bfeLampIndex; uniform float bfeLampCount;\n";
+
+// Whether a source declares three's lamp uniforms (a DYNAMIC zero material's
+// fragment shader).
+pub fn reads_lamps(source: &str) -> bool {
+    LAMP_UNIFORMS.iter().all(|&(n, t)| source.lines().any(|l| declaration(l) == Some((t, n))))
+}
+
 const INSTANCE_COMMON: &str = "uniform highp sampler2D bfeInstances;
 float sunScale; vec2 ambientPull; float brightness;
 int zeroLightCount; int bfeBoneBase; ivec4 bfeLightIndex[4];
@@ -185,25 +251,39 @@ fn declaration(line: &str) -> Option<(&str, &str)> {
 // The EXTRAS a source declares, as globals and their load from the row
 // (bfeLoadExtras, which bfeLoad calls).
 fn extras(source: &str) -> String {
-    let declared: Vec<_> = EXTRAS.iter().filter(|&&(n, t, _, _)| source.lines().any(|l| declaration(l) == Some((t, n)))).collect();
+    let shadows: &[_] = if receives_shadows(source) { SHADOW_EXTRAS } else { &[] };
+    let declared: Vec<_> = EXTRAS.iter().chain(shadows).filter(|&&(n, t, _, _)| source.lines().any(|l| declaration(l) == Some((t, n)))).collect();
     let mut out = String::new();
     for &&(name, ty, _, _) in &declared {
         out.push_str(&format!("{ty} {name};\n"));
     }
     out.push_str("void bfeLoadExtras() {\n");
-    for &&(name, _, texel, parts) in &declared {
+    for &&(name, ty, texel, parts) in &declared {
         let swizzle = if parts.is_empty() { String::new() } else { format!(".{parts}") };
-        out.push_str(&format!("  {name} = bfeTexel({}){swizzle};\n", ROW_EXTRA + texel));
+        let test = if ty == "bool" { " > 0.5" } else { "" };
+        out.push_str(&format!("  {name} = bfeTexel({}){swizzle}{test};\n", ROW_EXTRA + texel));
     }
     out.push_str("}\n");
     out
 }
 
 pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String> {
+    rewrite_lamps(source, stage, kind, false)
+}
+
+// rewrite, with the lamps (lamps: lamp lighting is on and the program's pass
+// gives each draw its lamps) read from the lamp table.
+pub fn rewrite_lamps(source: &str, stage: Stage, kind: Kind, lamps: bool) -> Result<String, String> {
     if kind == Kind::Plain {
         return Ok(source.to_string());
     }
     let instanced = kind == Kind::Skinned || kind == Kind::Rigid;
+    // Shadow receivers read the BfeShadow block (World and instanced kinds;
+    // a Classic source has no USE_SHADOWMAP and stays as it was).
+    let shadows = (kind == Kind::World || instanced) && receives_shadows(source);
+    let lamps = lamps && (kind == Kind::World || instanced) && reads_lamps(source);
+    let mut lamped = false;
+    let mut block = false;
     let mut out = String::with_capacity(source.len() + 4096);
     let mut inserted = false;
     for line in source.lines() {
@@ -236,6 +316,27 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
             if instanced && EXTRAS.iter().any(|&(n, t, _, _)| n == name && t == ty) {
                 continue;
             }
+            if shadows && ty == "DirectionalLightShadow" && name == "directionalLightShadows" {
+                out.push_str(SHADOW_BLOCK);
+                block = true;
+                continue;
+            }
+            if shadows && SHADOW_MEMBERS.contains(&(name, ty)) {
+                continue;
+            }
+            if shadows && instanced && SHADOW_EXTRAS.iter().any(|&(n, t, _, _)| n == name && t == ty) {
+                continue;
+            }
+            if lamps && LAMP_UNIFORMS.contains(&(name, ty)) {
+                if !lamped {
+                    out.push_str(LAMP_COMMON);
+                    if kind == Kind::World {
+                        out.push_str(WORLD_LAMPS);
+                    }
+                    lamped = true;
+                }
+                continue;
+            }
             if kind == Kind::Effect && name == "modelViewMatrix" {
                 continue;
             }
@@ -245,6 +346,9 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
     }
     if !inserted {
         return Err("no uniform declarations found".into());
+    }
+    if shadows && !block && SHADOW_MEMBERS.iter().any(|&(n, t)| source.lines().any(|l| declaration(l) == Some((t, n)))) {
+        return Err("a shadow receiver without three's DirectionalLightShadow uniforms".into());
     }
     if instanced {
         out = out
@@ -262,6 +366,13 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
         }
         let main = out.find("void main() {").ok_or("no main")?;
         out.insert_str(main + "void main() {".len(), "\n  bfeLoad();");
+    }
+    if lamped {
+        // After bfeLoad (an instance's row), before anything main computes.
+        let load = if instanced { "\n  bfeLoadLamps(ivec4(bfeTexel(29)), bfeTexel(28).y);" } else { "\n  bfeLoadLamps(ivec4(bfeLampIndex), bfeLampCount);" };
+        let main = out.find("void main() {").ok_or("no main")?;
+        let at = main + "void main() {".len() + if instanced { "\n  bfeLoad();".len() } else { 0 };
+        out.insert_str(at, load);
     }
     Ok(out)
 }
@@ -290,6 +401,61 @@ mod tests {
         // A program that declares none loads none.
         let plain = rewrite("#version 300 es\nuniform float sunScale;\nvoid main() {}\n", Stage::Vertex, Kind::Rigid).unwrap();
         assert!(plain.contains("void bfeLoadExtras() {\n}\n") && plain.contains("bfeLoadExtras();"));
+    }
+
+    // A receiver's fragment shader as three compiles a zero material's with
+    // shadows on (materials.js; the shadow chunk, then the material's own).
+    const RECEIVER: &str = "#version 300 es\n#define USE_SHADOWMAP\n#define NUM_DIR_LIGHT_SHADOWS 2\nprecision highp float;\nuniform mat4 viewMatrix;\nuniform bool receiveShadow;\n#ifdef USE_SHADOWMAP\n\t#if NUM_DIR_LIGHT_SHADOWS > 0\n\t\tuniform sampler2D directionalShadowMap[ NUM_DIR_LIGHT_SHADOWS ];\n\t\tstruct DirectionalLightShadow {\n\t\t\tfloat shadowIntensity;\n\t\t\tfloat shadowBias;\n\t\t\tfloat shadowNormalBias;\n\t\t\tfloat shadowRadius;\n\t\t\tvec2 shadowMapSize;\n\t\t};\n\t\tuniform DirectionalLightShadow directionalLightShadows[ NUM_DIR_LIGHT_SHADOWS ];\n\t#endif\n#endif\nuniform sampler2D map;\nuniform vec2 cascades[4];\nuniform float cascadeFar;\n#if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0\nuniform highp sampler2DShadow cascadeMaps[ NUM_DIR_LIGHT_SHADOWS ];\nuniform mat4 directionalShadowMatrix[ NUM_DIR_LIGHT_SHADOWS ];\nuniform mat3 cascadePlanes[ NUM_DIR_LIGHT_SHADOWS ];\n#endif\nout vec4 c;\nvoid main() {\n  c = receiveShadow ? directionalShadowMatrix[ 1 ] * vec4(cascadePlanes[ 0 ] * vec3(cascades[ 1 ], cascadeFar), directionalLightShadows[ 1 ].shadowMapSize.x) : texture(map, vec2(0.0));\n}\n";
+
+    #[test]
+    fn a_shadow_receiver_reads_the_shadow_block() {
+        for kind in [Kind::World, Kind::Skinned, Kind::Rigid] {
+            let out = rewrite(RECEIVER, Stage::Fragment, kind).unwrap();
+            assert!(out.contains(SHADOW_BLOCK), "{kind:?}: the block");
+            for gone in ["uniform DirectionalLightShadow", "uniform mat4 directionalShadowMatrix[", "uniform mat3 cascadePlanes[", "uniform vec2 cascades[4];", "uniform float cascadeFar;"] {
+                assert!(!out.contains(gone), "{kind:?}: {gone} declared still");
+            }
+            assert!(out.contains("struct DirectionalLightShadow {"), "three's struct stays, before the block");
+            assert!(out.find("struct DirectionalLightShadow {").unwrap() < out.find("uniform BfeShadow").unwrap());
+            assert!(out.contains("uniform highp sampler2DShadow cascadeMaps[ NUM_DIR_LIGHT_SHADOWS ];"), "the maps stay samplers");
+            assert!(out.contains("uniform sampler2D map;"));
+        }
+        // receiveShadow: the draw's own uniform for the world, an instance's from its row.
+        assert!(rewrite(RECEIVER, Stage::Fragment, Kind::World).unwrap().contains("uniform bool receiveShadow;"));
+        let skinned = rewrite(RECEIVER, Stage::Fragment, Kind::Skinned).unwrap();
+        assert!(!skinned.contains("uniform bool receiveShadow;") && skinned.contains("bool receiveShadow;\n") && skinned.contains("receiveShadow = bfeTexel(28).z > 0.5;"));
+        // Not a receiver (no USE_SHADOWMAP): byte for byte as before.
+        let classic = RECEIVER.replace("#define USE_SHADOWMAP\n", "");
+        for kind in [Kind::World, Kind::Skinned] {
+            let out = rewrite(&classic, Stage::Fragment, kind).unwrap();
+            assert!(!out.contains("BfeShadow") && out.contains("uniform DirectionalLightShadow directionalLightShadows[ NUM_DIR_LIGHT_SHADOWS ];") && out.contains("uniform vec2 cascades[4];"));
+            assert!(out.contains("uniform bool receiveShadow;"), "{kind:?}");
+        }
+        // The plain and effect kinds are three's GLSL as it is (no receivers).
+        assert!(!rewrite(RECEIVER, Stage::Fragment, Kind::Plain).unwrap().contains("BfeShadow"));
+        // Offsets in floats as std140 lays the block out.
+        assert_eq!((SHADOW_VALUES, SHADOW_MATRICES, SHADOW_PLANES, SHADOW_SLICES, SHADOW_FLOATS), (0, 4 * 8, 4 * 8 + 4 * 16, 4 * 8 + 4 * 16 + 4 * 12, 4 * 8 + 4 * 16 + 4 * 12 + 4 * 4));
+    }
+
+    // A DYNAMIC zero material's fragment shader as three compiles it, lamps included.
+    const DYNAMIC_FS: &str = "#version 300 es\nprecision highp float;\nprecision highp int;\nuniform mat4 viewMatrix;\nuniform float sunScale;\n#ifdef DYNAMIC\n    uniform vec4 localLightPositions[4];\n    uniform vec3 localLightColors[4];\n    uniform float localLightCount;\n#endif\nuniform sampler2D map;\nout vec4 c;\nvoid main() {\n  vec3 lamp = vec3(0.0);\n  for (int i = 0; i < 4; i++) {\n    if (float(i) >= localLightCount) break;\n    lamp += localLightColors[i] * localLightPositions[i].w;\n  }\n  c = vec4(lamp, sunScale);\n}\n";
+
+    #[test]
+    fn lamps_come_from_the_lamp_table_when_the_pass_gives_them() {
+        // Off (Classic, or a pass that doesn't give lamps): three's uniforms as they are.
+        for kind in [Kind::World, Kind::Skinned] {
+            let out = rewrite(DYNAMIC_FS, Stage::Fragment, kind).unwrap();
+            assert!(out.contains("uniform vec4 localLightPositions[4];") && !out.contains("bfeLamps"), "{kind:?}");
+        }
+        let skinned = rewrite_lamps(DYNAMIC_FS, Stage::Fragment, Kind::Skinned, true).unwrap();
+        assert!(!skinned.contains("uniform vec4 localLightPositions[4];") && !skinned.contains("uniform float localLightCount;"));
+        assert!(skinned.contains(LAMP_COMMON) && skinned.contains("void main() {\n  bfeLoad();\n  bfeLoadLamps(ivec4(bfeTexel(29)), bfeTexel(28).y);"));
+        let world = rewrite_lamps(DYNAMIC_FS, Stage::Fragment, Kind::World, true).unwrap();
+        assert!(world.contains(LAMP_COMMON) && world.contains(WORLD_LAMPS) && world.contains("void main() {\n  bfeLoadLamps(ivec4(bfeLampIndex), bfeLampCount);"));
+        assert!(world.find("uniform highp sampler2D bfeLamps;").unwrap() > world.find("#ifdef DYNAMIC").unwrap(), "where three declared them");
+        // A source without lamps (a vertex shader) is left as it is.
+        let vs = "#version 300 es\nuniform mat4 viewMatrix;\nuniform float sunScale;\nin vec3 position;\nvoid main() { gl_Position = viewMatrix * vec4(position, sunScale); }\n";
+        assert!(!rewrite_lamps(vs, Stage::Vertex, Kind::World, true).unwrap().contains("bfeLamps"));
     }
 
     #[test]

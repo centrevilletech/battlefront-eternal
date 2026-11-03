@@ -861,6 +861,42 @@ test("a burning piece: a flying part made with a heated material, its heat and l
   assert.deepEqual([...core.input.subarray(at + R.EXTRA + 4, at + R.EXTRA + 13)].map((v) => +v.toFixed(3)), [0.75, 0.2, 0.8, 0.5, 1, 2, 3, 0.5, 0.125], "its heat, base, scale, soot, tear and dissolve");
 });
 
+test("the arc caster's shock glow: a rig of the struck body's buffers and skeleton that blends, its values in its row", async () => {
+  const { ArcLightning } = await import("../src/arc-lightning.js");
+  const { core, calls, scene, camera, renderer, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+  geometry.setIndex([0, 1, 2]);
+  const bodyMaterial = new THREE.ShaderMaterial();
+  const body = new THREE.SkinnedMesh(geometry, bodyMaterial), bone = new THREE.Bone(), root = new THREE.Group();
+  body.add(bone); body.bind(new THREE.Skeleton([bone]));
+  body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2);
+  body.userData.poseSphere = true;
+  root.add(body); root.position.z = -6;
+  scene.add(root);
+  const arcs = new ArcLightning(scene, {});
+  const overlay = arcs.overlay({ body, root });
+  overlay.visible = true;
+  const u = overlay.material.uniforms;
+  u.shockTime.value = 2.5; u.intensity.value = 0.75; u.seed.value = 0.125; u.color.value.setRGB(0.25, 0.5, 1);
+  drawn(overlay.material, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "boneTexture", "bindMatrix", "bindMatrixInverse", "shockTime", "intensity", "seed", "inflate", "color"],
+    ["position", "normal", "skinIndex", "skinWeight"]));
+  scene.updateMatrixWorld(true);
+  renderer.info.render.frame++;
+  core.pass(renderer, scene, camera);
+  assert.equal(overlay.material.visible, false, "the renderer's");
+  const blend = calls.find((c) => c[0] === "inst_add_blend");
+  assert.deepEqual([...blend[1]], [1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], "added");
+  const at = core.recordsAt, R = { LOOK: 52, EXTRA: 76 };
+  assert.equal(core.input[at], 3, "a rig that blends");
+  assert.deepEqual([...core.input.subarray(at + R.EXTRA + 4, at + R.EXTRA + 11)].map((v) => +v.toFixed(3)), [2.5, 0.75, 0.125, 0.012, 0.25, 0.5, 1], "its clock, intensity, seed, inflation and colour");
+  assert.deepEqual([...core.input.subarray(at + R.LOOK, at + R.LOOK + 4)], [1, 0, 0, 1], "no look of its own");
+});
+
 test("a flying part that blends: a rigid record of its own kind, one blend for every copy, three's key for the transparent list", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
   const glow = new THREE.ShaderMaterial({ name: "zero:unlit", defines: { UNLIT: "", SCROLL: "", BLENDED: "" }, transparent: true, depthWrite: false, side: THREE.DoubleSide,
@@ -936,6 +972,41 @@ test("reveal: what the instance pass took shown to three for a render of three's
   inst.reveal(false);
   assert.equal(rigMaterial.visible, true);
   assert.equal(part.layers.mask, 1);
+});
+
+test("lamps and shadows: a soldier's lamps and whether he receives shadows in his row, for a program that reads them", () => {
+  const { core, scene, camera, renderer, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  // Lamp lighting on: a DYNAMIC program reading the lamps is the pass's, its lamps the core's (core.lamps).
+  core.graphics.settings = { get: (key) => key === "lampLighting" };
+  const asked = [];
+  core.lamps = (object, viewModel) => { asked.push([object, viewModel]); return { count: 2, indices: [3, 7, -1, -1] }; };
+  const material = new THREE.ShaderMaterial({ defines: { RIGID_SKIN: "", DYNAMIC: "" },
+    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
+  drawn(material, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness",
+    "localLightPositions", "localLightColors", "localLightCount"], ["position", "skinIndex", "skinWeight"]));
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+  geometry.setIndex([0, 1, 2]);
+  const body = new THREE.SkinnedMesh(geometry, material), bone = new THREE.Bone(), root = new THREE.Group();
+  body.add(bone); body.bind(new THREE.Skeleton([bone]));
+  body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+  body.userData.poseSphere = true;
+  body.receiveShadow = true;
+  root.add(body); root.position.z = -5;
+  root.userData.parts = { body, hand: null };
+  scene.add(root);
+  core.graphics.cullRoots.push(root);
+  scene.updateMatrixWorld(true);
+  renderer.info.render.frame++;
+  core.pass(renderer, scene, camera);
+  const e = core.recordsAt + 76;
+  assert.deepEqual(asked, [[body, false]], "his lamps, as three's onBeforeRender selects them");
+  assert.equal(core.input[e + 13], 2, "the lamps' count");
+  assert.equal(core.input[e + 14], 1, "he receives shadows");
+  assert.deepEqual([...core.input.subarray(e + 16, e + 20)], [3, 7, -1, -1], "the lamp table's indices");
 });
 
 test("soldiers: only those three's render would list are written, with the bones three worked out in that render", () => {
@@ -1205,6 +1276,36 @@ test("the Enhanced destruction's arcs: a mesh rebuilt each frame, as many vertic
   assert.deepEqual(arcs.mesh.geometry.index.updateRanges, [{ start: 0, count: arcs.index }], "what it holds marked for three to upload");
 });
 
+test("the Enhanced jetpack's flame: a box a nozzle on a base of its own, its 3D noise bound as one, its depth its own", async () => {
+  const { JetpackVolume } = await import("../src/jetpack-volume.js");
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const volume = new JetpackVolume({ scene, count: 2 });
+  const nozzle = (x) => ({ position: new THREE.Vector3(x, 1, -5), direction: new THREE.Vector3(0, -1, 0), radius: 0.03 });
+  volume.update(1.5, 1, [nozzle(-0.2), nozzle(0.2)]);
+  assert.ok(volume.mesh.visible);
+  list.transparent.push({ object: volume.mesh, material: volume.mesh.material, group: null });
+  drawn(volume.mesh.material, program(["projectionMatrix", "viewMatrix", "cameraPosition", "flameTime", "power", "hasDepth", "noiseField", "sceneDepth", "depthResolution", "cameraRange"],
+    ["position", "nozzle", "direction", "bend", "nozzleRadius", "phase"]));
+  frame();
+  assert.equal(calls.find((c) => c[0] === "fx_add_batch")[4], 0xffffffff, "a base of its own: the box");
+  assert.deepEqual(calls.find((c) => c[0] === "fx_batch_base").slice(3, 4), [24], "the box's vertices");
+  assert.deepEqual(calls.find((c) => c[0] === "fx_batch_sampler_3d").slice(2, 4), ["noiseField", 21], "the noise on its unit, as a 3D texture");
+  assert.equal(calls.some((c) => c[0] === "fx_batch_sampler"), false);
+  assert.equal(calls.find((c) => c[0] === "fx_batch_values")[2], "flameTime:1:0,power:1:0,hasDepth:1:0");
+  assert.equal(volume.external, true);
+  list.transparent.length = 0;
+  const version = volume.mesh.geometry.getAttribute("nozzle").version;
+  volume.update(1.6, 1, [nozzle(-0.2), nozzle(0.2)]);
+  assert.equal(volume.mesh.visible, false, "shown to three never");
+  assert.equal(volume.mesh.geometry.getAttribute("nozzle").version, version, "uploaded nothing by three");
+  frame();
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 3), [0, 0, 2], "a box a nozzle");
+  assert.deepEqual([...core.fxData.subarray(0, 6)].map((v) => +v.toFixed(3)), [-0.2, 1, -5, 0.2, 1, -5], "the nozzles");
+  core.setActive(false);
+  assert.equal(volume.external, false);
+});
+
 test("the death camera's trace: a mesh rebuilt each frame, its vertices, indices and own values written as three draws it", async () => {
   const { DeathTrace } = await import("../src/death-trace.js");
   const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
@@ -1257,4 +1358,89 @@ test("an error in the effects pass gives the effects back to three for good, thr
   core.setActive(false);
   core.setActive(true);
   assert.equal(batch.external, false, "for good");
+});
+
+test("the scene's depth: asked for as three starts the render, before the first draw whose onBeforeRender would take it, and taken there", async () => {
+  const { JetpackVolume } = await import("../src/jetpack-volume.js");
+  const { EnvironmentVolume, EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { ParticleDepth, particleDepth } = await import("../src/particle-depth.js");
+  const { core, scene, camera, renderer, list, frame, drawn, fx } = bridge();
+  const saved = { ...particleDepth }, map = particleDepth.map.value;
+  try {
+    const depth = new ParticleDepth(renderer);
+    depth.copy = () => { depth.copies++; };
+    // The pass asks the page's helper (made here after the bridge).
+    fx.unrequest?.();
+    fx.unrequest = particleDepth.requester(scene, (c) => fx.requestDepth(c));
+    // A flame (its onBeforeRender asks for the depth whatever the setting) and a CPU batch (only while soft particles are on).
+    const volume = new JetpackVolume({ scene, count: 2 });
+    const nozzle = (x) => ({ position: new THREE.Vector3(x, 1, -5), direction: new THREE.Vector3(0, -1, 0), radius: 0.03 });
+    const particles = new ParticleRenderer(scene);
+    const batch = particles.batch(new THREE.Texture(), "additive", "bolt");
+    const fill = (n) => { particles.begin(); for (let i = 0; i < n; i++) batch.push(i, 1, -6, 1, 1, 1, 0.5, 0.2, 0, STREAK, 4, [0, 0, 1], [0.5, 0, 0]); particles.end(); };
+    volume.update(1.5, 1, [nozzle(-0.2), nozzle(0.2)]);
+    fill(2);
+    list.transparent.push({ object: volume.mesh, material: volume.mesh.material, group: null });
+    drawn(volume.mesh.material, program(["projectionMatrix", "viewMatrix", "cameraPosition", "flameTime", "power", "hasDepth", "noiseField", "sceneDepth", "depthResolution", "cameraRange"],
+      ["position", "nozzle", "direction", "bend", "nozzleRadius", "phase"]));
+    drawn(batch.material, CPU_PROGRAM);
+    frame();
+    list.transparent.length = 0;
+    assert.equal(fx.records.length, 2);
+    const target = core.graphics.sceneTarget;
+    // A frame: graphics.js begin(), three's render starting (the scene's onBeforeRender), the transparent phase.
+    const render = (soft, n = 2) => {
+      volume.update(1.6, 1, [nozzle(-0.2), nozzle(0.2)]);
+      fill(n);
+      depth.begin(target, camera, soft);
+      scene.onBeforeRender(renderer, scene, camera, target);
+    };
+    render(false);
+    assert.equal(depth.armed, true, "the flame asks whatever the setting");
+    assert.deepEqual([depth.group.renderOrder, depth.copier.renderOrder], [0, 10], "just before it: its group order and render order");
+    frame();
+    assert.equal(depth.copies, 0, "its onBeforeRender, run ahead of its turn, took none");
+    assert.equal(volume.mesh.material.uniforms.hasDepth.value, 1, "yet knows it will have it");
+    depth.copier.onBeforeRender(renderer, scene, camera);
+    assert.equal(depth.copies, 1, "taken at the copier");
+    assert.equal(fx.requested.length, 0, "the frame's requests used");
+    // Soft particles on: the batch asks too.
+    render(true);
+    assert.equal(fx.records.filter((r) => r.requested).length, 2);
+    frame();
+    depth.copier.onBeforeRender(renderer, scene, camera);
+    assert.equal(depth.copies, 1);
+    // A batch shown only after three started the render (asked for by none): the copy taken at once, the copier's none.
+    render(true, 0);
+    assert.equal(fx.records.filter((r) => r.requested).length, 1);
+    fill(2);
+    frame();
+    assert.equal(depth.copies, 1, "taken as the phase starts");
+    depth.copier.onBeforeRender(renderer, scene, camera);
+    assert.equal(depth.copies, 1);
+    // Off (three draws the effects): nothing asked for.
+    core.setActive(false);
+    render(true);
+    assert.equal(depth.armed, false);
+    core.setActive(true);
+    // A volume rendering with the depth at once (its own pass): a copy of its own as the phase starts; the copier's still taken.
+    const wakes = new EnvironmentWakes(), steam = new EnvironmentVolume(scene, 2, wakes);
+    steam.update(1, [{ position: new THREE.Vector3(0, 0, -6), direction: new THREE.Vector3(0, 1, 0), extent: new THREE.Vector3(6, 5.5, 6), kind: 0 }]);
+    list.transparent.push({ object: steam.mesh, material: steam.mesh.material, group: null });
+    drawn(steam.mesh.material, program(["volumeMap", "sceneDepth", "volumeResolution", "depthResolution", "cameraRange", "enabled"], ["position"]));
+    frame();
+    list.transparent.length = 0;
+    const rendered = [];
+    Object.assign(renderer, { getClearColor: (c) => c, getClearAlpha: () => 1, setClearColor() {}, clear() {}, render: (s) => rendered.push(s) });
+    render(false);
+    frame();
+    assert.equal(depth.copies, 1, "the volumes' own, as they render");
+    assert.equal(rendered.length, 1);
+    assert.equal(steam.mesh.material.uniforms.enabled.value, 1);
+    depth.copier.onBeforeRender(renderer, scene, camera);
+    assert.equal(depth.copies, 2, "and the copier's for the draws after it");
+  } finally {
+    Object.assign(particleDepth, saved);
+    particleDepth.map.value = map;
+  }
 });

@@ -50,6 +50,39 @@ export class BfeRenderer {
         return ret[0] >>> 0;
     }
     /**
+     * @param {number} kind
+     * @param {string} vs
+     * @param {string} fs
+     * @param {string} attributes
+     * @param {string} uniforms
+     * @returns {number}
+     */
+    add_program_lamps(kind, vs, fs, attributes, uniforms) {
+        const val5 = +kind;
+        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3;
+        try {
+            ptr0 = passStringToWasm0(vs, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(fs, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(attributes, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+            ptr3 = passStringToWasm0(uniforms, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len3 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 1, 1); }
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_add_program_lamps(this.__wbg_ptr, val5, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
      * @param {WebGLTexture} texture
      * @returns {number}
      */
@@ -88,6 +121,56 @@ export class BfeRenderer {
     bones_ptr() {
         const ret = wasm.bferenderer_bones_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    canopies_input_len() {
+        const ret = wasm.bferenderer_canopies_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    canopies_input_ptr() {
+        const ret = wasm.bferenderer_canopies_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    canopies_leaves_len() {
+        const ret = wasm.bferenderer_canopies_leaves_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    canopies_leaves_ptr() {
+        const ret = wasm.bferenderer_canopies_leaves_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} geometry
+     * @param {Uint32Array | number[]} locations
+     * @param {Uint32Array | number[]} sizes
+     * @param {number} max
+     */
+    canopies_mesh(geometry, locations, sizes, max) {
+        const val3 = +geometry;
+        const val4 = +max;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(locations, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(sizes, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        wasm.bferenderer_canopies_mesh(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1, val4);
     }
     /**
      * @param {number} item
@@ -200,12 +283,54 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @returns {Uint32Array}
+     */
+    far_mirror_frame() {
+        const ret = wasm.bferenderer_far_mirror_frame(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @param {number} face
+     * @returns {Uint32Array}
+     */
+    far_probe_frame(face) {
+        const ret = wasm.bferenderer_far_probe_frame(this.__wbg_ptr, face);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @param {number} item
      * @param {number} start
      * @param {number} count
      */
     far_range(item, start, count) {
         wasm.bferenderer_far_range(this.__wbg_ptr, item, start, count);
+    }
+    /**
+     * @param {number} item
+     * @param {number} at
+     */
+    far_range_input(item, at) {
+        wasm.bferenderer_far_range_input(this.__wbg_ptr, item, at);
+    }
+    /**
+     * @param {number} item
+     * @param {number} buffer
+     * @param {number} at
+     * @param {number} floats
+     * @param {number} flag
+     */
+    far_refresh(item, buffer, at, floats, flag) {
+        wasm.bferenderer_far_refresh(this.__wbg_ptr, item, buffer, at, floats, flag);
     }
     /**
      * @param {number} item
@@ -270,6 +395,20 @@ export class BfeRenderer {
             throw e;
         }
         wasm.bferenderer_far_terrain(this.__wbg_ptr, val3, val4, ptr0, len0, ptr1, len1);
+    }
+    /**
+     * @returns {number}
+     */
+    far_vertices_len() {
+        const ret = wasm.bferenderer_far_vertices_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    far_vertices_ptr() {
+        const ret = wasm.bferenderer_far_vertices_ptr(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @param {number} program
@@ -499,6 +638,20 @@ export class BfeRenderer {
      */
     fx_batch_interleaved(batch) {
         wasm.bferenderer_fx_batch_interleaved(this.__wbg_ptr, batch);
+    }
+    /**
+     * @param {number} batch
+     * @param {string} name
+     * @param {number} unit
+     * @param {number} texture
+     */
+    fx_batch_sampler_3d(batch, name, unit, texture) {
+        const val2 = +batch;
+        const val3 = +unit;
+        const val4 = +texture;
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_fx_batch_sampler_3d(this.__wbg_ptr, val2, ptr0, len0, val3, val4);
     }
     /**
      * @param {number} batch
@@ -922,6 +1075,36 @@ export class BfeRenderer {
         wasm.bferenderer_set_far_map(this.__wbg_ptr, texture);
     }
     /**
+     * @param {Float32Array | number[]} data
+     */
+    set_lamps(data) {
+        const ptr0 = passArrayF32ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_set_lamps(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @param {Uint32Array | number[]} ids
+     */
+    set_shadow_maps(ids) {
+        const ptr0 = passArray32ToWasm0(ids, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_set_shadow_maps(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @returns {number}
+     */
+    shadow_input_len() {
+        const ret = wasm.bferenderer_shadow_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    shadow_input_ptr() {
+        const ret = wasm.bferenderer_shadow_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {boolean} by_program
      */
     sort(by_program) {
@@ -1153,6 +1336,29 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} surface
+     * @param {number} set
+     * @param {number} k
+     * @param {number} location
+     */
+    water_instanced(surface, set, k, location) {
+        wasm.bferenderer_water_instanced(this.__wbg_ptr, surface, set, k, location);
+    }
+    /**
+     * @returns {number}
+     */
+    water_instances_len() {
+        const ret = wasm.bferenderer_water_instances_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_instances_ptr() {
+        const ret = wasm.bferenderer_water_instances_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {Uint32Array | number[]} index
      * @param {Uint32Array | number[]} blend
      * @param {number} depth_func
@@ -1221,6 +1427,18 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} max
+     * @param {Uint32Array | number[]} sizes
+     * @returns {number | undefined}
+     */
+    water_set(max, sizes) {
+        const val2 = +max;
+        const ptr0 = passArray32ToWasm0(sizes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_water_set(this.__wbg_ptr, val2, ptr0, len0);
+        return ret === Number.MAX_SAFE_INTEGER ? undefined : ret;
+    }
+    /**
      * @param {number} geometry
      * @param {Uint32Array | number[]} blend
      * @param {number} depth_func
@@ -1259,6 +1477,16 @@ export class BfeRenderer {
             throw e;
         }
         wasm.bferenderer_world_cells(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1, val4);
+    }
+    /**
+     * @param {number} w
+     * @param {Float32Array | number[]} values
+     */
+    world_lamps(w, values) {
+        const val2 = +w;
+        const ptr0 = passArrayF32ToWasm0(values, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_world_lamps(this.__wbg_ptr, val2, ptr0, len0);
     }
     /**
      * @param {number} w
@@ -1583,6 +1811,12 @@ function __wbg_get_imports() {
         },
         __wbg_frontFace_8bbd77ca3b8f90a6: function(arg0, arg1) {
             arg0.frontFace(arg1 >>> 0);
+        },
+        __wbg_generateMipmap_41bc066b35a6cd3d: function(arg0, arg1) {
+            arg0.generateMipmap(arg1 >>> 0);
+        },
+        __wbg_generateMipmap_e1a3b00736bb27bf: function(arg0, arg1) {
+            arg0.generateMipmap(arg1 >>> 0);
         },
         __wbg_getExtension_30c10f49f67eb05d: function() { return handleError(function (arg0, arg1, arg2) {
             const ret = arg0.getExtension(getStringFromWasm0(arg1, arg2));

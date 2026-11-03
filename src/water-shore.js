@@ -126,12 +126,15 @@ export class WaterShore {
       transparent: true, depthTest: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
       toneMapped: false,
     }));
-    this.materials.forEach(material => {
+    this.meshes = this.materials.map(material => {
       const mesh = new THREE.Mesh(this.geometry, material);
       mesh.frustumCulled = false;
       mesh.renderOrder = -17;
       this.group.add(mesh);
+      return mesh;
     });
+    // The Rust renderer's water pass draws its meshes (src/rust-render/water.js).
+    water.shore = this;
   }
 
   // A downward probe distinguishes the exposed water side of a wall from
@@ -221,6 +224,7 @@ export class WaterShore {
   }
 
   dispose() {
+    if (this.water.shore === this) this.water.shore = null;
     this.group.removeFromParent();
     this.geometry.dispose();
     for (const material of this.materials) material.dispose();
