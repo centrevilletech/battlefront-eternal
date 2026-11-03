@@ -50,6 +50,8 @@ struct Served<'f, 'c> {
     // The shots the last weapon update fired, and each round fired.
     shots: Vec<V<'f>>,
     rounds: Vec<V<'f>>,
+    // Each lease's seat control (its SeatUnit's key), for what a kill did.
+    lease_controls: BTreeMap<(u32, u32), (u32, u32)>,
 }
 
 struct TurretFacts<'f> {
@@ -293,7 +295,7 @@ impl SeatWorld for Served<'_, '_> {
         s.spawn(x, y, z, yaw, &mut SpawnCasts(self));
     }
 
-    fn kill(&mut self, units: &mut Slab<Unit>, unit: u32, attacker: Attacker) {
+    fn kill(&mut self, units: &mut Slab<Unit>, controls: &mut bfe_sim::seats::lease::Controls, unit: u32, attacker: Attacker) {
         let Some(call) = self.call("seats.kill") else { return };
         self.check_unit("kill unit", call.arg(0), Some(unit));
         let a = call.arg(1);
@@ -308,6 +310,12 @@ impl SeatWorld for Served<'_, '_> {
         }
         self.units_after(call);
         self.apply_units(units);
+        // The seats the AI drives, as the death left them (captures from c3).
+        for c in call.extra().get("controls").items() {
+            let Ok(lease) = SeatLease::ref_in(c.get("lease"), self.cx, "kill.controls.lease") else { continue };
+            let Some(key) = self.lease_controls.get(&(lease.slot, lease.gen)).copied() else { continue };
+            controls.insert(key, SeatControl { driven: c.get("driven").bool(), intent: intent_of(c.get("intent")) });
+        }
     }
 
     fn rider_drop(&mut self, holder: Holder, index: usize, unit: u32) -> Option<Vector3> {
@@ -486,6 +494,11 @@ impl CrewWorld for Served<'_, '_> {
     }
 }
 
+/// Each lease's seat control key, as a frame starts.
+fn lease_controls(st: &Store) -> BTreeMap<(u32, u32), (u32, u32)> {
+    st.seat_lease.iter().filter_map(|(r, l)| l.controllable.map(|c| ((r.slot, r.gen), control_key(c)))).collect()
+}
+
 // ---- A frame's state.
 
 fn attacker_of(v: V) -> Attacker {
@@ -528,6 +541,10 @@ fn intent_of(v: V) -> SeatIntent {
         brake: v.get("brake").bool(),
         up: v.get("up").num(),
         down: v.get("down").num(),
+        // (Captures before c3 lack these three.)
+        trick: v.get("trick").opt_bool().unwrap_or(false),
+        immelmann: v.get("immelmann").opt_bool().unwrap_or(false),
+        boost: v.get("boost").opt_bool().unwrap_or(false),
     }
 }
 
@@ -559,6 +576,9 @@ fn intent_value(a: &mut Arena, i: &SeatIntent) -> Value {
             ("brake", Value::Bool(i.brake)),
             ("up", Value::Num(i.up)),
             ("down", Value::Num(i.down)),
+            ("trick", Value::Bool(i.trick)),
+            ("immelmann", Value::Bool(i.immelmann)),
+            ("boost", Value::Bool(i.boost)),
         ],
     )
 }
@@ -776,7 +796,7 @@ fn replay_hull_frame(frame: &Frame, name: &str, tally: &mut BTreeMap<String, usi
     let entry: Vec<Ref<SeatLease>> = cx.store.seats.leases.clone();
     let mut named: Vec<Ref<SeatLease>> = Vec::new();
     let mut st = std::mem::take(&mut cx.store);
-    let mut served = Served { log: Log::new(frame), cx: &mut cx, error: None, pending_units: Vec::new(), prefix: "seats", turrets: BTreeMap::new(), shots: Vec::new(), rounds: Vec::new() };
+    let mut served = Served { log: Log::new(frame), cx: &mut cx, error: None, pending_units: Vec::new(), prefix: "seats", turrets: BTreeMap::new(), shots: Vec::new(), rounds: Vec::new(), lease_controls: lease_controls(&st) };
     let result: Option<bool>;
     match name {
         "vehicles.latchCrews" => {
@@ -812,6 +832,12 @@ fn replay_hull_frame(frame: &Frame, name: &str, tally: &mut BTreeMap<String, usi
             let promote = if o.is_nullish() || o.get("promote").is_undefined() { None } else { Some(o.get("promote").truthy()) };
             let placement = if o.is_nullish() || o.get("placement").is_undefined() { true } else { o.get("placement").truthy() };
             result = Some(hulls.request_exit(&mut st, unit as u32, post, promote, placement));
+        }
+        "networkSeat.cycle" => {
+            let Some(unit) = frame.arg(1).handle_num("unit") else { return Outcome::Failed(format!("{}: cycle's unit {}", frame.place(), frame.arg(1).show())) };
+            let direction = frame.arg(2).opt_num().unwrap_or(1.0) as i32;
+            result = Some(bfe_sim::seats::network::cycle_network_seat(&mut hulls, &mut st, &mut served, unit as u32, direction));
+            *tally.entry(format!("cycle {}", if result == Some(true) { "moved" } else { "stayed" })).or_default() += 1;
         }
         _ => return Outcome::Skipped(format!("{name}: not a hull seat frame")),
     }
@@ -1116,7 +1142,7 @@ fn replay_crew_frame(frame: &Frame, name: &str, tally: &mut BTreeMap<String, usi
     }
     let mut named: Vec<Ref<SeatLease>> = Vec::new();
     let mut st = std::mem::take(&mut cx.store);
-    let mut served = Served { log: Log::new(frame), cx: &mut cx, error: None, pending_units: Vec::new(), prefix: "crews", turrets: facts, shots: Vec::new(), rounds: Vec::new() };
+    let mut served = Served { log: Log::new(frame), cx: &mut cx, error: None, pending_units: Vec::new(), prefix: "crews", turrets: facts, shots: Vec::new(), rounds: Vec::new(), lease_controls: lease_controls(&st) };
     let mut result: Option<bool> = None;
     match name {
         "turretSeats.update" => {
@@ -1300,7 +1326,7 @@ fn network_seats_as_captured() {
 #[test]
 fn hull_seats_as_captured() {
     let Some(corpus) = Corpus::from_env().unwrap() else { return };
-    for name in ["vehicles.latchCrews", "vehicles.board", "vehicles.vacate", "vehicles.destroyedCrew", "vehicles.requestExit"] {
+    for name in ["vehicles.latchCrews", "vehicles.board", "vehicles.vacate", "vehicles.destroyedCrew", "vehicles.requestExit", "networkSeat.cycle"] {
         let mut tally: BTreeMap<String, usize> = BTreeMap::new();
         let report = replay_corpus(&corpus, name, |_capture, frame| replay_hull_frame(frame, name, &mut tally)).unwrap();
         eprintln!("{}", report.summary());

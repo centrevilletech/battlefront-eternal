@@ -120,8 +120,9 @@ pub trait SeatWorld {
     fn stand_up(&mut self, unit: &mut Unit, x: f64, y: f64, z: f64, yaw: f64);
     /// combat.damage(Infinity, Infinity, null, attacker): the unit killed
     /// outright. What it does to the units (the death's hooks run inside)
-    /// comes back in `units`.
-    fn kill(&mut self, units: &mut crate::store::Slab<Unit>, unit: u32, attacker: Attacker);
+    /// comes back in `units`, and to the seats the AI drives (a death lets
+    /// a controller go) in `controls`.
+    fn kill(&mut self, units: &mut crate::store::Slab<Unit>, controls: &mut lease::Controls, unit: u32, attacker: Attacker);
     /// The point a rider killed on seat `index` starts to fall from (his
     /// pose's drop point), or None where none shows.
     fn rider_drop(&mut self, holder: Holder, index: usize, unit: u32) -> Option<Vector3>;

@@ -472,7 +472,7 @@ impl Hulls {
             }
         }
         for unit in dying {
-            w.kill(&mut st.unit, unit, attacker);
+            w.kill(&mut st.unit, &mut self.controls, unit, attacker);
         }
     }
 

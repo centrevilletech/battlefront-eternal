@@ -16,6 +16,7 @@
 import * as THREE from 'three';
 import { hasMissileLock } from '../../src/weapon-targeting.js';
 import { networkVehicle } from '../../src/runtime/network-vehicle.js';
+import { networkSeat } from '../../src/runtime/network-seat.js';
 
 // The leases that hold a seat, hulls first (hull by hull, seat by seat),
 // then the turrets' (in the order they were manned), then any the frame
@@ -87,6 +88,7 @@ function controlValue(cap, lease) {
       reload: Boolean(i.reload), nextPrimary: Boolean(i.nextPrimary), previousPrimary: Boolean(i.previousPrimary),
       nextSecondary: Boolean(i.nextSecondary), zoom: Boolean(i.zoom),
       aim: i.aim ? i.aim.clone() : null, brake: Boolean(i.brake), up: Number(i.up), down: Number(i.down),
+      trick: Boolean(i.trick), immelmann: Boolean(i.immelmann), boost: Boolean(i.boost),
     },
   };
 }
@@ -94,6 +96,7 @@ function controlValue(cap, lease) {
 // The seats' state as a frame starts or ends: `named` leases, units and
 // hulls the frame's arguments name (one being let go, one boarding).
 function seatState(game, cap, { leases: namedLeases = [], units: namedUnits = [], hulls: namedHulls = [] } = {}) {
+  lastNamed = namedLeases;
   const leases = leasesOf(game, namedLeases);
   const units = [], hulls = [];
   for (const lease of leases) {
@@ -115,8 +118,14 @@ function seatState(game, cap, { leases: namedLeases = [], units: namedUnits = []
 // The units seated now, as a call left them (a rider posed, a crew killed).
 const unitsAfter = (game, cap) => ({ units: leasesOf(game).flatMap((l) => (l.unit ? [unitValue(cap, l.unit)] : [])) });
 // Every unit, as a kill left them (the killed one holds no seat by then):
-// the registry's units, not its hulls', turrets' and buildings' targets.
-const everyUnit = (game, cap) => ({ units: game.units.all().filter((u) => u.soldier && u.combat).map((u) => unitValue(cap, u)) });
+// the registry's units, not its hulls', turrets' and buildings' targets;
+// and the seats the AI drives (a death lets its controller go), those of
+// the leases the innermost open frame names among them.
+let lastNamed = [];
+const everyUnit = (game, cap) => ({
+  units: game.units.all().filter((u) => u.soldier && u.combat).map((u) => unitValue(cap, u)),
+  controls: leasesOf(game, lastNamed).filter((l) => l.controllable).map((l) => controlValue(cap, l)),
+});
 
 // The hulls' seats' boundary: their SeatsWorld's calls, a body stood up
 // (Soldier.spawn's cast: the port runs the units' spawn), and a rider posed
@@ -192,6 +201,7 @@ function turretValue(cap, game, t) {
 // frame names that holds none), the turrets they man (and any named), the
 // units in those seats (and any named) and the seats the AI drives.
 function crewState(game, cap, { leases: namedLeases = [], units: namedUnits = [], turrets: namedTurrets = [] } = {}) {
+  lastNamed = namedLeases;
   const ts = game.turretSeats;
   const leases = [...ts.leases];
   for (const lease of namedLeases) if (lease && !leases.includes(lease)) leases.push(lease);
@@ -272,5 +282,7 @@ export const seats = {
     crewFrame('requestExit', (args) => ({ units: [args[0]] })),
     crewFrame('leave', (args) => ({ units: [args[0]] })),
     networkSeatFrame,
+    // A network human's seat switch (src/runtime/network-seat.js).
+    { ...hullFrame('cycle', (args) => ({ units: [args[1]] })), method: 'networkSeat.cycle', target: () => networkSeat },
   ],
 };

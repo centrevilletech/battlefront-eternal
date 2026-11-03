@@ -126,6 +126,10 @@ pub struct SeatIntent {
     pub brake: bool,
     pub up: f64,
     pub down: f64,
+    /// What the AI's craft steering adds (src/ai/classic/vehicles/steering.js).
+    pub trick: bool,
+    pub immelmann: bool,
+    pub boost: bool,
 }
 
 /// What SeatInput.latch reads of an intent and clears in it: a unit's or a
@@ -143,6 +147,10 @@ pub trait PlayIntent {
     fn aim(&self) -> Option<Vector3>;
     fn buttons(&self) -> [f64; 2];
     fn reload(&self) -> bool;
+    /// `Boolean(intent.trick)`, `immelmann`, `boost`: a craft's actions.
+    fn trick(&self) -> bool;
+    fn immelmann(&self) -> bool;
+    fn boost(&self) -> bool;
     /// `Boolean(intent.use || intent.exit)`.
     fn exit_edge(&self) -> bool;
     /// The edges a seat takes or drops (seats.js:224-226).
@@ -179,6 +187,17 @@ impl PlayIntent for Intent {
     }
     fn reload(&self) -> bool {
         self.reload
+    }
+    // A unit's own intent has none of a craft's actions (the units' schema
+    // declares none; the AI writes them on a seat's own intent).
+    fn trick(&self) -> bool {
+        false
+    }
+    fn immelmann(&self) -> bool {
+        false
+    }
+    fn boost(&self) -> bool {
+        false
     }
     fn exit_edge(&self) -> bool {
         self.r#use || self.exit
@@ -228,6 +247,15 @@ impl PlayIntent for SeatIntent {
     fn reload(&self) -> bool {
         self.reload
     }
+    fn trick(&self) -> bool {
+        self.trick
+    }
+    fn immelmann(&self) -> bool {
+        self.immelmann
+    }
+    fn boost(&self) -> bool {
+        self.boost
+    }
     fn exit_edge(&self) -> bool {
         self.r#use || self.exit
     }
@@ -268,11 +296,9 @@ pub fn latch(input: &mut SeatInput, was: &mut [f64; 2], intent: &mut dyn PlayInt
     input.turn = clamp(or_zero(intent.turn()), -aim_limit, aim_limit);
     input.pitch = clamp(or_zero(intent.pitch()), -aim_limit, aim_limit);
     input.brake = intent.brake();
-    // Neither a unit's nor a seat's intent has these (the JavaScript reads
-    // them as undefined).
-    input.trick = Some(false);
-    input.immelmann = Some(false);
-    input.boost = Some(false);
+    input.trick = Some(intent.trick());
+    input.immelmann = Some(intent.immelmann());
+    input.boost = Some(intent.boost());
     input.up = if intent.up() { 1.0 } else { 0.0 };
     input.down = if intent.down() { 1.0 } else { 0.0 };
     let aim = intent.aim();

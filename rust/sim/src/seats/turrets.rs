@@ -629,7 +629,7 @@ impl Crews {
             if let Some(id) = unit {
                 let u = st.unit.get(unit_ref(id)).unwrap();
                 if u.alive && !u.combat_dead {
-                    w.kill(&mut st.unit, id, how.attacker);
+                    w.kill(&mut st.unit, &mut self.controls, id, how.attacker);
                 }
             }
         }
