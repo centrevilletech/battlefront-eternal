@@ -2,8 +2,9 @@
 // items of the transparent list: the surface drawn with the look's textures
 // (Low), or at High and Ultra in two passes (the tint over the opaque
 // scene's copy, then the reflection), the rings where things meet the
-// water, and at High and Ultra the shore's lapping and splashes
-// (water-shore.js, one quad instanced at each shore point).
+// water, at High and Ultra the shore's lapping and splashes (water-shore.js,
+// one quad instanced at each shore point), and the Enhanced ocean's crest
+// spray (ocean-storm.js, one card instanced at each of its seeds).
 // Each is registered the first time three has a program for its material
 // (made as three compiled it: Kind::Plain), then hidden from three; each
 // frame, in the transparent phase, the pass writes whether three would have
@@ -20,7 +21,9 @@
 // so the copy is made here at the start of the transparent phase, before
 // anything of the list is drawn, as three makes it. The Ultra mirror's
 // render of the near scene hides the water, and the eye under the surface
-// draws the underwater pass (three's, which copies the scene again).
+// draws the underwater pass (three's, which copies the scene again). The
+// spray's onBeforeRender takes the soft particles' depth, as the effects
+// pass takes it, at the start of the phase.
 import * as THREE from "three";
 import { uniformType, writeUniform } from "./post.js";
 import { blendOf, sidesOf, stateOf } from "./transparent.js";
@@ -33,6 +36,7 @@ const SURFACE = S.ARRAY + 3 + ARRAY_FLOATS, MAX_SURFACES = 8;
 const RING_UPLOAD = MAX_SURFACES * SURFACE, SETS = RING_UPLOAD + 2;
 const RINGS = [["position", "waterRingsPosition", 3, "water_rings_position"], ["uv", "waterRingsUv", 2, "water_rings_uv"], ["alpha", "waterRingsAlpha", 1, "water_rings_alpha"]];
 const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4();
+const BASE_BEFORE = THREE.Object3D.prototype.onBeforeRender;
 
 // Rust's program for a water material's three program, as three compiled
 // it, with its uniforms ({ name, type } in slot order) and its one uniform
@@ -89,7 +93,9 @@ class WaterPass {
     if (water !== this.water) { this.water = water; this.surfaces = []; this.sets = new Map(); this.tried = new WeakSet(); this.full = true; }
     for (const mesh of [water.lowPass, water.tintPass, water.mirrorPass]) if (mesh && !this.tried.has(mesh)) this.registerMesh(mesh, "surface");
     if (water.rings && !this.tried.has(water.rings)) this.registerMesh(water.rings, "rings");
-    for (const mesh of water.shore?.meshes ?? []) if (!this.tried.has(mesh)) this.registerMesh(mesh, "shore");
+    for (const mesh of water.shore?.meshes ?? []) if (!this.tried.has(mesh)) this.registerMesh(mesh, "instanced");
+    const spray = water.ocean?.waves?.spray;
+    if (spray && !this.tried.has(spray)) this.registerMesh(spray, "instanced");
     if (!this.surfaces.length) return;
     core.views();
     const input = core.waterInput, camera = ctx.camera;
@@ -99,8 +105,13 @@ class WaterPass {
     input[RING_UPLOAD] = 0; input[RING_UPLOAD + 1] = 0;
     // The tint pass's copy of the opaque scene (its onBeforeRender), before
     // the list's first item: the renderer draws the tint pass first.
-    const tint = this.surfaces.find((surface) => surface.mesh === water.tintPass);
-    if (tint && this.shown(tint, camera, ctx.scene)) water.captureSurface(ctx.renderer, camera);
+    // Each shown surface's own onBeforeRender, as three calls it before the
+    // draw (the tint's copy; the spray's soft particle depth), before any
+    // item of the list is drawn.
+    for (const surface of this.surfaces) {
+      if (surface.mesh.onBeforeRender === BASE_BEFORE || !this.shown(surface, camera, ctx.scene)) continue;
+      surface.mesh.onBeforeRender(ctx.renderer, ctx.scene, camera, surface.mesh.geometry, surface.material, null);
+    }
     core.views();
     this.surfaces.forEach((surface, s) => this.write(surface, s, input, camera, ctx.scene));
     for (const set of this.sets.values()) this.instances(set, input);
@@ -111,9 +122,9 @@ class WaterPass {
   // one uniform array; the rings and the shore with their own arrays.
   registerMesh(mesh, kind) {
     const core = this.core, material = mesh.material;
-    const geometry = mesh.geometry, set = kind === "shore" ? this.shoreSet(geometry) : null;
-    if (kind === "shore" && !set) { this.tried.add(mesh); return; }
-    const attributes = kind === "rings" ? "position:0,uv:1,alpha:2" : kind === "shore" ? `position:0,uv:1,${set.attributes.map((a, k) => `${a.name}:${2 + k}`).join(",")}` : "position:0,uv:1";
+    const geometry = mesh.geometry, set = kind === "instanced" ? this.instanceSet(geometry) : null;
+    if (kind === "instanced" && !set) { this.tried.add(mesh); return; }
+    const attributes = kind === "rings" ? "position:0,uv:1,alpha:2" : kind === "instanced" ? `position:0,uv:1,${set.attributes.map((a, k) => `${a.name}:${2 + k}`).join(",")}` : "position:0,uv:1";
     const program = surfaceProgram(core, material, attributes);
     if (program === undefined) return; // until three has made it
     this.tried.add(mesh);
@@ -136,10 +147,10 @@ class WaterPass {
     material.visible = !core.active;
   }
 
-  // The shore's instances (its two meshes share one geometry): a set of the
-  // renderer's for its instanced attributes, made once; null when there is
-  // no room.
-  shoreSet(geometry) {
+  // An instanced geometry's instances (the shore's two meshes share one): a
+  // set of the renderer's for its instanced attributes, made once; null when
+  // there is no room.
+  instanceSet(geometry) {
     let set = this.sets.get(geometry);
     if (set !== undefined) return set;
     const core = this.core;

@@ -30,7 +30,7 @@
 // after the last face as three makes them. Shadows, lamp lighting and the
 // temporal upscaler need nothing more of the far pass (the upscaler's jitter
 // is in the far camera's projection, in the frame block already).
-use crate::core::{Core, MultiDraw, PASS_FAR, UNIT_BUMP, UNIT_FAR, UNIT_MAP};
+use crate::core::{Core, MultiDraw, PASS_FAR, PASS_WATER, UNIT_BUMP, UNIT_FAR, UNIT_MAP};
 use crate::math::{self, Mat4};
 use glow::HasContext;
 use std::cmp::Ordering;
@@ -50,8 +50,12 @@ pub const FAR_KEEP: usize = 5;
 // the pass makes once it has drawn (three makes them after the last face:
 // CubeCamera.update), 0 for none.
 pub const FAR_MIPMAPS: usize = 6;
+// 1 when the page wrote the input for the near scene's items (far.js
+// drawNear): only the near phase draws them (draw_near), once.
+pub const FAR_NEAR: usize = 7;
 pub const FAR_SLOTS: usize = 8;
 pub const FAR_INPUT_LEN: usize = 16384;
+pub const FAR_VERTICES_LEN: usize = 16384;
 
 // Where a uniform's value comes from (far_source's kind).
 pub const SRC_FLOATS: u32 = 0; // fixed values
@@ -188,10 +192,20 @@ struct Item<C: HasContext> {
     base: i32,
     draw: Draw<C>,
     instanced: Option<Instanced<C>>,
+    // Its draw range from the input each frame (first index, count) instead
+    // of a fixed one: a geometry whose range three moves (the storm's bolt).
+    range_at: Option<usize>,
+    // Vertex buffers of its geometry the page refreshes (the storm's bolt,
+    // rewritten at each strike): (buffer slot, where its values start in
+    // `vertices`, floats), uploaded when the input's slot `refresh_at` is 1.
+    refresh: Vec<(usize, usize, usize)>,
+    refresh_at: usize,
 }
 
 pub struct FarPass<C: HasContext> {
     pub input: Vec<f64>,
+    // Vertex values the page writes for items whose buffers it refreshes.
+    pub vertices: Vec<f32>,
     tables: Vec<Vec<Uniform<C>>>,
     items: Vec<Item<C>>,
     // This frame's items and their depths (three's z), in drawing order.
@@ -203,11 +217,14 @@ pub struct FarPass<C: HasContext> {
     // A sky probe's frame blocks, one a cube face (made the first time a
     // probe is drawn): a capture's six faces read their own.
     probe_ubos: Vec<C::Buffer>,
+    // The pass whose draws this call's items count as: the far pass's, or
+    // the water's for the Enhanced ocean's near surface (draw_near).
+    counted: usize,
 }
 
 impl<C: HasContext> FarPass<C> {
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> FarPass<C> {
-        FarPass { input: vec![0.0; FAR_INPUT_LEN], tables: vec![], items: vec![], list: vec![], value: vec![], vao: None, units: HashMap::new(), probe_ubos: vec![] }
+        FarPass { input: vec![0.0; FAR_INPUT_LEN], vertices: vec![0.0; FAR_VERTICES_LEN], tables: vec![], items: vec![], list: vec![], value: vec![], vao: None, units: HashMap::new(), probe_ubos: vec![], counted: PASS_FAR }
     }
 
     // The uniforms of a program the pass sets (all it reads besides the frame
@@ -278,7 +295,7 @@ impl<C: HasContext> FarPass<C> {
         self.items.push(Item {
             program: program as usize, table: table as usize, geometry: geometry as usize, sources: vec![], flags, depth_func, blend: b,
             order: [order[0], order[1], order[2], order[3]], sphere: ([sphere[0], sphere[1], sphere[2]], sphere[3]),
-            slot: slot as usize, base: 0, draw: Draw::Range(0, count), instanced: None,
+            slot: slot as usize, base: 0, draw: Draw::Range(0, count), instanced: None, range_at: None, refresh: vec![], refresh_at: 0,
         });
         (self.items.len() - 1) as u32
     }
@@ -311,6 +328,21 @@ impl<C: HasContext> FarPass<C> {
     // buckets share): its ranges and cells are its own index's, offset by it.
     pub fn base(&mut self, item: u32, base: i32) {
         self.items[item as usize].base = base;
+    }
+
+    // Its draw range from the input's slots `at` (first index, count), each
+    // frame.
+    pub fn range_input(&mut self, item: u32, at: u32) {
+        self.items[item as usize].range_at = Some(at as usize);
+    }
+
+    // A vertex buffer of its geometry (`buffer`: its slot there) refreshed
+    // from `vertices` (`floats` values from `at`) whenever the input's slot
+    // `flag` is 1 (the page wrote them anew).
+    pub fn refresh(&mut self, item: u32, buffer: u32, at: u32, floats: u32, flag: u32) {
+        let it = &mut self.items[item as usize];
+        it.refresh.push((buffer as usize, at as usize, floats as usize));
+        it.refresh_at = flag as usize;
     }
 
     // A per-instance attribute of an instanced item, at `location` (a matrix
@@ -428,7 +460,23 @@ impl<C: HasContext> FarPass<C> {
             return;
         }
         core.upload_frame(frame);
+        self.counted = PASS_FAR;
         self.draw_items(core);
+    }
+
+    // The near phase's part (renderer.rs frame, a mirror's too): the items
+    // the page marked from the near scene (the Enhanced ocean's surface,
+    // drawn there in three's place: far.js drawNear), with the phase's frame
+    // block, over what the phase drew (the page sets FAR_KEEP). Counted as
+    // the water pass's draws: the ocean is the water's surface.
+    pub fn draw_near<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
+        if self.input[FAR_NEAR] == 0.0 || self.input[FAR_DRAW] == 0.0 {
+            return;
+        }
+        self.input[FAR_NEAR] = 0.0;
+        self.counted = PASS_WATER;
+        self.draw_items(core);
+        self.counted = PASS_FAR;
     }
 
     // A face of a sky probe's capture (sky-probe.js, renderer.rs
@@ -461,6 +509,7 @@ impl<C: HasContext> FarPass<C> {
             gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(ubo));
         }
         core.stats.gl_calls += 3;
+        self.counted = PASS_FAR;
         self.draw_items(core);
         let cube = self.input[FAR_MIPMAPS];
         if cube > 0.0 {
@@ -500,6 +549,25 @@ impl<C: HasContext> FarPass<C> {
             stats.gl_calls += 1;
         }
         core.opaque();
+        // The vertices the page wrote anew for items shown this frame (in view
+        // or not: the page counts them as sent), uploaded.
+        for item in &self.items {
+            if item.refresh.is_empty() || input[item.slot] == 0.0 || input[item.refresh_at] == 0.0 {
+                continue;
+            }
+            let geo = &core.geometries[item.geometry];
+            for &(buffer, at, floats) in &item.refresh {
+                if let Some(&b) = geo.buffers.get(buffer) {
+                    unsafe {
+                        core.gl.bind_buffer(glow::ARRAY_BUFFER, Some(b));
+                        core.gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, crate::core::bytes(&self.vertices[at..at + floats]));
+                    }
+                    core.stats.gl_calls += 2;
+                }
+            }
+            unsafe { core.gl.bind_buffer(glow::ARRAY_BUFFER, None) };
+            core.stats.gl_calls += 1;
+        }
         // This frame's items: shown, in view, with their depths.
         self.list.clear();
         for (i, item) in self.items.iter().enumerate() {
@@ -527,6 +595,7 @@ impl<C: HasContext> FarPass<C> {
 
     #[allow(clippy::too_many_arguments)]
     fn draw_item<M: MultiDraw>(&mut self, core: &mut Core<C, M>, i: usize, projection: &Mat4, view: &Mat4, eye: &[f64; 3], frustum: &math::Frustum, limit: f64) {
+        let counted = self.counted;
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
         let item = &mut self.items[i];
@@ -537,8 +606,12 @@ impl<C: HasContext> FarPass<C> {
         let (first, count);
         match &mut item.draw {
             Draw::Range(s, c) => {
-                first = *s + item.base;
-                count = *c;
+                let (s, c) = match item.range_at {
+                    Some(at) => (input[at] as i32, input[at + 1] as i32),
+                    None => (*s, *c),
+                };
+                first = s + item.base;
+                count = c;
             }
             Draw::Cells(cells) => {
                 for (k, (min, max)) in cells.parts.iter().enumerate() {
@@ -722,7 +795,7 @@ impl<C: HasContext> FarPass<C> {
             }
         }
         stats.gl_calls += 1;
-        stats.pass_draws[PASS_FAR] += 1;
+        stats.pass_draws[counted] += 1;
     }
 
     // How many items are registered (the page's checks).
@@ -814,7 +887,7 @@ mod tests {
     fn item(transparent: bool, order: [f64; 4]) -> Item<glow::Context> {
         Item {
             program: 0, table: 0, geometry: 0, sources: vec![], flags: if transparent { F_TRANSPARENT } else { 0 }, depth_func: 0, blend: [0; 6],
-            order, sphere: ([0.0; 3], 1.0), slot: 0, base: 0, draw: Draw::Range(0, 3), instanced: None,
+            order, sphere: ([0.0; 3], 1.0), slot: 0, base: 0, draw: Draw::Range(0, 3), instanced: None, range_at: None, refresh: vec![], refresh_at: 0,
         }
     }
 

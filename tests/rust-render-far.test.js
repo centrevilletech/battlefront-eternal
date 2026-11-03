@@ -297,3 +297,69 @@ test("a sky probe's faces: each its own phase call, the mipmaps after the last f
   assert.deepEqual(calls.filter((c) => c[0] === "far_probe_frame").map((c) => c[1]), [0, 1, 2, 3, 4, 5]);
   assert.ok(far.all.some((i) => i.object === sky));
 });
+
+test("an unindexed mesh (the storm's bolt): an index of the pass's own, its range each frame, its rewritten vertices sent when three would upload them", () => {
+  const { core, calls, renderer, farScene, camera, far } = bridge();
+  const geometry = new THREE.BufferGeometry();
+  const position = new THREE.BufferAttribute(new Float32Array(6 * 3), 3).setUsage(THREE.DynamicDrawUsage);
+  geometry.setAttribute("position", position);
+  geometry.setDrawRange(0, 3);
+  const material = new THREE.ShaderMaterial({ name: "storm-lightning", uniforms: { lightningFlash: { value: 0.5 } }, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, forceSinglePass: true, depthWrite: false });
+  const bolt = new THREE.Mesh(geometry, material);
+  bolt.frustumCulled = false;
+  bolt.program = { id: "bolt", program: { uniforms: [{ name: "projectionMatrix", type: MAT4, size: 1 }, { name: "lightningFlash", type: FLOAT, size: 1 }], attributes: [{ name: "position", location: 0 }] } };
+  farScene.add(bolt);
+  assert.equal(core.cover("far", renderer, farScene, camera), true);
+  const item = far.all.find((i) => i.object === bolt);
+  assert.ok(item, "an item");
+  const index = calls.find((c) => c[0] === "geometry_index");
+  assert.deepEqual([...new Uint32Array(index[2].buffer, index[2].byteOffset, 6)], [0, 1, 2, 3, 4, 5], "0, 1, 2... over every vertex");
+  core.views();
+  assert.deepEqual([core.farInput[item.rangeAt], core.farInput[item.rangeAt + 1]], [0, 3]);
+  assert.equal(calls.filter((c) => c[0] === "far_refresh").length, 1);
+  assert.equal(core.farInput[item.refreshAt], 1, "sent the first time");
+  // Unchanged: not sent; rewritten (a strike): sent again with its new range.
+  core.cover("far", renderer, farScene, camera);
+  core.views();
+  assert.equal(core.farInput[item.refreshAt], 0);
+  position.array.set([1, 2, 3], 0);
+  position.needsUpdate = true;
+  geometry.setDrawRange(0, 6);
+  core.cover("far", renderer, farScene, camera);
+  core.views();
+  assert.equal(core.farInput[item.refreshAt], 1);
+  assert.deepEqual([...core.farVertices.subarray(item.refresh[0].at, item.refresh[0].at + 3)], [1, 2, 3]);
+  assert.deepEqual([core.farInput[item.rangeAt], core.farInput[item.rangeAt + 1]], [0, 6]);
+});
+
+test("the near scene's Enhanced ocean surface: the far pass's item drawn in the near phase, hidden from three by its layers from the next frame", () => {
+  const { core, calls, renderer, farScene, camera, far } = bridge();
+  const near = new THREE.Scene();
+  const sea = mesh("native-ocean", [["modelMatrix", MAT4], ["projectionMatrix", MAT4], ["time", FLOAT]], { values: { time: { value: 2 } }, matrixAutoUpdate: true });
+  near.add(sea);
+  // Its far twin shares its material (ocean-surface.js), as the stand-in's
+  // program lookup needs.
+  const twin = new THREE.Mesh(sea.geometry, sea.material);
+  twin.program = sea.program;
+  farScene.add(twin);
+  core.graphics.scene = near;
+  near.userData.water = { oceanSurface: { near: sea } };
+  const sea_ = core.byName.sea;
+  assert.ok(sea_, "the sea pass, in the near phase");
+  sea_.draw({ renderer, scene: near, camera });
+  core.views();
+  assert.equal(core.farInput[4], 0, "registered, three draws it this frame");
+  assert.equal(sea.layers.mask, 1 << 30, "hidden from three from the next frame");
+  sea_.draw({ renderer, scene: near, camera });
+  core.views();
+  assert.deepEqual([core.farInput[4], core.farInput[5], core.farInput[7]], [1, 1, 1], "drawn by the near phase, over what is there");
+  const item = far.all.find((i) => i.object === sea);
+  assert.equal(core.farInput[item.slot], 1);
+  // The far phase's input is never the near phase's.
+  core.cover("far", renderer, farScene, camera);
+  core.views();
+  assert.equal(core.farInput[7], 0);
+  // Off: back on its own layers.
+  sea_.setActive(false);
+  assert.equal(sea.layers.mask, 1);
+});

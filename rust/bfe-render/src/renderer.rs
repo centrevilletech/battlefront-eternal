@@ -100,7 +100,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
 
     // The near scene's phase, inside three's near-scene pass right after the
     // far scene's image: the static world, then the soldiers (records: how
-    // many the page wrote), then the terrain, foliage and tree canopies.
+    // many the page wrote), then the terrain, foliage and tree canopies, and
+    // the Enhanced ocean's surface (the far pass's items from the near scene).
     pub fn frame(&mut self, records: usize) -> Result<Stats, String> {
         let core = &mut self.core;
         core.begin_phase();
@@ -113,6 +114,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.terrain.draw(core);
         self.foliage.draw(core);
         self.canopies.draw(core);
+        self.far.draw_near(core);
         Ok(core.end_phase())
     }
 

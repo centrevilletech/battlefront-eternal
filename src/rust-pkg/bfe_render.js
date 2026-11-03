@@ -284,6 +284,23 @@ export class BfeRenderer {
     }
     /**
      * @param {number} item
+     * @param {number} at
+     */
+    far_range_input(item, at) {
+        wasm.bferenderer_far_range_input(this.__wbg_ptr, item, at);
+    }
+    /**
+     * @param {number} item
+     * @param {number} buffer
+     * @param {number} at
+     * @param {number} floats
+     * @param {number} flag
+     */
+    far_refresh(item, buffer, at, floats, flag) {
+        wasm.bferenderer_far_refresh(this.__wbg_ptr, item, buffer, at, floats, flag);
+    }
+    /**
+     * @param {number} item
      * @param {number} uniform
      * @param {number} kind
      * @param {Float32Array | number[]} values
@@ -345,6 +362,20 @@ export class BfeRenderer {
             throw e;
         }
         wasm.bferenderer_far_terrain(this.__wbg_ptr, val3, val4, ptr0, len0, ptr1, len1);
+    }
+    /**
+     * @returns {number}
+     */
+    far_vertices_len() {
+        const ret = wasm.bferenderer_far_vertices_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    far_vertices_ptr() {
+        const ret = wasm.bferenderer_far_vertices_ptr(this.__wbg_ptr);
+        return ret >>> 0;
     }
     /**
      * @param {number} program

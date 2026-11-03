@@ -34,7 +34,7 @@ import { lighting } from "../materials.js";
 import { packed } from "../point-lights.js";
 import { worldPass } from "./world.js";
 import { instancesPass } from "./instances.js";
-import { farPass } from "./far.js";
+import { farPass, seaPass } from "./far.js";
 import { terrainPass } from "./terrain.js";
 import { transparentPass } from "./transparent.js";
 import { effectsPass } from "./effects.js";
@@ -186,7 +186,7 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass]) this.addPass(make(this));
   }
 
   // A pass: { name, phase, register?(), draw?(ctx), setActive?(on),

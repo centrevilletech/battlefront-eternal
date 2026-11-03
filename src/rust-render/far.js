@@ -29,7 +29,7 @@ import { VIEW_FAR } from "./index.js";
 // add_program's kinds (web/mod.rs).
 const WORLD = 0, PLAIN = 3;
 // The far input's layout and the uniform sources and item flags (far.rs).
-const CLEAR = 0, DRAW = 4, KEEP = 5, MIPMAPS = 6, SLOTS = 8;
+const CLEAR = 0, DRAW = 4, KEEP = 5, MIPMAPS = 6, NEAR = 7, SLOTS = 8;
 const SRC = { FLOATS: 0, INPUT: 1, TEXTURE: 2, TEXTURE_INPUT: 3, PROJECTION: 4, VIEW: 5, EYE: 6, MODEL: 7, MODEL_VIEW: 8, NORMAL: 9, CUBE_INPUT: 10 };
 const F = { DEPTH_TEST: 4, DEPTH_WRITE: 8, COLOR_WRITE: 16, A2C: 32, TRANSPARENT: 64, PLACED: 128, CULLED: 256, BLEND: 512 };
 // The frame block's members (shader.rs FRAME_MEMBERS); those three takes from
@@ -43,6 +43,10 @@ const OBJECT = { modelMatrix: SRC.MODEL, modelViewMatrix: SRC.MODEL_VIEW, normal
 const SAMPLER_2D = 0x8B5E, SAMPLER_CUBE = 0x8B60;
 const FLOATS = { 0x1406: 1, 0x8B50: 2, 0x8B51: 3, 0x8B52: 4, 0x1404: 1, 0x8B56: 1, 0x8B5B: 9, 0x8B5C: 16, [SAMPLER_2D]: 1, [SAMPLER_CUBE]: 1 };
 const IDENTITY = new THREE.Matrix4();
+// The layer a near-scene item the pass draws goes on (no camera renders it:
+// graphics.js uses 1, 2 and 4, sky-probe.js 3, water.js 5; instances.js's
+// flying parts this one too).
+const HIDDEN_LAYER = 30;
 // core.program's policy for a program with the frame block: every uniform it
 // reads besides the block is the far pass's to set (none through the core's
 // table).
@@ -121,10 +125,15 @@ class FarPass {
     this.complete = false;
     this.mode = "three";
     this.threeObjects = 0;
+    // The near scene's items (drawNear): mesh -> its own layers' mask, while
+    // it is hidden from three.
+    this.hidden = new Map();
+    this.nearOn = true;
   }
 
   register() {
     this.core.addView("farInput", Float64Array, () => this.core.rust.far_input_ptr(), () => this.core.rust.far_input_len());
+    this.core.addView("farVertices", Float32Array, () => this.core.rust.far_vertices_ptr(), () => this.core.rust.far_vertices_len());
   }
 
   // The far phase's part: what it hasn't registered yet, then this frame's
@@ -145,6 +154,7 @@ class FarPass {
 
   frame(ctx) {
     const { renderer, scene, camera } = ctx, core = this.core;
+    this.near = false;
     this.count = 0;
     this.threeObjects = 0;
     this.camera = camera;
@@ -172,6 +182,49 @@ class FarPass {
     this.write(renderer, complete);
     this.complete = complete;
     this.mode = complete ? "full" : "three";
+  }
+
+  // The near phase's part (a mirror's too): the near scene's meshes the pass
+  // draws in three's place, the Enhanced ocean's surface (ocean-surface.js:
+  // its near mesh, which shares its material with the far one), drawn after
+  // the near scene's opaque passes (far.rs draw_near). Registered as any far
+  // item; hidden from three by its layers from the next frame on (three
+  // listed it in this render already: it draws it this once), its own layers
+  // kept and tested against the camera's as three would.
+  drawNear(ctx) {
+    const { renderer, scene, camera } = ctx, core = this.core;
+    this.near = true;
+    this.count = 0;
+    this.threeObjects = 0;
+    this.camera = camera;
+    this.mipmaps = 0;
+    const sea = core.graphics.scene.userData.water?.oceanSurface?.near ?? null;
+    let draw = false;
+    if (this.on && this.nearOn && sea) {
+      let shown = Boolean(sea.material?.visible);
+      for (let n = sea; shown && n && n !== scene; n = n.parent) if (!n.visible) shown = false;
+      if (shown && (this.ownLayers(sea) & camera.layers.mask) !== 0) {
+        this.find(sea, sea.material, 0);
+        const item = this.found[this.count - 1].item;
+        if (item && this.hidden.has(sea)) draw = true;
+        else if (item) { this.hidden.set(sea, sea.layers.mask); sea.layers.set(HIDDEN_LAYER); }
+      }
+    }
+    if (draw) this.prepare(renderer, scene, camera);
+    this.write(renderer, draw);
+  }
+
+  // A mesh's own layers' mask (kept while it is hidden).
+  ownLayers(mesh) {
+    return this.hidden.get(mesh) ?? mesh.layers.mask;
+  }
+
+  // The near scene's items back to three (off), or hidden again (on).
+  nearActive(on) {
+    this.nearOn = on;
+    if (on) return;
+    for (const [mesh, mask] of this.hidden) mesh.layers.mask = mask;
+    this.hidden.clear();
   }
 
   // The far scene as three's projectObject walks it: each mesh it would draw
@@ -224,7 +277,12 @@ class FarPass {
     if (material.transparent && material.side === THREE.DoubleSide && !material.forceSinglePass) return null;
     if (mesh.matrixWorld.determinant() < 0) return null;
     const geometry = mesh.geometry;
-    if (!geometry.index || geometry.groups.length || Object.keys(geometry.morphAttributes).length) return null;
+    if (geometry.groups.length || Object.keys(geometry.morphAttributes).length) return null;
+    // Unindexed (a full-screen triangle, the storm's bolt): drawn through an
+    // index of the pass's own, 0, 1, 2..., over the draw range three draws
+    // each frame.
+    const unindexed = !geometry.index;
+    if (unindexed && (instanced || !geometry.attributes.position || geometry.attributes.position.isInterleavedBufferAttribute)) return null;
     const blend = blendOf(material, gl);
     if (blend === undefined || DEPTH[material.depthFunc] === undefined) return null;
     // Its uniforms: the frame block's when every frame value it reads is
@@ -326,10 +384,27 @@ class FarPass {
         at += max * size;
       }
     }
+    // An unindexed geometry's range (first index, count), written each frame;
+    // the buffers of its attributes three uploads anew (DynamicDrawUsage: the
+    // storm's bolt) refreshed when their versions move: their values in the
+    // pass's vertices, and the slot saying they were written anew.
+    const rangeAt = unindexed ? at : -1;
+    if (unindexed) at += 2;
     const share = this.sharing?.get(mesh);
-    const g = share ? this.layoutGeometry(share.key, geometry, program)
+    const made = unindexed ? this.unindexedGeometry(geometry, program) : null;
+    const g = share ? this.layoutGeometry(share.key, geometry, program) : made ? made.g
       : core.geometry(geometry, instanced ? { id: program.id, attributes: program.attributes.filter(([name]) => !perInstance(name)) } : program);
-    if (g === null) return null;
+    if (g === null || g === undefined) return null;
+    const refresh = [];
+    let refreshAt = -1;
+    for (const { attribute, slot } of made?.buffers ?? []) {
+      if (attribute.usage !== THREE.DynamicDrawUsage) continue;
+      if (refreshAt < 0) refreshAt = at++;
+      const from = this.nextVertex ?? 0, floats = attribute.array.length;
+      if (from + floats > core.rust.far_vertices_len()) return null;
+      this.nextVertex = from + floats;
+      refresh.push({ attribute, slot, at: from, floats, version: -1 });
+    }
     if (at > core.rust.far_input_len()) return null;
     if (!geometry.boundingSphere) geometry.computeBoundingSphere();
     const s = geometry.boundingSphere;
@@ -341,7 +416,10 @@ class FarPass {
     for (const [index, kind, floats, from] of sources) rust.far_source(id, index, kind, new Float32Array(floats || []), from);
     for (const i of instances) rust.far_instanced(id, i.location, i.columns, i.rows, i.max, countAt, i.at);
     if (share) rust.far_base(id, share.base);
-    if (terrain) {
+    for (const r of refresh) rust.far_refresh(id, r.slot, r.at, r.floats, refreshAt);
+    if (unindexed) {
+      rust.far_range_input(id, rangeAt);
+    } else if (terrain) {
       // Its levels, as terrain-patches.js keeps them (the reduced one made
       // the first time it is drawn).
       this.level(id, terrain.patches.full, 0);
@@ -364,7 +442,30 @@ class FarPass {
     const hooks = !fixed && [mesh.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender ? "object" : null,
       material.onBeforeRender !== THREE.Material.prototype.onBeforeRender ? "material" : null].filter(Boolean);
     return { id, object, mesh, material, threeProgram, slot, placed, terrain, levels: terrain ? [true, Boolean(terrain.patches.reduced)] : null, level: 0,
-      dynamic, watched, hooks: hooks || [], instances, countAt };
+      dynamic, watched, hooks: hooks || [], instances, countAt, rangeAt, refresh, refreshAt };
+  }
+
+  // An unindexed geometry's copy for the renderer: each attribute the
+  // program reads (one buffer each, its slot there), and an index 0, 1,
+  // 2... over every vertex. { g, buffers: [{ attribute, slot }] }, or null.
+  unindexedGeometry(geometry, program) {
+    const rust = this.core.rust, position = geometry.attributes.position, count = position.count;
+    const buffers = [];
+    for (const [name, location] of program.attributes) {
+      const a = geometry.attributes[name];
+      if (!a || a.isInterleavedBufferAttribute || !(a.array instanceof Float32Array) || a.count !== count) return null;
+      buffers.push({ attribute: a, location });
+    }
+    const g = rust.add_geometry();
+    for (const b of buffers) {
+      const array = b.attribute.array;
+      b.slot = rust.geometry_buffer(g, new Uint8Array(array.buffer, array.byteOffset, array.byteLength));
+      rust.geometry_pointer(g, b.slot, b.location, b.attribute.itemSize, 0x1406, b.attribute.normalized, 0, 0);
+    }
+    const index = new Uint32Array(count);
+    for (let i = 0; i < count; i++) index[i] = i;
+    rust.geometry_index(g, new Uint8Array(index.buffer), 0x1405);
+    return { g, buffers };
   }
 
   // The map's far buckets (zero materials, their vertices in the world) that
@@ -518,8 +619,9 @@ class FarPass {
     // WebGLBackground's clear (none with autoClear off: a water mirror's
     // far scene drawn over its sky): the colour (a render target's: the
     // working space), premultiplied by its alpha as the context is.
-    input[KEEP] = renderer.autoClear ? 0 : 1;
+    input[KEEP] = this.near || !renderer.autoClear ? 1 : 0;
     input[MIPMAPS] = this.mipmaps;
+    input[NEAR] = this.near ? 1 : 0;
     renderer.getClearColor(this.color);
     const alpha = renderer.getClearAlpha(), pre = renderer.getContextAttributes()?.premultipliedAlpha !== false ? alpha : 1;
     input[CLEAR] = this.color.r * pre; input[CLEAR + 1] = this.color.g * pre; input[CLEAR + 2] = this.color.b * pre; input[CLEAR + 3] = alpha;
@@ -536,6 +638,19 @@ class FarPass {
         const count = Math.min(item.mesh.count, item.instances[0].max);
         input[item.countAt] = count;
         for (const i of item.instances) input.set(i.attribute.array.subarray(0, count * i.size), i.at);
+      }
+      if (item.rangeAt >= 0) {
+        // renderBufferDirect's range of an unindexed geometry.
+        const range = item.mesh.geometry.drawRange, vertices = item.mesh.geometry.attributes.position.count;
+        const start = Math.max(0, range.start), end = Math.min(vertices, range.start + range.count);
+        input[item.rangeAt] = start; input[item.rangeAt + 1] = Math.max(0, end - start);
+      }
+      if (item.refreshAt >= 0) {
+        input[item.refreshAt] = 0;
+        if (item.refresh.some((r) => r.attribute.version !== r.version)) {
+          for (const r of item.refresh) { core.farVertices.set(r.attribute.array, r.at); r.version = r.attribute.version; }
+          input[item.refreshAt] = 1;
+        }
       }
       const uniforms = item.material.uniforms;
       for (const d of item.dynamic) {
@@ -567,4 +682,17 @@ class FarPass {
 
 export function farPass(core) {
   return new FarPass(core);
+}
+
+// The far pass's items from the near scene (FarPass.drawNear), a pass of the
+// near phase (and so a mirror's) of their own.
+export function seaPass(core) {
+  const far = () => core.byName.far;
+  return {
+    name: "sea",
+    phase: "near",
+    draw: (ctx) => far().drawNear(ctx),
+    setActive: (on) => far().nearActive(on),
+    restore: () => far().nearActive(false),
+  };
 }

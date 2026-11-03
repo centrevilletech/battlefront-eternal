@@ -327,9 +327,10 @@ test("water at High and Ultra: the tint and mirror passes with their waders, the
   group.add(tintPass, mirrorPass, ...shoreMeshes);
   scene.add(group);
   scene.updateMatrixWorld(true);
+  // The tint pass's onBeforeRender copies the opaque scene (water.js captureSurface).
   const captures = [];
-  scene.userData.water = { lowPass: null, tintPass, mirrorPass, rings: null, shore: { meshes: shoreMeshes },
-    captureSurface: (renderer, cam) => { captures.push(cam); tintPass.material.uniforms.time.value = 4; } };
+  tintPass.onBeforeRender = (renderer, s, cam) => { captures.push(cam); tintPass.material.uniforms.time.value = 4; };
+  scene.userData.water = { lowPass: null, tintPass, mirrorPass, rings: null, shore: { meshes: shoreMeshes } };
   core.phase("transparent", core.renderer, scene, camera);
   assert.equal(calls.filter((c) => c[0] === "water_surface").length, 4);
   assert.equal(captures.length, 1, "the opaque scene copied once, before the list");
