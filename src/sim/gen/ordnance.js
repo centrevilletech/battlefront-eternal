@@ -12,9 +12,9 @@ export const HitPart_INDEX = new Map(HitPart_NAMES.map((name, i) => [name, i]));
 export function variantOfOrdnanceOwner(b, x) {
   if (x === null) return 0;
   if (x === "player") return 1;
+  if (b?.refs[KIND_UNIT].is(x)) return 2;
   if (b?.refs[KIND_VEHICLE].is(x)) return 3;
   if (b?.refs[KIND_OWNER_SNAPSHOT].is(x)) return 4;
-  if (x !== null && typeof x === "object") return 2;
   return -1;
 }
 
@@ -67,10 +67,10 @@ export function exportOrdnanceOwner(x, cx) {
 export function variantOfBeamSource(b, x) {
   if (x === null) return 0;
   if (x === "player") return 1;
-  if (b?.refs[KIND_EMITTER].is(x)) return 2;
+  if (b?.refs[KIND_UNIT].is(x)) return 3;
   if (b?.refs[KIND_VEHICLE].is(x)) return 4;
+  if (b?.refs[KIND_EMITTER].is(x)) return 2;
   if (b?.refs[KIND_OWNER_SNAPSHOT].is(x)) return 5;
-  if (x !== null && typeof x === "object") return 3;
   return -1;
 }
 
