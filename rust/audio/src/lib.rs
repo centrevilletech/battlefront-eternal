@@ -1,9 +1,9 @@
 //! The sound stage's worklet DSP (src/audio/worklets) in Rust: the spatial
 //! mixer, the room reverb, the front stabilizer, the master dynamics and
 //! true-peak limiter, the loudness meter and the enhanced mode's clarity
-//! stage, for `?audio=wasm`. The JavaScript stays the default; with the
-//! flag, each AudioWorkletProcessor hands its blocks to this module
-//! instead (src/audio/wasm-dsp.js and the worklets' hand-off points).
+//! stage, which the game runs: each AudioWorkletProcessor hands its blocks
+//! to this module (src/audio/wasm-dsp.js and the worklets' hand-off
+//! points); `?audio=js` keeps the worklets' JavaScript instead, as an A/B.
 //!
 //! Every answer must be the JavaScript's own to the last bit, so the game
 //! sounds exactly as it does without this module. Each processor here
