@@ -23,6 +23,7 @@
 //! (no wasm-bindgen), named as each bridge calls them.
 
 pub mod abi;
+pub mod ai;
 pub mod collision;
 pub mod combat;
 pub mod gen;
