@@ -20,7 +20,7 @@ use bfe_sim::combat::combat::{self as cb, CombatDefs, Edge, Edges};
 use bfe_sim::combat::defs::{DefTable, Js, JsObj, WeaponClass};
 use bfe_sim::combat::weapons::{Admission, Shot, ShotKind, WeaponDraws};
 use bfe_sim::combat::world::{ArcTarget, CastHit, CombatWorld, DamageInfo, Droid, LockPick, Presentation};
-use bfe_sim::gen::{Attacker, Combat, RepairTarget, Replay, Unit};
+use bfe_sim::gen::{Attacker, Combat, RepairTarget, Replay, Unit, Weapon};
 use bfe_sim::store::replay::{Arena, Value, V};
 use bfe_sim::store::StrId;
 use sim_replay::{check_num, check_vec3, diff, replay_corpus, Capture, Call, Corpus, Frame, Log, Mismatch, Outcome};
@@ -176,14 +176,9 @@ fn unit_value(cx: &mut Replay, arena: &mut Arena, id: u32, unit: &Unit) -> Value
     Unit::value_out(r, cx, arena)
 }
 
-/// P10's unit fields that are combat's (declared on the unit through
-/// paths until the flip), from combat.
+/// The unit's combat (its `combat` field), from the combat the replay runs.
 fn sync_unit(u: &mut Unit, c: &Combat) {
-    u.combat_dead = c.dead;
-    u.aim_override = c.aim_override;
-    u.mounted = c.mounted;
-    u.pivot = c.pivot;
-    u.gun_underwater = Some(c.gun_underwater);
+    u.combat = c.clone();
 }
 
 /// Compares the port's unit and combat with captured ones (`unit`,
@@ -194,11 +189,12 @@ fn compare(cx: &mut Replay, id: u32, unit: &Unit, combat: &Combat, captured: V, 
     sync_unit(&mut u, combat);
     let mine_unit = unit_value(cx, &mut arena, id, &u);
     let mine_combat = combat.to_value(cx, &mut arena);
-    let mut skip_u = vec!["$id"];
+    // (Its combat is compared on its own, below.)
+    let mut skip_u = vec!["$id", "combat"];
     skip_u.extend_from_slice(skip_unit);
     let mut theirs = Arena::default();
     let tu = without(&mut theirs, captured.get("unit"), &skip_u);
-    let tc = without(&mut theirs, captured.get("combat"), skip_combat);
+    let tc = without(&mut theirs, captured.get("unit").get("combat"), skip_combat);
     let mut mine = Arena::default();
     let mu = without(&mut mine, arena.view(&mine_unit), &skip_u);
     let mc = without(&mut mine, arena.view(&mine_combat), skip_combat);
@@ -218,10 +214,10 @@ fn read_state(capture: &Capture, content: &mut Content, cx: &mut Replay, state: 
     let r = Unit::value_in(arena.view(&uv), cx, "unit")?;
     let unit = cx.store.unit.get(r).cloned().unwrap();
     content.def(capture, cx, state.get("unit").get("classDef"), DefTable::UnitClass);
-    for w in state.get("combat").get("weapons").items() {
+    for w in state.get("unit").get("combat").get("weapons").items() {
         content.def(capture, cx, w.get("def"), DefTable::Weapon);
     }
-    let cv = renamed(&mut arena, state.get("combat"));
+    let cv = renamed(&mut arena, state.get("unit").get("combat"));
     let combat = Combat::from_value(arena.view(&cv), cx, "combat")?;
     let edge = |e: V| Edge { button: e.get("button").num(), id: e.get("id").opt_num(), late: e.get("late").opt_num(), aim_yaw: e.get("aimYaw").opt_num(), aim_pitch: e.get("aimPitch").opt_num() };
     let edges = Edges {
@@ -260,9 +256,9 @@ fn up_one_ulp(x: f64) -> f64 {
 // What each call may change of the unit (P10's names) and of combat.
 // A death unseats (src/boarding.js leaveKilled), which moves the unit's
 // hit shapes' tick on (tickCount).
-const HURT_UNIT: &[&str] = &["combatDead", "alive", "dead", "deadTime", "character", "controller", "soldier", "seat", "mounted", "aimOverride", "tickCount", "targetable"];
+const HURT_UNIT: &[&str] = &["alive", "dead", "deadTime", "character", "controller", "soldier", "seat", "tickCount", "targetable"];
 const HURT_COMBAT: &[&str] = &["health", "dead", "deathTime", "lastAttacker", "blowApart", "zoomStep", "mounted", "aimOverride"];
-const DIED_UNIT: &[&str] = &["combatDead", "alive", "dead", "deadTime", "character", "controller", "soldier", "seat", "mounted", "aimOverride", "tickCount", "targetable"];
+const DIED_UNIT: &[&str] = &["alive", "dead", "deadTime", "character", "controller", "soldier", "seat", "tickCount", "targetable"];
 const DIED_COMBAT: &[&str] = &["mounted", "aimOverride"];
 const REMOTE_UNIT: &[&str] = &["remotesActive"];
 const BODY_UNIT: &[&str] = &["soldier"];
@@ -302,7 +298,7 @@ impl<'a, 'f> World<'a, 'f> {
         }
         let mut arena = Arena::default();
         let uv = renamed(&mut arena, x.get("unit"));
-        let cv = renamed(&mut arena, x.get("combat"));
+        let cv = renamed(&mut arena, x.get("unit").get("combat"));
         let captured_unit = match Unit::value_in(arena.view(&uv), self.cx, "after") {
             Ok(r) => self.cx.store.unit.get(r).cloned().unwrap(),
             Err(e) => return self.fail(format!("{}: {e}", call.name)),
@@ -313,7 +309,6 @@ impl<'a, 'f> World<'a, 'f> {
         };
         for key in unit_keys {
             match *key {
-                "combatDead" => unit.combat_dead = captured_unit.combat_dead,
                 "alive" => unit.alive = captured_unit.alive,
                 "dead" => unit.dead = captured_unit.dead,
                 "deadTime" => unit.dead_time = captured_unit.dead_time,
@@ -321,8 +316,6 @@ impl<'a, 'f> World<'a, 'f> {
                 "controller" => unit.controller = captured_unit.controller,
                 "soldier" => unit.soldier = captured_unit.soldier.clone(),
                 "seat" => unit.seat = captured_unit.seat,
-                "mounted" => unit.mounted = captured_unit.mounted,
-                "aimOverride" => unit.aim_override = captured_unit.aim_override,
                 "remotesActive" => unit.remotes_active = captured_unit.remotes_active,
                 "tickCount" => unit.tick_count = captured_unit.tick_count,
                 "targetable" => unit.targetable = captured_unit.targetable,
@@ -484,7 +477,7 @@ impl CombatWorld for World<'_, '_> {
         self.after(call, unit, combat, REMOTE_UNIT, &[]);
     }
 
-    fn lock_on(&mut self, eye: &Vector3, dir: &Vector3, _weapon: u32, current: Option<RepairTarget>, held: bool, team: f64) -> Option<RepairTarget> {
+    fn lock_on(&mut self, eye: &Vector3, dir: &Vector3, _weapon: u32, _tool: &Weapon, current: Option<RepairTarget>, held: bool, team: f64) -> Option<RepairTarget> {
         let call = self.call("world.lockOn")?;
         let r = check_vec3("lockOn eye", call.arg(0), arr(eye))
             .and_then(|_| check_vec3("lockOn dir", call.arg(1), arr(dir)))
@@ -529,7 +522,7 @@ impl CombatWorld for World<'_, '_> {
         call.result().truthy()
     }
 
-    fn lock_pick(&mut self, _weapon: u32, origin: &Vector3, dir: &Vector3) -> LockPick {
+    fn lock_pick(&mut self, _weapon: u32, _launcher: &Weapon, origin: &Vector3, dir: &Vector3) -> LockPick {
         let Some(call) = self.call("world.lockPick") else { return LockPick::None };
         let r = check_vec3("lockPick origin", call.arg(1), arr(origin)).and_then(|_| check_vec3("lockPick dir", call.arg(2), arr(dir)));
         self.check(r);
@@ -709,7 +702,7 @@ impl CombatWorld for World<'_, '_> {
         vec3(call.result())
     }
 
-    fn shield_hit(&mut self, taken: f64, _source: Option<Vector3>, _explosion: bool) {
+    fn shield_hit(&mut self, taken: f64, _left: f64, _source: Option<Vector3>, _explosion: bool) {
         let Some(call) = self.call("units.shieldHit") else { return };
         self.check(check_num("shieldHit amount", call.arg(1), taken));
     }

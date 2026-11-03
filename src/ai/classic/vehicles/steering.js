@@ -1,7 +1,6 @@
-import { pilotInput } from '../../../flight/ai.js';
 import * as THREE from "three";
-import { switchWeapon } from "../weapons-ai.js";
 import { orbitResult, orbitSteer } from "./orbit.js";
+import { port } from "./world.js";
 
 // The AI input step for a bot in a seat: the controller's movement request
 // and aim become the vehicle's analogs, as the 2004 game's per-family AI
@@ -484,7 +483,7 @@ export function orbitInput(unit) {
       const controller = control?.controller;
       const weapons = control?.combat?.arsenal?.weapons;
       const tow = weapons ? weapons.findIndex((w) => w.def?.base === "towcableweapon") : -1;
-      if (tow >= 0 && controller && controller.perception?.fire?.channel !== weapons[tow].channel) switchWeapon(controller, control, tow);
+      if (tow >= 0 && controller && controller.perception?.fire?.channel !== weapons[tow].channel) port.switchWeapon(controller, control, tow);
     }
   }
   const r = orbitRequest;
@@ -511,7 +510,7 @@ export function seatAnalogs(unit, request, aim, dt, out, env) {
       hoverInput(unit, request, aim, dt, env, full);
       break;
     case 5:
-      pilotInput(unit, orbitInput(unit) ?? request, aim, dt, env, full);
+      port.pilotInput(unit, orbitInput(unit) ?? request, aim, dt, env, full);
       break;
     case 2:
       walkerInput(unit, request, aim, dt, env, full);

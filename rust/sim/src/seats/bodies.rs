@@ -49,10 +49,10 @@ pub fn soldier(u: &Unit) -> Option<&Soldier> {
 /// foot: no sight target, mounted, not zoomed, not in the air, at rest.
 pub fn seat_body(u: &mut Unit, combat: &mut CombatFlags) {
     u.targetable = Some(false);
-    u.mounted = Some(true);
+    u.combat.mounted = Some(true);
     combat.unzoom();
-    u.gun_underwater = Some(false);
-    u.aim_override = Nullable::Null;
+    u.combat.gun_underwater = false;
+    u.combat.aim_override = Nullable::Null;
     if let Some(s) = soldier_mut(u) {
         s.air = None;
         s.velocity = [0.0, 0.0, 0.0];
@@ -64,8 +64,8 @@ pub fn seat_body(u: &mut Unit, combat: &mut CombatFlags) {
 /// pitch range lets him.
 pub fn unseat_body(u: &mut Unit, combat: &mut CombatFlags) {
     u.targetable = Some(true);
-    u.mounted = Some(false);
-    u.aim_override = Nullable::Null;
+    u.combat.mounted = Some(false);
+    u.combat.aim_override = Nullable::Null;
     combat.unzoom();
     if let Some(s) = soldier_mut(u) {
         s.velocity = [0.0, 0.0, 0.0];

@@ -33,6 +33,7 @@
 import * as THREE from 'three';
 import { units } from './units.mjs';
 import { seats } from './seats.mjs';
+import { vehicleAI } from './vehicle-ai.mjs';
 import { combat } from './combat.mjs';
 import { flightSpec } from './flight.mjs';
 
@@ -320,4 +321,7 @@ const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseSta
 // (tools/sim-capture/seats.mjs).
 // The combat package (flip F3 with units): a soldier's combat, what hurts
 // him and his new lives (tools/sim-capture/combat.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, seats };
+// The AI in vehicles (P14): the vehicle service's calls, the seats'
+// steering, the vehicle patterns, the notifier and decay, and the boarding
+// and flyer agents (tools/sim-capture/vehicle-ai.mjs).
+export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, seats, vehicleAI };

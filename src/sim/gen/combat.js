@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { KIND_BUILDING, KIND_OWNER_SNAPSHOT, KIND_TURRET, KIND_UNIT, KIND_VEHICLE } from "./kinds.js";
+import { Air_INDEX, Air_NAMES, ControlsMirror, IntentMirror, exportControls, exportIntent, exportUnitBody, putControls, putIntent, putUnitBody, sameControls, sameIntent, sameUnitBody, syncControls, syncIntent, syncUnitBody } from "./units.js";
 
 export function variantOfAttacker(b, x) {
   if (x === undefined) return 0;
@@ -114,40 +115,6 @@ export function exportRepairTarget(x, cx) {
   }
 }
 
-export class SeededDrawsMirror {
-  constructor() {
-    this.seed = NaN;
-    this.count = NaN;
-  }
-}
-
-export function syncSeededDraws(b, f, at, h, m) {
-  m.seed = f[at + 0];
-  m.count = f[at + 1];
-  return m;
-}
-
-export function putSeededDraws(b, o, f, at, heap) {
-  f[at + 0] = o.seed;
-  f[at + 1] = o.count;
-}
-
-export function sameSeededDraws(a, b) {
-  if (!Object.is(a.seed, b.seed)) return ".seed";
-  if (!Object.is(a.count, b.count)) return ".count";
-  return null;
-}
-
-export function exportSeededDraws(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.seed = o.seed;
-  v.count = o.count;
-  return v;
-}
-
 export class MeleeMirror {
   constructor() {
     this.time = NaN;
@@ -219,7 +186,8 @@ export class WeaponMirror {
     this.pattern = NaN;
     this.salvosLeft = NaN;
     this.salvoWait = NaN;
-    this.salvoRandom = null;
+    this.salvoSeed = null;
+    this.salvoCount = NaN;
     this.lockTargetId = NaN;
     this.lockGeneration = NaN;
     this.lockElapsed = NaN;
@@ -229,9 +197,9 @@ export class WeaponMirror {
 }
 
 export function syncWeapon(b, f, at, h, m) {
-  m.def = b.defs.weapon.at(f[at + 0]);
+  (m.levels ??= [])[0] = b.defs.weapon.at(f[at + 0]);
   m.level = f[at + 1];
-  m.admitShot = f[at + 2] !== 0;
+  m.admits = f[at + 2] !== 0;
   m.deployed = f[at + 3] !== 0;
   m.firing = f[at + 4] !== 0;
   m.timer = f[at + 5];
@@ -243,7 +211,7 @@ export function syncWeapon(b, f, at, h, m) {
   m.overheated = f[at + 11] !== 0;
   m.floor = f[at + 12];
   m.kick = f[at + 13];
-  m.random = f[at + 14] !== 0;
+  m.hasRandom = f[at + 14] !== 0;
   m.spreadScale = f[at + 15];
   m.sniperScale = f[at + 16];
   { const tag = f[at + 17]; if (tag === 0) { m.yawSpreadOverride = f[at + 18]; } else m.yawSpreadOverride = tag === 1 ? null : undefined; }
@@ -259,7 +227,8 @@ export function syncWeapon(b, f, at, h, m) {
   m.pattern = f[at + 28];
   m.salvosLeft = f[at + 29];
   m.salvoWait = f[at + 30];
-  { const tag = f[at + 31]; if (tag === 0) { m.salvoRandom = syncSeededDraws(b, f, at + 32, h, m.salvoRandom ?? new SeededDrawsMirror()); } else m.salvoRandom = tag === 1 ? null : undefined; }
+  { const tag = f[at + 31]; if (tag === 0) { m.salvoSeed = f[at + 32]; } else m.salvoSeed = tag === 1 ? null : undefined; }
+  m.salvoCount = f[at + 33];
   m.lockTargetId = f[at + 34];
   m.lockGeneration = f[at + 35];
   m.lockElapsed = f[at + 36];
@@ -269,9 +238,9 @@ export function syncWeapon(b, f, at, h, m) {
 }
 
 export function putWeapon(b, o, f, at, heap) {
-  f[at + 0] = b.defs.weapon.id(o.def);
+  f[at + 0] = b.defs.weapon.id(o.levels?.[0]);
   f[at + 1] = o.level;
-  f[at + 2] = o.admitShot ? 1 : 0;
+  f[at + 2] = o.admits ? 1 : 0;
   f[at + 3] = o.deployed ? 1 : 0;
   f[at + 4] = o.firing ? 1 : 0;
   f[at + 5] = o.timer;
@@ -283,7 +252,7 @@ export function putWeapon(b, o, f, at, heap) {
   f[at + 11] = o.overheated ? 1 : 0;
   f[at + 12] = o.floor;
   f[at + 13] = o.kick;
-  f[at + 14] = o.random ? 1 : 0;
+  f[at + 14] = o.hasRandom ? 1 : 0;
   f[at + 15] = o.spreadScale;
   f[at + 16] = o.sniperScale;
   { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 17] = $x === null ? 1 : 2; f[at + 18] = 0; } else { f[at + 17] = 0; f[at + 18] = $x; } }
@@ -299,7 +268,8 @@ export function putWeapon(b, o, f, at, heap) {
   f[at + 28] = o.pattern;
   f[at + 29] = o.salvosLeft;
   f[at + 30] = o.salvoWait;
-  { const $x = o.salvoRandom; if ($x === null || $x === undefined) { f[at + 31] = $x === null ? 1 : 2; f[at + 32] = 0; f[at + 33] = 0; } else { f[at + 31] = 0; putSeededDraws(b, $x, f, at + 32, heap); } }
+  { const $x = o.salvoSeed; if ($x === null || $x === undefined) { f[at + 31] = $x === null ? 1 : 2; f[at + 32] = 0; } else { f[at + 31] = 0; f[at + 32] = $x; } }
+  f[at + 33] = o.salvoCount;
   f[at + 34] = o.lockTargetId;
   f[at + 35] = o.lockGeneration;
   f[at + 36] = o.lockElapsed;
@@ -308,9 +278,9 @@ export function putWeapon(b, o, f, at, heap) {
 }
 
 export function sameWeapon(a, b) {
-  if (!Object.is(a.def, b.def)) return ".def";
+  if (!Object.is(a.levels?.[0], b.levels?.[0])) return ".def";
   if (!Object.is(a.level, b.level)) return ".level";
-  if (!Object.is(a.admitShot, b.admitShot)) return ".admitShot";
+  if (!Object.is(a.admits, b.admits)) return ".admitShot";
   if (!Object.is(a.deployed, b.deployed)) return ".deployed";
   if (!Object.is(a.firing, b.firing)) return ".firing";
   if (!Object.is(a.timer, b.timer)) return ".timer";
@@ -322,7 +292,7 @@ export function sameWeapon(a, b) {
   if (!Object.is(a.overheated, b.overheated)) return ".overheated";
   if (!Object.is(a.floor, b.floor)) return ".floor";
   if (!Object.is(a.kick, b.kick)) return ".kick";
-  if (!Object.is(a.random, b.random)) return ".random";
+  if (!Object.is(a.hasRandom, b.hasRandom)) return ".random";
   if (!Object.is(a.spreadScale, b.spreadScale)) return ".spreadScale";
   if (!Object.is(a.sniperScale, b.sniperScale)) return ".sniperScale";
   { const p = a.yawSpreadOverride, q = b.yawSpreadOverride; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".yawSpreadOverride"; } else { if (!Object.is(p, q)) return ".yawSpreadOverride"; } }
@@ -338,7 +308,8 @@ export function sameWeapon(a, b) {
   if (!Object.is(a.pattern, b.pattern)) return ".pattern";
   if (!Object.is(a.salvosLeft, b.salvosLeft)) return ".salvosLeft";
   if (!Object.is(a.salvoWait, b.salvoWait)) return ".salvoWait";
-  { const p = a.salvoRandom, q = b.salvoRandom; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".salvoRandom"; } else { { const d = sameSeededDraws(p, q); if (d) return ".salvoRandom" + d; } } }
+  { const p = a.salvoSeed, q = b.salvoSeed; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".salvoSeed"; } else { if (!Object.is(p, q)) return ".salvoSeed"; } }
+  if (!Object.is(a.salvoCount, b.salvoCount)) return ".salvoCount";
   if (!Object.is(a.lockTargetId, b.lockTargetId)) return ".lockTargetId";
   if (!Object.is(a.lockGeneration, b.lockGeneration)) return ".lockGeneration";
   if (!Object.is(a.lockElapsed, b.lockElapsed)) return ".lockElapsed";
@@ -352,9 +323,9 @@ export function exportWeapon(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.def = cx.def("weapon", o.def);
+  v.def = cx.def("weapon", o.levels?.[0]);
   v.level = o.level;
-  v.admitShot = o.admitShot;
+  v.admitShot = o.admits;
   v.deployed = o.deployed;
   v.firing = o.firing;
   v.timer = o.timer;
@@ -366,7 +337,7 @@ export function exportWeapon(o, cx) {
   v.overheated = o.overheated;
   v.floor = o.floor;
   v.kick = o.kick;
-  v.random = o.random;
+  v.random = o.hasRandom;
   v.spreadScale = o.spreadScale;
   v.sniperScale = o.sniperScale;
   v.yawSpreadOverride = o.yawSpreadOverride;
@@ -382,7 +353,8 @@ export function exportWeapon(o, cx) {
   v.pattern = o.pattern;
   v.salvosLeft = o.salvosLeft;
   v.salvoWait = o.salvoWait;
-  v.salvoRandom = ((x) => (x === null || x === undefined ? x : exportSeededDraws(x, cx)))(o.salvoRandom);
+  v.salvoSeed = o.salvoSeed;
+  v.salvoCount = o.salvoCount;
   v.lockTargetId = o.lockTargetId;
   v.lockGeneration = o.lockGeneration;
   v.lockElapsed = o.lockElapsed;
@@ -656,12 +628,12 @@ export function syncCombat(b, f, at, h, m) {
   { const tag = f[at + 28]; if (tag === 0) { m.mounted = f[at + 29] !== 0; } else m.mounted = tag === 1 ? null : undefined; }
   m.gunUnderwater = f[at + 30] !== 0;
   m.deferMuzzles = f[at + 31] !== 0;
-  { const items = (m.pendingMuzzles ??= []), start = h + f[at + 32], n = f[at + 33]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncPendingShot(b, f, at + 0, h, v ?? new PendingShotMirror()); } items[i] = v; } }
-  m.random = f[at + 34] !== 0;
+  { const items = (m.pendingShots ??= []), start = h + f[at + 32], n = f[at + 33]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncPendingShot(b, f, at + 0, h, v ?? new PendingShotMirror()); } items[i] = v; } }
+  m.hasRandom = f[at + 34] !== 0;
   m.hasRemotes = f[at + 35] !== 0;
-  { const items = (m.weapons ??= []), start = h + f[at + 36], n = f[at + 37]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 42; v = syncWeapon(b, f, at + 0, h, v ?? new WeaponMirror()); } items[i] = v; } }
-  { const a = (m.selected ??= new Array(2)); a[0] = f[at + 38]; a[1] = f[at + 39]; }
-  { const items = (m.seen ??= []), start = h + f[at + 40], n = f[at + 41]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncSeen(b, f, at + 0, h, v ?? new SeenMirror()); } items[i] = v; } }
+  { const items = ((m.arsenal ??= {}).weapons ??= []), start = h + f[at + 36], n = f[at + 37]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 42; v = syncWeapon(b, f, at + 0, h, v ?? new WeaponMirror()); } items[i] = v; } }
+  { const a = ((m.arsenal ??= {}).selected ??= new Array(2)); a[0] = f[at + 38]; a[1] = f[at + 39]; }
+  { const items = (m.seenList ??= []), start = h + f[at + 40], n = f[at + 41]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncSeen(b, f, at + 0, h, v ?? new SeenMirror()); } items[i] = v; } }
   (m.origin ??= new THREE.Vector3()).set(f[at + 42], f[at + 43], f[at + 44]);
   (m.target ??= new THREE.Vector3()).set(f[at + 45], f[at + 46], f[at + 47]);
   (m.aimDir ??= new THREE.Vector3()).set(f[at + 48], f[at + 49], f[at + 50]);
@@ -693,12 +665,12 @@ export function putCombat(b, o, f, at, heap) {
   { const $x = o.mounted; if ($x === null || $x === undefined) { f[at + 28] = $x === null ? 1 : 2; f[at + 29] = 0; } else { f[at + 28] = 0; f[at + 29] = $x ? 1 : 0; } }
   f[at + 30] = o.gunUnderwater ? 1 : 0;
   f[at + 31] = o.deferMuzzles ? 1 : 0;
-  heap.items(o.pendingMuzzles, f, at + 32, 15, (f, at, v) => { putPendingShot(b, v, f, at + 0, heap); });
-  f[at + 34] = o.random ? 1 : 0;
+  heap.items(o.pendingShots, f, at + 32, 15, (f, at, v) => { putPendingShot(b, v, f, at + 0, heap); });
+  f[at + 34] = o.hasRandom ? 1 : 0;
   f[at + 35] = o.hasRemotes ? 1 : 0;
-  heap.items(o.weapons, f, at + 36, 42, (f, at, v) => { putWeapon(b, v, f, at + 0, heap); });
-  { const $v = o.selected; f[at + 38] = $v[0]; f[at + 39] = $v[1]; }
-  heap.items(o.seen, f, at + 40, 3, (f, at, v) => { putSeen(b, v, f, at + 0, heap); });
+  heap.items(o.arsenal?.weapons, f, at + 36, 42, (f, at, v) => { putWeapon(b, v, f, at + 0, heap); });
+  { const $v = o.arsenal?.selected; f[at + 38] = $v[0]; f[at + 39] = $v[1]; }
+  heap.items(o.seenList, f, at + 40, 3, (f, at, v) => { putSeen(b, v, f, at + 0, heap); });
   { const $v = o.origin; f[at + 42] = $v.x; f[at + 43] = $v.y; f[at + 44] = $v.z; }
   { const $v = o.target; f[at + 45] = $v.x; f[at + 46] = $v.y; f[at + 47] = $v.z; }
   { const $v = o.aimDir; f[at + 48] = $v.x; f[at + 49] = $v.y; f[at + 50] = $v.z; }
@@ -729,12 +701,12 @@ export function sameCombat(a, b) {
   { const p = a.mounted, q = b.mounted; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".mounted"; } else { if (!Object.is(p, q)) return ".mounted"; } }
   if (!Object.is(a.gunUnderwater, b.gunUnderwater)) return ".gunUnderwater";
   if (!Object.is(a.deferMuzzles, b.deferMuzzles)) return ".deferMuzzles";
-  if (!sameEach(a.pendingMuzzles, b.pendingMuzzles, (x, y) => samePendingShot(x, y) === null)) return ".pendingMuzzles";
-  if (!Object.is(a.random, b.random)) return ".random";
+  if (!sameEach(a.pendingShots, b.pendingShots, (x, y) => samePendingShot(x, y) === null)) return ".pendingMuzzles";
+  if (!Object.is(a.hasRandom, b.hasRandom)) return ".random";
   if (!Object.is(a.hasRemotes, b.hasRemotes)) return ".hasRemotes";
-  if (!sameEach(a.weapons, b.weapons, (x, y) => sameWeapon(x, y) === null)) return ".weapons";
-  if (!sameArray(a.selected, b.selected, 2)) return ".selected";
-  if (!sameEach(a.seen, b.seen, (x, y) => sameSeen(x, y) === null)) return ".seen";
+  if (!sameEach(a.arsenal?.weapons, b.arsenal?.weapons, (x, y) => sameWeapon(x, y) === null)) return ".weapons";
+  if (!sameArray(a.arsenal?.selected, b.arsenal?.selected, 2)) return ".selected";
+  if (!sameEach(a.seenList, b.seenList, (x, y) => sameSeen(x, y) === null)) return ".seen";
   if (!sameVec(a.origin, b.origin)) return ".origin";
   if (!sameVec(a.target, b.target)) return ".target";
   if (!sameVec(a.aimDir, b.aimDir)) return ".aimDir";
@@ -770,12 +742,12 @@ export function exportCombat(o, cx) {
   v.mounted = o.mounted;
   v.gunUnderwater = o.gunUnderwater;
   v.deferMuzzles = o.deferMuzzles;
-  v.pendingMuzzles = o.pendingMuzzles.map((x) => exportPendingShot(x, cx));
-  v.random = o.random;
+  v.pendingMuzzles = o.pendingShots.map((x) => exportPendingShot(x, cx));
+  v.random = o.hasRandom;
   v.hasRemotes = o.hasRemotes;
-  v.weapons = o.weapons.map((x) => exportWeapon(x, cx));
-  v.selected = [...o.selected];
-  v.seen = o.seen.map((x) => exportSeen(x, cx));
+  v.weapons = o.arsenal?.weapons.map((x) => exportWeapon(x, cx));
+  v.selected = [...o.arsenal?.selected];
+  v.seen = o.seenList.map((x) => exportSeen(x, cx));
   v.origin = o.origin.clone();
   v.target = o.target.clone();
   v.aimDir = o.aimDir.clone();
@@ -783,5 +755,1788 @@ export function exportCombat(o, cx) {
   v.left = o.left.clone();
   v.up = o.up.clone();
   v.pivot = o.pivot.clone();
+  return v;
+}
+
+export class CbEdgeMirror {
+  constructor() {
+    this.button = NaN;
+    this.id = undefined;
+    this.late = undefined;
+    this.aimYaw = undefined;
+    this.aimPitch = undefined;
+  }
+}
+
+export function syncCbEdge(b, f, at, h, m) {
+  m.button = f[at + 0];
+  { const tag = f[at + 1]; if (tag === 0) { m.id = f[at + 2]; } else m.id = tag === 1 ? null : undefined; }
+  { const tag = f[at + 3]; if (tag === 0) { m.late = f[at + 4]; } else m.late = tag === 1 ? null : undefined; }
+  { const tag = f[at + 5]; if (tag === 0) { m.aimYaw = f[at + 6]; } else m.aimYaw = tag === 1 ? null : undefined; }
+  { const tag = f[at + 7]; if (tag === 0) { m.aimPitch = f[at + 8]; } else m.aimPitch = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putCbEdge(b, o, f, at, heap) {
+  f[at + 0] = o.button;
+  { const $x = o.id; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; } else { f[at + 1] = 0; f[at + 2] = $x; } }
+  { const $x = o.late; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; } else { f[at + 3] = 0; f[at + 4] = $x; } }
+  { const $x = o.aimYaw; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f[at + 6] = 0; } else { f[at + 5] = 0; f[at + 6] = $x; } }
+  { const $x = o.aimPitch; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = $x; } }
+}
+
+export function sameCbEdge(a, b) {
+  if (!Object.is(a.button, b.button)) return ".button";
+  { const p = a.id, q = b.id; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".id"; } else { if (!Object.is(p, q)) return ".id"; } }
+  { const p = a.late, q = b.late; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".late"; } else { if (!Object.is(p, q)) return ".late"; } }
+  { const p = a.aimYaw, q = b.aimYaw; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".aimYaw"; } else { if (!Object.is(p, q)) return ".aimYaw"; } }
+  { const p = a.aimPitch, q = b.aimPitch; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".aimPitch"; } else { if (!Object.is(p, q)) return ".aimPitch"; } }
+  return null;
+}
+
+export function exportCbEdge(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.button = o.button;
+  v.id = o.id;
+  v.late = o.late;
+  v.aimYaw = o.aimYaw;
+  v.aimPitch = o.aimPitch;
+  return v;
+}
+
+export class CbWeaponInMirror {
+  constructor() {
+    this.random = false;
+    this.spreadScale = NaN;
+    this.yawSpreadOverride = null;
+  }
+}
+
+export function syncCbWeaponIn(b, f, at, h, m) {
+  m.random = f[at + 0] !== 0;
+  m.spreadScale = f[at + 1];
+  { const tag = f[at + 2]; if (tag === 0) { m.yawSpreadOverride = f[at + 3]; } else m.yawSpreadOverride = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putCbWeaponIn(b, o, f, at, heap) {
+  f[at + 0] = o.random ? 1 : 0;
+  f[at + 1] = o.spreadScale;
+  { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = $x; } }
+}
+
+export function sameCbWeaponIn(a, b) {
+  if (!Object.is(a.random, b.random)) return ".random";
+  if (!Object.is(a.spreadScale, b.spreadScale)) return ".spreadScale";
+  { const p = a.yawSpreadOverride, q = b.yawSpreadOverride; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".yawSpreadOverride"; } else { if (!Object.is(p, q)) return ".yawSpreadOverride"; } }
+  return null;
+}
+
+export function exportCbWeaponIn(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.random = o.random;
+  v.spreadScale = o.spreadScale;
+  v.yawSpreadOverride = o.yawSpreadOverride;
+  return v;
+}
+
+export class CbInMirror {
+  constructor() {
+    this.unit = NaN;
+    this.generation = NaN;
+    this.classDef = null;
+    this.networkHuman = undefined;
+    this.seated = false;
+    this.remotesActive = undefined;
+    this.intent = new IntentMirror();
+    this.controls = new ControlsMirror();
+    this.soldier = null;
+    this.edges = null;
+    this.edge = null;
+    this.aimOverride = null;
+    this.mounted = undefined;
+    this.gunUnderwater = false;
+    this.team = NaN;
+    this.player = false;
+    this.deferMuzzles = false;
+    this.random = false;
+    this.hasRemotes = false;
+    this.weapons = [];
+  }
+}
+
+export function syncCbIn(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.generation = f[at + 1];
+  m.classDef = b.defs.unitClass.at(f[at + 2]);
+  { const tag = f[at + 3]; if (tag === 0) { m.networkHuman = f[at + 4] !== 0; } else m.networkHuman = tag === 1 ? null : undefined; }
+  m.seated = f[at + 5] !== 0;
+  { const tag = f[at + 6]; if (tag === 0) { m.remotesActive = f[at + 7] !== 0; } else m.remotesActive = tag === 1 ? null : undefined; }
+  m.intent = syncIntent(b, f, at + 8, h, m.intent ?? new IntentMirror());
+  m.controls = syncControls(b, f, at + 38, h, m.controls ?? new ControlsMirror());
+  m.soldier = syncUnitBody(b, f, at + 42, h, m.soldier);
+  { const tag = f[at + 120]; if (tag === 0) { { const items = (m.edges ??= []), start = h + f[at + 121], n = f[at + 122]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncCbEdge(b, f, at + 0, h, v ?? new CbEdgeMirror()); } items[i] = v; } } } else m.edges = tag === 1 ? null : undefined; }
+  { const tag = f[at + 123]; if (tag === 0) { m.edge = syncCbEdge(b, f, at + 124, h, m.edge ?? new CbEdgeMirror()); } else m.edge = tag === 1 ? null : undefined; }
+  { const tag = f[at + 133]; if (tag === 0) { (m.aimOverride ??= new THREE.Vector3()).set(f[at + 134], f[at + 135], f[at + 136]); } else m.aimOverride = tag === 1 ? null : undefined; }
+  { const tag = f[at + 137]; if (tag === 0) { m.mounted = f[at + 138] !== 0; } else m.mounted = tag === 1 ? null : undefined; }
+  m.gunUnderwater = f[at + 139] !== 0;
+  m.team = f[at + 140];
+  m.player = f[at + 141] !== 0;
+  m.deferMuzzles = f[at + 142] !== 0;
+  m.random = f[at + 143] !== 0;
+  m.hasRemotes = f[at + 144] !== 0;
+  { const items = (m.weapons ??= []), start = h + f[at + 145], n = f[at + 146]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncCbWeaponIn(b, f, at + 0, h, v ?? new CbWeaponInMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putCbIn(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.generation;
+  f[at + 2] = b.defs.unitClass.id(o.classDef);
+  { const $x = o.networkHuman; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; } else { f[at + 3] = 0; f[at + 4] = $x ? 1 : 0; } }
+  f[at + 5] = o.seated ? 1 : 0;
+  { const $x = o.remotesActive; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = $x ? 1 : 0; } }
+  putIntent(b, o.intent, f, at + 8, heap);
+  putControls(b, o.controls, f, at + 38, heap);
+  putUnitBody(b, o.soldier, f, at + 42, heap);
+  { const $x = o.edges; if ($x === null || $x === undefined) { f[at + 120] = $x === null ? 1 : 2; f[at + 121] = 0; f[at + 122] = 0; } else { f[at + 120] = 0; heap.items($x, f, at + 121, 9, (f, at, v) => { putCbEdge(b, v, f, at + 0, heap); }); } }
+  { const $x = o.edge; if ($x === null || $x === undefined) { f[at + 123] = $x === null ? 1 : 2; f.fill(0, at + 124, at + 133); } else { f[at + 123] = 0; putCbEdge(b, $x, f, at + 124, heap); } }
+  { const $x = o.aimOverride; if ($x === null || $x === undefined) { f[at + 133] = $x === null ? 1 : 2; f[at + 134] = 0; f[at + 135] = 0; f[at + 136] = 0; } else { f[at + 133] = 0; { const $v = $x; f[at + 134] = $v.x; f[at + 135] = $v.y; f[at + 136] = $v.z; } } }
+  { const $x = o.mounted; if ($x === null || $x === undefined) { f[at + 137] = $x === null ? 1 : 2; f[at + 138] = 0; } else { f[at + 137] = 0; f[at + 138] = $x ? 1 : 0; } }
+  f[at + 139] = o.gunUnderwater ? 1 : 0;
+  f[at + 140] = o.team;
+  f[at + 141] = o.player ? 1 : 0;
+  f[at + 142] = o.deferMuzzles ? 1 : 0;
+  f[at + 143] = o.random ? 1 : 0;
+  f[at + 144] = o.hasRemotes ? 1 : 0;
+  heap.items(o.weapons, f, at + 145, 4, (f, at, v) => { putCbWeaponIn(b, v, f, at + 0, heap); });
+}
+
+export function sameCbIn(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.generation, b.generation)) return ".generation";
+  if (!Object.is(a.classDef, b.classDef)) return ".classDef";
+  { const p = a.networkHuman, q = b.networkHuman; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".networkHuman"; } else { if (!Object.is(p, q)) return ".networkHuman"; } }
+  if (!Object.is(a.seated, b.seated)) return ".seated";
+  { const p = a.remotesActive, q = b.remotesActive; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".remotesActive"; } else { if (!Object.is(p, q)) return ".remotesActive"; } }
+  { const d = sameIntent(a.intent, b.intent); if (d) return ".intent" + d; }
+  { const d = sameControls(a.controls, b.controls); if (d) return ".controls" + d; }
+  if (!sameUnitBody(a.soldier, b.soldier)) return ".soldier";
+  { const p = a.edges, q = b.edges; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".edges"; } else { if (!sameEach(p, q, (x, y) => sameCbEdge(x, y) === null)) return ".edges"; } }
+  { const p = a.edge, q = b.edge; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".edge"; } else { { const d = sameCbEdge(p, q); if (d) return ".edge" + d; } } }
+  { const p = a.aimOverride, q = b.aimOverride; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".aimOverride"; } else { if (!sameVec(p, q)) return ".aimOverride"; } }
+  { const p = a.mounted, q = b.mounted; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".mounted"; } else { if (!Object.is(p, q)) return ".mounted"; } }
+  if (!Object.is(a.gunUnderwater, b.gunUnderwater)) return ".gunUnderwater";
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.player, b.player)) return ".player";
+  if (!Object.is(a.deferMuzzles, b.deferMuzzles)) return ".deferMuzzles";
+  if (!Object.is(a.random, b.random)) return ".random";
+  if (!Object.is(a.hasRemotes, b.hasRemotes)) return ".hasRemotes";
+  if (!sameEach(a.weapons, b.weapons, (x, y) => sameCbWeaponIn(x, y) === null)) return ".weapons";
+  return null;
+}
+
+export function exportCbIn(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.generation = o.generation;
+  v.classDef = cx.def("unitClass", o.classDef);
+  v.networkHuman = o.networkHuman;
+  v.seated = o.seated;
+  v.remotesActive = o.remotesActive;
+  v.intent = exportIntent(o.intent, cx);
+  v.controls = exportControls(o.controls, cx);
+  v.soldier = exportUnitBody(o.soldier, cx);
+  v.edges = ((x) => (x === null || x === undefined ? x : x.map((x) => exportCbEdge(x, cx))))(o.edges);
+  v.edge = ((x) => (x === null || x === undefined ? x : exportCbEdge(x, cx)))(o.edge);
+  v.aimOverride = ((x) => (x === null || x === undefined ? x : x.clone()))(o.aimOverride);
+  v.mounted = o.mounted;
+  v.gunUnderwater = o.gunUnderwater;
+  v.team = o.team;
+  v.player = o.player;
+  v.deferMuzzles = o.deferMuzzles;
+  v.random = o.random;
+  v.hasRemotes = o.hasRemotes;
+  v.weapons = o.weapons.map((x) => exportCbWeaponIn(x, cx));
+  return v;
+}
+
+export class CbDamageInMirror {
+  constructor() {
+    this.in = new CbInMirror();
+    this.amount = NaN;
+    this.onShield = NaN;
+    this.source = null;
+    this.attacker = null;
+    this.explosion = false;
+  }
+}
+
+export function syncCbDamageIn(b, f, at, h, m) {
+  m.in = syncCbIn(b, f, at + 0, h, m.in ?? new CbInMirror());
+  m.amount = f[at + 147];
+  m.onShield = f[at + 148];
+  { const tag = f[at + 149]; if (tag === 0) { (m.source ??= new THREE.Vector3()).set(f[at + 150], f[at + 151], f[at + 152]); } else m.source = tag === 1 ? null : undefined; }
+  m.attacker = syncAttacker(b, f, at + 153, h, m.attacker);
+  m.explosion = f[at + 156] !== 0;
+  return m;
+}
+
+export function putCbDamageIn(b, o, f, at, heap) {
+  putCbIn(b, o.in, f, at + 0, heap);
+  f[at + 147] = o.amount;
+  f[at + 148] = o.onShield;
+  { const $x = o.source; if ($x === null || $x === undefined) { f[at + 149] = $x === null ? 1 : 2; f[at + 150] = 0; f[at + 151] = 0; f[at + 152] = 0; } else { f[at + 149] = 0; { const $v = $x; f[at + 150] = $v.x; f[at + 151] = $v.y; f[at + 152] = $v.z; } } }
+  putAttacker(b, o.attacker, f, at + 153, heap);
+  f[at + 156] = o.explosion ? 1 : 0;
+}
+
+export function sameCbDamageIn(a, b) {
+  { const d = sameCbIn(a.in, b.in); if (d) return ".in" + d; }
+  if (!Object.is(a.amount, b.amount)) return ".amount";
+  if (!Object.is(a.onShield, b.onShield)) return ".onShield";
+  { const p = a.source, q = b.source; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".source"; } else { if (!sameVec(p, q)) return ".source"; } }
+  if (!sameAttacker(a.attacker, b.attacker)) return ".attacker";
+  if (!Object.is(a.explosion, b.explosion)) return ".explosion";
+  return null;
+}
+
+export function exportCbDamageIn(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.in = exportCbIn(o.in, cx);
+  v.amount = o.amount;
+  v.onShield = o.onShield;
+  v.source = ((x) => (x === null || x === undefined ? x : x.clone()))(o.source);
+  v.attacker = exportAttacker(o.attacker, cx);
+  v.explosion = o.explosion;
+  return v;
+}
+
+export class CbExplodeInMirror {
+  constructor() {
+    this.in = new CbInMirror();
+    this.explosion = NaN;
+    this.position = new THREE.Vector3();
+    this.owner = null;
+    this.scale = NaN;
+  }
+}
+
+export function syncCbExplodeIn(b, f, at, h, m) {
+  m.in = syncCbIn(b, f, at + 0, h, m.in ?? new CbInMirror());
+  m.explosion = f[at + 147];
+  (m.position ??= new THREE.Vector3()).set(f[at + 148], f[at + 149], f[at + 150]);
+  m.owner = syncAttacker(b, f, at + 151, h, m.owner);
+  m.scale = f[at + 154];
+  return m;
+}
+
+export function putCbExplodeIn(b, o, f, at, heap) {
+  putCbIn(b, o.in, f, at + 0, heap);
+  f[at + 147] = o.explosion;
+  { const $v = o.position; f[at + 148] = $v.x; f[at + 149] = $v.y; f[at + 150] = $v.z; }
+  putAttacker(b, o.owner, f, at + 151, heap);
+  f[at + 154] = o.scale;
+}
+
+export function sameCbExplodeIn(a, b) {
+  { const d = sameCbIn(a.in, b.in); if (d) return ".in" + d; }
+  if (!Object.is(a.explosion, b.explosion)) return ".explosion";
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameAttacker(a.owner, b.owner)) return ".owner";
+  if (!Object.is(a.scale, b.scale)) return ".scale";
+  return null;
+}
+
+export function exportCbExplodeIn(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.in = exportCbIn(o.in, cx);
+  v.explosion = o.explosion;
+  v.position = o.position.clone();
+  v.owner = exportAttacker(o.owner, cx);
+  v.scale = o.scale;
+  return v;
+}
+
+export class CbOutMirror {
+  constructor() {
+    this.pressed0 = false;
+    this.pressed1 = false;
+    this.reload = false;
+    this.nextPrimary = false;
+    this.previousPrimary = false;
+    this.nextSecondary = false;
+    this.zoom = false;
+    this.aimPitch = NaN;
+    this.velocity = new THREE.Vector3();
+    this.air = null;
+    this.stateTime = NaN;
+    this.grounded = false;
+    this.shieldOn = false;
+    this.shieldValue = NaN;
+  }
+}
+
+export function syncCbOut(b, f, at, h, m) {
+  m.pressed0 = f[at + 0] !== 0;
+  m.pressed1 = f[at + 1] !== 0;
+  m.reload = f[at + 2] !== 0;
+  m.nextPrimary = f[at + 3] !== 0;
+  m.previousPrimary = f[at + 4] !== 0;
+  m.nextSecondary = f[at + 5] !== 0;
+  m.zoom = f[at + 6] !== 0;
+  m.aimPitch = f[at + 7];
+  (m.velocity ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
+  { const tag = f[at + 11]; if (tag === 0) { m.air = Air_NAMES[f[at + 12]]; } else m.air = tag === 1 ? null : undefined; }
+  m.stateTime = f[at + 13];
+  m.grounded = f[at + 14] !== 0;
+  m.shieldOn = f[at + 15] !== 0;
+  m.shieldValue = f[at + 16];
+  return m;
+}
+
+export function putCbOut(b, o, f, at, heap) {
+  f[at + 0] = o.pressed0 ? 1 : 0;
+  f[at + 1] = o.pressed1 ? 1 : 0;
+  f[at + 2] = o.reload ? 1 : 0;
+  f[at + 3] = o.nextPrimary ? 1 : 0;
+  f[at + 4] = o.previousPrimary ? 1 : 0;
+  f[at + 5] = o.nextSecondary ? 1 : 0;
+  f[at + 6] = o.zoom ? 1 : 0;
+  f[at + 7] = o.aimPitch;
+  { const $v = o.velocity; f[at + 8] = $v.x; f[at + 9] = $v.y; f[at + 10] = $v.z; }
+  { const $x = o.air; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; } else { f[at + 11] = 0; f[at + 12] = Air_INDEX.get($x); } }
+  f[at + 13] = o.stateTime;
+  f[at + 14] = o.grounded ? 1 : 0;
+  f[at + 15] = o.shieldOn ? 1 : 0;
+  f[at + 16] = o.shieldValue;
+}
+
+export function sameCbOut(a, b) {
+  if (!Object.is(a.pressed0, b.pressed0)) return ".pressed0";
+  if (!Object.is(a.pressed1, b.pressed1)) return ".pressed1";
+  if (!Object.is(a.reload, b.reload)) return ".reload";
+  if (!Object.is(a.nextPrimary, b.nextPrimary)) return ".nextPrimary";
+  if (!Object.is(a.previousPrimary, b.previousPrimary)) return ".previousPrimary";
+  if (!Object.is(a.nextSecondary, b.nextSecondary)) return ".nextSecondary";
+  if (!Object.is(a.zoom, b.zoom)) return ".zoom";
+  if (!Object.is(a.aimPitch, b.aimPitch)) return ".aimPitch";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  { const p = a.air, q = b.air; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".air"; } else { if (!Object.is(p, q)) return ".air"; } }
+  if (!Object.is(a.stateTime, b.stateTime)) return ".stateTime";
+  if (!Object.is(a.grounded, b.grounded)) return ".grounded";
+  if (!Object.is(a.shieldOn, b.shieldOn)) return ".shieldOn";
+  if (!Object.is(a.shieldValue, b.shieldValue)) return ".shieldValue";
+  return null;
+}
+
+export function exportCbOut(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.pressed0 = o.pressed0;
+  v.pressed1 = o.pressed1;
+  v.reload = o.reload;
+  v.nextPrimary = o.nextPrimary;
+  v.previousPrimary = o.previousPrimary;
+  v.nextSecondary = o.nextSecondary;
+  v.zoom = o.zoom;
+  v.aimPitch = o.aimPitch;
+  v.velocity = o.velocity.clone();
+  v.air = o.air;
+  v.stateTime = o.stateTime;
+  v.grounded = o.grounded;
+  v.shieldOn = o.shieldOn;
+  v.shieldValue = o.shieldValue;
+  return v;
+}
+
+export class CbUnitMirror {
+  constructor() {
+    this.unit = NaN;
+  }
+}
+
+export function syncCbUnit(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  return m;
+}
+
+export function putCbUnit(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+}
+
+export function sameCbUnit(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  return null;
+}
+
+export function exportCbUnit(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  return v;
+}
+
+export class CbNumberMirror {
+  constructor() {
+    this.value = NaN;
+  }
+}
+
+export function syncCbNumber(b, f, at, h, m) {
+  m.value = f[at + 0];
+  return m;
+}
+
+export function putCbNumber(b, o, f, at, heap) {
+  f[at + 0] = o.value;
+}
+
+export function sameCbNumber(a, b) {
+  if (!Object.is(a.value, b.value)) return ".value";
+  return null;
+}
+
+export function exportCbNumber(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.value = o.value;
+  return v;
+}
+
+export class CbFlagMirror {
+  constructor() {
+    this.value = false;
+  }
+}
+
+export function syncCbFlag(b, f, at, h, m) {
+  m.value = f[at + 0] !== 0;
+  return m;
+}
+
+export function putCbFlag(b, o, f, at, heap) {
+  f[at + 0] = o.value ? 1 : 0;
+}
+
+export function sameCbFlag(a, b) {
+  if (!Object.is(a.value, b.value)) return ".value";
+  return null;
+}
+
+export function exportCbFlag(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.value = o.value;
+  return v;
+}
+
+export class CbTextMirror {
+  constructor() {
+    this.value = '';
+  }
+}
+
+export function syncCbText(b, f, at, h, m) {
+  m.value = b.strings.at(f[at + 0]);
+  return m;
+}
+
+export function putCbText(b, o, f, at, heap) {
+  f[at + 0] = b.strings.id(o.value);
+}
+
+export function sameCbText(a, b) {
+  if (!Object.is(a.value, b.value)) return ".value";
+  return null;
+}
+
+export function exportCbText(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.value = o.value;
+  return v;
+}
+
+export class CbRayMirror {
+  constructor() {
+    this.unit = NaN;
+    this.origin = new THREE.Vector3();
+    this.direction = new THREE.Vector3();
+    this.far = NaN;
+    this.staticOnly = false;
+  }
+}
+
+export function syncCbRay(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  (m.origin ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  (m.direction ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  m.far = f[at + 7];
+  m.staticOnly = f[at + 8] !== 0;
+  return m;
+}
+
+export function putCbRay(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  { const $v = o.origin; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+  { const $v = o.direction; f[at + 4] = $v.x; f[at + 5] = $v.y; f[at + 6] = $v.z; }
+  f[at + 7] = o.far;
+  f[at + 8] = o.staticOnly ? 1 : 0;
+}
+
+export function sameCbRay(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!sameVec(a.origin, b.origin)) return ".origin";
+  if (!sameVec(a.direction, b.direction)) return ".direction";
+  if (!Object.is(a.far, b.far)) return ".far";
+  if (!Object.is(a.staticOnly, b.staticOnly)) return ".staticOnly";
+  return null;
+}
+
+export function exportCbRay(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.origin = o.origin.clone();
+  v.direction = o.direction.clone();
+  v.far = o.far;
+  v.staticOnly = o.staticOnly;
+  return v;
+}
+
+export class CbHitMirror {
+  constructor() {
+    this.found = false;
+    this.distance = NaN;
+    this.point = new THREE.Vector3();
+    this.normal = new THREE.Vector3();
+  }
+}
+
+export function syncCbHit(b, f, at, h, m) {
+  m.found = f[at + 0] !== 0;
+  m.distance = f[at + 1];
+  (m.point ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  (m.normal ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  return m;
+}
+
+export function putCbHit(b, o, f, at, heap) {
+  f[at + 0] = o.found ? 1 : 0;
+  f[at + 1] = o.distance;
+  { const $v = o.point; f[at + 2] = $v.x; f[at + 3] = $v.y; f[at + 4] = $v.z; }
+  { const $v = o.normal; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
+}
+
+export function sameCbHit(a, b) {
+  if (!Object.is(a.found, b.found)) return ".found";
+  if (!Object.is(a.distance, b.distance)) return ".distance";
+  if (!sameVec(a.point, b.point)) return ".point";
+  if (!sameVec(a.normal, b.normal)) return ".normal";
+  return null;
+}
+
+export function exportCbHit(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.found = o.found;
+  v.distance = o.distance;
+  v.point = o.point.clone();
+  v.normal = o.normal.clone();
+  return v;
+}
+
+export class CbWeaponMirror {
+  constructor() {
+    this.unit = NaN;
+    this.weapon = NaN;
+  }
+}
+
+export function syncCbWeapon(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.weapon = f[at + 1];
+  return m;
+}
+
+export function putCbWeapon(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.weapon;
+}
+
+export function sameCbWeapon(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  return null;
+}
+
+export function exportCbWeapon(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.weapon = o.weapon;
+  return v;
+}
+
+export class CbDrawMirror {
+  constructor() {
+    this.unit = NaN;
+    this.weapon = NaN;
+    this.legacy = false;
+  }
+}
+
+export function syncCbDraw(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.weapon = f[at + 1];
+  m.legacy = f[at + 2] !== 0;
+  return m;
+}
+
+export function putCbDraw(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.weapon;
+  f[at + 2] = o.legacy ? 1 : 0;
+}
+
+export function sameCbDraw(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  if (!Object.is(a.legacy, b.legacy)) return ".legacy";
+  return null;
+}
+
+export function exportCbDraw(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.weapon = o.weapon;
+  v.legacy = o.legacy;
+  return v;
+}
+
+export class CbAdmitMirror {
+  constructor() {
+    this.kind = NaN;
+    this.token = NaN;
+  }
+}
+
+export function syncCbAdmit(b, f, at, h, m) {
+  m.kind = f[at + 0];
+  m.token = f[at + 1];
+  return m;
+}
+
+export function putCbAdmit(b, o, f, at, heap) {
+  f[at + 0] = o.kind;
+  f[at + 1] = o.token;
+}
+
+export function sameCbAdmit(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  if (!Object.is(a.token, b.token)) return ".token";
+  return null;
+}
+
+export function exportCbAdmit(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.token = o.token;
+  return v;
+}
+
+export class CbDroidMirror {
+  constructor() {
+    this.found = false;
+    this.droid = NaN;
+  }
+}
+
+export function syncCbDroid(b, f, at, h, m) {
+  m.found = f[at + 0] !== 0;
+  m.droid = f[at + 1];
+  return m;
+}
+
+export function putCbDroid(b, o, f, at, heap) {
+  f[at + 0] = o.found ? 1 : 0;
+  f[at + 1] = o.droid;
+}
+
+export function sameCbDroid(a, b) {
+  if (!Object.is(a.found, b.found)) return ".found";
+  if (!Object.is(a.droid, b.droid)) return ".droid";
+  return null;
+}
+
+export function exportCbDroid(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.found = o.found;
+  v.droid = o.droid;
+  return v;
+}
+
+export class CbDroidCallMirror {
+  constructor() {
+    this.unit = NaN;
+    this.droid = NaN;
+  }
+}
+
+export function syncCbDroidCall(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.droid = f[at + 1];
+  return m;
+}
+
+export function putCbDroidCall(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.droid;
+}
+
+export function sameCbDroidCall(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.droid, b.droid)) return ".droid";
+  return null;
+}
+
+export function exportCbDroidCall(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.droid = o.droid;
+  return v;
+}
+
+export class CbLaunchMirror {
+  constructor() {
+    this.unit = NaN;
+    this.weapon = NaN;
+    this.origin = new THREE.Vector3();
+    this.velocity = new THREE.Vector3();
+    this.yaw = NaN;
+    this.team = NaN;
+    this.admission = undefined;
+  }
+}
+
+export function syncCbLaunch(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.weapon = f[at + 1];
+  (m.origin ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  (m.velocity ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  m.yaw = f[at + 8];
+  m.team = f[at + 9];
+  { const tag = f[at + 10]; if (tag === 0) { m.admission = f[at + 11]; } else m.admission = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putCbLaunch(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.weapon;
+  { const $v = o.origin; f[at + 2] = $v.x; f[at + 3] = $v.y; f[at + 4] = $v.z; }
+  { const $v = o.velocity; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
+  f[at + 8] = o.yaw;
+  f[at + 9] = o.team;
+  { const $x = o.admission; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f[at + 11] = 0; } else { f[at + 10] = 0; f[at + 11] = $x; } }
+}
+
+export function sameCbLaunch(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  if (!sameVec(a.origin, b.origin)) return ".origin";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.admission, q = b.admission; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".admission"; } else { if (!Object.is(p, q)) return ".admission"; } }
+  return null;
+}
+
+export function exportCbLaunch(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.weapon = o.weapon;
+  v.origin = o.origin.clone();
+  v.velocity = o.velocity.clone();
+  v.yaw = o.yaw;
+  v.team = o.team;
+  v.admission = o.admission;
+  return v;
+}
+
+export class CbLockOnMirror {
+  constructor() {
+    this.unit = NaN;
+    this.eye = new THREE.Vector3();
+    this.dir = new THREE.Vector3();
+    this.weapon = NaN;
+    this.level = NaN;
+    this.current = null;
+    this.held = false;
+    this.team = NaN;
+  }
+}
+
+export function syncCbLockOn(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  (m.eye ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  (m.dir ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  m.weapon = f[at + 7];
+  m.level = f[at + 8];
+  { const tag = f[at + 9]; if (tag === 0) { m.current = syncRepairTarget(b, f, at + 10, h, m.current); } else m.current = tag === 1 ? null : undefined; }
+  m.held = f[at + 13] !== 0;
+  m.team = f[at + 14];
+  return m;
+}
+
+export function putCbLockOn(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  { const $v = o.eye; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+  { const $v = o.dir; f[at + 4] = $v.x; f[at + 5] = $v.y; f[at + 6] = $v.z; }
+  f[at + 7] = o.weapon;
+  f[at + 8] = o.level;
+  { const $x = o.current; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f[at + 10] = 0; f[at + 11] = 0; f[at + 12] = 0; } else { f[at + 9] = 0; putRepairTarget(b, $x, f, at + 10, heap); } }
+  f[at + 13] = o.held ? 1 : 0;
+  f[at + 14] = o.team;
+}
+
+export function sameCbLockOn(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!sameVec(a.eye, b.eye)) return ".eye";
+  if (!sameVec(a.dir, b.dir)) return ".dir";
+  if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  if (!Object.is(a.level, b.level)) return ".level";
+  { const p = a.current, q = b.current; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".current"; } else { if (!sameRepairTarget(p, q)) return ".current"; } }
+  if (!Object.is(a.held, b.held)) return ".held";
+  if (!Object.is(a.team, b.team)) return ".team";
+  return null;
+}
+
+export function exportCbLockOn(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.eye = o.eye.clone();
+  v.dir = o.dir.clone();
+  v.weapon = o.weapon;
+  v.level = o.level;
+  v.current = ((x) => (x === null || x === undefined ? x : exportRepairTarget(x, cx)))(o.current);
+  v.held = o.held;
+  v.team = o.team;
+  return v;
+}
+
+export class CbTargetMirror {
+  constructor() {
+    this.target = null;
+  }
+}
+
+export function syncCbTarget(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { m.target = syncRepairTarget(b, f, at + 1, h, m.target); } else m.target = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putCbTarget(b, o, f, at, heap) {
+  { const $x = o.target; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; f[at + 3] = 0; } else { f[at + 0] = 0; putRepairTarget(b, $x, f, at + 1, heap); } }
+}
+
+export function sameCbTarget(a, b) {
+  { const p = a.target, q = b.target; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".target"; } else { if (!sameRepairTarget(p, q)) return ".target"; } }
+  return null;
+}
+
+export function exportCbTarget(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.target = ((x) => (x === null || x === undefined ? x : exportRepairTarget(x, cx)))(o.target);
+  return v;
+}
+
+export class CbLockKeyMirror {
+  constructor() {
+    this.unit = NaN;
+    this.target = null;
+  }
+}
+
+export function syncCbLockKey(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  { const tag = f[at + 1]; if (tag === 0) { m.target = syncRepairTarget(b, f, at + 2, h, m.target); } else m.target = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putCbLockKey(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  { const $x = o.target; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; f[at + 3] = 0; f[at + 4] = 0; } else { f[at + 1] = 0; putRepairTarget(b, $x, f, at + 2, heap); } }
+}
+
+export function sameCbLockKey(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  { const p = a.target, q = b.target; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".target"; } else { if (!sameRepairTarget(p, q)) return ".target"; } }
+  return null;
+}
+
+export function exportCbLockKey(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.target = ((x) => (x === null || x === undefined ? x : exportRepairTarget(x, cx)))(o.target);
+  return v;
+}
+
+export class CbRepairMirror {
+  constructor() {
+    this.unit = NaN;
+    this.weapon = NaN;
+    this.target = null;
+    this.team = NaN;
+  }
+}
+
+export function syncCbRepair(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.weapon = f[at + 1];
+  { const tag = f[at + 2]; if (tag === 0) { m.target = syncRepairTarget(b, f, at + 3, h, m.target); } else m.target = tag === 1 ? null : undefined; }
+  m.team = f[at + 6];
+  return m;
+}
+
+export function putCbRepair(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.weapon;
+  { const $x = o.target; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 2] = 0; putRepairTarget(b, $x, f, at + 3, heap); } }
+  f[at + 6] = o.team;
+}
+
+export function sameCbRepair(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  { const p = a.target, q = b.target; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".target"; } else { if (!sameRepairTarget(p, q)) return ".target"; } }
+  if (!Object.is(a.team, b.team)) return ".team";
+  return null;
+}
+
+export function exportCbRepair(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.weapon = o.weapon;
+  v.target = ((x) => (x === null || x === undefined ? x : exportRepairTarget(x, cx)))(o.target);
+  v.team = o.team;
+  return v;
+}
+
+export class CbLockPickMirror {
+  constructor() {
+    this.unit = NaN;
+    this.weapon = NaN;
+    this.level = NaN;
+    this.lockComplete = false;
+    this.lockTargetId = NaN;
+    this.lockGeneration = NaN;
+    this.origin = new THREE.Vector3();
+    this.dir = new THREE.Vector3();
+  }
+}
+
+export function syncCbLockPick(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.weapon = f[at + 1];
+  m.level = f[at + 2];
+  m.lockComplete = f[at + 3] !== 0;
+  m.lockTargetId = f[at + 4];
+  m.lockGeneration = f[at + 5];
+  (m.origin ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
+  (m.dir ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]);
+  return m;
+}
+
+export function putCbLockPick(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.weapon;
+  f[at + 2] = o.level;
+  f[at + 3] = o.lockComplete ? 1 : 0;
+  f[at + 4] = o.lockTargetId;
+  f[at + 5] = o.lockGeneration;
+  { const $v = o.origin; f[at + 6] = $v.x; f[at + 7] = $v.y; f[at + 8] = $v.z; }
+  { const $v = o.dir; f[at + 9] = $v.x; f[at + 10] = $v.y; f[at + 11] = $v.z; }
+}
+
+export function sameCbLockPick(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  if (!Object.is(a.level, b.level)) return ".level";
+  if (!Object.is(a.lockComplete, b.lockComplete)) return ".lockComplete";
+  if (!Object.is(a.lockTargetId, b.lockTargetId)) return ".lockTargetId";
+  if (!Object.is(a.lockGeneration, b.lockGeneration)) return ".lockGeneration";
+  if (!sameVec(a.origin, b.origin)) return ".origin";
+  if (!sameVec(a.dir, b.dir)) return ".dir";
+  return null;
+}
+
+export function exportCbLockPick(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.weapon = o.weapon;
+  v.level = o.level;
+  v.lockComplete = o.lockComplete;
+  v.lockTargetId = o.lockTargetId;
+  v.lockGeneration = o.lockGeneration;
+  v.origin = o.origin.clone();
+  v.dir = o.dir.clone();
+  return v;
+}
+
+export class CbPickMirror {
+  constructor() {
+    this.pick = NaN;
+    this.id = NaN;
+    this.generation = NaN;
+    this.alive = false;
+  }
+}
+
+export function syncCbPick(b, f, at, h, m) {
+  m.pick = f[at + 0];
+  m.id = f[at + 1];
+  m.generation = f[at + 2];
+  m.alive = f[at + 3] !== 0;
+  return m;
+}
+
+export function putCbPick(b, o, f, at, heap) {
+  f[at + 0] = o.pick;
+  f[at + 1] = o.id;
+  f[at + 2] = o.generation;
+  f[at + 3] = o.alive ? 1 : 0;
+}
+
+export function sameCbPick(a, b) {
+  if (!Object.is(a.pick, b.pick)) return ".pick";
+  if (!Object.is(a.id, b.id)) return ".id";
+  if (!Object.is(a.generation, b.generation)) return ".generation";
+  if (!Object.is(a.alive, b.alive)) return ".alive";
+  return null;
+}
+
+export function exportCbPick(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.pick = o.pick;
+  v.id = o.id;
+  v.generation = o.generation;
+  v.alive = o.alive;
+  return v;
+}
+
+export class CbShotMirror {
+  constructor() {
+    this.unit = NaN;
+    this.weapon = NaN;
+    this.kind = NaN;
+    this.yaw = NaN;
+    this.pitch = NaN;
+    this.charge = NaN;
+    this.targetId = NaN;
+    this.targetGeneration = NaN;
+    this.admission = undefined;
+    this.swing = NaN;
+  }
+}
+
+export function syncCbShot(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.weapon = f[at + 1];
+  m.kind = f[at + 2];
+  m.yaw = f[at + 3];
+  m.pitch = f[at + 4];
+  m.charge = f[at + 5];
+  m.targetId = f[at + 6];
+  m.targetGeneration = f[at + 7];
+  { const tag = f[at + 8]; if (tag === 0) { m.admission = f[at + 9]; } else m.admission = tag === 1 ? null : undefined; }
+  m.swing = f[at + 10];
+  return m;
+}
+
+export function putCbShot(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.weapon;
+  f[at + 2] = o.kind;
+  f[at + 3] = o.yaw;
+  f[at + 4] = o.pitch;
+  f[at + 5] = o.charge;
+  f[at + 6] = o.targetId;
+  f[at + 7] = o.targetGeneration;
+  { const $x = o.admission; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = $x; } }
+  f[at + 10] = o.swing;
+}
+
+export function sameCbShot(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  if (!Object.is(a.pitch, b.pitch)) return ".pitch";
+  if (!Object.is(a.charge, b.charge)) return ".charge";
+  if (!Object.is(a.targetId, b.targetId)) return ".targetId";
+  if (!Object.is(a.targetGeneration, b.targetGeneration)) return ".targetGeneration";
+  { const p = a.admission, q = b.admission; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".admission"; } else { if (!Object.is(p, q)) return ".admission"; } }
+  if (!Object.is(a.swing, b.swing)) return ".swing";
+  return null;
+}
+
+export function exportCbShot(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.weapon = o.weapon;
+  v.kind = o.kind;
+  v.yaw = o.yaw;
+  v.pitch = o.pitch;
+  v.charge = o.charge;
+  v.targetId = o.targetId;
+  v.targetGeneration = o.targetGeneration;
+  v.admission = o.admission;
+  v.swing = o.swing;
+  return v;
+}
+
+export class CbFireMirror {
+  constructor() {
+    this.shot = new CbShotMirror();
+    this.from = new THREE.Vector3();
+    this.fromOrigin = false;
+    this.dir = new THREE.Vector3();
+    this.bind = false;
+    this.selected = false;
+    this.selectedIndex = NaN;
+    this.selectedBarrel = NaN;
+  }
+}
+
+export function syncCbFire(b, f, at, h, m) {
+  m.shot = syncCbShot(b, f, at + 0, h, m.shot ?? new CbShotMirror());
+  (m.from ??= new THREE.Vector3()).set(f[at + 11], f[at + 12], f[at + 13]);
+  m.fromOrigin = f[at + 14] !== 0;
+  (m.dir ??= new THREE.Vector3()).set(f[at + 15], f[at + 16], f[at + 17]);
+  m.bind = f[at + 18] !== 0;
+  m.selected = f[at + 19] !== 0;
+  m.selectedIndex = f[at + 20];
+  m.selectedBarrel = f[at + 21];
+  return m;
+}
+
+export function putCbFire(b, o, f, at, heap) {
+  putCbShot(b, o.shot, f, at + 0, heap);
+  { const $v = o.from; f[at + 11] = $v.x; f[at + 12] = $v.y; f[at + 13] = $v.z; }
+  f[at + 14] = o.fromOrigin ? 1 : 0;
+  { const $v = o.dir; f[at + 15] = $v.x; f[at + 16] = $v.y; f[at + 17] = $v.z; }
+  f[at + 18] = o.bind ? 1 : 0;
+  f[at + 19] = o.selected ? 1 : 0;
+  f[at + 20] = o.selectedIndex;
+  f[at + 21] = o.selectedBarrel;
+}
+
+export function sameCbFire(a, b) {
+  { const d = sameCbShot(a.shot, b.shot); if (d) return ".shot" + d; }
+  if (!sameVec(a.from, b.from)) return ".from";
+  if (!Object.is(a.fromOrigin, b.fromOrigin)) return ".fromOrigin";
+  if (!sameVec(a.dir, b.dir)) return ".dir";
+  if (!Object.is(a.bind, b.bind)) return ".bind";
+  if (!Object.is(a.selected, b.selected)) return ".selected";
+  if (!Object.is(a.selectedIndex, b.selectedIndex)) return ".selectedIndex";
+  if (!Object.is(a.selectedBarrel, b.selectedBarrel)) return ".selectedBarrel";
+  return null;
+}
+
+export function exportCbFire(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.shot = exportCbShot(o.shot, cx);
+  v.from = o.from.clone();
+  v.fromOrigin = o.fromOrigin;
+  v.dir = o.dir.clone();
+  v.bind = o.bind;
+  v.selected = o.selected;
+  v.selectedIndex = o.selectedIndex;
+  v.selectedBarrel = o.selectedBarrel;
+  return v;
+}
+
+export class CbDispenseMirror {
+  constructor() {
+    this.unit = NaN;
+    this.weapon = NaN;
+    this.most = NaN;
+    this.origin = new THREE.Vector3();
+    this.velocity = new THREE.Vector3();
+    this.yaw = NaN;
+    this.team = NaN;
+  }
+}
+
+export function syncCbDispense(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.weapon = f[at + 1];
+  m.most = f[at + 2];
+  (m.origin ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  (m.velocity ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
+  m.yaw = f[at + 9];
+  m.team = f[at + 10];
+  return m;
+}
+
+export function putCbDispense(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.weapon;
+  f[at + 2] = o.most;
+  { const $v = o.origin; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+  { const $v = o.velocity; f[at + 6] = $v.x; f[at + 7] = $v.y; f[at + 8] = $v.z; }
+  f[at + 9] = o.yaw;
+  f[at + 10] = o.team;
+}
+
+export function sameCbDispense(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  if (!Object.is(a.most, b.most)) return ".most";
+  if (!sameVec(a.origin, b.origin)) return ".origin";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  if (!Object.is(a.team, b.team)) return ".team";
+  return null;
+}
+
+export function exportCbDispense(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.weapon = o.weapon;
+  v.most = o.most;
+  v.origin = o.origin.clone();
+  v.velocity = o.velocity.clone();
+  v.yaw = o.yaw;
+  v.team = o.team;
+  return v;
+}
+
+export class CbArcTargetMirror {
+  constructor() {
+    this.origin = new THREE.Vector3();
+    this.center = null;
+    this.radius = null;
+  }
+}
+
+export function syncCbArcTarget(b, f, at, h, m) {
+  (m.origin ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  { const tag = f[at + 3]; if (tag === 0) { (m.center ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]); } else m.center = tag === 1 ? null : undefined; }
+  { const tag = f[at + 7]; if (tag === 0) { m.radius = f[at + 8]; } else m.radius = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putCbArcTarget(b, o, f, at, heap) {
+  { const $v = o.origin; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; f[at + 6] = 0; } else { f[at + 3] = 0; { const $v = $x; f[at + 4] = $v.x; f[at + 5] = $v.y; f[at + 6] = $v.z; } } }
+  { const $x = o.radius; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = $x; } }
+}
+
+export function sameCbArcTarget(a, b) {
+  if (!sameVec(a.origin, b.origin)) return ".origin";
+  { const p = a.center, q = b.center; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".center"; } else { if (!sameVec(p, q)) return ".center"; } }
+  { const p = a.radius, q = b.radius; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".radius"; } else { if (!Object.is(p, q)) return ".radius"; } }
+  return null;
+}
+
+export function exportCbArcTarget(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.origin = o.origin.clone();
+  v.center = ((x) => (x === null || x === undefined ? x : x.clone()))(o.center);
+  v.radius = o.radius;
+  return v;
+}
+
+export class CbArcTargetsMirror {
+  constructor() {
+    this.targets = [];
+  }
+}
+
+export function syncCbArcTargets(b, f, at, h, m) {
+  { const items = (m.targets ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncCbArcTarget(b, f, at + 0, h, v ?? new CbArcTargetMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putCbArcTargets(b, o, f, at, heap) {
+  heap.items(o.targets, f, at + 0, 9, (f, at, v) => { putCbArcTarget(b, v, f, at + 0, heap); });
+}
+
+export function sameCbArcTargets(a, b) {
+  if (!sameEach(a.targets, b.targets, (x, y) => sameCbArcTarget(x, y) === null)) return ".targets";
+  return null;
+}
+
+export function exportCbArcTargets(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.targets = o.targets.map((x) => exportCbArcTarget(x, cx));
+  return v;
+}
+
+export class CbHurtArcMirror {
+  constructor() {
+    this.unit = NaN;
+    this.index = NaN;
+    this.amount = NaN;
+    this.from = new THREE.Vector3();
+  }
+}
+
+export function syncCbHurtArc(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.index = f[at + 1];
+  m.amount = f[at + 2];
+  (m.from ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  return m;
+}
+
+export function putCbHurtArc(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.index;
+  f[at + 2] = o.amount;
+  { const $v = o.from; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+}
+
+export function sameCbHurtArc(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.index, b.index)) return ".index";
+  if (!Object.is(a.amount, b.amount)) return ".amount";
+  if (!sameVec(a.from, b.from)) return ".from";
+  return null;
+}
+
+export function exportCbHurtArc(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.index = o.index;
+  v.amount = o.amount;
+  v.from = o.from.clone();
+  return v;
+}
+
+export class CbDamagedMirror {
+  constructor() {
+    this.unit = NaN;
+    this.amount = NaN;
+    this.attacker = null;
+    this.explosion = false;
+    this.infoAmount = NaN;
+    this.typed = NaN;
+    this.generic = NaN;
+  }
+}
+
+export function syncCbDamaged(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.amount = f[at + 1];
+  m.attacker = syncAttacker(b, f, at + 2, h, m.attacker);
+  m.explosion = f[at + 5] !== 0;
+  m.infoAmount = f[at + 6];
+  m.typed = f[at + 7];
+  m.generic = f[at + 8];
+  return m;
+}
+
+export function putCbDamaged(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.amount;
+  putAttacker(b, o.attacker, f, at + 2, heap);
+  f[at + 5] = o.explosion ? 1 : 0;
+  f[at + 6] = o.infoAmount;
+  f[at + 7] = o.typed;
+  f[at + 8] = o.generic;
+}
+
+export function sameCbDamaged(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.amount, b.amount)) return ".amount";
+  if (!sameAttacker(a.attacker, b.attacker)) return ".attacker";
+  if (!Object.is(a.explosion, b.explosion)) return ".explosion";
+  if (!Object.is(a.infoAmount, b.infoAmount)) return ".infoAmount";
+  if (!Object.is(a.typed, b.typed)) return ".typed";
+  if (!Object.is(a.generic, b.generic)) return ".generic";
+  return null;
+}
+
+export function exportCbDamaged(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.amount = o.amount;
+  v.attacker = exportAttacker(o.attacker, cx);
+  v.explosion = o.explosion;
+  v.infoAmount = o.infoAmount;
+  v.typed = o.typed;
+  v.generic = o.generic;
+  return v;
+}
+
+export class CbHealthMirror {
+  constructor() {
+    this.unit = NaN;
+    this.health = NaN;
+  }
+}
+
+export function syncCbHealth(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.health = f[at + 1];
+  return m;
+}
+
+export function putCbHealth(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.health;
+}
+
+export function sameCbHealth(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.health, b.health)) return ".health";
+  return null;
+}
+
+export function exportCbHealth(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.health = o.health;
+  return v;
+}
+
+export class CbPresentMirror {
+  constructor() {
+    this.unit = NaN;
+    this.kind = NaN;
+    this.action = null;
+    this.bank = '';
+    this.posture = null;
+    this.prepare = false;
+    this.name = '';
+    this.from = new THREE.Vector3();
+    this.to = new THREE.Vector3();
+    this.charge = NaN;
+    this.channel = null;
+  }
+}
+
+export function syncCbPresent(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.kind = f[at + 1];
+  { const tag = f[at + 2]; if (tag === 0) { m.action = b.strings.at(f[at + 3]); } else m.action = tag === 1 ? null : undefined; }
+  m.bank = b.strings.at(f[at + 4]);
+  { const tag = f[at + 5]; if (tag === 0) { m.posture = b.strings.at(f[at + 6]); } else m.posture = tag === 1 ? null : undefined; }
+  m.prepare = f[at + 7] !== 0;
+  m.name = b.strings.at(f[at + 8]);
+  (m.from ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]);
+  (m.to ??= new THREE.Vector3()).set(f[at + 12], f[at + 13], f[at + 14]);
+  m.charge = f[at + 15];
+  { const tag = f[at + 16]; if (tag === 0) { m.channel = f[at + 17]; } else m.channel = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putCbPresent(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.kind;
+  { const $x = o.action; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = b.strings.id($x); } }
+  f[at + 4] = b.strings.id(o.bank);
+  { const $x = o.posture; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f[at + 6] = 0; } else { f[at + 5] = 0; f[at + 6] = b.strings.id($x); } }
+  f[at + 7] = o.prepare ? 1 : 0;
+  f[at + 8] = b.strings.id(o.name);
+  { const $v = o.from; f[at + 9] = $v.x; f[at + 10] = $v.y; f[at + 11] = $v.z; }
+  { const $v = o.to; f[at + 12] = $v.x; f[at + 13] = $v.y; f[at + 14] = $v.z; }
+  f[at + 15] = o.charge;
+  { const $x = o.channel; if ($x === null || $x === undefined) { f[at + 16] = $x === null ? 1 : 2; f[at + 17] = 0; } else { f[at + 16] = 0; f[at + 17] = $x; } }
+}
+
+export function sameCbPresent(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  { const p = a.action, q = b.action; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".action"; } else { if (!Object.is(p, q)) return ".action"; } }
+  if (!Object.is(a.bank, b.bank)) return ".bank";
+  { const p = a.posture, q = b.posture; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".posture"; } else { if (!Object.is(p, q)) return ".posture"; } }
+  if (!Object.is(a.prepare, b.prepare)) return ".prepare";
+  if (!Object.is(a.name, b.name)) return ".name";
+  if (!sameVec(a.from, b.from)) return ".from";
+  if (!sameVec(a.to, b.to)) return ".to";
+  if (!Object.is(a.charge, b.charge)) return ".charge";
+  { const p = a.channel, q = b.channel; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".channel"; } else { if (!Object.is(p, q)) return ".channel"; } }
+  return null;
+}
+
+export function exportCbPresent(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.kind = o.kind;
+  v.action = o.action;
+  v.bank = o.bank;
+  v.posture = o.posture;
+  v.prepare = o.prepare;
+  v.name = o.name;
+  v.from = o.from.clone();
+  v.to = o.to.clone();
+  v.charge = o.charge;
+  v.channel = o.channel;
+  return v;
+}
+
+export class CbGunMirror {
+  constructor() {
+    this.found = false;
+    this.point = new THREE.Vector3();
+    this.gun = NaN;
+    this.hasLast = false;
+    this.lastIndex = NaN;
+    this.lastBarrel = NaN;
+  }
+}
+
+export function syncCbGun(b, f, at, h, m) {
+  m.found = f[at + 0] !== 0;
+  (m.point ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  m.gun = f[at + 4];
+  m.hasLast = f[at + 5] !== 0;
+  m.lastIndex = f[at + 6];
+  m.lastBarrel = f[at + 7];
+  return m;
+}
+
+export function putCbGun(b, o, f, at, heap) {
+  f[at + 0] = o.found ? 1 : 0;
+  { const $v = o.point; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+  f[at + 4] = o.gun;
+  f[at + 5] = o.hasLast ? 1 : 0;
+  f[at + 6] = o.lastIndex;
+  f[at + 7] = o.lastBarrel;
+}
+
+export function sameCbGun(a, b) {
+  if (!Object.is(a.found, b.found)) return ".found";
+  if (!sameVec(a.point, b.point)) return ".point";
+  if (!Object.is(a.gun, b.gun)) return ".gun";
+  if (!Object.is(a.hasLast, b.hasLast)) return ".hasLast";
+  if (!Object.is(a.lastIndex, b.lastIndex)) return ".lastIndex";
+  if (!Object.is(a.lastBarrel, b.lastBarrel)) return ".lastBarrel";
+  return null;
+}
+
+export function exportCbGun(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.found = o.found;
+  v.point = o.point.clone();
+  v.gun = o.gun;
+  v.hasLast = o.hasLast;
+  v.lastIndex = o.lastIndex;
+  v.lastBarrel = o.lastBarrel;
+  return v;
+}
+
+export class CbGunAtMirror {
+  constructor() {
+    this.unit = NaN;
+    this.index = NaN;
+    this.barrel = NaN;
+  }
+}
+
+export function syncCbGunAt(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.index = f[at + 1];
+  m.barrel = f[at + 2];
+  return m;
+}
+
+export function putCbGunAt(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.index;
+  f[at + 2] = o.barrel;
+}
+
+export function sameCbGunAt(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.index, b.index)) return ".index";
+  if (!Object.is(a.barrel, b.barrel)) return ".barrel";
+  return null;
+}
+
+export function exportCbGunAt(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.index = o.index;
+  v.barrel = o.barrel;
+  return v;
+}
+
+export class CbPointMirror {
+  constructor() {
+    this.found = false;
+    this.point = new THREE.Vector3();
+  }
+}
+
+export function syncCbPoint(b, f, at, h, m) {
+  m.found = f[at + 0] !== 0;
+  (m.point ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  return m;
+}
+
+export function putCbPoint(b, o, f, at, heap) {
+  f[at + 0] = o.found ? 1 : 0;
+  { const $v = o.point; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+}
+
+export function sameCbPoint(a, b) {
+  if (!Object.is(a.found, b.found)) return ".found";
+  if (!sameVec(a.point, b.point)) return ".point";
+  return null;
+}
+
+export function exportCbPoint(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.found = o.found;
+  v.point = o.point.clone();
+  return v;
+}
+
+export class CbShieldMirror {
+  constructor() {
+    this.unit = NaN;
+    this.taken = NaN;
+    this.left = NaN;
+    this.explosion = false;
+  }
+}
+
+export function syncCbShield(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.taken = f[at + 1];
+  m.left = f[at + 2];
+  m.explosion = f[at + 3] !== 0;
+  return m;
+}
+
+export function putCbShield(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.taken;
+  f[at + 2] = o.left;
+  f[at + 3] = o.explosion ? 1 : 0;
+}
+
+export function sameCbShield(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.taken, b.taken)) return ".taken";
+  if (!Object.is(a.left, b.left)) return ".left";
+  if (!Object.is(a.explosion, b.explosion)) return ".explosion";
+  return null;
+}
+
+export function exportCbShield(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.taken = o.taken;
+  v.left = o.left;
+  v.explosion = o.explosion;
   return v;
 }
