@@ -113,7 +113,6 @@ export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries 
         ['world.damaged', w, 'damaged', after],
         ['vehicles.destroyedCrew', game.vehicles ?? null, 'destroyedCrew', after],
         ['world.destroyed', w, 'destroyed', after],
-        ['vehicles.releaseTow', game.vehicles ?? null, 'releaseTow', after],
         ['world.explosion', w, 'explosion', after],
         ['world.effect', w, 'effect'],
         ['world.sound', w, 'sound'],
@@ -140,7 +139,9 @@ export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries 
           hull: {
             ...poseState(self, args, end),
             rig: nodes.flatMap((o) => [o.position.x, o.position.y, o.position.z, o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w, o.scale.x, o.scale.y, o.scale.z]),
-            world: end ? nodes.flatMap((o) => o.matrixWorld.elements) : null,
+            // A world's render after aimTick moves only the barrels, from
+            // the world matrices aimTick left: those come with its start.
+            world: end || method === 'vehicle.render' ? nodes.flatMap((o) => o.matrixWorld.elements) : null,
             gear: self.gear, flightPreviousQ: self.flightPreviousQ ?? null, flightFrameQ: self.flightFrameQ ?? null,
           },
         };
