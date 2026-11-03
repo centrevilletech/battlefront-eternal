@@ -32,15 +32,13 @@
 //! [`typed_sort`] with a comparator is V8's `TypedArrayMergeSort`
 //! (a plain recursive mergesort between two buffers), and the
 //! no-comparator numeric sort is [`typed_sort_f64`]. V8's
-//! no-comparator path is a C++ `std::sort` (`TypedArraySortFast`),
-//! which is not stable; for float elements the sorted sequence is
-//! still determined by the values except for the relative order of
-//! +0 and -0 (which compare equal) and of NaNs. `typed_sort_f64`
-//! runs the same numeric comparison through the TimSort above,
-//! which is deterministic in that corner; the differential harness
-//! records where V8's `std::sort` disagrees on ±0 placement, and
-//! the package notes carry the finding for the packages that sort
-//! Float64Arrays (`playout`, `reconcile`).
+//! no-comparator path is a C++ `std::sort` (`TypedArraySortFast`)
+//! under its `CompareNum`, which ranks -0 below +0 and numbers
+//! below NaN: `typed_sort_f64` runs that same comparison through
+//! the TimSort above. std::sort is not stable, so the one corner
+//! left is the order of NaNs among themselves (equal under
+//! CompareNum, distinguishable only by payload); every other
+//! element's place is determined by its value.
 
 use std::cmp::Ordering;
 
@@ -589,7 +587,7 @@ impl<T: Clone, F: FnMut(&T, &T) -> f64> TimSort<'_, T, F> {
         let (mut base_a, mut length_a) = self.runs[i];
         let (base_b, mut length_b) = self.runs[i + 1];
         self.runs[i].1 = length_a + length_b;
-        if i == self.runs.len() - 3 {
+        if self.runs.len() >= 3 && i == self.runs.len() - 3 {
             let run = self.runs[i + 2];
             self.runs[i + 1] = run;
         }
@@ -781,19 +779,34 @@ pub fn js_sort_default_js_strings(a: &mut Vec<crate::text::JsString>) {
     js_sort(a, &mut cmp);
 }
 
-/// The TypedArray numeric comparison of two numbers (the spec's
-/// SortCompare for the default TypedArray sort): NaN is greater
-/// than everything, -0 and +0 are equal.
+/// The comparison V8's no-comparator TypedArray sort runs
+/// (`CompareNum` in src/runtime/runtime-typedarray.cc, fed to a C++
+/// std::sort): numeric order, with -0 below +0 and every number
+/// below NaN. (The spec's own SortCompare calls -0 and +0 equal;
+/// V8's fast path ranks them, measurably: -0 always sorts first.)
+/// NaNs compare equal to each other, so their relative order in
+/// V8 is std::sort's unstable choice; this stable sort keeps input
+/// order there, the one corner that cannot be reproduced without
+/// porting libstdc++'s introsort. The sim's Float64Array sorts
+/// order times, where NaN payloads carry no meaning, and the
+/// differential harness records the corner.
 pub fn typed_numeric_compare(a: f64, b: f64) -> f64 {
-    if a.is_nan() && b.is_nan() {
-        0.0
-    } else if a.is_nan() {
-        1.0
-    } else if b.is_nan() {
-        -1.0
-    } else if a < b {
+    if a < b {
         -1.0
     } else if a > b {
+        1.0
+    } else if a == 0.0 && a == b {
+        // -0.0 is less than +0.0 (signbit(a) && !signbit(b)).
+        if a.is_sign_negative() && !b.is_sign_negative() {
+            -1.0
+        } else if b.is_sign_negative() && !a.is_sign_negative() {
+            1.0
+        } else {
+            0.0
+        }
+    } else if !a.is_nan() && b.is_nan() {
+        -1.0
+    } else if a.is_nan() && !b.is_nan() {
         1.0
     } else {
         0.0

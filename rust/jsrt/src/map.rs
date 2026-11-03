@@ -573,10 +573,10 @@ mod tests {
     fn many_keys_stay_ordered() {
         let mut m: JsMap<u32, u32> = JsMap::new();
         for i in 0..5000u32 {
-            m.set(i * 2654435761 % 100003, i);
+            m.set(i.wrapping_mul(2654435761) % 100003, i);
         }
         for i in (0..5000u32).step_by(3) {
-            m.delete(&(i * 2654435761 % 100003));
+            m.delete(&(i.wrapping_mul(2654435761) % 100003));
         }
         let keys = m.keys();
         assert_eq!(keys.len(), m.size());
