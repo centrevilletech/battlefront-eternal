@@ -525,6 +525,40 @@ pub fn random(id: usize, seed: u64, chunk: u64, n: usize, out: &mut Vec<f64>) {
     }
 }
 
+/// Inputs of the size the game uses, for timing: angles within a few turns,
+/// distances and speeds up to some hundreds, exponents of a few units.
+pub fn typical(id: usize, n: usize, out: &mut Vec<f64>) {
+    let fun = FUNS[id];
+    let mut r = Rng::new(0x7E57 ^ fnv(fun.name));
+    let mut u = |lo: f64, hi: f64| lo + (hi - lo) * ((r.next() >> 11) as f64 * pow2(-53));
+    out.clear();
+    for _ in 0..n {
+        match fun.name {
+            "sin" | "cos" | "tan" => out.push(u(-10.0, 10.0)),
+            "asin" | "acos" | "atanh" => out.push(u(-1.0, 1.0)),
+            "atan" | "asinh" | "cbrt" => out.push(u(-100.0, 100.0)),
+            "sinh" | "cosh" | "tanh" => out.push(u(-5.0, 5.0)),
+            "acosh" => out.push(u(1.0, 100.0)),
+            "exp" | "expm1" => out.push(u(-20.0, 20.0)),
+            "log" | "log1p" | "log2" | "log10" | "sqrt" => out.push(u(0.0, 1000.0)),
+            "pow" | "pow_legacy" | "glibc_pow" => {
+                out.push(u(0.0, 100.0));
+                out.push(u(-4.0, 4.0));
+            }
+            "fma" => {
+                for _ in 0..3 {
+                    out.push(u(-100.0, 100.0));
+                }
+            }
+            _ => {
+                for _ in 0..fun.arity {
+                    out.push(u(-1000.0, 1000.0));
+                }
+            }
+        }
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     //! Exports for check-wasm.mjs: it asks for a chunk of inputs, reads them
@@ -564,6 +598,14 @@ mod wasm {
             OUTPUTS.with(|o| o.borrow_mut().resize(tuples, 0.0));
             tuples
         })
+    }
+
+    /// Fills the input buffer with `n` typical tuples, for timing.
+    #[no_mangle]
+    pub extern "C" fn prepare_typical(id: usize, n: usize) -> usize {
+        INPUTS.with(|v| typical(id, n, &mut v.borrow_mut()));
+        OUTPUTS.with(|o| o.borrow_mut().resize(n, 0.0));
+        n
     }
 
     /// Makes room for `tuples` input tuples of function `id`, to be written

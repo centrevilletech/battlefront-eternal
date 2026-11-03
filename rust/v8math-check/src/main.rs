@@ -154,6 +154,23 @@ fn check(id: usize, src: &Source, seed: u64, chunks: Option<(u64, u64)>, chunk_s
     tally
 }
 
+/// Times function `id` on a million typical inputs: nanoseconds a call,
+/// the best of several rounds.
+fn bench(id: usize) -> f64 {
+    let n = 1 << 20;
+    let mut inputs = Vec::new();
+    v8math_check::typical(id, n, &mut inputs);
+    let mut out = vec![0.0; n];
+    let mut best = f64::INFINITY;
+    for _ in 0..7 {
+        let t = std::time::Instant::now();
+        eval_all(id, std::hint::black_box(&inputs), &mut out);
+        std::hint::black_box(&out);
+        best = best.min(t.elapsed().as_secs_f64() * 1e9 / n as f64);
+    }
+    best
+}
+
 fn main() {
     let mut node = String::from("node");
     let mut flags: Vec<String> = Vec::new();
@@ -181,6 +198,13 @@ fn main() {
             }
             "--chunk-size" => chunk_size = args.next().unwrap().parse().unwrap(),
             "--jobs" => jobs = args.next().unwrap().parse().unwrap(),
+            "--bench" => {
+                // Prints the native nanoseconds a call of every function.
+                for (id, f) in FUNS.iter().enumerate() {
+                    println!("{{\"fn\":\"{}\",\"build\":\"native\",\"ns\":{:.2}}}", f.name, bench(id));
+                }
+                return;
+            }
             // all: what Node 24 computes (pow_legacy needs Node 22 or
             // --no-use-std-math-pow, glibc_pow --libm, and fma is the
             // WebAssembly build's).

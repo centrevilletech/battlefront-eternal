@@ -235,7 +235,7 @@ target/release/v8math-check --node "$(command -v node)" --chunks 0..64 --jobs 8 
 node v8math-check/check-wasm.mjs --chunks 0..64 --jobs 8 all             # the same, as WebAssembly
 ```
 
-Each chunk is 2^20 inputs made from bit patterns; the comments at the top of `v8math-check/src/main.rs` and `check-wasm.mjs` give the options.
+Each chunk is 2^20 inputs made from bit patterns; the comments at the top of `v8math-check/src/main.rs` and `check-wasm.mjs` give the options. `target/release/v8math-check --bench` and `node v8math-check/bench.mjs` time the functions natively, as WebAssembly and in V8 itself.
 
 Because the WebAssembly is committed, building, testing and packaging the game needs no Rust. Changing it needs rustup, which installs the release `rust/rust-toolchain.toml` pins, with the wasm32 target, when cargo first runs under `rust/` (or run `rustup toolchain install` there), and the wasm-bindgen CLI of the version `rust/Cargo.lock` locks:
 
