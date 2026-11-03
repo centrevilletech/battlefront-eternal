@@ -207,8 +207,28 @@ export function selectMine(agent, helper) {
   return false;
 }
 
+// The weapon reads go through the world's weapons service when the world
+// provides one (the simulation's capture and the Rust port serve it there);
+// the direct weapons-ai calls are the same functions.
+const selectedWeaponOf = (agent) =>
+  agent.world.weapons?.selectedWeapon
+    ? agent.world.weapons.selectedWeapon(agent.unit, agent.controller)
+    : selectedWeapon(agent.unit, agent.controller);
+const effectiveRangeOf = (agent, def) =>
+  agent.world.weapons?.effectiveRange
+    ? agent.world.weapons.effectiveRange(agent.unit, agent.controller, def)
+    : effectiveRange(agent.unit, agent.controller, def);
+const firingConeOf = (agent, point) =>
+  agent.world.weapons?.firingCone
+    ? agent.world.weapons.firingCone(agent.controller, agent.unit, point)
+    : firingCone(agent.controller, agent.unit, point);
+
 function chooseWeapon(agent, weapon) {
-  if (agent.controller.perception?.fire) return switchWeapon(agent.controller, agent.unit, weapons(agent.unit).indexOf(weapon));
+  if (agent.controller.perception?.fire) {
+    return agent.world.weapons?.switchWeapon
+      ? agent.world.weapons.switchWeapon(agent.controller, agent.unit, weapons(agent.unit).indexOf(weapon))
+      : switchWeapon(agent.controller, agent.unit, weapons(agent.unit).indexOf(weapon));
+  }
   return agent.unit.combat.arsenal.select(weapon);
 }
 
@@ -235,7 +255,7 @@ export class MineHelper extends MinePolicies {
     }
     const weapon = mineWeapon(a);
     if (!weapon) { this.requestState(100); return; }
-    if (selectedWeapon(a.unit, a.controller) !== weapon) { chooseWeapon(a, weapon); return; }
+    if (selectedWeaponOf(a) !== weapon) { chooseWeapon(a, weapon); return; }
     a.controller.lookAt(this.aimPoint);
     if (this.firedAt == null) { a.controller.fireA = true; this.firedAt = now(a); return; }
     if (now(a) > this.firedAt + 3) {
@@ -362,7 +382,7 @@ export class RepairServices {
     const s = agent.service;
     const distance = horizontal2(agent.unit.position, target.position);
     const current = agent.unit.combat?.repairTarget ?? agent.controller.target?.unit;
-    const range = effectiveRange(agent.unit, agent.controller, selectedWeapon(agent.unit, agent.controller)?.def ?? weapon.def);
+    const range = effectiveRangeOf(agent, selectedWeaponOf(agent)?.def ?? weapon.def);
     // Locked on means the tool holds this target. With no lock, `current` is
     // empty and must not match the wrapper's missing building or vehicle:
     // that made every job "close" inside the tool's default 60 m, and the
@@ -397,10 +417,10 @@ export class RepairServices {
     }
     s.approachAt = now(agent);
     s.workable ??= now(agent);
-    const selected = selectedWeapon(agent.unit, agent.controller) === weapon;
+    const selected = selectedWeaponOf(agent) === weapon;
     if (!selected) { chooseWeapon(agent, weapon); s.progressAt = Infinity; return { target, near: true }; }
     if (agent.controller.perception?.aimer && agent.unit.origin && agent.unit.forward
-      && !firingCone(agent.controller, agent.unit, target.aimPoint?.(new Vector3()) ?? target.position)) {
+      && !firingConeOf(agent, target.aimPoint?.(new Vector3()) ?? target.position)) {
       s.progressAt = Infinity;
       // Never able to bring the tool to bear (the target past its pitch, or
       // behind something): no work starts, so no progress check ever runs.

@@ -2966,6 +2966,15 @@ impl Core {
         }
     }
 
+    fn choose_weapon(&mut self, w: &mut dyn AiWorld, ci: usize, weapon: usize) {
+        let (has_fire, _) = w.perception_flags(ci);
+        if has_fire {
+            w.weapons_switch(ci, weapon);
+        } else {
+            w.weapons_select(ci, weapon);
+        }
+    }
+
     fn mine_on_tick(&mut self, w: &mut dyn AiWorld, _d: &mut dyn Draws, ci: usize, _dt: f64) {
         let full = self.objective(ci).map(|o| o.mine.full).unwrap_or(false);
         if !full {
@@ -3001,7 +3010,7 @@ impl Core {
         // selectedWeapon / chooseWeapon cross to the combat package.
         let selected = w.weapons_selected(ci);
         if selected != Some(weapon) {
-            w.weapons_switch(ci, weapon);
+            self.choose_weapon(w, ci, weapon);
             return;
         }
         if let Some(point) = self.objective(ci).and_then(|o| o.mine.aim_point) {
@@ -3335,7 +3344,7 @@ impl Core {
             }
         }
         if selected != Some(weapon) {
-            w.weapons_switch(ci, weapon);
+            self.choose_weapon(w, ci, weapon);
             if let Some(o) = self.objective_mut(ci) {
                 if let Some(s) = &mut o.service {
                     s.progress_at = f64::INFINITY;

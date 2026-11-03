@@ -631,6 +631,8 @@ pub trait AiWorld {
     /// the unit's snapshot list.
     fn weapons_selected(&mut self, controller: usize) -> Option<usize>;
     fn weapons_switch(&mut self, controller: usize, index: usize);
+    /// arsenal.select directly (classes.js chooseWeapon's other arm).
+    fn weapons_select(&mut self, controller: usize, index: usize);
     fn weapons_effective_range(&mut self, controller: usize, weapon: usize) -> f64;
     fn weapons_firing_cone(&mut self, controller: usize, point: Vec3) -> bool;
     fn combat_repair_target(&mut self, controller: usize) -> Option<UKey>;

@@ -67,6 +67,7 @@ import { goneUp } from "./droideka.js";
 import { ClassicRandom, RandomStreams } from "./ai/random.js";
 import { createAI } from "./ai/index.js";
 import { createServiceCandidates } from "./ai/services.js";
+import { effectiveRange, firingCone, selectedWeapon, switchWeapon } from "./ai/classic/weapons-ai.js";
 import { CommandHistory, CommandControls, queueHumanCommand, stillCommand } from "./runtime/commands.js";
 import { InputLead, advanceInputClock, replayTicks, CorrectionSmoother } from "./runtime/reconcile.js";
 import { HeadlessGraphics, HeadlessHud, HeadlessAudio, HeadlessControls } from "./runtime/headless-ports.js";
@@ -1534,6 +1535,7 @@ async function start() {
       items,
       serviceCandidates: createServiceCandidates(units, live, vehicles),
       mineGroundHeight: (point) => collision.ground(point.x, point.z, point.y + 100, groundHit)?.height ?? point.y,
+      weapons: { selectedWeapon, switchWeapon, effectiveRange, firingCone },
     };
     ai = await createAI(AI_MODE, aiWorld, {
       map: MAP,
