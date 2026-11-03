@@ -30,6 +30,22 @@ use crate::store::{same_f64, word_u32, DefId, KindCode, Nullable, Ref, RefSet, S
 
 static mut DEFS: Option<Defs> = None;
 
+/// Whether the rounds' and the items' battle has water (ordnance.water,
+/// items.water): without, a water crossing is null and nobody is asked.
+static mut WATER: [bool; 2] = [false, false];
+
+fn water(which: usize) -> bool {
+    // SAFETY: one thread.
+    unsafe { (*addr_of_mut!(WATER))[which] }
+}
+
+/// The rounds' (0) or the items' (1) water, present or not.
+#[no_mangle]
+pub extern "C" fn ord_water(which: u32, present: u32) {
+    // SAFETY: one thread.
+    unsafe { (*addr_of_mut!(WATER))[(which & 1) as usize] = present != 0 };
+}
+
 /// The battle's definitions as JavaScript registered them (`ord_def`,
 /// `ord_explosion`).
 pub(crate) fn defs() -> *mut Defs {
@@ -325,6 +341,10 @@ impl World for JsWorld {
     }
 
     fn rider_mount(&mut self, body: Nullable<Ref<Body>>) -> Option<RiderMount> {
+        // No body met, no hull to strike through (riderMount's `body?.owner`).
+        if !matches!(body, Nullable::Value(_)) {
+            return None;
+        }
         let a = import_rider_mount(&BodyArgs { body });
         if !a.found {
             return None;
@@ -347,6 +367,10 @@ impl World for JsWorld {
     }
 
     fn gone(&mut self, x: BeamSource) -> bool {
+        // `x?.alive === false`: never for nobody or the player's own.
+        if matches!(x, BeamSource::Null | BeamSource::Player) {
+            return false;
+        }
         import_gone(&GoneArgs { subject: x }).value
     }
 
@@ -384,6 +408,9 @@ impl World for JsWorld {
     }
 
     fn water_crossing(&mut self, from: Vec3, to: Vec3) -> Option<Vec3> {
+        if !water(0) {
+            return None;
+        }
         point_of(import_water_crossing(&SegmentArgs { from, to }))
     }
 
@@ -461,6 +488,9 @@ impl World for JsWorld {
     }
 
     fn item_water_crossing(&mut self, from: Vec3, to: Vec3) -> Option<Vec3> {
+        if !water(1) {
+            return None;
+        }
         point_of(import_item_water_crossing(&SegmentArgs { from, to }))
     }
 

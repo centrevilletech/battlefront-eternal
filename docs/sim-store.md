@@ -334,9 +334,16 @@ the `echo` command its tests and benchmarks use):
   is still JavaScript's: `gen::import_raycast_units(&args)` calls out of the
   module, the bridge serves it with `bridge.handlers.raycastUnits(args)`,
   and the result comes back. Its arguments and result cross in a block of
-  their own, outside the store, reached only for a moment before and after
-  the call: the Rust that asks holds the store, so a handler must not call
-  back into it. The
+  their own, outside the store (a fixed stretch of the module's memory, so
+  JavaScript reads the arguments and writes the result there with no other
+  call: an import costs a call each way), reached only for a moment before
+  and after the call. The arguments object a handler gets is the bridge's
+  own, read into again at the import's next call: a handler keeps nothing
+  of it (it copies a vector it hands to code that might keep one) and
+  reads what it needs before it calls code that could come back into the
+  module. A port whose Rust holds no reference to the store across an
+  import (the rounds' and items' do not: `rust/sim/src/ordnance/module.rs`)
+  can take such calls back in; otherwise a handler must not call back. The
   module's loader gives every instance the imports' functions, which reach
   the bridge attached to it. A port reaches other subsystems through a
   trait of its own; on the module, its JavaScript side is these imports,

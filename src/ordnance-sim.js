@@ -57,6 +57,7 @@ export class OrdnanceSim {
     // the bridge's own table, which the rows' definition words index).
     this.ordnanceDefs = bridge.defs.ordnance;
     this.sent = 0;
+    this.water = false;
     this.explosions = new DefTable("explosion");
     this.fireArgs = { words: this.x.ord_args_words(0), put: putFireArgs };
     this.missileArgs = { words: this.x.ord_args_words(1), put: putFlightMissileArgs };
@@ -85,6 +86,7 @@ export class OrdnanceSim {
   // ordnance.js fireRound: the round made (its mirror), for a bolt, rocket,
   // missile, shell or fat ray; undefined for a beam or grenade.
   fire(def, origin, direction, owner, visual, ignoreBody, emitter, channel, targetId, targetGeneration) {
+    this.waterKnown();
     const a = this.fire$;
     a.def = def;
     this.defId(def);
@@ -118,8 +120,17 @@ export class OrdnanceSim {
 
   // ordnance.js update (a world's): the rounds' flight, then every mirror.
   update(dt) {
+    this.waterKnown();
     this.x.ord_update(dt);
     this.refresh();
+  }
+
+  // Whether the battle has water, told to the module when it changes (a
+  // world sets ordnance.water once it is made): with none, a round's water
+  // crossing is null without asking.
+  waterKnown() {
+    const has = Boolean(this.ordnance.water);
+    if (has !== this.water) this.x.ord_water(0, (this.water = has) ? 1 : 0);
   }
 
   // Every round's mirror and the lists: each kind's retired first (their
@@ -292,8 +303,10 @@ export class OrdnanceSim {
       waterCrossing: (a) => point(w().waterCrossing(a.from, a.to, o.wet)),
       waver: () => number(w().waver()),
       spin: () => number(w().spin()),
-      explosion: (a) => w().explosion(this.fieldValue(a.defTag, a.def), a.position, a.owner),
-      hit: (a) => w().hit(a.body, a.beam ? this.beamDef(a.beam, a.damage) : a.def, a.owner, a.direction),
+      // (Vectors handed on are copies: the arguments object is read into
+      // again at the next call, and the code they go to may keep them.)
+      explosion: (a) => w().explosion(this.fieldValue(a.defTag, a.def), a.position.clone(), a.owner),
+      hit: (a) => w().hit(a.body, a.beam ? this.beamDef(a.beam, a.damage) : a.def, a.owner, a.direction.clone()),
       hitUnit: (a) => {
         const def = a.beamDef ? this.beamDef(a.beam, a.damage) : a.def;
         // The vector the JavaScript hands (rust/sim/src/ordnance/world.rs Point).
@@ -301,8 +314,8 @@ export class OrdnanceSim {
         if (a.at === 1) at = (a.beam.end ??= new THREE.Vector3()).copy(a.point);
         else if (a.at === 2) at = o.unitHit.point.copy(a.point);
         else if (a.at === 3) at = o.start.copy(a.point);
-        else at = a.point;
-        w().hitUnit(a.unit, def, at, a.owner, a.part, a.direction);
+        else at = a.point.clone();
+        w().hitUnit(a.unit, def, at, a.owner, a.part, a.direction.clone());
       },
       projectile: (a) => {
         const round = this.handed("projectile", a.kind);
@@ -313,10 +326,10 @@ export class OrdnanceSim {
       launch: (a) => w().launch(this.handed("launch", a.kind), a.tick),
       impact: (a) => {
         const round = this.handed("impact", a.kind), s = a.struck;
-        w().impact(round, s ? { point: s.point, normal: s.normal, terrain: s.terrain, body: s.body, unit: s.unit, part: s.part, surface: a.surface } : { point: a.point, normal: a.normal, surface: a.surface });
+        w().impact(round, s ? { point: s.point.clone(), normal: s.normal.clone(), terrain: s.terrain, body: s.body, unit: s.unit, part: s.part, surface: a.surface } : { point: a.point.clone(), normal: a.normal.clone(), surface: a.surface });
       },
       grenadeContact: (a) => w().grenadeContact(this.handed("grenadeContact", a.kind)),
-      bounce: (a) => w().bounce(a.def, a.position, a.speed),
+      bounce: (a) => w().bounce(a.def, a.position.clone(), a.speed),
     };
   }
 }

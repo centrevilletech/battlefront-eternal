@@ -312,8 +312,13 @@ export class SimBridge extends SimContext {
     // a phase; release: views are made again where it is noticed).
     this.grown = 0;
     // What serves the module's imports, by name (a schema's imports):
-    // handler(args) gives the result.
+    // handler(args) gives the result. Each import's arguments object, by
+    // code, made the first time it is served.
     this.handlers = {};
+    this.served = [];
+    // The import block: where it is (in f64s) and its size.
+    this.exchange = this.x.sim_import_args() / 8;
+    this.exchangeWords = this.x.sim_import_capacity();
     if (instance.holder) instance.holder.bridge = this;
     this.commandCodes = new Map(COMMAND_TABLE.filter(Boolean).map((c) => [c.name, c.code]));
     // A flat command's argument words (its binding fills them, then calls).
@@ -379,22 +384,32 @@ export class SimBridge extends SimContext {
   }
 
   // Serves an import the module called: its arguments out of the import
-  // block, handlers[name](args), the result back in. A handler must not
-  // call back into the store (the Rust that called holds it).
+  // block (the same stretch of memory every time: rust/sim/src/store/
+  // calls.rs), handlers[name](args), the result written back there. The
+  // arguments object is the bridge's own, made once an import and read
+  // into again at its next call: a handler keeps nothing of it (it copies
+  // a vector it hands on to code that might keep it), and reads all it
+  // needs before it calls code that could come back into the module (which
+  // may make the same import again).
   serve(code) {
     const imp = IMPORT_TABLE[code], handler = this.handlers[imp.name];
     if (!handler) throw Error(`the simulation's module asked for ${imp.name}, which nothing serves`);
-    const result = handler(this.callResult(imp.args, this.x.sim_import_args()));
+    const args = (this.served[code] ??= new imp.args.Mirror()), base = this.exchange;
+    this.views();
+    const f = this.f;
+    const result = handler(imp.args.sync(this, f, base + HEADER, base + f[base + 2], args));
     if (!imp.result) return;
     const record = imp.result, heap = this.heap, words = record.words;
     if (this.rows.length < words) this.rows = new Float64Array(Math.max(words, this.rows.length * 2));
     heap.clear();
     record.put(this, result, this.rows, 0, heap);
-    const ptr = this.x.sim_import_result_room(words, heap.words.length);
+    const hw = heap.words;
+    if (HEADER + words + hw.length > this.exchangeWords) throw Error(`${imp.name}: a result larger than the import block`);
     this.views();
-    const f = this.f, at = ptr / 8 + HEADER, hw = heap.words;
-    for (let i = 0; i < words; i++) f[at + i] = this.rows[i];
-    for (let i = 0; i < hw.length; i++) f[at + words + i] = hw[i];
+    const g = this.f, at = base + HEADER, rows = this.rows;
+    g[base] = 1; g[base + 1] = words; g[base + 2] = HEADER + words; g[base + 3] = hw.length; g[base + 4] = 0;
+    for (let i = 0; i < words; i++) g[at + i] = rows[i];
+    for (let i = 0; i < hw.length; i++) g[at + words + i] = hw[i];
   }
 
   // The memory's views, made again if it grew (a grown memory's old buffer

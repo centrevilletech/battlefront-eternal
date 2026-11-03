@@ -36,6 +36,7 @@ export class ItemsSim {
     b.own(KIND_ITEM);
     this.itemDefs = b.defs.item;
     this.sent = 0;
+    this.water = false;
     this.args = [putSpawnArgs, putDispenseArgs, putDropArgs, putItemsBlastArgs, putHurtArgs].map((put, i) => ({ words: x.items_args_words(i), put }));
     // A class's model, measured once (ItemsWorld.model): its size and middle
     // are the same for every item of the class, and the world draws none.
@@ -85,6 +86,9 @@ export class ItemsSim {
   }
 
   update(dt, targets) {
+    // Whether there is water, as the rounds tell it (OrdnanceSim.waterKnown).
+    const has = Boolean(this.items.water);
+    if (has !== this.water) this.x.ord_water(1, (this.water = has) ? 1 : 0);
     this.items.world.targets = targets;
     this.x.items_update(dt, targets.length);
     this.refresh();
@@ -165,7 +169,9 @@ export class ItemsSim {
       itemModel: (a) => this.model(a.def),
       ownerKey: (a) => { this.key.key = w().ownerKey(a.owner); return this.key; },
       dropRoll: () => { this.number.value = w().dropRoll(); return this.number; },
-      explode: (a) => w().explode(this.rounds.fieldValue(a.defTag, a.def), a.position, a.owner),
+      // (Vectors handed on are copies: the arguments object is read into
+      // again at the next call.)
+      explode: (a) => w().explode(this.rounds.fieldValue(a.defTag, a.def), a.position.clone(), a.owner),
       // The targets all at once (what watch and standing read of each).
       itemTargets: () => {
         const list = w().targets, out = this.targetsAnswer.targets;
@@ -186,7 +192,7 @@ export class ItemsSim {
         return this.relationsAnswer;
       },
       give: (a) => flag(Boolean(w().give(a.index, a.def))),
-      pickup: (a) => w().pickup(a.def, a.position),
+      pickup: (a) => w().pickup(a.def, a.position.clone()),
     };
   }
 }
