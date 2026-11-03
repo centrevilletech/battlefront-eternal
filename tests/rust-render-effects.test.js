@@ -849,6 +849,48 @@ test("a flying part that blends: a rigid record of its own kind, one blend for e
   assert.deepEqual([...core.input.subarray(at(0) + 76, at(0) + 78)], [0.5, 0], "its scroll in its row");
 });
 
+test("reveal: what the instance pass took shown to three for a render of three's own, then taken again", () => {
+  const { core, scene, camera, renderer, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  const inst = core.byName.instances;
+  const uniforms = () => ({ map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } });
+  // A rig and a flying part, both registered.
+  const rigMaterial = new THREE.ShaderMaterial({ uniforms: uniforms() });
+  drawn(rigMaterial, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"], ["position", "skinIndex", "skinWeight"]));
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+  geometry.setIndex([0, 1, 2]);
+  const rig = new THREE.SkinnedMesh(geometry, rigMaterial), bone = new THREE.Bone();
+  rig.add(bone); rig.bind(new THREE.Skeleton([bone]));
+  rig.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2);
+  rig.position.z = -10;
+  scene.add(rig);
+  const partMaterial = new THREE.ShaderMaterial({ defines: { DYNAMIC: "" }, uniforms: uniforms() });
+  drawn(partMaterial, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]));
+  const group = new THREE.Group(); group.add(new THREE.Mesh(geometry, partMaterial)); group.userData.flying = true; group.position.z = -5;
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  renderer.info.render.frame++;
+  core.pass(renderer, scene, camera);
+  const part = group.children[0];
+  assert.equal(rigMaterial.visible, false);
+  assert.equal(part.layers.mask, 1 << 30);
+  inst.reveal(true);
+  assert.equal(rigMaterial.visible, true, "the rig shown");
+  assert.equal(part.layers.mask, 1, "the part on its own layers");
+  assert.equal(partMaterial.visible, true, "a part's material, shared with every copy, never touched");
+  inst.reveal(false);
+  assert.equal(rigMaterial.visible, false);
+  assert.equal(part.layers.mask, 1 << 30);
+  // The renderer off: three has it all already, and reveal leaves it so.
+  core.setActive(false);
+  inst.reveal(false);
+  assert.equal(rigMaterial.visible, true);
+  assert.equal(part.layers.mask, 1);
+});
+
 test("soldiers: only those three's render would list are written, with the bones three worked out in that render", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
   renderer.info = { render: { frame: 0 } };

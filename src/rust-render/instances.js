@@ -381,6 +381,18 @@ class InstancePass {
     this.flyingActive(on);
   }
 
+  // What this pass took from three shown to three (on) for a render of
+  // three's own that must still see it (its shadow pass, its motion pass:
+  // index.js reveal), then taken again (off): the bodies', rigs' and guns'
+  // materials, the flying parts' layers. Nothing while the renderer is off
+  // (three has it all already).
+  reveal(on) {
+    if (!this.core.enabled || !this.core.active) return;
+    for (const record of this.bodyRecords) for (const m of record.used) if (m) m.visible = on;
+    for (const record of this.meshRecords) if (record.material) record.material.visible = on;
+    this.flyingActive(!on);
+  }
+
   // Flying models (game.js flyingModel: rounds, grenades, droids' pieces,
   // items), groups the game adds to the scene tagged userData.flying, their
   // parts drawn as rigid records, dynamic (lit) and unlit zero materials
