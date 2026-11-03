@@ -168,6 +168,9 @@ struct Item<C: HasContext> {
     order: [f64; 4],
     sphere: ([f64; 3], f64),
     slot: usize,
+    // Where its index starts in its geometry's (one shared by several
+    // buckets), in indices.
+    base: i32,
     draw: Draw<C>,
     instanced: Option<Instanced<C>>,
 }
@@ -257,7 +260,7 @@ impl<C: HasContext> FarPass<C> {
         self.items.push(Item {
             program: program as usize, table: table as usize, geometry: geometry as usize, sources: vec![], flags, depth_func, blend: b,
             order: [order[0], order[1], order[2], order[3]], sphere: ([sphere[0], sphere[1], sphere[2]], sphere[3]),
-            slot: slot as usize, draw: Draw::Range(0, count), instanced: None,
+            slot: slot as usize, base: 0, draw: Draw::Range(0, count), instanced: None,
         });
         (self.items.len() - 1) as u32
     }
@@ -283,6 +286,12 @@ impl<C: HasContext> FarPass<C> {
     // The part of the index the item draws (three's draw range).
     pub fn range(&mut self, item: u32, start: i32, count: i32) {
         self.items[item as usize].draw = Draw::Range(start, count);
+    }
+
+    // Where the item's own index starts in its geometry's (a geometry several
+    // buckets share): its ranges and cells are its own index's, offset by it.
+    pub fn base(&mut self, item: u32, base: i32) {
+        self.items[item as usize].base = base;
     }
 
     // A per-instance attribute of an instanced item, at `location` (a matrix
@@ -460,7 +469,7 @@ impl<C: HasContext> FarPass<C> {
         let (first, count);
         match &mut item.draw {
             Draw::Range(s, c) => {
-                first = *s;
+                first = *s + item.base;
                 count = *c;
             }
             Draw::Cells(cells) => {
@@ -478,7 +487,7 @@ impl<C: HasContext> FarPass<C> {
                         continue;
                     }
                     if start >= 0 {
-                        cells.offsets[ranges] = start as i32 * geo.index_bytes;
+                        cells.offsets[ranges] = (start as i32 + item.base) * geo.index_bytes;
                         cells.counts[ranges] = (end as i64 - start) as i32;
                         ranges += 1;
                     }
@@ -486,7 +495,7 @@ impl<C: HasContext> FarPass<C> {
                     end = r[2];
                 }
                 if start >= 0 {
-                    cells.offsets[ranges] = start as i32 * geo.index_bytes;
+                    cells.offsets[ranges] = (start as i32 + item.base) * geo.index_bytes;
                     cells.counts[ranges] = (end as i64 - start) as i32;
                     ranges += 1;
                 }
@@ -494,7 +503,7 @@ impl<C: HasContext> FarPass<C> {
                     return;
                 }
                 first = cells.offsets[0] / geo.index_bytes;
-                count = end as i32 - first;
+                count = end as i32 + item.base - first;
             }
             Draw::Terrain(t) => {
                 let level = (input[item.slot + 1] as usize).min(t.levels.len().saturating_sub(1));
@@ -728,7 +737,7 @@ mod tests {
     fn item(transparent: bool, order: [f64; 4]) -> Item<glow::Context> {
         Item {
             program: 0, table: 0, geometry: 0, sources: vec![], flags: if transparent { F_TRANSPARENT } else { 0 }, depth_func: 0, blend: [0; 6],
-            order, sphere: ([0.0; 3], 1.0), slot: 0, draw: Draw::Range(0, 3), instanced: None,
+            order, sphere: ([0.0; 3], 1.0), slot: 0, base: 0, draw: Draw::Range(0, 3), instanced: None,
         }
     }
 
