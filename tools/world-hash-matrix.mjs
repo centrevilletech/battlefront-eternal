@@ -56,7 +56,8 @@ function readMatrix(file) {
   return fs.readFileSync(file, 'utf8').split('\n').map((line) => line.replace(/#.*/, '').trim()).filter(Boolean).map((line) => {
     const [label, ...args] = line.split(/\s+/);
     const value = (name, fallback) => { const i = args.indexOf(`--${name}`); return i < 0 ? fallback : args[i + 1]; };
-    return { label, args, ticks: Number(value('ticks', 2400)) * Number(value('battles', 1)), battles: Number(value('battles', 1)) };
+    const battles = args.includes('--twice') ? 2 : Number(value('battles', 1));
+    return { label, args, ticks: Number(value('ticks', 2400)) * battles, battles };
   });
 }
 const matrixFile = path.resolve(opt('matrix', path.join(root, 'tools/world-hash-matrix.txt')));
@@ -215,10 +216,11 @@ for (const config of configs) {
   // Several battles in one process: does a later one part from the first?
   // (What a module keeps between battles; reported, not a failure.)
   if (config.battles > 1 && refLines) {
+    // (A later battle's lines carry its number: "2:1 ...".)
     const each = config.ticks / config.battles, first = refLines.slice(0, each);
     row.repeats = [];
     for (let k = 1; k < config.battles; k++) {
-      const diff = compareLines(first, refLines.slice(k * each, (k + 1) * each));
+      const diff = compareLines(first, refLines.slice(k * each, (k + 1) * each).map((line) => line.replace(/^\d+:/, '')));
       row.repeats.push(diff ? `battle ${k + 1} parts from the first at its tick ${diff.tick} (${diff.columns.join(', ')})` : `battle ${k + 1} the same as the first`);
     }
   }
