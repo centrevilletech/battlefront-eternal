@@ -272,10 +272,10 @@ export class ArcBatch {
     this.mesh.visible = false;
     arcBatches.set(this.mesh, this);
     const size = new THREE.Vector2();
-    this.mesh.onBeforeRender = (renderer, scene, camera, ...rest) => {
+    this.mesh.onBeforeRender = (renderer, scene, camera) => {
       // Shown empty only to have its program built while a battle loads.
       if (!this.count) return;
-      if (this.soft) particleDepth.capture(renderer, scene, camera, ...rest);
+      if (this.soft) particleDepth.capture(renderer, scene, camera);
       if (camera.isPerspectiveCamera) {
         // The pixels being drawn: under an upscaler, the 3D frame's.
         const target = renderer.getRenderTarget();
