@@ -3,12 +3,12 @@
 // (src/runtime/local-server.js, the world worker's) runs a whole battle with
 // its player walking, turning and firing on a script, on a fixed clock: wall
 // time reads the tick's time, and Math.random a seeded sequence restarted as
-// the battle starts (a few gameplay paths still draw it, three draws it for
-// every object it makes while loading, and a vehicle's barrel recoil reads
-// the clock, so two unseeded runs part after a while). Each tick prints three
-// hashes: the replay parity state (src/runtime/world-state.js), a deeper
-// digest of every unit, hull and round in full precision, and the snapshot
-// bytes the server published. Run it in two checkouts and compare:
+// the battle starts. No gameplay draws Math.random (three draws it for the id
+// of every object it makes): with --random native, which leaves it to V8,
+// the fingerprints are the same. Each tick prints three hashes: the replay
+// parity state (src/runtime/world-state.js), a deeper digest of every unit,
+// hull and round in full precision, and the snapshot bytes the server
+// published. Run it in two checkouts and compare:
 //
 //   BFE_CONTENT_DIR=<game-data> node tools/world-hash.mjs \
 //     [--map nab2] [--side rep] [--seed 1] [--ticks 2400] > before.txt
@@ -45,7 +45,7 @@
 // --rays wasm runs the collision's ray casts in WebAssembly (?rays=wasm,
 // src/ray-kernel.js), and --movement wasm the soldiers' movement too
 // (?movement=wasm, src/movement-kernel.js); their fingerprints must match
-// the default's.
+// the default's, as must --random native's.
 //
 // --plugin FILE (any number of times) loads a module that watches the
 // battle (the simulation capture of tools/sim-capture.mjs): it is imported
@@ -65,6 +65,7 @@ const map = opt('map', 'nab2'), side = opt('side', 'rep'), seed = Number(opt('se
 const interval = Number(opt('interval', 1)), ack = argv.includes('--ack'), view = opt('view', null) === null ? null : Number(opt('view', 0));
 const rays = opt('rays', 'js'), movement = opt('movement', 'js');
 const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = Number(opt('battles', 1));
+const nativeRandom = opt('random', 'seeded') === 'native';
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
 if (!(Number.isInteger(battles) && battles >= 1)) throw Error(`--battles ${opt('battles')}: a whole number from 1`);
@@ -74,7 +75,7 @@ let now = 1000;
 performance.now = () => now;
 Date.now = () => 1700000000000 + Math.floor(now);
 let draw = 991;
-Math.random = () => { draw = (Math.imul(draw, 1664525) + 1013904223) >>> 0; return draw / 4294967296; };
+if (!nativeRandom) Math.random = () => { draw = (Math.imul(draw, 1664525) + 1013904223) >>> 0; return draw / 4294967296; };
 
 const plugins = [];
 for (let i = 0; i < argv.length; i++) if (argv[i] === '--plugin') plugins.push(await import(pathToFileURL(path.resolve(argv[++i])).href));
@@ -87,7 +88,7 @@ const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
 const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}&rays=${rays}&movement=${movement}${heroes ? '&heroes=1' : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, ai, heroes, battles, query };
+const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, ai, heroes, battles, nativeRandom, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 const lines = [];
@@ -151,7 +152,7 @@ async function battle(index) {
     await new Promise((resolve) => setImmediate(resolve));
   }
   call('ended', { game, index });
-  console.error(`${map} ${side} seed ${seed}${ai === 'classic' ? '' : ` (${ai} AI)`}${heroes ? ' (heroes)' : ''}${battles > 1 ? ` (battle ${index + 1} of ${battles})` : ''}${rays === 'wasm' ? ' (rays wasm)' : ''}${movement === 'wasm' ? ' (movement wasm)' : ''}: ${ticks} ticks, ${game.units.all().filter((u) => u.alive && u.soldier).length} soldiers alive at the end, world step ${(stepMs / Math.max(1, measured)).toFixed(2)} ms mean after tick 900`);
+  console.error(`${map} ${side} seed ${seed}${ai === 'classic' ? '' : ` (${ai} AI)`}${heroes ? ' (heroes)' : ''}${battles > 1 ? ` (battle ${index + 1} of ${battles})` : ''}${rays === 'wasm' ? ' (rays wasm)' : ''}${movement === 'wasm' ? ' (movement wasm)' : ''}${nativeRandom ? ' (random native)' : ''}: ${ticks} ticks, ${game.units.all().filter((u) => u.alive && u.soldier).length} soldiers alive at the end, world step ${(stepMs / Math.max(1, measured)).toFixed(2)} ms mean after tick 900`);
 }
 
 for (let index = 0; index < battles; index++) await battle(index);
