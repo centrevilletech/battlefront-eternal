@@ -174,6 +174,9 @@ async function start() {
   });
   const streams = new RandomStreams(SEED);
   const gameplayRandom = () => streams.get("gameplay").uniform();
+  // The seats' and turrets' weapons (src/seats.js seatWeaponPolicy): a
+  // network gunner's spread, and a bot's until its seat controller binds.
+  const seatRandom = () => streams.get("seat-weapons").uniform();
   let vehicles = null, driver = null, gunner = null, turretSeats = null, vehicleEffects = null;
   let humanReticleTarget = null;
   // A correction drained: the reticle's target is worked out once, after the
@@ -1271,6 +1274,7 @@ async function start() {
     vehicles.flightAssists = settings.get('aiDifficulty') !== 'hard';
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
+    vehicles.seatRandom = seatRandom;
     // A world's barrels kick back on the tick clock (a page's on its own):
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;
@@ -1303,6 +1307,7 @@ async function start() {
   gunner.aimCamera = simulationCamera;
   gunner.random = gameplayRandom;
   turretSeats = new TurretSeats({ live, ordnance, collision, units });
+  turretSeats.seatRandom = seatRandom;
   // The destructible posts (src/objectives.js): each its post's building,
   // and a target in the units registry while it stands.
   posts.attachBuildings(live);

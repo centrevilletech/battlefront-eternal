@@ -70,7 +70,7 @@ const CENSUS = {
 
 // The legacy streams, and what reaches each in a world step today.
 const LEGACY_STREAMS = {
-  'weapon-spread': 'a weapon with no generator: network players\' own weapons; seat and turret weapons of network gunners, and of a bot before its seat controller binds',
+  'weapon-spread': 'a weapon with no generator: network players\' own weapons (seats and turrets draw the seat-weapons stream)',
   'grenade-spin': 'every thrown grenade\'s spin (Ordnance.spinRandom unset)',
   'missile-waver': 'none in a world (Ordnance.random is the gameplay stream)',
   'arc-link': 'none in a world (PlayerCombat.random is the gameplay stream)',
