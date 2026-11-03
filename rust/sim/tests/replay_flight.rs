@@ -143,8 +143,12 @@ fn tunings_of(world: V) -> Tunings {
     let mut t = Tunings::default();
     let tuning = world.get("tuning");
     if !tuning.is_nullish() {
+        // (The classes the frame reads: a craft's own, a missile's.)
         for (i, name) in FlightClass::NAMES.iter().enumerate() {
             let c = tuning.get(name);
+            if c.is_nullish() {
+                continue;
+            }
             let mut row = Tuning::of(FlightClass::from_u8(i as u8).unwrap());
             for key in TUNING_KEYS {
                 let x = c.get(key).num();
