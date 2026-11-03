@@ -27,12 +27,12 @@ const LOW_COS = Math.cos(Math.PI / 6);
 const LOW_SIN = Math.sin(Math.PI / 6);
 const HIGH_COS = Math.cos(Math.PI / 8);
 const HIGH_SIN = Math.sin(Math.PI / 8);
-// The same DSP in WebAssembly (rust/audio, ?audio=wasm):
+// The same DSP in WebAssembly (rust/audio), which the game runs:
 // processorOptions.dsp is the compiled module the page hands over
-// (src/audio/wasm-dsp.js). With it, blocks go to the module, whose
-// answers are this file's own to the last bit
-// (tests/audio-dsp-parity.mjs); without it, the JavaScript below runs as
-// it always has.
+// (src/audio/wasm-dsp.js), and blocks go to it, whose answers are this
+// file's own to the last bit (tests/audio-dsp-parity.mjs). The JavaScript
+// below runs without it: with ?audio=js (an A/B switch), or when the
+// module cannot be instantiated.
 const DSP_MATH = { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin, js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10 };
 function dspExports(options) {
   const m = options?.processorOptions?.dsp;
@@ -42,6 +42,12 @@ function dspExports(options) {
   } catch {
     return null;
   }
+}
+
+// Views of `count` runs of 128 samples (a block each) from `ptr` in the
+// module's memory: the staging a call reads or fills.
+function dspViews(x, ptr, count) {
+  return Array.from({ length: count }, (_, i) => new Float32Array(x.memory.buffer, ptr + i * 512, 128));
 }
 
 
@@ -123,14 +129,14 @@ class FrontStabilizer extends AudioWorkletProcessor {
     const { x, h } = d;
     const input = inputs[0] || [];
     const output = outputs[0];
-    if (!d.inView || d.inView.byteLength === 0) {
-      d.inView = new Float32Array(x.memory.buffer, x.stabilizer_in(h), this.channels * BLOCK);
-      d.outView = new Float32Array(x.memory.buffer, x.stabilizer_out(h), this.channels * BLOCK);
+    if (!d.ins || d.ins[0].byteLength === 0) {
+      d.ins = dspViews(x, x.stabilizer_in(h), this.channels);
+      d.outs = dspViews(x, x.stabilizer_out(h), this.channels);
     }
     const inCh = Math.min(input.length, this.channels);
-    for (let c = 0; c < inCh; c++) d.inView.set(input[c], c * BLOCK);
+    for (let c = 0; c < inCh; c++) d.ins[c].set(input[c]);
     x.stabilizer_process(h, inCh, output.length);
-    for (let c = 0; c < output.length; c++) output[c].set(d.outView.subarray(c * BLOCK, (c + 1) * BLOCK));
+    for (let c = 0; c < output.length; c++) output[c].set(d.outs[c]);
     return true;
   }
 

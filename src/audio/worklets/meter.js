@@ -31,12 +31,12 @@ function kWeighting(rate) {
 const PHASES = 4;
 const TAPS = 12;
 
-// The same DSP in WebAssembly (rust/audio, ?audio=wasm):
+// The same DSP in WebAssembly (rust/audio), which the game runs:
 // processorOptions.dsp is the compiled module the page hands over
-// (src/audio/wasm-dsp.js). With it, blocks go to the module, whose
-// answers are this file's own to the last bit
-// (tests/audio-dsp-parity.mjs); without it, the JavaScript below runs as
-// it always has.
+// (src/audio/wasm-dsp.js), and blocks go to it, whose answers are this
+// file's own to the last bit (tests/audio-dsp-parity.mjs). The JavaScript
+// below runs without it: with ?audio=js (an A/B switch), or when the
+// module cannot be instantiated.
 const DSP_MATH = { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin, js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10 };
 function dspExports(options) {
   const m = options?.processorOptions?.dsp;
@@ -46,6 +46,12 @@ function dspExports(options) {
   } catch {
     return null;
   }
+}
+
+// Views of `count` runs of 128 samples (a block each) from `ptr` in the
+// module's memory: the staging a call reads or fills.
+function dspViews(x, ptr, count) {
+  return Array.from({ length: count }, (_, i) => new Float32Array(x.memory.buffer, ptr + i * 512, 128));
 }
 
 
@@ -100,8 +106,8 @@ class LoudnessMeter extends AudioWorkletProcessor {
     const { x, h } = d;
     const input = inputs[0] || [];
     if (!input.length) return true;
-    if (!d.inView || d.inView.byteLength === 0) d.inView = new Float32Array(x.memory.buffer, x.meter_in(h), 16 * 128);
-    for (let c = 0; c < input.length; c++) d.inView.set(input[c], c * 128);
+    if (!d.ins || d.ins[0].byteLength === 0) d.ins = dspViews(x, x.meter_in(h), 16);
+    for (let c = 0; c < input.length; c++) d.ins[c].set(input[c]);
     if (x.meter_process(h, input.length)) {
       const ptr = x.meter_readings(h);
       const total = new Float64Array(x.memory.buffer, x.meter_io(h), 1)[0];

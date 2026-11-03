@@ -37,11 +37,15 @@ import * as THREE from "three";
 
 // add_program's kind for the map's meshes (web/mod.rs).
 const WORLD = 0;
-// The material values a blended bucket's program may read, set per draw.
-const MATERIAL = new Set(["sunScale", "brightness", "ambientPull", "specular", "scroll"]);
+// The material values a blended bucket's program may read, set per draw
+// (receiveShadow is the bucket's own). shadows: a blended bucket receives the
+// cascades; taken out of three's list rather than hidden, it is still three's
+// shadow pass's to draw if it casts (nothing to reveal).
+const MATERIAL = new Set(["sunScale", "brightness", "ambientPull", "specular", "scroll", "receiveShadow"]);
 const POLICY = {
   uniforms: new Set(["map", "farMap", "bumpMap", ...MATERIAL, "zeroLights", "zeroLightCount", "localLightPositions", "localLightColors", "localLightCount"]),
   material: MATERIAL,
+  shadows: true,
 };
 const IDENTITY = new THREE.Matrix4();
 // GL enums for three's blending and depth functions (WebGLState).
@@ -195,8 +199,11 @@ class TransparentPass {
       const last = before[before.length - 1];
       const phase = name === "near" ? "transparent" : "mirrorTransparent";
       const start = () => this.core.phase(phase, ctx.renderer, ctx.scene, ctx.camera, ctx.defer);
-      // The far scene's image drawn last: the transparent list follows now.
-      if (last.object === this.core.graphics.background) start();
+      // Nothing of three's drawn after the near phase's own hook (or the
+      // scene walked, all of it the renderer's): the transparent list
+      // follows now. Else right after three's last opaque item (the far
+      // scene's image, drawn last of them).
+      if (ctx.walked || last.object === this.core.nearAnchor) start();
       else this.arm(last, start, ctx);
     } else if (name === "transparent" || name === "mirrorTransparent") {
       const core = this.core, rust = core.rust;
@@ -417,6 +424,7 @@ class TransparentPass {
       const program = passes.programs[i], pass = rust.transparent_bucket_pass(id, program.id, side);
       for (const name of program.names) {
         if (!MATERIAL.has(name)) continue;
+        if (name === "receiveShadow") { rust.transparent_bucket_uniform(id, pass, name, new Float32Array([mesh.receiveShadow ? 1 : 0]), true); continue; }
         const v = material.uniforms[name]?.value;
         const values = typeof v === "number" ? [v] : v?.isVector4 ? [v.x, v.y, v.z, v.w] : v?.isVector3 ? [v.x, v.y, v.z] : v?.isVector2 ? [v.x, v.y] : null;
         if (values) rust.transparent_bucket_uniform(id, pass, name, new Float32Array(values), false);

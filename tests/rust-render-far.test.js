@@ -167,6 +167,20 @@ test("a mesh it can't draw in view: the renderer draws nothing and three the fra
   assert.equal(calls.some((c) => c[0] === "blitFramebuffer"), false);
 });
 
+test("a far bucket with no texture: the renderer samples an empty one there, as three does, and draws the frame", () => {
+  const { core, calls, renderer, farScene, camera, far } = bridge();
+  const bare = mesh("zero:lit", BUCKET, { values: { ...values(), map: { value: null } } });
+  farScene.add(mesh("zero:sky", SKY, { renderOrder: -1e9, values: values(), matrixAutoUpdate: true }), bare);
+  assert.equal(core.cover("far", renderer, farScene, camera), true);
+  assert.equal(far.mode, "full");
+  const item = far.all.find((i) => i.object === bare);
+  assert.ok(item, "an item");
+  const map = calls.filter((c) => c[0] === "far_source" && c[1] === item.id).find((c) => c[3] === 2);
+  assert.ok(map, "its map from a texture of the renderer's");
+  assert.equal(far.empty.image.data.every((v) => v === 0), true, "one texel of zeros");
+  assert.equal(map[5], core.textures.get(renderer.properties.get(far.empty).__webglTexture));
+});
+
 test("an error in the far pass leaves the far scene to three for good", () => {
   const { core, renderer, farScene, camera, far } = bridge();
   farScene.add(mesh("zero:lit", BUCKET, { values: values() }));

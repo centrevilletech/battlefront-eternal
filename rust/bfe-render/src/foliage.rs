@@ -64,9 +64,12 @@ struct Class<C: HasContext> {
     _buffers: Vec<C::Buffer>,
     rows_buffer: C::Buffer,
     index_count: i32,
-    // Uniforms the pass sets by location (not values the core caches).
+    // Uniforms the pass sets by location (not values the core caches):
+    // modelMatrix is read by three's card program under shadows (its world
+    // position), the identity (the cards are in the world).
     model_view: Option<C::UniformLocation>,
     map_transform: Option<C::UniformLocation>,
+    model: Option<C::UniformLocation>,
     map_matrix: [f32; 9],
     // Material values (slots of the program's uniforms), constant.
     constants: Vec<(usize, Value)>,
@@ -111,6 +114,8 @@ pub struct FoliagePass<C: HasContext> {
     // in world space, so it is the camera's), by program.
     model_views: HashMap<usize, [f32; 16]>,
     map_matrices: HashMap<usize, [f32; 9]>,
+    // The programs whose modelMatrix holds the identity.
+    models: std::collections::HashSet<usize>,
 }
 
 fn slot<C: HasContext, M: MultiDraw>(core: &Core<C, M>, program: usize, name: &str) -> Option<usize> {
@@ -148,7 +153,7 @@ fn float(v: f32) -> Value {
 
 impl<C: HasContext> FoliagePass<C> {
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> FoliagePass<C> {
-        FoliagePass { classes: vec![], on: true, input: vec![0.0; INPUT_LEN], model_views: HashMap::new(), map_matrices: HashMap::new() }
+        FoliagePass { classes: vec![], on: true, input: vec![0.0; INPUT_LEN], model_views: HashMap::new(), map_matrices: HashMap::new(), models: std::collections::HashSet::new() }
     }
 
     // A class: three's program for its cards (core.add_program's), its
@@ -201,7 +206,7 @@ impl<C: HasContext> FoliagePass<C> {
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
             (vao, vec![vertex_buffer, index_buffer], rows_buffer)
         };
-        let (model_view, map_transform) = unsafe { (gl.get_uniform_location(p, "modelViewMatrix"), gl.get_uniform_location(p, "mapTransform")) };
+        let (model_view, map_transform, model) = unsafe { (gl.get_uniform_location(p, "modelViewMatrix"), gl.get_uniform_location(p, "mapTransform"), gl.get_uniform_location(p, "modelMatrix")) };
         let mut map = [0.0f32; 9];
         map[..map_matrix.len().min(9)].copy_from_slice(&map_matrix[..map_matrix.len().min(9)]);
         let mut constants = vec![];
@@ -236,7 +241,7 @@ impl<C: HasContext> FoliagePass<C> {
         let n = patches.len();
         self.classes.push(Class {
             program, texture: core.textures[texture as usize], grass, wiggle, vao, _buffers: buffers, rows_buffer, index_count: index.len() as i32,
-            model_view, map_transform, map_matrix: map, constants, patches, rows: rows.to_vec(), cell, cells, always,
+            model_view, map_transform, model, map_matrix: map, constants, patches, rows: rows.to_vec(), cell, cells, always,
             selected: Vec::with_capacity(n), next: Vec::with_capacity(n), upload: vec![], dirty: false,
             eye: [0.0; 3], right: [0.0; 3], up: [0.0; 3], back: [0.0; 3], time: 0.0, end: 0.0,
         });
@@ -360,6 +365,10 @@ impl<C: HasContext> FoliagePass<C> {
                     self.map_matrices.insert(program, class.map_matrix);
                     core.stats.gl_calls += 1;
                 }
+                if class.model.is_some() && self.models.insert(program) {
+                    gl.uniform_matrix_4_f32_slice(class.model.as_ref(), false, &[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
+                    core.stats.gl_calls += 1;
+                }
             }
             core.state.bind_texture(gl, &mut core.stats, UNIT_MAP, Some(class.texture));
             core.state.set_state(gl, &mut core.stats, 2, true, true);
@@ -384,6 +393,7 @@ impl<C: HasContext> FoliagePass<C> {
     pub fn forget(&mut self) {
         self.model_views.clear();
         self.map_matrices.clear();
+        self.models.clear();
     }
 
     pub fn classes(&self) -> usize {

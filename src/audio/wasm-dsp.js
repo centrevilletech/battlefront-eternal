@@ -1,25 +1,26 @@
-// The audio worklets' DSP in WebAssembly (rust/audio), for ?audio=wasm:
-// the module compiled on the page and handed to each worklet processor
-// through its processorOptions (the worklet scope cannot fetch, and a
-// WebAssembly.Module can be sent to it). A processor that gets no module,
-// or cannot instantiate it, runs its JavaScript as before, so the flag
-// changes how the samples are computed, never what they are
-// (tests/audio-dsp-parity.mjs holds the two to the same bits offline).
+// The audio worklets' DSP in WebAssembly (rust/audio), which the game
+// runs: the module compiled on the page and handed to each worklet
+// processor through its processorOptions (the worklet scope cannot fetch,
+// and a WebAssembly.Module can be sent to it). ?audio=js keeps the
+// worklets' JavaScript instead, a developer's A/B switch: the two compute
+// the same samples to the bit (tests/audio-dsp-parity.mjs offline), so it
+// changes how they are computed, never what they are. A processor that
+// gets no module, or cannot instantiate it, runs its JavaScript.
 import { AUDIO_DSP_WASM } from "../audio-dsp-wasm.js";
 
 let compiling = null;
 
-// Whether this page asked for the WebAssembly DSP.
+// Whether this page runs the WebAssembly DSP: unless ?audio=js.
 export function audioWasm() {
   try {
-    return new URLSearchParams(globalThis.location?.search || "").get("audio") === "wasm";
+    return new URLSearchParams(globalThis.location?.search || "").get("audio") !== "js";
   } catch {
-    return false;
+    return true;
   }
 }
 
-// The compiled module when asked for, else null (also null when it cannot
-// be compiled: the JavaScript worklets then simply run, the same sound).
+// The compiled module, or null with ?audio=js (also null when it cannot be
+// compiled: the JavaScript worklets then simply run, the same sound).
 export function loadAudioDsp() {
   if (!audioWasm()) return Promise.resolve(null);
   compiling ||= (async () => {

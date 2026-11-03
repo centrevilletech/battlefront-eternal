@@ -82,6 +82,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let core = &mut self.core;
         core.begin_phase();
         core.upload_frame(VIEW_NEAR);
+        core.upload_shadow();
+        core.bind_lamps();
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();
@@ -118,7 +120,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let mut list = std::mem::take(&mut self.transparent.list);
         list.items.clear();
         {
-            let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
+            let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
             for (s, source) in sources.iter_mut().enumerate() {
                 source.emit(core, &view, s as u32, &mut list.items);
             }
@@ -133,9 +135,11 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
             return Ok(core.stats);
         }
         core.upload_frame(frame);
+        core.upload_shadow();
+        core.bind_lamps();
         core.bind_far_map();
         {
-            let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
+            let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
             transparent::draw_segment(core, &view, list.segment(0), &mut sources);
         }
         list.view = Some(view);
@@ -152,8 +156,10 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         if let Some(view) = &list.view {
             if !list.segment(k).is_empty() {
                 core.bind_frame(list.frame);
+                core.bind_shadow();
+                core.bind_lamps();
                 core.bind_far_map();
-                let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
+                let mut sources: [&mut dyn Source<C, M>; 4] = [&mut self.transparent, &mut self.effects, &mut self.water, &mut self.instances];
                 transparent::draw_segment(core, view, list.segment(k), &mut sources);
             }
         }
@@ -168,6 +174,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let core = &mut self.core;
         core.begin_phase();
         core.upload_frame(VIEW_FIRST_PERSON);
+        core.bind_lamps();
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();
