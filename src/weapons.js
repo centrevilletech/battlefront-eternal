@@ -121,6 +121,7 @@ export class Weapon {
     // The class as it is at each charge level.
     this.levels = [def, ...(def.charges || []).map((level) => ({ ...def, ...level }))];
     this.def = def;
+    this.level = 0; // which of its levels `def` is (the store's number for it)
     this.name = def.class;
     this.channel = def.channel;
     // Thrown: grenades, dispensers' mines and power-ups, and remote droids.
@@ -161,6 +162,10 @@ export class Weapon {
     this.salvosLeft = 0;
     this.salvoWait = 0;
     this.salvoRandom = null; // the fire cycle's seeded draws (a press's), or null
+    // That generator's state as numbers (the store's): its seed, or null, and
+    // how many numbers it has given.
+    this.salvoSeed = null;
+    this.salvoCount = 0;
     this.lockTargetId = -1;
     this.lockGeneration = -1;
     this.lockElapsed = 0;
@@ -176,6 +181,7 @@ export class Weapon {
   // Back to the class's own level.
   baseLevel() {
     this.def = this.levels[0];
+    this.level = 0;
   }
 
   get reloading() {
@@ -396,6 +402,8 @@ export class Weapon {
   // seed: the press's spread seed, when the trigger has one.
   startBurst(shots, aim, seed = null) {
     this.salvoRandom = seed == null ? null : seededRandom(seed);
+    this.salvoSeed = seed == null ? null : seed;
+    this.salvoCount = 0;
     this.salvosLeft = Math.max(1, Math.floor(this.def.SalvoCount || 1));
     this.salvoWait = Math.max(0, this.def.InitialSalvoDelay || 0);
     this.limit = this.def.ShotDelay || 0;
@@ -423,6 +431,7 @@ export class Weapon {
     let level = this.levels.indexOf(this.def);
     while (level + 1 < this.levels.length && this.levels[level + 1].at < this.held / most) level++;
     this.def = this.levels[Math.max(level, 0)];
+    this.level = Math.max(level, 0);
   }
 
   // A throw: the grenade leaves the hand InitialSalvoDelay in (at once for
@@ -482,6 +491,7 @@ export class Weapon {
       if (r) {
         // A press's seeded draws or the AI's generator, in the original game's
         // order: pitch, then yaw.
+        if (r === this.salvoRandom) this.salvoCount += 4;
         const tipped = r() - r();
         const turned = r() - r();
         shots.push({ weapon: this, yaw: (aside + yaw * turned) * DEG, pitch: (-down + pitch * tipped) * DEG, charge: this.charge, ...guidance, ...admitted });
