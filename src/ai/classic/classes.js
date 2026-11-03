@@ -443,8 +443,11 @@ export class RepairServices {
 }
 
 export const helpers = { snipe: SnipeHelper, mine: MineHelper };
+// Each binding's repair book, by its AI, for the simulation's capture.
+export const repairServicesOf = new WeakMap();
 export function classicBinding(ai) {
   const repair = new RepairServices(ai);
+  repairServicesOf.set(ai, repair);
   return { selectSnipe, canMine: (agent) => Boolean(mineWeapon(agent)), selectMine,
     findRepairJob: repair.findRepairJob, startRepairService: repair.startRepairService, repairService: repair.repairService };
 }
