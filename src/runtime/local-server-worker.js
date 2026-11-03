@@ -25,7 +25,11 @@ self.onmessage=({data})=>{messages=messages.then(async()=>{
     const game=await createGame({query:data.query,headless:true,savedSettings:data.settings,rays:'wasm',movement:'wasm'});
     server=await createLocalServer(game,{name:data.playerName,send});
     self.__bf=game;self.__server=server;
-    server.welcome();return;
+    server.welcome();
+    // ?simBench=1 (development only): what crossing into the simulation's
+    // module costs in this thread (src/sim/bench.js), in self.__simBench.
+    if(new URLSearchParams(data.query).get('simBench')==='1')import('../sim/bench.js').then((m)=>m.benchStore()).then((r)=>{self.__simBench=r;},(e)=>{self.__simBench={error:String(e?.message??e)};});
+    return;
   }
   if(!server)throw Error('Local world not initialized');
   const before=server.running;

@@ -6,7 +6,7 @@ import { Clip, Pose, loadClips, setAnimKernel } from '../src/anim.js';
 import { loadAnimKernel } from '../src/anim-kernel.js';
 import { SoldierAnimator } from '../src/animator.js';
 
-// The anim kernel (src/anim-kernel.js, rust/anim) must blend clips and
+// The anim kernel (src/anim-kernel.js, rust/sim/src/pose) must blend clips and
 // apply poses exactly as anim.js's JavaScript does: every accumulator and
 // every bone's quaternion and position to the last bit. Poses feed both
 // the page's skeletons and the simulation's rider shapes, so a single

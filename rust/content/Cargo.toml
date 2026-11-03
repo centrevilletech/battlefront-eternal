@@ -18,8 +18,8 @@ crate-type = ["rlib"]
 default = []
 # Install a battle's collision world in the ray kernel's state (src/install.rs),
 # and test it against the JavaScript's casts (tests/collision.rs). The rays
-# crate moves into rust/sim; the installer goes with it then.
-rays = ["dep:rays"]
+# crate has moved into rust/sim, so the installer is off until it moves there
+# too (the simulation module will link this crate, not the other way round).
+rays = []
 
 [dependencies]
-rays = { path = "../rays", optional = true }

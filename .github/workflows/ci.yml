@@ -38,9 +38,8 @@ jobs:
         run: node --input-type=module -e "import {build} from 'vite'; await build({build:{outDir:'dist-engine-ci',copyPublicDir:false}})"
 
   rust:
-    # The WebAssembly built from rust/ is committed (src/ray-kernel-wasm.js,
-    # src/anim-kernel-wasm.js and src/rust-pkg/), so the test job and the
-    # release builds need no
+    # The WebAssembly built from rust/ is committed (src/sim-wasm.js and
+    # src/rust-pkg/), so the test job and the release builds need no
     # Rust. This job rebuilds it with the toolchain rust/rust-toolchain.toml
     # pins and fails when a committed byte differs, keeping the rebuilt files
     # as the run's rust-generated artifact (docs/development.md, "The Rust
@@ -75,7 +74,9 @@ jobs:
         run: node tools/build-rust.mjs --check
       - name: Rust unit tests
         working-directory: rust
-        run: cargo test --locked -p rays -p anim -p bfe-render -p content -p v8math
+        # sim-replay's format test has Node write a made-up capture; the
+        # replays of real battles need game data, so they pass empty here.
+        run: cargo test --locked -p sim -p sim-replay -p bfe-render -p content -p v8math --features sim/replay
       - name: Keep the rebuilt files
         if: failure()
         uses: actions/upload-artifact@v7
