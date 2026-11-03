@@ -7,9 +7,12 @@
 // tick (tools/sim-capture/phases.mjs) or a method of a live object:
 //   { phase: 'ordnance', state(game), boundaries }
 //   { method: 'ordnance.stepBolt', target(game), state(game, args), boundaries }
-// state(...) returns the roots to record at the frame's start and end (live
-// objects, written out whole; units, hulls, bodies and definitions they
-// reach become handles, tools/sim-capture/plugin.mjs). boundaries lists
+// state(game, args, cap) returns the roots to record at the frame's start
+// and end: live objects, written out whole (units, hulls, bodies and
+// definitions they reach become handles, tools/sim-capture/plugin.mjs), or,
+// for kinds the store's schemas declare (rust/sim/schema), the store's own
+// export of them, cap.export(kind, object), whose references are the same
+// handles. boundaries lists
 // the calls to record: [label, target(game), method name, extra(game)?],
 // extra naming state of the frame's own that the call changes, recorded
 // with its result. A boundary call made inside another of the same frame's
@@ -49,12 +52,13 @@ const ordnanceBoundaries = (game) => [
 // The ordnance pilot (flip F1): the whole phase, and each bolt's step with
 // the parts of the round's code a first replay serves from the capture
 // (a rider behind a hull, an explosion's fan-out, the impact effect's pick).
+// Their rounds are the store's (its ordnance and bolt kinds).
 const ordnance = {
   frames: [
-    { phase: 'ordnance', world: true, state: (game) => ({ bolts: game.ordnance.bolts, beams: game.ordnance.beams, grenades: game.ordnance.grenades, rounds: game.ordnance.rounds }),
+    { phase: 'ordnance', world: true, state: (game, args, cap) => cap.export('ordnance', game.ordnance),
       boundaries: ordnanceBoundaries },
     { method: 'ordnance.stepBolt', target: (game) => game.ordnance,
-      state: (game, args) => ({ bolt: args[0], canHit: game.ordnance.canHit, striking: game.ordnance.striking, hitHistory: game.ordnance.hitHistory ?? null, water: game.ordnance.water ?? null, units: game.ordnance.units ?? null }),
+      state: (game, args, cap) => ({ bolt: cap.export('bolt', args[0]), canHit: game.ordnance.canHit, striking: game.ordnance.striking, hitHistory: game.ordnance.hitHistory ?? null, water: game.ordnance.water ?? null, units: game.ordnance.units ?? null }),
       boundaries: (game) => [...ordnanceBoundaries(game),
         ['ordnance.riderBehind', game.ordnance, 'riderBehind', (g) => ({ striking: g.ordnance.striking })],
         ['ordnance.explosion', game.ordnance, 'explosion'],

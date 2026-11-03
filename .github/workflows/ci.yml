@@ -74,7 +74,7 @@ jobs:
         run: node tools/build-rust.mjs --check
       - name: Rust unit tests
         working-directory: rust
-        # sim-replay's format test has Node write a made-up capture; its
+        # sim-replay's format test has Node write a made-up capture; the
         # replays of real battles need game data, so they pass empty here.
         run: cargo test --locked -p sim -p sim-replay -p bfe-render --features sim/replay
       - name: Keep the rebuilt files

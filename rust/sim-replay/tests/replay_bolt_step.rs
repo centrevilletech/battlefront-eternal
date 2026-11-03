@@ -2,10 +2,12 @@
 // castUnits, src/ordnance.js), transliterated here and replayed against
 // every ordnance.stepBolt frame of the corpus BFE_REPLAY_CORPUS names
 // (tools/sim-capture.mjs --specs ordnance). Each frame starts from the
-// bolt as captured; its calls across the boundary (moving bodies, units, a
-// rider behind a hull, water, effects, the impact callbacks) are served
-// from the capture with their arguments checked; the bolt and the round's
-// striking state it ends with are compared with the capture's, bit for bit.
+// bolt as captured (the store's export of it: its schema's fields in order,
+// rust/sim/schema/ordnance.mjs); its calls across the boundary (moving
+// bodies, units, a rider behind a hull, water, effects, the impact
+// callbacks) are served from the capture with their arguments checked; the
+// bolt and the round's striking state it ends with are compared with the
+// capture's, bit for bit.
 // This proves the capture and the replay, not a port: the ordnance package
 // replaces it with its own replays in rust/sim. Without a corpus it passes
 // without replaying.
@@ -55,6 +57,7 @@ struct Striking {
 
 struct Bolt<'f> {
     frame: &'f Frame,
+    capture: &'f Capture,
     log: Log<'f>,
     arena: Arena,
     striking: Striking,
@@ -66,19 +69,20 @@ impl<'f> Bolt<'f> {
     }
 
     // What resolveOrdnanceOwner(owner) gives for an object owner
-    // (src/ordnance-owner.js): a snapshot of a launching life gives its unit
-    // while that life lasts (the same generation), anything else itself.
+    // (src/ordnance-owner.js): a snapshot of a launching life (its fields
+    // written once in the capture, ownerSnapshot:N) gives its unit while
+    // that life lasts (the same generation), anything else itself.
     fn shooter(&mut self, owner: V) -> Value {
+        if let Some(n) = owner.handle_num("ownerSnapshot") {
+            let Some(snapshot) = self.capture.def(&format!("ownerSnapshot:{n}")) else { return Value::Null };
+            let id = snapshot.get("id").num();
+            return match self.frame.unit(id) {
+                Some(unit) if same_number(unit.get("generation").num(), snapshot.get("generation").num()) => Value::handle("unit", Value::Num(id)),
+                _ => Value::Null,
+            };
+        }
         match owner.value {
-            Value::Handle(..) => self.arena.copy(owner),
-            Value::Node(_) if owner.class() == Some("") && owner.has("id") && owner.has("generation") => {
-                let id = owner.get("id").num();
-                match self.frame.unit(id) {
-                    Some(unit) if same_number(unit.get("generation").num(), owner.get("generation").num()) => Value::handle("unit", Value::Num(id)),
-                    _ => Value::Null,
-                }
-            }
-            Value::Node(_) => self.arena.copy(owner),
+            Value::Handle(..) | Value::Node(_) => self.arena.copy(owner),
             _ => Value::Null,
         }
     }
@@ -129,7 +133,7 @@ fn step_bolt(capture: &Capture, frame: &Frame, nudge: bool) -> Result<Option<Str
     // historyTick = null by default.
     let history_tick = frame.arg(3).opt_num();
     let def = capture.def_of(b.get("def")).ok_or_else(|| fail(frame, format!("no definition {}", b.get("def").show())))?;
-    let mut s = Bolt { frame, log: Log::new(frame), arena: Arena::default(), striking: Striking { owner: Value::Null, body: Value::Null, mount: Value::Null } };
+    let mut s = Bolt { frame, capture, log: Log::new(frame), arena: Arena::default(), striking: Striking { owner: Value::Null, body: Value::Null, mount: Value::Null } };
     let st = state.get("striking");
     s.striking = Striking { owner: s.arena.copy(st.get("owner")), body: s.arena.copy(st.get("body")), mount: s.arena.copy(st.get("mount")) };
     let bolt = s.arena.copy(b);
@@ -182,13 +186,14 @@ fn step_bolt(capture: &Capture, frame: &Frame, nudge: bool) -> Result<Option<Str
         let (p, n) = (s.arena.vec3(point), s.arena.vec3(unit_hit.get("normal").vec3().unwrap()));
         let (unit, part) = (s.arena.copy(unit_hit.get("unit")), s.arena.copy(unit_hit.get("part")));
         impact = Some(s.arena.object("", vec![("point", p), ("normal", n), ("terrain", Value::Bool(false)), ("body", Value::Null), ("unit", unit), ("part", part)]));
+        // (The store's Impact: point, normal, terrain, body, unit, part.)
     } else if moving.truthy() {
         let point = moving.get("point").vec3().unwrap();
         position = point;
         life = 0.0;
         let (p, n) = (s.arena.vec3(point), s.arena.vec3(moving.get("normal").vec3().unwrap()));
         let body = s.arena.copy(moving.get("body"));
-        impact = Some(s.arena.object("", vec![("point", p), ("normal", n), ("terrain", Value::Bool(false)), ("body", body)]));
+        impact = Some(s.arena.object("", vec![("point", p), ("normal", n), ("terrain", Value::Bool(false)), ("body", body), ("unit", Value::Undefined), ("part", Value::Undefined)]));
     }
     let current_impact = impact.clone().unwrap_or_else(|| impact_was.clone());
 
@@ -258,8 +263,10 @@ fn step_bolt(capture: &Capture, frame: &Frame, nudge: bool) -> Result<Option<Str
             } else {
                 1.0
             };
-            // { ...bolt.impact, surface }
-            let mut fields: Vec<(String, Value)> = imp.fields().map(|(k, v)| (k.to_string(), v.value.clone())).collect();
+            // { ...bolt.impact, surface }: the JavaScript object's own keys
+            // (the store's Impact lists unit and part, undefined where the
+            // object has none).
+            let mut fields: Vec<(String, Value)> = imp.fields().filter(|(_, v)| !v.is_undefined()).map(|(k, v)| (k.to_string(), v.value.clone())).collect();
             fields.push(("surface".into(), Value::Num(surface)));
             let expected = s.arena.object("", fields.iter().map(|(k, v)| (k.as_str(), v.clone())).collect());
             check_value("onImpact", call.arg(1), s.arena.view(&expected))?;
