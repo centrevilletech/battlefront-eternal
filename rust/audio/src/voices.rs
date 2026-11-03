@@ -163,9 +163,9 @@ fn flush(x: f64) -> f64 {
 
 impl Engine {
     /// An engine for `slots` voices at the context's `rate`; `q_db` is the
-    /// lowpass's Q in dB. Its resonance is 10^(Q / 20), which the browser
-    /// works out with fdlibm's single-precision exp; here the double exp
-    /// rounded to single, which may differ in its last bit.
+    /// lowpass's Q in dB. Its resonance is 10^(Q / 20) as the browser works
+    /// it out: fdlibm's expf, which is fdlibm's exp of the argument rounded
+    /// to single precision, its result rounded to single.
     pub fn new(rate: f64, slots: usize, q_db: f64, x86: bool) -> Engine {
         let x = ((q_db / 20.0) * std::f64::consts::LN_10) as f32;
         Engine {
