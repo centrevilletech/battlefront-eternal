@@ -375,6 +375,7 @@ const cursorLine = (c) => `[${v3s(c.waypoint)},${optIndex(c.current)},${optIndex
 const gotoLine = (h) => `[${bits(h.state)},${v3s(h.destination)},${h.failed},${h.arrived},${bits(h.jetDeadline)},${controlLine(h.control)}]`;
 
 const trace = [];
+const runStart = performance.now();
 const cursors = new Map();
 ops.forEach((op, index) => {
   const unit = op.unit !== undefined ? jsUnits.get(op.unit) : null;
@@ -532,4 +533,4 @@ ops.forEach((op, index) => {
   trace.push(`[${index},"${op.op}",${line}]`);
 });
 fs.writeFileSync(path.join(outDir, "js-trace.txt"), trace.join("\n") + "\n");
-console.log(`nav-twin: ${ops.length} ops, js trace in ${outDir}`);
+console.log(`nav-twin: ${ops.length} ops, js trace in ${outDir}, runner ${(performance.now() - runStart).toFixed(1)} ms`);
