@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Agent } from "../agents.js";
 import { DONE, refOf, resolveRef } from "../controller.js";
 import { serviceOf } from "./service.js";
+import { port } from "./world.js";
 
 // The vehicle agents: boarding (controller state 5), leaving (state 6) and
 // the flyer pilot's objective agent (state 7), as the 2004 game has them
@@ -74,8 +75,8 @@ export class UnitBoardAgent extends Agent {
       return;
     }
     if (this.state === 2) {
-      const a = unit.sphere;
-      const b = vehicle.sphere;
+      const a = port.sphere(unit);
+      const b = port.sphere(vehicle);
       const reach = a.radius + b.radius + 0.5;
       if (a.center.distanceToSquared(b.center) < reach * reach) this.requestState(3);
       else if (this.helper?.arrived && !this.helper.failed) {
