@@ -4,8 +4,9 @@
 // the assisted shot and a flyer missile's seeker (src/flight/targeting.js
 // assistShot, navigateMissile), the transports' spawn points
 // (src/flight/spawn.js transportPosts) and a craft's class by its name
-// (src/flight/config.js flightClass) and a network pilot's flight keys
-// (src/flight/controls.js flightInput). Random and edge inputs go through the
+// (src/flight/config.js flightClass), a network pilot's flight keys
+// (src/flight/controls.js flightInput) and the class tunings and their
+// retuning by command. Random and edge inputs go through the
 // JavaScript itself, on stand-ins for the battle that answer each call from
 // a script and record it, and each case is written with what was asked and
 // answered and what came out, for rust/sim/tests/flight_cases.rs to replay
@@ -202,6 +203,20 @@ function keysCase(w) {
     out: { keys: { ...input }, queued: [...queued] } });
 }
 
+// The class tunings (FLIGHT_CLASSES as declared) and a flightTuning
+// command applied as src/game.js step applies one, on a copy: its classes
+// and keys by name, a value only where finite and above 0.
+const TUNING_KEYS = Object.keys(FLIGHT_CLASSES.fighter);
+function tuningCase(w) {
+  const classes = structuredClone(FLIGHT_CLASSES);
+  const command = {};
+  for (const name of [...Object.keys(classes), 'cruiser'].filter(() => chance(0.5))) {
+    command[name] = Object.fromEntries([...TUNING_KEYS, 'warp', 'speed'].filter(() => chance(0.15)).map((k) => [k, pick([0, -1, 2.5, NaN, Infinity, 1e-9, 300, rand() * 10])]));
+  }
+  for (const [name, values] of Object.entries(command)) if (classes[name]) for (const [key, value] of Object.entries(values)) if (key in classes[name] && Number.isFinite(value) && value > 0) classes[name][key] = value;
+  w('tuning', { input: { declared: FLIGHT_CLASSES, command }, out: { classes } });
+}
+
 const writer = new Writer();
 const fd = fs.openSync(out, 'w');
 fs.writeSync(fd, MAGIC);
@@ -211,7 +226,7 @@ const w = (kind, value) => {
   if (writer.length > (8 << 20)) fs.writeSync(fd, writer.take());
 };
 writer.record(RECORD.header, 0, 'header', { format: 1, tool: 'sim-flight-cases', node: process.version, v8: process.versions.v8, cases: N });
-const kinds = [pilotCase, pilotCase, pilotCase, raiseCase, assistCase, missileCase, missileCase, transportCase, classCase, keysCase];
+const kinds = [pilotCase, pilotCase, pilotCase, raiseCase, assistCase, missileCase, missileCase, transportCase, classCase, keysCase, tuningCase];
 for (let i = 0; i < N; i++) pick(kinds)(w);
 fs.writeSync(fd, writer.take());
 fs.closeSync(fd);

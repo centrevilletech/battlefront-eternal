@@ -12,7 +12,7 @@
 #![cfg(feature = "replay")]
 
 use bfe_sim::flight::ai::{Blend, PilotEnv, PilotWorld, Request, Steer};
-use bfe_sim::flight::config::{flight_class, Config, Tuning};
+use bfe_sim::flight::config::{flight_class, Config, Tuning, Tunings, TUNING_KEYS};
 use bfe_sim::flight::controls::{flight_input, Bindings, Controls, Pad};
 use bfe_sim::flight::spawn::transport_points;
 use bfe_sim::flight::state::{Message, Trick};
@@ -559,6 +559,44 @@ fn keys(case: V) -> Result<(), String> {
     Ok(())
 }
 
+/// The declared tunings are Tuning::of's, key by key; a command retunes
+/// them as the JavaScript's step does.
+fn tuning(case: V) -> Result<(), String> {
+    let input = case.get("input");
+    let declared = input.get("declared");
+    let mut tunings = Tunings::default();
+    for (i, name) in FlightClass::NAMES.iter().enumerate() {
+        let row = Tuning::of(FlightClass::from_u8(i as u8).unwrap());
+        for key in TUNING_KEYS {
+            let theirs = declared.get(name).get(key).num();
+            if !same_number(theirs, row.get(key).unwrap()) {
+                return Err(format!("{name}.{key}: declared {theirs}, Tuning::of {}", row.get(key).unwrap()));
+            }
+        }
+    }
+    let command = input.get("command");
+    if let Some(sim_replay::Node::Object { fields, .. }) = command.node() {
+        for (class, values) in fields {
+            let values = command.arena.view(values);
+            if let Some(sim_replay::Node::Object { fields, .. }) = values.node() {
+                for (key, value) in fields {
+                    tunings.retune(class, key, js_num(values.arena.view(value)));
+                }
+            }
+        }
+    }
+    let out = case.get("out").get("classes");
+    for (i, name) in FlightClass::NAMES.iter().enumerate() {
+        for key in TUNING_KEYS {
+            let (theirs, mine) = (out.get(name).get(key).num(), tunings.0[i].get(key).unwrap());
+            if !same_number(theirs, mine) {
+                return Err(format!("{name}.{key} after the command: the case has {theirs}, the port {mine}"));
+            }
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn flight_functions_as_the_javascript() {
     let Ok(path) = std::env::var("BFE_FLIGHT_CASES") else {
@@ -581,6 +619,7 @@ fn flight_functions_as_the_javascript() {
             "transport" => transport(case),
             "class" => class(case),
             "keys" => keys(case),
+            "tuning" => tuning(case),
             other => Err(format!("no kind {other}")),
         };
         let t = tally.entry(kind.to_string()).or_default();
