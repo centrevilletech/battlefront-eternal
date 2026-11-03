@@ -1,6 +1,6 @@
-// The pose sampling of src/anim.js in WebAssembly (rust/anim), for a
-// battle that asks for it (?anim=wasm). The JavaScript in src/anim.js
-// stays the default; the module blends every clip as it does, to the
+// The pose sampling of src/anim.js in WebAssembly (rust/anim), the page's
+// default (?anim=js keeps the JavaScript in src/anim.js, which is also the
+// fallback when the module cannot load); the module blends every clip as it does, to the
 // last bit (rust/anim says how), so the skeleton the page draws does not
 // move and the rider poses the simulation reads keep their answers.
 //

@@ -12,11 +12,13 @@
 // (core.rs: the context, programs, geometries, textures, inputs, GL state).
 // A frame is drawn in phases, each a call from the page at its point in
 // three's frame, which draws its passes in order: the far scene (far_frame),
-// the near scene (frame), what it blends (transparent_frame), the
-// first-person view (view_frame) and the post passes (post_frame). Only the
-// near phase draws anything yet; the others' passes are empty. A mirror's
-// render of the near scene (water.js) draws the near phase's passes for its
-// own camera (mirror_frame).
+// the near scene (frame), what it blends (transparent_frame, in segments
+// around what three still blends itself: transparent_segment), the
+// first-person view (view_frame) and the post passes (post_frame). The near
+// and transparent phases draw so far; the others' passes are empty. A
+// mirror's render of the near scene (water.js) draws the near phase's
+// passes for its own camera (mirror_frame); what the near scene blends is
+// left to three there.
 //
 // The page writes the frame's inputs (camera, lights, each soldier) into
 // `input` and `bones` before a phase (web/, src/rust-render/).
@@ -27,7 +29,7 @@ use crate::foliage::FoliagePass;
 use crate::instances::{InstancePass, BONES_LEN, INPUT_LEN};
 use crate::post::PostPass;
 use crate::terrain::TerrainPass;
-use crate::transparent::TransparentPass;
+use crate::transparent::{self, Source, TransparentPass};
 use crate::view::ViewPass;
 use crate::world::WorldPass;
 use glow::HasContext;
@@ -84,13 +86,57 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         Ok(core.end_phase())
     }
 
-    // What the near scene blends, at the start of three's transparent list:
-    // the transparent pass, then the effects.
-    pub fn transparent_frame(&mut self) -> Result<Stats, String> {
-        self.core.begin_phase();
-        self.transparent.draw(&mut self.core);
-        self.effects.draw(&mut self.core);
-        Ok(self.core.end_phase())
+    // What the near scene blends (transparent.rs), at the start of three's
+    // transparent list: every source's items sorted as three sorts, three's
+    // own remaining items (`three` keys the page wrote) merged in, and the
+    // first segment drawn; transparent_segment draws the others.
+    pub fn transparent_frame(&mut self, three: usize) -> Result<Stats, String> {
+        let core = &mut self.core;
+        core.begin_phase();
+        let view = transparent::view(core);
+        let mut list = std::mem::take(&mut self.transparent.list);
+        list.items.clear();
+        {
+            let mut sources: [&mut dyn Source<C, M>; 2] = [&mut self.transparent, &mut self.effects];
+            for (s, source) in sources.iter_mut().enumerate() {
+                source.emit(core, &view, s as u32, &mut list.items);
+            }
+        }
+        list.order(&self.transparent.keys, three.min(transparent::MAX_THREE));
+        if list.items.is_empty() {
+            // Nothing to draw: no GL call at all, so three's state stands
+            // (the page skips its reset).
+            list.view = Some(view);
+            self.transparent.list = list;
+            return Ok(core.stats);
+        }
+        core.upload_frame(VIEW_NEAR);
+        core.bind_far_map();
+        {
+            let mut sources: [&mut dyn Source<C, M>; 2] = [&mut self.transparent, &mut self.effects];
+            transparent::draw_segment(core, &view, list.segment(0), &mut sources);
+        }
+        list.view = Some(view);
+        self.transparent.list = list;
+        Ok(core.end_phase())
+    }
+
+    // Segment k (from 1) of the frame's transparent list, right after three
+    // drew its item k - 1.
+    pub fn transparent_segment(&mut self, k: usize) -> Result<Stats, String> {
+        let core = &mut self.core;
+        core.begin_phase();
+        let list = std::mem::take(&mut self.transparent.list);
+        if let Some(view) = &list.view {
+            if !list.segment(k).is_empty() {
+                core.bind_frame(VIEW_NEAR);
+                core.bind_far_map();
+                let mut sources: [&mut dyn Source<C, M>; 2] = [&mut self.transparent, &mut self.effects];
+                transparent::draw_segment(core, view, list.segment(k), &mut sources);
+            }
+        }
+        self.transparent.list = list;
+        Ok(core.end_phase())
     }
 
     // The first-person view scene's phase.
