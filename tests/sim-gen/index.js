@@ -11,7 +11,7 @@ export * from "./shelf.js";
 export const KIND_TABLE = [null,
   { name: "person", code: 1, hash: 0x6076baef, singleton: false, key: "id", home: null, stored: false, classes: ["Person"] },
   { name: "shelf", code: 2, hash: 0x7865bf3a, singleton: true, key: null, home: null, stored: true, classes: [], exportStride: 15, importStride: 15, fullStride: 15, Mirror: ShelfMirror, sync: syncShelf, syncFull: syncFullShelf, put: putShelf, putFull: putFullShelf, check: checkShelf, same: sameShelf, export: exportShelf, keys: SHELF_KEYS },
-  { name: "thing", code: 3, hash: 0xf75b16fa, singleton: false, key: null, home: { kind: 2, field: "things" }, stored: true, classes: [], exportStride: 50, importStride: 52, fullStride: 52, Mirror: ThingMirror, sync: syncThing, syncFull: syncFullThing, put: putThing, putFull: putFullThing, check: checkThing, same: sameThing, export: exportThing, keys: THING_KEYS },
+  { name: "thing", code: 3, hash: 0xcade669d, singleton: false, key: null, home: { kind: 2, field: "things" }, stored: true, classes: [], exportStride: 76, importStride: 79, fullStride: 79, Mirror: ThingMirror, sync: syncThing, syncFull: syncFullThing, put: putThing, putFull: putFullThing, check: checkThing, same: sameThing, export: exportThing, keys: THING_KEYS },
 ];
 
 // Commands, events and imports by code: name, and their records' words and functions.

@@ -4,7 +4,7 @@
 #![allow(clippy::all, unused_braces, unused_parens, unused_variables, unused_mut, unused_imports)]
 
 use super::*;
-use crate::store::replay::{boolean, int, list, map, name_of, num, num_f32, numbers, object, quat, set, vec3, Arena, Node, ReplayOf, Result, StoreKinds, Value, V};
+use crate::store::replay::{boolean, int, list, map, mat4, mat4_value, name_of, num, num_f32, numbers, object, quat, set, vec3, Arena, Node, ReplayOf, Result, StoreKinds, Value, V};
 
 /// The replay context of this store.
 pub type Replay = ReplayOf<Store>;
@@ -193,28 +193,31 @@ impl Beam {
         a.object("", fields)
     }
 
-    /// The beam an object met in a value is: made in the store the first time.
+    /// The beam a handle names (made with its fields' defaults the first time;
+    /// its value fills them in where it lives).
     pub fn ref_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Beam>> {
-        let (slot, gen) = cx.entity_in(KIND_BEAM, v, path, |cx| {
-            let r = cx.store.beam.insert(Beam::default());
-            cx.entity_made(KIND_BEAM, v, r.slot, r.gen);
-            let value = Beam::from_value(v, cx, path)?;
-            *cx.store.beam.get_mut(r).unwrap() = value;
-            Ok((r.slot, r.gen))
-        })?;
+        let (slot, gen) = cx.stored_in(KIND_BEAM, v, path, |cx, _| { let r = cx.store.beam.insert(Beam::default()); (r.slot, r.gen) })?;
         Ok(Ref::new(slot, gen))
     }
 
-    /// The value of the beam a reference names (the same value wherever it is met
-    /// again, its node made before its fields so a field can name it).
-    pub fn ref_out(r: Ref<Beam>, cx: &mut Replay, a: &mut Arena) -> Value {
-        if let Some(v) = cx.entity_out(KIND_BEAM, r.slot, r.gen) { return v; }
-        let node = a.nodes.len();
-        a.nodes.push(Node::Array(Vec::new()));
-        let v = Value::Node(node as u32);
-        cx.entity_written(KIND_BEAM, r.slot, r.gen, &v);
+    /// A beam's value where it lives (its home list): its handle (`$id`) and fields.
+    pub fn value_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Beam>> {
+        object(v, path)?;
+        let r = Beam::ref_in(v.get("$id"), cx, &format!("{path}.$id"))?;
+        let value = Beam::from_value(v, cx, path)?;
+        *cx.store.beam.get_mut(r).ok_or_else(|| format!("{path}: its entity is gone"))? = value;
+        Ok(r)
+    }
+
+    /// The handle of the beam a reference names.
+    pub fn ref_out(r: Ref<Beam>, cx: &mut Replay, a: &mut Arena) -> Value { cx.stored_out(KIND_BEAM, r.slot, r.gen) }
+
+    /// A beam's value where it lives: its handle first, then its fields.
+    pub fn value_out(r: Ref<Beam>, cx: &mut Replay, a: &mut Arena) -> Value {
+        let id = cx.stored_out(KIND_BEAM, r.slot, r.gen);
         let e = cx.store.beam.get(r).cloned().unwrap_or_default();
-        if let Value::Node(made) = e.to_value(cx, a) { a.nodes.swap(node, made as usize); }
+        let v = e.to_value(cx, a);
+        if let Value::Node(n) = v { if let Node::Object { fields, .. } = &mut a.nodes[n as usize] { fields.insert(0, ("$id".to_string(), id)); } }
         v
     }
 }
@@ -270,28 +273,31 @@ impl Bolt {
         a.object("", fields)
     }
 
-    /// The bolt an object met in a value is: made in the store the first time.
+    /// The bolt a handle names (made with its fields' defaults the first time;
+    /// its value fills them in where it lives).
     pub fn ref_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Bolt>> {
-        let (slot, gen) = cx.entity_in(KIND_BOLT, v, path, |cx| {
-            let r = cx.store.bolt.insert(Bolt::default());
-            cx.entity_made(KIND_BOLT, v, r.slot, r.gen);
-            let value = Bolt::from_value(v, cx, path)?;
-            *cx.store.bolt.get_mut(r).unwrap() = value;
-            Ok((r.slot, r.gen))
-        })?;
+        let (slot, gen) = cx.stored_in(KIND_BOLT, v, path, |cx, _| { let r = cx.store.bolt.insert(Bolt::default()); (r.slot, r.gen) })?;
         Ok(Ref::new(slot, gen))
     }
 
-    /// The value of the bolt a reference names (the same value wherever it is met
-    /// again, its node made before its fields so a field can name it).
-    pub fn ref_out(r: Ref<Bolt>, cx: &mut Replay, a: &mut Arena) -> Value {
-        if let Some(v) = cx.entity_out(KIND_BOLT, r.slot, r.gen) { return v; }
-        let node = a.nodes.len();
-        a.nodes.push(Node::Array(Vec::new()));
-        let v = Value::Node(node as u32);
-        cx.entity_written(KIND_BOLT, r.slot, r.gen, &v);
+    /// A bolt's value where it lives (its home list): its handle (`$id`) and fields.
+    pub fn value_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Bolt>> {
+        object(v, path)?;
+        let r = Bolt::ref_in(v.get("$id"), cx, &format!("{path}.$id"))?;
+        let value = Bolt::from_value(v, cx, path)?;
+        *cx.store.bolt.get_mut(r).ok_or_else(|| format!("{path}: its entity is gone"))? = value;
+        Ok(r)
+    }
+
+    /// The handle of the bolt a reference names.
+    pub fn ref_out(r: Ref<Bolt>, cx: &mut Replay, a: &mut Arena) -> Value { cx.stored_out(KIND_BOLT, r.slot, r.gen) }
+
+    /// A bolt's value where it lives: its handle first, then its fields.
+    pub fn value_out(r: Ref<Bolt>, cx: &mut Replay, a: &mut Arena) -> Value {
+        let id = cx.stored_out(KIND_BOLT, r.slot, r.gen);
         let e = cx.store.bolt.get(r).cloned().unwrap_or_default();
-        if let Value::Node(made) = e.to_value(cx, a) { a.nodes.swap(node, made as usize); }
+        let v = e.to_value(cx, a);
+        if let Value::Node(n) = v { if let Node::Object { fields, .. } = &mut a.nodes[n as usize] { fields.insert(0, ("$id".to_string(), id)); } }
         v
     }
 }
@@ -345,28 +351,31 @@ impl Grenade {
         a.object("", fields)
     }
 
-    /// The grenade an object met in a value is: made in the store the first time.
+    /// The grenade a handle names (made with its fields' defaults the first time;
+    /// its value fills them in where it lives).
     pub fn ref_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Grenade>> {
-        let (slot, gen) = cx.entity_in(KIND_GRENADE, v, path, |cx| {
-            let r = cx.store.grenade.insert(Grenade::default());
-            cx.entity_made(KIND_GRENADE, v, r.slot, r.gen);
-            let value = Grenade::from_value(v, cx, path)?;
-            *cx.store.grenade.get_mut(r).unwrap() = value;
-            Ok((r.slot, r.gen))
-        })?;
+        let (slot, gen) = cx.stored_in(KIND_GRENADE, v, path, |cx, _| { let r = cx.store.grenade.insert(Grenade::default()); (r.slot, r.gen) })?;
         Ok(Ref::new(slot, gen))
     }
 
-    /// The value of the grenade a reference names (the same value wherever it is met
-    /// again, its node made before its fields so a field can name it).
-    pub fn ref_out(r: Ref<Grenade>, cx: &mut Replay, a: &mut Arena) -> Value {
-        if let Some(v) = cx.entity_out(KIND_GRENADE, r.slot, r.gen) { return v; }
-        let node = a.nodes.len();
-        a.nodes.push(Node::Array(Vec::new()));
-        let v = Value::Node(node as u32);
-        cx.entity_written(KIND_GRENADE, r.slot, r.gen, &v);
+    /// A grenade's value where it lives (its home list): its handle (`$id`) and fields.
+    pub fn value_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Grenade>> {
+        object(v, path)?;
+        let r = Grenade::ref_in(v.get("$id"), cx, &format!("{path}.$id"))?;
+        let value = Grenade::from_value(v, cx, path)?;
+        *cx.store.grenade.get_mut(r).ok_or_else(|| format!("{path}: its entity is gone"))? = value;
+        Ok(r)
+    }
+
+    /// The handle of the grenade a reference names.
+    pub fn ref_out(r: Ref<Grenade>, cx: &mut Replay, a: &mut Arena) -> Value { cx.stored_out(KIND_GRENADE, r.slot, r.gen) }
+
+    /// A grenade's value where it lives: its handle first, then its fields.
+    pub fn value_out(r: Ref<Grenade>, cx: &mut Replay, a: &mut Arena) -> Value {
+        let id = cx.stored_out(KIND_GRENADE, r.slot, r.gen);
         let e = cx.store.grenade.get(r).cloned().unwrap_or_default();
-        if let Value::Node(made) = e.to_value(cx, a) { a.nodes.swap(node, made as usize); }
+        let v = e.to_value(cx, a);
+        if let Value::Node(n) = v { if let Node::Object { fields, .. } = &mut a.nodes[n as usize] { fields.insert(0, ("$id".to_string(), id)); } }
         v
     }
 }
@@ -376,20 +385,20 @@ impl Ordnance {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         object(v, path)?;
         Ok(Ordnance {
-            bolts: { let p = format!("{path}.bolts"); { let mut out = Vec::new(); for (i, e) in list(v.get("bolts"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Bolt::ref_in(e, cx, &at)?); } out } },
-            beams: { let p = format!("{path}.beams"); { let mut out = Vec::new(); for (i, e) in list(v.get("beams"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Beam::ref_in(e, cx, &at)?); } out } },
-            grenades: { let p = format!("{path}.grenades"); { let mut out = Vec::new(); for (i, e) in list(v.get("grenades"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Grenade::ref_in(e, cx, &at)?); } out } },
-            rounds: { let p = format!("{path}.rounds"); { let mut out = Vec::new(); for (i, e) in list(v.get("rounds"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Round::ref_in(e, cx, &at)?); } out } },
+            bolts: { let p = format!("{path}.bolts"); { let mut out = Vec::new(); for (i, e) in list(v.get("bolts"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Bolt::value_in(e, cx, &at)?); } out } },
+            beams: { let p = format!("{path}.beams"); { let mut out = Vec::new(); for (i, e) in list(v.get("beams"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Beam::value_in(e, cx, &at)?); } out } },
+            grenades: { let p = format!("{path}.grenades"); { let mut out = Vec::new(); for (i, e) in list(v.get("grenades"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Grenade::value_in(e, cx, &at)?); } out } },
+            rounds: { let p = format!("{path}.rounds"); { let mut out = Vec::new(); for (i, e) in list(v.get("rounds"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Round::value_in(e, cx, &at)?); } out } },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
         let fields = vec![
-            ("bolts", { let mut items = Vec::new(); for &r in self.bolts.iter() { items.push(Bolt::ref_out(r, cx, a)); } a.array(items) }),
-            ("beams", { let mut items = Vec::new(); for &r in self.beams.iter() { items.push(Beam::ref_out(r, cx, a)); } a.array(items) }),
-            ("grenades", { let mut items = Vec::new(); for &r in self.grenades.iter() { items.push(Grenade::ref_out(r, cx, a)); } a.array(items) }),
-            ("rounds", { let mut items = Vec::new(); for &r in self.rounds.iter() { items.push(Round::ref_out(r, cx, a)); } a.array(items) }),
+            ("bolts", { let mut items = Vec::new(); for &r in self.bolts.iter() { let x = Bolt::value_out(r, cx, a); items.push(x); } a.array(items) }),
+            ("beams", { let mut items = Vec::new(); for &r in self.beams.iter() { let x = Beam::value_out(r, cx, a); items.push(x); } a.array(items) }),
+            ("grenades", { let mut items = Vec::new(); for &r in self.grenades.iter() { let x = Grenade::value_out(r, cx, a); items.push(x); } a.array(items) }),
+            ("rounds", { let mut items = Vec::new(); for &r in self.rounds.iter() { let x = Round::value_out(r, cx, a); items.push(x); } a.array(items) }),
         ];
         a.object("", fields)
     }
@@ -472,28 +481,31 @@ impl Round {
         a.object("", fields)
     }
 
-    /// The round an object met in a value is: made in the store the first time.
+    /// The round a handle names (made with its fields' defaults the first time;
+    /// its value fills them in where it lives).
     pub fn ref_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Round>> {
-        let (slot, gen) = cx.entity_in(KIND_ROUND, v, path, |cx| {
-            let r = cx.store.round.insert(Round::default());
-            cx.entity_made(KIND_ROUND, v, r.slot, r.gen);
-            let value = Round::from_value(v, cx, path)?;
-            *cx.store.round.get_mut(r).unwrap() = value;
-            Ok((r.slot, r.gen))
-        })?;
+        let (slot, gen) = cx.stored_in(KIND_ROUND, v, path, |cx, _| { let r = cx.store.round.insert(Round::default()); (r.slot, r.gen) })?;
         Ok(Ref::new(slot, gen))
     }
 
-    /// The value of the round a reference names (the same value wherever it is met
-    /// again, its node made before its fields so a field can name it).
-    pub fn ref_out(r: Ref<Round>, cx: &mut Replay, a: &mut Arena) -> Value {
-        if let Some(v) = cx.entity_out(KIND_ROUND, r.slot, r.gen) { return v; }
-        let node = a.nodes.len();
-        a.nodes.push(Node::Array(Vec::new()));
-        let v = Value::Node(node as u32);
-        cx.entity_written(KIND_ROUND, r.slot, r.gen, &v);
+    /// A round's value where it lives (its home list): its handle (`$id`) and fields.
+    pub fn value_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Round>> {
+        object(v, path)?;
+        let r = Round::ref_in(v.get("$id"), cx, &format!("{path}.$id"))?;
+        let value = Round::from_value(v, cx, path)?;
+        *cx.store.round.get_mut(r).ok_or_else(|| format!("{path}: its entity is gone"))? = value;
+        Ok(r)
+    }
+
+    /// The handle of the round a reference names.
+    pub fn ref_out(r: Ref<Round>, cx: &mut Replay, a: &mut Arena) -> Value { cx.stored_out(KIND_ROUND, r.slot, r.gen) }
+
+    /// A round's value where it lives: its handle first, then its fields.
+    pub fn value_out(r: Ref<Round>, cx: &mut Replay, a: &mut Arena) -> Value {
+        let id = cx.stored_out(KIND_ROUND, r.slot, r.gen);
         let e = cx.store.round.get(r).cloned().unwrap_or_default();
-        if let Value::Node(made) = e.to_value(cx, a) { a.nodes.swap(node, made as usize); }
+        let v = e.to_value(cx, a);
+        if let Value::Node(n) = v { if let Node::Object { fields, .. } = &mut a.nodes[n as usize] { fields.insert(0, ("$id".to_string(), id)); } }
         v
     }
 }

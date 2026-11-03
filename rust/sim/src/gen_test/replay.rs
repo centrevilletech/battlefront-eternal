@@ -4,7 +4,7 @@
 #![allow(clippy::all, unused_braces, unused_parens, unused_variables, unused_mut, unused_imports)]
 
 use super::*;
-use crate::store::replay::{boolean, int, list, map, name_of, num, num_f32, numbers, object, quat, set, vec3, Arena, Node, ReplayOf, Result, StoreKinds, Value, V};
+use crate::store::replay::{boolean, int, list, map, mat4, mat4_value, name_of, num, num_f32, numbers, object, quat, set, vec3, Arena, Node, ReplayOf, Result, StoreKinds, Value, V};
 
 /// The replay context of this store.
 pub type Replay = ReplayOf<Store>;
@@ -20,8 +20,7 @@ impl Holder {
             Value::Null => return Ok(Holder::Null),
             Value::Undefined => return Ok(Holder::Undefined),
             Value::Str(s) => match s.as_str() { "nobody" => return Ok(Holder::Nobody), _ => {} },
-            Value::Handle(kind, _) => match kind.as_str() { "person" => return Ok(Holder::Person(cx.ref_in(KIND_PERSON, v, path)?)), _ => {} },
-            Value::Node(_) => return Ok(Holder::Thing(Thing::ref_in(v, cx, path)?)),
+            Value::Handle(kind, _) => match kind.as_str() { "person" => return Ok(Holder::Person(cx.ref_in(KIND_PERSON, v, path)?)), "thing" => return Ok(Holder::Thing(Thing::ref_in(v, cx, path)?)), _ => {} },
             _ => {}
         }
         Err(format!("{path}: none of Holder's variants ({})", v.show()))
@@ -60,7 +59,7 @@ impl Spot {
             ("label", match &self.label { Some(v) => cx.str_out((*v)), None => Value::Null }),
             ("mark", Value::Str(Colour::NAMES[self.mark as usize].to_string())),
             ("near", match &self.near { Some(v) => cx.ref_out(KIND_PERSON, (*v)), None => Value::Undefined }),
-            ("kept", { let mut items = Vec::new(); for &r in self.kept.iter() { items.push(Thing::ref_out(r, cx, a)); } a.array(items) }),
+            ("kept", { let mut items = Vec::new(); for e in self.kept.iter() { let x = Thing::ref_out((*e), cx, a); items.push(x); } a.array(items) }),
         ];
         a.object("", fields)
     }
@@ -83,7 +82,7 @@ impl Ask {
         let fields = vec![
             ("n", Value::Num(self.n)),
             ("who", match &self.who { Some(v) => cx.ref_out(KIND_PERSON, (*v)), None => Value::Null }),
-            ("things", { let mut items = Vec::new(); for &r in self.things.iter() { items.push(Thing::ref_out(r, cx, a)); } a.array(items) }),
+            ("things", { let mut items = Vec::new(); for e in self.things.iter() { let x = Thing::ref_out((*e), cx, a); items.push(x); } a.array(items) }),
             ("spot", match &self.spot { Some(v) => v.to_value(cx, a), None => Value::Null }),
         ];
         a.object("", fields)
@@ -95,7 +94,7 @@ impl Shelf {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         object(v, path)?;
         Ok(Shelf {
-            things: { let p = format!("{path}.things"); { let mut out = Vec::new(); for (i, e) in list(v.get("things"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Thing::ref_in(e, cx, &at)?); } out } },
+            things: { let p = format!("{path}.things"); { let mut out = Vec::new(); for (i, e) in list(v.get("things"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Thing::value_in(e, cx, &at)?); } out } },
             by_name: { let p = format!("{path}.byName"); { let mut out = StrMap::default(); for (key, e) in map(v.get("byName"), &p)? { let at = format!("{}<{}>", &p, key.show()); let id = cx.str_in(key, &at)?; let value = { let mut out = Vec::new(); for (i, e) in list(e, &at)?.into_iter().enumerate() { let at = format!("{}[{i}]", &at); out.push(Thing::ref_in(e, cx, &at)?); } out }; out.entries.push((id, value)); } out } },
             weights: { let p = format!("{path}.weights"); { let mut out = StrMap::default(); for (key, e) in map(v.get("weights"), &p)? { let at = format!("{}<{}>", &p, key.show()); let id = cx.str_in(key, &at)?; let value = num(e, &at)?; out.entries.push((id, value)); } out } },
             spots: { let p = format!("{path}.spots"); { let mut out = StrMap::default(); for (key, e) in map(v.get("spots"), &p)? { let at = format!("{}<{}>", &p, key.show()); let id = cx.str_in(key, &at)?; let value = Spot::from_value(e, cx, &at)?; out.entries.push((id, value)); } out } },
@@ -107,8 +106,8 @@ impl Shelf {
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
         let fields = vec![
-            ("things", { let mut items = Vec::new(); for &r in self.things.iter() { items.push(Thing::ref_out(r, cx, a)); } a.array(items) }),
-            ("byName", { let mut entries = Vec::new(); for (key, e) in self.by_name.entries.iter() { let k = cx.str_out(*key); let x = { let mut items = Vec::new(); for &r in e.iter() { items.push(Thing::ref_out(r, cx, a)); } a.array(items) }; entries.push((k, x)); } a.map(entries) }),
+            ("things", { let mut items = Vec::new(); for &r in self.things.iter() { let x = Thing::value_out(r, cx, a); items.push(x); } a.array(items) }),
+            ("byName", { let mut entries = Vec::new(); for (key, e) in self.by_name.entries.iter() { let k = cx.str_out(*key); let x = { let mut items = Vec::new(); for e in e.iter() { let x = Thing::ref_out((*e), cx, a); items.push(x); } a.array(items) }; entries.push((k, x)); } a.map(entries) }),
             ("weights", { let mut entries = Vec::new(); for (key, e) in self.weights.entries.iter() { let k = cx.str_out(*key); let x = Value::Num((*e)); entries.push((k, x)); } a.map(entries) }),
             ("spots", { let mut entries = Vec::new(); for (key, e) in self.spots.entries.iter() { let k = cx.str_out(*key); let x = e.to_value(cx, a); entries.push((k, x)); } a.map(entries) }),
             ("owners", { let mut entries = Vec::new(); for (key, e) in self.owners.entries.iter() { let k = cx.str_out(*key); let x = cx.ref_out(KIND_PERSON, (*e)); entries.push((k, x)); } a.map(entries) }),
@@ -143,6 +142,13 @@ impl Thing {
             tags: { let p = format!("{path}.tags"); match v.get("tags").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some({ let mut out = StrMap::default(); for (key, e) in map(v.get("tags"), &p)? { let at = format!("{}<{}>", &p, key.show()); let id = cx.str_in(key, &at)?; let value = cx.str_in(e, &at)?; out.entries.push((id, value)); } out }) } },
             hidden: { let p = format!("{path}.hidden"); num(v.get("hidden"), &p)? },
             boxed: { let p = format!("{path}.boxed"); num(v.get("boxed"), &p)? },
+            marks: { let p = format!("{path}.marks"); { let mut out = Vec::new(); for (i, e) in list(v.get("marks"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+            probes: { let p = format!("{path}.probes"); { let mut out = Vec::new(); for (i, e) in list(v.get("probes"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(vec3(e, &at)?); } out } },
+            flags: { let p = format!("{path}.flags"); { let mut out = Vec::new(); for (i, e) in list(v.get("flags"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(boolean(e, &at)?); } out } },
+            spots: { let p = format!("{path}.spots"); { let mut out = Vec::new(); for (i, e) in list(v.get("spots"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Spot::from_value(e, cx, &at)?); } out } },
+            holders: { let p = format!("{path}.holders"); { let mut out = Vec::new(); for (i, e) in list(v.get("holders"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Holder::from_value(e, cx, &at)?); } out } },
+            matrix: { let p = format!("{path}.matrix"); mat4(v.get("matrix"), &p)? },
+            first_size: { let p = format!("{path}.firstSize"); num(v.get("firstSize"), &p)? },
         })
     }
 
@@ -169,32 +175,42 @@ impl Thing {
             ("tags", match &self.tags { Some(v) => { let mut entries = Vec::new(); for (key, e) in v.entries.iter() { let k = cx.str_out(*key); let x = cx.str_out((*e)); entries.push((k, x)); } a.map(entries) }, None => Value::Undefined }),
             ("hidden", Value::Num(self.hidden)),
             ("boxed", Value::Num(self.boxed)),
+            ("marks", { let mut items = Vec::new(); for e in self.marks.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }),
+            ("probes", { let mut items = Vec::new(); for e in self.probes.iter() { let x = a.vec3((*e)); items.push(x); } a.array(items) }),
+            ("flags", { let mut items = Vec::new(); for e in self.flags.iter() { let x = Value::Bool((*e)); items.push(x); } a.array(items) }),
+            ("spots", { let mut items = Vec::new(); for e in self.spots.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }),
+            ("holders", { let mut items = Vec::new(); for e in self.holders.iter() { let x = (*e).to_value(cx, a); items.push(x); } a.array(items) }),
+            ("matrix", mat4_value(a, self.matrix)),
+            ("firstSize", Value::Num(self.first_size)),
         ];
         a.object("", fields)
     }
 
-    /// The thing an object met in a value is: made in the store the first time.
+    /// The thing a handle names (made with its fields' defaults the first time;
+    /// its value fills them in where it lives).
     pub fn ref_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Thing>> {
-        let (slot, gen) = cx.entity_in(KIND_THING, v, path, |cx| {
-            let r = cx.store.thing.insert(Thing::default());
-            cx.entity_made(KIND_THING, v, r.slot, r.gen);
-            let value = Thing::from_value(v, cx, path)?;
-            *cx.store.thing.get_mut(r).unwrap() = value;
-            Ok((r.slot, r.gen))
-        })?;
+        let (slot, gen) = cx.stored_in(KIND_THING, v, path, |cx, _| { let r = cx.store.thing.insert(Thing::default()); (r.slot, r.gen) })?;
         Ok(Ref::new(slot, gen))
     }
 
-    /// The value of the thing a reference names (the same value wherever it is met
-    /// again, its node made before its fields so a field can name it).
-    pub fn ref_out(r: Ref<Thing>, cx: &mut Replay, a: &mut Arena) -> Value {
-        if let Some(v) = cx.entity_out(KIND_THING, r.slot, r.gen) { return v; }
-        let node = a.nodes.len();
-        a.nodes.push(Node::Array(Vec::new()));
-        let v = Value::Node(node as u32);
-        cx.entity_written(KIND_THING, r.slot, r.gen, &v);
+    /// A thing's value where it lives (its home list): its handle (`$id`) and fields.
+    pub fn value_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Thing>> {
+        object(v, path)?;
+        let r = Thing::ref_in(v.get("$id"), cx, &format!("{path}.$id"))?;
+        let value = Thing::from_value(v, cx, path)?;
+        *cx.store.thing.get_mut(r).ok_or_else(|| format!("{path}: its entity is gone"))? = value;
+        Ok(r)
+    }
+
+    /// The handle of the thing a reference names.
+    pub fn ref_out(r: Ref<Thing>, cx: &mut Replay, a: &mut Arena) -> Value { cx.stored_out(KIND_THING, r.slot, r.gen) }
+
+    /// A thing's value where it lives: its handle first, then its fields.
+    pub fn value_out(r: Ref<Thing>, cx: &mut Replay, a: &mut Arena) -> Value {
+        let id = cx.stored_out(KIND_THING, r.slot, r.gen);
         let e = cx.store.thing.get(r).cloned().unwrap_or_default();
-        if let Value::Node(made) = e.to_value(cx, a) { a.nodes.swap(node, made as usize); }
+        let v = e.to_value(cx, a);
+        if let Value::Node(n) = v { if let Node::Object { fields, .. } = &mut a.nodes[n as usize] { fields.insert(0, ("$id".to_string(), id)); } }
         v
     }
 }

@@ -482,18 +482,18 @@ impl Ordnance {
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
-        row[2] = heap.len() as f64; row[2 + 1] = self.bolts.len() as f64; for r in self.bolts.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
-        row[4] = heap.len() as f64; row[4 + 1] = self.beams.len() as f64; for r in self.beams.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
-        row[6] = heap.len() as f64; row[6 + 1] = self.grenades.len() as f64; for r in self.grenades.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
-        row[8] = heap.len() as f64; row[8 + 1] = self.rounds.len() as f64; for r in self.rounds.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.bolts.len() as f64; heap.resize(at + self.bolts.len() * 2, 0.0); for (i, e) in self.bolts.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.beams.len() as f64; heap.resize(at + self.beams.len() * 2, 0.0); for (i, e) in self.beams.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.grenades.len() as f64; heap.resize(at + self.grenades.len() * 2, 0.0); for (i, e) in self.grenades.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.rounds.len() as f64; heap.resize(at + self.rounds.len() * 2, 0.0); for (i, e) in self.rounds.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
         let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
-        self.bolts = { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
-        self.beams = { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
-        self.grenades = { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
-        self.rounds = { let (at, n) = (word_u32(row[8]) as usize, word_u32(row[8 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
+        self.bolts = { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
+        self.beams = { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
+        self.grenades = { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
+        self.rounds = { let (at, n) = (word_u32(row[8]) as usize, word_u32(row[8 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
     }
 
     #[inline(always)]
