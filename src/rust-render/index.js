@@ -365,10 +365,13 @@ export class RustRender {
       this.recording.frames.push({ records: ctx.records, input: this.input.slice(0, this.recordsAt + ctx.records * this.stride), bones: this.bones.slice(0, ctx.bones * 16) });
     }
     const t0 = performance.now();
-    this.phaseStats[name] = phase.draw(this.rust, ctx);
+    const stats = this.phaseStats[name] = phase.draw(this.rust, ctx);
     this.phaseMs[name] = performance.now() - t0;
-    renderer.resetState();
-    renderer.setRenderTarget(target);
+    // A phase that made no GL call left three's state as it was.
+    if (stats?.[4] !== 0) {
+      renderer.resetState();
+      renderer.setRenderTarget(target);
+    }
     for (const pass of this.passes) pass.afterPhase?.(name, ctx);
   }
 

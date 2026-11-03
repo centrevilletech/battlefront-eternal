@@ -301,3 +301,10 @@ test("a bucket culled by cell registers whatever draw range three's last view le
   assert.equal(calls.filter((c) => c[0] === "add_world").length, 1);
   assert.equal(calls.filter((c) => c[0] === "world_cells").length, 1);
 });
+
+test("a phase that made no GL call leaves three's state alone", () => {
+  const { core, calls, renderer, scene, camera } = bridge();
+  core.rust.transparent_frame = () => { calls.push(["transparent_frame"]); return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; };
+  core.phase("transparent", renderer, scene, camera);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => n !== "add_texture" && n !== "set_far_map"), ["transparent_frame"]);
+});
