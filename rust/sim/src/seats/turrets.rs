@@ -628,7 +628,7 @@ impl Crews {
         if how.kill {
             if let Some(id) = unit {
                 let u = st.unit.get(unit_ref(id)).unwrap();
-                if u.alive && !u.combat_dead {
+                if u.alive && !u.combat.dead {
                     w.kill(st, super::Seating::Crews(self), id, how.attacker);
                 }
             }

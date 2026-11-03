@@ -267,7 +267,7 @@ impl Unit {
         if self.alive {
             world.aim(id, self, h);
         }
-        self.aim_override = if self.alive { opt_nullable(self.intent.aim) } else { crate::store::Nullable::Null };
+        self.combat.aim_override = if self.alive { opt_nullable(self.intent.aim) } else { crate::store::Nullable::Null };
         let buttons = self.intent.buttons;
         self.controls.latch(&buttons);
         if world.has_remote_step(id, self) {
@@ -293,7 +293,7 @@ impl Unit {
         self.seat = None;
         self.let_go();
         self.targetable = Some(true);
-        self.mounted = Some(false);
+        self.combat.mounted = Some(false);
         self.generation += 1.0;
         match &mut self.soldier {
             UnitBody::Soldier(s) => {
@@ -361,14 +361,14 @@ impl Unit {
             return;
         }
         self.held = crate::store::Nullable::Null;
-        self.mounted = Some(false);
+        self.combat.mounted = Some(false);
         // (The animator's gunner clip and the root's tilt are the page's.)
     }
 
     /// origin(out) (units.js:279) on foot: the aim pivot, else the eyes'
     /// height over his feet by posture. (A seated unit's is his seat's.)
     pub fn origin_on_foot(&self) -> Vector3 {
-        let pivot = v3(self.pivot);
+        let pivot = v3(self.combat.pivot);
         if pivot.length_sq() > 0.0 {
             return pivot;
         }

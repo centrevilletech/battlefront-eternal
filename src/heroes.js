@@ -34,16 +34,18 @@ export class MeleeSwing {
     this.time = -1;
     this.swing = null;
     this.index = 0;
+    this.active = false; // a swing under way (`swing` set): the store's
   }
 
   captureState(){return {time:this.time,index:this.index,active:Boolean(this.swing)};}
-  restoreState(state){this.time=state.time;this.index=state.index;this.swing=state.active?meleeSwings(this.weapon)[state.index]:null;}
+  restoreState(state){this.time=state.time;this.index=state.index;this.swing=state.active?meleeSwings(this.weapon)[state.index]:null;this.active=Boolean(this.swing);}
 
   update(dt, selected, trigger) {
     const w = this.weapon;
     const shots = [];
     if (this.swing && this.time > this.swing.duration) {
       this.swing = null;
+      this.active = false;
       w.firing = false;
       shots.push({ weapon: w, meleeEnd: true });
     }
@@ -52,6 +54,7 @@ export class MeleeSwing {
       const random = w.random || legacySwing;
       this.index = Math.max(0, Math.min(swings.length - 1, Math.trunc(random() * swings.length - .001)));
       this.swing = swings[this.index];
+      this.active = true;
       this.time = -1;
       w.firing = true;
       shots.push({ weapon: w, meleeStart: true, swing: this.index + 1, sound: this.swing.sound });

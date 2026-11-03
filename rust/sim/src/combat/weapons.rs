@@ -12,7 +12,7 @@
 //! jsrt's, a press's seeded draws as mulberry32 (jsrt::rng::Mulberry32).
 
 use super::defs::{Js, Level, WeaponClass, WeaponDefs, K};
-use crate::gen::{Melee, Posture, SeededDraws, Weapon};
+use crate::gen::{Melee, Posture, Weapon};
 use crate::store::DefId;
 use jsrt::conv::{js_max, js_min, js_trunc};
 use jsrt::rng::Mulberry32;
@@ -142,7 +142,8 @@ impl Weapon {
             pattern: 0.0,
             salvos_left: 0.0,
             salvo_wait: 0.0,
-            salvo_random: None,
+            salvo_seed: None,
+            salvo_count: 0.0,
             lock_target_id: -1.0,
             lock_generation: -1.0,
             lock_elapsed: 0.0,
@@ -302,23 +303,24 @@ impl Weapon {
         self.level = level as f64;
     }
 
-    /// The press's seeded draws' next number (salvoRandom()).
-    fn seeded_draw(&mut self, draws: &mut dyn WeaponDraws) -> f64 {
-        let s = self.salvo_random.as_mut().expect("a seeded salvo");
-        let mut m = Mulberry32::new(s.seed);
+    /// The press's seeded generator's number `n` (from 0: salvoRandom(),
+    /// seededRandom(salvoSeed) drawn n + 1 times).
+    fn seeded_draw(&self, n: f64, draws: &mut dyn WeaponDraws) -> f64 {
+        let seed = jsrt::conv::to_uint32(self.salvo_seed.expect("a seeded salvo")) as f64;
+        let mut m = Mulberry32::new(seed);
         let mut v = 0.0;
-        for _ in 0..=(s.count as u64) {
+        for _ in 0..=(n as u64) {
             v = m.next_f64();
         }
-        s.count += 1.0;
-        draws.seeded(s.seed, v);
+        draws.seeded(seed, v);
         v
     }
 
-    /// One draw of a salvo's: its press's, else its generator's.
-    fn salvo_draw(&mut self, index: u32, draws: &mut dyn WeaponDraws) -> f64 {
-        if self.salvo_random.is_some() {
-            self.seeded_draw(draws)
+    /// The `k`th of a round's four draws: its press's (salvoCount was
+    /// counted on by four as the round began), else its generator's.
+    fn salvo_draw(&mut self, index: u32, k: f64, draws: &mut dyn WeaponDraws) -> f64 {
+        if self.salvo_seed.is_some() {
+            self.seeded_draw(self.salvo_count - 4.0 + k, draws)
         } else {
             draws.draw(index)
         }
@@ -359,13 +361,16 @@ impl Weapon {
                 self.pattern = jsrt::conv::js_mod(self.pattern + 1.0, entries);
             }
             let charge = self.charge;
-            if self.salvo_random.is_some() || self.random {
+            if self.salvo_seed.is_some() || self.random {
                 // A press's seeded draws or the AI's generator, in the
                 // original game's order: pitch, then yaw.
-                let a = self.salvo_draw(index, draws);
-                let tipped = a - self.salvo_draw(index, draws);
-                let b = self.salvo_draw(index, draws);
-                let turned = b - self.salvo_draw(index, draws);
+                if self.salvo_seed.is_some() {
+                    self.salvo_count += 4.0;
+                }
+                let a = self.salvo_draw(index, 0.0, draws);
+                let tipped = a - self.salvo_draw(index, 1.0, draws);
+                let b = self.salvo_draw(index, 2.0, draws);
+                let turned = b - self.salvo_draw(index, 3.0, draws);
                 out.push(Shot { weapon: index, kind: ShotKind::Round { yaw: (aside + yaw * turned) * DEG, pitch: (-down + pitch * tipped) * DEG, charge, target_id, target_generation, admission: admitted } });
                 i += 1.0;
                 continue;
@@ -387,7 +392,8 @@ impl Weapon {
 
     /// startBurst(shots, aim, seed) (weapons.js:397).
     fn start_burst(&mut self, index: u32, class: &WeaponClass, aim: &Aim, seed: Option<f64>, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
-        self.salvo_random = seed.map(|seed| SeededDraws { seed: jsrt::conv::to_uint32(seed) as f64, count: 0.0 });
+        self.salvo_seed = seed;
+        self.salvo_count = 0.0;
         let d = self.level(class);
         self.salvos_left = js_max(1.0, jsrt::conv::js_floor(d.get(K::SalvoCount).or(1.0)));
         self.salvo_wait = js_max(0.0, d.get(K::InitialSalvoDelay).or(0.0));
