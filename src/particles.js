@@ -146,6 +146,9 @@ class Batch {
       this.arrays[name] = array;
       this.geometry.setAttribute(name, new THREE.InstancedBufferAttribute(array, size).setUsage(THREE.DynamicDrawUsage));
     }
+    // three keeps the instance limit of the buffers it first bound until the
+    // geometry is disposed: grown, the new instances would not be drawn.
+    delete this.geometry._maxInstanceCount;
     this.capacity = capacity;
   }
 
