@@ -122,34 +122,6 @@ impl BeamSource {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Mount {
-    Vehicle(Ref<Vehicle>),
-    Turret(Ref<Turret>),
-}
-
-impl Default for Mount {
-    fn default() -> Self { Mount::Vehicle(Ref::new(0, 0)) }
-}
-
-impl Mount {
-    /// Its row words: the variant, then a reference's slot and generation.
-    pub fn put(&self, row: &mut [f64]) {
-        match self {
-            Mount::Vehicle(r) => { row[0] = 0.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
-            Mount::Turret(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
-        }
-    }
-
-    pub fn take(row: &[f64]) -> Self {
-        match word_u32(row[0]) {
-            0 => Mount::Vehicle(Ref::new(word_u32(row[1]), word_u32(row[2]))),
-            1 => Mount::Turret(Ref::new(word_u32(row[1]), word_u32(row[2]))),
-            _ => Mount::default(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Impact {
     pub point: Vec3,
@@ -203,18 +175,18 @@ pub struct Beam {
     pub end: Vec3,
     pub direction: Vec3,
     pub local_origin: Option<Vec3>,
-    pub damage: f64,
+    pub damage: Option<f64>,
 }
 
 impl Beam {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
     pub const EXPORT_STRIDE: usize = 31;
-    pub const IMPORT_STRIDE: usize = 32;
-    pub const FULL_STRIDE: usize = 32;
+    pub const IMPORT_STRIDE: usize = 33;
+    pub const FULL_STRIDE: usize = 33;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 32] = (&mut row[..32]).try_into().unwrap();
+        let row: &mut [f64; 33] = (&mut row[..33]).try_into().unwrap();
         row[2] = self.network_fire_channel;
         match &self.history_tick { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v); } None => { row[3] = 1.0; row[3 + 1..3 + 2].fill(0.0); } }
         row[5] = self.def.0 as f64;
@@ -228,11 +200,11 @@ impl Beam {
         row[21..21 + 3].copy_from_slice(&self.end);
         row[24..24 + 3].copy_from_slice(&self.direction);
         match &self.local_origin { Some(v) => { row[27] = 0.0; row[27 + 1..27 + 1 + 3].copy_from_slice(&(*v)); } None => { row[27] = 1.0; row[27 + 1..27 + 4].fill(0.0); } }
-        row[31] = self.damage;
+        match &self.damage { Some(v) => { row[31] = 0.0; row[31 + 1] = (*v); } None => { row[31] = 2.0; row[31 + 1..31 + 2].fill(0.0); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 32] = (&row[..32]).try_into().unwrap();
+        let row: &[f64; 33] = (&row[..33]).try_into().unwrap();
         self.network_fire_channel = row[2];
         self.history_tick = if row[3] == 0.0 { Some(row[3 + 1]) } else { None };
         self.def = DefId(word_u32(row[5]));
@@ -246,7 +218,7 @@ impl Beam {
         self.end = [row[21], row[21 + 1], row[21 + 2]];
         self.direction = [row[24], row[24 + 1], row[24 + 2]];
         self.local_origin = if row[27] == 0.0 { Some([row[27 + 1], row[27 + 1 + 1], row[27 + 1 + 2]]) } else { None };
-        self.damage = row[31];
+        self.damage = if row[31] == 0.0 { Some(row[31 + 1]) } else { None };
     }
 
     pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) {
@@ -471,29 +443,32 @@ pub struct Ordnance {
     pub beams: Vec<Ref<Beam>>,
     pub grenades: Vec<Ref<Grenade>>,
     pub rounds: Vec<Ref<Round>>,
+    pub start: Vec3,
 }
 
 impl Ordnance {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 10;
-    pub const IMPORT_STRIDE: usize = 10;
-    pub const FULL_STRIDE: usize = 10;
+    pub const EXPORT_STRIDE: usize = 13;
+    pub const IMPORT_STRIDE: usize = 13;
+    pub const FULL_STRIDE: usize = 13;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
+        let row: &mut [f64; 13] = (&mut row[..13]).try_into().unwrap();
         row[2] = heap.len() as f64; row[2 + 1] = self.bolts.len() as f64; for r in self.bolts.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
         row[4] = heap.len() as f64; row[4 + 1] = self.beams.len() as f64; for r in self.beams.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
         row[6] = heap.len() as f64; row[6 + 1] = self.grenades.len() as f64; for r in self.grenades.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
         row[8] = heap.len() as f64; row[8 + 1] = self.rounds.len() as f64; for r in self.rounds.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
+        row[10..10 + 3].copy_from_slice(&self.start);
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
+        let row: &[f64; 13] = (&row[..13]).try_into().unwrap();
         self.bolts = { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
         self.beams = { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
         self.grenades = { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
         self.rounds = { let (at, n) = (word_u32(row[8]) as usize, word_u32(row[8 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
+        self.start = [row[10], row[10 + 1], row[10 + 2]];
     }
 
     #[inline(always)]
@@ -536,25 +511,17 @@ pub struct Round {
     pub gone: Option<bool>,
     pub flight_missile: Option<bool>,
     pub flight_class: Option<StrId>,
-    pub weapon: Option<Ref<Weapon>>,
-    pub muzzle_generation: Nullable<f64>,
-    pub muzzle_index: Option<f64>,
-    pub muzzle_barrel: Option<f64>,
-    pub mount: Option<Mount>,
-    pub mount_seat: Option<f64>,
-    pub mount_weapon: Option<f64>,
-    pub mount_barrel: Option<f64>,
 }
 
 impl Round {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 84;
-    pub const IMPORT_STRIDE: usize = 84;
-    pub const FULL_STRIDE: usize = 84;
+    pub const EXPORT_STRIDE: usize = 65;
+    pub const IMPORT_STRIDE: usize = 65;
+    pub const FULL_STRIDE: usize = 65;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 84] = (&mut row[..84]).try_into().unwrap();
+        let row: &mut [f64; 65] = (&mut row[..65]).try_into().unwrap();
         row[2] = self.kind as u8 as f64;
         row[3] = self.network_fire_channel;
         match &self.ignore_body { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).slot as f64; row[4 + 1 + 1] = (*v).gen as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 3].fill(0.0); } }
@@ -578,18 +545,10 @@ impl Round {
         match &self.gone { Some(v) => { row[59] = 0.0; row[59 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[59] = 2.0; row[59 + 1..59 + 2].fill(0.0); } }
         match &self.flight_missile { Some(v) => { row[61] = 0.0; row[61 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[61] = 2.0; row[61 + 1..61 + 2].fill(0.0); } }
         match &self.flight_class { Some(v) => { row[63] = 0.0; row[63 + 1] = (*v).0 as f64; } None => { row[63] = 2.0; row[63 + 1..63 + 2].fill(0.0); } }
-        match &self.weapon { Some(v) => { row[65] = 0.0; row[65 + 1] = (*v).slot as f64; row[65 + 1 + 1] = (*v).gen as f64; } None => { row[65] = 2.0; row[65 + 1..65 + 3].fill(0.0); } }
-        match &self.muzzle_generation { Nullable::Value(v) => { row[68] = 0.0; row[68 + 1] = (*v); } Nullable::Null => { row[68] = 1.0; row[68 + 1..68 + 2].fill(0.0); } Nullable::Undefined => { row[68] = 2.0; row[68 + 1..68 + 2].fill(0.0); } }
-        match &self.muzzle_index { Some(v) => { row[70] = 0.0; row[70 + 1] = (*v); } None => { row[70] = 2.0; row[70 + 1..70 + 2].fill(0.0); } }
-        match &self.muzzle_barrel { Some(v) => { row[72] = 0.0; row[72 + 1] = (*v); } None => { row[72] = 2.0; row[72 + 1..72 + 2].fill(0.0); } }
-        match &self.mount { Some(v) => { row[74] = 0.0; (*v).put(&mut row[74 + 1..74 + 1 + 3]); } None => { row[74] = 2.0; row[74 + 1..74 + 4].fill(0.0); } }
-        match &self.mount_seat { Some(v) => { row[78] = 0.0; row[78 + 1] = (*v); } None => { row[78] = 2.0; row[78 + 1..78 + 2].fill(0.0); } }
-        match &self.mount_weapon { Some(v) => { row[80] = 0.0; row[80 + 1] = (*v); } None => { row[80] = 2.0; row[80 + 1..80 + 2].fill(0.0); } }
-        match &self.mount_barrel { Some(v) => { row[82] = 0.0; row[82 + 1] = (*v); } None => { row[82] = 2.0; row[82 + 1..82 + 2].fill(0.0); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 84] = (&row[..84]).try_into().unwrap();
+        let row: &[f64; 65] = (&row[..65]).try_into().unwrap();
         self.kind = RoundKind::from_u8(word_u32(row[2]) as u8).unwrap_or_default();
         self.network_fire_channel = row[3];
         self.ignore_body = if row[4] == 0.0 { Some(Ref::new(word_u32(row[4 + 1]), word_u32(row[4 + 1 + 1]))) } else { None };
@@ -613,14 +572,6 @@ impl Round {
         self.gone = if row[59] == 0.0 { Some(row[59 + 1] != 0.0) } else { None };
         self.flight_missile = if row[61] == 0.0 { Some(row[61 + 1] != 0.0) } else { None };
         self.flight_class = if row[63] == 0.0 { Some(StrId(word_u32(row[63 + 1]))) } else { None };
-        self.weapon = if row[65] == 0.0 { Some(Ref::new(word_u32(row[65 + 1]), word_u32(row[65 + 1 + 1]))) } else { None };
-        self.muzzle_generation = match word_u32(row[68]) { 0 => Nullable::Value(row[68 + 1]), 1 => Nullable::Null, _ => Nullable::Undefined };
-        self.muzzle_index = if row[70] == 0.0 { Some(row[70 + 1]) } else { None };
-        self.muzzle_barrel = if row[72] == 0.0 { Some(row[72 + 1]) } else { None };
-        self.mount = if row[74] == 0.0 { Some(Mount::take(&row[74 + 1..74 + 1 + 3])) } else { None };
-        self.mount_seat = if row[78] == 0.0 { Some(row[78 + 1]) } else { None };
-        self.mount_weapon = if row[80] == 0.0 { Some(row[80 + 1]) } else { None };
-        self.mount_barrel = if row[82] == 0.0 { Some(row[82 + 1]) } else { None };
     }
 
     #[inline(always)]

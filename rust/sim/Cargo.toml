@@ -21,4 +21,9 @@ crate-type = ["cdylib", "rlib"]
 replay = ["dep:sim-replay"]
 
 [dependencies]
+# The game's content as JavaScript loads it, and the JavaScript and
+# three.js arithmetic its loaders share with the simulation.
+content = { path = "../content" }
+# JavaScript's Math as the production server's V8 computes it.
+v8math = { path = "../v8math" }
 sim-replay = { path = "../sim-replay", optional = true }
