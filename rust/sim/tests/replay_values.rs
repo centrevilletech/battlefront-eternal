@@ -99,3 +99,35 @@ fn a_value_its_schema_does_not_allow_is_named_by_its_path() {
     let error = other.read_value(KIND_ORDNANCE, a.view(&value)).unwrap_err();
     assert!(error.starts_with("ordnance.bolts[0].life: not a number"), "{error}");
 }
+
+// A battle's rounds as tools/sim-store-check.mjs exported them
+// (--store-values FILE, in the replay harness's format): every sampled
+// tick's state read into the store and written back is the same, field for
+// field and handle for handle. Without BFE_SIM_STORE_VALUES there is nothing
+// to read and the test says so.
+#[test]
+fn a_battle_s_rounds_come_back_from_the_store_as_they_went_in() {
+    let Ok(path) = std::env::var("BFE_SIM_STORE_VALUES") else {
+        eprintln!("BFE_SIM_STORE_VALUES names no file: not checked");
+        return;
+    };
+    let bytes = std::fs::read(&path).expect("the values file");
+    let mut reader = sim_replay::Reader::new(&bytes).expect("a capture");
+    let mut cx = Replay::default();
+    let (mut frames, mut rounds) = (0, 0);
+    while let Some(record) = reader.next_record() {
+        let record = record.expect("a record");
+        if record.name != "ordnance" { continue; }
+        cx.store = Store::default();
+        cx.next_record();
+        cx.read_value(KIND_ORDNANCE, record.root()).unwrap_or_else(|e| panic!("tick {}: {e}", record.tick));
+        let mut a = Arena::default();
+        let back = cx.write_value(KIND_ORDNANCE, &mut a);
+        if let Some(d) = sim_replay::diff(record.root(), a.view(&back)) { panic!("tick {}: {d}", record.tick); }
+        frames += 1;
+        let o = &cx.store.ordnance;
+        rounds += o.bolts.len() + o.beams.len() + o.grenades.len() + o.rounds.len();
+    }
+    eprintln!("{path}: {frames} ticks, {rounds} rounds read into the store and back");
+    assert!(frames > 0, "no ordnance frames in {path}");
+}

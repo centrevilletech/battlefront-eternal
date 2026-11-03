@@ -97,6 +97,32 @@ fn a_retired_thing_is_exported_once_before_the_live_ones() {
     assert_eq!((block.words[0], block.words[4]), (1.0, 0.0));
 }
 
+/// The test schema's command: its arguments back with `n` doubled, after
+/// noting its spot (if any) as an event.
+pub fn double(sim: &mut crate::abi::Sim, ask: Ask) -> Ask {
+    if let Some(spot) = &ask.spot { spot.emit(&mut sim.events); }
+    Ask { n: ask.n * 2.0, ..ask }
+}
+
+#[test]
+fn a_command_takes_its_arguments_and_gives_its_result_through_the_call_block() {
+    let sim = crate::abi::sim();
+    let spot = Spot { at: [1.0, 2.0, 3.0], label: None, kept: vec![Ref::new(3, 1)], ..Default::default() };
+    let ask = Ask { n: -0.75, who: Some(Ref::new(4, 0)), things: vec![Ref::new(1, 2), Ref::new(0, 1)], spot: Some(spot.clone()) };
+    // Written as JavaScript writes arguments (the same words), then run.
+    sim.calls.result(Ask::WORDS, |row, heap| ask.put(row, heap));
+    sim.events.clear();
+    assert!(run_command(sim, COMMAND_DOUBLE));
+    let back = { let (row, heap) = sim.calls.args(); Ask::take(row, heap) };
+    assert_eq!(back, Ask { n: -1.5, ..ask });
+    // The event: its code, its length, the spot's words and its heap.
+    let w = unsafe { std::slice::from_raw_parts(sim.events.ptr(), sim.events.len() + 1) };
+    assert_eq!((w[1], w[2]), (EVENT_NOTED as f64, (Spot::WORDS + 2) as f64));
+    assert_eq!(Spot::take(&w[3..3 + Spot::WORDS], &w[3 + Spot::WORDS..]), spot);
+    assert!(!run_command(sim, 99));
+    sim.events.clear();
+}
+
 #[cfg(feature = "replay")]
 #[test]
 fn every_type_goes_through_the_replay_values_and_comes_back() {

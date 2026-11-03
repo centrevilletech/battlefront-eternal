@@ -4,7 +4,7 @@
 // (slots, definitions, strings), the pools of mirror objects that stand for
 // entities Rust owns, and SimBridge, which moves a kind's rows in and out of
 // a battle's instance of the module.
-import { DEF_TABLES, KIND_TABLE } from "./gen/index.js";
+import { COMMAND_TABLE, DEF_TABLES, EVENT_TABLE, IMPORT_TABLE, KIND_TABLE } from "./gen/index.js";
 
 export { sameArray, sameList, sameMap, sameQuat, sameVec } from "./compare.js";
 
@@ -281,6 +281,71 @@ export class SimBridge extends SimContext {
     // How often the memory had grown when `views()` looked (debug: not in
     // a phase; release: views are made again where it is noticed).
     this.grown = 0;
+    // What serves the module's imports, by name (a schema's imports):
+    // handler(args) gives the result.
+    this.handlers = {};
+    if (instance.holder) instance.holder.bridge = this;
+    this.commandCodes = new Map(COMMAND_TABLE.filter(Boolean).map((c) => [c.name, c.code]));
+  }
+
+  // A call's record into the call block: its words, then its heap.
+  callArgs(record, value) {
+    const heap = this.heap, words = record.words;
+    if (this.rows.length < words) this.rows = new Float64Array(Math.max(words, this.rows.length * 2));
+    const rows = this.rows;
+    heap.clear();
+    record.put(this, value, rows, 0, heap);
+    const ptr = this.x.sim_call_room(words, heap.words.length);
+    this.views();
+    const base = ptr / 8;
+    this.f.set(rows.subarray(0, words), base + HEADER);
+    this.f.set(heap.words, base + HEADER + words);
+  }
+
+  // A record out of a block Rust wrote at `ptr`, as a new object.
+  callResult(record, ptr) {
+    this.views();
+    const f = this.f, base = ptr / 8;
+    return record.sync(this, f, base + HEADER, base + f[base + 2], new record.Mirror());
+  }
+
+  // Runs a command (by name or code) on its arguments (an object with its
+  // args record's fields) at once, and gives its result (a new object), or
+  // undefined for a command that has none.
+  command(name, args) {
+    const c = COMMAND_TABLE[typeof name === "number" ? name : this.commandCodes.get(name)];
+    if (!c) throw Error(`no command ${name}`);
+    this.callArgs(c.args, args);
+    const ptr = this.x.sim_command(c.code);
+    if (!ptr) throw Error(`the simulation's module has no command ${c.name}`);
+    return c.result ? this.callResult(c.result, ptr) : undefined;
+  }
+
+  // Hands the events emitted since the last drain to handlers[name](event),
+  // in the order they were emitted (each a new object, which a handler may
+  // keep), and forgets them; returns how many there were.
+  drain(handlers) {
+    const ptr = this.x.sim_events();
+    this.views();
+    const f = this.f, base = ptr / 8, end = base + 1 + f[base];
+    let count = 0;
+    for (let at = base + 1; at < end; at += 2 + f[at + 1]) {
+      const e = EVENT_TABLE[f[at]], r = e.record;
+      const event = r.sync(this, f, at + 2, at + 2 + r.words, new r.Mirror());
+      handlers[e.name]?.(event);
+      count++;
+    }
+    this.x.sim_events_clear();
+    return count;
+  }
+
+  // Serves an import the module called: its arguments out of the call
+  // block, handlers[name](args), the result back in.
+  serve(code) {
+    const imp = IMPORT_TABLE[code], handler = this.handlers[imp.name];
+    if (!handler) throw Error(`the simulation's module asked for ${imp.name}, which nothing serves`);
+    const result = handler(this.callResult(imp.args, this.x.sim_calls()));
+    if (imp.result) this.callArgs(imp.result, result);
   }
 
   // The memory's views, made again if it grew (a grown memory's old buffer

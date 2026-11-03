@@ -3,9 +3,11 @@
 // store's runtime (src/sim/runtime.js) to dispatch on (docs/sim-store.md).
 import { ItemMirror, syncItem, syncFullItem, putItem, putFullItem, checkItem, sameItem, exportItem, ITEM_KEYS, ItemsMirror, syncItems, syncFullItems, putItems, putFullItems, checkItems, sameItems, exportItems, ITEMS_KEYS } from "./items.js";
 import { BeamMirror, syncBeam, syncFullBeam, putBeam, putFullBeam, checkBeam, sameBeam, exportBeam, BEAM_KEYS, BoltMirror, syncBolt, syncFullBolt, putBolt, putFullBolt, checkBolt, sameBolt, exportBolt, BOLT_KEYS, GrenadeMirror, syncGrenade, syncFullGrenade, putGrenade, putFullGrenade, checkGrenade, sameGrenade, exportGrenade, GRENADE_KEYS, OrdnanceMirror, syncOrdnance, syncFullOrdnance, putOrdnance, putFullOrdnance, checkOrdnance, sameOrdnance, exportOrdnance, ORDNANCE_KEYS, RoundMirror, syncRound, syncFullRound, putRound, putFullRound, checkRound, sameRound, exportRound, ROUND_KEYS } from "./ordnance.js";
+import { EchoMirror, syncEcho, putEcho } from "./store.js";
 export * from "./kinds.js";
 export * from "./items.js";
 export * from "./ordnance.js";
+export * from "./store.js";
 
 // By code: name, layout hash (the same as the module's), singleton, key (the
 // numeric field that names an object), home (singleton kind and list field),
@@ -24,5 +26,10 @@ export const KIND_TABLE = [null,
   { name: "unit", code: 11, hash: 0x17adc2a6, singleton: false, key: "id", home: null, stored: false, classes: ["Unit"] },
   { name: "vehicle", code: 12, hash: 0xe12e5e44, singleton: false, key: null, home: null, stored: false, classes: ["Vehicle"] },
 ];
+
+// Commands, events and imports by code: name, and their records' words and functions.
+export const COMMAND_TABLE = [null, { name: "echo", code: 1, args: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho }, result: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho } }];
+export const EVENT_TABLE = [null, { name: "echoed", code: 1, record: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho } }];
+export const IMPORT_TABLE = [null, ];
 
 export const DEF_TABLES = ["item","ordnance"];

@@ -233,6 +233,23 @@ test('views are made again when the memory grows, and what was written is still 
   assert.equal(b.strings.at(id), 'fighter');
 });
 
+test('a command runs at once on its arguments, and its events come out in order', async () => {
+  const world = battle();
+  const b = await bridge(world);
+  const at = new THREE.Vector3(1, -0, 3);
+  const result = b.command('echo', { value: 1.5, at, count: 7, note: 'hi', events: 3 });
+  assert.equal(result.value, 2.5);
+  assert.equal(result.count, 7);
+  assert.equal(result.note, 'hi');
+  assert.ok(Object.is(result.at.y, -0) && result.at !== at);
+  const seen = [];
+  assert.equal(b.drain({ echoed: (e) => seen.push(e) }), 3);
+  assert.deepEqual(seen.map((e) => [e.value, e.note, e.at.z]), [[0, 'hi', 3], [1, 'hi', 3], [2, 'hi', 3]]);
+  assert.equal(b.drain({}), 0);
+  assert.equal(b.command('echo', { value: -0, at, count: 0, note: null, events: 0 }).note, null);
+  assert.throws(() => b.command('nothing', {}), /no command nothing/);
+});
+
 test('a module whose kinds were made from other schemas is refused', async () => {
   const { exports } = await loadSim();
   const stale = { exports: { ...exports, sim_kind_hash: (k) => (k === KIND_BOLT ? 1 : exports.sim_kind_hash(k)) } };

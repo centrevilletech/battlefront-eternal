@@ -11,6 +11,8 @@ mod items;
 pub use self::items::*;
 mod ordnance;
 pub use self::ordnance::*;
+mod store;
+pub use self::store::*;
 #[cfg(feature = "replay")]
 mod replay;
 #[cfg(feature = "replay")]
@@ -289,3 +291,33 @@ impl Store {
         true
     }
 }
+
+pub const COMMAND_ECHO: u32 = 1;
+pub const COMMAND_NAMES: [&str; 2] = ["", "echo"];
+
+pub const EVENT_ECHOED: u32 = 1;
+pub const EVENT_NAMES: [&str; 2] = ["", "echoed"];
+
+pub const IMPORT_NAMES: [&str; 1] = ["", ];
+
+/// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
+/// its result written there after it; false for no such command.
+pub fn run_command(sim: &mut crate::abi::Sim, code: u32) -> bool {
+    match code {
+        COMMAND_ECHO => {
+            let args = { let (row, heap) = sim.calls.args(); Echo::take(row, heap) };
+            let result = crate::abi::echo(sim, args);
+            sim.calls.result(Echo::WORDS, |row, heap| result.put(row, heap));
+        }
+        _ => return false,
+    }
+    true
+}
+
+impl Echo {
+    /// Emits it as the event echoed (drained in order at the end of the phase).
+    pub fn emit(&self, events: &mut crate::store::calls::Events) {
+        events.emit(EVENT_ECHOED, Echo::WORDS, |row, heap| self.put(row, heap));
+    }
+}
+

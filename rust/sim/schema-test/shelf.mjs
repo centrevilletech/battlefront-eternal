@@ -12,7 +12,11 @@ export default {
   },
   records: {
     Spot: { at: 'vec3', turn: 'quat', label: 'str|null', mark: 'enum:Colour', near: 'ref:person|undefined', kept: 'list:thing' },
+    Ask: { n: 'f64', who: 'ref:person|null', things: 'list:thing', spot: 'rec:Spot|null' },
   },
+  commands: { double: { args: 'Ask', result: 'Ask', rust: 'gen_tests::double' } },
+  events: { noted: 'Spot' },
+  imports: { lookUp: { args: 'Ask', result: 'Spot' } },
   kinds: {
     shelf: {
       singleton: true,
