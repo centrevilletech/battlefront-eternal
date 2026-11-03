@@ -179,7 +179,7 @@ function collect(game, args, self, profile) {
   const agentObject = agentOf?.self ?? null;
   if (profile !== 'args') {
     for (const r of svc.reservations.records) { add(r.candidate.unit); add(r.owner.unit); }
-    if (agentObject) { add(agentObject.controller); add(agentObject.unit); add(agentObject.tracker?.freshTarget); add(agentObject.tracker?.target); add(agentObject.post); }
+    if (agentObject) { add(agentObject.controller); add(agentObject.unit); add(agentObject.tracker?.freshTarget); add(agentObject.tracker?.target); add(agentObject.post); add(agentObject.vehicle?.unit); }
   }
   if (profile === 'hulls' || profile === 'normal' || profile === 'all') for (const v of svc.system?.vehicles ?? []) add(v);
   if (profile === 'normal' || profile === 'all') {
@@ -339,7 +339,10 @@ function boundaries(game) {
     ['controller.addVehicleNote', UnitController.prototype, 'addVehicleNote'],
     ['agent.updateCombatTarget', Agent.prototype, 'updateCombatTarget'], ['agent.aim', Agent.prototype, 'aim'],
     ['agent.tickHelper', Agent.prototype, 'tickHelper'], ['agent.canEngage', Agent.prototype, 'canEngage'],
-    ['interrupts.tick', InterruptHelper.prototype, 'tick'],
+    // An interrupt can call back into the service (a flyer reserving its
+    // target, a soldier reserving a seat; reading the reservations prunes
+    // them): the reservations as the call leaves them come with its return.
+    ['interrupts.tick', InterruptHelper.prototype, 'tick', (g) => ({ reservations: serviceState(service(g)).reservations })],
     ['tracker.setDelay', TargetTracker.prototype, 'setDelay'], ['tracker.defaultDelay', TargetTracker.prototype, 'defaultDelay'],
     ['patterns.face', AttackPatterns.prototype, 'face'], ['combat.memoryPoint', ai.combat ?? null, 'memoryPoint'],
   ];

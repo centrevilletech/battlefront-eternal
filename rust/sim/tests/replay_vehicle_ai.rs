@@ -78,6 +78,9 @@ struct Rw<'f, 'n> {
     ctl_fields: HashMap<Obj, CtlFields>,
     // supportPoint's helper: its mask, radius and unit.
     helper_mask: Option<(f64, f64, Option<Obj>)>,
+    // The service's reservations as an interrupt (a call back into the
+    // service from across the boundary) left them, and whether it took over.
+    reentry: Option<(bool, Vec<Reservation>)>,
     // The movement request the frame was handed (a control's).
     request: Option<Request>,
     request_handle: Option<String>,
@@ -126,6 +129,7 @@ impl<'f, 'n> Rw<'f, 'n> {
             fly_controller: None,
             ctl_fields: HashMap::new(),
             helper_mask: None,
+            reentry: None,
             request: None,
             request_handle: None,
             hints: HashMap::new(),
@@ -904,7 +908,29 @@ impl Rw<'_, '_> {
 
 impl AgentHost for Rw<'_, '_> {
     fn interrupts_tick(&mut self, _agent: Obj) -> bool {
-        self.call("interrupts.tick").is_some_and(|c| c.result().truthy())
+        let Some(call) = self.call("interrupts.tick") else { return false };
+        let taken = call.result().truthy();
+        // What the interrupts did to the service's reservations (they call
+        // back into it): the records as the call left them.
+        let x = call.extra();
+        if !x.is_nullish() {
+            let records: Vec<Reservation> = x
+                .get("reservations")
+                .items()
+                .map(|r| {
+                    let c = r.get("candidate");
+                    let o = r.get("owner");
+                    Reservation {
+                        candidate: Ref { obj: self.ids.of(c.get("unit")).expect("candidate"), generation: num_or_nan(c.get("generation")) },
+                        owner: Ref { obj: self.ids.of(o.get("unit")).expect("owner"), generation: num_or_nan(o.get("generation")) },
+                        time: num_or_nan(r.get("time")),
+                        kind: num_or_nan(r.get("type")),
+                    }
+                })
+                .collect();
+            self.reentry = Some((taken, records));
+        }
+        taken
     }
     fn update_combat_target(&mut self, _agent: Obj) {
         self.call("agent.updateCombatTarget");
@@ -1066,7 +1092,10 @@ fn pads_of(w: &mut Rw, s: V, vai: &mut VehicleAI) {
 fn compare_service(w: &mut Rw, vai: &VehicleAI, s: V) {
     let records: Vec<V> = s.get("reservations").items().collect();
     if records.len() != vai.reservations.records.len() {
-        w.fail(format!("reservations: the capture has {}, the port {}", records.len(), vai.reservations.records.len()));
+        let theirs: Vec<String> = records.iter().map(|r| format!("{}<-{}@{}", r.get("candidate").get("unit").show(), r.get("owner").get("unit").show(), show_number(num_or_nan(r.get("time"))))).collect();
+        let mine: Vec<String> = vai.reservations.records.iter().map(|r| format!("{}<-{}@{}", w.ids.name(r.candidate.obj), w.ids.name(r.owner.obj), show_number(r.time))).collect();
+        let calls: Vec<String> = w.log.frame.calls().map(|c| c.name.clone()).collect();
+        w.fail(format!("reservations: the capture has {} {theirs:?}, the port {} {mine:?}; calls {calls:?}", records.len(), vai.reservations.records.len()));
         return;
     }
     for (i, (r, mine)) in records.iter().zip(vai.reservations.records.clone()).enumerate() {
@@ -1176,8 +1205,12 @@ fn compare_exit(w: &mut Rw, vai: &VehicleAI, after: V) {
         if let Some(t) = w.reboard_at.get(&o) {
             mine.reboard_at = *t;
         }
+        // fireA is the combat's to set too (its fire control, through the
+        // agent's target update): compared only where the port set it.
         if w.fire_a.contains(&o) {
             mine.fire_a = true;
+        } else {
+            mine.fire_a = theirs.fire_a;
         }
         // The request's validity is navigation's to write too (a helper's
         // stop writes the request a controller shares with its control):
@@ -1678,6 +1711,24 @@ fn replay_agent(capture: &Capture, frame: &Frame, nav: Option<&mut Nav>) -> Outc
 }
 
 fn run_agent(w: &mut Rw, vai: &mut VehicleAI, frame: &Frame, agent: V) {
+    run_agent_body(w, vai, frame, agent);
+    // An interrupt calls back into the service (a target or a seat reserved
+    // as it takes over, the table pruned as it reads it): the table after
+    // the frame is the one the interrupts left, unless the agent went on to
+    // work the table itself. Only a boarding agent the interrupts left
+    // running does (it prunes the table and renews its own reservation:
+    // pruning again what the interrupts pruned changes nothing, and they
+    // add only as they take over); the flyer and leaving agents read it no
+    // more after their interrupts.
+    if let Some((taken, records)) = w.reentry.take() {
+        let boarding = frame.name.starts_with("boardAgent.");
+        if taken || !boarding {
+            vai.reservations.records = records;
+        }
+    }
+}
+
+fn run_agent_body(w: &mut Rw, vai: &mut VehicleAI, frame: &Frame, agent: V) {
     let (label, method) = frame.name.split_once('.').expect("label.method");
     if label == "flyHelperP14" || label == "stationaryHelper" {
         let helper = w.ids.of(frame.receiver()).expect("helper");
