@@ -174,6 +174,33 @@ test('mirrors keep their identity and their Vector3s, and a new life of a slot g
   assert.equal(pool.objects[mirror.simSlot].simGen, mirror.simGen + 1);
 });
 
+test('a retired entity\'s last state reaches the mirror JavaScript still holds, and its slot\'s next life is a new mirror', async () => {
+  const world = battle();
+  const b = await bridge(world);
+  b.write(KIND_GRENADE, world.ordnance.grenades);
+  b.write(KIND_ORDNANCE, [system({ grenades: world.ordnance.grenades })]);
+  const pool = b.own(KIND_GRENADE);
+  b.sync(KIND_GRENADE);
+  const [first, second] = pool.objects;
+  // A sim event kept the first grenade's position, as one keeps g.position.
+  const kept = first.position;
+  // The store moves it (as Rust would, by slot) and retires it: it went off.
+  const last = { ...world.ordnance.grenades[0], position: new THREE.Vector3(9, 8, 7), gone: true, simSlot: first.simSlot, simGen: first.simGen };
+  const other = { ...world.ordnance.grenades[1], simSlot: second.simSlot, simGen: second.simGen };
+  b.write(KIND_GRENADE, [last, other]);
+  b.write(KIND_ORDNANCE, [system({ grenades: [last, other] })]);
+  b.retire(KIND_GRENADE, first.simSlot, first.simGen);
+  b.write(KIND_ORDNANCE, [system({ grenades: [other] })]);
+  // The detector leaves the retired for the sync; the sync hands them over once.
+  assert.deepEqual(b.check(KIND_GRENADE), []);
+  assert.equal(b.sync(KIND_GRENADE), 2);
+  assert.deepEqual(kept.toArray(), [9, 8, 7]);
+  assert.equal(first.gone, true);
+  assert.equal(pool.objects[first.simSlot], undefined);
+  assert.equal(b.sync(KIND_GRENADE), 1);
+  assert.throws(() => b.retire(KIND_GRENADE, first.simSlot, first.simGen), /no entity/);
+});
+
 test('the mirror write detector names a field JavaScript changed without a command', async () => {
   const world = battle();
   const b = await bridge(world);

@@ -83,14 +83,24 @@ pub extern "C" fn sim_str_len(id: u32) -> u32 { sim().strings.units(StrId(id)).l
 #[no_mangle]
 pub extern "C" fn sim_str_ptr(id: u32) -> *const u16 { sim().strings.units(StrId(id)).as_ptr() }
 
-/// Writes a kind's export block (a row for each entity: its mirrored
-/// fields, or every field when `full` is 1) and returns where it starts,
-/// or null for a kind the store holds no fields of.
+/// Writes a kind's export block and returns where it starts, or null for a
+/// kind the store holds no fields of. `mode` 0: a row for each entity with
+/// its mirrored fields, after the rows of the entities retired since the
+/// last such export (which it hands over: they are not listed again); 1:
+/// every field of each live entity; 2: as 0 without the retired (what the
+/// mirror write detector compares, leaving them for the next export).
 #[no_mangle]
-pub extern "C" fn sim_export(kind: u32, full: u32) -> *const f64 {
+pub extern "C" fn sim_export(kind: u32, mode: u32) -> *const f64 {
     let s = sim();
     let Some(block) = s.blocks.get_mut(kind as usize) else { return std::ptr::null() };
-    if s.store.export(kind as KindCode, block, full != 0) { block.ptr() } else { std::ptr::null() }
+    if s.store.export(kind as KindCode, block, mode) { block.ptr() } else { std::ptr::null() }
+}
+
+/// Retires an entity (`Slab::retire`); 0, or -1 if it is gone or of a kind
+/// the store holds no slab of.
+#[no_mangle]
+pub extern "C" fn sim_retire(kind: u32, slot: u32, gen: u32) -> i32 {
+    if sim().store.retire(kind as KindCode, slot, gen) { 0 } else { -1 }
 }
 
 /// Room for an import block of a kind: `rows` rows of `stride` words, then

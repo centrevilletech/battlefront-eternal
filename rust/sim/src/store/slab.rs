@@ -14,11 +14,16 @@ struct Entry<T> {
 ///
 /// Removing an entity bumps its slot's generation, so a reference to it is
 /// seen to be stale (`get` gives None) rather than naming whatever takes the
-/// slot next.
+/// slot next. Retiring one (`retire`) removes it the same way and keeps its
+/// last state until the kind is next exported, so JavaScript that still
+/// holds its mirror (an event that kept a grenade's position) sees that
+/// state, as it saw the last state of the JavaScript object it held.
 pub struct Slab<T> {
     entries: Vec<Entry<T>>,
     free: Vec<u32>,
     live: usize,
+    /// Entities retired since the kind was last exported, in order.
+    pub retired: Vec<(Ref<T>, T)>,
 }
 
 impl<T> Default for Slab<T> {
@@ -27,13 +32,13 @@ impl<T> Default for Slab<T> {
 
 impl<T> Slab<T> {
     pub const fn new() -> Self {
-        Slab { entries: Vec::new(), free: Vec::new(), live: 0 }
+        Slab { entries: Vec::new(), free: Vec::new(), live: 0, retired: Vec::new() }
     }
 
     /// Room for `n` entities in all, made now (the battle's memory is sized
     /// as it loads, docs/sim-store.md).
     pub fn with_capacity(n: usize) -> Self {
-        Slab { entries: Vec::with_capacity(n), free: Vec::with_capacity(n), live: 0 }
+        Slab { entries: Vec::with_capacity(n), free: Vec::with_capacity(n), live: 0, retired: Vec::new() }
     }
 
     pub fn reserve(&mut self, n: usize) {
@@ -79,6 +84,15 @@ impl<T> Slab<T> {
         self.free.push(r.slot);
         self.live -= 1;
         value
+    }
+
+    /// Removes an entity, keeping its last state for the next export
+    /// (`retired`); false if `r` is stale.
+    pub fn retire(&mut self, r: Ref<T>) -> bool {
+        match self.remove(r) {
+            Some(value) => { self.retired.push((r, value)); true }
+            None => false,
+        }
     }
 
     #[inline]
@@ -150,6 +164,7 @@ impl<T> Slab<T> {
 
     /// Empties it; every slot's generation moves on.
     pub fn clear(&mut self) {
+        self.retired.clear();
         self.free.clear();
         for (i, e) in self.entries.iter_mut().enumerate().rev() {
             if e.value.take().is_some() { e.gen = e.gen.wrapping_add(1).max(1); }
@@ -199,6 +214,18 @@ mod tests {
         s.retain(|_, v| *v > 8.0);
         assert_eq!(s.len(), 1);
         assert_eq!(s.get(r), Some(&9.0));
+    }
+
+    #[test]
+    fn a_retired_entity_keeps_its_last_state_and_frees_its_slot() {
+        let mut s = Slab::new();
+        let a = s.insert(1.0);
+        assert!(s.retire(a));
+        assert!(!s.retire(a));
+        assert_eq!(s.get(a), None);
+        assert_eq!(s.retired.iter().map(|(r, v)| (*r, *v)).collect::<Vec<_>>(), vec![(a, 1.0)]);
+        let b = s.insert(2.0);
+        assert_eq!((b.slot, b.gen), (a.slot, a.gen + 1));
     }
 
     #[test]
