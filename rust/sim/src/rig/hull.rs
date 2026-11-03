@@ -14,8 +14,8 @@
 //! module gives it the tree to pose and the nodes to read.
 
 use super::skeleton::{lower, BoneDesc, Skeleton};
-use super::three::{Quaternion, Vector3};
-use super::tree::{NodeId, TransformNode, TransformTree};
+use three::{Quaternion, Vector3};
+use three::{NodeId, TransformNode, TransformTree};
 
 /// A barrel of an aimer (BarrelNodeName, its FirePointName, BarrelLength
 /// and BarrelRecoil, as `num()` reads them).

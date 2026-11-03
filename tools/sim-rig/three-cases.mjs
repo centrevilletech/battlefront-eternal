@@ -1,7 +1,7 @@
-// Cases for the three.js r170 subset in rust/sim/src/rig (three.rs and
-// tree.rs): random and edge inputs through three's own methods, written with
-// three's answers to the last bit, for rust/sim/tests/rig_three.rs to
-// replay. Run it under the port's reference Node (24.22, V8 13.6):
+// Cases for the three.js r170 arithmetic the rigs in rust/sim/src/rig are
+// built on (rust/three's methods and TransformTree): random and edge inputs
+// through three's own methods, written with three's answers to the last bit,
+// for rust/sim/tests/rig_three.rs to replay. Run it under the port's reference Node (24.22, V8 13.6):
 //
 //   node tools/sim-rig/three-cases.mjs OUT.bfecap [--cases N] [--seed S]
 //

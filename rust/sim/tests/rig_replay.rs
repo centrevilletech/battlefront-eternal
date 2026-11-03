@@ -19,7 +19,7 @@ use bfe_sim::rig::hull::{AimerDesc, BarrelDesc, HullDesc, HullRig, SeatDesc, Wea
 use bfe_sim::rig::math::oracle::{self, Oracle};
 use bfe_sim::rig::rider::{rider_drop_point, rider_hit_shapes, rider_points, HitShape, RiderPoints, RiderSample, RiderScratch, RiderSkeleton, ShapeKind, ShapePart};
 use bfe_sim::rig::skeleton::{BoneDesc, Skeleton};
-use bfe_sim::rig::three::{Matrix4, Quaternion, Vector3};
+use three::{Matrix4, Quaternion, Vector3};
 use sim_replay::{Reader, Record, Typed, V};
 use std::collections::HashMap;
 

@@ -15,8 +15,8 @@
 //! while its position blends. It is ported as it is (quirks register).
 
 use super::skeleton::Skeleton;
-use super::three::{smoothstep, Quaternion, Vector3};
-use super::tree::{NodeId, TransformNode, TransformTree};
+use three::{smoothstep, Quaternion, Vector3};
+use three::{NodeId, TransformNode, TransformTree};
 use crate::collision::{js_max, js_min};
 use crate::pose::{Clip, Pose};
 

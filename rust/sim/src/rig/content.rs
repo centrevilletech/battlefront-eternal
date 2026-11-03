@@ -7,7 +7,7 @@
 use super::droideka::{Barrel, Gun};
 use super::hull::{AimerDesc, BarrelDesc, HullDesc, SeatDesc, WeaponDesc};
 use super::skeleton::{BoneDesc, Skeleton};
-use super::three::Vector3;
+use three::Vector3;
 use crate::pose::Clip;
 use bfe_content::actor::Actor;
 use bfe_content::clips::{Clip as ContentClip, Clips};
