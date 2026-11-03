@@ -15,6 +15,8 @@ pub mod difficulty;
 pub mod fsm;
 pub mod goals;
 pub mod patrol;
+#[cfg(feature = "replay")]
+pub mod replay;
 pub mod scheduler;
 pub mod squads;
 pub mod vec;
