@@ -28,33 +28,49 @@ const SHADOW_SIDE = { [THREE.FrontSide]: THREE.BackSide, [THREE.BackSide]: THREE
 // An attribute's buffer source (an interleaved one's shared buffer).
 const sourceOf = (a) => (a?.isInterleavedBufferAttribute ? a.data : a);
 
-// A source's new contents (s: its buffer's slot, -1 for the index, and the
-// size it was made with) as three's WebGLAttributes sends them: its update
-// ranges, sorted and merged as three merges them (adjacent ones too), else
-// all of it, into the buffer as made (bufferSubData); all of it into a buffer
-// made again when its array is no longer that size. The ranges stay (three
-// clears them when it sends them itself).
-function send(rust, id, s) {
+// A source's new contents (s: its buffer's slot, -1 for the index, the
+// version and size it was sent with, and how much of it from the start is
+// valid) as three's WebGLAttributes sends them: its update ranges, sorted and
+// merged as three merges them (adjacent ones too), else all of it, into the
+// buffer as made (bufferSubData); all of it into a buffer made again when its
+// array is no longer that size. The ranges stay (three clears them when it
+// sends them itself), so they say what changed only when the version moved
+// by one since the pass sent it: else (three sent one between, clearing its
+// ranges, or the page marked it twice) it is all of it. An index without
+// ranges is sent only as far as the pass's draws read it (need), the rest
+// when a draw reads further (geometry): the crowd's mesh draws a tenth of its
+// index. Returns how much of it from the start is valid now.
+function send(rust, id, s, need = Infinity) {
   const array = s.source.array, per = array.BYTES_PER_ELEMENT;
   const view = (start, count) => new Uint8Array(array.buffer, array.byteOffset + start * per, count * per);
+  const part = (start, count) => {
+    if (s.slot < 0) rust.geometry_index_sub_data(id, start * per, view(start, count));
+    else rust.geometry_buffer_sub_data(id, s.slot, start * per, view(start, count));
+  };
   if (array.byteLength !== s.bytes) {
     if (s.slot < 0) rust.geometry_index_data(id, view(0, array.length));
     else rust.geometry_buffer_data(id, s.slot, view(0, array.length));
-    return;
+    return array.length;
   }
-  const ranges = [];
-  for (const r of [...(s.source.updateRanges || [])].sort((a, b) => a.start - b.start)) {
+  const ranges = [], marked = s.source.version === s.version + 1 ? s.source.updateRanges || [] : [];
+  for (const r of [...marked].sort((a, b) => a.start - b.start)) {
     const last = ranges[ranges.length - 1];
     if (last && r.start <= last.start + last.count + 1) last.count = Math.max(last.count, r.start + r.count - last.start);
     else ranges.push({ start: r.start, count: r.count });
   }
-  if (!ranges.length) ranges.push({ start: 0, count: array.length });
+  if (!ranges.length) {
+    const n = s.slot < 0 ? Math.min(need, array.length) : array.length;
+    if (n > 0) part(0, n);
+    return n;
+  }
+  let valid = s.valid;
   for (const { start, count } of ranges) {
     const n = Math.min(count, array.length - start);
     if (start < 0 || n <= 0) continue;
-    if (s.slot < 0) rust.geometry_index_sub_data(id, start * per, view(start, n));
-    else rust.geometry_buffer_sub_data(id, s.slot, start * per, view(start, n));
+    part(start, n);
+    if (start <= valid) valid = Math.max(valid, start + n);
   }
+  return valid;
 }
 
 // shadow.rs's layout.
@@ -212,14 +228,14 @@ class ShadowPass {
     object.onBeforeShadow(renderer, object, camera, shadowCamera, geometry, depth, group);
     const program = plainProgram(this.core, depth, null);
     if (!program) { this.why = `${depth.name || depth.type}: ${program === undefined ? "not compiled yet" : "program"}`; return; }
-    const g = this.geometry(geometry, program);
-    if (g === null) { this.why = `${object.name || object.type}: geometry`; return; }
     // renderBufferDirect's range: the draw range within the group, the index.
     const index = geometry.index;
     if (!index) { this.why = `${object.name || object.type}: no index`; return; }
     let start = geometry.drawRange.start, end = geometry.drawRange.start + geometry.drawRange.count;
     if (group) { start = Math.max(start, group.start); end = Math.min(end, group.start + group.count); }
     start = Math.max(start, 0); end = Math.min(end, index.count);
+    const g = this.geometry(geometry, program, end > start ? end : 0);
+    if (g === null) { this.why = `${object.name || object.type}: geometry`; return; }
     if (end - start > 0 && end - start !== Infinity) {
       this.draws.push({ program, geometry: g, start, count: end - start, side: depth.side, mirrored: object.matrixWorld.determinant() < 0, object, depth });
     }
@@ -239,9 +255,10 @@ class ShadowPass {
   // Rust's copy of a geometry for a program (core.geometry), sent again where
   // the page rewrote it since (the crowd's shadow mesh: its soldiers' vertices
   // as they join, its drawn index as they come and go), as three would send
-  // it (send). A geometry given another attribute or index since is left to
-  // three (null), which makes buffers for it.
-  geometry(geometry, program) {
+  // it (send); its index valid at least as far as a draw reads it (need). A
+  // geometry given another attribute or index since is left to three (null),
+  // which makes buffers for it.
+  geometry(geometry, program, need = Infinity) {
     const core = this.core, key = `${geometry.uuid}:${program.id}`;
     let entry = this.geometries.get(key);
     if (!entry) {
@@ -256,17 +273,29 @@ class ShadowPass {
         if (source && !sources.some((s) => s.source === source)) sources.push({ name, source, slot: sources.length, version: source.version, bytes: source.array.byteLength });
       }
       const index = geometry.index;
-      entry = { id, sources, index: { source: index, slot: -1, version: index.version, bytes: index.array.byteLength } };
+      entry = { id, sources, index: { source: index, slot: -1, version: index.version, bytes: index.array.byteLength, valid: index.array.length } };
       this.geometries.set(key, entry);
       return id;
     }
     if (geometry.index !== entry.index.source) return null;
     for (const s of entry.sources) if (sourceOf(geometry.attributes[s.name]) !== s.source) return null;
-    for (const s of [...entry.sources, entry.index]) {
+    for (const s of entry.sources) {
       if (s.source.version === s.version) continue;
       send(core.rust, entry.id, s);
       s.version = s.source.version;
       s.bytes = s.source.array.byteLength;
+    }
+    const x = entry.index, array = x.source.array;
+    if (x.source.version !== x.version) {
+      x.valid = send(core.rust, entry.id, x, need);
+      x.version = x.source.version;
+      x.bytes = array.byteLength;
+    }
+    if (need > x.valid && x.valid < array.length) {
+      // A draw reading further than what was sent of this version.
+      const end = Math.min(need, array.length), per = array.BYTES_PER_ELEMENT;
+      core.rust.geometry_index_sub_data(entry.id, x.valid * per, new Uint8Array(array.buffer, array.byteOffset + x.valid * per, (end - x.valid) * per));
+      x.valid = end;
     }
     return entry.id;
   }

@@ -280,38 +280,40 @@ test("a caster's geometry rewritten since: sent as three sends it, its update ra
   scene.updateMatrixWorld(true);
   assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
   const sent = (from) => calls.slice(from).filter((c) => /^geometry_(index|buffer)_/.test(c[0])).map((c) => [c[0], ...c.slice(2).map((v) => (ArrayBuffer.isView(v) ? v.byteLength : v))]);
+  const pass = () => { const at = calls.length; core.coverShadow(renderer, light, scene, camera, null); return sent(at); };
   // Two ranges three merges (adjacent ones), as the crowd's mesh marks its
   // drawn index when it packs it again.
   const index = mesh.geometry.index;
   index.addUpdateRange(6, 3);
   index.addUpdateRange(3, 3);
   index.needsUpdate = true;
-  let at = calls.length;
-  assert.equal(core.coverShadow(renderer, light, scene, camera, null), true);
-  assert.deepEqual(sent(at), [["geometry_index_sub_data", 12, 24]], "elements 3 to 8 at their bytes, into the index as made");
+  assert.deepEqual(pass(), [["geometry_index_sub_data", 12, 24]], "elements 3 to 8 at their bytes, into the index as made");
   assert.equal(index.updateRanges.length, 2, "three's ranges left for three");
-  at = calls.length;
-  core.coverShadow(renderer, light, scene, camera, null);
-  assert.deepEqual(sent(at), [], "nothing again while its version stands");
-  // No ranges: all of it, into the index as made.
+  assert.deepEqual(pass(), [], "nothing again while its version stands");
+  // Marked twice since (or sent by three between, which clears its ranges):
+  // the ranges no longer say all that changed, so all of it, as far as the
+  // draw reads it.
+  mesh.geometry.setDrawRange(0, 6);
+  index.needsUpdate = true;
+  index.needsUpdate = true;
+  assert.deepEqual(pass(), [["geometry_index_sub_data", 0, 24]], "the six drawn");
+  mesh.geometry.setDrawRange(0, 12);
+  assert.deepEqual(pass(), [["geometry_index_sub_data", 24, 24]], "the rest once a draw reads it");
   index.clearUpdateRanges();
   index.needsUpdate = true;
-  at = calls.length;
-  core.coverShadow(renderer, light, scene, camera, null);
-  assert.deepEqual(sent(at), [["geometry_index_sub_data", 0, 48]]);
+  assert.deepEqual(pass(), [["geometry_index_sub_data", 0, 48]], "no ranges: all of it the draw reads");
   // A vertex source's range, in elements (a vertex's three floats each).
   const position = mesh.geometry.attributes.position;
   position.addUpdateRange(3, 6);
   position.needsUpdate = true;
-  at = calls.length;
-  core.coverShadow(renderer, light, scene, camera, null);
-  assert.deepEqual(sent(at), [["geometry_buffer_sub_data", 0, 12, 24]], "slot 0, its bytes from the fourth float");
+  assert.deepEqual(pass(), [["geometry_buffer_sub_data", 0, 12, 24]], "slot 0, its bytes from the fourth float");
+  position.needsUpdate = true;
+  position.needsUpdate = true;
+  assert.deepEqual(pass(), [["geometry_buffer_sub_data", 0, 0, 36]], "marked twice: all of it");
   // An array of another size: all of it, into an index made again.
   index.array = new Uint32Array(24);
   index.needsUpdate = true;
-  at = calls.length;
-  core.coverShadow(renderer, light, scene, camera, null);
-  assert.deepEqual(sent(at), [["geometry_index_data", 96]]);
+  assert.deepEqual(pass(), [["geometry_index_data", 96]]);
   // Another index altogether: three makes buffers for it, so three draws the pass.
   mesh.geometry.setIndex([0, 1, 2]);
   assert.equal(core.coverShadow(renderer, light, scene, camera, null), false);
