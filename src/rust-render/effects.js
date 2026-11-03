@@ -49,10 +49,11 @@
 // Of what the Enhanced looks draw, the bolts (blaster-bolts.js), the
 // sniper's trace (sniper-trace.js), the arc caster's lightning
 // (arc-lightning.js: its capsules; the glow over a shocked body stays
-// three's), the droideka's rolling dust (droideka-trail.js) and the
-// jetpack's wake (jetpack-wake.js) are drawn here too; the destruction
-// effects and the jetpack's flame (jetpack-volume.js) stay with three for
-// now.
+// three's), the droideka's rolling dust (droideka-trail.js), the
+// jetpack's wake (jetpack-wake.js) and the death camera's trace of the
+// killing shot (death-trace.js: a mesh rebuilt each frame with a shader
+// material of its own) are drawn here too; the destruction effects and the
+// jetpack's flame (jetpack-volume.js) stay with three for now.
 import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
 import { squareBatches } from "../atmosphere.js";
@@ -311,11 +312,13 @@ class EffectsPass {
     this.byBatch = new Map(); // batch -> its record, or null (three draws it)
     this.owners = new Map(); // GpuEffects -> { id }
     this.meshes = new Map(); // the lightning's material -> its record, or null
+    this.shaderMeshes = new Map(); // the death camera's trace -> its record, or null
     this.glows = new Map(); // a glow model's part -> its record, or null (three draws it)
     this.glowList = []; // the records, in registration order
     // This frame's batches and glow models drawn (kept, not made each frame).
     this.drawn = [];
     this.glowing = [];
+    this.traced = [];
     this.models = new Map(); // what a model is made of -> its id
     // The renderer's programs for this pass's draws, made for it alone:
     // effects.rs keeps the values it last set in each program's uniforms
@@ -351,7 +354,8 @@ class EffectsPass {
   // registered once three has drawn it, then hidden from three: glow models
   // (with their group's other parts: they share its material), shields and
   // the other shader models, the snow, the rain, the environment's batches,
-  // the Enhanced arcs', the droideka's dust and the jetpack's wake.
+  // the Enhanced arcs', the droideka's dust, the jetpack's wake and the
+  // death camera's trace.
   listed(ctx) {
     const list = this.threeList(ctx.renderer, ctx.scene);
     for (const item of list?.transparent || []) {
@@ -380,6 +384,9 @@ class EffectsPass {
       } else if (object.name.startsWith("jetpack-wake-") && jetpackWakes.has(object) && object.material?.isShaderMaterial) {
         const record = this.registerBatch(wakeOf(jetpackWakes.get(object)), "wake", null);
         if (record !== undefined) this.byBatch.set(object, record);
+      } else if (object.name === "death-trace" && object.material?.isShaderMaterial && !this.shaderMeshes.has(object)) {
+        const record = this.registerShaderMesh(object);
+        if (record !== undefined) this.shaderMeshes.set(object, record);
       }
     }
     // Now and then, the records of parts no longer in the scene let go.
@@ -607,6 +614,45 @@ class EffectsPass {
     return { id, mesh, material, map, handle: this.handle(map), values, attributes, from: this.frame };
   }
 
+  // A mesh rebuilt each frame with a shader material of its own (the death
+  // camera's trace): drawn as the lightning is (its vertices and indices
+  // written each frame, each of three's passes in turn), with the values its
+  // programs read of its uniforms. Undefined while three has not drawn it as
+  // it is yet, null when the renderer can't.
+  registerShaderMesh(mesh) {
+    const core = this.core, renderer = core.renderer, material = mesh.material, geometry = mesh.geometry;
+    const props = renderer.properties.get(material);
+    if (!props.currentProgram || props.__version !== material.version) return undefined;
+    const fail = (why) => { core.errors.push(`effects ${mesh.name}: ${why}`); return null; };
+    const blend = blendOf(material), state = stateOf(material);
+    if (!blend || !state) return fail("state");
+    const index = geometry.index?.array;
+    if (!(index instanceof Uint16Array || index instanceof Uint32Array) || geometry.groups.length || Object.keys(geometry.morphAttributes).length) return fail("geometry");
+    const uniforms = material.uniforms, names = Object.keys(uniforms);
+    if (names.some((name) => uniforms[name].value?.isTexture)) return fail("samplers");
+    const sides = sidesOf(material);
+    const policy = { uniforms: new Set([...names, "modelViewMatrix"]), material: new Set() };
+    const programs = sides.map((side) => { const p = side === 2 ? props.currentProgram : programForSide(renderer, material, side); return p && core.program(p, EFFECT, material, policy, this.programs); });
+    if (programs.some((p) => !p)) return fail("program");
+    // Its attributes as its programs read them, each of its geometry's.
+    const read = new Set(programs.flatMap((p) => p.attributes.map(([name]) => name)));
+    const attributes = Object.entries(geometry.attributes).filter(([name, a]) => read.has(name) && !a.isInterleavedBufferAttribute && a.array instanceof Float32Array).map(([name, a]) => [name, a.itemSize]);
+    if (attributes.length !== read.size) return fail("attributes");
+    const locations = programs.map((p) => { const at = new Map(p.attributes); return attributes.map(([name]) => at.get(name)); });
+    // Its values: what its programs read of its uniforms but the frame's.
+    const values = [];
+    for (const name of names) {
+      if (!programs.some((p) => p.names.has(name)) || uniforms[name] === lighting[name]) continue;
+      const form = formOf(uniforms[name].value);
+      if (!form || form[1] !== 0) return fail(`value ${name}`);
+      values.push([name, form[0]]);
+    }
+    const id = core.rust.fx_add_mesh(-1, new Uint32Array(blend), state.flags & 3, state.func, new Uint32Array(attributes.map(([, size]) => size)), values.map(([name, size]) => `${name}:${size}`).join(","));
+    sides.forEach((side, i) => core.rust.fx_mesh_pass(id, programs[i].id, side, new Uint32Array(locations[i])));
+    material.visible = false;
+    return { id, mesh, material, attributes, values, from: this.frame };
+  }
+
   // A mesh with a shader material of its own, its values read from its
   // uniforms each frame (a droideka's shield, the rain's sheets, the
   // steam's volumes). Registered once three has drawn it as it is. What it
@@ -768,6 +814,15 @@ class EffectsPass {
     }
     const lit = bolt && bolt.record.from !== frame && bolt.lightning.index > 0 && bolt.record.material.visible !== false && this.shown(bolt.lightning.mesh, camera) ? bolt : null;
     if (lit) need += lit.lightning.vertex * 9 + lit.lightning.index + 13;
+    // The shader meshes shown (the death camera's trace: never culled).
+    const traced = this.traced;
+    traced.length = 0;
+    for (const record of this.shaderMeshes.values()) {
+      if (!record || record.from === frame || !record.mesh.visible || !this.shown(record.mesh, camera)) continue;
+      const g = record.mesh.geometry;
+      traced.push(record);
+      need += g.getAttribute("position").count * record.attributes.reduce((sum, [, size]) => sum + size, 0) + g.index.count + record.values.reduce((sum, [, size]) => sum + size, 0);
+    }
     // Glow models and shields shown (three culls them by their spheres: the
     // renderer does). A shield's onBeforeRender runs first, as three's would
     // (it sets whether the camera is inside it); its texture follows three's.
@@ -848,6 +903,17 @@ class EffectsPass {
       input[e] = KIND_MESH; input[e + 1] = record.id; input[e + 2] = vertices; input[e + 3] = indices; input[e + 4] = start; input[e + 5] = 0;
       this.keyOf(lightning.mesh, input, e + DRAW_KEY);
     }
+    for (const record of traced) {
+      if (draws === MAX_DRAWS) break;
+      const { mesh, material } = record, geometry = mesh.geometry, start = at;
+      const vertices = geometry.getAttribute("position").count, indices = geometry.index.count;
+      for (const [name, size] of record.attributes) at = copy(data, at, geometry.getAttribute(name).array, 0, vertices * size);
+      at = copyBits(bits, at, geometry.index.array, 0, indices);
+      for (const [name] of record.values) at = put(data, at, material.uniforms[name].value);
+      const e = DRAW_AT + draws++ * DRAW_STRIDE;
+      input[e] = KIND_MESH; input[e + 1] = record.id; input[e + 2] = vertices; input[e + 3] = indices; input[e + 4] = start; input[e + 5] = 0;
+      this.keyOf(mesh, input, e + DRAW_KEY);
+    }
     let models = 0;
     for (const record of glowing) {
       if (draws === MAX_DRAWS) break;
@@ -926,6 +992,7 @@ class EffectsPass {
       lightning.mesh.visible = false;
     }
     for (const record of this.glowList) record.material.visible = !on;
+    for (const record of this.shaderMeshes.values()) if (record) record.material.visible = !on;
     if (!on) this.draws = this.instances = 0;
   }
 
