@@ -2,7 +2,9 @@
 // far camera into graphics.farTarget), drawn by the renderer in place of
 // three's render of it. graphics.js asks the core to cover the far phase
 // first (index.js cover(): three's start of render, the phase, three's end);
-// when this pass drew it all, three doesn't render the far scene.
+// when this pass drew it all, three doesn't render the far scene. A water's
+// mirror (water.js reflect) asks the same for its far scene (the farMirror
+// phase: the mirror camera, its sky pass and then the rest drawn over it).
 //
 // Each frame (draw(), in the far phase) it walks the far scene as three's
 // projectObject does (what is shown, on the camera's layers) and finds each
@@ -12,8 +14,8 @@
 // every mesh three would draw is an item, the renderer clears the target as
 // three would and draws them in three's order (complete); else (a mesh it
 // can't draw yet) it draws nothing and three draws the frame. Nothing is
-// hidden from three: the water's mirror and the sky probe render the far
-// scene with three too.
+// hidden from three: whichever renderer draws each render of the far scene
+// (the eye's, a water mirror's, the sky probe's), the other has it all.
 //
 // A material that reads only the frame's shared values gets a program with
 // the frame block; any other (the water's, which keeps a time of its own) a
@@ -27,7 +29,7 @@ import { VIEW_FAR } from "./index.js";
 // add_program's kinds (web/mod.rs).
 const WORLD = 0, PLAIN = 3;
 // The far input's layout and the uniform sources and item flags (far.rs).
-const CLEAR = 0, DRAW = 4, SLOTS = 8;
+const CLEAR = 0, DRAW = 4, KEEP = 5, SLOTS = 8;
 const SRC = { FLOATS: 0, INPUT: 1, TEXTURE: 2, TEXTURE_INPUT: 3, PROJECTION: 4, VIEW: 5, EYE: 6, MODEL: 7, MODEL_VIEW: 8, NORMAL: 9 };
 const F = { DEPTH_TEST: 4, DEPTH_WRITE: 8, COLOR_WRITE: 16, A2C: 32, TRANSPARENT: 64, PLACED: 128, CULLED: 256, BLEND: 512 };
 // The frame block's members (shader.rs FRAME_MEMBERS); those three takes from
@@ -501,8 +503,10 @@ class FarPass {
     const input = core.farInput;
     input[DRAW] = draw ? 1 : 0;
     if (!draw) return;
-    // WebGLBackground's clear: the colour (a render target's: the working
-    // space), premultiplied by its alpha as the context is.
+    // WebGLBackground's clear (none with autoClear off: a water mirror's
+    // far scene drawn over its sky): the colour (a render target's: the
+    // working space), premultiplied by its alpha as the context is.
+    input[KEEP] = renderer.autoClear ? 0 : 1;
     renderer.getClearColor(this.color);
     const alpha = renderer.getClearAlpha(), pre = renderer.getContextAttributes()?.premultipliedAlpha !== false ? alpha : 1;
     input[CLEAR] = this.color.r * pre; input[CLEAR + 1] = this.color.g * pre; input[CLEAR + 2] = this.color.b * pre; input[CLEAR + 3] = alpha;

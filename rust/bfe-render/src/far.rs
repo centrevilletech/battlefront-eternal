@@ -1,7 +1,11 @@
 // The far scene, drawn into the far target before the near scene in place
 // of three's render of it (src/rust-render/far.js): the sky dome and the
 // models on its horizon, the map's low-detail buckets, the far terrain and
-// the far water, with a frame block of the far camera's own (VIEW_FAR).
+// the far water, with a frame block of the far camera's own (VIEW_FAR). A
+// water's mirror (water.js reflect) draws it too, from its own camera into
+// its own target, before the frame's far scene: its frame block is
+// VIEW_FAR_MIRROR's, and the mirror's second pass draws over its sky
+// without clearing (FAR_KEEP).
 //
 // Each thing three would draw there is an item, registered once from its
 // mesh and material: a program made from three's GLSL (with the frame block
@@ -24,19 +28,22 @@
 // the storm sky and ocean (plain items), the Enhanced flyers' sky probe (a
 // cube sampler), and the upscaler's jitter (the far camera's projection, in
 // the frame block already).
-use crate::core::{Core, MultiDraw, PASS_FAR, UNIT_BUMP, UNIT_FAR, UNIT_MAP, VIEW_FAR};
+use crate::core::{Core, MultiDraw, PASS_FAR, UNIT_BUMP, UNIT_FAR, UNIT_MAP};
 use crate::math::{self, Mat4};
 use glow::HasContext;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
 // The far input (f64): the clear colour (premultiplied, as three sets it),
-// whether the pass draws this frame at all (0: three does), then the items'
-// slots, laid out by the page. An item's first slot says whether it draws
-// this frame; a placed item's matrix follows it (16), or a terrain's level
-// (0 full, 1 reduced); then whatever its uniforms read.
+// whether the pass draws this frame at all (0: three does), whether it
+// draws over the target as it is (1: three's autoClear is off, as for a
+// water mirror's far scene drawn over its sky), then the items' slots, laid
+// out by the page. An item's first slot says whether it draws this frame; a
+// placed item's matrix follows it (16), or a terrain's level (0 full, 1
+// reduced); then whatever its uniforms read.
 pub const FAR_CLEAR: usize = 0;
 pub const FAR_DRAW: usize = 4;
+pub const FAR_KEEP: usize = 5;
 pub const FAR_SLOTS: usize = 8;
 pub const FAR_INPUT_LEN: usize = 16384;
 
@@ -400,14 +407,15 @@ impl<C: HasContext> FarPass<C> {
         }
     }
 
-    // The far phase (renderer.rs far_frame): the far camera's frame block,
-    // the target cleared as three clears it, then this frame's items in
-    // three's order.
-    pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
+    // The far phase (renderer.rs far_frame, or far_mirror_frame for a water
+    // mirror's camera): that camera's frame block (the view's buffer), the
+    // target cleared as three clears it (unless three's autoClear is off),
+    // then this frame's items in three's order.
+    pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, frame: usize) {
         if self.input[FAR_DRAW] == 0.0 {
             return;
         }
-        core.upload_frame(VIEW_FAR);
+        core.upload_frame(frame);
         let camera = core.camera();
         let mut projection = [0.0; 16];
         projection.copy_from_slice(&core.input[0..16]);
@@ -419,12 +427,12 @@ impl<C: HasContext> FarPass<C> {
         let start = (core.input[crate::shader::FRAME_OFFSETS[18]] - 1.0).max(0.0);
         let limit = start * start;
         let input = &self.input;
-        unsafe {
-            let c = &input[FAR_CLEAR..FAR_CLEAR + 4];
-            core.gl.clear_color(c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32);
-        }
-        core.stats.gl_calls += 1;
-        {
+        if input[FAR_KEEP] == 0.0 {
+            unsafe {
+                let c = &input[FAR_CLEAR..FAR_CLEAR + 4];
+                core.gl.clear_color(c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32);
+            }
+            core.stats.gl_calls += 1;
             let (gl, state, stats) = (&core.gl, &mut core.state, &mut core.stats);
             state.color_mask(gl, stats, [true; 4]);
             state.depth_write(gl, stats, true);

@@ -32,12 +32,14 @@ const SAMPLERS: &[(&str, u32)] = &[("map", UNIT_MAP), ("farMap", UNIT_FAR), ("bu
 
 // The views a frame draws, each with a frame block of its own: the near
 // scene, the far scene (its own camera range), the first-person view scene,
-// and one spare.
+// one spare (a mirror's near scene), and the far scene seen from a water's
+// mirror (water.js reflect, drawn before the frame's own far scene).
 pub const VIEW_NEAR: usize = 0;
 pub const VIEW_FAR: usize = 1;
 pub const VIEW_FIRST_PERSON: usize = 2;
 pub const VIEW_SPARE: usize = 3;
-pub const VIEWS: usize = 4;
+pub const VIEW_FAR_MIRROR: usize = 4;
+pub const VIEWS: usize = 5;
 
 // The passes, in the order the renderer makes them and its stats count
 // their draws.

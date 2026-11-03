@@ -11,7 +11,8 @@
 // It is made of passes, each a module of its own, sharing the core
 // (core.rs: the context, programs, geometries, textures, inputs, GL state).
 // A frame is drawn in phases, each a call from the page at its point in
-// three's frame, which draws its passes in order: the far scene (far_frame),
+// three's frame, which draws its passes in order: the far scene (far_frame;
+// far_mirror_frame from a water's mirror camera, before the frame's own),
 // the near scene (frame), what it blends (transparent_frame, in segments
 // around what three still blends itself: transparent_segment), the
 // first-person view (view_frame), the post passes (post_frame) and, over the
@@ -22,7 +23,7 @@
 //
 // The page writes the frame's inputs (camera, lights, each soldier) into
 // `input` and `bones` before a phase (web/, src/rust-render/).
-use crate::core::{Core, MultiDraw, Stats, VIEW_FIRST_PERSON, VIEW_NEAR, VIEW_SPARE};
+use crate::core::{Core, MultiDraw, Stats, VIEW_FAR, VIEW_FAR_MIRROR, VIEW_FIRST_PERSON, VIEW_NEAR, VIEW_SPARE};
 use crate::effects::EffectsPass;
 use crate::far::FarPass;
 use crate::foliage::FoliagePass;
@@ -71,7 +72,16 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     // The far scene's phase, drawn into the far target before the near scene.
     pub fn far_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();
-        self.far.draw(&mut self.core);
+        self.far.draw(&mut self.core, VIEW_FAR);
+        Ok(self.core.end_phase())
+    }
+
+    // The far scene from a water's mirror (water.js reflect, before the
+    // frame's own far scene), into the mirror's target: the far pass for the
+    // mirror camera, its frame block in VIEW_FAR_MIRROR's buffer.
+    pub fn far_mirror_frame(&mut self) -> Result<Stats, String> {
+        self.core.begin_phase();
+        self.far.draw(&mut self.core, VIEW_FAR_MIRROR);
         Ok(self.core.end_phase())
     }
 

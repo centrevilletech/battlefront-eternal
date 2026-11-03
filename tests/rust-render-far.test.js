@@ -217,3 +217,41 @@ test("the map's far buckets laid out alike share one vertex array, each drawn fr
   assert.deepEqual(calls.filter((c) => c[0] === "far_base").map((c) => c.slice(1)), [[item(a), 0], [item(b), 3]]);
   assert.deepEqual(calls.filter((c) => c[0] === "far_range").map((c) => c.slice(1)), [[item(a), 0, 3], [item(b), 0, 6]]);
 });
+
+test("a water mirror's far scene: its sky pass cleared, the rest drawn over it uncleared, each with the mirror's frame block", () => {
+  const { core, calls, renderer, farScene, far } = bridge();
+  const sky = mesh("zero:sky", SKY, { renderOrder: -1e9, values: values(), matrixAutoUpdate: true });
+  const bucket = mesh("zero:lit", BUCKET, { values: values() });
+  farScene.add(sky, bucket);
+  const mirror = new THREE.PerspectiveCamera(60, 1, 2, 1000);
+  mirror.userData.mirror = true;
+  mirror.position.set(0, -4, 10);
+  mirror.updateMatrixWorld(true);
+  // The sky pass: the mirror on the sky's layer alone (water.js
+  // MIRROR_SKY_LAYER), three's clear on.
+  sky.layers.enable(5);
+  mirror.layers.set(5);
+  assert.equal(core.cover("farMirror", renderer, farScene, mirror), true);
+  core.views();
+  assert.deepEqual([core.farInput[4], core.farInput[5]], [1, 0], "drawn, cleared");
+  const skyItem = () => far.all.find((i) => i.object === sky), bucketItem = () => far.all.find((i) => i.object === bucket);
+  assert.equal(core.farInput[skyItem().slot], 1);
+  assert.equal(bucketItem(), undefined, "the bucket isn't on the sky's layer");
+  // The rest over it: autoClear off, the sky hidden.
+  sky.visible = false;
+  mirror.layers.set(0);
+  renderer.autoClear = false;
+  assert.equal(core.cover("farMirror", renderer, farScene, mirror), true);
+  core.views();
+  assert.deepEqual([core.farInput[4], core.farInput[5]], [1, 1], "drawn over what is there");
+  assert.deepEqual([core.farInput[skyItem().slot], core.farInput[bucketItem().slot]], [0, 1]);
+  assert.deepEqual(calls.filter((c) => /^far(_mirror)?_frame$/.test(c[0])).map((c) => c[0]), ["far_mirror_frame", "far_mirror_frame"]);
+  // The frame block's camera is the mirror's.
+  assert.deepEqual([...core.input.subarray(32, 35)], [0, -4, 10]);
+  // The eye's own far scene afterwards: cleared again.
+  renderer.autoClear = true;
+  sky.visible = true;
+  core.cover("far", renderer, farScene, far.camera ?? mirror);
+  core.views();
+  assert.equal(core.farInput[5], 0);
+});

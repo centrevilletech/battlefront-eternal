@@ -200,6 +200,18 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @returns {Uint32Array}
+     */
+    far_mirror_frame() {
+        const ret = wasm.bferenderer_far_mirror_frame(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @param {number} item
      * @param {number} start
      * @param {number} count

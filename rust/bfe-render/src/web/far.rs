@@ -29,4 +29,10 @@ impl BfeRenderer {
     pub fn far_cells(&mut self, item: u32, positions: &[f32], index: &[u32], cell_size: f64) { self.r.far.cells(item, positions, index, cell_size) }
     pub fn far_terrain(&mut self, item: u32, level: u32, index: &[u32], cells: &[f64]) { self.r.far.terrain(&mut self.r.core, item, level, index, cells) }
     pub fn far_items(&self) -> u32 { self.r.far.items() }
+
+    // The far phase from a water's mirror camera (renderer.rs
+    // far_mirror_frame): its stats, as far_frame's.
+    pub fn far_mirror_frame(&mut self) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.far_mirror_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    }
 }

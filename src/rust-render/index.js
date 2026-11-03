@@ -21,7 +21,8 @@
 // (instances.js), and, empty for now, the far scene, terrain, the
 // transparent pass, effects, foliage, the first-person view and the post
 // passes. Each draws in a phase of the frame: far, near, transparent, view,
-// post (and mirror: the near phase's passes from a mirror's camera). A
+// post (and mirror: the near phase's passes from a mirror's camera;
+// farMirror: the far phase's, from a water mirror's camera). A
 // scene whose passes draw all of it is left out of three's frame (cover).
 // This file is their core: the WASM renderer and what every pass
 // registers through it (textures, programs, geometries), the frame block,
@@ -46,7 +47,7 @@ import { nearPass } from "./near.js";
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
 // functions, not as it loads.
-export const VIEW_NEAR = 0, VIEW_FAR = 1, VIEW_FIRST_PERSON = 2, VIEW_SPARE = 3;
+export const VIEW_NEAR = 0, VIEW_FAR = 1, VIEW_FIRST_PERSON = 2, VIEW_SPARE = 3, VIEW_FAR_MIRROR = 4;
 // The frame block's members (shader.rs FRAME_MEMBERS), in its float layout.
 const FRAME = [
   ["projectionMatrix", 0, 16], ["viewMatrix", 16, 16], ["cameraPosition", 32, 3], ["time", 35, 1],
@@ -80,6 +81,9 @@ const PHASES = {
   // The near scene's start when it is drawn in place of three's render
   // (near.js): its target cleared, the far scene's image drawn into it.
   begin: { view: null, draw: (rust, ctx) => rust.near_begin(ctx.clear, ctx.steps ?? 0) },
+  // The far phase's passes from a water's mirror camera (water.js reflect),
+  // into the mirror's target, before the frame's own far scene.
+  farMirror: { view: VIEW_FAR_MIRROR, draw: (rust) => rust.far_mirror_frame() },
 };
 
 // three's renderer's entry points that read or change its state cache, each
@@ -169,9 +173,11 @@ export class RustRender {
     // The passes, in the renderer's order.
     this.passes = [];
     this.phases = Object.fromEntries(Object.keys(PHASES).map((name) => [name, []]));
-    // A mirror draws the near phase's passes, then the transparent phase's.
+    // A mirror draws the near phase's passes, then the transparent phase's;
+    // its far scene, the far phase's.
     this.phases.mirror = this.phases.near;
     this.phases.mirrorTransparent = this.phases.transparent;
+    this.phases.farMirror = this.phases.far;
     this.byName = {};
     for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass]) this.addPass(make(this));
   }
@@ -320,7 +326,7 @@ export class RustRender {
   // scene's image read it too (farMap); it is taken first, so that its
   // texture is registered before anything a pass registers.
   writeFrame(scene, camera, view) {
-    if (view !== VIEW_FAR) {
+    if (view !== VIEW_FAR && view !== VIEW_FAR_MIRROR) {
       // The far image the materials read (lighting.farMap: the far target,
       // or a mirror's own far image while it draws).
       const image = lighting.farMap.value ?? this.graphics.farTarget.texture;
