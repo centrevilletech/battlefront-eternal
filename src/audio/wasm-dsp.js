@@ -19,6 +19,17 @@ export function audioWasm() {
   }
 }
 
+// Whether the enhanced voices render in the module's voice engine
+// (?voices=rust; rust/audio/src/voices.rs) rather than through a chain of
+// the browser's nodes each: behind this switch until it is proven.
+export function voicesRust() {
+  try {
+    return new URLSearchParams(globalThis.location?.search || "").get("voices") === "rust";
+  } catch {
+    return false;
+  }
+}
+
 // The compiled module, or null with ?audio=js (also null when it cannot be
 // compiled: the JavaScript worklets then simply run, the same sound).
 export function loadAudioDsp() {

@@ -93,6 +93,9 @@ class SpatialMixer extends AudioWorkletProcessor {
       this.dsp = { x, h: x.mixer_new(this.slots, this.channels) };
       this.dspLayout(this.law, o.speakers || [], this.decoder, 0);
       if (o.params) this.dspParams(o.params, 1);
+      // ?voices=rust: voices the module renders into the slots itself
+      // (rust/audio/src/voices.rs), their sends summed into output 2.
+      if (o.engine) x.mixer_engine(this.dsp.h, sampleRate, o.engine.q, o.engine.x86 === false ? 0 : 1);
     }
     this.port.onmessage = (event) => {
       const m = event.data;
@@ -103,6 +106,19 @@ class SpatialMixer extends AudioWorkletProcessor {
         // A voice took this slot: its first gains apply at once.
         this.fresh[m.slot] = 1;
         if (this.dsp) this.dsp.x.mixer_start(this.dsp.h, m.slot);
+      } else if (m.type === "sample" && this.dsp) {
+        // A sample for the voice engine (its storage allocated here, between
+        // blocks, never in process).
+        const { x, h } = this.dsp;
+        const at = x.mixer_sample(h, m.id, m.data.length, m.rate);
+        if (at) new Float32Array(x.memory.buffer, at, m.data.length).set(m.data);
+      } else if (m.type === "voices" && this.dsp) {
+        const { x, h } = this.dsp;
+        const at = x.mixer_commands_ptr(h, m.data.length);
+        if (at) {
+          new Float64Array(x.memory.buffer, at, m.data.length).set(m.data);
+          x.mixer_commands(h, m.data.length);
+        }
       } else if (m.type === "sync") {
         // Every message before this one has been applied (offline renders
         // wait for it, so a frame's messages land on its block).
@@ -149,6 +165,8 @@ class SpatialMixer extends AudioWorkletProcessor {
       d.ins = dspViews(x, x.mixer_in(h), this.slots);
       d.outs = dspViews(x, x.mixer_out(h), this.channels + 1);
       d.present = new Uint8Array(x.memory.buffer, x.mixer_present(h), this.slots);
+      const send = x.mixer_send(h);
+      d.send = send ? new Float32Array(x.memory.buffer, send, BLOCK) : null;
     }
     const { ins, outs, present } = d;
     for (let s = 0; s < this.slots; s++) {
@@ -160,10 +178,16 @@ class SpatialMixer extends AudioWorkletProcessor {
     }
     const out = outputs[0];
     const lfeOut = outputs[1]?.[0];
+    // The voice engine's block starts at the context's frame (its commands
+    // land by it).
+    if (d.send && typeof currentFrame === "number") x.mixer_frame(h, currentFrame);
     x.mixer_process(h, out.length, lfeOut ? 1 : 0);
     for (let c = 0; c < out.length; c++) out[c].set(outs[c]);
     // The LFE send follows the channels written.
     if (lfeOut) lfeOut.set(outs[out.length]);
+    // The voice engine's reverb send.
+    const sendOut = outputs[2]?.[0];
+    if (sendOut && d.send) sendOut.set(d.send);
     return true;
   }
 

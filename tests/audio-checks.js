@@ -600,6 +600,88 @@ export async function checkAudio() {
     assert("clarity: an attack lands harder; the bed between is left alone", attack > 1.5 && attack < 4.5 && Math.abs(bed) < 0.6, { attack: attack.toFixed(2), bed: bed.toFixed(2) });
   }
 
+  // 6b. The voice engine (?voices=rust, rust/audio/src/voices.rs): the
+  // enhanced graph with its voices rendered in the mixer's module gives the
+  // samples of the browser's own nodes, bit for bit, with the listener
+  // moving and the voices' doppler, levels, air and sends moving every
+  // frame. Each frame's messages reach the mixer before its block renders
+  // (a sync round trip), as the browser's automation reaches its nodes.
+  {
+    const render = async (voicesRust) => {
+      const seconds = 2;
+      const ctx = new OfflineAudioContext(2, RATE * seconds, RATE);
+      const pcm = new Int16Array(22050);
+      let seed = 1;
+      const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296) * 2 - 1;
+      for (let i = 0; i < pcm.length; i++) pcm[i] = Math.round(6000 * Math.sin(i / 7) + 3000 * rand());
+      const voices = 12;
+      const manifest = {
+        objects: [
+          { type: "Bus", Name: "0x00000001", Gain: 1 },
+          ...Array.from({ length: voices }, (_, i) => ({
+            type: "SoundProperties", Name: `0x0000c${String(i).padStart(3, "0")}`, Bus: "0x00000001", Mode3D: 1, MinDistance: 2,
+            MaxDistance: 400, MuteDistance: 400, RollOff: 1, Looping: 1, Bias: 0.0001, ReverbGain: 0.5, PitchVariation: 0, ModeDoppler: 1,
+            SampleList: [["0x00000100", 1]],
+          })),
+        ],
+        samples: { "0x00000100": [0, pcm.length, 22050] },
+      };
+      const engine = new AudioEngine({ context: ctx });
+      engine.renderer.voicesRust = voicesRust;
+      const config = { quality: "enhanced", output: "stereo", dynamics: "normal", mono: false };
+      await engine.renderer.load(null, config);
+      await engine.renderer.configure(config);
+      engine.setData(new SoundData(manifest, pcm.buffer));
+      engine.shape = (voice) => {
+        const e = voice.extra;
+        e.cutoff = voice.distance > 10 ? Math.min(Math.max(20000 / (1 + (voice.distance - 10) / 35), 1800), 20000) : 20000;
+        e.gain = 1;
+        e.send = 1;
+        e.lfe = 0;
+        return e;
+      };
+      for (let i = 0; i < voices; i++) {
+        const a = (i / voices) * Math.PI * 2;
+        const r = 5 + ((i * 13) % 90);
+        engine.play(`0x0000c${String(i).padStart(3, "0")}`, { position: { x: r * Math.sin(a), y: 0, z: r * Math.cos(a) }, loop: true, category: "ambience" });
+      }
+      const port = engine.renderer.mixer.port;
+      const waits = new Map();
+      let ids = 0;
+      port.onmessage = (e) => {
+        if (e.data?.type === "sync") waits.get(e.data.id)?.();
+      };
+      const sync = () => new Promise((r) => waits.set(++ids, r) && port.postMessage({ type: "sync", id: ids }));
+      const step = (k) => {
+        const t = k / 60;
+        engine.setListener({ x: 3 * Math.sin(t), y: 1.6, z: Math.sin(t * 0.3) }, { x: -Math.sin(t * 0.8), y: 0, z: -Math.cos(t * 0.8) }, { x: 0, y: 1, z: 0 });
+        engine.update(1 / 60);
+      };
+      step(0);
+      for (let k = 1; k / 60 < seconds; k++) {
+        ctx.suspend((Math.round(((k / 60) * RATE) / 128) * 128) / RATE).then(async () => {
+          step(k);
+          await sync();
+          ctx.resume();
+        });
+      }
+      await sync();
+      const out = await ctx.startRendering();
+      return { channels: [out.getChannelData(0), out.getChannelData(1)], engine: engine.renderer.engine };
+    };
+    const browser = await render(false);
+    const module = await render(true);
+    let differ = 0;
+    let peak = 0;
+    for (let c = 0; c < 2; c++) {
+      for (let i = 0; i < browser.channels[c].length; i++) {
+        if (!Object.is(browser.channels[c][i], module.channels[c][i])) differ++;
+        peak = Math.max(peak, Math.abs(browser.channels[c][i]));
+      }
+    }
+    assert("voice engine: the browser's nodes' samples, bit for bit", module.engine && !browser.engine && differ === 0 && peak > 0.01, { differ, peak, engine: module.engine });
+  }
+
   // 7. The headphone decoder. The encoder's harmonics against the values
   // tools/make_binaural.py checked against spaudiopy (written with the
   // filters), spread keeping the energy, and the decoded ears: a source on

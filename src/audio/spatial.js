@@ -1,6 +1,6 @@
 import { Target } from "./automation.js";
 import { ALSOFT, ALSOFT_STREAM_ANGLES, LAYOUTS, alsoftStereo, autoLayout } from "./layouts.js";
-import { loadAudioDsp } from "./wasm-dsp.js";
+import { loadAudioDsp, voicesRust } from "./wasm-dsp.js";
 
 // Where sound goes once it leaves a voice: the output layout, the panning,
 // the reverb, the LFE, and the master chain.
@@ -80,6 +80,9 @@ const LFE_CUTOFF = 120; // Hz
 const LFE_SEND = 0.5; // an explosion's LFE send, linear
 // A BiquadFilterNode's lowpass Q is in dB: -3.01 dB is a Butterworth section.
 const BUTTERWORTH_Q = -3.0103;
+// The voice engine's commands (rust/audio/src/voices.rs), each code then its
+// slot and arguments.
+const VOICE = { START: 1, GAIN_SET: 2, GAIN: 3, RATE: 4, CUTOFF: 5, SEND: 6, RELEASE: 7, STOP: 8 };
 
 // The dynamics profiles. The game's mix is authored to full scale (a gun at
 // arm's length peaks near 0 dBFS; a battle on Theed plays at about -14 LUFS
@@ -146,6 +149,20 @@ export class Renderer {
     this.loaded = null;
     this.slots = [];
     this.batch = [];
+    // ?voices=rust (voicesRust, which tests set): the enhanced voices render
+    // in the mixer's own voice engine (rust/audio/src/voices.rs) instead of
+    // through a buffer source, a gain, a lowpass and a send each, to the
+    // same samples (tests/audio-checks.js); `commands` is the frame's for it,
+    // `engineGen` counts the mixers built (a voice of an older one is lost
+    // with it), and samples go to each mixer once (`uploaded`).
+    this.voicesRust = voicesRust();
+    this.engine = false;
+    this.engineGen = 0;
+    this.commands = [];
+    this.flushQueued = false;
+    this.sampleIds = new WeakMap();
+    this.nextSample = 0;
+    this.uploaded = new Set();
     this.voices = new Set();
     this.beds = new Set();
     this.config = { quality: "enhanced", output: "auto", dynamics: "normal", mono: false, clarity: true };
@@ -260,6 +277,8 @@ export class Renderer {
     // The original on stereo speakers is the light mix.
     this.light = !enhanced && mode === "stereo";
     this.pair = null;
+    // (No voice engine without a mixer; set again below when built.)
+    this.engine = false;
     if (this.light) return this.buildLight();
     // Headphones: the ambisonic decoder when enhanced and loaded, else an
     // HRTF panner per voice.
@@ -293,12 +312,26 @@ export class Renderer {
     this.hrtfOut.connect(this.mix);
     const law = this.binaural ? "ambi3" : this.alsoft ? "alsoft" : mode === "stereo" || mode === "headphones" ? "panpot" : "vbap";
     const feeds = this.binaural ? AMBI_CHANNELS : N;
+    // The voice engine needs the module, and takes the enhanced voices that
+    // go to a mixer slot (not those of the browser's HRTF panners).
+    this.engine = Boolean(this.dsp) && enhanced && !this.hrtf && this.voicesRust;
+    this.engineGen += 1;
+    this.commands.length = 0;
+    this.uploaded = new Set();
     this.mixer = keep(
       new AudioWorkletNode(ctx, "spatial-mixer", {
         numberOfInputs: SLOTS,
-        numberOfOutputs: 2,
-        outputChannelCount: [feeds, 1],
-        processorOptions: { channels: feeds, law, speakers: layout.speakers, lfe: layout.lfe, decoder: this.alsoft, ...(this.dsp ? { dsp: this.dsp } : {}) },
+        numberOfOutputs: this.engine ? 3 : 2,
+        outputChannelCount: this.engine ? [feeds, 1, 1] : [feeds, 1],
+        processorOptions: {
+          channels: feeds,
+          law,
+          speakers: layout.speakers,
+          lfe: layout.lfe,
+          decoder: this.alsoft,
+          ...(this.dsp ? { dsp: this.dsp } : {}),
+          ...(this.engine ? { engine: { q: BUTTERWORTH_Q } } : {}),
+        },
       }),
     );
     if (this.binaural) {
@@ -341,6 +374,8 @@ export class Renderer {
     this.reverbIn = keep(ctx.createGain());
     this.reverbIn.channelCount = 1;
     this.reverbIn.channelCountMode = "explicit";
+    // The engine's voices' sends, summed, are the mixer's third output.
+    if (this.engine) this.mixer.connect(this.reverbIn, 2);
     const rooms = layout.speakers.map((s) => (s ? 1 : 0));
     this.reverb = keep(new AudioWorkletNode(ctx, "fdn-reverb", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [N], processorOptions: { channels: N, ...(this.dsp ? { dsp: this.dsp } : {}) } }));
     if (enhanced) {
@@ -607,12 +642,48 @@ export class Renderer {
     return out;
   }
 
-  // Send this frame's slot directions to the mixer.
+  // Send this frame's slot directions to the mixer, and the voice
+  // engine's commands.
   flush() {
-    if (!this.batch.length || !this.mixer) return;
-    const data = Float32Array.from(this.batch);
-    this.mixer.port.postMessage({ type: "params", data }, [data.buffer]);
-    this.batch.length = 0;
+    if (!this.mixer) return;
+    if (this.batch.length) {
+      const data = Float32Array.from(this.batch);
+      this.mixer.port.postMessage({ type: "params", data }, [data.buffer]);
+      this.batch.length = 0;
+    }
+    if (this.commands.length) {
+      const data = Float64Array.from(this.commands);
+      this.mixer.port.postMessage({ type: "voices", data }, [data.buffer]);
+      this.commands.length = 0;
+    }
+  }
+
+  // A voice engine command from outside the frame's update (a stop, a
+  // release): sent once the current task is done, not a frame later.
+  command(...values) {
+    this.commands.push(...values);
+    if (!this.flushQueued) {
+      this.flushQueued = true;
+      queueMicrotask(() => {
+        this.flushQueued = false;
+        this.flush();
+      });
+    }
+  }
+
+  // The engine's id for a sample, sent to this mixer the first time.
+  engineSample(buffer) {
+    let id = this.sampleIds.get(buffer);
+    if (id === undefined) {
+      id = this.nextSample++;
+      this.sampleIds.set(buffer, id);
+    }
+    if (!this.uploaded.has(id)) {
+      this.uploaded.add(id);
+      const data = buffer.getChannelData(0).slice();
+      this.mixer.port.postMessage({ type: "sample", id, rate: buffer.sampleRate, data }, [data.buffer]);
+    }
+    return id;
   }
 }
 
@@ -638,8 +709,40 @@ class VoiceOut {
   rebuild() {
     const r = this.r;
     const ctx = r.ctx;
+    // An engine voice's sound was in the mixer just replaced: its voice
+    // starts it again (Voice.apply).
+    if (this.engine) {
+      this.lost = true;
+      this.slot = -1;
+      return;
+    }
     this.release();
     this.nodes = [];
+    // A new enhanced voice with a slot to go to renders in the voice engine:
+    // no nodes, its sample and parameters sent as commands.
+    if (r.engine && !this.source && (this.voice.mode3D || !r.binaural) && r.slots.length) {
+      this.engine = true;
+      this.lost = false;
+      this.filter = null;
+      this.send = null;
+      this.panner = null;
+      this.pan = null;
+      this.position = null;
+      this.entry = null;
+      this.head = null;
+      this.sides = null;
+      this.slot = r.slots.pop();
+      r.mixer.port.postMessage({ type: "start", slot: this.slot });
+      this.sent = new Float32Array(5).fill(NaN);
+      this.sendLevel = new Target();
+      this.sendLevel.hold(0);
+      // Targets (automation.js) reach the engine as commands.
+      const param = (op) => ({ setTargetAtTime: (value, now, tau) => !this.lost && r.commands.push(op, this.slot, value, tau, now) });
+      this.gainParam = param(VOICE.GAIN);
+      this.rateParam = param(VOICE.RATE);
+      this.sendParam = param(VOICE.SEND);
+      return;
+    }
     if (r.light) {
       this.filter = null;
       this.send = null;
@@ -804,11 +907,12 @@ class VoiceOut {
     } else if (this.entry?.pan) {
       this.pan.set(this.entry.pan, Math.max(-1, Math.min(1, x)), now, 0.015);
     }
-    if (this.filter && extra.cutoff !== undefined && Math.abs(extra.cutoff - this.cutoff) > 10) {
+    if ((this.filter || this.engine) && extra.cutoff !== undefined && Math.abs(extra.cutoff - this.cutoff) > 10) {
       this.cutoff = extra.cutoff;
-      this.filter.frequency.setTargetAtTime(Math.min(this.cutoff, r.ctx.sampleRate / 2), now, 0.03);
+      if (this.engine) r.commands.push(VOICE.CUTOFF, this.slot, Math.min(this.cutoff, r.ctx.sampleRate / 2), 0.03, now);
+      else this.filter.frequency.setTargetAtTime(Math.min(this.cutoff, r.ctx.sampleRate / 2), now, 0.03);
     }
-    if (extra.send !== undefined) this.sendLevel.set(this.send.gain, extra.send, now, 0.05);
+    if (extra.send !== undefined) this.sendLevel.set(this.engine ? this.sendParam : this.send.gain, extra.send, now, 0.05);
   }
 
   // The light mix: the level times OpenAL Soft's stereo gains for the
@@ -839,7 +943,26 @@ class VoiceOut {
     }
   }
 
+  // The engine voice's sample from `offset` (s), at `rate`, its lowpass
+  // open as the browser's starts. Each command carries the context time its
+  // AudioParam call would have had (it decides the block it lands in).
+  engineStart(buffer, offset, loop, rate) {
+    const r = this.r;
+    r.commands.push(VOICE.START, this.slot, r.engineSample(buffer), offset, loop ? 1 : 0, rate, Math.min(this.cutoff, r.ctx.sampleRate / 2), r.ctx.currentTime);
+  }
+
+  // Its gain set outright (a voice's first).
+  engineGain(level) {
+    if (!this.lost) this.r.commands.push(VOICE.GAIN_SET, this.slot, level, this.r.ctx.currentTime);
+  }
+
+  // Its gain to 0 with time constant `tau`, the voice stopped `after` s on.
+  engineRelease(tau, after) {
+    if (!this.lost && this.slot >= 0) this.r.command(VOICE.RELEASE, this.slot, tau, after, this.r.ctx.currentTime);
+  }
+
   release() {
+    if (this.engine && !this.lost && this.slot >= 0) this.r.command(VOICE.STOP, this.slot);
     for (const node of this.nodes) {
       try {
         node.disconnect();
