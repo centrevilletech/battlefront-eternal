@@ -21,7 +21,9 @@
 // (instances.js), and, empty for now, the far scene, terrain, the
 // transparent pass, effects, foliage, the first-person view and the post
 // passes. Each draws in a phase of the frame: far, near, transparent, view,
-// post. This file is their core: the WASM renderer and what every pass
+// post (and mirror: the near phase's passes from a mirror's camera). A
+// scene whose passes draw all of it is left out of three's frame (cover).
+// This file is their core: the WASM renderer and what every pass
 // registers through it (textures, programs, geometries), the frame block,
 // typed views of the renderer's memory, and the registry that runs each
 // phase's passes and then the renderer's call that draws them.
@@ -37,6 +39,9 @@ import { effectsPass } from "./effects.js";
 import { foliagePass } from "./foliage.js";
 import { viewPass } from "./view.js";
 import { postPass } from "./post.js";
+import { hudPass } from "./hud.js";
+import { waterPass } from "./water.js";
+import { nearPass } from "./near.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -51,6 +56,11 @@ const FRAME = [
   ["fogColor", 60, 3], ["cascadeFar", 63, 1], ["fade", 64, 2], ["resolution", 66, 2], ["fogRange", 68, 2],
 ];
 const FRAME_NAMES = new Set(FRAME.map(([name]) => name));
+// A material's uniform that is one of the frame's values under another name
+// (the same object: fabric.js's fabricTime is lighting.time) reads the frame
+// block's member instead: its declaration becomes a #define of the member.
+const FRAME_BY_VALUE = new Map(FRAME.filter(([name]) => lighting[name]).map(([name, , size]) => [lighting[name], { name, size }]));
+const UNIFORM_SIZES = { 0x1406: 1, 0x8b50: 2, 0x8b51: 3, 0x8b5c: 16 };
 const LIGHT_COUNT = 70, LIGHTS = 72, MAX_LIGHTS = 16;
 const GL_TYPES = { Float32Array: 0x1406, Uint16Array: 0x1403, Uint8Array: 0x1401, Int16Array: 0x1402, Int8Array: 0x1400, Uint32Array: 0x1405 };
 // The phases of a frame, in the order three draws them: the view whose frame
@@ -59,10 +69,22 @@ const GL_TYPES = { Float32Array: 0x1406, Uint16Array: 0x1403, Uint8Array: 0x1401
 const PHASES = {
   far: { view: VIEW_FAR, draw: (rust) => rust.far_frame() },
   near: { view: VIEW_NEAR, draw: (rust, ctx) => rust.frame(ctx.records) },
-  transparent: { view: null, draw: (rust) => rust.transparent_frame() },
-  view: { view: VIEW_FIRST_PERSON, draw: (rust) => rust.view_frame() },
-  post: { view: null, draw: (rust) => rust.post_frame() },
+  transparent: { view: VIEW_NEAR, draw: (rust, ctx) => rust.transparent_frame(ctx.three ?? 0) },
+  view: { view: VIEW_FIRST_PERSON, draw: (rust, ctx) => rust.view_frame(ctx.records) },
+  post: { view: null, draw: (rust, ctx) => rust.post_frame(ctx.steps ?? 0) },
+  hud: { view: null, draw: (rust) => rust.hud_frame() },
+  // The near phase's passes from a mirror camera (water.js's reflection).
+  mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
+  // The near scene's start when it is drawn in place of three's render
+  // (near.js): its target cleared, the far scene's image drawn into it.
+  begin: { view: null, draw: (rust, ctx) => rust.near_begin(ctx.clear, ctx.steps ?? 0) },
 };
+
+// three's renderer's entry points that read or change its state cache, each
+// settling a deferred phase's GL state first (watchThree).
+const SETTLES = ["render", "setRenderTarget", "clear", "clearColor", "clearDepth", "clearStencil", "setClearColor", "setClearAlpha", "readRenderTargetPixels",
+  "readRenderTargetPixelsAsync", "copyFramebufferToTexture", "copyTextureToTexture", "copyTextureToTexture3D", "initTexture", "initRenderTarget", "compile",
+  "compileAsync", "setViewport", "setScissor", "setScissorTest", "resetState", "dispose"];
 
 // The renderer with each registration call it is given kept (typed arrays
 // copied), so another build of it can be given the same scene. The phases'
@@ -72,7 +94,7 @@ function recorder(rust, recording) {
     get(target, name) {
       const value = target[name];
       if (typeof value !== "function") return value;
-      if (/frame$|_(ptr|len)$|^(records_at|record_stride)$/.test(String(name))) return value.bind(target);
+      if (/frame$|_segment$|_(ptr|len)$|^(records_at|record_stride)$/.test(String(name))) return value.bind(target);
       return (...args) => {
         const result = value.apply(target, args);
         recording.calls.push([name, args.map((a) => (ArrayBuffer.isView(a) ? a.slice() : a?.constructor?.name === "WebGLTexture" ? null : a)), result]);
@@ -133,20 +155,34 @@ export class RustRender {
     this.stride = this.rust.record_stride();
     this.addView("input", Float64Array, () => this.rust.input_ptr(), () => this.rust.input_len());
     this.addView("bones", Float32Array, () => this.rust.bones_ptr(), () => this.rust.bones_len());
+    // Phases drawn between three's renders reset three's state once, when
+    // three is next used.
+    this.stale = false;
+    this.settleThree = null;
+    this.watchThree();
+    // A lost context takes every object the renderer made with it (three
+    // makes its own again when it is restored): three draws everything.
+    this.lost = false;
+    this.renderer.domElement?.addEventListener?.("webglcontextlost", () => { this.lost = true; this.fail(new Error("WebGL context lost")); });
     // The passes, in the renderer's order.
     this.passes = [];
     this.phases = Object.fromEntries(Object.keys(PHASES).map((name) => [name, []]));
+    // A mirror draws the near phase's passes.
+    this.phases.mirror = this.phases.near;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass]) this.addPass(make(this));
   }
 
   // A pass: { name, phase, register?(), draw?(ctx), setActive?(on),
-  // restore?() }. register() runs once, as it is added; draw(ctx) in each
-  // of its phase's frames, in the order the passes were added, to register
-  // what it draws (the first time three has drawn it, which gives its
-  // material a program) and write its inputs; setActive(on) moves what it
-  // registered back to three (off) or to the renderer (on); restore() gives
-  // three anything it hid outside the near scene, for good.
+  // restore?(), afterPhase?(name, ctx) }. register() runs once, as it is
+  // added; draw(ctx) in each of its phase's frames, in the order the passes
+  // were added, to register what it draws (the first time three has drawn
+  // it, which gives its material a program) and write its inputs;
+  // setActive(on) moves what it registered back to three (off) or to the
+  // renderer (on); restore() gives three anything it hid outside the near
+  // scene, for good; afterPhase(name, ctx) runs for every pass after any
+  // phase's renderer call (a pass that draws later in the same render of
+  // three's, such as the transparent list, arms itself there).
   addPass(pass) {
     if (!this.phases[pass.phase]) throw new Error(`rust-render: pass ${pass.name} has no phase ${pass.phase}`);
     this.passes.push(pass);
@@ -196,12 +232,15 @@ export class RustRender {
   // policy: { uniforms, material }, what the pass gives a program of the
   // kind besides the frame block (per draw or per instance), and which of
   // those come from a draw's material (the renderer is told their names).
-  program(threeProgram, kind, material, policy) {
-    let entry = this.programs.get(threeProgram);
+  // cache: where it is kept (made once each): a pass that keeps what it last
+  // set in a program's uniforms passes a cache of its own, so that no other
+  // pass sets them behind its back.
+  program(threeProgram, kind, material, policy, cache = this.programs) {
+    let entry = cache.get(threeProgram);
     if (entry !== undefined) return entry;
     entry = null;
     const gl = this.gl, p = threeProgram.program;
-    const names = [];
+    const names = [], aliases = [];
     let ok = true;
     for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
       const u = gl.getActiveUniform(p, i), name = u.name.replace(/\[0\]$/, "");
@@ -209,7 +248,11 @@ export class RustRender {
       if (FRAME_NAMES.has(name)) {
         // A frame value this material keeps of its own can't come from the block.
         if (!["projectionMatrix", "viewMatrix", "cameraPosition"].includes(name) && material.uniforms?.[name] !== lighting[name]) ok = false;
-      } else if (!policy.uniforms.has(name)) ok = false;
+      } else if (!policy.uniforms.has(name)) {
+        const member = FRAME_BY_VALUE.get(material.uniforms?.[name]);
+        if (member && u.size === 1 && UNIFORM_SIZES[u.type] === member.size) aliases.push([name, member.name]);
+        else ok = false;
+      }
       if (!ok) { this.errors.push(`p${threeProgram.id} ${name}`); break; }
     }
     if (ok) {
@@ -219,14 +262,15 @@ export class RustRender {
         attributes.push(`${a.name}:${gl.getAttribLocation(p, a.name)}`);
       }
       const [vs, fs] = gl.getAttachedShaders(p).sort((a) => (gl.getShaderParameter(a, gl.SHADER_TYPE) === gl.VERTEX_SHADER ? -1 : 1));
+      const source = (shader) => aliases.reduce((text, [name, member]) => text.replace(new RegExp(`^\\s*uniform\\s+(?:(?:highp|mediump|lowp)\\s+)?\\w+\\s+${name}\\s*;\\s*$`, "m"), `#define ${name} ${member}`), gl.getShaderSource(shader));
       try {
-        entry = { id: this.rust.add_program(kind, gl.getShaderSource(vs), gl.getShaderSource(fs), attributes.join(","), names.filter((name) => policy.material.has(name)).join(",")),
-          attributes: attributes.map((a) => { const [name, location] = a.split(":"); return [name, Number(location)]; }), names: new Set(names) };
+        entry = { id: this.rust.add_program(kind, source(vs), source(fs), attributes.join(","), names.filter((name) => policy.material.has(name)).join(",")),
+          attributes: attributes.map((a) => { const [name, location] = a.split(":"); return [name, Number(location)]; }), names: new Set(names), aliased: aliases.length > 0 };
       } catch (error) {
         this.errors.push(`p${threeProgram.id}: ${String(error).slice(0, 300)}`);
       }
     }
-    this.programs.set(threeProgram, entry);
+    cache.set(threeProgram, entry);
     return entry;
   }
 
@@ -274,8 +318,11 @@ export class RustRender {
   // texture is registered before anything a pass registers.
   writeFrame(scene, camera, view) {
     if (view !== VIEW_FAR) {
-      const far = this.renderer.properties.get(this.graphics.farTarget.texture).__webglTexture;
-      if (far !== this.farTexture) { this.farTexture = far; this.rust.set_far_map(this.texture(this.graphics.farTarget.texture)); }
+      // The far image the materials read (lighting.farMap: the far target,
+      // or a mirror's own far image while it draws).
+      const image = lighting.farMap.value ?? this.graphics.farTarget.texture;
+      const far = this.renderer.properties.get(image).__webglTexture;
+      if (far !== this.farTexture) { this.farTexture = far; this.rust.set_far_map(this.texture(image)); }
     }
     this.views();
     const input = this.input;
@@ -329,22 +376,29 @@ export class RustRender {
   // graphics.background's onAfterRender: the near scene's pass, the far
   // scene's image just drawn behind it.
   pass(renderer, scene, camera) {
-    if (camera !== this.graphics.camera || renderer.getRenderTarget() !== this.graphics.sceneTarget) return;
-    this.phase("near", renderer, scene, camera);
+    if (camera === this.graphics.camera && renderer.getRenderTarget() === this.graphics.sceneTarget) this.phase("near", renderer, scene, camera);
+    // A mirror's render of the near scene (camera.userData.mirror: water.js)
+    // draws what the renderer took from three too.
+    else if (camera.userData.mirror) this.phase("mirror", renderer, scene, camera);
   }
 
   // A phase of the frame, at its point in three's: the frame block written
   // for its view, its passes in order, then the renderer's call that draws
   // them. Three's state is reset after it, and the target it was drawing
   // into bound again.
-  phase(name, renderer, scene, camera) {
+  // defer: three draws nothing right after this phase (a scene's phase drawn
+  // in place of three's render, between three's renders): its state is reset
+  // only when three is next used (settle), so that phases drawn one after
+  // another reset it once. walked: the transparent list's items as near.js
+  // walked the scene for three's render it draws in place of (ctx.walked).
+  phase(name, renderer, scene, camera, defer = false, walked = null) {
     if (!this.enabled || !this.active) return;
     if (!this.supported()) { this.restore(); return; }
     const phase = PHASES[name], target = renderer.getRenderTarget();
     if (phase.view !== null) this.writeFrame(scene, camera, phase.view);
     // What the passes have written into the renderer's input so far: records
     // and bones, and where each skeleton's bones are.
-    const ctx = { renderer, scene, camera, records: 0, bones: 0, skeletons: new Map() };
+    const ctx = { renderer, scene, camera, records: 0, bones: 0, skeletons: new Map(), defer, walked };
     for (const pass of this.phases[name]) pass.draw?.(ctx);
     if (name === "near" && this.recording?.keepFrames > 0) {
       this.recording.keepFrames--;
@@ -352,10 +406,129 @@ export class RustRender {
       this.recording.frames.push({ records: ctx.records, input: this.input.slice(0, this.recordsAt + ctx.records * this.stride), bones: this.bones.slice(0, ctx.bones * 16) });
     }
     const t0 = performance.now();
-    this.phaseStats[name] = phase.draw(this.rust, ctx);
+    const stats = this.phaseStats[name] = phase.draw(this.rust, ctx);
     this.phaseMs[name] = performance.now() - t0;
+    // A phase that made no GL call left three's state as it was.
+    if (stats?.[4] !== 0) {
+      if (defer) this.stale = true;
+      else {
+        this.stale = false;
+        renderer.resetState();
+        renderer.setRenderTarget(target);
+      }
+    }
+    for (const pass of this.passes) pass.afterPhase?.(name, ctx);
+  }
+
+  // Three's state cache, out of date after a deferred phase, made good before
+  // three is next used: every entry point of three's renderer that uses it
+  // (render, targets, clears, reads, uploads, compiles, viewport) settles
+  // first. Settling resets three's state and binds again the target three
+  // believes bound (a phase leaves three's own idea of it unchanged).
+  watchThree() {
+    const renderer = this.renderer;
+    if (renderer.__rustSettles) return;
+    renderer.__rustSettles = true;
+    const resetState = renderer.resetState?.bind(renderer), setRenderTarget = renderer.setRenderTarget?.bind(renderer), getRenderTarget = renderer.getRenderTarget?.bind(renderer);
+    this.settleThree = () => {
+      if (!this.stale) return;
+      this.stale = false;
+      const target = getRenderTarget();
+      resetState();
+      setRenderTarget(target);
+    };
+    for (const name of SETTLES) {
+      const f = renderer[name];
+      if (typeof f !== "function") continue;
+      const bridge = this;
+      renderer[name] = function (...args) { bridge.settleThree?.(); return f.apply(this, args); };
+    }
+  }
+
+  settle() {
+    this.settleThree?.();
+  }
+
+  // A scene's phase drawn in place of three's render of it (graphics.js
+  // renders the scene with three only when this returns false): what three's
+  // render does first (the scene's world matrices, where it keeps them up to
+  // date itself, and its onBeforeRender, which packs its point lights), then
+  // the phase. True when every pass of the phase drew all of the scene that
+  // three would have (each sets `complete` as it draws); then what three's
+  // render does as it ends is done too: the target resolved (when it is
+  // multisampled), the scene's onAfterRender.
+  cover(name, renderer, scene, camera) {
+    if (!this.enabled || !this.active) return false;
+    const target = renderer.getRenderTarget();
+    try {
+      if (scene.matrixWorldAutoUpdate) scene.updateMatrixWorld();
+      scene.onBeforeRender(renderer, scene, camera, target);
+      const passes = this.phases[name];
+      for (const pass of passes) pass.complete = false;
+      this.phase(name, renderer, scene, camera, true);
+      const complete = this.enabled && passes.length > 0 && passes.every((pass) => pass.complete === true);
+      if (complete) {
+        this.resolve(renderer.getRenderTarget());
+        if (scene.isScene) scene.onAfterRender(renderer, scene, camera);
+      }
+      return complete;
+    } catch (error) {
+      this.fail(error, renderer, target);
+      return false;
+    }
+  }
+
+  // An error in a pass: kept, and everything given back to three for good
+  // (restore), three's state reset and the target it was drawing into bound
+  // again, so the frame goes on with three.
+  fail(error, renderer = this.renderer, target = renderer.getRenderTarget()) {
+    this.errors.push(`failed: ${String(error?.stack || error).slice(0, 400)}`);
+    console.warn("Rust renderer failed, three draws everything:", error);
+    try { this.restore(); } catch (e) { this.errors.push(`restore: ${String(e).slice(0, 200)}`); }
     renderer.resetState();
     renderer.setRenderTarget(target);
+  }
+
+  // A multisampled target's samples into its texture, as three's
+  // updateMultisampleRenderTarget blits them (r170, one colour texture; the
+  // depth too where the target resolves it), with its state cache kept.
+  // With three's state stale (a deferred phase), the binds are made directly
+  // (three's cache is reset before its next use anyway).
+  resolve(target) {
+    if (!target || !(target.samples > 0)) return;
+    const gl = this.gl, p = this.renderer.properties.get(target);
+    if (!p.__webglMultisampledFramebuffer) return;
+    const state = this.stale ? { bindFramebuffer: (t, f) => gl.bindFramebuffer(t, f) } : this.renderer.state;
+    let mask = gl.COLOR_BUFFER_BIT;
+    if (target.resolveDepthBuffer) {
+      if (target.depthBuffer) mask |= gl.DEPTH_BUFFER_BIT;
+      if (target.stencilBuffer && target.resolveStencilBuffer) mask |= gl.STENCIL_BUFFER_BIT;
+    }
+    state.bindFramebuffer(gl.READ_FRAMEBUFFER, p.__webglMultisampledFramebuffer);
+    state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, p.__webglFramebuffer);
+    gl.blitFramebuffer(0, 0, target.width, target.height, 0, 0, target.width, target.height, mask, gl.NEAREST);
+    state.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+    state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, p.__webglMultisampledFramebuffer);
+  }
+
+  // graphics.js: the frame's post passes (Graphics.postSteps), drawn by the
+  // post pass when it can draw every one; true when it did.
+  post(renderer, steps) {
+    const target = renderer.getRenderTarget();
+    try { return this.byName.post?.cover(renderer, steps) ?? false; } catch (error) { this.fail(error, renderer, target); return false; }
+  }
+
+  // graphics.js: the near scene, drawn in place of three's render of it when
+  // nothing in it is left for three (near.js); true when it was.
+  coverNear(renderer, scene, camera) {
+    return this.byName.near?.cover(renderer, scene, camera) ?? false;
+  }
+
+  // hud.js: the battle HUD's batch, drawn by the HUD pass; true when it was.
+  coverHud(renderer, hud) {
+    const target = renderer.getRenderTarget();
+    try { return this.byName.hud?.cover(renderer, hud) ?? false; } catch (error) { this.fail(error, renderer, target); return false; }
   }
 
   // The near phase's stats and the time its renderer call took, as the

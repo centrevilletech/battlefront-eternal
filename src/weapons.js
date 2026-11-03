@@ -1,3 +1,5 @@
+import { legacyRandom } from "./ai/random.js";
+
 // A soldier's weapons, following the 2004 game.
 //
 // Each weapon keeps its own clip (a share of a full clip), reserve (in clips),
@@ -56,15 +58,18 @@
 // { player: false } keeps the kick from dropping below zero; `random` (an
 // option, or the field) is the generator the spread draws come from, the
 // shared AI generator in the 2004 game, and with it a shot draws its pitch
-// pair before its yaw pair as the 2004 game does (without it, Math.random
-// as before); `spreadScale` multiplies SpreadPerShot, once per salvo (the
-// side's curve B; 1 for a player); `yawSpreadOverride`, when not null,
-// stands in for YawSpread (a zoomed single-shot weapon's extra AI yaw, in
-// degrees); `sniperScale` holds the side's curve S for that. Arsenal.select()
-// picks a weapon in its channel directly, for the AI's weapon choice.
+// pair before its yaw pair as the 2004 game does (without it, the legacy
+// spread stream, Math.random, yaw pair first, as before); `spreadScale`
+// multiplies SpreadPerShot, once per salvo (the side's curve B; 1 for a
+// player); `yawSpreadOverride`, when not null, stands in for YawSpread (a
+// zoomed single-shot weapon's extra AI yaw, in degrees); `sniperScale` holds
+// the side's curve S for that. Arsenal.select() picks a weapon in its channel
+// directly, for the AI's weapon choice.
 
 const DEG = Math.PI / 180;
 const EPSILON = 1e-6; // s; a press landing on the end of the lockout counts
+// A shot's draws for a weapon with no generator (random null): Math.random.
+const legacySpread = legacyRandom("weapon-spread");
 
 // A press's spread seed (see the top of the file): the same 32 bits wherever
 // the soldier's id and life, the channel and the press's id are known.
@@ -136,7 +141,7 @@ export class Weapon {
     this.floor = player ? -(def.SpreadThreshold || 0) : 0;
     this.kick = this.floor;
     // AI settings (see the top of the file); the defaults are a player's.
-    this.random = random; // () => [0, 1), or null for Math.random
+    this.random = random; // () => [0, 1), or null for the legacy spread stream
     this.spreadScale = 1; // x SpreadPerShot per salvo
     this.sniperScale = 0;
     this.yawSpreadOverride = null; // degrees in place of YawSpread, or null
@@ -484,8 +489,8 @@ export class Weapon {
       }
       shots.push({
         weapon: this,
-        yaw: (aside + yaw * (Math.random() - Math.random())) * DEG,
-        pitch: (-down + pitch * (Math.random() - Math.random())) * DEG,
+        yaw: (aside + yaw * (legacySpread() - legacySpread())) * DEG,
+        pitch: (-down + pitch * (legacySpread() - legacySpread())) * DEG,
         charge: this.charge,
         ...guidance,
         ...admitted,

@@ -37,6 +37,19 @@ export function loadClips(meta, buffer, boneNames = null) {
   return clips;
 }
 
+// The WebAssembly pose sampler (src/anim-kernel.js; the page's default,
+// ?anim=js turns it off), when a battle loads one. It blends clips to the
+// last bit as the JavaScript below does (rust/sim/src/pose says how);
+// poses take it up as they are made or cleared, and drop it the same way,
+// so a battle can switch it live.
+let animKernel = null;
+export function setAnimKernel(kernel) {
+  animKernel = kernel || null;
+}
+export function getAnimKernel() {
+  return animKernel;
+}
+
 // Weighted pose accumulator. Add any number of clip samples, then apply.
 export class Pose {
   constructor(boneCount, rootIndex) {
@@ -45,9 +58,43 @@ export class Pose {
     this.q = new Float32Array(boneCount * 4);
     this.t = new Float32Array(boneCount * 3);
     this.w = new Float32Array(boneCount);
+    this.kernel = null;
+    this.kernelPose = -1;
+    if (animKernel) this.attach();
+  }
+
+  attach() {
+    this.kernel = animKernel;
+    this.kernelPose = animKernel.newPose(this.count, this.root);
+    this.refresh();
+  }
+
+  // The accumulators as the kernel holds them now: views of its memory,
+  // which copying a clip in can grow and detach, so they are re-made
+  // after every kernel call that can copy (clear and add here).
+  refresh() {
+    const views = this.kernel.views(this.kernelPose);
+    this.q = views.q;
+    this.t = views.t;
+    this.w = views.w;
   }
 
   clear() {
+    if (animKernel !== this.kernel) {
+      if (animKernel) this.attach();
+      else {
+        this.kernel = null;
+        this.kernelPose = -1;
+        this.q = new Float32Array(this.count * 4);
+        this.t = new Float32Array(this.count * 3);
+        this.w = new Float32Array(this.count);
+      }
+    }
+    if (this.kernel) {
+      this.kernel.clear(this.kernelPose);
+      this.refresh();
+      return;
+    }
     this.q.fill(0);
     this.t.fill(0);
     this.w.fill(0);
@@ -56,6 +103,11 @@ export class Pose {
   // time in seconds. Looping clips wrap on their duration; others hold the ends.
   add(clip, time, weight, loop = true) {
     if (!clip || weight <= 1e-4) return;
+    if (this.kernel) {
+      this.kernel.add(this.kernelPose, clip, time, weight, loop);
+      this.refresh();
+      return;
+    }
     const frames = clip.frames;
     let f = 0;
     if (frames > 1) {
@@ -117,6 +169,23 @@ export class Pose {
 
   // Bones no clip touched keep their bind pose.
   apply(bones) {
+    if (this.kernel) {
+      // The kernel's finals are the normalized quaternion and the
+      // translation over the weight the loop below computes
+      // (rust/sim/src/pose apply_out); setting a bone's quaternion from
+      // them leaves its Euler angles where the JavaScript's normalize left
+      // them.
+      const out = this.kernel.applyOut(this.kernelPose);
+      this.refresh();
+      for (let i = 0; i < this.count; i++) {
+        if (this.w[i] <= 1e-6) continue;
+        const oi = i * 7;
+        const bone = bones[i];
+        bone.quaternion.set(out[oi], out[oi + 1], out[oi + 2], out[oi + 3]);
+        bone.position.set(out[oi + 4], out[oi + 5], out[oi + 6]);
+      }
+      return;
+    }
     for (let i = 0; i < this.count; i++) {
       const w = this.w[i];
       if (w <= 1e-6) continue;

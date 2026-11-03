@@ -1,0 +1,12 @@
+[package]
+name = "sim-replay"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Reads the simulation captures tools/sim-capture.mjs records and replays their frames against Rust ports, call by call and draw by draw"
+
+# Native only: the replay tests of the simulation's Rust port read captures
+# from disk (BFE_REPLAY_CORPUS). Nothing here goes into a WebAssembly build.
+[lib]
+name = "sim_replay"

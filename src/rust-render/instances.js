@@ -1,11 +1,24 @@
 // The instance pass (instances.rs): every visible soldier's body and the
 // guns in his hand, and behind ?rustRigs the scene's other skinned meshes
 // (vehicles' and props' rigs), each a record the renderer draws instanced
-// in the near phase, after the world. Each is registered the first time
+// in the near phase, after the world; and the flying models (rounds,
+// grenades, droids' pieces, items: flying()). Each is registered the first time
 // three has drawn it (which gives its material a program), then hidden from
 // three; a body wearing materials of its own for now (a dissolve) goes back
 // to three.
+//
+// Only what three's render lists by the camera's frustum is written, culled
+// here as three culls it (the renderer culls the records again by the same
+// spheres): a battle's other soldiers and rigs cost the page nothing. A
+// written body's bones are the ones three worked out as it listed the body
+// in this render (or drew its shadow), as its own draw of it would read
+// them; worked out here only when three has not (writeBody).
+import * as THREE from "three";
+
 const SKINNED = 1, RIGID = 2;
+// The layer a flying model's part goes on while the renderer draws it: no
+// camera renders it (graphics.js uses 1, 2 and 4, sky-probe.js 3, water.js 5).
+const FLYING_LAYER = 30;
 // Record layout (instances.rs REC_*).
 const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, BONE_AT: 9, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56, BIND: 60 };
 const MAX_RECORDS = 256;
@@ -24,10 +37,22 @@ const LAMPS = ["localLightPositions", "localLightColors", "localLightCount"];
 const policy = (samplers) => ({ uniforms: new Set([...samplers, ...INSTANCE, ...LAMPS]), material: LOOK });
 const POLICIES = { [SKINNED]: policy(["map", "farMap", "boneTexture"]), [RIGID]: policy(["map", "farMap"]) };
 
-function inScene(object, scene) {
-  let o = object;
-  while (o.parent) o = o.parent;
-  return o === scene;
+// three works out a skeleton's bones as its render lists a skinned mesh of
+// it or draws one's shadow (WebGLObjects.update: once for each count of its
+// renders, which it counts on as it has listed the scene): the count each
+// skeleton's bones were last worked out at, kept by its update.
+const updatedAt = new WeakMap();
+function stamp(skeleton, info) {
+  if (updatedAt.has(skeleton)) return;
+  // Its own update if it has one, else its class's as it is when called (a
+  // wrapper of the class's sees three's calls too).
+  const own = Object.prototype.hasOwnProperty.call(skeleton, "update") ? skeleton.update : null;
+  skeleton.update = function () {
+    if (own) own.call(this);
+    else Object.getPrototypeOf(this).update.call(this);
+    updatedAt.set(this, info.render.frame);
+  };
+  updatedAt.set(skeleton, -1);
 }
 
 class InstancePass {
@@ -43,16 +68,42 @@ class InstancePass {
     this.bodyRecords = [];
     this.meshRecords = [];
     this.frames = 0;
+    // The phase camera's frustum, as three's render makes it to cull by.
+    this.frustum = new THREE.Frustum();
+    this.projScreen = new THREE.Matrix4();
+    // The count three's render listed the scene at (writeBody).
+    this.listed = -1;
   }
 
   // ctx: the phase's camera, and what has been written to the renderer's
   // input so far (records, bones, skeletons).
   draw(ctx) {
     const { camera } = ctx, graphics = this.core.graphics;
+    this.projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.projScreen);
+    // The phase runs in three's render of the scene, which counted on once
+    // it had listed it (a renderer that counts none: every body's bones
+    // worked out here).
+    const count = ctx.renderer.info?.render.frame;
+    this.listed = count === undefined ? Infinity : count - 1;
     for (const root of graphics.cullRoots) this.soldier(root, camera, ctx);
     if (graphics.playerRoot) this.soldier(graphics.playerRoot, camera, ctx);
     if (this.rigsOn) this.rigs(camera, ctx);
+    // An error with the flying models gives them back to three for good.
+    if (!this.flyingFailed) {
+      try { this.flying(camera, ctx); } catch (error) {
+        this.core.errors.push(`flying models failed: ${String(error?.stack || error).slice(0, 400)}`);
+        this.flyingFailed = true;
+        try { this.restoreFlying(); } catch {}
+      }
+    }
     this.frames++;
+  }
+
+  // Whether three's render lists an object by the camera's frustum, as its
+  // projectObject culls (one it does not cull always).
+  inView(object) {
+    return !object.frustumCulled || this.frustum.intersectsObject(object);
   }
 
   // A soldier's body and the guns in his hand as records; registers them
@@ -64,7 +115,7 @@ class InstancePass {
     let record = this.bodies.get(body);
     if (record === undefined) record = this.registerBody(body);
     if (record && body.visible && camera.layers.test(body.layers) && body.material === record.materials) {
-      at = this.writeBody(record, at);
+      if (this.inView(body)) at = this.writeBody(record, at);
     } else if (record && body.material !== record.materials) {
       // Materials of its own for now (a dissolve, units.js): three draws them.
       for (const m of [].concat(body.material)) m.visible = true;
@@ -75,8 +126,9 @@ class InstancePass {
         if (!mesh.isMesh || !mesh.visible || !camera.layers.test(mesh.layers)) continue;
         let rec = this.meshes.get(mesh);
         if (rec === undefined) rec = this.registerMesh(mesh);
-        if (rec && mesh.material === rec.material) at = this.writeMesh(rec, at);
-        else if (rec) mesh.material.visible = true;
+        if (rec && mesh.material === rec.material) {
+          if (this.inView(mesh)) at = this.writeMesh(rec, at);
+        } else if (rec) mesh.material.visible = true;
       }
     }
     return at;
@@ -128,9 +180,10 @@ class InstancePass {
       if (!rec) continue;
       if (mesh.material !== rec.materials) { mesh.material.visible = true; continue; }
       if (!camera.layers.test(mesh.layers)) continue;
-      let shown = true;
-      for (let o = mesh; o && o !== scene; o = o.parent) if (!o.visible) { shown = false; break; }
-      if (shown && inScene(mesh, scene)) at = this.writeBody(rec, at);
+      // It and its parents shown, up to the scene (the walk ends there).
+      let shown = true, o = mesh;
+      for (; o && o !== scene; o = o.parent) if (!o.visible) { shown = false; break; }
+      if (shown && o === scene && this.inView(mesh)) at = this.writeBody(rec, at);
     }
     return at;
   }
@@ -182,7 +235,10 @@ class InstancePass {
     let boneAt = at.skeletons.get(skeleton);
     if (boneAt === undefined) {
       if (at.bones + bones > core.bones.length / 16) return at;
-      skeleton.update();
+      // Its bones as three worked them out in this render: as it listed the
+      // body (at the count before this one) or drew a shadow (at this one).
+      stamp(skeleton, core.renderer.info);
+      if (!(updatedAt.get(skeleton) >= this.listed)) skeleton.update();
       core.bones.set(skeleton.boneMatrices, at.bones * 16);
       boneAt = at.bones; at.skeletons.set(skeleton, boneAt); at.bones += bones;
     }
@@ -226,6 +282,112 @@ class InstancePass {
     const set = (m) => { if (m) m.visible = !on; };
     for (const record of this.bodyRecords) for (const m of record.used) set(m);
     for (const record of this.meshRecords) set(record.material);
+    this.flyingActive(on);
+  }
+
+  // Flying models (game.js flyingModel: rounds, grenades, droids' pieces,
+  // items), groups the game adds to the scene tagged userData.flying, their
+  // parts drawn as rigid records, dynamic (lit) and unlit zero materials
+  // alike: an unlit part's program reads no look values, so its record's go
+  // unread. A part shares its material with every copy of its model, which
+  // the renderer may not draw (one not yet registered, one inside another
+  // object), so a part it draws is hidden from three by its layers (on
+  // FLYING_LAYER), not by its material; its own layers stay in its record,
+  // tested against the camera's as three would test them. A part three
+  // gives another material (destruction.js heats a wreck's) goes back to
+  // three.
+  flying(camera, at) {
+    if (!this.flyingRecords) this.watchFlying();
+    if (this.flyingPending.size) {
+      for (const group of this.flyingPending) {
+        let waiting = false;
+        group.traverse((o) => {
+          if (!o.isMesh || this.flyingByMesh.has(o)) return;
+          const record = this.registerFlying(o);
+          if (record === undefined) waiting = true;
+          else this.flyingByMesh.set(o, record);
+        });
+        if (!waiting) this.flyingPending.delete(group);
+      }
+    }
+    const scene = this.core.graphics.scene, mask = camera.layers.mask;
+    for (let i = 0; i < this.flyingRecords.length; i++) {
+      const record = this.flyingRecords[i], mesh = record.mesh;
+      if (mesh.material !== record.material) {
+        mesh.layers.mask = record.layers;
+        this.flyingByMesh.set(mesh, null);
+        this.flyingRecords.splice(i--, 1);
+        continue;
+      }
+      if (!(record.layers & mask)) continue;
+      let shown = true, o = mesh;
+      for (; o && o !== scene; o = o.parent) if (!o.visible) { shown = false; break; }
+      if (shown && o === scene && this.inView(mesh)) at = this.writeMesh(record, at);
+    }
+    return at;
+  }
+
+  // The scene's flying groups, now and as the game adds and removes them: a
+  // group taken out of the scene has its parts given back to three.
+  watchFlying() {
+    const scene = this.core.graphics.scene;
+    this.flyingRecords = [];
+    this.flyingByMesh = new WeakMap(); // part -> its record, or null (three draws it)
+    this.flyingPending = new Set(scene.children.filter((o) => o.userData?.flying));
+    scene.addEventListener("childadded", ({ child }) => { if (child.userData?.flying) this.flyingPending.add(child); });
+    scene.addEventListener("childremoved", ({ child }) => {
+      if (!child.userData?.flying) return;
+      this.flyingPending.delete(child);
+      child.traverse((o) => {
+        const record = this.flyingByMesh.get(o);
+        if (!record) return;
+        o.layers.mask = record.layers;
+        this.flyingByMesh.delete(o);
+        const i = this.flyingRecords.indexOf(record);
+        if (i >= 0) this.flyingRecords.splice(i, 1);
+      });
+    });
+  }
+
+  // A flying part's rigid record, or null when the renderer can't draw it;
+  // undefined while three has drawn no copy of its model yet.
+  registerFlying(mesh) {
+    const core = this.core, material = mesh.material;
+    if (mesh.isSkinnedMesh || mesh.isInstancedMesh || Array.isArray(material) || !material?.isShaderMaterial) return null;
+    const threeProgram = core.renderer.properties.get(material).currentProgram;
+    if (!threeProgram) return undefined;
+    const defines = material.defines || {};
+    if (material.transparent || mesh.geometry.groups.length || !("DYNAMIC" in defines || "UNLIT" in defines)) return null;
+    const program = core.program(threeProgram, RIGID, material, POLICIES[RIGID]);
+    const geometry = program && core.geometry(mesh.geometry, program);
+    const texture = core.texture(material.uniforms.map?.value);
+    if (geometry === null || geometry === undefined || texture < 0) return null;
+    if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask };
+    if (this.core.active) mesh.layers.set(FLYING_LAYER);
+    this.flyingRecords.push(record);
+    return record;
+  }
+
+  // On: the flying parts hidden from three again; off: back to their layers.
+  flyingActive(on) {
+    for (const record of this.flyingRecords || []) {
+      if (on) record.mesh.layers.set(FLYING_LAYER);
+      else record.mesh.layers.mask = record.layers;
+    }
+  }
+
+  // Everything three may draw again, for good: the flying parts' layers.
+  restore() {
+    this.restoreFlying();
+  }
+
+  restoreFlying() {
+    this.flyingActive(false);
+    this.flyingRecords = [];
+    this.flyingPending?.clear();
+    this.flyingFailed = true;
   }
 }
 

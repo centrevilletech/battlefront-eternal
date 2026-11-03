@@ -1,0 +1,749 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import * as THREE from "three";
+
+// The bridge reads its flags from the page's query.
+globalThis.location ??= { search: "" };
+const { RustRender } = await import("../src/rust-render/index.js");
+const { standinModule } = await import("./support/rust-standin.mjs");
+const { ParticleRenderer, particleRenderers, STREAK } = await import("../src/particles.js");
+const { GpuEffects } = await import("../src/effects-gpu.js");
+const { Lightning, classicLightning } = await import("../src/lightning.js");
+
+const STATS = [1, 2, 3, 4, 5, 1, 2, 0, 0, 0, 0, 0, 0, 0];
+const GL = { ACTIVE_UNIFORMS: 0x8b86, ACTIVE_ATTRIBUTES: 0x8b89, SHADER_TYPE: 0x8b4f, VERTEX_SHADER: 0x8b31, FRAGMENT_SHADER: 0x8b30 };
+// The frame's draws (effects.rs DRAW_*).
+const DRAW_AT = 8 + 8 * 4, DRAW_STRIDE = 12;
+
+// Programs as three's report their active uniforms and attributes (and,
+// for a side of a double-sided material, its vertex shader's defines).
+const program = (uniforms, attributes, vertex = "vertex") => ({ uniforms, attributes, shaders: [{ type: GL.VERTEX_SHADER, source: vertex }, { type: GL.FRAGMENT_SHADER, source: "fragment" }] });
+const CPU_PROGRAM = program(["projectionMatrix", "modelViewMatrix", "map", "fade", "sceneDepth", "softParticles", "depthResolution", "cameraRange"],
+  ["corner", "iPosition", "iColor", "iShape", "iAxis", "iAxis2", "iFrame"]);
+const ANALYTIC_PROGRAM = program([...CPU_PROGRAM.uniforms, "tracks", "emitters", "trackRows", "emitterRows"],
+  ["corner", "spawnPosition", "spawnVelocity", "spawnColor", "spawnShape", "spawnMeta"]);
+const BASIC = ["projectionMatrix", "modelViewMatrix", "mapTransform", "diffuse", "opacity", "map"];
+
+// The bridge over stand-ins for the WASM renderer (its memory, and a log of
+// the calls made to it), three's renderer (its render lists, empty) and its
+// context (enough of it for a program's uniforms, attributes and shaders).
+function bridge() {
+  const next = { program: 0, texture: 0, batch: 0, owner: 0, mesh: 0, model: 0, geometry: 0 };
+  // The shared stand-in for the WASM renderer (every pass's views), with the
+  // effects' registration calls as this test reads them.
+  const { BfeRenderer, memory, calls } = standinModule({
+    methods: ({ calls }) => ({
+      transparent_bucket_shown() {},
+      add_texture() { calls.push(["add_texture"]); return next.texture++; },
+      set_far_map(texture) { calls.push(["set_far_map", texture]); },
+      add_program(kind, vs, fs, attributes, uniforms) { calls.push(["add_program", kind, vs, attributes, uniforms]); return next.program++; },
+      fx_add_owner(tracks, rows) { calls.push(["fx_add_owner", tracks, rows]); return next.owner++; },
+      fx_add_batch(program, texture, blend, corner, attributes, owner) { calls.push(["fx_add_batch", program, texture, [...blend], corner, [...attributes], owner]); return next.batch++; },
+      fx_batch_texture(batch, texture) { calls.push(["fx_batch_texture", batch, texture]); },
+      fx_batch_values(batch, values) { calls.push(["fx_batch_values", batch, values]); },
+      fx_batch_interleaved(batch) { calls.push(["fx_batch_interleaved", batch]); },
+      fx_batch_side(batch, side) { calls.push(["fx_batch_side", batch, side]); },
+      fx_batch_sampler(batch, name, unit, texture) { calls.push(["fx_batch_sampler", batch, name, unit, texture]); },
+      fx_batch_base(batch, attributes, vertices, data, index) { calls.push(["fx_batch_base", batch, [...attributes], vertices, data.length, [...index]]); },
+      fx_add_mesh(texture, blend, flags, func, sizes, values) { calls.push(["fx_add_mesh", texture, [...blend], flags, func, [...sizes], values]); return next.mesh++; },
+      fx_mesh_pass(mesh, program, side, locations) { calls.push(["fx_mesh_pass", mesh, program, side, [...locations]]); },
+      fx_mesh_texture(mesh, texture) { calls.push(["fx_mesh_texture", mesh, texture]); },
+      fx_add_model(texture, blend, flags, func, values, sphere) { calls.push(["fx_add_model", texture, [...blend], flags, func, values, [...sphere]]); return next.model++; },
+      fx_model_pass(model, program, side, geometry) { calls.push(["fx_model_pass", model, program, side, geometry]); },
+      fx_model_sampler(model, name, unit, texture) { calls.push(["fx_model_sampler", model, name, unit, texture]); },
+      add_geometry() { calls.push(["add_geometry"]); return next.geometry++; },
+      geometry_buffer() { return 0; },
+      geometry_pointer() {},
+      geometry_index() {},
+      geometry_group() {},
+      sort() {},
+      frame(records) { calls.push(["frame", records]); return STATS; },
+      transparent_frame(three) { calls.push(["transparent_frame", three]); return STATS; },
+    }),
+  });
+  const gl = {
+    ...GL,
+    getProgramParameter: (p, what) => (what === GL.ACTIVE_UNIFORMS ? p.uniforms.length : p.attributes.length),
+    getActiveUniform: (p, i) => ({ name: p.uniforms[i] }),
+    getActiveAttrib: (p, i) => ({ name: p.attributes[i] }),
+    getAttribLocation: (p, name) => p.attributes.indexOf(name),
+    getAttachedShaders: (p) => p.shaders,
+    getShaderParameter: (s) => s.type,
+    getShaderSource: (s) => s.source,
+  };
+  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
+  camera.updateMatrixWorld(true);
+  const sceneTarget = { name: "scene", width: 800, height: 600 }, farTarget = { texture: new THREE.Texture() };
+  const properties = new Map();
+  const list = { opaque: [], transmissive: [], transparent: [] };
+  const renderer = {
+    renderLists: { get: () => list },
+    getContext: () => gl,
+    properties: { get: (o) => { if (!properties.has(o)) properties.set(o, { __webglTexture: {} }); return properties.get(o); } },
+    initTexture() {},
+    initRenderTarget() {},
+    shadowMap: { enabled: false },
+    getRenderTarget: () => sceneTarget,
+    setRenderTarget() {},
+    resetState() { calls.push(["resetState"]); },
+  };
+  const background = new THREE.Object3D();
+  list.opaque.push({ object: background });
+  const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
+  const core = new RustRender(graphics, { memory }, BfeRenderer);
+  // A frame's transparent phase, as the transparent pass runs it.
+  const frame = () => core.phase("transparent", renderer, scene, camera);
+  // three has drawn a material once: its program (and its programs by side).
+  const drawn = (material, current, programs = [current]) => {
+    const props = renderer.properties.get(material);
+    props.currentProgram = { program: current };
+    props.programs = new Map(programs.map((p, i) => [i, { program: p }]));
+    props.__version = material.version;
+  };
+  const entry = (d) => [...core.fxInput.subarray(DRAW_AT + d * DRAW_STRIDE, DRAW_AT + (d + 1) * DRAW_STRIDE)];
+  return { core, calls, scene, camera, renderer, list, frame, drawn, entry, fx: core.byName.effects };
+}
+
+test("the effects are the transparent phase's second pass, after the map's blended buckets", () => {
+  const { core } = bridge();
+  assert.deepEqual(core.phases.transparent.map((p) => p.name), ["transparent", "effects", "water"]);
+});
+
+test("a CPU batch: registered once three drew it, then hidden from three and written each frame with its key", () => {
+  const { core, calls, scene, frame, drawn, entry, fx } = bridge();
+  const particles = new ParticleRenderer(scene);
+  assert.ok(particleRenderers.get(scene).includes(particles));
+  const batch = particles.batch(new THREE.Texture(), "additive", "bolt");
+  const fill = (n) => { particles.begin(); for (let i = 0; i < n; i++) batch.push(i, 2 * i, 3 * i, 1, 1, 1, 0.5, 0.2, 0, STREAK, 4, [0, 0, 1], [0.5, 0, 0]); particles.end(); };
+  fill(2);
+  assert.equal(batch.mesh.visible, true);
+  // Not drawn by three yet: nothing to register, nothing drawn.
+  frame();
+  assert.equal(calls.some((c) => c[0] === "fx_add_batch"), false);
+  assert.equal(core.fxInput[0], 0);
+  drawn(batch.material, CPU_PROGRAM);
+  // Registered as three draws it this frame: drawn by three alone.
+  frame();
+  const added = calls.find((c) => c[0] === "fx_add_batch");
+  assert.ok(added, "registered");
+  assert.equal(calls.find((c) => c[0] === "add_program")[1], 4, "an effect program");
+  assert.deepEqual(added.slice(3), [[1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], 0, [1, 3, 2, 4, 3, 4, 4, 3, 5, 3, 6, 4], -1]);
+  assert.equal(core.fxInput[0], 0, "not drawn by the renderer as it is registered");
+  assert.equal(batch.external, true);
+  assert.equal(batch.mesh.visible, false);
+  // The next frame: three is shown nothing and uploads nothing; the
+  // renderer draws it, its instances written attribute by attribute.
+  const version = batch.geometry.getAttribute("iPosition").version;
+  fill(3);
+  assert.equal(batch.mesh.visible, false);
+  assert.equal(batch.geometry.getAttribute("iPosition").version, version);
+  frame();
+  const data = core.fxData;
+  assert.equal(core.fxInput[0], 1, "one draw");
+  // Kind, batch, instances, from, where, capacity; then three's key: group
+  // order, render order, centre (the origin: no positions), id.
+  assert.deepEqual(entry(0), [0, 0, 3, 0, 0, batch.capacity, 0, 10, 0, 0, 0, batch.mesh.id]);
+  assert.deepEqual([...data.subarray(0, 9)], [0, 0, 0, 1, 2, 3, 2, 4, 6], "iPosition, its three instances");
+  assert.deepEqual([...data.subarray(9, 13)], [1, 1, 1, 0.5], "then iColor");
+  assert.equal(fx.draws, 1);
+  assert.equal(fx.instances, 3);
+  // Off: three draws it again, all of it uploaded anew.
+  core.setActive(false);
+  assert.equal(batch.external, false);
+  assert.equal(batch.mesh.visible, true);
+  const position = batch.geometry.getAttribute("iPosition");
+  assert.equal(position.version, version + 1);
+  assert.deepEqual(position.updateRanges, [{ start: 0, count: 9 }]);
+  core.setActive(true);
+  assert.equal(batch.external, true);
+  assert.equal(batch.mesh.visible, false);
+});
+
+test("an analytic batch: its owner's emitters, and its instances from the first changed", () => {
+  const { core, calls, scene, frame, drawn, entry } = bridge();
+  const particles = new ParticleRenderer(scene);
+  const def = { geometry: { type: "particle", texture: "spark", blend: "additive" }, transformer: { lifetime: 1, position: [], size: [], color: [] }, registerStep: true };
+  const gpu = new GpuEffects({ spark: [def] }, particles);
+  assert.equal(particles.gpu, gpu);
+  const texture = new THREE.Texture();
+  const effect = { position: new THREE.Vector3(1, 2, 3), quaternion: new THREE.Quaternion(), tint: 1, time: 5, scale: 1 };
+  const made = Array.from({ length: 4 }, (_, i) => ({ position: new THREE.Vector3(i, 0, 0), velocity: new THREE.Vector3(), color: [1, 1, 1, 1], size: 1, rotation: 0, spin: 0, birth: i, life: 1 }));
+  let batch = null;
+  const fill = (list) => {
+    particles.begin(); gpu.begin();
+    const slot = gpu.register(effect);
+    batch = gpu.batch(def, texture);
+    for (const p of list) batch.pushParticle(p, slot, gpu.definitions.get(def), gpu.epochs[slot]);
+    particles.end(); gpu.end();
+  };
+  fill(made);
+  drawn(batch.material, ANALYTIC_PROGRAM);
+  frame();
+  assert.ok(calls.find((c) => c[0] === "fx_add_owner"), "its owner registered");
+  assert.equal(calls.find((c) => c[0] === "fx_add_batch")[6], 0, "with its owner");
+  // Drawn: every instance, and the emitter row of the effect playing.
+  fill(made);
+  frame();
+  const input = core.fxInput, data = core.fxData;
+  assert.deepEqual([...input.subarray(8, 12)], [0, gpu.uniforms.emitterRows.value, 1, 0], "the owner's rows, one written at 0");
+  assert.deepEqual([...data.subarray(0, 3)], [1, 2, 3], "the effect's place");
+  assert.deepEqual(entry(0).slice(0, 5), [0, 0, 4, 0, 12], "all four instances, after the emitter row");
+  // Nothing changed: none written.
+  fill(made);
+  frame();
+  assert.deepEqual(entry(0).slice(2, 4), [4, 4]);
+  // The third changed (over two frames, the first not drawn): from it on.
+  fill([made[0], made[1], { ...made[2], birth: 9 }, made[3]]);
+  fill([made[0], made[1], { ...made[2], birth: 9 }, made[3]]);
+  frame();
+  assert.deepEqual(entry(0).slice(2, 4), [4, 2]);
+  assert.deepEqual([...data.subarray(12, 15)], [2, 0, 0], "spawnPosition of the third, first");
+});
+
+test("the Classic lightning: both of three's sides, its buffers as far as used, its material's values and key", () => {
+  const { core, calls, scene, camera, frame, drawn, entry } = bridge();
+  const settings = { get: (name) => (name === "arcCasterEffects" ? "classic" : undefined) };
+  const lightning = new Lightning(scene, () => new THREE.Texture(), { settings });
+  assert.equal(classicLightning.get(scene), lightning);
+  const def = { Texture: "arc", FadeTime: 1, InterpolationSpeed: 0, Width: 0.1, SpreadFactor: 0.2, BreakDistance: 1, TextureSize: 1, Color: [255, 128, 64, 255],
+    NumChildren: 0, ChildColor: [255, 255, 255, 255], ChildWidth: 0.05, ChildSpreadFactor: 0.1, ChildBreakDistance: 1, ChildTextureSize: 1,
+    BranchFactor: 0, MaxBranches: 0, BranchLength: 0, BranchSpreadFactor: 0 };
+  lightning.spawn(def, new THREE.Vector3(0, 0, -5), new THREE.Vector3(4, 0, -5), 1);
+  lightning.update(1 / 60, camera);
+  const material = lightning.mesh.material;
+  assert.ok(lightning.index > 0 && lightning.mesh.visible);
+  // three draws it first, back faces then front, each with its program.
+  const back = program(BASIC, ["position", "uv", "color"], "#define FLIP_SIDED\nvertex"), front = program(BASIC, ["uv", "color", "position"]);
+  drawn(material, front, [back, front]);
+  lightning.mesh.geometry.computeBoundingSphere();
+  frame();
+  const mesh = calls.find((c) => c[0] === "fx_add_mesh");
+  assert.deepEqual(mesh.slice(2), [[1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], 1, 0x0203, [3, 2, 4], "diffuse:3,opacity:1,mapTransform:9"]);
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_mesh_pass").map((c) => c.slice(2)), [[0, 1, [0, 1, 2]], [1, 0, [2, 0, 1]]], "back then front, at each program's locations");
+  assert.equal(core.fxInput[0], 0, "three drew it this frame");
+  assert.equal(lightning.external, true);
+  // The next frame it is the renderer's.
+  lightning.update(1 / 60, camera);
+  assert.equal(lightning.mesh.visible, false);
+  frame();
+  const e = entry(0), sphere = lightning.mesh.geometry.boundingSphere;
+  assert.deepEqual(e.slice(0, 5), [1, 0, lightning.vertex, lightning.index, 0]);
+  assert.deepEqual(e.slice(6), [0, 5, sphere.center.x, sphere.center.y, sphere.center.z, lightning.mesh.id], "group order, render order 5, its bounding sphere's centre, id");
+  const data = core.fxData, bits = core.fxBits, v = lightning.vertex, n = lightning.index;
+  assert.deepEqual([...data.subarray(0, 3)], [...lightning.positions.subarray(0, 3)].map(Math.fround), "positions first");
+  const indexAt = v * 9;
+  assert.deepEqual([...bits.subarray(indexAt, indexAt + n)], [...lightning.indices.subarray(0, n)], "then the indices' bits");
+  assert.deepEqual([...data.subarray(indexAt + n, indexAt + n + 4)], [1, 1, 1, 1], "then the diffuse colour and opacity");
+  assert.deepEqual([...data.subarray(indexAt + n + 4, indexAt + n + 13)], lightning.mesh.material.map.matrix.elements, "and the map's transform (three's, its -0 too)");
+  // Off: three draws it again.
+  core.setActive(false);
+  assert.equal(lightning.external, false);
+  assert.equal(lightning.mesh.visible, true);
+});
+
+test("glow models: found in three's list, registered with their group once three drew them, then each part drawn with its world matrix", () => {
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  // As game.js glowModel makes one: a material its parts share, on the group.
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  material.color.setRGB(1, 0.5, 0.25);
+  material.opacity = 0.75;
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
+  geometry.setIndex([0, 1, 2]);
+  const group = new THREE.Group(), part = new THREE.Mesh(geometry, material), other = new THREE.Mesh(geometry, material);
+  group.add(part, other);
+  group.userData.material = material;
+  group.position.set(1, 2, -6);
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  list.transparent.push({ object: part, material, group: null });
+  // In three's list, not drawn by it yet: nothing.
+  frame();
+  assert.equal(calls.some((c) => c[0] === "fx_add_model"), false);
+  const back = program(BASIC, ["position", "uv"], "#define FLIP_SIDED\nvertex"), front = program(BASIC, ["position", "uv"]);
+  drawn(material, front, [back, front]);
+  frame();
+  const models = calls.filter((c) => c[0] === "fx_add_model");
+  assert.equal(models.length, 1, "one model serves both parts (one geometry, programs, texture, state)");
+  assert.deepEqual(models[0].slice(2, 6), [[1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], 1, 0x0203, "diffuse:3,opacity:1,mapTransform:9"]);
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_model_pass").map((c) => c.slice(3)), [[1, 0], [0, 1]], "back then front, a geometry for each program");
+  assert.equal(calls.find((c) => c[0] === "add_program")[1], 0, "world programs: the model-view matrix is set per draw");
+  assert.equal(material.visible, false, "hidden from three");
+  assert.equal(core.fxInput[0], 0, "three drew them this frame");
+  list.transparent.length = 0;
+  frame();
+  assert.equal(core.fxInput[0], 2, "both parts");
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 4), [2, 0, 0, 0]);
+  assert.deepEqual([...core.fxMatrices.subarray(0, 16)], part.matrixWorld.elements);
+  assert.deepEqual([...core.fxData.subarray(0, 4)], [1, 0.5, 0.25, 0.75].map(Math.fround), "its colour and opacity");
+  assert.deepEqual(e.slice(6), [0, 0, 1.5, 2.5, -6, part.id], "three's key: the group's order, its sphere's centre in the world");
+  assert.equal(entry(1)[2], 16, "the second part's matrix after the first's");
+  // Hidden part: not drawn.
+  other.visible = false;
+  frame();
+  assert.equal(core.fxInput[0], 1);
+  core.setActive(false);
+  assert.equal(material.visible, true);
+});
+
+test("the effects' programs are their own, apart from another pass's for the same three program, whose values can't leak in", () => {
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
+  geometry.setIndex([0, 1, 2]);
+  const group = new THREE.Group(), part = new THREE.Mesh(geometry, material);
+  group.add(part);
+  group.userData.material = material;
+  group.position.set(0, 0, -6);
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  const shared = program(BASIC, ["position", "uv"]);
+  drawn(material, shared);
+  // Another pass (the transparent pass's command post beams) made one for
+  // the same three program first, and sets its colour and opacity itself.
+  const theirs = core.program(core.renderer.properties.get(material).currentProgram, 0, material, { uniforms: new Set(BASIC), material: new Set() });
+  list.transparent.push({ object: part, material, group: null });
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "add_program").length, 2, "made again for the effects");
+  const pass = calls.find((c) => c[0] === "fx_model_pass");
+  assert.notEqual(pass[2], theirs.id, "the glow drawn with its own");
+  list.transparent.length = 0;
+  frame();
+  assert.equal(entry(0)[0], 2, "drawn");
+});
+
+test("a droideka's shield: its uniforms as the model's values, the frame's own left to the frame block, its onBeforeRender run", async () => {
+  const { ShieldBubble } = await import("../src/droideka-shield.js");
+  const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
+  const bubble = new ShieldBubble(scene, { Radius: 2 }, () => null, { get: () => "classic" });
+  const droideka = { position: new THREE.Vector3(0, 0, -8), aimYaw: 0, shield: { on: true, def: {}, value: 1, max: 1 }, dead: false, rolled: false };
+  bubble.update(0.1, droideka);
+  scene.updateMatrixWorld(true);
+  const mesh = bubble.mesh, material = mesh.material;
+  assert.ok(mesh.visible);
+  list.transparent.push({ object: mesh, material, group: null });
+  const shader = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "viewMatrix", "fieldMap", "hasMap", "shieldTime", "shieldFade", "charge", "enhanced", "birth", "inside", "flash",
+    "fieldColor", "specularColor", "sunDirection", "sunColor", "impacts[0]", "powers[0]", "blasts[0]"], ["position", "normal", "uv"]);
+  drawn(material, shader);
+  frame();
+  const model = calls.find((c) => c[0] === "fx_add_model");
+  assert.ok(model, "registered");
+  assert.equal(model[1], -1, "no texture: the field has no map");
+  assert.deepEqual(model[2], [1, 0x8006, 0x8006, 0x0302, 0x0303, 1, 0x0303], "normal blending");
+  assert.equal(model[5], "hasMap:1:0,shieldTime:1:0,shieldFade:1:0,charge:1:0,enhanced:1:0,birth:1:0,inside:1:0,flash:1:0,fieldColor:3:0,specularColor:3:0,impacts:24:4,powers:6:1,blasts:6:1",
+    "its own values; the sun's from the frame block");
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_model_pass").map((c) => c[3]), [2], "one pass, both sides");
+  assert.equal(material.visible, false);
+  // Next frame: drawn, its values written from its uniforms after its
+  // onBeforeRender (the camera far outside: inside 0).
+  list.transparent.length = 0;
+  material.uniforms.inside.value = 1;
+  frame();
+  assert.equal(core.fxInput[0], 1);
+  assert.deepEqual(entry(0).slice(0, 2), [2, 0]);
+  const data = core.fxData;
+  assert.equal(data[6], 0, "inside, as its onBeforeRender set it");
+  assert.equal(data[2], Math.fround(material.uniforms.shieldFade.value), "its fade");
+  assert.deepEqual(entry(0).slice(6, 8), [0, 4], "three's key: render order 4");
+});
+
+test("the atmosphere's squares: a batch with values of its own after its instances", async () => {
+  const { Atmosphere, squareBatches } = await import("../src/atmosphere.js");
+  const { core, calls, scene, camera, frame, drawn, entry } = bridge();
+  const atmosphere = new Atmosphere({ data: { fogCloud: { texture: "fog", color: [255, 128, 64], size: 20 } }, scene, collision: { cast: () => null }, texture: () => new THREE.Texture() });
+  const [batch] = squareBatches.get(scene);
+  assert.equal(batch, atmosphere.fog.batch);
+  batch.begin(); batch.push(10, 1, 2, -10, 4, 0.5, 0.75); batch.push(5, 3, 2, -5, 4, 0.25, 0.5); batch.end();
+  assert.equal(batch.mesh.visible, true);
+  drawn(batch.material, program(["projectionMatrix", "viewMatrix", "map", "tint", "axisU", "axisV", "fade", "sceneDepth", "softParticles", "depthResolution", "cameraRange"], ["corner", "center", "spin"]));
+  frame();
+  assert.deepEqual(calls.find((c) => c[0] === "fx_batch_values").slice(2), ["tint:4:0,axisU:3:0,axisV:3:0"]);
+  assert.equal(batch.external, true);
+  batch.begin(); batch.push(10, 1, 2, -10, 4, 0.5, 0.75); batch.push(5, 3, 2, -5, 4, 0.25, 0.5); batch.end();
+  assert.equal(batch.mesh.visible, false, "hidden from three");
+  frame();
+  const e = entry(0), data = core.fxData;
+  assert.deepEqual(e.slice(0, 5), [0, 0, 2, 0, 0]);
+  assert.deepEqual(e.slice(6, 8), [0, 10], "render order 10");
+  assert.deepEqual([...data.subarray(0, 8)], [1, 2, -10, 4, 3, 2, -5, 4], "centres, farthest first as atmosphere.js sorts them");
+  assert.deepEqual([...data.subarray(8, 12)], [0.5, 0.75, 0.25, 0.5].map(Math.fround), "spins");
+  assert.deepEqual([...data.subarray(12, 16)], [1, 128 / 255, 64 / 255, 1].map(Math.fround), "then the tint");
+  core.setActive(false);
+  assert.equal(batch.external, false);
+  assert.equal(batch.mesh.visible, true);
+});
+
+test("the snow: no instances of its own, its flakes and boxes in data textures on units of their own, an int value", async () => {
+  const { Snow } = await import("../src/snow.js");
+  const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
+  const snow = new Snow({ data: { precipitation: { ParticleDensity: [4], Range: [10] } }, scene, collision: { cast: () => null }, texture: () => new THREE.Texture() });
+  camera.position.set(0, 2, 0); camera.updateMatrixWorld(true);
+  snow.update(1 / 60, camera);
+  const mesh = snow.mesh;
+  assert.ok(mesh.visible && mesh.geometry.instanceCount > 0);
+  list.transparent.push({ object: mesh, material: mesh.material, group: null });
+  drawn(mesh.material, program(["projectionMatrix", "viewMatrix", "flakes", "boxes", "flakeCount", "size", "cameraRight", "cameraUp", "map", "cover", "sceneDepth", "tint", "coverCell", "coverSize", "softParticles", "depthResolution", "cameraRange"], ["corner"]));
+  frame();
+  const added = calls.find((c) => c[0] === "fx_add_batch");
+  assert.deepEqual(added[5], [], "no instance attributes");
+  assert.deepEqual(calls.find((c) => c[0] === "fx_batch_values").slice(2), ["flakeCount:1:2,size:1:0,cameraRight:3:0,cameraUp:3:0,tint:4:0,coverCell:1:0,coverSize:1:0"]);
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_batch_sampler").map((c) => c.slice(2, 4)), [["flakes", 7], ["boxes", 8], ["cover", 9]]);
+  assert.equal(mesh.material.visible, false, "hidden by its material");
+  list.transparent.length = 0;
+  snow.update(1 / 60, camera);
+  frame();
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 5), [0, 0, mesh.geometry.instanceCount, 0, 0]);
+  assert.deepEqual(e.slice(6, 8), [0, 20], "render order 20");
+  assert.equal(core.fxData[0], 4, "its flake count first");
+  core.setActive(false);
+  assert.equal(mesh.material.visible, true);
+});
+
+test("the Enhanced bolts: a batch whose pixel angle its onBeforeRender sets, as three would call it", async () => {
+  const { BlasterBatch } = await import("../src/blaster-bolts.js");
+  const { core, calls, scene, camera, frame, drawn, entry } = bridge();
+  const particles = new ParticleRenderer(scene);
+  const batch = particles.custom("blaster", () => new BlasterBatch());
+  const fill = () => { particles.begin(); batch.push(new THREE.Vector3(0, 0, -5), new THREE.Vector3(0, 0, -8), [1, 0.2, 0.1], 1, 0.02, 0.1, 0.5, 0.6); particles.end(); };
+  fill();
+  drawn(batch.material, program(["projectionMatrix", "modelViewMatrix", "pixelAngle", "fade", "time", "sceneDepth", "softParticles", "depthResolution", "cameraRange"], ["corner", "iHead", "iTail", "iColor", "iSize"]));
+  frame();
+  assert.deepEqual(calls.find((c) => c[0] === "fx_add_batch")[3], [1, 0x8006, 0x8006, 1, 0x0303, 1, 0x0303], "three's custom blending: one, one minus source alpha");
+  assert.deepEqual(calls.find((c) => c[0] === "fx_batch_values").slice(2), ["pixelAngle:1:0"]);
+  fill();
+  assert.equal(batch.mesh.visible, false);
+  batch.material.uniforms.pixelAngle.value = 0;
+  frame();
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 5), [0, 0, 1, 0, 0]);
+  assert.deepEqual(e.slice(6, 8), [0, 11], "render order 11");
+  const angle = (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / 600;
+  assert.equal(core.fxData[14], Math.fround(angle), "its pixel angle after its 14 floats of instance, as onBeforeRender set it for the target's height");
+});
+
+test("the rain: fixed seeds uploaded once on a streak plane of its own, its clock its own", async () => {
+  const { Weather } = await import("../src/weather.js");
+  const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
+  const settings = { get: () => "classic", onChange: () => () => {} };
+  const weather = new Weather({ data: { precipitation: { Type: ["Streaks"], ParticleDensity: [64] } }, scene, collision: { cast: () => null }, water: null, settings });
+  weather.update(1 / 60, camera);
+  const mesh = weather.mesh;
+  assert.ok(mesh.visible);
+  assert.equal(mesh.material.uniforms.rainTime.value, 1 / 60, "its own clock");
+  list.transparent.push({ object: mesh, material: mesh.material, group: null });
+  drawn(mesh.material, program(["projectionMatrix", "viewMatrix", "eye", "cameraMotion", "wind", "rainTime", "range", "velocity", "velocityRange", "width", "streak", "enhanced", "effect",
+    "cover", "coverCell", "coverSize", "color", "ambient", "alpha", "sceneDepth", "softParticles", "depthResolution", "cameraRange"], ["position", "uv", "seed"]));
+  frame();
+  const added = calls.find((c) => c[0] === "fx_add_batch");
+  assert.equal(added[4], 0xffffffff, "no corner quad");
+  assert.deepEqual(added[5], [2, 4], "its seed, per instance");
+  const base = calls.find((c) => c[0] === "fx_batch_base");
+  assert.deepEqual(base.slice(2, 4), [[0, 3, 1, 2], 4], "position and uv of its four vertices");
+  assert.equal(base[5].length, 6, "its six indices");
+  assert.equal(mesh.material.visible, false);
+  list.transparent.length = 0;
+  frame();
+  assert.deepEqual(entry(0).slice(0, 5), [0, 0, 64, 0, 0], "every seed the first time");
+  frame();
+  assert.deepEqual(entry(0).slice(2, 4), [64, 64], "none again");
+});
+
+test("the Enhanced rain: its mist the rain's own batch, its splashes uploaded as they land, its sheets a model never culled", async () => {
+  const { Weather } = await import("../src/weather.js");
+  const { particleDepth } = await import("../src/particle-depth.js");
+  const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
+  const settings = { get: () => "enhanced", onChange: () => () => {} };
+  const weather = new Weather({ data: { precipitation: { Type: ["Streaks"], ParticleDensity: [64] } }, scene, collision: { cast: () => null }, water: null, settings });
+  weather.update(1 / 60, camera);
+  const mist = weather.mist, impacts = weather.impacts, sheets = weather.sheets.mesh;
+  assert.ok(mist.visible && impacts.mesh.visible && sheets.visible);
+  for (const object of [mist, impacts.mesh, sheets]) list.transparent.push({ object, material: object.material, group: null });
+  const soft = ["sceneDepth", "softParticles", "depthResolution", "cameraRange"];
+  drawn(mist.material, program(["projectionMatrix", "viewMatrix", "eye", "cameraMotion", "wind", "rainTime", "range", "velocity", "velocityRange", "width", "streak", "enhanced", "effect",
+    "cover", "coverCell", "coverSize", "color", "ambient", "alpha", ...soft], ["position", "uv", "seed"]));
+  drawn(impacts.mesh.material, program(["projectionMatrix", "viewMatrix", "impactTime", ...soft], ["position", "uv", "impact", "surfaceNormal", "kind"]));
+  drawn(sheets.material, program(["projectionMatrix", "viewMatrix", "eye", "radii", "streaks", "cover", "rainTime", "speed", "coverCell", "coverSize", "strength", "wind", "color", "ambient", ...soft], ["sheet"]));
+  frame();
+  const batches = calls.filter((c) => c[0] === "fx_add_batch");
+  assert.equal(batches.length, 2, "the mist and the splashes");
+  assert.deepEqual(batches[1][5], [2, 4, 3, 3, 4, 1], "the splashes' impact, surface normal and kind, per instance");
+  assert.equal(mist.material.visible, false, "the mist hidden by its material");
+  assert.equal(impacts.external, true, "the splashes by their own flag");
+  weather.update(1 / 60, camera);
+  assert.equal(impacts.mesh.visible, false, "and so kept from three");
+  const model = calls.find((c) => c[0] === "fx_add_model");
+  assert.ok(model, `the sheets registered (${core.errors.join("; ")})`);
+  assert.deepEqual(model[6], [0, 0, 0, -1], "the sheets: never culled");
+  assert.ok(model[5].includes("rainTime:1:0") && !model[5].includes("ambient"), "its clock the rain's, the ambient light the frame's");
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_model_sampler").map((c) => c.slice(2, 4)), [["cover", 9]], "the streaks on the map's unit, the cover on its own");
+  list.transparent.length = 0;
+  particleDepth.map.value = new THREE.Texture();
+  try {
+    frame();
+    assert.equal(core.fxInput[0], 3);
+    assert.ok(core.fxInput[7] >= 0, "the scene's depth bound: the sheets read it");
+    const splashes = [0, 1, 2].map(entry).find((e) => e[0] === 0 && e[1] === 1);
+    assert.deepEqual(splashes.slice(2, 4), [192, 0], "every splash the first time");
+    frame();
+    assert.deepEqual([0, 1, 2].map(entry).find((e) => e[0] === 0 && e[1] === 1).slice(2, 4), [192, 192], "none while none landed");
+    impacts.mesh.geometry.attributes.impact.needsUpdate = true;
+    frame();
+    assert.deepEqual([0, 1, 2].map(entry).find((e) => e[0] === 0 && e[1] === 1).slice(2, 4), [192, 0], "all again once one did");
+  } finally {
+    particleDepth.map.value = null;
+  }
+  core.setActive(false);
+  assert.equal(impacts.external, false);
+  assert.equal(sheets.material.visible, true);
+});
+
+test("the steam's wisps and the wake splashes: single-sided batches of fixed seeds; the steam's volumes a model over the screen", async () => {
+  const { SteamWisps } = await import("../src/steam-wisps.js");
+  const { FountainSpray } = await import("../src/fountain-spray.js");
+  const { EnvironmentVolume, EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { particleDepth } = await import("../src/particle-depth.js");
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const wakes = new EnvironmentWakes();
+  const wisps = new SteamWisps(scene, wakes, new THREE.Texture()), spray = new FountainSpray(scene, wakes), volume = new EnvironmentVolume(scene, 2, wakes);
+  const vent = { position: new THREE.Vector3(0, 0, -6), direction: new THREE.Vector3(0, 1, 0), extent: new THREE.Vector3(6, 5.5, 6), kind: 0 };
+  wisps.update(1, [vent]); spray.update(1, [{ slot: 0, position: new THREE.Vector3(0, 0, -6) }]); volume.update(1, [vent]);
+  for (const object of [wisps.mesh, spray.mesh, volume.mesh]) list.transparent.push({ object, material: object.material, group: null });
+  const depth = ["sceneDepth", "depthResolution", "cameraRange", "hasDepth"];
+  drawn(wisps.mesh.material, program(["projectionMatrix", "viewMatrix", "map", "wispTime", "sources[0]", "directions[0]", "wakes[0]", "motion[0]", ...depth], ["position", "uv", "seed"]));
+  drawn(spray.mesh.material, program(["projectionMatrix", "viewMatrix", "sprayTime", "sources[0]", "wakes[0]", "motion[0]", ...depth], ["position", "uv", "seed"]));
+  drawn(volume.mesh.material, program(["volumeMap", "sceneDepth", "volumeResolution", "depthResolution", "cameraRange", "enabled"], ["position"]));
+  frame();
+  const values = calls.filter((c) => c[0] === "fx_batch_values").map((c) => c[2]);
+  assert.deepEqual(values, ["wispTime:1:0,sources:36:4,directions:36:4,wakes:32:4,motion:32:4,hasDepth:1:0", "sprayTime:1:0,sources:20:4,wakes:32:4,motion:32:4,hasDepth:1:0"]);
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_batch_side").map((c) => c[2]), [0, 0], "front faces only, as three draws them");
+  const model = calls.find((c) => c[0] === "fx_add_model");
+  assert.ok(model, `the volumes registered (${core.errors.join("; ")})`);
+  assert.ok(model[1] >= 0, "the volumes' image on the map's unit");
+  assert.equal(model[5], "volumeResolution:2:0,depthResolution:2:0,cameraRange:2:0,enabled:1:0");
+  assert.deepEqual(model[6], [0, 0, 0, -1]);
+  assert.equal(volume.mesh.material.visible, false);
+  list.transparent.length = 0;
+  particleDepth.map.value = new THREE.Texture();
+  try {
+    frame();
+    assert.equal(core.fxInput[0], 3);
+    assert.equal(core.fxInput[2], 0, "soft particles off");
+    assert.ok(core.fxInput[7] >= 0, "yet the scene's depth bound: they read it whatever the setting");
+    assert.deepEqual([0, 1, 2].map((d) => entry(d)[0]).sort(), [0, 0, 2]);
+  } finally {
+    particleDepth.map.value = null;
+  }
+});
+
+test("the fountains' jets: batches on bases of their own after three's copy of the frame so far; their spray halves composited", async () => {
+  const { FountainJets } = await import("../src/fountain-jets.js");
+  const { FountainSpray } = await import("../src/fountain-spray.js");
+  const { EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { core, calls, scene, list, frame, drawn, renderer } = bridge();
+  const spray = new FountainSpray(new THREE.Group(), new EnvironmentWakes());
+  const jets = new FountainJets(scene, spray, core.graphics, { foam: new THREE.Texture(), tier: true });
+  jets.update(1, [{ slot: 0, position: new THREE.Vector3(0, 0, -8), level: 0.8, low: 0 }]);
+  const sky = ["sunDirection", "sunColor", "ambient", "ambientTop", "ambientBottom", "fade"];
+  const shared = ["projectionMatrix", "viewMatrix", "jetTime", "side", "perFountain", "sources[0]", "levels[0]", "lows[0]", "visible[0]", "wind",
+    "atlas", "foamMap", "hasFoam", "sceneDepth", "depthResolution", "cameraRange", "hasDepth", "sceneColor", "sceneResolution", "hasScene", "fragScale", ...sky];
+  const base = { "fountain-pool": ["corner", "seed"], "fountain-jets": ["corner", "seed"], "fountain-jets-near": ["corner", "seed"], "fountain-ropes": ["strip", "rope"],
+    "fountain-ropes-near": ["strip", "rope"], "fountain-jets-core": ["sweep"], "fountain-overflow": ["film"], "fountain-overflow-near": ["film"] };
+  for (const mesh of jets.meshes) {
+    list.transparent.push({ object: mesh, material: mesh.material, group: null });
+    if (mesh.userData.spray) drawn(mesh.material, program(["sprayMap", "sceneDepth", "sprayResolution", "depthResolution", "cameraRange", "enabled"], ["position"]));
+    // The column's material is the shared values' own: no side, no blocks.
+    else drawn(mesh.material, program(mesh === jets.core ? shared.filter((n) => n !== "side" && n !== "perFountain") : shared, base[mesh.name]));
+  }
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "fx_add_batch").length, 8, `eight batches (${core.errors.join("; ")})`);
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_batch_side").map((c) => c[2]), [0], "the column single-sided");
+  const bases = calls.filter((c) => c[0] === "fx_batch_base");
+  assert.equal(bases.length, 8);
+  assert.deepEqual(bases[0].slice(2, 4), [[0, 2], 4], "the pool's corner quad, its own base");
+  assert.equal(calls.filter((c) => c[0] === "fx_add_model").length, 2, "the two halves of soft spray");
+  const values = calls.find((c) => c[0] === "fx_batch_values")[2];
+  assert.ok(values.includes("jetTime:1:0") && values.includes("visible:5:1") && values.includes("sources:20:4") && !values.includes("sunDirection"));
+  assert.ok(jets.meshes.every((m) => m.material.visible === false));
+  assert.ok(jets.copier.visible && jets.copier.material.visible, "the copier left to three, just before the jets");
+  assert.ok(jets.copier.renderOrder < jets.meshes[0].renderOrder);
+  list.transparent.length = 0;
+  frame();
+  assert.equal(core.fxInput[0], 10, "eight batches and two composites");
+  assert.deepEqual([jets.behind.width, jets.behind.height], [800, 600], "the copy's target at the frame's size");
+  assert.equal(jets.core.material.uniforms.hasScene.value, 1);
+  assert.notEqual(jets.meshes.find((m) => m.userData.spray).material.uniforms.sprayMap.value, jets.meshes.findLast((m) => m.userData.spray).material.uniforms.sprayMap.value, "a target each half");
+  assert.equal(renderer.getRenderTarget().name, "scene");
+});
+
+test("flying models: parts of tagged groups as rigid records, lit and unlit, hidden by their layers not their shared material", () => {
+  const { core, calls, scene, camera, renderer, drawn } = bridge();
+  const zero = (kind) => new THREE.ShaderMaterial({ name: `zero:${kind}`, defines: { [kind === "dynamic" ? "DYNAMIC" : "UNLIT"]: "" },
+    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
+  const lit = zero("dynamic"), unlit = zero("unlit");
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setIndex([0, 1, 2]);
+  // In front of the camera (it looks down -z), or behind it.
+  const piece = (material, z = -5) => { const group = new THREE.Group(); group.add(new THREE.Mesh(geometry, material)); group.userData.flying = true; group.position.z = z; return group; };
+  const a = piece(lit), b = piece(unlit), held = piece(lit);
+  scene.add(a);
+  // Not drawn by three yet: three's.
+  const near = () => { scene.updateMatrixWorld(true); core.pass(renderer, scene, camera); };
+  near();
+  assert.equal(a.children[0].layers.mask, 1);
+  const rigid = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]);
+  drawn(lit, rigid); drawn(unlit, rigid);
+  scene.add(b);
+  near();
+  assert.equal(a.children[0].layers.mask, 1 << 30, "hidden from three by its layers");
+  assert.equal(b.children[0].layers.mask, 1 << 30, "an unlit part too");
+  assert.equal(lit.visible, true, "its material, shared with other copies, untouched");
+  assert.equal(calls.find((c) => c[0] === "add_program")[1], 2, "a rigid program");
+  near();
+  assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "two records");
+  // Behind the camera: the renderer's, but not written (three's render would cull it).
+  const behind = piece(lit, 5);
+  scene.add(behind);
+  near();
+  assert.equal(behind.children[0].layers.mask, 1 << 30);
+  assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "culled as three culls it");
+  scene.remove(behind);
+  // A copy inside another object is not the renderer's: three draws it.
+  const holder = new THREE.Group(); holder.add(held); scene.add(holder);
+  near();
+  assert.equal(held.children[0].layers.mask, 1);
+  // Hidden: not drawn; taken out of the scene: three's again.
+  b.visible = false;
+  near();
+  assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 1);
+  scene.remove(a);
+  assert.equal(a.children[0].layers.mask, 1);
+  core.setActive(false);
+  assert.equal(b.children[0].layers.mask, 1, "off: back to its layers");
+  core.setActive(true);
+  assert.equal(b.children[0].layers.mask, 1 << 30);
+});
+
+test("soldiers: only those three's render would list are written, with the bones three worked out in that render", () => {
+  const { core, calls, scene, camera, renderer, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  const material = new THREE.ShaderMaterial({ defines: { RIGID_SKIN: "" },
+    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
+  const skinned = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"],
+    ["position", "skinIndex", "skinWeight"]);
+  drawn(material, skinned);
+  const soldier = (z) => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+    geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+    geometry.setIndex([0, 1, 2]);
+    const body = new THREE.SkinnedMesh(geometry, material), bone = new THREE.Bone(), root = new THREE.Group();
+    body.add(bone);
+    body.bind(new THREE.Skeleton([bone]));
+    body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+    root.add(body);
+    root.position.z = z;
+    root.userData.parts = { body, hand: null };
+    scene.add(root);
+    core.graphics.cullRoots.push(root);
+    return { body, bone, skeleton: body.skeleton };
+  };
+  // Every update of a skeleton's bones, whoever asks.
+  const update = THREE.Skeleton.prototype.update;
+  let updates = 0;
+  THREE.Skeleton.prototype.update = function () { updates++; return update.call(this); };
+  try {
+    const front = soldier(-5), back = soldier(5);
+    const records = () => calls.filter((c) => c[0] === "frame").pop()[1];
+    // three's render: it lists the scene at a count (and works out the bones
+    // of the skinned meshes it lists, at most once a count), then counts on.
+    const render = (listed = []) => {
+      scene.updateMatrixWorld(true);
+      for (const s of listed) s.skeleton.update();
+      renderer.info.render.frame++;
+      core.pass(renderer, scene, camera);
+    };
+    render();
+    assert.equal(records(), 1, "the soldier behind the camera: not written");
+    assert.equal(updates, 1, "his bones not worked out; the other's worked out here, three not having done it");
+    // three listed the one in view: his bones as three worked them out.
+    front.bone.position.x = 1;
+    renderer.info.render.frame = 10;
+    render([front]);
+    assert.equal(updates, 2, "three's update only");
+    assert.deepEqual([...core.bones.subarray(0, 16)], [...front.skeleton.boneMatrices], "three's bones written");
+    assert.equal(core.bones[12], 1);
+    // Worked out as three drew his shadow, after listing the scene (at the
+    // count it counted on to): the same.
+    scene.updateMatrixWorld(true);
+    renderer.info.render.frame++;
+    front.skeleton.update();
+    const shadowed = updates;
+    core.pass(renderer, scene, camera);
+    assert.equal(updates, shadowed);
+    // Not listed by three in this render: worked out here.
+    renderer.info.render.frame = 20;
+    front.bone.position.x = 2;
+    render([]);
+    assert.equal(updates, shadowed + 1);
+    assert.equal(core.bones[12], 2);
+    assert.equal(back.skeleton.boneMatrices[12], 0, "never worked out for the renderer");
+  } finally {
+    THREE.Skeleton.prototype.update = update;
+  }
+});
+
+test("the Enhanced sniper's trace: two batches, their instances written interleaved as the trace keeps them", async () => {
+  const { SniperTrace } = await import("../src/sniper-trace.js");
+  const { core, calls, scene, camera, frame, drawn, entry } = bridge();
+  const particles = new ParticleRenderer(scene);
+  const trace = particles.custom("sniper", () => new SniperTrace({ add() {}, flash() {} }, () => camera, () => null));
+  const streaks = trace.streaks, flares = trace.flares;
+  drawn(streaks.mesh.material, program(["projectionMatrix", "modelViewMatrix", "pixelAngle", "fade", "time", "sceneDepth", "softParticles", "depthResolution", "cameraRange"], ["corner", "iHead", "iTail", "iColor", "iSize", "iMisc"]));
+  drawn(flares.mesh.material, program(["projectionMatrix", "modelViewMatrix"], ["corner", "iCenter", "iAxis", "iColor", "iParam"]));
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "fx_batch_interleaved").length, 2, "both kept interleaved");
+  assert.equal(streaks.external, true);
+  assert.equal(flares.external, true);
+  // Two streaks this frame, as the trace leaves them.
+  streaks.data.set(Array.from({ length: 36 }, (_, i) => i));
+  streaks.count = 2;
+  frame();
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 5), [0, 0, 2, 0, 0]);
+  assert.deepEqual(e.slice(6, 8), [0, 11], "render order 11");
+  assert.deepEqual([...core.fxData.subarray(0, 36)], Array.from({ length: 36 }, (_, i) => i), "interleaved, as kept");
+  // Off: three draws them again, their shared buffer marked for upload whole.
+  core.setActive(false);
+  assert.equal(streaks.external, false);
+  assert.deepEqual(streaks.buffer.updateRanges, [{ start: 0, count: 36 }]);
+  core.setActive(true);
+  assert.equal(streaks.external, true);
+});
+
+test("an error in the effects pass gives the effects back to three for good, three's render going on", () => {
+  const { core, scene, frame, drawn } = bridge();
+  const particles = new ParticleRenderer(scene);
+  const batch = particles.batch(new THREE.Texture(), "additive");
+  const fill = () => { particles.begin(); batch.push(0, 0, 0, 1, 1, 1, 1, 0.2, 0, STREAK, 1, [0, 0, 1], [1, 0, 0]); particles.end(); };
+  fill();
+  drawn(batch.material, CPU_PROGRAM);
+  frame();
+  fill();
+  assert.equal(batch.external, true);
+  // A batch the pass can't read.
+  batch.arrays.iPosition = null;
+  assert.doesNotThrow(() => frame());
+  assert.equal(core.fxInput[0], 0, "nothing drawn of it this frame");
+  assert.equal(batch.external, false, "three's again");
+  assert.ok(core.errors.some((e) => e.startsWith("effects failed")));
+  core.setActive(false);
+  core.setActive(true);
+  assert.equal(batch.external, false, "for good");
+});

@@ -57,6 +57,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "content"
+version = "0.1.0"
+dependencies = [
+ "sim",
+ "v8math",
+]
+
+[[package]]
 name = "dispatch2"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -168,6 +176,10 @@ dependencies = [
  "futures-util",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "jsrt"
+version = "0.1.0"
 
 [[package]]
 name = "khronos_api"
@@ -289,10 +301,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
-name = "rays"
-version = "0.1.0"
-
-[[package]]
 name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -341,6 +349,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sim"
+version = "0.1.0"
+dependencies = [
+ "content",
+ "sim-replay",
+ "v8math",
+]
+
+[[package]]
+name = "sim-replay"
+version = "0.1.0"
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -364,6 +385,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "three"
+version = "0.1.0"
+dependencies = [
+ "jsrt",
 ]
 
 [[package]]

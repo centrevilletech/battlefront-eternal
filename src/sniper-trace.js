@@ -371,13 +371,15 @@ function grow(batch, capacity) {
 // which its fragment shader lets go) so the program's pipeline is built.
 function upload(batch, warm = false) {
   let drawn = batch.count;
-  if (!drawn && warm) {
+  if (!drawn && warm && !batch.external) {
     batch.data.fill(0, 0, batch.stride);
     drawn = 1;
   }
   batch.geometry.instanceCount = drawn;
-  batch.mesh.visible = drawn > 0;
-  if (!drawn) return;
+  // Drawn by another renderer (external: src/rust-render/effects.js reads
+  // its data), it is shown to three never and uploads it nothing.
+  batch.mesh.visible = drawn > 0 && !batch.external;
+  if (!drawn || batch.external) return;
   // What was drawn, through one range kept for it (three empties the list
   // once it has uploaded).
   const ranges = batch.buffer.updateRanges;

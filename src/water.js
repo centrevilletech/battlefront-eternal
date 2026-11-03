@@ -428,6 +428,9 @@ export class Water extends WaterState {
 
     this.target = new THREE.WebGLRenderTarget(REFLECTION_SIZE[0], REFLECTION_SIZE[1], { type: THREE.UnsignedByteType });
     this.mirror = new THREE.PerspectiveCamera();
+    // A mirror: the Rust renderer draws what it took from three for it too
+    // (src/rust-render: the near scene's passes from this camera).
+    this.mirror.userData.mirror = true;
     this.plainProjection = new THREE.Matrix4();
     this.obliqueProjection = new THREE.Matrix4();
     this.reflectionMatrix = new THREE.Matrix4();
@@ -526,6 +529,8 @@ export class Water extends WaterState {
     }
     for (const mesh of [this.tintPass, this.mirrorPass]) mesh.frustumCulled = false;
     graphics.scene.add(this.group);
+    // The Rust renderer's water pass finds it here (src/rust-render/water.js).
+    graphics.scene.userData.water = this;
 
     // The far scene's water. The original draws the surface again in the far
     // scene, after the low-res terrain and in its fog (the sky's draw hands

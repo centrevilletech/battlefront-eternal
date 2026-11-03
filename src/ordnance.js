@@ -1,8 +1,5 @@
-import { resolveOrdnanceOwner } from "./ordnance-owner.js";
-import { strikeable } from "./registry.js";
+import { OrdnanceWorld } from "./ordnance-world.js";
 import { linearBoltFrame } from './runtime/linear-bolt.js';
-import { networkShotFor } from './runtime/network-shot-aim.js';
-import { navigateMissile } from './flight/targeting.js';
 import { mountedMuzzle } from "./muzzles.js";
 import * as THREE from "three";
 import { ParticleRenderer, STREAK } from "./particles.js";
@@ -80,6 +77,15 @@ const glowLength = (def) => def.GlowLength ?? (def.LaserLength ? def.LaserLength
 // worker's packet described (src/runtime/replica.js carries no arrays),
 // taken from its definition on first use.
 const lightOf = (round) => round.light || (round.light = color01(round.def?.LightColor));
+// A uniform direction for a grenade's tumble (three's
+// Vector3.randomDirection, its two draws from the world's grenade-spin
+// stream: the angle about y, then the height).
+function spinAxis(out, world) {
+  const theta = world.spin() * Math.PI * 2;
+  const u = world.spin() * 2 - 1;
+  const c = Math.sqrt(1 - u * u);
+  return out.set(c * Math.cos(theta), u, c * Math.sin(theta));
+}
 
 // Short-lived point lights (muzzle flashes, bolts, explosions) on a fixed set
 // of scene lights, so the shaders' light count never changes. Each frame the
@@ -184,10 +190,12 @@ export class Ordnance {
     this.onLaunch = () => {}; // observation only: authoritative projectile created
     this.onImpact = () => {}; // observation only: terminal bolt outcome
     this.grenadeTurn = new THREE.Quaternion();
+    this.spinRandom = null; // the grenades' spin draws: () => [0, 1), or null for the legacy spin stream
     this.onGrenadeContact = () => {}; // (grenade) at its first touch of anything
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
-    // The round castUnits is testing, for its filter (mayStrike).
-    this.striking = { owner: null, body: null, mount: null, filter: (unit) => this.mayStrike(this.striking.owner, unit, this.striking.body) };
+    // Everything the rounds ask of the rest of the battle
+    // (src/ordnance-world.js).
+    this.world = new OrdnanceWorld(this);
     this.behind = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null };
     this.water = null; // the map's water, when it has some
     this.wet = new THREE.Vector3();
@@ -221,11 +229,17 @@ export class Ordnance {
 
   // `visual` (optional) is where the bolt is drawn from: the muzzle.
   // A mounted weapon can exclude its own live collision body from its shot.
+  // `guidance` (optional): the shot (src/weapons.js), whose weapon's
+  // channel a round answers and whose target a missile seeks.
   fire(def, origin, direction, owner, visual = null, ignoreBody = null, emitter = null, guidance = null) {
-    const channel=guidance?.weapon?.channel??0;
+    return this.fireRound(def, origin, direction, owner, visual, ignoreBody, emitter, guidance?.weapon?.channel ?? 0, guidance?.targetId, guidance?.targetGeneration);
+  }
+
+  // fire() with the shot's numbers taken out of it.
+  fireRound(def, origin, direction, owner, visual, ignoreBody, emitter, channel, targetId, targetGeneration) {
     if (def.base === "beam") this.beam(def, origin, direction, owner, ignoreBody, emitter, channel);
     else if (def.base === "sticky" || def.base === "grenade") this.throw(def, origin, direction, owner, channel);
-    else if (def.base === "bullet" || def.base === "missile" || def.base === "shell") return this.round(def, origin, direction, owner, ignoreBody, guidance);
+    else if (def.base === "bullet" || def.base === "missile" || def.base === "shell") return this.round(def, origin, direction, owner, ignoreBody, channel, targetId, targetGeneration);
     else if (def.base === "fatray") return this.fatray(def, origin, direction, owner, ignoreBody, channel);
     else return this.bolt(def, origin, direction, owner, visual, ignoreBody, channel);
   }
@@ -248,7 +262,7 @@ export class Ordnance {
     this.orient(round);
     round.trail = def.TrailEffect ? this.effects.play(def.TrailEffect, origin, null, velocity, round.quaternion) : null;
     this.rounds.push(round);
-    this.onProjectile(round, "round");
+    this.world.projectile(round, "round");
     return round;
   }
 
@@ -256,21 +270,21 @@ export class Ordnance {
   // within FATRAY_RADIUS of the segment flown (as far as the wall it met)
   // is struck, once over the ray's life.
   sweepFat(r, direction, span) {
-    if (!this.units?.query || span <= 0) return;
+    if (span <= 0) return;
     this.mid.copy(r.previous).addScaledVector(direction, span * 0.5);
-    const near = this.units.query(this.mid, span * 0.5 + FATRAY_RADIUS + 4, this.fatQuery ||= [],
-      // Soldiers on foot and riders in the open (those with hit shapes), as
-      // the registry's raycast strikes them; vehicles and turrets are met
-      // through their collision bodies on the centre ray.
-      (unit) => unit !== r.owner && !r.struck.has(unit) && strikeable(unit) && this.mayStrike(r.owner, unit, r.ignoreBody));
+    // Soldiers on foot and riders in the open (those with hit shapes), as
+    // the registry's raycast strikes them; vehicles and turrets are met
+    // through their collision bodies on the centre ray.
+    const near = this.world.fatQuery(this.mid, span * 0.5 + FATRAY_RADIUS + 4, r.owner, r.struck, r.ignoreBody);
+    if (!near) return;
     for (const unit of near) {
-      const s = unit.sphere;
+      const s = this.world.unitSphere(unit);
       if (!s) continue;
       const t = THREE.MathUtils.clamp(this.axis.subVectors(s.center, r.previous).dot(direction), 0, span);
       this.start.copy(r.previous).addScaledVector(direction, t);
       if (this.start.distanceTo(s.center) > s.radius + FATRAY_RADIUS) continue;
       r.struck.add(unit);
-      this.onHitUnit(unit, r.def, this.start.lerp(s.center, 0.5), r.owner, null, direction);
+      this.world.hitUnit(unit, r.def, this.start.lerp(s.center, 0.5), r.owner, null, direction);
       const effect = this.unitImpactEffect(r.def, unit);
       if (effect) this.effects.play(effect, this.start);
     }
@@ -282,21 +296,18 @@ export class Ordnance {
   beam(def, origin, direction, owner, ignoreBody, emitter = null, channel = 0) {
     const duration = Math.max(.01, def.LifeSpan || .4);
     const source = emitter ?? owner;
-    const beam = { networkFireChannel:channel, historyTick:this.hitHistory?.shotTick(owner,channel) ?? null, def, owner, source, ignoreBody, life: duration, duration, effectTime: 0,
+    const beam = { networkFireChannel:channel, historyTick:this.world.shotTick(owner,channel) ?? null, def, owner, source, ignoreBody, life: duration, duration, effectTime: 0,
       position: origin.clone(), end: origin.clone(), direction: direction.clone(),
-      localOrigin: source?.matrix ? origin.clone().applyMatrix4(source.matrix.clone().invert()) : null,
+      localOrigin: this.world.beamLocalOrigin(source, origin),
       damageDef: { ...def }, axis: [0, 0, 1], color: color01(def.LaserGlowColor) };
-    this.beams.push(beam);this.onProjectile(beam, "beam");
+    this.beams.push(beam);this.world.projectile(beam, "beam");
   }
 
   stepBeam(beam, dt, draw = true) {
     const span = Math.min(dt, beam.life);
-    if (beam.owner?.alive === false || beam.source?.alive === false) { beam.life = 0; return; }
-    if (beam.localOrigin) {
-      beam.position.copy(beam.localOrigin).applyMatrix4(beam.source.matrix);
-      beam.source.viewDirection?.(beam.direction);
-    }
-    const hit = this.collision.cast(beam.position, beam.direction, 600, this.hit, beam.ignoreBody);
+    if (this.world.gone(beam.owner) || this.world.gone(beam.source)) { beam.life = 0; return; }
+    if (beam.localOrigin) this.world.beamPose(beam.source, beam.localOrigin, beam.position, beam.direction);
+    const hit = this.world.cast(beam.position, beam.direction, 600, this.hit, beam.ignoreBody);
     const unitHit = this.castUnits(beam.position, beam.direction, hit ? hit.distance : 600, beam.owner, beam.historyTick, beam.ignoreBody)
       ?? this.riderBehind(beam.position, beam.direction, hit, 600, beam.owner, beam.historyTick, beam.ignoreBody, false);
     beam.historyTick=null;
@@ -304,10 +315,10 @@ export class Ordnance {
     beam.end.copy(beam.position).addScaledVector(beam.direction, length);
     if (unitHit) {
       beam.damageDef.Damage = (beam.def.Damage || 0) * span / beam.duration;
-      this.onHitUnit(unitHit.unit, beam.damageDef, beam.end, beam.owner, unitHit.part, beam.direction);
+      this.world.hitUnit(unitHit.unit, beam.damageDef, beam.end, beam.owner, unitHit.part, beam.direction);
     } else if (hit?.body) {
       beam.damageDef.Damage = (beam.def.Damage || 0) * span / beam.duration;
-      this.onHit(hit.body, beam.damageDef, beam.owner, beam.direction);
+      this.world.hit(hit.body, beam.damageDef, beam.owner, beam.direction);
     }
     beam.effectTime -= dt;
     // A beam leaves its ImpactEffect wherever it touches, hulls and soldiers
@@ -347,7 +358,7 @@ export class Ordnance {
   }
 
   // A rocket, missile, or shell: a model flown nose first.
-  round(def, origin, direction, owner, ignoreBody = null, guidance = null) {
+  round(def, origin, direction, owner, ignoreBody = null, channel = 0, targetId = undefined, targetGeneration = undefined) {
     const kind = def.base;
     const bullet = kind === "bullet";
     const speed = def.Velocity ?? (bullet ? 150 : 35);
@@ -355,7 +366,7 @@ export class Ordnance {
     const dir = direction.clone().normalize();
     let impact = null;
     if (bullet) {
-      const hit = this.collision.cast(origin, dir, speed * life, this.hit, ignoreBody, true);
+      const hit = this.world.cast(origin, dir, speed * life, this.hit, ignoreBody, true);
       if (hit) {
         life = hit.distance / speed;
         impact = { point: hit.point.clone(), normal: hit.normal.clone(), terrain: hit.terrain, body: hit.body };
@@ -365,7 +376,7 @@ export class Ordnance {
     const velocity = dir.clone().multiplyScalar(speed);
     const round = {
       kind,
-      networkFireChannel:guidance?.weapon?.channel??0,
+      networkFireChannel:channel,
       ignoreBody,
       def,
       owner,
@@ -381,16 +392,16 @@ export class Ordnance {
       // Missiles ease into their turning and waver over ScaleTime.
       ramp: 0,
       desired: dir.clone(),
-      targetId: guidance?.targetId ?? -1,
-      targetGeneration: guidance?.targetGeneration ?? -1,
-      phase: [(this.random || Math.random)() * 2 * Math.PI, (this.random || Math.random)() * 2 * Math.PI],
+      targetId: targetId ?? -1,
+      targetGeneration: targetGeneration ?? -1,
+      phase: [this.world.waver() * 2 * Math.PI, this.world.waver() * 2 * Math.PI],
       light: color01(def.LightColor),
       quaternion: new THREE.Quaternion(),
     };
     this.orient(round);
     round.trail = def.TrailEffect ? this.effects.play(def.TrailEffect, origin, null, velocity, round.quaternion) : null;
     this.rounds.push(round);
-    this.onProjectile(round, "round");
+    this.world.projectile(round, "round");
     return round;
   }
 
@@ -411,22 +422,23 @@ export class Ordnance {
     // body ahead to the tick the press runs on, so that is where he fired
     // from. Moving the muzzle back to the rewound tick shifted the round by
     // his own movement over the round trip, off a head at any range.
-    const history=this.hitHistory, shotTick=history?.shotTick(owner,channel);
+    const shotTick=this.world.shotTick(owner,channel);
     const speed = def.Velocity;
     let life = def.LifeSpan;
     let impact = null;
-    const hit = this.collision.cast(origin, direction, speed * life, this.hit, ignoreBody, true);
+    const hit = this.world.cast(origin, direction, speed * life, this.hit, ignoreBody, true);
     if (hit) {
       life = hit.distance / speed;
       impact = { point: hit.point.clone(), normal: hit.normal.clone(), terrain: hit.terrain, body: hit.body };
     }
+    const shooter = this.world.shooter(owner, channel);
     const bolt = {
       def,
       owner,
-      networkFireId:networkShotFor(owner,channel)?.id ?? 0,
+      networkFireId:shooter.fireId,
       networkFireChannel:channel,
-      networkFireUnit:owner?.id ?? 0,
-      networkFireGeneration:owner?.generation ?? 0,
+      networkFireUnit:shooter.unit,
+      networkFireGeneration:shooter.generation,
       ignoreBody,
       position: origin.clone(),
       direction: direction.clone().normalize(),
@@ -442,12 +454,12 @@ export class Ordnance {
       glow: color01(def.LaserGlowColor),
       light: color01(def.LightColor),
     };
-    this.onLaunch(bolt, { tick: shotTick });
+    this.world.launch(bolt, shotTick);
     if(shotTick!=null) {
       // Advance real flight one fixed step at a time. A target beyond speed *
       // elapsedTime remains unreachable, and unused life/range stays unchanged.
       let from=shotTick;
-      for(let tick=Math.floor(shotTick)+1;tick<=history.tick && bolt.life>0;tick++){this.stepBolt(bolt,(tick-from)/60,false,tick);from=tick;}
+      for(let tick=Math.floor(shotTick)+1;tick<=this.world.historyTick() && bolt.life>0;tick++){this.stepBolt(bolt,(tick-from)/60,false,tick);from=tick;}
     }
     if(bolt.life>0)this.bolts.push(bolt);
     return bolt;
@@ -470,12 +482,12 @@ export class Ordnance {
       flight: 0,
       fuse: null,
       mesh,
-      spin: new THREE.Vector3().randomDirection(),
+      spin: spinAxis(new THREE.Vector3(), this.world),
       quaternion: mesh?.quaternion.clone() ?? new THREE.Quaternion(),
       trail: def.TrailEffect ? this.effects.play(def.TrailEffect, origin, UP, velocity) : null,
       light: color01(def.LightColor),
     };
-    this.grenades.push(grenade);this.onProjectile(grenade, "grenade");
+    this.grenades.push(grenade);this.world.projectile(grenade, "grenade");
   }
 
   update(dt, draw = true) {
@@ -573,12 +585,12 @@ export class Ordnance {
       return;
     }
     // Everything meets water coming down through it.
-    if (this.water && this.water.crossing(r.previous, r.position, this.wet)) {
+    if (this.world.waterCrossing(r.previous, r.position, this.wet)) {
       this.water.ripple(this.wet, 1.5, 0.01);
       emitSound("splash", def, this.wet);
       const name = def.ImpactEffectWater ?? "watersplash_ord";
       if (name) this.effects.play(name, this.wet);
-      if (def.ExplosionImpact) this.explosion(def.ExplosionImpact, this.mid.copy(this.wet).addScaledVector(UP, 0.2), r.owner);
+      if (def.ExplosionImpact) this.world.explosion(def.ExplosionImpact, this.mid.copy(this.wet).addScaledVector(UP, 0.2), r.owner);
       this.remove(r);
       return;
     }
@@ -589,8 +601,8 @@ export class Ordnance {
       const length = ray.length();
       if (length > 1e-6) {
         const hit = r.kind === "bullet"
-          ? this.collision.castMoving?.(r.previous, ray.divideScalar(length), length, this.hit, r.ignoreBody)
-          : this.collision.cast(r.previous, ray.divideScalar(length), length, this.hit, r.ignoreBody);
+          ? this.world.castMoving(r.previous, ray.divideScalar(length), length, this.hit, r.ignoreBody)
+          : this.world.cast(r.previous, ray.divideScalar(length), length, this.hit, r.ignoreBody);
         if (r.kind === "fatray") this.sweepFat(r, ray, hit ? hit.distance : length);
         const unitHit = r.kind === "fatray" ? null : this.castUnits(r.previous, ray, hit ? hit.distance : length, r.owner, null, r.ignoreBody)
           ?? this.riderBehind(r.previous, ray, hit, r.kind === "bullet" ? length + Math.max(r.life, 0) * r.velocity.length() : Infinity, r.owner, null, r.ignoreBody, r.kind === "bullet");
@@ -607,7 +619,7 @@ export class Ordnance {
       }
     }
     if (r.life <= 0) {
-      if (def.ExplosionExpire) this.explosion(def.ExplosionExpire, r.position, r.owner);
+      if (def.ExplosionExpire) this.world.explosion(def.ExplosionExpire, r.position, r.owner);
       if (r.trail) r.trail.stop();
       r.trail = null;
       if (r.mesh) r.mesh.visible = false;
@@ -628,11 +640,8 @@ export class Ordnance {
   // way it was fired) and wavers by WaverTurn, both eased in over ScaleTime.
   steer(r, dt) {
     const def = r.def;
-    const target = this.units?.byId?.(r.targetId);
-    if (r.flightMissile) { if (target?.alive && (target.generation ?? 0) === r.targetGeneration) navigateMissile(r, target, dt); return; }
-    if (target?.alive && (target.generation ?? 0) === r.targetGeneration) {
-      if (target.aimPoint) target.aimPoint(this.mid);
-      else this.mid.copy(target.position);
+    if (r.flightMissile) { r.targetId = this.world.navigateMissile(r.position, r.velocity, r.flightClass, r.targetId, r.targetGeneration, dt); return; }
+    if (this.world.missileTarget(r.targetId, r.targetGeneration, this.mid)) {
       r.desired.subVectors(this.mid, r.position).normalize();
     } else if (r.targetId >= 0) {
       r.targetId = -1;
@@ -655,8 +664,8 @@ export class Ordnance {
       const w = this.axis.copy(up).multiplyScalar(Math.sin(r.phase[1])).addScaledVector(this.right, Math.sin(r.phase[0]));
       const size = w.length();
       if (size > 1e-6) v.applyAxisAngle(w.divideScalar(size), amp * dt * size);
-      r.phase[0] += (this.random || Math.random)() * 2 * (def.WaverRate || 0) * dt;
-      r.phase[1] += (this.random || Math.random)() * 2 * (def.WaverRate || 0) * dt;
+      r.phase[0] += this.world.waver() * 2 * (def.WaverRate || 0) * dt;
+      r.phase[1] += this.world.waver() * 2 * (def.WaverRate || 0) * dt;
     }
   }
 
@@ -664,15 +673,15 @@ export class Ordnance {
   // the surface.
   impactAt(r, point, normal, terrain, body = null, unit = null, part = null) {
     const def = r.def;
-    this.onImpact(r, { point, normal, surface: unit ? ((unit.classDef?.HealthType || "").toLowerCase() === "droid" ? 3 : 2) : terrain ? 0 : 1 });
+    this.world.impact(r, { point, normal, surface: unit ? (this.world.isDroid(unit) ? 3 : 2) : terrain ? 0 : 1 });
     emitSound("impact", def, point, terrain, body);
     this.axis.copy(r.velocity).normalize();
-    if (body) this.onHit(body, def, r.owner, this.axis);
-    if (unit) this.onHitUnit(unit, def, point, r.owner, part, this.axis);
+    if (body) this.world.hit(body, def, r.owner, this.axis);
+    if (unit) this.world.hitUnit(unit, def, point, r.owner, part, this.axis);
     this.lights.add(this.mid.copy(point).addScaledVector(normal, 0.5), lightOf(r), def.LightRadius || 0);
     const name = unit ? this.unitImpactEffect(def, unit) : terrain ? def.ImpactEffectTerrain ?? "dirtspray" : def.ImpactEffectStatic;
     if (name) this.effects.play(name, point);
-    if (def.ExplosionImpact) this.explosion(def.ExplosionImpact, this.mid.copy(point).addScaledVector(normal, 0.2), r.owner);
+    if (def.ExplosionImpact) this.world.explosion(def.ExplosionImpact, this.mid.copy(point).addScaledVector(normal, 0.2), r.owner);
   }
 
   remove(r) {
@@ -687,7 +696,7 @@ export class Ordnance {
     const step = Math.min(dt, bolt.life);
     this.start.copy(bolt.position);
     bolt.position.addScaledVector(bolt.direction, bolt.speed * step);
-    const movingHit = this.collision.castMoving?.(this.start, bolt.direction, bolt.speed * step, this.hit, bolt.ignoreBody);
+    const movingHit = this.world.castMoving(this.start, bolt.direction, bolt.speed * step, this.hit, bolt.ignoreBody);
     const unitHit = this.castUnits(this.start, bolt.direction, movingHit ? movingHit.distance : bolt.speed * step, bolt.owner, historyTick, bolt.ignoreBody)
       ?? this.riderBehind(this.start, bolt.direction, movingHit, bolt.speed * bolt.life, bolt.owner, historyTick, bolt.ignoreBody, true);
     if (unitHit) {
@@ -700,13 +709,13 @@ export class Ordnance {
       bolt.impact = { point: movingHit.point.clone(), normal: movingHit.normal.clone(), terrain: false, body: movingHit.body };
     }
     // Water stops a bolt where it goes in, with a ring and a splash.
-    if (this.water && bolt.life > 0 && this.water.crossing(this.start, bolt.position, this.wet)) {
+    if (bolt.life > 0 && this.world.waterCrossing(this.start, bolt.position, this.wet)) {
       this.water.ripple(this.wet, 1.5, 0.01);
       emitSound("splash", def, this.wet);
       const name = def.ImpactEffectWater ?? "watersplash_ord";
       if (name) this.effects.play(name, this.wet);
       bolt.life = 0;
-      this.onImpact(bolt, { point: this.wet.clone(), normal: UP.clone(), surface: 4 });
+      this.world.impact(bolt, { point: this.wet.clone(), normal: UP.clone(), surface: 4 });
       bolt.impact = null;
       return;
     }
@@ -714,21 +723,21 @@ export class Ordnance {
     bolt.drawn = Math.min(bolt.drawn + bolt.speed * dt, Math.max(def.LaserLength || 1, glowLength(def), def.BlurLength || 0));
     bolt.life -= dt;
     if (bolt.life <= 0) {
-      this.onImpact(bolt, bolt.impact ? { ...bolt.impact, surface: bolt.impact.unit ? ((bolt.impact.unit.classDef?.HealthType || "").toLowerCase() === "droid" ? 3 : 2) : bolt.impact.terrain ? 0 : 1 } : { point: bolt.position, normal: UP, surface: 5 });
+      this.world.impact(bolt, bolt.impact ? { ...bolt.impact, surface: bolt.impact.unit ? (this.world.isDroid(bolt.impact.unit) ? 3 : 2) : bolt.impact.terrain ? 0 : 1 } : { point: bolt.position, normal: UP, surface: 5 });
       if (bolt.impact) {
         emitSound("impact", def, bolt.impact.point, bolt.impact.terrain, bolt.impact.body);
         const name = bolt.impact.unit ? this.unitImpactEffect(def, bolt.impact.unit)
           : bolt.impact.terrain ? def.ImpactEffectTerrain : def.ImpactEffectStatic || def.ImpactEffectTerrain;
         if (name) this.effects.play(name, bolt.impact.point);
-        if (bolt.impact.body) this.onHit(bolt.impact.body, def, bolt.owner, bolt.direction);
-        if (bolt.impact.unit) this.onHitUnit(bolt.impact.unit, def, bolt.impact.point, bolt.owner, bolt.impact.part, bolt.direction);
+        if (bolt.impact.body) this.world.hit(bolt.impact.body, def, bolt.owner, bolt.direction);
+        if (bolt.impact.unit) this.world.hitUnit(bolt.impact.unit, def, bolt.impact.point, bolt.owner, bolt.impact.part, bolt.direction);
         // A bolt with an explosion (the orbital strike's) sets it off there.
-        if (def.ExplosionImpact) this.explosion(def.ExplosionImpact, this.mid.copy(bolt.impact.point).addScaledVector(bolt.impact.normal, 0.2), bolt.owner);
+        if (def.ExplosionImpact) this.world.explosion(def.ExplosionImpact, this.mid.copy(bolt.impact.point).addScaledVector(bolt.impact.normal, 0.2), bolt.owner);
         bolt.impact = null;
       } else if (def.ExplosionExpire) {
         // A bolt that bursts at the end of its flight (the AAA turret's flak):
         // its position has flown with it.
-        this.explosion(def.ExplosionExpire, bolt.position, bolt.owner);
+        this.world.explosion(def.ExplosionExpire, bolt.position, bolt.owner);
       }
       return;
     }
@@ -885,7 +894,7 @@ export class Ordnance {
       g.position.addScaledVector(g.velocity, dt);
       // Into the water: a ring and a splash, then it sinks at 0.2 m/s with
       // its fuse running.
-      if (!g.sinking && this.water && this.water.crossing(g.previous, g.position, this.wet)) {
+      if (!g.sinking && this.world.waterCrossing(g.previous, g.position, this.wet)) {
         g.sinking = true;
         g.velocity.set(0, -0.2, 0);
         this.water.ripple(this.wet, 1.5, 0.01);
@@ -913,17 +922,17 @@ export class Ordnance {
     if (length < 1e-6) return;
     ray.divideScalar(length);
     this.start.copy(g.previous).addScaledVector(ray, -0.1);
-    const hit = this.collision.cast(this.start, ray, length + 0.3, this.hit);
+    const hit = this.world.cast(this.start, ray, length + 0.3, this.hit);
     if (!hit) return;
     const n = hit.normal;
     const v = g.velocity;
     const d = v.dot(n);
     if (d >= 0) return;
     g.position.copy(hit.point).addScaledVector(n, 0.1);
-    emitSound("bounce", g.def, g.position, -d);
+    this.world.bounce(g.def, g.position, -d);
     if (!g.touched) {
       g.touched = true;
-      this.onGrenadeContact(g);
+      this.world.grenadeContact(g);
     }
     if (this.sticks(g.def, hit)) {
       v.set(0, 0, 0);
@@ -949,7 +958,7 @@ export class Ordnance {
     g.gone = true;
     if (g.mesh) this.scene.remove(g.mesh);
     if (g.trail) g.trail.stop();
-    if (g.def.ExplosionExpire) this.explosion(g.def.ExplosionExpire, g.position, g.owner);
+    if (g.def.ExplosionExpire) this.world.explosion(g.def.ExplosionExpire, g.position, g.owner);
   }
 
   // The first unit a segment meets, other than the round's owner (and any
@@ -957,26 +966,11 @@ export class Ordnance {
   // lying where they fell, and riders shown on exposed seats (src/
   // rider-pose.js). A round from a hull's or turret's own guns (ignoreBody:
   // the body it passes through) leaves the riders on that hull alone.
-  castUnits(origin, direction, far, owner, historyTick = null, ignoreBody = null) {
-    if (!this.units || far <= 0) return null;
-    const shooter = owner && typeof owner === "object" ? resolveOrdnanceOwner(owner) : null;
-    let filter = null;
-    if (this.canHit || ignoreBody || this.striking?.mount) {
-      this.striking.owner = owner;
-      this.striking.body = ignoreBody;
-      filter = this.striking.filter;
-    }
-    if(historyTick!=null && this.hitHistory)return this.hitHistory.raycast(historyTick,origin,direction,far,shooter,this.unitHit,filter,true);
-    return this.units.raycast(origin, direction, far, shooter, this.unitHit, filter, true);
-  }
-
-  // Whether a round may strike this unit: not a rider on the hull that fired
-  // it, only a rider of the mount it is passing through (riderBehind), and
-  // whatever the battle's rules (canHit) allow.
-  mayStrike(owner, unit, ignoreBody = null) {
-    if (ignoreBody && unit.seat && (unit.seat.vehicle?.body ?? unit.seat.turret?.bodies?.built) === ignoreBody) return false;
-    if (this.striking.mount && unit.seat?.vehicle !== this.striking.mount) return false;
-    return !this.canHit || this.canHit(owner, unit);
+  // `mount`: the hull a round has gone through to its riders (riderBehind),
+  // whose riders alone it may strike.
+  castUnits(origin, direction, far, owner, historyTick = null, ignoreBody = null, mount = null) {
+    if (far <= 0) return null;
+    return this.world.raycastUnits(origin, direction, far, owner, historyTick, ignoreBody, mount);
   }
 
   // A round that met a hull whose collision doesn't keep rounds off its
@@ -987,14 +981,11 @@ export class Ordnance {
   // launch: then only moving bodies are tested here). The rider's hit, or
   // null.
   riderBehind(origin, direction, hit, far, owner, historyTick, ignoreBody, moving) {
-    const mount = hit?.body?.owner;
-    if (!mount || mount.shieldsRiders?.() !== false || !mount.occupied) return null;
+    const mount = this.world.riderMount(hit?.body);
+    if (!mount) return null;
     const reach = Math.min(far, hit.distance + 2 * (mount.boundRadius || 1));
-    const next = moving ? this.collision.castMoving?.(origin, direction, reach, this.behind, mount.body) : this.collision.cast(origin, direction, reach, this.behind, mount.body);
-    this.striking.mount = mount;
-    const rider = this.castUnits(origin, direction, next ? next.distance : reach, owner, historyTick, ignoreBody);
-    this.striking.mount = null;
-    return rider;
+    const next = moving ? this.world.castMoving(origin, direction, reach, this.behind, mount.body) : this.world.cast(origin, direction, reach, this.behind, mount.body);
+    return this.castUnits(origin, direction, next ? next.distance : reach, owner, historyTick, ignoreBody, mount.vehicle);
   }
 
   // A soldier struck: droids spark like metal, the rest take the soft hit.

@@ -279,8 +279,10 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
     return parts;
   }
 
-  function publish({ droppedTicks = 0 } = {}) {
-    const capturedAtUnixMs = Date.now(), at = now();
+  // at and unixMs: the host's clock for this publication (its pacing, as
+  // now() gives it, and the capture's Unix time), read here if not given.
+  function publish({ droppedTicks = 0, at = now(), unixMs = Date.now() } = {}) {
+    const capturedAtUnixMs = unixMs;
     const shared = [], groupsByBaseline = new Map(), ownPackets = [], inputAcks = [], edgeResults = [], diagnostics = [], faults = [], reliableEvents = [];
     const tick = game.worldClock.tick;
     const eligibilityCache = new Map();

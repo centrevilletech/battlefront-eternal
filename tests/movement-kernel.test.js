@@ -6,7 +6,7 @@ import { loadRayKernel } from '../src/ray-kernel.js';
 import { MovementKernel } from '../src/movement-kernel.js';
 import { Soldier } from '../src/soldier.js';
 
-// The movement kernel (src/movement-kernel.js, rust/rays/src/movement) must
+// The movement kernel (src/movement-kernel.js, rust/sim/src/movement) must
 // tick a soldier exactly as Soldier.tick's JavaScript does: every field the
 // tick reads or writes the same to the last bit, tick after tick, over
 // stairs, walls, ramps, ledges, low ceilings, the terrain, props switching

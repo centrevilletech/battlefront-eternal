@@ -953,7 +953,7 @@ export class Graphics {
     }
     if (this.sky && !this.skyLayers.length) this.sky.position.copy(camera.position);
     renderer.setRenderTarget(this.farTarget);
-    renderer.render(this.farScene, far);
+    if (!this.rust?.cover("far", renderer, this.farScene, far)) renderer.render(this.farScene, far);
 
     // 2. The near scene over it, then the first-person weapon.
     this.cullOffView();
@@ -961,7 +961,9 @@ export class Graphics {
     if (temporal) this.upscaler.shift(camera);
     renderer.setRenderTarget(this.sceneTarget);
     this.particleDepth.begin(this.sceneTarget, camera, Boolean(this.settings.get("softParticles")));
-    renderer.render(this.scene, camera);
+    // The Rust renderer draws the near scene in three's place when nothing
+    // in it is left for three this frame.
+    if (!this.rust?.coverNear(renderer, this.scene, camera)) renderer.render(this.scene, camera);
     // The temporal upscaler reprojects by the scene's depth, taken before
     // the weapon's own depth range replaces it.
     if (temporal) this.particleDepth.capture(camera, true);
@@ -980,7 +982,7 @@ export class Graphics {
       if (temporal) this.upscaler.shift(view);
       renderer.autoClear = false;
       renderer.clearDepth();
-      renderer.render(this.viewScene, view);
+      if (!this.rust?.cover("view", renderer, this.viewScene, view)) renderer.render(this.viewScene, view);
       renderer.autoClear = true;
     }
     if (temporal) {
@@ -994,15 +996,30 @@ export class Graphics {
     // Full-screen triangles overwrite every pixel with blending disabled.
     // Clearing each post target first only burns fill/bandwidth.
     renderer.autoClear = false;
-    // 3. Soft focus, and out to the screen.
+    // 3-4. The post passes (postSteps): the Rust renderer's post pass draws
+    // them where it can draw every one, else three.
+    const steps = this.postSteps(temporal, upscale);
+    if (!this.rust?.post(renderer, steps)) for (const step of steps) this.postStep(renderer, step);
+    renderer.autoClear = true;
+    this.restoreOffView();
+    // All scene, shadow and post passes; captured before the separate HUD.
+    this.frameInfo = { ...renderer.info.render };
+    this.frameCount++;
+    this.profiler.end();
+  }
+
+  // The frame's post passes, in order, their uniforms set: 3. soft focus,
+  // and out to the screen; 4. rebuilt at the window's resolution. Each is
+  // { pass, target, camera } (a full-screen pass drawn into a target, null
+  // the canvas), or { run } (bloom, the temporal and spatial upscalers,
+  // which draw themselves).
+  postSteps(temporal, upscale) {
+    const steps = [], camera = this.passCamera;
     const blur = this.blur && this.settings.get("softFocus");
-    if (blur) {
-      renderer.setRenderTarget(this.quarterTarget);
-      renderer.render(this.downsample, this.passCamera);
-    }
+    if (blur) steps.push({ pass: this.downsample, target: this.quarterTarget, camera });
     this.composite.material.uniforms.blend.value = blur ? this.blur.blend : 0;
     const bloom = Boolean(this.settings.get("bloom"));
-    if (bloom) this.bloom.render(renderer, this.passCamera);
+    if (bloom) steps.push({ run: (renderer) => this.bloom.render(renderer, camera) });
     this.composite.material.uniforms.bloomStrength.value = bloom ? 0.65 : 0;
     // The temporal upscaler antialiases on its own; FXAA would only blur it.
     const fxaa = !temporal && this.settings.get("antialiasing") !== "off";
@@ -1016,24 +1033,29 @@ export class Graphics {
     // FXAA over a plain frame reads the scene's image itself (the copy's
     // colours are the same texels), one pass the fewer.
     const fxaaSource = fxaa && plain ? this.sceneTarget : this.postTarget;
-    if (!(fxaa && plain)) {
-      renderer.setRenderTarget((fxaa || upscale) && !direct ? this.postTarget : null);
-      renderer.render(this.composite, this.passCamera);
-    }
+    if (!(fxaa && plain)) steps.push({ pass: this.composite, target: (fxaa || upscale) && !direct ? this.postTarget : null, camera });
     if (fxaa) {
       const pass = this.settings.get("antialiasing") === "fxaa-fast" ? this.fastFxaa() : this.fxaa;
       pass.material.uniforms.tDiffuse.value = fxaaSource.texture;
-      renderer.setRenderTarget(upscale ? this.aaTarget : null);
-      renderer.render(pass, this.passCamera);
+      steps.push({ pass, target: upscale ? this.aaTarget : null, camera });
     }
-    // 4. Rebuilt at the window's resolution.
-    if (upscale && !direct) this.upscaler.present(renderer, fxaa ? this.aaTarget.texture : this.postTarget.texture, this.upscaling);
-    renderer.autoClear = true;
-    this.restoreOffView();
-    // All scene, shadow and post passes; captured before the separate HUD.
-    this.frameInfo = { ...renderer.info.render };
-    this.frameCount++;
-    this.profiler.end();
+    if (upscale && !direct) {
+      const image = fxaa ? this.aaTarget.texture : this.postTarget.texture, upscaler = this.upscaler;
+      if (this.upscaling === "bilinear") {
+        // Upscaler.present's bilinear pass, as it draws it.
+        upscaler.bilinearPass.material.uniforms.map.value = image;
+        upscaler.valid = false;
+        steps.push({ pass: upscaler.bilinearPass, target: null, camera: upscaler.passCamera });
+      } else steps.push({ run: (renderer) => upscaler.present(renderer, image, this.upscaling) });
+    }
+    return steps;
+  }
+
+  // One post step drawn by three.
+  postStep(renderer, step) {
+    if (step.run) { step.run(renderer); return; }
+    renderer.setRenderTarget(step.target);
+    renderer.render(step.pass, step.camera);
   }
 
   // FXAA (FAST)'s pass (fxaa.js), at the 3D frame's resolution.

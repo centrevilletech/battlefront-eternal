@@ -183,6 +183,8 @@ export class TreeCanopies {
       this.active[i] = group;
     }
     geometry.instanceCount = count * LEAVES;
+    // Nothing to draw (Original tree detail, or no canopy near): no draw at all.
+    this.mesh.visible = count > 0;
     if (changed) {
       this.active.length = count;
       this.states.fill(0);
