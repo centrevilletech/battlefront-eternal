@@ -107,7 +107,7 @@ async function battle(index) {
   if (interval !== 1) server.host.setLocalInterval(interval);
   const world = server.world, step = world.step.bind(world);
   let stepMs = 0, measured = 0;
-  world.step = () => { const start = wallNow(); try { return step(); } finally { if (game.worldClock.tick > 900) { stepMs += wallNow() - start; measured++; } } };
+  world.step = (...args) => { const start = wallNow(); try { return step(...args); } finally { if (game.worldClock.tick > 900) { stepMs += wallNow() - start; measured++; } } };
 
   function digest() {
     const units = game.units.all().map((u) => {
