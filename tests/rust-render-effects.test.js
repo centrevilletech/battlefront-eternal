@@ -45,6 +45,11 @@ function bridge() {
     transparent_keys_len() { return 64; }
     transparent_segments_ptr() { return 106496; }
     transparent_segments_len() { return 2; }
+    transparent_objects_ptr() { return 114688; }
+    transparent_objects_len() { return 1 + 2 * 40; }
+    transparent_object_stride() { return 40; }
+    far_input_ptr() { return 118784; }
+    far_input_len() { return 1024; }
     transparent_bucket_shown() {}
     add_texture() { calls.push(["add_texture"]); return next.texture++; }
     set_far_map(texture) { calls.push(["set_far_map", texture]); }
