@@ -3,34 +3,44 @@
 // store's runtime (src/sim/runtime.js) to dispatch on (docs/sim-store.md).
 import { BeamMirror, syncBeam, syncFullBeam, putBeam, putFullBeam, checkBeam, sameBeam, exportBeam, BEAM_KEYS, BoltMirror, syncBolt, syncFullBolt, putBolt, putFullBolt, checkBolt, sameBolt, exportBolt, BOLT_KEYS, GrenadeMirror, syncGrenade, syncFullGrenade, putGrenade, putFullGrenade, checkGrenade, sameGrenade, exportGrenade, GRENADE_KEYS, OrdnanceMirror, syncOrdnance, syncFullOrdnance, putOrdnance, putFullOrdnance, checkOrdnance, sameOrdnance, exportOrdnance, ORDNANCE_KEYS, RoundMirror, syncRound, syncFullRound, putRound, putFullRound, checkRound, sameRound, exportRound, ROUND_KEYS } from "./ordnance.js";
 import { EchoMirror, syncEcho, putEcho, FillMirror, syncFill, putFill } from "./store.js";
+import { UnitMirror, syncUnit, syncFullUnit, putUnit, putFullUnit, checkUnit, sameUnit, exportUnit, UNIT_KEYS, UnitsMirror, syncUnits, syncFullUnits, putUnits, putFullUnits, checkUnits, sameUnits, exportUnits, UNITS_KEYS } from "./units.js";
 export * from "./kinds.js";
 export * from "./ordnance.js";
 export * from "./store.js";
+export * from "./units.js";
 
 // By code: name, layout hash (the same as the module's), singleton, key (the
 // numeric field that names an object), home (singleton kind and list field),
 // whether the store holds fields of it, row strides, and its functions.
 export const KIND_TABLE = [null,
-  { name: "beam", code: 1, hash: 0xfc8a10be, singleton: false, key: null, home: { kind: 6, field: "beams" }, stored: true, classes: [], exportStride: 31, importStride: 32, fullStride: 32, Mirror: BeamMirror, sync: syncBeam, syncFull: syncFullBeam, put: putBeam, putFull: putFullBeam, check: checkBeam, same: sameBeam, export: exportBeam, keys: BEAM_KEYS },
+  { name: "beam", code: 1, hash: 0xfc8a10be, singleton: false, key: null, home: { kind: 9, field: "beams" }, stored: true, classes: [], exportStride: 31, importStride: 32, fullStride: 32, Mirror: BeamMirror, sync: syncBeam, syncFull: syncFullBeam, put: putBeam, putFull: putFullBeam, check: checkBeam, same: sameBeam, export: exportBeam, keys: BEAM_KEYS },
   { name: "body", code: 2, hash: 0xfe7bf1ca, singleton: false, key: null, home: null, stored: false, classes: [] },
-  { name: "bolt", code: 3, hash: 0xaccf5409, singleton: false, key: null, home: { kind: 6, field: "bolts" }, stored: true, classes: [], exportStride: 48, importStride: 48, fullStride: 48, Mirror: BoltMirror, sync: syncBolt, syncFull: syncFullBolt, put: putBolt, putFull: putFullBolt, check: checkBolt, same: sameBolt, export: exportBolt, keys: BOLT_KEYS },
-  { name: "emitter", code: 4, hash: 0xc667f062, singleton: false, key: null, home: null, stored: false, classes: [] },
-  { name: "grenade", code: 5, hash: 0xa3e130ff, singleton: false, key: null, home: { kind: 6, field: "grenades" }, stored: true, classes: [], exportStride: 38, importStride: 38, fullStride: 38, Mirror: GrenadeMirror, sync: syncGrenade, syncFull: syncFullGrenade, put: putGrenade, putFull: putFullGrenade, check: checkGrenade, same: sameGrenade, export: exportGrenade, keys: GRENADE_KEYS },
-  { name: "ordnance", code: 6, hash: 0x8767c204, singleton: true, key: null, home: null, stored: true, classes: [], exportStride: 10, importStride: 10, fullStride: 10, Mirror: OrdnanceMirror, sync: syncOrdnance, syncFull: syncFullOrdnance, put: putOrdnance, putFull: putFullOrdnance, check: checkOrdnance, same: sameOrdnance, export: exportOrdnance, keys: ORDNANCE_KEYS },
-  { name: "ownerSnapshot", code: 7, hash: 0x046a7623, singleton: false, key: null, home: null, stored: false, classes: [] },
-  { name: "round", code: 8, hash: 0x79e24fc8, singleton: false, key: null, home: { kind: 6, field: "rounds" }, stored: true, classes: [], exportStride: 84, importStride: 84, fullStride: 84, Mirror: RoundMirror, sync: syncRound, syncFull: syncFullRound, put: putRound, putFull: putFullRound, check: checkRound, same: sameRound, export: exportRound, keys: ROUND_KEYS },
-  { name: "turret", code: 9, hash: 0x512f6f6c, singleton: false, key: null, home: null, stored: false, classes: ["Turret"] },
-  { name: "unit", code: 10, hash: 0x17adc2a6, singleton: false, key: "id", home: null, stored: false, classes: ["Unit"] },
-  { name: "vehicle", code: 11, hash: 0xe12e5e44, singleton: false, key: null, home: null, stored: false, classes: ["Vehicle"] },
-  { name: "weapon", code: 12, hash: 0xe73c7946, singleton: false, key: null, home: null, stored: false, classes: ["Weapon"] },
+  { name: "bolt", code: 3, hash: 0xaccf5409, singleton: false, key: null, home: { kind: 9, field: "bolts" }, stored: true, classes: [], exportStride: 48, importStride: 48, fullStride: 48, Mirror: BoltMirror, sync: syncBolt, syncFull: syncFullBolt, put: putBolt, putFull: putFullBolt, check: checkBolt, same: sameBolt, export: exportBolt, keys: BOLT_KEYS },
+  { name: "character", code: 4, hash: 0x862f0893, singleton: false, key: null, home: null, stored: false, classes: ["Character"] },
+  { name: "controller", code: 5, hash: 0xbb19ff86, singleton: false, key: null, home: null, stored: false, classes: [] },
+  { name: "emitter", code: 6, hash: 0xc667f062, singleton: false, key: null, home: null, stored: false, classes: [] },
+  { name: "grenade", code: 7, hash: 0xa3e130ff, singleton: false, key: null, home: { kind: 9, field: "grenades" }, stored: true, classes: [], exportStride: 38, importStride: 38, fullStride: 38, Mirror: GrenadeMirror, sync: syncGrenade, syncFull: syncFullGrenade, put: putGrenade, putFull: putFullGrenade, check: checkGrenade, same: sameGrenade, export: exportGrenade, keys: GRENADE_KEYS },
+  { name: "objectiveTarget", code: 8, hash: 0xb6989de6, singleton: false, key: null, home: null, stored: false, classes: ["ObjectiveTarget"] },
+  { name: "ordnance", code: 9, hash: 0x8767c204, singleton: true, key: null, home: null, stored: true, classes: [], exportStride: 10, importStride: 10, fullStride: 10, Mirror: OrdnanceMirror, sync: syncOrdnance, syncFull: syncFullOrdnance, put: putOrdnance, putFull: putFullOrdnance, check: checkOrdnance, same: sameOrdnance, export: exportOrdnance, keys: ORDNANCE_KEYS },
+  { name: "ownerSnapshot", code: 10, hash: 0x046a7623, singleton: false, key: null, home: null, stored: false, classes: [] },
+  { name: "prop", code: 11, hash: 0x9b924a1b, singleton: false, key: null, home: null, stored: false, classes: [] },
+  { name: "round", code: 12, hash: 0x79e24fc8, singleton: false, key: null, home: { kind: 9, field: "rounds" }, stored: true, classes: [], exportStride: 84, importStride: 84, fullStride: 84, Mirror: RoundMirror, sync: syncRound, syncFull: syncFullRound, put: putRound, putFull: putFullRound, check: checkRound, same: sameRound, export: exportRound, keys: ROUND_KEYS },
+  { name: "seatLease", code: 13, hash: 0xc2257049, singleton: false, key: null, home: null, stored: false, classes: ["SeatLease"] },
+  { name: "turret", code: 14, hash: 0x512f6f6c, singleton: false, key: null, home: null, stored: false, classes: ["Turret"] },
+  { name: "turretTarget", code: 15, hash: 0xfbd22c8d, singleton: false, key: null, home: null, stored: false, classes: ["TurretTarget"] },
+  { name: "unit", code: 16, hash: 0xbdf75e9b, singleton: false, key: "id", home: null, stored: true, classes: ["Unit"], exportStride: 200, importStride: 214, fullStride: 214, Mirror: UnitMirror, sync: syncUnit, syncFull: syncFullUnit, put: putUnit, putFull: putFullUnit, check: checkUnit, same: sameUnit, export: exportUnit, keys: UNIT_KEYS },
+  { name: "units", code: 17, hash: 0x03866fa6, singleton: true, key: null, home: null, stored: true, classes: [], exportStride: 7, importStride: 7, fullStride: 7, Mirror: UnitsMirror, sync: syncUnits, syncFull: syncFullUnits, put: putUnits, putFull: putFullUnits, check: checkUnits, same: sameUnits, export: exportUnits, keys: UNITS_KEYS },
+  { name: "vehicle", code: 18, hash: 0xe12e5e44, singleton: false, key: null, home: null, stored: false, classes: ["Vehicle"] },
+  { name: "vehicleTarget", code: 19, hash: 0x02390125, singleton: false, key: null, home: null, stored: false, classes: ["VehicleTarget"] },
+  { name: "weapon", code: 20, hash: 0xe73c7946, singleton: false, key: null, home: null, stored: false, classes: ["Weapon"] },
 ];
 
 // The records a union tells apart by class: their classes.
-export const RECORD_CLASSES = {};
+export const RECORD_CLASSES = {"Soldier":["Soldier"],"Droideka":["Droideka"]};
 
 // Commands, events and imports by code: name, and their records' words and functions.
 export const COMMAND_TABLE = [null, { name: "echo", code: 1, args: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho }, result: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho }, fast: (b, o) => { const s = b.words; putEcho(b, o, s, 0, null); return b.x.cmd_echo(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]); } }, { name: "fill", code: 2, args: { words: 2, Mirror: FillMirror, sync: syncFill, put: putFill }, result: null, fast: (b, o) => { const s = b.words; putFill(b, o, s, 0, null); return b.x.cmd_fill(s[0], s[1]); } }];
 export const EVENT_TABLE = [null, { name: "echoed", code: 1, record: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho } }];
 export const IMPORT_TABLE = [null, ];
 
-export const DEF_TABLES = ["ordnance"];
+export const DEF_TABLES = ["ordnance","unitClass","weapon"];
