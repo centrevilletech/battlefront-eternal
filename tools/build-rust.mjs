@@ -11,6 +11,10 @@
 //   node tools/build-rust.mjs --check [...]        build and compare with
 //                                                  src/; exit 1 if any differ
 //
+// The simulation's module includes the entity store's code generated from
+// rust/sim/schema/ (tools/sim-schema.mjs): building writes it first, and
+// --check fails when it is stale as when a byte of the module differs.
+//
 // The same sources give the same bytes on any machine: the build takes the
 // Rust that rust/rust-toolchain.toml pins (rustup reads it), Cargo.lock as
 // it is (--locked), the wasm-bindgen CLI of the version Cargo.lock locks
@@ -24,6 +28,7 @@ import { spawnSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { main as simSchema } from './sim-schema.mjs';
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url));
 const RUST = join(ROOT, 'rust');
@@ -127,7 +132,7 @@ ${lines.map((line) => `  "${line}"`).join(' +\n')};
 // src/ or the stage.
 const contents = (root, { path, folder }) => (folder ? files(join(root, path)).map((file) => `${path}/${file}`) : existsSync(join(root, path)) ? [path] : []);
 
-export function main(args) {
+export async function main(args) {
   const check = args.includes('--check');
   // (rays and anim, the crates rust/sim took in, name it too.)
   const names = [...new Set(args.filter((arg) => arg !== '--check').map((arg) => (arg === 'rays' || arg === 'anim' ? 'sim' : arg)))];
@@ -138,6 +143,10 @@ export function main(args) {
   const problems = [];
   for (const name of names.length ? names : Object.keys(ARTIFACTS)) {
     const artifact = ARTIFACTS[name];
+    if (name === 'sim') {
+      await simSchema(check ? ['--check'] : []);
+      if (process.exitCode) problems.push("the store's generated code is stale: node tools/sim-schema.mjs");
+    }
     artifact.stage(cargoBuild(artifact.crate, env, artifact.lib), rustc);
     const built = contents(STAGE, artifact);
     if (check) {
@@ -166,9 +175,9 @@ export function main(args) {
 }
 
 // Run from the command line: a failure prints its reason, not a stack.
-export function cli(args) {
+export async function cli(args) {
   try {
-    main(args);
+    await main(args);
   } catch (error) {
     console.error(error.message || error);
     process.exitCode = 1;
