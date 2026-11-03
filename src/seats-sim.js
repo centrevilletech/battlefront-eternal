@@ -37,6 +37,7 @@ export class SeatsSim {
     this.bridge = bridge;
     this.leases = [];
     this.units = [];
+    this.written = []; // the units written: every one the store may hold
     this.seats = { leases: this.leases };
     this.args = { time: 0, ticks: 0, hulls: [], controls: [] };
     this.facts = new WeakMap(); // a hull -> its facts record (its class's are fixed)
@@ -64,7 +65,14 @@ export class SeatsSim {
     // No bot aboard anything: the batch is counted and that is all.
     if (!bots) { vs.ticks += 1; return; }
     this.release();
-    b.write(KIND_UNIT, units);
+    // The store keeps only the units a write lists, and may hold others'
+    // rows (with the combats on the module, every unit's combat): every
+    // unit the bridge has numbered goes in, the riders among them.
+    const ids = b.refs[KIND_UNIT], written = this.written;
+    for (const unit of units) ids.slotOf(unit);
+    written.length = 0;
+    for (const unit of ids.objects) if (unit && (!ids.test || ids.test(unit))) written.push(unit);
+    b.write(KIND_UNIT, written);
     b.write(KIND_SEAT_LEASE, leases);
     b.write(KIND_SEATS, [this.seats]);
     // (The hulls' list is the hull kind's home: the store gives back the
@@ -89,18 +97,18 @@ export class SeatsSim {
     const out = (this.answer = b.command("seatLatch", a, this.answer));
     b.sync(KIND_SEAT_LEASE);
     b.sync(KIND_VEHICLE);
-    // The riders back from the store, but for their combats (the combat
+    // The units back from the store, but for their combats (the combat
     // package's): what the batch writes into one (mounted, aimOverride,
     // gunUnderwater, the zoom) is among its effects below, and the rest it
     // only reads (a JavaScript PlayerCombat has fields the store's record
-    // names only through getters).
+    // names only through getters; a combat on the module keeps its own).
     const combats = this.combats;
-    combats.length = units.length;
-    for (let i = 0; i < units.length; i++) {
-      combats[i] = units[i].combat;
-      units[i].combat = this.scratch[i] ??= new CombatMirror();
+    combats.length = written.length;
+    for (let i = 0; i < written.length; i++) {
+      combats[i] = written[i].combat;
+      written[i].combat = this.scratch[i] ??= new CombatMirror();
     }
-    try { b.sync(KIND_UNIT); } finally { for (let i = 0; i < units.length; i++) units[i].combat = combats[i]; }
+    try { b.sync(KIND_UNIT); } finally { for (let i = 0; i < written.length; i++) written[i].combat = combats[i]; }
     combats.fill(null);
     vs.ticks = out.ticks;
     // SeatInput.latch took these edges from the seat's intent it played.
