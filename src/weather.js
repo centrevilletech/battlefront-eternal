@@ -49,7 +49,7 @@ const VERTEX = /* glsl */ `
   attribute vec4 seed;
   uniform vec3 eye, cameraMotion;
   uniform vec2 wind, depthResolution;
-  uniform float time, range, velocity, velocityRange, width, streak, enhanced, effect;
+  uniform float rainTime, range, velocity, velocityRange, width, streak, enhanced, effect;
   uniform sampler2D cover;
   uniform float coverCell,coverSize;
   varying vec2 vUv;
@@ -60,11 +60,11 @@ const VERTEX = /* glsl */ `
     float span = radius * 2.0;
     float speed = max(0.1, velocity + (seed.w - 0.5) * velocityRange);
     speed *= mix(1.0,1.25+seed.z*.6,enhanced);
-    vec2 gust = wind*(1.0+enhanced*2.0) + enhanced*vec2(sin(time*.7)*4.5,cos(time*.43)*2.0);
-    vec2 drift = wind*time*(1.0+enhanced*2.0)+enhanced*vec2(-cos(time*.7)*6.43,sin(time*.43)*4.65);
+    vec2 gust = wind*(1.0+enhanced*2.0) + enhanced*vec2(sin(rainTime*.7)*4.5,cos(rainTime*.43)*2.0);
+    vec2 drift = wind*rainTime*(1.0+enhanced*2.0)+enhanced*vec2(-cos(rainTime*.7)*6.43,sin(rainTime*.43)*4.65);
     vec3 center;
     center.xz = mod(seed.xy * span + drift - eye.xz + radius, span) + eye.xz - radius;
-    center.y = eye.y + radius - mod(seed.z * span + time * speed, span);
+    center.y = eye.y + radius - mod(seed.z * span + rainTime * speed, span);
     vec3 fall = normalize(vec3(gust.x, -speed, gust.y)-cameraMotion*.2*enhanced);
     vec3 viewFall = normalize(mat3(viewMatrix) * fall);
     vec3 side = normalize(vec3(-viewFall.y, viewFall.x + 0.00001, 0.0));
@@ -92,9 +92,11 @@ const VERTEX = /* glsl */ `
 `;
 const FRAGMENT = /* glsl */ `
   uniform sampler2D cover,sceneDepth;
-  uniform float coverCell, coverSize,enhanced,effect,time,softParticles;
+  uniform float coverCell, coverSize,enhanced,effect,rainTime,softParticles;
   uniform vec2 depthResolution,cameraRange;
-  uniform vec3 color, ambient;
+  uniform vec3 color;
+  // The map's ambient light (materials.js lighting), on a line of its own.
+  uniform vec3 ambient;
   uniform vec2 alpha;
   varying vec2 vUv;
   varying vec3 vWorld;
@@ -115,7 +117,7 @@ const FRAGMENT = /* glsl */ `
       // ambient they fall through, and far brighter in a lightning flash.
       light*=(.8+vGlint*.3)*clamp(.55+dot(ambient,vec3(.3,.59,.11))*1.6,0.,1.4);
       if(effect>.5){
-        float cloud=noise(vUv*5.0+vec2(time*.35,0.0))*.65+noise(vUv*12.0-vec2(time*.2,0.0))*.35;
+        float cloud=noise(vUv*5.0+vec2(rainTime*.35,0.0))*.65+noise(vUv*12.0-vec2(rainTime*.2,0.0))*.35;
         float boundary=pow(max(0.0,1.0-dot(vUv*2.0-1.0,vUv*2.0-1.0)),2.0);
         a=cloud*boundary*vOpacity*.055;
       }
@@ -142,7 +144,7 @@ export class Weather {
     this.capacity=Math.min(8192,this.nativeCount*32);
     const c=p.Color||[216,220,228];
     const uniforms={eye:{value:new THREE.Vector3()},cameraMotion:{value:new THREE.Vector3()},wind:{value:new THREE.Vector2(...(data.wind||[0,0]))},
-      time:{value:0},range:{value:0},velocity:{value:p.Velocity?.[0]??9},velocityRange:{value:p.VelocityRange?.[0]??1},
+      rainTime:{value:0},range:{value:0},velocity:{value:p.Velocity?.[0]??9},velocityRange:{value:p.VelocityRange?.[0]??1},
       width:{value:p.ParticleSize?.[0]??.02},streak:{value:p.StreakLength?.[0]??1},color:{value:new THREE.Vector3(...c).multiplyScalar(1/255)},
       alpha:{value:new THREE.Vector2(...(p.AlphaMinMax||[.3,.45]))},cover:{value:null},coverCell:{value:0},coverSize:{value:0},
       enhanced:{value:0},effect:{value:0},ambient:lighting.ambient,sceneDepth:particleDepth.map,softParticles:particleDepth.enabled,depthResolution:particleDepth.resolution,cameraRange:particleDepth.cameraRange};
@@ -166,7 +168,7 @@ export class Weather {
     this.mist.visible=false;this.impacts.mesh.visible=false;this.initial=true;
   }
   update(dt,camera){
-    const u=this.material.uniforms;u.time.value+=dt;u.eye.value.copy(camera.position);
+    const u=this.material.uniforms;u.rainTime.value+=dt;u.eye.value.copy(camera.position);
     if(!this.initial&&dt>0&&this.previousEye.distanceToSquared(camera.position)<100)u.cameraMotion.value.subVectors(camera.position,this.previousEye).divideScalar(dt).clampLength(0,30);
     else u.cameraMotion.value.set(0,0,0);
     this.previousEye.copy(camera.position);

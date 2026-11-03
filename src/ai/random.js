@@ -92,6 +92,29 @@ export class RandomStreams {
   }
 }
 
+// The draws that still come from Math.random, each through a name. A legacy
+// stream is Math.random itself: its values, in the order its call sites draw
+// them. The name is for the world's determinism census
+// (tests/determinism-census.test.js), which tells these draws from stray
+// ones inside a world step, and so each can move to a seeded stream on its
+// own. Every gameplay draw in a world step comes from a seeded generator or
+// from one of these.
+let legacyTap = null;
+export function legacyRandom(name) {
+  return () => {
+    if (legacyTap) legacyTap(name);
+    return Math.random();
+  };
+}
+
+// The census's hook: tap(name) runs before each legacy draw (null: none).
+// Returns the hook it replaces.
+export function tapLegacyRandom(tap) {
+  const previous = legacyTap;
+  legacyTap = tap;
+  return previous;
+}
+
 // FNV-1a over the name, folded with the seed.
 function mix(seed, name) {
   let h = 0x811c9dc5 ^ seed;

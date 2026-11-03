@@ -1,7 +1,453 @@
-// The far pass (far.rs): the far scene, drawn into the far target before
-// the near scene: the sky dome and its layers, the map's low-detail
-// buckets, the far terrain and the far water, read with the far camera's
-// frame block (VIEW_FAR). Empty for now: three draws all of it.
-export function farPass() {
-  return { name: "far", phase: "far" };
+// The far pass (far.rs): the far scene (graphics.farScene, seen from the
+// far camera into graphics.farTarget), drawn by the renderer in place of
+// three's render of it. graphics.js asks the core to cover the far phase
+// first (index.js cover(): three's start of render, the phase, three's end);
+// when this pass drew it all, three doesn't render the far scene.
+//
+// Each frame (draw(), in the far phase) it walks the far scene as three's
+// projectObject does (what is shown, on the camera's layers) and finds each
+// mesh three would draw among its items, registering one the first time its
+// material has a program (graphics.warmup compiles them at load; else three
+// draws it once first). The far terrain is one item for all its runs. When
+// every mesh three would draw is an item, the renderer clears the target as
+// three would and draws them in three's order (complete); else (a mesh it
+// can't draw yet) it draws nothing and three draws the frame. Nothing is
+// hidden from three: the water's mirror and the sky probe render the far
+// scene with three too.
+//
+// A material that reads only the frame's shared values gets a program with
+// the frame block; any other (the water's, which keeps a time of its own) a
+// plain one, all of whose uniforms the page writes each frame. The map's
+// zero materials' own values are fixed at registration; any other
+// material's are written each frame.
+import * as THREE from "three";
+import { lighting } from "../materials.js";
+import { VIEW_FAR } from "./index.js";
+
+// add_program's kinds (web/mod.rs).
+const WORLD = 0, PLAIN = 3;
+// The far input's layout and the uniform sources and item flags (far.rs).
+const CLEAR = 0, DRAW = 4, SLOTS = 8;
+const SRC = { FLOATS: 0, INPUT: 1, TEXTURE: 2, TEXTURE_INPUT: 3, PROJECTION: 4, VIEW: 5, EYE: 6, MODEL: 7, MODEL_VIEW: 8, NORMAL: 9 };
+const F = { DEPTH_TEST: 4, DEPTH_WRITE: 8, COLOR_WRITE: 16, A2C: 32, TRANSPARENT: 64, PLACED: 128, CULLED: 256, BLEND: 512 };
+// The frame block's members (shader.rs FRAME_MEMBERS); those three takes from
+// the camera, and the object's matrices.
+const FRAME_NAMES = new Set(["projectionMatrix", "viewMatrix", "cameraPosition", "time", "sunDirection", "bump", "sunColor", "shadowStrength",
+  "ambient", "aaSamples", "ambientTop", "terrainShade", "ambientBottom", "farAaSamples", "characterAmbient", "cascadeNear", "fogColor",
+  "cascadeFar", "fade", "resolution", "fogRange"]);
+const CAMERA = { projectionMatrix: SRC.PROJECTION, viewMatrix: SRC.VIEW, cameraPosition: SRC.EYE };
+const OBJECT = { modelMatrix: SRC.MODEL, modelViewMatrix: SRC.MODEL_VIEW, normalMatrix: SRC.NORMAL };
+// GL uniform types the renderer sets, and their floats an element.
+const SAMPLER_2D = 0x8B5E, SAMPLER_CUBE = 0x8B60;
+const FLOATS = { 0x1406: 1, 0x8B50: 2, 0x8B51: 3, 0x8B52: 4, 0x1404: 1, 0x8B56: 1, 0x8B5B: 9, 0x8B5C: 16, [SAMPLER_2D]: 1, [SAMPLER_CUBE]: 1 };
+const IDENTITY = new THREE.Matrix4();
+// core.program's policy for a zero material: every uniform it reads besides
+// the frame block is the far pass's to set (none through the core's table).
+const ANY = { uniforms: { has: () => true }, material: { has: () => false } };
+
+// A uniform's value as the floats three would upload, appended to `out`;
+// false when it isn't one.
+function floatsOf(value, out) {
+  if (typeof value === "number") out.push(value);
+  else if (typeof value === "boolean") out.push(value ? 1 : 0);
+  else if (value?.isVector2) out.push(value.x, value.y);
+  else if (value?.isVector3) out.push(value.x, value.y, value.z);
+  else if (value?.isVector4 || value?.isQuaternion) out.push(value.x, value.y, value.z, value.w);
+  else if (value?.isColor) out.push(value.r, value.g, value.b);
+  else if (value?.isMatrix3 || value?.isMatrix4) for (const v of value.elements) out.push(v);
+  else if (Array.isArray(value) || ArrayBuffer.isView(value)) { for (const v of value) if (!floatsOf(v, out)) return false; }
+  else return false;
+  return true;
+}
+
+// A material's blending as three's setMaterial sets it: [equation rgb,
+// alpha, source rgb, destination rgb, source alpha, destination alpha], null
+// for none, undefined for what the renderer doesn't set (a constant colour).
+function blendOf(material, gl) {
+  if (material.blending === THREE.NoBlending || (material.blending === THREE.NormalBlending && !material.transparent)) return null;
+  const add = gl.FUNC_ADD, pre = material.premultipliedAlpha;
+  switch (material.blending) {
+    case THREE.NormalBlending: return pre ? [add, add, gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA] : [add, add, gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA];
+    case THREE.AdditiveBlending: return pre ? [add, add, gl.ONE, gl.ONE, gl.ONE, gl.ONE] : [add, add, gl.SRC_ALPHA, gl.ONE, gl.SRC_ALPHA, gl.ONE];
+    case THREE.SubtractiveBlending: return [add, add, gl.ZERO, gl.ONE_MINUS_SRC_COLOR, gl.ZERO, gl.ONE];
+    case THREE.MultiplyBlending: return pre ? [add, add, gl.ZERO, gl.SRC_COLOR, gl.ZERO, gl.SRC_ALPHA] : [add, add, gl.ZERO, gl.SRC_COLOR, gl.ZERO, gl.SRC_COLOR];
+    case THREE.CustomBlending: {
+      const equations = { [THREE.AddEquation]: gl.FUNC_ADD, [THREE.SubtractEquation]: gl.FUNC_SUBTRACT, [THREE.ReverseSubtractEquation]: gl.FUNC_REVERSE_SUBTRACT, [THREE.MinEquation]: gl.MIN, [THREE.MaxEquation]: gl.MAX };
+      const factors = { [THREE.ZeroFactor]: gl.ZERO, [THREE.OneFactor]: gl.ONE, [THREE.SrcColorFactor]: gl.SRC_COLOR, [THREE.SrcAlphaFactor]: gl.SRC_ALPHA,
+        [THREE.SrcAlphaSaturateFactor]: gl.SRC_ALPHA_SATURATE, [THREE.DstColorFactor]: gl.DST_COLOR, [THREE.DstAlphaFactor]: gl.DST_ALPHA,
+        [THREE.OneMinusSrcColorFactor]: gl.ONE_MINUS_SRC_COLOR, [THREE.OneMinusSrcAlphaFactor]: gl.ONE_MINUS_SRC_ALPHA,
+        [THREE.OneMinusDstColorFactor]: gl.ONE_MINUS_DST_COLOR, [THREE.OneMinusDstAlphaFactor]: gl.ONE_MINUS_DST_ALPHA };
+      const b = [equations[material.blendEquation], equations[material.blendEquationAlpha || material.blendEquation],
+        factors[material.blendSrc], factors[material.blendDst], factors[material.blendSrcAlpha || material.blendSrc], factors[material.blendDstAlpha || material.blendDst]];
+      return b.every((v) => v !== undefined) ? b : undefined;
+    }
+    default: return undefined;
+  }
+}
+
+// three's depth functions (WebGLState).
+const DEPTH = { [THREE.NeverDepth]: 0x0200, [THREE.AlwaysDepth]: 0x0207, [THREE.LessDepth]: 0x0201, [THREE.LessEqualDepth]: 0x0203,
+  [THREE.EqualDepth]: 0x0202, [THREE.GreaterEqualDepth]: 0x0206, [THREE.GreaterDepth]: 0x0204, [THREE.NotEqualDepth]: 0x0205 };
+
+class FarPass {
+  constructor(core) {
+    this.core = core;
+    this.name = "far";
+    this.phase = "far";
+    // For comparisons: false leaves the far scene to three.
+    this.on = true;
+    this.items = new Map(); // object -> its items (one a material and program)
+    this.all = []; // every item
+    this.tables = new Map(); // Rust program -> its uniform table, or null
+    this.plainPrograms = new Map(); // three's program -> a plain Rust program, or null
+    this.failed = new WeakMap(); // object -> the material it couldn't be an item with
+    this.nextSlot = SLOTS;
+    // This frame's meshes ({ object, material, item }), the first `count`.
+    this.found = [];
+    this.count = 0;
+    this.scratch = [];
+    this.color = new THREE.Color();
+    this.frustum = new THREE.Frustum();
+    this.matrix = new THREE.Matrix4();
+    // This frame: whether the renderer drew all of the far scene, else
+    // "three" and how many meshes three draws that the pass can't.
+    this.complete = false;
+    this.mode = "three";
+    this.threeObjects = 0;
+  }
+
+  register() {
+    this.core.addView("farInput", Float64Array, () => this.core.rust.far_input_ptr(), () => this.core.rust.far_input_len());
+  }
+
+  // The far phase's part: what it hasn't registered yet, then this frame's
+  // input. Complete when every mesh three would draw is an item (one three
+  // culls is drawn by neither); else the renderer draws nothing. An error
+  // leaves the far scene to three for good.
+  draw(ctx) {
+    try {
+      this.frame(ctx);
+    } catch (error) {
+      this.core.errors.push(`far: ${String(error?.stack || error).slice(0, 400)}`);
+      this.on = false;
+      this.complete = false;
+      this.mode = "three";
+      this.write(ctx.renderer, false);
+    }
+  }
+
+  frame(ctx) {
+    const { renderer, scene, camera } = ctx;
+    this.count = 0;
+    this.threeObjects = 0;
+    this.camera = camera;
+    if (this.on) this.walk(scene, camera, 0);
+    this.frustum.setFromProjectionMatrix(this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    for (let i = 0; i < this.count; i++) {
+      const f = this.found[i];
+      if (f.item) continue;
+      if (f.object.frustumCulled && !f.object.isGroup && !this.frustum.intersectsObject(f.object)) continue;
+      this.threeObjects++;
+    }
+    const complete = this.on && this.threeObjects === 0;
+    if (complete) this.prepare(renderer, scene, camera);
+    this.write(renderer, complete);
+    this.complete = complete;
+    this.mode = complete ? "full" : "three";
+  }
+
+  // The far scene as three's projectObject walks it: each mesh it would draw
+  // (shown, on the camera's layers), with its group order; the terrain whole.
+  walk(object, camera, groupOrder) {
+    if (object.visible === false) return;
+    if (object.layers.test(camera.layers)) {
+      if (object.isGroup) groupOrder = object.renderOrder;
+      if (object.userData.terrain) { this.find(object, object.children[0]?.material, groupOrder); return; }
+      if (object.isMesh || object.isLine || object.isPoints || object.isSprite) {
+        const material = object.material;
+        if (Array.isArray(material) ? material.some((m) => m?.visible) : material?.visible) this.find(object, material, groupOrder);
+      }
+    }
+    const children = object.children;
+    for (let i = 0; i < children.length; i++) this.walk(children[i], camera, groupOrder);
+  }
+
+  // Its item for the material and program it has now, registered if it can be.
+  find(object, material, groupOrder) {
+    const program = material && !Array.isArray(material) ? this.core.renderer.properties.get(material).currentProgram : null;
+    let item = null;
+    for (const i of this.items.get(object) || []) if (i.material === material && i.threeProgram === program) { item = i; break; }
+    if (!item && program && this.failed.get(object) !== material) {
+      // null: never (as it is); undefined: not yet (a texture still loading).
+      item = this.registerItem(object, material, program, groupOrder, this.camera);
+      if (item) { let list = this.items.get(object); if (!list) this.items.set(object, list = []); list.push(item); this.all.push(item); } else if (item === null) this.failed.set(object, material);
+      item ||= null;
+    }
+    // A cube map to read (the Enhanced sky probe): three's to draw for now.
+    if (item?.cubes.length && item.cubes.some((name) => material.uniforms[name]?.value)) item = null;
+    // This frame's meshes, in entries kept from frame to frame.
+    const f = this.found[this.count] ??= {};
+    f.object = object; f.material = material; f.item = item;
+    this.count++;
+  }
+
+  // An item for a mesh of the far scene (or the far terrain's group); null
+  // when the renderer can't draw it as three would, undefined when it can't
+  // yet (a texture three hasn't made yet).
+  registerItem(object, material, threeProgram, groupOrder, camera) {
+    const core = this.core, rust = core.rust, gl = core.gl;
+    const terrain = object.userData.terrain || null;
+    const mesh = terrain ? object.children[0] : object;
+    if (!mesh?.isMesh || mesh.isSkinnedMesh || mesh.isBatchedMesh || mesh.morphTargetInfluences) return null;
+    // An instanced mesh three culls by its instances' bounds: not here.
+    const instanced = Boolean(mesh.isInstancedMesh);
+    if (instanced && mesh.frustumCulled) return null;
+    if (Array.isArray(material) || !material.isShaderMaterial || material.wireframe || material.stencilWrite || material.polygonOffset || material.clippingPlanes?.length) return null;
+    // three draws a two-sided blended material in two passes.
+    if (material.transparent && material.side === THREE.DoubleSide && !material.forceSinglePass) return null;
+    if (mesh.matrixWorld.determinant() < 0) return null;
+    const geometry = mesh.geometry;
+    if (!geometry.index || geometry.groups.length || Object.keys(geometry.morphAttributes).length) return null;
+    const blend = blendOf(material, gl);
+    if (blend === undefined || DEPTH[material.depthFunc] === undefined) return null;
+    // Its uniforms: the frame block's when every frame value it reads is
+    // the shared one, else each its own.
+    const p = threeProgram.program, active = [];
+    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
+      const u = gl.getActiveUniform(p, i);
+      active.push({ name: u.name.replace(/\[0\]$/, ""), type: u.type, size: u.size });
+    }
+    const shared = active.every(({ name }) => !FRAME_NAMES.has(name) || name in CAMERA || material.uniforms?.[name] === lighting[name]);
+    const program = shared ? core.program(threeProgram, WORLD, material, ANY) : this.plainProgram(threeProgram);
+    if (!program) return null;
+    const own = shared ? active.filter(({ name }) => !FRAME_NAMES.has(name)) : active;
+    // A zero material's values are its own and never change (materials.js):
+    // fixed at registration. Any other's are written each frame.
+    const fixed = shared && material.name?.startsWith("zero:");
+    let table = this.tables.get(program.id);
+    if (table === undefined) {
+      if (own.some((u) => FLOATS[u.type] === undefined)) table = null;
+      else {
+        const id = rust.far_table(program.id, own.map((u) => u.name).join(","), new Uint32Array(own.map((u) => u.type)), new Uint32Array(own.map((u) => u.size)));
+        table = id === undefined ? null : { id };
+      }
+      this.tables.set(program.id, table);
+    }
+    if (!table) return null;
+    // Where each comes from: the camera and the object's matrices; else the
+    // material's value, fixed (a zero material's) or written each frame
+    // into the input (a plain one's).
+    const placed = own.some((u) => u.name in OBJECT) || !mesh.matrixWorld.equals(IDENTITY) || (mesh.matrixAutoUpdate && !terrain);
+    const slot = this.nextSlot;
+    let at = slot + 1 + (placed ? 16 : 0) + (terrain ? 1 : 0);
+    const sources = [], dynamic = [], watched = [], cubes = [];
+    for (let index = 0; index < own.length; index++) {
+      const { name, type, size } = own[index];
+      if (type === SAMPLER_CUBE) {
+        // Left unset while it has none (the Classic flyers' sky probe).
+        if (material.uniforms?.[name]?.value) return null;
+        cubes.push(name);
+        continue;
+      }
+      if (name in CAMERA) { sources.push([index, CAMERA[name], null, 0]); continue; }
+      if (name in OBJECT) { sources.push([index, OBJECT[name], null, 0]); continue; }
+      if (name === "isOrthographic") { sources.push([index, SRC.FLOATS, [camera.isOrthographicCamera ? 1 : 0], 0]); continue; }
+      if (!(name in (material.uniforms || {}))) return null;
+      const value = material.uniforms[name].value;
+      if (type === SAMPLER_2D) {
+        if (fixed) {
+          if (!value?.isTexture) return null;
+          const id = core.texture(value);
+          if (id < 0) return undefined;
+          sources.push([index, SRC.TEXTURE, null, id]);
+          // A data texture's contents can change (three uploads them before
+          // its next draw).
+          if (value.isDataTexture) watched.push(value);
+        } else {
+          dynamic.push({ name, at, sampler: true, id: -1 });
+          sources.push([index, SRC.TEXTURE_INPUT, null, at]);
+          at += 1;
+        }
+        continue;
+      }
+      const floats = [];
+      const want = FLOATS[type] * Math.max(1, size);
+      if (!floatsOf(value, floats) || floats.length !== want) return null;
+      if (fixed) sources.push([index, SRC.FLOATS, floats, 0]);
+      else {
+        dynamic.push({ name, at, floats: want, sampler: false });
+        sources.push([index, SRC.INPUT, null, at]);
+        at += want;
+      }
+    }
+    // An instanced mesh's per-instance attributes (its matrices, its colours,
+    // its geometry's instanced ones), each written each frame after the
+    // instance count; the geometry's others are the core's.
+    const perInstance = (name) => instanced && (name === "instanceMatrix" || name === "instanceColor" || Boolean(geometry.attributes[name]?.isInstancedBufferAttribute));
+    const instances = [];
+    let countAt = -1;
+    if (instanced) {
+      const max = mesh.instanceMatrix.count;
+      countAt = at++;
+      for (const [name, location] of program.attributes) {
+        if (!perInstance(name)) continue;
+        const attribute = name === "instanceMatrix" ? mesh.instanceMatrix : name === "instanceColor" ? mesh.instanceColor : geometry.attributes[name];
+        if (!attribute?.array || attribute.isInterleavedBufferAttribute || (attribute.meshPerAttribute ?? 1) !== 1 || !(attribute.array instanceof Float32Array)) return null;
+        const size = attribute.itemSize;
+        if (size > 4 && size !== 16) return null;
+        instances.push({ attribute, location, columns: size > 4 ? 4 : 1, rows: size > 4 ? 4 : size, max, at, size });
+        at += max * size;
+      }
+    }
+    const g = core.geometry(geometry, instanced ? { id: program.id, attributes: program.attributes.filter(([name]) => !perInstance(name)) } : program);
+    if (g === null) return null;
+    if (at > core.rust.far_input_len()) return null;
+    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+    const s = geometry.boundingSphere;
+    const flags = material.side | (material.depthTest ? F.DEPTH_TEST : 0) | (material.depthWrite ? F.DEPTH_WRITE : 0) | (material.colorWrite ? F.COLOR_WRITE : 0)
+      | (material.alphaToCoverage ? F.A2C : 0) | (material.transparent ? F.TRANSPARENT : 0) | (placed ? F.PLACED : 0)
+      | (mesh.frustumCulled && !terrain ? F.CULLED : 0) | (blend ? F.BLEND : 0);
+    const id = rust.far_item(program.id, table.id, g, flags, DEPTH[material.depthFunc], new Uint32Array(blend || [0, 0, 0, 0, 0, 0]),
+      new Float64Array([groupOrder, (terrain ? mesh : object).renderOrder, material.id, mesh.id]), new Float64Array([s.center.x, s.center.y, s.center.z, s.radius]), slot);
+    for (const [index, kind, floats, from] of sources) rust.far_source(id, index, kind, new Float32Array(floats || []), from);
+    for (const i of instances) rust.far_instanced(id, i.location, i.columns, i.rows, i.max, countAt, i.at);
+    if (terrain) {
+      // Its levels, as terrain-patches.js keeps them (the reduced one made
+      // the first time it is drawn).
+      this.level(id, terrain.patches.full, 0);
+      if (terrain.patches.reduced) this.level(id, terrain.patches.reduced, 1);
+    } else if (mesh.userData.cellLights) {
+      // The positions alone (the map's vertices are interleaved).
+      const position = geometry.attributes.position, positions = new Float32Array(position.count * 3);
+      for (let i = 0; i < position.count; i++) { positions[3 * i] = position.getX(i); positions[3 * i + 1] = position.getY(i); positions[3 * i + 2] = position.getZ(i); }
+      const index = geometry.index.array;
+      rust.far_cells(id, positions, index instanceof Uint32Array ? index : Uint32Array.from(index), 48);
+    } else {
+      const range = geometry.drawRange, count = geometry.index.count;
+      const start = Math.max(0, range.start), end = Math.min(count, range.start + range.count);
+      if (start !== 0 || end !== count) rust.far_range(id, start, Math.max(0, end - start));
+    }
+    this.nextSlot = at;
+    // Its hooks that set uniforms (the far water's range), for one whose
+    // values are written each frame.
+    const hooks = !fixed && [mesh.onBeforeRender !== THREE.Object3D.prototype.onBeforeRender ? "object" : null,
+      material.onBeforeRender !== THREE.Material.prototype.onBeforeRender ? "material" : null].filter(Boolean);
+    return { id, object, mesh, material, threeProgram, slot, placed, terrain, levels: terrain ? [true, Boolean(terrain.patches.reduced)] : null, level: 0,
+      dynamic, watched, cubes, hooks: hooks || [], instances, countAt };
+  }
+
+  // A terrain level's index and cells.
+  level(id, level, n) {
+    const cells = new Float64Array(level.cells.length * 8);
+    level.cells.forEach((cell, i) => {
+      const { min, max } = cell.box;
+      cells.set([cell.start, cell.end, min.x, min.y, min.z, max.x, max.y, max.z], i * 8);
+    });
+    const index = level.index.array;
+    this.core.rust.far_terrain(id, n, index instanceof Uint32Array ? index : Uint32Array.from(index), cells);
+  }
+
+  // A plain program (Kind::Plain) for three's: its GLSL as it is.
+  plainProgram(threeProgram) {
+    let entry = this.plainPrograms.get(threeProgram);
+    if (entry !== undefined) return entry;
+    entry = null;
+    const core = this.core, gl = core.gl, p = threeProgram.program;
+    const attributes = [];
+    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES); i < n; i++) {
+      const a = gl.getActiveAttrib(p, i);
+      attributes.push(`${a.name}:${gl.getAttribLocation(p, a.name)}`);
+    }
+    const [vs, fs] = gl.getAttachedShaders(p).sort((a) => (gl.getShaderParameter(a, gl.SHADER_TYPE) === gl.VERTEX_SHADER ? -1 : 1));
+    try {
+      entry = { id: core.rust.add_program(PLAIN, gl.getShaderSource(vs), gl.getShaderSource(fs), attributes.join(","), ""),
+        attributes: attributes.map((a) => { const [name, location] = a.split(":"); return [name, Number(location)]; }) };
+    } catch (error) {
+      core.errors.push(`far p${threeProgram.id}: ${String(error).slice(0, 300)}`);
+    }
+    this.plainPrograms.set(threeProgram, entry);
+    return entry;
+  }
+
+  // What this frame's items read that can register anything (and so grow
+  // the module's memory): the hooks that set their values (the far water's
+  // range), the textures they read now, the terrain's level.
+  prepare(renderer, scene, camera) {
+    const core = this.core;
+    for (let i = 0; i < this.count; i++) {
+      const item = this.found[i].item;
+      if (!item) continue;
+      for (const hook of item.hooks) {
+        if (hook === "object") item.mesh.onBeforeRender(renderer, scene, camera, item.mesh.geometry, item.material, null);
+        else item.material.onBeforeRender(renderer, scene, camera, item.mesh.geometry, item.mesh, null);
+      }
+      for (const texture of item.watched) this.upload(texture);
+      if (item.terrain) item.level = this.terrainLevel(item);
+      const uniforms = item.material.uniforms;
+      for (const d of item.dynamic) {
+        if (!d.sampler) continue;
+        const value = uniforms[d.name].value;
+        if (value?.isTexture) this.upload(value);
+        d.id = value?.isTexture ? core.texture(value) : -1;
+      }
+    }
+  }
+
+  // This frame's input: whether the renderer draws, the clear colour, then
+  // each item's slots.
+  write(renderer, draw) {
+    const core = this.core;
+    core.views();
+    const input = core.farInput;
+    input[DRAW] = draw ? 1 : 0;
+    if (!draw) return;
+    // WebGLBackground's clear: the colour (a render target's: the working
+    // space), premultiplied by its alpha as the context is.
+    renderer.getClearColor(this.color);
+    const alpha = renderer.getClearAlpha(), pre = renderer.getContextAttributes()?.premultipliedAlpha !== false ? alpha : 1;
+    input[CLEAR] = this.color.r * pre; input[CLEAR + 1] = this.color.g * pre; input[CLEAR + 2] = this.color.b * pre; input[CLEAR + 3] = alpha;
+    for (const item of this.all) input[item.slot] = 0;
+    const floats = this.scratch;
+    for (let i = 0; i < this.count; i++) {
+      const item = this.found[i].item;
+      if (!item) continue;
+      const slot = item.slot;
+      input[slot] = 1;
+      if (item.placed) input.set(item.mesh.matrixWorld.elements, slot + 1);
+      if (item.terrain) input[slot + 1] = item.level;
+      if (item.instances.length) {
+        const count = Math.min(item.mesh.count, item.instances[0].max);
+        input[item.countAt] = count;
+        for (const i of item.instances) input.set(i.attribute.array.subarray(0, count * i.size), i.at);
+      }
+      const uniforms = item.material.uniforms;
+      for (const d of item.dynamic) {
+        if (d.sampler) { input[d.at] = d.id; continue; }
+        floats.length = 0;
+        floatsOf(uniforms[d.name].value, floats);
+        for (let k = 0; k < d.floats; k++) input[d.at + k] = floats[k] ?? 0;
+      }
+    }
+  }
+
+  // The terrain's level this frame (terrain-patches.js reduced()), made and
+  // registered the first time it is drawn.
+  terrainLevel(item) {
+    const terrain = item.terrain, reduced = Boolean(terrain.reduced?.());
+    if (reduced && !item.levels[1]) {
+      this.level(item.id, terrain.patches.level(true), 1);
+      item.levels[1] = true;
+    }
+    return reduced ? 1 : 0;
+  }
+
+  // A texture's new contents, uploaded as three would before a draw.
+  upload(texture) {
+    const renderer = this.core.renderer, properties = renderer.properties.get(texture);
+    if (texture.version > 0 && properties.__version !== texture.version) renderer.initTexture(texture);
+  }
+}
+
+export function farPass(core) {
+  return new FarPass(core);
 }

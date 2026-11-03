@@ -26,8 +26,10 @@ export async function createLocalServer(game, {name='Player', send=()=>{}} = {})
   }
   function stepsEveryTick(){inputAt=0;framePeriod=1000/60;host.setLocalInterval(1);}
   const event=message=>send('events',JSON.stringify(message));
+  // The host's clock is read here, at the step and at the publication: the
+  // world and the snapshot host are given the time, never read it.
   function publish(){
-    const out=host.publish();
+    const out=host.publish({at:performance.now(),unixMs:Date.now()});
     if(out.faults.length)throw out.faults[0].error;
     for(const m of out.inputAcks)send('state',JSON.stringify({type:'input-ack',...m}));
     for(const m of out.edgeResults)event({type:'entity-edge-results',...m});
@@ -37,7 +39,7 @@ export async function createLocalServer(game, {name='Player', send=()=>{}} = {})
   }
   function step(){
     const faults=host.advanceEdges();if(faults.length)throw faults[0].error;
-    const tick=world.step();
+    const tick=world.step(performance.now());
     const consumed=host.consumedEdges(tick);if(consumed.length)throw consumed[0].error;
     publish();return tick;
   }

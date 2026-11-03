@@ -29,12 +29,15 @@
 
 import { humanEntry } from "./runtime/commands.js";
 import { activePosts, friendlySpawn, humanSpawnPost, ownerOf, postAI } from "./ai/classic/goals.js";
+import { legacyRandom } from "./ai/random.js";
 
 export const RESPAWN_DELAY = 4; // s from a death to the screen (combat.js)
 export const CORPSE_LINGER = 4; // s a body lies where it fell (units.js)
 // Time summed tick by tick falls just short of a whole second count (240
 // steps of 1/60 make 3.99999...): timers count as done within this.
 export const TIME_SLACK = 1e-6;
+// The screen's pick with no generator given: Math.random.
+const legacyPost = legacyRandom("spawn-post");
 export const EVENTS = ["awaitingSpawn", "spawned", "teamChanged", "playerDied"];
 
 // ------------------------------------------------------------ spawn posts
@@ -49,7 +52,7 @@ export function eligiblePosts(posts, team, relation) {
 // kept; an ineligible one moves to the eligible post nearest it; with none,
 // the eligible post nearest an enemy-held post (the front line); failing
 // that a random eligible post. random() is [0, 1).
-export function choosePost(posts, team, previous, relation, random = Math.random) {
+export function choosePost(posts, team, previous, relation, random = legacyPost) {
   const pick = humanSpawnPost(previous || null, { posts, team, relation });
   if (pick) return pick;
   const eligible = eligiblePosts(posts, team, relation);

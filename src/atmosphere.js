@@ -217,7 +217,9 @@ const VERTEX = /* glsl */ `
 const FRAGMENT = /* glsl */ `
   uniform sampler2D map;
   uniform vec4 tint;
-  uniform vec2 fade, depthResolution, cameraRange;
+  // The near scene's fade (materials.js lighting), on a line of its own.
+  uniform vec2 fade;
+  uniform vec2 depthResolution, cameraRange;
   uniform sampler2D sceneDepth;
   uniform float softParticles;
   varying vec2 vUv;
@@ -236,6 +238,11 @@ const FRAGMENT = /* glsl */ `
     gl_FragColor = color;
   }
 `;
+
+// The square batches drawing into each scene (keyed by the scene at the
+// root of theirs), for a renderer that draws them itself
+// (src/rust-render/effects.js).
+export const squareBatches = new WeakMap();
 
 // One texture's squares: one instanced draw, refilled every frame.
 class SquareBatch {
@@ -265,6 +272,10 @@ class SquareBatch {
     this.mesh.renderOrder = 10;
     this.mesh.onBeforeRender = (renderer, s, camera) => particleDepth.capture(renderer, s, camera);
     scene.add(this.mesh);
+    let root = scene;
+    while (root.parent) root = root.parent;
+    if (!squareBatches.has(root)) squareBatches.set(root, []);
+    squareBatches.get(root).push(this);
     // Squares gathered this frame: [depth, x, y, z, size, angle, alpha].
     this.items = []; this.used = 0;
   }
@@ -287,8 +298,10 @@ class SquareBatch {
       spin[i * 2] = item[5]; spin[i * 2 + 1] = item[6];
     }
     this.geometry.instanceCount = n;
-    this.mesh.visible = n > 0;
-    if (!n) return;
+    // A batch another renderer draws (external: src/rust-render/effects.js
+    // reads its arrays) is shown to three never, and uploads it nothing.
+    this.mesh.visible = n > 0 && !this.external;
+    if (!n || this.external) return;
     for (const attribute of [this.center, this.spin]) {
       attribute.clearUpdateRanges();
       attribute.addUpdateRange(0, n * attribute.itemSize);

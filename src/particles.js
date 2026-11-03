@@ -146,6 +146,9 @@ class Batch {
       this.arrays[name] = array;
       this.geometry.setAttribute(name, new THREE.InstancedBufferAttribute(array, size).setUsage(THREE.DynamicDrawUsage));
     }
+    // three keeps the instance limit of the buffers it first bound until the
+    // geometry is disposed: grown, the new instances would not be drawn.
+    delete this.geometry._maxInstanceCount;
     this.capacity = capacity;
   }
 
@@ -185,8 +188,10 @@ class Batch {
 
   end() {
     this.geometry.instanceCount = this.count;
-    this.mesh.visible = this.count > 0;
-    if (!this.count) return;
+    // A batch another renderer draws (external: src/rust-render/effects.js
+    // reads its arrays) is shown to three never, and uploads it nothing.
+    this.mesh.visible = this.count > 0 && !this.external;
+    if (!this.count || this.external) return;
     for (const name of Object.keys(ATTRIBUTES)) {
       const attribute = this.geometry.getAttribute(name);
       attribute.clearUpdateRanges();
@@ -196,11 +201,20 @@ class Batch {
   }
 }
 
+// The particle renderers drawing into each scene (keyed by the scene at the
+// root of theirs), for a renderer that draws their batches itself
+// (src/rust-render/effects.js).
+export const particleRenderers = new WeakMap();
+
 export class ParticleRenderer {
   constructor(scene) {
     this.scene = scene;
     this.batches = new Map();
     this.lookup = new Map();
+    let root = scene;
+    while (root.parent) root = root.parent;
+    if (!particleRenderers.has(root)) particleRenderers.set(root, []);
+    particleRenderers.get(root).push(this);
   }
 
   // The batch for a texture and blend mode ("additive" or "normal").

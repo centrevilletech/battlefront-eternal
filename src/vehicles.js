@@ -1720,9 +1720,9 @@ export class Vehicle {
   }
   // Barrels kick back as they fire: BarrelRecoil along the
   // barrel's own z, times a kick that is 1 as it fires and decays at 4 a
-  // second (cosmetic, on the clock of whoever draws it).
+  // second (on the clock of whoever poses it: Vehicles.clock).
   recoilBarrels() {
-    const now = clockSeconds();
+    const now = this.system.clock();
     for (const seat of this.seats) for (const w of seat.weapons) for (const m of w.muzzles) {
       if (!m.barrel || !m.rest) continue;
       const kick = m.kickAt === undefined ? 0 : Math.max(0, 1 - 4 * (now - m.kickAt));
@@ -1742,7 +1742,7 @@ export class Vehicle {
         const d = m.fireNode.getWorldPosition(this.recoilPoint).distanceToSquared(point);
         if (d < span) { span = d; best = m; }
       }
-      if (best) best.kickAt = clockSeconds();
+      if (best) best.kickAt = this.system.clock();
     }
   }
 
@@ -1844,7 +1844,7 @@ export class Vehicle {
   muzzleOf(w, out) {
     const aimers = w.muzzles;
     const aimer = aimers.length ? aimers[w.barrel++ % aimers.length] : w.aimers[0];
-    if (aimer?.barrel) aimer.kickAt = clockSeconds();
+    if (aimer?.barrel) aimer.kickAt = this.system.clock();
     const node = aimer?.fireNode || this.byName[(aimer?.FirePointName || aimer?.node || w.def.FirePointName || '').toLowerCase()];
     this.shotNode = node || null;
     this.shotEmitter = aimer?.emitter ?? w.emitter;
@@ -1960,6 +1960,10 @@ export class Vehicles {
     this.relation = (a, b) => (this.units?.relation ? this.units.relation(a, b) : teamRelation(a, b));
     this.time = 0; // s of vehicle updates
     this.ticks = 0; // input batches so far
+    // s: the clock barrels kick back on. A page's wall clock; a world's is
+    // the time its host gives each step (src/game.js), as no step reads a
+    // clock of its own.
+    this.clock = clockSeconds;
     this.pendingExits = [];
     this.exitSpot = { position: new THREE.Vector3(), forward: new THREE.Vector3(), candidate: -1 };
     this.riderPoint = new THREE.Vector3();

@@ -29,6 +29,17 @@ function bridge() {
     input_len() { return 200 + 76 * 8; }
     bones_ptr() { return 16384; }
     bones_len() { return 64; }
+    far_input_ptr() { return 589824; }
+    far_input_len() { return 1024; }
+    // The transparent pass's views (src/rust-render/transparent.js): an empty list.
+    transparent_keys_ptr() { return 262144; }
+    transparent_keys_len() { return 64; }
+    transparent_objects_ptr() { return 270336; }
+    transparent_objects_len() { return 1 + 2 * 40; }
+    transparent_object_stride() { return 40; }
+    transparent_segments_ptr() { return 278528; }
+    transparent_segments_len() { return 0; }
+    transparent_segment() { return []; }
     records_at() { return 200; }
     record_stride() { return 76; }
     add_texture() { calls.push(["add_texture"]); return 0; }
@@ -58,6 +69,18 @@ function bridge() {
     hud_tint_ptr() { return 524288; }
     hud_tint_len() { return 64 * 4; }
     hud_init(index) { calls.push(["hud_init", index.length]); }
+    // The transparent pass's memory and the effects pass's (transparent.rs, effects.rs).
+    transparent_keys_ptr() { return 589824; }
+    transparent_keys_len() { return 64; }
+    transparent_segments_ptr() { return 655360; }
+    transparent_segments_len() { return 2; }
+    transparent_bucket_shown() {}
+    fx_input_ptr() { return 720896; }
+    fx_input_len() { return 600; }
+    fx_data_ptr() { return 786432; }
+    fx_data_len() { return 2048; }
+    fx_matrices_ptr() { return 851968; }
+    fx_matrices_len() { return 512; }
   }
   for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame", "hud_frame", "mirror_frame"]) BfeRenderer.prototype[name] = entry(name);
   const gl = {

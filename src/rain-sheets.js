@@ -113,7 +113,7 @@ export class RainSheets {
     this.material = new THREE.ShaderMaterial({
       vertexShader, fragmentShader, transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
       uniforms: {
-        streaks: { value: this.texture }, eye: uniforms.eye, time: uniforms.time, wind: uniforms.wind, color: uniforms.color,
+        streaks: { value: this.texture }, eye: uniforms.eye, time: uniforms.rainTime, wind: uniforms.wind, color: uniforms.color,
         speed: { value: Math.max(6, uniforms.velocity.value * 1.4) }, radii: { value: new THREE.Vector3(...RADII) }, strength: { value: 1 },
         cover: uniforms.cover, coverCell: uniforms.coverCell, coverSize: uniforms.coverSize,
         sceneDepth: particleDepth.map, softParticles: particleDepth.enabled, depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
