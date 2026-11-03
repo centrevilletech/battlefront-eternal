@@ -396,3 +396,8 @@ export const vehicleAI = {
     agentFrame(StationaryHelper, 'stationaryHelper', 'goto'), agentFrame(StationaryHelper, 'stationaryHelper', 'stop'),
   ],
 };
+
+// The views and the service's state as these frames write them, for the AI
+// phase's captures that carry the vehicle AI's state (the control core's):
+// rust/sim/src/ai/vehicles/replay.rs reads the same shapes.
+export { hullView, turretView, leaseView, unitView, controllerView, characterView, agentView, patternsView, steerView, intentView, serviceState };
