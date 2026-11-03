@@ -19,6 +19,7 @@ import { CommandPosts } from "../src/commandposts.js";
 import { BattleStats } from "../src/battle-stats.js";
 import { Character } from "../src/battle.js";
 import { ClassicSpawning } from "../src/ai/classic/spawning.js";
+import { createMultiplayerRoster } from "../src/runtime/multiplayer-roster.js";
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -221,7 +222,56 @@ for (let r = 0; r < 30; r++) {
   characters.forEach((c, i) => line("character", r, i, c.team, c.human, c.slot, c.managerIndex, c.playerId, c.name, c.classIndex, c.className, c.hero,
     c.spawn.timer, c.spawn.wave, c.spawn.ordinal, c.spawn.post ? posts.indexOf(c.spawn.post) : null, c.spawn.ready));
   for (const [post, q] of spawning.queues) line("queue", r, posts.indexOf(post), ...q);
+  // The multiplayer roster on that battle (src/runtime/multiplayer-roster.js):
+  // the local player dormant, the armies trimmed and filled, then players
+  // joining, leaving and switching teams. Some bots stand for bodies (alive
+  // or dead), which a retire takes out of the battle.
+  const idx = (c) => spawning.characters.indexOf(c);
+  const units = [];
+  spawning.characters.forEach((c, i) => {
+    if (c.human || u() < 0.5) return;
+    const alive = u() < 0.6;
+    units.push([i, alive]);
+    c.unit = { alive, seat: null, human: false, networkHuman: false, combat: { player: true }, onRemoved: null, remove: () => line("remove", r, idx(c)) };
+  });
+  const game = {
+    battle: { characters: spawning.characters, get human() { return spawning.characters.find((c) => c.human) || null; } },
+    ai: { spawning, classic: { attach: (c) => line("attach", r, idx(c)), detach: (c) => line("detach", r, idx(c)) } },
+    factory: { release: () => {} },
+  };
+  const armySize = pick([null, 32, 8, 3, 1]);
+  const state = (k) => {
+    for (const t of [1, 2]) { const team = spawning.teams[t]; line("rteam", r, k, t, team.capacity, team.unitCount, team.living, ...team.characters.map(idx)); }
+    spawning.characters.forEach((c, i) => line("rchar", r, k, i, c.team, c.human, c.playerId, c.name, c.index, c.slot, c.classIndex, c.className, c.hero,
+      c.spawn.timer, c.spawn.wave, c.spawn.ordinal, c.spawn.post ? posts.indexOf(c.spawn.post) : null, c.spawn.ready, c.networkDormant, c.unit ? idx(c) : null, c.kills, c.record === null ? "null" : "-"));
+    for (const [post, q] of spawning.queues) line("rqueue", r, k, posts.indexOf(post), ...q);
+    line("rrandom", r, k, spawning.random.state);
+  };
+  const roster = createMultiplayerRoster(game, armySize);
+  state(-1);
+  const ops = [];
+  const players = [];
+  for (let k = 0; k < 12; k++) {
+    const kind = players.length ? pick(["reserve", "reserve", "release", "switch"]) : "reserve";
+    if (kind === "reserve") {
+      const team = pick([1, 2]), id = u() < 0.5 ? 1000 + k : `net${k}`, name = pick(["Ace", "a-very-long-player-name-over-thirty-two-units", `P${k}`]);
+      ops.push({ op: kind, team, id: typeof id === "number" ? { n: n(id) } : { s: id }, name });
+      try { const c = roster.reserve(team, id, name); players.push(c); line("rop", r, k, kind, idx(c)); } catch (e) { line("rop", r, k, kind, e.message); }
+    } else if (kind === "release") {
+      const c = pick(players);
+      players.splice(players.indexOf(c), 1);
+      ops.push({ op: kind, who: idx(c) });
+      roster.release(c);
+      line("rop", r, k, kind, idx(c));
+    } else {
+      const c = pick(players), target = pick([1, 2]);
+      ops.push({ op: kind, who: idx(c), target });
+      line("rop", r, k, kind, roster.switchTeam(c, target));
+    }
+    state(k);
+  }
   rosterRuns.push({
+    multiplayer: { armySize: armySize === null ? null : n(armySize), units, ops },
     calls: calls.map((c) => ({ name: c.name, args: c.args.map((a) => (typeof a === "number" ? { n: n(a) } : { s: a })) })),
     posts: posts.map((p) => ({ team: p.team, active: p.active, position: [n(p.position.x), n(p.position.y), n(p.position.z)],
       ai: { ...p.ai, yaw: n(p.ai.yaw), spawnPath: p.ai.spawnPath && { present: p.ai.spawnPath.present, points: p.ai.spawnPath.points.map((q) => q.map(n)) },

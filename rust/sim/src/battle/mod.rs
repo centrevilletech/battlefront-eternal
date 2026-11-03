@@ -15,6 +15,7 @@ pub mod objectives;
 pub mod phase;
 pub mod posts;
 pub mod regions;
+pub mod roster;
 pub mod rules;
 pub mod spawning;
 pub mod stats;

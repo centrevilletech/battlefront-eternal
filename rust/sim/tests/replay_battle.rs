@@ -590,6 +590,15 @@ impl BattleWorld for Served<'_> {
         self.serve_ai(s);
     }
     fn battle_over(&mut self, _: f64) {}
+    fn ai_detach(&mut self, _: &mut Store, _: Ref<Character>) {
+        self.fail("the roster's calls are not in these frames".into());
+    }
+    fn ai_attach(&mut self, _: &mut Store, _: Ref<Character>) {
+        self.fail("the roster's calls are not in these frames".into());
+    }
+    fn retire_unit(&mut self, _: &mut Store, _: Ref<Character>, _: Ref<Unit>) {
+        self.fail("the roster's calls are not in these frames".into());
+    }
 }
 
 impl Served<'_> {

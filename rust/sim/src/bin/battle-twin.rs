@@ -15,11 +15,12 @@ use bfe_sim::battle::objectives::kill_region;
 use bfe_sim::battle::phase::change_of;
 use bfe_sim::battle::posts::{self, remaining, Capturer, Change};
 use bfe_sim::battle::regions::{build_region, in_region, region_desc};
+use bfe_sim::battle::roster;
 use bfe_sim::battle::rules::{new_character, new_stats};
 use bfe_sim::battle::spawning::{self, Arg, Call, HumanSpec, TEAM_CAPACITY};
 use bfe_sim::battle::stats::{self, Seen};
 use bfe_sim::battle::world::{BattleWorld, Body, Member, Victim};
-use bfe_sim::gen::{Building, Character, MobilePost, Post, PostAi, PostEvent, PostRef, RegionDesc, RegionType, SpawnPath, SpawnPost, Store, Unit, Vehicle};
+use bfe_sim::gen::{Building, Character, MobilePost, PlayerId, Post, PostAi, PostEvent, PostRef, RegionDesc, RegionType, SpawnPath, SpawnPost, Store, Unit, Vehicle};
 use bfe_sim::store::{Nullable, Ref, StrId, Strings};
 use std::fmt::Write as _;
 use three::Vector3;
@@ -98,6 +99,17 @@ struct Twin {
     /// Each class's hero name (its name in upper case), in the battle's
     /// strings.
     heroes: Vec<(StrId, StrId)>,
+    /// The roster run's bodies (unit slot, alive), and the lines its world
+    /// calls write (the run's number first), in order.
+    units: Vec<(u32, bool)>,
+    run: f64,
+    lines: Vec<Vec<String>>,
+}
+
+impl Twin {
+    fn place(s: &Store, c: Ref<Character>) -> f64 {
+        s.battle.characters.iter().position(|x| *x == c).unwrap() as f64
+    }
 }
 
 impl BattleWorld for Twin {
@@ -107,8 +119,8 @@ impl BattleWorld for Twin {
     fn capture_team(&mut self, team: f64) -> f64 {
         self.capture.get(team as usize).copied().unwrap_or(team)
     }
-    fn unit_alive(&mut self, _: Ref<Unit>) -> bool {
-        unreachable!()
+    fn unit_alive(&mut self, unit: Ref<Unit>) -> bool {
+        self.units.iter().find(|(u, _)| *u == unit.slot).map(|(_, a)| *a).expect("a roster run's body")
     }
     fn observe(&mut self, _: Ref<Character>, _: Option<Ref<Unit>>) -> Option<Seen> {
         unreachable!()
@@ -184,6 +196,15 @@ impl BattleWorld for Twin {
         unreachable!("not in these frames")
     }
     fn battle_over(&mut self, _: f64) {}
+    fn ai_detach(&mut self, s: &mut Store, c: Ref<Character>) {
+        self.lines.push(vec!["detach".into(), bits(self.run), bits(Self::place(s, c))]);
+    }
+    fn ai_attach(&mut self, s: &mut Store, c: Ref<Character>) {
+        self.lines.push(vec!["attach".into(), bits(self.run), bits(Self::place(s, c))]);
+    }
+    fn retire_unit(&mut self, s: &mut Store, c: Ref<Character>, _: Ref<Unit>) {
+        self.lines.push(vec!["remove".into(), bits(self.run), bits(Self::place(s, c))]);
+    }
 }
 
 fn regions(ops: &Value, t: &mut Trace) {
@@ -253,7 +274,7 @@ fn posts(ops: &Value, t: &mut Trace) {
             let r = s.post.insert(post);
             s.command_posts.posts.push(r);
         }
-        let mut world = Twin { capture: arr(run, "capture").iter().map(num).collect(), heroes: Vec::new() };
+        let mut world = Twin { capture: arr(run, "capture").iter().map(num).collect(), heroes: Vec::new(), units: Vec::new(), run: 0.0, lines: Vec::new() };
         for (k, tick) in arr(run, "ticks").iter().enumerate() {
             let soldiers: Vec<Capturer> = arr(tick, "soldiers")
                 .iter()
@@ -431,7 +452,7 @@ fn rosters(ops: &Value, t: &mut Trace) {
         let (spawning, mut naming) = spawning::new_spawning(&calls, num(run.get("unitScale").unwrap()), heroes, false, names, TEAM_CAPACITY, &|_| true, &mut strings);
         let classes: Vec<StrId> = spawning.teams.iter().flat_map(|t| t.classes.iter().map(|c| c.name)).collect();
         let heroes_named = classes.into_iter().map(|c| (c, strings.intern_str(&text(&strings, c).to_uppercase()))).collect();
-        let mut world = Twin { capture: Vec::new(), heroes: heroes_named };
+        let mut world = Twin { capture: Vec::new(), heroes: heroes_named, units: Vec::new(), run: r as f64, lines: Vec::new() };
         s.spawning = spawning;
         s.battle.stats = new_stats();
         for p in arr(run, "posts") {
@@ -513,6 +534,110 @@ fn rosters(ops: &Value, t: &mut Trace) {
             parts.extend(q.iter().map(|x| bits(*x)));
             t.line(&parts);
         }
+        multiplayer(run.get("multiplayer").unwrap(), r, &mut s, &mut naming, &mut strings, &mut world, &mut random, t);
+    }
+}
+
+/// A Character's id as the trace writes it.
+fn player_text(id: &PlayerId, strings: &Strings) -> String {
+    match id {
+        PlayerId::F64(x) => bits(*x),
+        PlayerId::Str(s) => text(strings, *s),
+        PlayerId::Undefined => "-".into(),
+    }
+}
+
+/// The roster run on a battle after its match start: the bodies, the roster
+/// made, then its operations, the state after each.
+#[allow(clippy::too_many_arguments)]
+fn multiplayer(mp: &Value, r: usize, s: &mut Store, naming: &mut spawning::Naming, strings: &mut Strings, world: &mut Twin, random: &mut jsrt::rng::ClassicRandom, t: &mut Trace) {
+    let rb = bits(r as f64);
+    let list = s.battle.characters.clone();
+    for u in arr(mp, "units") {
+        let (i, alive) = (num(&u.as_array().unwrap()[0]) as usize, u.as_array().unwrap()[1].truthy());
+        let unit = Ref::new(1000 + i as u32, 0);
+        world.units.push((unit.slot, alive));
+        s.character.get_mut(list[i]).unwrap().unit = Some(unit);
+    }
+    let flush = |world: &mut Twin, t: &mut Trace| {
+        for parts in world.lines.drain(..) {
+            t.line(&parts);
+        }
+    };
+    let state = |s: &Store, strings: &Strings, k: f64, t: &mut Trace| {
+        let kb = bits(k);
+        let place = |c: Ref<Character>| bits(s.battle.characters.iter().position(|x| *x == c).unwrap() as f64);
+        for team in [1usize, 2] {
+            let tm = &s.spawning.teams[team];
+            let mut parts = vec!["rteam".to_string(), rb.clone(), kb.clone(), bits(team as f64), bits(tm.capacity), bits(tm.unit_count), bits(tm.living)];
+            parts.extend(tm.characters.iter().map(|c| place(*c)));
+            t.line(&parts);
+        }
+        for (i, &cr) in s.battle.characters.iter().enumerate() {
+            let c = s.character.get(cr).unwrap();
+            let sp = c.spawn.as_ref().unwrap();
+            let post = match sp.post {
+                PostRef::Post(pr) => bits(s.command_posts.posts.iter().position(|x| *x == pr).unwrap() as f64),
+                _ => "-".into(),
+            };
+            let class_index = match c.class_index {
+                Nullable::Value(x) => bits(x),
+                _ => "-".into(),
+            };
+            let parts = vec![
+                "rchar".to_string(), rb.clone(), kb.clone(), bits(i as f64), bits(c.team), b(c.human), player_text(&c.player_id, strings),
+                c.name.map(|n| text(strings, n)).unwrap_or_else(|| "-".into()), bits(c.index), c.slot.map(bits).unwrap_or_else(|| "-".into()), class_index,
+                c.class_name.map(|n| text(strings, n)).unwrap_or_else(|| "-".into()), c.hero.map(b).unwrap_or_else(|| "-".into()),
+                bits(sp.timer), sp.wave.map(bits).unwrap_or_else(|| "-".into()), sp.ordinal.map(bits).unwrap_or_else(|| "-".into()), post, b(sp.ready),
+                c.network_dormant.map(b).unwrap_or_else(|| "-".into()), if c.unit.is_some() { bits(i as f64) } else { "-".into() }, bits(c.kills),
+                if c.record == Nullable::Null { "null".into() } else { "-".into() },
+            ];
+            t.line(&parts);
+        }
+        for (p, q) in s.spawning.queues.iter() {
+            let SpawnPost::Post(pr) = p else { unreachable!() };
+            let mut parts = vec!["rqueue".to_string(), rb.clone(), kb.clone(), bits(s.command_posts.posts.iter().position(|x| *x == pr).unwrap() as f64)];
+            parts.extend(q.iter().map(|x| bits(*x)));
+            t.line(&parts);
+        }
+    };
+    let army = mp.get("armySize").filter(|a| a.as_str().is_some()).map(num);
+    let local = list.iter().copied().find(|c| s.character.get(*c).unwrap().human);
+    roster::create(s, army, local, naming, strings, world, random);
+    flush(world, t);
+    state(s, strings, -1.0, t);
+    t.line(&["rrandom".into(), rb.clone(), bits(-1.0), bits(random.state as f64)]);
+    for (k, op) in arr(mp, "ops").iter().enumerate() {
+        let kb = bits(k as f64);
+        let now = s.battle.characters.clone();
+        let who = |v: Option<&Value>| now[num(v.unwrap()) as usize];
+        let result = match op.get("op").and_then(Value::as_str).unwrap() {
+            "reserve" => {
+                let id = op.get("id").unwrap();
+                let id = match id.get("s").and_then(Value::as_str) {
+                    Some(text) => PlayerId::Str(strings.intern_str(text)),
+                    None => PlayerId::F64(num(id.get("n").unwrap())),
+                };
+                let name: Vec<u16> = op.get("name").and_then(Value::as_str).unwrap().encode_utf16().collect();
+                match roster::reserve(s, num(op.get("team").unwrap()), id, &name, strings, world) {
+                    Ok(c) => bits(s.battle.characters.iter().position(|x| *x == c).unwrap() as f64),
+                    Err(e) => e.to_string(),
+                }
+            }
+            "release" => {
+                let c = who(op.get("who"));
+                roster::release(s, c, naming, strings, world, random);
+                bits(num(op.get("who").unwrap()))
+            }
+            _ => {
+                let c = who(op.get("who"));
+                b(roster::switch_team(s, c, num(op.get("target").unwrap()), naming, strings, world, random))
+            }
+        };
+        flush(world, t);
+        t.line(&["rop".into(), rb.clone(), kb.clone(), op.get("op").and_then(Value::as_str).unwrap().into(), result]);
+        state(s, strings, k as f64, t);
+        t.line(&["rrandom".into(), rb.clone(), kb.clone(), bits(random.state as f64)]);
     }
 }
 

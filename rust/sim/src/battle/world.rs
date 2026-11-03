@@ -118,6 +118,14 @@ pub trait BattleWorld {
     /// AI's.
     fn mobile_event(&mut self, s: &mut Store, event: &MobileEvent);
 
+    // ---- The multiplayer roster (src/runtime/multiplayer-roster.js).
+    /// classic.detach(character): the AI lets him go.
+    fn ai_detach(&mut self, s: &mut Store, character: Ref<Character>);
+    /// classic.attach(character): the AI takes him (a bot).
+    fn ai_attach(&mut self, s: &mut Store, character: Ref<Character>);
+    /// His body out of the battle (the roster's retire): out of any seat
+    /// (unplaced), no longer a player's, removed.
+    fn retire_unit(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>);
     // ---- What the page shows.
 
     /// battle.onOver(loser): Victory or Defeat.
