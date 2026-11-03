@@ -162,8 +162,10 @@ class ViewPass {
       core.addView("viewInput", Float64Array, () => core.rust.view_input_ptr(), () => core.rust.view_input_len());
       this.input = true;
     }
-    core.views();
-    const input = core.viewInput;
+    // Written into a buffer of the page's first: a uniform's texture registered
+    // on the way (writeUniform: core.texture) can grow the renderer's memory,
+    // which detaches every view of it; the view is taken once all is written.
+    const input = this.scratch ||= new Float64Array(1 + MAX_DRAWS * DRAW);
     input[0] = 0;
     this.opaques.sort(opaqueOrder);
     this.blends.sort(transparentOrder);
@@ -188,6 +190,8 @@ class ViewPass {
       n++;
     }
     input[0] = n;
+    core.views();
+    core.viewInput.set(input.subarray(0, 1 + n * DRAW));
   }
 
   write(record, at) {

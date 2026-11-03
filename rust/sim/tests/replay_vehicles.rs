@@ -433,7 +433,7 @@ fn hulls_pose_as_captured() {
             if name == "vehicle.aimTick" {
                 hull.aim_tick(&mut served, alpha, dt);
             } else {
-                hull.render(&mut served, alpha, dt);
+                hull.render(&mut served, alpha, dt, frame.arg(2).truthy());
             }
             if let Some(e) = served.error {
                 return Outcome::Failed(e);

@@ -54,9 +54,9 @@
 // jetpack's wake (jetpack-wake.js), the destruction's fire, smoke and arcs
 // (destruction-fx.js) and the death camera's trace of the killing shot
 // (death-trace.js; it and the arcs meshes rebuilt each frame with shader
-// materials of their own) are drawn here too; the destruction's burning
-// pieces and the jetpack's flame (jetpack-volume.js) stay with three for
-// now.
+// materials of their own) and the jetpack's flame (jetpack-volume.js: boxes
+// ray-marched through a 3D noise texture) are drawn here too; the
+// destruction's burning pieces are the instance pass's.
 import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
 import { squareBatches } from "../atmosphere.js";
@@ -64,6 +64,7 @@ import { classicLightning } from "../lightning.js";
 import { arcBatches } from "../arc-lightning.js";
 import { droidekaTrails } from "../droideka-trail.js";
 import { jetpackWakes } from "../jetpack-wake.js";
+import { jetpackVolumes } from "../jetpack-volume.js";
 import { destructionPools, destructionArcs } from "../destruction-fx.js";
 import { rainImpacts } from "../rain-impacts.js";
 import { fountainJets } from "../fountain-jets.js";
@@ -118,6 +119,11 @@ const KINDS = {
   // smoke and embers, particles on a quad of their own placed by their
   // program from their births and the wake's clock.
   wake: { attributes: [["birth", 4], ["flow", 4], ["axis", 4], ["style", 2]], base: [["position", 3], ["uv", 2]], values: ["wakeTime", "kind", "drag"], samplers: [] },
+  // The Enhanced jetpack's flame (jetpack-volume.js): a box a nozzle,
+  // ray-marched through a 3D noise texture; its onBeforeRender takes the
+  // scene's depth whatever the setting and says whether it has it.
+  flame: { attributes: [["nozzle", 3], ["direction", 3], ["bend", 3], ["nozzleRadius", 1], ["phase", 1]], base: [["position", 3]],
+    values: ["flameTime", "power", "hasDepth"], samplers: ["noiseField"], beforeRender: true, depth: true },
   // The Enhanced destruction's fire and smoke (destruction-fx.js): pools of
   // records on a quad of their own, as many attributes as each keeps,
   // placed by their program from their births and the effects' clock.
@@ -155,7 +161,9 @@ const SHADER_MODELS = new Set(["rain-sheets", "environment-volumes", "fountain-s
 const JETS = new Set(["fountain-pool", "fountain-overflow", "fountain-ropes", "fountain-jets", "fountain-jets-core", "fountain-jets-near", "fountain-overflow-near", "fountain-ropes-near"]);
 // add_batch's corner for a batch with a base of its own (effects.rs NO_CORNER).
 const NO_CORNER = 0xffffffff;
-const SAMPLER_UNITS = { flakes: 7, boxes: 8, cover: 9, atlas: 10, foamMap: 11, sceneColor: 12 };
+// noiseField: the jetpack flame's 3D noise, on the unit the core keeps for
+// it (core.rs UNIT_FLAME_NOISE).
+const SAMPLER_UNITS = { flakes: 7, boxes: 8, cover: 9, atlas: 10, foamMap: 11, sceneColor: 12, noiseField: 21 };
 // A shader model's units for what it samples besides its map and the scene's depth.
 const MODEL_UNITS = [9, 10, 11];
 const LIGHTNING = [["position", 3], ["uv", 2], ["color", 4]];
@@ -255,6 +263,17 @@ function poolOf(pool) {
     get external() { return pool.external; }, set external(on) { pool.external = on; },
   };
 }
+// The Enhanced jetpack's flame (jetpack-volume.js): its nozzles' boxes as
+// the volume keeps them; hidden from three by `external`.
+function volumeOf(volume) {
+  const g = volume.mesh.geometry, arrays = {};
+  for (const [name, attribute] of Object.entries(g.attributes)) if (attribute.isInstancedBufferAttribute) arrays[name] = attribute.array;
+  return {
+    mesh: volume.mesh, material: volume.mesh.material, geometry: g, source: volume,
+    get count() { return volume.count; }, capacity: g.getAttribute("phase").count, arrays,
+    get external() { return volume.external; }, set external(on) { volume.external = on; },
+  };
+}
 function drops(mesh) {
   const seed = mesh.geometry.getAttribute("seed");
   return { mesh, material: mesh.material, geometry: mesh.geometry, get count() { return mesh.geometry.instanceCount; }, capacity: seed.count, arrays: { seed: seed.array }, external: false };
@@ -281,6 +300,13 @@ function copyBits(bits, at, src, from, to) {
   if (n <= 16) for (let i = 0; i < n; i++) bits[at + i] = src[from + i];
   else bits.set(src.subarray(from, to), at);
   return at + n;
+}
+
+// A batch's sampler on its unit: a 3D texture (the jetpack flame's noise)
+// bound as one.
+function bindSampler(core, batch, sampler, texture, id) {
+  if (texture?.isData3DTexture) core.rust.fx_batch_sampler_3d(batch, sampler.name, sampler.unit, id);
+  else core.rust.fx_batch_sampler(batch, sampler.name, sampler.unit, id);
 }
 
 // A droideka's shield (droideka-shield.js), and the Enhanced aura around it
@@ -376,8 +402,8 @@ class EffectsPass {
   // registered once three has drawn it, then hidden from three: glow models
   // (with their group's other parts: they share its material), shields and
   // the other shader models, the snow, the rain, the environment's batches,
-  // the Enhanced arcs', the droideka's dust, the jetpack's wake, the
-  // destruction's fire, smoke and arcs and the death camera's trace.
+  // the Enhanced arcs', the droideka's dust, the jetpack's flame and wake,
+  // the destruction's fire, smoke and arcs and the death camera's trace.
   listed(ctx) {
     const list = this.threeList(ctx.renderer, ctx.scene);
     for (const item of list?.transparent || []) {
@@ -402,6 +428,9 @@ class EffectsPass {
         if (record !== undefined) this.byBatch.set(object, record);
       } else if (object.name === "droideka-rolling-dust" && droidekaTrails.has(object) && object.material?.isShaderMaterial) {
         const record = this.registerBatch(trailOf(droidekaTrails.get(object)), "trail", null);
+        if (record !== undefined) this.byBatch.set(object, record);
+      } else if (jetpackVolumes.has(object) && object.material?.isShaderMaterial) {
+        const record = this.registerBatch(volumeOf(jetpackVolumes.get(object)), "flame", null);
         if (record !== undefined) this.byBatch.set(object, record);
       } else if (object.name.startsWith("jetpack-wake-") && jetpackWakes.has(object) && object.material?.isShaderMaterial) {
         const record = this.registerBatch(wakeOf(jetpackWakes.get(object)), "wake", null);
@@ -564,7 +593,7 @@ class EffectsPass {
     if (spec.interleaved) core.rust.fx_batch_interleaved(id);
     if (sides[0] !== 2) core.rust.fx_batch_side(id, sides[0]);
     if (values.length) core.rust.fx_batch_values(id, values.map(([name, size, form]) => `${name}:${size}:${form}`).join(","));
-    for (const sampler of samplers) core.rust.fx_batch_sampler(id, sampler.name, sampler.unit, sampler.id);
+    for (const sampler of samplers) bindSampler(core, id, sampler, sampler.map, sampler.id);
     // Its key but z, which never changes: no group above it but the map's
     // environment effects', the origin for a centre (no positions), the
     // identity for a world matrix.
@@ -860,7 +889,7 @@ class EffectsPass {
         const tex = b.material.uniforms[sampler.name].value ?? null, handle = this.handle(tex);
         if (tex !== sampler.map || handle !== sampler.handle) {
           sampler.map = tex; sampler.handle = handle;
-          core.rust.fx_batch_sampler(record.id, sampler.name, sampler.unit, tex ? core.texture(tex) : -1);
+          bindSampler(core, record.id, sampler, tex, tex ? core.texture(tex) : -1);
         }
       }
     }
