@@ -31,6 +31,7 @@ const HEALTH_TYPES = ["Person", "Animal", "Droid", "Vehicle", "Building", "Build
 let current = null; // the controller whose update/service/input is running
 let acousticLens = new Map(); // controller -> acoustic refs last recorded
 let noteLens = new Map(); // controller -> vehicle-notes refs last recorded
+let lastHelperMade = null;
 
 const v3 = (p) => (p ? [p.x, p.y, p.z] : null);
 const num = (v) => (typeof v === 'number' ? v : null);
@@ -133,6 +134,16 @@ function prepare(game) {
   // currentControllable): rebind the bag through the service object
   // so one shim on the service records both paths, identically.
   const vehicleService = vehicleServiceOf(ai);
+  // Constructors have not assigned controller.agent/helper when the
+  // factory returns. Capture the actual returned helper at this seam.
+  for (const [owner, name] of [[vehicleService, 'createHelper'], [ai.world.nav, 'helper']]) {
+    if (typeof owner?.[name] !== 'function') continue;
+    const make = owner[name];
+    owner[name] = function (...args) {
+      lastHelperMade = make.apply(this, args);
+      return lastHelperMade;
+    };
+  }
   if (vehicleService && ai.vehicles) {
     for (const name of Object.keys(ai.vehicles)) {
       if (typeof vehicleService[name] === 'function') {
@@ -818,6 +829,12 @@ const foreignAfter = () => ({
   state: current?.agent?.state ?? 0, pending: current?.agent?.pending ?? 0,
 });
 
+const helperMadeExtra = () => ({
+  ...afterCurrent(),
+  h: helperSnap(lastHelperMade),
+  helperOwner: lastHelperMade?.controller ?? null,
+});
+
 function alertExtra(game) {
   const ai = game.ai.classic.ai;
   const characters = game.ai.spawning?.characters ?? [];
@@ -947,7 +964,7 @@ function aiBoundaries(game) {
     const onService = typeof vehicleService?.[name] === 'function';
     const onBag = typeof ai.vehicles?.[name] === 'function';
     if (onService || onBag) {
-      const extra = name === 'notify' ? notesExtra : name === 'patrolMounted' ? patrolExtra : () => afterCurrent();
+      const extra = name === 'notify' ? notesExtra : name === 'patrolMounted' ? patrolExtra : name === 'createHelper' ? helperMadeExtra : () => afterCurrent();
       out.push([`vehicles.${name}`, onService ? vehicleService : ai.vehicles, name, extra]);
     }
   }
@@ -967,7 +984,7 @@ function aiBoundaries(game) {
   out.push(['ai.analogs', ai, 'analogs']);
   const nav = world.nav;
   if (nav) {
-    out.push(['nav.helper', nav, 'helper', afterCurrent]);
+    out.push(['nav.helper', nav, 'helper', helperMadeExtra]);
     out.push(['nav.control', nav, 'control', afterCurrent]);
     const helperClasses = [
       ['ground', GroundGotoHelper], ['fly', NavFlyGotoHelper],
