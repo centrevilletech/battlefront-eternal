@@ -535,9 +535,15 @@ class Anchor {
   }
 }
 
+// The arcs by their mesh, for a renderer that draws them itself
+// (src/rust-render/effects.js): while `external`, three is shown them never
+// and uploads them nothing.
+export const destructionArcs = new WeakMap();
+
 class Arcs {
   constructor(scene, capacity) {
     this.capacity = capacity;
+    this.external = false;
     this.arcs = Array.from({ length: capacity }, () => ({
       live: false, age: 0, life: 0, width: 0, intensity: 0, seed: 0, reach: 0, a: new Anchor(), b: new Anchor(),
     }));
@@ -567,6 +573,7 @@ class Arcs {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 12;
     this.mesh.visible = false;
+    destructionArcs.set(this.mesh, this);
     scene.add(this.mesh);
     this.points = Array.from({ length: SEGMENTS + 1 }, () => new THREE.Vector3());
     this.from = new THREE.Vector3();
@@ -647,8 +654,8 @@ class Arcs {
     const geometry = this.mesh.geometry;
     const { vertex, index } = this;
     geometry.setDrawRange(0, index);
-    this.mesh.visible = index > 0;
-    if (!index) return;
+    this.mesh.visible = index > 0 && !this.external;
+    if (!index || this.external) return;
     for (const name of ["position", "tangent", "meta"]) {
       const attribute = geometry.getAttribute(name);
       attribute.clearUpdateRanges();
