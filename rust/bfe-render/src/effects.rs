@@ -105,8 +105,10 @@ struct Batch<C: HasContext> {
     // and where its program keeps them.
     values: Vec<MaterialValue>,
     value_slots: Vec<Option<C::UniformLocation>>,
-    // Textures on units of their own (batch_sampler).
+    // Textures on units of their own (batch_sampler), and 3D ones
+    // (batch_sampler_3d: the jetpack flame's noise).
     samplers: Vec<(u32, Option<C::Texture>)>,
+    samplers_3d: Vec<(u32, Option<C::Texture>)>,
     // Indices an instance draws: the corner quad's 6, or its own base's.
     index_count: i32,
     // Its instances come interleaved already (batch_interleaved).
@@ -130,6 +132,9 @@ struct MeshPass<C: HasContext> {
     side: u32,
     vao: C::VertexArray,
     slots: Vec<Option<C::UniformLocation>>,
+    // modelMatrix, which three's own materials read under shadows (its
+    // world position): the identity, a mesh's vertices being in the world.
+    model: Option<C::UniformLocation>,
 }
 
 struct Mesh<C: HasContext> {
@@ -158,6 +163,9 @@ struct ModelPass<C: HasContext> {
     model_view: Option<C::UniformLocation>,
     normal: Option<C::UniformLocation>,
     slots: Vec<Option<C::UniformLocation>>,
+    // modelMatrix, which three's own materials read under shadows (its
+    // world position): the model's world matrix, set per draw.
+    model: Option<C::UniformLocation>,
 }
 
 struct Model<C: HasContext> {
@@ -213,6 +221,9 @@ fn sides<C: HasContext>(gl: &C, state: &mut GlState<C>, stats: &mut Stats, side:
 // an int; 4 an array of vec4s), as the page names them ("name:size" or
 // "name:size:form", comma-separated).
 pub type MaterialValue = (String, usize, u32);
+
+// The identity, as a mesh's modelMatrix (its vertices in the world).
+const IDENTITY: [f32; 16] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
 
 fn material_values(values: &str) -> Vec<MaterialValue> {
     values.split(',').filter(|s| !s.is_empty()).filter_map(|s| {
@@ -350,7 +361,7 @@ impl<C: HasContext> EffectsPass<C> {
         self.batches.push(Batch {
             program: program as usize, texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
             vao, vbo, capacity: 0, sizes, stride, owner: if owner < 0 { None } else { Some(owner as usize) }, slots,
-            values: vec![], value_slots: vec![], samplers: vec![], index_count: 6, interleaved: false, side: 2,
+            values: vec![], value_slots: vec![], samplers: vec![], samplers_3d: vec![], index_count: 6, interleaved: false, side: 2,
         });
         // Its samplers besides the map on their units.
         unsafe {
@@ -441,6 +452,26 @@ impl<C: HasContext> EffectsPass<C> {
         }
     }
 
+    // A 3D texture a batch's program samples by `name`, on `unit`: as
+    // batch_sampler, bound as a 3D texture.
+    pub fn batch_sampler_3d<M: MultiDraw>(&mut self, core: &Core<C, M>, batch: u32, name: &str, unit: u32, texture: i32) {
+        let Some(b) = self.batches.get_mut(batch as usize) else { return };
+        let gl = &core.gl;
+        let p = core.programs[b.program].program;
+        unsafe {
+            if let Some(l) = gl.get_uniform_location(p, name) {
+                gl.use_program(Some(p));
+                gl.uniform_1_i32(Some(&l), unit as i32);
+                gl.use_program(None);
+            }
+        }
+        let t = if texture < 0 { None } else { core.textures.get(texture as usize).copied() };
+        match b.samplers_3d.iter_mut().find(|(u, _)| *u == unit) {
+            Some(entry) => entry.1 = t,
+            None => b.samplers_3d.push((unit, t)),
+        }
+    }
+
     // A batch's texture again (three made it anew).
     pub fn batch_texture<M: MultiDraw>(&mut self, core: &Core<C, M>, batch: u32, texture: i32) {
         if let Some(b) = self.batches.get_mut(batch as usize) {
@@ -500,7 +531,8 @@ impl<C: HasContext> EffectsPass<C> {
             vao
         };
         let slots = m.values.iter().map(|v| unsafe { gl.get_uniform_location(p, &v.0) }).collect();
-        m.passes.push(MeshPass { program: program as usize, side, vao, slots });
+        let model = unsafe { gl.get_uniform_location(p, "modelMatrix") };
+        m.passes.push(MeshPass { program: program as usize, side, vao, slots, model });
         (m.passes.len() - 1) as u32
     }
 
@@ -534,8 +566,9 @@ impl<C: HasContext> EffectsPass<C> {
         let gl = &core.gl;
         let m = &mut self.models[model as usize];
         let p = core.programs[program as usize].program;
-        let (model_view, normal, slots) = unsafe {
-            (gl.get_uniform_location(p, "modelViewMatrix"), gl.get_uniform_location(p, "normalMatrix"), m.values.iter().map(|v| gl.get_uniform_location(p, &v.0)).collect())
+        let (model_view, normal, model, slots) = unsafe {
+            (gl.get_uniform_location(p, "modelViewMatrix"), gl.get_uniform_location(p, "normalMatrix"), gl.get_uniform_location(p, "modelMatrix"),
+                m.values.iter().map(|v| gl.get_uniform_location(p, &v.0)).collect())
         };
         // The scene's depth (common) on its unit, for a program that reads it.
         unsafe {
@@ -545,7 +578,7 @@ impl<C: HasContext> EffectsPass<C> {
                 gl.use_program(None);
             }
         }
-        m.passes.push(ModelPass { program: program as usize, side, geometry: geometry as usize, model_view, normal, slots });
+        m.passes.push(ModelPass { program: program as usize, side, geometry: geometry as usize, model_view, normal, slots, model });
         (m.passes.len() - 1) as u32
     }
 
@@ -641,6 +674,9 @@ impl<C: HasContext> EffectsPass<C> {
             for &(unit, t) in &b.samplers {
                 state.bind_texture(gl, stats, unit, t);
             }
+            for &(unit, t) in &b.samplers_3d {
+                state.bind_texture_3d(gl, stats, unit, t);
+            }
             // The frame's soft particle values, and the owner's rows.
             let input = &self.input;
             let owner = b.owner.map(|o| &self.owners[o]);
@@ -722,6 +758,9 @@ impl<C: HasContext> EffectsPass<C> {
             for pass in &m.passes {
                 let program = &core.programs[pass.program];
                 state.use_program(gl, stats, program.program);
+                if let Some(l) = pass.model.as_ref() {
+                    set_value(gl, stats, &mut self.held, pass.program, &("modelMatrix".to_string(), 16, 0), Some(l), &IDENTITY);
+                }
                 // The material's values, each set when the program holds another.
                 let mut v = values_at;
                 for (k, value) in m.values.iter().enumerate() {
@@ -776,6 +815,11 @@ impl<C: HasContext> EffectsPass<C> {
             }
             if let Some(l) = pass.normal.as_ref() {
                 unsafe { gl.uniform_matrix_3_f32_slice(Some(l), false, &normal) };
+                stats.gl_calls += 1;
+            }
+            if let Some(l) = pass.model.as_ref() {
+                let w: [f32; 16] = std::array::from_fn(|k| world[k] as f32);
+                unsafe { gl.uniform_matrix_4_f32_slice(Some(l), false, &w) };
                 stats.gl_calls += 1;
             }
             let mut v = values_at;

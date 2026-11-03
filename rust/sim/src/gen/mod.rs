@@ -9,6 +9,8 @@ pub use crate::store::{word_i32, word_u32, DefId, KindCode, Mat4, Nullable, Quat
 
 mod combat;
 pub use self::combat::*;
+mod flight;
+pub use self::flight::*;
 mod items;
 pub use self::items::*;
 mod nav;
@@ -64,7 +66,7 @@ pub const KINDS: usize = 31;
 pub const KIND_NAMES: [&str; 32] = ["", "beam", "body", "bolt", "building", "character", "controller", "emitter", "grenade", "item", "items", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "post", "prop", "round", "seatLease", "seatUnit", "seats", "turret", "turretSeats", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 32] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x635c5cfc, 0x9b924a1b, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0x512f6f6c, 0x2547f2df, 0xfbd22c8d, 0x13c7018c, 0x03866fa6, 0xc9aab5eb, 0x7252759a, 0x02390125, 0xc4be789d];
+pub const KIND_HASHES: [u32; 32] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x635c5cfc, 0x9b924a1b, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0x512f6f6c, 0x2547f2df, 0xfbd22c8d, 0x13c7018c, 0x03866fa6, 0x0a60873c, 0x7252759a, 0x02390125, 0xc4be789d];
 /// Whether each kind's objects carry their own number (its slot), by code.
 pub const KIND_KEYED: [bool; 32] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false];
 

@@ -123,6 +123,23 @@ test("foliage: the drawer selects for the classes it registered, three keeps the
   assert.equal(foliage.drawer, null);
 });
 
+test("foliage under shadows: a card program that reads modelMatrix (three's world position for USE_SHADOWMAP) is taken", () => {
+  const { core, calls, renderer, scene, properties } = bridge();
+  const geometry = new THREE.InstancedBufferGeometry();
+  for (const [name, size] of [["position", 3], ["color", 4], ["uv", 2], ["foliageCorner", 2], ["foliageShape", 4], ["foliageRate", 1]]) geometry.setAttribute(name, new THREE.BufferAttribute(new Float32Array(4 * size), size));
+  geometry.setIndex(new THREE.BufferAttribute(new Uint32Array([0, 2, 1, 1, 2, 3]), 1));
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture() });
+  properties.get(material).currentProgram = program([["modelViewMatrix", GL.FLOAT_MAT4], ["modelMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D]],
+    ["position", "color", "uv", "foliageCorner", "foliageShape", "foliageRate", "foliagePatch", "foliageTint", "foliageAxisX", "foliageAxisY", "foliageAxisZ", "foliageDistance"]);
+  const kind = { grass: true, batch: { geometry, material, uniforms: { foliageWiggle: { value: 0 } } }, instances: [] };
+  const foliage = { kinds: new Map([["a", kind]]), time: 0, nearEnd: () => 200, drawer: null };
+  scene.userData.foliage = foliage;
+  core.pass(renderer, scene, core.graphics.camera);
+  foliage.drawer.select(foliage, core.graphics.camera);
+  assert.ok(calls.some((c) => c[0] === "foliage_class"), "registered");
+  assert.ok(foliage.drawer.covers(kind));
+});
+
 test("the view scene: three's start of a render, the phase, and three left out when every part was drawn", () => {
   const { core, calls, renderer, properties } = bridge();
   const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();

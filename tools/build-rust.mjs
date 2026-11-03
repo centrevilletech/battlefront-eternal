@@ -55,13 +55,15 @@ function run(command, args, options) {
 
 // Nothing from the environment may change the bytes: rust-toolchain.toml
 // picks the toolchain, Cargo.toml's release profile the code, and these
-// flags are the only ones.
+// flags are the only ones. The modules abort on a panic (the profile's
+// native builds unwind, so a crate's tests and bins share one build).
 function cargoEnv() {
   const env = { ...process.env };
   for (const name of Object.keys(env)) {
     if (['RUSTUP_TOOLCHAIN', 'RUSTFLAGS', 'CARGO_BUILD_RUSTFLAGS', 'CARGO_INCREMENTAL'].includes(name) || name.startsWith('CARGO_PROFILE_')) delete env[name];
   }
   env.CARGO_ENCODED_RUSTFLAGS = `--remap-path-prefix=${process.env.CARGO_HOME || join(homedir(), '.cargo')}=/cargo`;
+  env.CARGO_PROFILE_RELEASE_PANIC = 'abort';
   return env;
 }
 
