@@ -345,6 +345,7 @@ name = "sim"
 version = "0.1.0"
 dependencies = [
  "sim-replay",
+ "v8math",
 ]
 
 [[package]]

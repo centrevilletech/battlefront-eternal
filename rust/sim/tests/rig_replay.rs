@@ -7,8 +7,10 @@
 //!   BFE_RIG_CORPUS=DIR cargo test -p sim --features replay --test rig_replay
 //!
 //! DIR holds the recordings (*.rigcap). Without BFE_RIG_CORPUS the test
-//! passes without replaying. The transcendental functions are answered from
-//! each recording's oracle (rig::math), so a miss there fails the test.
+//! passes without replaying. The transcendental functions are rust/v8math's;
+//! each call is also checked against what V8 answered in the recording
+//! (rig::math's oracle), and a different answer or a call the JavaScript
+//! never made fails the test.
 #![cfg(feature = "replay")]
 
 use bfe_sim::pose::Clip;
@@ -522,7 +524,7 @@ fn rigs_match_recorded_battles() {
     files.sort();
     assert!(!files.is_empty(), "no recordings in {dir}");
     let mut tally = Tally::default();
-    let (mut answered, mut misses) = (0u64, Vec::new());
+    let (mut answered, mut misses, mut mismatches) = (0u64, Vec::new(), Vec::new());
     for file in &files {
         let bytes = std::fs::read(file).expect("a recording");
         let mut reader = Reader::new(&bytes).expect("a BFECAP file");
@@ -540,13 +542,24 @@ fn rigs_match_recorded_battles() {
         let ((), table) = oracle::with(table, || replay(&name, &records, &mut tally));
         answered += table.answered;
         misses.extend(table.misses.iter().map(|&(f, a, b)| format!("{name}: {}({a:e}, {b:e})", f.name())));
+        mismatches.extend(table.mismatches.iter().map(|&(f, a, b, v8, mine)| format!("{name}: {}({a:e}, {b:e}): V8 {v8:e}, v8math {mine:e}", f.name())));
     }
     let mut kinds: Vec<_> = tally.checked.iter().collect();
     kinds.sort();
-    eprintln!("{} recordings: {}; oracle {answered} answers, {} misses", files.len(), kinds.iter().map(|(k, n)| format!("{n} {k}")).collect::<Vec<_>>().join(", "), misses.len());
+    eprintln!(
+        "{} recordings: {}; transcendental calls: {answered} as V8 answered, {} misses, {} mismatches",
+        files.len(),
+        kinds.iter().map(|(k, n)| format!("{n} {k}")).collect::<Vec<_>>().join(", "),
+        misses.len(),
+        mismatches.len()
+    );
     for m in misses.iter().take(5) {
         eprintln!("miss: {m}");
     }
+    for m in mismatches.iter().take(5) {
+        eprintln!("mismatch: {m}");
+    }
     assert!(tally.failures.is_empty(), "{} differences:\n{}", tally.failures.len(), tally.failures.join("\n"));
     assert!(misses.is_empty(), "{} transcendental calls the JavaScript never made", misses.len());
+    assert!(mismatches.is_empty(), "{} transcendental answers not V8's", mismatches.len());
 }

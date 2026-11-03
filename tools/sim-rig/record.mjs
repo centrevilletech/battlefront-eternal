@@ -59,7 +59,7 @@ const Q = (q) => [q.x, q.y, q.z, q.w];
 // ---- The oracle: Math's answers inside the recorded droideka calls.
 let oracleOn = 0;
 const oracle = new Map();
-const CODES = { sin: 1, cos: 2, atan2: 3, asin: 4, acos: 5 };
+const CODES = { sin: 1, cos: 2, atan2: 3, asin: 4, acos: 5, atan: 6, exp: 7 };
 const bits64 = new Float64Array(1), bits32 = new Uint32Array(bits64.buffer);
 const key = (x) => { bits64[0] = x; return `${bits32[0]}:${bits32[1]}`; };
 for (const [name, code] of Object.entries(CODES)) {
