@@ -1,13 +1,19 @@
 // The post pass (post.rs): the frame's last passes over the near scene's
 // image as graphics.js plans them (Graphics.postSteps): the soft focus's
-// quarter-size copy, the composite, FXAA or FXAA (FAST), the bilinear
-// upscale. Each step is a full-screen pass (render-passes.js) into a target
-// (three's, or the canvas); the renderer draws them all with three's
-// programs for their materials, as three compiled them (Kind::Plain), or
-// three draws them all: a step it can't draw (bloom, the temporal and
-// spatial upscalers, a pass three has not yet drawn once) leaves the frame's
-// post passes to three (cover returns false).
+// quarter-size copy, bloom's extract and two blurs, the composite, FXAA or
+// FXAA (FAST), and the upscale (bilinear, spatial, or the temporal
+// upscaler's motion resolve, resolve and sharpen). Each step is a
+// full-screen pass (render-passes.js) into a target (three's, or the
+// canvas), with the values it is drawn with (applyValues: set on its
+// material as the step is written, as three's postStep sets them); the
+// renderer draws them all with three's programs for their materials, as
+// three compiled them (Kind::Plain), or three draws them all: a step it
+// can't draw (one that draws itself, a pass three has not yet drawn once)
+// leaves the frame's post passes to three (cover returns false). What a
+// step does once the frame's steps are drawn (the temporal upscaler's
+// commit: `after`) graphics.js runs, whoever drew them.
 import * as THREE from "three";
+import { applyValues } from "../render-passes.js";
 
 const PLAIN = 3;
 // post.rs's step layout.
@@ -150,9 +156,9 @@ class PostPass {
     this.input = false;
   }
 
-  // graphics.js: the frame's post steps ({ pass, target, camera } each, or
-  // { run } for one only three can draw), drawn here when every one is a
-  // pass the renderer has a program for; true when it drew them.
+  // graphics.js: the frame's post steps ({ pass, target, camera, values }
+  // each, or { run } for one only three can draw), drawn here when every one
+  // is a pass the renderer has a program for; true when it drew them.
   cover(renderer, steps) {
     const core = this.core;
     if (!core.enabled || !core.active || this.on === false || !steps.length || steps.length > MAX_STEPS) return false;
@@ -198,6 +204,7 @@ class PostPass {
     for (const step of steps) {
       const program = plainProgram(core, step.pass.material, ATTRIBUTES);
       const o = n * STRIDE;
+      if (step.values) applyValues(step.pass.material, step.values);
       out[o + STEP.PROGRAM] = program.id;
       if (step.target) { out[o + STEP.TARGET] = this.target(step.target); out[o + STEP.WIDTH] = step.target.width; out[o + STEP.HEIGHT] = step.target.height; }
       else {

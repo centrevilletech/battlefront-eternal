@@ -49,6 +49,7 @@ import { hudPass } from "./hud.js";
 import { waterPass } from "./water.js";
 import { nearPass } from "./near.js";
 import { canopiesPass } from "./canopies.js";
+import { motionPass } from "./motion.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -105,6 +106,9 @@ const PHASES = {
   // the face three bound; its frame blocks are the far pass's own, one a
   // face (ctx.face, which the far pass reads off the face's camera).
   probe: { view: VIEW_FAR, draw: (rust, ctx) => rust.far_probe_frame(ctx.face ?? 0) },
+  // The temporal upscaler's motion of the bodies that move on their own
+  // (motion.js), once the scenes are drawn.
+  motion: { view: null, draw: (rust, ctx) => rust.motion_frame(ctx.records) },
 };
 
 // three's renderer's entry points that read or change its state cache, each
@@ -213,7 +217,7 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass]) this.addPass(make(this));
     // The near phase's hook: first in three's opaque list of the near scene
     // (graphics.background, the far scene's image, is drawn last of it).
     this.nearAnchor = graphics.scene ? this.anchor(graphics.scene, { renderOrder: -1e9 }, (renderer, scene, camera) => this.pass(renderer, scene, camera)) : null;

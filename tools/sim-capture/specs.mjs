@@ -32,6 +32,7 @@
 // unless the state asks for it whole: expand(object).
 import * as THREE from 'three';
 import { units } from './units.mjs';
+import { seats } from './seats.mjs';
 import { combat } from './combat.mjs';
 import { flightSpec } from './flight.mjs';
 
@@ -314,7 +315,9 @@ const ticks = { frames: [] };
 const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries });
 
 // The units package (flip F3): a unit's tick, the registry's queries and
-// the soldiers pushed apart (tools/sim-capture/units.mjs).
+// the soldiers pushed apart (tools/sim-capture/units.mjs). The seats (flip
+// F2 with the hulls and flight): the hulls' seats and the turret crews
+// (tools/sim-capture/seats.mjs).
 // The combat package (flip F3 with units): a soldier's combat, what hurts
 // him and his new lives (tools/sim-capture/combat.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles };
+export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, seats };

@@ -154,6 +154,11 @@ pub extern "C" fn sim_import_args() -> *const f64 { crate::store::calls::import_
 #[no_mangle]
 pub extern "C" fn sim_import_result_room(words: u32, heap: u32) -> *mut f64 { crate::store::calls::import_room(words as usize, heap as usize) }
 
+/// The import block's size in words (src/sim/runtime.js writes a result
+/// there itself, up to this).
+#[no_mangle]
+pub extern "C" fn sim_import_capacity() -> u32 { crate::store::calls::EXCHANGE as u32 }
+
 /// The events emitted since they were last cleared: their words' count,
 /// then each event's code, length and words.
 #[no_mangle]

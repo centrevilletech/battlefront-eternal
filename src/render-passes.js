@@ -21,6 +21,15 @@ export function fullScreenPass(fragmentShader, uniforms, vertexShader = /* glsl 
   return mesh;
 }
 
+// A post step's values (uniform name -> value) set on its pass's material
+// before it is drawn, by whichever renderer draws it (graphics.js postStep,
+// rust-render/post.js): one pass drawn several times in a frame with other
+// values (bloom's blur) is then an ordinary step each time.
+export function applyValues(material, values) {
+  const uniforms = material.uniforms;
+  for (const name in values) uniforms[name].value = values[name];
+}
+
 // A restrained LDR glow, independent of the retail map's soft-focus blur.
 // Threshold before averaging, so thin bright bolts survive the downsample.
 // No exposure/tone-map change: the original gamma-space palette stays intact.
@@ -29,6 +38,9 @@ export class Bloom {
     const target = () => new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
     this.target = target();
     this.scratch = target();
+    // The blur's directions, across then down, one texel of the target each.
+    this.across = new THREE.Vector2();
+    this.down = new THREE.Vector2();
     this.extract = fullScreenPass(/* glsl */ `
       uniform sampler2D map;
       uniform vec2 texel;
@@ -69,17 +81,17 @@ export class Bloom {
     this.extract.material.uniforms.texel.value.set(1 / width, 1 / height);
   }
 
-  render(renderer, camera) {
-    renderer.setRenderTarget(this.target);
-    renderer.render(this.extract, camera);
-    const u = this.blur.material.uniforms;
-    u.map.value = this.target.texture;
-    u.direction.value.set(1 / this.target.width, 0);
-    renderer.setRenderTarget(this.scratch);
-    renderer.render(this.blur, camera);
-    u.map.value = this.scratch.texture;
-    u.direction.value.set(0, 1 / this.target.height);
-    renderer.setRenderTarget(this.target);
-    renderer.render(this.blur, camera);
+  // Its passes as the frame's post steps (graphics.js postSteps): the bright
+  // parts into the quarter-size target, blurred across into the scratch
+  // target, then down back into the target, the blur's one pass drawn twice
+  // with other values.
+  steps(camera) {
+    this.across.set(1 / this.target.width, 0);
+    this.down.set(0, 1 / this.target.height);
+    return [
+      { pass: this.extract, target: this.target, camera },
+      { pass: this.blur, target: this.scratch, camera, values: { map: this.target.texture, direction: this.across } },
+      { pass: this.blur, target: this.target, camera, values: { map: this.scratch.texture, direction: this.down } },
+    ];
   }
 }

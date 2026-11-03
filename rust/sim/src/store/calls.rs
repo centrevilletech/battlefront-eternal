@@ -8,6 +8,7 @@
 //! carries a kind's fields.
 
 use super::block::{Block, HEADER};
+use super::word_u32;
 
 /// The block a command's arguments come in and its result goes out in
 /// (and an import's, the other way): one record's words, then its heap.
@@ -73,39 +74,68 @@ impl Events {
     }
 }
 
-/// The block an import's arguments go out in and its result comes back in.
-/// Not part of `Sim`: an import is called from code that holds `&mut Sim`,
-/// and the JavaScript serving it writes here (through `sim_import_args` and
-/// `sim_import_room`, which touch nothing else), so this is reached only
-/// for a moment before and after the call, never across it. A handler
-/// must not call back into the store's other exports.
-static mut IMPORT: Option<Block> = None;
+/// The block an import's arguments go out in and its result comes back in:
+/// a fixed stretch of the module's memory (`EXCHANGE` words), laid out as a
+/// one-row sync block, so JavaScript finds it where it found it the first
+/// time and reads the arguments and writes the result there itself, with
+/// no call for room (an import is a call each way and nothing more). Not
+/// part of `Sim`: an import is called from code that holds the store, and
+/// this is reached only for a moment before and after the call, never
+/// across it. A handler that calls back into the module (and so, perhaps,
+/// makes another import) has read its arguments first and writes its
+/// result after.
+pub const EXCHANGE: usize = 1 << 13;
+static mut EXCHANGE_WORDS: [f64; EXCHANGE] = [0.0; EXCHANGE];
+static mut EXCHANGE_HEAP: Vec<f64> = Vec::new();
 
-fn import_block() -> &'static mut Block {
-    unsafe { (*std::ptr::addr_of_mut!(IMPORT)).get_or_insert_with(Block::default) }
+fn exchange() -> &'static mut [f64; EXCHANGE] {
+    // SAFETY: one thread; the borrow ends before the import is called.
+    unsafe { &mut *std::ptr::addr_of_mut!(EXCHANGE_WORDS) }
 }
 
-/// Writes an import's arguments (a record of `words` words).
+/// Writes an import's arguments (a record of `words` words, then its heap).
 pub fn import_out(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) {
-    let block = import_block();
-    block.begin(1, words);
-    let (row, heap) = block.row(0);
-    put(row, heap);
-    block.finish();
+    let x = exchange();
+    // SAFETY: as exchange().
+    let heap = unsafe { &mut *std::ptr::addr_of_mut!(EXCHANGE_HEAP) };
+    heap.clear();
+    put(&mut x[HEADER..HEADER + words], heap);
+    let start = HEADER + words;
+    let n = heap.len();
+    assert!(start + n <= EXCHANGE, "an import's arguments outgrow the exchange block");
+    x[start..start + n].copy_from_slice(heap);
+    x[0] = 1.0;
+    x[1] = words as f64;
+    x[2] = start as f64;
+    x[3] = n as f64;
+    x[4] = 0.0;
 }
 
 /// Reads the result JavaScript wrote.
 pub fn import_in<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T {
-    let block = import_block();
-    let (row, heap) = block.read(0);
-    take(row, heap)
+    let x = exchange();
+    let words = word_u32(x[1]) as usize;
+    let start = word_u32(x[2]) as usize;
+    let n = word_u32(x[3]) as usize;
+    take(&x[HEADER..HEADER + words], &x[start..start + n])
 }
 
-/// Where the import's arguments are (for JavaScript to read).
-pub fn import_args_ptr() -> *const f64 { import_block().ptr() }
+/// Where the import block is (for JavaScript to read the arguments and
+/// write the result): the same place for the instance's life.
+pub fn import_args_ptr() -> *const f64 { exchange().as_ptr() }
 
-/// Room for the import's result (for JavaScript to write).
-pub fn import_room(words: usize, heap: usize) -> *mut f64 { import_block().room(1, words, heap) }
+/// Room for an import's result (the block's header set for it), for a
+/// caller that asks rather than writing the header itself.
+pub fn import_room(words: usize, heap: usize) -> *mut f64 {
+    assert!(HEADER + words + heap <= EXCHANGE, "an import's result outgrows the exchange block");
+    let x = exchange();
+    x[0] = 1.0;
+    x[1] = words as f64;
+    x[2] = (HEADER + words) as f64;
+    x[3] = heap as f64;
+    x[4] = 0.0;
+    x.as_mut_ptr()
+}
 
 const _: () = assert!(HEADER == 5);
 
