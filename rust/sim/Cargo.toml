@@ -22,4 +22,5 @@ replay = ["dep:sim-replay"]
 
 [dependencies]
 sim-replay = { path = "../sim-replay", optional = true }
+# JavaScript's Math as the production server's V8 computes it (rig/math.rs, the units, the movement kernel).
 v8math = { path = "../v8math" }
