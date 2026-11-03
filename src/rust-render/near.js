@@ -63,6 +63,8 @@ class NearPass {
   cover(renderer, scene, camera) {
     const core = this.core, graphics = core.graphics;
     if (!core.enabled || !core.active || core.lost || this.on === false || !core.supported()) return false;
+    // Three's render of the scene draws its shadow cascades first: three's.
+    if (renderer.shadowMap.enabled && (renderer.shadowMap.autoUpdate || renderer.shadowMap.needsUpdate)) return false;
     const target = renderer.getRenderTarget();
     // Only the frame's own render of the near scene, in the configuration
     // three's would draw as walked here: its clear (no background or fog of

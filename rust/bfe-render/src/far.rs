@@ -1,7 +1,11 @@
 // The far scene, drawn into the far target before the near scene in place
 // of three's render of it (src/rust-render/far.js): the sky dome and the
 // models on its horizon, the map's low-detail buckets, the far terrain and
-// the far water, with a frame block of the far camera's own (VIEW_FAR).
+// the far water, with a frame block of the far camera's own (VIEW_FAR). A
+// water's mirror (water.js reflect) draws it too, from its own camera into
+// its own target, before the frame's far scene: its frame block is
+// VIEW_FAR_MIRROR's, and the mirror's second pass draws over its sky
+// without clearing (FAR_KEEP).
 //
 // Each thing three would draw there is an item, registered once from its
 // mesh and material: a program made from three's GLSL (with the frame block
@@ -19,26 +23,39 @@
 // order, render order, back to front, id) and draws them, setting a
 // uniform or a piece of state only when it differs from what is set.
 //
-// The Enhanced look, shadows, lamp lighting and the temporal upscaler fall
-// back to three for now (far.js); each needs only more items or values here:
-// the storm sky and ocean (plain items), the Enhanced flyers' sky probe (a
-// cube sampler), and the upscaler's jitter (the far camera's projection, in
-// the frame block already).
-use crate::core::{Core, MultiDraw, PASS_FAR, UNIT_BUMP, UNIT_FAR, UNIT_MAP, VIEW_FAR};
+// The Enhanced sky's flyers and the Enhanced ocean read a sky probe, a cube
+// map (sky-probe.js): a cube sampler's source binds it by its target. The
+// probe's captures are the far pass too, each face a phase of its own (the
+// probe phase) with a frame block of its own, and the cube's mipmaps made
+// after the last face as three makes them. Shadows, lamp lighting and the
+// temporal upscaler need nothing more of the far pass (the upscaler's jitter
+// is in the far camera's projection, in the frame block already).
+use crate::core::{Core, MultiDraw, PASS_FAR, PASS_WATER, UNIT_BUMP, UNIT_FAR, UNIT_MAP};
 use crate::math::{self, Mat4};
 use glow::HasContext;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
 // The far input (f64): the clear colour (premultiplied, as three sets it),
-// whether the pass draws this frame at all (0: three does), then the items'
-// slots, laid out by the page. An item's first slot says whether it draws
-// this frame; a placed item's matrix follows it (16), or a terrain's level
-// (0 full, 1 reduced); then whatever its uniforms read.
+// whether the pass draws this frame at all (0: three does), whether it
+// draws over the target as it is (1: three's autoClear is off, as for a
+// water mirror's far scene drawn over its sky), then the items' slots, laid
+// out by the page. An item's first slot says whether it draws this frame; a
+// placed item's matrix follows it (16), or a terrain's level (0 full, 1
+// reduced); then whatever its uniforms read.
 pub const FAR_CLEAR: usize = 0;
 pub const FAR_DRAW: usize = 4;
+pub const FAR_KEEP: usize = 5;
+// A sky probe's face (far_probe_frame): 1 + the cube texture whose mipmaps
+// the pass makes once it has drawn (three makes them after the last face:
+// CubeCamera.update), 0 for none.
+pub const FAR_MIPMAPS: usize = 6;
+// 1 when the page wrote the input for the near scene's items (far.js
+// drawNear): only the near phase draws them (draw_near), once.
+pub const FAR_NEAR: usize = 7;
 pub const FAR_SLOTS: usize = 8;
 pub const FAR_INPUT_LEN: usize = 16384;
+pub const FAR_VERTICES_LEN: usize = 16384;
 
 // Where a uniform's value comes from (far_source's kind).
 pub const SRC_FLOATS: u32 = 0; // fixed values
@@ -51,6 +68,7 @@ pub const SRC_EYE: u32 = 6;
 pub const SRC_MODEL: u32 = 7;
 pub const SRC_MODEL_VIEW: u32 = 8;
 pub const SRC_NORMAL: u32 = 9;
+pub const SRC_CUBE_INPUT: u32 = 10; // the cube map the input names at `at` (-1: none, left unbound)
 
 // An item's flags (far_item): its material's side (0 front, 1 back, 2 both),
 // then these.
@@ -115,6 +133,7 @@ enum Source {
     Model,
     ModelView,
     Normal,
+    CubeInput(usize),
 }
 
 // A bucket's spatial cells (render-culling.js): runs of consecutive
@@ -173,10 +192,20 @@ struct Item<C: HasContext> {
     base: i32,
     draw: Draw<C>,
     instanced: Option<Instanced<C>>,
+    // Its draw range from the input each frame (first index, count) instead
+    // of a fixed one: a geometry whose range three moves (the storm's bolt).
+    range_at: Option<usize>,
+    // Vertex buffers of its geometry the page refreshes (the storm's bolt,
+    // rewritten at each strike): (buffer slot, where its values start in
+    // `vertices`, floats), uploaded when the input's slot `refresh_at` is 1.
+    refresh: Vec<(usize, usize, usize)>,
+    refresh_at: usize,
 }
 
 pub struct FarPass<C: HasContext> {
     pub input: Vec<f64>,
+    // Vertex values the page writes for items whose buffers it refreshes.
+    pub vertices: Vec<f32>,
     tables: Vec<Vec<Uniform<C>>>,
     items: Vec<Item<C>>,
     // This frame's items and their depths (three's z), in drawing order.
@@ -185,11 +214,17 @@ pub struct FarPass<C: HasContext> {
     vao: Option<C::VertexArray>,
     // Programs whose samplers are on units already (unit by name).
     units: HashMap<(usize, String), u32>,
+    // A sky probe's frame blocks, one a cube face (made the first time a
+    // probe is drawn): a capture's six faces read their own.
+    probe_ubos: Vec<C::Buffer>,
+    // The pass whose draws this call's items count as: the far pass's, or
+    // the water's for the Enhanced ocean's near surface (draw_near).
+    counted: usize,
 }
 
 impl<C: HasContext> FarPass<C> {
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> FarPass<C> {
-        FarPass { input: vec![0.0; FAR_INPUT_LEN], tables: vec![], items: vec![], list: vec![], value: vec![], vao: None, units: HashMap::new() }
+        FarPass { input: vec![0.0; FAR_INPUT_LEN], vertices: vec![0.0; FAR_VERTICES_LEN], tables: vec![], items: vec![], list: vec![], value: vec![], vao: None, units: HashMap::new(), probe_ubos: vec![], counted: PASS_FAR }
     }
 
     // The uniforms of a program the pass sets (all it reads besides the frame
@@ -207,8 +242,8 @@ impl<C: HasContext> FarPass<C> {
             let floats = floats_of(ty)? * counts[i].max(1) as usize;
             let location = unsafe { gl.get_uniform_location(handle, name) };
             let mut unit = 0;
-            // A cube sampler gets a unit of its own and is left unbound (none
-            // of the far scene's reads one in Classic: far.js).
+            // A cube sampler (the Enhanced sky probe's) gets a unit of its own,
+            // its cube map bound there (SRC_CUBE_INPUT).
             if ty == SAMPLER_2D || ty == SAMPLER_CUBE {
                 unit = match name {
                     "map" => UNIT_MAP,
@@ -260,7 +295,7 @@ impl<C: HasContext> FarPass<C> {
         self.items.push(Item {
             program: program as usize, table: table as usize, geometry: geometry as usize, sources: vec![], flags, depth_func, blend: b,
             order: [order[0], order[1], order[2], order[3]], sphere: ([sphere[0], sphere[1], sphere[2]], sphere[3]),
-            slot: slot as usize, base: 0, draw: Draw::Range(0, count), instanced: None,
+            slot: slot as usize, base: 0, draw: Draw::Range(0, count), instanced: None, range_at: None, refresh: vec![], refresh_at: 0,
         });
         (self.items.len() - 1) as u32
     }
@@ -278,6 +313,7 @@ impl<C: HasContext> FarPass<C> {
             SRC_EYE => Source::Eye,
             SRC_MODEL => Source::Model,
             SRC_MODEL_VIEW => Source::ModelView,
+            SRC_CUBE_INPUT => Source::CubeInput(at as usize),
             _ => Source::Normal,
         };
         self.items[item as usize].sources.push((uniform as usize, source));
@@ -292,6 +328,21 @@ impl<C: HasContext> FarPass<C> {
     // buckets share): its ranges and cells are its own index's, offset by it.
     pub fn base(&mut self, item: u32, base: i32) {
         self.items[item as usize].base = base;
+    }
+
+    // Its draw range from the input's slots `at` (first index, count), each
+    // frame.
+    pub fn range_input(&mut self, item: u32, at: u32) {
+        self.items[item as usize].range_at = Some(at as usize);
+    }
+
+    // A vertex buffer of its geometry (`buffer`: its slot there) refreshed
+    // from `vertices` (`floats` values from `at`) whenever the input's slot
+    // `flag` is 1 (the page wrote them anew).
+    pub fn refresh(&mut self, item: u32, buffer: u32, at: u32, floats: u32, flag: u32) {
+        let it = &mut self.items[item as usize];
+        it.refresh.push((buffer as usize, at as usize, floats as usize));
+        it.refresh_at = flag as usize;
     }
 
     // A per-instance attribute of an instanced item, at `location` (a matrix
@@ -400,14 +451,80 @@ impl<C: HasContext> FarPass<C> {
         }
     }
 
-    // The far phase (renderer.rs far_frame): the far camera's frame block,
-    // the target cleared as three clears it, then this frame's items in
-    // three's order.
-    pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
+    // The far phase (renderer.rs far_frame, or far_mirror_frame for a water
+    // mirror's camera): that camera's frame block (the view's buffer), the
+    // target cleared as three clears it (unless three's autoClear is off),
+    // then this frame's items in three's order.
+    pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, frame: usize) {
         if self.input[FAR_DRAW] == 0.0 {
             return;
         }
-        core.upload_frame(VIEW_FAR);
+        core.upload_frame(frame);
+        self.counted = PASS_FAR;
+        self.draw_items(core);
+    }
+
+    // The near phase's part (renderer.rs frame, a mirror's too): the items
+    // the page marked from the near scene (the Enhanced ocean's surface,
+    // drawn there in three's place: far.js drawNear), with the phase's frame
+    // block, over what the phase drew (the page sets FAR_KEEP). Counted as
+    // the water pass's draws: the ocean is the water's surface.
+    pub fn draw_near<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
+        if self.input[FAR_NEAR] == 0.0 || self.input[FAR_DRAW] == 0.0 {
+            return;
+        }
+        self.input[FAR_NEAR] = 0.0;
+        self.counted = PASS_WATER;
+        self.draw_items(core);
+        self.counted = PASS_FAR;
+    }
+
+    // A face of a sky probe's capture (sky-probe.js, renderer.rs
+    // far_probe_frame): the far pass for the face's camera into the face
+    // three bound, with a frame block of the probe's own for the face; after
+    // the last face, the cube's mipmaps when three would make them.
+    pub fn draw_probe<M: MultiDraw>(&mut self, core: &mut Core<C, M>, face: usize) {
+        if self.input[FAR_DRAW] == 0.0 {
+            return;
+        }
+        let gl = &core.gl;
+        while self.probe_ubos.len() < 6 {
+            let ubo = unsafe {
+                let ubo = gl.create_buffer().unwrap();
+                gl.bind_buffer(glow::UNIFORM_BUFFER, Some(ubo));
+                gl.buffer_data_size(glow::UNIFORM_BUFFER, (crate::shader::FRAME_FLOATS * 4) as i32, glow::DYNAMIC_DRAW);
+                gl.bind_buffer(glow::UNIFORM_BUFFER, None);
+                ubo
+            };
+            self.probe_ubos.push(ubo);
+        }
+        // The frame block's values (core.upload_frame), into the face's buffer.
+        let ubo = self.probe_ubos[face.min(5)];
+        for i in 0..crate::shader::FRAME_FLOATS {
+            core.frame[i] = core.input[i] as f32;
+        }
+        unsafe {
+            gl.bind_buffer(glow::UNIFORM_BUFFER, Some(ubo));
+            gl.buffer_sub_data_u8_slice(glow::UNIFORM_BUFFER, 0, crate::core::bytes(&core.frame));
+            gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(ubo));
+        }
+        core.stats.gl_calls += 3;
+        self.counted = PASS_FAR;
+        self.draw_items(core);
+        let cube = self.input[FAR_MIPMAPS];
+        if cube > 0.0 {
+            if let Some(&texture) = core.textures.get(cube as usize - 1) {
+                core.state.bind_texture_target(&core.gl, &mut core.stats, crate::core::UNIT_MAP, glow::TEXTURE_CUBE_MAP, Some(texture));
+                unsafe { core.gl.generate_mipmap(glow::TEXTURE_CUBE_MAP) };
+                core.stats.gl_calls += 1;
+            }
+        }
+    }
+
+    // This frame's items for the camera whose frame block is bound: the
+    // target cleared as three clears it (unless three's autoClear is off),
+    // then the items in three's order.
+    fn draw_items<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
         let camera = core.camera();
         let mut projection = [0.0; 16];
         projection.copy_from_slice(&core.input[0..16]);
@@ -419,12 +536,12 @@ impl<C: HasContext> FarPass<C> {
         let start = (core.input[crate::shader::FRAME_OFFSETS[18]] - 1.0).max(0.0);
         let limit = start * start;
         let input = &self.input;
-        unsafe {
-            let c = &input[FAR_CLEAR..FAR_CLEAR + 4];
-            core.gl.clear_color(c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32);
-        }
-        core.stats.gl_calls += 1;
-        {
+        if input[FAR_KEEP] == 0.0 {
+            unsafe {
+                let c = &input[FAR_CLEAR..FAR_CLEAR + 4];
+                core.gl.clear_color(c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32);
+            }
+            core.stats.gl_calls += 1;
             let (gl, state, stats) = (&core.gl, &mut core.state, &mut core.stats);
             state.color_mask(gl, stats, [true; 4]);
             state.depth_write(gl, stats, true);
@@ -432,6 +549,25 @@ impl<C: HasContext> FarPass<C> {
             stats.gl_calls += 1;
         }
         core.opaque();
+        // The vertices the page wrote anew for items shown this frame (in view
+        // or not: the page counts them as sent), uploaded.
+        for item in &self.items {
+            if item.refresh.is_empty() || input[item.slot] == 0.0 || input[item.refresh_at] == 0.0 {
+                continue;
+            }
+            let geo = &core.geometries[item.geometry];
+            for &(buffer, at, floats) in &item.refresh {
+                if let Some(&b) = geo.buffers.get(buffer) {
+                    unsafe {
+                        core.gl.bind_buffer(glow::ARRAY_BUFFER, Some(b));
+                        core.gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, crate::core::bytes(&self.vertices[at..at + floats]));
+                    }
+                    core.stats.gl_calls += 2;
+                }
+            }
+            unsafe { core.gl.bind_buffer(glow::ARRAY_BUFFER, None) };
+            core.stats.gl_calls += 1;
+        }
         // This frame's items: shown, in view, with their depths.
         self.list.clear();
         for (i, item) in self.items.iter().enumerate() {
@@ -459,6 +595,7 @@ impl<C: HasContext> FarPass<C> {
 
     #[allow(clippy::too_many_arguments)]
     fn draw_item<M: MultiDraw>(&mut self, core: &mut Core<C, M>, i: usize, projection: &Mat4, view: &Mat4, eye: &[f64; 3], frustum: &math::Frustum, limit: f64) {
+        let counted = self.counted;
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
         let item = &mut self.items[i];
@@ -469,8 +606,12 @@ impl<C: HasContext> FarPass<C> {
         let (first, count);
         match &mut item.draw {
             Draw::Range(s, c) => {
-                first = *s + item.base;
-                count = *c;
+                let (s, c) = match item.range_at {
+                    Some(at) => (input[at] as i32, input[at + 1] as i32),
+                    None => (*s, *c),
+                };
+                first = s + item.base;
+                count = c;
             }
             Draw::Cells(cells) => {
                 for (k, (min, max)) in cells.parts.iter().enumerate() {
@@ -574,6 +715,15 @@ impl<C: HasContext> FarPass<C> {
                     state.bind_texture(gl, stats, uniform.unit, if t >= 0.0 { core.textures.get(t as usize).copied() } else { None });
                     continue;
                 }
+                Source::CubeInput(at) => {
+                    // A cube sampler given none (the Classic flyers') is never
+                    // read: nothing is bound for it.
+                    let t = input[*at];
+                    if t >= 0.0 {
+                        state.bind_texture_target(gl, stats, uniform.unit, glow::TEXTURE_CUBE_MAP, core.textures.get(t as usize).copied());
+                    }
+                    continue;
+                }
                 Source::Projection => push16(value, projection),
                 Source::View => push16(value, view),
                 Source::Eye => push16(value, eye),
@@ -645,7 +795,7 @@ impl<C: HasContext> FarPass<C> {
             }
         }
         stats.gl_calls += 1;
-        stats.pass_draws[PASS_FAR] += 1;
+        stats.pass_draws[counted] += 1;
     }
 
     // How many items are registered (the page's checks).
@@ -737,7 +887,7 @@ mod tests {
     fn item(transparent: bool, order: [f64; 4]) -> Item<glow::Context> {
         Item {
             program: 0, table: 0, geometry: 0, sources: vec![], flags: if transparent { F_TRANSPARENT } else { 0 }, depth_func: 0, blend: [0; 6],
-            order, sphere: ([0.0; 3], 1.0), slot: 0, base: 0, draw: Draw::Range(0, 3), instanced: None,
+            order, sphere: ([0.0; 3], 1.0), slot: 0, base: 0, draw: Draw::Range(0, 3), instanced: None, range_at: None, refresh: vec![], refresh_at: 0,
         }
     }
 

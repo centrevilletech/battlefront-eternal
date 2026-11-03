@@ -302,6 +302,8 @@ export class Upscaler {
     this.shifted = [];
     this.sharpness = 0.4;
     this.passCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    // The temporal steps' `after` (steps).
+    this.committed = () => this.commit();
 
     this.motionPass = fullScreenPass(MOTION, {
       depthMap: { value: null }, velocityMap: { value: this.velocity.texture },
@@ -381,36 +383,33 @@ export class Upscaler {
   }
 
   // `image` (input resolution) to the screen at output resolution, by
-  // `mode` (one of UPSCALERS but "off").
-  present(renderer, image, mode) {
-    const autoClear = renderer.autoClear;
-    renderer.autoClear = false;
+  // `mode` (one of UPSCALERS but "off"), as the frame's last post steps
+  // (graphics.js postSteps: drawn with the canvas's autoClear off). Each is
+  // a full-screen pass into a target (null: the canvas) with the values it
+  // is drawn with. Temporal: the motion resolve, the resolve into the
+  // history, the sharpen to the screen, then the frame's commit (`after`,
+  // run once the steps are drawn, whichever renderer drew them).
+  steps(image, mode) {
+    const camera = this.passCamera;
     if (mode === "temporal") {
-      renderer.setRenderTarget(this.motion);
-      renderer.render(this.motionPass, this.passCamera);
       const read = this.history[this.read], write = this.history[1 - this.read];
-      const uniforms = this.resolvePass.material.uniforms;
-      uniforms.colorMap.value = image;
-      uniforms.historyMap.value = read.texture;
-      uniforms.reset.value = this.valid ? 0 : 1;
-      renderer.setRenderTarget(write);
-      renderer.render(this.resolvePass, this.passCamera);
-      this.sharpenPass.material.uniforms.map.value = write.texture;
-      this.sharpenPass.material.uniforms.sharpness.value = this.sharpness;
-      renderer.setRenderTarget(null);
-      renderer.render(this.sharpenPass, this.passCamera);
-      this.read = 1 - this.read;
-      this.previous.copy(this.current);
-      this.valid = true;
-      this.frame++;
-    } else {
-      const pass = mode === "bilinear" ? this.bilinearPass : this.spatialPass;
-      pass.material.uniforms.map.value = image;
-      renderer.setRenderTarget(null);
-      renderer.render(pass, this.passCamera);
-      this.valid = false;
+      return [
+        { pass: this.motionPass, target: this.motion, camera },
+        { pass: this.resolvePass, target: write, camera, values: { colorMap: image, historyMap: read.texture, reset: this.valid ? 0 : 1 } },
+        { pass: this.sharpenPass, target: null, camera, values: { map: write.texture, sharpness: this.sharpness }, after: this.committed },
+      ];
     }
-    renderer.autoClear = autoClear;
+    this.valid = false;
+    return [{ pass: mode === "bilinear" ? this.bilinearPass : this.spatialPass, target: null, camera, values: { map: image } }];
+  }
+
+  // A temporal frame drawn: its history is the one read next, its camera's
+  // view-projection the previous one, and the jitter moves on.
+  commit() {
+    this.read = 1 - this.read;
+    this.previous.copy(this.current);
+    this.valid = true;
+    this.frame++;
   }
 
   dispose() {

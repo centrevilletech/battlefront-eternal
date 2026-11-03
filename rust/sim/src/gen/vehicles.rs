@@ -9,26 +9,29 @@ pub struct VehicleWheel {
     pub radius: f64,
     pub phase: f64,
     pub previous: f64,
+    pub tick_from: Option<f64>,
 }
 
 impl VehicleWheel {
-    pub const WORDS: usize = 4;
+    pub const WORDS: usize = 6;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
         row[0] = self.x;
         row[1] = self.radius;
         row[2] = self.phase;
         row[3] = self.previous;
+        match &self.tick_from { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v); } None => { row[4] = 2.0; row[4 + 1..4 + 2].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
         Self {
             x: row[0],
             radius: row[1],
             phase: row[2],
             previous: row[3],
+            tick_from: if row[4] == 0.0 { Some(row[4 + 1]) } else { None },
         }
     }
 
@@ -41,49 +44,648 @@ pub struct VehicleSeat {
     pub look_yaw: Option<f64>,
     pub look_pitch: Option<f64>,
     pub lease: Option<Ref<SeatLease>>,
-    pub lease_human: Option<bool>,
-    pub lease_network_human: Option<bool>,
-    pub lease_turn: Option<f64>,
-    pub lease_pitch: Option<f64>,
-    pub pitch_limits: [f64; 2],
-    pub yaw_limits: Option<[f64; 2]>,
-    pub wrap_yaw: bool,
 }
 
 impl VehicleSeat {
-    pub const WORDS: usize = 23;
+    pub const WORDS: usize = 9;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
+        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
         row[0] = self.aim_yaw;
         row[1] = self.pitch;
         match &self.look_yaw { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v); } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
         match &self.look_pitch { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v); } None => { row[4] = 1.0; row[4 + 1..4 + 2].fill(0.0); } }
         match &self.lease { Some(v) => { row[6] = 0.0; row[6 + 1] = (*v).slot as f64; row[6 + 1 + 1] = (*v).gen as f64; } None => { row[6] = 1.0; row[6 + 1..6 + 3].fill(0.0); } }
-        match &self.lease_human { Some(v) => { row[9] = 0.0; row[9 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[9] = 2.0; row[9 + 1..9 + 2].fill(0.0); } }
-        match &self.lease_network_human { Some(v) => { row[11] = 0.0; row[11 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[11] = 2.0; row[11 + 1..11 + 2].fill(0.0); } }
-        match &self.lease_turn { Some(v) => { row[13] = 0.0; row[13 + 1] = (*v); } None => { row[13] = 2.0; row[13 + 1..13 + 2].fill(0.0); } }
-        match &self.lease_pitch { Some(v) => { row[15] = 0.0; row[15 + 1] = (*v); } None => { row[15] = 2.0; row[15 + 1..15 + 2].fill(0.0); } }
-        row[17..17 + 2].copy_from_slice(&self.pitch_limits);
-        match &self.yaw_limits { Some(v) => { row[19] = 0.0; row[19 + 1..19 + 1 + 2].copy_from_slice(&(*v)); } None => { row[19] = 1.0; row[19 + 1..19 + 3].fill(0.0); } }
-        row[22] = if self.wrap_yaw { 1.0 } else { 0.0 };
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
+        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
         Self {
             aim_yaw: row[0],
             pitch: row[1],
             look_yaw: if row[2] == 0.0 { Some(row[2 + 1]) } else { None },
             look_pitch: if row[4] == 0.0 { Some(row[4 + 1]) } else { None },
             lease: if row[6] == 0.0 { Some(Ref::new(word_u32(row[6 + 1]), word_u32(row[6 + 1 + 1]))) } else { None },
-            lease_human: if row[9] == 0.0 { Some(row[9 + 1] != 0.0) } else { None },
-            lease_network_human: if row[11] == 0.0 { Some(row[11 + 1] != 0.0) } else { None },
-            lease_turn: if row[13] == 0.0 { Some(row[13 + 1]) } else { None },
-            lease_pitch: if row[15] == 0.0 { Some(row[15 + 1]) } else { None },
-            pitch_limits: { let mut a = [0.0; 2]; a.copy_from_slice(&row[17..17 + 2]); a },
-            yaw_limits: if row[19] == 0.0 { Some({ let mut a = [0.0; 2]; a.copy_from_slice(&row[19 + 1..19 + 1 + 2]); a }) } else { None },
-            wrap_yaw: row[22] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SeatView {
+    pub pitch_limits: [f64; 2],
+    pub yaw_limits: Option<[f64; 2]>,
+    pub wrap_yaw: bool,
+}
+
+impl SeatView {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0..0 + 2].copy_from_slice(&self.pitch_limits);
+        match &self.yaw_limits { Some(v) => { row[2] = 0.0; row[2 + 1..2 + 1 + 2].copy_from_slice(&(*v)); } None => { row[2] = 1.0; row[2 + 1..2 + 3].fill(0.0); } }
+        row[5] = if self.wrap_yaw { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            pitch_limits: { let mut a = [0.0; 2]; a.copy_from_slice(&row[0..0 + 2]); a },
+            yaw_limits: if row[2] == 0.0 { Some({ let mut a = [0.0; 2]; a.copy_from_slice(&row[2 + 1..2 + 1 + 2]); a }) } else { None },
+            wrap_yaw: row[5] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SeatLeaseView {
+    pub human: Option<bool>,
+    pub unit: Nullable<Ref<Unit>>,
+    pub network_human: Option<bool>,
+    pub forward: Option<f64>,
+    pub right: Option<f64>,
+    pub turn: Option<f64>,
+    pub pitch: Option<f64>,
+    pub brake: Option<bool>,
+}
+
+impl SeatLeaseView {
+    pub const WORDS: usize = 17;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 17] = (&mut row[..17]).try_into().unwrap();
+        match &self.human { Some(v) => { row[0] = 0.0; row[0 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[0] = 2.0; row[0 + 1..0 + 2].fill(0.0); } }
+        match &self.unit { Nullable::Value(v) => { row[2] = 0.0; row[2 + 1] = (*v).slot as f64; row[2 + 1 + 1] = (*v).gen as f64; } Nullable::Null => { row[2] = 1.0; row[2 + 1..2 + 3].fill(0.0); } Nullable::Undefined => { row[2] = 2.0; row[2 + 1..2 + 3].fill(0.0); } }
+        match &self.network_human { Some(v) => { row[5] = 0.0; row[5 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[5] = 2.0; row[5 + 1..5 + 2].fill(0.0); } }
+        match &self.forward { Some(v) => { row[7] = 0.0; row[7 + 1] = (*v); } None => { row[7] = 2.0; row[7 + 1..7 + 2].fill(0.0); } }
+        match &self.right { Some(v) => { row[9] = 0.0; row[9 + 1] = (*v); } None => { row[9] = 2.0; row[9 + 1..9 + 2].fill(0.0); } }
+        match &self.turn { Some(v) => { row[11] = 0.0; row[11 + 1] = (*v); } None => { row[11] = 2.0; row[11 + 1..11 + 2].fill(0.0); } }
+        match &self.pitch { Some(v) => { row[13] = 0.0; row[13 + 1] = (*v); } None => { row[13] = 2.0; row[13 + 1..13 + 2].fill(0.0); } }
+        match &self.brake { Some(v) => { row[15] = 0.0; row[15 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[15] = 2.0; row[15 + 1..15 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 17] = (&row[..17]).try_into().unwrap();
+        Self {
+            human: if row[0] == 0.0 { Some(row[0 + 1] != 0.0) } else { None },
+            unit: match word_u32(row[2]) { 0 => Nullable::Value(Ref::new(word_u32(row[2 + 1]), word_u32(row[2 + 1 + 1]))), 1 => Nullable::Null, _ => Nullable::Undefined },
+            network_human: if row[5] == 0.0 { Some(row[5 + 1] != 0.0) } else { None },
+            forward: if row[7] == 0.0 { Some(row[7 + 1]) } else { None },
+            right: if row[9] == 0.0 { Some(row[9 + 1]) } else { None },
+            turn: if row[11] == 0.0 { Some(row[11 + 1]) } else { None },
+            pitch: if row[13] == 0.0 { Some(row[13 + 1]) } else { None },
+            brake: if row[15] == 0.0 { Some(row[15 + 1] != 0.0) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpawnSlot {
+    pub remaining: f64,
+    pub vehicle: Option<Ref<Vehicle>>,
+    pub variants: StrMap<Ref<Vehicle>>,
+}
+
+impl SpawnSlot {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0] = self.remaining;
+        match &self.vehicle { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).slot as f64; row[1 + 1 + 1] = (*v).gen as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 3].fill(0.0); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.variants.entries.len() as f64; heap.resize(at + self.variants.entries.len() * 3, 0.0); for (i, (key, e)) in self.variants.entries.iter().enumerate() { let mut entry = [0.0f64; 3]; entry[0] = key.0 as f64; { let row = &mut entry; row[1] = (*e).slot as f64; row[1 + 1] = (*e).gen as f64; } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&entry); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            remaining: row[0],
+            vehicle: if row[1] == 0.0 { Some(Ref::new(word_u32(row[1 + 1]), word_u32(row[1 + 1 + 1]))) } else { None },
+            variants: { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut m = StrMap::default(); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; let value = Ref::new(word_u32(row[1]), word_u32(row[1 + 1])); m.entries.push((StrId(word_u32(row[0])), value)); } m },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehRay {
+    pub origin: Vec3,
+    pub direction: Vec3,
+    pub far: f64,
+    pub ignore: f64,
+}
+
+impl VehRay {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.origin);
+        row[3..3 + 3].copy_from_slice(&self.direction);
+        row[6] = self.far;
+        row[7] = self.ignore;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            origin: [row[0], row[0 + 1], row[0 + 2]],
+            direction: [row[3], row[3 + 1], row[3 + 2]],
+            far: row[6],
+            ignore: row[7],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehHit {
+    pub found: bool,
+    pub distance: f64,
+    pub point: Vec3,
+    pub normal: Vec3,
+    pub terrain: bool,
+    pub body: f64,
+}
+
+impl VehHit {
+    pub const WORDS: usize = 10;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
+        row[0] = if self.found { 1.0 } else { 0.0 };
+        row[1] = self.distance;
+        row[2..2 + 3].copy_from_slice(&self.point);
+        row[5..5 + 3].copy_from_slice(&self.normal);
+        row[8] = if self.terrain { 1.0 } else { 0.0 };
+        row[9] = self.body;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
+        Self {
+            found: row[0] != 0.0,
+            distance: row[1],
+            point: [row[2], row[2 + 1], row[2 + 2]],
+            normal: [row[5], row[5 + 1], row[5 + 2]],
+            terrain: row[8] != 0.0,
+            body: row[9],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehPush {
+    pub hull: f64,
+    pub probes: Vec<Vec3>,
+    pub radius: f64,
+    pub q: Quat,
+    pub own: Option<Quat>,
+    pub previous: Vec3,
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub terrain: bool,
+}
+
+impl VehPush {
+    pub const WORDS: usize = 23;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
+        row[0] = self.hull;
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.probes.len() as f64; heap.resize(at + self.probes.len() * 3, 0.0); for (i, e) in self.probes.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; row[0..0 + 3].copy_from_slice(&(*e)); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        row[3] = self.radius;
+        row[4..4 + 4].copy_from_slice(&self.q);
+        match &self.own { Some(v) => { row[8] = 0.0; row[8 + 1..8 + 1 + 4].copy_from_slice(&(*v)); } None => { row[8] = 1.0; row[8 + 1..8 + 5].fill(0.0); } }
+        row[13..13 + 3].copy_from_slice(&self.previous);
+        row[16..16 + 3].copy_from_slice(&self.position);
+        row[19..19 + 3].copy_from_slice(&self.velocity);
+        row[22] = if self.terrain { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
+        Self {
+            hull: row[0],
+            probes: { let (at, n) = (word_u32(row[1]) as usize, word_u32(row[1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push([row[0], row[0 + 1], row[0 + 2]]); } out },
+            radius: row[3],
+            q: [row[4], row[4 + 1], row[4 + 2], row[4 + 3]],
+            own: if row[8] == 0.0 { Some([row[8 + 1], row[8 + 1 + 1], row[8 + 1 + 2], row[8 + 1 + 3]]) } else { None },
+            previous: [row[13], row[13 + 1], row[13 + 2]],
+            position: [row[16], row[16 + 1], row[16 + 2]],
+            velocity: [row[19], row[19 + 1], row[19 + 2]],
+            terrain: row[22] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehPushed {
+    pub undo: bool,
+    pub position: Vec3,
+    pub velocity: Vec3,
+}
+
+impl VehPushed {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        row[0] = if self.undo { 1.0 } else { 0.0 };
+        row[1..1 + 3].copy_from_slice(&self.position);
+        row[4..4 + 3].copy_from_slice(&self.velocity);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            undo: row[0] != 0.0,
+            position: [row[1], row[1 + 1], row[1 + 2]],
+            velocity: [row[4], row[4 + 1], row[4 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehColumn {
+    pub x: f64,
+    pub z: f64,
+    pub top: f64,
+}
+
+impl VehColumn {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.x;
+        row[1] = self.z;
+        row[2] = self.top;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            x: row[0],
+            z: row[1],
+            top: row[2],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehGround {
+    pub found: bool,
+    pub height: f64,
+    pub normal: Vec3,
+}
+
+impl VehGround {
+    pub const WORDS: usize = 5;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        row[0] = if self.found { 1.0 } else { 0.0 };
+        row[1] = self.height;
+        row[2..2 + 3].copy_from_slice(&self.normal);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            found: row[0] != 0.0,
+            height: row[1],
+            normal: [row[2], row[2 + 1], row[2 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehSpring {
+    pub hull: f64,
+    pub index: f64,
+    pub center: Vec3,
+    pub radius: f64,
+}
+
+impl VehSpring {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0] = self.hull;
+        row[1] = self.index;
+        row[2..2 + 3].copy_from_slice(&self.center);
+        row[5] = self.radius;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            hull: row[0],
+            index: row[1],
+            center: [row[2], row[2 + 1], row[2 + 2]],
+            radius: row[5],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehTriangle {
+    pub a: Vec3,
+    pub b: Vec3,
+    pub c: Vec3,
+}
+
+impl VehTriangle {
+    pub const WORDS: usize = 9;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.a);
+        row[3..3 + 3].copy_from_slice(&self.b);
+        row[6..6 + 3].copy_from_slice(&self.c);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
+        Self {
+            a: [row[0], row[0 + 1], row[0 + 2]],
+            b: [row[3], row[3 + 1], row[3 + 2]],
+            c: [row[6], row[6 + 1], row[6 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehPolygon {
+    pub id: f64,
+    pub moving: bool,
+    pub triangles: Vec<VehTriangle>,
+}
+
+impl VehPolygon {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.id;
+        row[1] = if self.moving { 1.0 } else { 0.0 };
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.triangles.len() as f64; heap.resize(at + self.triangles.len() * 9, 0.0); for (i, e) in self.triangles.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            id: row[0],
+            moving: row[1] != 0.0,
+            triangles: { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 9..at + (i + 1) * 9]; out.push(VehTriangle::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehPolygons {
+    pub polygons: Vec<VehPolygon>,
+}
+
+impl VehPolygons {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.polygons.len() as f64; heap.resize(at + self.polygons.len() * 4, 0.0); for (i, e) in self.polygons.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            polygons: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push(VehPolygon::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehBody {
+    pub body: f64,
+    pub matrix: Mat4,
+    pub enabled: bool,
+}
+
+impl VehBody {
+    pub const WORDS: usize = 18;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();
+        row[0] = self.body;
+        row[1..1 + 16].copy_from_slice(&self.matrix);
+        row[17] = if self.enabled { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 18] = (&row[..18]).try_into().unwrap();
+        Self {
+            body: row[0],
+            matrix: { let mut m = [0.0; 16]; m.copy_from_slice(&row[1..1 + 16]); m },
+            enabled: row[17] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehPoint {
+    pub position: Vec3,
+}
+
+impl VehPoint {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.position);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            position: [row[0], row[0 + 1], row[0 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehFlag {
+    pub value: bool,
+}
+
+impl VehFlag {
+    pub const WORDS: usize = 1;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = if self.value { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
+        Self {
+            value: row[0] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehNumber {
+    pub value: f64,
+}
+
+impl VehNumber {
+    pub const WORDS: usize = 1;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = self.value;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
+        Self {
+            value: row[0],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehNothing {
+}
+
+impl VehNothing {
+    pub const WORDS: usize = 0;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        Self {
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehHull {
+    pub hull: f64,
+}
+
+impl VehHull {
+    pub const WORDS: usize = 1;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = self.hull;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
+        Self {
+            hull: row[0],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehDamaged {
+    pub hull: f64,
+    pub amount: f64,
+    pub attacker: OrdnanceOwner,
+}
+
+impl VehDamaged {
+    pub const WORDS: usize = 5;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        row[0] = self.hull;
+        row[1] = self.amount;
+        self.attacker.put(&mut row[2..2 + 3], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            hull: row[0],
+            amount: row[1],
+            attacker: OrdnanceOwner::take(&row[2..2 + 3], heap),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehBlast {
+    pub hull: f64,
+    pub r#final: bool,
+    pub position: Vec3,
+}
+
+impl VehBlast {
+    pub const WORDS: usize = 5;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        row[0] = self.hull;
+        row[1] = if self.r#final { 1.0 } else { 0.0 };
+        row[2..2 + 3].copy_from_slice(&self.position);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            hull: row[0],
+            r#final: row[1] != 0.0,
+            position: [row[2], row[2 + 1], row[2 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct VehEffect {
+    pub name: StrId,
+    pub position: Vec3,
+}
+
+impl VehEffect {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.name.0 as f64;
+        row[1..1 + 3].copy_from_slice(&self.position);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            name: StrId(word_u32(row[0])),
+            position: [row[1], row[1 + 1], row[1 + 2]],
         }
     }
 
@@ -114,281 +716,33 @@ impl WaterRule {
 
 }
 
-/// A vehicle, from rust/sim/schema/ordnance.mjs, rust/sim/schema/vehicles.mjs.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Vehicle {
-    pub name: StrId,
-    pub flying: bool,
-    pub walking: bool,
-    pub creature: bool,
-    pub wheeled: bool,
-    pub repulsor: bool,
-    pub speed: f64,
-    pub reverse_speed: f64,
-    pub strafe_speed: f64,
-    pub acceleration: f64,
-    pub deceleration: f64,
-    pub turn_rate: f64,
-    pub hover: f64,
-    pub bounds_min: Vec3,
-    pub bounds_max: Vec3,
-    pub center: Vec3,
-    pub size: Vec3,
-    pub bound_radius: f64,
-    pub probe_radius: f64,
-    pub probes: Vec<Vec3>,
-    pub support_probes: Vec<Vec3>,
-    pub max_health: f64,
-    pub water_rule: Option<WaterRule>,
-    pub water_depth: f64,
-    pub body: Ref<Body>,
-    pub position: Vec3,
-    pub previous: Vec3,
-    pub velocity: Vec3,
-    pub yaw: f64,
-    pub previous_yaw: f64,
-    pub tilt: f64,
-    pub roll: f64,
-    pub previous_tilt: f64,
-    pub previous_roll: f64,
-    pub yaw_rate: f64,
-    pub tilt_rate: f64,
-    pub roll_rate: f64,
-    pub support: f64,
-    pub forward_input: f64,
-    pub right_input: f64,
-    pub alive: bool,
-    pub sleeping: Option<bool>,
-    pub health: f64,
-    pub dying: f64,
-    pub water_clock: f64,
-    pub quaternion: Quat,
-    pub matrix: Mat4,
-    pub item_center: Vec3,
-    pub support_normal: Vec3,
-    pub leg_side: Option<Vec<f64>>,
-    pub seat_index: f64,
-    pub driver: Option<Ref<VehicleDriver>>,
-    pub wheels: Vec<VehicleWheel>,
-    pub seats: Vec<VehicleSeat>,
-}
-
-impl Vehicle {
-    /// Words a row takes: slot, generation, then the fields mirrored (export),
-    /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 63;
-    pub const IMPORT_STRIDE: usize = 104;
-    pub const FULL_STRIDE: usize = 104;
-
-    pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 104] = (&mut row[..104]).try_into().unwrap();
-        row[2] = self.name.0 as f64;
-        row[3] = if self.flying { 1.0 } else { 0.0 };
-        row[4] = if self.walking { 1.0 } else { 0.0 };
-        row[5] = if self.creature { 1.0 } else { 0.0 };
-        row[6] = if self.wheeled { 1.0 } else { 0.0 };
-        row[7] = if self.repulsor { 1.0 } else { 0.0 };
-        row[8] = self.speed;
-        row[9] = self.reverse_speed;
-        row[10] = self.strafe_speed;
-        row[11] = self.acceleration;
-        row[12] = self.deceleration;
-        row[13] = self.turn_rate;
-        row[14] = self.hover;
-        row[15..15 + 3].copy_from_slice(&self.bounds_min);
-        row[18..18 + 3].copy_from_slice(&self.bounds_max);
-        row[21..21 + 3].copy_from_slice(&self.center);
-        row[24..24 + 3].copy_from_slice(&self.size);
-        row[27] = self.bound_radius;
-        row[28] = self.probe_radius;
-        { let at = heap.len(); row[29] = at as f64; row[29 + 1] = self.probes.len() as f64; heap.resize(at + self.probes.len() * 3, 0.0); for (i, e) in self.probes.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; row[0..0 + 3].copy_from_slice(&(*e)); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
-        { let at = heap.len(); row[31] = at as f64; row[31 + 1] = self.support_probes.len() as f64; heap.resize(at + self.support_probes.len() * 3, 0.0); for (i, e) in self.support_probes.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; row[0..0 + 3].copy_from_slice(&(*e)); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
-        row[33] = self.max_health;
-        match &self.water_rule { Some(v) => { row[34] = 0.0; v.put(&mut row[34 + 1..], heap); } None => { row[34] = 1.0; row[34 + 1..34 + 3].fill(0.0); } }
-        row[37] = self.water_depth;
-        row[38] = self.body.slot as f64; row[38 + 1] = self.body.gen as f64;
-        row[40..40 + 3].copy_from_slice(&self.position);
-        row[43..43 + 3].copy_from_slice(&self.previous);
-        row[46..46 + 3].copy_from_slice(&self.velocity);
-        row[49] = self.yaw;
-        row[50] = self.previous_yaw;
-        row[51] = self.tilt;
-        row[52] = self.roll;
-        row[53] = self.previous_tilt;
-        row[54] = self.previous_roll;
-        row[55] = self.yaw_rate;
-        row[56] = self.tilt_rate;
-        row[57] = self.roll_rate;
-        row[58] = self.support;
-        row[59] = self.forward_input;
-        row[60] = self.right_input;
-        row[61] = if self.alive { 1.0 } else { 0.0 };
-        match &self.sleeping { Some(v) => { row[62] = 0.0; row[62 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[62] = 2.0; row[62 + 1..62 + 2].fill(0.0); } }
-        row[64] = self.health;
-        row[65] = self.dying;
-        row[66] = self.water_clock;
-        row[67..67 + 4].copy_from_slice(&self.quaternion);
-        row[71..71 + 16].copy_from_slice(&self.matrix);
-        row[87..87 + 3].copy_from_slice(&self.item_center);
-        row[90..90 + 3].copy_from_slice(&self.support_normal);
-        match &self.leg_side { Some(v) => { row[93] = 0.0; { let at = heap.len(); row[93 + 1] = at as f64; row[93 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[93] = 2.0; row[93 + 1..93 + 3].fill(0.0); } }
-        row[96] = self.seat_index;
-        match &self.driver { Some(v) => { row[97] = 0.0; row[97 + 1] = (*v).slot as f64; row[97 + 1 + 1] = (*v).gen as f64; } None => { row[97] = 1.0; row[97 + 1..97 + 3].fill(0.0); } }
-        { let at = heap.len(); row[100] = at as f64; row[100 + 1] = self.wheels.len() as f64; heap.resize(at + self.wheels.len() * 4, 0.0); for (i, e) in self.wheels.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
-        { let at = heap.len(); row[102] = at as f64; row[102 + 1] = self.seats.len() as f64; heap.resize(at + self.seats.len() * 23, 0.0); for (i, e) in self.seats.iter().enumerate() { let mut item = [0.0f64; 23]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 23..at + (i + 1) * 23].copy_from_slice(&item); } }
-    }
-
-    pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 104] = (&row[..104]).try_into().unwrap();
-        self.name = StrId(word_u32(row[2]));
-        self.flying = row[3] != 0.0;
-        self.walking = row[4] != 0.0;
-        self.creature = row[5] != 0.0;
-        self.wheeled = row[6] != 0.0;
-        self.repulsor = row[7] != 0.0;
-        self.speed = row[8];
-        self.reverse_speed = row[9];
-        self.strafe_speed = row[10];
-        self.acceleration = row[11];
-        self.deceleration = row[12];
-        self.turn_rate = row[13];
-        self.hover = row[14];
-        self.bounds_min = [row[15], row[15 + 1], row[15 + 2]];
-        self.bounds_max = [row[18], row[18 + 1], row[18 + 2]];
-        self.center = [row[21], row[21 + 1], row[21 + 2]];
-        self.size = [row[24], row[24 + 1], row[24 + 2]];
-        self.bound_radius = row[27];
-        self.probe_radius = row[28];
-        self.probes = { let (at, n) = (word_u32(row[29]) as usize, word_u32(row[29 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push([row[0], row[0 + 1], row[0 + 2]]); } out };
-        self.support_probes = { let (at, n) = (word_u32(row[31]) as usize, word_u32(row[31 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push([row[0], row[0 + 1], row[0 + 2]]); } out };
-        self.max_health = row[33];
-        self.water_rule = if row[34] == 0.0 { Some(WaterRule::take(&row[34 + 1..], heap)) } else { None };
-        self.water_depth = row[37];
-        self.body = Ref::new(word_u32(row[38]), word_u32(row[38 + 1]));
-        self.position = [row[40], row[40 + 1], row[40 + 2]];
-        self.previous = [row[43], row[43 + 1], row[43 + 2]];
-        self.velocity = [row[46], row[46 + 1], row[46 + 2]];
-        self.yaw = row[49];
-        self.previous_yaw = row[50];
-        self.tilt = row[51];
-        self.roll = row[52];
-        self.previous_tilt = row[53];
-        self.previous_roll = row[54];
-        self.yaw_rate = row[55];
-        self.tilt_rate = row[56];
-        self.roll_rate = row[57];
-        self.support = row[58];
-        self.forward_input = row[59];
-        self.right_input = row[60];
-        self.alive = row[61] != 0.0;
-        self.sleeping = if row[62] == 0.0 { Some(row[62 + 1] != 0.0) } else { None };
-        self.health = row[64];
-        self.dying = row[65];
-        self.water_clock = row[66];
-        self.quaternion = [row[67], row[67 + 1], row[67 + 2], row[67 + 3]];
-        self.matrix = { let mut m = [0.0; 16]; m.copy_from_slice(&row[71..71 + 16]); m };
-        self.item_center = [row[87], row[87 + 1], row[87 + 2]];
-        self.support_normal = [row[90], row[90 + 1], row[90 + 2]];
-        self.leg_side = if row[93] == 0.0 { Some({ let (at, n) = (word_u32(row[93 + 1]) as usize, word_u32(row[93 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out }) } else { None };
-        self.seat_index = row[96];
-        self.driver = if row[97] == 0.0 { Some(Ref::new(word_u32(row[97 + 1]), word_u32(row[97 + 1 + 1]))) } else { None };
-        self.wheels = { let (at, n) = (word_u32(row[100]) as usize, word_u32(row[100 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push(VehicleWheel::take(&row[0..], heap)); } out };
-        self.seats = { let (at, n) = (word_u32(row[102]) as usize, word_u32(row[102 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 23..at + (i + 1) * 23]; out.push(VehicleSeat::take(&row[0..], heap)); } out };
-    }
-
-    pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 63] = (&mut row[..63]).try_into().unwrap();
-        row[2..2 + 3].copy_from_slice(&self.position);
-        row[5..5 + 3].copy_from_slice(&self.previous);
-        row[8..8 + 3].copy_from_slice(&self.velocity);
-        row[11] = self.yaw;
-        row[12] = self.previous_yaw;
-        row[13] = self.tilt;
-        row[14] = self.roll;
-        row[15] = self.previous_tilt;
-        row[16] = self.previous_roll;
-        row[17] = self.yaw_rate;
-        row[18] = self.tilt_rate;
-        row[19] = self.roll_rate;
-        row[20] = self.support;
-        row[21] = self.forward_input;
-        row[22] = self.right_input;
-        row[23] = if self.alive { 1.0 } else { 0.0 };
-        match &self.sleeping { Some(v) => { row[24] = 0.0; row[24 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[24] = 2.0; row[24 + 1..24 + 2].fill(0.0); } }
-        row[26] = self.health;
-        row[27] = self.dying;
-        row[28] = self.water_clock;
-        row[29..29 + 4].copy_from_slice(&self.quaternion);
-        row[33..33 + 16].copy_from_slice(&self.matrix);
-        row[49..49 + 3].copy_from_slice(&self.support_normal);
-        match &self.leg_side { Some(v) => { row[52] = 0.0; { let at = heap.len(); row[52 + 1] = at as f64; row[52 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[52] = 2.0; row[52 + 1..52 + 3].fill(0.0); } }
-        row[55] = self.seat_index;
-        match &self.driver { Some(v) => { row[56] = 0.0; row[56 + 1] = (*v).slot as f64; row[56 + 1 + 1] = (*v).gen as f64; } None => { row[56] = 1.0; row[56 + 1..56 + 3].fill(0.0); } }
-        { let at = heap.len(); row[59] = at as f64; row[59 + 1] = self.wheels.len() as f64; heap.resize(at + self.wheels.len() * 4, 0.0); for (i, e) in self.wheels.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
-        { let at = heap.len(); row[61] = at as f64; row[61 + 1] = self.seats.len() as f64; heap.resize(at + self.seats.len() * 23, 0.0); for (i, e) in self.seats.iter().enumerate() { let mut item = [0.0f64; 23]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 23..at + (i + 1) * 23].copy_from_slice(&item); } }
-    }
-
-    pub fn take_export(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 63] = (&row[..63]).try_into().unwrap();
-        self.position = [row[2], row[2 + 1], row[2 + 2]];
-        self.previous = [row[5], row[5 + 1], row[5 + 2]];
-        self.velocity = [row[8], row[8 + 1], row[8 + 2]];
-        self.yaw = row[11];
-        self.previous_yaw = row[12];
-        self.tilt = row[13];
-        self.roll = row[14];
-        self.previous_tilt = row[15];
-        self.previous_roll = row[16];
-        self.yaw_rate = row[17];
-        self.tilt_rate = row[18];
-        self.roll_rate = row[19];
-        self.support = row[20];
-        self.forward_input = row[21];
-        self.right_input = row[22];
-        self.alive = row[23] != 0.0;
-        self.sleeping = if row[24] == 0.0 { Some(row[24 + 1] != 0.0) } else { None };
-        self.health = row[26];
-        self.dying = row[27];
-        self.water_clock = row[28];
-        self.quaternion = [row[29], row[29 + 1], row[29 + 2], row[29 + 3]];
-        self.matrix = { let mut m = [0.0; 16]; m.copy_from_slice(&row[33..33 + 16]); m };
-        self.support_normal = [row[49], row[49 + 1], row[49 + 2]];
-        self.leg_side = if row[52] == 0.0 { Some({ let (at, n) = (word_u32(row[52 + 1]) as usize, word_u32(row[52 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out }) } else { None };
-        self.seat_index = row[55];
-        self.driver = if row[56] == 0.0 { Some(Ref::new(word_u32(row[56 + 1]), word_u32(row[56 + 1 + 1]))) } else { None };
-        self.wheels = { let (at, n) = (word_u32(row[59]) as usize, word_u32(row[59 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push(VehicleWheel::take(&row[0..], heap)); } out };
-        self.seats = { let (at, n) = (word_u32(row[61]) as usize, word_u32(row[61 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 23..at + (i + 1) * 23]; out.push(VehicleSeat::take(&row[0..], heap)); } out };
-    }
-
-    #[inline(always)]
-    pub fn put_import(&self, row: &mut [f64], heap: &mut Vec<f64>) { self.put_full(row, heap) }
-
-    #[inline(always)]
-    pub fn take_import(&mut self, row: &[f64], heap: &[f64]) { self.take_full(row, heap) }
-
-}
-
 /// A vehicles (one a battle), from rust/sim/schema/vehicles.mjs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Vehicles {
     pub vehicles: Vec<Ref<Vehicle>>,
+    pub slots: Vec<SpawnSlot>,
+    pub spawn_occupant: Option<Vec3>,
 }
 
 impl Vehicles {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 4;
-    pub const IMPORT_STRIDE: usize = 4;
-    pub const FULL_STRIDE: usize = 4;
+    pub const EXPORT_STRIDE: usize = 10;
+    pub const IMPORT_STRIDE: usize = 10;
+    pub const FULL_STRIDE: usize = 10;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
         { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.vehicles.len() as f64; heap.resize(at + self.vehicles.len() * 2, 0.0); for (i, e) in self.vehicles.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.slots.len() as f64; heap.resize(at + self.slots.len() * 6, 0.0); for (i, e) in self.slots.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
+        match &self.spawn_occupant { Some(v) => { row[6] = 0.0; row[6 + 1..6 + 1 + 3].copy_from_slice(&(*v)); } None => { row[6] = 1.0; row[6 + 1..6 + 4].fill(0.0); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
         self.vehicles = { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
+        self.slots = { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 6..at + (i + 1) * 6]; out.push(SpawnSlot::take(&row[0..], heap)); } out };
+        self.spawn_occupant = if row[6] == 0.0 { Some([row[6 + 1], row[6 + 1 + 1], row[6 + 1 + 2]]) } else { None };
     }
 
     #[inline(always)]

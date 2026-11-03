@@ -51,9 +51,9 @@ function bridge() {
 
 test("the passes are made in the renderer's order, each in its phase", () => {
   const { core } = bridge();
-  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post", "hud", "water", "near"]);
+  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post", "hud", "water", "near", "canopies", "sea", "motion"]);
   const phases = Object.fromEntries(Object.entries(core.phases).map(([name, passes]) => [name, passes.map((p) => p.name)]));
-  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage"], transparent: ["transparent", "effects", "water"], view: ["view"], post: ["post"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage"], mirrorTransparent: ["transparent", "effects", "water"], begin: ["near"] });
+  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage", "canopies", "sea"], transparent: ["transparent", "effects", "water"], view: ["view"], post: ["post"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage", "canopies", "sea"], mirrorTransparent: ["transparent", "effects", "water"], begin: ["near"], farMirror: ["far"], probe: ["far"], motion: ["motion"] });
   assert.throws(() => core.addPass({ name: "x", phase: "nowhere" }), /no phase nowhere/);
 });
 
@@ -108,7 +108,10 @@ test("on, off and restore go through the passes", () => {
   assert.deepEqual(calls, [], "off: three draws everything");
   core.setActive(true);
   assert.deepEqual(seen, [false, true]);
-  // A configuration the renderer does not cover gives everything back.
+  // The configuration the battle started in is the one the renderer covers
+  // (its first phase's); another one mid-battle gives everything back.
+  core.pass(renderer, scene, camera);
+  assert.equal(core.enabled, true);
   const hidden = new THREE.ShaderMaterial();
   hidden.visible = false;
   scene.add(new THREE.Mesh(new THREE.BufferGeometry(), hidden));

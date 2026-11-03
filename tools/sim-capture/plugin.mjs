@@ -142,7 +142,7 @@ function identify(v) {
   if (proto === Object.prototype || proto === null || Array.isArray(v) || ArrayBuffer.isView(v) || v instanceof Map || v instanceof Set) return undefined;
   const name = proto.constructor?.name || '?';
   if (VALUE_CLASSES.has(name) || wholeClasses.has(name)) return undefined;
-  for (const kind of ['weapon', 'turret', 'vehicle', 'unit']) if (KIND_TESTS[kind](v)) return handleOf(kind, v);
+  for (const kind of ['weapon', 'turret', 'vehicle', 'unit', 'seatLease', 'seatUnit']) if (KIND_TESTS[kind](v)) return handleOf(kind, v);
   return instanceHandle(v, name);
 }
 

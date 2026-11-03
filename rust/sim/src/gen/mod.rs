@@ -9,12 +9,16 @@ pub use crate::store::{word_i32, word_u32, DefId, KindCode, Mat4, Nullable, Quat
 
 mod combat;
 pub use self::combat::*;
+mod flight;
+pub use self::flight::*;
 mod items;
 pub use self::items::*;
 mod nav;
 pub use self::nav::*;
 mod ordnance;
 pub use self::ordnance::*;
+mod seats;
+pub use self::seats::*;
 mod store;
 pub use self::store::*;
 mod units;
@@ -42,25 +46,29 @@ pub const KIND_ORDNANCE: KindCode = 13;
 pub const KIND_OWNER_SNAPSHOT: KindCode = 14;
 pub const KIND_PATH_PLANNER: KindCode = 15;
 pub const KIND_PLANNER_REQUEST: KindCode = 16;
-pub const KIND_PROP: KindCode = 17;
-pub const KIND_ROUND: KindCode = 18;
-pub const KIND_SEAT_LEASE: KindCode = 19;
-pub const KIND_TURRET: KindCode = 20;
-pub const KIND_TURRET_TARGET: KindCode = 21;
-pub const KIND_UNIT: KindCode = 22;
-pub const KIND_UNITS: KindCode = 23;
-pub const KIND_VEHICLE: KindCode = 24;
-pub const KIND_VEHICLE_DRIVER: KindCode = 25;
-pub const KIND_VEHICLE_TARGET: KindCode = 26;
-pub const KIND_VEHICLES: KindCode = 27;
+pub const KIND_POST: KindCode = 17;
+pub const KIND_PROP: KindCode = 18;
+pub const KIND_ROUND: KindCode = 19;
+pub const KIND_SEAT_LEASE: KindCode = 20;
+pub const KIND_SEAT_UNIT: KindCode = 21;
+pub const KIND_SEATS: KindCode = 22;
+pub const KIND_TURRET: KindCode = 23;
+pub const KIND_TURRET_SEATS: KindCode = 24;
+pub const KIND_TURRET_TARGET: KindCode = 25;
+pub const KIND_UNIT: KindCode = 26;
+pub const KIND_UNITS: KindCode = 27;
+pub const KIND_VEHICLE: KindCode = 28;
+pub const KIND_VEHICLE_DRIVER: KindCode = 29;
+pub const KIND_VEHICLE_TARGET: KindCode = 30;
+pub const KIND_VEHICLES: KindCode = 31;
 /// How many kinds there are (codes run 1 to KINDS).
-pub const KINDS: usize = 27;
-pub const KIND_NAMES: [&str; 28] = ["", "beam", "body", "bolt", "building", "character", "controller", "emitter", "grenade", "item", "items", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "prop", "round", "seatLease", "turret", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
+pub const KINDS: usize = 31;
+pub const KIND_NAMES: [&str; 32] = ["", "beam", "body", "bolt", "building", "character", "controller", "emitter", "grenade", "item", "items", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "post", "prop", "round", "seatLease", "seatUnit", "seats", "turret", "turretSeats", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 28] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x9b924a1b, 0x2e0c3c78, 0xc2257049, 0x512f6f6c, 0xfbd22c8d, 0x80d2ef9c, 0x03866fa6, 0xc9aab5eb, 0x7252759a, 0x02390125, 0xc4be789d];
+pub const KIND_HASHES: [u32; 32] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x635c5cfc, 0x9b924a1b, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0x512f6f6c, 0x2547f2df, 0xfbd22c8d, 0x80d2ef9c, 0x03866fa6, 0xb30b4400, 0x7252759a, 0x02390125, 0x4998e382];
 /// Whether each kind's objects carry their own number (its slot), by code.
-pub const KIND_KEYED: [bool; 28] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false];
+pub const KIND_KEYED: [bool; 32] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false];
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
@@ -96,11 +104,15 @@ pub struct OwnerSnapshot;
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
+pub struct Post;
+
+/// A kind the store holds no fields of (only references to).
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Prop;
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
-pub struct SeatLease;
+pub struct SeatUnit;
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
@@ -130,6 +142,9 @@ pub struct Store {
     pub path_planner: PathPlanner,
     pub planner_request: Slab<PlannerRequest>,
     pub round: Slab<Round>,
+    pub seat_lease: Slab<SeatLease>,
+    pub seats: Seats,
+    pub turret_seats: TurretSeats,
     pub unit: Slab<Unit>,
     pub units: Units,
     pub vehicle: Slab<Vehicle>,
@@ -280,6 +295,36 @@ impl Store {
                     if let Some(v) = self.round.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
                 }
             }
+            KIND_SEAT_LEASE => {
+                let list = self.seats.leases.clone();
+                let retired = if mode == 0 { std::mem::take(&mut self.seat_lease.retired) } else { Vec::new() };
+                let shown = if mode == 2 { self.seat_lease.retired.len() } else { retired.len() };
+                block.begin(shown + list.len(), if full { SeatLease::FULL_STRIDE } else { SeatLease::EXPORT_STRIDE });
+                block.set_retired(shown);
+                let old = if mode == 2 { &self.seat_lease.retired } else { &retired };
+                for (i, (r, v)) in old.iter().enumerate() {
+                    let (row, heap) = block.row(i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    v.put_export(row, heap);
+                }
+                for (i, &r) in list.iter().enumerate() {
+                    let (row, heap) = block.row(shown + i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    if let Some(v) = self.seat_lease.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
+                }
+            }
+            KIND_SEATS => {
+                block.begin(1, if full { Seats::FULL_STRIDE } else { Seats::EXPORT_STRIDE });
+                let (row, heap) = block.row(0);
+                if full { self.seats.put_full(row, heap) } else { self.seats.put_export(row, heap) }
+            }
+            KIND_TURRET_SEATS => {
+                block.begin(1, if full { TurretSeats::FULL_STRIDE } else { TurretSeats::EXPORT_STRIDE });
+                let (row, heap) = block.row(0);
+                if full { self.turret_seats.put_full(row, heap) } else { self.turret_seats.put_export(row, heap) }
+            }
             KIND_UNIT => {
                 let list = self.unit.iter().map(|(r, _)| r).collect::<Vec<_>>();
                 let retired = if mode == 0 { std::mem::take(&mut self.unit.retired) } else { Vec::new() };
@@ -364,6 +409,10 @@ impl Store {
                 let r = self.round.insert(Default::default());
                 self.ordnance.rounds.push(r);
             },
+            KIND_SEAT_LEASE => for _ in 0..count {
+                let r = self.seat_lease.insert(Default::default());
+                self.seats.leases.push(r);
+            },
             KIND_VEHICLE => for _ in 0..count {
                 let r = self.vehicle.insert(Default::default());
                 self.vehicles.vehicles.push(r);
@@ -381,6 +430,7 @@ impl Store {
             KIND_ITEM => self.item.retire(Ref::new(slot, gen)),
             KIND_PLANNER_REQUEST => self.planner_request.retire(Ref::new(slot, gen)),
             KIND_ROUND => self.round.retire(Ref::new(slot, gen)),
+            KIND_SEAT_LEASE => self.seat_lease.retire(Ref::new(slot, gen)),
             KIND_UNIT => self.unit.retire(Ref::new(slot, gen)),
             KIND_VEHICLE => self.vehicle.retire(Ref::new(slot, gen)),
             _ => false,
@@ -482,6 +532,27 @@ impl Store {
                 }
                 self.round.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
             }
+            KIND_SEAT_LEASE => {
+                let mut listed: Vec<bool> = Vec::new();
+                for i in 0..block.rows() {
+                    let (row, heap) = block.read(i);
+                    let r = Ref::new(word_u32(row[0]), word_u32(row[1]));
+                    let v = self.seat_lease.ensure(r);
+                    if full { v.take_full(row, heap) } else { v.take_import(row, heap) }
+                    let s = r.slot as usize;
+                    if listed.len() <= s { listed.resize(s + 1, false); }
+                    listed[s] = true;
+                }
+                self.seat_lease.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+            }
+            KIND_SEATS => {
+                let (row, heap) = block.read(0);
+                if full { self.seats.take_full(row, heap) } else { self.seats.take_import(row, heap) }
+            }
+            KIND_TURRET_SEATS => {
+                let (row, heap) = block.read(0);
+                if full { self.turret_seats.take_full(row, heap) } else { self.turret_seats.take_import(row, heap) }
+            }
             KIND_UNIT => {
                 let mut listed: Vec<bool> = Vec::new();
                 for i in 0..block.rows() {
@@ -531,33 +602,90 @@ pub const EVENT_ECHOED: u32 = 1;
 pub const EVENT_NAMES: [&str; 2] = ["", "echoed"];
 
 pub const IMPORT_ASK: u32 = 1;
-pub const IMPORT_COMBAT_ADMIT: u32 = 2;
-pub const IMPORT_COMBAT_ARC_TARGETS: u32 = 3;
-pub const IMPORT_COMBAT_BLOWN_APART: u32 = 4;
-pub const IMPORT_COMBAT_CAST: u32 = 5;
-pub const IMPORT_COMBAT_DAMAGED: u32 = 6;
-pub const IMPORT_COMBAT_DIED: u32 = 7;
-pub const IMPORT_COMBAT_DISPENSE: u32 = 8;
-pub const IMPORT_COMBAT_DRAW: u32 = 9;
-pub const IMPORT_COMBAT_FIRE_ROUND: u32 = 10;
-pub const IMPORT_COMBAT_FIRED: u32 = 11;
-pub const IMPORT_COMBAT_GUN_AT: u32 = 12;
-pub const IMPORT_COMBAT_HURT_ARC: u32 = 13;
-pub const IMPORT_COMBAT_LIGHTNING: u32 = 14;
-pub const IMPORT_COMBAT_LOCK_KEY: u32 = 15;
-pub const IMPORT_COMBAT_LOCK_ON: u32 = 16;
-pub const IMPORT_COMBAT_LOCK_PICK: u32 = 17;
-pub const IMPORT_COMBAT_MELEE_STRIKE: u32 = 18;
-pub const IMPORT_COMBAT_NEXT_GUN: u32 = 19;
-pub const IMPORT_COMBAT_PRESENT: u32 = 20;
-pub const IMPORT_COMBAT_REMOTE_ENTER: u32 = 21;
-pub const IMPORT_COMBAT_REMOTE_KILL: u32 = 22;
-pub const IMPORT_COMBAT_REMOTE_LAUNCH: u32 = 23;
-pub const IMPORT_COMBAT_REMOTE_OF: u32 = 24;
-pub const IMPORT_COMBAT_REPAIR: u32 = 25;
-pub const IMPORT_COMBAT_RESPAWN: u32 = 26;
-pub const IMPORT_COMBAT_SHIELD_HIT: u32 = 27;
-pub const IMPORT_NAMES: [&str; 28] = ["", "ask", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit"];
+pub const IMPORT_BEAM_LOCAL_ORIGIN: u32 = 2;
+pub const IMPORT_BEAM_POSE: u32 = 3;
+pub const IMPORT_BLOCKED: u32 = 4;
+pub const IMPORT_BOUNCE: u32 = 5;
+pub const IMPORT_CAST: u32 = 6;
+pub const IMPORT_CAST_MOVING: u32 = 7;
+pub const IMPORT_COMBAT_ADMIT: u32 = 8;
+pub const IMPORT_COMBAT_ARC_TARGETS: u32 = 9;
+pub const IMPORT_COMBAT_BLOWN_APART: u32 = 10;
+pub const IMPORT_COMBAT_CAST: u32 = 11;
+pub const IMPORT_COMBAT_DAMAGED: u32 = 12;
+pub const IMPORT_COMBAT_DIED: u32 = 13;
+pub const IMPORT_COMBAT_DISPENSE: u32 = 14;
+pub const IMPORT_COMBAT_DRAW: u32 = 15;
+pub const IMPORT_COMBAT_FIRE_ROUND: u32 = 16;
+pub const IMPORT_COMBAT_FIRED: u32 = 17;
+pub const IMPORT_COMBAT_GUN_AT: u32 = 18;
+pub const IMPORT_COMBAT_HURT_ARC: u32 = 19;
+pub const IMPORT_COMBAT_LIGHTNING: u32 = 20;
+pub const IMPORT_COMBAT_LOCK_KEY: u32 = 21;
+pub const IMPORT_COMBAT_LOCK_ON: u32 = 22;
+pub const IMPORT_COMBAT_LOCK_PICK: u32 = 23;
+pub const IMPORT_COMBAT_MELEE_STRIKE: u32 = 24;
+pub const IMPORT_COMBAT_NEXT_GUN: u32 = 25;
+pub const IMPORT_COMBAT_PRESENT: u32 = 26;
+pub const IMPORT_COMBAT_REMOTE_ENTER: u32 = 27;
+pub const IMPORT_COMBAT_REMOTE_KILL: u32 = 28;
+pub const IMPORT_COMBAT_REMOTE_LAUNCH: u32 = 29;
+pub const IMPORT_COMBAT_REMOTE_OF: u32 = 30;
+pub const IMPORT_COMBAT_REPAIR: u32 = 31;
+pub const IMPORT_COMBAT_RESPAWN: u32 = 32;
+pub const IMPORT_COMBAT_SHIELD_HIT: u32 = 33;
+pub const IMPORT_DROP_ROLL: u32 = 34;
+pub const IMPORT_EXPLODE: u32 = 35;
+pub const IMPORT_EXPLOSION: u32 = 36;
+pub const IMPORT_FAT_QUERY: u32 = 37;
+pub const IMPORT_GIVE: u32 = 38;
+pub const IMPORT_GONE: u32 = 39;
+pub const IMPORT_GRENADE_CONTACT: u32 = 40;
+pub const IMPORT_HISTORY_TICK: u32 = 41;
+pub const IMPORT_HIT: u32 = 42;
+pub const IMPORT_HIT_UNIT: u32 = 43;
+pub const IMPORT_IMPACT: u32 = 44;
+pub const IMPORT_IS_DROID: u32 = 45;
+pub const IMPORT_ITEM_CAST: u32 = 46;
+pub const IMPORT_ITEM_MODEL: u32 = 47;
+pub const IMPORT_ITEM_RELATIONS: u32 = 48;
+pub const IMPORT_ITEM_TARGETS: u32 = 49;
+pub const IMPORT_ITEM_WATER_CROSSING: u32 = 50;
+pub const IMPORT_LAUNCH: u32 = 51;
+pub const IMPORT_MISSILE_TARGET: u32 = 52;
+pub const IMPORT_NAVIGATE_MISSILE: u32 = 53;
+pub const IMPORT_OWNER_KEY: u32 = 54;
+pub const IMPORT_PICKUP: u32 = 55;
+pub const IMPORT_PROJECTILE: u32 = 56;
+pub const IMPORT_RAYCAST_UNITS: u32 = 57;
+pub const IMPORT_RIDER_MOUNT: u32 = 58;
+pub const IMPORT_SHOOTER: u32 = 59;
+pub const IMPORT_SHOT_TICK: u32 = 60;
+pub const IMPORT_SPIN: u32 = 61;
+pub const IMPORT_UNIT_SPHERE: u32 = 62;
+pub const IMPORT_VEH_BODY_ENABLED: u32 = 63;
+pub const IMPORT_VEH_CAST: u32 = 64;
+pub const IMPORT_VEH_CLOCK: u32 = 65;
+pub const IMPORT_VEH_DAMAGED: u32 = 66;
+pub const IMPORT_VEH_DESTROYED: u32 = 67;
+pub const IMPORT_VEH_DESTROYED_CREW: u32 = 68;
+pub const IMPORT_VEH_EFFECT: u32 = 69;
+pub const IMPORT_VEH_ENABLE_BODY: u32 = 70;
+pub const IMPORT_VEH_EXPLOSION: u32 = 71;
+pub const IMPORT_VEH_GROUND: u32 = 72;
+pub const IMPORT_VEH_HAS_WATER: u32 = 73;
+pub const IMPORT_VEH_IN_DEATH_REGION: u32 = 74;
+pub const IMPORT_VEH_MOVE_BODY: u32 = 75;
+pub const IMPORT_VEH_PUSH_WALLS: u32 = 76;
+pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 77;
+pub const IMPORT_VEH_RELEASE_CREW: u32 = 78;
+pub const IMPORT_VEH_RESPAWN_CLOCK: u32 = 79;
+pub const IMPORT_VEH_SPRING_POLYGONS: u32 = 80;
+pub const IMPORT_VEH_WATER_LEVEL: u32 = 81;
+pub const IMPORT_VEH_WATER_OVER: u32 = 82;
+pub const IMPORT_WATER_CROSSING: u32 = 83;
+pub const IMPORT_WAVER: u32 = 84;
+pub const IMPORT_NAMES: [&str; 85] = ["", "ask", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "pickup", "projectile", "raycastUnits", "riderMount", "shooter", "shotTick", "spin", "unitSphere", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -626,6 +754,12 @@ impl Echo {
 #[link(wasm_import_module = "bfe")]
 extern "C" {
     fn bfe_import_ask();
+    fn bfe_import_beam_local_origin();
+    fn bfe_import_beam_pose();
+    fn bfe_import_blocked();
+    fn bfe_import_bounce();
+    fn bfe_import_cast();
+    fn bfe_import_cast_moving();
     fn bfe_import_combat_admit();
     fn bfe_import_combat_arc_targets();
     fn bfe_import_combat_blown_apart();
@@ -652,6 +786,57 @@ extern "C" {
     fn bfe_import_combat_repair();
     fn bfe_import_combat_respawn();
     fn bfe_import_combat_shield_hit();
+    fn bfe_import_drop_roll();
+    fn bfe_import_explode();
+    fn bfe_import_explosion();
+    fn bfe_import_fat_query();
+    fn bfe_import_give();
+    fn bfe_import_gone();
+    fn bfe_import_grenade_contact();
+    fn bfe_import_history_tick();
+    fn bfe_import_hit();
+    fn bfe_import_hit_unit();
+    fn bfe_import_impact();
+    fn bfe_import_is_droid();
+    fn bfe_import_item_cast();
+    fn bfe_import_item_model();
+    fn bfe_import_item_relations();
+    fn bfe_import_item_targets();
+    fn bfe_import_item_water_crossing();
+    fn bfe_import_launch();
+    fn bfe_import_missile_target();
+    fn bfe_import_navigate_missile();
+    fn bfe_import_owner_key();
+    fn bfe_import_pickup();
+    fn bfe_import_projectile();
+    fn bfe_import_raycast_units();
+    fn bfe_import_rider_mount();
+    fn bfe_import_shooter();
+    fn bfe_import_shot_tick();
+    fn bfe_import_spin();
+    fn bfe_import_unit_sphere();
+    fn bfe_import_veh_body_enabled();
+    fn bfe_import_veh_cast();
+    fn bfe_import_veh_clock();
+    fn bfe_import_veh_damaged();
+    fn bfe_import_veh_destroyed();
+    fn bfe_import_veh_destroyed_crew();
+    fn bfe_import_veh_effect();
+    fn bfe_import_veh_enable_body();
+    fn bfe_import_veh_explosion();
+    fn bfe_import_veh_ground();
+    fn bfe_import_veh_has_water();
+    fn bfe_import_veh_in_death_region();
+    fn bfe_import_veh_move_body();
+    fn bfe_import_veh_push_walls();
+    fn bfe_import_veh_raycast_units();
+    fn bfe_import_veh_release_crew();
+    fn bfe_import_veh_respawn_clock();
+    fn bfe_import_veh_spring_polygons();
+    fn bfe_import_veh_water_level();
+    fn bfe_import_veh_water_over();
+    fn bfe_import_water_crossing();
+    fn bfe_import_waver();
 }
 
 /// Asks JavaScript (the import ask): its arguments go out in the import block,
@@ -662,6 +847,65 @@ pub fn import_ask(args: &Echo) -> Echo {
     crate::store::calls::import_out(Echo::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_ask() };
     crate::store::calls::import_in(|row, heap| Echo::take(row, heap))
+}
+
+/// Asks JavaScript (the import beamLocalOrigin): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_beam_local_origin(args: &SourceArgs) -> PointAnswer {
+    crate::store::calls::import_out(SourceArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_beam_local_origin() };
+    crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import beamPose): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_beam_pose(args: &BeamPoseArgs) -> BeamPoseAnswer {
+    crate::store::calls::import_out(BeamPoseArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_beam_pose() };
+    crate::store::calls::import_in(|row, heap| BeamPoseAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import blocked): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_blocked(args: &BlockedArgs) -> FlagAnswer {
+    crate::store::calls::import_out(BlockedArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_blocked() };
+    crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import bounce): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_bounce(args: &BounceArgs) -> () {
+    crate::store::calls::import_out(BounceArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_bounce() };
+}
+
+/// Asks JavaScript (the import cast): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_cast(args: &CastArgs) -> CastAnswer {
+    crate::store::calls::import_out(CastArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_cast() };
+    crate::store::calls::import_in(|row, heap| CastAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import castMoving): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_cast_moving(args: &CastArgs) -> CastAnswer {
+    crate::store::calls::import_out(CastArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_cast_moving() };
+    crate::store::calls::import_in(|row, heap| CastAnswer::take(row, heap))
 }
 
 /// Asks JavaScript (the import combatAdmit): its arguments go out in the import block,
@@ -909,5 +1153,497 @@ pub fn import_combat_respawn(args: &CbUnit) -> () {
 pub fn import_combat_shield_hit(args: &CbShield) -> () {
     crate::store::calls::import_out(CbShield::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_combat_shield_hit() };
+}
+
+/// Asks JavaScript (the import dropRoll): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_drop_roll(args: &NoArgs) -> NumberAnswer {
+    crate::store::calls::import_out(NoArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_drop_roll() };
+    crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import explode): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_explode(args: &ItemBlastArgs) -> () {
+    crate::store::calls::import_out(ItemBlastArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_explode() };
+}
+
+/// Asks JavaScript (the import explosion): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_explosion(args: &BlastArgs) -> () {
+    crate::store::calls::import_out(BlastArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_explosion() };
+}
+
+/// Asks JavaScript (the import fatQuery): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_fat_query(args: &NearArgs) -> NearAnswer {
+    crate::store::calls::import_out(NearArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_fat_query() };
+    crate::store::calls::import_in(|row, heap| NearAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import give): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_give(args: &GiveArgs) -> FlagAnswer {
+    crate::store::calls::import_out(GiveArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_give() };
+    crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import gone): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_gone(args: &GoneArgs) -> FlagAnswer {
+    crate::store::calls::import_out(GoneArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_gone() };
+    crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import grenadeContact): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_grenade_contact(args: &ContactArgs) -> () {
+    crate::store::calls::import_out(ContactArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_grenade_contact() };
+}
+
+/// Asks JavaScript (the import historyTick): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_history_tick(args: &NoArgs) -> NumberAnswer {
+    crate::store::calls::import_out(NoArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_history_tick() };
+    crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import hit): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_hit(args: &StrikeArgs) -> () {
+    crate::store::calls::import_out(StrikeArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_hit() };
+}
+
+/// Asks JavaScript (the import hitUnit): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_hit_unit(args: &UnitStrikeArgs) -> () {
+    crate::store::calls::import_out(UnitStrikeArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_hit_unit() };
+}
+
+/// Asks JavaScript (the import impact): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_impact(args: &ImpactArgs) -> () {
+    crate::store::calls::import_out(ImpactArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_impact() };
+}
+
+/// Asks JavaScript (the import isDroid): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_is_droid(args: &UnitArgs) -> FlagAnswer {
+    crate::store::calls::import_out(UnitArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_is_droid() };
+    crate::store::calls::import_in(|row, heap| FlagAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import itemCast): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_item_cast(args: &ItemCastArgs) -> CastAnswer {
+    crate::store::calls::import_out(ItemCastArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_item_cast() };
+    crate::store::calls::import_in(|row, heap| CastAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import itemModel): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_item_model(args: &ItemDefArgs) -> ModelAnswer {
+    crate::store::calls::import_out(ItemDefArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_item_model() };
+    crate::store::calls::import_in(|row, heap| ModelAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import itemRelations): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_item_relations(args: &TeamArgs) -> RelationsAnswer {
+    crate::store::calls::import_out(TeamArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_item_relations() };
+    crate::store::calls::import_in(|row, heap| RelationsAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import itemTargets): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_item_targets(args: &NoArgs) -> TargetsAnswer {
+    crate::store::calls::import_out(NoArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_item_targets() };
+    crate::store::calls::import_in(|row, heap| TargetsAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import itemWaterCrossing): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_item_water_crossing(args: &SegmentArgs) -> PointAnswer {
+    crate::store::calls::import_out(SegmentArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_item_water_crossing() };
+    crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import launch): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_launch(args: &LaunchArgs) -> () {
+    crate::store::calls::import_out(LaunchArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_launch() };
+}
+
+/// Asks JavaScript (the import missileTarget): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_missile_target(args: &TargetArgs) -> PointAnswer {
+    crate::store::calls::import_out(TargetArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_missile_target() };
+    crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import navigateMissile): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_navigate_missile(args: &SeekArgs) -> SeekAnswer {
+    crate::store::calls::import_out(SeekArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_navigate_missile() };
+    crate::store::calls::import_in(|row, heap| SeekAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import ownerKey): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_owner_key(args: &OwnerArgs) -> KeyAnswer {
+    crate::store::calls::import_out(OwnerArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_owner_key() };
+    crate::store::calls::import_in(|row, heap| KeyAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import pickup): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_pickup(args: &PickupArgs) -> () {
+    crate::store::calls::import_out(PickupArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_pickup() };
+}
+
+/// Asks JavaScript (the import projectile): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_projectile(args: &ProjectileArgs) -> () {
+    crate::store::calls::import_out(ProjectileArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_projectile() };
+}
+
+/// Asks JavaScript (the import raycastUnits): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_raycast_units(args: &UnitCastArgs) -> UnitCastAnswer {
+    crate::store::calls::import_out(UnitCastArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_raycast_units() };
+    crate::store::calls::import_in(|row, heap| UnitCastAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import riderMount): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_rider_mount(args: &BodyArgs) -> MountAnswer {
+    crate::store::calls::import_out(BodyArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_rider_mount() };
+    crate::store::calls::import_in(|row, heap| MountAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import shooter): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_shooter(args: &ShotArgs) -> ShooterAnswer {
+    crate::store::calls::import_out(ShotArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_shooter() };
+    crate::store::calls::import_in(|row, heap| ShooterAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import shotTick): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_shot_tick(args: &ShotArgs) -> TickAnswer {
+    crate::store::calls::import_out(ShotArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_shot_tick() };
+    crate::store::calls::import_in(|row, heap| TickAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import spin): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_spin(args: &NoArgs) -> NumberAnswer {
+    crate::store::calls::import_out(NoArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_spin() };
+    crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import unitSphere): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_unit_sphere(args: &UnitArgs) -> SphereAnswer {
+    crate::store::calls::import_out(UnitArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_unit_sphere() };
+    crate::store::calls::import_in(|row, heap| SphereAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehBodyEnabled): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_body_enabled(args: &VehBody) -> VehFlag {
+    crate::store::calls::import_out(VehBody::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_body_enabled() };
+    crate::store::calls::import_in(|row, heap| VehFlag::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehCast): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_cast(args: &VehRay) -> VehHit {
+    crate::store::calls::import_out(VehRay::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_cast() };
+    crate::store::calls::import_in(|row, heap| VehHit::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehClock): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_clock(args: &VehNothing) -> VehNumber {
+    crate::store::calls::import_out(VehNothing::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_clock() };
+    crate::store::calls::import_in(|row, heap| VehNumber::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehDamaged): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_damaged(args: &VehDamaged) -> () {
+    crate::store::calls::import_out(VehDamaged::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_damaged() };
+}
+
+/// Asks JavaScript (the import vehDestroyed): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_destroyed(args: &VehHull) -> () {
+    crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_destroyed() };
+}
+
+/// Asks JavaScript (the import vehDestroyedCrew): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_destroyed_crew(args: &VehHull) -> () {
+    crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_destroyed_crew() };
+}
+
+/// Asks JavaScript (the import vehEffect): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_effect(args: &VehEffect) -> () {
+    crate::store::calls::import_out(VehEffect::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_effect() };
+}
+
+/// Asks JavaScript (the import vehEnableBody): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_enable_body(args: &VehBody) -> () {
+    crate::store::calls::import_out(VehBody::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_enable_body() };
+}
+
+/// Asks JavaScript (the import vehExplosion): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_explosion(args: &VehBlast) -> () {
+    crate::store::calls::import_out(VehBlast::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_explosion() };
+}
+
+/// Asks JavaScript (the import vehGround): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_ground(args: &VehColumn) -> VehGround {
+    crate::store::calls::import_out(VehColumn::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_ground() };
+    crate::store::calls::import_in(|row, heap| VehGround::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehHasWater): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_has_water(args: &VehNothing) -> VehFlag {
+    crate::store::calls::import_out(VehNothing::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_has_water() };
+    crate::store::calls::import_in(|row, heap| VehFlag::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehInDeathRegion): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_in_death_region(args: &VehPoint) -> VehFlag {
+    crate::store::calls::import_out(VehPoint::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_in_death_region() };
+    crate::store::calls::import_in(|row, heap| VehFlag::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehMoveBody): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_move_body(args: &VehBody) -> () {
+    crate::store::calls::import_out(VehBody::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_move_body() };
+}
+
+/// Asks JavaScript (the import vehPushWalls): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_push_walls(args: &VehPush) -> VehPushed {
+    crate::store::calls::import_out(VehPush::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_push_walls() };
+    crate::store::calls::import_in(|row, heap| VehPushed::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehRaycastUnits): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_raycast_units(args: &VehRay) -> VehHit {
+    crate::store::calls::import_out(VehRay::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_raycast_units() };
+    crate::store::calls::import_in(|row, heap| VehHit::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehReleaseCrew): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_release_crew(args: &VehHull) -> () {
+    crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_release_crew() };
+}
+
+/// Asks JavaScript (the import vehRespawnClock): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_respawn_clock(args: &VehHull) -> () {
+    crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_respawn_clock() };
+}
+
+/// Asks JavaScript (the import vehSpringPolygons): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_spring_polygons(args: &VehSpring) -> VehPolygons {
+    crate::store::calls::import_out(VehSpring::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_spring_polygons() };
+    crate::store::calls::import_in(|row, heap| VehPolygons::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehWaterLevel): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_water_level(args: &VehNothing) -> VehNumber {
+    crate::store::calls::import_out(VehNothing::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_water_level() };
+    crate::store::calls::import_in(|row, heap| VehNumber::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehWaterOver): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_water_over(args: &VehColumn) -> VehFlag {
+    crate::store::calls::import_out(VehColumn::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_water_over() };
+    crate::store::calls::import_in(|row, heap| VehFlag::take(row, heap))
+}
+
+/// Asks JavaScript (the import waterCrossing): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_water_crossing(args: &SegmentArgs) -> PointAnswer {
+    crate::store::calls::import_out(SegmentArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_water_crossing() };
+    crate::store::calls::import_in(|row, heap| PointAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import waver): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_waver(args: &NoArgs) -> NumberAnswer {
+    crate::store::calls::import_out(NoArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_waver() };
+    crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
 }
 

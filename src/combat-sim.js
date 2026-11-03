@@ -26,7 +26,7 @@
 // A world only: a page draws soldiers from their records, and its own
 // player keeps his PlayerCombat.
 import * as THREE from "three";
-import * as runtime from "./sim/runtime.js";
+import { bridgeFor } from "./sim/runtime.js";
 import { CbOutMirror, CombatMirror, KIND_UNIT, putCbDamageIn, putCbExplodeIn, putCbIn, syncCbOut, syncCombat } from "./sim/gen/index.js";
 import { BLAST_BODY, PlayerCombat } from "./combat.js";
 import { CombatWorld } from "./combat-world.js";
@@ -73,13 +73,11 @@ export const combatTests = {
   ownerSnapshot: (v) => Object.isFrozen(v) && Object.getPrototypeOf(v) === Object.prototype && Number.isSafeInteger(v.id) && Number.isSafeInteger(v.generation) && "className" in v,
 };
 
-// The battle's combats on its instance of the module, through the store's
-// bridge (one an instance: bridgeFor, once the rounds' flip brings it).
+// The battle's combats on its instance of the module, through its one
+// bridge (bridgeFor: made here, or joined if the rounds made it).
 // `classes`: Unit, Vehicle, Soldier, Droideka, Building, Turret.
 export function attachCombatSim(instance, classes) {
-  const options = { classes, tests: combatTests };
-  const bridge = runtime.bridgeFor ? runtime.bridgeFor(instance, options) : (instance.holder?.bridge ?? new runtime.SimBridge(instance, options));
-  return new CombatSim(bridge);
+  return new CombatSim(bridgeFor(instance, { classes, tests: combatTests }));
 }
 
 export class CombatSim {
@@ -98,9 +96,7 @@ export class CombatSim {
     this.explodeRecord = { words: words(4), put: putCbExplodeIn };
     this.damage$ = { in: null, amount: 0, onShield: 0, source: null, attacker: null, explosion: false };
     this.explode$ = { in: null, explosion: 0, position: null, owner: null, scale: 1 };
-    const handlers = this.handlers();
-    if (bridge.register) bridge.register(handlers);
-    else Object.assign(bridge.handlers, handlers);
+    bridge.register(this.handlers());
   }
 
   // A facade for a unit the factory builds (PlayerCombat's options).

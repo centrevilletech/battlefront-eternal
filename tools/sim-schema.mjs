@@ -907,10 +907,17 @@ function jsPut(model, t, v, k) {
   }
 }
 
+// Zeroes words `from` to `to` (exclusive) of `f` after `base`: one store a
+// word for a few (Float64Array.fill is a call that costs more than a few
+// stores), fill for more.
+const jsZero = (f, base, from, to) => (to - from <= 8
+  ? Array.from({ length: to - from }, (_, i) => `${f}[${base} + ${from + i}] = 0;`).join(' ')
+  : `${f}.fill(0, ${base} + ${from}, ${base} + ${to});`);
+
 function jsPutField(model, t, v, k) {
   if (!optional(t)) return jsPut(model, t, v, k);
   const n = words(model, t);
-  return `{ const $x = ${v}; if ($x === null || $x === undefined) { f[at + ${k}] = $x === null ? 1 : 2; f.fill(0, at + ${k + 1}, at + ${k + n}); } else { f[at + ${k}] = 0; ${jsPut(model, bare(t), '$x', k + 1)} } }`;
+  return `{ const $x = ${v}; if ($x === null || $x === undefined) { f[at + ${k}] = $x === null ? 1 : 2; ${jsZero('f', 'at', k + 1, k + n)} } else { f[at + ${k}] = 0; ${jsPut(model, bare(t), '$x', k + 1)} } }`;
 }
 
 // Comparing two objects (Object.is for numbers, identity for references):
@@ -1130,7 +1137,7 @@ function jsUnion(model, u) {
     else lines.push(`    case ${i}: { let v = variantOf${u.name}(b, current) === ${i} ? current : undefined; ${jsSync(model, v.type, 'v', 1)} return v; }`);
   });
   lines.push(`    default: throw Error('${u.name}: no such variant');`, '  }', '}', '');
-  lines.push(`export function put${u.name}(b, x, f, at, heap) {`, `  const i = which${u.name}(b, x);`, `  f.fill(0, at + 1, at + ${w});`, '  f[at] = i;', '  switch (i) {');
+  lines.push(`export function put${u.name}(b, x, f, at, heap) {`, `  const i = which${u.name}(b, x);`, `  ${jsZero('f', 'at', 1, w)}`, '  f[at] = i;', '  switch (i) {');
   for (const [v, i] of refs) lines.push(`    case ${i}: b.refs[${kindConst(v.kind)}].put(x, f, at + 1); break;`);
   for (const [v, i] of values) lines.push(`    case ${i}: { ${jsPut(model, v.type, 'x', 1)} break; }`);
   lines.push('  }', '}', '');

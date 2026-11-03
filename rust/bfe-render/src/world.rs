@@ -81,6 +81,24 @@ impl<C: HasContext> WorldPass<C> {
         true
     }
 
+    // A world draw's lamps this frame (a DYNAMIC bucket's, while lamps are
+    // on): values [4 lamp table indices (-1: none), count], its program's
+    // WORLD_LAMP_UNIFORMS, set in place of last frame's.
+    pub fn world_lamps<M: MultiDraw>(&mut self, core: &Core<C, M>, w: u32, values: &[f32]) {
+        let world = &mut self.world[w as usize];
+        let program = &core.programs[world.program];
+        let mut put = |name: &str, value: Value| {
+            if let Some(slot) = program.uniforms.iter().position(|(n, _, _)| n == name) {
+                match world.uniforms.iter_mut().find(|(s, _)| *s == slot) {
+                    Some(entry) => entry.1 = value,
+                    None => world.uniforms.push((slot, value)),
+                }
+            }
+        };
+        put("bfeLampIndex", Value::F(4, [values[0], values[1], values[2], values[3]]));
+        put("bfeLampCount", Value::F(1, [values[4], 0.0, 0.0, 0.0]));
+    }
+
     // The cells render-culling.js culls a large bucket by: its triangles in
     // 48 m cells by their centres (shadow-casters.js), runs of consecutive
     // triangles in one cell, each cell's box over its vertices.

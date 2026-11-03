@@ -9,7 +9,8 @@
 //! A walker also advances its walk cycle and is posed from its clips (walk,
 //! applyPose, liftLegs), and as drawn feels the ground under its feet
 //! (feelLegs). The rig is rust/sim/src/rig/hull.rs's, posed here; a flyer's
-//! pose (its gear, its drawn bank) is the flight package's.
+//! frame, lean and gear are the flight package's (crate::flight::pose,
+//! crate::flight::gear), called from here.
 
 use super::hull::{angle, approach, Hull, DOWN, UP};
 use super::VehicleWorld;
@@ -191,11 +192,16 @@ impl Hull {
         if !self.alive || self.rests(dt) {
             return;
         }
-        debug_assert!(!self.flying, "a flyer's pose is the flight package's");
         self.place_root(alpha);
         self.walk(dt);
         if self.pose.as_ref().unwrap().rig.aimed_by_pose {
             self.apply_pose();
+        }
+        // A craft's gear, doors and foils at its own gear, before its
+        // aimers turn (crate::flight::gear).
+        if self.flying {
+            let gear = self.flight.gear;
+            self.pose_gear_at(gear);
         }
         self.pose_mut().age += dt;
         if dt > 0.0 {
@@ -213,16 +219,33 @@ impl Hull {
         p.rig.tree.update_matrix_world(root, true);
     }
 
-    /// vehicles.js render (ticked: after aimTick, in a world): the drawn
-    /// pose, a ground hull's.
-    pub fn render<W: VehicleWorld>(&mut self, w: &mut W, alpha: f64, dt: f64) {
+    /// vehicles.js render: the drawn pose. ticked: aimTick has just posed
+    /// the hull at this alpha (Vehicles.update; a spawn's render is not),
+    /// and then a craft whose flight this world steps (no walk pose, no
+    /// legs, its own gear) is drawn as aimTick posed it, only its barrels'
+    /// kick read again.
+    pub fn render<W: VehicleWorld>(&mut self, w: &mut W, alpha: f64, dt: f64, ticked: bool) {
         if !self.alive || self.rests(dt) {
             return;
         }
-        debug_assert!(!self.flying, "a flyer's pose is the flight package's");
+        if ticked && self.flying && !self.pose.as_ref().unwrap().has_pose && !self.pose.as_ref().unwrap().legs {
+            self.recoil_barrels(w);
+            let p = self.pose_mut();
+            for seat in &p.seats {
+                for weapon in &seat.weapons {
+                    for m in &weapon.muzzles {
+                        if let (Some(barrel), Some(_)) = (m.barrel, m.rest) {
+                            p.rig.tree.update_matrix_world(barrel, true);
+                        }
+                    }
+                }
+            }
+            return;
+        }
         self.place_root(alpha);
         self.feel_legs(w, dt);
         self.apply_pose();
+        self.pose_flight_gear();
         self.pose_seat(self.seat_index, 0.0);
         for i in 0..self.seats.len() {
             if i != self.seat_index && self.crewed(i) {
@@ -239,6 +262,7 @@ impl Hull {
     /// the repulsor's bob, every bone back at its bind turn, and its wheels.
     fn place_root(&mut self, alpha: f64) {
         let hover = self.repulsor && !self.flying;
+        let flyer = if self.flying { Some(self.flyer_frame(alpha)) } else { None };
         let (previous, position) = (self.previous, self.position);
         let (previous_tilt, tilt, previous_yaw, yaw, previous_roll, roll) = (self.previous_tilt, self.tilt, self.previous_yaw, self.yaw, self.previous_roll, self.roll);
         let p = self.pose.as_mut().unwrap();
@@ -248,10 +272,14 @@ impl Hull {
         let phase = p.age * 1.7 + p.hover_phase;
         let bob = if hover { math::sin(phase) * 0.07 + math::sin(phase * 0.61) * 0.025 } else { 0.0 };
         p.rig.tree.node_mut(root).position.y += bob;
-        let x = -lerp(previous_tilt, tilt, alpha);
-        let y = previous_yaw + angle(yaw - previous_yaw) * alpha;
-        let z = previous_roll + angle(roll - previous_roll) * alpha + if hover { math::sin(phase * 0.73) * 0.006 } else { 0.0 };
-        p.rig.tree.node_mut(root).set_rotation(x, y, z, Some(EulerOrder::YXZ));
+        if let Some((frame, bank)) = flyer {
+            crate::flight::pose::draw_flyer(&mut p.rig, &mut self.flight.frame_q, &frame, bank);
+        } else {
+            let x = -lerp(previous_tilt, tilt, alpha);
+            let y = previous_yaw + angle(yaw - previous_yaw) * alpha;
+            let z = previous_roll + angle(roll - previous_roll) * alpha + if hover { math::sin(phase * 0.73) * 0.006 } else { 0.0 };
+            p.rig.tree.node_mut(root).set_rotation(x, y, z, Some(EulerOrder::YXZ));
+        }
         for i in 0..p.rig.bones.len() {
             let bind = p.rig.bind_q[i];
             let bone = p.rig.bones[i];
@@ -277,12 +305,16 @@ impl Hull {
         }
     }
 
-    /// vehicles.js seatFrame (at the tick, a ground hull's): the frame a
-    /// seat's camera and aim hang from.
+    /// vehicles.js seatFrame (at the tick): the frame a seat's camera and
+    /// aim hang from: a flyer's own frame, a ground hull's heading.
     fn seat_frame(&self, i: usize) -> Matrix4 {
         let mut out = Matrix4::default();
         let mut q = Quaternion::default();
-        q.set_from_axis_angle(&UP, self.yaw);
+        if self.flying {
+            q = self.quaternion;
+        } else {
+            q.set_from_axis_angle(&UP, self.yaw);
+        }
         out.compose(&self.position, &q, &UNIT_SCALE);
         if i == 0 {
             return out;
@@ -304,8 +336,14 @@ impl Hull {
         out
     }
 
-    /// vehicles.js seatForward: a seat's aim direction (a ground hull's).
+    /// vehicles.js seatForward: a seat's aim direction (a flyer's pilot's
+    /// along its nose).
     fn seat_forward(&self, i: usize) -> Vector3 {
+        if self.flying && i == 0 {
+            let mut out = Vector3::new(0.0, 0.0, 1.0);
+            out.apply_quaternion(&self.quaternion);
+            return out;
+        }
         let seat = self.seats.get(i).unwrap_or(&self.seats[0]);
         aim_vector(seat.aim_yaw, seat.pitch)
     }
