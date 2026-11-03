@@ -19,6 +19,8 @@ function bridge() {
     input_len() { return 200 + 76 * 4; }
     bones_ptr() { return 8192; }
     bones_len() { return 64; }
+    far_input_ptr() { return 16384; }
+    far_input_len() { return 1024; }
     records_at() { return 200; }
     record_stride() { return 76; }
     add_texture() { calls.push(["add_texture"]); return 0; }
@@ -39,6 +41,9 @@ function bridge() {
     getRenderTarget: () => target,
     setRenderTarget(t) { calls.push(["setRenderTarget", t]); target = t; },
     resetState() { calls.push(["resetState"]); },
+    getClearColor: (c) => c.setRGB(0, 0, 0),
+    getClearAlpha: () => 1,
+    getContextAttributes: () => ({ premultipliedAlpha: true }),
   };
   const graphics = { renderer, scene, camera, sceneTarget, farTarget, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
   const core = new RustRender(graphics, { memory }, BfeRenderer);

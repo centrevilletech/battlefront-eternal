@@ -153,6 +153,9 @@ export class TerrainPatches {
   view(scene, material, { fade = null, receiveShadow = false, reduced = () => false } = {}) {
     const group = new THREE.Group();
     group.matrixAutoUpdate = false;
+    // For a renderer that draws the runs itself (src/rust-render/far.js):
+    // these cells and the level the scene draws.
+    group.userData.terrain = { patches: this, reduced };
     const add = () => {
       const mesh = new THREE.Mesh(this.geometry(), material);
       mesh.matrixAutoUpdate = false;
