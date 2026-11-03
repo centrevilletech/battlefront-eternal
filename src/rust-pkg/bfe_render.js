@@ -783,6 +783,23 @@ export class BfeRenderer {
         return v1;
     }
     /**
+     * @param {Float64Array | number[]} clear
+     * @param {number} steps
+     * @returns {Uint32Array}
+     */
+    near_begin(clear, steps) {
+        const val2 = +steps;
+        const ptr0 = passArrayF64ToWasm0(clear, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_near_begin(this.__wbg_ptr, ptr0, len0, val2);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v3 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v3;
+    }
+    /**
      * @param {WebGL2RenderingContext} context
      */
     constructor(context) {
@@ -1605,6 +1622,12 @@ function __wbg_get_imports() {
         },
         __wbg_shaderSource_c4c06a3cbc2e7bf3: function(arg0, arg1, arg2, arg3) {
             arg0.shaderSource(arg1, getStringFromWasm0(arg2, arg3));
+        },
+        __wbg_stencilMask_1fe24adb96500c11: function(arg0, arg1) {
+            arg0.stencilMask(arg1 >>> 0);
+        },
+        __wbg_stencilMask_6d5dbf91337de94e: function(arg0, arg1) {
+            arg0.stencilMask(arg1 >>> 0);
         },
         __wbg_texImage2D_20b5002326193fe6: function() { return handleError(function (arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
             arg0.texImage2D(arg1 >>> 0, arg2, arg3, arg4, arg5, arg6, arg7 >>> 0, arg8 >>> 0, arg9);

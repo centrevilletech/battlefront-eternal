@@ -41,6 +41,7 @@ import { viewPass } from "./view.js";
 import { postPass } from "./post.js";
 import { hudPass } from "./hud.js";
 import { waterPass } from "./water.js";
+import { nearPass } from "./near.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -74,6 +75,9 @@ const PHASES = {
   hud: { view: null, draw: (rust) => rust.hud_frame() },
   // The near phase's passes from a mirror camera (water.js's reflection).
   mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
+  // The near scene's start when it is drawn in place of three's render
+  // (near.js): its target cleared, the far scene's image drawn into it.
+  begin: { view: null, draw: (rust, ctx) => rust.near_begin(ctx.clear, ctx.steps ?? 0) },
 };
 
 // three's renderer's entry points that read or change its state cache, each
@@ -166,7 +170,7 @@ export class RustRender {
     // A mirror draws the near phase's passes.
     this.phases.mirror = this.phases.near;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass]) this.addPass(make(this));
   }
 
   // A pass: { name, phase, register?(), draw?(ctx), setActive?(on),
@@ -385,15 +389,16 @@ export class RustRender {
   // defer: three draws nothing right after this phase (a scene's phase drawn
   // in place of three's render, between three's renders): its state is reset
   // only when three is next used (settle), so that phases drawn one after
-  // another reset it once.
-  phase(name, renderer, scene, camera, defer = false) {
+  // another reset it once. walked: the transparent list's items as near.js
+  // walked the scene for three's render it draws in place of (ctx.walked).
+  phase(name, renderer, scene, camera, defer = false, walked = null) {
     if (!this.enabled || !this.active) return;
     if (!this.supported()) { this.restore(); return; }
     const phase = PHASES[name], target = renderer.getRenderTarget();
     if (phase.view !== null) this.writeFrame(scene, camera, phase.view);
     // What the passes have written into the renderer's input so far: records
     // and bones, and where each skeleton's bones are.
-    const ctx = { renderer, scene, camera, records: 0, bones: 0, skeletons: new Map() };
+    const ctx = { renderer, scene, camera, records: 0, bones: 0, skeletons: new Map(), defer, walked };
     for (const pass of this.phases[name]) pass.draw?.(ctx);
     if (name === "near" && this.recording?.keepFrames > 0) {
       this.recording.keepFrames--;
@@ -512,6 +517,12 @@ export class RustRender {
   post(renderer, steps) {
     const target = renderer.getRenderTarget();
     try { return this.byName.post?.cover(renderer, steps) ?? false; } catch (error) { this.fail(error, renderer, target); return false; }
+  }
+
+  // graphics.js: the near scene, drawn in place of three's render of it when
+  // nothing in it is left for three (near.js); true when it was.
+  coverNear(renderer, scene, camera) {
+    return this.byName.near?.cover(renderer, scene, camera) ?? false;
   }
 
   // hud.js: the battle HUD's batch, drawn by the HUD pass; true when it was.

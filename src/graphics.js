@@ -961,7 +961,9 @@ export class Graphics {
     if (temporal) this.upscaler.shift(camera);
     renderer.setRenderTarget(this.sceneTarget);
     this.particleDepth.begin(this.sceneTarget, camera, Boolean(this.settings.get("softParticles")));
-    renderer.render(this.scene, camera);
+    // The Rust renderer draws the near scene in three's place when nothing
+    // in it is left for three this frame.
+    if (!this.rust?.coverNear(renderer, this.scene, camera)) renderer.render(this.scene, camera);
     // The temporal upscaler reprojects by the scene's depth, taken before
     // the weapon's own depth range replaces it.
     if (temporal) this.particleDepth.capture(camera, true);

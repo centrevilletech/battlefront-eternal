@@ -158,6 +158,8 @@ class TransparentPass {
     // the values it last set in each (transparent.rs), and the effects'
     // glow models can draw with the same three program, keeping theirs.
     this.objectPrograms = new Map();
+    // The list near.js's walk stands for (walkedList).
+    this.walked = { opaque: [], transmissive: [], transparent: [], image: { object: null } };
     this.buckets = 0;
     this.objectCount = 0;
     this.takenCount = 0;
@@ -170,14 +172,17 @@ class TransparentPass {
   // take what this pass draws out of three's transparent list, then arm the
   // transparent phase on the item three draws just before that list. After
   // the transparent phase: arm each later segment on the item three draws
-  // just before it.
+  // just before it. When the near scene is drawn in place of three's render
+  // (near.js), its walk's items stand for three's list, all of them this
+  // pass's, and the transparent phase follows at once, as deferred as the
+  // near phase.
   afterPhase(name, ctx) {
     if (name === "near") {
       this.disarm();
       this.frameNo++;
       this.list = null;
       this.takenCount = 0;
-      this.list = this.threeList(ctx.renderer, ctx.scene);
+      this.list = ctx.walked ? this.walkedList(ctx.walked) : this.threeList(ctx.renderer, ctx.scene);
       if (!this.list) return;
       // Off (a comparison): three draws every item of its list, and the
       // other sources' items still draw around them.
@@ -185,7 +190,7 @@ class TransparentPass {
       else this.takeNone();
       const before = this.list.transmissive.length ? this.list.transmissive : this.list.opaque;
       const last = before[before.length - 1];
-      const start = () => this.core.phase("transparent", ctx.renderer, ctx.scene, ctx.camera);
+      const start = () => this.core.phase("transparent", ctx.renderer, ctx.scene, ctx.camera, ctx.defer);
       // The far scene's image drawn last: the transparent list follows now.
       if (last.object === this.core.graphics.background) start();
       else this.arm(last, start);
@@ -197,6 +202,24 @@ class TransparentPass {
         if (segments[k + 1] > segments[k]) { const segment = k; this.arm(this.three[k - 1], () => this.drawSegment(segment)); }
       }
     }
+  }
+
+  // The list three would have made of the near scene, as near.js walked it:
+  // the far scene's image alone opaque, and the walk's items.
+  walkedList(items) {
+    this.walked.opaque[0] = this.walked.image;
+    this.walked.image.object = this.core.graphics.background;
+    this.walked.transparent = items;
+    return this.walked;
+  }
+
+  // Whether this pass draws an item three would list in the near scene's
+  // next render (take()'s test, before that frame's near phase).
+  takes(item) {
+    const entry = this.taken.get(item.object);
+    if (!this.active || !entry || entry.material !== item.material || item.group) return false;
+    const props = this.core.renderer.properties.get(entry.material);
+    return props.currentProgram === entry.program && props.__version === entry.material.version && entry.frame <= this.frameNo;
   }
 
   // three's render list for the near scene being drawn: the one whose

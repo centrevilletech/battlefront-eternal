@@ -1200,6 +1200,18 @@ These passes take the rest of a Classic frame's own scenes from three:
   camera, which water.js marks; the near scene's hook then draws the near
   phase's passes for that camera (`mirror_frame`), so what the renderer
   draws shows in the reflection too.
+- The near scene itself, behind `?rustNear` (`near.js`): on a frame when
+  everything three would list in it is drawn by a pass, the renderer
+  draws the scene in place of three's render. It does what three's render
+  does first (the scene's `onBeforeRender`), walks the scene as three's
+  `projectObject` does (shown, on the camera's layers, in view) for what
+  three would list, and at the first item no pass draws leaves the frame
+  to three. Otherwise it clears the target as three would, draws the far
+  scene's image with three's program for it, then the near and
+  transparent phases (the transparent pass's objects keyed from the walk
+  as three keys them), and resolves the target. Phases drawn between
+  three's renders (the far scene, the view, the post passes, the HUD, and
+  this one) reset three's state once, when three is next used.
 
 If the WebGL context is lost, or a pass throws, the bridge gives
 everything back to three for good (`RustRender.fail`): a lost context

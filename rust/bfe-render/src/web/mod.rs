@@ -113,4 +113,9 @@ impl BfeRenderer {
     pub fn hud_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.hud_frame().map_err(|e| JsValue::from_str(&e))?.values())
     }
+    // clear: three's clear colour (rgba, premultiplied); steps: the post
+    // steps the page wrote for the far scene's image (near.js).
+    pub fn near_begin(&mut self, clear: &[f64], steps: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.near_begin(clear, steps as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
 }

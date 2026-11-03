@@ -216,7 +216,7 @@ impl<C: HasContext> FoliagePass<C> {
         // patchIndex: cells as wide as the longest cull distance.
         let mut patches = Vec::with_capacity(bounds.len() / BOUNDS);
         let mut reach = 0.0f64;
-        for b in bounds.chunks_exact(BOUNDS) {
+        for b in bounds.as_chunks::<BOUNDS>().0 {
             let sphere = if b[6] < 0.0 { None } else { Some(([b[3], b[4], b[5]], b[6])) };
             if b[7].is_finite() && b[7] > reach {
                 reach = b[7];

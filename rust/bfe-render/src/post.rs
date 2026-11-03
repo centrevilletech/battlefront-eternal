@@ -7,7 +7,9 @@
 // texture under a framebuffer of this pass's own) or the canvas.
 //
 // The page writes the frame's steps into `input` (STEP f64 each): the
-// program, the target (-1: the canvas), its size, then each uniform the
+// program, the target (-1: the canvas; -2: the framebuffer bound now, its
+// viewport as three set it: the near scene's start, near.js), its size,
+// then each uniform the
 // program reads as a slot of its uniforms (core.rs Program.uniforms) with a
 // type and value (UNIFORM f64 each). Values are only sent when they differ
 // from what the program holds.
@@ -26,6 +28,9 @@ pub const UNIFORM: usize = 18;
 pub const MAX_UNIFORMS: usize = 12;
 pub const STEP: usize = STEP_FIRST + MAX_UNIFORMS * UNIFORM;
 pub const MAX_STEPS: usize = 8;
+// A step's target: the canvas, or the framebuffer bound now.
+pub const TARGET_CANVAS: f64 = -1.0;
+pub const TARGET_BOUND: f64 = -2.0;
 // Uniform types: a float vector of 1-4, an int (a bool too), a mat3, a mat4,
 // a sampler (value: the texture; unit: the k-th sampler of the draw).
 pub const TYPE_INT: u32 = 5;
@@ -136,6 +141,23 @@ pub(crate) fn full_screen<C: HasContext, M: MultiDraw>(core: &mut Core<C, M>) {
     stats.gl_calls += 3;
 }
 
+// The framebuffer bound now cleared as three's WebGLBackground clears it
+// before a scene: every channel, depth and stencil, with three's clear
+// colour (rgba, premultiplied as the page wrote it), every buffer writable,
+// no scissor (a target's own scissor test, which three's are without).
+pub(crate) fn clear<C: HasContext, M: MultiDraw>(core: &mut Core<C, M>, rgba: &[f64]) {
+    let (gl, state, stats) = (&core.gl, &mut core.state, &mut core.stats);
+    state.color_mask(gl, stats, [true; 4]);
+    state.depth_write(gl, stats, true);
+    unsafe {
+        gl.disable(glow::SCISSOR_TEST);
+        gl.stencil_mask(0xffff_ffff);
+        gl.clear_color(rgba[0] as f32, rgba[1] as f32, rgba[2] as f32, rgba[3] as f32);
+        gl.clear(glow::COLOR_BUFFER_BIT | glow::DEPTH_BUFFER_BIT | glow::STENCIL_BUFFER_BIT);
+    }
+    stats.gl_calls += 4;
+}
+
 impl<C: HasContext> PostPass<C> {
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> PostPass<C> {
         let gl = &core.gl;
@@ -183,12 +205,14 @@ impl<C: HasContext> PostPass<C> {
                 continue;
             }
             let target = step[STEP_TARGET];
-            let gl = &core.gl;
-            unsafe {
-                gl.bind_framebuffer(glow::FRAMEBUFFER, if target < 0.0 { None } else { self.targets.get(target as usize).copied() });
-                gl.viewport(0, 0, step[STEP_WIDTH] as i32, step[STEP_HEIGHT] as i32);
+            if target != TARGET_BOUND {
+                let gl = &core.gl;
+                unsafe {
+                    gl.bind_framebuffer(glow::FRAMEBUFFER, if target < 0.0 { None } else { self.targets.get(target as usize).copied() });
+                    gl.viewport(0, 0, step[STEP_WIDTH] as i32, step[STEP_HEIGHT] as i32);
+                }
+                core.stats.gl_calls += 2;
             }
-            core.stats.gl_calls += 2;
             core.state.use_program(&core.gl, &mut core.stats, core.programs[program].program);
             let mut unit = 0u32;
             let n = (step[STEP_UNIFORMS] as usize).min(MAX_UNIFORMS);

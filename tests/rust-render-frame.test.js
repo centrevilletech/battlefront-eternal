@@ -388,6 +388,77 @@ test("the transparent pass's objects draw with programs of their own, apart from
   assert.notEqual(pass[2], shared.id, "drawn with its own");
 });
 
+// The near scene with the far scene's image in it (three has made its
+// program), as graphics.js has it.
+function nearBridge() {
+  const { BfeRenderer, memory, calls } = standinModule();
+  const background = new THREE.Mesh(partGeometry(), new THREE.ShaderMaterial({ uniforms: { map: { value: null } }, depthTest: false, depthWrite: false }));
+  background.frustumCulled = false;
+  const three = standinThree(calls, { graphics: { background } });
+  three.scene.add(background);
+  three.properties.get(background.material).currentProgram = program([["map", GL.SAMPLER_2D]], ["position", "uv"]);
+  const core = new RustRender(three.graphics, { memory }, BfeRenderer);
+  // ?rustNear
+  core.byName.near.allowed = true;
+  core.byName.near.setActive(true);
+  three.renderer.setRenderTarget(three.graphics.sceneTarget);
+  calls.length = 0;
+  return { core, calls, ...three };
+}
+
+test("the near scene: drawn in place of three's render when everything three would list is the renderer's", () => {
+  const { core, calls, renderer, graphics, scene, camera, properties, list } = nearBridge();
+  let before = 0;
+  scene.onBeforeRender = () => { before++; };
+  // A mesh a pass draws (its material hidden from three), one out of view,
+  // and a hologram the transparent pass takes, in view.
+  const hidden = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial({ visible: false }));
+  const behind = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
+  behind.position.set(0, 0, 50);
+  const material = new THREE.MeshBasicMaterial({ transparent: true });
+  const holo = new THREE.Mesh(partGeometry(), material);
+  holo.position.set(1, 0, -5);
+  holo.renderOrder = 2;
+  scene.add(hidden, behind, holo);
+  scene.updateMatrixWorld(true);
+  const threeProgram = { id: 3 };
+  properties.get(material).currentProgram = threeProgram;
+  properties.get(material).__version = material.version;
+  core.byName.transparent.taken.set(holo, { bucket: false, id: 7, material, program: threeProgram, frame: 0 });
+  list.opaque.push({ object: graphics.background });
+  assert.equal(core.coverNear(renderer, scene, camera), true);
+  assert.equal(before, 1, "three's start of a render");
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "frame", "transparent_frame"]);
+  const begin = calls.find((c) => c[0] === "near_begin");
+  assert.deepEqual([...begin[1]], [0, 0, 0, 1], "three's clear colour");
+  assert.equal(begin[2], 1, "the far scene's image, one step");
+  assert.equal(core.postInput[1], -2, "into the target bound now");
+  // The hologram's record, keyed as projectObject keys it.
+  const z = new THREE.Vector4().copy(holo.geometry.boundingSphere.center).applyMatrix4(holo.matrixWorld)
+    .applyMatrix4(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)).z;
+  assert.deepEqual([...core.transparentObjects.subarray(0, 6)], [1, 7, 0, 2, z, holo.id]);
+  assert.equal(list.opaque.length, 0, "three's list of the scene is empty");
+  assert.equal(renderer.info.render.frame, 1);
+  assert.ok(calls.some((c) => c[0] === "blitFramebuffer"), "the target resolved");
+  assert.ok(!calls.some((c) => c[0] === "resetState"), "three's state is reset when three is next used");
+  assert.equal(core.stale, true);
+});
+
+test("the near scene: left to three when it would list something no pass draws", () => {
+  const { core, calls, renderer, scene, camera } = nearBridge();
+  const wall = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
+  wall.position.set(0, 0, -5);
+  scene.add(wall);
+  scene.updateMatrixWorld(true);
+  assert.equal(core.coverNear(renderer, scene, camera), false);
+  assert.equal(core.byName.near.stopped, wall);
+  assert.ok(!calls.some((c) => /frame$|^near_begin$/.test(c[0])), "nothing drawn: three renders the scene");
+  // Nor when three is to draw the scene for another camera or target.
+  wall.material.visible = false;
+  assert.equal(core.coverNear(renderer, scene, new THREE.PerspectiveCamera()), false);
+  assert.equal(core.coverNear(renderer, scene, camera), true);
+});
+
 test("phases drawn between three's renders reset three's state once, when three is next used", () => {
   const { core, calls, renderer, scene, camera } = bridge();
   core.addPass({ name: "a", phase: "view", draw() { this.complete = true; } });

@@ -114,8 +114,9 @@ export function standinContext(calls) {
   };
 }
 
-// three's renderer and the page's graphics as the bridge uses them: the
-// render lists (`list`, the near scene's), material and texture properties
+// three's renderer and the page's graphics as the bridge uses them: its
+// render settings and info, the render lists (`list`, the near scene's,
+// which init() empties), material and texture properties
 // (each object's made on first use, with a WebGL texture), the target being
 // drawn into (`setTarget` for a test; setRenderTarget, resetState, state
 // framebuffer binds and initTexture logged in `calls`), the canvas (an event
@@ -129,9 +130,12 @@ export function standinThree(calls, { graphics: extra = {}, context = standinCon
   const properties = new Map();
   properties.set(sceneTarget, { __webglMultisampledFramebuffer: "ms", __webglFramebuffer: "fb" });
   let target = sceneTarget;
-  const list = { opaque: [], transmissive: [], transparent: [] };
+  const list = { opaque: [], transmissive: [], transparent: [], init() { this.opaque.length = 0; this.transmissive.length = 0; this.transparent.length = 0; } };
   const renderer = {
     domElement: new EventTarget(),
+    autoClear: true, autoClearColor: true, autoClearDepth: true, autoClearStencil: true, sortObjects: true,
+    localClippingEnabled: false, clippingPlanes: [],
+    info: { autoReset: true, render: { frame: 0, calls: 0 }, reset() { this.render.calls = 0; } },
     renderLists: { get: () => list },
     getContext: () => context,
     properties: { get: (o) => { if (!properties.has(o)) properties.set(o, { __webglTexture: {} }); return properties.get(o); } },

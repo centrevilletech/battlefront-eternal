@@ -158,6 +158,19 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         Ok(core.end_phase())
     }
 
+    // The near scene's start when the page draws all of it in place of
+    // three's render (near.js): the target cleared as three clears it
+    // (clear: rgba), then the far scene's image drawn into it (the steps the
+    // page wrote for the post pass, into the target bound now).
+    pub fn near_begin(&mut self, clear: &[f64], steps: usize) -> Result<Stats, String> {
+        self.core.begin_phase();
+        if clear.len() >= 4 {
+            crate::post::clear(&mut self.core, clear);
+        }
+        self.post.draw(&mut self.core, steps);
+        Ok(self.core.end_phase())
+    }
+
     // The post passes' phase, once the scenes are drawn: the steps the page
     // wrote (post.rs), in order.
     pub fn post_frame(&mut self, steps: usize) -> Result<Stats, String> {
