@@ -30,6 +30,12 @@
 //   (environment-volume.js: a shader model over the screen, its image drawn
 //   by three into its own target by the model's onBeforeRender, as three
 //   would call it).
+// - The fountains' jets (fountain-jets.js): batches of fixed seeds on bases
+//   of their own (quads, ribbons, the column, the tier's overflow), which
+//   read the frame drawn so far, copied by an object three still draws just
+//   before them (its own list then splits the renderer's there); and their
+//   two halves of soft spray, each drawn by three into a target of its own
+//   and composited by the renderer (shader models, as the steam's volumes).
 //
 // Each is registered the first time three has drawn it (which gives its
 // material a program), then marked external: three is shown it no more and
@@ -41,14 +47,14 @@
 // matrix, as three's projectObject takes it) and its id.
 //
 // Of what the Enhanced looks draw, the bolts (blaster-bolts.js) and the
-// sniper's trace (sniper-trace.js) are drawn here too; the arcs, the
-// destruction and jetpack effects and the fountains' jets stay with three
-// for now.
+// sniper's trace (sniper-trace.js) are drawn here too; the arcs, and the
+// destruction and jetpack effects stay with three for now.
 import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
 import { squareBatches } from "../atmosphere.js";
 import { classicLightning } from "../lightning.js";
 import { rainImpacts } from "../rain-impacts.js";
+import { fountainJets } from "../fountain-jets.js";
 import { particleDepth } from "../particle-depth.js";
 import { lighting } from "../materials.js";
 import { blendOf, stateOf, sidesOf, programForSide } from "./transparent.js";
@@ -101,14 +107,24 @@ const KINDS = {
   // land, rewritten as they land (all of them uploaded when any changed).
   impacts: { attributes: [["impact", 4], ["surfaceNormal", 3], ["kind", 1]], base: [["position", 3], ["uv", 2]], versioned: true,
     values: ["impactTime"], samplers: [] },
+  // The fountains' jets (fountain-jets.js): each its instance attributes
+  // (fixed: a block of seeds or ropes for each fountain) and its base (what
+  // else its program reads) as its geometry has them; their values set by
+  // the jets' prepare() rather than their onBeforeRender, which would copy
+  // the frame at once (three's copier draws just before them).
+  jets: { attributes: "instanced", base: "rest", static: true, hiddenBy: "material", depth: true,
+    values: ["jetTime", "side", "perFountain", "sources", "levels", "lows", "visible", "wind", "hasFoam", "hasDepth", "hasScene", "sceneResolution", "fragScale"],
+    samplers: ["atlas", "foamMap", "sceneColor"] },
 };
 // The batches of fixed seeds found in three's list by their meshes' names,
 // and the shader models (registerShader).
 const SEEDED = { "map-precipitation": "rain", "rain-ground-mist": "rain", "chamber-steam-wisps": "wisps", "fountain-wake-spray": "spray" };
-const SHADER_MODELS = new Set(["rain-sheets", "environment-volumes"]);
+const SHADER_MODELS = new Set(["rain-sheets", "environment-volumes", "fountain-spray-beyond", "fountain-spray-before"]);
+// The fountains' jets' meshes (fountain-jets.js).
+const JETS = new Set(["fountain-pool", "fountain-overflow", "fountain-ropes", "fountain-jets", "fountain-jets-core", "fountain-jets-near", "fountain-overflow-near", "fountain-ropes-near"]);
 // add_batch's corner for a batch with a base of its own (effects.rs NO_CORNER).
 const NO_CORNER = 0xffffffff;
-const SAMPLER_UNITS = { flakes: 7, boxes: 8, cover: 9 };
+const SAMPLER_UNITS = { flakes: 7, boxes: 8, cover: 9, atlas: 10, foamMap: 11, sceneColor: 12 };
 // A shader model's units for what it samples besides its map and the scene's depth.
 const MODEL_UNITS = [9, 10, 11];
 const LIGHTNING = [["position", 3], ["uv", 2], ["color", 4]];
@@ -156,6 +172,14 @@ function splashes(impacts) {
     arrays: { impact: g.getAttribute("impact").array, surfaceNormal: g.getAttribute("surfaceNormal").array, kind: g.getAttribute("kind").array },
     get external() { return impacts.external; }, set external(on) { impacts.external = on; },
   };
+}
+// A mesh of instances whatever its attributes (a fountain's jets): its
+// instance attributes' arrays by name.
+function instancedOf(mesh) {
+  const g = mesh.geometry, arrays = {};
+  let capacity = 0;
+  for (const [name, a] of Object.entries(g.attributes)) if (a.isInstancedBufferAttribute) { arrays[name] = a.array; capacity = a.count; }
+  return { mesh, material: mesh.material, geometry: g, get count() { return g.instanceCount; }, capacity, arrays, external: false };
 }
 // A sniper trace's batch (sniper-trace.js instanced): its instances in one
 // interleaved array, `stride` floats each.
@@ -297,6 +321,9 @@ class EffectsPass {
       } else if (object.name === "rain-surface-impacts" && rainImpacts.has(object)) {
         const record = this.registerBatch(splashes(rainImpacts.get(object)), "impacts", null);
         if (record !== undefined) this.byBatch.set(object, record);
+      } else if (JETS.has(object.name) && fountainJets.has(object) && object.material?.isShaderMaterial) {
+        const record = this.registerBatch(instancedOf(object), "jets", null);
+        if (record !== undefined) this.byBatch.set(object, record);
       }
     }
     // Now and then, the records of parts no longer in the scene let go.
@@ -385,7 +412,8 @@ class EffectsPass {
   // A batch's record, or null when the renderer can't draw it; undefined
   // while three has not drawn it yet.
   registerBatch(batch, kind, renderer) {
-    const core = this.core, material = batch.material, spec = KINDS[kind];
+    const core = this.core, material = batch.material;
+    let spec = KINDS[kind];
     const threeProgram = core.renderer.properties.get(material).currentProgram;
     if (!threeProgram) return undefined;
     const fail = (why) => { core.errors.push(`effects ${kind}: ${why}`); return null; };
@@ -395,6 +423,13 @@ class EffectsPass {
     if (!blend || !state || state.func !== 0x0203 || state.flags !== 5 || sides.length !== 1) return fail("state");
     const program = core.program(threeProgram, EFFECT, material, policyOf(spec));
     if (!program) return fail("program");
+    // Attributes as its geometry has them: instance ones, then its base.
+    if (spec.attributes === "instanced") {
+      const g = batch.geometry, read = program.attributes.map(([name]) => name).filter((name) => g.getAttribute(name));
+      spec = { ...spec, attributes: read.filter((name) => g.getAttribute(name).isInstancedBufferAttribute).map((name) => [name, g.getAttribute(name).itemSize]),
+        base: read.filter((name) => !g.getAttribute(name).isInstancedBufferAttribute).map((name) => [name, g.getAttribute(name).itemSize]) };
+      if (!spec.base.length) return fail("base");
+    }
     const at = new Map(program.attributes);
     const attributes = spec.attributes;
     for (const [name, size] of attributes) if (!at.has(name) || batch.geometry.getAttribute(name)?.itemSize !== size) return fail(`attribute ${name}`);
@@ -447,6 +482,7 @@ class EffectsPass {
     const record = { batch, kind, id, attributes, values, samplers, arrays: null, mesh: batch.mesh, map, handle: this.handle(map), version: map?.version, key,
       stride: attributes.reduce((sum, [, size]) => sum + size, 0), sizes: attributes.map(([, size]) => size), beforeRender: Boolean(spec.beforeRender), static: Boolean(spec.static), uploaded: 0,
       interleaved: Boolean(spec.interleaved), versioned: Boolean(spec.versioned), dataVersion: -1, depth: Boolean(spec.depth),
+      jets: kind === "jets" ? fountainJets.get(batch.mesh) : null,
       hiddenBy: spec.hiddenBy ?? "external", synced: false, capacity: -1, from: this.frame };
     this.hide(record, true);
     this.records.push(record);
@@ -652,12 +688,15 @@ class EffectsPass {
     // drew what was registered this frame itself), and the floats it needs.
     const camera = ctx.camera, frame = this.frame, drawn = this.drawn, glowing = this.glowing;
     drawn.length = glowing.length = 0;
-    let need = 0;
+    let need = 0, jets = false;
     for (const record of this.records) {
       const b = record.batch;
       if (record.from === frame || b.count <= 0 || (record.hiddenBy !== "material" && b.material.visible === false) || !b.mesh.visible && record.hiddenBy === "material" || !this.shown(record.mesh, camera)) continue;
       drawn.push(record);
       if (record.depth) reads = true;
+      // The fountains' jets: their values set, and the target the frame so
+      // far goes into sized, once a frame, before their samplers.
+      if (record.jets && !jets) { jets = true; record.jets.prepare(ctx.renderer, camera); }
       need += b.count * record.stride;
       for (const [, size] of record.values) need += size;
       // Values its onBeforeRender sets, as three would call it.

@@ -955,7 +955,7 @@ boundary, so that each part of the frame can move to it on its own:
 | Far | `far.rs` | `far.js` | far | The far scene: sky and its layers, low-detail buckets, far terrain, far water |
 | Terrain | `terrain.rs` | `terrain.js` | near | The ground and its painted layers (drawn by the world pass) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | What the near scene blends, in three's order: blended buckets, holograms, flares |
-| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam and wake effects |
+| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam, fountain and wake effects |
 | Foliage | `foliage.rs` | `foliage.js` | near | Nothing yet |
 | View | `view.rs` | `view.js` | view | Nothing yet (the first-person weapon) |
 | Post | `post.rs` | `post.js` | post | Nothing yet (composite, FXAA, upscale) |
@@ -1101,6 +1101,8 @@ has drawn it, with three's own program, then hidden from three:
 | Enhanced rain's sheets | `rain-sheets.js` | shader model, never culled | its material |
 | Enhanced steam's wisps, wake splashes | `steam-wisps.js`, `fountain-spray.js` | instanced quads, base plane, single-sided | its material |
 | Enhanced steam's volumes | `environment-volume.js` | shader model over the screen | its material |
+| Enhanced fountains' jets | `fountain-jets.js` | instanced, bases of their own, reading the frame so far | its material |
+| Enhanced fountains' soft spray | `fountain-jets.js` | shader models over the screen | its material |
 
 A batch's instances go into the module's memory attribute by attribute as
 the batch keeps them (an analytic batch's from the first that changed since
@@ -1119,8 +1121,13 @@ there (a scene of their own, at half size), and the renderer composites
 that image where three would have; the steam's wisps, the wake splashes
 and the volumes take the scene's depth whatever the soft particle setting,
 so the pass binds it whenever something drawn reads it. The fountains' jets
-stay with three: they copy the frame drawn so far part way through the
-transparent list, and their two halves of soft spray share one target.
+read the frame drawn so far, blurred through its mipmaps, copied just
+before the first jet draws. An object that draws nothing does the copy in
+its `onBeforeRender`, ordered just before the jets; three still draws it,
+so the renderer's list splits there and the copy is made at the same point
+whichever renderer draws the jets. Their two halves of soft spray have a
+target each, so that both can be drawn before either is laid over the
+frame.
 
 The flying models (rounds, grenades, droids' pieces, items: `game.js`
 flyingModel, tagged `userData.flying`) are opaque and are drawn by the
