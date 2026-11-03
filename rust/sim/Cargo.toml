@@ -24,3 +24,8 @@ replay = ["dep:sim-replay"]
 sim-replay = { path = "../sim-replay", optional = true }
 # JavaScript's Math as the production server's V8 computes it (rig/math.rs, the units, the movement kernel).
 v8math = { path = "../v8math" }
+
+[dev-dependencies]
+# The game's content in Rust (rust/content), for replays that need what a
+# battle loads (a droideka's clips and skeleton).
+content = { path = "../content" }

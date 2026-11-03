@@ -14,8 +14,14 @@
 #![cfg(feature = "replay")]
 
 use bfe_sim::gen::{Replay, Unit};
+use bfe_sim::pose::Clip;
+use bfe_sim::rig::droideka::{Barrel, DroidekaRig, Gun, CLIPS};
+use bfe_sim::rig::skeleton::{BoneDesc, Skeleton};
+use bfe_sim::units::droideka::{DroidekaDef, DroidekaParts, ModeClips};
+use std::collections::HashMap;
+use std::rc::Rc;
 use bfe_sim::rig::three::Vector3;
-use bfe_sim::store::replay::{Arena, Value, V};
+use bfe_sim::store::replay::{Arena, Node, Value, V};
 use bfe_sim::units::shapes::{Bounds, HitShape};
 use bfe_sim::units::world::{CastHit, GatherPolygon, UnitsWorld};
 use sim_replay::{check_num, check_vec3, diff, replay_corpus, Capture, Corpus, Frame, Log, Mismatch, Outcome};
@@ -339,13 +345,31 @@ fn ids(v: V) -> Option<Vec<f64>> {
 }
 
 /// One unit's tick (Unit.tick), replayed.
-fn unit_tick(_capture: &Capture, frame: &Frame) -> Result<Option<String>, Mismatch> {
+fn unit_tick(capture: &Capture, frame: &Frame, contents: &mut Contents) -> Result<Option<String>, Mismatch> {
     let before = frame.before();
     if before.get("skipped").truthy() {
         return Ok(Some("written in part (its calls only)".into()));
     }
-    if before.get("unit").get("walker").truthy() {
-        return Ok(Some("a droideka's (needs its clips and rig)".into()));
+    let walker = before.get("unit").get("walker").truthy();
+    let mut parts = None;
+    if walker {
+        let content = contents.of(capture).map_err(|e| Mismatch(format!("{}: content: {e}", frame.place())))?;
+        let Some(content) = content else { return Ok(Some("a droideka's (needs BFE_CONTENT_DIR for its clips and rig)".into())) };
+        let u = before.get("unit");
+        let (side, class) = (u.get("side").str().unwrap_or(""), u.get("className").str().unwrap_or(""));
+        let mut p = droideka_parts(&content, side, class).map_err(|e| Mismatch(format!("{}: {e}", frame.place())))?;
+        // The rig's bones as the last tick left them, where an unfold's
+        // blend may start from them.
+        if let (Some(rig), bones) = (p.rig.as_mut(), before.get("rig").get("bones")) {
+            for (i, b) in bones.items().enumerate() {
+                let (Some(q), Some(pos)) = (b.get("q").node(), b.get("p").vec3()) else { continue };
+                let Node::Quat(q) = q else { continue };
+                let node = rig.tree.node_mut(rig.bones[i]);
+                node.copy_quaternion(&bfe_sim::rig::three::Quaternion { x: q[0], y: q[1], z: q[2], w: q[3] });
+                node.position = bfe_sim::rig::three::Vector3 { x: pos[0], y: pos[1], z: pos[2] };
+            }
+        }
+        parts = Some(p);
     }
     let h = frame.arg(0).num();
     let mut cx = Replay::default();
@@ -357,7 +381,7 @@ fn unit_tick(_capture: &Capture, frame: &Frame) -> Result<Option<String>, Mismat
     let character_has = before.get("characterUnit").handle_num("unit") == Some(id as f64);
     let pool = ids(before.get("pool")).unwrap_or_default();
     let mut world = TickWorld { frame, log: Log::new(frame), cx: &mut cx, arena: Arena::default(), id, state: before, character_has, pool, error: None };
-    unit.tick(id, h, &mut world, None);
+    unit.tick(id, h, &mut world, parts.as_mut());
     if let Some(e) = world.error.take() {
         return Err(e);
     }
@@ -377,7 +401,109 @@ fn unit_tick(_capture: &Capture, frame: &Frame) -> Result<Option<String>, Mismat
     if ids(after.get("pool")) != ids(before.get("pool")).map(|_| world.pool.clone()) {
         return Err(Mismatch(format!("{}: the pool: the capture's {}, the port {:?}", frame.place(), after.get("pool").show(), world.pool)));
     }
+    if let Some(rig) = parts.as_ref().and_then(|p| p.rig.as_deref()) {
+        check_muzzles(frame, after.get("rig").get("muzzles"), rig)?;
+    }
     Ok(None)
+}
+
+
+// ---- A droideka's class, clips and hidden gun rig, from the battle's content.
+
+/// The battle's content as the game's headless start loads it (rust/content),
+/// once a battle query; None without BFE_CONTENT_DIR.
+struct Contents {
+    root: Option<std::path::PathBuf>,
+    loaded: HashMap<String, Rc<bfe_content::content::Content>>,
+}
+
+impl Contents {
+    fn new() -> Contents {
+        Contents { root: std::env::var_os("BFE_CONTENT_DIR").map(Into::into), loaded: HashMap::new() }
+    }
+
+    fn of(&mut self, capture: &Capture) -> Result<Option<Rc<bfe_content::content::Content>>, String> {
+        let Some(root) = &self.root else { return Ok(None) };
+        let battle = capture.header.root().get("battle");
+        let map = battle.get("map").str().ok_or("no map in the capture's header")?.to_string();
+        let query = battle.get("query").str().ok_or("no query in the capture's header")?.to_string();
+        if let Some(c) = self.loaded.get(&query) {
+            return Ok(Some(c.clone()));
+        }
+        let files = bfe_content::files::DirFiles::new(root);
+        let loader = bfe_content::battle::Loader::new(&files);
+        let b = bfe_content::battle::Battle::load(&loader, &map, &query)?;
+        let content = Rc::new(bfe_content::content::Content::build(b)?);
+        self.loaded.insert(query, content.clone());
+        Ok(Some(content))
+    }
+}
+
+/// A content clip as the pose sampler takes one.
+fn pose_clip(c: &bfe_content::clips::Clip) -> Clip {
+    Clip { frames: c.frames_f64() as usize, fps: c.fps, root_motion: c.root_motion, tracks: c.tracks.iter().map(|&t| t as i32).collect(), data: c.data().to_vec() }
+}
+
+/// What a droideka's tick needs besides its state, for a unit of class
+/// `class` of side `side` (units.js build: Droideka's constructor and arm).
+fn droideka_parts(content: &bfe_content::content::Content, side: &str, class: &str) -> Result<DroidekaParts, String> {
+    let def = content.battle.side(side).and_then(|s| s.units.get(class)).ok_or_else(|| format!("no class {side}/{class}"))?;
+    let num = |k: &str| def.get(k).filter(|v| !v.is_null()).and_then(|v| v.as_f64());
+    let d = DroidekaDef {
+        max_pitch_speed: num("MaxPitchSpeed"),
+        ball_turn_speed: num("BallTurnSpeed"),
+        ball_max_lean: num("BallMaxLean"),
+        ball_acceleration: num("BallAcceleration"),
+        ball_rolling_friction: num("BallRollingFriction"),
+    };
+    let clips = content.walker_clips.iter().find(|(k, _)| k == &format!("{side}/{class}")).map(|(_, c)| c).ok_or_else(|| format!("no clips for {side}/{class}"))?;
+    let mut by_mode: [Option<Rc<Clip>>; 14] = Default::default();
+    for (mode, name) in CLIPS.iter().enumerate() {
+        if let Some(name) = name {
+            by_mode[mode] = clips.get(name).map(|c| Rc::new(pose_clip(c)));
+        }
+    }
+    let model = def.get("model").and_then(|m| m.as_str()).ok_or("no model")?;
+    let actor = content.actor(&format!("{side}/{model}")).ok_or_else(|| format!("no body {side}/{model}"))?;
+    let bones: Vec<BoneDesc> = actor.bones.iter().map(|b| BoneDesc { name: b.name.clone(), parent: b.parent as i32, local: b.local }).collect();
+    let skeleton = Skeleton::actor(&bones);
+    let guns: Vec<Gun> = bfe_content::derived::droideka_guns(actor, def.get("weapons"))
+        .into_iter()
+        .map(|g| Gun {
+            bone: g.bone,
+            barrels: match g.tips {
+                Some(tips) => tips.into_iter().map(|t| Barrel::Marker(bfe_sim::rig::three::Vector3 { x: t.x, y: t.y, z: t.z })).collect(),
+                None => vec![Barrel::GunBone],
+            },
+        })
+        .collect();
+    // The roll centre and pivot come from the unit's animator each tick.
+    let rig = DroidekaRig::new(&skeleton, &guns, bfe_sim::rig::three::Vector3::default());
+    Ok(DroidekaParts { def: d, clips: Rc::new(ModeClips { by_mode }), rig: Some(Box::new(rig)) })
+}
+
+/// The rig's barrels' world matrices, as the capture writes them.
+fn muzzles(rig: &DroidekaRig) -> Vec<Vec<[f64; 16]>> {
+    rig.barrels.iter().map(|b| b.iter().map(|&n| rig.tree.node(n).matrix_world.elements).collect()).collect()
+}
+
+fn check_muzzles(frame: &Frame, captured: V, rig: &DroidekaRig) -> Result<(), Mismatch> {
+    let mine = muzzles(rig);
+    let theirs: Vec<Vec<V>> = captured.items().map(|g| g.items().collect()).collect();
+    if theirs.len() != mine.len() || theirs.iter().zip(&mine).any(|(a, b)| a.len() != b.len()) {
+        return Err(Mismatch(format!("{}: the rig's barrels: the capture's {}, the port's {:?}", frame.place(), captured.show(), mine.iter().map(|g| g.len()).collect::<Vec<_>>())));
+    }
+    for (g, (a, b)) in theirs.iter().zip(&mine).enumerate() {
+        for (k, (m, e)) in a.iter().zip(b).enumerate() {
+            let Some(Node::Mat4(elements)) = m.node() else { return Err(Mismatch(format!("{}: barrel {g}.{k} not a matrix", frame.place()))) };
+            for i in 0..16 {
+                if elements[i].to_bits() != e[i].to_bits() && !(elements[i].is_nan() && e[i].is_nan()) {
+                    return Err(Mismatch(format!("{}: barrel {g}.{k} matrixWorld[{i}]: the capture's {} | the port's {}", frame.place(), elements[i], e[i])));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn outcome(r: Result<Option<String>, Mismatch>) -> Outcome {
@@ -391,7 +517,8 @@ fn outcome(r: Result<Option<String>, Mismatch>) -> Outcome {
 #[test]
 fn unit_ticks_replay_as_captured() {
     let Some(corpus) = Corpus::from_env().unwrap() else { return };
-    let report = replay_corpus(&corpus, "Unit.tick", |capture, frame| outcome(unit_tick(capture, frame))).unwrap();
+    let mut contents = Contents::new();
+    let report = replay_corpus(&corpus, "Unit.tick", |capture, frame| outcome(unit_tick(capture, frame, &mut contents))).unwrap();
     println!("{}", report.summary());
     report.assert_clean();
 }
