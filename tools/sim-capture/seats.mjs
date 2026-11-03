@@ -177,7 +177,8 @@ function turretValue(cap, game, t) {
       camera: { eye: t.camera.eye.clone(), center: t.camera.center.clone(), offset: t.camera.offset.clone(), tilt: t.camera.tilt },
       pivot: t.pivot.clone(), up: t.up.clone(),
       drumParentTurn: t.drumParentTurn ? t.drumParentTurn.clone() : null, gunBind: t.gunBind ? t.gunBind.clone() : null,
-      rider: Boolean(t.rider), drum: at(t.drum), gun: at(t.gun), seat: at(t.seat), firePoints: (t.firePoints ?? []).map(at),
+      rider: Boolean(t.rider), shootable: Boolean(t.rider?.shootable), matrix: [...t.matrix.elements],
+      drum: at(t.drum), gun: at(t.gun), seat: at(t.seat), firePoints: (t.firePoints ?? []).map(at),
     },
     rig: {
       root: [...rig.root.matrix.elements],

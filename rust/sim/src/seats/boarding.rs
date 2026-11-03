@@ -212,3 +212,145 @@ pub fn turret_takeover(gunner: bool, lease: Option<&SeatLease>, units: &Slab<Uni
     }
     lease.is_some_and(|l| !l.released && !person_lease(l, units))
 }
+
+/// Vehicles.enterable (vehicles.js:2519): the nearest hull in reach ahead of
+/// an eye that `may` takes (by default one the page's player is not
+/// driving): its box's centre within its radius and 3.5 m, ahead of the
+/// aim, and nothing but its own body in the way. Its place, or None.
+pub fn enterable_hull<W: SeatWorld + ?Sized>(w: &mut W, st: &Store, hulls: &[super::hulls::HullSide], eye: &three::Vector3, direction: &three::Vector3, may: &mut dyn FnMut(&mut W, usize) -> bool) -> Option<usize> {
+    let mut best = None;
+    let mut distance = f64::INFINITY;
+    for (i, h) in hulls.iter().enumerate() {
+        let v = st.vehicle.get(h.vehicle).unwrap();
+        if !v.alive || !may(w, i) {
+            continue;
+        }
+        let v = st.vehicle.get(h.vehicle).unwrap();
+        let mut m = three::Matrix4::default();
+        m.from_array(&v.matrix, 0);
+        let mut center = super::v3(&v.center);
+        center.apply_matrix4(&m);
+        let mut toward = three::Vector3::default();
+        toward.sub_vectors(&center, eye);
+        let span = toward.length();
+        let radius = v8math::max(v.size[0], v.size[2]) * 0.5;
+        if span > radius + 3.5 || toward.dot(direction) < 0.0 {
+            continue;
+        }
+        toward.normalize();
+        if let Some(hit) = w.cast(eye, &toward, span, None) {
+            if hit.body != Some(v.body) && hit.distance < span {
+                continue;
+            }
+        }
+        if span < distance {
+            distance = span;
+            best = Some(i);
+        }
+    }
+    best
+}
+
+/// LiveObjects.enterable (props.js:1731): the built turret an eye faces, the
+/// one nearest its line (by 16 x miss squared + depth) whose drum is within
+/// reach; a manned one only where `may` takes it (a person's takeover).
+pub fn enterable_turret(turrets: &[super::turrets::TurretSide], eye: &three::Vector3, dir: &three::Vector3, may: Option<&dyn Fn(usize) -> bool>) -> Option<usize> {
+    let mut best = None;
+    let mut best_score = f64::INFINITY;
+    for (i, t) in turrets.iter().enumerate() {
+        if !t.alive || t.gunner.is_some() && !may.is_some_and(|f| f(i)) {
+            continue;
+        }
+        let mut m = three::Matrix4::default();
+        m.from_array(&t.desc.matrix, 0);
+        let mut c = three::Vector3::new(0.0, 1.65, 0.32);
+        c.apply_matrix4(&m);
+        let reach = 2.25;
+        let mut to_c = c;
+        to_c.sub(eye);
+        let along = to_c.dot(dir);
+        if eye.distance_to(&t.desc.position) > reach + 3.5 {
+            continue;
+        }
+        if along < 0.0 || along > reach + 5.0 {
+            continue;
+        }
+        let miss = to_c.add_scaled_vector(dir, -along).length();
+        if miss > reach + along {
+            continue;
+        }
+        let score = 16.0 * miss * miss + along;
+        if score < best_score {
+            best_score = score;
+            best = Some(i);
+        }
+    }
+    best
+}
+
+/// What a soldier's use key gets him into (boarding.js mountInReach).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mount {
+    Hull(usize),
+    Turret(usize),
+}
+
+/// boarding.js mountInReach: the nearest hull in reach ahead of him that he
+/// may board, else the turret he faces (a person may take a bot's over).
+/// `hulls`: the battle's hulls; `crews`: its turret crews.
+pub fn mount_in_reach<W: SeatWorld + ?Sized>(w: &mut W, st: &Store, hulls: &super::hulls::Hulls, crews: &super::turrets::Crews, unit: u32, person: bool) -> Option<Mount> {
+    let u = st.unit.get(super::unit_ref(unit))?;
+    let no_enter = hulls.riders.get(&unit).or_else(|| crews.riders.get(&unit)).map_or(0.0, |f| f.no_enter);
+    if !can_board(u, person, no_enter) {
+        return None;
+    }
+    let UnitBody::Soldier(s) = &u.soldier else { return None };
+    let eye = three::Vector3::new(s.position[0], s.position[1] + 1.7, s.position[2]);
+    let aim = three::Vector3::new(math_sin(s.aim_yaw) * math_cos(s.aim_pitch), math_sin(s.aim_pitch), math_cos(s.aim_yaw) * math_cos(s.aim_pitch));
+    let team = u.team;
+    let sides = &hulls.hulls;
+    let vehicle = enterable_hull(w, st, sides, &eye, &aim, &mut |w: &mut W, i: usize| {
+        let side = &sides[i];
+        let v = st.vehicle.get(side.vehicle).unwrap();
+        boarding_seat(w, st, v, side, team, person, -1) >= 0
+    });
+    if let Some(i) = vehicle {
+        return Some(Mount::Hull(sides[i].index));
+    }
+    let takeover = |i: usize| {
+        let t = &crews.turrets[i];
+        turret_takeover(t.gunner.is_some(), t.lease.and_then(|r| st.seat_lease.get(r)), &st.unit)
+    };
+    let turret = enterable_turret(&crews.turrets, &eye, &aim, if person { Some(&takeover) } else { None });
+    turret.map(|i| Mount::Turret(crews.turrets[i].index))
+}
+
+fn math_sin(x: f64) -> f64 {
+    crate::rig::math::sin(x)
+}
+
+fn math_cos(x: f64) -> f64 {
+    crate::rig::math::cos(x)
+}
+
+/// boarding.js leaveKilled: a rider killed on his seat leaves it at once,
+/// his body falling from where it rode (the seat is handed on as after any
+/// exit); a turret's gunner the same. Whether he held a seat. (The page's
+/// own player leaves through his VehicleDriver or Gunner, not here.)
+pub fn leave_killed<W: super::turrets::CrewWorld + ?Sized>(hulls: &mut super::hulls::Hulls, crews: &mut super::turrets::Crews, st: &mut Store, w: &mut W, unit: u32) -> bool {
+    let Some(r) = st.unit.get(super::unit_ref(unit)).and_then(|u| u.seat) else { return false };
+    let lease = st.seat_lease.get(r).unwrap();
+    if lease.released {
+        return false;
+    }
+    if lease.vehicle.is_some() {
+        debug_assert!(!lease.human, "the page's own player leaves through his VehicleDriver");
+        hulls.vacate(st, w, r, super::hulls::Vacate { placement: false, reason: super::Reason::Killed, ..super::hulls::Vacate::default() });
+    } else if lease.turret.is_some() {
+        debug_assert!(!lease.human, "the page's own player leaves through his Gunner");
+        crews.vacate(st, w, r, super::turrets::Let { placement: false, reason: super::Reason::Killed, ..super::turrets::Let::default() });
+    } else {
+        return false;
+    }
+    true
+}

@@ -17,7 +17,9 @@
 //! - `turrets`: the turret crews (`TurretSeats`) and the turrets' aim,
 //!   gun and nodes they drive (src/props.js Turret);
 //! - `network`: a network human's mouse and keys in a seat and his seat
-//!   switch (`networkVehicleInput`, `cycleNetworkSeat`, `switchSeat`).
+//!   switch (`networkVehicleInput`, `cycleNetworkSeat`, `switchSeat`);
+//! - `targets`: a hull and a turret as the registry's members
+//!   (`VehicleTarget`, `TurretTarget`).
 //!
 //! A lease is a store handle (`Ref<SeatLease>`, rust/sim/schema/seats.mjs);
 //! units and hulls are the store's (`gen::Unit`, `gen::Vehicle`). What the
@@ -40,13 +42,23 @@ pub mod exits;
 pub mod hulls;
 pub mod lease;
 pub mod network;
+pub mod targets;
 pub mod turrets;
 
 use crate::gen::{Body, Post, SeatLease, SeatUnit, Unit};
 use crate::store::Ref;
 use three::Vector3;
 
-pub use crate::vehicles::{BodyId, Hit};
+/// What a cast met (CollisionWorld.cast's out): how far along, where, the
+/// surface's normal, and the collision body (by the store's reference; None
+/// for the terrain and the map's own static collision).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Hit {
+    pub distance: f64,
+    pub point: Vector3,
+    pub normal: Vector3,
+    pub body: Option<Ref<Body>>,
+}
 
 /// Whose seat: a hull's (its place in the battle's list, Vehicles.vehicles)
 /// or a turret's (its place in the battle's turrets, LiveObjects.turrets).

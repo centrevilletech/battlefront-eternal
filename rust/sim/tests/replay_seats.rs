@@ -140,8 +140,7 @@ impl<'f, 'c> Served<'f, 'c> {
             distance: r.get("distance").num(),
             point: vec3(r.get("point")),
             normal: vec3(r.get("normal")),
-            terrain: r.get("terrain").truthy(),
-            body: if body.is_nullish() { None } else { Some(body_of(body)) },
+            body: if body.is_nullish() { None } else { self.cx.ref_in::<Body>(KIND_BODY, body, "hit.body").ok() },
         })
     }
 
@@ -946,6 +945,15 @@ fn turret_of(cx: &mut Replay, t: V) -> Result<TurretSide, String> {
             drum_parent_turn: if d.get("drumParentTurn").is_null() { None } else { Some(q4(d.get("drumParentTurn"))) },
             gun_bind: if d.get("gunBind").is_null() { None } else { Some(q4(d.get("gunBind"))) },
             rider: d.get("rider").bool(),
+            // (Captures before c3 lack these two: the crews' replay reads neither.)
+            shootable: d.get("shootable").opt_bool().unwrap_or(false),
+            matrix: {
+                let mut m = [0.0; 16];
+                for (i, x) in d.get("matrix").items().enumerate() {
+                    m[i] = x.num();
+                }
+                m
+            },
         },
         rig,
     })

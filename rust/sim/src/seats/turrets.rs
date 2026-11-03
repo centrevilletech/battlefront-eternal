@@ -38,8 +38,9 @@ const AIMED: f64 = std::f64::consts::PI / 180.0;
 pub struct TurretDesc {
     /// The building's heading: atan2 of its matrix's forward axis.
     pub facing: f64,
-    /// Building.position (its matrix's translation).
+    /// Building.position (its matrix's translation) and Building.matrix.
     pub position: Vector3,
+    pub matrix: [f64; 16],
     /// Its built look's collision body.
     pub body: Option<Ref<Body>>,
     /// The view's pitch limits, up positive.
@@ -70,8 +71,9 @@ pub struct TurretDesc {
     /// The gun's bind turn.
     pub gun_bind: Option<Quaternion>,
     /// Whether its gunner shows (a pilot animation): hidesGunner is the
-    /// opposite.
+    /// opposite; and whether rounds meet him there (hash 2b60e217 not 0).
     pub rider: bool,
+    pub shootable: bool,
 }
 
 /// A turret's rig: the scene it hangs from, its root (placed by the
@@ -413,6 +415,33 @@ impl TurretSide {
         let d = eye.sub(&out).dot(&dir);
         out.add_scaled_vector(&dir, v8math::max(0.0, d));
         out
+    }
+
+    /// seats.js turretOrigin (740): a turret's gun pivot (the gun node, else
+    /// its fire point, else the drum's bounding centre), what its gunner
+    /// sees and fires from.
+    pub fn origin(&mut self) -> Vector3 {
+        match self.rig.gun.or(self.rig.fire_points.first().copied()) {
+            Some(node) => {
+                self.update_rig();
+                let mut out = Vector3::default();
+                self.rig.tree.get_world_position(node, &mut out);
+                out
+            }
+            None => {
+                let mut m = Matrix4::default();
+                m.from_array(&self.desc.matrix, 0);
+                let mut out = Vector3::new(0.0, 1.65, 0.32);
+                out.apply_matrix4(&m);
+                out
+            }
+        }
+    }
+
+    /// Turret.exposedSeat (props.js:905): rounds, swings and blasts meet its
+    /// gunner: one shows, and the class leaves him shootable.
+    pub fn exposed_seat(&self) -> bool {
+        self.alive && self.desc.rider && self.desc.shootable
     }
 
     /// Turret.seatPoint (props.js:875): the seat node's place in the world.
