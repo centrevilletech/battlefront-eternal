@@ -13,23 +13,15 @@
 // A craft's tick reads the battle's registry as it looks for targets (the
 // units, hulls, turrets and buildings in the registry's order: whether each
 // lives, its team and life, whether it is the craft's own entry, the hull
-// behind a hull's entry). The frame's state carries those as the tick found
-// them, and again after each call that can change them (a crash's damage,
-// its blast and the battle's hooks). Each entry's aim point is a call across
-// the boundary (a unit works its hit shapes out on the first ask in a tick,
-// so when it is asked is behaviour), labelled by the entry's class, and so
-// is the registry's relation between two teams.
+// behind a hull's entry, where a hull, turret or building is aimed at) and
+// the relation between its team and each entry's. The frame's state carries
+// those as the tick found them, and again after each call that can change
+// them (a crash's damage, its blast and the battle's hooks). A unit's aim
+// point is a call across the boundary: a unit works its hit shapes out on
+// the first ask in a tick, so when it is asked is behaviour.
+import { Vector3 } from 'three';
 import { FLIGHT_CLASSES } from '../../src/flight/config.js';
 import { Unit } from '../../src/units.js';
-import { VehicleTarget, TurretTarget } from '../../src/seats.js';
-import { ObjectiveTarget } from '../../src/objectives.js';
-
-// The classes whose entries the registry holds, and their aim points' labels.
-const TARGET_CLASSES = [['unit', Unit], ['vehicleTarget', VehicleTarget], ['turretTarget', TurretTarget], ['objectiveTarget', ObjectiveTarget]];
-const aimLabel = (t) => {
-  for (const [label, cls] of TARGET_CLASSES) if (t instanceof cls) return label;
-  return null;
-};
 
 // The class tunings as the battle began: a frame carries the live ones only
 // once a command has retuned one (src/game.js step, flightTuning).
@@ -40,13 +32,27 @@ const tuningValue = () => {
 };
 
 // The registry's entries as targeting reads them (src/flight/targeting.js
-// inCone, clear, updateFlightTarget): getters that only read.
+// inCone, clear, updateFlightTarget), through getters that only read: a
+// unit's aim point is asked across the boundary (`unit`), any other entry's
+// (a hull's, a turret's, a building's: the middle of its box as it stands)
+// is here; one without an aim point is aimed at at its position.
 function targetsValue(game, craft) {
-  return game.units.all().map((t) => ({
-    id: t.id, generation: t.generation, alive: t.alive, team: t.team, own: t === craft.aiTarget,
-    vehicle: t.vehicle ?? null, body: t.vehicle?.body ?? null, aim: typeof t.aimPoint === 'function' ? aimLabel(t) ?? 'other' : null,
-    position: typeof t.aimPoint === 'function' ? null : t.position,
-  }));
+  return game.units.all().map((t) => {
+    const unit = t instanceof Unit, aims = typeof t.aimPoint === 'function';
+    return {
+      id: t.id, generation: t.generation, alive: t.alive, team: t.team, own: t === craft.aiTarget, unit,
+      body: t.vehicle?.body ?? null, point: unit ? null : aims ? t.aimPoint(new Vector3()) : t.position.clone(),
+    };
+  });
+}
+
+// The registry's relation of the craft's team to each team among its
+// entries (Units.relation, which reads the alliances set so far and the
+// mission's table): [team, relation] pairs.
+function relationsValue(game, craft) {
+  const teams = [];
+  for (const t of game.units.all()) if (!teams.some((x) => Object.is(x, t.team))) teams.push(t.team);
+  return teams.map((team) => [team, game.units.relation(craft.team, team)]);
 }
 
 // What updateFlightTarget leaves in each weapon of each seat.
@@ -87,6 +93,7 @@ export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries 
         water: game.vehicles.water ? { level: game.vehicles.water.level } : null,
         pilot: pilotValue(self),
         targets: targetsValue(game, self),
+        relations: relationsValue(game, self),
         locks: locksValue(self),
         world: worldValue(game),
       };
@@ -94,8 +101,7 @@ export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries 
     boundaries: (game) => {
       const w = game.vehicles?.world ?? null;
       // The registry and the hull as a call that can change them left them.
-      const after = (g, cap) => (current ? { targets: targetsValue(g, current), hull: cap.export('vehicle', current) } : { skipped: true });
-      const aims = TARGET_CLASSES.map(([label, cls]) => [`${label}.aimPoint`, cls.prototype, 'aimPoint']);
+      const after = (g, cap) => (current ? { targets: targetsValue(g, current), relations: relationsValue(g, current), hull: cap.export('vehicle', current) } : { skipped: true });
       return [
         ['collision.cast', game.collision, 'cast'],
         ['collision.moveBody', game.collision, 'moveBody'],
@@ -111,8 +117,7 @@ export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries 
         ['world.explosion', w, 'explosion', after],
         ['world.effect', w, 'effect'],
         ['world.sound', w, 'sound'],
-        ['units.relation', game.units, 'relation'],
-        ...aims,
+        ['unit.aimPoint', Unit.prototype, 'aimPoint'],
       ];
     },
   };
