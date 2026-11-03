@@ -64,6 +64,7 @@ dependencies = [
 name = "content"
 version = "0.1.0"
 dependencies = [
+ "jsrt",
  "sim",
  "v8math",
 ]

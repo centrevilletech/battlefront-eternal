@@ -17,6 +17,8 @@ crate-type = ["rlib"]
 [dependencies]
 # V8's Math, bit for bit (hypot, min, max, atan2).
 v8math = { path = "../v8math" }
+# V8's stable Array.sort, including NaN comparator results in team keys.
+jsrt = { path = "../jsrt" }
 
 [dev-dependencies]
 # Only tests/collision.rs, which installs a world in the simulation module's
