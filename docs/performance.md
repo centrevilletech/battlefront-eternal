@@ -929,10 +929,14 @@ would need the same module.
 
 Behind `?rust`, `rust/bfe-render` (Rust compiled to WebAssembly, built by
 `npm run rust:web` into `src/rust-pkg/`) draws part of the near scene inside
-three.js's own pass, on the same WebGL2 context: the map's opaque buckets,
-then every visible soldier's body and the guns in his hand, instanced, with
-programs made from the GLSL three compiled for them. `?rustRigs` adds
-vehicles' and props' skinned rigs. Three.js draws everything else, and
+three.js's own pass, on the same WebGL2 context: the map's opaque buckets
+(scrolling ones, the banners' wind and the leaves the tree canopies take
+over included) and the ground, then every visible soldier's body and the
+guns in his hand, instanced, then what the near scene blends: the map's
+blended buckets and the command posts' holograms and flares, in three's
+order. Its programs are made from the GLSL three compiled for each
+material. `?rustRigs` adds vehicles' and props' skinned rigs. Three.js
+draws everything else, and
 everything in a configuration the renderer does not cover (shadows, lamp
 lighting, the temporal upscaler). `?rustOff` loads it switched off,
 `?rustSort` orders the map's buckets by program rather than as three does,
@@ -946,11 +950,11 @@ boundary, so that each part of the frame can move to it on its own:
 
 | Pass | Rust (`rust/bfe-render/src`) | Page (`src/rust-render`) | Phase | Draws |
 | --- | --- | --- | --- | --- |
-| World | `world.rs` | `world.js` | near | The map's opaque buckets |
+| World | `world.rs` | `world.js` | near | The map's opaque buckets, those with shader hooks included |
 | Instances | `instances.rs` | `instances.js` | near | Soldiers' bodies, held guns, rigs |
 | Far | `far.rs` | `far.js` | far | Nothing yet (the far scene) |
-| Terrain | `terrain.rs` | `terrain.js` | near | Nothing yet (terrain patches and painted layers) |
-| Transparent | `transparent.rs` | `transparent.js` | transparent | Nothing yet (what the near scene blends) |
+| Terrain | `terrain.rs` | `terrain.js` | near | The ground and its painted layers (drawn by the world pass) |
+| Transparent | `transparent.rs` | `transparent.js` | transparent | What the near scene blends, in three's order: blended buckets, holograms, flares |
 | Effects | `effects.rs` | `effects.js` | transparent | Nothing yet (bolts, flashes, particles, debris, lightning) |
 | Foliage | `foliage.rs` | `foliage.js` | near | Nothing yet |
 | View | `view.rs` | `view.js` | view | Nothing yet (the first-person weapon) |
@@ -965,9 +969,10 @@ phase is one call from the page that draws its passes in order: `far_frame`,
 `frame` (the near phase), `transparent_frame`, `view_frame` and
 `post_frame`. Each returns its stats: the five counts the page has always
 read (world draws, instanced draws, instances, program switches, GL calls),
-then each pass's draws in the table's order. Only the near phase is called
-so far, from the far scene's image (`graphics.background`'s
-`onAfterRender`) at the start of the near scene's pass.
+then each pass's draws in the table's order. The near phase is called from
+the far scene's image (`graphics.background`'s `onAfterRender`) at the start
+of the near scene's pass, and the transparent phase from the item three
+draws just before its transparent list (see below).
 
 On the page, `src/rust-render/index.js` loads the module and keeps the
 registry. `addPass({ name, phase, register, draw, setActive, restore })`
@@ -980,6 +985,94 @@ views of the module's memory (`addView`), made again whenever the memory
 grows. A pass that must draw at a point inside three's render lists, such as
 the start of the transparent list, can put an anchor there (`anchor`): a
 mesh three draws with no fragments whose `onAfterRender` calls back.
+
+### What the near scene blends
+
+Blended draws look right only in the order three sorts its transparent
+list: group order, render order, the farthest first (the clip-space z of
+each object's bounding sphere centre), then the object's id. Whichever
+draws the renderer has taken over and whichever three still makes, they
+must keep that one order, so the transparent pass owns the list. Every pass
+whose draws blend is a source of items for it (`transparent.rs`, `Source`):
+each frame it emits an item per thing three would have listed, with three's
+sort key and a record of its own, and later draws runs of its consecutive
+items. The pass sorts every source's items as three would and merges in
+what three still draws itself, whose keys the page reads from three's own
+sorted list. The items between two of three's own make a segment: the first
+is drawn at the start of three's transparent list, from a hook on the
+`onAfterRender` of the item three draws just before it (armed after the
+near phase, through the registry's `afterPhase`), and each later one right
+after three draws the item before it (`transparent_segment`). The frame
+then blends in the order one list sorted by three would have. Each segment
+costs three a state reset and its next draw a full upload of its uniforms,
+so the fewer of three's own items are left between the renderer's, the
+cheaper the list.
+
+The pass's own items are the map's blended buckets and the objects drawn
+with three's basic and sprite materials: the command posts' holograms,
+their beams and flares. Three still lists them, so its culling, its keys
+and the game's own visibility stand: after the near phase, the page takes
+those it has registered out of three's list, in the near scene's own render
+only (a mirror's still draws them with three), and writes a record for
+each: its key, and an object's matrix and material values. The renderer
+draws each as three would: a double-sided basic or sprite material twice,
+back faces then front, each with three's program for that side, and a
+double-sided zero material (a `ShaderMaterial`, which three draws in one
+pass) once without culling.
+
+### Shader hooks and the ground
+
+The world pass also draws the map's buckets whose shaders three's hooks
+change: scrolling ones (their scroll and the frame block's time), the
+banners' wind (`fabric.js`: its `fabricTime` is the frame's time, and a
+uniform of a material's that is a frame value under another name is read
+from the frame block, its declaration made a `#define` of the block's
+member) and the leaves the tree canopies take over (`tree-canopies.js`: the
+canopies' state texture and count). The canopies' own mesh is drawn only
+while it has leaves to draw (Enhanced tree detail near a canopy).
+
+The ground (`terrain-patches.js`) is one of the world pass's buckets too:
+three sorts it among the map's buckets by its material, and its cells are
+the patches' own, each a range of the patches' index culled by its box and
+drawn in runs, as three's patches draw them, in one multi-draw. Its painted
+layers are read from the same texture units in every program. While the
+renderer draws the ground, the patches skip their per-render walk over the
+cells for the near scene.
+
+A bucket is registered once three has drawn it as its material now is
+(three's program for it, and the version it was made for, are current),
+not from the program three's warm-up compiled; one whose material changed
+since goes back to three until three has drawn it again. A bucket culled by
+cell (`render-culling.js`) keeps the draw range of the last view three drew
+it in, which the renderer ignores: it draws its cells from the whole index.
+
+### What the transparent list, the hooked buckets and the ground drew
+
+On the emulator (SwiftShader, 800x600, 2x multisampling, Classic
+settings), at three points of a seeded walk on each of Theed, Mos Eisley,
+Bespin Platforms, Kashyyyk Docks and Hoth, the near scene's image with the
+renderer on was compared with three alone on the same frames (time stopped
+between the captures), and with the renderer on but each of these passes
+given back to three. It was the same to the pixel at every point but one:
+on Hoth's third, where two captures of the same variant already differed
+by 133 pixels (a distant walker's legs), the renderer and three differed by
+103. The
+same held with the Enhanced tree and terrain detail, bloom and soft focus
+on (the ground's Enhanced shading drawn by the renderer), and with shadows
+on, where the renderer gives everything back to three. No WebGL context was
+lost during any of these runs.
+
+Three's own draws in the near scene's pass fell from 27 to 15.5 a frame on
+Theed, 13.75 to 2 on Mos Eisley, 33 to 3 on Bespin Platforms and 22.5 to
+11.25 on Kashyyyk Docks. What three still draws there is the foliage, the
+water, the weather and the map's effects, the far scene's image, props'
+unlit skinned meshes, and on Bespin Platforms two vehicles' blended skinned
+parts. On the emulator with its draws made no-ops, in lockstep frames
+alternating between the renderer without these passes and with them, the
+frame's render time changed by +0.01 to -0.9 ms (median and mean, two
+rounds) on four maps and by -0.7 to -2.6 ms on Mos Eisley; switched every
+five seconds in one battle on the game's own loop, the difference was
+within the noise.
 
 ### The same frame
 

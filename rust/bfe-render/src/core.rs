@@ -19,8 +19,16 @@ pub const UNIT_FAR: u32 = 1;
 pub const UNIT_BUMP: u32 = 2;
 pub const UNIT_BONES: u32 = 14;
 pub const UNIT_INSTANCES: u32 = 15;
+// The tree canopies' state texture, and the terrain's layers.
+pub const UNIT_TREE_STATES: u32 = 3;
+pub const UNIT_LAYER1: u32 = 4;
+pub const UNIT_DETAIL: u32 = 5;
+pub const UNIT_LAYERS: u32 = 6; // layerMap0..7: 6..13
 const UNITS: usize = 16;
-const SAMPLERS: &[(&str, u32)] = &[("map", UNIT_MAP), ("farMap", UNIT_FAR), ("bumpMap", UNIT_BUMP), ("boneTexture", UNIT_BONES), ("bfeInstances", UNIT_INSTANCES)];
+const SAMPLERS: &[(&str, u32)] = &[("map", UNIT_MAP), ("farMap", UNIT_FAR), ("bumpMap", UNIT_BUMP), ("boneTexture", UNIT_BONES), ("bfeInstances", UNIT_INSTANCES),
+    ("treeStates", UNIT_TREE_STATES), ("layer1Map", UNIT_LAYER1), ("detailMap", UNIT_DETAIL),
+    ("layerMap0", UNIT_LAYERS), ("layerMap1", UNIT_LAYERS + 1), ("layerMap2", UNIT_LAYERS + 2), ("layerMap3", UNIT_LAYERS + 3),
+    ("layerMap4", UNIT_LAYERS + 4), ("layerMap5", UNIT_LAYERS + 5), ("layerMap6", UNIT_LAYERS + 6), ("layerMap7", UNIT_LAYERS + 7)];
 
 // The views a frame draws, each with a frame block of its own: the near
 // scene, the far scene (its own camera range), the first-person view scene,
@@ -505,6 +513,13 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     // The far scene's image on its unit, for the programs that read it (farMap).
     pub fn bind_far_map(&mut self) {
         self.state.bind_texture(&self.gl, &mut self.stats, UNIT_FAR, self.far_map);
+    }
+
+    // A view's frame block as last uploaded, bound again where the programs
+    // read it (a phase drawn later in the same frame).
+    pub fn bind_frame(&mut self, view: usize) {
+        unsafe { self.gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(self.frame_ubos[view])) };
+        self.stats.gl_calls += 1;
     }
 
     // Two views' frame block buffers swapped: a phase that draws one view's

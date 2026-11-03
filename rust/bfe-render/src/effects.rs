@@ -17,3 +17,7 @@ impl<C: HasContext> EffectsPass<C> {
 
     pub fn draw<M: MultiDraw>(&mut self, _core: &mut Core<C, M>) {}
 }
+
+// The effects as a source of the transparent list's items (transparent.rs):
+// none yet.
+impl<C: HasContext, M: MultiDraw> crate::transparent::Source<C, M> for EffectsPass<C> {}

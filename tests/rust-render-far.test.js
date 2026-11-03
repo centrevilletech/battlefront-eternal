@@ -46,6 +46,15 @@ function bridge() {
     bones_len() { return 64; }
     far_input_ptr() { return 16384; }
     far_input_len() { return 1024; }
+    // The transparent pass's views (src/rust-render/transparent.js): an empty list.
+    transparent_keys_ptr() { return 32768; }
+    transparent_keys_len() { return 64; }
+    transparent_objects_ptr() { return 40960; }
+    transparent_objects_len() { return 1 + 2 * 40; }
+    transparent_object_stride() { return 40; }
+    transparent_segments_ptr() { return 49152; }
+    transparent_segments_len() { return 0; }
+    transparent_segment() { return []; }
     records_at() { return 200; }
     record_stride() { return 76; }
     set_far_map() {}
