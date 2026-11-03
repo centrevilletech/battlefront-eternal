@@ -1065,10 +1065,14 @@ renderer's call is about half (0.18 ms for some 180 WebGL calls), the page's
 side of the pass 0.06 ms, and the far scene's own hooks (the terrain's runs
 for three, the tree canopies) 0.03 ms.
 
-The Enhanced sky's flyers read a sky probe (a cube map), the Enhanced
-ocean's storm draws lightning from vertices it rewrites, and water at High
-or Ultra and the sky probe render the far scene again from cameras of their
-own; three draws those for now. Shadows, lamp lighting and the temporal
+With Enhanced terrain, trees, ocean and sky, water at High, the full far
+terrain, the far view distance and 4x multisampling, the far scenes of
+Theed and Hoth were still the renderer's alone and the same to the pixel;
+on Tatooine: Dune Sea and Kamino, three drew theirs, as the pass can't draw
+everything in them yet: the Enhanced sky's flyers read a sky probe (a cube
+map), and the Enhanced ocean's storm draws lightning from vertices it
+rewrites. Water at High or Ultra and the sky probe also render the far
+scene again from cameras of their own; three draws those for now. Shadows, lamp lighting and the temporal
 upscaler need nothing of the far pass itself (its materials read neither
 shadows nor lamps, and the upscaler's jitter is in the far camera's
 projection), only the core's leave to stay on with them.
