@@ -350,6 +350,27 @@ test("the view scene: an unlit part (a sight whose texture scrolls) is drawn as 
   assert.equal(input[1 + DRAW + 2], 1, "then the flash, blended");
 });
 
+test("the view scene: an unlit part's point lights, which it reads for nothing it draws, are left at zero", () => {
+  const { core, calls, renderer, properties } = bridge();
+  const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();
+  view.updateMatrixWorld(true);
+  const sight = new THREE.ShaderMaterial({ defines: { UNLIT: "" }, uniforms: { map: { value: new THREE.Texture() }, zeroLights: { value: new Float32Array(8) }, zeroLightCount: { value: 1 } } });
+  const zeroLights = program([["modelViewMatrix", GL.FLOAT_MAT4], ["normalMatrix", GL.FLOAT_MAT3], ["map", GL.SAMPLER_2D], ["zeroLights", GL.FLOAT_VEC4], ["zeroLightCount", GL.INT]], ["position", "uv"]);
+  // An array: three's active uniform for it reports its length.
+  const getActiveUniform = renderer.getContext().getActiveUniform;
+  renderer.getContext().getActiveUniform = (p, i) => ({ ...getActiveUniform(p, i), size: p.uniforms[i][0] === "zeroLights" ? 32 : 1 });
+  properties.get(sight).currentProgram = zeroLights;
+  const mesh = new THREE.Mesh(partGeometry(), sight);
+  viewScene.add(mesh);
+  viewScene.updateMatrixWorld(true);
+  assert.equal(core.cover("view", renderer, viewScene, view), true, "drawn by the renderer");
+  const added = calls.find((c) => c[0] === "add_program" && c[1] === 3);
+  assert.equal(added[5], "modelViewMatrix,normalMatrix,map", "the lights are not among the uniforms it sets");
+  const input = core.viewInput;
+  assert.equal(input[1 + 16], 3);
+  assert.deepEqual([...input.subarray(1 + 17 + 18, 1 + 17 + 18 + 2)], [1, 9], "three's normal matrix of the part");
+});
+
 test("phases drawn between three's renders reset three's state once, when three is next used", () => {
   const { core, calls, renderer, scene, camera } = bridge();
   core.addPass({ name: "a", phase: "view", draw() { this.complete = true; } });

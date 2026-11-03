@@ -37,6 +37,12 @@ export function uniformType(gl, type) {
 // with its uniforms ({ name, type } in slot order); null when it has one the
 // renderer can't set; undefined until three has made it.
 const plainPrograms = new WeakMap();
+// A uniform the program reads for nothing it draws, left at zero: an unlit
+// zero material's packed point lights (materials.js), which its vertex
+// shader adds up into a value its fragment shader never reads (three sets
+// them to whatever the last lit draw chose). At zero, the loop over them
+// does not run.
+const unread = (material, name) => (name === "zeroLights" || name === "zeroLightCount") && Boolean(material?.defines) && "UNLIT" in material.defines;
 // attributes: "name:location,..." where the pass's vertex arrays have them,
 // or null for three's own attributes at locations 0, 1... (entry.attributes,
 // for core.geometry).
@@ -55,8 +61,8 @@ export function plainProgram(core, material, attributes) {
   }
   const uniforms = [];
   for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
-    const u = gl.getActiveUniform(p, i);
-    uniforms.push({ name: u.name.replace(/\[0\]$/, ""), type: uniformType(gl, u.type), size: u.size });
+    const u = gl.getActiveUniform(p, i), name = u.name.replace(/\[0\]$/, "");
+    if (!unread(material, name)) uniforms.push({ name, type: uniformType(gl, u.type), size: u.size });
   }
   if (uniforms.every((u) => u.type && u.size === 1)) {
     const [vs, fs] = gl.getAttachedShaders(p).sort((a) => (gl.getShaderParameter(a, gl.SHADER_TYPE) === gl.VERTEX_SHADER ? -1 : 1));
@@ -94,6 +100,7 @@ export function writeUniform(core, out, o, slot, uniform, material, object, came
   if (name === "projectionMatrix") value = camera.projectionMatrix;
   else if (name === "modelViewMatrix") value = object.modelViewMatrix.multiplyMatrices(camera.matrixWorldInverse, object.matrixWorld);
   else if (name === "modelMatrix") value = object.matrixWorld;
+  else if (name === "normalMatrix") value = object.normalMatrix.getNormalMatrix(object.modelViewMatrix.multiplyMatrices(camera.matrixWorldInverse, object.matrixWorld));
   else if (name === "viewMatrix") value = camera.matrixWorldInverse;
   else if (name === "cameraPosition") value = eye.setFromMatrixPosition(camera.matrixWorld);
   else if (name === "isOrthographic") value = camera.isOrthographicCamera === true;

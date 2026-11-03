@@ -177,9 +177,12 @@ class ViewPass {
       input[o + D.SIDES] = record.sides.length; input[o + D.SIDES + 1] = record.sides[0]; input[o + D.SIDES + 2] = record.sides[1] ?? 0;
       input[o + D.RANGE] = first; input[o + D.RANGE + 1] = last - first;
       input[o + D.UNIFORMS] = program.uniforms.length;
-      let ok = true;
-      for (let k = 0; k < program.uniforms.length && ok; k++) ok = writeUniform(core, input, o + D.FIRST + k * UNIFORM, k, program.uniforms[k], material, mesh, camera);
-      if (!ok) { this.complete = false; material.visible = true; continue; }
+      let failed = null;
+      for (let k = 0; k < program.uniforms.length && !failed; k++) if (!writeUniform(core, input, o + D.FIRST + k * UNIFORM, k, program.uniforms[k], material, mesh, camera)) failed = program.uniforms[k].name;
+      if (failed) {
+        if (!record.failed) { record.failed = true; core.errors.push(`view ${material.name || material.type}: no value for ${failed}`); }
+        this.complete = false; material.visible = true; continue;
+      }
       n++;
     }
     input[0] = n;
