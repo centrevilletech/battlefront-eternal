@@ -33,6 +33,8 @@ impl BfeRenderer {
     // A batch three draws single-sided: its side (0 front, 1 back).
     pub fn fx_batch_side(&mut self, batch: u32, side: u32) { self.r.effects.batch_side(batch, side) }
     pub fn fx_batch_sampler(&mut self, batch: u32, name: &str, unit: u32, texture: i32) { self.r.effects.batch_sampler(&self.r.core, batch, name, unit, texture) }
+    // A 3D texture a batch samples (the jetpack flame's noise).
+    pub fn fx_batch_sampler_3d(&mut self, batch: u32, name: &str, unit: u32, texture: i32) { self.r.effects.batch_sampler_3d(&self.r.core, batch, name, unit, texture) }
     // A batch's base instead of the corner quad (add_batch's corner then
     // 4294967295): its vertex attributes (location, size pairs), their data
     // (attribute after attribute, `vertices` each), its 16-bit indices.
