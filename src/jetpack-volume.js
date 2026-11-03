@@ -22,7 +22,7 @@ function noiseTexture() {
 const VERTEX = /* glsl */ `
   attribute vec3 nozzle, direction, bend;
   attribute float nozzleRadius, phase;
-  uniform float time, power;
+  uniform float flameTime, power;
   varying vec3 boxPoint, rayOrigin, axisRight, axisUp, axisForward, origin;
   varying vec2 extent, curvature;
   varying float radius, lengthJet, seed;
@@ -34,7 +34,7 @@ const VERTEX = /* glsl */ `
     vec3 up = cross(forward,right);
     curvature = vec2(dot(bend,right),dot(bend,up));
     radius = nozzleRadius;
-    lengthJet = (0.61 + 0.025 * sin(time * 19.0 + phase)) * power;
+    lengthJet = (0.61 + 0.025 * sin(flameTime * 19.0 + phase)) * power;
     extent = vec2(radius * 3.8) + abs(curvature);
     // Proxy extends just inside the nozzle lip. Density itself starts at z=0.
     boxPoint = vec3(position.xy * 2.0, position.z + 0.5);
@@ -49,7 +49,7 @@ const FRAGMENT = /* glsl */ `
   uniform highp sampler3D noiseField;
   uniform sampler2D sceneDepth;
   uniform vec2 depthResolution, cameraRange;
-  uniform float time, hasDepth;
+  uniform float flameTime, hasDepth;
   varying vec3 boxPoint, rayOrigin, axisRight, axisUp, axisForward, origin;
   varying vec2 extent, curvature;
   varying float radius, lengthJet, seed;
@@ -82,10 +82,10 @@ const FRAGMENT = /* glsl */ `
       float z=clamp(p.z,0.0,1.0), spread=smoothstep(0.025,0.30,z);
       vec2 center=curvature*z*z;
       // Advected eddies become larger and less coherent downstream.
-      vec3 field=vec3(p.xy*extent*42.0,z*9.0-time*28.0+seed);
+      vec3 field=vec3(p.xy*extent*42.0,z*9.0-flameTime*28.0+seed);
       float coarse=noise3(field);
-      float fine=noise3(field*2.31+vec3(7.0,13.0,-time*3.0));
-      center+=vec2(sin(z*13.0-time*5.0+seed),cos(z*17.0-time*4.0+seed))*radius*0.20*spread*z;
+      float fine=noise3(field*2.31+vec3(7.0,13.0,-flameTime*3.0));
+      center+=vec2(sin(z*13.0-flameTime*5.0+seed),cos(z*17.0-flameTime*4.0+seed))*radius*0.20*spread*z;
       float r=radius*(0.90+spread*1.1)*(1.0-0.66*smoothstep(0.48,1.0,z));
       float radial=length(p.xy*extent-center)/max(r,0.001);
       float breakup=(coarse-0.46)*1.55+(fine-0.5)*0.50;
@@ -93,7 +93,7 @@ const FRAGMENT = /* glsl */ `
       float tail=1.0-smoothstep(0.53+coarse*0.18,0.89+fine*0.10,z);
       float lip=smoothstep(0.0,0.012,z);
       float core=exp(-radial*radial*3.2)*(1.0-smoothstep(0.26,0.76,z));
-      core*=0.84+0.16*cos(z*51.0-time*12.0+seed);
+      core*=0.84+0.16*cos(z*51.0-flameTime*12.0+seed);
       // Dense hot root; separate, cooler billowing combustion envelope.
       float density=(body*(4.0+coarse*8.0)*tail+core*42.0)*lip;
       density*=smoothstep(0.0,0.014,surface-depth);
@@ -112,15 +112,22 @@ const FRAGMENT = /* glsl */ `
   }
 `;
 
+// The volumes by their meshes, for a renderer that draws them itself
+// (src/rust-render/effects.js): while a volume is `external`, three is shown
+// it never and uploads it nothing. Its clock is its own (flameTime, not the
+// frame's time).
+export const jetpackVolumes = new WeakMap();
+
 export class JetpackVolume {
   constructor({scene,count}) {
+    this.external=false;this.count=0;
     const box=new THREE.BoxGeometry(1,1,1),geometry=new THREE.InstancedBufferGeometry();
     geometry.index=box.index;geometry.attributes.position=box.attributes.position;
     for(const [name,size] of Object.entries({nozzle:3,direction:3,bend:3,nozzleRadius:1,phase:1}))
       geometry.setAttribute(name,new THREE.InstancedBufferAttribute(new Float32Array(count*size),size).setUsage(THREE.DynamicDrawUsage));
     for(let i=0;i<count;i++)geometry.attributes.phase.array[i]=i*17.31;
     this.noise=noiseTexture();
-    const material=new THREE.ShaderMaterial({uniforms:{time:{value:0},power:{value:1},noiseField:{value:this.noise},
+    const material=new THREE.ShaderMaterial({uniforms:{flameTime:{value:0},power:{value:1},noiseField:{value:this.noise},
       sceneDepth:particleDepth.map,depthResolution:particleDepth.resolution,cameraRange:particleDepth.cameraRange,hasDepth:{value:0}},
       vertexShader:VERTEX,fragmentShader:FRAGMENT,side:THREE.DoubleSide,forceSinglePass:true,transparent:true,premultipliedAlpha:true,depthWrite:false,toneMapped:false});
     this.mesh=new THREE.Mesh(geometry,material);this.mesh.name='jetpack-volumetric-combustion';
@@ -129,19 +136,22 @@ export class JetpackVolume {
       material.uniforms.hasDepth.value=particleDepth.capture(renderer,scene,camera,true)?1:0;
       material.uniformsNeedUpdate=true;
     };
+    jetpackVolumes.set(this.mesh,this);
     scene.add(this.mesh);
   }
   update(time,power,nozzles) {
-    const mesh=this.mesh,a=mesh.geometry.attributes;
-    mesh.visible=power>0.015;mesh.geometry.instanceCount=mesh.visible?nozzles.length:0;
-    if(!mesh.visible)return;
-    mesh.material.uniforms.time.value=time;mesh.material.uniforms.power.value=Math.max(power,0.025);
+    const mesh=this.mesh,a=mesh.geometry.attributes,shown=power>0.015;
+    this.count=shown?nozzles.length:0;
+    mesh.visible=shown&&!this.external;mesh.geometry.instanceCount=this.count;
+    if(!shown)return;
+    mesh.material.uniforms.flameTime.value=time;mesh.material.uniforms.power.value=Math.max(power,0.025);
     for(let i=0;i<nozzles.length;i++) {
       const n=nozzles[i];n.position.toArray(a.nozzle.array,i*3);n.direction.toArray(a.direction.array,i*3);
       (n.bendWorld||ZERO).toArray(a.bend.array,i*3);a.nozzleRadius.array[i]=n.radius||0.034;
     }
-    for(const [name,attribute] of Object.entries(a))if(attribute.isInstancedBufferAttribute&&name!=='phase')attribute.needsUpdate=true;
+    // Drawn by another renderer (external), three uploads it nothing.
+    if(!this.external)for(const [name,attribute] of Object.entries(a))if(attribute.isInstancedBufferAttribute&&name!=='phase')attribute.needsUpdate=true;
   }
-  clear(){this.mesh.visible=false;this.mesh.geometry.instanceCount=0;}
+  clear(){this.count=0;this.mesh.visible=false;this.mesh.geometry.instanceCount=0;}
   dispose(){this.mesh.removeFromParent();this.mesh.geometry.dispose();this.mesh.material.dispose();this.noise.dispose();}
 }
