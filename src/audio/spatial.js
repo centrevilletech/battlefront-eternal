@@ -172,10 +172,9 @@ export class Renderer {
   worklets() {
     if (!this.modules) {
       const add = (file) => this.ctx.audioWorklet.addModule(new URL(`./worklets/${file}`, import.meta.url));
-      // With ?audio=wasm, the worklets' DSP module (rust/audio) is
-      // compiled here and handed to each processor, whose scope cannot
-      // fetch it; without the flag this.dsp stays null and the
-      // JavaScript worklets run.
+      // The worklets' DSP module (rust/audio) is compiled here and handed
+      // to each processor, whose scope cannot fetch it; with ?audio=js
+      // this.dsp stays null and the worklets run their JavaScript.
       this.modules = Promise.all([Promise.all(["spatial-mixer.js", "limiter.js", "reverb.js", "meter.js", "stabilizer.js", "clarity.js"].map(add)), loadAudioDsp()]).then(([, dsp]) => {
         this.dsp = dsp || null;
         this.workletsReady = true;
