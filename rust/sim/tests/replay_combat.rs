@@ -862,3 +862,45 @@ fn blasts_replay_as_captured() {
 fn new_lives_replay_as_captured() {
     replay("PlayerCombat.reset");
 }
+
+/// What the corpus's replayed frames exercise: their calls across the
+/// boundary by name, presentation events by kind, and draws by stream
+/// (`cargo test ... -- --ignored corpus_coverage`).
+#[test]
+#[ignore]
+fn corpus_coverage() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+    for name in ["PlayerCombat.update", "PlayerCombat.flushMuzzles", "PlayerCombat.damage", "PlayerCombat.explode", "PlayerCombat.reset"] {
+        for capture in corpus.captures() {
+            let capture = capture.unwrap();
+            for frame in capture.frames(name) {
+                let frame = frame.unwrap();
+                if frame.before().get("skipped").truthy() {
+                    continue;
+                }
+                *counts.entry(format!("{name} frames")).or_default() += 1;
+                for event in &frame.events {
+                    let key = match event {
+                        sim_replay::Event::Call(c) if c.name == "world.presentation" => format!("{name} presentation {}", c.arg(0).get("kind").str().unwrap_or("?")),
+                        sim_replay::Event::Call(c) if c.name == "world.lockPick" => {
+                            let r = c.result();
+                            format!("{name} lockPick {}", if r.is_undefined() { "nothing" } else if r.is_null() { "none" } else { "unit" })
+                        }
+                        sim_replay::Event::Call(c) if c.name == "world.fired" => {
+                            let s = c.arg(0);
+                            let kind = if s.get("repair").truthy() { "repair" } else if s.get("meleeStart").truthy() { "melee" } else if s.get("targetId").num() >= 0.0 { "guided" } else { "round" };
+                            format!("{name} fired {kind}")
+                        }
+                        sim_replay::Event::Call(c) => format!("{name} call {}", c.name),
+                        sim_replay::Event::Draw(d) => format!("{name} draw {}", if d.stream.starts_with("seeded:") { "seeded" } else { d.stream.as_str() }),
+                    };
+                    *counts.entry(key).or_default() += 1;
+                }
+            }
+        }
+    }
+    for (k, n) in &counts {
+        println!("{n:>9} {k}");
+    }
+}
