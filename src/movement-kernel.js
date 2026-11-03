@@ -1,5 +1,5 @@
 // A soldier's movement (Soldier.tick, src/soldier.js) in WebAssembly: the
-// ray kernel's module (rust/rays/src/movement) runs the whole tick, the
+// ray kernel's module (rust/sim/src/movement) runs the whole tick, the
 // collision pass included, against its own copies of the collision world,
 // with the same answers as the JavaScript to the last bit. ?movement=wasm
 // turns it on (it needs the ray kernel, which it loads); the world's ticks
@@ -9,17 +9,18 @@
 // Each tick copies the soldier's state into the module's exchange slots, and
 // the new state back out. The soldier object stays the only copy between
 // ticks, so whatever else reads or sets its fields (bots, seats, corrections,
-// explosions) goes on as before. Math.sin and Math.cos stay JavaScript's: the
-// module takes the yaw's (and a hovering jet's pitch's) from here, and stops
-// after a turn for the turned yaw's. Bodies are switched on and off by a
-// plain field, so their `enabled` goes in before each tick.
+// explosions) goes on as before. The tick's sines and cosines are the
+// module's own, computed as the production server's V8 computes Math.sin
+// and Math.cos (rust/v8math): the JavaScript tick's under Node, and the
+// server's where a client's V8 parts from it in the last bit. Bodies are
+// switched on and off by a plain field, so their `enabled` goes in before
+// each tick.
 
-// The exchange slots (rust/rays/src/movement/mod.rs).
+// The exchange slots (rust/sim/src/movement/mod.rs).
 const POSITION = 0, SETTLED = 3, VELOCITY = 6, NORMAL = 9, AVOIDANCE = 12, YAW = 15, PITCH = 16, STATE_TIME = 17, LOCK = 18,
   FUEL = 19, DIVE = 20, POSTURE = 21, AIR = 22, DIVE_FROM = 23, GROUNDED = 24, GROUND_ADJUSTMENT = 25, DAMAGE = 26,
   MAX_FLY = 27, GETUP = 28, DIVE_TIME = 29, PASS_THROUGH = 30, DT = 31, FORWARD = 32, RIGHT = 33, TURN = 34,
-  PITCH_STICK = 35, JUMP = 36, CROUCH = 37, PRONE = 38, JET_AIMED = 39, JET_DIRECTION = 40, SIN0 = 43, COS0 = 44,
-  SIN_PITCH = 45, COS_PITCH = 46, SIN1 = 47, COS1 = 48, TURNED_YAW = 49, CLASS = 50, IO_LEN = 80;
+  PITCH_STICK = 35, JUMP = 36, CROUCH = 37, PRONE = 38, JET_AIMED = 39, JET_DIRECTION = 40, CLASS = 50, IO_LEN = 80;
 const POSTURES = ["stand", "crouch", "prone"];
 const AIRS = [null, "jump", "fall", "thrown", "jet"];
 
@@ -96,8 +97,7 @@ export class MovementKernel {
     io[VELOCITY] = velocity.x; io[VELOCITY + 1] = velocity.y; io[VELOCITY + 2] = velocity.z;
     io[NORMAL] = normal.x; io[NORMAL + 1] = normal.y; io[NORMAL + 2] = normal.z;
     io[AVOIDANCE] = avoidance.x; io[AVOIDANCE + 1] = avoidance.y; io[AVOIDANCE + 2] = avoidance.z;
-    const yaw = s.aimYaw;
-    io[YAW] = yaw; io[PITCH] = s.aimPitch; io[STATE_TIME] = s.stateTime; io[LOCK] = s.lock; io[FUEL] = s.fuel; io[DIVE] = s.dive;
+    io[YAW] = s.aimYaw; io[PITCH] = s.aimPitch; io[STATE_TIME] = s.stateTime; io[LOCK] = s.lock; io[FUEL] = s.fuel; io[DIVE] = s.dive;
     io[POSTURE] = posture; io[AIR] = air; io[DIVE_FROM] = diveFrom; io[GROUNDED] = s.grounded ? 1 : 0;
     io[GROUND_ADJUSTMENT] = s.groundAdjustment; io[MAX_FLY] = s.maxFlyHeight; io[GETUP] = s.getupTime; io[DIVE_TIME] = s.diveTime;
     io[PASS_THROUGH] = s.passThrough?.raySlot ?? -1;
@@ -108,15 +108,7 @@ export class MovementKernel {
     if (aimed && (aimed.x || aimed.y || aimed.z)) {
       io[JET_AIMED] = 1; io[JET_DIRECTION] = aimed.x; io[JET_DIRECTION + 1] = aimed.y; io[JET_DIRECTION + 2] = aimed.z;
     } else io[JET_AIMED] = 0;
-    io[SIN0] = Math.sin(yaw); io[COS0] = Math.cos(yaw);
-    if (air === 4 && s.jet.hover) { io[SIN_PITCH] = Math.sin(s.aimPitch); io[COS_PITCH] = Math.cos(s.aimPitch); }
-    let code = this.x.mover_tick(s.mover);
-    if (code === 1) {
-      const turned = this.view(), to = turned[TURNED_YAW];
-      turned[SIN1] = Math.sin(to); turned[COS1] = Math.cos(to);
-      code = this.x.mover_resume(s.mover);
-    }
-    if (code !== 0) return false;
+    if (this.x.mover_tick(s.mover) !== 0) return false;
     const out = this.view();
     s.previous.copy(position);
     position.set(out[POSITION], out[POSITION + 1], out[POSITION + 2]);

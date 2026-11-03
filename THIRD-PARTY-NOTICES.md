@@ -16,6 +16,10 @@ the game, on the player's machine.
 | [OpenAL Soft](https://github.com/kcat/openal-soft) 1.20.1 | `src/audio/worklets/stabilizer.js` translates its band splitter and front stabilizer; `src/audio/layouts.js` carries its speaker decoder coefficients | Copyright the OpenAL Soft authors | LGPL-2.0-or-later. The derived code is distributed under GPL-3.0-only, as section 3 of that license allows. |
 | [libebur128](https://github.com/jiixyj/libebur128) | The K-weighting filter design in `src/audio/worklets/meter.js` and `tools/enhance_audio.py` | Copyright (c) 2011 Jan Kokemüller | MIT |
 | AMD FidelityFX Super Resolution 1 | The RCAS sharpening pass in `src/shell/video-sharpen.js` follows its design | Copyright (c) Advanced Micro Devices, Inc. | MIT |
+| fdlibm, as ported to C++ in [V8](https://v8.dev) 13.6 (`src/base/ieee754.cc`), and V8's `math::pow` (`src/numbers/ieee754.cc`) | `rust/v8math/src/trig.rs`, `explog.rs`, `inv.rs` and the first part of `pow.rs` translate them to Rust | Copyright (C) 1993 by Sun Microsystems, Inc.; Copyright 2011 and 2016 the V8 project authors | fdlibm: "Permission to use, copy, modify, and distribute this software is freely granted, provided that this notice is preserved." V8: BSD-3-Clause (below) |
+| The double-precision `pow` of Arm's [optimized-routines](https://github.com/ARM-software/optimized-routines) (`math/pow.c` and its tables), which glibc ships as its `pow` | `rust/v8math/src/pow.rs` and `pow_data.rs` translate it to Rust | Copyright (c) 2018-2026, Arm Limited | MIT (offered as MIT OR Apache-2.0 WITH LLVM-exception; used here under MIT) |
+| [three.js](https://threejs.org) r170 math collections | `rust/three` transliterates its `src/math` classes and `Object3D`'s transform semantics to Rust, operation by operation, for the simulation port | Copyright 2010-2024 three.js authors | MIT |
+| TimSort, as V8 runs it for `Array.prototype.sort` | `rust/jsrt/src/sort.rs` transliterates V8 13.6's `array-sort.tq`, itself a port of CPython's listsort | Copyright (c) 2001-2018 Python Software Foundation (the algorithm text V8's file carries); V8's port copyright the V8 project authors | Python Software Foundation License 2.0; BSD-3-Clause (V8) |
 
 ## Libraries bundled in builds
 
@@ -79,3 +83,34 @@ the copyright notices listed above:
 > LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 > FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 > IN THE SOFTWARE.
+
+## BSD-3-Clause License (V8)
+
+The V8 code above is provided under the following terms:
+
+> Copyright 2014, the V8 project authors. All rights reserved.
+> Redistribution and use in source and binary forms, with or without
+> modification, are permitted provided that the following conditions are
+> met:
+>
+> * Redistributions of source code must retain the above copyright
+>   notice, this list of conditions and the following disclaimer.
+> * Redistributions in binary form must reproduce the above
+>   copyright notice, this list of conditions and the following
+>   disclaimer in the documentation and/or other materials provided
+>   with the distribution.
+> * Neither the name of Google Inc. nor the names of its
+>   contributors may be used to endorse or promote products derived
+>   from this software without specific prior written permission.
+>
+> THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+> "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+> LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+> A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+> OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+> SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+> LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+> DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+> THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+> (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+> OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

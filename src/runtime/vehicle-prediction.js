@@ -2,6 +2,7 @@ import { CommandControls } from './commands.js';
 import { replayTicks } from './reconcile.js';
 import { networkVehicleInput } from './network-vehicle.js';
 import { captureGroundCorrection } from './network-entity-ground.js';
+import { VehiclesWorld } from '../vehicles-world.js';
 
 const copy = value => value?.isVector3 || value?.isQuaternion || value?.isEuler || value?.isMatrix4 ? value.clone() : value;
 const collisionViews = new WeakMap();
@@ -34,6 +35,8 @@ export function predictionVehicle(source) {
   clone.predictionSource = source.predictionSource || source;
   clone.system = Object.create(clone.predictionSource.system);
   clone.system.collision = predictionCollision(clone.predictionSource.system.collision);
+  // Its queries go to that view of the collision too, never moving the real collider.
+  clone.system.world = new VehiclesWorld(clone.system);
   clone.damage = () => {};
   // Drawn in its source's place (Vehicle.present): the seats its source's
   // crew holds, on the page's clock for what is only drawn.

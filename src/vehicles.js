@@ -1,4 +1,4 @@
-import { poseFlightGear, poseGearAt, gearFoot } from './flight/gear.js';
+import { poseFlightGear, poseGearAt, gearFoot, ownGear } from './flight/gear.js';
 import { updateFlightTarget, assistShot } from './flight/targeting.js';
 import { abandonLift, initFlight, stepFlight, standHeight } from './flight/model.js';
 import { groundMotion } from './vehicle-motion.js';
@@ -11,15 +11,15 @@ import { descendantMuzzles, vehicleMuzzleTips, bindMountedRound } from "./muzzle
 import { makeHit } from "./collision.js";
 import { vehicleBatches, attachVehicleBatches } from "./vehicle-rig.js";
 import { modelPack } from "./models.js";
-import { emitSound } from "./audio/events.js";
 import { loadClips, Pose } from "./anim.js";
 import { Weapon } from "./weapons.js";
 import { givePowerup } from "./items.js";
-import { blastBlocked, blastDamage, blastDistance, healthScale } from "./ordnance.js";
+import { blastDamage, blastDistance, healthScale } from "./ordnance.js";
 import { SeatLease, SeatUnit, VehicleTarget, seatRole, seatWeaponPolicy, classicSeatExit, placeOnFoot, dropBody, seatBody, unseatBody } from "./seats.js";
 import { boardingSeat, canBoard, claimSeat, inFlight, mayLeave, personLease, seatControl, seatLook, switchSeat, teamRelation } from "./boarding.js";
 import { makeRiderPoints, riderDropPoint, riderHitShapes, riderPoints } from "./rider-pose.js";
 import { stepPilotless } from "./flight/pilotless.js";
+import { VehiclesWorld } from "./vehicles-world.js";
 
 const UP = new THREE.Vector3(0, 1, 0);
 const RIGHT = new THREE.Vector3(1, 0, 0);
@@ -680,9 +680,9 @@ export class Vehicle {
 
   // The spread rule a seat's weapons follow: the player's, or the AI's floor
   // (Weapon { player: false }) while a bot holds it (provisional for vehicle
-  // weapons; docs/ai-vehicles.md).
-  setSeatPolicy(i, player) {
-    for (const w of this.seats[i]?.weapons || []) seatWeaponPolicy(w.state, player);
+  // weapons; docs/ai-vehicles.md); random, their generator (seatWeaponPolicy).
+  setSeatPolicy(i, player, random = null) {
+    for (const w of this.seats[i]?.weapons || []) seatWeaponPolicy(w.state, player, random);
   }
 
   // A bot holds seat i.
@@ -847,7 +847,8 @@ export class Vehicle {
     this.velocity.set(0, 0, 0);
     for (const wheel of this.wheels) wheel.phase = wheel.previous = 0;
     this.health = this.maxHealth;
-    this.alive = this.root.visible = this.body.enabled = true;
+    this.system.world.enableBody(this.body, true);
+    this.alive = this.root.visible = true;
     this.dying = 0;
     this.driver = null;
     this.seatIndex = 0;
@@ -867,7 +868,7 @@ export class Vehicle {
     // a hover where its springs carry it, lying with the ground (its physics
     // settle the rest).
     this.from.copy(this.position).addScaledVector(UP, 4);
-    const floor = this.system.collision.cast(this.from, DOWN, 12, this.hit, this.body);
+    const floor = this.system.world.cast(this.from, DOWN, 12, this.hit, this.body);
     if (floor && !this.walking && !this.flying) {
       this.position.y = floor.point.y + restHeight(this.def);
       this.alignGround(floor.normal, 1);
@@ -894,7 +895,7 @@ export class Vehicle {
   syncBody() {
     if (!this.flying) this.quaternion.setFromEuler(this.rotation.set(0, this.yaw, 0));
     this.matrix.compose(this.position, this.flying ? this.quaternion : hullQuaternion(this, this.q), UNIT_SCALE);
-    this.system.collision.moveBody(this.body, this.matrix);
+    this.system.world.moveBody(this.body, this.matrix);
     this.itemTarget.center.copy(this.center).applyMatrix4(this.matrix);
   }
 
@@ -909,7 +910,7 @@ export class Vehicle {
   damage(amount, attacker = null) {
     if (!this.alive || !(amount > 0)) return;
     if (attacker) this.lastAttacker = attacker;
-    this.system.onDamaged?.(this, amount, attacker);
+    this.system.world.damaged(this, amount, attacker);
     this.setHealth(this.health - amount);
   }
 
@@ -917,7 +918,8 @@ export class Vehicle {
     if (!this.alive) return;
     this.health = THREE.MathUtils.clamp(value, 0, this.maxHealth);
     if (this.health > 0) return;
-    this.alive = this.body.enabled = false;
+    this.system.world.enableBody(this.body, false);
+    this.alive = false;
     // A walker with a death animation plays it out before it is gone
     // (dyingTick); every other hull is gone at once.
     this.dying = this.def.fx?.dying?.span || 0;
@@ -929,7 +931,7 @@ export class Vehicle {
     // player's handler runs.
     this.system.destroyedCrew?.(this);
     const humanDriver = this.humanDriver;
-    try { this.system.onDestroyed?.(this); }
+    try { this.system.world.destroyed(this); }
     finally { if (humanDriver?.vehicle === this) humanDriver.release(); }
     this.system.releaseTow?.(this, 'destroyed');
     this.driver = null;
@@ -945,9 +947,9 @@ export class Vehicle {
     // (the AT-AT's body, the AT-ST's head; tools/zero_vehicle.py vehicle_fx).
     const offset = this.def.fx?.explosionOffset;
     const at = offset ? new THREE.Vector3(offset[0], offset[1], offset[2]).applyAxisAngle(UP, this.yaw).add(this.position) : this.position;
-    if (this.def.explosion) this.system.ordnance.explosion(this.def.explosion, at, this);
+    if (this.def.explosion) this.system.world.explosion(this.def.explosion, at, this);
     // An animal (the tauntaun, the kaadu) has no blast: it falls.
-    else if (!this.creature) this.system.effects?.play('explosion', at);
+    else if (!this.creature) this.system.world.effect('explosion', at);
   }
 
   // A tick of a destroyed walker's dying: its death animation (death01, at
@@ -964,7 +966,7 @@ export class Vehicle {
     if (!explosion) return;
     const offset = this.def.fx?.dying?.finalOffset || [0, 0, 0];
     const at = new THREE.Vector3(offset[0], offset[1], offset[2]).applyAxisAngle(UP, this.yaw).add(this.position);
-    this.system.ordnance.explosion(explosion, at, this);
+    this.system.world.explosion(explosion, at, this);
   }
 
   tick(dt, input) {
@@ -985,11 +987,11 @@ export class Vehicle {
       // A hover (src/vehicle-hover.js): its physics, then the collision pass
       // (its wall spheres, then its springs), then its springs' forces.
       hoverPhysics(this, dt, driving ? this.forwardInput : 0, driving ? this.rightInput : 0, Boolean(input.brake));
-      this.body.enabled = false;
+      this.system.world.enableBody(this.body, false);
       try {
         this.pushWalls(oldYaw, hullQuaternion(this, this.q), true);
         hoverContacts(this);
-      } finally { this.body.enabled = this.alive; }
+      } finally { this.system.world.enableBody(this.body, this.alive); }
       hoverSprings(this, dt);
     } else this.walkGround(dt, input, driving, oldYaw);
     if (this.wheeled) {
@@ -999,7 +1001,7 @@ export class Vehicle {
       for (const wheel of this.wheels) wheel.phase += (distance - turned * wheel.x) / wheel.radius;
     }
     this.syncBody();
-    if (this.system.inDeathRegion?.(this.position) || this.position.y < -300) this.damage(Infinity);
+    if (this.system.world.inDeathRegion(this.position) || this.position.y < -300) this.damage(Infinity);
     // Deep water wears a walker down (src/vehicle-water.js).
     if (this.walking && this.alive) {
       const hurt = waterDamageStep(this, dt, this.system.water, this.waterRule, this.position, this.waterDepth);
@@ -1014,7 +1016,7 @@ export class Vehicle {
   // speeds in the plane, its probes find the floor under it (an animal
   // lies with it), and gravity takes over at ledges and map cuts.
   walkGround(dt, input, driving, oldYaw) {
-    const c = this.system.collision;
+    const w = this.system.world;
     const forward = driving ? this.forwardInput * (this.forwardInput >= 0 ? this.speed : this.reverseSpeed) : 0;
     const right = driving && this.strafeSpeed ? this.rightInput * this.strafeSpeed : 0;
     const norm = Math.max(1, Math.hypot(this.forwardInput, this.strafeSpeed ? this.rightInput : 0));
@@ -1030,7 +1032,7 @@ export class Vehicle {
     }
     this.position.x += this.velocity.x * dt;
     this.position.z += this.velocity.z * dt;
-    this.body.enabled = false;
+    w.enableBody(this.body, false);
     try {
       this.quaternion.setFromAxisAngle(UP, this.yaw);
       this.pushWalls(oldYaw, this.quaternion, false);
@@ -1043,7 +1045,7 @@ export class Vehicle {
       for (const probe of this.supportProbes) {
         this.from.copy(probe).applyQuaternion(this.quaternion).add(this.position);
         this.from.y = this.position.y + this.bounds.min.y + 1.2;
-        const hit = c.cast(this.from, DOWN, 6, this.hit);
+        const hit = w.cast(this.from, DOWN, 6, this.hit);
         if (hit && hit.normal.y > .65) {
           if (this.creature) {
             // Project the contact plane back to the model origin. Taking the
@@ -1073,7 +1075,7 @@ export class Vehicle {
         this.velocity.y -= 20 * dt;
         this.position.y += this.velocity.y * dt;
       }
-    } finally { this.body.enabled = this.alive; }
+    } finally { w.enableBody(this.body, this.alive); }
   }
 
   // A walker on its legs, as the 2004 game stands one (docs/vehicles.md
@@ -1094,7 +1096,7 @@ export class Vehicle {
   // 0.1 under it; off it, it falls. The 2004 game's constants are per
   // update; the port's steps are 1/60 s, which these scale to.
   standOnLegs(dt, legs) {
-    const c = this.system.collision, L = legs.rayLength, k = dt * 60;
+    const w = this.system.world, L = legs.rayLength, k = dt * 60;
     const q = this.frameScratch.q.setFromEuler(this.legEuler.set(-this.tilt, this.yaw, this.roll, 'YXZ'));
     const heights = [];
     this.legSide ||= legs.pairs.map(() => 0);
@@ -1102,7 +1104,7 @@ export class Vehicle {
       const h = ['left', 'right'].map((which) => {
         this.from.fromArray(pair[which].at).applyQuaternion(q).add(this.position);
         this.from.y += L;
-        const hit = c.cast(this.from, DOWN, 2 * L, this.hit);
+        const hit = w.cast(this.from, DOWN, 2 * L, this.hit);
         return hit ? L - hit.distance : -L;
       });
       const lo = Math.min(h[0], h[1]), hi = Math.max(h[0], h[1]);
@@ -1146,7 +1148,8 @@ export class Vehicle {
   // and no BVH rebuild on motion): each probe sphere, placed in the hull's
   // frame q, is pushed out of the polygons of buildings, props, barriers and
   // other hulls that are no floor, and with terrain of the terrain's steep
-  // faces too, and stops moving into them.
+  // faces too, and stops moving into them (src/vehicles-world.js pushWalls).
+  // A push deeper than 0.15 m undoes the step's turn.
   //
   // A walker against another hull (a moving body) gives way only as far as
   // its own probe moved into it this step: the other hull answers for its
@@ -1156,37 +1159,8 @@ export class Vehicle {
   // hull's speed (a hailfire drove an AT-TE across Geonosis at 8 m/s, and
   // other contacts at up to 30 m/s).
   pushWalls(oldYaw, q, terrain) {
-    const c = this.system.collision;
     const own = this.walking ? this.ownStart.setFromAxisAngle(UP, this.previousYaw) : null;
-    for (let pass = 0; pass < 2; pass++) for (let i = 0; i < this.probes.length; i++) {
-      const probe = this.probes[i];
-      this.point.copy(probe).applyQuaternion(q).add(this.position);
-      if (own) this.probeStart.copy(probe).applyQuaternion(own).add(this.previous);
-      for (const polygon of c.gather(this.point, this.probeRadius, true, this.wallCaches[i])) for (const tri of polygon.triangles) this.pushOut(tri, oldYaw, own && polygon.moving);
-      if (terrain) for (const tri of c.terrainNear(this.point, this.probeRadius)) this.pushOut(tri, oldYaw);
-    }
-  }
-
-  pushOut(tri, oldYaw, hull = false) {
-    tri.getNormal(this.normal);
-    if (Math.abs(this.normal.y) > .65) return; // suspension handles floors
-    tri.closestPointToPoint(this.point, this.nearest);
-    this.normal.subVectors(this.point, this.nearest);
-    const distance = this.normal.length();
-    if (distance >= this.probeRadius || distance < 1e-6) return;
-    this.normal.divideScalar(distance);
-    let depth = this.probeRadius - distance + .002;
-    if (hull) {
-      // How far this probe came toward the other hull this step.
-      const came = -(this.normal.x * (this.point.x - this.probeStart.x) + this.normal.y * (this.point.y - this.probeStart.y) + this.normal.z * (this.point.z - this.probeStart.z));
-      depth = Math.min(depth, Math.max(0, came));
-      if (!(depth > 0)) return;
-    }
-    this.position.addScaledVector(this.normal, depth);
-    this.point.addScaledVector(this.normal, depth);
-    const into = this.velocity.dot(this.normal);
-    if (into < 0) this.velocity.addScaledVector(this.normal, -into);
-    if (depth > .15) this.yaw = oldYaw;
+    if (this.system.world.pushWalls(this, this.probes, this.probeRadius, q, own, this.previous, this.position, this.velocity, terrain)) this.yaw = oldYaw;
   }
 
   aimPlayerSeat(dt) {
@@ -1484,22 +1458,22 @@ export class Vehicle {
   feelLegs(dt) {
     const legs = this.def.fx?.legs;
     if (!legs || this.creature || !(dt > 0)) return;
-    const c = this.system.collision, L = legs.rayLength;
+    const w = this.system.world, L = legs.rayLength;
     const q = this.frameScratch.q.setFromEuler(this.legEuler.set(this.root.rotation.x, this.root.rotation.y, this.root.rotation.z, 'YXZ'));
     this.legSide ||= legs.pairs.map(() => 0);
-    const enabled = this.body.enabled;
-    this.body.enabled = false;
+    const enabled = w.bodyEnabled(this.body);
+    w.enableBody(this.body, false);
     try {
       legs.pairs.forEach((pair, i) => {
         const h = ['left', 'right'].map((which) => {
           this.from.fromArray(pair[which].at).applyQuaternion(q).add(this.root.position);
           this.from.y += L;
-          const hit = c.cast(this.from, DOWN, 2 * L, this.hit);
+          const hit = w.cast(this.from, DOWN, 2 * L, this.hit);
           return hit ? L - hit.distance : -L;
         });
         this.legSide[i] += (THREE.MathUtils.clamp(-.6 * (h[0] - h[1]), -1, 1) - this.legSide[i]) * Math.min(1, .4 * dt * 60);
       });
-    } finally { this.body.enabled = enabled; }
+    } finally { w.enableBody(this.body, enabled); }
   }
 
   // Whether a seat's turret node, an aimer, a fire point or a rider's node
@@ -1561,9 +1535,20 @@ export class Vehicle {
   // dt is 0 on a page showing a worker's battle). Its effects and sounds
   // are the page's, from the hull's state (src/vehicle-effects.js,
   // src/audio/vehicles.js).
-  render(alpha, dt) {
+  //
+  // ticked: aimTick has just posed the hull at this alpha (Vehicles.update).
+  // A craft in flight whose flight this host steps, with no walk pose and
+  // no legs, is then drawn as aimTick posed it: its root has no bob, its
+  // gear is posed at its own, its seats from the same angles, and nothing
+  // else of it moves; only its barrels' kick, on the clock, is read again.
+  render(alpha, dt, ticked = false) {
     if (!this.alive) return;
     if (dt > 0 && this.sleeping && !this.repulsor && !this.occupied && !this.pose && this.health >= this.maxHealth * .35) return;
+    if (ticked && this.flying && !this.pose && !this.def.fx?.legs && ownGear(this)) {
+      this.recoilBarrels();
+      for (const seat of this.seats) for (const w of seat.weapons) for (const m of w.muzzles) if (m.barrel && m.rest) m.barrel.updateMatrixWorld(true);
+      return;
+    }
     this.placeRoot(alpha);
     this.feelLegs(dt);
     this.applyPose();
@@ -1619,9 +1604,9 @@ export class Vehicle {
         }
       } else if (seat.lease.input.aiming) direction.copy(seat.lease.input.aim);
       else this.seatForward(i, direction);
-      const hit = this.system.collision.cast(origin, direction, AIM_REACH, this.aimHit, this.body);
+      const hit = this.system.world.cast(origin, direction, AIM_REACH, this.aimHit, this.body);
       let far = hit ? hit.distance : AIM_REACH;
-      const unit = this.system.units?.raycast?.(origin, direction, far, null, this.unitHit);
+      const unit = this.system.world.raycastUnits(origin, direction, far, this.unitHit);
       if (unit) far = unit.distance;
       seat.target = (seat.target || new THREE.Vector3()).copy(origin).addScaledVector(direction, far);
     }
@@ -1651,13 +1636,15 @@ export class Vehicle {
         // the same chain to the same matrix again.
         bone.parent.updateWorldMatrix(true, false);
         const parentWorld = bone.parent.matrixWorld;
-        if (target) s.v.copy(target).applyMatrix4(TO_LOCAL.copy(parentWorld).invert()).sub(bone.position).applyQuaternion(s.q.copy(rest).invert());
-        // Nothing to aim at: along the seat's aim.
-        else {
-          parentWorld.decompose(DECOMPOSED_AT, s.q, DECOMPOSED_SCALE);
-          aimVector(seat.aimYaw, seat.pitch, s.v).applyQuaternion(s.q.multiply(rest).invert());
-        }
         if (dt > 0) {
+          // Where to turn, in the node's rest frame: the target (only a
+          // turn reads it; a pose with no time, dt 0, keeps the angles).
+          if (target) s.v.copy(target).applyMatrix4(TO_LOCAL.copy(parentWorld).invert()).sub(bone.position).applyQuaternion(s.q.copy(rest).invert());
+          // Nothing to aim at: along the seat's aim.
+          else {
+            parentWorld.decompose(DECOMPOSED_AT, s.q, DECOMPOSED_SCALE);
+            aimVector(seat.aimYaw, seat.pitch, s.v).applyQuaternion(s.q.multiply(rest).invert());
+          }
           // As the 2004 game's aimer turns: the
           // shorter way round toward the target at its rate, then held
           // inside its limits (0..2pi for an arc round the back), so a
@@ -1701,9 +1688,9 @@ export class Vehicle {
   }
   // Barrels kick back as they fire: BarrelRecoil along the
   // barrel's own z, times a kick that is 1 as it fires and decays at 4 a
-  // second (cosmetic, on the clock of whoever draws it).
+  // second (on the clock of whoever poses it: Vehicles.clock).
   recoilBarrels() {
-    const now = clockSeconds();
+    const now = this.system.world.clock();
     for (const seat of this.seats) for (const w of seat.weapons) for (const m of w.muzzles) {
       if (!m.barrel || !m.rest) continue;
       const kick = m.kickAt === undefined ? 0 : Math.max(0, 1 - 4 * (now - m.kickAt));
@@ -1723,7 +1710,7 @@ export class Vehicle {
         const d = m.fireNode.getWorldPosition(this.recoilPoint).distanceToSquared(point);
         if (d < span) { span = d; best = m; }
       }
-      if (best) best.kickAt = clockSeconds();
+      if (best) best.kickAt = this.system.world.clock();
     }
   }
 
@@ -1825,7 +1812,7 @@ export class Vehicle {
   muzzleOf(w, out) {
     const aimers = w.muzzles;
     const aimer = aimers.length ? aimers[w.barrel++ % aimers.length] : w.aimers[0];
-    if (aimer?.barrel) aimer.kickAt = clockSeconds();
+    if (aimer?.barrel) aimer.kickAt = this.system.world.clock();
     const node = aimer?.fireNode || this.byName[(aimer?.FirePointName || aimer?.node || w.def.FirePointName || '').toLowerCase()];
     this.shotNode = node || null;
     this.shotEmitter = aimer?.emitter ?? w.emitter;
@@ -1848,7 +1835,7 @@ export class Vehicle {
   towAim(i, w, out) {
     if (w.def.ordnance?.base !== 'towcable') return null;
     const seat = this.seats[i];
-    const owner = this.system.collision.cast(this.seatEye(i, this.from), this.botAim(i, this.direction), Math.max(20, w.def.LockOnRange || 0), this.hit, this.body)?.body?.owner;
+    const owner = this.system.world.cast(this.seatEye(i, this.from), this.botAim(i, this.direction), Math.max(20, w.def.LockOnRange || 0), this.hit, this.body)?.body?.owner;
     const walker = owner instanceof Vehicle && owner.base === 'commandwalker' ? owner : this.system.nearestWalker(this, Math.max(20, w.def.LockOnRange || 0));
     if (!walker || !walker.legs.length) return null;
     let best = null, span = Infinity;
@@ -1910,16 +1897,16 @@ export class Vehicle {
     const owner = lease?.unit ?? this.seats[seatIndex].lease?.unit ?? this;
     if (def.ordnance?.base === 'towcable') this.system.launchTow(this, def, this.muzzle, this.direction, seatIndex, lease ?? this.seats[seatIndex].lease);
     else if (def.ordnance) {
-      const round = this.system.ordnance.fire(def.ordnance, this.muzzle, this.direction, owner, null, this.body, emitter ?? this.seats[seatIndex].emitter, shot);
+      const round = this.system.world.fire(def.ordnance, this.muzzle, this.direction, owner, this.body, emitter ?? this.seats[seatIndex].emitter, shot);
       if (round && this.flying && round.kind === 'missile') { round.flightMissile = true; round.flightClass=this.flightClass; round.life=this.flightConfig.missileLifetime; round.velocity.normalize().multiplyScalar(this.flightConfig.missileSpeed); }
       const weapons = this.seats[seatIndex].weapons, index = weapons.findIndex(w => w.state === shot.weapon);
       const weapon = weapons[index];
       if (weapon?.muzzles.length) bindMountedRound(round, this, seatIndex, index, (weapon.barrel - 1) % weapon.muzzles.length);
     }
-    emitSound("turretFire", this, shot);
-    if (def.MuzzleFlashEffect) this.system.effects?.play(def.MuzzleFlashEffect, this.muzzle);
-    this.system.ordnance.lights.flash(this.muzzle, [1, .55, .2], 5, .06);
-    this.system.onFired?.(this, seatIndex, shot, owner, this.muzzle, this.direction);
+    this.system.world.sound("turretFire", this, shot);
+    if (def.MuzzleFlashEffect) this.system.world.effect(def.MuzzleFlashEffect, this.muzzle);
+    this.system.world.flash(this.muzzle);
+    this.system.world.fired(this, seatIndex, shot, owner, this.muzzle, this.direction);
   }
 }
 
@@ -1932,6 +1919,8 @@ export class Vehicles {
   // to enter every hull in as a target (or call attachUnits later).
   constructor({ scene, data, buffer, indexBuffer, animationBuffer = new ArrayBuffer(0), collision, water, audio, maxFlyHeight = 200, texture, caster, uncaster, camera, ordnance, effects, posts, inDeathRegion, onDestroyed, units = null, onBoard = null, onUnboard = null, onFired = null, onDamaged = null, flightEnvironment = {} }) {
     Object.assign(this, { scene, data, collision, water, audio, maxFlyHeight, camera, caster, uncaster, ordnance, effects, posts, inDeathRegion, onDestroyed, onBoard, onUnboard, onFired, onDamaged });
+    // Everything the hulls ask of the rest of the battle (src/vehicles-world.js).
+    this.world = new VehiclesWorld(this);
     const mapBounds = collision.bvh?.getBoundingBox(new THREE.Box3());
     if (mapBounds && collision.terrain) mapBounds.union(collision.terrain.getBoundingBox(new THREE.Box3()));
     this.flightEnvironment = { ceiling: maxFlyHeight, ...(mapBounds && !mapBounds.isEmpty() ? { bounds: { min: [mapBounds.min.x, -300, mapBounds.min.z], max: [mapBounds.max.x, maxFlyHeight, mapBounds.max.z] } } : {}), ...flightEnvironment };
@@ -1941,6 +1930,10 @@ export class Vehicles {
     this.relation = (a, b) => (this.units?.relation ? this.units.relation(a, b) : teamRelation(a, b));
     this.time = 0; // s of vehicle updates
     this.ticks = 0; // input batches so far
+    this.seatRandom = null; // () => [0, 1): the world's seat stream (seatWeaponPolicy)
+    // s: the clock barrels kick back on. A page's wall clock; a world's is
+    // its tick clock (src/game.js), as no step reads a clock of its own.
+    this.clock = clockSeconds;
     this.pendingExits = [];
     this.exitSpot = { position: new THREE.Vector3(), forward: new THREE.Vector3(), candidate: -1 };
     this.riderPoint = new THREE.Vector3();
@@ -2078,7 +2071,7 @@ export class Vehicles {
     // The tick's pose in both hosts; the drawn one only where something
     // is drawn (a world worker leaves it to the page showing it).
     for (const v of this.vehicles) v.aimTick(v.flying ? 1 : this.tickAlpha, dt);
-    if (this.cosmetic !== false) for (const v of this.vehicles) v.render(v.flying ? 1 : this.tickAlpha, dt);
+    if (this.cosmetic !== false) for (const v of this.vehicles) v.render(v.flying ? 1 : this.tickAlpha, dt, true);
     this.presented = false;
     this.fireCrews(dt);
     this.updateTethers();
@@ -2233,7 +2226,7 @@ export class Vehicles {
     // analog, shot into the ground in front of its target.
     seat.pitch = index === 0 && !vehicle.flying && (vehicle.base !== 'hover' || unit.networkHuman) ? -.12 : 0;
     seat.lookYaw = seat.lookPitch = null;
-    vehicle.setSeatPolicy(index, Boolean(unit.networkHuman));
+    vehicle.setSeatPolicy(index, Boolean(unit.networkHuman), this.seatRandom);
     if (!unit.networkHuman) lease.controllable = new SeatUnit(lease);
     unit.seat = lease;
     seatBody(unit);
@@ -2332,7 +2325,7 @@ export class Vehicles {
     const input = lease.input;
     input.pressed[0] = input.pressed[1] = false;
     input.reload = input.exit = false;
-    v.setSeatPolicy(index, lease.human || Boolean(lease.unit?.networkHuman));
+    v.setSeatPolicy(index, lease.human || Boolean(lease.unit?.networkHuman), lease.human ? null : this.seatRandom);
     // A new control for the AI to drive (the original game attaches the pilot
     // to the vacated control afresh).
     if (!lease.human && !lease.unit?.networkHuman) lease.controllable = new SeatUnit(lease);
@@ -2375,7 +2368,7 @@ export class Vehicles {
   // line that draws it is the page's (drawTethers). def: the weapon's.
   launchTow(source, def, origin, direction, seatIndex = 0, lease = null) {
     const range = Math.max(20, def.LockOnRange || 0);
-    let hit = this.collision.cast(origin, direction, range, this.hit, source.body);
+    let hit = this.world.cast(origin, direction, range, this.hit, source.body);
     let target = hit?.body?.owner;
     const walker = (v) => v instanceof Vehicle && v.alive && v.base === 'commandwalker' && v.team !== source.team;
     if (!walker(target)) return false;
@@ -2390,7 +2383,7 @@ export class Vehicles {
       }
       target.legPoint(best.name, this.direction).sub(origin);
       const far = this.direction.length();
-      hit = far > 1e-3 && this.collision.cast(origin, this.direction.divideScalar(far), Math.min(range, far + 2), this.hit, source.body);
+      hit = far > 1e-3 && this.world.cast(origin, this.direction.divideScalar(far), Math.min(range, far + 2), this.hit, source.body);
       if (hit?.body?.owner === target) leg = target.legAt(hit.point, this.center);
     }
     if (!leg) return false;
@@ -2407,7 +2400,7 @@ export class Vehicles {
     source.towLeg = leg;
     source.towAngle = Math.atan2(source.position.x - target.position.x, source.position.z - target.position.z);
     source.towWinding = 0;
-    emitSound("towAttach", source, def);
+    this.world.sound("towAttach", source, def);
     return true;
   }
 
@@ -2419,7 +2412,7 @@ export class Vehicles {
     const tether = this.tethers.get(source);
     source.towTarget = -1; source.towWinding = 0; source.towLeg = '';
     if (tether?.line) tether.line.visible = false;
-    if (tether?.def && reason !== 'destroyed') emitSound("towRelease", source, tether.def, reason);
+    if (tether?.def && reason !== 'destroyed') this.world.sound("towRelease", source, tether.def, reason);
   }
 
   // The enemy command walker nearest a hull within range, or null.
@@ -2555,7 +2548,7 @@ export class Vehicles {
       if (!v.alive) continue;
       const radius = v.blastSphere(this.center);
       const damage = blastDamage(def, blastDistance(position, this.center, radius), v.healthType);
-      if (!(damage > 0) || blastBlocked(this.collision, position, this.center, v.body)) continue;
+      if (!(damage > 0) || this.world.blastBlocked(position, this.center, v.body)) continue;
       v.damage(damage * (teamScale ? teamScale(v) : 1), owner);
     }
   }

@@ -6,12 +6,17 @@ import { loadRayKernel } from '../src/ray-kernel.js';
 import { MovementKernel } from '../src/movement-kernel.js';
 import { Soldier } from '../src/soldier.js';
 
-// The movement kernel (src/movement-kernel.js, rust/rays/src/movement) must
+// The movement kernel (src/movement-kernel.js, rust/sim/src/movement) must
 // tick a soldier exactly as Soldier.tick's JavaScript does: every field the
 // tick reads or writes the same to the last bit, tick after tick, over
 // stairs, walls, ramps, ledges, low ceilings, the terrain, props switching
 // on and off and hulls moving, for walkers, crouchers, prone soldiers,
 // jumpers, divers, the thrown and both kinds of jetpack.
+//
+// The kernel's sines and cosines are the production server's V8's (13.6,
+// rust/v8math), so the twins agree under Node; under a runtime whose own
+// Math parts from it in the last bit (Electron 44's V8), they part there too,
+// by design: a client's soldiers move as the server's do.
 
 let polygonBase = 0;
 function box(x, y, z, width, height, depth, turn = null) {

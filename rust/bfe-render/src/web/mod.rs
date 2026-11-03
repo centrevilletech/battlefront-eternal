@@ -5,11 +5,13 @@
 mod effects;
 mod far;
 mod foliage;
+mod hud;
 mod instances;
 mod post;
 mod terrain;
 mod transparent;
 mod view;
+mod water;
 mod world;
 
 use crate::core::MultiDraw;
@@ -61,10 +63,11 @@ impl BfeRenderer {
 
     pub fn set_far_map(&mut self, texture: u32) { self.r.core.set_far_map(texture) }
 
-    // kind 0 world, 1 skinned, 2 rigid; attributes "name:location,..."; the
-    // material uniforms the program reads, comma-separated.
+    // kind 0 world, 1 skinned, 2 rigid, 3 plain, 4 effect; attributes
+    // "name:location,..."; the material uniforms the program reads,
+    // comma-separated.
     pub fn add_program(&mut self, kind: u32, vs: &str, fs: &str, attributes: &str, uniforms: &str) -> Result<u32, JsValue> {
-        let kind = match kind { 1 => Kind::Skinned, 2 => Kind::Rigid, _ => Kind::World };
+        let kind = match kind { 1 => Kind::Skinned, 2 => Kind::Rigid, 3 => Kind::Plain, 4 => Kind::Effect, _ => Kind::World };
         let attributes: Vec<(String, u32)> = attributes.split(',').filter(|s| !s.is_empty())
             .filter_map(|s| { let (n, l) = s.split_once(':')?; Some((n.to_string(), l.parse().ok()?)) }).collect();
         let uniforms: Vec<String> = uniforms.split(',').filter(|s| !s.is_empty()).map(String::from).collect();
@@ -83,20 +86,40 @@ impl BfeRenderer {
     // The phases (renderer.rs). Each returns its stats: [world draws,
     // instanced draws, instances, program switches, GL calls], then each
     // pass's draws in pass order (world, instances, far, terrain,
-    // transparent, effects, foliage, view, post).
+    // transparent, effects, foliage, view, post, hud, water).
     pub fn far_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.far_frame().map_err(|e| JsValue::from_str(&e))?.values())
     }
     pub fn frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
-    pub fn transparent_frame(&mut self) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.transparent_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    // three: how many of three's own transparent items the page wrote the
+    // keys of (web/transparent.rs).
+    pub fn transparent_frame(&mut self, three: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.transparent_frame(three as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
-    pub fn view_frame(&mut self) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.view_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    // records: how many the page wrote for the view's parts.
+    pub fn view_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.view_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
-    pub fn post_frame(&mut self) -> Result<Vec<u32>, JsValue> {
-        Ok(self.r.post_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    // steps: how many the page wrote (web/post.rs).
+    pub fn post_frame(&mut self, steps: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.post_frame(steps as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    // records: how many the page wrote for the mirror's camera.
+    pub fn mirror_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.mirror_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    // What a mirror's render blends: three, as for transparent_frame.
+    pub fn mirror_transparent_frame(&mut self, three: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.mirror_transparent_frame(three as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    pub fn hud_frame(&mut self) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.hud_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    }
+    // clear: three's clear colour (rgba, premultiplied); steps: the post
+    // steps the page wrote for the far scene's image (near.js).
+    pub fn near_begin(&mut self, clear: &[f64], steps: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.near_begin(clear, steps as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
 }

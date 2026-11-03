@@ -117,7 +117,7 @@ function drive(v, h, forward, right, upY, fwd, side, brake, dt) {
 // its nose and wings turn toward that ground at LevelSpring; it drives in
 // the plane of the ground.
 function hoverWithoutSprings(v, h, dt, fwd, side, brake) {
-  const c = v.system.collision, water = v.system.water;
+  const w = v.system.world;
   s.normal.copy(UP);
   let f = 0;
   if (h.altitude > 0) {
@@ -127,16 +127,16 @@ function hoverWithoutSprings(v, h, dt, fwd, side, brake) {
     const lift = s.center.y - v.position.y;
     const reach = v.boundRadius + 10 * h.altitude;
     let height = reach - lift;
-    const below = c.cast(s.center, DOWN, reach, s.hit, v.body);
+    const below = w.cast(s.center, DOWN, reach, s.hit, v.body);
     if (below) { height = below.distance - lift; s.normal.copy(below.normal); }
-    if (water?.over(s.center.x, s.center.z) && s.center.y - water.level < height + lift) {
-      height = Math.min(height, s.center.y - water.level - lift);
+    if (w.waterOver(s.center.x, s.center.z) && s.center.y - w.waterLevel() < height + lift) {
+      height = Math.min(height, s.center.y - w.waterLevel() - lift);
       s.normal.copy(UP);
     }
     if (Math.hypot(v.velocity.x, v.velocity.z) > LOOKAHEAD) {
       s.ray.set(v.velocity.x, v.velocity.y - reach, v.velocity.z);
       const length = s.ray.length();
-      const ahead = c.cast(s.center, s.ray.divideScalar(length), length, s.hit, v.body);
+      const ahead = w.cast(s.center, s.ray.divideScalar(length), length, s.hit, v.body);
       if (ahead) {
         height = Math.min(height, -s.ray.multiplyScalar(ahead.distance).dot(ahead.normal));
         if (ahead.normal.y > 0) s.normal.lerp(ahead.normal, (1 - ahead.distance / length) * ahead.normal.y).normalize();
@@ -222,14 +222,14 @@ function usedBy(s, p) {
   return false;
 }
 export function hoverContacts(v) {
-  const h = hoverClass(v.def), c = v.system.collision, water = v.system.water;
+  const h = hoverClass(v.def), w = v.system.world;
   for (let i = 0; i < h.springs.length; i++) {
     const spring = h.springs[i], r = spring.radius;
     hullQuaternion(v, s.q);
     s.up.set(0, 1, 0).applyQuaternion(s.q);
     let compression = 0;
     s.center.copy(spring.at).applyQuaternion(s.q).add(v.position);
-    if (c.ground(s.center.x, s.center.z, s.center.y + r, s.ground)) {
+    if (w.ground(s.center.x, s.center.z, s.center.y + r, s.ground)) {
       const drop = s.ground.height - (s.center.y - r);
       if (drop > 0 && drop <= 2 * r) {
         s.normal.copy(s.ground.normal);
@@ -239,7 +239,7 @@ export function hoverContacts(v) {
     }
     // The polygons near it, searched again from where each contact leaves
     // it (gather's list holds until its next call).
-    const polygons = c.gather(s.center, r, true, v.springCaches?.[i] ?? null);
+    const polygons = w.springPolygons(v, i, s.center, r);
     // The polygons this spring has met (three at most), in a list kept for
     // the next spring: a Set cleared every spring made a table each time.
     s.usedCount = 0;
@@ -264,8 +264,8 @@ export function hoverContacts(v) {
       compression = springContact(v, spring, compression, s.normal, r - best);
       s.center.copy(spring.at).applyQuaternion(s.q).add(v.position);
     }
-    if (water?.over(s.center.x, s.center.z)) {
-      const wet = (water.level - (s.center.y - r)) / spring.length;
+    if (w.waterOver(s.center.x, s.center.z)) {
+      const wet = (w.waterLevel() - (s.center.y - r)) / spring.length;
       if (wet > 0) {
         compression = Math.max(compression, Math.min(wet, 1));
         if (wet > 1 && v.velocity.y < 0) {

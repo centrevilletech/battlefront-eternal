@@ -138,13 +138,19 @@ export class AnalyticParticleBatch {
     const a=this.arrays;
     p.position.toArray(a.spawnPosition,i*3);p.velocity.toArray(a.spawnVelocity,i*3);
     a.spawnColor.set(p.color,i*4);
-    a.spawnShape.set([p.size,p.rotation,p.spin,0],i*4);
-    a.spawnMeta.set([p.birth-epoch,p.life,slot,definition],i*4);
+    const k=i*4,shape=a.spawnShape,meta=a.spawnMeta;
+    shape[k]=p.size;shape[k+1]=p.rotation;shape[k+2]=p.spin;shape[k+3]=0;
+    meta[k]=p.birth-epoch;meta[k+1]=p.life;meta[k+2]=slot;meta[k+3]=definition;
   }
   end() {
     // Release dead references; capacity is the historical peak as with CPU batches.
     this.records.length=this.slots.length=this.epochs.length=this.count;
-    this.mesh.visible=this.count>0;this.geometry.instanceCount=this.count;
+    // Drawn by another renderer (external, as particles.js's batches): never
+    // shown to three, nothing marked for it to upload.
+    this.mesh.visible=this.count>0&&!this.external;this.geometry.instanceCount=this.count;
+    // What it has not read yet: from the first instance changed since (it
+    // sets unread to Infinity as it reads).
+    if(this.external){this.unread=Math.min(this.unread??0,this.dirty);return;}
     if(this.dirty>=this.count)return;
     for(const name of Object.keys(ATTRIBUTES)) {
       const a=this.geometry.getAttribute(name);
@@ -158,6 +164,8 @@ export class AnalyticParticleBatch {
 export class GpuEffects {
   constructor(library, renderer) {
     this.renderer=renderer;this.definitions=new Map();
+    // Its batches' owner, for a renderer that draws them (src/rust-render/effects.js).
+    renderer.gpu=this;
     const rows=[];
     const visit=defs=>{for(const def of defs){
       visit(def.geometry?.emitters||[]);
