@@ -448,11 +448,12 @@ test("flying models: parts of tagged groups as rigid records, lit and unlit, hid
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
   geometry.setIndex([0, 1, 2]);
-  const piece = (material) => { const group = new THREE.Group(); group.add(new THREE.Mesh(geometry, material)); group.userData.flying = true; return group; };
+  // In front of the camera (it looks down -z), or behind it.
+  const piece = (material, z = -5) => { const group = new THREE.Group(); group.add(new THREE.Mesh(geometry, material)); group.userData.flying = true; group.position.z = z; return group; };
   const a = piece(lit), b = piece(unlit), held = piece(lit);
   scene.add(a);
   // Not drawn by three yet: three's.
-  const near = () => core.pass(renderer, scene, camera);
+  const near = () => { scene.updateMatrixWorld(true); core.pass(renderer, scene, camera); };
   near();
   assert.equal(a.children[0].layers.mask, 1);
   const rigid = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]);
@@ -465,6 +466,13 @@ test("flying models: parts of tagged groups as rigid records, lit and unlit, hid
   assert.equal(calls.find((c) => c[0] === "add_program")[1], 2, "a rigid program");
   near();
   assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "two records");
+  // Behind the camera: the renderer's, but not written (three's render would cull it).
+  const behind = piece(lit, 5);
+  scene.add(behind);
+  near();
+  assert.equal(behind.children[0].layers.mask, 1 << 30);
+  assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "culled as three culls it");
+  scene.remove(behind);
   // A copy inside another object is not the renderer's: three draws it.
   const holder = new THREE.Group(); holder.add(held); scene.add(holder);
   near();
@@ -479,6 +487,76 @@ test("flying models: parts of tagged groups as rigid records, lit and unlit, hid
   assert.equal(b.children[0].layers.mask, 1, "off: back to its layers");
   core.setActive(true);
   assert.equal(b.children[0].layers.mask, 1 << 30);
+});
+
+test("soldiers: only those three's render would list are written, with the bones three worked out in that render", () => {
+  const { core, calls, scene, camera, renderer, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  const material = new THREE.ShaderMaterial({ defines: { RIGID_SKIN: "" },
+    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
+  const skinned = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"],
+    ["position", "skinIndex", "skinWeight"]);
+  drawn(material, skinned);
+  const soldier = (z) => {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+    geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+    geometry.setIndex([0, 1, 2]);
+    const body = new THREE.SkinnedMesh(geometry, material), bone = new THREE.Bone(), root = new THREE.Group();
+    body.add(bone);
+    body.bind(new THREE.Skeleton([bone]));
+    body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+    root.add(body);
+    root.position.z = z;
+    root.userData.parts = { body, hand: null };
+    scene.add(root);
+    core.graphics.cullRoots.push(root);
+    return { body, bone, skeleton: body.skeleton };
+  };
+  // Every update of a skeleton's bones, whoever asks.
+  const update = THREE.Skeleton.prototype.update;
+  let updates = 0;
+  THREE.Skeleton.prototype.update = function () { updates++; return update.call(this); };
+  try {
+    const front = soldier(-5), back = soldier(5);
+    const records = () => calls.filter((c) => c[0] === "frame").pop()[1];
+    // three's render: it lists the scene at a count (and works out the bones
+    // of the skinned meshes it lists, at most once a count), then counts on.
+    const render = (listed = []) => {
+      scene.updateMatrixWorld(true);
+      for (const s of listed) s.skeleton.update();
+      renderer.info.render.frame++;
+      core.pass(renderer, scene, camera);
+    };
+    render();
+    assert.equal(records(), 1, "the soldier behind the camera: not written");
+    assert.equal(updates, 1, "his bones not worked out; the other's worked out here, three not having done it");
+    // three listed the one in view: his bones as three worked them out.
+    front.bone.position.x = 1;
+    renderer.info.render.frame = 10;
+    render([front]);
+    assert.equal(updates, 2, "three's update only");
+    assert.deepEqual([...core.bones.subarray(0, 16)], [...front.skeleton.boneMatrices], "three's bones written");
+    assert.equal(core.bones[12], 1);
+    // Worked out as three drew his shadow, after listing the scene (at the
+    // count it counted on to): the same.
+    scene.updateMatrixWorld(true);
+    renderer.info.render.frame++;
+    front.skeleton.update();
+    const shadowed = updates;
+    core.pass(renderer, scene, camera);
+    assert.equal(updates, shadowed);
+    // Not listed by three in this render: worked out here.
+    renderer.info.render.frame = 20;
+    front.bone.position.x = 2;
+    render([]);
+    assert.equal(updates, shadowed + 1);
+    assert.equal(core.bones[12], 2);
+    assert.equal(back.skeleton.boneMatrices[12], 0, "never worked out for the renderer");
+  } finally {
+    THREE.Skeleton.prototype.update = update;
+  }
 });
 
 test("the Enhanced sniper's trace: two batches, their instances written interleaved as the trace keeps them", async () => {
