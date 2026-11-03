@@ -74,6 +74,9 @@ class TerrainPass {
       rust.world_runs(w, ranges, boxes);
       const bind = (name, unit) => {
         if (!program.names.has(name)) return true;
+        // A painted layer no vertex uses has no texture (world.js): its weight
+        // is zero everywhere, so the program never reads it.
+        if (name.startsWith("layerMap") && !material.uniforms[name]?.value) return true;
         const t = core.texture(material.uniforms[name]?.value);
         if (t < 0) return false;
         rust.world_texture(w, unit, t);
