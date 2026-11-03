@@ -70,6 +70,17 @@ pub struct Mixer {
     scratch: Vec<f32>,
     tmp: Vec<f32>,
     h2d: [f64; 7],
+    // A voice's channels by kind, per block (the worklet's steady and
+    // moving lists).
+    steady: Vec<usize>,
+    moving: Vec<usize>,
+}
+
+// Two different channels of a block, c0 before c1.
+#[inline(always)]
+fn two_channels(data: &mut [f32], frames: usize, c0: usize, c1: usize) -> (&mut [f32], &mut [f32]) {
+    let (a, b) = data.split_at_mut(c1 * frames);
+    (&mut a[c0 * frames..(c0 + 1) * frames], &mut b[..frames])
 }
 
 impl Mixer {
@@ -93,6 +104,8 @@ impl Mixer {
             scratch: vec![0.0; channels],
             tmp: vec![0.0; channels],
             h2d: [0.0; 7],
+            steady: vec![0; channels],
+            moving: vec![0; channels],
         };
         // The worklet's constructor lays out before its gain arrays exist,
         // so nothing is dirty yet.
@@ -382,26 +395,77 @@ impl Mixer {
                 }
                 continue;
             }
+            // This voice's channels with a steady gain, and those whose gain
+            // moves, as the worklet sorts them.
+            let (mut n_steady, mut n_moving) = (0, 0);
             for c in 0..c_max {
-                let g0 = self.current[base + c] as f64;
-                let g1 = self.goal[base + c] as f64;
+                let g0 = self.current[base + c];
+                let g1 = self.goal[base + c];
                 if g0 == 0.0 && g1 == 0.0 {
                     continue;
                 }
-                // The worklet adds into a Float32Array: each sample's sum
-                // is rounded as it is stored, as these are.
-                let dst = &mut out.data[c * frames..(c + 1) * frames];
                 if g0 == g1 {
-                    for (d, &s) in dst.iter_mut().zip(src) {
-                        *d = (*d as f64 + s as f64 * g1) as f32;
-                    }
+                    self.steady[n_steady] = c;
+                    n_steady += 1;
                 } else {
-                    let step = (g1 - g0) / frames as f64;
-                    for (i, (d, &s)) in dst.iter_mut().zip(src).enumerate() {
-                        *d = (*d as f64 + s as f64 * (g0 + step * (i + 1) as f64)) as f32;
-                    }
-                    self.current[base + c] = self.goal[base + c];
+                    self.moving[n_moving] = c;
+                    n_moving += 1;
                 }
+            }
+            // The worklet adds into a Float32Array: each sample's sum is
+            // rounded as it is stored, as these are. Two channels a pass
+            // read each sample once for both; a channel's sums keep the
+            // voices' order whatever the pairing, so the pairs change no
+            // bit. (The f32 to f64 conversions are what this loop costs.)
+            let mut k = 0;
+            while k + 1 < n_steady {
+                let (c0, c1) = (self.steady[k], self.steady[k + 1]);
+                let (g0, g1) = (self.goal[base + c0] as f64, self.goal[base + c1] as f64);
+                let (d0, d1) = two_channels(&mut out.data[..], frames, c0, c1);
+                for ((a, b), &s) in d0.iter_mut().zip(d1.iter_mut()).zip(src) {
+                    let x = s as f64;
+                    *a = (*a as f64 + x * g0) as f32;
+                    *b = (*b as f64 + x * g1) as f32;
+                }
+                k += 2;
+            }
+            if k < n_steady {
+                let c = self.steady[k];
+                let g1 = self.goal[base + c] as f64;
+                for (d, &s) in out.data[c * frames..(c + 1) * frames].iter_mut().zip(src) {
+                    *d = (*d as f64 + s as f64 * g1) as f32;
+                }
+            }
+            // Gains that moved ramp across the block: sample i takes
+            // g0 + step * (i + 1), the count kept as an f64 (exact).
+            k = 0;
+            while k + 1 < n_moving {
+                let (c0, c1) = (self.moving[k], self.moving[k + 1]);
+                let (a0, a1) = (self.current[base + c0] as f64, self.current[base + c1] as f64);
+                let step0 = (self.goal[base + c0] as f64 - a0) / frames as f64;
+                let step1 = (self.goal[base + c1] as f64 - a1) / frames as f64;
+                let (d0, d1) = two_channels(&mut out.data[..], frames, c0, c1);
+                let mut at = 0.0;
+                for ((a, b), &s) in d0.iter_mut().zip(d1.iter_mut()).zip(src) {
+                    at += 1.0;
+                    let x = s as f64;
+                    *a = (*a as f64 + x * (a0 + step0 * at)) as f32;
+                    *b = (*b as f64 + x * (a1 + step1 * at)) as f32;
+                }
+                self.current[base + c0] = self.goal[base + c0];
+                self.current[base + c1] = self.goal[base + c1];
+                k += 2;
+            }
+            if k < n_moving {
+                let c = self.moving[k];
+                let g0 = self.current[base + c] as f64;
+                let step = (self.goal[base + c] as f64 - g0) / frames as f64;
+                let mut at = 0.0;
+                for (d, &s) in out.data[c * frames..(c + 1) * frames].iter_mut().zip(src) {
+                    at += 1.0;
+                    *d = (*d as f64 + s as f64 * (g0 + step * at)) as f32;
+                }
+                self.current[base + c] = self.goal[base + c];
             }
             if let Some(l) = &mut lfe {
                 let l0 = self.lfe_now[s] as f64;
