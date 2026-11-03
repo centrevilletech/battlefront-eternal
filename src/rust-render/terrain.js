@@ -13,8 +13,11 @@ import { WORLD, UNIT_DETAIL, UNIT_LAYER1, UNIT_LAYERS, drawnAsIs } from "./world
 // materials' own (materials.js) and the ground's.
 const MATERIAL = new Set(["sunScale", "brightness", "ambientPull", "specular", "layerScales", "bakedLit", "layerScale0", "layerScale1", "farOrigin"]);
 const LAYERS = Array.from({ length: 8 }, (_, i) => `layerMap${i}`);
+// The point lights the zero vertex shader adds up for every kind but its
+// colour never uses on the ground (the terrain's light is its baked one):
+// left at none.
 const POLICY = {
-  uniforms: new Set(["map", "farMap", "layer1Map", "detailMap", ...LAYERS, ...MATERIAL, "localLightPositions", "localLightColors", "localLightCount"]),
+  uniforms: new Set(["map", "farMap", "layer1Map", "detailMap", ...LAYERS, ...MATERIAL, "zeroLights", "zeroLightCount", "localLightPositions", "localLightColors", "localLightCount"]),
   material: MATERIAL,
 };
 
