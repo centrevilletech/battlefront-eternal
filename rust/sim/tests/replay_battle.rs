@@ -96,9 +96,11 @@ fn character_at(s: &Store, place: Option<usize>) -> Option<Ref<Character>> {
 
 /// A served call's state after it: every Character, the scores' ring and
 /// the reinforcements (the death path's credit), the spawn manager (its
-/// onDeath), and the bodies a battlefield kill left.
+/// onDeath), the mobile posts refreshed by the AI, and the bodies a
+/// battlefield kill left.
 struct After {
     characters: Vec<(Ref<Character>, Character)>,
+    mobile: Vec<(Ref<MobilePost>, MobilePost)>,
     stats: BattleStats,
     reinforcements: IntObj<f64>,
     spawning: Option<Spawning>,
@@ -132,6 +134,12 @@ fn after_of(call: &Call, cx: &mut Replay) -> Result<After, String> {
         let r = Character::ref_in(c.get("$id"), cx, &path)?;
         characters.push((r, Character::from_value(c, cx, &path)?));
     }
+    let mut mobile = Vec::new();
+    for (i, p) in x.get("mobile").get("posts").items().enumerate() {
+        let path = format!("after.mobile.posts[{i}]");
+        let r = MobilePost::ref_in(p.get("$id"), cx, &path)?;
+        mobile.push((r, MobilePost::from_value(p, cx, &path)?));
+    }
     let stats = BattleStats::from_value(x.get("battle").get("stats"), cx, "after.stats")?;
     let reinforcements = int_obj(x.get("battle").get("reinforcements"), "after.reinforcements")?;
     let spawning = if x.get("spawning").is_nullish() { None } else { Some(Spawning::from_value(x.get("spawning"), cx, "after.spawning")?) };
@@ -144,7 +152,7 @@ fn after_of(call: &Call, cx: &mut Replay) -> Result<After, String> {
     } else {
         None
     };
-    Ok(After { characters, stats, reinforcements, spawning, bodies })
+    Ok(After { characters, mobile, stats, reinforcements, spawning, bodies })
 }
 
 // ---- The world, served from a frame.
@@ -381,6 +389,27 @@ impl<'f> Served<'f> {
         if let Some(bodies) = &after.bodies {
             self.t.bodies = bodies.clone();
         }
+        self.apply_mobile_refresh(s, at);
+    }
+
+    /// Foreign objective and death callbacks can list the posts, which
+    /// refreshes command vehicles' cached state. Serve only refresh's
+    /// fields; the post identities and event history remain the port's.
+    fn apply_mobile_refresh(&mut self, s: &mut Store, at: usize) {
+        for (r, theirs) in &self.afters[at].mobile {
+            let mine = s.mobile_post.get_mut(*r).expect("the call's mobile post");
+            mine.label = theirs.label;
+            mine.team = theirs.team;
+            mine.active = theirs.active;
+            mine.vehicle = theirs.vehicle;
+            mine.life = theirs.life;
+            mine.yaw = theirs.yaw;
+            mine.radius = theirs.radius;
+            mine.speed = theirs.speed;
+            mine.last_position = theirs.last_position;
+            mine.desc = theirs.desc.clone();
+            mine.ai = theirs.ai.clone();
+        }
     }
 
     /// A served call's fields of the Character it was for, as it left them.
@@ -510,6 +539,7 @@ impl BattleWorld for Served<'_> {
         }
         let unit = call.result().handle_num("unit").map(|u| Ref::new(u as u32, 0));
         self.apply_fields(s, after, character, &["unit", "className", "objective"]);
+        self.apply_mobile_refresh(s, after);
         unit
     }
     fn force_kill(&mut self, s: &mut Store, _: Ref<Character>, _: Ref<Unit>) {
@@ -532,6 +562,7 @@ impl BattleWorld for Served<'_> {
         }
         if let Some((_, at)) = self.call("objectives.request") {
             self.apply_fields(s, at, character, &["objective"]);
+            self.apply_mobile_refresh(s, at);
         }
     }
     fn republish(&mut self, s: &mut Store, character: Ref<Character>) {
@@ -540,6 +571,7 @@ impl BattleWorld for Served<'_> {
         }
         if let Some((_, at)) = self.call("objectives.republish") {
             self.apply_fields(s, at, character, &["objective"]);
+            self.apply_mobile_refresh(s, at);
         }
     }
     fn hero_name(&mut self, class_name: StrId) -> Option<StrId> {
@@ -613,6 +645,7 @@ impl Served<'_> {
                 mine.objective = c.objective;
             }
         }
+        self.apply_mobile_refresh(s, at);
     }
 }
 
@@ -632,7 +665,7 @@ fn ready(frame: &Frame) -> Result<Ready<'_>, String> {
     let t = tables(before, frame, &mut cx)?;
     let mut afters = Vec::new();
     for call in frame.calls() {
-        afters.push(if call.extra().has("battle") { after_of(call, &mut cx)? } else { After { characters: Vec::new(), stats: BattleStats::default(), reinforcements: IntObj::default(), spawning: None, bodies: None } });
+        afters.push(if call.extra().has("battle") { after_of(call, &mut cx)? } else { After { characters: Vec::new(), mobile: Vec::new(), stats: BattleStats::default(), reinforcements: IntObj::default(), spawning: None, bodies: None } });
     }
     let world = Served::new(frame, t, afters);
     Ok(Ready { cx, ai, world })
