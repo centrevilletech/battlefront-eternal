@@ -69,6 +69,22 @@ impl Skeleton {
         skeleton
     }
 
+    /// A skeleton from its bones as they stand at bind (names, parent
+    /// indices, and each bone's position, quaternion and scale), for a body
+    /// whose bind pose is known already decomposed.
+    pub fn from_bind(names: Vec<String>, parents: Vec<i32>, bind: &[(Vector3, Quaternion, Vector3)], euler_sync: bool) -> Skeleton {
+        let bind = bind
+            .iter()
+            .map(|&(p, q, s)| {
+                let mut node = TransformNode::placed(p, s);
+                node.copy_quaternion(&q);
+                node.euler_sync = euler_sync;
+                node
+            })
+            .collect();
+        Skeleton { names, parents, bind }
+    }
+
     pub fn len(&self) -> usize {
         self.names.len()
     }
