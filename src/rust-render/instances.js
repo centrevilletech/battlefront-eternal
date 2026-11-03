@@ -37,12 +37,6 @@ const LAMPS = ["localLightPositions", "localLightColors", "localLightCount"];
 const policy = (samplers) => ({ uniforms: new Set([...samplers, ...INSTANCE, ...LAMPS]), material: LOOK });
 const POLICIES = { [SKINNED]: policy(["map", "farMap", "boneTexture"]), [RIGID]: policy(["map", "farMap"]) };
 
-function inScene(object, scene) {
-  let o = object;
-  while (o.parent) o = o.parent;
-  return o === scene;
-}
-
 // three works out a skeleton's bones as its render lists a skinned mesh of
 // it or draws one's shadow (WebGLObjects.update: once for each count of its
 // renders, which it counts on as it has listed the scene): the count each
@@ -186,9 +180,10 @@ class InstancePass {
       if (!rec) continue;
       if (mesh.material !== rec.materials) { mesh.material.visible = true; continue; }
       if (!camera.layers.test(mesh.layers)) continue;
-      let shown = true;
-      for (let o = mesh; o && o !== scene; o = o.parent) if (!o.visible) { shown = false; break; }
-      if (shown && inScene(mesh, scene) && this.inView(mesh)) at = this.writeBody(rec, at);
+      // It and its parents shown, up to the scene (the walk ends there).
+      let shown = true, o = mesh;
+      for (; o && o !== scene; o = o.parent) if (!o.visible) { shown = false; break; }
+      if (shown && o === scene && this.inView(mesh)) at = this.writeBody(rec, at);
     }
     return at;
   }
