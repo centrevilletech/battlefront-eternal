@@ -53,9 +53,18 @@ The module was 141 KB of WebAssembly with the three kernels; the store and
 the first schema's code (four kinds of round and their records) make it
 181 KB. Code is generated row by row, so it grows with the fields declared:
 identical layouts share their code, and each row is taken as a fixed-length
-array so its fields need no bounds checks. Whether the module should become
-a `.wasm` asset once it is larger (it would load by streaming on a page) is
-measured, not assumed.
+array so its fields need no bounds checks.
+
+Loading it costs each thread that does (the world worker, the page) a
+decode and a compile, once: in Node on one core of a fast desktop, atob
+0.9 ms and the copy into bytes 3.3 ms more, then 9 to 10 ms to compile
+(6.1 ms compiling a `.wasm` file's bytes as they stream in). Where the
+engine has `Uint8Array.fromBase64` the loader uses it instead of the copy.
+On the emulated laptop the instance a page makes for its pose sampler cost
+nothing measurable (interleaved 40-second runs, three of each: page CPU
+33.0 against 33.2 ms a frame, render 15.5 against 15.7 ms, with and without
+it). A `.wasm` asset would save the decode and some of the compile; it is
+worth it when the module is several times larger, measured then.
 
 ## Memory
 
