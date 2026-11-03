@@ -34,6 +34,8 @@ pub use strings::Strings;
 pub type Vec3 = [f64; 3];
 /// A three.js Quaternion (x, y, z, w).
 pub type Quat = [f64; 4];
+/// A three.js Matrix4's elements (column-major).
+pub type Mat4 = [f64; 16];
 
 /// A kind's code: its place among the declared kinds' names in order,
 /// from 1 (`crate::gen::kinds`); 0 is no kind.
