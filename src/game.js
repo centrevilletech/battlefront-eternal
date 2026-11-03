@@ -440,9 +440,10 @@ async function start() {
   // before this take the kernel up as they clear.
   const wantAnim = !headless && params.get("anim") !== "js";
   // A world's rounds in flight on the module (src/ordnance-sim.js), unless
-  // ?sim=js (the JavaScript rounds, kept for A/B runs and bisecting until
-  // the next subsystem moves over).
-  const wantSim = headless && params.get("sim") !== "js";
+  // ?sim=js, or under Node (a dedicated server, the tools) BFE_SIM=js in its
+  // environment: the JavaScript rounds, kept for A/B runs and bisecting
+  // until the next subsystem moves over.
+  const wantSim = headless && (params.get("sim") ?? globalThis.process?.env?.BFE_SIM) !== "js";
   // The kernels and the store on the battle's one instance of the module.
   const simInstance = wantRays || wantAnim || wantSim ? await loadSimInstance() : null;
   const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
