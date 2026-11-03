@@ -73,6 +73,40 @@ impl Events {
     }
 }
 
+/// The block an import's arguments go out in and its result comes back in.
+/// Not part of `Sim`: an import is called from code that holds `&mut Sim`,
+/// and the JavaScript serving it writes here (through `sim_import_args` and
+/// `sim_import_room`, which touch nothing else), so this is reached only
+/// for a moment before and after the call, never across it. A handler
+/// must not call back into the store's other exports.
+static mut IMPORT: Option<Block> = None;
+
+fn import_block() -> &'static mut Block {
+    unsafe { (*std::ptr::addr_of_mut!(IMPORT)).get_or_insert_with(Block::default) }
+}
+
+/// Writes an import's arguments (a record of `words` words).
+pub fn import_out(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) {
+    let block = import_block();
+    block.begin(1, words);
+    let (row, heap) = block.row(0);
+    put(row, heap);
+    block.finish();
+}
+
+/// Reads the result JavaScript wrote.
+pub fn import_in<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T {
+    let block = import_block();
+    let (row, heap) = block.read(0);
+    take(row, heap)
+}
+
+/// Where the import's arguments are (for JavaScript to read).
+pub fn import_args_ptr() -> *const f64 { import_block().ptr() }
+
+/// Room for the import's result (for JavaScript to write).
+pub fn import_room(words: usize, heap: usize) -> *mut f64 { import_block().room(1, words, heap) }
+
 const _: () = assert!(HEADER == 5);
 
 #[cfg(test)]

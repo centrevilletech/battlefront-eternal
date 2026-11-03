@@ -15,6 +15,10 @@
 //! distance), so they all keep the ray's test. Long casts, and casts with no
 //! finite reach, test every body as before.
 
+// The grid's own arithmetic (its bounds and cells, never NaN and never
+// seen by a cast's answer) uses the host's min and max (clippy.toml).
+#![allow(clippy::disallowed_methods)]
+
 use crate::collision::{intersects_box, inverse, js_max, js_min, Body, Ray, State, World, CANDIDATES};
 use std::ptr::addr_of_mut;
 

@@ -15,14 +15,19 @@ fn person(id: u32) -> Ref<Person> { Ref::new(id, 0) }
 fn shelf(strings: &mut Strings) -> Store {
     let (a, b) = (strings.intern_str("a"), strings.intern_str("b"));
     let mut s = Store::default();
-    let spot = Spot { at: [1.0, -0.0, 3.0], turn: [0.0, 0.0, 0.7071067811865476, 0.7071067811865476], label: Some(b), mark: Colour::Green, near: Some(person(9)), kept: vec![] };
+    let spot = Spot { at: [1.0, -0.0, 3.0], turn: [0.0, 0.0, 0.7071067811865476, 0.7071067811865476], label: Some(b), mark: Colour::Green, near: Some(person(9)), keeper: person(4), kept: vec![] };
     let one = s.thing.insert(Thing {
         count: -3, size: u32::MAX, small: 255, light: 0.1f32, mass: -0.0, on: true, r#where: [1.5, 2.5, -3.5], facing: [0.0, 0.0, 0.0, 1.0],
         pair: [1e-300, 5e-324], name: a, colour: Colour::Blue, def: DefId(2), owner: Some(person(4)), holder: Holder::Person(person(9)),
         spot: Nullable::Value(spot.clone()), friends: RefSet { items: vec![person(9), person(4)] }, next: None,
         tags: Some(StrMap { entries: vec![(a, b), (b, a)] }), hidden: 1.25, boxed: 2.5,
+        marks: vec![1.5, -0.0, 1e300], probes: vec![[1.0, 2.0, 3.0], [-4.0, 5.0, -6.0]], flags: vec![true, false, true],
+        spots: vec![spot.clone(), Spot { mark: Colour::Red, label: None, ..spot.clone() }], holders: vec![Holder::Nobody, Holder::Person(person(4)), Holder::Null],
+        matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 5.0, -6.0, 7.5, 1.0], first_size: -2.5,
+        shapes: vec![Shape { radius: 0.5, half: Half::F64(0.25) }, Shape { radius: -0.0, half: Half::Vec3([1.0, 2.0, 0.5]) }],
+        hit_set: Some(1), body: Body::Wheels(Wheels { count: 4, grip: [0.1, 0.2, 0.3] }),
     });
-    let two = s.thing.insert(Thing { holder: Holder::Thing(one), next: Some(one), spot: Nullable::Null, owner: None, name: b, tags: None, ..Default::default() });
+    let two = s.thing.insert(Thing { holder: Holder::Thing(one), next: Some(one), spot: Nullable::Null, owner: None, name: b, tags: None, holders: vec![Holder::Thing(one)], body: Body::Legs(Legs { stride: 1.5, side: vec![1.0, -1.0] }), ..Default::default() });
     s.thing.get_mut(one).unwrap().next = Some(two);
     s.shelf = Shelf {
         things: vec![one, two],
