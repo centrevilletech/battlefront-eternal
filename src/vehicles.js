@@ -15,11 +15,12 @@ import { loadClips, Pose } from "./anim.js";
 import { Weapon } from "./weapons.js";
 import { givePowerup } from "./items.js";
 import { blastDamage, blastDistance, healthScale } from "./ordnance.js";
-import { SeatLease, SeatUnit, VehicleTarget, seatRole, seatWeaponPolicy, classicSeatExit, placeOnFoot, dropBody, seatBody, unseatBody } from "./seats.js";
+import { SeatLease, VehicleTarget, seatRole, seatWeaponPolicy, classicSeatExit, placeOnFoot, dropBody, seatBody, unseatBody } from "./seats.js";
 import { boardingSeat, canBoard, claimSeat, inFlight, mayLeave, personLease, seatControl, seatLook, switchSeat, teamRelation } from "./boarding.js";
 import { makeRiderPoints, riderDropPoint, riderHitShapes, riderPoints } from "./rider-pose.js";
 import { stepPilotless } from "./flight/pilotless.js";
 import { VehiclesWorld } from "./vehicles-world.js";
+import { SeatsWorld } from "./seats-world.js";
 
 const UP = new THREE.Vector3(0, 1, 0);
 const RIGHT = new THREE.Vector3(1, 0, 0);
@@ -1919,8 +1920,10 @@ export class Vehicles {
   // to enter every hull in as a target (or call attachUnits later).
   constructor({ scene, data, buffer, indexBuffer, animationBuffer = new ArrayBuffer(0), collision, water, audio, maxFlyHeight = 200, texture, caster, uncaster, camera, ordnance, effects, posts, inDeathRegion, onDestroyed, units = null, onBoard = null, onUnboard = null, onFired = null, onDamaged = null, flightEnvironment = {} }) {
     Object.assign(this, { scene, data, collision, water, audio, maxFlyHeight, camera, caster, uncaster, ordnance, effects, posts, inDeathRegion, onDestroyed, onBoard, onUnboard, onFired, onDamaged });
-    // Everything the hulls ask of the rest of the battle (src/vehicles-world.js).
+    // Everything the hulls ask of the rest of the battle (src/vehicles-world.js),
+    // and what their seats ask (src/seats-world.js).
     this.world = new VehiclesWorld(this);
+    this.seatsWorld = new SeatsWorld(this);
     const mapBounds = collision.bvh?.getBoundingBox(new THREE.Box3());
     if (mapBounds && collision.terrain) mapBounds.union(collision.terrain.getBoundingBox(new THREE.Box3()));
     this.flightEnvironment = { ceiling: maxFlyHeight, ...(mapBounds && !mapBounds.isEmpty() ? { bounds: { min: [mapBounds.min.x, -300, mapBounds.min.z], max: [mapBounds.max.x, maxFlyHeight, mapBounds.max.z] } } : {}), ...flightEnvironment };
@@ -2199,7 +2202,7 @@ export class Vehicles {
     if (!unit || !vehicle || vehicle.system !== this || (unit.human && !unit.networkHuman)) return -1;
     const person = Boolean(unit.networkHuman);
     if (!canBoard(unit, person)) return -1;
-    return boardingSeat(vehicle, { team: unit.team, person, relation: this.relation, preferred: seatIndex });
+    return boardingSeat(vehicle, { team: unit.team, person, relation: this.seatsWorld.relate, preferred: seatIndex });
   }
 
   // Seats a bot or a network human now (the AI has brought the bot to the
@@ -2227,12 +2230,12 @@ export class Vehicles {
     seat.pitch = index === 0 && !vehicle.flying && (vehicle.base !== 'hover' || unit.networkHuman) ? -.12 : 0;
     seat.lookYaw = seat.lookPitch = null;
     vehicle.setSeatPolicy(index, Boolean(unit.networkHuman), this.seatRandom);
-    if (!unit.networkHuman) lease.controllable = new SeatUnit(lease);
+    if (!unit.networkHuman) lease.controllable = this.seatsWorld.controllable(lease);
     unit.seat = lease;
     seatBody(unit);
     vehicle.sleeping = false;
     this.syncRider(lease);
-    this.onBoard?.(unit, vehicle, index);
+    this.seatsWorld.boarded(unit, vehicle, index);
     return true;
   }
 
@@ -2270,18 +2273,18 @@ export class Vehicles {
     const unit = lease.unit;
     if (reason === 'exit' && !force && !mayLeave(v, lease)) return false;
     const airborne = inFlight(v);
-    const fall = reason === 'killed' && unit?.soldier ? v.riderDrop(index, unit, this.riderPoint) : null;
+    const fall = reason === 'killed' && unit?.soldier ? this.seatsWorld.riderDrop(v, index, unit, this.riderPoint) : null;
     let spot = null;
     let yaw = 0;
     if (placement && !lease.human && unit?.soldier && unit.alive && !unit.dead) {
       if (policy === 'safe' || personLease(lease)) {
-        if (!personExitPoint(this.collision, v, this.exitSpot.position, this.safeScratch, airborne || force)) return false;
+        if (!personExitPoint(this.seatsWorld, v, this.exitSpot.position, this.safeScratch, airborne || force)) return false;
         spot = this.exitSpot.position;
         yaw = v.seats[index]?.aimYaw ?? v.aimYaw;
       } else {
         v.seatFrameForward(index, this.direction);
         v.sphere(this.center);
-        classicSeatExit(this.collision, { origin: v.position, forward: this.direction, center: this.center, radius: v.boundRadius, body: v.body }, this.exitSpot);
+        classicSeatExit(this.seatsWorld, { origin: v.position, forward: this.direction, center: this.center, radius: v.boundRadius, body: v.body }, this.exitSpot);
         spot = this.exitSpot.position;
         yaw = Math.atan2(this.exitSpot.forward.x, this.exitSpot.forward.z);
       }
@@ -2294,9 +2297,9 @@ export class Vehicles {
       unseatBody(unit);
     }
     if (fall) dropBody(unit, fall, v.shieldsRiders() ? null : v.body);
-    if (reason === 'killed' ? promote ?? true : reason === 'exit' && (promote ?? unit?.controller?.state !== 5)) this.promote(v, index);
-    if (spot) placeOnFoot(unit, spot, yaw, { midair: airborne && personLease(lease) });
-    this.onUnboard?.(unit, v, index, post, reason);
+    if (reason === 'killed' ? promote ?? true : reason === 'exit' && (promote ?? this.seatsWorld.controllerState(unit) !== 5)) this.promote(v, index);
+    if (spot) placeOnFoot(unit, spot, yaw, { midair: airborne && personLease(lease), world: this.seatsWorld });
+    this.seatsWorld.unboarded(unit, v, index, post, reason);
     return true;
   }
 
@@ -2328,8 +2331,8 @@ export class Vehicles {
     v.setSeatPolicy(index, lease.human || Boolean(lease.unit?.networkHuman), lease.human ? null : this.seatRandom);
     // A new control for the AI to drive (the original game attaches the pilot
     // to the vacated control afresh).
-    if (!lease.human && !lease.unit?.networkHuman) lease.controllable = new SeatUnit(lease);
-    this.onMove?.(lease.unit, v, index);
+    if (!lease.human && !lease.unit?.networkHuman) lease.controllable = this.seatsWorld.controllable(lease);
+    this.seatsWorld.moved(lease.unit, v, index);
     return lease;
   }
 
@@ -2356,7 +2359,7 @@ export class Vehicles {
       this.vacate(lease, { placement: false, promote: false, reason: 'destroyed' });
       if (lease.unit?.alive && !lease.unit.combat?.dead) dying.push(lease.unit);
     }
-    for (const unit of dying) unit.combat?.damage?.(Infinity, Infinity, null, v.lastAttacker ?? null);
+    for (const unit of dying) this.seatsWorld.kill(unit, v.lastAttacker ?? null);
   }
 
   // The snowspeeder's harpoon (docs/feature-audit.md "Hoth"): a towcable
