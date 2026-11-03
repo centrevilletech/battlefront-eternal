@@ -207,8 +207,12 @@ export class RustRender {
     // makes its own again when it is restored): three draws everything.
     this.lost = false;
     this.renderer.domElement?.addEventListener?.("webglcontextlost", () => { this.lost = true; this.fail(new Error("WebGL context lost")); });
-    // The passes, in the renderer's order.
+    // The passes' work before three lists a render of the near scene
+    // (beforeSort): hooked first, so that what hooks in after it
+    // (particle-depth.js's copier) sees what they registered.
     this.passes = [];
+    if (graphics.scene) this.watchScene(graphics.scene);
+    // The passes, in the renderer's order.
     this.phases = Object.fromEntries(Object.keys(PHASES).map((name) => [name, []]));
     // A mirror draws the near phase's passes, then the transparent phase's;
     // its far scene, the far phase's.
@@ -533,6 +537,19 @@ export class RustRender {
     mesh.onAfterRender = (renderer, scene, camera) => callback(renderer, scene, camera);
     scene.add(mesh);
     return mesh;
+  }
+
+  // The scene's onBeforeRender, as three starts a render of it (before it
+  // lists and sorts it): each pass's beforeSort(renderer, scene, camera,
+  // target), which can register what is new and hide it from three before
+  // three lists it, so that the renderer draws it from its first frame.
+  watchScene(scene) {
+    const previous = scene.onBeforeRender;
+    scene.onBeforeRender = (...args) => {
+      previous?.apply(scene, args);
+      if (!this.enabled || !this.active || this.lost || !this.supported()) return;
+      for (const pass of this.passes) pass.beforeSort?.(...args);
+    };
   }
 
   // Off: three draws everything again (for comparisons in one battle); on:

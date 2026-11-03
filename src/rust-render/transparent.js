@@ -34,6 +34,7 @@
 // once three has drawn it as it is now, and drawn by three again when three
 // would draw it with another program.
 import * as THREE from "three";
+import { compileFor, unbuilt } from "./instances.js";
 
 // add_program's kind for the map's meshes (web/mod.rs).
 const WORLD = 0;
@@ -161,6 +162,13 @@ class TransparentPass {
     // this frame, registered in the transparent phase.
     this.taken = new Map();
     this.candidates = [];
+    // The near scene's objects this pass could draw, looked over before three
+    // lists the scene (beforeSort), shown or not: all of them once, then
+    // what is added (each object of the scene told of its children added).
+    this.watched = new WeakSet();
+    this.added = null;
+    this.onAdded = ({ child }) => { this.added?.push(child); };
+    this.presortFailed = false;
     // The objects' programs, made for this pass alone: the renderer keeps
     // the values it last set in each (transparent.rs), and the effects'
     // glow models can draw with the same three program, keeping theirs.
@@ -230,7 +238,7 @@ class TransparentPass {
     const entry = this.taken.get(item.object);
     if (!this.active || !entry || entry.material !== item.material || item.group) return false;
     const props = this.core.renderer.properties.get(entry.material);
-    return props.currentProgram === entry.program && props.__version === entry.material.version && entry.frame <= this.frameNo;
+    return props.currentProgram === entry.program && drawnAsNow(props, entry) && entry.frame <= this.frameNo;
   }
 
   // three's render list for the near scene being drawn: the one whose
@@ -281,6 +289,48 @@ class TransparentPass {
     this.hooks.clear();
   }
 
+  // Before three lists the frame's own render of the near scene (the core's
+  // watchScene): the objects this pass could draw that it has not seen,
+  // shown or not (a command post's beam, flare and halo, shown as the player
+  // comes near; a side's logo, made as it takes the post), their programs
+  // built by three without a draw (compileFor) and registered, so that three
+  // never draws them for their first frame: the whole scene the first time,
+  // then what was added to it since. (A blended bucket of the map is drawn
+  // from the battle's first frames, and registered as three lists it.)
+  beforeSort(renderer, scene, camera, target) {
+    const graphics = this.core.graphics;
+    if (!this.active || this.presortFailed || scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
+    const roots = this.added ?? [scene];
+    if (!roots.length) return;
+    this.added = [];
+    try {
+      const found = [];
+      const watch = (o) => { if (!this.watched.has(o)) { this.watched.add(o); o.addEventListener("childadded", this.onAdded); } };
+      for (const root of roots) root.traverse((o) => {
+        watch(o);
+        const material = o.material;
+        if (!(o.isMesh || o.isSprite) || !material || Array.isArray(material) || OBJECT_KINDS[material.type] === undefined || !material.transparent || this.taken.has(o)) return;
+        // Not a glow model's part (the effects pass's: its group keeps its
+        // material), nor one whose vertices change (the Classic lightning's):
+        // this pass keeps an object's geometry as it first finds it.
+        if (o.parent?.userData?.material === material || changing(o.geometry)) return;
+        found.push(o);
+      });
+      if (!found.length) return;
+      const fresh = found.filter((o) => unbuilt(renderer, o.material)).map((o) => [o, o.material]);
+      if (fresh.length) compileFor(renderer, fresh, camera, scene);
+      // Only what registered: anything else is looked at as three lists it
+      // (a texture still loading, say).
+      for (const object of found) {
+        const entry = this.registerObject({ object, material: object.material, geometry: object.geometry, group: null }, true);
+        if (entry) this.taken.set(object, entry);
+      }
+    } catch (error) {
+      this.core.errors.push(`transparent before sort failed: ${String(error?.stack || error).slice(0, 400)}`);
+      this.presortFailed = true;
+    }
+  }
+
   // What this pass draws, out of three's transparent list (in place: three's
   // loop over it has not started), each a record for the renderer with
   // three's key. Taken only while three's program for it is the one it was
@@ -301,7 +351,7 @@ class TransparentPass {
       else if (entry) {
         const props = renderer.properties.get(entry.material);
         if (props.currentProgram !== entry.program) { this.taken.delete(item.object); entry = undefined; }
-        else if (props.__version !== entry.material.version || entry.frame >= this.frameNo) entry = null;
+        else if (!drawnAsNow(props, entry) || entry.frame >= this.frameNo) entry = null;
       }
       if (entry === undefined && this.candidate(item)) this.candidates.push(item);
       if (entry && n < 512) {
@@ -436,12 +486,14 @@ class TransparentPass {
 
   // An object three drew as it is now, with a material this pass draws:
   // { bucket: false, id, material, program, frame }, null for one left to
-  // three, or undefined to look again later.
-  registerObject(item) {
+  // three, or undefined to look again later. compiled: one three has built
+  // programs for without a draw (beforeSort), as its material is now (its
+  // version kept: one changed since is three's again until three draws it).
+  registerObject(item, compiled = false) {
     const core = this.core, renderer = core.renderer, rust = core.rust;
     const { object, material, geometry } = item;
     const props = renderer.properties.get(material);
-    if (!props.currentProgram || props.__version !== material.version) return undefined;
+    if (!props.currentProgram || (props.__version !== material.version && !(compiled && props.__version === undefined))) return undefined;
     const kind = OBJECT_KINDS[material.type];
     if (object.isSkinnedMesh || object.isInstancedMesh || object.isBatchedMesh || object.morphTargetInfluences?.length || (!object.isMesh && !object.isSprite)) return null;
     if (object.onBeforeRender !== baseBeforeRender || object.onAfterRender !== baseAfterRender || material.onBeforeRender !== baseMaterialBeforeRender) return null;
@@ -459,7 +511,7 @@ class TransparentPass {
     passes.sides.forEach((side, i) => rust.transparent_object_pass(id, passes.programs[i].id, side));
     if (map >= 0) rust.transparent_object_texture(id, map);
     this.objectCount++;
-    return { bucket: false, id, material, program: passes.current, frame: this.frameNo };
+    return { bucket: false, id, material, program: passes.current, frame: this.frameNo, version: compiled ? material.version : undefined };
   }
 
   // Off: three draws everything in its list again (alone, for a comparison
@@ -472,6 +524,20 @@ class TransparentPass {
   restore() {
     this.disarm();
   }
+}
+
+// Whether a geometry's buffers are made to change (three's usage hint).
+function changing(geometry) {
+  const usage = (a) => (a.isInterleavedBufferAttribute ? a.data.usage : a.usage);
+  return Object.values(geometry.attributes).some((a) => usage(a) !== THREE.StaticDrawUsage) || Boolean(geometry.index && geometry.index.usage !== THREE.StaticDrawUsage);
+}
+
+// Whether three's program for an entry's material is the one for the
+// material as it is now: three drew it at its present version, or (built
+// without a draw: beforeSort) three has not drawn it since and it is still
+// at the version it was built at.
+function drawnAsNow(props, entry) {
+  return props.__version === entry.material.version || (props.__version === undefined && entry.version === entry.material.version);
 }
 
 function restore(hook) {
