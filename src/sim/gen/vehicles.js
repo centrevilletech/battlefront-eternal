@@ -83,15 +83,15 @@ export function syncVehicleSeat(b, f, at, h, m) {
 export function putVehicleSeat(b, o, f, at, heap) {
   f[at + 0] = o.aimYaw;
   f[at + 1] = o.pitch;
-  { const $x = o.lookYaw; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f.fill(0, at + 3, at + 4); } else { f[at + 2] = 0; f[at + 3] = $x; } }
-  { const $x = o.lookPitch; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f.fill(0, at + 5, at + 6); } else { f[at + 4] = 0; f[at + 5] = $x; } }
-  { const $x = o.lease; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f.fill(0, at + 7, at + 9); } else { f[at + 6] = 0; b.refs[KIND_SEAT_LEASE].put($x, f, at + 7); } }
-  { const $x = o.lease?.human; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f.fill(0, at + 10, at + 11); } else { f[at + 9] = 0; f[at + 10] = $x ? 1 : 0; } }
-  { const $x = o.lease?.unit?.networkHuman; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f.fill(0, at + 12, at + 13); } else { f[at + 11] = 0; f[at + 12] = $x ? 1 : 0; } }
-  { const $x = o.lease?.input?.turn; if ($x === null || $x === undefined) { f[at + 13] = $x === null ? 1 : 2; f.fill(0, at + 14, at + 15); } else { f[at + 13] = 0; f[at + 14] = $x; } }
-  { const $x = o.lease?.input?.pitch; if ($x === null || $x === undefined) { f[at + 15] = $x === null ? 1 : 2; f.fill(0, at + 16, at + 17); } else { f[at + 15] = 0; f[at + 16] = $x; } }
+  { const $x = o.lookYaw; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = $x; } }
+  { const $x = o.lookPitch; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = $x; } }
+  { const $x = o.lease; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; f[at + 8] = 0; } else { f[at + 6] = 0; b.refs[KIND_SEAT_LEASE].put($x, f, at + 7); } }
+  { const $x = o.lease?.human; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f[at + 10] = 0; } else { f[at + 9] = 0; f[at + 10] = $x ? 1 : 0; } }
+  { const $x = o.lease?.unit?.networkHuman; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; } else { f[at + 11] = 0; f[at + 12] = $x ? 1 : 0; } }
+  { const $x = o.lease?.input?.turn; if ($x === null || $x === undefined) { f[at + 13] = $x === null ? 1 : 2; f[at + 14] = 0; } else { f[at + 13] = 0; f[at + 14] = $x; } }
+  { const $x = o.lease?.input?.pitch; if ($x === null || $x === undefined) { f[at + 15] = $x === null ? 1 : 2; f[at + 16] = 0; } else { f[at + 15] = 0; f[at + 16] = $x; } }
   { const $v = o.view?.pitchLimits; f[at + 17] = $v[0]; f[at + 18] = $v[1]; }
-  { const $x = o.view?.yawLimits; if ($x === null || $x === undefined) { f[at + 19] = $x === null ? 1 : 2; f.fill(0, at + 20, at + 22); } else { f[at + 19] = 0; { const $v = $x; f[at + 20] = $v[0]; f[at + 21] = $v[1]; } } }
+  { const $x = o.view?.yawLimits; if ($x === null || $x === undefined) { f[at + 19] = $x === null ? 1 : 2; f[at + 20] = 0; f[at + 21] = 0; } else { f[at + 19] = 0; { const $v = $x; f[at + 20] = $v[0]; f[at + 21] = $v[1]; } } }
   f[at + 22] = o.view?.wrapYaw ? 1 : 0;
 }
 
@@ -320,7 +320,7 @@ export function putVehicle(b, o, f, at, heap) {
   heap.items(o.probes, f, at + 29, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
   heap.items(o.supportProbes, f, at + 31, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
   f[at + 33] = o.maxHealth;
-  { const $x = o.waterRule; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f.fill(0, at + 35, at + 37); } else { f[at + 34] = 0; putWaterRule(b, $x, f, at + 35, heap); } }
+  { const $x = o.waterRule; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f[at + 35] = 0; f[at + 36] = 0; } else { f[at + 34] = 0; putWaterRule(b, $x, f, at + 35, heap); } }
   f[at + 37] = o.waterDepth;
   b.refs[KIND_BODY].put(o.body, f, at + 38);
   { const $v = o.position; f[at + 40] = $v.x; f[at + 41] = $v.y; f[at + 42] = $v.z; }
@@ -339,7 +339,7 @@ export function putVehicle(b, o, f, at, heap) {
   f[at + 59] = o.forwardInput;
   f[at + 60] = o.rightInput;
   f[at + 61] = o.alive ? 1 : 0;
-  { const $x = o.sleeping; if ($x === null || $x === undefined) { f[at + 62] = $x === null ? 1 : 2; f.fill(0, at + 63, at + 64); } else { f[at + 62] = 0; f[at + 63] = $x ? 1 : 0; } }
+  { const $x = o.sleeping; if ($x === null || $x === undefined) { f[at + 62] = $x === null ? 1 : 2; f[at + 63] = 0; } else { f[at + 62] = 0; f[at + 63] = $x ? 1 : 0; } }
   f[at + 64] = o.health;
   f[at + 65] = o.dying;
   f[at + 66] = o.waterClock;
@@ -347,9 +347,9 @@ export function putVehicle(b, o, f, at, heap) {
   { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 71 + i] = e[i]; }
   { const $v = o.itemTarget?.center; f[at + 87] = $v.x; f[at + 88] = $v.y; f[at + 89] = $v.z; }
   { const $v = o.supportNormal; f[at + 90] = $v.x; f[at + 91] = $v.y; f[at + 92] = $v.z; }
-  { const $x = o.legSide; if ($x === null || $x === undefined) { f[at + 93] = $x === null ? 1 : 2; f.fill(0, at + 94, at + 96); } else { f[at + 93] = 0; heap.items($x, f, at + 94, 1, (f, at, v) => { f[at + 0] = v; }); } }
+  { const $x = o.legSide; if ($x === null || $x === undefined) { f[at + 93] = $x === null ? 1 : 2; f[at + 94] = 0; f[at + 95] = 0; } else { f[at + 93] = 0; heap.items($x, f, at + 94, 1, (f, at, v) => { f[at + 0] = v; }); } }
   f[at + 96] = o.seatIndex;
-  { const $x = o.driver; if ($x === null || $x === undefined) { f[at + 97] = $x === null ? 1 : 2; f.fill(0, at + 98, at + 100); } else { f[at + 97] = 0; b.refs[KIND_VEHICLE_DRIVER].put($x, f, at + 98); } }
+  { const $x = o.driver; if ($x === null || $x === undefined) { f[at + 97] = $x === null ? 1 : 2; f[at + 98] = 0; f[at + 99] = 0; } else { f[at + 97] = 0; b.refs[KIND_VEHICLE_DRIVER].put($x, f, at + 98); } }
   heap.items(o.wheels, f, at + 100, 4, (f, at, v) => { putVehicleWheel(b, v, f, at + 0, heap); });
   heap.items(o.seats, f, at + 102, 23, (f, at, v) => { putVehicleSeat(b, v, f, at + 0, heap); });
 }
@@ -378,7 +378,7 @@ export function putFullVehicle(b, o, f, at, heap) {
   heap.items(o.probes, f, at + 29, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
   heap.items(o.supportProbes, f, at + 31, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
   f[at + 33] = o.maxHealth;
-  { const $x = o.waterRule; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f.fill(0, at + 35, at + 37); } else { f[at + 34] = 0; putWaterRule(b, $x, f, at + 35, heap); } }
+  { const $x = o.waterRule; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f[at + 35] = 0; f[at + 36] = 0; } else { f[at + 34] = 0; putWaterRule(b, $x, f, at + 35, heap); } }
   f[at + 37] = o.waterDepth;
   b.refs[KIND_BODY].put(o.body, f, at + 38);
   { const $v = o.position; f[at + 40] = $v.x; f[at + 41] = $v.y; f[at + 42] = $v.z; }
@@ -397,7 +397,7 @@ export function putFullVehicle(b, o, f, at, heap) {
   f[at + 59] = o.forwardInput;
   f[at + 60] = o.rightInput;
   f[at + 61] = o.alive ? 1 : 0;
-  { const $x = o.sleeping; if ($x === null || $x === undefined) { f[at + 62] = $x === null ? 1 : 2; f.fill(0, at + 63, at + 64); } else { f[at + 62] = 0; f[at + 63] = $x ? 1 : 0; } }
+  { const $x = o.sleeping; if ($x === null || $x === undefined) { f[at + 62] = $x === null ? 1 : 2; f[at + 63] = 0; } else { f[at + 62] = 0; f[at + 63] = $x ? 1 : 0; } }
   f[at + 64] = o.health;
   f[at + 65] = o.dying;
   f[at + 66] = o.waterClock;
@@ -405,9 +405,9 @@ export function putFullVehicle(b, o, f, at, heap) {
   { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 71 + i] = e[i]; }
   { const $v = o.itemTarget?.center; f[at + 87] = $v.x; f[at + 88] = $v.y; f[at + 89] = $v.z; }
   { const $v = o.supportNormal; f[at + 90] = $v.x; f[at + 91] = $v.y; f[at + 92] = $v.z; }
-  { const $x = o.legSide; if ($x === null || $x === undefined) { f[at + 93] = $x === null ? 1 : 2; f.fill(0, at + 94, at + 96); } else { f[at + 93] = 0; heap.items($x, f, at + 94, 1, (f, at, v) => { f[at + 0] = v; }); } }
+  { const $x = o.legSide; if ($x === null || $x === undefined) { f[at + 93] = $x === null ? 1 : 2; f[at + 94] = 0; f[at + 95] = 0; } else { f[at + 93] = 0; heap.items($x, f, at + 94, 1, (f, at, v) => { f[at + 0] = v; }); } }
   f[at + 96] = o.seatIndex;
-  { const $x = o.driver; if ($x === null || $x === undefined) { f[at + 97] = $x === null ? 1 : 2; f.fill(0, at + 98, at + 100); } else { f[at + 97] = 0; b.refs[KIND_VEHICLE_DRIVER].put($x, f, at + 98); } }
+  { const $x = o.driver; if ($x === null || $x === undefined) { f[at + 97] = $x === null ? 1 : 2; f[at + 98] = 0; f[at + 99] = 0; } else { f[at + 97] = 0; b.refs[KIND_VEHICLE_DRIVER].put($x, f, at + 98); } }
   heap.items(o.wheels, f, at + 100, 4, (f, at, v) => { putVehicleWheel(b, v, f, at + 0, heap); });
   heap.items(o.seats, f, at + 102, 23, (f, at, v) => { putVehicleSeat(b, v, f, at + 0, heap); });
 }

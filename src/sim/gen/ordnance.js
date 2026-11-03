@@ -39,7 +39,7 @@ export function syncOrdnanceOwner(b, f, at, h, current) {
 
 export function putOrdnanceOwner(b, x, f, at, heap) {
   const i = whichOrdnanceOwner(b, x);
-  f.fill(0, at + 1, at + 3);
+  f[at + 1] = 0; f[at + 2] = 0;
   f[at] = i;
   switch (i) {
     case 2: b.refs[KIND_UNIT].put(x, f, at + 1); break;
@@ -96,7 +96,7 @@ export function syncBeamSource(b, f, at, h, current) {
 
 export function putBeamSource(b, x, f, at, heap) {
   const i = whichBeamSource(b, x);
-  f.fill(0, at + 1, at + 3);
+  f[at + 1] = 0; f[at + 2] = 0;
   f[at] = i;
   switch (i) {
     case 2: b.refs[KIND_EMITTER].put(x, f, at + 1); break;
@@ -148,9 +148,9 @@ export function putImpact(b, o, f, at, heap) {
   { const $v = o.point; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
   { const $v = o.normal; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
   f[at + 6] = o.terrain ? 1 : 0;
-  { const $x = o.body; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f.fill(0, at + 8, at + 10); } else { f[at + 7] = 0; b.refs[KIND_BODY].put($x, f, at + 8); } }
-  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f.fill(0, at + 11, at + 13); } else { f[at + 10] = 0; b.refs[KIND_UNIT].put($x, f, at + 11); } }
-  { const $x = o.part; if ($x === null || $x === undefined) { f[at + 13] = $x === null ? 1 : 2; f.fill(0, at + 14, at + 15); } else { f[at + 13] = 0; f[at + 14] = HitPart_INDEX.get($x); } }
+  { const $x = o.body; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; f[at + 9] = 0; } else { f[at + 7] = 0; b.refs[KIND_BODY].put($x, f, at + 8); } }
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f[at + 11] = 0; f[at + 12] = 0; } else { f[at + 10] = 0; b.refs[KIND_UNIT].put($x, f, at + 11); } }
+  { const $x = o.part; if ($x === null || $x === undefined) { f[at + 13] = $x === null ? 1 : 2; f[at + 14] = 0; } else { f[at + 13] = 0; f[at + 14] = HitPart_INDEX.get($x); } }
 }
 
 export function sameImpact(a, b) {
@@ -319,8 +319,8 @@ export function putCastArgs(b, o, f, at, heap) {
   { const $v = o.direction; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
   f[at + 6] = o.far;
   f[at + 7] = o.behind ? 1 : 0;
-  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f.fill(0, at + 9, at + 11); } else { f[at + 8] = 0; b.refs[KIND_BODY].put($x, f, at + 9); } }
-  { const $x = o.staticOnly; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f.fill(0, at + 12, at + 13); } else { f[at + 11] = 0; f[at + 12] = $x ? 1 : 0; } }
+  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; f[at + 10] = 0; } else { f[at + 8] = 0; b.refs[KIND_BODY].put($x, f, at + 9); } }
+  { const $x = o.staticOnly; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; } else { f[at + 11] = 0; f[at + 12] = $x ? 1 : 0; } }
 }
 
 export function sameCastArgs(a, b) {
@@ -374,7 +374,7 @@ export function putCastAnswer(b, o, f, at, heap) {
   { const $v = o.point; f[at + 2] = $v.x; f[at + 3] = $v.y; f[at + 4] = $v.z; }
   { const $v = o.normal; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
   f[at + 8] = o.terrain ? 1 : 0;
-  { const $x = o.body; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f.fill(0, at + 10, at + 12); } else { f[at + 9] = 0; b.refs[KIND_BODY].put($x, f, at + 10); } }
+  { const $x = o.body; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f[at + 10] = 0; f[at + 11] = 0; } else { f[at + 9] = 0; b.refs[KIND_BODY].put($x, f, at + 10); } }
 }
 
 export function sameCastAnswer(a, b) {
@@ -429,9 +429,9 @@ export function putUnitCastArgs(b, o, f, at, heap) {
   { const $v = o.direction; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
   f[at + 6] = o.far;
   putOrdnanceOwner(b, o.owner, f, at + 7, heap);
-  { const $x = o.historyTick; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f.fill(0, at + 11, at + 12); } else { f[at + 10] = 0; f[at + 11] = $x; } }
-  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f.fill(0, at + 13, at + 15); } else { f[at + 12] = 0; b.refs[KIND_BODY].put($x, f, at + 13); } }
-  { const $x = o.mount; if ($x === null || $x === undefined) { f[at + 15] = $x === null ? 1 : 2; f.fill(0, at + 16, at + 18); } else { f[at + 15] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 16); } }
+  { const $x = o.historyTick; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f[at + 11] = 0; } else { f[at + 10] = 0; f[at + 11] = $x; } }
+  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; f[at + 14] = 0; } else { f[at + 12] = 0; b.refs[KIND_BODY].put($x, f, at + 13); } }
+  { const $x = o.mount; if ($x === null || $x === undefined) { f[at + 15] = $x === null ? 1 : 2; f[at + 16] = 0; f[at + 17] = 0; } else { f[at + 15] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 16); } }
 }
 
 export function sameUnitCastArgs(a, b) {
@@ -483,11 +483,11 @@ export function syncUnitCastAnswer(b, f, at, h, m) {
 
 export function putUnitCastAnswer(b, o, f, at, heap) {
   f[at + 0] = o.found ? 1 : 0;
-  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f.fill(0, at + 2, at + 4); } else { f[at + 1] = 0; b.refs[KIND_UNIT].put($x, f, at + 2); } }
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; f[at + 3] = 0; } else { f[at + 1] = 0; b.refs[KIND_UNIT].put($x, f, at + 2); } }
   f[at + 4] = o.distance;
   { const $v = o.point; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
   { const $v = o.normal; f[at + 8] = $v.x; f[at + 9] = $v.y; f[at + 10] = $v.z; }
-  { const $x = o.part; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f.fill(0, at + 12, at + 13); } else { f[at + 11] = 0; f[at + 12] = HitPart_INDEX.get($x); } }
+  { const $x = o.part; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; } else { f[at + 11] = 0; f[at + 12] = HitPart_INDEX.get($x); } }
 }
 
 export function sameUnitCastAnswer(a, b) {
@@ -526,7 +526,7 @@ export function syncBodyArgs(b, f, at, h, m) {
 }
 
 export function putBodyArgs(b, o, f, at, heap) {
-  { const $x = o.body; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f.fill(0, at + 1, at + 3); } else { f[at + 0] = 0; b.refs[KIND_BODY].put($x, f, at + 1); } }
+  { const $x = o.body; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; } else { f[at + 0] = 0; b.refs[KIND_BODY].put($x, f, at + 1); } }
 }
 
 export function sameBodyArgs(a, b) {
@@ -562,9 +562,9 @@ export function syncMountAnswer(b, f, at, h, m) {
 
 export function putMountAnswer(b, o, f, at, heap) {
   f[at + 0] = o.found ? 1 : 0;
-  { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f.fill(0, at + 2, at + 4); } else { f[at + 1] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 2); } }
+  { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; f[at + 3] = 0; } else { f[at + 1] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 2); } }
   f[at + 4] = o.boundRadius;
-  { const $x = o.body; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f.fill(0, at + 6, at + 8); } else { f[at + 5] = 0; b.refs[KIND_BODY].put($x, f, at + 6); } }
+  { const $x = o.body; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f[at + 6] = 0; f[at + 7] = 0; } else { f[at + 5] = 0; b.refs[KIND_BODY].put($x, f, at + 6); } }
 }
 
 export function sameMountAnswer(a, b) {
@@ -611,7 +611,7 @@ export function putNearArgs(b, o, f, at, heap) {
   f[at + 3] = o.radius;
   putOrdnanceOwner(b, o.owner, f, at + 4, heap);
   heap.list(b.refs[KIND_UNIT], o.struck, f, at + 7);
-  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f.fill(0, at + 10, at + 12); } else { f[at + 9] = 0; b.refs[KIND_BODY].put($x, f, at + 10); } }
+  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f[at + 10] = 0; f[at + 11] = 0; } else { f[at + 9] = 0; b.refs[KIND_BODY].put($x, f, at + 10); } }
 }
 
 export function sameNearArgs(a, b) {
@@ -925,7 +925,7 @@ export function syncTickAnswer(b, f, at, h, m) {
 }
 
 export function putTickAnswer(b, o, f, at, heap) {
-  { const $x = o.value; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f.fill(0, at + 1, at + 2); } else { f[at + 0] = 0; f[at + 1] = $x; } }
+  { const $x = o.value; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; } else { f[at + 0] = 0; f[at + 1] = $x; } }
 }
 
 export function sameTickAnswer(a, b) {
@@ -1039,7 +1039,7 @@ export function syncSeekArgs(b, f, at, h, m) {
 export function putSeekArgs(b, o, f, at, heap) {
   { const $v = o.position; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
   { const $v = o.velocity; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
-  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f.fill(0, at + 7, at + 8); } else { f[at + 6] = 0; f[at + 7] = b.strings.id($x); } }
+  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = b.strings.id($x); } }
   f[at + 8] = o.targetId;
   f[at + 9] = o.targetGeneration;
   f[at + 10] = o.dt;
@@ -1205,8 +1205,8 @@ export function syncStrikeArgs(b, f, at, h, m) {
 export function putStrikeArgs(b, o, f, at, heap) {
   b.refs[KIND_BODY].put(o.body, f, at + 0);
   f[at + 2] = b.defs.ordnance.id(o.def);
-  { const $x = o.beam; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f.fill(0, at + 4, at + 6); } else { f[at + 3] = 0; b.refs[KIND_BEAM].put($x, f, at + 4); } }
-  { const $x = o.damage; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f.fill(0, at + 7, at + 8); } else { f[at + 6] = 0; f[at + 7] = $x; } }
+  { const $x = o.beam; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 3] = 0; b.refs[KIND_BEAM].put($x, f, at + 4); } }
+  { const $x = o.damage; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = $x; } }
   putOrdnanceOwner(b, o.owner, f, at + 8, heap);
   { const $v = o.direction; f[at + 11] = $v.x; f[at + 12] = $v.y; f[at + 13] = $v.z; }
 }
@@ -1267,13 +1267,13 @@ export function syncUnitStrikeArgs(b, f, at, h, m) {
 export function putUnitStrikeArgs(b, o, f, at, heap) {
   b.refs[KIND_UNIT].put(o.unit, f, at + 0);
   f[at + 2] = b.defs.ordnance.id(o.def);
-  { const $x = o.beam; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f.fill(0, at + 4, at + 6); } else { f[at + 3] = 0; b.refs[KIND_BEAM].put($x, f, at + 4); } }
+  { const $x = o.beam; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 3] = 0; b.refs[KIND_BEAM].put($x, f, at + 4); } }
   f[at + 6] = o.beamDef ? 1 : 0;
-  { const $x = o.damage; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f.fill(0, at + 8, at + 9); } else { f[at + 7] = 0; f[at + 8] = $x; } }
+  { const $x = o.damage; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = $x; } }
   f[at + 9] = o.at;
   { const $v = o.point; f[at + 10] = $v.x; f[at + 11] = $v.y; f[at + 12] = $v.z; }
   putOrdnanceOwner(b, o.owner, f, at + 13, heap);
-  { const $x = o.part; if ($x === null || $x === undefined) { f[at + 16] = $x === null ? 1 : 2; f.fill(0, at + 17, at + 18); } else { f[at + 16] = 0; f[at + 17] = HitPart_INDEX.get($x); } }
+  { const $x = o.part; if ($x === null || $x === undefined) { f[at + 16] = $x === null ? 1 : 2; f[at + 17] = 0; } else { f[at + 16] = 0; f[at + 17] = HitPart_INDEX.get($x); } }
   { const $v = o.direction; f[at + 18] = $v.x; f[at + 19] = $v.y; f[at + 20] = $v.z; }
 }
 
@@ -1358,7 +1358,7 @@ export function syncLaunchArgs(b, f, at, h, m) {
 
 export function putLaunchArgs(b, o, f, at, heap) {
   f[at + 0] = o.kind;
-  { const $x = o.tick; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f.fill(0, at + 2, at + 3); } else { f[at + 1] = 0; f[at + 2] = $x; } }
+  { const $x = o.tick; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; } else { f[at + 1] = 0; f[at + 2] = $x; } }
 }
 
 export function sameLaunchArgs(a, b) {
@@ -1528,12 +1528,12 @@ export function putFireArgs(b, o, f, at, heap) {
   { const $v = o.origin; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
   { const $v = o.direction; f[at + 4] = $v.x; f[at + 5] = $v.y; f[at + 6] = $v.z; }
   putOrdnanceOwner(b, o.owner, f, at + 7, heap);
-  { const $x = o.visual; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f.fill(0, at + 11, at + 14); } else { f[at + 10] = 0; { const $v = $x; f[at + 11] = $v.x; f[at + 12] = $v.y; f[at + 13] = $v.z; } } }
-  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f.fill(0, at + 15, at + 17); } else { f[at + 14] = 0; b.refs[KIND_BODY].put($x, f, at + 15); } }
+  { const $x = o.visual; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f[at + 11] = 0; f[at + 12] = 0; f[at + 13] = 0; } else { f[at + 10] = 0; { const $v = $x; f[at + 11] = $v.x; f[at + 12] = $v.y; f[at + 13] = $v.z; } } }
+  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f[at + 15] = 0; f[at + 16] = 0; } else { f[at + 14] = 0; b.refs[KIND_BODY].put($x, f, at + 15); } }
   putBeamSource(b, o.emitter, f, at + 17, heap);
   f[at + 20] = o.channel;
-  { const $x = o.targetId; if ($x === null || $x === undefined) { f[at + 21] = $x === null ? 1 : 2; f.fill(0, at + 22, at + 23); } else { f[at + 21] = 0; f[at + 22] = $x; } }
-  { const $x = o.targetGeneration; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f.fill(0, at + 24, at + 25); } else { f[at + 23] = 0; f[at + 24] = $x; } }
+  { const $x = o.targetId; if ($x === null || $x === undefined) { f[at + 21] = $x === null ? 1 : 2; f[at + 22] = 0; } else { f[at + 21] = 0; f[at + 22] = $x; } }
+  { const $x = o.targetGeneration; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f[at + 24] = 0; } else { f[at + 23] = 0; f[at + 24] = $x; } }
 }
 
 export function sameFireArgs(a, b) {
@@ -1587,7 +1587,7 @@ export function syncFlightMissileArgs(b, f, at, h, m) {
 
 export function putFlightMissileArgs(b, o, f, at, heap) {
   b.refs[KIND_ROUND].put(o.round, f, at + 0);
-  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f.fill(0, at + 3, at + 4); } else { f[at + 2] = 0; f[at + 3] = b.strings.id($x); } }
+  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = b.strings.id($x); } }
   f[at + 4] = o.life;
   f[at + 5] = o.speed;
 }
@@ -1676,37 +1676,37 @@ export function syncFullBeam(b, f, at, h, m) {
 // Object `o`'s import fields into a row (lists to `heap`).
 export function putBeam(b, o, f, at, heap) {
   f[at + 2] = o.networkFireChannel;
-  { const $x = o.historyTick; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f.fill(0, at + 4, at + 5); } else { f[at + 3] = 0; f[at + 4] = $x; } }
+  { const $x = o.historyTick; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; } else { f[at + 3] = 0; f[at + 4] = $x; } }
   f[at + 5] = b.defs.ordnance.id(o.def);
   putOrdnanceOwner(b, o.owner, f, at + 6, heap);
   putBeamSource(b, o.source, f, at + 9, heap);
-  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f.fill(0, at + 13, at + 15); } else { f[at + 12] = 0; b.refs[KIND_BODY].put($x, f, at + 13); } }
+  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; f[at + 14] = 0; } else { f[at + 12] = 0; b.refs[KIND_BODY].put($x, f, at + 13); } }
   f[at + 15] = o.life;
   f[at + 16] = o.duration;
   f[at + 17] = o.effectTime;
   { const $v = o.position; f[at + 18] = $v.x; f[at + 19] = $v.y; f[at + 20] = $v.z; }
   { const $v = o.end; f[at + 21] = $v.x; f[at + 22] = $v.y; f[at + 23] = $v.z; }
   { const $v = o.direction; f[at + 24] = $v.x; f[at + 25] = $v.y; f[at + 26] = $v.z; }
-  { const $x = o.localOrigin; if ($x === null || $x === undefined) { f[at + 27] = $x === null ? 1 : 2; f.fill(0, at + 28, at + 31); } else { f[at + 27] = 0; { const $v = $x; f[at + 28] = $v.x; f[at + 29] = $v.y; f[at + 30] = $v.z; } } }
-  { const $x = o.damageDef?.Damage; if ($x === null || $x === undefined) { f[at + 31] = $x === null ? 1 : 2; f.fill(0, at + 32, at + 33); } else { f[at + 31] = 0; f[at + 32] = $x; } }
+  { const $x = o.localOrigin; if ($x === null || $x === undefined) { f[at + 27] = $x === null ? 1 : 2; f[at + 28] = 0; f[at + 29] = 0; f[at + 30] = 0; } else { f[at + 27] = 0; { const $v = $x; f[at + 28] = $v.x; f[at + 29] = $v.y; f[at + 30] = $v.z; } } }
+  { const $x = o.damageDef?.Damage; if ($x === null || $x === undefined) { f[at + 31] = $x === null ? 1 : 2; f[at + 32] = 0; } else { f[at + 31] = 0; f[at + 32] = $x; } }
 }
 
 // Every field of object `o` into a row.
 export function putFullBeam(b, o, f, at, heap) {
   f[at + 2] = o.networkFireChannel;
-  { const $x = o.historyTick; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f.fill(0, at + 4, at + 5); } else { f[at + 3] = 0; f[at + 4] = $x; } }
+  { const $x = o.historyTick; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; } else { f[at + 3] = 0; f[at + 4] = $x; } }
   f[at + 5] = b.defs.ordnance.id(o.def);
   putOrdnanceOwner(b, o.owner, f, at + 6, heap);
   putBeamSource(b, o.source, f, at + 9, heap);
-  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f.fill(0, at + 13, at + 15); } else { f[at + 12] = 0; b.refs[KIND_BODY].put($x, f, at + 13); } }
+  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; f[at + 14] = 0; } else { f[at + 12] = 0; b.refs[KIND_BODY].put($x, f, at + 13); } }
   f[at + 15] = o.life;
   f[at + 16] = o.duration;
   f[at + 17] = o.effectTime;
   { const $v = o.position; f[at + 18] = $v.x; f[at + 19] = $v.y; f[at + 20] = $v.z; }
   { const $v = o.end; f[at + 21] = $v.x; f[at + 22] = $v.y; f[at + 23] = $v.z; }
   { const $v = o.direction; f[at + 24] = $v.x; f[at + 25] = $v.y; f[at + 26] = $v.z; }
-  { const $x = o.localOrigin; if ($x === null || $x === undefined) { f[at + 27] = $x === null ? 1 : 2; f.fill(0, at + 28, at + 31); } else { f[at + 27] = 0; { const $v = $x; f[at + 28] = $v.x; f[at + 29] = $v.y; f[at + 30] = $v.z; } } }
-  { const $x = o.damageDef?.Damage; if ($x === null || $x === undefined) { f[at + 31] = $x === null ? 1 : 2; f.fill(0, at + 32, at + 33); } else { f[at + 31] = 0; f[at + 32] = $x; } }
+  { const $x = o.localOrigin; if ($x === null || $x === undefined) { f[at + 27] = $x === null ? 1 : 2; f[at + 28] = 0; f[at + 29] = 0; f[at + 30] = 0; } else { f[at + 27] = 0; { const $v = $x; f[at + 28] = $v.x; f[at + 29] = $v.y; f[at + 30] = $v.z; } } }
+  { const $x = o.damageDef?.Damage; if ($x === null || $x === undefined) { f[at + 31] = $x === null ? 1 : 2; f[at + 32] = 0; } else { f[at + 31] = 0; f[at + 32] = $x; } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -1853,18 +1853,18 @@ export function putBolt(b, o, f, at, heap) {
   f[at + 7] = o.networkFireChannel;
   f[at + 8] = o.networkFireUnit;
   f[at + 9] = o.networkFireGeneration;
-  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f.fill(0, at + 11, at + 13); } else { f[at + 10] = 0; b.refs[KIND_BODY].put($x, f, at + 11); } }
+  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f[at + 11] = 0; f[at + 12] = 0; } else { f[at + 10] = 0; b.refs[KIND_BODY].put($x, f, at + 11); } }
   { const $v = o.position; f[at + 13] = $v.x; f[at + 14] = $v.y; f[at + 15] = $v.z; }
   { const $v = o.direction; f[at + 16] = $v.x; f[at + 17] = $v.y; f[at + 18] = $v.z; }
   f[at + 19] = o.speed;
   f[at + 20] = o.life;
   f[at + 21] = o.drawn;
   f[at + 22] = o.flown;
-  { const $x = o.offset; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f.fill(0, at + 24, at + 27); } else { f[at + 23] = 0; { const $v = $x; f[at + 24] = $v.x; f[at + 25] = $v.y; f[at + 26] = $v.z; } } }
+  { const $x = o.offset; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f[at + 24] = 0; f[at + 25] = 0; f[at + 26] = 0; } else { f[at + 23] = 0; { const $v = $x; f[at + 24] = $v.x; f[at + 25] = $v.y; f[at + 26] = $v.z; } } }
   f[at + 27] = o.merge;
   { const $x = o.impact; if ($x === null || $x === undefined) { f[at + 28] = $x === null ? 1 : 2; f.fill(0, at + 29, at + 44); } else { f[at + 28] = 0; putImpact(b, $x, f, at + 29, heap); } }
-  { const $x = o.previousFlown; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f.fill(0, at + 45, at + 46); } else { f[at + 44] = 0; f[at + 45] = $x; } }
-  { const $x = o.previousDrawn; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f.fill(0, at + 47, at + 48); } else { f[at + 46] = 0; f[at + 47] = $x; } }
+  { const $x = o.previousFlown; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f[at + 45] = 0; } else { f[at + 44] = 0; f[at + 45] = $x; } }
+  { const $x = o.previousDrawn; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f[at + 47] = 0; } else { f[at + 46] = 0; f[at + 47] = $x; } }
 }
 
 // Every field of object `o` into a row.
@@ -1875,18 +1875,18 @@ export function putFullBolt(b, o, f, at, heap) {
   f[at + 7] = o.networkFireChannel;
   f[at + 8] = o.networkFireUnit;
   f[at + 9] = o.networkFireGeneration;
-  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f.fill(0, at + 11, at + 13); } else { f[at + 10] = 0; b.refs[KIND_BODY].put($x, f, at + 11); } }
+  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f[at + 11] = 0; f[at + 12] = 0; } else { f[at + 10] = 0; b.refs[KIND_BODY].put($x, f, at + 11); } }
   { const $v = o.position; f[at + 13] = $v.x; f[at + 14] = $v.y; f[at + 15] = $v.z; }
   { const $v = o.direction; f[at + 16] = $v.x; f[at + 17] = $v.y; f[at + 18] = $v.z; }
   f[at + 19] = o.speed;
   f[at + 20] = o.life;
   f[at + 21] = o.drawn;
   f[at + 22] = o.flown;
-  { const $x = o.offset; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f.fill(0, at + 24, at + 27); } else { f[at + 23] = 0; { const $v = $x; f[at + 24] = $v.x; f[at + 25] = $v.y; f[at + 26] = $v.z; } } }
+  { const $x = o.offset; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f[at + 24] = 0; f[at + 25] = 0; f[at + 26] = 0; } else { f[at + 23] = 0; { const $v = $x; f[at + 24] = $v.x; f[at + 25] = $v.y; f[at + 26] = $v.z; } } }
   f[at + 27] = o.merge;
   { const $x = o.impact; if ($x === null || $x === undefined) { f[at + 28] = $x === null ? 1 : 2; f.fill(0, at + 29, at + 44); } else { f[at + 28] = 0; putImpact(b, $x, f, at + 29, heap); } }
-  { const $x = o.previousFlown; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f.fill(0, at + 45, at + 46); } else { f[at + 44] = 0; f[at + 45] = $x; } }
-  { const $x = o.previousDrawn; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f.fill(0, at + 47, at + 48); } else { f[at + 46] = 0; f[at + 47] = $x; } }
+  { const $x = o.previousFlown; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f[at + 45] = 0; } else { f[at + 44] = 0; f[at + 45] = $x; } }
+  { const $x = o.previousDrawn; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f[at + 47] = 0; } else { f[at + 46] = 0; f[at + 47] = $x; } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -2048,12 +2048,12 @@ export function putGrenade(b, o, f, at, heap) {
   f[at + 20] = o.slow;
   f[at + 21] = o.resting ? 1 : 0;
   f[at + 22] = o.flight;
-  { const $x = o.fuse; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f.fill(0, at + 24, at + 25); } else { f[at + 23] = 0; f[at + 24] = $x; } }
+  { const $x = o.fuse; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f[at + 24] = 0; } else { f[at + 23] = 0; f[at + 24] = $x; } }
   { const $v = o.spin; f[at + 25] = $v.x; f[at + 26] = $v.y; f[at + 27] = $v.z; }
   { const $v = o.quaternion; f[at + 28] = $v.x; f[at + 29] = $v.y; f[at + 30] = $v.z; f[at + 31] = $v.w; }
-  { const $x = o.sinking; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f.fill(0, at + 33, at + 34); } else { f[at + 32] = 0; f[at + 33] = $x ? 1 : 0; } }
-  { const $x = o.touched; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f.fill(0, at + 35, at + 36); } else { f[at + 34] = 0; f[at + 35] = $x ? 1 : 0; } }
-  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f.fill(0, at + 37, at + 38); } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
+  { const $x = o.sinking; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f[at + 33] = 0; } else { f[at + 32] = 0; f[at + 33] = $x ? 1 : 0; } }
+  { const $x = o.touched; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f[at + 35] = 0; } else { f[at + 34] = 0; f[at + 35] = $x ? 1 : 0; } }
+  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f[at + 37] = 0; } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
 }
 
 // Every field of object `o` into a row.
@@ -2069,12 +2069,12 @@ export function putFullGrenade(b, o, f, at, heap) {
   f[at + 20] = o.slow;
   f[at + 21] = o.resting ? 1 : 0;
   f[at + 22] = o.flight;
-  { const $x = o.fuse; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f.fill(0, at + 24, at + 25); } else { f[at + 23] = 0; f[at + 24] = $x; } }
+  { const $x = o.fuse; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f[at + 24] = 0; } else { f[at + 23] = 0; f[at + 24] = $x; } }
   { const $v = o.spin; f[at + 25] = $v.x; f[at + 26] = $v.y; f[at + 27] = $v.z; }
   { const $v = o.quaternion; f[at + 28] = $v.x; f[at + 29] = $v.y; f[at + 30] = $v.z; f[at + 31] = $v.w; }
-  { const $x = o.sinking; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f.fill(0, at + 33, at + 34); } else { f[at + 32] = 0; f[at + 33] = $x ? 1 : 0; } }
-  { const $x = o.touched; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f.fill(0, at + 35, at + 36); } else { f[at + 34] = 0; f[at + 35] = $x ? 1 : 0; } }
-  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f.fill(0, at + 37, at + 38); } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
+  { const $x = o.sinking; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f[at + 33] = 0; } else { f[at + 32] = 0; f[at + 33] = $x ? 1 : 0; } }
+  { const $x = o.touched; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f[at + 35] = 0; } else { f[at + 34] = 0; f[at + 35] = $x ? 1 : 0; } }
+  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f[at + 37] = 0; } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -2328,7 +2328,7 @@ export function syncFullRound(b, f, at, h, m) {
 export function putRound(b, o, f, at, heap) {
   f[at + 2] = RoundKind_INDEX.get(o.kind);
   f[at + 3] = o.networkFireChannel;
-  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f.fill(0, at + 5, at + 7); } else { f[at + 4] = 0; b.refs[KIND_BODY].put($x, f, at + 5); } }
+  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; f[at + 6] = 0; } else { f[at + 4] = 0; b.refs[KIND_BODY].put($x, f, at + 5); } }
   f[at + 7] = b.defs.ordnance.id(o.def);
   putOrdnanceOwner(b, o.owner, f, at + 8, heap);
   { const $v = o.position; f[at + 11] = $v.x; f[at + 12] = $v.y; f[at + 13] = $v.z; }
@@ -2341,21 +2341,21 @@ export function putRound(b, o, f, at, heap) {
   f[at + 41] = o.gravity;
   f[at + 42] = o.ramp;
   { const $v = o.desired; f[at + 43] = $v.x; f[at + 44] = $v.y; f[at + 45] = $v.z; }
-  { const $x = o.targetId; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f.fill(0, at + 47, at + 48); } else { f[at + 46] = 0; f[at + 47] = $x; } }
-  { const $x = o.targetGeneration; if ($x === null || $x === undefined) { f[at + 48] = $x === null ? 1 : 2; f.fill(0, at + 49, at + 50); } else { f[at + 48] = 0; f[at + 49] = $x; } }
+  { const $x = o.targetId; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f[at + 47] = 0; } else { f[at + 46] = 0; f[at + 47] = $x; } }
+  { const $x = o.targetGeneration; if ($x === null || $x === undefined) { f[at + 48] = $x === null ? 1 : 2; f[at + 49] = 0; } else { f[at + 48] = 0; f[at + 49] = $x; } }
   { const $v = o.phase; f[at + 50] = $v[0]; f[at + 51] = $v[1]; }
   { const $v = o.quaternion; f[at + 52] = $v.x; f[at + 53] = $v.y; f[at + 54] = $v.z; f[at + 55] = $v.w; }
-  { const $x = o.struck; if ($x === null || $x === undefined) { f[at + 56] = $x === null ? 1 : 2; f.fill(0, at + 57, at + 59); } else { f[at + 56] = 0; heap.list(b.refs[KIND_UNIT], $x, f, at + 57); } }
-  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 59] = $x === null ? 1 : 2; f.fill(0, at + 60, at + 61); } else { f[at + 59] = 0; f[at + 60] = $x ? 1 : 0; } }
-  { const $x = o.flightMissile; if ($x === null || $x === undefined) { f[at + 61] = $x === null ? 1 : 2; f.fill(0, at + 62, at + 63); } else { f[at + 61] = 0; f[at + 62] = $x ? 1 : 0; } }
-  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 63] = $x === null ? 1 : 2; f.fill(0, at + 64, at + 65); } else { f[at + 63] = 0; f[at + 64] = b.strings.id($x); } }
+  { const $x = o.struck; if ($x === null || $x === undefined) { f[at + 56] = $x === null ? 1 : 2; f[at + 57] = 0; f[at + 58] = 0; } else { f[at + 56] = 0; heap.list(b.refs[KIND_UNIT], $x, f, at + 57); } }
+  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 59] = $x === null ? 1 : 2; f[at + 60] = 0; } else { f[at + 59] = 0; f[at + 60] = $x ? 1 : 0; } }
+  { const $x = o.flightMissile; if ($x === null || $x === undefined) { f[at + 61] = $x === null ? 1 : 2; f[at + 62] = 0; } else { f[at + 61] = 0; f[at + 62] = $x ? 1 : 0; } }
+  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 63] = $x === null ? 1 : 2; f[at + 64] = 0; } else { f[at + 63] = 0; f[at + 64] = b.strings.id($x); } }
 }
 
 // Every field of object `o` into a row.
 export function putFullRound(b, o, f, at, heap) {
   f[at + 2] = RoundKind_INDEX.get(o.kind);
   f[at + 3] = o.networkFireChannel;
-  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f.fill(0, at + 5, at + 7); } else { f[at + 4] = 0; b.refs[KIND_BODY].put($x, f, at + 5); } }
+  { const $x = o.ignoreBody; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; f[at + 6] = 0; } else { f[at + 4] = 0; b.refs[KIND_BODY].put($x, f, at + 5); } }
   f[at + 7] = b.defs.ordnance.id(o.def);
   putOrdnanceOwner(b, o.owner, f, at + 8, heap);
   { const $v = o.position; f[at + 11] = $v.x; f[at + 12] = $v.y; f[at + 13] = $v.z; }
@@ -2368,14 +2368,14 @@ export function putFullRound(b, o, f, at, heap) {
   f[at + 41] = o.gravity;
   f[at + 42] = o.ramp;
   { const $v = o.desired; f[at + 43] = $v.x; f[at + 44] = $v.y; f[at + 45] = $v.z; }
-  { const $x = o.targetId; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f.fill(0, at + 47, at + 48); } else { f[at + 46] = 0; f[at + 47] = $x; } }
-  { const $x = o.targetGeneration; if ($x === null || $x === undefined) { f[at + 48] = $x === null ? 1 : 2; f.fill(0, at + 49, at + 50); } else { f[at + 48] = 0; f[at + 49] = $x; } }
+  { const $x = o.targetId; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f[at + 47] = 0; } else { f[at + 46] = 0; f[at + 47] = $x; } }
+  { const $x = o.targetGeneration; if ($x === null || $x === undefined) { f[at + 48] = $x === null ? 1 : 2; f[at + 49] = 0; } else { f[at + 48] = 0; f[at + 49] = $x; } }
   { const $v = o.phase; f[at + 50] = $v[0]; f[at + 51] = $v[1]; }
   { const $v = o.quaternion; f[at + 52] = $v.x; f[at + 53] = $v.y; f[at + 54] = $v.z; f[at + 55] = $v.w; }
-  { const $x = o.struck; if ($x === null || $x === undefined) { f[at + 56] = $x === null ? 1 : 2; f.fill(0, at + 57, at + 59); } else { f[at + 56] = 0; heap.list(b.refs[KIND_UNIT], $x, f, at + 57); } }
-  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 59] = $x === null ? 1 : 2; f.fill(0, at + 60, at + 61); } else { f[at + 59] = 0; f[at + 60] = $x ? 1 : 0; } }
-  { const $x = o.flightMissile; if ($x === null || $x === undefined) { f[at + 61] = $x === null ? 1 : 2; f.fill(0, at + 62, at + 63); } else { f[at + 61] = 0; f[at + 62] = $x ? 1 : 0; } }
-  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 63] = $x === null ? 1 : 2; f.fill(0, at + 64, at + 65); } else { f[at + 63] = 0; f[at + 64] = b.strings.id($x); } }
+  { const $x = o.struck; if ($x === null || $x === undefined) { f[at + 56] = $x === null ? 1 : 2; f[at + 57] = 0; f[at + 58] = 0; } else { f[at + 56] = 0; heap.list(b.refs[KIND_UNIT], $x, f, at + 57); } }
+  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 59] = $x === null ? 1 : 2; f[at + 60] = 0; } else { f[at + 59] = 0; f[at + 60] = $x ? 1 : 0; } }
+  { const $x = o.flightMissile; if ($x === null || $x === undefined) { f[at + 61] = $x === null ? 1 : 2; f[at + 62] = 0; } else { f[at + 61] = 0; f[at + 62] = $x ? 1 : 0; } }
+  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 63] = $x === null ? 1 : 2; f[at + 64] = 0; } else { f[at + 63] = 0; f[at + 64] = b.strings.id($x); } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a

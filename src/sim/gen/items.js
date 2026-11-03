@@ -29,7 +29,7 @@ export function syncItemOwner(b, f, at, h, current) {
 
 export function putItemOwner(b, x, f, at, heap) {
   const i = whichItemOwner(b, x);
-  f.fill(0, at + 1, at + 3);
+  f[at + 1] = 0; f[at + 2] = 0;
   f[at] = i;
   switch (i) {
     case 2: b.refs[KIND_UNIT].put(x, f, at + 1); break;
@@ -170,7 +170,7 @@ export function syncModelAnswer(b, f, at, h, m) {
 export function putModelAnswer(b, o, f, at, heap) {
   f[at + 0] = o.mesh ? 1 : 0;
   f[at + 1] = o.radius;
-  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f.fill(0, at + 3, at + 6); } else { f[at + 2] = 0; { const $v = $x; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; } } }
+  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 2] = 0; { const $v = $x; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; } } }
 }
 
 export function sameModelAnswer(a, b) {
@@ -626,7 +626,7 @@ export function syncDropEntry(b, f, at, h, m) {
 }
 
 export function putDropEntry(b, o, f, at, heap) {
-  { const $x = o.def; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f.fill(0, at + 1, at + 2); } else { f[at + 0] = 0; f[at + 1] = b.defs.item.id($x); } }
+  { const $x = o.def; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; } else { f[at + 0] = 0; f[at + 1] = b.defs.item.id($x); } }
   f[at + 2] = o.probabilityTag;
   f[at + 3] = o.probability;
 }
@@ -848,14 +848,14 @@ export function putItem(b, o, f, at, heap) {
   f[at + 17] = o.landed ? 1 : 0;
   f[at + 18] = o.sinking ? 1 : 0;
   f[at + 19] = o.radius;
-  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 24); } else { f[at + 20] = 0; { const $v = $x; f[at + 21] = $v.x; f[at + 22] = $v.y; f[at + 23] = $v.z; } } }
-  { const $x = o.turn; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f.fill(0, at + 25, at + 29); } else { f[at + 24] = 0; { const $v = $x; f[at + 25] = $v.x; f[at + 26] = $v.y; f[at + 27] = $v.z; f[at + 28] = $v.w; } } }
+  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; f[at + 22] = 0; f[at + 23] = 0; } else { f[at + 20] = 0; { const $v = $x; f[at + 21] = $v.x; f[at + 22] = $v.y; f[at + 23] = $v.z; } } }
+  { const $x = o.turn; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f[at + 25] = 0; f[at + 26] = 0; f[at + 27] = 0; f[at + 28] = 0; } else { f[at + 24] = 0; { const $v = $x; f[at + 25] = $v.x; f[at + 26] = $v.y; f[at + 27] = $v.z; f[at + 28] = $v.w; } } }
   putItemOwner(b, o.owner, f, at + 29, heap);
   f[at + 32] = o.team;
   f[at + 33] = o.age;
   f[at + 34] = o.life;
   f[at + 35] = o.health;
-  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f.fill(0, at + 37, at + 38); } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
+  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f[at + 37] = 0; } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
 }
 
 // Every field of object `o` into a row.
@@ -870,14 +870,14 @@ export function putFullItem(b, o, f, at, heap) {
   f[at + 17] = o.landed ? 1 : 0;
   f[at + 18] = o.sinking ? 1 : 0;
   f[at + 19] = o.radius;
-  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 24); } else { f[at + 20] = 0; { const $v = $x; f[at + 21] = $v.x; f[at + 22] = $v.y; f[at + 23] = $v.z; } } }
-  { const $x = o.turn; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f.fill(0, at + 25, at + 29); } else { f[at + 24] = 0; { const $v = $x; f[at + 25] = $v.x; f[at + 26] = $v.y; f[at + 27] = $v.z; f[at + 28] = $v.w; } } }
+  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; f[at + 22] = 0; f[at + 23] = 0; } else { f[at + 20] = 0; { const $v = $x; f[at + 21] = $v.x; f[at + 22] = $v.y; f[at + 23] = $v.z; } } }
+  { const $x = o.turn; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f[at + 25] = 0; f[at + 26] = 0; f[at + 27] = 0; f[at + 28] = 0; } else { f[at + 24] = 0; { const $v = $x; f[at + 25] = $v.x; f[at + 26] = $v.y; f[at + 27] = $v.z; f[at + 28] = $v.w; } } }
   putItemOwner(b, o.owner, f, at + 29, heap);
   f[at + 32] = o.team;
   f[at + 33] = o.age;
   f[at + 34] = o.life;
   f[at + 35] = o.health;
-  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f.fill(0, at + 37, at + 38); } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
+  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f[at + 37] = 0; } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a

@@ -190,7 +190,8 @@ export class MirrorPool {
 // and maps hold.
 export class Heap {
   constructor() { this.words = []; this.pair = [0, 0]; }
-  clear() { this.words.length = 0; }
+  // (Truncating an array costs even when it is empty, as most are.)
+  clear() { if (this.words.length) this.words.length = 0; }
   list(refs, items, f, at) {
     const words = this.words, pair = this.pair, start = words.length;
     let n = 0;
