@@ -1423,11 +1423,17 @@ leave to stay on with them.
   each frame the page copies the instances whose slots changed into the
   renderer's copy. They are drawn after the near scene's world, soldiers,
   ground and foliage, as three's own draw of them already came after the
-  renderer's world. Three alone sorts them by their material's id, which on
-  Naboo: Theed puts them before every one of the map's buckets: where a leaf
-  card and a surface meet at the same depth, the order decides the sample
-  (see the table below), and drawn first, every leaf fragment is shaded,
-  then most are covered.
+  renderer's world. This order differs from three alone on purpose, as the
+  far scene's image drawn last does: three sorts the canopies by their
+  material's id, which on Naboo: Theed puts them before every one of the
+  map's buckets, so every leaf fragment is shaded and most are then
+  covered; drawn after what hides them, the hidden ones fail the depth test
+  before they are shaded (on the slow laptop the frame's GPU time there fell
+  from 33 to 20 ms, below). Where a leaf card and a surface meet at the same
+  depth, the order decides the sample: at three points of a walk on Theed,
+  three alone with only the canopies moved after every other opaque item
+  gave the renderer's image to the pixel at all three, and differed from
+  three as it is by 0, 8 and 0 pixels.
 - The Enhanced ocean. The sea's surface is a mesh of its own in the near and
   far scenes, with crest spray over it, and on a sea the map rains on
   (Kamino) a storm: a panorama of clouds drawn over the sky by a
