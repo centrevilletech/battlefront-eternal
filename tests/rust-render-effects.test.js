@@ -861,6 +861,42 @@ test("a burning piece: a flying part made with a heated material, its heat and l
   assert.deepEqual([...core.input.subarray(at + R.EXTRA + 4, at + R.EXTRA + 13)].map((v) => +v.toFixed(3)), [0.75, 0.2, 0.8, 0.5, 1, 2, 3, 0.5, 0.125], "its heat, base, scale, soot, tear and dissolve");
 });
 
+test("the arc caster's shock glow: a rig of the struck body's buffers and skeleton that blends, its values in its row", async () => {
+  const { ArcLightning } = await import("../src/arc-lightning.js");
+  const { core, calls, scene, camera, renderer, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+  geometry.setIndex([0, 1, 2]);
+  const bodyMaterial = new THREE.ShaderMaterial();
+  const body = new THREE.SkinnedMesh(geometry, bodyMaterial), bone = new THREE.Bone(), root = new THREE.Group();
+  body.add(bone); body.bind(new THREE.Skeleton([bone]));
+  body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2);
+  body.userData.poseSphere = true;
+  root.add(body); root.position.z = -6;
+  scene.add(root);
+  const arcs = new ArcLightning(scene, {});
+  const overlay = arcs.overlay({ body, root });
+  overlay.visible = true;
+  const u = overlay.material.uniforms;
+  u.shockTime.value = 2.5; u.intensity.value = 0.75; u.seed.value = 0.125; u.color.value.setRGB(0.25, 0.5, 1);
+  drawn(overlay.material, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "boneTexture", "bindMatrix", "bindMatrixInverse", "shockTime", "intensity", "seed", "inflate", "color"],
+    ["position", "normal", "skinIndex", "skinWeight"]));
+  scene.updateMatrixWorld(true);
+  renderer.info.render.frame++;
+  core.pass(renderer, scene, camera);
+  assert.equal(overlay.material.visible, false, "the renderer's");
+  const blend = calls.find((c) => c[0] === "inst_add_blend");
+  assert.deepEqual([...blend[1]], [1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], "added");
+  const at = core.recordsAt, R = { LOOK: 52, EXTRA: 76 };
+  assert.equal(core.input[at], 3, "a rig that blends");
+  assert.deepEqual([...core.input.subarray(at + R.EXTRA + 4, at + R.EXTRA + 11)].map((v) => +v.toFixed(3)), [2.5, 0.75, 0.125, 0.012, 0.25, 0.5, 1], "its clock, intensity, seed, inflation and colour");
+  assert.deepEqual([...core.input.subarray(at + R.LOOK, at + R.LOOK + 4)], [1, 0, 0, 1], "no look of its own");
+});
+
 test("a flying part that blends: a rigid record of its own kind, one blend for every copy, three's key for the transparent list", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
   const glow = new THREE.ShaderMaterial({ name: "zero:unlit", defines: { UNLIT: "", SCROLL: "", BLENDED: "" }, transparent: true, depthWrite: false, side: THREE.DoubleSide,

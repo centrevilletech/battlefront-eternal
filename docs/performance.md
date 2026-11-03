@@ -1126,9 +1126,9 @@ frame. Hiding a dynamic batch from three needs the batch's own flag: three
 uploads a visible mesh's changed attributes as it lists it, whether or not
 its material is shown. A shader that kept a value of its own under a name the
 frame block gives the frame's (the shield's, the rain's, the droideka's
-dust's, the jetpack's wake's and flame's, the destruction's and the death
-camera's trace's clocks, their fades) has it renamed, so its program can
-take the frame block.
+dust's, the jetpack's wake's and flame's, the destruction's, the death
+camera's trace's and the shock glow's clocks, their fades) has it renamed,
+so its program can take the frame block.
 
 A shader model calls its object's `onBeforeRender` each frame as three
 would. The steam's volumes are drawn by three into a target of their own
@@ -1153,7 +1153,12 @@ blends (the scrolling glow of a dropped health power-up) is an item of the
 transparent list, as a vehicle's rig that blends is (the jedi fighter's and
 the gunship's glass): the instance pass is one of the list's sources, and
 draws it with three's program for each side three draws it with, its
-blending and depth, at the place three's sort would draw it.
+blending and depth, at the place three's sort would draw it. A part made
+with a heated material (the destruction's burning pieces) takes its heat
+and its light from its object, as a dissolving body does. The arc caster's
+glow over a struck soldier, his body's buffers and skeleton drawn again in
+light, is a rig that blends too, its clock, intensity, seed, inflation and
+colour in its row (in the texels a heated body's values use).
 
 Checked on the slow-PC emulator (SwiftShader, 800x600, 2x multisampling,
 the Classic looks): at six points of a seeded battle on Bespin, Hoth and

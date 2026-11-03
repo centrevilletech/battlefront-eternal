@@ -10,8 +10,10 @@
 // its row's (writeExtras); a body in other materials of its own goes back
 // to three. A rig whose material blends (bes1's jedi fighter) is drawn by
 // the renderer as an item of the transparent list (instances.rs
-// KIND_BLENDED), at the place three's sort would draw it, and so is a
-// flying model's part that blends (a round's glow: KIND_BLENDED_RIGID).
+// KIND_BLENDED), at the place three's sort would draw it, and so are the arc
+// caster's shock glow over a struck body (a rig of his body's buffers and
+// skeleton, its values in its row) and a flying model's part that blends (a
+// round's glow: KIND_BLENDED_RIGID).
 //
 // Only what three's render lists by the camera's frustum is written, culled
 // here as three culls it (the renderer culls the records again by the same
@@ -40,9 +42,12 @@ const LOOK = new Set(["sunScale", "ambientPull", "brightness"]);
 // look, point lights), and lamp lighting's, read only while lamps are off
 // (each soldier's four nearest lamps would be per instance otherwise).
 // A material's own values an instance gives from its row (shader.rs
-// EXTRAS): a scrolling texture's speed, and a heated copy's (destruction-
-// debris.js heatMaterial).
-const EXTRAS = ["scroll", "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve"];
+// EXTRAS): a scrolling texture's speed, a heated copy's (destruction-
+// debris.js heatMaterial), and the arc caster's shock glow's (arc-
+// lightning.js shockMaterial: in the heated values' place, an overlay being
+// never heated).
+const SHOCK = ["shockTime", "intensity", "seed", "inflate", "color"];
+const EXTRAS = ["scroll", "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve", ...SHOCK];
 const INSTANCE = ["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "bindMatrix", ...LOOK, "zeroLights", "zeroLightCount", ...EXTRAS];
 const LAMPS = ["localLightPositions", "localLightColors", "localLightCount"];
 const policy = (samplers) => ({ uniforms: new Set([...samplers, ...INSTANCE, ...LAMPS]), material: LOOK });
@@ -85,6 +90,11 @@ function writeExtras(input, o, uniforms, heated) {
     const t = heated.tear;
     input[e + 8] = t.x; input[e + 9] = t.y; input[e + 10] = t.z; input[e + 11] = t.w;
     input[e + 12] = heated.dissolve;
+  } else if (uniforms?.shockTime) {
+    // A shock glow's clock, intensity, seed and inflation, then its colour.
+    input[e + 4] = uniforms.shockTime.value; input[e + 5] = uniforms.intensity.value; input[e + 6] = uniforms.seed.value; input[e + 7] = uniforms.inflate.value;
+    const c = uniforms.color.value;
+    input[e + 8] = c.r; input[e + 9] = c.g; input[e + 10] = c.b; input[e + 11] = 0; input[e + 12] = 0;
   } else for (let k = 4; k < 13; k++) input[e + k] = 0;
   for (let k = 13; k < 20; k++) input[e + k] = 0;
 }
@@ -233,7 +243,9 @@ class InstancePass {
   // found through their roots.
   findRigs() {
     const found = [];
-    this.core.graphics.scene.traverse((o) => { if (o.isSkinnedMesh && !o.userData.poseSphere && o.name !== "body-shadow" && !Array.isArray(o.material)) found.push(o); });
+    // (Not the arc caster's warm-up stand-in, which three draws for its
+    // first frames to build its program and which then takes itself away.)
+    this.core.graphics.scene.traverse((o) => { if (o.isSkinnedMesh && !o.userData.poseSphere && o.name !== "body-shadow" && o.name !== "arc-shock-warm" && !Array.isArray(o.material)) found.push(o); });
     this.rigList = found;
   }
 
@@ -350,7 +362,10 @@ class InstancePass {
     // from the object), as are its heat and dissolve.
     const heated = record.heated ? body.userData.heated : null;
     if (heated) { input[o + R.LOOK] = heated.sun; input[o + R.LOOK + 1] = heated.darken; input[o + R.LOOK + 2] = heated.lighten; input[o + R.LOOK + 3] = heated.brightness; }
-    else { const look = record.look; input[o + R.LOOK] = look.sunScale.value; input[o + R.LOOK + 1] = look.ambientPull.value.x; input[o + R.LOOK + 2] = look.ambientPull.value.y; input[o + R.LOOK + 3] = look.brightness.value; }
+    else if (record.look.sunScale) { const look = record.look; input[o + R.LOOK] = look.sunScale.value; input[o + R.LOOK + 1] = look.ambientPull.value.x; input[o + R.LOOK + 2] = look.ambientPull.value.y; input[o + R.LOOK + 3] = look.brightness.value; }
+    // A material with no look of its own (a shock glow's): what three's
+    // defaults would be, unread by its program.
+    else { input[o + R.LOOK] = 1; input[o + R.LOOK + 1] = 0; input[o + R.LOOK + 2] = 0; input[o + R.LOOK + 3] = 1; }
     writeExtras(input, o, record.used[0].uniforms, heated);
     input[o + R.FLAGS] = flagsOf(record.used[0]);
     at.records++;
