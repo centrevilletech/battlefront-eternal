@@ -89,9 +89,18 @@ const hit = { point: new THREE.Vector3(), normal: new THREE.Vector3() };
 // separate cones around the view (origin, dir: where the reticle points).
 // A cannon's targeting fields still colour its reticle, but never start
 // launcher state 4.
-export function updateWeaponLock(weapon, dt, { units, collision, origin, dir, viewer, ignoreBody = null, target } = {}) {
+export function updateWeaponLock(weapon, dt, options = {}) {
   if (!hasMissileLock(weapon.def)) return;
-  if (!units || !origin || !dir) { weapon.clearLock(); return; }
+  const picked = lockPick(weapon, options);
+  if (picked === undefined) { weapon.clearLock(); return; }
+  weapon.updateLock(dt, picked?.unit);
+}
+
+// What a launcher's lock picks along a view ({ unit }, or null for nothing
+// in reach), or undefined when there are no units, origin or view to look
+// with (the lock is then cleared).
+export function lockPick(weapon, { units, collision, origin, dir, viewer, ignoreBody = null, target } = {}) {
+  if (!units || !origin || !dir) return undefined;
   const relation = units.relation ? (a, b) => units.relation(a, b) : undefined;
   const los = (from, to, source, candidate) => {
     direction.subVectors(to, from);
@@ -110,7 +119,7 @@ export function updateWeaponLock(weapon, dt, { units, collision, origin, dir, vi
     picked = weapon.lockComplete && current && findLockTarget({ ...options, units: [current], angle: weapon.def.LockOffAngle || weapon.def.LockOnAngle });
     picked ||= findLockTarget({ ...options, units, angle: weapon.def.LockOnAngle });
   }
-  weapon.updateLock(dt, picked?.unit);
+  return picked;
 }
 
 // The original HUD's eight five-unit radial ticks. The horizontal camera

@@ -32,6 +32,7 @@
 // unless the state asks for it whole: expand(object).
 import { units } from './units.mjs';
 import { seats } from './seats.mjs';
+import { combat } from './combat.mjs';
 
 export class Expand {
   constructor(value) { this.value = value; }
@@ -185,6 +186,32 @@ const vehicles = {
   ],
 };
 
+// AI navigation's planner (P13): each request and service, with the
+// queue the store declares (rust/sim/schema/nav.mjs) and the scalars a
+// replay checks while the search's own state is not declared yet. The
+// barriers the search tests are the map's content, which a replay loads
+// with the map; what a service publishes is on the owners (also not
+// declared yet), so the frame records the pools and the served count a
+// publish moves. The full request-level gate, native against these
+// calls recorded from battles, is tools/nav-twin.mjs.
+const navPlannerState = (game, args, cap) => {
+  const planner = game.ai.nav.planner;
+  return {
+    planner: cap.export('pathPlanner', planner),
+    pools: { paths: planner.pools.paths.used, nodes: planner.pools.nodes.used },
+    searching: !planner.search.finished,
+    served: planner.served,
+  };
+};
+const navPlanner = {
+  frames: [
+    { method: 'navPlanner.request', target: (game) => game.ai.nav.planner,
+      state: navPlannerState, boundaries: () => [] },
+    { method: 'navPlanner.service', target: (game) => game.ai.nav.planner,
+      state: navPlannerState, boundaries: () => [] },
+  ],
+};
+
 // Nothing but the tick records (every phase's draws and the fingerprints):
 // the cheapest capture, for the draw order of every phase.
 const ticks = { frames: [] };
@@ -193,4 +220,6 @@ const ticks = { frames: [] };
 // the soldiers pushed apart (tools/sim-capture/units.mjs). The seats (flip
 // F2 with the hulls and flight): the hulls' seats and the turret crews
 // (tools/sim-capture/seats.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units, seats };
+// The combat package (flip F3 with units): a soldier's combat, what hurts
+// him and his new lives (tools/sim-capture/combat.mjs).
+export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, seats };

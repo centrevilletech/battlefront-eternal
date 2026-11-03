@@ -263,6 +263,13 @@ class FarPass {
       const value = material.uniforms[name].value;
       if (type === SAMPLER_2D) {
         if (fixed) {
+          // None: three binds its empty texture (a texel of zeros) there.
+          if (value === null || value === undefined) {
+            const id = core.texture(this.emptyTexture());
+            if (id < 0) return undefined;
+            sources.push([index, SRC.TEXTURE, null, id]);
+            continue;
+          }
           if (!value?.isTexture) return null;
           const id = core.texture(value);
           if (id < 0) return undefined;
@@ -429,6 +436,16 @@ class FarPass {
     this.core.rust.far_terrain(id, n, index instanceof Uint32Array ? index : Uint32Array.from(index), cells);
   }
 
+  // What a sampler three is given no texture for reads: three's empty
+  // texture, one texel of zeros.
+  emptyTexture() {
+    if (!this.empty) {
+      this.empty = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+      this.empty.needsUpdate = true;
+    }
+    return this.empty;
+  }
+
   // A plain program (Kind::Plain) for three's: its GLSL as it is.
   plainProgram(threeProgram) {
     let entry = this.plainPrograms.get(threeProgram);
@@ -470,7 +487,8 @@ class FarPass {
         if (!d.sampler) continue;
         const value = uniforms[d.name].value;
         if (value?.isTexture) this.upload(value);
-        d.id = value?.isTexture ? core.texture(value) : -1;
+        // None: three's empty texture, as for a fixed one.
+        d.id = core.texture(value?.isTexture ? value : this.emptyTexture());
       }
     }
   }

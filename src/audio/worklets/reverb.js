@@ -45,6 +45,12 @@ function dspExports(options) {
   }
 }
 
+// Views of `count` runs of 128 samples (a block each) from `ptr` in the
+// module's memory: the staging a call reads or fills.
+function dspViews(x, ptr, count) {
+  return Array.from({ length: count }, (_, i) => new Float32Array(x.memory.buffer, ptr + i * 512, 128));
+}
+
 class Reverb extends AudioWorkletProcessor {
   constructor(options) {
     super();
@@ -106,13 +112,13 @@ class Reverb extends AudioWorkletProcessor {
     const { x, h } = d;
     const input = inputs[0] || [];
     const out = outputs[0];
-    if (!d.inView || d.inView.byteLength === 0) {
-      d.inView = new Float32Array(x.memory.buffer, x.reverb_in(h), 16 * 128);
-      d.outView = new Float32Array(x.memory.buffer, x.reverb_out(h), 16 * 128);
+    if (!d.ins || d.ins[0].byteLength === 0) {
+      d.ins = dspViews(x, x.reverb_in(h), 16);
+      d.outs = dspViews(x, x.reverb_out(h), 16);
     }
-    for (let c = 0; c < input.length; c++) d.inView.set(input[c], c * 128);
+    for (let c = 0; c < input.length; c++) d.ins[c].set(input[c]);
     x.reverb_process(h, input.length, out.length);
-    for (let c = 0; c < out.length; c++) out[c].set(d.outView.subarray(c * 128, (c + 1) * 128));
+    for (let c = 0; c < out.length; c++) out[c].set(d.outs[c]);
     return true;
   }
 
