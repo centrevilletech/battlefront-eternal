@@ -126,6 +126,26 @@ function stamp(skeleton, info) {
   updatedAt.set(skeleton, -1);
 }
 
+// three's programs for meshes' materials, built or found without a draw
+// (renderer.compile), for the scene and camera three is about to draw them
+// for: what a first draw would have given them. entries: [mesh, materials]
+// (those of its materials it draws with: a body's array also holds its
+// guns', never drawn on it), the mesh holding them alone while compiled.
+export function compileFor(renderer, entries, camera, scene) {
+  const each = (fn) => { for (const [mesh] of entries) fn(mesh); };
+  const held = entries.map(([mesh, materials]) => { const own = mesh.material; mesh.material = materials; return own; });
+  try {
+    renderer.compile({ traverse: each, traverseVisible: each }, camera, scene);
+  } finally {
+    entries.forEach(([mesh], i) => { mesh.material = held[i]; });
+  }
+}
+
+// Whether three has no program for a material (or for one of a mesh's) yet.
+export function unbuilt(renderer, material) {
+  return [].concat(material).some((m) => m && !renderer.properties.get(m).currentProgram);
+}
+
 class InstancePass {
   constructor(core) {
     this.core = core;
@@ -146,6 +166,55 @@ class InstancePass {
     this.projScreen = new THREE.Matrix4();
     // The count three's render listed the scene at (writeBody).
     this.listed = -1;
+    // What beforeSort found new this frame.
+    this.fresh = [];
+    this.presortFailed = false;
+  }
+
+  // Before three lists the frame's own render of the near scene (the core's
+  // watchScene): the soldiers' bodies and guns, the rigs and the flying parts
+  // not seen yet, registered now and so hidden from three before it lists
+  // them (the renderer draws them from their first frame), their materials'
+  // programs built by three first where it has none yet (compileFor).
+  beforeSort(renderer, scene, camera, target) {
+    const graphics = this.core.graphics;
+    if (this.active === false || this.presortFailed || scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
+    try {
+      const fresh = this.fresh, roots = graphics.playerRoot ? [...graphics.cullRoots, graphics.playerRoot] : graphics.cullRoots;
+      fresh.length = 0;
+      const add = (mesh, materials) => { if (unbuilt(renderer, materials)) fresh.push([mesh, materials]); };
+      for (const root of roots) this.newParts(root, (o) => add(o, o.isSkinnedMesh ? this.usedOf(o) : o.material));
+      if (this.rigsOn && this.rigList) for (const mesh of this.rigList) if (!this.bodies.has(mesh)) add(mesh, mesh.material);
+      if (this.flyingPending?.size) for (const group of this.flyingPending) group.traverse((o) => { if (o.isMesh && !this.flyingByMesh.has(o)) add(o, o.material); });
+      if (fresh.length) compileFor(renderer, fresh, camera, scene);
+      fresh.length = 0;
+      for (const root of roots) this.newParts(root, (o) => { if (o.isSkinnedMesh) this.registerBody(o); else this.registerMesh(o); });
+      if (this.rigsOn && this.rigList) for (const mesh of this.rigList) if (!this.bodies.has(mesh)) this.registerRig(mesh);
+      if (this.flyingRecords) this.registerPending();
+    } catch (error) {
+      this.core.errors.push(`instances before sort failed: ${String(error?.stack || error).slice(0, 400)}`);
+      this.presortFailed = true;
+    }
+  }
+
+  // The materials a body's groups draw with (its groups merged as the
+  // renderer draws them).
+  usedOf(body) {
+    const all = [].concat(body.material), merged = this.core.groups(body.geometry);
+    return [...new Set(merged.length ? merged.map((g) => all[g.materialIndex]) : [all[0]])];
+  }
+
+  // A shown soldier's body and guns not registered yet (as soldier() would
+  // meet them), each to fn.
+  newParts(root, fn) {
+    const parts = root.userData.parts;
+    if (!parts || !root.visible) return;
+    const { body, hand } = parts;
+    if (body && !this.bodies.has(body)) fn(body);
+    for (const group of hand?.children || []) {
+      if (!group.visible || !group.isGroup) continue;
+      for (const mesh of group.children) if (mesh.isMesh && mesh.visible && !this.meshes.has(mesh)) fn(mesh);
+    }
   }
 
   // ctx: the phase's camera, and what has been written to the renderer's
@@ -443,18 +512,7 @@ class InstancePass {
   // material (destruction.js heats a wreck's) goes back to three.
   flying(camera, at) {
     if (!this.flyingRecords) this.watchFlying();
-    if (this.flyingPending.size) {
-      for (const group of this.flyingPending) {
-        let waiting = false;
-        group.traverse((o) => {
-          if (!o.isMesh || this.flyingByMesh.has(o)) return;
-          const record = this.registerFlying(o);
-          if (record === undefined) waiting = true;
-          else this.flyingByMesh.set(o, record);
-        });
-        if (!waiting) this.flyingPending.delete(group);
-      }
-    }
+    this.registerPending();
     const scene = this.core.graphics.scene, mask = camera.layers.mask;
     for (let i = 0; i < this.flyingRecords.length; i++) {
       const record = this.flyingRecords[i], mesh = record.mesh;
@@ -470,6 +528,21 @@ class InstancePass {
       if (shown && o === scene && this.inView(mesh)) at = this.writeMesh(record, at);
     }
     return at;
+  }
+
+  // The flying groups added and not all registered yet: their parts
+  // registered (or left to three) as their models' programs come.
+  registerPending() {
+    for (const group of this.flyingPending) {
+      let waiting = false;
+      group.traverse((o) => {
+        if (!o.isMesh || this.flyingByMesh.has(o)) return;
+        const record = this.registerFlying(o);
+        if (record === undefined) waiting = true;
+        else this.flyingByMesh.set(o, record);
+      });
+      if (!waiting) this.flyingPending.delete(group);
+    }
   }
 
   // The scene's flying groups, now and as the game adds and removes them: a

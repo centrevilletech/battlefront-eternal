@@ -1501,3 +1501,71 @@ test("what each effect's onBeforeRender asks of the scene's depth in three's ren
   for (const [kind, mesh, batch] of cases) assert.equal(asked(mesh), kindCopies(kind, batch), `${kind} (${mesh.name})`);
   assert.equal(kindCopies("arc", { source: new ArcBatch(4, { soft: false }) }), null, "the first-person view's arcs take none");
 });
+
+test("new this frame: a soldier, his gun and a particle batch registered as three starts its render, their programs built without a draw", () => {
+  const { core, calls, scene, camera, renderer, frame, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  const target = core.graphics.sceneTarget;
+  // three's compile: programs for what it is given (as a first draw would give them), no draw.
+  const compiled = [];
+  const skinned = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"],
+    ["position", "skinIndex", "skinWeight"]);
+  const rigid = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]);
+  renderer.compile = (list, cam, s) => {
+    assert.equal(cam, camera); assert.equal(s, scene);
+    list.traverse((o) => { compiled.push([o.name, [].concat(o.material).length]); for (const m of [].concat(o.material)) drawn(m, o.isSkinnedMesh ? skinned : m.isShaderMaterial && m.defines?.DYNAMIC !== undefined ? rigid : CPU_PROGRAM); });
+  };
+  const look = () => ({ map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } });
+  const bodyMaterial = new THREE.ShaderMaterial({ defines: { RIGID_SKIN: "" }, uniforms: look() });
+  const gunMaterial = new THREE.ShaderMaterial({ defines: { DYNAMIC: "" }, uniforms: look() });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+  geometry.setIndex([0, 1, 2]);
+  // The actor's array: his body's material, then (combat.js) his gun's, never drawn on the body.
+  const body = new THREE.SkinnedMesh(geometry, [bodyMaterial, gunMaterial]), bone = new THREE.Bone(), root = new THREE.Group(), hand = new THREE.Group(), gunGroup = new THREE.Group();
+  body.name = "body";
+  body.add(bone);
+  body.bind(new THREE.Skeleton([bone]));
+  body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+  body.userData.poseSphere = true;
+  const gunGeometry = new THREE.BufferGeometry();
+  gunGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  gunGeometry.setIndex([0, 1, 2]);
+  const gun = new THREE.Mesh(gunGeometry, gunMaterial);
+  gun.name = "gun";
+  gunGroup.add(gun); hand.add(gunGroup); root.add(body, hand);
+  root.position.z = -5;
+  root.userData.parts = { body, hand };
+  scene.add(root);
+  core.graphics.cullRoots.push(root);
+  const particles = new ParticleRenderer(scene);
+  const batch = particles.batch(new THREE.Texture(), "additive", "bolt");
+  batch.mesh.name = "batch";
+  particles.begin(); batch.push(0, 0, -5, 1, 1, 1, 0.5, 0.2, 0, STREAK, 4, [0, 0, 1], [0.5, 0, 0]); particles.end();
+  assert.equal(batch.mesh.visible, true);
+  // three starts its render of the near scene (another render's start does nothing).
+  scene.onBeforeRender(renderer, scene, new THREE.PerspectiveCamera(), target);
+  assert.equal(compiled.length, 0, "a mirror's or another camera's render: nothing");
+  scene.updateMatrixWorld(true);
+  scene.onBeforeRender(renderer, scene, camera, target);
+  assert.deepEqual(compiled.map(([name]) => name).sort(), ["batch", "body", "gun"]);
+  assert.deepEqual(compiled.find(([name]) => name === "body")[1], 1, "the body compiled with the materials it draws with, not the gun's");
+  assert.equal(body.material.length, 2, "its own array kept");
+  assert.equal(bodyMaterial.visible, false, "hidden from three before three lists it");
+  assert.equal(gunMaterial.visible, false);
+  assert.equal(batch.external, true);
+  assert.equal(batch.mesh.visible, false);
+  assert.equal(calls.filter((c) => c[0] === "fx_add_batch").length, 1);
+  // The same frame's phases: drawn by the renderer from this frame.
+  renderer.info.render.frame++;
+  core.pass(renderer, scene, camera);
+  assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "the body and the gun written");
+  frame();
+  assert.equal(core.fxInput[0], 1, "the batch drawn");
+  // Nothing new: nothing compiled again.
+  compiled.length = 0;
+  scene.onBeforeRender(renderer, scene, camera, target);
+  assert.equal(compiled.length, 0);
+});

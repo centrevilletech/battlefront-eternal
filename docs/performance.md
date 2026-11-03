@@ -1092,7 +1092,12 @@ render order, the centre of its bounding sphere through its world matrix,
 its id), and the renderer works out z as three's `projectObject` does and
 draws the item between the items three still draws, where three would have.
 Their simulation stays in the page. Each is registered the first time three
-has drawn it, with three's own program, then hidden from three:
+has drawn it, with three's own program, then hidden from three. A particle
+batch new this frame (and a soldier, his guns, a rig or a flying part, for
+the instance pass) is registered before three lists the scene instead: as
+three starts its render of the near scene (the scene's `onBeforeRender`),
+three builds its material's program without a draw (`renderer.compile`)
+where it has none yet, and the renderer draws it from its first frame:
 
 | What | Page | Kind | Hidden from three by |
 | --- | --- | --- | --- |
