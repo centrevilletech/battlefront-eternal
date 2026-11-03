@@ -56,7 +56,14 @@ class InstancePass {
     for (const root of graphics.cullRoots) this.soldier(root, camera, ctx);
     if (graphics.playerRoot) this.soldier(graphics.playerRoot, camera, ctx);
     if (this.rigsOn) this.rigs(camera, ctx);
-    this.flying(camera, ctx);
+    // An error with the flying models gives them back to three for good.
+    if (!this.flyingFailed) {
+      try { this.flying(camera, ctx); } catch (error) {
+        this.core.errors.push(`flying models failed: ${String(error?.stack || error).slice(0, 400)}`);
+        this.flyingFailed = true;
+        try { this.restoreFlying(); } catch {}
+      }
+    }
     this.frames++;
   }
 
@@ -329,9 +336,14 @@ class InstancePass {
 
   // Everything three may draw again, for good: the flying parts' layers.
   restore() {
+    this.restoreFlying();
+  }
+
+  restoreFlying() {
     this.flyingActive(false);
     this.flyingRecords = [];
     this.flyingPending?.clear();
+    this.flyingFailed = true;
   }
 }
 

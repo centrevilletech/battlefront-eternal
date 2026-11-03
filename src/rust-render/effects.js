@@ -570,7 +570,21 @@ class EffectsPass {
   }
 
   // The transparent phase, before the renderer's call: the frame's draws.
+  // An error here gives the effects back to three for good (this frame's
+  // are not drawn) rather than breaking three's render around it.
   draw(ctx) {
+    try {
+      this.drawFrame(ctx);
+    } catch (error) {
+      this.core.errors.push(`effects failed: ${String(error?.stack || error).slice(0, 400)}`);
+      console.warn("Rust effects pass failed, three draws the effects:", error);
+      this.failed = true;
+      try { this.core.views(); this.core.fxInput[IN_DRAWS] = 0; } catch {}
+      try { this.setActive(false); } catch (e) { this.core.errors.push(`effects restore: ${String(e).slice(0, 200)}`); }
+    }
+  }
+
+  drawFrame(ctx) {
     const core = this.core;
     this.frame++;
     if (!this.active) {
@@ -734,6 +748,7 @@ class EffectsPass {
   // Off: three draws everything again, everything uploaded anew; on: it
   // comes back here, written in full the first frame.
   setActive(on) {
+    on = on && !this.failed;
     this.active = on;
     for (const record of this.records) {
       const b = record.batch;

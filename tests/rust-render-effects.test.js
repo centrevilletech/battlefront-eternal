@@ -503,3 +503,24 @@ test("the Enhanced sniper's trace: two batches, their instances written interlea
   core.setActive(true);
   assert.equal(streaks.external, true);
 });
+
+test("an error in the effects pass gives the effects back to three for good, three's render going on", () => {
+  const { core, scene, frame, drawn } = bridge();
+  const particles = new ParticleRenderer(scene);
+  const batch = particles.batch(new THREE.Texture(), "additive");
+  const fill = () => { particles.begin(); batch.push(0, 0, 0, 1, 1, 1, 1, 0.2, 0, STREAK, 1, [0, 0, 1], [1, 0, 0]); particles.end(); };
+  fill();
+  drawn(batch.material, CPU_PROGRAM);
+  frame();
+  fill();
+  assert.equal(batch.external, true);
+  // A batch the pass can't read.
+  batch.arrays.iPosition = null;
+  assert.doesNotThrow(() => frame());
+  assert.equal(core.fxInput[0], 0, "nothing drawn of it this frame");
+  assert.equal(batch.external, false, "three's again");
+  assert.ok(core.errors.some((e) => e.startsWith("effects failed")));
+  core.setActive(false);
+  core.setActive(true);
+  assert.equal(batch.external, false, "for good");
+});
