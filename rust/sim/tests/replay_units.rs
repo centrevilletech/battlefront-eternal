@@ -13,7 +13,7 @@
 //! Without a corpus the tests pass without replaying (CI has no game data).
 #![cfg(feature = "replay")]
 
-use bfe_sim::gen::{Replay, Unit};
+use bfe_sim::gen::{Replay, Unit, UnitBody};
 use bfe_sim::pose::Clip;
 use bfe_sim::rig::droideka::{Barrel, DroidekaRig, Gun, CLIPS};
 use bfe_sim::rig::skeleton::{BoneDesc, Skeleton};
@@ -519,6 +519,419 @@ fn unit_ticks_replay_as_captured() {
     let Some(corpus) = Corpus::from_env().unwrap() else { return };
     let mut contents = Contents::new();
     let report = replay_corpus(&corpus, "Unit.tick", |capture, frame| outcome(unit_tick(capture, frame, &mut contents))).unwrap();
+    println!("{}", report.summary());
+    report.assert_clean();
+}
+
+// ---- The registry's queries (units.raycast, units.query) and the separation.
+
+use bfe_sim::gen::{Droideka, Half, Held, Member, Posture, ShapePart, ShapeType, Soldier, Units};
+use bfe_sim::store::{Nullable, Ref, Slab};
+use bfe_sim::units::registry::{Exclude, UnitHit};
+use bfe_sim::units::separate::{separate, Pushers, Scope};
+
+fn num_or(v: V, d: f64) -> f64 {
+    v.opt_num().unwrap_or(d)
+}
+
+fn shape_of(v: V) -> Result<HitShape, String> {
+    let center = v.get("center").vec3().ok_or("a shape without a centre")?;
+    let half_size = v.get("halfSize").vec3().ok_or("a shape without halfSize")?;
+    // `half` is a number, or the vector halfSize is (the same object).
+    let half = match v.get("half").vec3() {
+        Some(h) => Half::Vec3(h),
+        None => Half::F64(v.get("half").num()),
+    };
+    Ok(HitShape {
+        r#type: ShapeType::NAMES.iter().position(|n| Some(*n) == v.get("type").str()).and_then(|i| ShapeType::from_u8(i as u8)).ok_or("a shape of no known type")?,
+        part: if v.get("part").str() == Some("head") { ShapePart::Head } else { ShapePart::Body },
+        center,
+        radius: v.get("radius").num(),
+        half,
+        yaw: v.get("yaw").num(),
+        half_size,
+    })
+}
+
+/// A unit as a query reads it (the capture's hitValue), in the store's form.
+fn hit_unit(v: V) -> Result<(u32, Unit), String> {
+    let id = v.get("id").num() as u32;
+    let posture = match v.get("posture").str() {
+        Some("crouch") => Posture::Crouch,
+        Some("prone") => Posture::Prone,
+        _ => Posture::Stand,
+    };
+    let air = match v.get("air").str() {
+        Some("jump") => Some(bfe_sim::gen::Air::Jump),
+        Some("fall") => Some(bfe_sim::gen::Air::Fall),
+        Some("thrown") => Some(bfe_sim::gen::Air::Thrown),
+        Some("jet") => Some(bfe_sim::gen::Air::Jet),
+        _ => None,
+    };
+    let position = v.get("position").vec3().ok_or("no position")?;
+    let walker = v.get("walker").truthy();
+    let soldier = if walker {
+        UnitBody::Droideka(Droideka { position, aim_yaw: v.get("aimYaw").num(), mode: if v.get("rolled").truthy() { 12.0 } else { 0.0 }, ball_radius: v.get("ballRadius").num(), ..Default::default() })
+    } else {
+        UnitBody::Soldier(Soldier { position, aim_yaw: v.get("aimYaw").num(), posture, dive: v.get("dive").num(), air, ..Default::default() })
+    };
+    let shapes = v.get("shapes").items().map(shape_of).collect::<Result<Vec<_>, _>>()?;
+    let rider_hits = if v.get("riderHits").is_nullish() { None } else { Some(v.get("riderHits").items().map(shape_of).collect::<Result<Vec<_>, _>>()?) };
+    let unit = Unit {
+        alive: v.get("alive").truthy(),
+        dead: v.get("dead").truthy(),
+        removed: v.get("removed").truthy(),
+        walker,
+        root_scale: v.get("rootScale").num(),
+        seat: if v.get("seat").truthy() { Some(Ref::new(0, 0)) } else { None },
+        held: if v.get("held").truthy() { Nullable::Value(Held { prop: None, since: 0.0, frame: Nullable::Value([0.0; 16]), time: None }) } else { Nullable::Undefined },
+        tick_count: v.get("tickCount").num(),
+        spheres_tick: v.get("spheresTick").num(),
+        shape_count: v.get("shapeCount").num(),
+        bounds: Bounds { center: v.get("bounds").get("center").vec3().ok_or("no bounds")?, radius: v.get("bounds").get("radius").num() },
+        shapes,
+        rider_hits,
+        soldier,
+        ..Default::default()
+    };
+    // Which array its hit shapes are follows from their count (units.mjs).
+    let rider = v.get("hitSet").str() == Some("riderHits");
+    if rider != unit.rider_set() && !(unit.shape_count == 0.0) {
+        return Err(format!("unit {id}: hitSet {} with {} shapes, which its count does not tell", v.get("hitSet").show(), unit.shape_count));
+    }
+    Ok((id, unit))
+}
+
+/// The registry's members and units as a query found them.
+fn registry_of(members: V) -> Result<(Units, Slab<Unit>, HashMap<u32, V>), String> {
+    let mut registry = Units::default();
+    let mut units = Slab::default();
+    let mut targets = HashMap::new();
+    for m in members.items() {
+        if !m.get("unit").is_nullish() {
+            let (id, unit) = hit_unit(m.get("unit"))?;
+            units.insert_at(id, 0, unit);
+            registry.list.push(Member::Unit(Ref::new(id, 0)));
+        } else {
+            let t = m.get("target");
+            let id = t.get("id").num() as u32;
+            registry.list.push(match t.get("target").str() {
+                Some("vehicle") => Member::VehicleTarget(Ref::new(id, 0)),
+                Some("turret") => Member::TurretTarget(Ref::new(id, 0)),
+                _ => Member::ObjectiveTarget(Ref::new(id, 0)),
+            });
+            targets.insert(id, t);
+        }
+    }
+    Ok((registry, units, targets))
+}
+
+/// A query's or raycast's world: seats' exposure, riders' and held bodies'
+/// shapes (as the frame's end has them: written once a tick by the call
+/// that made them), and targets' spheres, served in order.
+struct QueryWorld<'f> {
+    frame: &'f Frame,
+    log: Log<'f>,
+    before: HashMap<u32, V<'f>>,
+    after: HashMap<u32, V<'f>>,
+    targets: HashMap<u32, V<'f>>,
+    error: Option<Mismatch>,
+}
+
+impl QueryWorld<'_> {
+    fn fail(&mut self, what: String) {
+        if self.error.is_none() {
+            self.error = Some(Mismatch(format!("{}: {what}", self.frame.place())));
+        }
+    }
+
+    fn shapes_after(&mut self, id: u32, shapes: &mut [HitShape]) -> usize {
+        let Some(a) = self.after.get(&id).copied() else { return 0 };
+        for (i, s) in a.get("riderHits").items().enumerate().take(shapes.len()) {
+            match shape_of(s) {
+                Ok(s) => shapes[i] = s,
+                Err(e) => self.fail(e),
+            }
+        }
+        if a.get("hitSet").str() == Some("riderHits") { a.get("shapeCount").num() as usize } else { 0 }
+    }
+}
+
+impl UnitsWorld for QueryWorld<'_> {
+    fn cast(&mut self, _o: &Vector3, _d: &Vector3, _f: f64) -> Option<CastHit> {
+        self.fail("a cast in a query".into());
+        None
+    }
+    fn gather(&mut self, _id: u32, _c: &Vector3, _r: f64, _cache: usize, _out: &mut Vec<GatherPolygon>) {
+        self.fail("a gather in a query".into());
+    }
+    fn seat_exposed(&mut self, id: u32, _unit: &Unit) -> bool {
+        self.before.get(&id).is_some_and(|u| u.get("seatExposed").truthy())
+    }
+    fn rider_shapes(&mut self, id: u32, _unit: &Unit, shapes: &mut [HitShape]) -> usize {
+        self.shapes_after(id, shapes)
+    }
+    fn held_shapes(&mut self, id: u32, _unit: &Unit, shapes: &mut [HitShape]) -> usize {
+        self.shapes_after(id, shapes)
+    }
+    fn target_alive(&mut self, id: u32) -> bool {
+        self.targets.get(&id).is_some_and(|t| t.get("alive").truthy())
+    }
+    fn target_dead(&mut self, id: u32) -> bool {
+        self.targets.get(&id).is_some_and(|t| t.get("dead").truthy())
+    }
+    fn target_sphere(&mut self, id: u32) -> Bounds {
+        let Some(t) = self.targets.get(&id).copied() else { return Bounds::default() };
+        let label = match t.get("target").str() {
+            Some("vehicle") => "vehicle.sphere",
+            Some("turret") => "turret.sphere",
+            _ => "building.sphere",
+        };
+        let call = match self.log.call(label) {
+            Ok(c) => c,
+            Err(e) => {
+                self.fail(e.0);
+                return Bounds::default();
+            }
+        };
+        let center = call.out(0).vec3().unwrap_or([f64::NAN; 3]);
+        let radius = if label == "vehicle.sphere" { t.get("boundRadius").num() } else { call.result().num() };
+        Bounds { center, radius }
+    }
+    fn move_soldier(&mut self, _id: u32, _unit: &mut Unit, _h: f64) {}
+    fn damage(&mut self, _id: u32, _unit: &mut Unit, _amount: f64) {}
+    fn aim(&mut self, _id: u32, _unit: &mut Unit, _h: f64) {}
+    fn has_remote_step(&mut self, _id: u32, _unit: &Unit) -> bool {
+        false
+    }
+    fn remote_step(&mut self, _id: u32, _unit: &mut Unit, _h: f64, _active: bool) {}
+    fn combat_update(&mut self, _id: u32, _unit: &mut Unit, _h: f64, _stick: f64) {}
+    fn flush_muzzles(&mut self, _id: u32, _unit: &mut Unit) {}
+    fn clear_charge(&mut self, _id: u32, _unit: &mut Unit) {}
+    fn death_blast(&mut self, _id: u32, _unit: &mut Unit) {}
+    fn blow_apart(&mut self, _id: u32, _unit: &mut Unit, _health: f64) {}
+    fn let_go_of_character(&mut self, _id: u32, _unit: &mut Unit) {}
+    fn release(&mut self, _id: u32, _unit: &Unit) {}
+}
+
+/// The member a handle in a query's arguments or answer names: the
+/// capture names every member of the registry, targets too, by a `unit`
+/// handle with its registry id.
+fn member_of(v: V, targets: &HashMap<u32, V>) -> Option<Member> {
+    let id = v.handle_num("unit")? as u32;
+    Some(match targets.get(&id).map(|t| t.get("target").str()) {
+        None => Member::Unit(Ref::new(id, 0)),
+        Some(Some("vehicle")) => Member::VehicleTarget(Ref::new(id, 0)),
+        Some(Some("turret")) => Member::TurretTarget(Ref::new(id, 0)),
+        Some(_) => Member::ObjectiveTarget(Ref::new(id, 0)),
+    })
+}
+
+/// Each unit's hit shapes as the frame left them, against the capture's.
+fn check_hits(frame: &Frame, units: &Slab<Unit>, after: &HashMap<u32, V>) -> Result<(), Mismatch> {
+    for (&id, a) in after {
+        let Some(u) = units.get(Ref::new(id, 0)) else { continue };
+        let fail = |what: String| Mismatch(format!("{}: unit {id} {what}", frame.place()));
+        for (k, mine) in [("tickCount", u.tick_count), ("spheresTick", u.spheres_tick), ("shapeCount", u.shape_count), ("bounds.radius", u.bounds.radius)] {
+            let theirs = if k == "bounds.radius" { a.get("bounds").get("radius") } else { a.get(k) };
+            check_num(k, theirs, mine).map_err(|e| fail(e.0))?;
+        }
+        check_vec3("bounds.center", a.get("bounds").get("center"), u.bounds.center).map_err(|e| fail(e.0))?;
+        let hits: Vec<V> = if u.rider_set() { a.get("riderHits").items().collect() } else { a.get("shapes").items().collect() };
+        if (a.get("hitSet").str() == Some("riderHits")) != u.rider_set() {
+            return Err(fail(format!("hitSet {} | rider set {}", a.get("hitSet").show(), u.rider_set())));
+        }
+        for (i, (theirs, mine)) in hits.iter().zip(u.hit_set()).enumerate().take(u.shape_count as usize) {
+            let t = shape_of(*theirs).map_err(fail)?;
+            if t != *mine && !(t.center.iter().zip(mine.center).all(|(x, y)| x.to_bits() == y.to_bits())) {
+                return Err(fail(format!("shape {i}: the capture's {t:?} | the port's {mine:?}")));
+            }
+            if format!("{t:?}") != format!("{mine:?}") {
+                return Err(fail(format!("shape {i}: the capture's {t:?} | the port's {mine:?}")));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A registry's units' values by id.
+fn by_id(members: V<'_>) -> HashMap<u32, V<'_>> {
+    members.items().filter(|m| !m.get("unit").is_nullish()).map(|m| (m.get("unit").get("id").num() as u32, m.get("unit"))).collect()
+}
+
+fn registry_frame(frame: &Frame, raycast: bool) -> Result<Option<String>, Mismatch> {
+    let before = frame.before();
+    if before.get("skipped").truthy() {
+        return Ok(Some("written in part (one of many a tick)".into()));
+    }
+    let place = |e: String| Mismatch(format!("{}: {e}", frame.place()));
+    let (registry, mut units, targets) = registry_of(before.get("members")).map_err(place)?;
+    let after_members = frame.after().get("members");
+    let mut world = QueryWorld { frame, log: Log::new(frame), before: by_id(before.get("members")), after: by_id(after_members), targets: targets.clone(), error: None };
+    // The caller's filter: its answers as captured, each asked about the
+    // same member.
+    let answers: Vec<(V, bool)> = {
+        let f: Vec<V> = frame.after().get("filtered").items().collect();
+        f.chunks(2).map(|p| (p[0], p[1].truthy())).collect()
+    };
+    let mut asked = 0usize;
+    let mut filter_error: Option<String> = None;
+    let mut filter = |m: Member| -> bool {
+        let Some((who, answer)) = answers.get(asked).copied() else {
+            filter_error.get_or_insert_with(|| format!("the filter asked {} times, the capture {}", asked + 1, answers.len()));
+            return false;
+        };
+        asked += 1;
+        if member_of(who, &targets) != Some(m) {
+            filter_error.get_or_insert_with(|| format!("the filter asked about {m:?}, the capture about {}", who.show()));
+        }
+        answer
+    };
+    let has_filter = frame.arg(if raycast { 5 } else { 3 }).function().is_some();
+    if raycast {
+        let (origin, direction) = (vec3(frame.arg(0)).ok_or_else(|| place("no origin".into()))?, vec3(frame.arg(1)).ok_or_else(|| place("no direction".into()))?);
+        let far = frame.arg(2).num();
+        let ex = frame.arg(3);
+        let many: Vec<Member> = ex.items().filter_map(|x| member_of(x, &targets)).collect();
+        let exclude = if ex.is_nullish() {
+            Exclude::Nobody
+        } else if ex.node().is_some() && ex.handle().is_none() {
+            Exclude::Many(&many)
+        } else {
+            member_of(ex, &targets).map_or(Exclude::Nobody, Exclude::One)
+        };
+        let riders = frame.arg(6).truthy();
+        let hit: Option<UnitHit> = registry.raycast(&mut units, &origin, &direction, far, exclude, if has_filter { Some(&mut filter) } else { None }, riders, &mut world);
+        if let Some(e) = filter_error.take() {
+            return Err(place(e));
+        }
+        if let Some(e) = world.error.take() {
+            return Err(e);
+        }
+        let r = frame.result();
+        match (r.is_nullish(), hit) {
+            (true, None) => {}
+            (false, Some(h)) => {
+                if r.get("unit").handle_num("unit") != Some(h.unit as f64) {
+                    return Err(place(format!("hit unit: the capture's {} | the port's {}", r.get("unit").show(), h.unit)));
+                }
+                check_num("hit distance", r.get("distance"), h.distance).map_err(|e| place(e.0))?;
+                check_vec3("hit point", r.get("point"), [h.point.x, h.point.y, h.point.z]).map_err(|e| place(e.0))?;
+                check_vec3("hit normal", r.get("normal"), [h.normal.x, h.normal.y, h.normal.z]).map_err(|e| place(e.0))?;
+                if r.get("part").str() != Some(ShapePart::NAMES[h.part as usize]) {
+                    return Err(place(format!("hit part: the capture's {} | the port's {}", r.get("part").show(), ShapePart::NAMES[h.part as usize])));
+                }
+            }
+            _ => return Err(place(format!("hit: the capture's {} | the port's {hit:?}", r.show()))),
+        }
+    } else {
+        let center = vec3(frame.arg(0)).ok_or_else(|| place("no centre".into()))?;
+        let radius = frame.arg(1).num();
+        let mut out = Vec::new();
+        registry.query(&mut units, &center, radius, &mut out, if has_filter { Some(&mut filter) } else { None }, &mut world);
+        if let Some(e) = filter_error.take() {
+            return Err(place(e));
+        }
+        if let Some(e) = world.error.take() {
+            return Err(e);
+        }
+        let theirs: Vec<Option<Member>> = frame.result().items().map(|x| member_of(x, &targets)).collect();
+        let mine: Vec<Option<Member>> = out.iter().map(|m| Some(*m)).collect();
+        if theirs != mine {
+            return Err(place(format!("the query's answer: the capture's {theirs:?} | the port's {mine:?}")));
+        }
+    }
+    if asked != answers.len() {
+        return Err(place(format!("the filter asked {asked} times, the capture {}", answers.len())));
+    }
+    world.log.finish()?;
+    let after = by_id(after_members);
+    check_hits(frame, &units, &after)?;
+    Ok(None)
+}
+
+fn separate_frame(frame: &Frame) -> Result<Option<String>, Mismatch> {
+    let before = frame.before();
+    let place = |e: String| Mismatch(format!("{}: {e}", frame.place()));
+    let mut registry = Units::default();
+    let mut units: Slab<Unit> = Slab::default();
+    for m in before.get("members").items() {
+        let id = m.get("id").num() as u32;
+        if !m.get("unit").truthy() {
+            registry.list.push(Member::ObjectiveTarget(Ref::new(id, 0)));
+            continue;
+        }
+        let position = m.get("position").vec3().ok_or_else(|| place("no position".into()))?;
+        let walker = m.get("walker").truthy();
+        let soldier = if walker {
+            UnitBody::Droideka(Droideka { position, ..Default::default() })
+        } else {
+            let posture = match m.get("posture").str() {
+                Some("crouch") => Posture::Crouch,
+                Some("prone") => Posture::Prone,
+                _ => Posture::Stand,
+            };
+            let air = if m.get("air").truthy() { Some(bfe_sim::gen::Air::Jump) } else { None };
+            UnitBody::Soldier(Soldier { position, posture, dive: num_or(m.get("dive"), 0.0), air, ..Default::default() })
+        };
+        let unit = Unit {
+            seat: if m.get("seat").truthy() { Some(Ref::new(0, 0)) } else { None },
+            held: if m.get("held").truthy() { Nullable::Null.or_held() } else { Nullable::Undefined },
+            removed: m.get("removed").truthy(),
+            alive: m.get("alive").truthy(),
+            dead: m.get("dead").truthy(),
+            walker,
+            tick_count: m.get("tickCount").num(),
+            soldier,
+            ..Default::default()
+        };
+        units.insert_at(id, 0, unit);
+        registry.list.push(Member::Unit(Ref::new(id, 0)));
+    }
+    let camera = before.get("camera").vec3().unwrap_or([0.0; 3]);
+    let scope = Scope {
+        player: Some(before.get("player").num() as u32),
+        player_out: before.get("driver").truthy() || before.get("gunner").truthy() || before.get("playerDead").truthy(),
+        global: before.get("global").truthy(),
+        camera: Vector3 { x: camera[0], y: camera[1], z: camera[2] },
+    };
+    separate(&registry, &mut units, &scope, &mut Pushers::default());
+    for m in frame.after().get("members").items() {
+        if !m.get("unit").truthy() {
+            continue;
+        }
+        let id = m.get("id").num() as u32;
+        let u = units.get(Ref::new(id, 0)).unwrap();
+        let p = u.position();
+        check_vec3(&format!("unit {id} position"), m.get("position"), [p.x, p.y, p.z]).map_err(|e| place(e.0))?;
+        check_num(&format!("unit {id} tickCount"), m.get("tickCount"), u.tick_count).map_err(|e| place(e.0))?;
+    }
+    Ok(None)
+}
+
+trait OrHeld {
+    fn or_held(self) -> Nullable<Held>;
+}
+impl OrHeld for Nullable<Held> {
+    fn or_held(self) -> Nullable<Held> {
+        Nullable::Value(Held { prop: None, since: 0.0, frame: Nullable::Undefined, time: None })
+    }
+}
+
+#[test]
+fn registry_queries_replay_as_captured() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    for (name, raycast) in [("units.raycast", true), ("units.query", false)] {
+        let report = replay_corpus(&corpus, name, |_capture, frame| outcome(registry_frame(frame, raycast))).unwrap();
+        println!("{}", report.summary());
+        report.assert_clean();
+    }
+}
+
+#[test]
+fn soldiers_are_pushed_apart_as_captured() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    let report = replay_corpus(&corpus, "separate", |_capture, frame| outcome(separate_frame(frame))).unwrap();
     println!("{}", report.summary());
     report.assert_clean();
 }
