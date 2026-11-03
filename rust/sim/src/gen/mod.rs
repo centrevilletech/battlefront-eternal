@@ -439,8 +439,10 @@ impl Store {
 
     /// Takes in an import block JavaScript wrote, its import fields or all of them
     /// (`full`): each row's entity (made if its slot holds none of that generation)
-    /// gets the row's fields, and what the block no longer lists is removed.
-    pub fn import(&mut self, kind: KindCode, block: &Block, full: bool) -> bool {
+    /// gets the row's fields, and what the block no longer lists is removed, unless
+    /// the block holds `some` of the kind (then every entity it does not list is left
+    /// as it is).
+    pub fn import(&mut self, kind: KindCode, block: &Block, full: bool, some: bool) -> bool {
         match kind {
             KIND_BEAM => {
                 let mut listed: Vec<bool> = Vec::new();
@@ -453,7 +455,7 @@ impl Store {
                     if listed.len() <= s { listed.resize(s + 1, false); }
                     listed[s] = true;
                 }
-                self.beam.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+                if !some { self.beam.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             KIND_BOLT => {
                 let mut listed: Vec<bool> = Vec::new();
@@ -466,7 +468,7 @@ impl Store {
                     if listed.len() <= s { listed.resize(s + 1, false); }
                     listed[s] = true;
                 }
-                self.bolt.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+                if !some { self.bolt.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             KIND_GRENADE => {
                 let mut listed: Vec<bool> = Vec::new();
@@ -479,7 +481,7 @@ impl Store {
                     if listed.len() <= s { listed.resize(s + 1, false); }
                     listed[s] = true;
                 }
-                self.grenade.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+                if !some { self.grenade.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             KIND_ITEM => {
                 let mut listed: Vec<bool> = Vec::new();
@@ -492,7 +494,7 @@ impl Store {
                     if listed.len() <= s { listed.resize(s + 1, false); }
                     listed[s] = true;
                 }
-                self.item.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+                if !some { self.item.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             KIND_ITEMS => {
                 let (row, heap) = block.read(0);
@@ -517,7 +519,7 @@ impl Store {
                     if listed.len() <= s { listed.resize(s + 1, false); }
                     listed[s] = true;
                 }
-                self.planner_request.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+                if !some { self.planner_request.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             KIND_ROUND => {
                 let mut listed: Vec<bool> = Vec::new();
@@ -530,7 +532,7 @@ impl Store {
                     if listed.len() <= s { listed.resize(s + 1, false); }
                     listed[s] = true;
                 }
-                self.round.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+                if !some { self.round.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             KIND_SEAT_LEASE => {
                 let mut listed: Vec<bool> = Vec::new();
@@ -543,7 +545,7 @@ impl Store {
                     if listed.len() <= s { listed.resize(s + 1, false); }
                     listed[s] = true;
                 }
-                self.seat_lease.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+                if !some { self.seat_lease.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             KIND_SEATS => {
                 let (row, heap) = block.read(0);
@@ -564,7 +566,7 @@ impl Store {
                     if listed.len() <= s { listed.resize(s + 1, false); }
                     listed[s] = true;
                 }
-                self.unit.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+                if !some { self.unit.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             KIND_UNITS => {
                 let (row, heap) = block.read(0);
@@ -581,7 +583,7 @@ impl Store {
                     if listed.len() <= s { listed.resize(s + 1, false); }
                     listed[s] = true;
                 }
-                self.vehicle.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+                if !some { self.vehicle.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false)); }
             }
             KIND_VEHICLES => {
                 let (row, heap) = block.read(0);
