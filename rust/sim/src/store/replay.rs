@@ -18,14 +18,17 @@ use std::collections::HashMap;
 pub use sim_replay::{Arena, Node, Value, V};
 
 use super::{DefId, KindCode, Ref, StrId, Strings};
-use crate::gen::{Store, KINDS, KIND_NAMES};
 
 /// Why a value could not be read: where (its path) and what was wrong.
 pub type Result<T> = std::result::Result<T, String>;
 
-/// The kinds whose objects carry their own number: a handle's numeric key
-/// is the slot.
-fn keyed(kind: KindCode) -> bool { crate::gen::KIND_KEYED[kind as usize] }
+/// What a generated store tells the replay context about its kinds: their
+/// names by code (a handle's kind is one) and whether each kind's objects
+/// carry their own number (a handle's numeric key is then the slot).
+pub trait StoreKinds: Default {
+    const NAMES: &'static [&'static str];
+    const KEYED: &'static [bool];
+}
 
 #[derive(Default)]
 struct Keys {
@@ -35,9 +38,10 @@ struct Keys {
 }
 
 /// The replay context: the store being read into or written from, the
-/// handles met, the definitions met by table, and the entities met.
-pub struct Replay {
-    pub store: Store,
+/// handles met, the definitions met by table, and the entities met. Each
+/// generated store has its own (`crate::gen::Replay`).
+pub struct ReplayOf<S> {
+    pub store: S,
     pub strings: Strings,
     handles: Vec<Keys>,
     defs: HashMap<String, Keys>,
@@ -45,8 +49,8 @@ pub struct Replay {
     entities_out: HashMap<(KindCode, u32, u32), Value>,
 }
 
-impl Default for Replay {
-    fn default() -> Self { Replay::new(Store::default()) }
+impl<S: StoreKinds> Default for ReplayOf<S> {
+    fn default() -> Self { ReplayOf::new(S::default()) }
 }
 
 /// A key's text, to find it again (a number's bits, or a string).
@@ -58,12 +62,12 @@ fn key_text(v: &V) -> Result<String> {
     }
 }
 
-impl Replay {
-    pub fn new(store: Store) -> Self {
-        Replay {
+impl<S: StoreKinds> ReplayOf<S> {
+    pub fn new(store: S) -> Self {
+        ReplayOf {
             store,
             strings: Strings::default(),
-            handles: (0..=KINDS).map(|_| Keys::default()).collect(),
+            handles: (0..S::NAMES.len()).map(|_| Keys::default()).collect(),
             defs: HashMap::new(),
             entities_in: HashMap::new(),
             entities_out: HashMap::new(),
@@ -81,11 +85,11 @@ impl Replay {
     /// number for a keyed kind, else the next slot for a key not met before.
     pub fn ref_in<T>(&mut self, kind: KindCode, v: V, path: &str) -> Result<Ref<T>> {
         let Some((name, key)) = v.handle() else { return Err(format!("{path}: not a handle ({})", v.show())) };
-        if name != KIND_NAMES[kind as usize] {
-            return Err(format!("{path}: a {name} handle where a {} belongs", KIND_NAMES[kind as usize]));
+        if name != S::NAMES[kind as usize] {
+            return Err(format!("{path}: a {name} handle where a {} belongs", S::NAMES[kind as usize]));
         }
         let keys = &mut self.handles[kind as usize];
-        if keyed(kind) {
+        if S::KEYED[kind as usize] {
             let n = key.opt_num().ok_or_else(|| format!("{path}: a {name} key that is not a number"))?;
             if !(n >= 0.0 && n <= u32::MAX as f64 && n == n.trunc()) { return Err(format!("{path}: a {name} key of {n}")); }
             let slot = n as u32;
@@ -103,8 +107,8 @@ impl Replay {
 
     /// The handle a slot of a kind the store holds no fields of was read as.
     pub fn ref_out<T>(&mut self, kind: KindCode, r: Ref<T>) -> Value {
-        let name = KIND_NAMES[kind as usize];
-        if keyed(kind) { return Value::handle(name, Value::Num(r.slot as f64)); }
+        let name = S::NAMES[kind as usize];
+        if S::KEYED[kind as usize] { return Value::handle(name, Value::Num(r.slot as f64)); }
         match self.handles[kind as usize].by_slot.get(r.slot as usize) {
             Some(key) => Value::handle(name, key.clone()),
             None => Value::handle(name, Value::Num(r.slot as f64)),
@@ -149,7 +153,7 @@ impl Replay {
 
     /// An entity of a kind the store holds, met in a value: the one already
     /// made for that object, or `make` (which makes it and reads its fields).
-    pub fn entity_in(&mut self, kind: KindCode, v: V, path: &str, make: impl FnOnce(&mut Replay) -> Result<(u32, u32)>) -> Result<(u32, u32)> {
+    pub fn entity_in(&mut self, kind: KindCode, v: V, path: &str, make: impl FnOnce(&mut Self) -> Result<(u32, u32)>) -> Result<(u32, u32)> {
         let Some(node) = v.node_id() else { return Err(format!("{path}: not an object ({})", v.show())) };
         if let Some(&(_, slot, gen)) = self.entities_in.get(&node) { return Ok((slot, gen)); }
         let (slot, gen) = make(self)?;
@@ -221,6 +225,14 @@ pub fn set<'a>(v: V<'a>, path: &str) -> Result<Vec<V<'a>>> {
     match v.node() {
         Some(Node::Set(_)) => Ok(v.items().collect()),
         _ => Err(format!("{path}: not a Set ({})", v.show())),
+    }
+}
+
+/// A Map's entries (a key and a value each), in order.
+pub fn map<'a>(v: V<'a>, path: &str) -> Result<Vec<(V<'a>, V<'a>)>> {
+    match v.node() {
+        Some(Node::Map(_)) => Ok(v.entries().collect()),
+        _ => Err(format!("{path}: not a Map ({})", v.show())),
     }
 }
 

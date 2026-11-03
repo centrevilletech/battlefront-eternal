@@ -64,8 +64,8 @@ const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i 
 const map = opt('map', 'nab2'), side = opt('side', 'rep'), seed = Number(opt('seed', 1)), ticks = Number(opt('ticks', 2400));
 const interval = Number(opt('interval', 1)), ack = argv.includes('--ack'), view = opt('view', null) === null ? null : Number(opt('view', 0));
 const rays = opt('rays', 'js'), movement = opt('movement', 'js');
-const nativeRandom = opt('random', 'seeded') === 'native';
 const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = Number(opt('battles', 1));
+const nativeRandom = opt('random', 'seeded') === 'native';
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
 if (!(Number.isInteger(battles) && battles >= 1)) throw Error(`--battles ${opt('battles')}: a whole number from 1`);
