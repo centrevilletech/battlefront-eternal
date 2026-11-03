@@ -38,6 +38,11 @@ export default {
         next: 'ref:thing|null', tags: 'map:str|undefined',
         hidden: { type: 'f64', mirror: false },
         boxed: { type: 'f64', js: 'box.size', mirror: false },
+        // Lists of every sort of item, a matrix kept in place, and a path
+        // through an array.
+        marks: 'list:f64', probes: 'list:vec3', flags: 'list:bool', spots: 'list:rec:Spot', holders: 'list:union:Holder',
+        matrix: 'mat4',
+        firstSize: { type: 'f64', js: 'boxes.0.size', mirror: false },
       },
       skip: { mesh: 'drawn by the page' },
     },

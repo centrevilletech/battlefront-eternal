@@ -6,7 +6,7 @@
 // a battle's instance of the module.
 import { COMMAND_TABLE, DEF_TABLES, EVENT_TABLE, IMPORT_TABLE, KIND_TABLE } from "./gen/index.js";
 
-export { sameArray, sameList, sameMap, sameQuat, sameVec } from "./compare.js";
+export { sameArray, sameItems, sameList, sameMap, sameQuat, sameVec } from "./compare.js";
 
 // A sync block's header: rows, stride, where the heap starts, its length,
 // and how many of the rows (the first) are retired entities'
@@ -183,6 +183,16 @@ export class Heap {
     f[at] = start;
     f[at + 1] = n;
   }
+  // An array: its items' words (`size` each) and after them whatever their
+  // records' lists hold; put(words, at, item) writes an item.
+  items(items, f, at, size, put) {
+    const words = this.words, start = words.length, n = items.length;
+    for (let i = 0; i < n * size; i++) words.push(0);
+    for (let i = 0; i < n; i++) put(words, start + i * size, items[i]);
+    f[at] = start;
+    f[at + 1] = n;
+  }
+
   // A Map with string keys: its entries' words (the key's string, then the
   // value, `size` words in all) and after them whatever its values' lists
   // hold; put(words, at, value) writes a value.

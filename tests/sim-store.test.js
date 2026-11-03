@@ -288,7 +288,8 @@ test('the replay harness gets plain values in the schema\'s order, one value an 
   const value = exportState('ordnance', world.ordnance, cx);
   assert.deepEqual(Object.keys(value), ['bolts', 'beams', 'grenades', 'rounds']);
   const bolt = value.bolts[0];
-  assert.deepEqual(Object.keys(bolt).slice(0, 4), ['def', 'owner', 'networkFireId', 'networkFireChannel']);
+  assert.deepEqual(Object.keys(bolt).slice(0, 4), ['$id', 'def', 'owner', 'networkFireId']);
+  assert.deepEqual(bolt.$id, { kind: 'bolt', object: world.ordnance.bolts[0] });
   assert.deepEqual(bolt.owner, { kind: 'unit', object: world.units[0] });
   assert.deepEqual(bolt.def, { table: 'ordnance', def: world.ordnance.bolts[0].def });
   assert.equal(bolt.position, world.ordnance.bolts[0].position);

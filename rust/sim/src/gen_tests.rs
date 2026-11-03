@@ -21,8 +21,11 @@ fn shelf(strings: &mut Strings) -> Store {
         pair: [1e-300, 5e-324], name: a, colour: Colour::Blue, def: DefId(2), owner: Some(person(4)), holder: Holder::Person(person(9)),
         spot: Nullable::Value(spot.clone()), friends: RefSet { items: vec![person(9), person(4)] }, next: None,
         tags: Some(StrMap { entries: vec![(a, b), (b, a)] }), hidden: 1.25, boxed: 2.5,
+        marks: vec![1.5, -0.0, 1e300], probes: vec![[1.0, 2.0, 3.0], [-4.0, 5.0, -6.0]], flags: vec![true, false, true],
+        spots: vec![spot.clone(), Spot { mark: Colour::Red, label: None, ..spot.clone() }], holders: vec![Holder::Nobody, Holder::Person(person(4)), Holder::Null],
+        matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 5.0, -6.0, 7.5, 1.0], first_size: -2.5,
     });
-    let two = s.thing.insert(Thing { holder: Holder::Thing(one), next: Some(one), spot: Nullable::Null, owner: None, name: b, tags: None, ..Default::default() });
+    let two = s.thing.insert(Thing { holder: Holder::Thing(one), next: Some(one), spot: Nullable::Null, owner: None, name: b, tags: None, holders: vec![Holder::Thing(one)], ..Default::default() });
     s.thing.get_mut(one).unwrap().next = Some(two);
     s.shelf = Shelf {
         things: vec![one, two],

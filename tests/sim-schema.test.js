@@ -35,10 +35,14 @@ function shelf(cx) {
     count: -3, size: 4294967295, small: 255, light: Math.fround(0.1), mass: -0, on: true, where: new THREE.Vector3(1.5, 2.5, -3.5), facing: new THREE.Quaternion(),
     pair: [1e-300, 5e-324], name: 'a', colour: 'blue', def: goods[2], owner: people[0], holder: people[1], spot, friends: new Set([people[1], people[0]]),
     next: null, tags: new Map([['a', 'b'], ['b', 'a']]), hidden: 1.25, box: { size: 2.5 },
+    marks: [1.5, -0, 1e300], probes: [new THREE.Vector3(1, 2, 3), new THREE.Vector3(-4, 5, -6)], flags: [true, false, true],
+    spots: [spot, { ...spot, mark: 'red', label: null }], holders: ['nobody', people[0], null],
+    matrix: new THREE.Matrix4().makeTranslation(5, -6, 7.5), boxes: [{ size: -2.5 }],
   };
   const two = {
     count: 0, size: 0, small: 0, light: 0, mass: 0, on: false, where: new THREE.Vector3(), facing: new THREE.Quaternion(), pair: [0, 0], name: 'b', colour: 'red',
     def: goods[0], owner: null, holder: one, spot: null, friends: new Set(), next: one, tags: undefined, hidden: 0, box: { size: 0 },
+    marks: [], probes: [], flags: [], spots: [], holders: [one], matrix: new THREE.Matrix4(), boxes: [{ size: 0 }],
   };
   one.next = two;
   const things = [one, two];
@@ -82,6 +86,11 @@ test('every type of field written as a row reads back the same', () => {
   assert.ok(Object.is(system.weights.get('b'), -0));
   assert.equal(back[1].holder, things[0]);
   assert.equal(back[0].box.size, 2.5);
+  assert.equal(back[0].boxes[0].size, -2.5);
+  assert.ok(Object.is(back[0].marks[1], -0) && back[0].probes[1].isVector3 && back[0].flags[2] === true);
+  assert.deepEqual(back[0].matrix.elements.slice(12, 15), [5, -6, 7.5]);
+  assert.equal(back[1].holders[0], things[0]);
+  assert.equal(back[0].spots[1].mark, 'red');
 });
 
 test('a map\'s words are its entries, as the Rust writes them', () => {
@@ -102,21 +111,27 @@ test('a map\'s words are its entries, as the Rust writes them', () => {
   assert.deepEqual([...f.subarray(heap + e[1], heap + e[1] + 4)], [1, 1, 0, 1]);
 });
 
-test('entities that name each other are exported once each', () => {
+test('an entity is written out where it lives, and a handle everywhere else', () => {
   const cx = context();
   const { shelf: s, things } = shelf(cx);
-  const ex = new ExportContext({ kinds: KIND_TABLE, defTables: DEF_TABLES, classes: { Person }, ref: (kind, o) => ({ kind, id: o.id }), def: (table, d) => ({ def: d.class }) });
+  const numbers = new Map();
+  const handle = (kind, o) => { if (!numbers.has(o)) numbers.set(o, numbers.size); return { kind, n: numbers.get(o) }; };
+  const ex = new ExportContext({ kinds: KIND_TABLE, defTables: DEF_TABLES, classes: { Person }, ref: handle, def: (table, d) => ({ def: d.class }) });
   const value = KIND_TABLE[KIND_SHELF].export(s, ex);
   const [one, two] = value.things;
-  assert.equal(one.next, two);
-  assert.equal(two.next, one);
-  assert.equal(two.holder, one);
-  assert.deepEqual(one.holder, { kind: 'person', id: 9 });
-  assert.equal(value.byName.get('a')[0], two);
+  assert.deepEqual(Object.keys(one).slice(0, 3), ['$id', 'count', 'size']);
+  assert.deepEqual([one.$id, two.$id], [handle('thing', things[0]), handle('thing', things[1])]);
+  assert.deepEqual(one.next, two.$id);
+  assert.deepEqual(two.next, one.$id);
+  assert.deepEqual(two.holder, one.$id);
+  assert.deepEqual(one.holder, handle('person', one.holder && things[0].holder));
+  assert.deepEqual(value.byName.get('a')[0], two.$id);
+  assert.deepEqual(value.spots.get('b').kept[0], two.$id);
   assert.deepEqual(one.def, { def: 'pan' });
   assert.equal(one.boxed, 2.5);
-  assert.equal(value.spots.get('b').kept[0], two);
-  assert.deepEqual([...one.friends].map((p) => p.id), [9, 4]);
+  assert.equal(one.firstSize, -2.5);
+  assert.deepEqual([...one.friends].map((p) => p.kind), ['person', 'person']);
+  assert.equal(KIND_TABLE[KIND_THING].export(things[0], ex), one);
 });
 
 test('a schema\'s types are checked as they are read', () => {
