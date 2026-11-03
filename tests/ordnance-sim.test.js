@@ -123,7 +123,8 @@ function ordnance(world, log) {
 async function pair() {
   const world = battle(), jsLog = [], rustLog = [];
   const js = ordnance(world, jsLog), rust = ordnance(world, rustLog);
-  attachOrdnanceSim(rust, new SimBridge(await loadSim(), { tests: ordnanceTests }));
+  // The battle tells its units apart by class (game.js gives Unit and Vehicle).
+  attachOrdnanceSim(rust, new SimBridge(await loadSim(), { tests: { ...ordnanceTests, unit: (o) => o instanceof FakeUnit } }));
   return { world, js, rust, jsLog, rustLog };
 }
 

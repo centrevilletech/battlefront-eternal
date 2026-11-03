@@ -39,7 +39,7 @@ impl OrdnanceOwner {
         match v.value {
             Value::Null => return Ok(OrdnanceOwner::Null),
             Value::Str(s) => { match s.as_str() { "player" => return Ok(OrdnanceOwner::Player), _ => {} }  }
-            Value::Handle(kind, _) => match kind.as_str() { "unit" => return Ok(OrdnanceOwner::Unit(Unit::ref_in(v, cx, path)?)), "vehicle" => return Ok(OrdnanceOwner::Vehicle(cx.ref_in(KIND_VEHICLE, v, path)?)), "ownerSnapshot" => return Ok(OrdnanceOwner::OwnerSnapshot(cx.ref_in(KIND_OWNER_SNAPSHOT, v, path)?)), _ => {} },
+            Value::Handle(kind, _) => match kind.as_str() { "unit" => return Ok(OrdnanceOwner::Unit(Unit::ref_in(v, cx, path)?)), "vehicle" => return Ok(OrdnanceOwner::Vehicle(Vehicle::ref_in(v, cx, path)?)), "ownerSnapshot" => return Ok(OrdnanceOwner::OwnerSnapshot(cx.ref_in(KIND_OWNER_SNAPSHOT, v, path)?)), _ => {} },
             _ => {}
         }
         Err(format!("{path}: none of OrdnanceOwner's variants ({})", v.show()))
@@ -50,7 +50,7 @@ impl OrdnanceOwner {
             OrdnanceOwner::Null => Value::Null,
             OrdnanceOwner::Player => Value::Str("player".to_string()),
             OrdnanceOwner::Unit(r) => Unit::ref_out(*r, cx, a),
-            OrdnanceOwner::Vehicle(r) => cx.ref_out(KIND_VEHICLE, *r),
+            OrdnanceOwner::Vehicle(r) => Vehicle::ref_out(*r, cx, a),
             OrdnanceOwner::OwnerSnapshot(r) => cx.ref_out(KIND_OWNER_SNAPSHOT, *r),
         }
     }
@@ -61,7 +61,7 @@ impl BeamSource {
         match v.value {
             Value::Null => return Ok(BeamSource::Null),
             Value::Str(s) => { match s.as_str() { "player" => return Ok(BeamSource::Player), _ => {} }  }
-            Value::Handle(kind, _) => match kind.as_str() { "emitter" => return Ok(BeamSource::Emitter(cx.ref_in(KIND_EMITTER, v, path)?)), "unit" => return Ok(BeamSource::Unit(Unit::ref_in(v, cx, path)?)), "vehicle" => return Ok(BeamSource::Vehicle(cx.ref_in(KIND_VEHICLE, v, path)?)), "ownerSnapshot" => return Ok(BeamSource::OwnerSnapshot(cx.ref_in(KIND_OWNER_SNAPSHOT, v, path)?)), _ => {} },
+            Value::Handle(kind, _) => match kind.as_str() { "emitter" => return Ok(BeamSource::Emitter(cx.ref_in(KIND_EMITTER, v, path)?)), "unit" => return Ok(BeamSource::Unit(Unit::ref_in(v, cx, path)?)), "vehicle" => return Ok(BeamSource::Vehicle(Vehicle::ref_in(v, cx, path)?)), "ownerSnapshot" => return Ok(BeamSource::OwnerSnapshot(cx.ref_in(KIND_OWNER_SNAPSHOT, v, path)?)), _ => {} },
             _ => {}
         }
         Err(format!("{path}: none of BeamSource's variants ({})", v.show()))
@@ -73,7 +73,7 @@ impl BeamSource {
             BeamSource::Player => Value::Str("player".to_string()),
             BeamSource::Emitter(r) => cx.ref_out(KIND_EMITTER, *r),
             BeamSource::Unit(r) => Unit::ref_out(*r, cx, a),
-            BeamSource::Vehicle(r) => cx.ref_out(KIND_VEHICLE, *r),
+            BeamSource::Vehicle(r) => Vehicle::ref_out(*r, cx, a),
             BeamSource::OwnerSnapshot(r) => cx.ref_out(KIND_OWNER_SNAPSHOT, *r),
         }
     }
@@ -293,7 +293,7 @@ impl UnitCastArgs {
             owner: { let p = format!("{path}.owner"); OrdnanceOwner::from_value(v.get("owner"), cx, &p)? },
             history_tick: { let p = format!("{path}.historyTick"); match v.get("historyTick").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("historyTick"), &p)?) } },
             ignore_body: { let p = format!("{path}.ignoreBody"); match v.get("ignoreBody").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_BODY, v.get("ignoreBody"), &p)?) } },
-            mount: { let p = format!("{path}.mount"); match v.get("mount").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_VEHICLE, v.get("mount"), &p)?) } },
+            mount: { let p = format!("{path}.mount"); match v.get("mount").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Vehicle::ref_in(v.get("mount"), cx, &p)?) } },
         })
     }
 
@@ -306,7 +306,7 @@ impl UnitCastArgs {
         { let x = self.owner.to_value(cx, a); fields.push(("owner", x)); }
         { let x = match &self.history_tick { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("historyTick", x)); }
         { let x = match &self.ignore_body { Some(v) => cx.ref_out(KIND_BODY, (*v)), None => Value::Null }; fields.push(("ignoreBody", x)); }
-        { let x = match &self.mount { Some(v) => cx.ref_out(KIND_VEHICLE, (*v)), None => Value::Null }; fields.push(("mount", x)); }
+        { let x = match &self.mount { Some(v) => Vehicle::ref_out((*v), cx, a), None => Value::Null }; fields.push(("mount", x)); }
         a.object("", fields)
     }
 }
@@ -361,7 +361,7 @@ impl MountAnswer {
         object(v, path)?;
         Ok(MountAnswer {
             found: { let p = format!("{path}.found"); boolean(v.get("found"), &p)? },
-            vehicle: { let p = format!("{path}.vehicle"); match v.get("vehicle").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_VEHICLE, v.get("vehicle"), &p)?) } },
+            vehicle: { let p = format!("{path}.vehicle"); match v.get("vehicle").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Vehicle::ref_in(v.get("vehicle"), cx, &p)?) } },
             bound_radius: { let p = format!("{path}.boundRadius"); num(v.get("boundRadius"), &p)? },
             body: { let p = format!("{path}.body"); match v.get("body").value { Value::Null => Nullable::Null, Value::Undefined => Nullable::Undefined, _ => Nullable::Value(cx.ref_in(KIND_BODY, v.get("body"), &p)?) } },
         })
@@ -371,7 +371,7 @@ impl MountAnswer {
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
         let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
         { let x = Value::Bool(self.found); fields.push(("found", x)); }
-        { let x = match &self.vehicle { Some(v) => cx.ref_out(KIND_VEHICLE, (*v)), None => Value::Null }; fields.push(("vehicle", x)); }
+        { let x = match &self.vehicle { Some(v) => Vehicle::ref_out((*v), cx, a), None => Value::Null }; fields.push(("vehicle", x)); }
         { let x = Value::Num(self.bound_radius); fields.push(("boundRadius", x)); }
         { let x = match &self.body { Nullable::Value(v) => cx.ref_out(KIND_BODY, (*v)), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }; fields.push(("body", x)); }
         a.object("", fields)
@@ -1492,6 +1492,87 @@ impl Droideka {
     }
 }
 
+impl VehicleWheel {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(VehicleWheel {
+            x: { let p = format!("{path}.x"); num(v.get("x"), &p)? },
+            radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
+            phase: { let p = format!("{path}.phase"); num(v.get("phase"), &p)? },
+            previous: { let p = format!("{path}.previous"); num(v.get("previous"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Num(self.x); fields.push(("x", x)); }
+        { let x = Value::Num(self.radius); fields.push(("radius", x)); }
+        { let x = Value::Num(self.phase); fields.push(("phase", x)); }
+        { let x = Value::Num(self.previous); fields.push(("previous", x)); }
+        a.object("", fields)
+    }
+}
+
+impl VehicleSeat {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(VehicleSeat {
+            aim_yaw: { let p = format!("{path}.aimYaw"); num(v.get("aimYaw"), &p)? },
+            pitch: { let p = format!("{path}.pitch"); num(v.get("pitch"), &p)? },
+            look_yaw: { let p = format!("{path}.lookYaw"); match v.get("lookYaw").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("lookYaw"), &p)?) } },
+            look_pitch: { let p = format!("{path}.lookPitch"); match v.get("lookPitch").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("lookPitch"), &p)?) } },
+            lease: { let p = format!("{path}.lease"); match v.get("lease").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_SEAT_LEASE, v.get("lease"), &p)?) } },
+            lease_human: { let p = format!("{path}.leaseHuman"); match v.get("leaseHuman").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("leaseHuman"), &p)?) } },
+            lease_network_human: { let p = format!("{path}.leaseNetworkHuman"); match v.get("leaseNetworkHuman").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("leaseNetworkHuman"), &p)?) } },
+            lease_turn: { let p = format!("{path}.leaseTurn"); match v.get("leaseTurn").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("leaseTurn"), &p)?) } },
+            lease_pitch: { let p = format!("{path}.leasePitch"); match v.get("leasePitch").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("leasePitch"), &p)?) } },
+            pitch_limits: { let p = format!("{path}.pitchLimits"); numbers::<2>(v.get("pitchLimits"), &p)? },
+            yaw_limits: { let p = format!("{path}.yawLimits"); match v.get("yawLimits").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(numbers::<2>(v.get("yawLimits"), &p)?) } },
+            wrap_yaw: { let p = format!("{path}.wrapYaw"); boolean(v.get("wrapYaw"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(12);
+        { let x = Value::Num(self.aim_yaw); fields.push(("aimYaw", x)); }
+        { let x = Value::Num(self.pitch); fields.push(("pitch", x)); }
+        { let x = match &self.look_yaw { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("lookYaw", x)); }
+        { let x = match &self.look_pitch { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("lookPitch", x)); }
+        { let x = match &self.lease { Some(v) => cx.ref_out(KIND_SEAT_LEASE, (*v)), None => Value::Null }; fields.push(("lease", x)); }
+        { let x = match &self.lease_human { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("leaseHuman", x)); }
+        { let x = match &self.lease_network_human { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("leaseNetworkHuman", x)); }
+        { let x = match &self.lease_turn { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("leaseTurn", x)); }
+        { let x = match &self.lease_pitch { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("leasePitch", x)); }
+        { let x = { let items = self.pitch_limits.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("pitchLimits", x)); }
+        { let x = match &self.yaw_limits { Some(v) => { let items = (*v).iter().map(|&x| Value::Num(x)).collect(); a.array(items) }, None => Value::Null }; fields.push(("yawLimits", x)); }
+        { let x = Value::Bool(self.wrap_yaw); fields.push(("wrapYaw", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WaterRule {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WaterRule {
+            interval: { let p = format!("{path}.interval"); num(v.get("interval"), &p)? },
+            amount: { let p = format!("{path}.amount"); num(v.get("amount"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.interval); fields.push(("interval", x)); }
+        { let x = Value::Num(self.amount); fields.push(("amount", x)); }
+        a.object("", fields)
+    }
+}
+
 impl Beam {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -2071,6 +2152,174 @@ impl Units {
     }
 }
 
+impl Vehicle {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(Vehicle {
+            name: { let p = format!("{path}.name"); cx.str_in(v.get("name"), &p)? },
+            flying: { let p = format!("{path}.flying"); boolean(v.get("flying"), &p)? },
+            walking: { let p = format!("{path}.walking"); boolean(v.get("walking"), &p)? },
+            creature: { let p = format!("{path}.creature"); boolean(v.get("creature"), &p)? },
+            wheeled: { let p = format!("{path}.wheeled"); boolean(v.get("wheeled"), &p)? },
+            repulsor: { let p = format!("{path}.repulsor"); boolean(v.get("repulsor"), &p)? },
+            speed: { let p = format!("{path}.speed"); num(v.get("speed"), &p)? },
+            reverse_speed: { let p = format!("{path}.reverseSpeed"); num(v.get("reverseSpeed"), &p)? },
+            strafe_speed: { let p = format!("{path}.strafeSpeed"); num(v.get("strafeSpeed"), &p)? },
+            acceleration: { let p = format!("{path}.acceleration"); num(v.get("acceleration"), &p)? },
+            deceleration: { let p = format!("{path}.deceleration"); num(v.get("deceleration"), &p)? },
+            turn_rate: { let p = format!("{path}.turnRate"); num(v.get("turnRate"), &p)? },
+            hover: { let p = format!("{path}.hover"); num(v.get("hover"), &p)? },
+            bounds_min: { let p = format!("{path}.boundsMin"); vec3(v.get("boundsMin"), &p)? },
+            bounds_max: { let p = format!("{path}.boundsMax"); vec3(v.get("boundsMax"), &p)? },
+            center: { let p = format!("{path}.center"); vec3(v.get("center"), &p)? },
+            size: { let p = format!("{path}.size"); vec3(v.get("size"), &p)? },
+            bound_radius: { let p = format!("{path}.boundRadius"); num(v.get("boundRadius"), &p)? },
+            probe_radius: { let p = format!("{path}.probeRadius"); num(v.get("probeRadius"), &p)? },
+            probes: { let p = format!("{path}.probes"); { let mut out = Vec::new(); for (i, e) in list(v.get("probes"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(vec3(e, &at)?); } out } },
+            support_probes: { let p = format!("{path}.supportProbes"); { let mut out = Vec::new(); for (i, e) in list(v.get("supportProbes"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(vec3(e, &at)?); } out } },
+            max_health: { let p = format!("{path}.maxHealth"); num(v.get("maxHealth"), &p)? },
+            water_rule: { let p = format!("{path}.waterRule"); match v.get("waterRule").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(WaterRule::from_value(v.get("waterRule"), cx, &p)?) } },
+            water_depth: { let p = format!("{path}.waterDepth"); num(v.get("waterDepth"), &p)? },
+            body: { let p = format!("{path}.body"); cx.ref_in(KIND_BODY, v.get("body"), &p)? },
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            previous: { let p = format!("{path}.previous"); vec3(v.get("previous"), &p)? },
+            velocity: { let p = format!("{path}.velocity"); vec3(v.get("velocity"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            previous_yaw: { let p = format!("{path}.previousYaw"); num(v.get("previousYaw"), &p)? },
+            tilt: { let p = format!("{path}.tilt"); num(v.get("tilt"), &p)? },
+            roll: { let p = format!("{path}.roll"); num(v.get("roll"), &p)? },
+            previous_tilt: { let p = format!("{path}.previousTilt"); num(v.get("previousTilt"), &p)? },
+            previous_roll: { let p = format!("{path}.previousRoll"); num(v.get("previousRoll"), &p)? },
+            yaw_rate: { let p = format!("{path}.yawRate"); num(v.get("yawRate"), &p)? },
+            tilt_rate: { let p = format!("{path}.tiltRate"); num(v.get("tiltRate"), &p)? },
+            roll_rate: { let p = format!("{path}.rollRate"); num(v.get("rollRate"), &p)? },
+            support: { let p = format!("{path}.support"); num(v.get("support"), &p)? },
+            forward_input: { let p = format!("{path}.forwardInput"); num(v.get("forwardInput"), &p)? },
+            right_input: { let p = format!("{path}.rightInput"); num(v.get("rightInput"), &p)? },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            sleeping: { let p = format!("{path}.sleeping"); match v.get("sleeping").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("sleeping"), &p)?) } },
+            health: { let p = format!("{path}.health"); num(v.get("health"), &p)? },
+            dying: { let p = format!("{path}.dying"); num(v.get("dying"), &p)? },
+            water_clock: { let p = format!("{path}.waterClock"); num(v.get("waterClock"), &p)? },
+            quaternion: { let p = format!("{path}.quaternion"); quat(v.get("quaternion"), &p)? },
+            matrix: { let p = format!("{path}.matrix"); mat4(v.get("matrix"), &p)? },
+            item_center: { let p = format!("{path}.itemCenter"); vec3(v.get("itemCenter"), &p)? },
+            support_normal: { let p = format!("{path}.supportNormal"); vec3(v.get("supportNormal"), &p)? },
+            leg_side: { let p = format!("{path}.legSide"); match v.get("legSide").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some({ let mut out = Vec::new(); for (i, e) in list(v.get("legSide"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out }) } },
+            seat_index: { let p = format!("{path}.seatIndex"); num(v.get("seatIndex"), &p)? },
+            driver: { let p = format!("{path}.driver"); match v.get("driver").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_VEHICLE_DRIVER, v.get("driver"), &p)?) } },
+            wheels: { let p = format!("{path}.wheels"); { let mut out = Vec::new(); for (i, e) in list(v.get("wheels"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(VehicleWheel::from_value(e, cx, &at)?); } out } },
+            seats: { let p = format!("{path}.seats"); { let mut out = Vec::new(); for (i, e) in list(v.get("seats"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(VehicleSeat::from_value(e, cx, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(54);
+        { let x = cx.str_out(self.name); fields.push(("name", x)); }
+        { let x = Value::Bool(self.flying); fields.push(("flying", x)); }
+        { let x = Value::Bool(self.walking); fields.push(("walking", x)); }
+        { let x = Value::Bool(self.creature); fields.push(("creature", x)); }
+        { let x = Value::Bool(self.wheeled); fields.push(("wheeled", x)); }
+        { let x = Value::Bool(self.repulsor); fields.push(("repulsor", x)); }
+        { let x = Value::Num(self.speed); fields.push(("speed", x)); }
+        { let x = Value::Num(self.reverse_speed); fields.push(("reverseSpeed", x)); }
+        { let x = Value::Num(self.strafe_speed); fields.push(("strafeSpeed", x)); }
+        { let x = Value::Num(self.acceleration); fields.push(("acceleration", x)); }
+        { let x = Value::Num(self.deceleration); fields.push(("deceleration", x)); }
+        { let x = Value::Num(self.turn_rate); fields.push(("turnRate", x)); }
+        { let x = Value::Num(self.hover); fields.push(("hover", x)); }
+        { let x = a.vec3(self.bounds_min); fields.push(("boundsMin", x)); }
+        { let x = a.vec3(self.bounds_max); fields.push(("boundsMax", x)); }
+        { let x = a.vec3(self.center); fields.push(("center", x)); }
+        { let x = a.vec3(self.size); fields.push(("size", x)); }
+        { let x = Value::Num(self.bound_radius); fields.push(("boundRadius", x)); }
+        { let x = Value::Num(self.probe_radius); fields.push(("probeRadius", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.probes.iter() { let x = a.vec3((*e)); items.push(x); } a.array(items) }; fields.push(("probes", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.support_probes.iter() { let x = a.vec3((*e)); items.push(x); } a.array(items) }; fields.push(("supportProbes", x)); }
+        { let x = Value::Num(self.max_health); fields.push(("maxHealth", x)); }
+        { let x = match &self.water_rule { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("waterRule", x)); }
+        { let x = Value::Num(self.water_depth); fields.push(("waterDepth", x)); }
+        { let x = cx.ref_out(KIND_BODY, self.body); fields.push(("body", x)); }
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = a.vec3(self.previous); fields.push(("previous", x)); }
+        { let x = a.vec3(self.velocity); fields.push(("velocity", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.previous_yaw); fields.push(("previousYaw", x)); }
+        { let x = Value::Num(self.tilt); fields.push(("tilt", x)); }
+        { let x = Value::Num(self.roll); fields.push(("roll", x)); }
+        { let x = Value::Num(self.previous_tilt); fields.push(("previousTilt", x)); }
+        { let x = Value::Num(self.previous_roll); fields.push(("previousRoll", x)); }
+        { let x = Value::Num(self.yaw_rate); fields.push(("yawRate", x)); }
+        { let x = Value::Num(self.tilt_rate); fields.push(("tiltRate", x)); }
+        { let x = Value::Num(self.roll_rate); fields.push(("rollRate", x)); }
+        { let x = Value::Num(self.support); fields.push(("support", x)); }
+        { let x = Value::Num(self.forward_input); fields.push(("forwardInput", x)); }
+        { let x = Value::Num(self.right_input); fields.push(("rightInput", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = match &self.sleeping { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("sleeping", x)); }
+        { let x = Value::Num(self.health); fields.push(("health", x)); }
+        { let x = Value::Num(self.dying); fields.push(("dying", x)); }
+        { let x = Value::Num(self.water_clock); fields.push(("waterClock", x)); }
+        { let x = a.quat(self.quaternion); fields.push(("quaternion", x)); }
+        { let x = mat4_value(a, self.matrix); fields.push(("matrix", x)); }
+        { let x = a.vec3(self.item_center); fields.push(("itemCenter", x)); }
+        { let x = a.vec3(self.support_normal); fields.push(("supportNormal", x)); }
+        { let x = match &self.leg_side { Some(v) => { let mut items = Vec::new(); for e in v.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }, None => Value::Undefined }; fields.push(("legSide", x)); }
+        { let x = Value::Num(self.seat_index); fields.push(("seatIndex", x)); }
+        { let x = match &self.driver { Some(v) => cx.ref_out(KIND_VEHICLE_DRIVER, (*v)), None => Value::Null }; fields.push(("driver", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.wheels.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("wheels", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.seats.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("seats", x)); }
+        a.object("", fields)
+    }
+
+    /// The vehicle a handle names (made with its fields' defaults the first time;
+    /// its value fills them in where it lives).
+    pub fn ref_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Vehicle>> {
+        let (slot, gen) = cx.stored_in(KIND_VEHICLE, v, path, |cx, _| { let r = cx.store.vehicle.insert(Vehicle::default()); (r.slot, r.gen) })?;
+        Ok(Ref::new(slot, gen))
+    }
+
+    /// A vehicle's value where it lives (its home list): its handle (`$id`) and fields.
+    pub fn value_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Vehicle>> {
+        object(v, path)?;
+        let r = Vehicle::ref_in(v.get("$id"), cx, &format!("{path}.$id"))?;
+        let value = Vehicle::from_value(v, cx, path)?;
+        *cx.store.vehicle.get_mut(r).ok_or_else(|| format!("{path}: its entity is gone"))? = value;
+        Ok(r)
+    }
+
+    /// The handle of the vehicle a reference names.
+    pub fn ref_out(r: Ref<Vehicle>, cx: &mut Replay, a: &mut Arena) -> Value { cx.stored_out(KIND_VEHICLE, r.slot, r.gen) }
+
+    /// A vehicle's value where it lives: its handle first, then its fields.
+    pub fn value_out(r: Ref<Vehicle>, cx: &mut Replay, a: &mut Arena) -> Value {
+        let id = cx.stored_out(KIND_VEHICLE, r.slot, r.gen);
+        let e = cx.store.vehicle.get(r).cloned().unwrap_or_default();
+        let v = e.to_value(cx, a);
+        if let Value::Node(n) = v { if let Node::Object { fields, .. } = &mut a.nodes[n as usize] { fields.insert(0, ("$id".to_string(), id)); } }
+        v
+    }
+}
+
+impl Vehicles {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(Vehicles {
+            vehicles: { let p = format!("{path}.vehicles"); { let mut out = Vec::new(); for (i, e) in list(v.get("vehicles"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Vehicle::value_in(e, cx, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = { let mut items = Vec::new(); for &r in self.vehicles.iter() { let x = Vehicle::value_out(r, cx, a); items.push(x); } a.array(items) }; fields.push(("vehicles", x)); }
+        a.object("", fields)
+    }
+}
+
 impl Replay {
     /// Reads a singleton's state value (`exportState(name, object)`) into the store:
     /// the singleton's fields, and every entity its lists hold, made anew.
@@ -2079,6 +2328,7 @@ impl Replay {
             KIND_ITEMS => { let value = Items::from_value(v, self, "items")?; self.store.items = value; }
             KIND_ORDNANCE => { let value = Ordnance::from_value(v, self, "ordnance")?; self.store.ordnance = value; }
             KIND_UNITS => { let value = Units::from_value(v, self, "units")?; self.store.units = value; }
+            KIND_VEHICLES => { let value = Vehicles::from_value(v, self, "vehicles")?; self.store.vehicles = value; }
             _ => return Err(format!("{} is no singleton", KIND_NAMES.get(kind as usize).copied().unwrap_or("?"))),
         }
         Ok(())
@@ -2090,6 +2340,7 @@ impl Replay {
             KIND_ITEMS => { let s = self.store.items.clone(); s.to_value(self, a) }
             KIND_ORDNANCE => { let s = self.store.ordnance.clone(); s.to_value(self, a) }
             KIND_UNITS => { let s = self.store.units.clone(); s.to_value(self, a) }
+            KIND_VEHICLES => { let s = self.store.vehicles.clone(); s.to_value(self, a) }
             _ => Value::Undefined,
         }
     }

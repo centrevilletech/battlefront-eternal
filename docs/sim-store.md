@@ -275,6 +275,19 @@ found by its kinds' tests, which the context makes from the classes the
 schema names (`class: 'Vehicle'`, the constructors passed in as
 `classes`) or takes by kind name (`tests`).
 
+A union may hold one kind the store holds fields of without a test of its
+own: an object that no other variant's test claims is of that kind. A union
+of several such kinds (a round's owner, a unit or a hull, once both are
+the store's) tells every object by a test, and each of those kinds must
+name its class, or the generator refuses the schema. Null and literals are
+matched first, then the tests, most specific first: the kinds the store
+holds (by their mirror's class once Rust owns them, else by the
+constructors the battle passes), then the other kinds that name classes,
+then the plain objects a battle tells by shape (`tests`, such as a beam's
+emitter), which an instance of a class could also pass. A value no test
+claims is refused (`which...` throws) rather than taken for the last
+variant. The variant crosses as its index, so Rust never tests.
+
 An entity of a kind the store holds is written out whole only where it
 lives, its home list, led by its own handle (`$id`); a reference to it
 anywhere else (another entity's field, a list, a union) is that handle, as
