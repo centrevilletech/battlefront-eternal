@@ -1,6 +1,7 @@
-# The Rust that builds the committed WebAssembly (src/sim-wasm.js and
-# src/rust-pkg/, docs/development.md "The Rust parts"). Another release would
-# compile other bytes, and CI rebuilds them with this one to check them.
+# The Rust that builds the committed WebAssembly (src/sim-wasm.js,
+# src/audio-dsp-wasm.js and src/rust-pkg/, docs/development.md "The Rust
+# parts"). Another release would compile other bytes, and CI rebuilds them
+# with this one to check them.
 # rustup reads this file for every cargo command run under rust/.
 [toolchain]
 channel = "1.99.0"

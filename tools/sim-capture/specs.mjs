@@ -30,7 +30,6 @@
 // replace its raw roots with their exporters. A system of the game (an
 // object the game holds, such as game.items) is a handle wherever it is met
 // unless the state asks for it whole: expand(object).
-import { hoverClass } from '../../src/vehicle-hover.js';
 import { units } from './units.mjs';
 
 export class Expand {
@@ -83,55 +82,11 @@ const items = {
 
 // The hulls (P7, flip F2 with flight and seats): each hull's tick, a 1/120 s
 // substep on the ground or a 1/60 s one in flight (Vehicle.tick, on every
-// hull: the method of their prototype), its state as the tick reads and
-// writes it (hullState), its calls to the rest of the battle through
-// src/vehicles-world.js. Until the store's generator holds a hull's nested
-// lists (rust/sim/schema/vehicles.mjs), the state is written here by hand,
-// field names as the generator would make them.
+// hull: the method of their prototype), the hull as the store holds it
+// (rust/sim/schema/vehicles.mjs), its calls to the rest of the battle
+// through src/vehicles-world.js; and each hull's pose at the tick (aimTick,
+// render), its rig written by hand until the store holds rigs.
 const vec = (v) => v.clone();
-const num = (v, fallback = 0) => (Number.isFinite(parseFloat(v)) ? parseFloat(v) : fallback);
-function hoverState(v) {
-  const h = hoverClass(v.def);
-  return { altitude: h.altitude, gravityScale: h.gravityScale, liftSpring: h.liftSpring, liftDamp: h.liftDamp, traction: h.traction,
-    levelSpring: h.levelSpring, levelDamp: h.levelDamp, velocitySpring: h.velocitySpring, velocityDamp: h.velocityDamp,
-    omegaXSpring: h.omegaXSpring, omegaXDamp: h.omegaXDamp, omegaZSpring: h.omegaZSpring, omegaZDamp: h.omegaZDamp,
-    springs: h.springs.map((k) => ({ at: vec(k.at), radius: k.radius, length: k.length, factors: [...k.factors] })) };
-}
-function legsState(legs) {
-  return legs ? { rayLength: legs.rayLength, orientRoll: Boolean(legs.orientRoll), width: legs.width,
-    pairs: legs.pairs.map((p) => ({ left: [...p.left.at], right: [...p.right.at] })) } : null;
-}
-export function hullState(v) {
-  const settings = v.def.settings || {};
-  return {
-    // What it is (fixed for the battle).
-    name: v.name, flying: v.flying, walking: v.walking, creature: v.creature, wheeled: v.wheeled, repulsor: v.repulsor,
-    speed: v.speed, reverseSpeed: v.reverseSpeed, strafeSpeed: v.strafeSpeed, acceleration: v.acceleration, deceleration: v.deceleration,
-    turnRate: v.turnRate, hover: v.hover, boundsMin: vec(v.bounds.min), boundsMax: vec(v.bounds.max), center: vec(v.center), size: vec(v.size),
-    boundRadius: v.boundRadius, probeRadius: v.probeRadius, probes: v.probes.map(vec), supportProbes: v.supportProbes.map(vec),
-    maxHealth: v.maxHealth, waterRule: v.waterRule ? { interval: v.waterRule.interval, amount: v.waterRule.amount } : null, waterDepth: v.waterDepth,
-    hoverClass: v.walking || v.flying ? null : hoverState(v), legs: v.creature ? null : legsState(v.def.fx?.legs), body: v.body,
-    dyingSpan: v.def.fx?.dying?.span || 0, explosionOffset: v.def.fx?.explosionOffset ? [...v.def.fx.explosionOffset] : null, hasExplosion: Boolean(v.def.explosion),
-    // What it does.
-    position: vec(v.position), previous: vec(v.previous), velocity: vec(v.velocity),
-    yaw: v.yaw, previousYaw: v.previousYaw, tilt: v.tilt, roll: v.roll, previousTilt: v.previousTilt, previousRoll: v.previousRoll,
-    yawRate: v.yawRate, tiltRate: v.tiltRate, rollRate: v.rollRate, support: v.support, forwardInput: v.forwardInput, rightInput: v.rightInput,
-    alive: v.alive, sleeping: v.sleeping, health: v.health, dying: v.dying, waterClock: v.waterClock,
-    quaternion: v.quaternion.clone(), matrix: [...v.matrix.elements], itemCenter: vec(v.itemTarget.center), supportNormal: vec(v.supportNormal),
-    legSide: v.legSide ? [...v.legSide] : null, seatIndex: v.seatIndex, driver: Boolean(v.driver),
-    wheels: v.wheels.map((w) => ({ x: w.x, radius: w.radius, phase: w.phase, previous: w.previous })),
-    seats: v.seats.map((seat) => {
-      const view = seat.view, lease = seat.lease;
-      return {
-        // Its aim's rates for a bot (aimCrew) and limits (clampAim).
-        turnRate: num(seat.settings?.TurnRate, num(settings.TurnRate, v.turnRate)), pitchRate: num(seat.settings?.PitchRate, num(settings.PitchRate, 1)),
-        pitchLimits: [...view.pitchLimits], yawLimits: view.yawLimits ? [...view.yawLimits] : null, wrapYaw: view.wrapYaw,
-        aimYaw: seat.aimYaw, pitch: seat.pitch, lookYaw: seat.lookYaw, lookPitch: seat.lookPitch,
-        lease: lease ? { human: lease.human, networkHuman: Boolean(lease.unit?.networkHuman), turn: lease.input.turn, pitch: lease.input.pitch } : null,
-      };
-    }),
-  };
-}
 const hullBoundaries = (game) => {
   const w = game.vehicles?.world ?? null;
   return [
@@ -152,10 +107,79 @@ const hullBoundaries = (game) => {
     ['world.sound', w, 'sound'],
   ];
 };
+// A hull's rig nodes in the order rust/sim/src/rig/hull.rs makes them: the
+// root, the bones, the static bone, the markers (as tools/sim-rig/record.mjs
+// lists them).
+const rigNodeLists = new WeakMap();
+function rigNodes(v) {
+  let nodes = rigNodeLists.get(v);
+  if (!nodes) {
+    const bones = new Set(v.bones);
+    const statics = v.root.children.filter((c) => c.isBone && !bones.has(c));
+    const markers = [];
+    v.root.traverse((o) => { if (o !== v.root && !bones.has(o) && !statics.includes(o) && !o.isSkinnedMesh) markers.push(o); });
+    markers.sort((a, b) => a.id - b.id);
+    rigNodeLists.set(v, nodes = [v.root, ...v.bones, ...statics, ...markers]);
+  }
+  return nodes;
+}
+// A hull as its pose (aimTick, render) reads and writes it: what placeRoot,
+// the walk cycle, aimSeats, poseSeat and recoilBarrels read, and its rig's
+// nodes (each one's position, quaternion and scale, and after the frame its
+// world matrix) where the frame poses it: a ground hull that does not
+// rest (a flyer's pose is the flight package's).
+export function poseState(v, args, end) {
+  const dt = args[1];
+  const rests = !v.alive || dt > 0 && v.sleeping && !v.repulsor && !v.occupied && !v.pose && v.health >= v.maxHealth * .35;
+  const nodes = rigNodes(v), at = (node) => (node ? nodes.indexOf(node) : null);
+  const posed = !rests && !v.flying;
+  return {
+    name: v.name, alive: v.alive, sleeping: v.sleeping, repulsor: v.repulsor, flying: v.flying, creature: v.creature, health: v.health,
+    maxHealth: v.maxHealth, pose: Boolean(v.pose), legs: Boolean(v.def.fx?.legs), body: v.body,
+    position: vec(v.position), previous: vec(v.previous), visual: vec(v.visual), velocity: vec(v.velocity),
+    yaw: v.yaw, previousYaw: v.previousYaw, tilt: v.tilt, previousTilt: v.previousTilt, roll: v.roll, previousRoll: v.previousRoll,
+    age: v.age, hoverPhase: v.hoverPhase, walkPhase: v.walkPhase, walkBlend: v.walkBlend, legSide: v.legSide ? [...v.legSide] : null,
+    quaternion: v.quaternion.clone(), seatIndex: v.seatIndex, driver: Boolean(v.driver),
+    wheels: v.wheels.map((w) => ({ bone: at(w.bone), axis: vec(w.axis), phase: w.phase, previous: w.previous })),
+    seats: v.seats.map((seat) => ({
+      aimYaw: seat.aimYaw, pitch: seat.pitch, lastYaw: seat.lastYaw, yawRate: seat.yawRate, target: seat.target ? vec(seat.target) : null,
+      lease: seat.lease ? { human: seat.lease.human, networkHuman: Boolean(seat.lease.unit?.networkHuman), aiming: seat.lease.input.aiming, aim: vec(seat.lease.input.aim) } : null,
+      eye: vec(seat.view.eye), pivot: vec(seat.view.pivot), up: vec(seat.view.up), yawFactor: seat.view.yawFactor, pitchFactor: seat.view.pitchFactor,
+      turret: at(seat.view.turret),
+      weapons: seat.weapons.map((w) => ({
+        barrel: w.barrel,
+        aimers: w.aimers.map((a) => ({ bone: at(a.bone), yaw: a.yaw, pitch: a.pitch, inLimits: a.inLimits, onTarget: a.onTarget, facing: vec(a.facing),
+          posed: a.posed, owner: a.owner, yawRate: a.yawRate, pitchRate: a.pitchRate, yawLimits: [...a.yawLimits], pitchLimits: [...a.pitchLimits], wrapYaw: a.wrapYaw })),
+        muzzles: w.muzzles.map((m) => ({ barrel: at(m.barrel), rest: m.rest ? vec(m.rest) : null, recoil: m.recoil ?? null, kickAt: m.kickAt ?? null })),
+      })),
+    })),
+    rig: posed ? nodes.flatMap((o) => [o.position.x, o.position.y, o.position.z, o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w, o.scale.x, o.scale.y, o.scale.z]) : null,
+    world: posed && end ? nodes.flatMap((o) => o.matrixWorld.elements) : null,
+  };
+}
+const poseBoundaries = (game) => {
+  const w = game.vehicles?.world ?? null;
+  return [
+    ['collision.cast', game.collision, 'cast'],
+    ['units.raycast', game.units, 'raycast'],
+    ['world.clock', w, 'clock'],
+    ['world.enableBody', w, 'enableBody'],
+    ['world.bodyEnabled', w, 'bodyEnabled'],
+  ];
+};
+const hullPrototype = (game) => (game.vehicles?.vehicles?.length ? Object.getPrototypeOf(game.vehicles.vehicles[0]) : null);
+// Enter and exit states of a pose frame (exit: with the rig's world matrices).
+const poseFrame = (method) => {
+  let entering = true;
+  return { method, target: hullPrototype, whole: ['SeatInput'], boundaries: poseBoundaries,
+    state: (game, args, cap, self) => { const end = !entering; entering = !entering; return { hull: poseState(self, args, end) }; } };
+};
 const vehicles = {
   frames: [
-    { method: 'vehicle.tick', target: (game) => (game.vehicles?.vehicles?.length ? Object.getPrototypeOf(game.vehicles.vehicles[0]) : null),
-      whole: ['SeatInput'], state: (game, args, cap, self) => ({ hull: hullState(self), water: game.vehicles.water ? { level: game.vehicles.water.level } : null }),
+    poseFrame('vehicle.aimTick'),
+    poseFrame('vehicle.render'),
+    { method: 'vehicle.tick', target: hullPrototype, whole: ['SeatInput'],
+      state: (game, args, cap, self) => ({ hull: cap.export('vehicle', self), water: game.vehicles.water ? { level: game.vehicles.water.level } : null }),
       boundaries: hullBoundaries },
   ],
 };

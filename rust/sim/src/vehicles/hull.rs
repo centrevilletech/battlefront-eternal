@@ -147,7 +147,7 @@ pub struct Input {
     pub brake: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct Hull {
     /// Its place in the battle's list (Vehicles.vehicles).
     pub index: usize,
@@ -217,6 +217,8 @@ pub struct Hull {
     pub driver: bool,
     pub wheels: Vec<Wheel>,
     pub seats: Vec<Seat>,
+    /// Its pose (its rig, its seats' aim state): `pose.rs`.
+    pub pose: Option<super::pose::HullPose>,
 }
 
 impl Hull {
