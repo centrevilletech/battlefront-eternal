@@ -3,13 +3,14 @@ import { networkShotDirection, networkShotFor, networkShotTarget } from './runti
 import { weaponMuzzle } from "./muzzles.js";
 import { legacyRandom } from "./ai/random.js";
 import * as THREE from "three";
-import { prepareMelee, meleeStrike, regenerate, attachBlade } from "./heroes.js";
+import { prepareMelee, regenerate, attachBlade } from "./heroes.js";
 import { zeroMaterial } from "./materials.js";
 import { modelGroup } from "./models.js";
 import { motionVectors } from "./motion-vectors.js";
 import { falloff, blastDistance, blastShare, blastBlocked, HEALTH_SCALES } from "./ordnance.js";
 import { Arsenal } from "./weapons.js";
-import { updateWeaponLock, hasMissileLock, targetingWeapon, botLockTarget } from "./weapon-targeting.js";
+import { hasMissileLock, targetingWeapon } from "./weapon-targeting.js";
+import { CombatWorld } from "./combat-world.js";
 import { emitSound } from "./audio/events.js";
 import { infantryFireBlocked, damageDirection } from './combat-input.js';
 
@@ -161,6 +162,8 @@ export class PlayerCombat {
   constructor({ soldier, def, actor, animator, collision, camera, ordnance, lights, weaponModels, firePoints, flashModel, texture, hud, caster = () => {}, owner = "player", player = true }) {
     this.owner = owner;
     this.player = player;
+    // Everything it asks of the rest of the battle (src/combat-world.js).
+    this.worldBoundary = new CombatWorld(this);
     this.lastAttacker = undefined; // set by the first damage (one shape, as Unit's)
     this.aimOverride = null; // a bot's filtered aim direction, or null
     this.onDamaged = () => {}; // (amount, attacker, info) after health drops
@@ -185,7 +188,7 @@ export class PlayerCombat {
     this.team = 0;
     this.live = null; // the map's buildings, for repair weapons
     this.remotes = null; // remote droids
-    this.admitRemoteLaunch = weapon => this.remotes?.admitLaunch?.(weapon) ?? true;
+    this.admitRemoteLaunch = weapon => this.world.admitRemote(weapon);
     this.lightning = null; // the lightning bolts the arc caster throws
     this.glow = null; // the charge-up effect
     this.arcTargets = () => []; // what lightning can link (owner): { origin, hurt(amount) }
@@ -266,6 +269,12 @@ export class PlayerCombat {
     this.screen = new THREE.Vector3();
     this.worldPoint = new THREE.Vector3();
     this.updateHeld();
+  }
+
+  // Everything it asks of the rest of the battle (src/combat-world.js),
+  // made on first use where a combat was made without its constructor.
+  get world() {
+    return (this.worldBoundary ??= new CombatWorld(this));
   }
 
   // A weapon's zoom factors, from none.
@@ -384,7 +393,7 @@ export class PlayerCombat {
     // In first person shots go straight along the aim.
     if (this.usesEyeView) {
       const eye = this.eye(s.position, this.eyePoint);
-      const hit = this.collision.cast(eye, forward, AIM_REACH, this.hit);
+      const hit = this.world.cast(eye, forward, AIM_REACH, this.hit);
       this.target.copy(eye).addScaledVector(forward, hit ? hit.distance : AIM_REACH);
       this.shotDir.copy(forward);
       return;
@@ -407,13 +416,13 @@ export class PlayerCombat {
   // aimed at a head 40 m off passed over or under it by a third of the
   // camera's height above the gun.
   crosshairReach(from, forward) {
-    const hit = this.collision.cast(from, forward, AIM_REACH, this.hit);
+    const hit = this.world.cast(from, forward, AIM_REACH, this.hit);
     const reach = hit ? hit.distance : AIM_REACH;
     const units = this.ordnance?.units;
     if (!units?.raycast) return reach;
     this.crosshairUnit ||= { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
     this.crosshairFilter ||= (unit) => unit.combat !== this && unit.alive;
-    const unit = units.raycast(from, forward, reach, null, this.crosshairUnit, this.crosshairFilter, true);
+    const unit = this.world.raycastUnits(from, forward, reach, this.crosshairUnit, this.crosshairFilter);
     return unit ? unit.distance : reach;
   }
 
@@ -486,7 +495,7 @@ export class PlayerCombat {
       for (const weapon of this.arsenal.weapons) weapon.clearLock?.();
       this.deathTime += dt;
       for (const name of ["firePrimary", "fireSecondary", "reload", "nextPrimary", "previousPrimary", "nextSecondary", "zoom"]) controls.take(name);
-      if (this.deathTime >= RESPAWN_DELAY) this.onRespawn();
+      if (this.deathTime >= RESPAWN_DELAY) this.world.respawn();
       this.updateFlashes(dt);
       return;
     }
@@ -507,16 +516,16 @@ export class PlayerCombat {
     for (const weapon of this.arsenal.weapons) {
       if (!weapon.def.droid) continue;
       weapon.admitShot = this.admitRemoteLaunch;
-      const droid = this.remotes?.of(weapon) || null;
+      const droid = this.world.remoteOf(weapon);
       weapon.deployed = Boolean(droid);
       if (!droid || this.arsenal.current(weapon.channel) !== weapon) continue;
       const trigger = weapon.channel === 0 ? input.primary : input.secondary;
       if (trigger.pressed) {
-        this.remotes.enter(droid);
+        this.world.remoteEnter(droid);
         trigger.pressed = false;
         trigger.held = false;
       } else if (input.reload && weapon.def.AllowDestruct !== 0) {
-        this.remotes.kill(droid);
+        this.world.remoteKill(droid);
         input.reload = false;
       }
     }
@@ -533,16 +542,17 @@ export class PlayerCombat {
     // A repair weapon's lock, the trigger held widening it.
     const fixer = [this.arsenal.current(0), this.arsenal.current(1)].find((w) => w?.repair);
     const fixHeld = fixer && (fixer.channel === 0 ? input.primary.held : input.secondary.held);
-    this.repairTarget = fixer && this.live ? this.live.lockOn(this.origin, this.aimDir, fixer.def, this.repairTarget, fixHeld, this.team) : null;
-    this.repairLock = repairLockKey(this.live, this.repairTarget);
+    this.repairTarget = fixer ? this.world.lockOn(this.origin, this.aimDir, fixer.def, this.repairTarget, fixHeld, this.team) : null;
+    this.repairLock = this.world.lockKey(this.repairTarget);
     if (this.repairTarget) this.animator.fire();
     for (const channel of [0, 1]) {
       const weapon = this.arsenal.current(channel);
       if (!weapon || !hasMissileLock(weapon.def)) continue;
       // The cone runs from the gun through the point under the reticle
       // (aim(): shotDir).
-      updateWeaponLock(weapon, dt, { units: this.ordnance?.units, collision: this.collision,
-        origin: this.origin, dir: this.shotDir, viewer: this.owner, target: botLockTarget(this.owner) });
+      const picked = this.world.lockPick(weapon, this.origin, this.shotDir);
+      if (picked === undefined) weapon.clearLock();
+      else weapon.updateLock(dt, picked?.unit);
     }
     const shots = this.arsenal.update(dt, input, { stick, posture: s.posture, zoomed: this.zoomed, blocked, repairTarget: this.repairTarget });
     // Enter the grenade bank before starting its throw: changing banks clears
@@ -641,18 +651,18 @@ export class PlayerCombat {
 
   weaponAction(action, bank, posture) {
     this.animator.weaponAction(action, bank, posture);
-    this.onPresentation?.({kind:'weaponAction',action,bank,posture,prepare:action.startsWith('shoot')&&this.arsenal.weapons.some(w=>w.bank===bank&&w.thrown&&w.busy)});
+    this.world.presentation({kind:'weaponAction',action,bank,posture,prepare:action.startsWith('shoot')&&this.arsenal.weapons.some(w=>w.bank===bank&&w.thrown&&w.busy)});
   }
   endWeaponAction(action) {
     this.animator.endWeaponAction(action);
-    this.onPresentation?.({kind:'endWeaponAction',action:action??null});
+    this.world.presentation({kind:'endWeaponAction',action:action??null});
   }
   // One bolt of the arc caster's lightning, drawn where this world is drawn
   // and sent to the pages that draw it. `held`, the weapon's channel, marks
   // the bolt held to the shooter: its start follows his gun origin as drawn.
   lightningBolt(name, def, from, to, charge, held = null) {
     this.lightning?.spawn(def, from, to, charge, held === null ? null : (out) => this.drawnGunOrigin(out));
-    this.onPresentation?.({ kind: 'lightning', name, from: from.toArray(), to: to.toArray(), charge, ...(held === null ? {} : { channel: held }) });
+    this.world.presentation({ kind: 'lightning', name, from: from.toArray(), to: to.toArray(), charge, ...(held === null ? {} : { channel: held }) });
   }
   // The gun origin where the soldier is drawn now (a page's presented pose;
   // its own player's as rendered, first person included), or null.
@@ -667,11 +677,11 @@ export class PlayerCombat {
       return;
     }
     if (shot.meleeHit) {
-      meleeStrike(this);
+      this.world.meleeStrike();
       return;
     }
     emitSound(this.player ? "fire" : "actorFire", this, shot);
-    this.onFired?.(shot);
+    this.world.fired(shot);
     const weapon = shot.weapon;
     if (shot.meleeStart) {
       this.weaponAction(shot.swing === 1 ? "shoot" : `shoot${shot.swing}`, weapon.bank, this.soldier.posture);
@@ -691,7 +701,7 @@ export class PlayerCombat {
       // the soldier's own velocity.
       const speed = (weapon.def.Velocity ?? 10) * (weapon.def.MaxStrength ?? 1);
       const velocity = this.fireDir.copy(this.shotDir).multiplyScalar(speed).add(this.soldier.velocity);
-      this.remotes?.launch(weapon, this.origin, velocity, this.soldier.aimYaw, this.team, shot.launchAdmission);
+      this.world.remoteLaunch(weapon, this.origin, velocity, this.soldier.aimYaw, this.team, shot.launchAdmission);
       if (this.firstPerson) this.view?.play("throw", weapon);
       return;
     }
@@ -734,8 +744,7 @@ export class PlayerCombat {
       if (this.deferMuzzles) this.pendingMuzzles.push(payload);
       else this.emitGunRound(payload);
     } else {
-      const round = this.ordnance.fire(ordnance, from, dir, this.owner, null, null, null, shot);
-      if (round && !weapon.thrown) this.bindRoundMuzzle(round, weapon);
+      this.world.fireRound(ordnance, from, dir, shot, !weapon.thrown);
     }
     // Each round kicks the aim.
     if (weapon.def.KickStrength) {
@@ -779,8 +788,7 @@ export class PlayerCombat {
     if (shot.weapon.def.ShotElevate) { dir.y += shot.weapon.def.ShotElevate; dir.normalize(); }
     // The hidden world rig supplies physical collision, while the visible
     // first-person barrels supply the beam's start in the rendered view.
-    const round = this.ordnance.fire(shot.weapon.def.ordnance, from, dir, this.owner, null, null, null, shot);
-    if (round) this.bindRoundMuzzle(round, shot.weapon, selected);
+    this.world.fireRound(shot.weapon.def.ordnance, from, dir, shot, true, selected);
   }
 
   bindRoundMuzzle(round, weapon, selected = null) {
@@ -820,7 +828,9 @@ export class PlayerCombat {
     const C = P.clone().addScaledVector(D, 0.9 * L);
     const toward = new THREE.Vector3();
     const candidates = [];
-    for (const target of this.arcTargets(this.owner)) {
+    const targets = this.world.arcTargets();
+    for (let index = 0; index < targets.length; index++) {
+      const target = targets[index];
       const c = target.center ?? target.origin;
       const r = L + (target.radius ?? 0);
       if (Math.abs(c.x - C.x) > r || Math.abs(c.y - C.y) > r || Math.abs(c.z - C.z) > r) continue;
@@ -829,17 +839,17 @@ export class PlayerCombat {
       if (!(a < L)) continue;
       // Inside the cone about the shot's line, either way along it.
       if (!(toward.addScaledVector(D, -a).lengthSq() < (sine * a) ** 2)) continue;
-      candidates.push({ target, a });
+      candidates.push({ target, index, a });
     }
     candidates.sort((x, y) => x.a - y.a);
-    const bolt = this.effects?.lightning?.[def.LightningEffect];
+    const bolt = this.world.lightning(def.LightningEffect);
     let damage = (def.Damage ?? 0) + ((def.MaxDamage ?? 0) - (def.Damage ?? 0)) * charge;
     const from = P.clone();
     const T = new THREE.Vector3();
     const dir = new THREE.Vector3();
     let prev = 0;
     let links = 0;
-    for (const { target, a } of candidates) {
+    for (const { target, index, a } of candidates) {
       if (links >= (def.MaxTargets ?? 5) || damage < (def.DamageThreshold ?? 0)) break;
       if (a - prev > (links === 0 ? L : def.MaxJumpDistance ?? 10)) break;
       T.copy(target.origin);
@@ -847,13 +857,13 @@ export class PlayerCombat {
       // Blocked from where its arc starts, or (the first) its point too far
       // off the shot's line.
       const span = dir.subVectors(T, from).length();
-      if (span > 1e-3 && this.collision.cast(from, dir.divideScalar(span), span, this.hit)) continue;
+      if (span > 1e-3 && this.world.cast(from, dir.divideScalar(span), span, this.hit)) continue;
       if (links === 0 && def.FirstRadius > 0) {
         toward.subVectors(T, P);
         if (toward.addScaledVector(D, -toward.dot(D)).lengthSq() > def.FirstRadius ** 2) continue;
       }
       prev = a;
-      if (damage > 0) target.hurt(damage, from.clone());
+      if (damage > 0) this.world.hurtArcTarget(index, damage, from.clone());
       if (bolt) {
         this.lightningBolt(def.LightningEffect, bolt, from, T, charge, links === 0 ? channel : null);
         if (links === 0 || (this.random || legacyArc)() > 0.3) from.copy(T);
@@ -862,7 +872,7 @@ export class PlayerCombat {
       damage -= def.DamageDropPerTarget ?? 0;
     }
     if (!links && bolt) {
-      const hit = this.collision.cast(P, D, L, this.hit);
+      const hit = this.world.cast(P, D, L, this.hit);
       this.lightningBolt(def.LightningEffect, bolt, P, T.copy(P).addScaledVector(D, hit ? hit.distance : L), charge, channel);
     }
   }
@@ -871,7 +881,7 @@ export class PlayerCombat {
   // the page's (presentRepairTick), when the tick's shot reaches it.
   repairTick(weapon) {
     const d = weapon.def;
-    if (this.live?.repair(d, this.repairTarget, this.team)) weapon.heat += d.HeatPerShot || 0;
+    if (this.world.repair(d, this.repairTarget, this.team)) weapon.heat += d.HeatPerShot || 0;
   }
 
   // A repair tick as drawn: the weapon's MuzzleFlashEffect (the fusion
@@ -921,7 +931,7 @@ export class PlayerCombat {
     const d = weapon.def;
     const strength = (d.MinStrength ?? 0.3) + ((d.MaxStrength ?? 1) - (d.MinStrength ?? 0.3)) * (shot.charge ?? 1);
     const velocity = this.fireDir.copy(this.shotDir).multiplyScalar((d.Velocity ?? 10) * strength).add(this.soldier.velocity);
-    const made = this.items?.dispense(d.class, d.MaxItems || 0, d.item, this.origin, velocity, this.soldier.aimYaw, this.owner, this.team);
+    const made = this.world.dispense(d.class, d.MaxItems || 0, d.item, this.origin, velocity, this.soldier.aimYaw, this.owner, this.team);
     if (!made) {
       if (!weapon.bottomless) weapon.clip = Math.min(weapon.clip + weapon.perShot, 1);
       weapon.heat = Math.max(weapon.heat - (d.HeatPerShot || 0), 0);
@@ -988,7 +998,7 @@ export class PlayerCombat {
     const hurts = !wasDead && (damage > 0 || !(damage * typed <= 0));
     if (!(push > 0) && !hurts) return;
     // Terrain or a building between the blast and his sight point shields him.
-    if (blastBlocked(this.collision, position, SIGHT_POINT.set(s.position.x, s.position.y + sight, s.position.z))) return;
+    if (blastBlocked(this.world, position, SIGHT_POINT.set(s.position.x, s.position.y + sight, s.position.z))) return;
     if (span > 1e-3) away.divideScalar(span);
     // The push is rolled before the damage: a droid the blast would push
     // may be marked to blow apart at its death instead, and is left
@@ -1036,7 +1046,7 @@ export class PlayerCombat {
     if (this.player) emitSound(this.health > 0 ? "hurt" : "death", this, amount);
     else emitSound(this.health > 0 ? "actorHurt" : "actorDeath", this, amount);
     this.lastAttacker = attacker;
-    this.onDamaged(amount, attacker, { ...info, source });
+    this.world.damaged(amount, attacker, { ...info, source });
     if (this.health <= 0) {
       const left = this.health;
       this.health = 0;
@@ -1047,10 +1057,10 @@ export class PlayerCombat {
       // Dead, the mark records what became of the body: a blast reaching
       // it later finds whether anything is left to throw.
       this.blowApart = Boolean(apart);
-      if (apart) this.onBlowApart(left);
+      if (apart) this.world.blownApart(left);
       else this.animator.die();
       this.updateHeld();
-      this.onDeath();
+      this.world.died();
     }
   }
 
@@ -1062,7 +1072,7 @@ export class PlayerCombat {
     const weapon = this.arsenal.current(0);
     if (weapon?.def.base !== "melee" || !Number(weapon.def.CanDeflect)) return false;
     this.effects?.play?.("lightsabre_deflect", point);
-    this.onPresentation?.({kind:'effect',name:'lightsabre_deflect',position:point.toArray()});
+    this.world.presentation({kind:'effect',name:'lightsabre_deflect',position:point.toArray()});
     return true;
   }
 

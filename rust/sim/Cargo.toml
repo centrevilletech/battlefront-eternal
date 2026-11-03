@@ -30,7 +30,8 @@ v8math = { path = "../v8math" }
 # three.js r170's math and Object3D transforms, operation by operation
 # (the rigs, rig/).
 three = { path = "../three" }
-# JavaScript's semantics where the simulation's order depends on them (V8's
-# sort, a flyer's targets, flight/targeting.rs).
+# JavaScript's semantics the port keeps (Math.min/max with -0 and NaN,
+# ToUint32, V8's sort, the game's random streams and a press's seeded
+# draws), from P1's crate.
 jsrt = { path = "../jsrt" }
 sim-replay = { path = "../sim-replay", optional = true }

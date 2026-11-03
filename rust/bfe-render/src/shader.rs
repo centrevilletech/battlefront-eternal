@@ -112,6 +112,10 @@ const EXTRAS: &[(&str, &str, usize, &str)] = &[
     ("scroll", "vec2", 0, "xy"),
     ("heat", "float", 1, "x"), ("heatBase", "float", 1, "y"), ("heatScale", "float", 1, "z"), ("soot", "float", 1, "w"),
     ("heatTear", "vec4", 2, ""), ("dissolve", "float", 3, "x"),
+    // The arc caster's shock overlay on a struck body (arc-lightning.js), in
+    // the texels a heated body's values use: an overlay is never heated.
+    ("shockTime", "float", 1, "x"), ("intensity", "float", 1, "y"), ("seed", "float", 1, "z"), ("inflate", "float", 1, "w"),
+    ("color", "vec3", 2, "xyz"),
 ];
 
 const INSTANCE_COMMON: &str = "uniform highp sampler2D bfeInstances;
@@ -286,6 +290,20 @@ mod tests {
         // A program that declares none loads none.
         let plain = rewrite("#version 300 es\nuniform float sunScale;\nvoid main() {}\n", Stage::Vertex, Kind::Rigid).unwrap();
         assert!(plain.contains("void bfeLoadExtras() {\n}\n") && plain.contains("bfeLoadExtras();"));
+    }
+
+    #[test]
+    fn a_shock_overlay_reads_its_values_from_the_heat_texels() {
+        let fs = "#version 300 es\nprecision highp float;\nuniform float shockTime;\nuniform float intensity;\nuniform float seed;\nuniform float inflate;\nuniform vec3 color;\nout vec4 c;\nvoid main() {\n  c = vec4(color * intensity, shockTime + seed + inflate);\n}\n";
+        let out = rewrite(fs, Stage::Fragment, Kind::Skinned).unwrap();
+        for gone in ["uniform float shockTime;", "uniform float intensity;", "uniform float seed;", "uniform float inflate;", "uniform vec3 color;"] {
+            assert!(!out.contains(gone), "{gone} declared still");
+        }
+        assert!(out.contains("shockTime = bfeTexel(26).x;") && out.contains("intensity = bfeTexel(26).y;") && out.contains("seed = bfeTexel(26).z;")
+            && out.contains("inflate = bfeTexel(26).w;") && out.contains("color = bfeTexel(27).xyz;"));
+        // A colour that is an attribute (a zero material's vertex colour) is not one.
+        let vs = rewrite("#version 300 es\nuniform float sunScale;\nin vec4 color;\nvoid main() { gl_Position = color; }\n", Stage::Vertex, Kind::Rigid).unwrap();
+        assert!(vs.contains("in vec4 color;") && !vs.contains("bfeTexel(27)"));
     }
 
     #[test]

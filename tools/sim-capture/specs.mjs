@@ -31,6 +31,7 @@
 // object the game holds, such as game.items) is a handle wherever it is met
 // unless the state asks for it whole: expand(object).
 import { units } from './units.mjs';
+import { combat } from './combat.mjs';
 import { flightSpec } from './flight.mjs';
 
 export class Expand {
@@ -222,4 +223,6 @@ const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseSta
 
 // The units package (flip F3): a unit's tick, the registry's queries and
 // the soldiers pushed apart (tools/sim-capture/units.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, flight, flightMissiles };
+// The combat package (flip F3 with units): a soldier's combat, what hurts
+// him and his new lives (tools/sim-capture/combat.mjs).
+export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles };
