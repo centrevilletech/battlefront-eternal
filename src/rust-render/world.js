@@ -16,14 +16,18 @@ export const WORLD = 0;
 // Texture units (core.rs): the tree canopies' state, the terrain's layers.
 export const UNIT_TREE_STATES = 3, UNIT_LAYER1 = 4, UNIT_DETAIL = 5, UNIT_LAYERS = 6;
 // The material values a world program may read, which the renderer sets per
-// draw (world.rs world_uniform).
-const MATERIAL = new Set(["sunScale", "brightness", "ambientPull", "specular", "scroll", "treeStateCount"]);
+// draw (world.rs world_uniform); receiveShadow is the mesh's own (a shadow
+// receiver's, with shadows on).
+const MATERIAL = new Set(["sunScale", "brightness", "ambientPull", "specular", "scroll", "treeStateCount", "receiveShadow"]);
 // Uniforms a world program may read besides the frame block: its textures,
 // those material values, the point lights the renderer gives each draw, and
-// lamp lighting's, read only while lamps are off (supported()).
+// lamp lighting's, read only while lamps are off (core.program()). shadows:
+// this pass gives a draw its receiveShadow and shows three's shadow pass the
+// casters it hides (reveal), so a shadow receiver's program is its to draw.
 const POLICY = {
   uniforms: new Set(["map", "farMap", "bumpMap", "treeStates", ...MATERIAL, "zeroLights", "zeroLightCount", "localLightPositions", "localLightColors", "localLightCount"]),
   material: MATERIAL,
+  shadows: true,
 };
 
 // Whether three has drawn the material as it is now: its program is current.
@@ -101,6 +105,7 @@ class WorldPass {
       }
       for (const name of program.names) {
         if (!MATERIAL.has(name)) continue;
+        if (name === "receiveShadow") { rust.world_uniform(w, name, new Float32Array([mesh.receiveShadow ? 1 : 0]), true); continue; }
         const v = material.uniforms[name]?.value;
         const values = typeof v === "number" ? [v] : v?.isVector4 ? [v.x, v.y, v.z, v.w] : v?.isVector3 ? [v.x, v.y, v.z] : v?.isVector2 ? [v.x, v.y] : null;
         if (values) rust.world_uniform(w, name, new Float32Array(values), false);
@@ -124,6 +129,14 @@ class WorldPass {
 
   setActive(on) {
     for (const entry of this.meshes) if (!entry.stale && entry.mesh.material) entry.mesh.material.visible = !on;
+  }
+
+  // Shown to three while one of three's own renders needs them (index.js
+  // reveal): three's shadow pass draws the casters among the buckets taken
+  // (alpha-cut buckets too small to partition, the banners, and the
+  // partitioned ones' proxies, which share their material).
+  reveal(on) {
+    for (const entry of this.meshes) if (!entry.stale && entry.mesh.material) entry.mesh.material.visible = on;
   }
 }
 

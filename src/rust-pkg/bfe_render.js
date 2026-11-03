@@ -922,6 +922,28 @@ export class BfeRenderer {
         wasm.bferenderer_set_far_map(this.__wbg_ptr, texture);
     }
     /**
+     * @param {Uint32Array | number[]} ids
+     */
+    set_shadow_maps(ids) {
+        const ptr0 = passArray32ToWasm0(ids, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_set_shadow_maps(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @returns {number}
+     */
+    shadow_input_len() {
+        const ret = wasm.bferenderer_shadow_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    shadow_input_ptr() {
+        const ret = wasm.bferenderer_shadow_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {boolean} by_program
      */
     sort(by_program) {

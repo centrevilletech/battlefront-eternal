@@ -212,6 +212,13 @@ class ViewPass {
     this.on = on;
   }
 
+  // Shown to three while one of three's own renders needs them (index.js
+  // reveal): the temporal upscaler's motion pass draws the view scene again,
+  // with an override material, for the mask that keeps it fixed on screen.
+  reveal(on) {
+    for (const record of this.records) record.material.visible = on;
+  }
+
   restore() {
     this.setActive(false);
   }

@@ -178,7 +178,8 @@ export class Graphics {
       if (scene === this.scene && this.csm) {
         const calls = this.renderer.info.render.calls;
         const triangles = this.renderer.info.render.triangles;
-        this.renderCascades(scene, camera, renderShadows);
+        // With what the Rust renderer took from three shown to it (rust-render/).
+        this.reveal(() => this.renderCascades(scene, camera, renderShadows));
         this.shadowInfo = { calls: this.renderer.info.render.calls - calls, triangles: this.renderer.info.render.triangles - triangles };
       } else renderShadows(lights, scene, camera);
     };
@@ -886,6 +887,13 @@ export class Graphics {
     }
   }
 
+  // fn run by one of three's own renders that must see everything the Rust
+  // renderer took from three (rust-render/index.js reveal): the shadow pass's
+  // casters, the motion pass's first-person mask.
+  reveal(fn) {
+    return this.rust ? this.rust.reveal(fn) : fn();
+  }
+
   setVehicleMotion(amount, turn) {
     const uniforms = this.composite.material.uniforms;
     uniforms.speedBlur.value = this.settings.get('vehicleMotionBlur') ? Math.min(1, Math.max(0, amount)) * .085 : 0;
@@ -986,10 +994,10 @@ export class Graphics {
       renderer.autoClear = true;
     }
     if (temporal) {
-      this.upscaler.drawMotion(renderer, {
+      this.reveal(() => this.upscaler.drawMotion(renderer, {
         root: this.scene, camera, viewScene: viewShown ? this.viewScene : null, view: this.viewCamera,
         depth: this.particleDepth.target.depthTexture,
-      });
+      }));
       this.upscaler.restore();
     }
 

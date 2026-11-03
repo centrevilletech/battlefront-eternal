@@ -56,6 +56,13 @@ impl BfeRenderer {
     pub fn bones_ptr(&mut self) -> u32 { self.r.core.bones.as_mut_ptr() as u32 }
     pub fn bones_len(&self) -> u32 { self.r.core.bones.len() as u32 }
 
+    // Where the page writes the shadow receivers' block (f64, shader.rs
+    // BfeShadow's float layout), and the cascades' depth maps it reads
+    // (texture ids in cascade order; none: shadows off).
+    pub fn shadow_input_ptr(&mut self) -> u32 { self.r.core.shadow_input.as_mut_ptr() as u32 }
+    pub fn shadow_input_len(&self) -> u32 { self.r.core.shadow_input.len() as u32 }
+    pub fn set_shadow_maps(&mut self, ids: &[u32]) { self.r.core.set_shadow_maps(ids) }
+
     pub fn add_texture(&mut self, texture: web_sys::WebGlTexture) -> u32 {
         let key = unsafe { self.r.core.gl.register_external_texture(texture) };
         self.r.core.add_texture(key)

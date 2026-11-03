@@ -13,8 +13,11 @@
 // made from the GLSL three compiled for them (shader.rs), so they light as
 // three's do.
 //
-// Only what it supports moves; everything else stays with three, as does
-// everything in a configuration it does not cover (shadows, lamp lighting).
+// Only what it supports moves; everything else stays with three, item by
+// item: a program that reads what the renderer can't give it yet (the
+// Enhanced lamps, a shadow receiver of a pass that doesn't feed shadows)
+// stays three's (program()). The shadow receivers read the cascades from a
+// block of their own (BfeShadow), written once a frame.
 //
 // It is made of passes, a file each here as in the renderer (renderer.rs):
 // the world (world.js), the instanced soldiers, guns and rigs
@@ -61,6 +64,17 @@ const FRAME_NAMES = new Set(FRAME.map(([name]) => name));
 // block's member instead: its declaration becomes a #define of the member.
 const FRAME_BY_VALUE = new Map(FRAME.filter(([name]) => lighting[name]).map(([name, , size]) => [lighting[name], { name, size }]));
 const UNIFORM_SIZES = { 0x1406: 1, 0x8b50: 2, 0x8b51: 3, 0x8b5c: 16 };
+// add_program's kinds whose programs shader.rs makes shadow receivers of
+// (world, skinned, rigid), and the instanced ones among them.
+const RECEIVER_KINDS = new Set([0, 1, 2]), INSTANCED_KINDS = new Set([1, 2]);
+// A shadow receiver's uniforms the BfeShadow block gives it (shader.rs), and
+// the lamps' (materials.js DYNAMIC).
+const SHADOW_UNIFORM = /^(cascadeMaps|directionalShadowMatrix|cascadePlanes|cascades)$|^directionalLightShadows\[\d+\]\./;
+const LAMP_UNIFORMS = new Set(["localLightPositions", "localLightColors", "localLightCount"]);
+// The shadow block's float layout (shader.rs SHADOW_*): per cascade its
+// shadow values (8: intensity, bias, normal bias, radius, map size, pad),
+// matrix (16), plane matrix (12: three columns of four) and slice (4).
+const SHADOW = { VALUES: 0, MATRICES: 32, PLANES: 96, SLICES: 144, FLOATS: 160, CASCADES: 4 };
 const LIGHT_COUNT = 70, LIGHTS = 72, MAX_LIGHTS = 16;
 const GL_TYPES = { Float32Array: 0x1406, Uint16Array: 0x1403, Uint8Array: 0x1401, Int16Array: 0x1402, Int8Array: 0x1400, Uint32Array: 0x1405 };
 // The phases of a frame, in the order three draws them: the view whose frame
@@ -150,6 +164,11 @@ export class RustRender {
     this.enabled = true;
     this.active = !new URLSearchParams(location.search).has("rustOff");
     this.errors = [];
+    // The Enhanced configuration the battle started in (supported()), and
+    // the cascades' maps last given to the renderer.
+    this.config = null;
+    this.shadowMaps = "";
+    this.shadowView = false;
     // The renderer's inputs: the frame block's values, then the passes'
     // records (f64), where they start and a record's size (instances.rs);
     // and the bones of the rigs drawn (f32).
@@ -194,10 +213,44 @@ export class RustRender {
     pass.register?.();
   }
 
-  // Three's config the renderer covers.
+  // The Enhanced configuration: the shadow cascades (0: none), lamps, the
+  // temporal upscaler.
+  configKey() {
+    const graphics = this.graphics;
+    const cascades = this.renderer.shadowMap.enabled ? graphics.csm?.lights.length ?? -1 : 0;
+    return `${cascades}:${graphics.settings.get("lampLighting") ? 1 : 0}:${graphics.upscaling === "temporal" ? 1 : 0}`;
+  }
+
+  // The configuration the renderer covers: the one the battle started in.
+  // Within it each pass leaves to three, item by item, what it can't draw
+  // (program()); a change of it gives everything back to three for the rest
+  // of the battle (programs registered for the old one would be stale).
   supported() {
-    const settings = this.graphics.settings;
-    return !this.renderer.shadowMap.enabled && !settings.get("lampLighting") && this.graphics.upscaling !== "temporal";
+    const key = this.configKey();
+    this.config ??= key;
+    return key === this.config;
+  }
+
+  // Whether the frame has shadow receivers' inputs to give (C2: the cascades'
+  // block and maps).
+  shadowsOn() {
+    return this.renderer.shadowMap.enabled && Boolean(this.graphics.csm) && lighting.cascadeMaps.value.length > 0;
+  }
+
+  // Three's own renders that must see what the passes took from it (by its
+  // material's visibility or its layers): three's shadow pass, whose casters
+  // include buckets the world pass draws (graphics.js renderCascades), and the
+  // temporal upscaler's motion pass, which draws the first-person view again
+  // for its mask (upscaler.drawMotion). fn runs with them shown to three
+  // (each pass's reveal(on)).
+  reveal(fn) {
+    if (!this.enabled || !this.active) return fn();
+    for (const pass of this.passes) pass.reveal?.(true);
+    try {
+      return fn();
+    } finally {
+      for (const pass of this.passes) pass.reveal?.(false);
+    }
   }
 
   // A typed view of the renderer's memory, kept as this[name]: a Type over
@@ -238,25 +291,37 @@ export class RustRender {
   // cache: where it is kept (made once each): a pass that keeps what it last
   // set in a program's uniforms passes a cache of its own, so that no other
   // pass sets them behind its back.
+  // The Enhanced inputs a program may read beyond its pass's own: a shadow
+  // receiver's (the BfeShadow block; receiveShadow too for an instance, from
+  // its row) when its pass feeds shadows (policy.shadows: it gives a draw's
+  // receiveShadow and reveals the casters it hides), and the lamps' while
+  // lamps are on only when its pass feeds them (policy.lamps). Anything else
+  // makes the program three's.
   program(threeProgram, kind, material, policy, cache = this.programs) {
     let entry = cache.get(threeProgram);
     if (entry !== undefined) return entry;
     entry = null;
     const gl = this.gl, p = threeProgram.program;
     const names = [], aliases = [];
-    let ok = true;
+    const shadows = Boolean(policy.shadows) && RECEIVER_KINDS.has(kind) && this.shadowsOn();
+    const lamps = !this.graphics.settings.get("lampLighting") || Boolean(policy.lamps);
+    let ok = true, why = "";
     for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
       const u = gl.getActiveUniform(p, i), name = u.name.replace(/\[0\]$/, "");
       names.push(name);
       if (FRAME_NAMES.has(name)) {
         // A frame value this material keeps of its own can't come from the block.
         if (!["projectionMatrix", "viewMatrix", "cameraPosition"].includes(name) && material.uniforms?.[name] !== lighting[name]) ok = false;
+      } else if (SHADOW_UNIFORM.test(name) || (name === "receiveShadow" && INSTANCED_KINDS.has(kind))) {
+        if (!shadows) { ok = false; why = " (shadows)"; }
+      } else if (LAMP_UNIFORMS.has(name) && !lamps) {
+        ok = false; why = " (lamps)";
       } else if (!policy.uniforms.has(name)) {
         const member = FRAME_BY_VALUE.get(material.uniforms?.[name]);
         if (member && u.size === 1 && UNIFORM_SIZES[u.type] === member.size) aliases.push([name, member.name]);
         else ok = false;
       }
-      if (!ok) { this.errors.push(`p${threeProgram.id} ${name}`); break; }
+      if (!ok) { this.errors.push(`p${threeProgram.id} ${name}${why}`); break; }
     }
     if (ok) {
       const attributes = [];
@@ -339,6 +404,7 @@ export class RustRender {
       if (size === 1) input[at] = v;
       else { input[at] = v.x; input[at + 1] = v.y; if (size === 3) input[at + 2] = v.z; }
     }
+    if (view !== VIEW_FAR && view !== VIEW_FIRST_PERSON) this.writeShadow();
     const pack = packed(scene, camera);
     const count = Math.min(pack.count, MAX_LIGHTS);
     input[LIGHT_COUNT] = count;
@@ -346,6 +412,36 @@ export class RustRender {
       const v = pack.lights[i], o = LIGHTS + 4 * i;
       input[o] = v.x; input[o + 1] = v.y; input[o + 2] = v.z; input[o + 3] = v.w;
     }
+  }
+
+  // The shadow receivers' block (shader.rs BfeShadow) as three uploads its
+  // uniforms for the near scene's receivers: each cascade light's shadow
+  // values and matrix (three's lights state, the cascade order: CSM's lights
+  // are the scene's only shadow-casting ones), the plane matrices and slices
+  // the materials share (lighting.cascadePlanes, lighting.cascades), read
+  // where three's draws would read them (after this frame's shadow pass; a
+  // mirror's, drawn before it, last frame's); and the cascades' maps. With
+  // shadows off, no maps: the renderer sends and binds nothing.
+  writeShadow() {
+    const on = this.shadowsOn();
+    const maps = on ? lighting.cascadeMaps.value : [];
+    const ids = maps.map((t) => this.texture(t));
+    const key = ids.join(",");
+    if (key !== this.shadowMaps) { this.shadowMaps = key; this.rust.set_shadow_maps(new Uint32Array(ids.every((id) => id >= 0) ? ids : [])); }
+    if (!on) return;
+    if (!this.shadowView) { this.addView("shadowInput", Float64Array, () => this.rust.shadow_input_ptr(), () => this.rust.shadow_input_len()); this.shadowView = true; }
+    this.views();
+    const out = this.shadowInput, lights = this.graphics.csm.lights, planes = lighting.cascadePlanes.value, slices = lighting.cascades.value;
+    out.fill(0);
+    for (let i = 0; i < Math.min(lights.length, SHADOW.CASCADES); i++) {
+      const shadow = lights[i].shadow, v = SHADOW.VALUES + 8 * i;
+      out[v] = shadow.intensity ?? 1; out[v + 1] = shadow.bias; out[v + 2] = shadow.normalBias; out[v + 3] = shadow.radius;
+      out[v + 4] = shadow.mapSize.x; out[v + 5] = shadow.mapSize.y;
+      out.set(shadow.matrix.elements, SHADOW.MATRICES + 16 * i);
+      const e = planes[i]?.elements;
+      if (e) for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) out[SHADOW.PLANES + 12 * i + 4 * c + r] = e[3 * c + r];
+    }
+    for (let i = 0; i < Math.min(slices.length, SHADOW.CASCADES); i++) { out[SHADOW.SLICES + 4 * i] = slices[i].x; out[SHADOW.SLICES + 4 * i + 1] = slices[i].y; }
   }
 
   // A point inside three's render lists, for a pass that must draw there

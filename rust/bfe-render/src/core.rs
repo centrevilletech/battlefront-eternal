@@ -10,7 +10,7 @@
 // three drew in between, and each pass changes only what differs from what
 // the last draw left (GlState), counting every call it makes.
 use crate::math::{self, Frustum, Mat4};
-use crate::shader::{self, Kind, Stage, FRAME_FLOATS, FRAME_LIGHT_COUNT, MAX_LIGHTS};
+use crate::shader::{self, Kind, Stage, FRAME_FLOATS, FRAME_LIGHT_COUNT, MAX_LIGHTS, SHADOW_FLOATS};
 use glow::HasContext;
 
 // Fixed texture units.
@@ -48,6 +48,8 @@ pub const VIEW_FAR: usize = 1;
 pub const VIEW_FIRST_PERSON: usize = 2;
 pub const VIEW_SPARE: usize = 3;
 pub const VIEWS: usize = 4;
+// Where the shadow receivers read BfeShadow (shader.rs); BfeFrame is 0.
+pub const SHADOW_BINDING: u32 = 1;
 
 // The passes, in the order the renderer makes them and its stats count
 // their draws.
@@ -334,6 +336,13 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     // Framebuffers of the renderer's own over registered textures (colour,
     // depth), by the texture ids they were made for.
     framebuffers: Vec<(Option<u32>, Option<u32>, C::Framebuffer)>,
+    // The shadow receivers' block (shader.rs BfeShadow): what the page wrote
+    // (f64, in the block's float layout), as uploaded (f32), its buffer, and
+    // the cascades' depth maps (none: shadows off, nothing bound or sent).
+    pub shadow_input: Vec<f64>,
+    shadow: Vec<f32>,
+    shadow_ubo: C::Buffer,
+    shadow_maps: Vec<C::Texture>,
     // The frame block as last uploaded (f32, as three uploads it).
     pub(crate) frame: Vec<f32>,
     pub input: Vec<f64>,
@@ -371,8 +380,16 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             gl.bind_buffer(glow::UNIFORM_BUFFER, None);
             ubo
         });
+        let shadow_ubo = unsafe {
+            let ubo = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::UNIFORM_BUFFER, Some(ubo));
+            gl.buffer_data_size(glow::UNIFORM_BUFFER, (SHADOW_FLOATS * 4) as i32, glow::DYNAMIC_DRAW);
+            gl.bind_buffer(glow::UNIFORM_BUFFER, None);
+            ubo
+        };
         Core {
-            gl, multi, programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![], frame: vec![0.0; FRAME_FLOATS],
+            gl, multi, programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
+            shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![], frame: vec![0.0; FRAME_FLOATS],
             input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![],
         }
     }
@@ -425,10 +442,22 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             if let Some(block) = gl.get_uniform_block_index(program, "BfeFrame") {
                 gl.uniform_block_binding(program, block, 0);
             }
+            let receiver = gl.get_uniform_block_index(program, "BfeShadow");
+            if let Some(block) = receiver {
+                gl.uniform_block_binding(program, block, SHADOW_BINDING);
+            }
             gl.use_program(Some(program));
             for (name, unit) in SAMPLERS {
                 if let Some(l) = gl.get_uniform_location(program, name) {
                     gl.uniform_1_i32(Some(&l), *unit as i32);
+                }
+            }
+            // A shadow receiver's cascade maps, each on its own unit.
+            if receiver.is_some() {
+                for i in 0..4 {
+                    if let Some(l) = gl.get_uniform_location(program, &format!("cascadeMaps[{i}]")) {
+                        gl.uniform_1_i32(Some(&l), (UNIT_CASCADES + i) as i32);
+                    }
                 }
             }
             let uniforms = material_uniforms.iter().map(|n| (n.clone(), gl.get_uniform_location(program, n), None)).collect();
@@ -570,6 +599,48 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     pub fn bind_frame(&mut self, view: usize) {
         unsafe { self.gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(self.frame_ubos[view])) };
         self.stats.gl_calls += 1;
+    }
+
+    // The cascades' depth maps (registered textures, cascade order) the
+    // shadow receivers read; none while shadows are off.
+    pub fn set_shadow_maps(&mut self, ids: &[u32]) {
+        self.shadow_maps = ids.iter().filter_map(|&i| self.textures.get(i as usize).copied()).collect();
+    }
+
+    // Whether the frame has shadows for its receivers.
+    pub fn shadows(&self) -> bool {
+        !self.shadow_maps.is_empty()
+    }
+
+    // The shadow block as the page wrote it (f32, as three uploads its
+    // uniforms), sent and bound where the receivers read it, and the
+    // cascades' maps on their units. Nothing while shadows are off.
+    pub fn upload_shadow(&mut self) {
+        if !self.shadows() {
+            return;
+        }
+        for i in 0..SHADOW_FLOATS {
+            self.shadow[i] = self.shadow_input[i] as f32;
+        }
+        unsafe {
+            self.gl.bind_buffer(glow::UNIFORM_BUFFER, Some(self.shadow_ubo));
+            self.gl.buffer_sub_data_u8_slice(glow::UNIFORM_BUFFER, 0, bytes(&self.shadow));
+        }
+        self.stats.gl_calls += 2;
+        self.bind_shadow();
+    }
+
+    // The shadow block and maps bound again (a phase drawn later in the frame).
+    pub fn bind_shadow(&mut self) {
+        if !self.shadows() {
+            return;
+        }
+        unsafe { self.gl.bind_buffer_base(glow::UNIFORM_BUFFER, SHADOW_BINDING, Some(self.shadow_ubo)) };
+        self.stats.gl_calls += 1;
+        for i in 0..self.shadow_maps.len() {
+            let t = self.shadow_maps[i];
+            self.state.bind_texture(&self.gl, &mut self.stats, UNIT_CASCADES + i as u32, Some(t));
+        }
     }
 
     // A framebuffer of the renderer's own over registered textures: a colour
