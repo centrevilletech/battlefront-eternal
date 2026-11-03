@@ -162,3 +162,14 @@ test("a mesh it can't draw in view: the renderer draws nothing and three the fra
   assert.equal(core.farInput[4], 0);
   assert.equal(calls.some((c) => c[0] === "blitFramebuffer"), false);
 });
+
+test("an error in the far pass leaves the far scene to three for good", () => {
+  const { core, renderer, farScene, camera, far } = bridge();
+  farScene.add(mesh("zero:lit", BUCKET, { values: values() }));
+  core.rust.far_item = () => { throw new Error("no"); };
+  assert.equal(core.cover("far", renderer, farScene, camera), false);
+  assert.deepEqual([far.on, far.mode], [false, "three"]);
+  assert.match(core.errors.at(-1), /^far: Error: no/);
+  core.views();
+  assert.equal(core.farInput[4], 0);
+});

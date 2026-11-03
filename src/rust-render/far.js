@@ -122,8 +122,21 @@ class FarPass {
 
   // The far phase's part: what it hasn't registered yet, then this frame's
   // input. Complete when every mesh three would draw is an item (one three
-  // culls is drawn by neither); else the renderer draws nothing.
+  // culls is drawn by neither); else the renderer draws nothing. An error
+  // leaves the far scene to three for good.
   draw(ctx) {
+    try {
+      this.frame(ctx);
+    } catch (error) {
+      this.core.errors.push(`far: ${String(error?.stack || error).slice(0, 400)}`);
+      this.on = false;
+      this.complete = false;
+      this.mode = "three";
+      this.write(ctx.renderer, false);
+    }
+  }
+
+  frame(ctx) {
     const { renderer, scene, camera } = ctx;
     this.count = 0;
     this.threeObjects = 0;
