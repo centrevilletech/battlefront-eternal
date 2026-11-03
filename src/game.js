@@ -140,6 +140,16 @@ async function attachSeatPhase(instance, vehicles) {
   return attachSeatsSim(vehicles, bridge);
 }
 
+// A world's units' phase on the battle's instance of the module, through the
+// store's one bridge (src/units-sim.js).
+async function attachUnitsPhase(instance, game) {
+  const [{ attachUnitsSim }, { Soldier }, { Droideka }, { Building, Turret }] = await Promise.all([
+    import("./units-sim.js"), import("./soldier.js"), import("./droideka.js"), import("./props.js")]);
+  const sim = attachUnitsSim(instance, { Unit, Vehicle, Soldier, Droideka, Building, Turret }, game);
+  sim.bridge.reserve(4 << 20);
+  return sim;
+}
+
 // A world's combats on the battle's instance of the module, through the
 // store's one bridge (src/combat-sim.js).
 async function attachCombatPhase(instance) {
@@ -230,7 +240,7 @@ async function start() {
   // A correction drained: the reticle's target is worked out once, after the
   // frame's packets (clientFrame), from the last of them.
   let targetHudDue = false;
-  let factory = null, ai = null, randomB = null, networkRemotes = null;
+  let factory = null, ai = null, randomB = null, networkRemotes = null, unitsSim = null;
   let markReady = () => {};
   const ready = new Promise((resolve) => {
     markReady = resolve;
@@ -466,7 +476,12 @@ async function start() {
   // the world's ticks and the page's replay of his own soldier alike; it
   // brings the ray kernel with it.
   const movement = (params.get("movement") ?? (params.get("rays") === "js" ? "js" : movementDefault)) === "wasm";
-  const wantRays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm";
+  // A world's units on the module (src/units-sim.js), where it asks for
+  // them: ?units=rust, or under Node BFE_UNITS=rust. Off by default until
+  // units and combat move over together. Its soldiers move through the
+  // module's copy of the collision world, so it brings the ray kernel.
+  const wantUnits = headless && (params.get("units") ?? globalThis.process?.env?.BFE_UNITS) === "rust";
+  const wantRays = movement || wantUnits || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm";
   // The page's pose sampling in WebAssembly (src/anim-kernel.js) unless
   // ?anim=js, to the last bit as its JavaScript, which stays the fallback
   // when the module cannot load. The page's poses only: a headless world
@@ -493,7 +508,7 @@ async function start() {
   // units and combat move over together.
   const wantCombat = headless && (params.get("combat") ?? globalThis.process?.env?.BFE_COMBAT) === "rust";
   // The kernels and the store on the battle's one instance of the module.
-  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantSeats || wantCombat ? await loadSimInstance() : null;
+  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantSeats || wantCombat || wantUnits ? await loadSimInstance() : null;
   const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
   const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
@@ -1479,6 +1494,14 @@ async function start() {
       unit.actor.root.visible = false;
     },
   });
+  // The step's loop over the units on the module, when the world asked
+  // (createGame's wantUnits): the module's map rules answer its water and
+  // death regions as inDeathRegion and the water's soldierStep do.
+  unitsSim = wantUnits && simInstance && collision.rays ? await attachUnitsPhase(simInstance, {
+    factory, combatSim, collision, water, presentEffect,
+    map: { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
+    aimReads: () => Boolean(ai?.enhanced),
+  }) : null;
   destruction?.prepare(Object.values(sides).flatMap((s) => Object.values(s.units)));
   // With the spawn screen, every class the player can take on either team,
   // whatever the bots do: its body, a droideka's clips, its first-person
@@ -2182,7 +2205,10 @@ async function start() {
     simulationCamera.updateMatrixWorld();
     vehicles?.restoreTickPose?.();
     ai?.update(dt);
-    for (const unit of factory?.built || []) {
+    // The units' loop below runs on the module where the world asked
+    // (src/units-sim.js), to the same effect.
+    if (unitsSim) unitsSim.phase(dt);
+    else for (const unit of factory?.built || []) {
       unit.tick(dt);
       if (water && unit.alive && !unit.seat && !unit.held && !unit.walker) {
         unit.waterContact ??= {};
@@ -3528,6 +3554,9 @@ async function start() {
     // The store on the battle's instance of the module, when the rounds are
     // there (src/ordnance-sim.js); null when they are JavaScript's.
     simBridge,
+    // The units' phase on the module, when the world asked for it
+    // (src/units-sim.js); null when the units tick in JavaScript.
+    get unitsSim() { return unitsSim; },
     debris,
     destruction,
     items,

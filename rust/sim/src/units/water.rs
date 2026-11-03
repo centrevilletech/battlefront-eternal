@@ -101,40 +101,59 @@ impl WaterState {
         over: &mut dyn FnMut(f64, f64) -> bool,
         effects: &mut dyn WaterEffects,
     ) -> f64 {
-        let level = self.level();
-        let wet = level > feet.y && over(feet.x, feet.z);
-        contact.gun_under = Some(gun.y < level && over(gun.x, gun.z));
-        let mut damage = 0.0;
-        let or_zero = |x: Option<f64>| x.filter(|v| *v != 0.0 && !v.is_nan()).unwrap_or(0.0);
-        if wet {
-            let wake = or_zero(contact.wake_clock) + dt;
-            contact.wake_clock = Some(wake);
-            let interval = 1.0 / (0.3 * velocity.length_sq() + 4.0);
-            if wake > interval && velocity.length_sq() > 0.0 {
-                let mut at = *feet;
-                at.add_scaled_vector(velocity, 0.03);
-                effects.ripple(&at, WAKE_LIFE, WAKE_RADIUS, velocity);
-                contact.wake_clock = Some(v8math::min(wake - interval, interval));
-            }
-            let splash = or_zero(contact.splash_clock) + dt;
-            contact.splash_clock = Some(splash);
-            if velocity.y < -SPLASH_SPEED && splash > SPLASH_GAP {
-                contact.splash_clock = Some(0.0);
-                effects.splash(&Vector3 { x: feet.x, y: level, z: feet.z });
-            }
-        }
-        if head.y < level && over(head.x, head.z) {
-            let mut under = or_zero(contact.under) + dt;
-            if under >= DROWN_AFTER {
-                under -= 1.0;
-                damage = DROWN_DAMAGE;
-            }
-            contact.under = Some(under);
-        } else {
-            contact.under = Some(0.0);
-        }
-        damage
+        soldier_step_at(self.level(), dt, contact, feet, head, gun, velocity, over, effects)
     }
+}
+
+/// WaterState.soldierStep(dt, contact, feet, head, gun, velocity, splash)
+/// for water whose level now is `level` and whose cells `over` answers
+/// (the module's map rules, rust/sim/src/vehicles/native.rs MapRules, in a
+/// battle; a capture in a replay): one tick of a soldier and the water;
+/// returns the damage to take.
+#[allow(clippy::too_many_arguments)]
+pub fn soldier_step_at(
+    level: f64,
+    dt: f64,
+    contact: &mut WaterContact,
+    feet: &Vector3,
+    head: &Vector3,
+    gun: &Vector3,
+    velocity: &Vector3,
+    over: &mut dyn FnMut(f64, f64) -> bool,
+    effects: &mut dyn WaterEffects,
+) -> f64 {
+    let wet = level > feet.y && over(feet.x, feet.z);
+    contact.gun_under = Some(gun.y < level && over(gun.x, gun.z));
+    let mut damage = 0.0;
+    let or_zero = |x: Option<f64>| x.filter(|v| *v != 0.0 && !v.is_nan()).unwrap_or(0.0);
+    if wet {
+        let wake = or_zero(contact.wake_clock) + dt;
+        contact.wake_clock = Some(wake);
+        let interval = 1.0 / (0.3 * velocity.length_sq() + 4.0);
+        if wake > interval && velocity.length_sq() > 0.0 {
+            let mut at = *feet;
+            at.add_scaled_vector(velocity, 0.03);
+            effects.ripple(&at, WAKE_LIFE, WAKE_RADIUS, velocity);
+            contact.wake_clock = Some(v8math::min(wake - interval, interval));
+        }
+        let splash = or_zero(contact.splash_clock) + dt;
+        contact.splash_clock = Some(splash);
+        if velocity.y < -SPLASH_SPEED && splash > SPLASH_GAP {
+            contact.splash_clock = Some(0.0);
+            effects.splash(&Vector3 { x: feet.x, y: level, z: feet.z });
+        }
+    }
+    if head.y < level && over(head.x, head.z) {
+        let mut under = or_zero(contact.under) + dt;
+        if under >= DROWN_AFTER {
+            under -= 1.0;
+            damage = DROWN_DAMAGE;
+        }
+        contact.under = Some(under);
+    } else {
+        contact.under = Some(0.0);
+    }
+    damage
 }
 
 #[allow(unused_imports)]

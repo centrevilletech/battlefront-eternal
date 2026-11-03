@@ -60,7 +60,7 @@ const NO_GROUND = Object.freeze({ found: false, height: 0, normal: new THREE.Vec
 
 // A class's keys as JSON the module parses (rust/content's parser), keeping
 // what JSON.stringify would lose: a -0 stays -0.
-function json(v) {
+export function json(v) {
   if (v === null || v === undefined) return "null";
   if (typeof v === "number") return Object.is(v, -0) ? "-0" : Number.isFinite(v) ? String(v) : "null";
   if (typeof v === "boolean") return v ? "true" : "false";
@@ -84,6 +84,19 @@ const classKeys = (def) => ({
 // water and death regions to the imports. pack: the vehicle pack as the
 // battle loaded it ({ data, buffer, indexBuffer, animationBuffer }); null
 // leaves the poses to JavaScript.
+// The map's water and death regions, and the kill height under the
+// battlefield, to the module's map rules (rust/sim/src/vehicles/native.rs
+// MapRules), which answer the hull phase and the units' phase alike:
+// `water` the battle's WaterState (or null), `map` { killY, deathRegions,
+// scripted } as game.js picks them.
+export function giveMapRules(bridge, water, map) {
+  const data = {
+    water: water ? { cell: water.cell, offset: water.offset, grid: water.grid, cells: Array.from(water.cells) } : null,
+    deathRegions: map.deathRegions, mission: { deathRegions: map.scripted },
+  };
+  bridge.x.veh_map(bridge.strings.id(json(data)), map.killY);
+}
+
 // unitClass: the registry's units' class (Unit), which flight's targeting
 // tells apart from hulls' and turrets' entries; without it (or the pack)
 // the crafts' flight stays JavaScript's.
@@ -109,14 +122,7 @@ export class VehiclesSim {
     this.inputValues = [];
     this.memberPoint = new THREE.Vector3();
     this.aimPoints = [];
-    if (map) {
-      const water = vehicles.water;
-      const data = {
-        water: water ? { cell: water.cell, offset: water.offset, grid: water.grid, cells: Array.from(water.cells) } : null,
-        deathRegions: map.deathRegions, mission: { deathRegions: map.scripted },
-      };
-      this.x.veh_map(bridge.strings.id(json(data)), map.killY);
-    }
+    if (map) giveMapRules(bridge, vehicles.water, map);
     this.hit = makeHit();
     this.groundHit = makeGround();
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };

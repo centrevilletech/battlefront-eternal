@@ -273,8 +273,11 @@ impl Unit {
         if world.has_remote_step(id, self) {
             world.remote_step(id, self, h, remote_active);
         }
-        if let (UnitBody::Droideka(_), Some(p)) = (&self.soldier, parts) {
-            droideka::sample_muzzles(self, h, p);
+        match (&self.soldier, parts) {
+            (UnitBody::Droideka(_), Some(p)) => droideka::sample_muzzles(self, h, p),
+            // A gun rig the battle holds (no parts here): it poses it.
+            (UnitBody::Droideka(_), None) => world.sample_muzzles(id, self, h),
+            _ => {}
         }
         let stick = v8math::max(self.input.forward.abs(), self.input.right.abs());
         world.combat_update(id, self, h, stick);

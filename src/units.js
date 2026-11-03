@@ -106,6 +106,13 @@ function boundShapes(shapes, count, bounds) {
   bounds.radius = r;
 }
 
+// The units whose hit shapes JavaScript makes while the units' phase runs
+// on the simulation's module and the battle's code reads it
+// (src/units-sim.js `reading`): they go back into the store after, as made
+// on first asking in a tick is when the JavaScript makes them. Null
+// otherwise.
+export const unitWatch = { touched: null };
+
 // Mines feel a soldier's bounding sphere: its centre above the feet and its
 // size (as main.js has them for the player).
 const BODY_MIDDLE = 1.048;
@@ -310,6 +317,7 @@ export class Unit {
   }
 
   updateSpheres() {
+    unitWatch.touched?.push(this);
     const s = this.soldier;
     const p = s.position;
     // A rider shown in the open (SeatLease exposed): rounds meet his posed

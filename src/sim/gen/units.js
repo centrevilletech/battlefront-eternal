@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { KIND_BODY, KIND_CHARACTER, KIND_CONTROLLER, KIND_OBJECTIVE_TARGET, KIND_PROP, KIND_SEAT_LEASE, KIND_TURRET_TARGET, KIND_UNIT, KIND_VEHICLE_TARGET } from "./kinds.js";
-import { CombatMirror, exportCombat, putCombat, sameCombat, syncCombat } from "./combat.js";
+import { CbEdgeMirror, CombatMirror, exportCbEdge, exportCombat, putCbEdge, putCombat, sameCbEdge, sameCombat, syncCbEdge, syncCombat } from "./combat.js";
 
 export const Posture_NAMES = ["stand","crouch","prone"];
 export const Posture_INDEX = new Map(Posture_NAMES.map((name, i) => [name, i]));
@@ -1058,6 +1058,522 @@ export function exportRigAnimator(o, cx) {
   return v;
 }
 
+export class UnitsPhaseUnitMirror {
+  constructor() {
+    this.unit = NaN;
+    this.remote = false;
+    this.edges = null;
+    this.edge = null;
+    this.droidekaWater = null;
+  }
+}
+
+export function syncUnitsPhaseUnit(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.remote = f[at + 1] !== 0;
+  { const tag = f[at + 2]; if (tag === 0) { { const items = (m.edges ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncCbEdge(b, f, at + 0, h, v ?? new CbEdgeMirror()); } items[i] = v; } } } else m.edges = tag === 1 ? null : undefined; }
+  { const tag = f[at + 5]; if (tag === 0) { m.edge = syncCbEdge(b, f, at + 6, h, m.edge ?? new CbEdgeMirror()); } else m.edge = tag === 1 ? null : undefined; }
+  { const tag = f[at + 15]; if (tag === 0) { m.droidekaWater = syncDroidekaWater(b, f, at + 16, h, m.droidekaWater ?? new DroidekaWaterMirror()); } else m.droidekaWater = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putUnitsPhaseUnit(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.remote ? 1 : 0;
+  { const $x = o.edges; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; } else { f[at + 2] = 0; heap.items($x, f, at + 3, 9, (f, at, v) => { putCbEdge(b, v, f, at + 0, heap); }); } }
+  { const $x = o.edge; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f.fill(0, at + 6, at + 15); } else { f[at + 5] = 0; putCbEdge(b, $x, f, at + 6, heap); } }
+  { const $x = o.droidekaWater; if ($x === null || $x === undefined) { f[at + 15] = $x === null ? 1 : 2; f[at + 16] = 0; f[at + 17] = 0; f[at + 18] = 0; f[at + 19] = 0; } else { f[at + 15] = 0; putDroidekaWater(b, $x, f, at + 16, heap); } }
+}
+
+export function sameUnitsPhaseUnit(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.remote, b.remote)) return ".remote";
+  { const p = a.edges, q = b.edges; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".edges"; } else { if (!sameEach(p, q, (x, y) => sameCbEdge(x, y) === null)) return ".edges"; } }
+  { const p = a.edge, q = b.edge; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".edge"; } else { { const d = sameCbEdge(p, q); if (d) return ".edge" + d; } } }
+  { const p = a.droidekaWater, q = b.droidekaWater; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".droidekaWater"; } else { { const d = sameDroidekaWater(p, q); if (d) return ".droidekaWater" + d; } } }
+  return null;
+}
+
+export function exportUnitsPhaseUnit(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.remote = o.remote;
+  v.edges = ((x) => (x === null || x === undefined ? x : x.map((x) => exportCbEdge(x, cx))))(o.edges);
+  v.edge = ((x) => (x === null || x === undefined ? x : exportCbEdge(x, cx)))(o.edge);
+  v.droidekaWater = ((x) => (x === null || x === undefined ? x : exportDroidekaWater(x, cx)))(o.droidekaWater);
+  return v;
+}
+
+export class DroidekaWaterMirror {
+  constructor() {
+    this.interval = NaN;
+    this.amount = NaN;
+    this.upright = NaN;
+    this.ball = NaN;
+  }
+}
+
+export function syncDroidekaWater(b, f, at, h, m) {
+  m.interval = f[at + 0];
+  m.amount = f[at + 1];
+  m.upright = f[at + 2];
+  m.ball = f[at + 3];
+  return m;
+}
+
+export function putDroidekaWater(b, o, f, at, heap) {
+  f[at + 0] = o.interval;
+  f[at + 1] = o.amount;
+  f[at + 2] = o.upright;
+  f[at + 3] = o.ball;
+}
+
+export function sameDroidekaWater(a, b) {
+  if (!Object.is(a.interval, b.interval)) return ".interval";
+  if (!Object.is(a.amount, b.amount)) return ".amount";
+  if (!Object.is(a.upright, b.upright)) return ".upright";
+  if (!Object.is(a.ball, b.ball)) return ".ball";
+  return null;
+}
+
+export function exportDroidekaWater(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.interval = o.interval;
+  v.amount = o.amount;
+  v.upright = o.upright;
+  v.ball = o.ball;
+  return v;
+}
+
+export class UnitsPhaseMirror {
+  constructor() {
+    this.dt = NaN;
+    this.level = NaN;
+    this.units = [];
+  }
+}
+
+export function syncUnitsPhase(b, f, at, h, m) {
+  m.dt = f[at + 0];
+  m.level = f[at + 1];
+  { const items = (m.units ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 20; v = syncUnitsPhaseUnit(b, f, at + 0, h, v ?? new UnitsPhaseUnitMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putUnitsPhase(b, o, f, at, heap) {
+  f[at + 0] = o.dt;
+  f[at + 1] = o.level;
+  heap.items(o.units, f, at + 2, 20, (f, at, v) => { putUnitsPhaseUnit(b, v, f, at + 0, heap); });
+}
+
+export function sameUnitsPhase(a, b) {
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.level, b.level)) return ".level";
+  if (!sameEach(a.units, b.units, (x, y) => sameUnitsPhaseUnit(x, y) === null)) return ".units";
+  return null;
+}
+
+export function exportUnitsPhase(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.dt = o.dt;
+  v.level = o.level;
+  v.units = o.units.map((x) => exportUnitsPhaseUnit(x, cx));
+  return v;
+}
+
+export class UnitsCombatViewMirror {
+  constructor() {
+    this.unit = NaN;
+    this.dead = false;
+    this.pivot = new THREE.Vector3();
+    this.origin = new THREE.Vector3();
+  }
+}
+
+export function syncUnitsCombatView(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.dead = f[at + 1] !== 0;
+  (m.pivot ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  (m.origin ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  return m;
+}
+
+export function putUnitsCombatView(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.dead ? 1 : 0;
+  { const $v = o.pivot; f[at + 2] = $v.x; f[at + 3] = $v.y; f[at + 4] = $v.z; }
+  { const $v = o.origin; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
+}
+
+export function sameUnitsCombatView(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.dead, b.dead)) return ".dead";
+  if (!sameVec(a.pivot, b.pivot)) return ".pivot";
+  if (!sameVec(a.origin, b.origin)) return ".origin";
+  return null;
+}
+
+export function exportUnitsCombatView(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.dead = o.dead;
+  v.pivot = o.pivot.clone();
+  v.origin = o.origin.clone();
+  return v;
+}
+
+export class UnitsCombatViewsMirror {
+  constructor() {
+    this.list = [];
+  }
+}
+
+export function syncUnitsCombatViews(b, f, at, h, m) {
+  { const items = (m.list ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 8; v = syncUnitsCombatView(b, f, at + 0, h, v ?? new UnitsCombatViewMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putUnitsCombatViews(b, o, f, at, heap) {
+  heap.items(o.list, f, at + 0, 8, (f, at, v) => { putUnitsCombatView(b, v, f, at + 0, heap); });
+}
+
+export function sameUnitsCombatViews(a, b) {
+  if (!sameEach(a.list, b.list, (x, y) => sameUnitsCombatView(x, y) === null)) return ".list";
+  return null;
+}
+
+export function exportUnitsCombatViews(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.list = o.list.map((x) => exportUnitsCombatView(x, cx));
+  return v;
+}
+
+export class UnitRefMirror {
+  constructor() {
+    this.unit = NaN;
+  }
+}
+
+export function syncUnitRef(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  return m;
+}
+
+export function putUnitRef(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+}
+
+export function sameUnitRef(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  return null;
+}
+
+export function exportUnitRef(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  return v;
+}
+
+export class UnitStepMirror {
+  constructor() {
+    this.unit = NaN;
+    this.dt = NaN;
+  }
+}
+
+export function syncUnitStep(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.dt = f[at + 1];
+  return m;
+}
+
+export function putUnitStep(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.dt;
+}
+
+export function sameUnitStep(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  return null;
+}
+
+export function exportUnitStep(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.dt = o.dt;
+  return v;
+}
+
+export class UnitBodyEventMirror {
+  constructor() {
+    this.unit = NaN;
+    this.exploded = false;
+  }
+}
+
+export function syncUnitBodyEvent(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.exploded = f[at + 1] !== 0;
+  return m;
+}
+
+export function putUnitBodyEvent(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.exploded ? 1 : 0;
+}
+
+export function sameUnitBodyEvent(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.exploded, b.exploded)) return ".exploded";
+  return null;
+}
+
+export function exportUnitBodyEvent(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.exploded = o.exploded;
+  return v;
+}
+
+export class UnitAimArgsMirror {
+  constructor() {
+    this.unit = NaN;
+    this.dt = NaN;
+    this.aimYaw = NaN;
+    this.aimPitch = NaN;
+  }
+}
+
+export function syncUnitAimArgs(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.dt = f[at + 1];
+  m.aimYaw = f[at + 2];
+  m.aimPitch = f[at + 3];
+  return m;
+}
+
+export function putUnitAimArgs(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.dt;
+  f[at + 2] = o.aimYaw;
+  f[at + 3] = o.aimPitch;
+}
+
+export function sameUnitAimArgs(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.aimYaw, b.aimYaw)) return ".aimYaw";
+  if (!Object.is(a.aimPitch, b.aimPitch)) return ".aimPitch";
+  return null;
+}
+
+export function exportUnitAimArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.dt = o.dt;
+  v.aimYaw = o.aimYaw;
+  v.aimPitch = o.aimPitch;
+  return v;
+}
+
+export class UnitAimAnswerMirror {
+  constructor() {
+    this.aim = null;
+  }
+}
+
+export function syncUnitAimAnswer(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { (m.aim ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]); } else m.aim = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putUnitAimAnswer(b, o, f, at, heap) {
+  { const $x = o.aim; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; f[at + 3] = 0; } else { f[at + 0] = 0; { const $v = $x; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; } } }
+}
+
+export function sameUnitAimAnswer(a, b) {
+  { const p = a.aim, q = b.aim; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".aim"; } else { if (!sameVec(p, q)) return ".aim"; } }
+  return null;
+}
+
+export function exportUnitAimAnswer(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.aim = ((x) => (x === null || x === undefined ? x : x.clone()))(o.aim);
+  return v;
+}
+
+export class UnitRemoteStepMirror {
+  constructor() {
+    this.unit = NaN;
+    this.dt = NaN;
+    this.active = false;
+  }
+}
+
+export function syncUnitRemoteStep(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.dt = f[at + 1];
+  m.active = f[at + 2] !== 0;
+  return m;
+}
+
+export function putUnitRemoteStep(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.dt;
+  f[at + 2] = o.active ? 1 : 0;
+}
+
+export function sameUnitRemoteStep(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.active, b.active)) return ".active";
+  return null;
+}
+
+export function exportUnitRemoteStep(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.dt = o.dt;
+  v.active = o.active;
+  return v;
+}
+
+export class UnitCombatArgsMirror {
+  constructor() {
+    this.unit = NaN;
+    this.dt = NaN;
+    this.stick = NaN;
+  }
+}
+
+export function syncUnitCombatArgs(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.dt = f[at + 1];
+  m.stick = f[at + 2];
+  return m;
+}
+
+export function putUnitCombatArgs(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.dt;
+  f[at + 2] = o.stick;
+}
+
+export function sameUnitCombatArgs(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.stick, b.stick)) return ".stick";
+  return null;
+}
+
+export function exportUnitCombatArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.dt = o.dt;
+  v.stick = o.stick;
+  return v;
+}
+
+export class UnitDamageArgsMirror {
+  constructor() {
+    this.unit = NaN;
+    this.amount = NaN;
+  }
+}
+
+export function syncUnitDamageArgs(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  m.amount = f[at + 1];
+  return m;
+}
+
+export function putUnitDamageArgs(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  f[at + 1] = o.amount;
+}
+
+export function sameUnitDamageArgs(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  if (!Object.is(a.amount, b.amount)) return ".amount";
+  return null;
+}
+
+export function exportUnitDamageArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
+  v.amount = o.amount;
+  return v;
+}
+
+export class UnitSplashMirror {
+  constructor() {
+    this.at = new THREE.Vector3();
+  }
+}
+
+export function syncUnitSplash(b, f, at, h, m) {
+  (m.at ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  return m;
+}
+
+export function putUnitSplash(b, o, f, at, heap) {
+  { const $v = o.at; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+}
+
+export function sameUnitSplash(a, b) {
+  if (!sameVec(a.at, b.at)) return ".at";
+  return null;
+}
+
+export function exportUnitSplash(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.at = o.at.clone();
+  return v;
+}
+
 export class DroidekaMirror {
   constructor() {
     this.def = null;
@@ -1307,14 +1823,13 @@ export class UnitMirror {
     this.held = null;
     this.networkHuman = undefined;
     this.soldier = null;
-    this.combat = new CombatMirror();
     this.simSlot = -1;
     this.simGen = -1;
   }
 }
 
 export const UNIT_KEYS = new Set(["generation", "side", "className", "classDef", "walker", "human", "kind", "hero", "team", "character", "controller", "seat", "alive", "dead", "deadTime", "removed", "intent", "controls", "input", "bounds", "rootScale", "shapes", "shapeCount", "spheresTick", "tickCount", "navRadius", "targetable", "waterContact", "riderHits", "held", "networkHuman", "soldier", "combat", "hitSet", "actor", "animator", "presentation", "jetFlame", "bubble", "poseClock", "gone", "ownMaterials", "crowdSlot", "shadowNear", "flameAt", "flameTurn", "flameScale", "onDeath", "onRemoved", "onMoved", "enhancedDeath", "supply", "itemTarget", "steer", "remoteStep", "networkShot", "networkShots", "networkViewTick", "networkInputLeadTicks", "networkPlayoutMaxTicks"]);
-export const UNIT_EXPORT_STRIDE = 262, UNIT_IMPORT_STRIDE = 264, UNIT_FULL_STRIDE = 264;
+export const UNIT_EXPORT_STRIDE = 199, UNIT_IMPORT_STRIDE = 201, UNIT_FULL_STRIDE = 264;
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncUnit(b, f, at, h, m) {
@@ -1350,7 +1865,6 @@ export function syncUnit(b, f, at, h, m) {
   { const tag = f[at + 96]; if (tag === 0) { m.held = syncHeld(b, f, at + 97, h, m.held ?? new HeldMirror()); } else m.held = tag === 1 ? null : undefined; }
   { const tag = f[at + 119]; if (tag === 0) { m.networkHuman = f[at + 120] !== 0; } else m.networkHuman = tag === 1 ? null : undefined; }
   m.soldier = syncUnitBody(b, f, at + 121, h, m.soldier);
-  m.combat = syncCombat(b, f, at + 199, h, m.combat ?? new CombatMirror());
   return m;
 }
 
@@ -1427,8 +1941,7 @@ export function putUnit(b, o, f, at, heap) {
   { const $x = o.held; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f.fill(0, at + 97, at + 119); } else { f[at + 96] = 0; putHeld(b, $x, f, at + 97, heap); } }
   { const $x = o.networkHuman; if ($x === null || $x === undefined) { f[at + 119] = $x === null ? 1 : 2; f[at + 120] = 0; } else { f[at + 119] = 0; f[at + 120] = $x ? 1 : 0; } }
   putUnitBody(b, o.soldier, f, at + 121, heap);
-  putCombat(b, o.combat, f, at + 199, heap);
-  { const $x = o.combat?.remotes?.active; if ($x === null || $x === undefined) { f[at + 262] = $x === null ? 1 : 2; f[at + 263] = 0; } else { f[at + 262] = 0; f[at + 263] = $x ? 1 : 0; } }
+  { const $x = o.combat?.remotes?.active; if ($x === null || $x === undefined) { f[at + 199] = $x === null ? 1 : 2; f[at + 200] = 0; } else { f[at + 199] = 0; f[at + 200] = $x ? 1 : 0; } }
 }
 
 // Every field of object `o` into a row.
@@ -1505,7 +2018,6 @@ export function checkUnit(b, f, at, h, m) {
   { const p = m.held, q = want.held; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".held"; } else { { const d = sameHeld(p, q); if (d) return ".held" + d; } } }
   { const p = m.networkHuman, q = want.networkHuman; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".networkHuman"; } else { if (!Object.is(p, q)) return ".networkHuman"; } }
   if (!sameUnitBody(m.soldier, want.soldier)) return ".soldier";
-  { const d = sameCombat(m.combat, want.combat); if (d) return ".combat" + d; }
   return null;
 }
 

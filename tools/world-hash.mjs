@@ -50,7 +50,10 @@
 //
 // --combat rust runs a world's combats on the simulation's module
 // (?combat=rust, src/combat-sim.js); its fingerprints must match the
-// default's.
+// default's. --units rust runs the step's loop over the units there too
+// (?units=rust, src/units-sim.js), with combat or without; it brings the
+// ray kernel, as the soldiers move through the module's collision world.
+// Its fingerprints must match the default's.
 // --rays wasm runs the collision's ray casts in WebAssembly (?rays=wasm,
 // src/ray-kernel.js), and --movement wasm the soldiers' movement too
 // (?movement=wasm, src/movement-kernel.js); their fingerprints must match
@@ -83,6 +86,9 @@ const combat = opt('combat', 'js');
 if (!['rust', 'js'].includes(combat)) throw Error(`--combat ${combat}: rust or js`);
 // --hulls rust: the ground hulls' phase on the module (?hulls=rust, src/vehicles-sim.js).
 const hulls = opt('hulls', 'js');
+// --units rust: the units' phase on the module (?units=rust, src/units-sim.js).
+const units = opt('units', 'js');
+if (!['rust', 'js'].includes(units)) throw Error(`--units ${units}: rust or js`);
 // --seats rust: the hulls' seats' input batch on the module (?seats=rust, src/seats-sim.js).
 const seats = opt('seats', 'js');
 const nativeRandom = opt('random', 'seeded') === 'native';
@@ -108,8 +114,8 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}&rays=${rays}&movement=${movement}${sim === 'js' ? '&sim=js' : ''}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${hulls === 'rust' ? '&hulls=rust' : ''}${combat === 'rust' ? '&combat=rust' : ''}${seats === 'rust' ? '&seats=rust' : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, sim, hulls, combat, seats, ai, heroes, unit, mount, battles, nativeRandom, query };
+const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}&rays=${rays}&movement=${movement}${sim === 'js' ? '&sim=js' : ''}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${hulls === 'rust' ? '&hulls=rust' : ''}${combat === 'rust' ? '&combat=rust' : ''}${seats === 'rust' ? '&seats=rust' : ''}${units === 'rust' ? '&units=rust' : ''}`;
+const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, sim, hulls, combat, seats, units, ai, heroes, unit, mount, battles, nativeRandom, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 
@@ -117,8 +123,10 @@ async function battle(index) {
   const prefix = index ? `${index + 1}:` : '';
   const game = await headlessGame(query);
   // Each kernel on or off as asked, whatever the environment says (the
-  // movement kernel brings the ray kernel with it).
-  if ((rays === 'wasm' || movement === 'wasm') !== Boolean(game.collision.rays)) throw Error(rays === 'wasm' || movement === 'wasm' ? 'ray kernel not loaded' : 'ray kernel loaded for a JavaScript run');
+  // movement kernel and the units' phase bring the ray kernel with them).
+  const raysWanted = rays === 'wasm' || movement === 'wasm' || units === 'rust';
+  if (raysWanted !== Boolean(game.collision.rays)) throw Error(raysWanted ? 'ray kernel not loaded' : 'ray kernel loaded for a JavaScript run');
+  if ((units === 'rust') !== Boolean(game.unitsSim)) throw Error(units === 'rust' ? 'the units are not on the module' : 'the units are on the module for a JavaScript run');
   if ((movement === 'wasm') !== Boolean(game.collision.movement)) throw Error(movement === 'wasm' ? 'movement kernel not loaded' : 'movement kernel loaded for a JavaScript run');
   if ((sim === 'rust') !== Boolean(game.ordnance.sim && game.items.sim)) throw Error(sim === 'rust' ? 'the rounds and items are not on the module' : 'the rounds or items are on the module for a JavaScript run');
   let sent = [];

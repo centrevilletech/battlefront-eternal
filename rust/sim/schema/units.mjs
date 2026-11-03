@@ -91,6 +91,48 @@ export default {
       facing: 'f64', legs: 'f64', mode: 'f64', wentUpRolled: 'bool', rollOrigin: 'f64', transition: 'f64',
       from: 'list:rec:BonePose', pivot: 'vec3', rollCenter: 'vec3',
     },
+    // ---- The units' phase on the simulation's module (src/units-sim.js,
+    // rust/sim/src/units/module.rs): a world's units ticked in Rust,
+    // written into the store before it and synced back after. A unit is
+    // named by its id.
+    // A unit the phase ticks, in the battle's order (the factory's built
+    // list), and what the battle keeps of him outside the store: whether a
+    // network player's recon droid steps with him (remoteStep), his trigger
+    // edges (unit.networkShots, networkShot) and, for a droideka, its class's
+    // water rule (game.js droidekaWater: src/vehicle-water.js).
+    UnitsPhaseUnit: {
+      unit: 'f64', remote: 'bool', edges: 'list:rec:CbEdge|null', edge: 'rec:CbEdge|null',
+      droidekaWater: 'rec:DroidekaWater|null',
+    },
+    // waterDamageRule's interval and amount, and droidekaWaterDepth's depth
+    // upright and rolled.
+    DroidekaWater: { interval: 'f64', amount: 'f64', upright: 'f64', ball: 'f64' },
+    // The phase: its step, the water's level now (water.level, which bobs;
+    // NaN without water) and its units.
+    UnitsPhase: { dt: 'f64', level: 'f64', units: 'list:rec:UnitsPhaseUnit' },
+    // What the phase reads of a unit's combat while combat is JavaScript's
+    // (PlayerCombat): whether it is dead, and the aim's pivot and gun origin
+    // the water step reads (his head and gun).
+    UnitsCombatView: { unit: 'f64', dead: 'bool', pivot: 'vec3', origin: 'vec3' },
+    UnitsCombatViews: { list: 'list:rec:UnitsCombatView' },
+    // The calls the phase makes into the battle (rust/sim/src/units/module.rs).
+    UnitRef: { unit: 'f64' },
+    UnitStep: { unit: 'f64', dt: 'f64' },
+    UnitBodyEvent: { unit: 'f64', exploded: 'bool' },
+    // The AI's aimer (unit.onMoved: ai.aim) with his body's aim after it
+    // moved; it answers with his intent's aim (the aimer's direction).
+    UnitAimArgs: { unit: 'f64', dt: 'f64', aimYaw: 'f64', aimPitch: 'f64' },
+    UnitAimAnswer: { aim: 'vec3|null' },
+    // A network player's recon droid steps with him (remoteStep): `active`
+    // when he flies it (his intent goes to it).
+    UnitRemoteStep: { unit: 'f64', dt: 'f64', active: 'bool' },
+    // combat.update(dt, controls, stick) and combat.flushMuzzles() of a
+    // combat that is JavaScript's.
+    UnitCombatArgs: { unit: 'f64', dt: 'f64', stick: 'f64' },
+    UnitDamageArgs: { unit: 'f64', amount: 'f64' },
+    // The splash of a fall into the water (game.js presentEffect).
+    UnitSplash: { at: 'vec3' },
+
     // A droideka's body (src/droideka.js): its class's numbers, its modes,
     // walk and ball, its shield and guns.
     Droideka: {
@@ -106,6 +148,24 @@ export default {
       waterClock: 'f64|undefined',
       muzzleAnimator: 'rec:RigAnimator|undefined',
     },
+  },
+
+  imports: {
+    // The AI's aimer between moving and firing.
+    unitAim: { args: 'UnitAimArgs', result: 'UnitAimAnswer' },
+    // A droideka's death clip emits its blasts and final explosion at the
+    // same points in its native body tick. Its gun rig still poses in JS.
+    unitBodyEvent: { args: 'UnitBodyEvent', result: null },
+    unitSampleMuzzles: { args: 'UnitStep', result: null },
+    unitRemoteStep: { args: 'UnitRemoteStep', result: null },
+    // A combat that is JavaScript's: its update with its muzzles flushed,
+    // and a hurt; each answers the combat as the phase reads it.
+    unitCombat: { args: 'UnitCombatArgs', result: 'UnitsCombatView' },
+    unitDamage: { args: 'UnitDamageArgs', result: 'UnitsCombatView' },
+    // A unit off the field (Unit.remove): his Character lets go of him, his
+    // charge glow goes out, and his body goes back to the factory's pool.
+    unitRemoved: { args: 'UnitRef', result: null },
+    unitSplash: { args: 'UnitSplash', result: null },
   },
 
   kinds: {
@@ -164,8 +224,11 @@ export default {
         networkHuman: 'bool|undefined',
         soldier: 'union:UnitBody',
         // Its side of the fight (src/combat.js PlayerCombat, the combat
-        // package's record, rust/sim/schema/combat.mjs).
-        combat: 'rec:Combat',
+        // package's record, rust/sim/schema/combat.mjs). Not in the unit's
+        // rows: with combat on the module the store keeps it and its facade
+        // mirrors it (src/combat-sim.js); otherwise the units' phase takes
+        // what it reads of it on its own (UnitsCombatView).
+        combat: { type: 'rec:Combat', mirror: false, import: false },
         // Whether he flies a recon droid now (the droids' controller,
         // src/remote.js, which his combat holds).
         remotesActive: { type: 'bool|undefined', js: 'combat.remotes.active', mirror: false },

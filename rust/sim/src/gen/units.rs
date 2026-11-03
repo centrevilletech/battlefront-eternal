@@ -791,6 +791,380 @@ impl RigAnimator {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitsPhaseUnit {
+    pub unit: f64,
+    pub remote: bool,
+    pub edges: Option<Vec<CbEdge>>,
+    pub edge: Option<CbEdge>,
+    pub droideka_water: Option<DroidekaWater>,
+}
+
+impl UnitsPhaseUnit {
+    pub const WORDS: usize = 20;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 20] = (&mut row[..20]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = if self.remote { 1.0 } else { 0.0 };
+        match &self.edges { Some(v) => { row[2] = 0.0; { let at = heap.len(); row[2 + 1] = at as f64; row[2 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 9, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } } } None => { row[2] = 1.0; row[2 + 1..2 + 3].fill(0.0); } }
+        match &self.edge { Some(v) => { row[5] = 0.0; v.put(&mut row[5 + 1..], heap); } None => { row[5] = 1.0; row[5 + 1..5 + 10].fill(0.0); } }
+        match &self.droideka_water { Some(v) => { row[15] = 0.0; v.put(&mut row[15 + 1..], heap); } None => { row[15] = 1.0; row[15 + 1..15 + 5].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 20] = (&row[..20]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            remote: row[1] != 0.0,
+            edges: if row[2] == 0.0 { Some({ let (at, n) = (word_u32(row[2 + 1]) as usize, word_u32(row[2 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 9..at + (i + 1) * 9]; out.push(CbEdge::take(&row[0..], heap)); } out }) } else { None },
+            edge: if row[5] == 0.0 { Some(CbEdge::take(&row[5 + 1..], heap)) } else { None },
+            droideka_water: if row[15] == 0.0 { Some(DroidekaWater::take(&row[15 + 1..], heap)) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DroidekaWater {
+    pub interval: f64,
+    pub amount: f64,
+    pub upright: f64,
+    pub ball: f64,
+}
+
+impl DroidekaWater {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.interval;
+        row[1] = self.amount;
+        row[2] = self.upright;
+        row[3] = self.ball;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            interval: row[0],
+            amount: row[1],
+            upright: row[2],
+            ball: row[3],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitsPhase {
+    pub dt: f64,
+    pub level: f64,
+    pub units: Vec<UnitsPhaseUnit>,
+}
+
+impl UnitsPhase {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.dt;
+        row[1] = self.level;
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.units.len() as f64; heap.resize(at + self.units.len() * 20, 0.0); for (i, e) in self.units.iter().enumerate() { let mut item = [0.0f64; 20]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 20..at + (i + 1) * 20].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            dt: row[0],
+            level: row[1],
+            units: { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 20..at + (i + 1) * 20]; out.push(UnitsPhaseUnit::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitsCombatView {
+    pub unit: f64,
+    pub dead: bool,
+    pub pivot: Vec3,
+    pub origin: Vec3,
+}
+
+impl UnitsCombatView {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = if self.dead { 1.0 } else { 0.0 };
+        row[2..2 + 3].copy_from_slice(&self.pivot);
+        row[5..5 + 3].copy_from_slice(&self.origin);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            dead: row[1] != 0.0,
+            pivot: [row[2], row[2 + 1], row[2 + 2]],
+            origin: [row[5], row[5 + 1], row[5 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitsCombatViews {
+    pub list: Vec<UnitsCombatView>,
+}
+
+impl UnitsCombatViews {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.list.len() as f64; heap.resize(at + self.list.len() * 8, 0.0); for (i, e) in self.list.iter().enumerate() { let mut item = [0.0f64; 8]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 8..at + (i + 1) * 8].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            list: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 8..at + (i + 1) * 8]; out.push(UnitsCombatView::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitRef {
+    pub unit: f64,
+}
+
+impl UnitRef {
+    pub const WORDS: usize = 1;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = self.unit;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
+        Self {
+            unit: row[0],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitStep {
+    pub unit: f64,
+    pub dt: f64,
+}
+
+impl UnitStep {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.dt;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            dt: row[1],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitBodyEvent {
+    pub unit: f64,
+    pub exploded: bool,
+}
+
+impl UnitBodyEvent {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = if self.exploded { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            exploded: row[1] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitAimArgs {
+    pub unit: f64,
+    pub dt: f64,
+    pub aim_yaw: f64,
+    pub aim_pitch: f64,
+}
+
+impl UnitAimArgs {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.dt;
+        row[2] = self.aim_yaw;
+        row[3] = self.aim_pitch;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            dt: row[1],
+            aim_yaw: row[2],
+            aim_pitch: row[3],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitAimAnswer {
+    pub aim: Option<Vec3>,
+}
+
+impl UnitAimAnswer {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        match &self.aim { Some(v) => { row[0] = 0.0; row[0 + 1..0 + 1 + 3].copy_from_slice(&(*v)); } None => { row[0] = 1.0; row[0 + 1..0 + 4].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            aim: if row[0] == 0.0 { Some([row[0 + 1], row[0 + 1 + 1], row[0 + 1 + 2]]) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitRemoteStep {
+    pub unit: f64,
+    pub dt: f64,
+    pub active: bool,
+}
+
+impl UnitRemoteStep {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.dt;
+        row[2] = if self.active { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            dt: row[1],
+            active: row[2] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitCombatArgs {
+    pub unit: f64,
+    pub dt: f64,
+    pub stick: f64,
+}
+
+impl UnitCombatArgs {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.dt;
+        row[2] = self.stick;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            dt: row[1],
+            stick: row[2],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitDamageArgs {
+    pub unit: f64,
+    pub amount: f64,
+}
+
+impl UnitDamageArgs {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.amount;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            amount: row[1],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct UnitSplash {
+    pub at: Vec3,
+}
+
+impl UnitSplash {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.at);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            at: [row[0], row[0 + 1], row[0 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Droideka {
     pub def: DefId,
     pub max_turn: f64,
@@ -965,8 +1339,8 @@ pub struct Unit {
 impl Unit {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 262;
-    pub const IMPORT_STRIDE: usize = 264;
+    pub const EXPORT_STRIDE: usize = 199;
+    pub const IMPORT_STRIDE: usize = 201;
     pub const FULL_STRIDE: usize = 264;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
@@ -1046,7 +1420,7 @@ impl Unit {
     }
 
     pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 262] = (&mut row[..262]).try_into().unwrap();
+        let row: &mut [f64; 199] = (&mut row[..199]).try_into().unwrap();
         row[2] = self.generation;
         row[3] = self.side.0 as f64;
         row[4] = self.class_name.0 as f64;
@@ -1079,11 +1453,10 @@ impl Unit {
         match &self.held { Nullable::Value(v) => { row[96] = 0.0; v.put(&mut row[96 + 1..], heap); } Nullable::Null => { row[96] = 1.0; row[96 + 1..96 + 23].fill(0.0); } Nullable::Undefined => { row[96] = 2.0; row[96 + 1..96 + 23].fill(0.0); } }
         match &self.network_human { Some(v) => { row[119] = 0.0; row[119 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[119] = 2.0; row[119 + 1..119 + 2].fill(0.0); } }
         self.soldier.put(&mut row[121..121 + 78], heap);
-        self.combat.put(&mut row[199..], heap);
     }
 
     pub fn take_export(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 262] = (&row[..262]).try_into().unwrap();
+        let row: &[f64; 199] = (&row[..199]).try_into().unwrap();
         self.generation = row[2];
         self.side = StrId(word_u32(row[3]));
         self.class_name = StrId(word_u32(row[4]));
@@ -1116,14 +1489,81 @@ impl Unit {
         self.held = match word_u32(row[96]) { 0 => Nullable::Value(Held::take(&row[96 + 1..], heap)), 1 => Nullable::Null, _ => Nullable::Undefined };
         self.network_human = if row[119] == 0.0 { Some(row[119 + 1] != 0.0) } else { None };
         self.soldier = UnitBody::take(&row[121..121 + 78], heap);
-        self.combat = Combat::take(&row[199..], heap);
     }
 
-    #[inline(always)]
-    pub fn put_import(&self, row: &mut [f64], heap: &mut Vec<f64>) { self.put_full(row, heap) }
+    pub fn put_import(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 201] = (&mut row[..201]).try_into().unwrap();
+        row[2] = self.generation;
+        row[3] = self.side.0 as f64;
+        row[4] = self.class_name.0 as f64;
+        row[5] = self.class_def.0 as f64;
+        row[6] = if self.walker { 1.0 } else { 0.0 };
+        row[7] = if self.human { 1.0 } else { 0.0 };
+        row[8] = self.kind;
+        row[9] = if self.hero { 1.0 } else { 0.0 };
+        row[10] = self.team;
+        match &self.character { Some(v) => { row[11] = 0.0; row[11 + 1] = (*v).slot as f64; row[11 + 1 + 1] = (*v).gen as f64; } None => { row[11] = 1.0; row[11 + 1..11 + 3].fill(0.0); } }
+        match &self.controller { Some(v) => { row[14] = 0.0; row[14 + 1] = (*v).slot as f64; row[14 + 1 + 1] = (*v).gen as f64; } None => { row[14] = 1.0; row[14 + 1..14 + 3].fill(0.0); } }
+        match &self.seat { Some(v) => { row[17] = 0.0; row[17 + 1] = (*v).slot as f64; row[17 + 1 + 1] = (*v).gen as f64; } None => { row[17] = 1.0; row[17 + 1..17 + 3].fill(0.0); } }
+        row[20] = if self.alive { 1.0 } else { 0.0 };
+        row[21] = if self.dead { 1.0 } else { 0.0 };
+        row[22] = self.dead_time;
+        row[23] = if self.removed { 1.0 } else { 0.0 };
+        self.intent.put(&mut row[24..], heap);
+        self.controls.put(&mut row[54..], heap);
+        self.input.put(&mut row[58..], heap);
+        self.bounds.put(&mut row[70..], heap);
+        row[74] = self.root_scale;
+        { let at = heap.len(); row[75] = at as f64; row[75 + 1] = self.shapes.len() as f64; heap.resize(at + self.shapes.len() * 14, 0.0); for (i, e) in self.shapes.iter().enumerate() { let mut item = [0.0f64; 14]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 14..at + (i + 1) * 14].copy_from_slice(&item); } }
+        row[77] = self.shape_count;
+        row[78] = self.spheres_tick;
+        row[79] = self.tick_count;
+        match &self.nav_radius { Some(v) => { row[80] = 0.0; row[80 + 1] = (*v); } None => { row[80] = 2.0; row[80 + 1..80 + 2].fill(0.0); } }
+        match &self.targetable { Some(v) => { row[82] = 0.0; row[82 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[82] = 2.0; row[82 + 1..82 + 2].fill(0.0); } }
+        match &self.water_contact { Some(v) => { row[84] = 0.0; v.put(&mut row[84 + 1..], heap); } None => { row[84] = 2.0; row[84 + 1..84 + 9].fill(0.0); } }
+        match &self.rider_hits { Some(v) => { row[93] = 0.0; { let at = heap.len(); row[93 + 1] = at as f64; row[93 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 14, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 14]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 14..at + (i + 1) * 14].copy_from_slice(&item); } } } None => { row[93] = 2.0; row[93 + 1..93 + 3].fill(0.0); } }
+        match &self.held { Nullable::Value(v) => { row[96] = 0.0; v.put(&mut row[96 + 1..], heap); } Nullable::Null => { row[96] = 1.0; row[96 + 1..96 + 23].fill(0.0); } Nullable::Undefined => { row[96] = 2.0; row[96 + 1..96 + 23].fill(0.0); } }
+        match &self.network_human { Some(v) => { row[119] = 0.0; row[119 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[119] = 2.0; row[119 + 1..119 + 2].fill(0.0); } }
+        self.soldier.put(&mut row[121..121 + 78], heap);
+        match &self.remotes_active { Some(v) => { row[199] = 0.0; row[199 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[199] = 2.0; row[199 + 1..199 + 2].fill(0.0); } }
+    }
 
-    #[inline(always)]
-    pub fn take_import(&mut self, row: &[f64], heap: &[f64]) { self.take_full(row, heap) }
+    pub fn take_import(&mut self, row: &[f64], heap: &[f64]) {
+        let row: &[f64; 201] = (&row[..201]).try_into().unwrap();
+        self.generation = row[2];
+        self.side = StrId(word_u32(row[3]));
+        self.class_name = StrId(word_u32(row[4]));
+        self.class_def = DefId(word_u32(row[5]));
+        self.walker = row[6] != 0.0;
+        self.human = row[7] != 0.0;
+        self.kind = row[8];
+        self.hero = row[9] != 0.0;
+        self.team = row[10];
+        self.character = if row[11] == 0.0 { Some(Ref::new(word_u32(row[11 + 1]), word_u32(row[11 + 1 + 1]))) } else { None };
+        self.controller = if row[14] == 0.0 { Some(Ref::new(word_u32(row[14 + 1]), word_u32(row[14 + 1 + 1]))) } else { None };
+        self.seat = if row[17] == 0.0 { Some(Ref::new(word_u32(row[17 + 1]), word_u32(row[17 + 1 + 1]))) } else { None };
+        self.alive = row[20] != 0.0;
+        self.dead = row[21] != 0.0;
+        self.dead_time = row[22];
+        self.removed = row[23] != 0.0;
+        self.intent = Intent::take(&row[24..], heap);
+        self.controls = Controls::take(&row[54..], heap);
+        self.input = MoveInput::take(&row[58..], heap);
+        self.bounds = Bounds::take(&row[70..], heap);
+        self.root_scale = row[74];
+        self.shapes = { let (at, n) = (word_u32(row[75]) as usize, word_u32(row[75 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 14..at + (i + 1) * 14]; out.push(HitShape::take(&row[0..], heap)); } out };
+        self.shape_count = row[77];
+        self.spheres_tick = row[78];
+        self.tick_count = row[79];
+        self.nav_radius = if row[80] == 0.0 { Some(row[80 + 1]) } else { None };
+        self.targetable = if row[82] == 0.0 { Some(row[82 + 1] != 0.0) } else { None };
+        self.water_contact = if row[84] == 0.0 { Some(WaterContact::take(&row[84 + 1..], heap)) } else { None };
+        self.rider_hits = if row[93] == 0.0 { Some({ let (at, n) = (word_u32(row[93 + 1]) as usize, word_u32(row[93 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 14..at + (i + 1) * 14]; out.push(HitShape::take(&row[0..], heap)); } out }) } else { None };
+        self.held = match word_u32(row[96]) { 0 => Nullable::Value(Held::take(&row[96 + 1..], heap)), 1 => Nullable::Null, _ => Nullable::Undefined };
+        self.network_human = if row[119] == 0.0 { Some(row[119 + 1] != 0.0) } else { None };
+        self.soldier = UnitBody::take(&row[121..121 + 78], heap);
+        self.remotes_active = if row[199] == 0.0 { Some(row[199 + 1] != 0.0) } else { None };
+    }
 
 }
 

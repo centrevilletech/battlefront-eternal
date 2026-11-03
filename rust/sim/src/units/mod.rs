@@ -21,7 +21,9 @@
 //!   (collision damage) and the world's bounds;
 //! - `factory`: each class's free bodies, taken back last in, first out;
 //! - `separate`: the soldiers pushed apart, every pair;
-//! - `water`: the map's water and what it does to a soldier each tick.
+//! - `water`: the map's water and what it does to a soldier each tick;
+//! - `module` (the module only): the units' phase on the module, behind
+//!   its switch (src/units-sim.js).
 //!
 //! Units reach the rest of the battle (the collision world, combat, the AI,
 //! seats and props, the Characters) through `world::UnitsWorld`, the
@@ -35,6 +37,10 @@ pub mod class;
 pub mod damage;
 pub mod droideka;
 pub mod factory;
+#[cfg(target_arch = "wasm32")]
+pub mod module;
+#[cfg(target_arch = "wasm32")]
+mod native;
 pub mod registry;
 pub mod separate;
 pub mod shapes;

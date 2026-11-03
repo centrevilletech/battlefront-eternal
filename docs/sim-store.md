@@ -238,9 +238,11 @@ go, so a later life of the slot gets a new one.
   singleton's one object) in their order and has the store take them; an
   entity the block no longer lists is gone from the store, as it left the
   JavaScript list;
-- `writeSome(kind, objects, full)` writes only the listed entities and
-  leaves every other row in the store untouched. Use it for a phase that
-  exchanges a subset, such as the seats' riders. Its write-back must also
+- `writeSome(kind, objects, full)` writes the rows of some of a kind's
+  entities and leaves every other entity of the kind as the store holds it
+  (and whatever the store keeps of the ones it writes beyond their rows,
+  such as a unit's combat record): the way to write a few units, a seat's
+  riders or the units a hook changed, without dropping the rest. Its write-back must also
   select that subset: other objects may have advanced in JavaScript since
   their stored rows were written;
 - `sync(kind, target)` copies an export block into the kind's mirrors (a

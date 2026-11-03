@@ -117,11 +117,11 @@ const MEMBER_ON_HULL: u8 = 3;
 
 // SAFETY (these and `classes`): one thread; each is borrowed for one call
 // of the module's own and never across an import.
-fn collision_world() -> Option<&'static mut Collision> {
+pub(crate) fn collision_world() -> Option<&'static mut Collision> {
     unsafe { (*addr_of_mut!(COLLISION)).as_mut() }
 }
 
-fn map() -> Option<&'static mut MapRules> {
+pub(crate) fn map() -> Option<&'static mut MapRules> {
     unsafe { (*addr_of_mut!(MAP)).as_mut() }
 }
 
