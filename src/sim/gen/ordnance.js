@@ -30,6 +30,16 @@ export function syncOrdnanceOwner(b, f, at) {
   }
 }
 
+export function exportOrdnanceOwner(x, cx) {
+  switch (whichOrdnanceOwner(cx, x)) {
+    case 0: return null;
+    case 1: return "player";
+    case 2: return cx.ref("unit", x);
+    case 3: return cx.ref("vehicle", x);
+    case 4: return cx.ref("ownerSnapshot", x);
+  }
+}
+
 export function putOrdnanceOwner(b, x, f, at) {
   const i = whichOrdnanceOwner(b, x);
   f[at] = i;
@@ -61,6 +71,17 @@ export function syncBeamSource(b, f, at) {
   }
 }
 
+export function exportBeamSource(x, cx) {
+  switch (whichBeamSource(cx, x)) {
+    case 0: return null;
+    case 1: return "player";
+    case 2: return cx.ref("emitter", x);
+    case 3: return cx.ref("unit", x);
+    case 4: return cx.ref("vehicle", x);
+    case 5: return cx.ref("ownerSnapshot", x);
+  }
+}
+
 export function putBeamSource(b, x, f, at) {
   const i = whichBeamSource(b, x);
   f[at] = i;
@@ -81,6 +102,13 @@ export function syncMount(b, f, at) {
     case 0: return b.refs[KIND_VEHICLE].at(f[at + 1], f[at + 2]);
     case 1: return b.refs[KIND_TURRET].at(f[at + 1], f[at + 2]);
     default: throw Error('Mount: no such variant');
+  }
+}
+
+export function exportMount(x, cx) {
+  switch (whichMount(cx, x)) {
+    case 0: return cx.ref("vehicle", x);
+    case 1: return cx.ref("turret", x);
   }
 }
 
@@ -132,16 +160,16 @@ export function sameImpact(a, b) {
   return null;
 }
 
-export function exportImpact(o, seen = null) {
-  let v = seen?.get(o);
+export function exportImpact(o, cx) {
+  let v = cx.seen.get(o);
   if (v) return v;
   v = {};
-  seen?.set(o, v);
+  cx.seen.set(o, v);
   v.point = o.point;
   v.normal = o.normal;
   v.terrain = o.terrain;
-  v.body = o.body;
-  v.unit = o.unit;
+  v.body = ((x) => (x === null || x === undefined ? x : cx.ref("body", x)))(o.body);
+  v.unit = ((x) => (x === null || x === undefined ? x : cx.ref("unit", x)))(o.unit);
   v.part = o.part;
   return v;
 }
@@ -281,17 +309,17 @@ export function sameBeam(a, b) {
   return null;
 }
 
-export function exportBeam(o, seen = null) {
-  let v = seen?.get(o);
+export function exportBeam(o, cx) {
+  let v = cx.seen.get(o);
   if (v) return v;
   v = {};
-  seen?.set(o, v);
+  cx.seen.set(o, v);
   v.networkFireChannel = o.networkFireChannel;
   v.historyTick = o.historyTick;
-  v.def = o.def;
-  v.owner = o.owner;
-  v.source = o.source;
-  v.ignoreBody = o.ignoreBody;
+  v.def = cx.def("ordnance", o.def);
+  v.owner = exportOrdnanceOwner(o.owner, cx);
+  v.source = exportBeamSource(o.source, cx);
+  v.ignoreBody = ((x) => (x === null || x === undefined ? x : cx.ref("body", x)))(o.ignoreBody);
   v.life = o.life;
   v.duration = o.duration;
   v.effectTime = o.effectTime;
@@ -469,18 +497,18 @@ export function sameBolt(a, b) {
   return null;
 }
 
-export function exportBolt(o, seen = null) {
-  let v = seen?.get(o);
+export function exportBolt(o, cx) {
+  let v = cx.seen.get(o);
   if (v) return v;
   v = {};
-  seen?.set(o, v);
-  v.def = o.def;
-  v.owner = o.owner;
+  cx.seen.set(o, v);
+  v.def = cx.def("ordnance", o.def);
+  v.owner = exportOrdnanceOwner(o.owner, cx);
   v.networkFireId = o.networkFireId;
   v.networkFireChannel = o.networkFireChannel;
   v.networkFireUnit = o.networkFireUnit;
   v.networkFireGeneration = o.networkFireGeneration;
-  v.ignoreBody = o.ignoreBody;
+  v.ignoreBody = ((x) => (x === null || x === undefined ? x : cx.ref("body", x)))(o.ignoreBody);
   v.position = o.position;
   v.direction = o.direction;
   v.speed = o.speed;
@@ -489,7 +517,7 @@ export function exportBolt(o, seen = null) {
   v.flown = o.flown;
   v.offset = o.offset;
   v.merge = o.merge;
-  v.impact = ((x) => (x === null || x === undefined ? x : exportImpact(x, seen)))(o.impact);
+  v.impact = ((x) => (x === null || x === undefined ? x : exportImpact(x, cx)))(o.impact);
   v.previousFlown = o.previousFlown;
   v.previousDrawn = o.previousDrawn;
   return v;
@@ -654,14 +682,14 @@ export function sameGrenade(a, b) {
   return null;
 }
 
-export function exportGrenade(o, seen = null) {
-  let v = seen?.get(o);
+export function exportGrenade(o, cx) {
+  let v = cx.seen.get(o);
   if (v) return v;
   v = {};
-  seen?.set(o, v);
+  cx.seen.set(o, v);
   v.networkFireChannel = o.networkFireChannel;
-  v.def = o.def;
-  v.owner = o.owner;
+  v.def = cx.def("ordnance", o.def);
+  v.owner = exportOrdnanceOwner(o.owner, cx);
   v.position = o.position;
   v.previous = o.previous;
   v.launchPosition = o.launchPosition;
@@ -745,15 +773,15 @@ export function sameOrdnance(a, b) {
   return null;
 }
 
-export function exportOrdnance(o, seen = null) {
-  let v = seen?.get(o);
+export function exportOrdnance(o, cx) {
+  let v = cx.seen.get(o);
   if (v) return v;
   v = {};
-  seen?.set(o, v);
-  v.bolts = o.bolts.map((x) => exportBolt(x, seen));
-  v.beams = o.beams.map((x) => exportBeam(x, seen));
-  v.grenades = o.grenades.map((x) => exportGrenade(x, seen));
-  v.rounds = o.rounds.map((x) => exportRound(x, seen));
+  cx.seen.set(o, v);
+  v.bolts = o.bolts.map((x) => exportBolt(x, cx));
+  v.beams = o.beams.map((x) => exportBeam(x, cx));
+  v.grenades = o.grenades.map((x) => exportGrenade(x, cx));
+  v.rounds = o.rounds.map((x) => exportRound(x, cx));
   return v;
 }
 
@@ -1014,22 +1042,22 @@ export function sameRound(a, b) {
   return null;
 }
 
-export function exportRound(o, seen = null) {
-  let v = seen?.get(o);
+export function exportRound(o, cx) {
+  let v = cx.seen.get(o);
   if (v) return v;
   v = {};
-  seen?.set(o, v);
+  cx.seen.set(o, v);
   v.kind = o.kind;
   v.networkFireChannel = o.networkFireChannel;
-  v.ignoreBody = o.ignoreBody;
-  v.def = o.def;
-  v.owner = o.owner;
+  v.ignoreBody = ((x) => (x === null || x === undefined ? x : cx.ref("body", x)))(o.ignoreBody);
+  v.def = cx.def("ordnance", o.def);
+  v.owner = exportOrdnanceOwner(o.owner, cx);
   v.position = o.position;
   v.previous = o.previous;
   v.launchPosition = o.launchPosition;
   v.velocity = o.velocity;
   v.life = o.life;
-  v.impact = ((x) => (x === null || x === undefined ? x : exportImpact(x, seen)))(o.impact);
+  v.impact = ((x) => (x === null || x === undefined ? x : exportImpact(x, cx)))(o.impact);
   v.dead = o.dead;
   v.gravity = o.gravity;
   v.ramp = o.ramp;
@@ -1038,15 +1066,15 @@ export function exportRound(o, seen = null) {
   v.targetGeneration = o.targetGeneration;
   v.phase = o.phase;
   v.quaternion = o.quaternion;
-  v.struck = o.struck;
+  v.struck = ((x) => (x === null || x === undefined ? x : new Set([...x].map((x) => cx.ref("unit", x)))))(o.struck);
   v.gone = o.gone;
   v.flightMissile = o.flightMissile;
   v.flightClass = o.flightClass;
-  v.weapon = o.weapon;
+  v.weapon = ((x) => (x === null || x === undefined ? x : cx.ref("weapon", x)))(o.weapon);
   v.muzzleGeneration = o.muzzleGeneration;
   v.muzzleIndex = o.muzzleIndex;
   v.muzzleBarrel = o.muzzleBarrel;
-  v.mount = o.mount;
+  v.mount = ((x) => (x === null || x === undefined ? x : exportMount(x, cx)))(o.mount);
   v.mountSeat = o.mountSeat;
   v.mountWeapon = o.mountWeapon;
   v.mountBarrel = o.mountBarrel;

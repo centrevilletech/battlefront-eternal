@@ -24,10 +24,10 @@ export function kindNamed(name) {
 }
 
 // The plain values of a singleton's state and every entity in its lists,
-// for the replay harness to record (tools/sim-capture): an entity met
-// twice is one value.
-export function exportState(name, object, seen = new Map()) {
-  return kindNamed(name).export(object, seen);
+// for the replay harness to record (tools/sim-capture), made through an
+// ExportContext: an entity met twice is one value.
+export function exportState(name, object, cx = new ExportContext()) {
+  return kindNamed(name).export(object, cx);
 }
 
 // A table of content definitions of one sort (an ordnance class, a weapon):
@@ -171,12 +171,20 @@ export class Heap {
 // ---- the context and the bridge to an instance ----
 
 // What the generated row code needs on the JavaScript side: the definition
-// tables and each kind's references (an Identity, with a test for a kind a
-// union can hold, or a MirrorPool once Rust owns the kind).
+// tables and each kind's references (an Identity, or a MirrorPool once Rust
+// owns the kind). A union's kinds are told apart by each kind's test: one
+// given by name in `tests`, else whether the object is an instance of one
+// of the classes its schema names (`class`), looked up in `classes` (the
+// constructors themselves, as a minified build renames them).
 export class SimContext {
-  constructor() {
+  constructor({ classes = {}, tests = {} } = {}) {
     this.defs = Object.fromEntries(DEF_TABLES.map((name) => [name, new DefTable(name)]));
-    this.refs = KIND_TABLE.map((k) => (k ? new Identity(k.code) : null));
+    this.refs = KIND_TABLE.map((k) => {
+      if (!k) return null;
+      const ctors = k.classes.map((name) => classes[name]).filter(Boolean);
+      const test = tests[k.name] ?? (ctors.length ? (o) => ctors.some((c) => o instanceof c) : null);
+      return new Identity(k.code, { test });
+    });
   }
 
   setRefs(kind, refs) { this.refs[kind] = refs; return refs; }
@@ -199,12 +207,28 @@ export class SimContext {
   }
 }
 
+// What the exporters need: SimContext's tests (for unions), the values
+// already made (`seen`: an entity met again is the same value), and what
+// to make of a reference to a kind the store holds no fields of, and of a
+// definition. The replay harness's `ref(kind, object)` gives its handle,
+// named by the store's kind (`unit`, `body`, ...) with a key that is the
+// same for the same object all through a capture; `def(table, def)` its
+// definition handle. Without them a reference is the object itself.
+export class ExportContext extends SimContext {
+  constructor({ classes = {}, tests = {}, ref = (kind, object) => object, def = (table, d) => d } = {}) {
+    super({ classes, tests });
+    this.seen = new Map();
+    this.ref = ref;
+    this.def = def;
+  }
+}
+
 // A battle's instance of the module, as the store sees it: its exports,
 // views of its memory (made again when it grows: `views()` once a phase
 // boundary, never in the middle of one) and its string table.
 export class SimBridge extends SimContext {
-  constructor(instance) {
-    super();
+  constructor(instance, options = {}) {
+    super(options);
     this.x = instance.exports;
     if (this.x.sim_abi() !== 1) throw Error(`the simulation's module has store ABI ${this.x.sim_abi()}, not 1`);
     // A module built from other schemas than the generated JavaScript's.

@@ -223,17 +223,29 @@ kept as UTF-16 units, so any JavaScript string comes back the same.
 
 The replay harness (`tools/sim-capture`, `rust/sim-replay`) records a
 battle's phases in its own format and replays them natively. A kind's state
-goes into a capture as the plain values its exporter gives
-(`exportState('ordnance', game.ordnance)`): its fields in the schema's
-order, Vector3s and Quaternions as they are, records as plain objects, the
-entities of a kind the store holds exported where they are met (once each,
-so identity survives), and every reference to anything else (a unit, a
-body, a definition) as the object itself, which the harness names by its
-own handles. The Rust side reads those values into the store's structs and
-writes them back for comparison (`from_value` and `to_value`, generated
-behind the crate's `replay` feature with the harness's crate as a
-dependency), mapping the harness's handles to slots and definition indices
-through one small trait the harness implements.
+goes into a capture as the plain values its exporter makes
+(`exportState('ordnance', game.ordnance, cx)`): its fields in the schema's
+order, Vector3s and Quaternions and arrays of numbers as they are, records
+as plain objects, and the entities of a kind the store holds exported where
+they are first met (once each, `cx.seen`, so identity survives). The export
+context (`ExportContext`) says what a reference to anything else becomes:
+`cx.ref(kind, object)` (the harness gives its handle, named by the store's
+kind with a key that stays the object's for the whole capture) and
+`cx.def(table, def)` (the harness's definition handle); a union's variant is
+found by its kinds' tests, which the context makes from the classes the
+schema names (`class: 'Vehicle'`, the constructors passed in as
+`classes`) or takes by kind name (`tests`).
+
+On the Rust side, with the crate's `replay` feature (it adds the harness's
+crate), the generated `from_value` and `to_value` read those values into the
+store's structs and write them back: `Replay::read_value(KIND_ORDNANCE, v)`
+makes the singleton and every entity its lists hold, and
+`Replay::write_value` gives the same values back, which `sim_replay::diff`
+compares with a capture's, the first difference with its path. `Replay`
+maps the harness's handles to slots (a keyed kind's key is its slot; any
+other key gets the next slot of its kind) and definition handles to
+indices, and back, so the values come out with the handles they went in
+with. `rust/sim/tests/replay_values.rs` holds the store to that.
 
 ### Commands, events and the memory reserve (next)
 

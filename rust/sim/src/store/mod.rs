@@ -19,6 +19,8 @@
 //! number as its slot, with generation 0.
 
 pub mod block;
+#[cfg(feature = "replay")]
+pub mod replay;
 mod slab;
 mod strings;
 

@@ -128,10 +128,10 @@ export function buildModel(files) {
     }
     for (const [name, spec] of Object.entries(schema.kinds || {})) {
       const where = `${file} kind ${name}`;
-      for (const k of Object.keys(spec)) if (!['singleton', 'key', 'home', 'fields', 'skip', 'doc'].includes(k)) fail(where, `unknown kind option "${k}"`);
+      for (const k of Object.keys(spec)) if (!['singleton', 'key', 'home', 'fields', 'skip', 'class', 'doc'].includes(k)) fail(where, `unknown kind option "${k}"`);
       let kind = model.kinds.get(name);
       if (!kind) {
-        kind = { name, rust: pascal(name), singleton: false, key: null, home: null, fields: [], skip: new Map(), file: null, facets: [] };
+        kind = { name, rust: pascal(name), singleton: false, key: null, home: null, classes: [], fields: [], skip: new Map(), file: null, facets: [] };
         model.kinds.set(name, kind);
       }
       kind.facets.push(file);
@@ -154,6 +154,7 @@ export function buildModel(files) {
         kind.file ??= file;
       }
       for (const [f, why] of Object.entries(spec.skip || {})) kind.skip.set(f, why);
+      for (const c of [spec.class ?? []].flat()) if (!kind.classes.includes(c)) kind.classes.push(c);
     }
   }
   // Codes: the kinds' names in order, from 1.
@@ -189,6 +190,7 @@ export function buildModel(files) {
   for (const r of model.records.values()) r.fields.forEach(check);
   for (const k of kinds) k.fields.forEach(check);
   for (const u of model.unions.values()) for (const v of u.variants) if (v.tag === 'ref' && !model.kinds.has(v.kind)) fail(`union ${u.name}`, `no kind ${v.kind}`);
+  for (const u of model.unions.values()) if (u.variants.filter((v) => v.tag === 'ref' && model.kinds.get(v.kind).fields.length).length > 1) fail(`union ${u.name}`, 'at most one of its kinds can be one the store holds fields of');
   // Records nest by value: no record may hold itself.
   const visiting = new Set();
   const walk = (name) => {
@@ -420,11 +422,12 @@ function rustIndex(model) {
     '',
   ];
   for (const f of model.files) lines.push(`mod ${snake(f)};`, `pub use self::${snake(f)}::*;`);
-  lines.push('');
+  lines.push('#[cfg(feature = "replay")]', 'mod replay;', '');
   for (const k of kinds) lines.push(`pub const ${kindConst(k.name)}: KindCode = ${k.code};`);
   lines.push('/// How many kinds there are (codes run 1 to KINDS).', `pub const KINDS: usize = ${kinds.length};`);
   lines.push(`pub const KIND_NAMES: [&str; ${kinds.length + 1}] = ["", ${kinds.map((k) => JSON.stringify(k.name)).join(', ')}];`);
-  lines.push('/// Each kind\'s layout hash (its fields, types, flags and order), by code: the', '/// generated JavaScript has the same, and the bridge checks them.', `pub const KIND_HASHES: [u32; ${kinds.length + 1}] = [0, ${kinds.map((k) => `0x${k.hash.toString(16).padStart(8, '0')}`).join(', ')}];`, '');
+  lines.push('/// Each kind\'s layout hash (its fields, types, flags and order), by code: the', '/// generated JavaScript has the same, and the bridge checks them.', `pub const KIND_HASHES: [u32; ${kinds.length + 1}] = [0, ${kinds.map((k) => `0x${k.hash.toString(16).padStart(8, '0')}`).join(', ')}];`);
+  lines.push('/// Whether each kind\'s objects carry their own number (its slot), by code.', `pub const KIND_KEYED: [bool; ${kinds.length + 1}] = [false, ${kinds.map((k) => String(Boolean(k.key))).join(', ')}];`, '');
   for (const k of kinds.filter((x) => !x.stored && !x.singleton)) lines.push('/// A kind the store holds no fields of (only references to).', '#[derive(Clone, Copy, Debug, Default)]', `pub struct ${k.rust};`, '');
   lines.push('/// Every kind with fields: a singleton by value, the rest by slot.', '#[derive(Default)]', 'pub struct Store {');
   for (const k of held) lines.push(`    pub ${snake(k.name)}: ${k.singleton ? k.rust : `Slab<${k.rust}>`},`);
@@ -450,6 +453,134 @@ function rustIndex(model) {
     }
   }
   lines.push('            _ => return false,', '        }', '        true', '    }', '}');
+  return lines.join('\n') + '\n';
+}
+
+// ---- Rust: the replay harness's values (the `replay` feature) ----
+
+// Reading the bare type from value `x` (a V) at path `p` (a &str).
+function replayIn(model, t, x, p) {
+  const k = ['ref', 'list', 'set'].includes(t.base) ? model.kinds.get(t.of) : null;
+  const one = (e, path) => (k.stored ? `${k.rust}::ref_in(${e}, cx, ${path})?` : `cx.ref_in(${kindConst(k.name)}, ${e}, ${path})?`);
+  switch (t.base) {
+    case 'f64': return `num(${x}, ${p})?`;
+    case 'f32': return `num_f32(${x}, ${p})?`;
+    case 'i32': return `(int(${x}, ${p}, i32::MIN as f64, i32::MAX as f64)? as i32)`;
+    case 'u32': return `(int(${x}, ${p}, 0.0, u32::MAX as f64)? as u32)`;
+    case 'u8': return `(int(${x}, ${p}, 0.0, 255.0)? as u8)`;
+    case 'bool': return `boolean(${x}, ${p})?`;
+    case 'vec3': return `vec3(${x}, ${p})?`;
+    case 'quat': return `quat(${x}, ${p})?`;
+    case 'f64xN': return `numbers::<${t.n}>(${x}, ${p})?`;
+    case 'str': return `cx.str_in(${x}, ${p})?`;
+    case 'enum': return `${t.of}::from_u8(name_of(${x}, &${t.of}::NAMES, ${p})?).unwrap()`;
+    case 'def': return `cx.def_in(${JSON.stringify(t.of)}, ${x}, ${p})?`;
+    case 'ref': return one(x, p);
+    case 'union': case 'rec': return `${t.of}::from_value(${x}, cx, ${p})?`;
+    case 'list': return `{ let mut out = Vec::new(); for (i, e) in list(${x}, ${p})?.into_iter().enumerate() { let at = format!("{}[{i}]", ${p}); out.push(${one('e', '&at')}); } out }`;
+    case 'set': return `{ let mut out = RefSet::default(); for (i, e) in set(${x}, ${p})?.into_iter().enumerate() { let at = format!("{}[{i}]", ${p}); out.items.push(${one('e', '&at')}); } out }`;
+  }
+}
+
+function replayInField(model, t, x, p) {
+  const inner = replayIn(model, bare(t), x, p);
+  if (!optional(t)) return inner;
+  const bad = (what) => `return Err(format!("{}: ${what}", ${p}))`;
+  if (t.nullable.null && t.nullable.undefined) return `match ${x}.value { Value::Null => Nullable::Null, Value::Undefined => Nullable::Undefined, _ => Nullable::Value(${inner}) }`;
+  return t.nullable.null
+    ? `match ${x}.value { Value::Null => None, Value::Undefined => ${bad('undefined where its schema says null')}, _ => Some(${inner}) }`
+    : `match ${x}.value { Value::Undefined => None, Value::Null => ${bad('null where its schema says undefined')}, _ => Some(${inner}) }`;
+}
+
+// The value of the bare type of Rust expression `s`.
+function replayOut(model, t, s) {
+  const k = ['ref', 'list', 'set'].includes(t.base) ? model.kinds.get(t.of) : null;
+  const one = (r) => (k.stored ? `${k.rust}::ref_out(${r}, cx, a)` : `cx.ref_out(${kindConst(k.name)}, ${r})`);
+  switch (t.base) {
+    case 'f64': return `Value::Num(${s})`;
+    case 'f32': case 'i32': case 'u32': case 'u8': return `Value::Num(${s} as f64)`;
+    case 'bool': return `Value::Bool(${s})`;
+    case 'vec3': return `a.vec3(${s})`;
+    case 'quat': return `a.quat(${s})`;
+    case 'f64xN': return `{ let items = ${s}.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }`;
+    case 'str': return `cx.str_out(${s})`;
+    case 'enum': return `Value::Str(${t.of}::NAMES[${s} as usize].to_string())`;
+    case 'def': return `cx.def_out(${JSON.stringify(t.of)}, ${s})`;
+    case 'ref': return one(s);
+    case 'union': case 'rec': return `${s}.to_value(cx, a)`;
+    case 'list': return `{ let mut items = Vec::new(); for &r in ${s}.iter() { items.push(${one('r')}); } a.array(items) }`;
+    case 'set': return `{ let mut items = Vec::new(); for &r in ${s}.items.iter() { items.push(${one('r')}); } a.set(items) }`;
+  }
+}
+
+function replayOutField(model, t, s) {
+  if (!optional(t)) return replayOut(model, t, s);
+  const inner = replayOut(model, bare(t), deref(t));
+  if (t.nullable.null && t.nullable.undefined) return `match &${s} { Nullable::Value(v) => ${inner}, Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }`;
+  return `match &${s} { Some(v) => ${inner}, None => Value::${t.nullable.null ? 'Null' : 'Undefined'} }`;
+}
+
+function replayStruct(model, name, fields, what) {
+  const lines = [`impl ${name} {`];
+  lines.push('    /// Its fields from a value (the export of the JavaScript object).', `    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {`, '        object(v, path)?;', `        Ok(${name} {`);
+  for (const f of fields) lines.push(`            ${snake(f.name)}: { let p = format!("{path}.${f.name}"); ${replayInField(model, f.type, `v.get(${JSON.stringify(f.name)})`, '&p')} },`);
+  lines.push('        })', '    }', '');
+  lines.push('    /// Its value, as the export of the JavaScript object it stands for.', `    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {`, '        let fields = vec![');
+  for (const f of fields) lines.push(`            (${JSON.stringify(f.name)}, ${replayOutField(model, f.type, `self.${snake(f.name)}`)}),`);
+  lines.push('        ];', `        a.object("", fields)`, '    }');
+  if (what) {
+    const k = what;
+    const slab = `cx.store.${snake(k.name)}`;
+    lines.push('');
+    lines.push(`    /// The ${k.name} an object met in a value is: made in the store the first time.`, `    pub fn ref_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<${name}>> {`);
+    lines.push(`        let (slot, gen) = cx.entity_in(${kindConst(k.name)}, v, path, |cx| {`);
+    if (k.key) {
+      lines.push(`            let slot = int(v.get(${JSON.stringify(k.key)}), &format!("{path}.${k.key}"), 0.0, u32::MAX as f64)? as u32;`, `            if let Some((old, _)) = ${slab}.at(slot) { ${slab}.remove(old); }`, `            let r = ${slab}.insert_at(slot, 0, ${name}::default());`);
+    } else lines.push(`            let r = ${slab}.insert(${name}::default());`);
+    lines.push(`            cx.entity_made(${kindConst(k.name)}, v, r.slot, r.gen);`, `            let value = ${name}::from_value(v, cx, path)?;`, `            *${slab}.get_mut(r).unwrap() = value;`, '            Ok((r.slot, r.gen))', '        })?;', '        Ok(Ref::new(slot, gen))', '    }', '');
+    lines.push(`    /// The value of the ${k.name} a reference names (the same value wherever it is met again).`, `    pub fn ref_out(r: Ref<${name}>, cx: &mut Replay, a: &mut Arena) -> Value {`, `        if let Some(v) = cx.entity_out(${kindConst(k.name)}, r.slot, r.gen) { return v; }`, `        let e = ${slab}.get(r).cloned().unwrap_or_default();`, '        let v = e.to_value(cx, a);', `        cx.entity_written(${kindConst(k.name)}, r.slot, r.gen, &v);`, '        v', '    }');
+  }
+  lines.push('}', '');
+  return lines;
+}
+
+function replayUnion(model, u) {
+  const lines = [`impl ${u.name} {`, `    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {`, '        match v.value {'];
+  const nul = u.variants.find((x) => x.tag === 'null'), und = u.variants.find((x) => x.tag === 'undefined');
+  if (nul) lines.push(`            Value::Null => return Ok(${u.name}::${nul.rust}),`);
+  if (und) lines.push(`            Value::Undefined => return Ok(${u.name}::${und.rust}),`);
+  const lits = u.variants.filter((x) => x.tag === 'lit');
+  if (lits.length) lines.push(`            Value::Str(s) => match s.as_str() { ${lits.map((x) => `${JSON.stringify(x.value)} => return Ok(${u.name}::${x.rust}),`).join(' ')} _ => {} },`);
+  const handles = u.variants.filter((x) => x.tag === 'ref' && !model.kinds.get(x.kind).stored);
+  if (handles.length) lines.push(`            Value::Handle(kind, _) => match kind.as_str() { ${handles.map((x) => `${JSON.stringify(x.kind)} => return Ok(${u.name}::${x.rust}(cx.ref_in(${kindConst(x.kind)}, v, path)?)),`).join(' ')} _ => {} },`);
+  const entity = u.variants.find((x) => x.tag === 'ref' && model.kinds.get(x.kind).stored);
+  if (entity) lines.push(`            Value::Node(_) => return Ok(${u.name}::${entity.rust}(${model.kinds.get(entity.kind).rust}::ref_in(v, cx, path)?)),`);
+  lines.push('            _ => {}', '        }', `        Err(format!("{path}: none of ${u.name}'s variants ({})", v.show()))`, '    }', '');
+  lines.push(`    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {`, '        match self {');
+  for (const x of u.variants) {
+    if (x.tag === 'null') lines.push(`            ${u.name}::${x.rust} => Value::Null,`);
+    else if (x.tag === 'undefined') lines.push(`            ${u.name}::${x.rust} => Value::Undefined,`);
+    else if (x.tag === 'lit') lines.push(`            ${u.name}::${x.rust} => Value::Str(${JSON.stringify(x.value)}.to_string()),`);
+    else {
+      const k = model.kinds.get(x.kind);
+      lines.push(`            ${u.name}::${x.rust}(r) => ${k.stored ? `${k.rust}::ref_out(*r, cx, a)` : `cx.ref_out(${kindConst(k.name)}, *r)`},`);
+    }
+  }
+  lines.push('        }', '    }', '}', '');
+  return lines;
+}
+
+function rustReplay(model) {
+  const lines = ['// Generated by tools/sim-schema.mjs from rust/sim/schema/; do not edit.', '//! Every kind, record and union read from and written as the replay harness\'s', '//! values (the `replay` feature; rust/sim/src/store/replay.rs).', '#![allow(clippy::all, unused_braces, unused_parens, unused_variables, unused_mut)]', '', 'use super::*;', 'use crate::store::replay::*;', ''];
+  for (const u of model.unions.values()) lines.push(...replayUnion(model, u));
+  for (const r of model.records.values()) lines.push(...replayStruct(model, r.name, r.fields, null));
+  for (const k of model.kindList) if (k.stored) lines.push(...replayStruct(model, k.rust, k.fields, k.singleton ? null : k));
+  lines.push('impl Replay {', '    /// Reads a singleton\'s state value (`exportState(name, object)`) into the store:', '    /// the singleton\'s fields, and every entity its lists hold, made anew.', '    pub fn read_value(&mut self, kind: KindCode, v: V) -> Result<()> {', '        match kind {');
+  for (const k of model.kindList) if (k.singleton) lines.push(`            ${kindConst(k.name)} => { let value = ${k.rust}::from_value(v, self, ${JSON.stringify(k.name)})?; self.store.${snake(k.name)} = value; }`);
+  lines.push('            _ => return Err(format!("{} is no singleton", KIND_NAMES.get(kind as usize).copied().unwrap_or("?"))),', '        }', '        Ok(())', '    }', '');
+  lines.push('    /// A singleton\'s state as its exporter gives it.', '    pub fn write_value(&mut self, kind: KindCode, a: &mut Arena) -> Value {', '        match kind {');
+  for (const k of model.kindList) if (k.singleton) lines.push(`            ${kindConst(k.name)} => { let s = self.store.${snake(k.name)}.clone(); s.to_value(self, a) }`);
+  lines.push('            _ => Value::Undefined,', '        }', '    }', '}');
   return lines.join('\n') + '\n';
 }
 
@@ -535,16 +666,23 @@ function jsSameField(model, t, a, b, path) {
   return `{ const p = ${a}, q = ${b}; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ${JSON.stringify(path)}; } else { ${jsSame(model, bare(t), 'p', 'q', path)} } }`;
 }
 
-// The replay harness's value of a field (tools/sim-capture): a record and
+// The replay harness's value of a field (tools/sim-capture), made through
+// the export context `cx` (src/sim/runtime.js ExportContext): a record and
 // an entity of a kind the store holds are exported where they are met (one
-// value an entity, through `seen`); everything else is the value itself,
-// references included (the harness names units, bodies and definitions).
+// value an entity, through cx.seen); a reference to anything else is what
+// cx.ref(kind, object) makes of it (the harness's handle), a definition what
+// cx.def(table, def) makes of it; numbers, strings, enums, arrays of numbers
+// and three.js values are the values themselves.
 function jsExport(model, t, v) {
+  const kindOf = (name) => model.kinds.get(name);
+  const one = (name, x) => (kindOf(name).stored ? `export${kindOf(name).rust}(${x}, cx)` : `cx.ref(${JSON.stringify(name)}, ${x})`);
   switch (t.base) {
-    case 'rec': return `export${t.of}(${v}, seen)`;
-    case 'ref': return stored(model, t.of) ? `export${model.kinds.get(t.of).rust}(${v}, seen)` : v;
-    case 'list': return stored(model, t.of) ? `${v}.map((x) => export${model.kinds.get(t.of).rust}(x, seen))` : v;
-    case 'set': return stored(model, t.of) ? `new Set([...${v}].map((x) => export${model.kinds.get(t.of).rust}(x, seen)))` : v;
+    case 'rec': return `export${t.of}(${v}, cx)`;
+    case 'union': return `export${t.of}(${v}, cx)`;
+    case 'def': return `cx.def(${JSON.stringify(t.of)}, ${v})`;
+    case 'ref': return one(t.of, v);
+    case 'list': return `${v}.map((x) => ${one(t.of, 'x')})`;
+    case 'set': return `new Set([...${v}].map((x) => ${one(t.of, 'x')}))`;
     default: return v;
   }
 }
@@ -590,7 +728,7 @@ function jsSameFn(model, name, fields) {
 }
 
 function jsExportFn(model, name, fields) {
-  const lines = [`export function export${name}(o, seen = null) {`, '  let v = seen?.get(o);', '  if (v) return v;', '  v = {};', '  seen?.set(o, v);'];
+  const lines = [`export function export${name}(o, cx) {`, '  let v = cx.seen.get(o);', '  if (v) return v;', '  v = {};', '  cx.seen.set(o, v);'];
   for (const f of fields) lines.push(`  v${jsKey(f.name)} = ${jsExportField(model, f.type, jsGet(f))};`);
   lines.push('  return v;', '}', '');
   return lines;
@@ -636,6 +774,12 @@ function jsUnion(model, u) {
   lines.push(`export function sync${u.name}(b, f, at) {`, '  switch (f[at]) {');
   u.variants.forEach((v, i) => lines.push(`    case ${i}: return ${v.tag === 'null' ? 'null' : v.tag === 'undefined' ? 'undefined' : v.tag === 'lit' ? JSON.stringify(v.value) : `b.refs[${kindConst(v.kind)}].at(f[at + 1], f[at + 2])`};`));
   lines.push(`    default: throw Error('${u.name}: no such variant');`, '  }', '}', '');
+  lines.push(`export function export${u.name}(x, cx) {`, `  switch (which${u.name}(cx, x)) {`);
+  u.variants.forEach((v, i) => {
+    const k = v.tag === 'ref' ? model.kinds.get(v.kind) : null;
+    lines.push(`    case ${i}: return ${v.tag === 'null' ? 'null' : v.tag === 'undefined' ? 'undefined' : v.tag === 'lit' ? JSON.stringify(v.value) : k.stored ? `export${k.rust}(x, cx)` : `cx.ref(${JSON.stringify(v.kind)}, x)`};`);
+  });
+  lines.push('  }', '}', '');
   lines.push(`export function put${u.name}(b, x, f, at) {`, `  const i = which${u.name}(b, x);`, '  f[at] = i;');
   if (refs.length) lines.push(`  switch (i) { ${refs.map(([v, i]) => `case ${i}: b.refs[${kindConst(v.kind)}].put(x, f, at + 1); return;`).join(' ')} }`);
   lines.push('  f[at + 1] = 0;', '  f[at + 2] = 0;', '}', '');
@@ -672,7 +816,7 @@ function jsFile(model, file) {
   const codes = new Set();
   const need = (t) => {
     if (t.base === 'enum') { const e = model.enums.get(t.of); use(jsEnum(e), e.file); use(jsEnumIndex(e), e.file); }
-    if (t.base === 'union') { const u = model.unions.get(t.of); for (const p of ['sync', 'put']) use(`${p}${u.name}`, u.file); }
+    if (t.base === 'union') { const u = model.unions.get(t.of); for (const p of ['sync', 'put', 'export']) use(`${p}${u.name}`, u.file); }
     if (t.base === 'rec') { const r = model.records.get(t.of); for (const p of ['sync', 'put', 'same', 'export']) use(`${p}${r.name}`, r.file); use(`${r.name}Mirror`, r.file); }
     if (['ref', 'list', 'set'].includes(t.base)) {
       codes.add(kindConst(t.of));
@@ -682,7 +826,11 @@ function jsFile(model, file) {
   };
   for (const r of model.records.values()) if (r.file === file) r.fields.forEach((f) => need(f.type));
   for (const k of model.kindList) if (k.file === file) k.fields.forEach((f) => need(f.type));
-  for (const u of model.unions.values()) if (u.file === file) for (const v of u.variants) if (v.tag === 'ref') codes.add(kindConst(v.kind));
+  for (const u of model.unions.values()) if (u.file === file) for (const v of u.variants) if (v.tag === 'ref') {
+    codes.add(kindConst(v.kind));
+    const k = model.kinds.get(v.kind);
+    if (k.stored) use(`export${k.rust}`, k.file);
+  }
   const lines = [`// Generated by tools/sim-schema.mjs from rust/sim/schema/${file}.mjs; do not edit.`, 'import * as THREE from "three";', 'import { sameArray, sameList, sameQuat, sameVec } from "../compare.js";'];
   if (codes.size) lines.push(`import { ${[...codes].sort().join(', ')} } from "./kinds.js";`);
   for (const [from, names] of [...uses].sort()) lines.push(`import { ${[...names].sort().join(', ')} } from "./${from}.js";`);
@@ -715,7 +863,7 @@ function jsIndex(model) {
   for (const f of model.files) lines.push(`export * from "./${f}.js";`);
   lines.push('', '// By code: name, layout hash (the same as the module\'s), singleton, key (the', '// numeric field that names an object), home (singleton kind and list field),', '// whether the store holds fields of it, row strides, and its functions.', 'export const KIND_TABLE = [null,');
   for (const k of model.kindList) {
-    const base = `name: ${JSON.stringify(k.name)}, code: ${k.code}, hash: 0x${k.hash.toString(16).padStart(8, '0')}, singleton: ${k.singleton}, key: ${JSON.stringify(k.key)}, home: ${k.home ? `{ kind: ${k.homeKind.code}, field: ${JSON.stringify(k.homeField.name)} }` : 'null'}, stored: ${k.stored}`;
+    const base = `name: ${JSON.stringify(k.name)}, code: ${k.code}, hash: 0x${k.hash.toString(16).padStart(8, '0')}, singleton: ${k.singleton}, key: ${JSON.stringify(k.key)}, home: ${k.home ? `{ kind: ${k.homeKind.code}, field: ${JSON.stringify(k.homeField.name)} }` : 'null'}, stored: ${k.stored}, classes: ${JSON.stringify(k.classes)}`;
     if (!k.stored) { lines.push(`  { ${base} },`); continue; }
     const s = (w) => layout(model, k, w).stride;
     lines.push(`  { ${base}, exportStride: ${s('export')}, importStride: ${s('import')}, fullStride: ${s('full')}, Mirror: ${k.rust}Mirror, sync: sync${k.rust}, syncFull: syncFull${k.rust}, put: put${k.rust}, putFull: putFull${k.rust}, check: check${k.rust}, same: same${k.rust}, export: export${k.rust}, keys: ${upper(k.name)}_KEYS },`);
@@ -730,6 +878,7 @@ export async function generate() {
   const model = buildModel(await loadSchemas());
   const out = new Map();
   out.set(join(RUST_OUT, 'mod.rs'), rustIndex(model));
+  out.set(join(RUST_OUT, 'replay.rs'), rustReplay(model));
   for (const f of model.files) out.set(join(RUST_OUT, `${snake(f)}.rs`), rustFile(model, f));
   out.set(join(JS_OUT, 'kinds.js'), jsKinds(model));
   out.set(join(JS_OUT, 'index.js'), jsIndex(model));

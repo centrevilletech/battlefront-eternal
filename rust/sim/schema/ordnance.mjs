@@ -192,13 +192,17 @@ export default {
     },
 
     // Kinds the ordnance refers to, owned elsewhere: a unit is known by its
-    // id (src/registry.js), the others by identity alone.
-    unit: { key: 'id' },
-    vehicle: {},
+    // id (src/registry.js), the others by identity alone. `class` names the
+    // JavaScript classes a union tells them apart by (src/units.js Unit,
+    // src/vehicles.js Vehicle, src/props.js Turret); an emitter (a hull's
+    // or seat's beamSource) and an owner snapshot (src/ordnance-owner.js)
+    // are plain objects, told apart by the tests the battle gives.
+    unit: { key: 'id', class: 'Unit' },
+    vehicle: { class: 'Vehicle' },
     body: {},
     emitter: {},
     ownerSnapshot: {},
-    weapon: {},
-    turret: {},
+    weapon: { class: 'Weapon' },
+    turret: { class: 'Turret' },
   },
 };
