@@ -37,52 +37,46 @@ export class Expand {
 }
 export const expand = (value) => new Expand(value);
 
-const ordnanceBoundaries = (game) => [
-  ['collision.castMoving', game.collision, 'castMoving'],
-  ['collision.cast', game.collision, 'cast'],
-  ['units.raycast', game.units, 'raycast'],
-  ['units.query', game.units, 'query'],
-  ['hitHistory.raycast', game.ordnance.hitHistory, 'raycast'],
-  ['water.crossing', game.ordnance.water, 'crossing'],
-  ['water.ripple', game.ordnance.water, 'ripple'],
-  ['effects.play', game.ordnance.effects, 'play'],
-  ['ordnance.onImpact', game.ordnance, 'onImpact'],
-  ['ordnance.onHit', game.ordnance, 'onHit'],
-  ['ordnance.onHitUnit', game.ordnance, 'onHitUnit'],
-  ['ordnance.onExplode', game.ordnance, 'onExplode'],
-  ['ordnance.onGrenadeContact', game.ordnance, 'onGrenadeContact'],
-  ['ordnance.onProjectile', game.ordnance, 'onProjectile'],
-  ['simEvents.emit', game.simEvents, 'emit'],
-];
+// The ordnance pilot (flip F1): the rounds in flight and the things lying
+// about. Everything they ask of the rest of the battle goes through their
+// boundary object (src/ordnance-world.js), whose methods are the trait the
+// Rust port reaches the battle through: each frame's calls across its
+// boundary are exactly those, labelled by method. Their state is the
+// store's own export of them.
+const ORDNANCE_WORLD = ['cast', 'castMoving', 'raycastUnits', 'riderMount', 'fatQuery', 'unitSphere', 'isDroid', 'gone',
+  'beamLocalOrigin', 'beamPose', 'shotTick', 'historyTick', 'shooter', 'missileTarget', 'navigateMissile', 'waterCrossing',
+  'waver', 'spin', 'explosion', 'hit', 'hitUnit', 'projectile', 'launch', 'impact', 'grenadeContact', 'bounce'];
+const ITEMS_WORLD = ['cast', 'blocked', 'waterCrossing', 'model', 'ownerKey', 'dropRoll', 'explode', 'watch', 'standing', 'give', 'pickup'];
+const ordnanceWorld = (game) => ORDNANCE_WORLD.map((m) => [`ordnance.world.${m}`, game.ordnance.world, m]);
+// An item's explosion reaches back into the items (a mine's blast sets off
+// the mines beside it, a death drops one): the items as the call leaves
+// them come with its return, for a replay that serves the call.
+const itemsAfter = (game, cap) => ({ items: cap.export('items', game.items) });
+const itemsWorld = (game) => ITEMS_WORLD.map((m) => [`items.world.${m}`, game.items.world, m, ...(m === 'explode' ? [itemsAfter] : [])]);
 
-// The ordnance pilot (flip F1): the whole phase, and each bolt's step with
-// the parts of the round's code a first replay serves from the capture
-// (a rider behind a hull, an explosion's fan-out, the impact effect's pick).
-// Their rounds are the store's (its ordnance and bolt kinds).
+// The rounds: a tick's flight (Ordnance.update) and every round fired
+// (Ordnance.fireRound, the fire command, with the lag-compensated bolt's
+// flight up to the world's tick in it).
 const ordnance = {
   frames: [
-    { phase: 'ordnance', world: true, state: (game, args, cap) => cap.export('ordnance', game.ordnance),
-      boundaries: ordnanceBoundaries },
-    { method: 'ordnance.stepBolt', target: (game) => game.ordnance,
-      state: (game, args, cap) => ({ bolt: cap.export('bolt', args[0]), canHit: game.ordnance.canHit, striking: game.ordnance.striking, hitHistory: game.ordnance.hitHistory ?? null, water: game.ordnance.water ?? null, units: game.ordnance.units ?? null }),
-      boundaries: (game) => [...ordnanceBoundaries(game),
-        ['ordnance.riderBehind', game.ordnance, 'riderBehind', (g) => ({ striking: g.ordnance.striking })],
-        ['ordnance.explosion', game.ordnance, 'explosion'],
-        ['ordnance.unitImpactEffect', game.ordnance, 'unitImpactEffect']] },
+    { method: 'ordnance.update', target: (game) => game.ordnance, state: (game, args, cap) => cap.export('ordnance', game.ordnance), boundaries: ordnanceWorld },
+    { method: 'ordnance.fireRound', target: (game) => game.ordnance, state: (game, args, cap) => cap.export('ordnance', game.ordnance), boundaries: ordnanceWorld },
   ],
 };
 
-// Items (flip F1 with ordnance): the phase and its call.
+// The items: a tick's (Items.update, its targets as its argument) and the
+// commands JavaScript gives them (a dispenser's throw, a death's drop, a
+// blast's damage, a hit to one mine), with the battle's item pools (its
+// configuration, not the store's).
+const itemsState = (game, args, cap) => ({ items: cap.export('items', game.items), pools: game.items.pools });
 const items = {
   frames: [
-    { method: 'items.update', target: (game) => game.items, state: (game) => ({ items: expand(game.items) }),
-      boundaries: (game) => [
-        ['collision.cast', game.collision, 'cast'],
-        ['collision.castMoving', game.collision, 'castMoving'],
-        ['units.query', game.units, 'query'],
-        ['ordnance.explosion', game.ordnance, 'explosion'],
-        ['simEvents.emit', game.simEvents, 'emit'],
-      ] },
+    { method: 'items.update', target: (game) => game.items, state: itemsState, boundaries: itemsWorld },
+    { method: 'items.dispense', target: (game) => game.items, state: itemsState, boundaries: itemsWorld },
+    { method: 'items.dropFor', target: (game) => game.items, state: itemsState, boundaries: itemsWorld },
+    { method: 'items.blast', target: (game) => game.items, state: itemsState, boundaries: itemsWorld },
+    { method: 'items.hurt', target: (game) => game.items,
+      state: (game, args, cap) => ({ ...itemsState(game, args, cap), item: cap.export('item', args[0]) }), boundaries: itemsWorld },
   ],
 };
 

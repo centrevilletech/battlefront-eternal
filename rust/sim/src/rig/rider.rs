@@ -12,7 +12,7 @@
 //! JavaScript's in its order.
 
 use super::skeleton::Skeleton;
-use super::three::{clamp, Matrix4, Quaternion, Vector3};
+use three::{clamp, Matrix4, Quaternion, Vector3};
 use crate::pose::{Clip, Pose};
 
 // The head's middle in the head bone's frame (x runs up the neck): the

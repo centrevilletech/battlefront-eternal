@@ -10,7 +10,7 @@
 
 use super::{hover, walker, BodyId, VehicleWorld};
 use crate::rig::math;
-use crate::rig::three::{clamp, Euler, EulerOrder, Matrix4, Quaternion, Vector3};
+use three::{clamp, Euler, EulerOrder, Matrix4, Quaternion, Vector3};
 use v8math::{abs, sign};
 
 pub(crate) const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);

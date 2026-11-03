@@ -8,8 +8,8 @@
 //! its names and its parents: the rider's points (`rider.rs`) and a
 //! droideka's hidden gun rig (`droideka.rs`) are made from it.
 
-use super::three::{Euler, Matrix4, Quaternion, Vector3};
-use super::tree::TransformNode;
+use three::{Euler, Matrix4, Quaternion, Vector3};
+use three::TransformNode;
 
 /// A bone of a model: its name, its parent's index (negative for none) and
 /// its local matrix (column-major, as the model's JSON gives it).

@@ -6,7 +6,7 @@
 use super::hull::{approach, truthy, Hull, Input, DOWN, UP};
 use super::VehicleWorld;
 use crate::rig::math;
-use crate::rig::three::{clamp, Euler, EulerOrder, Quaternion, Vector3};
+use three::{clamp, Euler, EulerOrder, Quaternion, Vector3};
 use v8math::{hypot, max, min};
 
 /// vehicles.js walkGround.

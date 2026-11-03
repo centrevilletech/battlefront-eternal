@@ -6,7 +6,7 @@
 //! hand-written pair stands in for the generated code.
 
 use super::hull::{HoverClass, Hull, Lease, Legs, Seat, Spring, WaterRule, Wheel};
-use crate::rig::three::{Matrix4, Quaternion, Vector3};
+use three::{Matrix4, Quaternion, Vector3};
 use sim_replay::{Arena, Node, Value, V};
 
 fn vec3(v: V) -> Vector3 {

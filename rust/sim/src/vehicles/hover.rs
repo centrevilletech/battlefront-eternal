@@ -11,7 +11,7 @@ use super::hull::{Hull, HoverClass, Spring, DOWN, UP};
 use super::{Polygon, VehicleWorld};
 use crate::collision::spheres::closest_point_to_point;
 use crate::collision::triangle_normal;
-use crate::rig::three::{clamp, lerp, Quaternion, Vector3};
+use three::{clamp, lerp, Quaternion, Vector3};
 use v8math::{abs, hypot, max, min};
 
 const GRAVITY: f64 = 9.8;

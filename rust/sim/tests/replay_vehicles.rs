@@ -10,7 +10,7 @@
 // the test passes without replaying.
 #![cfg(feature = "replay")]
 
-use bfe_sim::rig::three::{Matrix4, Quaternion, Vector3};
+use three::{Matrix4, Quaternion, Vector3};
 use bfe_sim::vehicles::replay::{body_of, hull_from_value, hull_to_value};
 use bfe_sim::vehicles::{BodyId, Ground, Hit, Input, Polygon, VehicleWorld};
 use sim_replay::{check_bool, check_num, check_vec3, diff, replay_corpus, same_number, Arena, Call, Corpus, Log, Node, Outcome, V};

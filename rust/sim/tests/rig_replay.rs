@@ -19,7 +19,7 @@ use bfe_sim::rig::hull::{AimerDesc, BarrelDesc, HullDesc, HullRig, SeatDesc, Wea
 use bfe_sim::rig::math::oracle::{self, Oracle};
 use bfe_sim::rig::rider::{rider_drop_point, rider_hit_shapes, rider_points, HitShape, RiderPoints, RiderSample, RiderScratch, RiderSkeleton, ShapeKind, ShapePart};
 use bfe_sim::rig::skeleton::{BoneDesc, Skeleton};
-use bfe_sim::rig::three::{Matrix4, Quaternion, Vector3};
+use three::{Matrix4, Quaternion, Vector3};
 use sim_replay::{Reader, Record, Typed, V};
 use std::collections::HashMap;
 
@@ -129,9 +129,8 @@ fn shapes_of(shapes: &[HitShape]) -> Vec<f64> {
 }
 
 /// The battle's content as rust/content loads it, to build the rigs' inputs
-/// from (feature `content`, with BFE_CONTENT_DIR): each must be what the
+/// from (with BFE_CONTENT_DIR): each must be what the
 /// JavaScript built the recorded rig from.
-#[cfg(feature = "content")]
 mod from_content {
     use bfe_content::battle::{Battle, Loader};
     use bfe_content::content::Content;
@@ -168,6 +167,7 @@ struct Droideka {
 #[derive(Default)]
 struct Tally {
     checked: HashMap<&'static str, u64>,
+    failed: HashMap<&'static str, u64>,
     failures: Vec<String>,
 }
 
@@ -175,6 +175,7 @@ impl Tally {
     fn check(&mut self, what: &'static str, at: &str, outcome: Option<String>) {
         *self.checked.entry(what).or_default() += 1;
         if let Some(why) = outcome {
+            *self.failed.entry(what).or_default() += 1;
             if self.failures.len() < 40 {
                 self.failures.push(format!("{what} {at}: {why}"));
             }
@@ -183,10 +184,8 @@ impl Tally {
 }
 
 struct Replay {
-    #[cfg(feature = "content")]
-    content: Option<bfe_content::content::Content>,
-    #[cfg(feature = "content")]
-    clips_checked: std::collections::HashSet<(String, i32)>,
+        content: Option<bfe_content::content::Content>,
+        clips_checked: std::collections::HashSet<(String, i32)>,
     bodies: HashMap<String, Body>,
     clips: HashMap<i32, Clip>,
     droidekas: HashMap<i32, Droideka>,
@@ -262,7 +261,9 @@ fn hull_desc(d: V) -> HullDesc {
 fn compare_hull(rig: &mut HullRig, r: V) -> Option<String> {
     let kinds = ints(r.get("kinds"));
     let parents = ints(r.get("parents"));
-    let n = rig.tree.nodes.len();
+    // The scene the root hangs from is made last and is not the hull's.
+    assert_eq!(rig.scene as usize, rig.tree.nodes.len() - 1, "the scene node is the last");
+    let n = rig.tree.nodes.len() - 1;
     if kinds.len() != n {
         return Some(format!("{} nodes in the JavaScript's rig, {} in Rust's", kinds.len(), n));
     }
@@ -281,21 +282,19 @@ fn compare_hull(rig: &mut HullRig, r: V) -> Option<String> {
         if kind_of(id) != kinds[id] {
             return Some(format!("node {id} is of kind {} in Rust, {} in JavaScript", kind_of(id), kinds[id]));
         }
-        let parent = rig.tree.node(id as u32).parent.map_or(-1, |p| p as i32);
+        let parent = rig.tree.node(id as u32).parent.filter(|&p| p != rig.scene).map_or(-1, |p| p as i32);
         if parent != parents[id] {
             return Some(format!("node {id}'s parent is {parent} in Rust, {} in JavaScript", parents[id]));
         }
     }
-    let locals: Vec<f64> = rig
-        .tree
-        .nodes
+    let locals: Vec<f64> = rig.tree.nodes[..n]
         .iter()
         .flat_map(|o| [o.position.x, o.position.y, o.position.z, o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w, o.scale.x, o.scale.y, o.scale.z])
         .collect();
     if let Some(d) = differ(&floats(r.get("locals")), &locals) {
         return Some(format!("rest locals: {d}"));
     }
-    let worlds: Vec<f64> = rig.tree.nodes.iter().flat_map(|o| o.matrix_world.elements).collect();
+    let worlds: Vec<f64> = rig.tree.nodes[..n].iter().flat_map(|o| o.matrix_world.elements).collect();
     if let Some(d) = differ(&floats(r.get("worlds")), &worlds) {
         return Some(format!("rest world matrices: {d}"));
     }
@@ -364,13 +363,10 @@ fn same_clip(a: &Clip, b: &Clip) -> Option<String> {
 }
 
 fn replay(name: &str, records: &[Record], tally: &mut Tally) {
-    #[cfg(feature = "content")]
-    let content = records.iter().find(|r| r.name == "rig.header").and_then(|r| from_content::load(r.root()));
+        let content = records.iter().find(|r| r.name == "rig.header").and_then(|r| from_content::load(r.root()));
     let mut s = Replay {
-        #[cfg(feature = "content")]
-        content,
-        #[cfg(feature = "content")]
-        clips_checked: Default::default(),
+                content,
+                clips_checked: Default::default(),
         bodies: HashMap::new(),
         clips: HashMap::new(),
         droidekas: HashMap::new(),
@@ -387,8 +383,7 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
                     .items()
                     .map(|b| BoneDesc { name: b.get("name").str().unwrap().to_string(), parent: b.get("parent").num() as i32, local: floats(b.get("local")).try_into().unwrap() })
                     .collect();
-                #[cfg(feature = "content")]
-                if let Some(c) = &s.content {
+                                if let Some(c) = &s.content {
                     let outcome = match c.actor(&key) {
                         None => Some("no such body in the content".to_string()),
                         Some(actor) => {
@@ -421,8 +416,7 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
             "rig.rider" => {
                 let body = s.bodies.get_mut(r.get("skeleton").str().unwrap()).expect("the rider's skeleton");
                 let clip_id = r.get("clip").num() as i32;
-                #[cfg(feature = "content")]
-                if let Some(c) = &s.content {
+                                if let Some(c) = &s.content {
                     let key = r.get("skeleton").str().unwrap().to_string();
                     if s.clips_checked.insert((key.clone(), clip_id)) {
                         let recorded = &s.clips[&clip_id];
@@ -474,6 +468,14 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
                 };
                 tally.check("riderHitShapes", &at, outcome);
             }
+            "rig.soldier" => {
+                use bfe_sim::rig::clips::{dive_time, getup_time, ClipTimes};
+                let fps = r.get("fps").num();
+                let times = |d: V| if d.is_null() { None } else { Some(ClipTimes::new(d.get("frames").num(), fps, floats(d.get("travel")).try_into().unwrap())) };
+                let (getup, dive) = (times(r.get("getup")), times(r.get("dive")));
+                let mine = [getup_time(getup.as_ref()), dive_time(dive.as_ref())];
+                tally.check("soldier getup and dive times", &format!("{at} {}", r.get("skeleton").str().unwrap_or(r.get("key").str().unwrap_or("?"))), differ(&[r.get("getupTime").num(), r.get("diveTime").num()], &mine));
+            }
             "rig.drop" => {
                 let points = points_from(&floats(r.get("points")));
                 let mut out = Vector3::default();
@@ -493,8 +495,7 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
                         barrels: g.get("barrels").items().map(|b| if b.is_null() { Barrel::GunBone } else { Barrel::Marker(v3(&floats(b))) }).collect(),
                     })
                     .collect();
-                #[cfg(feature = "content")]
-                if let Some(c) = &s.content {
+                                if let Some(c) = &s.content {
                     let class = r.get("class").str().unwrap_or("").to_string();
                     let mut outcome = Some(format!("no droideka class {class} in the content"));
                     for side in &c.battle.sides {
@@ -597,8 +598,7 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
             }
             "rig.hull" => {
                 let desc = hull_desc(r.get("desc"));
-                #[cfg(feature = "content")]
-                if let Some(c) = &s.content {
+                                if let Some(c) = &s.content {
                     let class = r.get("class").str().unwrap_or("");
                     let def = c.battle.vehicle_def.as_ref().and_then(|v| v.get("classes")).and_then(|cl| cl.get(class));
                     let outcome = match def {
@@ -631,8 +631,9 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
             "rig.hull.pose" => {
                 let rig = s.hulls.get_mut(&(r.get("id").num() as i32)).unwrap();
                 let locals = floats(r.get("locals"));
-                let outcome = if locals.len() != rig.tree.nodes.len() * 10 {
-                    Some(format!("{} nodes posed, {} in the rig", locals.len() / 10, rig.tree.nodes.len()))
+                let hull_nodes = rig.tree.nodes.len() - 1; // all but the scene
+                let outcome = if locals.len() != hull_nodes * 10 {
+                    Some(format!("{} nodes posed, {} in the rig", locals.len() / 10, hull_nodes))
                 } else {
                     for (i, c) in locals.chunks_exact(10).enumerate() {
                         let node = rig.tree.node_mut(i as u32);
@@ -641,7 +642,7 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
                         node.scale = v3(&c[7..]);
                     }
                     rig.tree.update_matrix_world(rig.root, true);
-                    let worlds: Vec<f64> = rig.tree.nodes.iter().flat_map(|o| o.matrix_world.elements).collect();
+                    let worlds: Vec<f64> = rig.tree.nodes[..hull_nodes].iter().flat_map(|o| o.matrix_world.elements).collect();
                     differ(&floats(r.get("worlds")), &worlds)
                 };
                 tally.check("hull pose world matrices", &at, outcome);
@@ -696,7 +697,9 @@ fn rigs_match_recorded_battles() {
     for m in mismatches.iter().take(5) {
         eprintln!("mismatch: {m}");
     }
-    assert!(tally.failures.is_empty(), "{} differences:\n{}", tally.failures.len(), tally.failures.join("\n"));
+    let mut failed: Vec<_> = tally.failed.iter().collect();
+    failed.sort();
+    assert!(tally.failures.is_empty(), "differences: {}\nthe first {}:\n{}", failed.iter().map(|(k, n)| format!("{n} {k}")).collect::<Vec<_>>().join(", "), tally.failures.len(), tally.failures.join("\n"));
     assert!(misses.is_empty(), "{} transcendental calls the JavaScript never made", misses.len());
     assert!(mismatches.is_empty(), "{} transcendental answers not V8's", mismatches.len());
 }

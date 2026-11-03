@@ -19,7 +19,7 @@
 //!
 //! Transcendental functions come from `crate::rig::math` (V8's, from
 //! rust/v8math); Math.min, max, hypot and sign from rust/v8math; three.js's
-//! vectors and quaternions from `crate::rig::three`, operation by operation.
+//! vectors and quaternions from rust/three, operation by operation.
 
 pub mod hover;
 pub mod hull;
@@ -29,7 +29,7 @@ pub mod replay;
 
 pub use hull::{Hull, Input, Lease, Seat, Wheel};
 
-use crate::rig::three::{Matrix4, Quaternion, Vector3};
+use three::{Matrix4, Quaternion, Vector3};
 
 /// A collision body, by its serial (src/collision.js: its `offset` / 2^24).
 pub type BodyId = u32;

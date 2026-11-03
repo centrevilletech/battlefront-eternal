@@ -32,8 +32,8 @@ test('a capture changes no tick of the battle it records', { skip: !existsSync(`
       counts[key] = (counts[key] ?? 0) + 1;
     }
     assert.equal(counts['tick tick'], 900);
-    assert.ok(counts['ordnance enter'] >= 900 / 7 - 1 && counts['ordnance enter'] === counts['ordnance exit'], JSON.stringify(counts));
-    assert.equal(counts['items.update enter'], counts['ordnance enter']);
+    assert.ok(counts['ordnance.update enter'] >= 900 / 7 - 1 && counts['ordnance.update enter'] === counts['ordnance.update exit'], JSON.stringify(counts));
+    assert.equal(counts['items.update enter'], counts['ordnance.update enter']);
   } finally {
     rmSync(out, { recursive: true, force: true });
   }

@@ -13,7 +13,10 @@
 //!   src/vehicle-hover.js);
 //! - `store` and `gen`: the entity store, its types and the code
 //!   tools/sim-schema.mjs makes from the schemas in rust/sim/schema/;
-//! - `abi`: the store's exports and the memory policy.
+//! - `abi`: the store's exports and the memory policy;
+//! - `ordnance` and `items`: the rounds in flight and the things lying
+//!   about (src/ordnance.js, src/items.js), reaching the rest of the battle
+//!   through the trait `ordnance::world::World`.
 //!
 //! Every function answers as the JavaScript it stands for does, to the last
 //! bit; each module says how. The exports are plain `extern "C"` functions
@@ -27,7 +30,9 @@ pub mod gen;
 mod gen_test;
 #[cfg(test)]
 mod gen_tests;
+pub mod items;
 pub mod movement;
+pub mod ordnance;
 pub mod pose;
 pub mod rig;
 pub mod store;

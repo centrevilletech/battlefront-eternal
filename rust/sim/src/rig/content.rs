@@ -2,12 +2,12 @@
 //! the same objects the JavaScript builds them from: a body's bones (the
 //! actor's records), its clips, a droideka's guns and their barrel tips, and
 //! a hull's rig and seats (its class in the battle's vehicle definitions and
-//! its model's template). Behind the crate's `content` feature.
+//! its model's template).
 
 use super::droideka::{Barrel, Gun};
 use super::hull::{AimerDesc, BarrelDesc, HullDesc, SeatDesc, WeaponDesc};
 use super::skeleton::{BoneDesc, Skeleton};
-use super::three::Vector3;
+use three::Vector3;
 use crate::pose::Clip;
 use bfe_content::actor::Actor;
 use bfe_content::clips::{Clip as ContentClip, Clips};
