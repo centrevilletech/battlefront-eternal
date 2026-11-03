@@ -1491,6 +1491,14 @@ function __wbg_get_imports() {
         __wbg_bufferSubData_9bec93d67e98757e: function(arg0, arg1, arg2, arg3) {
             arg0.bufferSubData(arg1 >>> 0, arg2, arg3);
         },
+        __wbg_checkFramebufferStatus_03ce134350260eda: function(arg0, arg1) {
+            const ret = arg0.checkFramebufferStatus(arg1 >>> 0);
+            return ret;
+        },
+        __wbg_checkFramebufferStatus_a2495685980e489c: function(arg0, arg1) {
+            const ret = arg0.checkFramebufferStatus(arg1 >>> 0);
+            return ret;
+        },
         __wbg_clearColor_0a9b08857907c212: function(arg0, arg1, arg2, arg3, arg4) {
             arg0.clearColor(arg1, arg2, arg3, arg4);
         },
@@ -1575,6 +1583,12 @@ function __wbg_get_imports() {
         __wbg_deleteBuffer_ffa760fd3b0b5ef1: function(arg0, arg1) {
             arg0.deleteBuffer(arg1);
         },
+        __wbg_deleteFramebuffer_0ec884f89db72a3e: function(arg0, arg1) {
+            arg0.deleteFramebuffer(arg1);
+        },
+        __wbg_deleteFramebuffer_ffdb1bee4c92ae4c: function(arg0, arg1) {
+            arg0.deleteFramebuffer(arg1);
+        },
         __wbg_deleteProgram_8c38fff0f4a88dea: function(arg0, arg1) {
             arg0.deleteProgram(arg1);
         },
@@ -1616,6 +1630,12 @@ function __wbg_get_imports() {
         },
         __wbg_drawArrays_fe5a51410bfabb5b: function(arg0, arg1, arg2, arg3) {
             arg0.drawArrays(arg1 >>> 0, arg2, arg3);
+        },
+        __wbg_drawBuffersWEBGL_49c672d0ddcdfe71: function(arg0, arg1) {
+            arg0.drawBuffersWEBGL(arg1);
+        },
+        __wbg_drawBuffers_e296659ce384e721: function(arg0, arg1) {
+            arg0.drawBuffers(arg1);
         },
         __wbg_drawElementsInstancedANGLE_470ce8b489eeafa5: function(arg0, arg1, arg2, arg3, arg4, arg5) {
             arg0.drawElementsInstancedANGLE(arg1 >>> 0, arg2, arg3 >>> 0, arg4, arg5);
@@ -1738,11 +1758,26 @@ function __wbg_get_imports() {
         __wbg_multiDrawElementsWEBGL_792aac30dde30bf8: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
             arg0.multiDrawElementsWEBGL(arg1 >>> 0, getArrayI32FromWasm0(arg2, arg3), arg4 >>> 0, arg5 >>> 0, getArrayI32FromWasm0(arg6, arg7), arg8 >>> 0, arg9);
         },
+        __wbg_new_37eb45aaf5eeb820: function() {
+            const ret = new Array();
+            return ret;
+        },
+        __wbg_of_027eb15371aac932: function(arg0) {
+            const ret = Array.of(arg0);
+            return ret;
+        },
         __wbg_pixelStorei_43dc7945a0d4d49c: function(arg0, arg1, arg2) {
             arg0.pixelStorei(arg1 >>> 0, arg2);
         },
         __wbg_pixelStorei_6dd56b4da047c480: function(arg0, arg1, arg2) {
             arg0.pixelStorei(arg1 >>> 0, arg2);
+        },
+        __wbg_push_c9f4893fc209f768: function(arg0, arg1) {
+            const ret = arg0.push(arg1);
+            return ret;
+        },
+        __wbg_readBuffer_49d4b278b9838d40: function(arg0, arg1) {
+            arg0.readBuffer(arg1 >>> 0);
         },
         __wbg_shaderSource_519d0f56b613b2f9: function(arg0, arg1, arg2, arg3) {
             arg0.shaderSource(arg1, getStringFromWasm0(arg2, arg3));
@@ -1879,42 +1914,47 @@ function __wbg_get_imports() {
         __wbg_viewport_cdae9e8b2f33343d: function(arg0, arg1, arg2, arg3, arg4) {
             arg0.viewport(arg1, arg2, arg3, arg4);
         },
-        __wbindgen_generic_0000000000000001: function(arg0, arg1) {
+        __wbindgen_generic_0000000000000001: function(arg0) {
+            // Cast intrinsic for `F64 -> Externref`.
+            const ret = arg0;
+            return ret;
+        },
+        __wbindgen_generic_0000000000000002: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(F32)) -> NamedExternref("Float32Array")`.
             const ret = getArrayF32FromWasm0(arg0, arg1);
             return ret;
         },
-        __wbindgen_generic_0000000000000002: function(arg0, arg1) {
+        __wbindgen_generic_0000000000000003: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(I16)) -> NamedExternref("Int16Array")`.
             const ret = getArrayI16FromWasm0(arg0, arg1);
             return ret;
         },
-        __wbindgen_generic_0000000000000003: function(arg0, arg1) {
+        __wbindgen_generic_0000000000000004: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(I32)) -> NamedExternref("Int32Array")`.
             const ret = getArrayI32FromWasm0(arg0, arg1);
             return ret;
         },
-        __wbindgen_generic_0000000000000004: function(arg0, arg1) {
+        __wbindgen_generic_0000000000000005: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(I8)) -> NamedExternref("Int8Array")`.
             const ret = getArrayI8FromWasm0(arg0, arg1);
             return ret;
         },
-        __wbindgen_generic_0000000000000005: function(arg0, arg1) {
+        __wbindgen_generic_0000000000000006: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(U16)) -> NamedExternref("Uint16Array")`.
             const ret = getArrayU16FromWasm0(arg0, arg1);
             return ret;
         },
-        __wbindgen_generic_0000000000000006: function(arg0, arg1) {
+        __wbindgen_generic_0000000000000007: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(U32)) -> NamedExternref("Uint32Array")`.
             const ret = getArrayU32FromWasm0(arg0, arg1);
             return ret;
         },
-        __wbindgen_generic_0000000000000007: function(arg0, arg1) {
+        __wbindgen_generic_0000000000000008: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(U8)) -> NamedExternref("Uint8Array")`.
             const ret = getArrayU8FromWasm0(arg0, arg1);
             return ret;
         },
-        __wbindgen_generic_0000000000000008: function(arg0, arg1) {
+        __wbindgen_generic_0000000000000009: function(arg0, arg1) {
             // Cast intrinsic for `Ref(String) -> Externref`.
             const ret = getStringFromWasm0(arg0, arg1);
             return ret;

@@ -96,8 +96,6 @@ pub struct MotionPass<C: HasContext> {
     pub input: Vec<f64>,
     pub bones: Vec<f32>,
     pub previous: Vec<f32>,
-    // Framebuffers over the targets' textures, by the texture's id.
-    targets: HashMap<u32, C::Framebuffer>,
     uniforms: HashMap<usize, Uniforms<C>>,
 }
 
@@ -124,27 +122,8 @@ impl<C: HasContext> MotionPass<C> {
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         MotionPass {
             rows_texture, bones_texture, previous_texture, rows: vec![0.0; MAX_RECORDS * ROW_TEXELS * 4], input: vec![0.0; INPUT_LEN],
-            bones: vec![0.0; MAX_BONES * 16], previous: vec![0.0; MAX_BONES * 16], targets: HashMap::new(), uniforms: HashMap::new(),
+            bones: vec![0.0; MAX_BONES * 16], previous: vec![0.0; MAX_BONES * 16], uniforms: HashMap::new(),
         }
-    }
-
-    // A framebuffer over a registered texture (the velocity target's), made
-    // the first time it is drawn into.
-    fn target<M: MultiDraw>(&mut self, core: &mut Core<C, M>, texture: u32) -> Option<C::Framebuffer> {
-        if let Some(fb) = self.targets.get(&texture) {
-            return Some(*fb);
-        }
-        let t = *core.textures.get(texture as usize)?;
-        let gl = &core.gl;
-        let fb = unsafe {
-            let fb = gl.create_framebuffer().ok()?;
-            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
-            gl.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(t), 0);
-            fb
-        };
-        core.stats.gl_calls += 2;
-        self.targets.insert(texture, fb);
-        Some(fb)
     }
 
     // A program's uniforms, found the first time it draws (its samplers put
@@ -174,13 +153,12 @@ impl<C: HasContext> MotionPass<C> {
         if target < 0.0 {
             return;
         }
-        let Some(fb) = self.target(core, target as u32) else { return };
+        // The renderer's own framebuffer over the target's texture.
+        let Ok(fb) = core.framebuffer(Some(target as u32), None) else { return };
+        core.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
         let (width, height) = (self.input[IN_SIZE] as i32, self.input[IN_SIZE + 1] as i32);
-        unsafe {
-            core.gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
-            core.gl.viewport(0, 0, width, height);
-        }
-        core.stats.gl_calls += 2;
+        unsafe { core.gl.viewport(0, 0, width, height) };
+        core.stats.gl_calls += 1;
         // Neither depth tested nor blended, every channel written.
         crate::post::full_screen(core);
         if self.input[IN_CLEAR] != 0.0 {

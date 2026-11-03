@@ -10,6 +10,7 @@ import { refOf } from "../src/ai/classic/controller.js";
 import { FireControl, consumeFire, arsenalInput } from "../src/ai/classic/weapons-ai.js";
 import { PlayerCombat } from "../src/combat.js";
 import { LiveObjects } from "../src/props.js";
+import { CombatWorld } from "../src/combat-world.js";
 
 const v = (x = 0, y = 0, z = 0) => new Vector3(x, y, z);
 function unit(x = 0, team = 1, extra = {}) {
@@ -214,7 +215,7 @@ test("pilot input fires a real fusion cutter and shared gameplay applies its rep
   const target = unit(1, 2, { kind: 9, healthType: 4, building });
   Object.defineProperties(target, { health: { get: () => building.health }, maxHealth: { get: () => building.maxHealth } });
   const live = Object.create(LiveObjects.prototype); live.playerTeam = 1;
-  const combat = s.owner.combat; combat.live = live; combat.team = 2; combat.repairTarget = building;
+  const combat = s.owner.combat; combat.live = live; combat.team = 2; combat.repairTarget = building; combat.world = new CombatWorld(combat);
   const services = new RepairServices(s.ai); s.agent.job = { target: refOf(target), kind: "health" }; services.startRepairService(s.agent);
   let previous = [0, 0]; let repairs = 0;
   for (let i = 0; i < 4; i++) {

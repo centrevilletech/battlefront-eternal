@@ -87,6 +87,8 @@ pub struct Stabilizer {
     tmp: Vec<f32>,
     bands: [[Vec<f32>; 2]; 2], // per side: [high, low]
     front: [Vec<f32>; 2],
+    // The paired path's block and history per side, newest first.
+    pair_tmp: [Vec<f32>; 2],
 }
 
 impl Stabilizer {
@@ -107,6 +109,7 @@ impl Stabilizer {
             tmp: vec![0.0; MAX_BLOCK + DELAY],
             bands: [[vec![0.0; MAX_BLOCK], vec![0.0; MAX_BLOCK]], [vec![0.0; MAX_BLOCK], vec![0.0; MAX_BLOCK]]],
             front: [vec![0.0; MAX_BLOCK], vec![0.0; MAX_BLOCK]],
+            pair_tmp: [vec![0.0; MAX_BLOCK + DELAY], vec![0.0; MAX_BLOCK + DELAY]],
         }
     }
 
@@ -140,6 +143,160 @@ impl Stabilizer {
     /// One block. Channels past the input's count read as silence, as the
     /// worklet's do; the output must have the channels it was built with.
     pub fn process(&mut self, input: &Block, output: &mut BlockMut) {
+        let (l, r, c) = (self.left, self.right, self.centre);
+        if l != r && l != c && r != c && l < output.channels && r < output.channels && l < self.history.len() && r < self.history.len() {
+            self.process_paired(input, output);
+        } else {
+            self.process_each(input, output);
+        }
+    }
+
+    /// The usual layouts (left, right and centre all different): the
+    /// same operations as process_each, the two front channels' filters
+    /// run side by side in one loop (each filter's sums are its own, so
+    /// nothing changes but how long the recurrences keep the CPU waiting),
+    /// and the delay lines moved as runs.
+    fn process_paired(&mut self, input: &Block, output: &mut BlockMut) {
+        let n = output.frames;
+        let empty: &[f32] = &[];
+        let chan = |c: usize| -> &[f32] { if c < input.channels { input.ch(c) } else { empty } };
+        // The other channels: 256 samples late.
+        for c in 0..output.channels {
+            if c == self.left || c == self.right {
+                continue;
+            }
+            let src = chan(c);
+            let ring = &mut self.ring[c];
+            let dst = &mut output.data[c * n..(c + 1) * n];
+            let (mut p, mut i) = (self.pos, 0);
+            while i < n {
+                let run = usize::min(n - i, DELAY - p);
+                dst[i..i + run].copy_from_slice(&ring[p..p + run]);
+                if src.is_empty() {
+                    ring[p..p + run].fill(0.0);
+                } else {
+                    ring[p..p + run].copy_from_slice(&src[i..i + run]);
+                }
+                i += run;
+                p += run;
+                if p == DELAY {
+                    p = 0;
+                }
+            }
+        }
+        self.pos = (self.pos + n) % DELAY;
+        // Each front channel's block newest first, then its history; the
+        // block's start (its newest samples) becomes the new history,
+        // copied before the all-pass runs over it.
+        let len = n + DELAY;
+        for side in 0..2 {
+            if self.pair_tmp[side].len() < len {
+                self.pair_tmp[side].resize(len, 0.0);
+            }
+            if self.bands[side][0].len() < n {
+                self.bands[side][0].resize(n, 0.0);
+                self.bands[side][1].resize(n, 0.0);
+            }
+            let channel = if side == 0 { self.left } else { self.right };
+            let tmp = &mut self.pair_tmp[side];
+            let src = chan(channel);
+            if src.is_empty() {
+                tmp[..n].fill(0.0);
+            } else {
+                for (t, &x) in tmp[..n].iter_mut().zip(src[..n].iter().rev()) {
+                    *t = x;
+                }
+            }
+            tmp[n..len].copy_from_slice(&self.history[channel]);
+            self.history[channel].copy_from_slice(&tmp[..DELAY]);
+        }
+        // Both all-passes, from rest.
+        let [t0, t1] = &mut self.pair_tmp;
+        let (t0, t1) = (&mut t0[..len], &mut t1[..len]);
+        let (k0, k1) = (self.filters[0].coeff, self.filters[1].coeff);
+        let (mut z0, mut z1) = (0.0f64, 0.0f64);
+        for (a, b) in t0.iter_mut().zip(t1.iter_mut()) {
+            let x = *a as f64;
+            let y = x * k0 + z0;
+            z0 = x - y * k0;
+            *a = y as f32;
+            let x = *b as f64;
+            let y = x * k1 + z1;
+            z1 = x - y * k1;
+            *b = y as f32;
+        }
+        // Both splitters, reading oldest first (from the end).
+        {
+            let [f0, f1] = &mut self.filters;
+            let [[h0, l0], [h1, l1]] = &mut self.bands;
+            let (ap0, ap1c) = (f0.coeff, f1.coeff);
+            let (lpc0, lpc1) = (ap0 * 0.5 + 0.5, ap1c * 0.5 + 0.5);
+            let (mut a_lp1, mut a_lp2, mut a_ap1) = (f0.lp1, f0.lp2, f0.ap1);
+            let (mut b_lp1, mut b_lp2, mut b_ap1) = (f1.lp1, f1.lp2, f1.ap1);
+            let ins = t0[DELAY..len].iter().rev().zip(t1[DELAY..len].iter().rev());
+            let outs = h0[..n].iter_mut().zip(l0[..n].iter_mut()).zip(h1[..n].iter_mut().zip(l1[..n].iter_mut()));
+            for ((&xa, &xb), ((ha, la), (hb, lb))) in ins.zip(outs) {
+                let input = xa as f64;
+                let mut d = (input - a_lp1) * lpc0;
+                let mut y = a_lp1 + d;
+                a_lp1 = y + d;
+                d = (y - a_lp2) * lpc0;
+                y = a_lp2 + d;
+                a_lp2 = y + d;
+                *la = y as f32;
+                let a = input * ap0 + a_ap1;
+                a_ap1 = input - a * ap0;
+                *ha = (a - y) as f32;
+                let input = xb as f64;
+                let mut d = (input - b_lp1) * lpc1;
+                let mut y = b_lp1 + d;
+                b_lp1 = y + d;
+                d = (y - b_lp2) * lpc1;
+                y = b_lp2 + d;
+                b_lp2 = y + d;
+                *lb = y as f32;
+                let a = input * ap1c + b_ap1;
+                b_ap1 = input - a * ap1c;
+                *hb = (a - y) as f32;
+            }
+            (f0.lp1, f0.lp2, f0.ap1) = (a_lp1, a_lp2, a_ap1);
+            (f1.lp1, f1.lp2, f1.ap1) = (b_lp1, b_lp2, b_ap1);
+        }
+        // The bands back onto the front pair, and the centre's share.
+        let [[lh, ll], [rh, rl]] = &self.bands;
+        let (low_cos, high_cos, low_sin, high_sin) = (self.low_cos, self.high_cos, self.low_sin, self.high_sin);
+        let bands = lh[..n].iter().zip(ll[..n].iter()).zip(rh[..n].iter().zip(rl[..n].iter()));
+        let (l, r, c) = (self.left, self.right, self.centre);
+        if c < output.channels {
+            let [left, right, centre] = output.data.get_disjoint_mut([l * n..(l + 1) * n, r * n..(r + 1) * n, c * n..(c + 1) * n]).expect("distinct channels");
+            for (((&lh, &ll), (&rh, &rl)), ((dl, dr), dc)) in bands.zip(left.iter_mut().zip(right.iter_mut()).zip(centre.iter_mut())) {
+                let (lh, ll, rh, rl) = (lh as f64, ll as f64, rh as f64, rl as f64);
+                let low = ll + rl;
+                let high = lh + rh;
+                let s = ll + lh - rl - rh;
+                let m = low * low_cos + high * high_cos;
+                let cv = low * low_sin + high * high_sin;
+                *dl = ((m + s) * 0.5) as f32;
+                *dr = ((m - s) * 0.5) as f32;
+                *dc = (*dc as f64 + cv * 0.5) as f32;
+            }
+        } else {
+            let [left, right] = output.data.get_disjoint_mut([l * n..(l + 1) * n, r * n..(r + 1) * n]).expect("distinct channels");
+            for (((&lh, &ll), (&rh, &rl)), (dl, dr)) in bands.zip(left.iter_mut().zip(right.iter_mut())) {
+                let (lh, ll, rh, rl) = (lh as f64, ll as f64, rh as f64, rl as f64);
+                let low = ll + rl;
+                let high = lh + rh;
+                let s = ll + lh - rl - rh;
+                let m = low * low_cos + high * high_cos;
+                *dl = ((m + s) * 0.5) as f32;
+                *dr = ((m - s) * 0.5) as f32;
+            }
+        }
+    }
+
+    /// Any layout, one front channel after the other (the worklet's own
+    /// order, which matters only when two of its indices are the same).
+    fn process_each(&mut self, input: &Block, output: &mut BlockMut) {
         let n = output.frames;
         let chan = |c: usize| -> &[f32] {
             if c < input.channels {

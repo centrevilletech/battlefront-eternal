@@ -221,7 +221,18 @@ export class Graphics {
     this.quarterTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.UnsignedByteType, depthBuffer: false });
     lighting.farMap.value = this.farTarget.texture;
 
-    // The far scene's image behind everything in the near scene.
+    // The far scene's image behind everything in the near scene. It is drawn
+    // last of the opaque objects, at the far plane, depth tested: it fills
+    // only the samples nothing opaque has covered (their depth still the
+    // clear's), as drawing it first and everything over it did, without
+    // writing the rest of the screen twice. On a slow integrated GPU that
+    // full-screen pass was bandwidth: about 3 ms a frame at 1600x900 with two
+    // samples; drawn last, it costs only the samples the near scene leaves
+    // to it. Every opaque material of the near scene writes depth, so none
+    // is covered by it; only a fragment on the far plane itself (its depth
+    // the clear's, the scene there wholly dissolved into this image) is now
+    // under it rather than over it: a few pixels at the horizon, a few
+    // levels at most.
     this.background = fullScreenPass(
       /* glsl */ `
         uniform sampler2D map;
@@ -229,19 +240,26 @@ export class Graphics {
         void main() { gl_FragColor = vec4(texture2D(map, vUv).rgb, 1.0); }
       `,
       { map: { value: this.farTarget.texture } },
+      /* glsl */ `
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = vec4(position.xy, 1.0, 1.0);
+        }
+      `,
     );
-    this.background.renderOrder = -1e9;
+    this.background.material.depthTest = true;
+    this.background.renderOrder = 1e9;
     this.scene.add(this.background);
     // The Rust battle renderer (rust-render/), behind ?rust: it draws the
-    // map's opaque buckets and the soldiers right after this image, inside
-    // the near scene's pass.
+    // map's opaque buckets and the soldiers first in the near scene's pass
+    // (from a hook of its own at the start of three's opaque list).
     this.rust = null;
     this.playerRoot = null;
     if (typeof location !== "undefined" && new URLSearchParams(location.search).has("rust")) {
       import("./rust-render/index.js").then((m) => m.createRustRender(this)).then((rust) => { this.rust = rust; })
         .catch((error) => console.warn("Rust renderer unavailable:", error));
     }
-    this.background.onAfterRender = (renderer, scene, camera) => this.rust?.pass(renderer, scene, camera);
     this.downsample = fullScreenPass(
       /* glsl */ `
         uniform sampler2D map;

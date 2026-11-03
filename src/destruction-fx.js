@@ -101,14 +101,14 @@ const HOT_VERTEX = /* glsl */ `
   attribute vec4 a1; // velocity, lifetime
   attribute vec4 a2; // size at birth, size at death, pull (g, + falls), drag
   attribute vec4 a3; // style, seed, intensity, floor height (sparks, glow) or tint (0 fire, 1 electric)
-  uniform float time;
+  uniform float fxTime;
   varying vec2 vUv;
   varying vec4 vState; // age 0..1, seed, intensity, style
   varying float vTint;
   varying float vDepth;
   ${MOTION}
   void main() {
-    float t = max(time - a0.w, 0.0);
+    float t = max(fxTime - a0.w, 0.0);
     float age = clamp(t / max(a1.w, 0.001), 0.0, 1.0);
     float style = a3.x;
     vec3 v;
@@ -223,7 +223,7 @@ const SMOKE_VERTEX = /* glsl */ `
   attribute vec4 a2; // size at birth, size at death, pull (g, + falls), drag
   attribute vec4 a3; // style, seed, opacity, floor height (chips, scorch)
   attribute vec4 a4; // tone (0 black .. 1 pale), heat, wind share, spin
-  uniform float time;
+  uniform float fxTime;
   uniform vec3 wind;
   uniform vec3 sunDirection;
   varying vec2 vUv;
@@ -233,7 +233,7 @@ const SMOKE_VERTEX = /* glsl */ `
   varying float vDepth;
   ${MOTION}
   void main() {
-    float t = max(time - a0.w, 0.0);
+    float t = max(fxTime - a0.w, 0.0);
     float age = clamp(t / max(a1.w, 0.001), 0.0, 1.0);
     float style = a3.x;
     vec3 v;
@@ -386,12 +386,19 @@ const depthUniforms = () => ({
   depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
 });
 
+// The pools by their meshes, for a renderer that draws them itself
+// (src/rust-render/effects.js): while a pool is `external`, three is shown
+// it never and uploads it nothing.
+export const destructionPools = new WeakMap();
+
 // A fixed pool of instanced quads whose records live in their attribute
-// arrays: births are appended, deaths swap in the last record.
+// arrays: births are appended, deaths swap in the last record. Their clock
+// is the effects' own (fxTime, not the frame's time).
 class Pool {
   constructor(scene, { name, capacity, attributes, vertexShader, fragmentShader, uniforms, blending, premultiplied, renderOrder }) {
     this.capacity = capacity;
     this.count = 0;
+    this.external = false;
     this.dirty = Infinity; // first record changed since the last upload
     this.emitted = 0;
     this.dropped = 0;
@@ -422,6 +429,7 @@ class Pool {
     this.mesh.renderOrder = renderOrder;
     this.mesh.visible = false;
     this.mesh.onBeforeRender = (renderer, scene, camera) => particleDepth.capture(renderer, scene, camera);
+    destructionPools.set(this.mesh, this);
     scene.add(this.mesh);
   }
 
@@ -453,7 +461,9 @@ class Pool {
         if (i < this.dirty) this.dirty = i;
       }
     }
-    if (this.dirty < this.count) {
+    // Drawn by another renderer (external), it is shown to three never and
+    // uploads it nothing (the renderer is given every record each frame).
+    if (this.dirty < this.count && !this.external) {
       for (const attribute of this.attributes) {
         // A range not yet uploaded (frames stepped without a draw) is
         // merged in, not replaced: three clears the ranges once it uploads.
@@ -466,7 +476,7 @@ class Pool {
     }
     this.dirty = Infinity;
     this.mesh.geometry.instanceCount = this.count;
-    this.mesh.visible = this.count > 0;
+    this.mesh.visible = this.count > 0 && !this.external;
   }
 
   // Every birth moved back by `by` seconds, with the clock.
@@ -708,14 +718,14 @@ export class DestructionFx {
     this.hot = new Pool(scene, {
       name: "destruction-hot", capacity: hot, attributes: 4,
       vertexShader: HOT_VERTEX, fragmentShader: HOT_FRAGMENT,
-      uniforms: { time: this.clock, fogRange: lighting.fogRange, ...depthUniforms() },
+      uniforms: { fxTime: this.clock, fogRange: lighting.fogRange, ...depthUniforms() },
       blending: THREE.AdditiveBlending, premultiplied: true, renderOrder: 11,
     });
     this.smoke = new Pool(scene, {
       name: "destruction-smoke", capacity: smoke, attributes: 5,
       vertexShader: SMOKE_VERTEX, fragmentShader: SMOKE_FRAGMENT,
       uniforms: {
-        time: this.clock, wind: { value: WIND.clone() },
+        fxTime: this.clock, wind: { value: WIND.clone() },
         sunDirection: lighting.sunDirection, sunColor: lighting.sunColor, ambient: lighting.ambient,
         fogColor: lighting.fogColor, fogRange: lighting.fogRange, ...depthUniforms(),
       },

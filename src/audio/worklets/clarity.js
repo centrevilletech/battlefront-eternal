@@ -40,6 +40,12 @@ function dspExports(options) {
   }
 }
 
+// Views of `count` runs of 128 samples (a block each) from `ptr` in the
+// module's memory: the staging a call reads or fills.
+function dspViews(x, ptr, count) {
+  return Array.from({ length: count }, (_, i) => new Float32Array(x.memory.buffer, ptr + i * 512, 128));
+}
+
 
 class Biquad {
   constructor(type, f0, q, rate) {
@@ -104,14 +110,14 @@ class Clarity extends AudioWorkletProcessor {
     const { x, h } = d;
     const input = inputs[0] || [];
     const output = outputs[0];
-    if (!d.inView || d.inView.byteLength === 0) {
-      d.inView = new Float32Array(x.memory.buffer, x.clarity_in(h), this.channels * BLOCK);
-      d.outView = new Float32Array(x.memory.buffer, x.clarity_out(h), this.channels * BLOCK);
+    if (!d.ins || d.ins[0].byteLength === 0) {
+      d.ins = dspViews(x, x.clarity_in(h), this.channels);
+      d.outs = dspViews(x, x.clarity_out(h), this.channels);
     }
     const inCh = Math.min(input.length, this.channels);
-    for (let c = 0; c < inCh; c++) d.inView.set(input[c], c * BLOCK);
+    for (let c = 0; c < inCh; c++) d.ins[c].set(input[c]);
     x.clarity_process(h, inCh, Math.min(output.length, this.channels));
-    for (let c = 0; c < output.length && c < this.channels; c++) output[c].set(d.outView.subarray(c * BLOCK, (c + 1) * BLOCK));
+    for (let c = 0; c < output.length && c < this.channels; c++) output[c].set(d.outs[c]);
     return true;
   }
 
