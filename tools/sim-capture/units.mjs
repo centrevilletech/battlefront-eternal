@@ -10,8 +10,8 @@
 // (a box's `half` is its `halfSize`; combat's aimOverride is the intent's
 // `aim`; the input's jetDirection the intent's): a capture writes each such
 // vector as a copy of its own, as the store holds it. A tick is written in
-// full for every droideka, every unit that is dead or not alive, and a
-// quarter of the rest by turns (by id); the others' frames carry their
+// full for every droideka, every unit that is dead or not alive, and an
+// eighth of the rest by turns (by id); the others' frames carry their
 // calls and a `skipped` state.
 //
 // The queries and the separation read a few fields of every member: their
@@ -20,7 +20,7 @@
 // (REGISTRY_FRAMES); the rest carry only their arguments and answer.
 import { Soldier } from '../../src/soldier.js';
 
-const REGISTRY_FRAMES = 4;
+const REGISTRY_FRAMES = 2;
 
 // ---- Values.
 // A hit shape as units.js and rider-pose.js keep one: `half` is a number,
@@ -99,7 +99,7 @@ const unitTick = {
     const enter = !open;
     if (enter) {
       const tick = game.worldClock.tick;
-      open = { character: self.character, full: !self.removed && (self.walker || self.dead || !self.alive || (self.id + tick) % 4 === 0) };
+      open = { character: self.character, full: !self.removed && (self.walker || self.dead || !self.alive || (self.id + tick) % 8 === 0) };
       opened.set(args, open);
       current = open.full ? self : null;
     } else current = null;
