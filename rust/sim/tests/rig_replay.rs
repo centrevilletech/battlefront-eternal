@@ -520,10 +520,18 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
                                 (a, b) => Some(format!("mode {m}'s clip: recorded {}, content {}", a.is_some(), b.is_some())),
                             });
                         }
+                        // The roll centre the hidden rig copies from the drawn
+                        // animator, found from the skinned body in the roll pose.
+                        let roll_outcome = walker.and_then(|w| {
+                            // Worked out as the body loads, outside the recording.
+                            let (_, centre) = oracle::without(|| bfe_sim::rig::content::droideka_roll_axle(actor, w, def));
+                            differ(&floats(r.get("rollCenter")), &[centre.x, centre.y, centre.z]).map(|d| format!("roll centre: {d}"))
+                        });
                         outcome = differ(&theirs, &mine)
                             .map(|d| format!("guns: {d}"))
                             .or_else(|| differ(&floats(k.get("bind")), &mine_bind).map(|d| format!("bind pose: {d}")))
-                            .or(clip_outcome);
+                            .or(clip_outcome)
+                            .or(roll_outcome);
                         break;
                     }
                     tally.check("content: droideka rigs", &format!("{at} {class}"), outcome);
