@@ -11,7 +11,10 @@ fn root() -> PathBuf {
 }
 
 fn fixture() -> Option<Capture> {
-    let out = std::env::temp_dir().join(format!("sim-replay-fixture-{}.bfecap", std::process::id()));
+    // A file a call: the tests run at once.
+    static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let out = std::env::temp_dir().join(format!("sim-replay-fixture-{}-{n}.bfecap", std::process::id()));
     let node = std::env::var("NODE").unwrap_or_else(|_| "node".into());
     let status = Command::new(&node).arg(root().join("tools/sim-capture/fixture.mjs")).arg(&out).current_dir(root()).status();
     match status {

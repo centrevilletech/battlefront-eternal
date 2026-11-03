@@ -153,6 +153,10 @@ impl Arena {
     pub fn view<'a>(&'a self, value: &'a Value) -> V<'a> {
         V { arena: self, value }
     }
+    /// null, as a view (what a port answers with when JavaScript gives null).
+    pub fn null(&self) -> V<'_> {
+        V { arena: self, value: &NULL }
+    }
     fn push(&mut self, node: Node) -> Value {
         self.nodes.push(node);
         Value::Node(self.nodes.len() as u32 - 1)
@@ -183,6 +187,52 @@ impl Arena {
     pub fn again(&self, value: &Value) -> Value {
         value.clone()
     }
+
+    /// A copy of `v` (from any arena) in this one, an object met twice in it
+    /// copied once: what a port starts from when it changes a captured object.
+    pub fn copy(&mut self, v: V) -> Value {
+        let mut memo = std::collections::HashMap::new();
+        self.copy_in(v, &mut memo)
+    }
+
+    fn copy_in(&mut self, v: V, memo: &mut std::collections::HashMap<u32, u32>) -> Value {
+        match v.value {
+            Value::Node(id) => {
+                if let Some(mine) = memo.get(id) {
+                    return Value::Node(*mine);
+                }
+                // Numbered before its parts, which may name it.
+                self.nodes.push(Node::Array(Vec::new()));
+                let mine = self.nodes.len() as u32 - 1;
+                memo.insert(*id, mine);
+                let node = match v.arena.node(*id) {
+                    Node::Array(items) => Node::Array(items.iter().map(|x| self.copy_in(v.arena.view(x), memo)).collect()),
+                    Node::Set(items) => Node::Set(items.iter().map(|x| self.copy_in(v.arena.view(x), memo)).collect()),
+                    Node::Object { class, fields } => Node::Object {
+                        class: class.clone(),
+                        fields: fields.iter().map(|(k, x)| (k.clone(), self.copy_in(v.arena.view(x), memo))).collect(),
+                    },
+                    Node::Map(entries) => Node::Map(entries.iter().map(|(k, x)| (self.copy_in(v.arena.view(k), memo), self.copy_in(v.arena.view(x), memo))).collect()),
+                    other => other.clone(),
+                };
+                self.nodes[mine as usize] = node;
+                Value::Node(mine)
+            }
+            Value::Handle(kind, key) => Value::Handle(kind.clone(), Box::new(self.copy_in(v.arena.view(key), memo))),
+            other => other.clone(),
+        }
+    }
+
+    /// `object[key] = value`, as JavaScript assigns: the key keeps its place
+    /// if the object has it, else goes last. Panics if `object` is no object.
+    pub fn assign(&mut self, object: &Value, key: &str, value: Value) {
+        let Value::Node(id) = object else { panic!("assign {key} on {object:?}, no object") };
+        let Node::Object { fields, .. } = &mut self.nodes[*id as usize] else { panic!("assign {key} on node {id}, no object") };
+        match fields.iter_mut().find(|(k, _)| k == key) {
+            Some((_, v)) => *v = value,
+            None => fields.push((key.to_string(), value)),
+        }
+    }
 }
 
 impl Value {
@@ -198,6 +248,7 @@ impl Value {
 }
 
 static UNDEFINED: Value = Value::Undefined;
+static NULL: Value = Value::Null;
 
 /// A value with the arena it lives in: what replay code reads a capture through.
 /// Reading a key an object lacks gives `undefined`, as in JavaScript.
