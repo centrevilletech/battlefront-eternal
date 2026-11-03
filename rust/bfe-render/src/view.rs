@@ -37,7 +37,7 @@ pub const D_SIDES: usize = 11; // how many, then two
 pub const D_RANGE: usize = 14;
 pub const D_UNIFORMS: usize = 16;
 pub const D_FIRST: usize = 17;
-pub const MAX_UNIFORMS: usize = 12;
+pub const MAX_UNIFORMS: usize = 32;
 pub const DRAW: usize = D_FIRST + MAX_UNIFORMS * UNIFORM;
 pub const MAX_DRAWS: usize = 16;
 // How many draws the page wrote, then the draws.

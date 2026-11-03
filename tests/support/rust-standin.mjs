@@ -34,7 +34,7 @@ export const LENGTHS = {
   post_input: 8 * 221,
   hud_input: 47 + 1024 * 5, hud_position: 64 * 3, hud_uv: 64 * 2, hud_mask_uv: 64 * 2, hud_tint: 64 * 4,
   water_input: 8 * (27 + 24 * 18) + 2, water_rings_position: 16 * 3, water_rings_uv: 16 * 2, water_rings_alpha: 16,
-  view_input: 1 + 16 * (17 + 12 * 18),
+  view_input: 1 + 16 * (17 + 32 * 18),
 };
 export const LAYOUT = { records_at: 200, record_stride: 76, transparent_object_stride: 40 };
 

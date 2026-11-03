@@ -342,7 +342,7 @@ test("the view scene: an unlit part (a sight whose texture scrolls) is drawn as 
   viewScene.updateMatrixWorld(true);
   assert.equal(core.cover("view", renderer, viewScene, view), true);
   assert.equal(sight.visible, false);
-  const input = core.viewInput, DRAW = 17 + 12 * 18;
+  const input = core.viewInput, DRAW = 17 + 32 * 18;
   assert.equal(input[0], 2);
   assert.deepEqual([input[1 + 2], input[1 + 10], input[1 + 11], input[1 + 12]], [0, 1 | 2 | 4, 1, 0], "the sight first: no blending, depth tested and written, front faces");
   assert.deepEqual([...input.subarray(1 + 17 + 3 * 18, 1 + 17 + 3 * 18 + 4)], [3, 2, 0.5, 0], "its scroll");

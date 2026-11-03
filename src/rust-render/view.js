@@ -18,7 +18,7 @@ import { blendOf, sidesOf, stateOf } from "./transparent.js";
 const RIGID = 2;
 // view.rs's blended draws.
 const D = { PROGRAM: 0, GEOMETRY: 1, BLEND: 2, DEPTH_FUNC: 9, FLAGS: 10, SIDES: 11, RANGE: 14, UNIFORMS: 16, FIRST: 17 };
-const UNIFORM = 18, MAX_DRAW_UNIFORMS = 12, DRAW = D.FIRST + MAX_DRAW_UNIFORMS * UNIFORM, MAX_DRAWS = 16;
+const UNIFORM = 18, MAX_DRAW_UNIFORMS = 32, DRAW = D.FIRST + MAX_DRAW_UNIFORMS * UNIFORM, MAX_DRAWS = 16;
 const viewProjection = new THREE.Matrix4(), point = new THREE.Vector4(), frustum = new THREE.Frustum();
 // three's painterSortStable (opaque) and reversePainterSortStable (what blends).
 const opaqueOrder = (a, b) => a.groupOrder - b.groupOrder || a.renderOrder - b.renderOrder || a.material - b.material || a.z - b.z || a.id - b.id;
@@ -124,8 +124,11 @@ class ViewPass {
     const program = plainProgram(core, material, null);
     if (program === undefined) return undefined; // until three has made it
     const blend = blendOf(material), state = stateOf(material), sides = sidesOf(material);
-    if (program && program.uniforms.length <= MAX_DRAW_UNIFORMS && blend && state && material.onBeforeCompile === THREE.Material.prototype.onBeforeCompile
-      && geometry.index && !geometry.groups.length && !mesh.isSkinnedMesh && !mesh.isInstancedMesh) {
+    const why = !program ? "program" : program.uniforms.length > MAX_DRAW_UNIFORMS ? `${program.uniforms.length} uniforms` : !blend || !state ? "state"
+      : material.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile ? "shader hook" : !geometry.index || geometry.groups.length ? "geometry"
+      : mesh.isSkinnedMesh || mesh.isInstancedMesh ? "kind" : null;
+    if (why) core.errors.push(`view ${material.name || material.type}: ${why}`);
+    else {
       const g = core.geometry(geometry, { id: program.id, attributes: program.attributes });
       if (g !== null && g !== undefined) {
         if (!geometry.boundingSphere) geometry.computeBoundingSphere();
