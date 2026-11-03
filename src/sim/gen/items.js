@@ -6,7 +6,7 @@ import { KIND_ITEM, KIND_UNIT } from "./kinds.js";
 export function variantOfItemOwner(b, x) {
   if (x === null) return 0;
   if (x === "player") return 1;
-  if (b?.refs[KIND_UNIT].is(x)) return 2;
+  if (x !== null && typeof x === "object") return 2;
   return -1;
 }
 

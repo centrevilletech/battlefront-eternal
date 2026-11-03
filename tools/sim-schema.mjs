@@ -251,7 +251,13 @@ export function buildModel(files) {
   for (const r of model.records.values()) r.fields.forEach(check);
   for (const k of kinds) k.fields.forEach(check);
   for (const u of model.unions.values()) for (const v of u.variants) if (v.tag === 'ref' && !model.kinds.has(v.kind)) fail(`union ${u.name}`, `no kind ${v.kind}`);
-  for (const u of model.unions.values()) if (u.variants.filter((v) => v.tag === 'ref' && model.kinds.get(v.kind).fields.length).length > 1) fail(`union ${u.name}`, 'at most one of its kinds can be one the store holds fields of');
+  // A union of references tells an object's kind by each kind's test (its
+  // `class`). One kind the store holds fields of may go without: any other
+  // object is of that kind. Of several, each must name its class.
+  for (const u of model.unions.values()) {
+    const held = u.variants.filter((v) => v.tag === 'ref' && model.kinds.get(v.kind).fields.length).map((v) => model.kinds.get(v.kind));
+    if (held.length > 1) for (const k of held) if (!k.classes.length) fail(`union ${u.name}`, `of several kinds the store holds fields of, each names its class: ${k.name} names none`);
+  }
   for (const u of model.unions.values()) {
     for (const v of u.variants) if (v.tag === 'value' && v.type.base === 'rec' && !model.records.has(v.type.of)) fail(`union ${u.name}`, `no record ${v.type.of}`);
     for (const v of u.variants) if (v.tag === 'value' && v.type.base === 'enum' && !model.enums.has(v.type.of)) fail(`union ${u.name}`, `no enum ${v.type.of}`);
@@ -1100,8 +1106,17 @@ function jsUnion(model, u) {
     else if (t.base === 'f64xN') tests.push(`if (Array.isArray(x) && x.length === ${t.n}) return ${i};`);
   }
   for (const [v, i] of recs) if (model.records.get(v.type.of).classes.length) tests.push(`if (b?.recordTests?.${v.type.of}?.(x)) return ${i};`);
-  for (const [v, i] of refs) if (!model.kinds.get(v.kind).stored) tests.push(`if (b?.refs[${kindConst(v.kind)}].is(x)) return ${i};`);
-  const rest = refs.find(([v]) => model.kinds.get(v.kind).stored) ?? recs.find(([v]) => !model.records.get(v.type.of).classes.length);
+  // A kind the store holds is tested too where the union has several (each
+  // names its class); the one of a union with one is any other object. Of
+  // several, the most specific test first: the kinds the store holds (a
+  // mirror's class once Rust owns them, else their constructors), then the
+  // other kinds that name classes, then the plain objects told by shape
+  // (the battle's `tests`), which an instance of a class could also pass.
+  const several = refs.filter(([v]) => model.kinds.get(v.kind).stored).length > 1;
+  const rank = ([v]) => (model.kinds.get(v.kind).stored ? 0 : model.kinds.get(v.kind).classes.length ? 1 : 2);
+  const tested = several ? [...refs].sort((a, b) => rank(a) - rank(b)) : refs;
+  for (const [v, i] of tested) if (several || !model.kinds.get(v.kind).stored) tests.push(`if (b?.refs[${kindConst(v.kind)}].is(x)) return ${i};`);
+  const rest = (several ? undefined : refs.find(([v]) => model.kinds.get(v.kind).stored)) ?? recs.find(([v]) => !model.records.get(v.type.of).classes.length);
   if (rest) tests.push(`if (x !== null && typeof x === "object") return ${rest[1]};`);
   lines.push(`export function variantOf${u.name}(b, x) {`, ...tests.map((t) => `  ${t}`), '  return -1;', '}', '');
   lines.push(`// Which of ${u.name}'s variants a value is.`, `export function which${u.name}(b, x) {`, `  const i = variantOf${u.name}(b, x);`, `  if (i < 0) throw Error(\`${u.name}: \${x?.constructor?.name ?? x} is none of its variants\`);`, '  return i;', '}', '');

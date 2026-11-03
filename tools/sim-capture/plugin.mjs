@@ -29,6 +29,7 @@ import { PHASE_NAMES } from './phases.mjs';
 import { SPECS, Expand } from './specs.mjs';
 import { ClassicRandom, RandomStreams } from '../../src/ai/random.js';
 import { exportState, ExportContext } from '../../src/sim/runtime.js';
+import { KIND_TABLE, RECORD_CLASSES } from '../../src/sim/gen/index.js';
 
 register('./hooks.mjs', import.meta.url);
 
@@ -79,6 +80,10 @@ const isOwnerSnapshot = (v) => Object.isFrozen(v) && Object.getPrototypeOf(v) ==
 const isBody = (v) => Object.getPrototypeOf(v) === Object.prototype && typeof v.offset === 'number' && 'bvh' in v && 'polygonOf' in v;
 const KIND_TESTS = { unit: (v) => isA(v, 'Unit'), vehicle: (v) => isA(v, 'Vehicle'), turret: (v) => isA(v, 'Turret'), weapon: (v) => isA(v, 'Weapon'),
   emitter: isEmitter, ownerSnapshot: isOwnerSnapshot, body: isBody };
+// Every other class a schema names (a kind's `class`, a record's `$class`
+// in a union of records) by its constructor's name.
+for (const k of KIND_TABLE) if (k?.classes.length) KIND_TESTS[k.name] ??= (v) => k.classes.some((c) => isA(v, c));
+for (const [name, classes] of Object.entries(RECORD_CLASSES)) KIND_TESTS[name] ??= (v) => classes.some((c) => isA(v, c));
 // A store kind's handle: a unit by its registry id, a hull by its place in
 // the battle's list, a collision body by its serial, anything else
 // numbered by kind in the order the capture meets it. An owner snapshot's

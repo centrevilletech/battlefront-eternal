@@ -66,6 +66,7 @@ export default {
     // that class is wanted there, and spawned again for each life.
     vehicle: {
       home: 'vehicles.vehicles',
+      class: 'Vehicle',
       fields: {
         // What it is.
         name: fixed('str'),

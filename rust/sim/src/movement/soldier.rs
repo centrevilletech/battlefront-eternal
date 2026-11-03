@@ -7,10 +7,10 @@
 //! the same name in soldier.js in the same order of operations, in f64, with
 //! three.js's Vector3 and Triangle methods spelt out as they compute
 //! (`V3`). JavaScript's Math.min and Math.max are `js_min` and `js_max`, and
-//! Math.hypot of two numbers is `js_hypot2`, V8's algorithm. Math.sin and
-//! Math.cos are not computed here: V8's last bit can differ from any Rust
-//! sine's, so JavaScript hands in the sine and cosine of the aim's yaw
-//! before and after the tick's turn, and of its pitch (`Trig`).
+//! Math.hypot of two numbers is `js_hypot2`, V8's algorithm. The sines and
+//! cosines a tick reads (of the aim's yaw before and after the tick's turn,
+//! and of a hovering jet's pitch: `Trig`) are V8's (`v8math`), made by the
+//! caller once each.
 
 use super::scene::{Kind, Scene};
 use crate::collision::{js_max, js_min};
@@ -359,7 +359,8 @@ pub struct Trig {
     pub cos1: f64,
 }
 
-/// Where a tick stopped for the sine and cosine of its turned yaw.
+/// Where `begin` left a tick for `finish` (which reads the sine and cosine
+/// of the turned yaw).
 #[derive(Clone, Copy)]
 pub enum Rest {
     /// The jet ran this tick (jetTick returned true): ceiling, landing,

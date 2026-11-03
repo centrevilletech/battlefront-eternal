@@ -30,6 +30,8 @@
 // replace its raw roots with their exporters. A system of the game (an
 // object the game holds, such as game.items) is a handle wherever it is met
 // unless the state asks for it whole: expand(object).
+import { units } from './units.mjs';
+
 export class Expand {
   constructor(value) { this.value = value; }
 }
@@ -186,4 +188,6 @@ const vehicles = {
 // the cheapest capture, for the draw order of every phase.
 const ticks = { frames: [] };
 
-export const SPECS = { ordnance, items, vehicles, ticks };
+// The units package (flip F3): a unit's tick, the registry's queries and
+// the soldiers pushed apart (tools/sim-capture/units.mjs).
+export const SPECS = { ordnance, items, vehicles, ticks, units };
