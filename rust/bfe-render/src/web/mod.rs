@@ -2,6 +2,7 @@
 // textures used where they are, inputs the page writes into WASM memory.
 // Here the core's bindings and each phase's; each pass's own are in a file
 // of their own here, a `#[wasm_bindgen] impl BfeRenderer` block each.
+mod canopies;
 mod effects;
 mod far;
 mod foliage;
@@ -107,7 +108,8 @@ impl BfeRenderer {
     // The phases (renderer.rs). Each returns its stats: [world draws,
     // instanced draws, instances, program switches, GL calls], then each
     // pass's draws in pass order (world, instances, far, terrain,
-    // transparent, effects, foliage, view, post, hud, water).
+    // transparent, effects, foliage, view, post, hud, water, shadow, motion,
+    // canopies).
     pub fn far_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.far_frame().map_err(|e| JsValue::from_str(&e))?.values())
     }

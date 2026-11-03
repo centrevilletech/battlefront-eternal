@@ -1087,18 +1087,21 @@ export class Water extends WaterState {
       // Then the rest of the far scene over it (the sky writes no depth).
       const skyMeshes = (graphics.skyLayers || []).map(({ mesh }) => mesh).filter((mesh) => mesh.visible);
       const oblique = this.obliqueProjection.copy(mirror.projectionMatrix);
+      // Each render of the far scene is the Rust renderer's far pass where
+      // it draws all of it (src/rust-render: the farMirror phase), else three's.
+      const drawFar = () => { if (!graphics.rust?.cover("farMirror", renderer, graphics.farScene, mirror)) renderer.render(graphics.farScene, mirror); };
       try {
         if (skyMeshes.length) {
           mirror.projectionMatrix.copy(this.plainProjection);
           mirror.layers.set(MIRROR_SKY_LAYER);
           for (const mesh of skyMeshes) mesh.layers.enable(MIRROR_SKY_LAYER);
-          renderer.render(graphics.farScene, mirror);
+          drawFar();
           for (const mesh of skyMeshes) mesh.visible = false;
           mirror.layers.set(0);
           mirror.projectionMatrix.copy(oblique);
           renderer.autoClear = false;
         }
-        renderer.render(graphics.farScene, mirror);
+        drawFar();
       } finally {
         for (const mesh of skyMeshes) { mesh.layers.disable(MIRROR_SKY_LAYER); mesh.visible = true; }
         mirror.layers.set(0);

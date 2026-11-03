@@ -952,7 +952,7 @@ boundary, so that each part of the frame can move to it on its own:
 | --- | --- | --- | --- | --- |
 | World | `world.rs` | `world.js` | near | The map's opaque buckets, those with shader hooks included |
 | Instances | `instances.rs` | `instances.js` | near | Soldiers' bodies, held guns, rigs, flying models |
-| Far | `far.rs` | `far.js` | far | The far scene: sky and its layers, low-detail buckets, far terrain, far water, the sky's flyers |
+| Far | `far.rs` | `far.js` | far | The far scene: sky and its layers, low-detail buckets, far terrain, far water, the sky's flyers; the same from a water mirror's camera and for the sky probes' faces |
 | Terrain | `terrain.rs` | `terrain.js` | near | The ground and its painted layers (drawn by the world pass) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | What the near scene blends, in three's order: blended buckets, holograms, flares |
 | Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam, fountain and wake effects, the Enhanced arcs, the droideka's dust, the jetpack's flame and wake, the destruction's fire, smoke and arcs, the droideka's aura and the death camera's trace |
@@ -960,16 +960,19 @@ boundary, so that each part of the frame can move to it on its own:
 | View | `view.rs` | `view.js` | view | The first-person arms and weapon, and the muzzle flash |
 | Post | `post.rs` | `post.js` | post | Soft focus, composite, FXAA, the bilinear upscale |
 | HUD | `hud.rs` | `hud.js` | hud | The battle HUD's quads |
-| Water | `water.rs` | `water.js` | transparent | Classic terrain water and its rings, among the blended items |
+| Water | `water.rs` | `water.js` | transparent | Terrain water among the blended items: Low's textured surface, High and Ultra's tint and reflection passes, the rings, the shore's lapping, the Enhanced ocean's crest spray |
+| Canopies | `canopies.rs` | `canopies.js` | near | The Enhanced tree canopies' leaves |
 
 `core.rs` holds what the passes share: the context and its multi-draw, the
 programs, geometries and textures, the inputs the page writes each frame, a
-frame block (one uniform buffer) for each view (near, far, first person and
-a spare), and the GL state the passes leave behind them (`GlState`), which
-is unknown at the start of each phase since three draws in between. A
-phase is one call from the page that draws its passes in order: `far_frame`,
-`frame` (the near phase), `transparent_frame`, `view_frame` and
-`post_frame`. Each returns its stats: the five counts the page has always
+frame block (one uniform buffer) for each view (near, far, first person, a
+spare, and the far scene from a water's mirror), and the GL state the
+passes leave behind them (`GlState`), which is unknown at the start of
+each phase since three draws in between. A phase is one call from the page
+that draws its passes in order: `far_frame` (and `far_mirror_frame` and
+`far_probe_frame`, the far scene from a water mirror's camera and for a sky
+probe's faces), `frame` (the near phase), `transparent_frame`, `view_frame`
+and `post_frame`. Each returns its stats: the five counts the page has always
 read (world draws, instanced draws, instances, program switches, GL calls),
 then each pass's draws in the table's order. The near phase is called from
 the far scene's image (`graphics.background`'s `onAfterRender`) at the start
@@ -1263,14 +1266,16 @@ These passes take the rest of a Classic frame's own scenes from three:
   built. The renderer keeps a copy of the batch's vertex arrays, updated
   from the vertices the batch changed, and draws each run of quads with its
   texture, as three does.
-- Classic water: the surface drawn with the look's own textures and the
-  rings are items of the transparent list (sources of the transparent
-  pass), with three's sort keys. The Enhanced refraction and reflection
-  stay with three.
+- Water: the surface (Low: drawn with the look's own textures; High and
+  Ultra: the tint over a copy of the opaque scene, then the reflection),
+  the rings and the shore's lapping are items of the transparent list
+  (sources of the transparent pass), with three's sort keys (see "The
+  Enhanced sky, water and canopies" below).
 - Reflections: water at Ultra renders the near scene again from a mirror
   camera, which water.js marks; the near scene's hook then draws the near
   phase's passes for that camera (`mirror_frame`), so what the renderer
-  draws shows in the reflection too.
+  draws shows in the reflection too. The mirror's far scene, at High and
+  Ultra, is the far pass's (`far_mirror_frame`).
 - The near scene itself, behind `?rustNear` (`near.js`): on a frame when
   everything three would list in it is drawn by a pass, the renderer
   draws the scene in place of three's render. It does what three's render
@@ -1371,15 +1376,101 @@ Theed's far pass from 185 WebGL calls a frame to 154.
 
 With Enhanced terrain, trees, ocean and sky, water at High, the full far
 terrain, the far view distance and 4x multisampling, the far scenes of
-Theed and Hoth were still the renderer's alone and the same to the pixel;
-on Tatooine: Dune Sea and Kamino, three drew theirs, as the pass can't draw
-everything in them yet: the Enhanced sky's flyers read a sky probe (a cube
-map), and the Enhanced ocean's storm draws lightning from vertices it
-rewrites. Water at High or Ultra and the sky probe also render the far
-scene again from cameras of their own; three draws those for now. Shadows, lamp lighting and the temporal
-upscaler need nothing of the far pass itself (its materials read neither
-shadows nor lamps, and the upscaler's jitter is in the far camera's
-projection), only the core's leave to stay on with them.
+Theed and Hoth were the renderer's alone and the same to the pixel. The
+Enhanced sky, water at High and Ultra and the sky probes, which render the
+far scene again from cameras of their own, are the far pass's too: see the
+next section, as is the Enhanced ocean's. Shadows, lamp lighting and the
+temporal upscaler need nothing of the far pass itself (its materials read neither shadows nor lamps, and
+the upscaler's jitter is in the far camera's projection), only the core's
+leave to stay on with them.
+
+### The Enhanced sky, water, canopies and ocean
+
+- A water mirror's far scene. Water at High and Ultra renders the far scene
+  again each frame (every other frame at High while the eye holds still),
+  from a camera mirrored in the surface, into the reflection's target: the
+  sky's models through the plain projection, then the rest over them
+  through the oblique one, without clearing. Each render is offered to the
+  far pass first, as a phase of its own (`farMirror`) with a frame block of
+  its own, so that the eye's far scene, drawn later in the frame, reads its
+  own. The far input says whether three would clear (its autoClear).
+- The sky probe. The Enhanced sky's flyers take on the sky behind them far
+  off, and the Enhanced ocean under a dry sky reflects it: both read a cube
+  map of the far scene's sky around the eye (sky-probe.js), captured once a
+  second or on a 4 m climb. A cube sampler's source names the cube each
+  frame and binds it by its target. The capture is the far pass too: the
+  six faces drawn as `CubeCamera.update` draws them, each offered to the far
+  pass as a phase of its own (`probe`) with a frame block of the pass's own
+  for each face; after the last face the pass makes the cube's mipmaps as
+  three's render does.
+- Water at High and Ultra. The near scene's two passes over the surface
+  (the tint over a copy of the opaque scene's colour and depth, then the
+  reflection, which reads the mirror's image and, at High, marches through
+  the copy) read the wading soldiers, an array of eight `vec4`: a water
+  program may read one array, set when it differs from what the program
+  holds. The tint pass copies the opaque scene in its `onBeforeRender`, just
+  before it draws; it is the first item of the transparent list (the lowest
+  render order there), so the pass makes the copy at the start of the
+  transparent phase. The shore's lapping and splashes (water-shore.js) draw
+  one quad instanced at each shore point from instance buffers of the
+  pass's own, filled again whenever three would upload them.
+- The tree canopies. With Enhanced tree detail the jungle backdrop's models
+  near the eye are rebuilt as canopies of camera-facing leaf cards
+  (tree-canopies.js), one instanced mesh whose leaves are written slot by
+  slot as the groups near each camera change. Once three has drawn the mesh,
+  the canopies pass draws it in the near phase (a mirror's too) with three's
+  program for it, and three neither lists the mesh nor uploads its leaves:
+  each frame the page copies the instances whose slots changed into the
+  renderer's copy.
+- The Enhanced ocean. The sea's surface is a mesh of its own in the near and
+  far scenes, with crest spray over it, and on a sea the map rains on
+  (Kamino) a storm: a panorama of clouds drawn over the sky by a
+  full-screen triangle, a horizon veil, the horizon's models in the storm's
+  light, and lightning drawn from vertices rewritten at each strike. The
+  far pass draws a mesh with no index through an index of its own (0, 1,
+  2...) over the range three draws each frame, and refreshes a mesh's vertex
+  buffers when three would upload them, so the storm is far items like any
+  other. The near surface shares its material with the far one, so it is the
+  far pass's item too, drawn from the near phase after its opaque passes and
+  hidden from three on a layer no camera renders. The spray is an instanced
+  surface of the water pass.
+
+On the emulator (SwiftShader, 1600x900, four samples, the Classic looks
+with the feature on), at four points of a seeded walk each, the presented
+frame and the targets the features draw into were compared between three
+alone, the renderer, three alone again, and the renderer with that feature
+given back to three, with the eye put 5 m over a water cell (water), aimed
+at the nearest flying ship (sky) or canopy (canopies), the reflection drawn
+afresh and the probes captured afresh in every compared frame:
+
+| Feature | Maps | Compared | Pixels that differ |
+| --- | --- | --- | --- |
+| Water at High (far mirror, surfaces, shore) | Kashyyyk: Docks, Naboo: Theed | frame, reflection | 0 at every point |
+| Water at Ultra (far and near mirrors, surfaces) | Kashyyyk: Docks, Naboo: Theed | frame, reflection, its far image | frame 0; reflection 1 and 247 at one point each, as many as three against itself there |
+| Enhanced sky (flyers, probe) | Tatooine: Dune Sea, Bespin: Platforms, Geonosis: Spire | frame, far image, the probe's six faces | 0 at every point |
+| Enhanced trees (canopies) | Yavin 4: Temple, Naboo: Theed (and at Ultra) | frame | 0 on Yavin 4; 1 pixel at one point on Theed, the same with the canopies given back to three |
+| Enhanced ocean | Kashyyyk: Islands, Kamino (its storm) | frame, far image, the probe's six faces (Islands), the storm's clouds (Kamino) | 0 at every point |
+
+In the renderer's frames three drew none of the far scene, the mirror's far
+scene or the probe's faces; on Kashyyyk: Docks at High, three's draws a frame
+fell from 88 to 1, the far mirror drawing 21 and the water 10.
+
+With the High quality preset (shadows, lamps, the temporal upscaler with
+its jitter pinned and history reset for each compared frame, the shadow
+caches drawn again before each), the same comparisons gave 0 pixels at every
+point for water at High (Kashyyyk: Docks), the Enhanced sky (Bespin:
+Platforms), the ocean (Kashyyyk: Islands, Kamino) and the canopies (Yavin 4:
+Temple); with water at Ultra the frame and the mirror's far image were the
+same to the pixel, and the mirror's near image differed at two points by as
+much as three's own two renders of it did. With the Balanced preset (Low
+water, soft particles) Kashyyyk: Docks and Naboo: Theed were the same to the
+pixel. In those frames three drew none of the far scene, the mirrors' far
+scenes, the probe or the water.
+
+On the emulator with its draws made no-ops, a water mirror's far scene on
+Kashyyyk: Docks at High, drawn on the same frames alternately by the far
+pass and by three, cost 0.73 ms (median) and 1.01 ms (mean) with the far
+pass against 1.05 and 1.50 ms with three's two renders.
 
 ## His controls on a slow CPU
 
