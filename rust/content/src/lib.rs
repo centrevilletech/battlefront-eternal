@@ -26,6 +26,8 @@ pub mod content;
 pub mod derived;
 pub mod dump;
 pub mod files;
+#[cfg(feature = "rays")]
+pub mod install;
 pub mod js;
 pub mod json;
 pub mod mission;
