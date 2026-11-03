@@ -969,3 +969,44 @@ fn rounds_and_items_replay_as_captured() {
     }
     assert!(!failed, "frames parted from their captures");
 }
+
+/// What the corpus exercises: every boundary call by label, and the rounds
+/// and items its frames start with by kind (BFE_REPLAY_CORPUS; run with
+/// --ignored --nocapture).
+#[test]
+#[ignore]
+fn corpus_coverage() {
+    let Some(corpus) = Corpus::from_env().expect("the corpus BFE_REPLAY_CORPUS names") else { return };
+    let mut calls: std::collections::BTreeMap<String, usize> = Default::default();
+    let mut kinds: std::collections::BTreeMap<String, usize> = Default::default();
+    for capture in corpus.captures() {
+        let capture = capture.expect("a capture");
+        for name in FRAMES {
+            for frame in capture.frames(name) {
+                let frame = frame.expect("a frame");
+                for call in frame.calls() {
+                    *calls.entry(call.name.clone()).or_default() += 1;
+                }
+                if name == "ordnance.update" {
+                    for list in ["bolts", "beams", "grenades", "rounds"] {
+                        for e in frame.before().get(list).items() {
+                            let kind = if list == "rounds" { format!("rounds.{}", e.get("kind").str().unwrap_or("?")) } else { list.to_string() };
+                            *kinds.entry(kind).or_default() += 1;
+                        }
+                    }
+                }
+                if name == "items.update" {
+                    for e in frame.before().get("items").get("items").items() {
+                        *kinds.entry(if e.get("mine").bool() { "items.mine".into() } else { "items.powerup".into() }).or_default() += 1;
+                    }
+                }
+            }
+        }
+    }
+    for (k, n) in &kinds {
+        eprintln!("{n:>9}  {k}");
+    }
+    for (k, n) in &calls {
+        eprintln!("{n:>9}  {k}");
+    }
+}
