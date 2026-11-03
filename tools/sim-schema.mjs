@@ -66,42 +66,113 @@ export async function loadSchemas(dir = SCHEMA) {
 
 function fail(where, message) { throw Error(`${where}: ${message}`); }
 
+// A type's text split at its own bars: a bar inside parentheses belongs to
+// an item's or a value's type (`list:(ref:character|null)`).
+function bars(text) {
+  const parts = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')') depth--;
+    else if (text[i] === '|' && !depth) { parts.push(text.slice(start, i)); start = i + 1; }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+// Whether a type's text is one type in parentheses (an item or value that
+// can be null or undefined).
+function grouped(text) {
+  if (!text.startsWith('(') || !text.endsWith(')')) return false;
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')' && !--depth && i < text.length - 1) return false;
+  }
+  return true;
+}
+
+// A typed array's element types, by the class's name.
+const TYPED = { Float64: 'f64', Float32: 'f32', Int32: 'i32', Uint32: 'u32', Int16: 'i16', Uint16: 'u16', Int8: 'i8', Uint8: 'u8' };
+
+// What no list item, object value or map value is (nor a union's variant):
+// a list or set (but a map's or an object's value can be a list), a map, an
+// object keyed by numbers, a typed array.
+const NESTED = ['map', 'obj', 'typed'];
+
 // A field's type: its base and whether it can be null, undefined or both.
 export function parseType(text, where) {
   if (typeof text !== 'string') fail(where, 'a type must be a string');
-  const [base, ...rest] = text.split('|').map((s) => s.trim());
+  const [base, ...rest] = bars(text).map((s) => s.trim());
   const type = { text, nullable: { null: false, undefined: false } };
   for (const r of rest) {
     if (r !== 'null' && r !== 'undefined') fail(where, `"${r}" in a type can only be null or undefined`);
     if (type.nullable[r]) fail(where, `${r} twice`);
     type.nullable[r] = true;
   }
+  // An item's or a value's type: bare, never null or undefined; in
+  // parentheses, one that can be (`(ref:character|null)`).
+  const inner = (s, what) => {
+    if (!grouped(s)) return null;
+    const t = parseType(s.slice(1, -1), where);
+    if (!optional(t)) fail(where, `${what} in parentheses can be null or undefined (else write it bare)`);
+    if (['list', 'set', ...NESTED].includes(t.base)) fail(where, `${what} that can be null or undefined is no list, set, map, object or typed array`);
+    return t;
+  };
   let m;
   if (base.startsWith('list:')) {
     // An array: of references to a kind (`list:bolt`, as `list:ref:bolt`),
     // or of any other type that is never null (records by value, numbers,
-    // vectors, booleans, strings, enums, unions), its order kept.
+    // vectors, booleans, strings, enums, unions), its order kept; or of a
+    // type in parentheses that can be null or undefined (`list:(ref:x|null)`).
     const rest = base.slice(5);
     type.base = 'list';
+    const item = inner(rest, 'a list\'s item');
+    if (item) { type.value = item; return type; }
     type.value = /^[A-Za-z_]\w*$/.test(rest) && !SCALARS.has(rest) && !/^f64x\d+$/.test(rest) ? parseType(`ref:${rest}`, where) : parseType(rest, where);
     if (optional(type.value) || ['map', 'list', 'set'].includes(type.value.base)) fail(where, 'a list\'s items are a type that is never null or undefined, and no list, set or map');
+    if (NESTED.includes(type.value.base)) fail(where, 'a list\'s items are no object or typed array');
     if (type.value.base === 'ref') type.of = type.value.of;
     return type;
   }
-  if (base.startsWith('map:')) {
-    // A Map with string keys; its values' type follows (never null).
+  if (base.startsWith('map:') && (m = /^map:(?:(num)|ref:([A-Za-z_]\w*)):(.+)$/.exec(base))) {
+    // A Map with numbers for keys (`map:num:T`), or objects (`map:ref:K:T`,
+    // K a kind or a union of kinds): JavaScript's order (insertion; a key
+    // deleted and set again goes last; numbers as SameValueZero, -0 as 0).
     type.base = 'map';
-    type.value = parseType(base.slice(4), where);
-    if (optional(type.value) || type.value.base === 'map') fail(where, 'a map\'s values are a type that is never null or undefined, and no map');
+    type.key = m[1] ? { base: 'num' } : { base: 'ref', of: m[2] };
+    type.value = inner(m[3], 'a map\'s value') ?? parseType(m[3], where);
+    if (NESTED.includes(type.value.base)) fail(where, 'a map\'s values are no map, object or typed array');
+  } else if (base.startsWith('map:')) {
+    // A Map with string keys; its values' type follows (never null, but in
+    // parentheses).
+    type.base = 'map';
+    const value = inner(base.slice(4), 'a map\'s value');
+    type.value = value ?? parseType(base.slice(4), where);
+    if (!value && (optional(type.value) || type.value.base === 'map')) fail(where, 'a map\'s values are a type that is never null or undefined, and no map');
+    if (NESTED.includes(type.value.base)) fail(where, 'a map\'s values are no map, object or typed array');
+  } else if (base.startsWith('obj:')) {
+    // A plain object whose keys are array indices (a table by team number,
+    // `{ 1: 150, 2: 150 }`): they iterate in ascending order, wherever they
+    // were set. Its values' type follows (in parentheses, one that can be
+    // null or undefined).
+    type.base = 'obj';
+    type.value = inner(base.slice(4), 'an object\'s value') ?? parseType(base.slice(4), where);
+    if (NESTED.includes(type.value.base)) fail(where, 'an object\'s values are no map, object or typed array');
   } else if (SCALARS.has(base)) type.base = base;
   else if ((m = /^f64x([2-9]|1[0-6])$/.exec(base))) { type.base = 'f64xN'; type.n = Number(m[1]); }
-  else if ((m = /^(enum|ref|union|def|rec|set|index):([A-Za-z_][\w]*)$/.exec(base))) { type.base = m[1]; type.of = m[2]; }
+  else if ((m = /^(Float64|Float32|Int32|Uint32|Int16|Uint16|Int8|Uint8)Array\(([1-9]\d{0,4})\)$/.exec(base))) {
+    // A typed array of a fixed length, kept typed (and in place) in a mirror.
+    type.base = 'typed'; type.class = `${m[1]}Array`; type.elem = TYPED[m[1]]; type.n = Number(m[2]);
+  } else if ((m = /^(enum|ref|union|def|rec|set|index):([A-Za-z_][\w]*)$/.exec(base))) { type.base = m[1]; type.of = m[2]; }
   else fail(where, `unknown type "${base}"`);
   if ((type.base === 'list' || type.base === 'set') && (type.nullable.null && type.nullable.undefined)) fail(where, 'a list or set can be null or undefined, not both');
   return type;
 }
 
 const optional = (t) => t.nullable.null || t.nullable.undefined;
+// A container's items or values: a list's, a map's, an object's.
+const container = (t) => ['map', 'list', 'obj'].includes(t.base);
 
 function parseField(name, spec, where) {
   const s = typeof spec === 'string' ? { type: spec } : spec;
@@ -119,7 +190,7 @@ export function buildModel(files) {
   const names = new Map(); // Rust type name -> where
   // Every generated file imports the comparisons of src/sim/compare.js, and
   // a type's own comparison is same<Name>: no type takes one of their names.
-  const helpers = ['Array', 'Each', 'List', 'Map', 'Quat', 'Vec'];
+  const helpers = ['Array', 'Each', 'List', 'Map', 'Object', 'Quat', 'Typed', 'Vec'];
   const claim = (rust, where) => {
     if (names.has(rust)) fail(where, `${rust} is also ${names.get(rust)}`);
     if (helpers.includes(rust)) fail(where, `its comparison same${rust} would be src/sim/compare.js's own: rename it`);
@@ -167,7 +238,7 @@ export function buildModel(files) {
         if ((m = /^ref:([A-Za-z_]\w*)$/.exec(v))) return { tag: 'ref', kind: m[1], rust: pascal(m[1]) };
         // A value of a type: a number, a vector, a string, an enum, a record.
         const type = parseType(v, where);
-        if (optional(type) || ['list', 'set', 'map', 'union', 'ref', 'index', 'def'].includes(type.base)) fail(where, `"${v}" cannot be a union's variant`);
+        if (optional(type) || ['list', 'set', 'map', 'union', 'ref', 'index', 'def', 'obj', 'typed'].includes(type.base)) fail(where, `"${v}" cannot be a union's variant`);
         return { tag: 'value', type, rust: pascal(['rec', 'enum'].includes(type.base) ? type.of : type.base === 'f64xN' ? `f64x${type.n}` : type.base) };
       });
       if (new Set(variants.map((v) => v.rust)).size !== variants.length) fail(where, 'two variants of one name');
@@ -240,13 +311,24 @@ export function buildModel(files) {
     for (const f of k.skip.keys()) if (k.fields.some((x) => x.name === f)) fail(where, `${f} is both a field and skipped`);
   }
   // Every name a type uses must exist.
+  // A Map keyed by objects names a kind or a union of kinds (each variant a
+  // reference): the unions that are keys get JsKey's comparison in Rust.
+  model.keyUnions = new Set();
   const check = (field) => {
-    const t = ['map', 'list'].includes(field.type.base) ? field.type.value : field.type;
+    const t = container(field.type) ? field.type.value : field.type;
     if (t.base === 'enum' && !model.enums.has(t.of)) fail(field.where, `no enum ${t.of}`);
     if (t.base === 'union' && !model.unions.has(t.of)) fail(field.where, `no union ${t.of}`);
     if (t.base === 'rec' && !model.records.has(t.of)) fail(field.where, `no record ${t.of}`);
     if (['ref', 'set'].includes(t.base) && !model.kinds.has(t.of)) fail(field.where, `no kind ${t.of}`);
     if (['ref', 'set'].includes(t.base) && model.kinds.get(t.of).singleton) fail(field.where, `${t.of} is a singleton`);
+    const key = field.type.key;
+    if (key?.base === 'ref') {
+      if (model.kinds.has(key.of)) { if (model.kinds.get(key.of).singleton) fail(field.where, `${key.of} is a singleton`); }
+      else if (model.unions.has(key.of)) {
+        if (!model.unions.get(key.of).variants.every((v) => v.tag === 'ref')) fail(field.where, `a map's keys of union ${key.of}: each of its variants is a kind`);
+        model.keyUnions.add(key.of);
+      } else fail(field.where, `no kind or union ${key.of}`);
+    }
   };
   for (const r of model.records.values()) r.fields.forEach(check);
   for (const k of kinds) k.fields.forEach(check);
@@ -290,7 +372,7 @@ export function buildModel(files) {
   const walk = (name) => {
     if (visiting.has(name)) fail(`record ${name}`, 'holds itself');
     visiting.add(name);
-    for (const f of model.records.get(name).fields) { const t = ['map', 'list'].includes(f.type.base) ? f.type.value : f.type; if (t.base === 'rec') walk(t.of); }
+    for (const f of model.records.get(name).fields) { const t = container(f.type) ? f.type.value : f.type; if (t.base === 'rec') walk(t.of); }
     visiting.delete(name);
   };
   for (const name of model.records.keys()) walk(name);
@@ -310,10 +392,10 @@ function words(model, type) {
     case 'vec3': return tag + 3;
     case 'quat': return tag + 4;
     case 'mat4': return tag + 16;
-    case 'f64xN': return tag + type.n;
+    case 'f64xN': case 'typed': return tag + type.n;
     case 'ref': return tag + 2;
     case 'union': return tag + unionWords(model, model.unions.get(type.of));
-    case 'list': case 'set': case 'map': return tag + 2;
+    case 'list': case 'set': case 'map': case 'obj': return tag + 2;
     case 'rec': return tag + model.records.get(type.of).fields.reduce((n, f) => n + words(model, f.type), 0);
     default: return tag + 1;
   }
@@ -324,8 +406,15 @@ function unionWords(model, u) {
   return (u.words ??= 1 + Math.max(0, ...u.variants.map((v) => (v.tag === 'ref' ? 2 : v.tag === 'value' ? words(model, v.type) : 0))));
 }
 
-// Words a map's entry takes in the heap: its key's string and its value.
-const entryWords = (model, t) => 1 + words(model, t.value);
+// Words a map's (or an object's) key takes in an entry: a string's index,
+// a number, an object's slot and generation (a union's variant first).
+function keyWords(model, t) {
+  if (t.key?.base !== 'ref') return 1;
+  return model.unions.has(t.key.of) ? unionWords(model, model.unions.get(t.key.of)) : 2;
+}
+
+// Words a map's entry takes in the heap: its key and its value.
+const entryWords = (model, t) => keyWords(model, t) + words(model, t.value);
 
 // A kind's row layout: 'export' (the fields JavaScript reads once Rust owns
 // the kind, into its mirrors), 'import' (the fields a Rust phase reads
@@ -358,15 +447,22 @@ function rustType(model, t, inner = false) {
     case 'ref': base = `Ref<${model.kinds.get(t.of).rust}>`; break;
     case 'list': base = `Vec<${rustType(model, t.value)}>`; break;
     case 'set': base = `RefSet<${model.kinds.get(t.of).rust}>`; break;
-    case 'map': base = `StrMap<${rustType(model, t.value)}>`; break;
+    case 'map': base = !t.key ? `StrMap<${rustType(model, t.value)}>` : t.key.base === 'num' ? `NumMap<${rustType(model, t.value)}>` : `RefMap<${rustKey(model, t)}, ${rustType(model, t.value)}>`; break;
+    case 'obj': base = `IntObj<${rustType(model, t.value)}>`; break;
+    case 'typed': base = `TypedArray<${t.elem}, ${t.n}>`; break;
   }
   if (inner || !optional(t)) return base;
   return t.nullable.null && t.nullable.undefined ? `Nullable<${base}>` : `Option<${base}>`;
 }
 
+// A Map's key keyed by objects: a reference to the kind, or the union.
+const rustKey = (model, t) => (model.kinds.has(t.key.of) ? `Ref<${model.kinds.get(t.key.of).rust}>` : t.key.of);
+
 // Inside a match on an optional field, `v` is a reference: the value of a
 // copyable type is `(*v)`, a record, list or set is used through `v`.
-const deref = (t) => (['rec', 'list', 'set', 'map'].includes(t.base) ? 'v' : '(*v)');
+const deref = (t) => (['rec', 'list', 'set', 'map', 'obj', 'typed'].includes(t.base) ? 'v' : '(*v)');
+// An item of a list or the value of a map's entry, `e` a reference to it.
+const itemOf = (t) => (['rec', 'list', 'set', 'map', 'obj', 'typed'].includes(t.base) ? 'e' : '(*e)');
 
 // Rust: put value `x` (bare type) into row words from `k`.
 function rustPut(model, t, x, k) {
@@ -380,21 +476,29 @@ function rustPut(model, t, x, k) {
     case 'ref': return `row[${k}] = ${x}.slot as f64; row[${k} + 1] = ${x}.gen as f64;`;
     case 'union': return `${x}.put(&mut row[${k}..${k} + ${unionWords(model, model.unions.get(t.of))}], heap);`;
     case 'rec': return `${x}.put(&mut row[${k}..], heap);`;
+    case 'typed': return t.elem === 'f64' ? `row[${k}..${k} + ${t.n}].copy_from_slice(&${x}.0);` : `for i in 0..${t.n} { row[${k} + i] = ${x}.0[i] as f64; }`;
     case 'list': {
       // The items' words in the heap, each `w` long, the lists their records hold after them.
       const w = words(model, t.value), v = t.value;
-      const item = ['rec', 'list', 'set', 'map'].includes(v.base) ? 'e' : '(*e)';
-      return `{ let at = heap.len(); row[${k}] = at as f64; row[${k} + 1] = ${x}.len() as f64; heap.resize(at + ${x}.len() * ${w}, 0.0); for (i, e) in ${x}.iter().enumerate() { let mut item = [0.0f64; ${w}]; { let row = &mut item; ${rustPut(model, v, item, 0)} } heap[at + i * ${w}..at + (i + 1) * ${w}].copy_from_slice(&item); } }`;
+      const item = itemOf(v);
+      return `{ let at = heap.len(); row[${k}] = at as f64; row[${k} + 1] = ${x}.len() as f64; heap.resize(at + ${x}.len() * ${w}, 0.0); for (i, e) in ${x}.iter().enumerate() { let mut item = [0.0f64; ${w}]; { let row = &mut item; ${rustPutField(model, v, item, 0)} } heap[at + i * ${w}..at + (i + 1) * ${w}].copy_from_slice(&item); } }`;
     }
     case 'set': return `row[${k}] = heap.len() as f64; row[${k} + 1] = ${x}.items.len() as f64; for r in ${x}.items.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }`;
-    case 'map': {
+    case 'map': case 'obj': {
       // The entries' words first (key, value), each value's lists after them.
-      const w = entryWords(model, t), v = t.value;
-      const value = ['rec', 'list', 'set'].includes(v.base) ? 'e' : '(*e)';
-      return `{ let at = heap.len(); row[${k}] = at as f64; row[${k} + 1] = ${x}.entries.len() as f64; heap.resize(at + ${x}.entries.len() * ${w}, 0.0); for (i, (key, e)) in ${x}.entries.iter().enumerate() { let mut entry = [0.0f64; ${w}]; entry[0] = key.0 as f64; { let row = &mut entry; ${rustPut(model, v, value, 1)} } heap[at + i * ${w}..at + (i + 1) * ${w}].copy_from_slice(&entry); } }`;
+      const w = entryWords(model, t), v = t.value, kw = keyWords(model, t);
+      const value = itemOf(v);
+      if (t.base === 'map' && !t.key) return `{ let at = heap.len(); row[${k}] = at as f64; row[${k} + 1] = ${x}.entries.len() as f64; heap.resize(at + ${x}.entries.len() * ${w}, 0.0); for (i, (key, e)) in ${x}.entries.iter().enumerate() { let mut entry = [0.0f64; ${w}]; entry[0] = key.0 as f64; { let row = &mut entry; ${rustPutField(model, v, value, 1)} } heap[at + i * ${w}..at + (i + 1) * ${w}].copy_from_slice(&entry); } }`;
+      // A number's key is itself (an object's, its index); an object's its
+      // slot and generation, or its union's words.
+      const key = t.base === 'obj' || t.key.base === 'num' ? 'entry[0] = key;' : model.kinds.has(t.key.of) ? 'entry[0] = key.slot as f64; entry[1] = key.gen as f64;' : `key.put(&mut entry[0..${kw}], heap);`;
+      return `{ let at = heap.len(); row[${k}] = at as f64; row[${k} + 1] = ${x}.len() as f64; heap.resize(at + ${x}.len() * ${w}, 0.0); for (i, (key, e)) in ${x}.iter().enumerate() { let mut entry = [0.0f64; ${w}]; ${key} { let row = &mut entry; ${rustPutField(model, v, value, kw)} } heap[at + i * ${w}..at + (i + 1) * ${w}].copy_from_slice(&entry); } }`;
     }
   }
 }
+
+// Rust: a typed array's element from a row's word.
+const typedTake = (elem, w) => ({ f64: w, f32: `${w} as f32`, i32: `word_i32(${w})`, u32: `word_u32(${w})`, i16: `word_i32(${w}) as i16`, u16: `word_u32(${w}) as u16`, i8: `word_i32(${w}) as i8`, u8: `word_u32(${w}) as u8` })[elem];
 
 function rustPutField(model, t, x, k) {
   if (!optional(t)) return rustPut(model, t, x, k);
@@ -423,14 +527,19 @@ function rustTake(model, t, k) {
     case 'ref': return `Ref::new(word_u32(row[${k}]), word_u32(row[${k} + 1]))`;
     case 'union': return `${t.of}::take(&row[${k}..${k} + ${unionWords(model, model.unions.get(t.of))}], heap)`;
     case 'rec': return `${t.of}::take(&row[${k}..], heap)`;
+    case 'typed': return `{ let mut a = TypedArray::<${t.elem}, ${t.n}>::default(); for i in 0..${t.n} { a.0[i] = ${typedTake(t.elem, `row[${k} + i]`)}; } a }`;
     case 'list': {
       const w = words(model, t.value);
-      return `{ let (at, n) = (word_u32(row[${k}]) as usize, word_u32(row[${k} + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * ${w}..at + (i + 1) * ${w}]; out.push(${rustTake(model, t.value, 0)}); } out }`;
+      return `{ let (at, n) = (word_u32(row[${k}]) as usize, word_u32(row[${k} + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * ${w}..at + (i + 1) * ${w}]; out.push(${rustTakeField(model, t.value, 0)}); } out }`;
     }
     case 'set': return `{ let (at, n) = (word_u32(row[${k}]) as usize, word_u32(row[${k} + 1]) as usize); RefSet { items: (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() } }`;
-    case 'map': {
-      const w = entryWords(model, t);
-      return `{ let (at, n) = (word_u32(row[${k}]) as usize, word_u32(row[${k} + 1]) as usize); let mut m = StrMap::default(); for i in 0..n { let row = &heap[at + i * ${w}..at + (i + 1) * ${w}]; let value = ${rustTake(model, t.value, 1)}; m.entries.push((StrId(word_u32(row[0])), value)); } m }`;
+    case 'map': case 'obj': {
+      const w = entryWords(model, t), kw = keyWords(model, t);
+      if (t.base === 'map' && !t.key) return `{ let (at, n) = (word_u32(row[${k}]) as usize, word_u32(row[${k} + 1]) as usize); let mut m = StrMap::default(); for i in 0..n { let row = &heap[at + i * ${w}..at + (i + 1) * ${w}]; let value = ${rustTakeField(model, t.value, 1)}; m.entries.push((StrId(word_u32(row[0])), value)); } m }`;
+      // Set in the block's order, which is the map's (an object's keys
+      // ascending): each key once.
+      const [make, key] = t.base === 'obj' ? ['IntObj', 'row[0]'] : t.key.base === 'num' ? ['NumMap', 'row[0]'] : model.kinds.has(t.key.of) ? ['RefMap', 'Ref::new(word_u32(row[0]), word_u32(row[1]))'] : ['RefMap', `${t.key.of}::take(&row[0..${kw}], heap)`];
+      return `{ let (at, n) = (word_u32(row[${k}]) as usize, word_u32(row[${k} + 1]) as usize); let mut m = ${make}::default(); for i in 0..n { let row = &heap[at + i * ${w}..at + (i + 1) * ${w}]; let value = ${rustTakeField(model, t.value, kw)}; m.set(${key}, value); } m }`;
     }
   }
 }
@@ -515,6 +624,13 @@ function rustUnion(model, u) {
     else lines.push(`            ${i} => ${u.name}::${v.rust},`);
   });
   lines.push(`            _ => ${u.name}::default(),`, '        }', '    }', '}', '');
+  // A union of kinds that keys a Map: the same key is the same object
+  // (variant and reference).
+  if (model.keyUnions.has(u.name)) {
+    lines.push(`/// A Map's key: the same object (its kind and its slot and generation).`, `impl jsrt::map::JsKey for ${u.name} {`, '    fn svz_eq(&self, other: &Self) -> bool { self == other }', '    fn svz_hash(&self) -> u64 {', '        match self {');
+    u.variants.forEach((v, i) => lines.push(`            ${u.name}::${v.rust}(r) => crate::store::key_hash(${i}, r.slot, r.gen),`));
+    lines.push('        }', '    }', '}', '');
+  }
   return lines;
 }
 
@@ -543,6 +659,13 @@ function rustFile(model, file) {
   return lines.join('\n').replace(/\n\n+$/, '\n');
 }
 
+// Whether any schema has an object keyed by numbers, a Map keyed by numbers
+// or objects, or a typed array (their store types are imported then).
+function storeTypes(model) {
+  const has = (t) => t.base === 'obj' || t.base === 'typed' || (t.base === 'map' && Boolean(t.key)) || Boolean(t.value && has(t.value));
+  return [...model.records.values(), ...model.kindList].some((x) => x.fields.some((f) => has(f.type)));
+}
+
 function rustIndex(model) {
   const kinds = model.kindList;
   const held = kinds.filter((k) => k.stored);
@@ -554,6 +677,8 @@ function rustIndex(model) {
     '',
     'pub use crate::store::block::Block;',
     'pub use crate::store::{word_i32, word_u32, DefId, KindCode, Mat4, Nullable, Quat, Ref, RefSet, Slab, StrId, StrMap, Vec3};',
+    // The containers JavaScript's order rules need, where a schema has one.
+    ...(storeTypes(model) ? ['pub use crate::store::{IntObj, NumMap, RefMap, TypedArray};'] : []),
     '',
   ];
   for (const f of model.files) lines.push(`mod ${snake(f)};`, `pub use self::${snake(f)}::*;`);
@@ -611,7 +736,7 @@ function rustIndex(model) {
 // Whether a record's words are all it holds (no list, set or map: no heap),
 // so a command taking it can take its words as the call's parameters.
 function flat(model, name) {
-  return model.records.get(name).fields.every((f) => !['list', 'set', 'map'].includes(f.type.base) && (f.type.base !== 'rec' || flat(model, f.type.of)));
+  return model.records.get(name).fields.every((f) => !['list', 'set', 'map', 'obj'].includes(f.type.base) && (f.type.base !== 'rec' || flat(model, f.type.of)));
 }
 const recordWords = (model, name) => words(model, { base: 'rec', of: name, nullable: { null: false, undefined: false } });
 
@@ -681,14 +806,22 @@ function replayIn(model, t, x, p) {
     case 'quat': return `quat(${x}, ${p})?`;
     case 'mat4': return `mat4(${x}, ${p})?`;
     case 'f64xN': return `numbers::<${t.n}>(${x}, ${p})?`;
+    case 'typed': return `{ let vals = crate::store::replay::typed_values(${x}, ${p}, ${JSON.stringify(t.class)}, ${t.n})?; let mut a = TypedArray::<${t.elem}, ${t.n}>::default(); for i in 0..${t.n} { a.0[i] = vals[i] as ${t.elem}; } a }`;
     case 'str': return `cx.str_in(${x}, ${p})?`;
     case 'enum': return `${t.of}::from_u8(name_of(${x}, &${t.of}::NAMES, ${p})?).unwrap()`;
     case 'def': return `cx.def_in(${JSON.stringify(t.of)}, ${x}, ${p})?`;
     case 'ref': return one(x, p);
     case 'union': case 'rec': return `${t.of}::from_value(${x}, cx, ${p})?`;
-    case 'list': return `{ let mut out = Vec::new(); for (i, e) in list(${x}, ${p})?.into_iter().enumerate() { let at = format!("{}[{i}]", ${p}); out.push(${replayIn(model, t.value, 'e', '&at')}); } out }`;
+    case 'list': return `{ let mut out = Vec::new(); for (i, e) in list(${x}, ${p})?.into_iter().enumerate() { let at = format!("{}[{i}]", ${p}); out.push(${replayInField(model, t.value, 'e', '&at')}); } out }`;
     case 'set': return `{ let mut out = RefSet::default(); for (i, e) in set(${x}, ${p})?.into_iter().enumerate() { let at = format!("{}[{i}]", ${p}); out.items.push(${one('e', '&at')}); } out }`;
-    case 'map': return `{ let mut out = StrMap::default(); for (key, e) in map(${x}, ${p})? { let at = format!("{}<{}>", ${p}, key.show()); let id = cx.str_in(key, &at)?; let value = ${replayIn(model, t.value, 'e', '&at')}; out.entries.push((id, value)); } out }`;
+    case 'obj': return `{ let mut out = IntObj::default(); for (key, e) in crate::store::replay::object_entries(${x}, ${p})? { let at = format!("{}[{}]", ${p}, key); let id = crate::store::replay::index_key(key, &at)?; let value = ${replayInField(model, t.value, 'e', '&at')}; out.set(id, value); } out }`;
+    case 'map': {
+      if (!t.key) return `{ let mut out = StrMap::default(); for (key, e) in map(${x}, ${p})? { let at = format!("{}<{}>", ${p}, key.show()); let id = cx.str_in(key, &at)?; let value = ${replayInField(model, t.value, 'e', '&at')}; out.entries.push((id, value)); } out }`;
+      // A number, or the handle of an object (of a union of kinds, its variant's).
+      const kk = t.key.base === 'ref' ? model.kinds.get(t.key.of) : null;
+      const [make, id] = t.key.base === 'num' ? ['NumMap', 'num(key, &at)?'] : kk ? ['RefMap', kk.stored ? `${kk.rust}::ref_in(key, cx, &at)?` : `cx.ref_in(${kindConst(kk.name)}, key, &at)?`] : ['RefMap', `${t.key.of}::from_value(key, cx, &at)?`];
+      return `{ let mut out = ${make}::default(); for (key, e) in map(${x}, ${p})? { let at = format!("{}<{}>", ${p}, key.show()); let id = ${id}; let value = ${replayInField(model, t.value, 'e', '&at')}; out.set(id, value); } out }`;
+    }
   }
 }
 
@@ -715,19 +848,28 @@ function replayOut(model, t, s) {
     case 'quat': return `a.quat(${s})`;
     case 'mat4': return `mat4_value(a, ${s})`;
     case 'f64xN': return `{ let items = ${s}.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }`;
+    case 'typed': return `a.typed(sim_replay::Typed::${t.elem.toUpperCase()}(${s}.0.to_vec()))`;
     case 'str': return `cx.str_out(${s})`;
     case 'enum': return `Value::Str(${t.of}::NAMES[${s} as usize].to_string())`;
     case 'def': return `cx.def_out(${JSON.stringify(t.of)}, ${s})`;
     case 'ref': return one(s);
     case 'union': case 'rec': return `${s}.to_value(cx, a)`;
     case 'list': {
-      const v = t.value, item = ['rec', 'list', 'set', 'map'].includes(v.base) ? 'e' : '(*e)';
-      return `{ let mut items = Vec::new(); for e in ${s}.iter() { let x = ${replayOut(model, v, item)}; items.push(x); } a.array(items) }`;
+      const v = t.value, item = itemOf(v);
+      return `{ let mut items = Vec::new(); for e in ${s}.iter() { let x = ${replayOutField(model, v, item)}; items.push(x); } a.array(items) }`;
     }
     case 'set': return `{ let mut items = Vec::new(); for &r in ${s}.items.iter() { items.push(${one('r')}); } a.set(items) }`;
+    case 'obj': {
+      // Its keys as an object's keys are: the numbers' text, ascending.
+      const v = t.value, value = itemOf(v);
+      return `{ let mut entries: Vec<(String, Value)> = Vec::new(); for (key, e) in ${s}.iter() { let x = ${replayOutField(model, v, value)}; entries.push((crate::store::replay::index_text(key), x)); } a.object("", entries.iter().map(|(k, x)| (k.as_str(), x.clone())).collect()) }`;
+    }
     case 'map': {
-      const v = t.value, value = ['rec', 'list', 'set'].includes(v.base) ? 'e' : '(*e)';
-      return `{ let mut entries = Vec::new(); for (key, e) in ${s}.entries.iter() { let k = cx.str_out(*key); let x = ${replayOut(model, v, value)}; entries.push((k, x)); } a.map(entries) }`;
+      const v = t.value, value = itemOf(v);
+      if (!t.key) return `{ let mut entries = Vec::new(); for (key, e) in ${s}.entries.iter() { let k = cx.str_out(*key); let x = ${replayOutField(model, v, value)}; entries.push((k, x)); } a.map(entries) }`;
+      const kk = t.key.base === 'ref' ? model.kinds.get(t.key.of) : null;
+      const key = t.key.base === 'num' ? 'Value::Num(key)' : kk ? (kk.stored ? `${kk.rust}::ref_out(key, cx, a)` : `cx.ref_out(${kindConst(kk.name)}, key)`) : 'key.to_value(cx, a)';
+      return `{ let mut entries = Vec::new(); for (key, e) in ${s}.iter() { let k = ${key}; let x = ${replayOutField(model, v, value)}; entries.push((k, x)); } a.map(entries) }`;
     }
   }
 }
@@ -859,6 +1001,7 @@ function jsSync(model, t, target, k) {
     case 'quat': return `(${target} ??= new THREE.Quaternion()).set(f[at + ${k}], f[at + ${k + 1}], f[at + ${k + 2}], f[at + ${k + 3}]);`;
     case 'mat4': return `{ const e = (${target} ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + ${k} + i]; }`;
     case 'f64xN': return `{ const a = (${target} ??= new Array(${t.n})); ${Array.from({ length: t.n }, (_, i) => `a[${i}] = f[at + ${k + i}];`).join(' ')} }`;
+    case 'typed': return `(${target} ??= new ${t.class}(${t.n})).set(f.subarray(at + ${k}, at + ${k + t.n}));`;
     case 'str': return `${target} = b.strings.at(f[at + ${k}]);`;
     case 'enum': return `${target} = ${jsEnum(model.enums.get(t.of))}[f[at + ${k}]];`;
     case 'def': return `${target} = b.defs.${t.of}.at(f[at + ${k}]);`;
@@ -868,14 +1011,27 @@ function jsSync(model, t, target, k) {
     case 'list': {
       // Each item read into the one the array holds there (Vector3s and records kept), or a new one.
       const w = words(model, t.value);
-      return `{ const items = (${target} ??= []), start = h + f[at + ${k}], n = f[at + ${k + 1}]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * ${w}; ${jsSync(model, t.value, 'v', 0)} } items[i] = v; } }`;
+      return `{ const items = (${target} ??= []), start = h + f[at + ${k}], n = f[at + ${k + 1}]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * ${w}; ${jsSyncField(model, t.value, 'v', 0)} } items[i] = v; } }`;
     }
     case 'set': return `${target} = b.set(${kindConst(t.of)}, f, h + f[at + ${k}], f[at + ${k + 1}], ${target} ?? new Set());`;
     case 'map': {
       // Each entry: its key's string, then its value's words (an inner block
       // whose `at` is the entry's).
+      const w = entryWords(model, t), kw = keyWords(model, t);
+      if (!t.key) return `{ const map = (${target} ??= new Map()), start = h + f[at + ${k}], n = f[at + ${k + 1}]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * ${w}; let v; { const at = e; ${jsSyncField(model, t.value, 'v', 1)} } map.set(b.strings.at(f[e]), v); } }`;
+      // Keyed by numbers or objects: in place. The keys the block lacks go;
+      // the entries that are in the block's order already stay where they
+      // are (their values read into in place); from the first that is not,
+      // each is deleted and set again, so it goes last, in the block's order.
+      const key = (e) => (t.key.base === 'num' ? `f[${e}]` : model.kinds.has(t.key.of) ? `b.refs[${kindConst(t.key.of)}].at(f[${e}], f[${e} + 1])` : `sync${t.key.of}(b, f, ${e}, h, undefined)`);
+      return `{ const map = (${target} ??= new Map()), start = h + f[at + ${k}], n = f[at + ${k + 1}]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(${key(`start + i * ${w}`)}, key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(${key(`start + kept * ${w}`)}, key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * ${w}, key = ${key('e')}; let v = map.get(key); { const at = e; ${jsSyncField(model, t.value, 'v', kw)} } if (i >= kept) map.delete(key); map.set(key, v); } }`;
+    }
+    case 'obj': {
+      // In place: the keys the block lacks go, and each entry's value is read
+      // into the one the object holds (its arrays kept). Its keys, numbers,
+      // iterate ascending however they were set.
       const w = entryWords(model, t);
-      return `{ const map = (${target} ??= new Map()), start = h + f[at + ${k}], n = f[at + ${k + 1}]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * ${w}; let v; { const at = e; ${jsSync(model, t.value, 'v', 1)} } map.set(b.strings.at(f[e]), v); } }`;
+      return `{ const o = (${target} ??= {}), start = h + f[at + ${k}], n = f[at + ${k + 1}]; for (const key in o) { let i = 0; while (i < n && f[start + i * ${w}] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * ${w}, key = f[e]; let v = o[key]; { const at = e; ${jsSyncField(model, t.value, 'v', 1)} } o[key] = v; } }`;
     }
   }
 }
@@ -895,6 +1051,7 @@ function jsPut(model, t, v, k) {
     case 'quat': return `{ const $v = ${v}; f[at + ${k}] = $v.x; f[at + ${k + 1}] = $v.y; f[at + ${k + 2}] = $v.z; f[at + ${k + 3}] = $v.w; }`;
     case 'mat4': return `{ const e = ${v}.elements; for (let i = 0; i < 16; i++) f[at + ${k} + i] = e[i]; }`;
     case 'f64xN': return `{ const $v = ${v}; ${Array.from({ length: t.n }, (_, i) => `f[at + ${k + i}] = $v[${i}];`).join(' ')} }`;
+    case 'typed': return `{ const $v = ${v}; if ($v.length !== ${t.n}) throw Error("a ${t.class} of " + $v.length + ", not ${t.n}"); for (let i = 0; i < ${t.n}; i++) f[at + ${k} + i] = $v[i]; }`;
     case 'str': return `f[at + ${k}] = b.strings.id(${v});`;
     case 'enum': return `f[at + ${k}] = ${jsEnumIndex(model.enums.get(t.of))}.get(${v});`;
     case 'def': return `f[at + ${k}] = b.defs.${t.of}.id(${v});`;
@@ -902,8 +1059,15 @@ function jsPut(model, t, v, k) {
     case 'union': return `put${t.of}(b, ${v}, f, at + ${k}, heap);`;
     case 'rec': return `put${t.of}(b, ${v}, f, at + ${k}, heap);`;
     case 'set': return `heap.list(b.refs[${kindConst(t.of)}], ${v}, f, at + ${k});`;
-    case 'list': return `heap.items(${v}, f, at + ${k}, ${words(model, t.value)}, (f, at, v) => { ${jsPut(model, t.value, 'v', 0)} });`;
-    case 'map': return `heap.map(b.strings, ${v}, f, at + ${k}, ${entryWords(model, t)}, (f, at, v) => { ${jsPut(model, t.value, 'v', 1)} });`;
+    case 'list': return `heap.items(${v}, f, at + ${k}, ${words(model, t.value)}, (f, at, v) => { ${jsPutField(model, t.value, 'v', 0)} });`;
+    case 'obj': return `heap.object(${v}, f, at + ${k}, ${entryWords(model, t)}, (f, at, v) => { ${jsPutField(model, t.value, 'v', 1)} });`;
+    case 'map': {
+      if (!t.key) return `heap.map(b.strings, ${v}, f, at + ${k}, ${entryWords(model, t)}, (f, at, v) => { ${jsPutField(model, t.value, 'v', 1)} });`;
+      // An entry's key (a number; an object's slot and generation, a union's
+      // variant first), then its value.
+      const key = t.key.base === 'num' ? 'if (typeof key !== "number") throw Error("a Map keyed by numbers has the key " + String(key)); f[at] = key;' : model.kinds.has(t.key.of) ? `b.refs[${kindConst(t.key.of)}].put(key, f, at);` : `put${t.key.of}(b, key, f, at, heap);`;
+      return `heap.pairs(${v}, f, at + ${k}, ${entryWords(model, t)}, (f, at, key, v) => { ${key} ${jsPutField(model, t.value, 'v', keyWords(model, t))} });`;
+    }
   }
 }
 
@@ -929,13 +1093,22 @@ function jsSame(model, t, a, b, path) {
     case 'quat': return `if (!sameQuat(${a}, ${b})) return ${p};`;
     case 'mat4': return `if (!sameArray(${a}?.elements, ${b}?.elements, 16)) return ${p};`;
     case 'f64xN': return `if (!sameArray(${a}, ${b}, ${t.n})) return ${p};`;
+    case 'typed': return `if (!sameTyped(${a}, ${b}, ${t.n})) return ${p};`;
     case 'rec': return `{ const d = same${t.of}(${a}, ${b}); if (d) return ${p} + d; }`;
     case 'union': return `if (!same${t.of}(${a}, ${b})) return ${p};`;
-    case 'list': return `if (!sameEach(${a}, ${b}, (x, y) => ${jsSameValue(model, t.value, 'x', 'y')})) return ${p};`;
+    case 'list': return `if (!sameEach(${a}, ${b}, (x, y) => ${jsSameItem(model, t.value, 'x', 'y')})) return ${p};`;
     case 'set': return `if (!sameList(${a} && [...${a}], ${b} && [...${b}])) return ${p};`;
-    case 'map': return `if (!sameMap(${a}, ${b}, (x, y) => ${jsSameValue(model, t.value, 'x', 'y')})) return ${p};`;
+    case 'map': return `if (!sameMap(${a}, ${b}, (x, y) => ${jsSameItem(model, t.value, 'x', 'y')})) return ${p};`;
+    case 'obj': return `if (!sameObject(${a}, ${b}, (x, y) => ${jsSameItem(model, t.value, 'x', 'y')})) return ${p};`;
     default: return `if (!Object.is(${a}, ${b})) return ${p};`;
   }
+}
+
+// Whether two items of a list (values of a map or object) are the same: as
+// jsSameValue, and null and undefined alike where the type allows them.
+function jsSameItem(model, t, a, b) {
+  if (!optional(t)) return jsSameValue(model, t, a, b);
+  return `(${a} === null || ${a} === undefined || ${b} === null || ${b} === undefined ? ${a} === ${b} : ${jsSameValue(model, bare(t), a, b)})`;
 }
 
 // Whether two values of a bare type are the same (an expression).
@@ -947,7 +1120,7 @@ function jsSameValue(model, t, a, b) {
     case 'f64xN': return `sameArray(${a}, ${b}, ${t.n})`;
     case 'rec': return `same${t.of}(${a}, ${b}) === null`;
     case 'union': return `same${t.of}(${a}, ${b})`;
-    case 'list': return `sameEach(${a}, ${b}, (x, y) => ${jsSameValue(model, t.value, 'x', 'y')})`;
+    case 'list': return `sameEach(${a}, ${b}, (x, y) => ${jsSameItem(model, t.value, 'x', 'y')})`;
     case 'set': return `sameList(${a} && [...${a}], ${b} && [...${b}])`;
     default: return `Object.is(${a}, ${b})`;
   }
@@ -974,18 +1147,34 @@ function jsExport(model, t, v) {
   switch (t.base) {
     case 'vec3': case 'quat': case 'mat4': return `${v}.clone()`;
     case 'f64xN': return `[...${v}]`;
+    case 'typed': return `${v}.slice()`;
     case 'rec': return `export${t.of}(${v}, cx)`;
     case 'union': return `export${t.of}(${v}, cx)`;
     case 'def': return `cx.def(${JSON.stringify(t.of)}, ${v})`;
     case 'ref': return one(t.of, v);
-    case 'list': return `${v}.map((x) => ${jsExport(model, t.value, 'x')})`;
+    case 'list': return `${v}.map((x) => ${jsExportItem(model, t.value, 'x')})`;
     case 'set': return `new Set([...${v}].map((x) => ${one(t.of, 'x')}))`;
     case 'map': {
-      const inner = jsExport(model, t.value, 'x');
+      const inner = jsExportItem(model, t.value, 'x');
+      // A key that is an object is its handle (a union's, its variant's).
+      if (t.key?.base === 'ref') return `new Map([...${v}].map(([k, x]) => [${model.kinds.has(t.key.of) ? one(t.key.of, 'k') : `export${t.key.of}(k, cx)`}, ${inner}]))`;
       return inner === 'x' ? `new Map(${v})` : `new Map([...${v}].map(([k, x]) => [k, ${inner}]))`;
+    }
+    case 'obj': {
+      // A plain object of the same keys (in the same order: ascending).
+      const inner = jsExportItem(model, t.value, 'x');
+      return inner === 'x' ? `({ ...${v} })` : `Object.fromEntries(Object.entries(${v}).map(([k, x]) => [k, ${inner}]))`;
     }
     default: return v;
   }
+}
+
+// The value of a list's item (a map's or an object's value): as jsExport,
+// null and undefined as they are where the type allows them.
+function jsExportItem(model, t, x) {
+  const inner = jsExport(model, bare(t), x);
+  if (!optional(t) || inner === x) return inner;
+  return `(${x} === null || ${x} === undefined ? ${x} : ${inner})`;
 }
 
 function jsExportField(model, t, v) {
@@ -1011,6 +1200,8 @@ function jsMirrorInit(model, t) {
     case 'list': return '[]';
     case 'set': return 'new Set()';
     case 'map': return 'new Map()';
+    case 'obj': return '{}';
+    case 'typed': return `new ${t.class}(${t.n})`;
     default: return 'null';
   }
 }
@@ -1196,9 +1387,18 @@ function jsFile(model, file) {
   const uses = new Map();
   const use = (name, from) => { if (from !== file) { if (!uses.has(from)) uses.set(from, new Set()); uses.get(from).add(name); } };
   const codes = new Set();
+  // The comparisons only some types need.
+  const compare = new Set(['sameArray', 'sameEach', 'sameList', 'sameMap', 'sameQuat', 'sameVec']);
   let t0Field = null;
   const need = (t0) => {
-    const t = ['map', 'list'].includes(t0.base) ? t0.value : t0;
+    if (t0.base === 'obj') compare.add('sameObject');
+    if (t0.base === 'typed') compare.add('sameTyped');
+    // A Map's keys that are objects: the kind's code, or the union's functions.
+    if (t0.key?.base === 'ref') {
+      if (model.kinds.has(t0.key.of)) codes.add(kindConst(t0.key.of));
+      else { const u = model.unions.get(t0.key.of); for (const p of ['sync', 'put', 'export']) use(`${p}${u.name}`, u.file); }
+    }
+    const t = container(t0) ? t0.value : t0;
     if (t.base === 'enum') { const e = model.enums.get(t.of); use(jsEnum(e), e.file); use(jsEnumIndex(e), e.file); }
     if (t.base === 'union') { const u = model.unions.get(t.of); for (const p of ['sync', 'put', 'export', 'same']) use(`${p}${u.name}`, u.file); }
     if (t.base === 'rec') { const r = model.records.get(t.of); for (const p of ['sync', 'put', 'same', 'export']) use(`${p}${r.name}`, r.file); use(`${r.name}Mirror`, r.file); }
@@ -1211,7 +1411,7 @@ function jsFile(model, file) {
     if (v.tag === 'ref') codes.add(kindConst(v.kind));
     if (v.tag === 'value') need(v.type);
   }
-  const lines = [`// Generated by tools/sim-schema.mjs from ${model.target.schema}/${file}.mjs; do not edit.`, 'import * as THREE from "three";', `import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "${model.target.compare}";`];
+  const lines = [`// Generated by tools/sim-schema.mjs from ${model.target.schema}/${file}.mjs; do not edit.`, 'import * as THREE from "three";', `import { ${[...compare].sort().join(', ')} } from "${model.target.compare}";`];
   if (codes.size) lines.push(`import { ${[...codes].sort().join(', ')} } from "./kinds.js";`);
   for (const [from, names] of [...uses].sort()) lines.push(`import { ${[...names].sort().join(', ')} } from "./${from}.js";`);
   lines.push('');

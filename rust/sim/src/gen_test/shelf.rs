@@ -126,6 +126,48 @@ impl Body {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Who {
+    Person(Ref<Person>),
+    Thing(Ref<Thing>),
+}
+
+impl Default for Who {
+    fn default() -> Self { Who::Person(Ref::new(0, 0)) }
+}
+
+impl Who {
+    pub const WORDS: usize = 3;
+
+    /// Its row words: the variant, then its value (a reference's slot and generation).
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[1..3].fill(0.0);
+        match self {
+            Who::Person(r) => { row[0] = 0.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            Who::Thing(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+        }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        match word_u32(row[0]) {
+            0 => Who::Person(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            1 => Who::Thing(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            _ => Who::default(),
+        }
+    }
+}
+
+/// A Map's key: the same object (its kind and its slot and generation).
+impl jsrt::map::JsKey for Who {
+    fn svz_eq(&self, other: &Self) -> bool { self == other }
+    fn svz_hash(&self) -> u64 {
+        match self {
+            Who::Person(r) => crate::store::key_hash(0, r.slot, r.gen),
+            Who::Thing(r) => crate::store::key_hash(1, r.slot, r.gen),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Spot {
     pub at: Vec3,
@@ -281,33 +323,63 @@ pub struct Shelf {
     pub spots: StrMap<Spot>,
     pub owners: StrMap<Ref<Person>>,
     pub names: Option<StrMap<StrId>>,
+    pub by_team: IntObj<f64>,
+    pub rules: IntObj<Vec<[f64; 2]>>,
+    pub labels: IntObj<Option<StrId>>,
+    pub counts: NumMap<f64>,
+    pub spots_at: NumMap<Spot>,
+    pub tally: RefMap<Ref<Thing>, f64>,
+    pub queues: RefMap<Who, Vec<Ref<Thing>>>,
+    pub times: TypedArray<f64, 5>,
+    pub slots: TypedArray<i32, 4>,
+    pub ring: Vec<Option<Ref<Thing>>>,
 }
 
 impl Shelf {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 15;
-    pub const IMPORT_STRIDE: usize = 15;
-    pub const FULL_STRIDE: usize = 15;
+    pub const EXPORT_STRIDE: usize = 40;
+    pub const IMPORT_STRIDE: usize = 40;
+    pub const FULL_STRIDE: usize = 40;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 15] = (&mut row[..15]).try_into().unwrap();
+        let row: &mut [f64; 40] = (&mut row[..40]).try_into().unwrap();
         { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.things.len() as f64; heap.resize(at + self.things.len() * 2, 0.0); for (i, e) in self.things.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
         { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.by_name.entries.len() as f64; heap.resize(at + self.by_name.entries.len() * 3, 0.0); for (i, (key, e)) in self.by_name.entries.iter().enumerate() { let mut entry = [0.0f64; 3]; entry[0] = key.0 as f64; { let row = &mut entry; { let at = heap.len(); row[1] = at as f64; row[1 + 1] = e.len() as f64; heap.resize(at + e.len() * 2, 0.0); for (i, e) in e.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } } } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&entry); } }
         { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.weights.entries.len() as f64; heap.resize(at + self.weights.entries.len() * 2, 0.0); for (i, (key, e)) in self.weights.entries.iter().enumerate() { let mut entry = [0.0f64; 2]; entry[0] = key.0 as f64; { let row = &mut entry; row[1] = (*e); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&entry); } }
         { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.spots.entries.len() as f64; heap.resize(at + self.spots.entries.len() * 18, 0.0); for (i, (key, e)) in self.spots.entries.iter().enumerate() { let mut entry = [0.0f64; 18]; entry[0] = key.0 as f64; { let row = &mut entry; e.put(&mut row[1..], heap); } heap[at + i * 18..at + (i + 1) * 18].copy_from_slice(&entry); } }
         { let at = heap.len(); row[10] = at as f64; row[10 + 1] = self.owners.entries.len() as f64; heap.resize(at + self.owners.entries.len() * 3, 0.0); for (i, (key, e)) in self.owners.entries.iter().enumerate() { let mut entry = [0.0f64; 3]; entry[0] = key.0 as f64; { let row = &mut entry; row[1] = (*e).slot as f64; row[1 + 1] = (*e).gen as f64; } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&entry); } }
         match &self.names { Some(v) => { row[12] = 0.0; { let at = heap.len(); row[12 + 1] = at as f64; row[12 + 1 + 1] = v.entries.len() as f64; heap.resize(at + v.entries.len() * 2, 0.0); for (i, (key, e)) in v.entries.iter().enumerate() { let mut entry = [0.0f64; 2]; entry[0] = key.0 as f64; { let row = &mut entry; row[1] = (*e).0 as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&entry); } } } None => { row[12] = 1.0; row[12 + 1..12 + 3].fill(0.0); } }
+        { let at = heap.len(); row[15] = at as f64; row[15 + 1] = self.by_team.len() as f64; heap.resize(at + self.by_team.len() * 2, 0.0); for (i, (key, e)) in self.by_team.iter().enumerate() { let mut entry = [0.0f64; 2]; entry[0] = key; { let row = &mut entry; row[1] = (*e); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&entry); } }
+        { let at = heap.len(); row[17] = at as f64; row[17 + 1] = self.rules.len() as f64; heap.resize(at + self.rules.len() * 3, 0.0); for (i, (key, e)) in self.rules.iter().enumerate() { let mut entry = [0.0f64; 3]; entry[0] = key; { let row = &mut entry; { let at = heap.len(); row[1] = at as f64; row[1 + 1] = e.len() as f64; heap.resize(at + e.len() * 2, 0.0); for (i, e) in e.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0..0 + 2].copy_from_slice(&(*e)); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } } } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&entry); } }
+        { let at = heap.len(); row[19] = at as f64; row[19 + 1] = self.labels.len() as f64; heap.resize(at + self.labels.len() * 3, 0.0); for (i, (key, e)) in self.labels.iter().enumerate() { let mut entry = [0.0f64; 3]; entry[0] = key; { let row = &mut entry; match &(*e) { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).0 as f64; } None => { row[1] = 2.0; row[1 + 1..1 + 2].fill(0.0); } } } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&entry); } }
+        { let at = heap.len(); row[21] = at as f64; row[21 + 1] = self.counts.len() as f64; heap.resize(at + self.counts.len() * 2, 0.0); for (i, (key, e)) in self.counts.iter().enumerate() { let mut entry = [0.0f64; 2]; entry[0] = key; { let row = &mut entry; row[1] = (*e); } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&entry); } }
+        { let at = heap.len(); row[23] = at as f64; row[23 + 1] = self.spots_at.len() as f64; heap.resize(at + self.spots_at.len() * 18, 0.0); for (i, (key, e)) in self.spots_at.iter().enumerate() { let mut entry = [0.0f64; 18]; entry[0] = key; { let row = &mut entry; e.put(&mut row[1..], heap); } heap[at + i * 18..at + (i + 1) * 18].copy_from_slice(&entry); } }
+        { let at = heap.len(); row[25] = at as f64; row[25 + 1] = self.tally.len() as f64; heap.resize(at + self.tally.len() * 3, 0.0); for (i, (key, e)) in self.tally.iter().enumerate() { let mut entry = [0.0f64; 3]; entry[0] = key.slot as f64; entry[1] = key.gen as f64; { let row = &mut entry; row[2] = (*e); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&entry); } }
+        { let at = heap.len(); row[27] = at as f64; row[27 + 1] = self.queues.len() as f64; heap.resize(at + self.queues.len() * 5, 0.0); for (i, (key, e)) in self.queues.iter().enumerate() { let mut entry = [0.0f64; 5]; key.put(&mut entry[0..3], heap); { let row = &mut entry; { let at = heap.len(); row[3] = at as f64; row[3 + 1] = e.len() as f64; heap.resize(at + e.len() * 2, 0.0); for (i, e) in e.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } } } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&entry); } }
+        row[29..29 + 5].copy_from_slice(&self.times.0);
+        for i in 0..4 { row[34 + i] = self.slots.0[i] as f64; }
+        { let at = heap.len(); row[38] = at as f64; row[38 + 1] = self.ring.len() as f64; heap.resize(at + self.ring.len() * 3, 0.0); for (i, e) in self.ring.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).slot as f64; row[0 + 1 + 1] = (*v).gen as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 3].fill(0.0); } } } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 15] = (&row[..15]).try_into().unwrap();
+        let row: &[f64; 40] = (&row[..40]).try_into().unwrap();
         self.things = { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
         self.by_name = { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut m = StrMap::default(); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; let value = { let (at, n) = (word_u32(row[1]) as usize, word_u32(row[1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out }; m.entries.push((StrId(word_u32(row[0])), value)); } m };
         self.weights = { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); let mut m = StrMap::default(); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; let value = row[1]; m.entries.push((StrId(word_u32(row[0])), value)); } m };
         self.spots = { let (at, n) = (word_u32(row[8]) as usize, word_u32(row[8 + 1]) as usize); let mut m = StrMap::default(); for i in 0..n { let row = &heap[at + i * 18..at + (i + 1) * 18]; let value = Spot::take(&row[1..], heap); m.entries.push((StrId(word_u32(row[0])), value)); } m };
         self.owners = { let (at, n) = (word_u32(row[10]) as usize, word_u32(row[10 + 1]) as usize); let mut m = StrMap::default(); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; let value = Ref::new(word_u32(row[1]), word_u32(row[1 + 1])); m.entries.push((StrId(word_u32(row[0])), value)); } m };
         self.names = if row[12] == 0.0 { Some({ let (at, n) = (word_u32(row[12 + 1]) as usize, word_u32(row[12 + 1 + 1]) as usize); let mut m = StrMap::default(); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; let value = StrId(word_u32(row[1])); m.entries.push((StrId(word_u32(row[0])), value)); } m }) } else { None };
+        self.by_team = { let (at, n) = (word_u32(row[15]) as usize, word_u32(row[15 + 1]) as usize); let mut m = IntObj::default(); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; let value = row[1]; m.set(row[0], value); } m };
+        self.rules = { let (at, n) = (word_u32(row[17]) as usize, word_u32(row[17 + 1]) as usize); let mut m = IntObj::default(); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; let value = { let (at, n) = (word_u32(row[1]) as usize, word_u32(row[1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push({ let mut a = [0.0; 2]; a.copy_from_slice(&row[0..0 + 2]); a }); } out }; m.set(row[0], value); } m };
+        self.labels = { let (at, n) = (word_u32(row[19]) as usize, word_u32(row[19 + 1]) as usize); let mut m = IntObj::default(); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; let value = if row[1] == 0.0 { Some(StrId(word_u32(row[1 + 1]))) } else { None }; m.set(row[0], value); } m };
+        self.counts = { let (at, n) = (word_u32(row[21]) as usize, word_u32(row[21 + 1]) as usize); let mut m = NumMap::default(); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; let value = row[1]; m.set(row[0], value); } m };
+        self.spots_at = { let (at, n) = (word_u32(row[23]) as usize, word_u32(row[23 + 1]) as usize); let mut m = NumMap::default(); for i in 0..n { let row = &heap[at + i * 18..at + (i + 1) * 18]; let value = Spot::take(&row[1..], heap); m.set(row[0], value); } m };
+        self.tally = { let (at, n) = (word_u32(row[25]) as usize, word_u32(row[25 + 1]) as usize); let mut m = RefMap::default(); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; let value = row[2]; m.set(Ref::new(word_u32(row[0]), word_u32(row[1])), value); } m };
+        self.queues = { let (at, n) = (word_u32(row[27]) as usize, word_u32(row[27 + 1]) as usize); let mut m = RefMap::default(); for i in 0..n { let row = &heap[at + i * 5..at + (i + 1) * 5]; let value = { let (at, n) = (word_u32(row[3]) as usize, word_u32(row[3 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out }; m.set(Who::take(&row[0..3], heap), value); } m };
+        self.times = { let mut a = TypedArray::<f64, 5>::default(); for i in 0..5 { a.0[i] = row[29 + i]; } a };
+        self.slots = { let mut a = TypedArray::<i32, 4>::default(); for i in 0..4 { a.0[i] = word_i32(row[34 + i]); } a };
+        self.ring = { let (at, n) = (word_u32(row[38]) as usize, word_u32(row[38 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(if row[0] == 0.0 { Some(Ref::new(word_u32(row[0 + 1]), word_u32(row[0 + 1 + 1]))) } else { None }); } out };
     }
 
     #[inline(always)]
@@ -357,17 +429,21 @@ pub struct Thing {
     pub shapes: Vec<Shape>,
     pub hit_set: Option<u32>,
     pub body: Body,
+    pub gains: Option<TypedArray<f32, 2>>,
+    pub maybe: Vec<Option<f64>>,
+    pub seen_by: RefMap<Ref<Person>, u8>,
+    pub marked: IntObj<Option<Spot>>,
 }
 
 impl Thing {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 87;
-    pub const IMPORT_STRIDE: usize = 90;
-    pub const FULL_STRIDE: usize = 90;
+    pub const EXPORT_STRIDE: usize = 96;
+    pub const IMPORT_STRIDE: usize = 99;
+    pub const FULL_STRIDE: usize = 99;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 90] = (&mut row[..90]).try_into().unwrap();
+        let row: &mut [f64; 99] = (&mut row[..99]).try_into().unwrap();
         row[2] = self.count as f64;
         row[3] = self.size as f64;
         row[4] = self.small as f64;
@@ -398,10 +474,14 @@ impl Thing {
         { let at = heap.len(); row[81] = at as f64; row[81 + 1] = self.shapes.len() as f64; heap.resize(at + self.shapes.len() * 5, 0.0); for (i, e) in self.shapes.iter().enumerate() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&item); } }
         match &self.hit_set { Some(v) => { row[83] = 0.0; row[83 + 1] = (*v) as f64; } None => { row[83] = 1.0; row[83 + 1..83 + 2].fill(0.0); } }
         self.body.put(&mut row[85..85 + 5], heap);
+        match &self.gains { Some(v) => { row[90] = 0.0; for i in 0..2 { row[90 + 1 + i] = v.0[i] as f64; } } None => { row[90] = 1.0; row[90 + 1..90 + 3].fill(0.0); } }
+        { let at = heap.len(); row[93] = at as f64; row[93 + 1] = self.maybe.len() as f64; heap.resize(at + self.maybe.len() * 2, 0.0); for (i, e) in self.maybe.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v); } None => { row[0] = 2.0; row[0 + 1..0 + 2].fill(0.0); } } } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[95] = at as f64; row[95 + 1] = self.seen_by.len() as f64; heap.resize(at + self.seen_by.len() * 3, 0.0); for (i, (key, e)) in self.seen_by.iter().enumerate() { let mut entry = [0.0f64; 3]; entry[0] = key.slot as f64; entry[1] = key.gen as f64; { let row = &mut entry; row[2] = (*e) as f64; } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&entry); } }
+        { let at = heap.len(); row[97] = at as f64; row[97 + 1] = self.marked.len() as f64; heap.resize(at + self.marked.len() * 19, 0.0); for (i, (key, e)) in self.marked.iter().enumerate() { let mut entry = [0.0f64; 19]; entry[0] = key; { let row = &mut entry; match &e { Some(v) => { row[1] = 0.0; v.put(&mut row[1 + 1..], heap); } None => { row[1] = 1.0; row[1 + 1..1 + 18].fill(0.0); } } } heap[at + i * 19..at + (i + 1) * 19].copy_from_slice(&entry); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 90] = (&row[..90]).try_into().unwrap();
+        let row: &[f64; 99] = (&row[..99]).try_into().unwrap();
         self.count = word_i32(row[2]);
         self.size = word_u32(row[3]);
         self.small = word_u32(row[4]) as u8;
@@ -432,10 +512,14 @@ impl Thing {
         self.shapes = { let (at, n) = (word_u32(row[81]) as usize, word_u32(row[81 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 5..at + (i + 1) * 5]; out.push(Shape::take(&row[0..], heap)); } out };
         self.hit_set = if row[83] == 0.0 { Some(word_u32(row[83 + 1])) } else { None };
         self.body = Body::take(&row[85..85 + 5], heap);
+        self.gains = if row[90] == 0.0 { Some({ let mut a = TypedArray::<f32, 2>::default(); for i in 0..2 { a.0[i] = row[90 + 1 + i] as f32; } a }) } else { None };
+        self.maybe = { let (at, n) = (word_u32(row[93]) as usize, word_u32(row[93 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(if row[0] == 0.0 { Some(row[0 + 1]) } else { None }); } out };
+        self.seen_by = { let (at, n) = (word_u32(row[95]) as usize, word_u32(row[95 + 1]) as usize); let mut m = RefMap::default(); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; let value = word_u32(row[2]) as u8; m.set(Ref::new(word_u32(row[0]), word_u32(row[1])), value); } m };
+        self.marked = { let (at, n) = (word_u32(row[97]) as usize, word_u32(row[97 + 1]) as usize); let mut m = IntObj::default(); for i in 0..n { let row = &heap[at + i * 19..at + (i + 1) * 19]; let value = if row[1] == 0.0 { Some(Spot::take(&row[1 + 1..], heap)) } else { None }; m.set(row[0], value); } m };
     }
 
     pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 87] = (&mut row[..87]).try_into().unwrap();
+        let row: &mut [f64; 96] = (&mut row[..96]).try_into().unwrap();
         row[2] = self.count as f64;
         row[3] = self.size as f64;
         row[4] = self.small as f64;
@@ -463,10 +547,14 @@ impl Thing {
         { let at = heap.len(); row[78] = at as f64; row[78 + 1] = self.shapes.len() as f64; heap.resize(at + self.shapes.len() * 5, 0.0); for (i, e) in self.shapes.iter().enumerate() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&item); } }
         match &self.hit_set { Some(v) => { row[80] = 0.0; row[80 + 1] = (*v) as f64; } None => { row[80] = 1.0; row[80 + 1..80 + 2].fill(0.0); } }
         self.body.put(&mut row[82..82 + 5], heap);
+        match &self.gains { Some(v) => { row[87] = 0.0; for i in 0..2 { row[87 + 1 + i] = v.0[i] as f64; } } None => { row[87] = 1.0; row[87 + 1..87 + 3].fill(0.0); } }
+        { let at = heap.len(); row[90] = at as f64; row[90 + 1] = self.maybe.len() as f64; heap.resize(at + self.maybe.len() * 2, 0.0); for (i, e) in self.maybe.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; match &(*e) { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v); } None => { row[0] = 2.0; row[0 + 1..0 + 2].fill(0.0); } } } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[92] = at as f64; row[92 + 1] = self.seen_by.len() as f64; heap.resize(at + self.seen_by.len() * 3, 0.0); for (i, (key, e)) in self.seen_by.iter().enumerate() { let mut entry = [0.0f64; 3]; entry[0] = key.slot as f64; entry[1] = key.gen as f64; { let row = &mut entry; row[2] = (*e) as f64; } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&entry); } }
+        { let at = heap.len(); row[94] = at as f64; row[94 + 1] = self.marked.len() as f64; heap.resize(at + self.marked.len() * 19, 0.0); for (i, (key, e)) in self.marked.iter().enumerate() { let mut entry = [0.0f64; 19]; entry[0] = key; { let row = &mut entry; match &e { Some(v) => { row[1] = 0.0; v.put(&mut row[1 + 1..], heap); } None => { row[1] = 1.0; row[1 + 1..1 + 18].fill(0.0); } } } heap[at + i * 19..at + (i + 1) * 19].copy_from_slice(&entry); } }
     }
 
     pub fn take_export(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 87] = (&row[..87]).try_into().unwrap();
+        let row: &[f64; 96] = (&row[..96]).try_into().unwrap();
         self.count = word_i32(row[2]);
         self.size = word_u32(row[3]);
         self.small = word_u32(row[4]) as u8;
@@ -494,6 +582,10 @@ impl Thing {
         self.shapes = { let (at, n) = (word_u32(row[78]) as usize, word_u32(row[78 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 5..at + (i + 1) * 5]; out.push(Shape::take(&row[0..], heap)); } out };
         self.hit_set = if row[80] == 0.0 { Some(word_u32(row[80 + 1])) } else { None };
         self.body = Body::take(&row[82..82 + 5], heap);
+        self.gains = if row[87] == 0.0 { Some({ let mut a = TypedArray::<f32, 2>::default(); for i in 0..2 { a.0[i] = row[87 + 1 + i] as f32; } a }) } else { None };
+        self.maybe = { let (at, n) = (word_u32(row[90]) as usize, word_u32(row[90 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(if row[0] == 0.0 { Some(row[0 + 1]) } else { None }); } out };
+        self.seen_by = { let (at, n) = (word_u32(row[92]) as usize, word_u32(row[92 + 1]) as usize); let mut m = RefMap::default(); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; let value = word_u32(row[2]) as u8; m.set(Ref::new(word_u32(row[0]), word_u32(row[1])), value); } m };
+        self.marked = { let (at, n) = (word_u32(row[94]) as usize, word_u32(row[94 + 1]) as usize); let mut m = IntObj::default(); for i in 0..n { let row = &heap[at + i * 19..at + (i + 1) * 19]; let value = if row[1] == 0.0 { Some(Spot::take(&row[1 + 1..], heap)) } else { None }; m.set(row[0], value); } m };
     }
 
     #[inline(always)]

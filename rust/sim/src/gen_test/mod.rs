@@ -4,6 +4,7 @@
 
 pub use crate::store::block::Block;
 pub use crate::store::{word_i32, word_u32, DefId, KindCode, Mat4, Nullable, Quat, Ref, RefSet, Slab, StrId, StrMap, Vec3};
+pub use crate::store::{IntObj, NumMap, RefMap, TypedArray};
 
 mod shelf;
 pub use self::shelf::*;
@@ -20,7 +21,7 @@ pub const KINDS: usize = 3;
 pub const KIND_NAMES: [&str; 4] = ["", "person", "shelf", "thing"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 4] = [0, 0x6076baef, 0x7865bf3a, 0xe90fae58];
+pub const KIND_HASHES: [u32; 4] = [0, 0x6076baef, 0x106680bd, 0x3f727919];
 /// Whether each kind's objects carry their own number (its slot), by code.
 pub const KIND_KEYED: [bool; 4] = [false, true, false, false];
 

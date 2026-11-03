@@ -6,7 +6,7 @@
 // a battle's instance of the module.
 import { COMMAND_TABLE, DEF_TABLES, EVENT_TABLE, IMPORT_TABLE, KIND_TABLE, RECORD_CLASSES } from "./gen/index.js";
 
-export { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "./compare.js";
+export { sameArray, sameEach, sameList, sameMap, sameObject, sameQuat, sameTyped, sameVec } from "./compare.js";
 
 // A sync block's header: rows, stride, where the heap starts, its length,
 // and how many of the rows (the first) are retired entities'
@@ -220,6 +220,40 @@ export class Heap {
       const e = start + i++ * size;
       words[e] = strings.id(key);
       put(words, e, value);
+    }
+    f[at] = start;
+    f[at + 1] = n;
+  }
+
+  // A Map keyed by numbers or objects: its entries' words (`size` each)
+  // and after them whatever its values' lists hold; put(words, at, key,
+  // value) writes an entry, its key and its value.
+  pairs(map, f, at, size, put) {
+    const words = this.words, start = words.length, n = map.size;
+    for (let i = 0; i < n * size; i++) words.push(0);
+    let i = 0;
+    for (const [key, value] of map) put(words, start + i++ * size, key, value);
+    f[at] = start;
+    f[at + 1] = n;
+  }
+
+  // A plain object keyed by array indices (a table by team number), in its
+  // keys' order, which is ascending: each entry the key, then the value
+  // (`size` words in all); put(words, at, value) writes a value.
+  object(object, f, at, size, put) {
+    const words = this.words, start = words.length;
+    let n = 0;
+    for (const key in object) {
+      const k = +key;
+      if (!(k >>> 0 === k && k !== 4294967295 && String(k) === key)) throw Error(`an object keyed by numbers has the key "${key}"`);
+      n++;
+    }
+    for (let i = 0; i < n * size; i++) words.push(0);
+    let i = 0;
+    for (const key in object) {
+      const e = start + i++ * size;
+      words[e] = +key;
+      put(words, e, object[key]);
     }
     f[at] = start;
     f[at + 1] = n;

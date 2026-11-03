@@ -26,6 +26,9 @@ fn shelf(strings: &mut Strings) -> Store {
         matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 5.0, -6.0, 7.5, 1.0], first_size: -2.5,
         shapes: vec![Shape { radius: 0.5, half: Half::F64(0.25) }, Shape { radius: -0.0, half: Half::Vec3([1.0, 2.0, 0.5]) }],
         hit_set: Some(1), body: Body::Wheels(Wheels { count: 4, grip: [0.1, 0.2, 0.3] }),
+        gains: Some(TypedArray([0.5, -0.0])), maybe: vec![Some(1.5), None, Some(-0.0)],
+        seen_by: { let mut m = RefMap::default(); m.set(person(9), 3); m.set(person(4), 255); m },
+        marked: [(2.0, Some(spot.clone())), (0.0, None)].into_iter().collect(),
     });
     let two = s.thing.insert(Thing { holder: Holder::Thing(one), next: Some(one), spot: Nullable::Null, owner: None, name: b, tags: None, holders: vec![Holder::Thing(one)], body: Body::Legs(Legs { stride: 1.5, side: vec![1.0, -1.0] }), ..Default::default() });
     s.thing.get_mut(one).unwrap().next = Some(two);
@@ -36,6 +39,31 @@ fn shelf(strings: &mut Strings) -> Store {
         spots: StrMap { entries: vec![(b, Spot { kept: vec![two], ..spot })] },
         owners: StrMap { entries: vec![(b, person(4))] },
         names: Some(StrMap { entries: vec![(a, b)] }),
+        // Set out of order: the keys come out ascending anyway.
+        by_team: [(7.0, 0.5), (1.0, -0.0), (3.0, 150.0)].into_iter().collect(),
+        rules: [(2.0, vec![[0.0, 0.25], [10.0, 0.5]]), (1.0, vec![])].into_iter().collect(),
+        labels: [(2.0, None), (1.0, Some(a))].into_iter().collect(),
+        // A key deleted and set again goes last; -0 is kept as 0; NaN is a key.
+        counts: {
+            let mut m = NumMap::default();
+            for (k, v) in [(5.0, 1.0), (-0.0, 2.0), (f64::NAN, 3.0), (2.0, 4.0)] { m.set(k, v); }
+            m.delete(&5.0);
+            m.set(5.0, 6.0);
+            m.set(2.0, 8.0);
+            m
+        },
+        spots_at: { let mut m = NumMap::default(); m.set(1.5, spot.clone()); m },
+        tally: { let mut m = RefMap::default(); m.set(two, 1.0); m.set(one, 2.0); m },
+        queues: {
+            let mut m = RefMap::default();
+            m.set(Who::Person(person(4)), vec![one]);
+            m.set(Who::Thing(two), vec![two, one]);
+            m.set(Who::Person(person(9)), vec![]);
+            m
+        },
+        times: TypedArray([1.0, -0.0, 1e300, 0.25, 5e-324]),
+        slots: TypedArray([-1, i32::MAX, i32::MIN, 0]),
+        ring: vec![Some(one), None, Some(two), None],
     };
     s
 }
@@ -80,6 +108,58 @@ fn a_map_s_words_are_its_entries() {
     assert_eq!((e[0], e[2], e[3], e[5]), (0.0, 2.0, 1.0, 0.0));
     let list = e[1] as usize;
     assert_eq!(&w[heap + list..heap + list + 4], &[1.0, 1.0, 0.0, 1.0]);
+    // byTeam ({ 1: -0, 3: 150, 7: 0.5 }): each entry its key, then its value.
+    let bits = |xs: &[f64]| xs.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+    let (at, n) = (w[row + 15] as usize, w[row + 16] as usize);
+    assert_eq!(n, 3);
+    assert_eq!(bits(&w[heap + at..heap + at + 6]), bits(&[1.0, -0.0, 3.0, 150.0, 7.0, 0.5]));
+    // counts (0: 2, NaN: 3, 2: 8, 5: 6), in its order.
+    let (at, n) = (w[row + 21] as usize, w[row + 22] as usize);
+    assert_eq!(n, 4);
+    let c = &w[heap + at..heap + at + 8];
+    assert!(c[2].is_nan());
+    assert_eq!(bits(&[c[0], c[1], c[3], c[4], c[5], c[6], c[7]]), bits(&[0.0, 2.0, 3.0, 2.0, 8.0, 5.0, 6.0]));
+}
+
+#[test]
+fn number_and_object_keys_keep_javascript_s_order() {
+    // An object keyed by numbers: ascending however set; -0 is 0; 1.5 is
+    // no key it holds.
+    let mut o: IntObj<char> = IntObj::new();
+    for (k, v) in [(7.0, 'a'), (1.0, 'b'), (3.0, 'c'), (-0.0, 'z')] { o.set(k, v); }
+    assert_eq!(o.keys().map(f64::to_bits).collect::<Vec<_>>(), [0.0f64, 1.0, 3.0, 7.0].map(f64::to_bits));
+    assert_eq!((o.get(-0.0), o.get(0.0), o.get(1.5), o.get(f64::NAN)), (Some(&'z'), Some(&'z'), None, None));
+    o.set(1.0, 'B');
+    assert!(o.delete(3.0) && !o.delete(3.0));
+    assert_eq!(o.iter().map(|(_, v)| *v).collect::<String>(), "zBa");
+    // A Map keyed by numbers: insertion order; a key set again keeps its
+    // place, one deleted and set again goes last; SameValueZero.
+    let mut m: NumMap<f64> = NumMap::default();
+    for (k, v) in [(5.0, 1.0), (-0.0, 2.0), (f64::NAN, 3.0), (2.0, 4.0)] { m.set(k, v); }
+    m.set(2.0, 8.0);
+    m.delete(&5.0);
+    m.set(5.0, 6.0);
+    let keys: Vec<f64> = m.iter().map(|(k, _)| k).collect();
+    assert_eq!(keys.iter().map(|k| k.to_bits()).collect::<Vec<_>>(), [0.0, f64::NAN, 2.0, 5.0].map(f64::to_bits));
+    assert_eq!((m.get(&0.0), m.get(&-0.0), m.get(&f64::NAN)), (Some(&2.0), Some(&2.0), Some(&3.0)));
+    assert_eq!(m.iter().map(|(_, v)| *v).collect::<Vec<_>>(), [2.0, 3.0, 8.0, 6.0]);
+    // Keyed by objects: the same object is the same slot of the same
+    // generation and kind.
+    let mut r: RefMap<Who, u8> = RefMap::default();
+    r.set(Who::Thing(Ref::new(1, 2)), 1);
+    r.set(Who::Person(person(1)), 2);
+    r.set(Who::Thing(Ref::new(1, 1)), 3);
+    r.set(Who::Thing(Ref::new(1, 2)), 4);
+    assert_eq!(r.iter().map(|(_, v)| *v).collect::<Vec<_>>(), [4, 2, 3]);
+    r.delete(&Who::Thing(Ref::new(1, 2)));
+    r.set(Who::Thing(Ref::new(1, 2)), 5);
+    assert_eq!(r.iter().map(|(_, v)| *v).collect::<Vec<_>>(), [2, 3, 5]);
+    // Equal maps: the same entries in the same order.
+    let mut q = r.clone();
+    assert_eq!(q, r);
+    q.delete(&Who::Person(person(1)));
+    q.set(Who::Person(person(1)), 2);
+    assert_ne!(q, r);
 }
 
 #[test]

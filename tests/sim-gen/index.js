@@ -10,8 +10,8 @@ export * from "./shelf.js";
 // whether the store holds fields of it, row strides, and its functions.
 export const KIND_TABLE = [null,
   { name: "person", code: 1, hash: 0x6076baef, singleton: false, key: "id", home: null, stored: false, classes: ["Person"] },
-  { name: "shelf", code: 2, hash: 0x7865bf3a, singleton: true, key: null, home: null, stored: true, classes: [], exportStride: 15, importStride: 15, fullStride: 15, Mirror: ShelfMirror, sync: syncShelf, syncFull: syncFullShelf, put: putShelf, putFull: putFullShelf, check: checkShelf, same: sameShelf, export: exportShelf, keys: SHELF_KEYS },
-  { name: "thing", code: 3, hash: 0xe90fae58, singleton: false, key: null, home: { kind: 2, field: "things" }, stored: true, classes: [], exportStride: 87, importStride: 90, fullStride: 90, Mirror: ThingMirror, sync: syncThing, syncFull: syncFullThing, put: putThing, putFull: putFullThing, check: checkThing, same: sameThing, export: exportThing, keys: THING_KEYS },
+  { name: "shelf", code: 2, hash: 0x106680bd, singleton: true, key: null, home: null, stored: true, classes: [], exportStride: 40, importStride: 40, fullStride: 40, Mirror: ShelfMirror, sync: syncShelf, syncFull: syncFullShelf, put: putShelf, putFull: putFullShelf, check: checkShelf, same: sameShelf, export: exportShelf, keys: SHELF_KEYS },
+  { name: "thing", code: 3, hash: 0x3f727919, singleton: false, key: null, home: { kind: 2, field: "things" }, stored: true, classes: [], exportStride: 96, importStride: 99, fullStride: 99, Mirror: ThingMirror, sync: syncThing, syncFull: syncFullThing, put: putThing, putFull: putFullThing, check: checkThing, same: sameThing, export: exportThing, keys: THING_KEYS },
 ];
 
 // The records a union tells apart by class: their classes.

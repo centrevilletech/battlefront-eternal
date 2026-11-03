@@ -13,6 +13,8 @@ export default {
     Half: ['f64', 'vec3'],
     // One of two records with different fields, told apart by class.
     Body: ['rec:Legs', 'rec:Wheels'],
+    // An object of one of two kinds (a Map's key).
+    Who: ['ref:person', 'ref:thing'],
   },
   records: {
     Spot: { at: 'vec3', turn: 'quat', label: 'str|null', mark: 'enum:Colour', near: 'ref:person|undefined', keeper: 'ref:person', kept: 'list:thing' },
@@ -34,6 +36,22 @@ export default {
         spots: 'map:rec:Spot',
         owners: 'map:ref:person',
         names: 'map:str|null',
+        // Objects keyed by numbers (their keys ascending, however they were
+        // set): of numbers, of lists, of values that can be undefined.
+        byTeam: 'obj:f64',
+        rules: 'obj:list:f64x2',
+        labels: 'obj:(str|undefined)',
+        // Maps keyed by numbers and by objects (insertion order; a key
+        // deleted and set again last), one of them by objects of two kinds.
+        counts: 'map:num:f64',
+        spotsAt: 'map:num:rec:Spot',
+        tally: 'map:ref:thing:f64',
+        queues: 'map:ref:Who:list:thing',
+        // Typed arrays, kept typed.
+        times: 'Float64Array(5)',
+        slots: 'Int32Array(4)',
+        // A list whose items can be null.
+        ring: 'list:(ref:thing|null)',
       },
     },
     thing: {
@@ -52,6 +70,9 @@ export default {
         firstSize: { type: 'f64', js: 'boxes.0.size', mirror: false },
         // Records in a list, and one of them by identity; a body of one of two classes.
         shapes: 'list:rec:Shape', hitSet: 'index:shapes|null', body: 'union:Body',
+        // A typed array that can be null, items and values that can be
+        // undefined or null, a Map keyed by objects the store only refers to.
+        gains: 'Float32Array(2)|null', maybe: 'list:(f64|undefined)', seenBy: 'map:ref:person:u8', marked: 'obj:(rec:Spot|null)',
       },
       skip: { mesh: 'drawn by the page' },
     },

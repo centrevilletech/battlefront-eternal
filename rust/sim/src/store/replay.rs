@@ -284,6 +284,34 @@ pub fn map<'a>(v: V<'a>, path: &str) -> Result<Vec<(V<'a>, V<'a>)>> {
     }
 }
 
+/// A plain object's own keys and values, in order (an object keyed by
+/// numbers, `obj:T`).
+pub fn object_entries<'a>(v: V<'a>, path: &str) -> Result<Vec<(&'a str, V<'a>)>> {
+    match v.node() {
+        Some(Node::Object { .. }) => Ok(v.fields().collect()),
+        _ => Err(format!("{path}: not an object ({})", v.show())),
+    }
+}
+
+/// An object's key as the number it names: an array index.
+pub fn index_key(key: &str, path: &str) -> Result<f64> {
+    jsrt::object::array_index_of(key).map(|i| i as f64).ok_or_else(|| format!("{path}: \"{key}\" is no array index"))
+}
+
+/// An array index as an object's key (its text).
+pub fn index_text(key: f64) -> String {
+    (key as u32).to_string()
+}
+
+/// A typed array's elements (as JavaScript reads them), checked to be of
+/// its class and length.
+pub fn typed_values(v: V, path: &str, class: &str, n: usize) -> Result<Vec<f64>> {
+    match v.typed() {
+        Some(t) if t.class() == class && t.len() == n => Ok((0..n).map(|i| t.get(i).unwrap()).collect()),
+        _ => Err(format!("{path}: not a {class} of {n} ({})", v.show())),
+    }
+}
+
 /// An enum's index by its name.
 pub fn name_of(v: V, names: &[&str], path: &str) -> Result<u8> {
     let s = v.str().ok_or_else(|| format!("{path}: not a string ({})", v.show()))?;

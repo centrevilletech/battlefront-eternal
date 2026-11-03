@@ -149,9 +149,17 @@ A field's type is one of:
 | `list:kind`, `set:kind` | an array or a Set of objects of that kind, in order | `Vec<Ref<Kind>>`, `RefSet<Kind>` | 2 (and the heap) |
 | `list:type` | an array of any other type that is never null: records by value (a hull's seats), numbers, vectors, booleans, strings, enums, unions; its items updated in place | `Vec<T>` | 2 (and the heap) |
 | `map:type` | a Map with string keys, in insertion order, its values of a type (not null) | `StrMap<T>` | 2 (and the heap) |
+| `map:num:type` | a Map with number keys, in JavaScript's order (insertion; a key set again keeps its place, one deleted and set again goes last; keys as SameValueZero, -0 as 0) | `NumMap<T>` (`jsrt::map::JsMap`'s semantics) | 2 (and the heap) |
+| `map:ref:K:type` | a Map whose keys are objects of a kind, or of a union of kinds `K` (each variant a kind), by identity, in the same order | `RefMap<Ref<Kind>, T>`, `RefMap<K, T>` | 2 (and the heap) |
+| `obj:type` | a plain object keyed by array indices (a table by team number, `{ 1: 150, 2: 150 }`): its keys iterate ascending however they were set | `IntObj<T>` | 2 (and the heap) |
+| `Float64Array(N)`, `Int32Array(N)`, ... | a typed array of N elements (Float64, Float32, Int32, Uint32, Int16, Uint16, Int8, Uint8), kept typed in the mirror | `TypedArray<f64, N>`, ... | N |
 
 `|null`, `|undefined` or both after a type make it nullable (`Option<T>`, or
 `Nullable<T>` when both are possible, since code can tell them apart). A
+list's items, and a map's or an object's values, are never null unless their
+type is written in parentheses: `list:(ref:character|null)` is a list whose
+items can be null (`Vec<Option<Ref<Character>>>`, each item a tag and its
+words), while `list:ref:character|null` is a list that can be null. A
 field written `{ type, js: 'damageDef.Damage', mirror: false }` reads a
 nested JavaScript path (`shapes.0.radius` reads through an array); `mirror: false` keeps a field out of the mirrors and
 `import: false` out of what a Rust phase is given. `skip` lists what an
@@ -233,7 +241,10 @@ go, so a later life of the slot gets a new one.
 - `sync(kind, target)` copies an export block into the kind's mirrors (a
   singleton's into `target`), updating each mirror's Vector3s in place so
   whatever holds them keeps seeing them, retired entities' last states
-  first;
+  first; an object keyed by numbers, a Map keyed by numbers or objects and a
+  typed array are updated in place too (the same object, Map or array, its
+  values' arrays and records read into), a Map's entries moved only where
+  its order changed;
 - `read(kind)` gives every field of every entity as new objects;
 - `check(kind)` is the mirror write detector: after a JavaScript phase, any
   mirrored field that is not what the store holds, which is a write

@@ -194,3 +194,192 @@ impl<V> StrMap<V> {
 pub fn same_f64(a: f64, b: f64) -> bool {
     a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan())
 }
+
+/// The number a plain object's key `key` is when it is an array index (a
+/// whole number from 0 to 2^32 - 2: `obj[1]` and `obj[1.0]` are one key,
+/// and `obj[-0]` is `obj[0]`), else None (`obj[1.5]` names the key "1.5",
+/// which an object keyed by numbers never has).
+#[inline]
+pub fn array_index(key: f64) -> Option<f64> {
+    if key >= 0.0 && key < 4294967295.0 && key == key.trunc() { Some(key + 0.0) } else { None }
+}
+
+/// A plain JavaScript object keyed by array indices (`obj:T`: a table by
+/// team number, `{ 1: 150, 2: 150 }`). Its keys iterate in ascending numeric
+/// order wherever they were set, as V8 orders an object's integer keys, and
+/// a key never set reads as undefined (None).
+#[derive(Clone, Debug, PartialEq)]
+pub struct IntObj<V> {
+    entries: Vec<(f64, V)>,
+}
+
+impl<V> Default for IntObj<V> {
+    fn default() -> Self { IntObj { entries: Vec::new() } }
+}
+
+impl<V> IntObj<V> {
+    pub fn new() -> Self { Self::default() }
+
+    fn find(&self, key: f64) -> Result<usize, usize> {
+        match array_index(key) {
+            Some(k) => self.entries.binary_search_by(|(x, _)| x.partial_cmp(&k).unwrap()),
+            None => Err(usize::MAX),
+        }
+    }
+
+    /// `object[key]`, or None for undefined.
+    pub fn get(&self, key: f64) -> Option<&V> {
+        self.find(key).ok().map(|i| &self.entries[i].1)
+    }
+
+    pub fn get_mut(&mut self, key: f64) -> Option<&mut V> {
+        match self.find(key) {
+            Ok(i) => Some(&mut self.entries[i].1),
+            Err(_) => None,
+        }
+    }
+
+    /// `key in object`.
+    pub fn has(&self, key: f64) -> bool { self.find(key).is_ok() }
+
+    /// `object[key] = value`: the key takes its place in ascending order.
+    /// Panics on a key that is no array index (JavaScript would make a
+    /// string key of it, which this object does not hold).
+    pub fn set(&mut self, key: f64, value: V) {
+        match self.find(key) {
+            Ok(i) => self.entries[i].1 = value,
+            Err(usize::MAX) => panic!("an object keyed by numbers given the key {key}"),
+            Err(i) => self.entries.insert(i, (array_index(key).unwrap(), value)),
+        }
+    }
+
+    /// `delete object[key]`: whether it was there.
+    pub fn delete(&mut self, key: f64) -> bool {
+        match self.find(key) {
+            Ok(i) => { self.entries.remove(i); true }
+            Err(_) => false,
+        }
+    }
+
+    /// Its entries in its keys' order (ascending), as `Object.entries`.
+    pub fn iter(&self) -> impl Iterator<Item = (f64, &V)> + '_ { self.entries.iter().map(|(k, v)| (*k, v)) }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (f64, &mut V)> + '_ { self.entries.iter_mut().map(|(k, v)| (*k, v)) }
+
+    /// Its keys, ascending (`Object.keys(object).map(Number)`).
+    pub fn keys(&self) -> impl Iterator<Item = f64> + '_ { self.entries.iter().map(|(k, _)| *k) }
+
+    pub fn len(&self) -> usize { self.entries.len() }
+    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
+    pub fn clear(&mut self) { self.entries.clear(); }
+}
+
+impl<V: Copy> IntObj<V> {
+    /// `object[key]` as a value (None: undefined).
+    pub fn at(&self, key: f64) -> Option<V> { self.get(key).copied() }
+}
+
+impl<V> FromIterator<(f64, V)> for IntObj<V> {
+    fn from_iter<I: IntoIterator<Item = (f64, V)>>(iter: I) -> Self {
+        let mut o = IntObj::new();
+        for (k, v) in iter { o.set(k, v); }
+        o
+    }
+}
+
+/// A JavaScript Map whose keys are numbers (`map:num:T`, `NumMap`) or
+/// objects (`map:ref:K:T`, `RefMap`: a reference to an entity, or a union
+/// of references): `jsrt::map::JsMap`, whose order is V8's (insertion; a key
+/// set again keeps its place, one deleted and set again goes last; keys
+/// compared as SameValueZero, -0 kept as 0; an entry added while a loop
+/// runs over the map is visited: its cursor, `next_after`). Its methods are
+/// JsMap's (`set`, `get`, `delete`, `has`, `size`, ...).
+pub struct OrdMap<K: JsKey, V>(pub JsMap<K, V>);
+
+pub type NumMap<V> = OrdMap<f64, V>;
+pub type RefMap<K, V> = OrdMap<K, V>;
+
+pub use jsrt::map::{JsKey, JsMap};
+
+impl<K: JsKey, V> Default for OrdMap<K, V> {
+    fn default() -> Self { OrdMap(JsMap::new()) }
+}
+
+impl<K: JsKey, V: Clone> Clone for OrdMap<K, V> {
+    fn clone(&self) -> Self { OrdMap(self.0.clone()) }
+}
+
+impl<K: JsKey + std::fmt::Debug, V: std::fmt::Debug> std::fmt::Debug for OrdMap<K, V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { self.0.fmt(f) }
+}
+
+/// The same entries in the same order (keys as SameValueZero).
+impl<K: JsKey, V: PartialEq> PartialEq for OrdMap<K, V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.len() == other.len() && self.iter().zip(other.iter()).all(|((a, x), (b, y))| a.svz_eq(&b) && x == y)
+    }
+}
+
+impl<K: JsKey, V> std::ops::Deref for OrdMap<K, V> {
+    type Target = JsMap<K, V>;
+    fn deref(&self) -> &JsMap<K, V> { &self.0 }
+}
+
+impl<K: JsKey, V> std::ops::DerefMut for OrdMap<K, V> {
+    fn deref_mut(&mut self) -> &mut JsMap<K, V> { &mut self.0 }
+}
+
+impl<K: JsKey, V> OrdMap<K, V> {
+    /// Its entries in order (`[...map]`, keys cloned), as a loop that does
+    /// not change the map sees them.
+    pub fn iter(&self) -> impl Iterator<Item = (K, &V)> + '_ {
+        let mut cursor = 0;
+        std::iter::from_fn(move || {
+            let (i, k, v) = self.0.next_after(cursor)?;
+            cursor = i + 1;
+            Some((k, v))
+        })
+    }
+
+    /// `map.size`.
+    pub fn len(&self) -> usize { self.0.size() }
+    pub fn is_empty(&self) -> bool { self.0.size() == 0 }
+}
+
+/// A Map's key's hash for an entity's reference (`variant`: its kind's place
+/// in a union of kinds): it finds the key's slot in the table, nothing
+/// observes it.
+pub fn key_hash(variant: u32, slot: u32, gen: u32) -> u64 {
+    let mut x = ((variant as u64) << 56) ^ ((gen as u64) << 32) ^ slot as u64;
+    x ^= x >> 30;
+    x = x.wrapping_mul(0xbf58476d1ce4e5b9);
+    x ^= x >> 27;
+    x = x.wrapping_mul(0x94d049bb133111eb);
+    x ^ (x >> 31)
+}
+
+/// The same object: the same slot of the same generation.
+impl<T> JsKey for Ref<T> {
+    fn svz_eq(&self, other: &Self) -> bool { self == other }
+    fn svz_hash(&self) -> u64 { key_hash(0, self.slot, self.gen) }
+}
+
+/// A typed array of a fixed length (`Float64Array(100)`, `Int32Array(100)`):
+/// its elements as the array holds them (an Int32Array's i32s; a store into
+/// one converts as JavaScript does, ToInt32, which the port does where the
+/// JavaScript stores).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypedArray<T, const N: usize>(pub [T; N]);
+
+impl<T: Copy + Default, const N: usize> Default for TypedArray<T, N> {
+    fn default() -> Self { TypedArray([T::default(); N]) }
+}
+
+impl<T, const N: usize> std::ops::Deref for TypedArray<T, N> {
+    type Target = [T; N];
+    fn deref(&self) -> &[T; N] { &self.0 }
+}
+
+impl<T, const N: usize> std::ops::DerefMut for TypedArray<T, N> {
+    fn deref_mut(&mut self) -> &mut [T; N] { &mut self.0 }
+}
