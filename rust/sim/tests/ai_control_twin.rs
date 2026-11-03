@@ -7,10 +7,11 @@
 //! (replay_ai.rs).
 
 use bfe_sim::ai::control::agents::{random_cube, rotate_y, table_sin_cos};
+use bfe_sim::ai::control::classes::{health_type, service_alive};
 use bfe_sim::ai::control::controller::{goal_state, role_of, CommandQueue, SourceGoal};
 use bfe_sim::ai::control::difficulty::{clamp_skill, draw_range, skill_curves, Difficulty, DifficultyOptions, MissionCall};
 use bfe_sim::ai::control::scheduler::candidate_budget;
-use bfe_sim::ai::control::world::{Draws, LiveDraws};
+use bfe_sim::ai::control::world::{AiUnit, ClassSnap, Draws, LiveDraws};
 use bfe_sim::ai::nav::math::Vec3;
 use bfe_sim::ai::random::ClassicRandom;
 
@@ -110,6 +111,29 @@ fn candidate_budgets_match() {
     for (count, cycle, step, want) in BUDGET {
         assert!(same(candidate_budget(count, cycle, step), want), "budget {count} {cycle} {step}");
     }
+}
+
+#[test]
+fn runtime_health_type_matches_repair_wrappers() {
+    // Node's healthType uses the runtime field before ClassDef.HealthType.
+    // A destroyed building's wrapper becomes BuildingRebuild at runtime.
+    let mut unit = AiUnit {
+        class_def: Some(ClassSnap { health_type_name: Some("Vehicle".into()), ..Default::default() }),
+        ..Default::default()
+    };
+    assert!(same(health_type(&unit), 3.0));
+    for (runtime, want) in [(0.0, 0.0), (5.0, 5.0)] {
+        unit.health_type_num = Some(runtime);
+        assert!(same(health_type(&unit), want));
+    }
+    unit.health_type_num = None;
+    for (runtime, want) in [("buildingrebuild", 5.0), ("BUILDINGBUILD", 6.0), ("unknown", 0.0)] {
+        unit.health_type_name = Some(runtime.into());
+        assert!(same(health_type(&unit), want));
+    }
+    unit.alive = false;
+    unit.health_type_name = Some("BuildingRebuild".into());
+    assert!(service_alive(&unit));
 }
 
 #[test]

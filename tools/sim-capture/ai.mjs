@@ -20,6 +20,7 @@ import { repairServicesOf } from '../../src/ai/classic/classes.js';
 import { UnitCombatAgent } from '../../src/ai/classic/combat.js';
 import { UnitBoardAgent, UnitUnBoardAgent } from '../../src/ai/classic/vehicles/agents.js';
 import { GroundGotoHelper, FlyGotoHelper as NavFlyGotoHelper } from '../../src/ai/classic/nav/goto.js';
+import { NavControl } from '../../src/ai/classic/nav/control.js';
 import { FlyGotoHelper as VehicleFlyGotoHelper } from '../../src/ai/classic/vehicles/fly.js';
 import { StationaryHelper, serviceOf as vehicleServiceOf } from '../../src/ai/classic/vehicles/index.js';
 import { MOBILE_POLICY, STATIONARY_POLICY, FLY_POLICY } from '../../src/ai/classic/vehicles/controllers.js';
@@ -32,6 +33,9 @@ let current = null; // the controller whose update/service/input is running
 let acousticLens = new Map(); // controller -> acoustic refs last recorded
 let noteLens = new Map(); // controller -> vehicle-notes refs last recorded
 let lastHelperMade = null;
+let lastForeignAgent = null;
+let foreignBefore = null;
+let snapshotServiceCandidates = null;
 
 const v3 = (p) => (p ? [p.x, p.y, p.z] : null);
 const num = (v) => (typeof v === 'number' ? v : null);
@@ -54,9 +58,9 @@ const own = (o, k) => {
 //   below). The instances created before this runs are documented by
 //   their state alone.
 const foreignHooks = {
-  create(kind, make) { return make(); },
-  tick(agent, dt, phase) { return agent.__aiTick(dt, phase); },
-  exit(agent) { agent.__aiExit(); },
+  create(kind, make) { foreignBefore = foreignSharedSnap(current); return (lastForeignAgent = make()); },
+  tick(agent, dt, phase) { foreignBefore = foreignSharedSnap(current); lastForeignAgent = agent; return agent.__aiTick(dt, phase); },
+  exit(agent) { foreignBefore = foreignSharedSnap(current); lastForeignAgent = agent; agent.__aiExit(); },
 };
 const queryFilterLog = [];
 let prepared = false;
@@ -66,15 +70,18 @@ function prepare(game) {
   prepared = true;
   const ai = game.ai?.classic?.ai;
   if (!ai) return;
+  snapshotServiceCandidates = ai.world.serviceCandidates?.bind(ai.world) ?? null;
   const withCurrent = (controller, fn, thisArg, args) => {
     const before = current;
     current = controller;
     try { return fn.apply(thisArg, args); } finally { current = before; }
   };
-  const ctlUpdate = UnitController.prototype.update;
-  UnitController.prototype.update = function (...args) {
-    return withCurrent(this, ctlUpdate, this, args);
-  };
+  for (const name of ['update', 'bind', 'unbind']) {
+    const method = UnitController.prototype[name];
+    UnitController.prototype[name] = function (...args) {
+      return withCurrent(this, method, this, args);
+    };
+  }
   const service = ClassicScheduler.prototype.service;
   ClassicScheduler.prototype.service = function (controller, ...args) {
     return withCurrent(controller, service, this, [controller, ...args]);
@@ -252,6 +259,8 @@ function unitSnap(ctx, u) {
     soldier: soldierSnap(u.soldier ?? null),
     classDef: classSnap(u.classDef ?? null),
     className: u.className ?? null,
+    healthTypeNum: num(u.healthType),
+    healthTypeName: typeof u.healthType === 'string' ? u.healthType : null,
     weapons: (u.combat?.arsenal?.weapons ?? []).map((w) => weaponSnap(world, u, w)),
     combatHealth: num(u.combat?.health), health: num(own(u, 'health') ?? undefined) ?? num(u.health),
     combatMax: num(u.combat?.maxHealth), maxHealth: num(own(u, 'maxHealth') ?? undefined) ?? num(u.maxHealth),
@@ -624,6 +633,7 @@ function aiState(game) {
   for (const u of game.units.list ?? []) keyOf(u);
   for (const u of [...table]) {
     if (u.lease?.controllable) keyOf(u.lease.controllable);
+    if (u.seat?.controllable) keyOf(u.seat.controllable);
     if (u.seat?.vehicle?.aiTarget) keyOf(u.seat.vehicle.aiTarget);
   }
   for (const c of characters) if (c.unit) keyOf(c.unit);
@@ -652,9 +662,9 @@ function aiState(game) {
   // Repair-candidate building wrappers, through the world's service.
   const buildings = game.live?.buildings ?? [];
   const wrapperByBuilding = new Map();
-  if (typeof world.serviceCandidates === 'function') {
+  if (snapshotServiceCandidates) {
     for (const b of buildings) {
-      const found = world.serviceCandidates(b.position, 0.5);
+      const found = snapshotServiceCandidates(b.position, 0.5);
       for (const cand of found) {
         if (cand && cand.building === b && !wrapperByBuilding.has(b)) {
           wrapperByBuilding.set(b, cand);
@@ -826,8 +836,40 @@ const afterCurrent = () => {
 
 const foreignAfter = () => ({
   ...afterCurrent(),
-  state: current?.agent?.state ?? 0, pending: current?.agent?.pending ?? 0,
+  before: foreignBefore, shared: foreignSharedSnap(current),
+  state: lastForeignAgent?.state ?? 0, pending: lastForeignAgent?.pending ?? 0,
+  h: helperSnap(lastForeignAgent?.helper),
+  interrupts: lastForeignAgent?.interrupts
+    ? { checkedAt: lastForeignAgent.interrupts.checkedAt ?? 0, charge: Boolean(lastForeignAgent.interrupts.charge), last: lastForeignAgent.interrupts.last ?? 0 }
+    : { checkedAt: 0, charge: false, last: 0 },
+  // Boarding can move the body before the next controller sync.
+  unit: current?.unit ?? null,
+  position: v3(current?.unit?.position),
+  seat: Boolean(current?.unit?.seat),
+  seatVehiclePos: v3(current?.unit?.seat?.vehicle?.position),
 });
+
+function foreignSharedSnap(c) {
+  if (!c) return null;
+  // Handles, rather than frame-local table indices: nested bind frames
+  // can introduce a seat while a foreign call is being recorded.
+  const ctx = { keyOf: (u) => u, characterIndex: { get: (c) => c }, postIndex: { get: (p) => p } };
+  return {
+    commands: {
+      current: goalSnap(ctx, c.commands.current), queue: c.commands.queue.map((g) => goalSnap(ctx, g)),
+      latch: Boolean(c.commands.latch), currentDone: Boolean(c.commands.currentDone),
+    },
+    lastCommand: squadSnap(ctx, c.lastCommand),
+    pending: c.pending ?? 0, published: Boolean(c.published),
+    aimTarget: refSnap(ctx, c.aimTarget), leader: refSnap(ctx, c.leader),
+    reboardAt: num(c.reboardAt) ?? -Infinity, secondaryWaitUntil: num(c.secondaryWaitUntil) ?? 0,
+    exitRequest: Boolean(c.exitRequest),
+    jet: { pending: Boolean(c.jet?.pending), vector: v3(c.jet?.vector) ?? [0, 0, 0] },
+    enhanced: own(c, 'enhanced')
+      ? { lookUntil: c.enhanced.lookUntil ?? -Infinity, lookPoint: v3(c.enhanced.lookPoint) ?? [0, 0, 0], heard: [...(c.enhanced.heard?.entries() ?? [])] }
+      : null,
+  };
+}
 
 const helperMadeExtra = () => ({
   ...afterCurrent(),
@@ -995,8 +1037,7 @@ function aiBoundaries(game) {
         if (typeof cls.prototype[method] === 'function') out.push([`${prefix}.${method}`, cls.prototype, method, afterCurrent]);
       }
     }
-    const controlProto = (ai.controllers ?? []).map((c) => c.navControl).find(Boolean);
-    if (controlProto) out.push(['control.reset', Object.getPrototypeOf(controlProto), 'reset', afterCurrent]);
+    out.push(['control.reset', NavControl.prototype, 'reset', afterCurrent]);
   }
   // Foreign agents (create is a boundary inside ai.update and inside
   // bind frames; tick and exit likewise).

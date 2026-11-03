@@ -21,8 +21,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-pub type RErr = String;
-type R<T> = Result<T, RErr>;
+#[path = "replay_exact.rs"]
+mod exact;
+use exact::Exact;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum HKey {
@@ -98,10 +99,6 @@ fn arr3_opt(v: V) -> Option<Vec3> {
     }
 }
 
-fn v3_value(a: &mut Arena, p: Vec3) -> Value {
-    a.array(vec![Value::Num(p.x), Value::Num(p.y), Value::Num(p.z)])
-}
-
 fn num_opt(v: V) -> Option<f64> {
     v.opt_num()
 }
@@ -132,24 +129,6 @@ fn qty_read(v: V) -> QtySnap {
         named_ammo: named(v.get("namedA")),
         bare: named(v.get("bare")),
     }
-}
-
-fn qty_write(a: &mut Arena, q: &QtySnap) -> Value {
-    let svc = |a: &mut Arena, x: &Option<[Option<f64>; 7]>| -> Value {
-        match x {
-            None => Value::Null,
-            Some(arr) => a.array(arr.iter().map(|v| v.map(Value::Num).unwrap_or(Value::Null)).collect()),
-        }
-    };
-    let named = |a: &mut Arena, x: &[Option<f64>; 7]| -> Value {
-        a.array(x.iter().map(|v| v.map(Value::Num).unwrap_or(Value::Null)).collect())
-    };
-    let sh = svc(a, &q.svc_health);
-    let sa = svc(a, &q.svc_ammo);
-    let nh = named(a, &q.named_health);
-    let na = named(a, &q.named_ammo);
-    let bare = named(a, &q.bare);
-    a.object("", vec![("svcH", sh), ("svcA", sa), ("namedH", nh), ("namedA", na), ("bare", bare)])
 }
 
 fn weapon_read(v: V) -> WeaponSnap {
@@ -760,6 +739,8 @@ fn unit_read(v: V, key: UKey) -> AiUnit {
         soldier: soldier_read(v.get("soldier")),
         class_def: class_read(v.get("classDef")),
         class_name: v.get("className").str().map(|s| s.to_string()),
+        health_type_num: num_opt(v.get("healthTypeNum")),
+        health_type_name: v.get("healthTypeName").str().map(|s| s.to_string()),
         weapons: v.get("weapons").items().map(weapon_read).collect(),
         combat_health: num_opt(v.get("combatHealth")),
         health: num_opt(v.get("health")),
@@ -1176,7 +1157,7 @@ impl<'f> Served<'f> {
     }
 
     fn peek_is(&self, name: &str) -> bool {
-        matches!(self.log.borrow().peek(), Some(Event::Call(c)) if c.name == name)
+        self.error.borrow().is_none() && matches!(self.log.borrow().peek(), Some(Event::Call(c)) if c.name == name)
     }
 
     fn check(&self, result: Result<(), Mismatch>) {
@@ -1932,8 +1913,9 @@ impl<'f> AiWorld for Served<'f> {
 
     // -- foreign agents -----------------------------------------------------
 
-    fn foreign_agent_create(&mut self, controller: usize, kind: ForeignKind) -> (ForeignTick, Option<ControlObs>) {
+    fn foreign_agent_create(&mut self, controller: usize, kind: ForeignKind, shared: &ForeignShared) -> (ForeignTick, Option<ControlObs>) {
         let Some(call) = self.call("foreign.create") else { return (Default::default(), None) };
+        self.check_foreign_shared(call, shared);
         let want = match kind {
             ForeignKind::Combat => "combat",
             ForeignKind::Board => "board",
@@ -1947,25 +1929,26 @@ impl<'f> AiWorld for Served<'f> {
             self.tables.agent_handles.insert(h, controller);
         }
         self.extra(call, Some(controller));
-        let x = call.extra();
         (
-            ForeignTick { state: x.get("state").num(), pending: x.get("pending").num() },
+            self.foreign_tick_after(call, controller),
             self.tables.controls.get(controller).copied().flatten(),
         )
     }
-    fn foreign_agent_tick(&mut self, controller: usize, dt: f64, phase: f64) -> ForeignTick {
+    fn foreign_agent_tick(&mut self, controller: usize, dt: f64, phase: f64, shared: &ForeignShared) -> ForeignTick {
         let Some(call) = self.call("foreign.tick") else { return Default::default() };
+        self.check_foreign_shared(call, shared);
         self.check_agent("foreign.tick agent", call.arg(0), controller);
         self.check(check_num("foreign.tick dt", call.arg(1), dt));
         self.check(check_num("foreign.tick phase", call.arg(2), phase));
         self.extra(call, Some(controller));
-        let x = call.extra();
-        ForeignTick { state: x.get("state").num(), pending: x.get("pending").num() }
+        self.foreign_tick_after(call, controller)
     }
-    fn foreign_agent_exit(&mut self, controller: usize) {
-        let Some(call) = self.call("foreign.exit") else { return };
+    fn foreign_agent_exit(&mut self, controller: usize, shared: &ForeignShared) -> Option<ForeignShared> {
+        let call = self.call("foreign.exit")?;
+        self.check_foreign_shared(call, shared);
         self.check_agent("foreign.exit agent", call.arg(0), controller);
         self.extra(call, Some(controller));
+        self.foreign_shared_read(call.extra().get("shared"))
     }
 
     // -- helpers and the navigation control --------------------------------
@@ -1975,6 +1958,11 @@ impl<'f> AiWorld for Served<'f> {
         // navigation helper factory of the world.
         if self.peek_is("vehicles.createHelper") {
             let call = self.call("vehicles.createHelper").unwrap();
+            // The helper is constructed before the new agent is assigned
+            // to its controller, so it may introduce this identity.
+            if let Some(h) = handle_of(call.arg(0)) {
+                self.tables.agent_handles.entry(h).or_insert(controller);
+            }
             self.check_agent("createHelper agent", call.arg(0), controller);
             let made = !call.result().is_nullish();
             self.extra(call, Some(controller));
@@ -2014,9 +2002,8 @@ impl<'f> AiWorld for Served<'f> {
             let call = self.helper_call(controller, "terminate").unwrap();
             return self.helper_obs(call, controller);
         }
-        // Terminate is the executor's; a helper without one shows the
-        // control's reset instead (helper_dis covers dispose).
-        Default::default()
+        // Agent.exit calls stop when the helper has no terminate method.
+        self.helper_stop(controller)
     }
     fn helper_tick(&mut self, controller: usize, dt: f64) -> HelperObs {
         let Some(call) = self.helper_call(controller, "tick") else { return Default::default() };
@@ -2067,6 +2054,9 @@ impl<'f> AiWorld for Served<'f> {
         if self.peek_is(&name) {
             let call = self.call(&name).unwrap();
             self.extra(call, Some(controller));
+        }
+        if let Some(prefix) = self.tables.helper_prefix.get_mut(controller) {
+            prefix.clear();
         }
     }
     fn nav_control_ensure(&mut self, controller: usize) -> ControlObs {
@@ -2248,14 +2238,34 @@ impl<'f> Served<'f> {
 
     fn helper_made(&mut self, call: &Call, controller: usize) -> (HelperKind, HelperObs, Option<ControlObs>) {
         let h = call.extra().get("h");
-        let helper = helper_read(h);
-        let prefix = match h.get("kind").str() {
+        let owner = call.extra().get("helperOwner");
+        if !owner.is_nullish() {
+            self.check_controller("helper owner", owner, controller);
+        }
+        let mut helper = helper_read(h);
+        // Older captures observed controller.agent during construction,
+        // before it held the new agent. The returned helper handle still
+        // names its class; its constructor observations are deterministic.
+        let result_kind = handle_of(call.result()).map(|(kind, _)| kind);
+        let name = h.get("kind").str().or_else(|| result_kind.as_deref().and_then(|kind| kind.strip_prefix("object:")));
+        let prefix = match name {
             Some("GroundGotoHelper") => "ground",
             Some("FlyGotoHelper") => "fly",
             Some("VehicleFlyGotoHelper") => "vfly",
             Some("StationaryHelper") => "stationary",
             _ => "",
         };
+        if h.get("kind").is_nullish() {
+            let control = self.tables.controls.get(controller).copied().flatten();
+            helper.kind = match prefix {
+                "ground" => Some(HelperKind::Ground),
+                "fly" => Some(HelperKind::Fly),
+                "vfly" | "stationary" => Some(HelperKind::Vehicle),
+                _ => None,
+            };
+            helper.obs.arrived = !control.is_some_and(|c| c.has_executor);
+            helper.obs.status = control.map_or(0.0, |c| c.status);
+        }
         if controller >= self.tables.helper_prefix.len() {
             self.tables.helper_prefix.resize(controller + 1, String::new());
         }
@@ -2265,6 +2275,85 @@ impl<'f> Served<'f> {
             helper.obs,
             self.tables.controls.get(controller).copied().flatten(),
         )
+    }
+
+    fn foreign_tick_after(&mut self, call: &Call, controller: usize) -> ForeignTick {
+        let x = call.extra();
+        if let Some(u) = self.unit_of(x.get("unit")) {
+            let unit = &mut self.tables.units[u];
+            unit.position = arr3(x.get("position"));
+            unit.seat = x.get("seat").bool();
+            unit.seat_vehicle_pos = arr3_opt(x.get("seatVehiclePos"));
+        }
+        let helper = helper_read(x.get("h"));
+        let prefix = match x.get("h").get("kind").str() {
+            Some("GroundGotoHelper") => "ground",
+            Some("FlyGotoHelper") => "fly",
+            Some("VehicleFlyGotoHelper") => "vfly",
+            Some("StationaryHelper") => "stationary",
+            _ => "",
+        };
+        self.tables.helper_prefix.resize(self.tables.helper_prefix.len().max(controller + 1), String::new());
+        self.tables.helper_prefix[controller] = prefix.to_string();
+        ForeignTick {
+            state: x.get("state").num(), pending: x.get("pending").num(), helper,
+            interrupts: Interrupts {
+                checked_at: x.get("interrupts").get("checkedAt").num(),
+                charge: x.get("interrupts").get("charge").bool(),
+                last: x.get("interrupts").get("last").num(),
+            },
+            shared: self.foreign_shared_read(x.get("shared")),
+        }
+    }
+
+    fn foreign_shared_read(&self, v: V) -> Option<ForeignShared> {
+        if v.is_nullish() { return None; }
+        let goal = |g: V| -> SourceGoal {
+            SourceGoal {
+                kind: g.get("kind").num(), ref_a: self.ref_of(g.get("refA")), ref_b: self.ref_of(g.get("refB")),
+                post: handle_of(g.get("post")).and_then(|h| self.tables.post_handles.get(&h).copied()),
+                point: arr3_opt(g.get("point")), mode: g.get("mode").num(),
+            }
+        };
+        let commands = v.get("commands");
+        let last = v.get("lastCommand");
+        let enhanced = v.get("enhanced");
+        let mut memory = EnhancedMemory::new();
+        if !enhanced.is_nullish() {
+            memory.look_until = enhanced.get("lookUntil").num();
+            memory.look_point = arr3(enhanced.get("lookPoint"));
+            for entry in enhanced.get("heard").items() {
+                if let Some(key) = entry.at(0).str() {
+                    let mut parts = key.split(':');
+                    let id: f64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let generation: f64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    memory.heard_set((id.to_bits(), generation.to_bits()), entry.at(1).num());
+                }
+            }
+        }
+        Some(ForeignShared {
+            commands: CommandQueue {
+                current: goal(commands.get("current")), queue: commands.get("queue").items().map(goal).collect(),
+                latch: commands.get("latch").bool(), current_done: commands.get("currentDone").bool(),
+            },
+            last_command: if last.is_nullish() { None } else { Some(SquadCommand {
+                source: handle_of(last.get("source")).and_then(|h| self.tables.character_handles.get(&h).copied()),
+                kind: last.get("kind").num(), time: last.get("time").num(), target: self.ref_of(last.get("target")),
+            }) },
+            pending: v.get("pending").num(), published: v.get("published").bool(),
+            aim_target: self.ref_of(v.get("aimTarget")), leader: self.ref_of(v.get("leader")),
+            reboard_at: v.get("reboardAt").num(), secondary_wait_until: v.get("secondaryWaitUntil").num(),
+            exit_request: v.get("exitRequest").bool(), jet_pending: v.get("jet").get("pending").bool(),
+            jet_vector: arr3(v.get("jet").get("vector")), enhanced: (!enhanced.is_nullish()).then_some(memory),
+        })
+    }
+
+    fn check_foreign_shared(&self, call: &Call, shared: &ForeignShared) {
+        if let Some(theirs) = self.foreign_shared_read(call.extra().get("before")) {
+            if !theirs.exact(shared) {
+                self.fail(format!("{} shared input: capture {theirs:?}, port {shared:?}", call.name));
+            }
+        }
     }
 }
 
@@ -2286,14 +2375,6 @@ fn same_v3(a: Vec3, b: Vec3) -> bool {
     same_num(a.x, b.x) && same_num(a.y, b.y) && same_num(a.z, b.z)
 }
 
-fn same_v3_opt(a: Option<Vec3>, b: Option<Vec3>) -> bool {
-    match (a, b) {
-        (None, None) => true,
-        (Some(x), Some(y)) => same_v3(x, y),
-        _ => false,
-    }
-}
-
 struct Cmp {
     errs: Vec<String>,
 }
@@ -2310,8 +2391,8 @@ impl Cmp {
     fn v3(&mut self, what: &str, a: Vec3, b: Vec3) {
         self.chk(same_v3(a, b), format!("{what}: capture ({},{},{}) port ({},{},{})", a.x, a.y, a.z, b.x, b.y, b.z));
     }
-    fn eq<T: PartialEq + std::fmt::Debug>(&mut self, what: &str, a: &T, b: &T) {
-        self.chk(a == b, format!("{what}: capture {a:?} port {b:?}"));
+    fn eq<T: Exact + std::fmt::Debug>(&mut self, what: &str, a: &T, b: &T) {
+        self.chk(a.exact(b), format!("{what}: capture {a:?} port {b:?}"));
     }
 }
 
@@ -2403,7 +2484,7 @@ fn compare_controller(cmp: &mut Cmp, what: &str, a: &Controller, b: &Controller)
             cmp.eq(&format!("{what}.agent.goal"), &x.goal, &y.goal);
             cmp.eq(&format!("{what}.agent.interrupts"), &x.interrupts, &y.interrupts);
             cmp.eq(&format!("{what}.agent.helper"), &x.helper, &y.helper);
-            cmp.chk(x.kind == y.kind, format!("{what}.agent.kind differs:\n capture {:?}\n port {:?}", x.kind, y.kind));
+            cmp.chk(x.kind.exact(&y.kind), format!("{what}.agent.kind differs:\n capture {:?}\n port {:?}", x.kind, y.kind));
         }
         _ => cmp.chk(false, format!("{what}.agent presence differs")),
     }
@@ -2450,7 +2531,7 @@ fn compare_controller(cmp: &mut Cmp, what: &str, a: &Controller, b: &Controller)
     cmp.eq(&format!("{what}.difficulty"), &a.difficulty, &b.difficulty);
     cmp.chk(same_opt(a.dodge, b.dodge), format!("{what}.dodge: capture {:?} port {:?}", a.dodge, b.dodge));
     cmp.eq(&format!("{what}.alertAnim"), &a.alert_anim, &b.alert_anim);
-    cmp.chk(a.enhanced == b.enhanced, format!("{what}.enhanced differs"));
+    cmp.chk(a.enhanced.exact(&b.enhanced), format!("{what}.enhanced differs"));
     cmp.eq(&format!("{what}.policy"), &a.policy, &b.policy);
 }
 
@@ -2523,10 +2604,10 @@ pub fn replay_frame(frame: &sim_replay::Frame) -> Result<(), String> {
     for (i, (a, b)) in theirs.controllers.iter().zip(core.controllers.iter()).enumerate() {
         compare_controller(&mut cmp, &format!("controllers[{i}]"), a, b);
     }
-    cmp.chk(theirs.characters == core.characters, "characters differ".to_string());
+    cmp.chk(theirs.characters.exact(&core.characters), "characters differ".to_string());
     cmp.eq("scheduler", &theirs.scheduler, &core.scheduler);
     cmp.eq("objectives", &theirs.objectives, &core.objectives);
-    cmp.chk(theirs.repair == core.repair, format!("repair differs:\n capture {:?}\n port {:?}", theirs.repair, core.repair));
+    cmp.chk(theirs.repair.exact(&core.repair), format!("repair differs:\n capture {:?}\n port {:?}", theirs.repair, core.repair));
     cmp.eq("perception flags", &their_tables.perception, &served.tables.perception);
     cmp.eq("helper kinds", &their_tables.helper_prefix, &served.tables.helper_prefix);
     // Units: what the core writes on them (intents, a droideka's mode).

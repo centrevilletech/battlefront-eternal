@@ -139,6 +139,10 @@ pub struct AiUnit {
     pub soldier: Option<SoldierSnap>,
     pub class_def: Option<ClassSnap>,
     pub class_name: Option<String>,
+    /// A runtime health type takes precedence over the class definition
+    /// (repair wrappers distinguish a building from its rebuild state).
+    pub health_type_num: Option<f64>,
+    pub health_type_name: Option<String>,
     pub weapons: Vec<WeaponSnap>,
     /// The arsenal's selected weapon index pair as weapons-ai reads it
     /// is the combat package's; classes only compare the selected
@@ -224,7 +228,7 @@ impl Default for AiUnit {
             key: 0, id: 0.0, generation: 0.0, kind: 0.0, team: 0.0,
             alive: false, removed: false, human: false, hero: false,
             targetable: None, position: Vec3::default(), velocity: None,
-            soldier: None, class_def: None, class_name: None, weapons: Vec::new(),
+            soldier: None, class_def: None, class_name: None, health_type_num: None, health_type_name: None, weapons: Vec::new(),
             combat_health: None, health: None, combat_max_health: None, max_health: None,
             sphere_radius: None, radius: None, nav_radius: None, nav_mask: None,
             seat: false, seat_vehicle_pos: None, has_lease: false, lease_is_self: false, is_seat_unit: false, character: None, human_piloted: false,
@@ -707,12 +711,12 @@ pub trait AiWorld {
     // board, unboard and the flyer agent: vehicle AI). Their state
     // machines' entries, exits and behavior run through here; their
     // fields never cross.
-    fn foreign_agent_create(&mut self, controller: usize, kind: ForeignKind) -> (ForeignTick, Option<ControlObs>);
+    fn foreign_agent_create(&mut self, controller: usize, kind: ForeignKind, shared: &ForeignShared) -> (ForeignTick, Option<ControlObs>);
     /// Agent.tick(dt, phase) whole: its state machine's round, ending
     /// in the state and pending state it reports.
-    fn foreign_agent_tick(&mut self, controller: usize, dt: f64, phase: f64) -> ForeignTick;
-    /// Agent.exit() + dispose(): its helper ends inside.
-    fn foreign_agent_exit(&mut self, controller: usize);
+    fn foreign_agent_tick(&mut self, controller: usize, dt: f64, phase: f64, shared: &ForeignShared) -> ForeignTick;
+    /// Agent.exit(): dispose follows separately, as on a local agent.
+    fn foreign_agent_exit(&mut self, controller: usize, shared: &ForeignShared) -> Option<ForeignShared>;
 
     // -- Movement helpers and the navigation control (navigation's;
     // the direct helper is the core's own and never reaches here).
@@ -810,8 +814,58 @@ pub enum ForeignKind {
 }
 
 /// A foreign agent's machine after a create or a tick.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ForeignTick {
     pub state: f64,
     pub pending: f64,
+    pub helper: super::agents::Helper,
+    pub interrupts: super::agents::Interrupts,
+    pub shared: Option<ForeignShared>,
+}
+
+/// Controller fields a foreign agent can change through shared agent
+/// operations, in addition to CombatWrites and the navigation control.
+/// Hosts receive the current values and return them after the call.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ForeignShared {
+    pub commands: super::controller::CommandQueue,
+    pub last_command: Option<super::controller::SquadCommand>,
+    pub pending: f64,
+    pub published: bool,
+    pub aim_target: Option<EntRef>,
+    pub leader: Option<EntRef>,
+    pub reboard_at: f64,
+    pub secondary_wait_until: f64,
+    pub exit_request: bool,
+    pub jet_pending: bool,
+    pub jet_vector: Vec3,
+    pub enhanced: Option<super::controller::EnhancedMemory>,
+}
+
+impl ForeignShared {
+    pub fn read(c: &super::controller::Controller) -> Self {
+        Self {
+            commands: c.commands.clone(), last_command: c.last_command,
+            pending: c.fsm.pending, published: c.published,
+            aim_target: c.aim_target, leader: c.leader,
+            reboard_at: c.reboard_at, secondary_wait_until: c.secondary_wait_until,
+            exit_request: c.exit_request, jet_pending: c.jet_pending, jet_vector: c.jet_vector,
+            enhanced: c.enhanced.clone(),
+        }
+    }
+
+    pub fn apply(self, c: &mut super::controller::Controller) {
+        c.commands = self.commands;
+        c.last_command = self.last_command;
+        c.fsm.pending = self.pending;
+        c.published = self.published;
+        c.aim_target = self.aim_target;
+        c.leader = self.leader;
+        c.reboard_at = self.reboard_at;
+        c.secondary_wait_until = self.secondary_wait_until;
+        c.exit_request = self.exit_request;
+        c.jet_pending = self.jet_pending;
+        c.jet_vector = self.jet_vector;
+        c.enhanced = self.enhanced;
+    }
 }

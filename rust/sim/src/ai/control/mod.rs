@@ -250,6 +250,15 @@ impl Core {
             self.remove_live(ci);
         }
         self.bind(w, d, ci, unit);
+        // The vehicle adapter runs after bind has republished the
+        // character's objective, and replaces the previous life's policy.
+        if self.options.bind.vehicle_adapter && self.options.bind.vehicles {
+            let policy = w.vehicles_policy_of(unit);
+            self.controllers[ci].policy = policy;
+            if let Some(facing) = w.vehicles_policy_home_facing(policy, unit) {
+                self.controllers[ci].home_facing = facing;
+            }
+        }
         self.live.push(ci);
         Some(ci)
     }
@@ -339,22 +348,12 @@ impl Core {
             c.roll = d.a_int(0.0, 100.0);
             c.home_direction = Vec3::new(v8math::sin(aim_yaw), 0.0, v8math::cos(aim_yaw));
             c.difficulty = curves;
-            c.policy = Policy::None;
             c.published = false;
         }
         self.unit_controller.insert(unit, ci);
         if self.options.bind.combat {
             w.combat_create_perception(ci);
             w.combat_attach_controller(ci);
-        }
-        if self.options.bind.vehicle_adapter && self.options.bind.vehicles {
-            let policy = w.vehicles_policy_of(unit);
-            if policy != Policy::None {
-                self.controllers[ci].policy = policy;
-                if let Some(facing) = w.vehicles_policy_home_facing(policy, unit) {
-                    self.controllers[ci].home_facing = facing;
-                }
-            }
         }
         let character = self.controllers[ci].character;
         if let Some(post) = self.characters[character].objective {
@@ -368,6 +367,7 @@ impl Core {
         }
         if self.controllers[ci].nav_control.is_some() {
             w.nav_control_reset(ci);
+            self.sync_control(w, ci);
         }
         if let Some(unit) = self.controllers[ci].unit {
             if self.unit_controller.get(&unit) == Some(&ci) {
@@ -691,18 +691,17 @@ impl Core {
         let policy = self.controllers[ci].policy;
         if self.options.bind.vehicle_adapter && self.options.bind.vehicles && policy != Policy::None {
             if w.vehicles_policy_agent(policy, state) {
-                let (tick, control) = w.foreign_agent_create(ci, ForeignKind::Fly);
+                let (tick, control) = w.foreign_agent_create(ci, ForeignKind::Fly, &world::ForeignShared::read(&self.controllers[ci]));
+                if let Some(shared) = tick.shared { shared.apply(&mut self.controllers[ci]); }
                 if let Some(control) = control {
                     self.adopt_control(ci, control);
                 }
-                let mut helper = Helper::default();
-                helper.kind = None;
                 self.controllers[ci].agent = Some(Agent {
                     fsm: Fsm { state: tick.state, pending: tick.pending },
                     unit: self.controllers[ci].unit,
                     goal: Some(goal),
-                    interrupts: Default::default(),
-                    helper,
+                    interrupts: tick.interrupts,
+                    helper: tick.helper,
                     kind: AgentKind::Foreign(ForeignKind::Fly),
                 });
                 return;
@@ -781,7 +780,8 @@ impl Core {
                 self.controllers[ci].agent = None;
             }
             Made::Foreign(kind) => {
-                let (tick, control) = w.foreign_agent_create(ci, kind);
+                let (tick, control) = w.foreign_agent_create(ci, kind, &world::ForeignShared::read(&self.controllers[ci]));
+                if let Some(shared) = tick.shared { shared.apply(&mut self.controllers[ci]); }
                 if let Some(control) = control {
                     self.adopt_control(ci, control);
                 }
@@ -789,8 +789,8 @@ impl Core {
                     fsm: Fsm { state: tick.state, pending: tick.pending },
                     unit: unit_key,
                     goal: Some(goal),
-                    interrupts: Default::default(),
-                    helper: Helper::default(),
+                    interrupts: tick.interrupts,
+                    helper: tick.helper,
                     kind: AgentKind::Foreign(kind),
                 });
             }
@@ -839,7 +839,11 @@ impl Core {
             self.fsm_terminate(w, d, Owner::Mine(ci));
         }
         if foreign {
-            w.foreign_agent_exit(ci);
+            if let Some(shared) = w.foreign_agent_exit(ci, &world::ForeignShared::read(&self.controllers[ci])) {
+                shared.apply(&mut self.controllers[ci]);
+            }
+            self.sync_control(w, ci);
+            self.sync_combat_writes(w, ci);
         } else {
             self.helper_terminate(w, ci);
             self.fsm_terminate(w, d, Owner::Agent(ci));
@@ -852,6 +856,7 @@ impl Core {
         if let Some(agent) = agent {
             if matches!(agent.helper.kind, Some(HelperKind::Ground) | Some(HelperKind::Fly) | Some(HelperKind::Vehicle)) {
                 w.helper_dispose(ci);
+                self.sync_control(w, ci);
             }
         }
     }
@@ -1132,12 +1137,15 @@ impl Core {
                 let Some(agent) = &self.controllers[ci].agent else { return };
                 let phase = self.controllers[ci].phase;
                 let done = if matches!(agent.kind, AgentKind::Foreign(_)) {
-                    let tick = w.foreign_agent_tick(ci, dt, phase);
+                    let tick = w.foreign_agent_tick(ci, dt, phase, &world::ForeignShared::read(&self.controllers[ci]));
+                    if let Some(shared) = tick.shared { shared.apply(&mut self.controllers[ci]); }
                     self.sync_control(w, ci);
                     self.sync_combat_writes(w, ci);
                     if let Some(a) = &mut self.controllers[ci].agent {
                         a.fsm.state = tick.state;
                         a.fsm.pending = tick.pending;
+                        a.helper = tick.helper;
+                        a.interrupts = tick.interrupts;
                     }
                     tick.state == fsm::DONE
                 } else {
@@ -1737,12 +1745,14 @@ impl Core {
                     let team = self.controllers[ci].unit.map(|u| w.unit(u).team);
                     let now = self.now(w);
                     let until = self.controllers[ci].secondary_wait_until;
-                    let pending = match team {
-                        Some(team) => w.vehicles_pending_reservations(vehicle, team),
-                        None => false,
-                    };
-                    if now > until && !pending {
-                        self.request_state(Owner::Agent(ci), fsm::DONE);
+                    if now > until {
+                        let pending = match team {
+                            Some(team) => w.vehicles_pending_reservations(vehicle, team),
+                            None => false,
+                        };
+                        if !pending {
+                            self.request_state(Owner::Agent(ci), fsm::DONE);
+                        }
                     }
                 }
             }
@@ -3339,7 +3349,7 @@ impl Core {
                 }
             }
         }
-        if selected != Some(weapon) {
+        if w.weapons_selected(ci) != Some(weapon) {
             self.choose_weapon(w, ci, weapon);
             if let Some(o) = self.objective_mut(ci) {
                 if let Some(s) = &mut o.service {

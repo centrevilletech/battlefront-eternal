@@ -13,18 +13,18 @@ pub const HEALTH_TYPES: [&str; 7] = ["Person", "Animal", "Droid", "Vehicle", "Bu
 
 /// healthType (classes.js:250).
 pub fn health_type(unit: &AiUnit) -> f64 {
-    if let Some(c) = &unit.class_def {
-        if let Some(n) = c.health_type_num {
-            return n;
-        }
-        if let Some(name) = &c.health_type_name {
-            let lower = name.to_lowercase();
-            for (i, known) in HEALTH_TYPES.iter().enumerate() {
-                if known.to_lowercase() == lower {
-                    return i as f64;
-                }
+    let runtime = unit.health_type_num.is_some() || unit.health_type_name.is_some();
+    let num = if runtime { unit.health_type_num } else { unit.class_def.as_ref().and_then(|c| c.health_type_num) };
+    if let Some(n) = num {
+        return n;
+    }
+    let name = if runtime { unit.health_type_name.as_deref() } else { unit.class_def.as_ref().and_then(|c| c.health_type_name.as_deref()) };
+    if let Some(name) = name {
+        let lower = name.to_lowercase();
+        for (i, known) in HEALTH_TYPES.iter().enumerate() {
+            if known.to_lowercase() == lower {
+                return i as f64;
             }
-            return 0.0;
         }
     }
     0.0
