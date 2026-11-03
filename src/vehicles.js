@@ -2103,6 +2103,9 @@ export class Vehicles {
   // bot's intent is frozen, and exit requests (an intent's use edge, or
   // requestExit) are carried out.
   latchCrews() {
+    // The batch on the simulation's module where the world asked for it
+    // (src/seats-sim.js).
+    if (this.seatsSim) return this.seatsSim.latchCrews();
     this.ticks += 1;
     const exits = this.pendingExits;
     exits.length = 0;
