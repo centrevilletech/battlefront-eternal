@@ -22,3 +22,8 @@ replay = ["dep:sim-replay"]
 
 [dependencies]
 sim-replay = { path = "../sim-replay", optional = true }
+# JavaScript's Math as the production server's V8 computes it (ai/nav).
+v8math = { path = "../v8math" }
+# The game's content as JavaScript loads it: JSON values and the routing
+# words of ai-nav.bin for the navigation loader (ai/nav/data.rs).
+content = { path = "../content" }

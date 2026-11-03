@@ -7,6 +7,8 @@
 pub use crate::store::block::Block;
 pub use crate::store::{word_i32, word_u32, DefId, KindCode, Mat4, Nullable, Quat, Ref, RefSet, Slab, StrId, StrMap, Vec3};
 
+mod nav;
+pub use self::nav::*;
 mod ordnance;
 pub use self::ordnance::*;
 mod store;
@@ -21,21 +23,24 @@ pub const KIND_BODY: KindCode = 2;
 pub const KIND_BOLT: KindCode = 3;
 pub const KIND_EMITTER: KindCode = 4;
 pub const KIND_GRENADE: KindCode = 5;
-pub const KIND_ORDNANCE: KindCode = 6;
-pub const KIND_OWNER_SNAPSHOT: KindCode = 7;
-pub const KIND_ROUND: KindCode = 8;
-pub const KIND_TURRET: KindCode = 9;
-pub const KIND_UNIT: KindCode = 10;
-pub const KIND_VEHICLE: KindCode = 11;
-pub const KIND_WEAPON: KindCode = 12;
+pub const KIND_NAV_CONTROL: KindCode = 6;
+pub const KIND_ORDNANCE: KindCode = 7;
+pub const KIND_OWNER_SNAPSHOT: KindCode = 8;
+pub const KIND_PATH_PLANNER: KindCode = 9;
+pub const KIND_PLANNER_REQUEST: KindCode = 10;
+pub const KIND_ROUND: KindCode = 11;
+pub const KIND_TURRET: KindCode = 12;
+pub const KIND_UNIT: KindCode = 13;
+pub const KIND_VEHICLE: KindCode = 14;
+pub const KIND_WEAPON: KindCode = 15;
 /// How many kinds there are (codes run 1 to KINDS).
-pub const KINDS: usize = 12;
-pub const KIND_NAMES: [&str; 13] = ["", "beam", "body", "bolt", "emitter", "grenade", "ordnance", "ownerSnapshot", "round", "turret", "unit", "vehicle", "weapon"];
+pub const KINDS: usize = 15;
+pub const KIND_NAMES: [&str; 16] = ["", "beam", "body", "bolt", "emitter", "grenade", "navControl", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "round", "turret", "unit", "vehicle", "weapon"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 13] = [0, 0xfc8a10be, 0xfe7bf1ca, 0xaccf5409, 0xc667f062, 0xa3e130ff, 0x8767c204, 0x046a7623, 0x79e24fc8, 0x512f6f6c, 0x17adc2a6, 0xe12e5e44, 0xe73c7946];
+pub const KIND_HASHES: [u32; 16] = [0, 0xfc8a10be, 0xfe7bf1ca, 0xaccf5409, 0xc667f062, 0xa3e130ff, 0x00a2177c, 0x8767c204, 0x046a7623, 0x85519934, 0x45784696, 0x79e24fc8, 0x512f6f6c, 0x17adc2a6, 0xe12e5e44, 0xe73c7946];
 /// Whether each kind's objects carry their own number (its slot), by code.
-pub const KIND_KEYED: [bool; 13] = [false, false, false, false, false, false, false, false, false, false, true, false, false];
+pub const KIND_KEYED: [bool; 16] = [false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false];
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
@@ -44,6 +49,10 @@ pub struct Body;
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Emitter;
+
+/// A kind the store holds no fields of (only references to).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NavControl;
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
@@ -72,6 +81,8 @@ pub struct Store {
     pub bolt: Slab<Bolt>,
     pub grenade: Slab<Grenade>,
     pub ordnance: Ordnance,
+    pub path_planner: PathPlanner,
+    pub planner_request: Slab<PlannerRequest>,
     pub round: Slab<Round>,
 }
 
@@ -149,6 +160,31 @@ impl Store {
                 let (row, heap) = block.row(0);
                 if full { self.ordnance.put_full(row, heap) } else { self.ordnance.put_export(row, heap) }
             }
+            KIND_PATH_PLANNER => {
+                block.begin(1, if full { PathPlanner::FULL_STRIDE } else { PathPlanner::EXPORT_STRIDE });
+                let (row, heap) = block.row(0);
+                if full { self.path_planner.put_full(row, heap) } else { self.path_planner.put_export(row, heap) }
+            }
+            KIND_PLANNER_REQUEST => {
+                let list = self.path_planner.queue.clone();
+                let retired = if mode == 0 { std::mem::take(&mut self.planner_request.retired) } else { Vec::new() };
+                let shown = if mode == 2 { self.planner_request.retired.len() } else { retired.len() };
+                block.begin(shown + list.len(), if full { PlannerRequest::FULL_STRIDE } else { PlannerRequest::EXPORT_STRIDE });
+                block.set_retired(shown);
+                let old = if mode == 2 { &self.planner_request.retired } else { &retired };
+                for (i, (r, v)) in old.iter().enumerate() {
+                    let (row, heap) = block.row(i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    v.put_export(row, heap);
+                }
+                for (i, &r) in list.iter().enumerate() {
+                    let (row, heap) = block.row(shown + i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    if let Some(v) = self.planner_request.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
+                }
+            }
             KIND_ROUND => {
                 let list = self.ordnance.rounds.clone();
                 let retired = if mode == 0 { std::mem::take(&mut self.round.retired) } else { Vec::new() };
@@ -191,6 +227,10 @@ impl Store {
                 let r = self.grenade.insert(Default::default());
                 self.ordnance.grenades.push(r);
             },
+            KIND_PLANNER_REQUEST => for _ in 0..count {
+                let r = self.planner_request.insert(Default::default());
+                self.path_planner.queue.push(r);
+            },
             KIND_ROUND => for _ in 0..count {
                 let r = self.round.insert(Default::default());
                 self.ordnance.rounds.push(r);
@@ -205,6 +245,7 @@ impl Store {
             KIND_BEAM => self.beam.retire(Ref::new(slot, gen)),
             KIND_BOLT => self.bolt.retire(Ref::new(slot, gen)),
             KIND_GRENADE => self.grenade.retire(Ref::new(slot, gen)),
+            KIND_PLANNER_REQUEST => self.planner_request.retire(Ref::new(slot, gen)),
             KIND_ROUND => self.round.retire(Ref::new(slot, gen)),
             _ => false,
         }
@@ -257,6 +298,23 @@ impl Store {
             KIND_ORDNANCE => {
                 let (row, heap) = block.read(0);
                 if full { self.ordnance.take_full(row, heap) } else { self.ordnance.take_import(row, heap) }
+            }
+            KIND_PATH_PLANNER => {
+                let (row, heap) = block.read(0);
+                if full { self.path_planner.take_full(row, heap) } else { self.path_planner.take_import(row, heap) }
+            }
+            KIND_PLANNER_REQUEST => {
+                let mut listed: Vec<bool> = Vec::new();
+                for i in 0..block.rows() {
+                    let (row, heap) = block.read(i);
+                    let r = Ref::new(word_u32(row[0]), word_u32(row[1]));
+                    let v = self.planner_request.ensure(r);
+                    if full { v.take_full(row, heap) } else { v.take_import(row, heap) }
+                    let s = r.slot as usize;
+                    if listed.len() <= s { listed.resize(s + 1, false); }
+                    listed[s] = true;
+                }
+                self.planner_request.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
             }
             KIND_ROUND => {
                 let mut listed: Vec<bool> = Vec::new();
