@@ -12,6 +12,7 @@
 use bfe_sim::gen::{Body, Post, Replay, SeatLease, SeatUnit, Seats, Store, TurretSeats, Unit, Vehicle, KIND_BODY, KIND_POST, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_TURRET};
 use bfe_sim::seats::bodies::CombatFlags;
 use bfe_sim::seats::hulls::{FlightState, HullSide, Hulls, RiderFacts, Vacate};
+use bfe_sim::seats::network::{network_vehicle_input, SeatCommand, SeatKeys, SeatKeysOut};
 use bfe_sim::seats::turrets::{CrewWorld, Crews, Let, Shot, TurretDesc, TurretRig, TurretSide};
 use bfe_sim::seats::lease::{control_key, SeatControl, SeatIntent};
 use bfe_sim::seats::{Attacker, Hit, Holder, Reason, SeatWorld};
@@ -1204,6 +1205,88 @@ fn turret_crews_as_captured() {
         }
         report.assert_clean();
     }
+}
+
+// ---- A network human's mouse and keys in a hull's seat.
+
+fn stick_of(v: V) -> Option<(f64, f64)> {
+    if v.is_null() {
+        None
+    } else {
+        Some((v.at(0).opt_num().unwrap_or(f64::NAN), v.at(1).opt_num().unwrap_or(f64::NAN)))
+    }
+}
+
+fn replay_network_seat(frame: &Frame, tally: &mut BTreeMap<String, usize>) -> Outcome {
+    let before = frame.before();
+    let mut cx = Replay::default();
+    let r = match Vehicle::value_in(before.get("hull"), &mut cx, "hull") {
+        Ok(r) => r,
+        Err(e) => return Outcome::Failed(format!("{}: reading the hull: {e}", frame.place())),
+    };
+    let mut v = cx.store.vehicle.get(r).unwrap().clone();
+    let mut stick = stick_of(before.get("stick"));
+    let index = frame.arg(1).num() as usize;
+    let k = before.get("keys");
+    let keys = SeatKeys { forward: k.get("forward").num(), right: k.get("right").num(), turn: k.get("turn").num(), space: k.get("space").bool() };
+    let c = frame.arg(3);
+    let fs = c.get("flightSettings");
+    let command = SeatCommand {
+        look: c.get("look").items().map(|l| (l.at(0).num(), l.at(1).num())).collect(),
+        mouse_scale: c.get("mouseScale").opt_num(),
+        invert_mouse: c.get("invertMouse").truthy(),
+        flight_sensitivity: if fs.is_nullish() { None } else { fs.get("sensitivity").opt_num() },
+        flight_invert: !fs.is_nullish() && fs.get("invert").truthy(),
+    };
+    let out = network_vehicle_input(&mut v, &mut stick, index, &keys, &command);
+    let result = frame.result();
+    let same_result = match out {
+        Some(SeatKeysOut::Flight) => {
+            *tally.entry("flight (keys the flight package's)".into()).or_default() += 1;
+            true
+        }
+        Some(SeatKeysOut::Drive { forward, right, turn, brake }) => {
+            *tally.entry("drive".into()).or_default() += 1;
+            sim_replay::same_number(result.get("forward").num(), forward)
+                && sim_replay::same_number(result.get("right").num(), right)
+                && sim_replay::same_number(result.get("turn").num(), turn)
+                && result.get("brake").opt_bool() == Some(brake)
+        }
+        Some(SeatKeysOut::Turret) => {
+            *tally.entry("turret".into()).or_default() += 1;
+            result.get("forward").num() == 0.0 && result.get("right").num() == 0.0 && result.get("turn").num() == 0.0 && result.get("brake").opt_bool() == Some(false)
+        }
+        None => result.is_nullish(),
+    };
+    if !same_result {
+        return Outcome::Failed(format!("{}: the keys: the capture has {}, the port {out:?}", frame.place(), result.show()));
+    }
+    *cx.store.vehicle.get_mut(r).unwrap() = v;
+    let mut a = Arena::default();
+    let hull = Vehicle::value_out(r, &mut cx, &mut a);
+    let stick = match stick {
+        None => Value::Null,
+        Some((x, y)) => a.array(vec![Value::Num(x), Value::Num(y)]),
+    };
+    let keys = a.copy(k);
+    let after = frame.after();
+    let mine = a.object("", vec![("index", Value::Num(after.get("index").num())), ("hull", hull), ("stick", stick), ("keys", keys)]);
+    match diff(after, a.view(&mine)) {
+        None => Outcome::Same,
+        Some(d) => Outcome::Failed(format!("{}: seat {d} (capture | port)", frame.place())),
+    }
+}
+
+#[test]
+fn network_seats_as_captured() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+    let report = replay_corpus(&corpus, "networkVehicle.input", |_capture, frame| replay_network_seat(frame, &mut tally)).unwrap();
+    eprintln!("{}", report.summary());
+    for (what, n) in &tally {
+        eprintln!("  {what}: {n}");
+    }
+    report.assert_clean();
 }
 
 #[test]

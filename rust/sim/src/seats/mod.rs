@@ -15,7 +15,9 @@
 //! - `hulls`: the hulls' seats (`Vehicles.board`, `vacate`, `promote`,
 //!   `move`, `displace`, `destroyedCrew`, `latchCrews`, `requestExit`);
 //! - `turrets`: the turret crews (`TurretSeats`) and the turrets' aim,
-//!   gun and nodes they drive (src/props.js Turret).
+//!   gun and nodes they drive (src/props.js Turret);
+//! - `network`: a network human's mouse and keys in a seat and his seat
+//!   switch (`networkVehicleInput`, `cycleNetworkSeat`, `switchSeat`).
 //!
 //! A lease is a store handle (`Ref<SeatLease>`, rust/sim/schema/seats.mjs);
 //! units and hulls are the store's (`gen::Unit`, `gen::Vehicle`). What the
@@ -37,6 +39,7 @@ pub mod bodies;
 pub mod exits;
 pub mod hulls;
 pub mod lease;
+pub mod network;
 pub mod turrets;
 
 use crate::gen::{Body, Post, SeatLease, SeatUnit, Unit};

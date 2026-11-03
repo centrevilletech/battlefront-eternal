@@ -15,6 +15,7 @@
 
 import * as THREE from 'three';
 import { hasMissileLock } from '../../src/weapon-targeting.js';
+import { networkVehicle } from '../../src/runtime/network-vehicle.js';
 
 // The leases that hold a seat, hulls first (hull by hull, seat by seat),
 // then the turrets' (in the order they were manned), then any the frame
@@ -63,7 +64,7 @@ function hullValue(cap, game, v) {
     hull: cap.export('vehicle', v),
     side: {
       team: v.team, flightState: v.flightState ?? null, lastAttacker: v.lastAttacker ?? null,
-      stick: v.flying ? [v.stickX, v.stickY] : null,
+      stick: v.stickX === undefined && v.stickY === undefined ? null : [v.stickX, v.stickY],
       hover: v.base === 'hover', animal: v.healthType === 'animal',
       turretNodes: v.seats.map((s) => Boolean(s.settings?.TurretNodeName)),
       weapons: v.seats.map((s) => s.weapons.length),
@@ -113,8 +114,9 @@ function seatState(game, cap, { leases: namedLeases = [], units: namedUnits = []
 
 // The units seated now, as a call left them (a rider posed, a crew killed).
 const unitsAfter = (game, cap) => ({ units: leasesOf(game).flatMap((l) => (l.unit ? [unitValue(cap, l.unit)] : [])) });
-// Every unit, as a kill left them (the killed one holds no seat by then).
-const everyUnit = (game, cap) => ({ units: game.units.all().filter((u) => u.combat).map((u) => unitValue(cap, u)) });
+// Every unit, as a kill left them (the killed one holds no seat by then):
+// the registry's units, not its hulls', turrets' and buildings' targets.
+const everyUnit = (game, cap) => ({ units: game.units.all().filter((u) => u.soldier && u.combat).map((u) => unitValue(cap, u)) });
 
 // The hulls' seats' boundary: their SeatsWorld's calls, a body stood up
 // (Soldier.spawn's cast: the port runs the units' spawn), and a rider posed
@@ -238,6 +240,23 @@ const crewFrame = (method, named = () => ({})) => ({
   boundaries: crewBoundaries,
 });
 
+// ---- A network human's mouse and keys in a hull's seat
+// (src/runtime/network-vehicle.js): the hull's seats as the mouse turns
+// them (a craft's pilot's virtual stick), and the driving keys he holds.
+const networkSeatFrame = {
+  method: 'networkVehicle.input',
+  target: () => networkVehicle,
+  state: (game, args, cap) => {
+    const [v, , controls] = args;
+    return {
+      index: game.vehicles.vehicles.indexOf(v), hull: cap.export('vehicle', v),
+      stick: v.stickX === undefined && v.stickY === undefined ? null : [v.stickX, v.stickY],
+      keys: { forward: controls.axis('forward'), right: controls.axis('right'), turn: controls.axis('turn'), space: controls.down.has('Space') },
+    };
+  },
+  boundaries: () => [],
+};
+
 export const seats = {
   frames: [
     hullFrame('latchCrews'),
@@ -251,5 +270,6 @@ export const seats = {
     crewFrame('destroyed', (args) => ({ turrets: [args[0]] })),
     crewFrame('requestExit', (args) => ({ units: [args[0]] })),
     crewFrame('leave', (args) => ({ units: [args[0]] })),
+    networkSeatFrame,
   ],
 };

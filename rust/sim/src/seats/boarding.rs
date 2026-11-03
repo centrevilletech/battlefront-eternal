@@ -152,3 +152,63 @@ pub fn hull_of(hulls: &Hulls, lease: &SeatLease) -> usize {
     let v: Ref<Vehicle> = lease.vehicle.expect("a hull's lease");
     hulls.hulls.iter().position(|h| h.vehicle == v).expect("the lease's hull")
 }
+
+/// What a seat's keys and mouse do to the hull (boarding.js seatControl):
+/// the pilot of a craft flies it, the driver of anything else drives it,
+/// and every other seat only aims and fires its own guns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeatControl {
+    Flight,
+    Drive,
+    Turret,
+}
+
+/// boarding.js seatControl (None: no such seat).
+pub fn seat_control(v: &Vehicle, index: usize) -> Option<SeatControl> {
+    v.seats.get(index)?;
+    Some(if index > 0 {
+        SeatControl::Turret
+    } else if v.flying {
+        SeatControl::Flight
+    } else {
+        SeatControl::Drive
+    })
+}
+
+/// A seat's mouse settings (boarding.js seatLook's last argument).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LookScales {
+    pub scale: f64,
+    pub invert: bool,
+    pub flight_scale: f64,
+    pub flight_invert: bool,
+}
+
+/// boarding.js seatLook: mouse counts on a seat. A craft's pilot moves its
+/// virtual stick (`stick`, kept inside the unit circle); any other seat
+/// turns its look, held inside the seat's limits.
+pub fn seat_look(v: &mut Vehicle, stick: &mut Option<(f64, f64)>, index: usize, dx: f64, dy: f64, s: &LookScales) {
+    if seat_control(v, index) == Some(SeatControl::Flight) {
+        let (x0, y0) = stick.unwrap_or((f64::NAN, f64::NAN));
+        let mut x = three::clamp(x0 + (dx * s.flight_scale) / 120.0, -1.0, 1.0);
+        let mut y = three::clamp(y0 + ((if s.flight_invert { -dy } else { dy }) * s.flight_scale) / 120.0, -1.0, 1.0);
+        let radius = v8math::max(1.0, v8math::hypot(x, y));
+        x /= radius;
+        y /= radius;
+        *stick = Some((x, y));
+        return;
+    }
+    let seat = &mut v.seats[index];
+    seat.look_yaw = Some(seat.look_yaw.unwrap_or(seat.aim_yaw) - (dx * s.scale) / 2048.0);
+    seat.look_pitch = Some(seat.look_pitch.unwrap_or(seat.pitch) + ((if s.invert { dy } else { -dy }) * s.scale) / 2048.0);
+    super::hulls::clamp_aim(v, index);
+}
+
+/// boarding.js turretTakeover: whether a person may take this turret from
+/// whoever mans it: unmanned, or manned by a bot's lease.
+pub fn turret_takeover(gunner: bool, lease: Option<&SeatLease>, units: &Slab<Unit>) -> bool {
+    if !gunner {
+        return true;
+    }
+    lease.is_some_and(|l| !l.released && !person_lease(l, units))
+}
