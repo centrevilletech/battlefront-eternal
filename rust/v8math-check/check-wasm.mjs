@@ -90,9 +90,8 @@ if (!isMainThread) {
       const j = Math.max(1, Math.min(jobs, b - a));
       const parts = Array.from({ length: j }, (_, k) => [a + Math.floor((b - a) * k / j), a + Math.floor((b - a) * (k + 1) / j)]);
       const results = await Promise.all(parts.map((part) => new Promise((resolve, reject) => {
-        const worker = new Worker(new URL(import.meta.url), {
-          workerData: { name, seed, chunks: part, chunkSize }, execArgv: process.execArgv,
-        });
+        // (V8's flags are the process's: workers run under them too.)
+        const worker = new Worker(new URL(import.meta.url), { workerData: { name, seed, chunks: part, chunkSize } });
         worker.once('message', resolve);
         worker.once('error', reject);
       })));
