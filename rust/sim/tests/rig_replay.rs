@@ -168,6 +168,7 @@ struct Droideka {
 #[derive(Default)]
 struct Tally {
     checked: HashMap<&'static str, u64>,
+    failed: HashMap<&'static str, u64>,
     failures: Vec<String>,
 }
 
@@ -175,6 +176,7 @@ impl Tally {
     fn check(&mut self, what: &'static str, at: &str, outcome: Option<String>) {
         *self.checked.entry(what).or_default() += 1;
         if let Some(why) = outcome {
+            *self.failed.entry(what).or_default() += 1;
             if self.failures.len() < 40 {
                 self.failures.push(format!("{what} {at}: {why}"));
             }
@@ -262,7 +264,9 @@ fn hull_desc(d: V) -> HullDesc {
 fn compare_hull(rig: &mut HullRig, r: V) -> Option<String> {
     let kinds = ints(r.get("kinds"));
     let parents = ints(r.get("parents"));
-    let n = rig.tree.nodes.len();
+    // The scene the root hangs from is made last and is not the hull's.
+    assert_eq!(rig.scene as usize, rig.tree.nodes.len() - 1, "the scene node is the last");
+    let n = rig.tree.nodes.len() - 1;
     if kinds.len() != n {
         return Some(format!("{} nodes in the JavaScript's rig, {} in Rust's", kinds.len(), n));
     }
@@ -281,21 +285,19 @@ fn compare_hull(rig: &mut HullRig, r: V) -> Option<String> {
         if kind_of(id) != kinds[id] {
             return Some(format!("node {id} is of kind {} in Rust, {} in JavaScript", kind_of(id), kinds[id]));
         }
-        let parent = rig.tree.node(id as u32).parent.map_or(-1, |p| p as i32);
+        let parent = rig.tree.node(id as u32).parent.filter(|&p| p != rig.scene).map_or(-1, |p| p as i32);
         if parent != parents[id] {
             return Some(format!("node {id}'s parent is {parent} in Rust, {} in JavaScript", parents[id]));
         }
     }
-    let locals: Vec<f64> = rig
-        .tree
-        .nodes
+    let locals: Vec<f64> = rig.tree.nodes[..n]
         .iter()
         .flat_map(|o| [o.position.x, o.position.y, o.position.z, o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w, o.scale.x, o.scale.y, o.scale.z])
         .collect();
     if let Some(d) = differ(&floats(r.get("locals")), &locals) {
         return Some(format!("rest locals: {d}"));
     }
-    let worlds: Vec<f64> = rig.tree.nodes.iter().flat_map(|o| o.matrix_world.elements).collect();
+    let worlds: Vec<f64> = rig.tree.nodes[..n].iter().flat_map(|o| o.matrix_world.elements).collect();
     if let Some(d) = differ(&floats(r.get("worlds")), &worlds) {
         return Some(format!("rest world matrices: {d}"));
     }
@@ -474,6 +476,14 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
                 };
                 tally.check("riderHitShapes", &at, outcome);
             }
+            "rig.soldier" => {
+                use bfe_sim::rig::clips::{dive_time, getup_time, ClipTimes};
+                let fps = r.get("fps").num();
+                let times = |d: V| if d.is_null() { None } else { Some(ClipTimes::new(d.get("frames").num(), fps, floats(d.get("travel")).try_into().unwrap())) };
+                let (getup, dive) = (times(r.get("getup")), times(r.get("dive")));
+                let mine = [getup_time(getup.as_ref()), dive_time(dive.as_ref())];
+                tally.check("soldier getup and dive times", &format!("{at} {}", r.get("skeleton").str().unwrap_or(r.get("key").str().unwrap_or("?"))), differ(&[r.get("getupTime").num(), r.get("diveTime").num()], &mine));
+            }
             "rig.drop" => {
                 let points = points_from(&floats(r.get("points")));
                 let mut out = Vector3::default();
@@ -631,8 +641,9 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
             "rig.hull.pose" => {
                 let rig = s.hulls.get_mut(&(r.get("id").num() as i32)).unwrap();
                 let locals = floats(r.get("locals"));
-                let outcome = if locals.len() != rig.tree.nodes.len() * 10 {
-                    Some(format!("{} nodes posed, {} in the rig", locals.len() / 10, rig.tree.nodes.len()))
+                let hull_nodes = rig.tree.nodes.len() - 1; // all but the scene
+                let outcome = if locals.len() != hull_nodes * 10 {
+                    Some(format!("{} nodes posed, {} in the rig", locals.len() / 10, hull_nodes))
                 } else {
                     for (i, c) in locals.chunks_exact(10).enumerate() {
                         let node = rig.tree.node_mut(i as u32);
@@ -641,7 +652,7 @@ fn replay(name: &str, records: &[Record], tally: &mut Tally) {
                         node.scale = v3(&c[7..]);
                     }
                     rig.tree.update_matrix_world(rig.root, true);
-                    let worlds: Vec<f64> = rig.tree.nodes.iter().flat_map(|o| o.matrix_world.elements).collect();
+                    let worlds: Vec<f64> = rig.tree.nodes[..hull_nodes].iter().flat_map(|o| o.matrix_world.elements).collect();
                     differ(&floats(r.get("worlds")), &worlds)
                 };
                 tally.check("hull pose world matrices", &at, outcome);
@@ -696,7 +707,9 @@ fn rigs_match_recorded_battles() {
     for m in mismatches.iter().take(5) {
         eprintln!("mismatch: {m}");
     }
-    assert!(tally.failures.is_empty(), "{} differences:\n{}", tally.failures.len(), tally.failures.join("\n"));
+    let mut failed: Vec<_> = tally.failed.iter().collect();
+    failed.sort();
+    assert!(tally.failures.is_empty(), "differences: {}\nthe first {}:\n{}", failed.iter().map(|(k, n)| format!("{n} {k}")).collect::<Vec<_>>().join(", "), tally.failures.len(), tally.failures.join("\n"));
     assert!(misses.is_empty(), "{} transcendental calls the JavaScript never made", misses.len());
     assert!(mismatches.is_empty(), "{} transcendental answers not V8's", mismatches.len());
 }

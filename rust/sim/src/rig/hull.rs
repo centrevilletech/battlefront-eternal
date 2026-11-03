@@ -205,6 +205,12 @@ pub struct HullRig {
     pub static_bone: NodeId,
     /// The constructor's markers, in the order it made them.
     pub markers: Vec<NodeId>,
+    /// The world's scene, which the root hangs from once built
+    /// (`system.scene.add(this.root)`): an identity, so every world matrix
+    /// three makes for the root after that is the identity times the root's
+    /// own matrix rather than a copy of it, which turns some of its -0s into
+    /// +0s. Made last, after the markers.
+    pub scene: NodeId,
     pub by_name: ByName,
     /// Each bone's bind quaternion and position.
     pub bind_q: Vec<Quaternion>,
@@ -271,6 +277,7 @@ impl HullRig {
             bones,
             static_bone,
             markers: Vec::new(),
+            scene: 0,
             by_name,
             bind_q,
             bind_p,
@@ -298,6 +305,9 @@ impl HullRig {
             }
         }
         rig.aimed_by_pose = rig.aimed_by_pose(desc);
+        // The constructor's last word: into the scene.
+        rig.scene = rig.tree.add_node(TransformNode::default());
+        rig.tree.add_child(rig.scene, rig.root);
         rig
     }
 

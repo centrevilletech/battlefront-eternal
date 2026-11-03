@@ -390,39 +390,3 @@ impl DroidekaRig {
         Some(out)
     }
 }
-
-/// The droideka's blasters' barrel tips on an arm (src/muzzles.js
-/// barrelTips): the arm's mesh points (in the arm bone's frame) at its
-/// front along `forward` (times `sign`), split in two halves across
-/// `across`, each half's middle, pushed 2 mm past the front.
-pub fn barrel_tips(points: &[Vector3], forward: super::three::Axis, sign: f64, across: super::three::Axis) -> Vec<Vector3> {
-    use super::three::Box3;
-    if points.is_empty() {
-        return Vec::new();
-    }
-    let (mut front, mut back) = (f64::NEG_INFINITY, f64::INFINITY);
-    for p in points {
-        let depth = p.get(forward) * sign;
-        front = js_max(front, depth);
-        back = js_min(back, depth);
-    }
-    let tolerance = js_max(0.003, (front - back) * 0.005);
-    let ends: Vec<Vector3> = points.iter().filter(|p| p.get(forward) * sign >= front - tolerance).copied().collect();
-    let mut bounds = Box3::default();
-    bounds.set_from_points(&ends);
-    let middle = (bounds.min.get(across) + bounds.max.get(across)) / 2.0;
-    let mut halves = [Box3::default(), Box3::default()];
-    for p in &ends {
-        halves[if p.get(across) > middle { 1 } else { 0 }].expand_by_point(p);
-    }
-    halves
-        .iter()
-        .filter(|b| !b.is_empty())
-        .map(|b| {
-            let mut tip = Vector3::default();
-            b.get_center(&mut tip);
-            tip.set_axis(forward, sign * (front + 0.002));
-            tip
-        })
-        .collect()
-}
