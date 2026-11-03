@@ -247,6 +247,8 @@ pub fn dump_battle(c: &Content, cache: &mut PayloadCache, full: bool) -> String 
         g.line("positions", dump::typed(&actor.positions));
         g.line("skin", dump::typed(&actor.skin_index));
         g.line("attach", opt(actor.def.get("attach")));
+        g.line("bindLengths", list(actor.bind_lengths().iter().map(|(i, p)| list(vec![n(*i as f64), vec3(p)]))));
+        g.line("rootBind", actor.root_bind().map(|p| vec3(&p)).unwrap_or_else(|| "null".into()));
         g.write(&mut d, full);
     }
     for (key, clips) in &c.body_clips {
@@ -434,6 +436,55 @@ pub fn dump_battle(c: &Content, cache: &mut PayloadCache, full: bool) -> String 
             d.line("registry", "posts", &dump::payload(&list(r.posts.iter().map(|s| st(s)))));
         }
         Err(e) => d.line("registry", "error", &dump::payload(&st(&e))),
+    }
+
+    // The definitions: their links and the wire's ids.
+    match crate::defs::Defs::build(c) {
+        Ok(defs) => {
+            let id = |x: Option<u16>| x.map(|v| n(v as f64)).unwrap_or_else(|| "null".into());
+            let combat = |v: Option<&Value>| id(v.and_then(|v| defs.combat_id(v)));
+            let item_key = |i: Option<usize>| i.map(|i| st(&defs.items[i].key)).unwrap_or_else(|| "null".into());
+            for cd in &defs.classes {
+                let key = format!("{}/{}", defs.names.text(cd.side), defs.names.text(cd.name));
+                let drops = list(cd.drops.iter().map(|d| list(vec![d.class.map(|x| st(defs.names.text(x))).unwrap_or_else(|| "null".into()), item_key(d.item)])));
+                d.line("def.class", &key, &dump::payload(&list(vec![id(cd.registry_id), drops])));
+                for &w in &cd.weapons {
+                    let wd = &defs.weapons[w];
+                    d.line("def.weapon", &format!("{key}/{}", wd.slot), &dump::payload(&list(vec![
+                        wd.class.map(|x| st(defs.names.text(x))).unwrap_or_else(|| "null".into()),
+                        id(wd.registry_id),
+                        combat(wd.record.get("ordnance")),
+                        combat(wd.record.get("item")),
+                        combat(Some(&wd.record)),
+                        item_key(wd.item),
+                    ])));
+                }
+            }
+            for it in &defs.items {
+                d.line("def.item", &it.key, &combat(Some(&it.record)));
+            }
+            for v in &defs.vehicles {
+                let seats = list(v.seats.iter().map(|seat| {
+                    list(vec![
+                        seat.name.map(|x| st(defs.names.text(x))).unwrap_or_else(|| "null".into()),
+                        list(seat.weapons.iter().zip(&seat.weapon_ids).map(|(w, wid)| {
+                            list(vec![opt(w.get("def").and_then(|x| x.get("class"))), id(*wid), combat(w.get("def").and_then(|x| x.get("ordnance")))])
+                        })),
+                    ])
+                }));
+                let template = v.template.map(|t| st(&c.vehicle_templates[t].name)).unwrap_or_else(|| "null".into());
+                d.line("def.vehicle", defs.names.text(v.name), &dump::payload(&list(vec![id(v.registry_id), template, seats])));
+            }
+            for p in &defs.props {
+                d.line("def.prop", &p.index.to_string(), &dump::payload(&list(vec![
+                    opt(p.record.get("class")),
+                    id(p.weapon_id),
+                    combat(p.record.get("explosion")),
+                    combat(p.record.get("weapon").and_then(|w| w.get("ordnance"))),
+                ])));
+            }
+        }
+        Err(e) => d.line("defs", "error", &dump::payload(&st(&e))),
     }
 
     // The AI's route table.

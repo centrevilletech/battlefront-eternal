@@ -23,9 +23,11 @@ pub mod catalog;
 pub mod clips;
 pub mod collision;
 pub mod content;
+pub mod defs;
 pub mod derived;
 pub mod dump;
 pub mod files;
+pub mod intern;
 #[cfg(feature = "rays")]
 pub mod install;
 pub mod js;
