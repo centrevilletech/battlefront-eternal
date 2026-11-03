@@ -2,15 +2,18 @@ import * as THREE from 'three';
 import {makeHit} from './collision.js';
 import {particleDepth} from './particle-depth.js';
 const DOWN=new THREE.Vector3(0,-1,0),COUNT=96,LIFE=.65;
+// Each splash mesh's RainImpacts, for a renderer that draws the splashes
+// itself (src/rust-render/effects.js).
+export const rainImpacts=new WeakMap();
 const VERTEX=/* glsl */`
  attribute vec4 impact;
  attribute vec3 surfaceNormal;
  attribute float kind;
- uniform float time;
+ uniform float impactTime;
  varying vec2 vUv;
  varying float vAge,vKind,vDepth;
  void main(){
-  float age=(time-impact.w)/${LIFE};vAge=age;vKind=kind;vUv=uv;
+  float age=(impactTime-impact.w)/${LIFE};vAge=age;vKind=kind;vUv=uv;
   vec3 N=normalize(surfaceNormal),T=normalize(cross(N,abs(N.y)>.95?vec3(1,0,0):vec3(0,1,0))),B=cross(N,T);
   vec3 world=impact.xyz+N*.025;
   if(kind<.5){world+=(T*position.x+B*position.y)*(.035+age*.30);}
@@ -58,13 +61,16 @@ export class RainImpacts {
   g.setAttribute('impact',new THREE.InstancedBufferAttribute(this.locations,4).setUsage(THREE.DynamicDrawUsage));
   g.setAttribute('surfaceNormal',new THREE.InstancedBufferAttribute(this.normals,3).setUsage(THREE.DynamicDrawUsage));
   g.setAttribute('kind',new THREE.InstancedBufferAttribute(kinds,1));g.instanceCount=COUNT*2;
-  const material=new THREE.ShaderMaterial({vertexShader:VERTEX,fragmentShader:FRAGMENT,uniforms:{time:{value:0},sceneDepth:particleDepth.map,softParticles:particleDepth.enabled,depthResolution:particleDepth.resolution,cameraRange:particleDepth.cameraRange},transparent:true,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});
+  const material=new THREE.ShaderMaterial({vertexShader:VERTEX,fragmentShader:FRAGMENT,uniforms:{impactTime:{value:0},sceneDepth:particleDepth.map,softParticles:particleDepth.enabled,depthResolution:particleDepth.resolution,cameraRange:particleDepth.cameraRange},transparent:true,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true});
   this.mesh=new THREE.Mesh(g,material);this.mesh.name='rain-surface-impacts';this.mesh.frustumCulled=false;this.mesh.renderOrder=21;this.mesh.visible=false;
+  // Whether the splashes show this frame; while `external` another renderer
+  // draws them (src/rust-render/effects.js) and three is shown none.
+  this.shown=false;this.external=false;rainImpacts.set(this.mesh,this);
   this.mesh.onBeforeRender=(...args)=>particleDepth.capture(...args);scene.add(this.mesh);
  }
  random(){this.randomState=Math.imul(this.randomState,1664525)+1013904223>>>0;return this.randomState/4294967296;}
  update(dt,camera,enabled){
-  this.time+=dt;this.mesh.material.uniforms.time.value=this.time;this.mesh.visible=enabled;this.queries=0;
+  this.time+=dt;this.mesh.material.uniforms.impactTime.value=this.time;this.shown=enabled;this.mesh.visible=enabled&&!this.external;this.queries=0;
   if(!enabled){this.acc=0;return;}
   this.acc=Math.min(4,this.acc+dt*90);let changed=false;
   while(this.acc>=1){

@@ -138,8 +138,9 @@ export class AnalyticParticleBatch {
     const a=this.arrays;
     p.position.toArray(a.spawnPosition,i*3);p.velocity.toArray(a.spawnVelocity,i*3);
     a.spawnColor.set(p.color,i*4);
-    a.spawnShape.set([p.size,p.rotation,p.spin,0],i*4);
-    a.spawnMeta.set([p.birth-epoch,p.life,slot,definition],i*4);
+    const k=i*4,shape=a.spawnShape,meta=a.spawnMeta;
+    shape[k]=p.size;shape[k+1]=p.rotation;shape[k+2]=p.spin;shape[k+3]=0;
+    meta[k]=p.birth-epoch;meta[k+1]=p.life;meta[k+2]=slot;meta[k+3]=definition;
   }
   end() {
     // Release dead references; capacity is the historical peak as with CPU batches.
