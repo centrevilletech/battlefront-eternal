@@ -416,7 +416,10 @@ export class RustRender {
   // scene's image read it too (farMap); it is taken first, so that its
   // texture is registered before anything a pass registers.
   writeFrame(scene, camera, view) {
-    if (view !== VIEW_FAR && view !== VIEW_FAR_MIRROR) {
+    // The far scene's views (the eye's, a water mirror's) read neither the far
+    // image nor shadows nor lamps.
+    const far = view === VIEW_FAR || view === VIEW_FAR_MIRROR;
+    if (!far) {
       // The far image the materials read (lighting.farMap: the far target,
       // or a mirror's own far image while it draws).
       const image = lighting.farMap.value ?? this.graphics.farTarget.texture;
@@ -435,8 +438,8 @@ export class RustRender {
       if (size === 1) input[at] = v;
       else { input[at] = v.x; input[at + 1] = v.y; if (size === 3) input[at + 2] = v.z; }
     }
-    if (view !== VIEW_FAR && view !== VIEW_FIRST_PERSON) this.writeShadow();
-    if (view !== VIEW_FAR) this.writeLamps();
+    if (!far && view !== VIEW_FIRST_PERSON) this.writeShadow();
+    if (!far) this.writeLamps();
     const pack = packed(scene, camera);
     const count = Math.min(pack.count, MAX_LIGHTS);
     input[LIGHT_COUNT] = count;
