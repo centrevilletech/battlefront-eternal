@@ -17,8 +17,11 @@
 //! Math (`v8math`), JavaScript's conversions and sort (`jsrt`) and three.js
 //! r170's vector arithmetic (`three`); each cites the JavaScript it ports.
 
-#[allow(clippy::module_inception)]
+// The JavaScript's own spellings are kept (`!(a < b)` where NaN must take
+// the other branch) and its functions' arguments as they are.
+#[allow(clippy::module_inception, clippy::neg_cmp_op_on_partial_ord, clippy::too_many_arguments, clippy::needless_late_init)]
 pub mod combat;
 pub mod defs;
+#[allow(clippy::neg_cmp_op_on_partial_ord, clippy::too_many_arguments)]
 pub mod weapons;
 pub mod world;
