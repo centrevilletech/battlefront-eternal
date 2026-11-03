@@ -481,7 +481,7 @@ pub extern "C" fn cmb_set(unit: u32, field: u32, value: f64) {
 }
 
 /// A field the battle sets on a weapon (WeaponFacade's setters): 0
-/// reserve, 1 kick, 2 clip, 3 heat.
+/// reserve, 1 kick, 2 clip, 3 heat, 4 floor.
 #[no_mangle]
 pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64) {
     let s = sim();
@@ -492,6 +492,7 @@ pub extern "C" fn cmb_weapon_set(unit: u32, weapon: u32, field: u32, value: f64)
         1 => w.kick = value,
         2 => w.clip = value,
         3 => w.heat = value,
+        4 => w.floor = value,
         _ => panic!("no weapon field {field} to set"),
     }
 }

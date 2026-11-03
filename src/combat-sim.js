@@ -361,6 +361,7 @@ class WeaponFacade {
   set heat(value) { this.set(3, "heat", value); }
   get overheated() { return this.w.overheated; }
   get floor() { return this.w.floor; }
+  set floor(value) { this.set(4, "floor", value); }
   get kick() { return this.w.kick; }
   set kick(value) { this.set(1, "kick", value); }
   get wait() { return this.w.wait; }
@@ -393,7 +394,8 @@ class WeaponFacade {
   get empty() { return !this.canShoot && this.clip + this.reserve < this.perShot - 1e-6; }
 
   // A field the battle writes (a recharge droid's or a power-up's ammo, the
-  // Enhanced AI's kick floor): the module's, and the mirror's at once.
+  // Enhanced AI's spread floor and kick): the module's, and the mirror's at
+  // once.
   set(field, name, value) {
     const c = this.combat;
     c.sim.x.cmb_weapon_set(c.owner.id, this.index, field, value);
