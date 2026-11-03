@@ -566,8 +566,21 @@ export class SimBridge extends SimContext {
 
   // Writes the import block of a kind JavaScript owns from its objects (a
   // singleton's one object) in their order, its import fields or all of
-  // them (`full`), and has the store take it.
+  // them (`full`), and has the store take it: an entity of the kind the
+  // block does not list leaves the store, as it left the JavaScript's list.
   write(kind, objects, full = false) {
+    this.importRows(kind, objects, full, false);
+  }
+
+  // As write, for some of a kind's entities: the store keeps every entity
+  // the block does not list as it is (its rows and whatever the store holds
+  // of it only, such as a unit's combat). The way to write a few units (a
+  // seat's riders, the unit a hook changed) without touching the others.
+  writeSome(kind, objects, full = false) {
+    this.importRows(kind, objects, full, true);
+  }
+
+  importRows(kind, objects, full, some) {
     const k = KIND_TABLE[kind], stride = full ? k.fullStride : k.importStride, put = full ? k.putFull : k.put;
     const n = objects.length, heap = this.heap, refs = this.refs[kind];
     if (this.rows.length < n * stride) this.rows = new Float64Array(Math.max(n * stride, this.rows.length * 2));
@@ -583,7 +596,7 @@ export class SimBridge extends SimContext {
     const base = ptr / 8;
     this.f.set(rows.subarray(0, n * stride), base + HEADER);
     this.f.set(heap.words, base + HEADER + n * stride);
-    if (this.x.sim_import(kind, full ? 1 : 0) !== 0) throw Error(`${k.name}: the store holds no fields of it`);
+    if (this.x.sim_import(kind, (full ? 1 : 0) | (some ? 2 : 0)) !== 0) throw Error(`${k.name}: the store holds no fields of it`);
   }
 }
 

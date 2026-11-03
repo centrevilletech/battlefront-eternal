@@ -34,7 +34,7 @@ pub fn out_of_world(position: [f64; 3], velocity: [f64; 3]) -> bool {
 /// the world's bounds for a soldier. On a seat the body does not move by
 /// itself.
 pub fn take_impacts(id: u32, unit: &mut Unit, world: &mut dyn UnitsWorld) {
-    if unit.combat_dead || unit.removed || unit.seat.is_some() {
+    if unit.combat.dead || unit.removed || unit.seat.is_some() {
         return;
     }
     let damage = match &unit.soldier {
@@ -44,7 +44,7 @@ pub fn take_impacts(id: u32, unit: &mut Unit, world: &mut dyn UnitsWorld) {
     if damage > 0.0 {
         world.damage(id, unit, damage);
     }
-    if !unit.combat_dead && !unit.walker {
+    if !unit.combat.dead && !unit.walker {
         if let UnitBody::Soldier(s) = &unit.soldier {
             if out_of_world(s.position, s.velocity) {
                 world.damage(id, unit, f64::INFINITY);

@@ -71,7 +71,7 @@ fn shelf(strings: &mut Strings) -> Store {
 fn through_rows(from: &mut Store, kind: KindCode, to: &mut Store) {
     let mut block = Block::default();
     assert!(from.export(kind, &mut block, 1));
-    assert!(to.import(kind, &block, true));
+    assert!(to.import(kind, &block, true, false));
 }
 
 #[test]
@@ -85,6 +85,38 @@ fn every_type_goes_through_the_rows_and_comes_back() {
     for &r in &a.shelf.things { assert_eq!(b.thing.get(r), a.thing.get(r)); }
     let one = b.thing.get(a.shelf.things[0]).unwrap();
     assert_eq!((one.mass.to_bits(), one.light, one.size), ((-0.0f64).to_bits(), 0.1f32, u32::MAX));
+}
+
+#[test]
+fn a_block_of_some_things_leaves_the_others_as_they_are() {
+    let mut strings = Strings::default();
+    let mut a = shelf(&mut strings);
+    let mut b = Store::default();
+    through_rows(&mut a, KIND_THING, &mut b);
+    let (one, two) = (a.shelf.things[0], a.shelf.things[1]);
+    // The second thing changed, written alone.
+    a.thing.get_mut(two).unwrap().mass = 7.5;
+    let mut block = Block::default();
+    assert!(a.export(KIND_THING, &mut block, 1));
+    let mut only = Block::default();
+    let (row, heap) = block.read(1);
+    let stride = row.len();
+    let room = only.room(1, stride, heap.len());
+    // SAFETY: room() made the header (5 words), one row and the heap after them.
+    let words = unsafe { std::slice::from_raw_parts_mut(room, 5 + stride + heap.len()) };
+    words[5..5 + stride].copy_from_slice(row);
+    words[5 + stride..].copy_from_slice(heap);
+    let mut some = Store::default();
+    through_rows(&mut a, KIND_THING, &mut some);
+    some.thing.get_mut(two).unwrap().mass = 1.0;
+    some.thing.get_mut(one).unwrap().mass = 3.25;
+    assert!(some.import(KIND_THING, &only, true, true));
+    assert_eq!(some.thing.get(two), a.thing.get(two), "the thing the block holds takes its row");
+    assert_eq!(some.thing.get(one).unwrap().mass, 3.25, "the thing it does not list is left as it was");
+    // Without `some`, the block is the whole kind: the other thing leaves.
+    assert!(some.import(KIND_THING, &only, true, false));
+    assert!(some.thing.get(one).is_none());
+    assert_eq!(some.thing.get(two), a.thing.get(two));
 }
 
 #[test]

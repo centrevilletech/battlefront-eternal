@@ -486,7 +486,7 @@ pub fn update(c: &mut Combat, id: u32, u: &mut Unit, defs: &CombatDefs, dt: f64,
         None => false,
     };
     c.repair_target = match fixer {
-        Some(i) => world.lock_on(&v(c.origin), &v(c.aim_dir), i as u32, c.repair_target, fix_held, c.team),
+        Some(i) => world.lock_on(&v(c.origin), &v(c.aim_dir), i as u32, &c.weapons[i], c.repair_target, fix_held, c.team),
         None => None,
     };
     c.repair_lock = world.lock_key(c.repair_target);
@@ -498,7 +498,7 @@ pub fn update(c: &mut Combat, id: u32, u: &mut Unit, defs: &CombatDefs, dt: f64,
             continue;
         }
         // The cone runs from the gun through the point under the reticle.
-        match world.lock_pick(i as u32, &v(c.origin), &v(c.shot_dir)) {
+        match world.lock_pick(i as u32, &c.weapons[i], &v(c.origin), &v(c.shot_dir)) {
             LockPick::Nothing => c.weapons[i].clear_lock(),
             LockPick::None => c.weapons[i].update_lock(class, dt, None),
             LockPick::Unit { id, generation, alive } => {
@@ -1002,8 +1002,9 @@ pub fn damage_with(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, amount: f64,
     if let UnitBody::Droideka(d) = &mut u.soldier {
         let mut hits = Vec::new();
         amount = d.absorb(amount, on_shield, |_, taken| hits.push(taken));
+        let left = d.shield.as_ref().map_or(0.0, |s| s.value);
         for taken in hits {
-            world.shield_hit(taken, source, info.explosion);
+            world.shield_hit(taken, left, source, info.explosion);
         }
     }
     if amount <= 0.0 {

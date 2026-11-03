@@ -636,3 +636,49 @@ test("phases drawn between three's renders reset three's state once, when three 
   assert.deepEqual(calls.slice(-2).map((c) => c[0]), ["resetState", "setRenderTarget"]);
   assert.equal(core.stale, false);
 });
+
+test("a command post's beam, hidden until the player comes near: registered before three ever draws it, taken from three's list the first frame it shows", () => {
+  const { core, calls, renderer, scene, camera, properties, graphics } = bridge();
+  const material = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const beam = new THREE.Mesh(partGeometry(), material);
+  beam.visible = false;
+  scene.add(beam);
+  const p = program([["modelViewMatrix", GL.FLOAT_MAT4], ["diffuse", GL.FLOAT_VEC3], ["opacity", GL.FLOAT]], ["position"]);
+  // three's compile: a program for each material it is given, no draw (no __version).
+  const compiled = [];
+  renderer.compile = (list, cam, s) => { list.traverse((o) => { compiled.push(o); properties.get(o.material).currentProgram = p; }); };
+  const lightning = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial({ transparent: true }));
+  lightning.geometry.getAttribute("position").setUsage(THREE.DynamicDrawUsage);
+  scene.add(lightning);
+  // three starts the frame's render of the near scene.
+  scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
+  assert.deepEqual(compiled, [beam], "the beam's program built (the lightning's vertices change: not this pass's)");
+  const entry = core.byName.transparent.taken.get(beam);
+  assert.ok(entry, `registered before three drew it (${core.errors.join("; ")})`);
+  assert.equal(calls.filter((c) => c[0] === "transparent_object").length, 1);
+  // The player comes near: three lists it, and the pass takes it at once.
+  beam.visible = true;
+  const transparent = core.byName.transparent;
+  transparent.frameNo++;
+  const item = { object: beam, material, geometry: beam.geometry, group: null, groupOrder: 0, renderOrder: 0, z: 1, id: beam.id };
+  const items = [item];
+  transparent.take(items);
+  assert.equal(items.length, 0, "taken out of three's list");
+  // A change to its material since (another program, maybe): three's again until three draws it.
+  material.needsUpdate = true;
+  const again = [item];
+  transparent.frameNo++;
+  transparent.take(again);
+  assert.equal(again.length, 1, "left to three");
+  // A side's logo, made as the side takes the post: registered before three's next list of the scene.
+  const holder = new THREE.Group();
+  scene.add(holder);
+  const logo = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial({ transparent: true }));
+  holder.add(logo);
+  compiled.length = 0;
+  scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
+  assert.deepEqual(compiled, [logo], "only what was added looked over");
+  assert.ok(core.byName.transparent.taken.get(logo));
+  scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
+  assert.equal(compiled.length, 1, "nothing added since: nothing looked over");
+});

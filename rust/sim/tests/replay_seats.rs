@@ -9,7 +9,7 @@
 // capture's. Without a corpus the test passes without replaying.
 #![cfg(feature = "replay")]
 
-use bfe_sim::gen::{Body, Post, Replay, SeatLease, SeatUnit, Seats, Store, TurretSeats, Unit, Vehicle, KIND_BODY, KIND_POST, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_TURRET};
+use bfe_sim::gen::{Body, Post, Replay, SeatLease, SeatRole, SeatUnit, Seats, Store, TurretSeats, Unit, Vehicle, KIND_BODY, KIND_POST, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_TURRET};
 use bfe_sim::seats::bodies::CombatFlags;
 use bfe_sim::seats::hulls::{HullSide, Hulls, RiderFacts, Vacate};
 use bfe_sim::seats::boarding::Mount;
@@ -340,7 +340,7 @@ impl SeatWorld for Served<'_, '_> {
         call.result().opt_num()
     }
 
-    fn controllable(&mut self, lease: Ref<SeatLease>) -> Ref<SeatUnit> {
+    fn controllable(&mut self, lease: Ref<SeatLease>, _index: usize, _role: SeatRole) -> Ref<SeatUnit> {
         let Some(call) = self.call("seats.controllable") else { return Ref::new(u32::MAX, 0) };
         self.check_lease("controllable lease", call.arg(0), lease);
         match self.cx.ref_in(KIND_SEAT_UNIT, call.result(), "controllable") {
@@ -1338,8 +1338,8 @@ impl SeatWorld for ReachCasts<'_, '_, '_> {
     fn controller_state(&mut self, u: Option<u32>) -> Option<f64> {
         self.0.controller_state(u)
     }
-    fn controllable(&mut self, l: Ref<SeatLease>) -> Ref<SeatUnit> {
-        self.0.controllable(l)
+    fn controllable(&mut self, l: Ref<SeatLease>, i: usize, r: SeatRole) -> Ref<SeatUnit> {
+        self.0.controllable(l, i, r)
     }
     fn boarded(&mut self, u: u32, h: Holder, i: usize) {
         self.0.boarded(u, h, i)

@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { KIND_BODY, KIND_CHARACTER, KIND_CONTROLLER, KIND_OBJECTIVE_TARGET, KIND_PROP, KIND_SEAT_LEASE, KIND_TURRET_TARGET, KIND_UNIT, KIND_VEHICLE_TARGET } from "./kinds.js";
+import { CombatMirror, exportCombat, putCombat, sameCombat, syncCombat } from "./combat.js";
 
 export const Posture_NAMES = ["stand","crouch","prone"];
 export const Posture_INDEX = new Map(Posture_NAMES.map((name, i) => [name, i]));
@@ -1306,13 +1307,14 @@ export class UnitMirror {
     this.held = null;
     this.networkHuman = undefined;
     this.soldier = null;
+    this.combat = new CombatMirror();
     this.simSlot = -1;
     this.simGen = -1;
   }
 }
 
 export const UNIT_KEYS = new Set(["generation", "side", "className", "classDef", "walker", "human", "kind", "hero", "team", "character", "controller", "seat", "alive", "dead", "deadTime", "removed", "intent", "controls", "input", "bounds", "rootScale", "shapes", "shapeCount", "spheresTick", "tickCount", "navRadius", "targetable", "waterContact", "riderHits", "held", "networkHuman", "soldier", "combat", "hitSet", "actor", "animator", "presentation", "jetFlame", "bubble", "poseClock", "gone", "ownMaterials", "crowdSlot", "shadowNear", "flameAt", "flameTurn", "flameScale", "onDeath", "onRemoved", "onMoved", "enhancedDeath", "supply", "itemTarget", "steer", "remoteStep", "networkShot", "networkShots", "networkViewTick", "networkInputLeadTicks", "networkPlayoutMaxTicks"]);
-export const UNIT_EXPORT_STRIDE = 199, UNIT_IMPORT_STRIDE = 213, UNIT_FULL_STRIDE = 213;
+export const UNIT_EXPORT_STRIDE = 262, UNIT_IMPORT_STRIDE = 264, UNIT_FULL_STRIDE = 264;
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncUnit(b, f, at, h, m) {
@@ -1348,6 +1350,7 @@ export function syncUnit(b, f, at, h, m) {
   { const tag = f[at + 96]; if (tag === 0) { m.held = syncHeld(b, f, at + 97, h, m.held ?? new HeldMirror()); } else m.held = tag === 1 ? null : undefined; }
   { const tag = f[at + 119]; if (tag === 0) { m.networkHuman = f[at + 120] !== 0; } else m.networkHuman = tag === 1 ? null : undefined; }
   m.soldier = syncUnitBody(b, f, at + 121, h, m.soldier);
+  m.combat = syncCombat(b, f, at + 199, h, m.combat ?? new CombatMirror());
   return m;
 }
 
@@ -1385,12 +1388,8 @@ export function syncFullUnit(b, f, at, h, m) {
   { const tag = f[at + 96]; if (tag === 0) { m.held = syncHeld(b, f, at + 97, h, m.held ?? new HeldMirror()); } else m.held = tag === 1 ? null : undefined; }
   { const tag = f[at + 119]; if (tag === 0) { m.networkHuman = f[at + 120] !== 0; } else m.networkHuman = tag === 1 ? null : undefined; }
   m.soldier = syncUnitBody(b, f, at + 121, h, m.soldier);
-  (m.combat ??= {}).dead = f[at + 199] !== 0;
-  { const tag = f[at + 200]; if (tag === 0) { ((m.combat ??= {}).aimOverride ??= new THREE.Vector3()).set(f[at + 201], f[at + 202], f[at + 203]); } else (m.combat ??= {}).aimOverride = tag === 1 ? null : undefined; }
-  { const tag = f[at + 204]; if (tag === 0) { (m.combat ??= {}).mounted = f[at + 205] !== 0; } else (m.combat ??= {}).mounted = tag === 1 ? null : undefined; }
-  { const tag = f[at + 206]; if (tag === 0) { ((m.combat ??= {}).remotes ??= {}).active = f[at + 207] !== 0; } else ((m.combat ??= {}).remotes ??= {}).active = tag === 1 ? null : undefined; }
-  ((m.combat ??= {}).pivot ??= new THREE.Vector3()).set(f[at + 208], f[at + 209], f[at + 210]);
-  { const tag = f[at + 211]; if (tag === 0) { (m.combat ??= {}).gunUnderwater = f[at + 212] !== 0; } else (m.combat ??= {}).gunUnderwater = tag === 1 ? null : undefined; }
+  m.combat = syncCombat(b, f, at + 199, h, m.combat ?? new CombatMirror());
+  { const tag = f[at + 262]; if (tag === 0) { ((m.combat ??= {}).remotes ??= {}).active = f[at + 263] !== 0; } else ((m.combat ??= {}).remotes ??= {}).active = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -1428,12 +1427,8 @@ export function putUnit(b, o, f, at, heap) {
   { const $x = o.held; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f.fill(0, at + 97, at + 119); } else { f[at + 96] = 0; putHeld(b, $x, f, at + 97, heap); } }
   { const $x = o.networkHuman; if ($x === null || $x === undefined) { f[at + 119] = $x === null ? 1 : 2; f[at + 120] = 0; } else { f[at + 119] = 0; f[at + 120] = $x ? 1 : 0; } }
   putUnitBody(b, o.soldier, f, at + 121, heap);
-  f[at + 199] = o.combat?.dead ? 1 : 0;
-  { const $x = o.combat?.aimOverride; if ($x === null || $x === undefined) { f[at + 200] = $x === null ? 1 : 2; f[at + 201] = 0; f[at + 202] = 0; f[at + 203] = 0; } else { f[at + 200] = 0; { const $v = $x; f[at + 201] = $v.x; f[at + 202] = $v.y; f[at + 203] = $v.z; } } }
-  { const $x = o.combat?.mounted; if ($x === null || $x === undefined) { f[at + 204] = $x === null ? 1 : 2; f[at + 205] = 0; } else { f[at + 204] = 0; f[at + 205] = $x ? 1 : 0; } }
-  { const $x = o.combat?.remotes?.active; if ($x === null || $x === undefined) { f[at + 206] = $x === null ? 1 : 2; f[at + 207] = 0; } else { f[at + 206] = 0; f[at + 207] = $x ? 1 : 0; } }
-  { const $v = o.combat?.pivot; f[at + 208] = $v.x; f[at + 209] = $v.y; f[at + 210] = $v.z; }
-  { const $x = o.combat?.gunUnderwater; if ($x === null || $x === undefined) { f[at + 211] = $x === null ? 1 : 2; f[at + 212] = 0; } else { f[at + 211] = 0; f[at + 212] = $x ? 1 : 0; } }
+  putCombat(b, o.combat, f, at + 199, heap);
+  { const $x = o.combat?.remotes?.active; if ($x === null || $x === undefined) { f[at + 262] = $x === null ? 1 : 2; f[at + 263] = 0; } else { f[at + 262] = 0; f[at + 263] = $x ? 1 : 0; } }
 }
 
 // Every field of object `o` into a row.
@@ -1470,12 +1465,8 @@ export function putFullUnit(b, o, f, at, heap) {
   { const $x = o.held; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f.fill(0, at + 97, at + 119); } else { f[at + 96] = 0; putHeld(b, $x, f, at + 97, heap); } }
   { const $x = o.networkHuman; if ($x === null || $x === undefined) { f[at + 119] = $x === null ? 1 : 2; f[at + 120] = 0; } else { f[at + 119] = 0; f[at + 120] = $x ? 1 : 0; } }
   putUnitBody(b, o.soldier, f, at + 121, heap);
-  f[at + 199] = o.combat?.dead ? 1 : 0;
-  { const $x = o.combat?.aimOverride; if ($x === null || $x === undefined) { f[at + 200] = $x === null ? 1 : 2; f[at + 201] = 0; f[at + 202] = 0; f[at + 203] = 0; } else { f[at + 200] = 0; { const $v = $x; f[at + 201] = $v.x; f[at + 202] = $v.y; f[at + 203] = $v.z; } } }
-  { const $x = o.combat?.mounted; if ($x === null || $x === undefined) { f[at + 204] = $x === null ? 1 : 2; f[at + 205] = 0; } else { f[at + 204] = 0; f[at + 205] = $x ? 1 : 0; } }
-  { const $x = o.combat?.remotes?.active; if ($x === null || $x === undefined) { f[at + 206] = $x === null ? 1 : 2; f[at + 207] = 0; } else { f[at + 206] = 0; f[at + 207] = $x ? 1 : 0; } }
-  { const $v = o.combat?.pivot; f[at + 208] = $v.x; f[at + 209] = $v.y; f[at + 210] = $v.z; }
-  { const $x = o.combat?.gunUnderwater; if ($x === null || $x === undefined) { f[at + 211] = $x === null ? 1 : 2; f[at + 212] = 0; } else { f[at + 211] = 0; f[at + 212] = $x ? 1 : 0; } }
+  putCombat(b, o.combat, f, at + 199, heap);
+  { const $x = o.combat?.remotes?.active; if ($x === null || $x === undefined) { f[at + 262] = $x === null ? 1 : 2; f[at + 263] = 0; } else { f[at + 262] = 0; f[at + 263] = $x ? 1 : 0; } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -1514,6 +1505,7 @@ export function checkUnit(b, f, at, h, m) {
   { const p = m.held, q = want.held; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".held"; } else { { const d = sameHeld(p, q); if (d) return ".held" + d; } } }
   { const p = m.networkHuman, q = want.networkHuman; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".networkHuman"; } else { if (!Object.is(p, q)) return ".networkHuman"; } }
   if (!sameUnitBody(m.soldier, want.soldier)) return ".soldier";
+  { const d = sameCombat(m.combat, want.combat); if (d) return ".combat" + d; }
   return null;
 }
 
@@ -1550,12 +1542,8 @@ export function sameUnit(a, b) {
   { const p = a.held, q = b.held; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".held"; } else { { const d = sameHeld(p, q); if (d) return ".held" + d; } } }
   { const p = a.networkHuman, q = b.networkHuman; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".networkHuman"; } else { if (!Object.is(p, q)) return ".networkHuman"; } }
   if (!sameUnitBody(a.soldier, b.soldier)) return ".soldier";
-  if (!Object.is(a.combat?.dead, b.combat?.dead)) return ".combatDead";
-  { const p = a.combat?.aimOverride, q = b.combat?.aimOverride; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".aimOverride"; } else { if (!sameVec(p, q)) return ".aimOverride"; } }
-  { const p = a.combat?.mounted, q = b.combat?.mounted; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".mounted"; } else { if (!Object.is(p, q)) return ".mounted"; } }
+  { const d = sameCombat(a.combat, b.combat); if (d) return ".combat" + d; }
   { const p = a.combat?.remotes?.active, q = b.combat?.remotes?.active; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".remotesActive"; } else { if (!Object.is(p, q)) return ".remotesActive"; } }
-  if (!sameVec(a.combat?.pivot, b.combat?.pivot)) return ".pivot";
-  { const p = a.combat?.gunUnderwater, q = b.combat?.gunUnderwater; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".gunUnderwater"; } else { if (!Object.is(p, q)) return ".gunUnderwater"; } }
   return null;
 }
 
@@ -1597,12 +1585,8 @@ export function exportUnit(o, cx) {
   v.held = ((x) => (x === null || x === undefined ? x : exportHeld(x, cx)))(o.held);
   v.networkHuman = o.networkHuman;
   v.soldier = exportUnitBody(o.soldier, cx);
-  v.combatDead = o.combat?.dead;
-  v.aimOverride = ((x) => (x === null || x === undefined ? x : x.clone()))(o.combat?.aimOverride);
-  v.mounted = o.combat?.mounted;
+  v.combat = exportCombat(o.combat, cx);
   v.remotesActive = o.combat?.remotes?.active;
-  v.pivot = o.combat?.pivot.clone();
-  v.gunUnderwater = o.combat?.gunUnderwater;
   return v;
 }
 

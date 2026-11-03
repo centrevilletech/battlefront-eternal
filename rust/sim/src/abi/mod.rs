@@ -117,14 +117,16 @@ pub extern "C" fn sim_import_room(kind: u32, rows: u32, stride: u32, heap: u32) 
     sim().blocks[kind as usize].room(rows as usize, stride as usize, heap as usize)
 }
 
-/// Takes in the import block JavaScript wrote (its import fields, or
-/// every field when `full` is 1); 0, or -1 for a kind the store holds no
-/// fields of.
+/// Takes in the import block JavaScript wrote: its import fields, or every
+/// field when `flags` has 1; with 2, the block holds some of the kind's
+/// entities and the store keeps the others as they are (without it, an
+/// entity the block does not list leaves the store, as one that left the
+/// JavaScript's list). 0, or -1 for a kind the store holds no fields of.
 #[no_mangle]
-pub extern "C" fn sim_import(kind: u32, full: u32) -> i32 {
+pub extern "C" fn sim_import(kind: u32, flags: u32) -> i32 {
     let s = sim();
     let block = std::mem::take(&mut s.blocks[kind as usize]);
-    let ok = s.store.import(kind as KindCode, &block, full != 0);
+    let ok = s.store.import(kind as KindCode, &block, flags & 1 != 0, flags & 2 != 0);
     s.blocks[kind as usize] = block;
     if ok { 0 } else { -1 }
 }

@@ -351,19 +351,26 @@ pub fn control_key(r: Ref<SeatUnit>) -> (u32, u32) {
 
 /// Latches `lease`'s input from the intent it plays (`lease.input.latch(lease)`).
 /// `turret`: the lease holds a turret (a network human's turn and pitch
-/// may then reach 16).
-pub fn latch_lease(leases: &mut Slab<SeatLease>, units: &mut Slab<Unit>, controls: &mut Controls, r: Ref<SeatLease>) {
+/// may then reach 16). Returns the seat control whose intent it played
+/// (its edges taken), or None for the unit's own.
+pub fn latch_lease(leases: &mut Slab<SeatLease>, units: &mut Slab<Unit>, controls: &mut Controls, r: Ref<SeatLease>) -> Option<Ref<SeatUnit>> {
     let lease = leases.get_mut(r).expect("a live lease");
     let unit = lease.unit;
     let aim_limit = if lease.turret.is_some() && unit.and_then(|u| units.get(u)).is_some_and(network_human) { 16.0 } else { 1.0 };
-    let driven = lease.controllable.and_then(|c| controls.get_mut(&control_key(c))).filter(|c| c.driven);
+    let seat = lease.controllable;
+    let driven = seat.and_then(|c| controls.get_mut(&control_key(c))).filter(|c| c.driven);
     let mut was = lease.was;
-    match driven {
-        Some(control) => latch(&mut lease.input, &mut was, &mut control.intent, aim_limit),
+    let played = match driven {
+        Some(control) => {
+            latch(&mut lease.input, &mut was, &mut control.intent, aim_limit);
+            seat
+        }
         None => {
             let u = units.get_mut(unit.expect("a bot's lease names its unit")).expect("the lease's unit");
             latch(&mut lease.input, &mut was, &mut u.intent, aim_limit);
+            None
         }
-    }
+    };
     lease.was = was;
+    played
 }

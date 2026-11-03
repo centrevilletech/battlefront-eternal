@@ -218,7 +218,7 @@ const RIDER_STANDIN = { man_minigun: ['human_minigun_9pose', 4], drivesnowspeede
 // pitch and turn, or a time), written to out { clip, pitch, turn, time };
 // null with no clip. poseRider draws it, and his hit shapes are posed from
 // the same (riderBody), so a round meets him where he is drawn.
-function riderSample(v, index, clips, out) {
+function riderSample(v, index, clips, out, ninePitch = null, nineTurn = 0) {
   const seat = v.seats[index];
   const rider = seat.view.rider;
   if (!rider) return null;
@@ -229,6 +229,8 @@ function riderSample(v, index, clips, out) {
   out.clip = clip; out.pitch = 0; out.turn = 0; out.time = null;
   if (standin) out.time = standin[1] / clip.fps;
   else if (!rider.ninePose) out.time = v.age;
+  // (A 9-pose the module worked out comes in as ninePitch, nineTurn.)
+  else if (ninePitch !== null) { out.pitch = ninePitch; out.turn = nineTurn; }
   else if (index > 0) {
     const pose = ninePose(seat.view, angle(seat.aimYaw - v.yaw), seat.pitch, seat.yawRate || 0, nine);
     out.pitch = pose.pitch; out.turn = pose.turn;
@@ -2071,12 +2073,15 @@ export class Vehicles {
     // start, so the order is the same as here.
     const ground = this.sim && !driven;
     if (!ground) for (const v of this.vehicles) if (v.alive && !v.flying) v.captureTick();
-    this.flightAcc = (this.flightAcc || 0) + dt;
-    this.flightEdges ||= {};
-    for (const key of ['takeoff','trick','immelmann','targetLock']) this.flightEdges[key] ||= Boolean(input[key]);
-    while (this.flightAcc + 1e-9 >= 1/60) {
-      for (const v of this.vehicles) if (v.alive && v.flying) { v.captureTick(); v.tick(1/60, v.crewed(0) ? v.seats[0].lease.input : v === driven ? { ...input, ...this.flightEdges } : idle); }
-      this.flightEdges = {}; this.flightAcc -= 1/60;
+    // (On the module the crafts' flight runs in the phase, first.)
+    if (!ground || !this.sim.flight) {
+      this.flightAcc = (this.flightAcc || 0) + dt;
+      this.flightEdges ||= {};
+      for (const key of ['takeoff','trick','immelmann','targetLock']) this.flightEdges[key] ||= Boolean(input[key]);
+      while (this.flightAcc + 1e-9 >= 1/60) {
+        for (const v of this.vehicles) if (v.alive && v.flying) { v.captureTick(); v.tick(1/60, v.crewed(0) ? v.seats[0].lease.input : v === driven ? { ...input, ...this.flightEdges } : idle); }
+        this.flightEdges = {}; this.flightAcc -= 1/60;
+      }
     }
     if (ground) this.acc = this.sim.ground(dt, this.acc);
     else {
@@ -2086,23 +2091,29 @@ export class Vehicles {
         this.acc -= FIXED_STEP;
       }
     }
-    for (const v of this.vehicles) if (!v.alive && v.dying > 0) v.dyingTick(dt);
+    // On the module the dying hulls' last seconds and the hulls'
+    // poses ran in the phase, in this order (src/vehicles-sim.js).
+    const posing = ground && this.sim.posing;
+    if (!posing) for (const v of this.vehicles) if (!v.alive && v.dying > 0) v.dyingTick(dt);
     this.tickAlpha = Math.max(0, this.acc / FIXED_STEP);
     // The tick's pose in both hosts; the drawn one only where something
     // is drawn (a world worker leaves it to the page showing it).
-    for (const v of this.vehicles) v.aimTick(v.flying ? 1 : this.tickAlpha, dt);
-    if (this.cosmetic !== false) for (const v of this.vehicles) v.render(v.flying ? 1 : this.tickAlpha, dt, true);
+    for (const v of this.vehicles) if (!posing || !this.sim.posed(v)) v.aimTick(v.flying ? 1 : this.tickAlpha, dt);
+    if (this.cosmetic !== false) for (const v of this.vehicles) if (!posing || !this.sim.posed(v)) v.render(v.flying ? 1 : this.tickAlpha, dt, true);
     this.presented = false;
     this.fireCrews(dt);
     this.updateTethers();
     if (this.cosmetic !== false) this.drawTethers(false);
-    this.syncCrews();
+    this.syncCrews(posing);
   }
 
   // The seat contract's input batch: stale leases are let go, every live
   // bot's intent is frozen, and exit requests (an intent's use edge, or
   // requestExit) are carried out.
   latchCrews() {
+    // The batch on the simulation's module where the world asked for it
+    // (src/seats-sim.js).
+    if (this.seatsSim) return this.seatsSim.latchCrews();
     this.ticks += 1;
     const exits = this.pendingExits;
     exits.length = 0;
@@ -2128,12 +2139,34 @@ export class Vehicles {
     }
   }
 
-  // Bots' bodies at their seats, posed as riders (enclosed ones hidden).
-  syncCrews() {
+  // Bots' bodies at their seats, posed as riders (enclosed ones hidden);
+  // those of the hulls the module poses from the module's numbers.
+  syncCrews(posing = false) {
+    if (posing) this.sim.syncRiders();
     for (const v of this.vehicles) {
-      if (!v.alive) continue;
+      if (!v.alive || posing && this.sim.posed(v)) continue;
       for (const seat of v.seats) if (seat.lease && !seat.lease.human) this.syncRider(seat.lease);
     }
+  }
+
+  // syncRider with the module's numbers for his seat (src/vehicles-sim.js
+  // syncRiders: f[o..o + 10]: his point, aim yaw and pitch, the hull's
+  // velocity, whether he shows, a 9-pose's pitch and turn).
+  syncRiderFrom(lease, f, o) {
+    const unit = lease.unit;
+    if (!unit?.soldier || !unit.actor) return;
+    const soldier = unit.soldier, actor = unit.actor, animator = unit.animator, point = this.riderPoint.set(f[o], f[o + 1], f[o + 2]);
+    soldier.position.copy(point); soldier.previous?.copy(point); soldier.settled?.copy(point);
+    soldier.aimYaw = f[o + 3]; soldier.aimPitch = f[o + 4];
+    soldier.velocity.set(f[o + 5], f[o + 6], f[o + 7]);
+    unit.presentation?.reset();
+    actor.root.position.copy(point);
+    actor.root.visible = f[o + 8] === 1;
+    const pick = riderSample(lease.vehicle, lease.index, animator?.clips, riderPick, f[o + 9], f[o + 10]);
+    if (!pick) animator?.gunner?.(null);
+    else if (pick.time !== null) animator?.gunner?.(pick.clip, 0, 0, pick.time);
+    else animator?.gunner?.(pick.clip, pick.pitch, pick.turn);
+    unit.tickCount += 1;
   }
 
   syncRider(lease) {

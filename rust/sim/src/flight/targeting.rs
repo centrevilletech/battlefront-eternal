@@ -82,6 +82,16 @@ impl Hull {
         let mut scores: Vec<f64> = Vec::new();
         let mut sights: Vec<Option<(f64, Sight)>> = Vec::new();
         let n = w.member_count();
+        // The entries inCone will ask the aim point of (living, not the
+        // craft's own, enemies), in its order.
+        let mut asked: Vec<usize> = Vec::new();
+        for i in 0..n {
+            let m = w.member(i);
+            if m.alive && !m.own && w.relation(self.flight.team, m.team) < 0.0 {
+                asked.push(i);
+            }
+        }
+        w.prefetch_aim_points(&asked);
         for i in 0..n {
             if let Some((score, sight)) = self.in_cone(w, t, nose, i, cone) {
                 candidates.push(i);

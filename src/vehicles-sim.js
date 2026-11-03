@@ -1,8 +1,8 @@
 // The hull phase on the simulation's module (rust/sim/src/vehicles/module.rs),
 // behind its switch: a world asked for it (createGame's ?hulls=rust, or
-// BFE_HULLS=rust under Node) runs its ground hulls' tick start and 120 Hz
-// substeps in Rust. The Vehicle objects stay the battle's: the phase writes
-// them into the store, the module ticks them there, and they are synced from
+// BFE_HULLS=rust under Node) runs its ground hulls' 120 Hz substeps and its
+// crafts' 60 Hz flight in Rust. The Vehicle objects stay the battle's: the
+// phase writes them into the store, the module ticks them there, and they are synced from
 // the store after it, so everything else reads and writes them as before.
 // What the Rust asks of the battle comes back here as the module's imports
 // (rust/sim/schema/vehicles.mjs) and goes to the same VehiclesWorld
@@ -11,10 +11,48 @@
 // hull as the phase has left it, and whatever it does to any hull goes back
 // into the store before the phase goes on.
 //
-// A world only; the flight, the seats' latch, the poses, the fire and the
-// tow cables stay JavaScript's until they move.
+// The collision world's queries are answered in the module itself when the
+// battle's collision runs on it (src/ray-kernel.js: the module holds the
+// collision world's copy then), and the map's water and death regions
+// always: the module is told the kernel's world, the battle's bodies by
+// the numbers the store knows them by, each hull's body and gather caches,
+// and before the phase and after every hook each body's enabled flag (a
+// plain field here); after the phase and before every hook the flags and
+// places the hulls changed come back onto the bodies, so the battle and
+// the module never see the bodies differently.
+//
+// Given the vehicle pack (the models, clips and classes the hulls are made
+// from), the module also keeps each hull's rig and pose state from
+// the first phase of each of its lives (the hull just spawned and posed
+// once, as Vehicle.spawn leaves it) and poses it there, with the dying
+// hulls' last seconds before (aimTick, render, dyingTick); each pose is
+// then copied onto the Vehicle (its walk cycle, visual, seats' aim targets
+// and aimers) and its rig's nodes (their positions and turns, and the
+// world matrices three makes from them), so whatever reads them reads what
+// the JavaScript pose left. What JavaScript changes between poses (the
+// seats' frozen aim, the barrels a seat fired) goes in before each phase.
+//
+// A world only; the seats' latch has its own switch (src/seats-sim.js),
+// and the fire and tow cables stay JavaScript's until they move.
 import * as THREE from "three";
 import { KIND_VEHICLE, KIND_VEHICLES, KIND_BODY } from "./sim/gen/index.js";
+import { FLIGHT_CLASSES } from "./flight/config.js";
+
+// A hull's rig nodes in the order rust/sim/src/rig/hull.rs makes them: the
+// root, the bones, the static bones, the markers (the capture's rigNodes).
+const rigNodeLists = new WeakMap();
+export function rigNodes(v) {
+  let nodes = rigNodeLists.get(v);
+  if (!nodes) {
+    const bones = new Set(v.bones);
+    const statics = v.root.children.filter((c) => c.isBone && !bones.has(c));
+    const markers = [];
+    v.root.traverse((o) => { if (o !== v.root && !bones.has(o) && !statics.includes(o) && !o.isSkinnedMesh) markers.push(o); });
+    markers.sort((a, b) => a.id - b.id);
+    rigNodeLists.set(v, nodes = [v.root, ...v.bones, ...statics, ...markers]);
+  }
+  return nodes;
+}
 import { makeGround, makeHit } from "./collision.js";
 
 const MISS = Object.freeze({ found: false, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: -1 });
@@ -40,24 +78,213 @@ const classKeys = (def) => ({
   seats: (def.seats ?? []).map((s) => ({ settings: s.settings ?? null })),
 });
 
-export function attachVehiclesSim(vehicles, bridge) {
-  vehicles.sim = new VehiclesSim(vehicles, bridge);
+// map: what the hulls ask of the map (game.js): the kill height under the
+// battlefield (killY), the map's death regions and the names its script
+// adds (world.deathRegions, world.mission.deathRegions); null leaves the
+// water and death regions to the imports. pack: the vehicle pack as the
+// battle loaded it ({ data, buffer, indexBuffer, animationBuffer }); null
+// leaves the poses to JavaScript.
+// unitClass: the registry's units' class (Unit), which flight's targeting
+// tells apart from hulls' and turrets' entries; without it (or the pack)
+// the crafts' flight stays JavaScript's.
+export function attachVehiclesSim(vehicles, bridge, map = null, pack = null, unitClass = null) {
+  vehicles.sim = new VehiclesSim(vehicles, bridge, map, pack, unitClass);
   return vehicles.sim;
 }
 
 export class VehiclesSim {
-  constructor(vehicles, bridge) {
+  constructor(vehicles, bridge, map = null, pack = null, unitClass = null) {
     this.vehicles = vehicles;
     this.bridge = bridge;
     this.x = bridge.x;
     this.world = vehicles.world;
+    this.collision = vehicles.collision;
     this.classes = new Set();
+    // The collision world in the module: whether it answers (the battle's
+    // collision runs on the kernel), the bodies' version it last named, and
+    // the hulls' bodies it knows.
+    this.kernel = false;
+    this.bodiesVersion = -1;
+    this.colliders = new WeakSet();
+    this.inputValues = [];
+    this.memberPoint = new THREE.Vector3();
+    this.aimPoints = [];
+    if (map) {
+      const water = vehicles.water;
+      const data = {
+        water: water ? { cell: water.cell, offset: water.offset, grid: water.grid, cells: Array.from(water.cells) } : null,
+        deathRegions: map.deathRegions, mission: { deathRegions: map.scripted },
+      };
+      this.x.veh_map(bridge.strings.id(json(data)), map.killY);
+    }
     this.hit = makeHit();
     this.groundHit = makeGround();
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
     this.flag = { value: false };
     this.number = { value: 0 };
     bridge.register(this.handlers());
+    // The poses: each hull the module poses, by the life it took
+    // the hull's pose for.
+    this.lives = new WeakMap();
+    this.posing = Boolean(pack) && this.pack(pack);
+    // The crafts' flight (src/flight/), from the pack's classes: the
+    // battle's flight environment and the classes' live tunings now.
+    this.unitClass = unitClass;
+    this.flight = this.posing && Boolean(unitClass);
+    if (this.flight) {
+      this.x.veh_flight_env(bridge.strings.id(json(vehicles.flightEnvironment ?? {})), vehicles.maxFlyHeight);
+      for (const [name, c] of Object.entries(FLIGHT_CLASSES)) for (const [key, value] of Object.entries(c)) this.retune(name, key, value);
+    }
+    this.flightValues = [];
+  }
+
+  // FLIGHT_CLASSES[name][key] = value, for the module's crafts (at attach,
+  // and as a world's flightTuning command retunes a class).
+  retune(name, key, value) {
+    if (this.flight && typeof value === "number") this.x.veh_flight_tune(this.bridge.strings.id(name), this.bridge.strings.id(key), value);
+  }
+
+  // What the crafts' targeting reads of the registry this phase (and again
+  // after a hook): each entry's kind (a unit, a hull's target, a target on
+  // a hull, another's), id, generation, whether it lives, its team, its
+  // hull and, for another's, its aim point as it stands.
+  membersIn() {
+    const all = this.vehicles.units?.all?.() ?? [], refs = this.bridge.refs[KIND_VEHICLE], values = this.flightValues, p = this.memberPoint;
+    values.length = 0;
+    for (const t of all) {
+      const hull = t.vehicle ?? null;
+      const kind = t instanceof this.unitClass ? 0 : hull ? (hull.aiTarget === t ? 1 : 3) : 2;
+      if (kind === 2) { if (typeof t.aimPoint === "function") t.aimPoint(p); else p.copy(t.position); }
+      const team = t.team;
+      values.push(kind, t.id, t.generation === undefined ? NaN : t.generation, t.alive ? 1 : 0, team == null ? 0 : 1, team == null ? 0 : team,
+        hull ? refs.slotOf(hull) : -1, kind === 2 ? p.x : 0, kind === 2 ? p.y : 0, kind === 2 ? p.z : 0);
+    }
+    const at = this.input(values.length), f = this.bridge.f;
+    for (let i = 0; i < values.length; i++) f[at + i] = values[i];
+    this.x.veh_members(all.length);
+  }
+
+  // Before the phase: the registry, the teams' relations (every team among
+  // the entries and the hulls, to each other) and each craft's pilot input.
+  flightIn() {
+    this.membersIn();
+    const vs = this.vehicles, units = vs.units, teams = [];
+    const add = (team) => { const t = team ?? null; if (!teams.some((x) => Object.is(x, t))) teams.push(t); };
+    for (const t of units?.all?.() ?? []) add(t.team);
+    for (const v of vs.vehicles) add(v.team);
+    const values = this.flightValues;
+    values.length = 0;
+    for (const t of teams) values.push(t === null ? 0 : 1, t === null ? 0 : t);
+    for (const a of teams) for (const b of teams) values.push(units?.relation?.(a, b) ?? (b === a ? 1 : -1));
+    let at = this.input(values.length), f = this.bridge.f;
+    for (let i = 0; i < values.length; i++) f[at + i] = values[i];
+    this.x.veh_relations(teams.length);
+    values.length = 0;
+    const refs = this.bridge.refs[KIND_VEHICLE];
+    let crafts = 0;
+    for (const v of vs.vehicles) {
+      if (!v.flying) continue;
+      const lease = v.seats[0]?.lease, network = lease?.unit?.networkHuman && lease.intent.flight;
+      values.push(refs.slotOf(v), network ? 1 : 0);
+      flightNumbers(lease?.input ?? NO_INPUT, values);
+      flightNumbers(network || NO_INPUT, values);
+      crafts++;
+    }
+    at = this.input(values.length); f = this.bridge.f;
+    for (let i = 0; i < values.length; i++) f[at + i] = values[i];
+    this.x.veh_flight_inputs(crafts);
+  }
+
+  // After the phase: what each craft's targeting left in its weapons.
+  locksOut() {
+    const ptr = this.x.veh_locks();
+    this.bridge.views();
+    const f = this.bridge.f, objects = this.bridge.refs[KIND_VEHICLE].objects;
+    let o = ptr / 8;
+    const count = f[o++];
+    for (let k = 0; k < count; k++, o += 5) {
+      const v = objects[f[o]], id = f[o + 1], generation = f[o + 2], elapsed = f[o + 3], complete = f[o + 4] === 1;
+      for (const seat of v.seats) for (const w of seat.weapons) { w.state.lockTargetId = id; w.state.lockGeneration = generation; w.state.lockElapsed = elapsed; w.state.lockComplete = complete; }
+    }
+  }
+
+  // The vehicle pack into the module (its models, collision, clips and
+  // classes as JSON, then its models' floats and indices and its clips'
+  // floats), where the hulls' rigs are made from it; whether it took it.
+  pack({ data, buffer, indexBuffer, animationBuffer }) {
+    const text = new TextEncoder().encode(json({ models: data.models, collision: data.collision, animations: data.animations, classes: data.classes }));
+    const head = Math.ceil(text.length / 4) * 4, floats = buffer?.byteLength ?? 0, indices = indexBuffer?.byteLength ?? 0, clips = animationBuffer?.byteLength ?? 0;
+    const ptr = this.x.veh_bytes(head + floats + indices + clips);
+    this.bridge.views();
+    const u8 = this.bridge.u8;
+    u8.set(text, ptr);
+    if (floats) u8.set(new Uint8Array(buffer), ptr + head);
+    if (indices) u8.set(new Uint8Array(indexBuffer), ptr + head + floats);
+    if (clips) u8.set(new Uint8Array(animationBuffer), ptr + head + floats + indices);
+    return this.x.veh_pack(text.length, floats / 4, indices / 4, clips / 4) > 0;
+  }
+
+  // Whether the module poses this hull this life. A craft needs the
+  // flight state and gear clip that come with the flight phase.
+  posed(v) {
+    return this.posing && (!v.flying || this.flight) && this.lives.get(v) === v.aiTarget.generation;
+  }
+
+  // Before the phase: each live hull the module does not pose yet
+  // this life has its whole pose state handed over (rust/sim/src/vehicles/
+  // posing.rs pull), and each it poses what JavaScript changed since its
+  // last pose (inputs).
+  posesIn() {
+    const refs = this.bridge.refs[KIND_VEHICLE];
+    for (const v of this.vehicles.vehicles) {
+      if ((v.flying && !this.flight) || !v.alive || this.lives.get(v) === v.aiTarget.generation) continue;
+      const values = pullPose(v);
+      const at = this.input(values.length), f = this.bridge.f;
+      for (let i = 0; i < values.length; i++) f[at + i] = values[i];
+      if (this.x.veh_pull(refs.slotOf(v), v.aiTarget.generation, values.length)) this.lives.set(v, v.aiTarget.generation);
+      else this.lives.delete(v);
+    }
+    const values = this.inputValues;
+    values.length = 0;
+    for (const v of this.vehicles.vehicles) if (this.posed(v)) { values.push(refs.slotOf(v)); poseInputs(v, values); }
+    if (!values.length) return;
+    const at = this.input(values.length), f = this.bridge.f;
+    for (let i = 0; i < values.length; i++) f[at + i] = values[i];
+    this.x.veh_pose_inputs(values.length);
+  }
+
+  // After the phase: each hull the module posed takes its pose.
+  posesOut() {
+    const ptr = this.x.veh_posed();
+    this.bridge.views();
+    const f = this.bridge.f, objects = this.bridge.refs[KIND_VEHICLE].objects;
+    let o = ptr / 8;
+    const count = f[o++];
+    for (let k = 0; k < count; k++) {
+      const v = objects[f[o]], n = f[o + 1];
+      o += 2;
+      applyPose(v, f, o);
+      o += n;
+      v.root.updateMatrixWorld(true);
+    }
+  }
+
+  // Vehicles.syncCrews for the hulls the module poses: each bot rider's
+  // point, aim, velocity and 9-pose from the module (veh_riders), applied
+  // where his seat is still his (a tow cable may have tripped his walker
+  // since the phase).
+  syncRiders() {
+    const ptr = this.x.veh_riders();
+    this.bridge.views();
+    const f = this.bridge.f, objects = this.bridge.refs[KIND_VEHICLE].objects, vs = this.vehicles;
+    let o = ptr / 8;
+    const count = f[o++];
+    for (let k = 0; k < count; k++, o += 13) {
+      const v = objects[f[o]];
+      if (!v.alive) continue;
+      const lease = v.seats[f[o + 1]].lease;
+      if (lease && !lease.human) vs.syncRiderFrom(lease, f, o + 2);
+    }
   }
 
   // The hulls into the store: each one's fields, and the battle's list.
@@ -80,9 +307,95 @@ export class VehiclesSim {
   // (`acc`: the time left over from the last update); returns what is left.
   ground(dt, acc) {
     this.write();
-    const left = this.x.veh_ground(dt, acc);
+    this.bodiesIn();
+    if (this.posing) this.posesIn();
+    if (this.flight) this.flightIn();
+    const vs = this.vehicles, water = vs.water;
+    const flags = (this.posing ? 1 : 0) | (vs.cosmetic !== false ? 2 : 0) | (this.flight ? 4 : 0) | (vs.flightAssists ? 8 : 0);
+    const left = this.x.veh_ground(dt, acc, vs.flightAcc || 0, water ? water.level : 0, vs.clock(), flags);
+    if (this.flight) vs.flightAcc = this.x.veh_flight_acc();
     this.sync();
+    this.bodiesOut();
+    if (this.flight) this.locksOut();
+    if (this.posing) this.posesOut();
     return left;
+  }
+
+  // Room for `count` numbers handed to the module: the memory's f64 view
+  // and where in it they go.
+  input(count) {
+    const ptr = this.x.veh_input(count);
+    this.bridge.views();
+    return ptr / 8;
+  }
+
+  // The battle's bodies as the module's collision world needs them, before
+  // the phase and after a hook: the kernel's world (or none, when the
+  // battle's collision is JavaScript's), the kernel's order of the bodies,
+  // the numbers the store knows each by, every hull's body, and each
+  // body's enabled flag by its place in that order.
+  bodiesIn() {
+    const c = this.collision, rays = c?.rays;
+    if (!rays) {
+      if (this.kernel) { this.x.veh_collision(-1, -1); this.kernel = false; }
+      return;
+    }
+    if (!this.kernel) {
+      const blockers = c.vehicleBlockers ? rays.fixedSet(c.blockerSet(c.vehicleBlockers), c.vehicleBlockers.bvh) : -1;
+      this.x.veh_collision(c.rayWorld, blockers);
+      this.kernel = true;
+      this.bodiesVersion = -1;
+    }
+    c.rayBodies();
+    const bodies = c.bodies, refs = this.bridge.refs[KIND_BODY];
+    if (this.bodiesVersion !== c.bodiesVersion) {
+      const at = this.input(bodies.length * 2), f = this.bridge.f;
+      for (let i = 0; i < bodies.length; i++) { f[at + 2 * i] = refs.slotOf(bodies[i]); f[at + 2 * i + 1] = bodies[i].raySlot; }
+      this.x.veh_bodies(bodies.length);
+      this.bodiesVersion = c.bodiesVersion;
+    }
+    for (const v of this.vehicles.vehicles) if (!this.colliders.has(v.body)) this.collider(v);
+    const ptr = this.x.veh_flags();
+    this.bridge.views();
+    const u8 = this.bridge.u8;
+    for (let i = 0; i < bodies.length; i++) u8[ptr + i] = bodies[i].enabled ? 1 : 0;
+  }
+
+  // A hull's body for the module: its numbers, its bounds in its own frame
+  // and the kernel's copies of its wall probes' and springs' gather caches.
+  collider(v) {
+    const rays = this.collision.rays, body = v.body;
+    // (Making a cache's copy may grow the memory: the ids first.)
+    const walls = (v.wallCaches ?? []).map((cache) => (cache ? rays.cache(cache) : -1));
+    const springs = (v.springCaches ?? []).map((cache) => (cache ? rays.cache(cache) : -1));
+    const slot = this.bridge.refs[KIND_BODY].slotOf(body);
+    const at = this.input(8 + walls.length + springs.length), f = this.bridge.f, b = body.localBounds;
+    f[at] = slot; f[at + 1] = body.raySlot;
+    f[at + 2] = b.min.x; f[at + 3] = b.min.y; f[at + 4] = b.min.z; f[at + 5] = b.max.x; f[at + 6] = b.max.y; f[at + 7] = b.max.z;
+    for (let i = 0; i < walls.length; i++) f[at + 8 + i] = walls[i];
+    for (let i = 0; i < springs.length; i++) f[at + 8 + walls.length + i] = springs[i];
+    this.x.veh_collider(walls.length, springs.length);
+    this.colliders.add(body);
+  }
+
+  // What the hulls did to their bodies in the module since the last time
+  // (enabled flags, places: matrix, inverse and bounds), onto the bodies.
+  bodiesOut() {
+    if (!this.kernel) return;
+    const ptr = this.x.veh_changes();
+    this.bridge.views();
+    const f = this.bridge.f, bodies = this.collision.rays.bodies;
+    let o = ptr / 8;
+    const toggled = f[o], placed = f[o + 1];
+    o += 2;
+    for (let i = 0; i < toggled; i++, o += 2) bodies[f[o]].enabled = f[o + 1] !== 0;
+    for (let i = 0; i < placed; i++, o += 39) {
+      const body = bodies[f[o]];
+      body.bounds.min.set(f[o + 1], f[o + 2], f[o + 3]);
+      body.bounds.max.set(f[o + 4], f[o + 5], f[o + 6]);
+      body.matrix.fromArray(f, o + 7);
+      body.inverse.fromArray(f, o + 23);
+    }
   }
 
   body(slot) {
@@ -97,7 +410,8 @@ export class VehiclesSim {
   // first, and what the hook did to them back into the store after.
   hook(call) {
     this.sync();
-    try { call(); } finally { this.bridge.write(KIND_VEHICLE, this.vehicles.vehicles); }
+    this.bodiesOut();
+    try { call(); } finally { this.bridge.write(KIND_VEHICLE, this.vehicles.vehicles); this.bodiesIn(); if (this.flight) this.membersIn(); }
   }
 
   // Each import's handler. The arguments object (and its vectors) is the
@@ -173,6 +487,91 @@ export class VehiclesSim {
         this.hook(() => w.explosion(def, at, v));
       },
       vehEffect: (a) => { const name = a.name, at = a.position.clone(); w.effect(name, at); },
+      vehAimPoint: (a) => { const i = a.hull; vs.units.all()[i].aimPoint(point); return { position: point }; },
+      vehAimPoints: (a) => {
+        const indices = Array.from(a.indices), all = vs.units.all(), points = this.aimPoints;
+        points.length = indices.length;
+        for (let k = 0; k < indices.length; k++) all[indices[k]].aimPoint(points[k] ??= new THREE.Vector3());
+        return { points };
+      },
     };
   }
+}
+
+// A hull's whole pose state, in posing.rs pull's order.
+function pullPose(v) {
+  const out = [v.age, v.hoverPhase, v.walkPhase, v.walkBlend, v.visual.x, v.visual.y, v.visual.z];
+  for (const seat of v.seats) {
+    out.push(seat.lastYaw === null ? 0 : 1, seat.lastYaw ?? 0, seat.yawRate);
+    const t = seat.target;
+    out.push(t ? 1 : 0, t ? t.x : 0, t ? t.y : 0, t ? t.z : 0);
+    for (const w of seat.weapons) {
+      out.push(w.barrel);
+      for (const a of w.aimers) out.push(a.yaw, a.pitch, a.inLimits === undefined ? 2 : a.inLimits ? 1 : 0, a.onTarget ? 1 : 0, a.facing.x, a.facing.y, a.facing.z, a.posed ? 1 : 0);
+      for (const m of w.muzzles) out.push(m.kickAt === undefined ? 0 : 1, m.kickAt ?? 0);
+    }
+  }
+  for (const n of rigNodes(v)) {
+    const p = n.position, q = n.quaternion, s = n.scale;
+    out.push(p.x, p.y, p.z, q.x, q.y, q.z, q.w, s.x, s.y, s.z);
+  }
+  return out;
+}
+
+// What JavaScript changed of a hull's pose state between poses, in
+// posing.rs inputs' order: each seat's frozen aim, each weapon's next
+// barrel and its muzzles' kick times.
+function poseInputs(v, out) {
+  for (const seat of v.seats) {
+    const input = seat.lease?.input, aim = input?.aim;
+    out.push(input?.aiming ? 1 : 0, aim ? aim.x : 0, aim ? aim.y : 0, aim ? aim.z : 0);
+    for (const w of seat.weapons) {
+      out.push(w.barrel);
+      for (const m of w.muzzles) out.push(m.kickAt === undefined ? 0 : 1, m.kickAt ?? 0);
+    }
+  }
+}
+
+// A pose the module left (posing.rs out) onto the hull and its rig's nodes
+// (their quaternions written as they are: nothing in a world reads a
+// bone's Euler angles, which three would work out from each), from `o`.
+function applyPose(v, f, o) {
+  v.age = f[o]; v.walkPhase = f[o + 1]; v.walkBlend = f[o + 2];
+  v.visual.set(f[o + 3], f[o + 4], f[o + 5]);
+  o += 6;
+  for (const seat of v.seats) {
+    seat.lastYaw = f[o] ? f[o + 1] : null;
+    seat.yawRate = f[o + 2];
+    if (f[o + 3]) (seat.target ||= new THREE.Vector3()).set(f[o + 4], f[o + 5], f[o + 6]);
+    else seat.target = null;
+    o += 7;
+    for (const w of seat.weapons) for (const a of w.aimers) {
+      a.yaw = f[o]; a.pitch = f[o + 1];
+      if (f[o + 2] !== 2) a.inLimits = f[o + 2] === 1;
+      a.onTarget = f[o + 3] === 1;
+      a.facing.set(f[o + 4], f[o + 5], f[o + 6]);
+      a.posed = f[o + 7] === 1;
+      o += 8;
+    }
+  }
+  for (const n of rigNodes(v)) {
+    n.position.set(f[o], f[o + 1], f[o + 2]);
+    const q = n.quaternion;
+    q._x = f[o + 3]; q._y = f[o + 4]; q._z = f[o + 5]; q._w = f[o + 6];
+    o += 7;
+  }
+  const r = v.root.rotation;
+  r._x = f[o]; r._y = f[o + 1]; r._z = f[o + 2];
+}
+
+// An input object as flight reads it (rust/sim/src/vehicles/module.rs
+// flight_input: 19 numbers): each key as arithmetic reads it (undefined
+// NaN, a boolean 0 or 1), the sticks with whether they are given.
+const NO_INPUT = Object.freeze({});
+const jn = (x) => (x === undefined ? NaN : x === null ? 0 : typeof x === "boolean" ? (x ? 1 : 0) : x);
+function flightNumbers(i, out) {
+  const sx = i.stickX, sy = i.stickY;
+  out.push(jn(i.forward), jn(i.right), jn(i.turn), jn(i.pitch), jn(i.up), jn(i.down), jn(i.takeoff),
+    sx == null ? 0 : 1, sx == null ? 0 : jn(sx), sy == null ? 0 : 1, sy == null ? 0 : jn(sy),
+    jn(i.boost), jn(i.trick), jn(i.immelmann), jn(i.rollLock), jn(i.targetLock), jn(i.bot), jn(i.responseCurve), i.steeringAssist === false ? 1 : 0);
 }

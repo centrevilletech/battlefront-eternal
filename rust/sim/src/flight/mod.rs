@@ -133,6 +133,13 @@ pub trait FlightWorld: VehicleWorld {
     /// JavaScript asks it); any other entry's the middle of its box as it
     /// stands (`Member::point`).
     fn aim_point(&mut self, i: usize) -> Vector3;
+    /// The entries whose aim points targeting is about to ask, one by one
+    /// and in this order (a pass of bestTarget: every living enemy entry),
+    /// for a world that answers them better together (the module asks
+    /// JavaScript for all its units' at once). Nothing is asked of the
+    /// battle between those asks, so answering them early answers them as
+    /// asked; a world that serves each ask as it comes does nothing here.
+    fn prefetch_aim_points(&mut self, _members: &[usize]) {}
     /// Whether a collision body is a hull's (`body.owner.system === v.system`).
     fn body_is_hull(&mut self, body: BodyId) -> bool;
     /// Vehicles.inDeathRegion (a pilotless craft asks its system directly).

@@ -177,7 +177,7 @@ impl Hull {
     }
 
     /// Whether `aimTick` and `render` leave the hull as it is.
-    fn rests(&self, dt: f64) -> bool {
+    pub fn rests(&self, dt: f64) -> bool {
         let p = self.pose.as_ref().unwrap();
         dt > 0.0 && self.sleeping == Some(true) && !self.repulsor && !self.occupied() && !p.has_pose && self.health >= self.max_health * 0.35
     }
@@ -694,4 +694,26 @@ pub fn leg_pairs(def: &bfe_content::value::Value) -> Option<LegPairs> {
         out.names.push([left.1, right.1]);
     }
     Some(out)
+}
+
+/// vehicles.js ninePose(view, yaw, pitch, yawRate): where a 9-pose rider's
+/// clip is sampled, (pitch, turn) each in -1..1: the seat's pitch across
+/// its limits; its yaw across a limited arc (from the hull's heading, a
+/// wrapped arc's back half past 2pi), else how fast it turns against the
+/// seat's turn rate.
+pub fn nine_pose(pitch_limits: [f64; 2], yaw_limits: Option<[f64; 2]>, wrap_yaw: bool, turn_rate: f64, yaw: f64, pitch: f64, yaw_rate: f64) -> (f64, f64) {
+    let (low, high) = (pitch_limits[0], pitch_limits[1]);
+    let p = if high > low { clamp(2.0 * ((high - pitch) / (high - low) - 0.5), -1.0, 1.0) } else { 0.0 };
+    let t = match yaw_limits {
+        Some([a, b]) if b - a < 1.5 * std::f64::consts::PI => {
+            let y = if wrap_yaw && yaw < 0.0 { yaw + 2.0 * std::f64::consts::PI } else { yaw };
+            if b > a {
+                clamp(2.0 * ((y - a) / (b - a) - 0.5), -1.0, 1.0)
+            } else {
+                0.0
+            }
+        }
+        _ => clamp(yaw_rate / v8math::max(turn_rate, 1e-3), -1.0, 1.0),
+    };
+    (p, t)
 }
