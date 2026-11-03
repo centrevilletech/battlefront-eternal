@@ -275,9 +275,34 @@ const soldierStep = {
   boundaries: (game) => [['water.over', game.water ?? null, 'over']],
 };
 
+// The registry's team questions (src/registry.js relation, locals,
+// captureTeam), asked many times a tick: the first few of each on a sampled
+// tick carry the relations set by hand and the mission's table.
+const teamCounts = new Map();
+let teamTick = -1;
+function teamFrame(method) {
+  return {
+    method: `units.${method}`,
+    target: (game) => game.units,
+    state: (game, args) => {
+      const open = opened.get(args);
+      if (open) return open.full ? {} : { skipped: true };
+      const tick = game.worldClock.tick;
+      if (tick !== teamTick) { teamTick = tick; teamCounts.clear(); }
+      const n = teamCounts.get(method) ?? 0;
+      teamCounts.set(method, n + 1);
+      const full = n < REGISTRY_FRAMES;
+      opened.set(args, { full });
+      if (!full) return { skipped: true };
+      const t = game.units.teams;
+      return { alliances: [...game.units.alliances], teams: t ? { relations: t.relations, factions: t.factions, capture: t.capture } : null };
+    },
+  };
+}
+
 export const units = {
   frames: [unitTick, unitSpawn, registryFrame('raycast'), registryFrame('query'), separate,
     bodyFrame('Droideka.absorb', Droideka.prototype), bodyFrame('Droideka.toggleShield', Droideka.prototype),
     bodyFrame('Droideka.nextGun', Droideka.prototype, barrels), bodyFrame('Droideka.look', Droideka.prototype),
-    bodyFrame('Soldier.lookRaw', Soldier.prototype), soldierStep],
+    bodyFrame('Soldier.lookRaw', Soldier.prototype), soldierStep, teamFrame('relation'), teamFrame('locals'), teamFrame('captureTeam')],
 };

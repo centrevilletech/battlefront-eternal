@@ -1237,3 +1237,54 @@ fn bodies_are_made_from_their_classes_as_captured() {
     println!("class numbers: {}", report.summary());
     report.assert_clean();
 }
+
+// ---- The registry's team questions.
+
+use bfe_sim::units::registry::TeamTable;
+
+fn teams_of(v: V) -> Option<TeamTable> {
+    if v.is_nullish() {
+        return None;
+    }
+    let nums = |x: V| -> Vec<f64> { x.items().map(|n| n.opt_num().unwrap_or(f64::NAN)).collect() };
+    Some(TeamTable {
+        relations: v.get("relations").items().map(nums).collect(),
+        factions: v.get("factions").items().map(|n| n.opt_num()).collect(),
+        capture: v.get("capture").items().map(|n| n.opt_num()).collect(),
+    })
+}
+
+fn team_frame(frame: &Frame) -> Result<Option<String>, Mismatch> {
+    let before = frame.before();
+    if before.get("skipped").truthy() {
+        return Ok(Some("written in part (one of many a tick)".into()));
+    }
+    let place = |e: String| Mismatch(format!("{}: {e}", frame.place()));
+    let mut strings = bfe_sim::store::Strings::default();
+    let mut registry = Units::default();
+    for e in before.get("alliances").items() {
+        let key = strings.intern_str(e.at(0).str().ok_or_else(|| place("an alliance's key is no string".into()))?);
+        registry.alliances.set(key, e.at(1).num());
+    }
+    let teams = teams_of(before.get("teams"));
+    let a = frame.arg(0).num();
+    let result = frame.result();
+    match frame.name.as_str() {
+        "units.relation" => check_num("relation", result, registry.relation(a, frame.arg(1).num(), teams.as_ref(), &mut strings)),
+        "units.captureTeam" => check_num("captureTeam", result, registry.capture_team(a, teams.as_ref())),
+        "units.locals" => bfe_sim::store::replay::boolean(result, "locals").map_err(Mismatch).and_then(|b| if b == registry.locals(a, teams.as_ref()) { Ok(()) } else { Err(Mismatch(format!("locals: the capture's {b}"))) }),
+        other => return Ok(Some(format!("no replay for {other}"))),
+    }
+    .map_err(|e| place(e.0))?;
+    Ok(None)
+}
+
+#[test]
+fn team_questions_replay_as_captured() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    for name in ["units.relation", "units.locals", "units.captureTeam"] {
+        let report = replay_corpus(&corpus, name, |_capture, frame| outcome(team_frame(frame))).unwrap();
+        println!("{}", report.summary());
+        report.assert_clean();
+    }
+}
