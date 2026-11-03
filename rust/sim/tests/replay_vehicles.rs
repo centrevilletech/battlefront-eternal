@@ -11,7 +11,10 @@
 #![cfg(feature = "replay")]
 
 use three::{Matrix4, Quaternion, Vector3};
-use bfe_sim::vehicles::replay::{body_of, hull_from_value, hull_to_value};
+use bfe_sim::gen::{Replay, Vehicle};
+use bfe_sim::vehicles::class::HullClass;
+use bfe_sim::vehicles::replay::body_of;
+use bfe_sim::vehicles::Hull;
 use bfe_sim::vehicles::{BodyId, Ground, Hit, Input, Polygon, VehicleWorld};
 use sim_replay::{check_bool, check_num, check_vec3, diff, replay_corpus, same_number, Arena, Call, Corpus, Log, Node, Outcome, V};
 
@@ -166,6 +169,12 @@ impl<'f> VehicleWorld for Served<'f> {
         }
     }
 
+    fn body_enabled(&mut self, body: BodyId) -> bool {
+        let Some(call) = self.call("world.bodyEnabled") else { return false };
+        self.check_body("bodyEnabled body", call.arg(0), Some(body));
+        call.result().truthy()
+    }
+
     fn enable_body(&mut self, body: BodyId, enabled: bool) {
         let Some(call) = self.call("world.enableBody") else { return };
         self.check_body("enableBody body", call.arg(0), Some(body));
@@ -228,6 +237,26 @@ impl<'f> VehicleWorld for Served<'f> {
         self.check_hull("explosion owner", call.arg(2));
     }
 
+    fn raycast_units(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<f64> {
+        let call = self.call("units.raycast")?;
+        self.check(check_vec3("units.raycast origin", call.arg(0), vec(origin)));
+        self.check(check_vec3("units.raycast direction", call.arg(1), vec(direction)));
+        self.check(check_num("units.raycast far", call.arg(2), far));
+        let r = call.result();
+        if r.is_nullish() {
+            None
+        } else {
+            Some(r.get("distance").num())
+        }
+    }
+
+    fn clock(&mut self) -> f64 {
+        match self.call("world.clock") {
+            Some(call) => call.result().num(),
+            None => 0.0,
+        }
+    }
+
     fn effect(&mut self, name: &str, position: &Vector3) {
         let Some(call) = self.call("world.effect") else { return };
         if call.arg(0).str() != Some(name) {
@@ -264,8 +293,19 @@ fn path_of(hull: &bfe_sim::vehicles::Hull) -> &'static str {
 #[test]
 fn hulls_tick_on_the_ground_as_captured() {
     let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    if std::env::var_os("BFE_CONTENT_DIR").is_none() {
+        eprintln!("hulls_tick_on_the_ground_as_captured: no BFE_CONTENT_DIR (the hulls' classes are the content's): not replayed");
+        return;
+    }
     let mut paths: std::collections::BTreeMap<&'static str, (usize, usize)> = Default::default();
-    let report = replay_corpus(&corpus, "vehicle.tick", |_capture, frame| {
+    let mut content: Option<(String, bfe_content::content::Content)> = None;
+    let mut classes: std::collections::HashMap<String, HullClass> = Default::default();
+    let report = replay_corpus(&corpus, "vehicle.tick", |capture, frame| {
+        let label = capture.label();
+        if content.as_ref().map(|(l, _)| l != &label).unwrap_or(true) {
+            content = Some((label.clone(), content_of(capture.header.root()).expect("the capture's battle")));
+            classes.clear();
+        }
         let before = frame.before().get("hull");
         if before.get("flying").bool() {
             return Outcome::Skipped("a flyer's tick (the flight package's)".into());
@@ -276,7 +316,21 @@ fn hulls_tick_on_the_ground_as_captured() {
         let index = index as usize;
         let water = frame.before().get("water");
         let water = if water.is_null() { None } else { Some(water.get("level").num()) };
-        let mut hull = hull_from_value(before, index);
+        let mut cx = Replay::default();
+        let r = match Vehicle::value_in(before, &mut cx, "hull") {
+            Ok(r) => r,
+            Err(e) => return Outcome::Failed(format!("{}: {e}", frame.place())),
+        };
+        let stored = cx.store.vehicle.get(r).unwrap().clone();
+        let name = before.get("name").str().unwrap_or("?").to_string();
+        let c = &content.as_ref().unwrap().1;
+        let class = classes.entry(name.clone()).or_insert_with(|| {
+            let def = c.battle.vehicle_def.as_ref().and_then(|v| v.get("classes")).and_then(|cl| cl.get(&name)).expect("the hull's class in the content");
+            HullClass::new(def, stored.turn_rate)
+        });
+        let mut hull = Hull::from_store(&stored, class, index);
+        // The collision body by the serial the capture names it by.
+        hull.body = body_of(before.get("body"));
         let path = path_of(&hull);
         let tally = paths.entry(path).or_default();
         tally.0 += 1;
@@ -291,9 +345,9 @@ fn hulls_tick_on_the_ground_as_captured() {
         if let Err(e) = served.log.finish() {
             return Outcome::Failed(e.0);
         }
+        hull.to_store(cx.store.vehicle.get_mut(r).unwrap());
         let mut arena = Arena::default();
-        let name = before.get("name").str().unwrap_or("?").to_string();
-        let mine = hull_to_value(&mut arena, &hull, &name);
+        let mine = Vehicle::value_out(r, &mut cx, &mut arena);
         match diff(frame.after().get("hull"), arena.view(&mine)) {
             None => {
                 paths.get_mut(path).unwrap().1 += 1;
@@ -308,4 +362,99 @@ fn hulls_tick_on_the_ground_as_captured() {
         eprintln!("  {path}: {frames} frames, {same} the same");
     }
     report.assert_clean();
+}
+
+/// The battle's content as rust/content loads it (BFE_CONTENT_DIR), for
+/// the hulls' rigs: the capture's battle, loaded as world-hash asked for it.
+fn content_of(header: V) -> Option<bfe_content::content::Content> {
+    use bfe_content::battle::{Battle, Loader};
+    use bfe_content::files::DirFiles;
+    let root = std::env::var_os("BFE_CONTENT_DIR")?;
+    let b = header.get("battle");
+    let (map, side, seed) = (b.get("map").str()?.to_string(), b.get("side").str()?.to_string(), b.get("seed").num());
+    let ai = b.get("ai").str().unwrap_or("classic").to_string();
+    let era = if side == "rep" || side == "cis" { "cw" } else { "gcw" };
+    let query = format!("?map={map}&side={side}&era={era}&ai={ai}&seed={seed}&rays=js&movement=js");
+    let files = DirFiles::new(std::path::Path::new(&root));
+    let loader = Loader::new(&files);
+    let battle = Battle::load(&loader, &map, &query).expect("the battle's content");
+    Some(bfe_content::content::Content::build(battle).expect("the battle's content"))
+}
+
+type Built = (bfe_sim::rig::hull::HullRig, Option<bfe_sim::vehicles::pose::WalkClips>, Option<bfe_sim::vehicles::pose::LegPairs>);
+
+/// A hull class's rig, built from the content as the Vehicle constructor
+/// builds it, with its walk clips and its legs.
+fn rig_of(content: &bfe_content::content::Content, class: &str) -> Option<Built> {
+    let def = content.battle.vehicle_def.as_ref()?.get("classes")?.get(class)?;
+    let model = def.get("model").and_then(|m| m.as_str())?;
+    let template = content.vehicle_templates.iter().find(|t| t.name == model)?;
+    let rig = bfe_sim::rig::hull::HullRig::new(&bfe_sim::rig::content::hull_desc(def, template));
+    Some((rig, bfe_sim::vehicles::pose::walk_clips(template), bfe_sim::vehicles::pose::leg_pairs(def)))
+}
+
+#[test]
+fn hulls_pose_as_captured() {
+    use bfe_sim::vehicles::replay::{pose_from_value, pose_to_value};
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    if std::env::var_os("BFE_CONTENT_DIR").is_none() {
+        eprintln!("hulls_pose_as_captured: no BFE_CONTENT_DIR (the rigs are built from the content): not replayed");
+        return;
+    }
+    for name in ["vehicle.aimTick", "vehicle.render"] {
+        let mut content: Option<(String, bfe_content::content::Content)> = None;
+        let mut rigs: std::collections::HashMap<String, Option<Built>> = Default::default();
+        let mut posed_same = 0usize;
+        let report = replay_corpus(&corpus, name, |capture, frame| {
+            let label = capture.label();
+            if content.as_ref().map(|(l, _)| l != &label).unwrap_or(true) {
+                content = Some((label.clone(), content_of(capture.header.root()).expect("the capture's battle")));
+                rigs.clear();
+            }
+            let before = frame.before().get("hull");
+            if before.get("flying").bool() {
+                return Outcome::Skipped("a flyer's pose (the flight package's)".into());
+            }
+            let class = before.get("name").str().unwrap_or("?").to_string();
+            let c = &content.as_ref().unwrap().1;
+            let Some((rig, clips, legs)) = rigs.entry(class.clone()).or_insert_with(|| rig_of(c, &class)).clone() else {
+                return Outcome::Failed(format!("{}: no rig for {class} in the content", frame.place()));
+            };
+            let Some(index) = frame.receiver().handle_num("vehicle") else {
+                return Outcome::Failed(format!("{}: no hull receiver", frame.place()));
+            };
+            let posed = !before.get("rig").is_null();
+            let mut hull = pose_from_value(before, index as usize, rig);
+            let pose = hull.pose.as_mut().unwrap();
+            pose.clips = clips;
+            pose.leg_pairs = legs;
+            let (alpha, dt) = (frame.arg(0).num(), frame.arg(1).num());
+            let mut served = Served { log: Log::new(frame), hull: index as usize, water: None, error: None };
+            if name == "vehicle.aimTick" {
+                hull.aim_tick(&mut served, alpha, dt);
+            } else {
+                hull.render(&mut served, alpha, dt);
+            }
+            if let Some(e) = served.error {
+                return Outcome::Failed(e);
+            }
+            if let Err(e) = served.log.finish() {
+                return Outcome::Failed(e.0);
+            }
+            let mut arena = Arena::default();
+            let mine = pose_to_value(&mut arena, &mut hull, &class, posed);
+            match diff(frame.after().get("hull"), arena.view(&mine)) {
+                None => {
+                    if posed {
+                        posed_same += 1;
+                    }
+                    Outcome::Same
+                }
+                Some(d) => Outcome::Failed(format!("{}: hull {d} (capture | port)", frame.place())),
+            }
+        })
+        .unwrap();
+        eprintln!("{}\n  posed: {posed_same} of the same frames", report.summary());
+        report.assert_clean();
+    }
 }
