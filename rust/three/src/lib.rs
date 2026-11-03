@@ -15,8 +15,10 @@
 //! `Matrix3`, `Matrix4`, `Box3`, `Sphere`, `Plane`, `Ray`, `Line3`,
 //! `Triangle`, `Spherical`, `Cylindrical`, `MathUtils`, and
 //! [`TransformTree`]: the `Object3D` transform semantics the sim's
-//! rigs live on (local TRS, the Euler/quaternion sync, `matrix` and
-//! `matrixWorld` with `matrixAutoUpdate` / `matrixWorldAutoUpdate` /
+//! rigs live on (local TRS, the Euler/quaternion sync — deferred,
+//! with a per-node `euler_sync` switch for NO_EULER bones; see
+//! [`transform`]), `matrix` and `matrixWorld` with
+//! `matrixAutoUpdate` / `matrixWorldAutoUpdate` /
 //! `matrixWorldNeedsUpdate`, `updateMatrixWorld` and
 //! `updateWorldMatrix`, the world getters, `lookAt`, `attach`, the
 //! rotate and translate helpers). Not covered, deliberately: color,
@@ -53,9 +55,10 @@ pub mod quaternion;
 pub mod transform;
 pub mod vector;
 
-pub use euler::{Euler, EulerOrder};
+pub use euler::{Euler, EulerOrder, ProperEulerOrder};
 pub use geom::{Box3, Cylindrical, Line3, Plane, Ray, Sphere, Spherical, Triangle};
+pub use mathutils::{clamp, deg_to_rad, lerp, smoothstep};
 pub use matrix::{CoordinateSystem, Matrix3, Matrix4};
 pub use quaternion::Quaternion;
 pub use transform::{NodeId, TransformNode, TransformTree};
-pub use vector::{Vector2, Vector3, Vector4};
+pub use vector::{Axis, Vector2, Vector3, Vector4};

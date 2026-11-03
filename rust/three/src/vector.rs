@@ -22,6 +22,15 @@ fn length_or_1(length: f64) -> f64 {
     if num_falsy(length) { 1.0 } else { length }
 }
 
+/// A Vector3 component named by letter (`p[forward]` in the
+/// JavaScript, where forward is 'x', 'y' or 'z').
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Axis {
+    X,
+    Y,
+    Z,
+}
+
 /// `THREE.Vector3`, r170.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Vector3 {
@@ -31,7 +40,7 @@ pub struct Vector3 {
 }
 
 impl Vector3 {
-    pub fn new(x: f64, y: f64, z: f64) -> Self {
+    pub const fn new(x: f64, y: f64, z: f64) -> Self {
         Vector3 { x, y, z }
     }
 
@@ -91,6 +100,25 @@ impl Vector3 {
             1 => self.y,
             2 => self.z,
             _ => panic!("index is out of range: {index}"),
+        }
+    }
+
+    /// The component by axis, as `v[axis]` reads it in the
+    /// JavaScript (a porting convenience; three has no Axis type).
+    pub fn get(&self, axis: Axis) -> f64 {
+        match axis {
+            Axis::X => self.x,
+            Axis::Y => self.y,
+            Axis::Z => self.z,
+        }
+    }
+
+    /// `v[axis] = value` in the JavaScript.
+    pub fn set_axis(&mut self, axis: Axis, value: f64) {
+        match axis {
+            Axis::X => self.x = value,
+            Axis::Y => self.y = value,
+            Axis::Z => self.z = value,
         }
     }
 
@@ -561,7 +589,7 @@ pub struct Vector2 {
 }
 
 impl Vector2 {
-    pub fn new(x: f64, y: f64) -> Self {
+    pub const fn new(x: f64, y: f64) -> Self {
         Vector2 { x, y }
     }
 
@@ -874,7 +902,7 @@ impl Default for Vector4 {
 }
 
 impl Vector4 {
-    pub fn new(x: f64, y: f64, z: f64, w: f64) -> Self {
+    pub const fn new(x: f64, y: f64, z: f64, w: f64) -> Self {
         Vector4 { x, y, z, w }
     }
 
@@ -1068,7 +1096,9 @@ impl Vector4 {
     }
 
     /// `setAxisAngleFromRotationMatrix(m)`, with three's epsilon
-    /// branches and its 0.707106781 constants.
+    /// branches and its 0.707106781 constants (three's literal, not
+    /// FRAC_1_SQRT_2: a different double).
+    #[allow(clippy::approx_constant)]
     pub fn set_axis_angle_from_rotation_matrix(&mut self, m: &Matrix4) -> &mut Self {
         let epsilon = 0.01f64;
         let epsilon2 = 0.1f64;

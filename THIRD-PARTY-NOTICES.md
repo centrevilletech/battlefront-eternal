@@ -16,6 +16,8 @@ the game, on the player's machine.
 | [OpenAL Soft](https://github.com/kcat/openal-soft) 1.20.1 | `src/audio/worklets/stabilizer.js` translates its band splitter and front stabilizer; `src/audio/layouts.js` carries its speaker decoder coefficients | Copyright the OpenAL Soft authors | LGPL-2.0-or-later. The derived code is distributed under GPL-3.0-only, as section 3 of that license allows. |
 | [libebur128](https://github.com/jiixyj/libebur128) | The K-weighting filter design in `src/audio/worklets/meter.js` and `tools/enhance_audio.py` | Copyright (c) 2011 Jan Kokemüller | MIT |
 | AMD FidelityFX Super Resolution 1 | The RCAS sharpening pass in `src/shell/video-sharpen.js` follows its design | Copyright (c) Advanced Micro Devices, Inc. | MIT |
+| [three.js](https://threejs.org) r170 math collections | `rust/three` transliterates its `src/math` classes and `Object3D`'s transform semantics to Rust, operation by operation, for the simulation port | Copyright 2010-2024 three.js authors | MIT |
+| TimSort, as V8 runs it for `Array.prototype.sort` | `rust/jsrt/src/sort.rs` transliterates V8 13.6's `array-sort.tq`, itself a port of CPython's listsort | Copyright (c) 2001-2018 Python Software Foundation (the algorithm text V8's file carries); V8's port copyright the V8 project authors | Python Software Foundation License 2.0; BSD-3-Clause (V8) |
 
 ## Libraries bundled in builds
 

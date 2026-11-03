@@ -198,14 +198,16 @@ impl Box3 {
         self.max.x < self.min.x || self.max.y < self.min.y || self.max.z < self.min.z
     }
 
-    /// `getCenter(target)`.
-    pub fn get_center<'t>(&self, target: &'t mut Vector3) -> &'t mut Vector3 {
+    /// `getCenter(target)`: writes the target and returns it by
+    /// value, as the rigs read it.
+    pub fn get_center(&self, target: &mut Vector3) -> Vector3 {
         if self.is_empty() {
-            target.set(0.0, 0.0, 0.0)
+            target.set(0.0, 0.0, 0.0);
         } else {
             target.add_vectors(&self.min, &self.max);
-            target.multiply_scalar(0.5)
+            target.multiply_scalar(0.5);
         }
+        *target
     }
 
     /// `getSize(target)`.

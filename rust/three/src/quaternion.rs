@@ -27,7 +27,7 @@ impl Default for Quaternion {
 }
 
 impl Quaternion {
-    pub fn new(x: f64, y: f64, z: f64, w: f64) -> Self {
+    pub const fn new(x: f64, y: f64, z: f64, w: f64) -> Self {
         Quaternion { x, y, z, w }
     }
 
@@ -362,13 +362,33 @@ impl Quaternion {
 
     /// `slerp(qb, t)`.
     pub fn slerp(&mut self, qb: &Quaternion, t: f64) -> &mut Self {
+        self.slerp_tracked(qb, t);
+        self
+    }
+
+    /// `slerp(qb, t)`, telling what three's change callback saw
+    /// last: the value at the last point it fired, or None if it
+    /// did not fire. The transform tree needs this because slerp is
+    /// the one quaternion method whose callback can fire with a
+    /// value other than the final one. three's methods write the
+    /// private fields and fire explicitly: slerp fires when it
+    /// copies qb in (t 1, or the cos >= 0 branch), through
+    /// normalize on the tiny-angle path, and once at the end of the
+    /// general path. In the early return where the quaternions
+    /// already agree (cos >= 1) it writes the original components
+    /// back without firing, so in the copy branch the Euler ends
+    /// up synced from qb although the quaternion itself is put
+    /// back, and in the negation branch nothing fired at all.
+    pub fn slerp_tracked(&mut self, qb: &Quaternion, t: f64) -> Option<Quaternion> {
         if t == 0.0 {
-            return self;
+            return None;
         }
         if t == 1.0 {
-            return self.copy(qb);
+            self.copy(qb);
+            return Some(*self);
         }
         let (x, y, z, w) = (self.x, self.y, self.z, self.w);
+        let mut fired = None;
         let mut cos_half_theta = w * qb.w + x * qb.x + y * qb.y + z * qb.z;
         if cos_half_theta < 0.0 {
             self.w = -qb.w;
@@ -378,13 +398,14 @@ impl Quaternion {
             cos_half_theta = -cos_half_theta;
         } else {
             self.copy(qb);
+            fired = Some(*self);
         }
         if cos_half_theta >= 1.0 {
             self.w = w;
             self.x = x;
             self.y = y;
             self.z = z;
-            return self;
+            return fired;
         }
         let sqr_sin_half_theta = 1.0 - cos_half_theta * cos_half_theta;
         if sqr_sin_half_theta <= f64::EPSILON {
@@ -394,7 +415,7 @@ impl Quaternion {
             self.y = s * y + t * self.y;
             self.z = s * z + t * self.z;
             self.normalize();
-            return self;
+            return Some(*self);
         }
         let sin_half_theta = sqr_sin_half_theta.sqrt();
         let half_theta = v8math::atan2(sin_half_theta, cos_half_theta);
@@ -404,7 +425,7 @@ impl Quaternion {
         self.x = x * ratio_a + self.x * ratio_b;
         self.y = y * ratio_a + self.y * ratio_b;
         self.z = z * ratio_a + self.z * ratio_b;
-        self
+        Some(*self)
     }
 
     /// `slerpQuaternions(qa, qb, t)`.

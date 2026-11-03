@@ -620,11 +620,8 @@ fn main() {
                 // the synced Euler (three's heading quirk lives here).
                 let q = q4(&p[80..84]);
                 tree.node_mut(ids[3]).copy_quaternion(&q);
-                out.extend_from_slice(&[
-                    tree.node(ids[3]).rotation.x,
-                    tree.node(ids[3]).rotation.y,
-                    tree.node(ids[3]).rotation.z,
-                ]);
+                let rot3 = tree.node_mut(ids[3]).rotation();
+                out.extend_from_slice(&[rot3.x, rot3.y, rot3.z]);
                 // Write the Euler on node 3, read the quaternion.
                 tree.node_mut(ids[3]).set_rotation(p[84], p[85], p[86], Some(EulerOrder::YXZ));
                 pushq(&mut out, &tree.node(ids[3]).quaternion);

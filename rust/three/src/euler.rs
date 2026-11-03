@@ -81,7 +81,7 @@ impl Default for Euler {
 }
 
 impl Euler {
-    pub fn new(x: f64, y: f64, z: f64, order: EulerOrder) -> Self {
+    pub const fn new(x: f64, y: f64, z: f64, order: EulerOrder) -> Self {
         Euler { x, y, z, order }
     }
 
