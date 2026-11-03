@@ -21,7 +21,7 @@
 // A world only; boarding, the other ways out, a destroyed hull's crew and
 // the turret crews stay JavaScript's until they move.
 import * as THREE from "three";
-import { CombatMirror, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_SEATS, KIND_UNIT, KIND_VEHICLE } from "./sim/gen/index.js";
+import { CombatMirror, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_SEATS, KIND_UNIT, KIND_VEHICLE, KIND_VEHICLES } from "./sim/gen/index.js";
 import { makeHit } from "./collision.js";
 
 const NO_BUTTONS = [0, 0];
@@ -67,7 +67,10 @@ export class SeatsSim {
     b.write(KIND_UNIT, units);
     b.write(KIND_SEAT_LEASE, leases);
     b.write(KIND_SEATS, [this.seats]);
+    // (The hulls' list is the hull kind's home: the store gives back the
+    // hulls it lists.)
     b.write(KIND_VEHICLE, vs.vehicles);
+    b.write(KIND_VEHICLES, [vs]);
     const a = this.args;
     a.time = vs.time;
     a.ticks = vs.ticks;
