@@ -669,6 +669,10 @@ pub trait World: Draws {
     /// cpCenter(ai, post) / captureRegion(ai, post) as (sizeX, sizeZ).
     fn cp_center(&mut self, post: Obj) -> Vector3;
     fn capture_region(&mut self, post: Obj) -> Option<(f64, f64)>;
+    /// An agent's movement helper's `mask` or `radius` (its traversal mask
+    /// or radius for its unit; each read attaches the helper's control to
+    /// the unit, as navigation's helper's `unit` getter does).
+    fn helper_traversal(&mut self, agent: Obj, radius: bool) -> f64;
     /// ai.combat.memoryPoint(agent).
     fn memory_point(&mut self, agent: Obj) -> Option<Vector3>;
     /// selectWeapon(controller, unit, target, switchAllowed, world, out) /

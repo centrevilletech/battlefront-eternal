@@ -820,11 +820,17 @@ impl VehicleAI {
     }
 
     /// supportPoint(unit, post, helper, out): where a pilot fights for a
-    /// post its hull cannot stand on, or None. `helper`: the agent's
-    /// helper's traversal mask and radius (`helper.mask`, `helper.radius`).
-    pub fn support_point<W: World + ?Sized>(&mut self, w: &mut W, unit: Option<Obj>, post: Option<Obj>, helper: Option<(f64, f64)>) -> Option<Vector3> {
-        let (unit, post, (mask, radius)) = (unit?, post?, helper?);
-        if !w.has_graph() || !(mask > 0.0) || !(radius >= 0.0) {
+    /// post its hull cannot stand on, or None. `helper` is the agent whose
+    /// movement helper the JavaScript hands in (None: none): its traversal
+    /// mask and radius are read from it at each point the JavaScript reads
+    /// `helper.mask` and `helper.radius`.
+    pub fn support_point<W: World + ?Sized>(&mut self, w: &mut W, unit: Option<Obj>, post: Option<Obj>, helper: Option<Obj>) -> Option<Vector3> {
+        let (Some(unit), Some(post)) = (unit, post) else { return None };
+        if !w.has_graph() {
+            return None;
+        }
+        let helper = helper?;
+        if !(w.helper_traversal(helper, false) > 0.0) || !(w.helper_traversal(helper, true) >= 0.0) {
             return None;
         }
         let u = w.unit(unit);
@@ -835,17 +841,22 @@ impl VehicleAI {
         let center = w.cp_center(post);
         let region = w.capture_region(post);
         let reach = max(region.map_or(3.0, |r| r.0), region.map_or(3.0, |r| r.1)) + REACH_MARGIN;
-        let mask_u = v8math::to_uint32(mask);
-        if !out_of_reach(w.nav().map(|n| &mut n.barriers), &center, reach, radius, mask_u) {
+        let radius = w.helper_traversal(helper, true);
+        let mask = w.helper_traversal(helper, false);
+        if !out_of_reach(w.nav().map(|n| &mut n.barriers), &center, reach, radius, v8math::to_uint32(mask)) {
             return None;
         }
-        let key = format!("{}/{}", bfe_content::js::number_to_string(mask), to_fixed_1(radius));
+        let key_mask = w.helper_traversal(helper, false);
+        let key_radius = w.helper_traversal(helper, true);
+        let key = format!("{}/{}", bfe_content::js::number_to_string(key_mask), to_fixed_1(key_radius));
         let cached = self.support_cache.iter().find(|(p, _)| *p == post).and_then(|(_, m)| m.iter().find(|(k, _)| *k == key)).map(|(_, h)| h.clone());
         let hubs = match cached {
             Some(h) => h,
             None => {
                 let origin = w.origin(unit);
                 let eye = if origin.y.is_finite() { max(1.0, origin.y - u.position.y) } else { 3.0 };
+                let radius = w.helper_traversal(helper, true);
+                let mask = v8math::to_uint32(w.helper_traversal(helper, false));
                 // supportHubs: the graph's and barriers' tests per hub, then
                 // the line of sight to each in the same order (the queries
                 // are navigation's content: only the sight tests are the
@@ -853,7 +864,7 @@ impl VehicleAI {
                 let candidates = match w.nav() {
                     Some(nav) => {
                         let crate::ai::nav::Nav { graph, barriers, .. } = nav;
-                        support::support_candidates(graph.as_ref(), Some(barriers), &center, radius, mask_u)
+                        support::support_candidates(graph.as_ref(), Some(barriers), &center, radius, mask)
                     }
                     None => Vec::new(),
                 };
@@ -874,9 +885,10 @@ impl VehicleAI {
                 hubs
             }
         };
+        let mask = v8math::to_uint32(w.helper_traversal(helper, false));
         let near = {
             let graph = w.nav().and_then(|n| n.graph.as_ref())?;
-            support::pick_candidates(graph, &hubs, &u.position, mask_u)?
+            support::pick_candidates(graph, &hubs, &u.position, mask)?
         };
         let pick = if near.len() > 1 { near[w.int(0.0, (near.len() - 1) as f64) as usize] } else { near[0] };
         let graph = w.nav().and_then(|n| n.graph.as_ref())?;

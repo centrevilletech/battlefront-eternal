@@ -31,6 +31,7 @@
 // object the game holds, such as game.items) is a handle wherever it is met
 // unless the state asks for it whole: expand(object).
 import { units } from './units.mjs';
+import { vehicleAI } from './vehicle-ai.mjs';
 import { combat } from './combat.mjs';
 
 export class Expand {
@@ -219,4 +220,7 @@ const ticks = { frames: [] };
 // the soldiers pushed apart (tools/sim-capture/units.mjs).
 // The combat package (flip F3 with units): a soldier's combat, what hurts
 // him and his new lives (tools/sim-capture/combat.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat };
+// The AI in vehicles (P14): the vehicle service's calls, the seats'
+// steering, the vehicle patterns, the notifier and decay, and the boarding
+// and flyer agents (tools/sim-capture/vehicle-ai.mjs).
+export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, vehicleAI };
