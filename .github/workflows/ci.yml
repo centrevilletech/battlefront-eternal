@@ -74,7 +74,7 @@ jobs:
         run: node tools/build-rust.mjs --check
       - name: Rust unit tests
         working-directory: rust
-        run: cargo test --locked -p rays -p bfe-render
+        run: cargo test --locked -p rays -p bfe-render -p v8math
       - name: Keep the rebuilt files
         if: failure()
         uses: actions/upload-artifact@v7
