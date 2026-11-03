@@ -205,7 +205,7 @@ fn edge(e: &CbEdge) -> Edge {
 
 /// The view into the store's unit `id` (made the first time).
 fn feed(i: &CbIn) -> Ref<Unit> {
-    let id = i.unit as u32;
+    let id = word_u32(i.unit);
     let r = unit_ref(id);
     {
         let s = sim();
@@ -383,7 +383,7 @@ pub extern "C" fn cmb_damage() -> *const f64 {
 pub extern "C" fn cmb_explode() -> *const f64 {
     let a = args(CbExplodeIn::take);
     let r = feed(&a.r#in);
-    let explosion = content().explosions.get(a.explosion as usize).cloned().unwrap_or_default();
+    let explosion = content().explosions.get(word_u32(a.explosion) as usize).cloned().unwrap_or_default();
     let position = v(&a.position);
     run(r, |c, u, defs, _, w| cb::explode(c, u, defs, &explosion, &position, a.owner, a.scale, w));
     answer(r, false)
@@ -433,11 +433,11 @@ fn select(c: &mut Combat, defs: &CombatDefs, i: usize) -> bool {
     if i >= c.weapons.len() {
         return false;
     }
-    let channel = c.weapons[i].channel(&defs.weapons);
+    let channel = word_u32(c.weapons[i].channel(&defs.weapons)) as usize;
     let arsenal = Arsenal { weapons: &mut c.weapons, selected: &mut c.selected };
-    let list = arsenal.channel(&defs.weapons, channel as usize);
+    let list = arsenal.channel(&defs.weapons, channel);
     let Some(at) = list.iter().position(|&x| x == i) else { return false };
-    let old = arsenal.current(&defs.weapons, channel as usize);
+    let old = arsenal.current(&defs.weapons, channel);
     if old == Some(i) {
         return true;
     }
@@ -447,7 +447,7 @@ fn select(c: &mut Combat, defs: &CombatDefs, i: usize) -> bool {
         }
         c.weapons[o].deselect();
     }
-    c.selected[channel as usize] = at as f64;
+    c.selected[channel] = at as f64;
     true
 }
 
@@ -602,7 +602,7 @@ impl CombatWorld for JsWorld {
             return None;
         }
         let d = import_combat_remote_of(&CbWeapon { unit: self.unit, weapon: weapon as f64 });
-        d.found.then_some(Droid(d.droid as u32))
+        d.found.then_some(Droid(word_u32(d.droid)))
     }
 
     fn remote_enter(&mut self, droid: Droid, unit: &mut Unit, combat: &mut Combat) {
