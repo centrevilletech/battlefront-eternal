@@ -422,6 +422,13 @@ export class BfeRenderer {
     }
     /**
      * @param {number} batch
+     * @param {number} side
+     */
+    fx_batch_side(batch, side) {
+        wasm.bferenderer_fx_batch_side(this.__wbg_ptr, batch, side);
+    }
+    /**
+     * @param {number} batch
      * @param {number} texture
      */
     fx_batch_texture(batch, texture) {
@@ -512,6 +519,20 @@ export class BfeRenderer {
     fx_model_pass(model, program, side, geometry) {
         const ret = wasm.bferenderer_fx_model_pass(this.__wbg_ptr, model, program, side, geometry);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} model
+     * @param {string} name
+     * @param {number} unit
+     * @param {number} texture
+     */
+    fx_model_sampler(model, name, unit, texture) {
+        const val2 = +model;
+        const val3 = +unit;
+        const val4 = +texture;
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_fx_model_sampler(this.__wbg_ptr, val2, ptr0, len0, val3, val4);
     }
     /**
      * @param {number} model

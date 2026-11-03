@@ -111,6 +111,8 @@ struct Batch<C: HasContext> {
     index_count: i32,
     // Its instances come interleaved already (batch_interleaved).
     interleaved: bool,
+    // The side three draws it with (batch_side; 2 both, a particle's).
+    side: u32,
 }
 
 struct Owner<C: HasContext> {
@@ -164,8 +166,11 @@ struct Model<C: HasContext> {
     blend: Blend,
     depth: (bool, u32, bool),
     values: Vec<MaterialValue>,
-    // Its geometry's bounding sphere (object space): centre, radius.
+    // Its geometry's bounding sphere (object space): centre, radius (below
+    // 0: never culled, as three draws an object it does not cull).
     sphere: ([f64; 3], f64),
+    // Textures on units of their own besides its map (model_sampler).
+    samplers: Vec<(u32, Option<C::Texture>)>,
 }
 
 pub struct EffectsPass<C: HasContext> {
@@ -345,7 +350,7 @@ impl<C: HasContext> EffectsPass<C> {
         self.batches.push(Batch {
             program: program as usize, texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
             vao, vbo, capacity: 0, sizes, stride, owner: if owner < 0 { None } else { Some(owner as usize) }, slots,
-            values: vec![], value_slots: vec![], samplers: vec![], index_count: 6, interleaved: false,
+            values: vec![], value_slots: vec![], samplers: vec![], index_count: 6, interleaved: false, side: 2,
         });
         // Its samplers besides the map on their units.
         unsafe {
@@ -395,6 +400,14 @@ impl<C: HasContext> EffectsPass<C> {
     pub fn batch_interleaved(&mut self, batch: u32) {
         if let Some(b) = self.batches.get_mut(batch as usize) {
             b.interleaved = true;
+        }
+    }
+
+    // The side a batch is drawn with, for one three draws single-sided (0
+    // front, 1 back; a particle's is 2, both).
+    pub fn batch_side(&mut self, batch: u32, side: u32) {
+        if let Some(b) = self.batches.get_mut(batch as usize) {
+            b.side = side;
         }
     }
 
@@ -503,6 +516,7 @@ impl<C: HasContext> EffectsPass<C> {
         self.models.push(Model {
             passes: vec![], texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
             depth: (depth_flags & 1 != 0, depth_func, depth_flags & 2 != 0), values, sphere: ([sphere[0], sphere[1], sphere[2]], sphere[3]),
+            samplers: vec![],
         });
         (self.models.len() - 1) as u32
     }
@@ -523,14 +537,46 @@ impl<C: HasContext> EffectsPass<C> {
         let (model_view, normal, slots) = unsafe {
             (gl.get_uniform_location(p, "modelViewMatrix"), gl.get_uniform_location(p, "normalMatrix"), m.values.iter().map(|v| gl.get_uniform_location(p, &v.0)).collect())
         };
+        // The scene's depth (common) on its unit, for a program that reads it.
+        unsafe {
+            if let Some(l) = gl.get_uniform_location(p, "sceneDepth") {
+                gl.use_program(Some(p));
+                gl.uniform_1_i32(Some(&l), UNIT_SCENE_DEPTH as i32);
+                gl.use_program(None);
+            }
+        }
         m.passes.push(ModelPass { program: program as usize, side, geometry: geometry as usize, model_view, normal, slots });
         (m.passes.len() - 1) as u32
     }
 
+    // A texture a model's programs sample by `name` besides its map, on
+    // `unit` (their sampler set there), after its passes; again when three
+    // made it anew.
+    pub fn model_sampler<M: MultiDraw>(&mut self, core: &Core<C, M>, model: u32, name: &str, unit: u32, texture: i32) {
+        let Some(m) = self.models.get_mut(model as usize) else { return };
+        let gl = &core.gl;
+        for pass in &m.passes {
+            let p = core.programs[pass.program].program;
+            unsafe {
+                if let Some(l) = gl.get_uniform_location(p, name) {
+                    gl.use_program(Some(p));
+                    gl.uniform_1_i32(Some(&l), unit as i32);
+                    gl.use_program(None);
+                }
+            }
+        }
+        let t = if texture < 0 { None } else { core.textures.get(texture as usize).copied() };
+        match m.samplers.iter_mut().find(|(u, _)| *u == unit) {
+            Some(entry) => entry.1 = t,
+            None => m.samplers.push((unit, t)),
+        }
+    }
+
     // What every effect's draw leaves alike, set at the start of a run (three
     // drew in between): every channel written, no stencil, polygon offset or
-    // alpha to coverage; the scene's depth on its unit for soft particles,
-    // else nothing there (never read then).
+    // alpha to coverage; the scene's depth on its unit when the page took it
+    // this frame (soft particles, or an effect that reads it whatever the
+    // setting), else nothing there (never read then).
     fn common<M: MultiDraw>(&self, core: &mut Core<C, M>) {
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
@@ -542,7 +588,7 @@ impl<C: HasContext> EffectsPass<C> {
         }
         stats.gl_calls += 2;
         let depth = self.input[IN_SOFT + 5];
-        let depth = if self.input[IN_SOFT] > 0.5 && depth >= 0.0 { core.textures.get(depth as usize).copied() } else { None };
+        let depth = if depth >= 0.0 { core.textures.get(depth as usize).copied() } else { None };
         state.bind_texture(gl, stats, UNIT_SCENE_DEPTH, depth);
     }
 
@@ -628,9 +674,9 @@ impl<C: HasContext> EffectsPass<C> {
                 state.bind_texture(gl, stats, UNIT_TRACKS, Some(o.tracks));
                 state.bind_texture(gl, stats, UNIT_EMITTERS, Some(o.emitters));
             }
-            // A particle material: double-sided, depth tested less-or-equal
-            // and not written.
-            sides(gl, state, stats, 2, false);
+            // A particle material: depth tested less-or-equal and not
+            // written, double-sided (or the side three draws it with).
+            sides(gl, state, stats, b.side, false);
             state.depth_test(gl, stats, true);
             state.depth_func(gl, stats, glow::LEQUAL);
             state.depth_write(gl, stats, false);
@@ -740,6 +786,9 @@ impl<C: HasContext> EffectsPass<C> {
             if m.texture.is_some() {
                 state.bind_texture(gl, stats, UNIT_MAP, m.texture);
             }
+            for &(unit, t) in &m.samplers {
+                state.bind_texture(gl, stats, unit, t);
+            }
             sides(gl, state, stats, pass.side, mirrored);
             state.depth_test(gl, stats, m.depth.0);
             state.depth_func(gl, stats, m.depth.1);
@@ -804,14 +853,17 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
         }
         self.upload_owners(core);
         for d in 0..draws {
-            // A model three culls by its bounding sphere, through its world matrix.
+            // A model three culls by its bounding sphere, through its world
+            // matrix (not one it does not cull: a radius below 0).
             if let (KIND_MODEL, e) = self.entry(d) {
                 let Some(m) = self.models.get(e[0]) else { continue };
-                let mut world: Mat4 = [0.0; 16];
-                world.copy_from_slice(&self.matrices[e[1]..e[1] + 16]);
-                let (center, radius) = math::sphere_to_world(&world, &m.sphere.0, m.sphere.1);
-                if !view.camera.frustum.sphere(&center, radius) {
-                    continue;
+                if m.sphere.1 >= 0.0 {
+                    let mut world: Mat4 = [0.0; 16];
+                    world.copy_from_slice(&self.matrices[e[1]..e[1] + 16]);
+                    let (center, radius) = math::sphere_to_world(&world, &m.sphere.0, m.sphere.1);
+                    if !view.camera.frustum.sphere(&center, radius) {
+                        continue;
+                    }
                 }
             }
             let k = &self.input[DRAW_AT + d * DRAW_STRIDE + DRAW_KEY..DRAW_AT + (d + 1) * DRAW_STRIDE];

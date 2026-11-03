@@ -13,15 +13,15 @@ export class FountainSpray {
     for(let i=0;i<count;i++)seed.set([Math.floor(i/24),random(),random(),random()],i*4);
     geometry.setAttribute('seed',new THREE.InstancedBufferAttribute(seed,4));geometry.instanceCount=count;
     const sources=Array.from({length:5},()=>new THREE.Vector4(0,0,0,0));
-    const material=new THREE.ShaderMaterial({transparent:true,depthWrite:false,toneMapped:false,uniforms:{time:{value:0},sources:{value:sources},
+    const material=new THREE.ShaderMaterial({transparent:true,depthWrite:false,toneMapped:false,uniforms:{sprayTime:{value:0},sources:{value:sources},
       wakes:{value:wakes.points},motion:{value:wakes.motion},sceneDepth:particleDepth.map,depthResolution:particleDepth.resolution,
       cameraRange:particleDepth.cameraRange,hasDepth:{value:0}},vertexShader:/* glsl */`
-      attribute vec4 seed;uniform float time;uniform vec4 sources[5],wakes[8],motion[8];
+      attribute vec4 seed;uniform float sprayTime;uniform vec4 sources[5],wakes[8],motion[8];
       varying vec2 vUv;varying float alpha,depth;
       void main(){
         float angle=seed.y*6.2831853;int i=int(seed.x);
         vec3 origin=wakes[i].xyz+vec3(0.,.15,0.);
-        float age=time-wakes[i].w,life=.7,speed=(.7+seed.w*2.)*motion[i].w;
+        float age=sprayTime-wakes[i].w,life=.7,speed=(.7+seed.w*2.)*motion[i].w;
         vec3 velocity=vec3(cos(angle)*speed,2.+seed.z*2.,sin(angle)*speed);
         float size=.028+seed.w*.035;alpha=age<0.||age>life?0.:1.;
         // The water around the fountain's nozzle: Enhanced fills the inner
@@ -48,7 +48,7 @@ export class FountainSpray {
     this.mesh.onBeforeRender=(r,s,c)=>{material.uniforms.hasDepth.value=particleDepth.capture(r,s,c,true)?1:0;material.uniformsNeedUpdate=true;};scene.add(this.mesh);
   }
   // Each fountain keeps its slot, so one leaving view doesn't reseed another.
-  update(time,fountains){this.mesh.material.uniforms.time.value=time;this.mesh.visible=fountains.length>0;
+  update(time,fountains){this.mesh.material.uniforms.sprayTime.value=time;this.mesh.visible=fountains.length>0;
     for(const s of this.sources)s.w=0;
     for(const f of fountains)this.sources[f.slot]?.set(f.position.x,f.position.y,f.position.z,1);}
   dispose(){this.mesh.removeFromParent();this.mesh.geometry.dispose();this.mesh.material.dispose();}
