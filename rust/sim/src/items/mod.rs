@@ -183,6 +183,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     }
 
     /// items.js blast: an explosion's damage to the mines lying about.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)] // `!(damage > 0)`: NaN included, as the JavaScript tests it
     pub fn blast(&mut self, explosion: DefId, position: Vec3) {
         let mut at = 0;
         while at < self.s().items.items.len() {
