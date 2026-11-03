@@ -26,6 +26,11 @@
 //! [`random::Draws`]. Math is V8's (rust/v8math) and three.js r170's
 //! (rust/three), operation by operation.
 
+// `!(a < b)` is JavaScript's own spelling here (NaN fails both), kept as
+// written; kinds and states are numbers matched by guards, as float
+// patterns cannot be.
+#![allow(clippy::neg_cmp_op_on_partial_ord, clippy::redundant_guards)]
+
 pub mod agents;
 pub mod controllers;
 pub mod fly;

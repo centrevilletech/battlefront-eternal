@@ -43,10 +43,13 @@ pub struct VehicleAI {
     /// `padLeft`: hull -> until when no bot boards it (abandonPad).
     pub pad_left: Vec<(Obj, f64)>,
     /// `supportCache`: post -> "mask/radius" -> its support hubs.
-    pub support_cache: Vec<(Obj, Vec<(String, Vec<SupportHub>)>)>,
+    pub support_cache: Vec<(Obj, SupportKeys)>,
     /// The attack run's distances (patterns.js `run`).
     pub run: AttackRun,
 }
+
+/// One post's support hubs by "mask/radius" key, in the order found.
+pub type SupportKeys = Vec<(String, Vec<SupportHub>)>;
 
 /// A hull's decay clock (`v.decay`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -991,7 +994,7 @@ impl VehicleAI {
             }
             // `v.decay ||= { idle: 0, sample: 0 }`.
             let mut st = *w.decay(h).get_or_insert_with(Decay::default);
-            let inside = !w.nav().map_or(false, |nav| nav.outside(crate::ai::nav::math::Vec3::new(v.position.x, v.position.y, v.position.z)));
+            let inside = !w.nav().is_some_and(|nav| nav.outside(crate::ai::nav::math::Vec3::new(v.position.x, v.position.y, v.position.z)));
             let damage = (|| {
                 if inside && (!v.slot_post || v.controlling_team != 0.0) {
                     st.idle = 0.0;
