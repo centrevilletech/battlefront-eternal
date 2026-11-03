@@ -30,7 +30,7 @@ const option = (name, fallback = null) => {
 const content = process.env.BFE_CONTENT_DIR || path.join(root, 'public');
 const outDir = option('out', path.join(os.tmpdir(), 'content-dump'));
 
-const { battlesOf, selectMission } = await import('../src/mission.js');
+const { battlesOf, selectMission, selectAIMission } = await import('../src/mission.js');
 const { spawnPolicy } = await import('../src/spawn-screen/policy.js');
 const { modelPack, modelGroup } = await import('../src/models.js');
 const { loadClips } = await import('../src/anim.js');
@@ -649,6 +649,10 @@ export function dumpBattle(b, c, full = false) {
       d.value('def.prop', String(i), [desc.class, tableId(registry.weapons, desc.weapon?.class), combat(desc.explosion), combat(desc.weapon?.ordnance)]);
     });
   } else d.value('defs', 'error', registryError);
+
+  // ai/index.js 117: the battle's script in ai-mission.json.
+  const aiMission = selectAIMission(b.aiMission, b.world.mission);
+  d.value('ai', 'mission', aiMission && typeof aiMission === 'object' ? [aiMission.mission, aiMission.variants] : aiMission ?? null);
 
   if (!c.routes) d.line('nav', 'routes', 'null');
   else if (c.routes.error) d.line('nav', 'routes', `error ${JSON.stringify(c.routes.error)}`);

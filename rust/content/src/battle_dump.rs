@@ -488,6 +488,15 @@ pub fn dump_battle(c: &Content, cache: &mut PayloadCache, full: bool) -> String 
         Err(e) => d.line("defs", "error", &dump::payload(&st(&e))),
     }
 
+    // ai/index.js 117: the battle's script in ai-mission.json.
+    let ai_mission = crate::mission::select_ai_mission(b.ai_mission.as_ref(), b.mission());
+    let text = match &ai_mission {
+        Some(v @ Value::Object(_)) => list(vec![opt(v.get("mission")), opt(v.get("variants"))]),
+        Some(other) => dump::value_text(other),
+        None => "null".into(),
+    };
+    d.line("ai", "mission", &dump::payload(&text));
+
     // The AI's route table.
     match &c.route_words {
         None => d.line("nav", "routes", "null"),
