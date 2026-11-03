@@ -15,7 +15,8 @@
 //! - `droideka`: a droideka's body, its modes, walk, ball and collision;
 //! - `damage`: what hitting the ground or a wall too hard does
 //!   (collision damage) and the world's bounds;
-//! - `separate`: the soldiers pushed apart, every pair.
+//! - `separate`: the soldiers pushed apart, every pair;
+//! - `water`: the map's water and what it does to a soldier each tick.
 //!
 //! Units reach the rest of the battle (the collision world, combat, the AI,
 //! seats and props, the Characters) through `world::UnitsWorld`, the
@@ -31,4 +32,5 @@ pub mod registry;
 pub mod separate;
 pub mod shapes;
 pub mod unit;
+pub mod water;
 pub mod world;
