@@ -103,6 +103,10 @@ class SpatialMixer extends AudioWorkletProcessor {
         // A voice took this slot: its first gains apply at once.
         this.fresh[m.slot] = 1;
         if (this.dsp) this.dsp.x.mixer_start(this.dsp.h, m.slot);
+      } else if (m.type === "sync") {
+        // Every message before this one has been applied (offline renders
+        // wait for it, so a frame's messages land on its block).
+        this.port.postMessage({ type: "sync", id: m.id });
       } else if (m.type === "layout") {
         this.law = m.law;
         this.decoder = m.decoder || null;

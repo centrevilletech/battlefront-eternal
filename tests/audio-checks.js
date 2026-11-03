@@ -52,6 +52,25 @@ function sine(ctx, freq, amp, phase = 0) {
   return src;
 }
 
+// Every message sent to a renderer's mixer applied, and its worklets built
+// (the worklet thread makes them in order), before an offline render starts:
+// one that starts first can outrun them and render silence throughout.
+function settled(r) {
+  if (!r?.mixer) return Promise.resolve();
+  return new Promise((resolve) => {
+    const port = r.mixer.port;
+    const id = Math.random();
+    const before = port.onmessage;
+    port.onmessage = (e) => {
+      if (e.data?.type === "sync" && e.data.id === id) {
+        port.onmessage = before;
+        resolve();
+      } else before?.(e);
+    };
+    port.postMessage({ type: "sync", id });
+  });
+}
+
 export async function checkAudio() {
   const results = [];
   const assert = (name, ok, detail) => {
@@ -118,6 +137,7 @@ export async function checkAudio() {
     });
     mixLow.start();
     mixHigh.start();
+    await settled(r);
     const rendered = await ctx.startRendering();
     const lfe = rendered.getChannelData(3).slice(RATE / 4);
     // Split the LFE channel's 50 Hz and 2 kHz content by correlation.
@@ -152,6 +172,7 @@ export async function checkAudio() {
     const src = sine(ctx, 400, 0.3);
     src.connect(bed.input);
     src.start();
+    await settled(r);
     const rendered = await ctx.startRendering();
     const trim = 10 ** (-DYNAMICS.home.makeup / 20);
     const levels = [0, 1, 2, 3, 4, 5].map((c) => rms(rendered.getChannelData(c), RATE / 8) * trim);
@@ -308,6 +329,7 @@ export async function checkAudio() {
       const one = new ConstantSourceNode(ctx, { offset: 1 });
       one.connect(node, 0, 0);
       one.start();
+      await settled({ mixer: node });
       const rendered = await ctx.startRendering();
       return Array.from({ length: N }, (_, c) => rendered.getChannelData(c)[300]);
     };
@@ -389,6 +411,7 @@ export async function checkAudio() {
     out.update(null, 0, 0, { send: 0 });
     r.flush();
     src.start();
+    await settled(r);
     const rendered = await ctx.startRendering();
     const trim = 10 ** (-(DYNAMICS.home.makeup + ORIGINAL_LEVEL["5.1"]) / 20) / (0.25 / Math.SQRT2);
     const levels = [0, 1, 2, 3, 4, 5].map((c) => rms(rendered.getChannelData(c), RATE / 4) * trim);
@@ -405,6 +428,7 @@ export async function checkAudio() {
       await r.load();
       r.configure({ quality: "original", output: "stereo", dynamics });
       feed(ctx, r);
+      await settled(r);
       const rendered = await ctx.startRendering();
       return { r, at: (c, i = RATE / 16) => rendered.getChannelData(c)[i], peak: Math.max(...[0, 1].map((c) => Math.max(...rendered.getChannelData(c).map(Math.abs)))) };
     };
@@ -498,6 +522,7 @@ export async function checkAudio() {
     const v = engine.play("0x0000c001", { position: { x: 15, y: 0, z: -14 }, category: "effects", offline: true });
     engine.update(1 / 60);
     const pan = alsoftGains("stereo", v.local.x, v.local.y, v.local.z);
+    await settled(engine.renderer);
     const rendered = await ctx.startRendering();
     const got = [0, 1].map((c) => rendered.getChannelData(c)[RATE / 16]);
     const want = pan.map((g) => 0.5 * v.audible * g * scale);
@@ -630,6 +655,7 @@ export async function checkAudio() {
       out.update(local, 20, 0, { cutoff: 20000, send: 0 });
       r.flush();
       src.start();
+      await settled(r);
       const rendered = await ctx.startRendering();
       const trim = 10 ** (-DYNAMICS.home.makeup / 20) / (0.25 / Math.SQRT2);
       const level = (c) => db(rms(rendered.getChannelData(c), RATE / 8) * trim);
