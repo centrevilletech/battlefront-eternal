@@ -199,9 +199,9 @@ fn team_list(mission: Option<&Value>) -> Vec<(f64, Value)> {
             .collect(),
         None => Vec::new(),
     };
-    // Team keys are numbers: the comparator a - b is consistent, so the
-    // stable order is V8's.
-    list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    // Number(key) can be NaN. JavaScript treats a NaN comparator result
+    // as +0; the resulting comparisons need not form a total order.
+    jsrt::sort::js_sort(&mut list, &mut |a, b| a.0 - b.0);
     list
 }
 
@@ -251,6 +251,8 @@ pub fn side_of_class(mission: Option<&Value>, class_name: &str, fallback: &str) 
     }
 }
 
+/// The content loader's projection of spawnPolicy. It does not consume
+/// the runtime screen's derived `auto` choice.
 #[derive(Clone, Debug)]
 pub struct Policy {
     pub screen: bool,
