@@ -1190,9 +1190,8 @@ These passes take the rest of a Classic frame's own scenes from three:
   three when one is a step it cannot draw.
 - The HUD: `BattleHud.render` asks the bridge to draw its batch once it is
   built. The renderer keeps a copy of the batch's vertex arrays, updated
-  from the vertices the batch changed, and draws each run of quads twice
-  (back faces, then front) as three draws a double-sided material that
-  blends.
+  from the vertices the batch changed, and draws each run of quads with its
+  texture, as three does.
 - Classic water: the surface drawn with the look's own textures and the
   rings are items of the transparent list (sources of the transparent
   pass), with three's sort keys. The Enhanced refraction and reflection
