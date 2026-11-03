@@ -1827,6 +1827,8 @@ async function start() {
 
   remotes.aimCamera = simulationCamera;
   for (const system of [ordnance, items, remotes]) system.random = gameplayRandom;
+  // A thrown grenade's tumble (its orientation travels in projectile records).
+  ordnance.spinRandom = () => streams.get("grenade-spin").uniform();
 
   // The body he plays, connected to the rest of the game: the Unit and his
   // team, what his weapons reach (mines and power-ups, droids, lightning,

@@ -13,8 +13,8 @@ import { fileURLToPath } from 'node:url';
 //   every legacy stream (src/ai/random.js legacyRandom) is listed with what
 //   still reaches it;
 // - in a battle, nothing inside a world step or a publication reads a clock,
-//   and every Math.random there is a listed legacy stream's or one of
-//   three.js's object ids (which no gameplay reads).
+//   and the only Math.random there is three.js's, for the ids of the objects
+//   it makes (which no gameplay reads): no legacy stream reaches a step.
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const content = process.env.BFE_CONTENT_DIR || join(root, 'public');
@@ -71,7 +71,7 @@ const CENSUS = {
 // The legacy streams, and what reaches each in a world step today.
 const LEGACY_STREAMS = {
   'weapon-spread': 'none in a world (bots\' weapons have the AI\'s generator, network players\' the network-weapons stream, seats and turrets the seat-weapons stream); a page\'s weapons with no generator',
-  'grenade-spin': 'every thrown grenade\'s spin (Ordnance.spinRandom unset)',
+  'grenade-spin': 'none in a world (Ordnance.spinRandom is the grenade-spin stream)',
   'missile-waver': 'none in a world (Ordnance.random is the gameplay stream)',
   'arc-link': 'none in a world (PlayerCombat.random is the gameplay stream)',
   'blow-apart': 'none in a world (PlayerCombat.random is the gameplay stream)',
@@ -82,9 +82,6 @@ const LEGACY_STREAMS = {
   'kill-region': 'none in a world (objectiveDestroyed passes the gameplay stream)',
   'spawn-post': 'none in a world step (the spawn screen\'s pick of a default post)',
 };
-// The legacy streams a world step may still draw (a seeded stream replaces
-// each in turn; then none).
-const STEP_LEGACY = new Set(['grenade-spin']);
 
 const KEYWORDS = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'of', 'new', 'delete', 'void', 'throw', 'yield', 'await', 'instanceof']);
 // The source with its comments, strings, template text and regular
@@ -191,10 +188,10 @@ test('every random draw and clock read in the world worker\'s modules is classif
   assert.deepEqual(streams.sort(), Object.keys(LEGACY_STREAMS).sort(), 'every legacy stream is listed in LEGACY_STREAMS');
 });
 
-// The world-hash battle (tools/world-hash.mjs): its player walks, turns and
-// fires on a script, against Classic bots; Math.random a seeded sequence and
-// the clock the tick's, as there.
-test('a world step reads no clock and draws Math.random only through legacy streams', { skip: !existsSync(`${content}/maps/nab2/map.json`) }, async (t) => {
+// The world-hash battle (tools/world-hash.mjs, --view): its player walks,
+// turns and fires on a script, against Classic bots who throw grenades;
+// Math.random a seeded sequence and the clock the tick's, as there.
+test('a world step reads no clock and draws no Math.random but three.js\'s object ids', { skip: !existsSync(`${content}/maps/tat1/map.json`) }, async (t) => {
   process.env.BFE_CONTENT_DIR ||= content;
   let now = 1000, draw = 991, phase = null, routed = null;
   const clocks = [], stray = [], legacy = new Map();
@@ -215,7 +212,7 @@ test('a world step reads no clock and draws Math.random only through legacy stre
   t.after(() => tapLegacyRandom(untap));
   const { headlessGame } = await import('../tools/headless-world.mjs');
   const { createLocalServer } = await import('../src/runtime/local-server.js');
-  const game = await headlessGame('?map=nab2&side=rep&era=cw&ai=classic&seed=1&rays=js&movement=js');
+  const game = await headlessGame('?map=tat1&side=all&era=gcw&ai=classic&seed=2&rays=js&movement=js');
   const server = await createLocalServer(game);
   server.welcome();
   for (const [object, method, label] of [[server.world, 'step', 'step'], [server.host, 'publish', 'publish']]) {
@@ -223,7 +220,7 @@ test('a world step reads no clock and draws Math.random only through legacy stre
     object[method] = (...args) => { phase = label; try { return original(...args); } finally { phase = null; } };
   }
   let edges = 0;
-  for (let i = 0; i < 1500; i++) {
+  for (let i = 0; i < 2400; i++) {
     now += 1000 / 60;
     const tick = game.worldClock.tick + 1, cycle = i % 240, generation = server.actor.unit.generation, viewTick = Math.max(0, tick - 2.5);
     server.world.input(server.id, { epoch: 1, sequence: tick, tick, generation, down: cycle < 160 ? ['KeyW'] : cycle < 200 ? ['KeyA', 'Mouse0'] : ['KeyD'], actions: [],
@@ -233,8 +230,9 @@ test('a world step reads no clock and draws Math.random only through legacy stre
     await new Promise((resolve) => setImmediate(resolve));
   }
   assert.ok(game.units.all().some((u) => u.alive && u.soldier && !u.human), 'the bots fought');
+  const drawn = game.randomState().streams;
+  assert.ok(['grenade-spin', 'network-weapons', 'seat-weapons'].every((name) => name in drawn), 'grenades flew, the player\'s trigger repeated, a seat fired unbound');
   assert.deepEqual(clocks.slice(0, 5), [], 'no clock read in a world step or a publication');
-  assert.deepEqual(stray.slice(0, 5), [], 'every Math.random in a world step is a legacy stream\'s or a three.js object id');
-  for (const name of legacy.keys()) assert.ok(STEP_LEGACY.has(name), `the legacy stream ${name} reached a world step`);
-  t.diagnostic(`legacy draws in world steps: ${JSON.stringify(Object.fromEntries(legacy))}`);
+  assert.deepEqual(stray.slice(0, 5), [], 'no Math.random in a world step but three.js object ids');
+  assert.deepEqual(Object.fromEntries(legacy), {}, 'no legacy stream reaches a world step');
 });
