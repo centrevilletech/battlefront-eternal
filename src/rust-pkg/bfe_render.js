@@ -1009,6 +1009,50 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} program
+     * @param {number} geometry
+     * @param {number} max
+     * @param {Uint32Array | number[]} layout
+     * @returns {number}
+     */
+    motion_extra(program, geometry, max, layout) {
+        const val2 = +program;
+        const val3 = +geometry;
+        const val4 = +max;
+        const ptr0 = passArray32ToWasm0(layout, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_motion_extra(this.__wbg_ptr, val2, val3, val4, ptr0, len0);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_extra_values_len() {
+        const ret = wasm.bferenderer_motion_extra_values_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_extra_values_ptr() {
+        const ret = wasm.bferenderer_motion_extra_values_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_extras_len() {
+        const ret = wasm.bferenderer_motion_extras_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_extras_ptr() {
+        const ret = wasm.bferenderer_motion_extras_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} records
      * @returns {Uint32Array}
      */

@@ -17,7 +17,16 @@
 // now and last frame, its bones' bases) goes in the pass's instance
 // texture; consecutive records of one program, geometry, index range and
 // side are one instanced draw.
+//
+// Before the records, the sky's ships draw their own motion (sky-flyers.js:
+// MotionVectors.addExtra), as three draws them first into the target: an
+// instanced mesh a model part, with three's program for its material as
+// three compiled it (Kind::Plain, every uniform set per draw), its ships'
+// matrices now and last frame and whether each shows as instance
+// attributes, which the page writes each frame (`extras`, `extra_values`).
+// They write only where the near scene drew nothing, which no proxy covers.
 use crate::core::{bytes, upload_texture, Core, MultiDraw, PASS_MOTION, UNIT_BONES, UNIT_INSTANCES};
+use crate::post::{set_uniform, UNIFORM};
 use crate::math::{self, Mat4};
 use crate::shader::{self, ROW_TEXELS};
 use glow::HasContext;
@@ -78,6 +87,22 @@ pub const INPUT_LEN: usize = IN_RECORDS + MAX_RECORDS * REC_STRIDE;
 // the core's fixed ones).
 pub const UNIT_PREVIOUS_BONES: u32 = 12;
 pub const UNIT_SCENE_DEPTH: u32 = 13;
+// The extras the page writes each frame (f64, `extras`): how many, then an
+// extra each: its registration, how many instances draw, the side drawn,
+// where its instances' values start in `extra_values` (f32: each instance
+// attribute's values for those instances, one attribute after another), how
+// many uniforms, then the uniforms (post.rs UNIFORM each).
+pub const EX_ID: usize = 0;
+pub const EX_INSTANCES: usize = 1;
+pub const EX_SIDE: usize = 2;
+pub const EX_AT: usize = 3;
+pub const EX_UNIFORMS: usize = 4;
+pub const EX_FIRST: usize = 5;
+pub const MAX_EXTRA_UNIFORMS: usize = 8;
+pub const EXTRA: usize = EX_FIRST + MAX_EXTRA_UNIFORMS * UNIFORM;
+pub const MAX_EXTRAS: usize = 16;
+pub const EXTRAS_LEN: usize = 1 + MAX_EXTRAS * EXTRA;
+pub const EXTRA_VALUES: usize = 32768;
 
 // A program's uniforms the pass sets: the projection, the view-projections
 // now and last frame, the depth range.
@@ -86,6 +111,15 @@ struct Uniforms<C: HasContext> {
     current: Option<C::UniformLocation>,
     previous: Option<C::UniformLocation>,
     range: Option<C::UniformLocation>,
+}
+
+// An extra: its program and geometry, its per-instance attributes (a
+// buffer each, floats an instance) and how many instances they hold.
+struct Extra<C: HasContext> {
+    program: usize,
+    geometry: usize,
+    attributes: Vec<(C::Buffer, usize)>,
+    max: usize,
 }
 
 pub struct MotionPass<C: HasContext> {
@@ -97,6 +131,11 @@ pub struct MotionPass<C: HasContext> {
     pub bones: Vec<f32>,
     pub previous: Vec<f32>,
     uniforms: HashMap<usize, Uniforms<C>>,
+    extras: Vec<Extra<C>>,
+    pub extras_input: Vec<f64>,
+    pub extra_values: Vec<f32>,
+    // Matrices each extra's program holds, by (program, slot).
+    matrices: HashMap<(usize, usize), [f32; 16]>,
 }
 
 fn matrix(v: &[f64]) -> Mat4 {
@@ -123,7 +162,85 @@ impl<C: HasContext> MotionPass<C> {
         MotionPass {
             rows_texture, bones_texture, previous_texture, rows: vec![0.0; MAX_RECORDS * ROW_TEXELS * 4], input: vec![0.0; INPUT_LEN],
             bones: vec![0.0; MAX_BONES * 16], previous: vec![0.0; MAX_BONES * 16], uniforms: HashMap::new(),
+            extras: vec![], extras_input: vec![0.0; EXTRAS_LEN], extra_values: vec![0.0; EXTRA_VALUES], matrices: HashMap::new(),
         }
+    }
+
+    // An extra (a mesh that draws its own motion): its program, its geometry
+    // (the attributes it shares with every instance, and its index), and its
+    // per-instance attributes for up to `max` instances, each [location,
+    // columns, rows] (a matrix takes `columns` locations of `rows` floats).
+    pub fn add_extra<M: MultiDraw>(&mut self, core: &mut Core<C, M>, program: u32, geometry: u32, max: u32, layout: &[u32]) -> u32 {
+        let gl = &core.gl;
+        let max = max as usize;
+        let mut attributes = vec![];
+        unsafe {
+            gl.bind_vertex_array(Some(core.geometries[geometry as usize].vao));
+            for a in layout.chunks_exact(3) {
+                let (location, columns, rows) = (a[0], a[1], a[2] as i32);
+                let floats = columns as usize * rows as usize;
+                let b = gl.create_buffer().unwrap();
+                gl.bind_buffer(glow::ARRAY_BUFFER, Some(b));
+                gl.buffer_data_size(glow::ARRAY_BUFFER, (max.max(1) * floats * 4) as i32, glow::DYNAMIC_DRAW);
+                for c in 0..columns {
+                    gl.enable_vertex_attrib_array(location + c);
+                    gl.vertex_attrib_pointer_f32(location + c, rows, glow::FLOAT, false, floats as i32 * 4, c as i32 * rows * 4);
+                    gl.vertex_attrib_divisor(location + c, 1);
+                }
+                attributes.push((b, floats));
+            }
+            gl.bind_vertex_array(None);
+            gl.bind_buffer(glow::ARRAY_BUFFER, None);
+        }
+        self.extras.push(Extra { program: program as usize, geometry: geometry as usize, attributes, max });
+        (self.extras.len() - 1) as u32
+    }
+
+    // The extras the page wrote, in its order (three's), into the target
+    // bound now: each one's instances sent, its uniforms set, one instanced
+    // draw.
+    fn draw_extras<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
+        let n = (self.extras_input[0].max(0.0) as usize).min(MAX_EXTRAS);
+        for e in 0..n {
+            let ex = &self.extras_input[1 + e * EXTRA..1 + (e + 1) * EXTRA];
+            let Some(extra) = self.extras.get(ex[EX_ID] as usize) else { continue };
+            let instances = (ex[EX_INSTANCES].max(0.0) as usize).min(extra.max);
+            if instances == 0 || extra.program >= core.programs.len() || extra.geometry >= core.geometries.len() {
+                continue;
+            }
+            let mut at = ex[EX_AT].max(0.0) as usize;
+            if at + instances * extra.attributes.iter().map(|a| a.1).sum::<usize>() > EXTRA_VALUES {
+                continue;
+            }
+            let gl = &core.gl;
+            for &(buffer, floats) in &extra.attributes {
+                unsafe {
+                    gl.bind_buffer(glow::ARRAY_BUFFER, Some(buffer));
+                    gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, bytes(&self.extra_values[at..at + instances * floats]));
+                }
+                at += instances * floats;
+                core.stats.gl_calls += 2;
+            }
+            unsafe { gl.bind_buffer(glow::ARRAY_BUFFER, None) };
+            core.stats.gl_calls += 1;
+            let program = extra.program;
+            core.state.use_program(&core.gl, &mut core.stats, core.programs[program].program);
+            let mut unit = 0u32;
+            for k in 0..(ex[EX_UNIFORMS] as usize).min(MAX_EXTRA_UNIFORMS) {
+                let u = EX_FIRST + k * UNIFORM;
+                set_uniform(core, &mut self.matrices, program, &ex[u..u + UNIFORM], &mut unit);
+            }
+            core.state.cull(&core.gl, &mut core.stats, ex[EX_SIDE] as u32);
+            let geo = &core.geometries[extra.geometry];
+            unsafe {
+                core.gl.bind_vertex_array(Some(geo.vao));
+                core.gl.draw_elements_instanced(glow::TRIANGLES, geo.index_count, geo.index_type, 0, instances as i32);
+            }
+            core.stats.gl_calls += 2;
+            core.stats.instance_draws += 1;
+            core.stats.pass_draws[PASS_MOTION] += 1;
+        }
+        self.extras_input[0] = 0.0;
     }
 
     // A program's uniforms, found the first time it draws (its samplers put
@@ -168,6 +285,8 @@ impl<C: HasContext> MotionPass<C> {
             }
             core.stats.gl_calls += 2;
         }
+        // The sky's ships' own motion, first, as three draws them.
+        self.draw_extras(core);
         if records == 0 {
             return;
         }
