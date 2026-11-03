@@ -31,7 +31,8 @@ fn ai_phases_as_captured() {
     let only = std::env::var("BFE_REPLAY_ONLY").ok();
     let tick = std::env::var("BFE_REPLAY_TICK").ok().map(|s| s.parse::<u32>().unwrap());
     let fail_fast = std::env::var_os("BFE_REPLAY_FAIL_FAST").is_some();
-    let mut reports: Vec<_> = ["ai.update", "controller.bind", "controller.unbind", "objectives.onOwnerChanged", "objectives.onDeactivated", "objectives.tick"]
+    let mut reports: Vec<_> = ["ai.update", "controller.bind", "controller.unbind", "objectives.onOwnerChanged", "objectives.onDeactivated", "objectives.tick",
+        "aiPolicy.acceptsHazard", "aiPolicy.acceptsAlert", "aiPolicy.acceptsAcoustic"]
         .into_iter()
         .filter(|name| only.as_ref().is_none_or(|only| name.contains(only)))
         .map(Report::new)
@@ -82,7 +83,7 @@ fn ai_replay_mutations_are_caught() {
             let frame = frame.unwrap();
             let draws = frame.events.iter().filter(|e| matches!(e, Event::Draw(_))).count();
             let calls = frame.events.iter().filter(|e| matches!(e, Event::Call(_))).count();
-            if draws > 0 && calls > 1 && replay_frame(&frame).is_ok() {
+            if draws > 0 && calls > 1 && frame.calls().any(|c| c.name == "combat.hazardResponse") && replay_frame(&frame).is_ok() {
                 found = Some(frame);
                 break;
             }
@@ -168,4 +169,22 @@ fn ai_replay_mutations_are_caught() {
     }
     assert!(flipped, "no zero movement mode in the end state to flip");
     assert!(replay_frame(&mutated).is_err(), "a signed-zero request replayed clean");
+
+    // A served response must validate the native policy state before
+    // applying callback writes, so those writes cannot hide a mismatch.
+    let mut mutated = frame.clone();
+    let mut changed = false;
+    for event in &mut mutated.events {
+        let Event::Call(call) = event else { continue };
+        let before = call.extra().get("policyBefore").get("interrupts");
+        if before.is_nullish() { continue; }
+        let object = before.value.clone();
+        let at = before.get("checkedAt").num();
+        call.ret.arena.assign(&object, "checkedAt", sim_replay::Value::Num(f64::from_bits(at.to_bits() + 1)));
+        changed = true;
+        break;
+    }
+    if changed {
+        assert!(replay_frame(&mutated).is_err(), "a changed response input replayed clean");
+    }
 }

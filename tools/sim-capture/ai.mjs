@@ -36,6 +36,7 @@ let lastHelperMade = null;
 let lastForeignAgent = null;
 let foreignBefore = null;
 let patrolBefore = null;
+let responseBefore = null;
 let snapshotServiceCandidates = null;
 
 const v3 = (p) => (p ? [p.x, p.y, p.z] : null);
@@ -63,6 +64,23 @@ const foreignHooks = {
   tick(agent, dt, phase) { foreignBefore = foreignSharedSnap(current); lastForeignAgent = agent; return agent.__aiTick(dt, phase); },
   exit(agent) { foreignBefore = foreignSharedSnap(current); lastForeignAgent = agent; agent.__aiExit(); },
 };
+const policyMethods = new WeakMap();
+const policyHooks = {
+  acceptsHazard(agent) { return policyMethods.get(agent).acceptsHazard(); },
+  acceptsAlert(agent, known, point) { return policyMethods.get(agent).acceptsAlert(known, point); },
+  acceptsAcoustic(agent, source) { return policyMethods.get(agent).acceptsAcoustic(source); },
+};
+function wrapPolicies(agent) {
+  if (!agent || policyMethods.has(agent)) return agent;
+  const methods = {};
+  policyMethods.set(agent, methods);
+  for (const name of Object.keys(policyHooks)) {
+    if (typeof agent[name] !== 'function') continue;
+    methods[name] = agent[name].bind(agent);
+    agent[name] = (...args) => policyHooks[name](agent, ...args);
+  }
+  return agent;
+}
 const queryFilterLog = [];
 let prepared = false;
 
@@ -72,6 +90,14 @@ function prepare(game) {
   const ai = game.ai?.classic?.ai;
   if (!ai) return;
   snapshotServiceCandidates = ai.world.serviceCandidates?.bind(ai.world) ?? null;
+  for (const name of ['hazardResponse', 'alertResponse', 'acousticResponse']) {
+    if (typeof ai.combat?.[name] !== 'function') continue;
+    const response = ai.combat[name];
+    ai.combat[name] = function (...args) {
+      responseBefore = responseState(args[0]);
+      return response.apply(this, args);
+    };
+  }
   const withCurrent = (controller, fn, thisArg, args) => {
     const before = current;
     current = controller;
@@ -136,6 +162,7 @@ function prepare(game) {
     if (!a) continue;
     const kind = a instanceof UnitCombatAgent ? 'combat' : a instanceof UnitBoardAgent ? 'board' : a instanceof UnitUnBoardAgent ? 'unboard' : a.constructor?.name === 'UnitFlyAgent' ? 'fly' : null;
     if (kind) wrapAgent(kind, a, controller);
+    else wrapPolicies(a);
   }
   // The vehicles bag holds bound copies of the service's methods, and
   // the vehicle adapter calls the service directly (sync/spawned's
@@ -171,7 +198,7 @@ function prepare(game) {
     const factory = agentFor(state, controller);
     if (!factory) return factory;
     const kind = foreignKindFor(ai, state);
-    return kind ? wrapFactory(kind, factory) : factory;
+    return kind ? wrapFactory(kind, factory) : (controller, goal) => wrapPolicies(factory(controller, goal));
   };
 }
 
@@ -979,15 +1006,19 @@ function queryExtra() {
   return { filter: scope };
 }
 
-function responseExtra() {
-  const c = current;
+function responseState(c) {
+  const interrupts = c?.agent?.interrupts;
   return {
-    ...afterCurrent(),
+    interrupts: { checkedAt: interrupts?.checkedAt ?? 0, charge: Boolean(interrupts?.charge), last: interrupts?.last ?? 0 },
     enhanced: c && own(c, 'enhanced')
       ? { lookUntil: c.enhanced.lookUntil ?? -Infinity, lookPoint: v3(c.enhanced.lookPoint) ?? [0, 0, 0], heard: [...(c.enhanced.heard?.entries() ?? [])] }
       : null,
     secondaryWaitUntil: c ? (num(c.secondaryWaitUntil) ?? 0) : null,
   };
+}
+
+function responseExtra() {
+  return { ...afterCurrent(), policyBefore: responseBefore, policyAfter: responseState(current) };
 }
 
 // ---- boundaries and frames -----------------------------------------------------
@@ -1108,6 +1139,16 @@ export const ai = {
     { method: 'objectives.onDeactivated', target: objectivesProto, state: frameState(), boundaries: aiBoundaries },
     { method: 'objectives.tick', target: objectivesTickProto, state: frameState(), boundaries: aiBoundaries },
   ],
+};
+
+// Optional direct gate for P15 acceptance callbacks invoked inside P16's
+// served response methods. Nested method frames execute these policies
+// natively and compare their return values as well as all state writes.
+export const aiPolicy = {
+  frames: Object.keys(policyHooks).map((name) => ({
+    method: `aiPolicy.${name}`, target: () => policyHooks,
+    state: frameState(), boundaries: aiBoundaries,
+  })),
 };
 
 

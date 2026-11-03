@@ -3788,12 +3788,6 @@ impl Core {
 
     fn adopt_response(&mut self, w: &mut dyn AiWorld, ci: usize, result: Option<world::Response>) -> Option<SourceGoal> {
         let result = result?;
-        if let Some(mem) = result.enhanced.clone() {
-            self.controllers[ci].enhanced = Some(mem);
-        }
-        if let Some(until) = result.secondary_wait_until {
-            self.controllers[ci].secondary_wait_until = until;
-        }
         let goal = SourceGoal::combat(result.mode, result.point, result.target);
         let unit = self.controllers[ci].unit;
         if result.alert {
@@ -3854,7 +3848,9 @@ impl Core {
             return None;
         }
         if self.options.bind.combat {
-            let result = w.combat_hazard_response(ci);
+            let mut state = world::ResponseState::read(&self.controllers[ci]);
+            let result = w.combat_hazard_response(ci, &mut state);
+            state.apply(&mut self.controllers[ci]);
             return self.adopt_response(w, ci, result);
         }
         let c = &self.controllers[ci];
@@ -3877,7 +3873,9 @@ impl Core {
             return None;
         }
         if self.options.bind.combat {
-            let result = w.combat_alert_response(ci);
+            let mut state = world::ResponseState::read(&self.controllers[ci]);
+            let result = w.combat_alert_response(ci, &mut state);
+            state.apply(&mut self.controllers[ci]);
             return self.adopt_response(w, ci, result);
         }
         // The local shotResponse (interrupts.js:187).
@@ -3949,7 +3947,9 @@ impl Core {
             return None;
         }
         if self.options.bind.combat {
-            let result = w.combat_acoustic_response(ci);
+            let mut state = world::ResponseState::read(&self.controllers[ci]);
+            let result = w.combat_acoustic_response(ci, &mut state);
+            state.apply(&mut self.controllers[ci]);
             return self.adopt_response(w, ci, result);
         }
         let unit = self.controllers[ci].unit?;

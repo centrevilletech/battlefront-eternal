@@ -487,10 +487,30 @@ pub struct Response {
     pub target: Option<EntRef>,
     pub exit: bool,
     pub alert: bool,
-    /// Policy side writes the response made (the Enhanced memory and
-    /// a flyer's closed wait window), when they changed.
+}
+
+/// P16's response services call P15 acceptance policies. These are the
+/// only policy fields those calls may change, including a null response.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResponseState {
+    pub interrupts: super::agents::Interrupts,
     pub enhanced: Option<super::controller::EnhancedMemory>,
-    pub secondary_wait_until: Option<f64>,
+    pub secondary_wait_until: f64,
+}
+
+impl ResponseState {
+    pub fn read(c: &super::controller::Controller) -> Self {
+        Self {
+            interrupts: c.agent.as_ref().map(|a| a.interrupts).unwrap_or_default(),
+            enhanced: c.enhanced.clone(), secondary_wait_until: c.secondary_wait_until,
+        }
+    }
+
+    pub fn apply(self, c: &mut super::controller::Controller) {
+        if let Some(agent) = &mut c.agent { agent.interrupts = self.interrupts; }
+        c.enhanced = self.enhanced;
+        c.secondary_wait_until = self.secondary_wait_until;
+    }
 }
 
 /// A repair job (classes.js findRepairJob): its target and which need
@@ -657,9 +677,9 @@ pub trait AiWorld {
     fn combat_aim_point(&mut self, controller: usize, dt: f64) -> Option<Vec3>;
     fn combat_lead_point(&mut self, controller: usize, target: UKey, dt: f64) -> Option<Vec3>;
     fn combat_mark_skip(&mut self, controller: usize, skipped: bool);
-    fn combat_hazard_response(&mut self, controller: usize) -> Option<Response>;
-    fn combat_alert_response(&mut self, controller: usize) -> Option<Response>;
-    fn combat_acoustic_response(&mut self, controller: usize) -> Option<Response>;
+    fn combat_hazard_response(&mut self, controller: usize, state: &mut ResponseState) -> Option<Response>;
+    fn combat_alert_response(&mut self, controller: usize, state: &mut ResponseState) -> Option<Response>;
+    fn combat_acoustic_response(&mut self, controller: usize, state: &mut ResponseState) -> Option<Response>;
     /// weapons-ai as the class jobs call it (selectedWeapon,
     /// switchWeapon, effectiveRange, firingCone): weapon indices in
     /// the unit's snapshot list.

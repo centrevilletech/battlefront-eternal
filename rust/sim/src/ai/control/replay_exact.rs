@@ -78,6 +78,7 @@ fields!(ControlObs, status, has_executor, avoid_side, stance, jet_pending, jet_v
 fields!(ForeignShared, commands, last_command, pending, published, aim_target, leader, reboard_at,
     secondary_wait_until, exit_request, jet_pending, jet_vector, enhanced);
 fields!(Patrol, fsm, post, hint, start_time, look, look_point, stance, expires, candidates, centered);
+fields!(ResponseState, interrupts, enhanced, secondary_wait_until);
 fields!(Snipe, fsm, scout, hint, stance, look, look_point, full, retry_at, revalidate_at, block_aim);
 fields!(Mine, fsm, full, hint, placement, aim_point, fired_at, retry_at);
 fields!(JobRef, target, ammo);

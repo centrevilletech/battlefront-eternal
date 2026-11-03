@@ -1675,14 +1675,14 @@ impl<'f> AiWorld for Served<'f> {
         }
         self.extra(call, Some(controller));
     }
-    fn combat_hazard_response(&mut self, controller: usize) -> Option<Response> {
-        self.response("combat.hazardResponse", controller)
+    fn combat_hazard_response(&mut self, controller: usize, state: &mut ResponseState) -> Option<Response> {
+        self.response("combat.hazardResponse", controller, state)
     }
-    fn combat_alert_response(&mut self, controller: usize) -> Option<Response> {
-        self.response("combat.alertResponse", controller)
+    fn combat_alert_response(&mut self, controller: usize, state: &mut ResponseState) -> Option<Response> {
+        self.response("combat.alertResponse", controller, state)
     }
-    fn combat_acoustic_response(&mut self, controller: usize) -> Option<Response> {
-        self.response("combat.acousticResponse", controller)
+    fn combat_acoustic_response(&mut self, controller: usize, state: &mut ResponseState) -> Option<Response> {
+        self.response("combat.acousticResponse", controller, state)
     }
 
     // -- weapons ----------------------------------------------------------
@@ -2228,42 +2228,74 @@ impl<'f> AiWorld for Served<'f> {
 }
 
 impl<'f> Served<'f> {
-    fn response(&mut self, name: &str, controller: usize) -> Option<Response> {
+    fn response_state(v: V) -> ResponseState {
+        let e = v.get("enhanced");
+        let enhanced = if e.is_nullish() { None } else {
+            let mut memory = EnhancedMemory::new();
+            memory.look_until = e.get("lookUntil").num();
+            memory.look_point = arr3(e.get("lookPoint"));
+            for entry in e.get("heard").items() {
+                if let Some(key) = entry.at(0).str() {
+                    let mut parts = key.split(':');
+                    let id: f64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    let generation: f64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                    memory.heard_set((id.to_bits(), generation.to_bits()), entry.at(1).num());
+                }
+            }
+            Some(memory)
+        };
+        let interrupts = v.get("interrupts");
+        ResponseState {
+            interrupts: Interrupts {
+                checked_at: interrupts.get("checkedAt").num(), charge: interrupts.get("charge").bool(), last: interrupts.get("last").num(),
+            },
+            enhanced, secondary_wait_until: v.get("secondaryWaitUntil").num(),
+        }
+    }
+
+    fn response(&mut self, name: &str, controller: usize, state: &mut ResponseState) -> Option<Response> {
         let call = self.call(name)?;
         self.check_controller("response controller", call.arg(0), controller);
         self.check_agent("response agent", call.arg(1), controller);
+        let x = call.extra();
+        let before = x.get("policyBefore");
+        if !before.is_nullish() {
+            let expected = Self::response_state(before);
+            if !expected.exact(state) {
+                self.fail(format!("{name} policy input: capture {expected:?}, port {state:?}"));
+            }
+            *state = Self::response_state(x.get("policyAfter"));
+        }
         self.extra(call, Some(controller));
         let r = call.result();
         if r.is_nullish() {
             return None;
         }
-        let x = call.extra();
-        Some(Response {
-            mode: r.get("mode").opt_num().unwrap_or(0.0),
-            point: arr3_opt(r.get("point")),
-            target: self.ref_of(r.get("target")),
-            exit: r.get("exit").truthy(),
-            alert: r.get("alert").truthy(),
-            enhanced: {
-                let e = x.get("enhanced");
-                if e.is_nullish() {
-                    None
-                } else {
-                    let mut mem = EnhancedMemory::new();
-                    mem.look_until = e.get("lookUntil").num();
-                    mem.look_point = arr3(e.get("lookPoint"));
-                    for entry in e.get("heard").items() {
-                        if let Some(key) = entry.at(0).str() {
-                            let mut parts = key.split(':');
-                            let id: f64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
-                            let gen: f64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
-                            mem.heard_set((id.to_bits(), gen.to_bits()), entry.at(1).num());
-                        }
+        // Earlier captures recorded only the Enhanced memory and wait
+        // window, and only on non-null responses. They cannot prove the
+        // charge-cache boundary; new captures include policyBefore/After.
+        if before.is_nullish() {
+            // Read the legacy fields below without changing Interrupts.
+            if let Some(until) = num_opt(x.get("secondaryWaitUntil")) { state.secondary_wait_until = until; }
+            let e = x.get("enhanced");
+            if !e.is_nullish() {
+                let mut memory = EnhancedMemory::new();
+                memory.look_until = e.get("lookUntil").num();
+                memory.look_point = arr3(e.get("lookPoint"));
+                for entry in e.get("heard").items() {
+                    if let Some(key) = entry.at(0).str() {
+                        let mut parts = key.split(':');
+                        let id: f64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                        let generation: f64 = parts.next().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                        memory.heard_set((id.to_bits(), generation.to_bits()), entry.at(1).num());
                     }
-                    Some(mem)
                 }
-            },
-            secondary_wait_until: num_opt(x.get("secondaryWaitUntil")),
+                state.enhanced = Some(memory);
+            }
+        }
+        Some(Response {
+            mode: r.get("mode").opt_num().unwrap_or(0.0), point: arr3_opt(r.get("point")), target: self.ref_of(r.get("target")),
+            exit: r.get("exit").truthy(), alert: r.get("alert").truthy(),
         })
     }
 
@@ -2573,6 +2605,7 @@ pub fn replay_frame(frame: &sim_replay::Frame) -> Result<(), String> {
     let receiver = handle_of(frame.receiver()).and_then(|h| tables.controller_handles.get(&h).copied());
     let arg_unit = handle_of(frame.arg(0)).and_then(|h| tables.unit_handles.get(&h).map(|&i| i as UKey));
     let arg_post = handle_of(frame.arg(0)).and_then(|h| tables.post_handles.get(&h).copied());
+    let policy_controller = handle_of(frame.arg(0)).and_then(|h| tables.agent_handles.get(&h).copied());
     let (mut served, mut draws) = Served::new(frame, tables);
     match frame.name.as_str() {
         "ai.update" => core.update(&mut served, &mut draws, frame.arg(0).num()),
@@ -2601,6 +2634,22 @@ pub fn replay_frame(frame: &sim_replay::Frame) -> Result<(), String> {
             core.objectives_on_deactivated(&mut served, &mut draws, post);
         }
         "objectives.tick" => core.enhanced_objectives_tick(&mut served, &mut draws),
+        "aiPolicy.acceptsHazard" | "aiPolicy.acceptsAlert" | "aiPolicy.acceptsAcoustic" => {
+            let Some(ci) = policy_controller else {
+                return Err(format!("{}: policy with an unknown agent", frame.place()));
+            };
+            let result = match frame.name.as_str() {
+                "aiPolicy.acceptsHazard" => core.accepts_hazard(&mut served, ci),
+                "aiPolicy.acceptsAlert" => core.accepts_alert(&mut served, ci, frame.arg(1).bool(), arr3(frame.arg(2))),
+                _ => {
+                    let Some(source) = served.unit_of(frame.arg(1)) else {
+                        return Err(format!("{}: acoustic policy with an unknown source", frame.place()));
+                    };
+                    core.accepts_acoustic(&mut served, ci, source)
+                }
+            };
+            served.check(check_bool("policy result", frame.result(), result));
+        }
         other => return Err(format!("{}: not an AI frame ({other})", frame.place())),
     }
     served.finish()?;
