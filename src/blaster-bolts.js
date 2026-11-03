@@ -161,8 +161,8 @@ export class BlasterBatch {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 11;
     const size = new THREE.Vector2();
-    this.mesh.onBeforeRender = (renderer, scene, camera, ...rest) => {
-      particleDepth.capture(renderer, scene, camera, ...rest);
+    this.mesh.onBeforeRender = (renderer, scene, camera) => {
+      particleDepth.capture(renderer, scene, camera);
       if (camera.isPerspectiveCamera) {
         // The pixels being drawn: under an upscaler, the 3D frame's.
         const target = renderer.getRenderTarget();

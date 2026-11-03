@@ -133,7 +133,7 @@ export class DroidekaTrail {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 9;
     this.mesh.visible = false;
-    this.mesh.onBeforeRender = (...args) => particleDepth.capture(...args);
+    this.mesh.onBeforeRender = (renderer, scene, camera) => particleDepth.capture(renderer, scene, camera);
     droidekaTrails.set(this.mesh, this);
     scene.add(this.mesh);
   }

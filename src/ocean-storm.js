@@ -297,7 +297,7 @@ export class EnhancedOcean {
    g.setAttribute('seed',new THREE.InstancedBufferAttribute(seeds,4));g.instanceCount=384;
    this.spray=new THREE.Mesh(g,new THREE.ShaderMaterial({defines,vertexShader:SPRAY_VERTEX,fragmentShader:SPRAY_FRAGMENT,uniforms:this.uniforms,transparent:true,depthWrite:false,side:THREE.DoubleSide,forceSinglePass:true}));
    this.spray.name='ocean-crest-spray';this.spray.frustumCulled=false;this.spray.renderOrder=19;
-   this.spray.onBeforeRender=(...args)=>particleDepth.capture(...args);
+   this.spray.onBeforeRender=(r,s,c)=>particleDepth.capture(r,s,c);
    this.haze=null;
    if(storm){
      this.haze=new THREE.Mesh(new THREE.SphereGeometry(850,32,12),new THREE.ShaderMaterial({vertexShader:HAZE_VERTEX,fragmentShader:HAZE_FRAGMENT,uniforms:this.uniforms,transparent:true,depthWrite:false,side:THREE.BackSide}));
