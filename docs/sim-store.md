@@ -314,8 +314,6 @@ the reference does: the production server's V8 (Node 24.22, V8 13.6). The
 game client's Electron computes some Math functions differently in their
 last bit (sin, cos, tan, atan, atan2, acos, exp, log, cbrt, tanh), so client
 and server already part there today; Rust that computes with the reference's
-functions (`rust/v8math`) makes them agree. The movement kernel still takes
-the sines and cosines of its yaw and pitch from the JavaScript of the host
-it runs in; it will compute them with `rust/v8math` once that lands, which
-moves a client's soldier ticks to the server's results, a change worth
-naming when it ships.
+functions (`rust/v8math`) makes them agree. The movement kernel computes
+the sines and cosines of its yaw and pitch with `rust/v8math`, so a client's
+soldier ticks there come out as the server's do.
