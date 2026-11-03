@@ -102,7 +102,7 @@ export function sameHalf(x, y) {
 export function exportHalf(x, cx) {
   switch (whichHalf(cx, x)) {
     case 0: return x;
-    case 1: return x;
+    case 1: return x.clone();
   }
 }
 
@@ -160,6 +160,7 @@ export class SpotMirror {
     this.label = null;
     this.mark = "red";
     this.near = undefined;
+    this.keeper = null;
     this.kept = [];
   }
 }
@@ -170,7 +171,8 @@ export function syncSpot(b, f, at, h, m) {
   { const tag = f[at + 7]; if (tag === 0) { m.label = b.strings.at(f[at + 8]); } else m.label = tag === 1 ? null : undefined; }
   m.mark = Colour_NAMES[f[at + 9]];
   { const tag = f[at + 10]; if (tag === 0) { m.near = b.refs[KIND_PERSON].at(f[at + 11], f[at + 12]); } else m.near = tag === 1 ? null : undefined; }
-  { const items = (m.kept ??= []), start = h + f[at + 13], n = f[at + 14]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  m.keeper = b.refs[KIND_PERSON].at(f[at + 13], f[at + 14]);
+  { const items = (m.kept ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   return m;
 }
 
@@ -180,7 +182,8 @@ export function putSpot(b, o, f, at, heap) {
   { const $x = o.label; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f.fill(0, at + 8, at + 9); } else { f[at + 7] = 0; f[at + 8] = b.strings.id($x); } }
   f[at + 9] = Colour_INDEX.get(o.mark);
   { const $x = o.near; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f.fill(0, at + 11, at + 13); } else { f[at + 10] = 0; b.refs[KIND_PERSON].put($x, f, at + 11); } }
-  heap.items(o.kept, f, at + 13, 2, (f, at, v) => { b.refs[KIND_THING].put(v, f, at + 0); });
+  b.refs[KIND_PERSON].put(o.keeper, f, at + 13);
+  heap.items(o.kept, f, at + 15, 2, (f, at, v) => { b.refs[KIND_THING].put(v, f, at + 0); });
 }
 
 export function sameSpot(a, b) {
@@ -189,6 +192,7 @@ export function sameSpot(a, b) {
   { const p = a.label, q = b.label; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".label"; } else { if (!Object.is(p, q)) return ".label"; } }
   if (!Object.is(a.mark, b.mark)) return ".mark";
   { const p = a.near, q = b.near; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".near"; } else { if (!Object.is(p, q)) return ".near"; } }
+  if (!Object.is(a.keeper, b.keeper)) return ".keeper";
   if (!sameEach(a.kept, b.kept, (x, y) => Object.is(x, y))) return ".kept";
   return null;
 }
@@ -198,11 +202,12 @@ export function exportSpot(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.at = o.at;
-  v.turn = o.turn;
+  v.at = o.at.clone();
+  v.turn = o.turn.clone();
   v.label = o.label;
   v.mark = o.mark;
   v.near = ((x) => (x === null || x === undefined ? x : cx.ref("person", x)))(o.near);
+  v.keeper = cx.ref("person", o.keeper);
   v.kept = o.kept.map((x) => cx.ref("thing", x));
   return v;
 }
@@ -228,7 +233,7 @@ export function putAsk(b, o, f, at, heap) {
   f[at + 0] = o.n;
   { const $x = o.who; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f.fill(0, at + 2, at + 4); } else { f[at + 1] = 0; b.refs[KIND_PERSON].put($x, f, at + 2); } }
   heap.items(o.things, f, at + 4, 2, (f, at, v) => { b.refs[KIND_THING].put(v, f, at + 0); });
-  { const $x = o.spot; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f.fill(0, at + 7, at + 22); } else { f[at + 6] = 0; putSpot(b, $x, f, at + 7, heap); } }
+  { const $x = o.spot; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f.fill(0, at + 7, at + 24); } else { f[at + 6] = 0; putSpot(b, $x, f, at + 7, heap); } }
 }
 
 export function sameAsk(a, b) {
@@ -315,7 +320,7 @@ export function exportWheels(o, cx) {
   v = {};
   cx.seen.set(o, v);
   v.count = o.count;
-  v.grip = o.grip;
+  v.grip = o.grip.clone();
   return v;
 }
 
@@ -373,7 +378,7 @@ export function syncShelf(b, f, at, h, m) {
   { const items = (m.things ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const map = (m.byName ??= new Map()), start = h + f[at + 4], n = f[at + 5]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 3; let v; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } map.set(b.strings.at(f[e]), v); } }
   { const map = (m.weights ??= new Map()), start = h + f[at + 6], n = f[at + 7]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = f[at + 1]; } map.set(b.strings.at(f[e]), v); } }
-  { const map = (m.spots ??= new Map()), start = h + f[at + 8], n = f[at + 9]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 16; let v; { const at = e; v = syncSpot(b, f, at + 1, h, v ?? new SpotMirror()); } map.set(b.strings.at(f[e]), v); } }
+  { const map = (m.spots ??= new Map()), start = h + f[at + 8], n = f[at + 9]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 18; let v; { const at = e; v = syncSpot(b, f, at + 1, h, v ?? new SpotMirror()); } map.set(b.strings.at(f[e]), v); } }
   { const map = (m.owners ??= new Map()), start = h + f[at + 10], n = f[at + 11]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 3; let v; { const at = e; v = b.refs[KIND_PERSON].at(f[at + 1], f[at + 2]); } map.set(b.strings.at(f[e]), v); } }
   { const tag = f[at + 12]; if (tag === 0) { { const map = (m.names ??= new Map()), start = h + f[at + 13], n = f[at + 14]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = b.strings.at(f[at + 1]); } map.set(b.strings.at(f[e]), v); } } } else m.names = tag === 1 ? null : undefined; }
   return m;
@@ -384,7 +389,7 @@ export function syncFullShelf(b, f, at, h, m) {
   { const items = (m.things ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const map = (m.byName ??= new Map()), start = h + f[at + 4], n = f[at + 5]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 3; let v; { const at = e; { const items = (v ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } map.set(b.strings.at(f[e]), v); } }
   { const map = (m.weights ??= new Map()), start = h + f[at + 6], n = f[at + 7]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = f[at + 1]; } map.set(b.strings.at(f[e]), v); } }
-  { const map = (m.spots ??= new Map()), start = h + f[at + 8], n = f[at + 9]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 16; let v; { const at = e; v = syncSpot(b, f, at + 1, h, v ?? new SpotMirror()); } map.set(b.strings.at(f[e]), v); } }
+  { const map = (m.spots ??= new Map()), start = h + f[at + 8], n = f[at + 9]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 18; let v; { const at = e; v = syncSpot(b, f, at + 1, h, v ?? new SpotMirror()); } map.set(b.strings.at(f[e]), v); } }
   { const map = (m.owners ??= new Map()), start = h + f[at + 10], n = f[at + 11]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 3; let v; { const at = e; v = b.refs[KIND_PERSON].at(f[at + 1], f[at + 2]); } map.set(b.strings.at(f[e]), v); } }
   { const tag = f[at + 12]; if (tag === 0) { { const map = (m.names ??= new Map()), start = h + f[at + 13], n = f[at + 14]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = b.strings.at(f[at + 1]); } map.set(b.strings.at(f[e]), v); } } } else m.names = tag === 1 ? null : undefined; }
   return m;
@@ -395,7 +400,7 @@ export function putShelf(b, o, f, at, heap) {
   heap.items(o.things, f, at + 2, 2, (f, at, v) => { b.refs[KIND_THING].put(v, f, at + 0); });
   heap.map(b.strings, o.byName, f, at + 4, 3, (f, at, v) => { heap.items(v, f, at + 1, 2, (f, at, v) => { b.refs[KIND_THING].put(v, f, at + 0); }); });
   heap.map(b.strings, o.weights, f, at + 6, 2, (f, at, v) => { f[at + 1] = v; });
-  heap.map(b.strings, o.spots, f, at + 8, 16, (f, at, v) => { putSpot(b, v, f, at + 1, heap); });
+  heap.map(b.strings, o.spots, f, at + 8, 18, (f, at, v) => { putSpot(b, v, f, at + 1, heap); });
   heap.map(b.strings, o.owners, f, at + 10, 3, (f, at, v) => { b.refs[KIND_PERSON].put(v, f, at + 1); });
   { const $x = o.names; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f.fill(0, at + 13, at + 15); } else { f[at + 12] = 0; heap.map(b.strings, $x, f, at + 13, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
 }
@@ -405,7 +410,7 @@ export function putFullShelf(b, o, f, at, heap) {
   heap.items(o.things, f, at + 2, 2, (f, at, v) => { b.refs[KIND_THING].put(v, f, at + 0); });
   heap.map(b.strings, o.byName, f, at + 4, 3, (f, at, v) => { heap.items(v, f, at + 1, 2, (f, at, v) => { b.refs[KIND_THING].put(v, f, at + 0); }); });
   heap.map(b.strings, o.weights, f, at + 6, 2, (f, at, v) => { f[at + 1] = v; });
-  heap.map(b.strings, o.spots, f, at + 8, 16, (f, at, v) => { putSpot(b, v, f, at + 1, heap); });
+  heap.map(b.strings, o.spots, f, at + 8, 18, (f, at, v) => { putSpot(b, v, f, at + 1, heap); });
   heap.map(b.strings, o.owners, f, at + 10, 3, (f, at, v) => { b.refs[KIND_PERSON].put(v, f, at + 1); });
   { const $x = o.names; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f.fill(0, at + 13, at + 15); } else { f[at + 12] = 0; heap.map(b.strings, $x, f, at + 13, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
 }
@@ -483,7 +488,7 @@ export class ThingMirror {
 }
 
 export const THING_KEYS = new Set(["count", "size", "small", "light", "mass", "on", "where", "facing", "pair", "name", "colour", "def", "owner", "holder", "spot", "friends", "next", "tags", "hidden", "box", "marks", "probes", "flags", "spots", "holders", "matrix", "boxes", "shapes", "hitSet", "body", "mesh"]);
-export const THING_EXPORT_STRIDE = 85, THING_IMPORT_STRIDE = 88, THING_FULL_STRIDE = 88;
+export const THING_EXPORT_STRIDE = 87, THING_IMPORT_STRIDE = 90, THING_FULL_STRIDE = 90;
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncThing(b, f, at, h, m) {
@@ -502,18 +507,18 @@ export function syncThing(b, f, at, h, m) {
   { const tag = f[at + 20]; if (tag === 0) { m.owner = b.refs[KIND_PERSON].at(f[at + 21], f[at + 22]); } else m.owner = tag === 1 ? null : undefined; }
   m.holder = syncHolder(b, f, at + 23, h, m.holder);
   { const tag = f[at + 26]; if (tag === 0) { m.spot = syncSpot(b, f, at + 27, h, m.spot ?? new SpotMirror()); } else m.spot = tag === 1 ? null : undefined; }
-  m.friends = b.set(KIND_PERSON, f, h + f[at + 42], f[at + 43], m.friends ?? new Set());
-  { const tag = f[at + 44]; if (tag === 0) { m.next = b.refs[KIND_THING].at(f[at + 45], f[at + 46]); } else m.next = tag === 1 ? null : undefined; }
-  { const tag = f[at + 47]; if (tag === 0) { { const map = (m.tags ??= new Map()), start = h + f[at + 48], n = f[at + 49]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = b.strings.at(f[at + 1]); } map.set(b.strings.at(f[e]), v); } } } else m.tags = tag === 1 ? null : undefined; }
-  { const items = (m.marks ??= []), start = h + f[at + 50], n = f[at + 51]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.probes ??= []), start = h + f[at + 52], n = f[at + 53]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
-  { const items = (m.flags ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
-  { const items = (m.spots ??= []), start = h + f[at + 56], n = f[at + 57]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
-  { const items = (m.holders ??= []), start = h + f[at + 58], n = f[at + 59]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
-  { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 60 + i]; }
-  { const items = (m.shapes ??= []), start = h + f[at + 76], n = f[at + 77]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
-  { const tag = f[at + 78]; if (tag === 0) { m.hitSet = m.shapes[f[at + 79]]; } else m.hitSet = tag === 1 ? null : undefined; }
-  m.body = syncBody(b, f, at + 80, h, m.body);
+  m.friends = b.set(KIND_PERSON, f, h + f[at + 44], f[at + 45], m.friends ?? new Set());
+  { const tag = f[at + 46]; if (tag === 0) { m.next = b.refs[KIND_THING].at(f[at + 47], f[at + 48]); } else m.next = tag === 1 ? null : undefined; }
+  { const tag = f[at + 49]; if (tag === 0) { { const map = (m.tags ??= new Map()), start = h + f[at + 50], n = f[at + 51]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = b.strings.at(f[at + 1]); } map.set(b.strings.at(f[e]), v); } } } else m.tags = tag === 1 ? null : undefined; }
+  { const items = (m.marks ??= []), start = h + f[at + 52], n = f[at + 53]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.probes ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
+  { const items = (m.flags ??= []), start = h + f[at + 56], n = f[at + 57]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
+  { const items = (m.spots ??= []), start = h + f[at + 58], n = f[at + 59]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
+  { const items = (m.holders ??= []), start = h + f[at + 60], n = f[at + 61]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
+  { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 62 + i]; }
+  { const items = (m.shapes ??= []), start = h + f[at + 78], n = f[at + 79]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
+  { const tag = f[at + 80]; if (tag === 0) { m.hitSet = m.shapes[f[at + 81]]; } else m.hitSet = tag === 1 ? null : undefined; }
+  m.body = syncBody(b, f, at + 82, h, m.body);
   return m;
 }
 
@@ -534,21 +539,21 @@ export function syncFullThing(b, f, at, h, m) {
   { const tag = f[at + 20]; if (tag === 0) { m.owner = b.refs[KIND_PERSON].at(f[at + 21], f[at + 22]); } else m.owner = tag === 1 ? null : undefined; }
   m.holder = syncHolder(b, f, at + 23, h, m.holder);
   { const tag = f[at + 26]; if (tag === 0) { m.spot = syncSpot(b, f, at + 27, h, m.spot ?? new SpotMirror()); } else m.spot = tag === 1 ? null : undefined; }
-  m.friends = b.set(KIND_PERSON, f, h + f[at + 42], f[at + 43], m.friends ?? new Set());
-  { const tag = f[at + 44]; if (tag === 0) { m.next = b.refs[KIND_THING].at(f[at + 45], f[at + 46]); } else m.next = tag === 1 ? null : undefined; }
-  { const tag = f[at + 47]; if (tag === 0) { { const map = (m.tags ??= new Map()), start = h + f[at + 48], n = f[at + 49]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = b.strings.at(f[at + 1]); } map.set(b.strings.at(f[e]), v); } } } else m.tags = tag === 1 ? null : undefined; }
-  m.hidden = f[at + 50];
-  (m.box ??= {}).size = f[at + 51];
-  { const items = (m.marks ??= []), start = h + f[at + 52], n = f[at + 53]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.probes ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
-  { const items = (m.flags ??= []), start = h + f[at + 56], n = f[at + 57]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
-  { const items = (m.spots ??= []), start = h + f[at + 58], n = f[at + 59]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
-  { const items = (m.holders ??= []), start = h + f[at + 60], n = f[at + 61]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
-  { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 62 + i]; }
-  ((m.boxes ??= [])[0] ??= {}).size = f[at + 78];
-  { const items = (m.shapes ??= []), start = h + f[at + 79], n = f[at + 80]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
-  { const tag = f[at + 81]; if (tag === 0) { m.hitSet = m.shapes[f[at + 82]]; } else m.hitSet = tag === 1 ? null : undefined; }
-  m.body = syncBody(b, f, at + 83, h, m.body);
+  m.friends = b.set(KIND_PERSON, f, h + f[at + 44], f[at + 45], m.friends ?? new Set());
+  { const tag = f[at + 46]; if (tag === 0) { m.next = b.refs[KIND_THING].at(f[at + 47], f[at + 48]); } else m.next = tag === 1 ? null : undefined; }
+  { const tag = f[at + 49]; if (tag === 0) { { const map = (m.tags ??= new Map()), start = h + f[at + 50], n = f[at + 51]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = b.strings.at(f[at + 1]); } map.set(b.strings.at(f[e]), v); } } } else m.tags = tag === 1 ? null : undefined; }
+  m.hidden = f[at + 52];
+  (m.box ??= {}).size = f[at + 53];
+  { const items = (m.marks ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.probes ??= []), start = h + f[at + 56], n = f[at + 57]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
+  { const items = (m.flags ??= []), start = h + f[at + 58], n = f[at + 59]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
+  { const items = (m.spots ??= []), start = h + f[at + 60], n = f[at + 61]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
+  { const items = (m.holders ??= []), start = h + f[at + 62], n = f[at + 63]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
+  { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 64 + i]; }
+  ((m.boxes ??= [])[0] ??= {}).size = f[at + 80];
+  { const items = (m.shapes ??= []), start = h + f[at + 81], n = f[at + 82]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
+  { const tag = f[at + 83]; if (tag === 0) { m.hitSet = m.shapes[f[at + 84]]; } else m.hitSet = tag === 1 ? null : undefined; }
+  m.body = syncBody(b, f, at + 85, h, m.body);
   return m;
 }
 
@@ -568,22 +573,22 @@ export function putThing(b, o, f, at, heap) {
   f[at + 19] = b.defs.goods.id(o.def);
   { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 23); } else { f[at + 20] = 0; b.refs[KIND_PERSON].put($x, f, at + 21); } }
   putHolder(b, o.holder, f, at + 23, heap);
-  { const $x = o.spot; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f.fill(0, at + 27, at + 42); } else { f[at + 26] = 0; putSpot(b, $x, f, at + 27, heap); } }
-  heap.list(b.refs[KIND_PERSON], o.friends, f, at + 42);
-  { const $x = o.next; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f.fill(0, at + 45, at + 47); } else { f[at + 44] = 0; b.refs[KIND_THING].put($x, f, at + 45); } }
-  { const $x = o.tags; if ($x === null || $x === undefined) { f[at + 47] = $x === null ? 1 : 2; f.fill(0, at + 48, at + 50); } else { f[at + 47] = 0; heap.map(b.strings, $x, f, at + 48, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
-  f[at + 50] = o.hidden;
-  f[at + 51] = o.box?.size;
-  heap.items(o.marks, f, at + 52, 1, (f, at, v) => { f[at + 0] = v; });
-  heap.items(o.probes, f, at + 54, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
-  heap.items(o.flags, f, at + 56, 1, (f, at, v) => { f[at + 0] = v ? 1 : 0; });
-  heap.items(o.spots, f, at + 58, 15, (f, at, v) => { putSpot(b, v, f, at + 0, heap); });
-  heap.items(o.holders, f, at + 60, 3, (f, at, v) => { putHolder(b, v, f, at + 0, heap); });
-  { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 62 + i] = e[i]; }
-  f[at + 78] = o.boxes?.[0]?.size;
-  heap.items(o.shapes, f, at + 79, 5, (f, at, v) => { putShape(b, v, f, at + 0, heap); });
-  { const $x = o.hitSet; if ($x === null || $x === undefined) { f[at + 81] = $x === null ? 1 : 2; f.fill(0, at + 82, at + 83); } else { f[at + 81] = 0; { const $i = (o.shapes ?? []).indexOf($x); if ($i < 0) throw Error("shapes: the item is none of them"); f[at + 82] = $i; } } }
-  putBody(b, o.body, f, at + 83, heap);
+  { const $x = o.spot; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f.fill(0, at + 27, at + 44); } else { f[at + 26] = 0; putSpot(b, $x, f, at + 27, heap); } }
+  heap.list(b.refs[KIND_PERSON], o.friends, f, at + 44);
+  { const $x = o.next; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f.fill(0, at + 47, at + 49); } else { f[at + 46] = 0; b.refs[KIND_THING].put($x, f, at + 47); } }
+  { const $x = o.tags; if ($x === null || $x === undefined) { f[at + 49] = $x === null ? 1 : 2; f.fill(0, at + 50, at + 52); } else { f[at + 49] = 0; heap.map(b.strings, $x, f, at + 50, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
+  f[at + 52] = o.hidden;
+  f[at + 53] = o.box?.size;
+  heap.items(o.marks, f, at + 54, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.probes, f, at + 56, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
+  heap.items(o.flags, f, at + 58, 1, (f, at, v) => { f[at + 0] = v ? 1 : 0; });
+  heap.items(o.spots, f, at + 60, 17, (f, at, v) => { putSpot(b, v, f, at + 0, heap); });
+  heap.items(o.holders, f, at + 62, 3, (f, at, v) => { putHolder(b, v, f, at + 0, heap); });
+  { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 64 + i] = e[i]; }
+  f[at + 80] = o.boxes?.[0]?.size;
+  heap.items(o.shapes, f, at + 81, 5, (f, at, v) => { putShape(b, v, f, at + 0, heap); });
+  { const $x = o.hitSet; if ($x === null || $x === undefined) { f[at + 83] = $x === null ? 1 : 2; f.fill(0, at + 84, at + 85); } else { f[at + 83] = 0; { const $i = (o.shapes ?? []).indexOf($x); if ($i < 0) throw Error("shapes: the item is none of them"); f[at + 84] = $i; } } }
+  putBody(b, o.body, f, at + 85, heap);
 }
 
 // Every field of object `o` into a row.
@@ -602,22 +607,22 @@ export function putFullThing(b, o, f, at, heap) {
   f[at + 19] = b.defs.goods.id(o.def);
   { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 23); } else { f[at + 20] = 0; b.refs[KIND_PERSON].put($x, f, at + 21); } }
   putHolder(b, o.holder, f, at + 23, heap);
-  { const $x = o.spot; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f.fill(0, at + 27, at + 42); } else { f[at + 26] = 0; putSpot(b, $x, f, at + 27, heap); } }
-  heap.list(b.refs[KIND_PERSON], o.friends, f, at + 42);
-  { const $x = o.next; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f.fill(0, at + 45, at + 47); } else { f[at + 44] = 0; b.refs[KIND_THING].put($x, f, at + 45); } }
-  { const $x = o.tags; if ($x === null || $x === undefined) { f[at + 47] = $x === null ? 1 : 2; f.fill(0, at + 48, at + 50); } else { f[at + 47] = 0; heap.map(b.strings, $x, f, at + 48, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
-  f[at + 50] = o.hidden;
-  f[at + 51] = o.box?.size;
-  heap.items(o.marks, f, at + 52, 1, (f, at, v) => { f[at + 0] = v; });
-  heap.items(o.probes, f, at + 54, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
-  heap.items(o.flags, f, at + 56, 1, (f, at, v) => { f[at + 0] = v ? 1 : 0; });
-  heap.items(o.spots, f, at + 58, 15, (f, at, v) => { putSpot(b, v, f, at + 0, heap); });
-  heap.items(o.holders, f, at + 60, 3, (f, at, v) => { putHolder(b, v, f, at + 0, heap); });
-  { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 62 + i] = e[i]; }
-  f[at + 78] = o.boxes?.[0]?.size;
-  heap.items(o.shapes, f, at + 79, 5, (f, at, v) => { putShape(b, v, f, at + 0, heap); });
-  { const $x = o.hitSet; if ($x === null || $x === undefined) { f[at + 81] = $x === null ? 1 : 2; f.fill(0, at + 82, at + 83); } else { f[at + 81] = 0; { const $i = (o.shapes ?? []).indexOf($x); if ($i < 0) throw Error("shapes: the item is none of them"); f[at + 82] = $i; } } }
-  putBody(b, o.body, f, at + 83, heap);
+  { const $x = o.spot; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f.fill(0, at + 27, at + 44); } else { f[at + 26] = 0; putSpot(b, $x, f, at + 27, heap); } }
+  heap.list(b.refs[KIND_PERSON], o.friends, f, at + 44);
+  { const $x = o.next; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f.fill(0, at + 47, at + 49); } else { f[at + 46] = 0; b.refs[KIND_THING].put($x, f, at + 47); } }
+  { const $x = o.tags; if ($x === null || $x === undefined) { f[at + 49] = $x === null ? 1 : 2; f.fill(0, at + 50, at + 52); } else { f[at + 49] = 0; heap.map(b.strings, $x, f, at + 50, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
+  f[at + 52] = o.hidden;
+  f[at + 53] = o.box?.size;
+  heap.items(o.marks, f, at + 54, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.probes, f, at + 56, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
+  heap.items(o.flags, f, at + 58, 1, (f, at, v) => { f[at + 0] = v ? 1 : 0; });
+  heap.items(o.spots, f, at + 60, 17, (f, at, v) => { putSpot(b, v, f, at + 0, heap); });
+  heap.items(o.holders, f, at + 62, 3, (f, at, v) => { putHolder(b, v, f, at + 0, heap); });
+  { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 64 + i] = e[i]; }
+  f[at + 80] = o.boxes?.[0]?.size;
+  heap.items(o.shapes, f, at + 81, 5, (f, at, v) => { putShape(b, v, f, at + 0, heap); });
+  { const $x = o.hitSet; if ($x === null || $x === undefined) { f[at + 83] = $x === null ? 1 : 2; f.fill(0, at + 84, at + 85); } else { f[at + 83] = 0; { const $i = (o.shapes ?? []).indexOf($x); if ($i < 0) throw Error("shapes: the item is none of them"); f[at + 84] = $i; } } }
+  putBody(b, o.body, f, at + 85, heap);
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -700,9 +705,9 @@ export function exportThing(o, cx) {
   v.light = o.light;
   v.mass = o.mass;
   v.on = o.on;
-  v.where = o.where;
-  v.facing = o.facing;
-  v.pair = o.pair;
+  v.where = o.where.clone();
+  v.facing = o.facing.clone();
+  v.pair = [...o.pair];
   v.name = o.name;
   v.colour = o.colour;
   v.def = cx.def("goods", o.def);
@@ -715,11 +720,11 @@ export function exportThing(o, cx) {
   v.hidden = o.hidden;
   v.boxed = o.box?.size;
   v.marks = o.marks.map((x) => x);
-  v.probes = o.probes.map((x) => x);
+  v.probes = o.probes.map((x) => x.clone());
   v.flags = o.flags.map((x) => x);
   v.spots = o.spots.map((x) => exportSpot(x, cx));
   v.holders = o.holders.map((x) => exportHolder(x, cx));
-  v.matrix = o.matrix;
+  v.matrix = o.matrix.clone();
   v.firstSize = o.boxes?.[0]?.size;
   v.shapes = o.shapes.map((x) => exportShape(x, cx));
   v.hitSet = ((x) => (x === null || x === undefined ? x : exportShape(x, cx)))(o.hitSet);

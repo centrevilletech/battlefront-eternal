@@ -15,7 +15,7 @@ export default {
     Body: ['rec:Legs', 'rec:Wheels'],
   },
   records: {
-    Spot: { at: 'vec3', turn: 'quat', label: 'str|null', mark: 'enum:Colour', near: 'ref:person|undefined', kept: 'list:thing' },
+    Spot: { at: 'vec3', turn: 'quat', label: 'str|null', mark: 'enum:Colour', near: 'ref:person|undefined', keeper: 'ref:person', kept: 'list:thing' },
     Ask: { n: 'f64', who: 'ref:person|null', things: 'list:thing', spot: 'rec:Spot|null' },
     Legs: { $class: 'Legs', stride: 'f64', side: 'list:f64' },
     Wheels: { $class: 'Wheels', count: 'u8', grip: 'vec3' },

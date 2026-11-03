@@ -44,7 +44,7 @@ export function exportEcho(o, cx) {
   v = {};
   cx.seen.set(o, v);
   v.value = o.value;
-  v.at = o.at;
+  v.at = o.at.clone();
   v.count = o.count;
   v.note = o.note;
   v.events = o.events;

@@ -117,8 +117,12 @@ function parseField(name, spec, where) {
 export function buildModel(files) {
   const model = { enums: new Map(), unions: new Map(), records: new Map(), kinds: new Map(), commands: new Map(), events: new Map(), imports: new Map(), files: files.map((f) => f.file) };
   const names = new Map(); // Rust type name -> where
+  // Every generated file imports the comparisons of src/sim/compare.js, and
+  // a type's own comparison is same<Name>: no type takes one of their names.
+  const helpers = ['Array', 'Each', 'List', 'Map', 'Quat', 'Vec'];
   const claim = (rust, where) => {
     if (names.has(rust)) fail(where, `${rust} is also ${names.get(rust)}`);
+    if (helpers.includes(rust)) fail(where, `its comparison same${rust} would be src/sim/compare.js's own: rename it`);
     names.set(rust, where);
   };
   for (const { file, schema } of files) {
@@ -209,12 +213,6 @@ export function buildModel(files) {
       for (const c of [spec.class ?? []].flat()) if (!kind.classes.includes(c)) kind.classes.push(c);
     }
   }
-  // Every generated file imports the comparisons of src/sim/compare.js; a
-  // kind's or record's own comparison (same<Name>) must not take one of
-  // their names.
-  const helpers = ['sameArray', 'sameEach', 'sameList', 'sameMap', 'sameQuat', 'sameVec'];
-  for (const k of model.kinds.values()) if (helpers.includes(`same${k.rust}`)) fail(`kind ${k.name}`, `its comparison same${k.rust} would be compare.js's own: rename the kind`);
-  for (const r of model.records.values()) if (helpers.includes(`same${r.name}`)) fail(`record ${r.name}`, `its comparison same${r.name} would be compare.js's own: rename the record`);
   // Codes: the kinds' names in order, from 1.
   const kinds = [...model.kinds.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   kinds.forEach((k, i) => { k.code = i + 1; });
@@ -226,7 +224,9 @@ export function buildModel(files) {
     const where = `kind ${k.name}`;
     k.stored = k.fields.length > 0;
     if (!k.file) k.file = null;
-    if (k.stored || k.singleton) claim(k.rust, where);
+    // Every kind is a Rust type (one the store only refers to too, an empty
+    // struct): its name is no other type's.
+    claim(k.rust, where);
     if (k.key !== null && typeof k.key !== 'string') fail(where, 'key names the numeric field that identifies an object');
     if (k.singleton && (k.key || k.home)) fail(where, 'a singleton has no key or home');
     if (k.home) {
@@ -954,9 +954,13 @@ function jsSameField(model, t, a, b, path) {
 // and three.js values are the values themselves.
 function jsExport(model, t, v) {
   // Any reference is the handle the context makes; entities are written
-  // out whole only where they live (their home list, jsExportFn).
+  // out whole only where they live (their home list, jsExportFn). Vectors,
+  // matrices and fixed arrays are copies: a value the JavaScript shares
+  // between two fields (one vector as both) is two values to the store.
   const one = (name, x) => `cx.ref(${JSON.stringify(name)}, ${x})`;
   switch (t.base) {
+    case 'vec3': case 'quat': case 'mat4': return `${v}.clone()`;
+    case 'f64xN': return `[...${v}]`;
     case 'rec': return `export${t.of}(${v}, cx)`;
     case 'union': return `export${t.of}(${v}, cx)`;
     case 'def': return `cx.def(${JSON.stringify(t.of)}, ${v})`;

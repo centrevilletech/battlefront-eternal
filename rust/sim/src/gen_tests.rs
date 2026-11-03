@@ -15,7 +15,7 @@ fn person(id: u32) -> Ref<Person> { Ref::new(id, 0) }
 fn shelf(strings: &mut Strings) -> Store {
     let (a, b) = (strings.intern_str("a"), strings.intern_str("b"));
     let mut s = Store::default();
-    let spot = Spot { at: [1.0, -0.0, 3.0], turn: [0.0, 0.0, 0.7071067811865476, 0.7071067811865476], label: Some(b), mark: Colour::Green, near: Some(person(9)), kept: vec![] };
+    let spot = Spot { at: [1.0, -0.0, 3.0], turn: [0.0, 0.0, 0.7071067811865476, 0.7071067811865476], label: Some(b), mark: Colour::Green, near: Some(person(9)), keeper: person(4), kept: vec![] };
     let one = s.thing.insert(Thing {
         count: -3, size: u32::MAX, small: 255, light: 0.1f32, mass: -0.0, on: true, r#where: [1.5, 2.5, -3.5], facing: [0.0, 0.0, 0.0, 1.0],
         pair: [1e-300, 5e-324], name: a, colour: Colour::Blue, def: DefId(2), owner: Some(person(4)), holder: Holder::Person(person(9)),

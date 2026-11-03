@@ -311,7 +311,9 @@ test('the replay harness gets plain values in the schema\'s order, one value an 
   assert.deepEqual(bolt.$id, { kind: 'bolt', object: world.ordnance.bolts[0] });
   assert.deepEqual(bolt.owner, { kind: 'unit', object: world.units[0] });
   assert.deepEqual(bolt.def, { table: 'ordnance', def: world.ordnance.bolts[0].def });
-  assert.equal(bolt.position, world.ordnance.bolts[0].position);
+  // A copy of the vector, so a capture keeps no alias the store cannot.
+  assert.notEqual(bolt.position, world.ordnance.bolts[0].position);
+  assert.deepEqual(bolt.position.toArray(), world.ordnance.bolts[0].position.toArray());
   assert.notEqual(bolt.impact, world.ordnance.bolts[0].impact);
   assert.deepEqual(bolt.impact.body, { kind: 'body', object: world.bodies[1] });
   assert.equal(value.bolts[1].owner, 'player');

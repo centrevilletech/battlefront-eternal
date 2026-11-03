@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { ExportContext, Heap, SimContext } from '../src/sim/runtime.js';
-import { parseType } from '../tools/sim-schema.mjs';
+import { buildModel, parseType } from '../tools/sim-schema.mjs';
 import { KIND_TABLE, DEF_TABLES, RECORD_CLASSES, KIND_SHELF, KIND_THING, KIND_PERSON } from './sim-gen/index.js';
 
 // The store's generator (tools/sim-schema.mjs) on its own test schema
@@ -32,7 +32,7 @@ function shelf(cx) {
   const people = [new Person(4), new Person(9)];
   const goods = [{ class: 'cup' }, { class: 'jug' }, { class: 'pan' }];
   for (const d of goods) cx.defs.goods.register(d);
-  const spot = { at: new THREE.Vector3(1, -0, 3), turn: new THREE.Quaternion(0, 0, 0.7071067811865476, 0.7071067811865476), label: 'b', mark: 'green', near: people[1], kept: [] };
+  const spot = { at: new THREE.Vector3(1, -0, 3), turn: new THREE.Quaternion(0, 0, 0.7071067811865476, 0.7071067811865476), label: 'b', mark: 'green', near: people[1], keeper: people[0], kept: [] };
   const one = {
     count: -3, size: 4294967295, small: 255, light: Math.fround(0.1), mass: -0, on: true, where: new THREE.Vector3(1.5, 2.5, -3.5), facing: new THREE.Quaternion(),
     pair: [1e-300, 5e-324], name: 'a', colour: 'blue', def: goods[2], owner: people[0], holder: people[1], spot, friends: new Set([people[1], people[0]]),
@@ -152,4 +152,12 @@ test('a schema\'s types are checked as they are read', () => {
   assert.throws(() => parseType('map:map:f64', 'x'), /no map/);
   assert.throws(() => parseType('vec4', 'x'), /unknown type/);
   assert.throws(() => parseType('f64|maybe', 'x'), /null or undefined/);
+});
+
+test('two types of one name, or a type named after a comparison, are refused', () => {
+  const schema = (s) => [{ file: 'x', schema: s }];
+  // A union named as a kind the store only refers to (its empty struct).
+  assert.throws(() => buildModel(schema({ unions: { Body: ['null', 'ref:body'] }, kinds: { body: {} } })), /Body is also/);
+  // A kind whose comparison would be compare.js's sameEach.
+  assert.throws(() => buildModel(schema({ kinds: { each: { singleton: true, fields: { n: 'f64' } } } })), /sameEach/);
 });
