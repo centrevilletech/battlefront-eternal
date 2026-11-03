@@ -13,3 +13,6 @@ export const KIND_UNIT = 10;
 export const KIND_VEHICLE = 11;
 export const KIND_WEAPON = 12;
 export const KINDS = 12;
+export const COMMAND_ECHO = 1;
+export const COMMAND_FILL = 2;
+export const EVENT_ECHOED = 1;

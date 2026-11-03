@@ -130,6 +130,26 @@ impl Echo {
     }
 }
 
+impl Fill {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(Fill {
+            kind: { let p = format!("{path}.kind"); (int(v.get("kind"), &p, 0.0, u32::MAX as f64)? as u32) },
+            count: { let p = format!("{path}.count"); (int(v.get("count"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let fields = vec![
+            ("kind", Value::Num(self.kind as f64)),
+            ("count", Value::Num(self.count as f64)),
+        ];
+        a.object("", fields)
+    }
+}
+
 impl Beam {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

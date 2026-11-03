@@ -50,3 +50,37 @@ export function exportEcho(o, cx) {
   v.events = o.events;
   return v;
 }
+
+export class FillMirror {
+  constructor() {
+    this.kind = 0;
+    this.count = 0;
+  }
+}
+
+export function syncFill(b, f, at, h, m) {
+  m.kind = f[at + 0];
+  m.count = f[at + 1];
+  return m;
+}
+
+export function putFill(b, o, f, at, heap) {
+  f[at + 0] = o.kind;
+  f[at + 1] = o.count;
+}
+
+export function sameFill(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  if (!Object.is(a.count, b.count)) return ".count";
+  return null;
+}
+
+export function exportFill(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.count = o.count;
+  return v;
+}
