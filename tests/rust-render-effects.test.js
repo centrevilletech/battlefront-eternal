@@ -974,6 +974,41 @@ test("reveal: what the instance pass took shown to three for a render of three's
   assert.equal(part.layers.mask, 1);
 });
 
+test("lamps and shadows: a soldier's lamps and whether he receives shadows in his row, for a program that reads them", () => {
+  const { core, scene, camera, renderer, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  // Lamp lighting on: a DYNAMIC program reading the lamps is the pass's, its lamps the core's (core.lamps).
+  core.graphics.settings = { get: (key) => key === "lampLighting" };
+  const asked = [];
+  core.lamps = (object, viewModel) => { asked.push([object, viewModel]); return { count: 2, indices: [3, 7, -1, -1] }; };
+  const material = new THREE.ShaderMaterial({ defines: { RIGID_SKIN: "", DYNAMIC: "" },
+    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
+  drawn(material, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness",
+    "localLightPositions", "localLightColors", "localLightCount"], ["position", "skinIndex", "skinWeight"]));
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+  geometry.setIndex([0, 1, 2]);
+  const body = new THREE.SkinnedMesh(geometry, material), bone = new THREE.Bone(), root = new THREE.Group();
+  body.add(bone); body.bind(new THREE.Skeleton([bone]));
+  body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+  body.userData.poseSphere = true;
+  body.receiveShadow = true;
+  root.add(body); root.position.z = -5;
+  root.userData.parts = { body, hand: null };
+  scene.add(root);
+  core.graphics.cullRoots.push(root);
+  scene.updateMatrixWorld(true);
+  renderer.info.render.frame++;
+  core.pass(renderer, scene, camera);
+  const e = core.recordsAt + 76;
+  assert.deepEqual(asked, [[body, false]], "his lamps, as three's onBeforeRender selects them");
+  assert.equal(core.input[e + 13], 2, "the lamps' count");
+  assert.equal(core.input[e + 14], 1, "he receives shadows");
+  assert.deepEqual([...core.input.subarray(e + 16, e + 20)], [3, 7, -1, -1], "the lamp table's indices");
+});
+
 test("soldiers: only those three's render would list are written, with the bones three worked out in that render", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
   renderer.info = { render: { frame: 0 } };
