@@ -287,6 +287,59 @@ impl Unit {
         }
     }
 
+    /// spawn(x, y, z, yaw) (units.js:375): into the world at (x, y, z)
+    /// facing yaw, fresh, a life later.
+    pub fn spawn(&mut self, id: u32, x: f64, y: f64, z: f64, yaw: f64, world: &mut dyn UnitsWorld) {
+        self.seat = None;
+        self.let_go();
+        self.targetable = Some(true);
+        self.mounted = Some(false);
+        self.generation += 1.0;
+        match &mut self.soldier {
+            UnitBody::Soldier(s) => {
+                s.dead = Some(false);
+                s.spawn(x, y, z, yaw, world);
+            }
+            UnitBody::Droideka(d) => {
+                d.dead = false;
+                d.spawn_place(x, y, z, yaw, world);
+                // enter(0): mode 0 from its start (no clip read: it does not
+                // play in reverse).
+                let was = d.mode;
+                d.mode = 0.0;
+                d.reverse = false;
+                d.time = 0.0;
+                if was == 12.0 {
+                    d.velocity = [0.0; 3];
+                    d.legs = 0.0;
+                }
+                d.previous = d.position;
+                d.settled = d.position;
+                // (The drawn animator's reset is the page's.) The hidden gun
+                // rig's animator: facing the new yaw, its mode unknown.
+                let roll = d.roll;
+                if let Some(a) = &mut d.muzzle_animator {
+                    a.facing = yaw;
+                    a.mode = -1.0;
+                    a.went_up_rolled = false;
+                    a.transition = 0.0;
+                    a.roll_origin = roll;
+                }
+            }
+        }
+        world.combat_reset(id, self);
+        // (presentation.reset, the drawn animator's reset and the root's
+        // place are the page's.)
+        self.alive = true;
+        self.dead = false;
+        self.dead_time = 0.0;
+        self.removed = false;
+        self.intent = blank_intent();
+        self.controls.was = [0.0, 0.0];
+        self.tick_count += 1.0;
+        self.update_spheres(id, world);
+    }
+
     /// remove() (units.js:425): off the field (after a death, or between
     /// lives); its Character lets go of it and the body goes back to the
     /// pool for anyone's next spawn.
@@ -342,6 +395,32 @@ impl Unit {
     pub fn forward_on_foot(&self) -> Vector3 {
         let (yaw, pitch) = (self.aim_yaw(), self.aim_pitch());
         Vector3 { x: v8math::sin(yaw) * v8math::cos(pitch), y: v8math::sin(pitch), z: v8math::cos(yaw) * v8math::cos(pitch) }
+    }
+}
+
+/// blankIntent() (units.js:114).
+pub fn blank_intent() -> crate::gen::Intent {
+    crate::gen::Intent {
+        forward: 0.0,
+        right: 0.0,
+        turn: 0.0,
+        pitch: 0.0,
+        jump: false,
+        crouch: false,
+        prone: false,
+        r#use: false,
+        buttons: [0.0, 0.0],
+        reload: false,
+        next_primary: false,
+        previous_primary: false,
+        next_secondary: false,
+        zoom: false,
+        aim: None,
+        jet_direction: None,
+        exit: false,
+        brake: None,
+        up: None,
+        down: None,
     }
 }
 

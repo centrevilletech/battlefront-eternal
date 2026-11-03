@@ -8,7 +8,10 @@
 //!   their broadphase sphere and the segment tests against each kind;
 //! - `registry`: the registry's members in its order, the teams' relations,
 //!   `query` and `raycast`;
-//! - `unit`: a unit (its life, intent, controls and hit shapes) and its tick;
+//! - `unit`: a unit (its life, intent, controls and hit shapes), its tick
+//!   and its spawn;
+//! - `body`: what the battle asks of a body between ticks (a player's look,
+//!   a droideka's shield and guns);
 //! - `droideka`: a droideka's body, its modes, walk, ball and collision;
 //! - `damage`: what hitting the ground or a wall too hard does
 //!   (collision damage) and the world's bounds;
@@ -21,6 +24,7 @@
 //! with V8's Math (`v8math`) and three.js r170's vector arithmetic
 //! (`crate::rig::three`); each cites the JavaScript it ports.
 
+pub mod body;
 pub mod damage;
 pub mod droideka;
 pub mod registry;

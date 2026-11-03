@@ -19,6 +19,7 @@
 // times a tick, carries them on the first few calls of a sampled tick
 // (REGISTRY_FRAMES); the rest carry only their arguments and answer.
 import { Soldier } from '../../src/soldier.js';
+import { Droideka } from '../../src/droideka.js';
 
 const REGISTRY_FRAMES = 2;
 
@@ -215,6 +216,47 @@ const separate = {
   },
 };
 
+// Unit.spawn: a unit into the world, a life later (src/units.js:375).
+const unitSpawn = {
+  method: 'Unit.spawn',
+  target: (game) => (unitProto ??= Object.getPrototypeOf(game.playerUnit)),
+  state: (game, args, cap, self) => {
+    const enter = !opened.has(args);
+    if (enter) opened.set(args, { spawning: true });
+    current = enter ? self : null;
+    return { unit: unitValue(cap, self) };
+  },
+  boundaries: (game) => {
+    const after = (g, cap) => (current ? { unit: unitValue(cap, current) } : { skipped: true });
+    return [
+      ['collision.cast', game.collision, 'cast'],
+      ['combat.reset', Object.getPrototypeOf(game.playerUnit.combat), 'reset', after],
+    ];
+  },
+};
+
+// What combat and the network ask of a body between its ticks: a
+// droideka's shield and guns (src/droideka.js), a player's mouse look
+// (src/soldier.js lookRaw, src/droideka.js look). The body's unit is its
+// receiver's (`unit.soldier`).
+const unitOf = (game, body) => game.units.list.find((u) => u.soldier === body) ?? null;
+function bodyFrame(method, proto, extra = () => ({})) {
+  return {
+    method,
+    target: () => proto,
+    state: (game, args, cap, self) => {
+      const unit = unitOf(game, self);
+      return { unit: unit ? unitValue(cap, unit) : null, ...extra(self) };
+    },
+    boundaries: (game) => [['units.shieldHit', game.factory?.context ?? null, 'shieldHit']],
+  };
+}
+// nextGun reads the hidden gun rig as sampleMuzzles left it this tick.
+const barrels = (self) => ({ muzzles: self.physicalBarrels?.map((list) => list.map((b) => b.matrixWorld)) ?? null });
+
 export const units = {
-  frames: [unitTick, registryFrame('raycast'), registryFrame('query'), separate],
+  frames: [unitTick, unitSpawn, registryFrame('raycast'), registryFrame('query'), separate,
+    bodyFrame('Droideka.absorb', Droideka.prototype), bodyFrame('Droideka.toggleShield', Droideka.prototype),
+    bodyFrame('Droideka.nextGun', Droideka.prototype, barrels), bodyFrame('Droideka.look', Droideka.prototype),
+    bodyFrame('Soldier.lookRaw', Soldier.prototype)],
 };

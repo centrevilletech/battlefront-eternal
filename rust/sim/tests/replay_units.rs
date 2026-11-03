@@ -92,6 +92,7 @@ const MUZZLES: &[&str] = &["soldier"];
 const NOTHING: &[&str] = &[];
 const BLOW_APART: &[&str] = &["soldier", "combatDead", "alive", "dead", "deadTime", "character"];
 const REMOTE: &[&str] = &["intent", "controls", "soldier"];
+const RESET: &[&str] = &["combatDead", "aimOverride", "mounted", "pivot", "gunUnderwater"];
 
 /// A unit's tick served from its frame.
 struct TickWorld<'a, 'f> {
@@ -283,6 +284,11 @@ impl UnitsWorld for TickWorld<'_, '_> {
             return self.fail(format!("remotes.step: the capture's input {}, the port {}", call.arg(3).show(), if active { "the intent" } else { "null" }));
         }
         self.after(call, unit, REMOTE);
+    }
+
+    fn combat_reset(&mut self, _id: u32, unit: &mut Unit) {
+        let Some(call) = self.call("combat.reset") else { return };
+        self.after(call, unit, RESET);
     }
 
     fn combat_update(&mut self, _id: u32, unit: &mut Unit, h: f64, stick: f64) {
@@ -705,6 +711,7 @@ impl UnitsWorld for QueryWorld<'_> {
         false
     }
     fn remote_step(&mut self, _id: u32, _unit: &mut Unit, _h: f64, _active: bool) {}
+    fn combat_reset(&mut self, _id: u32, _unit: &mut Unit) {}
     fn combat_update(&mut self, _id: u32, _unit: &mut Unit, _h: f64, _stick: f64) {}
     fn flush_muzzles(&mut self, _id: u32, _unit: &mut Unit) {}
     fn clear_charge(&mut self, _id: u32, _unit: &mut Unit) {}
@@ -934,4 +941,127 @@ fn soldiers_are_pushed_apart_as_captured() {
     let report = replay_corpus(&corpus, "separate", |_capture, frame| outcome(separate_frame(frame))).unwrap();
     println!("{}", report.summary());
     report.assert_clean();
+}
+
+// ---- A unit's spawn, and what combat and the network ask of a body.
+
+/// The unit a frame's state names, read into a fresh store.
+fn unit_in(frame: &Frame, v: V, cx: &mut Replay) -> Result<(u32, Unit), Mismatch> {
+    let r = Unit::value_in(v, cx, "unit").map_err(|e| Mismatch(format!("{}: reading the unit: {e}", frame.place())))?;
+    Ok((r.slot, cx.store.unit.get(r).cloned().unwrap()))
+}
+
+/// The unit at the frame's end against the capture's.
+fn check_unit(frame: &Frame, cx: &mut Replay, id: u32, unit: &Unit, captured: V) -> Result<(), Mismatch> {
+    let mut arena = Arena::default();
+    let mine = unit_value(cx, &mut arena, id, unit);
+    let mut a = Arena::default();
+    let theirs = without(&mut a, captured, &[]);
+    match diff(a.view(&theirs), arena.view(&mine)) {
+        None => Ok(()),
+        Some(d) => Err(Mismatch(format!("{}: unit {d} (capture | port)", frame.place()))),
+    }
+}
+
+fn spawn_frame(frame: &Frame) -> Result<Option<String>, Mismatch> {
+    let before = frame.before();
+    let mut cx = Replay::default();
+    let (id, mut unit) = unit_in(frame, before.get("unit"), &mut cx)?;
+    let (x, y, z, yaw) = (frame.arg(0).num(), frame.arg(1).num(), frame.arg(2).num(), frame.arg(3).num());
+    let mut world = TickWorld { frame, log: Log::new(frame), cx: &mut cx, arena: Arena::default(), id, state: before, character_has: false, pool: Vec::new(), error: None };
+    unit.spawn(id, x, y, z, yaw, &mut world);
+    if let Some(e) = world.error.take() {
+        return Err(e);
+    }
+    world.log.finish()?;
+    check_unit(frame, world.cx, id, &unit, frame.after().get("unit"))?;
+    Ok(None)
+}
+
+fn droideka_of(unit: &mut Unit) -> Option<&mut bfe_sim::gen::Droideka> {
+    match &mut unit.soldier {
+        UnitBody::Droideka(d) => Some(d),
+        UnitBody::Soldier(_) => None,
+    }
+}
+
+fn body_frame(capture: &Capture, frame: &Frame, contents: &mut Contents) -> Result<Option<String>, Mismatch> {
+    let before = frame.before();
+    if before.get("unit").is_nullish() {
+        return Ok(Some("a body no unit has".into()));
+    }
+    let place = |e: String| Mismatch(format!("{}: {e}", frame.place()));
+    let mut cx = Replay::default();
+    let (id, mut unit) = unit_in(frame, before.get("unit"), &mut cx)?;
+    let mut log = Log::new(frame);
+    match frame.name.as_str() {
+        "Droideka.absorb" => {
+            let (amount, on_shield) = (frame.arg(0).num(), if frame.arg(1).is_undefined() { frame.arg(0).num() } else { frame.arg(1).num() });
+            let d = droideka_of(&mut unit).ok_or_else(|| place("not a droideka".into()))?;
+            let mut error = None;
+            let left = d.absorb(amount, on_shield, |_, taken| {
+                let r = log.call("units.shieldHit").and_then(|c| {
+                    if c.arg(0).handle_num("unit") != Some(id as f64) {
+                        return Err(Mismatch(format!("units.shieldHit: the capture's unit {}", c.arg(0).show())));
+                    }
+                    check_num("units.shieldHit amount", c.arg(1), taken)
+                });
+                if let Err(e) = r {
+                    error.get_or_insert(e);
+                }
+            });
+            if let Some(e) = error {
+                return Err(e);
+            }
+            check_num("absorb's answer", frame.result(), left).map_err(|e| place(e.0))?;
+        }
+        "Droideka.toggleShield" => droideka_of(&mut unit).ok_or_else(|| place("not a droideka".into()))?.toggle_shield(),
+        "Droideka.look" => {
+            let d = droideka_of(&mut unit).ok_or_else(|| place("not a droideka".into()))?;
+            d.look(frame.arg(0).num(), frame.arg(1).num(), num_or(frame.arg(2), 1.0), frame.arg(3).truthy());
+        }
+        "Soldier.lookRaw" => {
+            let UnitBody::Soldier(s) = &mut unit.soldier else { return Err(place("not a soldier".into())) };
+            s.look_raw(frame.arg(0).num(), frame.arg(1).num(), num_or(frame.arg(2), 1.0), frame.arg(3).truthy());
+        }
+        "Droideka.nextGun" => {
+            let content = contents.of(capture).map_err(place)?;
+            let Some(content) = content else { return Ok(Some("needs BFE_CONTENT_DIR for the gun rig".into())) };
+            let u = before.get("unit");
+            let (side, class) = (u.get("side").str().unwrap_or(""), u.get("className").str().unwrap_or(""));
+            let mut parts = droideka_parts(&content, side, class).map_err(place)?;
+            let rig = parts.rig.as_mut().unwrap();
+            // The rig as this tick's sampleMuzzles left it: each barrel's
+            // world matrix is what nextGun reads.
+            let d = droideka_of(&mut unit).ok_or_else(|| place("not a droideka".into()))?;
+            let guns_before = (d.gun, d.last_gun.clone());
+            let _ = guns_before;
+            let mine = d.next_gun(rig).is_some();
+            let sel = d.last_gun.clone().ok_or_else(|| place("no gun chosen".into()))?;
+            let m = before.get("muzzles").at(sel.index as usize).at(sel.barrel as usize);
+            let Some(Node::Mat4(e)) = m.node() else { return Err(place(format!("no barrel {sel:?} in the capture"))) };
+            if frame.result().is_nullish() == mine {
+                return Err(place(format!("nextGun's answer: the capture's {}, the port {}", frame.result().show(), if mine { "a point" } else { "none" })));
+            }
+            check_vec3("nextGun's point", frame.result(), [e[12], e[13], e[14]]).map_err(|e| place(e.0))?;
+        }
+        other => return Ok(Some(format!("no replay for {other}"))),
+    }
+    log.finish()?;
+    check_unit(frame, &mut cx, id, &unit, frame.after().get("unit"))?;
+    Ok(None)
+}
+
+#[test]
+fn spawns_and_bodies_replay_as_captured() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    let report = replay_corpus(&corpus, "Unit.spawn", |_capture, frame| outcome(spawn_frame(frame))).unwrap();
+    println!("{}", report.summary());
+    report.assert_clean();
+    let mut contents = Contents::new();
+    for name in ["Droideka.absorb", "Droideka.toggleShield", "Droideka.nextGun", "Droideka.look", "Soldier.lookRaw"] {
+        let report = replay_corpus(&corpus, name, |capture, frame| outcome(body_frame(capture, frame, &mut contents))).unwrap();
+        println!("{}", report.summary());
+        report.assert_clean();
+    }
 }

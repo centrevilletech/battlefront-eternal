@@ -79,6 +79,8 @@ pub trait UnitsWorld {
     /// remoteStep(h, intent or null, controls); `active` when it flies (the
     /// intent is passed).
     fn remote_step(&mut self, id: u32, unit: &mut Unit, h: f64, active: bool);
+    /// combat.reset() (Unit.spawn): his weapons and health for a new life.
+    fn combat_reset(&mut self, id: u32, unit: &mut Unit);
     /// combat.update(h, controls, stick): his weapons.
     fn combat_update(&mut self, id: u32, unit: &mut Unit, h: f64, stick: f64);
     /// combat.flushMuzzles().
