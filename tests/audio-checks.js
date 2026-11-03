@@ -121,6 +121,9 @@ export async function checkAudio() {
   {
     const ctx = new OfflineAudioContext(6, RATE, RATE);
     const r = new Renderer(ctx);
+    // (A check that hands the renderer its own sources plays them through
+    // the browser's nodes; the voice engine against those is 6b and 6c.)
+    r.voicesRust = false;
     await r.load();
     r.configure({ quality: "enhanced", output: "5.1", dynamics: "home", clarity: false });
     const out = r.voice({ mode3D: 1 });
@@ -165,6 +168,7 @@ export async function checkAudio() {
   {
     const ctx = new OfflineAudioContext(6, RATE / 2, RATE);
     const r = new Renderer(ctx);
+    r.voicesRust = false;
     await r.load();
     r.configure({ quality: "enhanced", output: "5.1", dynamics: "home", clarity: false });
     const gain = ctx.createGain();
@@ -403,6 +407,7 @@ export async function checkAudio() {
     // and the pair 0.4481 (all of a tone well under 5 kHz).
     const ctx = new OfflineAudioContext(6, RATE / 2, RATE);
     const r = new Renderer(ctx);
+    r.voicesRust = false;
     await r.load();
     r.configure({ quality: "original", output: "5.1", dynamics: "home" });
     const out = r.voice({ mode3D: 0 });
@@ -425,6 +430,7 @@ export async function checkAudio() {
     const light = async (feed, dynamics = "home") => {
       const ctx = new OfflineAudioContext(2, RATE / 8, RATE);
       const r = new Renderer(ctx);
+      r.voicesRust = false;
       await r.load();
       r.configure({ quality: "original", output: "stereo", dynamics });
       feed(ctx, r);
@@ -846,6 +852,7 @@ export async function checkAudio() {
     const ears = async (local, mode3D = 1, freq = 1000) => {
       const ctx = new OfflineAudioContext(2, RATE / 2, RATE);
       const r = new Renderer(ctx);
+      r.voicesRust = false;
       await r.load("/audio");
       r.configure({ quality: "enhanced", output: "headphones", dynamics: "home", clarity: false });
       const out = r.voice({ mode3D });

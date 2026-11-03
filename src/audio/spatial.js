@@ -149,11 +149,11 @@ export class Renderer {
     this.loaded = null;
     this.slots = [];
     this.batch = [];
-    // ?voices=rust (voicesRust, which tests set): the enhanced voices render
-    // in the mixer's own voice engine (rust/audio/src/voices.rs) instead of
-    // through a buffer source, a gain, a lowpass and a send each, and the
-    // light mix's in a worklet of their own instead of a source and two
-    // speaker gains each, to the same samples (tests/audio-checks.js);
+    // voicesRust (unless ?voices=native; tests set it): the enhanced voices
+    // render in the mixer's own voice engine (rust/audio/src/voices.rs)
+    // instead of through a buffer source, a gain, a lowpass and a send each,
+    // and the light mix's in a worklet of their own instead of a source and
+    // two speaker gains each, to the same samples (tests/audio-checks.js);
     // `commands` is the frame's for it, `engineGen` counts the mixers built
     // (a voice of an older one is lost with it), and samples go to each
     // mixer once (`uploaded`).
@@ -253,8 +253,8 @@ export class Renderer {
 
   // Settings to build: a graph that runs worklets the light mix never
   // loaded is built once they are (the light mix playing meanwhile), and
-  // the promise of that is returned; null when built at once. With
-  // ?voices=rust the light mix runs one too (its voice engine).
+  // the promise of that is returned; null when built at once. With the
+  // voice engine the light mix runs one too (unless ?voices=native).
   configure(config) {
     this.config = { ...this.config, ...config };
     if ((!this.lightFor(this.config) || this.voicesRust) && !this.workletsReady) return this.worklets().then(() => this.build());
@@ -559,10 +559,10 @@ export class Renderer {
     for (const v of this.voices) v.slot = -1;
     for (const b of this.beds) b.slots = [];
     this.slots = [];
-    // ?voices=rust: the voices play in the module (rust/audio/src/voices.rs,
-    // render_light), each source and its two speaker gains in one worklet
-    // whose output joins the mix as the pair does; a voice with no slot
-    // left keeps the browser's nodes.
+    // The voice engine (unless ?voices=native): the voices play in the module
+    // (rust/audio/src/voices.rs, render_light), each source and its two
+    // speaker gains in one worklet whose output joins the mix as the pair
+    // does; a voice with no slot left keeps the browser's nodes.
     this.engine = Boolean(this.dsp) && this.voicesRust;
     this.engineGen += 1;
     this.commands.length = 0;

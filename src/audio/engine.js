@@ -522,9 +522,9 @@ class Voice {
       return;
     }
     const out = e.renderer.voice(this);
-    // ?voices=rust: the mixer's voice engine plays it (the light mix's, in
-    // the light mix), its gain or speaker gains and its rate sent as
-    // commands (src/audio/spatial.js, VoiceOut).
+    // The voice engine (unless ?voices=native) plays it: the mixer's, or the
+    // light mix's in the light mix, its gain or speaker gains and its rate
+    // sent as commands (src/audio/spatial.js, VoiceOut).
     if (out.engine) {
       const rate = this.rate();
       out.engineStart(this.buffer, Math.max(offset, 0), this.loop, rate);

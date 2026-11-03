@@ -114,8 +114,9 @@ class SpatialMixer extends AudioWorkletProcessor {
       this.dsp = { x, h: x.mixer_new(this.slots, this.channels), calls: { sample: x.mixer_sample, commandsPtr: x.mixer_commands_ptr, commands: x.mixer_commands } };
       this.dspLayout(this.law, o.speakers || [], this.decoder, 0);
       if (o.params) this.dspParams(o.params, 1);
-      // ?voices=rust: voices the module renders into the slots itself
-      // (rust/audio/src/voices.rs), their sends summed into output 2.
+      // The voice engine (unless ?voices=native): voices the module
+      // renders into the slots itself (rust/audio/src/voices.rs), their
+      // sends summed into output 2.
       if (o.engine) x.mixer_engine(this.dsp.h, sampleRate, o.engine.q, o.engine.x86 === false ? 0 : 1);
     }
     this.port.onmessage = (event) => {
@@ -491,9 +492,10 @@ class SpatialMixer extends AudioWorkletProcessor {
 
 registerProcessor("spatial-mixer", SpatialMixer);
 
-// The light mix's voices (?voices=rust): every voice's source and its two
-// speaker gains in the module (rust/audio/src/voices.rs, render_light),
-// one stereo output in place of the light mix's nodes a voice. No inputs.
+// The light mix's voices (the voice engine, unless ?voices=native): every
+// voice's source and its two speaker gains in the module
+// (rust/audio/src/voices.rs, render_light), one stereo output in place of
+// the light mix's nodes a voice. No inputs.
 // processorOptions: dsp (the module), slots, x86. Messages: "sample",
 // "voices" (a frame's commands) and "sync", as the spatial mixer's.
 class VoiceEngine extends AudioWorkletProcessor {

@@ -99,8 +99,8 @@ panner.
 `engine.renderer` (the graph; its `dsp` is the WebAssembly module, built
 from `rust/audio`, that the worklets run, or null with `?audio=js`, which
 runs their JavaScript instead: the same samples to the bit, for A/B; its
-`engine` is whether the enhanced voices play in the module, which
-`?voices=rust` turns on: see "The voice engine"), `streams` (`queues`: the lines waiting),
+`engine` is whether the voices play in the module's voice engine, as they
+do unless `?voices=native`: see "The voice engine"), `streams` (`queues`: the lines waiting),
 `music`, `vo`, `player`, `soldiers`, `chatter`, `scene`, `ambience`,
 `acoustics`, `data`, and `log` (sounds asked for that don't exist).
 
@@ -585,15 +585,16 @@ node costs something each block. Two ways further, measured and not taken:
   change, now under way: the enhanced mode's voices play that way behind
   a switch, and the light mix is next (see "The voice engine").
 
-## The voice engine (`?voices=rust`)
+## The voice engine
 
-Behind a switch for now: with `?voices=rust` in the address, the enhanced
-mode's voices on speakers play in the spatial mixer's WebAssembly
-(`rust/audio/src/voices.rs`) instead of each through its own browser
-nodes (a buffer source, a gain, a low-pass and a reverb send), and the
-light mix's (Classic on stereo, the low-end default) play in one worklet
-of their own, `voice-engine`, instead of a buffer source and two speaker
-gains each. Without the switch nothing changes. On headphones without
+The enhanced mode's voices on speakers play in the spatial mixer's
+WebAssembly (`rust/audio/src/voices.rs`) instead of each through its own
+browser nodes (a buffer source, a gain, a low-pass and a reverb send), and
+the light mix's (Classic on stereo, the low-end default) play in one
+worklet of their own, `voice-engine`, instead of a buffer source and two
+speaker gains each. `?voices=native` in the address keeps the browser's
+nodes, a developer's A/B switch: the two sound the same (below), and the
+engine costs the audio thread about half as much. On headphones without
 the dummy-head decoder the voices keep the browser's HRTF panners. Not
 built yet, in this order: the enhanced master chain and the stream beds,
 Classic on surround, and headphones.
@@ -624,7 +625,8 @@ to this gate:
 2. With three or more voices into one input, the engine sums them in slot
    order, and its render may differ from a native render by no more than
    two native renders of the same scene differ from each other (the
-   largest difference over several pairs of pages).
+   largest difference over several pairs of pages; in the enhanced mode,
+   over as many pairs on each side, with the medians alike: below).
 
 The second rule is there because Chromium's own output is not
 reproducible in that case. A node input adds up its connections in the
@@ -661,17 +663,33 @@ and the nodes can differ at the same rounding level.
 twelve voices with the reverb silent, two with it on, and a voice's whole
 life in both modes (a loop as the listener moves, a one-shot that ends, a
 loop stopped with a fade, a loop that comes into earshot partway through
-its sample and starts there). `tests/audio-engine-gate.mjs` measures the
-second: it renders a scene of 24 voices natively in six pages and once
-with the engine, and compares the engine's largest difference from them
-with theirs among themselves. The light mix lands on the natives' own
-largest every time (8, 24 and 32 voices: -132.5, -126.4 and -126.4
-dBFS). In the enhanced mode the reverb spreads the rounding over its
-tail, so the largest difference is an extreme value that moves by a dB or
-two from run to run; the engine's lands within about 2 dB of the natives'
-either side (above it, by 0.1 to 1.7 dB, in three runs of seven), and
-its median difference is the natives' own (-112.3 against -112.0 dBFS at
-24 voices).
+its sample and starts there).
+
+`tests/audio-engine-gate.mjs` measures the second, over several seeds (a
+scene of 24 voices, each seed its own noise and listener's path), each
+rendered with the browser's nodes in six pages and once with the engine.
+
+- The light mix takes the rule as written: the engine's largest
+  difference from any native render within the largest between any two
+  of them. It lands exactly on the natives' own largest every time: 8, 24
+  and 32 voices, -132.5, -126.4 and -126.4 dBFS; at 24 voices twelve
+  seeds of twelve.
+- In the enhanced mode the reverb spreads the rounding over its tail, so
+  the largest difference is an extreme value, and an extreme taken over
+  more pairs runs larger: six natives make fifteen pairs among
+  themselves, the engine against them only six, so the engine was judged
+  by its six against the natives' fifteen (it came out above, by 0.1 to
+  1.7 dB, in three runs of seven). Like is compared with like instead:
+  six native pairs drawn at random (from the seed) against the engine's
+  six, the engine's largest within theirs, and its median within 0.5 dB
+  of theirs. An engine no different from one more native render meets
+  the first about half the time, so the gate reports the rate at which
+  seeds meet both. Over twelve seeds: the largest within the natives' in
+  4, the medians within 0.5 dB in 5, both in 2. Six natives' median moves
+  by 1 to 2 dB from seed to seed, more than the band; of the medians
+  outside it, the engine's was the smaller (closer to the natives than
+  they are to one another) in four of seven. Every difference in these
+  renders is below -108 dBFS.
 
 ### What it saves
 
@@ -691,11 +709,12 @@ master chain's gains and filters and the stream beds' nodes.
 The light mix, offline (the same scene): 110 ms a second of sound down to
 58 with 32 voices, 46 to 34 with 8; with a single voice the worklet costs
 more than the browser's three nodes (11 against 23 ms), the two meeting
-at about four voices. In battles on a calibrated emulation of the same
-laptop (Classic on stereo, Bespin Platforms and Hoth), the light mix's
-thread, the device's own, took 26 to 36% of a core; with the engine the
-worklet thread takes 14 to 17% and the device's, which only hands its
-blocks over then, 1.5 to 2%.
+at about four voices. On the laptop (Classic on stereo, the same battles
+and order), the light mix's thread, the device's own, took 38% of a core;
+with the engine the worklet thread takes 16 to 19% and the device's,
+which only hands its blocks over then, 1.7%. The page's audio phase went
+from 2.1-2.3 to 1.8-2.0 ms a frame and the frame rate rose by 1 to 2 fps
+(28.4-29.9 to 30.5-30.8 on Bespin, 26.8 to 27.9 on Hoth).
 
 ## Upscaling (`tools/enhance_audio.py`)
 

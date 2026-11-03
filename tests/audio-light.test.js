@@ -3,11 +3,15 @@ import assert from "node:assert/strict";
 import { ALSOFT, alsoftGains, alsoftStereo } from "../src/audio/layouts.js";
 import { LIGHT_LEVELS, ORIGINAL_LEVEL, Renderer, softClip } from "../src/audio/spatial.js";
 import { AudioEngine } from "../src/audio/engine.js";
+import { voicesRust } from "../src/audio/wasm-dsp.js";
 import { SoundData } from "../src/audio/data.js";
 
 // The light mix (Classic on stereo speakers) against a stand-in for the
 // browser's audio graph that records nodes and connections; the rendered
-// sound is checked in Chromium (tests/audio-checks.js).
+// sound is checked in Chromium (tests/audio-checks.js). These look at the
+// browser's own nodes a voice, so the page is as with ?voices=native; the
+// voice engine's graph has a test of its own (voicesRust set).
+globalThis.location = { search: "?voices=native" };
 
 let ids = 0;
 class Param {
@@ -424,7 +428,19 @@ test("the engine plays through the light mix: the voice's level and OpenAL Soft'
   sides.forEach((side) => assert.deepEqual(side.gain.events.at(-1), ["target", 0, ctx.currentTime, 0.01]));
 });
 
-test("with ?voices=rust the light mix plays its voices in one worklet, sent what the browser's gains would be set to", async () => {
+test("the voice engine is the default; ?voices=native keeps the browser's nodes", () => {
+  const page = globalThis.location;
+  try {
+    for (const [search, on] of [["", true], ["?map=bes1", true], ["?voices=native", false], ["?voices=rust", true]]) {
+      globalThis.location = { search };
+      assert.equal(voicesRust(), on, search || "(none)");
+    }
+  } finally {
+    globalThis.location = page;
+  }
+});
+
+test("the voice engine plays the light mix's voices in one worklet, sent what the browser's gains would be set to", async () => {
   const ctx = new FakeContext({ channels: 8 });
   const pcm = new Int16Array(22050).fill(1000);
   const data = new SoundData(
