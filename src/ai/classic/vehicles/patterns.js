@@ -1,6 +1,7 @@
 import * as THREE from "three";
-import { selectWeapon, forwardSpeed } from "../weapons-ai.js";
+import { forwardSpeed } from "../weapons-ai.js";
 import { steerState } from "./steering.js";
+import { port } from "./world.js";
 
 // Vehicle combat: the engagement dispatch for walker, hover and flyer
 // controls, and the attack patterns only vehicles run
@@ -21,7 +22,7 @@ const _fwd = new THREE.Vector3();
 const choice = { ok: false, index: -1, weapon: null, action: 6, inBand: false };
 
 function selectOnly(controller, unit, target, switchAllowed, world, out) {
-  selectWeapon(controller, unit, target, switchAllowed, world, choice);
+  port.selectWeapon(controller, unit, target, switchAllowed, world, choice);
   out.aux = choice.ok;
   out.action = choice.action;
   out.inBand = choice.inBand;
@@ -123,7 +124,7 @@ function hoverPassPoint(patterns, unit, st, out) {
   const along = _fwd.dot(_d);
   normalizeXZ(_n.copy(_fwd).addScaledVector(_d, -along));
   const target = patterns.agent.tracker?.freshTarget ?? null;
-  const r = (unit.sphere?.radius ?? 0) + (target?.sphere?.radius ?? 0) + 2;
+  const r = (port.sphere(unit)?.radius ?? 0) + ((target ? port.sphere(target) : undefined)?.radius ?? 0) + 2;
   out.copy(_q).addScaledVector(_n, r);
   normalizeXZ(_p.subVectors(out, P));
   return out.addScaledVector(_p, 0.5 * v);
@@ -383,7 +384,7 @@ export function sidestep(patterns, perSecond) {
   const random = patterns.random;
   if (random.int(1, 13 * perSecond) !== 1) return false;
   const side = random.int(0, 1) * 2 - 1;
-  const r = unit.sphere?.radius ?? 1;
+  const r = port.sphere(unit)?.radius ?? 1;
   const distance = r === 2 * r ? r : f(r + random.uniform() * (2 * r - r));
   const yaw = unit.bodyYaw ?? unit.soldier?.aimYaw ?? 0;
   // The transform's right row (the 2004 game's, which is the port's left).
