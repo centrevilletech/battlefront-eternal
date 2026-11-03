@@ -2,8 +2,7 @@
 // in three's back-to-front order, as three's transparent list would. Any
 // pass whose draws blend (the effects, the water...) is a source of items
 // for it on the renderer's side (transparent.rs Source); this file is the
-// page's side of the list and of this pass's own items, the map's blended
-// buckets.
+// page's side of the list and of this pass's own items.
 //
 // When it draws. The near phase runs at the start of the near scene's
 // opaque list; three has sorted its lists by then. After it (afterPhase),
@@ -20,10 +19,17 @@
 // item's onAfterRender, armed after the phase). The frame's blending order
 // is then the one three would have drawn everything in.
 //
-// The map's blended buckets: each is registered the first time three has
-// drawn it (which gives its material a program), then hidden from three. A
-// double-sided one is two draws, as three makes them (back faces, then
-// front), each with three's own program for that side.
+// This pass's own items: the map's blended buckets, and objects drawn with
+// three's basic and sprite materials (the command posts' holograms, beams
+// and flares). three still lists them: its culling, its keys and the game's
+// own visibility stand. After the near phase, those registered are taken
+// out of three's list in the near scene's own render (any other, a
+// mirror's, still draws them with three), each a record of its key (and an
+// object's matrix and material values), which the renderer draws in their
+// place, each as three would: a double-sided one twice, back faces then
+// front, each with three's own program for that side. Each is registered
+// once three has drawn it as it is now, and drawn by three again when three
+// would draw it with another program.
 import * as THREE from "three";
 
 // add_program's kind for the map's meshes (web/mod.rs).
@@ -48,6 +54,17 @@ const FACTORS = {
   [THREE.OneMinusDstAlphaFactor]: GL.ONE_MINUS_DST_ALPHA, [THREE.DstColorFactor]: GL.DST_COLOR, [THREE.OneMinusDstColorFactor]: GL.ONE_MINUS_DST_COLOR,
   [THREE.SrcAlphaSaturateFactor]: GL.SRC_ALPHA_SATURATE,
 };
+// three's materials whose objects this pass draws (transparent.rs OBJECT_*),
+// and what their programs may read besides the frame block: the object's
+// matrices, the material's values and map, a sprite's rotation and centre.
+const OBJECT_KINDS = { MeshBasicMaterial: 0, SpriteMaterial: 1 };
+const OBJECT_POLICY = {
+  uniforms: new Set(["modelViewMatrix", "modelMatrix", "diffuse", "opacity", "map", "mapTransform", "rotation", "center", "isOrthographic"]),
+  material: new Set(),
+};
+const OBJ = { INDEX: 0, KEY: 1, WORLD: 5, DIFFUSE: 21, ROTATION: 25, CENTER: 26, MAP: 28, BUCKET: 37 };
+const baseBeforeRender = THREE.Object3D.prototype.onBeforeRender, baseAfterRender = THREE.Object3D.prototype.onAfterRender;
+const baseMaterialBeforeRender = THREE.Material.prototype.onBeforeRender;
 const DEPTH_FUNCS = { [THREE.NeverDepth]: 0x0200, [THREE.LessDepth]: 0x0201, [THREE.EqualDepth]: 0x0202, [THREE.LessEqualDepth]: 0x0203, [THREE.GreaterDepth]: 0x0204, [THREE.NotEqualDepth]: 0x0205, [THREE.GreaterEqualDepth]: 0x0206, [THREE.AlwaysDepth]: 0x0207 };
 
 // A material's blending as three's setBlending sets it: [enabled, equation
@@ -91,27 +108,29 @@ export function sidesOf(material) {
   return [material.side === THREE.BackSide ? 1 : material.side === THREE.DoubleSide ? 2 : 0];
 }
 
-// three's program for a material drawn with `side` (0 front, 1 back): the
-// one it last drew with for that side, among the material's programs. A
-// side's program differs from the other's by its FLIP_SIDED define.
-function programForSide(renderer, material, side) {
+// three's program for a material drawn with `side` (0 front, 1 back, 2
+// both: a single pass, as three draws a double-sided ShaderMaterial, which
+// forces one): the one it last drew with for that side, among the
+// material's programs. They differ by their FLIP_SIDED and DOUBLE_SIDED
+// defines alone.
+export function programForSide(renderer, material, side) {
   const props = renderer.properties.get(material), current = props.currentProgram;
   if (!current) return null;
   const gl = renderer.getContext();
   const vertexOf = (program) => {
     const [vs] = gl.getAttachedShaders(program.program).filter((s) => gl.getShaderParameter(s, gl.SHADER_TYPE) === gl.VERTEX_SHADER);
-    return gl.getShaderSource(vs);
+    return vs ? gl.getShaderSource(vs) : null;
   };
-  const flipped = (source) => /^#define FLIP_SIDED$/m.test(source);
+  const fits = (source) => /^#define FLIP_SIDED$/m.test(source) === (side === 1) && /^#define DOUBLE_SIDED$/m.test(source) === (side === 2);
   const strip = (source) => source.replace(/^#define (FLIP|DOUBLE)_SIDED\n/gm, "");
-  const want = side === 1;
   const currentSource = vertexOf(current);
-  if (flipped(currentSource) === want && !/^#define DOUBLE_SIDED$/m.test(currentSource)) return current;
+  if (currentSource === null) return null;
+  if (fits(currentSource)) return current;
   const base = strip(currentSource);
   for (const program of props.programs?.values() || []) {
     if (program === current) continue;
     const source = vertexOf(program);
-    if (flipped(source) === want && !/^#define DOUBLE_SIDED$/m.test(source) && strip(source) === base) return program;
+    if (source !== null && fits(source) && strip(source) === base) return program;
   }
   return null;
 }
@@ -121,26 +140,44 @@ class TransparentPass {
     this.core = core;
     this.name = "transparent";
     this.phase = "transparent";
-    this.pending = null;
-    this.buckets = [];
-    this.count = 0;
+    this.active = true;
+    this.frameNo = 0;
     // Three's render list of the near scene this frame, the items it still
     // draws itself, and the hooks armed on them (object -> hook).
     this.list = null;
     this.three = [];
     this.hooks = new Map();
     this.segmentStats = [];
+    // What this pass draws in three's place: three's object -> { bucket,
+    // id, material, program (three's, front pass), frame (registered) }, or
+    // null for one left to three. Candidates: items seen in three's list
+    // this frame, registered in the transparent phase.
+    this.taken = new Map();
+    this.candidates = [];
+    this.buckets = 0;
+    this.objectCount = 0;
+    this.takenCount = 0;
     core.addView("transparentKeys", Float64Array, () => core.rust.transparent_keys_ptr(), () => core.rust.transparent_keys_len());
+    core.addView("transparentObjects", Float64Array, () => core.rust.transparent_objects_ptr(), () => core.rust.transparent_objects_len());
+    this.objectStride = core.rust.transparent_object_stride();
   }
 
-  // After the near phase: arm the transparent phase on the item three draws
-  // just before its transparent list. After the transparent phase: arm each
-  // later segment on the item three draws just before it.
+  // After the near phase (the near scene's own render: never a mirror's):
+  // take what this pass draws out of three's transparent list, then arm the
+  // transparent phase on the item three draws just before that list. After
+  // the transparent phase: arm each later segment on the item three draws
+  // just before it.
   afterPhase(name, ctx) {
     if (name === "near") {
       this.disarm();
+      this.frameNo++;
+      this.list = null;
+      this.takenCount = 0;
+      // Off (a comparison): three draws its whole list, as before this pass.
+      if (!this.active) return;
       this.list = this.threeList(ctx.renderer, ctx.scene);
       if (!this.list) return;
+      this.take(this.list.transparent);
       const before = this.list.transmissive.length ? this.list.transmissive : this.list.opaque;
       const last = before[before.length - 1];
       const start = () => this.core.phase("transparent", ctx.renderer, ctx.scene, ctx.camera);
@@ -202,18 +239,81 @@ class TransparentPass {
     this.hooks.clear();
   }
 
-  // The transparent phase, before the renderer's call: this pass's buckets
-  // (registered, shown), then three's own remaining items' keys.
+  // What this pass draws, out of three's transparent list (in place: three's
+  // loop over it has not started), each a record for the renderer with
+  // three's key. Taken only while three's program for it is the one it was
+  // registered with, and three has drawn it as it is now (it still does in
+  // other renders, a mirror's); else three draws it, and it is registered
+  // again if its program changed.
+  take(items) {
+    const core = this.core, renderer = core.renderer, stride = this.objectStride;
+    core.views();
+    const records = core.transparentObjects;
+    let kept = 0, n = 0;
+    this.candidates.length = 0;
+    for (const item of items) {
+      let entry = this.taken.get(item.object);
+      // Another material since (the game swapped it): looked at again.
+      if (entry && entry.material !== item.material) { this.taken.delete(item.object); entry = undefined; }
+      else if (entry && item.group) entry = null;
+      else if (entry) {
+        const props = renderer.properties.get(entry.material);
+        if (props.currentProgram !== entry.program) { this.taken.delete(item.object); entry = undefined; }
+        else if (props.__version !== entry.material.version || entry.frame >= this.frameNo) entry = null;
+      }
+      if (entry === undefined && this.candidate(item)) this.candidates.push(item);
+      if (entry && n < 512) {
+        const o = 1 + n * stride;
+        if (entry.bucket) {
+          records[o] = entry.id; records[o + OBJ.BUCKET] = 1;
+          records[o + OBJ.KEY] = item.groupOrder; records[o + OBJ.KEY + 1] = item.renderOrder; records[o + OBJ.KEY + 2] = item.z; records[o + OBJ.KEY + 3] = item.id;
+        } else this.writeObject(records, o, entry, item);
+        n++;
+        continue;
+      }
+      items[kept++] = item;
+    }
+    items.length = kept;
+    records[0] = n;
+    this.takenCount = n;
+  }
+
+  // Whether three's item is one this pass could draw: one of the map's
+  // blended buckets, or an object with a material it knows.
+  candidate(item) {
+    const { object, material } = item;
+    if (item.group || Array.isArray(object.material)) return false;
+    if (OBJECT_KINDS[material.type] !== undefined) return true;
+    return Boolean(object.isMesh && object.parent === this.core.graphics.scene && !object.matrixAutoUpdate && object.matrix.equals(IDENTITY)
+      && material.defines && "WORLD_SPACE" in material.defines && !("TERRAIN" in material.defines) && material.isShaderMaterial);
+  }
+
+  writeObject(r, o, entry, item) {
+    const object = item.object, material = entry.material;
+    r[o + OBJ.INDEX] = entry.id; r[o + OBJ.BUCKET] = 0;
+    r[o + OBJ.KEY] = item.groupOrder; r[o + OBJ.KEY + 1] = item.renderOrder; r[o + OBJ.KEY + 2] = item.z; r[o + OBJ.KEY + 3] = item.id;
+    r.set(object.matrixWorld.elements, o + OBJ.WORLD);
+    const c = material.color;
+    r[o + OBJ.DIFFUSE] = c.r; r[o + OBJ.DIFFUSE + 1] = c.g; r[o + OBJ.DIFFUSE + 2] = c.b; r[o + OBJ.DIFFUSE + 3] = material.opacity;
+    r[o + OBJ.ROTATION] = material.rotation ?? 0;
+    r[o + OBJ.CENTER] = object.center?.x ?? 0; r[o + OBJ.CENTER + 1] = object.center?.y ?? 0;
+    // refreshTransformUniform: the map's matrix, brought up to date first.
+    const map = material.map;
+    if (map) { if (map.matrixAutoUpdate) map.updateMatrix(); r.set(map.matrix.elements, o + OBJ.MAP); }
+  }
+
+  // The transparent phase, before the renderer's call: what three listed
+  // this frame that this pass has not seen, registered (three draws it this
+  // frame: from the next one it is taken), then three's own remaining
+  // items' keys.
   draw(ctx) {
     const core = this.core;
-    for (const b of this.buckets) {
-      let shown = true;
-      for (let o = b.mesh; o && o !== ctx.scene; o = o.parent) if (!o.visible) { shown = false; break; }
-      if (shown !== b.shown) { b.shown = shown; core.rust.transparent_bucket_shown(b.id, shown); }
+    for (const item of this.candidates) {
+      if (this.taken.has(item.object)) continue;
+      const entry = OBJECT_KINDS[item.material.type] !== undefined ? this.registerObject(item) : this.registerBucket(item);
+      if (entry !== undefined) this.taken.set(item.object, entry);
     }
-    // Registered now, hidden from three now, but in three's list this frame:
-    // drawn from the next frame (shown above), not twice in this one.
-    if (!this.pending || this.pending.length) this.registerBuckets();
+    this.candidates.length = 0;
     core.views();
     const keys = core.transparentKeys, items = this.list?.transparent || [], three = this.three;
     three.length = 0;
@@ -235,55 +335,88 @@ class TransparentPass {
     renderer.setRenderTarget(target);
   }
 
-  // The map's blended buckets in the near scene the renderer can draw.
-  registerBuckets() {
-    const core = this.core, scene = core.graphics.scene, renderer = core.renderer, rust = core.rust;
-    if (!this.pending) {
-      this.pending = scene.children.filter((o) => o.isMesh && !o.matrixAutoUpdate && o.matrix.equals(IDENTITY) && !Array.isArray(o.material)
-        && o.material.defines && "WORLD_SPACE" in o.material.defines && !("TERRAIN" in o.material.defines) && o.material.transparent);
-    }
-    this.pending = this.pending.filter((mesh) => {
-      const material = mesh.material, geometry = mesh.geometry, props = renderer.properties.get(material);
-      // Not drawn by three yet as it is now (no program, or one for an older version of it).
-      if (!props.currentProgram || props.__version !== material.version) return true;
-      if (geometry.groups.length || Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count < (geometry.index?.count ?? 0)) return false;
-      const blend = blendOf(material), state = stateOf(material);
-      if (!blend || !state) return false;
-      const sides = sidesOf(material);
-      const programs = sides.map((side) => { const p = programForSide(renderer, material, side); return p && core.program(p, WORLD, material, POLICY); });
-      if (programs.some((p) => !p)) { core.errors.push(`blended ${mesh.name}: program`); return false; }
-      const g = core.geometry(geometry, programs[0]);
-      if (g === null) return false;
-      if (programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) { core.errors.push(`blended ${mesh.name}: attributes`); return false; }
-      if (!geometry.boundingSphere) geometry.computeBoundingSphere();
-      if (!geometry.boundingBox) geometry.computeBoundingBox();
-      const s = geometry.boundingSphere, bb = geometry.boundingBox;
-      const pointLit = Boolean(material.userData.pointLit) && programs.some((p) => p.names.has("zeroLightCount"));
-      const id = rust.transparent_bucket(g, new Uint32Array(blend), state.func, state.flags, pointLit, new Float64Array([mesh.id, mesh.renderOrder]),
-        new Float64Array([s.center.x, s.center.y, s.center.z, s.radius, bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z]));
-      const map = core.texture(material.uniforms.map?.value);
-      if (map >= 0) rust.transparent_bucket_texture(id, 0, map);
-      if (programs.some((p) => p.names.has("bumpMap"))) { const bump = core.texture(material.uniforms.bumpMap?.value); if (bump >= 0) rust.transparent_bucket_texture(id, 2, bump); }
-      sides.forEach((side, i) => {
-        const pass = rust.transparent_bucket_pass(id, programs[i].id, side);
-        for (const name of programs[i].names) {
-          if (!MATERIAL.has(name)) continue;
-          const v = material.uniforms[name]?.value;
-          const values = typeof v === "number" ? [v] : v?.isVector4 ? [v.x, v.y, v.z, v.w] : v?.isVector3 ? [v.x, v.y, v.z] : v?.isVector2 ? [v.x, v.y] : null;
-          if (values) rust.transparent_bucket_uniform(id, pass, name, new Float32Array(values), false);
-        }
-      });
-      material.visible = false;
-      rust.transparent_bucket_shown(id, false);
-      this.buckets.push({ id, mesh, shown: false });
-      this.count++;
-      return false;
-    });
+  // Three's passes for a material (transparent.rs), each its program for
+  // the renderer, or null: [{ side, program }], three's program for the
+  // front pass (the one it draws last) first among `three`.
+  passesOf(material, policy) {
+    const core = this.core, renderer = core.renderer;
+    const sides = sidesOf(material);
+    const three = sides.map((side) => programForSide(renderer, material, side));
+    if (three.some((p) => !p)) return null;
+    const programs = three.map((p) => core.program(p, WORLD, material, policy));
+    if (programs.some((p) => !p) || programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
+    return { sides, programs, current: renderer.properties.get(material).currentProgram };
   }
 
+  // A map's blended bucket three drew as it is now: { bucket, id, material,
+  // program, frame }, null for one left to three, or undefined to look
+  // again later.
+  registerBucket(item) {
+    const core = this.core, renderer = core.renderer, rust = core.rust;
+    const { object: mesh, material } = item, geometry = mesh.geometry;
+    const props = renderer.properties.get(material);
+    if (!props.currentProgram || props.__version !== material.version) return undefined;
+    if (geometry.groups.length || Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count < (geometry.index?.count ?? 0)) return null;
+    if (mesh.onBeforeRender !== baseBeforeRender || mesh.onAfterRender !== baseAfterRender) return null;
+    const blend = blendOf(material), state = stateOf(material);
+    if (!blend || !state) return null;
+    const passes = this.passesOf(material, POLICY);
+    if (!passes) { core.errors.push(`blended ${mesh.name}: program`); return null; }
+    const g = core.geometry(geometry, passes.programs[0]);
+    if (g === null) return null;
+    if (!geometry.boundingBox) geometry.computeBoundingBox();
+    const bb = geometry.boundingBox;
+    const pointLit = Boolean(material.userData.pointLit) && passes.programs.some((p) => p.names.has("zeroLightCount"));
+    const id = rust.transparent_bucket(g, new Uint32Array(blend), state.func, state.flags, pointLit, new Float64Array([bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z]));
+    const map = core.texture(material.uniforms.map?.value);
+    if (map >= 0) rust.transparent_bucket_texture(id, 0, map);
+    if (passes.programs.some((p) => p.names.has("bumpMap"))) { const bump = core.texture(material.uniforms.bumpMap?.value); if (bump >= 0) rust.transparent_bucket_texture(id, 2, bump); }
+    passes.sides.forEach((side, i) => {
+      const program = passes.programs[i], pass = rust.transparent_bucket_pass(id, program.id, side);
+      for (const name of program.names) {
+        if (!MATERIAL.has(name)) continue;
+        const v = material.uniforms[name]?.value;
+        const values = typeof v === "number" ? [v] : v?.isVector4 ? [v.x, v.y, v.z, v.w] : v?.isVector3 ? [v.x, v.y, v.z] : v?.isVector2 ? [v.x, v.y] : null;
+        if (values) rust.transparent_bucket_uniform(id, pass, name, new Float32Array(values), false);
+      }
+    });
+    this.buckets++;
+    return { bucket: true, id, material, program: passes.current, frame: this.frameNo };
+  }
+
+  // An object three drew as it is now, with a material this pass draws:
+  // { bucket: false, id, material, program, frame }, null for one left to
+  // three, or undefined to look again later.
+  registerObject(item) {
+    const core = this.core, renderer = core.renderer, rust = core.rust;
+    const { object, material, geometry } = item;
+    const props = renderer.properties.get(material);
+    if (!props.currentProgram || props.__version !== material.version) return undefined;
+    const kind = OBJECT_KINDS[material.type];
+    if (object.isSkinnedMesh || object.isInstancedMesh || object.isBatchedMesh || object.morphTargetInfluences?.length || (!object.isMesh && !object.isSprite)) return null;
+    if (object.onBeforeRender !== baseBeforeRender || object.onAfterRender !== baseAfterRender || material.onBeforeRender !== baseMaterialBeforeRender) return null;
+    if (material.alphaMap || material.alphaTest > 0 || material.alphaHash || material.vertexColors || material.envMap || material.lightMap || material.aoMap || material.specularMap || material.wireframe) return null;
+    const blend = blendOf(material), state = stateOf(material);
+    if (!blend || !state || !geometry.index || Object.keys(geometry.morphAttributes).length) return null;
+    const passes = this.passesOf(material, OBJECT_POLICY);
+    if (!passes) return null;
+    const g = core.geometry(geometry, passes.programs[0]);
+    if (g === null) return null;
+    let map = -1;
+    if (passes.programs[0].names.has("map")) { map = core.texture(material.map); if (map < 0) return null; }
+    const start = geometry.drawRange.start, count = Math.min(geometry.drawRange.count, geometry.index.count - start);
+    const id = rust.transparent_object(kind, g, start, count, new Uint32Array(blend), state.func, state.flags);
+    passes.sides.forEach((side, i) => rust.transparent_object_pass(id, passes.programs[i].id, side));
+    if (map >= 0) rust.transparent_object_texture(id, map);
+    this.objectCount++;
+    return { bucket: false, id, material, program: passes.current, frame: this.frameNo };
+  }
+
+  // Off: three draws everything in its list again (alone, for a comparison
+  // in one battle, or with the whole renderer).
   setActive(on) {
+    this.active = on;
     this.disarm();
-    for (const b of this.buckets) if (b.mesh.material) b.mesh.material.visible = !on;
   }
 
   restore() {

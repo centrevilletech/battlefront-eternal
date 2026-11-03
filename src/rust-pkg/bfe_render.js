@@ -90,6 +90,28 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} item
+     * @param {Float32Array | number[]} positions
+     * @param {Uint32Array | number[]} index
+     * @param {number} cell_size
+     */
+    far_cells(item, positions, index, cell_size) {
+        const val3 = +item;
+        const val4 = +cell_size;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArrayF32ToWasm0(positions, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(index, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        wasm.bferenderer_far_cells(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1, val4);
+    }
+    /**
      * @returns {Uint32Array}
      */
     far_frame() {
@@ -100,6 +122,147 @@ export class BfeRenderer {
         var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
         return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    far_input_len() {
+        const ret = wasm.bferenderer_far_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    far_input_ptr() {
+        const ret = wasm.bferenderer_far_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} item
+     * @param {number} location
+     * @param {number} columns
+     * @param {number} rows
+     * @param {number} max
+     * @param {number} count
+     * @param {number} at
+     */
+    far_instanced(item, location, columns, rows, max, count, at) {
+        wasm.bferenderer_far_instanced(this.__wbg_ptr, item, location, columns, rows, max, count, at);
+    }
+    /**
+     * @param {number} program
+     * @param {number} table
+     * @param {number} geometry
+     * @param {number} flags
+     * @param {number} depth_func
+     * @param {Uint32Array | number[]} blend
+     * @param {Float64Array | number[]} order
+     * @param {Float64Array | number[]} sphere
+     * @param {number} slot
+     * @returns {number}
+     */
+    far_item(program, table, geometry, flags, depth_func, blend, order, sphere, slot) {
+        const val4 = +program;
+        const val5 = +table;
+        const val6 = +geometry;
+        const val7 = +flags;
+        const val8 = +depth_func;
+        const val9 = +slot;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF64ToWasm0(order, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArrayF64ToWasm0(sphere, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 8, 8); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 8, 8); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_far_item(this.__wbg_ptr, val4, val5, val6, val7, val8, ptr0, len0, ptr1, len1, ptr2, len2, val9);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    far_items() {
+        const ret = wasm.bferenderer_far_items(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} item
+     * @param {number} start
+     * @param {number} count
+     */
+    far_range(item, start, count) {
+        wasm.bferenderer_far_range(this.__wbg_ptr, item, start, count);
+    }
+    /**
+     * @param {number} item
+     * @param {number} uniform
+     * @param {number} kind
+     * @param {Float32Array | number[]} values
+     * @param {number} at
+     */
+    far_source(item, uniform, kind, values, at) {
+        const val2 = +item;
+        const val3 = +uniform;
+        const val4 = +kind;
+        const val5 = +at;
+        const ptr0 = passArrayF32ToWasm0(values, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_far_source(this.__wbg_ptr, val2, val3, val4, ptr0, len0, val5);
+    }
+    /**
+     * @param {number} program
+     * @param {string} names
+     * @param {Uint32Array | number[]} types
+     * @param {Uint32Array | number[]} counts
+     * @returns {number | undefined}
+     */
+    far_table(program, names, types, counts) {
+        const val4 = +program;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passStringToWasm0(names, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(types, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArray32ToWasm0(counts, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 4, 4); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_far_table(this.__wbg_ptr, val4, ptr0, len0, ptr1, len1, ptr2, len2);
+        return ret === Number.MAX_SAFE_INTEGER ? undefined : ret;
+    }
+    /**
+     * @param {number} item
+     * @param {number} level
+     * @param {Uint32Array | number[]} index
+     * @param {Float64Array | number[]} cells
+     */
+    far_terrain(item, level, index, cells) {
+        const val3 = +item;
+        const val4 = +level;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(index, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF64ToWasm0(cells, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 8, 8); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        wasm.bferenderer_far_terrain(this.__wbg_ptr, val3, val4, ptr0, len0, ptr1, len1);
     }
     /**
      * @param {number} records
@@ -488,30 +651,26 @@ export class BfeRenderer {
      * @param {number} depth_func
      * @param {number} flags
      * @param {boolean} point_lit
-     * @param {Float64Array | number[]} ids
      * @param {Float64Array | number[]} bounds
      * @returns {number}
      */
-    transparent_bucket(geometry, blend, depth_func, flags, point_lit, ids, bounds) {
-        const val4 = +geometry;
-        const val5 = +depth_func;
-        const val6 = +flags;
-        const val7 = +point_lit;
-        let ptr0, len0, ptr1, len1, ptr2, len2;
+    transparent_bucket(geometry, blend, depth_func, flags, point_lit, bounds) {
+        const val3 = +geometry;
+        const val4 = +depth_func;
+        const val5 = +flags;
+        const val6 = +point_lit;
+        let ptr0, len0, ptr1, len1;
         try {
             ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
             len0 = WASM_VECTOR_LEN;
-            ptr1 = passArrayF64ToWasm0(ids, wasm.__wbindgen_malloc);
+            ptr1 = passArrayF64ToWasm0(bounds, wasm.__wbindgen_malloc);
             len1 = WASM_VECTOR_LEN;
-            ptr2 = passArrayF64ToWasm0(bounds, wasm.__wbindgen_malloc);
-            len2 = WASM_VECTOR_LEN;
         } catch (e) {
-            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 8, 8); }
             if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 8, 8); }
             if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
             throw e;
         }
-        const ret = wasm.bferenderer_transparent_bucket(this.__wbg_ptr, val4, ptr0, len0, val5, val6, val7, ptr1, len1, ptr2, len2);
+        const ret = wasm.bferenderer_transparent_bucket(this.__wbg_ptr, val3, ptr0, len0, val4, val5, val6, ptr1, len1);
         return ret >>> 0;
     }
     /**
@@ -523,13 +682,6 @@ export class BfeRenderer {
     transparent_bucket_pass(b, program, side) {
         const ret = wasm.bferenderer_transparent_bucket_pass(this.__wbg_ptr, b, program, side);
         return ret >>> 0;
-    }
-    /**
-     * @param {number} b
-     * @param {boolean} shown
-     */
-    transparent_bucket_shown(b, shown) {
-        wasm.bferenderer_transparent_bucket_shown(this.__wbg_ptr, b, shown);
     }
     /**
      * @param {number} b
@@ -593,6 +745,64 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} kind
+     * @param {number} geometry
+     * @param {number} start
+     * @param {number} count
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_func
+     * @param {number} flags
+     * @returns {number}
+     */
+    transparent_object(kind, geometry, start, count, blend, depth_func, flags) {
+        const val2 = +kind;
+        const val3 = +geometry;
+        const val4 = +start;
+        const val5 = +count;
+        const val6 = +depth_func;
+        const val7 = +flags;
+        const ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_transparent_object(this.__wbg_ptr, val2, val3, val4, val5, ptr0, len0, val6, val7);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} o
+     * @param {number} program
+     * @param {number} side
+     */
+    transparent_object_pass(o, program, side) {
+        wasm.bferenderer_transparent_object_pass(this.__wbg_ptr, o, program, side);
+    }
+    /**
+     * @returns {number}
+     */
+    transparent_object_stride() {
+        const ret = wasm.bferenderer_transparent_object_stride(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} o
+     * @param {number} texture
+     */
+    transparent_object_texture(o, texture) {
+        wasm.bferenderer_transparent_object_texture(this.__wbg_ptr, o, texture);
+    }
+    /**
+     * @returns {number}
+     */
+    transparent_objects_len() {
+        const ret = wasm.bferenderer_transparent_objects_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    transparent_objects_ptr() {
+        const ret = wasm.bferenderer_transparent_objects_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} k
      * @returns {Uint32Array}
      */
@@ -652,6 +862,33 @@ export class BfeRenderer {
             throw e;
         }
         wasm.bferenderer_world_cells(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1, val4);
+    }
+    /**
+     * @param {number} w
+     * @param {Uint32Array | number[]} ranges
+     * @param {Float64Array | number[]} boxes
+     */
+    world_runs(w, ranges, boxes) {
+        const val3 = +w;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(ranges, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF64ToWasm0(boxes, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 8, 8); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        wasm.bferenderer_world_runs(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1);
+    }
+    /**
+     * @param {number} w
+     * @param {boolean} shown
+     */
+    world_shown(w, shown) {
+        wasm.bferenderer_world_shown(this.__wbg_ptr, w, shown);
     }
     /**
      * @param {number} w
@@ -782,6 +1019,18 @@ function __wbg_get_imports() {
         __wbg_bufferSubData_9bec93d67e98757e: function(arg0, arg1, arg2, arg3) {
             arg0.bufferSubData(arg1 >>> 0, arg2, arg3);
         },
+        __wbg_clearColor_0a9b08857907c212: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.clearColor(arg1, arg2, arg3, arg4);
+        },
+        __wbg_clearColor_195b5a731bca5836: function(arg0, arg1, arg2, arg3, arg4) {
+            arg0.clearColor(arg1, arg2, arg3, arg4);
+        },
+        __wbg_clear_3ffa1ed794f92a04: function(arg0, arg1) {
+            arg0.clear(arg1 >>> 0);
+        },
+        __wbg_clear_ccb3d618da90fea3: function(arg0, arg1) {
+            arg0.clear(arg1 >>> 0);
+        },
         __wbg_colorMask_24c1b6c3ec53f8c8: function(arg0, arg1, arg2, arg3, arg4) {
             arg0.colorMask(arg1 !== 0, arg2 !== 0, arg3 !== 0, arg4 !== 0);
         },
@@ -839,6 +1088,12 @@ function __wbg_get_imports() {
         },
         __wbg_cullFace_9eaca57652d7ed37: function(arg0, arg1) {
             arg0.cullFace(arg1 >>> 0);
+        },
+        __wbg_deleteBuffer_673584ba5a55669d: function(arg0, arg1) {
+            arg0.deleteBuffer(arg1);
+        },
+        __wbg_deleteBuffer_ffa760fd3b0b5ef1: function(arg0, arg1) {
+            arg0.deleteBuffer(arg1);
         },
         __wbg_deleteProgram_8c38fff0f4a88dea: function(arg0, arg1) {
             arg0.deleteProgram(arg1);
@@ -1045,17 +1300,35 @@ function __wbg_get_imports() {
         __wbg_uniform1i_778a02a48ecdceed: function(arg0, arg1, arg2) {
             arg0.uniform1i(arg1, arg2);
         },
+        __wbg_uniform1iv_720e3c4c65756ffe: function(arg0, arg1, arg2, arg3) {
+            arg0.uniform1iv(arg1, getArrayI32FromWasm0(arg2, arg3));
+        },
+        __wbg_uniform1iv_efb158454c8967c2: function(arg0, arg1, arg2, arg3) {
+            arg0.uniform1iv(arg1, getArrayI32FromWasm0(arg2, arg3));
+        },
         __wbg_uniform2f_6bd82d6e7f81060b: function(arg0, arg1, arg2, arg3) {
             arg0.uniform2f(arg1, arg2, arg3);
         },
         __wbg_uniform2f_7e4c627c4106dd3f: function(arg0, arg1, arg2, arg3) {
             arg0.uniform2f(arg1, arg2, arg3);
         },
+        __wbg_uniform2fv_486658e6bcddfbaf: function(arg0, arg1, arg2, arg3) {
+            arg0.uniform2fv(arg1, getArrayF32FromWasm0(arg2, arg3));
+        },
+        __wbg_uniform2fv_71fe605c72879b61: function(arg0, arg1, arg2, arg3) {
+            arg0.uniform2fv(arg1, getArrayF32FromWasm0(arg2, arg3));
+        },
         __wbg_uniform3f_6f94179d13a10f48: function(arg0, arg1, arg2, arg3, arg4) {
             arg0.uniform3f(arg1, arg2, arg3, arg4);
         },
         __wbg_uniform3f_b9f8bdb406b70135: function(arg0, arg1, arg2, arg3, arg4) {
             arg0.uniform3f(arg1, arg2, arg3, arg4);
+        },
+        __wbg_uniform3fv_431207a9407b7d29: function(arg0, arg1, arg2, arg3) {
+            arg0.uniform3fv(arg1, getArrayF32FromWasm0(arg2, arg3));
+        },
+        __wbg_uniform3fv_58fa948c65cb5f6c: function(arg0, arg1, arg2, arg3) {
+            arg0.uniform3fv(arg1, getArrayF32FromWasm0(arg2, arg3));
         },
         __wbg_uniform4f_14a3638afe93aa8f: function(arg0, arg1, arg2, arg3, arg4, arg5) {
             arg0.uniform4f(arg1, arg2, arg3, arg4, arg5);

@@ -5,7 +5,7 @@
 // Drawn in three's opaque order (material creation) unless sorted by
 // program (?rustSort), each bucket's material values and point lights set
 // only when they differ from what its program holds.
-use crate::core::{Camera, Core, MultiDraw, Program, Stats, Value, PASS_WORLD};
+use crate::core::{Camera, Core, MultiDraw, Program, Stats, Value, PASS_TERRAIN, PASS_WORLD};
 use crate::lights::light_mask;
 use crate::shader::{FRAME_LIGHTS, MAX_LIGHTS};
 use glow::HasContext;
@@ -33,6 +33,9 @@ struct World<C: HasContext> {
     sphere: ([f64; 3], f64),
     bbox: ([f64; 3], [f64; 3]),
     cells: Option<Cells>,
+    shown: bool,
+    // The pass its draws count for (the terrain's: PASS_TERRAIN).
+    pass: usize,
 }
 
 pub struct WorldPass<C: HasContext> {
@@ -46,7 +49,9 @@ impl<C: HasContext> WorldPass<C> {
         WorldPass { world: vec![], order: vec![], by_program: true }
     }
 
-    // bounds: sphere centre and radius, then box min and max (world space).
+    // flags: cull side | 4 alpha to coverage | 8 depth write | 16 point lit
+    // | 32 the terrain (its draws count for the terrain pass). bounds: sphere
+    // centre and radius, then box min and max (world space).
     pub fn add_world(&mut self, geometry: u32, program: u32, order: u32, flags: u32, bounds: &[f64]) -> u32 {
         self.world.push(World {
             geometry: geometry as usize, program: program as usize, textures: vec![], uniforms: vec![],
@@ -54,6 +59,8 @@ impl<C: HasContext> WorldPass<C> {
             sphere: ([bounds[0], bounds[1], bounds[2]], bounds[3]),
             bbox: ([bounds[4], bounds[5], bounds[6]], [bounds[7], bounds[8], bounds[9]]),
             cells: None,
+            shown: true,
+            pass: if flags & 32 != 0 { PASS_TERRAIN } else { PASS_WORLD },
         });
         (self.world.len() - 1) as u32
     }
@@ -116,6 +123,21 @@ impl<C: HasContext> WorldPass<C> {
         self.world[w as usize].cells = Some(Cells { visible: vec![0; parts.len()], parts, runs, offsets: vec![0; n], counts: vec![0; n] });
     }
 
+    // Cells given as they are (terrain-patches.js: each cell one range of
+    // the index, its triangles' box): ranges [first index, end] and boxes
+    // [min, max] per cell, in index order.
+    pub fn world_runs(&mut self, w: u32, ranges: &[u32], boxes: &[f64]) {
+        let n = ranges.len() / 2;
+        let runs = (0..n).map(|i| [i as u32, ranges[2 * i], ranges[2 * i + 1]]).collect();
+        let parts = (0..n).map(|i| ([boxes[6 * i], boxes[6 * i + 1], boxes[6 * i + 2]], [boxes[6 * i + 3], boxes[6 * i + 4], boxes[6 * i + 5]])).collect();
+        self.world[w as usize].cells = Some(Cells { visible: vec![0; n], parts, runs, offsets: vec![0; n], counts: vec![0; n] });
+    }
+
+    // Whether a bucket is drawn (false: three draws it again, or nothing does).
+    pub fn world_shown(&mut self, w: u32, shown: bool) {
+        self.world[w as usize].shown = shown;
+    }
+
     // three's opaque order (material creation) or by program first.
     pub fn sort(&mut self, by_program: bool) {
         self.by_program = by_program;
@@ -140,7 +162,7 @@ impl<C: HasContext> WorldPass<C> {
         for &wi in &self.order {
             let w = &mut self.world[wi];
             // three tests a mesh's bounding sphere before it draws any of it.
-            if !frustum.sphere(&w.sphere.0, w.sphere.1) {
+            if !w.shown || !frustum.sphere(&w.sphere.0, w.sphere.1) {
                 continue;
             }
             let geo = &geometries[w.geometry];
@@ -205,7 +227,7 @@ impl<C: HasContext> WorldPass<C> {
                 }
                 stats.gl_calls += 1;
                 stats.world_draws += 1;
-                stats.pass_draws[PASS_WORLD] += 1;
+                stats.pass_draws[w.pass] += 1;
             }
         }
     }

@@ -21,6 +21,8 @@ function bridge() {
     input_len() { return 200 + 76 * 4; }
     bones_ptr() { return 8192; }
     bones_len() { return 64; }
+    far_input_ptr() { return 16384; }
+    far_input_len() { return 1024; }
     records_at() { return 200; }
     record_stride() { return 76; }
     fx_input_ptr() { return 40960; }
@@ -37,9 +39,15 @@ function bridge() {
     transparent_segments_ptr() { return 32768; }
     transparent_segments_len() { return segments.length; }
     transparent_segment(k) { calls.push(["transparent_segment", k]); return STATS; }
-    transparent_bucket_shown() {}
+    transparent_objects_ptr() { return 24576; }
+    transparent_objects_len() { return 1 + 2 * 40; }
+    transparent_object_stride() { return 40; }
   }
   for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame"]) BfeRenderer.prototype[name] = entry(name);
+  // Registration calls, logged with their arguments (the world pass's and the ground's).
+  for (const name of ["add_world", "world_runs", "world_shown", "world_texture", "world_uniform", "world_cells"]) {
+    BfeRenderer.prototype[name] = function (...args) { calls.push([name, ...args]); return name === "add_world" ? 9 : true; };
+  }
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
   camera.updateMatrixWorld(true);
   const sceneTarget = { name: "scene" }, farTarget = { texture: new THREE.Texture() };
@@ -56,6 +64,9 @@ function bridge() {
     getRenderTarget: () => target,
     setRenderTarget(t) { calls.push(["setRenderTarget", t]); target = t; },
     resetState() { calls.push(["resetState"]); },
+    getClearColor: (c) => c.setRGB(0, 0, 0),
+    getClearAlpha: () => 1,
+    getContextAttributes: () => ({ premultipliedAlpha: true }),
   };
   const background = new THREE.Object3D();
   const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
@@ -197,4 +208,114 @@ test("the transparent list follows at once when the far scene's image is three's
   setSegments([0, 0]);
   core.pass(renderer, scene, camera);
   assert.deepEqual(calls.map((c) => c[0]).filter((n) => n.endsWith("frame")), ["frame", "transparent_frame"]);
+});
+
+test("objects the transparent pass draws leave three's list as records with three's keys", () => {
+  const { core, renderer, scene, camera, graphics, list, setSegments } = bridge();
+  const pass = core.byName.transparent;
+  const material = new THREE.MeshBasicMaterial({ transparent: true, color: 0x336699, opacity: 0.25 });
+  const holo = new THREE.Mesh(new THREE.BufferGeometry(), material), other = new THREE.Object3D();
+  holo.position.set(1, 2, 3);
+  holo.updateMatrixWorld(true);
+  // Registered in an earlier frame, three's program for it unchanged since.
+  const program = { id: 3 };
+  renderer.properties.get(material).currentProgram = program;
+  renderer.properties.get(material).__version = material.version;
+  pass.taken.set(holo, { bucket: false, id: 7, material, program, frame: 0 });
+  list.opaque.push({ object: graphics.background, material: {}, group: null, groupOrder: 0, renderOrder: 0, z: 0, id: graphics.background.id });
+  list.transparent.push({ object: holo, material, group: null, groupOrder: 0, renderOrder: 2, z: 0.75, id: holo.id },
+    { object: other, material: {}, group: null, groupOrder: 0, renderOrder: 0, z: 0.5, id: other.id });
+  setSegments([0, 1, 1]);
+  core.pass(renderer, scene, camera);
+  assert.deepEqual(list.transparent.map((item) => item.object), [other], "three keeps only what it still draws");
+  const r = core.transparentObjects;
+  assert.equal(r[0], 1);
+  assert.deepEqual([...r.subarray(1, 6)], [7, 0, 2, 0.75, holo.id]);
+  assert.deepEqual([...r.subarray(6, 22)], holo.matrixWorld.elements);
+  assert.deepEqual([...r.subarray(22, 26)], [material.color.r, material.color.g, material.color.b, 0.25]);
+});
+
+test("an item whose program three changed goes back to three, to be registered again", () => {
+  const { core, renderer, scene, camera, graphics, list, setSegments } = bridge();
+  const pass = core.byName.transparent;
+  const material = new THREE.MeshBasicMaterial({ transparent: true }), holo = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  const props = renderer.properties.get(material);
+  props.currentProgram = { id: 4 };
+  props.__version = material.version;
+  const old = { bucket: false, id: 1, material, program: { id: 3 }, frame: 0 };
+  pass.taken.set(holo, old);
+  list.opaque.push({ object: graphics.background, material: {}, group: null, groupOrder: 0, renderOrder: 0, z: 0, id: graphics.background.id });
+  list.transparent.push({ object: holo, geometry: holo.geometry, material, group: null, groupOrder: 0, renderOrder: 0, z: 0.5, id: holo.id });
+  setSegments([0, 0, 0]);
+  core.pass(renderer, scene, camera);
+  assert.equal(list.transparent.length, 1, "three draws it");
+  assert.notEqual(pass.taken.get(holo), old, "looked at again in the transparent phase");
+  assert.deepEqual(pass.candidates, []);
+});
+
+// The core's program, geometry and texture calls, stood in for: every
+// program reads what `names` lists.
+function standIns(core, names) {
+  core.program = () => ({ id: 5, names: new Set(names), attributes: [] });
+  core.geometry = () => 3;
+  core.texture = () => 0;
+}
+
+test("the ground registers once three has drawn it as it is now, as a world bucket with the patches' cells", () => {
+  const { core, calls, renderer, scene, camera } = bridge();
+  standIns(core, ["map", "layer1Map", "brightness", "layerScales"]);
+  const material = new THREE.ShaderMaterial({ defines: { TERRAIN: "", WORLD_SPACE: "" }, uniforms: { brightness: { value: 1 }, layerScales: { value: new THREE.Vector2(8, 4) } } });
+  const group = new THREE.Group(), index = new THREE.BufferAttribute(new Uint32Array(6), 1), geometry = new THREE.BufferGeometry();
+  geometry.setIndex(index);
+  group.add(new THREE.Mesh(geometry, material));
+  group.material = material;
+  const box = (x) => new THREE.Box3(new THREE.Vector3(x, 0, 0), new THREE.Vector3(x + 1, 1, 1));
+  group.userData.patches = { full: { index, cells: [{ start: 0, end: 3, box: box(0) }, { start: 3, end: 6, box: box(5) }] }, bounds: new THREE.Sphere(new THREE.Vector3(), 9) };
+  scene.add(group);
+  const props = renderer.properties.get(material);
+  core.pass(renderer, scene, camera);
+  assert.equal(calls.filter((c) => c[0] === "add_world").length, 0, "not drawn by three yet");
+  props.currentProgram = {};
+  props.__version = material.version;
+  core.pass(renderer, scene, camera);
+  const add = calls.find((c) => c[0] === "add_world");
+  assert.ok(add && add[4] & 32 && add[4] & 8, "a world bucket counted for the terrain, writing depth");
+  assert.deepEqual([...calls.find((c) => c[0] === "world_runs")[2]], [0, 3, 3, 6]);
+  assert.deepEqual([...calls.find((c) => c[0] === "world_uniform" && c[2] === "layerScales")[3]], [8, 4]);
+  assert.equal(material.visible, false);
+  assert.equal(group.userData.drawnElsewhere, true);
+  // Changed since: three's again, until it has drawn it.
+  material.needsUpdate = true;
+  calls.length = 0;
+  core.pass(renderer, scene, camera);
+  assert.deepEqual(calls.find((c) => c[0] === "world_shown"), ["world_shown", 9, false]);
+  assert.equal(material.visible, true);
+  assert.equal(group.userData.drawnElsewhere, false);
+});
+
+test("a bucket culled by cell registers whatever draw range three's last view left it", () => {
+  const { core, calls, renderer, scene, camera } = bridge();
+  standIns(core, ["map"]);
+  const material = new THREE.ShaderMaterial({ defines: { WORLD_SPACE: "" }, uniforms: {} });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setIndex([0, 1, 2]);
+  geometry.setDrawRange(0, 0);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.matrixAutoUpdate = false;
+  mesh.userData.cellLights = true;
+  scene.add(mesh);
+  const props = renderer.properties.get(material);
+  props.currentProgram = {};
+  props.__version = material.version;
+  core.pass(renderer, scene, camera);
+  assert.equal(calls.filter((c) => c[0] === "add_world").length, 1);
+  assert.equal(calls.filter((c) => c[0] === "world_cells").length, 1);
+});
+
+test("a phase that made no GL call leaves three's state alone", () => {
+  const { core, calls, renderer, scene, camera } = bridge();
+  core.rust.transparent_frame = () => { calls.push(["transparent_frame"]); return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; };
+  core.phase("transparent", renderer, scene, camera);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => n !== "add_texture" && n !== "set_far_map"), ["transparent_frame"]);
 });

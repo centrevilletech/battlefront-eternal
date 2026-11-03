@@ -16,7 +16,8 @@
 // around what three still blends itself: transparent_segment), the
 // first-person view (view_frame) and the post passes (post_frame). A
 // mirror's render of the near scene (water.js) draws the near phase's
-// passes for its own camera (mirror_frame).
+// passes for its own camera (mirror_frame); what the near scene blends is
+// left to three there.
 //
 // The page writes the frame's inputs (camera, lights, each soldier) into
 // `input` and `bones` before a phase (web/, src/rust-render/).
@@ -91,8 +92,6 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     pub fn transparent_frame(&mut self, three: usize) -> Result<Stats, String> {
         let core = &mut self.core;
         core.begin_phase();
-        core.upload_frame(VIEW_NEAR);
-        core.bind_far_map();
         let view = transparent::view(core);
         let mut list = std::mem::take(&mut self.transparent.list);
         list.items.clear();
@@ -103,6 +102,15 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
             }
         }
         list.order(&self.transparent.keys, three.min(transparent::MAX_THREE));
+        if list.items.is_empty() {
+            // Nothing to draw: no GL call at all, so three's state stands
+            // (the page skips its reset).
+            list.view = Some(view);
+            self.transparent.list = list;
+            return Ok(core.stats);
+        }
+        core.upload_frame(VIEW_NEAR);
+        core.bind_far_map();
         {
             let mut sources: [&mut dyn Source<C, M>; 2] = [&mut self.transparent, &mut self.effects];
             transparent::draw_segment(core, &view, list.segment(0), &mut sources);
