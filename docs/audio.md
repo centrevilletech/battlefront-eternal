@@ -590,18 +590,23 @@ node costs something each block. Two ways further, measured and not taken:
 Behind a switch for now: with `?voices=rust` in the address, the enhanced
 mode's voices on speakers play in the spatial mixer's WebAssembly
 (`rust/audio/src/voices.rs`) instead of each through its own browser
-nodes (a buffer source, a gain, a low-pass and a reverb send). Without
-the switch nothing changes. On headphones without the dummy-head decoder
-the voices keep the browser's HRTF panners. Not built yet, in this order:
-the light mix (Classic on stereo, the low-end default), the enhanced
-master chain and the stream beds, Classic on surround, and headphones.
+nodes (a buffer source, a gain, a low-pass and a reverb send), and the
+light mix's (Classic on stereo, the low-end default) play in one worklet
+of their own, `voice-engine`, instead of a buffer source and two speaker
+gains each. Without the switch nothing changes. On headphones without
+the dummy-head decoder the voices keep the browser's HRTF panners. Not
+built yet, in this order: the enhanced master chain and the stream beds,
+Classic on surround, and headphones.
 
 The page still decides everything (ranking, distance, Doppler, levels,
 air, sends). Instead of AudioParam calls it sends one message a frame of
 commands, each carrying the context time its AudioParam call would have
 had. The module plays each voice as Chromium's nodes compute it: the
 buffer source's linear interpolation at a double-precision read position,
-from its start frame to its stop frame; the AudioParam timeline's
+from its start frame to its stop frame (the start time's fraction of a
+frame moving the read position on, a loop wrapping with its fraction, a
+one-shot's last frame extrapolated from its last two); the AudioParam
+timeline's
 arithmetic for setValueAtTime, setTargetAtTime and cancelScheduledValues
 (`rust/audio/src/timeline.rs`, including the four-values-at-a-time fill
 Chromium's x86 build uses for setTargetAtTime); and the low-pass's
@@ -639,9 +644,9 @@ Linux, each frame's messages applied before its block renders):
 | Enhanced, reverb on, 2 voices | identical | identical |
 | Enhanced, reverb on, 3 voices | -118.3 dBFS at most, -135.2 rms | -118.3 dBFS at most, -135.1 rms |
 | Enhanced, reverb on, 24 voices | -109.5 dBFS at most, -130.5 rms | -111.4 dBFS at most, -130.8 rms |
-| Light mix, 2 voices | identical | not built yet |
-| Light mix, 3 voices | -132.5 dBFS at most | not built yet |
-| Light mix, 24 voices | -126.4 dBFS at most, -146.3 rms | not built yet |
+| Light mix, 1 or 2 voices | identical | identical |
+| Light mix, 3 voices | -132.5 dBFS at most | -132.5 dBFS at most |
+| Light mix, 24 voices | -126.4 dBFS at most, -146.3 rms | -126.4 dBFS at most, -146.1 rms |
 
 That spread is far below hearing and below 16-bit resolution (-96 dBFS).
 The engine sums in a fixed order, so its own output is the same every
@@ -651,20 +656,46 @@ The reference is Chromium on Linux on x86. Elsewhere the browser's nodes
 compute some things differently (on macOS its biquads run through vDSP;
 off x86 setTargetAtTime fills one value at a time), so there the engine
 and the nodes can differ at the same rounding level.
-`tests/audio-checks.js` holds the engine to the first rule (twelve voices
-with the reverb silent, and two with it on, bit for bit).
+
+`tests/audio-checks.js` holds the engine to the first rule, bit for bit:
+twelve voices with the reverb silent, two with it on, and a voice's whole
+life in both modes (a loop as the listener moves, a one-shot that ends, a
+loop stopped with a fade, a loop that comes into earshot partway through
+its sample and starts there). `tests/audio-engine-gate.mjs` measures the
+second: it renders a scene of 24 voices natively in six pages and once
+with the engine, and compares the engine's largest difference from them
+with theirs among themselves. The light mix lands on the natives' own
+largest every time (8, 24 and 32 voices: -132.5, -126.4 and -126.4
+dBFS). In the enhanced mode the reverb spreads the rounding over its
+tail, so the largest difference is an extreme value that moves by a dB or
+two from run to run; the engine's lands within about 2 dB of the natives'
+either side (above it, by 0.1 to 1.7 dB, in three runs of seven), and
+its median difference is the natives' own (-112.3 against -112.0 dBFS at
+24 voices).
 
 ### What it saves
 
-Offline in Chromium (32 voices moving every frame, 48 kHz, the render
-thread's own CPU): 339 ms a second of sound down to 138 on stereo, 313 to
-198 on 5.1. The engine's update on the main thread with 32 voices went
-from 385 to 194 µs a frame. In battles on a calibrated emulation of a
-2014 low-power laptop CPU (Bespin Platforms and Hoth, Enhanced on stereo,
-six interleaved pairs), the AudioWorklet thread went from 47% of a core
-to 25% on average. Most of what is left is the worklets themselves (the
-mixer with the engine is about half of that), then the master chain's
-gains and filters and the stream beds' nodes.
+The enhanced mode, offline in Chromium (32 voices moving every frame, 48
+kHz, the render thread's own CPU): 339 ms a second of sound down to 138
+on stereo, 313 to 198 on 5.1. The engine's update on the main thread with
+32 voices went from 385 to 194 µs a frame. On the 2014 low-power laptop
+the game must run well on (AMD A8-6410, Enhanced on stereo, battles on
+Bespin Platforms and Hoth, native and engine runs in alternating order),
+the AudioWorklet thread went from 72 to 74% of a core to 34% on Bespin
+and from 68 to 37% on Hoth, the page's audio phase from 3.3-3.5 to
+2.6-2.7 ms a frame, and the frame rate rose from 25 to 29-30 fps on
+Bespin and from 24 to 26.5 on Hoth. Most of what is left on that thread is the worklets
+themselves (the mixer with the engine is about half of that), then the
+master chain's gains and filters and the stream beds' nodes.
+
+The light mix, offline (the same scene): 110 ms a second of sound down to
+58 with 32 voices, 46 to 34 with 8; with a single voice the worklet costs
+more than the browser's three nodes (11 against 23 ms), the two meeting
+at about four voices. In battles on a calibrated emulation of the same
+laptop (Classic on stereo, Bespin Platforms and Hoth), the light mix's
+thread, the device's own, took 26 to 36% of a core; with the engine the
+worklet thread takes 14 to 17% and the device's, which only hands its
+blocks over then, 1.5 to 2%.
 
 ## Upscaling (`tools/enhance_audio.py`)
 
@@ -725,7 +756,9 @@ node --test tests/audio-soldiers.test.js         # 9: other soldiers' weapons an
 node --test tests/audio-light.test.js            # 9: the light mix's graph, panning law and soft clip; Enhanced's graph after a trip through it; worklets loaded only when needed; voices moving between graphs
 python3 -m unittest tests/test_zero_sound.py      # 5: the archive reader on made-up chunks
 PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio.mjs
-                                                  # 73 offline checks in Chromium (no game assets)
+                                                  # 75 offline checks in Chromium (no game assets)
+PLAYWRIGHT_MODULE=... AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-engine-gate.mjs
+                                                  # the voice engine's gate, its second rule (VOICES, PAGES)
 PLAYWRIGHT_MODULE=... GAME_URL=http://127.0.0.1:18449 node tests/audio-loudness.mjs
                                                   # the loudness table above (needs the extracted map)
 PLAYWRIGHT_MODULE=... AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio-bench.mjs
@@ -748,7 +781,8 @@ them, with no worklet; streams at its angles; overs clipped softly; an
 engine voice's level on its speaker gains), the clarity stage (a top octave in proportion, nothing added
 under its band, an attack lifted while a steady bed stays put, the LFE
 untouched), the voice engine against the browser's own nodes (bit for
-bit: twelve voices moving with the reverb silent, two with it on), and
+bit: twelve voices moving with the reverb silent, two with it on, and a
+voice's whole life in the enhanced mode and the light mix), and
 the headphone decoder (the encoder's harmonics against
 spaudiopy's, spread keeping the energy, each ear's level per direction
 against the decoder's own, a 2D sound left as stereo). The decoder checks
