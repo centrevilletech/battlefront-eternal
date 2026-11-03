@@ -45,6 +45,29 @@ impl RegionType {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum HumanPhase {
+    #[default] Unspawned = 0,
+    Alive = 1,
+    Dying = 2,
+    Awaiting = 3,
+}
+
+impl HumanPhase {
+    pub const NAMES: [&'static str; 4] = ["unspawned", "alive", "dying", "awaiting"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(HumanPhase::Unspawned),
+            1 => Some(HumanPhase::Alive),
+            2 => Some(HumanPhase::Dying),
+            3 => Some(HumanPhase::Awaiting),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PostRef {
     Null,
@@ -156,6 +179,59 @@ impl PlayerId {
             _ => PlayerId::default(),
         }
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HumanPick {
+    pub class_name: StrId,
+    pub post: Option<StrId>,
+}
+
+impl HumanPick {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.class_name.0 as f64;
+        match &self.post { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).0 as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            class_name: StrId(word_u32(row[0])),
+            post: if row[1] == 0.0 { Some(StrId(word_u32(row[1 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HumanAuto {
+    pub team: f64,
+    pub class_name: StrId,
+    pub post: Option<StrId>,
+}
+
+impl HumanAuto {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.team;
+        row[1] = self.class_name.0 as f64;
+        match &self.post { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v).0 as f64; } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            team: row[0],
+            class_name: StrId(word_u32(row[1])),
+            post: if row[2] == 0.0 { Some(StrId(word_u32(row[2 + 1]))) } else { None },
+        }
+    }
+
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -1046,6 +1122,67 @@ impl CommandPosts {
         self.posts = { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
         self.time = row[4];
         self.events = { let (at, n) = (word_u32(row[5]) as usize, word_u32(row[5 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 9..at + (i + 1) * 9]; out.push(PostEvent::take(&row[0..], heap)); } out };
+    }
+
+    #[inline(always)]
+    pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) { self.put_full(row, heap) }
+
+    #[inline(always)]
+    pub fn take_export(&mut self, row: &[f64], heap: &[f64]) { self.take_full(row, heap) }
+
+    #[inline(always)]
+    pub fn put_import(&self, row: &mut [f64], heap: &mut Vec<f64>) { self.put_full(row, heap) }
+
+    #[inline(always)]
+    pub fn take_import(&mut self, row: &[f64], heap: &[f64]) { self.take_full(row, heap) }
+
+}
+
+/// A humanSpawn (one a battle), from rust/sim/schema/battle.mjs.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct HumanSpawn {
+    pub auto: Option<HumanAuto>,
+    pub class_name: StrId,
+    pub post: Option<StrId>,
+    pub phase: HumanPhase,
+    pub can_switch_teams: bool,
+    pub spawned_once: bool,
+    pub dead_time: f64,
+    pub pending: Option<HumanPick>,
+    pub ended: bool,
+}
+
+impl HumanSpawn {
+    /// Words a row takes: slot, generation, then the fields mirrored (export),
+    /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
+    pub const EXPORT_STRIDE: usize = 19;
+    pub const IMPORT_STRIDE: usize = 19;
+    pub const FULL_STRIDE: usize = 19;
+
+    pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 19] = (&mut row[..19]).try_into().unwrap();
+        match &self.auto { Some(v) => { row[2] = 0.0; v.put(&mut row[2 + 1..], heap); } None => { row[2] = 1.0; row[2 + 1..2 + 5].fill(0.0); } }
+        row[7] = self.class_name.0 as f64;
+        match &self.post { Some(v) => { row[8] = 0.0; row[8 + 1] = (*v).0 as f64; } None => { row[8] = 1.0; row[8 + 1..8 + 2].fill(0.0); } }
+        row[10] = self.phase as u8 as f64;
+        row[11] = if self.can_switch_teams { 1.0 } else { 0.0 };
+        row[12] = if self.spawned_once { 1.0 } else { 0.0 };
+        row[13] = self.dead_time;
+        match &self.pending { Some(v) => { row[14] = 0.0; v.put(&mut row[14 + 1..], heap); } None => { row[14] = 1.0; row[14 + 1..14 + 4].fill(0.0); } }
+        row[18] = if self.ended { 1.0 } else { 0.0 };
+    }
+
+    pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
+        let row: &[f64; 19] = (&row[..19]).try_into().unwrap();
+        self.auto = if row[2] == 0.0 { Some(HumanAuto::take(&row[2 + 1..], heap)) } else { None };
+        self.class_name = StrId(word_u32(row[7]));
+        self.post = if row[8] == 0.0 { Some(StrId(word_u32(row[8 + 1]))) } else { None };
+        self.phase = HumanPhase::from_u8(word_u32(row[10]) as u8).unwrap_or_default();
+        self.can_switch_teams = row[11] != 0.0;
+        self.spawned_once = row[12] != 0.0;
+        self.dead_time = row[13];
+        self.pending = if row[14] == 0.0 { Some(HumanPick::take(&row[14 + 1..], heap)) } else { None };
+        self.ended = row[18] != 0.0;
     }
 
     #[inline(always)]

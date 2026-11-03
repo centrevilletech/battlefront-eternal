@@ -234,6 +234,46 @@ impl UnitBody {
     }
 }
 
+impl HumanPick {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(HumanPick {
+            class_name: { let p = format!("{path}.className"); cx.str_in(v.get("className"), &p)? },
+            post: { let p = format!("{path}.post"); match v.get("post").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.str_in(v.get("post"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = cx.str_out(self.class_name); fields.push(("className", x)); }
+        { let x = match &self.post { Some(v) => cx.str_out((*v)), None => Value::Null }; fields.push(("post", x)); }
+        a.object("", fields)
+    }
+}
+
+impl HumanAuto {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(HumanAuto {
+            team: { let p = format!("{path}.team"); num(v.get("team"), &p)? },
+            class_name: { let p = format!("{path}.className"); cx.str_in(v.get("className"), &p)? },
+            post: { let p = format!("{path}.post"); match v.get("post").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.str_in(v.get("post"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Num(self.team); fields.push(("team", x)); }
+        { let x = cx.str_out(self.class_name); fields.push(("className", x)); }
+        { let x = match &self.post { Some(v) => cx.str_out((*v)), None => Value::Null }; fields.push(("post", x)); }
+        a.object("", fields)
+    }
+}
+
 impl TeamDesc {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -5067,6 +5107,39 @@ impl Grenade {
     }
 }
 
+impl HumanSpawn {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(HumanSpawn {
+            auto: { let p = format!("{path}.auto"); match v.get("auto").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(HumanAuto::from_value(v.get("auto"), cx, &p)?) } },
+            class_name: { let p = format!("{path}.className"); cx.str_in(v.get("className"), &p)? },
+            post: { let p = format!("{path}.post"); match v.get("post").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.str_in(v.get("post"), &p)?) } },
+            phase: { let p = format!("{path}.phase"); HumanPhase::from_u8(name_of(v.get("phase"), &HumanPhase::NAMES, &p)?).unwrap() },
+            can_switch_teams: { let p = format!("{path}.canSwitchTeams"); boolean(v.get("canSwitchTeams"), &p)? },
+            spawned_once: { let p = format!("{path}.spawnedOnce"); boolean(v.get("spawnedOnce"), &p)? },
+            dead_time: { let p = format!("{path}.deadTime"); num(v.get("deadTime"), &p)? },
+            pending: { let p = format!("{path}.pending"); match v.get("pending").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(HumanPick::from_value(v.get("pending"), cx, &p)?) } },
+            ended: { let p = format!("{path}.ended"); boolean(v.get("ended"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(9);
+        { let x = match &self.auto { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("auto", x)); }
+        { let x = cx.str_out(self.class_name); fields.push(("className", x)); }
+        { let x = match &self.post { Some(v) => cx.str_out((*v)), None => Value::Null }; fields.push(("post", x)); }
+        { let x = Value::Str(HumanPhase::NAMES[self.phase as usize].to_string()); fields.push(("phase", x)); }
+        { let x = Value::Bool(self.can_switch_teams); fields.push(("canSwitchTeams", x)); }
+        { let x = Value::Bool(self.spawned_once); fields.push(("spawnedOnce", x)); }
+        { let x = Value::Num(self.dead_time); fields.push(("deadTime", x)); }
+        { let x = match &self.pending { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("pending", x)); }
+        { let x = Value::Bool(self.ended); fields.push(("ended", x)); }
+        a.object("", fields)
+    }
+}
+
 impl Item {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -6127,6 +6200,7 @@ impl Replay {
         match kind {
             KIND_BATTLE => { let value = Battle::from_value(v, self, "battle")?; self.store.battle = value; }
             KIND_COMMAND_POSTS => { let value = CommandPosts::from_value(v, self, "commandPosts")?; self.store.command_posts = value; }
+            KIND_HUMAN_SPAWN => { let value = HumanSpawn::from_value(v, self, "humanSpawn")?; self.store.human_spawn = value; }
             KIND_ITEMS => { let value = Items::from_value(v, self, "items")?; self.store.items = value; }
             KIND_MOBILE_POSTS => { let value = MobilePosts::from_value(v, self, "mobilePosts")?; self.store.mobile_posts = value; }
             KIND_ORDNANCE => { let value = Ordnance::from_value(v, self, "ordnance")?; self.store.ordnance = value; }
@@ -6146,6 +6220,7 @@ impl Replay {
         match kind {
             KIND_BATTLE => { let s = self.store.battle.clone(); s.to_value(self, a) }
             KIND_COMMAND_POSTS => { let s = self.store.command_posts.clone(); s.to_value(self, a) }
+            KIND_HUMAN_SPAWN => { let s = self.store.human_spawn.clone(); s.to_value(self, a) }
             KIND_ITEMS => { let s = self.store.items.clone(); s.to_value(self, a) }
             KIND_MOBILE_POSTS => { let s = self.store.mobile_posts.clone(); s.to_value(self, a) }
             KIND_ORDNANCE => { let s = self.store.ordnance.clone(); s.to_value(self, a) }

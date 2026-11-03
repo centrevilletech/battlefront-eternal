@@ -1,0 +1,45 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { HumanSpawn } from '../src/human-spawn.js';
+import { loadSim } from '../src/sim/module.js';
+import { SimBridge, undeclared } from '../src/sim/runtime.js';
+import { KIND_HUMAN_SPAWN, KIND_TABLE, HUMAN_SPAWN_KEYS } from '../src/sim/gen/index.js';
+
+test('the human spawn state crosses the store without replacing its world or event listeners', async () => {
+  const bridge = new SimBridge(await loadSim());
+  const world = { team: () => 1, dead: () => true, over: () => false, character: () => null, roster: () => ['a', 'b'], cancel() {} };
+  const source = new HumanSpawn({ world, policy: { className: 'a', auto: null }, post: 'cp1' });
+  const mirror = new HumanSpawn({ world, policy: { className: 'b', auto: null } });
+  const listeners = mirror.listeners, queue = mirror.queue;
+  let received = 0;
+  mirror.on('playerDied', () => received++);
+  const compare = () => {
+    assert.deepEqual(undeclared(source, HUMAN_SPAWN_KEYS), []);
+    bridge.write(KIND_HUMAN_SPAWN, [source], true);
+    const [{ object }] = bridge.read(KIND_HUMAN_SPAWN);
+    assert.equal(KIND_TABLE[KIND_HUMAN_SPAWN].same(source, object), null);
+    bridge.sync(KIND_HUMAN_SPAWN, mirror);
+    assert.equal(KIND_TABLE[KIND_HUMAN_SPAWN].same(source, mirror), null);
+    assert.equal(mirror.world, world);
+    assert.equal(mirror.listeners, listeners);
+    assert.equal(mirror.queue, queue);
+  };
+  compare();
+  source.spawned('b', 'cp2');
+  compare();
+  source.died();
+  source.deadTime = -0;
+  source.apply({ kind: 'spawn', className: 'a', post: null });
+  compare();
+  source.deadTime = 4 - 1e-6;
+  source.updatePhase();
+  compare();
+  source.auto = { team: 2, className: 'b', post: 'cp2' };
+  source.canSwitchTeams = false;
+  source.ended = true;
+  source.pending = null;
+  compare();
+  mirror.died();
+  mirror.flush();
+  assert.equal(received, 1);
+});

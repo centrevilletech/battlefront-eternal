@@ -40,6 +40,7 @@ import { vehicleAI } from './vehicle-ai.mjs';
 import { combat } from './combat.mjs';
 import { battle, battlePhase } from './battle.mjs';
 import { flightSpec } from './flight.mjs';
+import { humanSpawn } from './human-spawn.mjs';
 
 export class Expand {
   constructor(value) { this.value = value; }
@@ -331,4 +332,4 @@ const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseSta
 // The AI in vehicles (P14): the vehicle service's calls, the seats'
 // steering, the vehicle patterns, the notifier and decay, and the boarding
 // and flyer agents (tools/sim-capture/vehicle-ai.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, seats, battle, battlePhase, vehicleAI };
+export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, seats, battle, battlePhase, vehicleAI, humanSpawn };

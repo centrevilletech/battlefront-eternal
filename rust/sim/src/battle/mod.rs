@@ -9,6 +9,7 @@
 //! rest of the world goes through [`world::BattleWorld`].
 
 pub mod battlefield;
+pub mod human;
 pub mod mobile;
 pub mod names;
 pub mod objectives;

@@ -9,6 +9,9 @@ export const PostChange_INDEX = new Map(PostChange_NAMES.map((name, i) => [name,
 export const RegionType_NAMES = ["sphere","box","cylinder"];
 export const RegionType_INDEX = new Map(RegionType_NAMES.map((name, i) => [name, i]));
 
+export const HumanPhase_NAMES = ["unspawned","alive","dying","awaiting"];
+export const HumanPhase_INDEX = new Map(HumanPhase_NAMES.map((name, i) => [name, i]));
+
 export function variantOfPostRef(b, x) {
   if (x === null) return 0;
   if (x === undefined) return 1;
@@ -151,6 +154,79 @@ export function exportPlayerId(x, cx) {
     case 1: return x;
     case 2: return x;
   }
+}
+
+export class HumanPickMirror {
+  constructor() {
+    this.className = '';
+    this.post = null;
+  }
+}
+
+export function syncHumanPick(b, f, at, h, m) {
+  m.className = b.strings.at(f[at + 0]);
+  { const tag = f[at + 1]; if (tag === 0) { m.post = b.strings.at(f[at + 2]); } else m.post = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHumanPick(b, o, f, at, heap) {
+  f[at + 0] = b.strings.id(o.className);
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; } else { f[at + 1] = 0; f[at + 2] = b.strings.id($x); } }
+}
+
+export function sameHumanPick(a, b) {
+  if (!Object.is(a.className, b.className)) return ".className";
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  return null;
+}
+
+export function exportHumanPick(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.className = o.className;
+  v.post = o.post;
+  return v;
+}
+
+export class HumanAutoMirror {
+  constructor() {
+    this.team = NaN;
+    this.className = '';
+    this.post = null;
+  }
+}
+
+export function syncHumanAuto(b, f, at, h, m) {
+  m.team = f[at + 0];
+  m.className = b.strings.at(f[at + 1]);
+  { const tag = f[at + 2]; if (tag === 0) { m.post = b.strings.at(f[at + 3]); } else m.post = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putHumanAuto(b, o, f, at, heap) {
+  f[at + 0] = o.team;
+  f[at + 1] = b.strings.id(o.className);
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = b.strings.id($x); } }
+}
+
+export function sameHumanAuto(a, b) {
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.className, b.className)) return ".className";
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  return null;
+}
+
+export function exportHumanAuto(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.team = o.team;
+  v.className = o.className;
+  v.post = o.post;
+  return v;
 }
 
 export class TeamDescMirror {
@@ -1558,6 +1634,124 @@ export function exportCommandPosts(o, cx) {
   v.posts = o.posts.map((x) => exportPost(x, cx));
   v.time = o.time;
   v.events = o.events.map((x) => exportPostEvent(x, cx));
+  return v;
+}
+
+// humanSpawn: from rust/sim/schema/battle.mjs.
+export class HumanSpawnMirror {
+  constructor() {
+    this.auto = null;
+    this.className = '';
+    this.post = null;
+    this.phase = "unspawned";
+    this.canSwitchTeams = false;
+    this.spawnedOnce = false;
+    this.deadTime = NaN;
+    this.pending = null;
+    this.ended = false;
+  }
+}
+
+export const HUMAN_SPAWN_KEYS = new Set(["auto", "className", "post", "phase", "canSwitchTeams", "spawnedOnce", "deadTime", "pending", "ended", "world", "listeners", "queue"]);
+export const HUMAN_SPAWN_EXPORT_STRIDE = 19, HUMAN_SPAWN_IMPORT_STRIDE = 19, HUMAN_SPAWN_FULL_STRIDE = 19;
+
+// An export row (from `at`; the heap from `h`) into mirror `m`.
+export function syncHumanSpawn(b, f, at, h, m) {
+  { const tag = f[at + 2]; if (tag === 0) { m.auto = syncHumanAuto(b, f, at + 3, h, m.auto ?? new HumanAutoMirror()); } else m.auto = tag === 1 ? null : undefined; }
+  m.className = b.strings.at(f[at + 7]);
+  { const tag = f[at + 8]; if (tag === 0) { m.post = b.strings.at(f[at + 9]); } else m.post = tag === 1 ? null : undefined; }
+  m.phase = HumanPhase_NAMES[f[at + 10]];
+  m.canSwitchTeams = f[at + 11] !== 0;
+  m.spawnedOnce = f[at + 12] !== 0;
+  m.deadTime = f[at + 13];
+  { const tag = f[at + 14]; if (tag === 0) { m.pending = syncHumanPick(b, f, at + 15, h, m.pending ?? new HumanPickMirror()); } else m.pending = tag === 1 ? null : undefined; }
+  m.ended = f[at + 18] !== 0;
+  return m;
+}
+
+// A full row into object `m`.
+export function syncFullHumanSpawn(b, f, at, h, m) {
+  { const tag = f[at + 2]; if (tag === 0) { m.auto = syncHumanAuto(b, f, at + 3, h, m.auto ?? new HumanAutoMirror()); } else m.auto = tag === 1 ? null : undefined; }
+  m.className = b.strings.at(f[at + 7]);
+  { const tag = f[at + 8]; if (tag === 0) { m.post = b.strings.at(f[at + 9]); } else m.post = tag === 1 ? null : undefined; }
+  m.phase = HumanPhase_NAMES[f[at + 10]];
+  m.canSwitchTeams = f[at + 11] !== 0;
+  m.spawnedOnce = f[at + 12] !== 0;
+  m.deadTime = f[at + 13];
+  { const tag = f[at + 14]; if (tag === 0) { m.pending = syncHumanPick(b, f, at + 15, h, m.pending ?? new HumanPickMirror()); } else m.pending = tag === 1 ? null : undefined; }
+  m.ended = f[at + 18] !== 0;
+  return m;
+}
+
+// Object `o`'s import fields into a row (lists to `heap`).
+export function putHumanSpawn(b, o, f, at, heap) {
+  { const $x = o.auto; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; f[at + 5] = 0; f[at + 6] = 0; } else { f[at + 2] = 0; putHumanAuto(b, $x, f, at + 3, heap); } }
+  f[at + 7] = b.strings.id(o.className);
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = b.strings.id($x); } }
+  f[at + 10] = HumanPhase_INDEX.get(o.phase);
+  f[at + 11] = o.canSwitchTeams ? 1 : 0;
+  f[at + 12] = o.spawnedOnce ? 1 : 0;
+  f[at + 13] = o.deadTime;
+  { const $x = o.pending; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f[at + 15] = 0; f[at + 16] = 0; f[at + 17] = 0; } else { f[at + 14] = 0; putHumanPick(b, $x, f, at + 15, heap); } }
+  f[at + 18] = o.ended ? 1 : 0;
+}
+
+// Every field of object `o` into a row.
+export function putFullHumanSpawn(b, o, f, at, heap) {
+  { const $x = o.auto; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; f[at + 5] = 0; f[at + 6] = 0; } else { f[at + 2] = 0; putHumanAuto(b, $x, f, at + 3, heap); } }
+  f[at + 7] = b.strings.id(o.className);
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = b.strings.id($x); } }
+  f[at + 10] = HumanPhase_INDEX.get(o.phase);
+  f[at + 11] = o.canSwitchTeams ? 1 : 0;
+  f[at + 12] = o.spawnedOnce ? 1 : 0;
+  f[at + 13] = o.deadTime;
+  { const $x = o.pending; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f[at + 15] = 0; f[at + 16] = 0; f[at + 17] = 0; } else { f[at + 14] = 0; putHumanPick(b, $x, f, at + 15, heap); } }
+  f[at + 18] = o.ended ? 1 : 0;
+}
+
+// The first mirrored field of `m` that is not what the export row says (a
+// write JavaScript made to Rust's state without a command), or null.
+export function checkHumanSpawn(b, f, at, h, m) {
+  const want = syncHumanSpawn(b, f, at, h, new HumanSpawnMirror());
+  { const p = m.auto, q = want.auto; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".auto"; } else { { const d = sameHumanAuto(p, q); if (d) return ".auto" + d; } } }
+  if (!Object.is(m.className, want.className)) return ".className";
+  { const p = m.post, q = want.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!Object.is(m.phase, want.phase)) return ".phase";
+  if (!Object.is(m.canSwitchTeams, want.canSwitchTeams)) return ".canSwitchTeams";
+  if (!Object.is(m.spawnedOnce, want.spawnedOnce)) return ".spawnedOnce";
+  if (!Object.is(m.deadTime, want.deadTime)) return ".deadTime";
+  { const p = m.pending, q = want.pending; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".pending"; } else { { const d = sameHumanPick(p, q); if (d) return ".pending" + d; } } }
+  if (!Object.is(m.ended, want.ended)) return ".ended";
+  return null;
+}
+
+export function sameHumanSpawn(a, b) {
+  { const p = a.auto, q = b.auto; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".auto"; } else { { const d = sameHumanAuto(p, q); if (d) return ".auto" + d; } } }
+  if (!Object.is(a.className, b.className)) return ".className";
+  { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!Object.is(a.phase, b.phase)) return ".phase";
+  if (!Object.is(a.canSwitchTeams, b.canSwitchTeams)) return ".canSwitchTeams";
+  if (!Object.is(a.spawnedOnce, b.spawnedOnce)) return ".spawnedOnce";
+  if (!Object.is(a.deadTime, b.deadTime)) return ".deadTime";
+  { const p = a.pending, q = b.pending; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".pending"; } else { { const d = sameHumanPick(p, q); if (d) return ".pending" + d; } } }
+  if (!Object.is(a.ended, b.ended)) return ".ended";
+  return null;
+}
+
+export function exportHumanSpawn(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.auto = ((x) => (x === null || x === undefined ? x : exportHumanAuto(x, cx)))(o.auto);
+  v.className = o.className;
+  v.post = o.post;
+  v.phase = o.phase;
+  v.canSwitchTeams = o.canSwitchTeams;
+  v.spawnedOnce = o.spawnedOnce;
+  v.deadTime = o.deadTime;
+  v.pending = ((x) => (x === null || x === undefined ? x : exportHumanPick(x, cx)))(o.pending);
+  v.ended = o.ended;
   return v;
 }
 

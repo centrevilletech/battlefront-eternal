@@ -12,6 +12,7 @@ export default {
     PostChange: ['captured', 'neutralized', 'lost'],
     // A region's TYPE (the world files name no other).
     RegionType: ['sphere', 'box', 'cylinder'],
+    HumanPhase: ['unspawned', 'alive', 'dying', 'awaiting'],
   },
   unions: {
     // A post the AI sends a Character to, or one he spawns at: a placed
@@ -24,6 +25,8 @@ export default {
     PlayerId: ['undefined', 'f64', 'str'],
   },
   records: {
+    HumanPick: { className: 'str', post: 'str|null' },
+    HumanAuto: { team: 'f64', className: 'str', post: 'str|null' },
     // A team as the mission's table gives it (map.json mission.teams).
     TeamDesc: { units: 'f64|undefined', reinforcements: 'f64|undefined', bleed: 'list:f64x2|undefined' },
     // The kills ring the sprees count in (battle-stats.js BattleStats.ring).
@@ -67,6 +70,20 @@ export default {
     },
   },
   kinds: {
+    humanSpawn: {
+      singleton: true,
+      class: 'HumanSpawn',
+      fields: {
+        auto: 'rec:HumanAuto|null', className: 'str', post: 'str|null',
+        phase: 'enum:HumanPhase', canSwitchTeams: 'bool', spawnedOnce: 'bool',
+        deadTime: 'f64', pending: 'rec:HumanPick|null', ended: 'bool',
+      },
+      skip: {
+        world: 'the world callbacks (battle/human.rs World)',
+        listeners: 'the screen and HUD observers',
+        queue: 'events dispatched after the tick (battle/human.rs Event)',
+      },
+    },
     battle: {
       singleton: true,
       class: 'Battle',
