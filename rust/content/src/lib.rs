@@ -32,6 +32,7 @@ pub mod mission;
 pub mod models;
 pub mod odf;
 pub mod regions;
+pub mod registry;
 pub mod three;
 pub mod value;
 

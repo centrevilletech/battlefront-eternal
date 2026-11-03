@@ -44,6 +44,8 @@ const { classSetting } = await import('../src/vehicle-motion.js');
 const { scanVector } = await import('../src/props.js');
 const { routeWords } = await import('../src/ai/classic/nav/data.js');
 const { ENGINE } = await import('../src/soldier.js');
+const { createEntityRegistry } = await import('../src/runtime/network-entity-registry.js');
+const { INPUT_CODES, DEFAULT_BINDING_PROFILES } = await import('../src/runtime/network-entity-input.js');
 const THREE = await import('three');
 
 // ---------------------------------------------------------------------------
@@ -580,6 +582,26 @@ export function dumpBattle(b, c, full = false) {
   (b.propsDef?.instances || []).forEach((inst, i) => {
     d.value('odf', `prop/${i}`, Object.fromEntries(Object.keys(inst.settings || {}).map((key) => [key, readers(setting(inst.settings, key))])));
   });
+
+  // The wire's content ids (network-entity-registry.js), from game.js's
+  // data (3386) and the posts entityPostNames lists (commandposts.js names
+  // an unnamed post by its place).
+  try {
+    const data = {
+      sides: Object.fromEntries(Object.entries(b.sides).map(([name, s]) => [name, { ...s, texture: () => null }])),
+      effects: b.effectsDef,
+      sideFx: Object.fromEntries([[b.SIDE, b.sideFx], ...Object.entries(b.otherSides).map(([name, other]) => [name, other.fx])].filter(([, fx]) => fx)),
+      vehicles: b.vehicleDef, props: b.propsDef, world: b.world, common: b.common,
+    };
+    const posts = [...(b.world.commandPosts || []).map((desc, index) => desc.name || `#${index}`), ...(b.vehicleDef?.spawns || []).map((_, i) => `transport-${i}`)];
+    const registry = createEntityRegistry(data, { contentEpoch: 1, inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES, posts });
+    d.value('registry', 'combat', registry.combat.paths);
+    d.value('registry', 'classes', [...registry.classes.values()]);
+    d.value('registry', 'weapons', [...registry.weapons.values()]);
+    d.value('registry', 'posts', [...registry.posts.values()]);
+  } catch (error) {
+    d.value('registry', 'error', error.message);
+  }
 
   if (!c.routes) d.line('nav', 'routes', 'null');
   else if (c.routes.error) d.line('nav', 'routes', `error ${JSON.stringify(c.routes.error)}`);

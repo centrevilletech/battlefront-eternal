@@ -425,6 +425,17 @@ pub fn dump_battle(c: &Content, cache: &mut PayloadCache, full: bool) -> String 
         }
     }
 
+    // The wire's content ids.
+    match crate::registry::entity_registry(c) {
+        Ok(r) => {
+            d.line("registry", "combat", &dump::payload(&list(r.combat.iter().map(|(p, _)| st(p)))));
+            d.line("registry", "classes", &dump::payload(&list(r.classes.iter().map(|s| st(s)))));
+            d.line("registry", "weapons", &dump::payload(&list(r.weapons.iter().map(|s| st(s)))));
+            d.line("registry", "posts", &dump::payload(&list(r.posts.iter().map(|s| st(s)))));
+        }
+        Err(e) => d.line("registry", "error", &dump::payload(&st(&e))),
+    }
+
     // The AI's route table.
     match &c.route_words {
         None => d.line("nav", "routes", "null"),
