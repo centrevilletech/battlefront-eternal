@@ -97,7 +97,7 @@ function controlValue(cap, lease) {
 // The seats' state as a frame starts or ends: `named` leases, units and
 // hulls the frame's arguments name (one being let go, one boarding).
 function seatState(game, cap, { leases: namedLeases = [], units: namedUnits = [], hulls: namedHulls = [] } = {}) {
-  lastNamed = namedLeases;
+  lastNamed = { leases: namedLeases, hulls: namedHulls };
   const leases = leasesOf(game, namedLeases);
   const units = [], hulls = [];
   for (const lease of leases) {
@@ -118,15 +118,16 @@ function seatState(game, cap, { leases: namedLeases = [], units: namedUnits = []
 
 // The units seated now, as a call left them (a rider posed, a crew killed).
 const unitsAfter = (game, cap) => ({ units: leasesOf(game).flatMap((l) => (l.unit ? [unitValue(cap, l.unit)] : [])) });
-// Every unit, as a kill left them (the killed one holds no seat by then):
-// the registry's units, not its hulls', turrets' and buildings' targets;
-// and the seats the AI drives (a death lets its controller go), those of
-// the leases the innermost open frame names among them.
-let lastNamed = [];
-const everyUnit = (game, cap) => ({
-  units: game.units.all().filter((u) => u.soldier && u.combat).map((u) => unitValue(cap, u)),
-  controls: leasesOf(game, lastNamed).filter((l) => l.controllable).map((l) => controlValue(cap, l)),
-});
+// The seats as a kill left them: a death's hooks run inside it and may
+// come back into the seats (another rider killed by the same blast leaves
+// his seat, a bot mans another turret). The state is the innermost open
+// frame's (what it names, as it named it), with every unit of the
+// registry (the killed one holds no seat by then; not the hulls', turrets'
+// and buildings' targets in its list).
+let lastNamed = {};
+const everyUnit = (game, cap) => game.units.all().filter((u) => u.soldier && u.combat);
+const seatsAfterKill = (game, cap) => ({ ...seatState(game, cap, { ...lastNamed, units: [...(lastNamed.units ?? []), ...everyUnit(game)] }) });
+const crewsAfterKill = (game, cap) => ({ ...crewState(game, cap, { ...lastNamed, units: [...(lastNamed.units ?? []), ...everyUnit(game)] }) });
 
 // The hulls' seats' boundary: their SeatsWorld's calls, a body stood up
 // (Soldier.spawn's cast: the port runs the units' spawn), and a rider posed
@@ -139,7 +140,7 @@ const hullSeatBoundaries = (game) => {
     ['seats.raycast', w, 'raycast'],
     ['seats.relation', w, 'relation'],
     ['collision.cast', game.collision, 'cast'],
-    ['seats.kill', w, 'kill', everyUnit],
+    ['seats.kill', w, 'kill', seatsAfterKill],
     ['seats.riderDrop', w, 'riderDrop'],
     ['seats.controllerState', w, 'controllerState'],
     ['seats.controllable', w, 'controllable'],
@@ -202,7 +203,7 @@ function turretValue(cap, game, t) {
 // frame names that holds none), the turrets they man (and any named), the
 // units in those seats (and any named) and the seats the AI drives.
 function crewState(game, cap, { leases: namedLeases = [], units: namedUnits = [], turrets: namedTurrets = [] } = {}) {
-  lastNamed = namedLeases;
+  lastNamed = { leases: namedLeases, turrets: namedTurrets };
   const ts = game.turretSeats;
   const leases = [...ts.leases];
   for (const lease of namedLeases) if (lease && !leases.includes(lease)) leases.push(lease);
@@ -231,7 +232,7 @@ const crewBoundaries = (game) => {
     ['crews.cast', w, 'cast'],
     ['crews.raycast', w, 'raycast'],
     ['collision.cast', game.collision, 'cast'],
-    ['crews.kill', w, 'kill', everyUnit],
+    ['crews.kill', w, 'kill', crewsAfterKill],
     ['crews.riderDrop', w, 'riderDrop'],
     ['crews.controllable', w, 'controllable'],
     ['crews.updateLock', w, 'updateLock'],

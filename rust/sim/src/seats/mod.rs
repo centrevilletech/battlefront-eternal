@@ -79,6 +79,13 @@ pub enum Attacker {
     Hull(usize),
 }
 
+/// The seats' own state a call across the boundary may change by coming
+/// back into them: the hulls' seats or the turret crews.
+pub enum Seating<'a> {
+    Hulls(&'a mut hulls::Hulls),
+    Crews(&'a mut turrets::Crews),
+}
+
 /// Why someone left a seat (Vehicles.vacate's and TurretSeats.vacate's
 /// `reason`, handed to the battle's unboard hook).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,10 +126,11 @@ pub trait SeatWorld {
     /// Soldier.spawn: the body stood up at a point, facing yaw.
     fn stand_up(&mut self, unit: &mut Unit, x: f64, y: f64, z: f64, yaw: f64);
     /// combat.damage(Infinity, Infinity, null, attacker): the unit killed
-    /// outright. What it does to the units (the death's hooks run inside)
-    /// comes back in `units`, and to the seats the AI drives (a death lets
-    /// a controller go) in `controls`.
-    fn kill(&mut self, units: &mut crate::store::Slab<Unit>, controls: &mut lease::Controls, unit: u32, attacker: Attacker);
+    /// outright. A death's hooks run inside it and may come back into the
+    /// seats (another rider killed in the same blast leaves his seat, a bot
+    /// mans another turret): what they did to the store and to the seats'
+    /// own state comes back in `st` and `seating`.
+    fn kill(&mut self, st: &mut crate::gen::Store, seating: Seating<'_>, unit: u32, attacker: Attacker);
     /// The point a rider killed on seat `index` starts to fall from (his
     /// pose's drop point), or None where none shows.
     fn rider_drop(&mut self, holder: Holder, index: usize, unit: u32) -> Option<Vector3>;
