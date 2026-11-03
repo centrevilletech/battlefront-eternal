@@ -9,16 +9,18 @@
 
 use bfe_content::json;
 use bfe_content::Value;
-use bfe_sim::battle::mobile::Pad;
-use bfe_sim::battle::objectives::kill_region;
+use bfe_sim::battle::mobile::{MobileEvent, Pad};
 use bfe_sim::battle::names::NameLists;
-use bfe_sim::battle::posts::{Capturer, Change, CommandPosts, Post, PostAi, PostId, PostRules, SpawnPath};
-use bfe_sim::battle::rules::Battle;
-use bfe_sim::battle::spawning::{Arg, Call, ClassicSpawning, HumanSpec, TEAM_CAPACITY};
-use bfe_sim::battle::regions::{build_region, in_region, Region, RegionType};
-use bfe_sim::battle::rules::Character;
-use bfe_sim::battle::stats::{BattleStats, Seen};
-use bfe_sim::battle::world::{BattleWorld, Body};
+use bfe_sim::battle::objectives::kill_region;
+use bfe_sim::battle::phase::change_of;
+use bfe_sim::battle::posts::{self, remaining, Capturer, Change};
+use bfe_sim::battle::regions::{build_region, in_region, region_desc};
+use bfe_sim::battle::rules::{new_character, new_stats};
+use bfe_sim::battle::spawning::{self, Arg, Call, HumanSpec, TEAM_CAPACITY};
+use bfe_sim::battle::stats::{self, Seen};
+use bfe_sim::battle::world::{BattleWorld, Body, Member, Victim};
+use bfe_sim::gen::{Building, Character, MobilePost, Post, PostAi, PostEvent, PostRef, RegionDesc, RegionType, SpawnPath, SpawnPost, Store, Unit, Vehicle};
+use bfe_sim::store::{Nullable, Ref, StrId, Strings};
 use std::fmt::Write as _;
 use three::Vector3;
 
@@ -52,15 +54,24 @@ fn vec3(v: &Value) -> Vector3 {
     Vector3::new(x, y, z)
 }
 
-fn region(v: &Value) -> Region {
-    let matrix = v.get("matrix").filter(|m| m.as_array().is_some());
-    let center = v.get("center").filter(|c| c.as_array().is_some());
-    Region {
-        kind: RegionType::named(v.get("type").and_then(Value::as_str).unwrap_or("")),
-        matrix: matrix.map(nums::<16>),
-        center: center.map(nums::<3>),
-        size: nums::<3>(v.get("size").unwrap()),
-    }
+/// A region as the twin wrote it, and whether its type is one the world
+/// files never name ("other": built as a box is, holding nothing, as the
+/// JavaScript builds and tests it).
+fn region(v: &Value) -> (RegionDesc, bool) {
+    let matrix = v.get("matrix").filter(|m| m.as_array().is_some()).map(nums::<16>);
+    let center = v.get("center").filter(|c| c.as_array().is_some()).map(nums::<3>);
+    let (kind, other) = match v.get("type").and_then(Value::as_str).unwrap_or("") {
+        "sphere" => (RegionType::Sphere, false),
+        "box" => (RegionType::Box, false),
+        "cylinder" => (RegionType::Cylinder, false),
+        _ => (RegionType::Box, true),
+    };
+    (region_desc(kind, matrix.as_ref().map(|m| &m[..]), center.as_ref().map(|c| &c[..]), nums::<3>(v.get("size").unwrap())), other)
+}
+
+/// A string as the trace writes it.
+fn text(strings: &Strings, id: StrId) -> String {
+    String::from_utf16_lossy(strings.units(id))
 }
 
 struct Trace(String);
@@ -84,6 +95,9 @@ fn opt_str(v: Option<&Value>) -> Option<String> {
 /// table, hero names (upper case), no AI objectives.
 struct Twin {
     capture: Vec<f64>,
+    /// Each class's hero name (its name in upper case), in the battle's
+    /// strings.
+    heroes: Vec<(StrId, StrId)>,
 }
 
 impl BattleWorld for Twin {
@@ -93,80 +107,80 @@ impl BattleWorld for Twin {
     fn capture_team(&mut self, team: f64) -> f64 {
         self.capture.get(team as usize).copied().unwrap_or(team)
     }
-    fn unit_alive(&mut self, _: u32) -> bool {
+    fn unit_alive(&mut self, _: Ref<Unit>) -> bool {
         unreachable!()
     }
-    fn observe(&mut self, _: u32, _: Option<u32>) -> Option<Seen> {
+    fn observe(&mut self, _: Ref<Character>, _: Option<Ref<Unit>>) -> Option<Seen> {
         unreachable!()
     }
-    fn body(&mut self, _: u32) -> Body {
+    fn body(&mut self, _: Ref<Unit>) -> Body {
         unreachable!()
     }
-    fn combat_dead(&mut self, _: u32) -> bool {
+    fn combat_dead(&mut self, _: Ref<Unit>) -> bool {
         unreachable!()
     }
-    fn kill(&mut self, _: u32) {
+    fn kill(&mut self, _: &mut Store, _: Ref<Unit>) {
         unreachable!()
     }
-    fn kill_droid(&mut self, _: u32) {
+    fn kill_droid(&mut self, _: &mut Store, _: Ref<Unit>) {
         unreachable!()
     }
-    fn wreck(&mut self, _: u32) {
+    fn wreck(&mut self, _: &mut Store, _: Ref<Vehicle>) {
         unreachable!()
     }
-    fn pad(&mut self, _: usize) -> Pad {
+    fn pad(&mut self, _: f64) -> Pad {
         unreachable!()
     }
-    fn vehicle_position(&mut self, _: u32) -> [f64; 3] {
+    fn vehicle_position(&mut self, _: Ref<Vehicle>) -> [f64; 3] {
         unreachable!()
     }
-    fn class_spawn_world(&mut self, _: usize) -> Vec<Vec<f64>> {
+    fn class_spawn_world(&mut self, _: Ref<MobilePost>) -> Vec<[f64; 4]> {
         unreachable!()
     }
-    fn spawn_unit(&mut self, _: &mut Character, _: u32, _: &str, _: Option<PostId>, _: [f64; 3], _: Option<f64>) -> Option<u32> {
+    fn spawn_unit(&mut self, _: &mut Store, _: Ref<Character>, _: Option<StrId>, _: SpawnPost, _: [f64; 3], _: Option<f64>) -> Option<Ref<Unit>> {
         unreachable!()
     }
-    fn force_kill(&mut self, _: u32, _: u32) {
+    fn force_kill(&mut self, _: &mut Store, _: Ref<Character>, _: Ref<Unit>) {
         unreachable!()
     }
-    fn health(&mut self, _: u32) -> f64 {
+    fn health(&mut self, _: Ref<Unit>) -> f64 {
         unreachable!()
     }
-    fn request_objective(&mut self, _: &mut Character, _: u32) {}
-    fn republish(&mut self, _: &mut Character, _: u32) {
+    fn request_objective(&mut self, _: &mut Store, _: Ref<Character>) {}
+    fn republish(&mut self, _: &mut Store, _: Ref<Character>) {
         unreachable!()
     }
-    fn hero_name(&mut self, name: &str) -> Option<String> {
-        Some(name.to_uppercase())
+    fn hero_name(&mut self, name: StrId) -> Option<StrId> {
+        self.heroes.iter().find(|(c, _)| *c == name).map(|(_, h)| *h)
     }
     fn living(&mut self, _: f64) -> Option<f64> {
         unreachable!()
     }
-    fn building_alive(&mut self, _: u32) -> bool {
+    fn building_alive(&mut self, _: Ref<Building>) -> bool {
         unreachable!()
     }
-    fn members(&mut self) -> Vec<bfe_sim::battle::world::Member> {
+    fn members(&mut self) -> Vec<Member> {
         unreachable!("not in these frames")
     }
-    fn building_attacker(&mut self, _: u32) -> Option<u32> {
+    fn building_attacker(&mut self, _: Ref<Building>) -> Option<Ref<Character>> {
         unreachable!("not in these frames")
     }
-    fn vehicle_attacker(&mut self, _: u32) -> Option<u32> {
+    fn vehicle_attacker(&mut self, _: Ref<Vehicle>) -> Option<Ref<Character>> {
         unreachable!("not in these frames")
     }
-    fn kill_region_victims(&mut self) -> Vec<bfe_sim::battle::world::Victim> {
+    fn kill_region_victims(&mut self) -> Vec<Victim> {
         unreachable!("not in these frames")
     }
-    fn kill_victim(&mut self, _: bfe_sim::battle::world::Victim, _: &mut Battle, _: Option<&mut ClassicSpawning>) {
+    fn kill_victim(&mut self, _: &mut Store, _: Victim) {
         unreachable!("not in these frames")
     }
     fn effect(&mut self, _: &str, _: [f64; 3]) {
         unreachable!("not in these frames")
     }
-    fn post_event(&mut self, _: &bfe_sim::battle::posts::PostEvent, _: &mut [Character]) {
+    fn post_event(&mut self, _: &mut Store, _: &PostEvent) {
         unreachable!("not in these frames")
     }
-    fn mobile_event(&mut self, _: &bfe_sim::battle::mobile::MobileEvent, _: &mut [Character]) {
+    fn mobile_event(&mut self, _: &mut Store, _: &MobileEvent) {
         unreachable!("not in these frames")
     }
     fn battle_over(&mut self, _: f64) {}
@@ -174,20 +188,16 @@ impl BattleWorld for Twin {
 
 fn regions(ops: &Value, t: &mut Trace) {
     for (i, r) in arr(ops, "regions").iter().enumerate() {
-        let built = build_region(&region(r.get("region").unwrap()));
-        let kind = match built.kind {
-            RegionType::Sphere => "sphere",
-            RegionType::Box => "box",
-            RegionType::Cylinder => "cylinder",
-            RegionType::Other => r.get("region").unwrap().get("type").and_then(Value::as_str).unwrap(),
-        };
+        let (desc, other) = region(r.get("region").unwrap());
+        let built = build_region(&desc);
+        let kind = if other { r.get("region").unwrap().get("type").and_then(Value::as_str).unwrap() } else { RegionType::NAMES[built.r#type as usize] };
         let mut parts = vec!["region".to_string(), bits(i as f64), kind.to_string()];
         parts.extend(built.half.iter().map(|x| bits(*x)));
-        parts.extend([built.radius, built.center.x, built.center.y, built.center.z].iter().map(|x| bits(*x)));
-        parts.extend(built.inverse.elements.iter().map(|x| bits(*x)));
+        parts.extend([built.radius, built.center[0], built.center[1], built.center[2]].iter().map(|x| bits(*x)));
+        parts.extend(built.inverse.iter().map(|x| bits(*x)));
         t.line(&parts);
         for (j, p) in arr(r, "points").iter().enumerate() {
-            t.line(&["in".into(), bits(i as f64), bits(j as f64), b(in_region(&built, &vec3(p)))]);
+            t.line(&["in".into(), bits(i as f64), bits(j as f64), b(!other && in_region(&built, &vec3(p)))]);
         }
     }
 }
@@ -219,7 +229,7 @@ fn kills(ops: &Value, t: &mut Trace) {
             }
         }
         let mut host = Host { draws, next: 0, effects: Vec::new(), victims, killed: Vec::new() };
-        let count = kill_region(Some(&region(r.get("region").unwrap())), &mut host);
+        let count = kill_region(Some(&region(r.get("region").unwrap()).0), &mut host);
         let (next, draws, effects, killed) = (host.next, host.draws, host.effects, host.killed);
         assert_eq!(next, draws.len(), "kill region {k}: the port drew {next} of the {} draws", draws.len());
         for (e, (name, p)) in effects.iter().enumerate() {
@@ -234,104 +244,112 @@ fn kills(ops: &Value, t: &mut Trace) {
 fn posts(ops: &Value, t: &mut Trace) {
     for (r, run) in arr(ops, "posts").iter().enumerate() {
         let rules = run.get("rules").unwrap();
-        let rules = PostRules { neutralize_time: num(rules.get("neutralizeTime").unwrap()), capture_time: num(rules.get("captureTime").unwrap()) };
-        let mut posts = CommandPosts { teams: true, ..Default::default() };
+        let (neutralize_time, capture_time) = (num(rules.get("neutralizeTime").unwrap()), num(rules.get("captureTime").unwrap()));
+        let mut s = Store::default();
+        let mut strings = Strings::default();
         for (i, p) in arr(run, "posts").iter().enumerate() {
-            let capture = p.get("capture").filter(|c| c.as_array().is_none() && c.get("type").is_some()).map(|c| build_region(&region(c)));
-            posts.posts.push(Post { name: format!("cp{i}"), team: num(p.get("team").unwrap()), capture, rules, active: true, ..Default::default() });
+            let capture = p.get("capture").filter(|c| c.as_array().is_none() && c.get("type").is_some()).map(|c| build_region(&region(c).0));
+            let post = Post { name: strings.intern_str(&format!("cp{i}")), team: num(p.get("team").unwrap()), capture, neutralize_time, capture_time, active: true, ..Default::default() };
+            let r = s.post.insert(post);
+            s.command_posts.posts.push(r);
         }
-        let mut world = Twin { capture: arr(run, "capture").iter().map(num).collect() };
+        let mut world = Twin { capture: arr(run, "capture").iter().map(num).collect(), heroes: Vec::new() };
         for (k, tick) in arr(run, "ticks").iter().enumerate() {
             let soldiers: Vec<Capturer> = arr(tick, "soldiers")
                 .iter()
                 .map(|s| Capturer { team: num(s.get("team").unwrap()), position: vec3(s.get("position").unwrap()) })
                 .collect();
-            posts.update(num(tick.get("dt").unwrap()), &soldiers, &mut world);
-            for (i, post) in posts.posts.iter().enumerate() {
+            posts::update(&mut s, num(tick.get("dt").unwrap()), &soldiers, &mut world);
+            for (i, &pr) in s.command_posts.posts.iter().enumerate() {
+                let post = s.post.get(pr).unwrap();
                 let mut parts = vec!["post".to_string(), bits(r as f64), bits(k as f64), bits(i as f64)];
                 parts.extend([post.team, post.neutralize, post.progress, post.toward].iter().map(|x| bits(*x)));
                 parts.push(b(post.contested));
-                parts.push(bits(post.remaining()));
-                for (team, n) in &post.counts {
-                    parts.push(bits(*team));
+                parts.push(bits(remaining(post)));
+                for (team, n) in post.counts.iter() {
+                    parts.push(bits(team));
                     parts.push(bits(*n));
                 }
                 t.line(&parts);
             }
-            for e in posts.events.drain(..) {
-                let (kind, from, by) = match e.change {
+            for e in std::mem::take(&mut s.command_posts.events) {
+                let (kind, from, by) = match change_of(&e) {
                     Change::Captured { by } => ("captured", "-".to_string(), bits(by)),
                     Change::Neutralized { from } => ("neutralized", bits(from), "-".to_string()),
                     Change::Destroyed { from } => ("lost", bits(from), "-".to_string()),
                 };
-                t.line(&["event".into(), bits(r as f64), bits(k as f64), bits(e.post as f64), kind.into(), from, by]);
+                let place = s.command_posts.posts.iter().position(|p| *p == e.post).unwrap();
+                t.line(&["event".into(), bits(r as f64), bits(k as f64), bits(place as f64), kind.into(), from, by]);
             }
         }
     }
 }
 
-fn seen(v: &Value) -> Option<Seen> {
+fn seen(v: &Value, strings: &mut Strings) -> Option<Seen> {
     if v.as_object().is_none() {
         return None;
     }
-    let pair = |key: &str| -> Option<(Option<String>, Option<String>)> {
+    let mut str_of = |x: Option<&Value>| opt_str(x).map(|s| strings.intern_str(&s));
+    let mut pair = |key: &str| -> Option<(Option<StrId>, Option<StrId>)> {
         let p = v.get(key)?;
         p.as_object()?;
-        Some((opt_str(p.get("key")), opt_str(p.get("label"))))
+        Some((str_of(p.get("key")), str_of(p.get("label"))))
     };
-    Some(Seen {
-        position: v.get("position").filter(|p| p.as_array().is_some()).map(nums::<3>),
-        health: v.get("health").filter(|h| h.as_str().is_some()).map(num),
-        weapon: pair("weapon"),
-        vehicle: pair("vehicle"),
-        class_label: opt_str(v.get("classLabel")),
-    })
+    let weapon = pair("weapon");
+    let vehicle = pair("vehicle");
+    let class_label = opt_str(v.get("classLabel")).map(|s| strings.intern_str(&s));
+    Some(Seen { position: v.get("position").filter(|p| p.as_array().is_some()).map(nums::<3>), health: v.get("health").filter(|h| h.as_str().is_some()).map(num), weapon, vehicle, class_label })
 }
 
 fn stats(ops: &Value, t: &mut Trace) {
     for (r, run) in arr(ops, "stats").iter().enumerate() {
-        let mut characters: Vec<Character> = arr(run, "classes")
+        let mut strings = Strings::default();
+        let mut characters = bfe_sim::store::Slab::<Character>::default();
+        let list: Vec<Ref<Character>> = arr(run, "classes")
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                let mut ch = Character::new(i as f64, if i < 4 { 1.0 } else { 2.0 }, false);
-                ch.class_name = opt_str(Some(c));
-                ch
+                let mut ch = new_character(i as f64, if i < 4 { 1.0 } else { 2.0 }, false, &mut strings);
+                ch.class_name = opt_str(Some(c)).map(|s| strings.intern_str(&s));
+                characters.insert(ch)
             })
             .collect();
-        let mut stats = BattleStats::default();
-        let place = |v: Option<&Value>| v.and_then(Value::as_f64).map(|x| x as u32);
+        let place_of = |c: Ref<Character>| list.iter().position(|x| *x == c).unwrap() as f64;
+        let mut stats = new_stats();
+        let place = |v: Option<&Value>| v.and_then(Value::as_f64).map(|x| list[x as usize]);
         for (k, op) in arr(run, "ops").iter().enumerate() {
             match op.get("op").and_then(Value::as_str).unwrap() {
                 "kill" => {
                     let relation = op.get("relation").and_then(Value::as_f64).unwrap();
-                    stats.kill(&mut characters, place(op.get("killer")), place(op.get("victim")), relation);
+                    stats::kill(&mut stats, &mut characters, place(op.get("killer")), place(op.get("victim")), relation);
                 }
-                "death" => stats.death(&mut characters, place(op.get("who"))),
-                "head" => stats.headshot(&mut characters, place(op.get("who"))),
-                "vehicle" => stats.vehicle_destroyed(&mut characters, place(op.get("who"))),
+                "death" => stats::death(&mut characters, place(op.get("who"))),
+                "head" => stats::headshot(&mut characters, place(op.get("who"))),
+                "vehicle" => stats::vehicle_destroyed(&mut characters, place(op.get("who"))),
                 "class" => {
-                    let who = place(op.get("who")).unwrap() as usize;
-                    characters[who].class_name = opt_str(op.get("name"));
+                    let who = place(op.get("who")).unwrap();
+                    let name = opt_str(op.get("name")).map(|s| strings.intern_str(&s));
+                    characters.get_mut(who).unwrap().class_name = name;
                 }
                 "tick" => {
                     let active: Vec<bool> = arr(op, "active").iter().map(Value::truthy).collect();
-                    let seen: Vec<Option<Seen>> = arr(op, "seen").iter().map(seen).collect();
-                    stats.tick(num(op.get("dt").unwrap()), &mut characters, |i, _| active[i], |i, _| seen[i as usize].clone());
+                    let seen: Vec<Option<Seen>> = arr(op, "seen").iter().map(|v| seen(v, &mut strings)).collect();
+                    stats::tick(&mut stats, num(op.get("dt").unwrap()), &list, &mut characters, &strings, |c, _| active[place_of(c) as usize], |c, _| seen[place_of(c) as usize].clone());
                 }
                 other => panic!("an op {other}"),
             }
             if k % 5 != 4 {
                 continue;
             }
-            for (ci, c) in characters.iter().enumerate() {
-                let Some(rec) = &c.record else {
+            for (ci, &cr) in list.iter().enumerate() {
+                let c = characters.get(cr).unwrap();
+                let Nullable::Value(rec) = &c.record else {
                     t.line(&["record".into(), bits(r as f64), bits(k as f64), bits(ci as f64), "-".into()]);
                     continue;
                 };
                 let mut parts = vec!["record".to_string(), bits(r as f64), bits(k as f64), bits(ci as f64), bits(rec.health), b(rec.low)];
-                match rec.anchor {
-                    Some(a) => parts.extend(a.iter().map(|x| bits(*x))),
+                match &rec.anchor {
+                    Some(a) => parts.extend([a.x, a.y, a.z].iter().map(|x| bits(*x))),
                     None => parts.push("-".into()),
                 }
                 t.line(&parts);
@@ -347,8 +365,8 @@ fn stats(ops: &Value, t: &mut Trace) {
                     t.line(&parts);
                     let mut parts = vec!["victims".to_string()];
                     parts.extend(head.clone());
-                    for (v, m) in &s.victims {
-                        parts.push(bits(*v as f64));
+                    for (v, m) in s.victims.iter() {
+                        parts.push(bits(place_of(v)));
                         parts.push(bits(*m));
                     }
                     t.line(&parts);
@@ -356,8 +374,8 @@ fn stats(ops: &Value, t: &mut Trace) {
                         let mut parts = vec![name.to_string()];
                         parts.extend(head.clone());
                         for e in table.iter() {
-                            parts.push(e.key.clone());
-                            parts.push(e.label.clone().unwrap_or_else(|| "-".into()));
+                            parts.push(text(&strings, e.key));
+                            parts.push(e.label.map(|l| text(&strings, l)).unwrap_or_else(|| "-".into()));
                             parts.push(bits(e.time));
                         }
                         t.line(&parts);
@@ -365,7 +383,7 @@ fn stats(ops: &Value, t: &mut Trace) {
                 }
             }
             let ring = &stats.ring;
-            t.line(&["ring".into(), bits(r as f64), bits(k as f64), bits(stats.time), bits(ring.head as f64), bits(ring.tail as f64)]);
+            t.line(&["ring".into(), bits(r as f64), bits(k as f64), bits(stats.time), bits(ring.head), bits(ring.tail)]);
         }
     }
 }
@@ -373,10 +391,7 @@ fn stats(ops: &Value, t: &mut Trace) {
 fn path(v: Option<&Value>) -> Option<SpawnPath> {
     let v = v?;
     v.as_object()?;
-    Some(SpawnPath {
-        present: v.get("present").map(Value::truthy).unwrap_or(false),
-        points: arr(v, "points").iter().map(|p| p.as_array().unwrap().iter().map(num).collect()).collect(),
-    })
+    Some(SpawnPath { present: v.get("present").map(Value::truthy).unwrap_or(false), points: arr(v, "points").iter().map(nums::<4>).collect() })
 }
 
 fn opt_bits(x: Option<f64>) -> String {
@@ -411,69 +426,90 @@ fn rosters(ops: &Value, t: &mut Trace) {
             local: opt_str(n.get("local")),
         });
         let heroes = run.get("heroes").map(Value::truthy).unwrap_or(false);
-        let mut sp = ClassicSpawning::new(&calls, num(run.get("unitScale").unwrap()), heroes, false, names, TEAM_CAPACITY, &|_| true);
-        let mut posts = CommandPosts::default();
+        let mut strings = Strings::default();
+        let mut s = Store::default();
+        let (spawning, mut naming) = spawning::new_spawning(&calls, num(run.get("unitScale").unwrap()), heroes, false, names, TEAM_CAPACITY, &|_| true, &mut strings);
+        let classes: Vec<StrId> = spawning.teams.iter().flat_map(|t| t.classes.iter().map(|c| c.name)).collect();
+        let heroes_named = classes.into_iter().map(|c| (c, strings.intern_str(&text(&strings, c).to_uppercase()))).collect();
+        let mut world = Twin { capture: Vec::new(), heroes: heroes_named };
+        s.spawning = spawning;
+        s.battle.stats = new_stats();
         for p in arr(run, "posts") {
             let ai = p.get("ai").unwrap();
-            posts.posts.push(Post {
+            let post = Post {
                 team: num(p.get("team").unwrap()),
                 active: p.get("active").map(Value::truthy).unwrap_or(false),
-                position: vec3(p.get("position").unwrap()),
-                ai: PostAi {
+                position: nums::<3>(p.get("position").unwrap()),
+                ai: Some(PostAi {
                     spawn_path: path(ai.get("spawnPath")),
                     ally_path: path(ai.get("allyPath")),
                     ally_count: num(ai.get("allyCount").unwrap()),
                     class_spawn_points: num(ai.get("classSpawnPoints").unwrap()),
                     class_spawn_world: Vec::new(),
                     yaw: num(ai.get("yaw").unwrap()),
-                },
+                }),
                 ..Default::default()
-            });
+            };
+            let pr = s.post.insert(post);
+            s.command_posts.posts.push(pr);
         }
         let humans: Vec<HumanSpec> = arr(run, "humans")
             .iter()
             .map(|h| HumanSpec { team: num(h.get("team").unwrap()), id: h.get("id").and_then(Value::as_f64), name: opt_str(h.get("name")) })
             .collect();
-        let mut battle = Battle::default();
-        let mut world = Twin { capture: Vec::new() };
         let mut random = jsrt::rng::ClassicRandom::new(run.get("seed").and_then(Value::as_f64).unwrap());
-        sp.begin(&humans, &mut battle, &mut posts, &mut world, &mut random);
+        spawning::begin(&mut s, &humans, &mut naming, &mut strings, &mut world, &mut random);
+        let place_of_post = |p: SpawnPost| match p {
+            SpawnPost::Post(pr) => s.command_posts.posts.iter().position(|x| *x == pr).unwrap() as f64,
+            SpawnPost::MobilePost(_) => unreachable!(),
+        };
+        let place_of = |c: Ref<Character>| s.battle.characters.iter().position(|x| *x == c).unwrap() as f64;
         let rb = bits(r as f64);
+        let sp = &s.spawning;
         t.line(&["delays".into(), rb.clone(), bits(sp.a), bits(sp.b), bits(sp.q), bits(sp.wave_countdown), bits(random.state as f64)]);
         for team in &sp.teams {
-            let mut parts = vec!["team".to_string(), rb.clone(), bits(team.index), team.name.clone().unwrap_or_else(|| "-".into())];
+            let mut parts = vec!["team".to_string(), rb.clone(), bits(team.index), team.name.map(|n| text(&strings, n)).unwrap_or_else(|| "-".into())];
             parts.extend([team.faction, team.unit_count, team.tickets, team.hero_count].iter().map(|x| bits(*x)));
-            parts.push(team.hero_class.clone().unwrap_or_else(|| "-".into()));
+            parts.push(team.hero_class.map(|n| text(&strings, n)).unwrap_or_else(|| "-".into()));
             parts.extend([team.bonus, team.aggressiveness].iter().map(|x| bits(*x)));
-            parts.extend(team.relations.iter().map(|x| bits(*x)));
+            parts.extend(team.relations.iter().map(|x| bits(*x as f64)));
             parts.push(bits(team.capacity));
             for c in &team.classes {
-                parts.push(c.name.clone());
+                parts.push(text(&strings, c.name));
                 parts.push(bits(c.target));
                 parts.push(b(c.hero));
             }
             parts.push("|".into());
-            parts.extend(team.characters.iter().map(|c| bits(*c as f64)));
+            parts.extend(team.characters.iter().map(|c| bits(place_of(*c))));
             t.line(&parts);
         }
-        for (i, c) in battle.characters.iter().enumerate() {
-            let post = c.spawn.post.map(|p| match p {
-                PostId::Placed(i) => i as f64,
-                PostId::Mobile(_) => unreachable!(),
-            });
-            let mut parts = vec!["character".to_string(), rb.clone(), bits(i as f64), bits(c.team), b(c.human), bits(c.slot), bits(c.manager_index), bits(c.player_id)];
-            parts.push(c.name.clone().unwrap_or_else(|| "-".into()));
-            parts.push(opt_bits(c.class_index));
-            parts.push(c.class_name.clone().unwrap_or_else(|| "-".into()));
-            parts.push(b(c.hero));
-            parts.extend([c.spawn.timer, c.spawn.wave, c.spawn.ordinal].iter().map(|x| bits(*x)));
+        for (i, &cr) in s.battle.characters.iter().enumerate() {
+            let c = s.character.get(cr).unwrap();
+            let spawn = c.spawn.as_ref().unwrap();
+            let post = match spawn.post {
+                PostRef::Post(pr) => Some(place_of_post(SpawnPost::Post(pr))),
+                PostRef::MobilePost(_) => unreachable!(),
+                PostRef::Null | PostRef::Undefined => None,
+            };
+            let player = match c.player_id {
+                bfe_sim::gen::PlayerId::F64(x) => x,
+                _ => f64::NAN,
+            };
+            let mut parts = vec!["character".to_string(), rb.clone(), bits(i as f64), bits(c.team), b(c.human), bits(c.slot.unwrap()), bits(c.manager_index.unwrap()), bits(player)];
+            parts.push(c.name.map(|n| text(&strings, n)).unwrap_or_else(|| "-".into()));
+            parts.push(opt_bits(match c.class_index {
+                Nullable::Value(x) => Some(x),
+                _ => None,
+            }));
+            parts.push(c.class_name.map(|n| text(&strings, n)).unwrap_or_else(|| "-".into()));
+            parts.push(b(c.hero == Some(true)));
+            parts.extend([spawn.timer, spawn.wave.unwrap(), spawn.ordinal.unwrap()].iter().map(|x| bits(*x)));
             parts.push(opt_bits(post));
-            parts.push(b(c.spawn.ready));
+            parts.push(b(spawn.ready));
             t.line(&parts);
         }
-        for (p, q) in &sp.queues {
-            let PostId::Placed(i) = p else { unreachable!() };
-            let mut parts = vec!["queue".to_string(), rb.clone(), bits(*i as f64)];
+        for (p, q) in s.spawning.queues.iter() {
+            let mut parts = vec!["queue".to_string(), rb.clone(), bits(place_of_post(p))];
             parts.extend(q.iter().map(|x| bits(*x)));
             t.line(&parts);
         }

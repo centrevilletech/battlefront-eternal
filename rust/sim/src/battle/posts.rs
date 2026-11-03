@@ -9,10 +9,16 @@
 //! post (one with a building) goes inactive for the battle when its
 //! building is destroyed. The command vehicles' posts follow the placed
 //! ones in all() and owned() (src/mobile-posts.js).
+//!
+//! The state is the store's (rust/sim/schema/battle.mjs): the
+//! `commandPosts` singleton and its posts, the `mobilePosts` singleton and
+//! its command vehicles' posts.
 
-use super::mobile::MobilePosts;
-use super::regions::{in_region, Built, Region};
+use super::mobile::{self, MobileEvent};
+use super::regions::in_region;
 use super::world::BattleWorld;
+use crate::gen::{Post, PostChange, PostEvent, PostRef, SpawnPath, SpawnPost, Store};
+use crate::store::{NumMap, Ref};
 use three::Vector3;
 
 /// rate(count): 2 - 2^(1 - count).
@@ -22,47 +28,14 @@ fn rate(count: f64) -> f64 {
 
 /// attackRate(counts, owner): the sum of the other teams' rates, in the
 /// counts' order.
-fn attack_rate(counts: &[(f64, f64)], owner: f64) -> f64 {
+fn attack_rate(counts: &NumMap<f64>, owner: f64) -> f64 {
     let mut sum = 0.0;
-    for &(team, n) in counts {
+    for (team, &n) in counts.iter() {
         if team != owner && n > 0.0 {
             sum += rate(n);
         }
     }
     sum
-}
-
-/// The map's command post rules.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PostRules {
-    pub neutralize_time: f64,
-    pub capture_time: f64,
-}
-
-impl Default for PostRules {
-    fn default() -> Self {
-        PostRules { neutralize_time: 12.0, capture_time: 10.0 }
-    }
-}
-
-/// A spawn path as a post's AI record names it: whether the world has it,
-/// and its points ([x, y, z, yaw], as the record lists them).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct SpawnPath {
-    pub present: bool,
-    pub points: Vec<Vec<f64>>,
-}
-
-/// What the spawn manager reads of a placed post's AI record
-/// (src/ai/classic/goals.js postAI, attached as the battle starts).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct PostAi {
-    pub spawn_path: Option<SpawnPath>,
-    pub ally_path: Option<SpawnPath>,
-    pub ally_count: f64,
-    pub class_spawn_points: f64,
-    pub class_spawn_world: Vec<Vec<f64>>,
-    pub yaw: f64,
 }
 
 /// A post as the spawn manager sees it.
@@ -88,124 +61,113 @@ pub enum Change {
     Destroyed { from: f64 },
 }
 
-/// A placed post (commandposts.js Post).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Post {
-    pub name: String,
-    pub label: Option<String>,
-    pub team: f64,
-    pub position: Vector3,
-    pub capture: Option<Built>,
-    /// desc.valueBleed.
-    pub value_bleed: Option<f64>,
-    /// desc.killRegion (src/objectives.js).
-    pub kill_region: Option<Region>,
-    pub rules: PostRules,
-    /// Neutralize progress (0..1) against the owner.
-    pub neutralize: f64,
-    /// Capture progress (0..1) toward `toward` while neutral.
-    pub progress: f64,
-    pub toward: f64,
-    /// Team -> soldiers in the region, in the Map's insertion order.
-    pub counts: Vec<(f64, f64)>,
-    pub contested: bool,
-    /// A destructible one's building (its place in the live objects'
-    /// `objectives`).
-    pub building: Option<u32>,
-    pub active: bool,
-    /// Its AI record (goals.js postAI).
-    pub ai: PostAi,
-}
-
-impl Post {
-    /// destroy() (commandposts.js:69): out of the battle, its owner kept.
-    pub fn destroy(&mut self) -> Change {
-        self.active = false;
-        self.counts.clear();
-        self.neutralize = 0.0;
-        self.progress = 0.0;
-        self.toward = 0.0;
-        self.contested = false;
-        Change::Destroyed { from: self.team }
-    }
-
-    /// contains(point) (commandposts.js:81).
-    pub fn contains(&self, point: &Vector3) -> bool {
-        self.capture.as_ref().is_some_and(|c| in_region(c, point))
-    }
-
-    /// remaining() (commandposts.js:86): seconds until the current capture
-    /// or neutralize lands, or Infinity.
-    pub fn remaining(&self) -> f64 {
-        let teams: Vec<(f64, f64)> = self.counts.iter().copied().filter(|(_, n)| *n > 0.0).collect();
-        if self.team != 0.0 && !self.team.is_nan() {
-            let attack = attack_rate(&self.counts, self.team);
-            return if attack != 0.0 && !attack.is_nan() { ((1.0 - self.neutralize) * self.rules.neutralize_time) / attack } else { f64::INFINITY };
+impl Change {
+    /// The event CommandPosts.update queues: `{ post, ...change }`.
+    pub fn event(self, post: Ref<Post>) -> PostEvent {
+        match self {
+            Change::Captured { by } => PostEvent { post, kind: PostChange::Captured, from: None, by: Some(by), destroyed: None },
+            Change::Neutralized { from } => PostEvent { post, kind: PostChange::Neutralized, from: Some(from), by: None, destroyed: None },
+            Change::Destroyed { from } => PostEvent { post, kind: PostChange::Lost, from: Some(from), by: None, destroyed: Some(true) },
         }
-        if teams.len() != 1 {
-            return f64::INFINITY;
-        }
-        let (team, n) = teams[0];
-        if team != self.toward && self.progress > 0.0 {
-            return f64::INFINITY;
-        }
-        ((1.0 - self.progress) * self.rules.capture_time) / rate(n)
-    }
-
-    /// update(dt) (commandposts.js:99).
-    pub fn update(&mut self, dt: f64) -> Option<Change> {
-        let teams: Vec<(f64, f64)> = self.counts.iter().copied().filter(|(_, n)| *n > 0.0).collect();
-        self.contested = teams.len() > 1;
-        if self.team != 0.0 && !self.team.is_nan() {
-            let attack = attack_rate(&self.counts, self.team);
-            if attack == 0.0 || attack.is_nan() {
-                self.neutralize = 0.0;
-                return None;
-            }
-            self.neutralize += (attack * dt) / self.rules.neutralize_time;
-            if self.neutralize >= 1.0 {
-                let lost = self.team;
-                self.team = 0.0;
-                self.neutralize = 0.0;
-                self.progress = 0.0;
-                self.toward = 0.0;
-                return Some(Change::Neutralized { from: lost });
-            }
-            return None;
-        }
-        if teams.len() != 1 {
-            return None;
-        }
-        let (team, n) = teams[0];
-        let step = (rate(n) * dt) / self.rules.capture_time;
-        if self.progress > 0.0 && team != self.toward {
-            self.progress = v8math::max(self.progress - step, 0.0);
-            return None;
-        }
-        self.toward = team;
-        self.progress += step;
-        if self.progress >= 1.0 {
-            self.team = team;
-            self.progress = 0.0;
-            self.toward = 0.0;
-            return Some(Change::Captured { by: team });
-        }
-        None
     }
 }
 
-/// A post in all()'s list: a placed one, then the command vehicles'.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PostId {
-    Placed(usize),
-    Mobile(usize),
+/// destroy() (commandposts.js:69): out of the battle, its owner kept.
+pub fn destroy(post: &mut Post) -> Change {
+    post.active = false;
+    post.counts.clear();
+    post.neutralize = 0.0;
+    post.progress = 0.0;
+    post.toward = 0.0;
+    post.contested = false;
+    Change::Destroyed { from: post.team }
 }
 
-/// One of the events update() queues (CommandPosts.events).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct PostEvent {
-    pub post: usize,
-    pub change: Change,
+/// contains(point) (commandposts.js:81).
+pub fn contains(post: &Post, point: &Vector3) -> bool {
+    post.capture.as_ref().is_some_and(|c| in_region(c, point))
+}
+
+/// The teams in a post's region, in the counts' order.
+fn present(post: &Post) -> Vec<(f64, f64)> {
+    post.counts.iter().filter(|(_, n)| **n > 0.0).map(|(t, n)| (t, *n)).collect()
+}
+
+/// remaining() (commandposts.js:86): seconds until the current capture or
+/// neutralize lands, or Infinity.
+pub fn remaining(post: &Post) -> f64 {
+    let teams = present(post);
+    if post.team != 0.0 && !post.team.is_nan() {
+        let attack = attack_rate(&post.counts, post.team);
+        return if attack != 0.0 && !attack.is_nan() { ((1.0 - post.neutralize) * post.neutralize_time) / attack } else { f64::INFINITY };
+    }
+    if teams.len() != 1 {
+        return f64::INFINITY;
+    }
+    let (team, n) = teams[0];
+    if team != post.toward && post.progress > 0.0 {
+        return f64::INFINITY;
+    }
+    ((1.0 - post.progress) * post.capture_time) / rate(n)
+}
+
+/// update(dt) (commandposts.js:99).
+pub fn update_post(post: &mut Post, dt: f64) -> Option<Change> {
+    let teams = present(post);
+    post.contested = teams.len() > 1;
+    if post.team != 0.0 && !post.team.is_nan() {
+        let attack = attack_rate(&post.counts, post.team);
+        if attack == 0.0 || attack.is_nan() {
+            post.neutralize = 0.0;
+            return None;
+        }
+        post.neutralize += (attack * dt) / post.neutralize_time;
+        if post.neutralize >= 1.0 {
+            let lost = post.team;
+            post.team = 0.0;
+            post.neutralize = 0.0;
+            post.progress = 0.0;
+            post.toward = 0.0;
+            return Some(Change::Neutralized { from: lost });
+        }
+        return None;
+    }
+    if teams.len() != 1 {
+        return None;
+    }
+    let (team, n) = teams[0];
+    let step = (rate(n) * dt) / post.capture_time;
+    if post.progress > 0.0 && team != post.toward {
+        post.progress = v8math::max(post.progress - step, 0.0);
+        return None;
+    }
+    post.toward = team;
+    post.progress += step;
+    if post.progress >= 1.0 {
+        post.team = team;
+        post.progress = 0.0;
+        post.toward = 0.0;
+        return Some(Change::Captured { by: team });
+    }
+    None
+}
+
+/// A post in all()'s list as a Character's objective or spawn post.
+pub fn post_ref(p: Option<SpawnPost>) -> PostRef {
+    match p {
+        Some(SpawnPost::Post(r)) => PostRef::Post(r),
+        Some(SpawnPost::MobilePost(r)) => PostRef::MobilePost(r),
+        None => PostRef::Null,
+    }
+}
+
+/// A Character's post as one of all()'s (null and undefined: none).
+pub fn spawn_post(p: PostRef) -> Option<SpawnPost> {
+    match p {
+        PostRef::Post(r) => Some(SpawnPost::Post(r)),
+        PostRef::MobilePost(r) => Some(SpawnPost::MobilePost(r)),
+        PostRef::Null | PostRef::Undefined => None,
+    }
 }
 
 /// A soldier who can capture: his team and where he is.
@@ -215,157 +177,147 @@ pub struct Capturer {
     pub position: Vector3,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CommandPosts {
-    pub posts: Vec<Post>,
-    pub time: f64,
-    pub events: Vec<PostEvent>,
-    pub mobile: Option<MobilePosts>,
-    /// Whether the registry's team table is set (who is whose friend):
-    /// without it every soldier counts for his own team.
-    pub teams: bool,
+/// all() (commandposts.js:349): every post the battle counts, the command
+/// vehicles' as they are now.
+pub fn all(s: &mut Store, world: &mut dyn BattleWorld) -> Vec<SpawnPost> {
+    mobile::refresh_all(s, world);
+    let mut out: Vec<SpawnPost> = s.command_posts.posts.iter().map(|&r| SpawnPost::Post(r)).collect();
+    out.extend(s.mobile_posts.posts.iter().map(|&r| SpawnPost::MobilePost(r)));
+    out
 }
 
-impl CommandPosts {
-    /// all() (commandposts.js:349): every post the battle counts, the
-    /// command vehicles' as they are now.
-    pub fn all(&mut self, world: &mut dyn BattleWorld) -> Vec<PostId> {
-        let mut out: Vec<PostId> = (0..self.posts.len()).map(PostId::Placed).collect();
-        if let Some(m) = self.mobile.as_mut() {
-            m.refresh(world);
-            // `listed` holds them only when there are any.
-            out.extend((0..m.posts.len()).map(PostId::Mobile));
+/// The team and whether it stands of a post in all()'s list.
+pub fn team_of(s: &Store, p: SpawnPost) -> (f64, bool) {
+    match p {
+        SpawnPost::Post(r) => {
+            let post = s.post.get(r).expect("a post");
+            (post.team, post.active)
         }
-        out
+        SpawnPost::MobilePost(r) => {
+            let m = s.mobile_post.get(r).expect("a command vehicle's post");
+            (m.team, m.active)
+        }
     }
+}
 
-    /// The team and whether it stands of a post in all()'s list.
-    pub fn team_of(&self, p: PostId) -> (f64, bool) {
-        match p {
-            PostId::Placed(i) => (self.posts[i].team, self.posts[i].active),
-            PostId::Mobile(i) => {
-                let m = &self.mobile.as_ref().unwrap().posts[i];
-                (m.team, m.active)
+/// What the spawn manager reads of a post in all()'s list.
+pub fn spawn_view(s: &Store, p: SpawnPost, world: &mut dyn BattleWorld) -> SpawnView {
+    let owner = |team: f64| jsrt::conv::to_int32(team) as f64;
+    match p {
+        SpawnPost::Post(r) => {
+            let post = s.post.get(r).expect("a post");
+            let ai = post.ai.clone().unwrap_or_default();
+            SpawnView {
+                active: post.active,
+                owner: owner(post.team),
+                position: post.position,
+                spawn_path: ai.spawn_path,
+                ally_path: ai.ally_path,
+                ally_count: ai.ally_count,
+                class_spawn_points: ai.class_spawn_points,
+                yaw: ai.yaw,
+            }
+        }
+        SpawnPost::MobilePost(r) => {
+            let post = s.mobile_post.get(r).expect("a command vehicle's post");
+            let position = match post.vehicle {
+                Some(v) if post.active => world.vehicle_position(v),
+                _ => post.last_position,
+            };
+            SpawnView {
+                active: post.active,
+                owner: owner(post.team),
+                position,
+                spawn_path: None,
+                ally_path: None,
+                ally_count: 0.0,
+                class_spawn_points: post.ai.class_spawn_points,
+                yaw: post.yaw,
             }
         }
     }
+}
 
-    /// What the spawn manager reads of a post in all()'s list.
-    pub fn spawn_view(&self, p: PostId, world: &mut dyn BattleWorld) -> SpawnView {
-        let owner = |team: f64| jsrt::conv::to_int32(team) as f64;
-        match p {
-            PostId::Placed(i) => {
-                let post = &self.posts[i];
-                SpawnView {
-                    active: post.active,
-                    owner: owner(post.team),
-                    position: [post.position.x, post.position.y, post.position.z],
-                    spawn_path: post.ai.spawn_path.clone(),
-                    ally_path: post.ai.ally_path.clone(),
-                    ally_count: post.ai.ally_count,
-                    class_spawn_points: post.ai.class_spawn_points,
-                    yaw: post.ai.yaw,
-                }
-            }
-            PostId::Mobile(i) => {
-                let post = &self.mobile.as_ref().unwrap().posts[i];
-                let position = match post.vehicle {
-                    Some(v) if post.active => world.vehicle_position(v),
-                    _ => post.last_position,
-                };
-                SpawnView {
-                    active: post.active,
-                    owner: owner(post.team),
-                    position,
-                    spawn_path: None,
-                    ally_path: None,
-                    ally_count: 0.0,
-                    class_spawn_points: post.ai.class_spawn_points,
-                    yaw: post.yaw,
-                }
+/// A post's class spawn points where its hull is now (a command vehicle's:
+/// classSpawnWorld); a placed post's are its record's.
+pub fn class_spawn_world(s: &Store, p: SpawnPost, world: &mut dyn BattleWorld) -> Vec<[f64; 4]> {
+    match p {
+        SpawnPost::Post(r) => s.post.get(r).expect("a post").ai.as_ref().map(|ai| ai.class_spawn_world.clone()).unwrap_or_default(),
+        SpawnPost::MobilePost(r) => {
+            let post = s.mobile_post.get(r).expect("a command vehicle's post");
+            match post.vehicle {
+                Some(_) if post.active => world.class_spawn_world(r),
+                _ => Vec::new(),
             }
         }
     }
+}
 
-    /// A post's class spawn points where its hull is now (a command
-    /// vehicle's: classSpawnWorld); a placed post's are its record's.
-    pub fn class_spawn_world(&self, p: PostId, world: &mut dyn BattleWorld) -> Vec<Vec<f64>> {
-        match p {
-            PostId::Placed(i) => self.posts[i].ai.class_spawn_world.clone(),
-            PostId::Mobile(i) => {
-                let post = &self.mobile.as_ref().unwrap().posts[i];
-                match post.vehicle {
-                    Some(_) if post.active => world.class_spawn_world(i),
-                    _ => Vec::new(),
-                }
-            }
+/// A post's desc.valueBleed.
+pub fn value_bleed(s: &Store, p: SpawnPost) -> Option<f64> {
+    match p {
+        SpawnPost::Post(r) => s.post.get(r).expect("a post").value_bleed,
+        SpawnPost::MobilePost(r) => Some(s.mobile_post.get(r).expect("a command vehicle's post").desc.value_bleed),
+    }
+}
+
+/// owned(team) (commandposts.js:414): the posts a team holds, its living
+/// command vehicles' included.
+pub fn owned(s: &mut Store, team: f64, world: &mut dyn BattleWorld) -> Vec<SpawnPost> {
+    let list = all(s, world);
+    list.into_iter()
+        .filter(|p| {
+            let (t, active) = team_of(s, *p);
+            t == team && active
+        })
+        .collect()
+}
+
+/// The command vehicles' posts lost or changed hands since the last call
+/// (mobileEvents).
+pub fn mobile_events(s: &mut Store, world: &mut dyn BattleWorld) -> Vec<MobileEvent> {
+    mobile::events(s, world)
+}
+
+/// at(point) (commandposts.js:409): the post whose capture region holds a
+/// point.
+pub fn at(s: &Store, point: &Vector3) -> Option<Ref<Post>> {
+    s.command_posts.posts.iter().copied().find(|&r| {
+        let p = s.post.get(r).expect("a post");
+        p.active && contains(p, point)
+    })
+}
+
+/// update(dt, soldiers) (commandposts.js:379) on a world (no camera). Each
+/// soldier counts for his team's capture team (the registry's, when the
+/// posts have its table: the world answers).
+pub fn update(s: &mut Store, dt: f64, soldiers: &[Capturer], world: &mut dyn BattleWorld) {
+    s.command_posts.time += dt;
+    for i in 0..s.command_posts.posts.len() {
+        let r = s.command_posts.posts[i];
+        let post = s.post.get_mut(r).expect("a post");
+        if !post.active {
+            continue;
         }
-    }
-
-    /// A post's desc.valueBleed.
-    pub fn value_bleed(&self, p: PostId) -> Option<f64> {
-        match p {
-            PostId::Placed(i) => self.posts[i].value_bleed,
-            PostId::Mobile(i) => Some(self.mobile.as_ref().unwrap().posts[i].desc.value_bleed),
-        }
-    }
-
-    /// owned(team) (commandposts.js:414): the posts a team holds, its living
-    /// command vehicles' included.
-    pub fn owned(&mut self, team: f64, world: &mut dyn BattleWorld) -> Vec<PostId> {
-        let all = self.all(world);
-        all.into_iter()
-            .filter(|p| {
-                let (t, active) = self.team_of(*p);
-                t == team && active
-            })
-            .collect()
-    }
-
-    /// The command vehicles' posts lost or changed hands since the last
-    /// call (mobileEvents).
-    pub fn mobile_events(&mut self, world: &mut dyn BattleWorld) -> Vec<super::mobile::MobileEvent> {
-        match self.mobile.as_mut() {
-            Some(m) => m.events(world),
-            None => Vec::new(),
-        }
-    }
-
-    /// at(point) (commandposts.js:409): the post whose capture region holds
-    /// a point.
-    pub fn at(&self, point: &Vector3) -> Option<usize> {
-        self.posts.iter().position(|p| p.active && p.contains(point))
-    }
-
-    /// update(dt, soldiers) (commandposts.js:379) on a world (no camera).
-    pub fn update(&mut self, dt: f64, soldiers: &[Capturer], world: &mut dyn BattleWorld) {
-        self.time += dt;
-        for i in 0..self.posts.len() {
-            let post = &mut self.posts[i];
-            if !post.active {
+        if let Some(b) = post.building {
+            if !world.building_alive(b) {
+                let change = destroy(post);
+                s.command_posts.events.push(change.event(r));
                 continue;
             }
-            if let Some(b) = post.building {
-                if !world.building_alive(b) {
-                    let change = post.destroy();
-                    self.events.push(PostEvent { post: i, change });
-                    continue;
-                }
+        }
+        post.counts.clear();
+        for soldier in soldiers {
+            let team = world.capture_team(soldier.team);
+            if team == 0.0 || team.is_nan() || !contains(post, &soldier.position) {
+                continue;
             }
-            post.counts.clear();
-            for soldier in soldiers {
-                let team = if self.teams { world.capture_team(soldier.team) } else { soldier.team };
-                if team == 0.0 || team.is_nan() || !post.contains(&soldier.position) {
-                    continue;
-                }
-                match post.counts.iter_mut().find(|(t, _)| *t == team) {
-                    Some(entry) => entry.1 += 1.0,
-                    None => post.counts.push((team, 1.0)),
-                }
-            }
-            if let Some(change) = post.update(dt) {
-                self.events.push(PostEvent { post: i, change });
-            }
+            // counts.set(team, (counts.get(team) || 0) + 1)
+            let n = post.counts.get(&team).copied().filter(|n| *n != 0.0 && !n.is_nan()).unwrap_or(0.0);
+            post.counts.set(team, n + 1.0);
+        }
+        if let Some(change) = update_post(post, dt) {
+            s.command_posts.events.push(change.event(r));
         }
     }
 }

@@ -24,6 +24,27 @@ impl PostChange {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum RegionType {
+    #[default] Sphere = 0,
+    Box = 1,
+    Cylinder = 2,
+}
+
+impl RegionType {
+    pub const NAMES: [&'static str; 3] = ["sphere", "box", "cylinder"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(RegionType::Sphere),
+            1 => Some(RegionType::Box),
+            2 => Some(RegionType::Cylinder),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PostRef {
     Null,
@@ -417,7 +438,7 @@ impl Spawn {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RegionDesc {
-    pub r#type: StrId,
+    pub r#type: RegionType,
     pub matrix: Option<Vec<f64>>,
     pub center: Option<Vec<f64>>,
     pub size: Vec<f64>,
@@ -428,7 +449,7 @@ impl RegionDesc {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
-        row[0] = self.r#type.0 as f64;
+        row[0] = self.r#type as u8 as f64;
         match &self.matrix { Some(v) => { row[1] = 0.0; { let at = heap.len(); row[1 + 1] = at as f64; row[1 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[1] = 2.0; row[1 + 1..1 + 3].fill(0.0); } }
         match &self.center { Some(v) => { row[4] = 0.0; { let at = heap.len(); row[4 + 1] = at as f64; row[4 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 1, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } } } None => { row[4] = 2.0; row[4 + 1..4 + 3].fill(0.0); } }
         { let at = heap.len(); row[7] = at as f64; row[7 + 1] = self.size.len() as f64; heap.resize(at + self.size.len() * 1, 0.0); for (i, e) in self.size.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
@@ -437,7 +458,7 @@ impl RegionDesc {
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
         let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
         Self {
-            r#type: StrId(word_u32(row[0])),
+            r#type: RegionType::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             matrix: if row[1] == 0.0 { Some({ let (at, n) = (word_u32(row[1 + 1]) as usize, word_u32(row[1 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out }) } else { None },
             center: if row[4] == 0.0 { Some({ let (at, n) = (word_u32(row[4 + 1]) as usize, word_u32(row[4 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out }) } else { None },
             size: { let (at, n) = (word_u32(row[7]) as usize, word_u32(row[7 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
@@ -448,7 +469,7 @@ impl RegionDesc {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Built {
-    pub r#type: StrId,
+    pub r#type: RegionType,
     pub half: [f64; 3],
     pub radius: f64,
     pub center: Vec3,
@@ -460,7 +481,7 @@ impl Built {
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 24] = (&mut row[..24]).try_into().unwrap();
-        row[0] = self.r#type.0 as f64;
+        row[0] = self.r#type as u8 as f64;
         row[1..1 + 3].copy_from_slice(&self.half);
         row[4] = self.radius;
         row[5..5 + 3].copy_from_slice(&self.center);
@@ -470,36 +491,11 @@ impl Built {
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
         let row: &[f64; 24] = (&row[..24]).try_into().unwrap();
         Self {
-            r#type: StrId(word_u32(row[0])),
+            r#type: RegionType::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             half: { let mut a = [0.0; 3]; a.copy_from_slice(&row[1..1 + 3]); a },
             radius: row[4],
             center: [row[5], row[5 + 1], row[5 + 2]],
             inverse: { let mut m = [0.0; 16]; m.copy_from_slice(&row[8..8 + 16]); m },
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct PostRules {
-    pub neutralize_time: f64,
-    pub capture_time: f64,
-}
-
-impl PostRules {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        row[0] = self.neutralize_time;
-        row[1] = self.capture_time;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            neutralize_time: row[0],
-            capture_time: row[1],
         }
     }
 
@@ -1188,11 +1184,12 @@ pub struct Post {
     pub name: StrId,
     pub label: Option<StrId>,
     pub team: f64,
-    pub rules: PostRules,
+    pub neutralize_time: f64,
+    pub capture_time: f64,
     pub position: Vec3,
     pub capture: Option<Built>,
     pub value_bleed: Option<f64>,
-    pub kill_region: Option<RegionDesc>,
+    pub kill_region: Nullable<RegionDesc>,
     pub neutralize: f64,
     pub progress: f64,
     pub toward: f64,
@@ -1216,11 +1213,12 @@ impl Post {
         row[2] = self.name.0 as f64;
         match &self.label { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v).0 as f64; } None => { row[3] = 2.0; row[3 + 1..3 + 2].fill(0.0); } }
         row[5] = self.team;
-        self.rules.put(&mut row[6..], heap);
+        row[6] = self.neutralize_time;
+        row[7] = self.capture_time;
         row[8..8 + 3].copy_from_slice(&self.position);
         match &self.capture { Some(v) => { row[11] = 0.0; v.put(&mut row[11 + 1..], heap); } None => { row[11] = 1.0; row[11 + 1..11 + 25].fill(0.0); } }
         match &self.value_bleed { Some(v) => { row[36] = 0.0; row[36 + 1] = (*v); } None => { row[36] = 2.0; row[36 + 1..36 + 2].fill(0.0); } }
-        match &self.kill_region { Some(v) => { row[38] = 0.0; v.put(&mut row[38 + 1..], heap); } None => { row[38] = 2.0; row[38 + 1..38 + 10].fill(0.0); } }
+        match &self.kill_region { Nullable::Value(v) => { row[38] = 0.0; v.put(&mut row[38 + 1..], heap); } Nullable::Null => { row[38] = 1.0; row[38 + 1..38 + 10].fill(0.0); } Nullable::Undefined => { row[38] = 2.0; row[38 + 1..38 + 10].fill(0.0); } }
         row[48] = self.neutralize;
         row[49] = self.progress;
         row[50] = self.toward;
@@ -1237,11 +1235,12 @@ impl Post {
         self.name = StrId(word_u32(row[2]));
         self.label = if row[3] == 0.0 { Some(StrId(word_u32(row[3 + 1]))) } else { None };
         self.team = row[5];
-        self.rules = PostRules::take(&row[6..], heap);
+        self.neutralize_time = row[6];
+        self.capture_time = row[7];
         self.position = [row[8], row[8 + 1], row[8 + 2]];
         self.capture = if row[11] == 0.0 { Some(Built::take(&row[11 + 1..], heap)) } else { None };
         self.value_bleed = if row[36] == 0.0 { Some(row[36 + 1]) } else { None };
-        self.kill_region = if row[38] == 0.0 { Some(RegionDesc::take(&row[38 + 1..], heap)) } else { None };
+        self.kill_region = match word_u32(row[38]) { 0 => Nullable::Value(RegionDesc::take(&row[38 + 1..], heap)), 1 => Nullable::Null, _ => Nullable::Undefined };
         self.neutralize = row[48];
         self.progress = row[49];
         self.toward = row[50];

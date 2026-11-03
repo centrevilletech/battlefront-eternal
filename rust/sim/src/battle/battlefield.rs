@@ -9,8 +9,8 @@
 
 use crate::ai::nav::boundary::Boundary;
 use crate::ai::nav::math::Vec3;
-use super::rules::Character;
 use super::world::{BattleWorld, Body};
+use crate::gen::Store;
 
 pub const LEAVING_TIME: f64 = 10.0;
 
@@ -25,13 +25,16 @@ impl Battlefield {
         self.boundary.outside(Vec3 { x: p[0], y: p[1], z: p[2] })
     }
 
-    /// update(dt, characters) (battlefield.js:76).
-    pub fn update(&self, dt: f64, characters: &mut [Character], world: &mut dyn BattleWorld) {
+    /// update(dt, characters) (battlefield.js:76), over the battle's
+    /// Characters. A kill runs the death path, which the world applies to
+    /// the store.
+    pub fn update(&self, dt: f64, s: &mut Store, world: &mut dyn BattleWorld) {
         if self.boundary.empty() {
             return;
         }
-        for character in characters.iter_mut() {
-            let Some(unit) = character.unit else { continue };
+        for i in 0..s.battle.characters.len() {
+            let r = s.battle.characters[i];
+            let Some(unit) = s.character.get(r).expect("a Character of the battle").unit else { continue };
             let body: Body = world.body(unit);
             // Only while he has a body: the original lets go of it at his
             // death.
@@ -40,6 +43,7 @@ impl Battlefield {
             }
             let body_out = self.outside(&body.place);
             let droid_out = body.droid.is_some_and(|d| self.outside(&d));
+            let character = s.character.get_mut(r).unwrap();
             if !body_out && !droid_out {
                 character.out_of_bounds = -1.0;
                 continue;
@@ -52,17 +56,17 @@ impl Battlefield {
                 continue;
             }
             if droid_out {
-                world.kill_droid(unit);
+                world.kill_droid(s, unit);
             }
             if !body_out {
                 continue;
             }
             if let Some(vehicle) = body.vehicle {
                 // The hull goes, and everyone aboard with it.
-                world.wreck(vehicle);
+                world.wreck(s, vehicle);
             }
             if !world.combat_dead(unit) {
-                world.kill(unit);
+                world.kill(s, unit);
             }
         }
     }

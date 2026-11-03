@@ -7,6 +7,8 @@
 //! it never changes hands by capture; when its vehicle dies it is lost.
 
 use super::world::BattleWorld;
+use crate::gen::{MobileAi, MobileDesc, MobilePost, Reported, Store, Vehicle};
+use crate::store::{Ref, StrId, Strings};
 
 /// The class defaults for the AI's attack and defence weights.
 pub fn default_values() -> Vec<f64> {
@@ -52,8 +54,8 @@ pub fn class_data(value_bleed_setting: f64, record: Option<&ClassRecord>) -> Cla
 /// A hull on a pad as a command post reads it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Hull {
-    /// The vehicle (its place in the battle's list of hulls).
-    pub id: u32,
+    /// The vehicle.
+    pub id: Ref<Vehicle>,
     pub alive: bool,
     /// Of a command class (isCommandClass(v.def)).
     pub command: bool,
@@ -65,9 +67,9 @@ pub struct Hull {
     /// Someone holds a seat (a lease not released).
     pub seated: bool,
     pub yaw: f64,
-    pub name: String,
+    pub name: StrId,
     /// v.label || v.name.
-    pub label: String,
+    pub label: StrId,
     /// v.size ? v.size.length() / 2 : v.radius ?? 0.
     pub radius: f64,
     /// v.speed ?? 0.
@@ -85,160 +87,132 @@ pub struct Pad {
     pub vehicle: Option<Hull>,
 }
 
-/// What a post said of itself at the last events() (MobilePosts.state).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Reported {
-    pub active: bool,
-    pub team: f64,
-    pub vehicle: Option<u32>,
-    pub life: Option<f64>,
-}
-
-/// The AI's view of the post (post.ai): its class's weights, ValueBleed and
-/// spawn points.
-#[derive(Clone, Debug, PartialEq)]
-pub struct MobileAi {
-    pub atk: Vec<f64>,
-    pub def: Vec<f64>,
-    pub value_bleed: f64,
-    pub points: Vec<[f64; 4]>,
-    pub class_spawn_points: f64,
-}
-
-impl Default for MobileAi {
-    fn default() -> Self {
-        MobileAi { atk: default_values(), def: default_values(), value_bleed: 100.0, points: Vec::new(), class_spawn_points: 0.0 }
+/// new MobilePost(system, slot, index, classes) (mobile-posts.js:69): a
+/// pad's post before its first refresh.
+pub fn new_mobile_post(index: f64, strings: &mut Strings) -> MobilePost {
+    let empty = strings.intern_str("");
+    MobilePost {
+        index,
+        name: strings.intern_str(&format!("transport-{}", jsrt::numfmt::number_to_string(index))),
+        label: empty,
+        team: 0.0,
+        active: false,
+        mobile: true,
+        vehicle: None,
+        life: None,
+        yaw: 0.0,
+        radius: 0.0,
+        speed: 0.0,
+        last_position: [0.0; 3],
+        desc: MobileDesc { name: empty, display_name: empty, value_bleed: 100.0, mobile: true },
+        ai: MobileAi { atk: default_values(), def: default_values(), value_bleed: 100.0, points: Vec::new(), class_spawn_points: 0.0 },
+        reported: Reported::default(),
     }
 }
 
-/// The post's desc: { name, displayName, valueBleed, mobile: true }.
-#[derive(Clone, Debug, PartialEq)]
-pub struct MobileDesc {
-    pub name: String,
-    pub display_name: String,
-    pub value_bleed: f64,
-}
-
-impl Default for MobileDesc {
-    fn default() -> Self {
-        MobileDesc { name: String::new(), display_name: String::new(), value_bleed: 100.0 }
-    }
-}
-
-/// One vehicle pad's post (MobilePost).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct MobilePost {
-    /// The pad (its place in the vehicles' slots).
-    pub slot: usize,
-    pub label: String,
-    pub team: f64,
-    pub active: bool,
-    /// The hull of its current or last life.
-    pub vehicle: Option<u32>,
-    /// That hull's registry generation.
-    pub life: Option<f64>,
-    pub yaw: f64,
-    pub radius: f64,
-    pub speed: f64,
-    pub last_position: [f64; 3],
-    pub desc: MobileDesc,
-    pub ai: MobileAi,
-    pub reported: Reported,
-}
-
-impl MobilePost {
-    /// hull() (mobile-posts.js:132): the pad's live command vehicle.
-    fn hull(pad: &Pad) -> Option<&Hull> {
-        let mut found = None;
-        for v in &pad.variants {
-            if v.alive && v.command {
-                found = Some(v);
-            }
+/// hull() (mobile-posts.js:132): the pad's live command vehicle.
+fn hull(pad: &Pad) -> Option<&Hull> {
+    let mut found = None;
+    for v in &pad.variants {
+        if v.alive && v.command {
+            found = Some(v);
         }
-        if found.is_none() {
-            if let Some(v) = pad.vehicle.as_ref().filter(|v| v.alive && v.command) {
-                found = Some(v);
-            }
-        }
-        found
     }
+    if found.is_none() {
+        if let Some(v) = pad.vehicle.as_ref().filter(|v| v.alive && v.command) {
+            found = Some(v);
+        }
+    }
+    found
+}
 
-    /// refresh() (mobile-posts.js:139).
-    pub fn refresh(&mut self, world: &mut dyn BattleWorld) {
-        let pad = world.pad(self.slot);
-        let Some(v) = Self::hull(&pad) else {
-            if let Some(old) = self.vehicle {
-                self.last_position = world.vehicle_position(old);
-            }
-            self.active = false;
-            return;
-        };
-        let life = v.generation;
-        if Some(v.id) != self.vehicle || Some(life) != self.life {
-            // A new hull on the pad: its class's post data, and its team.
-            self.vehicle = Some(v.id);
-            self.life = Some(life);
-            self.team = v.team;
-            let data = class_data(v.value_bleed_setting, v.record.as_ref());
-            self.ai.atk = data.atk;
-            self.ai.def = data.def;
-            self.ai.value_bleed = data.value_bleed;
-            self.ai.class_spawn_points = data.points.len() as f64;
-            self.ai.points = data.points;
-            self.label = v.label.clone();
-            self.desc = MobileDesc { name: v.name.clone(), display_name: self.label.clone(), value_bleed: data.value_bleed };
-            self.radius = v.radius;
-            self.speed = v.speed;
+/// refresh() (mobile-posts.js:139).
+pub fn refresh(s: &mut Store, r: Ref<MobilePost>, world: &mut dyn BattleWorld) {
+    let slot = s.mobile_post.get(r).expect("a command vehicle's post").index;
+    let pad = world.pad(slot);
+    let Some(v) = hull(&pad) else {
+        let old = s.mobile_post.get(r).unwrap().vehicle;
+        let last = old.map(|old| world.vehicle_position(old));
+        let post = s.mobile_post.get_mut(r).unwrap();
+        if let Some(p) = last {
+            post.last_position = p;
         }
-        // Whoever takes a seat makes it his team's; it stays his after.
-        if v.seated {
-            self.team = v.controlling_team;
-        }
-        self.yaw = v.yaw;
-        self.active = true;
+        post.active = false;
+        return;
+    };
+    let post = s.mobile_post.get_mut(r).unwrap();
+    let life = v.generation;
+    if Some(v.id) != post.vehicle || Some(life) != post.life {
+        // A new hull on the pad: its class's post data, and its team.
+        post.vehicle = Some(v.id);
+        post.life = Some(life);
+        post.team = v.team;
+        let data = class_data(v.value_bleed_setting, v.record.as_ref());
+        post.ai.atk = data.atk;
+        post.ai.def = data.def;
+        post.ai.value_bleed = data.value_bleed;
+        post.ai.class_spawn_points = data.points.len() as f64;
+        post.ai.points = data.points;
+        post.label = v.label;
+        post.desc = MobileDesc { name: v.name, display_name: post.label, value_bleed: data.value_bleed, mobile: true };
+        post.radius = v.radius;
+        post.speed = v.speed;
     }
+    // Whoever takes a seat makes it his team's; it stays his after.
+    if v.seated {
+        post.team = v.controlling_team;
+    }
+    post.yaw = v.yaw;
+    post.active = true;
+}
 
-    fn state(&self) -> Reported {
-        Reported { active: self.active, team: self.team, vehicle: self.vehicle, life: self.life }
-    }
+/// state(post) (mobile-posts.js:179).
+fn state(post: &MobilePost) -> Reported {
+    Reported { active: post.active, team: post.team, vehicle: post.vehicle, life: post.life }
 }
 
 /// A command vehicle's post lost (its vehicle died, or another took the
 /// pad) or changed hands.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MobileEvent {
-    Lost { post: usize, vehicle: Option<u32>, from: f64 },
-    Owner { post: usize, from: f64, to: f64 },
+    Lost { post: Ref<MobilePost>, vehicle: Option<Ref<Vehicle>>, from: f64 },
+    Owner { post: Ref<MobilePost>, from: f64, to: f64 },
 }
 
-/// Every pad whose classes include a command vehicle, in pad order.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct MobilePosts {
-    pub posts: Vec<MobilePost>,
+/// The command vehicles' posts as MobilePosts makes them: one a pad whose
+/// classes include a command vehicle, refreshed, each reporting its state.
+pub fn report_all(s: &mut Store, world: &mut dyn BattleWorld) {
+    for i in 0..s.mobile_posts.posts.len() {
+        let r = s.mobile_posts.posts[i];
+        refresh(s, r, world);
+        let post = s.mobile_post.get_mut(r).unwrap();
+        post.reported = state(post);
+    }
 }
 
-impl MobilePosts {
-    /// refresh() (mobile-posts.js:183).
-    pub fn refresh(&mut self, world: &mut dyn BattleWorld) {
-        for post in &mut self.posts {
-            post.refresh(world);
-        }
+/// refresh() (mobile-posts.js:183).
+pub fn refresh_all(s: &mut Store, world: &mut dyn BattleWorld) {
+    for i in 0..s.mobile_posts.posts.len() {
+        let r = s.mobile_posts.posts[i];
+        refresh(s, r, world);
     }
+}
 
-    /// events() (mobile-posts.js:191).
-    pub fn events(&mut self, world: &mut dyn BattleWorld) -> Vec<MobileEvent> {
-        let mut out = Vec::new();
-        for (i, post) in self.posts.iter_mut().enumerate() {
-            let was = post.reported;
-            post.refresh(world);
-            let replaced = post.vehicle != was.vehicle || post.life != was.life;
-            if was.active && (!post.active || replaced) {
-                out.push(MobileEvent::Lost { post: i, vehicle: was.vehicle, from: was.team });
-            } else if was.active && post.active && was.team != post.team {
-                out.push(MobileEvent::Owner { post: i, from: was.team, to: post.team });
-            }
-            post.reported = post.state();
+/// events() (mobile-posts.js:191).
+pub fn events(s: &mut Store, world: &mut dyn BattleWorld) -> Vec<MobileEvent> {
+    let mut out = Vec::new();
+    for i in 0..s.mobile_posts.posts.len() {
+        let r = s.mobile_posts.posts[i];
+        let was = s.mobile_post.get(r).unwrap().reported.clone();
+        refresh(s, r, world);
+        let post = s.mobile_post.get_mut(r).unwrap();
+        let replaced = post.vehicle != was.vehicle || post.life != was.life;
+        if was.active && (!post.active || replaced) {
+            out.push(MobileEvent::Lost { post: r, vehicle: was.vehicle, from: was.team });
+        } else if was.active && post.active && was.team != post.team {
+            out.push(MobileEvent::Owner { post: r, from: was.team, to: post.team });
         }
-        out
+        post.reported = state(post);
     }
+    out
 }

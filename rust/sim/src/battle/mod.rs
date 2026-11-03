@@ -4,8 +4,9 @@
 //! objects follow.)
 //!
 //! Each module transliterates its JavaScript file (cited by line): the same
-//! operations in the same order, the quirks kept. What the rules ask of
-//! the rest of the world goes through [`world::BattleWorld`].
+//! operations in the same order, the quirks kept. The state is the store's
+//! (rust/sim/schema/battle.mjs, `crate::gen`); what the rules ask of the
+//! rest of the world goes through [`world::BattleWorld`].
 
 pub mod battlefield;
 pub mod mobile;
@@ -17,5 +18,4 @@ pub mod regions;
 pub mod rules;
 pub mod spawning;
 pub mod stats;
-pub mod teams;
 pub mod world;

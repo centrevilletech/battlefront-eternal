@@ -1,19 +1,19 @@
 // The battle package's frames (tools/sim-capture/specs.mjs `battle`): the
 // command posts' tick (src/commandposts.js CommandPosts.update), the battle's
-// rules (src/battle.js Battle.update, its scores' tick with it) and leaving
-// the battlefield (src/battlefield.js Battlefield.update).
-// rust/sim/tests/replay_battle.rs reads them back.
+// rules (src/battle.js Battle.update, its scores' tick with it), leaving the
+// battlefield (src/battlefield.js Battlefield.update) and the Classic spawn
+// manager (src/ai/classic/spawning.js), and (battlePhase) the battle phase
+// whole. rust/sim/tests/replay_battle.rs reads them back.
 //
-// Until the store's generator can hold what these keep (objects keyed by
-// team number, Maps keyed by numbers and by Characters), a frame's state is
-// written as explicit values, one root for each object the Rust port
-// holds, the same at the frame's start and end. A Character is named by
-// its place in the battle's list, a unit by its registry id, a hull as the
-// capture names hulls. What a frame's Rust reads of the rest of the world
-// (the registry's team questions, what each Character's tallies see of
-// him, the hulls on the command pads, the bodies the battlefield tests)
-// rides with its state: those reads change nothing, and nothing in the
-// frame changes them.
+// A frame's state is the store's (rust/sim/schema/battle.mjs), as the
+// generated exporters write it (cap.export): the battle with its Characters,
+// the command posts, the command vehicles' posts and the spawn manager.
+// What the Rust reads of the rest of the world rides with it as plain
+// values, keyed by a Character's place in the battle's list, a post's place
+// in its list, a unit's registry id or a hull's handle: the registry's team
+// questions, what each Character's tallies see of him, the hulls on the
+// command pads, the bodies the battlefield tests. Those reads change
+// nothing, and nothing in the frame changes them.
 import { observe } from '../../src/battle-stats.js';
 import { isCommandClass } from '../../src/mobile-posts.js';
 import { RemoteDroids } from '../../src/remote.js';
@@ -21,37 +21,38 @@ import { Vehicle } from '../../src/vehicles.js';
 import { PlayerCombat } from '../../src/combat.js';
 
 const TEAMS = 8;
-const indexOf = (characters, c) => (c ? characters.indexOf(c) : null);
-const unitId = (u) => (u ? u.id : null);
+const placeOf = (game, c) => (c ? game.battle.characters.indexOf(c) : null);
 
-// ---- Values.
+// ---- The store's state.
 
-// A built region (src/regions.js buildRegion): its numbers, the inverse's
-// sixteen as an array.
-const builtValue = (r) => r && { type: r.type, half: [...r.half], radius: r.radius, center: r.center, inverse: [...r.inverse.elements] };
-// A region as the world file gives it.
-const regionValue = (r) => r && { type: r.type, matrix: r.matrix ? [...r.matrix] : null, center: r.center ? [...r.center] : null, size: [...r.size] };
-
-// A placed post as update() and the rules read and write it.
-function postValue(post, live) {
+// The command vehicles' posts (none: an empty list, as no MobilePosts).
+const NO_MOBILE = { posts: [] };
+function state(game, cap) {
+  const s = game.ai?.spawning ?? null;
   return {
-    name: post.name, team: post.team, active: post.active, valueBleed: post.desc.valueBleed ?? null,
-    neutralize: post.neutralize, progress: post.progress, toward: post.toward, counts: post.counts, contested: post.contested,
-    building: post.building ? { index: live?.objectives?.indexOf(post.building) ?? -1, alive: post.building.alive } : null,
-    capture: builtValue(post.capture), captureDesc: regionValue(post.desc.capture ?? null), killRegion: regionValue(post.desc.killRegion ?? null),
-    rules: { neutralizeTime: post.rules.neutralizeTime, captureTime: post.rules.captureTime }, position: post.position,
-    ai: aiValue(post.ai),
+    battle: cap.export('battle', game.battle),
+    posts: cap.export('commandPosts', game.posts),
+    mobile: cap.export('mobilePosts', game.posts.mobile ?? NO_MOBILE),
+    spawning: s ? cap.export('spawning', s) : null,
   };
 }
 
-// What the spawn manager reads of a placed post's AI record (src/ai/classic/
-// goals.js postAI).
-const pathValue = (p) => p && { present: Boolean(p.present), points: (p.points || []).map((q) => [...q]) };
-function aiValue(ai) {
-  if (!ai) return null;
-  return { spawnPath: pathValue(ai.spawnPath), allyPath: pathValue(ai.allyPath), allyCount: ai.allyCount ?? 0, classSpawnPoints: ai.classSpawnPoints ?? 0,
-    classSpawnWorld: (ai.classSpawnWorld || []).map((q) => [...q]), yaw: ai.yaw ?? 0 };
+// ---- What the frames read of the rest of the world.
+
+// What observe(character) sees of him.
+function seenValue(seen) {
+  if (!seen) return null;
+  return {
+    position: seen.position ? [seen.position.x, seen.position.y, seen.position.z] : null, health: seen.health,
+    weapon: seen.weapon ? [seen.weapon.key ?? null, seen.weapon.label ?? null] : null,
+    vehicle: seen.vehicle ? [seen.vehicle.key ?? null, seen.vehicle.label ?? null] : null, classLabel: seen.classLabel ?? null,
+  };
 }
+
+// The registry's answers for every team (src/registry.js); a soldier's
+// capture team as the posts ask it (his own without the registry's table).
+const relations = (units) => Array.from({ length: TEAMS }, (_, a) => Array.from({ length: TEAMS }, (_, b) => units.relation(a, b)));
+const captureTeams = (game) => Array.from({ length: TEAMS }, (_, t) => (game.posts.teams ? game.posts.teams.captureTeam(t) : t));
 
 // A hull on a command pad as its post reads it (src/mobile-posts.js).
 function hullValue(v, classes) {
@@ -64,84 +65,18 @@ function hullValue(v, classes) {
   };
 }
 
-// A command vehicle's post, and the hulls on its pad.
-function mobileValue(post) {
-  const r = post.reported;
-  return {
-    slot: post.slot ? post.system.slots.indexOf(post.slot) : -1, label: post.label, team: post.team, active: post.active,
-    vehicle: post.vehicle, life: post.life, yaw: post.yaw, radius: post.radius, speed: post.speed, lastPosition: post.lastPosition,
-    desc: { name: post.desc.name, displayName: post.desc.displayName, valueBleed: post.desc.valueBleed },
-    ai: { atk: [...post.ai.atk], def: [...post.ai.def], valueBleed: post.ai.valueBleed, points: post.ai.points.map((p) => [...p]), classSpawnPoints: post.ai.classSpawnPoints },
-    reported: r ? { active: r.active, team: r.team, vehicle: r.vehicle, life: r.life } : null,
-    pad: { variants: [...(post.slot?.variants?.values?.() ?? [])].map((v) => hullValue(v, post.classes)), vehicle: hullValue(post.slot?.vehicle ?? null, post.classes) },
-    // Its class spawn points where its hull is now (a getter that casts).
+// Each command vehicle's post's pad, the hull it last had (where it is
+// now) and its class spawn points where that hull is (a getter that casts).
+function padsValue(game) {
+  return (game.posts.mobile?.posts ?? []).map((post) => ({
+    variants: [...(post.slot?.variants?.values?.() ?? [])].map((v) => hullValue(v, post.classes)),
+    vehicle: hullValue(post.slot?.vehicle ?? null, post.classes),
+    last: post.vehicle ? { id: post.vehicle, position: post.vehicle.position } : null,
     classSpawnWorld: post.vehicle && post.active ? post.ai.classSpawnWorld.map((q) => [...q]) : [],
-  };
+  }));
 }
 
-function postsValue(posts, live) {
-  return {
-    time: posts.time, teams: Boolean(posts.teams),
-    posts: posts.posts.map((p) => postValue(p, live)),
-    mobile: posts.mobile ? posts.mobile.posts.map(mobileValue) : null,
-    events: posts.events.map((e) => ({ post: posts.posts.indexOf(e.post), kind: e.kind, from: e.from ?? null, by: e.by ?? null, destroyed: Boolean(e.destroyed) })),
-  };
-}
-
-// A Character's end-of-match record (src/battle-stats.js), its victims by
-// place.
-function recordValue(record, characters) {
-  if (!record) return null;
-  return {
-    anchor: record.anchor ? [record.anchor.x, record.anchor.y, record.anchor.z] : null, health: record.health, low: record.low,
-    slots: record.slots.map((s) => ({
-      teamKills: s.teamKills, vehiclesDestroyed: s.vehiclesDestroyed, spree: s.spree, survivalist: s.survivalist, lifeKills: s.lifeKills,
-      lifeKillsBest: s.lifeKillsBest, headshots: s.headshots, deaths: s.deaths, life: s.life, lifeBest: s.lifeBest, camp: s.camp,
-      campBest: s.campBest, escapes: s.escapes, victims: [...s.victims].map(([c, n]) => [characters.indexOf(c), n]),
-      classes: s.classes.map((e) => ({ ...e })), weapons: s.weapons.map((e) => ({ ...e })), vehicles: s.vehicles.map((e) => ({ ...e })),
-    })),
-  };
-}
-
-function characterValue(c, characters) {
-  return {
-    index: c.index, team: c.team, human: c.human, name: c.name ?? null, className: c.className ?? null, unit: unitId(c.unit), hero: Boolean(c.hero),
-    kills: c.kills, teamKills: c.teamKills, deaths: c.deaths, captures: c.captures, outOfBounds: c.outOfBounds, record: recordValue(c.record, characters),
-  };
-}
-
-// Plain objects keyed by team number, as [team, value] pairs in their key
-// order (undefined values kept).
-const teamPairs = (o) => Object.entries(o).map(([t, v]) => [Number(t), v]);
-
-function battleValue(b) {
-  const ring = b.stats.ring;
-  return {
-    own: b.own, foe: b.foe, teams: teamPairs(b.teams).map(([t, v]) => [t, { units: v.units ?? 0, reinforcements: v.reinforcements ?? null, bleed: (v.bleed || []).map((r) => [...r]) }]),
-    reinforcements: teamPairs(b.reinforcements), start: teamPairs(b.start), teamIds: [...b.teamIds], noPost: teamPairs(b.noPost),
-    bleed: teamPairs(b.bleed), victoryClock: b.victoryClock, countdown: b.countdown, losing: b.losing, over: b.over, loser: b.loser,
-    overTime: b.overTime, gameOver: b.gameOver, finished: b.finished,
-    bleedRules: teamPairs(b.bleedRules).map(([t, rules]) => [t, rules.map((r) => [...r])]), bleedClock: teamPairs(b.bleedClock),
-    stats: { time: b.stats.time, ring: { killers: ring.killers.map((c) => indexOf(b.characters, c)), times: ring.times, slots: ring.slots, head: ring.head, tail: ring.tail } },
-    characters: b.characters.map((c) => characterValue(c, b.characters)),
-  };
-}
-
-// What observe(character) sees of him, as the Rust port's Seen.
-function seenValue(seen) {
-  if (!seen) return null;
-  return {
-    position: seen.position ? [seen.position.x, seen.position.y, seen.position.z] : null, health: seen.health,
-    weapon: seen.weapon ? [seen.weapon.key ?? null, seen.weapon.label ?? null] : null,
-    vehicle: seen.vehicle ? [seen.vehicle.key ?? null, seen.vehicle.label ?? null] : null, classLabel: seen.classLabel ?? null,
-  };
-}
-
-// The registry's answers for every team (src/registry.js).
-const relations = (units) => Array.from({ length: TEAMS }, (_, a) => Array.from({ length: TEAMS }, (_, b) => units.relation(a, b)));
-const captureTeams = (units) => Array.from({ length: TEAMS }, (_, t) => units.captureTeam(t));
-
-// What the battlefield tests of a Character's body.
+// What the battlefield tests of a soldier's body.
 function bodyValue(unit) {
   if (!unit) return null;
   const hull = unit.seat?.vehicle ?? unit.seat?.turret ?? null;
@@ -154,64 +89,43 @@ function bodyValue(unit) {
   };
 }
 
-// ---- The spawn manager (src/ai/classic/spawning.js).
-
-// A post in the manager's list (CommandPosts.all(): the placed ones, then
-// the command vehicles'), by its place there.
-const listed = (posts) => (posts.mobile?.posts.length ? [...posts.posts, ...posts.mobile.posts] : posts.posts);
-const postPlace = (posts, p) => (p ? listed(posts).indexOf(p) : null);
-
-function spawnCharacterValue(c, posts) {
-  const sp = c.spawn;
+// The rules' reads: whose tallies run, what each sees, whose body lives,
+// each team's living, the registry's relations, the posts' buildings.
+function rulesReads(game) {
+  const b = game.battle, s = game.ai?.spawning ?? null;
   return {
-    team: c.team, human: c.human, hero: Boolean(c.hero), name: c.name ?? null, className: c.className ?? null, classIndex: c.classIndex ?? null,
-    slot: c.slot ?? null, managerIndex: c.managerIndex ?? null, unit: unitId(c.unit), objective: postPlace(posts, c.objective),
-    spawn: sp ? { timer: sp.timer, wave: sp.wave, ordinal: sp.ordinal, post: postPlace(posts, sp.post), ready: sp.ready } : null,
+    active: b.characters.map((c) => Boolean(b.statsActive(c))),
+    seen: b.characters.map((c) => seenValue(c.className || c.unit ? observe(c) : null)),
+    alive: b.characters.map((c) => (c.unit ? [c.unit.id, Boolean(c.unit.alive)] : null)),
+    living: Array.from({ length: TEAMS }, (_, t) => s?.teams?.[t]?.living ?? null),
+    relations: relations(game.units),
+    pads: padsValue(game),
+    buildings: game.posts.posts.map((p) => (p.building ? Boolean(p.building.alive) : null)),
   };
 }
 
-function spawningValue(s, posts) {
+// The spawn manager's reads: each Character's health, the hero names.
+function spawnReads(game) {
+  const s = game.ai?.spawning ?? null, b = game.battle;
   return {
-    A: s.A, B: s.B, Q: s.Q, waveCountdown: s.waveCountdown, wave: s.wave, stagger: s.stagger, released: s.released, localsCap: s.localsCap, demo: Boolean(s.demo),
-    teams: s.teams.map((t) => ({
-      index: t.index, faction: t.faction, unitCount: t.unitCount, tickets: t.tickets, classes: t.classes.map((c) => ({ name: c.name, target: c.target, hero: c.hero })),
-      heroCount: t.heroCount, relations: [...t.relations], characters: t.characters.map((c) => s.characters.indexOf(c)), living: t.living, capacity: t.capacity,
-    })),
-    queues: [...s.queues].map(([p, q]) => [postPlace(posts, p), [...q]]),
+    // Whether the manager asks the AI's objectives (`this.objectives?.request`).
+    objectives: Boolean(s?.objectives),
+    health: b.characters.map((c) => (c.unit ? [c.unit.id, s ? s.health(c.unit) : c.unit.combat?.health ?? 0] : null)),
+    heroNames: s ? s.teams.flatMap((t) => t.classes.filter((c) => c.hero).map((c) => [c.name, s.heroName?.(c.name) ?? null])) : [],
   };
 }
 
-// Everything a call across the manager's boundary may change of the
-// manager's (a forced kill runs the death path, onDeath and all).
-function spawnAfter(game) {
-  const s = game.ai.spawning;
-  return {
-    characters: s.characters.map((c) => spawnCharacterValue(c, game.posts)), spawning: spawningValue(s, game.posts),
-    reinforcements: teamPairs(game.battle.reinforcements),
-  };
-}
-
-function spawnState(game) {
-  const s = game.ai.spawning;
-  const b = game.battle;
-  return {
-    spawning: spawningValue(s, game.posts),
-    characters: s.characters.map((c) => spawnCharacterValue(c, game.posts)),
-    battleCharacters: b.characters === s.characters,
-    reinforcements: teamPairs(b.reinforcements),
-    posts: postsValue(game.posts, game.live),
-    health: s.characters.map((c) => (c.unit ? s.health(c.unit) : null)),
-    heroNames: s.teams.flatMap((t) => t.classes.filter((c) => c.hero).map((c) => [c.name, s.heroName?.(c.name) ?? null])),
-  };
-}
+// The state a call across a frame's boundary leaves (a kill's death path:
+// the credit, the manager's onDeath; a spawn: the Character's body).
+const after = (game, cap) => state(game, cap);
 
 const spawnBoundaries = (game) => {
   const s = game.ai?.spawning;
   if (!s) return [];
   return [
-    ['spawning.spawnUnit', s, 'spawnUnit', spawnAfter],
-    ['spawning.forceKill', s, 'forceKill', spawnAfter],
-    ...(s.objectives ? [['objectives.request', s.objectives, 'request', spawnAfter], ['objectives.republish', s.objectives, 'republish', spawnAfter]] : []),
+    ['spawning.spawnUnit', s, 'spawnUnit', after],
+    ['spawning.forceKill', s, 'forceKill', after],
+    ...(s.objectives ? [['objectives.request', s.objectives, 'request', after], ['objectives.republish', s.objectives, 'republish', after]] : []),
   ];
 };
 
@@ -221,10 +135,11 @@ const spawnBoundaries = (game) => {
 const postsUpdate = {
   method: 'CommandPosts.update',
   target: (game) => game.posts,
-  state: (game, args) => ({
-    posts: postsValue(game.posts, game.live),
+  state: (game, args, cap) => ({
+    ...state(game, cap),
     soldiers: (args[1] || []).map((u) => ({ team: u.team, position: u.position })),
-    captureTeams: captureTeams(game.units),
+    captureTeams: captureTeams(game),
+    buildings: game.posts.posts.map((p) => (p.building ? Boolean(p.building.alive) : null)),
   }),
 };
 
@@ -233,39 +148,26 @@ const postsUpdate = {
 const battleUpdate = {
   method: 'Battle.update',
   target: (game) => game.battle,
-  state: (game) => {
-    const b = game.battle;
-    return {
-      battle: battleValue(b),
-      posts: postsValue(game.posts, game.live),
-      active: b.characters.map((c) => Boolean(b.statsActive(c))),
-      seen: b.characters.map((c) => seenValue(c.className || c.unit ? observe(c) : null)),
-      alive: b.characters.map((c) => Boolean(c.unit?.alive)),
-      living: Array.from({ length: TEAMS }, (_, t) => game.ai?.spawning?.teams?.[t]?.living ?? null),
-      relations: relations(game.units),
-    };
-  },
+  state: (game, args, cap) => ({ ...state(game, cap), ...rulesReads(game) }),
 };
 
 // Battlefield.update(dt, characters): each Character's countdown outside.
-const battlefieldBodies = (game) => game.battle.characters.map((c) => bodyValue(c.unit));
+// A kill takes the body (and a hull's riders) with it: every soldier's body
+// after it, and the battle as the death path left it.
 const battlefieldUpdate = {
   method: 'Battlefield.update',
   target: (game) => game.battlefield,
-  state: (game) => ({
-    characters: game.battle.characters.map((c) => ({ outOfBounds: c.outOfBounds, unit: unitId(c.unit) })),
-    bodies: battlefieldBodies(game),
+  state: (game, args, cap) => ({
+    ...state(game, cap),
+    bodies: game.battle.characters.map((c) => bodyValue(c.unit)),
     boundary: game.battlefield.boundary.polygons.map((edges) => edges.map((e) => [e.x, e.z, e.nx, e.nz])),
   }),
-  // A kill takes the body (and a hull's riders) with it: every soldier's
-  // body after it (a Character's death lets go of his unit, which the
-  // countdown goes on reading).
   boundaries: () => {
-    const after = (game) => ({ bodies: game.units.all().filter((u) => u.soldier).map(bodyValue) });
+    const killed = (game, cap) => ({ ...state(game, cap), bodies: game.units.all().filter((u) => u.soldier).map(bodyValue) });
     return [
-      ['remotes.kill', RemoteDroids.prototype, 'kill', after],
-      ['vehicle.damage', Vehicle.prototype, 'damage', after],
-      ['combat.damage', PlayerCombat.prototype, 'damage', after],
+      ['remotes.kill', RemoteDroids.prototype, 'kill', killed],
+      ['vehicle.damage', Vehicle.prototype, 'damage', killed],
+      ['combat.damage', PlayerCombat.prototype, 'damage', killed],
     ];
   },
 };
@@ -274,7 +176,7 @@ const battlefieldUpdate = {
 const spawnClock = {
   method: 'ClassicSpawning.clock',
   target: (game) => game.ai?.spawning ?? null,
-  state: (game) => ({ spawning: spawningValue(game.ai.spawning, game.posts), posts: postsValue(game.posts, game.live) }),
+  state: (game, args, cap) => ({ ...state(game, cap), pads: padsValue(game) }),
 };
 
 // ClassicSpawning.updateCharacters(dt): each Character's respawn: class,
@@ -282,79 +184,54 @@ const spawnClock = {
 const spawnCharacters = {
   method: 'ClassicSpawning.updateCharacters',
   target: (game) => game.ai?.spawning ?? null,
-  state: spawnState,
+  state: (game, args, cap) => ({ ...state(game, cap), ...spawnReads(game), pads: padsValue(game) }),
   boundaries: spawnBoundaries,
 };
 
-// ClassicSpawning.onDeath(character): a Character's body died (`place`:
-// his place in the list).
+// ClassicSpawning.onDeath(character): a Character's body died (`place`: his
+// place in the list).
 const spawnDeath = {
   method: 'ClassicSpawning.onDeath',
   target: (game) => game.ai?.spawning ?? null,
-  state: (game, args) => ({ ...spawnState(game), place: game.ai.spawning.characters.indexOf(args[0]) }),
+  state: (game, args, cap) => ({ ...state(game, cap), ...spawnReads(game), pads: padsValue(game), place: placeOf(game, args[0]) }),
   boundaries: spawnBoundaries,
 };
 
-// The battle phase (src/game.js updateBattle) whole: everything the
-// frames above hold, and what its glue reads of the registry's members, the
+// The battle phase (src/game.js updateBattle) whole: everything the frames
+// above read, and what its glue reads of the registry's members, the
 // buildings' and hulls' last attackers and a kill region's victims. A world
 // step's dt is 1/60 (game.step's FixedClock).
-const placeOf = (game, unit) => {
+const lastAttacker = (game, unit) => {
   const c = unit === 'player' ? game.playerUnit?.character : unit?.character;
-  return c ? game.battle.characters.indexOf(c) : null;
+  return c ? placeOf(game, c) : null;
 };
 function memberValue(game, u) {
   const p = u.position;
   return {
     soldier: Boolean(u.soldier), alive: Boolean(u.alive), removed: Boolean(u.removed), seated: Boolean(u.seat), held: Boolean(u.held),
     captures: (u.classDef?.CapturePosts ?? 1) !== 0, playerMounted: u === game.playerUnit && Boolean(game.driver?.active || game.gunner?.active),
-    team: u.team ?? 0, position: p ? [p.x, p.y, p.z] : [NaN, NaN, NaN], character: u.character ? game.battle.characters.indexOf(u.character) : null,
-  };
-}
-function phaseState(game) {
-  const b = game.battle, s = game.ai?.spawning ?? null;
-  const victims = [
-    ...game.units.all().filter((u) => u.soldier && u.alive && !u.removed).map((u) => ({ unit: u.id, position: [u.position.x, u.position.y, u.position.z] })),
-    ...(game.vehicles?.vehicles || []).filter((v) => v.alive).map((v) => ({ hull: v, position: [v.position.x, v.position.y, v.position.z] })),
-  ];
-  return {
-    dt: 1 / 60, ai: Boolean(game.ai),
-    battle: battleValue(b),
-    characters: b.characters.map((c) => spawnCharacterValue(c, game.posts)),
-    spawning: s ? spawningValue(s, game.posts) : null,
-    posts: postsValue(game.posts, game.live),
-    members: game.units.all().map((u) => memberValue(game, u)),
-    buildings: game.posts.posts.map((p) => (p.building ? placeOf(game, p.building.lastAttacker) : null)),
-    hulls: (game.posts.mobile?.posts ?? []).map((p) => (p.reported?.vehicle ? placeOf(game, p.reported.vehicle.lastAttacker) : null)),
-    victims,
-    active: b.characters.map((c) => Boolean(b.statsActive(c))),
-    seen: b.characters.map((c) => seenValue(c.className || c.unit ? observe(c) : null)),
-    alive: b.characters.map((c) => Boolean(c.unit?.alive)),
-    living: Array.from({ length: TEAMS }, (_, t) => s?.teams?.[t]?.living ?? null),
-    relations: relations(game.units),
-    captureTeams: captureTeams(game.units),
-    health: b.characters.map((c) => (c.unit ? (s ? s.health(c.unit) : c.unit.combat?.health ?? 0) : null)),
-    heroNames: s ? s.teams.flatMap((t) => t.classes.filter((c) => c.hero).map((c) => [c.name, s.heroName?.(c.name) ?? null])) : [],
-  };
-}
-// What a call inside the phase may change of its state (the AI's post
-// events re-request objectives; a kill runs the death path: the credit,
-// the manager's onDeath).
-function phaseAfter(game) {
-  const b = game.battle, s = game.ai?.spawning ?? null;
-  return {
-    battle: battleValue(b), characters: b.characters.map((c) => spawnCharacterValue(c, game.posts)),
-    spawning: s ? spawningValue(s, game.posts) : null, reinforcements: teamPairs(b.reinforcements),
+    team: u.team ?? 0, position: p ? [p.x, p.y, p.z] : [NaN, NaN, NaN], character: u.character ? placeOf(game, u.character) : null,
   };
 }
 const phaseFrame = {
   phase: 'battle',
-  state: (game) => phaseState(game),
+  state: (game, args, cap) => ({
+    dt: 1 / 60, ai: Boolean(game.ai),
+    ...state(game, cap), ...rulesReads(game), ...spawnReads(game),
+    members: game.units.all().map((u) => memberValue(game, u)),
+    attackers: game.posts.posts.map((p) => (p.building ? lastAttacker(game, p.building.lastAttacker) : null)),
+    hulls: (game.posts.mobile?.posts ?? []).map((p) => (p.reported?.vehicle ? lastAttacker(game, p.reported.vehicle.lastAttacker) : null)),
+    victims: [
+      ...game.units.all().filter((u) => u.soldier && u.alive && !u.removed).map((u) => ({ unit: u.id, position: [u.position.x, u.position.y, u.position.z] })),
+      ...(game.vehicles?.vehicles || []).filter((v) => v.alive).map((v) => ({ hull: v, position: [v.position.x, v.position.y, v.position.z] })),
+    ],
+    captureTeams: captureTeams(game),
+  }),
   boundaries: (game) => [
-    ...(game.ai ? [['ai.postEvent', game.ai, 'postEvent', phaseAfter]] : []),
-    ...spawnBoundaries(game).map(([label, target, method]) => [label, target, method, phaseAfter]),
-    ['combat.damage', PlayerCombat.prototype, 'damage', phaseAfter],
-    ['vehicle.setHealth', Vehicle.prototype, 'setHealth', phaseAfter],
+    ...(game.ai ? [['ai.postEvent', game.ai, 'postEvent', after]] : []),
+    ...spawnBoundaries(game),
+    ['combat.damage', PlayerCombat.prototype, 'damage', after],
+    ['vehicle.setHealth', Vehicle.prototype, 'setHealth', after],
   ],
 };
 

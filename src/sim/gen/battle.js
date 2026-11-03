@@ -6,6 +6,9 @@ import { KIND_BUILDING, KIND_CHARACTER, KIND_CONTROLLER, KIND_MOBILE_POST, KIND_
 export const PostChange_NAMES = ["captured","neutralized","lost"];
 export const PostChange_INDEX = new Map(PostChange_NAMES.map((name, i) => [name, i]));
 
+export const RegionType_NAMES = ["sphere","box","cylinder"];
+export const RegionType_INDEX = new Map(RegionType_NAMES.map((name, i) => [name, i]));
+
 export function variantOfPostRef(b, x) {
   if (x === null) return 0;
   if (x === undefined) return 1;
@@ -554,7 +557,7 @@ export function exportSpawn(o, cx) {
 
 export class RegionDescMirror {
   constructor() {
-    this.type = '';
+    this.type = "sphere";
     this.matrix = undefined;
     this.center = undefined;
     this.size = [];
@@ -562,7 +565,7 @@ export class RegionDescMirror {
 }
 
 export function syncRegionDesc(b, f, at, h, m) {
-  m.type = b.strings.at(f[at + 0]);
+  m.type = RegionType_NAMES[f[at + 0]];
   { const tag = f[at + 1]; if (tag === 0) { { const items = (m.matrix ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.matrix = tag === 1 ? null : undefined; }
   { const tag = f[at + 4]; if (tag === 0) { { const items = (m.center ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.center = tag === 1 ? null : undefined; }
   { const items = (m.size ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
@@ -570,7 +573,7 @@ export function syncRegionDesc(b, f, at, h, m) {
 }
 
 export function putRegionDesc(b, o, f, at, heap) {
-  f[at + 0] = b.strings.id(o.type);
+  f[at + 0] = RegionType_INDEX.get(o.type);
   { const $x = o.matrix; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; f[at + 3] = 0; } else { f[at + 1] = 0; heap.items($x, f, at + 2, 1, (f, at, v) => { f[at + 0] = v; }); } }
   { const $x = o.center; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; f[at + 6] = 0; } else { f[at + 4] = 0; heap.items($x, f, at + 5, 1, (f, at, v) => { f[at + 0] = v; }); } }
   heap.items(o.size, f, at + 7, 1, (f, at, v) => { f[at + 0] = v; });
@@ -598,7 +601,7 @@ export function exportRegionDesc(o, cx) {
 
 export class BuiltMirror {
   constructor() {
-    this.type = '';
+    this.type = "sphere";
     this.half = [NaN, NaN, NaN];
     this.radius = NaN;
     this.center = new THREE.Vector3();
@@ -607,7 +610,7 @@ export class BuiltMirror {
 }
 
 export function syncBuilt(b, f, at, h, m) {
-  m.type = b.strings.at(f[at + 0]);
+  m.type = RegionType_NAMES[f[at + 0]];
   { const a = (m.half ??= new Array(3)); a[0] = f[at + 1]; a[1] = f[at + 2]; a[2] = f[at + 3]; }
   m.radius = f[at + 4];
   (m.center ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
@@ -616,7 +619,7 @@ export function syncBuilt(b, f, at, h, m) {
 }
 
 export function putBuilt(b, o, f, at, heap) {
-  f[at + 0] = b.strings.id(o.type);
+  f[at + 0] = RegionType_INDEX.get(o.type);
   { const $v = o.half; f[at + 1] = $v[0]; f[at + 2] = $v[1]; f[at + 3] = $v[2]; }
   f[at + 4] = o.radius;
   { const $v = o.center; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
@@ -642,40 +645,6 @@ export function exportBuilt(o, cx) {
   v.radius = o.radius;
   v.center = o.center.clone();
   v.inverse = o.inverse.clone();
-  return v;
-}
-
-export class PostRulesMirror {
-  constructor() {
-    this.neutralizeTime = NaN;
-    this.captureTime = NaN;
-  }
-}
-
-export function syncPostRules(b, f, at, h, m) {
-  m.neutralizeTime = f[at + 0];
-  m.captureTime = f[at + 1];
-  return m;
-}
-
-export function putPostRules(b, o, f, at, heap) {
-  f[at + 0] = o.neutralizeTime;
-  f[at + 1] = o.captureTime;
-}
-
-export function samePostRules(a, b) {
-  if (!Object.is(a.neutralizeTime, b.neutralizeTime)) return ".neutralizeTime";
-  if (!Object.is(a.captureTime, b.captureTime)) return ".captureTime";
-  return null;
-}
-
-export function exportPostRules(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.neutralizeTime = o.neutralizeTime;
-  v.captureTime = o.captureTime;
   return v;
 }
 
@@ -1860,7 +1829,8 @@ export function syncFullPost(b, f, at, h, m) {
   m.name = b.strings.at(f[at + 2]);
   { const tag = f[at + 3]; if (tag === 0) { m.label = b.strings.at(f[at + 4]); } else m.label = tag === 1 ? null : undefined; }
   m.team = f[at + 5];
-  m.rules = syncPostRules(b, f, at + 6, h, m.rules ?? new PostRulesMirror());
+  (m.rules ??= {}).neutralizeTime = f[at + 6];
+  (m.rules ??= {}).captureTime = f[at + 7];
   (m.position ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
   { const tag = f[at + 11]; if (tag === 0) { m.capture = syncBuilt(b, f, at + 12, h, m.capture ?? new BuiltMirror()); } else m.capture = tag === 1 ? null : undefined; }
   { const tag = f[at + 36]; if (tag === 0) { (m.desc ??= {}).valueBleed = f[at + 37]; } else (m.desc ??= {}).valueBleed = tag === 1 ? null : undefined; }
@@ -1882,7 +1852,8 @@ export function putPost(b, o, f, at, heap) {
   f[at + 2] = b.strings.id(o.name);
   { const $x = o.label; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; } else { f[at + 3] = 0; f[at + 4] = b.strings.id($x); } }
   f[at + 5] = o.team;
-  putPostRules(b, o.rules, f, at + 6, heap);
+  f[at + 6] = o.rules?.neutralizeTime;
+  f[at + 7] = o.rules?.captureTime;
   { const $v = o.position; f[at + 8] = $v.x; f[at + 9] = $v.y; f[at + 10] = $v.z; }
   { const $x = o.capture; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f.fill(0, at + 12, at + 36); } else { f[at + 11] = 0; putBuilt(b, $x, f, at + 12, heap); } }
   { const $x = o.desc?.valueBleed; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f[at + 37] = 0; } else { f[at + 36] = 0; f[at + 37] = $x; } }
@@ -1903,7 +1874,8 @@ export function putFullPost(b, o, f, at, heap) {
   f[at + 2] = b.strings.id(o.name);
   { const $x = o.label; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; } else { f[at + 3] = 0; f[at + 4] = b.strings.id($x); } }
   f[at + 5] = o.team;
-  putPostRules(b, o.rules, f, at + 6, heap);
+  f[at + 6] = o.rules?.neutralizeTime;
+  f[at + 7] = o.rules?.captureTime;
   { const $v = o.position; f[at + 8] = $v.x; f[at + 9] = $v.y; f[at + 10] = $v.z; }
   { const $x = o.capture; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f.fill(0, at + 12, at + 36); } else { f[at + 11] = 0; putBuilt(b, $x, f, at + 12, heap); } }
   { const $x = o.desc?.valueBleed; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f[at + 37] = 0; } else { f[at + 36] = 0; f[at + 37] = $x; } }
@@ -1942,7 +1914,8 @@ export function samePost(a, b) {
   if (!Object.is(a.name, b.name)) return ".name";
   { const p = a.label, q = b.label; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".label"; } else { if (!Object.is(p, q)) return ".label"; } }
   if (!Object.is(a.team, b.team)) return ".team";
-  { const d = samePostRules(a.rules, b.rules); if (d) return ".rules" + d; }
+  if (!Object.is(a.rules?.neutralizeTime, b.rules?.neutralizeTime)) return ".neutralizeTime";
+  if (!Object.is(a.rules?.captureTime, b.rules?.captureTime)) return ".captureTime";
   if (!sameVec(a.position, b.position)) return ".position";
   { const p = a.capture, q = b.capture; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".capture"; } else { { const d = sameBuilt(p, q); if (d) return ".capture" + d; } } }
   { const p = a.desc?.valueBleed, q = b.desc?.valueBleed; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".valueBleed"; } else { if (!Object.is(p, q)) return ".valueBleed"; } }
@@ -1968,7 +1941,8 @@ export function exportPost(o, cx) {
   v.name = o.name;
   v.label = o.label;
   v.team = o.team;
-  v.rules = exportPostRules(o.rules, cx);
+  v.neutralizeTime = o.rules?.neutralizeTime;
+  v.captureTime = o.rules?.captureTime;
   v.position = o.position.clone();
   v.capture = ((x) => (x === null || x === undefined ? x : exportBuilt(x, cx)))(o.capture);
   v.valueBleed = o.desc?.valueBleed;

@@ -443,7 +443,7 @@ impl RegionDesc {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         object(v, path)?;
         Ok(RegionDesc {
-            r#type: { let p = format!("{path}.type"); cx.str_in(v.get("type"), &p)? },
+            r#type: { let p = format!("{path}.type"); RegionType::from_u8(name_of(v.get("type"), &RegionType::NAMES, &p)?).unwrap() },
             matrix: { let p = format!("{path}.matrix"); match v.get("matrix").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some({ let mut out = Vec::new(); for (i, e) in list(v.get("matrix"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out }) } },
             center: { let p = format!("{path}.center"); match v.get("center").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some({ let mut out = Vec::new(); for (i, e) in list(v.get("center"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out }) } },
             size: { let p = format!("{path}.size"); { let mut out = Vec::new(); for (i, e) in list(v.get("size"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
@@ -453,7 +453,7 @@ impl RegionDesc {
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
         let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
-        { let x = cx.str_out(self.r#type); fields.push(("type", x)); }
+        { let x = Value::Str(RegionType::NAMES[self.r#type as usize].to_string()); fields.push(("type", x)); }
         { let x = match &self.matrix { Some(v) => { let mut items = Vec::new(); for e in v.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }, None => Value::Undefined }; fields.push(("matrix", x)); }
         { let x = match &self.center { Some(v) => { let mut items = Vec::new(); for e in v.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }, None => Value::Undefined }; fields.push(("center", x)); }
         { let x = { let mut items = Vec::new(); for e in self.size.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("size", x)); }
@@ -466,7 +466,7 @@ impl Built {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         object(v, path)?;
         Ok(Built {
-            r#type: { let p = format!("{path}.type"); cx.str_in(v.get("type"), &p)? },
+            r#type: { let p = format!("{path}.type"); RegionType::from_u8(name_of(v.get("type"), &RegionType::NAMES, &p)?).unwrap() },
             half: { let p = format!("{path}.half"); numbers::<3>(v.get("half"), &p)? },
             radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
             center: { let p = format!("{path}.center"); vec3(v.get("center"), &p)? },
@@ -477,30 +477,11 @@ impl Built {
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
         let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
-        { let x = cx.str_out(self.r#type); fields.push(("type", x)); }
+        { let x = Value::Str(RegionType::NAMES[self.r#type as usize].to_string()); fields.push(("type", x)); }
         { let x = { let items = self.half.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("half", x)); }
         { let x = Value::Num(self.radius); fields.push(("radius", x)); }
         { let x = a.vec3(self.center); fields.push(("center", x)); }
         { let x = mat4_value(a, self.inverse); fields.push(("inverse", x)); }
-        a.object("", fields)
-    }
-}
-
-impl PostRules {
-    /// Its fields from a value (the export of the JavaScript object).
-    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
-        object(v, path)?;
-        Ok(PostRules {
-            neutralize_time: { let p = format!("{path}.neutralizeTime"); num(v.get("neutralizeTime"), &p)? },
-            capture_time: { let p = format!("{path}.captureTime"); num(v.get("captureTime"), &p)? },
-        })
-    }
-
-    /// Its value, as the export of the JavaScript object it stands for.
-    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
-        { let x = Value::Num(self.neutralize_time); fields.push(("neutralizeTime", x)); }
-        { let x = Value::Num(self.capture_time); fields.push(("captureTime", x)); }
         a.object("", fields)
     }
 }
@@ -4086,11 +4067,12 @@ impl Post {
             name: { let p = format!("{path}.name"); cx.str_in(v.get("name"), &p)? },
             label: { let p = format!("{path}.label"); match v.get("label").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.str_in(v.get("label"), &p)?) } },
             team: { let p = format!("{path}.team"); num(v.get("team"), &p)? },
-            rules: { let p = format!("{path}.rules"); PostRules::from_value(v.get("rules"), cx, &p)? },
+            neutralize_time: { let p = format!("{path}.neutralizeTime"); num(v.get("neutralizeTime"), &p)? },
+            capture_time: { let p = format!("{path}.captureTime"); num(v.get("captureTime"), &p)? },
             position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
             capture: { let p = format!("{path}.capture"); match v.get("capture").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Built::from_value(v.get("capture"), cx, &p)?) } },
             value_bleed: { let p = format!("{path}.valueBleed"); match v.get("valueBleed").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("valueBleed"), &p)?) } },
-            kill_region: { let p = format!("{path}.killRegion"); match v.get("killRegion").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(RegionDesc::from_value(v.get("killRegion"), cx, &p)?) } },
+            kill_region: { let p = format!("{path}.killRegion"); match v.get("killRegion").value { Value::Null => Nullable::Null, Value::Undefined => Nullable::Undefined, _ => Nullable::Value(RegionDesc::from_value(v.get("killRegion"), cx, &p)?) } },
             neutralize: { let p = format!("{path}.neutralize"); num(v.get("neutralize"), &p)? },
             progress: { let p = format!("{path}.progress"); num(v.get("progress"), &p)? },
             toward: { let p = format!("{path}.toward"); num(v.get("toward"), &p)? },
@@ -4105,15 +4087,16 @@ impl Post {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(17);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(18);
         { let x = cx.str_out(self.name); fields.push(("name", x)); }
         { let x = match &self.label { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("label", x)); }
         { let x = Value::Num(self.team); fields.push(("team", x)); }
-        { let x = self.rules.to_value(cx, a); fields.push(("rules", x)); }
+        { let x = Value::Num(self.neutralize_time); fields.push(("neutralizeTime", x)); }
+        { let x = Value::Num(self.capture_time); fields.push(("captureTime", x)); }
         { let x = a.vec3(self.position); fields.push(("position", x)); }
         { let x = match &self.capture { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("capture", x)); }
         { let x = match &self.value_bleed { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("valueBleed", x)); }
-        { let x = match &self.kill_region { Some(v) => v.to_value(cx, a), None => Value::Undefined }; fields.push(("killRegion", x)); }
+        { let x = match &self.kill_region { Nullable::Value(v) => v.to_value(cx, a), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }; fields.push(("killRegion", x)); }
         { let x = Value::Num(self.neutralize); fields.push(("neutralize", x)); }
         { let x = Value::Num(self.progress); fields.push(("progress", x)); }
         { let x = Value::Num(self.toward); fields.push(("toward", x)); }

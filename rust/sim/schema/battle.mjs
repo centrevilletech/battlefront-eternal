@@ -10,6 +10,8 @@ export default {
     // A post changing hands (CommandPosts.events: captured, neutralized, or
     // lost with its building).
     PostChange: ['captured', 'neutralized', 'lost'],
+    // A region's TYPE (the world files name no other).
+    RegionType: ['sphere', 'box', 'cylinder'],
   },
   unions: {
     // A post the AI sends a Character to, or one he spawns at: a placed
@@ -44,10 +46,8 @@ export default {
     Spawn: { timer: 'f64', wave: 'f64|undefined', ordinal: 'f64|undefined', post: 'union:PostRef', ready: 'bool' },
     // A region as a world file gives it, and as buildRegion builds it
     // (src/regions.js).
-    RegionDesc: { type: 'str', matrix: 'list:f64|undefined', center: 'list:f64|undefined', size: 'list:f64' },
-    Built: { type: 'str', half: 'f64x3', radius: 'f64', center: 'vec3', inverse: 'mat4' },
-    // The map's command post rules.
-    PostRules: { neutralizeTime: 'f64', captureTime: 'f64' },
+    RegionDesc: { type: 'enum:RegionType', matrix: 'list:f64|undefined', center: 'list:f64|undefined', size: 'list:f64' },
+    Built: { type: 'enum:RegionType', half: 'f64x3', radius: 'f64', center: 'vec3', inverse: 'mat4' },
     // A spawn path (its points x, y, z and yaw) and what the spawn manager
     // reads of a placed post's AI record (src/ai/classic/goals.js postAI).
     SpawnPath: { present: 'bool', points: 'list:f64x4' },
@@ -158,11 +158,14 @@ export default {
         name: 'str',
         label: 'str|undefined',
         team: 'f64',
-        rules: { type: 'rec:PostRules', mirror: false },
+        // The map's command post rules (one object every post shares: read
+        // as numbers, so a capture holds no alias the store cannot).
+        neutralizeTime: { type: 'f64', js: 'rules.neutralizeTime', mirror: false },
+        captureTime: { type: 'f64', js: 'rules.captureTime', mirror: false },
         position: 'vec3',
         capture: { type: 'rec:Built|null', mirror: false },
         valueBleed: { type: 'f64|undefined', js: 'desc.valueBleed', mirror: false },
-        killRegion: { type: 'rec:RegionDesc|undefined', js: 'desc.killRegion', mirror: false },
+        killRegion: { type: 'rec:RegionDesc|null|undefined', js: 'desc.killRegion', mirror: false },
         neutralize: 'f64',
         progress: 'f64',
         toward: 'f64',
@@ -175,6 +178,7 @@ export default {
       },
       skip: {
         desc: 'the world file\'s (its valueBleed and killRegion are read)',
+        rules: 'the map\'s command post rules (its times are read)',
         matrix: 'where it stands (its position is read)',
         anchor: 'the hologram\'s',
         mapped: 'the maps\'',

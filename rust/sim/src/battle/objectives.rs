@@ -4,8 +4,9 @@
 //! its extent: 60 draws of the gameplay stream), then every soldier and
 //! vehicle whose origin is inside dies (at most 64), no one credited.
 
-use super::regions::{build_region, in_region, Region};
-use three::Vector3;
+use super::regions::{build_region, in_region};
+use crate::gen::RegionDesc;
+use three::{Matrix4, Vector3};
 
 pub const KILL_REGION_BLASTS: usize = 15;
 pub const BLASTS: [&str; 3] = ["explosion", "med_explosion", "small_explosion"];
@@ -23,10 +24,11 @@ pub trait KillRegionHost {
 /// killRegion(region, { random, play, victims }) (objectives.js:91): the
 /// effects' points (`random()` draws), then whoever stands inside dies.
 /// Returns how many died.
-pub fn kill_region(region: Option<&Region>, host: &mut dyn KillRegionHost) -> usize {
+pub fn kill_region(region: Option<&RegionDesc>, host: &mut dyn KillRegionHost) -> usize {
     let Some(region) = region else { return 0 };
     let built = build_region(region);
-    let mut matrix = built.inverse;
+    let mut matrix = Matrix4::default();
+    matrix.from_array(&built.inverse, 0);
     matrix.invert();
     let [a, b, c] = built.half;
     for _ in 0..KILL_REGION_BLASTS {

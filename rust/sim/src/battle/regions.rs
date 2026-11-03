@@ -7,58 +7,32 @@
 //! - cylinder: SIZE scaled the same way, then x and z both
 //!   sqrt(x^2 + z^2): the radius about its unit y axis, y the half height.
 
+use crate::gen::{Built, RegionDesc, RegionType};
 use three::{Matrix4, Vector3};
 
-/// A region's TYPE as the world file names it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum RegionType {
-    Sphere,
-    Box,
-    Cylinder,
-    /// Any other name: holds nothing.
-    #[default]
-    Other,
+/// A region's built inverse as a three.js matrix.
+fn inverse_of(built: &Built) -> Matrix4 {
+    let mut m = Matrix4::default();
+    m.from_array(&built.inverse, 0);
+    m
 }
 
-impl RegionType {
-    pub fn named(name: &str) -> RegionType {
-        match name {
-            "sphere" => RegionType::Sphere,
-            "box" => RegionType::Box,
-            "cylinder" => RegionType::Cylinder,
-            _ => RegionType::Other,
-        }
-    }
-}
-
-/// A region as the world loader keeps it: its type, its XFRM (a column-major
-/// 4x4, when it has 16 numbers or more), else a centre, and its SIZE.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Region {
-    pub kind: RegionType,
-    pub matrix: Option<[f64; 16]>,
-    pub center: Option<[f64; 3]>,
-    pub size: [f64; 3],
-}
-
-/// buildRegion's answer: { type, half: the built size, radius, center,
-/// inverse: world to the region's unit axes }.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Built {
-    pub kind: RegionType,
-    pub half: [f64; 3],
-    pub radius: f64,
-    pub center: Vector3,
-    pub inverse: Matrix4,
+/// A region as a world file gives it, from its TYPE, its XFRM's 16 numbers
+/// (when it has them), a centre and its SIZE (the twin's and the death
+/// regions' loader).
+pub fn region_desc(kind: RegionType, matrix: Option<&[f64]>, center: Option<&[f64]>, size: [f64; 3]) -> RegionDesc {
+    RegionDesc { r#type: kind, matrix: matrix.map(|m| m.to_vec()), center: center.map(|c| c.to_vec()), size: size.to_vec() }
 }
 
 /// buildRegion(region) (regions.js:23).
-pub fn build_region(region: &Region) -> Built {
+pub fn build_region(region: &RegionDesc) -> Built {
     let mut matrix = Matrix4::default();
-    if let Some(m) = &region.matrix {
+    // `region.matrix?.length >= 16`, else `region.center` (any array).
+    if let Some(m) = region.matrix.as_ref().filter(|m| m.len() >= 16) {
         matrix.from_array(m, 0);
-    } else if let Some(c) = region.center {
-        matrix.set_position(c[0], c[1], c[2]);
+    } else if let Some(c) = &region.center {
+        let at = |i: usize| c.get(i).copied().unwrap_or(f64::NAN);
+        matrix.set_position(at(0), at(1), at(2));
     }
     let mut axes = [Vector3::default(), Vector3::default(), Vector3::default()];
     {
@@ -74,13 +48,13 @@ pub fn build_region(region: &Region) -> Built {
         // `length || 1`: 0 and NaN give 1.
         scale[i] = if length != 0.0 && !length.is_nan() { length } else { 1.0 };
     }
-    let size = region.size;
+    let size = [0, 1, 2].map(|i| region.size.get(i).copied().unwrap_or(f64::NAN));
     let mut half = [size[0] * scale[0], size[1] * scale[1], size[2] * scale[2]];
     let mut radius = 0.0;
-    if region.kind == RegionType::Sphere {
+    if region.r#type == RegionType::Sphere {
         half = size;
         radius = v8math::hypot3(size[0], size[1], size[2]);
-    } else if region.kind == RegionType::Cylinder {
+    } else if region.r#type == RegionType::Cylinder {
         radius = v8math::hypot(half[0], half[2]);
         half = [radius, half[1], radius];
     }
@@ -89,19 +63,20 @@ pub fn build_region(region: &Region) -> Built {
     let mut unit = Matrix4::default();
     unit.make_basis(&axes[0], &axes[1], &axes[2]).set_position_v3(&center);
     unit.invert();
-    Built { kind: region.kind, half, radius, center, inverse: unit }
+    Built { r#type: region.r#type, half, radius, center: [center.x, center.y, center.z], inverse: unit.elements }
 }
 
 /// inRegion(built, point) (regions.js:50): whether a built region holds a
 /// world point.
 pub fn in_region(built: &Built, point: &Vector3) -> bool {
     let mut scratch = *point;
-    if built.kind == RegionType::Sphere {
-        return scratch.sub(&built.center).length() < built.radius;
+    if built.r#type == RegionType::Sphere {
+        let c = Vector3::new(built.center[0], built.center[1], built.center[2]);
+        return scratch.sub(&c).length() < built.radius;
     }
-    scratch.apply_matrix4(&built.inverse);
+    scratch.apply_matrix4(&inverse_of(built));
     let [a, b, c] = built.half;
-    match built.kind {
+    match built.r#type {
         RegionType::Cylinder => v8math::hypot(scratch.x, scratch.z) < built.radius && v8math::abs(scratch.y) < b,
         RegionType::Box => v8math::abs(scratch.x) < a && v8math::abs(scratch.y) < b && v8math::abs(scratch.z) < c,
         _ => false,
@@ -120,7 +95,7 @@ pub struct DeathRegions {
 
 impl DeathRegions {
     /// The world's regions (name, region) and the script's names.
-    pub fn new(kill_y: f64, regions: &[(Option<String>, Region)], scripted: &[String]) -> DeathRegions {
+    pub fn new(kill_y: f64, regions: &[(Option<String>, RegionDesc)], scripted: &[String]) -> DeathRegions {
         let scripted: Vec<String> = scripted.iter().map(|n| n.to_lowercase()).collect();
         let regions = regions
             .iter()
