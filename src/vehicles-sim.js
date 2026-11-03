@@ -11,6 +11,16 @@
 // hull as the phase has left it, and whatever it does to any hull goes back
 // into the store before the phase goes on.
 //
+// The collision world's queries are answered in the module itself when the
+// battle's collision runs on it (src/ray-kernel.js: the module holds the
+// collision world's copy then), and the map's water and death regions
+// always: the module is told the kernel's world, the battle's bodies by
+// the numbers the store knows them by, each hull's body and gather caches,
+// and before the phase and after every hook each body's enabled flag (a
+// plain field here); after the phase and before every hook the flags and
+// places the hulls changed come back onto the bodies, so the battle and
+// the module never see the bodies differently.
+//
 // A world only; the flight, the seats' latch, the poses, the fire and the
 // tow cables stay JavaScript's until they move.
 import * as THREE from "three";
@@ -40,18 +50,37 @@ const classKeys = (def) => ({
   seats: (def.seats ?? []).map((s) => ({ settings: s.settings ?? null })),
 });
 
-export function attachVehiclesSim(vehicles, bridge) {
-  vehicles.sim = new VehiclesSim(vehicles, bridge);
+// map: what the hulls ask of the map (game.js): the kill height under the
+// battlefield (killY), the map's death regions and the names its script
+// adds (world.deathRegions, world.mission.deathRegions); null leaves the
+// water and death regions to the imports.
+export function attachVehiclesSim(vehicles, bridge, map = null) {
+  vehicles.sim = new VehiclesSim(vehicles, bridge, map);
   return vehicles.sim;
 }
 
 export class VehiclesSim {
-  constructor(vehicles, bridge) {
+  constructor(vehicles, bridge, map = null) {
     this.vehicles = vehicles;
     this.bridge = bridge;
     this.x = bridge.x;
     this.world = vehicles.world;
+    this.collision = vehicles.collision;
     this.classes = new Set();
+    // The collision world in the module: whether it answers (the battle's
+    // collision runs on the kernel), the bodies' version it last named, and
+    // the hulls' bodies it knows.
+    this.kernel = false;
+    this.bodiesVersion = -1;
+    this.colliders = new WeakSet();
+    if (map) {
+      const water = vehicles.water;
+      const data = {
+        water: water ? { cell: water.cell, offset: water.offset, grid: water.grid, cells: Array.from(water.cells) } : null,
+        deathRegions: map.deathRegions, mission: { deathRegions: map.scripted },
+      };
+      this.x.veh_map(bridge.strings.id(json(data)), map.killY);
+    }
     this.hit = makeHit();
     this.groundHit = makeGround();
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
@@ -80,9 +109,89 @@ export class VehiclesSim {
   // (`acc`: the time left over from the last update); returns what is left.
   ground(dt, acc) {
     this.write();
-    const left = this.x.veh_ground(dt, acc);
+    this.bodiesIn();
+    const water = this.vehicles.water;
+    const left = this.x.veh_ground(dt, acc, water ? water.level : 0);
     this.sync();
+    this.bodiesOut();
     return left;
+  }
+
+  // Room for `count` numbers handed to the module: the memory's f64 view
+  // and where in it they go.
+  input(count) {
+    const ptr = this.x.veh_input(count);
+    this.bridge.views();
+    return ptr / 8;
+  }
+
+  // The battle's bodies as the module's collision world needs them, before
+  // the phase and after a hook: the kernel's world (or none, when the
+  // battle's collision is JavaScript's), the kernel's order of the bodies,
+  // the numbers the store knows each by, every hull's body, and each
+  // body's enabled flag by its place in that order.
+  bodiesIn() {
+    const c = this.collision, rays = c?.rays;
+    if (!rays) {
+      if (this.kernel) { this.x.veh_collision(-1, -1); this.kernel = false; }
+      return;
+    }
+    if (!this.kernel) {
+      const blockers = c.vehicleBlockers ? rays.fixedSet(c.blockerSet(c.vehicleBlockers), c.vehicleBlockers.bvh) : -1;
+      this.x.veh_collision(c.rayWorld, blockers);
+      this.kernel = true;
+      this.bodiesVersion = -1;
+    }
+    c.rayBodies();
+    const bodies = c.bodies, refs = this.bridge.refs[KIND_BODY];
+    if (this.bodiesVersion !== c.bodiesVersion) {
+      const at = this.input(bodies.length * 2), f = this.bridge.f;
+      for (let i = 0; i < bodies.length; i++) { f[at + 2 * i] = refs.slotOf(bodies[i]); f[at + 2 * i + 1] = bodies[i].raySlot; }
+      this.x.veh_bodies(bodies.length);
+      this.bodiesVersion = c.bodiesVersion;
+    }
+    for (const v of this.vehicles.vehicles) if (!this.colliders.has(v.body)) this.collider(v);
+    const ptr = this.x.veh_flags();
+    this.bridge.views();
+    const u8 = this.bridge.u8;
+    for (let i = 0; i < bodies.length; i++) u8[ptr + i] = bodies[i].enabled ? 1 : 0;
+  }
+
+  // A hull's body for the module: its numbers, its bounds in its own frame
+  // and the kernel's copies of its wall probes' and springs' gather caches.
+  collider(v) {
+    const rays = this.collision.rays, body = v.body;
+    // (Making a cache's copy may grow the memory: the ids first.)
+    const walls = (v.wallCaches ?? []).map((cache) => (cache ? rays.cache(cache) : -1));
+    const springs = (v.springCaches ?? []).map((cache) => (cache ? rays.cache(cache) : -1));
+    const slot = this.bridge.refs[KIND_BODY].slotOf(body);
+    const at = this.input(8 + walls.length + springs.length), f = this.bridge.f, b = body.localBounds;
+    f[at] = slot; f[at + 1] = body.raySlot;
+    f[at + 2] = b.min.x; f[at + 3] = b.min.y; f[at + 4] = b.min.z; f[at + 5] = b.max.x; f[at + 6] = b.max.y; f[at + 7] = b.max.z;
+    for (let i = 0; i < walls.length; i++) f[at + 8 + i] = walls[i];
+    for (let i = 0; i < springs.length; i++) f[at + 8 + walls.length + i] = springs[i];
+    this.x.veh_collider(walls.length, springs.length);
+    this.colliders.add(body);
+  }
+
+  // What the hulls did to their bodies in the module since the last time
+  // (enabled flags, places: matrix, inverse and bounds), onto the bodies.
+  bodiesOut() {
+    if (!this.kernel) return;
+    const ptr = this.x.veh_changes();
+    this.bridge.views();
+    const f = this.bridge.f, bodies = this.collision.rays.bodies;
+    let o = ptr / 8;
+    const toggled = f[o], placed = f[o + 1];
+    o += 2;
+    for (let i = 0; i < toggled; i++, o += 2) bodies[f[o]].enabled = f[o + 1] !== 0;
+    for (let i = 0; i < placed; i++, o += 39) {
+      const body = bodies[f[o]];
+      body.bounds.min.set(f[o + 1], f[o + 2], f[o + 3]);
+      body.bounds.max.set(f[o + 4], f[o + 5], f[o + 6]);
+      body.matrix.fromArray(f, o + 7);
+      body.inverse.fromArray(f, o + 23);
+    }
   }
 
   body(slot) {
@@ -97,7 +206,8 @@ export class VehiclesSim {
   // first, and what the hook did to them back into the store after.
   hook(call) {
     this.sync();
-    try { call(); } finally { this.bridge.write(KIND_VEHICLE, this.vehicles.vehicles); }
+    this.bodiesOut();
+    try { call(); } finally { this.bridge.write(KIND_VEHICLE, this.vehicles.vehicles); this.bodiesIn(); }
   }
 
   // Each import's handler. The arguments object (and its vectors) is the

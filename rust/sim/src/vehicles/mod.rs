@@ -30,6 +30,7 @@ pub mod build;
 pub mod class;
 pub mod hover;
 pub mod hull;
+pub mod native;
 pub mod pose;
 pub mod spawn;
 pub mod store;
