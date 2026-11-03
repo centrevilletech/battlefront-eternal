@@ -428,3 +428,23 @@ test("the view scene's muzzle flash: a blended basic draw after the parts, in th
   viewScene.add(new THREE.Mesh(partGeometry(), hooked));
   assert.equal(core.cover("view", renderer, viewScene, view), false);
 });
+
+test("the view scene: an unlit part (a sight whose texture scrolls) is drawn as three compiled it, opaque, before what blends", () => {
+  const { core, renderer, properties } = bridge();
+  const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();
+  view.updateMatrixWorld(true);
+  const sight = new THREE.ShaderMaterial({ defines: { UNLIT: "", SCROLL: "" }, uniforms: { map: { value: new THREE.Texture() }, scroll: { value: new THREE.Vector2(0.5, 0) }, time: { value: 3 } } });
+  properties.get(sight).currentProgram = program([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["scroll", GL.FLOAT_VEC2], ["time", GL.FLOAT]], ["position", "uv"]);
+  const flash = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending });
+  properties.get(flash).currentProgram = program([["diffuse", GL.FLOAT_VEC3]], ["position"]);
+  viewScene.add(new THREE.Mesh(partGeometry(), flash), new THREE.Mesh(partGeometry(), sight), new THREE.Mesh(partGeometry(), partMaterial(properties)));
+  viewScene.updateMatrixWorld(true);
+  assert.equal(core.cover("view", renderer, viewScene, view), true);
+  assert.equal(sight.visible, false);
+  const input = core.viewInput, DRAW = 17 + 12 * 18;
+  assert.equal(input[0], 2);
+  assert.deepEqual([input[1 + 2], input[1 + 10], input[1 + 11], input[1 + 12]], [0, 1 | 2 | 4, 1, 0], "the sight first: no blending, depth tested and written, front faces");
+  assert.deepEqual([...input.subarray(1 + 17 + 3 * 18, 1 + 17 + 3 * 18 + 4)], [3, 2, 0.5, 0], "its scroll");
+  assert.deepEqual([...input.subarray(1 + 17 + 4 * 18, 1 + 17 + 4 * 18 + 3)], [4, 1, 3], "the material's own time");
+  assert.equal(input[1 + DRAW + 2], 1, "then the flash, blended");
+});

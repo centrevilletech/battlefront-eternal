@@ -20,7 +20,8 @@ const RIGID = 2;
 const D = { PROGRAM: 0, GEOMETRY: 1, BLEND: 2, DEPTH_FUNC: 9, FLAGS: 10, SIDES: 11, RANGE: 14, UNIFORMS: 16, FIRST: 17 };
 const UNIFORM = 18, MAX_DRAW_UNIFORMS = 12, DRAW = D.FIRST + MAX_DRAW_UNIFORMS * UNIFORM, MAX_DRAWS = 16;
 const viewProjection = new THREE.Matrix4(), point = new THREE.Vector4(), frustum = new THREE.Frustum();
-// three's reversePainterSortStable.
+// three's painterSortStable (opaque) and reversePainterSortStable (what blends).
+const opaqueOrder = (a, b) => a.groupOrder - b.groupOrder || a.renderOrder - b.renderOrder || a.material - b.material || a.z - b.z || a.id - b.id;
 const transparentOrder = (a, b) => a.groupOrder - b.groupOrder || a.renderOrder - b.renderOrder || b.z - a.z || a.id - b.id;
 // Record layout (instances.rs REC_*).
 const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56 };
@@ -45,6 +46,7 @@ class ViewPass {
     this.complete = false;
     // This frame's blended draws, in three's transparent order.
     this.blends = [];
+    this.opaques = [];
     this.input = false;
   }
 
@@ -53,6 +55,7 @@ class ViewPass {
     if (this.on === false) return;
     this.complete = true;
     this.blends.length = 0;
+    this.opaques.length = 0;
     const camera = ctx.camera;
     viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(viewProjection);
@@ -92,6 +95,9 @@ class ViewPass {
     let record = null;
     const material = mesh.material, threeProgram = !Array.isArray(material) && core.renderer.properties.get(material).currentProgram;
     if (threeProgram && material.isMeshBasicMaterial) return this.registerBlended(mesh);
+    // A zero material the instanced parts can't take (unlit, its texture
+    // scrolling: the rifle's glowing sights): drawn as three compiled it.
+    if (threeProgram && material.isShaderMaterial && !material.transparent && !("DYNAMIC" in (material.defines || {})) && "UNLIT" in (material.defines || {})) return this.registerBlended(mesh);
     if (threeProgram && !material.transparent && !mesh.geometry.groups.length && "DYNAMIC" in (material.defines || {}) && !mesh.isSkinnedMesh && !mesh.isInstancedMesh) {
       const program = core.program(threeProgram, RIGID, material, POLICY);
       const geometry = program && core.geometry(mesh.geometry, program);
@@ -109,15 +115,16 @@ class ViewPass {
     return record;
   }
 
-  // A blended mesh with a basic material three's program draws as it is
-  // (no shader hooks), in one geometry range.
+  // A mesh drawn with three's program as it is (no shader hooks), in one
+  // geometry range: a basic material that blends (the muzzle flash), or an
+  // unlit zero material (opaque).
   registerBlended(mesh) {
     const core = this.core, material = mesh.material, geometry = mesh.geometry;
     let record = null;
     const program = plainProgram(core, material, null);
     if (program === undefined) return undefined; // until three has made it
     const blend = blendOf(material), state = stateOf(material), sides = sidesOf(material);
-    if (program && program.uniforms.length <= MAX_DRAW_UNIFORMS && blend && state && material.transparent && material.onBeforeCompile === THREE.Material.prototype.onBeforeCompile
+    if (program && program.uniforms.length <= MAX_DRAW_UNIFORMS && blend && state && material.onBeforeCompile === THREE.Material.prototype.onBeforeCompile
       && geometry.index && !geometry.groups.length && !mesh.isSkinnedMesh && !mesh.isInstancedMesh) {
       const g = core.geometry(geometry, { id: program.id, attributes: program.attributes });
       if (g !== null && g !== undefined) {
@@ -136,25 +143,27 @@ class ViewPass {
   blend(record, groupOrder) {
     const mesh = record.mesh;
     if (mesh.frustumCulled && !frustum.intersectsObject(mesh)) return;
-    if (this.blends.length >= MAX_DRAWS) { this.complete = false; record.material.visible = true; return; }
+    if (this.blends.length + this.opaques.length >= MAX_DRAWS) { this.complete = false; record.material.visible = true; return; }
     point.copy(mesh.geometry.boundingSphere.center).applyMatrix4(mesh.matrixWorld).applyMatrix4(viewProjection);
-    this.blends.push({ record, groupOrder, renderOrder: mesh.renderOrder, z: point.z, id: mesh.id });
+    (record.material.transparent ? this.blends : this.opaques).push({ record, groupOrder, renderOrder: mesh.renderOrder, material: record.material.id, z: point.z, id: mesh.id });
   }
 
-  // The frame's blended draws for view.rs, in three's transparent order.
+  // The frame's draws for view.rs: the opaque ones in three's opaque order,
+  // then what blends in its transparent order.
   writeBlends(camera) {
     const core = this.core;
     if (!this.input) {
-      if (!this.blends.length) return;
+      if (!this.blends.length && !this.opaques.length) return;
       core.addView("viewInput", Float64Array, () => core.rust.view_input_ptr(), () => core.rust.view_input_len());
       this.input = true;
     }
     core.views();
     const input = core.viewInput;
     input[0] = 0;
+    this.opaques.sort(opaqueOrder);
     this.blends.sort(transparentOrder);
     let n = 0;
-    for (const { record } of this.blends) {
+    for (const { record } of [...this.opaques, ...this.blends]) {
       const { mesh, material, program } = record, geometry = mesh.geometry, o = 1 + n * DRAW;
       const range = geometry.drawRange, count = geometry.index.count;
       const first = Math.max(0, range.start), last = Math.min(count, range.start + range.count);
