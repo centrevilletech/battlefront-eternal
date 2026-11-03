@@ -264,6 +264,23 @@ test('room made as a battle loads keeps the memory from growing in play', async 
   assert.equal(b.grown, grown);
 });
 
+test('an import asks JavaScript in the middle of a command and takes its answer', async () => {
+  const world = battle();
+  const b = await bridge(world);
+  const asked = [];
+  b.handlers.ask = (args) => { asked.push(args.value); return { ...args, value: args.value * 3, note: 'answered' }; };
+  const at = new THREE.Vector3(1, 2, 3);
+  const result = b.command('relay', { value: 2.5, at, count: 1, note: null, events: 0 });
+  assert.deepEqual(asked, [2.5]);
+  assert.equal(result.value, 7.5);
+  assert.equal(result.note, 'answered');
+  assert.deepEqual(result.at.toArray(), [1, 2, 3]);
+  // The command's own call block was not disturbed by the import's.
+  assert.equal(b.command('echo', { value: 1, at, count: 2, note: null, events: 0 }).value, 2);
+  delete b.handlers.ask;
+  assert.throws(() => b.command('relay', { value: 1, at, count: 0, note: null, events: 0 }), /nothing serves/);
+});
+
 test('a module whose kinds were made from other schemas is refused', async () => {
   const { exports } = await loadSim();
   const stale = { exports: { ...exports, sim_kind_hash: (k) => (k === KIND_BOLT ? 1 : exports.sim_kind_hash(k)) } };

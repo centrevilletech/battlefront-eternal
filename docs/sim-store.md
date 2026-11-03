@@ -316,9 +316,12 @@ the `echo` command its tests and benchmarks use):
   changes state the same phase reads back is an import instead.
 - An import (`imports: { raycastUnits: { args: 'RaycastArgs', result:
   'RaycastHit' } }`) is Rust asking JavaScript while the state asked about
-  is still JavaScript's: `gen::import_raycast_units(&mut sim.calls, &args)`
-  calls out of the module, the bridge serves it with
-  `bridge.handlers.raycastUnits(args)`, and the result comes back. The
+  is still JavaScript's: `gen::import_raycast_units(&args)` calls out of the
+  module, the bridge serves it with `bridge.handlers.raycastUnits(args)`,
+  and the result comes back. Its arguments and result cross in a block of
+  their own, outside the store, reached only for a moment before and after
+  the call: the Rust that asks holds the store, so a handler must not call
+  back into it. The
   module's loader gives every instance the imports' functions, which reach
   the bridge attached to it. A port reaches other subsystems through a
   trait of its own; on the module, its JavaScript side is these imports,

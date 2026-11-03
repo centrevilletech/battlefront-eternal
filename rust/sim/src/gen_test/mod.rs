@@ -159,14 +159,13 @@ extern "C" {
     fn bfe_import_look_up();
 }
 
-/// Asks JavaScript (the import lookUp): its arguments go out in the call block,
-/// its result comes back there. The module only (a native build serves its
-/// boundary from elsewhere: the replay harness, or Rust).
+/// Asks JavaScript (the import lookUp): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
 #[cfg(target_arch = "wasm32")]
-pub fn import_look_up(calls: &mut crate::store::calls::Calls, args: &Ask) -> Spot {
-    calls.result(Ask::WORDS, |row, heap| args.put(row, heap));
+pub fn import_look_up(args: &Ask) -> Spot {
+    crate::store::calls::import_out(Ask::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_look_up() };
-    let (row, heap) = calls.args();
-    Spot::take(row, heap)
+    crate::store::calls::import_in(|row, heap| Spot::take(row, heap))
 }
 

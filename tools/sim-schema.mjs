@@ -643,8 +643,8 @@ function rustCalls(model) {
     lines.push('}', '');
     for (const c of model.importsList) {
       const fn = snake(c.name).replace(/^r#/, '');
-      lines.push(`/// Asks JavaScript (the import ${c.name}): its arguments go out in the call block,`, '/// its result comes back there. The module only (a native build serves its', '/// boundary from elsewhere: the replay harness, or Rust).', '#[cfg(target_arch = "wasm32")]', `pub fn import_${fn}(calls: &mut crate::store::calls::Calls, args: &${c.args}) -> ${c.result ?? '()'} {`, `    calls.result(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    unsafe { bfe_import_${fn}() };`);
-      if (c.result) lines.push('    let (row, heap) = calls.args();', `    ${c.result}::take(row, heap)`);
+      lines.push(`/// Asks JavaScript (the import ${c.name}): its arguments go out in the import block,`, '/// its result comes back there (store::calls). The module only (a native build serves', '/// its boundary from elsewhere: the replay harness, or Rust).', '#[cfg(target_arch = "wasm32")]', `pub fn import_${fn}(args: &${c.args}) -> ${c.result ?? '()'} {`, `    crate::store::calls::import_out(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    unsafe { bfe_import_${fn}() };`);
+      if (c.result) lines.push(`    crate::store::calls::import_in(|row, heap| ${c.result}::take(row, heap))`);
       lines.push('}', '');
     }
   }
