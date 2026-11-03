@@ -10,7 +10,8 @@
 // its row's (writeExtras); a body in other materials of its own goes back
 // to three. A rig whose material blends (bes1's jedi fighter) is drawn by
 // the renderer as an item of the transparent list (instances.rs
-// KIND_BLENDED), at the place three's sort would draw it.
+// KIND_BLENDED), at the place three's sort would draw it, and so is a
+// flying model's part that blends (a round's glow: KIND_BLENDED_RIGID).
 //
 // Only what three's render lists by the camera's frustum is written, culled
 // here as three culls it (the renderer culls the records again by the same
@@ -21,7 +22,7 @@
 import * as THREE from "three";
 import { blendOf, stateOf, sidesOf, programForSide } from "./transparent.js";
 
-const SKINNED = 1, RIGID = 2, BLENDED = 3;
+const SKINNED = 1, RIGID = 2, BLENDED = 3, BLENDED_RIGID = 4;
 // The layer a flying model's part goes on while the renderer draws it: no
 // camera renders it (graphics.js uses 1, 2 and 4, sky-probe.js 3, water.js 5).
 const FLYING_LAYER = 30;
@@ -356,8 +357,10 @@ class InstancePass {
     core.views();
     const { mesh, material } = record, input = core.input, geometry = mesh.geometry;
     const o = core.recordsAt + at.records * core.stride;
-    input[o + R.KIND] = RIGID; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
+    input[o + R.KIND] = record.blend === undefined ? RIGID : BLENDED_RIGID; input[o + R.PROGRAM] = record.program; input[o + R.GEOMETRY] = record.geometry;
     input[o + R.GROUPS] = 0; input[o + R.TEXTURES] = record.texture; input[o + R.BONES] = 0;
+    // A blending part's blend and three's key for it (but z, the renderer's).
+    if (record.blend !== undefined) { input[o + R.BLEND] = record.blend; input[o + R.BLEND + 1] = groupOrderOf(mesh); input[o + R.BLEND + 2] = mesh.renderOrder; input[o + R.BLEND + 3] = mesh.id; }
     const s = geometry.boundingSphere, b = geometry.boundingBox;
     input[o + R.SPHERE] = s.center.x; input[o + R.SPHERE + 1] = s.center.y; input[o + R.SPHERE + 2] = s.center.z; input[o + R.SPHERE + 3] = s.radius;
     input[o + R.BOX] = b.min.x; input[o + R.BOX + 1] = b.min.y; input[o + R.BOX + 2] = b.min.z; input[o + R.BOX + 3] = b.max.x; input[o + R.BOX + 4] = b.max.y; input[o + R.BOX + 5] = b.max.z;
@@ -386,9 +389,10 @@ class InstancePass {
   // the renderer may not draw (one not yet registered, one inside another
   // object), so a part it draws is hidden from three by its layers (on
   // FLYING_LAYER), not by its material; its own layers stay in its record,
-  // tested against the camera's as three would test them. A part three
-  // gives another material (destruction.js heats a wreck's) goes back to
-  // three.
+  // tested against the camera's as three would test them. A part whose
+  // material blends is an item of the transparent list (registerFlying). A
+  // part three gives another material (destruction.js heats a wreck's)
+  // goes back to three.
   flying(camera, at) {
     if (!this.flyingRecords) this.watchFlying();
     if (this.flyingPending.size) {
@@ -426,6 +430,7 @@ class InstancePass {
     const scene = this.core.graphics.scene;
     this.flyingRecords = [];
     this.flyingByMesh = new WeakMap(); // part -> its record, or null (three draws it)
+    this.flyingBlends = new WeakMap(); // a blending part's material -> its blend (inst_add_blend) and programs
     this.flyingPending = new Set(scene.children.filter((o) => o.userData?.flying));
     scene.addEventListener("childadded", ({ child }) => { if (child.userData?.flying) this.flyingPending.add(child); });
     scene.addEventListener("childremoved", ({ child }) => {
@@ -450,15 +455,32 @@ class InstancePass {
     const threeProgram = core.renderer.properties.get(material).currentProgram;
     if (!threeProgram) return undefined;
     const defines = material.defines || {};
-    if (material.transparent || mesh.geometry.groups.length || !("DYNAMIC" in defines || "UNLIT" in defines)) return null;
-    const program = core.program(threeProgram, RIGID, material, POLICIES[RIGID]);
-    const geometry = program && core.geometry(mesh.geometry, program);
+    if (mesh.geometry.groups.length || !("DYNAMIC" in defines || "UNLIT" in defines)) return null;
+    // One that blends: drawn with three's program for each side three draws
+    // it with, its blending and depth as three sets them (one blend for all
+    // the copies of a part, which share its material).
+    let blend, programs;
+    if (material.transparent) {
+      const sides = sidesOf(material), state = stateOf(material), how = blendOf(material);
+      if (!how || !state) return null;
+      programs = sides.map((side) => { const p = programForSide(core.renderer, material, side); return p && core.program(p, RIGID, material, POLICIES[RIGID]); });
+      if (programs.some((p) => !p) || programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
+      const key = programs.map((p, i) => `${p.id}:${sides[i]}`).join();
+      let held = this.flyingBlends.get(material);
+      if (!held || held.key !== key) {
+        held = { key, blend: core.rust.inst_add_blend(new Uint32Array(how), state.flags & 3, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]]))) };
+        this.flyingBlends.set(material, held);
+      }
+      blend = held.blend;
+    } else programs = [core.program(threeProgram, RIGID, material, POLICIES[RIGID])];
+    const program = programs[programs.length - 1];
+    const geometry = program && core.geometry(mesh.geometry, programs[0]);
     const texture = mapOf(core, material);
     if (texture === undefined) return undefined; // its texture first
     if (geometry === null || geometry === undefined) return null;
     if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
     if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-    const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask };
+    const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask, blend };
     if (this.core.active) mesh.layers.set(FLYING_LAYER);
     this.flyingRecords.push(record);
     return record;

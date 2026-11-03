@@ -9,7 +9,8 @@
 // of a third kind: its row and bones are made with the others', but it is
 // drawn as an item of the near scene's transparent list (transparent.rs
 // Source), with its material's blending, depth and passes (add_blend), at
-// the place three's sort would draw it.
+// the place three's sort would draw it. A rigid part that blends (a flying
+// round's glow) is the same, of a fourth kind.
 use crate::core::{bytes, upload_texture, Camera, Core, MultiDraw, PASS_INSTANCES, UNIT_BONES, UNIT_INSTANCES, UNIT_MAP};
 use crate::transparent::{three_z, Item, Source, View};
 use crate::lights::{box_to_world, light_mask, sphere_light_mask};
@@ -19,7 +20,7 @@ use glow::HasContext;
 
 // A soldier's record in `input`, after the frame block's values (f64 slots).
 pub const IN_RECORDS: usize = FRAME_FLOATS;
-pub const REC_KIND: usize = 0; // 1: skinned body, 2: rigid mesh, 3: skinned rig that blends
+pub const REC_KIND: usize = 0; // 1: skinned body, 2: rigid mesh, 3: skinned rig that blends, 4: rigid mesh that blends
 pub const REC_PROGRAM: usize = 1;
 pub const REC_GEOMETRY: usize = 2;
 pub const REC_GROUPS: usize = 3; // groups drawn; 0 draws the whole index
@@ -34,11 +35,12 @@ pub const REC_LOOK: usize = 52; // sunScale, ambientPull, brightness
 pub const REC_FLAGS: usize = 56; // cull side (0 front, 1 back, 2 both) | 4 alpha to coverage | 8 depth write
 pub const REC_BIND: usize = 60; // bindMatrix (skinned)
 pub const REC_EXTRA: usize = 76; // a material's own values the instance gives (shader.rs EXTRAS: its row from ROW_EXTRA)
-// A blending rig's: its blend (add_blend), then three's key for it but z:
+// A blending rig's or part's: its blend (add_blend), then three's key for it but z:
 // group order, render order, id (z from its sphere's centre in the world).
 pub const REC_BLEND: usize = REC_EXTRA + shader::ROW_EXTRA_TEXELS * 4;
 pub const REC_STRIDE: usize = REC_BLEND + 4;
 pub const KIND_BLENDED: f64 = 3.0;
+pub const KIND_BLENDED_RIGID: f64 = 4.0;
 pub const MAX_RECORDS: usize = 256;
 pub const MAX_ROWS: usize = 512;
 pub const BONE_TEXELS: usize = 1024; // a bone texture row
@@ -57,7 +59,7 @@ pub struct BlendState {
     passes: Vec<(usize, u32)>,
 }
 
-// A blending rig drawn this frame: its blend, its row, three's key for it
+// A blending rig or part drawn this frame: its blend, its row, three's key for it
 // (group order, render order, its sphere's centre in the world, id), its
 // geometry, its texture and whether its world matrix mirrors.
 struct Blended {
@@ -81,7 +83,7 @@ pub struct InstancePass<C: HasContext> {
     draws: Vec<([u32; 6], usize, usize)>,
     templates: Vec<[f32; ROW_TEXELS * 4]>,
     blends: Vec<BlendState>,
-    // This frame's blending rigs, their rows after the others' (the
+    // This frame's blending rigs and parts, their rows after the others' (the
     // transparent list draws them), and their rows' templates.
     blended: Vec<Blended>,
     blended_templates: Vec<usize>,
@@ -135,8 +137,8 @@ impl<C: HasContext> InstancePass<C> {
             if !frustum.sphere(&center, radius) {
                 continue;
             }
-            let blended = rec[REC_KIND] == KIND_BLENDED;
-            let skinned = rec[REC_KIND] == 1.0 || blended;
+            let blended = rec[REC_KIND] == KIND_BLENDED || rec[REC_KIND] == KIND_BLENDED_RIGID;
+            let skinned = rec[REC_KIND] == 1.0 || rec[REC_KIND] == KIND_BLENDED;
             let bone_count = rec[REC_BONES] as usize;
             if skinned && bone_cursor + bone_count > MAX_BONES {
                 continue;
@@ -213,7 +215,7 @@ impl<C: HasContext> InstancePass<C> {
         for (i, d) in self.draws.iter().enumerate() {
             self.rows[i * ROW_TEXELS * 4..(i + 1) * ROW_TEXELS * 4].copy_from_slice(&self.templates[d.1]);
         }
-        // The blending rigs' rows after the others'.
+        // The blending rigs' and parts' rows after the others'.
         let mut used = self.draws.len();
         for (b, &template) in self.blended.iter_mut().zip(&self.blended_templates) {
             if used >= MAX_ROWS {
@@ -265,7 +267,7 @@ impl<C: HasContext> InstancePass<C> {
     }
 }
 
-// The blending rigs as a source of the transparent list's items: each one
+// The blending rigs and parts as a source of the transparent list's items: each one
 // item with the key the page wrote for it (z as three works it out, from
 // its sphere's centre in the world), drawn from the row and bones the near
 // phase uploaded, in each of its material's passes with its blending,

@@ -789,6 +789,41 @@ test("flying models: parts of tagged groups as rigid records, lit and unlit, hid
   assert.equal(b.children[0].layers.mask, 1 << 30);
 });
 
+test("a flying part that blends: a rigid record of its own kind, one blend for every copy, three's key for the transparent list", () => {
+  const { core, calls, scene, camera, renderer, drawn } = bridge();
+  const glow = new THREE.ShaderMaterial({ name: "zero:unlit", defines: { UNLIT: "", SCROLL: "", BLENDED: "" }, transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending, forceSinglePass: false,
+    uniforms: { map: { value: new THREE.Texture() }, scroll: { value: new THREE.Vector2(0.5, 0) }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setIndex([0, 1, 2]);
+  const piece = (z) => { const group = new THREE.Group(); group.add(new THREE.Mesh(geometry, glow)); group.userData.flying = true; group.position.z = z; group.renderOrder = 2; return group; };
+  // three draws a double-sided material that blends back faces, then front: a program for each.
+  const uniforms = ["projectionMatrix", "modelViewMatrix", "map", "scroll"];
+  const back = program(uniforms, ["position"], "#define FLIP_SIDED\nvertex"), front = program(uniforms, ["position"], "vertex");
+  drawn(glow, front, [back, front]);
+  const a = piece(-5), b = piece(-8);
+  scene.add(a, b);
+  scene.updateMatrixWorld(true);
+  core.pass(renderer, scene, camera);
+  assert.equal(a.children[0].layers.mask, 1 << 30, "hidden from three by its layers");
+  assert.equal(glow.visible, true, "its material, shared with other copies, untouched");
+  const blends = calls.filter((c) => c[0] === "inst_add_blend");
+  assert.equal(blends.length, 1, "one blend for the copies of a part");
+  assert.deepEqual([...blends[0][1]], [1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], "additive");
+  assert.deepEqual(blends[0].slice(2, 4), [1, 0x0203], "depth tested, not written");
+  const programs = calls.filter((c) => c[0] === "add_program");
+  assert.deepEqual(programs.map((c) => c[1]), [2, 2], "rigid programs, one a side");
+  assert.deepEqual([...blends[0][4]], [0, 1, 1, 0], "back faces, then front, each with three's program for it");
+  scene.updateMatrixWorld(true);
+  core.pass(renderer, scene, camera);
+  assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "two records");
+  const at = (r) => core.recordsAt + r * core.stride;
+  assert.equal(core.input[at(0)], 4, "a blending part's record");
+  assert.deepEqual([...core.input.subarray(at(0) + 97, at(0) + 100)], [2, 0, a.children[0].id], "three's key: its group's order, its own, its id");
+  assert.deepEqual([...core.input.subarray(at(0) + 76, at(0) + 78)], [0.5, 0], "its scroll in its row");
+});
+
 test("soldiers: only those three's render would list are written, with the bones three worked out in that render", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
   renderer.info = { render: { frame: 0 } };
