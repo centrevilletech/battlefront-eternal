@@ -43,9 +43,9 @@ import { Turret } from '../../src/props.js';
 
 // The first calls of each sampled tick recorded, per capped service.
 const CAPPED = {
-  currentControllable: 4, boarded: 4, lowTickets: 2, boardedVehicle: 4, boardedVehicleOf: 4, boardedVehicleOfCharacter: 4,
+  currentControllable: 2, boarded: 2, lowTickets: 1, boardedVehicle: 4, boardedVehicleOf: 4, boardedVehicleOfCharacter: 4,
   isMountedTurret: 4, emptySeats: 4, crewControllers: 4, seatsFull: 4, pendingReservations: 4, targetReserved: 4,
-  reserveTarget: 4, mountReach: 6, sharedTarget: 6, unreachableFromMount: 4, createHelper: 6, mountedState: 6,
+  reserveTarget: 4, mountReach: 6, sharedTarget: 3, unreachableFromMount: 4, createHelper: 6, mountedState: 6,
   agentFor: 6, adaptController: 6, canEnter: 8, boardPolicy: 8, isAtAt: 4,
 };
 // Services every call of which is recorded.
@@ -163,14 +163,8 @@ function argViews(args, out, self) {
   }
 }
 
-// The battle's views a frame starts from: what its arguments (and its
-// receiver) name and what those reach (a unit's seat, hull, controller and
-// Character; a lease's unit and control; a hull's entry and seats' leases;
-// a turret's; the units the service's reservations name; an orbit's and a
-// tracker's targets). profile 'lean' stops there, 'normal' adds every hull
-// and turret and the living people (what the steering's contacts and the
-// decay read), 'all' every member of the registry (a query's finds).
-function enterState(game, args, cap, self, profile, cache) {
+// The objects a frame's state takes in, by kind (see enterState).
+function collect(game, args, self, profile) {
   const svc = service(game), ai = aiOf(game);
   const units = new Set(), controllers = new Set(), characters = new Set(), leases = new Set(), hulls = new Set(), turrets = new Set();
   const extra = { controllers: new Set(), characters: new Set(), patterns: null, patrol: null, agent: null, helper: null };
@@ -181,42 +175,61 @@ function enterState(game, args, cap, self, profile, cache) {
   add(self);
   for (const c of extra.controllers) add(c);
   for (const ch of extra.characters) add(ch);
-  for (const r of svc.reservations.records) { add(r.candidate.unit); add(r.owner.unit); }
   const agentOf = extra.agent ?? extra.patterns?.agent ?? extra.patrol?.agent ?? null;
   const agentObject = agentOf?.self ?? null;
-  if (agentObject) { add(agentObject.controller); add(agentObject.unit); add(agentObject.tracker?.freshTarget); add(agentObject.tracker?.target); add(agentObject.post); }
-  if (profile !== 'lean') {
-    for (const v of svc.system?.vehicles ?? []) add(v);
+  if (profile !== 'args') {
+    for (const r of svc.reservations.records) { add(r.candidate.unit); add(r.owner.unit); }
+    if (agentObject) { add(agentObject.controller); add(agentObject.unit); add(agentObject.tracker?.freshTarget); add(agentObject.tracker?.target); add(agentObject.post); }
+  }
+  if (profile === 'hulls' || profile === 'normal' || profile === 'all') for (const v of svc.system?.vehicles ?? []) add(v);
+  if (profile === 'normal' || profile === 'all') {
     for (const t of svc.turrets?.turrets ?? []) add(t);
     for (const u of ai.humanUnits()) add(u);
   }
   if (profile === 'all') for (const u of game.units.all()) add(u);
+  const deep = profile !== 'args';
   while (queue.length) {
     const x = queue.pop();
     if (x instanceof Vehicle) {
       if (hulls.has(x)) continue;
-      hulls.add(x); add(x.aiTarget);
-      for (const seat of x.seats) add(seat.lease);
+      hulls.add(x); if (deep) { add(x.aiTarget); for (const seat of x.seats) add(seat.lease); }
     } else if (x instanceof Turret) {
       if (turrets.has(x)) continue;
-      turrets.add(x); add(x.aiTarget); add(x.lease);
+      turrets.add(x); if (deep) { add(x.aiTarget); add(x.lease); }
     } else if (x instanceof SeatLease) {
       if (leases.has(x)) continue;
-      leases.add(x); add(x.unit); add(x.controllable); add(x.vehicle); add(x.turret);
+      leases.add(x); if (deep) { add(x.unit); add(x.controllable); add(x.vehicle); add(x.turret); }
     } else if (x instanceof UnitController) {
       if (controllers.has(x)) continue;
-      controllers.add(x); add(x.unit);
+      controllers.add(x); if (deep) add(x.unit);
     } else if (x.constructor?.name === 'Character') {
       if (characters.has(x)) continue;
-      characters.add(x); add(x.unit); add(x.controller);
+      characters.add(x); if (deep) { add(x.unit); add(x.controller); }
     } else if ('kind' in x && 'generation' in x && !(x instanceof Agent)) {
       if (units.has(x)) continue;
       units.add(x);
-      add(x.seat); add(x.lease); add(x.vehicle); add(x.turret); add(x.controller); add(x.character);
-      const orbit = x.steer?.orbit;
-      if (orbit?.target?.unit) add(orbit.target.unit);
+      if (deep) {
+        add(x.seat); add(x.lease); add(x.vehicle); add(x.turret); add(x.controller); add(x.character);
+        const orbit = x.steer?.orbit;
+        if (orbit?.target?.unit) add(orbit.target.unit);
+      }
     }
   }
+  return { units, controllers, characters, leases, hulls, turrets, extra, agentOf };
+}
+
+// The battle's views a frame starts from: what its arguments (and its
+// receiver) name and what those reach (a unit's seat, hull, controller and
+// Character; a lease's unit and control; a hull's entry and seats' leases;
+// a turret's; the units the service's reservations name; an orbit's and a
+// tracker's targets). profile 'lean' stops there, 'hulls' adds every hull
+// (a walker's contacts), 'normal' every hull and turret and the living
+// people (the decay, the notifier's boardables), 'all' every member of the
+// registry (a query's finds); 'args' takes only the objects the arguments
+// name (a seat's input step, whose replay starts from its analogs frame's).
+function enterState(game, args, sets, cache) {
+  const svc = service(game), ai = aiOf(game);
+  const { units, controllers, characters, leases, hulls, turrets, extra, agentOf: agent } = sets;
   return {
     time: game.ai?.classic?.ai?.world?.time ?? 0,
     settings: { controls: ai.controls(), cycle: ai.schedulerNumbers?.()?.cycle ?? (ai.isHard?.() ? 3 : 15), hasPlanner: Boolean(svc.world.nav?.planner),
@@ -227,7 +240,7 @@ function enterState(game, args, cap, self, profile, cache) {
     hulls: [...hulls].map((v) => hullView(svc, v)), turrets: [...turrets].map((t) => turretView(svc, t)),
     leases: [...leases].map(leaseView), units: [...units].map(unitView), controllers: [...controllers].map(controllerView),
     characters: [...characters].map(characterView),
-    agent: agentOf, patterns: extra.patterns, patrol: extra.patrol, helper: extra.helper, request: requestView(args[1]),
+    agent, patterns: extra.patterns, patrol: extra.patrol, helper: extra.helper, request: requestView(args[1]),
     helperMask: args[2] && args[2].controller ? { mask: traversalMask(args[2].controller.unit), radius: traversalRadius(args[2].controller.unit), unit: args[2].controller.unit ?? null } : null,
   };
 }
@@ -240,50 +253,39 @@ function serviceState(svc, cache = false) {
     run: { A: patternsTest.run.A, B: patternsTest.run.B },
   };
 }
-// What the vehicle AI writes, at a frame's end.
-function exitState(game, args, self, cache) {
-  const svc = service(game), ai = aiOf(game);
-  const extra = { controllers: new Set(), characters: new Set(), patterns: null, patrol: null, agent: null, helper: null };
-  argViews(args, extra, self);
-  const seats = [];
-  for (const v of svc.system?.vehicles ?? []) for (const s of v.seats) if (s.lease?.controllable) seats.push(s.lease.controllable);
-  for (const t of svc.turrets?.turrets ?? []) if (t.lease?.controllable) seats.push(t.lease.controllable);
-  for (const a of args) if (a instanceof SeatUnit && !seats.includes(a)) seats.push(a);
-  const controllers = new Set(extra.controllers);
-  for (const u of seats) if (u.controller) controllers.add(u.controller);
-  for (const a of args) if (a && typeof a === 'object' && a.controller instanceof UnitController) controllers.add(a.controller);
-  const agent = extra.agent ?? extra.patterns?.agent ?? extra.patrol?.agent ?? null;
-  if (agent?.controller) controllers.add(agent.controller);
-  // Crews a frame let out or kept off (abandonPad): every hull seat's.
-  const characters = new Set(extra.characters);
-  for (const v of svc.system?.vehicles ?? []) for (const s of v.seats) {
-    const u = s.lease?.unit;
-    if (u?.controller) controllers.add(u.controller);
-    if (u?.character) { characters.add(u.character); if (u.character.controller) controllers.add(u.character.controller); }
-  }
+// What the vehicle AI writes, at a frame's end: its own state, and what it
+// keeps on the objects the frame took in.
+function exitState(game, args, self, cache, sets) {
+  const svc = service(game);
+  const { units, controllers, characters, hulls, extra } = sets;
+  const seats = [...units].filter((u) => u instanceof SeatUnit);
   return {
     service: serviceState(svc, cache),
-    decay: (svc.system?.vehicles ?? []).map((v) => (v.decay ? { idle: v.decay.idle, sample: v.decay.sample } : undefined)),
-    padLeft: (svc.system?.vehicles ?? []).map((v) => svc.padLeft.get(v)),
+    hulls: [...hulls].map((v) => ({ self: v, decay: v.decay ? { idle: v.decay.idle, sample: v.decay.sample } : undefined, padLeft: svc.padLeft.get(v) })),
     controls: seats.map((u) => ({ self: u, steer: steerView(u.steer), hasSteer: Boolean(u.steer), intent: intentView(u.intent) })),
     controllers: [...controllers].map((c) => ({ self: c, reboardAt: c.reboardAt, fireA: c.fireA, requestValid: c.request?.valid, exitRequest: c.exitRequest,
       policy: c.policy?.name ?? null, policyAdapted: Boolean(c.policyAdapted), homeFacing: c.homeFacing })),
     characters: [...characters].map((ch) => ({ self: ch, objective: ch.objective ?? null })),
-    agent: extra.agent ?? extra.patterns?.agent ?? extra.patrol?.agent ?? null,
-    patterns: extra.patterns, patrol: extra.patrol, helper: extra.helper,
+    agent: extra.agent ? agentView(extra.agent.self) : extra.patterns ? agentView(extra.patterns.agent?.self) : extra.patrol ? agentView(extra.patrol.agent?.self) : null,
+    patterns: extra.patterns ? patternsView(extra.patterns.self) : null,
+    patrol: extra.patrol ? patrolView(extra.patrol.self) : null,
+    helper: extra.helper ? helperView(extra.helper.self) : null,
   };
 }
 
 // Frames' enter and exit states: the enter state on the way in, the exit
-// state on the way out (a frame's state() runs once at each).
+// state on the way out (a frame's state() runs once at each). `profile` is
+// a profile, or a function of the frame's arguments giving one.
 function frameState(profile, cache = false) {
   const entering = [];
   return (game, args, cap, self) => {
     // A frame's state is asked at its enter, then at its exit; frames nest,
-    // so the stack says which.
-    if (entering.length && entering[entering.length - 1] === args) { entering.pop(); return exitState(game, args, self, cache); }
-    entering.push(args);
-    return enterState(game, args, cap, self, profile, cache);
+    // so the stack says which. The exit takes in what the enter did.
+    const top = entering[entering.length - 1];
+    if (top && top.args === args) { entering.pop(); return exitState(game, args, self, cache, top.sets); }
+    const sets = collect(game, args, self, typeof profile === 'function' ? profile(args) : profile);
+    entering.push({ args, sets });
+    return enterState(game, args, sets, cache);
   };
 }
 
@@ -368,7 +370,9 @@ function cappedTarget(game, name) {
 
 // What each frame's state takes in (enterState's profiles).
 const PROFILES = {
-  analogs: 'normal', updateDecay: 'normal', notify: 'all', boardPathClear: 'all', patrolMounted: 'all', contested: 'all',
+  // A walker's analogs read every hull (its contacts); the others what the control reaches.
+  analogs: (args) => (args[0]?.kind === 2 ? 'hulls' : 'lean'),
+  seatInput: 'args', updateDecay: 'normal', notify: 'all', boardPathClear: 'all', patrolMounted: 'all', contested: 'all',
 };
 const profileOf = (name) => PROFILES[name] ?? 'lean';
 const serviceFrame = (name) => ({ method: `vehicleAI.${name}`, target: service, state: frameState(profileOf(name), name === 'supportPoint'), boundaries });
