@@ -10,10 +10,11 @@
 //   varuint length of the rest | u8 type | varuint tick | string name | value
 // Types: 1 the header (the file's first record), 2 a frame (a phase or a
 // method of one, captured), 3 a tick (what every phase drew, and the
-// tick's fingerprints), 4 a definition from the game's content (named by
-// its key; written once, before the first record that names it is read
-// through), 5 the world (the units' lives, teams and classes before a frame
-// that asks for them). Strings and object identities are counted afresh in
+// tick's fingerprints), 4 a definition from the game's content, or another
+// object handles name that never changes (an owner snapshot, under
+// ownerSnapshot:N), named by its key and written once, right after the
+// first record that names it, 5 the world (the units' lives, teams and
+// classes before a frame that asks for them). Strings and object identities are counted afresh in
 // every record, so a reader can skip any record by its length.
 //
 // Values, a tag byte and what follows:
