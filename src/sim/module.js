@@ -17,6 +17,9 @@ let compiling = null;
 // The compiled module (a promise of it), made the first time it is asked for.
 export function simModule() {
   return compiling ||= (async () => {
+    // A native decoder where there is one (the copy loop below costs about
+    // three times what atob does).
+    if (Uint8Array.fromBase64) return WebAssembly.compile(Uint8Array.fromBase64(SIM_WASM));
     const text = atob(SIM_WASM);
     const bytes = new Uint8Array(text.length);
     for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);

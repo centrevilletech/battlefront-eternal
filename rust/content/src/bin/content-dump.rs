@@ -6,7 +6,9 @@
 //!
 //! The content is BFE_CONTENT_DIR (or public/ beside the repository's rust/).
 
-use bfe_content::battle::Loader;
+use bfe_content::battle::{Battle, Loader};
+use bfe_content::content::Content;
+use bfe_content::defs::Defs;
 use bfe_content::battle_dump::{dump_planned, PayloadCache};
 use bfe_content::catalog::plan;
 use bfe_content::files::DirFiles;
@@ -33,6 +35,23 @@ fn main() {
     let loader = Loader::new(&files);
     let mut cache = PayloadCache::default();
     let started = std::time::Instant::now();
+    // --time: each battle's load and build alone (no dump), fresh files.
+    if args.iter().any(|a| a == "--time") {
+        for p in &list {
+            let files = DirFiles::new(&root);
+            let loader = Loader::new(&files);
+            let t0 = std::time::Instant::now();
+            let battle = Battle::load(&loader, &p.map, &p.query);
+            let t1 = std::time::Instant::now();
+            let content = battle.and_then(Content::build);
+            let t2 = std::time::Instant::now();
+            let defs = content.as_ref().map(Defs::build);
+            let t3 = std::time::Instant::now();
+            let ok = matches!(defs, Ok(Ok(_)));
+            println!("{}\tload {:.1} ms\tbuild {:.1} ms\tdefs {:.1} ms\t{}", p.name(), (t1 - t0).as_secs_f64() * 1e3, (t2 - t1).as_secs_f64() * 1e3, (t3 - t2).as_secs_f64() * 1e3, if ok { "ok" } else { "error" });
+        }
+        return;
+    }
     for p in &list {
         let text = dump_planned(&loader, p, &mut cache, full);
         std::fs::write(out.join(format!("{}.txt", p.name())), text).expect("dump written");

@@ -5,9 +5,10 @@
 //! JavaScript reads with `parseFloat` or `Number`, so a number derived from
 //! one in Rust must come from the same rules, prefix and all.
 //!
-//! These are private copies of what `rust/jsrt` (the port's JavaScript
-//! semantics crate) provides or will provide; once it is part of the build,
-//! callers move to it and the content dump re-proves the result.
+//! The Math functions come from rust/v8math. The rest are private copies of
+//! what `rust/jsrt` (the port's JavaScript semantics crate) provides or will
+//! provide; once it is part of the build, callers move to it and the content
+//! dump re-proves the result.
 
 use crate::value::Value;
 
@@ -151,10 +152,13 @@ fn radix_value(digits: &str, radix: u32) -> Option<f64> {
     if round && (sticky || mantissa & 1 == 1) {
         mantissa += 1;
     }
-    let shift = (bits.len() - 53) as i32;
-    // mantissa < 2^54, exact in f64; scaling by a power of two is exact
-    // until it overflows to infinity, as the literal's value does.
-    Some(mantissa as f64 * 2f64.powi(shift))
+    // mantissa < 2^54, exact in f64; each doubling is exact until it
+    // overflows to infinity, as the literal's value does.
+    let mut value = mantissa as f64;
+    for _ in 0..(bits.len() - 53) {
+        value *= 2.0;
+    }
+    Some(value)
 }
 
 /// `Number(string)` (StringToNumber): white space trimmed at both ends, the
@@ -241,73 +245,31 @@ pub fn to_number(value: Option<&Value>) -> f64 {
     }
 }
 
-/// `Math.min(a, b)`: NaN if either is, and -0 below +0.
+/// `Math.min(a, b)`: NaN if either is, and -0 below +0 (rust/v8math).
 #[inline]
 pub fn js_min(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        return f64::NAN;
-    }
-    if a == 0.0 && b == 0.0 {
-        return if a.is_sign_negative() { a } else { b };
-    }
-    if a < b {
-        a
-    } else {
-        b
-    }
+    v8math::min(a, b)
 }
 
-/// `Math.max(a, b)`: NaN if either is, and +0 above -0.
+/// `Math.max(a, b)`: NaN if either is, and +0 above -0 (rust/v8math).
 #[inline]
 pub fn js_max(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        return f64::NAN;
-    }
-    if a == 0.0 && b == 0.0 {
-        return if a.is_sign_negative() { b } else { a };
-    }
-    if a > b {
-        a
-    } else {
-        b
-    }
+    v8math::max(a, b)
 }
 
-/// `Math.hypot(...values)` as V8 computes it: every value divided by the
-/// largest magnitude, the squares summed with Kahan's compensation in
-/// argument order, the root scaled back; an infinity wins over NaN.
+/// `Math.hypot(...values)` as V8 computes it (rust/v8math): every value
+/// divided by the largest magnitude, the squares summed with Kahan's
+/// compensation in argument order, the root scaled back; an infinity wins
+/// over NaN.
+#[inline]
 pub fn js_hypot(values: &[f64]) -> f64 {
-    let mut max = 0.0f64;
-    let mut any_nan = false;
-    for &v in values {
-        if v.is_nan() {
-            any_nan = true;
-        } else {
-            let a = v.abs();
-            if a > max {
-                max = a;
-            }
-        }
-    }
-    if max == f64::INFINITY {
-        return f64::INFINITY;
-    }
-    if any_nan {
-        return f64::NAN;
-    }
-    if max == 0.0 {
-        return 0.0;
-    }
-    let mut sum = 0.0f64;
-    let mut compensation = 0.0f64;
-    for &v in values {
-        let n = v.abs() / max;
-        let summand = n * n - compensation;
-        let preliminary = sum + summand;
-        compensation = (preliminary - sum) - summand;
-        sum = preliminary;
-    }
-    sum.sqrt() * max
+    v8math::hypot_n(values)
+}
+
+/// `Math.atan2(y, x)` (rust/v8math).
+#[inline]
+pub fn js_atan2(y: f64, x: f64) -> f64 {
+    v8math::atan2(y, x)
 }
 
 /// `Math.fround(x)`.
@@ -355,9 +317,9 @@ pub fn relative_range(length: usize, start: f64, end: Option<f64>) -> (usize, us
     let rel = |x: f64| {
         let r = to_integer_or_infinity(x);
         if r < 0.0 {
-            (len + r).max(0.0)
+            js_max(len + r, 0.0)
         } else {
-            r.min(len)
+            js_min(r, len)
         }
     };
     let from = rel(start);
@@ -365,7 +327,7 @@ pub fn relative_range(length: usize, start: f64, end: Option<f64>) -> (usize, us
         None => len,
         Some(e) => rel(e),
     };
-    let to = to.max(from);
+    let to = js_max(to, from);
     (from as usize, to as usize)
 }
 
@@ -427,6 +389,51 @@ pub fn number_to_string(x: f64) -> String {
         out.push(if n - 1 < 0 { '-' } else { '+' });
         out.push_str(&(n - 1).abs().to_string());
     }
+    out
+}
+
+/// `JSON.stringify(value)` for a content value: numbers in their
+/// `Number::toString` text (a non-finite one as null), strings escaped as
+/// JSON.stringify escapes them, an absent array element (undefined) as null.
+pub fn json_stringify(value: Option<&Value>) -> String {
+    let mut out = String::new();
+    fn write(out: &mut String, v: Option<&Value>) {
+        match v {
+            None | Some(Value::Null) => out.push_str("null"),
+            Some(Value::Bool(b)) => out.push_str(if *b { "true" } else { "false" }),
+            Some(Value::Number(n)) => {
+                if n.is_finite() {
+                    out.push_str(&number_to_string(*n));
+                } else {
+                    out.push_str("null");
+                }
+            }
+            Some(Value::String(s)) => crate::dump::string(out, s),
+            Some(Value::Array(items)) => {
+                out.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    write(out, Some(item));
+                }
+                out.push(']');
+            }
+            Some(Value::Object(o)) => {
+                out.push('{');
+                for (i, (k, item)) in o.entries().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    crate::dump::string(out, k);
+                    out.push(':');
+                    write(out, Some(item));
+                }
+                out.push('}');
+            }
+        }
+    }
+    write(&mut out, value);
     out
 }
 

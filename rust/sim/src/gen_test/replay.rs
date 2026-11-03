@@ -4,7 +4,7 @@
 #![allow(clippy::all, unused_braces, unused_parens, unused_variables, unused_mut, unused_imports)]
 
 use super::*;
-use crate::store::replay::{boolean, int, list, map, name_of, num, num_f32, numbers, object, quat, set, vec3, Arena, Node, ReplayOf, Result, StoreKinds, Value, V};
+use crate::store::replay::{boolean, int, item_of, list, map, mat4, mat4_value, name_of, num, num_f32, numbers, object, quat, set, vec3, Arena, Node, ReplayOf, Result, StoreKinds, Value, V};
 
 /// The replay context of this store.
 pub type Replay = ReplayOf<Store>;
@@ -19,9 +19,8 @@ impl Holder {
         match v.value {
             Value::Null => return Ok(Holder::Null),
             Value::Undefined => return Ok(Holder::Undefined),
-            Value::Str(s) => match s.as_str() { "nobody" => return Ok(Holder::Nobody), _ => {} },
-            Value::Handle(kind, _) => match kind.as_str() { "person" => return Ok(Holder::Person(cx.ref_in(KIND_PERSON, v, path)?)), _ => {} },
-            Value::Node(_) => return Ok(Holder::Thing(Thing::ref_in(v, cx, path)?)),
+            Value::Str(s) => { match s.as_str() { "nobody" => return Ok(Holder::Nobody), _ => {} }  }
+            Value::Handle(kind, _) => match kind.as_str() { "person" => return Ok(Holder::Person(cx.ref_in(KIND_PERSON, v, path)?)), "thing" => return Ok(Holder::Thing(Thing::ref_in(v, cx, path)?)), _ => {} },
             _ => {}
         }
         Err(format!("{path}: none of Holder's variants ({})", v.show()))
@@ -38,6 +37,41 @@ impl Holder {
     }
 }
 
+impl Half {
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        match v.value {
+            Value::Num(_) => return Ok(Half::F64(num(v, path)?)),
+            Value::Node(_) => match v.node() { Some(Node::Vec3(_)) => return Ok(Half::Vec3(vec3(v, path)?)), _ => {} },
+            _ => {}
+        }
+        Err(format!("{path}: none of Half's variants ({})", v.show()))
+    }
+
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        match self {
+            Half::F64(v) => Value::Num((*v)),
+            Half::Vec3(v) => a.vec3((*v)),
+        }
+    }
+}
+
+impl Body {
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        match v.value {
+            Value::Node(_) => match v.node() { Some(Node::Object { .. }) => { match v.get("$record").str() { Some("Legs") => return Ok(Body::Legs(Legs::from_value(v, cx, path)?)), Some("Wheels") => return Ok(Body::Wheels(Wheels::from_value(v, cx, path)?)), _ => {} } } _ => {} },
+            _ => {}
+        }
+        Err(format!("{path}: none of Body's variants ({})", v.show()))
+    }
+
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        match self {
+            Body::Legs(v) => { let out = v.to_value(cx, a); if let Value::Node(n) = out { if let Node::Object { fields, .. } = &mut a.nodes[n as usize] { fields.insert(0, ("$record".to_string(), Value::Str("Legs".to_string()))); } } out }
+            Body::Wheels(v) => { let out = v.to_value(cx, a); if let Value::Node(n) = out { if let Node::Object { fields, .. } = &mut a.nodes[n as usize] { fields.insert(0, ("$record".to_string(), Value::Str("Wheels".to_string()))); } } out }
+        }
+    }
+}
+
 impl Spot {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -48,20 +82,21 @@ impl Spot {
             label: { let p = format!("{path}.label"); match v.get("label").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.str_in(v.get("label"), &p)?) } },
             mark: { let p = format!("{path}.mark"); Colour::from_u8(name_of(v.get("mark"), &Colour::NAMES, &p)?).unwrap() },
             near: { let p = format!("{path}.near"); match v.get("near").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.ref_in(KIND_PERSON, v.get("near"), &p)?) } },
+            keeper: { let p = format!("{path}.keeper"); cx.ref_in(KIND_PERSON, v.get("keeper"), &p)? },
             kept: { let p = format!("{path}.kept"); { let mut out = Vec::new(); for (i, e) in list(v.get("kept"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Thing::ref_in(e, cx, &at)?); } out } },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("at", a.vec3(self.at)),
-            ("turn", a.quat(self.turn)),
-            ("label", match &self.label { Some(v) => cx.str_out((*v)), None => Value::Null }),
-            ("mark", Value::Str(Colour::NAMES[self.mark as usize].to_string())),
-            ("near", match &self.near { Some(v) => cx.ref_out(KIND_PERSON, (*v)), None => Value::Undefined }),
-            ("kept", { let mut items = Vec::new(); for &r in self.kept.iter() { items.push(Thing::ref_out(r, cx, a)); } a.array(items) }),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(7);
+        { let x = a.vec3(self.at); fields.push(("at", x)); }
+        { let x = a.quat(self.turn); fields.push(("turn", x)); }
+        { let x = match &self.label { Some(v) => cx.str_out((*v)), None => Value::Null }; fields.push(("label", x)); }
+        { let x = Value::Str(Colour::NAMES[self.mark as usize].to_string()); fields.push(("mark", x)); }
+        { let x = match &self.near { Some(v) => cx.ref_out(KIND_PERSON, (*v)), None => Value::Undefined }; fields.push(("near", x)); }
+        { let x = cx.ref_out(KIND_PERSON, self.keeper); fields.push(("keeper", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.kept.iter() { let x = Thing::ref_out((*e), cx, a); items.push(x); } a.array(items) }; fields.push(("kept", x)); }
         a.object("", fields)
     }
 }
@@ -80,12 +115,68 @@ impl Ask {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("n", Value::Num(self.n)),
-            ("who", match &self.who { Some(v) => cx.ref_out(KIND_PERSON, (*v)), None => Value::Null }),
-            ("things", { let mut items = Vec::new(); for &r in self.things.iter() { items.push(Thing::ref_out(r, cx, a)); } a.array(items) }),
-            ("spot", match &self.spot { Some(v) => v.to_value(cx, a), None => Value::Null }),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Num(self.n); fields.push(("n", x)); }
+        { let x = match &self.who { Some(v) => cx.ref_out(KIND_PERSON, (*v)), None => Value::Null }; fields.push(("who", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.things.iter() { let x = Thing::ref_out((*e), cx, a); items.push(x); } a.array(items) }; fields.push(("things", x)); }
+        { let x = match &self.spot { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("spot", x)); }
+        a.object("", fields)
+    }
+}
+
+impl Legs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(Legs {
+            stride: { let p = format!("{path}.stride"); num(v.get("stride"), &p)? },
+            side: { let p = format!("{path}.side"); { let mut out = Vec::new(); for (i, e) in list(v.get("side"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.stride); fields.push(("stride", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.side.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("side", x)); }
+        a.object("", fields)
+    }
+}
+
+impl Wheels {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(Wheels {
+            count: { let p = format!("{path}.count"); (int(v.get("count"), &p, 0.0, 255.0)? as u8) },
+            grip: { let p = format!("{path}.grip"); vec3(v.get("grip"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.count as f64); fields.push(("count", x)); }
+        { let x = a.vec3(self.grip); fields.push(("grip", x)); }
+        a.object("", fields)
+    }
+}
+
+impl Shape {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(Shape {
+            radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
+            half: { let p = format!("{path}.half"); Half::from_value(v.get("half"), cx, &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.radius); fields.push(("radius", x)); }
+        { let x = self.half.to_value(cx, a); fields.push(("half", x)); }
         a.object("", fields)
     }
 }
@@ -95,7 +186,7 @@ impl Shelf {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         object(v, path)?;
         Ok(Shelf {
-            things: { let p = format!("{path}.things"); { let mut out = Vec::new(); for (i, e) in list(v.get("things"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Thing::ref_in(e, cx, &at)?); } out } },
+            things: { let p = format!("{path}.things"); { let mut out = Vec::new(); for (i, e) in list(v.get("things"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Thing::value_in(e, cx, &at)?); } out } },
             by_name: { let p = format!("{path}.byName"); { let mut out = StrMap::default(); for (key, e) in map(v.get("byName"), &p)? { let at = format!("{}<{}>", &p, key.show()); let id = cx.str_in(key, &at)?; let value = { let mut out = Vec::new(); for (i, e) in list(e, &at)?.into_iter().enumerate() { let at = format!("{}[{i}]", &at); out.push(Thing::ref_in(e, cx, &at)?); } out }; out.entries.push((id, value)); } out } },
             weights: { let p = format!("{path}.weights"); { let mut out = StrMap::default(); for (key, e) in map(v.get("weights"), &p)? { let at = format!("{}<{}>", &p, key.show()); let id = cx.str_in(key, &at)?; let value = num(e, &at)?; out.entries.push((id, value)); } out } },
             spots: { let p = format!("{path}.spots"); { let mut out = StrMap::default(); for (key, e) in map(v.get("spots"), &p)? { let at = format!("{}<{}>", &p, key.show()); let id = cx.str_in(key, &at)?; let value = Spot::from_value(e, cx, &at)?; out.entries.push((id, value)); } out } },
@@ -106,14 +197,13 @@ impl Shelf {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("things", { let mut items = Vec::new(); for &r in self.things.iter() { items.push(Thing::ref_out(r, cx, a)); } a.array(items) }),
-            ("byName", { let mut entries = Vec::new(); for (key, e) in self.by_name.entries.iter() { let k = cx.str_out(*key); let x = { let mut items = Vec::new(); for &r in e.iter() { items.push(Thing::ref_out(r, cx, a)); } a.array(items) }; entries.push((k, x)); } a.map(entries) }),
-            ("weights", { let mut entries = Vec::new(); for (key, e) in self.weights.entries.iter() { let k = cx.str_out(*key); let x = Value::Num((*e)); entries.push((k, x)); } a.map(entries) }),
-            ("spots", { let mut entries = Vec::new(); for (key, e) in self.spots.entries.iter() { let k = cx.str_out(*key); let x = e.to_value(cx, a); entries.push((k, x)); } a.map(entries) }),
-            ("owners", { let mut entries = Vec::new(); for (key, e) in self.owners.entries.iter() { let k = cx.str_out(*key); let x = cx.ref_out(KIND_PERSON, (*e)); entries.push((k, x)); } a.map(entries) }),
-            ("names", match &self.names { Some(v) => { let mut entries = Vec::new(); for (key, e) in v.entries.iter() { let k = cx.str_out(*key); let x = cx.str_out((*e)); entries.push((k, x)); } a.map(entries) }, None => Value::Null }),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(6);
+        { let x = { let mut items = Vec::new(); for &r in self.things.iter() { let x = Thing::value_out(r, cx, a); items.push(x); } a.array(items) }; fields.push(("things", x)); }
+        { let x = { let mut entries = Vec::new(); for (key, e) in self.by_name.entries.iter() { let k = cx.str_out(*key); let x = { let mut items = Vec::new(); for e in e.iter() { let x = Thing::ref_out((*e), cx, a); items.push(x); } a.array(items) }; entries.push((k, x)); } a.map(entries) }; fields.push(("byName", x)); }
+        { let x = { let mut entries = Vec::new(); for (key, e) in self.weights.entries.iter() { let k = cx.str_out(*key); let x = Value::Num((*e)); entries.push((k, x)); } a.map(entries) }; fields.push(("weights", x)); }
+        { let x = { let mut entries = Vec::new(); for (key, e) in self.spots.entries.iter() { let k = cx.str_out(*key); let x = e.to_value(cx, a); entries.push((k, x)); } a.map(entries) }; fields.push(("spots", x)); }
+        { let x = { let mut entries = Vec::new(); for (key, e) in self.owners.entries.iter() { let k = cx.str_out(*key); let x = cx.ref_out(KIND_PERSON, (*e)); entries.push((k, x)); } a.map(entries) }; fields.push(("owners", x)); }
+        { let x = match &self.names { Some(v) => { let mut entries = Vec::new(); for (key, e) in v.entries.iter() { let k = cx.str_out(*key); let x = cx.str_out((*e)); entries.push((k, x)); } a.map(entries) }, None => Value::Null }; fields.push(("names", x)); }
         a.object("", fields)
     }
 }
@@ -143,58 +233,80 @@ impl Thing {
             tags: { let p = format!("{path}.tags"); match v.get("tags").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some({ let mut out = StrMap::default(); for (key, e) in map(v.get("tags"), &p)? { let at = format!("{}<{}>", &p, key.show()); let id = cx.str_in(key, &at)?; let value = cx.str_in(e, &at)?; out.entries.push((id, value)); } out }) } },
             hidden: { let p = format!("{path}.hidden"); num(v.get("hidden"), &p)? },
             boxed: { let p = format!("{path}.boxed"); num(v.get("boxed"), &p)? },
+            marks: { let p = format!("{path}.marks"); { let mut out = Vec::new(); for (i, e) in list(v.get("marks"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+            probes: { let p = format!("{path}.probes"); { let mut out = Vec::new(); for (i, e) in list(v.get("probes"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(vec3(e, &at)?); } out } },
+            flags: { let p = format!("{path}.flags"); { let mut out = Vec::new(); for (i, e) in list(v.get("flags"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(boolean(e, &at)?); } out } },
+            spots: { let p = format!("{path}.spots"); { let mut out = Vec::new(); for (i, e) in list(v.get("spots"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Spot::from_value(e, cx, &at)?); } out } },
+            holders: { let p = format!("{path}.holders"); { let mut out = Vec::new(); for (i, e) in list(v.get("holders"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Holder::from_value(e, cx, &at)?); } out } },
+            matrix: { let p = format!("{path}.matrix"); mat4(v.get("matrix"), &p)? },
+            first_size: { let p = format!("{path}.firstSize"); num(v.get("firstSize"), &p)? },
+            shapes: { let p = format!("{path}.shapes"); { let mut out = Vec::new(); for (i, e) in list(v.get("shapes"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Shape::from_value(e, cx, &at)?); } out } },
+            hit_set: { let p = format!("{path}.hitSet"); match v.get("hitSet").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some({ let id = v.get("hitSet").node_id(); list(v.get("shapes"), &p)?.iter().position(|item| item.node_id().is_some() && item.node_id() == id).ok_or_else(|| format!("{}: not one of shapes", &p))? as u32 }) } },
+            body: { let p = format!("{path}.body"); Body::from_value(v.get("body"), cx, &p)? },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("count", Value::Num(self.count as f64)),
-            ("size", Value::Num(self.size as f64)),
-            ("small", Value::Num(self.small as f64)),
-            ("light", Value::Num(self.light as f64)),
-            ("mass", Value::Num(self.mass)),
-            ("on", Value::Bool(self.on)),
-            ("where", a.vec3(self.r#where)),
-            ("facing", a.quat(self.facing)),
-            ("pair", { let items = self.pair.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }),
-            ("name", cx.str_out(self.name)),
-            ("colour", Value::Str(Colour::NAMES[self.colour as usize].to_string())),
-            ("def", cx.def_out("goods", self.def)),
-            ("owner", match &self.owner { Some(v) => cx.ref_out(KIND_PERSON, (*v)), None => Value::Null }),
-            ("holder", self.holder.to_value(cx, a)),
-            ("spot", match &self.spot { Nullable::Value(v) => v.to_value(cx, a), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }),
-            ("friends", { let mut items = Vec::new(); for &r in self.friends.items.iter() { items.push(cx.ref_out(KIND_PERSON, r)); } a.set(items) }),
-            ("next", match &self.next { Some(v) => Thing::ref_out((*v), cx, a), None => Value::Null }),
-            ("tags", match &self.tags { Some(v) => { let mut entries = Vec::new(); for (key, e) in v.entries.iter() { let k = cx.str_out(*key); let x = cx.str_out((*e)); entries.push((k, x)); } a.map(entries) }, None => Value::Undefined }),
-            ("hidden", Value::Num(self.hidden)),
-            ("boxed", Value::Num(self.boxed)),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(30);
+        { let x = Value::Num(self.count as f64); fields.push(("count", x)); }
+        { let x = Value::Num(self.size as f64); fields.push(("size", x)); }
+        { let x = Value::Num(self.small as f64); fields.push(("small", x)); }
+        { let x = Value::Num(self.light as f64); fields.push(("light", x)); }
+        { let x = Value::Num(self.mass); fields.push(("mass", x)); }
+        { let x = Value::Bool(self.on); fields.push(("on", x)); }
+        { let x = a.vec3(self.r#where); fields.push(("where", x)); }
+        { let x = a.quat(self.facing); fields.push(("facing", x)); }
+        { let x = { let items = self.pair.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("pair", x)); }
+        { let x = cx.str_out(self.name); fields.push(("name", x)); }
+        { let x = Value::Str(Colour::NAMES[self.colour as usize].to_string()); fields.push(("colour", x)); }
+        { let x = cx.def_out("goods", self.def); fields.push(("def", x)); }
+        { let x = match &self.owner { Some(v) => cx.ref_out(KIND_PERSON, (*v)), None => Value::Null }; fields.push(("owner", x)); }
+        { let x = self.holder.to_value(cx, a); fields.push(("holder", x)); }
+        { let x = match &self.spot { Nullable::Value(v) => v.to_value(cx, a), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }; fields.push(("spot", x)); }
+        { let x = { let mut items = Vec::new(); for &r in self.friends.items.iter() { items.push(cx.ref_out(KIND_PERSON, r)); } a.set(items) }; fields.push(("friends", x)); }
+        { let x = match &self.next { Some(v) => Thing::ref_out((*v), cx, a), None => Value::Null }; fields.push(("next", x)); }
+        { let x = match &self.tags { Some(v) => { let mut entries = Vec::new(); for (key, e) in v.entries.iter() { let k = cx.str_out(*key); let x = cx.str_out((*e)); entries.push((k, x)); } a.map(entries) }, None => Value::Undefined }; fields.push(("tags", x)); }
+        { let x = Value::Num(self.hidden); fields.push(("hidden", x)); }
+        { let x = Value::Num(self.boxed); fields.push(("boxed", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.marks.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("marks", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.probes.iter() { let x = a.vec3((*e)); items.push(x); } a.array(items) }; fields.push(("probes", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.flags.iter() { let x = Value::Bool((*e)); items.push(x); } a.array(items) }; fields.push(("flags", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.spots.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("spots", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.holders.iter() { let x = (*e).to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("holders", x)); }
+        { let x = mat4_value(a, self.matrix); fields.push(("matrix", x)); }
+        { let x = Value::Num(self.first_size); fields.push(("firstSize", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.shapes.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("shapes", x)); }
+        { let x = match &self.hit_set { Some(v) => item_of(a, &fields, "shapes", (*v) as usize), None => Value::Null }; fields.push(("hitSet", x)); }
+        { let x = self.body.to_value(cx, a); fields.push(("body", x)); }
         a.object("", fields)
     }
 
-    /// The thing an object met in a value is: made in the store the first time.
+    /// The thing a handle names (made with its fields' defaults the first time;
+    /// its value fills them in where it lives).
     pub fn ref_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Thing>> {
-        let (slot, gen) = cx.entity_in(KIND_THING, v, path, |cx| {
-            let r = cx.store.thing.insert(Thing::default());
-            cx.entity_made(KIND_THING, v, r.slot, r.gen);
-            let value = Thing::from_value(v, cx, path)?;
-            *cx.store.thing.get_mut(r).unwrap() = value;
-            Ok((r.slot, r.gen))
-        })?;
+        let (slot, gen) = cx.stored_in(KIND_THING, v, path, |cx, _| { let r = cx.store.thing.insert(Thing::default()); (r.slot, r.gen) })?;
         Ok(Ref::new(slot, gen))
     }
 
-    /// The value of the thing a reference names (the same value wherever it is met
-    /// again, its node made before its fields so a field can name it).
-    pub fn ref_out(r: Ref<Thing>, cx: &mut Replay, a: &mut Arena) -> Value {
-        if let Some(v) = cx.entity_out(KIND_THING, r.slot, r.gen) { return v; }
-        let node = a.nodes.len();
-        a.nodes.push(Node::Array(Vec::new()));
-        let v = Value::Node(node as u32);
-        cx.entity_written(KIND_THING, r.slot, r.gen, &v);
+    /// A thing's value where it lives (its home list): its handle (`$id`) and fields.
+    pub fn value_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<Thing>> {
+        object(v, path)?;
+        let r = Thing::ref_in(v.get("$id"), cx, &format!("{path}.$id"))?;
+        let value = Thing::from_value(v, cx, path)?;
+        *cx.store.thing.get_mut(r).ok_or_else(|| format!("{path}: its entity is gone"))? = value;
+        Ok(r)
+    }
+
+    /// The handle of the thing a reference names.
+    pub fn ref_out(r: Ref<Thing>, cx: &mut Replay, a: &mut Arena) -> Value { cx.stored_out(KIND_THING, r.slot, r.gen) }
+
+    /// A thing's value where it lives: its handle first, then its fields.
+    pub fn value_out(r: Ref<Thing>, cx: &mut Replay, a: &mut Arena) -> Value {
+        let id = cx.stored_out(KIND_THING, r.slot, r.gen);
         let e = cx.store.thing.get(r).cloned().unwrap_or_default();
-        if let Value::Node(made) = e.to_value(cx, a) { a.nodes.swap(node, made as usize); }
+        let v = e.to_value(cx, a);
+        if let Value::Node(n) = v { if let Node::Object { fields, .. } = &mut a.nodes[n as usize] { fields.insert(0, ("$id".to_string(), id)); } }
         v
     }
 }

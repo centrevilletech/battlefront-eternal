@@ -30,7 +30,7 @@ const option = (name, fallback = null) => {
 const content = process.env.BFE_CONTENT_DIR || path.join(root, 'public');
 const outDir = option('out', path.join(os.tmpdir(), 'content-dump'));
 
-const { battlesOf, selectMission } = await import('../src/mission.js');
+const { battlesOf, selectMission, selectAIMission } = await import('../src/mission.js');
 const { spawnPolicy } = await import('../src/spawn-screen/policy.js');
 const { modelPack, modelGroup } = await import('../src/models.js');
 const { loadClips } = await import('../src/anim.js');
@@ -43,6 +43,9 @@ const { setting } = await import('../src/seats.js');
 const { classSetting } = await import('../src/vehicle-motion.js');
 const { scanVector } = await import('../src/props.js');
 const { routeWords } = await import('../src/ai/classic/nav/data.js');
+const { vehicleBatches } = await import('../src/vehicle-rig.js');
+const { gearFoot } = await import('../src/flight/gear.js');
+const { spawnPlacedItems } = await import('../src/placed-items.js');
 const { ENGINE } = await import('../src/soldier.js');
 const { createEntityRegistry } = await import('../src/runtime/network-entity-registry.js');
 const { INPUT_CODES, DEFAULT_BINDING_PROFILES } = await import('../src/runtime/network-entity-input.js');
@@ -345,7 +348,9 @@ export function decode(b) {
           else seen.add(joint);
         }
       }
-      c.vehicleTemplates.push({ name, shape, clips, wheelRadii, muzzleTips });
+      const batches = vehicleBatches(rig, parts, () => null);
+      const takeoff = clips?.get('takeoff');
+      c.vehicleTemplates.push({ name, shape, clips, wheelRadii, muzzleTips, gearFoot: takeoff ? gearFoot(rig, batches, takeoff) : null });
     }
     if (data.blockers?.indices.length) {
       const bl = data.blockers;
@@ -539,6 +544,14 @@ export function dumpBattle(b, c, full = false) {
     if (entry?.item && typeof entry.item === 'object' && !Array.isArray(entry.item)) itemLine(`placed/${i}`, entry.item);
   });
 
+  // placed-items.js: each placed power-up's place, heading and team, as the
+  // world spawns it (the items' spawn recorded).
+  const placedEntries = b.propsDef?.items || [];
+  spawnPlacedItems({ spawn: (def, position, velocity, yaw, { team }) => {
+    d.line('placed', String(placedEntries.findIndex((entry) => entry?.item === def)), enc([vec3(position), yaw, team]));
+    return {};
+  } }, b.propsDef?.items);
+
   const col = c.collision;
   d.typed('collision', 'triBounds', col.triBounds);
   if (col.terrainGrid) {
@@ -553,6 +566,7 @@ export function dumpBattle(b, c, full = false) {
     d.value('vehicle', `${t.name}/wheels`, [...t.wheelRadii]);
     d.value('vehicle', `${t.name}/muzzles`, [...t.muzzleTips]);
     d.value('vehicle', `${t.name}/shape`, [typed(t.shape.positions), typed(t.shape.indices), typed(t.shape.polygons)]);
+    d.line('vehicle', `${t.name}/gearFoot`, enc(t.gearFoot));
     if (t.clips) clipsGroup(d, `vehicle/${t.name}`, t.clips, full);
     else d.line('vehicle', `${t.name}/clips`, 'null');
   }
@@ -644,6 +658,10 @@ export function dumpBattle(b, c, full = false) {
       d.value('def.prop', String(i), [desc.class, tableId(registry.weapons, desc.weapon?.class), combat(desc.explosion), combat(desc.weapon?.ordnance)]);
     });
   } else d.value('defs', 'error', registryError);
+
+  // ai/index.js 117: the battle's script in ai-mission.json.
+  const aiMission = selectAIMission(b.aiMission, b.world.mission);
+  d.value('ai', 'mission', aiMission && typeof aiMission === 'object' ? [aiMission.mission, aiMission.variants] : aiMission ?? null);
 
   if (!c.routes) d.line('nav', 'routes', 'null');
   else if (c.routes.error) d.line('nav', 'routes', `error ${JSON.stringify(c.routes.error)}`);

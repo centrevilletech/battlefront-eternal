@@ -14,13 +14,12 @@ fn handle(kind: &str, key: f64) -> Value { Value::handle(kind, Value::Num(key)) 
 // reading handles in (as a capture names units, bodies and definitions).
 fn store(cx: &mut Replay) {
     let a = Arena::default();
-    let views: Vec<Value> = vec![handle("unit", 4.0), handle("body", 7.0), handle("vehicle", 2.0), handle("ownerSnapshot", 0.0), handle("emitter", 3.0), handle("turret", 1.0)];
+    let views: Vec<Value> = vec![handle("unit", 4.0), handle("body", 7.0), handle("vehicle", 2.0), handle("ownerSnapshot", 0.0), handle("emitter", 3.0)];
     let unit = cx.ref_in(KIND_UNIT, a.view(&views[0]), "u").unwrap();
     let body = cx.ref_in(KIND_BODY, a.view(&views[1]), "b").unwrap();
     let vehicle = cx.ref_in(KIND_VEHICLE, a.view(&views[2]), "v").unwrap();
     let snapshot = cx.ref_in(KIND_OWNER_SNAPSHOT, a.view(&views[3]), "s").unwrap();
     let emitter = cx.ref_in(KIND_EMITTER, a.view(&views[4]), "e").unwrap();
-    let turret = cx.ref_in(KIND_TURRET, a.view(&views[5]), "t").unwrap();
     let rifle = Value::handle("def", Value::str("rep_weap_inf_rifle_ord"));
     let rifle2 = Value::handle("def", Value::str("rep_weap_inf_rifle_ord#2"));
     let def = cx.def_in("ordnance", a.view(&rifle), "d").unwrap();
@@ -42,7 +41,7 @@ fn store(cx: &mut Replay) {
     });
     let beam = s.beam.insert(Beam {
         history_tick: Some(1204.5), def, owner: OrdnanceOwner::Vehicle(vehicle), source: BeamSource::Emitter(emitter), local_origin: Some([0.0, 0.5, 2.0]),
-        damage: -0.0, ..Default::default()
+        damage: Some(-0.0), ..Default::default()
     });
     let grenade = s.grenade.insert(Grenade {
         def, owner: OrdnanceOwner::OwnerSnapshot(snapshot), fuse: None, quaternion: [0.0, 0.7071067811865476, 0.0, 0.7071067811865476],
@@ -50,9 +49,9 @@ fn store(cx: &mut Replay) {
     });
     let round = s.round.insert(Round {
         kind: RoundKind::Fatray, def, owner: OrdnanceOwner::Null, phase: [0.25, 6.0], struck: Some(RefSet { items: vec![unit, Ref::new(9, 0)] }),
-        flight_class: Some(fighter), muzzle_generation: Nullable::Null, mount: Some(Mount::Turret(turret)), target_id: Some(-1.0), ..Default::default()
+        flight_class: Some(fighter), target_id: Some(-1.0), ..Default::default()
     });
-    s.ordnance = Ordnance { bolts: vec![b1, b2], beams: vec![beam], grenades: vec![grenade], rounds: vec![round] };
+    s.ordnance = Ordnance { bolts: vec![b1, b2], beams: vec![beam], grenades: vec![grenade], rounds: vec![round], start: [0.5, -0.0, 2.0] };
 }
 
 #[test]
@@ -119,8 +118,7 @@ fn a_battle_s_rounds_come_back_from_the_store_as_they_went_in() {
     while let Some(record) = reader.next_record() {
         let record = record.expect("a record");
         if record.name != "ordnance" { continue; }
-        cx.store = Store::default();
-        cx.next_record();
+        cx.reset();
         cx.read_value(KIND_ORDNANCE, record.root()).unwrap_or_else(|e| panic!("tick {}: {e}", record.tick));
         let mut a = Arena::default();
         let back = cx.write_value(KIND_ORDNANCE, &mut a);

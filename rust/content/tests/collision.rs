@@ -1,17 +1,19 @@
-//! The collision world made from this crate's content in the ray kernel
-//! (src/install.rs, with the JavaScript's trees) against the JavaScript's
+//! The collision world made from this crate's content in the simulation
+//! module's collision state (src/install.rs, with the JavaScript's trees,
+//! through the CollisionKernel implementation below) against the JavaScript's
 //! CollisionWorld, on the game's own files: tools/collision-trees.mjs writes
 //! each map's trees and a few thousand casts its CollisionWorld answers, and
 //! the installed world must answer every one the same, bit for bit. Without
 //! the files (BFE_CONTENT_DIR) it passes having checked nothing.
 //!
-//!   cargo test -p content --features rays --test collision
+//!   cargo test -p content --test collision
 //!
 //! BFE_NODE names the Node to run; BFE_CONTENT_MAP limits it to one map.
-#![cfg(feature = "rays")]
 
 use bfe_content::collision::MapCollision;
 use bfe_content::install::{install, read_trees};
+use bfe_sim::collision::install::Kernel;
+use bfe_sim::collision::{state, world_cast_ray, Ray, MISS, TERRAIN};
 use bfe_content::js::js_hypot;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -58,19 +60,19 @@ fn installed_world_casts_as_the_javascript() {
             &read("terrain_collision_index.bin"),
         )
         .unwrap();
-        let ids = install(&collision, &buildings, terrain.as_ref()).unwrap();
+        let ids = install(&mut Kernel, &collision, &buildings, terrain.as_ref()).unwrap();
         for (i, cast) in casts.iter().enumerate() {
-            let ray = rays::Ray { ox: cast.origin[0], oy: cast.origin[1], oz: cast.origin[2], dx: cast.direction[0], dy: cast.direction[1], dz: cast.direction[2] };
+            let ray = Ray { ox: cast.origin[0], oy: cast.origin[1], oz: cast.origin[2], dx: cast.direction[0], dy: cast.direction[1], dz: cast.direction[2] };
             let hypot = js_hypot(&[cast.direction[0], cast.direction[2]]);
-            let (code, hit) = rays::world_cast_ray(rays::state(), ids.world as usize, &ray, cast.far, hypot, 0);
+            let (code, hit) = world_cast_ray(state(), ids.world as usize, &ray, cast.far, hypot, 0);
             let got = [hit.distance, hit.px, hit.py, hit.pz, hit.nx, hit.ny, hit.nz];
-            let same = code == cast.code && (code == rays::MISS || got.iter().zip(cast.hit.iter()).all(|(a, b)| a.to_bits() == b.to_bits()));
+            let same = code == cast.code && (code == MISS || got.iter().zip(cast.hit.iter()).all(|(a, b)| a.to_bits() == b.to_bits()));
             if !same {
                 differing.push(format!("{map} cast {i}: rust {code} {got:?}, js {} {:?}", cast.code, cast.hit));
             }
         }
-        let hits = casts.iter().filter(|c| c.code != rays::MISS).count();
-        let terrain_hits = casts.iter().filter(|c| c.code == rays::TERRAIN).count();
+        let hits = casts.iter().filter(|c| c.code != MISS).count();
+        let terrain_hits = casts.iter().filter(|c| c.code == TERRAIN).count();
         eprintln!("{map}: {} casts ({hits} hits, {terrain_hits} on the terrain)", casts.len());
         total += casts.len();
     }
