@@ -96,6 +96,8 @@ export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries 
         relations: relationsValue(game, self),
         locks: locksValue(self),
         world: worldValue(game),
+        // Its class definition's own keys (flightConfig less the tuning).
+        config: { ...self.flightConfig },
       };
     },
     boundaries: (game) => {
@@ -149,5 +151,21 @@ export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries 
     };
   };
 
-  return { frames: [tick, poseFrame('vehicle.aimTick'), poseFrame('vehicle.render')] };
+  // A flyer missile's seeker (src/flight/targeting.js navigateMissile, as
+  // the rounds ask it through their world, src/ordnance-world.js): the
+  // velocity it turns (as the call leaves it, at exit) and what it reads of
+  // the target, found by id as the world finds it.
+  const missile = {
+    method: 'flightMissile.navigateMissile', target: (game) => game.ordnance?.world ?? null, boundaries: () => [],
+    state: (game, args) => {
+      const t = game.ordnance.units?.byId?.(args[3]) ?? null;
+      return {
+        velocity: args[1].clone(),
+        target: t ? { alive: t.alive, generation: t.generation, position: t.position.clone(), velocity: t.velocity ? t.velocity.clone() : null, rollRate: (t.vehicle || t).flightRollRate } : null,
+        tuning: tuningValue(),
+      };
+    },
+  };
+
+  return { frames: [tick, poseFrame('vehicle.aimTick'), poseFrame('vehicle.render'), missile] };
 }
