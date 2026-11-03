@@ -83,7 +83,9 @@ const policyOf = (kind) => ({ uniforms: new Set([...POLICY.uniforms, ...kind.val
 // A basic material's values (three's refreshUniformsCommon), as the page
 // writes them for a mesh: name, size.
 const BASIC = [["diffuse", 3], ["opacity", 1], ["mapTransform", 9]];
-const MESH_POLICY = { uniforms: new Set(["modelViewMatrix", "map", ...BASIC.map(([name]) => name)]), material: new Set() };
+// modelMatrix: three's own materials read it under shadows (their world
+// position); the renderer sets it per draw (a mesh's: the identity).
+const MESH_POLICY = { uniforms: new Set(["modelViewMatrix", "modelMatrix", "map", ...BASIC.map(([name]) => name)]), material: new Set() };
 const MODEL_POLICY = MESH_POLICY;
 // Each kind of batch: its instance attributes, in the order this pass
 // writes them; the material values of its own the page writes after them
@@ -660,7 +662,7 @@ class EffectsPass {
     const uniforms = material.uniforms, names = Object.keys(uniforms);
     if (names.some((name) => uniforms[name].value?.isTexture)) return fail("samplers");
     const sides = sidesOf(material);
-    const policy = { uniforms: new Set([...names, "modelViewMatrix"]), material: new Set() };
+    const policy = { uniforms: new Set([...names, "modelViewMatrix", "modelMatrix"]), material: new Set() };
     const programs = sides.map((side) => { const p = side === 2 ? props.currentProgram : programForSide(renderer, material, side); return p && core.program(p, EFFECT, material, policy, this.programs); });
     if (programs.some((p) => !p)) return fail("program");
     // Its attributes as its programs read them, each of its geometry's.
@@ -722,7 +724,7 @@ class EffectsPass {
     const samplers = names.filter((name) => name === "sceneDepth" || uniforms[name].value?.isTexture || (uniforms[name].value === null && /map$/i.test(name)));
     const textures = samplers.filter((name) => name !== "sceneDepth");
     if (textures.length > 1 + MODEL_UNITS.length) return fail("samplers");
-    const policy = { uniforms: new Set([...names, "modelViewMatrix", "normalMatrix"]), material: new Set() };
+    const policy = { uniforms: new Set([...names, "modelViewMatrix", "modelMatrix", "normalMatrix"]), material: new Set() };
     const programs = sides.map((side) => { const p = side === 2 ? props.currentProgram : programForSide(renderer, material, side); return p && core.program(p, WORLD, material, policy, this.programs); });
     if (programs.some((p) => !p)) return fail("program");
     if (geometry.groups.length || Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count < (geometry.index?.count ?? 0)) return fail("geometry");

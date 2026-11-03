@@ -322,6 +322,26 @@ test("glow models: found in three's list, registered with their group once three
   assert.equal(material.visible, true);
 });
 
+test("glow models under shadows: a program that reads modelMatrix (three's world position for USE_SHADOWMAP) is taken", () => {
+  const { calls, scene, list, frame, drawn } = bridge();
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
+  geometry.setIndex([0, 1, 2]);
+  const group = new THREE.Group(), part = new THREE.Mesh(geometry, material);
+  group.add(part);
+  group.userData.material = material;
+  group.position.set(0, 0, -6);
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  drawn(material, program([...BASIC, "modelMatrix"], ["position", "uv"]));
+  list.transparent.push({ object: part, material, group: null });
+  frame();
+  assert.ok(calls.some((c) => c[0] === "fx_add_model"), "registered");
+  assert.equal(material.visible, false);
+});
+
 test("the effects' programs are their own, apart from another pass's for the same three program, whose values can't leak in", () => {
   const { core, calls, scene, list, frame, drawn, entry } = bridge();
   const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
