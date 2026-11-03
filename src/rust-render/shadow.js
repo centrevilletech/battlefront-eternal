@@ -42,6 +42,7 @@ class ShadowPass {
     this.input = false;
     this.geometries = new Map(); // "geometry uuid:program" -> { id, sources: [[source, slot, version]], index version }
     this.boneFrames = new WeakMap(); // skeleton -> the render count its bones were worked out at
+    this.found = new Map(); // a pass camera's layer mask -> this frame's casters it sees (candidates)
     this.drawn = 0;
     this.left = 0;
     this.why = null;
@@ -120,26 +121,47 @@ class ShadowPass {
     this.done = true;
   }
 
-  // three's renderObject: a hidden object hides its subtree; one on other
-  // layers is not drawn, but its children may be.
-  walk(object, camera, shadowCamera, frustum, renderer) {
-    if (object.visible === false || this.why) return;
-    if (object.layers.test(camera.layers) && (object.isMesh || object.isLine || object.isPoints)) {
-      if (object.castShadow && (!object.frustumCulled || frustum.intersectsObject(object))) {
-        if (!object.isMesh) { this.why = "a line or points caster"; return; }
-        object.modelViewMatrix.multiplyMatrices(shadowCamera.matrixWorldInverse, object.matrixWorld);
-        if (object.isSkinnedMesh) this.bones(object, renderer);
-        const material = object.material, geometry = object.geometry;
-        if (Array.isArray(material)) {
-          for (const group of geometry.groups) {
-            const m = material[group.materialIndex];
-            if (m && m.visible) this.add(object, geometry, m, group, camera, shadowCamera, renderer);
-          }
-        } else if (material.visible) this.add(object, geometry, material, null, camera, shadowCamera, renderer);
-      }
+  // three's renderObject, for one cascade: each caster the pass camera's
+  // layers see (candidates) in the cascade's frustum, in scene order.
+  walk(scene, camera, shadowCamera, frustum, renderer) {
+    for (const object of this.candidates(scene, camera, renderer)) {
+      if (this.why) return;
+      if (object.frustumCulled && !frustum.intersectsObject(object)) continue;
+      if (!object.isMesh) { this.why = "a line or points caster"; return; }
+      object.modelViewMatrix.multiplyMatrices(shadowCamera.matrixWorldInverse, object.matrixWorld);
+      if (object.isSkinnedMesh) this.bones(object, renderer);
+      const material = object.material, geometry = object.geometry;
+      if (Array.isArray(material)) {
+        for (const group of geometry.groups) {
+          const m = material[group.materialIndex];
+          if (m && m.visible) this.add(object, geometry, m, group, camera, shadowCamera, renderer);
+        }
+      } else if (material.visible) this.add(object, geometry, material, null, camera, shadowCamera, renderer);
     }
-    const children = object.children;
-    for (let i = 0; i < children.length; i++) this.walk(children[i], camera, shadowCamera, frustum, renderer);
+  }
+
+  // The casters a pass camera's layers see this frame: shown (with every
+  // parent, a hidden object hiding its subtree), on those layers, casting.
+  // One walk of the scene a frame and set of layers (three walks it for each
+  // cascade): the frame's other cascades test the same list against their
+  // own frustum. Nothing between a frame's cascade passes shows, hides or
+  // moves a caster.
+  candidates(scene, camera, renderer) {
+    const frame = renderer.info.render.frame, mask = camera.layers.mask;
+    let entry = this.found.get(mask);
+    if (!entry || entry.frame !== frame || entry.scene !== scene) {
+      entry = { frame, scene, list: entry?.list ?? [] };
+      entry.list.length = 0;
+      const collect = (object) => {
+        if (object.visible === false) return;
+        if (object.castShadow && object.layers.test(camera.layers) && (object.isMesh || object.isLine || object.isPoints)) entry.list.push(object);
+        const children = object.children;
+        for (let i = 0; i < children.length; i++) collect(children[i]);
+      };
+      collect(scene);
+      this.found.set(mask, entry);
+    }
+    return entry.list;
   }
 
   // A caster's draw: its depth material as three's getDepthMaterial dresses it
