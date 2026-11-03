@@ -78,9 +78,11 @@ const vertexShader = /* glsl */`
 
 const fragmentShader = /* glsl */`
   uniform sampler2D streaks, cover, sceneDepth;
-  uniform float time, speed, coverCell, coverSize, softParticles, strength;
+  uniform float rainTime, speed, coverCell, coverSize, softParticles, strength;
   uniform vec2 wind, depthResolution, cameraRange;
-  uniform vec3 color, ambient;
+  uniform vec3 color;
+  // The map's ambient light (materials.js lighting), on a line of its own.
+  uniform vec3 ambient;
   varying vec3 vWorld;
   varying vec2 vAround;
   varying float vLayer, vDepth;
@@ -90,8 +92,8 @@ const fragmentShader = /* glsl */`
     // Farther sheets: finer, denser streaks moving more slowly on screen.
     float scale = vLayer < 0.5 ? 2.2 : vLayer < 1.5 ? 3.4 : 5.5;
     float slant = dot(wind, vec2(0.7, 0.7)) * 0.04;
-    vec2 uv = vec2(vAround.x / scale + vWorld.y * slant, (vWorld.y + time * speed) / (scale * 2.4));
-    float a = texture2D(streaks, uv).a * 0.65 + texture2D(streaks, uv * vec2(1.7, 1.3) + vec2(0.31, time * 0.21)).a * 0.35;
+    vec2 uv = vec2(vAround.x / scale + vWorld.y * slant, (vWorld.y + rainTime * speed) / (scale * 2.4));
+    float a = texture2D(streaks, uv).a * 0.65 + texture2D(streaks, uv * vec2(1.7, 1.3) + vec2(0.31, rainTime * 0.21)).a * 0.35;
     float layer = vLayer < 0.5 ? 0.17 : vLayer < 1.5 ? 0.13 : 0.1;
     a *= layer * strength * smoothstep(0.0, 0.25, vAround.y) * (1.0 - smoothstep(0.75, 1.0, vAround.y));
     if (softParticles > 0.5) {
@@ -113,7 +115,7 @@ export class RainSheets {
     this.material = new THREE.ShaderMaterial({
       vertexShader, fragmentShader, transparent: true, depthWrite: false, side: THREE.DoubleSide, forceSinglePass: true,
       uniforms: {
-        streaks: { value: this.texture }, eye: uniforms.eye, time: uniforms.rainTime, wind: uniforms.wind, color: uniforms.color,
+        streaks: { value: this.texture }, eye: uniforms.eye, rainTime: uniforms.rainTime, wind: uniforms.wind, color: uniforms.color,
         speed: { value: Math.max(6, uniforms.velocity.value * 1.4) }, radii: { value: new THREE.Vector3(...RADII) }, strength: { value: 1 },
         cover: uniforms.cover, coverCell: uniforms.coverCell, coverSize: uniforms.coverSize,
         sceneDepth: particleDepth.map, softParticles: particleDepth.enabled, depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,

@@ -951,7 +951,7 @@ boundary, so that each part of the frame can move to it on its own:
 | Far | `far.rs` | `far.js` | far | The far scene: sky and its layers, low-detail buckets, far terrain, far water, the sky's flyers |
 | Terrain | `terrain.rs` | `terrain.js` | near | The ground and its painted layers (drawn by the world pass) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | What the near scene blends, in three's order: blended buckets, holograms, flares |
-| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain |
+| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam and wake effects |
 | Foliage | `foliage.rs` | `foliage.js` | near | Nothing yet |
 | View | `view.rs` | `view.js` | view | Nothing yet (the first-person weapon) |
 | Post | `post.rs` | `post.js` | post | Nothing yet (composite, FXAA, upscale) |
@@ -1092,6 +1092,11 @@ has drawn it, with three's own program, then hidden from three:
 | Classic arc caster lightning | `lightning.js` | dynamic mesh, two passes | `external` |
 | Muzzle flashes, effects' model particles | `game.js` glowModel | models, two passes | its material |
 | Droidekas' shields | `droideka-shield.js` | shader model | its material |
+| Enhanced rain's ground mist | `weather.js` | the rain's batch, other values | its material |
+| Enhanced rain's splashes | `rain-impacts.js` | instanced quads, base plane | `external` |
+| Enhanced rain's sheets | `rain-sheets.js` | shader model, never culled | its material |
+| Enhanced steam's wisps, wake splashes | `steam-wisps.js`, `fountain-spray.js` | instanced quads, base plane, single-sided | its material |
+| Enhanced steam's volumes | `environment-volume.js` | shader model over the screen | its material |
 
 A batch's instances go into the module's memory attribute by attribute as
 the batch keeps them (an analytic batch's from the first that changed since
@@ -1103,6 +1108,15 @@ uploads a visible mesh's changed attributes as it lists it, whether or not
 its material is shown. A shader that kept a value of its own under a name the
 frame block gives the frame's (the shield's and the rain's clocks, their
 fades) has it renamed, so its program can take the frame block.
+
+A shader model calls its object's `onBeforeRender` each frame as three
+would. The steam's volumes are drawn by three into a target of their own
+there (a scene of their own, at half size), and the renderer composites
+that image where three would have; the steam's wisps, the wake splashes
+and the volumes take the scene's depth whatever the soft particle setting,
+so the pass binds it whenever something drawn reads it. The fountains' jets
+stay with three: they copy the frame drawn so far part way through the
+transparent list, and their two halves of soft spray share one target.
 
 The flying models (rounds, grenades, droids' pieces, items: `game.js`
 flyingModel, tagged `userData.flying`) are opaque and are drawn by the
@@ -1120,6 +1134,13 @@ particles a frame). In alternating lockstep frames of busy battles three's
 draws a frame fell from 71 to 62 (Bespin), 50 to 41 (Hoth) and 91 to 74
 (Kashyyyk Docks), and Graphics.render's median from 10.1 to 9.8, 9.1 to 8.3
 and 15.9 to 14.3 ms.
+
+The same check with the Enhanced environment and rain: on Kamino the rain's
+drops, mist, splashes and sheets (about 9,000 instances a frame), with soft
+particles off and on, and on Bespin, from two command posts near steam
+vents, the steam's wisps and volumes, differed in no pixel at any of the
+points. The wake splashes only show where a soldier wades in a fountain
+and were not seen in the battles checked.
 
 ### The same frame
 
