@@ -37,6 +37,9 @@ let lastForeignAgent = null;
 let foreignBefore = null;
 let patrolBefore = null;
 let responseBefore = null;
+let patrolPublications = null;
+let patrolCompletedPublications = [];
+let patrolStateBefore = null;
 let snapshotServiceCandidates = null;
 
 const v3 = (p) => (p ? [p.x, p.y, p.z] : null);
@@ -90,6 +93,14 @@ function prepare(game) {
   const ai = game.ai?.classic?.ai;
   if (!ai) return;
   snapshotServiceCandidates = ai.world.serviceCandidates?.bind(ai.world) ?? null;
+  const objectives = ai.world.spawning?.objectives;
+  if (objectives && typeof objectives.publish === 'function') {
+    const publish = objectives.publish;
+    objectives.publish = function (character, post) {
+      patrolPublications?.push({ character, before: character.objective ?? null, post: post ?? null });
+      return publish.call(this, character, post);
+    };
+  }
   for (const name of ['hazardResponse', 'alertResponse', 'acousticResponse']) {
     if (typeof ai.combat?.[name] !== 'function') continue;
     const response = ai.combat[name];
@@ -173,7 +184,11 @@ function prepare(game) {
     const patrol = vehicleService.patrolMounted;
     vehicleService.patrolMounted = function (...args) {
       patrolBefore = foreignSharedSnap(current);
-      return patrol.apply(this, args);
+      patrolStateBefore = mountedPatrolSnap(game, args[0]);
+      const previous = patrolPublications;
+      patrolPublications = [];
+      try { return patrol.apply(this, args); }
+      finally { patrolCompletedPublications = patrolPublications; patrolPublications = previous; }
     };
   }
   // Constructors have not assigned controller.agent/helper when the
@@ -989,7 +1004,7 @@ function notesExtra(game) {
   return { adds };
 }
 
-function patrolExtra(game) {
+function mountedPatrolSnap(game, patrol) {
   const ai = game.ai.classic.ai;
   const postsSvc = ai.world.posts;
   const posts = (typeof postsSvc?.all === 'function' ? postsSvc.all() : postsSvc?.posts ?? []);
@@ -997,8 +1012,12 @@ function patrolExtra(game) {
   const hintList = game.ai.nav?.hints?.list ?? [];
   const hintIndex = new Map(hintList.map((h, i) => [h, i]));
   const ctx = { postIndex, hintIndex };
-  const patrol = current?.agent?.patrol;
-  return { ...afterCurrent(), before: patrolBefore, shared: foreignSharedSnap(current), patrol: patrol ? patrolSnap(ctx, patrol) : null };
+  return patrol ? patrolSnap(ctx, patrol) : null;
+}
+
+function patrolExtra(game) {
+  return { ...afterCurrent(), before: patrolBefore, shared: foreignSharedSnap(current),
+    patrolBefore: patrolStateBefore, patrol: mountedPatrolSnap(game, current?.agent?.patrol), publications: patrolCompletedPublications };
 }
 
 function queryExtra() {
@@ -1141,14 +1160,15 @@ export const ai = {
   ],
 };
 
-// Optional direct gate for P15 acceptance callbacks invoked inside P16's
-// served response methods. Nested method frames execute these policies
-// natively and compare their return values as well as all state writes.
+// Optional direct gate for P15 callbacks invoked inside served P14/P16
+// methods. Nested method frames execute acceptance policies and objective
+// requests natively, comparing their returns and all state writes.
 export const aiPolicy = {
-  frames: Object.keys(policyHooks).map((name) => ({
+  frames: [...Object.keys(policyHooks).map((name) => ({
     method: `aiPolicy.${name}`, target: () => policyHooks,
     state: frameState(), boundaries: aiBoundaries,
-  })),
+  })), { method: 'objectives.request', target: (game) => game.ai?.classic?.ai?.world?.spawning?.objectives,
+    state: frameState(), boundaries: aiBoundaries }],
 };
 
 

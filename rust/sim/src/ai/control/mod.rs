@@ -2269,12 +2269,16 @@ impl Core {
                 if unit.is_some() && self.options.bind.vehicles && w.vehicles_boarded(ci) {
                     let patrol = self.objective(ci).map(|o| o.patrol.clone()).unwrap_or_else(patrol::Patrol::new);
                     let mut shared = world::ForeignShared::read(&self.controllers[ci]);
-                    let after = w.vehicles_patrol_mounted(ci, patrol, &mut shared);
+                    let objectives: Vec<_> = self.characters.iter().map(|c| c.objective).collect();
+                    let after = w.vehicles_patrol_mounted(ci, patrol, &mut shared, &objectives);
                     shared.apply(&mut self.controllers[ci]);
                     match after {
                         Some(after) => {
+                            for (character, post) in after.publications {
+                                self.objectives_publish(character, post);
+                            }
                             if let Some(o) = self.objective_mut(ci) {
-                                o.patrol = after;
+                                o.patrol = after.patrol;
                             }
                             self.sync_control(w, ci);
                         }

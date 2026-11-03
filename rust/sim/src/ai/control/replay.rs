@@ -1891,9 +1891,32 @@ impl<'f> AiWorld for Served<'f> {
         self.check_agent("boardTick agent", call.arg(0), controller);
         self.extra(call, Some(controller));
     }
-    fn vehicles_patrol_mounted(&mut self, controller: usize, _patrol: Patrol, shared: &mut ForeignShared) -> Option<Patrol> {
+    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>]) -> Option<MountedPatrol> {
         let call = self.call("vehicles.patrolMounted")?;
         self.check_foreign_shared(call, shared);
+        let before = call.extra().get("patrolBefore");
+        if !before.is_nullish() && !patrol_read(before).exact(&patrol) {
+            self.fail(format!("patrolMounted input patrol: capture {:?}, port {patrol:?}", patrol_read(before)));
+        }
+        let mut observed = objectives.to_vec();
+        let mut publications = Vec::new();
+        for event in call.extra().get("publications").items() {
+            let character = handle_of(event.get("character")).and_then(|h| self.tables.character_handles.get(&h).copied());
+            let Some(character) = character else {
+                self.fail(format!("patrolMounted publication has an unknown character: {}", event.show()));
+                continue;
+            };
+            let before = handle_of(event.get("before")).and_then(|h| self.tables.post_handles.get(&h).copied());
+            let post = handle_of(event.get("post")).and_then(|h| self.tables.post_handles.get(&h).copied());
+            if (!event.get("before").is_nullish() && before.is_none()) || (!event.get("post").is_nullish() && post.is_none()) {
+                self.fail(format!("patrolMounted publication has an unknown post: {}", event.show()));
+            }
+            if observed.get(character).copied() != Some(before) {
+                self.fail(format!("patrolMounted character {character} objective input: capture {before:?}, port {:?}", observed.get(character)));
+            }
+            if let Some(objective) = observed.get_mut(character) { *objective = post; }
+            publications.push((character, post));
+        }
         self.extra(call, Some(controller));
         if let Some(after) = self.foreign_shared_read(call.extra().get("shared")) { *shared = after; }
         // PatrolHelper checks whether the hook exists, not its return
@@ -1903,7 +1926,7 @@ impl<'f> AiWorld for Served<'f> {
             self.fail("patrolMounted: missing patrol state".to_string());
             return None;
         }
-        Some(patrol_read(p))
+        Some(MountedPatrol { patrol: patrol_read(p), publications })
     }
     fn vehicles_policy_of(&mut self, unit: UKey) -> Policy {
         let u = &self.tables.units[unit as usize];
@@ -2606,6 +2629,8 @@ pub fn replay_frame(frame: &sim_replay::Frame) -> Result<(), String> {
     let arg_unit = handle_of(frame.arg(0)).and_then(|h| tables.unit_handles.get(&h).map(|&i| i as UKey));
     let arg_post = handle_of(frame.arg(0)).and_then(|h| tables.post_handles.get(&h).copied());
     let policy_controller = handle_of(frame.arg(0)).and_then(|h| tables.agent_handles.get(&h).copied());
+    let arg_character = handle_of(frame.arg(0)).and_then(|h| tables.character_handles.get(&h).copied());
+    let arg_previous = handle_of(frame.arg(2)).and_then(|h| tables.post_handles.get(&h).copied());
     let (mut served, mut draws) = Served::new(frame, tables);
     match frame.name.as_str() {
         "ai.update" => core.update(&mut served, &mut draws, frame.arg(0).num()),
@@ -2634,6 +2659,17 @@ pub fn replay_frame(frame: &sim_replay::Frame) -> Result<(), String> {
             core.objectives_on_deactivated(&mut served, &mut draws, post);
         }
         "objectives.tick" => core.enhanced_objectives_tick(&mut served, &mut draws),
+        "objectives.request" => {
+            let Some(character) = arg_character else {
+                return Err(format!("{}: request with an unknown character", frame.place()));
+            };
+            let post = core.objectives_request(&mut served, &mut draws, character, frame.arg(1).truthy(), arg_previous);
+            match post {
+                Some(post) => served.check_post("objective request result", frame.result(), post),
+                None if !frame.result().is_nullish() => served.fail(format!("objective request: capture {}, port none", frame.result().show())),
+                _ => {},
+            }
+        }
         "aiPolicy.acceptsHazard" | "aiPolicy.acceptsAlert" | "aiPolicy.acceptsAcoustic" => {
             let Some(ci) = policy_controller else {
                 return Err(format!("{}: policy with an unknown agent", frame.place()));
@@ -2684,7 +2720,10 @@ pub fn replay_frame(frame: &sim_replay::Frame) -> Result<(), String> {
     for (i, (a, b)) in theirs.controllers.iter().zip(core.controllers.iter()).enumerate() {
         compare_controller(&mut cmp, &format!("controllers[{i}]"), a, b);
     }
-    cmp.chk(theirs.characters.exact(&core.characters), "characters differ".to_string());
+    cmp.chk(theirs.characters.len() == core.characters.len(), "character counts differ".to_string());
+    for (i, (a, b)) in theirs.characters.iter().zip(core.characters.iter()).enumerate() {
+        cmp.eq(&format!("characters[{i}]"), a, b);
+    }
     cmp.eq("scheduler", &theirs.scheduler, &core.scheduler);
     cmp.eq("objectives", &theirs.objectives, &core.objectives);
     cmp.chk(theirs.repair.exact(&core.repair), format!("repair differs:\n capture {:?}\n port {:?}", theirs.repair, core.repair));

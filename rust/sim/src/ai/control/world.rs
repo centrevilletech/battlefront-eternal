@@ -521,6 +521,14 @@ pub struct JobRef {
     pub ammo: bool,
 }
 
+/// Mounted patrol can ask Population for objectives, including for
+/// other AI crew. Apply each publication through the native core.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MountedPatrol {
+    pub patrol: super::patrol::Patrol,
+    pub publications: Vec<(usize, Option<usize>)>,
+}
+
 /// What one helper call left observable (the goto helpers' arrived /
 /// failed / status / hasPath, read as properties between calls).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -722,9 +730,11 @@ pub trait AiWorld {
     fn vehicles_support_point(&mut self, unit: UKey, post: usize) -> Option<Vec3>;
     fn vehicles_board_policy(&mut self, controller: usize, candidate: UKey) -> Option<bool>;
     fn vehicles_board_tick(&mut self, controller: usize, dt: f64);
-    /// The mounted patrol: takes the patrol state, returns it as the
-    /// call left it (None when not bound: patrol.js then asks out).
-    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: super::patrol::Patrol, shared: &mut ForeignShared) -> Option<super::patrol::Patrol>;
+    /// The mounted patrol returns its state and explicit Population
+    /// publications. `objectives` is the characters' current objective
+    /// table, checked before any callback writes are applied. None means
+    /// the hook is absent (patrol.js then asks out), not a false return.
+    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: super::patrol::Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>]) -> Option<MountedPatrol>;
     /// controllerPolicy(unit) and its bind/controller/agent effects.
     fn vehicles_policy_of(&mut self, unit: UKey) -> Policy;
     fn vehicles_policy_home_facing(&mut self, policy: Policy, unit: UKey) -> Option<bool>;

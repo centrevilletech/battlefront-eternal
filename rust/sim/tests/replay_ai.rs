@@ -32,7 +32,7 @@ fn ai_phases_as_captured() {
     let tick = std::env::var("BFE_REPLAY_TICK").ok().map(|s| s.parse::<u32>().unwrap());
     let fail_fast = std::env::var_os("BFE_REPLAY_FAIL_FAST").is_some();
     let mut reports: Vec<_> = ["ai.update", "controller.bind", "controller.unbind", "objectives.onOwnerChanged", "objectives.onDeactivated", "objectives.tick",
-        "aiPolicy.acceptsHazard", "aiPolicy.acceptsAlert", "aiPolicy.acceptsAcoustic"]
+        "aiPolicy.acceptsHazard", "aiPolicy.acceptsAlert", "aiPolicy.acceptsAcoustic", "objectives.request"]
         .into_iter()
         .filter(|name| only.as_ref().is_none_or(|only| name.contains(only)))
         .map(Report::new)
