@@ -6,20 +6,16 @@ license = "GPL-3.0-only"
 publish = false
 description = "The game's content as the world simulation reads it: its files parsed and the numbers derived from them, to the last bit as the JavaScript loaders make them."
 
-# A plain library: the simulation module (rust/sim, once it lands) links it
-# natively and as WebAssembly, and hands it the bytes JavaScript fetched.
+# A plain library: the simulation module (rust/sim) is to link it natively
+# and as WebAssembly, and hand it the bytes JavaScript fetched.
 # The binary content-dump writes the canonical dump tools/content-dump.mjs
 # compares with the JavaScript's.
 [lib]
 name = "bfe_content"
 crate-type = ["rlib"]
 
-[features]
-default = []
-# Install a battle's collision world in the ray kernel's state (src/install.rs),
-# and test it against the JavaScript's casts (tests/collision.rs). The rays
-# crate has moved into rust/sim, so the installer is off until it moves there
-# too (the simulation module will link this crate, not the other way round).
-rays = []
-
-[dependencies]
+[dev-dependencies]
+# Only tests/collision.rs, which installs a world in the simulation module's
+# collision state (src/install.rs): the simulation module links this crate,
+# and a test-only link back is no cycle to cargo.
+sim = { path = "../sim" }
