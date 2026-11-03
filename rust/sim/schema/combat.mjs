@@ -14,13 +14,14 @@
 // docs/sim-store.md says how a schema is written; tools/sim-schema.mjs
 // makes the code from it.
 //
-// Until the flip that moves units and combat into the store together, a
-// combat's state crosses to the replay harness as these records' values
-// (tools/sim-capture/combat.mjs builds them), not as a field of the unit
-// kind: a weapon's level is its place among its levels, its generators are
-// whether it has one (the capture's draw log names the stream) and a
-// press's seed with the draws taken from it, and `seen` is aligned with the
-// arsenal's weapons.
+// A unit's combat is its `combat` field (rust/sim/schema/units.mjs). What
+// the JavaScript keeps otherwise than as numbers and vectors is read
+// through getters made for the store (src/combat.js, src/weapons.js): a
+// weapon's class is the first of its levels and its level is a number, its
+// generators and its authority are whether it has them (a capture's draw
+// log names the stream), a press's seeded draws are their seed and how many
+// have been taken, `seen` is aligned with the arsenal's weapons and the
+// rounds a droideka's guns owe are plain records.
 export default {
   unions: {
     // Who hurt him last (PlayerCombat.lastAttacker): nobody yet
@@ -36,10 +37,6 @@ export default {
   },
 
   records: {
-    // A press's seeded draws (weapons.js seededRandom): its seed and how
-    // many numbers its fire cycle has taken.
-    SeededDraws: { seed: 'f64', count: 'f64' },
-
     // A melee weapon's swing (src/heroes.js MeleeSwing, captureState): the
     // time into it, which of its swings, and whether one is under way.
     Melee: { time: 'f64', index: 'f64', active: 'bool' },
@@ -48,12 +45,13 @@ export default {
     // reserve, heat and kick, its trigger's timers, its salvo and throw,
     // its charge, and a launcher's lock.
     Weapon: {
-      def: 'def:weapon',
+      // Its class (the first of its levels; `def` is the level it is at).
+      def: { type: 'def:weapon', js: 'levels.0', mirror: false },
       // Which of its levels (the class, then each charge level) it is at.
       level: 'f64',
       // Whether an authority admits each shot first (a recon droid's
       // launch, src/remote.js).
-      admitShot: 'bool',
+      admitShot: { type: 'bool', js: 'admits' },
       deployed: 'bool',
       firing: 'bool',
       timer: 'f64',
@@ -67,7 +65,7 @@ export default {
       kick: 'f64',
       // Whether its spread draws from a generator (the AI's, or a world
       // stream), or from the legacy stream (Math.random).
-      random: 'bool',
+      random: { type: 'bool', js: 'hasRandom' },
       spreadScale: 'f64',
       sniperScale: 'f64',
       yawSpreadOverride: 'f64|null',
@@ -83,7 +81,10 @@ export default {
       pattern: 'f64',
       salvosLeft: 'f64',
       salvoWait: 'f64',
-      salvoRandom: 'rec:SeededDraws|null',
+      // A press's seeded draws (weapons.js seededRandom): its seed (null
+      // when the fire cycle has none) and how many numbers it has given.
+      salvoSeed: 'f64|null',
+      salvoCount: 'f64',
       lockTargetId: 'f64',
       lockGeneration: 'f64',
       lockElapsed: 'f64',
@@ -144,16 +145,16 @@ export default {
       mounted: 'bool|undefined',
       gunUnderwater: 'bool',
       deferMuzzles: 'bool',
-      pendingMuzzles: 'list:rec:PendingShot',
+      pendingMuzzles: { type: 'list:rec:PendingShot', js: 'pendingShots' },
       // Whether its arc rolls and blow-apart rolls draw from a generator
       // (the battle's gameplay stream) or the legacy stream.
-      random: 'bool',
+      random: { type: 'bool', js: 'hasRandom' },
       // Whether it has recon droids to fly (a network player's).
       hasRemotes: 'bool',
       // Its arsenal (Arsenal): the weapons, each channel's selection.
-      weapons: 'list:rec:Weapon',
-      selected: 'f64x2',
-      seen: 'list:rec:Seen',
+      weapons: { type: 'list:rec:Weapon', js: 'arsenal.weapons', mirror: false },
+      selected: { type: 'f64x2', js: 'arsenal.selected', mirror: false },
+      seen: { type: 'list:rec:Seen', js: 'seenList' },
       // The aim as aim() last left it, which the battle reads between
       // updates (the pivot and gun origin, where shots go).
       origin: 'vec3',
@@ -164,6 +165,130 @@ export default {
       up: 'vec3',
       pivot: 'vec3',
     },
+
+    // ---- Combat on the simulation's module (src/combat-sim.js, rust/sim/
+    // src/combat/module.rs). A unit is named by its id, a weapon by its
+    // place in his arsenal.
+    // A trigger edge a network player's press carries (unit.networkShot,
+    // unit.networkShots), its numbers possibly absent.
+    CbEdge: { button: 'f64', id: 'f64|undefined', late: 'f64|undefined', aimYaw: 'f64|undefined', aimPitch: 'f64|undefined' },
+    // What the battle's JavaScript keeps of a weapon that its update reads:
+    // whether it has a generator, and the AI's spread settings.
+    CbWeaponIn: { random: 'bool', spreadScale: 'f64', yawSpreadOverride: 'f64|null' },
+    // What a combat command reads of the unit while units are the
+    // JavaScript's (his life, intent, controls, body and trigger edges), and
+    // the combat's fields the battle's JavaScript keeps (what it sets on the
+    // combat: whether he mans a gun or flies a droid, his team, his aimer's
+    // direction, whether his gun is under water, the generators).
+    CbIn: {
+      unit: 'f64',
+      generation: 'f64',
+      classDef: 'def:unitClass',
+      networkHuman: 'bool|undefined',
+      seated: 'bool',
+      remotesActive: 'bool|undefined',
+      intent: 'rec:Intent',
+      controls: 'rec:Controls',
+      soldier: 'union:UnitBody',
+      edges: 'list:rec:CbEdge|null',
+      edge: 'rec:CbEdge|null',
+      aimOverride: 'vec3|null|undefined',
+      mounted: 'bool|undefined',
+      gunUnderwater: 'bool',
+      team: 'f64',
+      player: 'bool',
+      deferMuzzles: 'bool',
+      random: 'bool',
+      hasRemotes: 'bool',
+      weapons: 'list:rec:CbWeaponIn',
+    },
+    // A hurt and a blast as their commands take them (PlayerCombat.damage,
+    // explode): an explosion is its index in src/combat-sim.js's table.
+    CbDamageIn: { in: 'rec:CbIn', amount: 'f64', onShield: 'f64', source: 'vec3|null', attacker: 'union:Attacker', explosion: 'bool' },
+    CbExplodeIn: { in: 'rec:CbIn', explosion: 'f64', position: 'vec3', owner: 'union:Attacker', scale: 'f64' },
+    // What a command wrote into the unit: the presses and intent flags it
+    // took, his aim's pitch (the kick), a blast's push on a soldier and a
+    // droideka's shield.
+    CbOut: {
+      pressed0: 'bool', pressed1: 'bool', reload: 'bool', nextPrimary: 'bool', previousPrimary: 'bool', nextSecondary: 'bool', zoom: 'bool',
+      aimPitch: 'f64', velocity: 'vec3', air: 'enum:Air|null', stateTime: 'f64', grounded: 'bool', shieldOn: 'bool', shieldValue: 'f64',
+    },
+
+    // The calls combat makes into the battle (rust/sim/src/combat/world.rs
+    // CombatWorld), one record each way, answered by src/combat-sim.js with
+    // the same objects src/combat-world.js hands the battle.
+    CbUnit: { unit: 'f64' },
+    CbNumber: { value: 'f64' },
+    CbFlag: { value: 'bool' },
+    CbText: { value: 'str' },
+    CbRay: { unit: 'f64', origin: 'vec3', direction: 'vec3', far: 'f64', staticOnly: 'bool' },
+    CbHit: { found: 'bool', distance: 'f64', point: 'vec3', normal: 'vec3' },
+    CbWeapon: { unit: 'f64', weapon: 'f64' },
+    // A draw: weapon -1 for the combat's own generator; legacy: Math.random's
+    // stream for a weapon or combat without one.
+    CbDraw: { unit: 'f64', weapon: 'f64', legacy: 'bool' },
+    // weapon.admitShot's answer: 0 yes, 1 no, 2 a token.
+    CbAdmit: { kind: 'f64', token: 'f64' },
+    CbDroid: { found: 'bool', droid: 'f64' },
+    CbDroidCall: { unit: 'f64', droid: 'f64' },
+    CbLaunch: { unit: 'f64', weapon: 'f64', origin: 'vec3', velocity: 'vec3', yaw: 'f64', team: 'f64', admission: 'f64|undefined' },
+    CbLockOn: { unit: 'f64', eye: 'vec3', dir: 'vec3', weapon: 'f64', current: 'union:RepairTarget|null', held: 'bool', team: 'f64' },
+    CbTarget: { target: 'union:RepairTarget|null' },
+    CbRepair: { unit: 'f64', weapon: 'f64', target: 'union:RepairTarget|null', team: 'f64' },
+    CbLockPick: { unit: 'f64', weapon: 'f64', origin: 'vec3', dir: 'vec3' },
+    // What a launcher's lock picks: 0 nothing to look with, 1 nothing in
+    // reach, 2 a unit.
+    CbPick: { pick: 'f64', id: 'f64', generation: 'f64', alive: 'bool' },
+    // A shot (weapons.js): kind 0 a round, 1 a repair tick, 2 a swing's start.
+    CbShot: { unit: 'f64', weapon: 'f64', kind: 'f64', yaw: 'f64', pitch: 'f64', charge: 'f64', targetId: 'f64', targetGeneration: 'f64', admission: 'f64|undefined', swing: 'f64' },
+    // fromOrigin: the round leaves his gun origin (combat.origin), not a gun of
+    // a droideka's.
+    CbFire: { shot: 'rec:CbShot', from: 'vec3', fromOrigin: 'bool', dir: 'vec3', bind: 'bool', selected: 'bool', selectedIndex: 'f64', selectedBarrel: 'f64' },
+    CbDispense: { unit: 'f64', weapon: 'f64', most: 'f64', origin: 'vec3', velocity: 'vec3', yaw: 'f64', team: 'f64' },
+    CbArcTarget: { origin: 'vec3', center: 'vec3|null', radius: 'f64|null' },
+    CbArcTargets: { targets: 'list:rec:CbArcTarget' },
+    CbHurtArc: { unit: 'f64', index: 'f64', amount: 'f64', from: 'vec3' },
+    // A hurt's hook (onDamaged): what combat made of the hurt (explosion:
+    // its own info, a blast's) or the caller's info, kept by src/combat-sim.js.
+    CbDamaged: { unit: 'f64', amount: 'f64', attacker: 'union:Attacker', explosion: 'bool', infoAmount: 'f64', typed: 'f64', generic: 'f64' },
+    CbHealth: { unit: 'f64', health: 'f64' },
+    // kind 0 weaponAction, 1 endWeaponAction, 2 lightning.
+    CbPresent: { unit: 'f64', kind: 'f64', action: 'str|null', bank: 'str', posture: 'str|null', prepare: 'bool', name: 'str', from: 'vec3', to: 'vec3', charge: 'f64', channel: 'f64|null' },
+    // A droideka's next gun (nextGun): its muzzle, and the counter and the
+    // gun it moved on to (its body's own state).
+    CbGun: { found: 'bool', point: 'vec3', gun: 'f64', hasLast: 'bool', lastIndex: 'f64', lastBarrel: 'f64' },
+    CbGunAt: { unit: 'f64', index: 'f64', barrel: 'f64' },
+    CbPoint: { found: 'bool', point: 'vec3' },
+    CbShield: { unit: 'f64', taken: 'f64', explosion: 'bool' },
+  },
+
+  imports: {
+    combatCast: { args: 'CbRay', result: 'CbHit' },
+    combatDraw: { args: 'CbDraw', result: 'CbNumber' },
+    combatAdmit: { args: 'CbWeapon', result: 'CbAdmit' },
+    combatRemoteOf: { args: 'CbWeapon', result: 'CbDroid' },
+    combatRemoteEnter: { args: 'CbDroidCall', result: null },
+    combatRemoteKill: { args: 'CbDroidCall', result: null },
+    combatRemoteLaunch: { args: 'CbLaunch', result: null },
+    combatLockOn: { args: 'CbLockOn', result: 'CbTarget' },
+    combatLockKey: { args: 'CbTarget', result: 'CbText' },
+    combatRepair: { args: 'CbRepair', result: 'CbFlag' },
+    combatLockPick: { args: 'CbLockPick', result: 'CbPick' },
+    combatFireRound: { args: 'CbFire', result: null },
+    combatDispense: { args: 'CbDispense', result: 'CbFlag' },
+    combatMeleeStrike: { args: 'CbUnit', result: null },
+    combatArcTargets: { args: 'CbUnit', result: 'CbArcTargets' },
+    combatHurtArc: { args: 'CbHurtArc', result: null },
+    combatLightning: { args: 'CbText', result: 'CbFlag' },
+    combatFired: { args: 'CbShot', result: null },
+    combatDamaged: { args: 'CbDamaged', result: null },
+    combatDied: { args: 'CbUnit', result: null },
+    combatBlownApart: { args: 'CbHealth', result: null },
+    combatRespawn: { args: 'CbUnit', result: null },
+    combatPresent: { args: 'CbPresent', result: null },
+    combatNextGun: { args: 'CbUnit', result: 'CbGun' },
+    combatGunAt: { args: 'CbGunAt', result: 'CbPoint' },
+    combatShieldHit: { args: 'CbShield', result: null },
   },
 
   kinds: {

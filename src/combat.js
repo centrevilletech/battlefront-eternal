@@ -277,6 +277,33 @@ export class PlayerCombat {
     return (this.worldBoundary ??= new CombatWorld(this));
   }
 
+  // What the store keeps of the combat that is not a number or a vector
+  // here (rust/sim/schema/combat.mjs): whether it has a generator and recon
+  // droids, what update last saw of each weapon, in the arsenal's order, and
+  // the rounds a droideka's guns owe as plain records.
+  get hasRandom() {
+    return Boolean(this.random);
+  }
+
+  get hasRemotes() {
+    return Boolean(this.remotes);
+  }
+
+  get seenList() {
+    return this.arsenal.weapons.map((w) => {
+      const s = this.seen.get(w);
+      return s ? { known: true, reloading: s.reloading, throwing: s.throwing } : { known: false, reloading: false, throwing: false };
+    });
+  }
+
+  get pendingShots() {
+    const weapons = this.arsenal.weapons;
+    return this.pendingMuzzles.map(({ shot, selected, target, forward, kick }) => ({
+      weapon: weapons.indexOf(shot.weapon), yaw: shot.yaw, pitch: shot.pitch, charge: shot.charge, targetId: shot.targetId,
+      targetGeneration: shot.targetGeneration, selectedIndex: selected.index, selectedBarrel: selected.barrel, target, forward, kick,
+    }));
+  }
+
   // A weapon's zoom factors, from none.
   static zooms(def) {
     const out = [1];

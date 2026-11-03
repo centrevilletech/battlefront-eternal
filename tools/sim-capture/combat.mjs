@@ -7,11 +7,11 @@
 //
 // A frame's state is the unit, through the store's exporter (its schema,
 // rust/sim/schema/units.mjs, shared vectors written as copies as the store
-// holds them), his combat as the values of the records combat's schema
-// declares (rust/sim/schema/combat.mjs: weapons by value, a weapon's level
-// as its place among its levels, its generators as whether it has one and
-// a press's seed with the draws taken from it), and the presses a network
-// player's trigger edges carry. Its boundary is src/combat-world.js (every
+// holds them), his combat among its fields (rust/sim/schema/combat.mjs, read
+// through the getters src/combat.js and src/weapons.js keep for the store:
+// weapons by value, a weapon's level as a number, its generators as whether
+// it has one and a press's seed with the draws taken from it), and the
+// presses a network player's trigger edges carry. Its boundary is src/combat-world.js (every
 // method, labelled world.NAME), a droideka's hidden gun rig (nextGun,
 // gunAt) and its shield's hook (units.shieldHit); the calls that can change
 // the unit or his combat (a round that blows up beside him, a death, a
@@ -34,8 +34,6 @@ const combatProto = (game) => Object.getPrototypeOf(game.playerUnit.combat);
 const worldProto = (game) => Object.getPrototypeOf(game.playerUnit.combat.world);
 
 // ---- Values.
-const copy = (v) => (v && (v.isVector3 || v.isQuaternion) ? v.clone() : v);
-
 // The store's value of a unit, its shared vectors written as copies
 // (tools/sim-capture/units.mjs).
 function dealias(v, seen = new Set()) {
@@ -50,56 +48,14 @@ function dealias(v, seen = new Set()) {
   return v;
 }
 const isUnit = (u) => Boolean(u && typeof u === 'object' && u.combat && 'generation' in u && u.soldier);
-const unitValue = (cap, u) => (isUnit(u) ? dealias(cap.export('unit', u)) : null);
-
-// A press's seeded draws (weapons.js seededRandom, through the capture's
-// own wrapper): its seed and how many numbers it has given.
-const seededInfo = new WeakMap();
-function trackSeeded() {
-  const d = globalThis.__bfeDraw;
-  if (!d || d.combatTracked) return;
-  const seeded = d.seeded.bind(d);
-  d.seeded = (seed, draws) => {
-    const info = { seed, count: 0 };
-    const f = seeded(seed, () => { info.count++; return draws(); });
-    seededInfo.set(f, info);
-    return f;
-  };
-  d.combatTracked = true;
-}
-
-function weaponValue(w) {
-  const salvo = w.salvoRandom ? seededInfo.get(w.salvoRandom) : null;
-  if (w.salvoRandom && !salvo) throw Error('sim-capture combat: a salvo generator the capture did not see made');
-  return {
-    def: w.levels[0], level: w.levels.indexOf(w.def), admitShot: Boolean(w.admitShot), deployed: w.deployed, firing: w.firing, timer: w.timer,
-    bottomless: w.bottomless, perShot: w.perShot, clip: w.clip, reserve: w.reserve, heat: w.heat, overheated: w.overheated, floor: w.floor,
-    kick: w.kick, random: Boolean(w.random), spreadScale: w.spreadScale, sniperScale: w.sniperScale, yawSpreadOverride: w.yawSpreadOverride,
-    wait: w.wait, reloadLeft: w.reloadLeft, throwTime: w.throwTime, released: w.released, hidden: w.hidden, charging: w.charging, held: w.held,
-    charge: w.charge, limit: w.limit, pattern: w.pattern, salvosLeft: w.salvosLeft, salvoWait: w.salvoWait,
-    salvoRandom: salvo ? { seed: salvo.seed, count: salvo.count } : null,
-    lockTargetId: w.lockTargetId, lockGeneration: w.lockGeneration, lockElapsed: w.lockElapsed, lockComplete: w.lockComplete,
-    melee: w.melee ? w.melee.captureState() : null,
-  };
-}
-
-export function combatValue(c) {
-  const weapons = c.arsenal.weapons;
-  return {
-    owner: c.owner, player: c.player, lastAttacker: c.lastAttacker, aimOverride: copy(c.aimOverride),
-    maxHealth: c.maxHealth, health: c.health, dead: c.dead, deathTime: c.deathTime, team: c.team,
-    repairTarget: c.repairTarget ?? null, repairLock: c.repairLock, blowApart: c.blowApart, chunks: c.chunks, zoomStep: c.zoomStep,
-    kick: { rate: c.kick.rate, hold: c.kick.hold, offset: c.kick.offset }, scale: c.scale, firstPerson: c.firstPerson,
-    mounted: c.mounted, gunUnderwater: c.gunUnderwater, deferMuzzles: c.deferMuzzles,
-    pendingMuzzles: c.pendingMuzzles.map(({ shot, selected, target, forward, kick }) => ({
-      weapon: weapons.indexOf(shot.weapon), yaw: shot.yaw, pitch: shot.pitch, charge: shot.charge, targetId: shot.targetId,
-      targetGeneration: shot.targetGeneration, selectedIndex: selected.index, selectedBarrel: selected.barrel,
-      target: target.clone(), forward: forward.clone(), kick })),
-    random: Boolean(c.random), hasRemotes: Boolean(c.remotes),
-    weapons: weapons.map(weaponValue), selected: [...c.arsenal.selected],
-    seen: weapons.map((w) => { const s = c.seen.get(w); return s ? { known: true, reloading: s.reloading, throwing: s.throwing } : { known: false, reloading: false, throwing: false }; }),
-    origin: c.origin.clone(), target: c.target.clone(), aimDir: c.aimDir.clone(), shotDir: c.shotDir.clone(), left: c.left.clone(), up: c.up.clone(), pivot: c.pivot.clone(),
-  };
+// A repair tool's target goes to the capture's writer as the object itself,
+// which names a building as it names one in a boundary call's arguments
+// (the store's exporter numbers buildings apart).
+function unitValue(cap, u) {
+  if (!isUnit(u)) return null;
+  const v = dealias(cap.export('unit', u));
+  if (v.combat && u.combat.repairTarget) v.combat.repairTarget = u.combat.repairTarget;
+  return v;
 }
 
 // The presses a network player's trigger edges carry (network-shot-aim.js).
@@ -132,13 +88,13 @@ const livesValue = (game) => game.units.all().map((m) => ({ id: m.id, generation
 function combatState(game, cap, self, full, lives) {
   if (!full) return { skipped: true };
   checkWorldCombat(self);
-  return { unit: unitValue(cap, self.owner), combat: combatValue(self), ...shotsValue(self.owner), ...(lives ? { lives: livesValue(game) } : {}) };
+  return { unit: unitValue(cap, self.owner), ...shotsValue(self.owner), ...(lives ? { lives: livesValue(game) } : {}) };
 }
 
 function frame(method, decide, lives = false) {
   return {
     method: `PlayerCombat.${method}`,
-    target: (game) => { trackSeeded(); return combatProto(game); },
+    target: (game) => combatProto(game),
     state: (game, args, cap, self) => {
       let open = opened.get(args);
       if (!open) {
@@ -182,7 +138,7 @@ const CHANGING = new Set(['remoteEnter', 'remoteKill', 'remoteLaunch', 'fireRoun
 function boundaries(game) {
   const after = (g, cap) => {
     const c = current[current.length - 1];
-    return c ? { unit: unitValue(cap, c.owner), combat: combatValue(c) } : { skipped: true };
+    return c ? { unit: unitValue(cap, c.owner) } : { skipped: true };
   };
   return [
     ...WORLD.map((m) => [`world.${m}`, worldProto(game), m, ...(CHANGING.has(m) ? [after] : [])]),

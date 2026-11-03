@@ -57,7 +57,6 @@ fn copy_fields(unit: &mut Unit, from: &Unit, touched: &[&str]) {
             "intent" => unit.intent = from.intent.clone(),
             "controls" => unit.controls = from.controls.clone(),
             "input" => unit.input = from.input.clone(),
-            "combatDead" => unit.combat_dead = from.combat_dead,
             "alive" => unit.alive = from.alive,
             "dead" => unit.dead = from.dead,
             "deadTime" => unit.dead_time = from.dead_time,
@@ -66,11 +65,8 @@ fn copy_fields(unit: &mut Unit, from: &Unit, touched: &[&str]) {
             "controller" => unit.controller = from.controller,
             "seat" => unit.seat = from.seat,
             "held" => unit.held = from.held.clone(),
-            "mounted" => unit.mounted = from.mounted,
-            "aimOverride" => unit.aim_override = from.aim_override,
+            "combat" => unit.combat = from.combat.clone(),
             "remotesActive" => unit.remotes_active = from.remotes_active,
-            "pivot" => unit.pivot = from.pivot,
-            "gunUnderwater" => unit.gun_underwater = from.gun_underwater,
             "waterContact" => unit.water_contact = from.water_contact.clone(),
             "tickCount" => unit.tick_count = from.tick_count,
             "team" => unit.team = from.team,
@@ -82,17 +78,17 @@ fn copy_fields(unit: &mut Unit, from: &Unit, touched: &[&str]) {
 
 // What each call across a unit's tick may change of the unit. The aimer
 // writes the intent's aim in place, and combat's aimOverride is that same
-// vector in the JavaScript, so it moves with it; combat's update sets its
-// aim pivot.
+// vector in the JavaScript, so it moves with it, and it sets his weapons'
+// spread settings; combat's update sets its aim pivot.
 const MOVE: &[&str] = &["soldier"];
-const DAMAGE: &[&str] = &["combatDead", "alive", "dead", "deadTime", "character", "soldier", "seat", "mounted"];
-const AIM: &[&str] = &["intent", "soldier", "aimOverride"];
-const UPDATE: &[&str] = &["intent", "controls", "soldier", "combatDead", "alive", "dead", "deadTime", "character", "seat", "mounted", "pivot"];
-const MUZZLES: &[&str] = &["soldier"];
+const DAMAGE: &[&str] = &["combat", "alive", "dead", "deadTime", "character", "soldier", "seat"];
+const AIM: &[&str] = &["intent", "soldier", "combat"];
+const UPDATE: &[&str] = &["intent", "controls", "soldier", "combat", "alive", "dead", "deadTime", "character", "seat"];
+const MUZZLES: &[&str] = &["soldier", "combat"];
 const NOTHING: &[&str] = &[];
-const BLOW_APART: &[&str] = &["soldier", "combatDead", "alive", "dead", "deadTime", "character"];
+const BLOW_APART: &[&str] = &["soldier", "combat", "alive", "dead", "deadTime", "character"];
 const REMOTE: &[&str] = &["intent", "controls", "soldier"];
-const RESET: &[&str] = &["combatDead", "aimOverride", "mounted", "pivot", "gunUnderwater"];
+const RESET: &[&str] = &["combat"];
 
 /// A unit's tick served from its frame.
 struct TickWorld<'a, 'f> {

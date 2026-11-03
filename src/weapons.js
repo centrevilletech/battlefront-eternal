@@ -170,6 +170,17 @@ export class Weapon {
     this.lockGeneration = -1;
     this.lockElapsed = 0;
     this.lockComplete = false;
+    this.melee = null; // a melee weapon's swing (heroes.js prepareMelee)
+  }
+
+  // What the store keeps of its authority's admission and its generator:
+  // whether it has them (rust/sim/schema/combat.mjs).
+  get admits() {
+    return Boolean(this.admitShot);
+  }
+
+  get hasRandom() {
+    return Boolean(this.random);
   }
 
   // The thrown thing has left the hand and, with HideOnFire, its model is

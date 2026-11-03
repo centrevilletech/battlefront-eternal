@@ -84,31 +84,6 @@ impl RepairTarget {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct SeededDraws {
-    pub seed: f64,
-    pub count: f64,
-}
-
-impl SeededDraws {
-    pub const WORDS: usize = 2;
-
-    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
-        row[0] = self.seed;
-        row[1] = self.count;
-    }
-
-    pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
-        Self {
-            seed: row[0],
-            count: row[1],
-        }
-    }
-
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Melee {
     pub time: f64,
     pub index: f64,
@@ -168,7 +143,8 @@ pub struct Weapon {
     pub pattern: f64,
     pub salvos_left: f64,
     pub salvo_wait: f64,
-    pub salvo_random: Option<SeededDraws>,
+    pub salvo_seed: Option<f64>,
+    pub salvo_count: f64,
     pub lock_target_id: f64,
     pub lock_generation: f64,
     pub lock_elapsed: f64,
@@ -211,7 +187,8 @@ impl Weapon {
         row[28] = self.pattern;
         row[29] = self.salvos_left;
         row[30] = self.salvo_wait;
-        match &self.salvo_random { Some(v) => { row[31] = 0.0; v.put(&mut row[31 + 1..], heap); } None => { row[31] = 1.0; row[31 + 1..31 + 3].fill(0.0); } }
+        match &self.salvo_seed { Some(v) => { row[31] = 0.0; row[31 + 1] = (*v); } None => { row[31] = 1.0; row[31 + 1..31 + 2].fill(0.0); } }
+        row[33] = self.salvo_count;
         row[34] = self.lock_target_id;
         row[35] = self.lock_generation;
         row[36] = self.lock_elapsed;
@@ -252,7 +229,8 @@ impl Weapon {
             pattern: row[28],
             salvos_left: row[29],
             salvo_wait: row[30],
-            salvo_random: if row[31] == 0.0 { Some(SeededDraws::take(&row[31 + 1..], heap)) } else { None },
+            salvo_seed: if row[31] == 0.0 { Some(row[31 + 1]) } else { None },
+            salvo_count: row[33],
             lock_target_id: row[34],
             lock_generation: row[35],
             lock_elapsed: row[36],
@@ -518,6 +496,1203 @@ impl Combat {
             left: [row[54], row[54 + 1], row[54 + 2]],
             up: [row[57], row[57 + 1], row[57 + 2]],
             pivot: [row[60], row[60 + 1], row[60 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbEdge {
+    pub button: f64,
+    pub id: Option<f64>,
+    pub late: Option<f64>,
+    pub aim_yaw: Option<f64>,
+    pub aim_pitch: Option<f64>,
+}
+
+impl CbEdge {
+    pub const WORDS: usize = 9;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
+        row[0] = self.button;
+        match &self.id { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v); } None => { row[1] = 2.0; row[1 + 1..1 + 2].fill(0.0); } }
+        match &self.late { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v); } None => { row[3] = 2.0; row[3 + 1..3 + 2].fill(0.0); } }
+        match &self.aim_yaw { Some(v) => { row[5] = 0.0; row[5 + 1] = (*v); } None => { row[5] = 2.0; row[5 + 1..5 + 2].fill(0.0); } }
+        match &self.aim_pitch { Some(v) => { row[7] = 0.0; row[7 + 1] = (*v); } None => { row[7] = 2.0; row[7 + 1..7 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
+        Self {
+            button: row[0],
+            id: if row[1] == 0.0 { Some(row[1 + 1]) } else { None },
+            late: if row[3] == 0.0 { Some(row[3 + 1]) } else { None },
+            aim_yaw: if row[5] == 0.0 { Some(row[5 + 1]) } else { None },
+            aim_pitch: if row[7] == 0.0 { Some(row[7 + 1]) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbWeaponIn {
+    pub random: bool,
+    pub spread_scale: f64,
+    pub yaw_spread_override: Option<f64>,
+}
+
+impl CbWeaponIn {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = if self.random { 1.0 } else { 0.0 };
+        row[1] = self.spread_scale;
+        match &self.yaw_spread_override { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v); } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            random: row[0] != 0.0,
+            spread_scale: row[1],
+            yaw_spread_override: if row[2] == 0.0 { Some(row[2 + 1]) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbIn {
+    pub unit: f64,
+    pub generation: f64,
+    pub class_def: DefId,
+    pub network_human: Option<bool>,
+    pub seated: bool,
+    pub remotes_active: Option<bool>,
+    pub intent: Intent,
+    pub controls: Controls,
+    pub soldier: UnitBody,
+    pub edges: Option<Vec<CbEdge>>,
+    pub edge: Option<CbEdge>,
+    pub aim_override: Nullable<Vec3>,
+    pub mounted: Option<bool>,
+    pub gun_underwater: bool,
+    pub team: f64,
+    pub player: bool,
+    pub defer_muzzles: bool,
+    pub random: bool,
+    pub has_remotes: bool,
+    pub weapons: Vec<CbWeaponIn>,
+}
+
+impl CbIn {
+    pub const WORDS: usize = 147;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 147] = (&mut row[..147]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.generation;
+        row[2] = self.class_def.0 as f64;
+        match &self.network_human { Some(v) => { row[3] = 0.0; row[3 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[3] = 2.0; row[3 + 1..3 + 2].fill(0.0); } }
+        row[5] = if self.seated { 1.0 } else { 0.0 };
+        match &self.remotes_active { Some(v) => { row[6] = 0.0; row[6 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[6] = 2.0; row[6 + 1..6 + 2].fill(0.0); } }
+        self.intent.put(&mut row[8..], heap);
+        self.controls.put(&mut row[38..], heap);
+        self.soldier.put(&mut row[42..42 + 78], heap);
+        match &self.edges { Some(v) => { row[120] = 0.0; { let at = heap.len(); row[120 + 1] = at as f64; row[120 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 9, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } } } None => { row[120] = 1.0; row[120 + 1..120 + 3].fill(0.0); } }
+        match &self.edge { Some(v) => { row[123] = 0.0; v.put(&mut row[123 + 1..], heap); } None => { row[123] = 1.0; row[123 + 1..123 + 10].fill(0.0); } }
+        match &self.aim_override { Nullable::Value(v) => { row[133] = 0.0; row[133 + 1..133 + 1 + 3].copy_from_slice(&(*v)); } Nullable::Null => { row[133] = 1.0; row[133 + 1..133 + 4].fill(0.0); } Nullable::Undefined => { row[133] = 2.0; row[133 + 1..133 + 4].fill(0.0); } }
+        match &self.mounted { Some(v) => { row[137] = 0.0; row[137 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[137] = 2.0; row[137 + 1..137 + 2].fill(0.0); } }
+        row[139] = if self.gun_underwater { 1.0 } else { 0.0 };
+        row[140] = self.team;
+        row[141] = if self.player { 1.0 } else { 0.0 };
+        row[142] = if self.defer_muzzles { 1.0 } else { 0.0 };
+        row[143] = if self.random { 1.0 } else { 0.0 };
+        row[144] = if self.has_remotes { 1.0 } else { 0.0 };
+        { let at = heap.len(); row[145] = at as f64; row[145 + 1] = self.weapons.len() as f64; heap.resize(at + self.weapons.len() * 4, 0.0); for (i, e) in self.weapons.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 147] = (&row[..147]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            generation: row[1],
+            class_def: DefId(word_u32(row[2])),
+            network_human: if row[3] == 0.0 { Some(row[3 + 1] != 0.0) } else { None },
+            seated: row[5] != 0.0,
+            remotes_active: if row[6] == 0.0 { Some(row[6 + 1] != 0.0) } else { None },
+            intent: Intent::take(&row[8..], heap),
+            controls: Controls::take(&row[38..], heap),
+            soldier: UnitBody::take(&row[42..42 + 78], heap),
+            edges: if row[120] == 0.0 { Some({ let (at, n) = (word_u32(row[120 + 1]) as usize, word_u32(row[120 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 9..at + (i + 1) * 9]; out.push(CbEdge::take(&row[0..], heap)); } out }) } else { None },
+            edge: if row[123] == 0.0 { Some(CbEdge::take(&row[123 + 1..], heap)) } else { None },
+            aim_override: match word_u32(row[133]) { 0 => Nullable::Value([row[133 + 1], row[133 + 1 + 1], row[133 + 1 + 2]]), 1 => Nullable::Null, _ => Nullable::Undefined },
+            mounted: if row[137] == 0.0 { Some(row[137 + 1] != 0.0) } else { None },
+            gun_underwater: row[139] != 0.0,
+            team: row[140],
+            player: row[141] != 0.0,
+            defer_muzzles: row[142] != 0.0,
+            random: row[143] != 0.0,
+            has_remotes: row[144] != 0.0,
+            weapons: { let (at, n) = (word_u32(row[145]) as usize, word_u32(row[145 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push(CbWeaponIn::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbDamageIn {
+    pub r#in: CbIn,
+    pub amount: f64,
+    pub on_shield: f64,
+    pub source: Option<Vec3>,
+    pub attacker: Attacker,
+    pub explosion: bool,
+}
+
+impl CbDamageIn {
+    pub const WORDS: usize = 157;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 157] = (&mut row[..157]).try_into().unwrap();
+        self.r#in.put(&mut row[0..], heap);
+        row[147] = self.amount;
+        row[148] = self.on_shield;
+        match &self.source { Some(v) => { row[149] = 0.0; row[149 + 1..149 + 1 + 3].copy_from_slice(&(*v)); } None => { row[149] = 1.0; row[149 + 1..149 + 4].fill(0.0); } }
+        self.attacker.put(&mut row[153..153 + 3], heap);
+        row[156] = if self.explosion { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 157] = (&row[..157]).try_into().unwrap();
+        Self {
+            r#in: CbIn::take(&row[0..], heap),
+            amount: row[147],
+            on_shield: row[148],
+            source: if row[149] == 0.0 { Some([row[149 + 1], row[149 + 1 + 1], row[149 + 1 + 2]]) } else { None },
+            attacker: Attacker::take(&row[153..153 + 3], heap),
+            explosion: row[156] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbExplodeIn {
+    pub r#in: CbIn,
+    pub explosion: f64,
+    pub position: Vec3,
+    pub owner: Attacker,
+    pub scale: f64,
+}
+
+impl CbExplodeIn {
+    pub const WORDS: usize = 155;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 155] = (&mut row[..155]).try_into().unwrap();
+        self.r#in.put(&mut row[0..], heap);
+        row[147] = self.explosion;
+        row[148..148 + 3].copy_from_slice(&self.position);
+        self.owner.put(&mut row[151..151 + 3], heap);
+        row[154] = self.scale;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 155] = (&row[..155]).try_into().unwrap();
+        Self {
+            r#in: CbIn::take(&row[0..], heap),
+            explosion: row[147],
+            position: [row[148], row[148 + 1], row[148 + 2]],
+            owner: Attacker::take(&row[151..151 + 3], heap),
+            scale: row[154],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbOut {
+    pub pressed0: bool,
+    pub pressed1: bool,
+    pub reload: bool,
+    pub next_primary: bool,
+    pub previous_primary: bool,
+    pub next_secondary: bool,
+    pub zoom: bool,
+    pub aim_pitch: f64,
+    pub velocity: Vec3,
+    pub air: Option<Air>,
+    pub state_time: f64,
+    pub grounded: bool,
+    pub shield_on: bool,
+    pub shield_value: f64,
+}
+
+impl CbOut {
+    pub const WORDS: usize = 17;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 17] = (&mut row[..17]).try_into().unwrap();
+        row[0] = if self.pressed0 { 1.0 } else { 0.0 };
+        row[1] = if self.pressed1 { 1.0 } else { 0.0 };
+        row[2] = if self.reload { 1.0 } else { 0.0 };
+        row[3] = if self.next_primary { 1.0 } else { 0.0 };
+        row[4] = if self.previous_primary { 1.0 } else { 0.0 };
+        row[5] = if self.next_secondary { 1.0 } else { 0.0 };
+        row[6] = if self.zoom { 1.0 } else { 0.0 };
+        row[7] = self.aim_pitch;
+        row[8..8 + 3].copy_from_slice(&self.velocity);
+        match &self.air { Some(v) => { row[11] = 0.0; row[11 + 1] = (*v) as u8 as f64; } None => { row[11] = 1.0; row[11 + 1..11 + 2].fill(0.0); } }
+        row[13] = self.state_time;
+        row[14] = if self.grounded { 1.0 } else { 0.0 };
+        row[15] = if self.shield_on { 1.0 } else { 0.0 };
+        row[16] = self.shield_value;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 17] = (&row[..17]).try_into().unwrap();
+        Self {
+            pressed0: row[0] != 0.0,
+            pressed1: row[1] != 0.0,
+            reload: row[2] != 0.0,
+            next_primary: row[3] != 0.0,
+            previous_primary: row[4] != 0.0,
+            next_secondary: row[5] != 0.0,
+            zoom: row[6] != 0.0,
+            aim_pitch: row[7],
+            velocity: [row[8], row[8 + 1], row[8 + 2]],
+            air: if row[11] == 0.0 { Some(Air::from_u8(word_u32(row[11 + 1]) as u8).unwrap_or_default()) } else { None },
+            state_time: row[13],
+            grounded: row[14] != 0.0,
+            shield_on: row[15] != 0.0,
+            shield_value: row[16],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbUnit {
+    pub unit: f64,
+}
+
+impl CbUnit {
+    pub const WORDS: usize = 1;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = self.unit;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
+        Self {
+            unit: row[0],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbNumber {
+    pub value: f64,
+}
+
+impl CbNumber {
+    pub const WORDS: usize = 1;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = self.value;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
+        Self {
+            value: row[0],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbFlag {
+    pub value: bool,
+}
+
+impl CbFlag {
+    pub const WORDS: usize = 1;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = if self.value { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
+        Self {
+            value: row[0] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbText {
+    pub value: StrId,
+}
+
+impl CbText {
+    pub const WORDS: usize = 1;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = self.value.0 as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
+        Self {
+            value: StrId(word_u32(row[0])),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbRay {
+    pub unit: f64,
+    pub origin: Vec3,
+    pub direction: Vec3,
+    pub far: f64,
+    pub static_only: bool,
+}
+
+impl CbRay {
+    pub const WORDS: usize = 9;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1..1 + 3].copy_from_slice(&self.origin);
+        row[4..4 + 3].copy_from_slice(&self.direction);
+        row[7] = self.far;
+        row[8] = if self.static_only { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            origin: [row[1], row[1 + 1], row[1 + 2]],
+            direction: [row[4], row[4 + 1], row[4 + 2]],
+            far: row[7],
+            static_only: row[8] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbHit {
+    pub found: bool,
+    pub distance: f64,
+    pub point: Vec3,
+    pub normal: Vec3,
+}
+
+impl CbHit {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        row[0] = if self.found { 1.0 } else { 0.0 };
+        row[1] = self.distance;
+        row[2..2 + 3].copy_from_slice(&self.point);
+        row[5..5 + 3].copy_from_slice(&self.normal);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            found: row[0] != 0.0,
+            distance: row[1],
+            point: [row[2], row[2 + 1], row[2 + 2]],
+            normal: [row[5], row[5 + 1], row[5 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbWeapon {
+    pub unit: f64,
+    pub weapon: f64,
+}
+
+impl CbWeapon {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.weapon;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            weapon: row[1],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbDraw {
+    pub unit: f64,
+    pub weapon: f64,
+    pub legacy: bool,
+}
+
+impl CbDraw {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.weapon;
+        row[2] = if self.legacy { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            weapon: row[1],
+            legacy: row[2] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbAdmit {
+    pub kind: f64,
+    pub token: f64,
+}
+
+impl CbAdmit {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.kind;
+        row[1] = self.token;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            kind: row[0],
+            token: row[1],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbDroid {
+    pub found: bool,
+    pub droid: f64,
+}
+
+impl CbDroid {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = if self.found { 1.0 } else { 0.0 };
+        row[1] = self.droid;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            found: row[0] != 0.0,
+            droid: row[1],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbDroidCall {
+    pub unit: f64,
+    pub droid: f64,
+}
+
+impl CbDroidCall {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.droid;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            droid: row[1],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbLaunch {
+    pub unit: f64,
+    pub weapon: f64,
+    pub origin: Vec3,
+    pub velocity: Vec3,
+    pub yaw: f64,
+    pub team: f64,
+    pub admission: Option<f64>,
+}
+
+impl CbLaunch {
+    pub const WORDS: usize = 12;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.weapon;
+        row[2..2 + 3].copy_from_slice(&self.origin);
+        row[5..5 + 3].copy_from_slice(&self.velocity);
+        row[8] = self.yaw;
+        row[9] = self.team;
+        match &self.admission { Some(v) => { row[10] = 0.0; row[10 + 1] = (*v); } None => { row[10] = 2.0; row[10 + 1..10 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            weapon: row[1],
+            origin: [row[2], row[2 + 1], row[2 + 2]],
+            velocity: [row[5], row[5 + 1], row[5 + 2]],
+            yaw: row[8],
+            team: row[9],
+            admission: if row[10] == 0.0 { Some(row[10 + 1]) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbLockOn {
+    pub unit: f64,
+    pub eye: Vec3,
+    pub dir: Vec3,
+    pub weapon: f64,
+    pub current: Option<RepairTarget>,
+    pub held: bool,
+    pub team: f64,
+}
+
+impl CbLockOn {
+    pub const WORDS: usize = 14;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 14] = (&mut row[..14]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1..1 + 3].copy_from_slice(&self.eye);
+        row[4..4 + 3].copy_from_slice(&self.dir);
+        row[7] = self.weapon;
+        match &self.current { Some(v) => { row[8] = 0.0; (*v).put(&mut row[8 + 1..8 + 1 + 3], heap); } None => { row[8] = 1.0; row[8 + 1..8 + 4].fill(0.0); } }
+        row[12] = if self.held { 1.0 } else { 0.0 };
+        row[13] = self.team;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 14] = (&row[..14]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            eye: [row[1], row[1 + 1], row[1 + 2]],
+            dir: [row[4], row[4 + 1], row[4 + 2]],
+            weapon: row[7],
+            current: if row[8] == 0.0 { Some(RepairTarget::take(&row[8 + 1..8 + 1 + 3], heap)) } else { None },
+            held: row[12] != 0.0,
+            team: row[13],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbTarget {
+    pub target: Option<RepairTarget>,
+}
+
+impl CbTarget {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        match &self.target { Some(v) => { row[0] = 0.0; (*v).put(&mut row[0 + 1..0 + 1 + 3], heap); } None => { row[0] = 1.0; row[0 + 1..0 + 4].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            target: if row[0] == 0.0 { Some(RepairTarget::take(&row[0 + 1..0 + 1 + 3], heap)) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbRepair {
+    pub unit: f64,
+    pub weapon: f64,
+    pub target: Option<RepairTarget>,
+    pub team: f64,
+}
+
+impl CbRepair {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.weapon;
+        match &self.target { Some(v) => { row[2] = 0.0; (*v).put(&mut row[2 + 1..2 + 1 + 3], heap); } None => { row[2] = 1.0; row[2 + 1..2 + 4].fill(0.0); } }
+        row[6] = self.team;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            weapon: row[1],
+            target: if row[2] == 0.0 { Some(RepairTarget::take(&row[2 + 1..2 + 1 + 3], heap)) } else { None },
+            team: row[6],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbLockPick {
+    pub unit: f64,
+    pub weapon: f64,
+    pub origin: Vec3,
+    pub dir: Vec3,
+}
+
+impl CbLockPick {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.weapon;
+        row[2..2 + 3].copy_from_slice(&self.origin);
+        row[5..5 + 3].copy_from_slice(&self.dir);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            weapon: row[1],
+            origin: [row[2], row[2 + 1], row[2 + 2]],
+            dir: [row[5], row[5 + 1], row[5 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbPick {
+    pub pick: f64,
+    pub id: f64,
+    pub generation: f64,
+    pub alive: bool,
+}
+
+impl CbPick {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.pick;
+        row[1] = self.id;
+        row[2] = self.generation;
+        row[3] = if self.alive { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            pick: row[0],
+            id: row[1],
+            generation: row[2],
+            alive: row[3] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbShot {
+    pub unit: f64,
+    pub weapon: f64,
+    pub kind: f64,
+    pub yaw: f64,
+    pub pitch: f64,
+    pub charge: f64,
+    pub target_id: f64,
+    pub target_generation: f64,
+    pub admission: Option<f64>,
+    pub swing: f64,
+}
+
+impl CbShot {
+    pub const WORDS: usize = 11;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 11] = (&mut row[..11]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.weapon;
+        row[2] = self.kind;
+        row[3] = self.yaw;
+        row[4] = self.pitch;
+        row[5] = self.charge;
+        row[6] = self.target_id;
+        row[7] = self.target_generation;
+        match &self.admission { Some(v) => { row[8] = 0.0; row[8 + 1] = (*v); } None => { row[8] = 2.0; row[8 + 1..8 + 2].fill(0.0); } }
+        row[10] = self.swing;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 11] = (&row[..11]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            weapon: row[1],
+            kind: row[2],
+            yaw: row[3],
+            pitch: row[4],
+            charge: row[5],
+            target_id: row[6],
+            target_generation: row[7],
+            admission: if row[8] == 0.0 { Some(row[8 + 1]) } else { None },
+            swing: row[10],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbFire {
+    pub shot: CbShot,
+    pub from: Vec3,
+    pub from_origin: bool,
+    pub dir: Vec3,
+    pub bind: bool,
+    pub selected: bool,
+    pub selected_index: f64,
+    pub selected_barrel: f64,
+}
+
+impl CbFire {
+    pub const WORDS: usize = 22;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 22] = (&mut row[..22]).try_into().unwrap();
+        self.shot.put(&mut row[0..], heap);
+        row[11..11 + 3].copy_from_slice(&self.from);
+        row[14] = if self.from_origin { 1.0 } else { 0.0 };
+        row[15..15 + 3].copy_from_slice(&self.dir);
+        row[18] = if self.bind { 1.0 } else { 0.0 };
+        row[19] = if self.selected { 1.0 } else { 0.0 };
+        row[20] = self.selected_index;
+        row[21] = self.selected_barrel;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 22] = (&row[..22]).try_into().unwrap();
+        Self {
+            shot: CbShot::take(&row[0..], heap),
+            from: [row[11], row[11 + 1], row[11 + 2]],
+            from_origin: row[14] != 0.0,
+            dir: [row[15], row[15 + 1], row[15 + 2]],
+            bind: row[18] != 0.0,
+            selected: row[19] != 0.0,
+            selected_index: row[20],
+            selected_barrel: row[21],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbDispense {
+    pub unit: f64,
+    pub weapon: f64,
+    pub most: f64,
+    pub origin: Vec3,
+    pub velocity: Vec3,
+    pub yaw: f64,
+    pub team: f64,
+}
+
+impl CbDispense {
+    pub const WORDS: usize = 11;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 11] = (&mut row[..11]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.weapon;
+        row[2] = self.most;
+        row[3..3 + 3].copy_from_slice(&self.origin);
+        row[6..6 + 3].copy_from_slice(&self.velocity);
+        row[9] = self.yaw;
+        row[10] = self.team;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 11] = (&row[..11]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            weapon: row[1],
+            most: row[2],
+            origin: [row[3], row[3 + 1], row[3 + 2]],
+            velocity: [row[6], row[6 + 1], row[6 + 2]],
+            yaw: row[9],
+            team: row[10],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbArcTarget {
+    pub origin: Vec3,
+    pub center: Option<Vec3>,
+    pub radius: Option<f64>,
+}
+
+impl CbArcTarget {
+    pub const WORDS: usize = 9;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.origin);
+        match &self.center { Some(v) => { row[3] = 0.0; row[3 + 1..3 + 1 + 3].copy_from_slice(&(*v)); } None => { row[3] = 1.0; row[3 + 1..3 + 4].fill(0.0); } }
+        match &self.radius { Some(v) => { row[7] = 0.0; row[7 + 1] = (*v); } None => { row[7] = 1.0; row[7 + 1..7 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
+        Self {
+            origin: [row[0], row[0 + 1], row[0 + 2]],
+            center: if row[3] == 0.0 { Some([row[3 + 1], row[3 + 1 + 1], row[3 + 1 + 2]]) } else { None },
+            radius: if row[7] == 0.0 { Some(row[7 + 1]) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbArcTargets {
+    pub targets: Vec<CbArcTarget>,
+}
+
+impl CbArcTargets {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.targets.len() as f64; heap.resize(at + self.targets.len() * 9, 0.0); for (i, e) in self.targets.iter().enumerate() { let mut item = [0.0f64; 9]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 9..at + (i + 1) * 9].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            targets: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 9..at + (i + 1) * 9]; out.push(CbArcTarget::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbHurtArc {
+    pub unit: f64,
+    pub index: f64,
+    pub amount: f64,
+    pub from: Vec3,
+}
+
+impl CbHurtArc {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.index;
+        row[2] = self.amount;
+        row[3..3 + 3].copy_from_slice(&self.from);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            index: row[1],
+            amount: row[2],
+            from: [row[3], row[3 + 1], row[3 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbDamaged {
+    pub unit: f64,
+    pub amount: f64,
+    pub attacker: Attacker,
+    pub explosion: bool,
+    pub info_amount: f64,
+    pub typed: f64,
+    pub generic: f64,
+}
+
+impl CbDamaged {
+    pub const WORDS: usize = 9;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.amount;
+        self.attacker.put(&mut row[2..2 + 3], heap);
+        row[5] = if self.explosion { 1.0 } else { 0.0 };
+        row[6] = self.info_amount;
+        row[7] = self.typed;
+        row[8] = self.generic;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            amount: row[1],
+            attacker: Attacker::take(&row[2..2 + 3], heap),
+            explosion: row[5] != 0.0,
+            info_amount: row[6],
+            typed: row[7],
+            generic: row[8],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbHealth {
+    pub unit: f64,
+    pub health: f64,
+}
+
+impl CbHealth {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.health;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            health: row[1],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbPresent {
+    pub unit: f64,
+    pub kind: f64,
+    pub action: Option<StrId>,
+    pub bank: StrId,
+    pub posture: Option<StrId>,
+    pub prepare: bool,
+    pub name: StrId,
+    pub from: Vec3,
+    pub to: Vec3,
+    pub charge: f64,
+    pub channel: Option<f64>,
+}
+
+impl CbPresent {
+    pub const WORDS: usize = 18;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.kind;
+        match &self.action { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v).0 as f64; } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
+        row[4] = self.bank.0 as f64;
+        match &self.posture { Some(v) => { row[5] = 0.0; row[5 + 1] = (*v).0 as f64; } None => { row[5] = 1.0; row[5 + 1..5 + 2].fill(0.0); } }
+        row[7] = if self.prepare { 1.0 } else { 0.0 };
+        row[8] = self.name.0 as f64;
+        row[9..9 + 3].copy_from_slice(&self.from);
+        row[12..12 + 3].copy_from_slice(&self.to);
+        row[15] = self.charge;
+        match &self.channel { Some(v) => { row[16] = 0.0; row[16 + 1] = (*v); } None => { row[16] = 1.0; row[16 + 1..16 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 18] = (&row[..18]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            kind: row[1],
+            action: if row[2] == 0.0 { Some(StrId(word_u32(row[2 + 1]))) } else { None },
+            bank: StrId(word_u32(row[4])),
+            posture: if row[5] == 0.0 { Some(StrId(word_u32(row[5 + 1]))) } else { None },
+            prepare: row[7] != 0.0,
+            name: StrId(word_u32(row[8])),
+            from: [row[9], row[9 + 1], row[9 + 2]],
+            to: [row[12], row[12 + 1], row[12 + 2]],
+            charge: row[15],
+            channel: if row[16] == 0.0 { Some(row[16 + 1]) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbGun {
+    pub found: bool,
+    pub point: Vec3,
+    pub gun: f64,
+    pub has_last: bool,
+    pub last_index: f64,
+    pub last_barrel: f64,
+}
+
+impl CbGun {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        row[0] = if self.found { 1.0 } else { 0.0 };
+        row[1..1 + 3].copy_from_slice(&self.point);
+        row[4] = self.gun;
+        row[5] = if self.has_last { 1.0 } else { 0.0 };
+        row[6] = self.last_index;
+        row[7] = self.last_barrel;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            found: row[0] != 0.0,
+            point: [row[1], row[1 + 1], row[1 + 2]],
+            gun: row[4],
+            has_last: row[5] != 0.0,
+            last_index: row[6],
+            last_barrel: row[7],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbGunAt {
+    pub unit: f64,
+    pub index: f64,
+    pub barrel: f64,
+}
+
+impl CbGunAt {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.index;
+        row[2] = self.barrel;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            index: row[1],
+            barrel: row[2],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbPoint {
+    pub found: bool,
+    pub point: Vec3,
+}
+
+impl CbPoint {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = if self.found { 1.0 } else { 0.0 };
+        row[1..1 + 3].copy_from_slice(&self.point);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            found: row[0] != 0.0,
+            point: [row[1], row[1 + 1], row[1 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbShield {
+    pub unit: f64,
+    pub taken: f64,
+    pub explosion: bool,
+}
+
+impl CbShield {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.unit;
+        row[1] = self.taken;
+        row[2] = if self.explosion { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            taken: row[1],
+            explosion: row[2] != 0.0,
         }
     }
 
