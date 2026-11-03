@@ -233,7 +233,7 @@ impl Core {
         // adaptClassicAI resolves the current control for a seated
         // character; without it the body itself.
         let unit = if self.options.bind.vehicle_adapter && self.options.bind.vehicles {
-            w.vehicles_current_controllable(character)
+            w.vehicles_current_controllable(character).or(self.characters[character].unit)
         } else {
             self.characters[character].unit
         };
@@ -245,7 +245,9 @@ impl Core {
             return Some(ci);
         }
         if self.controllers[ci].unit.is_some() {
-            self.died(w, d, character);
+            // spawned rebinds without unbinding (index.js spawned):
+            // bind itself disposes the old agent.
+            self.remove_live(ci);
         }
         self.bind(w, d, ci, unit);
         self.live.push(ci);
@@ -269,7 +271,7 @@ impl Core {
         for character in self.roster.clone() {
             let Some(ci) = self.by_character[character] else { continue };
             let unit = if self.options.bind.vehicle_adapter && self.options.bind.vehicles {
-                w.vehicles_current_controllable(character)
+                w.vehicles_current_controllable(character).or(self.characters[character].unit)
             } else {
                 self.characters[character].unit
             };
