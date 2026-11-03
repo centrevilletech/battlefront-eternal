@@ -21,12 +21,16 @@ import { UnitCombatAgent } from '../../src/ai/classic/combat.js';
 import { UnitBoardAgent, UnitUnBoardAgent } from '../../src/ai/classic/vehicles/agents.js';
 import { GroundGotoHelper, FlyGotoHelper as NavFlyGotoHelper } from '../../src/ai/classic/nav/goto.js';
 import { FlyGotoHelper as VehicleFlyGotoHelper } from '../../src/ai/classic/vehicles/fly.js';
-import { StationaryHelper } from '../../src/ai/classic/vehicles/index.js';
+import { StationaryHelper, serviceOf as vehicleServiceOf } from '../../src/ai/classic/vehicles/index.js';
+import { MOBILE_POLICY, STATIONARY_POLICY, FLY_POLICY } from '../../src/ai/classic/vehicles/controllers.js';
+import { EnhancedTrooperAgent } from '../../src/ai/enhanced/agents.js';
+import { objectiveCrew } from '../../src/ai/index.js';
 
 const HEALTH_TYPES = ["Person", "Animal", "Droid", "Vehicle", "Building", "BuildingRebuild", "BuildingBuild"];
 
 let current = null; // the controller whose update/service/input is running
-let acousticLens = new Map(); // controller -> acoustic count last recorded
+let acousticLens = new Map(); // controller -> acoustic refs last recorded
+let noteLens = new Map(); // controller -> vehicle-notes refs last recorded
 
 const v3 = (p) => (p ? [p.x, p.y, p.z] : null);
 const num = (v) => (typeof v === 'number' ? v : null);
@@ -124,6 +128,18 @@ function prepare(game) {
     const kind = a instanceof UnitCombatAgent ? 'combat' : a instanceof UnitBoardAgent ? 'board' : a instanceof UnitUnBoardAgent ? 'unboard' : a.constructor?.name === 'UnitFlyAgent' ? 'fly' : null;
     if (kind) wrapAgent(kind, a, controller);
   }
+  // The vehicles bag holds bound copies of the service's methods, and
+  // the vehicle adapter calls the service directly (sync/spawned's
+  // currentControllable): rebind the bag through the service object
+  // so one shim on the service records both paths, identically.
+  const vehicleService = vehicleServiceOf(ai);
+  if (vehicleService && ai.vehicles) {
+    for (const name of Object.keys(ai.vehicles)) {
+      if (typeof vehicleService[name] === 'function') {
+        ai.vehicles[name] = (...args) => vehicleService[name](...args);
+      }
+    }
+  }
   const agentFor = ai.agentFor.bind(ai);
   ai.agentFor = (state, controller) => {
     const factory = agentFor(state, controller);
@@ -167,6 +183,7 @@ function weaponSnap(world, unit, w) {
     ownedCount = world.items.ownedBy(def.class, unit).filter((i) => !i.gone).length;
   }
   return {
+    self: w,
     base: def.base ?? null,
     clip: typeof w.clip === 'function' ? w.clip() : num(w.clip),
     reserve: num(w.reserve),
@@ -241,12 +258,16 @@ function unitSnap(ctx, u) {
     hasTurret: Boolean(u.turret),
     mine: Boolean(u.mine),
     character: u.character ? ctx.characterIndex.get(u.character) ?? null : null,
+    repairTarget: u.combat?.repairTarget ? ctx.keyOf(u.combat.repairTarget) : null,
     humanPiloted: Boolean(u.humanPiloted),
     intent: intentSnap(u.intent),
     forward: typeof u.forward === 'function' ? v3(u.forward(_v)) : null,
     origin: typeof u.origin === 'function' ? v3(u.origin(_v)) : null,
     aimPoint: typeof u.aimPoint === 'function' ? v3(u.aimPoint(_v)) : null,
     buildingAlive: u.building ? Boolean(u.building.alive) : null,
+    // A repair wrapper is a plain object (no handle of its own); its
+    // building names it across states and calls.
+    building: u.building ?? null,
   };
   return snap;
 }
@@ -284,7 +305,7 @@ function goalSnap(ctx, goal) {
 
 function helperSnap(helper) {
   if (!helper) return { kind: null };
-  const name = helper.constructor?.name ?? '';
+  const name = helper instanceof VehicleFlyGotoHelper ? 'VehicleFlyGotoHelper' : helper.constructor?.name ?? '';
   const base = {
     kind: name,
     arrived: Boolean(helper.arrived), failed: Boolean(helper.failed),
@@ -502,7 +523,10 @@ function controllerSnap(ctx, c, ai) {
 
 function policyName(policy) {
   if (!policy) return null;
-  return policy.name ?? null;
+  if (policy === MOBILE_POLICY) return 'mobile';
+  if (policy === STATIONARY_POLICY) return 'stationary';
+  if (policy === FLY_POLICY) return 'fly';
+  return null;
 }
 
 function regionSnap(built) {
@@ -629,10 +653,21 @@ function aiState(game) {
     }
   }
   ctx.wrapperByBuilding = wrapperByBuilding;
+  const crews = characters.map((c) => {
+    const crew = objectiveCrew(c);
+    if (!crew) return null;
+    return {
+      vehicle: keyOf(crew.vehicle),
+      isDriver: Boolean(crew.isDriver),
+      driver: crew.driver ? characterIndex.get(crew.driver) ?? null : null,
+      occupants: crew.occupants.map((o) => characterIndex.get(o) ?? null),
+    };
+  });
   const difficulty = world.difficulty;
   const objectives = spawning?.objectives;
   const teams = spawning?.teams ?? [];
-  acousticLens = new Map();
+  acousticLens = new Map(controllersInRoster.map((c) => [c, [...(c.acoustic ?? [])]]));
+  noteLens = new Map(controllersInRoster.map((c) => [c, [...(c.vehicleNotes ?? [])]]));
   return {
     order: controllersInRoster,
     time: world.time ?? 0,
@@ -644,14 +679,15 @@ function aiState(game) {
       vehicles: Boolean(ai.vehicles && Object.keys(ai.vehicles).length),
       classes: Boolean(ai.classes?.selectSnipe),
       randomB: ai.randomA !== ai.randomB,
-      enhanced: difficulty?.constructor?.name === 'EnhancedDifficulty',
+      enhanced: ai.agents?.trooper === EnhancedTrooperAgent,
       mineGround: typeof world.mineGroundHeight === 'function',
       vehicleAdapter: Boolean(own(ai, 'vehicleAdapter')),
     },
     fallbackSensorRange: ai.fallbackSensorRange ?? 75,
     lodWorld: Boolean(world.networkViews),
-    lodOption: Boolean(ai.options?.lodDisabled),
-    hardOption: typeof ai.options?.hard === 'boolean' ? ai.options.hard : null,
+    lodDisabled: ai.lodDisabled(),
+    networkSecondary: Boolean(world.network && world.secondaryWorldActive),
+    hardOption: ai.options?.hard === undefined ? null : Boolean(ai.options.hard),
     difficulty: difficulty
       ? {
           tier: difficulty.tier, profileTier: difficulty.profileTier,
@@ -666,6 +702,7 @@ function aiState(game) {
           aggressiveness: Object.entries(world.missionControls.aggressiveness ?? {}).map(([k, v]) => [Number(k), v]),
           dense: world.missionControls.dense ? [Boolean(world.missionControls.dense.explicit), Boolean(world.missionControls.dense.value)] : [false, false],
           attackingTeam: world.missionControls.attackingTeam ?? 1,
+          voTeam: world.missionControls.voTeam ?? 0,
           snipe: world.missionControls.snipe ?? null,
           stayInTurrets: Boolean(world.missionControls.stayInTurrets),
           stationaryWait: world.missionControls.stationaryWait ?? 10,
@@ -699,6 +736,7 @@ function aiState(game) {
       unit: c.unit ? keyOf(c.unit) : null,
       objective: c.objective ? postIndex.get(c.objective) ?? null : null,
     })),
+    crews,
     live: (ai.controllers ?? []).map((c) => controllersInRoster.indexOf(c)),
     roster: roster.map((ch) => characterIndex.get(ch)),
     posts: posts.map((p) => postSnap(p)),
@@ -711,11 +749,13 @@ function aiState(game) {
       qty: qtySnap(item.def),
     })),
     hints: hintList.map((h) => ({
+      self: h,
       bit: h.bit ?? 0, position: v3(h.position), forward: v3(h.forward),
       primaryStance: h.primaryStance ?? 1,
       post: h.commandPost ? postIndex.get(h.commandPost) ?? null : null,
       mode: h.mode ?? 0, radius: h.radius ?? -1,
       reservedAt: num(h.reservedAt),
+      linked: (() => { const out = []; let n = h.link; while (n && n !== h) { out.push(hintIndex.get(n) ?? -1); n = n.link; } return out; })(),
     })),
     controllers: controllersInRoster.map((c) => controllerSnap(ctx, c, ai)),
     repair: repairSnap(ctx, ai),
@@ -759,11 +799,19 @@ function writesOf(controller) {
   };
 }
 
-const afterCurrent = () => ({
+const afterCurrent = () => {
+  if (current) {
+    acousticLens.set(current, [...(current.acoustic ?? [])]);
+    noteLens.set(current, [...(current.vehicleNotes ?? [])]);
+  }
+  return {
   w: writesOf(current),
   c: current ? controlSnap(current.navControl) : null,
   h: current ? helperSnap(current.agent?.helper) : null,
-});
+  intent: current?.unit ? intentSnap(current.unit.intent) : null,
+  intentUnit: current?.unit ?? null,
+  };
+};
 
 const foreignAfter = () => ({
   ...afterCurrent(),
@@ -787,9 +835,19 @@ function alertExtra(game) {
       dodge: num(own(c, 'dodge') ?? undefined) ?? null,
       alertAnim: typeof own(c, 'alertAnim') === 'boolean' ? c.alertAnim : null,
     });
-    acousticLens.set(c, c.acoustic?.length ?? 0);
+    acousticLens.set(c, [...(c.acoustic ?? [])]);
   });
   return { alerts: rows };
+}
+
+// The refs a call appended to a controller's list, by common prefix
+// with the list as last recorded (a clear makes the prefix empty).
+function appended(seen, controller, list) {
+  const prev = seen.get(controller) ?? [];
+  let k = 0;
+  while (k < prev.length && k < list.length && prev[k] === list[k]) k++;
+  seen.set(controller, [...list]);
+  return list.slice(k);
 }
 
 function acousticExtra(game) {
@@ -798,24 +856,24 @@ function acousticExtra(game) {
   const roster = [...ai.byCharacter.keys()];
   const list = roster.map((ch) => ai.byCharacter.get(ch));
   list.forEach((c, i) => {
-    const before = acousticLens.get(c) ?? 0;
-    const now = c.acoustic?.length ?? 0;
-    for (let k = before; k < now; k++) {
-      const r = c.acoustic[k];
+    for (const r of appended(acousticLens, c, c.acoustic ?? [])) {
       if (r?.unit) adds.push([i, { u: r.unit, g: r.generation ?? 0 }]);
     }
-    acousticLens.set(c, now);
   });
   return { adds };
 }
 
 function notesExtra(game) {
   const ai = game.ai.classic.ai;
+  const adds = [];
   const roster = [...ai.byCharacter.keys()];
   const list = roster.map((ch) => ai.byCharacter.get(ch));
-  return {
-    notes: list.map((c, i) => [i, (c.vehicleNotes ?? []).map((r) => (r?.unit ? { u: r.unit, g: r.generation ?? 0 } : null))]),
-  };
+  list.forEach((c, i) => {
+    for (const r of appended(noteLens, c, c.vehicleNotes ?? [])) {
+      if (r?.unit) adds.push([i, { u: r.unit, g: r.generation ?? 0 }]);
+    }
+  });
+  return { adds };
 }
 
 function patrolExtra(game) {
@@ -862,7 +920,7 @@ const VEHICLES = [
   'pendingReservations', 'lowTickets', 'pilotKeepsSeat', 'alertsBlocked', 'mountReach',
   'refusesHold', 'canEnter', 'freeSeats', 'reserve', 'reserveSeat', 'targetReserved',
   'reserveTarget', 'isAtAt', 'supportPoint', 'boardPolicy', 'patrolMounted', 'boardTick',
-  'createHelper', 'vehicleBucket', 'analogs', 'decayLeases',
+  'createHelper',
 ];
 const HELPER_METHODS = ['goto', 'stop', 'terminate', 'tick', 'destinationPoint', 'installPath', 'follow', 'followTrail', 'holdPath', 'setLeader', 'dispose'];
 
@@ -884,10 +942,13 @@ function aiBoundaries(game) {
   for (const name of COMBAT) {
     if (typeof ai.combat?.[name] === 'function') out.push([`combat.${name}`, ai.combat, name, combatExtra(name)]);
   }
+  const vehicleService = vehicleServiceOf(ai);
   for (const name of VEHICLES) {
-    if (typeof ai.vehicles?.[name] === 'function') {
+    const onService = typeof vehicleService?.[name] === 'function';
+    const onBag = typeof ai.vehicles?.[name] === 'function';
+    if (onService || onBag) {
       const extra = name === 'notify' ? notesExtra : name === 'patrolMounted' ? patrolExtra : () => afterCurrent();
-      out.push([`vehicles.${name}`, ai.vehicles, name, extra]);
+      out.push([`vehicles.${name}`, onService ? vehicleService : ai.vehicles, name, extra]);
     }
   }
   onBag(ai.nav, ['plannerIdle', 'service', 'pointClear', 'clipSegment', 'inDangerRegion', 'queryHints', 'hintAvailable', 'markHint'], 'nav', () => afterCurrent());
