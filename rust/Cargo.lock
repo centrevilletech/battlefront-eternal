@@ -63,6 +63,9 @@ dependencies = [
 [[package]]
 name = "content"
 version = "0.1.0"
+dependencies = [
+ "rays",
+]
 
 [[package]]
 name = "dispatch2"
