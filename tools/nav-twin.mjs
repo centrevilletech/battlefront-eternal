@@ -7,7 +7,7 @@
 //   node tools/nav-twin.mjs --seed 7 --out DIR [--mapdir MAPDIR]
 //
 // writes DIR/{ai-nav.json,ai-nav.bin,ops.json,js-trace.txt}. The Rust
-// side is `cargo run -p sim --bin nav-twin -- DIR/ai-nav.json
+// side is `cargo run -p sim --features nav-twin --bin nav-twin -- DIR/ai-nav.json
 // DIR/ai-nav.bin DIR/ops.json DIR/rs-trace.txt`; the traces must diff
 // empty. Recorded operations are the V1 gate's planner requests and
 // executor ticks, with the rest of navigation around them.

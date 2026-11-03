@@ -25,7 +25,7 @@ export function putEcho(b, o, f, at, heap) {
   f[at + 0] = o.value;
   { const $v = o.at; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
   f[at + 4] = o.count;
-  { const $x = o.note; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f.fill(0, at + 6, at + 7); } else { f[at + 5] = 0; f[at + 6] = b.strings.id($x); } }
+  { const $x = o.note; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f[at + 6] = 0; } else { f[at + 5] = 0; f[at + 6] = b.strings.id($x); } }
   f[at + 7] = o.events;
 }
 

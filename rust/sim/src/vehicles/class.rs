@@ -21,6 +21,9 @@ pub struct HullClass {
     pub dying_span: f64,
     pub explosion_offset: Option<[f64; 3]>,
     pub has_explosion: bool,
+    /// dyingTick's blast: `finalExplosion || explosion`, at `fx.dying.finalOffset || [0, 0, 0]`.
+    pub has_final_explosion: bool,
+    pub final_offset: [f64; 3],
 }
 
 fn number(v: Option<&Value>) -> f64 {
@@ -109,6 +112,19 @@ impl HullClass {
             let a = o.as_array().unwrap_or(&[]);
             [number(a.first()), number(a.get(1)), number(a.get(2))]
         });
-        HullClass { hover, legs, seat_rates, dying_span, explosion_offset, has_explosion: truthy(def.get("explosion")) }
+        let final_offset = fx.and_then(|f| f.get("dying")).and_then(|d| d.get("finalOffset")).filter(|o| o.truthy()).map_or([0.0, 0.0, 0.0], |o| {
+            let a = o.as_array().unwrap_or(&[]);
+            [number(a.first()), number(a.get(1)), number(a.get(2))]
+        });
+        HullClass {
+            hover,
+            legs,
+            seat_rates,
+            dying_span,
+            explosion_offset,
+            has_explosion: truthy(def.get("explosion")),
+            has_final_explosion: truthy(def.get("finalExplosion")) || truthy(def.get("explosion")),
+            final_offset,
+        }
     }
 }

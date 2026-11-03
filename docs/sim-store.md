@@ -45,9 +45,11 @@ that differs. `src/sim/module.js` compiles it once a thread (`simModule()`)
 and makes an instance for each battle (`loadSim()`): the world worker, a
 page and plain Node (the dedicated server, `tools/world-hash.mjs`) load it
 the same way, with no `.wasm` file to serve. `createGame` makes one instance
-when the battle asks for one of its kernels and hands it to each
-(`loadRayKernel(instance)`, `loadAnimKernel(instance)`); asked for none, a
-battle loads nothing.
+when the battle asks for one of its kernels, and always in a world (a
+headless game: the local worker, the dedicated server, the tools), whose
+rounds in flight it holds (below, "The rounds on the module"); it hands the
+instance to each kernel (`loadRayKernel(instance)`, `loadAnimKernel(instance)`).
+A page that asks for no kernel loads nothing.
 
 The module was 141 KB of WebAssembly with the three kernels; the store and
 the first schema's code (four kinds of round and their records) make it
@@ -332,17 +334,90 @@ the `echo` command its tests and benchmarks use):
   is still JavaScript's: `gen::import_raycast_units(&args)` calls out of the
   module, the bridge serves it with `bridge.handlers.raycastUnits(args)`,
   and the result comes back. Its arguments and result cross in a block of
-  their own, outside the store, reached only for a moment before and after
-  the call: the Rust that asks holds the store, so a handler must not call
-  back into it. The
+  their own, outside the store (a fixed stretch of the module's memory, so
+  JavaScript reads the arguments and writes the result there with no other
+  call: an import costs a call each way), reached only for a moment before
+  and after the call. The arguments object a handler gets is the bridge's
+  own, read into again at the import's next call: a handler keeps nothing
+  of it (it copies a vector it hands to code that might keep one) and
+  reads what it needs before it calls code that could come back into the
+  module. A port whose Rust holds no reference to the store across an
+  import (the rounds' and items' do not: `rust/sim/src/ordnance/module.rs`)
+  can take such calls back in; otherwise a handler must not call back. The
   module's loader gives every instance the imports' functions, which reach
-  the bridge attached to it. A port reaches other subsystems through a
+  the bridge attached to it.
+
+One bridge an instance: the imports reach only the bridge attached to the
+instance, so every phase that goes onto the module joins the same one. A
+phase's attach takes it with `bridgeFor(instance, { classes, tests })`
+(made the first time; a later phase adds the tests and classes its kinds
+are told apart by, the first to give a kind's test setting it), owns its
+kinds (`bridge.own(kind)`) and serves its imports with
+`bridge.register({ name: handler, ... })`, which refuses an import no
+schema declares or one another phase serves already. Each phase's imports
+carry its own names in its schema (the rounds' `cast`, `raycastUnits`, ...;
+the items' `item*`), so two phases never share one. A second
+`new SimBridge(instance)` throws (a tool that empties the store and starts
+over passes `replace: true`). A port reaches other subsystems through a
   trait of its own; on the module, its JavaScript side is these imports,
   and in the replay tests the capture serves it.
 
 Still to come in this package: `sim_reserve` (the store's slabs and a
 margin made as a battle loads) and the measurements of what crossing
 costs on the emulated laptop.
+
+### The rounds and items on the module
+
+The first kinds Rust owns in a battle are the rounds in flight (bolts,
+beams, grenades and rounds: rockets, missiles, shells, fat rays, with the
+Ordnance that lists them; `rust/sim/src/ordnance`, `src/ordnance-sim.js`)
+and the things lying about (mines and power-ups, with the Items that lists
+them and each dispenser's own; `rust/sim/src/items`, `src/items-sim.js`). A
+world hands them over as it loads (`createGame`, unless `?sim=js` or, under
+Node, `BFE_SIM=js`, which keep the JavaScript ones for A/B runs and
+bisecting); from then on:
+
+- `Ordnance.fire`, `update` and `flightMissile` (a flyer's missile), and
+  `Items.update`, `spawn`, `dispense`, `dropFor`, `blast` and `hurt`, run in
+  Rust through the module's own exports (`ord_*`, `items_*`), not generated
+  commands: their arguments come in the call block, written by the
+  generated put functions of the schemas' argument records (`FireArgs`,
+  `SpawnArgs`, ...), and an answer that makes something is its row, so the
+  caller gets its mirror as it is.
+- The kinds' mirrors and the lists (the Ordnance's four with its `start`,
+  the Items' list and its dispensers' Map) are synced in place after each
+  update and command. Unported code reads them as it read the JavaScript
+  objects, and writes only the fields the schemas leave to JavaScript
+  (`skip`: a muzzle a page draws a round from, a grenade's `contactTime`
+  and `aiDanger`).
+- What they ask of the battle is `OrdnanceWorld`'s and `ItemsWorld`'s
+  calls (`src/ordnance-world.js`), as the schemas' imports, served by the
+  same objects. A round handed to the capture's observers (`projectile`,
+  `launch`, `impact`, `grenadeContact`) crosses with its row after the
+  import's words, so its mirror is current when JavaScript sees it; a
+  unit's hit hands JavaScript the very vector the JavaScript rounds handed
+  (`at`: a beam's end, the unit raycast's record, the Ordnance's `start`),
+  as a damage event keeps it. An item class's model is measured once and
+  not drawn: a world shows nothing.
+- Definitions go over the first time they are used (`ord_def`,
+  `ord_explosion`, `items_def`; the item pools when the items are handed
+  over), each field as a tag and a value, so the Rust reads a field as
+  JavaScript does (`??`, `||`, ToNumber).
+
+This is the first flip (F1). It lands on the simulation port's
+integration branch, which does not ship: nothing from it reaches players
+until a world's net step with the rounds and items on the module is no
+worse than with the JavaScript ones, measured on the emulated laptop or the
+laptop itself (world step p50 and p90, interleaved runs against
+`?sim=js`). Each call the rounds make into JavaScript costs a crossing, so
+the flip pays for itself as the code they call (hulls, then units and
+combat) moves to Rust and those calls stop crossing.
+
+The exports reach the store through pointers and hold no reference to it
+across an import, so a handler that comes back in (an explosion an item
+set off reaching the other items, a death dropping one) finds the store as
+the phase left it. A slot one entity left and another took before the next
+sync keeps the first one's mirror for its retired row (`MirrorPool.retire`).
 
 ## Determinism
 
