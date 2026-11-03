@@ -36,7 +36,7 @@ export function syncHolder(b, f, at, h, current) {
 
 export function putHolder(b, x, f, at, heap) {
   const i = whichHolder(b, x);
-  f.fill(0, at + 1, at + 3);
+  f[at + 1] = 0; f[at + 2] = 0;
   f[at] = i;
   switch (i) {
     case 3: b.refs[KIND_PERSON].put(x, f, at + 1); break;
@@ -84,7 +84,7 @@ export function syncHalf(b, f, at, h, current) {
 
 export function putHalf(b, x, f, at, heap) {
   const i = whichHalf(b, x);
-  f.fill(0, at + 1, at + 4);
+  f[at + 1] = 0; f[at + 2] = 0; f[at + 3] = 0;
   f[at] = i;
   switch (i) {
     case 0: { f[at + 1] = x; break; }
@@ -130,7 +130,7 @@ export function syncBody(b, f, at, h, current) {
 
 export function putBody(b, x, f, at, heap) {
   const i = whichBody(b, x);
-  f.fill(0, at + 1, at + 5);
+  f[at + 1] = 0; f[at + 2] = 0; f[at + 3] = 0; f[at + 4] = 0;
   f[at] = i;
   switch (i) {
     case 0: { putLegs(b, x, f, at + 1, heap); break; }
@@ -179,9 +179,9 @@ export function syncSpot(b, f, at, h, m) {
 export function putSpot(b, o, f, at, heap) {
   { const $v = o.at; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
   { const $v = o.turn; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; f[at + 6] = $v.w; }
-  { const $x = o.label; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f.fill(0, at + 8, at + 9); } else { f[at + 7] = 0; f[at + 8] = b.strings.id($x); } }
+  { const $x = o.label; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = b.strings.id($x); } }
   f[at + 9] = Colour_INDEX.get(o.mark);
-  { const $x = o.near; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f.fill(0, at + 11, at + 13); } else { f[at + 10] = 0; b.refs[KIND_PERSON].put($x, f, at + 11); } }
+  { const $x = o.near; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f[at + 11] = 0; f[at + 12] = 0; } else { f[at + 10] = 0; b.refs[KIND_PERSON].put($x, f, at + 11); } }
   b.refs[KIND_PERSON].put(o.keeper, f, at + 13);
   heap.items(o.kept, f, at + 15, 2, (f, at, v) => { b.refs[KIND_THING].put(v, f, at + 0); });
 }
@@ -231,7 +231,7 @@ export function syncAsk(b, f, at, h, m) {
 
 export function putAsk(b, o, f, at, heap) {
   f[at + 0] = o.n;
-  { const $x = o.who; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f.fill(0, at + 2, at + 4); } else { f[at + 1] = 0; b.refs[KIND_PERSON].put($x, f, at + 2); } }
+  { const $x = o.who; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; f[at + 3] = 0; } else { f[at + 1] = 0; b.refs[KIND_PERSON].put($x, f, at + 2); } }
   heap.items(o.things, f, at + 4, 2, (f, at, v) => { b.refs[KIND_THING].put(v, f, at + 0); });
   { const $x = o.spot; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f.fill(0, at + 7, at + 24); } else { f[at + 6] = 0; putSpot(b, $x, f, at + 7, heap); } }
 }
@@ -402,7 +402,7 @@ export function putShelf(b, o, f, at, heap) {
   heap.map(b.strings, o.weights, f, at + 6, 2, (f, at, v) => { f[at + 1] = v; });
   heap.map(b.strings, o.spots, f, at + 8, 18, (f, at, v) => { putSpot(b, v, f, at + 1, heap); });
   heap.map(b.strings, o.owners, f, at + 10, 3, (f, at, v) => { b.refs[KIND_PERSON].put(v, f, at + 1); });
-  { const $x = o.names; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f.fill(0, at + 13, at + 15); } else { f[at + 12] = 0; heap.map(b.strings, $x, f, at + 13, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
+  { const $x = o.names; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; f[at + 14] = 0; } else { f[at + 12] = 0; heap.map(b.strings, $x, f, at + 13, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
 }
 
 // Every field of object `o` into a row.
@@ -412,7 +412,7 @@ export function putFullShelf(b, o, f, at, heap) {
   heap.map(b.strings, o.weights, f, at + 6, 2, (f, at, v) => { f[at + 1] = v; });
   heap.map(b.strings, o.spots, f, at + 8, 18, (f, at, v) => { putSpot(b, v, f, at + 1, heap); });
   heap.map(b.strings, o.owners, f, at + 10, 3, (f, at, v) => { b.refs[KIND_PERSON].put(v, f, at + 1); });
-  { const $x = o.names; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f.fill(0, at + 13, at + 15); } else { f[at + 12] = 0; heap.map(b.strings, $x, f, at + 13, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
+  { const $x = o.names; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f[at + 13] = 0; f[at + 14] = 0; } else { f[at + 12] = 0; heap.map(b.strings, $x, f, at + 13, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -571,12 +571,12 @@ export function putThing(b, o, f, at, heap) {
   f[at + 17] = b.strings.id(o.name);
   f[at + 18] = Colour_INDEX.get(o.colour);
   f[at + 19] = b.defs.goods.id(o.def);
-  { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 23); } else { f[at + 20] = 0; b.refs[KIND_PERSON].put($x, f, at + 21); } }
+  { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; f[at + 22] = 0; } else { f[at + 20] = 0; b.refs[KIND_PERSON].put($x, f, at + 21); } }
   putHolder(b, o.holder, f, at + 23, heap);
   { const $x = o.spot; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f.fill(0, at + 27, at + 44); } else { f[at + 26] = 0; putSpot(b, $x, f, at + 27, heap); } }
   heap.list(b.refs[KIND_PERSON], o.friends, f, at + 44);
-  { const $x = o.next; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f.fill(0, at + 47, at + 49); } else { f[at + 46] = 0; b.refs[KIND_THING].put($x, f, at + 47); } }
-  { const $x = o.tags; if ($x === null || $x === undefined) { f[at + 49] = $x === null ? 1 : 2; f.fill(0, at + 50, at + 52); } else { f[at + 49] = 0; heap.map(b.strings, $x, f, at + 50, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
+  { const $x = o.next; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f[at + 47] = 0; f[at + 48] = 0; } else { f[at + 46] = 0; b.refs[KIND_THING].put($x, f, at + 47); } }
+  { const $x = o.tags; if ($x === null || $x === undefined) { f[at + 49] = $x === null ? 1 : 2; f[at + 50] = 0; f[at + 51] = 0; } else { f[at + 49] = 0; heap.map(b.strings, $x, f, at + 50, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
   f[at + 52] = o.hidden;
   f[at + 53] = o.box?.size;
   heap.items(o.marks, f, at + 54, 1, (f, at, v) => { f[at + 0] = v; });
@@ -587,7 +587,7 @@ export function putThing(b, o, f, at, heap) {
   { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 64 + i] = e[i]; }
   f[at + 80] = o.boxes?.[0]?.size;
   heap.items(o.shapes, f, at + 81, 5, (f, at, v) => { putShape(b, v, f, at + 0, heap); });
-  { const $x = o.hitSet; if ($x === null || $x === undefined) { f[at + 83] = $x === null ? 1 : 2; f.fill(0, at + 84, at + 85); } else { f[at + 83] = 0; { const $i = (o.shapes ?? []).indexOf($x); if ($i < 0) throw Error("shapes: the item is none of them"); f[at + 84] = $i; } } }
+  { const $x = o.hitSet; if ($x === null || $x === undefined) { f[at + 83] = $x === null ? 1 : 2; f[at + 84] = 0; } else { f[at + 83] = 0; { const $i = (o.shapes ?? []).indexOf($x); if ($i < 0) throw Error("shapes: the item is none of them"); f[at + 84] = $i; } } }
   putBody(b, o.body, f, at + 85, heap);
 }
 
@@ -605,12 +605,12 @@ export function putFullThing(b, o, f, at, heap) {
   f[at + 17] = b.strings.id(o.name);
   f[at + 18] = Colour_INDEX.get(o.colour);
   f[at + 19] = b.defs.goods.id(o.def);
-  { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 23); } else { f[at + 20] = 0; b.refs[KIND_PERSON].put($x, f, at + 21); } }
+  { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; f[at + 22] = 0; } else { f[at + 20] = 0; b.refs[KIND_PERSON].put($x, f, at + 21); } }
   putHolder(b, o.holder, f, at + 23, heap);
   { const $x = o.spot; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f.fill(0, at + 27, at + 44); } else { f[at + 26] = 0; putSpot(b, $x, f, at + 27, heap); } }
   heap.list(b.refs[KIND_PERSON], o.friends, f, at + 44);
-  { const $x = o.next; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f.fill(0, at + 47, at + 49); } else { f[at + 46] = 0; b.refs[KIND_THING].put($x, f, at + 47); } }
-  { const $x = o.tags; if ($x === null || $x === undefined) { f[at + 49] = $x === null ? 1 : 2; f.fill(0, at + 50, at + 52); } else { f[at + 49] = 0; heap.map(b.strings, $x, f, at + 50, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
+  { const $x = o.next; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f[at + 47] = 0; f[at + 48] = 0; } else { f[at + 46] = 0; b.refs[KIND_THING].put($x, f, at + 47); } }
+  { const $x = o.tags; if ($x === null || $x === undefined) { f[at + 49] = $x === null ? 1 : 2; f[at + 50] = 0; f[at + 51] = 0; } else { f[at + 49] = 0; heap.map(b.strings, $x, f, at + 50, 2, (f, at, v) => { f[at + 1] = b.strings.id(v); }); } }
   f[at + 52] = o.hidden;
   f[at + 53] = o.box?.size;
   heap.items(o.marks, f, at + 54, 1, (f, at, v) => { f[at + 0] = v; });
@@ -621,7 +621,7 @@ export function putFullThing(b, o, f, at, heap) {
   { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 64 + i] = e[i]; }
   f[at + 80] = o.boxes?.[0]?.size;
   heap.items(o.shapes, f, at + 81, 5, (f, at, v) => { putShape(b, v, f, at + 0, heap); });
-  { const $x = o.hitSet; if ($x === null || $x === undefined) { f[at + 83] = $x === null ? 1 : 2; f.fill(0, at + 84, at + 85); } else { f[at + 83] = 0; { const $i = (o.shapes ?? []).indexOf($x); if ($i < 0) throw Error("shapes: the item is none of them"); f[at + 84] = $i; } } }
+  { const $x = o.hitSet; if ($x === null || $x === undefined) { f[at + 83] = $x === null ? 1 : 2; f[at + 84] = 0; } else { f[at + 83] = 0; { const $i = (o.shapes ?? []).indexOf($x); if ($i < 0) throw Error("shapes: the item is none of them"); f[at + 84] = $i; } } }
   putBody(b, o.body, f, at + 85, heap);
 }
 

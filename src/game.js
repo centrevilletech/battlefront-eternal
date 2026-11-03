@@ -25,7 +25,7 @@ import { FlightDebug } from './flight/debug.js';
 import { lockedUnit, hasMissileLock, targetingWeapon } from "./weapon-targeting.js";
 import { createChat } from "./chat.js";
 import { followBattle } from "./presence.js";
-import { Vehicles, VehicleDriver, VehicleCamera } from "./vehicles.js";
+import { Vehicle, Vehicles, VehicleDriver, VehicleCamera } from "./vehicles.js";
 import { VehicleEffects } from "./vehicle-effects.js";
 import { TurretSeats } from "./seats.js";
 import * as THREE from "three";
@@ -101,6 +101,31 @@ async function loadSimInstance() {
     console.warn(`The simulation's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
     return null;
   }
+}
+
+// The battle's store on its instance of the module (src/sim/runtime.js
+// SimBridge: the kinds Rust owns, the imports it asks the battle), with the
+// rounds in flight and the things lying about handed over to it.
+async function attachSimStore(instance, ordnance, items) {
+  const [{ bridgeFor }, { attachOrdnanceSim, ordnanceTests }, { attachItemsSim }] = await Promise.all([import("./sim/runtime.js"), import("./ordnance-sim.js"), import("./items-sim.js")]);
+  // The instance's one bridge (made here, or joined: another phase's own
+  // attach gets the same one with bridgeFor).
+  const bridge = bridgeFor(instance, { classes: { Unit, Vehicle }, tests: ordnanceTests });
+  // Room for the store's rows now, so play does not grow the memory.
+  bridge.reserve(4 << 20);
+  attachItemsSim(items, attachOrdnanceSim(ordnance, bridge));
+  return bridge;
+}
+
+// The ground hulls' phase on the battle's instance of the module, through
+// the store (src/sim/runtime.js SimBridge: the hulls written in before the
+// phase and synced after it, the imports it asks the battle).
+async function attachHullPhase(instance, vehicles) {
+  const [{ bridgeFor }, { attachVehiclesSim }] = await Promise.all([import("./sim/runtime.js"), import("./vehicles-sim.js")]);
+  // The instance's one bridge, joined if the rounds made it (bridgeFor).
+  const bridge = bridgeFor(instance, { classes: { Unit, Vehicle } });
+  bridge.reserve(4 << 20);
+  return attachVehiclesSim(vehicles, bridge);
 }
 
 export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, rays: raysDefault = null, movement: movementDefault = null } = {}) {
@@ -427,8 +452,18 @@ async function start() {
   // and keeps the JavaScript, so its worlds cannot change. Poses made
   // before this take the kernel up as they clear.
   const wantAnim = !headless && params.get("anim") !== "js";
-  // Both kernels on the battle's one instance of the module.
-  const simInstance = wantRays || wantAnim ? await loadSimInstance() : null;
+  // A world's rounds in flight and things lying about on the module
+  // (src/ordnance-sim.js, src/items-sim.js), unless ?sim=js, or under Node
+  // (a dedicated server, the tools) BFE_SIM=js in its environment: the
+  // JavaScript ones, kept for A/B runs and bisecting until the next
+  // subsystem moves over.
+  const wantSim = headless && (params.get("sim") ?? globalThis.process?.env?.BFE_SIM) !== "js";
+  // A world's ground hulls on the module (src/vehicles-sim.js), where it asks
+  // for them: ?hulls=rust, or under Node BFE_HULLS=rust. Off by default until
+  // the hull phase moves whole (flight, seats and fire with it).
+  const wantHulls = headless && (params.get("hulls") ?? globalThis.process?.env?.BFE_HULLS) === "rust";
+  // The kernels and the store on the battle's one instance of the module.
+  const simInstance = wantRays || wantAnim || wantSim || wantHulls ? await loadSimInstance() : null;
   const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
   const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
@@ -853,6 +888,9 @@ async function start() {
     pools: world.mission?.pools,
     explode: (explosion, position, owner) => ordnance.explosion(explosion, position, owner),
   });
+  // The rounds and the items go to the module before any is made
+  // (createGame's wantSim).
+  const simBridge = wantSim && simInstance ? await attachSimStore(simInstance, ordnance, items) : null;
   // The map's placed power-ups lie where the world put them from the start
   // (src/placed-items.js); the world alone makes them, a page shows records.
   if (headless) spawnPlacedItems(items, propsDef?.items);
@@ -1284,6 +1322,7 @@ async function start() {
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
     vehicles.seatRandom = seatRandom;
+    if (wantHulls && simInstance) await attachHullPhase(simInstance, vehicles);
     // A world's barrels kick back on the tick clock (a page's on its own):
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;
@@ -3452,6 +3491,9 @@ async function start() {
     driver,
     effects,
     ordnance,
+    // The store on the battle's instance of the module, when the rounds are
+    // there (src/ordnance-sim.js); null when they are JavaScript's.
+    simBridge,
     debris,
     destruction,
     items,

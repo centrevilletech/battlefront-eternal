@@ -1,9 +1,8 @@
 import { personLease } from "./boarding.js";
 import { makeUnitHit } from "./registry.js";
-import { updateWeaponLock, hasMissileLock, seatLockTarget } from "./weapon-targeting.js";
-import { bindMountedRound } from "./muzzles.js";
+import { hasMissileLock } from "./weapon-targeting.js";
 import * as THREE from "three";
-import { emitSound } from "./audio/events.js";
+import { SeatsWorld } from "./seats-world.js";
 
 // Seats: who sits in which vehicle seat or turret, the player and the bots
 // alike, following the 2004 game where its rules are known.
@@ -345,11 +344,14 @@ export function classicSeatExit(collision, { origin, forward, up = UP, center, r
 // (the original game zeroes the exit velocity), facing yaw. Its jet fuel is
 // kept: leaving a seat is not a respawn. midair: out of a craft in flight,
 // it is left where it was put, falling, unless the ground is right there
-// (Soldier.spawn would set it on whatever lies below).
-export function placeOnFoot(unit, position, yaw, { midair = false } = {}) {
+// (Soldier.spawn would set it on whatever lies below). world: the seats'
+// (src/seats-world.js), which stands the body up; the player's own (a page's
+// VehicleDriver) is stood up directly.
+export function placeOnFoot(unit, position, yaw, { midair = false, world = null } = {}) {
   const s = unit.soldier;
   const fuel = s.fuel;
-  s.spawn(position.x, position.y, position.z, yaw);
+  if (world) world.standUp(unit, position.x, position.y, position.z, yaw);
+  else s.spawn(position.x, position.y, position.z, yaw);
   if (midair && (!s.grounded || s.position.y < position.y - 0.5)) {
     s.position.copy(position);
     s.previous?.copy(position);
@@ -800,6 +802,8 @@ export class TurretSeats {
     this.gunDir = new THREE.Vector3();
     this.target = new THREE.Vector3();
     this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null };
+    // Everything the crews ask of the rest of the battle (src/seats-world.js).
+    this.world = new SeatsWorld(this);
     for (const turret of this.turrets) turret.crew = this;
     if (units) this.attachUnits(units);
   }
@@ -842,12 +846,12 @@ export class TurretSeats {
     turret.crew = this;
     turret.yawVel = turret.pitchVel = 0;
     seatWeaponPolicy(turret.weapon, Boolean(unit.networkHuman), this.seatRandom);
-    if (!unit.networkHuman) lease.controllable = new SeatUnit(lease);
+    if (!unit.networkHuman) lease.controllable = this.world.controllable(lease);
     unit.seat = lease;
     seatBody(unit);
     this.leases.push(lease);
     this.pose(lease, 0);
-    this.onBoard?.(unit, turret, 0);
+    this.world.boarded(unit, turret, 0);
     return true;
   }
 
@@ -877,13 +881,13 @@ export class TurretSeats {
     const turret = lease.turret;
     const unit = lease.unit;
     const died = kill || reason === "killed";
-    const fall = died && unit?.soldier ? turret.riderDrop?.(0, unit, this.dropPoint) ?? null : null;
+    const fall = died && unit?.soldier ? this.world.riderDrop(turret, 0, unit, this.dropPoint) : null;
     let yaw = null;
     if (placement && !died && this.collision && unit?.soldier) {
       const radius = turret.sphere(scratchCenter);
       const facing = turret.facing + turret.yaw;
       this.view.set(Math.sin(facing), 0, Math.cos(facing));
-      classicSeatExit(this.collision, { origin: turret.position, forward: this.view, center: scratchCenter, radius, body: turret.bodies?.built || null }, this.exit);
+      classicSeatExit(this.world, { origin: turret.position, forward: this.view, center: scratchCenter, radius, body: turret.bodies?.built || null }, this.exit);
       yaw = Math.atan2(this.exit.forward.x, this.exit.forward.z);
     }
     lease.released = true;
@@ -896,12 +900,12 @@ export class TurretSeats {
     if (unit && unit.seat === lease) {
       unit.seat = null;
       unseatBody(unit);
-      if (yaw !== null) placeOnFoot(unit, this.exit.position, yaw);
+      if (yaw !== null) placeOnFoot(unit, this.exit.position, yaw, { world: this.world });
       else if (turret.hidesGunner && unit.actor?.root && !unit.removed && !unit.combat?.blowApart) unit.actor.root.visible = true;
     }
     if (fall) dropBody(unit, fall);
-    if (kill && unit && unit.alive && !unit.combat?.dead) unit.combat?.damage?.(Infinity, Infinity, null, attacker);
-    if (!kill) this.onUnboard?.(unit, turret, 0, post, reason);
+    if (kill && unit && unit.alive && !unit.combat?.dead) this.world.kill(unit, attacker);
+    if (!kill) this.world.unboarded(unit, turret, 0, post, reason);
   }
 
   // A manned turret destroyed: whoever mans it dies, credited to whoever
@@ -951,9 +955,9 @@ export class TurretSeats {
     // his own page aims (Turret.aimOrigin: his eye in first person, else his
     // chase camera's rest brought to the eye's plane), so the point it turns
     // to is the one under his crosshair; a bot's from the gun's fire point.
-    if (person && turret.aimOrigin) turretAimPoint(turret, Boolean(lease.unit.combat?.firstPerson), this.view, this.collision, this.units, lease.unit, this.target, this.hit);
+    if (person && turret.aimOrigin) turretAimPoint(turret, Boolean(lease.unit.combat?.firstPerson), this.view, this.collision ? this.world : null, this.world, lease.unit, this.target, this.hit);
     else {
-      const hit = this.collision?.cast(this.muzzle, this.view, AIM_REACH, this.hit, turret.bodies?.built || null);
+      const hit = this.collision ? this.world.cast(this.muzzle, this.view, AIM_REACH, this.hit, turret.bodies?.built || null) : undefined;
       this.target.copy(this.muzzle).addScaledVector(this.view, hit ? hit.distance : AIM_REACH);
     }
     turret.pose(dt, this.target);
@@ -962,18 +966,16 @@ export class TurretSeats {
     if (!weapon) return;
     const pressed = input.take(0);
     const trigger = { held: input.held[0] || pressed, pressed };
-    if (hasMissileLock(weapon.def)) updateWeaponLock(weapon, dt, { units: this.ordnance?.units, collision: this.collision,
-      origin: this.muzzle, dir: this.view, viewer: turret.aiTarget, ignoreBody: turret.bodies?.built,
-      target: seatLockTarget(lease) });
-    for (const shot of weapon.update(dt, true, trigger, input.takeReload(), { stick: 0, posture: "stand", zoomed: false })) {
+    if (hasMissileLock(weapon.def)) this.world.updateLock(weapon, dt, this.muzzle, this.view, turret.aiTarget, turret.bodies?.built, lease);
+    for (const shot of this.world.weaponUpdate(weapon, dt, true, trigger, input.takeReload(), { stick: 0, posture: "stand", zoomed: false })) {
       turret.muzzle(this.muzzle, this.gunDir, true);
       turret.fireDirection?.(this.muzzle, this.target, this.gunDir, this.gunDir);
       if (shot.yaw) this.gunDir.applyAxisAngle(UP, shot.yaw);
       if (shot.pitch) this.gunDir.applyAxisAngle(this.view.crossVectors(this.gunDir, UP).normalize(), shot.pitch);
-      const round = this.ordnance?.fire(weapon.def.ordnance, this.muzzle, this.gunDir, lease.unit, null, turret.bodies?.built || null, lease.emitter, shot);
-      bindMountedRound(round, turret, -1, -1, (turret.barrel - 1) % (turret.firePoints?.length || 1));
-      emitSound("turretFire", turret, shot);
-      this.onFired?.(turret, 0, shot, lease.unit, this.muzzle, this.gunDir);
+      const round = this.world.fire(weapon.def.ordnance, this.muzzle, this.gunDir, lease.unit, turret.bodies?.built || null, lease.emitter, shot);
+      this.world.bindRound(round, turret, -1, -1, (turret.barrel - 1) % (turret.firePoints?.length || 1));
+      this.world.sound("turretFire", turret, shot);
+      this.world.fired(turret, 0, shot, lease.unit, this.muzzle, this.gunDir);
     }
   }
 

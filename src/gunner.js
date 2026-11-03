@@ -255,7 +255,11 @@ export class Gunner {
         turret.muzzle(this.muzzle, this.gunDir, true);
         turret.fireDirection?.(this.muzzle, this.target, this.gunDir, this.gunDir);
         this.gunDir.applyAxisAngle(THREE.Object3D.DEFAULT_UP, ((this.random || legacyGunnerSpread)() - (this.random || legacyGunnerSpread)()) * 0.1 * SPREAD);
-        const round = this.ordnance.fire(weapon.def.ordnance, this.muzzle, this.gunDir, this.combat?.owner ?? "player", null, turret.bodies.built, turret.lease?.emitter ?? turret, shot);
+        // A beam follows his lease's emitter: enter() gives the turret his
+        // lease and only exit() lets it go, so in a battle it is there while
+        // he fires. Without one (a fixture that sets the turret by hand) a
+        // beam follows its owner.
+        const round = this.ordnance.fire(weapon.def.ordnance, this.muzzle, this.gunDir, this.combat?.owner ?? "player", null, turret.bodies.built, turret.lease?.emitter ?? null, shot);
         bindMountedRound(round, turret, -1, -1, (turret.barrel - 1) % (turret.firePoints?.length || 1));
         emitSound("turretFire", turret, shot);
         shots.push(shot);

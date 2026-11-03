@@ -6,7 +6,7 @@ import { flightBindings, flightInput } from '../src/flight/controls.js';
 
 test('flight secondary emission dumbfires without a completed explicit lock',()=>{
  const f=fixture();f.v.flightState='Flying';
- const emitted=[];f.system.ordnance={lights:{flash(){}},fire(def,origin,direction,owner,unused,body,emitter,shot){const r={kind:'missile',velocity:direction.clone(),targetId:shot.targetId};emitted.push(r);return r;}};
+ const emitted=[];f.system.ordnance={lights:{flash(){}},fire(def,origin,direction,owner,unused,body,emitter,shot){const r={kind:'missile',velocity:direction.clone(),targetId:shot.targetId};emitted.push(r);return r;},flightMissile(r,flightClass,life,speed){r.flightMissile=true;r.flightClass=flightClass;r.life=life;r.velocity.normalize().multiplyScalar(speed);}};
  const weapon={def:{ordnance:{base:'missile'}}};f.v.direction.set(0,0,1);
  for(const state of ['', 'Locking','Locked']) {f.v.flightLockState=state;f.v.flightLockId=4;f.v.emitShot({weapon},0,null);}
  assert.deepEqual(emitted.map(r=>r.targetId),[-1,-1,4]);

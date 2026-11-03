@@ -26,12 +26,17 @@
 //! rust/v8math); Math.min, max, hypot and sign from rust/v8math; three.js's
 //! vectors and quaternions from rust/three, operation by operation.
 
+pub mod build;
 pub mod class;
 pub mod hover;
 pub mod hull;
 pub mod pose;
+pub mod spawn;
 pub mod store;
+pub mod tethers;
 pub mod walker;
+#[cfg(target_arch = "wasm32")]
+pub mod module;
 #[cfg(feature = "replay")]
 pub mod replay;
 
@@ -100,8 +105,8 @@ pub trait VehicleWorld {
     fn has_water(&mut self) -> bool;
     /// Whether a point is in one of the map's death regions.
     fn in_death_region(&mut self, position: &Vector3) -> bool;
-    /// The battle's hook: a hull took `amount` (from nobody, in its own tick).
-    fn damaged(&mut self, hull: usize, amount: f64);
+    /// The battle's hook: a hull took `amount`, credited to `attacker`.
+    fn damaged(&mut self, hull: usize, amount: f64, attacker: &crate::gen::OrdnanceOwner);
     /// Vehicles.destroyedCrew: the bots aboard a destroyed hull let go and killed.
     fn destroyed_crew(&mut self, hull: usize);
     /// The battle's hook: a hull destroyed.
@@ -114,4 +119,25 @@ pub trait VehicleWorld {
     fn raycast_units(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<f64>;
     /// The clock barrels kick back on (a world's tick clock).
     fn clock(&mut self) -> f64;
+    /// A tow cable let go (snapped, tripped its walker, released), which the
+    /// presentation capture hears: emitSound("towRelease", hull, def, reason).
+    fn tow_released(&mut self, hull: usize, reason: &str);
+    /// A spawn's new life (Vehicle.spawn): the hull's registry entry starts
+    /// a new generation and its seats get new weapons, which are the
+    /// registry's and the combat package's (JavaScript's until they move);
+    /// a world whose spawns are JavaScript's has nothing to do.
+    fn new_life(&mut self, _hull: usize) {}
+    /// A destroyed hull's pad starts its respawn clock (`slot.remaining =
+    /// slot.desc.respawnTime`): the pads are the battle's while the hull
+    /// phase runs on the module with JavaScript's Vehicles.
+    fn respawn_clock(&mut self, _hull: usize) {}
+    /// A destroyed hull lets its crew's leases go (each lease released, its
+    /// unit's seat cleared), which are the seats package's.
+    fn release_crew(&mut self, _hull: usize) {}
+    /// The hull before a hook that hands it to the battle (damaged,
+    /// destroyedCrew, destroyed, explosion), and after it: a world whose
+    /// hulls are JavaScript's while the phase runs makes the battle see this
+    /// hull as it is now, and reads back what the hook did to it.
+    fn current(&mut self, _hull: &Hull) {}
+    fn reload(&mut self, _hull: &mut Hull) {}
 }

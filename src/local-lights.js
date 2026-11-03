@@ -23,6 +23,7 @@ export const localLighting = {
 // glowing area so high ceilings still light the floor. Materials named as
 // lamps or lights accept dimmer, coloured glass.
 const CELL = 2.5;
+const NONE = Object.freeze([]);
 const GRID = 8; // m per spatial-hash cell for selection
 const SAMPLES = [[1 / 3, 1 / 3], [0.5, 0.5], [0, 0.5], [0.5, 0]];
 
@@ -141,11 +142,13 @@ export class LocalLights {
     }
   }
 
+  // The lamps lighting a draw's object (at most four sources, in the order
+  // the shader reads them), set into the shared uniforms and returned.
   select(object, viewModel = false) {
     const colors = localLighting.colors.value, positions = localLighting.positions.value;
     for (let i = 0; i < colors.length; i++) colors[i].set(0, 0, 0);
     localLighting.count.value = 0;
-    if (!this.enabled || !this.sources.length) return;
+    if (!this.enabled || !this.sources.length) return NONE;
     this.eye.setFromMatrixPosition(object.matrixWorld);
     // Body origins sit at the feet; view models are already at the eye.
     if (object.isSkinnedMesh && !viewModel) this.eye.y += 0.9;
@@ -199,5 +202,6 @@ export class LocalLights {
       positions[i].set(source.position.x, source.position.y, source.position.z, source.radius);
       colors[i].copy(source.color);
     }
+    return cache.lights;
   }
 }

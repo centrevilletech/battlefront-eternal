@@ -29,4 +29,23 @@ impl BfeRenderer {
     pub fn far_cells(&mut self, item: u32, positions: &[f32], index: &[u32], cell_size: f64) { self.r.far.cells(item, positions, index, cell_size) }
     pub fn far_terrain(&mut self, item: u32, level: u32, index: &[u32], cells: &[f64]) { self.r.far.terrain(&mut self.r.core, item, level, index, cells) }
     pub fn far_items(&self) -> u32 { self.r.far.items() }
+
+    // The far phase from a water's mirror camera (renderer.rs
+    // far_mirror_frame): its stats, as far_frame's.
+    pub fn far_mirror_frame(&mut self) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.far_mirror_frame().map_err(|e| JsValue::from_str(&e))?.values())
+    }
+
+    // Where the page writes the vertices of items whose buffers it
+    // refreshes (f32); an item's range read from the input; a buffer of its
+    // geometry refreshed from those vertices.
+    pub fn far_vertices_ptr(&mut self) -> u32 { self.r.far.vertices.as_mut_ptr() as u32 }
+    pub fn far_vertices_len(&self) -> u32 { self.r.far.vertices.len() as u32 }
+    pub fn far_range_input(&mut self, item: u32, at: u32) { self.r.far.range_input(item, at) }
+    pub fn far_refresh(&mut self, item: u32, buffer: u32, at: u32, floats: u32, flag: u32) { self.r.far.refresh(item, buffer, at, floats, flag) }
+
+    // A face (0-5) of a sky probe's capture (renderer.rs far_probe_frame).
+    pub fn far_probe_frame(&mut self, face: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.far_probe_frame(face as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
 }
