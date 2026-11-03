@@ -970,6 +970,36 @@ pub fn on_death(s: &mut Store, r: Ref<Character>, world: &mut dyn BattleWorld) {
     }
 }
 
+/// A human's choice on his spawn screen (onHumanReady's options): a class
+/// by name or by index, and a post (None: not given; Some(None): none).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct HumanChoice {
+    pub class_name: Option<StrId>,
+    pub class_index: Option<f64>,
+    pub post: Option<Option<SpawnPost>>,
+}
+
+/// onHumanReady(character, choice) (spawning.js:705): a class from his
+/// team's roster (by name or index; a name outside it is his class, not
+/// counted) and a post if he chose one; he spawns on the next update.
+pub fn on_human_ready(s: &mut Store, r: Ref<Character>, choice: HumanChoice, strings: &Strings, world: &mut dyn BattleWorld) {
+    let t = ch(s, r).team;
+    if let Some(name) = choice.class_name {
+        match team(&s.spawning, t).classes.iter().position(|c| c.name == name) {
+            Some(index) => set_class(s, r, index as f64, strings, world),
+            None => ch_mut(s, r).class_name = Some(name),
+        }
+    } else if let Some(index) = choice.class_index {
+        let last = team(&s.spawning, t).classes.len() as f64 - 1.0;
+        let index = v8math::min(v8math::max(to_int32(index) as f64, 0.0), last);
+        set_class(s, r, index, strings, world);
+    }
+    if let Some(post) = choice.post {
+        change_post(s, r, post);
+    }
+    sp_mut(ch_mut(s, r)).ready = true;
+}
+
 /// switchTeam(character, to) (spawning.js:723): a non-hero Character to
 /// another team with room; a bot picks a class there.
 pub fn switch_team(s: &mut Store, r: Ref<Character>, to: f64, strings: &mut Strings, world: &mut dyn BattleWorld, random: &mut dyn Draws) -> bool {

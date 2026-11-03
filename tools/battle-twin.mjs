@@ -256,7 +256,24 @@ for (let r = 0; r < 30; r++) {
     if (kind === "reserve") {
       const team = pick([1, 2]), id = u() < 0.5 ? 1000 + k : `net${k}`, name = pick(["Ace", "a-very-long-player-name-over-thirty-two-units", `P${k}`]);
       ops.push({ op: kind, team, id: typeof id === "number" ? { n: n(id) } : { s: id }, name });
-      try { const c = roster.reserve(team, id, name); players.push(c); line("rop", r, k, kind, idx(c)); } catch (e) { line("rop", r, k, kind, e.message); }
+      let ready = null;
+      try {
+        const c = roster.reserve(team, id, name);
+        players.push(c);
+        // His choice on the spawn screen, most of the time (onHumanReady).
+        if (u() < 0.7) {
+          const names = spawning.teams[c.team].classes.map((x) => x.name);
+          const by = u();
+          const choice = by < 0.4 ? { className: pick([...names, "outsider"]) } : by < 0.8 ? { classIndex: pick([-1, 0, 2, 9, 1.7]) } : {};
+          const p = u();
+          if (p < 0.3) choice.post = null;
+          else if (p < 0.7) choice.post = pick(posts);
+          ready = { className: choice.className ?? null, classIndex: choice.classIndex === undefined ? null : n(choice.classIndex), post: "post" in choice ? (choice.post ? posts.indexOf(choice.post) : -1) : null };
+          spawning.onHumanReady(c, choice);
+        }
+        line("rop", r, k, kind, idx(c));
+      } catch (e) { line("rop", r, k, kind, e.message); }
+      ops.at(-1).ready = ready;
     } else if (kind === "release") {
       const c = pick(players);
       players.splice(players.indexOf(c), 1);

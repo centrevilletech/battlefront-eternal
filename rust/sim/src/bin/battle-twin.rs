@@ -620,7 +620,16 @@ fn multiplayer(mp: &Value, r: usize, s: &mut Store, naming: &mut spawning::Namin
                 };
                 let name: Vec<u16> = op.get("name").and_then(Value::as_str).unwrap().encode_utf16().collect();
                 match roster::reserve(s, num(op.get("team").unwrap()), id, &name, strings, world) {
-                    Ok(c) => bits(s.battle.characters.iter().position(|x| *x == c).unwrap() as f64),
+                    Ok(c) => {
+                        // His choice on the spawn screen (onHumanReady).
+                        if let Some(ready) = op.get("ready").filter(|r| r.as_object().is_some()) {
+                            let class_name = ready.get("className").and_then(Value::as_str).map(|n| strings.intern_str(n));
+                            let class_index = ready.get("classIndex").filter(|x| x.as_str().is_some()).map(num);
+                            let post = ready.get("post").and_then(Value::as_f64).map(|p| (p >= 0.0).then(|| SpawnPost::Post(s.command_posts.posts[p as usize])));
+                            spawning::on_human_ready(s, c, spawning::HumanChoice { class_name, class_index, post }, strings, world);
+                        }
+                        bits(s.battle.characters.iter().position(|x| *x == c).unwrap() as f64)
+                    }
                     Err(e) => e.to_string(),
                 }
             }
