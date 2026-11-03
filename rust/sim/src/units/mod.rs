@@ -28,7 +28,7 @@
 //! boundary the replay harness serves from captures until those subsystems
 //! are Rust's. Every function is its JavaScript's operation by operation,
 //! with V8's Math (`v8math`) and three.js r170's vector arithmetic
-//! (`crate::rig::three`); each cites the JavaScript it ports.
+//! (rust/three); each cites the JavaScript it ports.
 
 pub mod body;
 pub mod class;

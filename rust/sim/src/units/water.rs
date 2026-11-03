@@ -6,7 +6,7 @@
 
 use super::shapes::arr;
 use crate::gen::WaterContact;
-use crate::rig::three::Vector3;
+use three::Vector3;
 use std::collections::HashSet;
 
 const BOB: f64 = 0.06; // m

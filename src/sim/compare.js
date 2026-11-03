@@ -38,7 +38,7 @@ export function sameMap(a, b, same) {
 }
 
 // Two arrays of the same length whose items are the same by `same`.
-export function sameItems(a, b, same) {
+export function sameEach(a, b, same) {
   if (a === b) return true;
   if (!a || !b || a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (!same(a[i], b[i])) return false;

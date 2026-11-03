@@ -8,7 +8,7 @@ use super::droideka::{self, DroidekaParts};
 use super::shapes::{bound_shapes, soldier_shapes, v3, Bounds, Half, HitPosture, HitShape, ShapePart, ShapeType, DROIDEKA_BALL, DROIDEKA_ORD_AT, DROIDEKA_ORD_HALF, DROIDEKA_ORD_RADIUS};
 use super::world::UnitsWorld;
 use crate::gen::{Controls, Posture, Unit, UnitBody};
-use crate::rig::three::Vector3;
+use three::Vector3;
 
 /// A body lies 4 s where it fell, then is gone (units.js DEATH_LINGER).
 pub const DEATH_LINGER: f64 = 4.0;

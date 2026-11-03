@@ -18,7 +18,7 @@ use crate::collision::spheres::closest_point_to_point;
 use crate::gen::{BonePose, Droideka, RigAnimator, Unit, UnitBody};
 use crate::pose::Clip;
 use crate::rig::droideka::{DroidekaClips, DroidekaRig, DroidekaState};
-use crate::rig::three::{clamp, deg_to_rad, Quaternion, Vector3};
+use three::{clamp, deg_to_rad, Quaternion, Vector3};
 use std::rc::Rc;
 
 const GRAVITY: f64 = 9.8;

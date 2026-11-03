@@ -923,7 +923,7 @@ impl Droideka {
 
 }
 
-/// A unit, from rust/sim/schema/ordnance.mjs, rust/sim/schema/units.mjs.
+/// A unit, from rust/sim/schema/items.mjs, rust/sim/schema/ordnance.mjs, rust/sim/schema/units.mjs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Unit {
     pub generation: f64,

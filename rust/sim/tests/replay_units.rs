@@ -20,7 +20,7 @@ use bfe_sim::rig::skeleton::{BoneDesc, Skeleton};
 use bfe_sim::units::droideka::{DroidekaDef, DroidekaParts, ModeClips};
 use std::collections::HashMap;
 use std::rc::Rc;
-use bfe_sim::rig::three::Vector3;
+use three::Vector3;
 use bfe_sim::store::replay::{Arena, Node, Value, V};
 use bfe_sim::units::shapes::{Bounds, HitShape};
 use bfe_sim::units::world::{CastHit, GatherPolygon, UnitsWorld};
@@ -371,8 +371,8 @@ fn unit_tick(capture: &Capture, frame: &Frame, contents: &mut Contents) -> Resul
                 let (Some(q), Some(pos)) = (b.get("q").node(), b.get("p").vec3()) else { continue };
                 let Node::Quat(q) = q else { continue };
                 let node = rig.tree.node_mut(rig.bones[i]);
-                node.copy_quaternion(&bfe_sim::rig::three::Quaternion { x: q[0], y: q[1], z: q[2], w: q[3] });
-                node.position = bfe_sim::rig::three::Vector3 { x: pos[0], y: pos[1], z: pos[2] };
+                node.copy_quaternion(&three::Quaternion { x: q[0], y: q[1], z: q[2], w: q[3] });
+                node.position = three::Vector3 { x: pos[0], y: pos[1], z: pos[2] };
             }
         }
         parts = Some(p);
@@ -478,13 +478,13 @@ fn droideka_parts(content: &bfe_content::content::Content, side: &str, class: &s
         .map(|g| Gun {
             bone: g.bone,
             barrels: match g.tips {
-                Some(tips) => tips.into_iter().map(|t| Barrel::Marker(bfe_sim::rig::three::Vector3 { x: t.x, y: t.y, z: t.z })).collect(),
+                Some(tips) => tips.into_iter().map(|t| Barrel::Marker(three::Vector3 { x: t.x, y: t.y, z: t.z })).collect(),
                 None => vec![Barrel::GunBone],
             },
         })
         .collect();
     // The roll centre and pivot come from the unit's animator each tick.
-    let rig = DroidekaRig::new(&skeleton, &guns, bfe_sim::rig::three::Vector3::default());
+    let rig = DroidekaRig::new(&skeleton, &guns, three::Vector3::default());
     Ok(DroidekaParts { def: d, clips: Rc::new(ModeClips { by_mode }), rig: Some(Box::new(rig)) })
 }
 

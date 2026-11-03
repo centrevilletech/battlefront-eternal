@@ -1,10 +1,12 @@
-//! The rigs' three.js r170 subset (rust/sim/src/rig/three.rs, tree.rs)
-//! against three itself: cases tools/sim-rig/three-cases.mjs recorded under
-//! the production server's Node, replayed here, every number compared by its
-//! bits. The transcendental functions are rust/v8math's, each call also
-//! checked against what V8 answered in the recording (rig::math's oracle):
-//! a different answer is a mismatch, and a call the JavaScript never made is
-//! a miss.
+//! The three.js r170 arithmetic the rigs are built on (rust/three: the
+//! Vector3, Quaternion, Matrix4, Euler and Box3 methods and the
+//! TransformTree semantics rust/sim/src/rig uses) against three itself:
+//! cases tools/sim-rig/three-cases.mjs recorded under the production
+//! server's Node, replayed here, every number compared by its bits. The
+//! transcendental functions are rust/v8math's (through jsrt's seam); a call
+//! the rigs make through rig::math is also checked against what V8 answered
+//! in the recording (its oracle): a different answer is a mismatch, and a
+//! call the JavaScript never made is a miss.
 //!
 //!   node tools/sim-rig/three-cases.mjs CASES.bfecap
 //!   BFE_RIG_THREE=CASES.bfecap cargo test -p sim --features replay --test rig_three
@@ -13,8 +15,8 @@
 #![cfg(feature = "replay")]
 
 use bfe_sim::rig::math::oracle::{self, Oracle};
-use bfe_sim::rig::three::{clamp, lerp, smoothstep, Box3, Euler, EulerOrder, Matrix4, Quaternion, Vector3};
-use bfe_sim::rig::tree::{TransformNode, TransformTree};
+use three::{clamp, lerp, smoothstep, Box3, Euler, EulerOrder, Matrix4, Quaternion, Vector3};
+use three::{TransformNode, TransformTree};
 use sim_replay::{Reader, V};
 
 const ORDERS: [EulerOrder; 6] = [EulerOrder::XYZ, EulerOrder::YXZ, EulerOrder::ZXY, EulerOrder::ZYX, EulerOrder::YZX, EulerOrder::XZY];

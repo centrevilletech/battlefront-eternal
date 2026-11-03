@@ -10,7 +10,7 @@
 use super::shapes::{segment_shape, segment_sphere, shape_normal, v3, Bounds, ShapePart};
 use super::world::UnitsWorld;
 use crate::gen::{Member, Unit, Units};
-use crate::rig::three::Vector3;
+use three::Vector3;
 use crate::store::{Slab, Strings};
 
 /// The faction SetTeamName gives a name it doesn't know.

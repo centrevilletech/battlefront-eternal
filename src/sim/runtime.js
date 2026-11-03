@@ -6,7 +6,7 @@
 // a battle's instance of the module.
 import { COMMAND_TABLE, DEF_TABLES, EVENT_TABLE, IMPORT_TABLE, KIND_TABLE, RECORD_CLASSES } from "./gen/index.js";
 
-export { sameArray, sameItems, sameList, sameMap, sameQuat, sameVec } from "./compare.js";
+export { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "./compare.js";
 
 // A sync block's header: rows, stride, where the heap starts, its length,
 // and how many of the rows (the first) are retired entities'

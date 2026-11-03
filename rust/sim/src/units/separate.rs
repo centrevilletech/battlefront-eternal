@@ -7,7 +7,7 @@
 
 use super::shapes::HitPosture;
 use crate::gen::{Member, Unit, UnitBody, Units};
-use crate::rig::three::Vector3;
+use three::Vector3;
 use crate::store::Slab;
 
 /// main_body by posture: radius, height and the middle's height.

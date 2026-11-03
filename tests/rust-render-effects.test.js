@@ -81,6 +81,7 @@ function bridge() {
     getContext: () => gl,
     properties: { get: (o) => { if (!properties.has(o)) properties.set(o, { __webglTexture: {} }); return properties.get(o); } },
     initTexture() {},
+    initRenderTarget() {},
     shadowMap: { enabled: false },
     getRenderTarget: () => sceneTarget,
     setRenderTarget() {},
@@ -156,6 +157,40 @@ test("a CPU batch: registered once three drew it, then hidden from three and wri
   core.setActive(true);
   assert.equal(batch.external, true);
   assert.equal(batch.mesh.visible, false);
+});
+
+test("a mirror's render draws what blends too: the transparent phase for the mirror's camera, after its near phase", () => {
+  const { core, calls, scene, renderer, list, drawn, entry } = bridge();
+  const particles = new ParticleRenderer(scene);
+  const batch = particles.batch(new THREE.Texture(), "additive", "bolt");
+  const fill = (n) => { particles.begin(); for (let i = 0; i < n; i++) batch.push(i, 2 * i, -3 * i - 5, 1, 1, 1, 0.5, 0.2, 0, STREAK, 4, [0, 0, 1], [0.5, 0, 0]); particles.end(); };
+  fill(2);
+  drawn(batch.material, CPU_PROGRAM);
+  core.phase("transparent", renderer, scene, core.graphics.camera);
+  assert.equal(batch.external, true, "registered by the frame's own render");
+  // water.js's mirror: a camera of its own drawing into a target of its own.
+  const mirror = new THREE.PerspectiveCamera();
+  mirror.userData.mirror = true;
+  mirror.position.set(0, -2, 0);
+  mirror.updateMatrixWorld(true);
+  const reflection = { name: "reflection", width: 400, height: 300 };
+  const target = renderer.getRenderTarget;
+  renderer.getRenderTarget = () => reflection;
+  try {
+    fill(3);
+    calls.length = 0;
+    // The far scene's image is the last opaque item: the mirror's
+    // transparent phase follows its near phase at once.
+    core.pass(renderer, scene, mirror);
+  } finally {
+    renderer.getRenderTarget = target;
+  }
+  const names = calls.map((c) => c[0]);
+  assert.ok(names.includes("mirror_frame"), "the near phase's passes for the mirror");
+  assert.ok(names.indexOf("mirror_transparent_frame") > names.indexOf("mirror_frame"), "then what blends");
+  assert.equal(names.includes("transparent_frame"), false, "not the frame's own");
+  assert.equal(core.fxInput[0], 1, "the effects drawn in the reflection");
+  assert.deepEqual(entry(0).slice(0, 3), [0, 0, 3]);
 });
 
 test("an analytic batch: its owner's emitters, and its instances from the first changed", () => {
@@ -285,6 +320,34 @@ test("glow models: found in three's list, registered with their group once three
   assert.equal(core.fxInput[0], 1);
   core.setActive(false);
   assert.equal(material.visible, true);
+});
+
+test("the effects' programs are their own, apart from another pass's for the same three program, whose values can't leak in", () => {
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
+  geometry.setIndex([0, 1, 2]);
+  const group = new THREE.Group(), part = new THREE.Mesh(geometry, material);
+  group.add(part);
+  group.userData.material = material;
+  group.position.set(0, 0, -6);
+  scene.add(group);
+  scene.updateMatrixWorld(true);
+  const shared = program(BASIC, ["position", "uv"]);
+  drawn(material, shared);
+  // Another pass (the transparent pass's command post beams) made one for
+  // the same three program first, and sets its colour and opacity itself.
+  const theirs = core.program(core.renderer.properties.get(material).currentProgram, 0, material, { uniforms: new Set(BASIC), material: new Set() });
+  list.transparent.push({ object: part, material, group: null });
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "add_program").length, 2, "made again for the effects");
+  const pass = calls.find((c) => c[0] === "fx_model_pass");
+  assert.notEqual(pass[2], theirs.id, "the glow drawn with its own");
+  list.transparent.length = 0;
+  frame();
+  assert.equal(entry(0)[0], 2, "drawn");
 });
 
 test("a droideka's shield: its uniforms as the model's values, the frame's own left to the frame block, its onBeforeRender run", async () => {
@@ -509,6 +572,122 @@ test("the steam's wisps and the wake splashes: single-sided batches of fixed see
   } finally {
     particleDepth.map.value = null;
   }
+});
+
+test("the fountains' jets: batches on bases of their own after three's copy of the frame so far; their spray halves composited", async () => {
+  const { FountainJets } = await import("../src/fountain-jets.js");
+  const { FountainSpray } = await import("../src/fountain-spray.js");
+  const { EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { core, calls, scene, list, frame, drawn, renderer } = bridge();
+  const spray = new FountainSpray(new THREE.Group(), new EnvironmentWakes());
+  const jets = new FountainJets(scene, spray, core.graphics, { foam: new THREE.Texture(), tier: true });
+  jets.update(1, [{ slot: 0, position: new THREE.Vector3(0, 0, -8), level: 0.8, low: 0 }]);
+  const sky = ["sunDirection", "sunColor", "ambient", "ambientTop", "ambientBottom", "fade"];
+  const shared = ["projectionMatrix", "viewMatrix", "jetTime", "side", "perFountain", "sources[0]", "levels[0]", "lows[0]", "visible[0]", "wind",
+    "atlas", "foamMap", "hasFoam", "sceneDepth", "depthResolution", "cameraRange", "hasDepth", "sceneColor", "sceneResolution", "hasScene", "fragScale", ...sky];
+  const base = { "fountain-pool": ["corner", "seed"], "fountain-jets": ["corner", "seed"], "fountain-jets-near": ["corner", "seed"], "fountain-ropes": ["strip", "rope"],
+    "fountain-ropes-near": ["strip", "rope"], "fountain-jets-core": ["sweep"], "fountain-overflow": ["film"], "fountain-overflow-near": ["film"] };
+  for (const mesh of jets.meshes) {
+    list.transparent.push({ object: mesh, material: mesh.material, group: null });
+    if (mesh.userData.spray) drawn(mesh.material, program(["sprayMap", "sceneDepth", "sprayResolution", "depthResolution", "cameraRange", "enabled"], ["position"]));
+    // The column's material is the shared values' own: no side, no blocks.
+    else drawn(mesh.material, program(mesh === jets.core ? shared.filter((n) => n !== "side" && n !== "perFountain") : shared, base[mesh.name]));
+  }
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "fx_add_batch").length, 8, `eight batches (${core.errors.join("; ")})`);
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_batch_side").map((c) => c[2]), [0], "the column single-sided");
+  const bases = calls.filter((c) => c[0] === "fx_batch_base");
+  assert.equal(bases.length, 8);
+  assert.deepEqual(bases[0].slice(2, 4), [[0, 2], 4], "the pool's corner quad, its own base");
+  assert.equal(calls.filter((c) => c[0] === "fx_add_model").length, 2, "the two halves of soft spray");
+  const values = calls.find((c) => c[0] === "fx_batch_values")[2];
+  assert.ok(values.includes("jetTime:1:0") && values.includes("visible:5:1") && values.includes("sources:20:4") && !values.includes("sunDirection"));
+  assert.ok(jets.meshes.every((m) => m.material.visible === false));
+  assert.ok(jets.copier.visible && jets.copier.material.visible, "the copier left to three, just before the jets");
+  assert.ok(jets.copier.renderOrder < jets.meshes[0].renderOrder);
+  list.transparent.length = 0;
+  frame();
+  assert.equal(core.fxInput[0], 10, "eight batches and two composites");
+  assert.deepEqual([jets.behind.width, jets.behind.height], [800, 600], "the copy's target at the frame's size");
+  assert.equal(jets.core.material.uniforms.hasScene.value, 1);
+  assert.notEqual(jets.meshes.find((m) => m.userData.spray).material.uniforms.sprayMap.value, jets.meshes.findLast((m) => m.userData.spray).material.uniforms.sprayMap.value, "a target each half");
+  assert.equal(renderer.getRenderTarget().name, "scene");
+});
+
+test("a dissolving body's heated record, an untextured gun and a scrolling rig: what was left to three, drawn with their own values", async () => {
+  const { heatMaterial } = await import("../src/destruction-debris.js");
+  const { lighting } = await import("../src/materials.js");
+  const { core, calls, scene, camera, renderer, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  const inst = core.byName.instances;
+  inst.rigsOn = true;
+  const R = { TEXTURES: 4, LOOK: 52, EXTRA: 76 }, at = (r) => core.recordsAt + r * core.stride;
+  const look = () => ({ map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 }, scroll: { value: new THREE.Vector2() } });
+  const shaders = { vertexShader: "#include <common>\nvoid main() {\n#include <begin_vertex>\n}", fragmentShader: "void main() { vec4 color = vec4(1.0); gl_FragColor = color; }" };
+  const skinnedGeometry = () => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    g.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+    g.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+    g.setIndex([0, 1, 2]);
+    return g;
+  };
+  const skinned = (material) => {
+    const mesh = new THREE.SkinnedMesh(skinnedGeometry(), material), bone = new THREE.Bone();
+    mesh.add(bone);
+    mesh.bind(new THREE.Skeleton([bone]));
+    mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+    return mesh;
+  };
+  const SKINNED = ["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"];
+  // A droideka's body, a gun without a map in its hand, and a rig with a scrolling texture.
+  const own = new THREE.ShaderMaterial({ defines: { RIGID_SKIN: "" }, uniforms: look(), ...shaders });
+  drawn(own, program(SKINNED, ["position", "skinIndex", "skinWeight"]));
+  const body = skinned(own), root = new THREE.Group(), hand = new THREE.Group(), gun = new THREE.Group();
+  body.userData.poseSphere = true; // a soldier's (actor.js): not a rig
+  const gunMaterial = new THREE.ShaderMaterial({ defines: { DYNAMIC: "" }, uniforms: { ...look(), map: { value: null } } });
+  drawn(gunMaterial, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]));
+  const gunGeometry = new THREE.BufferGeometry();
+  gunGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  gunGeometry.setIndex([0, 1, 2]);
+  gun.add(new THREE.Mesh(gunGeometry, gunMaterial));
+  hand.add(gun);
+  root.add(body, hand);
+  root.position.z = -5;
+  root.userData.parts = { body, hand };
+  scene.add(root);
+  core.graphics.cullRoots.push(root);
+  const scrolling = new THREE.ShaderMaterial({ defines: { UNLIT: "", SCROLL: "" }, uniforms: { ...look(), time: lighting.time } });
+  scrolling.uniforms.scroll.value.set(0.25, -0.5);
+  drawn(scrolling, program([...SKINNED, "scroll", "time"], ["position", "skinIndex", "skinWeight"]));
+  const rig = skinned(scrolling);
+  rig.position.set(2, 0, -6);
+  scene.add(rig);
+  const near = () => { scene.updateMatrixWorld(true); renderer.info.render.frame++; core.pass(renderer, scene, camera); };
+  const records = () => calls.filter((c) => c[0] === "frame").pop()[1];
+  near();
+  assert.equal(records(), 3, "the body, the gun and the rig");
+  assert.equal(core.input[at(1) + R.TEXTURES], -1, "the gun: no texture (the renderer binds an empty one)");
+  assert.deepEqual([...core.input.subarray(at(2) + R.EXTRA, at(2) + R.EXTRA + 2)], [0.25, -0.5], "the rig's scroll, its row's");
+  // The droideka goes up: heated copies of its materials, its look and heat its own.
+  const hot = heatMaterial(own);
+  body.material = hot;
+  body.userData.heated = { heat: 0.5, tear: new THREE.Vector4(1, 2, 3, 0.6), base: 0.3, scale: 0.6, soot: 1, dissolve: 0.25, sun: 0.9, brightness: 1.1, darken: 0.1, lighten: 0.2 };
+  near();
+  assert.equal(records(), 2, "three draws it while it has no program of the heated copy");
+  assert.equal(hot.visible, true);
+  drawn(hot, program([...SKINNED, "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve"], ["position", "skinIndex", "skinWeight"]));
+  near();
+  assert.equal(records(), 3, "then the renderer, as its own record");
+  assert.equal(hot.visible, false);
+  assert.deepEqual([...core.input.subarray(at(0) + R.LOOK, at(0) + R.LOOK + 4)].map((v) => +v.toFixed(3)), [0.9, 0.1, 0.2, 1.1], "its look as heatMaterial sets it");
+  assert.deepEqual([...core.input.subarray(at(0) + R.EXTRA + 4, at(0) + R.EXTRA + 13)].map((v) => +v.toFixed(3)), [0.5, 0.3, 0.6, 1, 1, 2, 3, 0.6, 0.25], "its heat, base, scale, soot, tear and dissolve");
+  // Its own materials back: its own record again.
+  body.material = own;
+  delete body.userData.heated;
+  near();
+  assert.equal(records(), 3);
+  assert.deepEqual([...core.input.subarray(at(0) + R.EXTRA + 4, at(0) + R.EXTRA + 13)], [0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
 test("flying models: parts of tagged groups as rigid records, lit and unlit, hidden by their layers not their shared material", () => {

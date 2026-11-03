@@ -290,6 +290,22 @@ Vehicle.prototype.aimTick = function recordedAimTick(alpha, dt) {
   return result;
 };
 
+// ---- Soldiers' clip timings (src/units.js buildBody): each body's
+// getupTime and diveTime, with the two clips' descriptions they come from.
+const soldiersWritten = new Set();
+function writeSoldiers() {
+  const meta = game.factory.context.animMeta;
+  for (const u of game.factory.built) {
+    if (u.walker || !u.soldier) continue;
+    const key = `${u.side}/${u.classDef.model}`;
+    if (soldiersWritten.has(key)) continue;
+    soldiersWritten.add(key);
+    const desc = (name) => { const d = meta.clips?.[name]; return d ? { frames: d.frames, travel: f64(d.travel) } : null; };
+    write('rig.soldier', { key, getupTime: u.soldier.getupTime, diveTime: u.soldier.diveTime, fps: meta.fps,
+      getup: desc('human_rifle_prone_getup_stand'), dive: desc('human_rifle_diveforward') });
+  }
+}
+
 // ---- The plugin's hooks.
 export function battle({ game: g, index, options }) {
   if (index > 0) throw Error('sim-rig: one battle a recording (no --battles)');
@@ -301,6 +317,7 @@ export function battle({ game: g, index, options }) {
     battle: { map: options.map, side: options.side, seed: options.seed, ticks: options.ticks, ai: options.ai } });
 }
 export function tick(t) { currentTick = t; }
+export function ticked() { writeSoldiers(); }
 export function finish() {
   write('rig.oracle', { table: f64([...oracle.values()].flat()) });
   fs.writeSync(fd, writer.take());

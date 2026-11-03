@@ -14,8 +14,8 @@
 //! module gives it the tree to pose and the nodes to read.
 
 use super::skeleton::{lower, BoneDesc, Skeleton};
-use super::three::{Quaternion, Vector3};
-use super::tree::{NodeId, TransformNode, TransformTree};
+use three::{Quaternion, Vector3};
+use three::{NodeId, TransformNode, TransformTree};
 
 /// A barrel of an aimer (BarrelNodeName, its FirePointName, BarrelLength
 /// and BarrelRecoil, as `num()` reads them).
@@ -205,6 +205,12 @@ pub struct HullRig {
     pub static_bone: NodeId,
     /// The constructor's markers, in the order it made them.
     pub markers: Vec<NodeId>,
+    /// The world's scene, which the root hangs from once built
+    /// (`system.scene.add(this.root)`): an identity, so every world matrix
+    /// three makes for the root after that is the identity times the root's
+    /// own matrix rather than a copy of it, which turns some of its -0s into
+    /// +0s. Made last, after the markers.
+    pub scene: NodeId,
     pub by_name: ByName,
     /// Each bone's bind quaternion and position.
     pub bind_q: Vec<Quaternion>,
@@ -271,6 +277,7 @@ impl HullRig {
             bones,
             static_bone,
             markers: Vec::new(),
+            scene: 0,
             by_name,
             bind_q,
             bind_p,
@@ -298,7 +305,22 @@ impl HullRig {
             }
         }
         rig.aimed_by_pose = rig.aimed_by_pose(desc);
+        // The constructor's last word: into the scene.
+        rig.scene = rig.tree.add_node(TransformNode::default());
+        rig.tree.add_child(rig.scene, rig.root);
         rig
+    }
+
+    /// Where a seat's weapon's muzzle is in the world (src/muzzles.js
+    /// mountedMuzzle: `seats[seat].weapons[weapon].muzzles[barrel].fireNode
+    /// .getWorldPosition()`, the world matrices refreshed from the root down
+    /// to it); None where the hull has no such muzzle. The JavaScript also
+    /// answers null for a hull that is not alive, which is the caller's to
+    /// know.
+    pub fn muzzle_point(&mut self, seat: usize, weapon: usize, barrel: usize) -> Option<Vector3> {
+        let node = self.seats.get(seat)?.weapons.get(weapon)?.muzzles.get(barrel)?.fire_node;
+        let mut out = Vector3::default();
+        Some(self.tree.get_world_position(node, &mut out))
     }
 
     /// The node of a bone named by a class key: `byName[String(name ||

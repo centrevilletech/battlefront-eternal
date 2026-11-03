@@ -1,4 +1,4 @@
-//! A battle's collision world in the ray kernel's state (the rays crate), as
+//! A battle's collision world in the collision kernel's state, as
 //! src/ray-kernel.js makes it from a CollisionWorld (src/collision.js
 //! 160-165): the terrain's grid, the buildings' tree and the terrain's tree
 //! over the content's corners (one copy of each corner array), the world,
@@ -7,11 +7,13 @@
 //! handed over as built: tools/collision-trees.mjs writes them for a host
 //! without JavaScript, and `read_trees` reads that file.
 //!
-//! The rays crate moves into rust/sim; this moves with it then.
+//! The kernel is rust/sim's collision module. The simulation module links
+//! this crate, not the other way round, so the kernel's side is a trait:
+//! the module implements `CollisionKernel` over its state and `install`
+//! drives it in ray-kernel.js's order (tests/collision.rs has the
+//! implementation over today's state, and proves the result).
 
-use crate::collision::MapCollision;
-use rays::spheres::FixedSet;
-use rays::{state, Corners, Grid, Tree};
+use crate::collision::{MapCollision, TriangleGrid};
 
 /// A MeshBVH (indirect) as ray-kernel.js copies one: its roots' packed node
 /// words and its indirect buffer.
@@ -31,81 +33,58 @@ pub struct Installed {
     pub statics: u32,
 }
 
-/// A corner array's copy (ray-kernel.js positions(): f32 corners stay f32).
-fn push_positions(data: &[f32]) -> usize {
-    let s = state();
-    s.positions.push(Corners::F32(data.to_vec()));
-    s.positions.len() - 1
-}
-
-/// ray-kernel.js tree(bvh): its index, indirect buffer and roots.
-fn push_tree(bvh: &BvhTree, positions: usize, index: &[u32]) -> u32 {
-    let s = state();
-    s.trees.push(Tree {
-        roots: bvh.roots.clone(),
-        positions,
-        index: index.to_vec(),
-        indexed: !index.is_empty(),
-        indirect: bvh.indirect.clone(),
-        polygons: Vec::new(),
-    });
-    (s.trees.len() - 1) as u32
+/// The collision kernel's constructors, as ray-kernel.js calls them.
+pub trait CollisionKernel {
+    /// positions_new and its copy: f32 corners kept as f32. Returns its id.
+    fn positions(&mut self, data: &[f32]) -> usize;
+    /// grid_new over `positions`: the grid's index, cells, starts, numbers
+    /// and `triangles` stamps.
+    fn grid(&mut self, positions: usize, index: &[u32], grid: &TriangleGrid, triangles: usize) -> i32;
+    /// tree_new over `positions` with its index (empty: none), indirect
+    /// buffer and roots.
+    fn tree(&mut self, positions: usize, index: &[u32], tree: &BvhTree) -> u32;
+    /// world_new(tree, terrain, grid).
+    fn world(&mut self, tree: u32, terrain: i32, grid: i32) -> u32;
+    /// set_new and its bounds and polygon numbers.
+    fn fixed_set(&mut self, tree: u32, bounds: &[f32], polygons: &[u32], offset: f64) -> u32;
+    /// world_statics(world, set).
+    fn world_statics(&mut self, world: u32, set: u32);
 }
 
 /// collision.js 160-165 through ray-kernel.js: the grid (the terrain's
 /// corners copied), then the buildings' tree and the terrain's (over the
 /// same terrain copy), the world, and the buildings' fixed set.
-pub fn install(col: &MapCollision, buildings: &BvhTree, terrain: Option<&BvhTree>) -> Result<Installed, String> {
+pub fn install(k: &mut dyn CollisionKernel, col: &MapCollision, buildings: &BvhTree, terrain: Option<&BvhTree>) -> Result<Installed, String> {
     let mut terrain_positions: Option<usize> = None;
     let grid = match &col.grid {
         Some(g) => {
-            let p = push_positions(&col.terrain_positions);
+            let p = k.positions(&col.terrain_positions);
             terrain_positions = Some(p);
-            let s = state();
-            s.grids.push(Grid {
-                positions: p,
-                index: col.terrain_indices.to_vec(),
-                cells: g.cells.clone(),
-                start: g.start.clone(),
-                stamp: vec![0; col.terrain_indices.len() / 3],
-                serial: 0,
-                min_x: g.min_x,
-                min_z: g.min_z,
-                max_x: g.max_x,
-                max_z: g.max_z,
-                size: g.size,
-                nx: g.nx,
-                nz: g.nz,
-            });
-            (s.grids.len() - 1) as i32
+            k.grid(p, &col.terrain_indices, g, col.terrain_indices.len() / 3)
         }
         None => -1,
     };
-    let building_positions = push_positions(&col.positions);
-    let buildings_tree = push_tree(buildings, building_positions, &col.indices);
+    let building_positions = k.positions(&col.positions);
+    let buildings_tree = k.tree(building_positions, &col.indices, buildings);
     let terrain_tree = match (terrain, col.terrain_indices.is_empty()) {
         (Some(t), false) => {
             let p = match terrain_positions {
                 Some(p) => p,
-                None => push_positions(&col.terrain_positions),
+                None => k.positions(&col.terrain_positions),
             };
-            push_tree(t, p, &col.terrain_indices) as i32
+            k.tree(p, &col.terrain_indices, t) as i32
         }
         (None, false) => return Err("the terrain has triangles but no tree".into()),
         _ => -1,
     };
-    let world = rays::world_new(buildings_tree, terrain_tree, grid);
+    let world = k.world(buildings_tree, terrain_tree, grid);
     // ray-kernel.js fixedSet(staticSet, bvh).
     let count = col.tri_bounds.len() / 6;
     if col.polygons.len() < count {
         return Err("A fixed triangle has no polygon number".into());
     }
-    let statics = {
-        let s = state();
-        s.sets.push(FixedSet { tree: buildings_tree as usize, bounds: col.tri_bounds.clone(), polygons: col.polygons[..count].to_vec(), offset: 0.0 });
-        (s.sets.len() - 1) as u32
-    };
-    rays::spheres::world_statics(world, statics);
+    let statics = k.fixed_set(buildings_tree, &col.tri_bounds, &col.polygons[..count], 0.0);
+    k.world_statics(world, statics);
     Ok(Installed { world, grid, buildings: buildings_tree, terrain: terrain_tree, statics })
 }
 
@@ -115,7 +94,7 @@ pub struct Cast {
     pub origin: [f64; 3],
     pub direction: [f64; 3],
     pub far: f64,
-    /// -2 miss, -3 terrain, -1 the buildings (rays' MISS, TERRAIN, STATIC).
+    /// -2 miss, -3 terrain, -1 the buildings (the kernel's MISS, TERRAIN, STATIC).
     pub code: i32,
     /// distance, point, normal.
     pub hit: [f64; 7],

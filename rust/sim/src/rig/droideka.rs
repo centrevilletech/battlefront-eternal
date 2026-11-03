@@ -15,8 +15,10 @@
 //! while its position blends. It is ported as it is (quirks register).
 
 use super::skeleton::Skeleton;
-use super::three::{smoothstep, Quaternion, Vector3};
-use super::tree::{NodeId, TransformNode, TransformTree};
+use super::math;
+use crate::movement::soldier::js_hypot2;
+use three::{smoothstep, Box3, Matrix4, Quaternion, Vector3};
+use three::{NodeId, TransformNode, TransformTree};
 use crate::collision::{js_max, js_min};
 use crate::pose::{Clip, Pose};
 
@@ -391,38 +393,116 @@ impl DroidekaRig {
     }
 }
 
-/// The droideka's blasters' barrel tips on an arm (src/muzzles.js
-/// barrelTips): the arm's mesh points (in the arm bone's frame) at its
-/// front along `forward` (times `sign`), split in two halves across
-/// `across`, each half's middle, pushed 2 mm past the front.
-pub fn barrel_tips(points: &[Vector3], forward: super::three::Axis, sign: f64, across: super::three::Axis) -> Vec<Vector3> {
-    use super::three::Box3;
-    if points.is_empty() {
-        return Vec::new();
+/// A droideka's drawn body as its animator's constructor skins it: each
+/// vertex's place (three f32s a vertex), each vertex's bone (the first of
+/// its four skin indices; that one's weight is 1, the others' 0), the body's
+/// bind matrix and the skeleton's bone inverses (src/actor.js).
+pub struct SkinnedBody<'a> {
+    pub positions: &'a [f32],
+    pub skin_index: &'a [u16],
+    pub bind_matrix: Matrix4,
+    pub bone_inverses: &'a [Matrix4],
+}
+
+/// The drawn DroidekaAnimator's roll axle (its constructor, src/droideka.js):
+/// `center_box` is an animation control, not the folded shell's axle, so the
+/// axle is found from the skinned body in the roll clip's first pose, in the
+/// ball bone's parent's frame: the pivot (the middle of the silhouette's
+/// extent averaged over 32 axle angles) and the roll centre (as high as the
+/// farthest vertex from the axle, at least BallRadius). The hidden gun rig
+/// copies the roll centre (`DroidekaRig::new`). Without a ball bone or a
+/// roll clip, the pivot is the ball bone's bind place (or 0.65 m up) and the
+/// centre BallRadius up.
+pub fn roll_axle(skeleton: &Skeleton, body: &SkinnedBody, roll: Option<&Clip>, ball_radius: f64) -> (Vector3, Vector3) {
+    let index = |name: &str| skeleton.find_lower(name).map_or(-1, |i| i as i32);
+    let (root_bone, ball) = (index("dummyroot"), index("center_box"));
+    let mut pivot = if ball >= 0 { skeleton.bind[ball as usize].position } else { Vector3::new(0.0, BALL_CENTER, 0.0) };
+    let mut roll_center = Vector3::new(0.0, ball_radius, 0.0);
+    let Some(roll) = roll else { return (pivot, roll_center) };
+    if ball < 0 {
+        return (pivot, roll_center);
     }
-    let (mut front, mut back) = (f64::NEG_INFINITY, f64::INFINITY);
-    for p in points {
-        let depth = p.get(forward) * sign;
-        front = js_max(front, depth);
-        back = js_min(back, depth);
+    let n = skeleton.len();
+    let mut pose = Pose::new(n, root_bone);
+    pose.add(roll, 0.0, 1.0, false);
+    // The drawn actor as buildActor hangs it: the root, the body's mesh on
+    // it, bone 0 on the mesh and every other bone on its parent (one with
+    // none on nothing, never updated).
+    let mut tree = TransformTree::new();
+    let root = tree.add_node(TransformNode::default());
+    let mesh = tree.add_node(TransformNode::default());
+    tree.add_child(root, mesh);
+    let bones: Vec<NodeId> = skeleton.bind.iter().map(|b| tree.add_node(b.clone())).collect();
+    for i in 0..n {
+        let parent = skeleton.parents[i];
+        if i == 0 {
+            tree.add_child(mesh, bones[0]);
+        } else if parent >= 0 {
+            tree.add_child(bones[parent as usize], bones[i]);
+        }
     }
-    let tolerance = js_max(0.003, (front - back) * 0.005);
-    let ends: Vec<Vector3> = points.iter().filter(|p| p.get(forward) * sign >= front - tolerance).copied().collect();
+    // Pose.apply.
+    for (i, &b) in bones.iter().enumerate() {
+        let w = pose.w[i] as f64;
+        if w <= 1e-6 {
+            continue;
+        }
+        let node = tree.node_mut(b);
+        node.with_quaternion(|q| {
+            q.set(pose.q[i * 4] as f64, pose.q[i * 4 + 1] as f64, pose.q[i * 4 + 2] as f64, pose.q[i * 4 + 3] as f64).normalize();
+        });
+        node.position.set(pose.t[i * 3] as f64 / w, pose.t[i * 3 + 1] as f64 / w, pose.t[i * 3 + 2] as f64 / w);
+    }
+    tree.update_matrix_world(root, true);
+    let ball_parent = tree.node(bones[ball as usize]).parent.expect("the ball bone hangs from something");
+    let mut parent_inverse = tree.node(ball_parent).matrix_world;
+    parent_inverse.invert();
+    let mut to_parent = Matrix4::default();
+    to_parent.multiply_matrices(&parent_inverse, &tree.node(mesh).matrix_world);
+    let mut bind_inverse = body.bind_matrix;
+    bind_inverse.invert();
+    let count = body.positions.len() / 3;
     let mut bounds = Box3::default();
-    bounds.set_from_points(&ends);
-    let middle = (bounds.min.get(across) + bounds.max.get(across)) / 2.0;
-    let mut halves = [Box3::default(), Box3::default()];
-    for p in &ends {
-        halves[if p.get(across) > middle { 1 } else { 0 }].expand_by_point(p);
+    let mut points = Vec::with_capacity(count);
+    let mut bone_matrix = Matrix4::default();
+    for i in 0..count {
+        // getVertexPosition: the mesh's place, then applyBoneTransform.
+        let mut base = Vector3::new(body.positions[i * 3] as f64, body.positions[i * 3 + 1] as f64, body.positions[i * 3 + 2] as f64);
+        base.apply_matrix4(&body.bind_matrix);
+        let mut v = Vector3::new(0.0, 0.0, 0.0);
+        let bone = body.skin_index[i * 4] as usize;
+        bone_matrix.multiply_matrices(&tree.node(bones[bone]).matrix_world, &body.bone_inverses[bone]);
+        let mut skinned = base;
+        skinned.apply_matrix4(&bone_matrix);
+        v.add_scaled_vector(&skinned, 1.0);
+        v.apply_matrix4(&bind_inverse);
+        v.apply_matrix4(&to_parent);
+        bounds.expand_by_point(&v);
+        points.push(v);
     }
-    halves
-        .iter()
-        .filter(|b| !b.is_empty())
-        .map(|b| {
-            let mut tip = Vector3::default();
-            b.get_center(&mut tip);
-            tip.set_axis(forward, sign * (front + 0.002));
-            tip
-        })
-        .collect()
+    if count > 0 {
+        bounds.get_center(&mut pivot);
+        pivot.y = 0.0;
+        pivot.z = 0.0;
+        // Averaged over axle angles: one box favours whichever foot points
+        // up in the first frame.
+        for k in 0..32 {
+            let a = k as f64 * std::f64::consts::PI * 2.0 / 32.0;
+            let (y, z) = (math::cos(a), math::sin(a));
+            let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
+            for p in &points {
+                let dot = p.y * y + p.z * z;
+                min = js_min(min, dot);
+                max = js_max(max, dot);
+            }
+            pivot.y += (min + max) * y / 32.0;
+            pivot.z += (min + max) * z / 32.0;
+        }
+        let mut radius = 0.0;
+        for p in &points {
+            radius = js_max(radius, js_hypot2(p.y - pivot.y, p.z - pivot.z));
+        }
+        roll_center.y = js_max(ball_radius, radius);
+    }
+    (pivot, roll_center)
 }

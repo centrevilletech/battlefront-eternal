@@ -343,6 +343,11 @@ pub fn dump_battle(c: &Content, cache: &mut PayloadCache, full: bool) -> String 
         }
     }
 
+    // The placed power-ups' places, headings and teams.
+    for p in &c.placed_items {
+        d.line("placed", &p.index.to_string(), &list(vec![vec3(&p.position), n(p.yaw), dump::value_text(&p.team)]));
+    }
+
     // The map's collision.
     let col = &c.collision;
     d.typed("collision", "triBounds", &col.tri_bounds);
@@ -361,6 +366,7 @@ pub fn dump_battle(c: &Content, cache: &mut PayloadCache, full: bool) -> String 
         d.line("vehicle", &format!("{}/wheels", t.name), &dump::payload(&list(t.wheel_radii.iter().map(|(k, r)| list(vec![st(k), n(*r)])))));
         d.line("vehicle", &format!("{}/muzzles", t.name), &dump::payload(&list(t.muzzle_tips.iter().map(|(k, p)| list(vec![st(k), nums(p)])))));
         d.line("vehicle", &format!("{}/shape", t.name), &dump::payload(&list(vec![dump::typed(&t.shape.positions), dump::typed(&t.shape.indices), dump::typed(&t.shape.polygons)].into_iter().map(|s| st(&s)))));
+        d.line("vehicle", &format!("{}/gearFoot", t.name), &t.gear_foot.map(n).unwrap_or_else(|| "null".into()));
         match &t.clips {
             Some(clips) => clips_group(&mut d, &format!("vehicle/{}", t.name), clips, full),
             None => d.line("vehicle", &format!("{}/clips", t.name), "null"),
@@ -486,6 +492,15 @@ pub fn dump_battle(c: &Content, cache: &mut PayloadCache, full: bool) -> String 
         }
         Err(e) => d.line("defs", "error", &dump::payload(&st(&e))),
     }
+
+    // ai/index.js 117: the battle's script in ai-mission.json.
+    let ai_mission = crate::mission::select_ai_mission(b.ai_mission.as_ref(), b.mission());
+    let text = match &ai_mission {
+        Some(v @ Value::Object(_)) => list(vec![opt(v.get("mission")), opt(v.get("variants"))]),
+        Some(other) => dump::value_text(other),
+        None => "null".into(),
+    };
+    d.line("ai", "mission", &dump::payload(&text));
 
     // The AI's route table.
     match &c.route_words {

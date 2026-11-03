@@ -7,7 +7,7 @@
 //! the same order; Math.min, Math.max and Math.hypot are V8's (`v8math`),
 //! and so are the sines and cosines a box's turn takes.
 
-use crate::rig::three::{clamp, Vector3};
+use three::{clamp, Vector3};
 
 pub use crate::gen::{Bounds, Half, HitShape, ShapePart, ShapeType};
 

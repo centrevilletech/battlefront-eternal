@@ -8,7 +8,7 @@ use super::shapes::{arr, v3};
 use super::world::UnitsWorld;
 use crate::gen::{Air, Droideka, LastGun, Posture, Soldier};
 use crate::rig::droideka::DroidekaRig;
-use crate::rig::three::{clamp, Vector3};
+use three::{clamp, Vector3};
 
 /// soldier.js ENGINE: the mouse's counts per radian per unit of
 /// MaxTurnSpeed, the rate a mouse may ask for (in stick units), and the

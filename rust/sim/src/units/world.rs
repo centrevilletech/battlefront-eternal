@@ -13,7 +13,7 @@
 
 use super::shapes::{Bounds, HitShape};
 use crate::gen::Unit;
-use crate::rig::three::Vector3;
+use three::Vector3;
 
 /// What CollisionWorld.cast answers: where along the ray, what it met.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
