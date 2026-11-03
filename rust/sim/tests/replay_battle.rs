@@ -539,7 +539,6 @@ impl BattleWorld for Served<'_> {
         }
         let unit = call.result().handle_num("unit").map(|u| Ref::new(u as u32, 0));
         self.apply_fields(s, after, character, &["unit", "className", "objective"]);
-        self.apply_mobile_refresh(s, after);
         unit
     }
     fn force_kill(&mut self, s: &mut Store, _: Ref<Character>, _: Ref<Unit>) {
@@ -571,7 +570,6 @@ impl BattleWorld for Served<'_> {
         }
         if let Some((_, at)) = self.call("objectives.republish") {
             self.apply_fields(s, at, character, &["objective"]);
-            self.apply_mobile_refresh(s, at);
         }
     }
     fn hero_name(&mut self, class_name: StrId) -> Option<StrId> {
@@ -693,6 +691,7 @@ fn run(name: &str, mut port: impl FnMut(&Capture, &Frame) -> Outcome) {
     let Some(corpus) = Corpus::from_env().expect("BFE_REPLAY_CORPUS") else { return };
     let report = replay_corpus(&corpus, name, |c, f| port(c, f)).expect("the corpus reads");
     println!("{}", report.summary());
+    assert!(report.replayed() > 0, "{name}: the corpus has no replayable frames");
     report.assert_clean();
 }
 
