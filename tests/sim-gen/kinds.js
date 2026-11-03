@@ -4,3 +4,6 @@ export const KIND_PERSON = 1;
 export const KIND_SHELF = 2;
 export const KIND_THING = 3;
 export const KINDS = 3;
+export const COMMAND_DOUBLE = 1;
+export const EVENT_NOTED = 1;
+export const IMPORT_LOOK_UP = 1;

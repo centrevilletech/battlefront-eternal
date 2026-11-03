@@ -10,7 +10,7 @@
 
 use std::ptr::addr_of_mut;
 
-use crate::gen::{Echo, Store, KINDS, KIND_HASHES};
+use crate::gen::{Echo, Fill, Store, KINDS, KIND_HASHES};
 use crate::store::block::Block;
 use crate::store::calls::{Calls, Events};
 use crate::store::{KindCode, StrId, Strings};
@@ -163,6 +163,40 @@ pub fn echo(sim: &mut Sim, args: Echo) -> Echo {
     }
     Echo { value: args.value + 1.0, ..args }
 }
+
+/// The store's other command: `count` new entities of a kind, its fields'
+/// defaults, at the end of its home list (tests and benchmarks).
+pub fn fill(sim: &mut Sim, args: Fill) { sim.store.fill(args.kind as KindCode, args.count as usize); }
+
+/// Makes room for at least `bytes` more bytes of the battle's data now,
+/// as it loads, so playing it does not grow the memory (which would detach
+/// every view JavaScript holds): blocks of 64 KB are allocated and freed
+/// again, and the allocator keeps them for what comes later. Returns the
+/// memory's size in 64 KB pages.
+#[no_mangle]
+pub extern "C" fn sim_reserve(bytes: u32) -> u32 {
+    const BLOCK: usize = 64 * 1024 - 64;
+    let mut held: Vec<Vec<u8>> = Vec::with_capacity(bytes as usize / BLOCK + 1);
+    let mut made = 0usize;
+    while made < bytes as usize {
+        let v: Vec<u8> = Vec::with_capacity(BLOCK);
+        std::hint::black_box(v.as_ptr());
+        held.push(v);
+        made += BLOCK;
+    }
+    drop(held);
+    memory_pages()
+}
+
+/// The memory's size in 64 KB pages.
+#[no_mangle]
+pub extern "C" fn sim_memory_pages() -> u32 { memory_pages() }
+
+#[cfg(target_arch = "wasm32")]
+fn memory_pages() -> u32 { core::arch::wasm32::memory_size(0) as u32 }
+
+#[cfg(not(target_arch = "wasm32"))]
+fn memory_pages() -> u32 { 0 }
 
 /// Empties the store (a battle gets an instance of its own; this is for
 /// tests and tools that reuse one).

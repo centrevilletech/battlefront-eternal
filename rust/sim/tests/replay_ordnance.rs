@@ -13,6 +13,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The harness's own test: every step one ulp longer than captured.
 static NUDGE: AtomicBool = AtomicBool::new(false);
+/// The tests share NUDGE and the panic hook: one at a time.
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 use bfe_sim::gen::*;
 use bfe_sim::items::Drop;
@@ -941,6 +943,7 @@ fn run_corpus(names: &[&str]) -> Vec<Report> {
 
 #[test]
 fn one_ulp_off_shows() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let Some(corpus) = Corpus::from_env().expect("the corpus BFE_REPLAY_CORPUS names") else { return };
     std::panic::set_hook(Box::new(|_| {}));
     NUDGE.store(true, Ordering::Relaxed);
@@ -955,6 +958,7 @@ fn one_ulp_off_shows() {
 
 #[test]
 fn rounds_and_items_replay_as_captured() {
+    let _one = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     let only = std::env::var("BFE_REPLAY_FRAMES").ok();
     let names: Vec<&str> = FRAMES.iter().copied().filter(|n| only.as_deref().is_none_or(|o| o.split(',').any(|x| x == *n))).collect();
     let reports = run_corpus(&names);

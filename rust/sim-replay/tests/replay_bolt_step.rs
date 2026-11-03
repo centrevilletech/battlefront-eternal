@@ -121,9 +121,34 @@ impl<'f> Bolt<'f> {
     }
 }
 
+// The calls this replay serves: a capture whose spec serves others (the
+// ordnance package's own, once it changes them) is not this replay's.
+const SERVED: [&str; 12] = [
+    "collision.castMoving",
+    "units.raycast",
+    "hitHistory.raycast",
+    "ordnance.riderBehind",
+    "water.crossing",
+    "water.ripple",
+    "effects.play",
+    "ordnance.onImpact",
+    "ordnance.unitImpactEffect",
+    "ordnance.onHit",
+    "ordnance.onHitUnit",
+    "ordnance.explosion",
+];
+fn served_here(capture: &Capture) -> bool {
+    let frames = capture.header.root().get("frames");
+    let Some(spec) = frames.items().find(|f| f.get("name").str() == Some("ordnance.stepBolt")) else { return false };
+    SERVED.iter().all(|name| spec.get("boundaries").items().any(|b| b.str() == Some(name)))
+}
+
 // ordnance.js stepBolt (the world's: drawn is false): Ok(None) when the
 // frame replays the same, Ok(Some(why)) when this replay does not take it.
 fn step_bolt(capture: &Capture, frame: &Frame, nudge: bool) -> Result<Option<String>, Mismatch> {
+    if !served_here(capture) {
+        return Ok(Some("the capture's stepBolt boundary is not this replay's".into()));
+    }
     let state = frame.before();
     let b = state.get("bolt");
     let dt = frame.arg(1).num();

@@ -41,7 +41,7 @@ fn store(cx: &mut Replay) {
     });
     let beam = s.beam.insert(Beam {
         history_tick: Some(1204.5), def, owner: OrdnanceOwner::Vehicle(vehicle), source: BeamSource::Emitter(emitter), local_origin: Some([0.0, 0.5, 2.0]),
-        damage: -0.0, ..Default::default()
+        damage: Some(-0.0), ..Default::default()
     });
     let grenade = s.grenade.insert(Grenade {
         def, owner: OrdnanceOwner::OwnerSnapshot(snapshot), fuse: None, quaternion: [0.0, 0.7071067811865476, 0.0, 0.7071067811865476],

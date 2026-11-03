@@ -222,19 +222,22 @@ function onDraw(label, value) {
 // ---- Frames.
 const open = [];
 let nextFrame = 0;
-function openFrame(spec, args) {
+// A method frame's receiver (`self`: the hull whose tick it is) goes to its
+// spec's state(game, args, cap, self) and into the enter record as `t`.
+function openFrame(spec, args, self) {
   if (spec.world) writeWorld();
   const frame = { id: nextFrame++, spec, depth: 0, pending: [], inner: null, boundaries: new Set(spec.labels) };
   const parent = open.length ? open[open.length - 1].id : null;
-  write(RECORD.frame, current, spec.name, { k: 'enter', f: frame.id, p: parent, a: args, s: stateValue(spec.state(game, args, exporter())) });
+  write(RECORD.frame, current, spec.name, { k: 'enter', f: frame.id, p: parent, ...(self === undefined ? {} : { t: self }), a: args,
+    s: stateValue(spec.state(game, args, exporter(), self)) });
   writer.whole.clear();
   open.push(frame);
   return frame;
 }
-function closeFrame(frame, args, result) {
+function closeFrame(frame, args, result, self) {
   if (open[open.length - 1] !== frame) throw Error(`sim-capture: frame ${frame.spec.name} closed out of order`);
   open.pop();
-  write(RECORD.frame, current, frame.spec.name, { k: 'exit', f: frame.id, d: frame.pending, s: stateValue(frame.spec.state(game, args, exporter())), r: result });
+  write(RECORD.frame, current, frame.spec.name, { k: 'exit', f: frame.id, d: frame.pending, s: stateValue(frame.spec.state(game, args, exporter(), self)), r: result });
   writer.whole.clear();
 }
 
@@ -297,12 +300,15 @@ function installShims() {
   }
   for (const spec of frameSpecs) {
     if (!spec.method) continue;
+    // An object or a prototype (every hull's tick at once); a battle
+    // without one (a map without hulls) has none of these frames.
     const target = spec.target(game), method = spec.method.split('.').pop();
+    if (!target) { spec.missing = true; continue; }
     shim(target, method, (base) => function frameShim(...args) {
       if (!ticking || !sampled) return base.apply(this, args);
-      const frame = openFrame(spec, args);
+      const frame = openFrame(spec, args, this);
       let result;
-      try { result = base.apply(this, args); return result; } finally { closeFrame(frame, args, result); }
+      try { result = base.apply(this, args); return result; } finally { closeFrame(frame, args, result, this); }
     });
   }
 }
@@ -342,21 +348,38 @@ export function battle({ game: g, index, options }) {
   game = g;
   buildSystems();
   refreshIdentity();
-  if (game.ai?.randomA) labels.set(game.ai.randomA, 'A');
-  if (game.ai?.randomB && game.ai.randomB !== game.ai.randomA) labels.set(game.ai.randomB, 'B');
+  // The AI's two generators, A and B (src/ai/index.js), told apart from the
+  // rest by the states game.randomState() reports for them: found in a
+  // shallow walk of game.ai's own data (no getters read).
+  const states = game.randomState?.() ?? {};
+  const walked = new Set(), queue = [[game.ai, 0]];
+  while (queue.length) {
+    const [o, depth] = queue.shift();
+    if (!o || typeof o !== 'object' || walked.has(o) || depth > 3) continue;
+    walked.add(o);
+    if (o instanceof ClassicRandom) {
+      // (Over the provisional label a draw while loading gave it.)
+      if (o.state === states.ai) labels.set(o, 'A');
+      else if (o.state === states.game) labels.set(o, 'B');
+      continue;
+    }
+    for (const desc of Object.values(Object.getOwnPropertyDescriptors(o))) if ('value' in desc && desc.value && typeof desc.value === 'object') queue.push([desc.value, depth + 1]);
+  }
   for (const method of ['explosion', 'explode']) shim(game.ordnance, method, (base) => function counted(...args) { if (ticking) explosions++; return base.apply(this, args); });
   if (scanFile) return;
   installShims();
+  // The commit, from git, or from BFE_COMMIT where the checkout's history
+  // is not at hand (a copy of the worktree on another machine).
   const root = fileURLToPath(new URL('../../', import.meta.url));
-  const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
-  const dirty = spawnSync('git', ['status', '--porcelain', '--', 'src', 'tools', 'rust'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+  const head = process.env.BFE_COMMIT || spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout.trim();
+  const dirty = process.env.BFE_COMMIT ? '' : spawnSync('git', ['status', '--porcelain', '--', 'src', 'tools', 'rust'], { cwd: root, encoding: 'utf8' }).stdout.trim();
   fd = fs.openSync(outFile, 'w');
   fs.writeSync(fd, MAGIC);
   header = { format: 1, tool: 'sim-capture', node: process.version, v8: process.versions.v8, commit: dirty ? `${head}+changes` : head,
     battle: { map: options.map, side: options.side, era: options.era, seed: options.seed, ticks: options.ticks, interval: options.interval,
       ack: options.ack, view: options.view, rays: options.rays, movement: options.movement, ai: options.ai, heroes: options.heroes, query: options.query },
     sample: { every, keep: [...keep].sort((a, b) => a - b) }, phases: PHASE_NAMES, specs: specNames,
-    frames: frameSpecs.map((f) => ({ name: f.name, spec: f.spec, kind: f.phase ? 'phase' : 'method', boundaries: f.labels })),
+    frames: frameSpecs.map((f) => ({ name: f.name, spec: f.spec, kind: f.phase ? 'phase' : 'method', boundaries: f.labels, ...(f.missing ? { missing: true } : {}) })),
     streams: { A: 'the AI\'s shared generator (ai.randomA)', B: 'the second (ai.randomB)', 'stream:NAME': 'a named stream (RandomStreams)',
       'Math.random': 'the seeded Math.random world-hash installs', 'seeded:SEED': 'a press\'s spread draws (weapons.js seededRandom)', 'anon:N': 'another ClassicRandom, by first draw' } };
   write(RECORD.header, 0, 'header', header);

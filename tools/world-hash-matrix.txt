@@ -1,61 +1,75 @@
 # The standing set of battles tools/world-hash-matrix.mjs fingerprints: one
 # battle a line, "LABEL world-hash options". A change to the world step
 # (a kernel, a port to Rust) must leave every tick of every one the same.
+# Run it under Node 24.22 (the production server's V8): another V8's Math
+# functions give other fingerprints.
 #
 # The 31 battles the collision and movement kernels were proven on: every
 # side of the four maps the performance work measures, eleven maps in all,
 # and what a page adds (acknowledged snapshots, shots judged in the past,
 # a snapshot every third tick), 24 of 2,400 ticks and 7 longer ones.
-H-nab2-rep-1 --map nab2 --side rep --seed 1 --ticks 2400
-H-nab2-cis-2 --map nab2 --side cis --seed 2 --ticks 2400
-H-nab2-imp-3 --map nab2 --side imp --seed 3 --ticks 2400
-H-tat1-rep-1 --map tat1 --side rep --seed 1 --ticks 2400
-H-tat1-all-2 --map tat1 --side all --seed 2 --ticks 2400
-H-tat1-imp-3 --map tat1 --side imp --seed 3 --ticks 2400
-H-hot1-imp-1 --map hot1 --side imp --seed 1 --ticks 2400
-H-hot1-all-4 --map hot1 --side all --seed 4 --ticks 2400
-H-kas2-rep-1 --map kas2 --side rep --seed 1 --ticks 2400
-H-bes2-cis-1 --map bes2 --side cis --seed 1 --ticks 2400
-H-geo1-rep-2 --map geo1 --side rep --seed 2 --ticks 2400
-H-end1-all-1 --map end1 --side all --seed 1 --ticks 2400
-H-yav1-imp-2 --map yav1 --side imp --seed 2 --ticks 2400
-H-rhn1-rep-1 --map rhn1 --side rep --seed 1 --ticks 2400
-H-nab1-cis-1 --map nab1 --side cis --seed 1 --ticks 2400
-H-nab2-rep-1-ack --map nab2 --side rep --seed 1 --ticks 2400 --ack
-H-nab2-rep-1-int3 --map nab2 --side rep --seed 1 --ticks 2400 --interval 3
-H-nab2-rep-1-view --map nab2 --side rep --seed 1 --ticks 2400 --view 2.5
-H-tat1-rep-1-ack-view --map tat1 --side rep --seed 1 --ticks 2400 --ack --view 2.5
-H-tat1-all-2-int3 --map tat1 --side all --seed 2 --ticks 2400 --interval 3
-H-hot1-imp-1-view --map hot1 --side imp --seed 1 --ticks 2400 --view 1.5 --ack
-H-bes1-rep-1 --map bes1 --side rep --seed 1 --ticks 2400
-H-bes1-cis-2 --map bes1 --side cis --seed 2 --ticks 2400
-H-bes1-rep-3-ack-view --map bes1 --side rep --seed 3 --ticks 2400 --ack --view 2.5
-HL-nab2-rep-1 --map nab2 --side rep --seed 1 --ticks 6000
-HL-tat1-rep-1 --map tat1 --side rep --seed 1 --ticks 6000
-HL-bes1-rep-1 --map bes1 --side rep --seed 1 --ticks 6000
-HL-hot1-imp-1 --map hot1 --side imp --seed 1 --ticks 6000
-HL-tat1-all-2-ackview --map tat1 --side all --seed 2 --ticks 9000 --ack --view 2.5
-HL-bes1-cis-2-int3 --map bes1 --side cis --seed 2 --ticks 6000 --interval 3
-HL-geo1-cis-1 --map geo1 --side cis --seed 1 --ticks 6000
+nab2-rep-1 --map nab2 --side rep --seed 1 --ticks 2400
+nab2-cis-2 --map nab2 --side cis --seed 2 --ticks 2400
+nab2-imp-3 --map nab2 --side imp --seed 3 --ticks 2400
+tat1-rep-1 --map tat1 --side rep --seed 1 --ticks 2400
+tat1-all-2 --map tat1 --side all --seed 2 --ticks 2400
+tat1-imp-3 --map tat1 --side imp --seed 3 --ticks 2400
+hot1-imp-1 --map hot1 --side imp --seed 1 --ticks 2400
+hot1-all-4 --map hot1 --side all --seed 4 --ticks 2400
+kas2-rep-1 --map kas2 --side rep --seed 1 --ticks 2400
+bes2-cis-1 --map bes2 --side cis --seed 1 --ticks 2400
+geo1-rep-2 --map geo1 --side rep --seed 2 --ticks 2400
+end1-all-1 --map end1 --side all --seed 1 --ticks 2400
+yav1-imp-2 --map yav1 --side imp --seed 2 --ticks 2400
+rhn1-rep-1 --map rhn1 --side rep --seed 1 --ticks 2400
+nab1-cis-1 --map nab1 --side cis --seed 1 --ticks 2400
+nab2-rep-1-ack --map nab2 --side rep --seed 1 --ticks 2400 --ack
+nab2-rep-1-int3 --map nab2 --side rep --seed 1 --ticks 2400 --interval 3
+nab2-rep-1-view --map nab2 --side rep --seed 1 --ticks 2400 --view 2.5
+tat1-rep-1-ackview --map tat1 --side rep --seed 1 --ticks 2400 --ack --view 2.5
+tat1-all-2-int3 --map tat1 --side all --seed 2 --ticks 2400 --interval 3
+hot1-imp-1-viewack --map hot1 --side imp --seed 1 --ticks 2400 --view 1.5 --ack
+bes1-rep-1 --map bes1 --side rep --seed 1 --ticks 2400
+bes1-cis-2 --map bes1 --side cis --seed 2 --ticks 2400
+bes1-rep-3-ackview --map bes1 --side rep --seed 3 --ticks 2400 --ack --view 2.5
+L-nab2-rep-1 --map nab2 --side rep --seed 1 --ticks 6000
+L-tat1-rep-1 --map tat1 --side rep --seed 1 --ticks 6000
+L-bes1-rep-1 --map bes1 --side rep --seed 1 --ticks 6000
+L-hot1-imp-1 --map hot1 --side imp --seed 1 --ticks 6000
+L-tat1-all-2-ackview --map tat1 --side all --seed 2 --ticks 9000 --ack --view 2.5
+L-bes1-cis-2-int3 --map bes1 --side cis --seed 2 --ticks 6000 --interval 3
+L-geo1-cis-1 --map geo1 --side cis --seed 1 --ticks 6000
 #
-# Added for the simulation's port to Rust: the Enhanced AI, the heroes,
-# walkers over a long battle (Hoth's AT-ATs and the snowspeeders' tow runs;
-# Kashyyyk Docks' Separatist side), two battles in one process (what a
-# module keeps between battles), and every map not above once, on a side of
-# an era it has.
-X-nab2-rep-1-enhanced --map nab2 --side rep --seed 1 --ticks 2400 --ai enhanced
-X-tat1-imp-2-enhanced --map tat1 --side imp --seed 2 --ticks 2400 --ai enhanced
+# Added for the simulation's port to Rust, most with the player's shots
+# judged in the past (--view), which the seeded spread of a network player's
+# weapons and seats reaches: the Enhanced AI (E), a droideka as the player
+# (D), walkers over a long battle (W: Hoth's AT-ATs and the snowspeeders'
+# tow runs; Kashyyyk Docks' Separatists), one battle twice in one process
+# (T: what a module keeps between battles), every map not above once (R),
+# the kernels in the battle's own options (K), and the player manning a
+# turret, then a hull's armed seat (M).
+E-nab2-rep-1 --map nab2 --side rep --seed 1 --ticks 2400 --ai enhanced
+E-tat1-all-2-view --map tat1 --side all --seed 2 --ticks 2400 --ai enhanced --view 2.5
 # The heroes' battle stops at the first hero's snapshot: a hero's 1,000,000
 # health is more than the snapshot's 16-bit health can carry, and the
 # capture throws (src/runtime/network-entity-capture.js). Back in once that
 # is settled:
-# X-nab2-cis-1-heroes --map nab2 --side cis --seed 1 --ticks 2400 --heroes
-X-hot1-all-2-walkers --map hot1 --side all --seed 2 --ticks 9000
-X-kas2-cis-2-walkers --map kas2 --side cis --seed 2 --ticks 6000
-X-nab2-rep-1-twice --map nab2 --side rep --seed 1 --ticks 2400 --battles 2
-X-kam1-cis-1 --map kam1 --side cis --seed 1 --ticks 2400
-X-kas1-imp-1 --map kas1 --side imp --seed 1 --ticks 2400
-X-rhn2-rep-1 --map rhn2 --side rep --seed 1 --ticks 2400
-X-tat2-all-1 --map tat2 --side all --seed 1 --ticks 2400
-X-tat3-all-1 --map tat3 --side all --seed 1 --ticks 2400
-X-yav2-imp-1 --map yav2 --side imp --seed 1 --ticks 2400
+# H-nab2-rep-1-view --map nab2 --side rep --seed 1 --ticks 2400 --heroes --view 2.5
+D-nab2-cis-1-view --map nab2 --side cis --seed 1 --ticks 2400 --unit cis_inf_droideka --view 2.5
+D-geo1-cis-2-ackview --map geo1 --side cis --seed 2 --ticks 2400 --unit cis_inf_droideka --view 2.5 --ack
+W-hot1-all-1-view --map hot1 --side all --seed 1 --ticks 6000 --view 2.5
+W-kas2-cis-2-view --map kas2 --side cis --seed 2 --ticks 2400 --view 2.5
+T-nab2-rep-1-twice --map nab2 --side rep --seed 1 --ticks 1200 --twice --view 2.5
+R-kam1-rep-1-view --map kam1 --side rep --seed 1 --ticks 2400 --view 2.5
+R-kas1-rep-1-view --map kas1 --side rep --seed 1 --ticks 2400 --view 2.5
+R-rhn2-imp-1-view --map rhn2 --side imp --seed 1 --ticks 2400 --view 2.5
+R-tat2-all-1-view --map tat2 --side all --seed 1 --ticks 2400 --view 2.5
+R-tat3-imp-1-view --map tat3 --side imp --seed 1 --ticks 2400 --view 2.5
+R-yav2-all-1-view --map yav2 --side all --seed 1 --ticks 2400 --view 2.5
+K-tat1-rep-1-mvwasm --map tat1 --side rep --seed 1 --ticks 2400 --movement wasm
+K-bes1-rep-1-mvwasm-view --map bes1 --side rep --seed 1 --ticks 2400 --movement wasm --view 2.5
+M-nab2-rep-1-mount --map nab2 --side rep --seed 1 --ticks 2400 --view 2.5 --mount 300
+M-hot1-all-1-mount --map hot1 --side all --seed 1 --ticks 2400 --view 2.5 --mount 300
+M-bes1-rep-1-mount --map bes1 --side rep --seed 1 --ticks 2400 --view 2.5 --mount 300
+M-tat1-rep-1-mount --map tat1 --side rep --seed 1 --ticks 2400 --view 2.5 --ack --mount 300
+M-kas2-cis-2-mount --map kas2 --side cis --seed 2 --ticks 2400 --view 2.5 --mount 600

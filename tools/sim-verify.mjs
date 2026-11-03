@@ -1,8 +1,9 @@
 // The simulation port's verification ladder, a command a level (the plan's
 // V1 to V6; V7, the emulator and laptop timing, runs outside the repository):
 //
-//   node tools/sim-verify.mjs v1          twin tests: the kernels' JavaScript twins (tests/*-kernel.test.js,
-//                                         tests/sim-capture.test.js) and the Rust crates' tests
+//   node tools/sim-verify.mjs v1          twin tests: the kernels' JavaScript twins (tests/*-kernel.test.js), the
+//                                         store's and the capture's (tests/sim-store.test.js, tests/sim-capture.test.js)
+//                                         and the Rust crates' tests
 //   node tools/sim-verify.mjs v2          per-phase replays of the corpus BFE_REPLAY_CORPUS names
 //                                         (rust/sim-replay's, and rust/sim's behind its replay feature)
 //   node tools/sim-verify.mjs v3 [opts]   in-battle shadow checks (tools/check-ray-kernel.mjs; its options)
@@ -41,7 +42,7 @@ const simHasReplay = () => fs.existsSync(path.join(root, 'rust/sim/Cargo.toml'))
 
 const levels = {
   v1() {
-    const twins = fs.readdirSync(path.join(root, 'tests')).filter((f) => /kernel\.test\.js$|^sim-capture\.test\.js$/.test(f)).map((f) => `tests/${f}`);
+    const twins = fs.readdirSync(path.join(root, 'tests')).filter((f) => /kernel\.test\.js$|^sim-(capture|store)\.test\.js$/.test(f)).map((f) => `tests/${f}`);
     const js = run(node, ['--test', ...twins]);
     const rust = run('cargo', ['test', ...rustCrates().flatMap((c) => ['-p', c])], { cwd: path.join(root, 'rust') });
     return js.status === 0 && rust.status === 0;

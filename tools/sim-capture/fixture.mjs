@@ -42,7 +42,7 @@ const values = [0, -0, 0.1, -1, 2 ** 52 - 1, -(2 ** 52) + 1, 2 ** 52, 2 ** 53 + 
 // inside it and an out parameter, the inner frame, the end.
 const hit = { unit: null, distance: 0, point: new THREE.Vector3() };
 w.record(RECORD.frame, 2, 'test.frame', { k: 'enter', f: 0, p: null, a: values, s: { list: [1, 2], hit } });
-w.record(RECORD.frame, 2, 'test.inner', { k: 'enter', f: 1, p: 0, a: [], s: { n: 1 } });
+w.record(RECORD.frame, 2, 'test.inner', { k: 'enter', f: 1, p: 0, t: new Handle('vehicle', 4), a: [], s: { n: 1 } });
 w.record(RECORD.frame, 2, 'test.frame', { k: 'call', f: 0, n: 'units.raycast', a: [new THREE.Vector3(0, 1, 0), 25.5, hit], d: [['A', 4294967295], ['stream:gameplay', 12]] });
 hit.unit = new Handle('unit', 3); hit.distance = 12.25; hit.point.set(0, 1, 12.25);
 w.record(RECORD.frame, 2, 'test.frame', { k: 'ret', f: 0, n: 'units.raycast', r: hit, o: [undefined, undefined, hit], i: [['B', 7]], x: { striking: { owner: null } } });
