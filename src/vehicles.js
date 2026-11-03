@@ -652,6 +652,8 @@ export class Vehicle {
     system.scene.add(this.root);
   }
 
+  // Its spawn pad's place in the battle's list (the store names a pad so).
+  get slotIndex() { return this.system.slots.indexOf(this.slot); }
   get weapons() { return this.seats.flatMap(s => s.weapons.map(w => w.state)); }
   get seat() { return this.seats[this.seatIndex]; }
   get weapon() { return this.seat.weapons[0]?.state; }

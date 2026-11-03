@@ -49,6 +49,15 @@ export default {
       wrapYaw: fixed('bool', 'view.wrapYaw'),
     },
 
+    // A spawn pad (Vehicles.slots, in the battle's order): its clock to the
+    // next spawn, the hull on it, and the hulls made for it by class (its
+    // place, its team and classes are the battle's content).
+    SpawnSlot: {
+      remaining: 'f64',
+      vehicle: 'ref:vehicle|null',
+      variants: 'map:ref:vehicle',
+    },
+
     // A walker's water damage (src/vehicle-water.js waterDamageRule).
     WaterRule: {
       interval: 'f64',
@@ -63,6 +72,10 @@ export default {
       singleton: true,
       fields: {
         vehicles: 'list:vehicle',
+        slots: 'list:rec:SpawnSlot',
+        // Where the page's player stands while alive (none while dead): no
+        // hull spawns on him.
+        spawnOccupant: 'vec3|null',
       },
     },
 
@@ -146,6 +159,14 @@ export default {
         towWinding: 'f64',
         // Who last damaged it, for kill credit (a round's owner, a tow's crew).
         lastAttacker: 'union:OrdnanceOwner',
+        // Its spawn pad (its place in Vehicles.slots), and its entry in the
+        // units registry (VehicleTarget): its number there and the life it
+        // is on (each spawn starts one, so references to the last go stale).
+        // The registry is JavaScript's: a spawn the module makes tells it
+        // (VehicleWorld::new_life) rather than writing the generation back.
+        slotIndex: fixed('f64'),
+        targetId: fixed('f64', 'aiTarget.id'),
+        targetGeneration: fixed('f64', 'aiTarget.generation'),
       },
     },
 

@@ -221,15 +221,13 @@ pub struct TowLeg {
     pub foot: Option<Vector3>,
 }
 
-/// What the constructor makes beside the hull's tick state and pose: its
-/// radius, a walker's legs and the height they hang from, its gear, and
-/// each seat's view turn rate (a rider's 9-pose reads it).
+/// What the constructor makes beside the hull's tick state, flight and
+/// pose: a walker's legs and the height they hang from, and each seat's
+/// view turn rate (a rider's 9-pose reads it).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HullExtras {
-    pub radius: f64,
     pub leg_top: f64,
     pub legs: Vec<TowLeg>,
-    pub gear_foot: Option<f64>,
     pub seat_turn_rates: Vec<f64>,
 }
 
@@ -259,6 +257,8 @@ pub struct HullSource<'a> {
     pub name: &'a str,
     pub def: &'a Value,
     pub template: &'a VehicleTemplate,
+    /// Its pad: its place in the battle's list and its matrix.
+    pub slot: usize,
     pub slot_matrix: &'a [f64; 16],
 }
 
@@ -506,9 +506,21 @@ pub fn build(src: &HullSource, index: usize, id: crate::store::Ref<crate::gen::V
         tow_target: -1.0,
         has_final_explosion: class.has_final_explosion,
         final_offset: class.final_offset,
+        slot_index: src.slot,
         pose: Some(pose),
+        // Every hull's flight fields as the constructor sets them: a craft
+        // stands landed on its gear (src/flight/gear.js gearFoot); the
+        // rest wait for a craft's spawn (initFlight).
+        flight: crate::flight::Flight {
+            state: if flying { Some(crate::flight::FlightState::Landed) } else { None },
+            grounded: flying,
+            floor_y: f64::NAN,
+            gear_foot: if flying { template.gear_foot } else { None },
+            radius,
+            ..crate::flight::Flight::default()
+        },
         ..Hull::default()
     };
-    let extras = HullExtras { radius, leg_top, legs, gear_foot: if flying { template.gear_foot } else { None }, seat_turn_rates };
+    let extras = HullExtras { leg_top, legs, seat_turn_rates };
     (hull, extras)
 }

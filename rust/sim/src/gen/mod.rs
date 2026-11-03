@@ -56,7 +56,7 @@ pub const KINDS: usize = 25;
 pub const KIND_NAMES: [&str; 26] = ["", "beam", "body", "bolt", "character", "controller", "emitter", "grenade", "item", "items", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "prop", "round", "seatLease", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 26] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x9b924a1b, 0x2e0c3c78, 0xc2257049, 0xfbd22c8d, 0x13c7018c, 0x03866fa6, 0xcafe7969, 0x7252759a, 0x02390125, 0xc4be789d];
+pub const KIND_HASHES: [u32; 26] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x9b924a1b, 0x2e0c3c78, 0xc2257049, 0xfbd22c8d, 0x13c7018c, 0x03866fa6, 0x03db9a1b, 0x7252759a, 0x02390125, 0x4998e382];
 /// Whether each kind's objects carry their own number (its slot), by code.
 pub const KIND_KEYED: [bool; 26] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false];
 

@@ -242,6 +242,11 @@ pub struct Hull {
     /// What its dying and its final blast read of its class.
     pub has_final_explosion: bool,
     pub final_offset: [f64; 3],
+    /// Its spawn pad (its place in the battle's list of pads), and its
+    /// entry in the units registry: its number there and the life it is on.
+    pub slot_index: usize,
+    pub target_id: f64,
+    pub target_generation: f64,
     /// Its pose (its rig, its seats' aim state): `pose.rs`.
     pub pose: Option<super::pose::HullPose>,
     /// Its flight (a craft's; every hull's flight state): crate::flight.

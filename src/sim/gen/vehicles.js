@@ -142,6 +142,45 @@ export function exportVehicleSeat(o, cx) {
   return v;
 }
 
+export class SpawnSlotMirror {
+  constructor() {
+    this.remaining = NaN;
+    this.vehicle = null;
+    this.variants = new Map();
+  }
+}
+
+export function syncSpawnSlot(b, f, at, h, m) {
+  m.remaining = f[at + 0];
+  { const tag = f[at + 1]; if (tag === 0) { m.vehicle = b.refs[KIND_VEHICLE].at(f[at + 2], f[at + 3]); } else m.vehicle = tag === 1 ? null : undefined; }
+  { const map = (m.variants ??= new Map()), start = h + f[at + 4], n = f[at + 5]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 3; let v; { const at = e; v = b.refs[KIND_VEHICLE].at(f[at + 1], f[at + 2]); } map.set(b.strings.at(f[e]), v); } }
+  return m;
+}
+
+export function putSpawnSlot(b, o, f, at, heap) {
+  f[at + 0] = o.remaining;
+  { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f.fill(0, at + 2, at + 4); } else { f[at + 1] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 2); } }
+  heap.map(b.strings, o.variants, f, at + 4, 3, (f, at, v) => { b.refs[KIND_VEHICLE].put(v, f, at + 1); });
+}
+
+export function sameSpawnSlot(a, b) {
+  if (!Object.is(a.remaining, b.remaining)) return ".remaining";
+  { const p = a.vehicle, q = b.vehicle; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".vehicle"; } else { if (!Object.is(p, q)) return ".vehicle"; } }
+  if (!sameMap(a.variants, b.variants, (x, y) => Object.is(x, y))) return ".variants";
+  return null;
+}
+
+export function exportSpawnSlot(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.remaining = o.remaining;
+  v.vehicle = ((x) => (x === null || x === undefined ? x : cx.ref("vehicle", x)))(o.vehicle);
+  v.variants = new Map([...o.variants].map(([k, x]) => [k, cx.ref("vehicle", x)]));
+  return v;
+}
+
 export class WaterRuleMirror {
   constructor() {
     this.interval = NaN;
@@ -180,32 +219,42 @@ export function exportWaterRule(o, cx) {
 export class VehiclesMirror {
   constructor() {
     this.vehicles = [];
+    this.slots = [];
+    this.spawnOccupant = null;
   }
 }
 
-export const VEHICLES_KEYS = new Set(["vehicles"]);
-export const VEHICLES_EXPORT_STRIDE = 4, VEHICLES_IMPORT_STRIDE = 4, VEHICLES_FULL_STRIDE = 4;
+export const VEHICLES_KEYS = new Set(["vehicles", "slots", "spawnOccupant"]);
+export const VEHICLES_EXPORT_STRIDE = 10, VEHICLES_IMPORT_STRIDE = 10, VEHICLES_FULL_STRIDE = 10;
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncVehicles(b, f, at, h, m) {
   { const items = (m.vehicles ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.slots ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSpawnSlot(b, f, at + 0, h, v ?? new SpawnSlotMirror()); } items[i] = v; } }
+  { const tag = f[at + 6]; if (tag === 0) { (m.spawnOccupant ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]); } else m.spawnOccupant = tag === 1 ? null : undefined; }
   return m;
 }
 
 // A full row into object `m`.
 export function syncFullVehicles(b, f, at, h, m) {
   { const items = (m.vehicles ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
+  { const items = (m.slots ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSpawnSlot(b, f, at + 0, h, v ?? new SpawnSlotMirror()); } items[i] = v; } }
+  { const tag = f[at + 6]; if (tag === 0) { (m.spawnOccupant ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]); } else m.spawnOccupant = tag === 1 ? null : undefined; }
   return m;
 }
 
 // Object `o`'s import fields into a row (lists to `heap`).
 export function putVehicles(b, o, f, at, heap) {
   heap.items(o.vehicles, f, at + 2, 2, (f, at, v) => { b.refs[KIND_VEHICLE].put(v, f, at + 0); });
+  heap.items(o.slots, f, at + 4, 6, (f, at, v) => { putSpawnSlot(b, v, f, at + 0, heap); });
+  { const $x = o.spawnOccupant; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f.fill(0, at + 7, at + 10); } else { f[at + 6] = 0; { const $v = $x; f[at + 7] = $v.x; f[at + 8] = $v.y; f[at + 9] = $v.z; } } }
 }
 
 // Every field of object `o` into a row.
 export function putFullVehicles(b, o, f, at, heap) {
   heap.items(o.vehicles, f, at + 2, 2, (f, at, v) => { b.refs[KIND_VEHICLE].put(v, f, at + 0); });
+  heap.items(o.slots, f, at + 4, 6, (f, at, v) => { putSpawnSlot(b, v, f, at + 0, heap); });
+  { const $x = o.spawnOccupant; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f.fill(0, at + 7, at + 10); } else { f[at + 6] = 0; { const $v = $x; f[at + 7] = $v.x; f[at + 8] = $v.y; f[at + 9] = $v.z; } } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -213,11 +262,15 @@ export function putFullVehicles(b, o, f, at, heap) {
 export function checkVehicles(b, f, at, h, m) {
   const want = syncVehicles(b, f, at, h, new VehiclesMirror());
   if (!sameEach(m.vehicles, want.vehicles, (x, y) => Object.is(x, y))) return ".vehicles";
+  if (!sameEach(m.slots, want.slots, (x, y) => sameSpawnSlot(x, y) === null)) return ".slots";
+  { const p = m.spawnOccupant, q = want.spawnOccupant; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".spawnOccupant"; } else { if (!sameVec(p, q)) return ".spawnOccupant"; } }
   return null;
 }
 
 export function sameVehicles(a, b) {
   if (!sameEach(a.vehicles, b.vehicles, (x, y) => Object.is(x, y))) return ".vehicles";
+  if (!sameEach(a.slots, b.slots, (x, y) => sameSpawnSlot(x, y) === null)) return ".slots";
+  { const p = a.spawnOccupant, q = b.spawnOccupant; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".spawnOccupant"; } else { if (!sameVec(p, q)) return ".spawnOccupant"; } }
   return null;
 }
 
@@ -227,5 +280,7 @@ export function exportVehicles(o, cx) {
   v = {};
   cx.seen.set(o, v);
   v.vehicles = o.vehicles.map((x) => exportVehicle(x, cx));
+  v.slots = o.slots.map((x) => exportSpawnSlot(x, cx));
+  v.spawnOccupant = ((x) => (x === null || x === undefined ? x : x.clone()))(o.spawnOccupant);
   return v;
 }

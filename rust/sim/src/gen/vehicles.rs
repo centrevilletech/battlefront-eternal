@@ -96,6 +96,34 @@ impl VehicleSeat {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpawnSlot {
+    pub remaining: f64,
+    pub vehicle: Option<Ref<Vehicle>>,
+    pub variants: StrMap<Ref<Vehicle>>,
+}
+
+impl SpawnSlot {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0] = self.remaining;
+        match &self.vehicle { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).slot as f64; row[1 + 1 + 1] = (*v).gen as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 3].fill(0.0); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.variants.entries.len() as f64; heap.resize(at + self.variants.entries.len() * 3, 0.0); for (i, (key, e)) in self.variants.entries.iter().enumerate() { let mut entry = [0.0f64; 3]; entry[0] = key.0 as f64; { let row = &mut entry; row[1] = (*e).slot as f64; row[1 + 1] = (*e).gen as f64; } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&entry); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            remaining: row[0],
+            vehicle: if row[1] == 0.0 { Some(Ref::new(word_u32(row[1 + 1]), word_u32(row[1 + 1 + 1]))) } else { None },
+            variants: { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut m = StrMap::default(); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; let value = Ref::new(word_u32(row[1]), word_u32(row[1 + 1])); m.entries.push((StrId(word_u32(row[0])), value)); } m },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct WaterRule {
     pub interval: f64,
     pub amount: f64,
@@ -124,23 +152,29 @@ impl WaterRule {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Vehicles {
     pub vehicles: Vec<Ref<Vehicle>>,
+    pub slots: Vec<SpawnSlot>,
+    pub spawn_occupant: Option<Vec3>,
 }
 
 impl Vehicles {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 4;
-    pub const IMPORT_STRIDE: usize = 4;
-    pub const FULL_STRIDE: usize = 4;
+    pub const EXPORT_STRIDE: usize = 10;
+    pub const IMPORT_STRIDE: usize = 10;
+    pub const FULL_STRIDE: usize = 10;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
         { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.vehicles.len() as f64; heap.resize(at + self.vehicles.len() * 2, 0.0); for (i, e) in self.vehicles.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.slots.len() as f64; heap.resize(at + self.slots.len() * 6, 0.0); for (i, e) in self.slots.iter().enumerate() { let mut item = [0.0f64; 6]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 6..at + (i + 1) * 6].copy_from_slice(&item); } }
+        match &self.spawn_occupant { Some(v) => { row[6] = 0.0; row[6 + 1..6 + 1 + 3].copy_from_slice(&(*v)); } None => { row[6] = 1.0; row[6 + 1..6 + 4].fill(0.0); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
         self.vehicles = { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
+        self.slots = { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 6..at + (i + 1) * 6]; out.push(SpawnSlot::take(&row[0..], heap)); } out };
+        self.spawn_occupant = if row[6] == 0.0 { Some([row[6 + 1], row[6 + 1 + 1], row[6 + 1 + 2]]) } else { None };
     }
 
     #[inline(always)]

@@ -31,6 +31,7 @@ pub mod class;
 pub mod hover;
 pub mod hull;
 pub mod pose;
+pub mod spawn;
 pub mod store;
 pub mod tethers;
 pub mod walker;
@@ -119,4 +120,9 @@ pub trait VehicleWorld {
     /// A tow cable let go (snapped, tripped its walker, released), which the
     /// presentation capture hears: emitSound("towRelease", hull, def, reason).
     fn tow_released(&mut self, hull: usize, reason: &str);
+    /// A spawn's new life (Vehicle.spawn): the hull's registry entry starts
+    /// a new generation and its seats get new weapons, which are the
+    /// registry's and the combat package's (JavaScript's until they move);
+    /// a world whose spawns are JavaScript's has nothing to do.
+    fn new_life(&mut self, _hull: usize) {}
 }

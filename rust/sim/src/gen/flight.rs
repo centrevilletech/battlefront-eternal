@@ -171,17 +171,20 @@ pub struct Vehicle {
     pub tow_angle: f64,
     pub tow_winding: f64,
     pub last_attacker: OrdnanceOwner,
+    pub slot_index: f64,
+    pub target_id: f64,
+    pub target_generation: f64,
 }
 
 impl Vehicle {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
     pub const EXPORT_STRIDE: usize = 192;
-    pub const IMPORT_STRIDE: usize = 245;
-    pub const FULL_STRIDE: usize = 245;
+    pub const IMPORT_STRIDE: usize = 248;
+    pub const FULL_STRIDE: usize = 248;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 245] = (&mut row[..245]).try_into().unwrap();
+        let row: &mut [f64; 248] = (&mut row[..248]).try_into().unwrap();
         match &self.flight_state { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v) as u8 as f64; } None => { row[2] = 1.0; row[2 + 1..2 + 2].fill(0.0); } }
         row[4] = if self.grounded { 1.0 } else { 0.0 };
         row[5] = self.altitude;
@@ -299,10 +302,13 @@ impl Vehicle {
         row[240] = self.tow_angle;
         row[241] = self.tow_winding;
         self.last_attacker.put(&mut row[242..242 + 3], heap);
+        row[245] = self.slot_index;
+        row[246] = self.target_id;
+        row[247] = self.target_generation;
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 245] = (&row[..245]).try_into().unwrap();
+        let row: &[f64; 248] = (&row[..248]).try_into().unwrap();
         self.flight_state = if row[2] == 0.0 { Some(FlightState::from_u8(word_u32(row[2 + 1]) as u8).unwrap_or_default()) } else { None };
         self.grounded = row[4] != 0.0;
         self.altitude = row[5];
@@ -420,6 +426,9 @@ impl Vehicle {
         self.tow_angle = row[240];
         self.tow_winding = row[241];
         self.last_attacker = OrdnanceOwner::take(&row[242..242 + 3], heap);
+        self.slot_index = row[245];
+        self.target_id = row[246];
+        self.target_generation = row[247];
     }
 
     pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) {

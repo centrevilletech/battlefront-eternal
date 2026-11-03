@@ -103,8 +103,8 @@ export class VehicleMirror {
   }
 }
 
-export const VEHICLE_KEYS = new Set(["flightState", "grounded", "altitude", "throttle", "airspeed", "stateTime", "floorY", "bank", "gearFoot", "radius", "team", "flightClass", "minSpeed", "midSpeed", "boostSpeed", "power", "stickX", "stickY", "flightRollRate", "rollLock", "boosting", "trick", "trickTime", "trickCooldown", "trickPending", "trickDirection", "gear", "landingMessage", "landingMessageTime", "flightTrickRight", "flightClock", "boostExhausted", "landingReason", "flightWarning", "terrainWarning", "flightAssistId", "flightLockId", "flightLockGeneration", "flightLockTimer", "flightLostLOS", "flightLockState", "flightStart", "flightEnd", "flightStartQ", "flightTrickLoopQ", "flightTrickEndQ", "flightPreviousQ", "flightTickQ", "flightActionHeld", "trickHeld", "immelmannHeld", "flightFrameQ", "name", "flying", "walking", "creature", "wheeled", "repulsor", "speed", "reverseSpeed", "strafeSpeed", "acceleration", "deceleration", "turnRate", "hover", "bounds", "center", "size", "boundRadius", "probeRadius", "probes", "supportProbes", "maxHealth", "waterRule", "waterDepth", "body", "position", "previous", "velocity", "yaw", "previousYaw", "tilt", "roll", "previousTilt", "previousRoll", "yawRate", "tiltRate", "rollRate", "support", "forwardInput", "rightInput", "alive", "sleeping", "health", "dying", "waterClock", "quaternion", "matrix", "itemTarget", "supportNormal", "legSide", "seatIndex", "driver", "wheels", "seats", "tickFrom", "tickFromYaw", "tickFromTilt", "tickFromRoll", "root", "towTarget", "towLocal", "towLeg", "towAngle", "towWinding", "lastAttacker", "flightConfig", "flightLeanQ"]);
-export const VEHICLE_EXPORT_STRIDE = 192, VEHICLE_IMPORT_STRIDE = 245, VEHICLE_FULL_STRIDE = 245;
+export const VEHICLE_KEYS = new Set(["flightState", "grounded", "altitude", "throttle", "airspeed", "stateTime", "floorY", "bank", "gearFoot", "radius", "team", "flightClass", "minSpeed", "midSpeed", "boostSpeed", "power", "stickX", "stickY", "flightRollRate", "rollLock", "boosting", "trick", "trickTime", "trickCooldown", "trickPending", "trickDirection", "gear", "landingMessage", "landingMessageTime", "flightTrickRight", "flightClock", "boostExhausted", "landingReason", "flightWarning", "terrainWarning", "flightAssistId", "flightLockId", "flightLockGeneration", "flightLockTimer", "flightLostLOS", "flightLockState", "flightStart", "flightEnd", "flightStartQ", "flightTrickLoopQ", "flightTrickEndQ", "flightPreviousQ", "flightTickQ", "flightActionHeld", "trickHeld", "immelmannHeld", "flightFrameQ", "name", "flying", "walking", "creature", "wheeled", "repulsor", "speed", "reverseSpeed", "strafeSpeed", "acceleration", "deceleration", "turnRate", "hover", "bounds", "center", "size", "boundRadius", "probeRadius", "probes", "supportProbes", "maxHealth", "waterRule", "waterDepth", "body", "position", "previous", "velocity", "yaw", "previousYaw", "tilt", "roll", "previousTilt", "previousRoll", "yawRate", "tiltRate", "rollRate", "support", "forwardInput", "rightInput", "alive", "sleeping", "health", "dying", "waterClock", "quaternion", "matrix", "itemTarget", "supportNormal", "legSide", "seatIndex", "driver", "wheels", "seats", "tickFrom", "tickFromYaw", "tickFromTilt", "tickFromRoll", "root", "towTarget", "towLocal", "towLeg", "towAngle", "towWinding", "lastAttacker", "slotIndex", "aiTarget", "flightConfig", "flightLeanQ"]);
+export const VEHICLE_EXPORT_STRIDE = 192, VEHICLE_IMPORT_STRIDE = 248, VEHICLE_FULL_STRIDE = 248;
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncVehicle(b, f, at, h, m) {
@@ -314,6 +314,9 @@ export function syncFullVehicle(b, f, at, h, m) {
   m.towAngle = f[at + 240];
   m.towWinding = f[at + 241];
   m.lastAttacker = syncOrdnanceOwner(b, f, at + 242, h, m.lastAttacker);
+  m.slotIndex = f[at + 245];
+  (m.aiTarget ??= {}).id = f[at + 246];
+  (m.aiTarget ??= {}).generation = f[at + 247];
   return m;
 }
 
@@ -436,6 +439,9 @@ export function putVehicle(b, o, f, at, heap) {
   f[at + 240] = o.towAngle;
   f[at + 241] = o.towWinding;
   putOrdnanceOwner(b, o.lastAttacker, f, at + 242, heap);
+  f[at + 245] = o.slotIndex;
+  f[at + 246] = o.aiTarget?.id;
+  f[at + 247] = o.aiTarget?.generation;
 }
 
 // Every field of object `o` into a row.
@@ -557,6 +563,9 @@ export function putFullVehicle(b, o, f, at, heap) {
   f[at + 240] = o.towAngle;
   f[at + 241] = o.towWinding;
   putOrdnanceOwner(b, o.lastAttacker, f, at + 242, heap);
+  f[at + 245] = o.slotIndex;
+  f[at + 246] = o.aiTarget?.id;
+  f[at + 247] = o.aiTarget?.generation;
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -768,6 +777,9 @@ export function sameVehicle(a, b) {
   if (!Object.is(a.towAngle, b.towAngle)) return ".towAngle";
   if (!Object.is(a.towWinding, b.towWinding)) return ".towWinding";
   if (!sameOrdnanceOwner(a.lastAttacker, b.lastAttacker)) return ".lastAttacker";
+  if (!Object.is(a.slotIndex, b.slotIndex)) return ".slotIndex";
+  if (!Object.is(a.aiTarget?.id, b.aiTarget?.id)) return ".targetId";
+  if (!Object.is(a.aiTarget?.generation, b.aiTarget?.generation)) return ".targetGeneration";
   return null;
 }
 
@@ -894,5 +906,8 @@ export function exportVehicle(o, cx) {
   v.towAngle = o.towAngle;
   v.towWinding = o.towWinding;
   v.lastAttacker = exportOrdnanceOwner(o.lastAttacker, cx);
+  v.slotIndex = o.slotIndex;
+  v.targetId = o.aiTarget?.id;
+  v.targetGeneration = o.aiTarget?.generation;
   return v;
 }

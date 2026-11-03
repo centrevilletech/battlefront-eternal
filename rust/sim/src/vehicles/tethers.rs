@@ -50,40 +50,62 @@ pub fn tow_gun(source: &Hull, gun: Option<Vector3>) -> Vector3 {
     out
 }
 
+/// The battle's hulls as the world holds them (Vehicles.vehicles), for a
+/// pass that reaches several: a hull whose own method calls the world is
+/// taken out for the call and put back after it, so what the world does
+/// meanwhile to the others (a tripped walker's blast hurting the hull that
+/// tripped it) lands on them as it does in JavaScript, and the hull taken
+/// out reads as gone (a default hull: not alive) to anything that looks.
+pub trait Fleet {
+    fn hull(&mut self, i: usize) -> &mut Hull;
+    fn take(&mut self, i: usize) -> Hull;
+    fn put(&mut self, i: usize, hull: Hull);
+}
+
 /// vehicles.js updateTethers: each held cable's winding, breaking and the
 /// walker's fall, in the cables' order. `guns[i]`: hull i's tow turret in
 /// the world, where it has one.
-pub fn update_tethers<W: VehicleWorld>(hulls: &mut [Hull], tethers: &mut [Tether], guns: &[Option<Vector3>], w: &mut W) {
+pub fn update_tethers<W: VehicleWorld + Fleet>(tethers: &mut [Tether], guns: &[Option<Vector3>], w: &mut W) {
     for t in tethers.iter_mut() {
         let s = t.source;
-        if hulls[s].tow_target < 0.0 {
+        if w.hull(s).tow_target < 0.0 {
             continue;
         }
-        t.start = tow_gun(&hulls[s], guns[s]);
+        t.start = tow_gun(w.hull(s), guns[s]);
         let target = t.target.expect("a held cable's walker");
-        let mut end = hulls[s].tow_local;
-        end.apply_matrix4(&hulls[target].matrix);
+        let mut end = w.hull(s).tow_local;
+        end.apply_matrix4(&w.hull(target).matrix);
         t.end = end;
         let span = t.start.distance_to(&t.end);
-        if !hulls[s].alive || !hulls[target].alive {
-            release_tow(&mut hulls[s], t.has_def, "destroyed", w);
+        if !w.hull(s).alive || !w.hull(target).alive {
+            let mut source = w.take(s);
+            release_tow(&mut source, t.has_def, "destroyed", w);
+            w.put(s, source);
             continue;
         }
         if span > t.length * 1.2 {
-            release_tow(&mut hulls[s], t.has_def, "snapped", w);
+            let mut source = w.take(s);
+            release_tow(&mut source, t.has_def, "snapped", w);
+            w.put(s, source);
             continue;
         }
-        let around = math::atan2(hulls[s].position.x - hulls[target].position.x, hulls[s].position.z - hulls[target].position.z);
-        hulls[s].tow_winding += angle(around - hulls[s].tow_angle);
-        hulls[s].tow_angle = around;
-        if v8math::abs(hulls[s].tow_winding) >= 6.0 * std::f64::consts::PI {
-            release_tow(&mut hulls[s], t.has_def, "tripped", w);
+        let (sp, tp) = (w.hull(s).position, w.hull(target).position);
+        let around = math::atan2(sp.x - tp.x, sp.z - tp.z);
+        let source = w.hull(s);
+        source.tow_winding += angle(around - source.tow_angle);
+        source.tow_angle = around;
+        if v8math::abs(source.tow_winding) >= 6.0 * std::f64::consts::PI {
+            let mut source = w.take(s);
+            release_tow(&mut source, t.has_def, "tripped", w);
             // Credited to the bot on the cable's seat, else the hull.
-            let attacker = match hulls[s].seats.get(t.seat).and_then(|seat| seat.lease).and_then(|l| l.unit) {
+            let attacker = match source.seats.get(t.seat).and_then(|seat| seat.lease).and_then(|l| l.unit) {
                 Some(unit) => OrdnanceOwner::Unit(unit),
-                None => OrdnanceOwner::Vehicle(hulls[s].id),
+                None => OrdnanceOwner::Vehicle(source.id),
             };
-            hulls[target].damage(w, f64::INFINITY, attacker);
+            w.put(s, source);
+            let mut walker = w.take(target);
+            walker.damage(w, f64::INFINITY, attacker);
+            w.put(target, walker);
         }
     }
 }

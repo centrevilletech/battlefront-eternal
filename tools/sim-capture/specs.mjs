@@ -186,6 +186,16 @@ function towGunWorld(t) {
   const e = turret.matrixWorld.elements;
   return new THREE.Vector3(e[12], e[13], e[14]);
 }
+// The hulls the cables join (their sources and walkers), as the store
+// holds them: the state a call made while the cables are updated can
+// change (a tripped walker's blast hurts the hull that tripped it).
+function cableHulls(game, cap) {
+  const vs = game.vehicles, list = vs.vehicles;
+  const involved = new Set();
+  for (const t of vs.tethers.values()) { involved.add(t.source); if (t.target) involved.add(t.target); }
+  return { hulls: [...involved].map((v) => ({ index: list.indexOf(v), hull: cap.export('vehicle', v) })) };
+}
+const tetherBoundaries = (game) => hullBoundaries(game).map(([label, target, method]) => (label === 'world.explosion' ? [label, target, method, cableHulls] : [label, target, method]));
 function tetherState(game, cap) {
   const vs = game.vehicles, list = vs.vehicles, at = (v) => (v ? list.indexOf(v) : null);
   const involved = new Set();
@@ -239,20 +249,26 @@ function spawnState(game, cap) {
     made: made.map((v) => builtState(v, list, cap)),
   };
 }
+// A spawn's calls: a hull's, and those of the pose it renders at once.
+const spawnBoundaries = (game) => [
+  ...hullBoundaries(game),
+  ['units.raycast', game.units, 'raycast'],
+  ['world.clock', game.vehicles?.world ?? null, 'clock'],
+];
 // A hull's spawn (Vehicle.spawn): the hull and its pose (its rig's nodes
 // whatever it last showed, and after it the pose it renders at once).
 const spawnFrame = () => {
   let entering = true;
-  return { method: 'vehicle.spawn', target: hullPrototype, boundaries: hullBoundaries,
+  return { method: 'vehicle.spawn', target: hullPrototype, boundaries: spawnBoundaries,
     state: (game, args, cap, self) => { const end = !entering; entering = !entering; return { hull: cap.export('vehicle', self), pose: poseState(self, [1, 0], end, true), team: self.team ?? null }; } };
 };
 const vehicles = {
   frames: [
-    { method: 'vehicles.updateSpawns', target: (game) => game.vehicles ?? null, state: (game, args, cap) => spawnState(game, cap), boundaries: hullBoundaries },
+    { method: 'vehicles.updateSpawns', target: (game) => game.vehicles ?? null, state: (game, args, cap) => spawnState(game, cap), boundaries: spawnBoundaries },
     spawnFrame(),
     poseFrame('vehicle.aimTick'),
     poseFrame('vehicle.render'),
-    { method: 'vehicles.updateTethers', target: (game) => game.vehicles ?? null, state: (game, args, cap) => tetherState(game, cap), boundaries: hullBoundaries },
+    { method: 'vehicles.updateTethers', target: (game) => game.vehicles ?? null, state: (game, args, cap) => tetherState(game, cap), boundaries: tetherBoundaries },
     { method: 'vehicle.dyingTick', target: hullPrototype, state: (game, args, cap, self) => ({ hull: cap.export('vehicle', self) }), boundaries: hullBoundaries },
     { method: 'vehicle.captureTick', target: hullPrototype, state: (game, args, cap, self) => ({ hull: cap.export('vehicle', self) }), boundaries: () => [] },
     { method: 'vehicle.tick', target: hullPrototype, whole: ['SeatInput'],
