@@ -33,7 +33,7 @@ export const LENGTHS = {
   foliage_input: 53,
   post_input: 8 * 221,
   hud_input: 47 + 1024 * 5, hud_position: 64 * 3, hud_uv: 64 * 2, hud_mask_uv: 64 * 2, hud_tint: 64 * 4,
-  water_input: 8 * (27 + 24 * 18) + 2, water_rings_position: 16 * 3, water_rings_uv: 16 * 2, water_rings_alpha: 16,
+  water_input: 8 * (27 + 32 * 18 + 35) + 2 + 4, water_rings_position: 16 * 3, water_rings_uv: 16 * 2, water_rings_alpha: 16, water_instances: 4096,
   view_input: 1 + 16 * (17 + 32 * 18),
 };
 export const LAYOUT = { records_at: 200, record_stride: 100, transparent_object_stride: 40 };
@@ -103,7 +103,7 @@ export function standinContext(calls) {
   return {
     ...GL,
     getProgramParameter: (p, what) => (what === GL.ACTIVE_UNIFORMS ? p.uniforms.length : p.attributes.length),
-    getActiveUniform: (p, i) => ({ name: p.uniforms[i][0], type: p.uniforms[i][1], size: 1 }),
+    getActiveUniform: (p, i) => ({ name: p.uniforms[i][0], type: p.uniforms[i][1], size: p.uniforms[i][2] ?? 1 }),
     getActiveAttrib: (p, i) => ({ name: p.attributes[i] }),
     getAttribLocation: (p, name) => p.attributes.indexOf(name),
     getAttachedShaders: () => [{ type: GL.FRAGMENT_SHADER }, { type: GL.VERTEX_SHADER }],

@@ -1165,6 +1165,29 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {number} surface
+     * @param {number} set
+     * @param {number} k
+     * @param {number} location
+     */
+    water_instanced(surface, set, k, location) {
+        wasm.bferenderer_water_instanced(this.__wbg_ptr, surface, set, k, location);
+    }
+    /**
+     * @returns {number}
+     */
+    water_instances_len() {
+        const ret = wasm.bferenderer_water_instances_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    water_instances_ptr() {
+        const ret = wasm.bferenderer_water_instances_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {Uint32Array | number[]} index
      * @param {Uint32Array | number[]} blend
      * @param {number} depth_func
@@ -1231,6 +1254,18 @@ export class BfeRenderer {
     water_rings_uv_ptr() {
         const ret = wasm.bferenderer_water_rings_uv_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} max
+     * @param {Uint32Array | number[]} sizes
+     * @returns {number | undefined}
+     */
+    water_set(max, sizes) {
+        const val2 = +max;
+        const ptr0 = passArray32ToWasm0(sizes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_water_set(this.__wbg_ptr, val2, ptr0, len0);
+        return ret === Number.MAX_SAFE_INTEGER ? undefined : ret;
     }
     /**
      * @param {number} geometry
