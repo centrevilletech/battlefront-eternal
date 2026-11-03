@@ -217,7 +217,9 @@ const VERTEX = /* glsl */ `
 const FRAGMENT = /* glsl */ `
   uniform sampler2D map;
   uniform vec4 tint;
-  uniform vec2 fade, depthResolution, cameraRange;
+  // The near scene's fade (materials.js lighting), on a line of its own.
+  uniform vec2 fade;
+  uniform vec2 depthResolution, cameraRange;
   uniform sampler2D sceneDepth;
   uniform float softParticles;
   varying vec2 vUv;
