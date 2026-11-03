@@ -134,7 +134,7 @@ class NearPass {
   // material three draws itself (an opaque one, a group's, or one that
   // blends that the transparent pass has not taken).
   stillStops(object, scene, camera) {
-    if (!object || object === this.core.graphics.background) return false;
+    if (!object || object === this.core.graphics.background || object === this.core.nearAnchor) return false;
     let o = object;
     for (; o && o !== scene; o = o.parent) if (o.visible === false) return false;
     if (o !== scene || !object.layers.test(camera.layers)) return false;
@@ -145,10 +145,11 @@ class NearPass {
     return !object.frustumCulled || (object.isSprite ? this.frustum.intersectsSprite(object) : this.frustum.intersectsObject(object));
   }
 
-  // An item three would list: the far scene's image (drawn by this pass), or
-  // one the transparent pass takes, with three's key; else three draws it.
+  // An item three would list: the far scene's image (drawn by this pass),
+  // the near phase's hook (nothing to draw), or one the transparent pass
+  // takes, with three's key; else three draws it.
   item(object, material, groupOrder) {
-    if (object === this.core.graphics.background) return true;
+    if (object === this.core.graphics.background || object === this.core.nearAnchor) return true;
     if (!material.transparent || material.transmission > 0 || this.items.length >= MAX_ITEMS) { this.stopped = object; return false; }
     // z as projectObject takes it: a sprite's position, else the centre of
     // its bounding sphere (the object's own, where it has one), through its

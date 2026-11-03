@@ -176,11 +176,16 @@ test("the transparent list: armed after the near phase on three's last opaque it
   assert.ok(!Object.prototype.hasOwnProperty.call(b, "onAfterRender"));
 });
 
-test("the transparent list follows at once when the far scene's image is three's only opaque item", () => {
+test("the transparent list follows the far scene's image, drawn last of three's opaque list", () => {
   const { core, calls, renderer, scene, camera, graphics, list, setSegments } = bridge();
-  list.opaque.push({ object: graphics.background, material: {}, group: null, groupOrder: 0, renderOrder: -1e9, z: 0, id: graphics.background.id });
+  assert.equal(core.nearAnchor.parent, scene, "the near phase's hook is in the near scene");
+  assert.equal(core.nearAnchor.renderOrder, -1e9, "first in three's opaque list");
+  const item = (object, renderOrder) => ({ object, material: {}, group: null, groupOrder: 0, renderOrder, z: 0, id: object.id });
+  list.opaque.push(item(core.nearAnchor, -1e9), item(graphics.background, 1e9));
   setSegments([0, 0]);
   core.pass(renderer, scene, camera);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => n.endsWith("frame")), ["frame"], "not before the image");
+  graphics.background.onAfterRender(renderer, scene, camera, null, list.opaque[1].material, null);
   assert.deepEqual(calls.map((c) => c[0]).filter((n) => n.endsWith("frame")), ["frame", "transparent_frame"]);
 });
 
@@ -218,13 +223,15 @@ test("with the transparent pass off, three keeps its whole list and the other so
   renderer.properties.get(material).currentProgram = program;
   renderer.properties.get(material).__version = material.version;
   pass.taken.set(holo, { bucket: false, id: 7, material, program, frame: 0 });
-  list.opaque.push({ object: graphics.background, material: {}, group: null, groupOrder: 0, renderOrder: 0, z: 0, id: graphics.background.id });
+  list.opaque.push({ object: core.nearAnchor, material: {}, group: null, groupOrder: 0, renderOrder: -1e9, z: 0, id: core.nearAnchor.id },
+    { object: graphics.background, material: {}, group: null, groupOrder: 0, renderOrder: 1e9, z: 0, id: graphics.background.id });
   list.transparent.push({ object: holo, material, group: null, groupOrder: 0, renderOrder: 0, z: 0.75, id: holo.id });
   setSegments([0, 0, 0]);
   core.views();
   core.transparentObjects[0] = 5;
   pass.setActive(false);
   core.pass(renderer, scene, camera);
+  graphics.background.onAfterRender(renderer, scene, camera, null, list.opaque[1].material, null);
   assert.deepEqual(list.transparent.map((item) => item.object), [holo], "three draws what the pass would have taken");
   assert.equal(core.transparentObjects[0], 0, "the pass draws none of its own");
   assert.equal(calls.filter((c) => c[0] === "transparent_frame").length, 1, "the phase still runs");
@@ -240,10 +247,12 @@ test("an item whose program three changed goes back to three, to be registered a
   props.__version = material.version;
   const old = { bucket: false, id: 1, material, program: { id: 3 }, frame: 0 };
   pass.taken.set(holo, old);
-  list.opaque.push({ object: graphics.background, material: {}, group: null, groupOrder: 0, renderOrder: 0, z: 0, id: graphics.background.id });
+  list.opaque.push({ object: core.nearAnchor, material: {}, group: null, groupOrder: 0, renderOrder: -1e9, z: 0, id: core.nearAnchor.id },
+    { object: graphics.background, material: {}, group: null, groupOrder: 0, renderOrder: 1e9, z: 0, id: graphics.background.id });
   list.transparent.push({ object: holo, geometry: holo.geometry, material, group: null, groupOrder: 0, renderOrder: 0, z: 0.5, id: holo.id });
   setSegments([0, 0, 0]);
   core.pass(renderer, scene, camera);
+  graphics.background.onAfterRender(renderer, scene, camera, null, list.opaque[1].material, null);
   assert.equal(list.transparent.length, 1, "three draws it");
   assert.notEqual(pass.taken.get(holo), old, "looked at again in the transparent phase");
   assert.deepEqual(pass.candidates, []);
