@@ -3,12 +3,12 @@
 // (src/runtime/local-server.js, the world worker's) runs a whole battle with
 // its player walking, turning and firing on a script, on a fixed clock: wall
 // time reads the tick's time, and Math.random a seeded sequence restarted as
-// the battle starts (a few gameplay paths still draw it, three draws it for
-// every object it makes while loading, and a vehicle's barrel recoil reads
-// the clock, so two unseeded runs part after a while). Each tick prints three
-// hashes: the replay parity state (src/runtime/world-state.js), a deeper
-// digest of every unit, hull and round in full precision, and the snapshot
-// bytes the server published. Run it in two checkouts and compare:
+// the battle starts. No gameplay draws Math.random (three draws it for the id
+// of every object it makes): with --random native, which leaves it to V8,
+// the fingerprints are the same. Each tick prints three hashes: the replay
+// parity state (src/runtime/world-state.js), a deeper digest of every unit,
+// hull and round in full precision, and the snapshot bytes the server
+// published. Run it in two checkouts and compare:
 //
 //   BFE_CONTENT_DIR=<game-data> node tools/world-hash.mjs \
 //     [--map nab2] [--side rep] [--seed 1] [--ticks 2400] > before.txt
@@ -45,7 +45,7 @@
 // --rays wasm runs the collision's ray casts in WebAssembly (?rays=wasm,
 // src/ray-kernel.js), and --movement wasm the soldiers' movement too
 // (?movement=wasm, src/movement-kernel.js); their fingerprints must match
-// the default's.
+// the default's, as must --random native's.
 //
 // --plugin FILE (any number of times) loads a module that watches the
 // battle (the simulation capture of tools/sim-capture.mjs): it is imported
@@ -64,6 +64,7 @@ const opt = (name, fallback) => { const i = argv.indexOf(`--${name}`); return i 
 const map = opt('map', 'nab2'), side = opt('side', 'rep'), seed = Number(opt('seed', 1)), ticks = Number(opt('ticks', 2400));
 const interval = Number(opt('interval', 1)), ack = argv.includes('--ack'), view = opt('view', null) === null ? null : Number(opt('view', 0));
 const rays = opt('rays', 'js'), movement = opt('movement', 'js');
+const nativeRandom = opt('random', 'seeded') === 'native';
 const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = Number(opt('battles', 1));
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
@@ -74,7 +75,7 @@ let now = 1000;
 performance.now = () => now;
 Date.now = () => 1700000000000 + Math.floor(now);
 let draw = 991;
-Math.random = () => { draw = (Math.imul(draw, 1664525) + 1013904223) >>> 0; return draw / 4294967296; };
+if (!nativeRandom) Math.random = () => { draw = (Math.imul(draw, 1664525) + 1013904223) >>> 0; return draw / 4294967296; };
 
 const plugins = [];
 for (let i = 0; i < argv.length; i++) if (argv[i] === '--plugin') plugins.push(await import(pathToFileURL(path.resolve(argv[++i])).href));
@@ -107,7 +108,7 @@ async function battle(index) {
   if (interval !== 1) server.host.setLocalInterval(interval);
   const world = server.world, step = world.step.bind(world);
   let stepMs = 0, measured = 0;
-  world.step = () => { const start = wallNow(); try { return step(); } finally { if (game.worldClock.tick > 900) { stepMs += wallNow() - start; measured++; } } };
+  world.step = (...args) => { const start = wallNow(); try { return step(...args); } finally { if (game.worldClock.tick > 900) { stepMs += wallNow() - start; measured++; } } };
 
   function digest() {
     const units = game.units.all().map((u) => {

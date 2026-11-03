@@ -21,6 +21,7 @@ impl BfeRenderer {
     }
     pub fn far_source(&mut self, item: u32, uniform: u32, kind: u32, values: &[f32], at: u32) { self.r.far.source(item, uniform, kind, values, at) }
     pub fn far_range(&mut self, item: u32, start: i32, count: i32) { self.r.far.range(item, start, count) }
+    pub fn far_base(&mut self, item: u32, base: i32) { self.r.far.base(item, base) }
     #[allow(clippy::too_many_arguments)]
     pub fn far_instanced(&mut self, item: u32, location: u32, columns: u32, rows: i32, max: u32, count: u32, at: u32) {
         self.r.far.instanced(&mut self.r.core, item, location, columns, rows, max, count, at)

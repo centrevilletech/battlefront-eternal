@@ -41,8 +41,9 @@ const OBJECT = { modelMatrix: SRC.MODEL, modelViewMatrix: SRC.MODEL_VIEW, normal
 const SAMPLER_2D = 0x8B5E, SAMPLER_CUBE = 0x8B60;
 const FLOATS = { 0x1406: 1, 0x8B50: 2, 0x8B51: 3, 0x8B52: 4, 0x1404: 1, 0x8B56: 1, 0x8B5B: 9, 0x8B5C: 16, [SAMPLER_2D]: 1, [SAMPLER_CUBE]: 1 };
 const IDENTITY = new THREE.Matrix4();
-// core.program's policy for a zero material: every uniform it reads besides
-// the frame block is the far pass's to set (none through the core's table).
+// core.program's policy for a program with the frame block: every uniform it
+// reads besides the block is the far pass's to set (none through the core's
+// table).
 const ANY = { uniforms: { has: () => true }, material: { has: () => false } };
 
 // A uniform's value as the floats three would upload, appended to `out`;
@@ -101,6 +102,10 @@ class FarPass {
     this.tables = new Map(); // Rust program -> its uniform table, or null
     this.plainPrograms = new Map(); // three's program -> a plain Rust program, or null
     this.failed = new WeakMap(); // object -> the material it couldn't be an item with
+    // The map's far buckets that share a vertex array (share()): mesh -> {
+    // its layout's key, where its index starts }; layout -> its geometry.
+    this.sharing = null;
+    this.layouts = new Map();
     this.nextSlot = SLOTS;
     // This frame's meshes ({ object, material, item }), the first `count`.
     this.found = [];
@@ -141,6 +146,7 @@ class FarPass {
     this.count = 0;
     this.threeObjects = 0;
     this.camera = camera;
+    if (this.on && !this.sharing) this.share(scene);
     if (this.on) this.walk(scene, camera, 0);
     this.frustum.setFromProjectionMatrix(this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     for (let i = 0; i < this.count; i++) {
@@ -162,7 +168,7 @@ class FarPass {
     if (object.visible === false) return;
     if (object.layers.test(camera.layers)) {
       if (object.isGroup) groupOrder = object.renderOrder;
-      if (object.userData.terrain) { this.find(object, object.children[0]?.material, groupOrder); return; }
+      if (object.userData.patches) { this.find(object, object.children[0]?.material, groupOrder); return; }
       if (object.isMesh || object.isLine || object.isPoints || object.isSprite) {
         const material = object.material;
         if (Array.isArray(material) ? material.some((m) => m?.visible) : material?.visible) this.find(object, material, groupOrder);
@@ -196,7 +202,8 @@ class FarPass {
   // yet (a texture three hasn't made yet).
   registerItem(object, material, threeProgram, groupOrder, camera) {
     const core = this.core, rust = core.rust, gl = core.gl;
-    const terrain = object.userData.terrain || null;
+    // The terrain's group: its patches (terrain-patches.js) and level.
+    const terrain = object.userData.patches ? { patches: object.userData.patches, reduced: object.userData.reduced } : null;
     const mesh = terrain ? object.children[0] : object;
     if (!mesh?.isMesh || mesh.isSkinnedMesh || mesh.isBatchedMesh || mesh.morphTargetInfluences) return null;
     // An instanced mesh three culls by its instances' bounds: not here.
@@ -299,7 +306,9 @@ class FarPass {
         at += max * size;
       }
     }
-    const g = core.geometry(geometry, instanced ? { id: program.id, attributes: program.attributes.filter(([name]) => !perInstance(name)) } : program);
+    const share = this.sharing?.get(mesh);
+    const g = share ? this.layoutGeometry(share.key, geometry, program)
+      : core.geometry(geometry, instanced ? { id: program.id, attributes: program.attributes.filter(([name]) => !perInstance(name)) } : program);
     if (g === null) return null;
     if (at > core.rust.far_input_len()) return null;
     if (!geometry.boundingSphere) geometry.computeBoundingSphere();
@@ -311,6 +320,7 @@ class FarPass {
       new Float64Array([groupOrder, (terrain ? mesh : object).renderOrder, material.id, mesh.id]), new Float64Array([s.center.x, s.center.y, s.center.z, s.radius]), slot);
     for (const [index, kind, floats, from] of sources) rust.far_source(id, index, kind, new Float32Array(floats || []), from);
     for (const i of instances) rust.far_instanced(id, i.location, i.columns, i.rows, i.max, countAt, i.at);
+    if (share) rust.far_base(id, share.base);
     if (terrain) {
       // Its levels, as terrain-patches.js keeps them (the reduced one made
       // the first time it is drawn).
@@ -323,9 +333,10 @@ class FarPass {
       const index = geometry.index.array;
       rust.far_cells(id, positions, index instanceof Uint32Array ? index : Uint32Array.from(index), 48);
     } else {
+      // Its own index's range (a shared geometry's whole index is others' too).
       const range = geometry.drawRange, count = geometry.index.count;
       const start = Math.max(0, range.start), end = Math.min(count, range.start + range.count);
-      if (start !== 0 || end !== count) rust.far_range(id, start, Math.max(0, end - start));
+      if (share || start !== 0 || end !== count) rust.far_range(id, start, Math.max(0, end - start));
     }
     this.nextSlot = at;
     // Its hooks that set uniforms (the far water's range), for one whose
@@ -334,6 +345,77 @@ class FarPass {
       material.onBeforeRender !== THREE.Material.prototype.onBeforeRender ? "material" : null].filter(Boolean);
     return { id, object, mesh, material, threeProgram, slot, placed, terrain, levels: terrain ? [true, Boolean(terrain.patches.reduced)] : null, level: 0,
       dynamic, watched, cubes, hooks: hooks || [], instances, countAt };
+  }
+
+  // The map's far buckets (zero materials, their vertices in the world) that
+  // read the same attributes laid out alike share one vertex array: their
+  // vertices in one buffer and their indices in one, each bucket's offset to
+  // its vertices and starting where the last ended (far.rs base), so a row
+  // of them in three's order binds nothing between draws. Made once, for
+  // every bucket with a program when the far pass first draws (warmup made
+  // them); a bucket that comes later keeps a geometry of its own.
+  share(scene) {
+    this.sharing = new Map();
+    const renderer = this.core.renderer, groups = new Map();
+    scene.traverse((o) => {
+      const m = o.material;
+      if (!o.isMesh || o.isInstancedMesh || o.parent?.userData.patches || !m || Array.isArray(m) || !m.name?.startsWith("zero:")) return;
+      if (!("FAR" in m.defines) || !("WORLD_SPACE" in m.defines)) return;
+      const program = renderer.properties.get(m).currentProgram;
+      const key = program && this.layoutKey(o.geometry, program);
+      if (!key) return;
+      let list = groups.get(key);
+      if (!list) groups.set(key, list = []);
+      list.push(o);
+    });
+    for (const [key, list] of groups) {
+      if (list.length < 2) continue;
+      const stride = list[0].geometry.attributes.position.data.stride;
+      let vertices = 0, indices = 0;
+      for (const o of list) { vertices += o.geometry.attributes.position.data.count; indices += o.geometry.index.count; }
+      const vertex = new Float32Array(vertices * stride), index = new Uint32Array(indices);
+      let v = 0, i = 0;
+      for (const o of list) {
+        const data = o.geometry.attributes.position.data, own = o.geometry.index.array;
+        vertex.set(data.array, v * stride);
+        for (let k = 0; k < own.length; k++) index[i + k] = own[k] + v;
+        this.sharing.set(o, { key, base: i });
+        v += data.count;
+        i += own.length;
+      }
+      this.layouts.set(key, { vertex, index, stride, g: null });
+    }
+  }
+
+  // The layout a bucket's program reads its attributes in (each from one
+  // interleaved buffer of floats: name, location, size, offset), or null.
+  layoutKey(geometry, threeProgram) {
+    const gl = this.core.gl, p = threeProgram.program, parts = [];
+    let data = null;
+    if (!(geometry.index?.array instanceof Uint32Array) || geometry.groups.length) return null;
+    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES); i < n; i++) {
+      const name = gl.getActiveAttrib(p, i).name, a = geometry.attributes[name];
+      if (!a?.isInterleavedBufferAttribute || !(a.data.array instanceof Float32Array) || (data && a.data !== data)) return null;
+      data = a.data;
+      parts.push(`${name}:${gl.getAttribLocation(p, name)}:${a.itemSize}:${a.offset}:${a.normalized}`);
+    }
+    return data ? `${data.stride}|${parts.sort().join(",")}` : null;
+  }
+
+  // A layout's geometry, made the first time a bucket of it registers.
+  layoutGeometry(key, geometry, program) {
+    const layout = this.layouts.get(key), rust = this.core.rust;
+    if (layout.g !== null) return layout.g;
+    const g = rust.add_geometry();
+    const buffer = rust.geometry_buffer(g, new Uint8Array(layout.vertex.buffer));
+    for (const [name, location] of program.attributes) {
+      const a = geometry.attributes[name];
+      rust.geometry_pointer(g, buffer, location, a.itemSize, 0x1406, a.normalized, layout.stride * 4, a.offset * 4);
+    }
+    rust.geometry_index(g, new Uint8Array(layout.index.buffer), 0x1405);
+    layout.g = g;
+    layout.vertex = layout.index = null;
+    return g;
   }
 
   // A terrain level's index and cells.
