@@ -8,10 +8,10 @@
 
 use bfe_sim::ai::control::agents::{random_cube, rotate_y, table_sin_cos};
 use bfe_sim::ai::control::classes::{health_type, service_alive};
-use bfe_sim::ai::control::controller::{goal_state, role_of, CommandQueue, SourceGoal};
+use bfe_sim::ai::control::controller::{goal_state, role_of, CommandQueue, MoveRequest, SourceGoal};
 use bfe_sim::ai::control::difficulty::{clamp_skill, draw_range, skill_curves, Difficulty, DifficultyOptions, MissionCall};
-use bfe_sim::ai::control::scheduler::candidate_budget;
-use bfe_sim::ai::control::world::{AiUnit, ClassSnap, Draws, LiveDraws};
+use bfe_sim::ai::control::scheduler::{camera_accepts, candidate_budget, fallback_analogs};
+use bfe_sim::ai::control::world::{AiUnit, CameraView, ClassSnap, Draws, LiveDraws, SoldierSnap};
 use bfe_sim::ai::nav::math::Vec3;
 use bfe_sim::ai::random::ClassicRandom;
 
@@ -152,11 +152,56 @@ fn table_trig_and_cube_match() {
         assert!(same(gs, s) && same(gc, c), "sinCos {a}: got {gs} {gc} want {s} {c}");
     }
     let rv = rotate_y(Vec3::new(1.0, 2.0, 3.0), 0.7);
-    assert!(same(rv.x, rv.x)); // shape only; exact vectors ride the replay
+    assert!(same(rv.x, -1.167810082435608) && same(rv.y, 2.0) && same(rv.z, 2.9387422800064087), "rotate {rv:?}");
     let mut rc = ClassicRandom::new(999.0);
     let cube = random_cube(&mut || rc.uniform());
     assert!(same(cube.x, 0.16992735862731934) && same(cube.y, 0.29442858695983887) && same(cube.z, 0.783252477645874), "cube {cube:?}");
     assert_eq!(rc.state, 2512399989);
+}
+
+#[test]
+fn scheduler_camera_boundaries_match_the_javascript() {
+    let camera = CameraView {
+        elements: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0],
+        fov: 70.0, aspect: 1.6, near: 0.1, far: 1000.0, zoom: 1.75,
+    };
+    // Values on the inclusive planes and one ulp beyond, from Node24.22.
+    for (point, want) in [
+        ([0.0, 0.0, -0.1], true), ([0.0, 0.0, -0.09999999999999999], false),
+        ([0.0, 0.0, -84.0], true), ([0.0, 0.0, -84.00000000000001], false),
+        ([6.401897492203061, 0.0, -10.0], true), ([6.401897492203062, 0.0, -10.0], false),
+        ([-6.401897492203061, 0.0, -10.0], true), ([-6.401897492203062, 0.0, -10.0], false),
+        ([0.0, 4.001185932626913, -10.0], true), ([0.0, 4.001185932626914, -10.0], false),
+        ([0.0, 0.0, 10.0], false),
+    ] {
+        let point = Vec3::new(point[0], point[1], point[2]);
+        assert_eq!(camera_accepts(&camera, point), want, "camera {point:?}");
+    }
+}
+
+#[test]
+fn fallback_analogs_match_the_javascript() {
+    let unit = AiUnit {
+        position: Vec3::new(1.0, 2.0, 3.0),
+        soldier: Some(SoldierSnap {
+            aim_yaw: Some(0.7), aim_pitch: Some(0.11), max_speed: Some(7.0), max_strafe: Some(4.5), max_turn: Some(4.0),
+            ..Default::default()
+        }),
+        class_def: Some(ClassSnap { max_pitch_speed: Some(0.8), ..Default::default() }),
+        ..Default::default()
+    };
+    let request = MoveRequest { valid: true, steering_target: Vec3::new(1.4, 2.0, 3.3), ..Default::default() };
+    // Exact Node24.22 bits cover slowdown, steering-only aim, unsaturated
+    // turn/pitch, facing's doubled turn limit and the vertical-only case.
+    for (aim, dt, facing, want) in [
+        (None, 1.0 / 60.0, false, [0x3fdffffffffffffc, 0xbfc706c300161fca, 0xbff0000000000000, 0xbff0000000000000]),
+        (Some(Vec3::new(9.0, 4.0, 20.0)), 0.25, false, [0x3fdffffffffffffc, 0xbfc706c300161fca, 0x3fd0768009bfdde9, 0xbfdc59debb239484]),
+        (Some(Vec3::new(-15.0, 10.0, 4.0)), 0.05, true, [0x3fdffffffffffffc, 0xbfc706c300161fca, 0x4000000000000000, 0x3ff0000000000000]),
+        (Some(Vec3::new(1.0, 4.0, 3.0)), 0.0, false, [0x3fdffffffffffffc, 0xbfc706c300161fca, 0, 0]),
+    ] {
+        let got = fallback_analogs(&unit, &request, aim, dt, facing).map(f64::to_bits);
+        assert_eq!(got, want, "fallback {aim:?}, dt {dt}, facing {facing}");
+    }
 }
 
 #[test]
