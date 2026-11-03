@@ -120,12 +120,14 @@ async function attachSimStore(instance, ordnance, items) {
 // The ground hulls' phase on the battle's instance of the module, through
 // the store (src/sim/runtime.js SimBridge: the hulls written in before the
 // phase and synced after it, the imports it asks the battle).
-async function attachHullPhase(instance, vehicles) {
+// map: the death regions' data and the kill height; pack: the vehicle pack
+// the hulls' rigs are made from (VehiclesSim).
+async function attachHullPhase(instance, vehicles, map, pack) {
   const [{ bridgeFor }, { attachVehiclesSim }] = await Promise.all([import("./sim/runtime.js"), import("./vehicles-sim.js")]);
   // The instance's one bridge, joined if the rounds made it (bridgeFor).
   const bridge = bridgeFor(instance, { classes: { Unit, Vehicle } });
   bridge.reserve(4 << 20);
-  return attachVehiclesSim(vehicles, bridge);
+  return attachVehiclesSim(vehicles, bridge, map, pack);
 }
 
 // A world's combats on the battle's instance of the module, through the
@@ -1336,7 +1338,8 @@ async function start() {
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
     vehicles.seatRandom = seatRandom;
-    if (wantHulls && simInstance) await attachHullPhase(simInstance, vehicles);
+    if (wantHulls && simInstance) await attachHullPhase(simInstance, vehicles, { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
+      { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) });
     // A world's barrels kick back on the tick clock (a page's on its own):
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;
