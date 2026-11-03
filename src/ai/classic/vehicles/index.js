@@ -11,7 +11,7 @@ import { freeCapacity, Reservations, SEAT } from "./reservations.js";
 import { seatAnalogs, steerState, walkerContact } from "./steering.js";
 import { registerService, serviceOf } from "./service.js";
 import { outOfReach, pickSupport, REACH_MARGIN, supportHubs } from "./support.js";
-import { captureRegion, cpCenter } from "../patrol.js";
+import { port } from "./world.js";
 
 // Classic vehicle AI: the services the Classic controller, agents, combat
 // and scheduler call for anything to do with vehicles and turrets
@@ -59,6 +59,11 @@ export function adaptClassicAI(ai) {
   if (ai.vehicleAdapter) return ai;
   const service = classicBinding(ai);
   ai.vehicleAdapter = true;
+  // ai.vehicles holds the service's methods as the AI bound them: each now
+  // calls the service's own method when called, so that every way into the
+  // vehicle AI goes through the service.
+  const named = ai.vehicles;
+  if (named) for (const name of Object.keys(named)) if (typeof service[name] === "function") named[name] = (...args) => service[name](...args);
   const controllable = (character) => service.currentControllable(character) ?? character?.unit ?? null;
   // C1: follow the current control.
   ai.sync = function sync() {
@@ -75,13 +80,13 @@ export function adaptClassicAI(ai) {
     if (controller.unit === unit && controller.generation === unit.generation) return controller;
     if (controller.unit) this.removeLive(controller);
     controller.bind(unit);
-    adaptController(controller, unit);
+    service.adaptController(controller, unit);
     this.controllers.push(controller);
     return controller;
   };
   // C3: the agent for a mounted policy's own states.
   const agentFor = ai.agentFor.bind(ai);
-  ai.agentFor = (state, controller) => controller.policy?.agentFor?.(state, controller) ?? agentFor(state, controller);
+  ai.agentFor = (state, controller) => service.agentFor(state, controller) ?? agentFor(state, controller);
   // C5: the seat's input conversion, in both of the scheduler's paths:
   // Nav's navigationInput (executor step plus analogs) and the plain
   // analog conversion.
@@ -93,39 +98,13 @@ export function adaptClassicAI(ai) {
   };
   const navigationInput = ai.navigationInput;
   if (navigationInput) {
-    const seatOut = { forward: 0, right: 0, turn: 0, pitch: 0 };
     ai.navigationInput = (control, unit, intent, dt, aim = null, options = {}) => {
       if (unit?.lease?.controllable !== unit) return navigationInput(control, unit, intent, dt, aim, options);
-      control.attach(unit);
-      control.update(dt);
-      service.analogs(unit, control.request, aim, dt, seatOut, { ...options, controller: unit.controller, stepped: true });
-      intent.forward = seatOut.forward;
-      intent.right = seatOut.right;
-      intent.turn = seatOut.turn;
-      intent.pitch = seatOut.pitch;
-      return intent;
+      return service.seatInput(control, unit, intent, dt, aim, options);
     };
   }
-  for (const controller of ai.controllers) adaptController(controller, controller.unit);
+  for (const controller of ai.controllers) service.adaptController(controller, controller.unit);
   return ai;
-}
-
-// C2: a controller bound to a seat maps goals by its mounted policy. Its
-// own state requests come from goal starts (the mobile map), so they are
-// translated back to the goal kind and through the policy.
-function adaptController(controller, unit) {
-  const policy = controllerPolicy(unit);
-  controller.policy = policy;
-  policy?.bind?.(controller, unit);
-  if (controller.policyAdapted) return;
-  controller.policyAdapted = true;
-  const request = controller.requestState.bind(controller);
-  controller.requestState = (state) => {
-    const p = controller.policy;
-    if (!p || state === DONE || state === 0) return request(state);
-    const goal = MOBILE_GOAL.get(state);
-    return request(goal === undefined ? state : p.goalState(goal));
-  };
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -148,6 +127,8 @@ export class VehicleAI {
     this.padLeft = new WeakMap(); // hull -> until when no bot boards it (abandonPad)
     this.supportCache = new Map(); // post -> "mask/radius" -> support hubs (supportPoint)
     this.legacySystem = null;
+    this.port = port; // the calls into other packages' functions (world.js)
+    this.seatOut = { forward: 0, right: 0, turn: 0, pitch: 0 }; // seatInput's analogs
     // Combat's pattern hooks read world.vehicles. A gameplay Vehicles left
     // there is kept as the system (prefer world.vehicleSystem).
     const prior = this.world.vehicles;
@@ -273,6 +254,48 @@ export class VehicleAI {
 
   controllerPolicy(unit) {
     return controllerPolicy(unit);
+  }
+
+  // C2: a controller bound to a seat maps goals by its mounted policy. Its
+  // own state requests come from goal starts (the mobile map), so they are
+  // translated back to the goal kind and through the policy
+  // (mountedState), once its requestState is adapted (the first bind).
+  adaptController(controller, unit) {
+    const policy = controllerPolicy(unit);
+    controller.policy = policy;
+    policy?.bind?.(controller, unit);
+    if (controller.policyAdapted) return;
+    controller.policyAdapted = true;
+    const request = controller.requestState.bind(controller);
+    controller.requestState = (state) => request(this.mountedState(controller, state));
+  }
+
+  // The state a controller's request becomes under its policy.
+  mountedState(controller, state) {
+    const p = controller.policy;
+    if (!p || state === DONE || state === 0) return state;
+    const goal = MOBILE_GOAL.get(state);
+    return goal === undefined ? state : p.goalState(goal);
+  }
+
+  // C3: the agent factory a mounted policy has for its own states (null:
+  // the AI's own table).
+  agentFor(state, controller) {
+    return controller.policy?.agentFor?.(state, controller) ?? null;
+  }
+
+  // C5: a seat's input step in Nav's navigationInput: the path executor's
+  // step, then the seat's analogs into its intent.
+  seatInput(control, unit, intent, dt, aim, options) {
+    const seatOut = this.seatOut;
+    control.attach(unit);
+    control.update(dt);
+    this.analogs(unit, control.request, aim, dt, seatOut, { ...options, controller: unit.controller, stepped: true });
+    intent.forward = seatOut.forward;
+    intent.right = seatOut.right;
+    intent.turn = seatOut.turn;
+    intent.pitch = seatOut.pitch;
+    return intent;
   }
 
   // The AI input step's analog conversion for a seat (in place of the
@@ -517,8 +540,8 @@ export class VehicleAI {
       return;
     }
     const unit = agent.controller.unit;
-    const a = unit.sphere;
-    const b = vehicle.sphere;
+    const a = port.sphere(unit);
+    const b = port.sphere(vehicle);
     const reach = a.radius + b.radius + 0.5;
     if (a.center.distanceToSquared(b.center) < reach * reach) this.boardNow(agent.controller, vehicle);
   }
@@ -587,7 +610,7 @@ export class VehicleAI {
   // Any mount of a vehicle or turret (a boarding candidate) reaches it.
   bodyReach(body, point) {
     if (!body) return false;
-    if (!Array.isArray(body.seats)) return mountAngles({ turret: body, index: 0, origin: (out) => turretPivot(body, out) }, point);
+    if (!Array.isArray(body.seats)) return mountAngles({ turret: body, index: 0, origin: (out) => port.turretPivot(body, out) }, point);
     for (let i = 0; i < body.seats.length; i++) {
       if (!body.seats[i].weapons.length) continue;
       if (mountAngles({ vehicle: body, index: i, origin: (out) => body.seatOrigin(i, out) }, point)) return true;
@@ -707,8 +730,8 @@ export class VehicleAI {
     // Walkers and hovers only (KIND: 2 walker, 6 hover).
     if (!unit.seat?.vehicle || (unit.kind !== 2 && unit.kind !== 6)) return null;
     const ai = this.ai;
-    const center = cpCenter(ai, post, _p);
-    const region = captureRegion(ai, post);
+    const center = port.cpCenter(ai, post, _p);
+    const region = port.captureRegion(ai, post);
     const reach = Math.max(region?.sizeX ?? 3, region?.sizeZ ?? 3) + REACH_MARGIN;
     if (!outOfReach(nav.barriers, center, reach, helper.radius, helper.mask)) return null;
     let byHull = this.supportCache.get(post);
@@ -833,7 +856,7 @@ export class VehicleAI {
       if (!unit?.alive) continue;
       const team = v.controllingTeam;
       if (team > 0 && !(this.relation(team, unit.team) > 0)) continue;
-      const reach = v.boundRadius + (unit.sphere?.radius ?? 1) + 10;
+      const reach = v.boundRadius + (port.sphere(unit)?.radius ?? 1) + 10;
       if (unit.position.distanceToSquared(v.position) <= reach * reach) return true;
     }
     return false;
@@ -978,15 +1001,6 @@ function degrees(value, fallback) {
   const parts = String(value ?? "").split(/\s+/).map(Number).filter(Number.isFinite);
   const pair = parts.length >= 2 ? parts : fallback;
   return [(pair[0] * Math.PI) / 180, (pair[1] * Math.PI) / 180];
-}
-
-function turretPivot(turret, out) {
-  const node = turret.gun || turret.firePoint;
-  if (node) {
-    turret.rig?.root?.updateMatrixWorld?.(true);
-    return node.getWorldPosition(out);
-  }
-  return out.set(0, 1.65, 0.32).applyMatrix4(turret.matrix);
 }
 
 export { UP, _p };

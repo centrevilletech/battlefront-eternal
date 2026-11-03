@@ -120,12 +120,24 @@ async function attachSimStore(instance, ordnance, items) {
 // The ground hulls' phase on the battle's instance of the module, through
 // the store (src/sim/runtime.js SimBridge: the hulls written in before the
 // phase and synced after it, the imports it asks the battle).
-async function attachHullPhase(instance, vehicles) {
+// map: the death regions' data and the kill height; pack: the vehicle pack
+// the hulls' rigs are made from (VehiclesSim).
+async function attachHullPhase(instance, vehicles, map, pack) {
   const [{ bridgeFor }, { attachVehiclesSim }] = await Promise.all([import("./sim/runtime.js"), import("./vehicles-sim.js")]);
   // The instance's one bridge, joined if the rounds made it (bridgeFor).
   const bridge = bridgeFor(instance, { classes: { Unit, Vehicle } });
   bridge.reserve(4 << 20);
-  return attachVehiclesSim(vehicles, bridge);
+  return attachVehiclesSim(vehicles, bridge, map, pack);
+}
+
+// A world's combats on the battle's instance of the module, through the
+// store's one bridge (src/combat-sim.js).
+async function attachCombatPhase(instance) {
+  const [{ attachCombatSim }, { Soldier }, { Droideka }, { Building, Turret }] = await Promise.all([
+    import("./combat-sim.js"), import("./soldier.js"), import("./droideka.js"), import("./props.js")]);
+  const sim = attachCombatSim(instance, { Unit, Vehicle, Soldier, Droideka, Building, Turret });
+  sim.bridge.reserve(4 << 20);
+  return sim;
 }
 
 export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, rays: raysDefault = null, movement: movementDefault = null } = {}) {
@@ -462,8 +474,12 @@ async function start() {
   // for them: ?hulls=rust, or under Node BFE_HULLS=rust. Off by default until
   // the hull phase moves whole (flight, seats and fire with it).
   const wantHulls = headless && (params.get("hulls") ?? globalThis.process?.env?.BFE_HULLS) === "rust";
+  // A world's combats on the module (src/combat-sim.js), where it asks for
+  // them: ?combat=rust, or under Node BFE_COMBAT=rust. Off by default until
+  // units and combat move over together.
+  const wantCombat = headless && (params.get("combat") ?? globalThis.process?.env?.BFE_COMBAT) === "rust";
   // The kernels and the store on the battle's one instance of the module.
-  const simInstance = wantRays || wantAnim || wantSim || wantHulls ? await loadSimInstance() : null;
+  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantCombat ? await loadSimInstance() : null;
   const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
   const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
@@ -1322,7 +1338,8 @@ async function start() {
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
     vehicles.seatRandom = seatRandom;
-    if (wantHulls && simInstance) await attachHullPhase(simInstance, vehicles);
+    if (wantHulls && simInstance) await attachHullPhase(simInstance, vehicles, { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
+      { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) });
     // A world's barrels kick back on the tick clock (a page's on its own):
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;
@@ -1401,8 +1418,10 @@ async function start() {
   // The bots: both sides' classes (sides, above), bodies built ahead, and a
   // brain.
   const unitCenter = new THREE.Vector3();
+  // The combats of the units it builds on the module, when the world asked.
+  const combatSim = wantCombat && simInstance ? await attachCombatPhase(simInstance) : null;
   factory = new UnitFactory(sides, {
-    graphics, scene, collision, animMeta, animBuf, json, bin, ordnance, lights, weaponModels, headless, arcTargets, lightning,
+    graphics, scene, collision, animMeta, animBuf, json, bin, ordnance, lights, weaponModels, headless, arcTargets, lightning, combatSim,
     flashModel: glowModel("muzzleflash"), anyTexture, effects, settings, items, live, units, destruction,
     maxFlyHeight: world.mission?.maxFlyHeight ?? 200,
     onBuilt: instrument,

@@ -177,7 +177,7 @@ impl Hull {
     }
 
     /// Whether `aimTick` and `render` leave the hull as it is.
-    fn rests(&self, dt: f64) -> bool {
+    pub fn rests(&self, dt: f64) -> bool {
         let p = self.pose.as_ref().unwrap();
         dt > 0.0 && self.sleeping == Some(true) && !self.repulsor && !self.occupied() && !p.has_pose && self.health >= self.max_health * 0.35
     }

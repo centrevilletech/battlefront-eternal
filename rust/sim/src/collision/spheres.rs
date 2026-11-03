@@ -808,7 +808,9 @@ fn gathered() -> &'static mut Gathered {
     unsafe { (*addr_of_mut!(GATHERED)).get_or_insert_with(Gathered::new) }
 }
 
-fn caches() -> &'static mut Vec<GatherCache> {
+/// The gather caches JavaScript made (`cache_new`), by id: the hull phase's
+/// native world queries through the caches its hulls hold.
+pub(crate) fn caches() -> &'static mut Vec<GatherCache> {
     unsafe { &mut *addr_of_mut!(CACHES) }
 }
 
