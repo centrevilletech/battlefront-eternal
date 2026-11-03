@@ -320,14 +320,20 @@ if (wanted("limiter")) {
 // --- The clarity stage ----------------------------------------------------
 if (wanted("clarity")) {
   const Clarity = loadProcessor("clarity.js");
-  for (const [label, channels, kind] of [["2ch noise", 2, "noise"], ["6ch square", 6, "square"], ["2ch sine", 2, "sine"]]) {
-    const skip = channels > 2 ? 3 : -1;
+  // Channels run their filters two at a time, an odd one alone: odd and
+  // even counts, the LFE skipped, fewer inputs than channels, and signals
+  // that take the filters' state down to subnormals and zeros.
+  for (const [label, channels, kind, skip = channels > 2 ? 3 : -1, inChannels = channels, blocks = 200] of [
+    ["2ch noise", 2, "noise"], ["6ch square", 6, "square"], ["2ch sine", 2, "sine"],
+    ["3ch noise", 3, "noise", -1], ["12ch noise", 12, "noise"], ["6ch, 3 inputs", 6, "noise", 3, 3],
+    ["2ch tiny", 2, "tiny"], ["2ch impulse", 2, "impulse", -1, 2, 400], ["2ch nan", 2, "nan"],
+  ]) {
     const js = new Clarity({ processorOptions: { channels, skip } });
     const h = x.clarity_new(RATE, channels, skip);
     runPair({
       label: `clarity ${label}`, js,
       rust: { input: () => x.clarity_in(h), output: () => x.clarity_out(h), process: (i, o) => x.clarity_process(h, i, o) },
-      inputs: signal(kind, channels, 200), inChannels: channels, outChannels: channels,
+      inputs: signal(kind, inChannels, blocks), inChannels, outChannels: channels,
     });
   }
 }
