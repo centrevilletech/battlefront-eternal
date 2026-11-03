@@ -9,10 +9,12 @@
 //     [--jobs N] [--cpus 0-3,8] [--node PATH] [--shard K/N] [--resume]
 //     [--against DIR[:VARIANT]] [--compare-only] [--any-v8]
 //
-// Variants are world-hash options added to every battle's: js (none, the
-// JavaScript path), rays (--rays wasm), mv (--movement wasm, which brings
-// the ray kernel), or any NAME=OPTIONS given with --variant (as a port adds
-// its switch). The first is the reference the others are compared with.
+// Variants are world-hash options added to every battle's: js (none: the
+// collision's and movement's JavaScript, the rounds on the module), rays
+// (--rays wasm), mv (--movement wasm, which brings the ray kernel), simjs
+// and mvsimjs (js and mv with the rounds JavaScript's, --sim js), or any
+// NAME=OPTIONS given with --variant (as a port adds its switch). The first
+// is the reference the others are compared with.
 //
 // Each run of a battle leaves DIR/LABEL.VARIANT.txt (its fingerprints),
 // .err (its log) and .json (exit status, ticks, wall time, world step, and
@@ -42,7 +44,7 @@ const opts = (name) => argv.flatMap((a, i) => (a === `--${name}` ? [argv[i + 1]]
 const out = opt('out', null);
 if (!out) { console.error('usage: node tools/world-hash-matrix.mjs --out DIR [options] (see the top of the file)'); process.exit(2); }
 
-const BUILTIN_VARIANTS = { js: [], rays: ['--rays', 'wasm'], mv: ['--movement', 'wasm'], wasm: ['--movement', 'wasm'] };
+const BUILTIN_VARIANTS = { js: [], rays: ['--rays', 'wasm'], mv: ['--movement', 'wasm'], wasm: ['--movement', 'wasm'], simjs: ['--sim', 'js'], mvsimjs: ['--movement', 'wasm', '--sim', 'js'] };
 const custom = Object.fromEntries(opts('variant').map((v) => { const at = v.indexOf('='); return [v.slice(0, at), v.slice(at + 1).split(/\s+/).filter(Boolean)]; }));
 const variantNames = String(opt('variants', 'js,mv')).split(',').filter(Boolean);
 const variants = variantNames.map((name) => {

@@ -37,7 +37,7 @@ export function syncAttacker(b, f, at, h, current) {
 
 export function putAttacker(b, x, f, at, heap) {
   const i = whichAttacker(b, x);
-  f.fill(0, at + 1, at + 3);
+  f[at + 1] = 0; f[at + 2] = 0;
   f[at] = i;
   switch (i) {
     case 3: b.refs[KIND_UNIT].put(x, f, at + 1); break;
@@ -91,7 +91,7 @@ export function syncRepairTarget(b, f, at, h, current) {
 
 export function putRepairTarget(b, x, f, at, heap) {
   const i = whichRepairTarget(b, x);
-  f.fill(0, at + 1, at + 3);
+  f[at + 1] = 0; f[at + 2] = 0;
   f[at] = i;
   switch (i) {
     case 0: b.refs[KIND_BUILDING].put(x, f, at + 1); break;
@@ -286,7 +286,7 @@ export function putWeapon(b, o, f, at, heap) {
   f[at + 14] = o.random ? 1 : 0;
   f[at + 15] = o.spreadScale;
   f[at + 16] = o.sniperScale;
-  { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 17] = $x === null ? 1 : 2; f.fill(0, at + 18, at + 19); } else { f[at + 17] = 0; f[at + 18] = $x; } }
+  { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 17] = $x === null ? 1 : 2; f[at + 18] = 0; } else { f[at + 17] = 0; f[at + 18] = $x; } }
   f[at + 19] = o.wait;
   f[at + 20] = o.reloadLeft;
   f[at + 21] = o.throwTime;
@@ -299,12 +299,12 @@ export function putWeapon(b, o, f, at, heap) {
   f[at + 28] = o.pattern;
   f[at + 29] = o.salvosLeft;
   f[at + 30] = o.salvoWait;
-  { const $x = o.salvoRandom; if ($x === null || $x === undefined) { f[at + 31] = $x === null ? 1 : 2; f.fill(0, at + 32, at + 34); } else { f[at + 31] = 0; putSeededDraws(b, $x, f, at + 32, heap); } }
+  { const $x = o.salvoRandom; if ($x === null || $x === undefined) { f[at + 31] = $x === null ? 1 : 2; f[at + 32] = 0; f[at + 33] = 0; } else { f[at + 31] = 0; putSeededDraws(b, $x, f, at + 32, heap); } }
   f[at + 34] = o.lockTargetId;
   f[at + 35] = o.lockGeneration;
   f[at + 36] = o.lockElapsed;
   f[at + 37] = o.lockComplete ? 1 : 0;
-  { const $x = o.melee; if ($x === null || $x === undefined) { f[at + 38] = $x === null ? 1 : 2; f.fill(0, at + 39, at + 42); } else { f[at + 38] = 0; putMelee(b, $x, f, at + 39, heap); } }
+  { const $x = o.melee; if ($x === null || $x === undefined) { f[at + 38] = $x === null ? 1 : 2; f[at + 39] = 0; f[at + 40] = 0; f[at + 41] = 0; } else { f[at + 38] = 0; putMelee(b, $x, f, at + 39, heap); } }
 }
 
 export function sameWeapon(a, b) {
@@ -676,13 +676,13 @@ export function putCombat(b, o, f, at, heap) {
   b.refs[KIND_UNIT].put(o.owner, f, at + 0);
   f[at + 2] = o.player ? 1 : 0;
   putAttacker(b, o.lastAttacker, f, at + 3, heap);
-  { const $x = o.aimOverride; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f.fill(0, at + 7, at + 10); } else { f[at + 6] = 0; { const $v = $x; f[at + 7] = $v.x; f[at + 8] = $v.y; f[at + 9] = $v.z; } } }
+  { const $x = o.aimOverride; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; f[at + 8] = 0; f[at + 9] = 0; } else { f[at + 6] = 0; { const $v = $x; f[at + 7] = $v.x; f[at + 8] = $v.y; f[at + 9] = $v.z; } } }
   f[at + 10] = o.maxHealth;
   f[at + 11] = o.health;
   f[at + 12] = o.dead ? 1 : 0;
   f[at + 13] = o.deathTime;
   f[at + 14] = o.team;
-  { const $x = o.repairTarget; if ($x === null || $x === undefined) { f[at + 15] = $x === null ? 1 : 2; f.fill(0, at + 16, at + 19); } else { f[at + 15] = 0; putRepairTarget(b, $x, f, at + 16, heap); } }
+  { const $x = o.repairTarget; if ($x === null || $x === undefined) { f[at + 15] = $x === null ? 1 : 2; f[at + 16] = 0; f[at + 17] = 0; f[at + 18] = 0; } else { f[at + 15] = 0; putRepairTarget(b, $x, f, at + 16, heap); } }
   f[at + 19] = b.strings.id(o.repairLock);
   f[at + 20] = o.blowApart ? 1 : 0;
   f[at + 21] = o.chunks;
@@ -690,7 +690,7 @@ export function putCombat(b, o, f, at, heap) {
   putKick(b, o.kick, f, at + 23, heap);
   f[at + 26] = b.strings.id(o.scale);
   f[at + 27] = o.firstPerson ? 1 : 0;
-  { const $x = o.mounted; if ($x === null || $x === undefined) { f[at + 28] = $x === null ? 1 : 2; f.fill(0, at + 29, at + 30); } else { f[at + 28] = 0; f[at + 29] = $x ? 1 : 0; } }
+  { const $x = o.mounted; if ($x === null || $x === undefined) { f[at + 28] = $x === null ? 1 : 2; f[at + 29] = 0; } else { f[at + 28] = 0; f[at + 29] = $x ? 1 : 0; } }
   f[at + 30] = o.gunUnderwater ? 1 : 0;
   f[at + 31] = o.deferMuzzles ? 1 : 0;
   heap.items(o.pendingMuzzles, f, at + 32, 15, (f, at, v) => { putPendingShot(b, v, f, at + 0, heap); });

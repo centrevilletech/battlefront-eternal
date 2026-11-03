@@ -102,7 +102,7 @@ export function ticked(tick) {
   // A store of its own each time (its identities hold the objects they
   // are given), every field in and back out.
   instance.exports.sim_reset();
-  const b = new SimBridge(instance, { tests: tests() });
+  const b = new SimBridge(instance, { tests: tests(), replace: true });
   try {
     for (const [kind, list] of LISTS) b.write(kind, o[list], true);
     b.write(KIND_ORDNANCE, [o], true);

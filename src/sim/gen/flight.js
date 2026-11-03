@@ -326,7 +326,7 @@ export function syncFullVehicle(b, f, at, h, m) {
 
 // Object `o`'s import fields into a row (lists to `heap`).
 export function putVehicle(b, o, f, at, heap) {
-  { const $x = o.flightState; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f.fill(0, at + 3, at + 4); } else { f[at + 2] = 0; f[at + 3] = FlightState_INDEX.get($x); } }
+  { const $x = o.flightState; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = FlightState_INDEX.get($x); } }
   f[at + 4] = o.grounded ? 1 : 0;
   f[at + 5] = o.altitude;
   f[at + 6] = o.throttle;
@@ -334,50 +334,50 @@ export function putVehicle(b, o, f, at, heap) {
   f[at + 8] = o.stateTime;
   f[at + 9] = o.floorY;
   f[at + 10] = o.bank;
-  { const $x = o.gearFoot; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f.fill(0, at + 12, at + 13); } else { f[at + 11] = 0; f[at + 12] = $x; } }
+  { const $x = o.gearFoot; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; } else { f[at + 11] = 0; f[at + 12] = $x; } }
   f[at + 13] = o.radius;
-  { const $x = o.team; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f.fill(0, at + 15, at + 16); } else { f[at + 14] = 0; f[at + 15] = $x; } }
-  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 16] = $x === null ? 1 : 2; f.fill(0, at + 17, at + 18); } else { f[at + 16] = 0; f[at + 17] = FlightClass_INDEX.get($x); } }
-  { const $x = o.minSpeed; if ($x === null || $x === undefined) { f[at + 18] = $x === null ? 1 : 2; f.fill(0, at + 19, at + 20); } else { f[at + 18] = 0; f[at + 19] = $x; } }
-  { const $x = o.midSpeed; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 22); } else { f[at + 20] = 0; f[at + 21] = $x; } }
-  { const $x = o.boostSpeed; if ($x === null || $x === undefined) { f[at + 22] = $x === null ? 1 : 2; f.fill(0, at + 23, at + 24); } else { f[at + 22] = 0; f[at + 23] = $x; } }
-  { const $x = o.power; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f.fill(0, at + 25, at + 26); } else { f[at + 24] = 0; f[at + 25] = $x; } }
-  { const $x = o.stickX; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f.fill(0, at + 27, at + 28); } else { f[at + 26] = 0; f[at + 27] = $x; } }
-  { const $x = o.stickY; if ($x === null || $x === undefined) { f[at + 28] = $x === null ? 1 : 2; f.fill(0, at + 29, at + 30); } else { f[at + 28] = 0; f[at + 29] = $x; } }
-  { const $x = o.flightRollRate; if ($x === null || $x === undefined) { f[at + 30] = $x === null ? 1 : 2; f.fill(0, at + 31, at + 32); } else { f[at + 30] = 0; f[at + 31] = $x; } }
-  { const $x = o.rollLock; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f.fill(0, at + 33, at + 34); } else { f[at + 32] = 0; f[at + 33] = $x ? 1 : 0; } }
-  { const $x = o.boosting; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f.fill(0, at + 35, at + 36); } else { f[at + 34] = 0; f[at + 35] = $x ? 1 : 0; } }
-  { const $x = o.trick; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f.fill(0, at + 37, at + 38); } else { f[at + 36] = 0; f[at + 37] = b.strings.id($x); } }
-  { const $x = o.trickTime; if ($x === null || $x === undefined) { f[at + 38] = $x === null ? 1 : 2; f.fill(0, at + 39, at + 40); } else { f[at + 38] = 0; f[at + 39] = $x; } }
-  { const $x = o.trickCooldown; if ($x === null || $x === undefined) { f[at + 40] = $x === null ? 1 : 2; f.fill(0, at + 41, at + 42); } else { f[at + 40] = 0; f[at + 41] = $x; } }
-  { const $x = o.trickPending; if ($x === null || $x === undefined) { f[at + 42] = $x === null ? 1 : 2; f.fill(0, at + 43, at + 44); } else { f[at + 42] = 0; f[at + 43] = $x; } }
-  { const $x = o.trickDirection; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f.fill(0, at + 45, at + 46); } else { f[at + 44] = 0; f[at + 45] = $x; } }
-  { const $x = o.gear; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f.fill(0, at + 47, at + 48); } else { f[at + 46] = 0; f[at + 47] = $x; } }
-  { const $x = o.landingMessage; if ($x === null || $x === undefined) { f[at + 48] = $x === null ? 1 : 2; f.fill(0, at + 49, at + 50); } else { f[at + 48] = 0; f[at + 49] = b.strings.id($x); } }
-  { const $x = o.landingMessageTime; if ($x === null || $x === undefined) { f[at + 50] = $x === null ? 1 : 2; f.fill(0, at + 51, at + 52); } else { f[at + 50] = 0; f[at + 51] = $x; } }
-  { const $x = o.flightTrickRight; if ($x === null || $x === undefined) { f[at + 52] = $x === null ? 1 : 2; f.fill(0, at + 53, at + 56); } else { f[at + 52] = 0; { const $v = $x; f[at + 53] = $v.x; f[at + 54] = $v.y; f[at + 55] = $v.z; } } }
-  { const $x = o.flightClock; if ($x === null || $x === undefined) { f[at + 56] = $x === null ? 1 : 2; f.fill(0, at + 57, at + 58); } else { f[at + 56] = 0; f[at + 57] = $x; } }
-  { const $x = o.boostExhausted; if ($x === null || $x === undefined) { f[at + 58] = $x === null ? 1 : 2; f.fill(0, at + 59, at + 60); } else { f[at + 58] = 0; f[at + 59] = $x ? 1 : 0; } }
-  { const $x = o.landingReason; if ($x === null || $x === undefined) { f[at + 60] = $x === null ? 1 : 2; f.fill(0, at + 61, at + 62); } else { f[at + 60] = 0; f[at + 61] = b.strings.id($x); } }
-  { const $x = o.flightWarning; if ($x === null || $x === undefined) { f[at + 62] = $x === null ? 1 : 2; f.fill(0, at + 63, at + 64); } else { f[at + 62] = 0; f[at + 63] = b.strings.id($x); } }
-  { const $x = o.terrainWarning; if ($x === null || $x === undefined) { f[at + 64] = $x === null ? 1 : 2; f.fill(0, at + 65, at + 66); } else { f[at + 64] = 0; f[at + 65] = $x ? 1 : 0; } }
-  { const $x = o.flightAssistId; if ($x === null || $x === undefined) { f[at + 66] = $x === null ? 1 : 2; f.fill(0, at + 67, at + 68); } else { f[at + 66] = 0; f[at + 67] = $x; } }
-  { const $x = o.flightLockId; if ($x === null || $x === undefined) { f[at + 68] = $x === null ? 1 : 2; f.fill(0, at + 69, at + 70); } else { f[at + 68] = 0; f[at + 69] = $x; } }
-  { const $x = o.flightLockGeneration; if ($x === null || $x === undefined) { f[at + 70] = $x === null ? 1 : 2; f.fill(0, at + 71, at + 72); } else { f[at + 70] = 0; f[at + 71] = $x; } }
-  { const $x = o.flightLockTimer; if ($x === null || $x === undefined) { f[at + 72] = $x === null ? 1 : 2; f.fill(0, at + 73, at + 74); } else { f[at + 72] = 0; f[at + 73] = $x; } }
-  { const $x = o.flightLostLOS; if ($x === null || $x === undefined) { f[at + 74] = $x === null ? 1 : 2; f.fill(0, at + 75, at + 76); } else { f[at + 74] = 0; f[at + 75] = $x; } }
-  { const $x = o.flightLockState; if ($x === null || $x === undefined) { f[at + 76] = $x === null ? 1 : 2; f.fill(0, at + 77, at + 78); } else { f[at + 76] = 0; f[at + 77] = b.strings.id($x); } }
-  { const $x = o.flightStart; if ($x === null || $x === undefined) { f[at + 78] = $x === null ? 1 : 2; f.fill(0, at + 79, at + 82); } else { f[at + 78] = 0; { const $v = $x; f[at + 79] = $v.x; f[at + 80] = $v.y; f[at + 81] = $v.z; } } }
-  { const $x = o.flightEnd; if ($x === null || $x === undefined) { f[at + 82] = $x === null ? 1 : 2; f.fill(0, at + 83, at + 86); } else { f[at + 82] = 0; { const $v = $x; f[at + 83] = $v.x; f[at + 84] = $v.y; f[at + 85] = $v.z; } } }
-  { const $x = o.flightStartQ; if ($x === null || $x === undefined) { f[at + 86] = $x === null ? 1 : 2; f.fill(0, at + 87, at + 91); } else { f[at + 86] = 0; { const $v = $x; f[at + 87] = $v.x; f[at + 88] = $v.y; f[at + 89] = $v.z; f[at + 90] = $v.w; } } }
-  { const $x = o.flightTrickLoopQ; if ($x === null || $x === undefined) { f[at + 91] = $x === null ? 1 : 2; f.fill(0, at + 92, at + 96); } else { f[at + 91] = 0; { const $v = $x; f[at + 92] = $v.x; f[at + 93] = $v.y; f[at + 94] = $v.z; f[at + 95] = $v.w; } } }
-  { const $x = o.flightTrickEndQ; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f.fill(0, at + 97, at + 101); } else { f[at + 96] = 0; { const $v = $x; f[at + 97] = $v.x; f[at + 98] = $v.y; f[at + 99] = $v.z; f[at + 100] = $v.w; } } }
-  { const $x = o.flightPreviousQ; if ($x === null || $x === undefined) { f[at + 101] = $x === null ? 1 : 2; f.fill(0, at + 102, at + 106); } else { f[at + 101] = 0; { const $v = $x; f[at + 102] = $v.x; f[at + 103] = $v.y; f[at + 104] = $v.z; f[at + 105] = $v.w; } } }
-  { const $x = o.flightTickQ; if ($x === null || $x === undefined) { f[at + 106] = $x === null ? 1 : 2; f.fill(0, at + 107, at + 111); } else { f[at + 106] = 0; { const $v = $x; f[at + 107] = $v.x; f[at + 108] = $v.y; f[at + 109] = $v.z; f[at + 110] = $v.w; } } }
-  { const $x = o.flightActionHeld; if ($x === null || $x === undefined) { f[at + 111] = $x === null ? 1 : 2; f.fill(0, at + 112, at + 113); } else { f[at + 111] = 0; f[at + 112] = $x ? 1 : 0; } }
-  { const $x = o.trickHeld; if ($x === null || $x === undefined) { f[at + 113] = $x === null ? 1 : 2; f.fill(0, at + 114, at + 115); } else { f[at + 113] = 0; f[at + 114] = $x ? 1 : 0; } }
-  { const $x = o.immelmannHeld; if ($x === null || $x === undefined) { f[at + 115] = $x === null ? 1 : 2; f.fill(0, at + 116, at + 117); } else { f[at + 115] = 0; f[at + 116] = $x ? 1 : 0; } }
-  { const $x = o.flightFrameQ; if ($x === null || $x === undefined) { f[at + 117] = $x === null ? 1 : 2; f.fill(0, at + 118, at + 122); } else { f[at + 117] = 0; { const $v = $x; f[at + 118] = $v.x; f[at + 119] = $v.y; f[at + 120] = $v.z; f[at + 121] = $v.w; } } }
+  { const $x = o.team; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f[at + 15] = 0; } else { f[at + 14] = 0; f[at + 15] = $x; } }
+  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 16] = $x === null ? 1 : 2; f[at + 17] = 0; } else { f[at + 16] = 0; f[at + 17] = FlightClass_INDEX.get($x); } }
+  { const $x = o.minSpeed; if ($x === null || $x === undefined) { f[at + 18] = $x === null ? 1 : 2; f[at + 19] = 0; } else { f[at + 18] = 0; f[at + 19] = $x; } }
+  { const $x = o.midSpeed; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; } else { f[at + 20] = 0; f[at + 21] = $x; } }
+  { const $x = o.boostSpeed; if ($x === null || $x === undefined) { f[at + 22] = $x === null ? 1 : 2; f[at + 23] = 0; } else { f[at + 22] = 0; f[at + 23] = $x; } }
+  { const $x = o.power; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f[at + 25] = 0; } else { f[at + 24] = 0; f[at + 25] = $x; } }
+  { const $x = o.stickX; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f[at + 27] = 0; } else { f[at + 26] = 0; f[at + 27] = $x; } }
+  { const $x = o.stickY; if ($x === null || $x === undefined) { f[at + 28] = $x === null ? 1 : 2; f[at + 29] = 0; } else { f[at + 28] = 0; f[at + 29] = $x; } }
+  { const $x = o.flightRollRate; if ($x === null || $x === undefined) { f[at + 30] = $x === null ? 1 : 2; f[at + 31] = 0; } else { f[at + 30] = 0; f[at + 31] = $x; } }
+  { const $x = o.rollLock; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f[at + 33] = 0; } else { f[at + 32] = 0; f[at + 33] = $x ? 1 : 0; } }
+  { const $x = o.boosting; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f[at + 35] = 0; } else { f[at + 34] = 0; f[at + 35] = $x ? 1 : 0; } }
+  { const $x = o.trick; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f[at + 37] = 0; } else { f[at + 36] = 0; f[at + 37] = b.strings.id($x); } }
+  { const $x = o.trickTime; if ($x === null || $x === undefined) { f[at + 38] = $x === null ? 1 : 2; f[at + 39] = 0; } else { f[at + 38] = 0; f[at + 39] = $x; } }
+  { const $x = o.trickCooldown; if ($x === null || $x === undefined) { f[at + 40] = $x === null ? 1 : 2; f[at + 41] = 0; } else { f[at + 40] = 0; f[at + 41] = $x; } }
+  { const $x = o.trickPending; if ($x === null || $x === undefined) { f[at + 42] = $x === null ? 1 : 2; f[at + 43] = 0; } else { f[at + 42] = 0; f[at + 43] = $x; } }
+  { const $x = o.trickDirection; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f[at + 45] = 0; } else { f[at + 44] = 0; f[at + 45] = $x; } }
+  { const $x = o.gear; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f[at + 47] = 0; } else { f[at + 46] = 0; f[at + 47] = $x; } }
+  { const $x = o.landingMessage; if ($x === null || $x === undefined) { f[at + 48] = $x === null ? 1 : 2; f[at + 49] = 0; } else { f[at + 48] = 0; f[at + 49] = b.strings.id($x); } }
+  { const $x = o.landingMessageTime; if ($x === null || $x === undefined) { f[at + 50] = $x === null ? 1 : 2; f[at + 51] = 0; } else { f[at + 50] = 0; f[at + 51] = $x; } }
+  { const $x = o.flightTrickRight; if ($x === null || $x === undefined) { f[at + 52] = $x === null ? 1 : 2; f[at + 53] = 0; f[at + 54] = 0; f[at + 55] = 0; } else { f[at + 52] = 0; { const $v = $x; f[at + 53] = $v.x; f[at + 54] = $v.y; f[at + 55] = $v.z; } } }
+  { const $x = o.flightClock; if ($x === null || $x === undefined) { f[at + 56] = $x === null ? 1 : 2; f[at + 57] = 0; } else { f[at + 56] = 0; f[at + 57] = $x; } }
+  { const $x = o.boostExhausted; if ($x === null || $x === undefined) { f[at + 58] = $x === null ? 1 : 2; f[at + 59] = 0; } else { f[at + 58] = 0; f[at + 59] = $x ? 1 : 0; } }
+  { const $x = o.landingReason; if ($x === null || $x === undefined) { f[at + 60] = $x === null ? 1 : 2; f[at + 61] = 0; } else { f[at + 60] = 0; f[at + 61] = b.strings.id($x); } }
+  { const $x = o.flightWarning; if ($x === null || $x === undefined) { f[at + 62] = $x === null ? 1 : 2; f[at + 63] = 0; } else { f[at + 62] = 0; f[at + 63] = b.strings.id($x); } }
+  { const $x = o.terrainWarning; if ($x === null || $x === undefined) { f[at + 64] = $x === null ? 1 : 2; f[at + 65] = 0; } else { f[at + 64] = 0; f[at + 65] = $x ? 1 : 0; } }
+  { const $x = o.flightAssistId; if ($x === null || $x === undefined) { f[at + 66] = $x === null ? 1 : 2; f[at + 67] = 0; } else { f[at + 66] = 0; f[at + 67] = $x; } }
+  { const $x = o.flightLockId; if ($x === null || $x === undefined) { f[at + 68] = $x === null ? 1 : 2; f[at + 69] = 0; } else { f[at + 68] = 0; f[at + 69] = $x; } }
+  { const $x = o.flightLockGeneration; if ($x === null || $x === undefined) { f[at + 70] = $x === null ? 1 : 2; f[at + 71] = 0; } else { f[at + 70] = 0; f[at + 71] = $x; } }
+  { const $x = o.flightLockTimer; if ($x === null || $x === undefined) { f[at + 72] = $x === null ? 1 : 2; f[at + 73] = 0; } else { f[at + 72] = 0; f[at + 73] = $x; } }
+  { const $x = o.flightLostLOS; if ($x === null || $x === undefined) { f[at + 74] = $x === null ? 1 : 2; f[at + 75] = 0; } else { f[at + 74] = 0; f[at + 75] = $x; } }
+  { const $x = o.flightLockState; if ($x === null || $x === undefined) { f[at + 76] = $x === null ? 1 : 2; f[at + 77] = 0; } else { f[at + 76] = 0; f[at + 77] = b.strings.id($x); } }
+  { const $x = o.flightStart; if ($x === null || $x === undefined) { f[at + 78] = $x === null ? 1 : 2; f[at + 79] = 0; f[at + 80] = 0; f[at + 81] = 0; } else { f[at + 78] = 0; { const $v = $x; f[at + 79] = $v.x; f[at + 80] = $v.y; f[at + 81] = $v.z; } } }
+  { const $x = o.flightEnd; if ($x === null || $x === undefined) { f[at + 82] = $x === null ? 1 : 2; f[at + 83] = 0; f[at + 84] = 0; f[at + 85] = 0; } else { f[at + 82] = 0; { const $v = $x; f[at + 83] = $v.x; f[at + 84] = $v.y; f[at + 85] = $v.z; } } }
+  { const $x = o.flightStartQ; if ($x === null || $x === undefined) { f[at + 86] = $x === null ? 1 : 2; f[at + 87] = 0; f[at + 88] = 0; f[at + 89] = 0; f[at + 90] = 0; } else { f[at + 86] = 0; { const $v = $x; f[at + 87] = $v.x; f[at + 88] = $v.y; f[at + 89] = $v.z; f[at + 90] = $v.w; } } }
+  { const $x = o.flightTrickLoopQ; if ($x === null || $x === undefined) { f[at + 91] = $x === null ? 1 : 2; f[at + 92] = 0; f[at + 93] = 0; f[at + 94] = 0; f[at + 95] = 0; } else { f[at + 91] = 0; { const $v = $x; f[at + 92] = $v.x; f[at + 93] = $v.y; f[at + 94] = $v.z; f[at + 95] = $v.w; } } }
+  { const $x = o.flightTrickEndQ; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f[at + 97] = 0; f[at + 98] = 0; f[at + 99] = 0; f[at + 100] = 0; } else { f[at + 96] = 0; { const $v = $x; f[at + 97] = $v.x; f[at + 98] = $v.y; f[at + 99] = $v.z; f[at + 100] = $v.w; } } }
+  { const $x = o.flightPreviousQ; if ($x === null || $x === undefined) { f[at + 101] = $x === null ? 1 : 2; f[at + 102] = 0; f[at + 103] = 0; f[at + 104] = 0; f[at + 105] = 0; } else { f[at + 101] = 0; { const $v = $x; f[at + 102] = $v.x; f[at + 103] = $v.y; f[at + 104] = $v.z; f[at + 105] = $v.w; } } }
+  { const $x = o.flightTickQ; if ($x === null || $x === undefined) { f[at + 106] = $x === null ? 1 : 2; f[at + 107] = 0; f[at + 108] = 0; f[at + 109] = 0; f[at + 110] = 0; } else { f[at + 106] = 0; { const $v = $x; f[at + 107] = $v.x; f[at + 108] = $v.y; f[at + 109] = $v.z; f[at + 110] = $v.w; } } }
+  { const $x = o.flightActionHeld; if ($x === null || $x === undefined) { f[at + 111] = $x === null ? 1 : 2; f[at + 112] = 0; } else { f[at + 111] = 0; f[at + 112] = $x ? 1 : 0; } }
+  { const $x = o.trickHeld; if ($x === null || $x === undefined) { f[at + 113] = $x === null ? 1 : 2; f[at + 114] = 0; } else { f[at + 113] = 0; f[at + 114] = $x ? 1 : 0; } }
+  { const $x = o.immelmannHeld; if ($x === null || $x === undefined) { f[at + 115] = $x === null ? 1 : 2; f[at + 116] = 0; } else { f[at + 115] = 0; f[at + 116] = $x ? 1 : 0; } }
+  { const $x = o.flightFrameQ; if ($x === null || $x === undefined) { f[at + 117] = $x === null ? 1 : 2; f[at + 118] = 0; f[at + 119] = 0; f[at + 120] = 0; f[at + 121] = 0; } else { f[at + 117] = 0; { const $v = $x; f[at + 118] = $v.x; f[at + 119] = $v.y; f[at + 120] = $v.z; f[at + 121] = $v.w; } } }
   f[at + 122] = b.strings.id(o.name);
   f[at + 123] = o.flying ? 1 : 0;
   f[at + 124] = o.walking ? 1 : 0;
@@ -400,7 +400,7 @@ export function putVehicle(b, o, f, at, heap) {
   heap.items(o.probes, f, at + 149, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
   heap.items(o.supportProbes, f, at + 151, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
   f[at + 153] = o.maxHealth;
-  { const $x = o.waterRule; if ($x === null || $x === undefined) { f[at + 154] = $x === null ? 1 : 2; f.fill(0, at + 155, at + 157); } else { f[at + 154] = 0; putWaterRule(b, $x, f, at + 155, heap); } }
+  { const $x = o.waterRule; if ($x === null || $x === undefined) { f[at + 154] = $x === null ? 1 : 2; f[at + 155] = 0; f[at + 156] = 0; } else { f[at + 154] = 0; putWaterRule(b, $x, f, at + 155, heap); } }
   f[at + 157] = o.waterDepth;
   b.refs[KIND_BODY].put(o.body, f, at + 158);
   { const $v = o.position; f[at + 160] = $v.x; f[at + 161] = $v.y; f[at + 162] = $v.z; }
@@ -419,7 +419,7 @@ export function putVehicle(b, o, f, at, heap) {
   f[at + 179] = o.forwardInput;
   f[at + 180] = o.rightInput;
   f[at + 181] = o.alive ? 1 : 0;
-  { const $x = o.sleeping; if ($x === null || $x === undefined) { f[at + 182] = $x === null ? 1 : 2; f.fill(0, at + 183, at + 184); } else { f[at + 182] = 0; f[at + 183] = $x ? 1 : 0; } }
+  { const $x = o.sleeping; if ($x === null || $x === undefined) { f[at + 182] = $x === null ? 1 : 2; f[at + 183] = 0; } else { f[at + 182] = 0; f[at + 183] = $x ? 1 : 0; } }
   f[at + 184] = o.health;
   f[at + 185] = o.dying;
   f[at + 186] = o.waterClock;
@@ -427,17 +427,17 @@ export function putVehicle(b, o, f, at, heap) {
   { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 191 + i] = e[i]; }
   { const $v = o.itemCenter; f[at + 207] = $v.x; f[at + 208] = $v.y; f[at + 209] = $v.z; }
   { const $v = o.supportNormal; f[at + 210] = $v.x; f[at + 211] = $v.y; f[at + 212] = $v.z; }
-  { const $x = o.legSide; if ($x === null || $x === undefined) { f[at + 213] = $x === null ? 1 : 2; f.fill(0, at + 214, at + 216); } else { f[at + 213] = 0; heap.items($x, f, at + 214, 1, (f, at, v) => { f[at + 0] = v; }); } }
+  { const $x = o.legSide; if ($x === null || $x === undefined) { f[at + 213] = $x === null ? 1 : 2; f[at + 214] = 0; f[at + 215] = 0; } else { f[at + 213] = 0; heap.items($x, f, at + 214, 1, (f, at, v) => { f[at + 0] = v; }); } }
   f[at + 216] = o.seatIndex;
-  { const $x = o.driver; if ($x === null || $x === undefined) { f[at + 217] = $x === null ? 1 : 2; f.fill(0, at + 218, at + 220); } else { f[at + 217] = 0; b.refs[KIND_VEHICLE_DRIVER].put($x, f, at + 218); } }
+  { const $x = o.driver; if ($x === null || $x === undefined) { f[at + 217] = $x === null ? 1 : 2; f[at + 218] = 0; f[at + 219] = 0; } else { f[at + 217] = 0; b.refs[KIND_VEHICLE_DRIVER].put($x, f, at + 218); } }
   heap.items(o.wheels, f, at + 220, 6, (f, at, v) => { putVehicleWheel(b, v, f, at + 0, heap); });
   heap.items(o.seats, f, at + 222, 9, (f, at, v) => { putVehicleSeat(b, v, f, at + 0, heap); });
   heap.items(o.seatViews, f, at + 224, 6, (f, at, v) => { putSeatView(b, v, f, at + 0, heap); });
   heap.items(o.seatLeases, f, at + 226, 17, (f, at, v) => { putSeatLeaseView(b, v, f, at + 0, heap); });
-  { const $x = o.tickFrom; if ($x === null || $x === undefined) { f[at + 228] = $x === null ? 1 : 2; f.fill(0, at + 229, at + 232); } else { f[at + 228] = 0; { const $v = $x; f[at + 229] = $v.x; f[at + 230] = $v.y; f[at + 231] = $v.z; } } }
-  { const $x = o.tickFromYaw; if ($x === null || $x === undefined) { f[at + 232] = $x === null ? 1 : 2; f.fill(0, at + 233, at + 234); } else { f[at + 232] = 0; f[at + 233] = $x; } }
-  { const $x = o.tickFromTilt; if ($x === null || $x === undefined) { f[at + 234] = $x === null ? 1 : 2; f.fill(0, at + 235, at + 236); } else { f[at + 234] = 0; f[at + 235] = $x; } }
-  { const $x = o.tickFromRoll; if ($x === null || $x === undefined) { f[at + 236] = $x === null ? 1 : 2; f.fill(0, at + 237, at + 238); } else { f[at + 236] = 0; f[at + 237] = $x; } }
+  { const $x = o.tickFrom; if ($x === null || $x === undefined) { f[at + 228] = $x === null ? 1 : 2; f[at + 229] = 0; f[at + 230] = 0; f[at + 231] = 0; } else { f[at + 228] = 0; { const $v = $x; f[at + 229] = $v.x; f[at + 230] = $v.y; f[at + 231] = $v.z; } } }
+  { const $x = o.tickFromYaw; if ($x === null || $x === undefined) { f[at + 232] = $x === null ? 1 : 2; f[at + 233] = 0; } else { f[at + 232] = 0; f[at + 233] = $x; } }
+  { const $x = o.tickFromTilt; if ($x === null || $x === undefined) { f[at + 234] = $x === null ? 1 : 2; f[at + 235] = 0; } else { f[at + 234] = 0; f[at + 235] = $x; } }
+  { const $x = o.tickFromRoll; if ($x === null || $x === undefined) { f[at + 236] = $x === null ? 1 : 2; f[at + 237] = 0; } else { f[at + 236] = 0; f[at + 237] = $x; } }
   f[at + 238] = o.root?.visible ? 1 : 0;
   f[at + 239] = o.towTarget;
   { const $v = o.towLocal; f[at + 240] = $v.x; f[at + 241] = $v.y; f[at + 242] = $v.z; }
@@ -452,7 +452,7 @@ export function putVehicle(b, o, f, at, heap) {
 
 // Every field of object `o` into a row.
 export function putFullVehicle(b, o, f, at, heap) {
-  { const $x = o.flightState; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f.fill(0, at + 3, at + 4); } else { f[at + 2] = 0; f[at + 3] = FlightState_INDEX.get($x); } }
+  { const $x = o.flightState; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = FlightState_INDEX.get($x); } }
   f[at + 4] = o.grounded ? 1 : 0;
   f[at + 5] = o.altitude;
   f[at + 6] = o.throttle;
@@ -460,50 +460,50 @@ export function putFullVehicle(b, o, f, at, heap) {
   f[at + 8] = o.stateTime;
   f[at + 9] = o.floorY;
   f[at + 10] = o.bank;
-  { const $x = o.gearFoot; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f.fill(0, at + 12, at + 13); } else { f[at + 11] = 0; f[at + 12] = $x; } }
+  { const $x = o.gearFoot; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; } else { f[at + 11] = 0; f[at + 12] = $x; } }
   f[at + 13] = o.radius;
-  { const $x = o.team; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f.fill(0, at + 15, at + 16); } else { f[at + 14] = 0; f[at + 15] = $x; } }
-  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 16] = $x === null ? 1 : 2; f.fill(0, at + 17, at + 18); } else { f[at + 16] = 0; f[at + 17] = FlightClass_INDEX.get($x); } }
-  { const $x = o.minSpeed; if ($x === null || $x === undefined) { f[at + 18] = $x === null ? 1 : 2; f.fill(0, at + 19, at + 20); } else { f[at + 18] = 0; f[at + 19] = $x; } }
-  { const $x = o.midSpeed; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 22); } else { f[at + 20] = 0; f[at + 21] = $x; } }
-  { const $x = o.boostSpeed; if ($x === null || $x === undefined) { f[at + 22] = $x === null ? 1 : 2; f.fill(0, at + 23, at + 24); } else { f[at + 22] = 0; f[at + 23] = $x; } }
-  { const $x = o.power; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f.fill(0, at + 25, at + 26); } else { f[at + 24] = 0; f[at + 25] = $x; } }
-  { const $x = o.stickX; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f.fill(0, at + 27, at + 28); } else { f[at + 26] = 0; f[at + 27] = $x; } }
-  { const $x = o.stickY; if ($x === null || $x === undefined) { f[at + 28] = $x === null ? 1 : 2; f.fill(0, at + 29, at + 30); } else { f[at + 28] = 0; f[at + 29] = $x; } }
-  { const $x = o.flightRollRate; if ($x === null || $x === undefined) { f[at + 30] = $x === null ? 1 : 2; f.fill(0, at + 31, at + 32); } else { f[at + 30] = 0; f[at + 31] = $x; } }
-  { const $x = o.rollLock; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f.fill(0, at + 33, at + 34); } else { f[at + 32] = 0; f[at + 33] = $x ? 1 : 0; } }
-  { const $x = o.boosting; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f.fill(0, at + 35, at + 36); } else { f[at + 34] = 0; f[at + 35] = $x ? 1 : 0; } }
-  { const $x = o.trick; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f.fill(0, at + 37, at + 38); } else { f[at + 36] = 0; f[at + 37] = b.strings.id($x); } }
-  { const $x = o.trickTime; if ($x === null || $x === undefined) { f[at + 38] = $x === null ? 1 : 2; f.fill(0, at + 39, at + 40); } else { f[at + 38] = 0; f[at + 39] = $x; } }
-  { const $x = o.trickCooldown; if ($x === null || $x === undefined) { f[at + 40] = $x === null ? 1 : 2; f.fill(0, at + 41, at + 42); } else { f[at + 40] = 0; f[at + 41] = $x; } }
-  { const $x = o.trickPending; if ($x === null || $x === undefined) { f[at + 42] = $x === null ? 1 : 2; f.fill(0, at + 43, at + 44); } else { f[at + 42] = 0; f[at + 43] = $x; } }
-  { const $x = o.trickDirection; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f.fill(0, at + 45, at + 46); } else { f[at + 44] = 0; f[at + 45] = $x; } }
-  { const $x = o.gear; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f.fill(0, at + 47, at + 48); } else { f[at + 46] = 0; f[at + 47] = $x; } }
-  { const $x = o.landingMessage; if ($x === null || $x === undefined) { f[at + 48] = $x === null ? 1 : 2; f.fill(0, at + 49, at + 50); } else { f[at + 48] = 0; f[at + 49] = b.strings.id($x); } }
-  { const $x = o.landingMessageTime; if ($x === null || $x === undefined) { f[at + 50] = $x === null ? 1 : 2; f.fill(0, at + 51, at + 52); } else { f[at + 50] = 0; f[at + 51] = $x; } }
-  { const $x = o.flightTrickRight; if ($x === null || $x === undefined) { f[at + 52] = $x === null ? 1 : 2; f.fill(0, at + 53, at + 56); } else { f[at + 52] = 0; { const $v = $x; f[at + 53] = $v.x; f[at + 54] = $v.y; f[at + 55] = $v.z; } } }
-  { const $x = o.flightClock; if ($x === null || $x === undefined) { f[at + 56] = $x === null ? 1 : 2; f.fill(0, at + 57, at + 58); } else { f[at + 56] = 0; f[at + 57] = $x; } }
-  { const $x = o.boostExhausted; if ($x === null || $x === undefined) { f[at + 58] = $x === null ? 1 : 2; f.fill(0, at + 59, at + 60); } else { f[at + 58] = 0; f[at + 59] = $x ? 1 : 0; } }
-  { const $x = o.landingReason; if ($x === null || $x === undefined) { f[at + 60] = $x === null ? 1 : 2; f.fill(0, at + 61, at + 62); } else { f[at + 60] = 0; f[at + 61] = b.strings.id($x); } }
-  { const $x = o.flightWarning; if ($x === null || $x === undefined) { f[at + 62] = $x === null ? 1 : 2; f.fill(0, at + 63, at + 64); } else { f[at + 62] = 0; f[at + 63] = b.strings.id($x); } }
-  { const $x = o.terrainWarning; if ($x === null || $x === undefined) { f[at + 64] = $x === null ? 1 : 2; f.fill(0, at + 65, at + 66); } else { f[at + 64] = 0; f[at + 65] = $x ? 1 : 0; } }
-  { const $x = o.flightAssistId; if ($x === null || $x === undefined) { f[at + 66] = $x === null ? 1 : 2; f.fill(0, at + 67, at + 68); } else { f[at + 66] = 0; f[at + 67] = $x; } }
-  { const $x = o.flightLockId; if ($x === null || $x === undefined) { f[at + 68] = $x === null ? 1 : 2; f.fill(0, at + 69, at + 70); } else { f[at + 68] = 0; f[at + 69] = $x; } }
-  { const $x = o.flightLockGeneration; if ($x === null || $x === undefined) { f[at + 70] = $x === null ? 1 : 2; f.fill(0, at + 71, at + 72); } else { f[at + 70] = 0; f[at + 71] = $x; } }
-  { const $x = o.flightLockTimer; if ($x === null || $x === undefined) { f[at + 72] = $x === null ? 1 : 2; f.fill(0, at + 73, at + 74); } else { f[at + 72] = 0; f[at + 73] = $x; } }
-  { const $x = o.flightLostLOS; if ($x === null || $x === undefined) { f[at + 74] = $x === null ? 1 : 2; f.fill(0, at + 75, at + 76); } else { f[at + 74] = 0; f[at + 75] = $x; } }
-  { const $x = o.flightLockState; if ($x === null || $x === undefined) { f[at + 76] = $x === null ? 1 : 2; f.fill(0, at + 77, at + 78); } else { f[at + 76] = 0; f[at + 77] = b.strings.id($x); } }
-  { const $x = o.flightStart; if ($x === null || $x === undefined) { f[at + 78] = $x === null ? 1 : 2; f.fill(0, at + 79, at + 82); } else { f[at + 78] = 0; { const $v = $x; f[at + 79] = $v.x; f[at + 80] = $v.y; f[at + 81] = $v.z; } } }
-  { const $x = o.flightEnd; if ($x === null || $x === undefined) { f[at + 82] = $x === null ? 1 : 2; f.fill(0, at + 83, at + 86); } else { f[at + 82] = 0; { const $v = $x; f[at + 83] = $v.x; f[at + 84] = $v.y; f[at + 85] = $v.z; } } }
-  { const $x = o.flightStartQ; if ($x === null || $x === undefined) { f[at + 86] = $x === null ? 1 : 2; f.fill(0, at + 87, at + 91); } else { f[at + 86] = 0; { const $v = $x; f[at + 87] = $v.x; f[at + 88] = $v.y; f[at + 89] = $v.z; f[at + 90] = $v.w; } } }
-  { const $x = o.flightTrickLoopQ; if ($x === null || $x === undefined) { f[at + 91] = $x === null ? 1 : 2; f.fill(0, at + 92, at + 96); } else { f[at + 91] = 0; { const $v = $x; f[at + 92] = $v.x; f[at + 93] = $v.y; f[at + 94] = $v.z; f[at + 95] = $v.w; } } }
-  { const $x = o.flightTrickEndQ; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f.fill(0, at + 97, at + 101); } else { f[at + 96] = 0; { const $v = $x; f[at + 97] = $v.x; f[at + 98] = $v.y; f[at + 99] = $v.z; f[at + 100] = $v.w; } } }
-  { const $x = o.flightPreviousQ; if ($x === null || $x === undefined) { f[at + 101] = $x === null ? 1 : 2; f.fill(0, at + 102, at + 106); } else { f[at + 101] = 0; { const $v = $x; f[at + 102] = $v.x; f[at + 103] = $v.y; f[at + 104] = $v.z; f[at + 105] = $v.w; } } }
-  { const $x = o.flightTickQ; if ($x === null || $x === undefined) { f[at + 106] = $x === null ? 1 : 2; f.fill(0, at + 107, at + 111); } else { f[at + 106] = 0; { const $v = $x; f[at + 107] = $v.x; f[at + 108] = $v.y; f[at + 109] = $v.z; f[at + 110] = $v.w; } } }
-  { const $x = o.flightActionHeld; if ($x === null || $x === undefined) { f[at + 111] = $x === null ? 1 : 2; f.fill(0, at + 112, at + 113); } else { f[at + 111] = 0; f[at + 112] = $x ? 1 : 0; } }
-  { const $x = o.trickHeld; if ($x === null || $x === undefined) { f[at + 113] = $x === null ? 1 : 2; f.fill(0, at + 114, at + 115); } else { f[at + 113] = 0; f[at + 114] = $x ? 1 : 0; } }
-  { const $x = o.immelmannHeld; if ($x === null || $x === undefined) { f[at + 115] = $x === null ? 1 : 2; f.fill(0, at + 116, at + 117); } else { f[at + 115] = 0; f[at + 116] = $x ? 1 : 0; } }
-  { const $x = o.flightFrameQ; if ($x === null || $x === undefined) { f[at + 117] = $x === null ? 1 : 2; f.fill(0, at + 118, at + 122); } else { f[at + 117] = 0; { const $v = $x; f[at + 118] = $v.x; f[at + 119] = $v.y; f[at + 120] = $v.z; f[at + 121] = $v.w; } } }
+  { const $x = o.team; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f[at + 15] = 0; } else { f[at + 14] = 0; f[at + 15] = $x; } }
+  { const $x = o.flightClass; if ($x === null || $x === undefined) { f[at + 16] = $x === null ? 1 : 2; f[at + 17] = 0; } else { f[at + 16] = 0; f[at + 17] = FlightClass_INDEX.get($x); } }
+  { const $x = o.minSpeed; if ($x === null || $x === undefined) { f[at + 18] = $x === null ? 1 : 2; f[at + 19] = 0; } else { f[at + 18] = 0; f[at + 19] = $x; } }
+  { const $x = o.midSpeed; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; } else { f[at + 20] = 0; f[at + 21] = $x; } }
+  { const $x = o.boostSpeed; if ($x === null || $x === undefined) { f[at + 22] = $x === null ? 1 : 2; f[at + 23] = 0; } else { f[at + 22] = 0; f[at + 23] = $x; } }
+  { const $x = o.power; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f[at + 25] = 0; } else { f[at + 24] = 0; f[at + 25] = $x; } }
+  { const $x = o.stickX; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f[at + 27] = 0; } else { f[at + 26] = 0; f[at + 27] = $x; } }
+  { const $x = o.stickY; if ($x === null || $x === undefined) { f[at + 28] = $x === null ? 1 : 2; f[at + 29] = 0; } else { f[at + 28] = 0; f[at + 29] = $x; } }
+  { const $x = o.flightRollRate; if ($x === null || $x === undefined) { f[at + 30] = $x === null ? 1 : 2; f[at + 31] = 0; } else { f[at + 30] = 0; f[at + 31] = $x; } }
+  { const $x = o.rollLock; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f[at + 33] = 0; } else { f[at + 32] = 0; f[at + 33] = $x ? 1 : 0; } }
+  { const $x = o.boosting; if ($x === null || $x === undefined) { f[at + 34] = $x === null ? 1 : 2; f[at + 35] = 0; } else { f[at + 34] = 0; f[at + 35] = $x ? 1 : 0; } }
+  { const $x = o.trick; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f[at + 37] = 0; } else { f[at + 36] = 0; f[at + 37] = b.strings.id($x); } }
+  { const $x = o.trickTime; if ($x === null || $x === undefined) { f[at + 38] = $x === null ? 1 : 2; f[at + 39] = 0; } else { f[at + 38] = 0; f[at + 39] = $x; } }
+  { const $x = o.trickCooldown; if ($x === null || $x === undefined) { f[at + 40] = $x === null ? 1 : 2; f[at + 41] = 0; } else { f[at + 40] = 0; f[at + 41] = $x; } }
+  { const $x = o.trickPending; if ($x === null || $x === undefined) { f[at + 42] = $x === null ? 1 : 2; f[at + 43] = 0; } else { f[at + 42] = 0; f[at + 43] = $x; } }
+  { const $x = o.trickDirection; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f[at + 45] = 0; } else { f[at + 44] = 0; f[at + 45] = $x; } }
+  { const $x = o.gear; if ($x === null || $x === undefined) { f[at + 46] = $x === null ? 1 : 2; f[at + 47] = 0; } else { f[at + 46] = 0; f[at + 47] = $x; } }
+  { const $x = o.landingMessage; if ($x === null || $x === undefined) { f[at + 48] = $x === null ? 1 : 2; f[at + 49] = 0; } else { f[at + 48] = 0; f[at + 49] = b.strings.id($x); } }
+  { const $x = o.landingMessageTime; if ($x === null || $x === undefined) { f[at + 50] = $x === null ? 1 : 2; f[at + 51] = 0; } else { f[at + 50] = 0; f[at + 51] = $x; } }
+  { const $x = o.flightTrickRight; if ($x === null || $x === undefined) { f[at + 52] = $x === null ? 1 : 2; f[at + 53] = 0; f[at + 54] = 0; f[at + 55] = 0; } else { f[at + 52] = 0; { const $v = $x; f[at + 53] = $v.x; f[at + 54] = $v.y; f[at + 55] = $v.z; } } }
+  { const $x = o.flightClock; if ($x === null || $x === undefined) { f[at + 56] = $x === null ? 1 : 2; f[at + 57] = 0; } else { f[at + 56] = 0; f[at + 57] = $x; } }
+  { const $x = o.boostExhausted; if ($x === null || $x === undefined) { f[at + 58] = $x === null ? 1 : 2; f[at + 59] = 0; } else { f[at + 58] = 0; f[at + 59] = $x ? 1 : 0; } }
+  { const $x = o.landingReason; if ($x === null || $x === undefined) { f[at + 60] = $x === null ? 1 : 2; f[at + 61] = 0; } else { f[at + 60] = 0; f[at + 61] = b.strings.id($x); } }
+  { const $x = o.flightWarning; if ($x === null || $x === undefined) { f[at + 62] = $x === null ? 1 : 2; f[at + 63] = 0; } else { f[at + 62] = 0; f[at + 63] = b.strings.id($x); } }
+  { const $x = o.terrainWarning; if ($x === null || $x === undefined) { f[at + 64] = $x === null ? 1 : 2; f[at + 65] = 0; } else { f[at + 64] = 0; f[at + 65] = $x ? 1 : 0; } }
+  { const $x = o.flightAssistId; if ($x === null || $x === undefined) { f[at + 66] = $x === null ? 1 : 2; f[at + 67] = 0; } else { f[at + 66] = 0; f[at + 67] = $x; } }
+  { const $x = o.flightLockId; if ($x === null || $x === undefined) { f[at + 68] = $x === null ? 1 : 2; f[at + 69] = 0; } else { f[at + 68] = 0; f[at + 69] = $x; } }
+  { const $x = o.flightLockGeneration; if ($x === null || $x === undefined) { f[at + 70] = $x === null ? 1 : 2; f[at + 71] = 0; } else { f[at + 70] = 0; f[at + 71] = $x; } }
+  { const $x = o.flightLockTimer; if ($x === null || $x === undefined) { f[at + 72] = $x === null ? 1 : 2; f[at + 73] = 0; } else { f[at + 72] = 0; f[at + 73] = $x; } }
+  { const $x = o.flightLostLOS; if ($x === null || $x === undefined) { f[at + 74] = $x === null ? 1 : 2; f[at + 75] = 0; } else { f[at + 74] = 0; f[at + 75] = $x; } }
+  { const $x = o.flightLockState; if ($x === null || $x === undefined) { f[at + 76] = $x === null ? 1 : 2; f[at + 77] = 0; } else { f[at + 76] = 0; f[at + 77] = b.strings.id($x); } }
+  { const $x = o.flightStart; if ($x === null || $x === undefined) { f[at + 78] = $x === null ? 1 : 2; f[at + 79] = 0; f[at + 80] = 0; f[at + 81] = 0; } else { f[at + 78] = 0; { const $v = $x; f[at + 79] = $v.x; f[at + 80] = $v.y; f[at + 81] = $v.z; } } }
+  { const $x = o.flightEnd; if ($x === null || $x === undefined) { f[at + 82] = $x === null ? 1 : 2; f[at + 83] = 0; f[at + 84] = 0; f[at + 85] = 0; } else { f[at + 82] = 0; { const $v = $x; f[at + 83] = $v.x; f[at + 84] = $v.y; f[at + 85] = $v.z; } } }
+  { const $x = o.flightStartQ; if ($x === null || $x === undefined) { f[at + 86] = $x === null ? 1 : 2; f[at + 87] = 0; f[at + 88] = 0; f[at + 89] = 0; f[at + 90] = 0; } else { f[at + 86] = 0; { const $v = $x; f[at + 87] = $v.x; f[at + 88] = $v.y; f[at + 89] = $v.z; f[at + 90] = $v.w; } } }
+  { const $x = o.flightTrickLoopQ; if ($x === null || $x === undefined) { f[at + 91] = $x === null ? 1 : 2; f[at + 92] = 0; f[at + 93] = 0; f[at + 94] = 0; f[at + 95] = 0; } else { f[at + 91] = 0; { const $v = $x; f[at + 92] = $v.x; f[at + 93] = $v.y; f[at + 94] = $v.z; f[at + 95] = $v.w; } } }
+  { const $x = o.flightTrickEndQ; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f[at + 97] = 0; f[at + 98] = 0; f[at + 99] = 0; f[at + 100] = 0; } else { f[at + 96] = 0; { const $v = $x; f[at + 97] = $v.x; f[at + 98] = $v.y; f[at + 99] = $v.z; f[at + 100] = $v.w; } } }
+  { const $x = o.flightPreviousQ; if ($x === null || $x === undefined) { f[at + 101] = $x === null ? 1 : 2; f[at + 102] = 0; f[at + 103] = 0; f[at + 104] = 0; f[at + 105] = 0; } else { f[at + 101] = 0; { const $v = $x; f[at + 102] = $v.x; f[at + 103] = $v.y; f[at + 104] = $v.z; f[at + 105] = $v.w; } } }
+  { const $x = o.flightTickQ; if ($x === null || $x === undefined) { f[at + 106] = $x === null ? 1 : 2; f[at + 107] = 0; f[at + 108] = 0; f[at + 109] = 0; f[at + 110] = 0; } else { f[at + 106] = 0; { const $v = $x; f[at + 107] = $v.x; f[at + 108] = $v.y; f[at + 109] = $v.z; f[at + 110] = $v.w; } } }
+  { const $x = o.flightActionHeld; if ($x === null || $x === undefined) { f[at + 111] = $x === null ? 1 : 2; f[at + 112] = 0; } else { f[at + 111] = 0; f[at + 112] = $x ? 1 : 0; } }
+  { const $x = o.trickHeld; if ($x === null || $x === undefined) { f[at + 113] = $x === null ? 1 : 2; f[at + 114] = 0; } else { f[at + 113] = 0; f[at + 114] = $x ? 1 : 0; } }
+  { const $x = o.immelmannHeld; if ($x === null || $x === undefined) { f[at + 115] = $x === null ? 1 : 2; f[at + 116] = 0; } else { f[at + 115] = 0; f[at + 116] = $x ? 1 : 0; } }
+  { const $x = o.flightFrameQ; if ($x === null || $x === undefined) { f[at + 117] = $x === null ? 1 : 2; f[at + 118] = 0; f[at + 119] = 0; f[at + 120] = 0; f[at + 121] = 0; } else { f[at + 117] = 0; { const $v = $x; f[at + 118] = $v.x; f[at + 119] = $v.y; f[at + 120] = $v.z; f[at + 121] = $v.w; } } }
   f[at + 122] = b.strings.id(o.name);
   f[at + 123] = o.flying ? 1 : 0;
   f[at + 124] = o.walking ? 1 : 0;
@@ -526,7 +526,7 @@ export function putFullVehicle(b, o, f, at, heap) {
   heap.items(o.probes, f, at + 149, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
   heap.items(o.supportProbes, f, at + 151, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
   f[at + 153] = o.maxHealth;
-  { const $x = o.waterRule; if ($x === null || $x === undefined) { f[at + 154] = $x === null ? 1 : 2; f.fill(0, at + 155, at + 157); } else { f[at + 154] = 0; putWaterRule(b, $x, f, at + 155, heap); } }
+  { const $x = o.waterRule; if ($x === null || $x === undefined) { f[at + 154] = $x === null ? 1 : 2; f[at + 155] = 0; f[at + 156] = 0; } else { f[at + 154] = 0; putWaterRule(b, $x, f, at + 155, heap); } }
   f[at + 157] = o.waterDepth;
   b.refs[KIND_BODY].put(o.body, f, at + 158);
   { const $v = o.position; f[at + 160] = $v.x; f[at + 161] = $v.y; f[at + 162] = $v.z; }
@@ -545,7 +545,7 @@ export function putFullVehicle(b, o, f, at, heap) {
   f[at + 179] = o.forwardInput;
   f[at + 180] = o.rightInput;
   f[at + 181] = o.alive ? 1 : 0;
-  { const $x = o.sleeping; if ($x === null || $x === undefined) { f[at + 182] = $x === null ? 1 : 2; f.fill(0, at + 183, at + 184); } else { f[at + 182] = 0; f[at + 183] = $x ? 1 : 0; } }
+  { const $x = o.sleeping; if ($x === null || $x === undefined) { f[at + 182] = $x === null ? 1 : 2; f[at + 183] = 0; } else { f[at + 182] = 0; f[at + 183] = $x ? 1 : 0; } }
   f[at + 184] = o.health;
   f[at + 185] = o.dying;
   f[at + 186] = o.waterClock;
@@ -553,17 +553,17 @@ export function putFullVehicle(b, o, f, at, heap) {
   { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 191 + i] = e[i]; }
   { const $v = o.itemCenter; f[at + 207] = $v.x; f[at + 208] = $v.y; f[at + 209] = $v.z; }
   { const $v = o.supportNormal; f[at + 210] = $v.x; f[at + 211] = $v.y; f[at + 212] = $v.z; }
-  { const $x = o.legSide; if ($x === null || $x === undefined) { f[at + 213] = $x === null ? 1 : 2; f.fill(0, at + 214, at + 216); } else { f[at + 213] = 0; heap.items($x, f, at + 214, 1, (f, at, v) => { f[at + 0] = v; }); } }
+  { const $x = o.legSide; if ($x === null || $x === undefined) { f[at + 213] = $x === null ? 1 : 2; f[at + 214] = 0; f[at + 215] = 0; } else { f[at + 213] = 0; heap.items($x, f, at + 214, 1, (f, at, v) => { f[at + 0] = v; }); } }
   f[at + 216] = o.seatIndex;
-  { const $x = o.driver; if ($x === null || $x === undefined) { f[at + 217] = $x === null ? 1 : 2; f.fill(0, at + 218, at + 220); } else { f[at + 217] = 0; b.refs[KIND_VEHICLE_DRIVER].put($x, f, at + 218); } }
+  { const $x = o.driver; if ($x === null || $x === undefined) { f[at + 217] = $x === null ? 1 : 2; f[at + 218] = 0; f[at + 219] = 0; } else { f[at + 217] = 0; b.refs[KIND_VEHICLE_DRIVER].put($x, f, at + 218); } }
   heap.items(o.wheels, f, at + 220, 6, (f, at, v) => { putVehicleWheel(b, v, f, at + 0, heap); });
   heap.items(o.seats, f, at + 222, 9, (f, at, v) => { putVehicleSeat(b, v, f, at + 0, heap); });
   heap.items(o.seatViews, f, at + 224, 6, (f, at, v) => { putSeatView(b, v, f, at + 0, heap); });
   heap.items(o.seatLeases, f, at + 226, 17, (f, at, v) => { putSeatLeaseView(b, v, f, at + 0, heap); });
-  { const $x = o.tickFrom; if ($x === null || $x === undefined) { f[at + 228] = $x === null ? 1 : 2; f.fill(0, at + 229, at + 232); } else { f[at + 228] = 0; { const $v = $x; f[at + 229] = $v.x; f[at + 230] = $v.y; f[at + 231] = $v.z; } } }
-  { const $x = o.tickFromYaw; if ($x === null || $x === undefined) { f[at + 232] = $x === null ? 1 : 2; f.fill(0, at + 233, at + 234); } else { f[at + 232] = 0; f[at + 233] = $x; } }
-  { const $x = o.tickFromTilt; if ($x === null || $x === undefined) { f[at + 234] = $x === null ? 1 : 2; f.fill(0, at + 235, at + 236); } else { f[at + 234] = 0; f[at + 235] = $x; } }
-  { const $x = o.tickFromRoll; if ($x === null || $x === undefined) { f[at + 236] = $x === null ? 1 : 2; f.fill(0, at + 237, at + 238); } else { f[at + 236] = 0; f[at + 237] = $x; } }
+  { const $x = o.tickFrom; if ($x === null || $x === undefined) { f[at + 228] = $x === null ? 1 : 2; f[at + 229] = 0; f[at + 230] = 0; f[at + 231] = 0; } else { f[at + 228] = 0; { const $v = $x; f[at + 229] = $v.x; f[at + 230] = $v.y; f[at + 231] = $v.z; } } }
+  { const $x = o.tickFromYaw; if ($x === null || $x === undefined) { f[at + 232] = $x === null ? 1 : 2; f[at + 233] = 0; } else { f[at + 232] = 0; f[at + 233] = $x; } }
+  { const $x = o.tickFromTilt; if ($x === null || $x === undefined) { f[at + 234] = $x === null ? 1 : 2; f[at + 235] = 0; } else { f[at + 234] = 0; f[at + 235] = $x; } }
+  { const $x = o.tickFromRoll; if ($x === null || $x === undefined) { f[at + 236] = $x === null ? 1 : 2; f[at + 237] = 0; } else { f[at + 236] = 0; f[at + 237] = $x; } }
   f[at + 238] = o.root?.visible ? 1 : 0;
   f[at + 239] = o.towTarget;
   { const $v = o.towLocal; f[at + 240] = $v.x; f[at + 241] = $v.y; f[at + 242] = $v.z; }

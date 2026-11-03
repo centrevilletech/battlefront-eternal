@@ -149,10 +149,16 @@ export class MirrorPool {
 
   // The mirror of a retired entity, for its last state: the slot's, if it
   // is that life's (then the slot forgets it, unless the kind keeps one
-  // mirror a slot), else a new one nobody holds.
+  // mirror a slot), or the one a later life of the slot displaced before
+  // its retirement was synced, else a new one nobody holds.
   retire(slot, gen) {
     const m = this.objects[slot];
-    if (m === undefined || m.simGen !== gen) return new this.Mirror();
+    if (m === undefined || m.simGen !== gen) {
+      const old = this.displaced?.get(slot)?.get(gen);
+      if (old === undefined) return new this.Mirror();
+      this.displaced.get(slot).delete(gen);
+      return old;
+    }
     if (!this.keyed) this.objects[slot] = undefined;
     return m;
   }
@@ -160,6 +166,15 @@ export class MirrorPool {
   at(slot, gen) {
     let m = this.objects[slot];
     if (m === undefined || (!this.keyed && m.simGen !== gen)) {
+      // A slot's next life met before the last one's retirement was synced
+      // (a round fired into the slot a round left in the same phase): the
+      // last one's mirror waits for its retired row.
+      if (m !== undefined) {
+        this.displaced ??= new Map();
+        let lives = this.displaced.get(slot);
+        if (!lives) this.displaced.set(slot, lives = new Map());
+        lives.set(m.simGen, m);
+      }
       m = new this.Mirror();
       m.simSlot = slot;
       m.simGen = gen;
@@ -175,7 +190,8 @@ export class MirrorPool {
 // and maps hold.
 export class Heap {
   constructor() { this.words = []; this.pair = [0, 0]; }
-  clear() { this.words.length = 0; }
+  // (Truncating an array costs even when it is empty, as most are.)
+  clear() { if (this.words.length) this.words.length = 0; }
   list(refs, items, f, at) {
     const words = this.words, pair = this.pair, start = words.length;
     let n = 0;
@@ -222,6 +238,7 @@ export class SimContext {
   // `kinds` and `defTables`: a generated kind table and its definition
   // tables (the store's by default; the generator's tests pass theirs).
   constructor({ classes = {}, tests = {}, kinds = KIND_TABLE, defTables = DEF_TABLES, recordClasses = RECORD_CLASSES } = {}) {
+    this.recordClasses = recordClasses;
     this.kinds = kinds;
     // A union of records tells them apart by these (a record's $class).
     this.recordTests = Object.fromEntries(Object.entries(recordClasses).map(([name, names]) => {
@@ -238,6 +255,24 @@ export class SimContext {
   }
 
   setRefs(kind, refs) { this.refs[kind] = refs; return refs; }
+
+  // More of what tells kinds apart (as the constructor takes them), from a
+  // phase that joins a bridge already made: a kind JavaScript still owns
+  // that has no test yet gets the one given; the first phase to give a
+  // kind's test sets it.
+  identify({ classes = {}, tests = {} } = {}) {
+    this.kinds.forEach((k, code) => {
+      const refs = this.refs[code];
+      if (!k || !(refs instanceof Identity) || refs.test) return;
+      const ctors = k.classes.map((name) => classes[name]).filter(Boolean);
+      refs.test = tests[k.name] ?? (ctors.length ? (o) => ctors.some((c) => o instanceof c) : null);
+    });
+    for (const [name, names] of Object.entries(this.recordClasses)) {
+      const ctors = names.map((n) => classes[n]).filter(Boolean);
+      if (tests[name] || ctors.length) this.recordTests[name] = tests[name] ?? ((o) => ctors.some((c) => o instanceof c));
+    }
+    return this;
+  }
 
   // Rust now owns the kind: its references are mirrors.
   own(kind) { return this.setRefs(kind, new MirrorPool(kind, this.kinds)); }
@@ -297,8 +332,17 @@ export class SimBridge extends SimContext {
     // a phase; release: views are made again where it is noticed).
     this.grown = 0;
     // What serves the module's imports, by name (a schema's imports):
-    // handler(args) gives the result.
+    // handler(args) gives the result. Each import's arguments object, by
+    // code, made the first time it is served.
     this.handlers = {};
+    this.served = [];
+    // The import block: where it is (in f64s) and its size.
+    this.exchange = this.x.sim_import_args() / 8;
+    this.exchangeWords = this.x.sim_import_capacity();
+    // One bridge an instance: the module's imports reach the bridge attached
+    // to it, so a second would take them from the first (bridgeFor()).
+    // `replace` is for a tool that empties the store and starts over.
+    if (instance.holder?.bridge && !options.replace) throw Error("this instance of the module has a bridge already: bridgeFor(instance) gives it");
     if (instance.holder) instance.holder.bridge = this;
     this.commandCodes = new Map(COMMAND_TABLE.filter(Boolean).map((c) => [c.name, c.code]));
     // A flat command's argument words (its binding fills them, then calls).
@@ -325,6 +369,18 @@ export class SimBridge extends SimContext {
     this.views();
     const f = this.f, base = ptr / 8;
     return record.sync(this, f, base + HEADER, base + f[base + 2], into ?? new record.Mirror());
+  }
+
+  // Serves imports (a phase's own, by import name): `handlers` adds
+  // name -> handler(args) to those served; an import no schema declares, or
+  // one another phase already serves, is refused.
+  register(handlers) {
+    for (const [name, handler] of Object.entries(handlers)) {
+      if (!IMPORT_TABLE.some((imp) => imp?.name === name)) throw Error(`no schema declares an import ${name}`);
+      if (this.handlers[name]) throw Error(`the import ${name} is served already`);
+      this.handlers[name] = handler;
+    }
+    return this;
   }
 
   // Runs a command (by name, or by code, which is quicker) on its arguments
@@ -364,28 +420,40 @@ export class SimBridge extends SimContext {
   }
 
   // Serves an import the module called: its arguments out of the import
-  // block, handlers[name](args), the result back in. A handler must not
-  // call back into the store (the Rust that called holds it).
+  // block (the same stretch of memory every time: rust/sim/src/store/
+  // calls.rs), handlers[name](args), the result written back there. The
+  // arguments object is the bridge's own, made once an import and read
+  // into again at its next call: a handler keeps nothing of it (it copies
+  // a vector it hands on to code that might keep it), and reads all it
+  // needs before it calls code that could come back into the module (which
+  // may make the same import again).
   serve(code) {
     const imp = IMPORT_TABLE[code], handler = this.handlers[imp.name];
     if (!handler) throw Error(`the simulation's module asked for ${imp.name}, which nothing serves`);
-    const result = handler(this.callResult(imp.args, this.x.sim_import_args()));
+    const args = (this.served[code] ??= new imp.args.Mirror()), base = this.exchange;
+    this.views();
+    const f = this.f;
+    const result = handler(imp.args.sync(this, f, base + HEADER, base + f[base + 2], args));
     if (!imp.result) return;
     const record = imp.result, heap = this.heap, words = record.words;
     if (this.rows.length < words) this.rows = new Float64Array(Math.max(words, this.rows.length * 2));
     heap.clear();
     record.put(this, result, this.rows, 0, heap);
-    const ptr = this.x.sim_import_result_room(words, heap.words.length);
+    const hw = heap.words;
+    if (HEADER + words + hw.length > this.exchangeWords) throw Error(`${imp.name}: a result larger than the import block`);
     this.views();
-    const f = this.f, at = ptr / 8 + HEADER, hw = heap.words;
-    for (let i = 0; i < words; i++) f[at + i] = this.rows[i];
-    for (let i = 0; i < hw.length; i++) f[at + words + i] = hw[i];
+    const g = this.f, at = base + HEADER, rows = this.rows;
+    g[base] = 1; g[base + 1] = words; g[base + 2] = HEADER + words; g[base + 3] = hw.length; g[base + 4] = 0;
+    for (let i = 0; i < words; i++) g[at + i] = rows[i];
+    for (let i = 0; i < hw.length; i++) g[at + words + i] = hw[i];
   }
 
   // The memory's views, made again if it grew (a grown memory's old buffer
   // is detached: its byteLength is 0).
   views() {
-    if (this.buffer === this.memory.buffer && this.buffer.byteLength) return;
+    // (Growing the memory detaches its old buffer, whose byteLength is then
+    // 0: no need to ask the memory for its buffer while it has not grown.)
+    if (this.buffer?.byteLength) return;
     if (this.buffer) this.grown++;
     this.buffer = this.memory.buffer;
     this.f = new Float64Array(this.buffer);
@@ -483,6 +551,16 @@ export class SimBridge extends SimContext {
     this.f.set(heap.words, base + HEADER + n * stride);
     if (this.x.sim_import(kind, full ? 1 : 0) !== 0) throw Error(`${k.name}: the store holds no fields of it`);
   }
+}
+
+// The bridge of a battle's instance of the module: the one attached to it,
+// or a new one. Every phase that goes onto the module shares it (the
+// module's imports reach the bridge attached to the instance), adding what
+// tells its kinds apart (`options`: classes, tests) and registering its own
+// imports' handlers (SimBridge.register).
+export function bridgeFor(instance, options = {}) {
+  const bridge = instance.holder?.bridge;
+  return bridge ? bridge.identify(options) : new SimBridge(instance, options);
 }
 
 // The instance's strings: an index for each, the same on both sides
