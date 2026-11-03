@@ -385,6 +385,31 @@ test("a droideka's shield: its uniforms as the model's values, the frame's own l
   assert.deepEqual(entry(0).slice(6, 8), [0, 4], "three's key: render order 4");
 });
 
+test("a droideka's Enhanced aura: a shader model with the shield's values, front faces only, added", async () => {
+  const { ShieldBubble } = await import("../src/droideka-shield.js");
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const bubble = new ShieldBubble(scene, { Radius: 2 }, () => null, { get: () => "enhanced" });
+  const droideka = { position: new THREE.Vector3(0, 0, -8), aimYaw: 0, shield: { on: true, def: {}, value: 1, max: 1 }, dead: false, rolled: false };
+  bubble.update(0.1, droideka);
+  scene.updateMatrixWorld(true);
+  const aura = bubble.aura, material = aura.material;
+  assert.ok(aura.visible, "shown with the Enhanced look");
+  list.transparent.push({ object: aura, material, group: null });
+  drawn(material, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "shieldTime", "shieldFade", "birth", "inside", "flash"], ["position", "normal"]));
+  frame();
+  const model = calls.find((c) => c[0] === "fx_add_model");
+  assert.ok(model, "registered");
+  assert.deepEqual(model[2], [1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], "added");
+  assert.equal(model[5], "shieldTime:1:0,shieldFade:1:0,birth:1:0,inside:1:0,flash:1:0", "the shield's values it reads");
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_model_pass").map((c) => c[3]), [0], "front faces only");
+  assert.equal(material.visible, false);
+  list.transparent.length = 0;
+  frame();
+  assert.equal(core.fxInput[0], 1);
+  assert.deepEqual(entry(0).slice(0, 2), [2, 0]);
+  assert.equal(core.fxMatrices[0], aura.matrixWorld.elements[0], "its world matrix: the shield's, a little larger");
+});
+
 test("the atmosphere's squares: a batch with values of its own after its instances", async () => {
   const { Atmosphere, squareBatches } = await import("../src/atmosphere.js");
   const { core, calls, scene, camera, frame, drawn, entry } = bridge();
@@ -1058,6 +1083,37 @@ test("the Enhanced destruction's fire and smoke: each pool a batch on a quad of 
   assert.deepEqual([...core.fxData.subarray(fire[4], fire[4] + 16)], [...fx.hot.arrays[0].subarray(0, 16)]);
   core.setActive(false);
   assert.ok(!fx.hot.external && !fx.smoke.external);
+});
+
+test("the Enhanced destruction's arcs: a mesh rebuilt each frame, as many vertices and indices as its arcs used, hidden by its flag", async () => {
+  const { DestructionFx } = await import("../src/destruction-fx.js");
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const fx = new DestructionFx(scene, { hot: 4, smoke: 4, arcs: 4 });
+  fx.arc(null, new THREE.Vector3(-1, 0, -6), null, new THREE.Vector3(1, 0.5, -6), 2);
+  fx.update(1 / 60);
+  const arcs = fx.arcs;
+  assert.ok(arcs.index > 0 && arcs.mesh.visible);
+  list.transparent.push({ object: arcs.mesh, material: arcs.material, group: null });
+  drawn(arcs.material, program(["projectionMatrix", "viewMatrix", "resolution", "fogRange"], ["position", "tangent", "meta"], "#define DOUBLE_SIDED\nvertex"));
+  frame();
+  const added = calls.find((c) => c[0] === "fx_add_mesh");
+  assert.deepEqual(added.slice(5, 7), [[3, 3, 4], ""], "its attributes; no values of its own (the frame's resolution and fog)");
+  assert.equal(arcs.external, true);
+  assert.equal(arcs.material.visible, true, "hidden by its flag, not its material");
+  list.transparent.length = 0;
+  const version = arcs.mesh.geometry.getAttribute("position").version;
+  fx.update(1 / 60);
+  assert.equal(arcs.mesh.visible, false, "shown to three never");
+  assert.equal(arcs.mesh.geometry.getAttribute("position").version, version, "uploaded nothing by three");
+  frame();
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 4), [1, 0, arcs.vertex, arcs.index], "the vertices and indices its arcs used");
+  assert.deepEqual([...core.fxData.subarray(0, 3 * arcs.vertex)], [...arcs.positions.subarray(0, 3 * arcs.vertex)]);
+  assert.deepEqual([...core.fxBits.subarray(10 * arcs.vertex, 10 * arcs.vertex + arcs.index)], [...arcs.indices.subarray(0, arcs.index)]);
+  core.setActive(false);
+  assert.equal(arcs.external, false);
+  assert.equal(arcs.mesh.visible, true);
+  assert.deepEqual(arcs.mesh.geometry.index.updateRanges, [{ start: 0, count: arcs.index }], "what it holds marked for three to upload");
 });
 
 test("the death camera's trace: a mesh rebuilt each frame, its vertices, indices and own values written as three draws it", async () => {
