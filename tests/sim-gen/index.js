@@ -11,8 +11,11 @@ export * from "./shelf.js";
 export const KIND_TABLE = [null,
   { name: "person", code: 1, hash: 0x6076baef, singleton: false, key: "id", home: null, stored: false, classes: ["Person"] },
   { name: "shelf", code: 2, hash: 0x7865bf3a, singleton: true, key: null, home: null, stored: true, classes: [], exportStride: 15, importStride: 15, fullStride: 15, Mirror: ShelfMirror, sync: syncShelf, syncFull: syncFullShelf, put: putShelf, putFull: putFullShelf, check: checkShelf, same: sameShelf, export: exportShelf, keys: SHELF_KEYS },
-  { name: "thing", code: 3, hash: 0xf75b16fa, singleton: false, key: null, home: { kind: 2, field: "things" }, stored: true, classes: [], exportStride: 50, importStride: 52, fullStride: 52, Mirror: ThingMirror, sync: syncThing, syncFull: syncFullThing, put: putThing, putFull: putFullThing, check: checkThing, same: sameThing, export: exportThing, keys: THING_KEYS },
+  { name: "thing", code: 3, hash: 0x1c764872, singleton: false, key: null, home: { kind: 2, field: "things" }, stored: true, classes: [], exportStride: 85, importStride: 88, fullStride: 88, Mirror: ThingMirror, sync: syncThing, syncFull: syncFullThing, put: putThing, putFull: putFullThing, check: checkThing, same: sameThing, export: exportThing, keys: THING_KEYS },
 ];
+
+// The records a union tells apart by class: their classes.
+export const RECORD_CLASSES = {"Legs":["Legs"],"Wheels":["Wheels"]};
 
 // Commands, events and imports by code: name, and their records' words and functions.
 export const COMMAND_TABLE = [null, { name: "double", code: 1, args: { words: 22, Mirror: AskMirror, sync: syncAsk, put: putAsk }, result: { words: 22, Mirror: AskMirror, sync: syncAsk, put: putAsk }, fast: null }];

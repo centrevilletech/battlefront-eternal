@@ -5,7 +5,7 @@
 #![allow(clippy::all, unused_variables, unused_imports, dead_code)]
 
 pub use crate::store::block::Block;
-pub use crate::store::{word_i32, word_u32, DefId, KindCode, Nullable, Quat, Ref, RefSet, Slab, StrId, StrMap, Vec3};
+pub use crate::store::{word_i32, word_u32, DefId, KindCode, Mat4, Nullable, Quat, Ref, RefSet, Slab, StrId, StrMap, Vec3};
 
 mod ordnance;
 pub use self::ordnance::*;

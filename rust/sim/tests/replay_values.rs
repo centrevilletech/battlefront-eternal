@@ -119,8 +119,7 @@ fn a_battle_s_rounds_come_back_from_the_store_as_they_went_in() {
     while let Some(record) = reader.next_record() {
         let record = record.expect("a record");
         if record.name != "ordnance" { continue; }
-        cx.store = Store::default();
-        cx.next_record();
+        cx.reset();
         cx.read_value(KIND_ORDNANCE, record.root()).unwrap_or_else(|e| panic!("tick {}: {e}", record.tick));
         let mut a = Arena::default();
         let back = cx.write_value(KIND_ORDNANCE, &mut a);

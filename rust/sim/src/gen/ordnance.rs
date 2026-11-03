@@ -59,18 +59,21 @@ impl Default for OrdnanceOwner {
 }
 
 impl OrdnanceOwner {
-    /// Its row words: the variant, then a reference's slot and generation.
-    pub fn put(&self, row: &mut [f64]) {
+    pub const WORDS: usize = 3;
+
+    /// Its row words: the variant, then its value (a reference's slot and generation).
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[1..3].fill(0.0);
         match self {
-            OrdnanceOwner::Null => { row[0] = 0.0; row[1] = 0.0; row[2] = 0.0; }
-            OrdnanceOwner::Player => { row[0] = 1.0; row[1] = 0.0; row[2] = 0.0; }
+            OrdnanceOwner::Null => row[0] = 0.0,
+            OrdnanceOwner::Player => row[0] = 1.0,
             OrdnanceOwner::Unit(r) => { row[0] = 2.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             OrdnanceOwner::Vehicle(r) => { row[0] = 3.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             OrdnanceOwner::OwnerSnapshot(r) => { row[0] = 4.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
         }
     }
 
-    pub fn take(row: &[f64]) -> Self {
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
         match word_u32(row[0]) {
             0 => OrdnanceOwner::Null,
             1 => OrdnanceOwner::Player,
@@ -97,11 +100,14 @@ impl Default for BeamSource {
 }
 
 impl BeamSource {
-    /// Its row words: the variant, then a reference's slot and generation.
-    pub fn put(&self, row: &mut [f64]) {
+    pub const WORDS: usize = 3;
+
+    /// Its row words: the variant, then its value (a reference's slot and generation).
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[1..3].fill(0.0);
         match self {
-            BeamSource::Null => { row[0] = 0.0; row[1] = 0.0; row[2] = 0.0; }
-            BeamSource::Player => { row[0] = 1.0; row[1] = 0.0; row[2] = 0.0; }
+            BeamSource::Null => row[0] = 0.0,
+            BeamSource::Player => row[0] = 1.0,
             BeamSource::Emitter(r) => { row[0] = 2.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             BeamSource::Unit(r) => { row[0] = 3.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             BeamSource::Vehicle(r) => { row[0] = 4.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
@@ -109,7 +115,7 @@ impl BeamSource {
         }
     }
 
-    pub fn take(row: &[f64]) -> Self {
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
         match word_u32(row[0]) {
             0 => BeamSource::Null,
             1 => BeamSource::Player,
@@ -133,15 +139,18 @@ impl Default for Mount {
 }
 
 impl Mount {
-    /// Its row words: the variant, then a reference's slot and generation.
-    pub fn put(&self, row: &mut [f64]) {
+    pub const WORDS: usize = 3;
+
+    /// Its row words: the variant, then its value (a reference's slot and generation).
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[1..3].fill(0.0);
         match self {
             Mount::Vehicle(r) => { row[0] = 0.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             Mount::Turret(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
         }
     }
 
-    pub fn take(row: &[f64]) -> Self {
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
         match word_u32(row[0]) {
             0 => Mount::Vehicle(Ref::new(word_u32(row[1]), word_u32(row[2]))),
             1 => Mount::Turret(Ref::new(word_u32(row[1]), word_u32(row[2]))),
@@ -218,8 +227,8 @@ impl Beam {
         row[2] = self.network_fire_channel;
         match &self.history_tick { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v); } None => { row[3] = 1.0; row[3 + 1..3 + 2].fill(0.0); } }
         row[5] = self.def.0 as f64;
-        self.owner.put(&mut row[6..6 + 3]);
-        self.source.put(&mut row[9..9 + 3]);
+        self.owner.put(&mut row[6..6 + 3], heap);
+        self.source.put(&mut row[9..9 + 3], heap);
         match &self.ignore_body { Some(v) => { row[12] = 0.0; row[12 + 1] = (*v).slot as f64; row[12 + 1 + 1] = (*v).gen as f64; } None => { row[12] = 1.0; row[12 + 1..12 + 3].fill(0.0); } }
         row[15] = self.life;
         row[16] = self.duration;
@@ -236,8 +245,8 @@ impl Beam {
         self.network_fire_channel = row[2];
         self.history_tick = if row[3] == 0.0 { Some(row[3 + 1]) } else { None };
         self.def = DefId(word_u32(row[5]));
-        self.owner = OrdnanceOwner::take(&row[6..6 + 3]);
-        self.source = BeamSource::take(&row[9..9 + 3]);
+        self.owner = OrdnanceOwner::take(&row[6..6 + 3], heap);
+        self.source = BeamSource::take(&row[9..9 + 3], heap);
         self.ignore_body = if row[12] == 0.0 { Some(Ref::new(word_u32(row[12 + 1]), word_u32(row[12 + 1 + 1]))) } else { None };
         self.life = row[15];
         self.duration = row[16];
@@ -254,8 +263,8 @@ impl Beam {
         row[2] = self.network_fire_channel;
         match &self.history_tick { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v); } None => { row[3] = 1.0; row[3 + 1..3 + 2].fill(0.0); } }
         row[5] = self.def.0 as f64;
-        self.owner.put(&mut row[6..6 + 3]);
-        self.source.put(&mut row[9..9 + 3]);
+        self.owner.put(&mut row[6..6 + 3], heap);
+        self.source.put(&mut row[9..9 + 3], heap);
         match &self.ignore_body { Some(v) => { row[12] = 0.0; row[12 + 1] = (*v).slot as f64; row[12 + 1 + 1] = (*v).gen as f64; } None => { row[12] = 1.0; row[12 + 1..12 + 3].fill(0.0); } }
         row[15] = self.life;
         row[16] = self.duration;
@@ -271,8 +280,8 @@ impl Beam {
         self.network_fire_channel = row[2];
         self.history_tick = if row[3] == 0.0 { Some(row[3 + 1]) } else { None };
         self.def = DefId(word_u32(row[5]));
-        self.owner = OrdnanceOwner::take(&row[6..6 + 3]);
-        self.source = BeamSource::take(&row[9..9 + 3]);
+        self.owner = OrdnanceOwner::take(&row[6..6 + 3], heap);
+        self.source = BeamSource::take(&row[9..9 + 3], heap);
         self.ignore_body = if row[12] == 0.0 { Some(Ref::new(word_u32(row[12 + 1]), word_u32(row[12 + 1 + 1]))) } else { None };
         self.life = row[15];
         self.duration = row[16];
@@ -324,7 +333,7 @@ impl Bolt {
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 48] = (&mut row[..48]).try_into().unwrap();
         row[2] = self.def.0 as f64;
-        self.owner.put(&mut row[3..3 + 3]);
+        self.owner.put(&mut row[3..3 + 3], heap);
         row[6] = self.network_fire_id;
         row[7] = self.network_fire_channel;
         row[8] = self.network_fire_unit;
@@ -346,7 +355,7 @@ impl Bolt {
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
         let row: &[f64; 48] = (&row[..48]).try_into().unwrap();
         self.def = DefId(word_u32(row[2]));
-        self.owner = OrdnanceOwner::take(&row[3..3 + 3]);
+        self.owner = OrdnanceOwner::take(&row[3..3 + 3], heap);
         self.network_fire_id = row[6];
         self.network_fire_channel = row[7];
         self.network_fire_unit = row[8];
@@ -412,7 +421,7 @@ impl Grenade {
         let row: &mut [f64; 38] = (&mut row[..38]).try_into().unwrap();
         row[2] = self.network_fire_channel;
         row[3] = self.def.0 as f64;
-        self.owner.put(&mut row[4..4 + 3]);
+        self.owner.put(&mut row[4..4 + 3], heap);
         row[7..7 + 3].copy_from_slice(&self.position);
         row[10..10 + 3].copy_from_slice(&self.previous);
         row[13..13 + 3].copy_from_slice(&self.launch_position);
@@ -433,7 +442,7 @@ impl Grenade {
         let row: &[f64; 38] = (&row[..38]).try_into().unwrap();
         self.network_fire_channel = row[2];
         self.def = DefId(word_u32(row[3]));
-        self.owner = OrdnanceOwner::take(&row[4..4 + 3]);
+        self.owner = OrdnanceOwner::take(&row[4..4 + 3], heap);
         self.position = [row[7], row[7 + 1], row[7 + 2]];
         self.previous = [row[10], row[10 + 1], row[10 + 2]];
         self.launch_position = [row[13], row[13 + 1], row[13 + 2]];
@@ -482,18 +491,18 @@ impl Ordnance {
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 10] = (&mut row[..10]).try_into().unwrap();
-        row[2] = heap.len() as f64; row[2 + 1] = self.bolts.len() as f64; for r in self.bolts.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
-        row[4] = heap.len() as f64; row[4 + 1] = self.beams.len() as f64; for r in self.beams.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
-        row[6] = heap.len() as f64; row[6 + 1] = self.grenades.len() as f64; for r in self.grenades.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
-        row[8] = heap.len() as f64; row[8 + 1] = self.rounds.len() as f64; for r in self.rounds.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
+        { let at = heap.len(); row[2] = at as f64; row[2 + 1] = self.bolts.len() as f64; heap.resize(at + self.bolts.len() * 2, 0.0); for (i, e) in self.bolts.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.beams.len() as f64; heap.resize(at + self.beams.len() * 2, 0.0); for (i, e) in self.beams.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.grenades.len() as f64; heap.resize(at + self.grenades.len() * 2, 0.0); for (i, e) in self.grenades.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
+        { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.rounds.len() as f64; heap.resize(at + self.rounds.len() * 2, 0.0); for (i, e) in self.rounds.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
         let row: &[f64; 10] = (&row[..10]).try_into().unwrap();
-        self.bolts = { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
-        self.beams = { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
-        self.grenades = { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
-        self.rounds = { let (at, n) = (word_u32(row[8]) as usize, word_u32(row[8 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() };
+        self.bolts = { let (at, n) = (word_u32(row[2]) as usize, word_u32(row[2 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
+        self.beams = { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
+        self.grenades = { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
+        self.rounds = { let (at, n) = (word_u32(row[8]) as usize, word_u32(row[8 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out };
     }
 
     #[inline(always)]
@@ -559,7 +568,7 @@ impl Round {
         row[3] = self.network_fire_channel;
         match &self.ignore_body { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).slot as f64; row[4 + 1 + 1] = (*v).gen as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 3].fill(0.0); } }
         row[7] = self.def.0 as f64;
-        self.owner.put(&mut row[8..8 + 3]);
+        self.owner.put(&mut row[8..8 + 3], heap);
         row[11..11 + 3].copy_from_slice(&self.position);
         row[14..14 + 3].copy_from_slice(&self.previous);
         row[17..17 + 3].copy_from_slice(&self.launch_position);
@@ -582,7 +591,7 @@ impl Round {
         match &self.muzzle_generation { Nullable::Value(v) => { row[68] = 0.0; row[68 + 1] = (*v); } Nullable::Null => { row[68] = 1.0; row[68 + 1..68 + 2].fill(0.0); } Nullable::Undefined => { row[68] = 2.0; row[68 + 1..68 + 2].fill(0.0); } }
         match &self.muzzle_index { Some(v) => { row[70] = 0.0; row[70 + 1] = (*v); } None => { row[70] = 2.0; row[70 + 1..70 + 2].fill(0.0); } }
         match &self.muzzle_barrel { Some(v) => { row[72] = 0.0; row[72 + 1] = (*v); } None => { row[72] = 2.0; row[72 + 1..72 + 2].fill(0.0); } }
-        match &self.mount { Some(v) => { row[74] = 0.0; (*v).put(&mut row[74 + 1..74 + 1 + 3]); } None => { row[74] = 2.0; row[74 + 1..74 + 4].fill(0.0); } }
+        match &self.mount { Some(v) => { row[74] = 0.0; (*v).put(&mut row[74 + 1..74 + 1 + 3], heap); } None => { row[74] = 2.0; row[74 + 1..74 + 4].fill(0.0); } }
         match &self.mount_seat { Some(v) => { row[78] = 0.0; row[78 + 1] = (*v); } None => { row[78] = 2.0; row[78 + 1..78 + 2].fill(0.0); } }
         match &self.mount_weapon { Some(v) => { row[80] = 0.0; row[80 + 1] = (*v); } None => { row[80] = 2.0; row[80 + 1..80 + 2].fill(0.0); } }
         match &self.mount_barrel { Some(v) => { row[82] = 0.0; row[82 + 1] = (*v); } None => { row[82] = 2.0; row[82 + 1..82 + 2].fill(0.0); } }
@@ -594,7 +603,7 @@ impl Round {
         self.network_fire_channel = row[3];
         self.ignore_body = if row[4] == 0.0 { Some(Ref::new(word_u32(row[4 + 1]), word_u32(row[4 + 1 + 1]))) } else { None };
         self.def = DefId(word_u32(row[7]));
-        self.owner = OrdnanceOwner::take(&row[8..8 + 3]);
+        self.owner = OrdnanceOwner::take(&row[8..8 + 3], heap);
         self.position = [row[11], row[11 + 1], row[11 + 2]];
         self.previous = [row[14], row[14 + 1], row[14 + 2]];
         self.launch_position = [row[17], row[17 + 1], row[17 + 2]];
@@ -617,7 +626,7 @@ impl Round {
         self.muzzle_generation = match word_u32(row[68]) { 0 => Nullable::Value(row[68 + 1]), 1 => Nullable::Null, _ => Nullable::Undefined };
         self.muzzle_index = if row[70] == 0.0 { Some(row[70 + 1]) } else { None };
         self.muzzle_barrel = if row[72] == 0.0 { Some(row[72 + 1]) } else { None };
-        self.mount = if row[74] == 0.0 { Some(Mount::take(&row[74 + 1..74 + 1 + 3])) } else { None };
+        self.mount = if row[74] == 0.0 { Some(Mount::take(&row[74 + 1..74 + 1 + 3], heap)) } else { None };
         self.mount_seat = if row[78] == 0.0 { Some(row[78 + 1]) } else { None };
         self.mount_weapon = if row[80] == 0.0 { Some(row[80 + 1]) } else { None };
         self.mount_barrel = if row[82] == 0.0 { Some(row[82 + 1]) } else { None };
