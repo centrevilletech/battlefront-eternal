@@ -77,6 +77,11 @@ struct Voice {
     start: f64,
     stop: f64,
     ended: bool,
+    // The start time times the rate, less the start frame (0, or just under
+    // it), which moves the read position on in the first block it plays;
+    // whether that block has been.
+    start_offset: f64,
+    begun: bool,
     rate: Timeline,
     gain: Timeline,
     send: Timeline,
@@ -100,6 +105,8 @@ impl Default for Voice {
             start: 0.0,
             stop: f64::INFINITY,
             ended: false,
+            start_offset: 0.0,
+            begun: false,
             rate: Timeline::new(1.0),
             gain: Timeline::new(0.0),
             send: Timeline::new(0.0),
@@ -131,9 +138,10 @@ pub struct Engine {
     /// The context frame the next block starts at (the worklet's
     /// currentFrame).
     pub frame: f64,
-    // A voice's gain and send values for the block.
+    // A voice's gain and send values for the block, and its source's.
     gains: [f32; FRAMES],
     sends: [f32; FRAMES],
+    src: [f32; FRAMES],
 }
 
 // The browser's lowpass coefficients for a normalized cutoff (0..1 of the
@@ -161,6 +169,69 @@ fn flush(x: f64) -> f64 {
     if x.abs() < f32::MIN_POSITIVE as f64 { 0.0 } else { x }
 }
 
+// A voice's source for the block starting at context frame `frame`, as
+// an AudioBufferSourceNode renders it (its RenderFromBuffer), into `src`.
+// Returns whether the source played in the block: a source not started by
+// its end, past its stop, or finished in an earlier block outputs silence,
+// which the nodes after it pass on as silence (nothing for a sum to add).
+// The read position is a double, the sample linearly interpolated between
+// the two frames around it; at the last frame of a sample that does not
+// loop, extrapolated from the last two (the browser's own rule there); a
+// loop wraps to its start keeping the fraction.
+fn source_block(v: &mut Voice, data: &[f32], step: f64, frame: f64, src: &mut [f32; FRAMES]) -> bool {
+    let len = data.len();
+    let end = len as f64;
+    // (A rate over the whole sample a frame renders nothing, the browser's
+    // sanity check.)
+    let playing = !v.ended && v.start < frame + FRAMES as f64 && v.stop > frame && step.abs() <= end;
+    if !playing {
+        src.fill(0.0);
+        return false;
+    }
+    let mut pos = v.pos;
+    if !v.begun {
+        v.begun = true;
+        if v.start_offset < 0.0 && step != 0.0 {
+            pos += (v.start_offset * step).abs();
+        }
+    }
+    for (i, out) in src.iter_mut().enumerate() {
+        let at = frame + i as f64;
+        *out = if v.ended || at < v.start || at >= v.stop {
+            0.0f32
+        } else {
+            let k = pos as usize;
+            let f = pos - k as f64;
+            let mut k2 = k + 1;
+            if v.looping && (k as f64) < end && (k2 as f64) >= end {
+                let wrapped = pos + 1.0 - end;
+                k2 = if wrapped >= 0.0 { wrapped as usize } else { 0 };
+            } else if k2 >= len {
+                k2 = k;
+            }
+            let (k, k2) = (k.min(len - 1), k2.min(len - 1));
+            let s = if k == k2 && k >= 1 {
+                let (s1, s2) = (data[k - 1] as f64, data[k] as f64);
+                s2 + (s2 - s1) * f
+            } else {
+                (1.0 - f) * data[k] as f64 + f * data[k2] as f64
+            };
+            pos += step;
+            if pos >= end {
+                if v.looping {
+                    pos = (pos - end) % end;
+                } else {
+                    v.ended = true;
+                    pos = pos.min(end);
+                }
+            }
+            s as f32
+        };
+    }
+    v.pos = pos;
+    true
+}
+
 impl Engine {
     /// An engine for `slots` voices at the context's `rate`; `q_db` is the
     /// lowpass's Q in dB. Its resonance is 10^(Q / 20) as the browser works
@@ -180,6 +251,7 @@ impl Engine {
             frame: 0.0,
             gains: [0.0; FRAMES],
             sends: [0.0; FRAMES],
+            src: [0.0; FRAMES],
         }
     }
 
@@ -230,12 +302,14 @@ impl Engine {
                     // as they are).
                     let offset = a[2].clamp(0.0, s.data.len() as f64 / s.rate);
                     let pos = if a[4] == 1.0 { time_to_frame(offset, s.rate, false) } else { offset * s.rate };
+                    let start = time_to_frame(a[6], rate, true);
                     *v = Voice {
                         on: true,
                         sample: a[1] as usize,
                         looping: a[3] != 0.0,
                         pos,
-                        start: time_to_frame(a[6], rate, true),
+                        start,
+                        start_offset: a[6] * rate - start,
                         rate: Timeline::new(a[4] as f32),
                         cutoff: Timeline::new(a[5].min(self.nyquist) as f32),
                         ..Voice::default()
@@ -272,7 +346,7 @@ impl Engine {
         self.frame += FRAMES as f64;
         let block = frame as u64;
         let send = &mut self.send[..FRAMES];
-        let (gains, sends) = (&mut self.gains, &mut self.sends);
+        let (gains, sends, src) = (&mut self.gains, &mut self.sends, &mut self.src);
         for (slot, v) in self.voices.iter_mut().enumerate() {
             if !v.on {
                 continue;
@@ -281,8 +355,6 @@ impl Engine {
                 v.on = false;
                 continue;
             };
-            let data = &sample.data[..];
-            let len = data.len();
             // The source's rate (k-rate), the lowpass's cutoff (k-rate).
             let step = (sample.rate / rate * v.rate.k_rate(block, rate) as f64).clamp(0.0, 1024.0);
             let cutoff = v.cutoff.k_rate(block, rate);
@@ -305,29 +377,12 @@ impl Engine {
             } else {
                 sends.fill(v.send.value());
             }
+            source_block(v, &sample.data, step, frame, src);
             let [b0, b1, b2, a1, a2] = v.b;
             let (mut x1, mut x2, mut y1, mut y2) = (v.x1, v.x2, v.y1, v.y2);
             let out = &mut inputs[slot * FRAMES..(slot + 1) * FRAMES];
-            let mut pos = v.pos;
             for i in 0..FRAMES {
-                let at = frame + i as f64;
-                let s = if v.ended || at < v.start || at >= v.stop {
-                    0.0f32
-                } else {
-                    let k = pos as usize;
-                    let f = pos - k as f64;
-                    let next = if k + 1 < len { data[k + 1] } else if v.looping { data[0] } else { data[k] };
-                    let s = ((1.0 - f) * data[k] as f64 + f * next as f64) as f32;
-                    pos += step;
-                    if pos >= len as f64 {
-                        if v.looping {
-                            pos = (pos - len as f64) % len as f64;
-                        } else {
-                            v.ended = true;
-                        }
-                    }
-                    s
-                };
+                let s = src[i];
                 let g = if gain_zero { 0.0 } else { s * gains[i] };
                 if !send_zero {
                     send[i] += g * sends[i];
@@ -340,7 +395,6 @@ impl Engine {
                 y2 = y1;
                 y1 = y as f64;
             }
-            v.pos = pos;
             v.x1 = flush(x1);
             v.x2 = flush(x2);
             v.y1 = flush(y1);

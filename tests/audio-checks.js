@@ -695,6 +695,107 @@ export async function checkAudio() {
     }
   }
 
+  // 6c. The voice engine through a voice's whole life, bit for bit against
+  // the browser's nodes, in the enhanced mode (its reverb on): two voices
+  // at most at a time (the browser adds three or more connections into one
+  // input in an order of its own, 6b), one looping
+  // throughout as the listener moves (its panning, level and Doppler), the
+  // other a one-shot that ends, then a loop stopped with a fade, then one
+  // that starts out of earshot and comes into it partway through its
+  // sample (a start at an offset, at the Doppler-shifted rate).
+  {
+    const render = async (voicesRust, quality) => {
+      const seconds = 2.5;
+      const ctx = new OfflineAudioContext(2, RATE * seconds, RATE);
+      // A second of 22.05 kHz sound and 0.4 s of 44.1 kHz sound.
+      const pcm = new Int16Array(22050 + 17640);
+      let seed = 3;
+      const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296) * 2 - 1;
+      for (let i = 0; i < pcm.length; i++) pcm[i] = Math.round(7000 * Math.sin(i / (i < 22050 ? 9 : 5)) + 2500 * rand());
+      const sound = (name, sample, looping) => ({
+        type: "SoundProperties", Name: name, Bus: "0x00000001", Mode3D: 1, MinDistance: 2, MaxDistance: 60, MuteDistance: 60, RollOff: 1,
+        Looping: looping, Bias: 0.0001, ReverbGain: 0.5, PitchVariation: 0, ModeDoppler: 1, SampleList: [[sample, 1]],
+      });
+      const manifest = {
+        objects: [
+          { type: "Bus", Name: "0x00000001", Gain: 1 },
+          sound("0x0000d001", "0x00000100", 1),
+          sound("0x0000d002", "0x00000101", 0),
+          sound("0x0000d003", "0x00000100", 1),
+        ],
+        samples: { "0x00000100": [0, 22050, 22050], "0x00000101": [22050, 17640, 44100] },
+      };
+      const engine = new AudioEngine({ context: ctx });
+      engine.renderer.voicesRust = voicesRust;
+      if (quality === "enhanced") engine.renderer.setRoom({ room: 0.5, decay: 1.2, reflections: 0.3 });
+      const config = { quality, output: "stereo", dynamics: "normal", mono: false };
+      await engine.renderer.load(null, config);
+      await engine.renderer.configure(config);
+      engine.setData(new SoundData(manifest, pcm.buffer));
+      engine.shape = (voice) => {
+        const e = voice.extra;
+        e.cutoff = voice.distance > 6 ? Math.max(20000 / (1 + (voice.distance - 6) / 10), 1800) : 20000;
+        e.gain = 1;
+        e.send = 1;
+        e.lfe = 0;
+        return e;
+      };
+      const port = engine.renderer.mixer?.port;
+      const waits = new Map();
+      let ids = 0;
+      if (port) {
+        port.onmessage = (e) => {
+          if (e.data?.type === "sync") waits.get(e.data.id)?.();
+        };
+      }
+      const sync = () => (port ? new Promise((r) => waits.set(++ids, r) && port.postMessage({ type: "sync", id: ids })) : Promise.resolve());
+      const handles = {};
+      const seen = { ended: false, stopped: false, offset: -1 };
+      const step = (k) => {
+        const t = k / 60;
+        engine.setListener({ x: 2 * Math.sin(t * 1.3), y: 1.6, z: Math.sin(t * 0.7) }, { x: -Math.sin(t), y: 0, z: -Math.cos(t) }, { x: 0, y: 1, z: 0 });
+        if (k === 0) handles.a = engine.play("0x0000d001", { position: { x: -4, y: 0, z: -3 }, loop: true, category: "ambience" });
+        handles.a?.moveTo({ x: -4 + 3 * Math.sin(t * 2), y: 0, z: -3 + 2 * Math.cos(t * 1.5) });
+        // (A one-shot plays in a suspended context only when asked to.)
+        if (k === 15) handles.b = engine.play("0x0000d002", { position: { x: 5, y: 0, z: 2 }, category: "effects", offline: true });
+        if (k === 48) handles.c = engine.play("0x0000d001", { position: { x: 1, y: 0, z: -9 }, loop: true, category: "ambience" });
+        if (k === 78) handles.c.stop(0.05);
+        // Out of earshot (past MuteDistance) at first, then within it.
+        if (k === 84) handles.d = engine.play("0x0000d003", { position: { x: 0, y: 0, z: 90 }, loop: true, category: "ambience" });
+        if (k === 108) handles.d.moveTo({ x: 6, y: 0, z: 8 });
+        engine.update(1 / 60);
+        if (handles.b && !handles.b.playing) seen.ended = true;
+        if (handles.c && !handles.c.playing) seen.stopped = true;
+        if (k === 108 && handles.d.real) seen.offset = handles.d.elapsed;
+      };
+      step(0);
+      for (let k = 1; k / 60 < seconds; k++) {
+        ctx.suspend((Math.round(((k / 60) * RATE) / 128) * 128) / RATE).then(async () => {
+          step(k);
+          await sync();
+          ctx.resume();
+        });
+      }
+      await sync();
+      const out = await ctx.startRendering();
+      return { channels: [out.getChannelData(0), out.getChannelData(1)], engine: engine.renderer.engine, light: engine.renderer.light, seen };
+    };
+    for (const [quality, what] of [["enhanced", "the enhanced mode, reverb on"]]) {
+      const browser = await render(false, quality);
+      const module = await render(true, quality);
+      let differ = 0;
+      let peak = 0;
+      for (let c = 0; c < 2; c++) {
+        for (let i = 0; i < browser.channels[c].length; i++) {
+          if (!Object.is(browser.channels[c][i], module.channels[c][i])) differ++;
+          peak = Math.max(peak, Math.abs(browser.channels[c][i]));
+        }
+      }
+      const lived = module.seen.ended && module.seen.stopped && module.seen.offset > 0;
+      assert(`voice engine, ${what}: starts, ends, stops and an offset start, bit for bit`, module.engine && !browser.engine && module.light === (quality === "original") && lived && differ === 0 && peak > 0.01, { differ, peak, seen: module.seen, engine: module.engine });
+    }
+  }
+
   // 7. The headphone decoder. The encoder's harmonics against the values
   // tools/make_binaural.py checked against spaudiopy (written with the
   // filters), spread keeping the energy, and the decoded ears: a source on
