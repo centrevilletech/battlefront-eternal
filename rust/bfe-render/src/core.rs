@@ -24,11 +24,21 @@ pub const UNIT_TREE_STATES: u32 = 3;
 pub const UNIT_LAYER1: u32 = 4;
 pub const UNIT_DETAIL: u32 = 5;
 pub const UNIT_LAYERS: u32 = 6; // layerMap0..7: 6..13
-const UNITS: usize = 16;
+// The Enhanced inputs: the shadow cascades' depth maps (cascadeMaps[i] on
+// 16 + i), the lamp table, and the jetpack flame's noise volume (a
+// sampler3D: effects.rs). 22 and 23 are free.
+pub const UNIT_CASCADES: u32 = 16;
+pub const UNIT_LAMPS: u32 = 20;
+pub const UNIT_FLAME_NOISE: u32 = 21;
+pub const UNITS: usize = 24;
 const SAMPLERS: &[(&str, u32)] = &[("map", UNIT_MAP), ("farMap", UNIT_FAR), ("bumpMap", UNIT_BUMP), ("boneTexture", UNIT_BONES), ("bfeInstances", UNIT_INSTANCES),
     ("treeStates", UNIT_TREE_STATES), ("layer1Map", UNIT_LAYER1), ("detailMap", UNIT_DETAIL),
     ("layerMap0", UNIT_LAYERS), ("layerMap1", UNIT_LAYERS + 1), ("layerMap2", UNIT_LAYERS + 2), ("layerMap3", UNIT_LAYERS + 3),
     ("layerMap4", UNIT_LAYERS + 4), ("layerMap5", UNIT_LAYERS + 5), ("layerMap6", UNIT_LAYERS + 6), ("layerMap7", UNIT_LAYERS + 7)];
+
+// The texture targets other than TEXTURE_2D a unit's binding is kept for
+// (GlState::bind_texture_target).
+const TARGETS: [u32; 3] = [glow::TEXTURE_CUBE_MAP, glow::TEXTURE_3D, glow::TEXTURE_2D_ARRAY];
 
 // The views a frame draws, each with a frame block of its own: the near
 // scene, the far scene (its own camera range), the first-person view scene,
@@ -131,6 +141,9 @@ pub struct GlState<C: HasContext> {
     front: Option<u32>,
     unit: Option<u32>,
     bound: [Option<Option<C::Texture>>; UNITS],
+    // What each unit holds for the other targets (bind_texture_target):
+    // cube maps, 3D textures and 2D arrays, in TARGETS' order.
+    bound_targets: [[Option<Option<C::Texture>>; 3]; UNITS],
     // For the passes that blend or test depth otherwise; the near phase's
     // opaque passes only set them once, at its start.
     blend: Option<bool>,
@@ -145,6 +158,7 @@ impl<C: HasContext> Default for GlState<C> {
     fn default() -> Self {
         GlState {
             program: None, cull: None, alpha_to_coverage: None, depth_write: None, front: None, unit: None, bound: [None; UNITS],
+            bound_targets: [[None; 3]; UNITS],
             blend: None, blend_equation: None, blend_func: None, depth_test: None, depth_func: None, color_mask: None,
         }
     }
@@ -175,6 +189,32 @@ impl<C: HasContext> GlState<C> {
             self.bound[unit as usize] = Some(texture);
             stats.gl_calls += 1;
         }
+    }
+
+    // A texture on a unit for one of the other targets a sampler reads (a
+    // cube map: the sky probe; a 3D texture: noise volumes; a 2D array), or
+    // TEXTURE_2D (bind_texture). A unit holds one texture a target; a draw
+    // must not read two targets of one unit.
+    pub fn bind_texture_target(&mut self, gl: &C, stats: &mut Stats, unit: u32, target: u32, texture: Option<C::Texture>) {
+        let slot = match TARGETS.iter().position(|&t| t == target) {
+            Some(slot) => slot,
+            None => return self.bind_texture(gl, stats, unit, texture),
+        };
+        if self.bound_targets[unit as usize][slot] != Some(texture) {
+            if self.unit != Some(unit) {
+                unsafe { gl.active_texture(glow::TEXTURE0 + unit) };
+                self.unit = Some(unit);
+                stats.gl_calls += 1;
+            }
+            unsafe { gl.bind_texture(target, texture) };
+            self.bound_targets[unit as usize][slot] = Some(texture);
+            stats.gl_calls += 1;
+        }
+    }
+
+    // A 3D texture (a sampler3D's: three's Data3DTexture) on a unit.
+    pub fn bind_texture_3d(&mut self, gl: &C, stats: &mut Stats, unit: u32, texture: Option<C::Texture>) {
+        self.bind_texture_target(gl, stats, unit, glow::TEXTURE_3D, texture);
     }
 
     // A material's side as three culls it: 0 front (back faces culled), 1
@@ -293,6 +333,9 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     pub(crate) textures: Vec<C::Texture>,
     pub(crate) far_map: Option<C::Texture>,
     frame_ubos: [C::Buffer; VIEWS],
+    // Framebuffers of the renderer's own over registered textures (colour,
+    // depth), by the texture ids they were made for.
+    framebuffers: Vec<(Option<u32>, Option<u32>, C::Framebuffer)>,
     // The frame block as last uploaded (f32, as three uploads it).
     pub(crate) frame: Vec<f32>,
     pub input: Vec<f64>,
@@ -331,7 +374,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             ubo
         });
         Core {
-            gl, multi, programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, frame: vec![0.0; FRAME_FLOATS],
+            gl, multi, programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![], frame: vec![0.0; FRAME_FLOATS],
             input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![],
         }
     }
@@ -528,6 +571,58 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     // read it (a phase drawn later in the same frame).
     pub fn bind_frame(&mut self, view: usize) {
         unsafe { self.gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(self.frame_ubos[view])) };
+        self.stats.gl_calls += 1;
+    }
+
+    // A framebuffer of the renderer's own over registered textures: a colour
+    // texture, a depth texture (three's shadow maps: glow on the web can't
+    // take a framebuffer three made), or both; made the first time a phase asks
+    // for it (it binds the new one: call it inside a phase, whose end has
+    // three reset its state). A depth-only one reads and writes no colour.
+    pub fn framebuffer(&mut self, color: Option<u32>, depth: Option<u32>) -> Result<u32, String> {
+        if let Some(i) = self.framebuffers.iter().position(|f| f.0 == color && f.1 == depth) {
+            return Ok(i as u32);
+        }
+        let gl = &self.gl;
+        let texture = |id: Option<u32>| id.and_then(|i| self.textures.get(i as usize).copied());
+        unsafe {
+            let fb = gl.create_framebuffer()?;
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
+            if let Some(t) = texture(color) {
+                gl.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::COLOR_ATTACHMENT0, glow::TEXTURE_2D, Some(t), 0);
+            } else {
+                gl.draw_buffers(&[glow::NONE]);
+                gl.read_buffer(glow::NONE);
+            }
+            if let Some(t) = texture(depth) {
+                gl.framebuffer_texture_2d(glow::FRAMEBUFFER, glow::DEPTH_ATTACHMENT, glow::TEXTURE_2D, Some(t), 0);
+            }
+            let status = gl.check_framebuffer_status(glow::FRAMEBUFFER);
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+            self.stats.gl_calls += 6;
+            if status != glow::FRAMEBUFFER_COMPLETE {
+                gl.delete_framebuffer(fb);
+                return Err(format!("framebuffer incomplete: 0x{status:x}"));
+            }
+            self.framebuffers.push((color, depth, fb));
+        }
+        Ok((self.framebuffers.len() - 1) as u32)
+    }
+
+    // One of the renderer's framebuffers (None: the canvas's) on a target.
+    pub fn bind_framebuffer(&mut self, target: u32, framebuffer: Option<u32>) {
+        let fb = framebuffer.map(|i| self.framebuffers[i as usize].2);
+        unsafe { self.gl.bind_framebuffer(target, fb) };
+        self.stats.gl_calls += 1;
+    }
+
+    // The depth of one of the renderer's framebuffers into another's, each
+    // width x height, as graphics.js copyDepth blits a cascade's cache into
+    // its live map (nearest). Leaves both bound (read, draw).
+    pub fn blit_depth(&mut self, from: u32, to: u32, width: i32, height: i32) {
+        self.bind_framebuffer(glow::READ_FRAMEBUFFER, Some(from));
+        self.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(to));
+        unsafe { self.gl.blit_framebuffer(0, 0, width, height, 0, 0, width, height, glow::DEPTH_BUFFER_BIT, glow::NEAREST) };
         self.stats.gl_calls += 1;
     }
 
