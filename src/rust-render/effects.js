@@ -95,9 +95,8 @@ const MODEL_POLICY = MESH_POLICY;
 // uploads nothing either), or by its material (snow: nothing to upload).
 // copies: what its onBeforeRender in three's render asks of the scene's
 // depth (particle-depth.js capture): "soft" a copy while soft particles are
-// on, "always" one whatever the setting (`required` given, or the draw's
-// geometry passed on in its place), none otherwise; a function of the batch
-// where its object decides.
+// on, "always" one whatever the setting (`required`), none otherwise; a
+// function of the batch where its object decides.
 const KINDS = {
   cpu: { attributes: [["iPosition", 3], ["iColor", 4], ["iShape", 4], ["iAxis", 3], ["iAxis2", 3], ["iFrame", 4]], values: [], samplers: [], copies: "soft" },
   analytic: { attributes: [["spawnPosition", 3], ["spawnVelocity", 3], ["spawnColor", 4], ["spawnShape", 4], ["spawnMeta", 4]], values: [], samplers: [], copies: "soft" },
@@ -105,25 +104,25 @@ const KINDS = {
   snow: { attributes: [], values: ["flakeCount", "size", "cameraRight", "cameraUp", "tint", "coverCell", "coverSize"], ints: ["flakeCount"], samplers: ["flakes", "boxes", "cover"], hiddenBy: "material", copies: "soft" },
   // The Enhanced bolts (blaster-bolts.js): capsules fitted on the image
   // plane, their pixel's angle set by their onBeforeRender.
-  blaster: { attributes: [["iHead", 3], ["iTail", 3], ["iColor", 4], ["iSize", 4]], values: ["pixelAngle"], samplers: [], beforeRender: true, copies: "always" },
+  blaster: { attributes: [["iHead", 3], ["iTail", 3], ["iColor", 4], ["iSize", 4]], values: ["pixelAngle"], samplers: [], beforeRender: true, copies: "soft" },
   // The Enhanced sniper's streaks and flares (sniper-trace.js): batches
   // kept interleaved, one buffer each; the streaks' pixel angle (and the
   // camera the trace aims by) set by their onBeforeRender.
-  sniperStreaks: { attributes: [["iHead", 3], ["iTail", 3], ["iColor", 4], ["iSize", 4], ["iMisc", 4]], interleaved: true, values: ["pixelAngle"], samplers: [], beforeRender: true, copies: "always" },
+  sniperStreaks: { attributes: [["iHead", 3], ["iTail", 3], ["iColor", 4], ["iSize", 4], ["iMisc", 4]], interleaved: true, values: ["pixelAngle"], samplers: [], beforeRender: true, copies: "soft" },
   sniperFlares: { attributes: [["iCenter", 3], ["iAxis", 3], ["iColor", 4], ["iParam", 4]], interleaved: true, values: [], samplers: [] },
   // The Enhanced arc caster's lightning (arc-lightning.js ArcBatch): a
   // capsule a segment, kept interleaved; its pixel's angle and the near
   // plane's depth set by its onBeforeRender.
   arc: { attributes: [["iA", 3], ["iB", 3], ["iNA", 3], ["iNB", 3], ["iColor", 4], ["iSize", 4]], interleaved: true,
-    values: ["eyeFade", "closeRange", "pixelAngle", "nearDepth"], samplers: [], beforeRender: true, copies: (batch) => (batch.source?.soft ? "always" : null) },
+    values: ["eyeFade", "closeRange", "pixelAngle", "nearDepth"], samplers: [], beforeRender: true, copies: (batch) => (batch.source?.soft ? "soft" : null) },
   // The droideka's rolling dust (droideka-trail.js): wisps on a quad of
   // their own, rewritten each frame as they are born and die, placed by
   // their program from their births and the trail's clock.
-  trail: { attributes: [["birth", 4], ["drift", 4], ["shape", 4]], base: [["position", 3], ["uv", 2]], values: ["trailTime", "tint"], samplers: [], copies: "always" },
+  trail: { attributes: [["birth", 4], ["drift", 4], ["shape", 4]], base: [["position", 3], ["uv", 2]], values: ["trailTime", "tint"], samplers: [], copies: "soft" },
   // The Enhanced jetpack's wake (jetpack-wake.js): its pools of fire,
   // smoke and embers, particles on a quad of their own placed by their
   // program from their births and the wake's clock.
-  wake: { attributes: [["birth", 4], ["flow", 4], ["axis", 4], ["style", 2]], base: [["position", 3], ["uv", 2]], values: ["wakeTime", "kind", "drag"], samplers: [], copies: "always" },
+  wake: { attributes: [["birth", 4], ["flow", 4], ["axis", 4], ["style", 2]], base: [["position", 3], ["uv", 2]], values: ["wakeTime", "kind", "drag"], samplers: [], copies: "soft" },
   // The Enhanced jetpack's flame (jetpack-volume.js): a box a nozzle,
   // ray-marched through a 3D noise texture; its onBeforeRender takes the
   // scene's depth whatever the setting and says whether it has it.
@@ -137,7 +136,7 @@ const KINDS = {
   // base: position, uv), each drop's seed fixed (uploaded as it grows).
   rain: { attributes: [["seed", 4]], base: [["position", 3], ["uv", 2]], static: true, hiddenBy: "material",
     values: ["eye", "cameraMotion", "wind", "rainTime", "range", "velocity", "velocityRange", "width", "streak", "enhanced", "effect", "coverCell", "coverSize", "color", "alpha"], samplers: ["cover"],
-    copies: (batch) => (batch.material.uniforms.enhanced?.value > 0.5 ? "always" : null) },
+    copies: (batch) => (batch.material.uniforms.enhanced?.value > 0.5 ? "soft" : null) },
   // The steam's wisps (steam-wisps.js) and the fountains' wake splashes
   // (fountain-spray.js): fixed seeds on a quad of their own, single-sided,
   // placed by their programs from the vents' and wakes' values; their
@@ -149,7 +148,7 @@ const KINDS = {
   // The rain's splashes (rain-impacts.js): rings and droplets where drops
   // land, rewritten as they land (all of them uploaded when any changed).
   impacts: { attributes: [["impact", 4], ["surfaceNormal", 3], ["kind", 1]], base: [["position", 3], ["uv", 2]], versioned: true,
-    values: ["impactTime"], samplers: [], copies: "always" },
+    values: ["impactTime"], samplers: [], copies: "soft" },
   // The fountains' jets (fountain-jets.js): each its instance attributes
   // (fixed: a block of seeds or ropes for each fountain) and its base (what
   // else its program reads) as its geometry has them; their values set by
@@ -359,6 +358,13 @@ function put(data, at, v) {
 function copiesOf(record) {
   const copies = record.copies;
   return typeof copies === "function" ? copies(record.batch) : copies;
+}
+
+// What the pass asks of the scene's depth for a batch of a kind (KINDS'
+// copies; a shader model's by its mesh's name), as for its records.
+export function kindCopies(kind, batch = null) {
+  const copies = KINDS[kind] ? KINDS[kind].copies ?? null : SHADER_COPIES[kind] ?? null;
+  return typeof copies === "function" ? copies(batch) : copies;
 }
 
 // The copy a draw not asked for takes now (drawFrame): the strongest of

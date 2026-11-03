@@ -1444,3 +1444,60 @@ test("the scene's depth: asked for as three starts the render, before the first 
     particleDepth.map.value = map;
   }
 });
+
+test("what each effect's onBeforeRender asks of the scene's depth in three's render is what the pass asks for its draws", async () => {
+  const { kindCopies } = await import("../src/rust-render/effects.js");
+  const { particleDepth } = await import("../src/particle-depth.js");
+  const { BlasterBatch } = await import("../src/blaster-bolts.js");
+  const { SniperTrace } = await import("../src/sniper-trace.js");
+  const { ArcBatch } = await import("../src/arc-lightning.js");
+  const { DroidekaTrail } = await import("../src/droideka-trail.js");
+  const { JetpackWake } = await import("../src/jetpack-wake.js");
+  const { JetpackVolume } = await import("../src/jetpack-volume.js");
+  const { DestructionFx } = await import("../src/destruction-fx.js");
+  const { Atmosphere, squareBatches } = await import("../src/atmosphere.js");
+  const { Snow } = await import("../src/snow.js");
+  const { Weather } = await import("../src/weather.js");
+  const { SteamWisps } = await import("../src/steam-wisps.js");
+  const { FountainSpray } = await import("../src/fountain-spray.js");
+  const { EnvironmentVolume, EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { scene, camera, renderer } = bridge();
+  Object.assign(renderer, { getDrawingBufferSize: (v) => v.set(800, 600), getClearColor: (c) => c, getClearAlpha: () => 1, setClearColor() {}, render() {} });
+  // three's call of an object's onBeforeRender: what it asked of the depth ("soft": a copy while soft particles
+  // are on, "always": whatever the setting, null: none).
+  const asked = (mesh) => {
+    let got = null;
+    const capture = particleDepth.capture;
+    particleDepth.capture = (r, s, c, required = false) => { got = required === true ? "always" : required ? "truthy" : "soft"; return true; };
+    try { mesh.onBeforeRender(renderer, scene, camera, mesh.geometry, mesh.material, null); } finally { particleDepth.capture = capture; }
+    return got;
+  };
+  const particles = new ParticleRenderer(scene);
+  const cpu = particles.batch(new THREE.Texture(), "additive", "bolt");
+  const bolts = particles.custom("blaster", () => new BlasterBatch());
+  const trace = particles.custom("sniper", () => new SniperTrace({ add() {}, flash() {} }, () => camera, () => null));
+  const arcs = new ArcBatch(8);
+  arcs.begin(); arcs.push(new THREE.Vector3(0, 0, -5), new THREE.Vector3(1, 0, -5), null, null, [1, 0.5, 0.25], 1, 0.02, 0.1); arcs.end();
+  const collision = { cast: () => null };
+  const trail = new DroidekaTrail({ scene, collision, settings: { get: () => "enhanced" }, random: () => 0.5 });
+  const wake = new JetpackWake({ scene, random: () => 0.5 });
+  const flame = new JetpackVolume({ scene, count: 2 });
+  const fx = new DestructionFx(scene, { hot: 4, smoke: 4, arcs: 1 });
+  new Atmosphere({ data: { fogCloud: { texture: "fog", color: [255, 128, 64], size: 20 } }, scene, collision, texture: () => new THREE.Texture() });
+  const snow = new Snow({ data: { precipitation: { ParticleDensity: [4], Range: [10] } }, scene, collision, texture: () => new THREE.Texture() });
+  const rain = (mode) => new Weather({ data: { precipitation: { Type: ["Streaks"], ParticleDensity: [64] } }, scene, collision, water: null, settings: { get: () => mode, onChange: () => () => {} } });
+  const classicRain = rain("classic"), enhancedRain = rain("enhanced");
+  const wakes = new EnvironmentWakes();
+  const wisps = new SteamWisps(scene, wakes, new THREE.Texture()), spray = new FountainSpray(scene, wakes), volumes = new EnvironmentVolume(scene, 2, wakes);
+  const cases = [
+    ["cpu", cpu.mesh, cpu], ["blaster", bolts.mesh, bolts], ["sniperStreaks", trace.streaks.mesh, null], ["sniperFlares", trace.flares.mesh, null],
+    ["arc", arcs.mesh, { source: arcs }], ["trail", trail.mesh, null], ["flame", flame.mesh, null],
+    ["pool", fx.hot.mesh, null], ["pool", fx.smoke.mesh, null], ["square", squareBatches.get(scene)[0].mesh, null], ["snow", snow.mesh, null],
+    ["rain", classicRain.mesh, { material: classicRain.mesh.material }], ["rain", enhancedRain.mesh, { material: enhancedRain.mesh.material }],
+    ["rain", enhancedRain.mist, { material: enhancedRain.mist.material }], ["impacts", enhancedRain.impacts.mesh, null],
+    ["wisps", wisps.mesh, null], ["spray", spray.mesh, null], ["rain-sheets", enhancedRain.sheets.mesh, null], ["environment-volumes", volumes.mesh, null],
+    ...wake.pools.map((pool) => ["wake", pool.mesh, null]),
+  ];
+  for (const [kind, mesh, batch] of cases) assert.equal(asked(mesh), kindCopies(kind, batch), `${kind} (${mesh.name})`);
+  assert.equal(kindCopies("arc", { source: new ArcBatch(4, { soft: false }) }), null, "the first-person view's arcs take none");
+});
