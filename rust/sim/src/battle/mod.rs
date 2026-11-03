@@ -1,0 +1,18 @@
+//! The battle (plan P12): command posts and the command vehicles' posts,
+//! destructible posts' kill regions, world regions, the battle's rules and
+//! scores, leaving the battlefield. (Spawning and the live objects follow.)
+//!
+//! Each module transliterates its JavaScript file (cited by line): the same
+//! operations in the same order, the quirks kept. What the rules ask of
+//! the rest of the world goes through [`world::BattleWorld`].
+
+pub mod battlefield;
+pub mod boundary;
+pub mod mobile;
+pub mod objectives;
+pub mod posts;
+pub mod regions;
+pub mod rules;
+pub mod stats;
+pub mod teams;
+pub mod world;

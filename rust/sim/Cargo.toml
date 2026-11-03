@@ -27,6 +27,9 @@ replay = ["dep:sim-replay"]
 content = { path = "../content" }
 # JavaScript's Math as the production server's V8 computes it.
 v8math = { path = "../v8math" }
+# JavaScript's semantics the battle's rules lean on: conversions, the
+# stable sort, the game's random generators.
+jsrt = { path = "../jsrt" }
 # three.js r170's math and Object3D transforms, operation by operation
 # (the rigs, rig/).
 three = { path = "../three" }
