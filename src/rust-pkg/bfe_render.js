@@ -90,6 +90,56 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @returns {number}
+     */
+    canopies_input_len() {
+        const ret = wasm.bferenderer_canopies_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    canopies_input_ptr() {
+        const ret = wasm.bferenderer_canopies_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    canopies_leaves_len() {
+        const ret = wasm.bferenderer_canopies_leaves_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    canopies_leaves_ptr() {
+        const ret = wasm.bferenderer_canopies_leaves_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} geometry
+     * @param {Uint32Array | number[]} locations
+     * @param {Uint32Array | number[]} sizes
+     * @param {number} max
+     */
+    canopies_mesh(geometry, locations, sizes, max) {
+        const val3 = +geometry;
+        const val4 = +max;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(locations, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(sizes, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        wasm.bferenderer_canopies_mesh(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1, val4);
+    }
+    /**
      * @param {number} item
      * @param {number} base
      */

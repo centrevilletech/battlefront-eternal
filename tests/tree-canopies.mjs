@@ -82,3 +82,27 @@ test('canopy frustum selection follows stationary-camera zoom changes',()=>{
   assert.equal(f.trees.active.length,0,'narrowing the projection must release a now-offscreen canopy group');
   assert.ok(f.trees.states.every(value=>value===0));
 });
+
+test('drawn by the Rust renderer: three neither lists nor uploads the leaves, and the changed slots are kept for the renderer',()=>{
+  const f=fixture();f.trees.update(f.camera);
+  const center=f.trees.mesh.geometry.attributes.leafCenter;
+  assert.equal(f.trees.mesh.visible,true);
+  assert.deepEqual(f.trees.takeDirty(),[0,12*LEAVES]);
+  assert.equal(f.trees.takeDirty(),null);
+  f.trees.setExternal(true);
+  assert.equal(f.trees.mesh.visible,false,'three does not list it');
+  assert.deepEqual(f.trees.takeDirty(),[0,12*LEAVES],'the renderer copies every leaf first');
+  center.clearUpdateRanges();
+  const version=center.version;
+  // The camera turns: some slots change.
+  f.camera.position.set(0,6,-48);f.camera.lookAt(0,6,0);f.camera.updateMatrixWorld(true);f.trees.update(f.camera);
+  assert.equal(center.updateRanges.length,0,'no upload for three');
+  assert.equal(center.version,version);
+  const dirty=f.trees.takeDirty();
+  assert.ok(dirty&&dirty[0]%LEAVES===0&&dirty[1]%LEAVES===0&&dirty[1]>dirty[0]);
+  assert.equal(f.trees.mesh.visible,false);
+  f.trees.setExternal(false);
+  assert.equal(f.trees.mesh.visible,true);
+  assert.equal(center.updateRanges.length,0,'three uploads its copy whole');
+  assert.equal(center.version,version+1);
+});

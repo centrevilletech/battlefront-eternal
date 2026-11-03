@@ -24,6 +24,7 @@
 //
 // The page writes the frame's inputs (camera, lights, each soldier) into
 // `input` and `bones` before a phase (web/, src/rust-render/).
+use crate::canopies::CanopiesPass;
 use crate::core::{Core, MultiDraw, Stats, VIEW_FAR, VIEW_FAR_MIRROR, VIEW_FIRST_PERSON, VIEW_NEAR, VIEW_SPARE};
 use crate::effects::EffectsPass;
 use crate::far::FarPass;
@@ -51,6 +52,7 @@ pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub post: PostPass<C>,
     pub hud: HudPass<C>,
     pub water: WaterPass<C>,
+    pub canopies: CanopiesPass<C>,
 }
 
 impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
@@ -67,7 +69,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let post = PostPass::new(&mut core);
         let hud = HudPass::new(&mut core);
         let water = WaterPass::new(&mut core);
-        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water }
+        let canopies = CanopiesPass::new(&mut core);
+        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water, canopies }
     }
 
     // The far scene's phase, drawn into the far target before the near scene.
@@ -97,7 +100,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
 
     // The near scene's phase, inside three's near-scene pass right after the
     // far scene's image: the static world, then the soldiers (records: how
-    // many the page wrote), then the terrain and foliage.
+    // many the page wrote), then the terrain, foliage and tree canopies.
     pub fn frame(&mut self, records: usize) -> Result<Stats, String> {
         let core = &mut self.core;
         core.begin_phase();
@@ -109,6 +112,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.instances.draw(core, &camera, records);
         self.terrain.draw(core);
         self.foliage.draw(core);
+        self.canopies.draw(core);
         Ok(core.end_phase())
     }
 

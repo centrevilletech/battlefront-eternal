@@ -44,6 +44,7 @@ import { postPass } from "./post.js";
 import { hudPass } from "./hud.js";
 import { waterPass } from "./water.js";
 import { nearPass } from "./near.js";
+import { canopiesPass } from "./canopies.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -185,7 +186,7 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass]) this.addPass(make(this));
   }
 
   // A pass: { name, phase, register?(), draw?(ctx), setActive?(on),

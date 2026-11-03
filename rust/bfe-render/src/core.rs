@@ -64,7 +64,10 @@ pub const PASS_VIEW: usize = 7;
 pub const PASS_POST: usize = 8;
 pub const PASS_HUD: usize = 9;
 pub const PASS_WATER: usize = 10;
-pub const PASSES: usize = 11;
+// 11 and 12 are the shadow and motion passes' (registry); 13 the Enhanced
+// tree canopies (canopies.rs).
+pub const PASS_CANOPIES: usize = 13;
+pub const PASSES: usize = 14;
 
 // The multi-draw call, which glow does not wrap (WEBGL_multi_draw on the web).
 pub trait MultiDraw {
