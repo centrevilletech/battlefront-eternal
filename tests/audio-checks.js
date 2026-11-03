@@ -606,15 +606,21 @@ export async function checkAudio() {
   // moving and the voices' doppler, levels, air and sends moving every
   // frame. Each frame's messages reach the mixer before its block renders
   // (a sync round trip), as the browser's automation reaches its nodes.
+  // Twelve voices with the reverb silent (its room at 0), and two with it
+  // on: the browser adds up three or more connections into one input (the
+  // voices' sends into the reverb) in the order of a hash of where its
+  // nodes sit in memory, which changes from one graph to the next, so its
+  // own renders of the same scene differ from each other in the last bits
+  // there (by about -110 dBFS at most with 24 voices); the engine adds them
+  // in its slots' order.
   {
-    const render = async (voicesRust) => {
+    const render = async (voicesRust, voices, room) => {
       const seconds = 2;
       const ctx = new OfflineAudioContext(2, RATE * seconds, RATE);
       const pcm = new Int16Array(22050);
       let seed = 1;
       const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296) * 2 - 1;
       for (let i = 0; i < pcm.length; i++) pcm[i] = Math.round(6000 * Math.sin(i / 7) + 3000 * rand());
-      const voices = 12;
       const manifest = {
         objects: [
           { type: "Bus", Name: "0x00000001", Gain: 1 },
@@ -628,6 +634,8 @@ export async function checkAudio() {
       };
       const engine = new AudioEngine({ context: ctx });
       engine.renderer.voicesRust = voicesRust;
+      // The room before the graph is built, so the reverb starts in it.
+      if (room) engine.renderer.setRoom({ room, decay: 1.2, reflections: 0.3 });
       const config = { quality: "enhanced", output: "stereo", dynamics: "normal", mono: false };
       await engine.renderer.load(null, config);
       await engine.renderer.configure(config);
@@ -669,17 +677,22 @@ export async function checkAudio() {
       const out = await ctx.startRendering();
       return { channels: [out.getChannelData(0), out.getChannelData(1)], engine: engine.renderer.engine };
     };
-    const browser = await render(false);
-    const module = await render(true);
-    let differ = 0;
-    let peak = 0;
-    for (let c = 0; c < 2; c++) {
-      for (let i = 0; i < browser.channels[c].length; i++) {
-        if (!Object.is(browser.channels[c][i], module.channels[c][i])) differ++;
-        peak = Math.max(peak, Math.abs(browser.channels[c][i]));
+    for (const [voices, room, what] of [
+      [12, 0, "the browser's nodes' samples, bit for bit"],
+      [2, 0.5, "the same with the reverb on, bit for bit"],
+    ]) {
+      const browser = await render(false, voices, room);
+      const module = await render(true, voices, room);
+      let differ = 0;
+      let peak = 0;
+      for (let c = 0; c < 2; c++) {
+        for (let i = 0; i < browser.channels[c].length; i++) {
+          if (!Object.is(browser.channels[c][i], module.channels[c][i])) differ++;
+          peak = Math.max(peak, Math.abs(browser.channels[c][i]));
+        }
       }
+      assert(`voice engine: ${what}`, module.engine && !browser.engine && differ === 0 && peak > 0.01, { voices, room, differ, peak, engine: module.engine });
     }
-    assert("voice engine: the browser's nodes' samples, bit for bit", module.engine && !browser.engine && differ === 0 && peak > 0.01, { differ, peak, engine: module.engine });
   }
 
   // 7. The headphone decoder. The encoder's harmonics against the values

@@ -13,7 +13,10 @@
 //! - its gain (a GainNode moved by setValueAtTime, setTargetAtTime and
 //!   cancelScheduledValues), a value a sample;
 //! - its reverb send, the gain's output times the send level, summed over
-//!   the voices into the mixer's third output;
+//!   the voices into the mixer's third output in the slots' order (the
+//!   browser adds three or more sends in an order of its own that changes
+//!   from graph to graph, so there its renders and these can differ in the
+//!   last bits, as its own renders differ from each other);
 //! - the air's lowpass (a BiquadFilterNode with a k-rate frequency), its
 //!   coefficients from fdlibm's sine and cosine as the browser's, into the
 //!   voice's slot.

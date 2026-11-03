@@ -165,6 +165,8 @@ export class Renderer {
     this.uploaded = new Set();
     this.voices = new Set();
     this.beds = new Set();
+    // The reverb's room as last set: a reverb built again starts in it.
+    this.roomParams = null;
     this.config = { quality: "enhanced", output: "auto", dynamics: "normal", mono: false, clarity: true };
     this.decoder = null;
     this.onMeter = null;
@@ -377,7 +379,14 @@ export class Renderer {
     // The engine's voices' sends, summed, are the mixer's third output.
     if (this.engine) this.mixer.connect(this.reverbIn, 2);
     const rooms = layout.speakers.map((s) => (s ? 1 : 0));
-    this.reverb = keep(new AudioWorkletNode(ctx, "fdn-reverb", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [N], processorOptions: { channels: N, ...(this.dsp ? { dsp: this.dsp } : {}) } }));
+    this.reverb = keep(
+      new AudioWorkletNode(ctx, "fdn-reverb", {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [N],
+        processorOptions: { channels: N, ...(this.roomParams ? { params: this.roomParams } : {}), ...(this.dsp ? { dsp: this.dsp } : {}) },
+      }),
+    );
     if (enhanced) {
       this.reverbHP = keep(ctx.createBiquadFilter());
       this.reverbHP.type = "highpass";
@@ -621,6 +630,7 @@ export class Renderer {
   }
 
   setRoom(params) {
+    this.roomParams = { ...this.roomParams, ...params };
     this.reverb?.port.postMessage(params);
   }
 
