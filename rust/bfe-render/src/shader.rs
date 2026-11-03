@@ -88,7 +88,8 @@ const FRAME_BLOCK: &str = "layout(std140) uniform BfeFrame {
 
 // Texels of an instance row (RGBA32F): the matrices three would have set,
 // then the light region's values, the light count and bone base, then the
-// indices of the frame's point lights that reach the instance.
+// indices of the frame's point lights that reach the instance, the bind
+// matrix, then a material's own values the instance gives (EXTRAS).
 pub const ROW_MODEL: usize = 0;
 pub const ROW_MODEL_VIEW: usize = 4;
 pub const ROW_NORMAL: usize = 8;
@@ -97,7 +98,21 @@ pub const ROW_LOOK: usize = 15;
 pub const ROW_COUNTS: usize = 16;
 pub const ROW_LIGHTS: usize = 17;
 pub const ROW_BIND: usize = 21;
+pub const ROW_EXTRA: usize = 25;
+pub const ROW_EXTRA_TEXELS: usize = 5;
 pub const ROW_TEXELS: usize = 32;
+
+// A material's values an instanced program reads from its row when its
+// source declares them (each instance's own, as three sets them per draw):
+// name, type, texel (from ROW_EXTRA) and its components there. A zero
+// material's scroll (a scrolling texture's speed), and the values a heated
+// copy of one gives each object (destruction-debris.js heatMaterial: a
+// dying droideka's body dissolving).
+const EXTRAS: &[(&str, &str, usize, &str)] = &[
+    ("scroll", "vec2", 0, "xy"),
+    ("heat", "float", 1, "x"), ("heatBase", "float", 1, "y"), ("heatScale", "float", 1, "z"), ("soot", "float", 1, "w"),
+    ("heatTear", "vec4", 2, ""), ("dissolve", "float", 3, "x"),
+];
 
 const INSTANCE_COMMON: &str = "uniform highp sampler2D bfeInstances;
 float sunScale; vec2 ambientPull; float brightness;
@@ -126,6 +141,7 @@ const INSTANCE_VERTEX_LOAD: &str = "void bfeLoad() {
   bindMatrixInverse = mat4(bfeTexel(11), bfeTexel(12), bfeTexel(13), bfeTexel(14));
   bindMatrix = mat4(bfeTexel(21), bfeTexel(22), bfeTexel(23), bfeTexel(24));
   bfeLoadLook();
+  bfeLoadExtras();
 }
 ";
 
@@ -133,7 +149,7 @@ const INSTANCE_FRAGMENT: &str = "flat in int vBfeRow;
 int bfeRow;
 ";
 
-const INSTANCE_FRAGMENT_LOAD: &str = "void bfeLoad() { bfeRow = vBfeRow; bfeLoadLook(); }
+const INSTANCE_FRAGMENT_LOAD: &str = "void bfeLoad() { bfeRow = vBfeRow; bfeLoadLook(); bfeLoadExtras(); }
 ";
 
 // Uniforms an instanced program takes from its row instead.
@@ -142,9 +158,10 @@ const PER_INSTANCE: &[&str] = &[
     "sunScale", "ambientPull", "brightness", "zeroLights", "zeroLightCount",
 ];
 
-// A uniform declaration on one line: (type, name) when it is one.
+// A uniform declaration on one line: (type, name) when it is one (a
+// comment after it aside).
 fn declaration(line: &str) -> Option<(&str, &str)> {
-    let t = line.trim();
+    let t = line.split("//").next().unwrap_or("").trim();
     if !t.starts_with("uniform ") || !t.ends_with(';') {
         return None;
     }
@@ -159,6 +176,23 @@ fn declaration(line: &str) -> Option<(&str, &str)> {
     let name_end = name.len();
     let name = &t[t.find(name)?..t.find(name)? + name_end];
     Some((ty, name))
+}
+
+// The EXTRAS a source declares, as globals and their load from the row
+// (bfeLoadExtras, which bfeLoad calls).
+fn extras(source: &str) -> String {
+    let declared: Vec<_> = EXTRAS.iter().filter(|&&(n, t, _, _)| source.lines().any(|l| declaration(l) == Some((t, n)))).collect();
+    let mut out = String::new();
+    for &&(name, ty, _, _) in &declared {
+        out.push_str(&format!("{ty} {name};\n"));
+    }
+    out.push_str("void bfeLoadExtras() {\n");
+    for &&(name, _, texel, parts) in &declared {
+        let swizzle = if parts.is_empty() { String::new() } else { format!(".{parts}") };
+        out.push_str(&format!("  {name} = bfeTexel({}){swizzle};\n", ROW_EXTRA + texel));
+    }
+    out.push_str("}\n");
+    out
 }
 
 pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String> {
@@ -181,6 +215,7 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
                 if instanced {
                     out.push_str(if stage == Stage::Vertex { INSTANCE_VERTEX } else { INSTANCE_FRAGMENT });
                     out.push_str(INSTANCE_COMMON);
+                    out.push_str(&extras(source));
                     out.push_str(if stage == Stage::Vertex { INSTANCE_VERTEX_LOAD } else { INSTANCE_FRAGMENT_LOAD });
                 }
                 inserted = true;
@@ -192,6 +227,9 @@ pub fn rewrite(source: &str, stage: Stage, kind: Kind) -> Result<String, String>
                 continue;
             }
             if instanced && PER_INSTANCE.contains(&name) {
+                continue;
+            }
+            if instanced && EXTRAS.iter().any(|&(n, t, _, _)| n == name && t == ty) {
                 continue;
             }
             if kind == Kind::Effect && name == "modelViewMatrix" {
@@ -234,6 +272,22 @@ mod tests {
         assert_eq!(declaration("\tuniform highp sampler2D boneTexture;"), Some(("sampler2D", "boneTexture")));
         assert_eq!(declaration("vec3 x;"), None);
     }
+    #[test]
+    fn an_instance_reads_a_materials_own_values_from_its_row() {
+        let fs = "#version 300 es\nprecision highp float;\n#define HEATED\nuniform vec2 scroll;\nuniform float heat;\nuniform vec4 heatTear; // where it tore\nuniform float dissolve;\nuniform float time;\nout vec4 c;\nvoid main() {\n  c = vec4(scroll, heat + dissolve, heatTear.w + time);\n}\n";
+        let out = rewrite(fs, Stage::Fragment, Kind::Skinned).unwrap();
+        for gone in ["uniform vec2 scroll;", "uniform float heat;", "uniform vec4 heatTear;", "uniform float dissolve;", "uniform float time;"] {
+            assert!(!out.contains(gone), "{gone} declared still");
+        }
+        assert!(out.contains("vec2 scroll;\nfloat heat;\nvec4 heatTear;\nfloat dissolve;\n"), "each a global of the program's");
+        assert!(out.contains("scroll = bfeTexel(25).xy;") && out.contains("heat = bfeTexel(26).x;") && out.contains("heatTear = bfeTexel(27);") && out.contains("dissolve = bfeTexel(28).x;"));
+        assert!(!out.contains("heatBase"), "only what the source declares");
+        assert!(out.contains("bfeLoadLook(); bfeLoadExtras(); }"));
+        // A program that declares none loads none.
+        let plain = rewrite("#version 300 es\nuniform float sunScale;\nvoid main() {}\n", Stage::Vertex, Kind::Rigid).unwrap();
+        assert!(plain.contains("void bfeLoadExtras() {\n}\n") && plain.contains("bfeLoadExtras();"));
+    }
+
     #[test]
     fn an_effect_reads_the_view_matrix_for_its_model_view() {
         let vs = "#version 300 es\nuniform mat4 modelMatrix;\nuniform mat4 modelViewMatrix;\nuniform mat4 projectionMatrix;\nuniform mat4 viewMatrix;\nin vec3 p;\nvoid main() {\n  gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);\n}\n";

@@ -614,6 +614,82 @@ test("the fountains' jets: batches on bases of their own after three's copy of t
   assert.equal(renderer.getRenderTarget().name, "scene");
 });
 
+test("a dissolving body's heated record, an untextured gun and a scrolling rig: what was left to three, drawn with their own values", async () => {
+  const { heatMaterial } = await import("../src/destruction-debris.js");
+  const { lighting } = await import("../src/materials.js");
+  const { core, calls, scene, camera, renderer, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  const inst = core.byName.instances;
+  inst.rigsOn = true;
+  const R = { TEXTURES: 4, LOOK: 52, EXTRA: 76 }, at = (r) => core.recordsAt + r * core.stride;
+  const look = () => ({ map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 }, scroll: { value: new THREE.Vector2() } });
+  const shaders = { vertexShader: "#include <common>\nvoid main() {\n#include <begin_vertex>\n}", fragmentShader: "void main() { vec4 color = vec4(1.0); gl_FragColor = color; }" };
+  const skinnedGeometry = () => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    g.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+    g.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+    g.setIndex([0, 1, 2]);
+    return g;
+  };
+  const skinned = (material) => {
+    const mesh = new THREE.SkinnedMesh(skinnedGeometry(), material), bone = new THREE.Bone();
+    mesh.add(bone);
+    mesh.bind(new THREE.Skeleton([bone]));
+    mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+    return mesh;
+  };
+  const SKINNED = ["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"];
+  // A droideka's body, a gun without a map in its hand, and a rig with a scrolling texture.
+  const own = new THREE.ShaderMaterial({ defines: { RIGID_SKIN: "" }, uniforms: look(), ...shaders });
+  drawn(own, program(SKINNED, ["position", "skinIndex", "skinWeight"]));
+  const body = skinned(own), root = new THREE.Group(), hand = new THREE.Group(), gun = new THREE.Group();
+  body.userData.poseSphere = true; // a soldier's (actor.js): not a rig
+  const gunMaterial = new THREE.ShaderMaterial({ defines: { DYNAMIC: "" }, uniforms: { ...look(), map: { value: null } } });
+  drawn(gunMaterial, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]));
+  const gunGeometry = new THREE.BufferGeometry();
+  gunGeometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  gunGeometry.setIndex([0, 1, 2]);
+  gun.add(new THREE.Mesh(gunGeometry, gunMaterial));
+  hand.add(gun);
+  root.add(body, hand);
+  root.position.z = -5;
+  root.userData.parts = { body, hand };
+  scene.add(root);
+  core.graphics.cullRoots.push(root);
+  const scrolling = new THREE.ShaderMaterial({ defines: { UNLIT: "", SCROLL: "" }, uniforms: { ...look(), time: lighting.time } });
+  scrolling.uniforms.scroll.value.set(0.25, -0.5);
+  drawn(scrolling, program([...SKINNED, "scroll", "time"], ["position", "skinIndex", "skinWeight"]));
+  const rig = skinned(scrolling);
+  rig.position.set(2, 0, -6);
+  scene.add(rig);
+  const near = () => { scene.updateMatrixWorld(true); renderer.info.render.frame++; core.pass(renderer, scene, camera); };
+  const records = () => calls.filter((c) => c[0] === "frame").pop()[1];
+  near();
+  assert.equal(records(), 3, "the body, the gun and the rig");
+  assert.equal(core.input[at(1) + R.TEXTURES], -1, "the gun: no texture (the renderer binds an empty one)");
+  assert.deepEqual([...core.input.subarray(at(2) + R.EXTRA, at(2) + R.EXTRA + 2)], [0.25, -0.5], "the rig's scroll, its row's");
+  // The droideka goes up: heated copies of its materials, its look and heat its own.
+  const hot = heatMaterial(own);
+  body.material = hot;
+  body.userData.heated = { heat: 0.5, tear: new THREE.Vector4(1, 2, 3, 0.6), base: 0.3, scale: 0.6, soot: 1, dissolve: 0.25, sun: 0.9, brightness: 1.1, darken: 0.1, lighten: 0.2 };
+  near();
+  assert.equal(records(), 2, "three draws it while it has no program of the heated copy");
+  assert.equal(hot.visible, true);
+  drawn(hot, program([...SKINNED, "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve"], ["position", "skinIndex", "skinWeight"]));
+  near();
+  assert.equal(records(), 3, "then the renderer, as its own record");
+  assert.equal(hot.visible, false);
+  assert.deepEqual([...core.input.subarray(at(0) + R.LOOK, at(0) + R.LOOK + 4)].map((v) => +v.toFixed(3)), [0.9, 0.1, 0.2, 1.1], "its look as heatMaterial sets it");
+  assert.deepEqual([...core.input.subarray(at(0) + R.EXTRA + 4, at(0) + R.EXTRA + 13)].map((v) => +v.toFixed(3)), [0.5, 0.3, 0.6, 1, 1, 2, 3, 0.6, 0.25], "its heat, base, scale, soot, tear and dissolve");
+  // Its own materials back: its own record again.
+  body.material = own;
+  delete body.userData.heated;
+  near();
+  assert.equal(records(), 3);
+  assert.deepEqual([...core.input.subarray(at(0) + R.EXTRA + 4, at(0) + R.EXTRA + 13)], [0, 0, 0, 0, 0, 0, 0, 0, 0]);
+});
+
 test("flying models: parts of tagged groups as rigid records, lit and unlit, hidden by their layers not their shared material", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
   const zero = (kind) => new THREE.ShaderMaterial({ name: `zero:${kind}`, defines: { [kind === "dynamic" ? "DYNAMIC" : "UNLIT"]: "" },
