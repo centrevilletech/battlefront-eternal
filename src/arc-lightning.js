@@ -223,6 +223,11 @@ const fragmentShader = /* glsl */ `
   }
 `;
 
+// The batches by their meshes, for a renderer that draws them itself
+// (src/rust-render/effects.js): while a batch is `external`, three is shown
+// it never and uploads it nothing.
+export const arcBatches = new WeakMap();
+
 // Glowing capsules, one instance a segment; a sphere is a segment of no
 // length.
 export class ArcBatch {
@@ -231,6 +236,7 @@ export class ArcBatch {
   constructor(capacity = 512, { soft = true } = {}) {
     this.soft = soft;
     this.count = 0;
+    this.external = false;
     this.capacity = 0;
     this.data = null;
     this.range = { start: 0, count: 0 };
@@ -264,6 +270,7 @@ export class ArcBatch {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 12;
     this.mesh.visible = false;
+    arcBatches.set(this.mesh, this);
     const size = new THREE.Vector2();
     this.mesh.onBeforeRender = (renderer, scene, camera, ...rest) => {
       // Shown empty only to have its program built while a battle loads.
@@ -321,7 +328,7 @@ export class ArcBatch {
   // loading's warm-up).
   end(keep = false) {
     let drawn = this.count;
-    if (!drawn && keep) {
+    if (!drawn && keep && !this.external) {
       // Kept empty, nothing would be drawn, and the driver builds its
       // pipeline for the program's first real draw (ANGLE on Vulkan and
       // Metal, SwiftShader), stalling the first bolt; so one dark capsule
@@ -330,8 +337,10 @@ export class ArcBatch {
       drawn = 1;
     }
     this.geometry.instanceCount = drawn;
-    this.mesh.visible = drawn > 0;
-    if (!drawn) return;
+    // Drawn by another renderer (external), it is shown to three never and
+    // uploads it nothing.
+    this.mesh.visible = drawn > 0 && !this.external;
+    if (!drawn || this.external) return;
     // Only what was drawn is sent, through one range kept for it (three
     // empties the list once it has uploaded).
     const ranges = this.buffer.updateRanges;

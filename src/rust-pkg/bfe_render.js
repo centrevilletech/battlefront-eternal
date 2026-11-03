@@ -791,6 +791,30 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_flags
+     * @param {number} depth_func
+     * @param {Uint32Array | number[]} passes
+     * @returns {number}
+     */
+    inst_add_blend(blend, depth_flags, depth_func, passes) {
+        const val3 = +depth_flags;
+        const val4 = +depth_func;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(passes, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_inst_add_blend(this.__wbg_ptr, ptr0, len0, val3, val4, ptr1, len1);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} records
      * @returns {Uint32Array}
      */

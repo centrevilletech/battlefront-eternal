@@ -935,8 +935,8 @@ over included) and the ground, then every visible soldier's body and the
 guns in his hand, instanced, then what the near scene blends: the map's
 blended buckets and the command posts' holograms and flares, in three's
 order. Its programs are made from the GLSL three compiled for each
-material. `?rustRigs` adds vehicles' and props' skinned rigs. Three.js
-draws everything else, and
+material, and vehicles' and props' skinned rigs (`?rustRigs=0` leaves
+those to three, for comparisons). Three.js draws everything else, and
 everything in a configuration the renderer does not cover (shadows, lamp
 lighting, the temporal upscaler). `?rustOff` loads it switched off,
 `?rustSort` orders the map's buckets by program rather than as three does,
@@ -955,7 +955,7 @@ boundary, so that each part of the frame can move to it on its own:
 | Far | `far.rs` | `far.js` | far | The far scene: sky and its layers, low-detail buckets, far terrain, far water, the sky's flyers |
 | Terrain | `terrain.rs` | `terrain.js` | near | The ground and its painted layers (drawn by the world pass) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | What the near scene blends, in three's order: blended buckets, holograms, flares |
-| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam, fountain and wake effects |
+| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam, fountain and wake effects, the Enhanced arcs, the droideka's dust and the jetpack's wake |
 | Foliage | `foliage.rs` | `foliage.js` | near | Placed foliage, instanced, its patches chosen there too |
 | View | `view.rs` | `view.js` | view | The first-person arms and weapon, and the muzzle flash |
 | Post | `post.rs` | `post.js` | post | Soft focus, composite, FXAA, the bilinear upscale |
@@ -1108,6 +1108,9 @@ has drawn it, with three's own program, then hidden from three:
 | Enhanced steam's volumes | `environment-volume.js` | shader model over the screen | its material |
 | Enhanced fountains' jets | `fountain-jets.js` | instanced, bases of their own, reading the frame so far | its material |
 | Enhanced fountains' soft spray | `fountain-jets.js` | shader models over the screen | its material |
+| Enhanced arc caster lightning | `arc-lightning.js` | instanced capsules, kept interleaved | `external` |
+| Enhanced droideka's rolling dust | `droideka-trail.js` | instanced quads, base plane | `external` |
+| Enhanced jetpack's wake (fire, smoke, embers) | `jetpack-wake.js` | instanced quads, base plane | `external` |
 
 A batch's instances go into the module's memory attribute by attribute as
 the batch keeps them (an analytic batch's from the first that changed since
@@ -1117,8 +1120,9 @@ attribute of each batch, and every vertex of the lightning's buffers, every
 frame. Hiding a dynamic batch from three needs the batch's own flag: three
 uploads a visible mesh's changed attributes as it lists it, whether or not
 its material is shown. A shader that kept a value of its own under a name the
-frame block gives the frame's (the shield's and the rain's clocks, their
-fades) has it renamed, so its program can take the frame block.
+frame block gives the frame's (the shield's, the rain's, the droideka's
+dust's and the jetpack's wake's clocks, their fades) has it renamed, so its
+program can take the frame block.
 
 A shader model calls its object's `onBeforeRender` each frame as three
 would. The steam's volumes are drawn by three into a target of their own
@@ -1135,10 +1139,15 @@ target each, so that both can be drawn before either is laid over the
 frame.
 
 The flying models (rounds, grenades, droids' pieces, items: `game.js`
-flyingModel, tagged `userData.flying`) are opaque and are drawn by the
-instance pass as rigid records in the near phase. Their parts share their
-materials with every copy of their model, so a part the renderer draws is
-hidden from three by its layers (layer 30) rather than by its material.
+flyingModel, tagged `userData.flying`) are drawn by the instance pass as
+rigid records in the near phase. Their parts share their materials with
+every copy of their model, so a part the renderer draws is hidden from three
+by its layers (layer 30) rather than by its material. A part whose material
+blends (the scrolling glow of a dropped health power-up) is an item of the
+transparent list, as a vehicle's rig that blends is (the jedi fighter's and
+the gunship's glass): the instance pass is one of the list's sources, and
+draws it with three's program for each side three draws it with, its
+blending and depth, at the place three's sort would draw it.
 
 Checked on the slow-PC emulator (SwiftShader, 800x600, 2x multisampling,
 the Classic looks): at six points of a seeded battle on Bespin, Hoth and
@@ -1290,9 +1299,11 @@ with every uniform set by the pass. The map's buckets are culled by spatial
 cell as render-culling.js culls them, each visible run in one multi-draw;
 the terrain's cells by the frustum and the fade start as terrain-patches.js
 culls them, its visible runs in one multi-draw too; the flyers draw
-instanced from the matrices the page writes each frame. The items are
-sorted as three sorts its render lists and drawn with a uniform or a piece
-of state set only when it differs from what is set.
+instanced from the matrices the page writes each frame. A sampler a
+material gives no texture reads a texture of one texel of zeros, as three's
+empty texture is (Hoth's hangar platform in the far scene has no map). The
+items are sorted as three sorts its render lists and drawn with a uniform
+or a piece of state set only when it differs from what is set.
 
 In one battle with `?rust`, at four points of a walk, the far pass and
 three's far render drew the same lockstep frame in turn (two settle frames,

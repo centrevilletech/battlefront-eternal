@@ -46,13 +46,20 @@
 // render order, the centre of its bounding sphere (through its world
 // matrix, as three's projectObject takes it) and its id.
 //
-// Of what the Enhanced looks draw, the bolts (blaster-bolts.js) and the
-// sniper's trace (sniper-trace.js) are drawn here too; the arcs, and the
-// destruction and jetpack effects stay with three for now.
+// Of what the Enhanced looks draw, the bolts (blaster-bolts.js), the
+// sniper's trace (sniper-trace.js), the arc caster's lightning
+// (arc-lightning.js: its capsules; the glow over a shocked body stays
+// three's), the droideka's rolling dust (droideka-trail.js) and the
+// jetpack's wake (jetpack-wake.js) are drawn here too; the destruction
+// effects and the jetpack's flame (jetpack-volume.js) stay with three for
+// now.
 import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
 import { squareBatches } from "../atmosphere.js";
 import { classicLightning } from "../lightning.js";
+import { arcBatches } from "../arc-lightning.js";
+import { droidekaTrails } from "../droideka-trail.js";
+import { jetpackWakes } from "../jetpack-wake.js";
 import { rainImpacts } from "../rain-impacts.js";
 import { fountainJets } from "../fountain-jets.js";
 import { particleDepth } from "../particle-depth.js";
@@ -91,6 +98,19 @@ const KINDS = {
   // camera the trace aims by) set by their onBeforeRender.
   sniperStreaks: { attributes: [["iHead", 3], ["iTail", 3], ["iColor", 4], ["iSize", 4], ["iMisc", 4]], interleaved: true, values: ["pixelAngle"], samplers: [], beforeRender: true },
   sniperFlares: { attributes: [["iCenter", 3], ["iAxis", 3], ["iColor", 4], ["iParam", 4]], interleaved: true, values: [], samplers: [] },
+  // The Enhanced arc caster's lightning (arc-lightning.js ArcBatch): a
+  // capsule a segment, kept interleaved; its pixel's angle and the near
+  // plane's depth set by its onBeforeRender.
+  arc: { attributes: [["iA", 3], ["iB", 3], ["iNA", 3], ["iNB", 3], ["iColor", 4], ["iSize", 4]], interleaved: true,
+    values: ["eyeFade", "closeRange", "pixelAngle", "nearDepth"], samplers: [], beforeRender: true },
+  // The droideka's rolling dust (droideka-trail.js): wisps on a quad of
+  // their own, rewritten each frame as they are born and die, placed by
+  // their program from their births and the trail's clock.
+  trail: { attributes: [["birth", 4], ["drift", 4], ["shape", 4]], base: [["position", 3], ["uv", 2]], values: ["trailTime", "tint"], samplers: [] },
+  // The Enhanced jetpack's wake (jetpack-wake.js): its pools of fire,
+  // smoke and embers, particles on a quad of their own placed by their
+  // program from their births and the wake's clock.
+  wake: { attributes: [["birth", 4], ["flow", 4], ["axis", 4], ["style", 2]], base: [["position", 3], ["uv", 2]], values: ["wakeTime", "kind", "drag"], samplers: [] },
   // The rain's drops (weather.js): streaks on a plane of their own (its
   // base: position, uv), each drop's seed fixed (uploaded as it grows).
   rain: { attributes: [["seed", 4]], base: [["position", 3], ["uv", 2]], static: true, hiddenBy: "material",
@@ -189,6 +209,28 @@ function interleavedBatch(batch) {
     get count() { return batch.count; }, get capacity() { return batch.capacity; },
     get arrays() { return { interleaved: batch.data }; },
     get external() { return batch.external; }, set external(on) { batch.external = on; },
+  };
+}
+// The droideka's rolling dust (droideka-trail.js): its wisps as the trail
+// keeps them; hidden from three by `external`.
+function trailOf(trail) {
+  const g = trail.geometry, arrays = {};
+  for (const name of ["birth", "drift", "shape"]) arrays[name] = g.getAttribute(name).array;
+  return {
+    mesh: trail.mesh, material: trail.material, geometry: g, source: trail,
+    get count() { return trail.count; }, capacity: g.getAttribute("birth").count, arrays,
+    get external() { return trail.external; }, set external(on) { trail.external = on; },
+  };
+}
+// A pool of the Enhanced jetpack's wake (jetpack-wake.js): its particles as
+// the pool keeps them; hidden from three by `external`.
+function wakeOf(pool) {
+  const arrays = {};
+  for (const [name, attribute] of Object.entries(pool.attributes)) arrays[name] = attribute.array;
+  return {
+    mesh: pool.mesh, material: pool.mesh.material, geometry: pool.mesh.geometry, source: pool,
+    get count() { return pool.count; }, capacity: pool.capacity, arrays,
+    get external() { return pool.external; }, set external(on) { pool.external = on; },
   };
 }
 function drops(mesh) {
@@ -308,8 +350,8 @@ class EffectsPass {
   // What three draws this frame that this pass has not seen, each
   // registered once three has drawn it, then hidden from three: glow models
   // (with their group's other parts: they share its material), shields and
-  // the other shader models, the snow, the rain and the environment's
-  // batches.
+  // the other shader models, the snow, the rain, the environment's batches,
+  // the Enhanced arcs', the droideka's dust and the jetpack's wake.
   listed(ctx) {
     const list = this.threeList(ctx.renderer, ctx.scene);
     for (const item of list?.transparent || []) {
@@ -328,6 +370,15 @@ class EffectsPass {
         if (record !== undefined) this.byBatch.set(object, record);
       } else if (JETS.has(object.name) && fountainJets.has(object) && object.material?.isShaderMaterial) {
         const record = this.registerBatch(instancedOf(object), "jets", null);
+        if (record !== undefined) this.byBatch.set(object, record);
+      } else if (object.name === "arc-lightning" && arcBatches.has(object) && object.material?.isShaderMaterial) {
+        const record = this.registerBatch(interleavedBatch(arcBatches.get(object)), "arc", null);
+        if (record !== undefined) this.byBatch.set(object, record);
+      } else if (object.name === "droideka-rolling-dust" && droidekaTrails.has(object) && object.material?.isShaderMaterial) {
+        const record = this.registerBatch(trailOf(droidekaTrails.get(object)), "trail", null);
+        if (record !== undefined) this.byBatch.set(object, record);
+      } else if (object.name.startsWith("jetpack-wake-") && jetpackWakes.has(object) && object.material?.isShaderMaterial) {
+        const record = this.registerBatch(wakeOf(jetpackWakes.get(object)), "wake", null);
         if (record !== undefined) this.byBatch.set(object, record);
       }
     }
