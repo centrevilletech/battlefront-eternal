@@ -159,6 +159,40 @@ test("a CPU batch: registered once three drew it, then hidden from three and wri
   assert.equal(batch.mesh.visible, false);
 });
 
+test("a mirror's render draws what blends too: the transparent phase for the mirror's camera, after its near phase", () => {
+  const { core, calls, scene, renderer, list, drawn, entry } = bridge();
+  const particles = new ParticleRenderer(scene);
+  const batch = particles.batch(new THREE.Texture(), "additive", "bolt");
+  const fill = (n) => { particles.begin(); for (let i = 0; i < n; i++) batch.push(i, 2 * i, -3 * i - 5, 1, 1, 1, 0.5, 0.2, 0, STREAK, 4, [0, 0, 1], [0.5, 0, 0]); particles.end(); };
+  fill(2);
+  drawn(batch.material, CPU_PROGRAM);
+  core.phase("transparent", renderer, scene, core.graphics.camera);
+  assert.equal(batch.external, true, "registered by the frame's own render");
+  // water.js's mirror: a camera of its own drawing into a target of its own.
+  const mirror = new THREE.PerspectiveCamera();
+  mirror.userData.mirror = true;
+  mirror.position.set(0, -2, 0);
+  mirror.updateMatrixWorld(true);
+  const reflection = { name: "reflection", width: 400, height: 300 };
+  const target = renderer.getRenderTarget;
+  renderer.getRenderTarget = () => reflection;
+  try {
+    fill(3);
+    calls.length = 0;
+    // The far scene's image is the last opaque item: the mirror's
+    // transparent phase follows its near phase at once.
+    core.pass(renderer, scene, mirror);
+  } finally {
+    renderer.getRenderTarget = target;
+  }
+  const names = calls.map((c) => c[0]);
+  assert.ok(names.includes("mirror_frame"), "the near phase's passes for the mirror");
+  assert.ok(names.indexOf("mirror_transparent_frame") > names.indexOf("mirror_frame"), "then what blends");
+  assert.equal(names.includes("transparent_frame"), false, "not the frame's own");
+  assert.equal(core.fxInput[0], 1, "the effects drawn in the reflection");
+  assert.deepEqual(entry(0).slice(0, 3), [0, 0, 3]);
+});
+
 test("an analytic batch: its owner's emitters, and its instances from the first changed", () => {
   const { core, calls, scene, frame, drawn, entry } = bridge();
   const particles = new ParticleRenderer(scene);

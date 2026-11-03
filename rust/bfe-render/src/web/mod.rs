@@ -110,6 +110,10 @@ impl BfeRenderer {
     pub fn mirror_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.mirror_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
+    // What a mirror's render blends: three, as for transparent_frame.
+    pub fn mirror_transparent_frame(&mut self, three: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.mirror_transparent_frame(three as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
     pub fn hud_frame(&mut self) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.hud_frame().map_err(|e| JsValue::from_str(&e))?.values())
     }

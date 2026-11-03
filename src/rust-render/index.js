@@ -75,6 +75,8 @@ const PHASES = {
   hud: { view: null, draw: (rust) => rust.hud_frame() },
   // The near phase's passes from a mirror camera (water.js's reflection).
   mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
+  // The transparent phase's passes from that mirror camera.
+  mirrorTransparent: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_transparent_frame(ctx.three ?? 0) },
   // The near scene's start when it is drawn in place of three's render
   // (near.js): its target cleared, the far scene's image drawn into it.
   begin: { view: null, draw: (rust, ctx) => rust.near_begin(ctx.clear, ctx.steps ?? 0) },
@@ -167,8 +169,9 @@ export class RustRender {
     // The passes, in the renderer's order.
     this.passes = [];
     this.phases = Object.fromEntries(Object.keys(PHASES).map((name) => [name, []]));
-    // A mirror draws the near phase's passes.
+    // A mirror draws the near phase's passes, then the transparent phase's.
     this.phases.mirror = this.phases.near;
+    this.phases.mirrorTransparent = this.phases.transparent;
     this.byName = {};
     for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass]) this.addPass(make(this));
   }

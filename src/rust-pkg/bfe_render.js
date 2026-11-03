@@ -804,6 +804,19 @@ export class BfeRenderer {
         return v1;
     }
     /**
+     * @param {number} three
+     * @returns {Uint32Array}
+     */
+    mirror_transparent_frame(three) {
+        const ret = wasm.bferenderer_mirror_transparent_frame(this.__wbg_ptr, three);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
      * @param {Float64Array | number[]} clear
      * @param {number} steps
      * @returns {Uint32Array}
