@@ -506,6 +506,47 @@ fn check_locks(after: V, before: V, lock: Option<bfe_sim::flight::state::Lock>) 
     Ok(())
 }
 
+/// A craft's own configuration as the capture holds it (flightConfig's own
+/// keys, in their order), where it does, against the port's.
+fn check_config(theirs: V, mine: &Config) -> Result<(), String> {
+    if theirs.is_nullish() {
+        return Ok(());
+    }
+    let pairs = [
+        ("minSpeed", mine.min_speed),
+        ("cruiseSpeed", mine.cruise_speed),
+        ("maxSpeed", mine.max_speed),
+        ("acceleration", mine.acceleration),
+        ("turnRate", mine.turn_rate),
+        ("turnFilter", mine.turn_filter),
+        ("pitchRate", mine.pitch_rate),
+        ("pitchFilter", mine.pitch_filter),
+        ("bankAngle", mine.bank_angle),
+        ("bankFilter", mine.bank_filter),
+        ("levelFilter", mine.level_filter),
+        ("takeoffHeight", mine.takeoff_height),
+        ("takeoffTime", mine.takeoff_time),
+        ("takeoffSpeed", mine.takeoff_speed),
+        ("landedHeight", mine.landed_height),
+        ("landingTime", mine.landing_time),
+        ("landingSpeed", mine.landing_speed),
+        ("boostSpeed", mine.boost_speed),
+    ];
+    let keys: Vec<String> = match theirs.node() {
+        Some(Node::Object { fields, .. }) => fields.iter().map(|(k, _)| k.clone()).collect(),
+        _ => return Err(format!("config: not an object: {}", theirs.show())),
+    };
+    if keys.len() != pairs.len() || keys.iter().zip(pairs.iter()).any(|(k, (name, _))| k != name) {
+        return Err(format!("config: the capture's keys are {keys:?}"));
+    }
+    for (name, value) in pairs {
+        if !same_number(theirs.get(name).num(), value) {
+            return Err(format!("config.{name}: the capture has {}, the port {value}", theirs.get(name).show()));
+        }
+    }
+    Ok(())
+}
+
 // What a replayed tick ran: (frames, of which the same) by path.
 fn path_of(hull: &Hull) -> &'static str {
     use bfe_sim::flight::FlightState::*;
@@ -601,6 +642,10 @@ fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<St
         Ok(f) => f,
         Err(e) => return ("?", Outcome::Failed(format!("{}: {e}", frame.place()))),
     };
+    // The class definition's keys as the JavaScript read them (flightConfig's own).
+    if let Err(e) = check_config(before.get("config"), &hull.flight.config) {
+        return ("?", Outcome::Failed(format!("{}: {e}", frame.place())));
+    }
     let path = path_of(&hull);
     let idle = before.get("idle").truthy();
     let world = before.get("world");
@@ -728,6 +773,9 @@ fn flyers_pose_as_captured() {
         let mut rigs: HashMap<String, Option<(Built, Option<GearClip>)>> = Default::default();
         let mut label_seen = String::new();
         let mut posed_same = 0usize;
+        // What the same frames exercised: a crewed turret seat, the gear
+        // between down and stowed, a render that is no tick's (a spawn's).
+        let (mut turrets, mut gear_moving, mut untimed) = (0usize, 0usize, 0usize);
         let report = replay_corpus(&corpus, name, |capture, frame| {
             let label = capture.label();
             if label != label_seen {
@@ -807,13 +855,23 @@ fn flyers_pose_as_captured() {
             match diff(frame.after().get("hull"), arena.view(&mine)) {
                 None => {
                     posed_same += 1;
+                    if hull_v.get("seats").items().skip(1).any(|s| !s.get("lease").is_nullish()) {
+                        turrets += 1;
+                    }
+                    let g = hull_v.get("gear").num();
+                    if g > 0.0 && g < 1.0 {
+                        gear_moving += 1;
+                    }
+                    if name == "flyer.render" && !frame.arg(2).truthy() {
+                        untimed += 1;
+                    }
                     Outcome::Same
                 }
                 Some(d) => Outcome::Failed(format!("{}: hull {d} (capture | port)", frame.place())),
             }
         })
         .unwrap();
-        eprintln!("{}\n  posed: {posed_same} of the same frames", report.summary());
+        eprintln!("{}\n  posed: {posed_same} of the same frames ({turrets} with a crewed turret seat, {gear_moving} with the gear moving, {untimed} a spawn's)", report.summary());
         report.assert_clean();
     }
 }

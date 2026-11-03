@@ -218,8 +218,8 @@ const ticks = { frames: [] };
 // The flight package (flip F2 with the hulls): a craft's tick and its pose
 // at the tick, with what its targeting reads of the registry
 // (tools/sim-capture/flight.mjs).
-const flight = flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries });
+const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries });
 
 // The units package (flip F3): a unit's tick, the registry's queries and
 // the soldiers pushed apart (tools/sim-capture/units.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, flight };
+export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, flight, flightMissiles };

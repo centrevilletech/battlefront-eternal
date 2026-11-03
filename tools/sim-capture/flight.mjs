@@ -167,5 +167,9 @@ export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries 
     },
   };
 
-  return { frames: [tick, poseFrame('vehicle.aimTick'), poseFrame('vehicle.render'), missile] };
+  return {
+    flight: { frames: [tick, poseFrame('vehicle.aimTick'), poseFrame('vehicle.render'), missile] },
+    // The seeker alone: a cheap capture of every flyer missile's flight.
+    flightMissiles: { frames: [missile] },
+  };
 }
