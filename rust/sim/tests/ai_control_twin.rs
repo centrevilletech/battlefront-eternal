@@ -1,5 +1,5 @@
-//! V1 twin checks for the AI control core's pure logic (plan-claude
-//! 4.4): the expected values were dumped from the JavaScript itself
+//! Twin checks for the AI control core's pure logic: the expected
+//! values were dumped from the JavaScript itself
 //! (difficulty.js, controller.js, scheduler.js, agents.js under Node
 //! 24.22) and are compared bit for bit, so a 1-ulp or one-draw slip
 //! in the float32 arithmetic or the queue rules fails here. The
@@ -14,6 +14,48 @@ use bfe_sim::ai::control::scheduler::{camera_accepts, candidate_budget, fallback
 use bfe_sim::ai::control::world::{AiUnit, CameraView, ClassSnap, Draws, LiveDraws, SoldierSnap};
 use bfe_sim::ai::nav::math::Vec3;
 use bfe_sim::ai::random::ClassicRandom;
+
+#[test]
+fn mounted_service_effects_preserve_publication_and_saved_post_semantics() {
+    use bfe_sim::ai::control::{Core, Options};
+    use bfe_sim::ai::control::controller::Controller;
+    use bfe_sim::ai::control::world::{CharacterSnap, CoreEffect, TeamTable};
+
+    let mut core = Core::new(Options::default(), TeamTable::default(), Difficulty::classic(DifficultyOptions::default()),
+        [3, 5].into_iter().enumerate().map(|(i, post)| CharacterSnap {
+            index: i, team: 1.0, human: false, unit: Some(i), objective: Some(post),
+        }).collect());
+    core.controllers = vec![Controller::new(0), Controller::new(1)];
+    core.by_character = vec![Some(0), Some(1)];
+    core.controllers[0].fire_a = true;
+    // Node 24.22: ClassicObjectives.publish(6) for both crew members,
+    // publish(null) for the driver, VehicleAI.disembarkPassengers(7),
+    // then abandonPad at time 50. A saved post and a null publication
+    // retain the earlier queued goal; both crew cooldowns become 65.
+    core.apply_service_effects(vec![
+        CoreEffect::Publish { character: 0, before: Some(3), after: Some(6) },
+        CoreEffect::Publish { character: 1, before: Some(5), after: Some(6) },
+        CoreEffect::Publish { character: 0, before: Some(6), after: None },
+        CoreEffect::Objective { character: 1, before: Some(6), after: Some(7) },
+        CoreEffect::Reboard { controller: 1, before: f64::NEG_INFINITY, after: 65.0 },
+        CoreEffect::Reboard { controller: 0, before: f64::NEG_INFINITY, after: 65.0 },
+    ]);
+    assert_eq!(core.characters[0].objective, None);
+    assert_eq!(core.characters[1].objective, Some(7));
+    for c in &core.controllers {
+        assert_eq!(c.commands.queue, vec![SourceGoal::objective(Some(6))]);
+        assert!(c.commands.latch && c.published);
+        assert_eq!(c.reboard_at.to_bits(), 65.0f64.to_bits());
+    }
+    assert!(core.controllers[0].fire_a);
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| core.apply_service_effects(vec![
+        CoreEffect::Objective { character: 0, before: Some(3), after: Some(6) },
+    ]))).is_err(), "a wrong incoming objective must not be hidden by the service result");
+    core.controllers[1].reboard_at = -0.0;
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| core.apply_service_effects(vec![
+        CoreEffect::Reboard { controller: 1, before: 0.0, after: 65.0 },
+    ]))).is_err(), "the cooldown precondition uses Object.is semantics");
+}
 
 fn bits(v: f64) -> u64 {
     v.to_bits()

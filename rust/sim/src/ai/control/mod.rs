@@ -3,7 +3,7 @@
 //! agents.js, patrol.js, squads.js, goals.js's objectives,
 //! classes.js's behavior helpers, difficulty.js, and the Enhanced
 //! objective agents and objectives). Everything outside it crosses
-//! `world::AiWorld`; plan-claude row P15. The JavaScript's classes
+//! `world::AiWorld`. The JavaScript's classes
 //! become index-driven dispatch here: every state machine's state is
 //! plain data (controller.rs, agents.rs, patrol.rs), and this file
 //! drives them all in the JavaScript's order, quirks included.
@@ -698,6 +698,7 @@ impl Core {
         if self.options.bind.vehicle_adapter && self.options.bind.vehicles && policy != Policy::None {
             if w.vehicles_policy_agent(policy, state) {
                 let (tick, control) = w.foreign_agent_create(ci, ForeignKind::Fly, &world::ForeignShared::read(&self.controllers[ci]));
+                self.apply_service_effects(tick.effects);
                 if let Some(shared) = tick.shared { shared.apply(&mut self.controllers[ci]); }
                 if let Some(control) = control {
                     self.adopt_control(ci, control);
@@ -787,6 +788,7 @@ impl Core {
             }
             Made::Foreign(kind) => {
                 let (tick, control) = w.foreign_agent_create(ci, kind, &world::ForeignShared::read(&self.controllers[ci]));
+                self.apply_service_effects(tick.effects);
                 if let Some(shared) = tick.shared { shared.apply(&mut self.controllers[ci]); }
                 if let Some(control) = control {
                     self.adopt_control(ci, control);
@@ -845,7 +847,9 @@ impl Core {
             self.fsm_terminate(w, d, Owner::Mine(ci));
         }
         if foreign {
-            if let Some(shared) = w.foreign_agent_exit(ci, &world::ForeignShared::read(&self.controllers[ci])) {
+            let (shared, effects) = w.foreign_agent_exit(ci, &world::ForeignShared::read(&self.controllers[ci]));
+            self.apply_service_effects(effects);
+            if let Some(shared) = shared {
                 shared.apply(&mut self.controllers[ci]);
             }
             self.sync_control(w, ci);
@@ -1144,6 +1148,7 @@ impl Core {
                 let phase = self.controllers[ci].phase;
                 let done = if matches!(agent.kind, AgentKind::Foreign(_)) {
                     let tick = w.foreign_agent_tick(ci, dt, phase, &world::ForeignShared::read(&self.controllers[ci]));
+                    self.apply_service_effects(tick.effects);
                     if let Some(shared) = tick.shared { shared.apply(&mut self.controllers[ci]); }
                     self.sync_control(w, ci);
                     self.sync_combat_writes(w, ci);
@@ -4581,7 +4586,9 @@ impl Core {
             // navigationInput (vehicles.analogs path inside it);
             // the world implements the whole step.
             let _seat = w.unit(unit).is_seat_unit;
-            if let Some(obs) = w.nav_navigation_input(ci, step, aim_point) {
+            let (obs, effects) = w.nav_navigation_input(ci, step, aim_point);
+            self.apply_service_effects(effects);
+            if let Some(obs) = obs {
                 self.set_obs(ci, obs);
             }
             self.sync_control(w, ci);
@@ -4599,7 +4606,9 @@ impl Core {
                 self.controllers[ci].jet_pending = false;
             }
             let out = if self.options.bind.nav {
-                w.nav_analogs(ci, aim_point, step)
+                let (out, effects) = w.nav_analogs(ci, aim_point, step);
+                self.apply_service_effects(effects);
+                out
             } else {
                 let request = self.controllers[ci].request;
                 let facing = self.controllers[ci].facing;
@@ -4695,6 +4704,27 @@ impl Core {
 
 impl Core {
     // -- objectives (goals.js ClassicObjectives, enhanced/objectives.js) -------
+
+    /// Return effects from a foreign service at its call site. Preconditions
+    /// fail closed so a returned write cannot conceal a native state error.
+    pub fn apply_service_effects(&mut self, effects: Vec<world::CoreEffect>) {
+        for effect in effects {
+            match effect {
+                world::CoreEffect::Publish { character, before, after } => {
+                    assert_eq!(self.characters[character].objective, before, "service publication input for character {character}");
+                    self.objectives_publish(character, after);
+                }
+                world::CoreEffect::Objective { character, before, after } => {
+                    assert_eq!(self.characters[character].objective, before, "service saved objective input for character {character}");
+                    self.characters[character].objective = after;
+                }
+                world::CoreEffect::Reboard { controller, before, after } => {
+                    assert_eq!(self.controllers[controller].reboard_at.to_bits(), before.to_bits(), "service reboard input for controller {controller}");
+                    self.controllers[controller].reboard_at = after;
+                }
+            }
+        }
+    }
 
     fn objectives_publish(&mut self, character: usize, post: Option<usize>) {
         let has_unit = self.characters[character].unit.is_some();

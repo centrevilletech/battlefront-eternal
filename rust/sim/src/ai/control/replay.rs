@@ -2000,12 +2000,12 @@ impl<'f> AiWorld for Served<'f> {
         self.extra(call, Some(controller));
         self.foreign_tick_after(call, controller)
     }
-    fn foreign_agent_exit(&mut self, controller: usize, shared: &ForeignShared) -> Option<ForeignShared> {
-        let call = self.call("foreign.exit")?;
+    fn foreign_agent_exit(&mut self, controller: usize, shared: &ForeignShared) -> (Option<ForeignShared>, Vec<CoreEffect>) {
+        let Some(call) = self.call("foreign.exit") else { return (None, Vec::new()) };
         self.check_foreign_shared(call, shared);
         self.check_agent("foreign.exit agent", call.arg(0), controller);
         self.extra(call, Some(controller));
-        self.foreign_shared_read(call.extra().get("shared"))
+        (self.foreign_shared_read(call.extra().get("shared")), self.core_effects(call))
     }
 
     // -- helpers and the navigation control --------------------------------
@@ -2240,19 +2240,19 @@ impl<'f> AiWorld for Served<'f> {
     fn network_secondary_active(&self) -> bool {
         self.tables.network_secondary
     }
-    fn nav_navigation_input(&mut self, controller: usize, step: f64, aim: Option<Vec3>) -> Option<HelperObs> {
-        let call = self.call("ai.navigationInput")?;
+    fn nav_navigation_input(&mut self, controller: usize, step: f64, aim: Option<Vec3>) -> (Option<HelperObs>, Vec<CoreEffect>) {
+        let Some(call) = self.call("ai.navigationInput") else { return (None, Vec::new()) };
         self.check(check_num("navigationInput step", call.arg(3), step));
         self.check_vec_opt("navigationInput aim", call.arg(4), aim);
-        self.extra(call, Some(controller))
+        (self.extra(call, Some(controller)), self.core_effects(call))
     }
-    fn nav_analogs(&mut self, controller: usize, aim: Option<Vec3>, step: f64) -> [f64; 4] {
-        let Some(call) = self.call("ai.analogs") else { return [0.0; 4] };
+    fn nav_analogs(&mut self, controller: usize, aim: Option<Vec3>, step: f64) -> ([f64; 4], Vec<CoreEffect>) {
+        let Some(call) = self.call("ai.analogs") else { return ([0.0; 4], Vec::new()) };
         self.check_vec_opt("analogs aim", call.arg(2), aim);
         self.check(check_num("analogs step", call.arg(3), step));
-        let _ = controller;
+        self.extra(call, Some(controller));
         let out = call.out(4);
-        [out.get("forward").num(), out.get("right").num(), out.get("turn").num(), out.get("pitch").num()]
+        ([out.get("forward").num(), out.get("right").num(), out.get("turn").num(), out.get("pitch").num()], self.core_effects(call))
     }
 }
 
@@ -2395,7 +2395,57 @@ impl<'f> Served<'f> {
                 last: x.get("interrupts").get("last").num(),
             },
             shared: self.foreign_shared_read(x.get("shared")),
+            effects: self.core_effects(call),
         }
+    }
+
+    fn core_effects(&mut self, call: &Call) -> Vec<CoreEffect> {
+        let mut effects = Vec::new();
+        for event in call.extra().get("coreEffects").items() {
+            match event.get("kind").str() {
+                Some("publish" | "objective") => {
+                    let character = handle_of(event.get("character")).and_then(|h| self.tables.character_handles.get(&h).copied());
+                    let Some(character) = character else {
+                        self.fail(format!("service effect has an unknown character: {}", event.show()));
+                        continue;
+                    };
+                    let before = handle_of(event.get("before")).and_then(|h| self.tables.post_handles.get(&h).copied());
+                    let after = handle_of(event.get("after")).and_then(|h| self.tables.post_handles.get(&h).copied());
+                    if (!event.get("before").is_nullish() && before.is_none()) || (!event.get("after").is_nullish() && after.is_none()) {
+                        self.fail(format!("service effect has an unknown post: {}", event.show()));
+                        continue;
+                    }
+                    effects.push(if event.get("kind").str() == Some("publish") {
+                        CoreEffect::Publish { character, before, after }
+                    } else { CoreEffect::Objective { character, before, after } });
+                }
+                Some("reboard") => {
+                    let controller = handle_of(event.get("controller")).and_then(|h| self.tables.controller_handles.get(&h).copied());
+                    let Some(controller) = controller else {
+                        self.fail(format!("service effect has an unknown controller: {}", event.show()));
+                        continue;
+                    };
+                    let (Some(before), Some(after)) = (event.get("before").opt_num(), event.get("after").opt_num()) else {
+                        self.fail(format!("service effect has a nonnumeric reboard time: {}", event.show()));
+                        continue;
+                    };
+                    effects.push(CoreEffect::Reboard { controller, before, after });
+                }
+                Some("hint") => {
+                    let Some(hint) = self.hint_of(event.get("hint")) else {
+                        self.fail(format!("service effect has an unknown hint: {}", event.show()));
+                        continue;
+                    };
+                    let before = num_opt(event.get("before"));
+                    if !same_opt(self.tables.hints[hint].reserved_at, before) {
+                        self.fail(format!("service hint {hint} reservation input: capture {before:?}, port {:?}", self.tables.hints[hint].reserved_at));
+                    }
+                    self.tables.hints[hint].reserved_at = num_opt(event.get("after"));
+                }
+                _ => self.fail(format!("unknown service effect: {}", event.show())),
+            }
+        }
+        effects
     }
 
     fn foreign_shared_read(&self, v: V) -> Option<ForeignShared> {
@@ -2735,6 +2785,13 @@ pub fn replay_frame(frame: &sim_replay::Frame) -> Result<(), String> {
     cmp.chk(theirs.repair.exact(&core.repair), format!("repair differs:\n capture {:?}\n port {:?}", theirs.repair, core.repair));
     cmp.eq("perception flags", &their_tables.perception, &served.tables.perception);
     cmp.eq("helper kinds", &their_tables.helper_prefix, &served.tables.helper_prefix);
+    // Both class jobs and patrol reserve hints; a foreign flyer can
+    // reserve or close the same rings. Compare the mutable reservation
+    // time, while hint geometry/configuration stays navigation-owned.
+    cmp.eq("hint count", &their_tables.hints.len(), &served.tables.hints.len());
+    for (i, (a, b)) in their_tables.hints.iter().zip(&served.tables.hints).enumerate() {
+        cmp.chk(same_opt(a.reserved_at, b.reserved_at), format!("hints[{i}].reservedAt: capture {:?}, port {:?}", a.reserved_at, b.reserved_at));
+    }
     // Units: what the core writes on them (intents, a droideka's mode).
     let mut arena_a = Arena::default();
     let mut arena_b = Arena::default();

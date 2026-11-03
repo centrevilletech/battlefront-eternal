@@ -170,6 +170,42 @@ fn ai_replay_mutations_are_caught() {
     assert!(flipped, "no zero movement mode in the end state to flip");
     assert!(replay_frame(&mutated).is_err(), "a signed-zero request replayed clean");
 
+    // Hint reservations are shared mutable state, even when no later
+    // hint query observes the changed value in this frame.
+    let mut mutated = frame.clone();
+    let mut reservation = false;
+    for node in &mut mutated.exit.arena.nodes {
+        let sim_replay::Node::Object { fields, .. } = node else { continue };
+        for (key, value) in fields.iter_mut() {
+            if key != "reservedAt" { continue; }
+            if let sim_replay::Value::Num(n) = value {
+                *n = if n.is_finite() { f64::from_bits(n.to_bits() + 1) } else { 0.0 };
+                reservation = true;
+                break;
+            }
+        }
+        if reservation { break; }
+    }
+    assert!(reservation, "no hint reservation in the end state to move");
+    assert!(replay_frame(&mutated).is_err(), "a changed hint reservation replayed clean");
+
+    let mut mutated = frame.clone();
+    let mut support_holds = false;
+    for node in &mut mutated.exit.arena.nodes {
+        let sim_replay::Node::Object { fields, .. } = node else { continue };
+        for (key, value) in fields.iter_mut() {
+            if key == "supportHolds" {
+                *value = sim_replay::Value::Num(123.0);
+                support_holds = true;
+                break;
+            }
+        }
+        if support_holds { break; }
+    }
+    if support_holds {
+        assert!(replay_frame(&mutated).is_err(), "a changed mounted support count replayed clean");
+    }
+
     // A served response must validate the native policy state before
     // applying callback writes, so those writes cannot hide a mismatch.
     let mut mutated = frame.clone();
@@ -187,4 +223,5 @@ fn ai_replay_mutations_are_caught() {
     if changed {
         assert!(replay_frame(&mutated).is_err(), "a changed response input replayed clean");
     }
+    eprintln!("mutation checks: 6 required, response input={changed}, mounted support count={support_holds}");
 }
