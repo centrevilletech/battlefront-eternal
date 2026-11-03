@@ -133,6 +133,29 @@ impl UnitBody {
     }
 }
 
+impl PathNode {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PathNode {
+            x: { let p = format!("{path}.x"); num(v.get("x"), &p)? },
+            y: { let p = format!("{path}.y"); num(v.get("y"), &p)? },
+            z: { let p = format!("{path}.z"); num(v.get("z"), &p)? },
+            flag: { let p = format!("{path}.flag"); num(v.get("flag"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Num(self.x); fields.push(("x", x)); }
+        { let x = Value::Num(self.y); fields.push(("y", x)); }
+        { let x = Value::Num(self.z); fields.push(("z", x)); }
+        { let x = Value::Num(self.flag); fields.push(("flag", x)); }
+        a.object("", fields)
+    }
+}
+
 impl Impact {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -1160,6 +1183,84 @@ impl Ordnance {
     }
 }
 
+impl PathPlanner {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PathPlanner {
+            queue: { let p = format!("{path}.queue"); { let mut out = Vec::new(); for (i, e) in list(v.get("queue"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(PlannerRequest::value_in(e, cx, &at)?); } out } },
+            served: { let p = format!("{path}.served"); num(v.get("served"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = { let mut items = Vec::new(); for &r in self.queue.iter() { let x = PlannerRequest::value_out(r, cx, a); items.push(x); } a.array(items) }; fields.push(("queue", x)); }
+        { let x = Value::Num(self.served); fields.push(("served", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PlannerRequest {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PlannerRequest {
+            owner: { let p = format!("{path}.owner"); match v.get("owner").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_NAV_CONTROL, v.get("owner"), &p)?) } },
+            serial: { let p = format!("{path}.serial"); num(v.get("serial"), &p)? },
+            start: { let p = format!("{path}.start"); vec3(v.get("start"), &p)? },
+            end: { let p = format!("{path}.end"); vec3(v.get("end"), &p)? },
+            radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
+            mask: { let p = format!("{path}.mask"); (int(v.get("mask"), &p, 0.0, u32::MAX as f64)? as u32) },
+            priority: { let p = format!("{path}.priority"); num(v.get("priority"), &p)? },
+            served: { let p = format!("{path}.served"); num(v.get("served"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(8);
+        { let x = match &self.owner { Some(v) => cx.ref_out(KIND_NAV_CONTROL, (*v)), None => Value::Null }; fields.push(("owner", x)); }
+        { let x = Value::Num(self.serial); fields.push(("serial", x)); }
+        { let x = a.vec3(self.start); fields.push(("start", x)); }
+        { let x = a.vec3(self.end); fields.push(("end", x)); }
+        { let x = Value::Num(self.radius); fields.push(("radius", x)); }
+        { let x = Value::Num(self.mask as f64); fields.push(("mask", x)); }
+        { let x = Value::Num(self.priority); fields.push(("priority", x)); }
+        { let x = Value::Num(self.served); fields.push(("served", x)); }
+        a.object("", fields)
+    }
+
+    /// The plannerRequest a handle names (made with its fields' defaults the first time;
+    /// its value fills them in where it lives).
+    pub fn ref_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<PlannerRequest>> {
+        let (slot, gen) = cx.stored_in(KIND_PLANNER_REQUEST, v, path, |cx, _| { let r = cx.store.planner_request.insert(PlannerRequest::default()); (r.slot, r.gen) })?;
+        Ok(Ref::new(slot, gen))
+    }
+
+    /// A plannerRequest's value where it lives (its home list): its handle (`$id`) and fields.
+    pub fn value_in(v: V, cx: &mut Replay, path: &str) -> Result<Ref<PlannerRequest>> {
+        object(v, path)?;
+        let r = PlannerRequest::ref_in(v.get("$id"), cx, &format!("{path}.$id"))?;
+        let value = PlannerRequest::from_value(v, cx, path)?;
+        *cx.store.planner_request.get_mut(r).ok_or_else(|| format!("{path}: its entity is gone"))? = value;
+        Ok(r)
+    }
+
+    /// The handle of the plannerRequest a reference names.
+    pub fn ref_out(r: Ref<PlannerRequest>, cx: &mut Replay, a: &mut Arena) -> Value { cx.stored_out(KIND_PLANNER_REQUEST, r.slot, r.gen) }
+
+    /// A plannerRequest's value where it lives: its handle first, then its fields.
+    pub fn value_out(r: Ref<PlannerRequest>, cx: &mut Replay, a: &mut Arena) -> Value {
+        let id = cx.stored_out(KIND_PLANNER_REQUEST, r.slot, r.gen);
+        let e = cx.store.planner_request.get(r).cloned().unwrap_or_default();
+        let v = e.to_value(cx, a);
+        if let Value::Node(n) = v { if let Node::Object { fields, .. } = &mut a.nodes[n as usize] { fields.insert(0, ("$id".to_string(), id)); } }
+        v
+    }
+}
+
 impl Round {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -1668,6 +1769,7 @@ impl Replay {
         match kind {
             KIND_ITEMS => { let value = Items::from_value(v, self, "items")?; self.store.items = value; }
             KIND_ORDNANCE => { let value = Ordnance::from_value(v, self, "ordnance")?; self.store.ordnance = value; }
+            KIND_PATH_PLANNER => { let value = PathPlanner::from_value(v, self, "pathPlanner")?; self.store.path_planner = value; }
             KIND_UNITS => { let value = Units::from_value(v, self, "units")?; self.store.units = value; }
             KIND_VEHICLES => { let value = Vehicles::from_value(v, self, "vehicles")?; self.store.vehicles = value; }
             _ => return Err(format!("{} is no singleton", KIND_NAMES.get(kind as usize).copied().unwrap_or("?"))),
@@ -1680,6 +1782,7 @@ impl Replay {
         match kind {
             KIND_ITEMS => { let s = self.store.items.clone(); s.to_value(self, a) }
             KIND_ORDNANCE => { let s = self.store.ordnance.clone(); s.to_value(self, a) }
+            KIND_PATH_PLANNER => { let s = self.store.path_planner.clone(); s.to_value(self, a) }
             KIND_UNITS => { let s = self.store.units.clone(); s.to_value(self, a) }
             KIND_VEHICLES => { let s = self.store.vehicles.clone(); s.to_value(self, a) }
             _ => Value::Undefined,
