@@ -307,3 +307,28 @@ pub fn hover_springs(v: &mut Hull, dt: f64, compressions: &[f64; SPRINGS]) {
     v.support = max(0.0, v.support - dt);
     v.hover_class = Some(h);
 }
+
+/// src/vehicle-hover.js restHeight: how high over the floor a hover rests
+/// (a new hull is set down there): without springs, SetAltitude less what
+/// its lift spring gives under its gravity; with them, the height their
+/// lift carries its weight at (its springs' travel bisected 40 times).
+pub fn rest_height(h: &HoverClass) -> f64 {
+    if h.springs.is_empty() {
+        return max(0.0, h.altitude - GRAVITY * (h.gravity_scale - 1.0) / max(h.lift_spring, 1e-6));
+    }
+    let lift = |height: f64| h.springs.iter().fold(0.0, |sum, s| sum + s.factors[0] * h.velocity_spring * clamp((s.radius - s.at.y - height) / s.length, 0.0, 1.0));
+    let mut low = h.springs.iter().fold(f64::INFINITY, |m, s| min(m, s.radius - s.at.y - s.length));
+    let mut high = h.springs.iter().fold(f64::NEG_INFINITY, |m, s| max(m, s.radius - s.at.y));
+    if lift(low) < GRAVITY {
+        return low;
+    }
+    for _ in 0..40 {
+        let mid = (low + high) / 2.0;
+        if lift(mid) > GRAVITY {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    (low + high) / 2.0
+}

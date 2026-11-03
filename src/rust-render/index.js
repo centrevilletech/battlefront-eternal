@@ -25,7 +25,9 @@
 // (instances.js), and, empty for now, the far scene, terrain, the
 // transparent pass, effects, foliage, the first-person view and the post
 // passes. Each draws in a phase of the frame: far, near, transparent, view,
-// post (and mirror: the near phase's passes from a mirror's camera). A
+// post (and mirror: the near phase's passes from a mirror's camera;
+// farMirror and probe: the far phase's, from a water mirror's camera and for
+// a sky probe's faces). A
 // scene whose passes draw all of it is left out of three's frame (cover).
 // This file is their core: the WASM renderer and what every pass
 // registers through it (textures, programs, geometries), the frame block,
@@ -36,7 +38,7 @@ import { lighting } from "../materials.js";
 import { packed } from "../point-lights.js";
 import { worldPass } from "./world.js";
 import { instancesPass } from "./instances.js";
-import { farPass } from "./far.js";
+import { farPass, seaPass } from "./far.js";
 import { terrainPass } from "./terrain.js";
 import { transparentPass } from "./transparent.js";
 import { effectsPass } from "./effects.js";
@@ -46,11 +48,13 @@ import { postPass } from "./post.js";
 import { hudPass } from "./hud.js";
 import { waterPass } from "./water.js";
 import { nearPass } from "./near.js";
+import { canopiesPass } from "./canopies.js";
+import { motionPass } from "./motion.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
 // functions, not as it loads.
-export const VIEW_NEAR = 0, VIEW_FAR = 1, VIEW_FIRST_PERSON = 2, VIEW_SPARE = 3;
+export const VIEW_NEAR = 0, VIEW_FAR = 1, VIEW_FIRST_PERSON = 2, VIEW_SPARE = 3, VIEW_FAR_MIRROR = 4;
 // The frame block's members (shader.rs FRAME_MEMBERS), in its float layout.
 const FRAME = [
   ["projectionMatrix", 0, 16], ["viewMatrix", 16, 16], ["cameraPosition", 32, 3], ["time", 35, 1],
@@ -95,6 +99,16 @@ const PHASES = {
   // The near scene's start when it is drawn in place of three's render
   // (near.js): its target cleared, the far scene's image drawn into it.
   begin: { view: null, draw: (rust, ctx) => rust.near_begin(ctx.clear, ctx.steps ?? 0) },
+  // The far phase's passes from a water's mirror camera (water.js reflect),
+  // into the mirror's target, before the frame's own far scene.
+  farMirror: { view: VIEW_FAR_MIRROR, draw: (rust) => rust.far_mirror_frame() },
+  // The far phase's passes for a sky probe's cube face (sky-probe.js), into
+  // the face three bound; its frame blocks are the far pass's own, one a
+  // face (ctx.face, which the far pass reads off the face's camera).
+  probe: { view: VIEW_FAR, draw: (rust, ctx) => rust.far_probe_frame(ctx.face ?? 0) },
+  // The temporal upscaler's motion of the bodies that move on their own
+  // (motion.js), once the scenes are drawn.
+  motion: { view: null, draw: (rust, ctx) => rust.motion_frame(ctx.records) },
 };
 
 // three's renderer's entry points that read or change its state cache, each
@@ -196,11 +210,14 @@ export class RustRender {
     // The passes, in the renderer's order.
     this.passes = [];
     this.phases = Object.fromEntries(Object.keys(PHASES).map((name) => [name, []]));
-    // A mirror draws the near phase's passes, then the transparent phase's.
+    // A mirror draws the near phase's passes, then the transparent phase's;
+    // its far scene, the far phase's.
     this.phases.mirror = this.phases.near;
     this.phases.mirrorTransparent = this.phases.transparent;
+    this.phases.farMirror = this.phases.far;
+    this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass]) this.addPass(make(this));
     // The near phase's hook: first in three's opaque list of the near scene
     // (graphics.background, the far scene's image, is drawn last of it).
     this.nearAnchor = graphics.scene ? this.anchor(graphics.scene, { renderOrder: -1e9 }, (renderer, scene, camera) => this.pass(renderer, scene, camera)) : null;
@@ -403,7 +420,10 @@ export class RustRender {
   // scene's image read it too (farMap); it is taken first, so that its
   // texture is registered before anything a pass registers.
   writeFrame(scene, camera, view) {
-    if (view !== VIEW_FAR) {
+    // The far scene's views (the eye's, a water mirror's) read neither the far
+    // image nor shadows nor lamps.
+    const far = view === VIEW_FAR || view === VIEW_FAR_MIRROR;
+    if (!far) {
       // The far image the materials read (lighting.farMap: the far target,
       // or a mirror's own far image while it draws).
       const image = lighting.farMap.value ?? this.graphics.farTarget.texture;
@@ -413,8 +433,8 @@ export class RustRender {
     // The Enhanced inputs first: they may register the cascades' maps and send
     // the lamp table, which can grow the renderer's memory (every view is made
     // again then): the frame block's view is taken after them.
-    if (view !== VIEW_FAR && view !== VIEW_FIRST_PERSON) this.writeShadow();
-    if (view !== VIEW_FAR) this.writeLamps();
+    if (!far && view !== VIEW_FIRST_PERSON) this.writeShadow();
+    if (!far) this.writeLamps();
     this.views();
     const input = this.input;
     input.set(camera.projectionMatrix.elements, 0);

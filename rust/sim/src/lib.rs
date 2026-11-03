@@ -41,6 +41,7 @@ pub mod movement;
 pub mod ordnance;
 pub mod pose;
 pub mod rig;
+pub mod seats;
 pub mod store;
 pub mod units;
 pub mod vehicles;

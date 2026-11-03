@@ -10,8 +10,10 @@
 // its row's (writeExtras); a body in other materials of its own goes back
 // to three. A rig whose material blends (bes1's jedi fighter) is drawn by
 // the renderer as an item of the transparent list (instances.rs
-// KIND_BLENDED), at the place three's sort would draw it, and so is a
-// flying model's part that blends (a round's glow: KIND_BLENDED_RIGID).
+// KIND_BLENDED), at the place three's sort would draw it, and so are the arc
+// caster's shock glow over a struck body (a rig of his body's buffers and
+// skeleton, its values in its row) and a flying model's part that blends (a
+// round's glow: KIND_BLENDED_RIGID).
 //
 // Only what three's render lists by the camera's frustum is written, culled
 // here as three culls it (the renderer culls the records again by the same
@@ -40,12 +42,18 @@ const LOOK = new Set(["sunScale", "ambientPull", "brightness"]);
 // look, point lights), and lamp lighting's, read only while lamps are off
 // (each soldier's four nearest lamps would be per instance otherwise).
 // A material's own values an instance gives from its row (shader.rs
-// EXTRAS): a scrolling texture's speed, and a heated copy's (destruction-
-// debris.js heatMaterial).
-const EXTRAS = ["scroll", "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve"];
+// EXTRAS): a scrolling texture's speed, a heated copy's (destruction-
+// debris.js heatMaterial), and the arc caster's shock glow's (arc-
+// lightning.js shockMaterial: in the heated values' place, an overlay being
+// never heated).
+const SHOCK = ["shockTime", "intensity", "seed", "inflate", "color"];
+const EXTRAS = ["scroll", "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve", ...SHOCK];
 const INSTANCE = ["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "bindMatrix", ...LOOK, "zeroLights", "zeroLightCount", ...EXTRAS];
 const LAMPS = ["localLightPositions", "localLightColors", "localLightCount"];
-const policy = (samplers) => ({ uniforms: new Set([...samplers, ...INSTANCE, ...LAMPS]), material: LOOK });
+// shadows, lamps: this pass gives its draws their receiveShadow and lamps
+// from their rows (writeExtras), and reveals what it hides to three's
+// shadow pass (reveal), so programs reading them are its (core.program).
+const policy = (samplers) => ({ uniforms: new Set([...samplers, ...INSTANCE, ...LAMPS]), material: LOOK, shadows: true, lamps: true });
 const POLICIES = { [SKINNED]: policy(["map", "farMap", "boneTexture"]), [RIGID]: policy(["map", "farMap"]) };
 // A material's map as the renderer's texture: -1 for none (the renderer
 // binds what three's empty texture gives), undefined while it isn't
@@ -77,7 +85,7 @@ const NO_HEAT = { heat: 0, tear: new THREE.Vector4(0, 0, 0, 0.3), soot: 0, disso
 // A record's material values from its row's ROW_EXTRA (shader.rs EXTRAS):
 // its scroll, then a heated body's heat, base, scale and soot, its tear,
 // its dissolve (heatMaterial's onBeforeRender's values from the object).
-function writeExtras(input, o, uniforms, heated) {
+function writeExtras(input, o, uniforms, heated, object, lamps) {
   const e = o + R.EXTRA, scroll = uniforms?.scroll?.value;
   input[e] = scroll ? scroll.x : 0; input[e + 1] = scroll ? scroll.y : 0; input[e + 2] = 0; input[e + 3] = 0;
   if (heated) {
@@ -85,8 +93,19 @@ function writeExtras(input, o, uniforms, heated) {
     const t = heated.tear;
     input[e + 8] = t.x; input[e + 9] = t.y; input[e + 10] = t.z; input[e + 11] = t.w;
     input[e + 12] = heated.dissolve;
+  } else if (uniforms?.shockTime) {
+    // A shock glow's clock, intensity, seed and inflation, then its colour.
+    input[e + 4] = uniforms.shockTime.value; input[e + 5] = uniforms.intensity.value; input[e + 6] = uniforms.seed.value; input[e + 7] = uniforms.inflate.value;
+    const c = uniforms.color.value;
+    input[e + 8] = c.r; input[e + 9] = c.g; input[e + 10] = c.b; input[e + 11] = 0; input[e + 12] = 0;
   } else for (let k = 4; k < 13; k++) input[e + k] = 0;
-  for (let k = 13; k < 20; k++) input[e + k] = 0;
+  // Its lamps (their count, then four lamp table indices), when its program
+  // reads them, as three's onBeforeRender selects them; whether it receives
+  // shadows.
+  input[e + 13] = lamps ? lamps.count : 0;
+  input[e + 14] = object?.receiveShadow ? 1 : 0;
+  input[e + 15] = 0;
+  for (let k = 0; k < 4; k++) input[e + 16 + k] = lamps ? lamps.indices[k] : -1;
 }
 
 // three works out a skeleton's bones as its render lists a skinned mesh of
@@ -218,7 +237,7 @@ class InstancePass {
         const groups = merged.length ? merged : [{ materialIndex: 0 }];
         const textures = groups.map((g) => mapOf(core, all[g.materialIndex]));
         if (textures.some((t) => t === undefined)) return undefined; // its textures first
-        record = { body, materials: body.material, used, program: program.id, geometry, textures, whole: !merged.length, look: used[0].uniforms, heated };
+        record = { body, materials: body.material, used, program: program.id, geometry, textures, whole: !merged.length, look: used[0].uniforms, heated, lamps: Boolean(program.lamps) };
         for (const m of used) m.visible = false;
         this.bodyRecords.push(record);
       }
@@ -233,7 +252,9 @@ class InstancePass {
   // found through their roots.
   findRigs() {
     const found = [];
-    this.core.graphics.scene.traverse((o) => { if (o.isSkinnedMesh && !o.userData.poseSphere && o.name !== "body-shadow" && !Array.isArray(o.material)) found.push(o); });
+    // (Not the arc caster's warm-up stand-in, which three draws for its
+    // first frames to build its program and which then takes itself away.)
+    this.core.graphics.scene.traverse((o) => { if (o.isSkinnedMesh && !o.userData.poseSphere && o.name !== "body-shadow" && o.name !== "arc-shock-warm" && !Array.isArray(o.material)) found.push(o); });
     this.rigList = found;
   }
 
@@ -267,7 +288,7 @@ class InstancePass {
       const texture = mapOf(core, material);
       if (texture === undefined) return undefined; // its texture first
       if (geometry !== null && geometry !== undefined) {
-        record = { body: mesh, materials: material, used: [material], program: program.id, geometry, textures: [texture], whole: true, look: material.uniforms };
+        record = { body: mesh, materials: material, used: [material], program: program.id, geometry, textures: [texture], whole: true, look: material.uniforms, lamps: Boolean(program.lamps) };
         material.visible = false;
         this.bodyRecords.push(record);
       }
@@ -292,7 +313,8 @@ class InstancePass {
     const geometry = core.geometry(mesh.geometry, programs[0]);
     if (geometry === null || geometry === undefined) return null;
     const blendId = core.rust.inst_add_blend(new Uint32Array(blend), state.flags & 3, state.func, new Uint32Array(programs.flatMap((p, i) => [p.id, sides[i]])));
-    const record = { body: mesh, materials: material, used: [material], program: programs[programs.length - 1].id, geometry, textures: [texture], whole: true, look: material.uniforms, blend: blendId };
+    const record = { body: mesh, materials: material, used: [material], program: programs[programs.length - 1].id, geometry, textures: [texture], whole: true, look: material.uniforms, blend: blendId,
+      lamps: programs.some((p) => p.lamps) };
     material.visible = false;
     this.bodyRecords.push(record);
     return record;
@@ -310,7 +332,7 @@ class InstancePass {
       if (geometry !== null && geometry !== undefined) {
         if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-        record = { mesh, material, program: program.id, geometry, texture };
+        record = { mesh, material, program: program.id, geometry, texture, lamps: Boolean(program.lamps) };
         material.visible = false;
         this.meshRecords.push(record);
       }
@@ -350,8 +372,11 @@ class InstancePass {
     // from the object), as are its heat and dissolve.
     const heated = record.heated ? body.userData.heated : null;
     if (heated) { input[o + R.LOOK] = heated.sun; input[o + R.LOOK + 1] = heated.darken; input[o + R.LOOK + 2] = heated.lighten; input[o + R.LOOK + 3] = heated.brightness; }
-    else { const look = record.look; input[o + R.LOOK] = look.sunScale.value; input[o + R.LOOK + 1] = look.ambientPull.value.x; input[o + R.LOOK + 2] = look.ambientPull.value.y; input[o + R.LOOK + 3] = look.brightness.value; }
-    writeExtras(input, o, record.used[0].uniforms, heated);
+    else if (record.look.sunScale) { const look = record.look; input[o + R.LOOK] = look.sunScale.value; input[o + R.LOOK + 1] = look.ambientPull.value.x; input[o + R.LOOK + 2] = look.ambientPull.value.y; input[o + R.LOOK + 3] = look.brightness.value; }
+    // A material with no look of its own (a shock glow's): what three's
+    // defaults would be, unread by its program.
+    else { input[o + R.LOOK] = 1; input[o + R.LOOK + 1] = 0; input[o + R.LOOK + 2] = 0; input[o + R.LOOK + 3] = 1; }
+    writeExtras(input, o, record.used[0].uniforms, heated, body, record.lamps ? core.lamps(body, false) : null);
     input[o + R.FLAGS] = flagsOf(record.used[0]);
     at.records++;
     return at;
@@ -375,7 +400,7 @@ class InstancePass {
     const u = material.uniforms, heated = record.heated ? mesh.userData.heated || NO_HEAT : null;
     if (heated) { input[o + R.LOOK] = heated.sun; input[o + R.LOOK + 1] = heated.darken; input[o + R.LOOK + 2] = heated.lighten; input[o + R.LOOK + 3] = heated.brightness; }
     else { input[o + R.LOOK] = u.sunScale.value; input[o + R.LOOK + 1] = u.ambientPull.value.x; input[o + R.LOOK + 2] = u.ambientPull.value.y; input[o + R.LOOK + 3] = u.brightness.value; }
-    writeExtras(input, o, u, heated);
+    writeExtras(input, o, u, heated, mesh, record.lamps ? core.lamps(mesh, false) : null);
     input[o + R.FLAGS] = flagsOf(material);
     at.records++;
     return at;
@@ -506,7 +531,7 @@ class InstancePass {
     // A heated copy of a part's material (destruction-debris.js
     // heatMaterial: the destruction's burning pieces) takes its heat and
     // look from the object, as its onBeforeRender sets them.
-    const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask, blend, heated: "HEATED" in defines };
+    const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask, blend, heated: "HEATED" in defines, lamps: programs.some((p) => p?.lamps) };
     if (this.core.active) mesh.layers.set(FLYING_LAYER);
     this.flyingRecords.push(record);
     return record;

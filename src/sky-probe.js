@@ -44,11 +44,36 @@ export class SkyProbe {
     try {
       renderer.autoClear = true;
       renderer.shadowMap.autoUpdate = false;
-      this.camera.update(renderer, this.graphics.farScene);
+      this.capture(renderer, this.graphics.farScene);
     } finally {
       renderer.autoClear = autoClear;
       renderer.shadowMap.autoUpdate = shadows;
     }
+  }
+
+  // The six faces, as CubeCamera.update draws them, each drawn by the Rust
+  // renderer's far pass where it draws all of it (src/rust-render: the probe
+  // phase), else by three. The mipmaps come after the last face.
+  capture(renderer, scene) {
+    const camera = this.camera, target = this.target, rust = this.graphics.rust;
+    if (camera.parent === null) camera.updateMatrixWorld();
+    if (camera.coordinateSystem !== renderer.coordinateSystem) {
+      camera.coordinateSystem = renderer.coordinateSystem;
+      camera.updateCoordinateSystem();
+    }
+    const current = renderer.getRenderTarget(), currentFace = renderer.getActiveCubeFace(), currentLevel = renderer.getActiveMipmapLevel();
+    const xr = renderer.xr.enabled;
+    renderer.xr.enabled = false;
+    const mipmaps = target.texture.generateMipmaps;
+    target.texture.generateMipmaps = false;
+    camera.children.forEach((face, i) => {
+      if (i === 5) target.texture.generateMipmaps = mipmaps;
+      renderer.setRenderTarget(target, i, camera.activeMipmapLevel);
+      if (!rust?.cover("probe", renderer, scene, face)) renderer.render(scene, face);
+    });
+    renderer.setRenderTarget(current, currentFace, currentLevel);
+    renderer.xr.enabled = xr;
+    target.texture.needsPMREMUpdate = true;
   }
 
   dispose() {
