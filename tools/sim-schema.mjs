@@ -95,7 +95,7 @@ export function parseType(text, where) {
     if (optional(type.value) || type.value.base === 'map') fail(where, 'a map\'s values are a type that is never null or undefined, and no map');
   } else if (SCALARS.has(base)) type.base = base;
   else if ((m = /^f64x([2-9]|1[0-6])$/.exec(base))) { type.base = 'f64xN'; type.n = Number(m[1]); }
-  else if ((m = /^(enum|ref|union|def|rec|set):([A-Za-z_][\w]*)$/.exec(base))) { type.base = m[1]; type.of = m[2]; }
+  else if ((m = /^(enum|ref|union|def|rec|set|index):([A-Za-z_][\w]*)$/.exec(base))) { type.base = m[1]; type.of = m[2]; }
   else fail(where, `unknown type "${base}"`);
   if ((type.base === 'list' || type.base === 'set') && (type.nullable.null && type.nullable.undefined)) fail(where, 'a list or set can be null or undefined, not both');
   return type;
@@ -161,7 +161,10 @@ export function buildModel(files) {
         let m;
         if ((m = /^lit:(.+)$/.exec(v))) return { tag: 'lit', value: m[1], rust: pascal(m[1]) };
         if ((m = /^ref:([A-Za-z_]\w*)$/.exec(v))) return { tag: 'ref', kind: m[1], rust: pascal(m[1]) };
-        return fail(where, `"${v}" is not null, undefined, lit:<text> or ref:<kind>`);
+        // A value of a type: a number, a vector, a string, an enum, a record.
+        const type = parseType(v, where);
+        if (optional(type) || ['list', 'set', 'map', 'union', 'ref', 'index', 'def'].includes(type.base)) fail(where, `"${v}" cannot be a union's variant`);
+        return { tag: 'value', type, rust: pascal(['rec', 'enum'].includes(type.base) ? type.of : type.base === 'f64xN' ? `f64x${type.n}` : type.base) };
       });
       if (new Set(variants.map((v) => v.rust)).size !== variants.length) fail(where, 'two variants of one name');
       model.unions.set(name, { name, variants, file });
@@ -170,7 +173,10 @@ export function buildModel(files) {
       const where = `${file} record ${name}`;
       if (model.records.has(name)) fail(where, 'declared twice');
       claim(name, where);
-      model.records.set(name, { name, file, fields: Object.entries(fields).map(([f, spec]) => parseField(f, spec, `${where}.${f}`)) });
+      // `$class`: the JavaScript class its objects are (a union of records
+      // tells them apart by it); every other key is a field.
+      const { $class = null, ...plain } = fields;
+      model.records.set(name, { name, file, classes: [$class ?? []].flat(), fields: Object.entries(plain).map(([f, spec]) => parseField(f, spec, `${where}.${f}`)) });
     }
     for (const [name, spec] of Object.entries(schema.kinds || {})) {
       const where = `${file} kind ${name}`;
@@ -240,6 +246,24 @@ export function buildModel(files) {
   for (const k of kinds) k.fields.forEach(check);
   for (const u of model.unions.values()) for (const v of u.variants) if (v.tag === 'ref' && !model.kinds.has(v.kind)) fail(`union ${u.name}`, `no kind ${v.kind}`);
   for (const u of model.unions.values()) if (u.variants.filter((v) => v.tag === 'ref' && model.kinds.get(v.kind).fields.length).length > 1) fail(`union ${u.name}`, 'at most one of its kinds can be one the store holds fields of');
+  for (const u of model.unions.values()) {
+    for (const v of u.variants) if (v.tag === 'value' && v.type.base === 'rec' && !model.records.has(v.type.of)) fail(`union ${u.name}`, `no record ${v.type.of}`);
+    for (const v of u.variants) if (v.tag === 'value' && v.type.base === 'enum' && !model.enums.has(v.type.of)) fail(`union ${u.name}`, `no enum ${v.type.of}`);
+    const recs = u.variants.filter((v) => v.tag === 'value' && v.type.base === 'rec');
+    if (recs.length > 1 && recs.some((v) => !model.records.get(v.type.of).classes.length)) fail(`union ${u.name}`, 'with more than one record, each record names its $class');
+    // Its row: the variant, then the largest variant's words.
+    u.words = unionWords(model, u);
+  }
+  // An index names an earlier field of the same struct, a list of records:
+  // the item it is (by identity).
+  const indexes = (fields, where) => fields.forEach((f, i) => {
+    if (f.type.base !== 'index') return;
+    if (f.js.length > 1) fail(`${where}.${f.name}`, 'an index is a field of its own object (no path)');
+    const list = fields.slice(0, i).find((g) => g.name === f.type.of);
+    if (!list || list.type.base !== 'list' || list.type.value.base !== 'rec') fail(`${where}.${f.name}`, `index:${f.type.of} names no earlier list of records`);
+  });
+  for (const r of model.records.values()) indexes(r.fields, `record ${r.name}`);
+  for (const k of kinds) indexes(k.fields, `kind ${k.name}`);
   // Calls' records exist; each section's codes are its names in order, from 1.
   for (const [section, list] of [['commands', model.commands], ['events', model.events], ['imports', model.imports]]) {
     const sorted = [...list.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -276,11 +300,16 @@ function words(model, type) {
     case 'mat4': return tag + 16;
     case 'f64xN': return tag + type.n;
     case 'ref': return tag + 2;
-    case 'union': return tag + 3;
+    case 'union': return tag + unionWords(model, model.unions.get(type.of));
     case 'list': case 'set': case 'map': return tag + 2;
     case 'rec': return tag + model.records.get(type.of).fields.reduce((n, f) => n + words(model, f.type), 0);
     default: return tag + 1;
   }
+}
+
+// A union's words: its variant, then the largest variant's words.
+function unionWords(model, u) {
+  return (u.words ??= 1 + Math.max(0, ...u.variants.map((v) => (v.tag === 'ref' ? 2 : v.tag === 'value' ? words(model, v.type) : 0))));
 }
 
 // Words a map's entry takes in the heap: its key's string and its value.
@@ -306,6 +335,7 @@ function rustType(model, t, inner = false) {
   let base;
   switch (t.base) {
     case 'f64': case 'f32': case 'i32': case 'u32': case 'u8': case 'bool': base = t.base; break;
+    case 'index': base = 'u32'; break;
     case 'vec3': base = 'Vec3'; break;
     case 'quat': base = 'Quat'; break;
     case 'mat4': base = 'Mat4'; break;
@@ -330,13 +360,13 @@ const deref = (t) => (['rec', 'list', 'set', 'map'].includes(t.base) ? 'v' : '(*
 function rustPut(model, t, x, k) {
   switch (t.base) {
     case 'f64': return `row[${k}] = ${x};`;
-    case 'f32': case 'i32': case 'u32': case 'u8': return `row[${k}] = ${x} as f64;`;
+    case 'f32': case 'i32': case 'u32': case 'u8': case 'index': return `row[${k}] = ${x} as f64;`;
     case 'bool': return `row[${k}] = if ${x} { 1.0 } else { 0.0 };`;
     case 'vec3': case 'quat': case 'mat4': case 'f64xN': { const n = t.base === 'vec3' ? 3 : t.base === 'quat' ? 4 : t.base === 'mat4' ? 16 : t.n; return `row[${k}..${k} + ${n}].copy_from_slice(&${x});`; }
     case 'str': case 'def': return `row[${k}] = ${x}.0 as f64;`;
     case 'enum': return `row[${k}] = ${x} as u8 as f64;`;
     case 'ref': return `row[${k}] = ${x}.slot as f64; row[${k} + 1] = ${x}.gen as f64;`;
-    case 'union': return `${x}.put(&mut row[${k}..${k} + 3]);`;
+    case 'union': return `${x}.put(&mut row[${k}..${k} + ${unionWords(model, model.unions.get(t.of))}], heap);`;
     case 'rec': return `${x}.put(&mut row[${k}..], heap);`;
     case 'list': {
       // The items' words in the heap, each `w` long, the lists their records hold after them.
@@ -368,7 +398,7 @@ function rustTake(model, t, k) {
     case 'f64': return `row[${k}]`;
     case 'f32': return `row[${k}] as f32`;
     case 'i32': return `word_i32(row[${k}])`;
-    case 'u32': return `word_u32(row[${k}])`;
+    case 'u32': case 'index': return `word_u32(row[${k}])`;
     case 'u8': return `word_u32(row[${k}]) as u8`;
     case 'bool': return `row[${k}] != 0.0`;
     case 'vec3': return `[row[${k}], row[${k} + 1], row[${k} + 2]]`;
@@ -379,7 +409,7 @@ function rustTake(model, t, k) {
     case 'def': return `DefId(word_u32(row[${k}]))`;
     case 'enum': return `${t.of}::from_u8(word_u32(row[${k}]) as u8).unwrap_or_default()`;
     case 'ref': return `Ref::new(word_u32(row[${k}]), word_u32(row[${k} + 1]))`;
-    case 'union': return `${t.of}::take(&row[${k}..${k} + 3])`;
+    case 'union': return `${t.of}::take(&row[${k}..${k} + ${unionWords(model, model.unions.get(t.of))}], heap)`;
     case 'rec': return `${t.of}::take(&row[${k}..], heap)`;
     case 'list': {
       const w = words(model, t.value);
@@ -453,14 +483,25 @@ function rustEnum(e) {
 }
 
 function rustUnion(model, u) {
-  const lines = ['#[derive(Clone, Copy, Debug, PartialEq)]', `pub enum ${u.name} {`];
-  u.variants.forEach((v) => lines.push(`    ${v.tag === 'ref' ? `${v.rust}(Ref<${model.kinds.get(v.kind).rust}>)` : v.rust},`));
+  const copy = u.variants.every((v) => v.tag !== 'value' || !['rec', 'str'].includes(v.type.base) || v.type.base === 'str');
+  const payload = (v) => (v.tag === 'ref' ? `Ref<${model.kinds.get(v.kind).rust}>` : rustType(model, v.type));
+  const lines = [`#[derive(Clone, ${copy ? 'Copy, ' : ''}Debug, PartialEq)]`, `pub enum ${u.name} {`];
+  u.variants.forEach((v) => lines.push(`    ${['ref', 'value'].includes(v.tag) ? `${v.rust}(${payload(v)})` : v.rust},`));
   const first = u.variants[0];
-  lines.push('}', '', `impl Default for ${u.name} {`, `    fn default() -> Self { ${u.name}::${first.rust}${first.tag === 'ref' ? '(Ref::new(0, 0))' : ''} }`, '}', '', `impl ${u.name} {`);
-  lines.push('    /// Its row words: the variant, then a reference\'s slot and generation.', '    pub fn put(&self, row: &mut [f64]) {', '        match self {');
-  u.variants.forEach((v, i) => lines.push(v.tag === 'ref' ? `            ${u.name}::${v.rust}(r) => { row[0] = ${i}.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }` : `            ${u.name}::${v.rust} => { row[0] = ${i}.0; row[1] = 0.0; row[2] = 0.0; }`));
-  lines.push('        }', '    }', '', '    pub fn take(row: &[f64]) -> Self {', '        match word_u32(row[0]) {');
-  u.variants.forEach((v, i) => lines.push(v.tag === 'ref' ? `            ${i} => ${u.name}::${v.rust}(Ref::new(word_u32(row[1]), word_u32(row[2]))),` : `            ${i} => ${u.name}::${v.rust},`));
+  lines.push('}', '', `impl Default for ${u.name} {`, `    fn default() -> Self { ${u.name}::${first.rust}${first.tag === 'ref' ? '(Ref::new(0, 0))' : first.tag === 'value' ? '(Default::default())' : ''} }`, '}', '', `impl ${u.name} {`);
+  lines.push(`    pub const WORDS: usize = ${unionWords(model, u)};`, '');
+  lines.push('    /// Its row words: the variant, then its value (a reference\'s slot and generation).', '    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {', `        row[1..${unionWords(model, u)}].fill(0.0);`, '        match self {');
+  u.variants.forEach((v, i) => {
+    if (v.tag === 'ref') lines.push(`            ${u.name}::${v.rust}(r) => { row[0] = ${i}.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }`);
+    else if (v.tag === 'value') lines.push(`            ${u.name}::${v.rust}(v) => { row[0] = ${i}.0; ${rustPut(model, v.type, deref(v.type), 1)} }`);
+    else lines.push(`            ${u.name}::${v.rust} => row[0] = ${i}.0,`);
+  });
+  lines.push('        }', '    }', '', '    pub fn take(row: &[f64], heap: &[f64]) -> Self {', '        match word_u32(row[0]) {');
+  u.variants.forEach((v, i) => {
+    if (v.tag === 'ref') lines.push(`            ${i} => ${u.name}::${v.rust}(Ref::new(word_u32(row[1]), word_u32(row[2]))),`);
+    else if (v.tag === 'value') lines.push(`            ${i} => ${u.name}::${v.rust}(${rustTake(model, v.type, 1)}),`);
+    else lines.push(`            ${i} => ${u.name}::${v.rust},`);
+  });
   lines.push(`            _ => ${u.name}::default(),`, '        }', '    }', '}', '');
   return lines;
 }
@@ -617,6 +658,7 @@ function replayIn(model, t, x, p) {
   const k = ['ref', 'set'].includes(t.base) ? model.kinds.get(t.of) : null;
   const one = (e, path) => (k.stored ? `${k.rust}::ref_in(${e}, cx, ${path})?` : `cx.ref_in(${kindConst(k.name)}, ${e}, ${path})?`);
   switch (t.base) {
+    case 'index': return `{ let id = ${x}.node_id(); list(v.get(${JSON.stringify(t.of)}), ${p})?.iter().position(|item| item.node_id().is_some() && item.node_id() == id).ok_or_else(|| format!("{}: not one of ${t.of}", ${p}))? as u32 }`;
     case 'f64': return `num(${x}, ${p})?`;
     case 'f32': return `num_f32(${x}, ${p})?`;
     case 'i32': return `(int(${x}, ${p}, i32::MIN as f64, i32::MAX as f64)? as i32)`;
@@ -653,6 +695,7 @@ function replayOut(model, t, s) {
   const k = ['ref', 'set'].includes(t.base) ? model.kinds.get(t.of) : null;
   const one = (r) => (k.stored ? `${k.rust}::ref_out(${r}, cx, a)` : `cx.ref_out(${kindConst(k.name)}, ${r})`);
   switch (t.base) {
+    case 'index': return `item_of(a, &fields, ${JSON.stringify(t.of)}, ${s} as usize)`;
     case 'f64': return `Value::Num(${s})`;
     case 'f32': case 'i32': case 'u32': case 'u8': return `Value::Num(${s} as f64)`;
     case 'bool': return `Value::Bool(${s})`;
@@ -690,9 +733,9 @@ function replayStruct(model, name, fields, what) {
   lines.push('    /// Its fields from a value (the export of the JavaScript object).', `    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {`, '        object(v, path)?;', `        Ok(${name} {`);
   for (const f of fields) lines.push(`            ${snake(f.name)}: { let p = format!("{path}.${f.name}"); ${replayInField(model, f.type, `v.get(${JSON.stringify(f.name)})`, '&p', model.isHome(f))} },`);
   lines.push('        })', '    }', '');
-  lines.push('    /// Its value, as the export of the JavaScript object it stands for.', `    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {`, '        let fields = vec![');
-  for (const f of fields) lines.push(`            (${JSON.stringify(f.name)}, ${replayOutField(model, f.type, `self.${snake(f.name)}`, model.isHome(f))}),`);
-  lines.push('        ];', `        a.object("", fields)`, '    }');
+  lines.push('    /// Its value, as the export of the JavaScript object it stands for.', `    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {`, `        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(${fields.length});`);
+  for (const f of fields) lines.push(`        { let x = ${replayOutField(model, f.type, `self.${snake(f.name)}`, model.isHome(f))}; fields.push((${JSON.stringify(f.name)}, x)); }`);
+  lines.push(`        a.object("", fields)`, '    }');
   if (what) {
     const k = what;
     const slab = `cx.store.${snake(k.name)}`;
@@ -710,32 +753,58 @@ function replayStruct(model, name, fields, what) {
 }
 
 function replayUnion(model, u) {
+  const values = u.variants.filter((x) => x.tag === 'value');
+  const recs = values.filter((x) => x.type.base === 'rec');
+  const tagged = recs.length > 1; // a record's value then names its record ($record)
   const lines = [`impl ${u.name} {`, `    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {`, '        match v.value {'];
   const nul = u.variants.find((x) => x.tag === 'null'), und = u.variants.find((x) => x.tag === 'undefined');
   if (nul) lines.push(`            Value::Null => return Ok(${u.name}::${nul.rust}),`);
   if (und) lines.push(`            Value::Undefined => return Ok(${u.name}::${und.rust}),`);
   const lits = u.variants.filter((x) => x.tag === 'lit');
-  if (lits.length) lines.push(`            Value::Str(s) => match s.as_str() { ${lits.map((x) => `${JSON.stringify(x.value)} => return Ok(${u.name}::${x.rust}),`).join(' ')} _ => {} },`);
+  const strs = values.filter((x) => x.type.base === 'str' || x.type.base === 'enum');
+  if (lits.length || strs.length) {
+    const arms = lits.map((x) => `${JSON.stringify(x.value)} => return Ok(${u.name}::${x.rust}),`);
+    const rest = strs.map((x) => (x.type.base === 'str' ? `return Ok(${u.name}::${x.rust}(cx.str_in(v, path)?));` : `if let Ok(i) = name_of(v, &${x.type.of}::NAMES, path) { return Ok(${u.name}::${x.rust}(${x.type.of}::from_u8(i).unwrap())); }`)).join(' ');
+    lines.push(`            Value::Str(s) => { match s.as_str() { ${arms.join(' ')} _ => {} } ${rest} }`);
+  }
+  const num = values.find((x) => ['f64', 'f32', 'i32', 'u32', 'u8'].includes(x.type.base));
+  if (num) lines.push(`            Value::Num(_) => return Ok(${u.name}::${num.rust}(${replayIn(model, num.type, 'v', 'path')})),`);
+  const bool = values.find((x) => x.type.base === 'bool');
+  if (bool) lines.push(`            Value::Bool(b) => return Ok(${u.name}::${bool.rust}(*b)),`);
   const handles = u.variants.filter((x) => x.tag === 'ref');
   const refIn = (x) => (model.kinds.get(x.kind).stored ? `${model.kinds.get(x.kind).rust}::ref_in(v, cx, path)?` : `cx.ref_in(${kindConst(x.kind)}, v, path)?`);
   if (handles.length) lines.push(`            Value::Handle(kind, _) => match kind.as_str() { ${handles.map((x) => `${JSON.stringify(x.kind)} => return Ok(${u.name}::${x.rust}(${refIn(x)})),`).join(' ')} _ => {} },`);
+  const shapes = values.filter((x) => ['vec3', 'quat', 'mat4', 'f64xN'].includes(x.type.base) || x.type.base === 'rec');
+  if (shapes.length) {
+    const arms = [];
+    for (const x of values) {
+      if (x.type.base === 'vec3') arms.push(`Some(Node::Vec3(_)) => return Ok(${u.name}::${x.rust}(vec3(v, path)?)),`);
+      if (x.type.base === 'quat') arms.push(`Some(Node::Quat(_)) => return Ok(${u.name}::${x.rust}(quat(v, path)?)),`);
+      if (x.type.base === 'mat4') arms.push(`Some(Node::Mat4(_)) => return Ok(${u.name}::${x.rust}(mat4(v, path)?)),`);
+      if (x.type.base === 'f64xN') arms.push(`Some(Node::Array(_)) => return Ok(${u.name}::${x.rust}(numbers::<${x.type.n}>(v, path)?)),`);
+    }
+    if (recs.length) arms.push(`Some(Node::Object { .. }) => { ${tagged ? `match v.get("$record").str() { ${recs.map((x) => `Some(${JSON.stringify(x.type.of)}) => return Ok(${u.name}::${x.rust}(${x.type.of}::from_value(v, cx, path)?)),`).join(' ')} _ => {} }` : `return Ok(${u.name}::${recs[0].rust}(${recs[0].type.of}::from_value(v, cx, path)?));`} }`);
+    lines.push(`            Value::Node(_) => match v.node() { ${arms.join(' ')} _ => {} },`);
+  }
   lines.push('            _ => {}', '        }', `        Err(format!("{path}: none of ${u.name}'s variants ({})", v.show()))`, '    }', '');
   lines.push(`    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {`, '        match self {');
   for (const x of u.variants) {
     if (x.tag === 'null') lines.push(`            ${u.name}::${x.rust} => Value::Null,`);
     else if (x.tag === 'undefined') lines.push(`            ${u.name}::${x.rust} => Value::Undefined,`);
     else if (x.tag === 'lit') lines.push(`            ${u.name}::${x.rust} => Value::Str(${JSON.stringify(x.value)}.to_string()),`);
-    else {
+    else if (x.tag === 'ref') {
       const k = model.kinds.get(x.kind);
       lines.push(`            ${u.name}::${x.rust}(r) => ${k.stored ? `${k.rust}::ref_out(*r, cx, a)` : `cx.ref_out(${kindConst(k.name)}, *r)`},`);
-    }
+    } else if (x.type.base === 'rec' && tagged) {
+      lines.push(`            ${u.name}::${x.rust}(v) => { let out = v.to_value(cx, a); if let Value::Node(n) = out { if let Node::Object { fields, .. } = &mut a.nodes[n as usize] { fields.insert(0, ("$record".to_string(), Value::Str(${JSON.stringify(x.type.of)}.to_string()))); } } out }`);
+    } else lines.push(`            ${u.name}::${x.rust}(v) => ${replayOut(model, x.type, deref(x.type).replace('(*v)', '(*v)'))},`);
   }
   lines.push('        }', '    }', '}', '');
   return lines;
 }
 
 function rustReplay(model) {
-  const lines = [`// Generated by tools/sim-schema.mjs from ${model.target.schema}/; do not edit.`, '//! Every kind, record and union read from and written as the replay harness\'s', '//! values (the `replay` feature; rust/sim/src/store/replay.rs).', '#![allow(clippy::all, unused_braces, unused_parens, unused_variables, unused_mut, unused_imports)]', '', 'use super::*;', 'use crate::store::replay::{boolean, int, list, map, mat4, mat4_value, name_of, num, num_f32, numbers, object, quat, set, vec3, Arena, Node, ReplayOf, Result, StoreKinds, Value, V};', '',
+  const lines = [`// Generated by tools/sim-schema.mjs from ${model.target.schema}/; do not edit.`, '//! Every kind, record and union read from and written as the replay harness\'s', '//! values (the `replay` feature; rust/sim/src/store/replay.rs).', '#![allow(clippy::all, unused_braces, unused_parens, unused_variables, unused_mut, unused_imports)]', '', 'use super::*;', 'use crate::store::replay::{boolean, int, item_of, list, map, mat4, mat4_value, name_of, num, num_f32, numbers, object, quat, set, vec3, Arena, Node, ReplayOf, Result, StoreKinds, Value, V};', '',
      '/// The replay context of this store.', 'pub type Replay = ReplayOf<Store>;', '', 'impl StoreKinds for Store {', '    const NAMES: &\'static [&\'static str] = &KIND_NAMES;', '    const KEYED: &\'static [bool] = &KIND_KEYED;', '}', ''];
   for (const u of model.unions.values()) lines.push(...replayUnion(model, u));
   for (const r of model.records.values()) lines.push(...replayStruct(model, r.name, r.fields, null));
@@ -772,6 +841,7 @@ const jsSet = (f, o = 'm') => {
 function jsSync(model, t, target, k) {
   switch (t.base) {
     case 'f64': case 'f32': case 'i32': case 'u32': case 'u8': return `${target} = f[at + ${k}];`;
+    case 'index': return `${target} = ${target.replace(/\.[A-Za-z_$][\w$]*$/, '')}.${t.of}[f[at + ${k}]];`;
     case 'bool': return `${target} = f[at + ${k}] !== 0;`;
     case 'vec3': return `(${target} ??= new THREE.Vector3()).set(f[at + ${k}], f[at + ${k + 1}], f[at + ${k + 2}]);`;
     case 'quat': return `(${target} ??= new THREE.Quaternion()).set(f[at + ${k}], f[at + ${k + 1}], f[at + ${k + 2}], f[at + ${k + 3}]);`;
@@ -781,7 +851,7 @@ function jsSync(model, t, target, k) {
     case 'enum': return `${target} = ${jsEnum(model.enums.get(t.of))}[f[at + ${k}]];`;
     case 'def': return `${target} = b.defs.${t.of}.at(f[at + ${k}]);`;
     case 'ref': return `${target} = b.refs[${kindConst(t.of)}].at(f[at + ${k}], f[at + ${k + 1}]);`;
-    case 'union': return `${target} = sync${t.of}(b, f, at + ${k});`;
+    case 'union': return `${target} = sync${t.of}(b, f, at + ${k}, h, ${target});`;
     case 'rec': return `${target} = sync${t.of}(b, f, at + ${k}, h, ${target} ?? new ${t.of}Mirror());`;
     case 'list': {
       // Each item read into the one the array holds there (Vector3s and records kept), or a new one.
@@ -807,6 +877,7 @@ function jsSyncField(model, t, target, k) {
 function jsPut(model, t, v, k) {
   switch (t.base) {
     case 'f64': case 'f32': case 'i32': case 'u32': case 'u8': return `f[at + ${k}] = ${v};`;
+    case 'index': return `{ const $i = (o.${t.of} ?? []).indexOf(${v}); if ($i < 0) throw Error("${t.of}: the item is none of them"); f[at + ${k}] = $i; }`;
     case 'bool': return `f[at + ${k}] = ${v} ? 1 : 0;`;
     case 'vec3': return `{ const $v = ${v}; f[at + ${k}] = $v.x; f[at + ${k + 1}] = $v.y; f[at + ${k + 2}] = $v.z; }`;
     case 'quat': return `{ const $v = ${v}; f[at + ${k}] = $v.x; f[at + ${k + 1}] = $v.y; f[at + ${k + 2}] = $v.z; f[at + ${k + 3}] = $v.w; }`;
@@ -816,7 +887,7 @@ function jsPut(model, t, v, k) {
     case 'enum': return `f[at + ${k}] = ${jsEnumIndex(model.enums.get(t.of))}.get(${v});`;
     case 'def': return `f[at + ${k}] = b.defs.${t.of}.id(${v});`;
     case 'ref': return `b.refs[${kindConst(t.of)}].put(${v}, f, at + ${k});`;
-    case 'union': return `put${t.of}(b, ${v}, f, at + ${k});`;
+    case 'union': return `put${t.of}(b, ${v}, f, at + ${k}, heap);`;
     case 'rec': return `put${t.of}(b, ${v}, f, at + ${k}, heap);`;
     case 'set': return `heap.list(b.refs[${kindConst(t.of)}], ${v}, f, at + ${k});`;
     case 'list': return `heap.items(${v}, f, at + ${k}, ${words(model, t.value)}, (f, at, v) => { ${jsPut(model, t.value, 'v', 0)} });`;
@@ -840,6 +911,7 @@ function jsSame(model, t, a, b, path) {
     case 'mat4': return `if (!sameArray(${a}?.elements, ${b}?.elements, 16)) return ${p};`;
     case 'f64xN': return `if (!sameArray(${a}, ${b}, ${t.n})) return ${p};`;
     case 'rec': return `{ const d = same${t.of}(${a}, ${b}); if (d) return ${p} + d; }`;
+    case 'union': return `if (!same${t.of}(${a}, ${b})) return ${p};`;
     case 'list': return `if (!sameItems(${a}, ${b}, (x, y) => ${jsSameValue(model, t.value, 'x', 'y')})) return ${p};`;
     case 'set': return `if (!sameList(${a} && [...${a}], ${b} && [...${b}])) return ${p};`;
     case 'map': return `if (!sameMap(${a}, ${b}, (x, y) => ${jsSameValue(model, t.value, 'x', 'y')})) return ${p};`;
@@ -855,6 +927,7 @@ function jsSameValue(model, t, a, b) {
     case 'mat4': return `sameArray(${a}?.elements, ${b}?.elements, 16)`;
     case 'f64xN': return `sameArray(${a}, ${b}, ${t.n})`;
     case 'rec': return `same${t.of}(${a}, ${b}) === null`;
+    case 'union': return `same${t.of}(${a}, ${b})`;
     case 'list': return `sameItems(${a}, ${b}, (x, y) => ${jsSameValue(model, t.value, 'x', 'y')})`;
     case 'set': return `sameList(${a} && [...${a}], ${b} && [...${b}])`;
     default: return `Object.is(${a}, ${b})`;
@@ -929,7 +1002,15 @@ function jsMirror(model, name, fields, slots) {
 
 function jsSameFn(model, name, fields) {
   const lines = [`export function same${name}(a, b) {`];
-  for (const f of fields) lines.push(`  ${jsSameField(model, f.type, jsGet(f, 'a'), jsGet(f, 'b'), `.${f.name}`)}`);
+  for (const f of fields) {
+    if (f.type.base === 'index') {
+      // The same item of the list (by its place), or both null or undefined alike.
+      const [x, y, list] = [jsGet(f, 'a'), jsGet(f, 'b'), f.type.of];
+      lines.push(`  { const x = ${x}, y = ${y}; if (x === null || x === undefined || y === null || y === undefined ? x !== y : (a.${list} ?? []).indexOf(x) !== (b.${list} ?? []).indexOf(y)) return ${JSON.stringify(`.${f.name}`)}; }`);
+      continue;
+    }
+    lines.push(`  ${jsSameField(model, f.type, jsGet(f, 'a'), jsGet(f, 'b'), `.${f.name}`)}`);
+  }
   lines.push('  return null;', '}', '');
   return lines;
 }
@@ -941,6 +1022,13 @@ function jsExportFn(model, name, fields, kind = null) {
   if (kind && !kind.singleton) lines.push(`  v.$id = cx.ref(${JSON.stringify(kind.name)}, o);`);
   for (const f of fields) {
     const home = model.isHome(f);
+    if (f.type.base === 'index') {
+      // The very value the list's item was exported as (cx.seen), so the
+      // capture holds one object where JavaScript held one.
+      const rec = fields.find((g) => g.name === f.type.of).type.value.of;
+      lines.push(`  v${jsKey(f.name)} = ((x) => (x === null || x === undefined ? x : export${rec}(x, cx)))(${jsGet(f)});`);
+      continue;
+    }
     lines.push(`  v${jsKey(f.name)} = ${home ? `${jsGet(f)}.map((x) => export${model.kinds.get(f.type.of).rust}(x, cx))` : jsExportField(model, f.type, jsGet(f))};`);
   }
   lines.push('  return v;', '}', '');
@@ -975,31 +1063,76 @@ function jsRecord(model, rec) {
 
 function jsUnion(model, u) {
   const lines = [];
+  const values = u.variants.map((v, i) => [v, i]).filter(([v]) => v.tag === 'value');
+  const recs = values.filter(([v]) => v.type.base === 'rec');
+  const tagged = recs.length > 1;
   const refs = u.variants.map((v, i) => [v, i]).filter(([v]) => v.tag === 'ref');
+  // Which variant a value is (-1: none): null, undefined and literals; then
+  // numbers, booleans and strings by their type; vectors and matrices by
+  // three's flags; records by their class's test (b.recordTests); the kinds
+  // the store refers to by their tests; and last, the one kind it holds or
+  // the one record with no class, as any other object.
   const tests = [];
   u.variants.forEach((v, i) => {
     if (v.tag === 'null') tests.push(`if (x === null) return ${i};`);
     else if (v.tag === 'undefined') tests.push(`if (x === undefined) return ${i};`);
     else if (v.tag === 'lit') tests.push(`if (x === ${JSON.stringify(v.value)}) return ${i};`);
   });
-  // The kinds the store only refers to by their tests; the one kind it
-  // holds (a union has at most one) is any other object.
-  const held = refs.find(([v]) => model.kinds.get(v.kind).stored);
-  for (const [v, i] of refs) if (!model.kinds.get(v.kind).stored) tests.push(`if (b.refs[${kindConst(v.kind)}].is(x)) return ${i};`);
-  if (held) tests.push(`if (x !== null && typeof x === "object") return ${held[1]};`);
-  lines.push(`// Which of ${u.name}'s variants a value is.`, `export function which${u.name}(b, x) {`, ...tests.map((t) => `  ${t}`), `  throw Error(\`${u.name}: \${x?.constructor?.name ?? x} is none of its variants\`);`, '}', '');
-  lines.push(`export function sync${u.name}(b, f, at) {`, '  switch (f[at]) {');
-  u.variants.forEach((v, i) => lines.push(`    case ${i}: return ${v.tag === 'null' ? 'null' : v.tag === 'undefined' ? 'undefined' : v.tag === 'lit' ? JSON.stringify(v.value) : `b.refs[${kindConst(v.kind)}].at(f[at + 1], f[at + 2])`};`));
+  for (const [v, i] of values) {
+    const t = v.type;
+    if (['f64', 'f32', 'i32', 'u32', 'u8'].includes(t.base)) tests.push(`if (typeof x === "number") return ${i};`);
+    else if (t.base === 'bool') tests.push(`if (typeof x === "boolean") return ${i};`);
+    else if (t.base === 'str') tests.push(`if (typeof x === "string") return ${i};`);
+    else if (t.base === 'enum') tests.push(`if (${jsEnumIndex(model.enums.get(t.of))}.has(x)) return ${i};`);
+    else if (t.base === 'vec3') tests.push(`if (x?.isVector3) return ${i};`);
+    else if (t.base === 'quat') tests.push(`if (x?.isQuaternion) return ${i};`);
+    else if (t.base === 'mat4') tests.push(`if (x?.isMatrix4) return ${i};`);
+    else if (t.base === 'f64xN') tests.push(`if (Array.isArray(x) && x.length === ${t.n}) return ${i};`);
+  }
+  for (const [v, i] of recs) if (model.records.get(v.type.of).classes.length) tests.push(`if (b?.recordTests?.${v.type.of}?.(x)) return ${i};`);
+  for (const [v, i] of refs) if (!model.kinds.get(v.kind).stored) tests.push(`if (b?.refs[${kindConst(v.kind)}].is(x)) return ${i};`);
+  const rest = refs.find(([v]) => model.kinds.get(v.kind).stored) ?? recs.find(([v]) => !model.records.get(v.type.of).classes.length);
+  if (rest) tests.push(`if (x !== null && typeof x === "object") return ${rest[1]};`);
+  lines.push(`export function variantOf${u.name}(b, x) {`, ...tests.map((t) => `  ${t}`), '  return -1;', '}', '');
+  lines.push(`// Which of ${u.name}'s variants a value is.`, `export function which${u.name}(b, x) {`, `  const i = variantOf${u.name}(b, x);`, `  if (i < 0) throw Error(\`${u.name}: \${x?.constructor?.name ?? x} is none of its variants\`);`, '  return i;', '}', '');
+  const w = unionWords(model, u);
+  lines.push(`// An export row's union (from \`at\`) as a value: a vector or record the field held, if it is of the variant, read into in place.`, `export function sync${u.name}(b, f, at, h, current) {`, '  switch (f[at]) {');
+  u.variants.forEach((v, i) => {
+    if (v.tag === 'null') lines.push(`    case ${i}: return null;`);
+    else if (v.tag === 'undefined') lines.push(`    case ${i}: return undefined;`);
+    else if (v.tag === 'lit') lines.push(`    case ${i}: return ${JSON.stringify(v.value)};`);
+    else if (v.tag === 'ref') lines.push(`    case ${i}: return b.refs[${kindConst(v.kind)}].at(f[at + 1], f[at + 2]);`);
+    else lines.push(`    case ${i}: { let v = variantOf${u.name}(b, current) === ${i} ? current : undefined; ${jsSync(model, v.type, 'v', 1)} return v; }`);
+  });
   lines.push(`    default: throw Error('${u.name}: no such variant');`, '  }', '}', '');
+  lines.push(`export function put${u.name}(b, x, f, at, heap) {`, `  const i = which${u.name}(b, x);`, `  f.fill(0, at + 1, at + ${w});`, '  f[at] = i;', '  switch (i) {');
+  for (const [v, i] of refs) lines.push(`    case ${i}: b.refs[${kindConst(v.kind)}].put(x, f, at + 1); break;`);
+  for (const [v, i] of values) lines.push(`    case ${i}: { ${jsPut(model, v.type, 'x', 1)} break; }`);
+  lines.push('  }', '}', '');
+  // Same: identity, else of one value variant with the same value.
+  lines.push(`export function same${u.name}(x, y) {`, '  if (Object.is(x, y)) return true;', '  if (x === null || y === null || x === undefined || y === undefined) return false;');
+  for (const [v] of values) {
+    const t = v.type;
+    if (['f64', 'f32', 'i32', 'u32', 'u8', 'bool', 'str', 'enum'].includes(t.base)) continue; // Object.is above
+    if (t.base === 'vec3') lines.push('  if (x.isVector3 && y.isVector3) return sameVec(x, y);');
+    else if (t.base === 'quat') lines.push('  if (x.isQuaternion && y.isQuaternion) return sameQuat(x, y);');
+    else if (t.base === 'mat4') lines.push('  if (x.isMatrix4 && y.isMatrix4) return sameArray(x.elements, y.elements, 16);');
+    else if (t.base === 'f64xN') lines.push(`  if (Array.isArray(x) && Array.isArray(y)) return sameArray(x, y, ${t.n});`);
+    else if (t.base === 'rec') lines.push(`  if (typeof x === "object" && typeof y === "object" && same${t.of}(x, y) === null) return true;`);
+  }
+  lines.push('  return false;', '}', '');
   lines.push(`export function export${u.name}(x, cx) {`, `  switch (which${u.name}(cx, x)) {`);
   u.variants.forEach((v, i) => {
-    const k = v.tag === 'ref' ? model.kinds.get(v.kind) : null;
-    lines.push(`    case ${i}: return ${v.tag === 'null' ? 'null' : v.tag === 'undefined' ? 'undefined' : v.tag === 'lit' ? JSON.stringify(v.value) : `cx.ref(${JSON.stringify(v.kind)}, x)`};`);
+    let out;
+    if (v.tag === 'null') out = 'null';
+    else if (v.tag === 'undefined') out = 'undefined';
+    else if (v.tag === 'lit') out = JSON.stringify(v.value);
+    else if (v.tag === 'ref') out = `cx.ref(${JSON.stringify(v.kind)}, x)`;
+    else if (v.type.base === 'rec') out = tagged ? `Object.assign({ $record: ${JSON.stringify(v.type.of)} }, export${v.type.of}(x, cx))` : `export${v.type.of}(x, cx)`;
+    else out = jsExport(model, v.type, 'x');
+    lines.push(`    case ${i}: return ${out};`);
   });
   lines.push('  }', '}', '');
-  lines.push(`export function put${u.name}(b, x, f, at) {`, `  const i = which${u.name}(b, x);`, '  f[at] = i;');
-  if (refs.length) lines.push(`  switch (i) { ${refs.map(([v, i]) => `case ${i}: b.refs[${kindConst(v.kind)}].put(x, f, at + 1); return;`).join(' ')} }`);
-  lines.push('  f[at + 1] = 0;', '  f[at + 2] = 0;', '}', '');
   return lines;
 }
 
@@ -1035,14 +1168,17 @@ function jsFile(model, file) {
   const need = (t0) => {
     const t = ['map', 'list'].includes(t0.base) ? t0.value : t0;
     if (t.base === 'enum') { const e = model.enums.get(t.of); use(jsEnum(e), e.file); use(jsEnumIndex(e), e.file); }
-    if (t.base === 'union') { const u = model.unions.get(t.of); for (const p of ['sync', 'put', 'export']) use(`${p}${u.name}`, u.file); }
+    if (t.base === 'union') { const u = model.unions.get(t.of); for (const p of ['sync', 'put', 'export', 'same']) use(`${p}${u.name}`, u.file); }
     if (t.base === 'rec') { const r = model.records.get(t.of); for (const p of ['sync', 'put', 'same', 'export']) use(`${p}${r.name}`, r.file); use(`${r.name}Mirror`, r.file); }
     if (['ref', 'set'].includes(t.base) || (t0.base === 'list' && t.base === 'ref')) codes.add(kindConst(t.of));
     if (t0.base === 'list' && t.base === 'ref' && model.kinds.get(t.of).homeField === t0Field) use(`export${model.kinds.get(t.of).rust}`, model.kinds.get(t.of).file);
   };
   for (const r of model.records.values()) if (r.file === file) r.fields.forEach((f) => { t0Field = f; need(f.type); });
   for (const k of model.kindList) if (k.file === file) k.fields.forEach((f) => { t0Field = f; need(f.type); });
-  for (const u of model.unions.values()) if (u.file === file) for (const v of u.variants) if (v.tag === 'ref') codes.add(kindConst(v.kind));
+  for (const u of model.unions.values()) if (u.file === file) for (const v of u.variants) {
+    if (v.tag === 'ref') codes.add(kindConst(v.kind));
+    if (v.tag === 'value') need(v.type);
+  }
   const lines = [`// Generated by tools/sim-schema.mjs from ${model.target.schema}/${file}.mjs; do not edit.`, 'import * as THREE from "three";', `import { sameArray, sameItems, sameList, sameMap, sameQuat, sameVec } from "${model.target.compare}";`];
   if (codes.size) lines.push(`import { ${[...codes].sort().join(', ')} } from "./kinds.js";`);
   for (const [from, names] of [...uses].sort()) lines.push(`import { ${[...names].sort().join(', ')} } from "./${from}.js";`);
@@ -1093,6 +1229,7 @@ function jsIndex(model) {
     lines.push(`  { ${base}, exportStride: ${s('export')}, importStride: ${s('import')}, fullStride: ${s('full')}, Mirror: ${k.rust}Mirror, sync: sync${k.rust}, syncFull: syncFull${k.rust}, put: put${k.rust}, putFull: putFull${k.rust}, check: check${k.rust}, same: same${k.rust}, export: export${k.rust}, keys: ${upper(k.name)}_KEYS },`);
   }
   lines.push('];', '');
+  lines.push('// The records a union tells apart by class: their classes.', `export const RECORD_CLASSES = ${JSON.stringify(Object.fromEntries([...model.records.values()].filter((r) => r.classes.length).map((r) => [r.name, r.classes])))};`, '');
   const recFns = (r) => ({ words: words(model, { base: 'rec', of: r, nullable: { null: false, undefined: false } }) });
   const fnsOf = (r) => `{ words: ${recFns(r).words}, Mirror: ${r}Mirror, sync: sync${r}, put: put${r} }`;
   lines.push('// Commands, events and imports by code: name, and their records\' words and functions.');

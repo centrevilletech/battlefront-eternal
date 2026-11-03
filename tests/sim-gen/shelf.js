@@ -6,17 +6,24 @@ import { KIND_PERSON, KIND_THING } from "./kinds.js";
 export const Colour_NAMES = ["red","green","blue"];
 export const Colour_INDEX = new Map(Colour_NAMES.map((name, i) => [name, i]));
 
-// Which of Holder's variants a value is.
-export function whichHolder(b, x) {
+export function variantOfHolder(b, x) {
   if (x === null) return 0;
   if (x === undefined) return 1;
   if (x === "nobody") return 2;
-  if (b.refs[KIND_PERSON].is(x)) return 3;
+  if (b?.refs[KIND_PERSON].is(x)) return 3;
   if (x !== null && typeof x === "object") return 4;
-  throw Error(`Holder: ${x?.constructor?.name ?? x} is none of its variants`);
+  return -1;
 }
 
-export function syncHolder(b, f, at) {
+// Which of Holder's variants a value is.
+export function whichHolder(b, x) {
+  const i = variantOfHolder(b, x);
+  if (i < 0) throw Error(`Holder: ${x?.constructor?.name ?? x} is none of its variants`);
+  return i;
+}
+
+// An export row's union (from `at`) as a value: a vector or record the field held, if it is of the variant, read into in place.
+export function syncHolder(b, f, at, h, current) {
   switch (f[at]) {
     case 0: return null;
     case 1: return undefined;
@@ -25,6 +32,22 @@ export function syncHolder(b, f, at) {
     case 4: return b.refs[KIND_THING].at(f[at + 1], f[at + 2]);
     default: throw Error('Holder: no such variant');
   }
+}
+
+export function putHolder(b, x, f, at, heap) {
+  const i = whichHolder(b, x);
+  f.fill(0, at + 1, at + 3);
+  f[at] = i;
+  switch (i) {
+    case 3: b.refs[KIND_PERSON].put(x, f, at + 1); break;
+    case 4: b.refs[KIND_THING].put(x, f, at + 1); break;
+  }
+}
+
+export function sameHolder(x, y) {
+  if (Object.is(x, y)) return true;
+  if (x === null || y === null || x === undefined || y === undefined) return false;
+  return false;
 }
 
 export function exportHolder(x, cx) {
@@ -37,12 +60,97 @@ export function exportHolder(x, cx) {
   }
 }
 
-export function putHolder(b, x, f, at) {
-  const i = whichHolder(b, x);
+export function variantOfHalf(b, x) {
+  if (typeof x === "number") return 0;
+  if (x?.isVector3) return 1;
+  return -1;
+}
+
+// Which of Half's variants a value is.
+export function whichHalf(b, x) {
+  const i = variantOfHalf(b, x);
+  if (i < 0) throw Error(`Half: ${x?.constructor?.name ?? x} is none of its variants`);
+  return i;
+}
+
+// An export row's union (from `at`) as a value: a vector or record the field held, if it is of the variant, read into in place.
+export function syncHalf(b, f, at, h, current) {
+  switch (f[at]) {
+    case 0: { let v = variantOfHalf(b, current) === 0 ? current : undefined; v = f[at + 1]; return v; }
+    case 1: { let v = variantOfHalf(b, current) === 1 ? current : undefined; (v ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]); return v; }
+    default: throw Error('Half: no such variant');
+  }
+}
+
+export function putHalf(b, x, f, at, heap) {
+  const i = whichHalf(b, x);
+  f.fill(0, at + 1, at + 4);
   f[at] = i;
-  switch (i) { case 3: b.refs[KIND_PERSON].put(x, f, at + 1); return; case 4: b.refs[KIND_THING].put(x, f, at + 1); return; }
-  f[at + 1] = 0;
-  f[at + 2] = 0;
+  switch (i) {
+    case 0: { f[at + 1] = x; break; }
+    case 1: { { const $v = x; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; } break; }
+  }
+}
+
+export function sameHalf(x, y) {
+  if (Object.is(x, y)) return true;
+  if (x === null || y === null || x === undefined || y === undefined) return false;
+  if (x.isVector3 && y.isVector3) return sameVec(x, y);
+  return false;
+}
+
+export function exportHalf(x, cx) {
+  switch (whichHalf(cx, x)) {
+    case 0: return x;
+    case 1: return x;
+  }
+}
+
+export function variantOfBody(b, x) {
+  if (b?.recordTests?.Legs?.(x)) return 0;
+  if (b?.recordTests?.Wheels?.(x)) return 1;
+  return -1;
+}
+
+// Which of Body's variants a value is.
+export function whichBody(b, x) {
+  const i = variantOfBody(b, x);
+  if (i < 0) throw Error(`Body: ${x?.constructor?.name ?? x} is none of its variants`);
+  return i;
+}
+
+// An export row's union (from `at`) as a value: a vector or record the field held, if it is of the variant, read into in place.
+export function syncBody(b, f, at, h, current) {
+  switch (f[at]) {
+    case 0: { let v = variantOfBody(b, current) === 0 ? current : undefined; v = syncLegs(b, f, at + 1, h, v ?? new LegsMirror()); return v; }
+    case 1: { let v = variantOfBody(b, current) === 1 ? current : undefined; v = syncWheels(b, f, at + 1, h, v ?? new WheelsMirror()); return v; }
+    default: throw Error('Body: no such variant');
+  }
+}
+
+export function putBody(b, x, f, at, heap) {
+  const i = whichBody(b, x);
+  f.fill(0, at + 1, at + 5);
+  f[at] = i;
+  switch (i) {
+    case 0: { putLegs(b, x, f, at + 1, heap); break; }
+    case 1: { putWheels(b, x, f, at + 1, heap); break; }
+  }
+}
+
+export function sameBody(x, y) {
+  if (Object.is(x, y)) return true;
+  if (x === null || y === null || x === undefined || y === undefined) return false;
+  if (typeof x === "object" && typeof y === "object" && sameLegs(x, y) === null) return true;
+  if (typeof x === "object" && typeof y === "object" && sameWheels(x, y) === null) return true;
+  return false;
+}
+
+export function exportBody(x, cx) {
+  switch (whichBody(cx, x)) {
+    case 0: return Object.assign({ $record: "Legs" }, exportLegs(x, cx));
+    case 1: return Object.assign({ $record: "Wheels" }, exportWheels(x, cx));
+  }
 }
 
 export class SpotMirror {
@@ -140,6 +248,108 @@ export function exportAsk(o, cx) {
   v.who = ((x) => (x === null || x === undefined ? x : cx.ref("person", x)))(o.who);
   v.things = o.things.map((x) => cx.ref("thing", x));
   v.spot = ((x) => (x === null || x === undefined ? x : exportSpot(x, cx)))(o.spot);
+  return v;
+}
+
+export class LegsMirror {
+  constructor() {
+    this.stride = NaN;
+    this.side = [];
+  }
+}
+
+export function syncLegs(b, f, at, h, m) {
+  m.stride = f[at + 0];
+  { const items = (m.side ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  return m;
+}
+
+export function putLegs(b, o, f, at, heap) {
+  f[at + 0] = o.stride;
+  heap.items(o.side, f, at + 1, 1, (f, at, v) => { f[at + 0] = v; });
+}
+
+export function sameLegs(a, b) {
+  if (!Object.is(a.stride, b.stride)) return ".stride";
+  if (!sameItems(a.side, b.side, (x, y) => Object.is(x, y))) return ".side";
+  return null;
+}
+
+export function exportLegs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.stride = o.stride;
+  v.side = o.side.map((x) => x);
+  return v;
+}
+
+export class WheelsMirror {
+  constructor() {
+    this.count = 0;
+    this.grip = new THREE.Vector3();
+  }
+}
+
+export function syncWheels(b, f, at, h, m) {
+  m.count = f[at + 0];
+  (m.grip ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  return m;
+}
+
+export function putWheels(b, o, f, at, heap) {
+  f[at + 0] = o.count;
+  { const $v = o.grip; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+}
+
+export function sameWheels(a, b) {
+  if (!Object.is(a.count, b.count)) return ".count";
+  if (!sameVec(a.grip, b.grip)) return ".grip";
+  return null;
+}
+
+export function exportWheels(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.count = o.count;
+  v.grip = o.grip;
+  return v;
+}
+
+export class ShapeMirror {
+  constructor() {
+    this.radius = NaN;
+    this.half = null;
+  }
+}
+
+export function syncShape(b, f, at, h, m) {
+  m.radius = f[at + 0];
+  m.half = syncHalf(b, f, at + 1, h, m.half);
+  return m;
+}
+
+export function putShape(b, o, f, at, heap) {
+  f[at + 0] = o.radius;
+  putHalf(b, o.half, f, at + 1, heap);
+}
+
+export function sameShape(a, b) {
+  if (!Object.is(a.radius, b.radius)) return ".radius";
+  if (!sameHalf(a.half, b.half)) return ".half";
+  return null;
+}
+
+export function exportShape(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.radius = o.radius;
+  v.half = exportHalf(o.half, cx);
   return v;
 }
 
@@ -264,13 +474,16 @@ export class ThingMirror {
     this.spots = [];
     this.holders = [];
     this.matrix = new THREE.Matrix4();
+    this.shapes = [];
+    this.hitSet = null;
+    this.body = null;
     this.simSlot = -1;
     this.simGen = -1;
   }
 }
 
-export const THING_KEYS = new Set(["count", "size", "small", "light", "mass", "on", "where", "facing", "pair", "name", "colour", "def", "owner", "holder", "spot", "friends", "next", "tags", "hidden", "box", "marks", "probes", "flags", "spots", "holders", "matrix", "boxes", "mesh"]);
-export const THING_EXPORT_STRIDE = 76, THING_IMPORT_STRIDE = 79, THING_FULL_STRIDE = 79;
+export const THING_KEYS = new Set(["count", "size", "small", "light", "mass", "on", "where", "facing", "pair", "name", "colour", "def", "owner", "holder", "spot", "friends", "next", "tags", "hidden", "box", "marks", "probes", "flags", "spots", "holders", "matrix", "boxes", "shapes", "hitSet", "body", "mesh"]);
+export const THING_EXPORT_STRIDE = 85, THING_IMPORT_STRIDE = 88, THING_FULL_STRIDE = 88;
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncThing(b, f, at, h, m) {
@@ -287,7 +500,7 @@ export function syncThing(b, f, at, h, m) {
   m.colour = Colour_NAMES[f[at + 18]];
   m.def = b.defs.goods.at(f[at + 19]);
   { const tag = f[at + 20]; if (tag === 0) { m.owner = b.refs[KIND_PERSON].at(f[at + 21], f[at + 22]); } else m.owner = tag === 1 ? null : undefined; }
-  m.holder = syncHolder(b, f, at + 23);
+  m.holder = syncHolder(b, f, at + 23, h, m.holder);
   { const tag = f[at + 26]; if (tag === 0) { m.spot = syncSpot(b, f, at + 27, h, m.spot ?? new SpotMirror()); } else m.spot = tag === 1 ? null : undefined; }
   m.friends = b.set(KIND_PERSON, f, h + f[at + 42], f[at + 43], m.friends ?? new Set());
   { const tag = f[at + 44]; if (tag === 0) { m.next = b.refs[KIND_THING].at(f[at + 45], f[at + 46]); } else m.next = tag === 1 ? null : undefined; }
@@ -296,8 +509,11 @@ export function syncThing(b, f, at, h, m) {
   { const items = (m.probes ??= []), start = h + f[at + 52], n = f[at + 53]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
   { const items = (m.flags ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
   { const items = (m.spots ??= []), start = h + f[at + 56], n = f[at + 57]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
-  { const items = (m.holders ??= []), start = h + f[at + 58], n = f[at + 59]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0); } items[i] = v; } }
+  { const items = (m.holders ??= []), start = h + f[at + 58], n = f[at + 59]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 60 + i]; }
+  { const items = (m.shapes ??= []), start = h + f[at + 76], n = f[at + 77]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
+  { const tag = f[at + 78]; if (tag === 0) { m.hitSet = m.shapes[f[at + 79]]; } else m.hitSet = tag === 1 ? null : undefined; }
+  m.body = syncBody(b, f, at + 80, h, m.body);
   return m;
 }
 
@@ -316,7 +532,7 @@ export function syncFullThing(b, f, at, h, m) {
   m.colour = Colour_NAMES[f[at + 18]];
   m.def = b.defs.goods.at(f[at + 19]);
   { const tag = f[at + 20]; if (tag === 0) { m.owner = b.refs[KIND_PERSON].at(f[at + 21], f[at + 22]); } else m.owner = tag === 1 ? null : undefined; }
-  m.holder = syncHolder(b, f, at + 23);
+  m.holder = syncHolder(b, f, at + 23, h, m.holder);
   { const tag = f[at + 26]; if (tag === 0) { m.spot = syncSpot(b, f, at + 27, h, m.spot ?? new SpotMirror()); } else m.spot = tag === 1 ? null : undefined; }
   m.friends = b.set(KIND_PERSON, f, h + f[at + 42], f[at + 43], m.friends ?? new Set());
   { const tag = f[at + 44]; if (tag === 0) { m.next = b.refs[KIND_THING].at(f[at + 45], f[at + 46]); } else m.next = tag === 1 ? null : undefined; }
@@ -327,9 +543,12 @@ export function syncFullThing(b, f, at, h, m) {
   { const items = (m.probes ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
   { const items = (m.flags ??= []), start = h + f[at + 56], n = f[at + 57]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
   { const items = (m.spots ??= []), start = h + f[at + 58], n = f[at + 59]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
-  { const items = (m.holders ??= []), start = h + f[at + 60], n = f[at + 61]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0); } items[i] = v; } }
+  { const items = (m.holders ??= []), start = h + f[at + 60], n = f[at + 61]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 62 + i]; }
   ((m.boxes ??= [])[0] ??= {}).size = f[at + 78];
+  { const items = (m.shapes ??= []), start = h + f[at + 79], n = f[at + 80]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
+  { const tag = f[at + 81]; if (tag === 0) { m.hitSet = m.shapes[f[at + 82]]; } else m.hitSet = tag === 1 ? null : undefined; }
+  m.body = syncBody(b, f, at + 83, h, m.body);
   return m;
 }
 
@@ -348,7 +567,7 @@ export function putThing(b, o, f, at, heap) {
   f[at + 18] = Colour_INDEX.get(o.colour);
   f[at + 19] = b.defs.goods.id(o.def);
   { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 23); } else { f[at + 20] = 0; b.refs[KIND_PERSON].put($x, f, at + 21); } }
-  putHolder(b, o.holder, f, at + 23);
+  putHolder(b, o.holder, f, at + 23, heap);
   { const $x = o.spot; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f.fill(0, at + 27, at + 42); } else { f[at + 26] = 0; putSpot(b, $x, f, at + 27, heap); } }
   heap.list(b.refs[KIND_PERSON], o.friends, f, at + 42);
   { const $x = o.next; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f.fill(0, at + 45, at + 47); } else { f[at + 44] = 0; b.refs[KIND_THING].put($x, f, at + 45); } }
@@ -359,9 +578,12 @@ export function putThing(b, o, f, at, heap) {
   heap.items(o.probes, f, at + 54, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
   heap.items(o.flags, f, at + 56, 1, (f, at, v) => { f[at + 0] = v ? 1 : 0; });
   heap.items(o.spots, f, at + 58, 15, (f, at, v) => { putSpot(b, v, f, at + 0, heap); });
-  heap.items(o.holders, f, at + 60, 3, (f, at, v) => { putHolder(b, v, f, at + 0); });
+  heap.items(o.holders, f, at + 60, 3, (f, at, v) => { putHolder(b, v, f, at + 0, heap); });
   { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 62 + i] = e[i]; }
   f[at + 78] = o.boxes?.[0]?.size;
+  heap.items(o.shapes, f, at + 79, 5, (f, at, v) => { putShape(b, v, f, at + 0, heap); });
+  { const $x = o.hitSet; if ($x === null || $x === undefined) { f[at + 81] = $x === null ? 1 : 2; f.fill(0, at + 82, at + 83); } else { f[at + 81] = 0; { const $i = (o.shapes ?? []).indexOf($x); if ($i < 0) throw Error("shapes: the item is none of them"); f[at + 82] = $i; } } }
+  putBody(b, o.body, f, at + 83, heap);
 }
 
 // Every field of object `o` into a row.
@@ -379,7 +601,7 @@ export function putFullThing(b, o, f, at, heap) {
   f[at + 18] = Colour_INDEX.get(o.colour);
   f[at + 19] = b.defs.goods.id(o.def);
   { const $x = o.owner; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 23); } else { f[at + 20] = 0; b.refs[KIND_PERSON].put($x, f, at + 21); } }
-  putHolder(b, o.holder, f, at + 23);
+  putHolder(b, o.holder, f, at + 23, heap);
   { const $x = o.spot; if ($x === null || $x === undefined) { f[at + 26] = $x === null ? 1 : 2; f.fill(0, at + 27, at + 42); } else { f[at + 26] = 0; putSpot(b, $x, f, at + 27, heap); } }
   heap.list(b.refs[KIND_PERSON], o.friends, f, at + 42);
   { const $x = o.next; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f.fill(0, at + 45, at + 47); } else { f[at + 44] = 0; b.refs[KIND_THING].put($x, f, at + 45); } }
@@ -390,9 +612,12 @@ export function putFullThing(b, o, f, at, heap) {
   heap.items(o.probes, f, at + 54, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
   heap.items(o.flags, f, at + 56, 1, (f, at, v) => { f[at + 0] = v ? 1 : 0; });
   heap.items(o.spots, f, at + 58, 15, (f, at, v) => { putSpot(b, v, f, at + 0, heap); });
-  heap.items(o.holders, f, at + 60, 3, (f, at, v) => { putHolder(b, v, f, at + 0); });
+  heap.items(o.holders, f, at + 60, 3, (f, at, v) => { putHolder(b, v, f, at + 0, heap); });
   { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 62 + i] = e[i]; }
   f[at + 78] = o.boxes?.[0]?.size;
+  heap.items(o.shapes, f, at + 79, 5, (f, at, v) => { putShape(b, v, f, at + 0, heap); });
+  { const $x = o.hitSet; if ($x === null || $x === undefined) { f[at + 81] = $x === null ? 1 : 2; f.fill(0, at + 82, at + 83); } else { f[at + 81] = 0; { const $i = (o.shapes ?? []).indexOf($x); if ($i < 0) throw Error("shapes: the item is none of them"); f[at + 82] = $i; } } }
+  putBody(b, o.body, f, at + 83, heap);
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -412,7 +637,7 @@ export function checkThing(b, f, at, h, m) {
   if (!Object.is(m.colour, want.colour)) return ".colour";
   if (!Object.is(m.def, want.def)) return ".def";
   { const p = m.owner, q = want.owner; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".owner"; } else { if (!Object.is(p, q)) return ".owner"; } }
-  if (!Object.is(m.holder, want.holder)) return ".holder";
+  if (!sameHolder(m.holder, want.holder)) return ".holder";
   { const p = m.spot, q = want.spot; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".spot"; } else { { const d = sameSpot(p, q); if (d) return ".spot" + d; } } }
   if (!sameList(m.friends && [...m.friends], want.friends && [...want.friends])) return ".friends";
   { const p = m.next, q = want.next; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".next"; } else { if (!Object.is(p, q)) return ".next"; } }
@@ -421,8 +646,11 @@ export function checkThing(b, f, at, h, m) {
   if (!sameItems(m.probes, want.probes, (x, y) => sameVec(x, y))) return ".probes";
   if (!sameItems(m.flags, want.flags, (x, y) => Object.is(x, y))) return ".flags";
   if (!sameItems(m.spots, want.spots, (x, y) => sameSpot(x, y) === null)) return ".spots";
-  if (!sameItems(m.holders, want.holders, (x, y) => Object.is(x, y))) return ".holders";
+  if (!sameItems(m.holders, want.holders, (x, y) => sameHolder(x, y))) return ".holders";
   if (!sameArray(m.matrix?.elements, want.matrix?.elements, 16)) return ".matrix";
+  if (!sameItems(m.shapes, want.shapes, (x, y) => sameShape(x, y) === null)) return ".shapes";
+  { const p = m.hitSet, q = want.hitSet; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".hitSet"; } else { if (!Object.is(p, q)) return ".hitSet"; } }
+  if (!sameBody(m.body, want.body)) return ".body";
   return null;
 }
 
@@ -440,7 +668,7 @@ export function sameThing(a, b) {
   if (!Object.is(a.colour, b.colour)) return ".colour";
   if (!Object.is(a.def, b.def)) return ".def";
   { const p = a.owner, q = b.owner; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".owner"; } else { if (!Object.is(p, q)) return ".owner"; } }
-  if (!Object.is(a.holder, b.holder)) return ".holder";
+  if (!sameHolder(a.holder, b.holder)) return ".holder";
   { const p = a.spot, q = b.spot; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".spot"; } else { { const d = sameSpot(p, q); if (d) return ".spot" + d; } } }
   if (!sameList(a.friends && [...a.friends], b.friends && [...b.friends])) return ".friends";
   { const p = a.next, q = b.next; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".next"; } else { if (!Object.is(p, q)) return ".next"; } }
@@ -451,9 +679,12 @@ export function sameThing(a, b) {
   if (!sameItems(a.probes, b.probes, (x, y) => sameVec(x, y))) return ".probes";
   if (!sameItems(a.flags, b.flags, (x, y) => Object.is(x, y))) return ".flags";
   if (!sameItems(a.spots, b.spots, (x, y) => sameSpot(x, y) === null)) return ".spots";
-  if (!sameItems(a.holders, b.holders, (x, y) => Object.is(x, y))) return ".holders";
+  if (!sameItems(a.holders, b.holders, (x, y) => sameHolder(x, y))) return ".holders";
   if (!sameArray(a.matrix?.elements, b.matrix?.elements, 16)) return ".matrix";
   if (!Object.is(a.boxes?.[0]?.size, b.boxes?.[0]?.size)) return ".firstSize";
+  if (!sameItems(a.shapes, b.shapes, (x, y) => sameShape(x, y) === null)) return ".shapes";
+  { const x = a.hitSet, y = b.hitSet; if (x === null || x === undefined || y === null || y === undefined ? x !== y : (a.shapes ?? []).indexOf(x) !== (b.shapes ?? []).indexOf(y)) return ".hitSet"; }
+  if (!sameBody(a.body, b.body)) return ".body";
   return null;
 }
 
@@ -490,5 +721,8 @@ export function exportThing(o, cx) {
   v.holders = o.holders.map((x) => exportHolder(x, cx));
   v.matrix = o.matrix;
   v.firstSize = o.boxes?.[0]?.size;
+  v.shapes = o.shapes.map((x) => exportShape(x, cx));
+  v.hitSet = ((x) => (x === null || x === undefined ? x : exportShape(x, cx)))(o.hitSet);
+  v.body = exportBody(o.body, cx);
   return v;
 }

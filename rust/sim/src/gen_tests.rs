@@ -24,8 +24,10 @@ fn shelf(strings: &mut Strings) -> Store {
         marks: vec![1.5, -0.0, 1e300], probes: vec![[1.0, 2.0, 3.0], [-4.0, 5.0, -6.0]], flags: vec![true, false, true],
         spots: vec![spot.clone(), Spot { mark: Colour::Red, label: None, ..spot.clone() }], holders: vec![Holder::Nobody, Holder::Person(person(4)), Holder::Null],
         matrix: [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 5.0, -6.0, 7.5, 1.0], first_size: -2.5,
+        shapes: vec![Shape { radius: 0.5, half: Half::F64(0.25) }, Shape { radius: -0.0, half: Half::Vec3([1.0, 2.0, 0.5]) }],
+        hit_set: Some(1), body: Body::Wheels(Wheels { count: 4, grip: [0.1, 0.2, 0.3] }),
     });
-    let two = s.thing.insert(Thing { holder: Holder::Thing(one), next: Some(one), spot: Nullable::Null, owner: None, name: b, tags: None, holders: vec![Holder::Thing(one)], ..Default::default() });
+    let two = s.thing.insert(Thing { holder: Holder::Thing(one), next: Some(one), spot: Nullable::Null, owner: None, name: b, tags: None, holders: vec![Holder::Thing(one)], body: Body::Legs(Legs { stride: 1.5, side: vec![1.0, -1.0] }), ..Default::default() });
     s.thing.get_mut(one).unwrap().next = Some(two);
     s.shelf = Shelf {
         things: vec![one, two],

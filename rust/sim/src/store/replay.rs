@@ -118,6 +118,14 @@ impl<S: StoreKinds> ReplayOf<S> {
         }
     }
 
+    /// A fresh store, and the entities' handles forgotten with it (a frame's
+    /// state read anew); handles of what the store only refers to,
+    /// definitions and strings keep their slots and indices.
+    pub fn reset(&mut self) {
+        self.store = S::default();
+        for s in &mut self.stored { *s = Stored::default(); }
+    }
+
     /// The entity of a kind the store holds that a handle names: the one met
     /// with that handle before, else the one `make` makes (given the key, if
     /// it is a number), whose fields its value fills in where it lives.
@@ -253,6 +261,18 @@ pub fn set<'a>(v: V<'a>, path: &str) -> Result<Vec<V<'a>>> {
     match v.node() {
         Some(Node::Set(_)) => Ok(v.items().collect()),
         _ => Err(format!("{path}: not a Set ({})", v.show())),
+    }
+}
+
+/// The value of item `i` of a list field already written (an index field
+/// is that very value, so identity is kept).
+pub fn item_of(a: &Arena, fields: &[(&str, Value)], list: &str, i: usize) -> Value {
+    match fields.iter().find(|(k, _)| *k == list) {
+        Some((_, Value::Node(n))) => match &a.nodes[*n as usize] {
+            Node::Array(items) => items.get(i).cloned().unwrap_or(Value::Undefined),
+            _ => Value::Undefined,
+        },
+        _ => Value::Undefined,
     }
 }
 

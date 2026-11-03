@@ -38,18 +38,21 @@ impl Default for Holder {
 }
 
 impl Holder {
-    /// Its row words: the variant, then a reference's slot and generation.
-    pub fn put(&self, row: &mut [f64]) {
+    pub const WORDS: usize = 3;
+
+    /// Its row words: the variant, then its value (a reference's slot and generation).
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[1..3].fill(0.0);
         match self {
-            Holder::Null => { row[0] = 0.0; row[1] = 0.0; row[2] = 0.0; }
-            Holder::Undefined => { row[0] = 1.0; row[1] = 0.0; row[2] = 0.0; }
-            Holder::Nobody => { row[0] = 2.0; row[1] = 0.0; row[2] = 0.0; }
+            Holder::Null => row[0] = 0.0,
+            Holder::Undefined => row[0] = 1.0,
+            Holder::Nobody => row[0] = 2.0,
             Holder::Person(r) => { row[0] = 3.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
             Holder::Thing(r) => { row[0] = 4.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
         }
     }
 
-    pub fn take(row: &[f64]) -> Self {
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
         match word_u32(row[0]) {
             0 => Holder::Null,
             1 => Holder::Undefined,
@@ -57,6 +60,68 @@ impl Holder {
             3 => Holder::Person(Ref::new(word_u32(row[1]), word_u32(row[2]))),
             4 => Holder::Thing(Ref::new(word_u32(row[1]), word_u32(row[2]))),
             _ => Holder::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Half {
+    F64(f64),
+    Vec3(Vec3),
+}
+
+impl Default for Half {
+    fn default() -> Self { Half::F64(Default::default()) }
+}
+
+impl Half {
+    pub const WORDS: usize = 4;
+
+    /// Its row words: the variant, then its value (a reference's slot and generation).
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[1..4].fill(0.0);
+        match self {
+            Half::F64(v) => { row[0] = 0.0; row[1] = (*v); }
+            Half::Vec3(v) => { row[0] = 1.0; row[1..1 + 3].copy_from_slice(&(*v)); }
+        }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        match word_u32(row[0]) {
+            0 => Half::F64(row[1]),
+            1 => Half::Vec3([row[1], row[1 + 1], row[1 + 2]]),
+            _ => Half::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Body {
+    Legs(Legs),
+    Wheels(Wheels),
+}
+
+impl Default for Body {
+    fn default() -> Self { Body::Legs(Default::default()) }
+}
+
+impl Body {
+    pub const WORDS: usize = 5;
+
+    /// Its row words: the variant, then its value (a reference's slot and generation).
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[1..5].fill(0.0);
+        match self {
+            Body::Legs(v) => { row[0] = 0.0; v.put(&mut row[1..], heap); }
+            Body::Wheels(v) => { row[0] = 1.0; v.put(&mut row[1..], heap); }
+        }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        match word_u32(row[0]) {
+            0 => Body::Legs(Legs::take(&row[1..], heap)),
+            1 => Body::Wheels(Wheels::take(&row[1..], heap)),
+            _ => Body::default(),
         }
     }
 }
@@ -124,6 +189,81 @@ impl Ask {
             who: if row[1] == 0.0 { Some(Ref::new(word_u32(row[1 + 1]), word_u32(row[1 + 1 + 1]))) } else { None },
             things: { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out },
             spot: if row[6] == 0.0 { Some(Spot::take(&row[6 + 1..], heap)) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Legs {
+    pub stride: f64,
+    pub side: Vec<f64>,
+}
+
+impl Legs {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.stride;
+        { let at = heap.len(); row[1] = at as f64; row[1 + 1] = self.side.len() as f64; heap.resize(at + self.side.len() * 1, 0.0); for (i, e) in self.side.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            stride: row[0],
+            side: { let (at, n) = (word_u32(row[1]) as usize, word_u32(row[1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Wheels {
+    pub count: u8,
+    pub grip: Vec3,
+}
+
+impl Wheels {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.count as f64;
+        row[1..1 + 3].copy_from_slice(&self.grip);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            count: word_u32(row[0]) as u8,
+            grip: [row[1], row[1 + 1], row[1 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Shape {
+    pub radius: f64,
+    pub half: Half,
+}
+
+impl Shape {
+    pub const WORDS: usize = 5;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        row[0] = self.radius;
+        self.half.put(&mut row[1..1 + 4], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            radius: row[0],
+            half: Half::take(&row[1..1 + 4], heap),
         }
     }
 
@@ -211,17 +351,20 @@ pub struct Thing {
     pub holders: Vec<Holder>,
     pub matrix: Mat4,
     pub first_size: f64,
+    pub shapes: Vec<Shape>,
+    pub hit_set: Option<u32>,
+    pub body: Body,
 }
 
 impl Thing {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 76;
-    pub const IMPORT_STRIDE: usize = 79;
-    pub const FULL_STRIDE: usize = 79;
+    pub const EXPORT_STRIDE: usize = 85;
+    pub const IMPORT_STRIDE: usize = 88;
+    pub const FULL_STRIDE: usize = 88;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 79] = (&mut row[..79]).try_into().unwrap();
+        let row: &mut [f64; 88] = (&mut row[..88]).try_into().unwrap();
         row[2] = self.count as f64;
         row[3] = self.size as f64;
         row[4] = self.small as f64;
@@ -235,7 +378,7 @@ impl Thing {
         row[18] = self.colour as u8 as f64;
         row[19] = self.def.0 as f64;
         match &self.owner { Some(v) => { row[20] = 0.0; row[20 + 1] = (*v).slot as f64; row[20 + 1 + 1] = (*v).gen as f64; } None => { row[20] = 1.0; row[20 + 1..20 + 3].fill(0.0); } }
-        self.holder.put(&mut row[23..23 + 3]);
+        self.holder.put(&mut row[23..23 + 3], heap);
         match &self.spot { Nullable::Value(v) => { row[26] = 0.0; v.put(&mut row[26 + 1..], heap); } Nullable::Null => { row[26] = 1.0; row[26 + 1..26 + 16].fill(0.0); } Nullable::Undefined => { row[26] = 2.0; row[26 + 1..26 + 16].fill(0.0); } }
         row[42] = heap.len() as f64; row[42 + 1] = self.friends.items.len() as f64; for r in self.friends.items.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
         match &self.next { Some(v) => { row[44] = 0.0; row[44 + 1] = (*v).slot as f64; row[44 + 1 + 1] = (*v).gen as f64; } None => { row[44] = 1.0; row[44 + 1..44 + 3].fill(0.0); } }
@@ -246,13 +389,16 @@ impl Thing {
         { let at = heap.len(); row[54] = at as f64; row[54 + 1] = self.probes.len() as f64; heap.resize(at + self.probes.len() * 3, 0.0); for (i, e) in self.probes.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; row[0..0 + 3].copy_from_slice(&(*e)); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
         { let at = heap.len(); row[56] = at as f64; row[56 + 1] = self.flags.len() as f64; heap.resize(at + self.flags.len() * 1, 0.0); for (i, e) in self.flags.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
         { let at = heap.len(); row[58] = at as f64; row[58 + 1] = self.spots.len() as f64; heap.resize(at + self.spots.len() * 15, 0.0); for (i, e) in self.spots.iter().enumerate() { let mut item = [0.0f64; 15]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 15..at + (i + 1) * 15].copy_from_slice(&item); } }
-        { let at = heap.len(); row[60] = at as f64; row[60 + 1] = self.holders.len() as f64; heap.resize(at + self.holders.len() * 3, 0.0); for (i, e) in self.holders.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; (*e).put(&mut row[0..0 + 3]); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        { let at = heap.len(); row[60] = at as f64; row[60 + 1] = self.holders.len() as f64; heap.resize(at + self.holders.len() * 3, 0.0); for (i, e) in self.holders.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; (*e).put(&mut row[0..0 + 3], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
         row[62..62 + 16].copy_from_slice(&self.matrix);
         row[78] = self.first_size;
+        { let at = heap.len(); row[79] = at as f64; row[79 + 1] = self.shapes.len() as f64; heap.resize(at + self.shapes.len() * 5, 0.0); for (i, e) in self.shapes.iter().enumerate() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&item); } }
+        match &self.hit_set { Some(v) => { row[81] = 0.0; row[81 + 1] = (*v) as f64; } None => { row[81] = 1.0; row[81 + 1..81 + 2].fill(0.0); } }
+        self.body.put(&mut row[83..83 + 5], heap);
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 79] = (&row[..79]).try_into().unwrap();
+        let row: &[f64; 88] = (&row[..88]).try_into().unwrap();
         self.count = word_i32(row[2]);
         self.size = word_u32(row[3]);
         self.small = word_u32(row[4]) as u8;
@@ -266,7 +412,7 @@ impl Thing {
         self.colour = Colour::from_u8(word_u32(row[18]) as u8).unwrap_or_default();
         self.def = DefId(word_u32(row[19]));
         self.owner = if row[20] == 0.0 { Some(Ref::new(word_u32(row[20 + 1]), word_u32(row[20 + 1 + 1]))) } else { None };
-        self.holder = Holder::take(&row[23..23 + 3]);
+        self.holder = Holder::take(&row[23..23 + 3], heap);
         self.spot = match word_u32(row[26]) { 0 => Nullable::Value(Spot::take(&row[26 + 1..], heap)), 1 => Nullable::Null, _ => Nullable::Undefined };
         self.friends = { let (at, n) = (word_u32(row[42]) as usize, word_u32(row[42 + 1]) as usize); RefSet { items: (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() } };
         self.next = if row[44] == 0.0 { Some(Ref::new(word_u32(row[44 + 1]), word_u32(row[44 + 1 + 1]))) } else { None };
@@ -277,13 +423,16 @@ impl Thing {
         self.probes = { let (at, n) = (word_u32(row[54]) as usize, word_u32(row[54 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push([row[0], row[0 + 1], row[0 + 2]]); } out };
         self.flags = { let (at, n) = (word_u32(row[56]) as usize, word_u32(row[56 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0] != 0.0); } out };
         self.spots = { let (at, n) = (word_u32(row[58]) as usize, word_u32(row[58 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 15..at + (i + 1) * 15]; out.push(Spot::take(&row[0..], heap)); } out };
-        self.holders = { let (at, n) = (word_u32(row[60]) as usize, word_u32(row[60 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(Holder::take(&row[0..0 + 3])); } out };
+        self.holders = { let (at, n) = (word_u32(row[60]) as usize, word_u32(row[60 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(Holder::take(&row[0..0 + 3], heap)); } out };
         self.matrix = { let mut m = [0.0; 16]; m.copy_from_slice(&row[62..62 + 16]); m };
         self.first_size = row[78];
+        self.shapes = { let (at, n) = (word_u32(row[79]) as usize, word_u32(row[79 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 5..at + (i + 1) * 5]; out.push(Shape::take(&row[0..], heap)); } out };
+        self.hit_set = if row[81] == 0.0 { Some(word_u32(row[81 + 1])) } else { None };
+        self.body = Body::take(&row[83..83 + 5], heap);
     }
 
     pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 76] = (&mut row[..76]).try_into().unwrap();
+        let row: &mut [f64; 85] = (&mut row[..85]).try_into().unwrap();
         row[2] = self.count as f64;
         row[3] = self.size as f64;
         row[4] = self.small as f64;
@@ -297,7 +446,7 @@ impl Thing {
         row[18] = self.colour as u8 as f64;
         row[19] = self.def.0 as f64;
         match &self.owner { Some(v) => { row[20] = 0.0; row[20 + 1] = (*v).slot as f64; row[20 + 1 + 1] = (*v).gen as f64; } None => { row[20] = 1.0; row[20 + 1..20 + 3].fill(0.0); } }
-        self.holder.put(&mut row[23..23 + 3]);
+        self.holder.put(&mut row[23..23 + 3], heap);
         match &self.spot { Nullable::Value(v) => { row[26] = 0.0; v.put(&mut row[26 + 1..], heap); } Nullable::Null => { row[26] = 1.0; row[26 + 1..26 + 16].fill(0.0); } Nullable::Undefined => { row[26] = 2.0; row[26 + 1..26 + 16].fill(0.0); } }
         row[42] = heap.len() as f64; row[42 + 1] = self.friends.items.len() as f64; for r in self.friends.items.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
         match &self.next { Some(v) => { row[44] = 0.0; row[44 + 1] = (*v).slot as f64; row[44 + 1 + 1] = (*v).gen as f64; } None => { row[44] = 1.0; row[44 + 1..44 + 3].fill(0.0); } }
@@ -306,12 +455,15 @@ impl Thing {
         { let at = heap.len(); row[52] = at as f64; row[52 + 1] = self.probes.len() as f64; heap.resize(at + self.probes.len() * 3, 0.0); for (i, e) in self.probes.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; row[0..0 + 3].copy_from_slice(&(*e)); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
         { let at = heap.len(); row[54] = at as f64; row[54 + 1] = self.flags.len() as f64; heap.resize(at + self.flags.len() * 1, 0.0); for (i, e) in self.flags.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = if (*e) { 1.0 } else { 0.0 }; } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
         { let at = heap.len(); row[56] = at as f64; row[56 + 1] = self.spots.len() as f64; heap.resize(at + self.spots.len() * 15, 0.0); for (i, e) in self.spots.iter().enumerate() { let mut item = [0.0f64; 15]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 15..at + (i + 1) * 15].copy_from_slice(&item); } }
-        { let at = heap.len(); row[58] = at as f64; row[58 + 1] = self.holders.len() as f64; heap.resize(at + self.holders.len() * 3, 0.0); for (i, e) in self.holders.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; (*e).put(&mut row[0..0 + 3]); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        { let at = heap.len(); row[58] = at as f64; row[58 + 1] = self.holders.len() as f64; heap.resize(at + self.holders.len() * 3, 0.0); for (i, e) in self.holders.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; (*e).put(&mut row[0..0 + 3], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
         row[60..60 + 16].copy_from_slice(&self.matrix);
+        { let at = heap.len(); row[76] = at as f64; row[76 + 1] = self.shapes.len() as f64; heap.resize(at + self.shapes.len() * 5, 0.0); for (i, e) in self.shapes.iter().enumerate() { let mut item = [0.0f64; 5]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 5..at + (i + 1) * 5].copy_from_slice(&item); } }
+        match &self.hit_set { Some(v) => { row[78] = 0.0; row[78 + 1] = (*v) as f64; } None => { row[78] = 1.0; row[78 + 1..78 + 2].fill(0.0); } }
+        self.body.put(&mut row[80..80 + 5], heap);
     }
 
     pub fn take_export(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 76] = (&row[..76]).try_into().unwrap();
+        let row: &[f64; 85] = (&row[..85]).try_into().unwrap();
         self.count = word_i32(row[2]);
         self.size = word_u32(row[3]);
         self.small = word_u32(row[4]) as u8;
@@ -325,7 +477,7 @@ impl Thing {
         self.colour = Colour::from_u8(word_u32(row[18]) as u8).unwrap_or_default();
         self.def = DefId(word_u32(row[19]));
         self.owner = if row[20] == 0.0 { Some(Ref::new(word_u32(row[20 + 1]), word_u32(row[20 + 1 + 1]))) } else { None };
-        self.holder = Holder::take(&row[23..23 + 3]);
+        self.holder = Holder::take(&row[23..23 + 3], heap);
         self.spot = match word_u32(row[26]) { 0 => Nullable::Value(Spot::take(&row[26 + 1..], heap)), 1 => Nullable::Null, _ => Nullable::Undefined };
         self.friends = { let (at, n) = (word_u32(row[42]) as usize, word_u32(row[42 + 1]) as usize); RefSet { items: (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() } };
         self.next = if row[44] == 0.0 { Some(Ref::new(word_u32(row[44 + 1]), word_u32(row[44 + 1 + 1]))) } else { None };
@@ -334,8 +486,11 @@ impl Thing {
         self.probes = { let (at, n) = (word_u32(row[52]) as usize, word_u32(row[52 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push([row[0], row[0 + 1], row[0 + 2]]); } out };
         self.flags = { let (at, n) = (word_u32(row[54]) as usize, word_u32(row[54 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0] != 0.0); } out };
         self.spots = { let (at, n) = (word_u32(row[56]) as usize, word_u32(row[56 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 15..at + (i + 1) * 15]; out.push(Spot::take(&row[0..], heap)); } out };
-        self.holders = { let (at, n) = (word_u32(row[58]) as usize, word_u32(row[58 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(Holder::take(&row[0..0 + 3])); } out };
+        self.holders = { let (at, n) = (word_u32(row[58]) as usize, word_u32(row[58 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(Holder::take(&row[0..0 + 3], heap)); } out };
         self.matrix = { let mut m = [0.0; 16]; m.copy_from_slice(&row[60..60 + 16]); m };
+        self.shapes = { let (at, n) = (word_u32(row[76]) as usize, word_u32(row[76 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 5..at + (i + 1) * 5]; out.push(Shape::take(&row[0..], heap)); } out };
+        self.hit_set = if row[78] == 0.0 { Some(word_u32(row[78 + 1])) } else { None };
+        self.body = Body::take(&row[80..80 + 5], heap);
     }
 
     #[inline(always)]

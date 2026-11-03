@@ -4,7 +4,7 @@
 // (slots, definitions, strings), the pools of mirror objects that stand for
 // entities Rust owns, and SimBridge, which moves a kind's rows in and out of
 // a battle's instance of the module.
-import { COMMAND_TABLE, DEF_TABLES, EVENT_TABLE, IMPORT_TABLE, KIND_TABLE } from "./gen/index.js";
+import { COMMAND_TABLE, DEF_TABLES, EVENT_TABLE, IMPORT_TABLE, KIND_TABLE, RECORD_CLASSES } from "./gen/index.js";
 
 export { sameArray, sameItems, sameList, sameMap, sameQuat, sameVec } from "./compare.js";
 
@@ -221,8 +221,13 @@ export class Heap {
 export class SimContext {
   // `kinds` and `defTables`: a generated kind table and its definition
   // tables (the store's by default; the generator's tests pass theirs).
-  constructor({ classes = {}, tests = {}, kinds = KIND_TABLE, defTables = DEF_TABLES } = {}) {
+  constructor({ classes = {}, tests = {}, kinds = KIND_TABLE, defTables = DEF_TABLES, recordClasses = RECORD_CLASSES } = {}) {
     this.kinds = kinds;
+    // A union of records tells them apart by these (a record's $class).
+    this.recordTests = Object.fromEntries(Object.entries(recordClasses).map(([name, names]) => {
+      const ctors = names.map((n) => classes[n]).filter(Boolean);
+      return [name, tests[name] ?? ((o) => ctors.some((c) => o instanceof c))];
+    }));
     this.defs = Object.fromEntries(defTables.map((name) => [name, new DefTable(name)]));
     this.refs = kinds.map((k) => {
       if (!k) return null;

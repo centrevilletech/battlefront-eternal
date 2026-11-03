@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { ExportContext, Heap, SimContext } from '../src/sim/runtime.js';
 import { parseType } from '../tools/sim-schema.mjs';
-import { KIND_TABLE, DEF_TABLES, KIND_SHELF, KIND_THING, KIND_PERSON } from './sim-gen/index.js';
+import { KIND_TABLE, DEF_TABLES, RECORD_CLASSES, KIND_SHELF, KIND_THING, KIND_PERSON } from './sim-gen/index.js';
 
 // The store's generator (tools/sim-schema.mjs) on its own test schema
 // (rust/sim/schema-test/shelf.mjs, generated into tests/sim-gen): the
@@ -13,11 +13,13 @@ import { KIND_TABLE, DEF_TABLES, KIND_SHELF, KIND_THING, KIND_PERSON } from './s
 // entities that name each other once each.
 
 class Person { constructor(id) { this.id = id; } }
+class Legs { constructor(stride, side) { this.stride = stride; this.side = side; } }
+class Wheels { constructor(count, grip) { this.count = count; this.grip = grip; } }
 
 // A context for the test schema, with a string table of its own (a
 // battle's is the module's).
 function context() {
-  const cx = new SimContext({ kinds: KIND_TABLE, defTables: DEF_TABLES, classes: { Person } });
+  const cx = new SimContext({ kinds: KIND_TABLE, defTables: DEF_TABLES, recordClasses: RECORD_CLASSES, classes: { Person, Legs, Wheels } });
   const ids = new Map(), list = [];
   cx.strings = { id: (s) => { if (!ids.has(s)) { ids.set(s, list.length); list.push(s); } return ids.get(s); }, at: (i) => list[i] };
   return cx;
@@ -38,11 +40,14 @@ function shelf(cx) {
     marks: [1.5, -0, 1e300], probes: [new THREE.Vector3(1, 2, 3), new THREE.Vector3(-4, 5, -6)], flags: [true, false, true],
     spots: [spot, { ...spot, mark: 'red', label: null }], holders: ['nobody', people[0], null],
     matrix: new THREE.Matrix4().makeTranslation(5, -6, 7.5), boxes: [{ size: -2.5 }],
+    shapes: [{ radius: 0.5, half: 0.25 }, { radius: -0, half: new THREE.Vector3(1, 2, 0.5) }], hitSet: null, body: new Wheels(4, new THREE.Vector3(0.1, 0.2, 0.3)),
   };
+  one.hitSet = one.shapes[1];
   const two = {
     count: 0, size: 0, small: 0, light: 0, mass: 0, on: false, where: new THREE.Vector3(), facing: new THREE.Quaternion(), pair: [0, 0], name: 'b', colour: 'red',
     def: goods[0], owner: null, holder: one, spot: null, friends: new Set(), next: one, tags: undefined, hidden: 0, box: { size: 0 },
     marks: [], probes: [], flags: [], spots: [], holders: [one], matrix: new THREE.Matrix4(), boxes: [{ size: 0 }],
+    shapes: [], hitSet: null, body: new Legs(1.5, [1, -1]),
   };
   one.next = two;
   const things = [one, two];
@@ -91,6 +96,11 @@ test('every type of field written as a row reads back the same', () => {
   assert.deepEqual(back[0].matrix.elements.slice(12, 15), [5, -6, 7.5]);
   assert.equal(back[1].holders[0], things[0]);
   assert.equal(back[0].spots[1].mark, 'red');
+  // The alias is the very item of the list; a union holds a number or a vector, and a body of either class.
+  assert.equal(back[0].hitSet, back[0].shapes[1]);
+  assert.equal(back[0].shapes[0].half, 0.25);
+  assert.ok(back[0].shapes[1].half.isVector3);
+  assert.deepEqual([back[0].body.count, back[1].body.stride, back[1].body.side], [4, 1.5, [1, -1]]);
 });
 
 test('a map\'s words are its entries, as the Rust writes them', () => {
@@ -116,7 +126,7 @@ test('an entity is written out where it lives, and a handle everywhere else', ()
   const { shelf: s, things } = shelf(cx);
   const numbers = new Map();
   const handle = (kind, o) => { if (!numbers.has(o)) numbers.set(o, numbers.size); return { kind, n: numbers.get(o) }; };
-  const ex = new ExportContext({ kinds: KIND_TABLE, defTables: DEF_TABLES, classes: { Person }, ref: handle, def: (table, d) => ({ def: d.class }) });
+  const ex = new ExportContext({ kinds: KIND_TABLE, defTables: DEF_TABLES, recordClasses: RECORD_CLASSES, classes: { Person, Legs, Wheels }, ref: handle, def: (table, d) => ({ def: d.class }) });
   const value = KIND_TABLE[KIND_SHELF].export(s, ex);
   const [one, two] = value.things;
   assert.deepEqual(Object.keys(one).slice(0, 3), ['$id', 'count', 'size']);
@@ -132,6 +142,8 @@ test('an entity is written out where it lives, and a handle everywhere else', ()
   assert.equal(one.firstSize, -2.5);
   assert.deepEqual([...one.friends].map((p) => p.kind), ['person', 'person']);
   assert.equal(KIND_TABLE[KIND_THING].export(things[0], ex), one);
+  assert.equal(one.hitSet, one.shapes[1]);
+  assert.deepEqual([one.body.$record, two.body.$record], ['Wheels', 'Legs']);
 });
 
 test('a schema\'s types are checked as they are read', () => {

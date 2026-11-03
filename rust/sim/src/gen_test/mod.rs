@@ -20,7 +20,7 @@ pub const KINDS: usize = 3;
 pub const KIND_NAMES: [&str; 4] = ["", "person", "shelf", "thing"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 4] = [0, 0x6076baef, 0x7865bf3a, 0xcade669d];
+pub const KIND_HASHES: [u32; 4] = [0, 0x6076baef, 0x7865bf3a, 0x1c764872];
 /// Whether each kind's objects carry their own number (its slot), by code.
 pub const KIND_KEYED: [bool; 4] = [false, true, false, false];
 

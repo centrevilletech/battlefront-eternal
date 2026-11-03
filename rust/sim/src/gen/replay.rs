@@ -4,7 +4,7 @@
 #![allow(clippy::all, unused_braces, unused_parens, unused_variables, unused_mut, unused_imports)]
 
 use super::*;
-use crate::store::replay::{boolean, int, list, map, mat4, mat4_value, name_of, num, num_f32, numbers, object, quat, set, vec3, Arena, Node, ReplayOf, Result, StoreKinds, Value, V};
+use crate::store::replay::{boolean, int, item_of, list, map, mat4, mat4_value, name_of, num, num_f32, numbers, object, quat, set, vec3, Arena, Node, ReplayOf, Result, StoreKinds, Value, V};
 
 /// The replay context of this store.
 pub type Replay = ReplayOf<Store>;
@@ -18,7 +18,7 @@ impl OrdnanceOwner {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         match v.value {
             Value::Null => return Ok(OrdnanceOwner::Null),
-            Value::Str(s) => match s.as_str() { "player" => return Ok(OrdnanceOwner::Player), _ => {} },
+            Value::Str(s) => { match s.as_str() { "player" => return Ok(OrdnanceOwner::Player), _ => {} }  }
             Value::Handle(kind, _) => match kind.as_str() { "unit" => return Ok(OrdnanceOwner::Unit(cx.ref_in(KIND_UNIT, v, path)?)), "vehicle" => return Ok(OrdnanceOwner::Vehicle(cx.ref_in(KIND_VEHICLE, v, path)?)), "ownerSnapshot" => return Ok(OrdnanceOwner::OwnerSnapshot(cx.ref_in(KIND_OWNER_SNAPSHOT, v, path)?)), _ => {} },
             _ => {}
         }
@@ -40,7 +40,7 @@ impl BeamSource {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         match v.value {
             Value::Null => return Ok(BeamSource::Null),
-            Value::Str(s) => match s.as_str() { "player" => return Ok(BeamSource::Player), _ => {} },
+            Value::Str(s) => { match s.as_str() { "player" => return Ok(BeamSource::Player), _ => {} }  }
             Value::Handle(kind, _) => match kind.as_str() { "emitter" => return Ok(BeamSource::Emitter(cx.ref_in(KIND_EMITTER, v, path)?)), "unit" => return Ok(BeamSource::Unit(cx.ref_in(KIND_UNIT, v, path)?)), "vehicle" => return Ok(BeamSource::Vehicle(cx.ref_in(KIND_VEHICLE, v, path)?)), "ownerSnapshot" => return Ok(BeamSource::OwnerSnapshot(cx.ref_in(KIND_OWNER_SNAPSHOT, v, path)?)), _ => {} },
             _ => {}
         }
@@ -92,14 +92,13 @@ impl Impact {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("point", a.vec3(self.point)),
-            ("normal", a.vec3(self.normal)),
-            ("terrain", Value::Bool(self.terrain)),
-            ("body", match &self.body { Nullable::Value(v) => cx.ref_out(KIND_BODY, (*v)), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }),
-            ("unit", match &self.unit { Some(v) => cx.ref_out(KIND_UNIT, (*v)), None => Value::Undefined }),
-            ("part", match &self.part { Nullable::Value(v) => Value::Str(HitPart::NAMES[(*v) as usize].to_string()), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(6);
+        { let x = a.vec3(self.point); fields.push(("point", x)); }
+        { let x = a.vec3(self.normal); fields.push(("normal", x)); }
+        { let x = Value::Bool(self.terrain); fields.push(("terrain", x)); }
+        { let x = match &self.body { Nullable::Value(v) => cx.ref_out(KIND_BODY, (*v)), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }; fields.push(("body", x)); }
+        { let x = match &self.unit { Some(v) => cx.ref_out(KIND_UNIT, (*v)), None => Value::Undefined }; fields.push(("unit", x)); }
+        { let x = match &self.part { Nullable::Value(v) => Value::Str(HitPart::NAMES[(*v) as usize].to_string()), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }; fields.push(("part", x)); }
         a.object("", fields)
     }
 }
@@ -119,13 +118,12 @@ impl Echo {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("value", Value::Num(self.value)),
-            ("at", a.vec3(self.at)),
-            ("count", Value::Num(self.count as f64)),
-            ("note", match &self.note { Some(v) => cx.str_out((*v)), None => Value::Null }),
-            ("events", Value::Num(self.events as f64)),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = Value::Num(self.value); fields.push(("value", x)); }
+        { let x = a.vec3(self.at); fields.push(("at", x)); }
+        { let x = Value::Num(self.count as f64); fields.push(("count", x)); }
+        { let x = match &self.note { Some(v) => cx.str_out((*v)), None => Value::Null }; fields.push(("note", x)); }
+        { let x = Value::Num(self.events as f64); fields.push(("events", x)); }
         a.object("", fields)
     }
 }
@@ -142,10 +140,9 @@ impl Fill {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("kind", Value::Num(self.kind as f64)),
-            ("count", Value::Num(self.count as f64)),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.kind as f64); fields.push(("kind", x)); }
+        { let x = Value::Num(self.count as f64); fields.push(("count", x)); }
         a.object("", fields)
     }
 }
@@ -174,22 +171,21 @@ impl Beam {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("networkFireChannel", Value::Num(self.network_fire_channel)),
-            ("historyTick", match &self.history_tick { Some(v) => Value::Num((*v)), None => Value::Null }),
-            ("def", cx.def_out("ordnance", self.def)),
-            ("owner", self.owner.to_value(cx, a)),
-            ("source", self.source.to_value(cx, a)),
-            ("ignoreBody", match &self.ignore_body { Some(v) => cx.ref_out(KIND_BODY, (*v)), None => Value::Null }),
-            ("life", Value::Num(self.life)),
-            ("duration", Value::Num(self.duration)),
-            ("effectTime", Value::Num(self.effect_time)),
-            ("position", a.vec3(self.position)),
-            ("end", a.vec3(self.end)),
-            ("direction", a.vec3(self.direction)),
-            ("localOrigin", match &self.local_origin { Some(v) => a.vec3((*v)), None => Value::Null }),
-            ("damage", Value::Num(self.damage)),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(14);
+        { let x = Value::Num(self.network_fire_channel); fields.push(("networkFireChannel", x)); }
+        { let x = match &self.history_tick { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("historyTick", x)); }
+        { let x = cx.def_out("ordnance", self.def); fields.push(("def", x)); }
+        { let x = self.owner.to_value(cx, a); fields.push(("owner", x)); }
+        { let x = self.source.to_value(cx, a); fields.push(("source", x)); }
+        { let x = match &self.ignore_body { Some(v) => cx.ref_out(KIND_BODY, (*v)), None => Value::Null }; fields.push(("ignoreBody", x)); }
+        { let x = Value::Num(self.life); fields.push(("life", x)); }
+        { let x = Value::Num(self.duration); fields.push(("duration", x)); }
+        { let x = Value::Num(self.effect_time); fields.push(("effectTime", x)); }
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = a.vec3(self.end); fields.push(("end", x)); }
+        { let x = a.vec3(self.direction); fields.push(("direction", x)); }
+        { let x = match &self.local_origin { Some(v) => a.vec3((*v)), None => Value::Null }; fields.push(("localOrigin", x)); }
+        { let x = Value::Num(self.damage); fields.push(("damage", x)); }
         a.object("", fields)
     }
 
@@ -250,26 +246,25 @@ impl Bolt {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("def", cx.def_out("ordnance", self.def)),
-            ("owner", self.owner.to_value(cx, a)),
-            ("networkFireId", Value::Num(self.network_fire_id)),
-            ("networkFireChannel", Value::Num(self.network_fire_channel)),
-            ("networkFireUnit", Value::Num(self.network_fire_unit)),
-            ("networkFireGeneration", Value::Num(self.network_fire_generation)),
-            ("ignoreBody", match &self.ignore_body { Some(v) => cx.ref_out(KIND_BODY, (*v)), None => Value::Null }),
-            ("position", a.vec3(self.position)),
-            ("direction", a.vec3(self.direction)),
-            ("speed", Value::Num(self.speed)),
-            ("life", Value::Num(self.life)),
-            ("drawn", Value::Num(self.drawn)),
-            ("flown", Value::Num(self.flown)),
-            ("offset", match &self.offset { Some(v) => a.vec3((*v)), None => Value::Null }),
-            ("merge", Value::Num(self.merge)),
-            ("impact", match &self.impact { Some(v) => v.to_value(cx, a), None => Value::Null }),
-            ("previousFlown", match &self.previous_flown { Some(v) => Value::Num((*v)), None => Value::Undefined }),
-            ("previousDrawn", match &self.previous_drawn { Some(v) => Value::Num((*v)), None => Value::Undefined }),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(18);
+        { let x = cx.def_out("ordnance", self.def); fields.push(("def", x)); }
+        { let x = self.owner.to_value(cx, a); fields.push(("owner", x)); }
+        { let x = Value::Num(self.network_fire_id); fields.push(("networkFireId", x)); }
+        { let x = Value::Num(self.network_fire_channel); fields.push(("networkFireChannel", x)); }
+        { let x = Value::Num(self.network_fire_unit); fields.push(("networkFireUnit", x)); }
+        { let x = Value::Num(self.network_fire_generation); fields.push(("networkFireGeneration", x)); }
+        { let x = match &self.ignore_body { Some(v) => cx.ref_out(KIND_BODY, (*v)), None => Value::Null }; fields.push(("ignoreBody", x)); }
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = a.vec3(self.direction); fields.push(("direction", x)); }
+        { let x = Value::Num(self.speed); fields.push(("speed", x)); }
+        { let x = Value::Num(self.life); fields.push(("life", x)); }
+        { let x = Value::Num(self.drawn); fields.push(("drawn", x)); }
+        { let x = Value::Num(self.flown); fields.push(("flown", x)); }
+        { let x = match &self.offset { Some(v) => a.vec3((*v)), None => Value::Null }; fields.push(("offset", x)); }
+        { let x = Value::Num(self.merge); fields.push(("merge", x)); }
+        { let x = match &self.impact { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("impact", x)); }
+        { let x = match &self.previous_flown { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("previousFlown", x)); }
+        { let x = match &self.previous_drawn { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("previousDrawn", x)); }
         a.object("", fields)
     }
 
@@ -329,25 +324,24 @@ impl Grenade {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("networkFireChannel", Value::Num(self.network_fire_channel)),
-            ("def", cx.def_out("ordnance", self.def)),
-            ("owner", self.owner.to_value(cx, a)),
-            ("position", a.vec3(self.position)),
-            ("previous", a.vec3(self.previous)),
-            ("launchPosition", a.vec3(self.launch_position)),
-            ("velocity", a.vec3(self.velocity)),
-            ("gravity", Value::Num(self.gravity)),
-            ("slow", Value::Num(self.slow)),
-            ("resting", Value::Bool(self.resting)),
-            ("flight", Value::Num(self.flight)),
-            ("fuse", match &self.fuse { Some(v) => Value::Num((*v)), None => Value::Null }),
-            ("spin", a.vec3(self.spin)),
-            ("quaternion", a.quat(self.quaternion)),
-            ("sinking", match &self.sinking { Some(v) => Value::Bool((*v)), None => Value::Undefined }),
-            ("touched", match &self.touched { Some(v) => Value::Bool((*v)), None => Value::Undefined }),
-            ("gone", match &self.gone { Some(v) => Value::Bool((*v)), None => Value::Undefined }),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(17);
+        { let x = Value::Num(self.network_fire_channel); fields.push(("networkFireChannel", x)); }
+        { let x = cx.def_out("ordnance", self.def); fields.push(("def", x)); }
+        { let x = self.owner.to_value(cx, a); fields.push(("owner", x)); }
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = a.vec3(self.previous); fields.push(("previous", x)); }
+        { let x = a.vec3(self.launch_position); fields.push(("launchPosition", x)); }
+        { let x = a.vec3(self.velocity); fields.push(("velocity", x)); }
+        { let x = Value::Num(self.gravity); fields.push(("gravity", x)); }
+        { let x = Value::Num(self.slow); fields.push(("slow", x)); }
+        { let x = Value::Bool(self.resting); fields.push(("resting", x)); }
+        { let x = Value::Num(self.flight); fields.push(("flight", x)); }
+        { let x = match &self.fuse { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("fuse", x)); }
+        { let x = a.vec3(self.spin); fields.push(("spin", x)); }
+        { let x = a.quat(self.quaternion); fields.push(("quaternion", x)); }
+        { let x = match &self.sinking { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("sinking", x)); }
+        { let x = match &self.touched { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("touched", x)); }
+        { let x = match &self.gone { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("gone", x)); }
         a.object("", fields)
     }
 
@@ -394,12 +388,11 @@ impl Ordnance {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("bolts", { let mut items = Vec::new(); for &r in self.bolts.iter() { let x = Bolt::value_out(r, cx, a); items.push(x); } a.array(items) }),
-            ("beams", { let mut items = Vec::new(); for &r in self.beams.iter() { let x = Beam::value_out(r, cx, a); items.push(x); } a.array(items) }),
-            ("grenades", { let mut items = Vec::new(); for &r in self.grenades.iter() { let x = Grenade::value_out(r, cx, a); items.push(x); } a.array(items) }),
-            ("rounds", { let mut items = Vec::new(); for &r in self.rounds.iter() { let x = Round::value_out(r, cx, a); items.push(x); } a.array(items) }),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = { let mut items = Vec::new(); for &r in self.bolts.iter() { let x = Bolt::value_out(r, cx, a); items.push(x); } a.array(items) }; fields.push(("bolts", x)); }
+        { let x = { let mut items = Vec::new(); for &r in self.beams.iter() { let x = Beam::value_out(r, cx, a); items.push(x); } a.array(items) }; fields.push(("beams", x)); }
+        { let x = { let mut items = Vec::new(); for &r in self.grenades.iter() { let x = Grenade::value_out(r, cx, a); items.push(x); } a.array(items) }; fields.push(("grenades", x)); }
+        { let x = { let mut items = Vec::new(); for &r in self.rounds.iter() { let x = Round::value_out(r, cx, a); items.push(x); } a.array(items) }; fields.push(("rounds", x)); }
         a.object("", fields)
     }
 }
@@ -445,39 +438,38 @@ impl Round {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let fields = vec![
-            ("kind", Value::Str(RoundKind::NAMES[self.kind as usize].to_string())),
-            ("networkFireChannel", Value::Num(self.network_fire_channel)),
-            ("ignoreBody", match &self.ignore_body { Some(v) => cx.ref_out(KIND_BODY, (*v)), None => Value::Null }),
-            ("def", cx.def_out("ordnance", self.def)),
-            ("owner", self.owner.to_value(cx, a)),
-            ("position", a.vec3(self.position)),
-            ("previous", a.vec3(self.previous)),
-            ("launchPosition", a.vec3(self.launch_position)),
-            ("velocity", a.vec3(self.velocity)),
-            ("life", Value::Num(self.life)),
-            ("impact", match &self.impact { Some(v) => v.to_value(cx, a), None => Value::Null }),
-            ("dead", Value::Bool(self.dead)),
-            ("gravity", Value::Num(self.gravity)),
-            ("ramp", Value::Num(self.ramp)),
-            ("desired", a.vec3(self.desired)),
-            ("targetId", match &self.target_id { Some(v) => Value::Num((*v)), None => Value::Undefined }),
-            ("targetGeneration", match &self.target_generation { Some(v) => Value::Num((*v)), None => Value::Undefined }),
-            ("phase", { let items = self.phase.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }),
-            ("quaternion", a.quat(self.quaternion)),
-            ("struck", match &self.struck { Some(v) => { let mut items = Vec::new(); for &r in v.items.iter() { items.push(cx.ref_out(KIND_UNIT, r)); } a.set(items) }, None => Value::Undefined }),
-            ("gone", match &self.gone { Some(v) => Value::Bool((*v)), None => Value::Undefined }),
-            ("flightMissile", match &self.flight_missile { Some(v) => Value::Bool((*v)), None => Value::Undefined }),
-            ("flightClass", match &self.flight_class { Some(v) => cx.str_out((*v)), None => Value::Undefined }),
-            ("weapon", match &self.weapon { Some(v) => cx.ref_out(KIND_WEAPON, (*v)), None => Value::Undefined }),
-            ("muzzleGeneration", match &self.muzzle_generation { Nullable::Value(v) => Value::Num((*v)), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }),
-            ("muzzleIndex", match &self.muzzle_index { Some(v) => Value::Num((*v)), None => Value::Undefined }),
-            ("muzzleBarrel", match &self.muzzle_barrel { Some(v) => Value::Num((*v)), None => Value::Undefined }),
-            ("mount", match &self.mount { Some(v) => (*v).to_value(cx, a), None => Value::Undefined }),
-            ("mountSeat", match &self.mount_seat { Some(v) => Value::Num((*v)), None => Value::Undefined }),
-            ("mountWeapon", match &self.mount_weapon { Some(v) => Value::Num((*v)), None => Value::Undefined }),
-            ("mountBarrel", match &self.mount_barrel { Some(v) => Value::Num((*v)), None => Value::Undefined }),
-        ];
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(31);
+        { let x = Value::Str(RoundKind::NAMES[self.kind as usize].to_string()); fields.push(("kind", x)); }
+        { let x = Value::Num(self.network_fire_channel); fields.push(("networkFireChannel", x)); }
+        { let x = match &self.ignore_body { Some(v) => cx.ref_out(KIND_BODY, (*v)), None => Value::Null }; fields.push(("ignoreBody", x)); }
+        { let x = cx.def_out("ordnance", self.def); fields.push(("def", x)); }
+        { let x = self.owner.to_value(cx, a); fields.push(("owner", x)); }
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = a.vec3(self.previous); fields.push(("previous", x)); }
+        { let x = a.vec3(self.launch_position); fields.push(("launchPosition", x)); }
+        { let x = a.vec3(self.velocity); fields.push(("velocity", x)); }
+        { let x = Value::Num(self.life); fields.push(("life", x)); }
+        { let x = match &self.impact { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("impact", x)); }
+        { let x = Value::Bool(self.dead); fields.push(("dead", x)); }
+        { let x = Value::Num(self.gravity); fields.push(("gravity", x)); }
+        { let x = Value::Num(self.ramp); fields.push(("ramp", x)); }
+        { let x = a.vec3(self.desired); fields.push(("desired", x)); }
+        { let x = match &self.target_id { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("targetId", x)); }
+        { let x = match &self.target_generation { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("targetGeneration", x)); }
+        { let x = { let items = self.phase.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("phase", x)); }
+        { let x = a.quat(self.quaternion); fields.push(("quaternion", x)); }
+        { let x = match &self.struck { Some(v) => { let mut items = Vec::new(); for &r in v.items.iter() { items.push(cx.ref_out(KIND_UNIT, r)); } a.set(items) }, None => Value::Undefined }; fields.push(("struck", x)); }
+        { let x = match &self.gone { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("gone", x)); }
+        { let x = match &self.flight_missile { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("flightMissile", x)); }
+        { let x = match &self.flight_class { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("flightClass", x)); }
+        { let x = match &self.weapon { Some(v) => cx.ref_out(KIND_WEAPON, (*v)), None => Value::Undefined }; fields.push(("weapon", x)); }
+        { let x = match &self.muzzle_generation { Nullable::Value(v) => Value::Num((*v)), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }; fields.push(("muzzleGeneration", x)); }
+        { let x = match &self.muzzle_index { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("muzzleIndex", x)); }
+        { let x = match &self.muzzle_barrel { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("muzzleBarrel", x)); }
+        { let x = match &self.mount { Some(v) => (*v).to_value(cx, a), None => Value::Undefined }; fields.push(("mount", x)); }
+        { let x = match &self.mount_seat { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("mountSeat", x)); }
+        { let x = match &self.mount_weapon { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("mountWeapon", x)); }
+        { let x = match &self.mount_barrel { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("mountBarrel", x)); }
         a.object("", fields)
     }
 

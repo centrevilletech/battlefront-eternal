@@ -9,10 +9,17 @@ export default {
   unions: {
     // Null, undefined, a literal, a kind the store refers to and one it holds.
     Holder: ['null', 'undefined', 'lit:nobody', 'ref:person', 'ref:thing'],
+    // A number or a Vector3 (a shape's half: a radius, or a box's half size).
+    Half: ['f64', 'vec3'],
+    // One of two records with different fields, told apart by class.
+    Body: ['rec:Legs', 'rec:Wheels'],
   },
   records: {
     Spot: { at: 'vec3', turn: 'quat', label: 'str|null', mark: 'enum:Colour', near: 'ref:person|undefined', kept: 'list:thing' },
     Ask: { n: 'f64', who: 'ref:person|null', things: 'list:thing', spot: 'rec:Spot|null' },
+    Legs: { $class: 'Legs', stride: 'f64', side: 'list:f64' },
+    Wheels: { $class: 'Wheels', count: 'u8', grip: 'vec3' },
+    Shape: { radius: 'f64', half: 'union:Half' },
   },
   commands: { double: { args: 'Ask', result: 'Ask', rust: 'gen_tests::double' } },
   events: { noted: 'Spot' },
@@ -43,6 +50,8 @@ export default {
         marks: 'list:f64', probes: 'list:vec3', flags: 'list:bool', spots: 'list:rec:Spot', holders: 'list:union:Holder',
         matrix: 'mat4',
         firstSize: { type: 'f64', js: 'boxes.0.size', mirror: false },
+        // Records in a list, and one of them by identity; a body of one of two classes.
+        shapes: 'list:rec:Shape', hitSet: 'index:shapes|null', body: 'union:Body',
       },
       skip: { mesh: 'drawn by the page' },
     },

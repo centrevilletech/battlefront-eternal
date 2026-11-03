@@ -132,7 +132,8 @@ A field's type is one of:
 | `enum:Name` | one of a fixed list of strings | `#[repr(u8)] enum` | 1 |
 | `def:table` | a content definition object | `DefId` | 1 |
 | `ref:kind` | an object of that kind | `Ref<Kind>` | 2 |
-| `union:Name` | null, undefined, a literal string or an object of one of several kinds | an `enum` | 3 |
+| `union:Name` | null, undefined, a literal string, an object of one of several kinds, or a value of one of several types (a number or a Vector3; one of two records, told apart by the classes they name with `$class`) | an `enum` with data | 1 + its largest variant's |
+| `index:list` | one item of an earlier field of the same object, a list of records, by identity (a unit's `hitSet`, one of its `shapes`) | `u32`, the item's place | 1 |
 | `rec:Name` | a plain object with declared fields, held by value | a struct | its fields' |
 | `list:kind`, `set:kind` | an array or a Set of objects of that kind, in order | `Vec<Ref<Kind>>`, `RefSet<Kind>` | 2 (and the heap) |
 | `list:type` | an array of any other type that is never null: records by value (a hull's seats), numbers, vectors, booleans, strings, enums, unions; its items updated in place | `Vec<T>` | 2 (and the heap) |
@@ -269,11 +270,17 @@ anywhere else (another entity's field, a list, a union) is that handle, as
 a reference to anything the store does not hold is, so a unit named by a
 hundred bolts is written once.
 
+In a union of several records, a record's value starts with `$record` (its
+name), so the replay can tell which it is; an index is the very value the
+list's item was written as, so the capture holds one object where
+JavaScript held one.
+
 On the Rust side, with the crate's `replay` feature (it adds the harness's
 crate), the generated `from_value` and `to_value` read those values into the
 store's structs and write them back: `Replay::read_value(KIND_ORDNANCE, v)`
 makes the singleton and every entity its lists hold, and
-`Replay::write_value` gives the same values back, which `sim_replay::diff`
+`Replay::write_value` gives the same values back (`Replay::reset` starts a
+frame's state anew), which `sim_replay::diff`
 compares with a capture's, the first difference with its path. `Replay`
 maps the harness's handles to slots (a keyed kind's key is its slot; any
 other key gets the next slot of its kind) and definition handles to
