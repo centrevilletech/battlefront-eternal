@@ -1,0 +1,13 @@
+[package]
+name = "audio"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+
+# A raw WebAssembly module (no wasm-bindgen): the audio worklets instantiate
+# it with plain WebAssembly APIs, and plain Node does the same for the
+# offline comparisons. The rlib is for the native unit tests, and for a
+# native host to build the same DSP in.
+[lib]
+crate-type = ["cdylib", "rlib"]

@@ -244,6 +244,8 @@ pub struct Hull {
     pub final_offset: [f64; 3],
     /// Its pose (its rig, its seats' aim state): `pose.rs`.
     pub pose: Option<super::pose::HullPose>,
+    /// Its flight (a craft's; every hull's flight state): crate::flight.
+    pub flight: crate::flight::Flight,
 }
 
 impl Hull {
@@ -263,8 +265,8 @@ impl Hull {
         out.set_from_euler(&Euler::new(-self.tilt, self.yaw, self.roll, EulerOrder::YXZ));
     }
 
-    /// vehicles.js 970: one substep. Flight is the flight package's: a
-    /// flyer's tick is not taken here (the caller does not pass one).
+    /// vehicles.js 970: one substep. A flyer's tick is the flight
+    /// package's (crate::flight::fly, `flyer_tick`), taken at 1/60 s.
     pub fn tick<W: VehicleWorld>(&mut self, w: &mut W, dt: f64, input: &Input) {
         self.previous = self.position;
         self.previous_yaw = self.yaw;
@@ -348,7 +350,7 @@ impl Hull {
     }
 
     /// vehicles.js aimCrew: bot seats turn their aim by their analogs.
-    fn aim_crew(&mut self, dt: f64) {
+    pub(crate) fn aim_crew(&mut self, dt: f64) {
         for i in 0..self.seats.len() {
             let seat = &mut self.seats[i];
             let Some(lease) = seat.lease else { continue };
@@ -367,7 +369,7 @@ impl Hull {
     }
 
     /// vehicles.js aimPlayerSeat: the player's look is his seat's aim.
-    fn aim_player_seat(&mut self) {
+    pub(crate) fn aim_player_seat(&mut self) {
         let i = self.seat_index;
         if let Some(look_yaw) = self.seats[i].look_yaw {
             self.seats[i].aim_yaw = look_yaw;
@@ -533,8 +535,10 @@ impl Hull {
         // A walker with a death animation plays it out before it is gone.
         self.dying = self.dying_span;
         self.visible = self.dying > 0.0;
-        // (Its slot's respawn clock, its rig's visibility and its tow cable
-        // are the system's and the rig's: not a hull's tick's state.)
+        if self.flying {
+            self.flight.state = Some(crate::flight::FlightState::Destroyed);
+        }
+        // (Its slot's respawn clock is the system's: not a hull's state.)
         w.destroyed_crew(self.index);
         w.destroyed(self.index);
         // Its own tow cable lets go with it (releaseTow 'destroyed': no sound).
