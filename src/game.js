@@ -174,6 +174,9 @@ async function start() {
   });
   const streams = new RandomStreams(SEED);
   const gameplayRandom = () => streams.get("gameplay").uniform();
+  // The seats' and turrets' weapons (src/seats.js seatWeaponPolicy): a
+  // network gunner's spread, and a bot's until its seat controller binds.
+  const seatRandom = () => streams.get("seat-weapons").uniform();
   let vehicles = null, driver = null, gunner = null, turretSeats = null, vehicleEffects = null;
   let humanReticleTarget = null;
   // A correction drained: the reticle's target is worked out once, after the
@@ -1276,6 +1279,10 @@ async function start() {
     vehicles.flightAssists = settings.get('aiDifficulty') !== 'hard';
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
+    vehicles.seatRandom = seatRandom;
+    // A world's barrels kick back on the tick clock (a page's on its own):
+    // the kick moves the fire points its rounds leave from.
+    if (headless) vehicles.clock = () => simTime;
     driver.onRelease = () => { controls.clear(); worldControls.clear(); };
     driver.aimView = new VehicleCamera(simulationCamera, collision, true);
     hud.vehicles = vehicles;
@@ -1305,6 +1312,7 @@ async function start() {
   gunner.aimCamera = simulationCamera;
   gunner.random = gameplayRandom;
   turretSeats = new TurretSeats({ live, ordnance, collision, units });
+  turretSeats.seatRandom = seatRandom;
   // The destructible posts (src/objectives.js): each its post's building,
   // and a target in the units registry while it stands.
   posts.attachBuildings(live);
@@ -1824,6 +1832,8 @@ async function start() {
 
   remotes.aimCamera = simulationCamera;
   for (const system of [ordnance, items, remotes]) system.random = gameplayRandom;
+  // A thrown grenade's tumble (its orientation travels in projectile records).
+  ordnance.spinRandom = () => streams.get("grenade-spin").uniform();
 
   // The body he plays, connected to the rest of the game: the Unit and his
   // team, what his weapons reach (mines and power-ups, droids, lightning,
@@ -3490,19 +3500,23 @@ async function start() {
     frame,
     lockstep: lockstepFrame,
     // A tick of the world, for whatever runs it (the world worker, a server,
-    // a Node check). A page shows a battle and runs none.
+    // a Node check). A page shows a battle and runs none. One call is one
+    // tick, so the clock's budget (a page's pacing) has no part in it and
+    // reads no clock.
     step(command) {
       if (!headless) throw new Error("the page runs no battle: step the world worker (game.lockstep)");
       if (command.tick !== worldClock.tick + 1) throw new Error("nonconsecutive world command");
       worldClock.advance(1 / 60, (h, tick) => {
         presentation.beforeStep(); step(h, tick, command); presentation.afterStep();
-      });
+      }, false);
     },
     units,
     simEvents,
     factory,
     playerUnit,
     randomState: () => ({ ai: random.seed, game: randomB?.seed ?? null, streams: Object.fromEntries([...streams.streams].map(([name, value]) => [name, value.seed])) }),
+    // A draw function of the world's named stream (src/ai/random.js RandomStreams).
+    randomStream: (name) => () => streams.get(name).uniform(),
     get ai() {
       return ai;
     },

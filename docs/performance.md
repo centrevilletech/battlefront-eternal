@@ -410,10 +410,6 @@ they are paired runs' medians and only a guide to the laptop.
 
 ### What is left
 
-- A vehicle's barrel recoil runs on the wall clock (`clockSeconds` in
-  `src/vehicles.js`) and moves the fire points its rounds leave from, and a
-  few gameplay paths draw `Math.random` (an idle turret's turn, a missile's
-  waver): two runs of the same battle part after a minute or so.
 - A weapon's numeric fields start as small integers and become fractions as
   it fires, and a soldier gains `dead` and `gatherCaches` after it spawns;
   each change of layout deoptimizes the code that read the old one once.
@@ -952,10 +948,10 @@ boundary, so that each part of the frame can move to it on its own:
 | --- | --- | --- | --- | --- |
 | World | `world.rs` | `world.js` | near | The map's opaque buckets, those with shader hooks included |
 | Instances | `instances.rs` | `instances.js` | near | Soldiers' bodies, held guns, rigs, flying models |
-| Far | `far.rs` | `far.js` | far | The far scene: sky and its layers, low-detail buckets, far terrain, far water |
+| Far | `far.rs` | `far.js` | far | The far scene: sky and its layers, low-detail buckets, far terrain, far water, the sky's flyers |
 | Terrain | `terrain.rs` | `terrain.js` | near | The ground and its painted layers (drawn by the world pass) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | What the near scene blends, in three's order: blended buckets, holograms, flares |
-| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain |
+| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam and wake effects |
 | Foliage | `foliage.rs` | `foliage.js` | near | Nothing yet |
 | View | `view.rs` | `view.js` | view | Nothing yet (the first-person weapon) |
 | Post | `post.rs` | `post.js` | post | Nothing yet (composite, FXAA, upscale) |
@@ -1096,6 +1092,11 @@ has drawn it, with three's own program, then hidden from three:
 | Classic arc caster lightning | `lightning.js` | dynamic mesh, two passes | `external` |
 | Muzzle flashes, effects' model particles | `game.js` glowModel | models, two passes | its material |
 | Droidekas' shields | `droideka-shield.js` | shader model | its material |
+| Enhanced rain's ground mist | `weather.js` | the rain's batch, other values | its material |
+| Enhanced rain's splashes | `rain-impacts.js` | instanced quads, base plane | `external` |
+| Enhanced rain's sheets | `rain-sheets.js` | shader model, never culled | its material |
+| Enhanced steam's wisps, wake splashes | `steam-wisps.js`, `fountain-spray.js` | instanced quads, base plane, single-sided | its material |
+| Enhanced steam's volumes | `environment-volume.js` | shader model over the screen | its material |
 
 A batch's instances go into the module's memory attribute by attribute as
 the batch keeps them (an analytic batch's from the first that changed since
@@ -1107,6 +1108,15 @@ uploads a visible mesh's changed attributes as it lists it, whether or not
 its material is shown. A shader that kept a value of its own under a name the
 frame block gives the frame's (the shield's and the rain's clocks, their
 fades) has it renamed, so its program can take the frame block.
+
+A shader model calls its object's `onBeforeRender` each frame as three
+would. The steam's volumes are drawn by three into a target of their own
+there (a scene of their own, at half size), and the renderer composites
+that image where three would have; the steam's wisps, the wake splashes
+and the volumes take the scene's depth whatever the soft particle setting,
+so the pass binds it whenever something drawn reads it. The fountains' jets
+stay with three: they copy the frame drawn so far part way through the
+transparent list, and their two halves of soft spray share one target.
 
 The flying models (rounds, grenades, droids' pieces, items: `game.js`
 flyingModel, tagged `userData.flying`) are opaque and are drawn by the
@@ -1124,6 +1134,13 @@ particles a frame). In alternating lockstep frames of busy battles three's
 draws a frame fell from 71 to 62 (Bespin), 50 to 41 (Hoth) and 91 to 74
 (Kashyyyk Docks), and Graphics.render's median from 10.1 to 9.8, 9.1 to 8.3
 and 15.9 to 14.3 ms.
+
+The same check with the Enhanced environment and rain: on Kamino the rain's
+drops, mist, splashes and sheets (about 9,000 instances a frame), with soft
+particles off and on, and on Bespin, from two command posts near steam
+vents, the steam's wisps and volumes, differed in no pixel at any of the
+points. The wake splashes only show where a soldier wades in a fountain
+and were not seen in the battles checked.
 
 ### The same frame
 
@@ -1153,6 +1170,79 @@ draw or call. Against the commit before the split:
   pixels at the same points of the same seeded battles, but for a few
   hundred pixels of flickering flames on Kashyyyk Docks, which differed as
   much between two runs of the build from before.
+
+### The far scene
+
+`far.rs` and `far.js` draw the far scene (the sky dome and the models on
+its horizon, the map's low-detail buckets, the far terrain, the far water
+and the sky's flyers) in place of three's render of it. graphics.js asks
+the core to cover the far phase (`cover("far", ...)`): three's start of a
+render (the far scene's world matrices, its onBeforeRender), the phase,
+and, when the far pass drew all of the scene, three's end of one (the
+multisampled target resolved). Three renders the far scene only when the
+pass could not draw all of it.
+
+Each frame the pass walks the far scene as three's render does (what is
+shown, on the camera's layers) and finds each mesh three would draw among
+its items, registering one the first time its material has a program. An
+item is a program made from the GLSL three compiled for its material, its
+geometry and state, and where each uniform the program reads comes from: a
+fixed value, a value the page writes each frame, a texture, the camera, or
+the object's own matrices (computed as three computes them, in doubles).
+A material that reads only the frame's shared values takes them from the
+far camera's frame block; any other, such as the water's, which keeps a
+time of its own, gets a program of the Plain kind, three's GLSL as it is,
+with every uniform set by the pass. The map's buckets are culled by spatial
+cell as render-culling.js culls them, each visible run in one multi-draw;
+the terrain's cells by the frustum and the fade start as terrain-patches.js
+culls them, its visible runs in one multi-draw too; the flyers draw
+instanced from the matrices the page writes each frame. The items are
+sorted as three sorts its render lists and drawn with a uniform or a piece
+of state set only when it differs from what is set.
+
+In one battle with `?rust`, at four points of a walk, the far pass and
+three's far render drew the same lockstep frame in turn (two settle frames,
+then a captured one) on the emulator (SwiftShader, 1599x899, 4x
+multisampling). On Naboo: Theed, Tatooine: Dune Sea, Bespin: Platforms,
+Hoth: Echo Base, Kashyyyk: Docks and Geonosis: Spire the far image and the
+near scene's image over it were the same to the pixel at every point (5.75
+million pixels a map), and so were two frames three drew alone; aimed at
+the flyers on Tatooine: Dune Sea and Geonosis: Spire (a ship on screen, up
+to 108,000 pixels of it), the two were the same to the pixel too. In each
+of the far pass's frames three drew none of the far scene:
+
+| Map | Three's far draws a frame | Far pass's draws (WebGL calls) | Far scene's part of the frame, ms (p50) | Graphics.render, ms (p50) |
+| --- | --- | --- | --- | --- |
+| nab2 | 46 | 37 (152-155) | 1.12, 1.50 -> 0.61, 0.81 | 5.86, 8.25 -> 5.30, 7.30 |
+| tat1 | 22.5 | 13-16 (106-112) | 1.28, 1.13 -> 0.85, 0.81 | 8.06, 7.59 -> 7.50, 6.71 |
+| kas2 | 26 | 17-21 (119-122) | 1.23, 0.99 -> 0.79, 0.70 | 9.23, 8.80 -> 8.48, 8.28 |
+| bes1 | 14 | 14 (88) | 0.91, 0.65 -> 0.63, 0.48 | 8.47, 5.92 -> 8.43, 5.93 |
+| hot1 | 12.6 | 6 (61) | 0.70, 0.62 -> 0.62, 0.59 | 6.94, 6.52 -> 6.60, 6.64 |
+
+The times are the slow-PC emulator's (draws switched off, CPU throttled as
+the laptop runs), from lockstep frames alternating between the two in one
+battle, two runs a map: three's render of the far scene against
+`cover("far")` with all it does, the far scene's matrices and hooks and the
+target's resolve included. About half of what is left is the renderer's
+call and its WebGL calls (some 0.3 ms on Theed); the rest is the page's
+side of the pass, the far scene's own hooks (the terrain's runs for three,
+the tree canopies), three's state reset after the phase and the resolve.
+The map's far buckets whose programs read the same attributes laid out
+alike share one vertex array (their vertices in one buffer, their indices
+in one, each bucket drawn from where its own index starts), which took
+Theed's far pass from 185 WebGL calls a frame to 154.
+
+With Enhanced terrain, trees, ocean and sky, water at High, the full far
+terrain, the far view distance and 4x multisampling, the far scenes of
+Theed and Hoth were still the renderer's alone and the same to the pixel;
+on Tatooine: Dune Sea and Kamino, three drew theirs, as the pass can't draw
+everything in them yet: the Enhanced sky's flyers read a sky probe (a cube
+map), and the Enhanced ocean's storm draws lightning from vertices it
+rewrites. Water at High or Ultra and the sky probe also render the far
+scene again from cameras of their own; three draws those for now. Shadows, lamp lighting and the temporal
+upscaler need nothing of the far pass itself (its materials read neither
+shadows nor lamps, and the upscaler's jitter is in the far camera's
+projection), only the core's leave to stay on with them.
 
 ## His controls on a slow CPU
 

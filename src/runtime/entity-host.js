@@ -114,8 +114,8 @@ export function createEntityHost({ game, world, stateBytesPerSecond, epoch = 1, 
   // every other tick between turns, so capture cost and datagram bursts
   // never land for every client on the same tick. Returns everything the
   // transport must send, in send order per list.
-  function publish({ begun = performance.now(), droppedTicks = 0 } = {}) {
-    const capturedAtUnixMs = Date.now();
+  function publish({ begun = performance.now(), droppedTicks = 0, unixMs = Date.now() } = {}) {
+    const capturedAtUnixMs = unixMs;
     const packets = [], inputAcks = [], edgeResults = [], diagnostics = [], faults = [];
     let semanticRecords, semanticMotion, commonSummaries;
     let combatChanges = [];

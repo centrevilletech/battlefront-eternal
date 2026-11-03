@@ -680,9 +680,9 @@ export class Vehicle {
 
   // The spread rule a seat's weapons follow: the player's, or the AI's floor
   // (Weapon { player: false }) while a bot holds it (provisional for vehicle
-  // weapons; docs/ai-vehicles.md).
-  setSeatPolicy(i, player) {
-    for (const w of this.seats[i]?.weapons || []) seatWeaponPolicy(w.state, player);
+  // weapons; docs/ai-vehicles.md); random, their generator (seatWeaponPolicy).
+  setSeatPolicy(i, player, random = null) {
+    for (const w of this.seats[i]?.weapons || []) seatWeaponPolicy(w.state, player, random);
   }
 
   // A bot holds seat i.
@@ -1720,9 +1720,9 @@ export class Vehicle {
   }
   // Barrels kick back as they fire: BarrelRecoil along the
   // barrel's own z, times a kick that is 1 as it fires and decays at 4 a
-  // second (cosmetic, on the clock of whoever draws it).
+  // second (on the clock of whoever poses it: Vehicles.clock).
   recoilBarrels() {
-    const now = clockSeconds();
+    const now = this.system.clock();
     for (const seat of this.seats) for (const w of seat.weapons) for (const m of w.muzzles) {
       if (!m.barrel || !m.rest) continue;
       const kick = m.kickAt === undefined ? 0 : Math.max(0, 1 - 4 * (now - m.kickAt));
@@ -1742,7 +1742,7 @@ export class Vehicle {
         const d = m.fireNode.getWorldPosition(this.recoilPoint).distanceToSquared(point);
         if (d < span) { span = d; best = m; }
       }
-      if (best) best.kickAt = clockSeconds();
+      if (best) best.kickAt = this.system.clock();
     }
   }
 
@@ -1844,7 +1844,7 @@ export class Vehicle {
   muzzleOf(w, out) {
     const aimers = w.muzzles;
     const aimer = aimers.length ? aimers[w.barrel++ % aimers.length] : w.aimers[0];
-    if (aimer?.barrel) aimer.kickAt = clockSeconds();
+    if (aimer?.barrel) aimer.kickAt = this.system.clock();
     const node = aimer?.fireNode || this.byName[(aimer?.FirePointName || aimer?.node || w.def.FirePointName || '').toLowerCase()];
     this.shotNode = node || null;
     this.shotEmitter = aimer?.emitter ?? w.emitter;
@@ -1960,6 +1960,10 @@ export class Vehicles {
     this.relation = (a, b) => (this.units?.relation ? this.units.relation(a, b) : teamRelation(a, b));
     this.time = 0; // s of vehicle updates
     this.ticks = 0; // input batches so far
+    this.seatRandom = null; // () => [0, 1): the world's seat stream (seatWeaponPolicy)
+    // s: the clock barrels kick back on. A page's wall clock; a world's is
+    // its tick clock (src/game.js), as no step reads a clock of its own.
+    this.clock = clockSeconds;
     this.pendingExits = [];
     this.exitSpot = { position: new THREE.Vector3(), forward: new THREE.Vector3(), candidate: -1 };
     this.riderPoint = new THREE.Vector3();
@@ -2252,7 +2256,7 @@ export class Vehicles {
     // analog, shot into the ground in front of its target.
     seat.pitch = index === 0 && !vehicle.flying && (vehicle.base !== 'hover' || unit.networkHuman) ? -.12 : 0;
     seat.lookYaw = seat.lookPitch = null;
-    vehicle.setSeatPolicy(index, Boolean(unit.networkHuman));
+    vehicle.setSeatPolicy(index, Boolean(unit.networkHuman), this.seatRandom);
     if (!unit.networkHuman) lease.controllable = new SeatUnit(lease);
     unit.seat = lease;
     seatBody(unit);
@@ -2351,7 +2355,7 @@ export class Vehicles {
     const input = lease.input;
     input.pressed[0] = input.pressed[1] = false;
     input.reload = input.exit = false;
-    v.setSeatPolicy(index, lease.human || Boolean(lease.unit?.networkHuman));
+    v.setSeatPolicy(index, lease.human || Boolean(lease.unit?.networkHuman), lease.human ? null : this.seatRandom);
     // A new control for the AI to drive (the original game attaches the pilot
     // to the vacated control afresh).
     if (!lease.human && !lease.unit?.networkHuman) lease.controllable = new SeatUnit(lease);
