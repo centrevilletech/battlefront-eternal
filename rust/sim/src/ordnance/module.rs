@@ -147,13 +147,22 @@ pub extern "C" fn ord_args_words(which: u32) -> u32 {
 }
 
 /// ordnance.js update (a world's): every round's step, then the lists kept.
+/// Which kinds' mirrors have anything to sync: a bit a kind (beams, bolts,
+/// grenades, rounds) that has entities or retired ones; none, and nothing
+/// moved (the Ordnance's lists and `start` are as they were).
 #[no_mangle]
-pub extern "C" fn ord_update(dt: f64) {
+pub extern "C" fn ord_update(dt: f64) -> u32 {
     let (store, strings) = parts();
     let mut world = JsWorld::new(store, strings);
     // SAFETY: the module's note.
     let mut cx = unsafe { Cx::new(store, strings, defs(), &mut world) };
     cx.update(dt);
+    let s = cx.s();
+    let o = &s.ordnance;
+    u32::from(!o.beams.is_empty() || !s.beam.retired.is_empty())
+        | u32::from(!o.bolts.is_empty() || !s.bolt.retired.is_empty()) << 1
+        | u32::from(!o.grenades.is_empty() || !s.grenade.retired.is_empty()) << 2
+        | u32::from(!o.rounds.is_empty() || !s.round.retired.is_empty()) << 3
 }
 
 /// ordnance.js fireRound, its arguments (FireArgs) in the call block. The

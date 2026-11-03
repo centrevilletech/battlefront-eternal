@@ -415,7 +415,9 @@ export class SimBridge extends SimContext {
   // The memory's views, made again if it grew (a grown memory's old buffer
   // is detached: its byteLength is 0).
   views() {
-    if (this.buffer === this.memory.buffer && this.buffer.byteLength) return;
+    // (Growing the memory detaches its old buffer, whose byteLength is then
+    // 0: no need to ask the memory for its buffer while it has not grown.)
+    if (this.buffer?.byteLength) return;
     if (this.buffer) this.grown++;
     this.buffer = this.memory.buffer;
     this.f = new Float64Array(this.buffer);

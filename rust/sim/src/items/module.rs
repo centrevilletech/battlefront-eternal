@@ -72,9 +72,15 @@ fn with_cx<T>(f: impl FnOnce(&mut Cx<'_, JsWorld>) -> T) -> T {
 
 /// items.js update: every item's tick, `targets` the number of targets the
 /// battle gave (JavaScript keeps them: ItemsWorld.targets).
+/// Whether the items' mirrors have anything to sync (1: items lie about or
+/// were retired; 0: none, and the lists are as they were).
 #[no_mangle]
-pub extern "C" fn items_update(dt: f64, targets: u32) {
-    with_cx(|cx| cx.items_update(dt, targets as usize));
+pub extern "C" fn items_update(dt: f64, targets: u32) -> u32 {
+    with_cx(|cx| {
+        cx.items_update(dt, targets as usize);
+        let s = cx.s();
+        u32::from(!s.items.items.is_empty() || !s.item.retired.is_empty() || !s.items.owned.is_empty())
+    })
 }
 
 /// items.js spawn, its arguments (SpawnArgs) in the call block. The answer,

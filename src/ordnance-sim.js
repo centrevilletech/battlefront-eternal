@@ -121,8 +121,7 @@ export class OrdnanceSim {
   // ordnance.js update (a world's): the rounds' flight, then every mirror.
   update(dt) {
     this.waterKnown();
-    this.x.ord_update(dt);
-    this.refresh();
+    this.refresh(this.x.ord_update(dt));
   }
 
   // Whether the battle has water, told to the module when it changes (a
@@ -133,11 +132,14 @@ export class OrdnanceSim {
     if (has !== this.water) this.x.ord_water(0, (this.water = has) ? 1 : 0);
   }
 
-  // Every round's mirror and the lists: each kind's retired first (their
-  // last state), then the rest, then the Ordnance's lists in place.
-  refresh() {
+  // The rounds' mirrors and the lists: each kind's retired first (their
+  // last state), then the rest, then the Ordnance's lists in place. `kinds`
+  // (ord_update's answer): a bit for each kind of OWNED with anything to
+  // sync; none, and nothing changed.
+  refresh(kinds = 0xf) {
+    if (!kinds) return;
     const b = this.bridge;
-    for (const kind of OWNED) b.sync(kind);
+    for (let i = 0; i < OWNED.length; i++) if (kinds & (1 << i)) b.sync(OWNED[i]);
     b.sync(KIND_ORDNANCE, this.ordnance);
   }
 

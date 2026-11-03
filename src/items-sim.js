@@ -90,8 +90,8 @@ export class ItemsSim {
     const has = Boolean(this.items.water);
     if (has !== this.water) this.x.ord_water(1, (this.water = has) ? 1 : 0);
     this.items.world.targets = targets;
-    this.x.items_update(dt, targets.length);
-    this.refresh();
+    // (0: no item lies about and none left: nothing to sync.)
+    if (this.x.items_update(dt, targets.length)) this.refresh();
   }
 
   // A command: its arguments into the call block, the export run, the item
