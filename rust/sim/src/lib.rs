@@ -9,6 +9,8 @@
 //! - `pose`: the pose sampler of src/anim.js, src/anim-kernel.js's;
 //! - `rig`: the skeletons and rigs the world tick reads (a rider's hit
 //!   shapes, a droideka's muzzles, a hull's fire and seat nodes);
+//! - `vehicles`: the hulls' tick on the ground (src/vehicles.js but flight,
+//!   src/vehicle-hover.js);
 //! - `store` and `gen`: the entity store, its types and the code
 //!   tools/sim-schema.mjs makes from the schemas in rust/sim/schema/;
 //! - `abi`: the store's exports and the memory policy;
@@ -34,3 +36,4 @@ pub mod ordnance;
 pub mod pose;
 pub mod rig;
 pub mod store;
+pub mod vehicles;

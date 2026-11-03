@@ -219,19 +219,22 @@ test('every answer is read through views made after the call, however the module
 
 test('a hull\'s wall probes push it in the kernel as in the JavaScript', async () => {
   const { Vehicle } = await import('../src/vehicles.js');
+  const { VehiclesWorld } = await import('../src/vehicles-world.js');
   const rays = await loadRayKernel();
   const { w, bodies, shape } = world(rays);
   const wall = box(3, 0.5, 0, 30, 1, 0.4);
   w.vehicleBlockers = w.createBodyShape(wall.p, wall.i, wall.polygons);
   const rand = random(23), matrix = new THREE.Matrix4(), js = (fn) => { w.rays = null; try { return fn(); } finally { w.rays = rays; } };
-  // A stand-in hull: what pushWalls and pushOut read and write.
+  // A stand-in hull: what pushWalls reads and writes, its battle the
+  // collision world alone (src/vehicles-world.js pushes its probes).
+  const system = { collision: w };
+  system.world = new VehiclesWorld(system);
   const hull = (walking) => {
-    const h = { system: { collision: w }, probeRadius: 0.5 + rand() * 1.5, walking, previousYaw: rand() * 6, yaw: 1,
-      position: new THREE.Vector3(), velocity: new THREE.Vector3(), previous: new THREE.Vector3(),
-      point: new THREE.Vector3(), normal: new THREE.Vector3(), nearest: new THREE.Vector3(), probeStart: new THREE.Vector3(), ownStart: new THREE.Quaternion(),
+    const h = { system, probeRadius: 0.5 + rand() * 1.5, walking, previousYaw: rand() * 6, yaw: 1,
+      position: new THREE.Vector3(), velocity: new THREE.Vector3(), previous: new THREE.Vector3(), ownStart: new THREE.Quaternion(),
       probes: Array.from({ length: 6 }, (_, i) => new THREE.Vector3((i % 2 - 0.5) * 3, 0.4 + (i % 3) * 0.6, (Math.floor(i / 2) - 1) * 2.5)) };
     h.wallCaches = h.probes.map(() => w.gatherCache(0.75));
-    h.pushWalls = Vehicle.prototype.pushWalls; h.pushOut = Vehicle.prototype.pushOut;
+    h.pushWalls = Vehicle.prototype.pushWalls;
     return h;
   };
   const hulls = [hull(false), hull(true), hull(false), hull(true)];
