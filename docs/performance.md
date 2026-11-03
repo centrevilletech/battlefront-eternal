@@ -1129,9 +1129,9 @@ frame. Hiding a dynamic batch from three needs the batch's own flag: three
 uploads a visible mesh's changed attributes as it lists it, whether or not
 its material is shown. A shader that kept a value of its own under a name the
 frame block gives the frame's (the shield's, the rain's, the droideka's
-dust's, the jetpack's wake's and flame's, the destruction's and the death
-camera's trace's clocks, their fades) has it renamed, so its program can
-take the frame block.
+dust's, the jetpack's wake's and flame's, the destruction's, the death
+camera's trace's and the shock glow's clocks, their fades) has it renamed,
+so its program can take the frame block.
 
 A shader model calls its object's `onBeforeRender` each frame as three
 would. The steam's volumes are drawn by three into a target of their own
@@ -1147,6 +1147,27 @@ whichever renderer draws the jets. Their two halves of soft spray have a
 target each, so that both can be drawn before either is laid over the
 frame.
 
+The scene's depth for soft particles is copied where three would copy it.
+Three copies it once a frame, in the `onBeforeRender` of the first item of
+its transparent list that asks for it, after whatever transparent item
+ahead of it writes depth (the Enhanced water's Low and High passes come
+first in the list). So as three starts its render of the near scene, before
+it sorts it, the pass asks `particle-depth.js` for the copy before each of
+its draws whose `onBeforeRender` would take it in three's render (while
+soft particles are on, or whatever the setting for those that read the
+depth regardless). A copier, an item three draws that draws nothing, is
+placed just before the earliest of them in three's order (its centre a hair
+farther along the view than that draw's) and makes the copy there; three
+draws it, so the renderer's list splits there, as for the fountains' copy
+of the frame. The draws' own `onBeforeRender`, which the pass calls as its
+phase starts, only learn that the depth will be there. The steam's volumes
+and the fountains' soft spray render with the depth at once, in their
+`onBeforeRender`: they take a copy of their own as the phase starts, and the
+copier still makes its copy for the draws after it. A draw shown only after
+three started its render takes the copy as the phase starts. Nothing is
+placed without a request, so three alone draws as it did, and a mirror's
+render of the scene places nothing.
+
 The flying models (rounds, grenades, droids' pieces, items: `game.js`
 flyingModel, tagged `userData.flying`) are drawn by the instance pass as
 rigid records in the near phase. Their parts share their materials with
@@ -1156,7 +1177,12 @@ blends (the scrolling glow of a dropped health power-up) is an item of the
 transparent list, as a vehicle's rig that blends is (the jedi fighter's and
 the gunship's glass): the instance pass is one of the list's sources, and
 draws it with three's program for each side three draws it with, its
-blending and depth, at the place three's sort would draw it.
+blending and depth, at the place three's sort would draw it. A part made
+with a heated material (the destruction's burning pieces) takes its heat
+and its light from its object, as a dissolving body does. The arc caster's
+glow over a struck soldier, his body's buffers and skeleton drawn again in
+light, is a rig that blends too, its clock, intensity, seed, inflation and
+colour in its row (in the texels a heated body's values use).
 
 Checked on the slow-PC emulator (SwiftShader, 800x600, 2x multisampling,
 the Classic looks): at six points of a seeded battle on Bespin, Hoth and

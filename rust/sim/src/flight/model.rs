@@ -580,10 +580,10 @@ impl Hull {
             // flight.
             let impact = max(0.0, -(along.x - self.position.x) * wall.normal.x - (along.z - self.position.z) * wall.normal.z) / dt;
             if impact > t.lethal_impact_speed {
-                self.damage(w, f64::INFINITY);
+                self.damage(w, f64::INFINITY, crate::gen::OrdnanceOwner::Null);
             } else {
                 let amount = self.max_health * min(t.scrape_damage_limit, pow(impact / t.impact_damage_speed, 2.0));
-                self.damage(w, amount);
+                self.damage(w, amount, crate::gen::OrdnanceOwner::Null);
             }
             along = self.position;
         }
@@ -767,10 +767,10 @@ impl Hull {
             let velocity = self.velocity;
             self.position.add_scaled_vector(&velocity, max(0.0, contact.distance - 0.2) / max(speed, 1.0));
             if impact > t.lethal_impact_speed && impact / speed > t.lethal_impact_cosine {
-                self.damage(w, f64::INFINITY);
+                self.damage(w, f64::INFINITY, crate::gen::OrdnanceOwner::Null);
             } else {
                 let amount = self.max_health * min(t.scrape_damage_limit, pow(impact / t.impact_damage_speed, 2.0));
-                self.damage(w, amount);
+                self.damage(w, amount, crate::gen::OrdnanceOwner::Null);
                 self.velocity.add_scaled_vector(&contact.normal, impact + 2.0);
                 if self.velocity.length_sq() > 1.0 {
                     forward = Z;

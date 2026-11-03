@@ -191,7 +191,10 @@ impl<'c> VehicleWorld for Scripted<'c> {
     fn in_death_region(&mut self, _: &Vector3) -> bool {
         unreachable!()
     }
-    fn damaged(&mut self, _: usize, _: f64) {
+    fn damaged(&mut self, _: usize, _: f64, _: &bfe_sim::gen::OrdnanceOwner) {
+        unreachable!()
+    }
+    fn tow_released(&mut self, _: usize, _: &str) {
         unreachable!()
     }
     fn destroyed_crew(&mut self, _: usize) {
