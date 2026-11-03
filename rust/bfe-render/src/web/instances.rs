@@ -8,4 +8,10 @@ use wasm_bindgen::prelude::*;
 impl BfeRenderer {
     pub fn records_at(&self) -> u32 { IN_RECORDS as u32 }
     pub fn record_stride(&self) -> u32 { REC_STRIDE as u32 }
+    // A blending rig's material: three's blending (7 values), depth flags
+    // (1 test, 2 write) and function, its passes in drawing order (program,
+    // side pairs); records of KIND_BLENDED name it (REC_BLEND).
+    pub fn inst_add_blend(&mut self, blend: &[u32], depth_flags: u32, depth_func: u32, passes: &[u32]) -> u32 {
+        self.r.instances.add_blend(blend, depth_flags, depth_func, passes)
+    }
 }

@@ -690,6 +690,43 @@ test("a dissolving body's heated record, an untextured gun and a scrolling rig: 
   assert.deepEqual([...core.input.subarray(at(0) + R.EXTRA + 4, at(0) + R.EXTRA + 13)], [0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
+test("a rig that blends: a record of its own kind, its blending and passes registered, three's key for the transparent list", () => {
+  const { core, calls, scene, camera, renderer, drawn } = bridge();
+  renderer.info = { render: { frame: 0 } };
+  core.byName.instances.rigsOn = true;
+  const material = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
+  const uniforms = ["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "boneTexture", "bindMatrix", "bindMatrixInverse", "sunScale", "ambientPull", "brightness"];
+  // A double-sided ShaderMaterial: one pass, both sides (three forces one).
+  drawn(material, program(uniforms, ["position", "skinIndex", "skinWeight"], "#define DOUBLE_SIDED\nvertex"));
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("skinIndex", new THREE.BufferAttribute(new Uint16Array(12), 4));
+  geometry.setAttribute("skinWeight", new THREE.BufferAttribute(new Float32Array(12).fill(0.25), 4));
+  geometry.setIndex([0, 1, 2]);
+  const rig = new THREE.SkinnedMesh(geometry, material), bone = new THREE.Bone(), fighter = new THREE.Group();
+  rig.add(bone);
+  rig.bind(new THREE.Skeleton([bone]));
+  rig.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2);
+  rig.renderOrder = 3;
+  fighter.renderOrder = 7;
+  fighter.add(rig);
+  fighter.position.z = -10;
+  scene.add(fighter);
+  scene.updateMatrixWorld(true);
+  renderer.info.render.frame++;
+  core.pass(renderer, scene, camera);
+  const blend = calls.find((c) => c[0] === "inst_add_blend");
+  assert.ok(blend, "its material's state registered");
+  assert.deepEqual([...blend[1]], [1, 0x8006, 0x8006, 0x0302, 0x0303, 1, 0x0303], "normal blending");
+  assert.deepEqual(blend.slice(2, 4), [1, 0x0203], "depth tested, not written");
+  assert.deepEqual([...blend[4]], [0, 2], "one pass, both sides, with three's program for it");
+  assert.equal(material.visible, false, "hidden from three");
+  const at = core.recordsAt;
+  assert.equal(core.input[at], 3, "a blending rig's record");
+  assert.deepEqual([...core.input.subarray(at + 97, at + 100)], [7, 3, rig.id], "three's key: its group's order, its own, its id");
+});
+
 test("flying models: parts of tagged groups as rigid records, lit and unlit, hidden by their layers not their shared material", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
   const zero = (kind) => new THREE.ShaderMaterial({ name: `zero:${kind}`, defines: { [kind === "dynamic" ? "DYNAMIC" : "UNLIT"]: "" },
