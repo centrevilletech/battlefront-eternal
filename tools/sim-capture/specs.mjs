@@ -129,11 +129,11 @@ function rigNodes(v) {
 // nodes (each one's position, quaternion and scale, and after the frame its
 // world matrix) where the frame poses it: a ground hull that does not
 // rest (a flyer's pose is the flight package's).
-export function poseState(v, args, end) {
+export function poseState(v, args, end, force = false) {
   const dt = args[1];
   const rests = !v.alive || dt > 0 && v.sleeping && !v.repulsor && !v.occupied && !v.pose && v.health >= v.maxHealth * .35;
   const nodes = rigNodes(v), at = (node) => (node ? nodes.indexOf(node) : null);
-  const posed = !rests && !v.flying;
+  const posed = force || !rests && !v.flying;
   return {
     name: v.name, alive: v.alive, sleeping: v.sleeping, repulsor: v.repulsor, flying: v.flying, creature: v.creature, health: v.health,
     maxHealth: v.maxHealth, pose: Boolean(v.pose), legs: Boolean(v.def.fx?.legs), body: v.body,
@@ -195,8 +195,60 @@ function tetherState(game, cap) {
     hulls: [...involved].map((v) => ({ index: at(v), hull: cap.export('vehicle', v) })),
   };
 }
+// What a hull's constructor worked out beyond the store's fields: its
+// rig's nodes for its seats' turrets, aimers, muzzles and wheels (by their
+// place in rigNodes), its seats' views, its legs for a tow cable, its
+// radius, its gear and its hover's phase.
+function builtState(v, list, cap) {
+  const nodes = rigNodes(v), at = (node) => (node ? nodes.indexOf(node) : null), point = (p) => (p ? vec(p) : null);
+  return {
+    index: list.indexOf(v), slot: v.system.slots.indexOf(v.slot), name: v.name, hull: cap.export('vehicle', v),
+    radius: v.radius, hoverPhase: v.hoverPhase, pose: Boolean(v.pose), gearFoot: v.gearFoot ?? null,
+    legTop: v.legTop, legs: v.legs.map((l) => ({ name: l.name, thigh: point(l.thigh), calf: point(l.calf), foot: point(l.foot) })),
+    wheels: v.wheels.map((w) => ({ bone: at(w.bone), axis: vec(w.axis), x: w.x, radius: w.radius })),
+    seats: v.seats.map((seat) => ({
+      eye: vec(seat.view.eye), pivot: vec(seat.view.pivot), up: vec(seat.view.up), yawFactor: seat.view.yawFactor, pitchFactor: seat.view.pitchFactor,
+      turnRate: seat.view.turnRate, turret: at(seat.view.turret), rider: seat.view.rider ? { ...seat.view.rider, node: at(seat.view.rider.node) } : null,
+      weapons: seat.weapons.map((w) => ({
+        aimers: w.aimers.map((a) => ({ bone: at(a.bone), owner: a.owner, yawRate: a.yawRate, pitchRate: a.pitchRate, yawLimits: [...a.yawLimits], pitchLimits: [...a.pitchLimits],
+          wrapYaw: a.wrapYaw })),
+        muzzles: w.muzzles.map((m) => ({ fire: at(m.fireNode), aimer: m.sourceAimer ? w.aimers.indexOf(m.sourceAimer) : null, barrel: at(m.barrel), rest: m.rest ? vec(m.rest) : null,
+          recoil: m.recoil ?? null })),
+      })),
+    })),
+  };
+}
+// The spawn pads as Vehicles.updateSpawns reads and writes them: each
+// slot's clock, its hull and the hulls made for it by class; the command
+// posts' teams; the page's player on a pad (spawnOccupant); every hull as
+// the store holds it. `made`: each hull made since the capture last said,
+// with what its constructor worked out (all of them the first time).
+const reported = new WeakMap(); // game -> the hulls said
+function spawnState(game, cap) {
+  const vs = game.vehicles, list = vs.vehicles, at = (v) => (v ? list.indexOf(v) : null);
+  let said = reported.get(game);
+  if (!said) reported.set(game, said = new WeakSet());
+  const made = list.filter((v) => !said.has(v));
+  for (const v of made) said.add(v);
+  return {
+    slots: vs.slots.map((s) => ({ remaining: s.remaining, vehicle: at(s.vehicle), variants: [...s.variants].map(([name, v]) => [name, at(v)]) })),
+    posts: vs.posts?.posts.map((p) => ({ name: p.desc.name.toLowerCase(), team: p.team })) ?? null,
+    occupant: vs.spawnOccupant ? vec(vs.spawnOccupant) : null,
+    hulls: list.map((v) => cap.export('vehicle', v)),
+    made: made.map((v) => builtState(v, list, cap)),
+  };
+}
+// A hull's spawn (Vehicle.spawn): the hull and its pose (its rig's nodes
+// whatever it last showed, and after it the pose it renders at once).
+const spawnFrame = () => {
+  let entering = true;
+  return { method: 'vehicle.spawn', target: hullPrototype, boundaries: hullBoundaries,
+    state: (game, args, cap, self) => { const end = !entering; entering = !entering; return { hull: cap.export('vehicle', self), pose: poseState(self, [1, 0], end, true), team: self.team ?? null }; } };
+};
 const vehicles = {
   frames: [
+    { method: 'vehicles.updateSpawns', target: (game) => game.vehicles ?? null, state: (game, args, cap) => spawnState(game, cap), boundaries: hullBoundaries },
+    spawnFrame(),
     poseFrame('vehicle.aimTick'),
     poseFrame('vehicle.render'),
     { method: 'vehicles.updateTethers', target: (game) => game.vehicles ?? null, state: (game, args, cap) => tetherState(game, cap), boundaries: hullBoundaries },

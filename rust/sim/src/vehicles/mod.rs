@@ -26,6 +26,7 @@
 //! rust/v8math); Math.min, max, hypot and sign from rust/v8math; three.js's
 //! vectors and quaternions from rust/three, operation by operation.
 
+pub mod build;
 pub mod class;
 pub mod hover;
 pub mod hull;

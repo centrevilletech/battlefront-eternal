@@ -648,3 +648,267 @@ fn tow_cables_as_captured() {
     eprintln!("{}\n  with a cable held: {held}", report.summary());
     report.assert_clean();
 }
+
+/// Differences found comparing a capture's values with the port's, by path.
+struct Cmp {
+    found: Vec<String>,
+}
+
+impl Cmp {
+    fn num(&mut self, path: &str, cap: V, mine: f64) {
+        match cap.opt_num() {
+            Some(x) if same_number(x, mine) => {}
+            _ => self.found.push(format!("{path}: {} | {mine:?}", cap.show())),
+        }
+    }
+    fn opt_num(&mut self, path: &str, cap: V, mine: Option<f64>) {
+        match mine {
+            None if cap.is_nullish() => {}
+            Some(m) => self.num(path, cap, m),
+            None => self.found.push(format!("{path}: {} | null", cap.show())),
+        }
+    }
+    fn bool(&mut self, path: &str, cap: V, mine: bool) {
+        if cap.opt_bool() != Some(mine) {
+            self.found.push(format!("{path}: {} | {mine}", cap.show()));
+        }
+    }
+    fn vec(&mut self, path: &str, cap: V, mine: &Vector3) {
+        match cap.vec3() {
+            Some(a) if same_number(a[0], mine.x) && same_number(a[1], mine.y) && same_number(a[2], mine.z) => {}
+            _ => self.found.push(format!("{path}: {} | {:?}", cap.show(), [mine.x, mine.y, mine.z])),
+        }
+    }
+    fn opt_vec(&mut self, path: &str, cap: V, mine: Option<&Vector3>) {
+        match mine {
+            None if cap.is_nullish() => {}
+            Some(m) => self.vec(path, cap, m),
+            None => self.found.push(format!("{path}: {} | null", cap.show())),
+        }
+    }
+    fn arr(&mut self, path: &str, cap: V, mine: &[f64]) {
+        if cap.len() != mine.len() {
+            self.found.push(format!("{path}: {} | {mine:?}", cap.show()));
+            return;
+        }
+        for (i, &m) in mine.iter().enumerate() {
+            self.num(&format!("{path}[{i}]"), cap.at(i), m);
+        }
+    }
+    fn node(&mut self, path: &str, cap: V, mine: Option<three::NodeId>) {
+        let c = cap.opt_num();
+        if c != mine.map(|n| n as f64) {
+            self.found.push(format!("{path}: {} | {mine:?}", cap.show()));
+        }
+    }
+    fn str(&mut self, path: &str, cap: V, mine: &str) {
+        if cap.str() != Some(mine) {
+            self.found.push(format!("{path}: {} | {mine:?}", cap.show()));
+        }
+    }
+}
+
+/// A hull's spawn slot's matrix (`data.spawns[slot].matrix`).
+fn slot_matrix(content: &bfe_content::content::Content, slot: usize) -> [f64; 16] {
+    let spawns = content.battle.vehicle_def.as_ref().and_then(|d| d.get("spawns")).and_then(|s| s.as_array()).expect("the battle's spawn slots");
+    let m = spawns[slot].get("matrix").and_then(|m| m.as_array()).expect("a slot's matrix");
+    std::array::from_fn(|i| m[i].as_f64().unwrap_or(f64::NAN))
+}
+
+/// The hull hull `made` names, made from the content as the constructor makes it.
+fn built_from(content: &bfe_content::content::Content, made: V) -> (Hull, bfe_sim::vehicles::build::HullExtras) {
+    use bfe_sim::vehicles::build::{build, HullSource};
+    let name = made.get("name").str().expect("a hull's class");
+    let data = content.battle.vehicle_def.as_ref().expect("the battle's hulls");
+    let def = data.get("classes").and_then(|c| c.get(name)).expect("the hull's class in the content");
+    let model = def.get("model").and_then(|m| m.as_str()).expect("a class's model");
+    let template = content.vehicle_templates.iter().find(|t| t.name == model).expect("the class's model's template");
+    let matrix = slot_matrix(content, made.get("slot").num() as usize);
+    let src = HullSource { name, def, template, slot_matrix: &matrix };
+    build(&src, made.get("index").num() as usize, Default::default(), body_of(made.get("hull").get("body")))
+}
+
+/// What the constructor worked out, compared: the store's fixed fields,
+/// the pose's, and the rest (builtState).
+fn compare_built(c: &mut Cmp, made: V, hull: &Hull, extras: &bfe_sim::vehicles::build::HullExtras) {
+    let h = made.get("hull");
+    c.str("name", h.get("name"), made.get("name").str().unwrap_or("?"));
+    for (k, mine) in [("flying", hull.flying), ("walking", hull.walking), ("creature", hull.creature), ("wheeled", hull.wheeled), ("repulsor", hull.repulsor)] {
+        c.bool(k, h.get(k), mine);
+    }
+    for (k, mine) in [
+        ("speed", hull.speed),
+        ("reverseSpeed", hull.reverse_speed),
+        ("strafeSpeed", hull.strafe_speed),
+        ("acceleration", hull.acceleration),
+        ("deceleration", hull.deceleration),
+        ("turnRate", hull.turn_rate),
+        ("hover", hull.hover),
+        ("boundRadius", hull.bound_radius),
+        ("probeRadius", hull.probe_radius),
+        ("maxHealth", hull.max_health),
+        ("waterDepth", hull.water_depth),
+    ] {
+        // A flyer's speed and turn rate are its flight's, from its first
+        // spawn on (flight/model.js initFlight): the constructor's are 0.
+        if hull.flying && (k == "speed" || k == "turnRate") {
+            continue;
+        }
+        c.num(k, h.get(k), mine);
+    }
+    for (k, mine) in [("boundsMin", &hull.bounds_min), ("boundsMax", &hull.bounds_max), ("center", &hull.center), ("size", &hull.size)] {
+        c.vec(k, h.get(k), mine);
+    }
+    for (k, mine) in [("probes", &hull.probes), ("supportProbes", &hull.support_probes)] {
+        if h.get(k).len() != mine.len() {
+            c.found.push(format!("{k}: {} | {} probes", h.get(k).len(), mine.len()));
+        } else {
+            for (i, p) in mine.iter().enumerate() {
+                c.vec(&format!("{k}[{i}]"), h.get(k).at(i), p);
+            }
+        }
+    }
+    match (&hull.water_rule, h.get("waterRule").is_null()) {
+        (None, true) => {}
+        (Some(r), false) => {
+            c.num("waterRule.interval", h.get("waterRule").get("interval"), r.interval);
+            c.num("waterRule.amount", h.get("waterRule").get("amount"), r.amount);
+        }
+        (mine, _) => c.found.push(format!("waterRule: {} | {mine:?}", h.get("waterRule").show())),
+    }
+    // The wheels and seats as the store holds them, then as the pose does.
+    let pose = hull.pose.as_ref().expect("a built hull's pose");
+    if h.get("wheels").len() != hull.wheels.len() || made.get("wheels").len() != hull.wheels.len() {
+        c.found.push(format!("wheels: {} | {}", h.get("wheels").len(), hull.wheels.len()));
+    } else {
+        for (i, w) in hull.wheels.iter().enumerate() {
+            c.num(&format!("wheels[{i}].x"), h.get("wheels").at(i).get("x"), w.x);
+            c.num(&format!("wheels[{i}].radius"), h.get("wheels").at(i).get("radius"), w.radius);
+            let b = made.get("wheels").at(i);
+            c.node(&format!("wheels[{i}].bone"), b.get("bone"), pose.wheel_bones[i].0);
+            c.vec(&format!("wheels[{i}].axis"), b.get("axis"), &pose.wheel_bones[i].1);
+        }
+    }
+    if h.get("seats").len() != hull.seats.len() || made.get("seats").len() != hull.seats.len() {
+        c.found.push(format!("seats: {} | {}", h.get("seats").len(), hull.seats.len()));
+        return;
+    }
+    for (i, seat) in hull.seats.iter().enumerate() {
+        let s = h.get("seats").at(i);
+        c.arr(&format!("seats[{i}].pitchLimits"), s.get("pitchLimits"), &seat.pitch_limits);
+        match seat.yaw_limits {
+            None if s.get("yawLimits").is_null() => {}
+            Some(y) => c.arr(&format!("seats[{i}].yawLimits"), s.get("yawLimits"), &y),
+            None => c.found.push(format!("seats[{i}].yawLimits: {} | null", s.get("yawLimits").show())),
+        }
+        c.bool(&format!("seats[{i}].wrapYaw"), s.get("wrapYaw"), seat.wrap_yaw);
+        let b = made.get("seats").at(i);
+        let p = &pose.seats[i];
+        let path = format!("seats[{i}]");
+        c.vec(&format!("{path}.eye"), b.get("eye"), &p.eye);
+        c.vec(&format!("{path}.pivot"), b.get("pivot"), &p.pivot);
+        c.vec(&format!("{path}.up"), b.get("up"), &p.up);
+        c.num(&format!("{path}.yawFactor"), b.get("yawFactor"), p.yaw_factor);
+        c.num(&format!("{path}.pitchFactor"), b.get("pitchFactor"), p.pitch_factor);
+        c.num(&format!("{path}.turnRate"), b.get("turnRate"), extras.seat_turn_rates[i]);
+        c.node(&format!("{path}.turret"), b.get("turret"), p.turret);
+        let rider = pose.rig.seats[i].rider.as_ref();
+        match (rider, b.get("rider").is_null()) {
+            (None, true) => {}
+            (Some(r), false) => {
+                let cr = b.get("rider");
+                c.str(&format!("{path}.rider.anim"), cr.get("anim"), &r.anim);
+                c.str(&format!("{path}.rider.clip"), cr.get("clip"), &r.clip);
+                c.bool(&format!("{path}.rider.ninePose"), cr.get("ninePose"), r.nine_pose);
+                c.node(&format!("{path}.rider.node"), cr.get("node"), r.node);
+                c.bool(&format!("{path}.rider.shootable"), cr.get("shootable"), r.shootable);
+            }
+            (mine, _) => c.found.push(format!("{path}.rider: {} | {mine:?}", b.get("rider").show())),
+        }
+        if b.get("weapons").len() != p.weapons.len() {
+            c.found.push(format!("{path}.weapons: {} | {}", b.get("weapons").len(), p.weapons.len()));
+            continue;
+        }
+        for (w, weapon) in p.weapons.iter().enumerate() {
+            let cw = b.get("weapons").at(w);
+            let wp = format!("{path}.weapons[{w}]");
+            if cw.get("aimers").len() != weapon.aimers.len() || cw.get("muzzles").len() != weapon.muzzles.len() {
+                c.found.push(format!("{wp}: {} aimers {} muzzles | {} {}", cw.get("aimers").len(), cw.get("muzzles").len(), weapon.aimers.len(), weapon.muzzles.len()));
+                continue;
+            }
+            for (a, aimer) in weapon.aimers.iter().enumerate() {
+                let ca = cw.get("aimers").at(a);
+                let ap = format!("{wp}.aimers[{a}]");
+                c.node(&format!("{ap}.bone"), ca.get("bone"), aimer.bone);
+                c.num(&format!("{ap}.owner"), ca.get("owner"), aimer.owner as f64);
+                c.num(&format!("{ap}.yawRate"), ca.get("yawRate"), aimer.yaw_rate);
+                c.num(&format!("{ap}.pitchRate"), ca.get("pitchRate"), aimer.pitch_rate);
+                c.arr(&format!("{ap}.yawLimits"), ca.get("yawLimits"), &aimer.yaw_limits);
+                c.arr(&format!("{ap}.pitchLimits"), ca.get("pitchLimits"), &aimer.pitch_limits);
+                c.bool(&format!("{ap}.wrapYaw"), ca.get("wrapYaw"), aimer.wrap_yaw);
+            }
+            let rig_weapon = &pose.rig.seats[i].weapons[w];
+            for (m, muzzle) in weapon.muzzles.iter().enumerate() {
+                let cm = cw.get("muzzles").at(m);
+                let mp = format!("{wp}.muzzles[{m}]");
+                c.node(&format!("{mp}.fire"), cm.get("fire"), Some(rig_weapon.muzzles[m].fire_node));
+                c.opt_num(&format!("{mp}.aimer"), cm.get("aimer"), rig_weapon.muzzles[m].source_aimer.map(|a| a as f64));
+                c.node(&format!("{mp}.barrel"), cm.get("barrel"), muzzle.barrel);
+                c.opt_vec(&format!("{mp}.rest"), cm.get("rest"), muzzle.rest.as_ref());
+                c.opt_num(&format!("{mp}.recoil"), cm.get("recoil"), muzzle.recoil);
+            }
+        }
+    }
+    c.num("radius", made.get("radius"), extras.radius);
+    c.num("hoverPhase", made.get("hoverPhase"), pose.hover_phase);
+    c.bool("pose", made.get("pose"), pose.has_pose);
+    c.opt_num("gearFoot", made.get("gearFoot"), extras.gear_foot);
+    c.num("legTop", made.get("legTop"), extras.leg_top);
+    if made.get("legs").len() != extras.legs.len() {
+        c.found.push(format!("legs: {} | {:?}", made.get("legs").show(), extras.legs));
+    } else {
+        for (i, leg) in extras.legs.iter().enumerate() {
+            let l = made.get("legs").at(i);
+            c.str(&format!("legs[{i}].name"), l.get("name"), &leg.name);
+            c.opt_vec(&format!("legs[{i}].thigh"), l.get("thigh"), leg.thigh.as_ref());
+            c.opt_vec(&format!("legs[{i}].calf"), l.get("calf"), leg.calf.as_ref());
+            c.opt_vec(&format!("legs[{i}].foot"), l.get("foot"), leg.foot.as_ref());
+        }
+    }
+}
+
+#[test]
+fn hulls_built_as_captured() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    if std::env::var_os("BFE_CONTENT_DIR").is_none() {
+        return;
+    }
+    let mut battles = Battles::new();
+    let mut built = 0usize;
+    let mut classes: std::collections::BTreeSet<String> = Default::default();
+    let report = replay_corpus(&corpus, "vehicles.updateSpawns", |capture, frame| {
+        let (content, _) = battles.of(capture);
+        let mut c = Cmp { found: Vec::new() };
+        for state in [frame.before(), frame.after()] {
+            for made in state.get("made").items() {
+                let (hull, extras) = built_from(content, made);
+                let before = c.found.len();
+                compare_built(&mut c, made, &hull, &extras);
+                if c.found.len() > before {
+                    let name = made.get("name").str().unwrap_or("?").to_string();
+                    c.found.insert(before, format!("hull {} ({name})", made.get("index").num()));
+                }
+                built += 1;
+                classes.insert(made.get("name").str().unwrap_or("?").to_string());
+            }
+        }
+        if c.found.is_empty() {
+            Outcome::Same
+        } else {
+            Outcome::Failed(format!("{}: {}", frame.place(), c.found.join("; ")))
+        }
+    })
+    .unwrap();
+    eprintln!("{}\n  hulls built: {built}, classes: {}", report.summary(), classes.len());
+    report.assert_clean();
+}
