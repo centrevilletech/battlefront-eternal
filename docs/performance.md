@@ -947,11 +947,11 @@ boundary, so that each part of the frame can move to it on its own:
 | Pass | Rust (`rust/bfe-render/src`) | Page (`src/rust-render`) | Phase | Draws |
 | --- | --- | --- | --- | --- |
 | World | `world.rs` | `world.js` | near | The map's opaque buckets |
-| Instances | `instances.rs` | `instances.js` | near | Soldiers' bodies, held guns, rigs |
+| Instances | `instances.rs` | `instances.js` | near | Soldiers' bodies, held guns, rigs, flying models |
 | Far | `far.rs` | `far.js` | far | Nothing yet (the far scene) |
 | Terrain | `terrain.rs` | `terrain.js` | near | Nothing yet (terrain patches and painted layers) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | Nothing yet (what the near scene blends) |
-| Effects | `effects.rs` | `effects.js` | transparent | Nothing yet (bolts, flashes, particles, debris, lightning) |
+| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain |
 | Foliage | `foliage.rs` | `foliage.js` | near | Nothing yet |
 | View | `view.rs` | `view.js` | view | Nothing yet (the first-person weapon) |
 | Post | `post.rs` | `post.js` | post | Nothing yet (composite, FXAA, upscale) |
@@ -980,6 +980,57 @@ views of the module's memory (`addView`), made again whenever the memory
 grows. A pass that must draw at a point inside three's render lists, such as
 the start of the transparent list, can put an anchor there (`anchor`): a
 mesh three draws with no fragments whose `onAfterRender` calls back.
+
+### The effects
+
+The battle's effects are drawn by the effects pass as items of the near
+scene's transparent list (`transparent.rs`'s `Source`): each frame the page
+writes each draw with the key three would have sorted it by (group order,
+render order, the centre of its bounding sphere through its world matrix,
+its id), and the renderer works out z as three's `projectObject` does and
+draws the item between the items three still draws, where three would have.
+Their simulation stays in the page. Each is registered the first time three
+has drawn it, with three's own program, then hidden from three:
+
+| What | Page | Kind | Hidden from three by |
+| --- | --- | --- | --- |
+| Particle batches (Classic bolts and their glow, effects' CPU particles) | `particles.js` | instanced quads | `external` (shown and uploaded nothing) |
+| Analytic particles (placed in the vertex shader) | `effects-gpu.js` | instanced quads, emitters texture | `external` |
+| Enhanced bolts | `blaster-bolts.js` | instanced capsules | `external` |
+| Haze (dust, FogCloud) | `atmosphere.js` | instanced quads | `external` |
+| Snow | `snow.js` | instanced quads, data textures | its material |
+| Rain | `weather.js` | instanced streaks, base plane | its material |
+| Classic arc caster lightning | `lightning.js` | dynamic mesh, two passes | `external` |
+| Muzzle flashes, effects' model particles | `game.js` glowModel | models, two passes | its material |
+| Droidekas' shields | `droideka-shield.js` | shader model | its material |
+
+A batch's instances go into the module's memory attribute by attribute as
+the batch keeps them (an analytic batch's from the first that changed since
+it was last read; fixed ones once), and the renderer interleaves them into
+a vertex buffer of the batch's own with one upload. Three would upload each
+attribute of each batch, and every vertex of the lightning's buffers, every
+frame. Hiding a dynamic batch from three needs the batch's own flag: three
+uploads a visible mesh's changed attributes as it lists it, whether or not
+its material is shown. A shader that kept a value of its own under a name the
+frame block gives the frame's (the shield's and the rain's clocks, their
+fades) has it renamed, so its program can take the frame block.
+
+The flying models (rounds, grenades, droids' pieces, items: `game.js`
+flyingModel, tagged `userData.flying`) are opaque and are drawn by the
+instance pass as rigid records in the near phase. Their parts share their
+materials with every copy of their model, so a part the renderer draws is
+hidden from three by its layers (layer 30) rather than by its material.
+
+Checked on the slow-PC emulator (SwiftShader, 800x600, 2x multisampling,
+the Classic looks): at six points of a seeded battle on Bespin, Hoth and
+Kashyyyk Docks, walking and firing, the same frame drawn again with the
+effects pass on and off (the rest of the Rust renderer on), and with the
+whole renderer on and off, differed in no pixel, while the effects drew
+hundreds to tens of thousands of them (up to 38 effect draws and 1,956
+particles a frame). In alternating lockstep frames of busy battles three's
+draws a frame fell from 71 to 62 (Bespin), 50 to 41 (Hoth) and 91 to 74
+(Kashyyyk Docks), and Graphics.render's median from 10.1 to 9.8, 9.1 to 8.3
+and 15.9 to 14.3 ms.
 
 ### The same frame
 
