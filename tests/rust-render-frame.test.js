@@ -58,6 +58,18 @@ function bridge() {
     hud_tint_ptr() { return 524288; }
     hud_tint_len() { return 64 * 4; }
     hud_init(index) { calls.push(["hud_init", index.length]); }
+    // The transparent pass's memory and the effects pass's (transparent.rs, effects.rs).
+    transparent_keys_ptr() { return 589824; }
+    transparent_keys_len() { return 64; }
+    transparent_segments_ptr() { return 655360; }
+    transparent_segments_len() { return 2; }
+    transparent_bucket_shown() {}
+    fx_input_ptr() { return 720896; }
+    fx_input_len() { return 600; }
+    fx_data_ptr() { return 786432; }
+    fx_data_len() { return 2048; }
+    fx_matrices_ptr() { return 851968; }
+    fx_matrices_len() { return 512; }
   }
   for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame", "hud_frame", "mirror_frame"]) BfeRenderer.prototype[name] = entry(name);
   const gl = {
