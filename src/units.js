@@ -825,7 +825,9 @@ export class UnitFactory {
     const unit = new Unit({ side: sideName, className, def, actor, soldier, animator, walker,
       combat: null, presentation: new (c.headless ? HeadlessSoldierPresentation : SoldierPresentation)(soldier) });
     unit.navRadius = Math.fround(0.25 * Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z));
-    const combat = new PlayerCombat({
+    // A world's combats on the simulation's module (src/combat-sim.js), where
+    // it asked for them: the same shape, its state the store's.
+    const combat = (c.combatSim ? c.combatSim.make.bind(c.combatSim) : (options) => new PlayerCombat(options))({
       soldier, def, actor, animator,
       collision: c.collision,
       camera: null,
@@ -906,6 +908,8 @@ export class UnitFactory {
       },
     };
     c.units.add(unit);
+    // (A combat on the module is the store's from now on: it has his id.)
+    combat.attach?.();
     this.built.push(unit);
     c.onBuilt?.(unit);
     return unit;

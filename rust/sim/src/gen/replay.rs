@@ -918,6 +918,7 @@ impl CbLockOn {
             eye: { let p = format!("{path}.eye"); vec3(v.get("eye"), &p)? },
             dir: { let p = format!("{path}.dir"); vec3(v.get("dir"), &p)? },
             weapon: { let p = format!("{path}.weapon"); num(v.get("weapon"), &p)? },
+            level: { let p = format!("{path}.level"); num(v.get("level"), &p)? },
             current: { let p = format!("{path}.current"); match v.get("current").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(RepairTarget::from_value(v.get("current"), cx, &p)?) } },
             held: { let p = format!("{path}.held"); boolean(v.get("held"), &p)? },
             team: { let p = format!("{path}.team"); num(v.get("team"), &p)? },
@@ -926,11 +927,12 @@ impl CbLockOn {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(7);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(8);
         { let x = Value::Num(self.unit); fields.push(("unit", x)); }
         { let x = a.vec3(self.eye); fields.push(("eye", x)); }
         { let x = a.vec3(self.dir); fields.push(("dir", x)); }
         { let x = Value::Num(self.weapon); fields.push(("weapon", x)); }
+        { let x = Value::Num(self.level); fields.push(("level", x)); }
         { let x = match &self.current { Some(v) => (*v).to_value(cx, a), None => Value::Null }; fields.push(("current", x)); }
         { let x = Value::Bool(self.held); fields.push(("held", x)); }
         { let x = Value::Num(self.team); fields.push(("team", x)); }
@@ -950,6 +952,25 @@ impl CbTarget {
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
         let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = match &self.target { Some(v) => (*v).to_value(cx, a), None => Value::Null }; fields.push(("target", x)); }
+        a.object("", fields)
+    }
+}
+
+impl CbLockKey {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(CbLockKey {
+            unit: { let p = format!("{path}.unit"); num(v.get("unit"), &p)? },
+            target: { let p = format!("{path}.target"); match v.get("target").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(RepairTarget::from_value(v.get("target"), cx, &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.unit); fields.push(("unit", x)); }
         { let x = match &self.target { Some(v) => (*v).to_value(cx, a), None => Value::Null }; fields.push(("target", x)); }
         a.object("", fields)
     }
@@ -985,6 +1006,10 @@ impl CbLockPick {
         Ok(CbLockPick {
             unit: { let p = format!("{path}.unit"); num(v.get("unit"), &p)? },
             weapon: { let p = format!("{path}.weapon"); num(v.get("weapon"), &p)? },
+            level: { let p = format!("{path}.level"); num(v.get("level"), &p)? },
+            lock_complete: { let p = format!("{path}.lockComplete"); boolean(v.get("lockComplete"), &p)? },
+            lock_target_id: { let p = format!("{path}.lockTargetId"); num(v.get("lockTargetId"), &p)? },
+            lock_generation: { let p = format!("{path}.lockGeneration"); num(v.get("lockGeneration"), &p)? },
             origin: { let p = format!("{path}.origin"); vec3(v.get("origin"), &p)? },
             dir: { let p = format!("{path}.dir"); vec3(v.get("dir"), &p)? },
         })
@@ -992,9 +1017,13 @@ impl CbLockPick {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(8);
         { let x = Value::Num(self.unit); fields.push(("unit", x)); }
         { let x = Value::Num(self.weapon); fields.push(("weapon", x)); }
+        { let x = Value::Num(self.level); fields.push(("level", x)); }
+        { let x = Value::Bool(self.lock_complete); fields.push(("lockComplete", x)); }
+        { let x = Value::Num(self.lock_target_id); fields.push(("lockTargetId", x)); }
+        { let x = Value::Num(self.lock_generation); fields.push(("lockGeneration", x)); }
         { let x = a.vec3(self.origin); fields.push(("origin", x)); }
         { let x = a.vec3(self.dir); fields.push(("dir", x)); }
         a.object("", fields)
@@ -1339,15 +1368,17 @@ impl CbShield {
         Ok(CbShield {
             unit: { let p = format!("{path}.unit"); num(v.get("unit"), &p)? },
             taken: { let p = format!("{path}.taken"); num(v.get("taken"), &p)? },
+            left: { let p = format!("{path}.left"); num(v.get("left"), &p)? },
             explosion: { let p = format!("{path}.explosion"); boolean(v.get("explosion"), &p)? },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
         { let x = Value::Num(self.unit); fields.push(("unit", x)); }
         { let x = Value::Num(self.taken); fields.push(("taken", x)); }
+        { let x = Value::Num(self.left); fields.push(("left", x)); }
         { let x = Value::Bool(self.explosion); fields.push(("explosion", x)); }
         a.object("", fields)
     }

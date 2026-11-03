@@ -232,10 +232,13 @@ export default {
     CbDroid: { found: 'bool', droid: 'f64' },
     CbDroidCall: { unit: 'f64', droid: 'f64' },
     CbLaunch: { unit: 'f64', weapon: 'f64', origin: 'vec3', velocity: 'vec3', yaw: 'f64', team: 'f64', admission: 'f64|undefined' },
-    CbLockOn: { unit: 'f64', eye: 'vec3', dir: 'vec3', weapon: 'f64', current: 'union:RepairTarget|null', held: 'bool', team: 'f64' },
+    // (A weapon's level and lock as they are now, which its mirror may not
+    // have yet.)
+    CbLockOn: { unit: 'f64', eye: 'vec3', dir: 'vec3', weapon: 'f64', level: 'f64', current: 'union:RepairTarget|null', held: 'bool', team: 'f64' },
     CbTarget: { target: 'union:RepairTarget|null' },
+    CbLockKey: { unit: 'f64', target: 'union:RepairTarget|null' },
     CbRepair: { unit: 'f64', weapon: 'f64', target: 'union:RepairTarget|null', team: 'f64' },
-    CbLockPick: { unit: 'f64', weapon: 'f64', origin: 'vec3', dir: 'vec3' },
+    CbLockPick: { unit: 'f64', weapon: 'f64', level: 'f64', lockComplete: 'bool', lockTargetId: 'f64', lockGeneration: 'f64', origin: 'vec3', dir: 'vec3' },
     // What a launcher's lock picks: 0 nothing to look with, 1 nothing in
     // reach, 2 a unit.
     CbPick: { pick: 'f64', id: 'f64', generation: 'f64', alive: 'bool' },
@@ -259,7 +262,9 @@ export default {
     CbGun: { found: 'bool', point: 'vec3', gun: 'f64', hasLast: 'bool', lastIndex: 'f64', lastBarrel: 'f64' },
     CbGunAt: { unit: 'f64', index: 'f64', barrel: 'f64' },
     CbPoint: { found: 'bool', point: 'vec3' },
-    CbShield: { unit: 'f64', taken: 'f64', explosion: 'bool' },
+    // A droideka's shield took a hit: its value after it, which its hook
+    // finds there (the shield goes down after the hook).
+    CbShield: { unit: 'f64', taken: 'f64', left: 'f64', explosion: 'bool' },
   },
 
   imports: {
@@ -271,7 +276,7 @@ export default {
     combatRemoteKill: { args: 'CbDroidCall', result: null },
     combatRemoteLaunch: { args: 'CbLaunch', result: null },
     combatLockOn: { args: 'CbLockOn', result: 'CbTarget' },
-    combatLockKey: { args: 'CbTarget', result: 'CbText' },
+    combatLockKey: { args: 'CbLockKey', result: 'CbText' },
     combatRepair: { args: 'CbRepair', result: 'CbFlag' },
     combatLockPick: { args: 'CbLockPick', result: 'CbPick' },
     combatFireRound: { args: 'CbFire', result: null },

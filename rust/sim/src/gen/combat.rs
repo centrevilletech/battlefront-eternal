@@ -1101,35 +1101,38 @@ pub struct CbLockOn {
     pub eye: Vec3,
     pub dir: Vec3,
     pub weapon: f64,
+    pub level: f64,
     pub current: Option<RepairTarget>,
     pub held: bool,
     pub team: f64,
 }
 
 impl CbLockOn {
-    pub const WORDS: usize = 14;
+    pub const WORDS: usize = 15;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 14] = (&mut row[..14]).try_into().unwrap();
+        let row: &mut [f64; 15] = (&mut row[..15]).try_into().unwrap();
         row[0] = self.unit;
         row[1..1 + 3].copy_from_slice(&self.eye);
         row[4..4 + 3].copy_from_slice(&self.dir);
         row[7] = self.weapon;
-        match &self.current { Some(v) => { row[8] = 0.0; (*v).put(&mut row[8 + 1..8 + 1 + 3], heap); } None => { row[8] = 1.0; row[8 + 1..8 + 4].fill(0.0); } }
-        row[12] = if self.held { 1.0 } else { 0.0 };
-        row[13] = self.team;
+        row[8] = self.level;
+        match &self.current { Some(v) => { row[9] = 0.0; (*v).put(&mut row[9 + 1..9 + 1 + 3], heap); } None => { row[9] = 1.0; row[9 + 1..9 + 4].fill(0.0); } }
+        row[13] = if self.held { 1.0 } else { 0.0 };
+        row[14] = self.team;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 14] = (&row[..14]).try_into().unwrap();
+        let row: &[f64; 15] = (&row[..15]).try_into().unwrap();
         Self {
             unit: row[0],
             eye: [row[1], row[1 + 1], row[1 + 2]],
             dir: [row[4], row[4 + 1], row[4 + 2]],
             weapon: row[7],
-            current: if row[8] == 0.0 { Some(RepairTarget::take(&row[8 + 1..8 + 1 + 3], heap)) } else { None },
-            held: row[12] != 0.0,
-            team: row[13],
+            level: row[8],
+            current: if row[9] == 0.0 { Some(RepairTarget::take(&row[9 + 1..9 + 1 + 3], heap)) } else { None },
+            held: row[13] != 0.0,
+            team: row[14],
         }
     }
 
@@ -1152,6 +1155,31 @@ impl CbTarget {
         let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
         Self {
             target: if row[0] == 0.0 { Some(RepairTarget::take(&row[0 + 1..0 + 1 + 3], heap)) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CbLockKey {
+    pub unit: f64,
+    pub target: Option<RepairTarget>,
+}
+
+impl CbLockKey {
+    pub const WORDS: usize = 5;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        row[0] = self.unit;
+        match &self.target { Some(v) => { row[1] = 0.0; (*v).put(&mut row[1 + 1..1 + 1 + 3], heap); } None => { row[1] = 1.0; row[1 + 1..1 + 4].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            unit: row[0],
+            target: if row[1] == 0.0 { Some(RepairTarget::take(&row[1 + 1..1 + 1 + 3], heap)) } else { None },
         }
     }
 
@@ -1192,28 +1220,40 @@ impl CbRepair {
 pub struct CbLockPick {
     pub unit: f64,
     pub weapon: f64,
+    pub level: f64,
+    pub lock_complete: bool,
+    pub lock_target_id: f64,
+    pub lock_generation: f64,
     pub origin: Vec3,
     pub dir: Vec3,
 }
 
 impl CbLockPick {
-    pub const WORDS: usize = 8;
+    pub const WORDS: usize = 12;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
         row[0] = self.unit;
         row[1] = self.weapon;
-        row[2..2 + 3].copy_from_slice(&self.origin);
-        row[5..5 + 3].copy_from_slice(&self.dir);
+        row[2] = self.level;
+        row[3] = if self.lock_complete { 1.0 } else { 0.0 };
+        row[4] = self.lock_target_id;
+        row[5] = self.lock_generation;
+        row[6..6 + 3].copy_from_slice(&self.origin);
+        row[9..9 + 3].copy_from_slice(&self.dir);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
         Self {
             unit: row[0],
             weapon: row[1],
-            origin: [row[2], row[2 + 1], row[2 + 2]],
-            dir: [row[5], row[5 + 1], row[5 + 2]],
+            level: row[2],
+            lock_complete: row[3] != 0.0,
+            lock_target_id: row[4],
+            lock_generation: row[5],
+            origin: [row[6], row[6 + 1], row[6 + 2]],
+            dir: [row[9], row[9 + 1], row[9 + 2]],
         }
     }
 
@@ -1674,25 +1714,28 @@ impl CbPoint {
 pub struct CbShield {
     pub unit: f64,
     pub taken: f64,
+    pub left: f64,
     pub explosion: bool,
 }
 
 impl CbShield {
-    pub const WORDS: usize = 3;
+    pub const WORDS: usize = 4;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
         row[0] = self.unit;
         row[1] = self.taken;
-        row[2] = if self.explosion { 1.0 } else { 0.0 };
+        row[2] = self.left;
+        row[3] = if self.explosion { 1.0 } else { 0.0 };
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
         Self {
             unit: row[0],
             taken: row[1],
-            explosion: row[2] != 0.0,
+            left: row[2],
+            explosion: row[3] != 0.0,
         }
     }
 

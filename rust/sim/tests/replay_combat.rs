@@ -20,7 +20,7 @@ use bfe_sim::combat::combat::{self as cb, CombatDefs, Edge, Edges};
 use bfe_sim::combat::defs::{DefTable, Js, JsObj, WeaponClass};
 use bfe_sim::combat::weapons::{Admission, Shot, ShotKind, WeaponDraws};
 use bfe_sim::combat::world::{ArcTarget, CastHit, CombatWorld, DamageInfo, Droid, LockPick, Presentation};
-use bfe_sim::gen::{Attacker, Combat, RepairTarget, Replay, Unit};
+use bfe_sim::gen::{Attacker, Combat, RepairTarget, Replay, Unit, Weapon};
 use bfe_sim::store::replay::{Arena, Value, V};
 use bfe_sim::store::StrId;
 use sim_replay::{check_num, check_vec3, diff, replay_corpus, Capture, Call, Corpus, Frame, Log, Mismatch, Outcome};
@@ -477,7 +477,7 @@ impl CombatWorld for World<'_, '_> {
         self.after(call, unit, combat, REMOTE_UNIT, &[]);
     }
 
-    fn lock_on(&mut self, eye: &Vector3, dir: &Vector3, _weapon: u32, current: Option<RepairTarget>, held: bool, team: f64) -> Option<RepairTarget> {
+    fn lock_on(&mut self, eye: &Vector3, dir: &Vector3, _weapon: u32, _tool: &Weapon, current: Option<RepairTarget>, held: bool, team: f64) -> Option<RepairTarget> {
         let call = self.call("world.lockOn")?;
         let r = check_vec3("lockOn eye", call.arg(0), arr(eye))
             .and_then(|_| check_vec3("lockOn dir", call.arg(1), arr(dir)))
@@ -522,7 +522,7 @@ impl CombatWorld for World<'_, '_> {
         call.result().truthy()
     }
 
-    fn lock_pick(&mut self, _weapon: u32, origin: &Vector3, dir: &Vector3) -> LockPick {
+    fn lock_pick(&mut self, _weapon: u32, _launcher: &Weapon, origin: &Vector3, dir: &Vector3) -> LockPick {
         let Some(call) = self.call("world.lockPick") else { return LockPick::None };
         let r = check_vec3("lockPick origin", call.arg(1), arr(origin)).and_then(|_| check_vec3("lockPick dir", call.arg(2), arr(dir)));
         self.check(r);
@@ -702,7 +702,7 @@ impl CombatWorld for World<'_, '_> {
         vec3(call.result())
     }
 
-    fn shield_hit(&mut self, taken: f64, _source: Option<Vector3>, _explosion: bool) {
+    fn shield_hit(&mut self, taken: f64, _left: f64, _source: Option<Vector3>, _explosion: bool) {
         let Some(call) = self.call("units.shieldHit") else { return };
         self.check(check_num("shieldHit amount", call.arg(1), taken));
     }

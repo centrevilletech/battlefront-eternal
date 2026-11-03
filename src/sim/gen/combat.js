@@ -1616,6 +1616,7 @@ export class CbLockOnMirror {
     this.eye = new THREE.Vector3();
     this.dir = new THREE.Vector3();
     this.weapon = NaN;
+    this.level = NaN;
     this.current = null;
     this.held = false;
     this.team = NaN;
@@ -1627,9 +1628,10 @@ export function syncCbLockOn(b, f, at, h, m) {
   (m.eye ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
   (m.dir ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
   m.weapon = f[at + 7];
-  { const tag = f[at + 8]; if (tag === 0) { m.current = syncRepairTarget(b, f, at + 9, h, m.current); } else m.current = tag === 1 ? null : undefined; }
-  m.held = f[at + 12] !== 0;
-  m.team = f[at + 13];
+  m.level = f[at + 8];
+  { const tag = f[at + 9]; if (tag === 0) { m.current = syncRepairTarget(b, f, at + 10, h, m.current); } else m.current = tag === 1 ? null : undefined; }
+  m.held = f[at + 13] !== 0;
+  m.team = f[at + 14];
   return m;
 }
 
@@ -1638,9 +1640,10 @@ export function putCbLockOn(b, o, f, at, heap) {
   { const $v = o.eye; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
   { const $v = o.dir; f[at + 4] = $v.x; f[at + 5] = $v.y; f[at + 6] = $v.z; }
   f[at + 7] = o.weapon;
-  { const $x = o.current; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f.fill(0, at + 9, at + 12); } else { f[at + 8] = 0; putRepairTarget(b, $x, f, at + 9, heap); } }
-  f[at + 12] = o.held ? 1 : 0;
-  f[at + 13] = o.team;
+  f[at + 8] = o.level;
+  { const $x = o.current; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f.fill(0, at + 10, at + 13); } else { f[at + 9] = 0; putRepairTarget(b, $x, f, at + 10, heap); } }
+  f[at + 13] = o.held ? 1 : 0;
+  f[at + 14] = o.team;
 }
 
 export function sameCbLockOn(a, b) {
@@ -1648,6 +1651,7 @@ export function sameCbLockOn(a, b) {
   if (!sameVec(a.eye, b.eye)) return ".eye";
   if (!sameVec(a.dir, b.dir)) return ".dir";
   if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  if (!Object.is(a.level, b.level)) return ".level";
   { const p = a.current, q = b.current; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".current"; } else { if (!sameRepairTarget(p, q)) return ".current"; } }
   if (!Object.is(a.held, b.held)) return ".held";
   if (!Object.is(a.team, b.team)) return ".team";
@@ -1663,6 +1667,7 @@ export function exportCbLockOn(o, cx) {
   v.eye = o.eye.clone();
   v.dir = o.dir.clone();
   v.weapon = o.weapon;
+  v.level = o.level;
   v.current = ((x) => (x === null || x === undefined ? x : exportRepairTarget(x, cx)))(o.current);
   v.held = o.held;
   v.team = o.team;
@@ -1694,6 +1699,40 @@ export function exportCbTarget(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
+  v.target = ((x) => (x === null || x === undefined ? x : exportRepairTarget(x, cx)))(o.target);
+  return v;
+}
+
+export class CbLockKeyMirror {
+  constructor() {
+    this.unit = NaN;
+    this.target = null;
+  }
+}
+
+export function syncCbLockKey(b, f, at, h, m) {
+  m.unit = f[at + 0];
+  { const tag = f[at + 1]; if (tag === 0) { m.target = syncRepairTarget(b, f, at + 2, h, m.target); } else m.target = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putCbLockKey(b, o, f, at, heap) {
+  f[at + 0] = o.unit;
+  { const $x = o.target; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f.fill(0, at + 2, at + 5); } else { f[at + 1] = 0; putRepairTarget(b, $x, f, at + 2, heap); } }
+}
+
+export function sameCbLockKey(a, b) {
+  if (!Object.is(a.unit, b.unit)) return ".unit";
+  { const p = a.target, q = b.target; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".target"; } else { if (!sameRepairTarget(p, q)) return ".target"; } }
+  return null;
+}
+
+export function exportCbLockKey(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = o.unit;
   v.target = ((x) => (x === null || x === undefined ? x : exportRepairTarget(x, cx)))(o.target);
   return v;
 }
@@ -1746,6 +1785,10 @@ export class CbLockPickMirror {
   constructor() {
     this.unit = NaN;
     this.weapon = NaN;
+    this.level = NaN;
+    this.lockComplete = false;
+    this.lockTargetId = NaN;
+    this.lockGeneration = NaN;
     this.origin = new THREE.Vector3();
     this.dir = new THREE.Vector3();
   }
@@ -1754,21 +1797,33 @@ export class CbLockPickMirror {
 export function syncCbLockPick(b, f, at, h, m) {
   m.unit = f[at + 0];
   m.weapon = f[at + 1];
-  (m.origin ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
-  (m.dir ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  m.level = f[at + 2];
+  m.lockComplete = f[at + 3] !== 0;
+  m.lockTargetId = f[at + 4];
+  m.lockGeneration = f[at + 5];
+  (m.origin ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
+  (m.dir ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]);
   return m;
 }
 
 export function putCbLockPick(b, o, f, at, heap) {
   f[at + 0] = o.unit;
   f[at + 1] = o.weapon;
-  { const $v = o.origin; f[at + 2] = $v.x; f[at + 3] = $v.y; f[at + 4] = $v.z; }
-  { const $v = o.dir; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
+  f[at + 2] = o.level;
+  f[at + 3] = o.lockComplete ? 1 : 0;
+  f[at + 4] = o.lockTargetId;
+  f[at + 5] = o.lockGeneration;
+  { const $v = o.origin; f[at + 6] = $v.x; f[at + 7] = $v.y; f[at + 8] = $v.z; }
+  { const $v = o.dir; f[at + 9] = $v.x; f[at + 10] = $v.y; f[at + 11] = $v.z; }
 }
 
 export function sameCbLockPick(a, b) {
   if (!Object.is(a.unit, b.unit)) return ".unit";
   if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  if (!Object.is(a.level, b.level)) return ".level";
+  if (!Object.is(a.lockComplete, b.lockComplete)) return ".lockComplete";
+  if (!Object.is(a.lockTargetId, b.lockTargetId)) return ".lockTargetId";
+  if (!Object.is(a.lockGeneration, b.lockGeneration)) return ".lockGeneration";
   if (!sameVec(a.origin, b.origin)) return ".origin";
   if (!sameVec(a.dir, b.dir)) return ".dir";
   return null;
@@ -1781,6 +1836,10 @@ export function exportCbLockPick(o, cx) {
   cx.seen.set(o, v);
   v.unit = o.unit;
   v.weapon = o.weapon;
+  v.level = o.level;
+  v.lockComplete = o.lockComplete;
+  v.lockTargetId = o.lockTargetId;
+  v.lockGeneration = o.lockGeneration;
   v.origin = o.origin.clone();
   v.dir = o.dir.clone();
   return v;
@@ -2442,6 +2501,7 @@ export class CbShieldMirror {
   constructor() {
     this.unit = NaN;
     this.taken = NaN;
+    this.left = NaN;
     this.explosion = false;
   }
 }
@@ -2449,19 +2509,22 @@ export class CbShieldMirror {
 export function syncCbShield(b, f, at, h, m) {
   m.unit = f[at + 0];
   m.taken = f[at + 1];
-  m.explosion = f[at + 2] !== 0;
+  m.left = f[at + 2];
+  m.explosion = f[at + 3] !== 0;
   return m;
 }
 
 export function putCbShield(b, o, f, at, heap) {
   f[at + 0] = o.unit;
   f[at + 1] = o.taken;
-  f[at + 2] = o.explosion ? 1 : 0;
+  f[at + 2] = o.left;
+  f[at + 3] = o.explosion ? 1 : 0;
 }
 
 export function sameCbShield(a, b) {
   if (!Object.is(a.unit, b.unit)) return ".unit";
   if (!Object.is(a.taken, b.taken)) return ".taken";
+  if (!Object.is(a.left, b.left)) return ".left";
   if (!Object.is(a.explosion, b.explosion)) return ".explosion";
   return null;
 }
@@ -2473,6 +2536,7 @@ export function exportCbShield(o, cx) {
   cx.seen.set(o, v);
   v.unit = o.unit;
   v.taken = o.taken;
+  v.left = o.left;
   v.explosion = o.explosion;
   return v;
 }

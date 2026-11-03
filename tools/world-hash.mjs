@@ -48,6 +48,9 @@
 //                 lines carry its number ("2:1 ..." is the second's tick 1).
 //                 --twice is --battles 2.
 //
+// --combat rust runs a world's combats on the simulation's module
+// (?combat=rust, src/combat-sim.js); its fingerprints must match the
+// default's.
 // --rays wasm runs the collision's ray casts in WebAssembly (?rays=wasm,
 // src/ray-kernel.js), and --movement wasm the soldiers' movement too
 // (?movement=wasm, src/movement-kernel.js); their fingerprints must match
@@ -72,6 +75,9 @@ const interval = Number(opt('interval', 1)), ack = argv.includes('--ack'), view 
 const rays = opt('rays', 'js'), movement = opt('movement', 'js');
 const ai = opt('ai', 'classic'), heroes = argv.includes('--heroes'), battles = argv.includes('--twice') ? 2 : Number(opt('battles', 1));
 const unit = opt('unit', null), mount = Number(opt('mount', -1));
+// --combat rust: a world's combats on the module (?combat=rust, src/combat-sim.js).
+const combat = opt('combat', 'js');
+if (!['rust', 'js'].includes(combat)) throw Error(`--combat ${combat}: rust or js`);
 const nativeRandom = opt('random', 'seeded') === 'native';
 const era = ['rep', 'cis'].includes(side) ? 'cw' : 'gcw';
 if (!['classic', 'enhanced'].includes(ai)) throw Error(`--ai ${ai}: classic or enhanced`);
@@ -94,8 +100,8 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}&rays=${rays}&movement=${movement}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, ai, heroes, unit, mount, battles, nativeRandom, query };
+const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&seed=${seed}&rays=${rays}&movement=${movement}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${combat === 'rust' ? '&combat=rust' : ''}`;
+const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, ai, heroes, unit, mount, battles, nativeRandom, combat, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 

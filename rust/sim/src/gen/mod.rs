@@ -792,8 +792,8 @@ pub fn import_combat_lightning(args: &CbText) -> CbFlag {
 /// its result comes back there (store::calls). The module only (a native build serves
 /// its boundary from elsewhere: the replay harness, or Rust).
 #[cfg(target_arch = "wasm32")]
-pub fn import_combat_lock_key(args: &CbTarget) -> CbText {
-    crate::store::calls::import_out(CbTarget::WORDS, |row, heap| args.put(row, heap));
+pub fn import_combat_lock_key(args: &CbLockKey) -> CbText {
+    crate::store::calls::import_out(CbLockKey::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_combat_lock_key() };
     crate::store::calls::import_in(|row, heap| CbText::take(row, heap))
 }

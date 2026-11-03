@@ -103,6 +103,16 @@ async function loadSimInstance() {
   }
 }
 
+// A world's combats on the battle's instance of the module, through the
+// store's bridge (src/combat-sim.js).
+async function attachCombatPhase(instance) {
+  const [{ attachCombatSim }, { Unit }, { Vehicle }, { Soldier }, { Droideka }, { Building, Turret }] = await Promise.all([
+    import("./combat-sim.js"), import("./units.js"), import("./vehicles.js"), import("./soldier.js"), import("./droideka.js"), import("./props.js")]);
+  const sim = attachCombatSim(instance, { Unit, Vehicle, Soldier, Droideka, Building, Turret });
+  sim.bridge.reserve?.(4 << 20);
+  return sim;
+}
+
 export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, rays: raysDefault = null, movement: movementDefault = null } = {}) {
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
 const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
@@ -427,8 +437,12 @@ async function start() {
   // and keeps the JavaScript, so its worlds cannot change. Poses made
   // before this take the kernel up as they clear.
   const wantAnim = !headless && params.get("anim") !== "js";
-  // Both kernels on the battle's one instance of the module.
-  const simInstance = wantRays || wantAnim ? await loadSimInstance() : null;
+  // A world's combats on the module (src/combat-sim.js), where it asks for
+  // them: ?combat=rust, or under Node BFE_COMBAT=rust. Off by default until
+  // units and combat move over together.
+  const wantCombat = headless && (params.get("combat") ?? globalThis.process?.env?.BFE_COMBAT) === "rust";
+  // The kernels on the battle's one instance of the module.
+  const simInstance = wantRays || wantAnim || wantCombat ? await loadSimInstance() : null;
   const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
   const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
@@ -1362,8 +1376,10 @@ async function start() {
   // The bots: both sides' classes (sides, above), bodies built ahead, and a
   // brain.
   const unitCenter = new THREE.Vector3();
+  // The combats of the units it builds on the module, when the world asked.
+  const combatSim = wantCombat && simInstance ? await attachCombatPhase(simInstance) : null;
   factory = new UnitFactory(sides, {
-    graphics, scene, collision, animMeta, animBuf, json, bin, ordnance, lights, weaponModels, headless, arcTargets, lightning,
+    graphics, scene, collision, animMeta, animBuf, json, bin, ordnance, lights, weaponModels, headless, arcTargets, lightning, combatSim,
     flashModel: glowModel("muzzleflash"), anyTexture, effects, settings, items, live, units, destruction,
     maxFlyHeight: world.mission?.maxFlyHeight ?? 200,
     onBuilt: instrument,
