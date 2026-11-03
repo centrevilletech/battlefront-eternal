@@ -121,7 +121,9 @@ test('the Enhanced sniper tracer flies its bolt, lands with the world\'s impact,
 
 test('the crosshair ray converges on a soldier under it, not the ground behind him', async () => {
   const { PlayerCombat } = await import('../src/combat.js');
+  const { CombatWorld } = await import('../src/combat-world.js');
   const self = { collision: { cast: () => null }, ordnance: null, crosshairReach: PlayerCombat.prototype.crosshairReach };
+  self.world = new CombatWorld(self);
   const from = new Vector3(0, 2, 0), forward = new Vector3(0, 0, 1);
   assert.equal(self.crosshairReach(from, forward), 60, 'nothing in the way: 60 m');
   const units = new Units();

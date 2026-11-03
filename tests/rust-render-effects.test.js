@@ -180,8 +180,11 @@ test("a mirror's render draws what blends too: the transparent phase for the mir
     fill(3);
     calls.length = 0;
     // The far scene's image is the last opaque item: the mirror's
-    // transparent phase follows its near phase at once.
+    // transparent phase follows it, in the mirror's render.
     core.pass(renderer, scene, mirror);
+    assert.equal(calls.some((c) => c[0] === "mirror_transparent_frame"), false, "not before the image");
+    const image = list.opaque[list.opaque.length - 1];
+    core.graphics.background.onAfterRender(renderer, scene, mirror, null, image.material, image.group);
   } finally {
     renderer.getRenderTarget = target;
   }

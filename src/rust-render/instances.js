@@ -132,6 +132,8 @@ class InstancePass {
   // ctx: the phase's camera, and what has been written to the renderer's
   // input so far (records, bones, skeletons).
   draw(ctx) {
+    // Off: no records (three draws what this pass took).
+    if (this.active === false) return;
     const { camera } = ctx, graphics = this.core.graphics;
     this.projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreen);
@@ -379,7 +381,10 @@ class InstancePass {
     return at;
   }
 
+  // Off (this pass alone, or the whole renderer): three draws the bodies,
+  // guns, rigs and flying parts again, and this pass writes no records.
   setActive(on) {
+    this.active = on;
     const set = (m) => { if (m) m.visible = !on; };
     for (const record of this.bodyRecords) for (const m of record.used) set(m);
     for (const record of this.meshRecords) set(record.material);

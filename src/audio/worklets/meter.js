@@ -48,6 +48,12 @@ function dspExports(options) {
   }
 }
 
+// Views of `count` runs of 128 samples (a block each) from `ptr` in the
+// module's memory: the staging a call reads or fills.
+function dspViews(x, ptr, count) {
+  return Array.from({ length: count }, (_, i) => new Float32Array(x.memory.buffer, ptr + i * 512, 128));
+}
+
 
 class LoudnessMeter extends AudioWorkletProcessor {
   constructor(options) {
@@ -100,8 +106,8 @@ class LoudnessMeter extends AudioWorkletProcessor {
     const { x, h } = d;
     const input = inputs[0] || [];
     if (!input.length) return true;
-    if (!d.inView || d.inView.byteLength === 0) d.inView = new Float32Array(x.memory.buffer, x.meter_in(h), 16 * 128);
-    for (let c = 0; c < input.length; c++) d.inView.set(input[c], c * 128);
+    if (!d.ins || d.ins[0].byteLength === 0) d.ins = dspViews(x, x.meter_in(h), 16);
+    for (let c = 0; c < input.length; c++) d.ins[c].set(input[c]);
     if (x.meter_process(h, input.length)) {
       const ptr = x.meter_readings(h);
       const total = new Float64Array(x.memory.buffer, x.meter_io(h), 1)[0];
