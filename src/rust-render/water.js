@@ -101,8 +101,8 @@ class WaterPass {
   // The copy of the scene's depth before the crest spray, when the renderer
   // draws it this frame: its key as three's projectObject will make it
   // (group order, render order, its geometry's sphere centre in the world,
-  // its id). Required: the spray's onBeforeRender passes its geometry where
-  // capture() takes `required`, so three copies whatever the setting.
+  // its id). Not required: three's own copy for it is taken only with soft
+  // particles on (its shader reads the depth only then).
   requestDepth(camera) {
     const core = this.core;
     for (const surface of this.surfaces) surface.requested = false;
@@ -115,7 +115,7 @@ class WaterPass {
     for (let n = mesh.parent; n; n = n.parent) if (n.isGroup) { groupOrder = n.renderOrder; break; }
     const c = point.copy(mesh.geometry.boundingSphere.center).applyMatrix4(mesh.matrixWorld);
     key[0] = groupOrder; key[1] = mesh.renderOrder; key[2] = c.x; key[3] = c.y; key[4] = c.z; key[5] = mesh.id;
-    surface.requested = particleDepth.request(key, true);
+    surface.requested = particleDepth.request(key, false);
   }
 
   draw(ctx) {
