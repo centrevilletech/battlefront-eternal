@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { Writer, readRecords, MAGIC, RECORD, Handle, Omitted, FunctionName } from '../tools/sim-capture/format.mjs';
@@ -12,6 +13,25 @@ import { PHASES } from '../tools/sim-capture/phases.mjs';
 // value exactly, and its markers must still find the statements they wrap.
 // No game files are needed.
 const root = fileURLToPath(new URL('../', import.meta.url));
+
+test('capture specs cannot preload weapons before seeded draws are instrumented', () => {
+  const script = `
+    import assert from 'node:assert/strict';
+    process.argv = ['node', 'capture-test', '--capture-scan', 'capture-not-started.json'];
+    await import('./tools/sim-capture/plugin.mjs');
+    let seen = 0, draws = 0;
+    globalThis.__bfeDraw = { seeded(seed, next) {
+      seen = seed;
+      return () => { draws++; return next(); };
+    } };
+    const { seededRandom } = await import('./src/weapons.js');
+    seededRandom(123)();
+    assert.equal(seen, 123);
+    assert.equal(draws, 1);
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: root, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+});
 
 function roundTrip(values, identify) {
   const writer = new Writer({ identify });
