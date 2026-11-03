@@ -11,6 +11,8 @@ mod items;
 pub use self::items::*;
 mod ordnance;
 pub use self::ordnance::*;
+mod seats;
+pub use self::seats::*;
 mod store;
 pub use self::store::*;
 mod vehicles;
@@ -29,20 +31,25 @@ pub const KIND_ITEM: KindCode = 6;
 pub const KIND_ITEMS: KindCode = 7;
 pub const KIND_ORDNANCE: KindCode = 8;
 pub const KIND_OWNER_SNAPSHOT: KindCode = 9;
-pub const KIND_ROUND: KindCode = 10;
-pub const KIND_SEAT_LEASE: KindCode = 11;
-pub const KIND_UNIT: KindCode = 12;
-pub const KIND_VEHICLE: KindCode = 13;
-pub const KIND_VEHICLE_DRIVER: KindCode = 14;
-pub const KIND_VEHICLES: KindCode = 15;
+pub const KIND_POST: KindCode = 10;
+pub const KIND_ROUND: KindCode = 11;
+pub const KIND_SEAT_LEASE: KindCode = 12;
+pub const KIND_SEAT_UNIT: KindCode = 13;
+pub const KIND_SEATS: KindCode = 14;
+pub const KIND_TURRET: KindCode = 15;
+pub const KIND_TURRET_SEATS: KindCode = 16;
+pub const KIND_UNIT: KindCode = 17;
+pub const KIND_VEHICLE: KindCode = 18;
+pub const KIND_VEHICLE_DRIVER: KindCode = 19;
+pub const KIND_VEHICLES: KindCode = 20;
 /// How many kinds there are (codes run 1 to KINDS).
-pub const KINDS: usize = 15;
-pub const KIND_NAMES: [&str; 16] = ["", "beam", "body", "bolt", "emitter", "grenade", "item", "items", "ordnance", "ownerSnapshot", "round", "seatLease", "unit", "vehicle", "vehicleDriver", "vehicles"];
+pub const KINDS: usize = 20;
+pub const KIND_NAMES: [&str; 21] = ["", "beam", "body", "bolt", "emitter", "grenade", "item", "items", "ordnance", "ownerSnapshot", "post", "round", "seatLease", "seatUnit", "seats", "turret", "turretSeats", "unit", "vehicle", "vehicleDriver", "vehicles"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 16] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x65070dab, 0x046a7623, 0x2e0c3c78, 0xc2257049, 0x17adc2a6, 0xc9aab5eb, 0x7252759a, 0xc4be789d];
+pub const KIND_HASHES: [u32; 21] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x65070dab, 0x046a7623, 0x635c5cfc, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0x512f6f6c, 0x2547f2df, 0x17adc2a6, 0xc9aab5eb, 0x7252759a, 0xc4be789d];
 /// Whether each kind's objects carry their own number (its slot), by code.
-pub const KIND_KEYED: [bool; 16] = [false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false];
+pub const KIND_KEYED: [bool; 21] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false];
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
@@ -58,7 +65,15 @@ pub struct OwnerSnapshot;
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
-pub struct SeatLease;
+pub struct Post;
+
+/// A kind the store holds no fields of (only references to).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SeatUnit;
+
+/// A kind the store holds no fields of (only references to).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Turret;
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
@@ -78,6 +93,9 @@ pub struct Store {
     pub items: Items,
     pub ordnance: Ordnance,
     pub round: Slab<Round>,
+    pub seat_lease: Slab<SeatLease>,
+    pub seats: Seats,
+    pub turret_seats: TurretSeats,
     pub vehicle: Slab<Vehicle>,
     pub vehicles: Vehicles,
 }
@@ -201,6 +219,36 @@ impl Store {
                     if let Some(v) = self.round.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
                 }
             }
+            KIND_SEAT_LEASE => {
+                let list = self.seats.leases.clone();
+                let retired = if mode == 0 { std::mem::take(&mut self.seat_lease.retired) } else { Vec::new() };
+                let shown = if mode == 2 { self.seat_lease.retired.len() } else { retired.len() };
+                block.begin(shown + list.len(), if full { SeatLease::FULL_STRIDE } else { SeatLease::EXPORT_STRIDE });
+                block.set_retired(shown);
+                let old = if mode == 2 { &self.seat_lease.retired } else { &retired };
+                for (i, (r, v)) in old.iter().enumerate() {
+                    let (row, heap) = block.row(i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    v.put_export(row, heap);
+                }
+                for (i, &r) in list.iter().enumerate() {
+                    let (row, heap) = block.row(shown + i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    if let Some(v) = self.seat_lease.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
+                }
+            }
+            KIND_SEATS => {
+                block.begin(1, if full { Seats::FULL_STRIDE } else { Seats::EXPORT_STRIDE });
+                let (row, heap) = block.row(0);
+                if full { self.seats.put_full(row, heap) } else { self.seats.put_export(row, heap) }
+            }
+            KIND_TURRET_SEATS => {
+                block.begin(1, if full { TurretSeats::FULL_STRIDE } else { TurretSeats::EXPORT_STRIDE });
+                let (row, heap) = block.row(0);
+                if full { self.turret_seats.put_full(row, heap) } else { self.turret_seats.put_export(row, heap) }
+            }
             KIND_VEHICLE => {
                 let list = self.vehicles.vehicles.clone();
                 let retired = if mode == 0 { std::mem::take(&mut self.vehicle.retired) } else { Vec::new() };
@@ -256,6 +304,10 @@ impl Store {
                 let r = self.round.insert(Default::default());
                 self.ordnance.rounds.push(r);
             },
+            KIND_SEAT_LEASE => for _ in 0..count {
+                let r = self.seat_lease.insert(Default::default());
+                self.seats.leases.push(r);
+            },
             KIND_VEHICLE => for _ in 0..count {
                 let r = self.vehicle.insert(Default::default());
                 self.vehicles.vehicles.push(r);
@@ -272,6 +324,7 @@ impl Store {
             KIND_GRENADE => self.grenade.retire(Ref::new(slot, gen)),
             KIND_ITEM => self.item.retire(Ref::new(slot, gen)),
             KIND_ROUND => self.round.retire(Ref::new(slot, gen)),
+            KIND_SEAT_LEASE => self.seat_lease.retire(Ref::new(slot, gen)),
             KIND_VEHICLE => self.vehicle.retire(Ref::new(slot, gen)),
             _ => false,
         }
@@ -354,6 +407,27 @@ impl Store {
                     listed[s] = true;
                 }
                 self.round.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+            }
+            KIND_SEAT_LEASE => {
+                let mut listed: Vec<bool> = Vec::new();
+                for i in 0..block.rows() {
+                    let (row, heap) = block.read(i);
+                    let r = Ref::new(word_u32(row[0]), word_u32(row[1]));
+                    let v = self.seat_lease.ensure(r);
+                    if full { v.take_full(row, heap) } else { v.take_import(row, heap) }
+                    let s = r.slot as usize;
+                    if listed.len() <= s { listed.resize(s + 1, false); }
+                    listed[s] = true;
+                }
+                self.seat_lease.retain(|r, _| listed.get(r.slot as usize).copied().unwrap_or(false));
+            }
+            KIND_SEATS => {
+                let (row, heap) = block.read(0);
+                if full { self.seats.take_full(row, heap) } else { self.seats.take_import(row, heap) }
+            }
+            KIND_TURRET_SEATS => {
+                let (row, heap) = block.read(0);
+                if full { self.turret_seats.take_full(row, heap) } else { self.turret_seats.take_import(row, heap) }
             }
             KIND_VEHICLE => {
                 let mut listed: Vec<bool> = Vec::new();
