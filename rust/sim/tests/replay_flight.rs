@@ -143,8 +143,12 @@ fn tunings_of(world: V) -> Tunings {
     let mut t = Tunings::default();
     let tuning = world.get("tuning");
     if !tuning.is_nullish() {
+        // (The classes the frame reads: a craft's own, a missile's.)
         for (i, name) in FlightClass::NAMES.iter().enumerate() {
             let c = tuning.get(name);
+            if c.is_nullish() {
+                continue;
+            }
             let mut row = Tuning::of(FlightClass::from_u8(i as u8).unwrap());
             for key in TUNING_KEYS {
                 let x = c.get(key).num();
@@ -511,6 +515,47 @@ fn check_locks(after: V, before: V, lock: Option<bfe_sim::flight::state::Lock>) 
     Ok(())
 }
 
+/// A craft's own configuration as the capture holds it (flightConfig's own
+/// keys, in their order), where it does, against the port's.
+fn check_config(theirs: V, mine: &Config) -> Result<(), String> {
+    if theirs.is_nullish() {
+        return Ok(());
+    }
+    let pairs = [
+        ("minSpeed", mine.min_speed),
+        ("cruiseSpeed", mine.cruise_speed),
+        ("maxSpeed", mine.max_speed),
+        ("acceleration", mine.acceleration),
+        ("turnRate", mine.turn_rate),
+        ("turnFilter", mine.turn_filter),
+        ("pitchRate", mine.pitch_rate),
+        ("pitchFilter", mine.pitch_filter),
+        ("bankAngle", mine.bank_angle),
+        ("bankFilter", mine.bank_filter),
+        ("levelFilter", mine.level_filter),
+        ("takeoffHeight", mine.takeoff_height),
+        ("takeoffTime", mine.takeoff_time),
+        ("takeoffSpeed", mine.takeoff_speed),
+        ("landedHeight", mine.landed_height),
+        ("landingTime", mine.landing_time),
+        ("landingSpeed", mine.landing_speed),
+        ("boostSpeed", mine.boost_speed),
+    ];
+    let keys: Vec<String> = match theirs.node() {
+        Some(Node::Object { fields, .. }) => fields.iter().map(|(k, _)| k.clone()).collect(),
+        _ => return Err(format!("config: not an object: {}", theirs.show())),
+    };
+    if keys.len() != pairs.len() || keys.iter().zip(pairs.iter()).any(|(k, (name, _))| k != name) {
+        return Err(format!("config: the capture's keys are {keys:?}"));
+    }
+    for (name, value) in pairs {
+        if !same_number(theirs.get(name).num(), value) {
+            return Err(format!("config.{name}: the capture has {}, the port {value}", theirs.get(name).show()));
+        }
+    }
+    Ok(())
+}
+
 // What a replayed tick ran: (frames, of which the same) by path.
 fn path_of(hull: &Hull) -> &'static str {
     use bfe_sim::flight::FlightState::*;
@@ -536,8 +581,49 @@ fn load<'c>(content: &'c mut Contents, label: &str, header: V) -> &'c bfe_conten
     &content.as_ref().unwrap().1
 }
 
+/// What a replayed tick exercised beyond its path (the corpus's coverage).
+fn features(frame: &sim_replay::Frame, network: bool) -> Vec<String> {
+    let (b, a) = (frame.before().get("hull"), frame.after().get("hull"));
+    let mut out = Vec::new();
+    let text = |v: V, key: &str| v.get(key).str().unwrap_or("").to_string();
+    let (from, to) = (text(b, "flightState"), text(a, "flightState"));
+    if from != to {
+        out.push(format!("state {from} -> {to}"));
+    }
+    if !text(a, "trick").is_empty() || !text(b, "trick").is_empty() {
+        out.push(format!("trick {}", if text(b, "trick").is_empty() { text(a, "trick") } else { text(b, "trick") }));
+    }
+    for key in ["boosting", "terrainWarning", "boostExhausted", "rollLock"] {
+        if a.get(key).truthy() {
+            out.push(key.to_string());
+        }
+    }
+    let warning = text(a, "flightWarning");
+    if !warning.is_empty() {
+        out.push(format!("warning {warning}"));
+    }
+    let lock = text(a, "flightLockState");
+    if !lock.is_empty() {
+        out.push(format!("lock {lock}"));
+    }
+    if a.get("flightAssistId").num() >= 0.0 {
+        out.push("assist target".into());
+    }
+    for c in frame.calls() {
+        if ["world.damaged", "world.destroyed", "world.explosion", "vehicles.inDeathRegion", "water.over"].contains(&c.name.as_str()) {
+            out.push(format!("call {}", c.name));
+        }
+    }
+    if network {
+        out.push("network pilot".into());
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Replays one flyer.tick frame; the path it took and its outcome.
-fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<String, HullClass>, frame: &sim_replay::Frame) -> (&'static str, Outcome) {
+fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<String, HullClass>, frame: &sim_replay::Frame, seen: &mut BTreeMap<String, (usize, usize)>) -> (&'static str, Outcome) {
     let before = frame.before();
     if before.get("skipped").truthy() {
         return ("ground hull", Outcome::Skipped("a ground hull's tick (the hulls package's)".into()));
@@ -565,6 +651,10 @@ fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<St
         Ok(f) => f,
         Err(e) => return ("?", Outcome::Failed(format!("{}: {e}", frame.place()))),
     };
+    // The class definition's keys as the JavaScript read them (flightConfig's own).
+    if let Err(e) = check_config(before.get("config"), &hull.flight.config) {
+        return ("?", Outcome::Failed(format!("{}: {e}", frame.place())));
+    }
     let path = path_of(&hull);
     let idle = before.get("idle").truthy();
     let world = before.get("world");
@@ -585,10 +675,22 @@ fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<St
     let pilot = before.get("pilot");
     let network = if !idle && pilot.get("networkHuman").bool() && pilot.get("flight").node().is_some() { Some(flight_input(pilot.get("flight"))) } else { None };
     hull.flyer_tick(&mut served, dt, &input, network.as_ref());
+    let exercised = if idle { Vec::new() } else { features(frame, network.is_some()) };
+    let tally = |seen: &mut BTreeMap<String, (usize, usize)>, same: bool| {
+        for f in &exercised {
+            let t = seen.entry(f.clone()).or_default();
+            t.0 += 1;
+            if same {
+                t.1 += 1;
+            }
+        }
+    };
     if let Some(e) = served.error {
+        tally(seen, false);
         return (path, Outcome::Failed(e));
     }
     if let Err(e) = served.log.finish() {
+        tally(seen, false);
         return (path, Outcome::Failed(e.0));
     }
     {
@@ -600,13 +702,16 @@ fn replay_tick(content: &bfe_content::content::Content, classes: &mut HashMap<St
     let mine = Vehicle::value_out(r, &mut cx, &mut arena);
     let after = frame.after();
     if let Some(d) = diff(after.get("hull"), arena.view(&mine)) {
+        tally(seen, false);
         return (path, Outcome::Failed(format!("{}: hull {d} (capture | port)", frame.place())));
     }
     if !idle {
         if let Err(e) = check_locks(after.get("locks"), before.get("locks"), hull.flight.lock) {
+            tally(seen, false);
             return (path, Outcome::Failed(format!("{}: {e}", frame.place())));
         }
     }
+    tally(seen, true);
     (path, Outcome::Same)
 }
 
@@ -618,6 +723,7 @@ fn flyers_tick_as_captured() {
         return;
     }
     let mut paths: BTreeMap<&'static str, (usize, usize)> = Default::default();
+    let mut seen: BTreeMap<String, (usize, usize)> = Default::default();
     let mut content: Contents = None;
     let mut classes: HashMap<String, HullClass> = Default::default();
     let mut label_seen = String::new();
@@ -628,7 +734,7 @@ fn flyers_tick_as_captured() {
             label_seen = label.clone();
         }
         let c = load(&mut content, &label, capture.header.root());
-        let (path, outcome) = replay_tick(c, &mut classes, frame);
+        let (path, outcome) = replay_tick(c, &mut classes, frame, &mut seen);
         let tally = paths.entry(path).or_default();
         tally.0 += 1;
         if matches!(outcome, Outcome::Same) {
@@ -640,6 +746,10 @@ fn flyers_tick_as_captured() {
     eprintln!("{}", report.summary());
     for (path, (frames, same)) in &paths {
         eprintln!("  {path}: {frames} frames, {same} the same");
+    }
+    eprintln!("  exercised:");
+    for (what, (frames, same)) in &seen {
+        eprintln!("    {what}: {frames} frames, {same} the same");
     }
     report.assert_clean();
 }
@@ -672,6 +782,9 @@ fn flyers_pose_as_captured() {
         let mut rigs: HashMap<String, Option<(Built, Option<GearClip>)>> = Default::default();
         let mut label_seen = String::new();
         let mut posed_same = 0usize;
+        // What the same frames exercised: a crewed turret seat, the gear
+        // between down and stowed, a render that is no tick's (a spawn's).
+        let (mut turrets, mut gear_moving, mut untimed) = (0usize, 0usize, 0usize);
         let report = replay_corpus(&corpus, name, |capture, frame| {
             let label = capture.label();
             if label != label_seen {
@@ -751,13 +864,23 @@ fn flyers_pose_as_captured() {
             match diff(frame.after().get("hull"), arena.view(&mine)) {
                 None => {
                     posed_same += 1;
+                    if hull_v.get("seats").items().skip(1).any(|s| !s.get("lease").is_nullish()) {
+                        turrets += 1;
+                    }
+                    let g = hull_v.get("gear").num();
+                    if g > 0.0 && g < 1.0 {
+                        gear_moving += 1;
+                    }
+                    if name == "flyer.render" && !frame.arg(2).truthy() {
+                        untimed += 1;
+                    }
                     Outcome::Same
                 }
                 Some(d) => Outcome::Failed(format!("{}: hull {d} (capture | port)", frame.place())),
             }
         })
         .unwrap();
-        eprintln!("{}\n  posed: {posed_same} of the same frames", report.summary());
+        eprintln!("{}\n  posed: {posed_same} of the same frames ({turrets} with a crewed turret seat, {gear_moving} with the gear moving, {untimed} a spawn's)", report.summary());
         report.assert_clean();
     }
 }

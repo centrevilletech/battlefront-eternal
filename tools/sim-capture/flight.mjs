@@ -19,17 +19,16 @@
 // them (a crash's damage, its blast and the battle's hooks). A unit's aim
 // point is a call across the boundary: a unit works its hit shapes out on
 // the first ask in a tick, so when it is asked is behaviour.
+//
+// The spec imports no game module (a game module it loaded would load before
+// the capture's module hook, and with it src/weapons.js, unlabelling the
+// seeded draws of every capture): the units' class is the player's unit's,
+// and a class's live tuning (FLIGHT_CLASSES[class]) is the prototype of a
+// craft's configuration (src/flight/config.js flightConfig).
 import { Vector3 } from 'three';
-import { FLIGHT_CLASSES } from '../../src/flight/config.js';
-import { Unit } from '../../src/units.js';
 
-// The class tunings as the battle began: a frame carries the live ones only
-// once a command has retuned one (src/game.js step, flightTuning).
-const DEFAULT_TUNING = JSON.stringify(FLIGHT_CLASSES);
-const tuningValue = () => {
-  const now = JSON.stringify(FLIGHT_CLASSES);
-  return now === DEFAULT_TUNING ? null : JSON.parse(now);
-};
+// The live tuning of a craft's class, as { class: { key: value } }.
+const tuningOf = (config, kind) => ({ [kind]: { ...Object.getPrototypeOf(config) } });
 
 // The registry's entries as targeting reads them (src/flight/targeting.js
 // inCone, clear, updateFlightTarget), through getters that only read: a
@@ -37,8 +36,9 @@ const tuningValue = () => {
 // (a hull's, a turret's, a building's: the middle of its box as it stands)
 // is here; one without an aim point is aimed at at its position.
 function targetsValue(game, craft) {
+  const unitProto = Object.getPrototypeOf(game.playerUnit);
   return game.units.all().map((t) => {
-    const unit = t instanceof Unit, aims = typeof t.aimPoint === 'function';
+    const unit = Object.getPrototypeOf(t) === unitProto, aims = typeof t.aimPoint === 'function';
     return {
       id: t.id, generation: t.generation, alive: t.alive, team: t.team, own: t === craft.aiTarget, unit,
       body: t.vehicle?.body ?? null, point: unit ? null : aims ? t.aimPoint(new Vector3()) : t.position.clone(),
@@ -70,9 +70,10 @@ function pilotValue(v) {
 
 // The battle's flight settings: the environment (ceiling, bounds, zones,
 // space), the mission's fly height, whether steering assists are on, and
-// the class tunings when retuned.
-const worldValue = (game) => ({
-  env: game.vehicles.flightEnvironment ?? null, maxFlyHeight: game.vehicles.maxFlyHeight, assists: Boolean(game.vehicles.flightAssists), tuning: tuningValue(),
+// the craft's class's live tuning.
+const worldValue = (game, craft) => ({
+  env: game.vehicles.flightEnvironment ?? null, maxFlyHeight: game.vehicles.maxFlyHeight, assists: Boolean(game.vehicles.flightAssists),
+  tuning: tuningOf(craft.flightConfig, craft.flightClass),
 });
 
 export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries }) {
@@ -95,7 +96,9 @@ export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries 
         targets: targetsValue(game, self),
         relations: relationsValue(game, self),
         locks: locksValue(self),
-        world: worldValue(game),
+        world: worldValue(game, self),
+        // Its class definition's own keys (flightConfig less the tuning).
+        config: { ...self.flightConfig },
       };
     },
     boundaries: (game) => {
@@ -116,7 +119,7 @@ export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries 
         ['world.explosion', w, 'explosion', after],
         ['world.effect', w, 'effect'],
         ['world.sound', w, 'sound'],
-        ['unit.aimPoint', Unit.prototype, 'aimPoint'],
+        ['unit.aimPoint', Object.getPrototypeOf(game.playerUnit), 'aimPoint'],
       ];
     },
   };
@@ -149,5 +152,27 @@ export function flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries 
     };
   };
 
-  return { frames: [tick, poseFrame('vehicle.aimTick'), poseFrame('vehicle.render')] };
+  // A flyer missile's seeker (src/flight/targeting.js navigateMissile, as
+  // the rounds ask it through their world, src/ordnance-world.js): the
+  // velocity it turns (as the call leaves it, at exit) and what it reads of
+  // the target, found by id as the world finds it.
+  const missile = {
+    method: 'flightMissile.navigateMissile', target: (game) => game.ordnance?.world ?? null, boundaries: () => [],
+    state: (game, args) => {
+      const t = game.ordnance.units?.byId?.(args[3]) ?? null;
+      // The tuning of the class it steers by (a craft of the class fired it).
+      const kind = args[2] || 'fighter', craft = (game.vehicles?.vehicles ?? []).find((v) => v.flightClass === kind && v.flightConfig);
+      return {
+        velocity: args[1].clone(),
+        target: t ? { alive: t.alive, generation: t.generation, position: t.position.clone(), velocity: t.velocity ? t.velocity.clone() : null, rollRate: (t.vehicle || t).flightRollRate } : null,
+        tuning: craft ? tuningOf(craft.flightConfig, kind) : null,
+      };
+    },
+  };
+
+  return {
+    flight: { frames: [tick, poseFrame('vehicle.aimTick'), poseFrame('vehicle.render'), missile] },
+    // The seeker alone: a cheap capture of every flyer missile's flight.
+    flightMissiles: { frames: [missile] },
+  };
 }

@@ -19,6 +19,9 @@
 //!   aimTick and render);
 //! - `ai`: the bots' pilot (src/flight/ai.js pilotInput, raiseOverTerrain);
 //! - `spawn`: the transports' spawn points (src/flight/spawn.js);
+//! - `controls`: a pilot's flight keys from his keys, actions and pad
+//!   (src/flight/controls.js flightInput, as the world reads a network
+//!   pilot's);
 //! - `store`: a hull's flight between the store and the tick.
 //!
 //! A craft reaches the rest of the battle through [`FlightWorld`], the hulls'
@@ -32,6 +35,7 @@
 
 pub mod ai;
 pub mod config;
+pub mod controls;
 pub mod fly;
 pub mod gear;
 pub mod model;

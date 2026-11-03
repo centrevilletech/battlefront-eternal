@@ -70,6 +70,10 @@ function sameMaterials(a, b) {
   return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((m, i) => m === b[i]);
 }
 
+// A heated material's values for an object without a heat of its own, as
+// destruction-debris.js heatMaterial's onBeforeRender gives them.
+const NO_HEAT = { heat: 0, tear: new THREE.Vector4(0, 0, 0, 0.3), soot: 0, dissolve: 0, sun: 1, brightness: 1, darken: 0, lighten: 0 };
+
 // A record's material values from its row's ROW_EXTRA (shader.rs EXTRAS):
 // its scroll, then a heated body's heat, base, scale and soot, its tear,
 // its dissolve (heatMaterial's onBeforeRender's values from the object).
@@ -128,6 +132,8 @@ class InstancePass {
   // ctx: the phase's camera, and what has been written to the renderer's
   // input so far (records, bones, skeletons).
   draw(ctx) {
+    // Off: no records (three draws what this pass took).
+    if (this.active === false) return;
     const { camera } = ctx, graphics = this.core.graphics;
     this.projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projScreen);
@@ -366,19 +372,35 @@ class InstancePass {
     input[o + R.BOX] = b.min.x; input[o + R.BOX + 1] = b.min.y; input[o + R.BOX + 2] = b.min.z; input[o + R.BOX + 3] = b.max.x; input[o + R.BOX + 4] = b.max.y; input[o + R.BOX + 5] = b.max.z;
     const w = mesh.matrixWorld.elements;
     for (let k = 0; k < 16; k++) { input[o + R.WORLD + k] = w[k]; input[o + R.BIND_INVERSE + k] = 0; }
-    const u = material.uniforms;
-    input[o + R.LOOK] = u.sunScale.value; input[o + R.LOOK + 1] = u.ambientPull.value.x; input[o + R.LOOK + 2] = u.ambientPull.value.y; input[o + R.LOOK + 3] = u.brightness.value;
-    writeExtras(input, o, u, null);
+    const u = material.uniforms, heated = record.heated ? mesh.userData.heated || NO_HEAT : null;
+    if (heated) { input[o + R.LOOK] = heated.sun; input[o + R.LOOK + 1] = heated.darken; input[o + R.LOOK + 2] = heated.lighten; input[o + R.LOOK + 3] = heated.brightness; }
+    else { input[o + R.LOOK] = u.sunScale.value; input[o + R.LOOK + 1] = u.ambientPull.value.x; input[o + R.LOOK + 2] = u.ambientPull.value.y; input[o + R.LOOK + 3] = u.brightness.value; }
+    writeExtras(input, o, u, heated);
     input[o + R.FLAGS] = flagsOf(material);
     at.records++;
     return at;
   }
 
+  // Off (this pass alone, or the whole renderer): three draws the bodies,
+  // guns, rigs and flying parts again, and this pass writes no records.
   setActive(on) {
+    this.active = on;
     const set = (m) => { if (m) m.visible = !on; };
     for (const record of this.bodyRecords) for (const m of record.used) set(m);
     for (const record of this.meshRecords) set(record.material);
     this.flyingActive(on);
+  }
+
+  // What this pass took from three shown to three (on) for a render of
+  // three's own that must still see it (its shadow pass, its motion pass:
+  // index.js reveal), then taken again (off): the bodies', rigs' and guns'
+  // materials, the flying parts' layers. Nothing while the renderer is off
+  // (three has it all already).
+  reveal(on) {
+    if (!this.core.enabled || !this.core.active) return;
+    for (const record of this.bodyRecords) for (const m of record.used) if (m) m.visible = on;
+    for (const record of this.meshRecords) if (record.material) record.material.visible = on;
+    this.flyingActive(!on);
   }
 
   // Flying models (game.js flyingModel: rounds, grenades, droids' pieces,
@@ -391,8 +413,9 @@ class InstancePass {
   // FLYING_LAYER), not by its material; its own layers stay in its record,
   // tested against the camera's as three would test them. A part whose
   // material blends is an item of the transparent list (registerFlying). A
-  // part three gives another material (destruction.js heats a wreck's)
-  // goes back to three.
+  // part made with a heated material (the destruction's burning pieces)
+  // takes its heat and look from the object. A part three gives another
+  // material (destruction.js heats a wreck's) goes back to three.
   flying(camera, at) {
     if (!this.flyingRecords) this.watchFlying();
     if (this.flyingPending.size) {
@@ -480,7 +503,10 @@ class InstancePass {
     if (geometry === null || geometry === undefined) return null;
     if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
     if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-    const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask, blend };
+    // A heated copy of a part's material (destruction-debris.js
+    // heatMaterial: the destruction's burning pieces) takes its heat and
+    // look from the object, as its onBeforeRender sets them.
+    const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask, blend, heated: "HEATED" in defines };
     if (this.core.active) mesh.layers.set(FLYING_LAYER);
     this.flyingRecords.push(record);
     return record;

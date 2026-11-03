@@ -187,30 +187,14 @@ impl Hull {
         self.right_input = 0.0;
         self.seats[si].look_yaw = None;
         self.seats[si].look_pitch = None;
-        self.flight.grounded = self.flying;
-        self.flight.state = if self.flying { Some(crate::flight::FlightState::Landed) } else { None };
-        self.flight.altitude = 0.0;
-        self.flight.throttle = 0.0;
-        self.flight.airspeed = 0.0;
-        self.tilt_rate = 0.0;
-        self.flight.state_time = 0.0;
-        self.flight.bank = 0.0;
-        if self.flying {
-            self.quaternion.set_from_axis_angle(&UP, self.yaw);
-            // initFlight
-            let config = crate::flight::config::Config::of(def);
-            let class = crate::flight::config::flight_class(name);
-            self.turn_rate = config.turn_rate;
-            self.speed = config.max_speed;
-            let q = self.quaternion;
-            self.flight.init(class, config, &q);
-        }
+        // Its flight part (the flight package's: every hull's flight fields,
+        // a craft turned to the pad's heading and given its flight).
+        self.spawn_flight(name, crate::flight::config::Config::of(def));
         self.tow_target = -1.0;
         self.tow_winding = 0.0;
         self.tow_angle = 0.0;
         self.tow_leg.clear();
         self.tow_local.set(0.0, 0.0, 0.0);
-        self.flight.floor_y = f64::NAN;
         self.velocity.set(0.0, 0.0, 0.0);
         for wheel in &mut self.wheels {
             wheel.phase = 0.0;

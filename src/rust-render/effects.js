@@ -14,7 +14,8 @@
 //   world matrix, found in three's transparent list as it first draws them.
 // - The droidekas' shields (droideka-shield.js): a shader material on a
 //   sphere, its values read from its uniforms each frame (after its
-//   onBeforeRender, as three would call it), found the same way.
+//   onBeforeRender, as three would call it), found the same way; and the
+//   Enhanced aura around a shield, another sphere with the shield's values.
 // - The map's haze and weather: atmosphere.js's square batches (dust, the
 //   FogCloud), drawn like particle batches with values of their own;
 //   snow.js's flakes, a batch with no instance attributes (its program
@@ -50,11 +51,12 @@
 // sniper's trace (sniper-trace.js), the arc caster's lightning
 // (arc-lightning.js: its capsules; the glow over a shocked body stays
 // three's), the droideka's rolling dust (droideka-trail.js), the
-// jetpack's wake (jetpack-wake.js), the destruction's fire and smoke
+// jetpack's wake (jetpack-wake.js), the destruction's fire, smoke and arcs
 // (destruction-fx.js) and the death camera's trace of the killing shot
-// (death-trace.js: a mesh rebuilt each frame with a shader material of its
-// own) are drawn here too; the destruction's arcs and its pieces, and the
-// jetpack's flame (jetpack-volume.js), stay with three for now.
+// (death-trace.js; it and the arcs meshes rebuilt each frame with shader
+// materials of their own) and the jetpack's flame (jetpack-volume.js: boxes
+// ray-marched through a 3D noise texture) are drawn here too; the
+// destruction's burning pieces are the instance pass's.
 import * as THREE from "three";
 import { particleRenderers } from "../particles.js";
 import { squareBatches } from "../atmosphere.js";
@@ -62,7 +64,8 @@ import { classicLightning } from "../lightning.js";
 import { arcBatches } from "../arc-lightning.js";
 import { droidekaTrails } from "../droideka-trail.js";
 import { jetpackWakes } from "../jetpack-wake.js";
-import { destructionPools } from "../destruction-fx.js";
+import { jetpackVolumes } from "../jetpack-volume.js";
+import { destructionPools, destructionArcs } from "../destruction-fx.js";
 import { rainImpacts } from "../rain-impacts.js";
 import { fountainJets } from "../fountain-jets.js";
 import { particleDepth } from "../particle-depth.js";
@@ -81,7 +84,9 @@ const policyOf = (kind) => ({ uniforms: new Set([...POLICY.uniforms, ...kind.val
 // A basic material's values (three's refreshUniformsCommon), as the page
 // writes them for a mesh: name, size.
 const BASIC = [["diffuse", 3], ["opacity", 1], ["mapTransform", 9]];
-const MESH_POLICY = { uniforms: new Set(["modelViewMatrix", "map", ...BASIC.map(([name]) => name)]), material: new Set() };
+// modelMatrix: three's own materials read it under shadows (their world
+// position); the renderer sets it per draw (a mesh's: the identity).
+const MESH_POLICY = { uniforms: new Set(["modelViewMatrix", "modelMatrix", "map", ...BASIC.map(([name]) => name)]), material: new Set() };
 const MODEL_POLICY = MESH_POLICY;
 // Each kind of batch: its instance attributes, in the order this pass
 // writes them; the material values of its own the page writes after them
@@ -114,6 +119,11 @@ const KINDS = {
   // smoke and embers, particles on a quad of their own placed by their
   // program from their births and the wake's clock.
   wake: { attributes: [["birth", 4], ["flow", 4], ["axis", 4], ["style", 2]], base: [["position", 3], ["uv", 2]], values: ["wakeTime", "kind", "drag"], samplers: [] },
+  // The Enhanced jetpack's flame (jetpack-volume.js): a box a nozzle,
+  // ray-marched through a 3D noise texture; its onBeforeRender takes the
+  // scene's depth whatever the setting and says whether it has it.
+  flame: { attributes: [["nozzle", 3], ["direction", 3], ["bend", 3], ["nozzleRadius", 1], ["phase", 1]], base: [["position", 3]],
+    values: ["flameTime", "power", "hasDepth"], samplers: ["noiseField"], beforeRender: true, depth: true },
   // The Enhanced destruction's fire and smoke (destruction-fx.js): pools of
   // records on a quad of their own, as many attributes as each keeps,
   // placed by their program from their births and the effects' clock.
@@ -151,7 +161,9 @@ const SHADER_MODELS = new Set(["rain-sheets", "environment-volumes", "fountain-s
 const JETS = new Set(["fountain-pool", "fountain-overflow", "fountain-ropes", "fountain-jets", "fountain-jets-core", "fountain-jets-near", "fountain-overflow-near", "fountain-ropes-near"]);
 // add_batch's corner for a batch with a base of its own (effects.rs NO_CORNER).
 const NO_CORNER = 0xffffffff;
-const SAMPLER_UNITS = { flakes: 7, boxes: 8, cover: 9, atlas: 10, foamMap: 11, sceneColor: 12 };
+// noiseField: the jetpack flame's 3D noise, on the unit the core keeps for
+// it (core.rs UNIT_FLAME_NOISE).
+const SAMPLER_UNITS = { flakes: 7, boxes: 8, cover: 9, atlas: 10, foamMap: 11, sceneColor: 12, noiseField: 21 };
 // A shader model's units for what it samples besides its map and the scene's depth.
 const MODEL_UNITS = [9, 10, 11];
 const LIGHTNING = [["position", 3], ["uv", 2], ["color", 4]];
@@ -251,6 +263,17 @@ function poolOf(pool) {
     get external() { return pool.external; }, set external(on) { pool.external = on; },
   };
 }
+// The Enhanced jetpack's flame (jetpack-volume.js): its nozzles' boxes as
+// the volume keeps them; hidden from three by `external`.
+function volumeOf(volume) {
+  const g = volume.mesh.geometry, arrays = {};
+  for (const [name, attribute] of Object.entries(g.attributes)) if (attribute.isInstancedBufferAttribute) arrays[name] = attribute.array;
+  return {
+    mesh: volume.mesh, material: volume.mesh.material, geometry: g, source: volume,
+    get count() { return volume.count; }, capacity: g.getAttribute("phase").count, arrays,
+    get external() { return volume.external; }, set external(on) { volume.external = on; },
+  };
+}
 function drops(mesh) {
   const seed = mesh.geometry.getAttribute("seed");
   return { mesh, material: mesh.material, geometry: mesh.geometry, get count() { return mesh.geometry.instanceCount; }, capacity: seed.count, arrays: { seed: seed.array }, external: false };
@@ -279,9 +302,17 @@ function copyBits(bits, at, src, from, to) {
   return at + n;
 }
 
-// A droideka's shield (droideka-shield.js).
+// A batch's sampler on its unit: a 3D texture (the jetpack flame's noise)
+// bound as one.
+function bindSampler(core, batch, sampler, texture, id) {
+  if (texture?.isData3DTexture) core.rust.fx_batch_sampler_3d(batch, sampler.name, sampler.unit, id);
+  else core.rust.fx_batch_sampler(batch, sampler.name, sampler.unit, id);
+}
+
+// A droideka's shield (droideka-shield.js), and the Enhanced aura around it
+// (the same uniforms, another fragment shader).
 function shieldOf(object) {
-  return object.isMesh && object.material?.isShaderMaterial && object.material.name === "droideka-energy-shield";
+  return object.isMesh && object.material?.isShaderMaterial && (object.material.name === "droideka-energy-shield" || object.name === "droideka-shield-aura");
 }
 
 // A uniform's value as floats: [size, form] (effects.rs MaterialValue: 0 a
@@ -371,8 +402,8 @@ class EffectsPass {
   // registered once three has drawn it, then hidden from three: glow models
   // (with their group's other parts: they share its material), shields and
   // the other shader models, the snow, the rain, the environment's batches,
-  // the Enhanced arcs', the droideka's dust, the jetpack's wake, the
-  // destruction's fire and smoke and the death camera's trace.
+  // the Enhanced arcs', the droideka's dust, the jetpack's flame and wake,
+  // the destruction's fire, smoke and arcs and the death camera's trace.
   listed(ctx) {
     const list = this.threeList(ctx.renderer, ctx.scene);
     for (const item of list?.transparent || []) {
@@ -398,6 +429,9 @@ class EffectsPass {
       } else if (object.name === "droideka-rolling-dust" && droidekaTrails.has(object) && object.material?.isShaderMaterial) {
         const record = this.registerBatch(trailOf(droidekaTrails.get(object)), "trail", null);
         if (record !== undefined) this.byBatch.set(object, record);
+      } else if (jetpackVolumes.has(object) && object.material?.isShaderMaterial) {
+        const record = this.registerBatch(volumeOf(jetpackVolumes.get(object)), "flame", null);
+        if (record !== undefined) this.byBatch.set(object, record);
       } else if (object.name.startsWith("jetpack-wake-") && jetpackWakes.has(object) && object.material?.isShaderMaterial) {
         const record = this.registerBatch(wakeOf(jetpackWakes.get(object)), "wake", null);
         if (record !== undefined) this.byBatch.set(object, record);
@@ -406,6 +440,9 @@ class EffectsPass {
         if (record !== undefined) this.byBatch.set(object, record);
       } else if (object.name === "death-trace" && object.material?.isShaderMaterial && !this.shaderMeshes.has(object)) {
         const record = this.registerShaderMesh(object);
+        if (record !== undefined) this.shaderMeshes.set(object, record);
+      } else if (destructionArcs.has(object) && object.material?.isShaderMaterial && !this.shaderMeshes.has(object)) {
+        const record = this.registerShaderMesh(object, destructionArcs.get(object));
         if (record !== undefined) this.shaderMeshes.set(object, record);
       }
     }
@@ -556,7 +593,7 @@ class EffectsPass {
     if (spec.interleaved) core.rust.fx_batch_interleaved(id);
     if (sides[0] !== 2) core.rust.fx_batch_side(id, sides[0]);
     if (values.length) core.rust.fx_batch_values(id, values.map(([name, size, form]) => `${name}:${size}:${form}`).join(","));
-    for (const sampler of samplers) core.rust.fx_batch_sampler(id, sampler.name, sampler.unit, sampler.id);
+    for (const sampler of samplers) bindSampler(core, id, sampler, sampler.map, sampler.id);
     // Its key but z, which never changes: no group above it but the map's
     // environment effects', the origin for a centre (no positions), the
     // identity for a world matrix.
@@ -635,11 +672,14 @@ class EffectsPass {
   }
 
   // A mesh rebuilt each frame with a shader material of its own (the death
-  // camera's trace): drawn as the lightning is (its vertices and indices
-  // written each frame, each of three's passes in turn), with the values its
-  // programs read of its uniforms. Undefined while three has not drawn it as
-  // it is yet, null when the renderer can't.
-  registerShaderMesh(mesh) {
+  // camera's trace, the destruction's arcs): drawn as the lightning is (its
+  // vertices and indices written each frame, each of three's passes in
+  // turn), with the values its programs read of its uniforms. source: what
+  // keeps a mesh's counts (its vertices and indices used: `vertex`, `index`)
+  // and hides it from three (`external`); without one, all of its vertices
+  // and indices, hidden by its material. Undefined while three has not drawn
+  // it as it is yet, null when the renderer can't.
+  registerShaderMesh(mesh, source = null) {
     const core = this.core, renderer = core.renderer, material = mesh.material, geometry = mesh.geometry;
     const props = renderer.properties.get(material);
     if (!props.currentProgram || props.__version !== material.version) return undefined;
@@ -651,7 +691,7 @@ class EffectsPass {
     const uniforms = material.uniforms, names = Object.keys(uniforms);
     if (names.some((name) => uniforms[name].value?.isTexture)) return fail("samplers");
     const sides = sidesOf(material);
-    const policy = { uniforms: new Set([...names, "modelViewMatrix"]), material: new Set() };
+    const policy = { uniforms: new Set([...names, "modelViewMatrix", "modelMatrix"]), material: new Set() };
     const programs = sides.map((side) => { const p = side === 2 ? props.currentProgram : programForSide(renderer, material, side); return p && core.program(p, EFFECT, material, policy, this.programs); });
     if (programs.some((p) => !p)) return fail("program");
     // Its attributes as its programs read them, each of its geometry's.
@@ -669,8 +709,29 @@ class EffectsPass {
     }
     const id = core.rust.fx_add_mesh(-1, new Uint32Array(blend), state.flags & 3, state.func, new Uint32Array(attributes.map(([, size]) => size)), values.map(([name, size]) => `${name}:${size}`).join(","));
     sides.forEach((side, i) => core.rust.fx_mesh_pass(id, programs[i].id, side, new Uint32Array(locations[i])));
-    material.visible = false;
-    return { id, mesh, material, attributes, values, from: this.frame };
+    const record = { id, mesh, material, attributes, values, source, from: this.frame };
+    this.hideMesh(record, true);
+    return record;
+  }
+
+  // A shader mesh hidden from three (the renderer draws it), or shown again
+  // with what it holds now marked for three to upload.
+  hideMesh(record, hidden) {
+    const source = record.source;
+    if (!source) { record.material.visible = !hidden; return; }
+    source.external = hidden;
+    record.mesh.visible = !hidden && source.index > 0;
+    if (hidden) return;
+    const geometry = record.mesh.geometry;
+    for (const [name, size] of record.attributes) {
+      const a = geometry.getAttribute(name);
+      a.clearUpdateRanges();
+      a.addUpdateRange(0, source.vertex * size);
+      a.needsUpdate = true;
+    }
+    geometry.index.clearUpdateRanges();
+    geometry.index.addUpdateRange(0, source.index);
+    geometry.index.needsUpdate = true;
   }
 
   // A mesh with a shader material of its own, its values read from its
@@ -692,7 +753,7 @@ class EffectsPass {
     const samplers = names.filter((name) => name === "sceneDepth" || uniforms[name].value?.isTexture || (uniforms[name].value === null && /map$/i.test(name)));
     const textures = samplers.filter((name) => name !== "sceneDepth");
     if (textures.length > 1 + MODEL_UNITS.length) return fail("samplers");
-    const policy = { uniforms: new Set([...names, "modelViewMatrix", "normalMatrix"]), material: new Set() };
+    const policy = { uniforms: new Set([...names, "modelViewMatrix", "modelMatrix", "normalMatrix"]), material: new Set() };
     const programs = sides.map((side) => { const p = side === 2 ? props.currentProgram : programForSide(renderer, material, side); return p && core.program(p, WORLD, material, policy, this.programs); });
     if (programs.some((p) => !p)) return fail("program");
     if (geometry.groups.length || Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count < (geometry.index?.count ?? 0)) return fail("geometry");
@@ -828,7 +889,7 @@ class EffectsPass {
         const tex = b.material.uniforms[sampler.name].value ?? null, handle = this.handle(tex);
         if (tex !== sampler.map || handle !== sampler.handle) {
           sampler.map = tex; sampler.handle = handle;
-          core.rust.fx_batch_sampler(record.id, sampler.name, sampler.unit, tex ? core.texture(tex) : -1);
+          bindSampler(core, record.id, sampler, tex, tex ? core.texture(tex) : -1);
         }
       }
     }
@@ -838,10 +899,13 @@ class EffectsPass {
     const traced = this.traced;
     traced.length = 0;
     for (const record of this.shaderMeshes.values()) {
-      if (!record || record.from === frame || !record.mesh.visible || !this.shown(record.mesh, camera)) continue;
-      const g = record.mesh.geometry;
+      if (!record || record.from === frame) continue;
+      const source = record.source, g = record.mesh.geometry;
+      if (!(source ? source.index > 0 : record.mesh.visible) || !this.shown(record.mesh, camera)) continue;
+      record.vertices = source ? source.vertex : g.getAttribute("position").count;
+      record.indices = source ? source.index : g.index.count;
       traced.push(record);
-      need += g.getAttribute("position").count * record.attributes.reduce((sum, [, size]) => sum + size, 0) + g.index.count + record.values.reduce((sum, [, size]) => sum + size, 0);
+      need += record.vertices * record.attributes.reduce((sum, [, size]) => sum + size, 0) + record.indices + record.values.reduce((sum, [, size]) => sum + size, 0);
     }
     // Glow models and shields shown (three culls them by their spheres: the
     // renderer does). A shield's onBeforeRender runs first, as three's would
@@ -925,8 +989,7 @@ class EffectsPass {
     }
     for (const record of traced) {
       if (draws === MAX_DRAWS) break;
-      const { mesh, material } = record, geometry = mesh.geometry, start = at;
-      const vertices = geometry.getAttribute("position").count, indices = geometry.index.count;
+      const { mesh, material, vertices, indices } = record, geometry = mesh.geometry, start = at;
       for (const [name, size] of record.attributes) at = copy(data, at, geometry.getAttribute(name).array, 0, vertices * size);
       at = copyBits(bits, at, geometry.index.array, 0, indices);
       for (const [name] of record.values) at = put(data, at, material.uniforms[name].value);
@@ -1012,7 +1075,7 @@ class EffectsPass {
       lightning.mesh.visible = false;
     }
     for (const record of this.glowList) record.material.visible = !on;
-    for (const record of this.shaderMeshes.values()) if (record) record.material.visible = !on;
+    for (const record of this.shaderMeshes.values()) if (record) this.hideMesh(record, on);
     if (!on) this.draws = this.instances = 0;
   }
 

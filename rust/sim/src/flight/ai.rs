@@ -67,7 +67,9 @@ pub struct Steer {
     pub path_altitude: bool,
 }
 
-/// The pilot's stick (`out`).
+/// The pilot's stick (`out`). The landing path leaves trick, immelmann and
+/// boost unset, which seatAnalogs (its caller) reads through Boolean():
+/// false here.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Stick {
     pub forward: f64,
