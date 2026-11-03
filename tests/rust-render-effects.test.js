@@ -68,7 +68,7 @@ function bridge() {
     geometry_index() {}
     geometry_group() {}
     sort() {}
-    frame() { calls.push(["frame"]); return STATS; }
+    frame(records) { calls.push(["frame", records]); return STATS; }
     transparent_frame(three) { calls.push(["transparent_frame", three]); return STATS; }
   }
   const gl = {
@@ -432,4 +432,45 @@ test("the rain: fixed seeds uploaded once on a streak plane of its own, its cloc
   assert.deepEqual(entry(0).slice(0, 5), [0, 0, 64, 0, 0], "every seed the first time");
   frame();
   assert.deepEqual(entry(0).slice(2, 4), [64, 64], "none again");
+});
+
+test("flying models: parts of tagged groups as rigid records, lit and unlit, hidden by their layers not their shared material", () => {
+  const { core, calls, scene, camera, renderer, drawn } = bridge();
+  const zero = (kind) => new THREE.ShaderMaterial({ name: `zero:${kind}`, defines: { [kind === "dynamic" ? "DYNAMIC" : "UNLIT"]: "" },
+    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
+  const lit = zero("dynamic"), unlit = zero("unlit");
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setIndex([0, 1, 2]);
+  const piece = (material) => { const group = new THREE.Group(); group.add(new THREE.Mesh(geometry, material)); group.userData.flying = true; return group; };
+  const a = piece(lit), b = piece(unlit), held = piece(lit);
+  scene.add(a);
+  // Not drawn by three yet: three's.
+  const near = () => core.pass(renderer, scene, camera);
+  near();
+  assert.equal(a.children[0].layers.mask, 1);
+  const rigid = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness"], ["position"]);
+  drawn(lit, rigid); drawn(unlit, rigid);
+  scene.add(b);
+  near();
+  assert.equal(a.children[0].layers.mask, 1 << 30, "hidden from three by its layers");
+  assert.equal(b.children[0].layers.mask, 1 << 30, "an unlit part too");
+  assert.equal(lit.visible, true, "its material, shared with other copies, untouched");
+  assert.equal(calls.find((c) => c[0] === "add_program")[1], 2, "a rigid program");
+  near();
+  assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 2, "two records");
+  // A copy inside another object is not the renderer's: three draws it.
+  const holder = new THREE.Group(); holder.add(held); scene.add(holder);
+  near();
+  assert.equal(held.children[0].layers.mask, 1);
+  // Hidden: not drawn; taken out of the scene: three's again.
+  b.visible = false;
+  near();
+  assert.equal(calls.filter((c) => c[0] === "frame").pop()[1], 1);
+  scene.remove(a);
+  assert.equal(a.children[0].layers.mask, 1);
+  core.setActive(false);
+  assert.equal(b.children[0].layers.mask, 1, "off: back to its layers");
+  core.setActive(true);
+  assert.equal(b.children[0].layers.mask, 1 << 30);
 });
