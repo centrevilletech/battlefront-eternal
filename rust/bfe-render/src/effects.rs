@@ -815,9 +815,11 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for EffectsPass<C> {
                 }
             }
             let k = &self.input[DRAW_AT + d * DRAW_STRIDE + DRAW_KEY..DRAW_AT + (d + 1) * DRAW_STRIDE];
+            // One batch for all: consecutive effects in the list are one
+            // run (draw_run draws its items in turn), set up once.
             items.push(Item {
                 group_order: k[0], render_order: k[1], z: three_z(&view.view_projection, None, &[k[2], k[3], k[4]]), id: k[5],
-                source, batch: d as u32, record: d as u32,
+                source, batch: 0, record: d as u32,
             });
         }
     }
