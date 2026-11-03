@@ -13,6 +13,9 @@
 // seats' boundary (src/seats-world.js) are recorded with their results; a
 // kill and a rider posed come back with the units as they left them.
 
+import * as THREE from 'three';
+import { hasMissileLock } from '../../src/weapon-targeting.js';
+
 // The leases that hold a seat, hulls first (hull by hull, seat by seat),
 // then the turrets' (in the order they were manned), then any the frame
 // names that holds none (a lease being let go).
@@ -142,6 +145,99 @@ const hullFrame = (method, named = () => ({})) => ({
   boundaries: hullSeatBoundaries,
 });
 
+// ---- The turret crews (src/seats.js TurretSeats).
+
+// A turret as its crew reads and writes it: its place among the battle's
+// turrets, whether it stands built, its lease and the unit whose body mans
+// it, its aim and gun's angles and barrel, who last hurt it, its target in
+// the registry (a launcher's lock leaves it out), its bounding sphere as it
+// stands, its weapon, what it is for the battle (desc: as its constructor
+// worked it out) and its rig's bones (each one's parent among them, -1 for
+// the root, its local position, turn and scale, and its world matrix as
+// the last update left it).
+function turretValue(cap, game, t) {
+  const rig = t.rig, bones = rig.bones;
+  const at = (node) => (node ? bones.indexOf(node) : null);
+  const gunner = !t.gunner ? null : t.lease?.unit?.soldier === t.gunner ? t.lease.unit : game.units.all().find((u) => u.soldier === t.gunner) ?? 'unknown';
+  const center = new THREE.Vector3(), radius = t.sphere(center);
+  return {
+    index: game.live.turrets.indexOf(t), turret: t, alive: t.alive,
+    lease: t.lease ? cap.export('seatLease', t.lease).$id : null, gunner,
+    yaw: t.yaw, pitch: t.pitch, yawVel: t.yawVel, pitchVel: t.pitchVel, gunYaw: t.gunYaw, gunPitch: t.gunPitch, barrel: t.barrel,
+    lastAttacker: t.lastAttacker ?? null, aiTarget: t.aiTarget ?? null,
+    sphere: { center, radius },
+    weapon: t.weapon ? { ordnance: t.weapon.def.ordnance ?? null, missileLock: hasMissileLock(t.weapon.def) } : null,
+    desc: {
+      facing: t.facing, position: t.position.clone(), body: t.bodies?.built || null,
+      pitchLimits: [...t.pitchLimits], yawLimits: t.yawLimits ? [...t.yawLimits] : null, wrapYaw: t.wrapYaw,
+      gunPitchLimits: [...t.gunPitchLimits], gunYawLimits: [...t.gunYawLimits],
+      turnRate: t.turnRate, filter: t.filter, gunPitchRate: t.gunPitchRate, gunYawRate: t.gunYawRate, yawFactor: t.yawFactor, pitchFactor: t.pitchFactor,
+      camera: { eye: t.camera.eye.clone(), center: t.camera.center.clone(), offset: t.camera.offset.clone(), tilt: t.camera.tilt },
+      pivot: t.pivot.clone(), up: t.up.clone(),
+      drumParentTurn: t.drumParentTurn ? t.drumParentTurn.clone() : null, gunBind: t.gunBind ? t.gunBind.clone() : null,
+      rider: Boolean(t.rider), drum: at(t.drum), gun: at(t.gun), seat: at(t.seat), firePoints: (t.firePoints ?? []).map(at),
+    },
+    rig: {
+      root: [...rig.root.matrix.elements],
+      bones: bones.map((b) => ({ parent: bones.indexOf(b.parent), position: b.position.clone(), quaternion: b.quaternion.clone(), scale: b.scale.clone() })),
+      world: bones.map((b) => [...b.matrixWorld.elements]),
+    },
+  };
+}
+
+// The crews' state as a frame starts or ends: their leases (and any the
+// frame names that holds none), the turrets they man (and any named), the
+// units in those seats (and any named) and the seats the AI drives.
+function crewState(game, cap, { leases: namedLeases = [], units: namedUnits = [], turrets: namedTurrets = [] } = {}) {
+  const ts = game.turretSeats;
+  const leases = [...ts.leases];
+  for (const lease of namedLeases) if (lease && !leases.includes(lease)) leases.push(lease);
+  const units = [], turrets = [];
+  for (const lease of leases) {
+    if (lease.unit && !units.includes(lease.unit)) units.push(lease.unit);
+    if (lease.turret && !turrets.includes(lease.turret)) turrets.push(lease.turret);
+  }
+  for (const u of namedUnits) if (u && !units.includes(u)) units.push(u);
+  for (const t of namedTurrets) if (t && !turrets.includes(t)) turrets.push(t);
+  return {
+    turretSeats: cap.export('turretSeats', ts),
+    collide: Boolean(ts.collision),
+    seats: cap.export('seats', { leases }),
+    turrets: turrets.map((t) => turretValue(cap, game, t)),
+    units: units.map((u) => unitValue(cap, u)),
+    controls: leases.filter((l) => l.controllable).map((l) => controlValue(cap, l)),
+  };
+}
+
+// The crews' boundary: their SeatsWorld's calls (the turret's weapon and
+// rounds among them) and a body stood up (Soldier.spawn's cast).
+const crewBoundaries = (game) => {
+  const w = game.turretSeats?.world ?? null;
+  return [
+    ['crews.cast', w, 'cast'],
+    ['crews.raycast', w, 'raycast'],
+    ['collision.cast', game.collision, 'cast'],
+    ['crews.kill', w, 'kill', everyUnit],
+    ['crews.riderDrop', w, 'riderDrop'],
+    ['crews.controllable', w, 'controllable'],
+    ['crews.updateLock', w, 'updateLock'],
+    ['crews.weaponUpdate', w, 'weaponUpdate'],
+    ['crews.fire', w, 'fire'],
+    ['crews.bindRound', w, 'bindRound'],
+    ['crews.sound', w, 'sound'],
+    ['crews.boarded', w, 'boarded'],
+    ['crews.unboarded', w, 'unboarded'],
+    ['crews.fired', w, 'fired'],
+  ];
+};
+
+const crewFrame = (method, named = () => ({})) => ({
+  method: `turretSeats.${method}`,
+  target: (game) => (game.turretSeats?.turrets.length ? game.turretSeats : null),
+  state: (game, args, cap) => crewState(game, cap, named(args)),
+  boundaries: crewBoundaries,
+});
+
 export const seats = {
   frames: [
     hullFrame('latchCrews'),
@@ -149,5 +245,11 @@ export const seats = {
     hullFrame('vacate', (args) => ({ leases: [args[0]] })),
     hullFrame('destroyedCrew', (args) => ({ hulls: [args[0]] })),
     hullFrame('requestExit', (args) => ({ units: [args[0]] })),
+    crewFrame('update'),
+    crewFrame('man', (args) => ({ units: [args[0]], turrets: [args[1]] })),
+    crewFrame('vacate', (args) => ({ leases: [args[0]] })),
+    crewFrame('destroyed', (args) => ({ turrets: [args[0]] })),
+    crewFrame('requestExit', (args) => ({ units: [args[0]] })),
+    crewFrame('leave', (args) => ({ units: [args[0]] })),
   ],
 };

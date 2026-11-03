@@ -9,9 +9,10 @@
 // capture's. Without a corpus the test passes without replaying.
 #![cfg(feature = "replay")]
 
-use bfe_sim::gen::{Body, Post, Replay, SeatLease, SeatUnit, Seats, Store, Unit, Vehicle, KIND_BODY, KIND_POST, KIND_SEAT_LEASE, KIND_SEAT_UNIT};
+use bfe_sim::gen::{Body, Post, Replay, SeatLease, SeatUnit, Seats, Store, TurretSeats, Unit, Vehicle, KIND_BODY, KIND_POST, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_TURRET};
 use bfe_sim::seats::bodies::CombatFlags;
 use bfe_sim::seats::hulls::{FlightState, HullSide, Hulls, RiderFacts, Vacate};
+use bfe_sim::seats::turrets::{CrewWorld, Crews, Let, Shot, TurretDesc, TurretRig, TurretSide};
 use bfe_sim::seats::lease::{control_key, SeatControl, SeatIntent};
 use bfe_sim::seats::{Attacker, Hit, Holder, Reason, SeatWorld};
 use bfe_sim::store::{Ref, Slab};
@@ -19,7 +20,7 @@ use bfe_sim::units::world::{CastHit, GatherPolygon, UnitsWorld};
 use bfe_sim::vehicles::replay::body_of;
 use sim_replay::{check_num, check_vec3, diff, replay_corpus, Arena, Call, Corpus, Frame, Log, Mismatch, Outcome, Value, V};
 use std::collections::BTreeMap;
-use three::Vector3;
+use three::{Quaternion, Vector3};
 
 fn vec3(v: V) -> Vector3 {
     let a = v.vec3().unwrap_or_else(|| panic!("not a Vector3: {}", v.show()));
@@ -39,6 +40,22 @@ struct Served<'f, 'c> {
     error: Option<String>,
     // What a kill or a posed rider left the units as.
     pending_units: Vec<(u32, V<'f>)>,
+    // The labels' prefix: the hulls' seats' world ("seats") or the
+    // crews' ("crews").
+    prefix: &'static str,
+    // Each turret of a crew frame by its place among the battle's turrets:
+    // its handle, its target in the registry and its body, as captured.
+    turrets: BTreeMap<usize, TurretFacts<'f>>,
+    // The shots the last weapon update fired, and each round fired.
+    shots: Vec<V<'f>>,
+    rounds: Vec<V<'f>>,
+}
+
+struct TurretFacts<'f> {
+    handle: V<'f>,
+    target: V<'f>,
+    body: V<'f>,
+    ordnance: V<'f>,
 }
 
 impl<'f, 'c> Served<'f, 'c> {
@@ -52,7 +69,11 @@ impl<'f, 'c> Served<'f, 'c> {
         if self.error.is_some() {
             return None;
         }
-        match self.log.call(name) {
+        let name = match name.strip_prefix("seats.") {
+            Some(rest) => format!("{}.{rest}", self.prefix),
+            None => name.to_string(),
+        };
+        match self.log.call(&name) {
             Ok(call) => Some(call),
             Err(e) => {
                 self.error = Some(e.0);
@@ -93,7 +114,7 @@ impl<'f, 'c> Served<'f, 'c> {
     fn check_holder(&mut self, what: &str, v: V, mine: Holder) {
         let ok = match mine {
             Holder::Hull(i) => v.handle_num("vehicle") == Some(i as f64),
-            Holder::Turret(i) => v.handle_num("turret") == Some(i as f64),
+            Holder::Turret(i) => self.turrets.get(&i).is_some_and(|t| sim_replay::same(t.handle, v)),
         };
         if !ok {
             self.fail(format!("{what}: the capture has {}, the port {mine:?}", v.show()));
@@ -366,6 +387,102 @@ impl SeatWorld for Served<'_, '_> {
         self.check_unit("moved unit", call.arg(0), unit);
         self.check_holder("moved holder", call.arg(1), holder);
         self.check(check_num("moved seat", call.arg(2), index as f64));
+    }
+}
+
+impl CrewWorld for Served<'_, '_> {
+    fn update_lock(&mut self, turret: usize, dt: f64, origin: &Vector3, dir: &Vector3, lease: Ref<SeatLease>) {
+        let Some(call) = self.call("seats.updateLock") else { return };
+        self.check(check_num("updateLock dt", call.arg(1), dt));
+        self.check(check_vec3("updateLock origin", call.arg(2), arr(origin)));
+        self.check(check_vec3("updateLock dir", call.arg(3), arr(dir)));
+        let (target, body) = match self.turrets.get(&turret) {
+            Some(t) => (t.target, t.body),
+            None => return self.fail(format!("updateLock: no turret {turret}")),
+        };
+        if !sim_replay::same(call.arg(4), target) {
+            self.fail(format!("updateLock viewer: the capture has {}, the turret's target {}", call.arg(4).show(), target.show()));
+        }
+        if !sim_replay::same(call.arg(5), body) && !(call.arg(5).is_nullish() && body.is_nullish()) {
+            self.fail(format!("updateLock ignoreBody: the capture has {}, the turret's body {}", call.arg(5).show(), body.show()));
+        }
+        self.check_lease("updateLock lease", call.arg(6), lease);
+    }
+
+    fn weapon_update(&mut self, _turret: usize, dt: f64, held: bool, pressed: bool, reload: bool) -> Vec<Shot> {
+        let Some(call) = self.call("seats.weaponUpdate") else { return Vec::new() };
+        self.check(check_num("weaponUpdate dt", call.arg(1), dt));
+        if !call.arg(2).truthy() {
+            self.fail("weaponUpdate selected: not true".into());
+        }
+        let trigger = call.arg(3);
+        if trigger.get("held").opt_bool() != Some(held) || trigger.get("pressed").opt_bool() != Some(pressed) {
+            self.fail(format!("weaponUpdate trigger: the capture has {}, the port held {held} pressed {pressed}", trigger.show()));
+        }
+        if call.arg(4).opt_bool() != Some(reload) {
+            self.fail(format!("weaponUpdate reload: the capture has {}, the port {reload}", call.arg(4).show()));
+        }
+        self.shots = call.result().items().collect();
+        self.shots.iter().map(|s| Shot { yaw: s.get("yaw").opt_num().unwrap_or(0.0), pitch: s.get("pitch").opt_num().unwrap_or(0.0) }).collect()
+    }
+
+    fn fire(&mut self, turret: usize, origin: &Vector3, direction: &Vector3, owner: Option<u32>, lease: Ref<SeatLease>, shot: usize) -> usize {
+        let Some(call) = self.call("seats.fire") else { return 0 };
+        let ordnance = self.turrets.get(&turret).map(|t| t.ordnance);
+        if !ordnance.is_some_and(|o| sim_replay::same(o, call.arg(0))) {
+            self.fail(format!("fire ordnance: the capture has {}", call.arg(0).show()));
+        }
+        self.check(check_vec3("fire origin", call.arg(1), arr(origin)));
+        self.check(check_vec3("fire direction", call.arg(2), arr(direction)));
+        self.check_unit("fire owner", call.arg(3), owner);
+        let body = self.turrets.get(&turret).map(|t| t.body);
+        if !body.is_some_and(|b| sim_replay::same(b, call.arg(4)) || b.is_nullish() && call.arg(4).is_nullish()) {
+            self.fail(format!("fire ignoreBody: the capture has {}", call.arg(4).show()));
+        }
+        let _ = lease;
+        match self.shots.get(shot) {
+            Some(s) if sim_replay::same(*s, call.arg(6)) => {}
+            _ => self.fail(format!("fire shot: the capture has {}", call.arg(6).show())),
+        }
+        self.rounds.push(call.result());
+        self.rounds.len() - 1
+    }
+
+    fn bind_round(&mut self, round: usize, turret: usize, barrel: f64) {
+        let Some(call) = self.call("seats.bindRound") else { return };
+        match self.rounds.get(round) {
+            Some(r) if sim_replay::same(*r, call.arg(0)) => {}
+            _ => self.fail(format!("bindRound round: the capture has {}", call.arg(0).show())),
+        }
+        self.check_holder("bindRound mount", call.arg(1), Holder::Turret(turret));
+        self.check(check_num("bindRound seat", call.arg(2), -1.0));
+        self.check(check_num("bindRound weapon", call.arg(3), -1.0));
+        self.check(check_num("bindRound barrel", call.arg(4), barrel));
+    }
+
+    fn sound(&mut self, turret: usize, shot: usize) {
+        let Some(call) = self.call("seats.sound") else { return };
+        if call.arg(0).str() != Some("turretFire") {
+            self.fail(format!("sound type: the capture has {}", call.arg(0).show()));
+        }
+        self.check_holder("sound turret", call.arg(1), Holder::Turret(turret));
+        match self.shots.get(shot) {
+            Some(s) if sim_replay::same(*s, call.arg(2)) => {}
+            _ => self.fail(format!("sound shot: the capture has {}", call.arg(2).show())),
+        }
+    }
+
+    fn fired(&mut self, turret: usize, shot: usize, owner: Option<u32>, muzzle: &Vector3, direction: &Vector3) {
+        let Some(call) = self.call("seats.fired") else { return };
+        self.check_holder("fired turret", call.arg(0), Holder::Turret(turret));
+        self.check(check_num("fired seat", call.arg(1), 0.0));
+        match self.shots.get(shot) {
+            Some(s) if sim_replay::same(*s, call.arg(2)) => {}
+            _ => self.fail(format!("fired shot: the capture has {}", call.arg(2).show())),
+        }
+        self.check_unit("fired owner", call.arg(3), owner);
+        self.check(check_vec3("fired muzzle", call.arg(4), arr(muzzle)));
+        self.check(check_vec3("fired direction", call.arg(5), arr(direction)));
     }
 }
 
@@ -659,7 +776,7 @@ fn replay_hull_frame(frame: &Frame, name: &str, tally: &mut BTreeMap<String, usi
     let entry: Vec<Ref<SeatLease>> = cx.store.seats.leases.clone();
     let mut named: Vec<Ref<SeatLease>> = Vec::new();
     let mut st = std::mem::take(&mut cx.store);
-    let mut served = Served { log: Log::new(frame), cx: &mut cx, error: None, pending_units: Vec::new() };
+    let mut served = Served { log: Log::new(frame), cx: &mut cx, error: None, pending_units: Vec::new(), prefix: "seats", turrets: BTreeMap::new(), shots: Vec::new(), rounds: Vec::new() };
     let result: Option<bool>;
     match name {
         "vehicles.latchCrews" => {
@@ -729,6 +846,363 @@ fn replay_hull_frame(frame: &Frame, name: &str, tally: &mut BTreeMap<String, usi
     match diff(after, a.view(&mine)) {
         None => Outcome::Same,
         Some(d) => Outcome::Failed(format!("{}: seats {d} (capture | port)", frame.place())),
+    }
+}
+
+// ---- The turret crews' frames.
+
+fn q4(v: V) -> Quaternion {
+    match v.node() {
+        Some(sim_replay::Node::Quat(q)) => Quaternion::new(q[0], q[1], q[2], q[3]),
+        _ => panic!("not a Quaternion: {}", v.show()),
+    }
+}
+
+fn pair(v: V) -> [f64; 2] {
+    [v.at(0).num(), v.at(1).num()]
+}
+
+fn node_at(rig: &TurretRig, v: V) -> Option<three::NodeId> {
+    v.opt_num().map(|i| rig.bones[i as usize])
+}
+
+/// A turret as a crew frame's state has it.
+fn turret_of(cx: &mut Replay, t: V) -> Result<TurretSide, String> {
+    let d = t.get("desc");
+    let cam = d.get("camera");
+    let body = d.get("body");
+    let rig_v = t.get("rig");
+    let mut root = [0.0; 16];
+    for (i, x) in rig_v.get("root").items().enumerate() {
+        root[i] = x.num();
+    }
+    let bones: Vec<_> = rig_v
+        .get("bones")
+        .items()
+        .map(|b| {
+            let parent = b.get("parent").num();
+            (if parent < 0.0 { None } else { Some(parent as usize) }, vec3(b.get("position")), q4(b.get("quaternion")), vec3(b.get("scale")))
+        })
+        .collect();
+    let world: Vec<[f64; 16]> = rig_v
+        .get("world")
+        .items()
+        .map(|m| {
+            let mut e = [0.0; 16];
+            for (i, x) in m.items().enumerate() {
+                e[i] = x.num();
+            }
+            e
+        })
+        .collect();
+    let mut rig = TurretRig::new(&root, &bones, Some(&world));
+    rig.drum = node_at(&rig, d.get("drum"));
+    rig.gun = node_at(&rig, d.get("gun"));
+    rig.seat = node_at(&rig, d.get("seat"));
+    rig.fire_points = d.get("firePoints").items().map(|i| rig.bones[i.num() as usize]).collect();
+    let yaw_limits = d.get("yawLimits");
+    let lease = t.get("lease");
+    let gunner = t.get("gunner");
+    let weapon = t.get("weapon");
+    Ok(TurretSide {
+        index: t.get("index").num() as usize,
+        turret: cx.ref_in(KIND_TURRET, t.get("turret"), "turret")?,
+        alive: t.get("alive").bool(),
+        lease: if lease.is_null() { None } else { Some(SeatLease::ref_in(lease, cx, "turret.lease")?) },
+        gunner: if gunner.is_null() { None } else { Some(gunner.handle_num("unit").ok_or(format!("a gunner that is no unit: {}", gunner.show()))? as u32) },
+        yaw: t.get("yaw").num(),
+        pitch: t.get("pitch").num(),
+        yaw_vel: t.get("yawVel").num(),
+        pitch_vel: t.get("pitchVel").num(),
+        gun_yaw: t.get("gunYaw").num(),
+        gun_pitch: t.get("gunPitch").num(),
+        barrel: t.get("barrel").num(),
+        last_attacker: attacker_of(t.get("lastAttacker")),
+        sphere: (vec3(t.get("sphere").get("center")), t.get("sphere").get("radius").num()),
+        weapon: !weapon.is_null(),
+        missile_lock: !weapon.is_null() && weapon.get("missileLock").bool(),
+        desc: TurretDesc {
+            facing: d.get("facing").num(),
+            position: vec3(d.get("position")),
+            body: if body.is_nullish() { None } else { Some(cx.ref_in::<Body>(KIND_BODY, body, "body")?) },
+            pitch_limits: pair(d.get("pitchLimits")),
+            yaw_limits: if yaw_limits.is_null() { None } else { Some(pair(yaw_limits)) },
+            wrap_yaw: d.get("wrapYaw").bool(),
+            gun_pitch_limits: pair(d.get("gunPitchLimits")),
+            gun_yaw_limits: pair(d.get("gunYawLimits")),
+            turn_rate: d.get("turnRate").num(),
+            filter: d.get("filter").num(),
+            gun_pitch_rate: d.get("gunPitchRate").num(),
+            gun_yaw_rate: d.get("gunYawRate").num(),
+            yaw_factor: d.get("yawFactor").num(),
+            pitch_factor: d.get("pitchFactor").num(),
+            camera_eye: vec3(cam.get("eye")),
+            camera_center: vec3(cam.get("center")),
+            camera_offset: vec3(cam.get("offset")),
+            camera_tilt: cam.get("tilt").num(),
+            pivot: vec3(d.get("pivot")),
+            up: vec3(d.get("up")),
+            drum_parent_turn: if d.get("drumParentTurn").is_null() { None } else { Some(q4(d.get("drumParentTurn"))) },
+            gun_bind: if d.get("gunBind").is_null() { None } else { Some(q4(d.get("gunBind"))) },
+            rider: d.get("rider").bool(),
+        },
+        rig,
+    })
+}
+
+/// The crews as a frame starts: read into `cx.store`; the turrets.
+fn read_crews(cx: &mut Replay, s: V) -> Result<Crews, String> {
+    let mut crews = Crews { collide: s.get("collide").bool(), ..Crews::default() };
+    cx.store.turret_seats = TurretSeats::from_value(s.get("turretSeats"), cx, "turretSeats")?;
+    cx.store.seats = Seats::from_value(s.get("seats"), cx, "seats")?;
+    for t in s.get("turrets").items() {
+        crews.turrets.push(turret_of(cx, t)?);
+    }
+    crews.turrets.sort_by_key(|t| t.index);
+    for (i, u) in s.get("units").items().enumerate() {
+        let r = Unit::value_in(u.get("unit"), cx, &format!("units[{i}]"))?;
+        let c = u.get("combat");
+        crews.riders.insert(
+            r.slot,
+            RiderFacts {
+                combat: CombatFlags { zoom_step: c.get("zoomStep").num(), zoom: c.get("zoom").num(), first_person: c.get("firstPerson").bool(), blow_apart: c.get("blowApart").bool() },
+                no_enter: u.get("noEnter").num(),
+            },
+        );
+    }
+    for c in s.get("controls").items() {
+        let lease = SeatLease::ref_in(c.get("lease"), cx, "controls.lease")?;
+        let unit = cx.store.seat_lease.get(lease).and_then(|l| l.controllable).ok_or("a control of a lease without one")?;
+        crews.controls.insert(control_key(unit), SeatControl { driven: c.get("driven").bool(), intent: intent_of(c.get("intent")) });
+    }
+    Ok(crews)
+}
+
+fn mat_value(a: &mut Arena, m: &three::Matrix4) -> Value {
+    let items = m.elements.iter().map(|&x| Value::Num(x)).collect();
+    a.array(items)
+}
+
+/// The crews as the port ends the frame, in the capture's shape: each
+/// turret's entry value with what the crews change made again (its lease
+/// and gunner, aim, gun's angles, barrel, its bones' turns and world
+/// matrices).
+fn write_crews(cx: &mut Replay, crews: &mut Crews, before: V, after: V, named: &[Ref<SeatLease>]) -> (Arena, Value) {
+    let mut a = Arena::default();
+    let turret_seats = cx.store.turret_seats.clone();
+    let ts = turret_seats.to_value(cx, &mut a);
+    let mut leases = cx.store.turret_seats.leases.clone();
+    for &r in named {
+        if !leases.contains(&r) {
+            leases.push(r);
+        }
+    }
+    cx.store.seats.leases = leases.clone();
+    let seats = cx.store.seats.clone().to_value(cx, &mut a);
+    let mut turrets = Vec::new();
+    for t in after.get("turrets").items() {
+        let index = t.get("index").num() as usize;
+        let Some(mine) = crews.turrets.iter_mut().find(|x| x.index == index) else {
+            turrets.push(Value::Undefined);
+            continue;
+        };
+        let Some(entry) = before.get("turrets").items().find(|x| x.get("index").num() as usize == index) else {
+            turrets.push(Value::Undefined);
+            continue;
+        };
+        let v = a.copy(entry);
+        let lease = match mine.lease {
+            Some(r) => SeatLease::ref_out(r, cx, &mut a),
+            None => Value::Null,
+        };
+        a.assign(&v, "lease", lease);
+        let gunner = match mine.gunner {
+            Some(id) => Value::handle("unit", Value::Num(id as f64)),
+            None => Value::Null,
+        };
+        a.assign(&v, "gunner", gunner);
+        for (key, x) in [("yaw", mine.yaw), ("pitch", mine.pitch), ("yawVel", mine.yaw_vel), ("pitchVel", mine.pitch_vel), ("gunYaw", mine.gun_yaw), ("gunPitch", mine.gun_pitch), ("barrel", mine.barrel)] {
+            a.assign(&v, key, Value::Num(x));
+        }
+        let mut bones = Vec::new();
+        let mut world = Vec::new();
+        for (i, b) in entry.get("rig").get("bones").items().enumerate() {
+            let id = mine.rig.bones[i];
+            let n = mine.rig.tree.node(id);
+            let bv = a.copy(b);
+            let p = a.vec3([n.position.x, n.position.y, n.position.z]);
+            a.assign(&bv, "position", p);
+            let q = a.quat([n.quaternion.x, n.quaternion.y, n.quaternion.z, n.quaternion.w]);
+            a.assign(&bv, "quaternion", q);
+            let sc = a.vec3([n.scale.x, n.scale.y, n.scale.z]);
+            a.assign(&bv, "scale", sc);
+            bones.push(bv);
+            let m = n.matrix_world;
+            world.push(mat_value(&mut a, &m));
+        }
+        let rig = a.copy(entry.get("rig"));
+        let bones = a.array(bones);
+        a.assign(&rig, "bones", bones);
+        let world = a.array(world);
+        a.assign(&rig, "world", world);
+        a.assign(&v, "rig", rig);
+        turrets.push(v);
+    }
+    let turrets = a.array(turrets);
+    let mut units = Vec::new();
+    for u in after.get("units").items() {
+        let id = u.get("unit").get("$id").handle_num("unit").unwrap() as u32;
+        let r = Ref::new(id, 0);
+        if cx.store.unit.get(r).is_none() {
+            units.push(Value::Undefined);
+            continue;
+        }
+        let unit = Unit::value_out(r, cx, &mut a);
+        let f = crews.riders.get(&id).copied().unwrap_or_default();
+        let combat = a.object(
+            "",
+            vec![
+                ("zoomStep", Value::Num(f.combat.zoom_step)),
+                ("zoom", Value::Num(f.combat.zoom)),
+                ("firstPerson", Value::Bool(f.combat.first_person)),
+                ("blowApart", Value::Bool(f.combat.blow_apart)),
+            ],
+        );
+        units.push(a.object("", vec![("unit", unit), ("combat", combat), ("noEnter", Value::Num(f.no_enter))]));
+    }
+    let units = a.array(units);
+    let mut controls = Vec::new();
+    for &r in &leases {
+        let Some(c) = cx.store.seat_lease.get(r).and_then(|l| l.controllable) else { continue };
+        let lease = SeatLease::ref_out(r, cx, &mut a);
+        let control = crews.controls.get(&control_key(c)).cloned().unwrap_or_default();
+        let intent = intent_value(&mut a, &control.intent);
+        controls.push(a.object("", vec![("lease", lease), ("driven", Value::Bool(control.driven)), ("intent", intent)]));
+    }
+    let controls = a.array(controls);
+    let v = a.object(
+        "",
+        vec![("turretSeats", ts), ("collide", Value::Bool(crews.collide)), ("seats", seats), ("turrets", turrets), ("units", units), ("controls", controls)],
+    );
+    (a, v)
+}
+
+fn turret_place(crews: &Crews, cx: &mut Replay, v: V) -> Option<usize> {
+    let r = cx.ref_in::<bfe_sim::gen::Turret>(KIND_TURRET, v, "turret").ok()?;
+    crews.turrets.iter().position(|t| t.turret == r)
+}
+
+/// One crew frame: its state read, its method run, its end compared.
+fn replay_crew_frame(frame: &Frame, name: &str, tally: &mut BTreeMap<String, usize>) -> Outcome {
+    let mut cx = Replay::default();
+    let before = frame.before();
+    let mut crews = match read_crews(&mut cx, before) {
+        Ok(c) => c,
+        Err(e) => return Outcome::Failed(format!("{}: reading the state: {e}", frame.place())),
+    };
+    let mut facts = BTreeMap::new();
+    for t in before.get("turrets").items() {
+        let w = t.get("weapon");
+        facts.insert(t.get("index").num() as usize, TurretFacts { handle: t.get("turret"), target: t.get("aiTarget"), body: t.get("desc").get("body"), ordnance: if w.is_null() { w } else { w.get("ordnance") } });
+    }
+    let mut named: Vec<Ref<SeatLease>> = Vec::new();
+    let mut st = std::mem::take(&mut cx.store);
+    let mut served = Served { log: Log::new(frame), cx: &mut cx, error: None, pending_units: Vec::new(), prefix: "crews", turrets: facts, shots: Vec::new(), rounds: Vec::new() };
+    let mut result: Option<bool> = None;
+    match name {
+        "turretSeats.update" => {
+            let n = st.turret_seats.leases.len();
+            crews.update(&mut st, &mut served, frame.arg(0).num());
+            *tally.entry(format!("update with {} crews", n.min(3))).or_default() += 1;
+        }
+        "turretSeats.man" => {
+            let Some(unit) = frame.arg(0).handle_num("unit") else { return Outcome::Failed(format!("{}: man's unit {}", frame.place(), frame.arg(0).show())) };
+            let Some(t) = turret_place(&crews, served.cx, frame.arg(1)) else { return Outcome::Failed(format!("{}: man's turret {}", frame.place(), frame.arg(1).show())) };
+            result = Some(crews.man(&mut st, &mut served, unit as u32, t));
+            *tally.entry(format!("man {}", if result == Some(true) { "taken" } else { "refused" })).or_default() += 1;
+        }
+        "turretSeats.vacate" => {
+            let r = match SeatLease::ref_in(frame.arg(0), served.cx, "vacate lease") {
+                Ok(r) => r,
+                Err(e) => return Outcome::Failed(format!("{}: {e}", frame.place())),
+            };
+            named.push(r);
+            let o = frame.arg(1);
+            let mut how = Let::default();
+            if !o.is_nullish() {
+                if !o.get("placement").is_undefined() {
+                    how.placement = o.get("placement").truthy();
+                }
+                if !o.get("post").is_nullish() {
+                    how.post = served.cx.ref_in::<Post>(KIND_POST, o.get("post"), "post").ok();
+                }
+                how.kill = o.get("kill").truthy();
+                if !o.get("attacker").is_undefined() {
+                    how.attacker = attacker_of(o.get("attacker"));
+                }
+                how.reason = match o.get("reason").str() {
+                    None | Some("exit") => Reason::Exit,
+                    Some("killed") => Reason::Killed,
+                    Some(r) => return Outcome::Failed(format!("{}: a reason {r}", frame.place())),
+                };
+            }
+            crews.vacate(&mut st, &mut served, r, how);
+            *tally.entry(format!("vacate {}{}", how.reason.name(), if how.kill { " kill" } else { "" })).or_default() += 1;
+        }
+        "turretSeats.destroyed" => {
+            let Some(t) = turret_place(&crews, served.cx, frame.arg(0)) else { return Outcome::Failed(format!("{}: destroyed's turret {}", frame.place(), frame.arg(0).show())) };
+            crews.destroyed(&mut st, &mut served, t);
+        }
+        "turretSeats.requestExit" | "turretSeats.leave" => {
+            let Some(unit) = frame.arg(0).handle_num("unit") else { return Outcome::Failed(format!("{}: unit {}", frame.place(), frame.arg(0).show())) };
+            let o = frame.arg(1);
+            let post = if o.is_nullish() || o.get("post").is_nullish() { None } else { served.cx.ref_in::<Post>(KIND_POST, o.get("post"), "post").ok() };
+            let placement = if o.is_nullish() || o.get("placement").is_undefined() { true } else { o.get("placement").truthy() };
+            result = Some(if name == "turretSeats.leave" { crews.leave(&mut st, &mut served, unit as u32, placement, post) } else { crews.request_exit(&mut st, unit as u32, post, placement) });
+        }
+        _ => return Outcome::Skipped(format!("{name}: not a crew frame")),
+    }
+    if let Some(e) = served.error.take() {
+        return Outcome::Failed(e);
+    }
+    if let Err(e) = served.log.finish() {
+        return Outcome::Failed(e.0);
+    }
+    if let Some(mine) = result {
+        if frame.result().opt_bool() != Some(mine) {
+            return Outcome::Failed(format!("{}: returned {}, the port {mine}", frame.place(), frame.result().show()));
+        }
+    }
+    cx.store = st;
+    let after = frame.after();
+    // A lease the port made that no call named takes the handle the capture
+    // gives the lease at its place among the crews' leases.
+    for r in crews.made.clone() {
+        if let Some(at) = cx.store.turret_seats.leases.iter().position(|x| *x == r) {
+            let v = after.get("seats").get("leases").at(at);
+            if !v.is_undefined() {
+                let _ = cx.stored_in(KIND_SEAT_LEASE, v.get("$id"), "made", |_, _| (r.slot, r.gen));
+            }
+        }
+    }
+    let (a, mine) = write_crews(&mut cx, &mut crews, before, after, &named);
+    match diff(after, a.view(&mine)) {
+        None => Outcome::Same,
+        Some(d) => Outcome::Failed(format!("{}: crews {d} (capture | port)", frame.place())),
+    }
+}
+
+#[test]
+fn turret_crews_as_captured() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    for name in ["turretSeats.update", "turretSeats.man", "turretSeats.vacate", "turretSeats.destroyed", "turretSeats.requestExit", "turretSeats.leave"] {
+        let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+        let report = replay_corpus(&corpus, name, |_capture, frame| replay_crew_frame(frame, name, &mut tally)).unwrap();
+        eprintln!("{}", report.summary());
+        for (what, n) in &tally {
+            eprintln!("  {what}: {n}");
+        }
+        report.assert_clean();
     }
 }
 

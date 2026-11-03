@@ -13,7 +13,9 @@
 //! - `boarding`: the rules every boarder follows (`canBoard`,
 //!   `boardingSeat`, `claimSeat`, `mayLeave`, `switchSeat`, `seatLook`);
 //! - `hulls`: the hulls' seats (`Vehicles.board`, `vacate`, `promote`,
-//!   `move`, `displace`, `destroyedCrew`, `latchCrews`, `requestExit`).
+//!   `move`, `displace`, `destroyedCrew`, `latchCrews`, `requestExit`);
+//! - `turrets`: the turret crews (`TurretSeats`) and the turrets' aim,
+//!   gun and nodes they drive (src/props.js Turret).
 //!
 //! A lease is a store handle (`Ref<SeatLease>`, rust/sim/schema/seats.mjs);
 //! units and hulls are the store's (`gen::Unit`, `gen::Vehicle`). What the
@@ -35,6 +37,7 @@ pub mod bodies;
 pub mod exits;
 pub mod hulls;
 pub mod lease;
+pub mod turrets;
 
 use crate::gen::{Body, Post, SeatLease, SeatUnit, Unit};
 use crate::store::Ref;
