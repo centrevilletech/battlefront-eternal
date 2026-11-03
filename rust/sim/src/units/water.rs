@@ -85,9 +85,25 @@ impl WaterState {
     /// of a soldier and the water; returns the damage to take.
     #[allow(clippy::too_many_arguments)]
     pub fn soldier_step(&self, dt: f64, contact: &mut WaterContact, feet: &Vector3, head: &Vector3, gun: &Vector3, velocity: &Vector3, effects: &mut dyn WaterEffects) -> f64 {
+        self.soldier_step_over(dt, contact, feet, head, gun, velocity, &mut |x, z| self.over(x, z), effects)
+    }
+
+    /// soldier_step with `over` answered by `over` (the replays serve it).
+    #[allow(clippy::too_many_arguments)]
+    pub fn soldier_step_over(
+        &self,
+        dt: f64,
+        contact: &mut WaterContact,
+        feet: &Vector3,
+        head: &Vector3,
+        gun: &Vector3,
+        velocity: &Vector3,
+        over: &mut dyn FnMut(f64, f64) -> bool,
+        effects: &mut dyn WaterEffects,
+    ) -> f64 {
         let level = self.level();
-        let wet = level > feet.y && self.over(feet.x, feet.z);
-        contact.gun_under = Some(gun.y < level && self.over(gun.x, gun.z));
+        let wet = level > feet.y && over(feet.x, feet.z);
+        contact.gun_under = Some(gun.y < level && over(gun.x, gun.z));
         let mut damage = 0.0;
         let or_zero = |x: Option<f64>| x.filter(|v| *v != 0.0 && !v.is_nan()).unwrap_or(0.0);
         if wet {
@@ -107,7 +123,7 @@ impl WaterState {
                 effects.splash(&Vector3 { x: feet.x, y: level, z: feet.z });
             }
         }
-        if head.y < level && self.over(head.x, head.z) {
+        if head.y < level && over(head.x, head.z) {
             let mut under = or_zero(contact.under) + dt;
             if under >= DROWN_AFTER {
                 under -= 1.0;

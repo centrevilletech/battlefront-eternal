@@ -1065,3 +1065,83 @@ fn spawns_and_bodies_replay_as_captured() {
         report.assert_clean();
     }
 }
+
+// ---- A soldier's tick in the water.
+
+use bfe_sim::gen::WaterContact;
+use bfe_sim::units::water::{WaterEffects, WaterState};
+
+fn contact_of(v: V) -> WaterContact {
+    let n = |k: &str| v.get(k).opt_num();
+    WaterContact { gun_under: v.get("gunUnder").opt_bool(), under: n("under"), wake_clock: n("wakeClock"), splash_clock: n("splashClock") }
+}
+
+struct Splashes(Vec<Vector3>);
+impl WaterEffects for Splashes {
+    fn ripple(&mut self, _at: &Vector3, _life: f64, _radius: f64, _velocity: &Vector3) {}
+    fn splash(&mut self, at: &Vector3) {
+        self.0.push(*at);
+    }
+}
+
+fn water_frame(frame: &Frame) -> Result<Option<String>, Mismatch> {
+    let before = frame.before();
+    let place = |e: String| Mismatch(format!("{}: {e}", frame.place()));
+    let water = WaterState {
+        height: before.get("height").num(),
+        cell: 1.0,
+        offset: [0.0, 0.0],
+        grid: 1.0,
+        cells: Default::default(),
+        bobbing: false,
+        simulation_time: 0.0,
+        physics_wave: before.get("physicsWave").num(),
+    };
+    let mut contact = contact_of(before.get("contact"));
+    let v = |i: usize| vec3(frame.arg(i)).ok_or_else(|| place(format!("argument {i} is no vector")));
+    let (feet, head, gun, velocity) = (v(2)?, v(3)?, v(4)?, v(5)?);
+    let mut log = Log::new(frame);
+    let mut error: Option<Mismatch> = None;
+    let mut over = |x: f64, z: f64| -> bool {
+        match log.call("water.over").and_then(|c| check_num("over x", c.arg(0), x).and_then(|_| check_num("over z", c.arg(1), z)).map(|_| c.result().truthy())) {
+            Ok(b) => b,
+            Err(e) => {
+                error.get_or_insert(e);
+                false
+            }
+        }
+    };
+    let mut splashes = Splashes(Vec::new());
+    let damage = water.soldier_step_over(frame.arg(0).num(), &mut contact, &feet, &head, &gun, &velocity, &mut over, &mut splashes);
+    if let Some(e) = error {
+        return Err(e);
+    }
+    log.finish()?;
+    check_num("damage", frame.result(), damage).map_err(|e| place(e.0))?;
+    let after = frame.after();
+    let theirs = contact_of(after.get("contact"));
+    let same = |a: Option<f64>, b: Option<f64>| match (a, b) {
+        (Some(x), Some(y)) => x.to_bits() == y.to_bits(),
+        (None, None) => true,
+        _ => false,
+    };
+    if theirs.gun_under != contact.gun_under || !same(theirs.under, contact.under) || !same(theirs.wake_clock, contact.wake_clock) || !same(theirs.splash_clock, contact.splash_clock) {
+        return Err(place(format!("contact: the capture's {theirs:?} | the port's {contact:?}")));
+    }
+    let recorded: Vec<V> = after.get("splashes").items().collect();
+    if recorded.len() != splashes.0.len() {
+        return Err(place(format!("splashes: the capture's {} | the port's {}", recorded.len(), splashes.0.len())));
+    }
+    for (r, s) in recorded.iter().zip(&splashes.0) {
+        check_vec3("splash", *r, [s.x, s.y, s.z]).map_err(|e| place(e.0))?;
+    }
+    Ok(None)
+}
+
+#[test]
+fn soldiers_in_the_water_replay_as_captured() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    let report = replay_corpus(&corpus, "WaterState.soldierStep", |_capture, frame| outcome(water_frame(frame))).unwrap();
+    println!("{}", report.summary());
+    report.assert_clean();
+}

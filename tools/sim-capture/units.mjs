@@ -254,9 +254,30 @@ function bodyFrame(method, proto, extra = () => ({})) {
 // nextGun reads the hidden gun rig as sampleMuzzles left it this tick.
 const barrels = (self) => ({ muzzles: self.physicalBarrels?.map((list) => list.map((b) => b.matrixWorld)) ?? null });
 
+// A soldier's tick in the water (src/runtime/water-state.js soldierStep),
+// on maps with water: the contact it keeps, the surface's level, the
+// splashes it asked for (its seventh argument, recorded), and its grid
+// lookups served as calls.
+const soldierStep = {
+  method: 'WaterState.soldierStep',
+  target: (game) => game.water ?? null,
+  state: (game, args, cap, self) => {
+    let open = opened.get(args);
+    if (!open) {
+      open = { splashes: [] };
+      opened.set(args, open);
+      const splash = args[6];
+      if (typeof splash === 'function') args[6] = function splashed(at) { open.splashes.push(at.clone()); return splash(at); };
+      return { height: self.height, physicsWave: self.physicsWave, contact: { ...args[1] } };
+    }
+    return { contact: { ...args[1] }, splashes: open.splashes };
+  },
+  boundaries: (game) => [['water.over', game.water ?? null, 'over']],
+};
+
 export const units = {
   frames: [unitTick, unitSpawn, registryFrame('raycast'), registryFrame('query'), separate,
     bodyFrame('Droideka.absorb', Droideka.prototype), bodyFrame('Droideka.toggleShield', Droideka.prototype),
     bodyFrame('Droideka.nextGun', Droideka.prototype, barrels), bodyFrame('Droideka.look', Droideka.prototype),
-    bodyFrame('Soldier.lookRaw', Soldier.prototype)],
+    bodyFrame('Soldier.lookRaw', Soldier.prototype), soldierStep],
 };
