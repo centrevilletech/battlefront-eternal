@@ -145,6 +145,23 @@ test('a kind JavaScript still owns comes in by its import fields, and one that l
   back.forEach(({ object }, i) => assert.equal(KIND_TABLE[KIND_BOLT].same(world.ordnance.bolts[i], object), null));
 });
 
+test('a partial write changes only the listed entities and an empty partial write keeps them all', async () => {
+  const world = battle(), b = await bridge(world);
+  writeAll(b, world.ordnance, true);
+  const before = b.read(KIND_BOLT);
+  const changed = world.ordnance.bolts[1];
+  changed.position.set(19, -0, 7);
+  b.writeSome(KIND_BOLT, [changed]);
+  b.writeSome(KIND_BOLT, []);
+  const after = b.read(KIND_BOLT);
+  assert.equal(after.length, 3);
+  for (const i of [0, 2]) {
+    assert.equal(KIND_TABLE[KIND_BOLT].same(before[i].object, after[i].object), null);
+  }
+  assert.deepEqual(after[1].object.position, changed.position);
+  assert.equal(after[1].object.owner, changed.owner);
+});
+
 test('mirrors keep their identity and their Vector3s, and a new life of a slot gets a new mirror', async () => {
   const world = battle();
   const b = await bridge(world);

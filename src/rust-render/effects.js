@@ -69,6 +69,7 @@ import { destructionPools, destructionArcs } from "../destruction-fx.js";
 import { rainImpacts } from "../rain-impacts.js";
 import { fountainJets } from "../fountain-jets.js";
 import { particleDepth } from "../particle-depth.js";
+import { compileFor, unbuilt } from "./instances.js";
 import { lighting } from "../materials.js";
 import { blendOf, stateOf, sidesOf, programForSide } from "./transparent.js";
 
@@ -414,6 +415,8 @@ class EffectsPass {
     // take it, where three would take it (particle-depth.js requester).
     this.depthKey = new Float64Array(6);
     this.requested = [];
+    // Glow models added whose registration waits for their texture (glowsAdded).
+    this.glowRetry = new Set();
     this.unrequest = core.graphics?.scene ? particleDepth.requester(core.graphics.scene, (camera) => {
       // Inside three's render: an error here is kept, not thrown (the draws
       // not asked for then take the copy as the phase starts).
@@ -423,6 +426,56 @@ class EffectsPass {
     core.addView("fxData", Float32Array, () => core.rust.fx_data_ptr(), () => core.rust.fx_data_len());
     core.addView("fxBits", Uint32Array, () => core.rust.fx_data_ptr(), () => core.rust.fx_data_len());
     core.addView("fxMatrices", Float64Array, () => core.rust.fx_matrices_ptr(), () => core.rust.fx_matrices_len());
+  }
+
+  // Before three lists the frame's own render of the near scene (the core's
+  // watchScene): the particle renderers' batches it has not drawn yet, their
+  // programs built by three without a draw (compileFor), registered now and
+  // so hidden from three before it lists them: the renderer draws them from
+  // their first frame. (What is found in three's list is still registered
+  // once three has drawn it.)
+  beforeSort(renderer, scene, camera, target, added) {
+    const graphics = this.core.graphics;
+    if (!this.active || this.presortFailed || scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
+    try {
+      this.glowsAdded(renderer, scene, camera, added);
+      this.batches();
+      const fresh = [];
+      for (const batch of this.waiting.keys()) {
+        const mesh = batch.mesh;
+        if (mesh && mesh.visible && unbuilt(renderer, mesh.material)) fresh.push([mesh, mesh.material]);
+      }
+      if (!fresh.length) return;
+      compileFor(renderer, fresh, camera, scene);
+      this.batches();
+    } catch (error) {
+      this.core.errors.push(`effects before sort failed: ${String(error?.stack || error).slice(0, 400)}`);
+      this.presortFailed = true;
+    }
+  }
+
+  // The glow models added to the scene since three's last list of it (a
+  // command post's logo for the side that took it, a muzzle flash's model),
+  // registered with three's program built without a draw (compileFor), so
+  // that three never draws them for their first frame; one whose texture is
+  // still loading is looked at again until three draws it.
+  glowsAdded(renderer, scene, camera, added) {
+    const groups = new Set(this.glowRetry);
+    this.glowRetry.clear();
+    for (const root of added || []) root.traverse((o) => { if (glowOf(o) && !this.glows.has(o)) groups.add(o.parent); });
+    if (!groups.size) return;
+    const fresh = [];
+    for (const group of groups) {
+      const material = group.userData.material, part = group.children.find((o) => o.isMesh && o.material === material);
+      if (part && unbuilt(renderer, material)) fresh.push([part, material]);
+    }
+    if (fresh.length) compileFor(renderer, fresh, camera, scene);
+    for (const group of groups) {
+      const material = group.userData.material, part = group.children.find((o) => o.isMesh && o.material === material);
+      if (!part || this.glows.has(part)) continue;
+      this.registerGlow(group, true);
+      if (!this.glows.has(part) && renderer.properties.get(material).__version === undefined) this.glowRetry.add(group);
+    }
   }
 
   // three's render list of the near scene being drawn: the one whose opaque
@@ -497,11 +550,12 @@ class EffectsPass {
     }
   }
 
-  registerGlow(group) {
+  // compiled: its program built by three without a draw (glowsAdded).
+  registerGlow(group, compiled = false) {
     const core = this.core, renderer = core.renderer, material = group.userData.material;
     const parts = group.children.filter((o) => o.isMesh && o.material === material);
     const props = renderer.properties.get(material);
-    if (!props.currentProgram || props.__version !== material.version) return; // three draws it first
+    if (!props.currentProgram || (props.__version !== material.version && !(compiled && props.__version === undefined))) return; // three draws it first
     const fail = (why) => { core.errors.push(`effects glow: ${why}`); for (const mesh of parts) this.glows.set(mesh, null); };
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state) return fail("state");

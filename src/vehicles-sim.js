@@ -1,8 +1,8 @@
 // The hull phase on the simulation's module (rust/sim/src/vehicles/module.rs),
 // behind its switch: a world asked for it (createGame's ?hulls=rust, or
-// BFE_HULLS=rust under Node) runs its ground hulls' tick start and 120 Hz
-// substeps in Rust. The Vehicle objects stay the battle's: the phase writes
-// them into the store, the module ticks them there, and they are synced from
+// BFE_HULLS=rust under Node) runs its ground hulls' 120 Hz substeps and its
+// crafts' 60 Hz flight in Rust. The Vehicle objects stay the battle's: the
+// phase writes them into the store, the module ticks them there, and they are synced from
 // the store after it, so everything else reads and writes them as before.
 // What the Rust asks of the battle comes back here as the module's imports
 // (rust/sim/schema/vehicles.mjs) and goes to the same VehiclesWorld
@@ -22,7 +22,7 @@
 // the module never see the bodies differently.
 //
 // Given the vehicle pack (the models, clips and classes the hulls are made
-// from), the module also keeps each ground hull's rig and pose state from
+// from), the module also keeps each hull's rig and pose state from
 // the first phase of each of its lives (the hull just spawned and posed
 // once, as Vehicle.spawn leaves it) and poses it there, with the dying
 // hulls' last seconds before (aimTick, render, dyingTick); each pose is
@@ -32,10 +32,11 @@
 // the JavaScript pose left. What JavaScript changes between poses (the
 // seats' frozen aim, the barrels a seat fired) goes in before each phase.
 //
-// A world only; the flight, the seats' latch, the fire and the tow cables
-// stay JavaScript's until they move.
+// A world only; the seats' latch has its own switch (src/seats-sim.js),
+// and the fire and tow cables stay JavaScript's until they move.
 import * as THREE from "three";
 import { KIND_VEHICLE, KIND_VEHICLES, KIND_BODY } from "./sim/gen/index.js";
+import { FLIGHT_CLASSES } from "./flight/config.js";
 
 // A hull's rig nodes in the order rust/sim/src/rig/hull.rs makes them: the
 // root, the bones, the static bones, the markers (the capture's rigNodes).
@@ -96,13 +97,16 @@ export function giveMapRules(bridge, water, map) {
   bridge.x.veh_map(bridge.strings.id(json(data)), map.killY);
 }
 
-export function attachVehiclesSim(vehicles, bridge, map = null, pack = null) {
-  vehicles.sim = new VehiclesSim(vehicles, bridge, map, pack);
+// unitClass: the registry's units' class (Unit), which flight's targeting
+// tells apart from hulls' and turrets' entries; without it (or the pack)
+// the crafts' flight stays JavaScript's.
+export function attachVehiclesSim(vehicles, bridge, map = null, pack = null, unitClass = null) {
+  vehicles.sim = new VehiclesSim(vehicles, bridge, map, pack, unitClass);
   return vehicles.sim;
 }
 
 export class VehiclesSim {
-  constructor(vehicles, bridge, map = null, pack = null) {
+  constructor(vehicles, bridge, map = null, pack = null, unitClass = null) {
     this.vehicles = vehicles;
     this.bridge = bridge;
     this.x = bridge.x;
@@ -116,6 +120,8 @@ export class VehiclesSim {
     this.bodiesVersion = -1;
     this.colliders = new WeakSet();
     this.inputValues = [];
+    this.memberPoint = new THREE.Vector3();
+    this.aimPoints = [];
     if (map) giveMapRules(bridge, vehicles.water, map);
     this.hit = makeHit();
     this.groundHit = makeGround();
@@ -123,10 +129,89 @@ export class VehiclesSim {
     this.flag = { value: false };
     this.number = { value: 0 };
     bridge.register(this.handlers());
-    // The poses: each ground hull the module poses, by the life it took
+    // The poses: each hull the module poses, by the life it took
     // the hull's pose for.
     this.lives = new WeakMap();
     this.posing = Boolean(pack) && this.pack(pack);
+    // The crafts' flight (src/flight/), from the pack's classes: the
+    // battle's flight environment and the classes' live tunings now.
+    this.unitClass = unitClass;
+    this.flight = this.posing && Boolean(unitClass);
+    if (this.flight) {
+      this.x.veh_flight_env(bridge.strings.id(json(vehicles.flightEnvironment ?? {})), vehicles.maxFlyHeight);
+      for (const [name, c] of Object.entries(FLIGHT_CLASSES)) for (const [key, value] of Object.entries(c)) this.retune(name, key, value);
+    }
+    this.flightValues = [];
+  }
+
+  // FLIGHT_CLASSES[name][key] = value, for the module's crafts (at attach,
+  // and as a world's flightTuning command retunes a class).
+  retune(name, key, value) {
+    if (this.flight && typeof value === "number") this.x.veh_flight_tune(this.bridge.strings.id(name), this.bridge.strings.id(key), value);
+  }
+
+  // What the crafts' targeting reads of the registry this phase (and again
+  // after a hook): each entry's kind (a unit, a hull's target, a target on
+  // a hull, another's), id, generation, whether it lives, its team, its
+  // hull and, for another's, its aim point as it stands.
+  membersIn() {
+    const all = this.vehicles.units?.all?.() ?? [], refs = this.bridge.refs[KIND_VEHICLE], values = this.flightValues, p = this.memberPoint;
+    values.length = 0;
+    for (const t of all) {
+      const hull = t.vehicle ?? null;
+      const kind = t instanceof this.unitClass ? 0 : hull ? (hull.aiTarget === t ? 1 : 3) : 2;
+      if (kind === 2) { if (typeof t.aimPoint === "function") t.aimPoint(p); else p.copy(t.position); }
+      const team = t.team;
+      values.push(kind, t.id, t.generation === undefined ? NaN : t.generation, t.alive ? 1 : 0, team == null ? 0 : 1, team == null ? 0 : team,
+        hull ? refs.slotOf(hull) : -1, kind === 2 ? p.x : 0, kind === 2 ? p.y : 0, kind === 2 ? p.z : 0);
+    }
+    const at = this.input(values.length), f = this.bridge.f;
+    for (let i = 0; i < values.length; i++) f[at + i] = values[i];
+    this.x.veh_members(all.length);
+  }
+
+  // Before the phase: the registry, the teams' relations (every team among
+  // the entries and the hulls, to each other) and each craft's pilot input.
+  flightIn() {
+    this.membersIn();
+    const vs = this.vehicles, units = vs.units, teams = [];
+    const add = (team) => { const t = team ?? null; if (!teams.some((x) => Object.is(x, t))) teams.push(t); };
+    for (const t of units?.all?.() ?? []) add(t.team);
+    for (const v of vs.vehicles) add(v.team);
+    const values = this.flightValues;
+    values.length = 0;
+    for (const t of teams) values.push(t === null ? 0 : 1, t === null ? 0 : t);
+    for (const a of teams) for (const b of teams) values.push(units?.relation?.(a, b) ?? (b === a ? 1 : -1));
+    let at = this.input(values.length), f = this.bridge.f;
+    for (let i = 0; i < values.length; i++) f[at + i] = values[i];
+    this.x.veh_relations(teams.length);
+    values.length = 0;
+    const refs = this.bridge.refs[KIND_VEHICLE];
+    let crafts = 0;
+    for (const v of vs.vehicles) {
+      if (!v.flying) continue;
+      const lease = v.seats[0]?.lease, network = lease?.unit?.networkHuman && lease.intent.flight;
+      values.push(refs.slotOf(v), network ? 1 : 0);
+      flightNumbers(lease?.input ?? NO_INPUT, values);
+      flightNumbers(network || NO_INPUT, values);
+      crafts++;
+    }
+    at = this.input(values.length); f = this.bridge.f;
+    for (let i = 0; i < values.length; i++) f[at + i] = values[i];
+    this.x.veh_flight_inputs(crafts);
+  }
+
+  // After the phase: what each craft's targeting left in its weapons.
+  locksOut() {
+    const ptr = this.x.veh_locks();
+    this.bridge.views();
+    const f = this.bridge.f, objects = this.bridge.refs[KIND_VEHICLE].objects;
+    let o = ptr / 8;
+    const count = f[o++];
+    for (let k = 0; k < count; k++, o += 5) {
+      const v = objects[f[o]], id = f[o + 1], generation = f[o + 2], elapsed = f[o + 3], complete = f[o + 4] === 1;
+      for (const seat of v.seats) for (const w of seat.weapons) { w.state.lockTargetId = id; w.state.lockGeneration = generation; w.state.lockElapsed = elapsed; w.state.lockComplete = complete; }
+    }
   }
 
   // The vehicle pack into the module (its models, collision, clips and
@@ -145,19 +230,20 @@ export class VehiclesSim {
     return this.x.veh_pack(text.length, floats / 4, indices / 4, clips / 4) > 0;
   }
 
-  // Whether the module poses this hull (a ground hull, this life).
+  // Whether the module poses this hull this life. A craft needs the
+  // flight state and gear clip that come with the flight phase.
   posed(v) {
-    return this.posing && !v.flying && this.lives.get(v) === v.aiTarget.generation;
+    return this.posing && (!v.flying || this.flight) && this.lives.get(v) === v.aiTarget.generation;
   }
 
-  // Before the phase: each live ground hull the module does not pose yet
+  // Before the phase: each live hull the module does not pose yet
   // this life has its whole pose state handed over (rust/sim/src/vehicles/
   // posing.rs pull), and each it poses what JavaScript changed since its
   // last pose (inputs).
   posesIn() {
     const refs = this.bridge.refs[KIND_VEHICLE];
     for (const v of this.vehicles.vehicles) {
-      if (v.flying || !v.alive || this.lives.get(v) === v.aiTarget.generation) continue;
+      if ((v.flying && !this.flight) || !v.alive || this.lives.get(v) === v.aiTarget.generation) continue;
       const values = pullPose(v);
       const at = this.input(values.length), f = this.bridge.f;
       for (let i = 0; i < values.length; i++) f[at + i] = values[i];
@@ -189,6 +275,24 @@ export class VehiclesSim {
     }
   }
 
+  // Vehicles.syncCrews for the hulls the module poses: each bot rider's
+  // point, aim, velocity and 9-pose from the module (veh_riders), applied
+  // where his seat is still his (a tow cable may have tripped his walker
+  // since the phase).
+  syncRiders() {
+    const ptr = this.x.veh_riders();
+    this.bridge.views();
+    const f = this.bridge.f, objects = this.bridge.refs[KIND_VEHICLE].objects, vs = this.vehicles;
+    let o = ptr / 8;
+    const count = f[o++];
+    for (let k = 0; k < count; k++, o += 13) {
+      const v = objects[f[o]];
+      if (!v.alive) continue;
+      const lease = v.seats[f[o + 1]].lease;
+      if (lease && !lease.human) vs.syncRiderFrom(lease, f, o + 2);
+    }
+  }
+
   // The hulls into the store: each one's fields, and the battle's list.
   write() {
     const b = this.bridge, vs = this.vehicles;
@@ -211,10 +315,14 @@ export class VehiclesSim {
     this.write();
     this.bodiesIn();
     if (this.posing) this.posesIn();
+    if (this.flight) this.flightIn();
     const vs = this.vehicles, water = vs.water;
-    const left = this.x.veh_ground(dt, acc, water ? water.level : 0, vs.clock(), this.posing ? 1 : 0, vs.cosmetic !== false ? 1 : 0);
+    const flags = (this.posing ? 1 : 0) | (vs.cosmetic !== false ? 2 : 0) | (this.flight ? 4 : 0) | (vs.flightAssists ? 8 : 0);
+    const left = this.x.veh_ground(dt, acc, vs.flightAcc || 0, water ? water.level : 0, vs.clock(), flags);
+    if (this.flight) vs.flightAcc = this.x.veh_flight_acc();
     this.sync();
     this.bodiesOut();
+    if (this.flight) this.locksOut();
     if (this.posing) this.posesOut();
     return left;
   }
@@ -309,7 +417,7 @@ export class VehiclesSim {
   hook(call) {
     this.sync();
     this.bodiesOut();
-    try { call(); } finally { this.bridge.write(KIND_VEHICLE, this.vehicles.vehicles); this.bodiesIn(); }
+    try { call(); } finally { this.bridge.write(KIND_VEHICLE, this.vehicles.vehicles); this.bodiesIn(); if (this.flight) this.membersIn(); }
   }
 
   // Each import's handler. The arguments object (and its vectors) is the
@@ -385,6 +493,13 @@ export class VehiclesSim {
         this.hook(() => w.explosion(def, at, v));
       },
       vehEffect: (a) => { const name = a.name, at = a.position.clone(); w.effect(name, at); },
+      vehAimPoint: (a) => { const i = a.hull; vs.units.all()[i].aimPoint(point); return { position: point }; },
+      vehAimPoints: (a) => {
+        const indices = Array.from(a.indices), all = vs.units.all(), points = this.aimPoints;
+        points.length = indices.length;
+        for (let k = 0; k < indices.length; k++) all[indices[k]].aimPoint(points[k] ??= new THREE.Vector3());
+        return { points };
+      },
     };
   }
 }
@@ -453,4 +568,16 @@ function applyPose(v, f, o) {
   }
   const r = v.root.rotation;
   r._x = f[o]; r._y = f[o + 1]; r._z = f[o + 2];
+}
+
+// An input object as flight reads it (rust/sim/src/vehicles/module.rs
+// flight_input: 19 numbers): each key as arithmetic reads it (undefined
+// NaN, a boolean 0 or 1), the sticks with whether they are given.
+const NO_INPUT = Object.freeze({});
+const jn = (x) => (x === undefined ? NaN : x === null ? 0 : typeof x === "boolean" ? (x ? 1 : 0) : x);
+function flightNumbers(i, out) {
+  const sx = i.stickX, sy = i.stickY;
+  out.push(jn(i.forward), jn(i.right), jn(i.turn), jn(i.pitch), jn(i.up), jn(i.down), jn(i.takeoff),
+    sx == null ? 0 : 1, sx == null ? 0 : jn(sx), sy == null ? 0 : 1, sy == null ? 0 : jn(sy),
+    jn(i.boost), jn(i.trick), jn(i.immelmann), jn(i.rollLock), jn(i.targetLock), jn(i.bot), jn(i.responseCurve), i.steeringAssist === false ? 1 : 0);
 }

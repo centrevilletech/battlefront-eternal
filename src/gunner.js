@@ -60,6 +60,25 @@ const TURRET_CORE = 1.4; // m around the turret's centre that its own walls fill
 const gunnerPose = { clip: null, pitch: 0, turn: 0, time: null };
 const gunnerTurn = new THREE.Quaternion();
 
+// The turret as a beam's source where no lease holds it: its frame, its
+// life and its gun's view, as the turret itself gave them as a beam's
+// source. An object with only those (an emitter, as a lease's is), which
+// the rounds on the simulation's module name by a handle as they do a
+// lease's emitter; one a turret.
+const turretEmitters = new WeakMap();
+function turretEmitter(turret) {
+  let emitter = turretEmitters.get(turret);
+  if (!emitter) {
+    emitter = {
+      get matrix() { return turret.matrix; },
+      get alive() { return turret.alive; },
+      viewDirection(out) { return turret.viewDirection(out); },
+    };
+    turretEmitters.set(turret, emitter);
+  }
+  return emitter;
+}
+
 export class Gunner {
   constructor({ camera, collision, ordnance, combat, animator, hiddenLayer = 1 }) {
     this.camera = camera;
@@ -257,9 +276,9 @@ export class Gunner {
         this.gunDir.applyAxisAngle(THREE.Object3D.DEFAULT_UP, ((this.random || legacyGunnerSpread)() - (this.random || legacyGunnerSpread)()) * 0.1 * SPREAD);
         // A beam follows his lease's emitter: enter() gives the turret his
         // lease and only exit() lets it go, so in a battle it is there while
-        // he fires. Without one (a fixture that sets the turret by hand) a
-        // beam follows its owner.
-        const round = this.ordnance.fire(weapon.def.ordnance, this.muzzle, this.gunDir, this.combat?.owner ?? "player", null, turret.bodies.built, turret.lease?.emitter ?? null, shot);
+        // he fires. Without one (a fixture that sets the turret by hand) it
+        // follows the turret.
+        const round = this.ordnance.fire(weapon.def.ordnance, this.muzzle, this.gunDir, this.combat?.owner ?? "player", null, turret.bodies.built, turret.lease?.emitter ?? turretEmitter(turret), shot);
         bindMountedRound(round, turret, -1, -1, (turret.barrel - 1) % (turret.firePoints?.length || 1));
         emitSound("turretFire", turret, shot);
         shots.push(shot);

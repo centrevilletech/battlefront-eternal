@@ -234,7 +234,9 @@ go, so a later life of the slot gets a new one.
   entities and leaves every other entity of the kind as the store holds it
   (and whatever the store keeps of the ones it writes beyond their rows,
   such as a unit's combat record): the way to write a few units, a seat's
-  riders or the units a hook changed, without dropping the rest;
+  riders or the units a hook changed, without dropping the rest. Its write-back must also
+  select that subset: other objects may have advanced in JavaScript since
+  their stored rows were written;
 - `sync(kind, target)` copies an export block into the kind's mirrors (a
   singleton's into `target`), updating each mirror's Vector3s in place so
   whatever holds them keeps seeing them, retired entities' last states

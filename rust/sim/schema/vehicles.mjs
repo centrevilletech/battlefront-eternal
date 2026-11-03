@@ -95,6 +95,9 @@ export default {
     VehDamaged: { hull: 'f64', amount: 'f64', attacker: 'union:OrdnanceOwner' },
     VehBlast: { hull: 'f64', final: 'bool', position: 'vec3' },
     VehEffect: { name: 'str', position: 'vec3' },
+    // Registry entries by their places in units.all(), and their aim points.
+    VehMembers: { indices: 'list:f64' },
+    VehPoints: { points: 'list:vec3' },
 
     // A walker's water damage (src/vehicle-water.js waterDamageRule).
     WaterRule: {
@@ -246,5 +249,11 @@ export default {
     vehReleaseCrew: { args: 'VehHull', result: null },
     vehExplosion: { args: 'VehBlast', result: null },
     vehEffect: { args: 'VehEffect', result: null },
+    // A unit's aim point (Unit.aimPoint: its hit shapes' middle, worked
+    // out on the first ask in a tick): registry entry `hull` (its place in
+    // units.all()), for flight's targeting.
+    vehAimPoint: { args: 'VehHull', result: 'VehPoint' },
+    // The aim points of several units at once (a targeting pass's), in order.
+    vehAimPoints: { args: 'VehMembers', result: 'VehPoints' },
   },
 };

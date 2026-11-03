@@ -17,7 +17,7 @@ export const EDITS = {
     { anchor: '  function step(dt, tick, recordedCommand = null) {\n', text: `  function step(dt, tick, recordedCommand = null) {\n${enter('begin')}\n` },
     { anchor: '    vehicles?.restoreTickPose?.();\n', text: `${exit('begin')}${enter('restorePose')}    vehicles?.restoreTickPose?.();\n${exit('restorePose')}` },
     around('ai', '    ai?.update(dt);\n'),
-    ...span('unitTick', '    for (const unit of factory?.built || []) {\n      unit.tick(dt);\n', '    // Seats latch once per simulation step, after their controllers write\n'),
+    ...span('unitTick', '    if (unitsSim) unitsSim.phase(dt);\n', '    // Seats latch once per simulation step, after their controllers write\n'),
     ...span('vehicles', '    if (vehicles) {\n      vehicles.spawnOccupant', '    turretSeats?.update(dt);\n'),
     around('turretSeats', '    turretSeats?.update(dt);\n'),
     around('gunner', '    if (gunner.active) gunner.update(dt, soldier, tickControls, 1);\n'),

@@ -14,6 +14,12 @@ export default {
   enums: {
     // What a seat is to whoever holds it (seats.js:31-33, seatRole).
     SeatRole: ['pilot', 'gunner', 'passenger'],
+    // Why someone left a seat (Vehicles.vacate's `reason`).
+    SeatReason: ['exit', 'stale', 'killed', 'destroyed', 'displaced'],
+    // What the seat phase on the module leaves JavaScript to do once it is
+    // over, in the order it happened (src/seats-sim.js): a body's combat
+    // and drawing as a seat took or let it go, and the battle's hooks.
+    SeatEffectKind: ['seated', 'unseated', 'placed', 'dropped', 'boarded', 'unboarded', 'moved'],
   },
 
   records: {
@@ -49,6 +55,84 @@ export default {
       promote: 'bool|undefined',
       placement: 'bool',
     },
+
+    // ---- The seat phase on the module, behind its switch (?seats=rust,
+    // src/seats-sim.js; rust/sim/src/seats/module.rs). The leases, the
+    // hulls and the riders' units go into the store before it and come
+    // back after it; these carry what the seats read beyond them.
+
+    // A hull as its seats read it beyond the store's fields
+    // (seats::hulls::HullSide): its place in the battle's list, who last
+    // hurt it (attacker 0 nobody, 1 the player, 2 a unit by its id, 3 a
+    // hull by its place: attackerId), its class's base and health type,
+    // and each seat's turret node and number of weapons.
+    SeatHullFacts: {
+      vehicle: 'ref:vehicle',
+      index: 'f64',
+      attacker: 'f64',
+      attackerId: 'f64',
+      hover: 'bool',
+      animal: 'bool',
+      turretNodes: 'list:bool',
+      weapons: 'list:f64',
+    },
+    // The seat's own intent as the AI drives it (seats.js blankSeatIntent
+    // and what the AI writes there), as SeatInput.latch reads it.
+    SeatAiIntent: {
+      forward: 'f64', right: 'f64', turn: 'f64', pitch: 'f64',
+      jump: 'bool', crouch: 'bool', prone: 'bool', use: 'bool', exit: 'bool',
+      buttons: 'f64x2',
+      reload: 'bool', nextPrimary: 'bool', previousPrimary: 'bool', nextSecondary: 'bool', zoom: 'bool',
+      aim: 'vec3|null',
+      brake: 'bool', up: 'f64', down: 'f64',
+      trick: 'bool', immelmann: 'bool', boost: 'bool',
+    },
+    // A bot's seat control (SeatUnit): whether a controller drives it, and
+    // its intent.
+    SeatAiControl: { seatUnit: 'ref:seatUnit', driven: 'bool', intent: 'rec:SeatAiIntent' },
+    // The phase's arguments: the vehicle updates' clock and input batches
+    // so far, every hull in the battle's order, and the seat controls of
+    // the leases.
+    SeatPhaseArgs: { time: 'f64', ticks: 'f64', hulls: 'list:rec:SeatHullFacts', controls: 'list:rec:SeatAiControl' },
+    // One thing for JavaScript to do once the phase is over: a body's
+    // combat and drawing as it took a seat (seated), left one (unseated:
+    // `yaw` its aim then), was set down (placed, facing `yaw`) or let go
+    // where it rode (dropped, at `at`); a hook (boarded, unboarded with
+    // its post and reason, moved). unit -1: none; hull: the hull's place.
+    SeatEffect: {
+      kind: 'enum:SeatEffectKind', unit: 'f64', hull: 'f64', seat: 'f64', yaw: 'f64', at: 'vec3',
+      post: 'ref:post|null', reason: 'enum:SeatReason',
+    },
+    // The phase's answer: the input batches now, the seat controls whose
+    // intents it latched (their edges are taken), and what is left to do.
+    SeatPhaseAnswer: { ticks: 'f64', latched: 'list:seatUnit', effects: 'list:rec:SeatEffect' },
+
+    // What the phase asks JavaScript (its imports): a cast and a sphere
+    // test of the collision world (leaving a body out), an AI controller's
+    // state, a new seat control for a bot's lease (its new seat and role
+    // first) and a seat's weapons' spread rule.
+    SeatRay: { origin: 'vec3', direction: 'vec3', far: 'f64', ignore: 'ref:body|null' },
+    SeatHit: { found: 'bool', distance: 'f64', point: 'vec3', normal: 'vec3', terrain: 'bool', body: 'ref:body|null' },
+    SeatSphere: { center: 'vec3', radius: 'f64', ignore: 'ref:body|null' },
+    SeatFlag: { value: 'bool' },
+    SeatWho: { unit: 'f64' },
+    SeatNumber: { value: 'f64|undefined' },
+    SeatLeaseArgs: { lease: 'ref:seatLease', index: 'f64', role: 'enum:SeatRole' },
+    SeatMade: { seatUnit: 'ref:seatUnit' },
+    SeatPolicyArgs: { hull: 'f64', seat: 'f64', player: 'bool', random: 'bool' },
+  },
+
+  commands: {
+    // Vehicles.latchCrews: the hulls' input batch (seats::hulls::Hulls::latch_crews).
+    seatLatch: { args: 'SeatPhaseArgs', result: 'SeatPhaseAnswer', rust: 'seats::module::latch' },
+  },
+
+  imports: {
+    seatCast: { args: 'SeatRay', result: 'SeatHit' },
+    seatOverlaps: { args: 'SeatSphere', result: 'SeatFlag' },
+    seatControllerState: { args: 'SeatWho', result: 'SeatNumber' },
+    seatControllable: { args: 'SeatLeaseArgs', result: 'SeatMade' },
+    seatPolicy: { args: 'SeatPolicyArgs', result: null },
   },
 
   kinds: {

@@ -18,7 +18,7 @@ use super::exits::{classic_seat_exit, ExitFrame, ExitSpot};
 use super::hulls::RiderFacts;
 use super::lease::{latch_lease, live, network_human, new_lease, person_lease, take, take_reload, Controls};
 use super::{unit_ref, Attacker, Holder, Reason, SeatWorld};
-use crate::gen::{Body, Post, SeatLease, SeatRole, Store, Turret};
+use crate::gen::{Body, Post, SeatLease, SeatRole, SeatUnit, Store, Turret};
 use crate::rig::math;
 use crate::store::Ref;
 use crate::vehicles::pose::{aim_vector, look_basis};
@@ -490,6 +490,9 @@ pub struct Crews {
     pub riders: BTreeMap<u32, RiderFacts>,
     pub controls: Controls,
     pub made: Vec<Ref<SeatLease>>,
+    /// The seat controls whose intents the updates took edges from (as
+    /// Hulls::latched).
+    pub latched: Vec<Ref<SeatUnit>>,
     /// Whether the system has a collision world (`this.collision`).
     pub collide: bool,
 }
@@ -545,9 +548,9 @@ impl Crews {
         t.gunner = Some(unit);
         t.yaw_vel = 0.0;
         t.pitch_vel = 0.0;
-        // (seatWeaponPolicy: the turret's weapon, the combat package's record.)
+        w.seat_policy(Holder::Turret(self.turrets[turret].index), 0, network, true);
         if !network {
-            let c = w.controllable(r);
+            let c = w.controllable(r, 0, SeatRole::Gunner);
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         let mut combat = self.facts(unit).combat;
@@ -555,6 +558,7 @@ impl Crews {
         u.seat = Some(r);
         seat_body(u, &mut combat);
         self.facts(unit).combat = combat;
+        w.seated(unit);
         st.turret_seats.leases.push(r);
         self.pose(st, r);
         w.boarded(unit, Holder::Turret(self.turrets[turret].index), 0);
@@ -614,9 +618,13 @@ impl Crews {
             if u.seat == Some(r) {
                 u.seat = None;
                 unseat_body(u, &mut combat);
+                // `unit.soldier?.aimYaw ?? 0`.
+                let aim_yaw = super::bodies::soldier(u).map_or(0.0, |s| s.aim_yaw);
                 self.facts(id).combat = combat;
+                w.unseated(id, aim_yaw);
                 if let Some(yaw) = yaw {
                     place_on_foot(w, st.unit.get_mut(unit_ref(id)).unwrap(), &spot.position, yaw, false);
+                    w.placed(id, yaw);
                 }
             } else {
                 self.facts(id).combat = combat;
@@ -624,6 +632,7 @@ impl Crews {
         }
         if let Some(fall) = fall {
             drop_body(st.unit.get_mut(unit_ref(unit.unwrap())).unwrap(), &fall, None);
+            w.dropped(unit.unwrap(), &fall);
         }
         if how.kill {
             if let Some(id) = unit {
@@ -667,7 +676,9 @@ impl Crews {
                 self.vacate(st, w, r, Let { placement: false, ..Let::default() });
                 continue;
             }
-            latch_lease(&mut st.seat_lease, &mut st.unit, &mut self.controls, r);
+            if let Some(c) = latch_lease(&mut st.seat_lease, &mut st.unit, &mut self.controls, r) {
+                self.latched.push(c);
+            }
             let lease = st.seat_lease.get(r).unwrap();
             if lease.input.exit || lease.exit_request.is_some() {
                 let (placement, post) = match &lease.exit_request {

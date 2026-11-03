@@ -60,7 +60,9 @@ for(let micro=1;micro<=seconds*7200;micro++){
  if(micro%120===0){
   world.step();states.add(aircraft.flightState);peakSpeed=Math.max(peakSpeed,aircraft.airspeed);
   const forecast=forecasts.get(game.worldClock.tick);if(forecast){forecastErrors.push(forecast.position.distanceTo(aircraft.position));angularErrors.push(forecast.quaternion.angleTo(aircraft.quaternion.clone().normalize()));forecasts.delete(game.worldClock.tick);}
-  if(game.worldClock.tick%3===0){const {metadata}=world.snapshot('pilot',{sharedPacket:true});if(!snapshotLossEvery||game.worldClock.tick/3%snapshotLossEvery)queue(toClient,{at:now+delay(game.worldClock.tick,2),tick:game.worldClock.tick,ack:metadata.ack,ackTick:metadata.ackTick,ackActions:metadata.ackActions,vehicle:quantize(predictionVehicle(aircraft))});}
+  // The baseline below copies the actual hull, so only the consumed input
+  // stamps are needed here. Snapshot encoding belongs to the snapshot host.
+  if(game.worldClock.tick%3===0){const {mailbox,actions}=world.players.get('pilot');if(!snapshotLossEvery||game.worldClock.tick/3%snapshotLossEvery)queue(toClient,{at:now+delay(game.worldClock.tick,2),tick:game.worldClock.tick,ack:mailbox.ack,ackTick:mailbox.ackTick,ackActions:actions.ack,vehicle:quantize(predictionVehicle(aircraft))});}
  }
  if(micro%(7200/fps)!==0)continue;
  while(toClient.length&&toClient[0].at<=now+1e-10){const packet=toClient.shift();packets.push(packet);latest=packet.tick;lead.arrive(packet.tick,now);playout.arrive(packet.tick,now);}

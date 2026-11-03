@@ -1,5 +1,5 @@
 //! The hulls' poses kept in the module (rust/sim/src/vehicles/module.rs):
-//! each ground hull's rig and pose state (`HullPose`) lives here from its
+//! each hull's rig and pose state (`HullPose`) lives here from its
 //! first phase on, posed by aimTick and render (pose.rs) inside the phase,
 //! and the battle's JavaScript objects (the Vehicle's walk cycle and
 //! visual, its seats' aim targets, its aimers, its rig's nodes) are made to
