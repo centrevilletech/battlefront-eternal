@@ -214,6 +214,8 @@ struct State {
     mixers: Vec<Staged<mixer::Mixer>>,
     // A mixer's voice engine, by the mixer's handle (?voices=rust).
     engines: Vec<Option<voices::Engine>>,
+    // The light mix's voice engines and their output (left, then right).
+    lights: Vec<(voices::Engine, Vec<f32>)>,
     reverbs: Vec<Staged<reverb::Reverb>>,
     stabilizers: Vec<Staged<stabilizer::Stabilizer>>,
     limiters: Vec<Staged<limiter::Limiter>>,
@@ -420,6 +422,54 @@ pub extern "C" fn mixer_process(h: u32, out_channels: u32, has_lfe: u32) {
     }
     st.input = input;
     st.present = present;
+}
+
+/// The light mix's voice engine (?voices=rust): `slots` voices at the
+/// context's `rate`, each through two speaker gains into a stereo output;
+/// x86=1 fills automation as Chromium's x86 build does.
+#[no_mangle]
+pub extern "C" fn light_new(slots: u32, rate: f64, x86: u32) -> u32 {
+    let s = state();
+    // (No lowpass in the light mix: its Q is unused.)
+    s.lights.push((voices::Engine::new(rate, slots as usize, 0.0, x86 != 0), vec![0.0; 2 * FRAMES]));
+    (s.lights.len() - 1) as u32
+}
+
+/// Room for sample `id` (`frames` f32 at `rate`), to fill at the pointer.
+#[no_mangle]
+pub extern "C" fn light_sample(h: u32, id: u32, frames: u32, rate: f64) -> *mut f32 {
+    state().lights[h as usize].0.sample_storage(id as usize, frames as usize, rate).as_mut_ptr()
+}
+
+/// Room for `len` command numbers, to fill before light_commands.
+#[no_mangle]
+pub extern "C" fn light_commands_ptr(h: u32, len: u32) -> *mut f64 {
+    state().lights[h as usize].0.command_storage(len as usize).as_mut_ptr()
+}
+
+/// The voices' commands (voices.rs: START, SIDE_SET, ...), applied at once.
+#[no_mangle]
+pub extern "C" fn light_commands(h: u32, len: u32) {
+    state().lights[h as usize].0.apply_commands(len as usize);
+}
+
+/// The context frame the next block starts at (the worklet's currentFrame).
+#[no_mangle]
+pub extern "C" fn light_frame(h: u32, frame: f64) {
+    state().lights[h as usize].0.frame = frame;
+}
+
+/// One block into the output (light_out).
+#[no_mangle]
+pub extern "C" fn light_process(h: u32) {
+    let (engine, out) = &mut state().lights[h as usize];
+    engine.render_light(out);
+}
+
+/// The output: 128 f32 of the left speaker, then 128 of the right.
+#[no_mangle]
+pub extern "C" fn light_out(h: u32) -> *mut f32 {
+    state().lights[h as usize].1.as_mut_ptr()
 }
 
 /// A room reverb at `rate` with `channels` of output signs. Its input

@@ -522,8 +522,9 @@ class Voice {
       return;
     }
     const out = e.renderer.voice(this);
-    // ?voices=rust: the mixer's voice engine plays it, its gain and rate
-    // sent as commands (src/audio/spatial.js, VoiceOut).
+    // ?voices=rust: the mixer's voice engine plays it (the light mix's, in
+    // the light mix), its gain or speaker gains and its rate sent as
+    // commands (src/audio/spatial.js, VoiceOut).
     if (out.engine) {
       const rate = this.rate();
       out.engineStart(this.buffer, Math.max(offset, 0), this.loop, rate);
@@ -579,13 +580,13 @@ class Voice {
     const raw = this.audible * e.categoryVolume(this.category) * (extra.gain ?? 1);
     const level = Number.isFinite(raw) ? raw : 0;
     const nodes = this.nodes;
-    if (nodes.out.engine) {
-      // An engine voice whose mixer was replaced starts again, next frame.
-      if (nodes.out.lost) {
-        this.release(STOP_FADE);
-        this.real = false;
-        return;
-      }
+    // An engine voice whose mixer was replaced starts again, next frame.
+    if (nodes.out.engine && nodes.out.lost) {
+      this.release(STOP_FADE);
+      this.real = false;
+      return;
+    }
+    if (nodes.out.engine && !nodes.out.sides) {
       if (nodes.fresh) {
         nodes.out.engineGain(level);
         nodes.level.hold(level);
@@ -593,7 +594,6 @@ class Voice {
       } else {
         nodes.level.set(nodes.out.gainParam, level, now, SMOOTH);
       }
-      nodes.rate.set(nodes.out.rateParam, this.rate(), now, SMOOTH);
     } else if (!nodes.gain) {
       // Started in the light mix, which a settings change has since put
       // another graph in place of: it starts again there, next frame.
@@ -616,6 +616,7 @@ class Voice {
       }
     }
     if (nodes.source) nodes.rate.set(nodes.source.playbackRate, this.rate(), now, SMOOTH);
+    else if (nodes.out.engine) nodes.rate.set(nodes.out.rateParam, this.rate(), now, SMOOTH);
     extra.send = (extra.send ?? 0) * (e.renderer?.enhanced ? this.reverbGain : 1);
     // The Steam build's 2D voices never get their Pan: they play centred.
     const pan = e.renderer?.enhanced ? this.pan : 0;

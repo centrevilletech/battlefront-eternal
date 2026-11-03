@@ -60,6 +60,12 @@ impl Timeline {
         self.n > 0
     }
 
+    /// AudioParam.value set: the intrinsic value at once (the setter then
+    /// schedules a setValueAtTime of it, a separate insert).
+    pub fn set_value(&mut self, value: f32) {
+        self.intrinsic = value;
+    }
+
     fn remove_old(&mut self, count: usize) {
         if self.n > 1 {
             let k = count.min(self.n - 1);

@@ -19,9 +19,10 @@ export function audioWasm() {
   }
 }
 
-// Whether the enhanced voices render in the module's voice engine
-// (?voices=rust; rust/audio/src/voices.rs) rather than through a chain of
-// the browser's nodes each: behind this switch until it is proven.
+// Whether the voices render in the module's voice engine (?voices=rust;
+// rust/audio/src/voices.rs) rather than through a chain of the browser's
+// nodes each, in the enhanced mode and the light mix: behind this switch
+// until it is proven.
 export function voicesRust() {
   try {
     return new URLSearchParams(globalThis.location?.search || "").get("voices") === "rust";

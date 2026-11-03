@@ -82,7 +82,7 @@ const LFE_SEND = 0.5; // an explosion's LFE send, linear
 const BUTTERWORTH_Q = -3.0103;
 // The voice engine's commands (rust/audio/src/voices.rs), each code then its
 // slot and arguments.
-const VOICE = { START: 1, GAIN_SET: 2, GAIN: 3, RATE: 4, CUTOFF: 5, SEND: 6, RELEASE: 7, STOP: 8 };
+const VOICE = { START: 1, GAIN_SET: 2, GAIN: 3, RATE: 4, CUTOFF: 5, SEND: 6, RELEASE: 7, STOP: 8, SIDE_SET: 9, SIDE: 10, CANCEL: 11, STOP_AT: 12 };
 
 // The dynamics profiles. The game's mix is authored to full scale (a gun at
 // arm's length peaks near 0 dBFS; a battle on Theed plays at about -14 LUFS
@@ -151,10 +151,12 @@ export class Renderer {
     this.batch = [];
     // ?voices=rust (voicesRust, which tests set): the enhanced voices render
     // in the mixer's own voice engine (rust/audio/src/voices.rs) instead of
-    // through a buffer source, a gain, a lowpass and a send each, to the
-    // same samples (tests/audio-checks.js); `commands` is the frame's for it,
-    // `engineGen` counts the mixers built (a voice of an older one is lost
-    // with it), and samples go to each mixer once (`uploaded`).
+    // through a buffer source, a gain, a lowpass and a send each, and the
+    // light mix's in a worklet of their own instead of a source and two
+    // speaker gains each, to the same samples (tests/audio-checks.js);
+    // `commands` is the frame's for it, `engineGen` counts the mixers built
+    // (a voice of an older one is lost with it), and samples go to each
+    // mixer once (`uploaded`).
     this.voicesRust = voicesRust();
     this.engine = false;
     this.engineGen = 0;
@@ -182,7 +184,7 @@ export class Renderer {
   load(root = null, config = null) {
     if (!this.loaded) {
       if (config) this.config = { ...this.config, ...config };
-      const worklets = this.lightFor(this.config) ? null : this.worklets();
+      const worklets = this.lightFor(this.config) && !this.voicesRust ? null : this.worklets();
       this.loaded = Promise.all([worklets, root ? this.loadDecoder(root) : null]).then(() => true);
     }
     return this.loaded;
@@ -251,10 +253,11 @@ export class Renderer {
 
   // Settings to build: a graph that runs worklets the light mix never
   // loaded is built once they are (the light mix playing meanwhile), and
-  // the promise of that is returned; null when built at once.
+  // the promise of that is returned; null when built at once. With
+  // ?voices=rust the light mix runs one too (its voice engine).
   configure(config) {
     this.config = { ...this.config, ...config };
-    if (!this.lightFor(this.config) && !this.workletsReady) return this.worklets().then(() => this.build());
+    if ((!this.lightFor(this.config) || this.voicesRust) && !this.workletsReady) return this.worklets().then(() => this.build());
     this.build();
     return null;
   }
@@ -556,6 +559,26 @@ export class Renderer {
     for (const v of this.voices) v.slot = -1;
     for (const b of this.beds) b.slots = [];
     this.slots = [];
+    // ?voices=rust: the voices play in the module (rust/audio/src/voices.rs,
+    // render_light), each source and its two speaker gains in one worklet
+    // whose output joins the mix as the pair does; a voice with no slot
+    // left keeps the browser's nodes.
+    this.engine = Boolean(this.dsp) && this.voicesRust;
+    this.engineGen += 1;
+    this.commands.length = 0;
+    this.uploaded = new Set();
+    if (this.engine) {
+      this.mixer = keep(
+        new AudioWorkletNode(ctx, "voice-engine", {
+          numberOfInputs: 0,
+          numberOfOutputs: 1,
+          outputChannelCount: [N],
+          processorOptions: { dsp: this.dsp, slots: SLOTS },
+        }),
+      );
+      this.mixer.connect(this.mix);
+      this.slots = Array.from({ length: SLOTS }, (_, i) => SLOTS - 1 - i);
+    }
 
     let tail = this.mix;
     if (config.mono) {
@@ -728,8 +751,9 @@ class VoiceOut {
     }
     this.release();
     this.nodes = [];
-    // A new enhanced voice with a slot to go to renders in the voice engine:
-    // no nodes, its sample and parameters sent as commands.
+    // A new voice with a slot to go to renders in the voice engine (the
+    // enhanced mode's or the light mix's): no nodes, its sample and
+    // parameters sent as commands.
     if (r.engine && !this.source && (this.voice.mode3D || !r.binaural) && r.slots.length) {
       this.engine = true;
       this.lost = false;
@@ -742,14 +766,25 @@ class VoiceOut {
       this.head = null;
       this.sides = null;
       this.slot = r.slots.pop();
+      // Targets (automation.js) reach the engine as commands.
+      const param = (op) => ({ setTargetAtTime: (value, now, tau) => !this.lost && r.commands.push(op, this.slot, value, tau, now) });
+      this.rateParam = param(VOICE.RATE);
+      if (r.light) {
+        // The light mix: its two speaker gains in the engine, which place()
+        // and fade() set as they would the browser's (their first value,
+        // 0, goes with the start: engineStart).
+        this.sides = [0, 1].map((c) => ({ gain: this.sideParam(c) }));
+        this.gains = [0, 0];
+        this.levels = [0, 0];
+        this.placed = false;
+        this.sent = null;
+        return;
+      }
       r.mixer.port.postMessage({ type: "start", slot: this.slot });
       this.sent = new Float32Array(5).fill(NaN);
       this.sendLevel = new Target();
       this.sendLevel.hold(0);
-      // Targets (automation.js) reach the engine as commands.
-      const param = (op) => ({ setTargetAtTime: (value, now, tau) => !this.lost && r.commands.push(op, this.slot, value, tau, now) });
       this.gainParam = param(VOICE.GAIN);
-      this.rateParam = param(VOICE.RATE);
       this.sendParam = param(VOICE.SEND);
       return;
     }
@@ -959,6 +994,28 @@ class VoiceOut {
   engineStart(buffer, offset, loop, rate) {
     const r = this.r;
     r.commands.push(VOICE.START, this.slot, r.engineSample(buffer), offset, loop ? 1 : 0, rate, Math.min(this.cutoff, r.ctx.sampleRate / 2), r.ctx.currentTime);
+    // The light mix's speaker gains start at 0, as rebuild sets the
+    // browser's.
+    if (this.sides) for (const side of this.sides) side.gain.value = 0;
+  }
+
+  // A light mix speaker gain in the engine, as an AudioParam to place()
+  // and fade(): its value set (and scheduled at the context's time, as the
+  // browser's setter does), a target, a cancel.
+  sideParam(c) {
+    const out = this;
+    const r = this.r;
+    return {
+      set value(v) {
+        if (!out.lost) r.commands.push(VOICE.SIDE_SET, out.slot, c, v, r.ctx.currentTime);
+      },
+      setTargetAtTime(v, now, tau) {
+        if (!out.lost) r.commands.push(VOICE.SIDE, out.slot, c, v, tau, now);
+      },
+      cancelScheduledValues(now) {
+        if (!out.lost) r.commands.push(VOICE.CANCEL, out.slot, c, now);
+      },
+    };
   }
 
   // Its gain set outright (a voice's first).
@@ -968,7 +1025,16 @@ class VoiceOut {
 
   // Its gain to 0 with time constant `tau`, the voice stopped `after` s on.
   engineRelease(tau, after) {
-    if (!this.lost && this.slot >= 0) this.r.command(VOICE.RELEASE, this.slot, tau, after, this.r.ctx.currentTime);
+    if (this.lost || this.slot < 0) return;
+    const now = this.r.ctx.currentTime;
+    if (this.sides) {
+      // As the light mix releases a voice: both speaker gains fade, then
+      // the source stops.
+      this.fade(now, tau);
+      this.r.command(VOICE.STOP_AT, this.slot, now + after);
+      return;
+    }
+    this.r.command(VOICE.RELEASE, this.slot, tau, after, now);
   }
 
   release() {

@@ -696,9 +696,9 @@ export async function checkAudio() {
   }
 
   // 6c. The voice engine through a voice's whole life, bit for bit against
-  // the browser's nodes, in the enhanced mode (its reverb on): two voices
-  // at most at a time (the browser adds three or more connections into one
-  // input in an order of its own, 6b), one looping
+  // the browser's nodes, in the enhanced mode (its reverb on) and in the
+  // light mix: two voices at most at a time (the browser adds three or more
+  // connections into one input in an order of its own, 6b), one looping
   // throughout as the listener moves (its panning, level and Doppler), the
   // other a one-shot that ends, then a loop stopped with a fade, then one
   // that starts out of earshot and comes into it partway through its
@@ -780,7 +780,10 @@ export async function checkAudio() {
       const out = await ctx.startRendering();
       return { channels: [out.getChannelData(0), out.getChannelData(1)], engine: engine.renderer.engine, light: engine.renderer.light, seen };
     };
-    for (const [quality, what] of [["enhanced", "the enhanced mode, reverb on"]]) {
+    for (const [quality, what] of [
+      ["enhanced", "the enhanced mode, reverb on"],
+      ["original", "the light mix"],
+    ]) {
       const browser = await render(false, quality);
       const module = await render(true, quality);
       let differ = 0;

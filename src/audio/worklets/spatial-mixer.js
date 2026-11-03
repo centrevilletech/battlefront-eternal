@@ -49,6 +49,27 @@ function dspViews(x, ptr, count) {
   return Array.from({ length: count }, (_, i) => new Float32Array(x.memory.buffer, ptr + i * 512, 128));
 }
 
+// A message for a voice engine (rust/audio/src/voices.rs) through the
+// module's calls for it (`sample`, `commandsPtr`, `commands`): a sample
+// (its storage allocated here, between blocks, never in process), or a
+// frame's commands. Returns whether it was one.
+function engineMessage(x, h, calls, m) {
+  if (m.type === "sample") {
+    const at = calls.sample(h, m.id, m.data.length, m.rate);
+    if (at) new Float32Array(x.memory.buffer, at, m.data.length).set(m.data);
+    return true;
+  }
+  if (m.type === "voices") {
+    const at = calls.commandsPtr(h, m.data.length);
+    if (at) {
+      new Float64Array(x.memory.buffer, at, m.data.length).set(m.data);
+      calls.commands(h, m.data.length);
+    }
+    return true;
+  }
+  return false;
+}
+
 // The 16 harmonics at a unit vector (x front, y left, z up).
 function harmonics(x, y, z, out) {
   out[0] = 0.28209479177387814;
@@ -90,7 +111,7 @@ class SpatialMixer extends AudioWorkletProcessor {
     if (o.params) this.take(o.params, true);
     const x = dspExports(options);
     if (x) {
-      this.dsp = { x, h: x.mixer_new(this.slots, this.channels) };
+      this.dsp = { x, h: x.mixer_new(this.slots, this.channels), calls: { sample: x.mixer_sample, commandsPtr: x.mixer_commands_ptr, commands: x.mixer_commands } };
       this.dspLayout(this.law, o.speakers || [], this.decoder, 0);
       if (o.params) this.dspParams(o.params, 1);
       // ?voices=rust: voices the module renders into the slots itself
@@ -106,19 +127,8 @@ class SpatialMixer extends AudioWorkletProcessor {
         // A voice took this slot: its first gains apply at once.
         this.fresh[m.slot] = 1;
         if (this.dsp) this.dsp.x.mixer_start(this.dsp.h, m.slot);
-      } else if (m.type === "sample" && this.dsp) {
-        // A sample for the voice engine (its storage allocated here, between
-        // blocks, never in process).
-        const { x, h } = this.dsp;
-        const at = x.mixer_sample(h, m.id, m.data.length, m.rate);
-        if (at) new Float32Array(x.memory.buffer, at, m.data.length).set(m.data);
-      } else if (m.type === "voices" && this.dsp) {
-        const { x, h } = this.dsp;
-        const at = x.mixer_commands_ptr(h, m.data.length);
-        if (at) {
-          new Float64Array(x.memory.buffer, at, m.data.length).set(m.data);
-          x.mixer_commands(h, m.data.length);
-        }
+      } else if (this.dsp && engineMessage(this.dsp.x, this.dsp.h, this.dsp.calls, m)) {
+        // (a sample or commands for the voice engine)
       } else if (m.type === "sync") {
         // Every message before this one has been applied (offline renders
         // wait for it, so a frame's messages land on its block).
@@ -480,3 +490,38 @@ class SpatialMixer extends AudioWorkletProcessor {
 }
 
 registerProcessor("spatial-mixer", SpatialMixer);
+
+// The light mix's voices (?voices=rust): every voice's source and its two
+// speaker gains in the module (rust/audio/src/voices.rs, render_light),
+// one stereo output in place of the light mix's nodes a voice. No inputs.
+// processorOptions: dsp (the module), slots, x86. Messages: "sample",
+// "voices" (a frame's commands) and "sync", as the spatial mixer's.
+class VoiceEngine extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    const o = options.processorOptions || {};
+    const x = dspExports(options);
+    this.dsp = x ? { x, h: x.light_new(o.slots || 64, sampleRate, o.x86 === false ? 0 : 1), calls: { sample: x.light_sample, commandsPtr: x.light_commands_ptr, commands: x.light_commands } } : null;
+    this.port.onmessage = (event) => {
+      const m = event.data;
+      if (this.dsp && engineMessage(this.dsp.x, this.dsp.h, this.dsp.calls, m)) return;
+      if (m.type === "sync") this.port.postMessage({ type: "sync", id: m.id });
+    };
+  }
+
+  process(inputs, outputs) {
+    const d = this.dsp;
+    const out = outputs[0];
+    // (The page builds this only with the module: without it, silence.)
+    if (!d || out.length < 2) return true;
+    const { x, h } = d;
+    if (!d.outs || d.outs[0].byteLength === 0) d.outs = dspViews(x, x.light_out(h), 2);
+    x.light_frame(h, currentFrame);
+    x.light_process(h);
+    out[0].set(d.outs[0]);
+    out[1].set(d.outs[1]);
+    return true;
+  }
+}
+
+registerProcessor("voice-engine", VoiceEngine);

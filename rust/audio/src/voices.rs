@@ -21,6 +21,16 @@
 //!   coefficients from fdlibm's sine and cosine as the browser's, into the
 //!   voice's slot.
 //!
+//! The light mix (the original on stereo) plays its voices here too, with
+//! `render_light`: a voice's source straight into two GainNodes, one a
+//! speaker, each summed into its channel of the output (the light mix's
+//! ChannelMergerNode), the page setting their gains as it sets the
+//! browser's (AudioParam.value, setTargetAtTime, cancelScheduledValues).
+//! A node input sums its connections in the order of a hash of their
+//! addresses, which changes from graph to graph; the voices here sum in
+//! slot order, the first copied and the rest added, as the browser adds
+//! them in its order.
+//!
 //! Every parameter runs on src/timeline.rs, the browser's own automation
 //! arithmetic. Commands (start, the targets, release, stop) arrive once a
 //! frame from the page, each with the context time its AudioParam call
@@ -41,12 +51,21 @@ pub const CUTOFF: u32 = 5; // slot, target (Hz), time constant, at
 pub const SEND: u32 = 6; // slot, target, time constant, at
 pub const RELEASE: u32 = 7; // slot, time constant, stop after (s), at
 pub const STOP: u32 = 8; // slot
+// The light mix's speaker gains (side 0 left, 1 right): AudioParam.value
+// set, setTargetAtTime, cancelScheduledValues; and the source's stop(at).
+pub const SIDE_SET: u32 = 9; // slot, side, value, at
+pub const SIDE: u32 = 10; // slot, side, target, time constant, at
+pub const CANCEL: u32 = 11; // slot, side, at
+pub const STOP_AT: u32 = 12; // slot, at
 
 fn arity(op: u32) -> usize {
     match op {
         START => 7,
         GAIN_SET => 3,
-        GAIN | RATE | CUTOFF | SEND | RELEASE => 4,
+        GAIN | RATE | CUTOFF | SEND | RELEASE | SIDE_SET => 4,
+        SIDE => 5,
+        CANCEL => 3,
+        STOP_AT => 2,
         STOP => 1,
         _ => 0,
     }
@@ -86,6 +105,8 @@ struct Voice {
     gain: Timeline,
     send: Timeline,
     cutoff: Timeline,
+    // The light mix's two speaker gains (a GainNode's gain starts at 1).
+    sides: [Timeline; 2],
     // The lowpass: its coefficients (for the cutoff `made_for`) and state.
     made_for: f32,
     b: [f64; 5],
@@ -111,6 +132,7 @@ impl Default for Voice {
             gain: Timeline::new(0.0),
             send: Timeline::new(0.0),
             cutoff: Timeline::new(0.0),
+            sides: [Timeline::new(1.0); 2],
             made_for: f32::NAN,
             b: [0.0; 5],
             x1: 0.0,
@@ -328,6 +350,18 @@ impl Engine {
                     v.stop = time_to_frame(a[3] + a[2], rate, true);
                 }
                 STOP => v.on = false,
+                SIDE_SET | SIDE | CANCEL => {
+                    let Some(side) = v.sides.get_mut(a[1] as usize) else { continue };
+                    match op {
+                        SIDE_SET => {
+                            side.set_value(a[2] as f32);
+                            side.insert(false, a[2] as f32, a[3], 0.0, frame, rate);
+                        }
+                        SIDE => side.insert(true, a[2] as f32, a[4], a[3], frame, rate),
+                        _ => side.cancel(a[2]),
+                    }
+                }
+                STOP_AT => v.stop = time_to_frame(a[1], rate, true),
                 _ => {}
             }
         }
@@ -402,6 +436,61 @@ impl Engine {
             present[slot] = 1;
         }
     }
+
+    /// One block of the light mix: each voice's source through its two
+    /// speaker gains, summed into `out` (128 frames of the left speaker,
+    /// then 128 of the right) in slot order. A gain's values run every
+    /// block, its input silent or not (the browser works out a node's
+    /// params even while it passes silence on); a gain holding 0 without
+    /// automation outputs silence, as a silent source makes its gains do.
+    pub fn render_light(&mut self, out: &mut [f32]) {
+        let (rate, x86) = (self.rate, self.x86);
+        let frame = self.frame;
+        self.frame += FRAMES as f64;
+        let block = frame as u64;
+        let (values, src) = (&mut self.gains, &mut self.src);
+        let mut written = [false; 2];
+        for v in self.voices.iter_mut() {
+            if !v.on {
+                continue;
+            }
+            let Some(Some(sample)) = self.samples.get(v.sample) else {
+                v.on = false;
+                continue;
+            };
+            let step = (sample.rate / rate * v.rate.k_rate(block, rate) as f64).clamp(0.0, 1024.0);
+            let playing = source_block(v, &sample.data, step, frame, src);
+            for (c, side) in v.sides.iter_mut().enumerate() {
+                let zero = !side.has_events() && side.value() == 0.0;
+                if side.has_events() {
+                    side.a_rate(block, values, rate, x86);
+                } else {
+                    values.fill(side.value());
+                }
+                if !playing || zero {
+                    continue;
+                }
+                // The merger's input: the first connection copied, the
+                // rest added.
+                let o = &mut out[c * FRAMES..(c + 1) * FRAMES];
+                if written[c] {
+                    for i in 0..FRAMES {
+                        o[i] += src[i] * values[i];
+                    }
+                } else {
+                    for i in 0..FRAMES {
+                        o[i] = src[i] * values[i];
+                    }
+                    written[c] = true;
+                }
+            }
+        }
+        for (c, w) in written.iter().enumerate() {
+            if !w {
+                out[c * FRAMES..(c + 1) * FRAMES].fill(0.0);
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -433,6 +522,50 @@ mod tests {
         }
         assert!(e.voices[2].ended);
         assert!(inputs[2 * FRAMES..3 * FRAMES].iter().all(|&x| x == 0.0));
+    }
+
+    #[test]
+    fn the_light_mix_sums_each_voice_through_its_speaker_gains() {
+        let mut e = Engine::new(48000.0, 4, -3.0103, true);
+        let data = e.sample_storage(0, 48000, 48000.0);
+        data.fill(0.5);
+        // Two voices at rate 1: one a quarter left and three quarters
+        // right, one all left; a gain made and set to 0, then placed.
+        let mut cmds = vec![];
+        for (slot, l, r) in [(0.0, 0.25, 0.75), (1.0, 1.0, 0.0)] {
+            cmds.extend_from_slice(&[START as f64, slot, 0.0, 0.0, 1.0, 1.0, 24000.0, 0.0]);
+            for (side, g) in [(0.0, l), (1.0, r)] {
+                cmds.extend_from_slice(&[SIDE_SET as f64, slot, side, 0.0, 0.0]);
+                cmds.extend_from_slice(&[SIDE_SET as f64, slot, side, g, 0.0]);
+            }
+        }
+        let n = cmds.len();
+        e.command_storage(n).copy_from_slice(&cmds);
+        e.apply_commands(n);
+        let mut out = vec![0.0f32; 2 * FRAMES];
+        e.render_light(&mut out);
+        assert!(out[..FRAMES].iter().all(|&x| x == 0.5 * 0.25 + 0.5));
+        assert!(out[FRAMES..].iter().all(|&x| x == 0.5 * 0.75));
+        // Faded out (cancel, then setTargetAtTime 0) and stopped 20 ms on.
+        let at = 128.0 / 48000.0;
+        let mut cmds = vec![];
+        for side in [0.0, 1.0] {
+            cmds.extend_from_slice(&[CANCEL as f64, 0.0, side, at]);
+            cmds.extend_from_slice(&[SIDE as f64, 0.0, side, 0.0, 0.002, at]);
+        }
+        cmds.extend_from_slice(&[STOP_AT as f64, 0.0, at + 0.02]);
+        let n = cmds.len();
+        e.command_storage(n).copy_from_slice(&cmds);
+        e.apply_commands(n);
+        // A block is 1.3 time constants: about a quarter is left by its end.
+        e.render_light(&mut out);
+        assert!(out[FRAMES + FRAMES - 1] < 0.5 * 0.75 * 0.3);
+        for _ in 0..8 {
+            e.render_light(&mut out);
+        }
+        // Only the second voice is left, all on the left.
+        assert!(out[..FRAMES].iter().all(|&x| x == 0.5));
+        assert!(out[FRAMES..].iter().all(|&x| x == 0.0));
     }
 
     #[test]
