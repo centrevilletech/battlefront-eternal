@@ -79,14 +79,15 @@ fn copy_fields(unit: &mut Unit, from: &Unit, touched: &[&str]) {
 // What each call across a unit's tick may change of the unit. The aimer
 // writes the intent's aim in place, and combat's aimOverride is that same
 // vector in the JavaScript, so it moves with it, and it sets his weapons'
-// spread settings; combat's update sets its aim pivot.
+// spread settings; combat's update sets its aim pivot; a death in a hurt
+// lets his controller go (the AI's own hook).
 const MOVE: &[&str] = &["soldier"];
-const DAMAGE: &[&str] = &["combat", "alive", "dead", "deadTime", "character", "soldier", "seat"];
+const DAMAGE: &[&str] = &["combat", "alive", "dead", "deadTime", "character", "controller", "soldier", "seat"];
 const AIM: &[&str] = &["intent", "soldier", "combat"];
-const UPDATE: &[&str] = &["intent", "controls", "soldier", "combat", "alive", "dead", "deadTime", "character", "seat"];
+const UPDATE: &[&str] = &["intent", "controls", "soldier", "combat", "alive", "dead", "deadTime", "character", "controller", "seat"];
 const MUZZLES: &[&str] = &["soldier", "combat"];
 const NOTHING: &[&str] = &[];
-const BLOW_APART: &[&str] = &["soldier", "combat", "alive", "dead", "deadTime", "character"];
+const BLOW_APART: &[&str] = &["soldier", "combat", "alive", "dead", "deadTime", "character", "controller"];
 const REMOTE: &[&str] = &["intent", "controls", "soldier"];
 const RESET: &[&str] = &["combat"];
 
@@ -128,6 +129,17 @@ impl<'a, 'f> TickWorld<'a, 'f> {
 
     /// The unit as the call left it, on the fields it may change; every
     /// other field must already be the JavaScript's.
+    /// A call that can kill him: as `after`, and a death in it lets his
+    /// Character go of him at once (game.js onDeath), as the removal does
+    /// later for a body (let_go_of_character).
+    fn after_killing(&mut self, call: &'f sim_replay::Call, unit: &mut Unit, touched: &[&str]) {
+        let alive = unit.alive;
+        self.after(call, unit, touched);
+        if alive && !unit.alive {
+            self.character_has = false;
+        }
+    }
+
     fn after(&mut self, call: &'f sim_replay::Call, unit: &mut Unit, touched: &[&str]) {
         let after = call.extra().get("unit");
         if after.is_nullish() {
@@ -252,7 +264,7 @@ impl UnitsWorld for TickWorld<'_, '_> {
         if let Err(e) = check_num("combat.damage amount", call.arg(0), amount) {
             return self.fail(e.0);
         }
-        self.after(call, unit, DAMAGE);
+        self.after_killing(call, unit, DAMAGE);
     }
 
     fn aim(&mut self, id: u32, unit: &mut Unit, h: f64) {
@@ -293,7 +305,7 @@ impl UnitsWorld for TickWorld<'_, '_> {
         if let Err(e) = checks {
             return self.fail(e.0);
         }
-        self.after(call, unit, UPDATE);
+        self.after_killing(call, unit, UPDATE);
     }
 
     fn flush_muzzles(&mut self, _id: u32, unit: &mut Unit) {
@@ -322,7 +334,7 @@ impl UnitsWorld for TickWorld<'_, '_> {
         if let Err(e) = check_num("units.blowApart health", call.arg(1), health) {
             return self.fail(e.0);
         }
-        self.after(call, unit, BLOW_APART);
+        self.after_killing(call, unit, BLOW_APART);
     }
 
     fn let_go_of_character(&mut self, _id: u32, unit: &mut Unit) {
