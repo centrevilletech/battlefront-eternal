@@ -1211,22 +1211,26 @@ the flyers on Tatooine: Dune Sea and Geonosis: Spire (a ship on screen, up
 to 108,000 pixels of it), the two were the same to the pixel too. In each
 of the far pass's frames three drew none of the far scene:
 
-| Map | Three's far draws a frame | Far pass's draws | Far scene's part of the frame, ms (p50) |
-| --- | --- | --- | --- |
-| nab2 | 46 | 37-39 | 0.77, 0.74 -> 0.42, 0.37 |
-| tat1 | 22.5 | 15-16 | 0.48, 0.43 -> 0.35, 0.30 |
-| kas2 | 26 | 17-21 | 0.36, 0.31 -> 0.23, 0.20 |
-| bes1 | 14 | 14 | 0.24, 0.21 -> 0.17, 0.16 |
-| hot1 | 12.6 | 6 | 0.21, 0.19 -> 0.19, 0.17 |
+| Map | Three's far draws a frame | Far pass's draws (WebGL calls) | Far scene's part of the frame, ms (p50) | Graphics.render, ms (p50) |
+| --- | --- | --- | --- | --- |
+| nab2 | 46 | 37 (152-155) | 1.12, 1.50 -> 0.61, 0.81 | 5.86, 8.25 -> 5.30, 7.30 |
+| tat1 | 22.5 | 13-16 (106-112) | 1.28, 1.13 -> 0.85, 0.81 | 8.06, 7.59 -> 7.50, 6.71 |
+| kas2 | 26 | 17-21 (119-122) | 1.23, 0.99 -> 0.79, 0.70 | 9.23, 8.80 -> 8.48, 8.28 |
+| bes1 | 14 | 14 (88) | 0.91, 0.65 -> 0.63, 0.48 | 8.47, 5.92 -> 8.43, 5.93 |
+| hot1 | 12.6 | 6 (61) | 0.70, 0.62 -> 0.62, 0.59 | 6.94, 6.52 -> 6.60, 6.64 |
 
-The times are the emulator's (draws switched off, CPU throttled as the
-slow laptop runs), from lockstep frames alternating between the two in one
+The times are the slow-PC emulator's (draws switched off, CPU throttled as
+the laptop runs), from lockstep frames alternating between the two in one
 battle, two runs a map: three's render of the far scene against
 `cover("far")` with all it does, the far scene's matrices and hooks and the
-target's resolve included. Of what is left on Theed (0.38 ms), the
-renderer's call is about half (0.18 ms for some 180 WebGL calls), the page's
-side of the pass 0.06 ms, and the far scene's own hooks (the terrain's runs
-for three, the tree canopies) 0.03 ms.
+target's resolve included. About half of what is left is the renderer's
+call and its WebGL calls (some 0.3 ms on Theed); the rest is the page's
+side of the pass, the far scene's own hooks (the terrain's runs for three,
+the tree canopies), three's state reset after the phase and the resolve.
+The map's far buckets whose programs read the same attributes laid out
+alike share one vertex array (their vertices in one buffer, their indices
+in one, each bucket drawn from where its own index starts), which took
+Theed's far pass from 185 WebGL calls a frame to 154.
 
 With Enhanced terrain, trees, ocean and sky, water at High, the full far
 terrain, the far view distance and 4x multisampling, the far scenes of
