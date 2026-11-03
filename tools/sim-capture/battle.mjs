@@ -295,6 +295,69 @@ const spawnDeath = {
   boundaries: spawnBoundaries,
 };
 
+// The battle phase (src/game.js updateBattle) whole: everything the
+// frames above hold, and what its glue reads of the registry's members, the
+// buildings' and hulls' last attackers and a kill region's victims. A world
+// step's dt is 1/60 (game.step's FixedClock).
+const placeOf = (game, unit) => {
+  const c = unit === 'player' ? game.playerUnit?.character : unit?.character;
+  return c ? game.battle.characters.indexOf(c) : null;
+};
+function memberValue(game, u) {
+  const p = u.position;
+  return {
+    soldier: Boolean(u.soldier), alive: Boolean(u.alive), removed: Boolean(u.removed), seated: Boolean(u.seat), held: Boolean(u.held),
+    captures: (u.classDef?.CapturePosts ?? 1) !== 0, playerMounted: u === game.playerUnit && Boolean(game.driver?.active || game.gunner?.active),
+    team: u.team ?? 0, position: p ? [p.x, p.y, p.z] : [NaN, NaN, NaN], character: u.character ? game.battle.characters.indexOf(u.character) : null,
+  };
+}
+function phaseState(game) {
+  const b = game.battle, s = game.ai?.spawning ?? null;
+  const victims = [
+    ...game.units.all().filter((u) => u.soldier && u.alive && !u.removed).map((u) => ({ unit: u.id, position: [u.position.x, u.position.y, u.position.z] })),
+    ...(game.vehicles?.vehicles || []).filter((v) => v.alive).map((v) => ({ hull: v, position: [v.position.x, v.position.y, v.position.z] })),
+  ];
+  return {
+    dt: 1 / 60, ai: Boolean(game.ai),
+    battle: battleValue(b),
+    characters: b.characters.map((c) => spawnCharacterValue(c, game.posts)),
+    spawning: s ? spawningValue(s, game.posts) : null,
+    posts: postsValue(game.posts, game.live),
+    members: game.units.all().map((u) => memberValue(game, u)),
+    buildings: game.posts.posts.map((p) => (p.building ? placeOf(game, p.building.lastAttacker) : null)),
+    hulls: (game.posts.mobile?.posts ?? []).map((p) => (p.reported?.vehicle ? placeOf(game, p.reported.vehicle.lastAttacker) : null)),
+    victims,
+    active: b.characters.map((c) => Boolean(b.statsActive(c))),
+    seen: b.characters.map((c) => seenValue(c.className || c.unit ? observe(c) : null)),
+    alive: b.characters.map((c) => Boolean(c.unit?.alive)),
+    living: Array.from({ length: TEAMS }, (_, t) => s?.teams?.[t]?.living ?? null),
+    relations: relations(game.units),
+    captureTeams: captureTeams(game.units),
+    health: b.characters.map((c) => (c.unit ? (s ? s.health(c.unit) : c.unit.combat?.health ?? 0) : null)),
+    heroNames: s ? s.teams.flatMap((t) => t.classes.filter((c) => c.hero).map((c) => [c.name, s.heroName?.(c.name) ?? null])) : [],
+  };
+}
+// What a call inside the phase may change of its state (the AI's post
+// events re-request objectives; a kill runs the death path: the credit,
+// the manager's onDeath).
+function phaseAfter(game) {
+  const b = game.battle, s = game.ai?.spawning ?? null;
+  return {
+    battle: battleValue(b), characters: b.characters.map((c) => spawnCharacterValue(c, game.posts)),
+    spawning: s ? spawningValue(s, game.posts) : null, reinforcements: teamPairs(b.reinforcements),
+  };
+}
+const phaseFrame = {
+  phase: 'battle',
+  state: (game) => phaseState(game),
+  boundaries: (game) => [
+    ...(game.ai ? [['ai.postEvent', game.ai, 'postEvent', phaseAfter]] : []),
+    ...spawnBoundaries(game).map(([label, target, method]) => [label, target, method, phaseAfter]),
+    ['combat.damage', PlayerCombat.prototype, 'damage', phaseAfter],
+    ['vehicle.setHealth', Vehicle.prototype, 'setHealth', phaseAfter],
+  ],
+};
+
 // What makes a tick worth sampling for these frames, beyond deaths and
 // spawns: a post changing hands or going down, a Character's respawn timer
 // running out (his preparation: class, post and queue), a countdown
@@ -321,5 +384,12 @@ function events(game, note) {
 
 export const battle = {
   frames: [postsUpdate, battleUpdate, battlefieldUpdate, spawnClock, spawnCharacters, spawnDeath],
+  events,
+};
+
+// The battle phase whole, alone (its state holds what the frames above
+// hold, so a corpus of it is not doubled by theirs).
+export const battlePhase = {
+  frames: [phaseFrame],
   events,
 };

@@ -20,7 +20,8 @@ use bfe_sim::battle::rules::{Battle, Character, Spawn, TeamDesc};
 use bfe_sim::battle::spawning::{ClassicSpawning, Draws, SpawnClass, SpawnTeam, TEAM_COUNT};
 use bfe_sim::battle::stats::{BattleStats, Record, Ring, Seen, Slot, TimeEntry, RING_SIZE};
 use bfe_sim::battle::teams::TeamMap;
-use bfe_sim::battle::world::{BattleWorld, Body};
+use bfe_sim::battle::phase::update_battle;
+use bfe_sim::battle::world::{BattleWorld, Body, Member, Victim};
 use bfe_sim::store::Nullable;
 use sim_replay::{check_value, replay_corpus, Arena, Capture, Corpus, Frame, Log, Mismatch, Outcome, Typed, Value, V};
 use std::cell::RefCell;
@@ -709,6 +710,11 @@ struct Served<'f> {
     log: Rc<RefCell<Log<'f>>>,
     placed: usize,
     class_spawn_worlds: Vec<Vec<Vec<f64>>>,
+    ai: bool,
+    members: Vec<Member>,
+    building_attackers: Vec<(u32, Option<u32>)>,
+    hull_attackers: Vec<(u32, Option<u32>)>,
+    victims: Vec<Victim>,
     hero_names: Vec<(String, Option<String>)>,
     health: Vec<(u32, f64)>,
 
@@ -730,6 +736,11 @@ impl<'f> Served<'f> {
             log: Rc::new(RefCell::new(Log::new(frame))),
             placed: 0,
             class_spawn_worlds: Vec::new(),
+            ai: false,
+            members: Vec::new(),
+            building_attackers: Vec::new(),
+            hull_attackers: Vec::new(),
+            victims: Vec::new(),
             hero_names: Vec::new(),
             health: Vec::new(),
             capture_teams: Vec::new(),
@@ -767,15 +778,62 @@ impl<'f> Served<'f> {
     }
 }
 
+impl Served<'_> {
+    /// ai.postEvent: served, the Characters' objectives as it left them.
+    fn serve_ai(&mut self, characters: &mut [Character]) {
+        if !self.ai {
+            return;
+        }
+        let log = self.log.clone();
+        let mut log = log.borrow_mut();
+        match log.call("ai.postEvent") {
+            Ok(call) => {
+                for (c, v) in characters.iter_mut().zip(call.extra().get("characters").items()) {
+                    c.objective = opt_num(v.get("objective")).map(|p| post_id(p, self.placed));
+                }
+            }
+            Err(Mismatch(m)) => self.fail(m),
+        }
+    }
+}
+
+/// A served kill's death path as the capture has it: the Characters' scores
+/// and records, their lives, the manager's counts and the reinforcements.
+fn apply_after(after: V, battle: &mut Battle, spawning: Option<&mut ClassicSpawning>, placed: usize) {
+    let theirs = self::battle(after.get("battle"));
+    for (c, t) in battle.characters.iter_mut().zip(theirs.characters.iter()) {
+        c.kills = t.kills;
+        c.team_kills = t.team_kills;
+        c.deaths = t.deaths;
+        c.captures = t.captures;
+        c.record = t.record.clone();
+    }
+    battle.stats = theirs.stats;
+    battle.reinforcements = theirs.reinforcements;
+    for (c, v) in battle.characters.iter_mut().zip(after.get("characters").items()) {
+        spawn_character(v, c, placed);
+    }
+    if let Some(sp) = spawning {
+        let theirs = self::spawning(after.get("spawning"), placed);
+        for (t, u) in sp.teams.iter_mut().zip(theirs.teams) {
+            t.living = u.living;
+            t.tickets = u.tickets;
+            t.characters = u.characters;
+        }
+        sp.queues = theirs.queues;
+    }
+}
+
 /// The shared generator A, served from the frame's draws.
 struct LogDraws<'f> {
     log: Rc<RefCell<Log<'f>>>,
+    stream: &'static str,
     failure: Option<String>,
 }
 
 impl Draws for LogDraws<'_> {
     fn next(&mut self) -> f64 {
-        match self.log.borrow_mut().draw("A") {
+        match self.log.borrow_mut().draw(self.stream) {
             Ok(v) => v,
             Err(Mismatch(m)) => {
                 self.failure.get_or_insert(m);
@@ -943,6 +1001,37 @@ impl BattleWorld for Served<'_> {
                 true
             }
         }
+    }
+    fn members(&mut self) -> Vec<Member> {
+        self.members.clone()
+    }
+    fn building_attacker(&mut self, building: u32) -> Option<u32> {
+        self.building_attackers.iter().find(|(b, _)| *b == building).and_then(|(_, a)| *a)
+    }
+    fn vehicle_attacker(&mut self, vehicle: u32) -> Option<u32> {
+        self.hull_attackers.iter().find(|(v, _)| *v == vehicle).and_then(|(_, a)| *a)
+    }
+    fn kill_region_victims(&mut self) -> Vec<Victim> {
+        self.victims.clone()
+    }
+    fn kill_victim(&mut self, victim: Victim, battle: &mut Battle, spawning: Option<&mut ClassicSpawning>) {
+        let label = match victim {
+            Victim::Unit { .. } => "combat.damage",
+            Victim::Hull { .. } => "vehicle.setHealth",
+        };
+        let log = self.log.clone();
+        let mut log = log.borrow_mut();
+        match log.call(label) {
+            Ok(call) => apply_after(call.extra(), battle, spawning, self.placed),
+            Err(Mismatch(m)) => self.fail(m),
+        }
+    }
+    fn effect(&mut self, _: &str, _: [f64; 3]) {}
+    fn post_event(&mut self, _: &bfe_sim::battle::posts::PostEvent, characters: &mut [Character]) {
+        self.serve_ai(characters);
+    }
+    fn mobile_event(&mut self, _: &bfe_sim::battle::mobile::MobileEvent, characters: &mut [Character]) {
+        self.serve_ai(characters);
     }
     fn battle_over(&mut self, _loser: f64) {}
 }
@@ -1120,6 +1209,13 @@ fn command_posts_replay_as_captured() {
             .filter(|p| !p.get("building").is_nullish())
             .map(|p| (num(p.get("building").get("index")) as u32, p.get("building").get("alive").bool()))
             .collect();
+        world.buildings = before
+            .get("posts")
+            .get("posts")
+            .items()
+            .filter(|p| !p.get("building").is_nullish())
+            .map(|p| (num(p.get("building").get("index")) as u32, p.get("building").get("alive").bool()))
+            .collect();
         posts.update(num(frame.arg(0)), &soldiers, &mut world);
         let r = compare(frame, "posts", |arena, at| posts_over(arena, at, &posts)).and_then(|_| world.log.borrow().finish());
         outcome(r, Some(&world))
@@ -1179,7 +1275,7 @@ fn spawn_characters_replay_as_captured() {
         }
         let (mut sp, mut battle, mut posts, mut world) = spawn_frame(frame);
         let placed = posts.posts.len();
-        let mut draws = LogDraws { log: world.log.clone(), failure: None };
+        let mut draws = LogDraws { log: world.log.clone(), stream: "A", failure: None };
         sp.update_characters(num(frame.arg(0)), &mut battle, &mut posts, &mut world, &mut draws);
         if let Some(f) = draws.failure {
             return Outcome::Failed(f);
@@ -1201,6 +1297,95 @@ fn spawn_deaths_replay_as_captured() {
         let placed = posts.posts.len();
         sp.on_death(place as usize, &mut battle, &mut world);
         let r = compare_spawn(frame, &sp, &battle, placed).and_then(|_| world.log.borrow().finish());
+        outcome(r, Some(&world))
+    });
+}
+
+/// The battle phase (game.js updateBattle) whole: the capturers, the posts'
+/// tick and events (capture points, a destroyed post's kill region), the
+/// command vehicles' posts, the manager's clock, the rules and the respawns.
+#[test]
+fn battle_phases_replay_as_captured() {
+    run("battle", |_, frame| {
+        let before = frame.before();
+        let (mut posts, pads, places) = posts(before.get("posts"));
+        let placed = posts.posts.len();
+        let mut b = battle(before.get("battle"));
+        for (c, v) in b.characters.iter_mut().zip(before.get("characters").items()) {
+            spawn_character(v, c, placed);
+        }
+        let mut sp = (!before.get("spawning").is_nullish()).then(|| spawning(before.get("spawning"), placed));
+        let active: Vec<bool> = before.get("active").items().map(|a| a.bool()).collect();
+        let mut world = Served::new(frame);
+        world.placed = placed;
+        world.ai = before.get("ai").bool();
+        world.capture_teams = before.get("captureTeams").items().map(num).collect();
+        world.buildings = before
+            .get("posts")
+            .get("posts")
+            .items()
+            .filter(|p| !p.get("building").is_nullish())
+            .map(|p| (num(p.get("building").get("index")) as u32, p.get("building").get("alive").bool()))
+            .collect();
+        world.relations = before.get("relations").items().map(|row| row.items().map(num).collect()).collect();
+        world.living = before.get("living").items().map(opt_num).collect();
+        world.seen = before.get("seen").items().map(seen).collect();
+        world.alive = b.characters.iter().zip(before.get("alive").items()).filter_map(|(c, a)| c.unit.map(|u| (u, a.bool()))).collect();
+        world.health = b.characters.iter().zip(before.get("health").items()).filter_map(|(c, h)| c.unit.map(|u| (u, num(h)))).collect();
+        world.hero_names = before.get("heroNames").items().map(|p| (opt_str(p.at(0)).unwrap_or_default(), opt_str(p.at(1)))).collect();
+        world.pads = pads_by_slot(&posts, pads);
+        world.places = places;
+        world.class_spawn_worlds = class_spawn_worlds(before.get("posts"));
+        world.members = before
+            .get("members")
+            .items()
+            .map(|m| Member {
+                soldier: m.get("soldier").bool(),
+                alive: m.get("alive").bool(),
+                removed: m.get("removed").bool(),
+                seated: m.get("seated").bool(),
+                held: m.get("held").bool(),
+                captures: m.get("captures").bool(),
+                player_mounted: m.get("playerMounted").bool(),
+                team: num(m.get("team")),
+                position: nums::<3>(m.get("position")),
+                character: opt_num(m.get("character")).map(|c| c as u32),
+            })
+            .collect();
+        world.building_attackers = posts
+            .posts
+            .iter()
+            .zip(before.get("buildings").items())
+            .filter_map(|(p, a)| p.building.map(|bi| (bi, opt_num(a).map(|c| c as u32))))
+            .collect();
+        if let Some(m) = &posts.mobile {
+            world.hull_attackers = m.posts.iter().zip(before.get("hulls").items()).filter_map(|(p, a)| p.reported.vehicle.map(|v| (v, opt_num(a).map(|c| c as u32)))).collect();
+        }
+        world.victims = before
+            .get("victims")
+            .items()
+            .map(|v| {
+                let at = nums::<3>(v.get("position"));
+                match opt_num(v.get("unit")) {
+                    Some(id) => Victim::Unit { id: id as u32, position: at },
+                    None => Victim::Hull { id: hull_id(v.get("hull")).expect("a hull"), position: at },
+                }
+            })
+            .collect();
+        let mut a = LogDraws { log: world.log.clone(), stream: "A", failure: None };
+        let mut gameplay = LogDraws { log: world.log.clone(), stream: "stream:gameplay", failure: None };
+        update_battle(num(before.get("dt")), &mut b, &mut posts, sp.as_mut(), |i, _| active.get(i).copied().unwrap_or(false), &mut world, &mut a, &mut gameplay);
+        if let Some(f) = a.failure.or(gameplay.failure) {
+            return Outcome::Failed(f);
+        }
+        let r = compare(frame, "battle", |arena, at| battle_over(arena, at, &b))
+            .and_then(|_| compare(frame, "characters", |arena, at| characters_over(arena, at, &b.characters, placed)))
+            .and_then(|_| match &sp {
+                Some(sp) => compare(frame, "spawning", |arena, at| spawning_over(arena, at, sp, placed)),
+                None => Ok(()),
+            })
+            .and_then(|_| compare(frame, "posts", |arena, at| posts_over(arena, at, &posts)))
+            .and_then(|_| world.log.borrow().finish());
         outcome(r, Some(&world))
     });
 }

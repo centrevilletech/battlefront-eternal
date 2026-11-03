@@ -35,7 +35,7 @@
 // unless the state asks for it whole: expand(object).
 import { units } from './units.mjs';
 import { combat } from './combat.mjs';
-import { battle } from './battle.mjs';
+import { battle, battlePhase } from './battle.mjs';
 import { flightSpec } from './flight.mjs';
 
 export class Expand {
@@ -230,5 +230,6 @@ const { flight, flightMissiles } = flightSpec({ hullPrototype, rigNodes, poseSta
 // The combat package (flip F3 with units): a soldier's combat, what hurts
 // him and his new lives (tools/sim-capture/combat.mjs).
 // The battle package (flip F4): the posts, the battle's rules, leaving the
-// battlefield and the spawn manager (tools/sim-capture/battle.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, battle };
+// battlefield and the spawn manager, and (battlePhase) the battle phase
+// whole (tools/sim-capture/battle.mjs).
+export const SPECS = { ordnance, items, vehicles, ticks, units, navPlanner, combat, flight, flightMissiles, battle, battlePhase };

@@ -145,6 +145,30 @@ impl BattleWorld for Twin {
     fn building_alive(&mut self, _: u32) -> bool {
         unreachable!()
     }
+    fn members(&mut self) -> Vec<bfe_sim::battle::world::Member> {
+        unreachable!("not in these frames")
+    }
+    fn building_attacker(&mut self, _: u32) -> Option<u32> {
+        unreachable!("not in these frames")
+    }
+    fn vehicle_attacker(&mut self, _: u32) -> Option<u32> {
+        unreachable!("not in these frames")
+    }
+    fn kill_region_victims(&mut self) -> Vec<bfe_sim::battle::world::Victim> {
+        unreachable!("not in these frames")
+    }
+    fn kill_victim(&mut self, _: bfe_sim::battle::world::Victim, _: &mut Battle, _: Option<&mut ClassicSpawning>) {
+        unreachable!("not in these frames")
+    }
+    fn effect(&mut self, _: &str, _: [f64; 3]) {
+        unreachable!("not in these frames")
+    }
+    fn post_event(&mut self, _: &bfe_sim::battle::posts::PostEvent, _: &mut [Character]) {
+        unreachable!("not in these frames")
+    }
+    fn mobile_event(&mut self, _: &bfe_sim::battle::mobile::MobileEvent, _: &mut [Character]) {
+        unreachable!("not in these frames")
+    }
     fn battle_over(&mut self, _: f64) {}
 }
 
@@ -172,19 +196,31 @@ fn kills(ops: &Value, t: &mut Trace) {
     for (k, r) in arr(ops, "kills").iter().enumerate() {
         let draws: Vec<f64> = arr(r, "draws").iter().map(num).collect();
         let victims: Vec<Vector3> = arr(r, "victims").iter().map(vec3).collect();
-        let mut next = 0;
-        let mut effects = Vec::new();
-        let mut killed = Vec::new();
-        let count = kill_region(
-            Some(&region(r.get("region").unwrap())),
-            || {
-                next += 1;
-                draws[next - 1]
-            },
-            |name, p| effects.push((name.to_string(), p)),
-            &victims,
-            |i| killed.push(i),
-        );
+        struct Host {
+            draws: Vec<f64>,
+            next: usize,
+            effects: Vec<(String, Vector3)>,
+            victims: Vec<Vector3>,
+            killed: Vec<usize>,
+        }
+        impl bfe_sim::battle::objectives::KillRegionHost for Host {
+            fn random(&mut self) -> f64 {
+                self.next += 1;
+                self.draws[self.next - 1]
+            }
+            fn play(&mut self, name: &str, point: Vector3) {
+                self.effects.push((name.to_string(), point));
+            }
+            fn victims(&mut self) -> Vec<Vector3> {
+                self.victims.clone()
+            }
+            fn kill(&mut self, victim: usize) {
+                self.killed.push(victim);
+            }
+        }
+        let mut host = Host { draws, next: 0, effects: Vec::new(), victims, killed: Vec::new() };
+        let count = kill_region(Some(&region(r.get("region").unwrap())), &mut host);
+        let (next, draws, effects, killed) = (host.next, host.draws, host.effects, host.killed);
         assert_eq!(next, draws.len(), "kill region {k}: the port drew {next} of the {} draws", draws.len());
         for (e, (name, p)) in effects.iter().enumerate() {
             t.line(&["blast".into(), bits(k as f64), bits(e as f64), name.clone(), bits(p.x), bits(p.y), bits(p.z)]);

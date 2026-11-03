@@ -107,3 +107,38 @@ pub fn in_region(built: &Built, point: &Vector3) -> bool {
         _ => false,
     }
 }
+
+/// The regions that kill (src/game.js inDeathRegion): below the map's
+/// lowest ground less 10 m (killY), or inside a death region: one named
+/// deathregion* (any case; an unnamed one counts) or one the battle's script
+/// names with AddDeathRegion.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DeathRegions {
+    pub kill_y: f64,
+    pub regions: Vec<Built>,
+}
+
+impl DeathRegions {
+    /// The world's regions (name, region) and the script's names.
+    pub fn new(kill_y: f64, regions: &[(Option<String>, Region)], scripted: &[String]) -> DeathRegions {
+        let scripted: Vec<String> = scripted.iter().map(|n| n.to_lowercase()).collect();
+        let regions = regions
+            .iter()
+            .filter(|(name, _)| {
+                // /^deathregion/i.test(region.name || "deathregion")
+                let named = name.as_deref().filter(|n| !n.is_empty()).unwrap_or("deathregion");
+                let prefix = named.len() >= 11 && named.as_bytes()[..11].eq_ignore_ascii_case(b"deathregion");
+                // scripted.has(String(region.name).toLowerCase())
+                let listed = scripted.contains(&name.as_deref().unwrap_or("undefined").to_lowercase());
+                prefix || listed
+            })
+            .map(|(_, r)| build_region(r))
+            .collect();
+        DeathRegions { kill_y, regions }
+    }
+
+    /// inDeathRegion(p).
+    pub fn contains(&self, p: &Vector3) -> bool {
+        p.y < self.kill_y || self.regions.iter().any(|r| in_region(r, p))
+    }
+}

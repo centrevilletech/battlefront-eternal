@@ -11,6 +11,7 @@ pub mod battlefield;
 pub mod mobile;
 pub mod names;
 pub mod objectives;
+pub mod phase;
 pub mod posts;
 pub mod regions;
 pub mod rules;

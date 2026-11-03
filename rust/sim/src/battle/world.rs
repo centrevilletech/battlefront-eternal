@@ -6,9 +6,10 @@
 //! JavaScript makes; the replays serve them from captures
 //! (rust/sim/tests/replay_battle.rs).
 
-use super::mobile::Pad;
-use super::posts::PostId;
-use super::rules::Character;
+use super::mobile::{MobileEvent, Pad};
+use super::posts::{PostEvent, PostId};
+use super::rules::{Battle, Character};
+use super::spawning::ClassicSpawning;
 use super::stats::Seen;
 
 /// What the battlefield reads of a Character's body (battlefield.js:76).
@@ -89,8 +90,61 @@ pub trait BattleWorld {
     /// A destructible post's building: whether it stands.
     fn building_alive(&mut self, building: u32) -> bool;
 
+    // ---- The battle phase's glue (src/game.js updateBattle).
+
+    /// units.all(): the registry's members in its order, as updateBattle
+    /// reads them.
+    fn members(&mut self) -> Vec<Member>;
+    /// The Character that last hurt a destructible post's building
+    /// (building.lastAttacker, "player" read as the local player).
+    fn building_attacker(&mut self, building: u32) -> Option<u32>;
+    /// The Character that last hurt a hull (vehicle.lastAttacker).
+    fn vehicle_attacker(&mut self, vehicle: u32) -> Option<u32>;
+    /// A kill region's victims as it goes: the living soldiers (not
+    /// removed), then the living hulls.
+    fn kill_region_victims(&mut self) -> Vec<Victim>;
+    /// victim.kill(): combat.damage(Infinity), or a hull's setHealth(0). The
+    /// death path that follows credits the battle and tells the spawn
+    /// manager (onDeath).
+    fn kill_victim(&mut self, victim: Victim, battle: &mut Battle, spawning: Option<&mut ClassicSpawning>);
+    /// presentEffect(name, point): what the page shows.
+    fn effect(&mut self, name: &str, at: [f64; 3]);
+    /// A post captured, neutralized or lost: the audio's, the AI's
+    /// (ai.postEvent, which may send Characters to new objectives) and the
+    /// HUD's.
+    fn post_event(&mut self, event: &PostEvent, characters: &mut [Character]);
+    /// A command vehicle's post lost or changed hands: announced, and the
+    /// AI's.
+    fn mobile_event(&mut self, event: &MobileEvent, characters: &mut [Character]);
+
     // ---- What the page shows.
 
     /// battle.onOver(loser): Victory or Defeat.
     fn battle_over(&mut self, loser: f64);
+}
+
+/// A registry member as updateBattle reads it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Member {
+    /// A soldier or droideka (unit.soldier).
+    pub soldier: bool,
+    pub alive: bool,
+    pub removed: bool,
+    pub seated: bool,
+    pub held: bool,
+    /// Its class captures posts (classDef.CapturePosts ?? 1, not 0).
+    pub captures: bool,
+    /// The local player while he drives or mans a gun.
+    pub player_mounted: bool,
+    pub team: f64,
+    pub position: [f64; 3],
+    /// Its Character's place (unit.character).
+    pub character: Option<u32>,
+}
+
+/// One a kill region may kill.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Victim {
+    Unit { id: u32, position: [f64; 3] },
+    Hull { id: u32, position: [f64; 3] },
 }
