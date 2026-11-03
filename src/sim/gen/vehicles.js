@@ -971,6 +971,64 @@ export function exportVehEffect(o, cx) {
   return v;
 }
 
+export class VehMembersMirror {
+  constructor() {
+    this.indices = [];
+  }
+}
+
+export function syncVehMembers(b, f, at, h, m) {
+  { const items = (m.indices ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  return m;
+}
+
+export function putVehMembers(b, o, f, at, heap) {
+  heap.items(o.indices, f, at + 0, 1, (f, at, v) => { f[at + 0] = v; });
+}
+
+export function sameVehMembers(a, b) {
+  if (!sameEach(a.indices, b.indices, (x, y) => Object.is(x, y))) return ".indices";
+  return null;
+}
+
+export function exportVehMembers(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.indices = o.indices.map((x) => x);
+  return v;
+}
+
+export class VehPointsMirror {
+  constructor() {
+    this.points = [];
+  }
+}
+
+export function syncVehPoints(b, f, at, h, m) {
+  { const items = (m.points ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
+  return m;
+}
+
+export function putVehPoints(b, o, f, at, heap) {
+  heap.items(o.points, f, at + 0, 3, (f, at, v) => { { const $v = v; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; } });
+}
+
+export function sameVehPoints(a, b) {
+  if (!sameEach(a.points, b.points, (x, y) => sameVec(x, y))) return ".points";
+  return null;
+}
+
+export function exportVehPoints(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.points = o.points.map((x) => x.clone());
+  return v;
+}
+
 export class WaterRuleMirror {
   constructor() {
     this.interval = NaN;
