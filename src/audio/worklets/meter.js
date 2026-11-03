@@ -31,6 +31,24 @@ function kWeighting(rate) {
 const PHASES = 4;
 const TAPS = 12;
 
+// The same DSP in WebAssembly (rust/audio, ?audio=wasm):
+// processorOptions.dsp is the compiled module the page hands over
+// (src/audio/wasm-dsp.js). With it, blocks go to the module, whose
+// answers are this file's own to the last bit
+// (tests/audio-dsp-parity.mjs); without it, the JavaScript below runs as
+// it always has.
+const DSP_MATH = { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin, js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10 };
+function dspExports(options) {
+  const m = options?.processorOptions?.dsp;
+  if (!m) return null;
+  try {
+    return new WebAssembly.Instance(m, { env: DSP_MATH }).exports;
+  } catch {
+    return null;
+  }
+}
+
+
 class LoudnessMeter extends AudioWorkletProcessor {
   constructor(options) {
     super();
@@ -57,13 +75,44 @@ class LoudnessMeter extends AudioWorkletProcessor {
     }
     this.phases = [];
     for (let p = 0; p < PHASES; p++) this.phases.push(Float32Array.from({ length: TAPS }, (_, k) => h[k * PHASES + p]));
+    const x = dspExports(options);
+    if (x) {
+      this.dsp = { x, h: x.meter_new(sampleRate) };
+      if (this.weights) {
+        new Float64Array(x.memory.buffer, x.meter_cfg(this.dsp.h, this.weights.length), this.weights.length).set(this.weights);
+        x.meter_weights(this.dsp.h, this.weights.length);
+      }
+    }
     this.port.onmessage = (e) => {
       if (e.data.reset) {
         this.integrated = [];
         this.blocks = [];
         this.truePeak = 0;
+        if (this.dsp) this.dsp.x.meter_reset(this.dsp.h);
       }
     };
+  }
+
+  // One block through the module (128 frames, as worklets always get):
+  // its readings are posted as the JavaScript's are.
+  processDsp(inputs) {
+    const d = this.dsp;
+    const { x, h } = d;
+    const input = inputs[0] || [];
+    if (!input.length) return true;
+    if (!d.inView || d.inView.byteLength === 0) d.inView = new Float32Array(x.memory.buffer, x.meter_in(h), 16 * 128);
+    for (let c = 0; c < input.length; c++) d.inView.set(input[c], c * 128);
+    if (x.meter_process(h, input.length)) {
+      const ptr = x.meter_readings(h);
+      const total = new Float64Array(x.memory.buffer, x.meter_io(h), 1)[0];
+      const all = new Float64Array(x.memory.buffer, ptr, total);
+      for (let at = 0; at < total;) {
+        const [momentary, shortTerm, integrated, peak, truePeak, n] = [...all.subarray(at, at + 6)];
+        this.port.postMessage({ momentary, shortTerm, integrated, peak, truePeak, channels: [...all.subarray(at + 6, at + 6 + n)] });
+        at += 6 + n;
+      }
+    }
+    return true;
   }
 
   setup(channels) {
@@ -87,6 +136,7 @@ class LoudnessMeter extends AudioWorkletProcessor {
   }
 
   process(inputs) {
+    if (this.dsp && inputs[0]?.[0]?.length === 128 && inputs[0].length <= 16) return this.processDsp(inputs);
     const input = inputs[0];
     if (!input.length) return true;
     if (input.length !== this.channels) this.setup(input.length);

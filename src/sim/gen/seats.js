@@ -149,7 +149,7 @@ export function exportExitRequest(o, cx) {
   return v;
 }
 
-// seatLease: from rust/sim/schema/seats.mjs, rust/sim/schema/vehicles.mjs.
+// seatLease: from rust/sim/schema/seats.mjs, rust/sim/schema/units.mjs, rust/sim/schema/vehicles.mjs.
 export class SeatLeaseMirror {
   constructor() {
     this.unit = null;

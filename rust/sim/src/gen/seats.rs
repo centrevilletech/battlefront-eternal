@@ -119,7 +119,7 @@ impl ExitRequest {
 
 }
 
-/// A seatLease, from rust/sim/schema/seats.mjs, rust/sim/schema/vehicles.mjs.
+/// A seatLease, from rust/sim/schema/seats.mjs, rust/sim/schema/units.mjs, rust/sim/schema/vehicles.mjs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SeatLease {
     pub unit: Option<Ref<Unit>>,

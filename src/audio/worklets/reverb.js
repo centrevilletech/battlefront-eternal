@@ -28,6 +28,23 @@ const EARLY_GAINS = [1, 0.78, 0.62, 0.55, 0.43, 0.34];
 const MAX_DELAY_S = 0.4;
 const KEYS = ["room", "roomHF", "decay", "hfRatio", "reflections", "reflDelay", "reverb", "reverbDelay", "diffusion", "density", "hfReference"];
 
+// The same DSP in WebAssembly (rust/audio, ?audio=wasm):
+// processorOptions.dsp is the compiled module the page hands over
+// (src/audio/wasm-dsp.js). With it, blocks go to the module, whose
+// answers are this file's own to the last bit
+// (tests/audio-dsp-parity.mjs); without it, the JavaScript below runs as
+// it always has.
+const DSP_MATH = { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin, js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10 };
+function dspExports(options) {
+  const m = options?.processorOptions?.dsp;
+  if (!m) return null;
+  try {
+    return new WebAssembly.Instance(m, { env: DSP_MATH }).exports;
+  } catch {
+    return null;
+  }
+}
+
 class Reverb extends AudioWorkletProcessor {
   constructor(options) {
     super();
@@ -58,9 +75,45 @@ class Reverb extends AudioWorkletProcessor {
     this.longest = Math.max(this.pre.buf.length, this.early.buf.length, ...this.lines.map((l) => l.buf.length), ...this.diffusers.map((d) => d.buf.length));
     this.inLp = 0;
     this.block = 0;
+    const x = dspExports(options);
+    if (x) {
+      this.dsp = { x, h: x.reverb_new(sampleRate, this.channels) };
+      this.dspParams(o.params || {}, 1);
+    }
     this.port.onmessage = (e) => {
       this.set(e.data);
+      if (this.dsp) this.dspParams(e.data, 0);
     };
+  }
+
+  dspParams(p, initial) {
+    const { x, h } = this.dsp;
+    const io = new Float64Array(x.memory.buffer, x.reverb_io(h), 12);
+    let mask = 0;
+    KEYS.forEach((k, i) => {
+      if (p[k] !== undefined) {
+        io[i] = p[k];
+        mask |= 1 << i;
+      }
+    });
+    io[11] = mask;
+    x.reverb_params(h, initial);
+  }
+
+  // One block through the module (128 frames, as worklets always get).
+  processDsp(inputs, outputs) {
+    const d = this.dsp;
+    const { x, h } = d;
+    const input = inputs[0] || [];
+    const out = outputs[0];
+    if (!d.inView || d.inView.byteLength === 0) {
+      d.inView = new Float32Array(x.memory.buffer, x.reverb_in(h), 16 * 128);
+      d.outView = new Float32Array(x.memory.buffer, x.reverb_out(h), 16 * 128);
+    }
+    for (let c = 0; c < input.length; c++) d.inView.set(input[c], c * 128);
+    x.reverb_process(h, input.length, out.length);
+    for (let c = 0; c < out.length; c++) out[c].set(d.outView.subarray(c * 128, (c + 1) * 128));
+    return true;
   }
 
   set(p) {
@@ -119,6 +172,7 @@ class Reverb extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs) {
+    if (this.dsp && outputs[0][0]?.length === 128 && outputs[0].length <= 16 && ((inputs[0] || []).length || 0) <= 16) return this.processDsp(inputs, outputs);
     const input = inputs[0];
     const out = outputs[0];
     const n = out[0].length;
