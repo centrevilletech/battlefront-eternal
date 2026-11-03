@@ -1,3 +1,4 @@
+pub mod canopies;
 pub mod core;
 pub mod effects;
 pub mod far;

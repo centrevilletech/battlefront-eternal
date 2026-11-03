@@ -43,12 +43,14 @@ const TARGETS: [u32; 3] = [glow::TEXTURE_CUBE_MAP, glow::TEXTURE_3D, glow::TEXTU
 
 // The views a frame draws, each with a frame block of its own: the near
 // scene, the far scene (its own camera range), the first-person view scene,
-// and one spare.
+// one spare (a mirror's near scene), and the far scene seen from a water's
+// mirror (water.js reflect, drawn before the frame's own far scene).
 pub const VIEW_NEAR: usize = 0;
 pub const VIEW_FAR: usize = 1;
 pub const VIEW_FIRST_PERSON: usize = 2;
 pub const VIEW_SPARE: usize = 3;
-pub const VIEWS: usize = 4;
+pub const VIEW_FAR_MIRROR: usize = 4;
+pub const VIEWS: usize = 5;
 // Where the shadow receivers read BfeShadow (shader.rs); BfeFrame is 0.
 pub const SHADOW_BINDING: u32 = 1;
 
@@ -65,9 +67,10 @@ pub const PASS_VIEW: usize = 7;
 pub const PASS_POST: usize = 8;
 pub const PASS_HUD: usize = 9;
 pub const PASS_WATER: usize = 10;
-// 11 is the shadow pass's, 13 the tree canopies' (the Enhanced port's
-// registry).
+// 11 is the shadow pass's (registry); 12 the temporal upscaler's motion
+// (motion.rs), 13 the Enhanced tree canopies (canopies.rs).
 pub const PASS_MOTION: usize = 12;
+pub const PASS_CANOPIES: usize = 13;
 pub const PASSES: usize = 14;
 
 // The multi-draw call, which glow does not wrap (WEBGL_multi_draw on the web).

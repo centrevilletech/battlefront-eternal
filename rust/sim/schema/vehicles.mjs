@@ -24,26 +24,77 @@ export default {
       radius: fixed('f64'),
       phase: 'f64',
       previous: 'f64',
+      // Its turn at the start of the world tick (captureTick), for drawing
+      // between ticks.
+      tickFrom: 'f64|undefined',
     },
 
-    // A seat as the tick reads it: its aim (the player's look, a bot's
-    // analogs, the hull's steering), its limits (seatView), and its lease
-    // (a person's or a unit's, a network player's or a bot's, its frozen
-    // input's analogs: the seats package's state, read here).
+    // A seat's aim (the player's look, a bot's analogs, the hull's
+    // steering) and its lease (a person's or a unit's: the seats package's).
     VehicleSeat: {
       aimYaw: 'f64',
       pitch: 'f64',
       lookYaw: 'f64|null',
       lookPitch: 'f64|null',
       lease: 'ref:seatLease|null',
-      leaseHuman: fixed('bool|undefined', 'lease.human'),
-      leaseNetworkHuman: fixed('bool|undefined', 'lease.unit.networkHuman'),
-      leaseTurn: fixed('f64|undefined', 'lease.input.turn'),
-      leasePitch: fixed('f64|undefined', 'lease.input.pitch'),
-      pitchLimits: fixed('f64x2', 'view.pitchLimits'),
-      yawLimits: fixed('f64x2|null', 'view.yawLimits'),
-      wrapYaw: fixed('bool', 'view.wrapYaw'),
     },
+
+    // A seat's limits as seatView keeps them (pitch up positive, yaw from the
+    // hull's heading, null: free; an arc round the back kept in 0..2pi).
+    SeatView: {
+      pitchLimits: 'f64x2',
+      yawLimits: 'f64x2|null',
+      wrapYaw: 'bool',
+    },
+
+    // What the tick reads of a seat's lease (Vehicle.seatLeases: the lease,
+    // or for an empty seat nothing, every field undefined): whose it is (a
+    // person's, a unit's; a network player's) and its frozen input's
+    // analogs. Imported only: the lease is the seats package's.
+    SeatLeaseView: {
+      human: 'bool|undefined',
+      unit: 'ref:unit|null|undefined',
+      networkHuman: fixed('bool|undefined', 'unit.networkHuman'),
+      forward: fixed('f64|undefined', 'input.forward'),
+      right: fixed('f64|undefined', 'input.right'),
+      turn: fixed('f64|undefined', 'input.turn'),
+      pitch: fixed('f64|undefined', 'input.pitch'),
+      brake: fixed('bool|undefined', 'input.brake'),
+    },
+
+    // A spawn pad (Vehicles.slots, in the battle's order): its clock to the
+    // next spawn, the hull on it, and the hulls made for it by class (its
+    // place, its team and classes are the battle's content).
+    SpawnSlot: {
+      remaining: 'f64',
+      vehicle: 'ref:vehicle|null',
+      variants: 'map:ref:vehicle',
+    },
+
+    // The hull phase's calls into the battle while JavaScript serves them
+    // (src/vehicles-sim.js: rust/sim/src/vehicles/module.rs's world), one
+    // record each way per VehicleWorld method. A body is its slot in the
+    // bridge's identity of bodies (-1: none); a hull its place in the
+    // battle's list.
+    VehRay: { origin: 'vec3', direction: 'vec3', far: 'f64', ignore: 'f64' },
+    VehHit: { found: 'bool', distance: 'f64', point: 'vec3', normal: 'vec3', terrain: 'bool', body: 'f64' },
+    VehPush: { hull: 'f64', probes: 'list:vec3', radius: 'f64', q: 'quat', own: 'quat|null', previous: 'vec3', position: 'vec3', velocity: 'vec3', terrain: 'bool' },
+    VehPushed: { undo: 'bool', position: 'vec3', velocity: 'vec3' },
+    VehColumn: { x: 'f64', z: 'f64', top: 'f64' },
+    VehGround: { found: 'bool', height: 'f64', normal: 'vec3' },
+    VehSpring: { hull: 'f64', index: 'f64', center: 'vec3', radius: 'f64' },
+    VehTriangle: { a: 'vec3', b: 'vec3', c: 'vec3' },
+    VehPolygon: { id: 'f64', moving: 'bool', triangles: 'list:rec:VehTriangle' },
+    VehPolygons: { polygons: 'list:rec:VehPolygon' },
+    VehBody: { body: 'f64', matrix: 'mat4', enabled: 'bool' },
+    VehPoint: { position: 'vec3' },
+    VehFlag: { value: 'bool' },
+    VehNumber: { value: 'f64' },
+    VehNothing: {},
+    VehHull: { hull: 'f64' },
+    VehDamaged: { hull: 'f64', amount: 'f64', attacker: 'union:OrdnanceOwner' },
+    VehBlast: { hull: 'f64', final: 'bool', position: 'vec3' },
+    VehEffect: { name: 'str', position: 'vec3' },
 
     // A walker's water damage (src/vehicle-water.js waterDamageRule).
     WaterRule: {
@@ -59,6 +110,10 @@ export default {
       singleton: true,
       fields: {
         vehicles: 'list:vehicle',
+        slots: 'list:rec:SpawnSlot',
+        // Where the page's player stands while alive (none while dead): no
+        // hull spawns on him.
+        spawnOccupant: 'vec3|null',
       },
     },
 
@@ -117,13 +172,45 @@ export default {
         waterClock: 'f64',
         quaternion: 'quat',
         matrix: 'mat4',
-        itemCenter: fixed('vec3', 'itemTarget.center'),
+        // Its item target's centre (itemTarget.center, kept in place through
+        // Vehicle.prototype.itemCenter): what a power-up measures to.
+        itemCenter: 'vec3',
         supportNormal: 'vec3',
         legSide: 'list:f64|undefined',
         seatIndex: 'f64',
         driver: 'ref:vehicleDriver|null',
         wheels: 'list:rec:VehicleWheel',
         seats: 'list:rec:VehicleSeat',
+        // Each seat's limits and lease as the tick reads them (Vehicle.prototype
+        // seatViews and seatLeases): the content's and the seats package's.
+        seatViews: fixed('list:rec:SeatView'),
+        seatLeases: fixed('list:rec:SeatLeaseView'),
+        // Its pose at the start of the world tick (captureTick), for drawing
+        // between ticks; whether it shows (a destroyed walker while it dies).
+        tickFrom: 'vec3|undefined',
+        tickFromYaw: 'f64|undefined',
+        tickFromTilt: 'f64|undefined',
+        tickFromRoll: 'f64|undefined',
+        visible: { type: 'bool', js: 'root.visible', mirror: false },
+        // Its tow cable (Vehicles.launchTow): the walker it holds (its place in
+        // the battle's list, -1 none), the anchor in that walker's frame, the
+        // leg's name, the angle round the walker at the last tick and how far
+        // the cable has wound since it struck.
+        towTarget: 'f64',
+        towLocal: 'vec3',
+        towLeg: 'str',
+        towAngle: 'f64',
+        towWinding: 'f64',
+        // Who last damaged it, for kill credit (a round's owner, a tow's crew).
+        lastAttacker: 'union:OrdnanceOwner',
+        // Its spawn pad (its place in Vehicles.slots), and its entry in the
+        // units registry (VehicleTarget): its number there and the life it
+        // is on (each spawn starts one, so references to the last go stale).
+        // The registry is JavaScript's: a spawn the module makes tells it
+        // (VehicleWorld::new_life) rather than writing the generation back.
+        slotIndex: fixed('f64'),
+        targetId: fixed('f64', 'aiTarget.id'),
+        targetGeneration: fixed('f64', 'aiTarget.generation'),
       },
     },
 
@@ -131,5 +218,33 @@ export default {
     // lease (the seats package's), the page's player at the controls.
     seatLease: {},
     vehicleDriver: {},
+  },
+
+  // The hull phase on the module asks the battle these while it is
+  // JavaScript's (src/vehicles-sim.js serves them with src/vehicles-world.js).
+  // A hook that hands JavaScript a hull (damaged, destroyedCrew, destroyed,
+  // explosion) sees every hull as the phase has left it, and what it does to
+  // any hull comes back before the phase goes on.
+  imports: {
+    vehCast: { args: 'VehRay', result: 'VehHit' },
+    vehPushWalls: { args: 'VehPush', result: 'VehPushed' },
+    vehGround: { args: 'VehColumn', result: 'VehGround' },
+    vehSpringPolygons: { args: 'VehSpring', result: 'VehPolygons' },
+    vehMoveBody: { args: 'VehBody', result: null },
+    vehEnableBody: { args: 'VehBody', result: null },
+    vehBodyEnabled: { args: 'VehBody', result: 'VehFlag' },
+    vehHasWater: { args: 'VehNothing', result: 'VehFlag' },
+    vehWaterOver: { args: 'VehColumn', result: 'VehFlag' },
+    vehWaterLevel: { args: 'VehNothing', result: 'VehNumber' },
+    vehInDeathRegion: { args: 'VehPoint', result: 'VehFlag' },
+    vehRaycastUnits: { args: 'VehRay', result: 'VehHit' },
+    vehClock: { args: 'VehNothing', result: 'VehNumber' },
+    vehDamaged: { args: 'VehDamaged', result: null },
+    vehDestroyedCrew: { args: 'VehHull', result: null },
+    vehDestroyed: { args: 'VehHull', result: null },
+    vehRespawnClock: { args: 'VehHull', result: null },
+    vehReleaseCrew: { args: 'VehHull', result: null },
+    vehExplosion: { args: 'VehBlast', result: null },
+    vehEffect: { args: 'VehEffect', result: null },
   },
 };
