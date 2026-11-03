@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { loadSim } from '../src/sim/module.js';
-import { Identity, SimBridge, exportState, undeclared } from '../src/sim/runtime.js';
+import { ExportContext, Identity, SimBridge, exportState, undeclared } from '../src/sim/runtime.js';
 import { KIND_BEAM, KIND_BODY, KIND_BOLT, KIND_EMITTER, KIND_GRENADE, KIND_ORDNANCE, KIND_OWNER_SNAPSHOT, KIND_ROUND, KIND_TABLE, KIND_TURRET, KIND_UNIT, KIND_VEHICLE, BOLT_KEYS } from '../src/sim/gen/index.js';
 import { generate } from '../tools/sim-schema.mjs';
 
@@ -210,21 +210,39 @@ test('a module whose kinds were made from other schemas is refused', async () =>
   assert.throws(() => new SimBridge(stale), /lays bolt out otherwise/);
 });
 
-test('the replay harness gets plain values in the schema\'s order, one value an entity, references as they are', () => {
+// The export context a test of the exporters uses: the union's kinds told
+// apart by their classes and tests, references and definitions as tagged
+// values (the replay harness makes its handles here).
+function exporting(world) {
+  return new ExportContext({
+    classes: { Unit, Vehicle, Turret },
+    tests: { emitter: (o) => world.emitters.includes(o), ownerSnapshot: (o) => o === world.snapshot },
+    ref: (kind, object) => ({ kind, object }),
+    def: (table, def) => ({ table, def }),
+  });
+}
+
+test('the replay harness gets plain values in the schema\'s order, one value an entity, references as the harness names them', () => {
   const world = battle();
-  const seen = new Map();
-  const value = exportState('ordnance', world.ordnance, seen);
+  const cx = exporting(world);
+  const value = exportState('ordnance', world.ordnance, cx);
   assert.deepEqual(Object.keys(value), ['bolts', 'beams', 'grenades', 'rounds']);
   const bolt = value.bolts[0];
   assert.deepEqual(Object.keys(bolt).slice(0, 4), ['def', 'owner', 'networkFireId', 'networkFireChannel']);
-  assert.equal(bolt.owner, world.units[0]);
+  assert.deepEqual(bolt.owner, { kind: 'unit', object: world.units[0] });
+  assert.deepEqual(bolt.def, { table: 'ordnance', def: world.ordnance.bolts[0].def });
   assert.equal(bolt.position, world.ordnance.bolts[0].position);
   assert.notEqual(bolt.impact, world.ordnance.bolts[0].impact);
-  assert.equal(bolt.impact.body, world.bodies[1]);
+  assert.deepEqual(bolt.impact.body, { kind: 'body', object: world.bodies[1] });
+  assert.equal(value.bolts[1].owner, 'player');
+  assert.deepEqual(value.bolts[2].owner, { kind: 'ownerSnapshot', object: world.snapshot });
+  assert.deepEqual(value.beams[0].source, { kind: 'emitter', object: world.emitters[0] });
+  assert.deepEqual(value.rounds[1].mount, { kind: 'turret', object: world.turrets[0] });
+  assert.deepEqual([...value.rounds[1].struck].map((r) => r.object), [world.units[2], world.units[1]]);
   assert.equal(value.beams[0].damage, 12.5);
   assert.equal('damageDef' in value.beams[0], false);
   // The same bolt met again is the same value.
-  assert.equal(KIND_TABLE[KIND_BOLT].export(world.ordnance.bolts[0], seen), bolt);
+  assert.equal(KIND_TABLE[KIND_BOLT].export(world.ordnance.bolts[0], cx), bolt);
 });
 
 test('the completeness check names a field no schema lists', () => {

@@ -9,6 +9,8 @@ pub use crate::store::{word_i32, word_u32, DefId, KindCode, Nullable, Quat, Ref,
 
 mod ordnance;
 pub use self::ordnance::*;
+#[cfg(feature = "replay")]
+mod replay;
 
 pub const KIND_BEAM: KindCode = 1;
 pub const KIND_BODY: KindCode = 2;
@@ -28,6 +30,8 @@ pub const KIND_NAMES: [&str; 13] = ["", "beam", "body", "bolt", "emitter", "gren
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
 pub const KIND_HASHES: [u32; 13] = [0, 0xfc8a10be, 0xfe7bf1ca, 0xaccf5409, 0xc667f062, 0xa3e130ff, 0x8767c204, 0x046a7623, 0x79e24fc8, 0x512f6f6c, 0x17adc2a6, 0xe12e5e44, 0xe73c7946];
+/// Whether each kind's objects carry their own number (its slot), by code.
+pub const KIND_KEYED: [bool; 13] = [false, false, false, false, false, false, false, false, false, false, true, false, false];
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
