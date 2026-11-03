@@ -91,13 +91,14 @@ import { pageGpu } from "./gpu-info.js";
 // onProgress(step, loaded, total): the load's progress, for the loading
 // screen (src/shell/loading.js): "data", "world", "shaders", and
 // "textures" with how many of how many have arrived.
-// The collision's WebAssembly, or null (JavaScript, which gives the same
+// The battle's instance of the simulation's WebAssembly (src/sim/module.js),
+// which its kernels share, or null (JavaScript, which gives the same
 // answers) if it cannot load here.
-async function loadRays() {
+async function loadSimInstance() {
   try {
-    return await (await import("./ray-kernel.js")).loadRayKernel();
+    return await (await import("./sim/module.js")).loadSim();
   } catch (error) {
-    console.warn(`The collision's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
+    console.warn(`The simulation's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
     return null;
   }
 }
@@ -418,16 +419,18 @@ async function start() {
   // the world's ticks and the page's replay of his own soldier alike; it
   // brings the ray kernel with it.
   const movement = (params.get("movement") ?? (params.get("rays") === "js" ? "js" : movementDefault)) === "wasm";
-  const rays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm" ? await loadRays() : null;
+  const wantRays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm";
   // The page's pose sampling in WebAssembly (src/anim-kernel.js) unless
   // ?anim=js, to the last bit as its JavaScript, which stays the fallback
   // when the module cannot load. The page's poses only: a headless world
   // (the local worker, a dedicated server) reads rider poses for its ticks
   // and keeps the JavaScript, so its worlds cannot change. Poses made
   // before this take the kernel up as they clear.
-  const anim = !headless && params.get("anim") !== "js"
-    ? await import("./anim-kernel.js").then((m) => m.loadAnimKernel()).catch((error) => { console.warn("Pose sampling stays in JavaScript:", error); return null; })
-    : null;
+  const wantAnim = !headless && params.get("anim") !== "js";
+  // Both kernels on the battle's one instance of the module.
+  const simInstance = wantRays || wantAnim ? await loadSimInstance() : null;
+  const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
+  const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
   const collision = new CollisionWorld(
     new Float32Array(collBuf),
@@ -507,6 +510,7 @@ async function start() {
     strings: common.strings,
     map: world,
     mapImage: world.minimap?.texture ? `${mapDir}/${world.minimap.texture}` : null,
+    graphics,
   });
   // The key a craft's prompt names (src/hud.js flightPrompt): the flight
   // action's first binding, as the original names keys.

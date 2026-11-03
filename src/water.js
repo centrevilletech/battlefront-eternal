@@ -529,6 +529,8 @@ export class Water extends WaterState {
     }
     for (const mesh of [this.tintPass, this.mirrorPass]) mesh.frustumCulled = false;
     graphics.scene.add(this.group);
+    // The Rust renderer's water pass finds it here (src/rust-render/water.js).
+    graphics.scene.userData.water = this;
 
     // The far scene's water. The original draws the surface again in the far
     // scene, after the low-res terrain and in its fog (the sky's draw hands

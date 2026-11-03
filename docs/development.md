@@ -217,19 +217,20 @@ The original game, its code, and its assets remain the property of their rights 
 
 ## The Rust parts
 
-Three parts of the engine are written in Rust and compiled to WebAssembly, in the Cargo workspace under `rust/`:
+Two parts of the engine are written in Rust and compiled to WebAssembly, in the Cargo workspace under `rust/`:
 
-- `rust/rays`, the collision's ray kernel (`?rays=wasm`; [docs/performance.md](performance.md), "The collision's rays in WebAssembly") and the soldiers' movement (`?movement=wasm`; "The soldiers' movement in WebAssembly" there), committed as base64 in `src/ray-kernel-wasm.js`, which the world worker, the page and the dedicated server load as a JavaScript import.
-- `rust/anim`, the page's pose sampler (on by default; `?anim=js` keeps the JavaScript): the clip blending of `src/anim.js`'s `Pose`, committed as base64 in `src/anim-kernel-wasm.js`, which the page loads as a JavaScript import. A headless world keeps the JavaScript, so its ticks cannot change.
+- `rust/sim`, the simulation's module (`bfe_sim`, [docs/sim-store.md](sim-store.md)), committed as base64 in `src/sim-wasm.js`, which the world worker, the page and the dedicated server load as a JavaScript import (`src/sim/module.js`), one instance a battle. It holds the collision's ray kernel (`?rays=wasm`; [docs/performance.md](performance.md), "The collision's rays in WebAssembly"), the soldiers' movement (`?movement=wasm`; "The soldiers' movement in WebAssembly" there), the page's pose sampler (on by default; `?anim=js` keeps the JavaScript: the clip blending of `src/anim.js`'s `Pose`; a headless world keeps the JavaScript, so its ticks cannot change), and the entity store and bridge the port of the world's simulation builds on.
 - `rust/bfe-render`, the battle renderer behind `?rust`, committed as wasm-bindgen's output in `src/rust-pkg/`: an ES module and the `.wasm` it fetches, which Vite bundles as an asset. The desktop app serves it from its archive as `application/wasm`; the dedicated server's copy of the engine leaves it out.
 
 `rust/glbench` and `rust/bfe-native` are measuring tools; nothing ships them.
+
+`rust/v8math` is a library for the Rust that must compute what the JavaScript simulation computes, to the last bit: JavaScript's `Math` as V8 13.6 computes it, the V8 in Node 24, which runs the dedicated server. Rust code that has to agree with the simulation calls it and never Rust's own `sin`, `exp` and so on, whose last bits differ. Node 24 hands `Math.pow` and `**` to the C library, so their results depend on the server: `v8math::pow` computes what glibc's `pow` computes on an x86-64 CPU with FMA and AVX2, which the game's servers have.
 
 Because the WebAssembly is committed, building, testing and packaging the game needs no Rust. Changing it needs rustup, which installs the release `rust/rust-toolchain.toml` pins, with the wasm32 target, when cargo first runs under `rust/` (or run `rustup toolchain install` there), and the wasm-bindgen CLI of the version `rust/Cargo.lock` locks:
 
 ```bash
 cargo install wasm-bindgen-cli --version 0.2.130 --locked
-npm run rust:build    # all; node tools/build-rust.mjs rays (or anim, or renderer) builds one
+npm run rust:build    # all; node tools/build-rust.mjs sim (or renderer) builds one
 npm run rust:check    # rebuild both and compare with the committed files
 ```
 
@@ -237,4 +238,4 @@ npm run rust:check    # rebuild both and compare with the committed files
 
 Commit the rebuilt files with the Rust change that made them; `npm run rust:check` before committing a change under `rust/` fails if one is out of date. After a merge, rebuild them rather than merging their lines (`.gitattributes` makes Git keep one side of a generated file that conflicts). A new toolchain or wasm-bindgen version changes the bytes as well, so commit the rebuilt files with it.
 
-CI's `rust` job (`.github/workflows/ci.yml`) installs the pinned toolchain and wasm-bindgen, then runs `node tools/build-rust.mjs --check` and the three crates' unit tests. When the check fails, the run keeps the rebuilt files as its `rust-generated` artifact, laid out as `src/` is: committing those is as good as building them. The release jobs package the committed files as they are, and `build/check-packaged.mjs` fails a package whose `app.asar` lacks the renderer.
+CI's `rust` job (`.github/workflows/ci.yml`) installs the pinned toolchain and wasm-bindgen, then runs `node tools/build-rust.mjs --check` and the unit tests of `sim` (with its `replay` feature, which reads and writes the replay harness's values), `sim-replay`, `bfe-render`, `content` and `v8math`. When the check fails, the run keeps the rebuilt files as its `rust-generated` artifact, laid out as `src/` is: committing those is as good as building them. The release jobs package the committed files as they are, and `build/check-packaged.mjs` fails a package whose `app.asar` lacks the renderer.

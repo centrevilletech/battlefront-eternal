@@ -3,10 +3,6 @@
 version = 4
 
 [[package]]
-name = "anim"
-version = "0.1.0"
-
-[[package]]
 name = "bfe-native"
 version = "0.1.0"
 dependencies = [
@@ -63,9 +59,6 @@ dependencies = [
 [[package]]
 name = "content"
 version = "0.1.0"
-dependencies = [
- "rays",
-]
 
 [[package]]
 name = "dispatch2"
@@ -300,10 +293,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
-name = "rays"
-version = "0.1.0"
-
-[[package]]
 name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -352,6 +341,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sim"
+version = "0.1.0"
+dependencies = [
+ "sim-replay",
+]
+
+[[package]]
+name = "sim-replay"
+version = "0.1.0"
+
+[[package]]
 name = "slab"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -382,6 +382,10 @@ name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
+
+[[package]]
+name = "v8math"
+version = "0.1.0"
 
 [[package]]
 name = "version_check"

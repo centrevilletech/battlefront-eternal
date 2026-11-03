@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["glbench", "bfe-render", "bfe-native", "rays", "anim", "content"]
+members = ["glbench", "bfe-render", "bfe-native", "sim", "sim-replay", "content", "v8math"]
 
 [profile.release]
 opt-level = 3

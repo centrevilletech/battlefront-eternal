@@ -574,8 +574,9 @@ logic, the battle, snapshot capture) is logic over the battle's objects.
 
 The rays are the largest of the four, and they come from all over the step:
 a flyer's sweep and landing probes, a seat's aim, line-of-sight tests, a
-soldier's steps and ground, rounds in flight. `rust/rays` computes them, and
-the sphere queries after them, in Rust compiled to WebAssembly: in the
+soldier's steps and ground, rounds in flight. The collision module of
+`rust/sim` (once the crate `rust/rays`) computes them, and the sphere queries
+after them, in Rust compiled to WebAssembly: in the
 offline world worker unless the battle's query has `rays=js`, and on a page
 or a dedicated server when asked (`rays=wasm`, `BFE_RAYS=wasm`).
 
@@ -603,13 +604,16 @@ times as long in one probe). Copying every body's `enabled` before every cast
 cost 0.56 ms a tick on Bespin Platforms, a quarter of what the rays still
 took there.
 
-`tools/build-ray-kernel.mjs` builds the crate (`cargo build --release --target
-wasm32-unknown-unknown -p rays`; no wasm-bindgen, as the module imports
-nothing) and writes `src/ray-kernel-wasm.js`, the module as base64 (52 KB of
-WebAssembly). That file is committed, so building the game needs no Rust.
-game.js imports `src/ray-kernel.js` only for a battle that asks for it, so
-Vite makes it a chunk of its own (72 KB, 26 KB compressed) that the page and
-the world worker share, and the default bundle loads nothing more. The world
+`tools/build-rust.mjs` builds the crate (`cargo build --release --target
+wasm32-unknown-unknown -p sim`; no wasm-bindgen, as the module imports
+nothing) and writes `src/sim-wasm.js`, the module as base64 (52 KB of
+WebAssembly when it held the rays alone; 141 KB, 199 KB as base64 and 73 KB
+compressed, now that the simulation's module holds the movement, the pose
+sampler and the entity store too, docs/sim-store.md). That file is
+committed, so building the game needs no Rust. game.js imports
+`src/sim/module.js` only for a battle that asks for one of its kernels, so
+Vite makes it a chunk of its own that the page and the world worker share,
+and the default bundle loads nothing more. The world
 worker, the page and plain Node (the dedicated server, which copies `src/` as
 it is; `tools/world-hash.mjs`) all load it the same way, with
 `WebAssembly.compile` and `instantiate`: there is no wasm file to bundle,
@@ -659,7 +663,7 @@ contracts f64 operations by itself.
 The queries soldiers, hulls and droidekas make about a sphere run in the
 module too: `gather` (the polygons whose triangles' bounds meet the
 sphere's, each with those triangles), its cached form, `overlapsSphere` and
-`terrainNear`. `rust/rays/src/spheres.rs` repeats collision.js and
+`terrainNear`. `rust/sim/src/collision/spheres.rs` repeats collision.js and
 three-mesh-bvh's shapecast: the same walk of a tree (a child's bounds tested
 before going down to it, never the root's; a leaf's triangles in their
 indirect order), the same bounds tests written the same way (`a < b` and
@@ -702,7 +706,7 @@ whose bounds its ray meets; the ray's test ignores how far the cast reaches,
 so every body's bounds were tested for every cast. Bespin Platforms has 96
 bodies, four casts in five there reach less than 5 m (0.9 m at the median),
 and on average a tenth of a body passed: the walk was 4% of the world step.
-`rust/rays/src/broad.rs` files the fixed bodies in a grid over x and z, made
+`rust/sim/src/collision/broad.rs` files the fixed bodies in a grid over x and z, made
 again when the world's order or a fixed body's bounds change. A cast with a
 finite reach whose segment covers at most 16 cells takes the fixed bodies
 filed there whose bounds come within a millimetre of the segment's, and
@@ -849,7 +853,7 @@ a second within 0.8.
 
 bfeserver runs the same world in Node: its world thread calls the engine's
 `createGame` with the battle's query, and the engine loads the module there
-as it does in a page's worker, from `src/ray-kernel-wasm.js`, which the host
+as it does in a page's worker, from `src/sim-wasm.js`, which the host
 runtime copies with the rest of `src/` (compiled once a thread in about
 10 ms; each battle's own instance and copies, 3 to 12 MB a map, made in 7 to
 20 ms as it loads). A server opts in with `BFE_RAYS=wasm` in its
@@ -952,9 +956,11 @@ boundary, so that each part of the frame can move to it on its own:
 | Terrain | `terrain.rs` | `terrain.js` | near | The ground and its painted layers (drawn by the world pass) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | What the near scene blends, in three's order: blended buckets, holograms, flares |
 | Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam and wake effects |
-| Foliage | `foliage.rs` | `foliage.js` | near | Nothing yet |
-| View | `view.rs` | `view.js` | view | Nothing yet (the first-person weapon) |
-| Post | `post.rs` | `post.js` | post | Nothing yet (composite, FXAA, upscale) |
+| Foliage | `foliage.rs` | `foliage.js` | near | Placed foliage, instanced, its patches chosen there too |
+| View | `view.rs` | `view.js` | view | The first-person arms and weapon, and the muzzle flash |
+| Post | `post.rs` | `post.js` | post | Soft focus, composite, FXAA, the bilinear upscale |
+| HUD | `hud.rs` | `hud.js` | hud | The battle HUD's quads |
+| Water | `water.rs` | `water.js` | transparent | Classic terrain water and its rings, among the blended items |
 
 `core.rs` holds what the passes share: the context and its multi-draw, the
 programs, geometries and textures, the inputs the page writes each frame, a
@@ -968,7 +974,10 @@ read (world draws, instanced draws, instances, program switches, GL calls),
 then each pass's draws in the table's order. The near phase is called from
 the far scene's image (`graphics.background`'s `onAfterRender`) at the start
 of the near scene's pass, and the transparent phase from the item three
-draws just before its transparent list (see below).
+draws just before its transparent list (see below); `view_frame`,
+`post_frame` and `hud_frame` from their places in `graphics.js` and
+`hud.js`, and `mirror_frame` (the near phase's passes from a mirror camera)
+from a water reflection's render of the near scene.
 
 On the page, `src/rust-render/index.js` loads the module and keeps the
 registry. `addPass({ name, phase, register, draw, setActive, restore })`
@@ -1170,6 +1179,82 @@ draw or call. Against the commit before the split:
   pixels at the same points of the same seeded battles, but for a few
   hundred pixels of flickering flames on Kashyyyk Docks, which differed as
   much between two runs of the build from before.
+
+### The view, foliage, water, post passes and the HUD
+
+These passes take the rest of a Classic frame's own scenes from three:
+
+- Foliage: each class of placed foliage (grass beds, leaf patches, vines)
+  is one instanced draw in the near phase, with three's program for its
+  cards. The renderer also chooses the patches each time the page updates
+  its foliage (`Foliage.drawer`), as `FoliageGpuBatch.update` does: the
+  cells of the patch index around the camera, each patch's sphere against
+  the frustum, its distance across the ground and its depth along the view.
+  A frame drawn without an update (paused) draws the last selection, as
+  three would.
+- The first-person view: its parts are rigid meshes with zero materials,
+  written as records and drawn instanced as the soldiers' guns are, with
+  the view camera's frame block; the muzzle flash (a basic material that
+  blends) is drawn after them in three's transparent order, both sides in
+  turn as three draws a double-sided one. `RustRender.cover(phase,
+  renderer, scene, camera)` does what three's render would do around its
+  draws (the scene's matrices and `onBeforeRender`, which packs its lights;
+  then resolving a multisampled target), draws the phase, and says whether
+  its passes drew the whole scene: `graphics.js` renders the view scene
+  with three only when they did not.
+- The post passes: `Graphics.postSteps` plans them (each a full-screen
+  pass with its target, or a step that draws itself: bloom and the
+  temporal and spatial upscalers), then hands the plan to the bridge. The
+  post pass draws every step with three's program for the pass's material,
+  used as three compiled it (`Kind::Plain`), into a framebuffer of its own
+  over the target's texture or onto the canvas, or leaves them all to
+  three when one is a step it cannot draw.
+- The HUD: `BattleHud.render` asks the bridge to draw its batch once it is
+  built. The renderer keeps a copy of the batch's vertex arrays, updated
+  from the vertices the batch changed, and draws each run of quads with its
+  texture, as three does.
+- Classic water: the surface drawn with the look's own textures and the
+  rings are items of the transparent list (sources of the transparent
+  pass), with three's sort keys. The Enhanced refraction and reflection
+  stay with three.
+- Reflections: water at Ultra renders the near scene again from a mirror
+  camera, which water.js marks; the near scene's hook then draws the near
+  phase's passes for that camera (`mirror_frame`), so what the renderer
+  draws shows in the reflection too.
+- The near scene itself, behind `?rustNear` (`near.js`): on a frame when
+  everything three would list in it is drawn by a pass, the renderer
+  draws the scene in place of three's render. It does what three's render
+  does first (the scene's `onBeforeRender`), walks the scene as three's
+  `projectObject` does (shown, on the camera's layers, in view) for what
+  three would list, and at the first item no pass draws leaves the frame
+  to three. Otherwise it clears the target as three would, draws the far
+  scene's image with three's program for it, then the near and
+  transparent phases (the transparent pass's objects keyed from the walk
+  as three keys them), and resolves the target. Phases drawn between
+  three's renders (the far scene, the view, the post passes, the HUD, and
+  this one) reset three's state once, when three is next used.
+
+If the WebGL context is lost, or a pass throws, the bridge gives
+everything back to three for good (`RustRender.fail`): a lost context
+takes every object the renderer made with it.
+
+On the slow-PC emulator (SwiftShader, 800x600, the laptop's live settings
+with 2x multisampling), each pass switched on alone against three in the
+same frames of one battle drew the same pixels: Theed's foliage, FXAA,
+HUD and first-person view (also while firing), Kashyyyk Docks' foliage and
+water, and Theed's reflection at Ultra (0 of 1,440,000 pixels each over
+three points, 0 of 960,000 for the reflection over two). With draws off
+and the emulator's CPUs throttled, frames alternating between three and
+the pass (median and mean, ms): the foliage's update on Naboo: Plains,
+whose terrain grows 197,000 patches, went from 3.46 and 3.90 to 0.50 and
+0.57 and the frame from 27.7 and 29.0 to 22.2 and 23.6; on Kashyyyk Docks
+from 0.135 and 0.165 to 0.055 and 0.067. The HUD's render went from 0.90
+and 1.19 to 0.77 and 1.01, and three's render of the first-person view
+(0.56 a frame) became 0.16 of three's plus 0.17 of the renderer's. The
+post passes and the water were within noise: each phase costs about as
+much as a scene of one or two draws saves (the page's side, the call, and
+three's state reset after it, which three then sends again), which only
+a frame drawn with fewer phases will save.
 
 ### The far scene
 
@@ -1408,7 +1493,7 @@ soldier every frame, over each command the world has not acknowledged yet
 step on Naboo Plains and a twentieth on Dune Sea and Bespin Platforms, and on
 the page about half of what the replay cost.
 
-`rust/rays/src/movement` runs the whole tick in the ray kernel's module, for a
+`rust/sim/src/movement` runs the whole tick in the ray kernel's module, for a
 battle whose query has `movement=wasm` (which loads the ray kernel with it):
 the world worker's ticks (and a dedicated server's) and the page's replay
 alike, each with its own instance of the module. The offline world worker
@@ -1422,8 +1507,9 @@ both kinds of jetpack, the drive along the ground, and the collision pass (the
 terrain's column under each body sphere, the nearest polygon of the buildings
 and bodies one contact at a time, the step up stairs, the ground snap and the
 headroom ray). Its queries are the module's own (the sphere gathers, the
-overlap test and the ground of `rust/rays/src/spheres.rs`, and the casts of
-`lib.rs`), against the copies of the trees, the terrain grid and the bodies
+overlap test and the ground of `rust/sim/src/collision/spheres.rs`, and the
+casts of `collision/mod.rs`), against the copies of the trees, the terrain
+grid and the bodies
 the ray kernel keeps anyway, so a tick makes no call back into JavaScript.
 
 The soldier object stays the only copy of his state between ticks, so the
