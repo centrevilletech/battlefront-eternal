@@ -159,7 +159,7 @@ class WakePool {
     this.mesh.visible = false;
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = kind === 1 ? 8 : 11;
-    this.mesh.onBeforeRender = (...args) => particleDepth.capture(...args);
+    this.mesh.onBeforeRender = (renderer, scene, camera) => particleDepth.capture(renderer, scene, camera);
     jetpackWakes.set(this.mesh, this);
     scene.add(this.mesh);
   }
