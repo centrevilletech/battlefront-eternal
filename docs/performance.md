@@ -1046,6 +1046,34 @@ since goes back to three until three has drawn it again. A bucket culled by
 cell (`render-culling.js`) keeps the draw range of the last view three drew
 it in, which the renderer ignores: it draws its cells from the whole index.
 
+### What the transparent list, the hooked buckets and the ground drew
+
+On the emulator (SwiftShader, 800x600, 2x multisampling, Classic
+settings), at three points of a seeded walk on each of Theed, Mos Eisley,
+Bespin Platforms, Kashyyyk Docks and Hoth, the near scene's image with the
+renderer on was compared with three alone on the same frames (time stopped
+between the captures), and with the renderer on but each of these passes
+given back to three. It was the same to the pixel at every point but one:
+on Hoth's third, where two captures of the same variant already differed
+by 133 pixels (a distant walker's legs), the renderer and three differed by
+103. The
+same held with the Enhanced tree and terrain detail, bloom and soft focus
+on (the ground's Enhanced shading drawn by the renderer), and with shadows
+on, where the renderer gives everything back to three. No WebGL context was
+lost during any of these runs.
+
+Three's own draws in the near scene's pass fell from 27 to 15.5 a frame on
+Theed, 13.75 to 2 on Mos Eisley, 33 to 3 on Bespin Platforms and 22.5 to
+11.25 on Kashyyyk Docks. What three still draws there is the foliage, the
+water, the weather and the map's effects, the far scene's image, props'
+unlit skinned meshes, and on Bespin Platforms two vehicles' blended skinned
+parts. On the emulator with its draws made no-ops, in lockstep frames
+alternating between the renderer without these passes and with them, the
+frame's render time changed by +0.01 to -0.9 ms (median and mean, two
+rounds) on four maps and by -0.7 to -2.6 ms on Mos Eisley; switched every
+five seconds in one battle on the game's own loop, the difference was
+within the noise.
+
 ### The same frame
 
 Splitting the renderer and its page side into passes changed nothing they
