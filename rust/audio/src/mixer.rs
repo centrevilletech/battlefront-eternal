@@ -388,14 +388,17 @@ impl Mixer {
                 if g0 == 0.0 && g1 == 0.0 {
                     continue;
                 }
+                // The worklet adds into a Float32Array: each sample's sum
+                // is rounded as it is stored, as these are.
+                let dst = &mut out.data[c * frames..(c + 1) * frames];
                 if g0 == g1 {
-                    for i in 0..frames {
-                        out.add(c, i, src[i] as f64 * g1);
+                    for (d, &s) in dst.iter_mut().zip(src) {
+                        *d = (*d as f64 + s as f64 * g1) as f32;
                     }
                 } else {
                     let step = (g1 - g0) / frames as f64;
-                    for i in 0..frames {
-                        out.add(c, i, src[i] as f64 * (g0 + step * (i + 1) as f64));
+                    for (i, (d, &s)) in dst.iter_mut().zip(src).enumerate() {
+                        *d = (*d as f64 + s as f64 * (g0 + step * (i + 1) as f64)) as f32;
                     }
                     self.current[base + c] = self.goal[base + c];
                 }

@@ -86,6 +86,7 @@ pub struct Stabilizer {
     filters: [Splitter; 2],
     tmp: Vec<f32>,
     bands: [[Vec<f32>; 2]; 2], // per side: [high, low]
+    front: [Vec<f32>; 2],
 }
 
 impl Stabilizer {
@@ -105,6 +106,7 @@ impl Stabilizer {
             filters: [Splitter::new(rate), Splitter::new(rate)],
             tmp: vec![0.0; MAX_BLOCK + DELAY],
             bands: [[vec![0.0; MAX_BLOCK], vec![0.0; MAX_BLOCK]], [vec![0.0; MAX_BLOCK], vec![0.0; MAX_BLOCK]]],
+            front: [vec![0.0; MAX_BLOCK], vec![0.0; MAX_BLOCK]],
         }
     }
 
@@ -164,16 +166,23 @@ impl Stabilizer {
             }
         }
         self.pos = (self.pos + n) % DELAY;
-        let left_in: Vec<f32> = {
-            let s = chan(self.left);
-            if s.is_empty() { vec![0.0; n] } else { s.to_vec() }
-        };
-        let right_in: Vec<f32> = {
-            let s = chan(self.right);
-            if s.is_empty() { vec![0.0; n] } else { s.to_vec() }
-        };
-        self.split_front(&left_in, 0);
-        self.split_front(&right_in, 1);
+        for (side, ch) in [(0usize, self.left), (1usize, self.right)] {
+            if self.front[side].len() < n {
+                self.front[side].resize(n, 0.0);
+            }
+            let s = chan(ch);
+            if s.is_empty() {
+                self.front[side][..n].fill(0.0);
+            } else {
+                self.front[side][..n].copy_from_slice(&s[..n]);
+            }
+        }
+        let left_in = std::mem::take(&mut self.front[0]);
+        self.split_front(&left_in[..n], 0);
+        self.front[0] = left_in;
+        let right_in = std::mem::take(&mut self.front[1]);
+        self.split_front(&right_in[..n], 1);
+        self.front[1] = right_in;
         let has_centre = self.centre < output.channels;
         for i in 0..n {
             let (lh, ll) = (self.bands[0][0][i] as f64, self.bands[0][1][i] as f64);
