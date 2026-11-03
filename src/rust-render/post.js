@@ -37,6 +37,9 @@ export function uniformType(gl, type) {
 // with its uniforms ({ name, type } in slot order); null when it has one the
 // renderer can't set; undefined until three has made it.
 const plainPrograms = new WeakMap();
+// attributes: "name:location,..." where the pass's vertex arrays have them,
+// or null for three's own attributes at locations 0, 1... (entry.attributes,
+// for core.geometry).
 export function plainProgram(core, material, attributes) {
   const threeProgram = core.renderer.properties.get(material).currentProgram;
   if (!threeProgram) return undefined;
@@ -44,6 +47,12 @@ export function plainProgram(core, material, attributes) {
   if (entry !== undefined) return entry;
   entry = null;
   const gl = core.gl, p = threeProgram.program;
+  let locations = null;
+  if (attributes === null) {
+    locations = [];
+    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES); i < n; i++) locations.push([gl.getActiveAttrib(p, i).name, i]);
+    attributes = locations.map(([name, location]) => `${name}:${location}`).join(",");
+  }
   const uniforms = [];
   for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
     const u = gl.getActiveUniform(p, i);
@@ -52,7 +61,7 @@ export function plainProgram(core, material, attributes) {
   if (uniforms.every((u) => u.type && u.size === 1)) {
     const [vs, fs] = gl.getAttachedShaders(p).sort((a) => (gl.getShaderParameter(a, gl.SHADER_TYPE) === gl.VERTEX_SHADER ? -1 : 1));
     try {
-      entry = { id: core.rust.add_program(PLAIN, gl.getShaderSource(vs), gl.getShaderSource(fs), attributes, uniforms.map((u) => u.name).join(",")), uniforms };
+      entry = { id: core.rust.add_program(PLAIN, gl.getShaderSource(vs), gl.getShaderSource(fs), attributes, uniforms.map((u) => u.name).join(",")), uniforms, attributes: locations };
     } catch (error) {
       core.errors.push(`plain p${threeProgram.id}: ${String(error).slice(0, 300)}`);
     }
@@ -65,6 +74,20 @@ export function plainProgram(core, material, attributes) {
 // object's and camera's matrices, else the material's), into f64 slots at
 // `o` (slot, type, values); false when it has none the renderer can give.
 const eye = new THREE.Vector3();
+const IDENTITY3 = new THREE.Matrix3();
+// A map's uv transform, as refreshTransformUniform sets it.
+const transform = (map) => { if (!map) return IDENTITY3; if (map.matrixAutoUpdate) map.updateMatrix(); return map.matrix; };
+// The uniforms of a built-in material three's refreshUniformsCommon sets
+// that a basic material's program may read.
+const BUILTIN = {
+  diffuse: (m) => m.color,
+  opacity: (m) => m.opacity,
+  map: (m) => m.map,
+  mapTransform: (m) => transform(m.map),
+  alphaMap: (m) => m.alphaMap,
+  alphaMapTransform: (m) => transform(m.alphaMap),
+  alphaTest: (m) => m.alphaTest,
+};
 export function writeUniform(core, out, o, slot, uniform, material, object, camera) {
   const { name, type } = uniform;
   let value;
@@ -74,8 +97,15 @@ export function writeUniform(core, out, o, slot, uniform, material, object, came
   else if (name === "viewMatrix") value = camera.matrixWorldInverse;
   else if (name === "cameraPosition") value = eye.setFromMatrixPosition(camera.matrixWorld);
   else if (name === "isOrthographic") value = camera.isOrthographicCamera === true;
-  else {
-    const u = material.uniforms?.[name];
+  else if (material && !material.uniforms) {
+    // A built-in material (MeshBasicMaterial): its values as three's
+    // refreshUniforms sets them.
+    const read = BUILTIN[name];
+    if (!read) return false;
+    value = read(material);
+    if (value === undefined) return false;
+  } else {
+    const u = material?.uniforms?.[name];
     if (!u) return false;
     value = u.value;
   }

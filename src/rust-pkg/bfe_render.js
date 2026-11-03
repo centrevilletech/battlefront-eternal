@@ -586,6 +586,20 @@ export class BfeRenderer {
     /**
      * @returns {number}
      */
+    view_input_len() {
+        const ret = wasm.bferenderer_view_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    view_input_ptr() {
+        const ret = wasm.bferenderer_view_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
     water_input_len() {
         const ret = wasm.bferenderer_water_input_len(this.__wbg_ptr);
         return ret >>> 0;

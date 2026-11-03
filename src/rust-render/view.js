@@ -11,7 +11,17 @@
 // does not render the scene; otherwise (a muzzle flash, which blends, or
 // anything else not registered) three renders it after, drawing only what
 // is left.
+import * as THREE from "three";
+import { plainProgram, writeUniform } from "./post.js";
+import { blendOf, sidesOf, stateOf } from "./transparent.js";
+
 const RIGID = 2;
+// view.rs's blended draws.
+const D = { PROGRAM: 0, GEOMETRY: 1, BLEND: 2, DEPTH_FUNC: 9, FLAGS: 10, SIDES: 11, RANGE: 14, UNIFORMS: 16, FIRST: 17 };
+const UNIFORM = 18, MAX_DRAW_UNIFORMS = 12, DRAW = D.FIRST + MAX_DRAW_UNIFORMS * UNIFORM, MAX_DRAWS = 16;
+const viewProjection = new THREE.Matrix4(), point = new THREE.Vector4(), frustum = new THREE.Frustum();
+// three's reversePainterSortStable.
+const transparentOrder = (a, b) => a.groupOrder - b.groupOrder || a.renderOrder - b.renderOrder || b.z - a.z || a.id - b.id;
 // Record layout (instances.rs REC_*).
 const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56 };
 const MAX_RECORDS = 256;
@@ -33,41 +43,55 @@ class ViewPass {
     this.records = [];
     // Whether the last phase drew everything three would have of the scene.
     this.complete = false;
+    // This frame's blended draws, in three's transparent order.
+    this.blends = [];
+    this.input = false;
   }
 
   draw(ctx) {
     // Off (this pass alone): three draws the scene.
     if (this.on === false) return;
     this.complete = true;
-    this.visit(ctx.scene, ctx.camera, ctx);
+    this.blends.length = 0;
+    const camera = ctx.camera;
+    viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    frustum.setFromProjectionMatrix(viewProjection);
+    this.visit(ctx.scene, camera, ctx, 0);
+    this.writeBlends(camera);
   }
 
   // projectObject's walk: a hidden object hides its subtree; one on other
-  // layers is not drawn, but its children may be.
-  visit(object, camera, ctx) {
+  // layers is not drawn, but its children may be; a group's render order
+  // orders what blends below it.
+  visit(object, camera, ctx, groupOrder) {
     if (!object.visible) return;
+    if (object.isGroup) groupOrder = object.renderOrder;
     if (object.layers.test(camera.layers)) {
-      if (object.isMesh) this.part(object, ctx);
+      if (object.isMesh) this.part(object, ctx, groupOrder);
       else if (object.isSprite || object.isPoints || object.isLine || object.isLOD) this.complete = false;
     }
     const children = object.children;
-    for (let i = 0; i < children.length; i++) this.visit(children[i], camera, ctx);
+    for (let i = 0; i < children.length; i++) this.visit(children[i], camera, ctx, groupOrder);
   }
 
-  part(mesh, ctx) {
+  part(mesh, ctx, groupOrder) {
     let record = this.parts.get(mesh);
     if (record === undefined) record = this.registerPart(mesh);
-    if (record && mesh.material === record.material) this.write(record, ctx);
-    else if (record) { mesh.material.visible = true; this.complete = false; }
+    if (record && mesh.material === record.material) {
+      if (record.blended) this.blend(record, groupOrder);
+      else this.write(record, ctx);
+    } else if (record) { mesh.material.visible = true; this.complete = false; }
     else if ([].concat(mesh.material).some((m) => m?.visible)) this.complete = false;
   }
 
   // A rigid part with a zero material that does not blend (instances.js
-  // registerMesh's rule for a gun).
+  // registerMesh's rule for a gun), or a basic material that blends (the
+  // muzzle flash).
   registerPart(mesh) {
     const core = this.core;
     let record = null;
     const material = mesh.material, threeProgram = !Array.isArray(material) && core.renderer.properties.get(material).currentProgram;
+    if (threeProgram && material.isMeshBasicMaterial) return this.registerBlended(mesh);
     if (threeProgram && !material.transparent && !mesh.geometry.groups.length && "DYNAMIC" in (material.defines || {}) && !mesh.isSkinnedMesh && !mesh.isInstancedMesh) {
       const program = core.program(threeProgram, RIGID, material, POLICY);
       const geometry = program && core.geometry(mesh.geometry, program);
@@ -83,6 +107,70 @@ class ViewPass {
     // Three has not drawn it yet: asked again next frame.
     if (threeProgram || record) this.parts.set(mesh, record);
     return record;
+  }
+
+  // A blended mesh with a basic material three's program draws as it is
+  // (no shader hooks), in one geometry range.
+  registerBlended(mesh) {
+    const core = this.core, material = mesh.material, geometry = mesh.geometry;
+    let record = null;
+    const program = plainProgram(core, material, null);
+    if (program === undefined) return undefined; // until three has made it
+    const blend = blendOf(material), state = stateOf(material), sides = sidesOf(material);
+    if (program && program.uniforms.length <= MAX_DRAW_UNIFORMS && blend && state && material.transparent && material.onBeforeCompile === THREE.Material.prototype.onBeforeCompile
+      && geometry.index && !geometry.groups.length && !mesh.isSkinnedMesh && !mesh.isInstancedMesh) {
+      const g = core.geometry(geometry, { id: program.id, attributes: program.attributes });
+      if (g !== null && g !== undefined) {
+        if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+        record = { blended: true, mesh, material, program, geometry: g, blend, state, sides };
+        material.visible = !core.active;
+        this.records.push(record);
+      }
+    }
+    this.parts.set(mesh, record);
+    return record;
+  }
+
+  // A blended mesh three would list this frame, with three's sort key: z of
+  // its bounding sphere's centre through its world matrix and the view.
+  blend(record, groupOrder) {
+    const mesh = record.mesh;
+    if (mesh.frustumCulled && !frustum.intersectsObject(mesh)) return;
+    if (this.blends.length >= MAX_DRAWS) { this.complete = false; record.material.visible = true; return; }
+    point.copy(mesh.geometry.boundingSphere.center).applyMatrix4(mesh.matrixWorld).applyMatrix4(viewProjection);
+    this.blends.push({ record, groupOrder, renderOrder: mesh.renderOrder, z: point.z, id: mesh.id });
+  }
+
+  // The frame's blended draws for view.rs, in three's transparent order.
+  writeBlends(camera) {
+    const core = this.core;
+    if (!this.input) {
+      if (!this.blends.length) return;
+      core.addView("viewInput", Float64Array, () => core.rust.view_input_ptr(), () => core.rust.view_input_len());
+      this.input = true;
+    }
+    core.views();
+    const input = core.viewInput;
+    input[0] = 0;
+    this.blends.sort(transparentOrder);
+    let n = 0;
+    for (const { record } of this.blends) {
+      const { mesh, material, program } = record, geometry = mesh.geometry, o = 1 + n * DRAW;
+      const range = geometry.drawRange, count = geometry.index.count;
+      const first = Math.max(0, range.start), last = Math.min(count, range.start + range.count);
+      if (last <= first) continue;
+      input[o + D.PROGRAM] = program.id; input[o + D.GEOMETRY] = record.geometry;
+      for (let k = 0; k < 7; k++) input[o + D.BLEND + k] = record.blend[k];
+      input[o + D.DEPTH_FUNC] = record.state.func; input[o + D.FLAGS] = record.state.flags;
+      input[o + D.SIDES] = record.sides.length; input[o + D.SIDES + 1] = record.sides[0]; input[o + D.SIDES + 2] = record.sides[1] ?? 0;
+      input[o + D.RANGE] = first; input[o + D.RANGE + 1] = last - first;
+      input[o + D.UNIFORMS] = program.uniforms.length;
+      let ok = true;
+      for (let k = 0; k < program.uniforms.length && ok; k++) ok = writeUniform(core, input, o + D.FIRST + k * UNIFORM, k, program.uniforms[k], material, mesh, camera);
+      if (!ok) { this.complete = false; material.visible = true; continue; }
+      n++;
+    }
+    input[0] = n;
   }
 
   write(record, at) {

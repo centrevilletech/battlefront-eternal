@@ -72,6 +72,8 @@ function bridge() {
     water_rings_uv_len() { return 16 * 2; }
     water_rings_alpha_ptr() { return 917504; }
     water_rings_alpha_len() { return 16; }
+    view_input_ptr() { return 983040; }
+    view_input_len() { return 1 + 16 * (17 + 12 * 18); }
     water_surface(...args) { calls.push(["water_surface", ...args]); return 0; }
     water_rings(...args) { calls.push(["water_rings", ...args]); return 1; }
   }
@@ -393,4 +395,36 @@ test("an error in a pass gives everything back to three, its state reset and its
   assert.ok(core.errors.some((e) => e.startsWith("failed: Error: broken pass")));
   assert.deepEqual(calls.slice(-2), [["resetState"], ["setRenderTarget", target]]);
   assert.equal(core.cover("view", renderer, scene, camera), false, "and stays three's");
+});
+
+test("the view scene's muzzle flash: a blended basic draw after the parts, in three's order, both sides in turn", () => {
+  const { core, calls, renderer, properties } = bridge();
+  const viewScene = new THREE.Scene(), view = new THREE.PerspectiveCamera();
+  view.updateMatrixWorld(true);
+  const part = new THREE.Mesh(partGeometry(), partMaterial(properties));
+  const flashMaterial = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  properties.get(flashMaterial).currentProgram = program([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["diffuse", GL.FLOAT_VEC3], ["opacity", GL.FLOAT], ["map", GL.SAMPLER_2D], ["mapTransform", GL.FLOAT_MAT3]], ["position", "uv"]);
+  flashMaterial.color.setRGB(1, 0.5, 0.25);
+  flashMaterial.opacity = 0.75;
+  const flash = new THREE.Group();
+  flash.add(new THREE.Mesh(partGeometry(), flashMaterial));
+  flash.children[0].position.z = -1;
+  viewScene.add(part, flash);
+  viewScene.updateMatrixWorld(true);
+  assert.equal(core.cover("view", renderer, viewScene, view), true, "the parts and the flash: three left out");
+  assert.equal(flashMaterial.visible, false);
+  assert.ok(calls.some((c) => c[0] === "add_program" && c[1] === 3 && c[2] === "position:0,uv:1"), "three's attributes at 0, 1");
+  const input = core.viewInput, D = 1;
+  assert.equal(input[0], 1, "one blended draw");
+  assert.deepEqual([...input.subarray(D + 2, D + 9)], [1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], "additive blending");
+  assert.deepEqual([input[D + 10], input[D + 11], input[D + 12], input[D + 13]], [1 | 4, 2, 1, 0], "depth tested, not written; back faces, then front");
+  assert.deepEqual([input[D + 14], input[D + 15], input[D + 16]], [0, 3, 6]);
+  assert.deepEqual([...input.subarray(D + 17 + 2 * 18, D + 17 + 2 * 18 + 5)], [2, 3, 1, 0.5, 0.25], "its colour as three's refreshUniforms sends it");
+  assert.deepEqual([...input.subarray(D + 17 + 3 * 18, D + 17 + 3 * 18 + 3)], [3, 1, 0.75]);
+  // A flash with a hooked shader stays three's: three renders the scene.
+  const hooked = new THREE.MeshBasicMaterial({ transparent: true });
+  hooked.onBeforeCompile = () => {};
+  properties.get(hooked).currentProgram = program([["diffuse", GL.FLOAT_VEC3]], ["position"]);
+  viewScene.add(new THREE.Mesh(partGeometry(), hooked));
+  assert.equal(core.cover("view", renderer, viewScene, view), false);
 });
