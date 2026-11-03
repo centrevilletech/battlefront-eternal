@@ -30,6 +30,7 @@
 // replace its raw roots with their exporters. A system of the game (an
 // object the game holds, such as game.items) is a handle wherever it is met
 // unless the state asks for it whole: expand(object).
+import * as THREE from 'three';
 import { units } from './units.mjs';
 import { seats } from './seats.mjs';
 import { combat } from './combat.mjs';
@@ -131,11 +132,11 @@ function rigNodes(v) {
 // nodes (each one's position, quaternion and scale, and after the frame its
 // world matrix) where the frame poses it: a ground hull that does not
 // rest (a flyer's pose is the flight package's).
-export function poseState(v, args, end) {
+export function poseState(v, args, end, force = false) {
   const dt = args[1];
   const rests = !v.alive || dt > 0 && v.sleeping && !v.repulsor && !v.occupied && !v.pose && v.health >= v.maxHealth * .35;
   const nodes = rigNodes(v), at = (node) => (node ? nodes.indexOf(node) : null);
-  const posed = !rests && !v.flying;
+  const posed = force || !rests && !v.flying;
   return {
     name: v.name, alive: v.alive, sleeping: v.sleeping, repulsor: v.repulsor, flying: v.flying, creature: v.creature, health: v.health,
     maxHealth: v.maxHealth, pose: Boolean(v.pose), legs: Boolean(v.def.fx?.legs), body: v.body,
@@ -177,10 +178,101 @@ const poseFrame = (method) => {
   return { method, target: hullPrototype, whole: ['SeatInput'], boundaries: poseBoundaries,
     state: (game, args, cap, self) => { const end = !entering; entering = !entering; return { hull: poseState(self, args, end) }; } };
 };
+// The tow cables as updateTethers reads and writes them: the cables in the
+// map's order (their ends, and the gun end's place in the world as the rig
+// left it), and the hulls at either end through the store.
+function towGunWorld(t) {
+  const source = t.source;
+  const turret = source.seats[t?.seat ?? 1]?.view.turret || source.seats.find((s) => s.view.turret)?.view.turret;
+  if (!turret) return null;
+  const e = turret.matrixWorld.elements;
+  return new THREE.Vector3(e[12], e[13], e[14]);
+}
+// The hulls the cables join (their sources and walkers), as the store
+// holds them: the state a call made while the cables are updated can
+// change (a tripped walker's blast hurts the hull that tripped it).
+function cableHulls(game, cap) {
+  const vs = game.vehicles, list = vs.vehicles;
+  const involved = new Set();
+  for (const t of vs.tethers.values()) { involved.add(t.source); if (t.target) involved.add(t.target); }
+  return { hulls: [...involved].map((v) => ({ index: list.indexOf(v), hull: cap.export('vehicle', v) })) };
+}
+const tetherBoundaries = (game) => hullBoundaries(game).map(([label, target, method]) => (label === 'world.explosion' ? [label, target, method, cableHulls] : [label, target, method]));
+function tetherState(game, cap) {
+  const vs = game.vehicles, list = vs.vehicles, at = (v) => (v ? list.indexOf(v) : null);
+  const involved = new Set();
+  for (const t of vs.tethers.values()) { involved.add(t.source); if (t.target) involved.add(t.target); }
+  return {
+    tethers: [...vs.tethers.values()].map((t) => ({ source: at(t.source), target: at(t.target), seat: t.seat, length: t.length, hasDef: Boolean(t.def),
+      start: t.start.clone(), end: t.end.clone(), gun: towGunWorld(t) })),
+    hulls: [...involved].map((v) => ({ index: at(v), hull: cap.export('vehicle', v) })),
+  };
+}
+// What a hull's constructor worked out beyond the store's fields: its
+// rig's nodes for its seats' turrets, aimers, muzzles and wheels (by their
+// place in rigNodes), its seats' views, its legs for a tow cable, its
+// radius, its gear and its hover's phase.
+function builtState(v, list, cap) {
+  const nodes = rigNodes(v), at = (node) => (node ? nodes.indexOf(node) : null), point = (p) => (p ? vec(p) : null);
+  return {
+    index: list.indexOf(v), slot: v.system.slots.indexOf(v.slot), name: v.name, hull: cap.export('vehicle', v),
+    radius: v.radius, hoverPhase: v.hoverPhase, pose: Boolean(v.pose), gearFoot: v.gearFoot ?? null,
+    legTop: v.legTop, legs: v.legs.map((l) => ({ name: l.name, thigh: point(l.thigh), calf: point(l.calf), foot: point(l.foot) })),
+    wheels: v.wheels.map((w) => ({ bone: at(w.bone), axis: vec(w.axis), x: w.x, radius: w.radius })),
+    seats: v.seats.map((seat) => ({
+      eye: vec(seat.view.eye), pivot: vec(seat.view.pivot), up: vec(seat.view.up), yawFactor: seat.view.yawFactor, pitchFactor: seat.view.pitchFactor,
+      turnRate: seat.view.turnRate, turret: at(seat.view.turret), rider: seat.view.rider ? { ...seat.view.rider, node: at(seat.view.rider.node) } : null,
+      weapons: seat.weapons.map((w) => ({
+        aimers: w.aimers.map((a) => ({ bone: at(a.bone), owner: a.owner, yawRate: a.yawRate, pitchRate: a.pitchRate, yawLimits: [...a.yawLimits], pitchLimits: [...a.pitchLimits],
+          wrapYaw: a.wrapYaw })),
+        muzzles: w.muzzles.map((m) => ({ fire: at(m.fireNode), aimer: m.sourceAimer ? w.aimers.indexOf(m.sourceAimer) : null, barrel: at(m.barrel), rest: m.rest ? vec(m.rest) : null,
+          recoil: m.recoil ?? null })),
+      })),
+    })),
+  };
+}
+// The spawn pads as Vehicles.updateSpawns reads and writes them: each
+// slot's clock, its hull and the hulls made for it by class; the command
+// posts' teams; the page's player on a pad (spawnOccupant); every hull as
+// the store holds it. `made`: each hull made since the capture last said,
+// with what its constructor worked out (all of them the first time).
+const reported = new WeakMap(); // game -> the hulls said
+function spawnState(game, cap) {
+  const vs = game.vehicles, list = vs.vehicles, at = (v) => (v ? list.indexOf(v) : null);
+  let said = reported.get(game);
+  if (!said) reported.set(game, said = new WeakSet());
+  const made = list.filter((v) => !said.has(v));
+  for (const v of made) said.add(v);
+  return {
+    slots: vs.slots.map((s) => ({ remaining: s.remaining, vehicle: at(s.vehicle), variants: [...s.variants].map(([name, v]) => [name, at(v)]) })),
+    posts: vs.posts?.posts.map((p) => ({ name: p.desc.name.toLowerCase(), team: p.team })) ?? null,
+    occupant: vs.spawnOccupant ? vec(vs.spawnOccupant) : null,
+    hulls: list.map((v) => cap.export('vehicle', v)),
+    made: made.map((v) => builtState(v, list, cap)),
+  };
+}
+// A spawn's calls: a hull's, and those of the pose it renders at once.
+const spawnBoundaries = (game) => [
+  ...hullBoundaries(game),
+  ['units.raycast', game.units, 'raycast'],
+  ['world.clock', game.vehicles?.world ?? null, 'clock'],
+];
+// A hull's spawn (Vehicle.spawn): the hull and its pose (its rig's nodes
+// whatever it last showed, and after it the pose it renders at once).
+const spawnFrame = () => {
+  let entering = true;
+  return { method: 'vehicle.spawn', target: hullPrototype, boundaries: spawnBoundaries,
+    state: (game, args, cap, self) => { const end = !entering; entering = !entering; return { hull: cap.export('vehicle', self), pose: poseState(self, [1, 0], end, true), team: self.team ?? null }; } };
+};
 const vehicles = {
   frames: [
+    { method: 'vehicles.updateSpawns', target: (game) => game.vehicles ?? null, state: (game, args, cap) => spawnState(game, cap), boundaries: spawnBoundaries },
+    spawnFrame(),
     poseFrame('vehicle.aimTick'),
     poseFrame('vehicle.render'),
+    { method: 'vehicles.updateTethers', target: (game) => game.vehicles ?? null, state: (game, args, cap) => tetherState(game, cap), boundaries: tetherBoundaries },
+    { method: 'vehicle.dyingTick', target: hullPrototype, state: (game, args, cap, self) => ({ hull: cap.export('vehicle', self) }), boundaries: hullBoundaries },
+    { method: 'vehicle.captureTick', target: hullPrototype, state: (game, args, cap, self) => ({ hull: cap.export('vehicle', self) }), boundaries: () => [] },
     { method: 'vehicle.tick', target: hullPrototype, whole: ['SeatInput'],
       state: (game, args, cap, self) => ({ hull: cap.export('vehicle', self), water: game.vehicles.water ? { level: game.vehicles.water.level } : null }),
       boundaries: hullBoundaries },

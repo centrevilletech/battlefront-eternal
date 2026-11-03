@@ -66,7 +66,7 @@ impl Hull {
         let p = self.position;
         let wet = w.water_over(p.x, p.z) && p.y < w.water_level();
         if contact.is_some() || wet || w.system_death_region(&p) || p.y < -300.0 {
-            self.damage(w, f64::INFINITY);
+            self.damage(w, f64::INFINITY, crate::gen::OrdnanceOwner::Null);
         }
     }
 }

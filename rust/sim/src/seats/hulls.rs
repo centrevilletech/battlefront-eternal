@@ -14,9 +14,9 @@ use super::boarding::{boarding_seat, can_board, claim_seat, crewed, in_flight, m
 use super::exits::{classic_seat_exit, person_exit_point, ExitFrame, ExitSpot, HullFrame};
 use super::lease::{latch_lease, live, network_human, new_lease, person_lease, seat_role, Controls};
 use super::{unit_ref, Attacker, Holder, Reason, SeatWorld};
-use crate::gen::{ExitRequest, Post, SeatLease, Store, Unit, Vehicle};
+use crate::gen::{ExitRequest, Post, SeatLease, SeatLeaseView, Store, Unit, Vehicle};
 use crate::rig::math;
-use crate::store::Ref;
+use crate::store::{Nullable, Ref};
 use crate::vehicles::hull::angle;
 use std::collections::BTreeMap;
 use three::{clamp, Matrix4, Vector3};
@@ -95,29 +95,31 @@ fn hold_yaw(hull_yaw: f64, limits: [f64; 2], wrap_yaw: bool, yaw: f64) -> f64 {
     crate::vehicles::hull::hold_yaw(hull_yaw, limits, wrap_yaw, yaw)
 }
 
-/// Vehicle.clampAim (vehicles.js:763): a seat's aim held inside its limits.
+/// Vehicle.clampAim (vehicles.js:763): a seat's aim held inside its limits
+/// (its view's: `seatViews`).
 pub fn clamp_aim(v: &mut Vehicle, i: usize) {
     if v.flying && i == 0 {
         return;
     }
     let yaw = v.yaw;
+    let view = v.seat_views[i].clone();
     let seat = &mut v.seats[i];
-    let (low, high) = (seat.pitch_limits[0], seat.pitch_limits[1]);
+    let (low, high) = (view.pitch_limits[0], view.pitch_limits[1]);
     seat.pitch = clamp(seat.pitch, low, high);
     if let Some(look_pitch) = seat.look_pitch {
         seat.look_pitch = Some(clamp(look_pitch, low, high));
     }
-    let Some(limits) = seat.yaw_limits else { return };
-    seat.aim_yaw = hold_yaw(yaw, limits, seat.wrap_yaw, seat.aim_yaw);
+    let Some(limits) = view.yaw_limits else { return };
+    seat.aim_yaw = hold_yaw(yaw, limits, view.wrap_yaw, seat.aim_yaw);
     if let Some(look_yaw) = seat.look_yaw {
-        seat.look_yaw = Some(seat.aim_yaw + angle(hold_yaw(yaw, limits, seat.wrap_yaw, look_yaw) - seat.aim_yaw));
+        seat.look_yaw = Some(seat.aim_yaw + angle(hold_yaw(yaw, limits, view.wrap_yaw, look_yaw) - seat.aim_yaw));
     }
 }
 
 /// Vehicle.restYaw (vehicles.js:790): the hull's heading, or the middle of
 /// an arc that leaves it out.
 pub fn rest_yaw(v: &Vehicle, i: usize) -> f64 {
-    let arc = v.seats.get(i).and_then(|s| s.yaw_limits);
+    let arc = v.seat_views.get(i).and_then(|s| s.yaw_limits);
     v.yaw + match arc {
         Some(arc) if arc[0] > 0.0 || arc[1] < 0.0 => (arc[0] + arc[1]) / 2.0,
         _ => 0.0,
@@ -489,27 +491,32 @@ impl Hulls {
     }
 }
 
-/// A hull's seats' copies of what their leases hold that the hulls' schema
-/// reads through paths (`lease.human`, `lease.unit.networkHuman`,
-/// `lease.input.turn`, `lease.input.pitch`), made again from the leases.
-pub fn lease_paths(st: &mut Store, v: Ref<Vehicle>) {
-    let Some(hull) = st.vehicle.get_mut(v) else { return };
-    for seat in &mut hull.seats {
-        match seat.lease.and_then(|r| st.seat_lease.get(r)) {
-            Some(lease) => {
-                seat.lease_human = Some(lease.human);
-                seat.lease_network_human = lease.unit.and_then(|u| st.unit.get(u)).and_then(|u| u.network_human);
-                seat.lease_turn = Some(lease.input.turn);
-                seat.lease_pitch = Some(lease.input.pitch);
-            }
-            None => {
-                seat.lease_human = None;
-                seat.lease_network_human = None;
-                seat.lease_turn = None;
-                seat.lease_pitch = None;
-            }
-        }
-    }
+/// A hull's seats' leases as the hulls' tick reads them (`seatLeases`: the
+/// lease, or for an empty seat an object with nothing in it), made again
+/// from the leases the store holds.
+pub fn lease_views(st: &mut Store, v: Ref<Vehicle>) {
+    let Some(hull) = st.vehicle.get(v) else { return };
+    let views: Vec<SeatLeaseView> = hull
+        .seats
+        .iter()
+        .map(|seat| match seat.lease.and_then(|r| st.seat_lease.get(r)) {
+            Some(lease) => SeatLeaseView {
+                human: Some(lease.human),
+                unit: match lease.unit {
+                    Some(u) => Nullable::Value(u),
+                    None => Nullable::Null,
+                },
+                network_human: lease.unit.and_then(|u| st.unit.get(u)).and_then(|u| u.network_human),
+                forward: Some(lease.input.forward),
+                right: Some(lease.input.right),
+                turn: Some(lease.input.turn),
+                pitch: Some(lease.input.pitch),
+                brake: Some(lease.input.brake),
+            },
+            None => SeatLeaseView { unit: Nullable::Undefined, ..SeatLeaseView::default() },
+        })
+        .collect();
+    st.vehicle.get_mut(v).unwrap().seat_leases = views;
 }
 
 /// The lease's unit, by id.

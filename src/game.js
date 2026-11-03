@@ -25,7 +25,7 @@ import { FlightDebug } from './flight/debug.js';
 import { lockedUnit, hasMissileLock, targetingWeapon } from "./weapon-targeting.js";
 import { createChat } from "./chat.js";
 import { followBattle } from "./presence.js";
-import { Vehicles, VehicleDriver, VehicleCamera } from "./vehicles.js";
+import { Vehicle, Vehicles, VehicleDriver, VehicleCamera } from "./vehicles.js";
 import { VehicleEffects } from "./vehicle-effects.js";
 import { TurretSeats } from "./seats.js";
 import * as THREE from "three";
@@ -101,6 +101,16 @@ async function loadSimInstance() {
     console.warn(`The simulation's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
     return null;
   }
+}
+
+// The ground hulls' phase on the battle's instance of the module, through
+// the store (src/sim/runtime.js SimBridge: the hulls written in before the
+// phase and synced after it, the imports it asks the battle).
+async function attachHullPhase(instance, vehicles) {
+  const [{ SimBridge }, { attachVehiclesSim }] = await Promise.all([import("./sim/runtime.js"), import("./vehicles-sim.js")]);
+  const bridge = new SimBridge(instance, { classes: { Unit, Vehicle } });
+  bridge.reserve(4 << 20);
+  return attachVehiclesSim(vehicles, bridge);
 }
 
 export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, rays: raysDefault = null, movement: movementDefault = null } = {}) {
@@ -427,8 +437,12 @@ async function start() {
   // and keeps the JavaScript, so its worlds cannot change. Poses made
   // before this take the kernel up as they clear.
   const wantAnim = !headless && params.get("anim") !== "js";
-  // Both kernels on the battle's one instance of the module.
-  const simInstance = wantRays || wantAnim ? await loadSimInstance() : null;
+  // A world's ground hulls on the module (src/vehicles-sim.js), where it asks
+  // for them: ?hulls=rust, or under Node BFE_HULLS=rust. Off by default until
+  // the hull phase moves whole (flight, seats and fire with it).
+  const wantHulls = headless && (params.get("hulls") ?? globalThis.process?.env?.BFE_HULLS) === "rust";
+  // The kernels on the battle's one instance of the module.
+  const simInstance = wantRays || wantAnim || wantHulls ? await loadSimInstance() : null;
   const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
   const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
@@ -1284,6 +1298,7 @@ async function start() {
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
     vehicles.seatRandom = seatRandom;
+    if (wantHulls && simInstance) await attachHullPhase(simInstance, vehicles);
     // A world's barrels kick back on the tick clock (a page's on its own):
     // the kick moves the fire points its rounds leave from.
     if (headless) vehicles.clock = () => simTime;

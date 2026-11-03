@@ -832,7 +832,7 @@ fn replay_hull_frame(frame: &Frame, name: &str, tally: &mut BTreeMap<String, usi
     }
     let leases = exit_leases(&st, &hulls, &entry, &named);
     for h in &hulls.hulls {
-        bfe_sim::seats::hulls::lease_paths(&mut st, h.vehicle);
+        bfe_sim::seats::hulls::lease_views(&mut st, h.vehicle);
     }
     cx.store = st;
     // A lease the port made that no call named takes the handle the

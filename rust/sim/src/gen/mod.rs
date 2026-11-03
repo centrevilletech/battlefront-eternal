@@ -66,7 +66,7 @@ pub const KINDS: usize = 31;
 pub const KIND_NAMES: [&str; 32] = ["", "beam", "body", "bolt", "building", "character", "controller", "emitter", "grenade", "item", "items", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "post", "prop", "round", "seatLease", "seatUnit", "seats", "turret", "turretSeats", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 32] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x635c5cfc, 0x9b924a1b, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0x512f6f6c, 0x2547f2df, 0xfbd22c8d, 0x13c7018c, 0x03866fa6, 0x0a60873c, 0x7252759a, 0x02390125, 0xc4be789d];
+pub const KIND_HASHES: [u32; 32] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x635c5cfc, 0x9b924a1b, 0x2e0c3c78, 0xc8540fea, 0x3973fda9, 0xf8802719, 0x512f6f6c, 0x2547f2df, 0xfbd22c8d, 0x13c7018c, 0x03866fa6, 0xb30b4400, 0x7252759a, 0x02390125, 0x4998e382];
 /// Whether each kind's objects carry their own number (its slot), by code.
 pub const KIND_KEYED: [bool; 32] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false];
 
@@ -602,7 +602,27 @@ pub const EVENT_ECHOED: u32 = 1;
 pub const EVENT_NAMES: [&str; 2] = ["", "echoed"];
 
 pub const IMPORT_ASK: u32 = 1;
-pub const IMPORT_NAMES: [&str; 2] = ["", "ask"];
+pub const IMPORT_VEH_BODY_ENABLED: u32 = 2;
+pub const IMPORT_VEH_CAST: u32 = 3;
+pub const IMPORT_VEH_CLOCK: u32 = 4;
+pub const IMPORT_VEH_DAMAGED: u32 = 5;
+pub const IMPORT_VEH_DESTROYED: u32 = 6;
+pub const IMPORT_VEH_DESTROYED_CREW: u32 = 7;
+pub const IMPORT_VEH_EFFECT: u32 = 8;
+pub const IMPORT_VEH_ENABLE_BODY: u32 = 9;
+pub const IMPORT_VEH_EXPLOSION: u32 = 10;
+pub const IMPORT_VEH_GROUND: u32 = 11;
+pub const IMPORT_VEH_HAS_WATER: u32 = 12;
+pub const IMPORT_VEH_IN_DEATH_REGION: u32 = 13;
+pub const IMPORT_VEH_MOVE_BODY: u32 = 14;
+pub const IMPORT_VEH_PUSH_WALLS: u32 = 15;
+pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 16;
+pub const IMPORT_VEH_RELEASE_CREW: u32 = 17;
+pub const IMPORT_VEH_RESPAWN_CLOCK: u32 = 18;
+pub const IMPORT_VEH_SPRING_POLYGONS: u32 = 19;
+pub const IMPORT_VEH_WATER_LEVEL: u32 = 20;
+pub const IMPORT_VEH_WATER_OVER: u32 = 21;
+pub const IMPORT_NAMES: [&str; 22] = ["", "ask", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -671,6 +691,26 @@ impl Echo {
 #[link(wasm_import_module = "bfe")]
 extern "C" {
     fn bfe_import_ask();
+    fn bfe_import_veh_body_enabled();
+    fn bfe_import_veh_cast();
+    fn bfe_import_veh_clock();
+    fn bfe_import_veh_damaged();
+    fn bfe_import_veh_destroyed();
+    fn bfe_import_veh_destroyed_crew();
+    fn bfe_import_veh_effect();
+    fn bfe_import_veh_enable_body();
+    fn bfe_import_veh_explosion();
+    fn bfe_import_veh_ground();
+    fn bfe_import_veh_has_water();
+    fn bfe_import_veh_in_death_region();
+    fn bfe_import_veh_move_body();
+    fn bfe_import_veh_push_walls();
+    fn bfe_import_veh_raycast_units();
+    fn bfe_import_veh_release_crew();
+    fn bfe_import_veh_respawn_clock();
+    fn bfe_import_veh_spring_polygons();
+    fn bfe_import_veh_water_level();
+    fn bfe_import_veh_water_over();
 }
 
 /// Asks JavaScript (the import ask): its arguments go out in the import block,
@@ -681,5 +721,196 @@ pub fn import_ask(args: &Echo) -> Echo {
     crate::store::calls::import_out(Echo::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_ask() };
     crate::store::calls::import_in(|row, heap| Echo::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehBodyEnabled): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_body_enabled(args: &VehBody) -> VehFlag {
+    crate::store::calls::import_out(VehBody::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_body_enabled() };
+    crate::store::calls::import_in(|row, heap| VehFlag::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehCast): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_cast(args: &VehRay) -> VehHit {
+    crate::store::calls::import_out(VehRay::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_cast() };
+    crate::store::calls::import_in(|row, heap| VehHit::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehClock): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_clock(args: &VehNothing) -> VehNumber {
+    crate::store::calls::import_out(VehNothing::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_clock() };
+    crate::store::calls::import_in(|row, heap| VehNumber::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehDamaged): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_damaged(args: &VehDamaged) -> () {
+    crate::store::calls::import_out(VehDamaged::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_damaged() };
+}
+
+/// Asks JavaScript (the import vehDestroyed): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_destroyed(args: &VehHull) -> () {
+    crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_destroyed() };
+}
+
+/// Asks JavaScript (the import vehDestroyedCrew): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_destroyed_crew(args: &VehHull) -> () {
+    crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_destroyed_crew() };
+}
+
+/// Asks JavaScript (the import vehEffect): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_effect(args: &VehEffect) -> () {
+    crate::store::calls::import_out(VehEffect::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_effect() };
+}
+
+/// Asks JavaScript (the import vehEnableBody): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_enable_body(args: &VehBody) -> () {
+    crate::store::calls::import_out(VehBody::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_enable_body() };
+}
+
+/// Asks JavaScript (the import vehExplosion): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_explosion(args: &VehBlast) -> () {
+    crate::store::calls::import_out(VehBlast::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_explosion() };
+}
+
+/// Asks JavaScript (the import vehGround): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_ground(args: &VehColumn) -> VehGround {
+    crate::store::calls::import_out(VehColumn::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_ground() };
+    crate::store::calls::import_in(|row, heap| VehGround::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehHasWater): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_has_water(args: &VehNothing) -> VehFlag {
+    crate::store::calls::import_out(VehNothing::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_has_water() };
+    crate::store::calls::import_in(|row, heap| VehFlag::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehInDeathRegion): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_in_death_region(args: &VehPoint) -> VehFlag {
+    crate::store::calls::import_out(VehPoint::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_in_death_region() };
+    crate::store::calls::import_in(|row, heap| VehFlag::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehMoveBody): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_move_body(args: &VehBody) -> () {
+    crate::store::calls::import_out(VehBody::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_move_body() };
+}
+
+/// Asks JavaScript (the import vehPushWalls): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_push_walls(args: &VehPush) -> VehPushed {
+    crate::store::calls::import_out(VehPush::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_push_walls() };
+    crate::store::calls::import_in(|row, heap| VehPushed::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehRaycastUnits): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_raycast_units(args: &VehRay) -> VehHit {
+    crate::store::calls::import_out(VehRay::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_raycast_units() };
+    crate::store::calls::import_in(|row, heap| VehHit::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehReleaseCrew): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_release_crew(args: &VehHull) -> () {
+    crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_release_crew() };
+}
+
+/// Asks JavaScript (the import vehRespawnClock): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_respawn_clock(args: &VehHull) -> () {
+    crate::store::calls::import_out(VehHull::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_respawn_clock() };
+}
+
+/// Asks JavaScript (the import vehSpringPolygons): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_spring_polygons(args: &VehSpring) -> VehPolygons {
+    crate::store::calls::import_out(VehSpring::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_spring_polygons() };
+    crate::store::calls::import_in(|row, heap| VehPolygons::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehWaterLevel): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_water_level(args: &VehNothing) -> VehNumber {
+    crate::store::calls::import_out(VehNothing::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_water_level() };
+    crate::store::calls::import_in(|row, heap| VehNumber::take(row, heap))
+}
+
+/// Asks JavaScript (the import vehWaterOver): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_water_over(args: &VehColumn) -> VehFlag {
+    crate::store::calls::import_out(VehColumn::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_water_over() };
+    crate::store::calls::import_in(|row, heap| VehFlag::take(row, heap))
 }
 
