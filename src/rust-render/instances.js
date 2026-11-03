@@ -1,8 +1,9 @@
 // The instance pass (instances.rs): every visible soldier's body and the
-// guns in his hand, and behind ?rustRigs the scene's other skinned meshes
-// (vehicles' and props' rigs), each a record the renderer draws instanced
-// in the near phase, after the world; and the flying models (rounds,
-// grenades, droids' pieces, items: flying()). Each is registered the first time
+// guns in his hand, and the scene's other skinned meshes (vehicles' and
+// props' rigs; ?rustRigs=0 leaves those to three, for comparisons), each a
+// record the renderer draws instanced in the near phase, after the world;
+// and the flying models (rounds, grenades, droids' pieces, items:
+// flying()). Each is registered the first time
 // three has drawn it (which gives its material a program), then hidden from
 // three. A dying droideka's body dissolves in heated copies of its
 // materials (units.js dissolve): a record of its own, its heat and dissolve
@@ -109,8 +110,9 @@ class InstancePass {
     this.bodies = new WeakMap(); // root -> its body's record, or null
     this.heated = new WeakMap(); // a dissolving body -> its heated record, or null
     this.meshes = new WeakMap(); // a gun's mesh -> its record, or null
-    // ?rustRigs: vehicles' and props' skinned meshes too.
-    this.rigsOn = new URLSearchParams(location.search).has("rustRigs");
+    // Vehicles' and props' skinned meshes too, but with ?rustRigs=0 (a
+    // developer's comparison).
+    this.rigsOn = new URLSearchParams(location.search).get("rustRigs") !== "0";
     this.rigList = null;
     this.bodyRecords = [];
     this.meshRecords = [];

@@ -690,6 +690,19 @@ test("a dissolving body's heated record, an untextured gun and a scrolling rig: 
   assert.deepEqual([...core.input.subarray(at(0) + R.EXTRA + 4, at(0) + R.EXTRA + 13)], [0, 0, 0, 0, 0, 0, 0, 0, 0]);
 });
 
+test("vehicles' and props' rigs: drawn by the renderer with ?rust, left to three with ?rustRigs=0", () => {
+  const location = globalThis.location;
+  try {
+    assert.equal(bridge().core.byName.instances.rigsOn, true);
+    globalThis.location = { search: "?rust&rustRigs=0" };
+    assert.equal(bridge().core.byName.instances.rigsOn, false);
+    globalThis.location = { search: "?rust&rustRigs" };
+    assert.equal(bridge().core.byName.instances.rigsOn, true);
+  } finally {
+    globalThis.location = location;
+  }
+});
+
 test("a rig that blends: a record of its own kind, its blending and passes registered, three's key for the transparent list", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
   renderer.info = { render: { frame: 0 } };
@@ -794,6 +807,7 @@ test("soldiers: only those three's render would list are written, with the bones
     body.add(bone);
     body.bind(new THREE.Skeleton([bone]));
     body.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1);
+    body.userData.poseSphere = true; // a soldier's (actor.js): not a rig
     root.add(body);
     root.position.z = z;
     root.userData.parts = { body, hand: null };
