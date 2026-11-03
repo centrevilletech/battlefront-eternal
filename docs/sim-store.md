@@ -45,9 +45,11 @@ that differs. `src/sim/module.js` compiles it once a thread (`simModule()`)
 and makes an instance for each battle (`loadSim()`): the world worker, a
 page and plain Node (the dedicated server, `tools/world-hash.mjs`) load it
 the same way, with no `.wasm` file to serve. `createGame` makes one instance
-when the battle asks for one of its kernels and hands it to each
-(`loadRayKernel(instance)`, `loadAnimKernel(instance)`); asked for none, a
-battle loads nothing.
+when the battle asks for one of its kernels, and always in a world (a
+headless game: the local worker, the dedicated server, the tools), whose
+rounds in flight it holds (below, "The rounds on the module"); it hands the
+instance to each kernel (`loadRayKernel(instance)`, `loadAnimKernel(instance)`).
+A page that asks for no kernel loads nothing.
 
 The module was 141 KB of WebAssembly with the three kernels; the store and
 the first schema's code (four kinds of round and their records) make it
@@ -330,6 +332,43 @@ the `echo` command its tests and benchmarks use):
 Still to come in this package: `sim_reserve` (the store's slabs and a
 margin made as a battle loads) and the measurements of what crossing
 costs on the emulated laptop.
+
+### The rounds on the module
+
+The first kinds Rust owns in a battle are the rounds in flight: bolts,
+beams, grenades and rounds (rockets, missiles, shells, fat rays), with the
+Ordnance that lists them (`rust/sim/src/ordnance`, `src/ordnance-sim.js`).
+A world hands them over as it loads (`createGame`, unless `?sim=js`, which
+keeps the JavaScript rounds for A/B runs and bisecting); from then on:
+
+- `Ordnance.fire`, `update` and `flightMissile` (a flyer's missile) run in
+  Rust, through the module's own exports (`ord_fire`, `ord_update`,
+  `ord_flight_missile`), not generated commands: their arguments come in
+  the call block, written by the generated put functions of the records
+  `FireArgs` and `FlightMissileArgs`, and a fire's answer is the round's
+  row, so the caller gets the round's mirror as it is.
+- The four kinds' mirrors and the Ordnance's lists (in place, with its
+  `start`) are synced after each update and each round fired. Unported code
+  reads them as it read the rounds, and writes only the fields the schema
+  leaves to JavaScript (`skip`: a muzzle a page draws a round from, a
+  grenade's `contactTime` and `aiDanger`).
+- What the rounds ask of the battle is `OrdnanceWorld`'s calls
+  (`src/ordnance-world.js`), as imports of `rust/sim/schema/ordnance.mjs`
+  served by the same object. A round handed to the capture's observers
+  (`projectile`, `launch`, `impact`, `grenadeContact`) crosses with its row
+  after the import's words, so its mirror is current when JavaScript sees
+  it; a unit's hit hands JavaScript the very vector the JavaScript rounds
+  handed (`at`: a beam's end, the unit raycast's record, the Ordnance's
+  `start`), as a damage event keeps it.
+- Definitions go over the first time a round of the class is fired
+  (`ord_def`, `ord_explosion`), each field as a tag and a value, so the Rust
+  reads a field as JavaScript does (`??`, `||`, ToNumber).
+
+The exports reach the store through pointers and hold no reference to it
+across an import, so a handler that fires a round (a death a hit caused)
+comes back in and finds the store as the phase left it. A slot a round
+left and another took before the next sync keeps the first one's mirror
+for its retired row (`MirrorPool.retire`).
 
 ## Determinism
 

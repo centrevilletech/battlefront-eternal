@@ -20,12 +20,15 @@
 
 pub mod defs;
 pub mod math;
+// The module's exports and the world its imports make (WebAssembly only).
+#[cfg(target_arch = "wasm32")]
+pub mod module;
 pub mod world;
 
 use std::f64::consts::PI;
 
 use crate::gen::*;
-use crate::store::{DefId, Nullable, Quat, Ref, RefSet, Strings, Vec3};
+use crate::store::{DefId, Nullable, Quat, Ref, RefSet, StrId, Strings, Vec3};
 use defs::{Defs, Field, OrdnanceDef};
 use math::*;
 use world::*;
@@ -169,6 +172,18 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             Base::Fatray => Some(Shot::Round(self.fatray(def, origin, direction, owner, ignore_body, channel))),
             Base::Bolt => Some(Shot::Bolt(self.bolt_fire(def, origin, direction, owner, visual, ignore_body, channel))),
         }
+    }
+
+    /// ordnance.js flightMissile: a flyer's missile (vehicles.js fireSeat),
+    /// steered by its seeker for the class's missile lifetime at its missile
+    /// speed. False for a round no longer flying.
+    pub fn flight_missile(&mut self, r: Ref<Round>, flight_class: Option<StrId>, life: f64, speed: f64) -> bool {
+        let Some(round) = self.s().round.get_mut(r) else { return false };
+        round.flight_missile = Some(true);
+        round.flight_class = flight_class;
+        round.life = life;
+        round.velocity = scale(normalize(round.velocity), speed);
+        true
     }
 
     /// ordnance.js fatray.

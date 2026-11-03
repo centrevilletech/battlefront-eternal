@@ -149,10 +149,16 @@ export class MirrorPool {
 
   // The mirror of a retired entity, for its last state: the slot's, if it
   // is that life's (then the slot forgets it, unless the kind keeps one
-  // mirror a slot), else a new one nobody holds.
+  // mirror a slot), or the one a later life of the slot displaced before
+  // its retirement was synced, else a new one nobody holds.
   retire(slot, gen) {
     const m = this.objects[slot];
-    if (m === undefined || m.simGen !== gen) return new this.Mirror();
+    if (m === undefined || m.simGen !== gen) {
+      const old = this.displaced?.get(slot)?.get(gen);
+      if (old === undefined) return new this.Mirror();
+      this.displaced.get(slot).delete(gen);
+      return old;
+    }
     if (!this.keyed) this.objects[slot] = undefined;
     return m;
   }
@@ -160,6 +166,15 @@ export class MirrorPool {
   at(slot, gen) {
     let m = this.objects[slot];
     if (m === undefined || (!this.keyed && m.simGen !== gen)) {
+      // A slot's next life met before the last one's retirement was synced
+      // (a round fired into the slot a round left in the same phase): the
+      // last one's mirror waits for its retired row.
+      if (m !== undefined) {
+        this.displaced ??= new Map();
+        let lives = this.displaced.get(slot);
+        if (!lives) this.displaced.set(slot, lives = new Map());
+        lives.set(m.simGen, m);
+      }
       m = new this.Mirror();
       m.simSlot = slot;
       m.simGen = gen;
