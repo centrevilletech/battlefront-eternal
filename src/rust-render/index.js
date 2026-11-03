@@ -137,6 +137,10 @@ export class RustRender {
     this.stride = this.rust.record_stride();
     this.addView("input", Float64Array, () => this.rust.input_ptr(), () => this.rust.input_len());
     this.addView("bones", Float32Array, () => this.rust.bones_ptr(), () => this.rust.bones_len());
+    // A lost context takes every object the renderer made with it (three
+    // makes its own again when it is restored): three draws everything.
+    this.lost = false;
+    this.renderer.domElement?.addEventListener?.("webglcontextlost", () => { this.lost = true; this.fail(new Error("WebGL context lost")); });
     // The passes, in the renderer's order.
     this.passes = [];
     this.phases = Object.fromEntries(Object.keys(PHASES).map((name) => [name, []]));
@@ -365,6 +369,17 @@ export class RustRender {
     const t0 = performance.now();
     this.phaseStats[name] = phase.draw(this.rust, ctx);
     this.phaseMs[name] = performance.now() - t0;
+    renderer.resetState();
+    renderer.setRenderTarget(target);
+  }
+
+  // An error in a pass: kept, and everything given back to three for good
+  // (restore), three's state reset and the target it was drawing into bound
+  // again, so the frame goes on with three.
+  fail(error, renderer = this.renderer, target = renderer.getRenderTarget()) {
+    this.errors.push(`failed: ${String(error?.stack || error).slice(0, 400)}`);
+    console.warn("Rust renderer failed, three draws everything:", error);
+    try { this.restore(); } catch (e) { this.errors.push(`restore: ${String(e).slice(0, 200)}`); }
     renderer.resetState();
     renderer.setRenderTarget(target);
   }
