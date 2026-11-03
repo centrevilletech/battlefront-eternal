@@ -9,14 +9,14 @@ const VERTEX = /* glsl */ `
   attribute vec4 birth; // world position, birth time
   attribute vec4 drift; // velocity, lifetime
   attribute vec4 shape; // initial size, seed, opacity, terrain dust
-  uniform float time;
+  uniform float trailTime;
   varying vec2 dustUv;
   varying vec4 dustShape;
   varying float age;
   varying float viewDepth;
   void main() {
-    age = clamp((time - birth.w) / drift.w, 0.0, 1.0);
-    float seconds = max(time - birth.w, 0.0);
+    age = clamp((trailTime - birth.w) / drift.w, 0.0, 1.0);
+    float seconds = max(trailTime - birth.w, 0.0);
     vec3 at = birth.xyz + drift.xyz * (1.0 - exp(-seconds * 1.8)) / 1.8;
     at.xz += vec2(sin(shape.y + seconds * 1.6), cos(shape.y * 1.7 + seconds)) * seconds * 0.13;
     at.y += seconds * 0.18;
@@ -77,9 +77,15 @@ function dustTint(name) {
   return [0.68, 0.61, 0.45];
 }
 
+// The trails by their meshes, for a renderer that draws them itself
+// (src/rust-render/effects.js): while a trail is `external`, three is shown
+// it never and uploads it nothing.
+export const droidekaTrails = new WeakMap();
+
 // A fixed-size pool of dust wisps. Physics only emits particles; their motion,
 // expansion and turbulent breakup happen on the GPU. Roof/floor probes are
 // cached, and paved outdoor courtyards produce a lighter trail than terrain.
+// Its clock is its own (trailTime, not the frame's time).
 export class DroidekaTrail {
   constructor({ scene, collision, water = null, settings, mapName = "", random = Math.random }) {
     this.collision = collision;
@@ -88,6 +94,7 @@ export class DroidekaTrail {
     this.random = random;
     this.time = 0;
     this.count = 0;
+    this.external = false;
     this.emitted = 0;
     this.carry = 0;
     this.probeAt = -Infinity;
@@ -113,7 +120,7 @@ export class DroidekaTrail {
     this.geometry.instanceCount = 0;
     this.material = new THREE.ShaderMaterial({
       uniforms: {
-        time: { value: 0 }, tint: { value: new THREE.Vector3(...dustTint(mapName)) },
+        trailTime: { value: 0 }, tint: { value: new THREE.Vector3(...dustTint(mapName)) },
         fogColor: lighting.fogColor, fogRange: lighting.fogRange,
         sceneDepth: particleDepth.map, softParticles: particleDepth.enabled,
         depthResolution: particleDepth.resolution, cameraRange: particleDepth.cameraRange,
@@ -127,6 +134,7 @@ export class DroidekaTrail {
     this.mesh.renderOrder = 9;
     this.mesh.visible = false;
     this.mesh.onBeforeRender = (...args) => particleDepth.capture(...args);
+    droidekaTrails.set(this.mesh, this);
     scene.add(this.mesh);
   }
 
@@ -152,7 +160,7 @@ export class DroidekaTrail {
   update(dt, soldier, { dead = soldier.dead, position = soldier.position } = {}) {
     dt = Math.max(0, Math.min(dt, 0.1));
     this.time += dt;
-    this.material.uniforms.time.value = this.time;
+    this.material.uniforms.trailTime.value = this.time;
     if ((this.settings?.get("droidekaEffects") ?? "enhanced") !== "enhanced") {
       this.clear(); this.ready = false; return;
     }
@@ -208,10 +216,10 @@ export class DroidekaTrail {
     }
     for (const a of this.attributes) {
       a.clearUpdateRanges();
-      if (this.count) { a.addUpdateRange(0, this.count * 4); a.needsUpdate = true; }
+      if (this.count && !this.external) { a.addUpdateRange(0, this.count * 4); a.needsUpdate = true; }
     }
     this.geometry.instanceCount = this.count;
-    this.mesh.visible = this.count > 0;
+    this.mesh.visible = this.count > 0 && !this.external;
   }
 
   dispose() {

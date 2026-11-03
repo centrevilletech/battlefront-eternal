@@ -955,7 +955,7 @@ boundary, so that each part of the frame can move to it on its own:
 | Far | `far.rs` | `far.js` | far | The far scene: sky and its layers, low-detail buckets, far terrain, far water, the sky's flyers |
 | Terrain | `terrain.rs` | `terrain.js` | near | The ground and its painted layers (drawn by the world pass) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | What the near scene blends, in three's order: blended buckets, holograms, flares |
-| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam, fountain and wake effects |
+| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam, fountain and wake effects, the Enhanced arcs and the droideka's dust |
 | Foliage | `foliage.rs` | `foliage.js` | near | Placed foliage, instanced, its patches chosen there too |
 | View | `view.rs` | `view.js` | view | The first-person arms and weapon, and the muzzle flash |
 | Post | `post.rs` | `post.js` | post | Soft focus, composite, FXAA, the bilinear upscale |
@@ -1108,6 +1108,8 @@ has drawn it, with three's own program, then hidden from three:
 | Enhanced steam's volumes | `environment-volume.js` | shader model over the screen | its material |
 | Enhanced fountains' jets | `fountain-jets.js` | instanced, bases of their own, reading the frame so far | its material |
 | Enhanced fountains' soft spray | `fountain-jets.js` | shader models over the screen | its material |
+| Enhanced arc caster lightning | `arc-lightning.js` | instanced capsules, kept interleaved | `external` |
+| Enhanced droideka's rolling dust | `droideka-trail.js` | instanced quads, base plane | `external` |
 
 A batch's instances go into the module's memory attribute by attribute as
 the batch keeps them (an analytic batch's from the first that changed since
@@ -1117,8 +1119,9 @@ attribute of each batch, and every vertex of the lightning's buffers, every
 frame. Hiding a dynamic batch from three needs the batch's own flag: three
 uploads a visible mesh's changed attributes as it lists it, whether or not
 its material is shown. A shader that kept a value of its own under a name the
-frame block gives the frame's (the shield's and the rain's clocks, their
-fades) has it renamed, so its program can take the frame block.
+frame block gives the frame's (the shield's, the rain's and the droideka's
+dust's clocks, their fades) has it renamed, so its program can take the
+frame block.
 
 A shader model calls its object's `onBeforeRender` each frame as three
 would. The steam's volumes are drawn by three into a target of their own
