@@ -20,6 +20,9 @@
 //! a cast's candidate bodies are enabled before it. Each call reads its ray
 //! from `IO` and writes its hit there.
 
+// three.js tests for NaN as it writes them (`x !== x`), kept so.
+#![allow(clippy::eq_op)]
+
 use std::ptr::addr_of_mut;
 
 pub mod spheres;
