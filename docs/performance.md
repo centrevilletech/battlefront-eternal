@@ -1135,10 +1135,15 @@ target each, so that both can be drawn before either is laid over the
 frame.
 
 The flying models (rounds, grenades, droids' pieces, items: `game.js`
-flyingModel, tagged `userData.flying`) are opaque and are drawn by the
-instance pass as rigid records in the near phase. Their parts share their
-materials with every copy of their model, so a part the renderer draws is
-hidden from three by its layers (layer 30) rather than by its material.
+flyingModel, tagged `userData.flying`) are drawn by the instance pass as
+rigid records in the near phase. Their parts share their materials with
+every copy of their model, so a part the renderer draws is hidden from three
+by its layers (layer 30) rather than by its material. A part whose material
+blends (the scrolling glow of a dropped health power-up) is an item of the
+transparent list, as a vehicle's rig that blends is (the jedi fighter's and
+the gunship's glass): the instance pass is one of the list's sources, and
+draws it with three's program for each side three draws it with, its
+blending and depth, at the place three's sort would draw it.
 
 Checked on the slow-PC emulator (SwiftShader, 800x600, 2x multisampling,
 the Classic looks): at six points of a seeded battle on Bespin, Hoth and
@@ -1290,9 +1295,11 @@ with every uniform set by the pass. The map's buckets are culled by spatial
 cell as render-culling.js culls them, each visible run in one multi-draw;
 the terrain's cells by the frustum and the fade start as terrain-patches.js
 culls them, its visible runs in one multi-draw too; the flyers draw
-instanced from the matrices the page writes each frame. The items are
-sorted as three sorts its render lists and drawn with a uniform or a piece
-of state set only when it differs from what is set.
+instanced from the matrices the page writes each frame. A sampler a
+material gives no texture reads a texture of one texel of zeros, as three's
+empty texture is (Hoth's hangar platform in the far scene has no map). The
+items are sorted as three sorts its render lists and drawn with a uniform
+or a piece of state set only when it differs from what is set.
 
 In one battle with `?rust`, at four points of a walk, the far pass and
 three's far render drew the same lockstep frame in turn (two settle frames,
