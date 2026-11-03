@@ -105,8 +105,10 @@ struct Batch<C: HasContext> {
     // and where its program keeps them.
     values: Vec<MaterialValue>,
     value_slots: Vec<Option<C::UniformLocation>>,
-    // Textures on units of their own (batch_sampler).
+    // Textures on units of their own (batch_sampler), and 3D ones
+    // (batch_sampler_3d: the jetpack flame's noise).
     samplers: Vec<(u32, Option<C::Texture>)>,
+    samplers_3d: Vec<(u32, Option<C::Texture>)>,
     // Indices an instance draws: the corner quad's 6, or its own base's.
     index_count: i32,
     // Its instances come interleaved already (batch_interleaved).
@@ -359,7 +361,7 @@ impl<C: HasContext> EffectsPass<C> {
         self.batches.push(Batch {
             program: program as usize, texture: if texture < 0 { None } else { Some(core.textures[texture as usize]) }, blend: b,
             vao, vbo, capacity: 0, sizes, stride, owner: if owner < 0 { None } else { Some(owner as usize) }, slots,
-            values: vec![], value_slots: vec![], samplers: vec![], index_count: 6, interleaved: false, side: 2,
+            values: vec![], value_slots: vec![], samplers: vec![], samplers_3d: vec![], index_count: 6, interleaved: false, side: 2,
         });
         // Its samplers besides the map on their units.
         unsafe {
@@ -447,6 +449,26 @@ impl<C: HasContext> EffectsPass<C> {
         match b.samplers.iter_mut().find(|(u, _)| *u == unit) {
             Some(entry) => entry.1 = t,
             None => b.samplers.push((unit, t)),
+        }
+    }
+
+    // A 3D texture a batch's program samples by `name`, on `unit`: as
+    // batch_sampler, bound as a 3D texture.
+    pub fn batch_sampler_3d<M: MultiDraw>(&mut self, core: &Core<C, M>, batch: u32, name: &str, unit: u32, texture: i32) {
+        let Some(b) = self.batches.get_mut(batch as usize) else { return };
+        let gl = &core.gl;
+        let p = core.programs[b.program].program;
+        unsafe {
+            if let Some(l) = gl.get_uniform_location(p, name) {
+                gl.use_program(Some(p));
+                gl.uniform_1_i32(Some(&l), unit as i32);
+                gl.use_program(None);
+            }
+        }
+        let t = if texture < 0 { None } else { core.textures.get(texture as usize).copied() };
+        match b.samplers_3d.iter_mut().find(|(u, _)| *u == unit) {
+            Some(entry) => entry.1 = t,
+            None => b.samplers_3d.push((unit, t)),
         }
     }
 
@@ -651,6 +673,9 @@ impl<C: HasContext> EffectsPass<C> {
             }
             for &(unit, t) in &b.samplers {
                 state.bind_texture(gl, stats, unit, t);
+            }
+            for &(unit, t) in &b.samplers_3d {
+                state.bind_texture_3d(gl, stats, unit, t);
             }
             // The frame's soft particle values, and the owner's rows.
             let input = &self.input;

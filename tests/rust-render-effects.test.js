@@ -1205,6 +1205,36 @@ test("the Enhanced destruction's arcs: a mesh rebuilt each frame, as many vertic
   assert.deepEqual(arcs.mesh.geometry.index.updateRanges, [{ start: 0, count: arcs.index }], "what it holds marked for three to upload");
 });
 
+test("the Enhanced jetpack's flame: a box a nozzle on a base of its own, its 3D noise bound as one, its depth its own", async () => {
+  const { JetpackVolume } = await import("../src/jetpack-volume.js");
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const volume = new JetpackVolume({ scene, count: 2 });
+  const nozzle = (x) => ({ position: new THREE.Vector3(x, 1, -5), direction: new THREE.Vector3(0, -1, 0), radius: 0.03 });
+  volume.update(1.5, 1, [nozzle(-0.2), nozzle(0.2)]);
+  assert.ok(volume.mesh.visible);
+  list.transparent.push({ object: volume.mesh, material: volume.mesh.material, group: null });
+  drawn(volume.mesh.material, program(["projectionMatrix", "viewMatrix", "cameraPosition", "flameTime", "power", "hasDepth", "noiseField", "sceneDepth", "depthResolution", "cameraRange"],
+    ["position", "nozzle", "direction", "bend", "nozzleRadius", "phase"]));
+  frame();
+  assert.equal(calls.find((c) => c[0] === "fx_add_batch")[4], 0xffffffff, "a base of its own: the box");
+  assert.deepEqual(calls.find((c) => c[0] === "fx_batch_base").slice(3, 4), [24], "the box's vertices");
+  assert.deepEqual(calls.find((c) => c[0] === "fx_batch_sampler_3d").slice(2, 4), ["noiseField", 21], "the noise on its unit, as a 3D texture");
+  assert.equal(calls.some((c) => c[0] === "fx_batch_sampler"), false);
+  assert.equal(calls.find((c) => c[0] === "fx_batch_values")[2], "flameTime:1:0,power:1:0,hasDepth:1:0");
+  assert.equal(volume.external, true);
+  list.transparent.length = 0;
+  const version = volume.mesh.geometry.getAttribute("nozzle").version;
+  volume.update(1.6, 1, [nozzle(-0.2), nozzle(0.2)]);
+  assert.equal(volume.mesh.visible, false, "shown to three never");
+  assert.equal(volume.mesh.geometry.getAttribute("nozzle").version, version, "uploaded nothing by three");
+  frame();
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 3), [0, 0, 2], "a box a nozzle");
+  assert.deepEqual([...core.fxData.subarray(0, 6)].map((v) => +v.toFixed(3)), [-0.2, 1, -5, 0.2, 1, -5], "the nozzles");
+  core.setActive(false);
+  assert.equal(volume.external, false);
+});
+
 test("the death camera's trace: a mesh rebuilt each frame, its vertices, indices and own values written as three draws it", async () => {
   const { DeathTrace } = await import("../src/death-trace.js");
   const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
