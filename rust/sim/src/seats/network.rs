@@ -55,7 +55,7 @@ pub fn seat_input(v: &Vehicle, index: usize, keys: &SeatKeys) -> Option<SeatKeys
 /// networkVehicleInput (network-vehicle.js): his mouse on the seat (a
 /// craft's pilot's virtual stick, else the seat's look, which is its aim at
 /// once), then his keys as the hull takes them.
-pub fn network_vehicle_input(v: &mut Vehicle, stick: &mut Option<(f64, f64)>, index: usize, keys: &SeatKeys, command: &SeatCommand) -> Option<SeatKeysOut> {
+pub fn network_vehicle_input(v: &mut Vehicle, index: usize, keys: &SeatKeys, command: &SeatCommand) -> Option<SeatKeysOut> {
     let look = LookScales {
         scale: v8math::min(2.0, command.mouse_scale.unwrap_or(1.0)),
         invert: command.invert_mouse,
@@ -63,7 +63,7 @@ pub fn network_vehicle_input(v: &mut Vehicle, stick: &mut Option<(f64, f64)>, in
         flight_invert: command.flight_invert,
     };
     for &(dx, dy) in &command.look {
-        seat_look(v, stick, index, dx, dy, &look);
+        seat_look(v, index, dx, dy, &look);
     }
     if seat_control(v, index) != Some(SeatControl::Flight) {
         let seat = &mut v.seats[index];
@@ -125,7 +125,9 @@ pub fn switch_seat<W: SeatWorld + ?Sized>(hulls: &mut Hulls, st: &mut Store, w: 
             clamp_aim(v, to);
         }
         if from == 0 {
-            hulls.hulls[hull].stick = Some((0.0, 0.0));
+            let v = st.vehicle.get_mut(vref).unwrap();
+            v.stick_x = Some(0.0);
+            v.stick_y = Some(0.0);
         }
         return to as i32;
     }

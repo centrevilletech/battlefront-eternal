@@ -11,7 +11,7 @@
 
 use bfe_sim::gen::{Body, Post, Replay, SeatLease, SeatUnit, Seats, Store, TurretSeats, Unit, Vehicle, KIND_BODY, KIND_POST, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_TURRET};
 use bfe_sim::seats::bodies::CombatFlags;
-use bfe_sim::seats::hulls::{FlightState, HullSide, Hulls, RiderFacts, Vacate};
+use bfe_sim::seats::hulls::{HullSide, Hulls, RiderFacts, Vacate};
 use bfe_sim::seats::boarding::Mount;
 use bfe_sim::seats::network::{network_vehicle_input, SeatCommand, SeatKeys, SeatKeysOut};
 use bfe_sim::seats::turrets::{CrewWorld, Crews, Let, Shot, TurretDesc, TurretRig, TurretSide};
@@ -502,10 +502,6 @@ fn attacker_of(v: V) -> Attacker {
     }
 }
 
-fn opt_num(v: V) -> Option<f64> {
-    v.opt_num()
-}
-
 fn intent_of(v: V) -> SeatIntent {
     let aim = v.get("aim");
     SeatIntent {
@@ -589,14 +585,10 @@ fn load_hulls(cx: &mut Replay, s: V, hulls: &mut Hulls) -> Result<(), String> {
     for (i, h) in s.get("hulls").items().enumerate() {
         let r = Vehicle::value_in(h.get("hull"), cx, &format!("hulls[{i}]"))?;
         let side = h.get("side");
-        let stick = side.get("stick");
         let mine = HullSide {
             index: h.get("index").num() as usize,
             vehicle: r,
-            team: opt_num(side.get("team")),
-            flight_state: side.get("flightState").str().map(|n| FlightState::named(n).expect("a flight state")),
             last_attacker: attacker_of(side.get("lastAttacker")),
-            stick: if stick.is_null() { None } else { Some((stick.at(0).num(), stick.at(1).num())) },
             hover: side.get("hover").bool(),
             animal: side.get("animal").bool(),
             turret_nodes: side.get("turretNodes").items().map(|x| x.bool()).collect(),
@@ -675,20 +667,11 @@ fn write_state(cx: &mut Replay, hulls: &Hulls, leases: &[Ref<SeatLease>], after:
             continue;
         };
         let hull = Vehicle::value_out(side.vehicle, cx, &mut a);
-        let team = side.team.map_or(Value::Undefined, Value::Num);
-        let flight = match side.flight_state {
-            None => Value::Null,
-            Some(f) => Value::Str(format!("{f:?}")),
-        };
         let attacker = match side.last_attacker {
             Attacker::Nobody => Value::Null,
             Attacker::Player => Value::Str("player".into()),
             Attacker::Unit(id) => Value::handle("unit", Value::Num(id as f64)),
             Attacker::Hull(i) => Value::handle("vehicle", Value::Num(i as f64)),
-        };
-        let stick = match side.stick {
-            None => Value::Null,
-            Some((x, y)) => a.array(vec![Value::Num(x), Value::Num(y)]),
         };
         let nodes = side.turret_nodes.iter().map(|&b| Value::Bool(b)).collect();
         let nodes = a.array(nodes);
@@ -697,10 +680,7 @@ fn write_state(cx: &mut Replay, hulls: &Hulls, leases: &[Ref<SeatLease>], after:
         let side_value = a.object(
             "",
             vec![
-                ("team", team),
-                ("flightState", flight),
                 ("lastAttacker", attacker),
-                ("stick", stick),
                 ("hover", Value::Bool(side.hover)),
                 ("animal", Value::Bool(side.animal)),
                 ("turretNodes", nodes),
@@ -1252,14 +1232,6 @@ fn turret_crews_as_captured() {
 
 // ---- A network human's mouse and keys in a hull's seat.
 
-fn stick_of(v: V) -> Option<(f64, f64)> {
-    if v.is_null() {
-        None
-    } else {
-        Some((v.at(0).opt_num().unwrap_or(f64::NAN), v.at(1).opt_num().unwrap_or(f64::NAN)))
-    }
-}
-
 fn replay_network_seat(frame: &Frame, tally: &mut BTreeMap<String, usize>) -> Outcome {
     let before = frame.before();
     let mut cx = Replay::default();
@@ -1268,7 +1240,6 @@ fn replay_network_seat(frame: &Frame, tally: &mut BTreeMap<String, usize>) -> Ou
         Err(e) => return Outcome::Failed(format!("{}: reading the hull: {e}", frame.place())),
     };
     let mut v = cx.store.vehicle.get(r).unwrap().clone();
-    let mut stick = stick_of(before.get("stick"));
     let index = frame.arg(1).num() as usize;
     let k = before.get("keys");
     let keys = SeatKeys { forward: k.get("forward").num(), right: k.get("right").num(), turn: k.get("turn").num(), space: k.get("space").bool() };
@@ -1281,7 +1252,7 @@ fn replay_network_seat(frame: &Frame, tally: &mut BTreeMap<String, usize>) -> Ou
         flight_sensitivity: if fs.is_nullish() { None } else { fs.get("sensitivity").opt_num() },
         flight_invert: !fs.is_nullish() && fs.get("invert").truthy(),
     };
-    let out = network_vehicle_input(&mut v, &mut stick, index, &keys, &command);
+    let out = network_vehicle_input(&mut v, index, &keys, &command);
     let result = frame.result();
     let same_result = match out {
         Some(SeatKeysOut::Flight) => {
@@ -1307,13 +1278,9 @@ fn replay_network_seat(frame: &Frame, tally: &mut BTreeMap<String, usize>) -> Ou
     *cx.store.vehicle.get_mut(r).unwrap() = v;
     let mut a = Arena::default();
     let hull = Vehicle::value_out(r, &mut cx, &mut a);
-    let stick = match stick {
-        None => Value::Null,
-        Some((x, y)) => a.array(vec![Value::Num(x), Value::Num(y)]),
-    };
     let keys = a.copy(k);
     let after = frame.after();
-    let mine = a.object("", vec![("index", Value::Num(after.get("index").num())), ("hull", hull), ("stick", stick), ("keys", keys)]);
+    let mine = a.object("", vec![("index", Value::Num(after.get("index").num())), ("hull", hull), ("keys", keys)]);
     match diff(after, a.view(&mine)) {
         None => Outcome::Same,
         Some(d) => Outcome::Failed(format!("{}: seat {d} (capture | port)", frame.place())),

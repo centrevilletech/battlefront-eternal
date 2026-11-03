@@ -56,17 +56,16 @@ function unitValue(cap, u) {
   };
 }
 
-// A hull as its seats read it: the store's hull, its place in the battle's
-// list, and what its seats read beyond the store (its team, flight state,
-// last attacker and stick; its class's base, health type, turret nodes and
-// weapons).
+// A hull as its seats read it: the store's hull (its team, flight state and
+// stick among the flight package's fields), its place in the battle's list,
+// and what its seats read beyond the store (its last attacker; its class's
+// base, health type, turret nodes and weapons).
 function hullValue(cap, game, v) {
   return {
     index: game.vehicles.vehicles.indexOf(v),
     hull: cap.export('vehicle', v),
     side: {
-      team: v.team, flightState: v.flightState ?? null, lastAttacker: v.lastAttacker ?? null,
-      stick: v.stickX === undefined && v.stickY === undefined ? null : [v.stickX, v.stickY],
+      lastAttacker: v.lastAttacker ?? null,
       hover: v.base === 'hover', animal: v.healthType === 'animal',
       turretNodes: v.seats.map((s) => Boolean(s.settings?.TurretNodeName)),
       weapons: v.seats.map((s) => s.weapons.length),
@@ -255,7 +254,8 @@ const crewFrame = (method, named = () => ({})) => ({
 
 // ---- A network human's mouse and keys in a hull's seat
 // (src/runtime/network-vehicle.js): the hull's seats as the mouse turns
-// them (a craft's pilot's virtual stick), and the driving keys he holds.
+// them (a craft's pilot's virtual stick, the hull's), and the driving keys
+// he holds.
 const networkSeatFrame = {
   method: 'networkVehicle.input',
   target: () => networkVehicle,
@@ -263,7 +263,6 @@ const networkSeatFrame = {
     const [v, , controls] = args;
     return {
       index: game.vehicles.vehicles.indexOf(v), hull: cap.export('vehicle', v),
-      stick: v.stickX === undefined && v.stickY === undefined ? null : [v.stickX, v.stickY],
       keys: { forward: controls.axis('forward'), right: controls.axis('right'), turn: controls.axis('turn'), space: controls.down.has('Space') },
     };
   },

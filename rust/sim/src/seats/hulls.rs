@@ -6,8 +6,7 @@
 //! A hull's seats and pose are the store's (`gen::Vehicle`, the hulls'
 //! schema); what its seats read beyond them (its class's base and health
 //! type, its seats' turret nodes and weapons, which the content gives, and
-//! its team, flight state and last attacker, which the flight package and
-//! the battle keep) is its `HullSide`. Units are the store's; what a seat
+//! its last attacker, which the battle keeps) is its `HullSide`. Units are the store's; what a seat
 //! sets of a unit's combat beyond the units' schema is its `CombatFlags`.
 
 use super::bodies::{drop_body, place_on_foot, seat_body, unseat_body, CombatFlags};
@@ -22,43 +21,16 @@ use crate::vehicles::hull::angle;
 use std::collections::BTreeMap;
 use three::{clamp, Matrix4, Vector3};
 
-/// A craft's flight state (src/flight/model.js; null for a ground hull).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FlightState {
-    Landed,
-    TakingOff,
-    Flying,
-    Landing,
-    Destroyed,
-}
-
-impl FlightState {
-    pub fn named(name: &str) -> Option<FlightState> {
-        Some(match name {
-            "Landed" => FlightState::Landed,
-            "TakingOff" => FlightState::TakingOff,
-            "Flying" => FlightState::Flying,
-            "Landing" => FlightState::Landing,
-            "Destroyed" => FlightState::Destroyed,
-            _ => return None,
-        })
-    }
-}
-
 /// A hull as its seats read it beyond the store's fields.
 #[derive(Clone, Debug, Default)]
 pub struct HullSide {
     /// Its place in the battle's list (Vehicles.vehicles).
     pub index: usize,
-    /// The store's hull.
+    /// The store's hull (its team, flight state and virtual stick are the
+    /// flight package's fields of it).
     pub vehicle: Ref<Vehicle>,
-    /// Its team (Vehicle.team: undefined before it first spawned).
-    pub team: Option<f64>,
-    pub flight_state: Option<FlightState>,
     /// Who last damaged it (for its crew's kill credit).
     pub last_attacker: Attacker,
-    /// A craft's virtual stick (stickX, stickY), where it has one.
-    pub stick: Option<(f64, f64)>,
     /// Its class's base is the hover's (`(def.base || 'hover') === 'hover'`).
     pub hover: bool,
     /// Its health type is an animal's (it does not shield its riders).

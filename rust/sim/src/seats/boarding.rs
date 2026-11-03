@@ -2,7 +2,7 @@
 //! anything, which seat of a hull he takes, whether he may get out, and a
 //! person's seat switch and mouse in a seat.
 
-use super::hulls::{FlightState, HullSide, Hulls};
+use super::hulls::{HullSide, Hulls};
 use super::lease::{network_human, person_lease};
 use super::{truthy, SeatWorld};
 use crate::gen::{SeatLease, Store, Unit, UnitBody, Vehicle};
@@ -16,8 +16,8 @@ pub fn person_unit(u: &Unit) -> bool {
 
 /// boarding.js inFlight: a craft off the ground (taking off, flying or
 /// landing).
-pub fn in_flight(v: &Vehicle, side: &HullSide) -> bool {
-    v.flying && v.alive && side.flight_state != Some(FlightState::Landed)
+pub fn in_flight(v: &Vehicle, _side: &HullSide) -> bool {
+    v.flying && v.alive && v.flight_state != Some(crate::gen::FlightState::Landed)
 }
 
 /// boarding.js teamRelation: 1 friend, 0 neutral, -1 enemy, without
@@ -72,13 +72,13 @@ pub fn crewed(v: &Vehicle, leases: &Slab<SeatLease>, i: usize) -> bool {
 
 /// Vehicle.controllingTeam: its first occupant's (pilot first), else its
 /// own (undefined before it spawned: None).
-pub fn controlling_team(v: &Vehicle, side: &HullSide, leases: &Slab<SeatLease>) -> Option<f64> {
+pub fn controlling_team(v: &Vehicle, _side: &HullSide, leases: &Slab<SeatLease>) -> Option<f64> {
     for seat in &v.seats {
         if let Some(r) = seat.lease {
             return Some(leases.get(r).expect("a seat's lease").team);
         }
     }
-    side.team
+    v.team
 }
 
 /// boarding.js boardingSeat: the seat a soldier of `team` boarding `v`
@@ -185,17 +185,17 @@ pub struct LookScales {
 }
 
 /// boarding.js seatLook: mouse counts on a seat. A craft's pilot moves its
-/// virtual stick (`stick`, kept inside the unit circle); any other seat
-/// turns its look, held inside the seat's limits.
-pub fn seat_look(v: &mut Vehicle, stick: &mut Option<(f64, f64)>, index: usize, dx: f64, dy: f64, s: &LookScales) {
+/// virtual stick (stickX, stickY, kept inside the unit circle); any other
+/// seat turns its look, held inside the seat's limits.
+pub fn seat_look(v: &mut Vehicle, index: usize, dx: f64, dy: f64, s: &LookScales) {
     if seat_control(v, index) == Some(SeatControl::Flight) {
-        let (x0, y0) = stick.unwrap_or((f64::NAN, f64::NAN));
-        let mut x = three::clamp(x0 + (dx * s.flight_scale) / 120.0, -1.0, 1.0);
-        let mut y = three::clamp(y0 + ((if s.flight_invert { -dy } else { dy }) * s.flight_scale) / 120.0, -1.0, 1.0);
+        let x = three::clamp(v.stick_x.unwrap_or(f64::NAN) + (dx * s.flight_scale) / 120.0, -1.0, 1.0);
+        v.stick_x = Some(x);
+        let y = three::clamp(v.stick_y.unwrap_or(f64::NAN) + ((if s.flight_invert { -dy } else { dy }) * s.flight_scale) / 120.0, -1.0, 1.0);
+        v.stick_y = Some(y);
         let radius = v8math::max(1.0, v8math::hypot(x, y));
-        x /= radius;
-        y /= radius;
-        *stick = Some((x, y));
+        v.stick_x = Some(x / radius);
+        v.stick_y = Some(y / radius);
         return;
     }
     let seat = &mut v.seats[index];
