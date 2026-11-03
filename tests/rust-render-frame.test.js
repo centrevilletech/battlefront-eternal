@@ -5,6 +5,8 @@ import * as THREE from "three";
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
+const { Bloom } = await import("../src/render-passes.js");
+const { Upscaler } = await import("../src/upscaler.js");
 
 import { GL, fakeProgram as program, standinModule, standinThree } from "./support/rust-standin.mjs";
 
@@ -192,8 +194,67 @@ test("the post steps: drawn by the renderer when every one is a pass it has a pr
   assert.deepEqual([...input.subarray(5 + 4 * 18, 5 + 4 * 18 + 3)].map((v) => +v.toFixed(3)), [4, 1, 0.3]);
   assert.deepEqual([...input.subarray(step, step + 5)], [1, -1, 800, 600, 2], "the canvas: three's viewport in pixels");
   assert.deepEqual([...input.subarray(step + 5 + 18, step + 5 + 18 + 4)], [1, 2, 0.125, 0.25]);
-  // A step only three can draw (bloom): three draws them all.
+  // A step only three can draw (one that draws itself): three draws them all.
   assert.equal(core.post(renderer, [{ run: () => {} }, ...steps]), false);
+});
+
+test("the post steps' values: set on a step's material as it is written, bloom's blur drawn twice with other values", () => {
+  const { core, calls, renderer, properties } = bridge();
+  const programOf = (mesh) => { properties.get(mesh.material).currentProgram = program(Object.keys(mesh.material.uniforms).map((name) => [name, name === "texel" || name === "direction" ? GL.FLOAT_VEC2 : GL.SAMPLER_2D])); };
+  const bloom = new Bloom(new THREE.Texture());
+  bloom.resize(16, 8);
+  programOf(bloom.extract);
+  programOf(bloom.blur);
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const steps = bloom.steps(camera);
+  assert.deepEqual(steps.map((s) => s.target), [bloom.target, bloom.scratch, bloom.target], "extract, blur across, blur down");
+  assert.equal(core.post(renderer, steps), true);
+  assert.deepEqual(calls.find((c) => c[0] === "post_frame"), ["post_frame", 3]);
+  const input = core.postInput, step = 5 + 12 * 18;
+  // add_texture's ids, in the order the steps registered them: the source,
+  // the target (as the extract's target), the scratch target.
+  const texture = (t) => core.textures.get(properties.get(t).__webglTexture);
+  const uniform = (s, k, n) => [...input.subarray(s * step + 5 + k * 18, s * step + 5 + k * 18 + n)];
+  assert.deepEqual(uniform(1, 0, 3), [0, 32, texture(bloom.target.texture)], "across: the extract's target");
+  assert.deepEqual(uniform(1, 1, 4), [1, 2, 1 / 4, 0], "one texel across the quarter-size target");
+  assert.deepEqual(uniform(2, 0, 3), [0, 32, texture(bloom.scratch.texture)], "down: the scratch target");
+  assert.deepEqual(uniform(2, 1, 4), [1, 2, 0, 1 / 2]);
+  assert.equal(bloom.blur.material.uniforms.map.value, bloom.scratch.texture, "the material left as three's draws leave it");
+});
+
+test("the temporal upscaler's steps: the motion resolve, the resolve into the history, the sharpen, then its commit", () => {
+  const { core, calls, renderer, properties } = bridge();
+  const upscaler = new Upscaler({ extensions: { has: () => true } });
+  upscaler.resize(8, 4, 16, 8);
+  const types = { inverseJittered: GL.FLOAT_MAT4, currentViewProjection: GL.FLOAT_MAT4, previousViewProjection: GL.FLOAT_MAT4, inputSize: GL.FLOAT_VEC2, outputSize: GL.FLOAT_VEC2,
+    jitter: GL.FLOAT_VEC2, reset: GL.FLOAT, maxWeight: GL.FLOAT, kernel: GL.FLOAT, sharpness: GL.FLOAT };
+  for (const pass of [upscaler.motionPass, upscaler.resolvePass, upscaler.sharpenPass]) {
+    properties.get(pass.material).currentProgram = program(Object.keys(pass.material.uniforms).map((name) => [name, types[name] ?? GL.SAMPLER_2D]));
+  }
+  upscaler.motionPass.material.uniforms.depthMap.value = new THREE.Texture();
+  const image = new THREE.Texture();
+  let steps = upscaler.steps(image, "temporal");
+  assert.deepEqual(steps.map((s) => s.target), [upscaler.motion, upscaler.history[1], null]);
+  assert.equal(core.post(renderer, steps), true);
+  assert.deepEqual(calls.find((c) => c[0] === "post_frame"), ["post_frame", 3]);
+  const input = core.postInput, step = 5 + 12 * 18;
+  const texture = (t) => core.textures.get(properties.get(t).__webglTexture);
+  const uniform = (s, name, n) => { const k = Object.keys(steps[s].pass.material.uniforms).indexOf(name); return [...input.subarray(s * step + 5 + k * 18 + 2, s * step + 5 + k * 18 + 2 + n)]; };
+  assert.deepEqual(uniform(1, "colorMap", 1), [texture(image)]);
+  assert.deepEqual(uniform(1, "historyMap", 1), [texture(upscaler.history[0].texture)]);
+  assert.deepEqual(uniform(1, "reset", 1), [1], "no history yet");
+  assert.deepEqual(uniform(2, "map", 1), [texture(upscaler.history[1].texture)], "the sharpen reads the history just resolved");
+  assert.equal(upscaler.frame, 0, "the commit is graphics.js's to run");
+  for (const s of steps) s.after?.();
+  assert.deepEqual([upscaler.read, upscaler.valid, upscaler.frame], [1, true, 1]);
+  steps = upscaler.steps(image, "temporal");
+  assert.equal(steps[1].target, upscaler.history[0], "the other history written next");
+  assert.equal(steps[1].values.historyMap, upscaler.history[1].texture);
+  assert.equal(steps[1].values.reset, 0);
+  // Spatial: one step to the screen, and no history.
+  steps = upscaler.steps(image, "spatial");
+  assert.deepEqual(steps.map((s) => [s.pass, s.target, s.values.map]), [[upscaler.spatialPass, null, image]]);
+  assert.equal(upscaler.valid, false);
 });
 
 test("the HUD's batch: every vertex the first time, the batch's update range after, three's own copy made whole when it draws again", async () => {

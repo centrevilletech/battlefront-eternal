@@ -958,7 +958,7 @@ boundary, so that each part of the frame can move to it on its own:
 | Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam, fountain and wake effects, the Enhanced arcs, the droideka's dust and the jetpack's wake |
 | Foliage | `foliage.rs` | `foliage.js` | near | Placed foliage, instanced, its patches chosen there too |
 | View | `view.rs` | `view.js` | view | The first-person arms and weapon, and the muzzle flash |
-| Post | `post.rs` | `post.js` | post | Soft focus, composite, FXAA, the bilinear upscale |
+| Post | `post.rs` | `post.js` | post | Soft focus, bloom, composite, FXAA, the upscale (bilinear, spatial, temporal) |
 | HUD | `hud.rs` | `hud.js` | hud | The battle HUD's quads |
 | Water | `water.rs` | `water.js` | transparent | Classic terrain water and its rings, among the blended items |
 
@@ -1220,13 +1220,21 @@ These passes take the rest of a Classic frame's own scenes from three:
   then resolving a multisampled target), draws the phase, and says whether
   its passes drew the whole scene: `graphics.js` renders the view scene
   with three only when they did not.
-- The post passes: `Graphics.postSteps` plans them (each a full-screen
-  pass with its target, or a step that draws itself: bloom and the
-  temporal and spatial upscalers), then hands the plan to the bridge. The
-  post pass draws every step with three's program for the pass's material,
-  used as three compiled it (`Kind::Plain`), into a framebuffer of its own
-  over the target's texture or onto the canvas, or leaves them all to
-  three when one is a step it cannot draw.
+- The post passes: `Graphics.postSteps` plans them, each a full-screen
+  pass with its target and the uniform values it is drawn with (`values`,
+  set on the pass's material by whichever renderer draws the step), then
+  hands the plan to the bridge. Bloom is three steps (its extract, then
+  its one blur pass twice, across and down, with other values), the
+  spatial upscaler one, and the temporal upscaler three (the motion
+  resolve, the resolve into its history and the sharpen to the screen);
+  the temporal frame's commit (the history swapped, the jitter moved on)
+  is the last step's `after`, which `graphics.js` runs once the steps are
+  drawn, whoever drew them. The post pass draws every step with three's
+  program for the pass's material, used as three compiled it
+  (`Kind::Plain`), into a framebuffer of its own over the target's texture
+  (the temporal upscaler's history and motion targets are half floats) or
+  onto the canvas, or leaves them all to three when one is a step it
+  cannot draw.
 - The HUD: `BattleHud.render` asks the bridge to draw its batch once it is
   built. The renderer keeps a copy of the batch's vertex arrays, updated
   from the vertices the batch changed, and draws each run of quads with its
