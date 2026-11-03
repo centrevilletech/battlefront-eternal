@@ -42,6 +42,7 @@ import { postPass } from "./post.js";
 import { hudPass } from "./hud.js";
 import { waterPass } from "./water.js";
 import { nearPass } from "./near.js";
+import { motionPass } from "./motion.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -80,6 +81,9 @@ const PHASES = {
   // The near scene's start when it is drawn in place of three's render
   // (near.js): its target cleared, the far scene's image drawn into it.
   begin: { view: null, draw: (rust, ctx) => rust.near_begin(ctx.clear, ctx.steps ?? 0) },
+  // The temporal upscaler's motion of the bodies that move on their own
+  // (motion.js), once the scenes are drawn.
+  motion: { view: null, draw: (rust, ctx) => rust.motion_frame(ctx.records) },
 };
 
 // three's renderer's entry points that read or change its state cache, each
@@ -173,7 +177,7 @@ export class RustRender {
     this.phases.mirror = this.phases.near;
     this.phases.mirrorTransparent = this.phases.transparent;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, motionPass]) this.addPass(make(this));
   }
 
   // A pass: { name, phase, register?(), draw?(ctx), setActive?(on),

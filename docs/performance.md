@@ -961,6 +961,7 @@ boundary, so that each part of the frame can move to it on its own:
 | Post | `post.rs` | `post.js` | post | Soft focus, bloom, composite, FXAA, the upscale (bilinear, spatial, temporal) |
 | HUD | `hud.rs` | `hud.js` | hud | The battle HUD's quads |
 | Water | `water.rs` | `water.js` | transparent | Classic terrain water and its rings, among the blended items |
+| Motion | `motion.rs` | `motion.js` | motion | The temporal upscaler's motion of the bodies that move on their own, and the first-person view's locked mask |
 
 `core.rs` holds what the passes share: the context and its multi-draw, the
 programs, geometries and textures, the inputs the page writes each frame, a
@@ -1235,6 +1236,23 @@ These passes take the rest of a Classic frame's own scenes from three:
   (the temporal upscaler's history and motion targets are half floats) or
   onto the canvas, or leaves them all to three when one is a step it
   cannot draw.
+- The temporal upscaler's motion (`motion-vectors.js`): each body that
+  moves on its own (soldiers, the player's guns, vehicles, debris) has a
+  proxy sharing its buffers that draws how far its surface moved on screen
+  since the last frame, then the first-person view is drawn over that in a
+  material that marks it fixed on screen. `MotionVectors.render` keeps its
+  per-proxy bookkeeping (last frame's matrices and bones, the first frame
+  and teleport rules) and asks the motion pass to draw: each proxy three
+  would list (shown, on the camera's layers, in its frustum) is a record in
+  three's order (by material: each proxy has its own), drawn instanced with
+  three's program for it (`Kind::Motion`: its matrices now and last frame
+  and both frames' bone bases read from its row, both frames' bones from two
+  textures), then each part of the view scene three's override render would
+  list, the view pass's hidden parts included, with the locked material's
+  program and the view's camera. The sky's ships, which draw their own
+  motion, stay three's and draw first, where the near scene drew nothing (no
+  proxy keeps a pixel there). Until three has drawn a proxy of each kind and
+  the mask once, three draws the frame's motion.
 - The HUD: `BattleHud.render` asks the bridge to draw its batch once it is
   built. The renderer keeps a copy of the batch's vertex arrays, updated
   from the vertices the batch changed, and draws each run of quads with its

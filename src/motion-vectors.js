@@ -117,6 +117,8 @@ export class MotionVectors {
       depthTest: false, depthWrite: false, side: THREE.DoubleSide,
     });
     this.clearColor = new THREE.Color();
+    // The Rust renderer's motion pass when it draws for this one (render).
+    this.drawer = null;
   }
 
   // A mesh that moves by itself. `far` (m): beyond it from the camera its
@@ -276,7 +278,9 @@ export class MotionVectors {
   // static), then mark the first-person weapon as fixed on screen. `camera`
   // and `view` carry this frame's jitter, so proxies cover exactly the
   // pixels the scene drew; `current`/`previous` are the unjittered
-  // view-projections the motion is measured in.
+  // view-projections the motion is measured in. The Rust renderer's motion
+  // pass (rust-render/motion.js, `drawer`) draws it when it can draw all of
+  // it; otherwise three does (draw).
   render(renderer, { target, root, camera, viewScene, view, depth, current, previous }) {
     shared.currentViewProjection.value.copy(current);
     shared.previousViewProjection.value.copy(previous);
@@ -284,6 +288,41 @@ export class MotionVectors {
     shared.depthRange.value.set(camera.near, camera.far);
     let drawn = this.prepare(root, camera);
     for (const extra of this.extras) if (extra.visible) drawn++;
+    // The view scene to mark fixed, when it shows anything.
+    const locked = viewScene && view && viewScene.children.some((child) => child.visible && !child.isLight) ? viewScene : null;
+    if (!this.drawer?.cover(renderer, this, { target, camera, viewScene: locked, view, depth })) this.draw(renderer, { target, camera, viewScene: locked, view, drawn });
+    this.commit();
+    return drawn;
+  }
+
+  // three's render of the frame's motion (render): the target cleared, the
+  // proxies and the extras, then the view scene in the locked material.
+  draw(renderer, { target, camera, viewScene, view, drawn }) {
+    const restore = this.into(renderer, target);
+    if (drawn) renderer.render(this.scene, camera);
+    if (viewScene) {
+      viewScene.overrideMaterial = this.locked;
+      renderer.render(viewScene, view);
+      viewScene.overrideMaterial = null;
+    }
+    restore();
+  }
+
+  // The extras alone, by three, into the target cleared first: the Rust
+  // renderer draws the proxies and the mask after them (rust-render/
+  // motion.js). An extra covers only what the near scene left empty, which
+  // no proxy covers, so the order of the two is as three's.
+  drawExtras(renderer, camera, target) {
+    const restore = this.into(renderer, target), hidden = [];
+    for (const proxy of this.proxies) if (proxy.visible) { proxy.visible = false; hidden.push(proxy); }
+    renderer.render(this.scene, camera);
+    for (const proxy of hidden) proxy.visible = true;
+    restore();
+  }
+
+  // three drawing into `target`, cleared to zero (static), with no clears of
+  // its own and no shadow maps; returns what puts its settings back.
+  into(renderer, target) {
     const autoClear = renderer.autoClear, shadows = renderer.shadowMap.autoUpdate, alpha = renderer.getClearAlpha();
     renderer.getClearColor(this.clearColor);
     renderer.shadowMap.autoUpdate = false;
@@ -291,17 +330,11 @@ export class MotionVectors {
     renderer.setClearColor(0x000000, 0);
     renderer.clear(true, false, false);
     renderer.autoClear = false;
-    if (drawn) renderer.render(this.scene, camera);
-    if (viewScene && view && viewScene.children.some((child) => child.visible && !child.isLight)) {
-      viewScene.overrideMaterial = this.locked;
-      renderer.render(viewScene, view);
-      viewScene.overrideMaterial = null;
-    }
-    renderer.setClearColor(this.clearColor, alpha);
-    renderer.autoClear = autoClear;
-    renderer.shadowMap.autoUpdate = shadows;
-    this.commit();
-    return drawn;
+    return () => {
+      renderer.setClearColor(this.clearColor, alpha);
+      renderer.autoClear = autoClear;
+      renderer.shadowMap.autoUpdate = shadows;
+    };
   }
 }
 

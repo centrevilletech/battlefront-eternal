@@ -14,8 +14,9 @@
 // three's frame, which draws its passes in order: the far scene (far_frame),
 // the near scene (frame), what it blends (transparent_frame, in segments
 // around what three still blends itself: transparent_segment), the
-// first-person view (view_frame), the post passes (post_frame) and, over the
-// finished frame, the HUD (hud_frame). A mirror's render of the near scene
+// first-person view (view_frame), the temporal upscaler's motion of the
+// bodies that move on their own (motion_frame), the post passes (post_frame)
+// and, over the finished frame, the HUD (hud_frame). A mirror's render of the near scene
 // (water.js) draws the near phase's passes for its own camera
 // (mirror_frame), then what it blends, as the frame's own render does
 // (mirror_transparent_frame, and its segments).
@@ -28,6 +29,7 @@ use crate::far::FarPass;
 use crate::foliage::FoliagePass;
 use crate::hud::HudPass;
 use crate::instances::{InstancePass, BONES_LEN, INPUT_LEN};
+use crate::motion::MotionPass;
 use crate::post::PostPass;
 use crate::terrain::TerrainPass;
 use crate::transparent::{self, Source, TransparentPass};
@@ -49,6 +51,7 @@ pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub post: PostPass<C>,
     pub hud: HudPass<C>,
     pub water: WaterPass<C>,
+    pub motion: MotionPass<C>,
 }
 
 impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
@@ -65,7 +68,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let post = PostPass::new(&mut core);
         let hud = HudPass::new(&mut core);
         let water = WaterPass::new(&mut core);
-        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water }
+        let motion = MotionPass::new(&mut core);
+        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water, motion }
     }
 
     // The far scene's phase, drawn into the far target before the near scene.
@@ -204,6 +208,15 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let stats = self.frame(records);
         self.core.swap_views(VIEW_NEAR, VIEW_SPARE);
         stats
+    }
+
+    // The temporal upscaler's motion phase, once the scenes are drawn: the
+    // moving bodies' proxies and the first-person view's locked mask into the
+    // velocity target (motion.rs; records: how many the page wrote).
+    pub fn motion_frame(&mut self, records: usize) -> Result<Stats, String> {
+        self.core.begin_phase();
+        self.motion.draw(&mut self.core, records);
+        Ok(self.core.end_phase())
     }
 
     // The HUD's phase, over the finished frame on the canvas (hud.rs).

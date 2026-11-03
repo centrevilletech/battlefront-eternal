@@ -841,6 +841,75 @@ export class BfeRenderer {
         return v1;
     }
     /**
+     * @returns {number}
+     */
+    motion_bones_len() {
+        const ret = wasm.bferenderer_motion_bones_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_bones_ptr() {
+        const ret = wasm.bferenderer_motion_bones_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} records
+     * @returns {Uint32Array}
+     */
+    motion_frame(records) {
+        const ret = wasm.bferenderer_motion_frame(this.__wbg_ptr, records);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_input_len() {
+        const ret = wasm.bferenderer_motion_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_input_ptr() {
+        const ret = wasm.bferenderer_motion_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_previous_len() {
+        const ret = wasm.bferenderer_motion_previous_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_previous_ptr() {
+        const ret = wasm.bferenderer_motion_previous_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_record_stride() {
+        const ret = wasm.bferenderer_motion_record_stride(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_records_at() {
+        const ret = wasm.bferenderer_motion_records_at(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {Float64Array | number[]} clear
      * @param {number} steps
      * @returns {Uint32Array}

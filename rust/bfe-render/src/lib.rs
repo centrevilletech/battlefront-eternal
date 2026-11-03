@@ -6,6 +6,7 @@ pub mod hud;
 pub mod instances;
 pub mod lights;
 pub mod math;
+pub mod motion;
 pub mod post;
 pub mod renderer;
 pub mod shader;
