@@ -28,6 +28,10 @@
 use super::class::HullClass;
 use super::hull::{Hull, Input};
 use super::native::{Collider, Collision, MapRules};
+use super::pose::HullPose;
+use super::posing;
+use bfe_content::content::VehicleTemplate;
+use bfe_content::value::Value;
 use super::{BodyId, Ground, Hit, Polygon, VehicleWorld};
 use crate::abi::sim;
 use crate::collision::spheres::Bounds;
@@ -49,6 +53,16 @@ static mut COLLISION: Option<Collision> = None;
 static mut MAP: Option<MapRules> = None;
 static mut INPUT: Vec<f64> = Vec::new();
 static mut CHANGES: Vec<f64> = Vec::new();
+/// The vehicle pack's templates by model and its classes by name
+/// (`veh_pack`), each ground hull's pose by its slot in the store with the
+/// life it was taken for (posing.rs), what the last phase's poses left for
+/// JavaScript, and this phase's clock (the barrels' kick).
+static mut TEMPLATES: Option<HashMap<String, VehicleTemplate>> = None;
+static mut DEFS: Option<HashMap<String, Value>> = None;
+static mut POSES: Vec<Option<(f64, HullPose)>> = Vec::new();
+static mut POSED: Vec<f64> = Vec::new();
+static mut CLOCK: Option<f64> = None;
+static mut BYTES: Vec<u8> = Vec::new();
 
 // SAFETY (these and `classes`): one thread; each is borrowed for one call
 // of the module's own and never across an import.
@@ -62,6 +76,10 @@ fn map() -> Option<&'static mut MapRules> {
 
 fn input() -> &'static mut Vec<f64> {
     unsafe { &mut *addr_of_mut!(INPUT) }
+}
+
+fn poses() -> &'static mut Vec<Option<(f64, HullPose)>> {
+    unsafe { &mut *addr_of_mut!(POSES) }
 }
 
 /// The hull classes' keys the phase has been given (`veh_class`), by name.
@@ -172,6 +190,107 @@ pub extern "C" fn veh_changes() -> *const f64 {
     out.as_ptr()
 }
 
+/// Room for `count` bytes JavaScript hands over (the vehicle pack).
+#[no_mangle]
+pub extern "C" fn veh_bytes(count: u32) -> *mut u8 {
+    let v = unsafe { &mut *addr_of_mut!(BYTES) };
+    v.clear();
+    v.resize(count as usize, 0);
+    v.as_mut_ptr()
+}
+
+/// The vehicle pack, from `veh_bytes`'s room: its JSON (`def_len` bytes:
+/// its models, collision, animations and classes), then (from the next
+/// multiple of 4) its models' `floats` floats and `indices` indices and its
+/// animations' `animations` floats. The hulls' rigs are built from it as
+/// the content crate builds them (posing.rs). Returns how many models.
+#[no_mangle]
+pub extern "C" fn veh_pack(def_len: u32, floats: u32, indices: u32, animations: u32) -> u32 {
+    let bytes = unsafe { &*addr_of_mut!(BYTES) };
+    let def = bfe_content::json::parse_bytes(&bytes[..def_len as usize]).unwrap_or_else(|e| panic!("vehicle pack: {e:?}"));
+    let mut at = (def_len as usize).div_ceil(4) * 4;
+    let mut words = |n: u32| {
+        let out: Vec<[u8; 4]> = bytes[at..at + n as usize * 4].chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]).collect();
+        at += n as usize * 4;
+        out
+    };
+    let model_floats: Vec<f32> = words(floats).into_iter().map(f32::from_le_bytes).collect();
+    let model_indices: Vec<u32> = words(indices).into_iter().map(u32::from_le_bytes).collect();
+    let anim: std::rc::Rc<[f32]> = words(animations).into_iter().map(f32::from_le_bytes).collect();
+    let made = posing::templates(&def, &model_floats, &model_indices, anim).unwrap_or_else(|e| panic!("vehicle pack: {e}"));
+    let count = made.len() as u32;
+    let classes: HashMap<String, Value> = def.get("classes").and_then(Value::as_object).map(|o| o.entries().map(|(k, v)| (k.to_string(), v.clone())).collect()).unwrap_or_default();
+    unsafe {
+        *addr_of_mut!(TEMPLATES) = Some(made.into_iter().map(|t| (t.name.clone(), t)).collect());
+        *addr_of_mut!(DEFS) = Some(classes);
+        // The pack's bytes are not needed again.
+        *addr_of_mut!(BYTES) = Vec::new();
+    }
+    count
+}
+
+/// A ground hull's pose as the constructor makes it from its class and
+/// model (build.rs), or None where the pack lacks either.
+fn new_pose(name: &str) -> Option<HullPose> {
+    let defs = unsafe { (*addr_of_mut!(DEFS)).as_ref()? };
+    let templates = unsafe { (*addr_of_mut!(TEMPLATES)).as_ref()? };
+    let def = defs.get(name)?;
+    let model = def.get("model").and_then(Value::as_str)?;
+    let template = templates.get(model)?;
+    let source = super::build::HullSource { name, def, template, slot: 0, slot_matrix: &[0.0; 16] };
+    super::build::build(&source, 0, Ref::default(), 0).0.pose
+}
+
+/// A hull's whole pose state from JavaScript (posing::pull), `count`
+/// numbers in the input, for the hull in store slot `slot` on life
+/// `generation`: its pose is the module's from now until its next life.
+/// Returns 1, or 0 where it cannot be (no pack, or counts that disagree:
+/// JavaScript keeps posing it).
+#[no_mangle]
+pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32) -> u32 {
+    let s = sim();
+    let r = s.store.vehicles.vehicles.iter().copied().find(|r| r.slot == slot);
+    let Some(r) = r else { return 0 };
+    let name = String::from_utf16_lossy(s.strings.units(s.store.vehicle.get(r).expect("a hull the store holds").name));
+    let all = poses();
+    if all.len() <= slot as usize {
+        all.resize_with(slot as usize + 1, || None);
+    }
+    // The rig is the class's: made once a hull, kept over its lives.
+    let pose = match all[slot as usize].take() {
+        Some((_, pose)) => Some(pose),
+        None => new_pose(&name),
+    };
+    let Some(mut pose) = pose else { return 0 };
+    let ok = posing::pull(&mut pose, &input()[..count as usize]);
+    all[slot as usize] = Some((if ok { generation } else { f64::NAN }, pose));
+    ok as u32
+}
+
+/// The pose inputs JavaScript changed since the last poses (posing::inputs),
+/// `count` numbers in the input: for each hull the module poses, its slot
+/// and then its inputs.
+#[no_mangle]
+pub extern "C" fn veh_pose_inputs(count: u32) {
+    let v = &input()[..count as usize];
+    let all = poses();
+    let mut i = 0;
+    while i < v.len() {
+        let slot = v[i] as usize;
+        i += 1;
+        let Some(Some((_, pose))) = all.get_mut(slot) else { panic!("pose inputs for a hull the module does not pose") };
+        i += posing::inputs(pose, &v[i..]);
+    }
+}
+
+/// What the last phase's poses left (posing::out), for JavaScript: the
+/// number of hulls posed, then for each its slot, how many numbers follow
+/// and those numbers. Returns its address.
+#[no_mangle]
+pub extern "C" fn veh_posed() -> *const f64 {
+    unsafe { (*addr_of_mut!(POSED)).as_ptr() }
+}
+
 /// The battle's hulls, in its list's order.
 fn hull_refs() -> Vec<Ref<Vehicle>> {
     sim().store.vehicles.vehicles.clone()
@@ -205,13 +324,18 @@ fn input_of(hull: &Hull) -> Input {
 /// Vehicles.update's ground part: each live ground hull's tick start
 /// (captureTick), then the 120 Hz substeps the time left over `acc` and
 /// this update's `dt` make, every live ground hull ticking in each, its
-/// seat 0's frozen input or none. Returns what is left over. `level`: the
-/// water's level this phase (`water.level`), for a map with water.
+/// seat 0's frozen input or none; then each destroyed hull's dying, and,
+/// with `poses`, each ground hull the module poses posed for the tick
+/// (aimTick, then render where `cosmetic`, as Vehicles.update poses every
+/// hull), at the tick's alpha. Returns what is left over. `level`: the
+/// water's level this phase (`water.level`), for a map with water;
+/// `clock`: the clock barrels kick back on.
 #[no_mangle]
-pub extern "C" fn veh_ground(dt: f64, acc: f64, level: f64) -> f64 {
+pub extern "C" fn veh_ground(dt: f64, acc: f64, level: f64, clock: f64, poses_on: u32, cosmetic: u32) -> f64 {
     if let Some(m) = map() {
         m.level = level;
     }
+    unsafe { *addr_of_mut!(CLOCK) = Some(clock) };
     let refs = hull_refs();
     let mut world = JsWorld;
     for (i, &r) in refs.iter().enumerate() {
@@ -235,6 +359,68 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, level: f64) -> f64 {
         }
         acc -= FIXED_STEP;
     }
+    let out = unsafe { &mut *addr_of_mut!(POSED) };
+    out.clear();
+    out.push(0.0);
+    if poses_on == 0 {
+        return acc;
+    }
+    for (i, &r) in refs.iter().enumerate() {
+        let v = sim().store.vehicle.get(r).expect("a hull the store holds");
+        if !v.alive && v.dying > 0.0 {
+            let mut hull = load(r, i);
+            hull.dying_tick(&mut world, dt);
+            store(&hull);
+        }
+    }
+    let alpha = v8math::max(0.0, acc / FIXED_STEP);
+    // The ground hulls whose pose is the module's (this life's), in order.
+    let mine: Vec<(usize, Ref<Vehicle>)> = refs
+        .iter()
+        .enumerate()
+        .filter(|&(_, &r)| {
+            let v = sim().store.vehicle.get(r).expect("a hull the store holds");
+            !v.flying && matches!(poses().get(r.slot as usize), Some(Some((generation, _))) if *generation == v.target_generation)
+        })
+        .map(|(i, &r)| (i, r))
+        .collect();
+    let mut posed = vec![false; mine.len()];
+    for pass in 0..2 {
+        if pass == 1 && cosmetic == 0 {
+            break;
+        }
+        for (k, &(i, r)) in mine.iter().enumerate() {
+            let mut hull = load(r, i);
+            // The hull holds its pose while it poses (nothing it calls
+            // reaches the poses).
+            let (generation, pose) = poses()[r.slot as usize].take().expect("the hull's pose");
+            hull.pose = Some(pose);
+            if hull.alive && !hull.rests(dt) {
+                posed[k] = true;
+                if pass == 0 {
+                    hull.aim_tick(&mut world, alpha, dt);
+                } else {
+                    hull.render(&mut world, alpha, dt, true);
+                }
+            }
+            poses()[r.slot as usize] = Some((generation, hull.pose.take().expect("the hull's pose")));
+            store(&hull);
+        }
+    }
+    let mut count = 0;
+    let mut numbers = Vec::new();
+    for (k, &(_, r)) in mine.iter().enumerate() {
+        if !posed[k] {
+            continue;
+        }
+        numbers.clear();
+        posing::out(&mut poses()[r.slot as usize].as_mut().expect("the hull's pose").1, &mut numbers);
+        out.push(r.slot as f64);
+        out.push(numbers.len() as f64);
+        out.extend_from_slice(&numbers);
+        count += 1;
+    }
+    out[0] = count as f64;
     acc
 }
 
@@ -398,6 +584,9 @@ impl VehicleWorld for JsWorld {
     }
 
     fn clock(&mut self) -> f64 {
+        if let Some(clock) = unsafe { *addr_of_mut!(CLOCK) } {
+            return clock;
+        }
         import_veh_clock(&VehNothing {}).value
     }
 

@@ -21,10 +21,37 @@
 // places the hulls changed come back onto the bodies, so the battle and
 // the module never see the bodies differently.
 //
-// A world only; the flight, the seats' latch, the poses, the fire and the
-// tow cables stay JavaScript's until they move.
+// Given the vehicle pack (the models, clips and classes the hulls are made
+// from), the module also keeps each ground hull's rig and pose state from
+// the first phase of each of its lives (the hull just spawned and posed
+// once, as Vehicle.spawn leaves it) and poses it there, with the dying
+// hulls' last seconds before (aimTick, render, dyingTick); each pose is
+// then copied onto the Vehicle (its walk cycle, visual, seats' aim targets
+// and aimers) and its rig's nodes (their positions and turns, and the
+// world matrices three makes from them), so whatever reads them reads what
+// the JavaScript pose left. What JavaScript changes between poses (the
+// seats' frozen aim, the barrels a seat fired) goes in before each phase.
+//
+// A world only; the flight, the seats' latch, the fire and the tow cables
+// stay JavaScript's until they move.
 import * as THREE from "three";
 import { KIND_VEHICLE, KIND_VEHICLES, KIND_BODY } from "./sim/gen/index.js";
+
+// A hull's rig nodes in the order rust/sim/src/rig/hull.rs makes them: the
+// root, the bones, the static bones, the markers (the capture's rigNodes).
+const rigNodeLists = new WeakMap();
+export function rigNodes(v) {
+  let nodes = rigNodeLists.get(v);
+  if (!nodes) {
+    const bones = new Set(v.bones);
+    const statics = v.root.children.filter((c) => c.isBone && !bones.has(c));
+    const markers = [];
+    v.root.traverse((o) => { if (o !== v.root && !bones.has(o) && !statics.includes(o) && !o.isSkinnedMesh) markers.push(o); });
+    markers.sort((a, b) => a.id - b.id);
+    rigNodeLists.set(v, nodes = [v.root, ...v.bones, ...statics, ...markers]);
+  }
+  return nodes;
+}
 import { makeGround, makeHit } from "./collision.js";
 
 const MISS = Object.freeze({ found: false, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: -1 });
@@ -53,14 +80,16 @@ const classKeys = (def) => ({
 // map: what the hulls ask of the map (game.js): the kill height under the
 // battlefield (killY), the map's death regions and the names its script
 // adds (world.deathRegions, world.mission.deathRegions); null leaves the
-// water and death regions to the imports.
-export function attachVehiclesSim(vehicles, bridge, map = null) {
-  vehicles.sim = new VehiclesSim(vehicles, bridge, map);
+// water and death regions to the imports. pack: the vehicle pack as the
+// battle loaded it ({ data, buffer, indexBuffer, animationBuffer }); null
+// leaves the poses to JavaScript.
+export function attachVehiclesSim(vehicles, bridge, map = null, pack = null) {
+  vehicles.sim = new VehiclesSim(vehicles, bridge, map, pack);
   return vehicles.sim;
 }
 
 export class VehiclesSim {
-  constructor(vehicles, bridge, map = null) {
+  constructor(vehicles, bridge, map = null, pack = null) {
     this.vehicles = vehicles;
     this.bridge = bridge;
     this.x = bridge.x;
@@ -73,6 +102,7 @@ export class VehiclesSim {
     this.kernel = false;
     this.bodiesVersion = -1;
     this.colliders = new WeakSet();
+    this.inputValues = [];
     if (map) {
       const water = vehicles.water;
       const data = {
@@ -87,6 +117,70 @@ export class VehiclesSim {
     this.flag = { value: false };
     this.number = { value: 0 };
     Object.assign(bridge.handlers, this.handlers());
+    // The poses: each ground hull the module poses, by the life it took
+    // the hull's pose for.
+    this.lives = new WeakMap();
+    this.posing = Boolean(pack) && this.pack(pack);
+  }
+
+  // The vehicle pack into the module (its models, collision, clips and
+  // classes as JSON, then its models' floats and indices and its clips'
+  // floats), where the hulls' rigs are made from it; whether it took it.
+  pack({ data, buffer, indexBuffer, animationBuffer }) {
+    const text = new TextEncoder().encode(json({ models: data.models, collision: data.collision, animations: data.animations, classes: data.classes }));
+    const head = Math.ceil(text.length / 4) * 4, floats = buffer?.byteLength ?? 0, indices = indexBuffer?.byteLength ?? 0, clips = animationBuffer?.byteLength ?? 0;
+    const ptr = this.x.veh_bytes(head + floats + indices + clips);
+    this.bridge.views();
+    const u8 = this.bridge.u8;
+    u8.set(text, ptr);
+    if (floats) u8.set(new Uint8Array(buffer), ptr + head);
+    if (indices) u8.set(new Uint8Array(indexBuffer), ptr + head + floats);
+    if (clips) u8.set(new Uint8Array(animationBuffer), ptr + head + floats + indices);
+    return this.x.veh_pack(text.length, floats / 4, indices / 4, clips / 4) > 0;
+  }
+
+  // Whether the module poses this hull (a ground hull, this life).
+  posed(v) {
+    return this.posing && !v.flying && this.lives.get(v) === v.aiTarget.generation;
+  }
+
+  // Before the phase: each live ground hull the module does not pose yet
+  // this life has its whole pose state handed over (rust/sim/src/vehicles/
+  // posing.rs pull), and each it poses what JavaScript changed since its
+  // last pose (inputs).
+  posesIn() {
+    const refs = this.bridge.refs[KIND_VEHICLE];
+    for (const v of this.vehicles.vehicles) {
+      if (v.flying || !v.alive || this.lives.get(v) === v.aiTarget.generation) continue;
+      const values = pullPose(v);
+      const at = this.input(values.length), f = this.bridge.f;
+      for (let i = 0; i < values.length; i++) f[at + i] = values[i];
+      if (this.x.veh_pull(refs.slotOf(v), v.aiTarget.generation, values.length)) this.lives.set(v, v.aiTarget.generation);
+      else this.lives.delete(v);
+    }
+    const values = this.inputValues;
+    values.length = 0;
+    for (const v of this.vehicles.vehicles) if (this.posed(v)) { values.push(refs.slotOf(v)); poseInputs(v, values); }
+    if (!values.length) return;
+    const at = this.input(values.length), f = this.bridge.f;
+    for (let i = 0; i < values.length; i++) f[at + i] = values[i];
+    this.x.veh_pose_inputs(values.length);
+  }
+
+  // After the phase: each hull the module posed takes its pose.
+  posesOut() {
+    const ptr = this.x.veh_posed();
+    this.bridge.views();
+    const f = this.bridge.f, objects = this.bridge.refs[KIND_VEHICLE].objects;
+    let o = ptr / 8;
+    const count = f[o++];
+    for (let k = 0; k < count; k++) {
+      const v = objects[f[o]], n = f[o + 1];
+      o += 2;
+      applyPose(v, f, o);
+      o += n;
+      v.root.updateMatrixWorld(true);
+    }
   }
 
   // The hulls into the store: each one's fields, and the battle's list.
@@ -110,10 +204,12 @@ export class VehiclesSim {
   ground(dt, acc) {
     this.write();
     this.bodiesIn();
-    const water = this.vehicles.water;
-    const left = this.x.veh_ground(dt, acc, water ? water.level : 0);
+    if (this.posing) this.posesIn();
+    const vs = this.vehicles, water = vs.water;
+    const left = this.x.veh_ground(dt, acc, water ? water.level : 0, vs.clock(), this.posing ? 1 : 0, vs.cosmetic !== false ? 1 : 0);
     this.sync();
     this.bodiesOut();
+    if (this.posing) this.posesOut();
     return left;
   }
 
@@ -285,4 +381,70 @@ export class VehiclesSim {
       vehEffect: (a) => { const name = a.name, at = a.position.clone(); w.effect(name, at); },
     };
   }
+}
+
+// A hull's whole pose state, in posing.rs pull's order.
+function pullPose(v) {
+  const out = [v.age, v.hoverPhase, v.walkPhase, v.walkBlend, v.visual.x, v.visual.y, v.visual.z];
+  for (const seat of v.seats) {
+    out.push(seat.lastYaw === null ? 0 : 1, seat.lastYaw ?? 0, seat.yawRate);
+    const t = seat.target;
+    out.push(t ? 1 : 0, t ? t.x : 0, t ? t.y : 0, t ? t.z : 0);
+    for (const w of seat.weapons) {
+      out.push(w.barrel);
+      for (const a of w.aimers) out.push(a.yaw, a.pitch, a.inLimits === undefined ? 2 : a.inLimits ? 1 : 0, a.onTarget ? 1 : 0, a.facing.x, a.facing.y, a.facing.z, a.posed ? 1 : 0);
+      for (const m of w.muzzles) out.push(m.kickAt === undefined ? 0 : 1, m.kickAt ?? 0);
+    }
+  }
+  for (const n of rigNodes(v)) {
+    const p = n.position, q = n.quaternion, s = n.scale;
+    out.push(p.x, p.y, p.z, q.x, q.y, q.z, q.w, s.x, s.y, s.z);
+  }
+  return out;
+}
+
+// What JavaScript changed of a hull's pose state between poses, in
+// posing.rs inputs' order: each seat's frozen aim, each weapon's next
+// barrel and its muzzles' kick times.
+function poseInputs(v, out) {
+  for (const seat of v.seats) {
+    const input = seat.lease?.input, aim = input?.aim;
+    out.push(input?.aiming ? 1 : 0, aim ? aim.x : 0, aim ? aim.y : 0, aim ? aim.z : 0);
+    for (const w of seat.weapons) {
+      out.push(w.barrel);
+      for (const m of w.muzzles) out.push(m.kickAt === undefined ? 0 : 1, m.kickAt ?? 0);
+    }
+  }
+}
+
+// A pose the module left (posing.rs out) onto the hull and its rig's nodes
+// (their quaternions written as they are: nothing in a world reads a
+// bone's Euler angles, which three would work out from each), from `o`.
+function applyPose(v, f, o) {
+  v.age = f[o]; v.walkPhase = f[o + 1]; v.walkBlend = f[o + 2];
+  v.visual.set(f[o + 3], f[o + 4], f[o + 5]);
+  o += 6;
+  for (const seat of v.seats) {
+    seat.lastYaw = f[o] ? f[o + 1] : null;
+    seat.yawRate = f[o + 2];
+    if (f[o + 3]) (seat.target ||= new THREE.Vector3()).set(f[o + 4], f[o + 5], f[o + 6]);
+    else seat.target = null;
+    o += 7;
+    for (const w of seat.weapons) for (const a of w.aimers) {
+      a.yaw = f[o]; a.pitch = f[o + 1];
+      if (f[o + 2] !== 2) a.inLimits = f[o + 2] === 1;
+      a.onTarget = f[o + 3] === 1;
+      a.facing.set(f[o + 4], f[o + 5], f[o + 6]);
+      a.posed = f[o + 7] === 1;
+      o += 8;
+    }
+  }
+  for (const n of rigNodes(v)) {
+    n.position.set(f[o], f[o + 1], f[o + 2]);
+    const q = n.quaternion;
+    q._x = f[o + 3]; q._y = f[o + 4]; q._z = f[o + 5]; q._w = f[o + 6];
+    o += 7;
+  }
+  const r = v.root.rotation;
+  r._x = f[o]; r._y = f[o + 1]; r._z = f[o + 2];
 }

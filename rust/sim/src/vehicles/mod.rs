@@ -32,6 +32,7 @@ pub mod hover;
 pub mod hull;
 pub mod native;
 pub mod pose;
+pub mod posing;
 pub mod spawn;
 pub mod store;
 pub mod tethers;
