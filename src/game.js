@@ -728,6 +728,9 @@ async function start() {
   // worker records the call for the page (src/runtime/network-entity-game.js).
   simEvents.listen((record) => record.kind === "vo" && audio.on("vo", record));
   let simTime = 0;
+  // s: the host's wall time for the step running (game.step), the one clock
+  // a world reads: nothing in a world step calls a clock of its own.
+  let hostSeconds = 0;
   // Whose side a round or blast is on: a unit's team; the player's for his
   // own recon droid and its strike.
   const teamOf = (owner) => (owner && typeof owner === "object" ? owner.team ?? 0 : owner === "player" ? playerTeam : 0);
@@ -1271,6 +1274,8 @@ async function start() {
     vehicles.flightAssists = settings.get('aiDifficulty') !== 'hard';
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
+    // A world's barrels kick back on its host's time (a page's on its own).
+    if (headless) vehicles.clock = () => hostSeconds;
     driver.onRelease = () => { controls.clear(); worldControls.clear(); };
     driver.aimView = new VehicleCamera(simulationCamera, collision, true);
     hud.vehicles = vehicles;
@@ -3485,13 +3490,17 @@ async function start() {
     frame,
     lockstep: lockstepFrame,
     // A tick of the world, for whatever runs it (the world worker, a server,
-    // a Node check). A page shows a battle and runs none.
-    step(command) {
+    // a Node check). A page shows a battle and runs none. at: the host's wall
+    // time for it (ms, as performance.now() gives it), its one clock input.
+    // One call is one tick, so the clock's budget (a page's pacing) has no
+    // part in it and reads no clock.
+    step(command, at = performance.now()) {
       if (!headless) throw new Error("the page runs no battle: step the world worker (game.lockstep)");
       if (command.tick !== worldClock.tick + 1) throw new Error("nonconsecutive world command");
+      hostSeconds = at / 1000;
       worldClock.advance(1 / 60, (h, tick) => {
         presentation.beforeStep(); step(h, tick, command); presentation.afterStep();
-      });
+      }, false);
     },
     units,
     simEvents,
