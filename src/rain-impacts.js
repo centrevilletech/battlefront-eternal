@@ -66,7 +66,7 @@ export class RainImpacts {
   // Whether the splashes show this frame; while `external` another renderer
   // draws them (src/rust-render/effects.js) and three is shown none.
   this.shown=false;this.external=false;rainImpacts.set(this.mesh,this);
-  this.mesh.onBeforeRender=(...args)=>particleDepth.capture(...args);scene.add(this.mesh);
+  this.mesh.onBeforeRender=(r,s,c)=>particleDepth.capture(r,s,c);scene.add(this.mesh);
  }
  random(){this.randomState=Math.imul(this.randomState,1664525)+1013904223>>>0;return this.randomState/4294967296;}
  update(dt,camera,enabled){

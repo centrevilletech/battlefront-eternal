@@ -451,8 +451,8 @@ export class SniperTrace {
     this.mesh.name = "sniper-shots";
     this.mesh.add(this.streaks.mesh, this.flares.mesh);
     const size = new THREE.Vector2();
-    this.streaks.mesh.onBeforeRender = (renderer, scene, camera, ...rest) => {
-      particleDepth.capture(renderer, scene, camera, ...rest);
+    this.streaks.mesh.onBeforeRender = (renderer, scene, camera) => {
+      particleDepth.capture(renderer, scene, camera);
       if (!camera.isPerspectiveCamera) return;
       this.camera.setFromMatrixPosition(camera.matrixWorld);
       const target = renderer.getRenderTarget();
