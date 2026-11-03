@@ -2086,12 +2086,15 @@ export class Vehicles {
         this.acc -= FIXED_STEP;
       }
     }
-    for (const v of this.vehicles) if (!v.alive && v.dying > 0) v.dyingTick(dt);
+    // On the module the dying hulls' last seconds and the ground hulls'
+    // poses ran in the phase, in this order (src/vehicles-sim.js).
+    const posing = ground && this.sim.posing;
+    if (!posing) for (const v of this.vehicles) if (!v.alive && v.dying > 0) v.dyingTick(dt);
     this.tickAlpha = Math.max(0, this.acc / FIXED_STEP);
     // The tick's pose in both hosts; the drawn one only where something
     // is drawn (a world worker leaves it to the page showing it).
-    for (const v of this.vehicles) v.aimTick(v.flying ? 1 : this.tickAlpha, dt);
-    if (this.cosmetic !== false) for (const v of this.vehicles) v.render(v.flying ? 1 : this.tickAlpha, dt, true);
+    for (const v of this.vehicles) if (!posing || !this.sim.posed(v)) v.aimTick(v.flying ? 1 : this.tickAlpha, dt);
+    if (this.cosmetic !== false) for (const v of this.vehicles) if (!posing || !this.sim.posed(v)) v.render(v.flying ? 1 : this.tickAlpha, dt, true);
     this.presented = false;
     this.fireCrews(dt);
     this.updateTethers();
