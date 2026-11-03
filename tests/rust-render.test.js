@@ -5,49 +5,23 @@ import * as THREE from "three";
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
+const { standinModule } = await import("./support/rust-standin.mjs");
 
 const STATS = [1, 2, 3, 4, 5, 1, 2, 0, 0, 0, 0, 0, 0, 0];
 
 // The bridge over a stand-in for the WASM renderer (its memory, and a log of
 // the calls made to it) and for the page's graphics and three's renderer.
 function bridge() {
-  const calls = [];
-  const memory = { buffer: new ArrayBuffer(1 << 16) };
   // The segments the renderer found (transparent.rs), as the page reads them.
   const segments = [0, 0];
-  const entry = (name) => function (...args) { calls.push([name, ...args]); return STATS; };
-  class BfeRenderer {
-    input_ptr() { return 0; }
-    input_len() { return 200 + 76 * 4; }
-    bones_ptr() { return 8192; }
-    bones_len() { return 64; }
-    far_input_ptr() { return 16384; }
-    far_input_len() { return 1024; }
-    records_at() { return 200; }
-    record_stride() { return 76; }
-    fx_input_ptr() { return 40960; }
-    fx_input_len() { return 600; }
-    fx_data_ptr() { return 49152; }
-    fx_data_len() { return 2048; }
-    fx_matrices_ptr() { return 57344; }
-    fx_matrices_len() { return 512; }
-    add_texture() { calls.push(["add_texture"]); return 0; }
-    set_far_map(texture) { calls.push(["set_far_map", texture]); }
-    sort(byProgram) { calls.push(["sort", byProgram]); }
-    transparent_keys_ptr() { return 16384; }
-    transparent_keys_len() { return 64; }
-    transparent_segments_ptr() { return 32768; }
-    transparent_segments_len() { return segments.length; }
-    transparent_segment(k) { calls.push(["transparent_segment", k]); return STATS; }
-    transparent_objects_ptr() { return 24576; }
-    transparent_objects_len() { return 1 + 2 * 40; }
-    transparent_object_stride() { return 40; }
-  }
-  for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame"]) BfeRenderer.prototype[name] = entry(name);
-  // Registration calls, logged with their arguments (the world pass's and the ground's).
-  for (const name of ["add_world", "world_runs", "world_shown", "world_texture", "world_uniform", "world_cells"]) {
-    BfeRenderer.prototype[name] = function (...args) { calls.push([name, ...args]); return name === "add_world" ? 9 : true; };
-  }
+  // The shared stand-in for the WASM renderer (every pass's views), with the
+  // world pass's registration as this test reads it.
+  const { BfeRenderer, memory, calls, region } = standinModule({
+    stats: STATS,
+    lengths: { transparent_segments: () => segments.length },
+    methods: ({ calls }) => Object.fromEntries(["add_world", "world_runs", "world_shown", "world_texture", "world_uniform", "world_cells"]
+      .map((name) => [name, (...args) => { calls.push([name, ...args]); return name === "add_world" ? 9 : true; }])),
+  });
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
   camera.updateMatrixWorld(true);
   const sceneTarget = { name: "scene" }, farTarget = { texture: new THREE.Texture() };
@@ -71,7 +45,7 @@ function bridge() {
   const background = new THREE.Object3D();
   const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
   const core = new RustRender(graphics, { memory }, BfeRenderer);
-  const setSegments = (values) => { segments.length = 0; segments.push(...values); new Uint32Array(memory.buffer, 32768, values.length).set(values); };
+  const setSegments = (values) => { segments.length = 0; segments.push(...values); new Uint32Array(memory.buffer, region("transparent_segments"), values.length).set(values); };
   return { core, calls, graphics, renderer, scene, camera, memory, list, setSegments, setTarget: (t) => { target = t; } };
 }
 
@@ -153,7 +127,7 @@ test("a pass's views of the renderer's memory are made again when it grows", () 
   assert.equal(extra.length, 8);
   core.views();
   assert.equal(core.input, input, "the same memory: the same views");
-  memory.buffer = new ArrayBuffer(1 << 17);
+  memory.buffer = new ArrayBuffer(2 * memory.buffer.byteLength);
   core.views();
   assert.notEqual(core.input, input);
   assert.equal(core.extra.buffer, memory.buffer);

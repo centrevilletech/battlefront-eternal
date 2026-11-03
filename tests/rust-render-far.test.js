@@ -5,6 +5,7 @@ import * as THREE from "three";
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
+const { standinModule } = await import("./support/rust-standin.mjs");
 const { lighting } = await import("../src/materials.js");
 
 const GL = {
@@ -35,43 +36,19 @@ function mesh(name, uniforms, { renderOrder = 0, transparent = false, values = {
 }
 
 function bridge() {
-  const calls = [];
-  const memory = { buffer: new ArrayBuffer(1 << 17) };
+  // The shared stand-in for the WASM renderer (every pass's views), with
+  // the far pass's calls as this test reads them: ids from one counter, the
+  // far phase's stats.
   let next = 0;
-  const id = (name) => function (...args) { calls.push([name, ...args]); return next++; };
-  class BfeRenderer {
-    input_ptr() { return 0; }
-    input_len() { return 200 + 76 * 4; }
-    bones_ptr() { return 8192; }
-    bones_len() { return 64; }
-    far_input_ptr() { return 16384; }
-    far_input_len() { return 1024; }
-    // The transparent pass's views (src/rust-render/transparent.js): an empty list.
-    transparent_keys_ptr() { return 32768; }
-    transparent_keys_len() { return 64; }
-    transparent_objects_ptr() { return 40960; }
-    transparent_objects_len() { return 1 + 2 * 40; }
-    transparent_object_stride() { return 40; }
-    transparent_segments_ptr() { return 49152; }
-    transparent_segments_len() { return 0; }
-    transparent_segment() { return []; }
-    // The effects pass's views (src/rust-render/effects.js): none drawn here.
-    fx_input_ptr() { return 57344; }
-    fx_input_len() { return 16; }
-    fx_data_ptr() { return 61440; }
-    fx_data_len() { return 16; }
-    fx_matrices_ptr() { return 65536; }
-    fx_matrices_len() { return 16; }
-    records_at() { return 200; }
-    record_stride() { return 76; }
-    set_far_map() {}
-    sort() {}
-    far_frame() { calls.push(["far_frame"]); return [0, 0, 0, 1, 10, 0, 0, 3, 0, 0, 0, 0, 0, 0]; }
-  }
-  for (const name of ["add_texture", "add_program", "add_geometry", "geometry_buffer", "far_table", "far_item"]) BfeRenderer.prototype[name] = id(name);
-  for (const name of ["geometry_pointer", "geometry_index", "geometry_group", "far_source", "far_range", "far_cells", "far_terrain", "far_instanced"]) {
-    BfeRenderer.prototype[name] = function (...args) { calls.push([name, ...args]); };
-  }
+  const { BfeRenderer, memory, calls } = standinModule({
+    quiet: ["set_far_map", "sort", "transparent_bucket_shown", "foliage_on"],
+    methods: ({ calls }) => {
+      const methods = { far_frame() { calls.push(["far_frame"]); return [0, 0, 0, 1, 10, 0, 0, 3, 0, 0, 0, 0, 0, 0]; } };
+      for (const name of ["add_texture", "add_program", "add_geometry", "geometry_buffer", "far_table", "far_item"]) methods[name] = (...args) => { calls.push([name, ...args]); return next++; };
+      for (const name of ["geometry_pointer", "geometry_index", "geometry_group", "far_source", "far_range", "far_cells", "far_terrain", "far_instanced"]) methods[name] = (...args) => { calls.push([name, ...args]); };
+      return methods;
+    },
+  });
   const gl = {
     ...GL,
     getProgramParameter: (p, what) => (what === GL.ACTIVE_UNIFORMS ? p.uniforms.length : p.attributes.length),

@@ -6,134 +6,16 @@ import * as THREE from "three";
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
 
-const STATS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-const GL = { VERTEX_SHADER: 0x8b31, FRAGMENT_SHADER: 0x8b30, SHADER_TYPE: 0x8b4f, ACTIVE_UNIFORMS: 0x8b86, ACTIVE_ATTRIBUTES: 0x8b89,
-  FLOAT: 0x1406, FLOAT_VEC2: 0x8b50, FLOAT_VEC3: 0x8b51, FLOAT_VEC4: 0x8b52, INT: 0x1404, BOOL: 0x8b56, FLOAT_MAT3: 0x8b5b, FLOAT_MAT4: 0x8b5c, SAMPLER_2D: 0x8b5e,
-  READ_FRAMEBUFFER: 0x8ca8, DRAW_FRAMEBUFFER: 0x8ca9, COLOR_BUFFER_BIT: 0x4000, DEPTH_BUFFER_BIT: 0x100, STENCIL_BUFFER_BIT: 0x400, NEAREST: 0x2600 };
+import { GL, fakeProgram as program, standinModule, standinThree } from "./support/rust-standin.mjs";
 
-// three's program for a material: its active uniforms ([name, GL type]) and
-// attributes, and a source each stage.
-function program(uniforms, attributes = ["position", "uv"]) {
-  return { id: Math.floor(Math.random() * 1e6), program: { uniforms, attributes } };
-}
-
-// The bridge over a stand-in for the WASM renderer (a log of its calls, its
-// memory), WebGL and the page's graphics.
+// The bridge over the shared stand-ins for the WASM renderer (every pass's
+// views and calls, logged in `calls`) and for three's renderer and the
+// page's graphics (support/rust-standin.mjs).
 function bridge() {
-  const calls = [];
-  const memory = { buffer: new ArrayBuffer(1 << 21) };
-  const entry = (name) => function (...args) { calls.push([name, ...args]); return STATS; };
-  let programs = 0, targets = 0;
-  class BfeRenderer {
-    input_ptr() { return 0; }
-    input_len() { return 200 + 76 * 8; }
-    bones_ptr() { return 16384; }
-    bones_len() { return 64; }
-    far_input_ptr() { return 589824; }
-    far_input_len() { return 1024; }
-    // The transparent pass's views (src/rust-render/transparent.js): an empty list.
-    transparent_keys_ptr() { return 262144; }
-    transparent_keys_len() { return 64; }
-    transparent_objects_ptr() { return 270336; }
-    transparent_objects_len() { return 1 + 2 * 40; }
-    transparent_object_stride() { return 40; }
-    transparent_segments_ptr() { return 278528; }
-    transparent_segments_len() { return 0; }
-    transparent_segment() { return []; }
-    records_at() { return 200; }
-    record_stride() { return 76; }
-    add_texture() { calls.push(["add_texture"]); return 0; }
-    set_far_map(texture) { calls.push(["set_far_map", texture]); }
-    sort() {}
-    add_program(kind, vs, fs, attributes, uniforms) { calls.push(["add_program", kind, attributes, uniforms]); return programs++; }
-    add_geometry() { return 0; }
-    geometry_buffer() { return 0; }
-    geometry_pointer() {}
-    geometry_index() {}
-    geometry_group() {}
-    foliage_input_ptr() { return 65536; }
-    foliage_input_len() { return 53; }
-    foliage_class(...args) { calls.push(["foliage_class", ...args]); return 0; }
-    foliage_frame() { calls.push(["foliage_frame"]); return 7; }
-    post_input_ptr() { return 131072; }
-    post_input_len() { return 8 * 221; }
-    post_target(texture) { calls.push(["post_target", texture]); return targets++; }
-    hud_input_ptr() { return 262144; }
-    hud_input_len() { return 47 + 1024 * 5; }
-    hud_position_ptr() { return 327680; }
-    hud_position_len() { return 64 * 3; }
-    hud_uv_ptr() { return 393216; }
-    hud_uv_len() { return 64 * 2; }
-    hud_mask_uv_ptr() { return 458752; }
-    hud_mask_uv_len() { return 64 * 2; }
-    hud_tint_ptr() { return 524288; }
-    hud_tint_len() { return 64 * 4; }
-    hud_init(index) { calls.push(["hud_init", index.length]); }
-    // The transparent pass's memory and the effects pass's (transparent.rs, effects.rs).
-    transparent_keys_ptr() { return 589824; }
-    transparent_keys_len() { return 64; }
-    transparent_segments_ptr() { return 655360; }
-    transparent_segments_len() { return 2; }
-    transparent_segment(k) { calls.push(["transparent_segment", k]); return STATS; }
-    transparent_bucket_shown() {}
-    water_input_ptr() { return 720896; }
-    water_input_len() { return 8 * (27 + 24 * 18) + 2; }
-    water_rings_position_ptr() { return 786432; }
-    water_rings_position_len() { return 16 * 3; }
-    water_rings_uv_ptr() { return 851968; }
-    water_rings_uv_len() { return 16 * 2; }
-    water_rings_alpha_ptr() { return 917504; }
-    water_rings_alpha_len() { return 16; }
-    view_input_ptr() { return 983040; }
-    view_input_len() { return 1 + 16 * (17 + 12 * 18); }
-    water_surface(...args) { calls.push(["water_surface", ...args]); return 0; }
-    water_rings(...args) { calls.push(["water_rings", ...args]); return 1; }
-    fx_input_ptr() { return 1048576; }
-    fx_input_len() { return 600; }
-    fx_data_ptr() { return 1056768; }
-    fx_data_len() { return 2048; }
-    fx_matrices_ptr() { return 1073152; }
-    fx_matrices_len() { return 512; }
-  }
-  for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame", "hud_frame", "mirror_frame"]) BfeRenderer.prototype[name] = entry(name);
-  const gl = {
-    ...GL,
-    getProgramParameter: (p, what) => (what === GL.ACTIVE_UNIFORMS ? p.uniforms.length : p.attributes.length),
-    getActiveUniform: (p, i) => ({ name: p.uniforms[i][0], type: p.uniforms[i][1], size: 1 }),
-    getActiveAttrib: (p, i) => ({ name: p.attributes[i] }),
-    getAttribLocation: (p, name) => p.attributes.indexOf(name),
-    getAttachedShaders: () => [{ type: GL.FRAGMENT_SHADER }, { type: GL.VERTEX_SHADER }],
-    getShaderParameter: (s) => s.type,
-    getShaderSource: (s) => (s.type === GL.VERTEX_SHADER ? "vs" : "fs"),
-    blitFramebuffer: (...args) => calls.push(["blitFramebuffer", ...args]),
-  };
-  const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
-  camera.updateMatrixWorld(true);
-  const sceneTarget = { name: "scene", samples: 2, width: 8, height: 4, depthBuffer: true, resolveDepthBuffer: false },
-    farTarget = { texture: new THREE.Texture() };
-  const properties = new Map();
-  properties.set(sceneTarget, { __webglMultisampledFramebuffer: "ms", __webglFramebuffer: "fb" });
-  let target = sceneTarget;
-  // three's render list of the near scene (empty).
-  const list = { opaque: [], transmissive: [], transparent: [] };
-  const canvas = new EventTarget();
-  const renderer = {
-    domElement: canvas,
-    renderLists: { get: () => list },
-    getContext: () => gl,
-    properties: { get: (o) => { if (!properties.has(o)) properties.set(o, { __webglTexture: {} }); return properties.get(o); } },
-    initTexture(texture) { calls.push(["initTexture", texture.name]); properties.get(texture).__version = texture.version; },
-    shadowMap: { enabled: false },
-    state: { bindFramebuffer: (t, fb) => calls.push(["bindFramebuffer", t, fb]) },
-    getRenderTarget: () => target,
-    setRenderTarget(t) { calls.push(["setRenderTarget", t]); target = t; },
-    resetState() { calls.push(["resetState"]); },
-    getViewport: (v) => v.set(0, 0, 400, 300),
-    getPixelRatio: () => 2,
-  };
-  const graphics = { renderer, scene, camera, sceneTarget, farTarget, background: new THREE.Object3D(), settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
+  const { BfeRenderer, memory, calls } = standinModule();
+  const { renderer, graphics, scene, camera, properties, setTarget } = standinThree(calls);
   const core = new RustRender(graphics, { memory }, BfeRenderer);
-  return { core, calls, gl, graphics, renderer, scene, camera, memory, properties: renderer.properties, setTarget: (t) => { target = t; } };
+  return { core, calls, gl: renderer.getContext(), graphics, renderer, scene, camera, memory, properties, setTarget };
 }
 
 // A part's geometry: one triangle, indexed, no groups.
@@ -301,7 +183,8 @@ test("the post steps: drawn by the renderer when every one is a pass it has a pr
   const fxaa = pass([["tDiffuse", GL.SAMPLER_2D], ["resolution", GL.FLOAT_VEC2]], { tDiffuse: { value: postTarget.texture }, resolution: { value: new THREE.Vector2(1 / 8, 1 / 4) } });
   const steps = [{ pass: composite, target: postTarget, camera }, { pass: fxaa, target: null, camera }];
   assert.equal(core.post(renderer, steps), true);
-  assert.deepEqual(calls.filter((c) => c[0] === "add_program").map((c) => c.slice(1)), [[3, "position:0,uv:1", "projectionMatrix,modelViewMatrix,map,glow,blend"], [3, "position:0,uv:1", "tDiffuse,resolution"]]);
+  // add_program(kind, vs, fs, attributes, uniforms): plain programs, position and uv where post.rs's triangle has them.
+  assert.deepEqual(calls.filter((c) => c[0] === "add_program").map((c) => [c[1], c[4], c[5]]), [[3, "position:0,uv:1", "projectionMatrix,modelViewMatrix,map,glow,blend"], [3, "position:0,uv:1", "tDiffuse,resolution"]]);
   assert.deepEqual(calls.find((c) => c[0] === "post_frame"), ["post_frame", 2]);
   const input = core.postInput, step = 5 + 12 * 18;
   assert.deepEqual([...input.subarray(0, 5)], [0, 0, 8, 4, 5], "program, target, its size, five uniforms");
@@ -330,7 +213,7 @@ test("the HUD's batch: every vertex the first time, the batch's update range aft
   properties.get(batch.mesh.material[0]).currentProgram = program([["projectionMatrix", GL.FLOAT_MAT4], ["modelViewMatrix", GL.FLOAT_MAT4], ["map", GL.SAMPLER_2D], ["mask", GL.SAMPLER_2D], ["masked", GL.BOOL]],
     ["position", "uv", "maskUv", "tint"]);
   assert.equal(core.coverHud(renderer, hud), true);
-  assert.deepEqual(calls.find((c) => c[0] === "hud_init"), ["hud_init", 2048 * 6]);
+  assert.equal(calls.find((c) => c[0] === "hud_init")[1].length, 2048 * 6);
   assert.ok(calls.some((c) => c[0] === "initTexture" && c[1] === "hud1"), "a loaded texture goes up as three's draw would send it");
   const input = core.hudInput, IN = { GROUPS: 0, UPLOAD: 41, VIEWPORT: 43, FIRST: 45 };
   assert.deepEqual([input[IN.GROUPS], input[IN.UPLOAD], input[IN.UPLOAD + 1], input[IN.VIEWPORT], input[IN.VIEWPORT + 1]], [1, 0, 8, 800, 600]);
@@ -431,7 +314,7 @@ test("the view scene's muzzle flash: a blended basic draw after the parts, in th
   viewScene.updateMatrixWorld(true);
   assert.equal(core.cover("view", renderer, viewScene, view), true, "the parts and the flash: three left out");
   assert.equal(flashMaterial.visible, false);
-  assert.ok(calls.some((c) => c[0] === "add_program" && c[1] === 3 && c[2] === "position:0,uv:1"), "three's attributes at 0, 1");
+  assert.ok(calls.some((c) => c[0] === "add_program" && c[1] === 3 && c[4] === "position:0,uv:1"), "three's attributes at 0, 1");
   const input = core.viewInput, D = 1;
   assert.equal(input[0], 1, "one blended draw");
   assert.deepEqual([...input.subarray(D + 2, D + 9)], [1, 0x8006, 0x8006, 0x0302, 1, 0x0302, 1], "additive blending");
