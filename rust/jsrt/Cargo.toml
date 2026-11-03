@@ -10,10 +10,6 @@ description = "JavaScript semantics for the Rust simulation port: conversions, r
 [lib]
 crate-type = ["rlib"]
 
-[features]
-default = ["v8math-stub"]
-# Until rust/v8math (V8-exact Math) lands, transcendental functions come
-# from a clearly marked stub (src/v8math.rs) so the API and the operation
-# order around them can be written and tested now. Nothing that must match
-# JavaScript bit for bit may ship on the stub: see the module's notes.
-v8math-stub = []
+[dependencies]
+# V8 13.6's transcendental Math, bit for bit (src/v8math.rs re-exports it).
+v8math = { path = "../v8math" }

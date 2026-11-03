@@ -1,9 +1,9 @@
 //! The native half of the differential harness (tools/diff.mjs).
 //! Each mode reads little-endian f64 cases of a fixed arity (the
 //! harness writes them; the arities are per mode below) and writes
-//! the f64 results. Modes marked (libm) reach a transcendental and
-//! so run on jsrt's v8math stub until rust/v8math lands; the
-//! harness reports those separately.
+//! the f64 results. Modes marked (libm) reach a transcendental,
+//! which jsrt's seam takes from rust/v8math; the harness gates them
+//! with the rest.
 
 use std::io::{Read, Write};
 
@@ -277,7 +277,8 @@ fn main() {
                 back.set_from_quaternion(&q, Some(orders(p[3])));
                 out.extend_from_slice(&[back.x, back.y, back.z]);
                 let mut re = e;
-                re.reorder(orders(p[3] + 1.0));
+                // The harness wraps the order as `orders[(c[3] + 1) % 6]`.
+                re.reorder(orders((p[3] + 1.0) % 6.0));
                 out.extend_from_slice(&[re.x, re.y, re.z]);
             }
         }

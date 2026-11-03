@@ -26,4 +26,7 @@ replay = ["dep:sim-replay"]
 content = { path = "../content" }
 # JavaScript's Math as the production server's V8 computes it.
 v8math = { path = "../v8math" }
+# three.js r170's math and Object3D transforms, operation by operation
+# (the rigs, rig/).
+three = { path = "../three" }
 sim-replay = { path = "../sim-replay", optional = true }
