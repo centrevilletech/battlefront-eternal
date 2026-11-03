@@ -7,6 +7,9 @@
 //!   and deep water, and whether it sleeps;
 //! - `hover`: a hover on its springs (`hoverPhysics`, `hoverContacts`,
 //!   `hoverSprings`), the springs' contact search included;
+//! - `class` and `store`: what a hull's tick reads of its class (the
+//!   content's) and of the store (rust/sim/schema/vehicles.mjs), and what
+//!   it gives back;
 //! - `walker`: a walker or riding animal on the ground (`walkGround`,
 //!   `standOnLegs`, `alignGround`);
 //! - `pose`: a hull's pose at the tick (`aimTick`, `render`): its root,
@@ -23,9 +26,11 @@
 //! rust/v8math); Math.min, max, hypot and sign from rust/v8math; three.js's
 //! vectors and quaternions from rust/three, operation by operation.
 
+pub mod class;
 pub mod hover;
 pub mod hull;
 pub mod pose;
+pub mod store;
 pub mod walker;
 #[cfg(feature = "replay")]
 pub mod replay;

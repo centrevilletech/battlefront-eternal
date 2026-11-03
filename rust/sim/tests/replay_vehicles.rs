@@ -11,7 +11,10 @@
 #![cfg(feature = "replay")]
 
 use three::{Matrix4, Quaternion, Vector3};
-use bfe_sim::vehicles::replay::{body_of, hull_from_value, hull_to_value};
+use bfe_sim::gen::{Replay, Vehicle};
+use bfe_sim::vehicles::class::HullClass;
+use bfe_sim::vehicles::replay::body_of;
+use bfe_sim::vehicles::Hull;
 use bfe_sim::vehicles::{BodyId, Ground, Hit, Input, Polygon, VehicleWorld};
 use sim_replay::{check_bool, check_num, check_vec3, diff, replay_corpus, same_number, Arena, Call, Corpus, Log, Node, Outcome, V};
 
@@ -290,8 +293,19 @@ fn path_of(hull: &bfe_sim::vehicles::Hull) -> &'static str {
 #[test]
 fn hulls_tick_on_the_ground_as_captured() {
     let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    if std::env::var_os("BFE_CONTENT_DIR").is_none() {
+        eprintln!("hulls_tick_on_the_ground_as_captured: no BFE_CONTENT_DIR (the hulls' classes are the content's): not replayed");
+        return;
+    }
     let mut paths: std::collections::BTreeMap<&'static str, (usize, usize)> = Default::default();
-    let report = replay_corpus(&corpus, "vehicle.tick", |_capture, frame| {
+    let mut content: Option<(String, bfe_content::content::Content)> = None;
+    let mut classes: std::collections::HashMap<String, HullClass> = Default::default();
+    let report = replay_corpus(&corpus, "vehicle.tick", |capture, frame| {
+        let label = capture.label();
+        if content.as_ref().map(|(l, _)| l != &label).unwrap_or(true) {
+            content = Some((label.clone(), content_of(capture.header.root()).expect("the capture's battle")));
+            classes.clear();
+        }
         let before = frame.before().get("hull");
         if before.get("flying").bool() {
             return Outcome::Skipped("a flyer's tick (the flight package's)".into());
@@ -302,7 +316,21 @@ fn hulls_tick_on_the_ground_as_captured() {
         let index = index as usize;
         let water = frame.before().get("water");
         let water = if water.is_null() { None } else { Some(water.get("level").num()) };
-        let mut hull = hull_from_value(before, index);
+        let mut cx = Replay::default();
+        let r = match Vehicle::value_in(before, &mut cx, "hull") {
+            Ok(r) => r,
+            Err(e) => return Outcome::Failed(format!("{}: {e}", frame.place())),
+        };
+        let stored = cx.store.vehicle.get(r).unwrap().clone();
+        let name = before.get("name").str().unwrap_or("?").to_string();
+        let c = &content.as_ref().unwrap().1;
+        let class = classes.entry(name.clone()).or_insert_with(|| {
+            let def = c.battle.vehicle_def.as_ref().and_then(|v| v.get("classes")).and_then(|cl| cl.get(&name)).expect("the hull's class in the content");
+            HullClass::new(def, stored.turn_rate)
+        });
+        let mut hull = Hull::from_store(&stored, class, index);
+        // The collision body by the serial the capture names it by.
+        hull.body = body_of(before.get("body"));
         let path = path_of(&hull);
         let tally = paths.entry(path).or_default();
         tally.0 += 1;
@@ -317,9 +345,9 @@ fn hulls_tick_on_the_ground_as_captured() {
         if let Err(e) = served.log.finish() {
             return Outcome::Failed(e.0);
         }
+        hull.to_store(cx.store.vehicle.get_mut(r).unwrap());
         let mut arena = Arena::default();
-        let name = before.get("name").str().unwrap_or("?").to_string();
-        let mine = hull_to_value(&mut arena, &hull, &name);
+        let mine = Vehicle::value_out(r, &mut cx, &mut arena);
         match diff(frame.after().get("hull"), arena.view(&mine)) {
             None => {
                 paths.get_mut(path).unwrap().1 += 1;

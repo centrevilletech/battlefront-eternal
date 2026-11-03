@@ -4,10 +4,12 @@
 import { ItemMirror, syncItem, syncFullItem, putItem, putFullItem, checkItem, sameItem, exportItem, ITEM_KEYS, ItemsMirror, syncItems, syncFullItems, putItems, putFullItems, checkItems, sameItems, exportItems, ITEMS_KEYS } from "./items.js";
 import { BeamMirror, syncBeam, syncFullBeam, putBeam, putFullBeam, checkBeam, sameBeam, exportBeam, BEAM_KEYS, BoltMirror, syncBolt, syncFullBolt, putBolt, putFullBolt, checkBolt, sameBolt, exportBolt, BOLT_KEYS, GrenadeMirror, syncGrenade, syncFullGrenade, putGrenade, putFullGrenade, checkGrenade, sameGrenade, exportGrenade, GRENADE_KEYS, OrdnanceMirror, syncOrdnance, syncFullOrdnance, putOrdnance, putFullOrdnance, checkOrdnance, sameOrdnance, exportOrdnance, ORDNANCE_KEYS, RoundMirror, syncRound, syncFullRound, putRound, putFullRound, checkRound, sameRound, exportRound, ROUND_KEYS } from "./ordnance.js";
 import { EchoMirror, syncEcho, putEcho, FillMirror, syncFill, putFill } from "./store.js";
+import { VehicleMirror, syncVehicle, syncFullVehicle, putVehicle, putFullVehicle, checkVehicle, sameVehicle, exportVehicle, VEHICLE_KEYS, VehiclesMirror, syncVehicles, syncFullVehicles, putVehicles, putFullVehicles, checkVehicles, sameVehicles, exportVehicles, VEHICLES_KEYS } from "./vehicles.js";
 export * from "./kinds.js";
 export * from "./items.js";
 export * from "./ordnance.js";
 export * from "./store.js";
+export * from "./vehicles.js";
 
 // By code: name, layout hash (the same as the module's), singleton, key (the
 // numeric field that names an object), home (singleton kind and list field),
@@ -23,8 +25,11 @@ export const KIND_TABLE = [null,
   { name: "ordnance", code: 8, hash: 0x65070dab, singleton: true, key: null, home: null, stored: true, classes: [], exportStride: 13, importStride: 13, fullStride: 13, Mirror: OrdnanceMirror, sync: syncOrdnance, syncFull: syncFullOrdnance, put: putOrdnance, putFull: putFullOrdnance, check: checkOrdnance, same: sameOrdnance, export: exportOrdnance, keys: ORDNANCE_KEYS },
   { name: "ownerSnapshot", code: 9, hash: 0x046a7623, singleton: false, key: null, home: null, stored: false, classes: [] },
   { name: "round", code: 10, hash: 0x2e0c3c78, singleton: false, key: null, home: { kind: 8, field: "rounds" }, stored: true, classes: [], exportStride: 65, importStride: 65, fullStride: 65, Mirror: RoundMirror, sync: syncRound, syncFull: syncFullRound, put: putRound, putFull: putFullRound, check: checkRound, same: sameRound, export: exportRound, keys: ROUND_KEYS },
-  { name: "unit", code: 11, hash: 0x17adc2a6, singleton: false, key: "id", home: null, stored: false, classes: ["Unit"] },
-  { name: "vehicle", code: 12, hash: 0xe12e5e44, singleton: false, key: null, home: null, stored: false, classes: ["Vehicle"] },
+  { name: "seatLease", code: 11, hash: 0xc2257049, singleton: false, key: null, home: null, stored: false, classes: [] },
+  { name: "unit", code: 12, hash: 0x17adc2a6, singleton: false, key: "id", home: null, stored: false, classes: ["Unit"] },
+  { name: "vehicle", code: 13, hash: 0xc9aab5eb, singleton: false, key: null, home: { kind: 15, field: "vehicles" }, stored: true, classes: ["Vehicle"], exportStride: 63, importStride: 104, fullStride: 104, Mirror: VehicleMirror, sync: syncVehicle, syncFull: syncFullVehicle, put: putVehicle, putFull: putFullVehicle, check: checkVehicle, same: sameVehicle, export: exportVehicle, keys: VEHICLE_KEYS },
+  { name: "vehicleDriver", code: 14, hash: 0x7252759a, singleton: false, key: null, home: null, stored: false, classes: [] },
+  { name: "vehicles", code: 15, hash: 0xc4be789d, singleton: true, key: null, home: null, stored: true, classes: [], exportStride: 4, importStride: 4, fullStride: 4, Mirror: VehiclesMirror, sync: syncVehicles, syncFull: syncFullVehicles, put: putVehicles, putFull: putFullVehicles, check: checkVehicles, same: sameVehicles, export: exportVehicles, keys: VEHICLES_KEYS },
 ];
 
 // The records a union tells apart by class: their classes.
