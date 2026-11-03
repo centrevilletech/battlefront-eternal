@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { FXAAFastShader, FXAAShader } from "./fxaa.js";
-import { Bloom, fullScreenPass } from "./render-passes.js";
+import { Bloom, applyValues, fullScreenPass } from "./render-passes.js";
 import { ParticleDepth } from "./particle-depth.js";
 import { cullColorOnly, mergeStaticShadows, partitionShadowCaster } from "./shadow-casters.js";
 import { CascadeWindow, planCascades } from "./shadow-cascades.js";
@@ -1026,6 +1026,7 @@ export class Graphics {
     // them where it can draw every one, else three.
     const steps = this.postSteps(temporal, upscale);
     if (!this.rust?.post(renderer, steps)) for (const step of steps) this.postStep(renderer, step);
+    for (const step of steps) step.after?.();
     renderer.autoClear = true;
     this.restoreOffView();
     // All scene, shadow and post passes; captured before the separate HUD.
@@ -1035,17 +1036,19 @@ export class Graphics {
   }
 
   // The frame's post passes, in order, their uniforms set: 3. soft focus,
-  // and out to the screen; 4. rebuilt at the window's resolution. Each is
-  // { pass, target, camera } (a full-screen pass drawn into a target, null
-  // the canvas), or { run } (bloom, the temporal and spatial upscalers,
-  // which draw themselves).
+  // bloom, and out to the screen; 4. rebuilt at the window's resolution.
+  // Each is { pass, target, camera } (a full-screen pass drawn into a
+  // target, null the canvas), with `values` (uniform name -> value, set on
+  // the pass's material as it is drawn: one pass drawn twice in a frame
+  // with other values) and `after` (run once every step is drawn: the
+  // temporal upscaler's commit), or { run } (one that draws itself).
   postSteps(temporal, upscale) {
     const steps = [], camera = this.passCamera;
     const blur = this.blur && this.settings.get("softFocus");
     if (blur) steps.push({ pass: this.downsample, target: this.quarterTarget, camera });
     this.composite.material.uniforms.blend.value = blur ? this.blur.blend : 0;
     const bloom = Boolean(this.settings.get("bloom"));
-    if (bloom) steps.push({ run: (renderer) => this.bloom.render(renderer, camera) });
+    if (bloom) steps.push(...this.bloom.steps(camera));
     this.composite.material.uniforms.bloomStrength.value = bloom ? 0.65 : 0;
     // The temporal upscaler antialiases on its own; FXAA would only blur it.
     const fxaa = !temporal && this.settings.get("antialiasing") !== "off";
@@ -1065,21 +1068,14 @@ export class Graphics {
       pass.material.uniforms.tDiffuse.value = fxaaSource.texture;
       steps.push({ pass, target: upscale ? this.aaTarget : null, camera });
     }
-    if (upscale && !direct) {
-      const image = fxaa ? this.aaTarget.texture : this.postTarget.texture, upscaler = this.upscaler;
-      if (this.upscaling === "bilinear") {
-        // Upscaler.present's bilinear pass, as it draws it.
-        upscaler.bilinearPass.material.uniforms.map.value = image;
-        upscaler.valid = false;
-        steps.push({ pass: upscaler.bilinearPass, target: null, camera: upscaler.passCamera });
-      } else steps.push({ run: (renderer) => upscaler.present(renderer, image, this.upscaling) });
-    }
+    if (upscale && !direct) steps.push(...this.upscaler.steps(fxaa ? this.aaTarget.texture : this.postTarget.texture, this.upscaling));
     return steps;
   }
 
-  // One post step drawn by three.
+  // One post step drawn by three, its values set first.
   postStep(renderer, step) {
     if (step.run) { step.run(renderer); return; }
+    if (step.values) applyValues(step.pass.material, step.values);
     renderer.setRenderTarget(step.target);
     renderer.render(step.pass, step.camera);
   }
