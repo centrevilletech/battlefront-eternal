@@ -1,6 +1,7 @@
 import {latePresses,readWeaponInput,seedPresses,selectCombatWeapons} from './combat-weapon-input.js';
 import { networkShotDirection, networkShotFor, networkShotTarget } from './runtime/network-shot-aim.js';
 import { weaponMuzzle } from "./muzzles.js";
+import { legacyRandom } from "./ai/random.js";
 import * as THREE from "three";
 import { prepareMelee, meleeStrike, regenerate, attachBlade } from "./heroes.js";
 import { zeroMaterial } from "./materials.js";
@@ -124,6 +125,9 @@ const RESPAWN_DELAY = 4; // s: a Character's respawn timer; the spawn screen ope
 const THROWN_SPEED = 2; // m/s up after a push that throws the soldier
 const RETICLE_REACH = 1024; // m along the aim to the point the reticle marks
 const DEG = Math.PI / 180;
+// Draws with no generator given (random null): Math.random.
+const legacyArc = legacyRandom("arc-link");
+const legacyChunks = legacyRandom("blow-apart");
 const KICK_RATE = 10; // kick rate per round, x KickStrength
 const KICK_FADE = 20; // 1/s
 const KICK_OFFSET_FADE = 6; // 1/s
@@ -852,7 +856,7 @@ export class PlayerCombat {
       if (damage > 0) target.hurt(damage, from.clone());
       if (bolt) {
         this.lightningBolt(def.LightningEffect, bolt, from, T, charge, links === 0 ? channel : null);
-        if (links === 0 || (this.random || Math.random)() > 0.3) from.copy(T);
+        if (links === 0 || (this.random || legacyArc)() > 0.3) from.copy(T);
       }
       links += 1;
       damage -= def.DamageDropPerTarget ?? 0;
@@ -991,7 +995,7 @@ export class PlayerCombat {
     // unpushed by this blast. A turret's gunner (the only one seated a
     // blast reaches: SeatLease.blastable) is never pushed while he mans
     // it, as the 2004 game's push skips a soldier in a seat.
-    if (push > 0 && this.chunks && !wasDead && !this.mounted && s.air !== "thrown" && (this.random || Math.random)() <= this.chunks) {
+    if (push > 0 && this.chunks && !wasDead && !this.mounted && s.air !== "thrown" && (this.random || legacyChunks)() <= this.chunks) {
       this.blowApart = true;
       push = 0;
     }
@@ -1039,7 +1043,7 @@ export class PlayerCombat {
       this.dead = true;
       this.deathTime = 0;
       this.zoomed = false;
-      const apart = this.chunks && this.soldier.air !== "thrown" && (this.blowApart || (this.random || Math.random)() <= this.chunks);
+      const apart = this.chunks && this.soldier.air !== "thrown" && (this.blowApart || (this.random || legacyChunks)() <= this.chunks);
       // Dead, the mark records what became of the body: a blast reaching
       // it later finds whether anything is left to throw.
       this.blowApart = Boolean(apart);

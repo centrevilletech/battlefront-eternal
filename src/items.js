@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { blastBlocked, blastDamage, blastDistance } from "./ordnance.js";
 import { emitSound } from "./audio/events.js";
+import { legacyRandom } from "./ai/random.js";
 
 // Things lying about: mines and power-ups, thrown by dispensers or dropped by
 // the dead, following the 2004 game (EntityItem, EntityMine,
@@ -43,6 +44,8 @@ const GRAVITY = 9.8;
 const HARD = 1; // m/s into a surface that bounces rather than settles
 const PICKUP_DELAY = 0.5; // s a flying item can't be taken
 const FLOOR = -500;
+// The drop roll with no generator given (random null): Math.random.
+const legacyDrop = legacyRandom("item-drop");
 export const MINE_SINK = 0.2; // m/s
 const SOLDIER_RADIUS = 0.35; // m, the soldier's body for pickups
 const SOLDIER_HEIGHT = 1.55; // m
@@ -166,7 +169,7 @@ export class Items {
 
   // A soldier's drop at death: one roll down the class's drop list.
   dropFor(drops, classes, position, velocity, yaw) {
-    let r = (this.random || Math.random)();
+    let r = (this.random || legacyDrop)();
     for (const drop of drops || []) {
       r -= drop.probability ?? 0;
       if (r >= 0) continue;

@@ -1,5 +1,6 @@
 import { updateWeaponLock, hasMissileLock } from "./weapon-targeting.js";
 import { bindMountedRound } from "./muzzles.js";
+import { legacyRandom } from "./ai/random.js";
 import * as THREE from "three";
 import { makeHit } from "./collision.js";
 import { cameraTension, easeAxes } from "./flight/camera.js";
@@ -50,6 +51,8 @@ const LOOK_SCALE = 2048; // counts x sensitivity per unit of turn rate, as for s
 const LOOK_CLAMP = 16;
 const EXIT_EXTRA = 0.684; // m beyond the turret's bounding radius
 const EXIT_RADIUS = 2.253; // m, the turret's bounding radius
+// The spread with no generator given (random null): Math.random.
+const legacyGunnerSpread = legacyRandom("gunner-spread");
 const SPREAD = Math.PI / 180;
 const TURRET_CORE = 1.4; // m around the turret's centre that its own walls fill
 // The gunner's pose (Turret.riderSample): scratch, kept off the Gunner, whose
@@ -251,7 +254,7 @@ export class Gunner {
       for (const shot of weapon.update(dt, true, trigger, false, { stick: 0, posture: "stand", zoomed: zoom > 1 })) {
         turret.muzzle(this.muzzle, this.gunDir, true);
         turret.fireDirection?.(this.muzzle, this.target, this.gunDir, this.gunDir);
-        this.gunDir.applyAxisAngle(THREE.Object3D.DEFAULT_UP, ((this.random || Math.random)() - (this.random || Math.random)()) * 0.1 * SPREAD);
+        this.gunDir.applyAxisAngle(THREE.Object3D.DEFAULT_UP, ((this.random || legacyGunnerSpread)() - (this.random || legacyGunnerSpread)()) * 0.1 * SPREAD);
         const round = this.ordnance.fire(weapon.def.ordnance, this.muzzle, this.gunDir, this.combat?.owner ?? "player", null, turret.bodies.built, turret.lease?.emitter ?? turret, shot);
         bindMountedRound(round, turret, -1, -1, (turret.barrel - 1) % (turret.firePoints?.length || 1));
         emitSound("turretFire", turret, shot);
