@@ -178,6 +178,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsrt"
+version = "0.1.0"
+dependencies = [
+ "v8math",
+]
+
+[[package]]
 name = "khronos_api"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -350,6 +357,7 @@ version = "0.1.0"
 dependencies = [
  "content",
  "sim-replay",
+ "three",
  "v8math",
 ]
 
@@ -384,6 +392,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "three"
+version = "0.1.0"
+dependencies = [
+ "jsrt",
+]
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -392,6 +407,13 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 [[package]]
 name = "v8math"
 version = "0.1.0"
+
+[[package]]
+name = "v8math-check"
+version = "0.1.0"
+dependencies = [
+ "v8math",
+]
 
 [[package]]
 name = "version_check"

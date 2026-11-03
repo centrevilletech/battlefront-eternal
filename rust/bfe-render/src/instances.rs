@@ -16,7 +16,7 @@ pub const REC_KIND: usize = 0; // 1: skinned body, 2: rigid mesh
 pub const REC_PROGRAM: usize = 1;
 pub const REC_GEOMETRY: usize = 2;
 pub const REC_GROUPS: usize = 3; // groups drawn; 0 draws the whole index
-pub const REC_TEXTURES: usize = 4; // a texture a group (4 slots)
+pub const REC_TEXTURES: usize = 4; // a texture a group (4 slots; below 0 none)
 pub const REC_BONES: usize = 8;
 pub const REC_BONE_AT: usize = 9; // first matrix in `bones`
 pub const REC_SPHERE: usize = 10; // object space: centre, radius
@@ -26,7 +26,8 @@ pub const REC_BIND_INVERSE: usize = 36;
 pub const REC_LOOK: usize = 52; // sunScale, ambientPull, brightness
 pub const REC_FLAGS: usize = 56; // cull side (0 front, 1 back, 2 both) | 4 alpha to coverage | 8 depth write
 pub const REC_BIND: usize = 60; // bindMatrix (skinned)
-pub const REC_STRIDE: usize = 76;
+pub const REC_EXTRA: usize = 76; // a material's own values the instance gives (shader.rs EXTRAS: its row from ROW_EXTRA)
+pub const REC_STRIDE: usize = REC_EXTRA + shader::ROW_EXTRA_TEXELS * 4;
 pub const MAX_RECORDS: usize = 256;
 pub const MAX_ROWS: usize = 512;
 pub const BONE_TEXELS: usize = 1024; // a bone texture row
@@ -38,6 +39,9 @@ pub const BONES_LEN: usize = MAX_BONES * 16;
 
 pub struct InstancePass<C: HasContext> {
     instance_texture: C::Texture,
+    // What a material without a map samples, as three's empty texture
+    // gives it: nothing (all channels 0).
+    empty: C::Texture,
     bone_texture: C::Texture,
     rows: Vec<f32>,
     bone_upload: Vec<f32>,
@@ -51,9 +55,10 @@ impl<C: HasContext> InstancePass<C> {
         let gl = &core.gl;
         let instance_texture = upload_texture(gl, ROW_TEXELS as i32, MAX_ROWS as i32);
         let bone_texture = upload_texture(gl, BONE_TEXELS as i32, BONE_ROWS as i32);
+        let empty = upload_texture(gl, 1, 1);
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         InstancePass {
-            instance_texture, bone_texture, rows: vec![0.0; MAX_ROWS * ROW_TEXELS * 4], bone_upload: vec![0.0; MAX_BONES * 16],
+            instance_texture, empty, bone_texture, rows: vec![0.0; MAX_ROWS * ROW_TEXELS * 4], bone_upload: vec![0.0; MAX_BONES * 16],
             draws: Vec::with_capacity(MAX_ROWS), templates: Vec::with_capacity(MAX_RECORDS),
         }
     }
@@ -109,6 +114,9 @@ impl<C: HasContext> InstancePass<C> {
             for k in 0..4 {
                 row[shader::ROW_LOOK * 4 + k] = rec[REC_LOOK + k] as f32;
             }
+            for k in 0..shader::ROW_EXTRA_TEXELS * 4 {
+                row[shader::ROW_EXTRA * 4 + k] = rec[REC_EXTRA + k] as f32;
+            }
             let mut n = 0usize;
             for i in 0..light_count {
                 if mask & (1 << i) != 0 {
@@ -128,7 +136,9 @@ impl<C: HasContext> InstancePass<C> {
             let mirrored = math::mirrors(&world) as u32;
             let groups = (rec[REC_GROUPS] as usize).max(1);
             for g in 0..groups.min(4) {
-                let key = [rec[REC_PROGRAM] as u32, rec[REC_GEOMETRY] as u32, g as u32, rec[REC_TEXTURES + g] as u32, (rec[REC_FLAGS] as u32 & 15) | mirrored << 4, rec[REC_GROUPS] as u32];
+                // No texture (none below 0): nothing bound on the map's unit.
+                let texture = if rec[REC_TEXTURES + g] < 0.0 { u32::MAX } else { rec[REC_TEXTURES + g] as u32 };
+                let key = [rec[REC_PROGRAM] as u32, rec[REC_GEOMETRY] as u32, g as u32, texture, (rec[REC_FLAGS] as u32 & 15) | mirrored << 4, rec[REC_GROUPS] as u32];
                 if self.draws.len() < MAX_ROWS {
                     self.draws.push((key, template, g));
                 }
@@ -165,7 +175,7 @@ impl<C: HasContext> InstancePass<C> {
                 state.use_program(gl, stats, program.program);
                 gl.uniform_1_i32(program.instance_base.as_ref(), i as i32);
                 let geo = &geometries[g];
-                state.bind_texture(gl, stats, UNIT_MAP, Some(textures[key[3] as usize]));
+                state.bind_texture(gl, stats, UNIT_MAP, Some(textures.get(key[3] as usize).copied().unwrap_or(self.empty)));
                 state.set_state(gl, stats, key[4] & 3, key[4] & 4 != 0, key[4] & 8 != 0);
                 // Mirrored objects' faces wind the other way (three's frontFaceCW).
                 state.front_face(gl, stats, if key[4] & 16 != 0 { glow::CW } else { glow::CCW });

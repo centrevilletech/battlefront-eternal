@@ -1,0 +1,15 @@
+[package]
+name = "jsrt"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "JavaScript semantics for the Rust simulation port: conversions, rounding, sorts, ordered maps, number text and the game's random streams, bit-identical to V8 13.6."
+
+# A plain library: the sim module links it natively and as WebAssembly.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+# V8 13.6's transcendental Math, bit for bit (src/v8math.rs re-exports it).
+v8math = { path = "../v8math" }

@@ -8,7 +8,10 @@
 // opaque list; three has sorted its lists by then. After it (afterPhase),
 // the pass arms the transparent phase on the item three draws just before
 // its transparent list (the last opaque one): that item's onAfterRender
-// runs the phase, once, this frame.
+// runs the phase, once, this frame. A mirror's render of the near scene
+// (water.js's reflection) does the same for the mirror camera: its mirror
+// phase, then its transparent phase (mirrorTransparent), as the frame's
+// own render does, so that what blends shows in the reflection too.
 //
 // What three still draws. Whatever three draws itself stays in three's
 // list, in three's order. The phase writes the keys three sorted those
@@ -168,16 +171,16 @@ class TransparentPass {
     this.objectStride = core.rust.transparent_object_stride();
   }
 
-  // After the near phase (the near scene's own render: never a mirror's):
-  // take what this pass draws out of three's transparent list, then arm the
-  // transparent phase on the item three draws just before that list. After
-  // the transparent phase: arm each later segment on the item three draws
-  // just before it. When the near scene is drawn in place of three's render
-  // (near.js), its walk's items stand for three's list, all of them this
-  // pass's, and the transparent phase follows at once, as deferred as the
-  // near phase.
+  // After the near phase (or a mirror's, in the mirror's render): take what
+  // this pass draws out of three's transparent list, then arm the
+  // transparent phase (or the mirror's) on the item three draws just before
+  // that list. After the transparent phase: arm each later segment on the
+  // item three draws just before it. When the near scene is drawn in place
+  // of three's render (near.js), its walk's items stand for three's list,
+  // all of them this pass's, and the transparent phase follows at once, as
+  // deferred as the near phase.
   afterPhase(name, ctx) {
-    if (name === "near") {
+    if (name === "near" || name === "mirror") {
       this.disarm();
       this.frameNo++;
       this.list = null;
@@ -190,16 +193,17 @@ class TransparentPass {
       else this.takeNone();
       const before = this.list.transmissive.length ? this.list.transmissive : this.list.opaque;
       const last = before[before.length - 1];
-      const start = () => this.core.phase("transparent", ctx.renderer, ctx.scene, ctx.camera, ctx.defer);
+      const phase = name === "near" ? "transparent" : "mirrorTransparent";
+      const start = () => this.core.phase(phase, ctx.renderer, ctx.scene, ctx.camera, ctx.defer);
       // The far scene's image drawn last: the transparent list follows now.
       if (last.object === this.core.graphics.background) start();
-      else this.arm(last, start);
-    } else if (name === "transparent") {
+      else this.arm(last, start, ctx);
+    } else if (name === "transparent" || name === "mirrorTransparent") {
       const core = this.core, rust = core.rust;
       const n = rust.transparent_segments_len(), segments = new Uint32Array(core.wasm.memory.buffer, rust.transparent_segments_ptr(), n);
       this.segmentStats.length = 0;
       for (let k = 1; k + 1 < n && k <= this.three.length; k++) {
-        if (segments[k + 1] > segments[k]) { const segment = k; this.arm(this.three[k - 1], () => this.drawSegment(segment)); }
+        if (segments[k + 1] > segments[k]) { const segment = k; this.arm(this.three[k - 1], () => this.drawSegment(segment), ctx); }
       }
     }
   }
@@ -235,11 +239,13 @@ class TransparentPass {
   }
 
   // fn right after three draws `item` (its object's onAfterRender for that
-  // material and group) in the near scene's own pass, once. An object's hook
-  // is taken off once all of its items have run, or at the next frame's
-  // near phase whatever happened.
-  arm(item, fn) {
+  // material and group) in the render of the near scene the phase ran in
+  // (ctx: its camera and target; the frame's own, or a mirror's), once. An
+  // object's hook is taken off once all of its items have run, or at the
+  // next near (or mirror) phase whatever happened.
+  arm(item, fn, ctx) {
     const { graphics } = this.core;
+    const camera = ctx?.camera ?? graphics.camera, target = ctx ? ctx.renderer.getRenderTarget() : graphics.sceneTarget;
     let hook = this.hooks.get(item.object);
     if (!hook) {
       const object = item.object;
@@ -247,9 +253,10 @@ class TransparentPass {
       const hooks = this.hooks;
       object.onAfterRender = function (renderer, scene, camera, geometry, material, group) {
         hook.original.call(this, renderer, scene, camera, geometry, material, group);
-        if (camera !== graphics.camera || scene !== graphics.scene || renderer.getRenderTarget() !== graphics.sceneTarget) return;
+        if (scene !== graphics.scene) return;
+        const drawing = renderer.getRenderTarget();
         for (const entry of hook.entries) {
-          if (entry.done || entry.material !== material || entry.group !== group) continue;
+          if (entry.done || entry.material !== material || entry.group !== group || entry.camera !== camera || entry.target !== drawing) continue;
           entry.done = true;
           if (--hook.left === 0) { restore(hook); hooks.delete(object); }
           entry.fn();
@@ -258,7 +265,7 @@ class TransparentPass {
       };
       this.hooks.set(object, hook);
     }
-    hook.entries.push({ material: item.material, group: item.group, fn, done: false });
+    hook.entries.push({ material: item.material, group: item.group, fn, done: false, camera, target });
     hook.left++;
   }
 
