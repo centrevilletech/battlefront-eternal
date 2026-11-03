@@ -578,8 +578,9 @@ logic, the battle, snapshot capture) is logic over the battle's objects.
 
 The rays are the largest of the four, and they come from all over the step:
 a flyer's sweep and landing probes, a seat's aim, line-of-sight tests, a
-soldier's steps and ground, rounds in flight. `rust/rays` computes them, and
-the sphere queries after them, in Rust compiled to WebAssembly: in the
+soldier's steps and ground, rounds in flight. The collision module of
+`rust/sim` (once the crate `rust/rays`) computes them, and the sphere queries
+after them, in Rust compiled to WebAssembly: in the
 offline world worker unless the battle's query has `rays=js`, and on a page
 or a dedicated server when asked (`rays=wasm`, `BFE_RAYS=wasm`).
 
@@ -607,13 +608,16 @@ times as long in one probe). Copying every body's `enabled` before every cast
 cost 0.56 ms a tick on Bespin Platforms, a quarter of what the rays still
 took there.
 
-`tools/build-ray-kernel.mjs` builds the crate (`cargo build --release --target
-wasm32-unknown-unknown -p rays`; no wasm-bindgen, as the module imports
-nothing) and writes `src/ray-kernel-wasm.js`, the module as base64 (52 KB of
-WebAssembly). That file is committed, so building the game needs no Rust.
-game.js imports `src/ray-kernel.js` only for a battle that asks for it, so
-Vite makes it a chunk of its own (72 KB, 26 KB compressed) that the page and
-the world worker share, and the default bundle loads nothing more. The world
+`tools/build-rust.mjs` builds the crate (`cargo build --release --target
+wasm32-unknown-unknown -p sim`; no wasm-bindgen, as the module imports
+nothing) and writes `src/sim-wasm.js`, the module as base64 (52 KB of
+WebAssembly when it held the rays alone; 141 KB, 199 KB as base64 and 73 KB
+compressed, now that the simulation's module holds the movement, the pose
+sampler and the entity store too, docs/sim-store.md). That file is
+committed, so building the game needs no Rust. game.js imports
+`src/sim/module.js` only for a battle that asks for one of its kernels, so
+Vite makes it a chunk of its own that the page and the world worker share,
+and the default bundle loads nothing more. The world
 worker, the page and plain Node (the dedicated server, which copies `src/` as
 it is; `tools/world-hash.mjs`) all load it the same way, with
 `WebAssembly.compile` and `instantiate`: there is no wasm file to bundle,
@@ -663,7 +667,7 @@ contracts f64 operations by itself.
 The queries soldiers, hulls and droidekas make about a sphere run in the
 module too: `gather` (the polygons whose triangles' bounds meet the
 sphere's, each with those triangles), its cached form, `overlapsSphere` and
-`terrainNear`. `rust/rays/src/spheres.rs` repeats collision.js and
+`terrainNear`. `rust/sim/src/collision/spheres.rs` repeats collision.js and
 three-mesh-bvh's shapecast: the same walk of a tree (a child's bounds tested
 before going down to it, never the root's; a leaf's triangles in their
 indirect order), the same bounds tests written the same way (`a < b` and
@@ -706,7 +710,7 @@ whose bounds its ray meets; the ray's test ignores how far the cast reaches,
 so every body's bounds were tested for every cast. Bespin Platforms has 96
 bodies, four casts in five there reach less than 5 m (0.9 m at the median),
 and on average a tenth of a body passed: the walk was 4% of the world step.
-`rust/rays/src/broad.rs` files the fixed bodies in a grid over x and z, made
+`rust/sim/src/collision/broad.rs` files the fixed bodies in a grid over x and z, made
 again when the world's order or a fixed body's bounds change. A cast with a
 finite reach whose segment covers at most 16 cells takes the fixed bodies
 filed there whose bounds come within a millimetre of the segment's, and
@@ -853,7 +857,7 @@ a second within 0.8.
 
 bfeserver runs the same world in Node: its world thread calls the engine's
 `createGame` with the battle's query, and the engine loads the module there
-as it does in a page's worker, from `src/ray-kernel-wasm.js`, which the host
+as it does in a page's worker, from `src/sim-wasm.js`, which the host
 runtime copies with the rest of `src/` (compiled once a thread in about
 10 ms; each battle's own instance and copies, 3 to 12 MB a map, made in 7 to
 20 ms as it loads). A server opts in with `BFE_RAYS=wasm` in its
@@ -1174,7 +1178,7 @@ soldier every frame, over each command the world has not acknowledged yet
 step on Naboo Plains and a twentieth on Dune Sea and Bespin Platforms, and on
 the page about half of what the replay cost.
 
-`rust/rays/src/movement` runs the whole tick in the ray kernel's module, for a
+`rust/sim/src/movement` runs the whole tick in the ray kernel's module, for a
 battle whose query has `movement=wasm` (which loads the ray kernel with it):
 the world worker's ticks (and a dedicated server's) and the page's replay
 alike, each with its own instance of the module. The offline world worker
@@ -1188,8 +1192,9 @@ both kinds of jetpack, the drive along the ground, and the collision pass (the
 terrain's column under each body sphere, the nearest polygon of the buildings
 and bodies one contact at a time, the step up stairs, the ground snap and the
 headroom ray). Its queries are the module's own (the sphere gathers, the
-overlap test and the ground of `rust/rays/src/spheres.rs`, and the casts of
-`lib.rs`), against the copies of the trees, the terrain grid and the bodies
+overlap test and the ground of `rust/sim/src/collision/spheres.rs`, and the
+casts of `collision/mod.rs`), against the copies of the trees, the terrain
+grid and the bodies
 the ray kernel keeps anyway, so a tick makes no call back into JavaScript.
 
 The soldier object stays the only copy of his state between ticks, so the

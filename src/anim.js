@@ -39,8 +39,9 @@ export function loadClips(meta, buffer, boneNames = null) {
 
 // The WebAssembly pose sampler (src/anim-kernel.js, ?anim=wasm), when a
 // battle loads one. It blends clips to the last bit as the JavaScript
-// below does (rust/anim says how); poses take it up as they are made or
-// cleared, and drop it the same way, so a battle can switch it live.
+// below does (rust/sim/src/pose says how); poses take it up as they are
+// made or cleared, and drop it the same way, so a battle can switch it
+// live.
 let animKernel = null;
 export function setAnimKernel(kernel) {
   animKernel = kernel || null;
@@ -170,9 +171,10 @@ export class Pose {
   apply(bones) {
     if (this.kernel) {
       // The kernel's finals are the normalized quaternion and the
-      // translation over the weight the loop below computes (rust/anim
-      // apply_out); setting a bone's quaternion from them leaves its
-      // Euler angles where the JavaScript's normalize left them.
+      // translation over the weight the loop below computes
+      // (rust/sim/src/pose apply_out); setting a bone's quaternion from
+      // them leaves its Euler angles where the JavaScript's normalize left
+      // them.
       const out = this.kernel.applyOut(this.kernelPose);
       this.refresh();
       for (let i = 0; i < this.count; i++) {

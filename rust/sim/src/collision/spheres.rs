@@ -21,7 +21,7 @@
 //! JavaScript's, the flags of the candidates the query's first call names
 //! (as the casts do).
 
-use crate::{apply_matrix4, candidate, dot, enabled, f32_at, grid_raycast, io, js_max, js_min, state, sub, triangle_normal, Corner, Corners, Ray, State, Tree, MAX_BODIES};
+use crate::collision::{apply_matrix4, candidate, dot, enabled, f32_at, grid_raycast, io, js_max, js_min, state, sub, triangle_normal, Corner, Corners, Ray, State, Tree, MAX_BODIES};
 use std::ptr::addr_of_mut;
 
 /// collision.js BLOCKER_POLYGONS: the vehicle-only barriers' polygon numbers
@@ -527,7 +527,7 @@ pub fn gather(s: &State, world: usize, center: [f64; 3], radius: f64, blockers: 
 /// JavaScript to flag; their count.
 fn candidates_for(s: &State, world: usize, bounds: &Bounds, ignore: i64, list: Option<&[u32]>) -> usize {
     let w = &s.worlds[world];
-    let out = unsafe { &mut *addr_of_mut!(crate::CANDIDATES) };
+    let out = unsafe { &mut *addr_of_mut!(crate::collision::CANDIDATES) };
     let mut count = 0;
     let mut each = |place: usize| {
         let slot = w.order[place] as usize;
@@ -562,7 +562,7 @@ fn tree_overlaps(s: &State, tree: usize, bounds: &Bounds, center: [f64; 3], radi
 /// The ground cells (x then z ranges) a sphere's bounds cover, as
 /// TriangleGrid.near and overlapsSphere find them, each a floor.
 #[inline(always)]
-fn grid_cells(g: &crate::Grid, center: [f64; 3], radius: f64) -> (f64, f64, f64, f64) {
+fn grid_cells(g: &crate::collision::Grid, center: [f64; 3], radius: f64) -> (f64, f64, f64, f64) {
     let size = g.size;
     let x0 = ((center[0] - radius - g.min_x) / size).floor();
     let x1 = ((center[0] + radius - g.min_x) / size).floor();
@@ -573,7 +573,7 @@ fn grid_cells(g: &crate::Grid, center: [f64; 3], radius: f64) -> (f64, f64, f64,
 
 /// TriangleGrid.nextSerial.
 #[inline(always)]
-fn next_serial(g: &mut crate::Grid) {
+fn next_serial(g: &mut crate::collision::Grid) {
     g.serial = g.serial.wrapping_add(1);
     if g.serial == 0xffff_ffff {
         g.stamp.iter_mut().for_each(|v| *v = 0);
@@ -584,11 +584,11 @@ fn next_serial(g: &mut crate::Grid) {
 /// Each triangle filed in the cells a sphere's bounds cover, once, in the
 /// grid's order, until `visit` (given the grid's index and the triangle's
 /// number) returns true, which this then returns.
-fn grid_each<V: FnMut(&[u32], usize) -> bool>(g: &mut crate::Grid, center: [f64; 3], radius: f64, mut visit: V) -> bool {
+fn grid_each<V: FnMut(&[u32], usize) -> bool>(g: &mut crate::collision::Grid, center: [f64; 3], radius: f64, mut visit: V) -> bool {
     let (x0, x1, z0, z1) = grid_cells(g, center, radius);
     next_serial(g);
     let serial = g.serial;
-    let crate::Grid { start, cells, stamp, index, nx, nz, .. } = g;
+    let crate::collision::Grid { start, cells, stamp, index, nx, nz, .. } = g;
     let (nx, nz) = (*nx, *nz);
     let mut z = js_max(0.0, z0);
     while z <= js_min(nz - 1.0, z1) {

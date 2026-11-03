@@ -1,9 +1,10 @@
-// The collision world's queries in WebAssembly (rust/rays), for
-// CollisionWorld's cast, castMoving, ground, gather, overlapsSphere and
-// terrainNear: in the offline world worker unless its battle's query says
-// rays=js, and on a page or a dedicated server when asked (?rays=wasm,
-// BFE_RAYS=wasm). The module answers every query as the JavaScript in
-// src/collision.js does, to the last bit (rust/rays says how).
+// The collision world's queries in WebAssembly (rust/sim/src/collision, in
+// the simulation's module, src/sim/module.js), for CollisionWorld's cast,
+// castMoving, ground, gather, overlapsSphere and terrainNear: in the offline
+// world worker unless its battle's query says rays=js, and on a page or a
+// dedicated server when asked (?rays=wasm, BFE_RAYS=wasm). The module
+// answers every query as the JavaScript in src/collision.js does, to the
+// last bit (rust/sim/src/collision says how).
 //
 // The module holds copies of what the queries read: each tree's packed nodes
 // from three-mesh-bvh, its triangles' corners, index and indirect buffers
@@ -11,21 +12,15 @@
 // (each triangle's bounds), and each body's bounds and matrices. Trees never
 // change once built, so each is copied once; a body's place is copied as it
 // moves; and before each query, whether the bodies it can meet are enabled.
-import { RAY_KERNEL_WASM } from "./ray-kernel-wasm.js";
+import { loadSim } from "./sim/module.js";
 
-let compiling = null;
-
-// A kernel of its own for a battle: the module is compiled once per thread,
-// and each battle gets its own instance, whose copies go with it when the
-// battle ends (a dedicated server loads one battle after another).
-export async function loadRayKernel() {
-  compiling ||= (async () => {
-    const text = atob(RAY_KERNEL_WASM);
-    const bytes = new Uint8Array(text.length);
-    for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
-    return WebAssembly.compile(bytes);
-  })();
-  return new RayKernel((await WebAssembly.instantiate(await compiling, {})).exports);
+// The kernel of a battle, on its instance of the simulation's module (the
+// one its other kernels use), or on an instance of its own: the module is
+// compiled once per thread, and each battle gets its own instance, whose
+// copies go with it when the battle ends (a dedicated server loads one
+// battle after another).
+export async function loadRayKernel(instance = null) {
+  return new RayKernel((instance ?? await loadSim()).exports);
 }
 
 export class RayKernel {
@@ -65,7 +60,7 @@ export class RayKernel {
   u32(ptr, length) { return new Uint32Array(this.memory.buffer, ptr, length); }
   f64(ptr, length) { return new Float64Array(this.memory.buffer, ptr, length); }
 
-  // The exchange slots (rust/rays IO).
+  // The exchange slots (rust/sim/src/collision IO).
   view() {
     if (this.io.byteLength === 0) this.refresh();
     return this.io;
@@ -204,7 +199,7 @@ export class RayKernel {
     this.x.body_set(slot);
   }
 
-  // The candidates of the cast about to run (rust/rays CANDIDATES: places
+  // The candidates of the cast about to run (rust/sim/src/collision CANDIDATES: places
   // in the world's order), and whether each is enabled (ENABLED).
   candidates() {
     if (this.candidateList.byteLength === 0) this.refresh();

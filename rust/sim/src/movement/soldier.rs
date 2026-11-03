@@ -13,7 +13,7 @@
 //! before and after the tick's turn, and of its pitch (`Trig`).
 
 use super::scene::{Kind, Scene};
-use crate::{js_max, js_min};
+use crate::collision::{js_max, js_min};
 
 /// three.js's Vector3, as its methods compute.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]

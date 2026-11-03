@@ -22,7 +22,6 @@
 
 use std::ptr::addr_of_mut;
 
-pub mod movement;
 pub mod spheres;
 pub mod broad;
 
@@ -38,7 +37,7 @@ static mut IO: [f64; IO_LEN] = [0.0; IO_LEN];
 /// never move.
 pub const MAX_BODIES: usize = 1 << 16;
 pub(crate) static mut CANDIDATES: [u32; MAX_BODIES] = [0; MAX_BODIES];
-static mut ENABLED: [u8; MAX_BODIES] = [0; MAX_BODIES];
+pub(crate) static mut ENABLED: [u8; MAX_BODIES] = [0; MAX_BODIES];
 
 /// Return codes of the world casts.
 pub const MISS: i32 = -2;

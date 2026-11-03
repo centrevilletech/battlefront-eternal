@@ -1,0 +1,16 @@
+[package]
+name = "sim"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+
+# The world simulation's WebAssembly module, bfe_sim: a raw module (no
+# wasm-bindgen) that src/sim/module.js instantiates with plain WebAssembly
+# APIs, in a worker, a page or Node alike, one instance a battle. It holds
+# the collision's queries, the soldiers' movement and the pose sampler
+# (once the crates rays and anim) and the entity store the simulation's
+# port builds on (docs/sim-store.md). The rlib is for the native tests.
+[lib]
+name = "bfe_sim"
+crate-type = ["cdylib", "rlib"]
