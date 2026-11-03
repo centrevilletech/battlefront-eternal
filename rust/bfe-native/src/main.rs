@@ -132,7 +132,7 @@ fn main() {
             }
             "set_far_map" => r.core.set_far_map(n(0) as u32),
             "add_program" => {
-                let kind = match n(0) as u32 { 1 => Kind::Skinned, 2 => Kind::Rigid, 3 => Kind::Plain, _ => Kind::World };
+                let kind = match n(0) as u32 { 1 => Kind::Skinned, 2 => Kind::Rigid, 3 => Kind::Plain, 4 => Kind::Effect, _ => Kind::World };
                 let attrs: Vec<(String, u32)> = a[3].as_str().unwrap().split(',').filter(|s| !s.is_empty())
                     .map(|s| { let (k, v) = s.split_once(':').unwrap(); (k.to_string(), v.parse().unwrap()) }).collect();
                 let uniforms: Vec<String> = a[4].as_str().unwrap().split(',').filter(|s| !s.is_empty()).map(String::from).collect();
@@ -149,8 +149,6 @@ fn main() {
             "world_uniform" => { r.world.world_uniform(&r.core, n(0) as u32, a[1].as_str().unwrap(), &f32s(b(2)), a[3].as_bool().unwrap()); }
             "world_cells" => r.world.world_cells(n(0) as u32, &f32s(b(1)), &u32s(b(2)), n(3)),
             "sort" => r.world.sort(a[0].as_bool().unwrap()),
-            "world_runs" => r.world.world_runs(n(0) as u32, &u32s(b(1)), &f64s(b(2))),
-            "world_shown" => r.world.world_shown(n(0) as u32, a[1].as_bool().unwrap()),
             other => eprintln!("skipped call {other}"),
         }
     }

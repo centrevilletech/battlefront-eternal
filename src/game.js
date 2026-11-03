@@ -717,6 +717,8 @@ async function start() {
       group.addEventListener("removed", () => {
         for (const child of group.children) graphics.casters.delete(child);
       });
+      // For a renderer that draws them itself (src/rust-render/instances.js).
+      group.userData.flying = true;
       return group;
     };
   };

@@ -278,6 +278,255 @@ export class BfeRenderer {
         return v1;
     }
     /**
+     * @param {number} program
+     * @param {number} texture
+     * @param {Uint32Array | number[]} blend
+     * @param {number} corner
+     * @param {Uint32Array | number[]} attributes
+     * @param {number} owner
+     * @returns {number}
+     */
+    fx_add_batch(program, texture, blend, corner, attributes, owner) {
+        const val3 = +program;
+        const val4 = +texture;
+        const val5 = +corner;
+        const val6 = +owner;
+        let ptr0, len0, ptr1, len1;
+        try {
+            ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(attributes, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_fx_add_batch(this.__wbg_ptr, val3, val4, ptr0, len0, val5, ptr1, len1, val6);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} texture
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_flags
+     * @param {number} depth_func
+     * @param {Uint32Array | number[]} sizes
+     * @param {string} values
+     * @returns {number}
+     */
+    fx_add_mesh(texture, blend, depth_flags, depth_func, sizes, values) {
+        const val4 = +texture;
+        const val5 = +depth_flags;
+        const val6 = +depth_func;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArray32ToWasm0(sizes, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(values, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_fx_add_mesh(this.__wbg_ptr, val4, ptr0, len0, val5, val6, ptr1, len1, ptr2, len2);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} texture
+     * @param {Uint32Array | number[]} blend
+     * @param {number} depth_flags
+     * @param {number} depth_func
+     * @param {string} values
+     * @param {Float64Array | number[]} sphere
+     * @returns {number}
+     */
+    fx_add_model(texture, blend, depth_flags, depth_func, values, sphere) {
+        const val4 = +texture;
+        const val5 = +depth_flags;
+        const val6 = +depth_func;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passArray32ToWasm0(blend, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(values, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArrayF64ToWasm0(sphere, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 8, 8); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_fx_add_model(this.__wbg_ptr, val4, ptr0, len0, val5, val6, ptr1, len1, ptr2, len2);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} tracks
+     * @param {number} track_rows
+     * @returns {number}
+     */
+    fx_add_owner(tracks, track_rows) {
+        const ret = wasm.bferenderer_fx_add_owner(this.__wbg_ptr, tracks, track_rows);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} batch
+     * @param {Uint32Array | number[]} attributes
+     * @param {number} vertices
+     * @param {Float32Array | number[]} data
+     * @param {Uint16Array | number[]} index
+     */
+    fx_batch_base(batch, attributes, vertices, data, index) {
+        const val4 = +batch;
+        const val5 = +vertices;
+        let ptr0, len0, ptr1, len1, ptr2, len2;
+        try {
+            ptr0 = passArray32ToWasm0(attributes, wasm.__wbindgen_malloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passArrayF32ToWasm0(data, wasm.__wbindgen_malloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passArray16ToWasm0(index, wasm.__wbindgen_malloc);
+            len2 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 2, 2); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 4, 4); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 4, 4); }
+            throw e;
+        }
+        wasm.bferenderer_fx_batch_base(this.__wbg_ptr, val4, ptr0, len0, val5, ptr1, len1, ptr2, len2);
+    }
+    /**
+     * @param {number} batch
+     */
+    fx_batch_interleaved(batch) {
+        wasm.bferenderer_fx_batch_interleaved(this.__wbg_ptr, batch);
+    }
+    /**
+     * @param {number} batch
+     * @param {string} name
+     * @param {number} unit
+     * @param {number} texture
+     */
+    fx_batch_sampler(batch, name, unit, texture) {
+        const val2 = +batch;
+        const val3 = +unit;
+        const val4 = +texture;
+        const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_fx_batch_sampler(this.__wbg_ptr, val2, ptr0, len0, val3, val4);
+    }
+    /**
+     * @param {number} batch
+     * @param {number} texture
+     */
+    fx_batch_texture(batch, texture) {
+        wasm.bferenderer_fx_batch_texture(this.__wbg_ptr, batch, texture);
+    }
+    /**
+     * @param {number} batch
+     * @param {string} values
+     */
+    fx_batch_values(batch, values) {
+        const val2 = +batch;
+        const ptr0 = passStringToWasm0(values, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_fx_batch_values(this.__wbg_ptr, val2, ptr0, len0);
+    }
+    /**
+     * @returns {number}
+     */
+    fx_data_len() {
+        const ret = wasm.bferenderer_fx_data_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    fx_data_ptr() {
+        const ret = wasm.bferenderer_fx_data_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    fx_input_len() {
+        const ret = wasm.bferenderer_fx_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    fx_input_ptr() {
+        const ret = wasm.bferenderer_fx_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    fx_matrices_len() {
+        const ret = wasm.bferenderer_fx_matrices_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    fx_matrices_ptr() {
+        const ret = wasm.bferenderer_fx_matrices_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} mesh
+     * @param {number} program
+     * @param {number} side
+     * @param {Uint32Array | number[]} locations
+     * @returns {number}
+     */
+    fx_mesh_pass(mesh, program, side, locations) {
+        const val2 = +mesh;
+        const val3 = +program;
+        const val4 = +side;
+        const ptr0 = passArray32ToWasm0(locations, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_fx_mesh_pass(this.__wbg_ptr, val2, val3, val4, ptr0, len0);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} mesh
+     * @param {number} texture
+     */
+    fx_mesh_texture(mesh, texture) {
+        wasm.bferenderer_fx_mesh_texture(this.__wbg_ptr, mesh, texture);
+    }
+    /**
+     * @param {number} model
+     * @param {number} program
+     * @param {number} side
+     * @param {number} geometry
+     * @returns {number}
+     */
+    fx_model_pass(model, program, side, geometry) {
+        const ret = wasm.bferenderer_fx_model_pass(this.__wbg_ptr, model, program, side, geometry);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} model
+     * @param {number} texture
+     */
+    fx_model_texture(model, texture) {
+        wasm.bferenderer_fx_model_texture(this.__wbg_ptr, model, texture);
+    }
+    /**
+     * @param {number} floats
+     */
+    fx_reserve(floats) {
+        wasm.bferenderer_fx_reserve(this.__wbg_ptr, floats);
+    }
+    /**
      * @param {number} g
      * @param {Uint8Array | number[]} data
      * @returns {number}
@@ -997,6 +1246,12 @@ function __wbg_get_imports() {
         __wbg_multiDrawElementsWEBGL_792aac30dde30bf8: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
             arg0.multiDrawElementsWEBGL(arg1 >>> 0, getArrayI32FromWasm0(arg2, arg3), arg4 >>> 0, arg5 >>> 0, getArrayI32FromWasm0(arg6, arg7), arg8 >>> 0, arg9);
         },
+        __wbg_pixelStorei_43dc7945a0d4d49c: function(arg0, arg1, arg2) {
+            arg0.pixelStorei(arg1 >>> 0, arg2);
+        },
+        __wbg_pixelStorei_6dd56b4da047c480: function(arg0, arg1, arg2) {
+            arg0.pixelStorei(arg1 >>> 0, arg2);
+        },
         __wbg_shaderSource_519d0f56b613b2f9: function(arg0, arg1, arg2, arg3) {
             arg0.shaderSource(arg1, getStringFromWasm0(arg2, arg3));
         },
@@ -1366,6 +1621,13 @@ function handleError(f, args) {
 
 function isLikeNone(x) {
     return x === undefined || x === null;
+}
+
+function passArray16ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 2, 2) >>> 0;
+    getUint16ArrayMemory0().set(arg, ptr / 2);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
 }
 
 function passArray32ToWasm0(arg, malloc) {

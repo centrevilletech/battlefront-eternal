@@ -55,6 +55,13 @@ function bridge() {
     transparent_segments_ptr() { return 49152; }
     transparent_segments_len() { return 0; }
     transparent_segment() { return []; }
+    // The effects pass's views (src/rust-render/effects.js): none drawn here.
+    fx_input_ptr() { return 57344; }
+    fx_input_len() { return 16; }
+    fx_data_ptr() { return 61440; }
+    fx_data_len() { return 16; }
+    fx_matrices_ptr() { return 65536; }
+    fx_matrices_len() { return 16; }
     records_at() { return 200; }
     record_stride() { return 76; }
     set_far_map() {}
