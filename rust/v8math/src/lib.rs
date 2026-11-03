@@ -124,7 +124,18 @@ pub(crate) fn scalbn(x: f64, n: i32) -> f64 {
 
 /// ECMAScript ToUint32, what `x >>> 0` computes: NaN and the infinities give
 /// 0; anything else is truncated toward zero and reduced modulo 2^32.
+#[inline]
 pub fn to_uint32(x: f64) -> u32 {
+    if x.abs() < 2147483648.0 {
+        // Rust's conversion truncates toward zero, as ToInt32 does, for
+        // every number this small (NaN fails the test).
+        return x as i32 as u32;
+    }
+    large_to_uint32(x)
+}
+
+/// ToUint32 of a number of magnitude 2^31 or more, or NaN.
+fn large_to_uint32(x: f64) -> u32 {
     let bits = x.to_bits();
     let exp = ((bits >> 52) & 0x7FF) as i32 - 1023;
     if exp < 0 || exp == 1024 {
@@ -151,6 +162,7 @@ pub fn to_uint32(x: f64) -> u32 {
 
 /// ECMAScript ToInt32, what `x | 0` computes: ToUint32's bits read as a
 /// signed integer.
+#[inline]
 pub fn to_int32(x: f64) -> i32 {
     to_uint32(x) as i32
 }
