@@ -51,6 +51,7 @@ import { nearPass } from "./near.js";
 import { canopiesPass } from "./canopies.js";
 import { motionPass } from "./motion.js";
 import { imagePass, cloudsPass, underwaterPass } from "./screen.js";
+import { mirrorPass } from "./mirror.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -224,7 +225,7 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, imagePass, cloudsPass, underwaterPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, imagePass, cloudsPass, underwaterPass, mirrorPass]) this.addPass(make(this));
     // The near phase's hook: first in three's opaque list of the near scene
     // (graphics.background, the far scene's image, is drawn last of it).
     this.nearAnchor = graphics.scene ? this.anchor(graphics.scene, { renderOrder: -1e9 }, (renderer, scene, camera) => this.pass(renderer, scene, camera)) : null;
@@ -717,6 +718,13 @@ export class RustRender {
   // nothing in it is left for three (near.js); true when it was.
   coverNear(renderer, scene, camera) {
     return this.byName.near?.cover(renderer, scene, camera) ?? false;
+  }
+
+  // water.js: a water mirror's render of the near scene, drawn in place of
+  // three's render of it when nothing in it is left for three (mirror.js);
+  // true when it was.
+  coverMirror(renderer, scene, camera) {
+    return this.byName.mirrorCover?.cover(renderer, scene, camera) ?? false;
   }
 
   // hud.js: the battle HUD's batch, drawn by the HUD pass; true when it was.

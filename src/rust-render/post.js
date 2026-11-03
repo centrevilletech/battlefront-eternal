@@ -44,6 +44,13 @@ export function uniformType(gl, type) {
 // with its uniforms ({ name, type } in slot order); null when it has one the
 // renderer can't set; undefined until three has made it.
 const plainPrograms = new WeakMap();
+// Whether plainProgram has made (or refused) the renderer's program for
+// three's current one of a material, so that calling it makes no program.
+export function plainProgramKnown(core, material) {
+  const threeProgram = core.renderer.properties.get(material).currentProgram;
+  return !threeProgram || plainPrograms.has(threeProgram);
+}
+
 // A uniform the program reads for nothing it draws, left at zero: an unlit
 // zero material's packed point lights (materials.js), which its vertex
 // shader adds up into a value its fragment shader never reads (three sets

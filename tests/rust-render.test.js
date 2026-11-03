@@ -51,9 +51,9 @@ function bridge() {
 
 test("the passes are made in the renderer's order, each in its phase", () => {
   const { core } = bridge();
-  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post", "hud", "water", "near", "canopies", "sea", "motion", "image", "clouds", "underwater"]);
+  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post", "hud", "water", "near", "canopies", "sea", "motion", "image", "clouds", "underwater", "mirrorCover"]);
   const phases = Object.fromEntries(Object.entries(core.phases).map(([name, passes]) => [name, passes.map((p) => p.name)]));
-  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage", "canopies", "sea"], transparent: ["transparent", "effects", "water", "image"], view: ["view"], post: ["post"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage", "canopies", "sea"], mirrorTransparent: ["transparent", "effects", "water", "image"], begin: ["near"], farMirror: ["far"], probe: ["far"], motion: ["motion"], skyClouds: ["clouds"], underwater: ["underwater"] });
+  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage", "canopies", "sea"], transparent: ["transparent", "effects", "water", "image"], view: ["view"], post: ["post"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage", "canopies", "sea"], mirrorTransparent: ["transparent", "effects", "water", "image"], begin: ["near", "mirrorCover"], farMirror: ["far"], probe: ["far"], motion: ["motion"], skyClouds: ["clouds"], underwater: ["underwater"] });
   assert.throws(() => core.addPass({ name: "x", phase: "nowhere" }), /no phase nowhere/);
 });
 

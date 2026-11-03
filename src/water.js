@@ -1121,7 +1121,9 @@ export class Water extends WaterState {
         // only this mirror draws it before render() does.
         graphics.updateScene?.();
         renderer.setRenderTarget(this.target);
-        renderer.render(graphics.scene, mirror);
+        // The Rust renderer draws it all where nothing in it is left for
+        // three (src/rust-render/mirror.js), else three (its mirror phase inside).
+        if (!graphics.rust?.coverMirror(renderer, graphics.scene, mirror)) renderer.render(graphics.scene, mirror);
       }
     } finally {
       this.group.visible = visible;
