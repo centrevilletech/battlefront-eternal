@@ -960,7 +960,7 @@ boundary, so that each part of the frame can move to it on its own:
 | View | `view.rs` | `view.js` | view | The first-person arms and weapon, and the muzzle flash |
 | Post | `post.rs` | `post.js` | post | Soft focus, composite, FXAA, the bilinear upscale |
 | HUD | `hud.rs` | `hud.js` | hud | The battle HUD's quads |
-| Water | `water.rs` | `water.js` | transparent | Terrain water among the blended items: Low's textured surface, High and Ultra's tint and reflection passes, the rings, the shore's lapping |
+| Water | `water.rs` | `water.js` | transparent | Terrain water among the blended items: Low's textured surface, High and Ultra's tint and reflection passes, the rings, the shore's lapping, the Enhanced ocean's crest spray |
 | Canopies | `canopies.rs` | `canopies.js` | near | The Enhanced tree canopies' leaves |
 
 `core.rs` holds what the passes share: the context and its multi-draw, the
@@ -1353,12 +1353,12 @@ terrain, the far view distance and 4x multisampling, the far scenes of
 Theed and Hoth were the renderer's alone and the same to the pixel. The
 Enhanced sky, water at High and Ultra and the sky probes, which render the
 far scene again from cameras of their own, are the far pass's too: see the
-next section. Shadows, lamp lighting and the temporal upscaler need nothing
-of the far pass itself (its materials read neither shadows nor lamps, and
+next section, as is the Enhanced ocean's. Shadows, lamp lighting and the
+temporal upscaler need nothing of the far pass itself (its materials read neither shadows nor lamps, and
 the upscaler's jitter is in the far camera's projection), only the core's
 leave to stay on with them.
 
-### The Enhanced sky, water and canopies
+### The Enhanced sky, water, canopies and ocean
 
 - A water mirror's far scene. Water at High and Ultra renders the far scene
   again each frame (every other frame at High while the eye holds still),
@@ -1396,6 +1396,18 @@ leave to stay on with them.
   program for it, and three neither lists the mesh nor uploads its leaves:
   each frame the page copies the instances whose slots changed into the
   renderer's copy.
+- The Enhanced ocean. The sea's surface is a mesh of its own in the near and
+  far scenes, with crest spray over it, and on a sea the map rains on
+  (Kamino) a storm: a panorama of clouds drawn over the sky by a
+  full-screen triangle, a horizon veil, the horizon's models in the storm's
+  light, and lightning drawn from vertices rewritten at each strike. The
+  far pass draws a mesh with no index through an index of its own (0, 1,
+  2...) over the range three draws each frame, and refreshes a mesh's vertex
+  buffers when three would upload them, so the storm is far items like any
+  other. The near surface shares its material with the far one, so it is the
+  far pass's item too, drawn from the near phase after its opaque passes and
+  hidden from three on a layer no camera renders. The spray is an instanced
+  surface of the water pass.
 
 On the emulator (SwiftShader, 1600x900, four samples, the Classic looks
 with the feature on), at four points of a seeded walk each, the presented
@@ -1411,10 +1423,28 @@ afresh and the probes captured afresh in every compared frame:
 | Water at Ultra (far and near mirrors, surfaces) | Kashyyyk: Docks, Naboo: Theed | frame, reflection, its far image | frame 0; reflection 1 and 247 at one point each, as many as three against itself there |
 | Enhanced sky (flyers, probe) | Tatooine: Dune Sea, Bespin: Platforms, Geonosis: Spire | frame, far image, the probe's six faces | 0 at every point |
 | Enhanced trees (canopies) | Yavin 4: Temple, Naboo: Theed (and at Ultra) | frame | 0 on Yavin 4; 1 pixel at one point on Theed, the same with the canopies given back to three |
+| Enhanced ocean | Kashyyyk: Islands, Kamino (its storm) | frame, far image, the probe's six faces (Islands), the storm's clouds (Kamino) | 0 at every point |
 
 In the renderer's frames three drew none of the far scene, the mirror's far
 scene or the probe's faces; on Kashyyyk: Docks at High, three's draws a frame
 fell from 88 to 1, the far mirror drawing 21 and the water 10.
+
+With the High quality preset (shadows, lamps, the temporal upscaler with
+its jitter pinned and history reset for each compared frame, the shadow
+caches drawn again before each), the same comparisons gave 0 pixels at every
+point for water at High (Kashyyyk: Docks), the Enhanced sky (Bespin:
+Platforms), the ocean (Kashyyyk: Islands, Kamino) and the canopies (Yavin 4:
+Temple); with water at Ultra the frame and the mirror's far image were the
+same to the pixel, and the mirror's near image differed at two points by as
+much as three's own two renders of it did. With the Balanced preset (Low
+water, soft particles) Kashyyyk: Docks and Naboo: Theed were the same to the
+pixel. In those frames three drew none of the far scene, the mirrors' far
+scenes, the probe or the water.
+
+On the emulator with its draws made no-ops, a water mirror's far scene on
+Kashyyyk: Docks at High, drawn on the same frames alternately by the far
+pass and by three, cost 0.73 ms (median) and 1.01 ms (mean) with the far
+pass against 1.05 and 1.50 ms with three's two renders.
 
 ## His controls on a slow CPU
 
