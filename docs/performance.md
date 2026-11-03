@@ -955,7 +955,7 @@ boundary, so that each part of the frame can move to it on its own:
 | Far | `far.rs` | `far.js` | far | The far scene: sky and its layers, low-detail buckets, far terrain, far water, the sky's flyers; the same from a water mirror's camera and for the sky probes' faces |
 | Terrain | `terrain.rs` | `terrain.js` | near | The ground and its painted layers (drawn by the world pass) |
 | Transparent | `transparent.rs` | `transparent.js` | transparent | What the near scene blends, in three's order: blended buckets, holograms, flares |
-| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam, fountain and wake effects, the Enhanced arcs, the droideka's dust, the jetpack's wake, the destruction's fire and smoke and the death camera's trace |
+| Effects | `effects.rs` | `effects.js` | transparent | Particle batches, Classic lightning, muzzle flashes, shields, haze, snow, rain, the Enhanced rain, steam, fountain and wake effects, the Enhanced arcs, the droideka's dust, the jetpack's wake, the destruction's fire, smoke and arcs, the droideka's aura and the death camera's trace |
 | Foliage | `foliage.rs` | `foliage.js` | near | Placed foliage, instanced, its patches chosen there too |
 | View | `view.rs` | `view.js` | view | The first-person arms and weapon, and the muzzle flash |
 | Post | `post.rs` | `post.js` | post | Soft focus, composite, FXAA, the bilinear upscale |
@@ -1115,6 +1115,8 @@ has drawn it, with three's own program, then hidden from three:
 | Enhanced droideka's rolling dust | `droideka-trail.js` | instanced quads, base plane | `external` |
 | Enhanced jetpack's wake (fire, smoke, embers) | `jetpack-wake.js` | instanced quads, base plane | `external` |
 | Enhanced destruction's fire and smoke | `destruction-fx.js` | instanced quads, base plane, each pool's own attributes | `external` |
+| Enhanced destruction's arcs | `destruction-fx.js` | dynamic mesh, as many vertices and indices as its arcs use | `external` |
+| Enhanced droideka's aura | `droideka-shield.js` | shader model, front faces, the shield's values | its material |
 | Enhanced death camera's trace | `death-trace.js` | dynamic mesh, values of its own | its material |
 
 A batch's instances go into the module's memory attribute by attribute as

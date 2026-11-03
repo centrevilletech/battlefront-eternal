@@ -10,7 +10,7 @@
 // three drew in between, and each pass changes only what differs from what
 // the last draw left (GlState), counting every call it makes.
 use crate::math::{self, Frustum, Mat4};
-use crate::shader::{self, Kind, Stage, FRAME_FLOATS, FRAME_LIGHT_COUNT, MAX_LIGHTS};
+use crate::shader::{self, Kind, Stage, FRAME_FLOATS, FRAME_LIGHT_COUNT, LAMP_TABLE_WIDTH, MAX_LIGHTS, SHADOW_FLOATS, WORLD_LAMP_UNIFORMS};
 use glow::HasContext;
 
 // Fixed texture units.
@@ -34,7 +34,8 @@ pub const UNITS: usize = 24;
 const SAMPLERS: &[(&str, u32)] = &[("map", UNIT_MAP), ("farMap", UNIT_FAR), ("bumpMap", UNIT_BUMP), ("boneTexture", UNIT_BONES), ("bfeInstances", UNIT_INSTANCES),
     ("treeStates", UNIT_TREE_STATES), ("layer1Map", UNIT_LAYER1), ("detailMap", UNIT_DETAIL),
     ("layerMap0", UNIT_LAYERS), ("layerMap1", UNIT_LAYERS + 1), ("layerMap2", UNIT_LAYERS + 2), ("layerMap3", UNIT_LAYERS + 3),
-    ("layerMap4", UNIT_LAYERS + 4), ("layerMap5", UNIT_LAYERS + 5), ("layerMap6", UNIT_LAYERS + 6), ("layerMap7", UNIT_LAYERS + 7)];
+    ("layerMap4", UNIT_LAYERS + 4), ("layerMap5", UNIT_LAYERS + 5), ("layerMap6", UNIT_LAYERS + 6), ("layerMap7", UNIT_LAYERS + 7),
+    ("bfeLamps", UNIT_LAMPS)];
 
 // The texture targets other than TEXTURE_2D a unit's binding is kept for
 // (GlState::bind_texture_target).
@@ -50,6 +51,8 @@ pub const VIEW_FIRST_PERSON: usize = 2;
 pub const VIEW_SPARE: usize = 3;
 pub const VIEW_FAR_MIRROR: usize = 4;
 pub const VIEWS: usize = 5;
+// Where the shadow receivers read BfeShadow (shader.rs); BfeFrame is 0.
+pub const SHADOW_BINDING: u32 = 1;
 
 // The passes, in the order the renderer makes them and its stats count
 // their draws.
@@ -339,6 +342,18 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     // Framebuffers of the renderer's own over registered textures (colour,
     // depth), by the texture ids they were made for.
     framebuffers: Vec<(Option<u32>, Option<u32>, C::Framebuffer)>,
+    // The shadow receivers' block (shader.rs BfeShadow): what the page wrote
+    // (f64, in the block's float layout), as uploaded (f32), its buffer, and
+    // the cascades' depth maps (none: shadows off, nothing bound or sent).
+    pub shadow_input: Vec<f64>,
+    shadow: Vec<f32>,
+    shadow_ubo: C::Buffer,
+    shadow_maps: Vec<C::Texture>,
+    // The lamp table (shader.rs LAMP_*): every lamp source of the map, two
+    // texels a source; uploaded at the next phase when it changed.
+    lamp_texture: C::Texture,
+    lamps: Vec<f32>,
+    lamps_dirty: bool,
     // The frame block as last uploaded (f32, as three uploads it).
     pub(crate) frame: Vec<f32>,
     pub input: Vec<f64>,
@@ -376,8 +391,19 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             gl.bind_buffer(glow::UNIFORM_BUFFER, None);
             ubo
         });
+        let shadow_ubo = unsafe {
+            let ubo = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::UNIFORM_BUFFER, Some(ubo));
+            gl.buffer_data_size(glow::UNIFORM_BUFFER, (SHADOW_FLOATS * 4) as i32, glow::DYNAMIC_DRAW);
+            gl.bind_buffer(glow::UNIFORM_BUFFER, None);
+            ubo
+        };
+        let lamp_texture = upload_texture(&gl, 1, 1);
+        unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         Core {
-            gl, multi, programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![], frame: vec![0.0; FRAME_FLOATS],
+            gl, multi, programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
+            shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
+            lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
             input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), log: vec![],
         }
     }
@@ -395,9 +421,18 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     // the locations three's own program gave each input, so a layout made
     // for three's matches.
     pub fn add_program(&mut self, kind: Kind, vs: &str, fs: &str, attributes: &[(String, u32)], material_uniforms: &[String]) -> Result<u32, String> {
+        self.add_program_lamps(kind, vs, fs, attributes, material_uniforms, false)
+    }
+
+    // add_program, the lamps read from the lamp table (lamps: lamp lighting
+    // is on and the program's pass gives each draw its lamps); a world
+    // program's lamp inputs are then uniforms of its own (WORLD_LAMP_UNIFORMS,
+    // after the material's).
+    pub fn add_program_lamps(&mut self, kind: Kind, vs: &str, fs: &str, attributes: &[(String, u32)], material_uniforms: &[String], lamps: bool) -> Result<u32, String> {
         let gl = &self.gl;
-        let vs = shader::rewrite(vs, Stage::Vertex, kind)?;
-        let fs = shader::rewrite(fs, Stage::Fragment, kind)?;
+        let world_lamps = lamps && kind == Kind::World && shader::reads_lamps(fs);
+        let vs = shader::rewrite_lamps(vs, Stage::Vertex, kind, lamps)?;
+        let fs = shader::rewrite_lamps(fs, Stage::Fragment, kind, lamps)?;
         unsafe {
             let program = gl.create_program()?;
             let mut shaders = vec![];
@@ -430,13 +465,28 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             if let Some(block) = gl.get_uniform_block_index(program, "BfeFrame") {
                 gl.uniform_block_binding(program, block, 0);
             }
+            let receiver = gl.get_uniform_block_index(program, "BfeShadow");
+            if let Some(block) = receiver {
+                gl.uniform_block_binding(program, block, SHADOW_BINDING);
+            }
             gl.use_program(Some(program));
             for (name, unit) in SAMPLERS {
                 if let Some(l) = gl.get_uniform_location(program, name) {
                     gl.uniform_1_i32(Some(&l), *unit as i32);
                 }
             }
-            let uniforms = material_uniforms.iter().map(|n| (n.clone(), gl.get_uniform_location(program, n), None)).collect();
+            // A shadow receiver's cascade maps, each on its own unit.
+            if receiver.is_some() {
+                for i in 0..4 {
+                    if let Some(l) = gl.get_uniform_location(program, &format!("cascadeMaps[{i}]")) {
+                        gl.uniform_1_i32(Some(&l), (UNIT_CASCADES + i) as i32);
+                    }
+                }
+            }
+            let mut uniforms: Vec<_> = material_uniforms.iter().map(|n| (n.clone(), gl.get_uniform_location(program, n), None)).collect();
+            if world_lamps {
+                uniforms.extend(WORLD_LAMP_UNIFORMS.iter().map(|n| (n.to_string(), gl.get_uniform_location(program, n), None)));
+            }
             let p = Program {
                 program, uniforms,
                 zero_lights: gl.get_uniform_location(program, "zeroLights"),
@@ -575,6 +625,79 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     pub fn bind_frame(&mut self, view: usize) {
         unsafe { self.gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(self.frame_ubos[view])) };
         self.stats.gl_calls += 1;
+    }
+
+    // The cascades' depth maps (registered textures, cascade order) the
+    // shadow receivers read; none while shadows are off.
+    pub fn set_shadow_maps(&mut self, ids: &[u32]) {
+        self.shadow_maps = ids.iter().filter_map(|&i| self.textures.get(i as usize).copied()).collect();
+    }
+
+    // Whether the frame has shadows for its receivers.
+    pub fn shadows(&self) -> bool {
+        !self.shadow_maps.is_empty()
+    }
+
+    // The shadow block as the page wrote it (f32, as three uploads its
+    // uniforms), sent and bound where the receivers read it, and the
+    // cascades' maps on their units. Nothing while shadows are off.
+    pub fn upload_shadow(&mut self) {
+        if !self.shadows() {
+            return;
+        }
+        for i in 0..SHADOW_FLOATS {
+            self.shadow[i] = self.shadow_input[i] as f32;
+        }
+        unsafe {
+            self.gl.bind_buffer(glow::UNIFORM_BUFFER, Some(self.shadow_ubo));
+            self.gl.buffer_sub_data_u8_slice(glow::UNIFORM_BUFFER, 0, bytes(&self.shadow));
+        }
+        self.stats.gl_calls += 2;
+        self.bind_shadow();
+    }
+
+    // The shadow block and maps bound again (a phase drawn later in the frame).
+    pub fn bind_shadow(&mut self) {
+        if !self.shadows() {
+            return;
+        }
+        unsafe { self.gl.bind_buffer_base(glow::UNIFORM_BUFFER, SHADOW_BINDING, Some(self.shadow_ubo)) };
+        self.stats.gl_calls += 1;
+        for i in 0..self.shadow_maps.len() {
+            let t = self.shadow_maps[i];
+            self.state.bind_texture(&self.gl, &mut self.stats, UNIT_CASCADES + i as u32, Some(t));
+        }
+    }
+
+    // The lamp table's sources (eight floats each: position, radius, colour,
+    // pad), sent at the next phase's bind_lamps.
+    pub fn set_lamps(&mut self, data: &[f32]) {
+        self.lamps.clear();
+        self.lamps.extend_from_slice(data);
+        self.lamps_dirty = true;
+    }
+
+    // The lamp table on its unit (sent first when it changed), for the
+    // programs that read lamps from it. Nothing while there are none.
+    pub fn bind_lamps(&mut self) {
+        if self.lamps.is_empty() {
+            return;
+        }
+        let texture = self.lamp_texture;
+        self.state.bind_texture(&self.gl, &mut self.stats, UNIT_LAMPS, Some(texture));
+        if self.lamps_dirty {
+            // Two texels a source, rows of LAMP_TABLE_WIDTH texels.
+            let texels = self.lamps.len() / 4;
+            let rows = texels.div_ceil(LAMP_TABLE_WIDTH).max(1);
+            let mut data = vec![0.0f32; rows * LAMP_TABLE_WIDTH * 4];
+            data[..self.lamps.len()].copy_from_slice(&self.lamps);
+            unsafe {
+                self.gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA32F as i32, LAMP_TABLE_WIDTH as i32, rows as i32, 0, glow::RGBA, glow::FLOAT,
+                    glow::PixelUnpackData::Slice(Some(bytes(&data))));
+            }
+            self.stats.gl_calls += 1;
+            self.lamps_dirty = false;
+        }
     }
 
     // A framebuffer of the renderer's own over registered textures: a colour

@@ -11,14 +11,17 @@ import { WORLD, UNIT_DETAIL, UNIT_LAYER1, UNIT_LAYERS, drawnAsIs } from "./world
 
 // The material values a terrain program may read, set per draw: the zero
 // materials' own (materials.js) and the ground's.
-const MATERIAL = new Set(["sunScale", "brightness", "ambientPull", "specular", "layerScales", "bakedLit", "layerScale0", "layerScale1", "farOrigin"]);
+const MATERIAL = new Set(["sunScale", "brightness", "ambientPull", "specular", "layerScales", "bakedLit", "layerScale0", "layerScale1", "farOrigin", "receiveShadow"]);
 const LAYERS = Array.from({ length: 8 }, (_, i) => `layerMap${i}`);
 // The point lights the zero vertex shader adds up for every kind but its
 // colour never uses on the ground (the terrain's light is its baked one):
 // left at none.
+// shadows: the ground receives the cascades (its patches' receiveShadow, per
+// draw); it casts none, so it has nothing to reveal.
 const POLICY = {
   uniforms: new Set(["map", "farMap", "layer1Map", "detailMap", ...LAYERS, ...MATERIAL, "zeroLights", "zeroLightCount", "localLightPositions", "localLightColors", "localLightCount"]),
   material: MATERIAL,
+  shadows: true,
 };
 
 class TerrainPass {
@@ -88,6 +91,7 @@ class TerrainPass {
       const bound = [bind("map", 0), bind("layer1Map", UNIT_LAYER1), bind("detailMap", UNIT_DETAIL), ...LAYERS.map((name, i) => bind(name, UNIT_LAYERS + i))];
       for (const name of program.names) {
         if (!MATERIAL.has(name)) continue;
+        if (name === "receiveShadow") { rust.world_uniform(w, name, new Float32Array([group.children[0]?.receiveShadow ? 1 : 0]), true); continue; }
         const v = material.uniforms[name]?.value;
         const values = typeof v === "number" ? [v] : v?.isVector4 ? [v.x, v.y, v.z, v.w] : v?.isVector3 ? [v.x, v.y, v.z] : v?.isVector2 ? [v.x, v.y] : null;
         if (values) rust.world_uniform(w, name, new Float32Array(values), false);

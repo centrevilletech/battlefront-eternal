@@ -50,6 +50,39 @@ export class BfeRenderer {
         return ret[0] >>> 0;
     }
     /**
+     * @param {number} kind
+     * @param {string} vs
+     * @param {string} fs
+     * @param {string} attributes
+     * @param {string} uniforms
+     * @returns {number}
+     */
+    add_program_lamps(kind, vs, fs, attributes, uniforms) {
+        const val5 = +kind;
+        let ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3;
+        try {
+            ptr0 = passStringToWasm0(vs, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len0 = WASM_VECTOR_LEN;
+            ptr1 = passStringToWasm0(fs, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len1 = WASM_VECTOR_LEN;
+            ptr2 = passStringToWasm0(attributes, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len2 = WASM_VECTOR_LEN;
+            ptr3 = passStringToWasm0(uniforms, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            len3 = WASM_VECTOR_LEN;
+        } catch (e) {
+            if (ptr3) { wasm.__wbindgen_free(ptr3, len3 * 1, 1); }
+            if (ptr2) { wasm.__wbindgen_free(ptr2, len2 * 1, 1); }
+            if (ptr1) { wasm.__wbindgen_free(ptr1, len1 * 1, 1); }
+            if (ptr0) { wasm.__wbindgen_free(ptr0, len0 * 1, 1); }
+            throw e;
+        }
+        const ret = wasm.bferenderer_add_program_lamps(this.__wbg_ptr, val5, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] >>> 0;
+    }
+    /**
      * @param {WebGLTexture} texture
      * @returns {number}
      */
@@ -1028,6 +1061,36 @@ export class BfeRenderer {
         wasm.bferenderer_set_far_map(this.__wbg_ptr, texture);
     }
     /**
+     * @param {Float32Array | number[]} data
+     */
+    set_lamps(data) {
+        const ptr0 = passArrayF32ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_set_lamps(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @param {Uint32Array | number[]} ids
+     */
+    set_shadow_maps(ids) {
+        const ptr0 = passArray32ToWasm0(ids, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_set_shadow_maps(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @returns {number}
+     */
+    shadow_input_len() {
+        const ret = wasm.bferenderer_shadow_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    shadow_input_ptr() {
+        const ret = wasm.bferenderer_shadow_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {boolean} by_program
      */
     sort(by_program) {
@@ -1400,6 +1463,16 @@ export class BfeRenderer {
             throw e;
         }
         wasm.bferenderer_world_cells(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1, val4);
+    }
+    /**
+     * @param {number} w
+     * @param {Float32Array | number[]} values
+     */
+    world_lamps(w, values) {
+        const val2 = +w;
+        const ptr0 = passArrayF32ToWasm0(values, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_world_lamps(this.__wbg_ptr, val2, ptr0, len0);
     }
     /**
      * @param {number} w
