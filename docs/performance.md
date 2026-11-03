@@ -1470,7 +1470,25 @@ scenes, the probe or the water.
 On the emulator with its draws made no-ops, a water mirror's far scene on
 Kashyyyk: Docks at High, drawn on the same frames alternately by the far
 pass and by three, cost 0.73 ms (median) and 1.01 ms (mean) with the far
-pass against 1.05 and 1.50 ms with three's two renders.
+pass against 1.05 and 1.50 ms with three's two renders. In lockstep frames
+of one battle alternating, in blocks, between the renderer with these
+features and the renderer with them given back to three (as before them),
+the eye at the feature, Graphics.render took (median and mean, ms):
+
+| Map, feature | Given back to three | Drawn by the renderer | Three's draws a frame |
+| --- | --- | --- | --- |
+| Kashyyyk: Docks, water at High | 3.94, 4.30 | 3.85, 4.12 | 7 -> 2 |
+| Bespin: Platforms, Enhanced sky | 5.11, 5.63 | 4.88, 5.55 | 20 -> 2 |
+| Kashyyyk: Islands, Enhanced ocean | 3.94, 4.25 | 3.39, 3.68 | 13 -> 2 |
+| Kamino, Enhanced ocean and storm | 2.76, 3.24 | 2.44, 2.70 | 9 -> 2 |
+| Naboo: Theed, Enhanced trees | 6.29, 6.62 | 6.37, 6.71 (within the noise) | 3 -> 2 |
+
+The water's reflection and the sky probes are drawn before Graphics.render
+and are not in these times (the reflection's is above). The probe's capture,
+six faces once a second, costs a little more drawn by the renderer: each
+face is a phase of its own, with three's state reset after it, and the sky
+flyers' update (which captures it) took 0.11 ms a frame on average against
+0.08 ms with three.
 
 ## His controls on a slow CPU
 
