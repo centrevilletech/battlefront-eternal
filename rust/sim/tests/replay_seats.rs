@@ -12,6 +12,7 @@
 use bfe_sim::gen::{Body, Post, Replay, SeatLease, SeatUnit, Seats, Store, TurretSeats, Unit, Vehicle, KIND_BODY, KIND_POST, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_TURRET};
 use bfe_sim::seats::bodies::CombatFlags;
 use bfe_sim::seats::hulls::{FlightState, HullSide, Hulls, RiderFacts, Vacate};
+use bfe_sim::seats::boarding::Mount;
 use bfe_sim::seats::network::{network_vehicle_input, SeatCommand, SeatKeys, SeatKeysOut};
 use bfe_sim::seats::turrets::{CrewWorld, Crews, Let, Shot, TurretDesc, TurretRig, TurretSide};
 use bfe_sim::seats::lease::{control_key, SeatControl, SeatIntent};
@@ -52,6 +53,10 @@ struct Served<'f, 'c> {
     rounds: Vec<V<'f>>,
     // Each lease's seat control (its SeatUnit's key), for what a kill did.
     lease_controls: BTreeMap<(u32, u32), (u32, u32)>,
+    // Where a frame's team relations come from: the seats' world
+    // ("seats.relation"), or the hulls' own (mountInReach reads
+    // `vehicles.relation`).
+    relation_label: &'static str,
 }
 
 struct TurretFacts<'f> {
@@ -281,7 +286,8 @@ impl SeatWorld for Served<'_, '_> {
     }
 
     fn relation(&mut self, a: f64, b: f64) -> f64 {
-        let Some(call) = self.call("seats.relation") else { return 0.0 };
+        let label = self.relation_label;
+        let Some(call) = self.call(label) else { return 0.0 };
         self.check(check_num("relation a", call.arg(0), a));
         self.check(check_num("relation b", call.arg(1), b));
         call.result().num()
@@ -796,7 +802,7 @@ fn replay_hull_frame(frame: &Frame, name: &str, tally: &mut BTreeMap<String, usi
     let entry: Vec<Ref<SeatLease>> = cx.store.seats.leases.clone();
     let mut named: Vec<Ref<SeatLease>> = Vec::new();
     let mut st = std::mem::take(&mut cx.store);
-    let mut served = Served { log: Log::new(frame), cx: &mut cx, error: None, pending_units: Vec::new(), prefix: "seats", turrets: BTreeMap::new(), shots: Vec::new(), rounds: Vec::new(), lease_controls: lease_controls(&st) };
+    let mut served = Served { log: Log::new(frame), cx: &mut cx, error: None, pending_units: Vec::new(), prefix: "seats", turrets: BTreeMap::new(), shots: Vec::new(), rounds: Vec::new(), lease_controls: lease_controls(&st), relation_label: "seats.relation" };
     let result: Option<bool>;
     match name {
         "vehicles.latchCrews" => {
@@ -1142,7 +1148,7 @@ fn replay_crew_frame(frame: &Frame, name: &str, tally: &mut BTreeMap<String, usi
     }
     let mut named: Vec<Ref<SeatLease>> = Vec::new();
     let mut st = std::mem::take(&mut cx.store);
-    let mut served = Served { log: Log::new(frame), cx: &mut cx, error: None, pending_units: Vec::new(), prefix: "crews", turrets: facts, shots: Vec::new(), rounds: Vec::new(), lease_controls: lease_controls(&st) };
+    let mut served = Served { log: Log::new(frame), cx: &mut cx, error: None, pending_units: Vec::new(), prefix: "crews", turrets: facts, shots: Vec::new(), rounds: Vec::new(), lease_controls: lease_controls(&st), relation_label: "seats.relation" };
     let mut result: Option<bool> = None;
     match name {
         "turretSeats.update" => {
@@ -1316,6 +1322,130 @@ fn network_seats_as_captured() {
     let Some(corpus) = Corpus::from_env().unwrap() else { return };
     let mut tally: BTreeMap<String, usize> = BTreeMap::new();
     let report = replay_corpus(&corpus, "networkVehicle.input", |_capture, frame| replay_network_seat(frame, &mut tally)).unwrap();
+    eprintln!("{}", report.summary());
+    for (what, n) in &tally {
+        eprintln!("  {what}: {n}");
+    }
+    report.assert_clean();
+}
+
+// ---- What a soldier's use key gets him into.
+
+// The reach query's casts are the hulls' collision's own ('collision.cast').
+struct ReachCasts<'s, 'f, 'c>(&'s mut Served<'f, 'c>);
+
+impl SeatWorld for ReachCasts<'_, '_, '_> {
+    fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<Ref<Body>>) -> Option<Hit> {
+        let s = &mut *self.0;
+        let call = s.call("collision.cast")?;
+        s.check(check_vec3("reach cast origin", call.arg(0), arr(origin)));
+        s.check(check_vec3("reach cast direction", call.arg(1), arr(direction)));
+        s.check(check_num("reach cast far", call.arg(2), far));
+        s.check_body("reach cast ignoreBody", call.arg(4), ignore);
+        s.hit(call.result())
+    }
+    fn overlaps_sphere(&mut self, c: &Vector3, r: f64, i: Option<Ref<Body>>) -> bool {
+        self.0.overlaps_sphere(c, r, i)
+    }
+    fn raycast_units(&mut self, o: &Vector3, d: &Vector3, f: f64, e: Option<u32>) -> Option<f64> {
+        self.0.raycast_units(o, d, f, e)
+    }
+    fn relation(&mut self, a: f64, b: f64) -> f64 {
+        self.0.relation(a, b)
+    }
+    fn stand_up(&mut self, u: &mut Unit, x: f64, y: f64, z: f64, yaw: f64) {
+        self.0.stand_up(u, x, y, z, yaw)
+    }
+    fn kill(&mut self, units: &mut Slab<Unit>, controls: &mut bfe_sim::seats::lease::Controls, unit: u32, attacker: Attacker) {
+        self.0.kill(units, controls, unit, attacker)
+    }
+    fn rider_drop(&mut self, h: Holder, i: usize, u: u32) -> Option<Vector3> {
+        self.0.rider_drop(h, i, u)
+    }
+    fn sync_rider(&mut self, l: Ref<SeatLease>, u: &mut Unit) {
+        self.0.sync_rider(l, u)
+    }
+    fn controller_state(&mut self, u: Option<u32>) -> Option<f64> {
+        self.0.controller_state(u)
+    }
+    fn controllable(&mut self, l: Ref<SeatLease>) -> Ref<SeatUnit> {
+        self.0.controllable(l)
+    }
+    fn boarded(&mut self, u: u32, h: Holder, i: usize) {
+        self.0.boarded(u, h, i)
+    }
+    fn unboarded(&mut self, u: Option<u32>, h: Holder, i: usize, p: Option<Ref<Post>>, r: Reason) {
+        self.0.unboarded(u, h, i, p, r)
+    }
+    fn moved(&mut self, u: Option<u32>, h: Holder, i: usize) {
+        self.0.moved(u, h, i)
+    }
+}
+
+fn replay_reach(frame: &Frame, tally: &mut BTreeMap<String, usize>) -> Outcome {
+    let mut cx = Replay::default();
+    let before = frame.before();
+    let hulls = match read_state(&mut cx, before) {
+        Ok(h) => h,
+        Err(e) => return Outcome::Failed(format!("{}: reading the state: {e}", frame.place())),
+    };
+    let mut crews = Crews::default();
+    for t in before.get("turrets").items() {
+        match turret_of(&mut cx, t) {
+            Ok(t) => crews.turrets.push(t),
+            Err(e) => return Outcome::Failed(format!("{}: reading a turret: {e}", frame.place())),
+        }
+    }
+    crews.turrets.sort_by_key(|t| t.index);
+    let Some(unit) = frame.arg(1).handle_num("unit") else { return Outcome::Failed(format!("{}: reach's unit {}", frame.place(), frame.arg(1).show())) };
+    let person = frame.arg(2).truthy();
+    let st = std::mem::take(&mut cx.store);
+    let mut served = Served {
+        log: Log::new(frame),
+        cx: &mut cx,
+        error: None,
+        pending_units: Vec::new(),
+        prefix: "seats",
+        turrets: BTreeMap::new(),
+        shots: Vec::new(),
+        rounds: Vec::new(),
+        lease_controls: lease_controls(&st),
+        relation_label: "vehicles.relation",
+    };
+    let mine = bfe_sim::seats::boarding::mount_in_reach(&mut ReachCasts(&mut served), &st, &hulls, &crews, unit as u32, person);
+    if let Some(e) = served.error.take() {
+        return Outcome::Failed(e);
+    }
+    if let Err(e) = served.log.finish() {
+        return Outcome::Failed(e.0);
+    }
+    let r = frame.result();
+    let theirs = if r.is_nullish() {
+        None
+    } else if let Some(i) = r.get("vehicle").handle_num("vehicle") {
+        Some(Mount::Hull(i as usize))
+    } else if !r.get("turret").is_nullish() {
+        crews.turrets.iter().find(|t| cx.ref_in::<bfe_sim::gen::Turret>(KIND_TURRET, r.get("turret"), "turret").ok() == Some(t.turret)).map(|t| Mount::Turret(t.index))
+    } else {
+        return Outcome::Failed(format!("{}: reach answered {}", frame.place(), r.show()));
+    };
+    let what = match mine {
+        Some(Mount::Hull(_)) => "a hull",
+        Some(Mount::Turret(_)) => "a turret",
+        None => "nothing",
+    };
+    *tally.entry(format!("reaches {what}")).or_default() += 1;
+    if theirs != mine {
+        return Outcome::Failed(format!("{}: reach: the capture has {}, the port {mine:?}", frame.place(), r.show()));
+    }
+    Outcome::Same
+}
+
+#[test]
+fn reach_as_captured() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+    let report = replay_corpus(&corpus, "boardingReach.mount", |_capture, frame| replay_reach(frame, &mut tally)).unwrap();
     eprintln!("{}", report.summary());
     for (what, n) in &tally {
         eprintln!("  {what}: {n}");

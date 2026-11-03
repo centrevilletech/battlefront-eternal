@@ -17,6 +17,7 @@ import * as THREE from 'three';
 import { hasMissileLock } from '../../src/weapon-targeting.js';
 import { networkVehicle } from '../../src/runtime/network-vehicle.js';
 import { networkSeat } from '../../src/runtime/network-seat.js';
+import { boardingReach } from '../../src/boarding.js';
 
 // The leases that hold a seat, hulls first (hull by hull, seat by seat),
 // then the turrets' (in the order they were manned), then any the frame
@@ -284,5 +285,20 @@ export const seats = {
     networkSeatFrame,
     // A network human's seat switch (src/runtime/network-seat.js).
     { ...hullFrame('cycle', (args) => ({ units: [args[1]] })), method: 'networkSeat.cycle', target: () => networkSeat },
+    // What a soldier's use key gets him into (src/boarding.js mountInReach):
+    // every hull and every turret, in the battle's order, as the reach
+    // queries walk them.
+    {
+      method: 'boardingReach.mount',
+      target: () => boardingReach,
+      state: (game, args, cap) => ({
+        ...seatState(game, cap, { units: [args[1]], hulls: game.vehicles?.vehicles ?? [] }),
+        turrets: (game.live?.turrets ?? []).map((t) => turretValue(cap, game, t)),
+      }),
+      boundaries: (game) => [
+        ['vehicles.relation', game.vehicles ?? null, 'relation'],
+        ['collision.cast', game.collision, 'cast'],
+      ],
+    },
   ],
 };
