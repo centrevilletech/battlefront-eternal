@@ -527,6 +527,7 @@ pub struct JobRef {
 pub struct MountedPatrol {
     pub patrol: super::patrol::Patrol,
     pub publications: Vec<(usize, Option<usize>)>,
+    pub support_holds: Option<f64>,
 }
 
 /// What one helper call left observable (the goto helpers' arrived /
@@ -734,7 +735,7 @@ pub trait AiWorld {
     /// publications. `objectives` is the characters' current objective
     /// table, checked before any callback writes are applied. None means
     /// the hook is absent (patrol.js then asks out), not a false return.
-    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: super::patrol::Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>]) -> Option<MountedPatrol>;
+    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: super::patrol::Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>], support_holds: Option<f64>) -> Option<MountedPatrol>;
     /// controllerPolicy(unit) and its bind/controller/agent effects.
     fn vehicles_policy_of(&mut self, unit: UKey) -> Policy;
     fn vehicles_policy_home_facing(&mut self, policy: Policy, unit: UKey) -> Option<bool>;

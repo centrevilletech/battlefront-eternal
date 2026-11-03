@@ -40,6 +40,7 @@ let responseBefore = null;
 let patrolPublications = null;
 let patrolCompletedPublications = [];
 let patrolStateBefore = null;
+let patrolSupportBefore = null;
 let snapshotServiceCandidates = null;
 
 const v3 = (p) => (p ? [p.x, p.y, p.z] : null);
@@ -185,6 +186,7 @@ function prepare(game) {
     vehicleService.patrolMounted = function (...args) {
       patrolBefore = foreignSharedSnap(current);
       patrolStateBefore = mountedPatrolSnap(game, args[0]);
+      patrolSupportBefore = num(args[0]?.agent?.supportHolds);
       const previous = patrolPublications;
       patrolPublications = [];
       try { return patrol.apply(this, args); }
@@ -504,6 +506,7 @@ function agentSnap(ctx, agent, ai) {
     snap.offset = v3(agent.offset) ?? [0, 0, 0];
     snap.entryTime = agent.entryTime ?? 0;
     snap.support = Boolean(agent.support);
+    snap.supportHolds = num(agent.supportHolds);
     snap.mineTries = num(agent.mineTries) ?? 0;
     snap.deadline = num(agent.deadline) ?? 0;
     snap.jobAt = num(agent.jobAt) ?? -1;
@@ -1017,7 +1020,8 @@ function mountedPatrolSnap(game, patrol) {
 
 function patrolExtra(game) {
   return { ...afterCurrent(), before: patrolBefore, shared: foreignSharedSnap(current),
-    patrolBefore: patrolStateBefore, patrol: mountedPatrolSnap(game, current?.agent?.patrol), publications: patrolCompletedPublications };
+    patrolBefore: patrolStateBefore, patrol: mountedPatrolSnap(game, current?.agent?.patrol), publications: patrolCompletedPublications,
+    supportHolds: { before: patrolSupportBefore, after: num(current?.agent?.supportHolds) } };
 }
 
 function queryExtra() {

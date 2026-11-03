@@ -467,6 +467,7 @@ fn agent_read(v: V) -> Option<Agent> {
                     offset: arr3(v.get("offset")),
                     entry_time: v.get("entryTime").num(),
                     support: v.get("support").bool(),
+                    support_holds: num_opt(v.get("supportHolds")),
                     mine_tries: v.get("mineTries").num(),
                     deadline: v.get("deadline").num(),
                     job_at: v.get("jobAt").num(),
@@ -1891,12 +1892,16 @@ impl<'f> AiWorld for Served<'f> {
         self.check_agent("boardTick agent", call.arg(0), controller);
         self.extra(call, Some(controller));
     }
-    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>]) -> Option<MountedPatrol> {
+    fn vehicles_patrol_mounted(&mut self, controller: usize, patrol: Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>], support_holds: Option<f64>) -> Option<MountedPatrol> {
         let call = self.call("vehicles.patrolMounted")?;
         self.check_foreign_shared(call, shared);
         let before = call.extra().get("patrolBefore");
         if !before.is_nullish() && !patrol_read(before).exact(&patrol) {
             self.fail(format!("patrolMounted input patrol: capture {:?}, port {patrol:?}", patrol_read(before)));
+        }
+        let holds = call.extra().get("supportHolds");
+        if !holds.is_nullish() && !same_opt(num_opt(holds.get("before")), support_holds) {
+            self.fail(format!("patrolMounted support holds input: capture {}, port {support_holds:?}", holds.get("before").show()));
         }
         let mut observed = objectives.to_vec();
         let mut publications = Vec::new();
@@ -1926,7 +1931,8 @@ impl<'f> AiWorld for Served<'f> {
             self.fail("patrolMounted: missing patrol state".to_string());
             return None;
         }
-        Some(MountedPatrol { patrol: patrol_read(p), publications })
+        Some(MountedPatrol { patrol: patrol_read(p), publications,
+            support_holds: if holds.is_nullish() { support_holds } else { num_opt(holds.get("after")) } })
     }
     fn vehicles_policy_of(&mut self, unit: UKey) -> Policy {
         let u = &self.tables.units[unit as usize];

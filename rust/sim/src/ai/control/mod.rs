@@ -2270,7 +2270,8 @@ impl Core {
                     let patrol = self.objective(ci).map(|o| o.patrol.clone()).unwrap_or_else(patrol::Patrol::new);
                     let mut shared = world::ForeignShared::read(&self.controllers[ci]);
                     let objectives: Vec<_> = self.characters.iter().map(|c| c.objective).collect();
-                    let after = w.vehicles_patrol_mounted(ci, patrol, &mut shared, &objectives);
+                    let support_holds = self.objective(ci).and_then(|o| o.support_holds);
+                    let after = w.vehicles_patrol_mounted(ci, patrol, &mut shared, &objectives, support_holds);
                     shared.apply(&mut self.controllers[ci]);
                     match after {
                         Some(after) => {
@@ -2279,6 +2280,7 @@ impl Core {
                             }
                             if let Some(o) = self.objective_mut(ci) {
                                 o.patrol = after.patrol;
+                                o.support_holds = after.support_holds;
                             }
                             self.sync_control(w, ci);
                         }
