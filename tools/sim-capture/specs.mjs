@@ -31,6 +31,7 @@
 // object the game holds, such as game.items) is a handle wherever it is met
 // unless the state asks for it whole: expand(object).
 import { units } from './units.mjs';
+import { flightSpec } from './flight.mjs';
 
 export class Expand {
   constructor(value) { this.value = value; }
@@ -188,6 +189,11 @@ const vehicles = {
 // the cheapest capture, for the draw order of every phase.
 const ticks = { frames: [] };
 
+// The flight package (flip F2 with the hulls): a craft's tick and its pose
+// at the tick, with what its targeting reads of the registry
+// (tools/sim-capture/flight.mjs).
+const flight = flightSpec({ hullPrototype, rigNodes, poseState, poseBoundaries });
+
 // The units package (flip F3): a unit's tick, the registry's queries and
 // the soldiers pushed apart (tools/sim-capture/units.mjs).
-export const SPECS = { ordnance, items, vehicles, ticks, units };
+export const SPECS = { ordnance, items, vehicles, ticks, units, flight };

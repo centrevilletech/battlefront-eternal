@@ -1394,6 +1394,58 @@ impl Vehicle {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         object(v, path)?;
         Ok(Vehicle {
+            flight_state: { let p = format!("{path}.flightState"); match v.get("flightState").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(FlightState::from_u8(name_of(v.get("flightState"), &FlightState::NAMES, &p)?).unwrap()) } },
+            grounded: { let p = format!("{path}.grounded"); boolean(v.get("grounded"), &p)? },
+            altitude: { let p = format!("{path}.altitude"); num(v.get("altitude"), &p)? },
+            throttle: { let p = format!("{path}.throttle"); num(v.get("throttle"), &p)? },
+            airspeed: { let p = format!("{path}.airspeed"); num(v.get("airspeed"), &p)? },
+            state_time: { let p = format!("{path}.stateTime"); num(v.get("stateTime"), &p)? },
+            floor_y: { let p = format!("{path}.floorY"); num(v.get("floorY"), &p)? },
+            bank: { let p = format!("{path}.bank"); num(v.get("bank"), &p)? },
+            gear_foot: { let p = format!("{path}.gearFoot"); match v.get("gearFoot").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("gearFoot"), &p)?) } },
+            radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
+            team: { let p = format!("{path}.team"); match v.get("team").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("team"), &p)?) } },
+            flight_class: { let p = format!("{path}.flightClass"); match v.get("flightClass").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(FlightClass::from_u8(name_of(v.get("flightClass"), &FlightClass::NAMES, &p)?).unwrap()) } },
+            min_speed: { let p = format!("{path}.minSpeed"); match v.get("minSpeed").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("minSpeed"), &p)?) } },
+            mid_speed: { let p = format!("{path}.midSpeed"); match v.get("midSpeed").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("midSpeed"), &p)?) } },
+            boost_speed: { let p = format!("{path}.boostSpeed"); match v.get("boostSpeed").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("boostSpeed"), &p)?) } },
+            power: { let p = format!("{path}.power"); match v.get("power").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("power"), &p)?) } },
+            stick_x: { let p = format!("{path}.stickX"); match v.get("stickX").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("stickX"), &p)?) } },
+            stick_y: { let p = format!("{path}.stickY"); match v.get("stickY").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("stickY"), &p)?) } },
+            flight_roll_rate: { let p = format!("{path}.flightRollRate"); match v.get("flightRollRate").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightRollRate"), &p)?) } },
+            roll_lock: { let p = format!("{path}.rollLock"); match v.get("rollLock").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("rollLock"), &p)?) } },
+            boosting: { let p = format!("{path}.boosting"); match v.get("boosting").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("boosting"), &p)?) } },
+            trick: { let p = format!("{path}.trick"); match v.get("trick").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.str_in(v.get("trick"), &p)?) } },
+            trick_time: { let p = format!("{path}.trickTime"); match v.get("trickTime").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("trickTime"), &p)?) } },
+            trick_cooldown: { let p = format!("{path}.trickCooldown"); match v.get("trickCooldown").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("trickCooldown"), &p)?) } },
+            trick_pending: { let p = format!("{path}.trickPending"); match v.get("trickPending").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("trickPending"), &p)?) } },
+            trick_direction: { let p = format!("{path}.trickDirection"); match v.get("trickDirection").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("trickDirection"), &p)?) } },
+            gear: { let p = format!("{path}.gear"); match v.get("gear").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("gear"), &p)?) } },
+            landing_message: { let p = format!("{path}.landingMessage"); match v.get("landingMessage").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.str_in(v.get("landingMessage"), &p)?) } },
+            landing_message_time: { let p = format!("{path}.landingMessageTime"); match v.get("landingMessageTime").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("landingMessageTime"), &p)?) } },
+            flight_trick_right: { let p = format!("{path}.flightTrickRight"); match v.get("flightTrickRight").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(vec3(v.get("flightTrickRight"), &p)?) } },
+            flight_clock: { let p = format!("{path}.flightClock"); match v.get("flightClock").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightClock"), &p)?) } },
+            boost_exhausted: { let p = format!("{path}.boostExhausted"); match v.get("boostExhausted").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("boostExhausted"), &p)?) } },
+            landing_reason: { let p = format!("{path}.landingReason"); match v.get("landingReason").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.str_in(v.get("landingReason"), &p)?) } },
+            flight_warning: { let p = format!("{path}.flightWarning"); match v.get("flightWarning").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.str_in(v.get("flightWarning"), &p)?) } },
+            terrain_warning: { let p = format!("{path}.terrainWarning"); match v.get("terrainWarning").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("terrainWarning"), &p)?) } },
+            flight_assist_id: { let p = format!("{path}.flightAssistId"); match v.get("flightAssistId").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightAssistId"), &p)?) } },
+            flight_lock_id: { let p = format!("{path}.flightLockId"); match v.get("flightLockId").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightLockId"), &p)?) } },
+            flight_lock_generation: { let p = format!("{path}.flightLockGeneration"); match v.get("flightLockGeneration").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightLockGeneration"), &p)?) } },
+            flight_lock_timer: { let p = format!("{path}.flightLockTimer"); match v.get("flightLockTimer").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightLockTimer"), &p)?) } },
+            flight_lost_los: { let p = format!("{path}.flightLostLOS"); match v.get("flightLostLOS").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("flightLostLOS"), &p)?) } },
+            flight_lock_state: { let p = format!("{path}.flightLockState"); match v.get("flightLockState").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.str_in(v.get("flightLockState"), &p)?) } },
+            flight_start: { let p = format!("{path}.flightStart"); match v.get("flightStart").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(vec3(v.get("flightStart"), &p)?) } },
+            flight_end: { let p = format!("{path}.flightEnd"); match v.get("flightEnd").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(vec3(v.get("flightEnd"), &p)?) } },
+            flight_start_q: { let p = format!("{path}.flightStartQ"); match v.get("flightStartQ").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(quat(v.get("flightStartQ"), &p)?) } },
+            flight_trick_loop_q: { let p = format!("{path}.flightTrickLoopQ"); match v.get("flightTrickLoopQ").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(quat(v.get("flightTrickLoopQ"), &p)?) } },
+            flight_trick_end_q: { let p = format!("{path}.flightTrickEndQ"); match v.get("flightTrickEndQ").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(quat(v.get("flightTrickEndQ"), &p)?) } },
+            flight_previous_q: { let p = format!("{path}.flightPreviousQ"); match v.get("flightPreviousQ").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(quat(v.get("flightPreviousQ"), &p)?) } },
+            flight_tick_q: { let p = format!("{path}.flightTickQ"); match v.get("flightTickQ").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(quat(v.get("flightTickQ"), &p)?) } },
+            flight_action_held: { let p = format!("{path}.flightActionHeld"); match v.get("flightActionHeld").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("flightActionHeld"), &p)?) } },
+            trick_held: { let p = format!("{path}.trickHeld"); match v.get("trickHeld").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("trickHeld"), &p)?) } },
+            immelmann_held: { let p = format!("{path}.immelmannHeld"); match v.get("immelmannHeld").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("immelmannHeld"), &p)?) } },
+            flight_frame_q: { let p = format!("{path}.flightFrameQ"); match v.get("flightFrameQ").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(quat(v.get("flightFrameQ"), &p)?) } },
             name: { let p = format!("{path}.name"); cx.str_in(v.get("name"), &p)? },
             flying: { let p = format!("{path}.flying"); boolean(v.get("flying"), &p)? },
             walking: { let p = format!("{path}.walking"); boolean(v.get("walking"), &p)? },
@@ -1453,7 +1505,59 @@ impl Vehicle {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(54);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(106);
+        { let x = match &self.flight_state { Some(v) => Value::Str(FlightState::NAMES[(*v) as usize].to_string()), None => Value::Null }; fields.push(("flightState", x)); }
+        { let x = Value::Bool(self.grounded); fields.push(("grounded", x)); }
+        { let x = Value::Num(self.altitude); fields.push(("altitude", x)); }
+        { let x = Value::Num(self.throttle); fields.push(("throttle", x)); }
+        { let x = Value::Num(self.airspeed); fields.push(("airspeed", x)); }
+        { let x = Value::Num(self.state_time); fields.push(("stateTime", x)); }
+        { let x = Value::Num(self.floor_y); fields.push(("floorY", x)); }
+        { let x = Value::Num(self.bank); fields.push(("bank", x)); }
+        { let x = match &self.gear_foot { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("gearFoot", x)); }
+        { let x = Value::Num(self.radius); fields.push(("radius", x)); }
+        { let x = match &self.team { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("team", x)); }
+        { let x = match &self.flight_class { Some(v) => Value::Str(FlightClass::NAMES[(*v) as usize].to_string()), None => Value::Undefined }; fields.push(("flightClass", x)); }
+        { let x = match &self.min_speed { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("minSpeed", x)); }
+        { let x = match &self.mid_speed { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("midSpeed", x)); }
+        { let x = match &self.boost_speed { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("boostSpeed", x)); }
+        { let x = match &self.power { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("power", x)); }
+        { let x = match &self.stick_x { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("stickX", x)); }
+        { let x = match &self.stick_y { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("stickY", x)); }
+        { let x = match &self.flight_roll_rate { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightRollRate", x)); }
+        { let x = match &self.roll_lock { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("rollLock", x)); }
+        { let x = match &self.boosting { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("boosting", x)); }
+        { let x = match &self.trick { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("trick", x)); }
+        { let x = match &self.trick_time { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("trickTime", x)); }
+        { let x = match &self.trick_cooldown { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("trickCooldown", x)); }
+        { let x = match &self.trick_pending { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("trickPending", x)); }
+        { let x = match &self.trick_direction { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("trickDirection", x)); }
+        { let x = match &self.gear { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("gear", x)); }
+        { let x = match &self.landing_message { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("landingMessage", x)); }
+        { let x = match &self.landing_message_time { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("landingMessageTime", x)); }
+        { let x = match &self.flight_trick_right { Some(v) => a.vec3((*v)), None => Value::Undefined }; fields.push(("flightTrickRight", x)); }
+        { let x = match &self.flight_clock { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightClock", x)); }
+        { let x = match &self.boost_exhausted { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("boostExhausted", x)); }
+        { let x = match &self.landing_reason { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("landingReason", x)); }
+        { let x = match &self.flight_warning { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("flightWarning", x)); }
+        { let x = match &self.terrain_warning { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("terrainWarning", x)); }
+        { let x = match &self.flight_assist_id { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightAssistId", x)); }
+        { let x = match &self.flight_lock_id { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightLockId", x)); }
+        { let x = match &self.flight_lock_generation { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightLockGeneration", x)); }
+        { let x = match &self.flight_lock_timer { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightLockTimer", x)); }
+        { let x = match &self.flight_lost_los { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("flightLostLOS", x)); }
+        { let x = match &self.flight_lock_state { Some(v) => cx.str_out((*v)), None => Value::Undefined }; fields.push(("flightLockState", x)); }
+        { let x = match &self.flight_start { Some(v) => a.vec3((*v)), None => Value::Undefined }; fields.push(("flightStart", x)); }
+        { let x = match &self.flight_end { Some(v) => a.vec3((*v)), None => Value::Undefined }; fields.push(("flightEnd", x)); }
+        { let x = match &self.flight_start_q { Some(v) => a.quat((*v)), None => Value::Undefined }; fields.push(("flightStartQ", x)); }
+        { let x = match &self.flight_trick_loop_q { Some(v) => a.quat((*v)), None => Value::Undefined }; fields.push(("flightTrickLoopQ", x)); }
+        { let x = match &self.flight_trick_end_q { Some(v) => a.quat((*v)), None => Value::Undefined }; fields.push(("flightTrickEndQ", x)); }
+        { let x = match &self.flight_previous_q { Some(v) => a.quat((*v)), None => Value::Undefined }; fields.push(("flightPreviousQ", x)); }
+        { let x = match &self.flight_tick_q { Some(v) => a.quat((*v)), None => Value::Undefined }; fields.push(("flightTickQ", x)); }
+        { let x = match &self.flight_action_held { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("flightActionHeld", x)); }
+        { let x = match &self.trick_held { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("trickHeld", x)); }
+        { let x = match &self.immelmann_held { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("immelmannHeld", x)); }
+        { let x = match &self.flight_frame_q { Some(v) => a.quat((*v)), None => Value::Undefined }; fields.push(("flightFrameQ", x)); }
         { let x = cx.str_out(self.name); fields.push(("name", x)); }
         { let x = Value::Bool(self.flying); fields.push(("flying", x)); }
         { let x = Value::Bool(self.walking); fields.push(("walking", x)); }
