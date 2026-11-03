@@ -238,6 +238,7 @@ export class SimContext {
   // `kinds` and `defTables`: a generated kind table and its definition
   // tables (the store's by default; the generator's tests pass theirs).
   constructor({ classes = {}, tests = {}, kinds = KIND_TABLE, defTables = DEF_TABLES, recordClasses = RECORD_CLASSES } = {}) {
+    this.recordClasses = recordClasses;
     this.kinds = kinds;
     // A union of records tells them apart by these (a record's $class).
     this.recordTests = Object.fromEntries(Object.entries(recordClasses).map(([name, names]) => {
@@ -254,6 +255,24 @@ export class SimContext {
   }
 
   setRefs(kind, refs) { this.refs[kind] = refs; return refs; }
+
+  // More of what tells kinds apart (as the constructor takes them), from a
+  // phase that joins a bridge already made: a kind JavaScript still owns
+  // that has no test yet gets the one given; the first phase to give a
+  // kind's test sets it.
+  identify({ classes = {}, tests = {} } = {}) {
+    this.kinds.forEach((k, code) => {
+      const refs = this.refs[code];
+      if (!k || !(refs instanceof Identity) || refs.test) return;
+      const ctors = k.classes.map((name) => classes[name]).filter(Boolean);
+      refs.test = tests[k.name] ?? (ctors.length ? (o) => ctors.some((c) => o instanceof c) : null);
+    });
+    for (const [name, names] of Object.entries(this.recordClasses)) {
+      const ctors = names.map((n) => classes[n]).filter(Boolean);
+      if (tests[name] || ctors.length) this.recordTests[name] = tests[name] ?? ((o) => ctors.some((c) => o instanceof c));
+    }
+    return this;
+  }
 
   // Rust now owns the kind: its references are mirrors.
   own(kind) { return this.setRefs(kind, new MirrorPool(kind, this.kinds)); }
@@ -320,6 +339,10 @@ export class SimBridge extends SimContext {
     // The import block: where it is (in f64s) and its size.
     this.exchange = this.x.sim_import_args() / 8;
     this.exchangeWords = this.x.sim_import_capacity();
+    // One bridge an instance: the module's imports reach the bridge attached
+    // to it, so a second would take them from the first (bridgeFor()).
+    // `replace` is for a tool that empties the store and starts over.
+    if (instance.holder?.bridge && !options.replace) throw Error("this instance of the module has a bridge already: bridgeFor(instance) gives it");
     if (instance.holder) instance.holder.bridge = this;
     this.commandCodes = new Map(COMMAND_TABLE.filter(Boolean).map((c) => [c.name, c.code]));
     // A flat command's argument words (its binding fills them, then calls).
@@ -346,6 +369,18 @@ export class SimBridge extends SimContext {
     this.views();
     const f = this.f, base = ptr / 8;
     return record.sync(this, f, base + HEADER, base + f[base + 2], into ?? new record.Mirror());
+  }
+
+  // Serves imports (a phase's own, by import name): `handlers` adds
+  // name -> handler(args) to those served; an import no schema declares, or
+  // one another phase already serves, is refused.
+  register(handlers) {
+    for (const [name, handler] of Object.entries(handlers)) {
+      if (!IMPORT_TABLE.some((imp) => imp?.name === name)) throw Error(`no schema declares an import ${name}`);
+      if (this.handlers[name]) throw Error(`the import ${name} is served already`);
+      this.handlers[name] = handler;
+    }
+    return this;
   }
 
   // Runs a command (by name, or by code, which is quicker) on its arguments
@@ -516,6 +551,16 @@ export class SimBridge extends SimContext {
     this.f.set(heap.words, base + HEADER + n * stride);
     if (this.x.sim_import(kind, full ? 1 : 0) !== 0) throw Error(`${k.name}: the store holds no fields of it`);
   }
+}
+
+// The bridge of a battle's instance of the module: the one attached to it,
+// or a new one. Every phase that goes onto the module shares it (the
+// module's imports reach the bridge attached to the instance), adding what
+// tells its kinds apart (`options`: classes, tests) and registering its own
+// imports' handlers (SimBridge.register).
+export function bridgeFor(instance, options = {}) {
+  const bridge = instance.holder?.bridge;
+  return bridge ? bridge.identify(options) : new SimBridge(instance, options);
 }
 
 // The instance's strings: an index for each, the same on both sides

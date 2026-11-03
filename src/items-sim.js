@@ -50,7 +50,7 @@ export class ItemsSim {
     this.targetsAnswer = { targets: [] };
     this.relationsAnswer = { relations: [] };
     this.sendPools();
-    Object.assign(b.handlers, this.handlers());
+    b.register(this.handlers());
   }
 
   // ---- what JavaScript asks of the items ----

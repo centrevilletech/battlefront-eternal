@@ -345,7 +345,20 @@ the `echo` command its tests and benchmarks use):
   import (the rounds' and items' do not: `rust/sim/src/ordnance/module.rs`)
   can take such calls back in; otherwise a handler must not call back. The
   module's loader gives every instance the imports' functions, which reach
-  the bridge attached to it. A port reaches other subsystems through a
+  the bridge attached to it.
+
+One bridge an instance: the imports reach only the bridge attached to the
+instance, so every phase that goes onto the module joins the same one. A
+phase's attach takes it with `bridgeFor(instance, { classes, tests })`
+(made the first time; a later phase adds the tests and classes its kinds
+are told apart by, the first to give a kind's test setting it), owns its
+kinds (`bridge.own(kind)`) and serves its imports with
+`bridge.register({ name: handler, ... })`, which refuses an import no
+schema declares or one another phase serves already. Each phase's imports
+carry its own names in its schema (the rounds' `cast`, `raycastUnits`, ...;
+the items' `item*`), so two phases never share one. A second
+`new SimBridge(instance)` throws (a tool that empties the store and starts
+over passes `replace: true`). A port reaches other subsystems through a
   trait of its own; on the module, its JavaScript side is these imports,
   and in the replay tests the capture serves it.
 

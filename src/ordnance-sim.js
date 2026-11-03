@@ -78,7 +78,7 @@ export class OrdnanceSim {
     this.poseAnswer = { position: null, direction: null };
     this.seekAnswer = { velocity: null, targetId: 0 };
     this.target = new THREE.Vector3();
-    Object.assign(bridge.handlers, this.handlers());
+    bridge.register(this.handlers());
   }
 
   // ---- what JavaScript asks of the rounds ----

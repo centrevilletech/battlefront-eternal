@@ -107,8 +107,10 @@ async function loadSimInstance() {
 // SimBridge: the kinds Rust owns, the imports it asks the battle), with the
 // rounds in flight and the things lying about handed over to it.
 async function attachSimStore(instance, ordnance, items) {
-  const [{ SimBridge }, { attachOrdnanceSim, ordnanceTests }, { attachItemsSim }] = await Promise.all([import("./sim/runtime.js"), import("./ordnance-sim.js"), import("./items-sim.js")]);
-  const bridge = new SimBridge(instance, { classes: { Unit, Vehicle }, tests: ordnanceTests });
+  const [{ bridgeFor }, { attachOrdnanceSim, ordnanceTests }, { attachItemsSim }] = await Promise.all([import("./sim/runtime.js"), import("./ordnance-sim.js"), import("./items-sim.js")]);
+  // The instance's one bridge (made here, or joined: another phase's own
+  // attach gets the same one with bridgeFor).
+  const bridge = bridgeFor(instance, { classes: { Unit, Vehicle }, tests: ordnanceTests });
   // Room for the store's rows now, so play does not grow the memory.
   bridge.reserve(4 << 20);
   attachItemsSim(items, attachOrdnanceSim(ordnance, bridge));
