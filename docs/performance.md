@@ -1144,6 +1144,27 @@ whichever renderer draws the jets. Their two halves of soft spray have a
 target each, so that both can be drawn before either is laid over the
 frame.
 
+The scene's depth for soft particles is copied where three would copy it.
+Three copies it once a frame, in the `onBeforeRender` of the first item of
+its transparent list that asks for it, after whatever transparent item
+ahead of it writes depth (the Enhanced water's Low and High passes come
+first in the list). So as three starts its render of the near scene, before
+it sorts it, the pass asks `particle-depth.js` for the copy before each of
+its draws whose `onBeforeRender` would take it in three's render (while
+soft particles are on, or whatever the setting for those that read the
+depth regardless). A copier, an item three draws that draws nothing, is
+placed just before the earliest of them in three's order (its centre a hair
+farther along the view than that draw's) and makes the copy there; three
+draws it, so the renderer's list splits there, as for the fountains' copy
+of the frame. The draws' own `onBeforeRender`, which the pass calls as its
+phase starts, only learn that the depth will be there. The steam's volumes
+and the fountains' soft spray render with the depth at once, in their
+`onBeforeRender`: they take a copy of their own as the phase starts, and the
+copier still makes its copy for the draws after it. A draw shown only after
+three started its render takes the copy as the phase starts. Nothing is
+placed without a request, so three alone draws as it did, and a mirror's
+render of the scene places nothing.
+
 The flying models (rounds, grenades, droids' pieces, items: `game.js`
 flyingModel, tagged `userData.flying`) are drawn by the instance pass as
 rigid records in the near phase. Their parts share their materials with

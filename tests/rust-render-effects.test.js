@@ -1359,3 +1359,88 @@ test("an error in the effects pass gives the effects back to three for good, thr
   core.setActive(true);
   assert.equal(batch.external, false, "for good");
 });
+
+test("the scene's depth: asked for as three starts the render, before the first draw whose onBeforeRender would take it, and taken there", async () => {
+  const { JetpackVolume } = await import("../src/jetpack-volume.js");
+  const { EnvironmentVolume, EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { ParticleDepth, particleDepth } = await import("../src/particle-depth.js");
+  const { core, scene, camera, renderer, list, frame, drawn, fx } = bridge();
+  const saved = { ...particleDepth }, map = particleDepth.map.value;
+  try {
+    const depth = new ParticleDepth(renderer);
+    depth.copy = () => { depth.copies++; };
+    // The pass asks the page's helper (made here after the bridge).
+    fx.unrequest?.();
+    fx.unrequest = particleDepth.requester(scene, (c) => fx.requestDepth(c));
+    // A flame (its onBeforeRender asks for the depth whatever the setting) and a CPU batch (only while soft particles are on).
+    const volume = new JetpackVolume({ scene, count: 2 });
+    const nozzle = (x) => ({ position: new THREE.Vector3(x, 1, -5), direction: new THREE.Vector3(0, -1, 0), radius: 0.03 });
+    const particles = new ParticleRenderer(scene);
+    const batch = particles.batch(new THREE.Texture(), "additive", "bolt");
+    const fill = (n) => { particles.begin(); for (let i = 0; i < n; i++) batch.push(i, 1, -6, 1, 1, 1, 0.5, 0.2, 0, STREAK, 4, [0, 0, 1], [0.5, 0, 0]); particles.end(); };
+    volume.update(1.5, 1, [nozzle(-0.2), nozzle(0.2)]);
+    fill(2);
+    list.transparent.push({ object: volume.mesh, material: volume.mesh.material, group: null });
+    drawn(volume.mesh.material, program(["projectionMatrix", "viewMatrix", "cameraPosition", "flameTime", "power", "hasDepth", "noiseField", "sceneDepth", "depthResolution", "cameraRange"],
+      ["position", "nozzle", "direction", "bend", "nozzleRadius", "phase"]));
+    drawn(batch.material, CPU_PROGRAM);
+    frame();
+    list.transparent.length = 0;
+    assert.equal(fx.records.length, 2);
+    const target = core.graphics.sceneTarget;
+    // A frame: graphics.js begin(), three's render starting (the scene's onBeforeRender), the transparent phase.
+    const render = (soft, n = 2) => {
+      volume.update(1.6, 1, [nozzle(-0.2), nozzle(0.2)]);
+      fill(n);
+      depth.begin(target, camera, soft);
+      scene.onBeforeRender(renderer, scene, camera, target);
+    };
+    render(false);
+    assert.equal(depth.armed, true, "the flame asks whatever the setting");
+    assert.deepEqual([depth.group.renderOrder, depth.copier.renderOrder], [0, 10], "just before it: its group order and render order");
+    frame();
+    assert.equal(depth.copies, 0, "its onBeforeRender, run ahead of its turn, took none");
+    assert.equal(volume.mesh.material.uniforms.hasDepth.value, 1, "yet knows it will have it");
+    depth.copier.onBeforeRender(renderer, scene, camera);
+    assert.equal(depth.copies, 1, "taken at the copier");
+    assert.equal(fx.requested.length, 0, "the frame's requests used");
+    // Soft particles on: the batch asks too.
+    render(true);
+    assert.equal(fx.records.filter((r) => r.requested).length, 2);
+    frame();
+    depth.copier.onBeforeRender(renderer, scene, camera);
+    assert.equal(depth.copies, 1);
+    // A batch shown only after three started the render (asked for by none): the copy taken at once, the copier's none.
+    render(true, 0);
+    assert.equal(fx.records.filter((r) => r.requested).length, 1);
+    fill(2);
+    frame();
+    assert.equal(depth.copies, 1, "taken as the phase starts");
+    depth.copier.onBeforeRender(renderer, scene, camera);
+    assert.equal(depth.copies, 1);
+    // Off (three draws the effects): nothing asked for.
+    core.setActive(false);
+    render(true);
+    assert.equal(depth.armed, false);
+    core.setActive(true);
+    // A volume rendering with the depth at once (its own pass): a copy of its own as the phase starts; the copier's still taken.
+    const wakes = new EnvironmentWakes(), steam = new EnvironmentVolume(scene, 2, wakes);
+    steam.update(1, [{ position: new THREE.Vector3(0, 0, -6), direction: new THREE.Vector3(0, 1, 0), extent: new THREE.Vector3(6, 5.5, 6), kind: 0 }]);
+    list.transparent.push({ object: steam.mesh, material: steam.mesh.material, group: null });
+    drawn(steam.mesh.material, program(["volumeMap", "sceneDepth", "volumeResolution", "depthResolution", "cameraRange", "enabled"], ["position"]));
+    frame();
+    list.transparent.length = 0;
+    const rendered = [];
+    Object.assign(renderer, { getClearColor: (c) => c, getClearAlpha: () => 1, setClearColor() {}, clear() {}, render: (s) => rendered.push(s) });
+    render(false);
+    frame();
+    assert.equal(depth.copies, 1, "the volumes' own, as they render");
+    assert.equal(rendered.length, 1);
+    assert.equal(steam.mesh.material.uniforms.enabled.value, 1);
+    depth.copier.onBeforeRender(renderer, scene, camera);
+    assert.equal(depth.copies, 2, "and the copier's for the draws after it");
+  } finally {
+    Object.assign(particleDepth, saved);
+    particleDepth.map.value = map;
+  }
+});
