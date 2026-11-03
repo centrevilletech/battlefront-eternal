@@ -6,12 +6,13 @@
 //!
 //! A capture holds a singleton's state as its exporter gave it
 //! (src/sim/runtime.js `exportState`): its fields by name in the schema's
-//! order, and every entity of a kind the store holds as an object where it
-//! is first met (the same object, the same node, wherever it is met again).
-//! What the store only refers to (a unit, a body, a definition) is a handle
-//! of the harness's: kind and key. `Replay` maps those to slots and
-//! definition indices as it reads, and back as it writes, so a value comes
-//! back with the handles it went in with.
+//! order, and every entity of a kind the store holds written out whole where
+//! it lives (its home list), led by its own handle (`$id`). Any reference
+//! to an entity (of a kind the store holds or not), and to a definition, is
+//! a handle of the harness's: kind and key. `Replay` maps those to slots
+//! and definition indices as it reads (an entity named before its value is
+//! read is made then, and filled in when it is), and back as it writes, so a
+//! value comes back with the handles it went in with.
 
 use std::collections::HashMap;
 
@@ -31,6 +32,15 @@ pub trait StoreKinds: Default {
 }
 
 #[derive(Default)]
+struct Stored {
+    by_key: HashMap<String, (u32, u32)>,
+    by_ref: HashMap<(u32, u32), Value>,
+    /// The next number to give an entity made in the store, past every
+    /// number a handle of the kind was read with.
+    next: f64,
+}
+
+#[derive(Default)]
 struct Keys {
     /// A handle's key (as the harness wrote it) for each slot, and back.
     by_slot: Vec<Value>,
@@ -44,9 +54,10 @@ pub struct ReplayOf<S> {
     pub store: S,
     pub strings: Strings,
     handles: Vec<Keys>,
+    /// The entities of kinds the store holds, by their handles' keys, and
+    /// back (slot and generation).
+    stored: Vec<Stored>,
     defs: HashMap<String, Keys>,
-    entities_in: HashMap<u32, (KindCode, u32, u32)>,
-    entities_out: HashMap<(KindCode, u32, u32), Value>,
 }
 
 impl<S: StoreKinds> Default for ReplayOf<S> {
@@ -68,17 +79,9 @@ impl<S: StoreKinds> ReplayOf<S> {
             store,
             strings: Strings::default(),
             handles: (0..S::NAMES.len()).map(|_| Keys::default()).collect(),
+            stored: (0..S::NAMES.len()).map(|_| Stored::default()).collect(),
             defs: HashMap::new(),
-            entities_in: HashMap::new(),
-            entities_out: HashMap::new(),
         }
-    }
-
-    /// Forgets which entity values were met (a new record's values are a
-    /// new arena): handles and definitions keep their slots and indices.
-    pub fn next_record(&mut self) {
-        self.entities_in.clear();
-        self.entities_out.clear();
     }
 
     /// The slot a handle of a kind the store holds no fields of names: its
@@ -113,6 +116,46 @@ impl<S: StoreKinds> ReplayOf<S> {
             Some(key) => Value::handle(name, key.clone()),
             None => Value::handle(name, Value::Num(r.slot as f64)),
         }
+    }
+
+    /// A fresh store, and the entities' handles forgotten with it (a frame's
+    /// state read anew); handles of what the store only refers to,
+    /// definitions and strings keep their slots and indices.
+    pub fn reset(&mut self) {
+        self.store = S::default();
+        for s in &mut self.stored { *s = Stored::default(); }
+    }
+
+    /// The entity of a kind the store holds that a handle names: the one met
+    /// with that handle before, else the one `make` makes (given the key, if
+    /// it is a number), whose fields its value fills in where it lives.
+    pub fn stored_in(&mut self, kind: KindCode, v: V, path: &str, make: impl FnOnce(&mut Self, Option<u32>) -> (u32, u32)) -> Result<(u32, u32)> {
+        let Some((name, key)) = v.handle() else { return Err(format!("{path}: not a handle ({})", v.show())) };
+        if name != S::NAMES[kind as usize] {
+            return Err(format!("{path}: a {name} handle where a {} belongs", S::NAMES[kind as usize]));
+        }
+        let text = key_text(&key)?;
+        if let Some(&r) = self.stored[kind as usize].by_key.get(&text) { return Ok(r); }
+        let number = key.opt_num().filter(|n| *n >= 0.0 && *n <= u32::MAX as f64 && *n == n.trunc()).map(|n| n as u32);
+        let r = make(self, number);
+        let s = &mut self.stored[kind as usize];
+        if let Some(n) = key.opt_num() { if n + 1.0 > s.next { s.next = n + 1.0; } }
+        s.by_key.insert(text, r);
+        s.by_ref.insert(r, key.value.clone());
+        Ok(r)
+    }
+
+    /// The handle of an entity of a kind the store holds: the one it was read
+    /// with, else the next number of its kind (an entity the port made).
+    pub fn stored_out(&mut self, kind: KindCode, slot: u32, gen: u32) -> Value {
+        let name = S::NAMES[kind as usize];
+        if S::KEYED[kind as usize] { return Value::handle(name, Value::Num(slot as f64)); }
+        let s = &mut self.stored[kind as usize];
+        if let Some(key) = s.by_ref.get(&(slot, gen)) { return Value::handle(name, key.clone()); }
+        let key = Value::Num(s.next);
+        s.next += 1.0;
+        s.by_ref.insert((slot, gen), key.clone());
+        Value::handle(name, key)
     }
 
     /// A definition's index in its table: the harness names one by a
@@ -150,26 +193,6 @@ impl<S: StoreKinds> ReplayOf<S> {
             Err(_) => Value::Str16(units.to_vec()),
         }
     }
-
-    /// An entity of a kind the store holds, met in a value: the one already
-    /// made for that object, or `make` (which makes it and reads its fields).
-    pub fn entity_in(&mut self, kind: KindCode, v: V, path: &str, make: impl FnOnce(&mut Self) -> Result<(u32, u32)>) -> Result<(u32, u32)> {
-        let Some(node) = v.node_id() else { return Err(format!("{path}: not an object ({})", v.show())) };
-        if let Some(&(_, slot, gen)) = self.entities_in.get(&node) { return Ok((slot, gen)); }
-        let (slot, gen) = make(self)?;
-        self.entities_in.insert(node, (kind, slot, gen));
-        Ok((slot, gen))
-    }
-
-    /// Notes an entity's slot as soon as it is made, before its fields are
-    /// read (so a field that names it again finds it).
-    pub fn entity_made(&mut self, kind: KindCode, v: V, slot: u32, gen: u32) {
-        if let Some(node) = v.node_id() { self.entities_in.insert(node, (kind, slot, gen)); }
-    }
-
-    pub fn entity_out(&self, kind: KindCode, slot: u32, gen: u32) -> Option<Value> { self.entities_out.get(&(kind, slot, gen)).cloned() }
-
-    pub fn entity_written(&mut self, kind: KindCode, slot: u32, gen: u32, value: &Value) { self.entities_out.insert((kind, slot, gen), value.clone()); }
 }
 
 // Reading a value's fields, with the path in every error.
@@ -203,6 +226,19 @@ pub fn quat(v: V, path: &str) -> Result<[f64; 4]> {
     }
 }
 
+pub fn mat4(v: V, path: &str) -> Result<[f64; 16]> {
+    match v.node() {
+        Some(Node::Mat4(x)) => Ok(*x),
+        _ => Err(format!("{path}: not a Matrix4 ({})", v.show())),
+    }
+}
+
+/// A Matrix4's value (the harness's arena has no builder for one).
+pub fn mat4_value(a: &mut Arena, m: [f64; 16]) -> Value {
+    a.nodes.push(Node::Mat4(m));
+    Value::Node(a.nodes.len() as u32 - 1)
+}
+
 pub fn numbers<const N: usize>(v: V, path: &str) -> Result<[f64; N]> {
     match v.node() {
         Some(Node::Array(items)) if items.len() == N => {
@@ -225,6 +261,18 @@ pub fn set<'a>(v: V<'a>, path: &str) -> Result<Vec<V<'a>>> {
     match v.node() {
         Some(Node::Set(_)) => Ok(v.items().collect()),
         _ => Err(format!("{path}: not a Set ({})", v.show())),
+    }
+}
+
+/// The value of item `i` of a list field already written (an index field
+/// is that very value, so identity is kept).
+pub fn item_of(a: &Arena, fields: &[(&str, Value)], list: &str, i: usize) -> Value {
+    match fields.iter().find(|(k, _)| *k == list) {
+        Some((_, Value::Node(n))) => match &a.nodes[*n as usize] {
+            Node::Array(items) => items.get(i).cloned().unwrap_or(Value::Undefined),
+            _ => Value::Undefined,
+        },
+        _ => Value::Undefined,
     }
 }
 

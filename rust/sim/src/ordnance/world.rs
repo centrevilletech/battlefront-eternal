@@ -144,6 +144,7 @@ impl ShotKind {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub trait World {
     // The rounds (OrdnanceWorld).
 

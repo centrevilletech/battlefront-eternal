@@ -5,7 +5,7 @@
 #![allow(clippy::all, unused_variables, unused_imports, dead_code)]
 
 pub use crate::store::block::Block;
-pub use crate::store::{word_i32, word_u32, DefId, KindCode, Nullable, Quat, Ref, RefSet, Slab, StrId, StrMap, Vec3};
+pub use crate::store::{word_i32, word_u32, DefId, KindCode, Mat4, Nullable, Quat, Ref, RefSet, Slab, StrId, StrMap, Vec3};
 
 mod items;
 pub use self::items::*;
@@ -322,12 +322,14 @@ impl Store {
 
 pub const COMMAND_ECHO: u32 = 1;
 pub const COMMAND_FILL: u32 = 2;
-pub const COMMAND_NAMES: [&str; 3] = ["", "echo", "fill"];
+pub const COMMAND_RELAY: u32 = 3;
+pub const COMMAND_NAMES: [&str; 4] = ["", "echo", "fill", "relay"];
 
 pub const EVENT_ECHOED: u32 = 1;
 pub const EVENT_NAMES: [&str; 2] = ["", "echoed"];
 
-pub const IMPORT_NAMES: [&str; 1] = ["", ];
+pub const IMPORT_ASK: u32 = 1;
+pub const IMPORT_NAMES: [&str; 2] = ["", "ask"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -342,6 +344,11 @@ pub fn run_command(sim: &mut crate::abi::Sim, code: u32) -> bool {
             let args = { let (row, heap) = sim.calls.args(); Fill::take(row, heap) };
             crate::abi::fill(sim, args);
             sim.calls.result(0, |_, _| {});
+        }
+        COMMAND_RELAY => {
+            let args = { let (row, heap) = sim.calls.args(); Echo::take(row, heap) };
+            let result = crate::abi::relay(sim, args);
+            sim.calls.result(Echo::WORDS, |row, heap| result.put(row, heap));
         }
         _ => return false,
     }
@@ -369,10 +376,37 @@ pub extern "C" fn cmd_fill(w0: f64, w1: f64) -> *const f64 {
     std::ptr::null()
 }
 
+/// The command relay, its arguments' words as parameters.
+#[no_mangle]
+pub extern "C" fn cmd_relay(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64) -> *const f64 {
+    let row: [f64; 8] = [w0, w1, w2, w3, w4, w5, w6, w7];
+    let args = Echo::take(&row, &[]);
+    let sim = crate::abi::sim();
+    let result = crate::abi::relay(sim, args);
+    sim.calls.result(Echo::WORDS, |row, heap| result.put(row, heap));
+    sim.calls.block.ptr()
+}
+
 impl Echo {
     /// Emits it as the event echoed (drained in order at the end of the phase).
     pub fn emit(&self, events: &mut crate::store::calls::Events) {
         events.emit(EVENT_ECHOED, Echo::WORDS, |row, heap| self.put(row, heap));
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "bfe")]
+extern "C" {
+    fn bfe_import_ask();
+}
+
+/// Asks JavaScript (the import ask): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_ask(args: &Echo) -> Echo {
+    crate::store::calls::import_out(Echo::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_ask() };
+    crate::store::calls::import_in(|row, heap| Echo::take(row, heap))
 }
 

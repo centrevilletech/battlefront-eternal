@@ -311,6 +311,18 @@ impl HullRig {
         rig
     }
 
+    /// Where a seat's weapon's muzzle is in the world (src/muzzles.js
+    /// mountedMuzzle: `seats[seat].weapons[weapon].muzzles[barrel].fireNode
+    /// .getWorldPosition()`, the world matrices refreshed from the root down
+    /// to it); None where the hull has no such muzzle. The JavaScript also
+    /// answers null for a hull that is not alive, which is the caller's to
+    /// know.
+    pub fn muzzle_point(&mut self, seat: usize, weapon: usize, barrel: usize) -> Option<Vector3> {
+        let node = self.seats.get(seat)?.weapons.get(weapon)?.muzzles.get(barrel)?.fire_node;
+        let mut out = Vector3::default();
+        Some(self.tree.get_world_position(node, &mut out))
+    }
+
     /// The node of a bone named by a class key: `byName[String(name ||
     /// '').toLowerCase()]`.
     pub fn named(&self, name: Option<&str>) -> Option<NodeId> {

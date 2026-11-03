@@ -196,7 +196,7 @@ impl ExplosionDef {
             damage: get("Damage"),
             damage_radius_inner: get("DamageRadiusInner"),
             damage_radius_outer: get("DamageRadiusOuter"),
-            scales: SCALE_FIELDS.map(|name| get(name)),
+            scales: SCALE_FIELDS.map(&mut get),
         }
     }
 

@@ -4,10 +4,10 @@
 //! a hull's rig and seats (its class in the battle's vehicle definitions and
 //! its model's template).
 
-use super::droideka::{Barrel, Gun};
+use super::droideka::{roll_axle, Barrel, Gun, SkinnedBody};
 use super::hull::{AimerDesc, BarrelDesc, HullDesc, SeatDesc, WeaponDesc};
 use super::skeleton::{BoneDesc, Skeleton};
-use three::Vector3;
+use three::{Matrix4, Vector3};
 use crate::pose::Clip;
 use bfe_content::actor::Actor;
 use bfe_content::clips::{Clip as ContentClip, Clips};
@@ -62,6 +62,25 @@ pub fn droideka_guns(guns: &[DroidekaGun]) -> Vec<Gun> {
             },
         })
         .collect()
+}
+
+/// A droideka's roll axle from its body and bank (`roll_axle`): BallRadius
+/// from its class (`def.BallRadius ?? 0.65`), the roll clip from its bank.
+pub fn droideka_roll_axle(actor: &Actor, clips: &Clips, class: &Value) -> (Vector3, Vector3) {
+    let skeleton = actor_skeleton(actor);
+    let inverses: Vec<Matrix4> = actor.bones.iter().map(|b| Matrix4 { elements: b.inverse.elements }).collect();
+    let body = SkinnedBody {
+        positions: &actor.positions,
+        skin_index: &actor.skin_index,
+        bind_matrix: Matrix4 { elements: actor.bind_matrix.elements },
+        bone_inverses: &inverses,
+    };
+    let ball_radius = match class.get("BallRadius") {
+        None | Some(Value::Null) => super::droideka::BALL_CENTER,
+        Some(v) => bfe_content::js::to_number(Some(v)),
+    };
+    let roll = clips.get("roll").map(clip);
+    roll_axle(&skeleton, &body, roll.as_ref(), ball_radius)
 }
 
 /// `String(value)` of a key the JavaScript reads as `String(x || '')`: None

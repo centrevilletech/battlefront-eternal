@@ -34,6 +34,8 @@ pub use strings::Strings;
 pub type Vec3 = [f64; 3];
 /// A three.js Quaternion (x, y, z, w).
 pub type Quat = [f64; 4];
+/// A three.js Matrix4's elements (column-major).
+pub type Mat4 = [f64; 16];
 
 /// A kind's code: its place among the declared kinds' names in order,
 /// from 1 (`crate::gen::kinds`); 0 is no kind.
@@ -52,6 +54,13 @@ impl<T> Ref<T> {
     pub const fn new(slot: u32, gen: u32) -> Self {
         Ref { slot, gen, kind: PhantomData }
     }
+}
+
+/// Slot 0 of generation 0: what a struct holding a reference starts as
+/// before its fields are read (a generated `Default`), never an entity's.
+impl<T> Default for Ref<T> {
+    #[inline(always)]
+    fn default() -> Self { Ref::new(0, 0) }
 }
 
 impl<T> Clone for Ref<T> {

@@ -27,9 +27,12 @@ export const KIND_TABLE = [null,
   { name: "vehicle", code: 12, hash: 0xe12e5e44, singleton: false, key: null, home: null, stored: false, classes: ["Vehicle"] },
 ];
 
+// The records a union tells apart by class: their classes.
+export const RECORD_CLASSES = {};
+
 // Commands, events and imports by code: name, and their records' words and functions.
-export const COMMAND_TABLE = [null, { name: "echo", code: 1, args: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho }, result: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho }, fast: (b, o) => { const s = b.words; putEcho(b, o, s, 0, null); return b.x.cmd_echo(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]); } }, { name: "fill", code: 2, args: { words: 2, Mirror: FillMirror, sync: syncFill, put: putFill }, result: null, fast: (b, o) => { const s = b.words; putFill(b, o, s, 0, null); return b.x.cmd_fill(s[0], s[1]); } }];
+export const COMMAND_TABLE = [null, { name: "echo", code: 1, args: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho }, result: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho }, fast: (b, o) => { const s = b.words; putEcho(b, o, s, 0, null); return b.x.cmd_echo(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]); } }, { name: "fill", code: 2, args: { words: 2, Mirror: FillMirror, sync: syncFill, put: putFill }, result: null, fast: (b, o) => { const s = b.words; putFill(b, o, s, 0, null); return b.x.cmd_fill(s[0], s[1]); } }, { name: "relay", code: 3, args: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho }, result: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho }, fast: (b, o) => { const s = b.words; putEcho(b, o, s, 0, null); return b.x.cmd_relay(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]); } }];
 export const EVENT_TABLE = [null, { name: "echoed", code: 1, record: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho } }];
-export const IMPORT_TABLE = [null, ];
+export const IMPORT_TABLE = [null, { name: "ask", code: 1, symbol: "bfe_import_ask", args: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho }, result: { words: 8, Mirror: EchoMirror, sync: syncEcho, put: putEcho } }];
 
 export const DEF_TABLES = ["item","ordnance"];
