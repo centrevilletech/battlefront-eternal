@@ -140,6 +140,8 @@ impl Hull {
         self.tow_leg = String::from_utf16_lossy(strings.units(v.tow_leg));
         self.tow_angle = v.tow_angle;
         self.tow_winding = v.tow_winding;
+        // Its team (a spawn's), kept with its flight's fields.
+        self.flight.team = v.team;
         self.slot_index = v.slot_index as usize;
         self.target_id = v.target_id;
         self.target_generation = v.target_generation;
@@ -192,6 +194,7 @@ impl Hull {
         v.tow_winding = self.tow_winding;
         v.last_attacker = self.last_attacker;
         v.target_generation = self.target_generation;
+        v.team = self.flight.team;
         for (i, (s, mine)) in v.seats.iter_mut().zip(&self.seats).enumerate() {
             s.aim_yaw = mine.aim_yaw;
             s.pitch = mine.pitch;

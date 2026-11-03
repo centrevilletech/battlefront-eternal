@@ -35,7 +35,6 @@ const vector = (v, fallback) => v ? String(v).split(/\s+/).map(Number) : fallbac
 const angle = (v) => Math.atan2(Math.sin(v), Math.cos(v));
 const approach = (v, target, delta) => v + THREE.MathUtils.clamp(target - v, -delta, delta);
 const idle = Object.freeze({ forward: 0, right: 0, turn: 0, brake: false });
-const NO_LEASE = Object.freeze({});
 const noTrigger = Object.freeze({ held: false, pressed: false });
 const ZERO = Object.freeze(new THREE.Vector3());
 const vec3 = (v, fallback = null) => {
@@ -656,10 +655,11 @@ export class Vehicle {
   // Its spawn pad's place in the battle's list (the store names a pad so).
   get slotIndex() { return this.system.slots.indexOf(this.slot); }
   // What the store reads of its seats beside their aim (rust/sim/schema/
-  // vehicles.mjs): each one's limits, and its lease (an empty seat's none),
-  // and its item target's centre, kept in place.
+  // vehicles.mjs): each one's limits, and its lease (an empty seat's an
+  // object of its own with nothing in it), and its item target's centre,
+  // kept in place.
   get seatViews() { return this.seats.map((seat) => seat.view); }
-  get seatLeases() { return this.seats.map((seat) => seat.lease ?? NO_LEASE); }
+  get seatLeases() { return this.seats.map((seat) => seat.lease ?? {}); }
   get itemCenter() { return this.itemTarget.center; }
   get weapons() { return this.seats.flatMap(s => s.weapons.map(w => w.state)); }
   get seat() { return this.seats[this.seatIndex]; }
