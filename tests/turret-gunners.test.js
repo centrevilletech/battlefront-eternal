@@ -487,7 +487,10 @@ test('imported: the Hoth dish turret\'s gunner dies to rifle bolts and leaves it
     for (const w of d.weapons || []) if (!bolt && w.ordnance?.base === 'bolt' && !w.ordnance.ExplosionImpact && w.ordnance.Damage === 50) bolt = w.ordnance;
   }
   await game.factory.prepare(className);
-  const shooter = { id: 9999, generation: 1, team: 3, alive: true };
+  // Whoever fires the bolts: a soldier of a third team, kept off the field
+  // (the rounds take a battle's own units as their owners).
+  const shooter = game.factory.acquire(className);
+  shooter.team = shooter.combat.team = 3;
   const hit = { distance: 0, point: new T.Vector3(), normal: new T.Vector3() };
   for (const [cls, shown] of [['hoth_bldg_dish_turret', true], ['hoth_bldg_hoth_turret', false]]) {
     const turret = game.live.turrets.find((t) => t.desc.class === cls);
