@@ -154,6 +154,10 @@ class TransparentPass {
     // this frame, registered in the transparent phase.
     this.taken = new Map();
     this.candidates = [];
+    // The objects' programs, made for this pass alone: the renderer keeps
+    // the values it last set in each (transparent.rs), and the effects'
+    // glow models can draw with the same three program, keeping theirs.
+    this.objectPrograms = new Map();
     this.buckets = 0;
     this.objectCount = 0;
     this.takenCount = 0;
@@ -344,13 +348,14 @@ class TransparentPass {
 
   // Three's passes for a material (transparent.rs), each its program for
   // the renderer, or null: [{ side, program }], three's program for the
-  // front pass (the one it draws last) first among `three`.
-  passesOf(material, policy) {
+  // front pass (the one it draws last) first among `three`. cache: where
+  // the programs are kept (core.program).
+  passesOf(material, policy, cache = undefined) {
     const core = this.core, renderer = core.renderer;
     const sides = sidesOf(material);
     const three = sides.map((side) => programForSide(renderer, material, side));
     if (three.some((p) => !p)) return null;
-    const programs = three.map((p) => core.program(p, WORLD, material, policy));
+    const programs = three.map((p) => core.program(p, WORLD, material, policy, cache));
     if (programs.some((p) => !p) || programs.some((p) => p.attributes.join() !== programs[0].attributes.join())) return null;
     return { sides, programs, current: renderer.properties.get(material).currentProgram };
   }
@@ -405,7 +410,7 @@ class TransparentPass {
     if (material.alphaMap || material.alphaTest > 0 || material.alphaHash || material.vertexColors || material.envMap || material.lightMap || material.aoMap || material.specularMap || material.wireframe) return null;
     const blend = blendOf(material), state = stateOf(material);
     if (!blend || !state || !geometry.index || Object.keys(geometry.morphAttributes).length) return null;
-    const passes = this.passesOf(material, OBJECT_POLICY);
+    const passes = this.passesOf(material, OBJECT_POLICY, this.objectPrograms);
     if (!passes) return null;
     const g = core.geometry(geometry, passes.programs[0]);
     if (g === null) return null;

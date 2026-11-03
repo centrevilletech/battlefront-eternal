@@ -371,6 +371,23 @@ test("the view scene: an unlit part's point lights, which it reads for nothing i
   assert.deepEqual([...input.subarray(1 + 17 + 18, 1 + 17 + 18 + 2)], [1, 9], "three's normal matrix of the part");
 });
 
+test("the transparent pass's objects draw with programs of their own, apart from another pass's for the same three program", () => {
+  const { core, calls, properties } = bridge();
+  const material = new THREE.MeshBasicMaterial({ transparent: true, blending: THREE.AdditiveBlending });
+  const p = program([["modelViewMatrix", GL.FLOAT_MAT4], ["diffuse", GL.FLOAT_VEC3], ["opacity", GL.FLOAT]], ["position"]);
+  properties.get(material).currentProgram = p;
+  properties.get(material).__version = material.version;
+  // Another pass (the effects' glow models) made one for it first, and keeps
+  // what it last set in it.
+  const shared = core.program(p, 0, material, { uniforms: new Set(["modelViewMatrix", "diffuse", "opacity"]), material: new Set() });
+  const beam = new THREE.Mesh(partGeometry(), material);
+  const entry = core.byName.transparent.registerObject({ object: beam, material, geometry: beam.geometry, group: null });
+  assert.ok(entry, "registered");
+  assert.equal(calls.filter((c) => c[0] === "add_program").length, 2, "made again for the transparent pass");
+  const pass = calls.find((c) => c[0] === "transparent_object_pass");
+  assert.notEqual(pass[2], shared.id, "drawn with its own");
+});
+
 test("phases drawn between three's renders reset three's state once, when three is next used", () => {
   const { core, calls, renderer, scene, camera } = bridge();
   core.addPass({ name: "a", phase: "view", draw() { this.complete = true; } });
