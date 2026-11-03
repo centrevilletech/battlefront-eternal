@@ -217,8 +217,8 @@ export class OrdnanceSim {
     }
   }
 
-  // A beam's copy of its class holding this step's share of the Damage
-  // (ordnance.js beam's damageDef), made the first time it strikes.
+  // A beam's copy of its class (made with the beam: the projectile
+  // handler) holding this step's share of the Damage (ordnance.js stepBeam).
   beamDef(beam, damage) {
     const def = (beam.damageDef ??= { ...beam.def });
     def.Damage = damage;
@@ -305,7 +305,12 @@ export class OrdnanceSim {
         else at = a.point;
         w().hitUnit(a.unit, def, at, a.owner, a.part, a.direction);
       },
-      projectile: (a) => w().projectile(this.handed("projectile", a.kind), TYPES[a.type]),
+      projectile: (a) => {
+        const round = this.handed("projectile", a.kind);
+        // A beam's copy of its class, as ordnance.js beam makes it.
+        if (a.kind === KIND_BEAM) round.damageDef = { ...round.def };
+        w().projectile(round, TYPES[a.type]);
+      },
       launch: (a) => w().launch(this.handed("launch", a.kind), a.tick),
       impact: (a) => {
         const round = this.handed("impact", a.kind), s = a.struck;
