@@ -239,12 +239,30 @@ struct World<'a, 'f> {
     cx: &'a mut Replay,
     id: u32,
     error: Option<String>,
+    /// A mutation check's nudge: the frame's first draw one ulp up.
+    nudge_draw: bool,
+}
+
+/// What a mutation check changes in every frame it replays.
+#[derive(Clone, Copy, PartialEq)]
+enum Mutation {
+    None,
+    /// The tick's length one ulp longer.
+    Dt,
+    /// The frame's first random number another (1 - it).
+    Draw,
+}
+
+fn up_one_ulp(x: f64) -> f64 {
+    f64::from_bits(x.to_bits() + 1)
 }
 
 // What each call may change of the unit (P10's names) and of combat.
-const HURT_UNIT: &[&str] = &["combatDead", "alive", "dead", "deadTime", "character", "controller", "soldier", "seat", "mounted", "aimOverride"];
+// A death unseats (src/boarding.js leaveKilled), which moves the unit's
+// hit shapes' tick on (tickCount).
+const HURT_UNIT: &[&str] = &["combatDead", "alive", "dead", "deadTime", "character", "controller", "soldier", "seat", "mounted", "aimOverride", "tickCount", "targetable"];
 const HURT_COMBAT: &[&str] = &["health", "dead", "deathTime", "lastAttacker", "blowApart", "zoomStep", "mounted", "aimOverride"];
-const DIED_UNIT: &[&str] = &["combatDead", "alive", "dead", "deadTime", "character", "controller", "soldier", "seat", "mounted", "aimOverride"];
+const DIED_UNIT: &[&str] = &["combatDead", "alive", "dead", "deadTime", "character", "controller", "soldier", "seat", "mounted", "aimOverride", "tickCount", "targetable"];
 const DIED_COMBAT: &[&str] = &["mounted", "aimOverride"];
 const REMOTE_UNIT: &[&str] = &["remotesActive"];
 const BODY_UNIT: &[&str] = &["soldier"];
@@ -306,6 +324,8 @@ impl<'a, 'f> World<'a, 'f> {
                 "mounted" => unit.mounted = captured_unit.mounted,
                 "aimOverride" => unit.aim_override = captured_unit.aim_override,
                 "remotesActive" => unit.remotes_active = captured_unit.remotes_active,
+                "tickCount" => unit.tick_count = captured_unit.tick_count,
+                "targetable" => unit.targetable = captured_unit.targetable,
                 other => panic!("no unit field {other}"),
             }
         }
@@ -358,11 +378,19 @@ impl<'a, 'f> World<'a, 'f> {
             _ => String::from("a weapon's generator"),
         };
         match self.log.draw(&label) {
-            Ok(v) => uniform(v),
+            Ok(v) => self.nudged(uniform(v)),
             Err(e) => {
                 self.fail(e.0);
                 0.5
             }
+        }
+    }
+
+    fn nudged(&mut self, v: f64) -> f64 {
+        if std::mem::take(&mut self.nudge_draw) {
+            1.0 - v
+        } else {
+            v
         }
     }
 }
@@ -379,7 +407,7 @@ impl WeaponDraws for World<'_, '_> {
 
     fn legacy(&mut self, _weapon: u32) -> f64 {
         match self.log.draw("Math.random") {
-            Ok(v) => v,
+            Ok(v) => self.nudged(v),
             Err(e) => {
                 self.fail(e.0);
                 0.5
@@ -689,7 +717,7 @@ impl CombatWorld for World<'_, '_> {
     fn draw_combat(&mut self, generator: bool) -> f64 {
         if generator {
             match self.log.draw("stream:gameplay") {
-                Ok(v) => uniform(v),
+                Ok(v) => self.nudged(uniform(v)),
                 Err(e) => {
                     self.fail(e.0);
                     0.5
@@ -713,7 +741,7 @@ fn attacker_in(cx: &mut Replay, v: V) -> Result<Attacker, String> {
     Attacker::from_value(arena.view(&r), cx, "attacker")
 }
 
-fn combat_frame(capture: &Capture, frame: &Frame, content: &mut Content, cx: &mut Replay) -> Result<Option<String>, Mismatch> {
+fn combat_frame(capture: &Capture, frame: &Frame, content: &mut Content, cx: &mut Replay, mutation: Mutation) -> Result<Option<String>, Mismatch> {
     let before = frame.before();
     if before.get("skipped").truthy() {
         return Ok(Some("written in part".into()));
@@ -721,11 +749,12 @@ fn combat_frame(capture: &Capture, frame: &Frame, content: &mut Content, cx: &mu
     cx.reset();
     let (id, mut unit, mut combat, edges) = read_state(capture, content, cx, before).map_err(|e| Mismatch(format!("{}: reading the state: {e}", frame.place())))?;
     let defs = std::mem::take(&mut content.defs);
-    let mut world = World { frame, log: Log::new(frame), cx, id, error: None };
+    let mut world = World { frame, log: Log::new(frame), cx, id, error: None, nudge_draw: mutation == Mutation::Draw };
     let method = frame.name.rsplit('.').next().unwrap_or("");
     match method {
         "update" => {
             let dt = frame.arg(0).num();
+            let dt = if mutation == Mutation::Dt { up_one_ulp(dt) } else { dt };
             let stick = frame.arg(2).num();
             cb::update(&mut combat, id, &mut unit, &defs, dt, stick, &edges, &mut world);
         }
@@ -774,16 +803,39 @@ fn outcome(r: Result<Option<String>, Mismatch>) -> Outcome {
     }
 }
 
-fn replay(name: &str) {
-    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+fn replay_with(name: &str, mutation: Mutation) -> Option<sim_replay::Report> {
+    let corpus = Corpus::from_env().unwrap()?;
     let mut content: HashMap<String, (Content, Replay)> = HashMap::new();
     let report = replay_corpus(&corpus, name, |capture, frame| {
         let (content, cx) = content.entry(capture.label()).or_insert_with(|| (Content::default(), Replay::new(Default::default())));
-        outcome(combat_frame(capture, frame, content, cx))
+        outcome(combat_frame(capture, frame, content, cx, mutation))
     })
     .unwrap();
+    Some(report)
+}
+
+fn replay(name: &str) {
+    let Some(report) = replay_with(name, Mutation::None) else { return };
     println!("{}", report.summary());
     report.assert_clean();
+}
+
+/// A mutation check: the port with one thing nudged must fail frames.
+fn mutated(name: &str, mutation: Mutation, what: &str) {
+    let Some(report) = replay_with(name, mutation) else { return };
+    println!("{what}: {} of {} replayed frames differ", report.failures.len(), report.replayed());
+    assert!(!report.failures.is_empty(), "{what}: no frame noticed");
+}
+
+#[test]
+fn a_tick_one_ulp_longer_shows() {
+    mutated("PlayerCombat.update", Mutation::Dt, "updates, dt + 1 ulp");
+}
+
+#[test]
+fn another_draw_shows() {
+    mutated("PlayerCombat.update", Mutation::Draw, "updates, first draw 1 - it");
+    mutated("PlayerCombat.damage", Mutation::Draw, "damage, first draw 1 - it");
 }
 
 #[test]
