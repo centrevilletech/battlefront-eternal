@@ -7,8 +7,13 @@
 //!   and deep water, and whether it sleeps;
 //! - `hover`: a hover on its springs (`hoverPhysics`, `hoverContacts`,
 //!   `hoverSprings`), the springs' contact search included;
+//! - `class` and `store`: what a hull's tick reads of its class (the
+//!   content's) and of the store (rust/sim/schema/vehicles.mjs), and what
+//!   it gives back;
 //! - `walker`: a walker or riding animal on the ground (`walkGround`,
-//!   `standOnLegs`, `alignGround`).
+//!   `standOnLegs`, `alignGround`);
+//! - `pose`: a hull's pose at the tick (`aimTick`, `render`): its root,
+//!   its seats' aim targets, turrets and aimers, its barrels' kick.
 //!
 //! A hull reaches the rest of the battle through [`VehicleWorld`] alone, the
 //! calls src/vehicles-world.js makes for the JavaScript hull, in the order
@@ -21,8 +26,11 @@
 //! rust/v8math); Math.min, max, hypot and sign from rust/v8math; three.js's
 //! vectors and quaternions from rust/three, operation by operation.
 
+pub mod class;
 pub mod hover;
 pub mod hull;
+pub mod pose;
+pub mod store;
 pub mod walker;
 #[cfg(feature = "replay")]
 pub mod replay;
@@ -81,6 +89,8 @@ pub trait VehicleWorld {
     fn move_body(&mut self, body: BodyId, matrix: &Matrix4);
     /// A body in or out of the collision's queries.
     fn enable_body(&mut self, body: BodyId, enabled: bool);
+    /// Whether a body takes part in the collision's queries.
+    fn body_enabled(&mut self, body: BodyId) -> bool;
     /// Whether the map has water, and then whether (x, z) is over it.
     fn water_over(&mut self, x: f64, z: f64) -> bool;
     /// The water's level now (only asked after water_over said yes, or for a
@@ -100,4 +110,8 @@ pub trait VehicleWorld {
     fn explosion(&mut self, hull: usize, final_explosion: bool, position: &Vector3);
     /// An effect at a point (recorded by a world for its page).
     fn effect(&mut self, name: &str, position: &Vector3);
+    /// Units.raycast: the distance to the first unit along a ray within `far`.
+    fn raycast_units(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<f64>;
+    /// The clock barrels kick back on (a world's tick clock).
+    fn clock(&mut self) -> f64;
 }

@@ -25,6 +25,24 @@
 
 const BLOCK = 128;
 
+// The same DSP in WebAssembly (rust/audio, ?audio=wasm):
+// processorOptions.dsp is the compiled module the page hands over
+// (src/audio/wasm-dsp.js). With it, blocks go to the module, whose
+// answers are this file's own to the last bit
+// (tests/audio-dsp-parity.mjs); without it, the JavaScript below runs as
+// it always has.
+const DSP_MATH = { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin, js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10 };
+const DSP_LAWS = { panpot: 0, vbap: 1, alsoft: 2, ambi3: 3 };
+function dspExports(options) {
+  const m = options?.processorOptions?.dsp;
+  if (!m) return null;
+  try {
+    return new WebAssembly.Instance(m, { env: DSP_MATH }).exports;
+  } catch {
+    return null;
+  }
+}
+
 // The 16 harmonics at a unit vector (x front, y left, z up).
 function harmonics(x, y, z, out) {
   out[0] = 0.28209479177387814;
@@ -64,13 +82,21 @@ class SpatialMixer extends AudioWorkletProcessor {
     this.dirty = new Uint8Array(this.slots);
     // Slots can start with directions (offline renders, tests).
     if (o.params) this.take(o.params, true);
+    const x = dspExports(options);
+    if (x) {
+      this.dsp = { x, h: x.mixer_new(this.slots, this.channels) };
+      this.dspLayout(this.law, o.speakers || [], this.decoder, 0);
+      if (o.params) this.dspParams(o.params, 1);
+    }
     this.port.onmessage = (event) => {
       const m = event.data;
       if (m.type === "params") {
         this.take(m.data, false);
+        if (this.dsp) this.dspParams(m.data, 0);
       } else if (m.type === "start") {
         // A voice took this slot: its first gains apply at once.
         this.fresh[m.slot] = 1;
+        if (this.dsp) this.dsp.x.mixer_start(this.dsp.h, m.slot);
       } else if (m.type === "layout") {
         this.law = m.law;
         this.decoder = m.decoder || null;
@@ -78,8 +104,51 @@ class SpatialMixer extends AudioWorkletProcessor {
         this.next = null;
         this.scratch = null;
         this.tmp = null;
+        if (this.dsp) this.dspLayout(m.law, m.speakers, this.decoder, 1);
       }
     };
+  }
+
+  dspLayout(law, speakers, decoder, dirty) {
+    const { x, h } = this.dsp;
+    const cfg = new Float64Array(x.memory.buffer, x.mixer_cfg(h, Math.max(speakers.length * 3, 1)), Math.max(speakers.length * 3, 1));
+    speakers.forEach((s, i) => cfg.set(s ? [s[0], s[1], 1] : [0, 0, 0], i * 3));
+    x.mixer_speakers(h, speakers.length, dirty);
+    if (decoder) {
+      const flat = [decoder.rows.length, ...decoder.rows.map((r) => (r ? r.length : -1)), ...decoder.rows.flatMap((r) => r || [])];
+      new Float64Array(x.memory.buffer, x.mixer_cfg(h, flat.length), flat.length).set(flat);
+      new Float64Array(x.memory.buffer, x.mixer_io(h), 1)[0] = decoder.front || 0;
+      x.mixer_decoder(h, 1);
+    } else x.mixer_decoder(h, 0);
+    x.mixer_law(h, DSP_LAWS[law] ?? 0);
+  }
+
+  dspParams(p, fresh) {
+    const { x, h } = this.dsp;
+    new Float32Array(x.memory.buffer, x.mixer_params_ptr(h), p.length).set(p);
+    x.mixer_params(h, p.length, fresh);
+  }
+
+  // One block through the module (128 frames, as worklets always get).
+  processDsp(inputs, outputs) {
+    const d = this.dsp;
+    const { x, h } = d;
+    if (!d.inView || d.inView.byteLength === 0) {
+      d.inView = new Float32Array(x.memory.buffer, x.mixer_in(h), this.slots * BLOCK);
+      d.outView = new Float32Array(x.memory.buffer, x.mixer_out(h), (this.channels + 1) * BLOCK);
+      d.present = new Uint8Array(x.memory.buffer, x.mixer_present(h), this.slots);
+    }
+    for (let s = 0; s < this.slots; s++) {
+      const input = inputs[s];
+      d.present[s] = input && input.length ? 1 : 0;
+      if (d.present[s]) d.inView.set(input[0], s * BLOCK);
+    }
+    const out = outputs[0];
+    const lfeOut = outputs[1]?.[0];
+    x.mixer_process(h, out.length, lfeOut ? 1 : 0);
+    for (let c = 0; c < out.length; c++) out[c].set(d.outView.subarray(c * BLOCK, (c + 1) * BLOCK));
+    if (lfeOut) lfeOut.set(d.outView.subarray(out.length * BLOCK, (out.length + 1) * BLOCK));
+    return true;
   }
 
   // [slot, x, y, z, spread, lfe] per entry.
@@ -254,6 +323,7 @@ class SpatialMixer extends AudioWorkletProcessor {
   }
 
   process(inputs, outputs) {
+    if (this.dsp && outputs[0][0]?.length === BLOCK && outputs[0].length <= this.channels) return this.processDsp(inputs, outputs);
     const out = outputs[0];
     const lfeOut = outputs[1]?.[0];
     const N = this.channels;

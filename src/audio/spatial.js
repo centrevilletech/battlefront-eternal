@@ -1,5 +1,6 @@
 import { Target } from "./automation.js";
 import { ALSOFT, ALSOFT_STREAM_ANGLES, LAYOUTS, alsoftStereo, autoLayout } from "./layouts.js";
+import { loadAudioDsp } from "./wasm-dsp.js";
 
 // Where sound goes once it leaves a voice: the output layout, the panning,
 // the reverb, the LFE, and the master chain.
@@ -171,7 +172,12 @@ export class Renderer {
   worklets() {
     if (!this.modules) {
       const add = (file) => this.ctx.audioWorklet.addModule(new URL(`./worklets/${file}`, import.meta.url));
-      this.modules = Promise.all(["spatial-mixer.js", "limiter.js", "reverb.js", "meter.js", "stabilizer.js", "clarity.js"].map(add)).then(() => {
+      // With ?audio=wasm, the worklets' DSP module (rust/audio) is
+      // compiled here and handed to each processor, whose scope cannot
+      // fetch it; without the flag this.dsp stays null and the
+      // JavaScript worklets run.
+      this.modules = Promise.all([Promise.all(["spatial-mixer.js", "limiter.js", "reverb.js", "meter.js", "stabilizer.js", "clarity.js"].map(add)), loadAudioDsp()]).then(([, dsp]) => {
+        this.dsp = dsp || null;
         this.workletsReady = true;
       });
     }
@@ -293,7 +299,7 @@ export class Renderer {
         numberOfInputs: SLOTS,
         numberOfOutputs: 2,
         outputChannelCount: [feeds, 1],
-        processorOptions: { channels: feeds, law, speakers: layout.speakers, lfe: layout.lfe, decoder: this.alsoft },
+        processorOptions: { channels: feeds, law, speakers: layout.speakers, lfe: layout.lfe, decoder: this.alsoft, ...(this.dsp ? { dsp: this.dsp } : {}) },
       }),
     );
     if (this.binaural) {
@@ -337,7 +343,7 @@ export class Renderer {
     this.reverbIn.channelCount = 1;
     this.reverbIn.channelCountMode = "explicit";
     const rooms = layout.speakers.map((s) => (s ? 1 : 0));
-    this.reverb = keep(new AudioWorkletNode(ctx, "fdn-reverb", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [N], processorOptions: { channels: N } }));
+    this.reverb = keep(new AudioWorkletNode(ctx, "fdn-reverb", { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [N], processorOptions: { channels: N, ...(this.dsp ? { dsp: this.dsp } : {}) } }));
     if (enhanced) {
       this.reverbHP = keep(ctx.createBiquadFilter());
       this.reverbHP.type = "highpass";
@@ -374,7 +380,7 @@ export class Renderer {
           channelCount: N,
           channelCountMode: "explicit",
           channelInterpretation: "discrete",
-          processorOptions: { channels: N, left: 0, right: 1, centre: layout.center },
+          processorOptions: { channels: N, left: 0, right: 1, centre: layout.center, ...(this.dsp ? { dsp: this.dsp } : {}) },
         }),
       );
       tail.connect(stabilizer);
@@ -404,7 +410,7 @@ export class Renderer {
           channelCount: N,
           channelCountMode: "explicit",
           channelInterpretation: "discrete",
-          processorOptions: { channels: N, skip: layout.lfe },
+          processorOptions: { channels: N, skip: layout.lfe, ...(this.dsp ? { dsp: this.dsp } : {}) },
         }),
       );
       tail.connect(clarity);
@@ -439,7 +445,7 @@ export class Renderer {
         channelCount: N,
         channelCountMode: "explicit",
         channelInterpretation: "discrete",
-        processorOptions: { ceiling: -1, release: enhanced ? 0.08 : 0.06, dynamics: { ...d, skip: layout.lfe } },
+        processorOptions: { ceiling: -1, release: enhanced ? 0.08 : 0.06, dynamics: { ...d, skip: layout.lfe }, ...(this.dsp ? { dsp: this.dsp } : {}) },
       }),
     );
     tail.connect(this.limiter);
@@ -569,7 +575,7 @@ export class Renderer {
         channelCount: N,
         channelCountMode: "explicit",
         channelInterpretation: "discrete",
-        processorOptions: { weights },
+        processorOptions: { weights, ...(this.dsp ? { dsp: this.dsp } : {}) },
       });
       this.meterNode.port.onmessage = (e) => this.onMeter?.(e.data);
       this.output.connect(this.meterNode);
