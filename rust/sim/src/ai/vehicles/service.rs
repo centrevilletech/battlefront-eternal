@@ -1085,7 +1085,7 @@ fn character_of<W: World + ?Sized>(w: &W, u: Obj) -> bool {
 
 /// `n.toFixed(1)` (the support cache's key): n rounded exactly to tenths,
 /// a tie to the larger, "-" before a negative (but not -0).
-fn to_fixed_1(x: f64) -> String {
+pub fn to_fixed_1(x: f64) -> String {
     if x.is_nan() {
         return "NaN".into();
     }
