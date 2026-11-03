@@ -3,12 +3,12 @@
 // (src/runtime/local-server.js, the world worker's) runs a whole battle with
 // its player walking, turning and firing on a script, on a fixed clock: wall
 // time reads the tick's time, and Math.random a seeded sequence restarted as
-// the battle starts (a few gameplay paths still draw it, three draws it for
-// every object it makes while loading, and a vehicle's barrel recoil reads
-// the clock, so two unseeded runs part after a while). Each tick prints three
-// hashes: the replay parity state (src/runtime/world-state.js), a deeper
-// digest of every unit, hull and round in full precision, and the snapshot
-// bytes the server published. Run it in two checkouts and compare:
+// the battle starts (a few gameplay paths still draw it, and three draws it
+// for every object it makes, so two unseeded runs part after a while). Each
+// tick prints three hashes: the replay parity state
+// (src/runtime/world-state.js), a deeper digest of every unit, hull and round
+// in full precision, and the snapshot bytes the server published. Run it in
+// two checkouts and compare:
 //
 //   BFE_CONTENT_DIR=<game-data> node tools/world-hash.mjs \
 //     [--map nab2] [--side rep] [--seed 1] [--ticks 2400] > before.txt

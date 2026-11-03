@@ -185,7 +185,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
     },
     // One tick. at: the host's wall time for it (ms, performance.now()'s),
     // the step's one clock input: half a second of it without input stops a
-    // player (stopInput), and the world's barrels kick back on it.
+    // player (stopInput).
     step(at = performance.now()) {
       const tick=game.worldClock.tick+1;
       hitHistory.capture(game.worldClock.tick);
@@ -275,7 +275,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
         }
       }
       updateViews();
-      game.step({epoch:1,sequence:tick,tick,generation:game.playerUnit.generation,down:[],actions:[],look:[]},at);
+      game.step({epoch:1,sequence:tick,tick,generation:game.playerUnit.generation,down:[],actions:[],look:[]});
       return tick;
     },
   };

@@ -1961,8 +1961,7 @@ export class Vehicles {
     this.time = 0; // s of vehicle updates
     this.ticks = 0; // input batches so far
     // s: the clock barrels kick back on. A page's wall clock; a world's is
-    // the time its host gives each step (src/game.js), as no step reads a
-    // clock of its own.
+    // its tick clock (src/game.js), as no step reads a clock of its own.
     this.clock = clockSeconds;
     this.pendingExits = [];
     this.exitSpot = { position: new THREE.Vector3(), forward: new THREE.Vector3(), candidate: -1 };

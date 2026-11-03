@@ -44,7 +44,7 @@ const CENSUS = {
     'src/vehicle-effects.js': { page: 1 },
   },
   'performance.now': {
-    'src/game.js': { page: 20, host: 1 }, // frames and loading; game.step's default time
+    'src/game.js': { page: 20 }, // frames, loading and the page's own clocks
     'src/local-lights.js': { page: 1 },
     'src/point-lights.js': { page: 1 },
     'src/runtime-profiler.js': { host: 1 },

@@ -410,10 +410,11 @@ they are paired runs' medians and only a guide to the laptop.
 
 ### What is left
 
-- A vehicle's barrel recoil runs on the wall clock (`clockSeconds` in
-  `src/vehicles.js`) and moves the fire points its rounds leave from, and a
-  few gameplay paths draw `Math.random` (an idle turret's turn, a missile's
-  waver): two runs of the same battle part after a minute or so.
+- A few gameplay paths draw `Math.random` (a network player's weapons and
+  the seats and turrets he mans, a bot's seat before its controller takes it,
+  a grenade's spin): two runs of the same battle part after a minute or so.
+  A vehicle's barrel recoil, which moves the fire points its rounds leave
+  from, runs on the tick clock in a world.
 - A weapon's numeric fields start as small integers and become fractions as
   it fires, and a soldier gains `dead` and `gatherCaches` after it spawns;
   each change of layout deoptimizes the code that read the old one once.
