@@ -14,8 +14,7 @@
 // three's frame, which draws its passes in order: the far scene (far_frame),
 // the near scene (frame), what it blends (transparent_frame, in segments
 // around what three still blends itself: transparent_segment), the
-// first-person view (view_frame) and the post passes (post_frame). The near
-// and transparent phases draw so far; the others' passes are empty. A
+// first-person view (view_frame) and the post passes (post_frame). A
 // mirror's render of the near scene (water.js) draws the near phase's
 // passes for its own camera (mirror_frame); what the near scene blends is
 // left to three there.

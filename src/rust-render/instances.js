@@ -1,11 +1,15 @@
 // The instance pass (instances.rs): every visible soldier's body and the
 // guns in his hand, and behind ?rustRigs the scene's other skinned meshes
 // (vehicles' and props' rigs), each a record the renderer draws instanced
-// in the near phase, after the world. Each is registered the first time
+// in the near phase, after the world; and the flying models (rounds,
+// grenades, droids' pieces, items: flying()). Each is registered the first time
 // three has drawn it (which gives its material a program), then hidden from
 // three; a body wearing materials of its own for now (a dissolve) goes back
 // to three.
 const SKINNED = 1, RIGID = 2;
+// The layer a flying model's part goes on while the renderer draws it: no
+// camera renders it (graphics.js uses 1, 2 and 4, sky-probe.js 3, water.js 5).
+const FLYING_LAYER = 30;
 // Record layout (instances.rs REC_*).
 const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, BONE_AT: 9, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56, BIND: 60 };
 const MAX_RECORDS = 256;
@@ -52,6 +56,7 @@ class InstancePass {
     for (const root of graphics.cullRoots) this.soldier(root, camera, ctx);
     if (graphics.playerRoot) this.soldier(graphics.playerRoot, camera, ctx);
     if (this.rigsOn) this.rigs(camera, ctx);
+    this.flying(camera, ctx);
     this.frames++;
   }
 
@@ -226,6 +231,107 @@ class InstancePass {
     const set = (m) => { if (m) m.visible = !on; };
     for (const record of this.bodyRecords) for (const m of record.used) set(m);
     for (const record of this.meshRecords) set(record.material);
+    this.flyingActive(on);
+  }
+
+  // Flying models (game.js flyingModel: rounds, grenades, droids' pieces,
+  // items), groups the game adds to the scene tagged userData.flying, their
+  // parts drawn as rigid records, dynamic (lit) and unlit zero materials
+  // alike: an unlit part's program reads no look values, so its record's go
+  // unread. A part shares its material with every copy of its model, which
+  // the renderer may not draw (one not yet registered, one inside another
+  // object), so a part it draws is hidden from three by its layers (on
+  // FLYING_LAYER), not by its material; its own layers stay in its record,
+  // tested against the camera's as three would test them. A part three
+  // gives another material (destruction.js heats a wreck's) goes back to
+  // three.
+  flying(camera, at) {
+    if (!this.flyingRecords) this.watchFlying();
+    if (this.flyingPending.size) {
+      for (const group of this.flyingPending) {
+        let waiting = false;
+        group.traverse((o) => {
+          if (!o.isMesh || this.flyingByMesh.has(o)) return;
+          const record = this.registerFlying(o);
+          if (record === undefined) waiting = true;
+          else this.flyingByMesh.set(o, record);
+        });
+        if (!waiting) this.flyingPending.delete(group);
+      }
+    }
+    const scene = this.core.graphics.scene, mask = camera.layers.mask;
+    for (let i = 0; i < this.flyingRecords.length; i++) {
+      const record = this.flyingRecords[i], mesh = record.mesh;
+      if (mesh.material !== record.material) {
+        mesh.layers.mask = record.layers;
+        this.flyingByMesh.set(mesh, null);
+        this.flyingRecords.splice(i--, 1);
+        continue;
+      }
+      if (!(record.layers & mask)) continue;
+      let shown = true, o = mesh;
+      for (; o && o !== scene; o = o.parent) if (!o.visible) { shown = false; break; }
+      if (shown && o === scene) at = this.writeMesh(record, at);
+    }
+    return at;
+  }
+
+  // The scene's flying groups, now and as the game adds and removes them: a
+  // group taken out of the scene has its parts given back to three.
+  watchFlying() {
+    const scene = this.core.graphics.scene;
+    this.flyingRecords = [];
+    this.flyingByMesh = new WeakMap(); // part -> its record, or null (three draws it)
+    this.flyingPending = new Set(scene.children.filter((o) => o.userData?.flying));
+    scene.addEventListener("childadded", ({ child }) => { if (child.userData?.flying) this.flyingPending.add(child); });
+    scene.addEventListener("childremoved", ({ child }) => {
+      if (!child.userData?.flying) return;
+      this.flyingPending.delete(child);
+      child.traverse((o) => {
+        const record = this.flyingByMesh.get(o);
+        if (!record) return;
+        o.layers.mask = record.layers;
+        this.flyingByMesh.delete(o);
+        const i = this.flyingRecords.indexOf(record);
+        if (i >= 0) this.flyingRecords.splice(i, 1);
+      });
+    });
+  }
+
+  // A flying part's rigid record, or null when the renderer can't draw it;
+  // undefined while three has drawn no copy of its model yet.
+  registerFlying(mesh) {
+    const core = this.core, material = mesh.material;
+    if (mesh.isSkinnedMesh || mesh.isInstancedMesh || Array.isArray(material) || !material?.isShaderMaterial) return null;
+    const threeProgram = core.renderer.properties.get(material).currentProgram;
+    if (!threeProgram) return undefined;
+    const defines = material.defines || {};
+    if (material.transparent || mesh.geometry.groups.length || !("DYNAMIC" in defines || "UNLIT" in defines)) return null;
+    const program = core.program(threeProgram, RIGID, material, POLICIES[RIGID]);
+    const geometry = program && core.geometry(mesh.geometry, program);
+    const texture = core.texture(material.uniforms.map?.value);
+    if (geometry === null || geometry === undefined || texture < 0) return null;
+    if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    const record = { mesh, material, program: program.id, geometry, texture, layers: mesh.layers.mask };
+    if (this.core.active) mesh.layers.set(FLYING_LAYER);
+    this.flyingRecords.push(record);
+    return record;
+  }
+
+  // On: the flying parts hidden from three again; off: back to their layers.
+  flyingActive(on) {
+    for (const record of this.flyingRecords || []) {
+      if (on) record.mesh.layers.set(FLYING_LAYER);
+      else record.mesh.layers.mask = record.layers;
+    }
+  }
+
+  // Everything three may draw again, for good: the flying parts' layers.
+  restore() {
+    this.flyingActive(false);
+    this.flyingRecords = [];
+    this.flyingPending?.clear();
   }
 }
 

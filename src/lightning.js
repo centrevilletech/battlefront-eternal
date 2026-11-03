@@ -51,6 +51,11 @@ function random(seed) {
 
 const newSeed = () => (Math.random() * 0xffffffff) >>> 0;
 
+// The lightning drawing into each scene (keyed by the scene at the root of
+// its own), for a renderer that draws the Classic look itself
+// (src/rust-render/effects.js).
+export const classicLightning = new WeakMap();
+
 export class Lightning {
   // options: settings (arcCasterEffects picks the look), and what the
   // Enhanced look reads: lights, units, collision, effects (ArcLightning).
@@ -79,6 +84,9 @@ export class Lightning {
     this.mesh.renderOrder = 5;
     this.mesh.visible = false;
     scene.add(this.mesh);
+    let root = scene;
+    while (root.parent) root = root.parent;
+    classicLightning.set(root, this);
     this.vertex = 0;
     this.index = 0;
     this.a = new THREE.Vector3();
@@ -199,7 +207,9 @@ export class Lightning {
       }
     }
     this.prune();
-    this.mesh.visible = this.index > 0;
+    // Drawn by another renderer (external: src/rust-render/effects.js reads
+    // its buffers), it is shown to three never and uploads it nothing.
+    this.mesh.visible = this.index > 0 && !this.external;
     if (!this.index) return;
     this.mesh.material = this.material(texture);
     // The top level only, once the data has arrived (a KTX2 twin's sets its
@@ -211,6 +221,7 @@ export class Lightning {
       map.needsUpdate = true;
     }
     this.geometry.setDrawRange(0, this.index);
+    if (this.external) return;
     for (const name of ["position", "uv", "color"]) this.geometry.attributes[name].needsUpdate = true;
     this.geometry.index.needsUpdate = true;
   }

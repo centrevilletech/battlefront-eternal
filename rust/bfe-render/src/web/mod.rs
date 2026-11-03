@@ -61,10 +61,11 @@ impl BfeRenderer {
 
     pub fn set_far_map(&mut self, texture: u32) { self.r.core.set_far_map(texture) }
 
-    // kind 0 world, 1 skinned, 2 rigid, 3 plain; attributes "name:location,...";
-    // the material uniforms the program reads, comma-separated.
+    // kind 0 world, 1 skinned, 2 rigid, 3 plain, 4 effect; attributes
+    // "name:location,..."; the material uniforms the program reads,
+    // comma-separated.
     pub fn add_program(&mut self, kind: u32, vs: &str, fs: &str, attributes: &str, uniforms: &str) -> Result<u32, JsValue> {
-        let kind = match kind { 1 => Kind::Skinned, 2 => Kind::Rigid, 3 => Kind::Plain, _ => Kind::World };
+        let kind = match kind { 1 => Kind::Skinned, 2 => Kind::Rigid, 3 => Kind::Plain, 4 => Kind::Effect, _ => Kind::World };
         let attributes: Vec<(String, u32)> = attributes.split(',').filter(|s| !s.is_empty())
             .filter_map(|s| { let (n, l) = s.split_once(':')?; Some((n.to_string(), l.parse().ok()?)) }).collect();
         let uniforms: Vec<String> = uniforms.split(',').filter(|s| !s.is_empty()).map(String::from).collect();
