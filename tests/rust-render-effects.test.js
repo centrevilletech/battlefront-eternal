@@ -814,6 +814,30 @@ test("flying models: parts of tagged groups as rigid records, lit and unlit, hid
   assert.equal(b.children[0].layers.mask, 1 << 30);
 });
 
+test("a burning piece: a flying part made with a heated material, its heat and look its object's", async () => {
+  const { heatMaterial } = await import("../src/destruction-debris.js");
+  const { core, scene, camera, renderer, drawn } = bridge();
+  const source = new THREE.ShaderMaterial({ name: "zero:dynamic", defines: { DYNAMIC: "" }, fragmentShader: "void main() { vec4 color = vec4(1.0); gl_FragColor = color; }",
+    uniforms: { map: { value: new THREE.Texture() }, sunScale: { value: 1 }, ambientPull: { value: new THREE.Vector2() }, brightness: { value: 1 } } });
+  const hot = heatMaterial(source);
+  drawn(hot, program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "map", "sunScale", "ambientPull", "brightness", "heat", "heatTear", "heatBase", "heatScale", "soot", "dissolve"], ["position"]));
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setIndex([0, 1, 2]);
+  const group = new THREE.Group(), piece = new THREE.Mesh(geometry, hot);
+  group.add(piece); group.userData.flying = true; group.position.z = -5;
+  piece.userData.heated = { heat: 0.75, tear: new THREE.Vector4(1, 2, 3, 0.5), base: 0.2, scale: 0.8, soot: 0.5, dissolve: 0.125, sun: 0.8, brightness: 1.2, darken: 0.3, lighten: 0.4 };
+  scene.add(group);
+  // Another piece's look in the shared material's uniforms (its onBeforeRender ran last for it).
+  hot.uniforms.sunScale.value = 0.1;
+  scene.updateMatrixWorld(true);
+  core.pass(renderer, scene, camera);
+  const at = core.recordsAt, R = { LOOK: 52, EXTRA: 76 };
+  assert.equal(piece.layers.mask, 1 << 30, "the renderer's");
+  assert.deepEqual([...core.input.subarray(at + R.LOOK, at + R.LOOK + 4)].map((v) => +v.toFixed(3)), [0.8, 0.3, 0.4, 1.2], "its look, its object's");
+  assert.deepEqual([...core.input.subarray(at + R.EXTRA + 4, at + R.EXTRA + 13)].map((v) => +v.toFixed(3)), [0.75, 0.2, 0.8, 0.5, 1, 2, 3, 0.5, 0.125], "its heat, base, scale, soot, tear and dissolve");
+});
+
 test("a flying part that blends: a rigid record of its own kind, one blend for every copy, three's key for the transparent list", () => {
   const { core, calls, scene, camera, renderer, drawn } = bridge();
   const glow = new THREE.ShaderMaterial({ name: "zero:unlit", defines: { UNLIT: "", SCROLL: "", BLENDED: "" }, transparent: true, depthWrite: false, side: THREE.DoubleSide,
