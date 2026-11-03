@@ -1908,7 +1908,7 @@ export class Vehicle {
     if (def.ordnance?.base === 'towcable') this.system.launchTow(this, def, this.muzzle, this.direction, seatIndex, lease ?? this.seats[seatIndex].lease);
     else if (def.ordnance) {
       const round = this.system.world.fire(def.ordnance, this.muzzle, this.direction, owner, this.body, emitter ?? this.seats[seatIndex].emitter, shot);
-      if (round && this.flying && round.kind === 'missile') { round.flightMissile = true; round.flightClass=this.flightClass; round.life=this.flightConfig.missileLifetime; round.velocity.normalize().multiplyScalar(this.flightConfig.missileSpeed); }
+      if (round && this.flying && round.kind === 'missile') this.system.ordnance.flightMissile(round, this.flightClass, this.flightConfig.missileLifetime, this.flightConfig.missileSpeed);
       const weapons = this.seats[seatIndex].weapons, index = weapons.findIndex(w => w.state === shot.weapon);
       const weapon = weapons[index];
       if (weapon?.muzzles.length) bindMountedRound(round, this, seatIndex, index, (weapon.barrel - 1) % weapon.muzzles.length);

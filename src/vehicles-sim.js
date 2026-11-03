@@ -116,7 +116,7 @@ export class VehiclesSim {
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
     this.flag = { value: false };
     this.number = { value: 0 };
-    Object.assign(bridge.handlers, this.handlers());
+    bridge.register(this.handlers());
     // The poses: each ground hull the module poses, by the life it took
     // the hull's pose for.
     this.lives = new WeakMap();

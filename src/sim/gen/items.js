@@ -29,7 +29,7 @@ export function syncItemOwner(b, f, at, h, current) {
 
 export function putItemOwner(b, x, f, at, heap) {
   const i = whichItemOwner(b, x);
-  f.fill(0, at + 1, at + 3);
+  f[at + 1] = 0; f[at + 2] = 0;
   f[at] = i;
   switch (i) {
     case 2: b.refs[KIND_UNIT].put(x, f, at + 1); break;
@@ -48,6 +48,717 @@ export function exportItemOwner(x, cx) {
     case 1: return "player";
     case 2: return cx.ref("unit", x);
   }
+}
+
+export class ItemCastArgsMirror {
+  constructor() {
+    this.origin = new THREE.Vector3();
+    this.direction = new THREE.Vector3();
+    this.far = NaN;
+  }
+}
+
+export function syncItemCastArgs(b, f, at, h, m) {
+  (m.origin ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  (m.direction ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  m.far = f[at + 6];
+  return m;
+}
+
+export function putItemCastArgs(b, o, f, at, heap) {
+  { const $v = o.origin; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+  { const $v = o.direction; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+  f[at + 6] = o.far;
+}
+
+export function sameItemCastArgs(a, b) {
+  if (!sameVec(a.origin, b.origin)) return ".origin";
+  if (!sameVec(a.direction, b.direction)) return ".direction";
+  if (!Object.is(a.far, b.far)) return ".far";
+  return null;
+}
+
+export function exportItemCastArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.origin = o.origin.clone();
+  v.direction = o.direction.clone();
+  v.far = o.far;
+  return v;
+}
+
+export class BlockedArgsMirror {
+  constructor() {
+    this.position = new THREE.Vector3();
+    this.target = new THREE.Vector3();
+  }
+}
+
+export function syncBlockedArgs(b, f, at, h, m) {
+  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  (m.target ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  return m;
+}
+
+export function putBlockedArgs(b, o, f, at, heap) {
+  { const $v = o.position; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+  { const $v = o.target; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+}
+
+export function sameBlockedArgs(a, b) {
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameVec(a.target, b.target)) return ".target";
+  return null;
+}
+
+export function exportBlockedArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.position = o.position.clone();
+  v.target = o.target.clone();
+  return v;
+}
+
+export class ItemDefArgsMirror {
+  constructor() {
+    this.def = null;
+  }
+}
+
+export function syncItemDefArgs(b, f, at, h, m) {
+  m.def = b.defs.item.at(f[at + 0]);
+  return m;
+}
+
+export function putItemDefArgs(b, o, f, at, heap) {
+  f[at + 0] = b.defs.item.id(o.def);
+}
+
+export function sameItemDefArgs(a, b) {
+  if (!Object.is(a.def, b.def)) return ".def";
+  return null;
+}
+
+export function exportItemDefArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.def = cx.def("item", o.def);
+  return v;
+}
+
+export class ModelAnswerMirror {
+  constructor() {
+    this.mesh = false;
+    this.radius = NaN;
+    this.center = null;
+  }
+}
+
+export function syncModelAnswer(b, f, at, h, m) {
+  m.mesh = f[at + 0] !== 0;
+  m.radius = f[at + 1];
+  { const tag = f[at + 2]; if (tag === 0) { (m.center ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]); } else m.center = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putModelAnswer(b, o, f, at, heap) {
+  f[at + 0] = o.mesh ? 1 : 0;
+  f[at + 1] = o.radius;
+  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 2] = 0; { const $v = $x; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; } } }
+}
+
+export function sameModelAnswer(a, b) {
+  if (!Object.is(a.mesh, b.mesh)) return ".mesh";
+  if (!Object.is(a.radius, b.radius)) return ".radius";
+  { const p = a.center, q = b.center; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".center"; } else { if (!sameVec(p, q)) return ".center"; } }
+  return null;
+}
+
+export function exportModelAnswer(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.mesh = o.mesh;
+  v.radius = o.radius;
+  v.center = ((x) => (x === null || x === undefined ? x : x.clone()))(o.center);
+  return v;
+}
+
+export class OwnerArgsMirror {
+  constructor() {
+    this.owner = null;
+  }
+}
+
+export function syncOwnerArgs(b, f, at, h, m) {
+  m.owner = syncItemOwner(b, f, at + 0, h, m.owner);
+  return m;
+}
+
+export function putOwnerArgs(b, o, f, at, heap) {
+  putItemOwner(b, o.owner, f, at + 0, heap);
+}
+
+export function sameOwnerArgs(a, b) {
+  if (!sameItemOwner(a.owner, b.owner)) return ".owner";
+  return null;
+}
+
+export function exportOwnerArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.owner = exportItemOwner(o.owner, cx);
+  return v;
+}
+
+export class KeyAnswerMirror {
+  constructor() {
+    this.key = '';
+  }
+}
+
+export function syncKeyAnswer(b, f, at, h, m) {
+  m.key = b.strings.at(f[at + 0]);
+  return m;
+}
+
+export function putKeyAnswer(b, o, f, at, heap) {
+  f[at + 0] = b.strings.id(o.key);
+}
+
+export function sameKeyAnswer(a, b) {
+  if (!Object.is(a.key, b.key)) return ".key";
+  return null;
+}
+
+export function exportKeyAnswer(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.key = o.key;
+  return v;
+}
+
+export class ItemBlastArgsMirror {
+  constructor() {
+    this.defTag = 0;
+    this.def = NaN;
+    this.position = new THREE.Vector3();
+    this.owner = null;
+  }
+}
+
+export function syncItemBlastArgs(b, f, at, h, m) {
+  m.defTag = f[at + 0];
+  m.def = f[at + 1];
+  (m.position ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  m.owner = syncItemOwner(b, f, at + 5, h, m.owner);
+  return m;
+}
+
+export function putItemBlastArgs(b, o, f, at, heap) {
+  f[at + 0] = o.defTag;
+  f[at + 1] = o.def;
+  { const $v = o.position; f[at + 2] = $v.x; f[at + 3] = $v.y; f[at + 4] = $v.z; }
+  putItemOwner(b, o.owner, f, at + 5, heap);
+}
+
+export function sameItemBlastArgs(a, b) {
+  if (!Object.is(a.defTag, b.defTag)) return ".defTag";
+  if (!Object.is(a.def, b.def)) return ".def";
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameItemOwner(a.owner, b.owner)) return ".owner";
+  return null;
+}
+
+export function exportItemBlastArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.defTag = o.defTag;
+  v.def = o.def;
+  v.position = o.position.clone();
+  v.owner = exportItemOwner(o.owner, cx);
+  return v;
+}
+
+export class TargetStateMirror {
+  constructor() {
+    this.position = new THREE.Vector3();
+    this.center = new THREE.Vector3();
+    this.radius = NaN;
+    this.velocity = new THREE.Vector3();
+  }
+}
+
+export function syncTargetState(b, f, at, h, m) {
+  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  (m.center ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  m.radius = f[at + 6];
+  (m.velocity ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
+  return m;
+}
+
+export function putTargetState(b, o, f, at, heap) {
+  { const $v = o.position; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+  { const $v = o.center; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+  f[at + 6] = o.radius;
+  { const $v = o.velocity; f[at + 7] = $v.x; f[at + 8] = $v.y; f[at + 9] = $v.z; }
+}
+
+export function sameTargetState(a, b) {
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameVec(a.center, b.center)) return ".center";
+  if (!Object.is(a.radius, b.radius)) return ".radius";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  return null;
+}
+
+export function exportTargetState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.position = o.position.clone();
+  v.center = o.center.clone();
+  v.radius = o.radius;
+  v.velocity = o.velocity.clone();
+  return v;
+}
+
+export class TargetsAnswerMirror {
+  constructor() {
+    this.targets = [];
+  }
+}
+
+export function syncTargetsAnswer(b, f, at, h, m) {
+  { const items = (m.targets ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 10; v = syncTargetState(b, f, at + 0, h, v ?? new TargetStateMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putTargetsAnswer(b, o, f, at, heap) {
+  heap.items(o.targets, f, at + 0, 10, (f, at, v) => { putTargetState(b, v, f, at + 0, heap); });
+}
+
+export function sameTargetsAnswer(a, b) {
+  if (!sameEach(a.targets, b.targets, (x, y) => sameTargetState(x, y) === null)) return ".targets";
+  return null;
+}
+
+export function exportTargetsAnswer(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.targets = o.targets.map((x) => exportTargetState(x, cx));
+  return v;
+}
+
+export class TeamArgsMirror {
+  constructor() {
+    this.team = NaN;
+  }
+}
+
+export function syncTeamArgs(b, f, at, h, m) {
+  m.team = f[at + 0];
+  return m;
+}
+
+export function putTeamArgs(b, o, f, at, heap) {
+  f[at + 0] = o.team;
+}
+
+export function sameTeamArgs(a, b) {
+  if (!Object.is(a.team, b.team)) return ".team";
+  return null;
+}
+
+export function exportTeamArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.team = o.team;
+  return v;
+}
+
+export class RelationsAnswerMirror {
+  constructor() {
+    this.relations = [];
+  }
+}
+
+export function syncRelationsAnswer(b, f, at, h, m) {
+  { const items = (m.relations ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  return m;
+}
+
+export function putRelationsAnswer(b, o, f, at, heap) {
+  heap.items(o.relations, f, at + 0, 1, (f, at, v) => { f[at + 0] = v; });
+}
+
+export function sameRelationsAnswer(a, b) {
+  if (!sameEach(a.relations, b.relations, (x, y) => Object.is(x, y))) return ".relations";
+  return null;
+}
+
+export function exportRelationsAnswer(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.relations = o.relations.map((x) => x);
+  return v;
+}
+
+export class GiveArgsMirror {
+  constructor() {
+    this.index = 0;
+    this.def = null;
+  }
+}
+
+export function syncGiveArgs(b, f, at, h, m) {
+  m.index = f[at + 0];
+  m.def = b.defs.item.at(f[at + 1]);
+  return m;
+}
+
+export function putGiveArgs(b, o, f, at, heap) {
+  f[at + 0] = o.index;
+  f[at + 1] = b.defs.item.id(o.def);
+}
+
+export function sameGiveArgs(a, b) {
+  if (!Object.is(a.index, b.index)) return ".index";
+  if (!Object.is(a.def, b.def)) return ".def";
+  return null;
+}
+
+export function exportGiveArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.index = o.index;
+  v.def = cx.def("item", o.def);
+  return v;
+}
+
+export class PickupArgsMirror {
+  constructor() {
+    this.def = null;
+    this.position = new THREE.Vector3();
+  }
+}
+
+export function syncPickupArgs(b, f, at, h, m) {
+  m.def = b.defs.item.at(f[at + 0]);
+  (m.position ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  return m;
+}
+
+export function putPickupArgs(b, o, f, at, heap) {
+  f[at + 0] = b.defs.item.id(o.def);
+  { const $v = o.position; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+}
+
+export function samePickupArgs(a, b) {
+  if (!Object.is(a.def, b.def)) return ".def";
+  if (!sameVec(a.position, b.position)) return ".position";
+  return null;
+}
+
+export function exportPickupArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.def = cx.def("item", o.def);
+  v.position = o.position.clone();
+  return v;
+}
+
+export class SpawnArgsMirror {
+  constructor() {
+    this.def = null;
+    this.position = new THREE.Vector3();
+    this.velocity = new THREE.Vector3();
+    this.yaw = NaN;
+    this.owner = null;
+    this.team = NaN;
+  }
+}
+
+export function syncSpawnArgs(b, f, at, h, m) {
+  m.def = b.defs.item.at(f[at + 0]);
+  (m.position ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  (m.velocity ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  m.yaw = f[at + 7];
+  m.owner = syncItemOwner(b, f, at + 8, h, m.owner);
+  m.team = f[at + 11];
+  return m;
+}
+
+export function putSpawnArgs(b, o, f, at, heap) {
+  f[at + 0] = b.defs.item.id(o.def);
+  { const $v = o.position; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+  { const $v = o.velocity; f[at + 4] = $v.x; f[at + 5] = $v.y; f[at + 6] = $v.z; }
+  f[at + 7] = o.yaw;
+  putItemOwner(b, o.owner, f, at + 8, heap);
+  f[at + 11] = o.team;
+}
+
+export function sameSpawnArgs(a, b) {
+  if (!Object.is(a.def, b.def)) return ".def";
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  if (!sameItemOwner(a.owner, b.owner)) return ".owner";
+  if (!Object.is(a.team, b.team)) return ".team";
+  return null;
+}
+
+export function exportSpawnArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.def = cx.def("item", o.def);
+  v.position = o.position.clone();
+  v.velocity = o.velocity.clone();
+  v.yaw = o.yaw;
+  v.owner = exportItemOwner(o.owner, cx);
+  v.team = o.team;
+  return v;
+}
+
+export class DispenseArgsMirror {
+  constructor() {
+    this.weapon = '';
+    this.maxItems = NaN;
+    this.def = null;
+    this.position = new THREE.Vector3();
+    this.velocity = new THREE.Vector3();
+    this.yaw = NaN;
+    this.owner = null;
+    this.team = NaN;
+  }
+}
+
+export function syncDispenseArgs(b, f, at, h, m) {
+  m.weapon = b.strings.at(f[at + 0]);
+  m.maxItems = f[at + 1];
+  m.def = b.defs.item.at(f[at + 2]);
+  (m.position ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  (m.velocity ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
+  m.yaw = f[at + 9];
+  m.owner = syncItemOwner(b, f, at + 10, h, m.owner);
+  m.team = f[at + 13];
+  return m;
+}
+
+export function putDispenseArgs(b, o, f, at, heap) {
+  f[at + 0] = b.strings.id(o.weapon);
+  f[at + 1] = o.maxItems;
+  f[at + 2] = b.defs.item.id(o.def);
+  { const $v = o.position; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+  { const $v = o.velocity; f[at + 6] = $v.x; f[at + 7] = $v.y; f[at + 8] = $v.z; }
+  f[at + 9] = o.yaw;
+  putItemOwner(b, o.owner, f, at + 10, heap);
+  f[at + 13] = o.team;
+}
+
+export function sameDispenseArgs(a, b) {
+  if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  if (!Object.is(a.maxItems, b.maxItems)) return ".maxItems";
+  if (!Object.is(a.def, b.def)) return ".def";
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  if (!sameItemOwner(a.owner, b.owner)) return ".owner";
+  if (!Object.is(a.team, b.team)) return ".team";
+  return null;
+}
+
+export function exportDispenseArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.weapon = o.weapon;
+  v.maxItems = o.maxItems;
+  v.def = cx.def("item", o.def);
+  v.position = o.position.clone();
+  v.velocity = o.velocity.clone();
+  v.yaw = o.yaw;
+  v.owner = exportItemOwner(o.owner, cx);
+  v.team = o.team;
+  return v;
+}
+
+export class DropEntryMirror {
+  constructor() {
+    this.def = null;
+    this.probabilityTag = 0;
+    this.probability = NaN;
+  }
+}
+
+export function syncDropEntry(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { m.def = b.defs.item.at(f[at + 1]); } else m.def = tag === 1 ? null : undefined; }
+  m.probabilityTag = f[at + 2];
+  m.probability = f[at + 3];
+  return m;
+}
+
+export function putDropEntry(b, o, f, at, heap) {
+  { const $x = o.def; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; } else { f[at + 0] = 0; f[at + 1] = b.defs.item.id($x); } }
+  f[at + 2] = o.probabilityTag;
+  f[at + 3] = o.probability;
+}
+
+export function sameDropEntry(a, b) {
+  { const p = a.def, q = b.def; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".def"; } else { if (!Object.is(p, q)) return ".def"; } }
+  if (!Object.is(a.probabilityTag, b.probabilityTag)) return ".probabilityTag";
+  if (!Object.is(a.probability, b.probability)) return ".probability";
+  return null;
+}
+
+export function exportDropEntry(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.def = ((x) => (x === null || x === undefined ? x : cx.def("item", x)))(o.def);
+  v.probabilityTag = o.probabilityTag;
+  v.probability = o.probability;
+  return v;
+}
+
+export class DropArgsMirror {
+  constructor() {
+    this.drops = [];
+    this.position = new THREE.Vector3();
+    this.velocity = new THREE.Vector3();
+    this.yaw = NaN;
+  }
+}
+
+export function syncDropArgs(b, f, at, h, m) {
+  { const items = (m.drops ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; v = syncDropEntry(b, f, at + 0, h, v ?? new DropEntryMirror()); } items[i] = v; } }
+  (m.position ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  (m.velocity ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  m.yaw = f[at + 8];
+  return m;
+}
+
+export function putDropArgs(b, o, f, at, heap) {
+  heap.items(o.drops, f, at + 0, 4, (f, at, v) => { putDropEntry(b, v, f, at + 0, heap); });
+  { const $v = o.position; f[at + 2] = $v.x; f[at + 3] = $v.y; f[at + 4] = $v.z; }
+  { const $v = o.velocity; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
+  f[at + 8] = o.yaw;
+}
+
+export function sameDropArgs(a, b) {
+  if (!sameEach(a.drops, b.drops, (x, y) => sameDropEntry(x, y) === null)) return ".drops";
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  return null;
+}
+
+export function exportDropArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.drops = o.drops.map((x) => exportDropEntry(x, cx));
+  v.position = o.position.clone();
+  v.velocity = o.velocity.clone();
+  v.yaw = o.yaw;
+  return v;
+}
+
+export class ItemsBlastArgsMirror {
+  constructor() {
+    this.explosion = 0;
+    this.position = new THREE.Vector3();
+  }
+}
+
+export function syncItemsBlastArgs(b, f, at, h, m) {
+  m.explosion = f[at + 0];
+  (m.position ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  return m;
+}
+
+export function putItemsBlastArgs(b, o, f, at, heap) {
+  f[at + 0] = o.explosion;
+  { const $v = o.position; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+}
+
+export function sameItemsBlastArgs(a, b) {
+  if (!Object.is(a.explosion, b.explosion)) return ".explosion";
+  if (!sameVec(a.position, b.position)) return ".position";
+  return null;
+}
+
+export function exportItemsBlastArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.explosion = o.explosion;
+  v.position = o.position.clone();
+  return v;
+}
+
+export class HurtArgsMirror {
+  constructor() {
+    this.item = null;
+    this.amount = NaN;
+  }
+}
+
+export function syncHurtArgs(b, f, at, h, m) {
+  m.item = b.refs[KIND_ITEM].at(f[at + 0], f[at + 1]);
+  m.amount = f[at + 2];
+  return m;
+}
+
+export function putHurtArgs(b, o, f, at, heap) {
+  b.refs[KIND_ITEM].put(o.item, f, at + 0);
+  f[at + 2] = o.amount;
+}
+
+export function sameHurtArgs(a, b) {
+  if (!Object.is(a.item, b.item)) return ".item";
+  if (!Object.is(a.amount, b.amount)) return ".amount";
+  return null;
+}
+
+export function exportHurtArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.item = cx.ref("item", o.item);
+  v.amount = o.amount;
+  return v;
 }
 
 // item: from rust/sim/schema/items.mjs.
@@ -137,14 +848,14 @@ export function putItem(b, o, f, at, heap) {
   f[at + 17] = o.landed ? 1 : 0;
   f[at + 18] = o.sinking ? 1 : 0;
   f[at + 19] = o.radius;
-  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 24); } else { f[at + 20] = 0; { const $v = $x; f[at + 21] = $v.x; f[at + 22] = $v.y; f[at + 23] = $v.z; } } }
-  { const $x = o.turn; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f.fill(0, at + 25, at + 29); } else { f[at + 24] = 0; { const $v = $x; f[at + 25] = $v.x; f[at + 26] = $v.y; f[at + 27] = $v.z; f[at + 28] = $v.w; } } }
+  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; f[at + 22] = 0; f[at + 23] = 0; } else { f[at + 20] = 0; { const $v = $x; f[at + 21] = $v.x; f[at + 22] = $v.y; f[at + 23] = $v.z; } } }
+  { const $x = o.turn; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f[at + 25] = 0; f[at + 26] = 0; f[at + 27] = 0; f[at + 28] = 0; } else { f[at + 24] = 0; { const $v = $x; f[at + 25] = $v.x; f[at + 26] = $v.y; f[at + 27] = $v.z; f[at + 28] = $v.w; } } }
   putItemOwner(b, o.owner, f, at + 29, heap);
   f[at + 32] = o.team;
   f[at + 33] = o.age;
   f[at + 34] = o.life;
   f[at + 35] = o.health;
-  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f.fill(0, at + 37, at + 38); } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
+  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f[at + 37] = 0; } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
 }
 
 // Every field of object `o` into a row.
@@ -159,14 +870,14 @@ export function putFullItem(b, o, f, at, heap) {
   f[at + 17] = o.landed ? 1 : 0;
   f[at + 18] = o.sinking ? 1 : 0;
   f[at + 19] = o.radius;
-  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 24); } else { f[at + 20] = 0; { const $v = $x; f[at + 21] = $v.x; f[at + 22] = $v.y; f[at + 23] = $v.z; } } }
-  { const $x = o.turn; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f.fill(0, at + 25, at + 29); } else { f[at + 24] = 0; { const $v = $x; f[at + 25] = $v.x; f[at + 26] = $v.y; f[at + 27] = $v.z; f[at + 28] = $v.w; } } }
+  { const $x = o.center; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; f[at + 22] = 0; f[at + 23] = 0; } else { f[at + 20] = 0; { const $v = $x; f[at + 21] = $v.x; f[at + 22] = $v.y; f[at + 23] = $v.z; } } }
+  { const $x = o.turn; if ($x === null || $x === undefined) { f[at + 24] = $x === null ? 1 : 2; f[at + 25] = 0; f[at + 26] = 0; f[at + 27] = 0; f[at + 28] = 0; } else { f[at + 24] = 0; { const $v = $x; f[at + 25] = $v.x; f[at + 26] = $v.y; f[at + 27] = $v.z; f[at + 28] = $v.w; } } }
   putItemOwner(b, o.owner, f, at + 29, heap);
   f[at + 32] = o.team;
   f[at + 33] = o.age;
   f[at + 34] = o.life;
   f[at + 35] = o.health;
-  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f.fill(0, at + 37, at + 38); } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
+  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 36] = $x === null ? 1 : 2; f[at + 37] = 0; } else { f[at + 36] = 0; f[at + 37] = $x ? 1 : 0; } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a

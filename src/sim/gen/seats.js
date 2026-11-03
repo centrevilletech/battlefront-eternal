@@ -61,9 +61,9 @@ export function putSeatInput(b, o, f, at, heap) {
   heap.items(o.pressed, f, at + 13, 1, (f, at, v) => { f[at + 0] = v ? 1 : 0; });
   f[at + 15] = o.reload ? 1 : 0;
   f[at + 16] = o.exit ? 1 : 0;
-  { const $x = o.trick; if ($x === null || $x === undefined) { f[at + 17] = $x === null ? 1 : 2; f.fill(0, at + 18, at + 19); } else { f[at + 17] = 0; f[at + 18] = $x ? 1 : 0; } }
-  { const $x = o.immelmann; if ($x === null || $x === undefined) { f[at + 19] = $x === null ? 1 : 2; f.fill(0, at + 20, at + 21); } else { f[at + 19] = 0; f[at + 20] = $x ? 1 : 0; } }
-  { const $x = o.boost; if ($x === null || $x === undefined) { f[at + 21] = $x === null ? 1 : 2; f.fill(0, at + 22, at + 23); } else { f[at + 21] = 0; f[at + 22] = $x ? 1 : 0; } }
+  { const $x = o.trick; if ($x === null || $x === undefined) { f[at + 17] = $x === null ? 1 : 2; f[at + 18] = 0; } else { f[at + 17] = 0; f[at + 18] = $x ? 1 : 0; } }
+  { const $x = o.immelmann; if ($x === null || $x === undefined) { f[at + 19] = $x === null ? 1 : 2; f[at + 20] = 0; } else { f[at + 19] = 0; f[at + 20] = $x ? 1 : 0; } }
+  { const $x = o.boost; if ($x === null || $x === undefined) { f[at + 21] = $x === null ? 1 : 2; f[at + 22] = 0; } else { f[at + 21] = 0; f[at + 22] = $x ? 1 : 0; } }
 }
 
 export function sameSeatInput(a, b) {
@@ -126,8 +126,8 @@ export function syncExitRequest(b, f, at, h, m) {
 }
 
 export function putExitRequest(b, o, f, at, heap) {
-  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f.fill(0, at + 1, at + 3); } else { f[at + 0] = 0; b.refs[KIND_POST].put($x, f, at + 1); } }
-  { const $x = o.promote; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f.fill(0, at + 4, at + 5); } else { f[at + 3] = 0; f[at + 4] = $x ? 1 : 0; } }
+  { const $x = o.post; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; } else { f[at + 0] = 0; b.refs[KIND_POST].put($x, f, at + 1); } }
+  { const $x = o.promote; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; } else { f[at + 3] = 0; f[at + 4] = $x ? 1 : 0; } }
   f[at + 5] = o.placement ? 1 : 0;
 }
 
@@ -217,40 +217,40 @@ export function syncFullSeatLease(b, f, at, h, m) {
 
 // Object `o`'s import fields into a row (lists to `heap`).
 export function putSeatLease(b, o, f, at, heap) {
-  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f.fill(0, at + 3, at + 5); } else { f[at + 2] = 0; b.refs[KIND_UNIT].put($x, f, at + 3); } }
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; } else { f[at + 2] = 0; b.refs[KIND_UNIT].put($x, f, at + 3); } }
   f[at + 5] = o.generation;
   f[at + 6] = o.human ? 1 : 0;
   f[at + 7] = o.team;
-  { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f.fill(0, at + 9, at + 11); } else { f[at + 8] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 9); } }
-  { const $x = o.turret; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f.fill(0, at + 12, at + 14); } else { f[at + 11] = 0; b.refs[KIND_TURRET].put($x, f, at + 12); } }
+  { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; f[at + 10] = 0; } else { f[at + 8] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 9); } }
+  { const $x = o.turret; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; f[at + 13] = 0; } else { f[at + 11] = 0; b.refs[KIND_TURRET].put($x, f, at + 12); } }
   f[at + 14] = o.index;
   f[at + 15] = SeatRole_INDEX.get(o.role);
   f[at + 16] = o.since;
   f[at + 17] = o.tick;
   { const $v = o.was; f[at + 18] = $v[0]; f[at + 19] = $v[1]; }
-  { const $x = o.exitRequest; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 27); } else { f[at + 20] = 0; putExitRequest(b, $x, f, at + 21, heap); } }
+  { const $x = o.exitRequest; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; f[at + 22] = 0; f[at + 23] = 0; f[at + 24] = 0; f[at + 25] = 0; f[at + 26] = 0; } else { f[at + 20] = 0; putExitRequest(b, $x, f, at + 21, heap); } }
   f[at + 27] = o.released ? 1 : 0;
   putSeatInput(b, o.input, f, at + 28, heap);
-  { const $x = o.controllable; if ($x === null || $x === undefined) { f[at + 51] = $x === null ? 1 : 2; f.fill(0, at + 52, at + 54); } else { f[at + 51] = 0; b.refs[KIND_SEAT_UNIT].put($x, f, at + 52); } }
+  { const $x = o.controllable; if ($x === null || $x === undefined) { f[at + 51] = $x === null ? 1 : 2; f[at + 52] = 0; f[at + 53] = 0; } else { f[at + 51] = 0; b.refs[KIND_SEAT_UNIT].put($x, f, at + 52); } }
 }
 
 // Every field of object `o` into a row.
 export function putFullSeatLease(b, o, f, at, heap) {
-  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f.fill(0, at + 3, at + 5); } else { f[at + 2] = 0; b.refs[KIND_UNIT].put($x, f, at + 3); } }
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; } else { f[at + 2] = 0; b.refs[KIND_UNIT].put($x, f, at + 3); } }
   f[at + 5] = o.generation;
   f[at + 6] = o.human ? 1 : 0;
   f[at + 7] = o.team;
-  { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f.fill(0, at + 9, at + 11); } else { f[at + 8] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 9); } }
-  { const $x = o.turret; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f.fill(0, at + 12, at + 14); } else { f[at + 11] = 0; b.refs[KIND_TURRET].put($x, f, at + 12); } }
+  { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; f[at + 10] = 0; } else { f[at + 8] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 9); } }
+  { const $x = o.turret; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; f[at + 13] = 0; } else { f[at + 11] = 0; b.refs[KIND_TURRET].put($x, f, at + 12); } }
   f[at + 14] = o.index;
   f[at + 15] = SeatRole_INDEX.get(o.role);
   f[at + 16] = o.since;
   f[at + 17] = o.tick;
   { const $v = o.was; f[at + 18] = $v[0]; f[at + 19] = $v[1]; }
-  { const $x = o.exitRequest; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 27); } else { f[at + 20] = 0; putExitRequest(b, $x, f, at + 21, heap); } }
+  { const $x = o.exitRequest; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; f[at + 22] = 0; f[at + 23] = 0; f[at + 24] = 0; f[at + 25] = 0; f[at + 26] = 0; } else { f[at + 20] = 0; putExitRequest(b, $x, f, at + 21, heap); } }
   f[at + 27] = o.released ? 1 : 0;
   putSeatInput(b, o.input, f, at + 28, heap);
-  { const $x = o.controllable; if ($x === null || $x === undefined) { f[at + 51] = $x === null ? 1 : 2; f.fill(0, at + 52, at + 54); } else { f[at + 51] = 0; b.refs[KIND_SEAT_UNIT].put($x, f, at + 52); } }
+  { const $x = o.controllable; if ($x === null || $x === undefined) { f[at + 51] = $x === null ? 1 : 2; f[at + 52] = 0; f[at + 53] = 0; } else { f[at + 51] = 0; b.refs[KIND_SEAT_UNIT].put($x, f, at + 52); } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
