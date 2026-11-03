@@ -9,6 +9,7 @@
 //! flight (`fly`) is the flight package's and not here.
 
 use super::{hover, walker, BodyId, VehicleWorld};
+use crate::gen::OrdnanceOwner;
 use crate::rig::math;
 use three::{clamp, Euler, EulerOrder, Matrix4, Quaternion, Vector3};
 use v8math::{abs, sign};
@@ -61,6 +62,8 @@ pub struct Lease {
     pub network_human: bool,
     pub turn: f64,
     pub pitch: f64,
+    /// The unit on the seat (a tripped walker's credit).
+    pub unit: Option<crate::store::Ref<crate::gen::Unit>>,
 }
 
 /// A seat: its aim's rates for a bot (aimCrew, from its section's TurnRate
@@ -87,6 +90,8 @@ pub struct Wheel {
     pub radius: f64,
     pub phase: f64,
     pub previous: f64,
+    /// Its turn at the start of the world tick (captureTick).
+    pub tick_from: Option<f64>,
 }
 
 /// A walker's water damage (src/vehicle-water.js waterDamageRule).
@@ -149,8 +154,9 @@ pub struct Input {
 
 #[derive(Clone, Debug, Default)]
 pub struct Hull {
-    /// Its place in the battle's list (Vehicles.vehicles).
+    /// Its place in the battle's list (Vehicles.vehicles), and its handle in the store.
     pub index: usize,
+    pub id: crate::store::Ref<crate::gen::Vehicle>,
     // What it is, for the battle.
     pub flying: bool,
     pub walking: bool,
@@ -217,6 +223,25 @@ pub struct Hull {
     pub driver: bool,
     pub wheels: Vec<Wheel>,
     pub seats: Vec<Seat>,
+    /// Its pose at the start of the world tick (captureTick).
+    pub tick_from: Option<Vector3>,
+    pub tick_from_yaw: Option<f64>,
+    pub tick_from_tilt: Option<f64>,
+    pub tick_from_roll: Option<f64>,
+    /// Whether its rig shows (root.visible: a destroyed walker while it dies).
+    pub visible: bool,
+    /// Who last damaged it, for kill credit (`lastAttacker`).
+    pub last_attacker: OrdnanceOwner,
+    /// Its tow cable: the walker it holds (-1 none), the anchor in that
+    /// walker's frame, the leg's name, the angle round it, the winding.
+    pub tow_target: f64,
+    pub tow_local: Vector3,
+    pub tow_leg: String,
+    pub tow_angle: f64,
+    pub tow_winding: f64,
+    /// What its dying and its final blast read of its class.
+    pub has_final_explosion: bool,
+    pub final_offset: [f64; 3],
     /// Its pose (its rig, its seats' aim state): `pose.rs`.
     pub pose: Option<super::pose::HullPose>,
 }
@@ -285,13 +310,13 @@ impl Hull {
         }
         self.sync_body(w);
         if w.in_death_region(&self.position) || self.position.y < -300.0 {
-            self.damage(w, f64::INFINITY);
+            self.damage(w, f64::INFINITY, OrdnanceOwner::Null);
         }
         // Deep water wears a walker down (src/vehicle-water.js).
         if self.walking && self.alive {
             let hurt = self.water_damage_step(w, dt);
             if hurt > 0.0 {
-                self.damage(w, hurt);
+                self.damage(w, hurt, OrdnanceOwner::Null);
             }
         }
         let rest = if self.walking { 0.0001 } else { HOVER_REST * HOVER_REST };
@@ -449,13 +474,49 @@ impl Hull {
         self.roll += (-math::atan2(x, v8math::hypot(normal.y, z)) - self.roll) * blend;
     }
 
-    /// vehicles.js damage, from nobody (the hull's own tick).
-    pub fn damage<W: VehicleWorld>(&mut self, w: &mut W, amount: f64) {
+    /// vehicles.js damage: `attacker` (Null: nobody) is credited.
+    pub fn damage<W: VehicleWorld>(&mut self, w: &mut W, amount: f64, attacker: OrdnanceOwner) {
         if !self.alive || !(amount > 0.0) {
             return;
         }
-        w.damaged(self.index, amount);
+        if attacker != OrdnanceOwner::Null {
+            self.last_attacker = attacker;
+        }
+        w.damaged(self.index, amount, &attacker);
         self.set_health(w, self.health - amount);
+    }
+
+    /// vehicles.js captureTick: the pose at the start of a world tick, for
+    /// drawing between ticks (a flyer's quaternion is the flight package's).
+    pub fn capture_tick(&mut self) {
+        self.tick_from = Some(self.position);
+        self.tick_from_yaw = Some(self.yaw);
+        self.tick_from_tilt = Some(self.tilt);
+        self.tick_from_roll = Some(self.roll);
+        for wheel in &mut self.wheels {
+            wheel.tick_from = Some(wheel.phase);
+        }
+    }
+
+    /// vehicles.js dyingTick: a destroyed walker's death animation plays
+    /// out; once it has, its final blast goes off and it is gone.
+    pub fn dying_tick<W: VehicleWorld>(&mut self, w: &mut W, dt: f64) {
+        if !(self.dying > 0.0) {
+            return;
+        }
+        self.dying = v8math::max(0.0, self.dying - dt);
+        if self.dying > 0.0 {
+            return;
+        }
+        self.visible = false;
+        if !self.has_final_explosion {
+            return;
+        }
+        let o = self.final_offset;
+        let mut at = Vector3::new(o[0], o[1], o[2]);
+        apply_axis_angle(&mut at, &UP, self.yaw);
+        at.add(&self.position);
+        w.explosion(self.index, true, &at);
     }
 
     /// vehicles.js setHealth: down to 0, the hull is destroyed.
@@ -471,10 +532,17 @@ impl Hull {
         self.alive = false;
         // A walker with a death animation plays it out before it is gone.
         self.dying = self.dying_span;
+        self.visible = self.dying > 0.0;
         // (Its slot's respawn clock, its rig's visibility and its tow cable
         // are the system's and the rig's: not a hull's tick's state.)
         w.destroyed_crew(self.index);
         w.destroyed(self.index);
+        // Its own tow cable lets go with it (releaseTow 'destroyed': no sound).
+        if self.tow_target >= 0.0 {
+            self.tow_target = -1.0;
+            self.tow_winding = 0.0;
+            self.tow_leg.clear();
+        }
         self.driver = false;
         for seat in &mut self.seats {
             seat.lease = None;

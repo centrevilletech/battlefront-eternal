@@ -738,16 +738,18 @@ impl VehicleWheel {
             radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
             phase: { let p = format!("{path}.phase"); num(v.get("phase"), &p)? },
             previous: { let p = format!("{path}.previous"); num(v.get("previous"), &p)? },
+            tick_from: { let p = format!("{path}.tickFrom"); match v.get("tickFrom").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("tickFrom"), &p)?) } },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
         { let x = Value::Num(self.x); fields.push(("x", x)); }
         { let x = Value::Num(self.radius); fields.push(("radius", x)); }
         { let x = Value::Num(self.phase); fields.push(("phase", x)); }
         { let x = Value::Num(self.previous); fields.push(("previous", x)); }
+        { let x = match &self.tick_from { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("tickFrom", x)); }
         a.object("", fields)
     }
 }
@@ -763,6 +765,7 @@ impl VehicleSeat {
             look_pitch: { let p = format!("{path}.lookPitch"); match v.get("lookPitch").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("lookPitch"), &p)?) } },
             lease: { let p = format!("{path}.lease"); match v.get("lease").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_SEAT_LEASE, v.get("lease"), &p)?) } },
             lease_human: { let p = format!("{path}.leaseHuman"); match v.get("leaseHuman").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("leaseHuman"), &p)?) } },
+            lease_unit: { let p = format!("{path}.leaseUnit"); match v.get("leaseUnit").value { Value::Null => Nullable::Null, Value::Undefined => Nullable::Undefined, _ => Nullable::Value(Unit::ref_in(v.get("leaseUnit"), cx, &p)?) } },
             lease_network_human: { let p = format!("{path}.leaseNetworkHuman"); match v.get("leaseNetworkHuman").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("leaseNetworkHuman"), &p)?) } },
             lease_turn: { let p = format!("{path}.leaseTurn"); match v.get("leaseTurn").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("leaseTurn"), &p)?) } },
             lease_pitch: { let p = format!("{path}.leasePitch"); match v.get("leasePitch").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("leasePitch"), &p)?) } },
@@ -774,13 +777,14 @@ impl VehicleSeat {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(12);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(13);
         { let x = Value::Num(self.aim_yaw); fields.push(("aimYaw", x)); }
         { let x = Value::Num(self.pitch); fields.push(("pitch", x)); }
         { let x = match &self.look_yaw { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("lookYaw", x)); }
         { let x = match &self.look_pitch { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("lookPitch", x)); }
         { let x = match &self.lease { Some(v) => cx.ref_out(KIND_SEAT_LEASE, (*v)), None => Value::Null }; fields.push(("lease", x)); }
         { let x = match &self.lease_human { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("leaseHuman", x)); }
+        { let x = match &self.lease_unit { Nullable::Value(v) => Unit::ref_out((*v), cx, a), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }; fields.push(("leaseUnit", x)); }
         { let x = match &self.lease_network_human { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("leaseNetworkHuman", x)); }
         { let x = match &self.lease_turn { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("leaseTurn", x)); }
         { let x = match &self.lease_pitch { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("leasePitch", x)); }
@@ -1448,12 +1452,23 @@ impl Vehicle {
             driver: { let p = format!("{path}.driver"); match v.get("driver").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_VEHICLE_DRIVER, v.get("driver"), &p)?) } },
             wheels: { let p = format!("{path}.wheels"); { let mut out = Vec::new(); for (i, e) in list(v.get("wheels"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(VehicleWheel::from_value(e, cx, &at)?); } out } },
             seats: { let p = format!("{path}.seats"); { let mut out = Vec::new(); for (i, e) in list(v.get("seats"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(VehicleSeat::from_value(e, cx, &at)?); } out } },
+            tick_from: { let p = format!("{path}.tickFrom"); match v.get("tickFrom").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(vec3(v.get("tickFrom"), &p)?) } },
+            tick_from_yaw: { let p = format!("{path}.tickFromYaw"); match v.get("tickFromYaw").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("tickFromYaw"), &p)?) } },
+            tick_from_tilt: { let p = format!("{path}.tickFromTilt"); match v.get("tickFromTilt").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("tickFromTilt"), &p)?) } },
+            tick_from_roll: { let p = format!("{path}.tickFromRoll"); match v.get("tickFromRoll").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("tickFromRoll"), &p)?) } },
+            visible: { let p = format!("{path}.visible"); boolean(v.get("visible"), &p)? },
+            tow_target: { let p = format!("{path}.towTarget"); num(v.get("towTarget"), &p)? },
+            tow_local: { let p = format!("{path}.towLocal"); vec3(v.get("towLocal"), &p)? },
+            tow_leg: { let p = format!("{path}.towLeg"); cx.str_in(v.get("towLeg"), &p)? },
+            tow_angle: { let p = format!("{path}.towAngle"); num(v.get("towAngle"), &p)? },
+            tow_winding: { let p = format!("{path}.towWinding"); num(v.get("towWinding"), &p)? },
+            last_attacker: { let p = format!("{path}.lastAttacker"); OrdnanceOwner::from_value(v.get("lastAttacker"), cx, &p)? },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(54);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(65);
         { let x = cx.str_out(self.name); fields.push(("name", x)); }
         { let x = Value::Bool(self.flying); fields.push(("flying", x)); }
         { let x = Value::Bool(self.walking); fields.push(("walking", x)); }
@@ -1508,6 +1523,17 @@ impl Vehicle {
         { let x = match &self.driver { Some(v) => cx.ref_out(KIND_VEHICLE_DRIVER, (*v)), None => Value::Null }; fields.push(("driver", x)); }
         { let x = { let mut items = Vec::new(); for e in self.wheels.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("wheels", x)); }
         { let x = { let mut items = Vec::new(); for e in self.seats.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("seats", x)); }
+        { let x = match &self.tick_from { Some(v) => a.vec3((*v)), None => Value::Undefined }; fields.push(("tickFrom", x)); }
+        { let x = match &self.tick_from_yaw { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("tickFromYaw", x)); }
+        { let x = match &self.tick_from_tilt { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("tickFromTilt", x)); }
+        { let x = match &self.tick_from_roll { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("tickFromRoll", x)); }
+        { let x = Value::Bool(self.visible); fields.push(("visible", x)); }
+        { let x = Value::Num(self.tow_target); fields.push(("towTarget", x)); }
+        { let x = a.vec3(self.tow_local); fields.push(("towLocal", x)); }
+        { let x = cx.str_out(self.tow_leg); fields.push(("towLeg", x)); }
+        { let x = Value::Num(self.tow_angle); fields.push(("towAngle", x)); }
+        { let x = Value::Num(self.tow_winding); fields.push(("towWinding", x)); }
+        { let x = self.last_attacker.to_value(cx, a); fields.push(("lastAttacker", x)); }
         a.object("", fields)
     }
 

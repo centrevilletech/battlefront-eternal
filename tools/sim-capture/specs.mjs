@@ -30,6 +30,7 @@
 // replace its raw roots with their exporters. A system of the game (an
 // object the game holds, such as game.items) is a handle wherever it is met
 // unless the state asks for it whole: expand(object).
+import * as THREE from 'three';
 import { units } from './units.mjs';
 
 export class Expand {
@@ -174,10 +175,33 @@ const poseFrame = (method) => {
   return { method, target: hullPrototype, whole: ['SeatInput'], boundaries: poseBoundaries,
     state: (game, args, cap, self) => { const end = !entering; entering = !entering; return { hull: poseState(self, args, end) }; } };
 };
+// The tow cables as updateTethers reads and writes them: the cables in the
+// map's order (their ends, and the gun end's place in the world as the rig
+// left it), and the hulls at either end through the store.
+function towGunWorld(t) {
+  const source = t.source;
+  const turret = source.seats[t?.seat ?? 1]?.view.turret || source.seats.find((s) => s.view.turret)?.view.turret;
+  if (!turret) return null;
+  const e = turret.matrixWorld.elements;
+  return new THREE.Vector3(e[12], e[13], e[14]);
+}
+function tetherState(game, cap) {
+  const vs = game.vehicles, list = vs.vehicles, at = (v) => (v ? list.indexOf(v) : null);
+  const involved = new Set();
+  for (const t of vs.tethers.values()) { involved.add(t.source); if (t.target) involved.add(t.target); }
+  return {
+    tethers: [...vs.tethers.values()].map((t) => ({ source: at(t.source), target: at(t.target), seat: t.seat, length: t.length, hasDef: Boolean(t.def),
+      start: t.start.clone(), end: t.end.clone(), gun: towGunWorld(t) })),
+    hulls: [...involved].map((v) => ({ index: at(v), hull: cap.export('vehicle', v) })),
+  };
+}
 const vehicles = {
   frames: [
     poseFrame('vehicle.aimTick'),
     poseFrame('vehicle.render'),
+    { method: 'vehicles.updateTethers', target: (game) => game.vehicles ?? null, state: (game, args, cap) => tetherState(game, cap), boundaries: hullBoundaries },
+    { method: 'vehicle.dyingTick', target: hullPrototype, state: (game, args, cap, self) => ({ hull: cap.export('vehicle', self) }), boundaries: hullBoundaries },
+    { method: 'vehicle.captureTick', target: hullPrototype, state: (game, args, cap, self) => ({ hull: cap.export('vehicle', self) }), boundaries: () => [] },
     { method: 'vehicle.tick', target: hullPrototype, whole: ['SeatInput'],
       state: (game, args, cap, self) => ({ hull: cap.export('vehicle', self), water: game.vehicles.water ? { level: game.vehicles.water.level } : null }),
       boundaries: hullBoundaries },

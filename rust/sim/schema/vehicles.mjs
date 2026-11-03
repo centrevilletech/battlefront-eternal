@@ -24,6 +24,9 @@ export default {
       radius: fixed('f64'),
       phase: 'f64',
       previous: 'f64',
+      // Its turn at the start of the world tick (captureTick), for drawing
+      // between ticks.
+      tickFrom: 'f64|undefined',
     },
 
     // A seat as the tick reads it: its aim (the player's look, a bot's
@@ -37,6 +40,7 @@ export default {
       lookPitch: 'f64|null',
       lease: 'ref:seatLease|null',
       leaseHuman: fixed('bool|undefined', 'lease.human'),
+      leaseUnit: fixed('ref:unit|null|undefined', 'lease.unit'),
       leaseNetworkHuman: fixed('bool|undefined', 'lease.unit.networkHuman'),
       leaseTurn: fixed('f64|undefined', 'lease.input.turn'),
       leasePitch: fixed('f64|undefined', 'lease.input.pitch'),
@@ -124,6 +128,24 @@ export default {
         driver: 'ref:vehicleDriver|null',
         wheels: 'list:rec:VehicleWheel',
         seats: 'list:rec:VehicleSeat',
+        // Its pose at the start of the world tick (captureTick), for drawing
+        // between ticks; whether it shows (a destroyed walker while it dies).
+        tickFrom: 'vec3|undefined',
+        tickFromYaw: 'f64|undefined',
+        tickFromTilt: 'f64|undefined',
+        tickFromRoll: 'f64|undefined',
+        visible: { type: 'bool', js: 'root.visible', mirror: false },
+        // Its tow cable (Vehicles.launchTow): the walker it holds (its place in
+        // the battle's list, -1 none), the anchor in that walker's frame, the
+        // leg's name, the angle round the walker at the last tick and how far
+        // the cable has wound since it struck.
+        towTarget: 'f64',
+        towLocal: 'vec3',
+        towLeg: 'str',
+        towAngle: 'f64',
+        towWinding: 'f64',
+        // Who last damaged it, for kill credit (a round's owner, a tow's crew).
+        lastAttacker: 'union:OrdnanceOwner',
       },
     },
 

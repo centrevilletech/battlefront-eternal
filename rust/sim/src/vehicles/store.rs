@@ -5,6 +5,7 @@
 use super::class::HullClass;
 use super::hull::{Hull, Lease, Seat, WaterRule, Wheel};
 use crate::gen::Vehicle;
+use crate::store::{Nullable, Ref, Strings};
 use three::{Matrix4, Quaternion, Vector3};
 
 fn v3(a: &[f64; 3]) -> Vector3 {
@@ -16,13 +17,14 @@ fn a3(v: &Vector3) -> [f64; 3] {
 }
 
 impl Hull {
-    /// The hull the store holds, `index` its place in the battle's list,
-    /// its class's keys from the content.
-    pub fn from_store(v: &Vehicle, class: &HullClass, index: usize) -> Hull {
+    /// The hull the store holds (`id`), `index` its place in the battle's
+    /// list, its class's keys from the content.
+    pub fn from_store(id: Ref<Vehicle>, v: &Vehicle, class: &HullClass, index: usize, strings: &Strings) -> Hull {
         let mut matrix = Matrix4::default();
         matrix.from_array(&v.matrix, 0);
         Hull {
             index,
+            id,
             flying: v.flying,
             walking: v.walking,
             creature: v.creature,
@@ -79,7 +81,7 @@ impl Hull {
             leg_side: v.leg_side.clone(),
             seat_index: v.seat_index as usize,
             driver: v.driver.is_some(),
-            wheels: v.wheels.iter().map(|w| Wheel { x: w.x, radius: w.radius, phase: w.phase, previous: w.previous }).collect(),
+            wheels: v.wheels.iter().map(|w| Wheel { x: w.x, radius: w.radius, phase: w.phase, previous: w.previous, tick_from: w.tick_from }).collect(),
             seats: v
                 .seats
                 .iter()
@@ -101,16 +103,33 @@ impl Hull {
                             network_human: s.lease_network_human == Some(true),
                             turn: s.lease_turn.unwrap_or(f64::NAN),
                             pitch: s.lease_pitch.unwrap_or(f64::NAN),
+                            unit: match s.lease_unit {
+                                Nullable::Value(u) => Some(u),
+                                _ => None,
+                            },
                         }),
                     }
                 })
                 .collect(),
+            tick_from: v.tick_from.as_ref().map(v3),
+            tick_from_yaw: v.tick_from_yaw,
+            tick_from_tilt: v.tick_from_tilt,
+            tick_from_roll: v.tick_from_roll,
+            visible: v.visible,
+            last_attacker: v.last_attacker,
+            tow_target: v.tow_target,
+            tow_local: v3(&v.tow_local),
+            tow_leg: String::from_utf16_lossy(strings.units(v.tow_leg)),
+            tow_angle: v.tow_angle,
+            tow_winding: v.tow_winding,
+            has_final_explosion: class.has_final_explosion,
+            final_offset: class.final_offset,
             pose: None,
         }
     }
 
     /// What the tick changed, back into the store's hull.
-    pub fn to_store(&self, v: &mut Vehicle) {
+    pub fn to_store(&self, v: &mut Vehicle, strings: &mut Strings) {
         v.position = a3(&self.position);
         v.previous = a3(&self.previous);
         v.velocity = a3(&self.velocity);
@@ -142,7 +161,19 @@ impl Hull {
         for (w, mine) in v.wheels.iter_mut().zip(&self.wheels) {
             w.phase = mine.phase;
             w.previous = mine.previous;
+            w.tick_from = mine.tick_from;
         }
+        v.tick_from = self.tick_from.as_ref().map(a3);
+        v.tick_from_yaw = self.tick_from_yaw;
+        v.tick_from_tilt = self.tick_from_tilt;
+        v.tick_from_roll = self.tick_from_roll;
+        v.visible = self.visible;
+        v.tow_target = self.tow_target;
+        v.tow_local = a3(&self.tow_local);
+        v.tow_leg = strings.intern_str(&self.tow_leg);
+        v.tow_angle = self.tow_angle;
+        v.tow_winding = self.tow_winding;
+        v.last_attacker = self.last_attacker;
         for (s, mine) in v.seats.iter_mut().zip(&self.seats) {
             s.aim_yaw = mine.aim_yaw;
             s.pitch = mine.pitch;
@@ -154,6 +185,7 @@ impl Hull {
                 s.lease_network_human = None;
                 s.lease_turn = None;
                 s.lease_pitch = None;
+                s.lease_unit = Nullable::Undefined;
             }
         }
     }

@@ -31,6 +31,7 @@ pub mod hover;
 pub mod hull;
 pub mod pose;
 pub mod store;
+pub mod tethers;
 pub mod walker;
 #[cfg(feature = "replay")]
 pub mod replay;
@@ -100,8 +101,8 @@ pub trait VehicleWorld {
     fn has_water(&mut self) -> bool;
     /// Whether a point is in one of the map's death regions.
     fn in_death_region(&mut self, position: &Vector3) -> bool;
-    /// The battle's hook: a hull took `amount` (from nobody, in its own tick).
-    fn damaged(&mut self, hull: usize, amount: f64);
+    /// The battle's hook: a hull took `amount`, credited to `attacker`.
+    fn damaged(&mut self, hull: usize, amount: f64, attacker: &crate::gen::OrdnanceOwner);
     /// Vehicles.destroyedCrew: the bots aboard a destroyed hull let go and killed.
     fn destroyed_crew(&mut self, hull: usize);
     /// The battle's hook: a hull destroyed.
@@ -114,4 +115,7 @@ pub trait VehicleWorld {
     fn raycast_units(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<f64>;
     /// The clock barrels kick back on (a world's tick clock).
     fn clock(&mut self) -> f64;
+    /// A tow cable let go (snapped, tripped its walker, released), which the
+    /// presentation capture hears: emitSound("towRelease", hull, def, reason).
+    fn tow_released(&mut self, hull: usize, reason: &str);
 }

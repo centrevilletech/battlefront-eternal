@@ -159,7 +159,7 @@ pub fn pose_from_value(v: V, index: usize, mut rig: crate::rig::hull::HullRig) -
         leg_side: if v.get("legSide").is_null() { None } else { Some(v.get("legSide").items().map(|x| x.num()).collect()) },
         seat_index: v.get("seatIndex").num() as usize,
         driver: v.get("driver").bool(),
-        wheels: v.get("wheels").items().map(|w| Wheel { x: 0.0, radius: 0.0, phase: w.get("phase").num(), previous: w.get("previous").num() }).collect(),
+        wheels: v.get("wheels").items().map(|w| Wheel { x: 0.0, radius: 0.0, phase: w.get("phase").num(), previous: w.get("previous").num(), tick_from: None }).collect(),
         seats: v
             .get("seats")
             .items()
@@ -170,7 +170,7 @@ pub fn pose_from_value(v: V, index: usize, mut rig: crate::rig::hull::HullRig) -
                     None
                 } else {
                     let l = s.get("lease");
-                    Some(Lease { human: l.get("human").bool(), network_human: l.get("networkHuman").bool(), turn: 0.0, pitch: 0.0 })
+                    Some(Lease { human: l.get("human").bool(), network_human: l.get("networkHuman").bool(), turn: 0.0, pitch: 0.0, unit: None })
                 },
                 ..Seat::default()
             })

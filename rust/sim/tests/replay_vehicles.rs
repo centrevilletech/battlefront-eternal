@@ -11,7 +11,7 @@
 #![cfg(feature = "replay")]
 
 use three::{Matrix4, Quaternion, Vector3};
-use bfe_sim::gen::{Replay, Vehicle};
+use bfe_sim::gen::{OrdnanceOwner, Replay, Vehicle};
 use bfe_sim::vehicles::class::HullClass;
 use bfe_sim::vehicles::replay::body_of;
 use bfe_sim::vehicles::Hull;
@@ -26,9 +26,10 @@ fn vec3(v: V) -> Vector3 {
 // A frame's calls, served from its capture.
 struct Served<'f> {
     log: Log<'f>,
-    hull: usize,
     water: Option<f64>,
     error: Option<String>,
+    /// Each hull's store handle (slot, generation) to its place in the battle's list.
+    vehicles: std::collections::HashMap<(u32, u32), usize>,
 }
 
 impl<'f> Served<'f> {
@@ -58,9 +59,9 @@ impl<'f> Served<'f> {
         }
     }
 
-    fn check_hull(&mut self, what: &str, v: V) {
-        if v.handle_num("vehicle") != Some(self.hull as f64) {
-            self.fail(format!("{what}: the capture has {}, the port hull {}", v.show(), self.hull));
+    fn check_hull(&mut self, what: &str, v: V, hull: usize) {
+        if v.handle_num("vehicle") != Some(hull as f64) {
+            self.fail(format!("{what}: the capture has {}, the port hull {hull}", v.show()));
         }
     }
 
@@ -106,8 +107,7 @@ impl<'f> VehicleWorld for Served<'f> {
 
     fn push_walls(&mut self, hull: usize, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> bool {
         let Some(call) = self.call("world.pushWalls") else { return false };
-        debug_assert_eq!(hull, self.hull);
-        self.check_hull("pushWalls hull", call.arg(0));
+        self.check_hull("pushWalls hull", call.arg(0), hull);
         let theirs = call.arg(1);
         if theirs.len() != probes.len() {
             self.fail(format!("pushWalls probes: the capture has {}, the port {}", theirs.len(), probes.len()));
@@ -146,8 +146,7 @@ impl<'f> VehicleWorld for Served<'f> {
     fn spring_polygons(&mut self, hull: usize, index: usize, center: &Vector3, radius: f64, out: &mut Vec<Polygon>) {
         out.clear();
         let Some(call) = self.call("world.springPolygons") else { return };
-        debug_assert_eq!(hull, self.hull);
-        self.check_hull("springPolygons hull", call.arg(0));
+        self.check_hull("springPolygons hull", call.arg(0), hull);
         self.check(check_num("springPolygons index", call.arg(1), index as f64));
         self.check(check_vec3("springPolygons center", call.arg(2), vec(center)));
         self.check(check_num("springPolygons radius", call.arg(3), radius));
@@ -205,36 +204,40 @@ impl<'f> VehicleWorld for Served<'f> {
         call.result().truthy()
     }
 
-    fn damaged(&mut self, hull: usize, amount: f64) {
+    fn damaged(&mut self, hull: usize, amount: f64, attacker: &OrdnanceOwner) {
         let Some(call) = self.call("world.damaged") else { return };
-        debug_assert_eq!(hull, self.hull);
-        self.check_hull("damaged hull", call.arg(0));
+        self.check_hull("damaged hull", call.arg(0), hull);
         self.check(check_num("damaged amount", call.arg(1), amount));
-        if !call.arg(2).is_nullish() {
-            self.fail(format!("damaged attacker: the capture has {}, the port none", call.arg(2).show()));
+        let theirs = call.arg(2);
+        let same = match attacker {
+            OrdnanceOwner::Null => theirs.is_nullish(),
+            OrdnanceOwner::Player => theirs.str() == Some("player"),
+            OrdnanceOwner::Unit(r) => theirs.handle_num("unit") == Some(r.slot as f64),
+            OrdnanceOwner::Vehicle(r) => self.vehicles.get(&(r.slot, r.gen)).is_some_and(|&i| theirs.handle_num("vehicle") == Some(i as f64)),
+            OrdnanceOwner::OwnerSnapshot(_) => theirs.handle().is_some_and(|(k, _)| k == "ownerSnapshot"),
+        };
+        if !same {
+            self.fail(format!("damaged attacker: the capture has {}, the port {attacker:?}", theirs.show()));
         }
     }
 
     fn destroyed_crew(&mut self, hull: usize) {
         let Some(call) = self.call("vehicles.destroyedCrew") else { return };
-        debug_assert_eq!(hull, self.hull);
-        self.check_hull("destroyedCrew hull", call.arg(0));
+        self.check_hull("destroyedCrew hull", call.arg(0), hull);
     }
 
     fn destroyed(&mut self, hull: usize) {
         let Some(call) = self.call("world.destroyed") else { return };
-        debug_assert_eq!(hull, self.hull);
-        self.check_hull("destroyed hull", call.arg(0));
+        self.check_hull("destroyed hull", call.arg(0), hull);
     }
 
     fn explosion(&mut self, hull: usize, _final_explosion: bool, position: &Vector3) {
         let Some(call) = self.call("world.explosion") else { return };
-        debug_assert_eq!(hull, self.hull);
         if call.arg(0).handle_str("def").is_none() {
             self.fail(format!("explosion def: the capture has {}", call.arg(0).show()));
         }
         self.check(check_vec3("explosion position", call.arg(1), vec(position)));
-        self.check_hull("explosion owner", call.arg(2));
+        self.check_hull("explosion owner", call.arg(2), hull);
     }
 
     fn raycast_units(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<f64> {
@@ -248,6 +251,14 @@ impl<'f> VehicleWorld for Served<'f> {
         } else {
             Some(r.get("distance").num())
         }
+    }
+
+    fn tow_released(&mut self, hull: usize, reason: &str) {
+        let Some(call) = self.call("world.sound") else { return };
+        if call.arg(0).str() != Some("towRelease") || call.arg(3).str() != Some(reason) {
+            self.fail(format!("tow released: the capture has {} {}, the port towRelease {reason}", call.arg(0).show(), call.arg(3).show()));
+        }
+        self.check_hull("towRelease hull", call.arg(1), hull);
     }
 
     fn clock(&mut self) -> f64 {
@@ -328,7 +339,7 @@ fn hulls_tick_on_the_ground_as_captured() {
             let def = c.battle.vehicle_def.as_ref().and_then(|v| v.get("classes")).and_then(|cl| cl.get(&name)).expect("the hull's class in the content");
             HullClass::new(def, stored.turn_rate)
         });
-        let mut hull = Hull::from_store(&stored, class, index);
+        let mut hull = Hull::from_store(r, &stored, class, index, &cx.strings);
         // The collision body by the serial the capture names it by.
         hull.body = body_of(before.get("body"));
         let path = path_of(&hull);
@@ -337,7 +348,7 @@ fn hulls_tick_on_the_ground_as_captured() {
         let dt = frame.arg(0).num();
         let input = frame.arg(1);
         let input = Input { forward: input_num(input, "forward"), right: input_num(input, "right"), turn: input_num(input, "turn"), brake: input.get("brake").truthy() };
-        let mut served = Served { log: Log::new(frame), hull: index, water, error: None };
+        let mut served = Served { log: Log::new(frame), water, error: None, vehicles: [((r.slot, r.gen), index)].into_iter().collect() };
         hull.tick(&mut served, dt, &input);
         if let Some(e) = served.error {
             return Outcome::Failed(e);
@@ -345,7 +356,7 @@ fn hulls_tick_on_the_ground_as_captured() {
         if let Err(e) = served.log.finish() {
             return Outcome::Failed(e.0);
         }
-        hull.to_store(cx.store.vehicle.get_mut(r).unwrap());
+        hull.to_store(cx.store.vehicle.get_mut(r).unwrap(), &mut cx.strings);
         let mut arena = Arena::default();
         let mine = Vehicle::value_out(r, &mut cx, &mut arena);
         match diff(frame.after().get("hull"), arena.view(&mine)) {
@@ -429,7 +440,7 @@ fn hulls_pose_as_captured() {
             pose.clips = clips;
             pose.leg_pairs = legs;
             let (alpha, dt) = (frame.arg(0).num(), frame.arg(1).num());
-            let mut served = Served { log: Log::new(frame), hull: index as usize, water: None, error: None };
+            let mut served = Served { log: Log::new(frame), water: None, error: None, vehicles: Default::default() };
             if name == "vehicle.aimTick" {
                 hull.aim_tick(&mut served, alpha, dt);
             } else {
@@ -457,4 +468,183 @@ fn hulls_pose_as_captured() {
         eprintln!("{}\n  posed: {posed_same} of the same frames", report.summary());
         report.assert_clean();
     }
+}
+
+/// A hull from its store value in a frame, its class from the content.
+fn load_hull(
+    cx: &mut Replay,
+    v: V,
+    index: usize,
+    content: &bfe_content::content::Content,
+    classes: &mut std::collections::HashMap<String, HullClass>,
+) -> Result<(bfe_sim::store::Ref<Vehicle>, Hull), String> {
+    let r = Vehicle::value_in(v, cx, "hull")?;
+    let stored = cx.store.vehicle.get(r).unwrap().clone();
+    let name = v.get("name").str().unwrap_or("?").to_string();
+    let class = classes.entry(name.clone()).or_insert_with(|| {
+        let def = content.battle.vehicle_def.as_ref().and_then(|d| d.get("classes")).and_then(|cl| cl.get(&name)).expect("the hull's class in the content");
+        HullClass::new(def, stored.turn_rate)
+    });
+    let mut hull = Hull::from_store(r, &stored, class, index, &cx.strings);
+    hull.body = body_of(v.get("body"));
+    Ok((r, hull))
+}
+
+/// A battle's content, kept while the corpus's frames are of its capture.
+struct Battles {
+    content: Option<(String, bfe_content::content::Content)>,
+    classes: std::collections::HashMap<String, HullClass>,
+}
+
+impl Battles {
+    fn new() -> Battles {
+        Battles { content: None, classes: Default::default() }
+    }
+    fn of(&mut self, capture: &sim_replay::Capture) -> (&bfe_content::content::Content, &mut std::collections::HashMap<String, HullClass>) {
+        let label = capture.label();
+        if self.content.as_ref().map(|(l, _)| l != &label).unwrap_or(true) {
+            self.content = Some((label, content_of(capture.header.root()).expect("the capture's battle")));
+            self.classes.clear();
+        }
+        (&self.content.as_ref().unwrap().1, &mut self.classes)
+    }
+}
+
+#[test]
+fn hulls_dying_and_tick_start_as_captured() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    if std::env::var_os("BFE_CONTENT_DIR").is_none() {
+        return;
+    }
+    for name in ["vehicle.captureTick", "vehicle.dyingTick"] {
+        let mut battles = Battles::new();
+        let report = replay_corpus(&corpus, name, |capture, frame| {
+            let (content, classes) = battles.of(capture);
+            let Some(index) = frame.receiver().handle_num("vehicle") else {
+                return Outcome::Failed(format!("{}: no hull receiver", frame.place()));
+            };
+            let index = index as usize;
+            let mut cx = Replay::default();
+            let (r, mut hull) = match load_hull(&mut cx, frame.before().get("hull"), index, content, classes) {
+                Ok(x) => x,
+                Err(e) => return Outcome::Failed(format!("{}: {e}", frame.place())),
+            };
+            if name == "vehicle.captureTick" && hull.flying {
+                return Outcome::Skipped("a flyer's tick start (its quaternion is the flight package's)".into());
+            }
+            let mut served = Served { log: Log::new(frame), water: None, error: None, vehicles: [((r.slot, r.gen), index)].into_iter().collect() };
+            if name == "vehicle.captureTick" {
+                hull.capture_tick();
+            } else {
+                hull.dying_tick(&mut served, frame.arg(0).num());
+            }
+            if let Some(e) = served.error {
+                return Outcome::Failed(e);
+            }
+            if let Err(e) = served.log.finish() {
+                return Outcome::Failed(e.0);
+            }
+            hull.to_store(cx.store.vehicle.get_mut(r).unwrap(), &mut cx.strings);
+            let mut arena = Arena::default();
+            let mine = Vehicle::value_out(r, &mut cx, &mut arena);
+            match diff(frame.after().get("hull"), arena.view(&mine)) {
+                None => Outcome::Same,
+                Some(d) => Outcome::Failed(format!("{}: hull {d} (capture | port)", frame.place())),
+            }
+        })
+        .unwrap();
+        eprintln!("{}", report.summary());
+        report.assert_clean();
+    }
+}
+
+#[test]
+fn tow_cables_as_captured() {
+    use bfe_sim::vehicles::tethers::{update_tethers, Tether};
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    if std::env::var_os("BFE_CONTENT_DIR").is_none() {
+        return;
+    }
+    let mut battles = Battles::new();
+    let mut held = 0usize;
+    let report = replay_corpus(&corpus, "vehicles.updateTethers", |capture, frame| {
+        let (content, classes) = battles.of(capture);
+        let before = frame.before();
+        if before.get("tethers").is_empty() {
+            return Outcome::Skipped("no cable".into());
+        }
+        let mut cx = Replay::default();
+        // The hulls at the cables' ends, by their place in the battle's list.
+        let mut indices = Vec::new();
+        let mut hulls: Vec<Hull> = Vec::new();
+        let mut refs = Vec::new();
+        for h in before.get("hulls").items() {
+            let index = h.get("index").num() as usize;
+            match load_hull(&mut cx, h.get("hull"), index, content, classes) {
+                Ok((r, hull)) => {
+                    indices.push(index);
+                    refs.push(r);
+                    hulls.push(hull);
+                }
+                Err(e) => return Outcome::Failed(format!("{}: {e}", frame.place())),
+            }
+        }
+        // Hull i of the battle is at its place in `hulls`: the tethers name them so.
+        let at = |index: f64| indices.iter().position(|&i| i as f64 == index);
+        let mut tethers: Vec<Tether> = before
+            .get("tethers")
+            .items()
+            .map(|t| Tether {
+                source: at(t.get("source").num()).expect("a cable's hull"),
+                target: t.get("target").opt_num().and_then(at),
+                seat: t.get("seat").num() as usize,
+                length: t.get("length").opt_num().unwrap_or(f64::NAN),
+                has_def: t.get("hasDef").bool(),
+                start: vec3(t.get("start")),
+                end: vec3(t.get("end")),
+            })
+            .collect();
+        let mut guns = vec![None; hulls.len()];
+        for t in before.get("tethers").items() {
+            if let (Some(s), false) = (at(t.get("source").num()), t.get("gun").is_null()) {
+                guns[s] = Some(vec3(t.get("gun")));
+            }
+        }
+        // The hulls' own `index` is their place in the battle's list; the
+        // trait's calls name them by it.
+        if tethers.iter().any(|t| hulls[t.source].tow_target >= 0.0) {
+            held += 1;
+        }
+        let mut served = Served { log: Log::new(frame), water: None, error: None, vehicles: refs.iter().zip(&indices).map(|(r, &i)| ((r.slot, r.gen), i)).collect() };
+        update_tethers(&mut hulls, &mut tethers, &guns, &mut served);
+        if let Some(e) = served.error {
+            return Outcome::Failed(e);
+        }
+        if let Err(e) = served.log.finish() {
+            return Outcome::Failed(e.0);
+        }
+        for (hull, r) in hulls.iter().zip(&refs) {
+            hull.to_store(cx.store.vehicle.get_mut(*r).unwrap(), &mut cx.strings);
+        }
+        let after = frame.after();
+        let mut arena = Arena::default();
+        for (k, h) in after.get("hulls").items().enumerate() {
+            let mine = Vehicle::value_out(refs[k], &mut cx, &mut arena);
+            if let Some(d) = diff(h.get("hull"), arena.view(&mine)) {
+                return Outcome::Failed(format!("{}: hull {} {d} (capture | port)", frame.place(), indices[k]));
+            }
+        }
+        for (k, t) in after.get("tethers").items().enumerate() {
+            let mine = &tethers[k];
+            for (what, v, m) in [("start", t.get("start"), mine.start), ("end", t.get("end"), mine.end)] {
+                if let Err(e) = check_vec3(&format!("cable {k} {what}"), v, vec(&m)) {
+                    return Outcome::Failed(format!("{}: {}", frame.place(), e.0));
+                }
+            }
+        }
+        Outcome::Same
+    })
+    .unwrap();
+    eprintln!("{}\n  with a cable held: {held}", report.summary());
+    report.assert_clean();
 }
