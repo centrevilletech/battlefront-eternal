@@ -220,7 +220,7 @@ The original game, its code, and its assets remain the property of their rights 
 Three parts of the engine are written in Rust and compiled to WebAssembly, in the Cargo workspace under `rust/`:
 
 - `rust/rays`, the collision's ray kernel (`?rays=wasm`; [docs/performance.md](performance.md), "The collision's rays in WebAssembly") and the soldiers' movement (`?movement=wasm`; "The soldiers' movement in WebAssembly" there), committed as base64 in `src/ray-kernel-wasm.js`, which the world worker, the page and the dedicated server load as a JavaScript import.
-- `rust/anim`, the pose sampler behind `?anim=wasm`: the clip blending of `src/anim.js`'s `Pose`, committed as base64 in `src/anim-kernel-wasm.js`, which the page loads as a JavaScript import. A headless world keeps the JavaScript, so its ticks cannot change.
+- `rust/anim`, the page's pose sampler (on by default; `?anim=js` keeps the JavaScript): the clip blending of `src/anim.js`'s `Pose`, committed as base64 in `src/anim-kernel-wasm.js`, which the page loads as a JavaScript import. A headless world keeps the JavaScript, so its ticks cannot change.
 - `rust/bfe-render`, the battle renderer behind `?rust`, committed as wasm-bindgen's output in `src/rust-pkg/`: an ES module and the `.wasm` it fetches, which Vite bundles as an asset. The desktop app serves it from its archive as `application/wasm`; the dedicated server's copy of the engine leaves it out.
 
 `rust/glbench` and `rust/bfe-native` are measuring tools; nothing ships them.

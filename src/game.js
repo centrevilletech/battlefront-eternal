@@ -416,12 +416,15 @@ async function start() {
   // brings the ray kernel with it.
   const movement = (params.get("movement") ?? (params.get("rays") === "js" ? "js" : movementDefault)) === "wasm";
   const rays = movement || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm" ? await loadRays() : null;
-  // ?anim=wasm: the pose sampling in WebAssembly (src/anim-kernel.js), to
-  // the last bit as its JavaScript (the default). The page's poses only:
-  // a headless world (the local worker, a dedicated server) reads rider
-  // poses for its ticks and keeps the JavaScript, so its worlds cannot
-  // change. Poses made before this take the kernel up as they clear.
-  const anim = !headless && params.get("anim") === "wasm" ? await (await import("./anim-kernel.js")).loadAnimKernel() : null;
+  // The page's pose sampling in WebAssembly (src/anim-kernel.js) unless
+  // ?anim=js, to the last bit as its JavaScript, which stays the fallback
+  // when the module cannot load. The page's poses only: a headless world
+  // (the local worker, a dedicated server) reads rider poses for its ticks
+  // and keeps the JavaScript, so its worlds cannot change. Poses made
+  // before this take the kernel up as they clear.
+  const anim = !headless && params.get("anim") !== "js"
+    ? await import("./anim-kernel.js").then((m) => m.loadAnimKernel()).catch((error) => { console.warn("Pose sampling stays in JavaScript:", error); return null; })
+    : null;
   setAnimKernel(anim);
   const collision = new CollisionWorld(
     new Float32Array(collBuf),

@@ -37,17 +37,25 @@
 // items with its own `record` (what to draw) and `batch` (what may draw
 // together); its draw_run() draws them. Both default to nothing.
 //
-// This pass's own items: the map's blended buckets (one mesh each, the
-// identity for a model matrix, a zero material that blends), registered
-// once, each drawn as three draws it: double-sided ones twice, back faces
-// then front, each pass with three's program for that side.
-use crate::core::{Camera, Core, MultiDraw, Value, PASS_TRANSPARENT};
+// This pass's own items, each registered once, then each frame taken out
+// of three's list by the page in the near scene's own render (three still
+// culls and keys them, and draws them in any other render: a mirror's) and
+// written as a record in `objects`, with three's key for it:
+// - the map's blended buckets (one mesh each, the identity for a model
+//   matrix, a zero material that blends);
+// - objects drawn with three's basic and sprite materials (the command
+//   posts' holograms, their flares...), whose records carry their matrix
+//   and material values;
+// each drawn as three draws it: double-sided ones twice, back faces then
+// front, each pass with three's program for that side.
+use crate::core::{Camera, Core, MultiDraw, Value, PASS_TRANSPARENT, UNIT_MAP};
 use crate::lights::light_mask;
 use crate::math::{self, Mat4};
 use crate::shader::{FRAME_LIGHTS, MAX_LIGHTS};
 use crate::world::{material_values, point_lights};
 use glow::HasContext;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 
 // The sources, in the order renderer.rs lists them.
 pub const SOURCE_TRANSPARENT: u32 = 0;
@@ -235,37 +243,75 @@ struct Bucket<C: HasContext> {
     textures: Vec<(u32, C::Texture)>,
     state: DrawState,
     point_lit: bool,
-    id: f64,
-    render_order: f64,
-    sphere: ([f64; 3], f64),
+    // Its box (world space): the point lights that reach it.
     bbox: ([f64; 3], [f64; 3]),
-    // Shown this frame (the page says, each frame).
-    shown: bool,
+}
+
+// Objects: the material three draws them with (OBJECT_*), and their
+// records in `objects` (f64), written by the page each frame after the
+// count in objects[0].
+pub const OBJECT_BASIC: u32 = 0; // MeshBasicMaterial
+pub const OBJECT_SPRITE: u32 = 1; // SpriteMaterial
+pub const MAX_OBJECTS: usize = 512;
+pub const OBJ_STRIDE: usize = 40;
+pub const OBJ_INDEX: usize = 0; // the registered object
+pub const OBJ_KEY: usize = 1; // three's key: group order, render order, z, id
+pub const OBJ_WORLD: usize = 5; // matrixWorld
+pub const OBJ_DIFFUSE: usize = 21; // diffuse rgb, opacity
+pub const OBJ_ROTATION: usize = 25; // a sprite's rotation
+pub const OBJ_CENTER: usize = 26; // a sprite's centre
+pub const OBJ_MAP: usize = 28; // mapTransform (3x3, column-major)
+pub const OBJ_BUCKET: usize = 37; // 1: a blended bucket's record (index: the bucket), its key alone
+
+// Where a program reads an object's values, and what it holds now.
+struct ObjectUniforms<C: HasContext> {
+    model_view: Option<C::UniformLocation>,
+    model: Option<C::UniformLocation>,
+    diffuse: Option<C::UniformLocation>,
+    opacity: Option<C::UniformLocation>,
+    map_transform: Option<C::UniformLocation>,
+    rotation: Option<C::UniformLocation>,
+    center: Option<C::UniformLocation>,
+    values: [f32; 16],
+}
+
+// One registered object: what draws it (three's program per pass), its
+// index range, texture and state.
+struct Object<C: HasContext> {
+    kind: u32,
+    geometry: usize,
+    start: i32,
+    count: i32,
+    passes: Vec<(usize, u32)>,
+    texture: Option<C::Texture>,
+    state: DrawState,
 }
 
 pub struct TransparentPass<C: HasContext> {
     pub list: List,
     // Written by the page each frame: three's remaining items' keys.
     pub keys: Vec<f64>,
+    // Written by the page each frame: the objects' records (count first).
+    pub objects: Vec<f64>,
     buckets: Vec<Bucket<C>>,
+    things: Vec<Object<C>>,
+    uniforms: HashMap<usize, ObjectUniforms<C>>,
     light_list: Vec<f32>,
 }
 
 impl<C: HasContext> TransparentPass<C> {
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> TransparentPass<C> {
-        TransparentPass { list: List::default(), keys: vec![0.0; MAX_THREE * KEY_STRIDE], buckets: vec![], light_list: Vec::with_capacity(8 * MAX_LIGHTS) }
+        TransparentPass {
+            list: List::default(), keys: vec![0.0; MAX_THREE * KEY_STRIDE], objects: vec![0.0; 1 + MAX_OBJECTS * OBJ_STRIDE],
+            buckets: vec![], things: vec![], uniforms: HashMap::new(), light_list: Vec::with_capacity(8 * MAX_LIGHTS),
+        }
     }
 
-    // A blended bucket. bounds: sphere centre and radius, box min and max
-    // (world space); ids: the mesh's id and renderOrder; side as apply().
-    #[allow(clippy::too_many_arguments)]
-    pub fn add_bucket(&mut self, geometry: u32, blend: &[u32], depth_func: u32, flags: u32, point_lit: bool, ids: &[f64], bounds: &[f64]) -> u32 {
+    // A blended bucket. bounds: its box, min and max (world space).
+    pub fn add_bucket(&mut self, geometry: u32, blend: &[u32], depth_func: u32, flags: u32, point_lit: bool, bounds: &[f64]) -> u32 {
         self.buckets.push(Bucket {
             geometry: geometry as usize, passes: vec![], textures: vec![], state: DrawState::from(blend, depth_func, flags), point_lit,
-            id: ids[0], render_order: ids[1],
-            sphere: ([bounds[0], bounds[1], bounds[2]], bounds[3]),
-            bbox: ([bounds[4], bounds[5], bounds[6]], [bounds[7], bounds[8], bounds[9]]),
-            shown: true,
+            bbox: ([bounds[0], bounds[1], bounds[2]], [bounds[3], bounds[4], bounds[5]]),
         });
         (self.buckets.len() - 1) as u32
     }
@@ -293,10 +339,98 @@ impl<C: HasContext> TransparentPass<C> {
         true
     }
 
-    pub fn bucket_shown(&mut self, b: u32, shown: bool) {
-        self.buckets[b as usize].shown = shown;
+    // An object: kind (OBJECT_*), its geometry's index range, its state as
+    // a bucket's.
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_object(&mut self, kind: u32, geometry: u32, start: i32, count: i32, blend: &[u32], depth_func: u32, flags: u32) -> u32 {
+        self.things.push(Object { kind, geometry: geometry as usize, start, count, passes: vec![], texture: None, state: DrawState::from(blend, depth_func, flags) });
+        (self.things.len() - 1) as u32
+    }
+
+    // A pass of the object, in drawing order: three's program for `side`.
+    pub fn object_pass<M: MultiDraw>(&mut self, core: &Core<C, M>, o: u32, program: u32, side: u32) {
+        let p = program as usize;
+        self.things[o as usize].passes.push((p, side));
+        self.uniforms.entry(p).or_insert_with(|| {
+            let (gl, program) = (&core.gl, core.programs[p].program);
+            let at = |name: &str| unsafe { gl.get_uniform_location(program, name) };
+            ObjectUniforms {
+                model_view: at("modelViewMatrix"), model: at("modelMatrix"), diffuse: at("diffuse"), opacity: at("opacity"),
+                map_transform: at("mapTransform"), rotation: at("rotation"), center: at("center"), values: [f32::NAN; 16],
+            }
+        });
+    }
+
+    pub fn object_texture<M: MultiDraw>(&mut self, core: &Core<C, M>, o: u32, texture: u32) {
+        self.things[o as usize].texture = Some(core.textures[texture as usize]);
+    }
+
+    // An object's draw: its program's values from the record, then the draw.
+    fn draw_object<M: MultiDraw>(&mut self, core: &mut Core<C, M>, view: &View, rec: usize) {
+        let r = &self.objects[1 + rec * OBJ_STRIDE..1 + (rec + 1) * OBJ_STRIDE];
+        let Some(o) = self.things.get(r[OBJ_INDEX] as usize) else { return };
+        let mut world = [0.0; 16];
+        world.copy_from_slice(&r[OBJ_WORLD..OBJ_WORLD + 16]);
+        // object.modelViewMatrix as three makes it, uploaded as f32.
+        let model_view = math::mul(&view.camera.view, &world);
+        let (mut mv32, mut model32, mut map32) = ([0.0f32; 16], [0.0f32; 16], [0.0f32; 9]);
+        for k in 0..16 {
+            mv32[k] = model_view[k] as f32;
+            model32[k] = world[k] as f32;
+        }
+        for k in 0..9 {
+            map32[k] = r[OBJ_MAP + k] as f32;
+        }
+        // The values a program may hold, by slot: diffuse 0-2, opacity 3,
+        // rotation 4, centre 5-6, map transform 7-15.
+        let mut values = [0.0f32; 16];
+        values[..7].copy_from_slice(&[r[OBJ_DIFFUSE] as f32, r[OBJ_DIFFUSE + 1] as f32, r[OBJ_DIFFUSE + 2] as f32, r[OBJ_DIFFUSE + 3] as f32,
+            r[OBJ_ROTATION] as f32, r[OBJ_CENTER] as f32, r[OBJ_CENTER + 1] as f32]);
+        values[7..].copy_from_slice(&map32);
+        for &(p, side) in &o.passes {
+            apply(core, &o.state, side);
+            let gl = &core.gl;
+            let (state, stats) = (&mut core.state, &mut core.stats);
+            state.use_program(gl, stats, core.programs[p].program);
+            let u = self.uniforms.get_mut(&p).unwrap();
+            unsafe {
+                gl.uniform_matrix_4_f32_slice(u.model_view.as_ref(), false, &mv32);
+                stats.gl_calls += 1;
+                if o.kind == OBJECT_SPRITE && u.model.is_some() {
+                    gl.uniform_matrix_4_f32_slice(u.model.as_ref(), false, &model32);
+                    stats.gl_calls += 1;
+                }
+                // The material's values, each only when it differs from what the program holds.
+                let mut set = |slot: usize, n: usize, f: &mut dyn FnMut()| {
+                    if u.values[slot..slot + n] != values[slot..slot + n] {
+                        f();
+                        u.values[slot..slot + n].copy_from_slice(&values[slot..slot + n]);
+                        stats.gl_calls += 1;
+                    }
+                };
+                if u.diffuse.is_some() { set(0, 3, &mut || gl.uniform_3_f32(u.diffuse.as_ref(), values[0], values[1], values[2])); }
+                if u.opacity.is_some() { set(3, 1, &mut || gl.uniform_1_f32(u.opacity.as_ref(), values[3])); }
+                if u.rotation.is_some() { set(4, 1, &mut || gl.uniform_1_f32(u.rotation.as_ref(), values[4])); }
+                if u.center.is_some() { set(5, 2, &mut || gl.uniform_2_f32(u.center.as_ref(), values[5], values[6])); }
+                if u.map_transform.is_some() { set(7, 9, &mut || gl.uniform_matrix_3_f32_slice(u.map_transform.as_ref(), false, &map32)); }
+            }
+            if let Some(t) = o.texture {
+                state.bind_texture(gl, stats, UNIT_MAP, Some(t));
+            }
+            let geo = &core.geometries[o.geometry];
+            unsafe {
+                gl.bind_vertex_array(Some(geo.vao));
+                gl.draw_elements(glow::TRIANGLES, o.count, geo.index_type, o.start * geo.index_bytes);
+            }
+            stats.gl_calls += 2;
+            stats.pass_draws[PASS_TRANSPARENT] += 1;
+        }
     }
 }
+
+// Items: a bucket's record is its index; an object's is its record's
+// index with this bit set.
+const OBJECT_ITEM: u32 = 1 << 31;
 
 // The view the frame block's values in `input` describe.
 pub fn view<C: HasContext, M: MultiDraw>(core: &Core<C, M>) -> View {
@@ -308,23 +442,32 @@ pub fn view<C: HasContext, M: MultiDraw>(core: &Core<C, M>) -> View {
 }
 
 impl<C: HasContext, M: MultiDraw> Source<C, M> for TransparentPass<C> {
-    fn emit(&mut self, _core: &mut Core<C, M>, view: &View, source: u32, items: &mut Vec<Item>) {
-        let frustum = &view.camera.frustum;
-        for (i, b) in self.buckets.iter().enumerate() {
-            // three culls a mesh by its bounding sphere before listing it.
-            if !b.shown || b.passes.is_empty() || !frustum.sphere(&b.sphere.0, b.sphere.1) {
-                continue;
-            }
-            items.push(Item {
-                group_order: 0.0, render_order: b.render_order, z: three_z(&view.view_projection, None, &b.sphere.0), id: b.id,
-                source, batch: i as u32, record: i as u32,
-            });
+    fn emit(&mut self, _core: &mut Core<C, M>, _view: &View, source: u32, items: &mut Vec<Item>) {
+        // What the page took out of three's list, with three's keys: a
+        // bucket's record names the bucket, an object's is its record.
+        let n = (self.objects[0] as usize).min(MAX_OBJECTS);
+        for k in 0..n {
+            let r = &self.objects[1 + k * OBJ_STRIDE..];
+            let record = if r[OBJ_BUCKET] != 0.0 {
+                let b = r[OBJ_INDEX] as usize;
+                if b >= self.buckets.len() || self.buckets[b].passes.is_empty() {
+                    continue;
+                }
+                b as u32
+            } else {
+                OBJECT_ITEM | k as u32
+            };
+            items.push(Item { group_order: r[OBJ_KEY], render_order: r[OBJ_KEY + 1], z: r[OBJ_KEY + 2], id: r[OBJ_KEY + 3], source, batch: record, record });
         }
     }
 
     fn draw_run(&mut self, core: &mut Core<C, M>, view: &View, run: &[Item]) {
         let light_count = view.camera.light_count;
         for item in run {
+            if item.record & OBJECT_ITEM != 0 {
+                self.draw_object(core, view, (item.record & !OBJECT_ITEM) as usize);
+                continue;
+            }
             let b = &self.buckets[item.record as usize];
             let mask = if b.point_lit && light_count > 0 {
                 light_mask(&core.input[FRAME_LIGHTS..FRAME_LIGHTS + 8 * MAX_LIGHTS], light_count, std::slice::from_ref(&b.bbox), None)

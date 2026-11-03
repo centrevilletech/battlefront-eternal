@@ -953,7 +953,7 @@ export class Graphics {
     }
     if (this.sky && !this.skyLayers.length) this.sky.position.copy(camera.position);
     renderer.setRenderTarget(this.farTarget);
-    renderer.render(this.farScene, far);
+    if (!this.rust?.cover("far", renderer, this.farScene, far)) renderer.render(this.farScene, far);
 
     // 2. The near scene over it, then the first-person weapon.
     this.cullOffView();
