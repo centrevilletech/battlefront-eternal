@@ -2,15 +2,17 @@
 //! The store's generated code: a module a schema file, and here the kinds'
 //! codes, the store that holds every kind with fields, and its sync
 //! dispatch (docs/sim-store.md).
-#![allow(clippy::all, unused_variables)]
+#![allow(clippy::all, unused_variables, unused_imports, dead_code)]
 
 pub use crate::store::block::Block;
-pub use crate::store::{word_i32, word_u32, DefId, KindCode, Nullable, Quat, Ref, RefSet, Slab, StrId, Vec3};
+pub use crate::store::{word_i32, word_u32, DefId, KindCode, Nullable, Quat, Ref, RefSet, Slab, StrId, StrMap, Vec3};
 
 mod ordnance;
 pub use self::ordnance::*;
 #[cfg(feature = "replay")]
 mod replay;
+#[cfg(feature = "replay")]
+pub use self::replay::Replay;
 
 pub const KIND_BEAM: KindCode = 1;
 pub const KIND_BODY: KindCode = 2;
@@ -73,15 +75,28 @@ pub struct Store {
 
 impl Store {
     /// A kind's export block: a row for each entity (in its home list's order, or
-    /// its slots'), its mirrored fields, or all of them (`full`). False for a kind
-    /// the store holds no fields of.
-    pub fn export(&self, kind: KindCode, block: &mut Block, full: bool) -> bool {
+    /// its slots'). `mode` 0: its mirrored fields, after the rows of the entities
+    /// retired since the last such export (handed over: the slab forgets them);
+    /// 1: every field, live entities only; 2: as 0, leaving the retired where they
+    /// are. False for a kind the store holds no fields of.
+    pub fn export(&mut self, kind: KindCode, block: &mut Block, mode: u32) -> bool {
+        let full = mode == 1;
         match kind {
             KIND_BEAM => {
                 let list = self.ordnance.beams.clone();
-                block.begin(list.len(), if full { Beam::FULL_STRIDE } else { Beam::EXPORT_STRIDE });
-                for (i, &r) in list.iter().enumerate() {
+                let retired = if mode == 0 { std::mem::take(&mut self.beam.retired) } else { Vec::new() };
+                let shown = if mode == 2 { self.beam.retired.len() } else { retired.len() };
+                block.begin(shown + list.len(), if full { Beam::FULL_STRIDE } else { Beam::EXPORT_STRIDE });
+                block.set_retired(shown);
+                let old = if mode == 2 { &self.beam.retired } else { &retired };
+                for (i, (r, v)) in old.iter().enumerate() {
                     let (row, heap) = block.row(i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    v.put_export(row, heap);
+                }
+                for (i, &r) in list.iter().enumerate() {
+                    let (row, heap) = block.row(shown + i);
                     row[0] = r.slot as f64;
                     row[1] = r.gen as f64;
                     if let Some(v) = self.beam.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
@@ -89,9 +104,19 @@ impl Store {
             }
             KIND_BOLT => {
                 let list = self.ordnance.bolts.clone();
-                block.begin(list.len(), if full { Bolt::FULL_STRIDE } else { Bolt::EXPORT_STRIDE });
-                for (i, &r) in list.iter().enumerate() {
+                let retired = if mode == 0 { std::mem::take(&mut self.bolt.retired) } else { Vec::new() };
+                let shown = if mode == 2 { self.bolt.retired.len() } else { retired.len() };
+                block.begin(shown + list.len(), if full { Bolt::FULL_STRIDE } else { Bolt::EXPORT_STRIDE });
+                block.set_retired(shown);
+                let old = if mode == 2 { &self.bolt.retired } else { &retired };
+                for (i, (r, v)) in old.iter().enumerate() {
                     let (row, heap) = block.row(i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    v.put_export(row, heap);
+                }
+                for (i, &r) in list.iter().enumerate() {
+                    let (row, heap) = block.row(shown + i);
                     row[0] = r.slot as f64;
                     row[1] = r.gen as f64;
                     if let Some(v) = self.bolt.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
@@ -99,9 +124,19 @@ impl Store {
             }
             KIND_GRENADE => {
                 let list = self.ordnance.grenades.clone();
-                block.begin(list.len(), if full { Grenade::FULL_STRIDE } else { Grenade::EXPORT_STRIDE });
-                for (i, &r) in list.iter().enumerate() {
+                let retired = if mode == 0 { std::mem::take(&mut self.grenade.retired) } else { Vec::new() };
+                let shown = if mode == 2 { self.grenade.retired.len() } else { retired.len() };
+                block.begin(shown + list.len(), if full { Grenade::FULL_STRIDE } else { Grenade::EXPORT_STRIDE });
+                block.set_retired(shown);
+                let old = if mode == 2 { &self.grenade.retired } else { &retired };
+                for (i, (r, v)) in old.iter().enumerate() {
                     let (row, heap) = block.row(i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    v.put_export(row, heap);
+                }
+                for (i, &r) in list.iter().enumerate() {
+                    let (row, heap) = block.row(shown + i);
                     row[0] = r.slot as f64;
                     row[1] = r.gen as f64;
                     if let Some(v) = self.grenade.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
@@ -114,9 +149,19 @@ impl Store {
             }
             KIND_ROUND => {
                 let list = self.ordnance.rounds.clone();
-                block.begin(list.len(), if full { Round::FULL_STRIDE } else { Round::EXPORT_STRIDE });
-                for (i, &r) in list.iter().enumerate() {
+                let retired = if mode == 0 { std::mem::take(&mut self.round.retired) } else { Vec::new() };
+                let shown = if mode == 2 { self.round.retired.len() } else { retired.len() };
+                block.begin(shown + list.len(), if full { Round::FULL_STRIDE } else { Round::EXPORT_STRIDE });
+                block.set_retired(shown);
+                let old = if mode == 2 { &self.round.retired } else { &retired };
+                for (i, (r, v)) in old.iter().enumerate() {
                     let (row, heap) = block.row(i);
+                    row[0] = r.slot as f64;
+                    row[1] = r.gen as f64;
+                    v.put_export(row, heap);
+                }
+                for (i, &r) in list.iter().enumerate() {
+                    let (row, heap) = block.row(shown + i);
                     row[0] = r.slot as f64;
                     row[1] = r.gen as f64;
                     if let Some(v) = self.round.get(r) { if full { v.put_full(row, heap) } else { v.put_export(row, heap) } }
@@ -126,6 +171,17 @@ impl Store {
         }
         block.finish();
         true
+    }
+
+    /// Retires an entity of a kind the store holds by slot (`Slab::retire`).
+    pub fn retire(&mut self, kind: KindCode, slot: u32, gen: u32) -> bool {
+        match kind {
+            KIND_BEAM => self.beam.retire(Ref::new(slot, gen)),
+            KIND_BOLT => self.bolt.retire(Ref::new(slot, gen)),
+            KIND_GRENADE => self.grenade.retire(Ref::new(slot, gen)),
+            KIND_ROUND => self.round.retire(Ref::new(slot, gen)),
+            _ => false,
+        }
     }
 
     /// Takes in an import block JavaScript wrote, its import fields or all of them

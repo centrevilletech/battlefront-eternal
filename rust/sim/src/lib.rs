@@ -18,6 +18,11 @@
 pub mod abi;
 pub mod collision;
 pub mod gen;
+// The generator's test schemas' code (rust/sim/schema-test), for its tests.
+#[cfg(test)]
+mod gen_test;
+#[cfg(test)]
+mod gen_tests;
 pub mod movement;
 pub mod pose;
 pub mod store;

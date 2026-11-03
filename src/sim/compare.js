@@ -26,3 +26,13 @@ export function sameList(a, b) {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
 }
+
+// Two Maps with the same keys in the same order, each pair of values the
+// same by `same`.
+export function sameMap(a, b, same) {
+  if (a === b) return true;
+  if (!a || !b || a.size !== b.size) return false;
+  const x = [...a], y = [...b];
+  for (let i = 0; i < x.length; i++) if (x[i][0] !== y[i][0] || !same(x[i][1], y[i][1])) return false;
+  return true;
+}

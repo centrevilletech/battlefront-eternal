@@ -6,7 +6,7 @@
 #![cfg(feature = "replay")]
 
 use bfe_sim::gen::*;
-use bfe_sim::store::replay::{Arena, Replay, Value};
+use bfe_sim::store::replay::{Arena, Value};
 
 fn handle(kind: &str, key: f64) -> Value { Value::handle(kind, Value::Num(key)) }
 
