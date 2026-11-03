@@ -923,6 +923,111 @@ test("the Enhanced sniper's trace: two batches, their instances written interlea
   assert.equal(streaks.external, true);
 });
 
+test("the Enhanced arc caster's lightning: its capsules a batch kept interleaved, found in three's list, its values after them", async () => {
+  const { ArcBatch } = await import("../src/arc-lightning.js");
+  const { core, calls, scene, camera, list, frame, drawn, entry } = bridge();
+  const arcs = new ArcBatch(8);
+  scene.add(arcs.mesh);
+  // Shown empty while the battle loads: one dark capsule, drawn by three.
+  arcs.begin(); arcs.end(true);
+  assert.equal(arcs.mesh.visible, true);
+  list.transparent.push({ object: arcs.mesh, material: arcs.material, group: null });
+  drawn(arcs.material, program(["projectionMatrix", "viewMatrix", "pixelAngle", "nearDepth", "closeRange", "eyeFade", "fade", "sceneDepth", "softParticles", "depthResolution", "cameraRange"],
+    ["corner", "iA", "iB", "iNA", "iNB", "iColor", "iSize"]));
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "fx_batch_interleaved").length, 1, "kept interleaved");
+  assert.equal(arcs.external, true);
+  assert.equal(calls.find((c) => c[0] === "fx_batch_values")[2], "eyeFade:2:0,closeRange:1:0,pixelAngle:1:0,nearDepth:1:0");
+  // External: shown to three never, even kept warm, and nothing uploaded.
+  arcs.begin(); arcs.end(true);
+  assert.equal(arcs.mesh.visible, false);
+  list.transparent.length = 0;
+  // Two segments this frame.
+  const v = (x) => new THREE.Vector3(x, 0, -5), version = arcs.buffer.version;
+  arcs.begin();
+  arcs.push(v(0), v(1), null, null, [1, 0.5, 0.25], 1, 0.02, 0.1);
+  arcs.push(v(1), v(2), null, null, [1, 0.5, 0.25], 0.5, 0.02, 0.1);
+  arcs.end();
+  assert.equal(arcs.buffer.version, version, "three uploads it nothing");
+  frame();
+  const e = entry(0);
+  assert.deepEqual(e.slice(0, 5), [0, 0, 2, 0, 0]);
+  assert.deepEqual(e.slice(6, 8), [0, 12], "render order 12");
+  assert.deepEqual([...core.fxData.subarray(0, 40)], [...arcs.data.subarray(0, 40)], "interleaved, as kept");
+  assert.equal(core.fxData[40 + 2], arcs.material.uniforms.closeRange.value, "its values after them");
+  // Off: three draws it again, its buffer marked for upload whole.
+  core.setActive(false);
+  assert.equal(arcs.external, false);
+  assert.deepEqual(arcs.buffer.updateRanges, [{ start: 0, count: 40 }]);
+});
+
+test("the droideka's rolling dust: its wisps a batch on a quad of its own, written each frame with its clock and tint", async () => {
+  const { DroidekaTrail } = await import("../src/droideka-trail.js");
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const collision = { cast(origin, direction, far, out) { if (direction.y > 0) return null; out.point.set(origin.x, 0, origin.z); out.normal.set(0, 1, 0); out.terrain = true; return out; } };
+  const trail = new DroidekaTrail({ scene, collision, settings: { get: () => "enhanced" }, random: () => 0.5 });
+  const soldier = { mode: 12, dead: false, air: null, grounded: true, position: new THREE.Vector3(0, 0, -5), velocity: new THREE.Vector3(10, 0, 0) };
+  const roll = (frames) => { for (let i = 0; i < frames; i++) { soldier.position.addScaledVector(soldier.velocity, 1 / 60); trail.update(1 / 60, soldier); } };
+  roll(30);
+  assert.ok(trail.count > 0 && trail.mesh.visible);
+  list.transparent.push({ object: trail.mesh, material: trail.material, group: null });
+  drawn(trail.material, program(["projectionMatrix", "viewMatrix", "trailTime", "tint", "fogColor", "fogRange", "sceneDepth", "softParticles", "depthResolution", "cameraRange"],
+    ["position", "uv", "birth", "drift", "shape"]));
+  frame();
+  const added = calls.find((c) => c[0] === "fx_add_batch");
+  assert.equal(added[4], 0xffffffff, "no corner: a base of its own");
+  const base = calls.find((c) => c[0] === "fx_batch_base");
+  assert.deepEqual([base[2], base[3], base[5]], [[0, 3, 1, 2], 4, [0, 2, 1, 2, 3, 1]], "the quad's position and uv, as its geometry has them");
+  assert.equal(calls.find((c) => c[0] === "fx_batch_values")[2], "trailTime:1:0,tint:3:0");
+  assert.equal(trail.external, true);
+  list.transparent.length = 0;
+  const version = trail.geometry.getAttribute("birth").version;
+  roll(1);
+  assert.equal(trail.mesh.visible, false, "shown to three never");
+  assert.equal(trail.geometry.getAttribute("birth").version, version, "uploaded nothing by three");
+  frame();
+  const e = entry(0), n = trail.count;
+  assert.deepEqual(e.slice(0, 4), [0, 0, n, 0], "every wisp, each frame");
+  const birth = trail.geometry.getAttribute("birth").array, shape = trail.geometry.getAttribute("shape").array;
+  assert.deepEqual([...core.fxData.subarray(0, 4 * n)], [...birth.subarray(0, 4 * n)]);
+  assert.deepEqual([...core.fxData.subarray(8 * n, 12 * n)], [...shape.subarray(0, 4 * n)]);
+  assert.equal(core.fxData[12 * n], Math.fround(trail.time), "its own clock after them");
+  core.setActive(false);
+  assert.equal(trail.external, false);
+});
+
+test("the Enhanced jetpack's wake: its three pools batches on a quad of their own, written each frame with the wake's clock", async () => {
+  const { JetpackWake } = await import("../src/jetpack-wake.js");
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const wake = new JetpackWake({ scene, random: () => 0.5 });
+  const nozzle = { position: new THREE.Vector3(0, 0, -5), direction: new THREE.Vector3(0, -1, 0), radius: 0.034 };
+  const input = { nozzles: [nozzle], velocity: new THREE.Vector3(), active: true, throttle: 1 };
+  for (let i = 0; i < 30; i++) wake.update(1 / 60, input);
+  const pools = wake.pools.filter((pool) => pool.count > 0);
+  assert.ok(pools.length >= 2);
+  const uniforms = ["projectionMatrix", "viewMatrix", "wakeTime", "kind", "drag", "fogColor", "fogRange", "sceneDepth", "softParticles", "depthResolution", "cameraRange"];
+  for (const pool of pools) {
+    list.transparent.push({ object: pool.mesh, material: pool.mesh.material, group: null });
+    drawn(pool.mesh.material, program(uniforms, ["position", "uv", "birth", "flow", "axis", "style"]));
+  }
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "fx_add_batch").length, pools.length, "a batch a pool");
+  assert.ok(calls.filter((c) => c[0] === "fx_batch_values").every((c) => c[2] === "wakeTime:1:0,kind:1:0,drag:1:0"));
+  assert.ok(pools.every((pool) => pool.external));
+  list.transparent.length = 0;
+  const version = pools[0].attributes.birth.version;
+  wake.update(1 / 60, input);
+  assert.ok(pools.every((pool) => !pool.mesh.visible), "shown to three never");
+  assert.equal(pools[0].attributes.birth.version, version, "uploaded nothing by three");
+  frame();
+  const pool = pools[0], n = pool.count, e = entry(0);
+  assert.equal(e[2], n, "every particle, each frame");
+  assert.deepEqual([...core.fxData.subarray(0, 4 * n)], [...pool.attributes.birth.array.subarray(0, 4 * n)]);
+  assert.equal(core.fxData[14 * n], Math.fround(wake.time), "its clock after them");
+  core.setActive(false);
+  assert.ok(pools.every((pool) => !pool.external));
+});
+
 test("an error in the effects pass gives the effects back to three for good, three's render going on", () => {
   const { core, scene, frame, drawn } = bridge();
   const particles = new ParticleRenderer(scene);
