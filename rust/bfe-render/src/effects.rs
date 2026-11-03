@@ -130,6 +130,9 @@ struct MeshPass<C: HasContext> {
     side: u32,
     vao: C::VertexArray,
     slots: Vec<Option<C::UniformLocation>>,
+    // modelMatrix, which three's own materials read under shadows (its
+    // world position): the identity, a mesh's vertices being in the world.
+    model: Option<C::UniformLocation>,
 }
 
 struct Mesh<C: HasContext> {
@@ -158,6 +161,9 @@ struct ModelPass<C: HasContext> {
     model_view: Option<C::UniformLocation>,
     normal: Option<C::UniformLocation>,
     slots: Vec<Option<C::UniformLocation>>,
+    // modelMatrix, which three's own materials read under shadows (its
+    // world position): the model's world matrix, set per draw.
+    model: Option<C::UniformLocation>,
 }
 
 struct Model<C: HasContext> {
@@ -213,6 +219,9 @@ fn sides<C: HasContext>(gl: &C, state: &mut GlState<C>, stats: &mut Stats, side:
 // an int; 4 an array of vec4s), as the page names them ("name:size" or
 // "name:size:form", comma-separated).
 pub type MaterialValue = (String, usize, u32);
+
+// The identity, as a mesh's modelMatrix (its vertices in the world).
+const IDENTITY: [f32; 16] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
 
 fn material_values(values: &str) -> Vec<MaterialValue> {
     values.split(',').filter(|s| !s.is_empty()).filter_map(|s| {
@@ -500,7 +509,8 @@ impl<C: HasContext> EffectsPass<C> {
             vao
         };
         let slots = m.values.iter().map(|v| unsafe { gl.get_uniform_location(p, &v.0) }).collect();
-        m.passes.push(MeshPass { program: program as usize, side, vao, slots });
+        let model = unsafe { gl.get_uniform_location(p, "modelMatrix") };
+        m.passes.push(MeshPass { program: program as usize, side, vao, slots, model });
         (m.passes.len() - 1) as u32
     }
 
@@ -534,8 +544,9 @@ impl<C: HasContext> EffectsPass<C> {
         let gl = &core.gl;
         let m = &mut self.models[model as usize];
         let p = core.programs[program as usize].program;
-        let (model_view, normal, slots) = unsafe {
-            (gl.get_uniform_location(p, "modelViewMatrix"), gl.get_uniform_location(p, "normalMatrix"), m.values.iter().map(|v| gl.get_uniform_location(p, &v.0)).collect())
+        let (model_view, normal, model, slots) = unsafe {
+            (gl.get_uniform_location(p, "modelViewMatrix"), gl.get_uniform_location(p, "normalMatrix"), gl.get_uniform_location(p, "modelMatrix"),
+                m.values.iter().map(|v| gl.get_uniform_location(p, &v.0)).collect())
         };
         // The scene's depth (common) on its unit, for a program that reads it.
         unsafe {
@@ -545,7 +556,7 @@ impl<C: HasContext> EffectsPass<C> {
                 gl.use_program(None);
             }
         }
-        m.passes.push(ModelPass { program: program as usize, side, geometry: geometry as usize, model_view, normal, slots });
+        m.passes.push(ModelPass { program: program as usize, side, geometry: geometry as usize, model_view, normal, slots, model });
         (m.passes.len() - 1) as u32
     }
 
@@ -722,6 +733,9 @@ impl<C: HasContext> EffectsPass<C> {
             for pass in &m.passes {
                 let program = &core.programs[pass.program];
                 state.use_program(gl, stats, program.program);
+                if let Some(l) = pass.model.as_ref() {
+                    set_value(gl, stats, &mut self.held, pass.program, &("modelMatrix".to_string(), 16, 0), Some(l), &IDENTITY);
+                }
                 // The material's values, each set when the program holds another.
                 let mut v = values_at;
                 for (k, value) in m.values.iter().enumerate() {
@@ -776,6 +790,11 @@ impl<C: HasContext> EffectsPass<C> {
             }
             if let Some(l) = pass.normal.as_ref() {
                 unsafe { gl.uniform_matrix_3_f32_slice(Some(l), false, &normal) };
+                stats.gl_calls += 1;
+            }
+            if let Some(l) = pass.model.as_ref() {
+                let w: [f32; 16] = std::array::from_fn(|k| world[k] as f32);
+                unsafe { gl.uniform_matrix_4_f32_slice(Some(l), false, &w) };
                 stats.gl_calls += 1;
             }
             let mut v = values_at;

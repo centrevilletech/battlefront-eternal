@@ -13,9 +13,10 @@ const WORLD = 0;
 // The material values the card shaders read, set per draw from the class.
 const MATERIAL = ["foliageEye", "foliageRight", "foliageUp", "foliageBack", "foliageTime", "foliageEnd", "foliageWiggle", "foliageFogRange", "foliageFogColor", "diffuse", "opacity", "alphaTest"];
 // Everything else a card program may read besides the frame block: its map
-// and the map's uv transform, and the model-view matrix (the cards are in
-// world space: the camera's view).
-const POLICY = { uniforms: new Set([...MATERIAL, "map", "mapTransform", "modelViewMatrix"]), material: new Set(MATERIAL) };
+// and the map's uv transform, the model-view matrix (the cards are in world
+// space: the camera's view), and the model matrix three's program reads
+// under shadows (the identity).
+const POLICY = { uniforms: new Set([...MATERIAL, "map", "mapTransform", "modelViewMatrix", "modelMatrix"]), material: new Set(MATERIAL) };
 // A card vertex's attributes, then a patch row's (foliage.rs VERTEX, ROW).
 const VERTEX = [["position", 3], ["color", 4], ["uv", 2], ["foliageCorner", 2], ["foliageShape", 4], ["foliageRate", 1]];
 const ROW = ["foliagePatch", "foliageTint", "foliageAxisX", "foliageAxisY", "foliageAxisZ", "foliageDistance"];
