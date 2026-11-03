@@ -14,22 +14,24 @@
 // three's frame, which draws its passes in order: the far scene (far_frame),
 // the near scene (frame), what it blends (transparent_frame, in segments
 // around what three still blends itself: transparent_segment), the
-// first-person view (view_frame) and the post passes (post_frame). A
-// mirror's render of the near scene (water.js) draws the near phase's
-// passes for its own camera (mirror_frame); what the near scene blends is
-// left to three there.
+// first-person view (view_frame), the post passes (post_frame) and, over the
+// finished frame, the HUD (hud_frame). A mirror's render of the near scene
+// (water.js) draws the near phase's passes for its own camera
+// (mirror_frame); what the near scene blends is left to three there.
 //
 // The page writes the frame's inputs (camera, lights, each soldier) into
 // `input` and `bones` before a phase (web/, src/rust-render/).
-use crate::core::{Core, MultiDraw, Stats, VIEW_NEAR, VIEW_SPARE};
+use crate::core::{Core, MultiDraw, Stats, VIEW_FIRST_PERSON, VIEW_NEAR, VIEW_SPARE};
 use crate::effects::EffectsPass;
 use crate::far::FarPass;
 use crate::foliage::FoliagePass;
+use crate::hud::HudPass;
 use crate::instances::{InstancePass, BONES_LEN, INPUT_LEN};
 use crate::post::PostPass;
 use crate::terrain::TerrainPass;
 use crate::transparent::{self, Source, TransparentPass};
 use crate::view::ViewPass;
+use crate::water::WaterPass;
 use crate::world::WorldPass;
 use glow::HasContext;
 
@@ -44,6 +46,8 @@ pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub foliage: FoliagePass<C>,
     pub view: ViewPass<C>,
     pub post: PostPass<C>,
+    pub hud: HudPass<C>,
+    pub water: WaterPass<C>,
 }
 
 impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
@@ -58,7 +62,9 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let foliage = FoliagePass::new(&mut core);
         let view = ViewPass::new(&mut core);
         let post = PostPass::new(&mut core);
-        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post }
+        let hud = HudPass::new(&mut core);
+        let water = WaterPass::new(&mut core);
+        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water }
     }
 
     // The far scene's phase, drawn into the far target before the near scene.
@@ -96,7 +102,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let mut list = std::mem::take(&mut self.transparent.list);
         list.items.clear();
         {
-            let mut sources: [&mut dyn Source<C, M>; 2] = [&mut self.transparent, &mut self.effects];
+            let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
             for (s, source) in sources.iter_mut().enumerate() {
                 source.emit(core, &view, s as u32, &mut list.items);
             }
@@ -112,7 +118,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         core.upload_frame(VIEW_NEAR);
         core.bind_far_map();
         {
-            let mut sources: [&mut dyn Source<C, M>; 2] = [&mut self.transparent, &mut self.effects];
+            let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
             transparent::draw_segment(core, &view, list.segment(0), &mut sources);
         }
         list.view = Some(view);
@@ -130,7 +136,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
             if !list.segment(k).is_empty() {
                 core.bind_frame(VIEW_NEAR);
                 core.bind_far_map();
-                let mut sources: [&mut dyn Source<C, M>; 2] = [&mut self.transparent, &mut self.effects];
+                let mut sources: [&mut dyn Source<C, M>; 3] = [&mut self.transparent, &mut self.effects, &mut self.water];
                 transparent::draw_segment(core, view, list.segment(k), &mut sources);
             }
         }
@@ -138,17 +144,38 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         Ok(core.end_phase())
     }
 
-    // The first-person view scene's phase.
-    pub fn view_frame(&mut self) -> Result<Stats, String> {
+    // The first-person view scene's phase, after the depth clear three makes
+    // for it: its parts (records: how many the page wrote), read with the
+    // view camera's frame block.
+    pub fn view_frame(&mut self, records: usize) -> Result<Stats, String> {
+        let core = &mut self.core;
+        core.begin_phase();
+        core.upload_frame(VIEW_FIRST_PERSON);
+        let camera = core.camera();
+        core.opaque();
+        core.bind_far_map();
+        self.view.draw(core, &camera, &mut self.instances, records);
+        Ok(core.end_phase())
+    }
+
+    // The near scene's start when the page draws all of it in place of
+    // three's render (near.js): the target cleared as three clears it
+    // (clear: rgba), then the far scene's image drawn into it (the steps the
+    // page wrote for the post pass, into the target bound now).
+    pub fn near_begin(&mut self, clear: &[f64], steps: usize) -> Result<Stats, String> {
         self.core.begin_phase();
-        self.view.draw(&mut self.core);
+        if clear.len() >= 4 {
+            crate::post::clear(&mut self.core, clear);
+        }
+        self.post.draw(&mut self.core, steps);
         Ok(self.core.end_phase())
     }
 
-    // The post passes' phase, once the scenes are drawn.
-    pub fn post_frame(&mut self) -> Result<Stats, String> {
+    // The post passes' phase, once the scenes are drawn: the steps the page
+    // wrote (post.rs), in order.
+    pub fn post_frame(&mut self, steps: usize) -> Result<Stats, String> {
         self.core.begin_phase();
-        self.post.draw(&mut self.core);
+        self.post.draw(&mut self.core, steps);
         Ok(self.core.end_phase())
     }
 
@@ -160,5 +187,12 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let stats = self.frame(records);
         self.core.swap_views(VIEW_NEAR, VIEW_SPARE);
         stats
+    }
+
+    // The HUD's phase, over the finished frame on the canvas (hud.rs).
+    pub fn hud_frame(&mut self) -> Result<Stats, String> {
+        self.core.begin_phase();
+        self.hud.draw(&mut self.core);
+        Ok(self.core.end_phase())
     }
 }

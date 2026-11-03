@@ -13,3 +13,13 @@ description = "The game's content as the world simulation reads it: its files pa
 [lib]
 name = "bfe_content"
 crate-type = ["rlib"]
+
+[features]
+default = []
+# Install a battle's collision world in the ray kernel's state (src/install.rs),
+# and test it against the JavaScript's casts (tests/collision.rs). The rays
+# crate has moved into rust/sim, so the installer is off until it moves there
+# too (the simulation module will link this crate, not the other way round).
+rays = []
+
+[dependencies]

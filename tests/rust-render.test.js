@@ -5,49 +5,23 @@ import * as THREE from "three";
 // The bridge reads its flags from the page's query.
 globalThis.location ??= { search: "" };
 const { RustRender } = await import("../src/rust-render/index.js");
+const { standinModule } = await import("./support/rust-standin.mjs");
 
 const STATS = [1, 2, 3, 4, 5, 1, 2, 0, 0, 0, 0, 0, 0, 0];
 
 // The bridge over a stand-in for the WASM renderer (its memory, and a log of
 // the calls made to it) and for the page's graphics and three's renderer.
 function bridge() {
-  const calls = [];
-  const memory = { buffer: new ArrayBuffer(1 << 16) };
   // The segments the renderer found (transparent.rs), as the page reads them.
   const segments = [0, 0];
-  const entry = (name) => function (...args) { calls.push([name, ...args]); return STATS; };
-  class BfeRenderer {
-    input_ptr() { return 0; }
-    input_len() { return 200 + 76 * 4; }
-    bones_ptr() { return 8192; }
-    bones_len() { return 64; }
-    far_input_ptr() { return 16384; }
-    far_input_len() { return 1024; }
-    records_at() { return 200; }
-    record_stride() { return 76; }
-    fx_input_ptr() { return 40960; }
-    fx_input_len() { return 600; }
-    fx_data_ptr() { return 49152; }
-    fx_data_len() { return 2048; }
-    fx_matrices_ptr() { return 57344; }
-    fx_matrices_len() { return 512; }
-    add_texture() { calls.push(["add_texture"]); return 0; }
-    set_far_map(texture) { calls.push(["set_far_map", texture]); }
-    sort(byProgram) { calls.push(["sort", byProgram]); }
-    transparent_keys_ptr() { return 16384; }
-    transparent_keys_len() { return 64; }
-    transparent_segments_ptr() { return 32768; }
-    transparent_segments_len() { return segments.length; }
-    transparent_segment(k) { calls.push(["transparent_segment", k]); return STATS; }
-    transparent_objects_ptr() { return 24576; }
-    transparent_objects_len() { return 1 + 2 * 40; }
-    transparent_object_stride() { return 40; }
-  }
-  for (const name of ["far_frame", "frame", "transparent_frame", "view_frame", "post_frame"]) BfeRenderer.prototype[name] = entry(name);
-  // Registration calls, logged with their arguments (the world pass's and the ground's).
-  for (const name of ["add_world", "world_runs", "world_shown", "world_texture", "world_uniform", "world_cells"]) {
-    BfeRenderer.prototype[name] = function (...args) { calls.push([name, ...args]); return name === "add_world" ? 9 : true; };
-  }
+  // The shared stand-in for the WASM renderer (every pass's views), with the
+  // world pass's registration as this test reads it.
+  const { BfeRenderer, memory, calls, region } = standinModule({
+    stats: STATS,
+    lengths: { transparent_segments: () => segments.length },
+    methods: ({ calls }) => Object.fromEntries(["add_world", "world_runs", "world_shown", "world_texture", "world_uniform", "world_cells"]
+      .map((name) => [name, (...args) => { calls.push([name, ...args]); return name === "add_world" ? 9 : true; }])),
+  });
   const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera();
   camera.updateMatrixWorld(true);
   const sceneTarget = { name: "scene" }, farTarget = { texture: new THREE.Texture() };
@@ -71,15 +45,15 @@ function bridge() {
   const background = new THREE.Object3D();
   const graphics = { renderer, scene, camera, sceneTarget, farTarget, background, settings: { get: () => false }, upscaling: "off", cullRoots: [], playerRoot: null };
   const core = new RustRender(graphics, { memory }, BfeRenderer);
-  const setSegments = (values) => { segments.length = 0; segments.push(...values); new Uint32Array(memory.buffer, 32768, values.length).set(values); };
+  const setSegments = (values) => { segments.length = 0; segments.push(...values); new Uint32Array(memory.buffer, region("transparent_segments"), values.length).set(values); };
   return { core, calls, graphics, renderer, scene, camera, memory, list, setSegments, setTarget: (t) => { target = t; } };
 }
 
 test("the passes are made in the renderer's order, each in its phase", () => {
   const { core } = bridge();
-  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post"]);
+  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post", "hud", "water", "near"]);
   const phases = Object.fromEntries(Object.entries(core.phases).map(([name, passes]) => [name, passes.map((p) => p.name)]));
-  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage"], transparent: ["transparent", "effects"], view: ["view"], post: ["post"], mirror: ["world", "instances", "terrain", "foliage"] });
+  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage"], transparent: ["transparent", "effects", "water"], view: ["view"], post: ["post"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage"], begin: ["near"] });
   assert.throws(() => core.addPass({ name: "x", phase: "nowhere" }), /no phase nowhere/);
 });
 
@@ -153,7 +127,7 @@ test("a pass's views of the renderer's memory are made again when it grows", () 
   assert.equal(extra.length, 8);
   core.views();
   assert.equal(core.input, input, "the same memory: the same views");
-  memory.buffer = new ArrayBuffer(1 << 17);
+  memory.buffer = new ArrayBuffer(2 * memory.buffer.byteLength);
   core.views();
   assert.notEqual(core.input, input);
   assert.equal(core.extra.buffer, memory.buffer);
@@ -233,6 +207,28 @@ test("objects the transparent pass draws leave three's list as records with thre
   assert.deepEqual([...r.subarray(1, 6)], [7, 0, 2, 0.75, holo.id]);
   assert.deepEqual([...r.subarray(6, 22)], holo.matrixWorld.elements);
   assert.deepEqual([...r.subarray(22, 26)], [material.color.r, material.color.g, material.color.b, 0.25]);
+});
+
+test("with the transparent pass off, three keeps its whole list and the other sources' items still draw around it", () => {
+  const { core, calls, renderer, scene, camera, graphics, list, setSegments } = bridge();
+  const pass = core.byName.transparent;
+  const material = new THREE.MeshBasicMaterial({ transparent: true });
+  const holo = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  const program = { id: 3 };
+  renderer.properties.get(material).currentProgram = program;
+  renderer.properties.get(material).__version = material.version;
+  pass.taken.set(holo, { bucket: false, id: 7, material, program, frame: 0 });
+  list.opaque.push({ object: graphics.background, material: {}, group: null, groupOrder: 0, renderOrder: 0, z: 0, id: graphics.background.id });
+  list.transparent.push({ object: holo, material, group: null, groupOrder: 0, renderOrder: 0, z: 0.75, id: holo.id });
+  setSegments([0, 0, 0]);
+  core.views();
+  core.transparentObjects[0] = 5;
+  pass.setActive(false);
+  core.pass(renderer, scene, camera);
+  assert.deepEqual(list.transparent.map((item) => item.object), [holo], "three draws what the pass would have taken");
+  assert.equal(core.transparentObjects[0], 0, "the pass draws none of its own");
+  assert.equal(calls.filter((c) => c[0] === "transparent_frame").length, 1, "the phase still runs");
+  assert.deepEqual([...core.transparentKeys.subarray(0, 4)], [0, 0, 0.75, holo.id]);
 });
 
 test("an item whose program three changed goes back to three, to be registered again", () => {

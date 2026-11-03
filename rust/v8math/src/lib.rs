@@ -7,6 +7,11 @@
 //! - `sin` to `cbrt`, the transcendental functions: V8's port of fdlibm in
 //!   `src/base/ieee754.cc`, translated operation by operation. V8 12.4 (Node
 //!   22) computes the same for all of them.
+//! - `pow`, for `Math.pow` and `**` alike: V8 13.6 keeps a few special cases
+//!   and calls the C library's `pow` for the rest, so the server's results
+//!   are glibc's as it runs on x86-64 with FMA; `pow` computes those (see
+//!   its documentation). `pow_legacy` is V8's own fdlibm `pow`, which V8
+//!   12.4 (Node 22) used.
 //! - `round`, `sign`, `min`, `max`, `hypot`, `clz32`, `imul`: V8's builtins.
 //! - `to_int32` and `to_uint32`: ECMAScript's ToInt32 and ToUint32, what
 //!   `x | 0` and `x >>> 0` compute.
@@ -25,15 +30,19 @@
 //! the same bits.
 //!
 //! The arithmetic is plain IEEE double precision in the order written, with
-//! no fused multiply-add: Rust never contracts `a * b + c` by itself.
+//! no fused multiply-add (Rust never contracts `a * b + c` by itself),
+//! except in `pow`, which fuses exactly the operations glibc's `pow` fuses.
 
 #![forbid(unsafe_code)]
 
 mod explog;
 mod inv;
+mod pow;
+mod pow_data;
 mod trig;
 
-pub use explog::{cbrt, exp, expm1, log, log10, log1p, log2};
+pub use explog::{cbrt, exp, expm1, log, log10, log1p, log2, pow_legacy};
+pub use pow::{glibc_pow, pow};
 pub use inv::{acos, acosh, asin, asinh, atan, atan2, atanh, cosh, sinh, tanh};
 pub use trig::{cos, sin, tan};
 
@@ -361,6 +370,59 @@ mod tests {
             let got = call(name, &a).to_bits();
             assert_eq!(got, want, "{name}({args:x?}) = {got:#018x}, V8 gives {want:#018x}");
         }
+    }
+
+    /// Math.pow(x, y) and x ** y in Node 24.22 on x86-64 with FMA (glibc
+    /// 2.39 and 2.43 give the same), as bit patterns.
+    #[test]
+    fn pow_matches_node_24() {
+        let cases: &[(u64, u64, u64)] = &[
+            (0x3fe0000000000000, 0xbfe0000000000000, 0x3ff6a09e667f3bcd),
+            (0x4000000000000000, 0x3fe0000000000000, 0x3ff6a09e667f3bcd),
+            (0xfff0000000000000, 0x3fe0000000000000, 0x7ff0000000000000),
+            (0x8000000000000000, 0x3fe0000000000000, 0x0000000000000000),
+            (0x7ff8000000000000, 0x0000000000000000, 0x3ff0000000000000),
+            (0x3ff0000000000000, 0x7ff0000000000000, 0x7ff8000000000000),
+            (0xbff0000000000000, 0xfff0000000000000, 0x7ff8000000000000),
+            (0xc020000000000000, 0x3fd5555555555555, 0xfff8000000000000),
+            (0xc000000000000000, 0x4008000000000000, 0xc020000000000000),
+            (0xc000000000000000, 0xc008000000000000, 0xbfc0000000000000),
+            (0x4000000000000000, 0xc090c80000000000, 0x0000000000000001),
+            (0x4000000000000000, 0xc090cc0000000000, 0x0000000000000000),
+            (0x4000000000000000, 0x4090000000000000, 0x7ff0000000000000),
+            (0x4000000000000000, 0x408fffffffffffff, 0x7feffffffffffd3a),
+            (0x4024000000000000, 0x4073440000000000, 0x7fefa788589d81d3),
+            (0x4024000000000000, 0xc074380000000000, 0x0000000000000001),
+            (0x3fe0000000000000, 0x4090ca0000000000, 0x0000000000000001),
+            (0xbfe0000000000000, 0x4090cc0000000000, 0x8000000000000000),
+            (0x3ff0000000000001, 0x4330000000000000, 0x4005bf0a8b145769),
+            (0x3fefffffffffffff, 0xc340000000000000, 0x4005bf0a8b14576a),
+            (0x8000000000000000, 0xc008000000000000, 0xfff0000000000000),
+            (0x8000000000000000, 0xc000000000000000, 0x7ff0000000000000),
+            (0xfff0000000000000, 0x4008000000000000, 0xfff0000000000000),
+            (0xfff0000000000000, 0xc008000000000000, 0x8000000000000000),
+            // Where glibc's variant without FMA rounds the other way.
+            (0x662c2cf3da4355cd, 0x3fe654dcdeed6b80, 0x5a9f2963ed9e012d),
+            (0x7c29bfd8a8d47802, 0xbfe329eaa34cda0c, 0x1bdd733aa2b485d7),
+            (0x4008000000000000, 0x3e7ad7f29abcaf48, 0x3ff000001d7d9b49),
+            (0x000012688b70e62b, 0x3fe8000000000000, 0x0fa922f895935598),
+            (0x401c000000000000, 0x4000000000000000, 0x4048800000000000),
+            (0xc008000000000000, 0x7e37e43c8800759c, 0x7ff0000000000000),
+            (0x3ff8000000000000, 0xbbc79ca10c924223, 0x3ff0000000000000),
+            (0x4004000000000000, 0x4012000000000000, 0x404ee1b1b3d78c7a),
+            (0x4005bf0a8b145769, 0x400921fb54442d18, 0x403724046eb09338),
+        ];
+        for &(x, y, want) in cases {
+            let got = pow(f64::from_bits(x), f64::from_bits(y));
+            assert!(
+                got.to_bits() == want || (got.is_nan() && f64::from_bits(want).is_nan()),
+                "pow({x:#018x}, {y:#018x}) = {:#018x}, V8 gives {want:#018x}",
+                got.to_bits()
+            );
+        }
+        // V8's own fdlibm pow (Node 22) rounds this one down.
+        assert_eq!(pow_legacy(0.5, -0.5).to_bits(), 0x3ff6a09e667f3bcc);
+        assert_eq!(pow(0.5, -0.5).to_bits(), 0x3ff6a09e667f3bcd);
     }
 
     #[test]

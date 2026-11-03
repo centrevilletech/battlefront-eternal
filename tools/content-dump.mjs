@@ -44,6 +44,8 @@ const { classSetting } = await import('../src/vehicle-motion.js');
 const { scanVector } = await import('../src/props.js');
 const { routeWords } = await import('../src/ai/classic/nav/data.js');
 const { ENGINE } = await import('../src/soldier.js');
+const { createEntityRegistry } = await import('../src/runtime/network-entity-registry.js');
+const { INPUT_CODES, DEFAULT_BINDING_PROFILES } = await import('../src/runtime/network-entity-input.js');
 const THREE = await import('three');
 
 // ---------------------------------------------------------------------------
@@ -462,6 +464,12 @@ export function dumpBattle(b, c, full = false) {
     lines.push(['positions', typed(actor.body.geometry.attributes.position.array)]);
     lines.push(['skin', typed(actor.body.geometry.attributes.skinIndex.array)]);
     lines.push(['attach', enc(def.attach)]);
+    // animator.js 148-149: the joints that keep their bind translation, and
+    // DummyRoot's bind place.
+    const BIND_LENGTH = ['bone_pelvis', 'bone_a_spine', 'bone_b_spine', 'bone_ribcage', 'bone_neck', 'bone_head',
+      ...['l', 'r'].flatMap((side) => ['clavicle', 'upperarm', 'forearm', 'hand', 'thigh', 'calf', 'foot', 'toe'].map((part) => `bone_${side}_${part}`))];
+    lines.push(['bindLengths', enc(BIND_LENGTH.map((name) => actor.byName[name]).filter(Boolean).map((bone) => [actor.bones.indexOf(bone), vec3(bone.position)]))]);
+    lines.push(['rootBind', enc(actor.byName.DummyRoot ? vec3(actor.byName.DummyRoot.position) : null)]);
     d.group(`actor/${key}`, lines, full);
   }
   for (const [key, clips] of c.bodyClips) {
@@ -580,6 +588,62 @@ export function dumpBattle(b, c, full = false) {
   (b.propsDef?.instances || []).forEach((inst, i) => {
     d.value('odf', `prop/${i}`, Object.fromEntries(Object.keys(inst.settings || {}).map((key) => [key, readers(setting(inst.settings, key))])));
   });
+
+  // The wire's content ids (network-entity-registry.js), from game.js's
+  // data (3386) and the posts entityPostNames lists (commandposts.js names
+  // an unnamed post by its place).
+  let registry = null, registryError = null;
+  try {
+    const data = {
+      sides: Object.fromEntries(Object.entries(b.sides).map(([name, s]) => [name, { ...s, texture: () => null }])),
+      effects: b.effectsDef,
+      sideFx: Object.fromEntries([[b.SIDE, b.sideFx], ...Object.entries(b.otherSides).map(([name, other]) => [name, other.fx])].filter(([, fx]) => fx)),
+      vehicles: b.vehicleDef, props: b.propsDef, world: b.world, common: b.common,
+    };
+    const posts = [...(b.world.commandPosts || []).map((desc, index) => desc.name || `#${index}`), ...(b.vehicleDef?.spawns || []).map((_, i) => `transport-${i}`)];
+    registry = createEntityRegistry(data, { contentEpoch: 1, inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES, posts });
+    d.value('registry', 'combat', registry.combat.paths);
+    d.value('registry', 'classes', [...registry.classes.values()]);
+    d.value('registry', 'weapons', [...registry.weapons.values()]);
+    d.value('registry', 'posts', [...registry.posts.values()]);
+  } catch (error) {
+    registryError = error.message;
+    d.value('registry', 'error', error.message);
+  }
+
+  // The definitions' links and the wire's ids, walked as rust/content's
+  // defs.rs walks them (the combat ids by identity, as definitionId).
+  if (registry) {
+    const idByDef = new Map([...registry.combat.definitions].map(([id, def]) => [def, id]));
+    const combat = (v) => (v && typeof v === 'object' ? idByDef.get(v) ?? null : null);
+    const tableId = (table, name) => { for (const [id, n] of table) if (n === name) return id; return null; };
+    const str = (v) => (typeof v === 'string' ? v : null);
+    const isItem = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+    const items = [];
+    for (const [sideName, s] of Object.entries(b.sides)) {
+      for (const [name, def] of Object.entries(s.items)) items.push([`${sideName}/${name}`, def]);
+      for (const [className, def] of Object.entries(s.units)) {
+        const key = `${sideName}/${className}`;
+        const drops = (def.drops || []).map((drop) => [str(drop.class), typeof drop.class === 'string' && Object.hasOwn(s.items, drop.class) ? `${sideName}/${drop.class}` : null]);
+        d.value('def.class', key, [tableId(registry.classes, className), drops]);
+        (def.weapons || []).forEach((w, slot) => {
+          const itemKey = isItem(w.item) ? `${key}/weapon/${slot}` : null;
+          if (itemKey) items.push([itemKey, w.item]);
+          d.value('def.weapon', `${key}/${slot}`, [str(w.class), tableId(registry.weapons, w.class), combat(w.ordnance), combat(w.item), combat(w), itemKey]);
+        });
+      }
+    }
+    (b.propsDef?.items || []).forEach((entry, i) => { if (isItem(entry?.item)) items.push([`placed/${i}`, entry.item]); });
+    for (const [key, record] of items) d.line('def.item', key, enc(combat(record)));
+    for (const [className, def] of Object.entries(b.vehicleDef?.classes || {})) {
+      const seats = (def.seats || []).map((seat) => [str(seat.name), (seat.weapons || []).map((w) => [w.def?.class, tableId(registry.weapons, w.def?.class), combat(w.def?.ordnance)])]);
+      const template = typeof def.model === 'string' && Object.hasOwn(b.vehicleDef.models || {}, def.model) ? def.model : null;
+      d.value('def.vehicle', className, [tableId(registry.classes, className), template, seats]);
+    }
+    (b.propsDef?.instances || []).forEach((desc, i) => {
+      d.value('def.prop', String(i), [desc.class, tableId(registry.weapons, desc.weapon?.class), combat(desc.explosion), combat(desc.weapon?.ordnance)]);
+    });
+  } else d.value('defs', 'error', registryError);
 
   if (!c.routes) d.line('nav', 'routes', 'null');
   else if (c.routes.error) d.line('nav', 'routes', `error ${JSON.stringify(c.routes.error)}`);

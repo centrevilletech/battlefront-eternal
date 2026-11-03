@@ -248,6 +248,22 @@ test('a command runs at once on its arguments, and its events come out in order'
   assert.throws(() => b.command('nothing', {}), /no command nothing/);
 });
 
+test('room made as a battle loads keeps the memory from growing in play', async () => {
+  const world = battle();
+  const b = await bridge(world);
+  const pages = b.reserve(8 << 20);
+  assert.ok(pages * 65536 >= 8 << 20);
+  const grown = b.grown;
+  for (let i = 0; i < 50; i++) {
+    writeAll(b, world.ordnance, true);
+    for (const [kind] of LISTS) b.read(kind);
+    b.command('fill', { kind: KIND_BOLT, count: 20 });
+    b.write(KIND_BOLT, world.ordnance.bolts);
+  }
+  assert.equal(b.x.sim_memory_pages(), pages);
+  assert.equal(b.grown, grown);
+});
+
 test('a module whose kinds were made from other schemas is refused', async () => {
   const { exports } = await loadSim();
   const stale = { exports: { ...exports, sim_kind_hash: (k) => (k === KIND_BOLT ? 1 : exports.sim_kind_hash(k)) } };
