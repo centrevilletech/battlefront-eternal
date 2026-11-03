@@ -50,7 +50,7 @@ import { waterPass } from "./water.js";
 import { nearPass } from "./near.js";
 import { canopiesPass } from "./canopies.js";
 import { motionPass } from "./motion.js";
-import { imagePass } from "./screen.js";
+import { imagePass, cloudsPass, underwaterPass } from "./screen.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -111,6 +111,11 @@ const PHASES = {
   // The temporal upscaler's motion of the bodies that move on their own
   // (motion.js), once the scenes are drawn.
   motion: { view: null, draw: (rust, ctx) => rust.motion_frame(ctx.records) },
+  // Full-screen passes three renders on their own (screen.js): the storm's
+  // cloud panorama into its target (storm-sky.js), and the Low water's tint
+  // over the finished frame with the eye under the surface (water.js).
+  skyClouds: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
+  underwater: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
 };
 
 // three's renderer's entry points that read or change its state cache, each
@@ -219,7 +224,7 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, imagePass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, imagePass, cloudsPass, underwaterPass]) this.addPass(make(this));
     // The near phase's hook: first in three's opaque list of the near scene
     // (graphics.background, the far scene's image, is drawn last of it).
     this.nearAnchor = graphics.scene ? this.anchor(graphics.scene, { renderOrder: -1e9 }, (renderer, scene, camera) => this.pass(renderer, scene, camera)) : null;

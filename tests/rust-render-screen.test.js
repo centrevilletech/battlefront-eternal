@@ -135,3 +135,62 @@ test("the far image after three's own opaque items: the transparent phase, and t
   body.onAfterRender(renderer, scene, camera, body.geometry, body.material, null);
   assert.deepEqual(calls.find((c) => c[0] === "transparent_frame").slice(1), [0, 1]);
 });
+
+// The bridge for a full-screen pass three renders on its own, with a
+// context that knows 3D samplers.
+function screenBridge() {
+  const { BfeRenderer, memory, calls } = standinModule();
+  const { standinContext } = support;
+  const three = standinThree(calls, { context: { ...standinContext(calls), SAMPLER_3D: 0x8b5f } });
+  three.renderer.autoClear = false;
+  const core = new RustRender(three.graphics, { memory }, BfeRenderer);
+  return { core, calls, ...three };
+}
+const support = await import("./support/rust-standin.mjs");
+
+test("the storm's cloud panorama: drawn into its target by the renderer, its noise volume a 3D sampler, once three made its program", () => {
+  const { core, calls, renderer, setTarget } = screenBridge();
+  const noise = new THREE.Data3DTexture(new Uint8Array(8), 2, 2, 2);
+  const material = new THREE.ShaderMaterial({ uniforms: { volumeNoise: { value: noise }, wind: { value: new THREE.Vector2(1, 2) }, eyePosition: { value: new THREE.Vector3(3, 4, 5) },
+    hazeColor: { value: new THREE.Vector3(0.1, 0.2, 0.3) }, time: { value: 7 } }, depthTest: false, depthWrite: false, blending: THREE.NoBlending });
+  const pass = new THREE.Mesh(new THREE.BufferGeometry(), material);
+  pass.frustumCulled = false;
+  const target = { texture: new THREE.Texture(), width: 768, height: 384 }, camera = new THREE.Camera();
+  setTarget(target);
+  assert.equal(core.cover("skyClouds", renderer, pass, camera), false, "three draws it until it has made its program");
+  renderer.properties.get(material).currentProgram = fakeProgram([["volumeNoise", 0x8b5f], ["wind", GL.FLOAT_VEC2], ["eyePosition", GL.FLOAT_VEC3], ["hazeColor", GL.FLOAT_VEC3], ["time", GL.FLOAT]]);
+  calls.length = 0;
+  assert.equal(core.cover("skyClouds", renderer, pass, camera), true);
+  assert.ok(calls.some((c) => c[0] === "post_target"), "its target, by its texture");
+  assert.deepEqual(calls.find((c) => c[0] === "screen_frame"), ["screen_frame", 1]);
+  core.views();
+  const step = core.postInput;
+  assert.deepEqual([step[2], step[3], step[4]], [768, 384, 5], "its size, five uniforms");
+  assert.equal(step[5 + 1], 33, "a 3D sampler");
+  assert.ok(step[5 + 2] >= 0, "the noise volume, registered");
+  assert.deepEqual([...step.subarray(5 + 18 + 1, 5 + 18 + 4)], [2, 1, 2], "the wind");
+  assert.deepEqual([...core.postStates.subarray(0, 2)], [0, 0], "a full-screen pass's state");
+  renderer.autoClear = true;
+  assert.equal(core.cover("skyClouds", renderer, pass, camera), false, "three's clear first: three's");
+});
+
+test("the Low water's underwater tint: over the finished frame, blended as three blends it", () => {
+  const { core, calls, renderer, setTarget } = screenBridge();
+  const material = new THREE.ShaderMaterial({ uniforms: { color: { value: new THREE.Vector4(0.1, 0.2, 0.3, 0.4) } }, transparent: true, depthTest: false, depthWrite: false });
+  const tint = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+  tint.frustumCulled = false;
+  const scene = new THREE.Scene();
+  scene.add(tint);
+  renderer.properties.get(material).currentProgram = fakeProgram([["color", GL.FLOAT_VEC4]], ["position"]);
+  setTarget(null);
+  calls.length = 0;
+  assert.equal(core.cover("underwater", renderer, scene, new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)), true);
+  assert.deepEqual(calls.find((c) => c[0] === "screen_frame"), ["screen_frame", 1]);
+  core.views();
+  assert.deepEqual([...core.postInput.subarray(1, 4)], [-1, 800, 600], "the canvas, three's viewport in pixels");
+  // Blended (source alpha, one minus source alpha; one, one minus source alpha), no depth.
+  assert.deepEqual([...core.postStates.subarray(0, 8)], [4, 0, 0x8006, 0x8006, 0x0302, 0x0303, 1, 0x0303]);
+  // Off: three draws it.
+  core.byName.underwater.setActive(false);
+  assert.equal(core.cover("underwater", renderer, scene, new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1)), false);
+});

@@ -18,6 +18,7 @@
 // state; any other render of the near scene (the fountain's reflection)
 // keeps three's. A near scene drawn whole in three's place (near.js) has its
 // image already (its begin phase).
+import * as THREE from "three";
 import { plainProgram, writeUniform } from "./post.js";
 import { blendOf, stateOf } from "./transparent.js";
 
@@ -89,9 +90,11 @@ export function writeScreenStep(core, k, program, material, object, camera, { ta
   const state = stateOf(material), blend = blendOf(material), s = core.postStates, at = k * STATE.SIZE;
   s.fill(0, at, at + STATE.SIZE);
   s[at + STATE.FLAGS] = (state.flags & 1 ? DEPTH_TEST : 0) | (state.flags & 2 ? DEPTH_WRITE : 0) | (blend[0] ? BLEND : 0) | (geometry ? OWN_GEOMETRY : 0);
-  s[at + STATE.DEPTH_FUNC] = state.func;
-  s[at + STATE.EQUATIONS] = blend[1]; s[at + STATE.EQUATIONS + 1] = blend[2];
-  for (let f = 0; f < 4; f++) s[at + STATE.FACTORS + f] = blend[3 + f];
+  if (state.flags & 1) s[at + STATE.DEPTH_FUNC] = state.func;
+  if (blend[0]) {
+    s[at + STATE.EQUATIONS] = blend[1]; s[at + STATE.EQUATIONS + 1] = blend[2];
+    for (let f = 0; f < 4; f++) s[at + STATE.FACTORS + f] = blend[3 + f];
+  }
   if (geometry) { s[at + STATE.GEOMETRY] = geometry.id; s[at + STATE.GEOMETRY + 1] = geometry.count; }
   return true;
 }
@@ -193,4 +196,77 @@ class ImagePass {
 
 export function imagePass(core) {
   return new ImagePass(core);
+}
+
+// A full-screen pass three renders on its own (renderer.render of the mesh,
+// or of a scene holding it), drawn by the renderer in a phase of its own
+// (graphics' callers ask the core to cover it): the storm's cloud panorama
+// into its target (storm-sky.js, phase skyClouds), the Low water's tint over
+// the finished frame with the eye under the surface (water.js, phase
+// underwater). Complete when three would draw one mesh, whose material a
+// step can draw (its program made, three having drawn it once), into the
+// target bound now (a target of three's, or the canvas), without a clear of
+// three's.
+class ScreenPass {
+  constructor(core, name, phase) {
+    this.core = core;
+    this.name = name;
+    this.phase = phase;
+    this.on = true;
+    this.complete = false;
+    this.drawn = 0;
+    this.size = null;
+  }
+
+  // The one mesh three's render would draw: the mesh rendered itself, or a
+  // scene's one shown mesh on the camera's layers (never culled).
+  mesh(scene, camera) {
+    if (scene.isMesh) return scene.visible && scene.material?.visible ? scene : null;
+    let found = null;
+    for (const child of scene.children) {
+      if (!child.visible) continue;
+      if (!child.isMesh || child.children.length || found || !child.layers.test(camera.layers) || child.frustumCulled) return null;
+      if (child.material?.visible) found = child;
+    }
+    return found;
+  }
+
+  draw(ctx) {
+    this.complete = false;
+    if (!this.on) return;
+    const core = this.core, renderer = ctx.renderer;
+    if (renderer.autoClear) return;
+    const mesh = this.mesh(ctx.scene, ctx.camera);
+    if (!mesh || Array.isArray(mesh.material) || mesh.geometry.groups.length || mesh.isInstancedMesh || mesh.isSkinnedMesh) return;
+    const program = screenProgram(core, mesh.material);
+    if (!program) return;
+    const target = renderer.getRenderTarget();
+    let id = TARGET_CANVAS, size;
+    if (target) {
+      id = core.byName.post?.target(target) ?? -1;
+      if (id < 0) return;
+      size = [target.width, target.height];
+    } else {
+      // The canvas: three's viewport, the drawing buffer's pixels.
+      const v = renderer.getViewport(this.size ??= new THREE.Vector4()).multiplyScalar(renderer.getPixelRatio()).floor();
+      size = [v.z, v.w];
+    }
+    if (!writeScreenStep(core, 0, program, mesh.material, mesh, ctx.camera, { target: id, size })) return;
+    ctx.steps = 1;
+    this.complete = true;
+    this.drawn++;
+  }
+
+  // Off (this pass alone): three draws it.
+  setActive(on) {
+    this.on = on;
+  }
+}
+
+export function cloudsPass(core) {
+  return new ScreenPass(core, "clouds", "skyClouds");
+}
+
+export function underwaterPass(core) {
+  return new ScreenPass(core, "underwater", "underwater");
 }
