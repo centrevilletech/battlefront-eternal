@@ -105,13 +105,13 @@ async function loadSimInstance() {
 
 // The battle's store on its instance of the module (src/sim/runtime.js
 // SimBridge: the kinds Rust owns, the imports it asks the battle), with the
-// rounds in flight handed over to it.
-async function attachSimStore(instance, ordnance) {
-  const [{ SimBridge }, { attachOrdnanceSim, ordnanceTests }] = await Promise.all([import("./sim/runtime.js"), import("./ordnance-sim.js")]);
+// rounds in flight and the things lying about handed over to it.
+async function attachSimStore(instance, ordnance, items) {
+  const [{ SimBridge }, { attachOrdnanceSim, ordnanceTests }, { attachItemsSim }] = await Promise.all([import("./sim/runtime.js"), import("./ordnance-sim.js"), import("./items-sim.js")]);
   const bridge = new SimBridge(instance, { classes: { Unit, Vehicle }, tests: ordnanceTests });
   // Room for the store's rows now, so play does not grow the memory.
   bridge.reserve(4 << 20);
-  attachOrdnanceSim(ordnance, bridge);
+  attachItemsSim(items, attachOrdnanceSim(ordnance, bridge));
   return bridge;
 }
 
@@ -439,10 +439,11 @@ async function start() {
   // and keeps the JavaScript, so its worlds cannot change. Poses made
   // before this take the kernel up as they clear.
   const wantAnim = !headless && params.get("anim") !== "js";
-  // A world's rounds in flight on the module (src/ordnance-sim.js), unless
-  // ?sim=js, or under Node (a dedicated server, the tools) BFE_SIM=js in its
-  // environment: the JavaScript rounds, kept for A/B runs and bisecting
-  // until the next subsystem moves over.
+  // A world's rounds in flight and things lying about on the module
+  // (src/ordnance-sim.js, src/items-sim.js), unless ?sim=js, or under Node
+  // (a dedicated server, the tools) BFE_SIM=js in its environment: the
+  // JavaScript ones, kept for A/B runs and bisecting until the next
+  // subsystem moves over.
   const wantSim = headless && (params.get("sim") ?? globalThis.process?.env?.BFE_SIM) !== "js";
   // The kernels and the store on the battle's one instance of the module.
   const simInstance = wantRays || wantAnim || wantSim ? await loadSimInstance() : null;
@@ -870,12 +871,13 @@ async function start() {
     pools: world.mission?.pools,
     explode: (explosion, position, owner) => ordnance.explosion(explosion, position, owner),
   });
+  // The rounds and the items go to the module before any is made
+  // (createGame's wantSim).
+  const simBridge = wantSim && simInstance ? await attachSimStore(simInstance, ordnance, items) : null;
   // The map's placed power-ups lie where the world put them from the start
   // (src/placed-items.js); the world alone makes them, a page shows records.
   if (headless) spawnPlacedItems(items, propsDef?.items);
   ordnance.water = water;
-  // The rounds go to the module before any is fired (createGame's wantSim).
-  const simBridge = wantSim && simInstance ? await attachSimStore(simInstance, ordnance) : null;
   // The player's bodies (src/player-body.js): the class played first, from
   // what was fetched above, and any other the first time he takes it. The
   // bindings below are the body he plays now; adopt() swaps them between

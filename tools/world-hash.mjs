@@ -52,8 +52,9 @@
 // src/ray-kernel.js), and --movement wasm the soldiers' movement too
 // (?movement=wasm, src/movement-kernel.js); their fingerprints must match
 // the default's, as must --random native's. --sim js keeps the rounds in
-// flight JavaScript's (?sim=js) instead of the simulation's module's
-// (src/ordnance-sim.js): the same fingerprints again.
+// flight and the things lying about JavaScript's (?sim=js) instead of the
+// simulation's module's (src/ordnance-sim.js, src/items-sim.js): the same
+// fingerprints again.
 //
 // --plugin FILE (any number of times) loads a module that watches the
 // battle (the simulation capture of tools/sim-capture.mjs): it is imported
@@ -109,7 +110,7 @@ async function battle(index) {
   // movement kernel brings the ray kernel with it).
   if ((rays === 'wasm' || movement === 'wasm') !== Boolean(game.collision.rays)) throw Error(rays === 'wasm' || movement === 'wasm' ? 'ray kernel not loaded' : 'ray kernel loaded for a JavaScript run');
   if ((movement === 'wasm') !== Boolean(game.collision.movement)) throw Error(movement === 'wasm' ? 'movement kernel not loaded' : 'movement kernel loaded for a JavaScript run');
-  if ((sim === 'rust') !== Boolean(game.ordnance.sim)) throw Error(sim === 'rust' ? 'the rounds are not on the module' : 'the rounds are on the module for a JavaScript run');
+  if ((sim === 'rust') !== Boolean(game.ordnance.sim && game.items.sim)) throw Error(sim === 'rust' ? 'the rounds and items are not on the module' : 'the rounds or items are on the module for a JavaScript run');
   let sent = [];
   const server = await createLocalServer(game, { name: 'Player', send: (channel, payload) => sent.push([channel, payload]) });
   server.welcome();

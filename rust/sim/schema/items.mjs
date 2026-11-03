@@ -11,6 +11,53 @@ export default {
     ItemOwner: ['null', 'lit:player', 'ref:unit'],
   },
 
+  records: {
+    // What the items ask of the rest of the battle (src/ordnance-world.js
+    // ItemsWorld, rust/sim/src/ordnance/world.rs), as the module's imports;
+    // answers shared with the rounds' come from rust/sim/schema/ordnance.mjs.
+    ItemCastArgs: { origin: 'vec3', direction: 'vec3', far: 'f64' },
+    BlockedArgs: { position: 'vec3', target: 'vec3' },
+    ItemDefArgs: { def: 'def:item' },
+    ModelAnswer: { mesh: 'bool', radius: 'f64', center: 'vec3|null' },
+    OwnerArgs: { owner: 'union:ItemOwner' },
+    KeyAnswer: { key: 'str' },
+    // An item's explosion, its definition as the class's field holds it
+    // (`defTag` and `def` as the rounds' BlastArgs).
+    ItemBlastArgs: { defTag: 'u32', def: 'f64', position: 'vec3', owner: 'union:ItemOwner' },
+    // A target of Items.update (its place in the targets given).
+    WatchArgs: { index: 'u32', team: 'f64' },
+    WatchAnswer: { relation: 'f64', center: 'vec3', radius: 'f64', velocity: 'vec3' },
+    IndexArgs: { index: 'u32' },
+    GiveArgs: { index: 'u32', def: 'def:item' },
+    PickupArgs: { def: 'def:item', position: 'vec3' },
+
+    // What JavaScript asks of the items (src/items-sim.js), in the call
+    // block for the module's exports (rust/sim/src/items/module.rs).
+    SpawnArgs: { def: 'def:item', position: 'vec3', velocity: 'vec3', yaw: 'f64', owner: 'union:ItemOwner', team: 'f64' },
+    DispenseArgs: { weapon: 'str', maxItems: 'f64', def: 'def:item', position: 'vec3', velocity: 'vec3', yaw: 'f64', owner: 'union:ItemOwner', team: 'f64' },
+    // A death's drop list: each entry's class (null: one the side does not
+    // have) and its probability as the list gives it (`probabilityTag` and
+    // `probability` as a definition's field).
+    DropEntry: { def: 'def:item|null', probabilityTag: 'u32', probability: 'f64' },
+    DropArgs: { drops: 'list:rec:DropEntry', position: 'vec3', velocity: 'vec3', yaw: 'f64' },
+    ItemsBlastArgs: { explosion: 'u32', position: 'vec3' },
+    HurtArgs: { item: 'ref:item', amount: 'f64' },
+  },
+
+  imports: {
+    itemCast: { args: 'ItemCastArgs', result: 'CastAnswer' },
+    blocked: { args: 'BlockedArgs', result: 'FlagAnswer' },
+    itemWaterCrossing: { args: 'SegmentArgs', result: 'PointAnswer' },
+    itemModel: { args: 'ItemDefArgs', result: 'ModelAnswer' },
+    ownerKey: { args: 'OwnerArgs', result: 'KeyAnswer' },
+    dropRoll: { args: 'NoArgs', result: 'NumberAnswer' },
+    explode: { args: 'ItemBlastArgs', result: null },
+    watch: { args: 'WatchArgs', result: 'WatchAnswer' },
+    standing: { args: 'IndexArgs', result: 'PointAnswer' },
+    give: { args: 'GiveArgs', result: 'FlagAnswer' },
+    pickup: { args: 'PickupArgs', result: null },
+  },
+
   kinds: {
     // The battle's Items (items.js Items): the items in the order they are
     // stepped (and filtered, keeping order) each tick, and each dispenser's

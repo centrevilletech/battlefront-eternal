@@ -184,23 +184,22 @@ export class OrdnanceSim {
   // words go in.
   writeFields(def, names) {
     const words = new Float64Array(2 * names.length);
-    for (let i = 0; i < names.length; i++) {
-      const v = def[names[i]];
-      let tag, value = 0;
-      if (v === undefined) tag = 0;
-      else if (v === null) tag = 1;
-      else if (v === false) tag = 2;
-      else if (v === true) tag = 3;
-      else if (typeof v === "number") { tag = 4; value = v; }
-      else if (typeof v === "string") { tag = 5; value = this.bridge.strings.id(v); }
-      else if (typeof v === "object") { tag = 6; value = this.explosionId(v); }
-      else tag = 7;
-      words[2 * i] = tag;
-      words[2 * i + 1] = value;
-    }
+    for (let i = 0; i < names.length; i++) [words[2 * i], words[2 * i + 1]] = this.fieldWords(def[names[i]]);
     const b = this.bridge, ptr = this.x.sim_call_room(words.length, 0);
     b.views();
     b.f.set(words, ptr / 8 + HEADER);
+  }
+
+  // A value as a definition's field's two words: [tag, value].
+  fieldWords(v) {
+    if (v === undefined) return [0, 0];
+    if (v === null) return [1, 0];
+    if (v === false) return [2, 0];
+    if (v === true) return [3, 0];
+    if (typeof v === "number") return [4, v];
+    if (typeof v === "string") return [5, this.bridge.strings.id(v)];
+    if (typeof v === "object") return [6, this.explosionId(v)];
+    return [7, 0];
   }
 
   // A field's value back from its words (BlastArgs).

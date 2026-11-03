@@ -32,14 +32,14 @@ static mut DEFS: Option<Defs> = None;
 
 /// The battle's definitions as JavaScript registered them (`ord_def`,
 /// `ord_explosion`).
-fn defs() -> *mut Defs {
+pub(crate) fn defs() -> *mut Defs {
     // SAFETY: one thread; nothing holds a reference to the definitions
     // across a call out of the module (Cx reads them through this pointer).
     unsafe { (*addr_of_mut!(DEFS)).get_or_insert_with(Defs::default) as *mut Defs }
 }
 
 /// The store and the strings, as pointers (the module's note).
-fn parts() -> (*mut Store, *mut Strings) {
+pub(crate) fn parts() -> (*mut Store, *mut Strings) {
     let s: *mut Sim = sim();
     // SAFETY: `s` is the instance's Sim, which lives as long as the instance.
     unsafe { (addr_of_mut!((*s).store), addr_of_mut!((*s).strings)) }
@@ -48,7 +48,7 @@ fn parts() -> (*mut Store, *mut Strings) {
 /// A definition's field from its two words (src/ordnance-sim.js `fieldWords`):
 /// 0 undefined, 1 null, 2 false, 3 true, 4 a number, 5 a string (its
 /// index), 6 an explosion (its index), 7 any other object.
-fn field(tag: f64, value: f64, strings: &Strings) -> Field {
+pub(crate) fn field(tag: f64, value: f64, strings: &Strings) -> Field {
     match word_u32(tag) {
         0 => Field::Undefined,
         1 => Field::Null,
@@ -62,7 +62,7 @@ fn field(tag: f64, value: f64, strings: &Strings) -> Field {
 }
 
 /// The other way, for an explosion's definition handed back (BlastArgs).
-fn field_words(f: &Field, strings: &mut Strings) -> (u32, f64) {
+pub(crate) fn field_words(f: &Field, strings: &mut Strings) -> (u32, f64) {
     match f {
         Field::Undefined => (0, 0.0),
         Field::Null => (1, 0.0),
@@ -76,7 +76,7 @@ fn field_words(f: &Field, strings: &mut Strings) -> (u32, f64) {
 }
 
 /// The fields of the call block's record: (tag, value) word pairs.
-fn call_fields<const N: usize>(calls: &Calls, strings: &Strings) -> [Field; N] {
+pub(crate) fn call_fields<const N: usize>(calls: &Calls, strings: &Strings) -> [Field; N] {
     let (row, _) = calls.args();
     std::array::from_fn(|i| field(row[2 * i], row[2 * i + 1], strings))
 }
@@ -235,6 +235,16 @@ pub struct JsWorld {
 }
 
 impl JsWorld {
+    /// The world over the store and strings `parts()` gives.
+    pub(crate) fn new(store: *mut Store, strings: *mut Strings) -> Self {
+        JsWorld { store, strings }
+    }
+
+    fn string(&self, id: StrId) -> String {
+        // SAFETY: the module's note.
+        String::from_utf16_lossy(unsafe { &*self.strings }.units(id))
+    }
+
     fn store(&self) -> &Store {
         // SAFETY: the module's note; the borrow ends before the import.
         unsafe { &*self.store }
@@ -417,50 +427,54 @@ impl World for JsWorld {
         import_bounce(&BounceArgs { def, position, speed });
     }
 
-    // The things lying about are JavaScript's until their flip: the rounds
-    // never ask these.
+    // The things lying about (ItemsWorld).
 
-    fn item_cast(&mut self, _: Vec3, _: Vec3, _: f64) -> Option<Hit> {
-        unreachable!("the items are JavaScript's")
+    fn item_cast(&mut self, origin: Vec3, direction: Vec3, far: f64) -> Option<Hit> {
+        hit_of(import_item_cast(&ItemCastArgs { origin, direction, far }))
     }
 
-    fn blocked(&mut self, _: Vec3, _: Vec3) -> bool {
-        unreachable!("the items are JavaScript's")
+    fn blocked(&mut self, position: Vec3, target: Vec3) -> bool {
+        import_blocked(&BlockedArgs { position, target }).value
     }
 
-    fn item_water_crossing(&mut self, _: Vec3, _: Vec3) -> Option<Vec3> {
-        unreachable!("the items are JavaScript's")
+    fn item_water_crossing(&mut self, from: Vec3, to: Vec3) -> Option<Vec3> {
+        point_of(import_item_water_crossing(&SegmentArgs { from, to }))
     }
 
-    fn item_model(&mut self, _: DefId) -> ItemModel {
-        unreachable!("the items are JavaScript's")
+    fn item_model(&mut self, def: DefId) -> ItemModel {
+        let a = import_item_model(&ItemDefArgs { def });
+        ItemModel { mesh: a.mesh, radius: a.radius, center: a.center }
     }
 
-    fn owner_key(&mut self, _: ItemOwner) -> String {
-        unreachable!("the items are JavaScript's")
+    fn owner_key(&mut self, owner: ItemOwner) -> String {
+        let key = import_owner_key(&OwnerArgs { owner }).key;
+        self.string(key)
     }
 
     fn drop_roll(&mut self) -> f64 {
-        unreachable!("the items are JavaScript's")
+        import_drop_roll(&NoArgs {}).value
     }
 
-    fn explode(&mut self, _: &Field, _: Vec3, _: ItemOwner) {
-        unreachable!("the items are JavaScript's")
+    fn explode(&mut self, def: &Field, position: Vec3, owner: ItemOwner) {
+        // SAFETY: the module's note.
+        let (def_tag, def) = field_words(def, unsafe { &mut *self.strings });
+        import_explode(&ItemBlastArgs { def_tag, def, position, owner });
     }
 
-    fn watch(&mut self, _: usize, _: f64) -> Watched {
-        unreachable!("the items are JavaScript's")
+    fn watch(&mut self, index: usize, team: f64) -> Watched {
+        let a = import_watch(&WatchArgs { index: index as u32, team });
+        Watched { relation: a.relation, center: a.center, radius: a.radius, velocity: a.velocity }
     }
 
-    fn standing(&mut self, _: usize) -> Vec3 {
-        unreachable!("the items are JavaScript's")
+    fn standing(&mut self, index: usize) -> Vec3 {
+        import_standing(&IndexArgs { index: index as u32 }).point
     }
 
-    fn give(&mut self, _: usize, _: DefId) -> bool {
-        unreachable!("the items are JavaScript's")
+    fn give(&mut self, index: usize, def: DefId) -> bool {
+        import_give(&GiveArgs { index: index as u32, def }).value
     }
 
-    fn pickup(&mut self, _: DefId, _: Vec3) {
-        unreachable!("the items are JavaScript's")
+    fn pickup(&mut self, def: DefId, position: Vec3) {
+        import_pickup(&PickupArgs { def, position });
     }
 }

@@ -8,6 +8,10 @@
 //! next update's filter, as the JavaScript's does (a dispenser's count and
 //! a blast's loop see it until then); the filter retires it.
 
+// The module's exports (WebAssembly only).
+#[cfg(target_arch = "wasm32")]
+pub mod module;
+
 use crate::gen::*;
 use crate::ordnance::defs::{Field, ItemDef};
 use crate::ordnance::math::*;

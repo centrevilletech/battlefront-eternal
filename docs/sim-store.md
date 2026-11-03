@@ -346,42 +346,49 @@ Still to come in this package: `sim_reserve` (the store's slabs and a
 margin made as a battle loads) and the measurements of what crossing
 costs on the emulated laptop.
 
-### The rounds on the module
+### The rounds and items on the module
 
-The first kinds Rust owns in a battle are the rounds in flight: bolts,
-beams, grenades and rounds (rockets, missiles, shells, fat rays), with the
-Ordnance that lists them (`rust/sim/src/ordnance`, `src/ordnance-sim.js`).
-A world hands them over as it loads (`createGame`, unless `?sim=js`, which
-keeps the JavaScript rounds for A/B runs and bisecting); from then on:
+The first kinds Rust owns in a battle are the rounds in flight (bolts,
+beams, grenades and rounds: rockets, missiles, shells, fat rays, with the
+Ordnance that lists them; `rust/sim/src/ordnance`, `src/ordnance-sim.js`)
+and the things lying about (mines and power-ups, with the Items that lists
+them and each dispenser's own; `rust/sim/src/items`, `src/items-sim.js`). A
+world hands them over as it loads (`createGame`, unless `?sim=js` or, under
+Node, `BFE_SIM=js`, which keep the JavaScript ones for A/B runs and
+bisecting); from then on:
 
-- `Ordnance.fire`, `update` and `flightMissile` (a flyer's missile) run in
-  Rust, through the module's own exports (`ord_fire`, `ord_update`,
-  `ord_flight_missile`), not generated commands: their arguments come in
-  the call block, written by the generated put functions of the records
-  `FireArgs` and `FlightMissileArgs`, and a fire's answer is the round's
-  row, so the caller gets the round's mirror as it is.
-- The four kinds' mirrors and the Ordnance's lists (in place, with its
-  `start`) are synced after each update and each round fired. Unported code
-  reads them as it read the rounds, and writes only the fields the schema
-  leaves to JavaScript (`skip`: a muzzle a page draws a round from, a
-  grenade's `contactTime` and `aiDanger`).
-- What the rounds ask of the battle is `OrdnanceWorld`'s calls
-  (`src/ordnance-world.js`), as imports of `rust/sim/schema/ordnance.mjs`
-  served by the same object. A round handed to the capture's observers
-  (`projectile`, `launch`, `impact`, `grenadeContact`) crosses with its row
-  after the import's words, so its mirror is current when JavaScript sees
-  it; a unit's hit hands JavaScript the very vector the JavaScript rounds
-  handed (`at`: a beam's end, the unit raycast's record, the Ordnance's
-  `start`), as a damage event keeps it.
-- Definitions go over the first time a round of the class is fired
-  (`ord_def`, `ord_explosion`), each field as a tag and a value, so the Rust
-  reads a field as JavaScript does (`??`, `||`, ToNumber).
+- `Ordnance.fire`, `update` and `flightMissile` (a flyer's missile), and
+  `Items.update`, `spawn`, `dispense`, `dropFor`, `blast` and `hurt`, run in
+  Rust through the module's own exports (`ord_*`, `items_*`), not generated
+  commands: their arguments come in the call block, written by the
+  generated put functions of the schemas' argument records (`FireArgs`,
+  `SpawnArgs`, ...), and an answer that makes something is its row, so the
+  caller gets its mirror as it is.
+- The kinds' mirrors and the lists (the Ordnance's four with its `start`,
+  the Items' list and its dispensers' Map) are synced in place after each
+  update and command. Unported code reads them as it read the JavaScript
+  objects, and writes only the fields the schemas leave to JavaScript
+  (`skip`: a muzzle a page draws a round from, a grenade's `contactTime`
+  and `aiDanger`).
+- What they ask of the battle is `OrdnanceWorld`'s and `ItemsWorld`'s
+  calls (`src/ordnance-world.js`), as the schemas' imports, served by the
+  same objects. A round handed to the capture's observers (`projectile`,
+  `launch`, `impact`, `grenadeContact`) crosses with its row after the
+  import's words, so its mirror is current when JavaScript sees it; a
+  unit's hit hands JavaScript the very vector the JavaScript rounds handed
+  (`at`: a beam's end, the unit raycast's record, the Ordnance's `start`),
+  as a damage event keeps it. An item class's model is measured once and
+  not drawn: a world shows nothing.
+- Definitions go over the first time they are used (`ord_def`,
+  `ord_explosion`, `items_def`; the item pools when the items are handed
+  over), each field as a tag and a value, so the Rust reads a field as
+  JavaScript does (`??`, `||`, ToNumber).
 
 The exports reach the store through pointers and hold no reference to it
-across an import, so a handler that fires a round (a death a hit caused)
-comes back in and finds the store as the phase left it. A slot a round
-left and another took before the next sync keeps the first one's mirror
-for its retired row (`MirrorPool.retire`).
+across an import, so a handler that comes back in (an explosion an item
+set off reaching the other items, a death dropping one) finds the store as
+the phase left it. A slot one entity left and another took before the next
+sync keeps the first one's mirror for its retired row (`MirrorPool.retire`).
 
 ## Determinism
 
