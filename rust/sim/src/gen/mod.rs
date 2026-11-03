@@ -7,6 +7,8 @@
 pub use crate::store::block::Block;
 pub use crate::store::{word_i32, word_u32, DefId, KindCode, Mat4, Nullable, Quat, Ref, RefSet, Slab, StrId, StrMap, Vec3};
 
+mod combat;
+pub use self::combat::*;
 mod items;
 pub use self::items::*;
 mod nav;
@@ -27,40 +29,46 @@ pub use self::replay::Replay;
 pub const KIND_BEAM: KindCode = 1;
 pub const KIND_BODY: KindCode = 2;
 pub const KIND_BOLT: KindCode = 3;
-pub const KIND_CHARACTER: KindCode = 4;
-pub const KIND_CONTROLLER: KindCode = 5;
-pub const KIND_EMITTER: KindCode = 6;
-pub const KIND_GRENADE: KindCode = 7;
-pub const KIND_ITEM: KindCode = 8;
-pub const KIND_ITEMS: KindCode = 9;
-pub const KIND_NAV_CONTROL: KindCode = 10;
-pub const KIND_OBJECTIVE_TARGET: KindCode = 11;
-pub const KIND_ORDNANCE: KindCode = 12;
-pub const KIND_OWNER_SNAPSHOT: KindCode = 13;
-pub const KIND_PATH_PLANNER: KindCode = 14;
-pub const KIND_PLANNER_REQUEST: KindCode = 15;
-pub const KIND_PROP: KindCode = 16;
-pub const KIND_ROUND: KindCode = 17;
-pub const KIND_SEAT_LEASE: KindCode = 18;
-pub const KIND_TURRET_TARGET: KindCode = 19;
-pub const KIND_UNIT: KindCode = 20;
-pub const KIND_UNITS: KindCode = 21;
-pub const KIND_VEHICLE: KindCode = 22;
-pub const KIND_VEHICLE_DRIVER: KindCode = 23;
-pub const KIND_VEHICLE_TARGET: KindCode = 24;
-pub const KIND_VEHICLES: KindCode = 25;
+pub const KIND_BUILDING: KindCode = 4;
+pub const KIND_CHARACTER: KindCode = 5;
+pub const KIND_CONTROLLER: KindCode = 6;
+pub const KIND_EMITTER: KindCode = 7;
+pub const KIND_GRENADE: KindCode = 8;
+pub const KIND_ITEM: KindCode = 9;
+pub const KIND_ITEMS: KindCode = 10;
+pub const KIND_NAV_CONTROL: KindCode = 11;
+pub const KIND_OBJECTIVE_TARGET: KindCode = 12;
+pub const KIND_ORDNANCE: KindCode = 13;
+pub const KIND_OWNER_SNAPSHOT: KindCode = 14;
+pub const KIND_PATH_PLANNER: KindCode = 15;
+pub const KIND_PLANNER_REQUEST: KindCode = 16;
+pub const KIND_PROP: KindCode = 17;
+pub const KIND_ROUND: KindCode = 18;
+pub const KIND_SEAT_LEASE: KindCode = 19;
+pub const KIND_TURRET: KindCode = 20;
+pub const KIND_TURRET_TARGET: KindCode = 21;
+pub const KIND_UNIT: KindCode = 22;
+pub const KIND_UNITS: KindCode = 23;
+pub const KIND_VEHICLE: KindCode = 24;
+pub const KIND_VEHICLE_DRIVER: KindCode = 25;
+pub const KIND_VEHICLE_TARGET: KindCode = 26;
+pub const KIND_VEHICLES: KindCode = 27;
 /// How many kinds there are (codes run 1 to KINDS).
-pub const KINDS: usize = 25;
-pub const KIND_NAMES: [&str; 26] = ["", "beam", "body", "bolt", "character", "controller", "emitter", "grenade", "item", "items", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "prop", "round", "seatLease", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
+pub const KINDS: usize = 27;
+pub const KIND_NAMES: [&str; 28] = ["", "beam", "body", "bolt", "building", "character", "controller", "emitter", "grenade", "item", "items", "navControl", "objectiveTarget", "ordnance", "ownerSnapshot", "pathPlanner", "plannerRequest", "prop", "round", "seatLease", "turret", "turretTarget", "unit", "units", "vehicle", "vehicleDriver", "vehicleTarget", "vehicles"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 26] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x9b924a1b, 0x2e0c3c78, 0xc2257049, 0xfbd22c8d, 0x13c7018c, 0x03866fa6, 0xc9aab5eb, 0x7252759a, 0x02390125, 0xc4be789d];
+pub const KIND_HASHES: [u32; 28] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x56cc8bca, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0x00a2177c, 0xb6989de6, 0x65070dab, 0x046a7623, 0x85519934, 0x45784696, 0x9b924a1b, 0x2e0c3c78, 0xc2257049, 0x512f6f6c, 0xfbd22c8d, 0x13c7018c, 0x03866fa6, 0xc9aab5eb, 0x7252759a, 0x02390125, 0xc4be789d];
 /// Whether each kind's objects carry their own number (its slot), by code.
-pub const KIND_KEYED: [bool; 26] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false];
+pub const KIND_KEYED: [bool; 28] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false];
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Body;
+
+/// A kind the store holds no fields of (only references to).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Building;
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
@@ -93,6 +101,10 @@ pub struct Prop;
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SeatLease;
+
+/// A kind the store holds no fields of (only references to).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Turret;
 
 /// A kind the store holds no fields of (only references to).
 #[derive(Clone, Copy, Debug, Default)]
