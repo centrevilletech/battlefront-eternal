@@ -391,6 +391,15 @@ bisecting); from then on:
   over), each field as a tag and a value, so the Rust reads a field as
   JavaScript does (`??`, `||`, ToNumber).
 
+This is the first flip (F1). It lands on the simulation port's
+integration branch, which does not ship: nothing from it reaches players
+until a world's net step with the rounds and items on the module is no
+worse than with the JavaScript ones, measured on the emulated laptop or the
+laptop itself (world step p50 and p90, interleaved runs against
+`?sim=js`). Each call the rounds make into JavaScript costs a crossing, so
+the flip pays for itself as the code they call (hulls, then units and
+combat) moves to Rust and those calls stop crossing.
+
 The exports reach the store through pointers and hold no reference to it
 across an import, so a handler that comes back in (an explosion an item
 set off reaching the other items, a death dropping one) finds the store as
