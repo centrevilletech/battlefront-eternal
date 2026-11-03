@@ -151,6 +151,7 @@ export default {
         trail: 'its trail effect, drawn by the page',
         light: 'colour from the definition, for drawing',
         contactTime: 'when it first touched anything, written by the battle (game.js onGrenadeContact) for the AI\'s danger warnings',
+        aiDanger: 'the AI\'s own record of warning soldiers of it (ai/classic/combat.js grenadeUpdate)',
       },
     },
 

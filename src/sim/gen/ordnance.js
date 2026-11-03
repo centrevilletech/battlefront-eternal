@@ -518,7 +518,7 @@ export class GrenadeMirror {
   }
 }
 
-export const GRENADE_KEYS = new Set(["networkFireChannel", "def", "owner", "position", "previous", "launchPosition", "velocity", "gravity", "slow", "resting", "flight", "fuse", "spin", "quaternion", "sinking", "touched", "gone", "mesh", "trail", "light", "contactTime"]);
+export const GRENADE_KEYS = new Set(["networkFireChannel", "def", "owner", "position", "previous", "launchPosition", "velocity", "gravity", "slow", "resting", "flight", "fuse", "spin", "quaternion", "sinking", "touched", "gone", "mesh", "trail", "light", "contactTime", "aiDanger"]);
 export const GRENADE_EXPORT_STRIDE = 38, GRENADE_IMPORT_STRIDE = 38, GRENADE_FULL_STRIDE = 38;
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
