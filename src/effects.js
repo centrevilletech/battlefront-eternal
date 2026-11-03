@@ -217,6 +217,11 @@ const scratch = {
   color: [0, 0, 0, 0],
   rgb: [0, 0, 0],
   frame: [0, 0, 1, 1],
+  // A particle's axes as the batch reads them (push copies them): kept, not
+  // made a particle and a frame.
+  axisArray: [0, 0, 0],
+  axis2Array: [0, 0, 0],
+  fullTail: [1, 0, 0],
 };
 
 export class Effects {
@@ -437,14 +442,14 @@ export class Effects {
       const length = speed * (geometry.sparkLength || 0.1);
       if (speed < 1e-4) return;
       scratch.axis.copy(vel).divideScalar(speed);
-      batch.push(pos.x, pos.y, pos.z, color[0], color[1], color[2], color[3], size, 0, STREAK, length, scratch.axis.toArray(), [1, 0, 0]);
+      batch.push(pos.x, pos.y, pos.z, color[0], color[1], color[2], color[3], size, 0, STREAK, length, scratch.axis.toArray(scratch.axisArray), scratch.fullTail);
     } else if (geometry.type === "billboard") {
       // Flat in the emitter's ground plane, turned by its rotation.
       const c = Math.cos(rotation);
       const s = Math.sin(rotation);
       scratch.axis.set(c, 0, s).applyQuaternion(effect.quaternion);
       scratch.axis2.set(-s, 0, c).applyQuaternion(effect.quaternion);
-      batch.push(pos.x, pos.y, pos.z, color[0], color[1], color[2], color[3], size, 0, FLAT, 0, scratch.axis.toArray(), scratch.axis2.toArray());
+      batch.push(pos.x, pos.y, pos.z, color[0], color[1], color[2], color[3], size, 0, FLAT, 0, scratch.axis.toArray(scratch.axisArray), scratch.axis2.toArray(scratch.axis2Array));
     } else {
       let frame = null;
       if (geometry.type === "animated" && geometry.timePerFrame > 0) {

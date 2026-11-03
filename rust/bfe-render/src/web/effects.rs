@@ -30,6 +30,8 @@ impl BfeRenderer {
     pub fn fx_batch_values(&mut self, batch: u32, values: &str) { self.r.effects.batch_values(&self.r.core, batch, values) }
     // A batch whose instances the page writes interleaved, as it keeps them.
     pub fn fx_batch_interleaved(&mut self, batch: u32) { self.r.effects.batch_interleaved(batch) }
+    // A batch three draws single-sided: its side (0 front, 1 back).
+    pub fn fx_batch_side(&mut self, batch: u32, side: u32) { self.r.effects.batch_side(batch, side) }
     pub fn fx_batch_sampler(&mut self, batch: u32, name: &str, unit: u32, texture: i32) { self.r.effects.batch_sampler(&self.r.core, batch, name, unit, texture) }
     // A batch's base instead of the corner quad (add_batch's corner then
     // 4294967295): its vertex attributes (location, size pairs), their data
@@ -54,12 +56,15 @@ impl BfeRenderer {
     // (1 test, 2 write) and function, its material values ("name:size" or
     // "name:size:form", comma-separated, form 1 a float array, 4 a vec4
     // array; in the order the page writes them), its geometry's bounding sphere
-    // (centre, radius); then each of three's passes of it, in drawing order:
-    // program, side, the geometry registered for that program.
+    // (centre, radius; a radius below 0: never culled); then each of three's
+    // passes of it, in drawing order: program, side, the geometry registered
+    // for that program; then any texture it samples besides its map, by name,
+    // on a unit.
     #[allow(clippy::too_many_arguments)]
     pub fn fx_add_model(&mut self, texture: i32, blend: &[u32], depth_flags: u32, depth_func: u32, values: &str, sphere: &[f64]) -> u32 {
         self.r.effects.add_model(&self.r.core, texture, blend, depth_flags, depth_func, values, sphere)
     }
     pub fn fx_model_pass(&mut self, model: u32, program: u32, side: u32, geometry: u32) -> u32 { self.r.effects.model_pass(&self.r.core, model, program, side, geometry) }
     pub fn fx_model_texture(&mut self, model: u32, texture: i32) { self.r.effects.model_texture(&self.r.core, model, texture) }
+    pub fn fx_model_sampler(&mut self, model: u32, name: &str, unit: u32, texture: i32) { self.r.effects.model_sampler(&self.r.core, model, name, unit, texture) }
 }
