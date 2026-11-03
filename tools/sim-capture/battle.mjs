@@ -257,9 +257,11 @@ const battlefieldUpdate = {
     bodies: battlefieldBodies(game),
     boundary: game.battlefield.boundary.polygons.map((edges) => edges.map((e) => [e.x, e.z, e.nx, e.nz])),
   }),
-  // A kill takes the body (and a hull's riders) with it.
+  // A kill takes the body (and a hull's riders) with it: every soldier's
+  // body after it (a Character's death lets go of his unit, which the
+  // countdown goes on reading).
   boundaries: () => {
-    const after = (game) => ({ bodies: battlefieldBodies(game) });
+    const after = (game) => ({ bodies: game.units.all().filter((u) => u.soldier).map(bodyValue) });
     return [
       ['remotes.kill', RemoteDroids.prototype, 'kill', after],
       ['vehicle.damage', Vehicle.prototype, 'damage', after],
