@@ -996,6 +996,38 @@ test("the droideka's rolling dust: its wisps a batch on a quad of its own, writt
   assert.equal(trail.external, false);
 });
 
+test("the Enhanced jetpack's wake: its three pools batches on a quad of their own, written each frame with the wake's clock", async () => {
+  const { JetpackWake } = await import("../src/jetpack-wake.js");
+  const { core, calls, scene, list, frame, drawn, entry } = bridge();
+  const wake = new JetpackWake({ scene, random: () => 0.5 });
+  const nozzle = { position: new THREE.Vector3(0, 0, -5), direction: new THREE.Vector3(0, -1, 0), radius: 0.034 };
+  const input = { nozzles: [nozzle], velocity: new THREE.Vector3(), active: true, throttle: 1 };
+  for (let i = 0; i < 30; i++) wake.update(1 / 60, input);
+  const pools = wake.pools.filter((pool) => pool.count > 0);
+  assert.ok(pools.length >= 2);
+  const uniforms = ["projectionMatrix", "viewMatrix", "wakeTime", "kind", "drag", "fogColor", "fogRange", "sceneDepth", "softParticles", "depthResolution", "cameraRange"];
+  for (const pool of pools) {
+    list.transparent.push({ object: pool.mesh, material: pool.mesh.material, group: null });
+    drawn(pool.mesh.material, program(uniforms, ["position", "uv", "birth", "flow", "axis", "style"]));
+  }
+  frame();
+  assert.equal(calls.filter((c) => c[0] === "fx_add_batch").length, pools.length, "a batch a pool");
+  assert.ok(calls.filter((c) => c[0] === "fx_batch_values").every((c) => c[2] === "wakeTime:1:0,kind:1:0,drag:1:0"));
+  assert.ok(pools.every((pool) => pool.external));
+  list.transparent.length = 0;
+  const version = pools[0].attributes.birth.version;
+  wake.update(1 / 60, input);
+  assert.ok(pools.every((pool) => !pool.mesh.visible), "shown to three never");
+  assert.equal(pools[0].attributes.birth.version, version, "uploaded nothing by three");
+  frame();
+  const pool = pools[0], n = pool.count, e = entry(0);
+  assert.equal(e[2], n, "every particle, each frame");
+  assert.deepEqual([...core.fxData.subarray(0, 4 * n)], [...pool.attributes.birth.array.subarray(0, 4 * n)]);
+  assert.equal(core.fxData[14 * n], Math.fround(wake.time), "its clock after them");
+  core.setActive(false);
+  assert.ok(pools.every((pool) => !pool.external));
+});
+
 test("an error in the effects pass gives the effects back to three for good, three's render going on", () => {
   const { core, scene, frame, drawn } = bridge();
   const particles = new ParticleRenderer(scene);
