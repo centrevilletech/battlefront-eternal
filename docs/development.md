@@ -224,6 +224,8 @@ Two parts of the engine are written in Rust and compiled to WebAssembly, in the 
 
 `rust/glbench` and `rust/bfe-native` are measuring tools; nothing ships them.
 
+`rust/v8math` is a library for the Rust that must compute what the JavaScript simulation computes, to the last bit: JavaScript's `Math` as V8 13.6 computes it, the V8 in Node 24, which runs the dedicated server. Rust code that has to agree with the simulation calls it and never Rust's own `sin`, `exp` and so on, whose last bits differ.
+
 Because the WebAssembly is committed, building, testing and packaging the game needs no Rust. Changing it needs rustup, which installs the release `rust/rust-toolchain.toml` pins, with the wasm32 target, when cargo first runs under `rust/` (or run `rustup toolchain install` there), and the wasm-bindgen CLI of the version `rust/Cargo.lock` locks:
 
 ```bash
@@ -236,4 +238,4 @@ npm run rust:check    # rebuild both and compare with the committed files
 
 Commit the rebuilt files with the Rust change that made them; `npm run rust:check` before committing a change under `rust/` fails if one is out of date. After a merge, rebuild them rather than merging their lines (`.gitattributes` makes Git keep one side of a generated file that conflicts). A new toolchain or wasm-bindgen version changes the bytes as well, so commit the rebuilt files with it.
 
-CI's `rust` job (`.github/workflows/ci.yml`) installs the pinned toolchain and wasm-bindgen, then runs `node tools/build-rust.mjs --check` and the crates' unit tests (the simulation's with its `replay` feature, which reads and writes the replay harness's values). When the check fails, the run keeps the rebuilt files as its `rust-generated` artifact, laid out as `src/` is: committing those is as good as building them. The release jobs package the committed files as they are, and `build/check-packaged.mjs` fails a package whose `app.asar` lacks the renderer.
+CI's `rust` job (`.github/workflows/ci.yml`) installs the pinned toolchain and wasm-bindgen, then runs `node tools/build-rust.mjs --check` and the unit tests of `sim` (with its `replay` feature, which reads and writes the replay harness's values), `sim-replay`, `bfe-render`, `content` and `v8math`. When the check fails, the run keeps the rebuilt files as its `rust-generated` artifact, laid out as `src/` is: committing those is as good as building them. The release jobs package the committed files as they are, and `build/check-packaged.mjs` fails a package whose `app.asar` lacks the renderer.
