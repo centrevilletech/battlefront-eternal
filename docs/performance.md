@@ -1150,8 +1150,10 @@ The same check with the Enhanced environment and rain: on Kamino the rain's
 drops, mist, splashes and sheets (about 9,000 instances a frame), with soft
 particles off and on, and on Bespin, from two command posts near steam
 vents, the steam's wisps and volumes, differed in no pixel at any of the
-points. The wake splashes only show where a soldier wades in a fountain
-and were not seen in the battles checked.
+points. On Theed, walking up to a fountain from two command posts (soft
+particles off and on), the fountains' jets, both halves of their soft spray
+and the wake splashes the soldier made in the basin differed in no pixel
+either.
 
 ### The same frame
 
