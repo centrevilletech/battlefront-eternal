@@ -21,11 +21,8 @@ crate-type = ["cdylib", "rlib"]
 replay = ["dep:sim-replay"]
 
 [dependencies]
+# The game's content as JavaScript loads it (a body's class numbers).
+content = { path = "../content" }
 sim-replay = { path = "../sim-replay", optional = true }
 # JavaScript's Math as the production server's V8 computes it (rig/math.rs, the units, the movement kernel).
 v8math = { path = "../v8math" }
-
-[dev-dependencies]
-# The game's content in Rust (rust/content), for replays that need what a
-# battle loads (a droideka's clips and skeleton).
-content = { path = "../content" }

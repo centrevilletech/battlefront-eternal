@@ -13,6 +13,8 @@
 //! - `body`: what the battle asks of a body between ticks (a player's look,
 //!   a droideka's shield and guns);
 //! - `droideka`: a droideka's body, its modes, walk, ball and collision;
+//! - `class`: a body's numbers from its class (the Soldier and Droideka
+//!   constructors);
 //! - `damage`: what hitting the ground or a wall too hard does
 //!   (collision damage) and the world's bounds;
 //! - `factory`: each class's free bodies, taken back last in, first out;
@@ -27,6 +29,7 @@
 //! (`crate::rig::three`); each cites the JavaScript it ports.
 
 pub mod body;
+pub mod class;
 pub mod damage;
 pub mod droideka;
 pub mod factory;

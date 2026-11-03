@@ -1145,3 +1145,95 @@ fn soldiers_in_the_water_replay_as_captured() {
     println!("{}", report.summary());
     report.assert_clean();
 }
+
+// ---- Each body's class numbers, made from its class as the factory makes
+// them, against every unit a capture wrote in full.
+
+fn class_frame(capture: &Capture, frame: &Frame, contents: &mut Contents) -> Result<Option<String>, Mismatch> {
+    let before = frame.before();
+    if before.get("skipped").truthy() {
+        return Ok(Some("written in part".into()));
+    }
+    let place = |e: String| Mismatch(format!("{}: {e}", frame.place()));
+    let Some(content) = contents.of(capture).map_err(place)? else { return Ok(Some("needs BFE_CONTENT_DIR".into())) };
+    let mut cx = Replay::default();
+    let (_id, unit) = unit_in(frame, before.get("unit"), &mut cx)?;
+    let u = before.get("unit");
+    let (side, class) = (u.get("side").str().unwrap_or(""), u.get("className").str().unwrap_or(""));
+    let def = content.battle.side(side).and_then(|s| s.units.get(class)).ok_or_else(|| place(format!("no class {side}/{class}")))?;
+    let ceiling = content.battle.mission().and_then(|m| m.get("maxFlyHeight")).and_then(|v| v.as_f64()).unwrap_or(200.0);
+    let model = def.get("model").and_then(|m| m.as_str()).unwrap_or("");
+    let actor = content.actor(&format!("{side}/{model}"));
+    match &unit.soldier {
+        UnitBody::Soldier(s) => {
+            // buildBody's get-up and dive times, from the body's clips.
+            let clips = content.body_clips.iter().find(|(k, _)| k == &format!("{side}/{model}")).map(|(_, c)| c.clone());
+            let duration = |name: &str| clips.as_ref().and_then(|c| c.get(name)).map(|c| c.duration);
+            let getup = duration("human_rifle_prone_getup_stand").unwrap_or(0.0);
+            let dive = bfe_content::DIVE_LENGTH * duration("human_rifle_diveforward").unwrap_or(0.0);
+            let mine = bfe_sim::units::class::soldier_body(def, ceiling, getup, dive);
+            let pairs = [
+                ("maxSpeed", s.max_speed, mine.max_speed),
+                ("maxStrafe", s.max_strafe, mine.max_strafe),
+                ("maxJump", s.max_jump, mine.max_jump),
+                ("maxTurn", s.max_turn, mine.max_turn),
+                ("maxPitch", s.max_pitch, mine.max_pitch),
+                ("accel", s.accel, mine.accel),
+                ("pitchLimits[0]", s.pitch_limits[0], mine.pitch_limits[0]),
+                ("pitchLimits[1]", s.pitch_limits[1], mine.pitch_limits[1]),
+                ("jet.jump", s.jet.jump, mine.jet.jump),
+                ("jet.push", s.jet.push, mine.jet.push),
+                ("jet.recharge", s.jet.recharge, mine.jet.recharge),
+                ("jet.cost", s.jet.cost, mine.jet.cost),
+                ("jet.initial", s.jet.initial, mine.jet.initial),
+                ("jet.minBorder", s.jet.min_border, mine.jet.min_border),
+                ("maxFlyHeight", s.max_fly_height, mine.max_fly_height),
+                ("getupTime", s.getup_time, mine.getup_time),
+                ("diveTime", s.dive_time, mine.dive_time),
+            ];
+            for (k, theirs, ours) in pairs {
+                if theirs.to_bits() != ours.to_bits() {
+                    return Err(place(format!("{class}.{k}: the capture's {theirs} | the port's {ours}")));
+                }
+            }
+            if s.jet.hover != mine.jet.hover || s.collision_rule != mine.collision_rule {
+                return Err(place(format!("{class}: jet.hover or the collision rule: the capture's {:?} {:?} | the port's {:?} {:?}", s.jet.hover, s.collision_rule, mine.jet.hover, mine.collision_rule)));
+            }
+        }
+        UnitBody::Droideka(d) => {
+            let root = actor.and_then(|a| a.bones.iter().position(|b| b.name.to_lowercase() == "dummyroot")).map_or(-1.0, |i| i as f64);
+            let mine = bfe_sim::units::class::droideka_body(def, root, ceiling);
+            let pairs = [
+                ("maxTurn", d.max_turn, mine.max_turn),
+                ("pitchLimits[0]", d.pitch_limits[0], mine.pitch_limits[0]),
+                ("pitchLimits[1]", d.pitch_limits[1], mine.pitch_limits[1]),
+                ("speed", d.speed, mine.speed),
+                ("turnThreshold", d.turn_threshold, mine.turn_threshold),
+                ("ballRadius", d.ball_radius, mine.ball_radius),
+                ("maxSpin", d.max_spin, mine.max_spin),
+                ("maxBallSlope", d.max_ball_slope, mine.max_ball_slope),
+                ("eyeHeight", d.eye_height, mine.eye_height),
+                ("rootIndex", d.root_index, mine.root_index),
+                ("maxFlyHeight", d.max_fly_height, mine.max_fly_height),
+            ];
+            for (k, theirs, ours) in pairs {
+                if theirs.to_bits() != ours.to_bits() {
+                    return Err(place(format!("{class}.{k}: the capture's {theirs} | the port's {ours}")));
+                }
+            }
+            if d.collision_rule != mine.collision_rule {
+                return Err(place(format!("{class}: the collision rule: the capture's {:?} | the port's {:?}", d.collision_rule, mine.collision_rule)));
+            }
+        }
+    }
+    Ok(None)
+}
+
+#[test]
+fn bodies_are_made_from_their_classes_as_captured() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    let mut contents = Contents::new();
+    let report = replay_corpus(&corpus, "Unit.tick", |capture, frame| outcome(class_frame(capture, frame, &mut contents))).unwrap();
+    println!("class numbers: {}", report.summary());
+    report.assert_clean();
+}
