@@ -118,15 +118,6 @@ impl<S: StoreKinds> ReplayOf<S> {
         }
     }
 
-    /// The entities' handles forgotten, the store kept (a new record's values
-    /// are a new arena): the ordnance replay's name for it until it moves to
-    /// `reset`.
-    pub fn next_record(&mut self) {
-        for s in &mut self.stored {
-            *s = Stored::default();
-        }
-    }
-
     /// A fresh store, and the entities' handles forgotten with it (a frame's
     /// state read anew); handles of what the store only refers to,
     /// definitions and strings keep their slots and indices.

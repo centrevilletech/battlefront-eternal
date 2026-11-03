@@ -146,6 +146,14 @@ pub extern "C" fn sim_command(code: u32) -> *const f64 {
     if crate::gen::run_command(s, code) { s.calls.block.ptr() } else { std::ptr::null() }
 }
 
+/// An import's arguments, as Rust wrote them (the import block).
+#[no_mangle]
+pub extern "C" fn sim_import_args() -> *const f64 { crate::store::calls::import_args_ptr() }
+
+/// Room in the import block for an import's result.
+#[no_mangle]
+pub extern "C" fn sim_import_result_room(words: u32, heap: u32) -> *mut f64 { crate::store::calls::import_room(words as usize, heap as usize) }
+
 /// The events emitted since they were last cleared: their words' count,
 /// then each event's code, length and words.
 #[no_mangle]
@@ -162,6 +170,16 @@ pub fn echo(sim: &mut Sim, args: Echo) -> Echo {
         Echo { value: i as f64, ..args.clone() }.emit(&mut sim.events);
     }
     Echo { value: args.value + 1.0, ..args }
+}
+
+/// The store's third command: asks JavaScript (the import `ask`) and gives
+/// back its answer, so the module's path for imports is held to what the
+/// generator makes.
+pub fn relay(_sim: &mut Sim, args: Echo) -> Echo {
+    #[cfg(target_arch = "wasm32")]
+    return crate::gen::import_ask(&args);
+    #[cfg(not(target_arch = "wasm32"))]
+    return args;
 }
 
 /// The store's other command: `count` new entities of a kind, its fields'

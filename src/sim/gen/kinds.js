@@ -23,4 +23,6 @@ export const KIND_VEHICLE_TARGET = 20;
 export const KINDS = 20;
 export const COMMAND_ECHO = 1;
 export const COMMAND_FILL = 2;
+export const COMMAND_RELAY = 3;
 export const EVENT_ECHOED = 1;
+export const IMPORT_ASK = 1;

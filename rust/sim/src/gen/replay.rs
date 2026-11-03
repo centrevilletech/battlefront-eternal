@@ -364,7 +364,7 @@ impl Held {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         object(v, path)?;
         Ok(Held {
-            prop: { let p = format!("{path}.prop"); match v.get("prop").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_PROP, v.get("prop"), &p)?) } },
+            prop: { let p = format!("{path}.prop"); cx.ref_in(KIND_PROP, v.get("prop"), &p)? },
             since: { let p = format!("{path}.since"); num(v.get("since"), &p)? },
             frame: { let p = format!("{path}.frame"); match v.get("frame").value { Value::Null => Nullable::Null, Value::Undefined => Nullable::Undefined, _ => Nullable::Value(mat4(v.get("frame"), &p)?) } },
             time: { let p = format!("{path}.time"); match v.get("time").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("time"), &p)?) } },
@@ -374,7 +374,7 @@ impl Held {
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
         let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
-        { let x = match &self.prop { Some(v) => cx.ref_out(KIND_PROP, (*v)), None => Value::Null }; fields.push(("prop", x)); }
+        { let x = cx.ref_out(KIND_PROP, self.prop); fields.push(("prop", x)); }
         { let x = Value::Num(self.since); fields.push(("since", x)); }
         { let x = match &self.frame { Nullable::Value(v) => mat4_value(a, (*v)), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }; fields.push(("frame", x)); }
         { let x = match &self.time { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("time", x)); }

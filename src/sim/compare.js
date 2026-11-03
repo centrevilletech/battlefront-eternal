@@ -37,7 +37,9 @@ export function sameMap(a, b, same) {
   return true;
 }
 
-// Two arrays of the same length whose items are the same by `same`.
+// Two arrays of the same length whose items are the same by `same`. (Its
+// name is no kind's or record's: theirs are same<Name>, and the generator
+// refuses a kind or record named after one of these comparisons.)
 export function sameEach(a, b, same) {
   if (a === b) return true;
   if (!a || !b || a.length !== b.length) return false;

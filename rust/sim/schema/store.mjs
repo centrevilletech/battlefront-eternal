@@ -12,6 +12,11 @@ export default {
     // `count` new entities of a kind, its fields' defaults, at the end of its
     // home list (tests and benchmarks).
     fill: { args: 'Fill', result: null, rust: 'abi::fill' },
+    // Asks JavaScript (the import below) and gives back its answer.
+    relay: { args: 'Echo', result: 'Echo', rust: 'abi::relay' },
+  },
+  imports: {
+    ask: { args: 'Echo', result: 'Echo' },
   },
   events: {
     echoed: 'Echo',

@@ -405,30 +405,30 @@ impl HitShape {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Held {
-    pub prop: Option<Ref<Prop>>,
+    pub prop: Ref<Prop>,
     pub since: f64,
     pub frame: Nullable<Mat4>,
     pub time: Option<f64>,
 }
 
 impl Held {
-    pub const WORDS: usize = 23;
+    pub const WORDS: usize = 22;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
-        match &self.prop { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).slot as f64; row[0 + 1 + 1] = (*v).gen as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 3].fill(0.0); } }
-        row[3] = self.since;
-        match &self.frame { Nullable::Value(v) => { row[4] = 0.0; row[4 + 1..4 + 1 + 16].copy_from_slice(&(*v)); } Nullable::Null => { row[4] = 1.0; row[4 + 1..4 + 17].fill(0.0); } Nullable::Undefined => { row[4] = 2.0; row[4 + 1..4 + 17].fill(0.0); } }
-        match &self.time { Some(v) => { row[21] = 0.0; row[21 + 1] = (*v); } None => { row[21] = 2.0; row[21 + 1..21 + 2].fill(0.0); } }
+        let row: &mut [f64; 22] = (&mut row[..22]).try_into().unwrap();
+        row[0] = self.prop.slot as f64; row[0 + 1] = self.prop.gen as f64;
+        row[2] = self.since;
+        match &self.frame { Nullable::Value(v) => { row[3] = 0.0; row[3 + 1..3 + 1 + 16].copy_from_slice(&(*v)); } Nullable::Null => { row[3] = 1.0; row[3 + 1..3 + 17].fill(0.0); } Nullable::Undefined => { row[3] = 2.0; row[3 + 1..3 + 17].fill(0.0); } }
+        match &self.time { Some(v) => { row[20] = 0.0; row[20 + 1] = (*v); } None => { row[20] = 2.0; row[20 + 1..20 + 2].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
+        let row: &[f64; 22] = (&row[..22]).try_into().unwrap();
         Self {
-            prop: if row[0] == 0.0 { Some(Ref::new(word_u32(row[0 + 1]), word_u32(row[0 + 1 + 1]))) } else { None },
-            since: row[3],
-            frame: match word_u32(row[4]) { 0 => Nullable::Value({ let mut m = [0.0; 16]; m.copy_from_slice(&row[4 + 1..4 + 1 + 16]); m }), 1 => Nullable::Null, _ => Nullable::Undefined },
-            time: if row[21] == 0.0 { Some(row[21 + 1]) } else { None },
+            prop: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
+            since: row[2],
+            frame: match word_u32(row[3]) { 0 => Nullable::Value({ let mut m = [0.0; 16]; m.copy_from_slice(&row[3 + 1..3 + 1 + 16]); m }), 1 => Nullable::Null, _ => Nullable::Undefined },
+            time: if row[20] == 0.0 { Some(row[20 + 1]) } else { None },
         }
     }
 
@@ -969,12 +969,12 @@ pub struct Unit {
 impl Unit {
     /// Words a row takes: slot, generation, then the fields mirrored (export),
     /// read by a Rust phase while JavaScript owns the kind (import), or all (full).
-    pub const EXPORT_STRIDE: usize = 200;
-    pub const IMPORT_STRIDE: usize = 214;
-    pub const FULL_STRIDE: usize = 214;
+    pub const EXPORT_STRIDE: usize = 199;
+    pub const IMPORT_STRIDE: usize = 213;
+    pub const FULL_STRIDE: usize = 213;
 
     pub fn put_full(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 214] = (&mut row[..214]).try_into().unwrap();
+        let row: &mut [f64; 213] = (&mut row[..213]).try_into().unwrap();
         row[2] = self.generation;
         row[3] = self.side.0 as f64;
         row[4] = self.class_name.0 as f64;
@@ -1004,19 +1004,19 @@ impl Unit {
         match &self.targetable { Some(v) => { row[82] = 0.0; row[82 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[82] = 2.0; row[82 + 1..82 + 2].fill(0.0); } }
         match &self.water_contact { Some(v) => { row[84] = 0.0; v.put(&mut row[84 + 1..], heap); } None => { row[84] = 2.0; row[84 + 1..84 + 9].fill(0.0); } }
         match &self.rider_hits { Some(v) => { row[93] = 0.0; { let at = heap.len(); row[93 + 1] = at as f64; row[93 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 14, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 14]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 14..at + (i + 1) * 14].copy_from_slice(&item); } } } None => { row[93] = 2.0; row[93 + 1..93 + 3].fill(0.0); } }
-        match &self.held { Nullable::Value(v) => { row[96] = 0.0; v.put(&mut row[96 + 1..], heap); } Nullable::Null => { row[96] = 1.0; row[96 + 1..96 + 24].fill(0.0); } Nullable::Undefined => { row[96] = 2.0; row[96 + 1..96 + 24].fill(0.0); } }
-        match &self.network_human { Some(v) => { row[120] = 0.0; row[120 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[120] = 2.0; row[120 + 1..120 + 2].fill(0.0); } }
-        self.soldier.put(&mut row[122..122 + 78], heap);
-        row[200] = if self.combat_dead { 1.0 } else { 0.0 };
-        match &self.aim_override { Nullable::Value(v) => { row[201] = 0.0; row[201 + 1..201 + 1 + 3].copy_from_slice(&(*v)); } Nullable::Null => { row[201] = 1.0; row[201 + 1..201 + 4].fill(0.0); } Nullable::Undefined => { row[201] = 2.0; row[201 + 1..201 + 4].fill(0.0); } }
-        match &self.mounted { Some(v) => { row[205] = 0.0; row[205 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[205] = 2.0; row[205 + 1..205 + 2].fill(0.0); } }
-        match &self.remotes_active { Some(v) => { row[207] = 0.0; row[207 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[207] = 2.0; row[207 + 1..207 + 2].fill(0.0); } }
-        row[209..209 + 3].copy_from_slice(&self.pivot);
-        match &self.gun_underwater { Some(v) => { row[212] = 0.0; row[212 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[212] = 2.0; row[212 + 1..212 + 2].fill(0.0); } }
+        match &self.held { Nullable::Value(v) => { row[96] = 0.0; v.put(&mut row[96 + 1..], heap); } Nullable::Null => { row[96] = 1.0; row[96 + 1..96 + 23].fill(0.0); } Nullable::Undefined => { row[96] = 2.0; row[96 + 1..96 + 23].fill(0.0); } }
+        match &self.network_human { Some(v) => { row[119] = 0.0; row[119 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[119] = 2.0; row[119 + 1..119 + 2].fill(0.0); } }
+        self.soldier.put(&mut row[121..121 + 78], heap);
+        row[199] = if self.combat_dead { 1.0 } else { 0.0 };
+        match &self.aim_override { Nullable::Value(v) => { row[200] = 0.0; row[200 + 1..200 + 1 + 3].copy_from_slice(&(*v)); } Nullable::Null => { row[200] = 1.0; row[200 + 1..200 + 4].fill(0.0); } Nullable::Undefined => { row[200] = 2.0; row[200 + 1..200 + 4].fill(0.0); } }
+        match &self.mounted { Some(v) => { row[204] = 0.0; row[204 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[204] = 2.0; row[204 + 1..204 + 2].fill(0.0); } }
+        match &self.remotes_active { Some(v) => { row[206] = 0.0; row[206 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[206] = 2.0; row[206 + 1..206 + 2].fill(0.0); } }
+        row[208..208 + 3].copy_from_slice(&self.pivot);
+        match &self.gun_underwater { Some(v) => { row[211] = 0.0; row[211 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[211] = 2.0; row[211 + 1..211 + 2].fill(0.0); } }
     }
 
     pub fn take_full(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 214] = (&row[..214]).try_into().unwrap();
+        let row: &[f64; 213] = (&row[..213]).try_into().unwrap();
         self.generation = row[2];
         self.side = StrId(word_u32(row[3]));
         self.class_name = StrId(word_u32(row[4]));
@@ -1047,18 +1047,18 @@ impl Unit {
         self.water_contact = if row[84] == 0.0 { Some(WaterContact::take(&row[84 + 1..], heap)) } else { None };
         self.rider_hits = if row[93] == 0.0 { Some({ let (at, n) = (word_u32(row[93 + 1]) as usize, word_u32(row[93 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 14..at + (i + 1) * 14]; out.push(HitShape::take(&row[0..], heap)); } out }) } else { None };
         self.held = match word_u32(row[96]) { 0 => Nullable::Value(Held::take(&row[96 + 1..], heap)), 1 => Nullable::Null, _ => Nullable::Undefined };
-        self.network_human = if row[120] == 0.0 { Some(row[120 + 1] != 0.0) } else { None };
-        self.soldier = UnitBody::take(&row[122..122 + 78], heap);
-        self.combat_dead = row[200] != 0.0;
-        self.aim_override = match word_u32(row[201]) { 0 => Nullable::Value([row[201 + 1], row[201 + 1 + 1], row[201 + 1 + 2]]), 1 => Nullable::Null, _ => Nullable::Undefined };
-        self.mounted = if row[205] == 0.0 { Some(row[205 + 1] != 0.0) } else { None };
-        self.remotes_active = if row[207] == 0.0 { Some(row[207 + 1] != 0.0) } else { None };
-        self.pivot = [row[209], row[209 + 1], row[209 + 2]];
-        self.gun_underwater = if row[212] == 0.0 { Some(row[212 + 1] != 0.0) } else { None };
+        self.network_human = if row[119] == 0.0 { Some(row[119 + 1] != 0.0) } else { None };
+        self.soldier = UnitBody::take(&row[121..121 + 78], heap);
+        self.combat_dead = row[199] != 0.0;
+        self.aim_override = match word_u32(row[200]) { 0 => Nullable::Value([row[200 + 1], row[200 + 1 + 1], row[200 + 1 + 2]]), 1 => Nullable::Null, _ => Nullable::Undefined };
+        self.mounted = if row[204] == 0.0 { Some(row[204 + 1] != 0.0) } else { None };
+        self.remotes_active = if row[206] == 0.0 { Some(row[206 + 1] != 0.0) } else { None };
+        self.pivot = [row[208], row[208 + 1], row[208 + 2]];
+        self.gun_underwater = if row[211] == 0.0 { Some(row[211 + 1] != 0.0) } else { None };
     }
 
     pub fn put_export(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 200] = (&mut row[..200]).try_into().unwrap();
+        let row: &mut [f64; 199] = (&mut row[..199]).try_into().unwrap();
         row[2] = self.generation;
         row[3] = self.side.0 as f64;
         row[4] = self.class_name.0 as f64;
@@ -1088,13 +1088,13 @@ impl Unit {
         match &self.targetable { Some(v) => { row[82] = 0.0; row[82 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[82] = 2.0; row[82 + 1..82 + 2].fill(0.0); } }
         match &self.water_contact { Some(v) => { row[84] = 0.0; v.put(&mut row[84 + 1..], heap); } None => { row[84] = 2.0; row[84 + 1..84 + 9].fill(0.0); } }
         match &self.rider_hits { Some(v) => { row[93] = 0.0; { let at = heap.len(); row[93 + 1] = at as f64; row[93 + 1 + 1] = v.len() as f64; heap.resize(at + v.len() * 14, 0.0); for (i, e) in v.iter().enumerate() { let mut item = [0.0f64; 14]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 14..at + (i + 1) * 14].copy_from_slice(&item); } } } None => { row[93] = 2.0; row[93 + 1..93 + 3].fill(0.0); } }
-        match &self.held { Nullable::Value(v) => { row[96] = 0.0; v.put(&mut row[96 + 1..], heap); } Nullable::Null => { row[96] = 1.0; row[96 + 1..96 + 24].fill(0.0); } Nullable::Undefined => { row[96] = 2.0; row[96 + 1..96 + 24].fill(0.0); } }
-        match &self.network_human { Some(v) => { row[120] = 0.0; row[120 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[120] = 2.0; row[120 + 1..120 + 2].fill(0.0); } }
-        self.soldier.put(&mut row[122..122 + 78], heap);
+        match &self.held { Nullable::Value(v) => { row[96] = 0.0; v.put(&mut row[96 + 1..], heap); } Nullable::Null => { row[96] = 1.0; row[96 + 1..96 + 23].fill(0.0); } Nullable::Undefined => { row[96] = 2.0; row[96 + 1..96 + 23].fill(0.0); } }
+        match &self.network_human { Some(v) => { row[119] = 0.0; row[119 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[119] = 2.0; row[119 + 1..119 + 2].fill(0.0); } }
+        self.soldier.put(&mut row[121..121 + 78], heap);
     }
 
     pub fn take_export(&mut self, row: &[f64], heap: &[f64]) {
-        let row: &[f64; 200] = (&row[..200]).try_into().unwrap();
+        let row: &[f64; 199] = (&row[..199]).try_into().unwrap();
         self.generation = row[2];
         self.side = StrId(word_u32(row[3]));
         self.class_name = StrId(word_u32(row[4]));
@@ -1125,8 +1125,8 @@ impl Unit {
         self.water_contact = if row[84] == 0.0 { Some(WaterContact::take(&row[84 + 1..], heap)) } else { None };
         self.rider_hits = if row[93] == 0.0 { Some({ let (at, n) = (word_u32(row[93 + 1]) as usize, word_u32(row[93 + 1 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 14..at + (i + 1) * 14]; out.push(HitShape::take(&row[0..], heap)); } out }) } else { None };
         self.held = match word_u32(row[96]) { 0 => Nullable::Value(Held::take(&row[96 + 1..], heap)), 1 => Nullable::Null, _ => Nullable::Undefined };
-        self.network_human = if row[120] == 0.0 { Some(row[120 + 1] != 0.0) } else { None };
-        self.soldier = UnitBody::take(&row[122..122 + 78], heap);
+        self.network_human = if row[119] == 0.0 { Some(row[119 + 1] != 0.0) } else { None };
+        self.soldier = UnitBody::take(&row[121..121 + 78], heap);
     }
 
     #[inline(always)]

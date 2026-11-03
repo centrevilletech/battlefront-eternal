@@ -1,0 +1,27 @@
+# The simulation must compute as the production server's V8 does
+# (docs/sim-store.md, "Determinism"): Math functions come from rust/v8math,
+# never from the host's libm, and JavaScript's min and max (NaN and signed
+# zeros) from the helpers that keep them. `cargo clippy -p sim` names any
+# call to these.
+disallowed-methods = [
+  { path = "f64::sin", reason = "V8's sin: v8math" },
+  { path = "f64::cos", reason = "V8's cos: v8math" },
+  { path = "f64::tan", reason = "V8's tan: v8math" },
+  { path = "f64::asin", reason = "V8's asin: v8math" },
+  { path = "f64::acos", reason = "V8's acos: v8math" },
+  { path = "f64::atan", reason = "V8's atan: v8math" },
+  { path = "f64::atan2", reason = "V8's atan2: v8math" },
+  { path = "f64::exp", reason = "V8's exp: v8math" },
+  { path = "f64::ln", reason = "V8's log: v8math" },
+  { path = "f64::log10", reason = "V8's log10: v8math" },
+  { path = "f64::log2", reason = "V8's log2: v8math" },
+  { path = "f64::powf", reason = "V8's pow: v8math" },
+  { path = "f64::powi", reason = "V8's pow: v8math" },
+  { path = "f64::cbrt", reason = "V8's cbrt: v8math" },
+  { path = "f64::hypot", reason = "V8's hypot: v8math" },
+  { path = "f64::tanh", reason = "V8's tanh: v8math" },
+  { path = "f64::min", reason = "JavaScript's Math.min keeps NaN and -0: js_min" },
+  { path = "f64::max", reason = "JavaScript's Math.max keeps NaN and -0: js_max" },
+  { path = "f64::round", reason = "JavaScript's Math.round rounds halves up: jsrt" },
+  { path = "f64::mul_add", reason = "JavaScript never fuses a multiply and an add" },
+]

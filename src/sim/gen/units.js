@@ -110,7 +110,7 @@ export function sameHalf(x, y) {
 export function exportHalf(x, cx) {
   switch (whichHalf(cx, x)) {
     case 0: return x;
-    case 1: return x;
+    case 1: return x.clone();
   }
 }
 
@@ -270,14 +270,14 @@ export function exportIntent(o, cx) {
   v.crouch = o.crouch;
   v.prone = o.prone;
   v.use = o.use;
-  v.buttons = o.buttons;
+  v.buttons = [...o.buttons];
   v.reload = o.reload;
   v.nextPrimary = o.nextPrimary;
   v.previousPrimary = o.previousPrimary;
   v.nextSecondary = o.nextSecondary;
   v.zoom = o.zoom;
-  v.aim = o.aim;
-  v.jetDirection = o.jetDirection;
+  v.aim = ((x) => (x === null || x === undefined ? x : x.clone()))(o.aim);
+  v.jetDirection = ((x) => (x === null || x === undefined ? x : x.clone()))(o.jetDirection);
   v.exit = o.exit;
   v.brake = o.brake;
   v.up = o.up;
@@ -350,7 +350,7 @@ export function exportMoveInput(o, cx) {
   v.crouch = o.crouch;
   v.prone = o.prone;
   v.use = o.use;
-  v.jetDirection = o.jetDirection;
+  v.jetDirection = ((x) => (x === null || x === undefined ? x : x.clone()))(o.jetDirection);
   return v;
 }
 
@@ -383,7 +383,7 @@ export function exportControls(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.was = o.was;
+  v.was = [...o.was];
   v.pressed = o.pressed.map((x) => x);
   return v;
 }
@@ -417,7 +417,7 @@ export function exportBounds(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.center = o.center;
+  v.center = o.center.clone();
   v.radius = o.radius;
   return v;
 }
@@ -473,11 +473,11 @@ export function exportHitShape(o, cx) {
   cx.seen.set(o, v);
   v.type = o.type;
   v.part = o.part;
-  v.center = o.center;
+  v.center = o.center.clone();
   v.radius = o.radius;
   v.half = exportHalf(o.half, cx);
   v.yaw = o.yaw;
-  v.halfSize = o.halfSize;
+  v.halfSize = o.halfSize.clone();
   return v;
 }
 
@@ -491,22 +491,22 @@ export class HeldMirror {
 }
 
 export function syncHeld(b, f, at, h, m) {
-  { const tag = f[at + 0]; if (tag === 0) { m.prop = b.refs[KIND_PROP].at(f[at + 1], f[at + 2]); } else m.prop = tag === 1 ? null : undefined; }
-  m.since = f[at + 3];
-  { const tag = f[at + 4]; if (tag === 0) { { const e = (m.frame ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 5 + i]; } } else m.frame = tag === 1 ? null : undefined; }
-  { const tag = f[at + 21]; if (tag === 0) { m.time = f[at + 22]; } else m.time = tag === 1 ? null : undefined; }
+  m.prop = b.refs[KIND_PROP].at(f[at + 0], f[at + 1]);
+  m.since = f[at + 2];
+  { const tag = f[at + 3]; if (tag === 0) { { const e = (m.frame ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 4 + i]; } } else m.frame = tag === 1 ? null : undefined; }
+  { const tag = f[at + 20]; if (tag === 0) { m.time = f[at + 21]; } else m.time = tag === 1 ? null : undefined; }
   return m;
 }
 
 export function putHeld(b, o, f, at, heap) {
-  { const $x = o.prop; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f.fill(0, at + 1, at + 3); } else { f[at + 0] = 0; b.refs[KIND_PROP].put($x, f, at + 1); } }
-  f[at + 3] = o.since;
-  { const $x = o.frame; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f.fill(0, at + 5, at + 21); } else { f[at + 4] = 0; { const e = $x.elements; for (let i = 0; i < 16; i++) f[at + 5 + i] = e[i]; } } }
-  { const $x = o.time; if ($x === null || $x === undefined) { f[at + 21] = $x === null ? 1 : 2; f.fill(0, at + 22, at + 23); } else { f[at + 21] = 0; f[at + 22] = $x; } }
+  b.refs[KIND_PROP].put(o.prop, f, at + 0);
+  f[at + 2] = o.since;
+  { const $x = o.frame; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f.fill(0, at + 4, at + 20); } else { f[at + 3] = 0; { const e = $x.elements; for (let i = 0; i < 16; i++) f[at + 4 + i] = e[i]; } } }
+  { const $x = o.time; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f.fill(0, at + 21, at + 22); } else { f[at + 20] = 0; f[at + 21] = $x; } }
 }
 
 export function sameHeld(a, b) {
-  { const p = a.prop, q = b.prop; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".prop"; } else { if (!Object.is(p, q)) return ".prop"; } }
+  if (!Object.is(a.prop, b.prop)) return ".prop";
   if (!Object.is(a.since, b.since)) return ".since";
   { const p = a.frame, q = b.frame; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".frame"; } else { if (!sameArray(p?.elements, q?.elements, 16)) return ".frame"; } }
   { const p = a.time, q = b.time; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".time"; } else { if (!Object.is(p, q)) return ".time"; } }
@@ -518,9 +518,9 @@ export function exportHeld(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.prop = ((x) => (x === null || x === undefined ? x : cx.ref("prop", x)))(o.prop);
+  v.prop = cx.ref("prop", o.prop);
   v.since = o.since;
-  v.frame = o.frame;
+  v.frame = ((x) => (x === null || x === undefined ? x : x.clone()))(o.frame);
   v.time = o.time;
   return v;
 }
@@ -598,8 +598,8 @@ export function exportCollisionRule(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.threshold = o.threshold;
-  v.scale = o.scale;
+  v.threshold = [...o.threshold];
+  v.scale = [...o.scale];
   return v;
 }
 
@@ -833,7 +833,7 @@ export function exportSoldier(o, cx) {
   v.maxTurn = o.maxTurn;
   v.maxPitch = o.maxPitch;
   v.accel = o.accel;
-  v.pitchLimits = o.pitchLimits;
+  v.pitchLimits = [...o.pitchLimits];
   v.jet = exportJet(o.jet, cx);
   v.fuel = o.fuel;
   v.collisionRule = exportCollisionRule(o.collisionRule, cx);
@@ -841,11 +841,11 @@ export function exportSoldier(o, cx) {
   v.maxFlyHeight = o.maxFlyHeight;
   v.getupTime = o.getupTime;
   v.diveTime = o.diveTime;
-  v.position = o.position;
-  v.previous = o.previous;
-  v.settled = o.settled;
-  v.velocity = o.velocity;
-  v.normal = o.normal;
+  v.position = o.position.clone();
+  v.previous = o.previous.clone();
+  v.settled = o.settled.clone();
+  v.velocity = o.velocity.clone();
+  v.normal = o.normal.clone();
   v.aimYaw = o.aimYaw;
   v.aimPitch = o.aimPitch;
   v.posture = o.posture;
@@ -859,7 +859,7 @@ export function exportSoldier(o, cx) {
   v.lookY = o.lookY;
   v.tickLength = o.tickLength;
   v.groundAdjustment = o.groundAdjustment;
-  v.avoidance = o.avoidance;
+  v.avoidance = o.avoidance.clone();
   v.passThrough = ((x) => (x === null || x === undefined ? x : cx.ref("body", x)))(o.passThrough);
   v.mover = o.mover;
   v.dead = o.dead;
@@ -983,8 +983,8 @@ export function exportBonePose(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.q = o.q;
-  v.p = o.p;
+  v.q = o.q.clone();
+  v.p = o.p.clone();
   return v;
 }
 
@@ -1052,8 +1052,8 @@ export function exportRigAnimator(o, cx) {
   v.rollOrigin = o.rollOrigin;
   v.transition = o.transition;
   v.from = o.from.map((x) => exportBonePose(x, cx));
-  v.pivot = o.pivot;
-  v.rollCenter = o.rollCenter;
+  v.pivot = o.pivot.clone();
+  v.rollCenter = o.rollCenter.clone();
   return v;
 }
 
@@ -1232,7 +1232,7 @@ export function exportDroideka(o, cx) {
   cx.seen.set(o, v);
   v.def = cx.def("unitClass", o.def);
   v.maxTurn = o.maxTurn;
-  v.pitchLimits = o.pitchLimits;
+  v.pitchLimits = [...o.pitchLimits];
   v.speed = o.speed;
   v.turnThreshold = o.turnThreshold;
   v.ballRadius = o.ballRadius;
@@ -1243,11 +1243,11 @@ export function exportDroideka(o, cx) {
   v.maxFlyHeight = o.maxFlyHeight;
   v.collisionRule = exportCollisionRule(o.collisionRule, cx);
   v.collisionDamage = o.collisionDamage;
-  v.position = o.position;
-  v.previous = o.previous;
-  v.settled = o.settled;
-  v.velocity = o.velocity;
-  v.avoidance = o.avoidance;
+  v.position = o.position.clone();
+  v.previous = o.previous.clone();
+  v.settled = o.settled.clone();
+  v.velocity = o.velocity.clone();
+  v.avoidance = o.avoidance.clone();
   v.aimYaw = o.aimYaw;
   v.aimPitch = o.aimPitch;
   v.stateTime = o.stateTime;
@@ -1312,7 +1312,7 @@ export class UnitMirror {
 }
 
 export const UNIT_KEYS = new Set(["generation", "side", "className", "classDef", "walker", "human", "kind", "hero", "team", "character", "controller", "seat", "alive", "dead", "deadTime", "removed", "intent", "controls", "input", "bounds", "rootScale", "shapes", "shapeCount", "spheresTick", "tickCount", "navRadius", "targetable", "waterContact", "riderHits", "held", "networkHuman", "soldier", "combat", "hitSet", "actor", "animator", "presentation", "jetFlame", "bubble", "poseClock", "gone", "ownMaterials", "crowdSlot", "shadowNear", "flameAt", "flameTurn", "flameScale", "onDeath", "onRemoved", "onMoved", "enhancedDeath", "supply", "itemTarget", "steer", "remoteStep", "networkShot", "networkShots", "networkViewTick", "networkInputLeadTicks", "networkPlayoutMaxTicks"]);
-export const UNIT_EXPORT_STRIDE = 200, UNIT_IMPORT_STRIDE = 214, UNIT_FULL_STRIDE = 214;
+export const UNIT_EXPORT_STRIDE = 199, UNIT_IMPORT_STRIDE = 213, UNIT_FULL_STRIDE = 213;
 
 // An export row (from `at`; the heap from `h`) into mirror `m`.
 export function syncUnit(b, f, at, h, m) {
@@ -1346,8 +1346,8 @@ export function syncUnit(b, f, at, h, m) {
   { const tag = f[at + 84]; if (tag === 0) { m.waterContact = syncWaterContact(b, f, at + 85, h, m.waterContact ?? new WaterContactMirror()); } else m.waterContact = tag === 1 ? null : undefined; }
   { const tag = f[at + 93]; if (tag === 0) { { const items = (m.riderHits ??= []), start = h + f[at + 94], n = f[at + 95]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 14; v = syncHitShape(b, f, at + 0, h, v ?? new HitShapeMirror()); } items[i] = v; } } } else m.riderHits = tag === 1 ? null : undefined; }
   { const tag = f[at + 96]; if (tag === 0) { m.held = syncHeld(b, f, at + 97, h, m.held ?? new HeldMirror()); } else m.held = tag === 1 ? null : undefined; }
-  { const tag = f[at + 120]; if (tag === 0) { m.networkHuman = f[at + 121] !== 0; } else m.networkHuman = tag === 1 ? null : undefined; }
-  m.soldier = syncUnitBody(b, f, at + 122, h, m.soldier);
+  { const tag = f[at + 119]; if (tag === 0) { m.networkHuman = f[at + 120] !== 0; } else m.networkHuman = tag === 1 ? null : undefined; }
+  m.soldier = syncUnitBody(b, f, at + 121, h, m.soldier);
   return m;
 }
 
@@ -1383,14 +1383,14 @@ export function syncFullUnit(b, f, at, h, m) {
   { const tag = f[at + 84]; if (tag === 0) { m.waterContact = syncWaterContact(b, f, at + 85, h, m.waterContact ?? new WaterContactMirror()); } else m.waterContact = tag === 1 ? null : undefined; }
   { const tag = f[at + 93]; if (tag === 0) { { const items = (m.riderHits ??= []), start = h + f[at + 94], n = f[at + 95]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 14; v = syncHitShape(b, f, at + 0, h, v ?? new HitShapeMirror()); } items[i] = v; } } } else m.riderHits = tag === 1 ? null : undefined; }
   { const tag = f[at + 96]; if (tag === 0) { m.held = syncHeld(b, f, at + 97, h, m.held ?? new HeldMirror()); } else m.held = tag === 1 ? null : undefined; }
-  { const tag = f[at + 120]; if (tag === 0) { m.networkHuman = f[at + 121] !== 0; } else m.networkHuman = tag === 1 ? null : undefined; }
-  m.soldier = syncUnitBody(b, f, at + 122, h, m.soldier);
-  (m.combat ??= {}).dead = f[at + 200] !== 0;
-  { const tag = f[at + 201]; if (tag === 0) { ((m.combat ??= {}).aimOverride ??= new THREE.Vector3()).set(f[at + 202], f[at + 203], f[at + 204]); } else (m.combat ??= {}).aimOverride = tag === 1 ? null : undefined; }
-  { const tag = f[at + 205]; if (tag === 0) { (m.combat ??= {}).mounted = f[at + 206] !== 0; } else (m.combat ??= {}).mounted = tag === 1 ? null : undefined; }
-  { const tag = f[at + 207]; if (tag === 0) { ((m.combat ??= {}).remotes ??= {}).active = f[at + 208] !== 0; } else ((m.combat ??= {}).remotes ??= {}).active = tag === 1 ? null : undefined; }
-  ((m.combat ??= {}).pivot ??= new THREE.Vector3()).set(f[at + 209], f[at + 210], f[at + 211]);
-  { const tag = f[at + 212]; if (tag === 0) { (m.combat ??= {}).gunUnderwater = f[at + 213] !== 0; } else (m.combat ??= {}).gunUnderwater = tag === 1 ? null : undefined; }
+  { const tag = f[at + 119]; if (tag === 0) { m.networkHuman = f[at + 120] !== 0; } else m.networkHuman = tag === 1 ? null : undefined; }
+  m.soldier = syncUnitBody(b, f, at + 121, h, m.soldier);
+  (m.combat ??= {}).dead = f[at + 199] !== 0;
+  { const tag = f[at + 200]; if (tag === 0) { ((m.combat ??= {}).aimOverride ??= new THREE.Vector3()).set(f[at + 201], f[at + 202], f[at + 203]); } else (m.combat ??= {}).aimOverride = tag === 1 ? null : undefined; }
+  { const tag = f[at + 204]; if (tag === 0) { (m.combat ??= {}).mounted = f[at + 205] !== 0; } else (m.combat ??= {}).mounted = tag === 1 ? null : undefined; }
+  { const tag = f[at + 206]; if (tag === 0) { ((m.combat ??= {}).remotes ??= {}).active = f[at + 207] !== 0; } else ((m.combat ??= {}).remotes ??= {}).active = tag === 1 ? null : undefined; }
+  ((m.combat ??= {}).pivot ??= new THREE.Vector3()).set(f[at + 208], f[at + 209], f[at + 210]);
+  { const tag = f[at + 211]; if (tag === 0) { (m.combat ??= {}).gunUnderwater = f[at + 212] !== 0; } else (m.combat ??= {}).gunUnderwater = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -1425,15 +1425,15 @@ export function putUnit(b, o, f, at, heap) {
   { const $x = o.targetable; if ($x === null || $x === undefined) { f[at + 82] = $x === null ? 1 : 2; f.fill(0, at + 83, at + 84); } else { f[at + 82] = 0; f[at + 83] = $x ? 1 : 0; } }
   { const $x = o.waterContact; if ($x === null || $x === undefined) { f[at + 84] = $x === null ? 1 : 2; f.fill(0, at + 85, at + 93); } else { f[at + 84] = 0; putWaterContact(b, $x, f, at + 85, heap); } }
   { const $x = o.riderHits; if ($x === null || $x === undefined) { f[at + 93] = $x === null ? 1 : 2; f.fill(0, at + 94, at + 96); } else { f[at + 93] = 0; heap.items($x, f, at + 94, 14, (f, at, v) => { putHitShape(b, v, f, at + 0, heap); }); } }
-  { const $x = o.held; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f.fill(0, at + 97, at + 120); } else { f[at + 96] = 0; putHeld(b, $x, f, at + 97, heap); } }
-  { const $x = o.networkHuman; if ($x === null || $x === undefined) { f[at + 120] = $x === null ? 1 : 2; f.fill(0, at + 121, at + 122); } else { f[at + 120] = 0; f[at + 121] = $x ? 1 : 0; } }
-  putUnitBody(b, o.soldier, f, at + 122, heap);
-  f[at + 200] = o.combat?.dead ? 1 : 0;
-  { const $x = o.combat?.aimOverride; if ($x === null || $x === undefined) { f[at + 201] = $x === null ? 1 : 2; f.fill(0, at + 202, at + 205); } else { f[at + 201] = 0; { const $v = $x; f[at + 202] = $v.x; f[at + 203] = $v.y; f[at + 204] = $v.z; } } }
-  { const $x = o.combat?.mounted; if ($x === null || $x === undefined) { f[at + 205] = $x === null ? 1 : 2; f.fill(0, at + 206, at + 207); } else { f[at + 205] = 0; f[at + 206] = $x ? 1 : 0; } }
-  { const $x = o.combat?.remotes?.active; if ($x === null || $x === undefined) { f[at + 207] = $x === null ? 1 : 2; f.fill(0, at + 208, at + 209); } else { f[at + 207] = 0; f[at + 208] = $x ? 1 : 0; } }
-  { const $v = o.combat?.pivot; f[at + 209] = $v.x; f[at + 210] = $v.y; f[at + 211] = $v.z; }
-  { const $x = o.combat?.gunUnderwater; if ($x === null || $x === undefined) { f[at + 212] = $x === null ? 1 : 2; f.fill(0, at + 213, at + 214); } else { f[at + 212] = 0; f[at + 213] = $x ? 1 : 0; } }
+  { const $x = o.held; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f.fill(0, at + 97, at + 119); } else { f[at + 96] = 0; putHeld(b, $x, f, at + 97, heap); } }
+  { const $x = o.networkHuman; if ($x === null || $x === undefined) { f[at + 119] = $x === null ? 1 : 2; f.fill(0, at + 120, at + 121); } else { f[at + 119] = 0; f[at + 120] = $x ? 1 : 0; } }
+  putUnitBody(b, o.soldier, f, at + 121, heap);
+  f[at + 199] = o.combat?.dead ? 1 : 0;
+  { const $x = o.combat?.aimOverride; if ($x === null || $x === undefined) { f[at + 200] = $x === null ? 1 : 2; f.fill(0, at + 201, at + 204); } else { f[at + 200] = 0; { const $v = $x; f[at + 201] = $v.x; f[at + 202] = $v.y; f[at + 203] = $v.z; } } }
+  { const $x = o.combat?.mounted; if ($x === null || $x === undefined) { f[at + 204] = $x === null ? 1 : 2; f.fill(0, at + 205, at + 206); } else { f[at + 204] = 0; f[at + 205] = $x ? 1 : 0; } }
+  { const $x = o.combat?.remotes?.active; if ($x === null || $x === undefined) { f[at + 206] = $x === null ? 1 : 2; f.fill(0, at + 207, at + 208); } else { f[at + 206] = 0; f[at + 207] = $x ? 1 : 0; } }
+  { const $v = o.combat?.pivot; f[at + 208] = $v.x; f[at + 209] = $v.y; f[at + 210] = $v.z; }
+  { const $x = o.combat?.gunUnderwater; if ($x === null || $x === undefined) { f[at + 211] = $x === null ? 1 : 2; f.fill(0, at + 212, at + 213); } else { f[at + 211] = 0; f[at + 212] = $x ? 1 : 0; } }
 }
 
 // Every field of object `o` into a row.
@@ -1467,15 +1467,15 @@ export function putFullUnit(b, o, f, at, heap) {
   { const $x = o.targetable; if ($x === null || $x === undefined) { f[at + 82] = $x === null ? 1 : 2; f.fill(0, at + 83, at + 84); } else { f[at + 82] = 0; f[at + 83] = $x ? 1 : 0; } }
   { const $x = o.waterContact; if ($x === null || $x === undefined) { f[at + 84] = $x === null ? 1 : 2; f.fill(0, at + 85, at + 93); } else { f[at + 84] = 0; putWaterContact(b, $x, f, at + 85, heap); } }
   { const $x = o.riderHits; if ($x === null || $x === undefined) { f[at + 93] = $x === null ? 1 : 2; f.fill(0, at + 94, at + 96); } else { f[at + 93] = 0; heap.items($x, f, at + 94, 14, (f, at, v) => { putHitShape(b, v, f, at + 0, heap); }); } }
-  { const $x = o.held; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f.fill(0, at + 97, at + 120); } else { f[at + 96] = 0; putHeld(b, $x, f, at + 97, heap); } }
-  { const $x = o.networkHuman; if ($x === null || $x === undefined) { f[at + 120] = $x === null ? 1 : 2; f.fill(0, at + 121, at + 122); } else { f[at + 120] = 0; f[at + 121] = $x ? 1 : 0; } }
-  putUnitBody(b, o.soldier, f, at + 122, heap);
-  f[at + 200] = o.combat?.dead ? 1 : 0;
-  { const $x = o.combat?.aimOverride; if ($x === null || $x === undefined) { f[at + 201] = $x === null ? 1 : 2; f.fill(0, at + 202, at + 205); } else { f[at + 201] = 0; { const $v = $x; f[at + 202] = $v.x; f[at + 203] = $v.y; f[at + 204] = $v.z; } } }
-  { const $x = o.combat?.mounted; if ($x === null || $x === undefined) { f[at + 205] = $x === null ? 1 : 2; f.fill(0, at + 206, at + 207); } else { f[at + 205] = 0; f[at + 206] = $x ? 1 : 0; } }
-  { const $x = o.combat?.remotes?.active; if ($x === null || $x === undefined) { f[at + 207] = $x === null ? 1 : 2; f.fill(0, at + 208, at + 209); } else { f[at + 207] = 0; f[at + 208] = $x ? 1 : 0; } }
-  { const $v = o.combat?.pivot; f[at + 209] = $v.x; f[at + 210] = $v.y; f[at + 211] = $v.z; }
-  { const $x = o.combat?.gunUnderwater; if ($x === null || $x === undefined) { f[at + 212] = $x === null ? 1 : 2; f.fill(0, at + 213, at + 214); } else { f[at + 212] = 0; f[at + 213] = $x ? 1 : 0; } }
+  { const $x = o.held; if ($x === null || $x === undefined) { f[at + 96] = $x === null ? 1 : 2; f.fill(0, at + 97, at + 119); } else { f[at + 96] = 0; putHeld(b, $x, f, at + 97, heap); } }
+  { const $x = o.networkHuman; if ($x === null || $x === undefined) { f[at + 119] = $x === null ? 1 : 2; f.fill(0, at + 120, at + 121); } else { f[at + 119] = 0; f[at + 120] = $x ? 1 : 0; } }
+  putUnitBody(b, o.soldier, f, at + 121, heap);
+  f[at + 199] = o.combat?.dead ? 1 : 0;
+  { const $x = o.combat?.aimOverride; if ($x === null || $x === undefined) { f[at + 200] = $x === null ? 1 : 2; f.fill(0, at + 201, at + 204); } else { f[at + 200] = 0; { const $v = $x; f[at + 201] = $v.x; f[at + 202] = $v.y; f[at + 203] = $v.z; } } }
+  { const $x = o.combat?.mounted; if ($x === null || $x === undefined) { f[at + 204] = $x === null ? 1 : 2; f.fill(0, at + 205, at + 206); } else { f[at + 204] = 0; f[at + 205] = $x ? 1 : 0; } }
+  { const $x = o.combat?.remotes?.active; if ($x === null || $x === undefined) { f[at + 206] = $x === null ? 1 : 2; f.fill(0, at + 207, at + 208); } else { f[at + 206] = 0; f[at + 207] = $x ? 1 : 0; } }
+  { const $v = o.combat?.pivot; f[at + 208] = $v.x; f[at + 209] = $v.y; f[at + 210] = $v.z; }
+  { const $x = o.combat?.gunUnderwater; if ($x === null || $x === undefined) { f[at + 211] = $x === null ? 1 : 2; f.fill(0, at + 212, at + 213); } else { f[at + 211] = 0; f[at + 212] = $x ? 1 : 0; } }
 }
 
 // The first mirrored field of `m` that is not what the export row says (a
@@ -1598,10 +1598,10 @@ export function exportUnit(o, cx) {
   v.networkHuman = o.networkHuman;
   v.soldier = exportUnitBody(o.soldier, cx);
   v.combatDead = o.combat?.dead;
-  v.aimOverride = o.combat?.aimOverride;
+  v.aimOverride = ((x) => (x === null || x === undefined ? x : x.clone()))(o.combat?.aimOverride);
   v.mounted = o.combat?.mounted;
   v.remotesActive = o.combat?.remotes?.active;
-  v.pivot = o.combat?.pivot;
+  v.pivot = o.combat?.pivot.clone();
   v.gunUnderwater = o.combat?.gunUnderwater;
   return v;
 }

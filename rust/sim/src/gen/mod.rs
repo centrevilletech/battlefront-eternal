@@ -45,7 +45,7 @@ pub const KINDS: usize = 20;
 pub const KIND_NAMES: [&str; 21] = ["", "beam", "body", "bolt", "character", "controller", "emitter", "grenade", "item", "items", "objectiveTarget", "ordnance", "ownerSnapshot", "prop", "round", "seatLease", "turretTarget", "unit", "units", "vehicle", "vehicleTarget"];
 /// Each kind's layout hash (its fields, types, flags and order), by code: the
 /// generated JavaScript has the same, and the bridge checks them.
-pub const KIND_HASHES: [u32; 21] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0xb6989de6, 0x65070dab, 0x046a7623, 0x9b924a1b, 0x2e0c3c78, 0xc2257049, 0xfbd22c8d, 0xbdf75e9b, 0x03866fa6, 0xe12e5e44, 0x02390125];
+pub const KIND_HASHES: [u32; 21] = [0, 0x4adbee26, 0xfe7bf1ca, 0xaccf5409, 0x862f0893, 0xbb19ff86, 0xc667f062, 0xa3e130ff, 0x6fbbce3d, 0xb7430d64, 0xb6989de6, 0x65070dab, 0x046a7623, 0x9b924a1b, 0x2e0c3c78, 0xc2257049, 0xfbd22c8d, 0x13c7018c, 0x03866fa6, 0xe12e5e44, 0x02390125];
 /// Whether each kind's objects carry their own number (its slot), by code.
 pub const KIND_KEYED: [bool; 21] = [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false];
 
@@ -401,12 +401,14 @@ impl Store {
 
 pub const COMMAND_ECHO: u32 = 1;
 pub const COMMAND_FILL: u32 = 2;
-pub const COMMAND_NAMES: [&str; 3] = ["", "echo", "fill"];
+pub const COMMAND_RELAY: u32 = 3;
+pub const COMMAND_NAMES: [&str; 4] = ["", "echo", "fill", "relay"];
 
 pub const EVENT_ECHOED: u32 = 1;
 pub const EVENT_NAMES: [&str; 2] = ["", "echoed"];
 
-pub const IMPORT_NAMES: [&str; 1] = ["", ];
+pub const IMPORT_ASK: u32 = 1;
+pub const IMPORT_NAMES: [&str; 2] = ["", "ask"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -421,6 +423,11 @@ pub fn run_command(sim: &mut crate::abi::Sim, code: u32) -> bool {
             let args = { let (row, heap) = sim.calls.args(); Fill::take(row, heap) };
             crate::abi::fill(sim, args);
             sim.calls.result(0, |_, _| {});
+        }
+        COMMAND_RELAY => {
+            let args = { let (row, heap) = sim.calls.args(); Echo::take(row, heap) };
+            let result = crate::abi::relay(sim, args);
+            sim.calls.result(Echo::WORDS, |row, heap| result.put(row, heap));
         }
         _ => return false,
     }
@@ -448,10 +455,37 @@ pub extern "C" fn cmd_fill(w0: f64, w1: f64) -> *const f64 {
     std::ptr::null()
 }
 
+/// The command relay, its arguments' words as parameters.
+#[no_mangle]
+pub extern "C" fn cmd_relay(w0: f64, w1: f64, w2: f64, w3: f64, w4: f64, w5: f64, w6: f64, w7: f64) -> *const f64 {
+    let row: [f64; 8] = [w0, w1, w2, w3, w4, w5, w6, w7];
+    let args = Echo::take(&row, &[]);
+    let sim = crate::abi::sim();
+    let result = crate::abi::relay(sim, args);
+    sim.calls.result(Echo::WORDS, |row, heap| result.put(row, heap));
+    sim.calls.block.ptr()
+}
+
 impl Echo {
     /// Emits it as the event echoed (drained in order at the end of the phase).
     pub fn emit(&self, events: &mut crate::store::calls::Events) {
         events.emit(EVENT_ECHOED, Echo::WORDS, |row, heap| self.put(row, heap));
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "bfe")]
+extern "C" {
+    fn bfe_import_ask();
+}
+
+/// Asks JavaScript (the import ask): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_ask(args: &Echo) -> Echo {
+    crate::store::calls::import_out(Echo::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_ask() };
+    crate::store::calls::import_in(|row, heap| Echo::take(row, heap))
 }
 

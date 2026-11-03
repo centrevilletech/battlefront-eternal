@@ -53,9 +53,7 @@ export default {
     HitShape: { type: 'enum:ShapeType', part: 'enum:ShapePart', center: 'vec3', radius: 'f64', half: 'union:Half', yaw: 'f64', halfSize: 'vec3' },
     // A creature's hold on him (props.js seize): its prop, since when, and
     // where it holds him now.
-    // (`prop` is never null while he is held; declared nullable as the
-    // generator's records need a default for a reference.)
-    Held: { prop: 'ref:prop|null', since: 'f64', frame: 'mat4|null|undefined', time: 'f64|undefined' },
+    Held: { prop: 'ref:prop', since: 'f64', frame: 'mat4|null|undefined', time: 'f64|undefined' },
     // Under water (game.js's step, water-state.js soldierStep).
     WaterContact: { gunUnder: 'bool|undefined', under: 'f64|undefined', wakeClock: 'f64|undefined', splashClock: 'f64|undefined' },
     // A class's collision damage rule (collision-damage.js collisionRule).

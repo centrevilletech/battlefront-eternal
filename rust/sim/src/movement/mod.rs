@@ -227,7 +227,7 @@ pub extern "C" fn movement_flags_ptr() -> *mut u8 {
 pub extern "C" fn mover_new(world: u32) -> u32 {
     let v = io();
     let c = &v[CLASS..];
-    let id = new_mover(world as usize, |m| {
+    new_mover(world as usize, |m| {
         m.max_speed = c[0];
         m.max_strafe = c[1];
         m.max_jump = c[2];
@@ -244,8 +244,7 @@ pub extern "C" fn mover_new(world: u32) -> u32 {
         m.jet.hover = c[14] != 0.0;
         m.threshold = [c[15], c[16], c[17]];
         m.scale = [c[18], c[19], c[20]];
-    });
-    id
+    })
 }
 
 /// Soldier.tick for mover `id`: its state, input and dt in the slots. 0:

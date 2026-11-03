@@ -363,13 +363,23 @@ export class SimBridge extends SimContext {
     return count;
   }
 
-  // Serves an import the module called: its arguments out of the call
-  // block, handlers[name](args), the result back in.
+  // Serves an import the module called: its arguments out of the import
+  // block, handlers[name](args), the result back in. A handler must not
+  // call back into the store (the Rust that called holds it).
   serve(code) {
     const imp = IMPORT_TABLE[code], handler = this.handlers[imp.name];
     if (!handler) throw Error(`the simulation's module asked for ${imp.name}, which nothing serves`);
-    const result = handler(this.callResult(imp.args, this.x.sim_calls()));
-    if (imp.result) this.callArgs(imp.result, result);
+    const result = handler(this.callResult(imp.args, this.x.sim_import_args()));
+    if (!imp.result) return;
+    const record = imp.result, heap = this.heap, words = record.words;
+    if (this.rows.length < words) this.rows = new Float64Array(Math.max(words, this.rows.length * 2));
+    heap.clear();
+    record.put(this, result, this.rows, 0, heap);
+    const ptr = this.x.sim_import_result_room(words, heap.words.length);
+    this.views();
+    const f = this.f, at = ptr / 8 + HEADER, hw = heap.words;
+    for (let i = 0; i < words; i++) f[at + i] = this.rows[i];
+    for (let i = 0; i < hw.length; i++) f[at + words + i] = hw[i];
   }
 
   // The memory's views, made again if it grew (a grown memory's old buffer

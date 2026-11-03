@@ -67,7 +67,7 @@ fn copy_fields(unit: &mut Unit, from: &Unit, touched: &[&str]) {
             "seat" => unit.seat = from.seat,
             "held" => unit.held = from.held.clone(),
             "mounted" => unit.mounted = from.mounted,
-            "aimOverride" => unit.aim_override = from.aim_override.clone(),
+            "aimOverride" => unit.aim_override = from.aim_override,
             "remotesActive" => unit.remotes_active = from.remotes_active,
             "pivot" => unit.pivot = from.pivot,
             "gunUnderwater" => unit.gun_underwater = from.gun_underwater,
@@ -590,7 +590,7 @@ fn hit_unit(v: V) -> Result<(u32, Unit), String> {
         walker,
         root_scale: v.get("rootScale").num(),
         seat: if v.get("seat").truthy() { Some(Ref::new(0, 0)) } else { None },
-        held: if v.get("held").truthy() { Nullable::Value(Held { prop: None, since: 0.0, frame: Nullable::Value([0.0; 16]), time: None }) } else { Nullable::Undefined },
+        held: if v.get("held").truthy() { Nullable::Value(Held { prop: Ref::new(0, 0), since: 0.0, frame: Nullable::Value([0.0; 16]), time: None }) } else { Nullable::Undefined },
         tick_count: v.get("tickCount").num(),
         spheres_tick: v.get("spheresTick").num(),
         shape_count: v.get("shapeCount").num(),
@@ -921,7 +921,7 @@ trait OrHeld {
 }
 impl OrHeld for Nullable<Held> {
     fn or_held(self) -> Nullable<Held> {
-        Nullable::Value(Held { prop: None, since: 0.0, frame: Nullable::Undefined, time: None })
+        Nullable::Value(Held { prop: Ref::new(0, 0), since: 0.0, frame: Nullable::Undefined, time: None })
     }
 }
 

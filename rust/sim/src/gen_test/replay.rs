@@ -82,18 +82,20 @@ impl Spot {
             label: { let p = format!("{path}.label"); match v.get("label").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.str_in(v.get("label"), &p)?) } },
             mark: { let p = format!("{path}.mark"); Colour::from_u8(name_of(v.get("mark"), &Colour::NAMES, &p)?).unwrap() },
             near: { let p = format!("{path}.near"); match v.get("near").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(cx.ref_in(KIND_PERSON, v.get("near"), &p)?) } },
+            keeper: { let p = format!("{path}.keeper"); cx.ref_in(KIND_PERSON, v.get("keeper"), &p)? },
             kept: { let p = format!("{path}.kept"); { let mut out = Vec::new(); for (i, e) in list(v.get("kept"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(Thing::ref_in(e, cx, &at)?); } out } },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(6);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(7);
         { let x = a.vec3(self.at); fields.push(("at", x)); }
         { let x = a.quat(self.turn); fields.push(("turn", x)); }
         { let x = match &self.label { Some(v) => cx.str_out((*v)), None => Value::Null }; fields.push(("label", x)); }
         { let x = Value::Str(Colour::NAMES[self.mark as usize].to_string()); fields.push(("mark", x)); }
         { let x = match &self.near { Some(v) => cx.ref_out(KIND_PERSON, (*v)), None => Value::Undefined }; fields.push(("near", x)); }
+        { let x = cx.ref_out(KIND_PERSON, self.keeper); fields.push(("keeper", x)); }
         { let x = { let mut items = Vec::new(); for e in self.kept.iter() { let x = Thing::ref_out((*e), cx, a); items.push(x); } a.array(items) }; fields.push(("kept", x)); }
         a.object("", fields)
     }

@@ -56,6 +56,13 @@ impl<T> Ref<T> {
     }
 }
 
+/// Slot 0 of generation 0: what a struct holding a reference starts as
+/// before its fields are read (a generated `Default`), never an entity's.
+impl<T> Default for Ref<T> {
+    #[inline(always)]
+    fn default() -> Self { Ref::new(0, 0) }
+}
+
 impl<T> Clone for Ref<T> {
     #[inline(always)]
     fn clone(&self) -> Self { *self }

@@ -273,7 +273,7 @@ impl Unit {
         if world.has_remote_step(id, self) {
             world.remote_step(id, self, h, remote_active);
         }
-        if let (UnitBody::Droideka(_), Some(p)) = (&self.soldier, parts.as_deref_mut()) {
+        if let (UnitBody::Droideka(_), Some(p)) = (&self.soldier, parts) {
             droideka::sample_muzzles(self, h, p);
         }
         let stick = v8math::max(self.input.forward.abs(), self.input.right.abs());
