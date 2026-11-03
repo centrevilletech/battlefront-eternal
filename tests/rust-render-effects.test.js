@@ -1569,3 +1569,30 @@ test("new this frame: a soldier, his gun and a particle batch registered as thre
   scene.onBeforeRender(renderer, scene, camera, target);
   assert.equal(compiled.length, 0);
 });
+
+test("a glow model added to the scene (a side's logo as it takes a post): registered as three starts its render, its programs built without a draw", () => {
+  const { core, calls, scene, camera, renderer, frame, drawn } = bridge();
+  const target = core.graphics.sceneTarget;
+  const back = program(BASIC, ["position", "uv"], "#define FLIP_SIDED\nvertex"), front = program(BASIC, ["position", "uv"]);
+  const compiled = [];
+  renderer.compile = (list) => { list.traverse((o) => { compiled.push(o); drawn(o.material, front, [back, front]); renderer.properties.get(o.material).__version = undefined; }); };
+  scene.onBeforeRender(renderer, scene, camera, target);
+  // As game.js glowModel makes one: a material its parts share, on the group.
+  const material = new THREE.MeshBasicMaterial({ map: new THREE.Texture(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+  geometry.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(6), 2));
+  geometry.setIndex([0, 1, 2]);
+  const holder = new THREE.Group(), group = new THREE.Group(), part = new THREE.Mesh(geometry, material);
+  group.add(part);
+  group.userData.material = material;
+  scene.add(holder);
+  holder.add(group);
+  scene.updateMatrixWorld(true);
+  scene.onBeforeRender(renderer, scene, camera, target);
+  assert.deepEqual(compiled, [part], "its program built");
+  assert.equal(calls.filter((c) => c[0] === "fx_add_model").length, 1, `registered (${core.errors.join("; ")})`);
+  assert.equal(material.visible, false, "hidden from three before three lists it");
+  frame();
+  assert.equal(core.fxInput[0], 1, "drawn by the renderer this frame");
+});

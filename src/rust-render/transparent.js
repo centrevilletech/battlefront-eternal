@@ -162,12 +162,9 @@ class TransparentPass {
     // this frame, registered in the transparent phase.
     this.taken = new Map();
     this.candidates = [];
-    // The near scene's objects this pass could draw, looked over before three
-    // lists the scene (beforeSort), shown or not: all of them once, then
-    // what is added (each object of the scene told of its children added).
-    this.watched = new WeakSet();
-    this.added = null;
-    this.onAdded = ({ child }) => { this.added?.push(child); };
+    // Objects found before three listed the scene (beforeSort) that could not
+    // be registered yet (a texture still loading).
+    this.retry = new Set();
     this.presortFailed = false;
     // The objects' programs, made for this pass alone: the renderer keeps
     // the values it last set in each (transparent.rs), and the effects'
@@ -295,19 +292,17 @@ class TransparentPass {
   // comes near; a side's logo, made as it takes the post), their programs
   // built by three without a draw (compileFor) and registered, so that three
   // never draws them for their first frame: the whole scene the first time,
-  // then what was added to it since. (A blended bucket of the map is drawn
-  // from the battle's first frames, and registered as three lists it.)
-  beforeSort(renderer, scene, camera, target) {
+  // then what was added to it since (the core's watchScene). (A blended
+  // bucket of the map is drawn from the battle's first frames, and
+  // registered as three lists it.)
+  beforeSort(renderer, scene, camera, target, added) {
     const graphics = this.core.graphics;
-    if (!this.active || this.presortFailed || scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
-    const roots = this.added ?? [scene];
-    if (!roots.length) return;
-    this.added = [];
+    if (!this.active || this.presortFailed || !added || scene !== graphics.scene) return;
+    if (!added.length && !this.retry.size) return;
     try {
-      const found = [];
-      const watch = (o) => { if (!this.watched.has(o)) { this.watched.add(o); o.addEventListener("childadded", this.onAdded); } };
-      for (const root of roots) root.traverse((o) => {
-        watch(o);
+      const found = [...this.retry];
+      this.retry.clear();
+      for (const root of added) root.traverse((o) => {
         const material = o.material;
         if (!(o.isMesh || o.isSprite) || !material || Array.isArray(material) || OBJECT_KINDS[material.type] === undefined || !material.transparent || this.taken.has(o)) return;
         // Not a glow model's part (the effects pass's: its group keeps its
@@ -322,8 +317,11 @@ class TransparentPass {
       // Only what registered: anything else is looked at as three lists it
       // (a texture still loading, say).
       for (const object of found) {
+        if (this.taken.has(object)) continue;
         const entry = this.registerObject({ object, material: object.material, geometry: object.geometry, group: null }, true);
         if (entry) this.taken.set(object, entry);
+        // (Once three has drawn it, as three lists it.)
+        else if (entry === undefined && object.parent && renderer.properties.get(object.material).__version === undefined) this.retry.add(object);
       }
     } catch (error) {
       this.core.errors.push(`transparent before sort failed: ${String(error?.stack || error).slice(0, 400)}`);
@@ -505,7 +503,8 @@ class TransparentPass {
     const g = core.geometry(geometry, passes.programs[0]);
     if (g === null) return null;
     let map = -1;
-    if (passes.programs[0].names.has("map")) { map = core.texture(material.map); if (map < 0) return null; }
+    // (Built without a draw, its texture may still be loading: looked at again.)
+    if (passes.programs[0].names.has("map")) { map = core.texture(material.map); if (map < 0) return compiled ? undefined : null; }
     const start = geometry.drawRange.start, count = Math.min(geometry.drawRange.count, geometry.index.count - start);
     const id = rust.transparent_object(kind, g, start, count, new Uint32Array(blend), state.func, state.flags);
     passes.sides.forEach((side, i) => rust.transparent_object_pass(id, passes.programs[i].id, side));
