@@ -10,64 +10,13 @@
 //!
 //! BFE_NODE names the Node to run; BFE_CONTENT_MAP limits it to one map.
 
-use bfe_content::collision::{MapCollision, TriangleGrid};
-use bfe_content::install::{install, read_trees, BvhTree, CollisionKernel};
-use bfe_sim::collision::spheres::{world_statics, FixedSet};
-use bfe_sim::collision::{state, world_cast_ray, world_new, Corners, Grid, Ray, Tree, MISS, TERRAIN};
+use bfe_content::collision::MapCollision;
+use bfe_content::install::{install, read_trees};
+use bfe_sim::collision::install::Kernel;
+use bfe_sim::collision::{state, world_cast_ray, Ray, MISS, TERRAIN};
 use bfe_content::js::js_hypot;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
-/// The simulation module's collision state, as ray-kernel.js fills it.
-struct Kernel;
-
-impl CollisionKernel for Kernel {
-    fn positions(&mut self, data: &[f32]) -> usize {
-        let s = state();
-        s.positions.push(Corners::F32(data.to_vec()));
-        s.positions.len() - 1
-    }
-
-    fn grid(&mut self, positions: usize, index: &[u32], g: &TriangleGrid, triangles: usize) -> i32 {
-        let s = state();
-        s.grids.push(Grid {
-            positions,
-            index: index.to_vec(),
-            cells: g.cells.clone(),
-            start: g.start.clone(),
-            stamp: vec![0; triangles],
-            serial: 0,
-            min_x: g.min_x,
-            min_z: g.min_z,
-            max_x: g.max_x,
-            max_z: g.max_z,
-            size: g.size,
-            nx: g.nx,
-            nz: g.nz,
-        });
-        (s.grids.len() - 1) as i32
-    }
-
-    fn tree(&mut self, positions: usize, index: &[u32], tree: &BvhTree) -> u32 {
-        let s = state();
-        s.trees.push(Tree { roots: tree.roots.clone(), positions, index: index.to_vec(), indexed: !index.is_empty(), indirect: tree.indirect.clone(), polygons: Vec::new() });
-        (s.trees.len() - 1) as u32
-    }
-
-    fn world(&mut self, tree: u32, terrain: i32, grid: i32) -> u32 {
-        world_new(tree, terrain, grid)
-    }
-
-    fn fixed_set(&mut self, tree: u32, bounds: &[f32], polygons: &[u32], offset: f64) -> u32 {
-        let s = state();
-        s.sets.push(FixedSet { tree: tree as usize, bounds: bounds.to_vec(), polygons: polygons.to_vec(), offset });
-        (s.sets.len() - 1) as u32
-    }
-
-    fn world_statics(&mut self, world: u32, set: u32) {
-        world_statics(world, set);
-    }
-}
 
 #[test]
 fn installed_world_casts_as_the_javascript() {
