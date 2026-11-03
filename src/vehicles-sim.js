@@ -1,8 +1,8 @@
 // The hull phase on the simulation's module (rust/sim/src/vehicles/module.rs),
 // behind its switch: a world asked for it (createGame's ?hulls=rust, or
-// BFE_HULLS=rust under Node) runs its ground hulls' tick start and 120 Hz
-// substeps in Rust. The Vehicle objects stay the battle's: the phase writes
-// them into the store, the module ticks them there, and they are synced from
+// BFE_HULLS=rust under Node) runs its ground hulls' 120 Hz substeps and its
+// crafts' 60 Hz flight in Rust. The Vehicle objects stay the battle's: the
+// phase writes them into the store, the module ticks them there, and they are synced from
 // the store after it, so everything else reads and writes them as before.
 // What the Rust asks of the battle comes back here as the module's imports
 // (rust/sim/schema/vehicles.mjs) and goes to the same VehiclesWorld
@@ -22,7 +22,7 @@
 // the module never see the bodies differently.
 //
 // Given the vehicle pack (the models, clips and classes the hulls are made
-// from), the module also keeps each ground hull's rig and pose state from
+// from), the module also keeps each hull's rig and pose state from
 // the first phase of each of its lives (the hull just spawned and posed
 // once, as Vehicle.spawn leaves it) and poses it there, with the dying
 // hulls' last seconds before (aimTick, render, dyingTick); each pose is
@@ -32,8 +32,8 @@
 // the JavaScript pose left. What JavaScript changes between poses (the
 // seats' frozen aim, the barrels a seat fired) goes in before each phase.
 //
-// A world only; the flight, the seats' latch, the fire and the tow cables
-// stay JavaScript's until they move.
+// A world only; the seats' latch has its own switch (src/seats-sim.js),
+// and the fire and tow cables stay JavaScript's until they move.
 import * as THREE from "three";
 import { KIND_VEHICLE, KIND_VEHICLES, KIND_BODY } from "./sim/gen/index.js";
 import { FLIGHT_CLASSES } from "./flight/config.js";
@@ -123,7 +123,7 @@ export class VehiclesSim {
     this.flag = { value: false };
     this.number = { value: 0 };
     bridge.register(this.handlers());
-    // The poses: each ground hull the module poses, by the life it took
+    // The poses: each hull the module poses, by the life it took
     // the hull's pose for.
     this.lives = new WeakMap();
     this.posing = Boolean(pack) && this.pack(pack);
@@ -224,19 +224,20 @@ export class VehiclesSim {
     return this.x.veh_pack(text.length, floats / 4, indices / 4, clips / 4) > 0;
   }
 
-  // Whether the module poses this hull (a ground hull, this life).
+  // Whether the module poses this hull this life. A craft needs the
+  // flight state and gear clip that come with the flight phase.
   posed(v) {
-    return this.posing && !v.flying && this.lives.get(v) === v.aiTarget.generation;
+    return this.posing && (!v.flying || this.flight) && this.lives.get(v) === v.aiTarget.generation;
   }
 
-  // Before the phase: each live ground hull the module does not pose yet
+  // Before the phase: each live hull the module does not pose yet
   // this life has its whole pose state handed over (rust/sim/src/vehicles/
   // posing.rs pull), and each it poses what JavaScript changed since its
   // last pose (inputs).
   posesIn() {
     const refs = this.bridge.refs[KIND_VEHICLE];
     for (const v of this.vehicles.vehicles) {
-      if (v.flying || !v.alive || this.lives.get(v) === v.aiTarget.generation) continue;
+      if ((v.flying && !this.flight) || !v.alive || this.lives.get(v) === v.aiTarget.generation) continue;
       const values = pullPose(v);
       const at = this.input(values.length), f = this.bridge.f;
       for (let i = 0; i < values.length; i++) f[at + i] = values[i];

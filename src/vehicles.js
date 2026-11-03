@@ -2091,7 +2091,7 @@ export class Vehicles {
         this.acc -= FIXED_STEP;
       }
     }
-    // On the module the dying hulls' last seconds and the ground hulls'
+    // On the module the dying hulls' last seconds and the hulls'
     // poses ran in the phase, in this order (src/vehicles-sim.js).
     const posing = ground && this.sim.posing;
     if (!posing) for (const v of this.vehicles) if (!v.alive && v.dying > 0) v.dyingTick(dt);

@@ -280,7 +280,7 @@ pub extern "C" fn veh_pack(def_len: u32, floats: u32, indices: u32, animations: 
     count
 }
 
-/// A ground hull's pose as the constructor makes it from its class and
+/// A hull's pose as the constructor makes it from its class and
 /// model (build.rs), with its seats' turn rates, or None where the pack
 /// lacks either.
 fn new_pose(name: &str) -> Option<(HullPose, Vec<f64>)> {
@@ -344,9 +344,9 @@ pub extern "C" fn veh_posed() -> *const f64 {
     unsafe { (*addr_of_mut!(POSED)).as_ptr() }
 }
 
-/// Vehicles.syncCrews' part for the hulls the module poses (the crafts'
-/// riders stay JavaScript's): for each live posed hull in the battle's
-/// order, each seat a bot holds (a lease not a person's), its rider as
+/// Vehicles.syncCrews' part for the hulls the module poses: for each live
+/// posed hull in the battle's order, each seat a bot holds (a lease not a
+/// person's), its rider as
 /// poseRider places him: the hull slot and seat, the point he rides at
 /// (his seat's rider node in the world, else the hull's middle), the
 /// seat's aim, the hull's velocity, whether he shows (a rider node), and a
@@ -362,7 +362,7 @@ pub extern "C" fn veh_riders() -> *const f64 {
     let mut count = 0;
     for (i, &r) in hull_refs().iter().enumerate() {
         let v = sim().store.vehicle.get(r).expect("a hull the store holds");
-        if !v.alive || v.flying {
+        if !v.alive {
             continue;
         }
         let generation = v.target_generation;
@@ -645,7 +645,7 @@ fn input_of(hull: &Hull) -> Input {
 /// (captureTick), then the 120 Hz substeps the time left over `acc` and
 /// this update's `dt` make, every live ground hull ticking in each, its
 /// seat 0's frozen input or none; then each destroyed hull's dying, and,
-/// with `poses`, each ground hull the module poses posed for the tick
+/// with `poses`, each hull the module poses posed for the tick
 /// (aimTick, then render where `cosmetic`, as Vehicles.update poses every
 /// hull), at the tick's alpha. Returns what is left over. `level`: the
 /// water's level this phase (`water.level`), for a map with water;
@@ -747,13 +747,14 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
         }
     }
     let alpha = v8math::max(0.0, acc / FIXED_STEP);
-    // The ground hulls whose pose is the module's (this life's), in order.
+    // The hulls whose pose is the module's (this life's), in order.
+    // A craft needs its flight state and gear clip as well as its rig.
     let mine: Vec<(usize, Ref<Vehicle>)> = refs
         .iter()
         .enumerate()
         .filter(|&(_, &r)| {
             let v = sim().store.vehicle.get(r).expect("a hull the store holds");
-            !v.flying && matches!(poses().get(r.slot as usize), Some(Some(p)) if p.generation == v.target_generation)
+            (!v.flying || flight_on != 0) && matches!(poses().get(r.slot as usize), Some(Some(p)) if p.generation == v.target_generation)
         })
         .map(|(i, &r)| (i, r))
         .collect();
@@ -764,12 +765,16 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
         }
         for (k, &(i, r)) in mine.iter().enumerate() {
             let mut hull = load(r, i);
+            if hull.flying {
+                read_flight(&mut hull);
+            }
             // The hull holds its pose while it poses (nothing it calls
             // reaches the poses).
             let Posed { generation, pose, turn_rates } = poses()[r.slot as usize].take().expect("the hull's pose");
             hull.pose = Some(pose);
             if hull.alive && !hull.rests(dt) {
                 posed[k] = true;
+                let alpha = if hull.flying { 1.0 } else { alpha };
                 if pass == 0 {
                     hull.aim_tick(&mut world, alpha, dt);
                 } else {
@@ -777,7 +782,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
                 }
             }
             poses()[r.slot as usize] = Some(Posed { generation, pose: hull.pose.take().expect("the hull's pose"), turn_rates });
-            store(&hull);
+            store_hull(&hull);
         }
     }
     let mut count = 0;
