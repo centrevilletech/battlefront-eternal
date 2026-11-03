@@ -4,7 +4,8 @@
 // the assisted shot and a flyer missile's seeker (src/flight/targeting.js
 // assistShot, navigateMissile), the transports' spawn points
 // (src/flight/spawn.js transportPosts) and a craft's class by its name
-// (src/flight/config.js flightClass). Random and edge inputs go through the
+// (src/flight/config.js flightClass) and a network pilot's flight keys
+// (src/flight/controls.js flightInput). Random and edge inputs go through the
 // JavaScript itself, on stand-ins for the battle that answer each call from
 // a script and record it, and each case is written with what was asked and
 // answered and what came out, for rust/sim/tests/flight_cases.rs to replay
@@ -20,6 +21,7 @@ import { pilotInput, raiseOverTerrain } from '../../src/flight/ai.js';
 import { assistShot, navigateMissile } from '../../src/flight/targeting.js';
 import { transportPosts } from '../../src/flight/spawn.js';
 import { FLIGHT_CLASSES, flightClass } from '../../src/flight/config.js';
+import { FLIGHT_BINDINGS, flightBindings, flightInput } from '../../src/flight/controls.js';
 
 const argv = process.argv.slice(2);
 const out = argv.find((a) => !a.startsWith('--'));
@@ -178,6 +180,28 @@ function classCase(w) {
   w('class', { input: { name }, out: { kind: flightClass(name) } });
 }
 
+// A network pilot's flight keys (flightInput, with seatInput's curve and
+// assist), from held keys, queued actions and a pad.
+const CODES = [...new Set(Object.values(FLIGHT_BINDINGS).flat()), 'KeyX', 'Space', 'KeyJ'];
+const ACTIONS = ['takeoff', 'trick', 'immelmann', 'targetLock', 'use', 'jump'];
+function keysCase(w) {
+  const down = new Set(CODES.filter(() => chance(0.15)));
+  const queued = ACTIONS.filter(() => chance(0.25)).flatMap((a) => (chance(0.2) ? [a, a] : [a]));
+  const before = [...queued];
+  const controls = { down, take(name) { const i = queued.indexOf(name); if (i < 0) return false; queued.splice(i, 1); return true; } };
+  const overrides = chance(0.3) ? Object.fromEntries(Object.keys(FLIGHT_BINDINGS).filter(() => chance(0.3)).map((k) => [k, CODES.filter(() => chance(0.1))])) : undefined;
+  const bindings = flightBindings(overrides);
+  const axis = () => (chance(0.1) ? pick([undefined, NaN, 0, -0, 0.12, -0.12, 0.1200001]) : rand() * 2 - 1);
+  const pad = chance(0.4) ? null : { axes: chance(0.1) ? undefined : Array.from({ length: Math.floor(rand() * 5) }, axis), buttons: Array.from({ length: Math.floor(rand() * 13) }, () => ({ pressed: chance(0.3) })) };
+  const curve = chance(0.5) ? undefined : pick([0, 1, 1.35, 2, NaN]);
+  const assist = chance(0.5);
+  const input = flightInput(controls, bindings, pad);
+  input.responseCurve = curve;
+  if (!assist) input.steeringAssist = false;
+  w('keys', { input: { down: [...down], queued: before, bindings, pad: pad && { axes: pad.axes ?? null, buttons: pad.buttons.map((b) => b.pressed) }, curve, assist },
+    out: { keys: { ...input }, queued: [...queued] } });
+}
+
 const writer = new Writer();
 const fd = fs.openSync(out, 'w');
 fs.writeSync(fd, MAGIC);
@@ -187,7 +211,7 @@ const w = (kind, value) => {
   if (writer.length > (8 << 20)) fs.writeSync(fd, writer.take());
 };
 writer.record(RECORD.header, 0, 'header', { format: 1, tool: 'sim-flight-cases', node: process.version, v8: process.versions.v8, cases: N });
-const kinds = [pilotCase, pilotCase, pilotCase, raiseCase, assistCase, missileCase, missileCase, transportCase, classCase];
+const kinds = [pilotCase, pilotCase, pilotCase, raiseCase, assistCase, missileCase, missileCase, transportCase, classCase, keysCase];
 for (let i = 0; i < N; i++) pick(kinds)(w);
 fs.writeSync(fd, writer.take());
 fs.closeSync(fd);

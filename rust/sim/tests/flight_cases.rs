@@ -13,6 +13,7 @@
 
 use bfe_sim::flight::ai::{Blend, PilotEnv, PilotWorld, Request, Steer};
 use bfe_sim::flight::config::{flight_class, Config, Tuning};
+use bfe_sim::flight::controls::{flight_input, Bindings, Controls, Pad};
 use bfe_sim::flight::spawn::transport_points;
 use bfe_sim::flight::state::{Message, Trick};
 use bfe_sim::flight::targeting::{navigate_missile, MissileTarget};
@@ -473,6 +474,91 @@ fn class(case: V) -> Result<(), String> {
     Ok(())
 }
 
+struct CaseControls {
+    down: Vec<String>,
+    queued: Vec<String>,
+}
+
+impl Controls for CaseControls {
+    fn down(&self, code: &str) -> bool {
+        self.down.iter().any(|c| c == code)
+    }
+    fn take(&mut self, action: &str) -> bool {
+        match self.queued.iter().position(|a| a == action) {
+            Some(i) => {
+                self.queued.remove(i);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+struct CaseBindings(Vec<(String, Vec<String>)>);
+
+impl Bindings for CaseBindings {
+    fn codes(&self, name: &str) -> &[String] {
+        self.0.iter().find(|(n, _)| n == name).map_or(&[], |(_, c)| c.as_slice())
+    }
+}
+
+fn strings(v: V) -> Vec<String> {
+    v.items().map(|s| s.str().unwrap_or("").to_string()).collect()
+}
+
+fn keys(case: V) -> Result<(), String> {
+    let input = case.get("input");
+    let mut controls = CaseControls { down: strings(input.get("down")), queued: strings(input.get("queued")) };
+    let bindings = match input.get("bindings").node() {
+        Some(sim_replay::Node::Object { fields, .. }) => CaseBindings(fields.iter().map(|(k, v)| (k.clone(), strings(input.get("bindings").arena.view(v)))).collect()),
+        _ => return Err("bindings: not an object".into()),
+    };
+    let p = input.get("pad");
+    let pad = if p.is_nullish() {
+        None
+    } else {
+        Some(Pad {
+            axes: if p.get("axes").is_nullish() { Vec::new() } else { p.get("axes").items().map(|a| a.opt_num()).collect() },
+            buttons: p.get("buttons").items().map(|b| b.bool()).collect(),
+        })
+    };
+    let curve = js_num(input.get("curve"));
+    let mine = flight_input(&mut controls, &bindings, pad.as_ref(), curve, input.get("assist").bool());
+    let out = case.get("out");
+    let k = out.get("keys");
+    let num = |key: &str, mine: f64| -> Result<(), String> {
+        if same_number(js_num(k.get(key)), mine) {
+            Ok(())
+        } else {
+            Err(format!("{key}: the case has {}, the port {mine}", k.get(key).show()))
+        }
+    };
+    num("forward", mine.forward)?;
+    num("right", mine.right)?;
+    for (key, value) in [("stickX", mine.stick_x), ("stickY", mine.stick_y)] {
+        let theirs = k.get(key);
+        match value {
+            None if theirs.is_undefined() => {}
+            Some(x) if same_number(theirs.opt_num().unwrap_or(f64::NAN), x) && !theirs.is_undefined() => {}
+            _ => return Err(format!("{key}: the case has {}, the port {value:?}", theirs.show())),
+        }
+    }
+    for (key, value) in [("boost", mine.boost), ("rollLock", mine.roll_lock), ("takeoff", mine.takeoff), ("trick", mine.trick), ("immelmann", mine.immelmann), ("targetLock", mine.target_lock)] {
+        if !matches!(k.get(key).value, Value::Bool(_)) || f64::from(u8::from(k.get(key).bool())) != value {
+            return Err(format!("{key}: the case has {}, the port {value}", k.get(key).show()));
+        }
+    }
+    num("responseCurve", mine.response_curve)?;
+    let no_assist = matches!(k.get("steeringAssist").value, Value::Bool(false));
+    if no_assist != mine.no_assist {
+        return Err(format!("steeringAssist: the case has {}, the port no_assist {}", k.get("steeringAssist").show(), mine.no_assist));
+    }
+    if strings(out.get("queued")) != controls.queued {
+        return Err(format!("queued after: the case has {}, the port {:?}", out.get("queued").show(), controls.queued));
+    }
+    Ok(())
+}
+
 #[test]
 fn flight_functions_as_the_javascript() {
     let Ok(path) = std::env::var("BFE_FLIGHT_CASES") else {
@@ -494,6 +580,7 @@ fn flight_functions_as_the_javascript() {
             "missile" => missile(case),
             "transport" => transport(case),
             "class" => class(case),
+            "keys" => keys(case),
             other => Err(format!("no kind {other}")),
         };
         let t = tally.entry(kind.to_string()).or_default();
