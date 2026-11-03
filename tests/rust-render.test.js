@@ -318,6 +318,41 @@ test("a bucket culled by cell registers whatever draw range three's last view le
   assert.equal(calls.filter((c) => c[0] === "world_cells").length, 1);
 });
 
+test("the world and instance passes switched off alone give their draws back to three", () => {
+  const { core, calls, renderer, scene, camera } = bridge();
+  standIns(core, ["map"]);
+  const material = new THREE.ShaderMaterial({ defines: { WORLD_SPACE: "" }, uniforms: {} });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setIndex([0, 1, 2]);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.matrixAutoUpdate = false;
+  scene.add(mesh);
+  const props = renderer.properties.get(material);
+  props.currentProgram = {};
+  props.__version = material.version;
+  core.pass(renderer, scene, camera);
+  assert.equal(material.visible, false, "registered: the renderer's");
+  calls.length = 0;
+  core.byName.world.setActive(false);
+  assert.equal(material.visible, true);
+  assert.deepEqual(calls.filter((c) => c[0] === "world_shown"), [["world_shown", 9, false]], "and not the renderer's too");
+  core.byName.world.setActive(true);
+  assert.equal(material.visible, false);
+  assert.deepEqual(calls.filter((c) => c[0] === "world_shown").at(-1), ["world_shown", 9, true]);
+  // The instance pass writes no records while it is off.
+  const instances = core.byName.instances;
+  let looked = 0;
+  instances.soldier = () => { looked++; };
+  core.graphics.cullRoots.push({});
+  instances.setActive(false);
+  core.pass(renderer, scene, camera);
+  assert.equal(looked, 0);
+  instances.setActive(true);
+  core.pass(renderer, scene, camera);
+  assert.equal(looked, 1);
+});
+
 test("a phase that made no GL call leaves three's state alone", () => {
   const { core, calls, renderer, scene, camera } = bridge();
   core.rust.transparent_frame = () => { calls.push(["transparent_frame"]); return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; };
