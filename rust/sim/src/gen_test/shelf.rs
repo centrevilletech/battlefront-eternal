@@ -98,6 +98,37 @@ impl Spot {
 
 }
 
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Ask {
+    pub n: f64,
+    pub who: Option<Ref<Person>>,
+    pub things: Vec<Ref<Thing>>,
+    pub spot: Option<Spot>,
+}
+
+impl Ask {
+    pub const WORDS: usize = 22;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 22] = (&mut row[..22]).try_into().unwrap();
+        row[0] = self.n;
+        match &self.who { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).slot as f64; row[1 + 1 + 1] = (*v).gen as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 3].fill(0.0); } }
+        row[4] = heap.len() as f64; row[4 + 1] = self.things.len() as f64; for r in self.things.iter() { heap.push(r.slot as f64); heap.push(r.gen as f64); }
+        match &self.spot { Some(v) => { row[6] = 0.0; v.put(&mut row[6 + 1..], heap); } None => { row[6] = 1.0; row[6 + 1..6 + 16].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 22] = (&row[..22]).try_into().unwrap();
+        Self {
+            n: row[0],
+            who: if row[1] == 0.0 { Some(Ref::new(word_u32(row[1 + 1]), word_u32(row[1 + 1 + 1]))) } else { None },
+            things: { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); (0..n).map(|i| Ref::new(word_u32(heap[at + 2 * i]), word_u32(heap[at + 2 * i + 1]))).collect() },
+            spot: if row[6] == 0.0 { Some(Spot::take(&row[6 + 1..], heap)) } else { None },
+        }
+    }
+
+}
+
 /// A shelf (one a battle), from rust/sim/schema-test/shelf.mjs.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Shelf {

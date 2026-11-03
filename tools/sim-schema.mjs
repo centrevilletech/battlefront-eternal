@@ -102,14 +102,36 @@ function parseField(name, spec, where) {
 }
 
 export function buildModel(files) {
-  const model = { enums: new Map(), unions: new Map(), records: new Map(), kinds: new Map(), files: files.map((f) => f.file) };
+  const model = { enums: new Map(), unions: new Map(), records: new Map(), kinds: new Map(), commands: new Map(), events: new Map(), imports: new Map(), files: files.map((f) => f.file) };
   const names = new Map(); // Rust type name -> where
   const claim = (rust, where) => {
     if (names.has(rust)) fail(where, `${rust} is also ${names.get(rust)}`);
     names.set(rust, where);
   };
   for (const { file, schema } of files) {
-    for (const k of Object.keys(schema)) if (!['enums', 'unions', 'records', 'kinds'].includes(k)) fail(file, `unknown section "${k}"`);
+    for (const k of Object.keys(schema)) if (!['enums', 'unions', 'records', 'kinds', 'commands', 'events', 'imports'].includes(k)) fail(file, `unknown section "${k}"`);
+    // A command (JavaScript writing into Rust's state), an event (Rust telling
+    // JavaScript) and an import (Rust asking JavaScript): each names records
+    // for its arguments, result or payload; a command names the Rust function
+    // that runs it.
+    for (const [name, spec] of Object.entries(schema.commands || {})) {
+      const where = `${file} command ${name}`;
+      if (model.commands.has(name)) fail(where, 'declared twice');
+      if (!spec || typeof spec.args !== 'string' || typeof spec.rust !== 'string') fail(where, 'a command is { args: Record, result: Record or null, rust: "module::function" }');
+      model.commands.set(name, { name, file, args: spec.args, result: spec.result ?? null, rust: spec.rust, where });
+    }
+    for (const [name, spec] of Object.entries(schema.events || {})) {
+      const where = `${file} event ${name}`;
+      if (model.events.has(name)) fail(where, 'declared twice');
+      if (typeof spec !== 'string') fail(where, 'an event is the name of the record it carries');
+      model.events.set(name, { name, file, record: spec, where });
+    }
+    for (const [name, spec] of Object.entries(schema.imports || {})) {
+      const where = `${file} import ${name}`;
+      if (model.imports.has(name)) fail(where, 'declared twice');
+      if (!spec || typeof spec.args !== 'string') fail(where, 'an import is { args: Record, result: Record or null }');
+      model.imports.set(name, { name, file, args: spec.args, result: spec.result ?? null, where });
+    }
     for (const [name, values] of Object.entries(schema.enums || {})) {
       const where = `${file} enum ${name}`;
       if (!Array.isArray(values) || !values.length || values.some((v) => typeof v !== 'string') || new Set(values).size !== values.length || values.length > 255) fail(where, 'an enum is a list of distinct strings');
@@ -202,6 +224,15 @@ export function buildModel(files) {
   for (const k of kinds) k.fields.forEach(check);
   for (const u of model.unions.values()) for (const v of u.variants) if (v.tag === 'ref' && !model.kinds.has(v.kind)) fail(`union ${u.name}`, `no kind ${v.kind}`);
   for (const u of model.unions.values()) if (u.variants.filter((v) => v.tag === 'ref' && model.kinds.get(v.kind).fields.length).length > 1) fail(`union ${u.name}`, 'at most one of its kinds can be one the store holds fields of');
+  // Calls' records exist; each section's codes are its names in order, from 1.
+  for (const [section, list] of [['commands', model.commands], ['events', model.events], ['imports', model.imports]]) {
+    const sorted = [...list.values()].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    sorted.forEach((c, i) => {
+      c.code = i + 1;
+      for (const r of [c.args, c.result, c.record]) if (r && !model.records.has(r)) fail(c.where, `no record ${r}`);
+    });
+    model[`${section}List`] = sorted;
+  }
   // Records nest by value: no record may hold itself.
   const visiting = new Set();
   const walk = (name) => {
@@ -485,7 +516,43 @@ function rustIndex(model) {
     }
   }
   lines.push('            _ => return false,', '        }', '        true', '    }', '}');
+  lines.push(...rustCalls(model));
   return lines.join('\n') + '\n';
+}
+
+// Commands' dispatch, events' emitters and imports' calls.
+function rustCalls(model) {
+  const lines = [''];
+  const consts = (prefix, list) => {
+    for (const c of list) lines.push(`pub const ${prefix}_${upper(c.name)}: u32 = ${c.code};`);
+    lines.push(`pub const ${prefix}_NAMES: [&str; ${list.length + 1}] = ["", ${list.map((c) => JSON.stringify(c.name)).join(', ')}];`, '');
+  };
+  consts('COMMAND', model.commandsList);
+  consts('EVENT', model.eventsList);
+  consts('IMPORT', model.importsList);
+  lines.push('/// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,', '/// its result written there after it; false for no such command.', 'pub fn run_command(sim: &mut crate::abi::Sim, code: u32) -> bool {', '    match code {');
+  for (const c of model.commandsList) {
+    lines.push(`        COMMAND_${upper(c.name)} => {`, `            let args = { let (row, heap) = sim.calls.args(); ${c.args}::take(row, heap) };`);
+    if (c.result) lines.push(`            let result = crate::${c.rust}(sim, args);`, `            sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`);
+    else lines.push(`            crate::${c.rust}(sim, args);`, '            sim.calls.result(0, |_, _| {});');
+    lines.push('        }');
+  }
+  lines.push('        _ => return false,', '    }', '    true', '}', '');
+  for (const e of model.eventsList) {
+    lines.push(`impl ${e.record} {`, `    /// Emits it as the event ${e.name} (drained in order at the end of the phase).`, '    pub fn emit(&self, events: &mut crate::store::calls::Events) {', `        events.emit(EVENT_${upper(e.name)}, ${e.record}::WORDS, |row, heap| self.put(row, heap));`, '    }', '}', '');
+  }
+  if (model.importsList.length) {
+    lines.push('#[cfg(target_arch = "wasm32")]', '#[link(wasm_import_module = "bfe")]', 'extern "C" {');
+    for (const c of model.importsList) lines.push(`    fn bfe_import_${snake(c.name).replace(/^r#/, '')}();`);
+    lines.push('}', '');
+    for (const c of model.importsList) {
+      const fn = snake(c.name).replace(/^r#/, '');
+      lines.push(`/// Asks JavaScript (the import ${c.name}): its arguments go out in the call block,`, '/// its result comes back there. The module only (a native build serves its', '/// boundary from elsewhere: the replay harness, or Rust).', '#[cfg(target_arch = "wasm32")]', `pub fn import_${fn}(calls: &mut crate::store::calls::Calls, args: &${c.args}) -> ${c.result ?? '()'} {`, `    calls.result(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    unsafe { bfe_import_${fn}() };`);
+      if (c.result) lines.push('    let (row, heap) = calls.args();', `    ${c.result}::take(row, heap)`);
+      lines.push('}', '');
+    }
+  }
+  return lines;
 }
 
 // ---- Rust: the replay harness's values (the `replay` feature) ----
@@ -921,11 +988,21 @@ function jsKinds(model) {
   return lines.join('\n') + '\n';
 }
 
+// The imports' names and symbols alone, for the module's loader
+// (src/sim/module.js), which needs nothing else of the generated code.
+function jsImports(model) {
+  const lines = [`// Generated by tools/sim-schema.mjs from ${model.target.schema}/; do not edit.`, '// What the module imports from JavaScript, by code: the bridge serves each.'];
+  lines.push(`export const IMPORT_SYMBOLS = [null, ${model.importsList.map((c) => `{ name: ${JSON.stringify(c.name)}, code: ${c.code}, symbol: ${JSON.stringify(`bfe_import_${snake(c.name).replace(/^r#/, '')}`)} }`).join(', ')}];`);
+  return lines.join('\n') + '\n';
+}
+
 function jsIndex(model) {
   const lines = [`// Generated by tools/sim-schema.mjs from ${model.target.schema}/; do not edit.`, '// Every kind: its code, name, layout and generated functions, for the', '// store\'s runtime (src/sim/runtime.js) to dispatch on (docs/sim-store.md).'];
+  const callRecords = new Set([...model.commandsList.flatMap((c) => [c.args, c.result]), ...model.eventsList.map((e) => e.record), ...model.importsList.flatMap((c) => [c.args, c.result])].filter(Boolean));
   for (const f of model.files) {
     const names = [];
     for (const k of model.kindList) if (k.file === f) names.push(`${k.rust}Mirror`, `sync${k.rust}`, `syncFull${k.rust}`, `put${k.rust}`, `putFull${k.rust}`, `check${k.rust}`, `same${k.rust}`, `export${k.rust}`, `${upper(k.name)}_KEYS`);
+    for (const r of callRecords) if (model.records.get(r).file === f) names.push(`${r}Mirror`, `sync${r}`, `put${r}`);
     if (names.length) lines.push(`import { ${names.join(', ')} } from "./${f}.js";`);
   }
   lines.push('export * from "./kinds.js";');
@@ -937,7 +1014,14 @@ function jsIndex(model) {
     const s = (w) => layout(model, k, w).stride;
     lines.push(`  { ${base}, exportStride: ${s('export')}, importStride: ${s('import')}, fullStride: ${s('full')}, Mirror: ${k.rust}Mirror, sync: sync${k.rust}, syncFull: syncFull${k.rust}, put: put${k.rust}, putFull: putFull${k.rust}, check: check${k.rust}, same: same${k.rust}, export: export${k.rust}, keys: ${upper(k.name)}_KEYS },`);
   }
-  lines.push('];', '', `export const DEF_TABLES = ${JSON.stringify([...new Set([...model.kindList.flatMap((k) => k.fields), ...[...model.records.values()].flatMap((r) => r.fields)].filter((f) => f.type.base === 'def').map((f) => f.type.of))].sort())};`);
+  lines.push('];', '');
+  const recFns = (r) => ({ words: words(model, { base: 'rec', of: r, nullable: { null: false, undefined: false } }) });
+  const fnsOf = (r) => `{ words: ${recFns(r).words}, Mirror: ${r}Mirror, sync: sync${r}, put: put${r} }`;
+  lines.push('// Commands, events and imports by code: name, and their records\' words and functions.');
+  lines.push(`export const COMMAND_TABLE = [null, ${model.commandsList.map((c) => `{ name: ${JSON.stringify(c.name)}, code: ${c.code}, args: ${fnsOf(c.args)}, result: ${c.result ? fnsOf(c.result) : 'null'} }`).join(', ')}];`);
+  lines.push(`export const EVENT_TABLE = [null, ${model.eventsList.map((e) => `{ name: ${JSON.stringify(e.name)}, code: ${e.code}, record: ${fnsOf(e.record)} }`).join(', ')}];`);
+  lines.push(`export const IMPORT_TABLE = [null, ${model.importsList.map((c) => `{ name: ${JSON.stringify(c.name)}, code: ${c.code}, symbol: ${JSON.stringify(`bfe_import_${snake(c.name).replace(/^r#/, '')}`)}, args: ${fnsOf(c.args)}, result: ${c.result ? fnsOf(c.result) : 'null'} }`).join(', ')}];`, '');
+  lines.push(`export const DEF_TABLES = ${JSON.stringify([...new Set([...model.kindList.flatMap((k) => k.fields), ...[...model.records.values()].flatMap((r) => r.fields)].filter((f) => f.type.base === 'def').map((f) => f.type.of))].sort())};`);
   return lines.join('\n') + '\n';
 }
 
@@ -954,6 +1038,7 @@ export async function generate() {
     out.set(join(rust, 'replay.rs'), rustReplay(model));
     for (const f of model.files) out.set(join(rust, `${snake(f)}.rs`), rustFile(model, f));
     out.set(join(js, 'kinds.js'), jsKinds(model));
+    out.set(join(js, 'imports.js'), jsImports(model));
     out.set(join(js, 'index.js'), jsIndex(model));
     for (const f of model.files) out.set(join(js, `${f}.js`), jsFile(model, f));
   }
