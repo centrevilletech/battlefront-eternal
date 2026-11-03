@@ -23,6 +23,23 @@ const SUB = 8; // samples between gain updates
 const EXCITE = 10 ** (-12 / 20);
 const MAX_LIFT = 10 ** (4 / 20);
 const KNEE = 10 ** (1 / 10); // a power ratio of 1 dB
+// The same DSP in WebAssembly (rust/audio, ?audio=wasm):
+// processorOptions.dsp is the compiled module the page hands over
+// (src/audio/wasm-dsp.js). With it, blocks go to the module, whose
+// answers are this file's own to the last bit
+// (tests/audio-dsp-parity.mjs); without it, the JavaScript below runs as
+// it always has.
+const DSP_MATH = { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin, js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10 };
+function dspExports(options) {
+  const m = options?.processorOptions?.dsp;
+  if (!m) return null;
+  try {
+    return new WebAssembly.Instance(m, { env: DSP_MATH }).exports;
+  } catch {
+    return null;
+  }
+}
+
 
 class Biquad {
   constructor(type, f0, q, rate) {
@@ -77,9 +94,29 @@ class Clarity extends AudioWorkletProcessor {
     this.slow = 0;
     this.gain = 1;
     this.gains = new Float32Array(BLOCK);
+    const x = dspExports(options);
+    if (x) this.dsp = { x, h: x.clarity_new(sampleRate, this.channels, this.skip) };
+  }
+
+  // One block through the module (128 frames, as worklets always get).
+  processDsp(inputs, outputs) {
+    const d = this.dsp;
+    const { x, h } = d;
+    const input = inputs[0] || [];
+    const output = outputs[0];
+    if (!d.inView || d.inView.byteLength === 0) {
+      d.inView = new Float32Array(x.memory.buffer, x.clarity_in(h), this.channels * BLOCK);
+      d.outView = new Float32Array(x.memory.buffer, x.clarity_out(h), this.channels * BLOCK);
+    }
+    const inCh = Math.min(input.length, this.channels);
+    for (let c = 0; c < inCh; c++) d.inView.set(input[c], c * BLOCK);
+    x.clarity_process(h, inCh, Math.min(output.length, this.channels));
+    for (let c = 0; c < output.length && c < this.channels; c++) output[c].set(d.outView.subarray(c * BLOCK, (c + 1) * BLOCK));
+    return true;
   }
 
   process(inputs, outputs) {
+    if (this.dsp && outputs[0][0]?.length === BLOCK) return this.processDsp(inputs, outputs);
     const input = inputs[0];
     const output = outputs[0];
     if (!input || !input.length) {
