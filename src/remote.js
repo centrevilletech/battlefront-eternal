@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { SoldierCamera } from "./camera.js";
 import { blastBlocked, blastDamage, blastDistance, falloff } from "./ordnance.js";
+import { legacyRandom } from "./ai/random.js";
 import { Arsenal } from "./weapons.js";
 import { captureOrdnanceOwner } from "./ordnance-owner.js";
 
@@ -38,6 +39,8 @@ const BODY = new THREE.Vector3(0, 0.155, 0); // the collision sphere's centre in
 export const BODY_RADIUS = 0.271;
 const GRAVITY = 9.8;
 const LOOKAHEAD = 5; // m/s of horizontal speed above which it looks ahead
+// The strike scatter with no generator given (random null): Math.random.
+const legacyScatter = legacyRandom("recon-strike");
 const FRICTION = 0.28125;
 const BOUNCE = 0.125;
 const LOOK_SCALE = 2048;
@@ -427,8 +430,8 @@ export class RemoteDroids {
       while (s.left > 0 && s.wait <= 0) {
         const scatter = s.def.ScatterDistance || 0;
         const start = s.at.clone()
-          .addScaledVector(s.x, scatter * ((this.random || Math.random)() - (this.random || Math.random)()))
-          .addScaledVector(s.y, scatter * ((this.random || Math.random)() - (this.random || Math.random)()))
+          .addScaledVector(s.x, scatter * ((this.random || legacyScatter)() - (this.random || legacyScatter)()))
+          .addScaledVector(s.y, scatter * ((this.random || legacyScatter)() - (this.random || legacyScatter)()))
           .addScaledVector(s.z, s.def.AimDistance ?? 100);
         this.fire(s.def.strike, start, s.z.clone().negate(), droid.owner);
         s.left -= 1;

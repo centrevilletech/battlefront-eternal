@@ -183,7 +183,10 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
       const accepted=p.mailbox.push(p.separateActions ? {...command,actions:[],human:undefined} : command);
       if(accepted){p.lastInputAt=performance.now();p.inputsStale=false;}return accepted;
     },
-    step() {
+    // One tick. at: the host's wall time for it (ms, performance.now()'s),
+    // the step's one clock input: half a second of it without input stops a
+    // player (stopInput), and the world's barrels kick back on it.
+    step(at = performance.now()) {
       const tick=game.worldClock.tick+1;
       hitHistory.capture(game.worldClock.tick);
       for(const p of players.values()) {
@@ -200,7 +203,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
           continue;
         }
         if(p.spectator)continue;
-        if(!p.inputsStale && performance.now()-p.lastInputAt>500) {
+        if(!p.inputsStale && at-p.lastInputAt>500) {
           p.inputsStale=true;stopInput(p);
         }
         let u=p.unit;const command=p.mailbox.take(tick,u.generation);
@@ -272,7 +275,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
         }
       }
       updateViews();
-      game.step({epoch:1,sequence:tick,tick,generation:game.playerUnit.generation,down:[],actions:[],look:[]});
+      game.step({epoch:1,sequence:tick,tick,generation:game.playerUnit.generation,down:[],actions:[],look:[]},at);
       return tick;
     },
   };
