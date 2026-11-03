@@ -24,7 +24,7 @@ const viewProjection = new THREE.Matrix4(), point = new THREE.Vector4(), frustum
 const opaqueOrder = (a, b) => a.groupOrder - b.groupOrder || a.renderOrder - b.renderOrder || a.material - b.material || a.z - b.z || a.id - b.id;
 const transparentOrder = (a, b) => a.groupOrder - b.groupOrder || a.renderOrder - b.renderOrder || b.z - a.z || a.id - b.id;
 // Record layout (instances.rs REC_*).
-const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56 };
+const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, GROUPS: 3, TEXTURES: 4, BONES: 8, SPHERE: 10, BOX: 14, WORLD: 20, BIND_INVERSE: 36, LOOK: 52, FLAGS: 56, EXTRA: 76 };
 const MAX_RECORDS = 256;
 const flagsOf = (m) => m.side | (m.alphaToCoverage ? 4 : 0) | (m.depthWrite ? 8 : 0);
 // What a part's program may read besides the frame block (as instances.js
@@ -33,7 +33,9 @@ const flagsOf = (m) => m.side | (m.alphaToCoverage ? 4 : 0) | (m.depthWrite ? 8 
 const LOOK = new Set(["sunScale", "ambientPull", "brightness"]);
 const INSTANCE = ["modelMatrix", "modelViewMatrix", "normalMatrix", "bindMatrixInverse", "bindMatrix", ...LOOK, "zeroLights", "zeroLightCount"];
 const LAMPS = ["localLightPositions", "localLightColors", "localLightCount"];
-const POLICY = { uniforms: new Set(["map", "farMap", ...INSTANCE, ...LAMPS]), material: LOOK };
+// lamps: each part's lamps (a view model's, local-lights.js) go in its row
+// (the record's EXTRA + 13 count, + 16..19 lamp table indices).
+const POLICY = { uniforms: new Set(["map", "farMap", ...INSTANCE, ...LAMPS]), material: LOOK, lamps: true };
 
 class ViewPass {
   constructor(core) {
@@ -105,7 +107,7 @@ class ViewPass {
       if (geometry !== null && geometry !== undefined && texture >= 0) {
         if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
         if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
-        record = { mesh, material, program: program.id, geometry, texture };
+        record = { mesh, material, program: program.id, geometry, texture, lamps: program.lamps };
         material.visible = !core.active;
         this.records.push(record);
       }
@@ -204,12 +206,25 @@ class ViewPass {
     const u = material.uniforms;
     input[o + R.LOOK] = u.sunScale.value; input[o + R.LOOK + 1] = u.ambientPull.value.x; input[o + R.LOOK + 2] = u.ambientPull.value.y; input[o + R.LOOK + 3] = u.brightness.value;
     input[o + R.FLAGS] = flagsOf(material);
+    if (record.lamps) {
+      // As the part's material's onBeforeRender selects them (a view model's).
+      const lamps = core.lamps(mesh, true);
+      input[o + R.EXTRA + 13] = lamps.count;
+      for (let k = 0; k < 4; k++) input[o + R.EXTRA + 16 + k] = lamps.indices[k];
+    }
     at.records++;
   }
 
   setActive(on) {
     for (const record of this.records) record.material.visible = !on;
     this.on = on;
+  }
+
+  // Shown to three while one of three's own renders needs them (index.js
+  // reveal): the temporal upscaler's motion pass draws the view scene again,
+  // with an override material, for the mask that keeps it fixed on screen.
+  reveal(on) {
+    for (const record of this.records) record.material.visible = on;
   }
 
   restore() {
