@@ -953,6 +953,7 @@ impl VehicleWorld for JsWorld {
     }
 
     fn damaged(&mut self, hull: usize, amount: f64, attacker: &OrdnanceOwner) {
+        if f2::active() { f2::publish(); }
         import_veh_damaged(&VehDamaged { hull: hull as f64, amount, attacker: *attacker });
     }
 
@@ -962,6 +963,7 @@ impl VehicleWorld for JsWorld {
     }
 
     fn destroyed(&mut self, hull: usize) {
+        if f2::active() { f2::publish(); }
         import_veh_destroyed(&VehHull { hull: hull as f64 });
     }
 
@@ -976,6 +978,7 @@ impl VehicleWorld for JsWorld {
     }
 
     fn explosion(&mut self, hull: usize, final_explosion: bool, position: &Vector3) {
+        if f2::active() { f2::publish(); }
         import_veh_explosion(&VehBlast { hull: hull as f64, r#final: final_explosion, position: v3(position) });
     }
 
@@ -1001,8 +1004,9 @@ impl VehicleWorld for JsWorld {
     }
 
     fn current(&mut self, hull: &Hull) {
+        // Vehicle.setHealth may enter native crew work before its next hook.
+        // Publish at the actual foreign call so no unread block is replaced.
         store_hull(hull);
-        if f2::active() { f2::publish(); }
     }
 
     fn reload(&mut self, hull: &mut Hull) {

@@ -505,12 +505,20 @@ fn run_command(a: F2SeatCommand) -> F2SeatResult {
 pub fn destroyed(index: usize) {
     let r = sim().store.vehicles.vehicles[index];
     let life = sim().store.vehicle.get(r).unwrap().target_generation;
-    run(F2SeatCommand { op: F2SeatOp::Destroyed, hull: Some(r), hull_life: life, ..Default::default() });
+    internal(F2SeatCommand { op: F2SeatOp::Destroyed, hull: Some(r), hull_life: life, ..Default::default() });
 }
 pub fn release(index: usize) {
     let r = sim().store.vehicles.vehicles[index];
     let life = sim().store.vehicle.get(r).unwrap().target_generation;
-    run(F2SeatCommand { op: F2SeatOp::Release, hull: Some(r), hull_life: life, ..Default::default() });
+    internal(F2SeatCommand { op: F2SeatOp::Release, hull: Some(r), hull_life: life, ..Default::default() });
+}
+
+// Hull::setHealth continues natively after crew changes. Its next foreign
+// hook or command return publishes them together with the current hull.
+fn internal(a: F2SeatCommand) {
+    state().depth += 1;
+    run_command(a);
+    state().depth -= 1;
 }
 
 /// The unported hull weapon phase receives a transient trigger journal. Taking
