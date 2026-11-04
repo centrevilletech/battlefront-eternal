@@ -60,13 +60,13 @@ export function ticked(tick) {
   const storage = samples % 3 ? new Uint8Array(captured.payload.length + offset + 5) : Buffer.alloc(captured.payload.length + offset + 5);
   storage.set(captured.payload, offset);
   const record = { ...captured, payload: storage.subarray(offset, offset + captured.payload.length) };
-  const before = record.payload.slice();
+  const before = Uint8Array.from(record.payload);
   label = `battle-${index + 1}-tick-${tick}`;
   const first = native.calls, expected = decodeOwnPlayer(record), actual = decodeOwnPlayer(record, native);
   assert.equal(native.calls - first, 1, 'one native envelope read per live correction');
   assert.deepEqual(actual, expected, label);
   assert.equal(JSON.stringify(actual), JSON.stringify(expected), `${label} property and serialization order`);
-  assert.deepEqual(record.payload, before, `${label} source bytes unchanged`);
+  assert.deepEqual(new Uint8Array(record.payload.buffer, record.payload.byteOffset, record.payload.byteLength), before, `${label} source bytes unchanged`);
   modes[actual.controlMode] = (modes[actual.controlMode] || 0) + 1;
   schemas[actual.bodySchema] = (schemas[actual.bodySchema] || 0) + 1;
   payloadHash.update(record.payload); samples++;
