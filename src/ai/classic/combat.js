@@ -136,7 +136,7 @@ export function roleOf(classDef) {
 const choice = { ok: false, index: -1, weapon: null, action: 6, inBand: false };
 
 export function dispatch(controller, unit, target, switchAllowed, world, out = {}) {
-  if(world?.aiSim)return world.aiSim.dispatch.run(controller,unit,target,switchAllowed,world,out);
+  if(world?.aiSim)return world.aiSim.dispatch.run(controller,unit,target,switchAllowed,world,out,selectOnly);
   out.pattern = 0;
   out.probability = 0;
   out.aux = false;

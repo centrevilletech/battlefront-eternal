@@ -1,8 +1,6 @@
-import { selectWeapon } from './ai/classic/weapons-ai.js';
-
 export class NativeDispatch {
   constructor(sim) {
-    this.sim=sim;this.frames=[];this.choice={ok:false,index:-1,weapon:null,action:6,inBand:false};
+    this.sim=sim;this.frames=[];
     sim.bridge.register({aiDispatch:args=>{
       const op=args.op,number=args.number,frame=this.frames[this.frames.length-1],{controller:c,unit,target,world,out}=frame;
       const result={flag:false,number:0,values:[],text:''},strict=value=>typeof value==='number'?value:NaN;
@@ -15,8 +13,7 @@ export class NativeDispatch {
       else if(op==='ownerHero')result.flag=Boolean(unit.hero);
       else if(op==='targetHero')result.flag=Boolean(target.hero);
       else if(op==='select'){
-        selectWeapon(c,unit,target,frame.switchAllowed,world,this.choice);
-        out.aux=this.choice.ok;out.action=this.choice.action;out.inBand=this.choice.inBand;out.weapon=this.choice.weapon;
+        const select=frame.select;select(c,unit,target,frame.switchAllowed,world,out);
       } else if(op==='aux')result.flag=Boolean(out.aux);
       else if(op==='action')result.number=strict(out.action);
       else if(op==='numericAction')result.number=out.action;
@@ -33,8 +30,8 @@ export class NativeDispatch {
       return result;
     }});
   }
-  run(controller,unit,target,switchAllowed,world,out) {
-    const frame={controller,unit,target,switchAllowed,world,out,result:out};this.frames.push(frame);
+  run(controller,unit,target,switchAllowed,world,out,select) {
+    const frame={controller,unit,target,switchAllowed,world,out,select,result:out};this.frames.push(frame);
     try {this.sim.x.ai_dispatch();return frame.result;} finally {this.frames.pop();}
   }
   rangePolicy(controller,world,out) {
