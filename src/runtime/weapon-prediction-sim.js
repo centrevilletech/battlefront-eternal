@@ -63,7 +63,7 @@ export function createWeaponPredictionBridge(bridge, { trace = null } = {}) {
     weapon.salvoSeed = mirror.salvoSeed; weapon.salvoCount = mirror.salvoCount;
   }
 
-  function create(weapons, owners = [], arsenal = null) {
+  function create(weapons, owners = [], arsenal = null, barrels = []) {
     alive();
     const serial = nextSession++, mirrors = weapons.map(() => new WeaponMirror());
     let handle = x.prediction_weapons_create(), cached = null;
@@ -90,7 +90,7 @@ export function createWeaponPredictionBridge(bridge, { trace = null } = {}) {
         putWeapon(bridge, weapon, words, at, null);
       }
       words.push(arsenal?.selected[0] ?? 0, arsenal?.selected[1] ?? 0, combat?.zoomStep ?? 0, owners.length);
-      for (const owner of owners) words.push(owner.barrel);
+      for (const barrel of barrels) words.push(barrel);
       return Float64Array.from(words);
     }
     function read(output, combat) {
@@ -111,7 +111,10 @@ export function createWeaponPredictionBridge(bridge, { trace = null } = {}) {
       if (combat) combat.zoomStep = output[at + 2];
       at += 3;
       const barrelCount = output[at++];
-      for (let i = 0; i < barrelCount; i++, at += 2) if (output[at + 1]) owners[i].barrel = output[at];
+      for (let i = 0; i < barrelCount; i++, at += 2) {
+        barrels[i] = output[at];
+        if (output[at + 1]) owners[i].barrel = output[at];
+      }
       const shots = [], shotCount = output[at++];
       for (let i = 0; i < shotCount; i++, at += 8) {
         const weapon = weapons[output[at]], kind = output[at + 1];
@@ -147,8 +150,17 @@ export function createWeaponPredictionBridge(bridge, { trace = null } = {}) {
       },
       mounted(entry, pressed, held, reload) {
         this.sync();
-        const words = [1, weapons.indexOf(entry.weapon), owners.indexOf(entry.owner), entry.advancesBarrel, entry.towHeld, pressed, held, reload];
-        return run(3, words, output => read(output, null));
+        const owner = owners.indexOf(entry.owner);
+        const words = [1, weapons.indexOf(entry.weapon), owner, false, entry.towHeld, pressed, held, reload];
+        const shots = run(3, words, output => read(output, null));
+        // Read this owner's counter only after its weapon update, as +=
+        // does in the source. A getter or setter can change another entry.
+        if (entry.advancesBarrel) run(4, [owner, entry.owner.barrel, shots.length], output => {
+          barrels[owner] = output[0];
+          cached[1 + weapons.length * WEAPON_WORDS + 4 + owner] = output[0];
+          entry.owner.barrel = output[0];
+        });
+        return shots;
       },
       dispose() {
         if (!handle) return;
@@ -171,7 +183,10 @@ export function createWeaponPredictionBridge(bridge, { trace = null } = {}) {
   return {
     bridge,
     createArsenal(arsenal) { return create(arsenal.weapons, [], arsenal); },
-    createMounted(entries) { return create([...new Set(entries.map(entry => entry.weapon))], [...new Set(entries.map(entry => entry.owner))]); },
+    createMounted(entries) {
+      const owners = [...new Set(entries.map(entry => entry.owner))];
+      return create([...new Set(entries.map(entry => entry.weapon))], owners, null, owners.map(owner => entries.find(entry => entry.owner === owner).barrel));
+    },
     dispose() { if (disposed) return; for (const session of sessions) session.dispose(); disposed = true; },
   };
 }

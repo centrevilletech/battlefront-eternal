@@ -113,6 +113,7 @@ impl<'a> Reader<'a> {
 /// zoom action, forward/right, posture, air, dive, lock, rolled, underwater,
 /// then each press's presence/value.
 /// 3: entry count, then weapon/owner slots, advance/tow flags, pressed/held/reload.
+/// 4: owner slot, current barrel, shot count; returns the advanced barrel.
 /// Commands 1..3 return rows, selections, zoom, barrels with write flags,
 /// then ordered shots (weapon, kind, yaw, pitch, charge, target, generation, swing).
 #[derive(Default)]
@@ -364,6 +365,18 @@ impl Session {
                         self.barrel_writes[owner] = true;
                     }
                 }
+            }
+            4 => {
+                let owner = r.count()?;
+                let barrel = r.word()?;
+                let count = r.word()?;
+                r.done()?;
+                if owner >= self.barrels.len() {
+                    return Err(INVALID);
+                }
+                self.barrels[owner] = barrel + count;
+                self.output.push(self.barrels[owner]);
+                return Ok(());
             }
             _ => return Err(INVALID),
         }
