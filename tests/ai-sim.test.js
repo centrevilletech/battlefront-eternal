@@ -8,7 +8,7 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, aimPointFor, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, Perception, TargetTracker, broadcastAcoustic, hazardResponse, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse, broadcastAcoustic, hazardResponse, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
@@ -813,6 +813,34 @@ test('native hazard responses retain policy effects and the captured danger refe
     return {result:result?{...result,point:result.point.toArray()}:null,history,kind:unit.kind,danger:c.danger.point.toArray(),point:point.toArray()};
   }
   for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`hazard response ${i}`);
+});
+
+test('native acoustic responses preserve live references, policy order and mounted exits', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,mission:{stayInTurrets:i%7===0}},c={rangeScale:[.5,1,2,NaN][i%4]},ai=c.ai={world};let reads=0,accepted=0;
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7400).fill(6));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapon={def:{base:'rifle',ai:{maxRange:20,extremeRange:200,implicitRange:true}}};
+    const unit={id:0,kind:[0,3,5][i%3],position:new Vector3(),classDef:{MaxSpeed:i%2?0:3},combat:{arsenal:{current(channel){
+      reads++;log('weapon',channel);if(i%19===0)unit.classDef.MaxSpeed=4;
+      if(i%23===0)c.unit=other;return i%17===0?null:weapon;
+    }}}};
+    const other={id:9,kind:6,position:new Vector3(),classDef:{ForwardSpeed:0},combat:unit.combat};
+    c.unit=i%37===0?null:unit;c.perception={fire:{channel:i%2}};
+    const sources=Array.from({length:6},(_,id)=>({id:id+1,alive:(id+i)%13!==0,generation:[0,undefined,null,NaN][(id+i)%4],position:new Vector3((id*13+i)%71,2,id%3)}));
+    const list=sources.slice(0,4).map((u,id)=>({unit:u,generation:(id+i)%11===0?99:u.generation}));c.acoustic=i%41===0?[]:list;
+    world.nav={inDangerRegion(u){log('region',u.id);if(i%11===0)u.kind=3;return i%29===0;}};
+    ai.stayInTurrets=function(){log('stay',this===ai);return i%5===0?undefined:i%31===0;};
+    function reach(u,p){log('reach',u.id,p.toArray(),this===undefined);p.y+=.25;return i%3===0;}
+    if(i%2)ai.vehicles={mountReach:reach};else world.vehicles={mountReach:reach};
+    const agent={acceptsAcoustic(src){accepted++;log('accept',src.id,this===agent);
+      if(accepted===1){if(i%11===0)list.push({unit:sources[5],generation:sources[5].generation});if(i%13===0)c.acoustic=[{unit:sources[4],generation:sources[4].generation}];}
+      src.position.x+=.125;return (src.id+i)%5!==0;
+    }};
+    const result=acousticResponse(c,world,i%43===0?null:agent);
+    return {result:result?{...result,point:result.point.toArray()}:null,history,unit:c.unit?.id,kind:unit.kind,positions:sources.map(s=>s.position.toArray()),list:list.map(r=>r.unit.id)};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`acoustic response ${i}`);
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {

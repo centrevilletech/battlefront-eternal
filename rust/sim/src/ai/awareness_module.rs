@@ -1,7 +1,7 @@
 //! Acoustic geometry and protected-human scheduling. Controller notification
 //! queues and the protection reference views remain explicit foreign writes.
 
-use super::{module::state,combat::math::{dot32,f,length_sq32,normalize_or_x}};
+use super::{module::state,combat::math::{dot32,f,length_sq32,length_sq_xz32,normalize_or_x}};
 use crate::gen::{import_ai_awareness,AiAwarenessArgs,AiAwarenessOp as Op,AiAwarenessResult};
 
 fn call(op: Op,id: u32,number: f64) -> AiAwarenessResult {import_ai_awareness(&AiAwarenessArgs {op,id,number,other:0.0})}
@@ -145,4 +145,39 @@ pub extern "C" fn ai_hazard_response() {
     if call(Op::ResponseKind,0,0.0).number!=0.0 {return;}
     call(Op::HazardPoint,0,0.0);
     call(Op::ResponseResult,2,0.0);
+}
+
+fn mounted_exit() -> bool {
+    let unit=call(Op::ResponseMountStart,0,0.0);
+    if !unit.flag || f(unit.number)!=0.0 {return false;}
+    if call(Op::ResponseStay,0,0.0).flag {return false;}
+    call(Op::ResponseReach,0,0.0).flag && !call(Op::ResponseCanReach,0,0.0).flag
+}
+
+// perception.js acousticResponse: resolve each reference when visited, then
+// observe the active policy and selected weapon before testing its point.
+#[no_mangle]
+pub extern "C" fn ai_acoustic_response() {
+    if !call(Op::ResponseUnit,0,0.0).flag || !call(Op::AcousticList,0,0.0).flag {return;}
+    if call(Op::ResponseKind,0,0.0).number==5.0 && call(Op::ResponseDangerRegion,0,0.0).flag {return;}
+    call(Op::AcousticStart,0,0.0);
+    loop {
+        let next=call(Op::AcousticNext,0,0.0);if !next.flag {return;}
+        let v=next.values;
+        if v[0]==0.0 || v[2]!=v[4] || !(v[2]==0.0 || v[2]==2.0 || v[1]==v[3]) {continue;}
+        if !call(Op::ResponseWeapon,0,0.0).flag || !call(Op::AcousticAccept,0,0.0).flag {continue;}
+        let sensor=call(Op::ResponseSensor,0,0.0);
+        let mut range=if sensor.flag {
+            let v=sensor.values;let base=if v[6]!=0.0 {super::weapon_module::effective_range(&v)} else {0.0};
+            f(base+f(f(v[5])*5.0))
+        } else {0.0};
+        if call(Op::ResponseKind,0,0.0).number==3.0 {range=f(range*0.5);}
+        call(Op::AcousticPoint,0,0.0);
+        let v=call(Op::ResponseHorizontal,0,0.0).values;
+        if length_sq_xz32(f(v[0]-v[1]),f(v[2]-v[3]))<f(range*range) {
+            let exit=mounted_exit();
+            import_ai_awareness(&AiAwarenessArgs {op:Op::ResponseResult,id:0,number:if exit {1.0} else {0.0},other:1.0});
+            return;
+        }
+    }
 }

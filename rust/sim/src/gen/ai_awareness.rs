@@ -55,10 +55,21 @@ pub enum AiAwarenessOp {
     ResponseDangerRegion = 46,
     HazardPoint = 47,
     ResponseResult = 48,
+    AcousticList = 49,
+    AcousticStart = 50,
+    AcousticNext = 51,
+    AcousticAccept = 52,
+    ResponseSensor = 53,
+    AcousticPoint = 54,
+    ResponseHorizontal = 55,
+    ResponseMountStart = 56,
+    ResponseStay = 57,
+    ResponseReach = 58,
+    ResponseCanReach = 59,
 }
 
 impl AiAwarenessOp {
-    pub const NAMES: [&'static str; 49] = ["alive", "motion", "weapon", "active", "mute", "query", "recipient", "notify", "livingStart", "livingNext", "clear", "protectQuery", "protectRecipient", "protectAppend", "dangerRow", "dangerDraw", "dangerTime", "dangerFirst", "dangerLast", "dangerQuery", "dangerRecipient", "dangerWarn", "dangerHasNotify", "dangerNotify", "dangerWrite", "shotStart", "shotSource", "shotRelation", "shotHuman", "damageStart", "damageRelation", "damagePacket", "alertSeat", "alertSeatController", "alertOwn", "alertCanNotify", "alertBody", "alertLeases", "alertLease", "alertCrew", "alertNotify", "hazardStart", "responseUnit", "responseWeapon", "hazardAccept", "responseKind", "responseDangerRegion", "hazardPoint", "responseResult"];
+    pub const NAMES: [&'static str; 60] = ["alive", "motion", "weapon", "active", "mute", "query", "recipient", "notify", "livingStart", "livingNext", "clear", "protectQuery", "protectRecipient", "protectAppend", "dangerRow", "dangerDraw", "dangerTime", "dangerFirst", "dangerLast", "dangerQuery", "dangerRecipient", "dangerWarn", "dangerHasNotify", "dangerNotify", "dangerWrite", "shotStart", "shotSource", "shotRelation", "shotHuman", "damageStart", "damageRelation", "damagePacket", "alertSeat", "alertSeatController", "alertOwn", "alertCanNotify", "alertBody", "alertLeases", "alertLease", "alertCrew", "alertNotify", "hazardStart", "responseUnit", "responseWeapon", "hazardAccept", "responseKind", "responseDangerRegion", "hazardPoint", "responseResult", "acousticList", "acousticStart", "acousticNext", "acousticAccept", "responseSensor", "acousticPoint", "responseHorizontal", "responseMountStart", "responseStay", "responseReach", "responseCanReach"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -111,6 +122,17 @@ impl AiAwarenessOp {
             46 => Some(AiAwarenessOp::ResponseDangerRegion),
             47 => Some(AiAwarenessOp::HazardPoint),
             48 => Some(AiAwarenessOp::ResponseResult),
+            49 => Some(AiAwarenessOp::AcousticList),
+            50 => Some(AiAwarenessOp::AcousticStart),
+            51 => Some(AiAwarenessOp::AcousticNext),
+            52 => Some(AiAwarenessOp::AcousticAccept),
+            53 => Some(AiAwarenessOp::ResponseSensor),
+            54 => Some(AiAwarenessOp::AcousticPoint),
+            55 => Some(AiAwarenessOp::ResponseHorizontal),
+            56 => Some(AiAwarenessOp::ResponseMountStart),
+            57 => Some(AiAwarenessOp::ResponseStay),
+            58 => Some(AiAwarenessOp::ResponseReach),
+            59 => Some(AiAwarenessOp::ResponseCanReach),
             _ => None,
         }
     }

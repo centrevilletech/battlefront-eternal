@@ -1,6 +1,6 @@
 // Awareness uses the same AI instance and preserves host query/notification
 // order while geometry and recipient iteration run in the module.
-import { selectedWeapon } from './ai/classic/weapons-ai.js';
+import { selectedWeapon, weaponAI } from './ai/classic/weapons-ai.js';
 
 export class NativeAwareness {
   constructor(sim) {
@@ -83,6 +83,23 @@ export class NativeAwareness {
         frame.response={kind:2,mode:id,point:frame.responsePoint,exit:Boolean(number)};
         if(other!==0)frame.response.alert=true;
       }
+      else if(op==='acousticList') result.flag=Boolean(frame.control.acoustic?.length);
+      else if(op==='acousticStart') frame.acoustic=frame.control.acoustic[Symbol.iterator]();
+      else if(op==='acousticNext') {
+        const next=frame.acoustic.next();result.flag=!next.done;
+        if(result.flag){const r=next.value,u=frame.responseSource=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
+          result.values=u?.alive?[1,u.generation,tag(u.generation),r.generation,tag(r.generation)]:[0,0,0,0,0];}
+      } else if(op==='acousticAccept') result.flag=Boolean(frame.agent?.acceptsAcoustic?.(frame.responseSource));
+      else if(op==='responseSensor') {
+        const u=frame.unit,w=selectedWeapon(u,frame.control);result.flag=Boolean(w);
+        if(w){const a=weaponAI(w.def);result.values=[u?.kind,frame.control?.rangeScale??1,a?.maxRange??0,Number(Boolean(a?.implicitRange)),a?.extremeRange??0,
+          u?.classDef?.ForwardSpeed??u?.classDef?.MaxSpeed??0,Number(Boolean(a))];}
+      } else if(op==='acousticPoint') frame.responsePoint=frame.responseSource.position.clone();
+      else if(op==='responseHorizontal') {const p=frame.responsePoint,u=frame.unit.position;result.values=[p.x,u.x,p.z,u.z];}
+      else if(op==='responseMountStart') {const u=frame.mountUnit=frame.control.unit;result.flag=Boolean(u);if(u)result.number=u.classDef?.ForwardSpeed??u.classDef?.MaxSpeed??0;}
+      else if(op==='responseStay') {const ai=frame.mountAi=frame.control.ai;result.flag=Boolean(ai?.stayInTurrets?.()??frame.world.mission?.stayInTurrets);}
+      else if(op==='responseReach') {frame.reach=frame.mountAi?.vehicles?.mountReach??frame.world.vehicles?.mountReach;result.flag=Boolean(frame.reach);}
+      else if(op==='responseCanReach') {const reach=frame.reach;result.flag=Boolean(reach(frame.mountUnit,frame.responsePoint));}
       else throw Error(`unknown awareness callback ${op}`);
       return result;
     }});
@@ -110,6 +127,10 @@ export class NativeAwareness {
   hazardResponse(control,world,agent) {
     const frame={control,world,agent,response:null};this.frames.push(frame);
     try {this.sim.x.ai_hazard_response();return frame.response;} finally {this.frames.pop();}
+  }
+  acousticResponse(control,world,agent) {
+    const frame={control,world,agent,response:null};this.frames.push(frame);
+    try {this.sim.x.ai_acoustic_response();return frame.response;} finally {this.frames.pop();}
   }
   rebuild(world) {
     this.frames.push({world});

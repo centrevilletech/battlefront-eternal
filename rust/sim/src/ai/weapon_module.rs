@@ -92,7 +92,7 @@ pub extern "C" fn ai_weapon_guard(op: u32) -> u32 {
 }
 
 // weapons-ai.js effectiveRange, shared by geometry and inventory ranking.
-fn effective_range(v: &[f64]) -> f64 {
+pub(super) fn effective_range(v: &[f64]) -> f64 {
     let mut range=v[2];
     if v[3]!=0.0 && v[0]!=0.0 && v[0]!=1.0 && v[0]!=3.0 {range=f(range+range);}
     let scaled=f(f(v[1])*range);
