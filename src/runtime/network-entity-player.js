@@ -129,8 +129,8 @@ function hearOwn(unit,record,data){
  }
  if(!was||was.generation!==record.generation||record.tick>was.tick)heard.set(unit,{generation:record.generation,tick:record.tick,health:data.health,dead:data.dead});
 }
-export function applyOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneration=0,epoch,registry,record,previous=null,remoteLifecycle=null}){
- const data=decodeOwnPlayer(record);let mounted=null;if(data.mounted){requireState(Boolean(vehicle)===(data.controlMode===VEHICLE_PILOT_CONTROL),'conflicting mounted vehicle body');try{mounted=validateMountedControl(unit,data.mounted);}catch(error){throw new OwnPlayerPrerequisiteError(error.message);}}requireState(vehicle?unit.seat?.vehicle===vehicle&&unit.seat.index===0:!unit.seat||mounted,'pilot lease prerequisite missing');requireState(data.epoch===epoch,'world epoch mismatch');registryChecks(registry,data.contentEpoch,data.classId,unit);
+export function applyOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneration=0,epoch,registry,record,previous=null,remoteLifecycle=null,native=null}){
+ const data=decodeOwnPlayer(record);let mounted=null;if(data.mounted){requireState(Boolean(vehicle)===(data.controlMode===VEHICLE_PILOT_CONTROL),'conflicting mounted vehicle body');try{mounted=validateMountedControl(unit,data.mounted,native);}catch(error){throw new OwnPlayerPrerequisiteError(error.message);}}requireState(vehicle?unit.seat?.vehicle===vehicle&&unit.seat.index===0:!unit.seat||mounted,'pilot lease prerequisite missing');requireState(data.epoch===epoch,'world epoch mismatch');registryChecks(registry,data.contentEpoch,data.classId,unit);
  requireState(record.id===unit.id&&record.generation===unit.generation,'player life prerequisite missing');
  requireState(!(previous&&previous.epoch===epoch&&previous.id===unit.id&&previous.generation===unit.generation&&record.tick<previous.tick),'stale own-player correction');
  requireState(data.bodySchema===(vehicle?(vehicle.flying?COMPACT_FLIGHT_SCHEMA:GROUND_CORRECTION_SCHEMA):unit.walker?DROIDEKA_BODY_SCHEMA:COMPACT_SOLDIER_SCHEMA)&&data.vehicleId===vehicleId&&data.vehicleGeneration===vehicleGeneration,'vehicle lease prerequisite missing');
@@ -138,7 +138,7 @@ export function applyOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneration=
  requireState(registry.bindingProfiles.has(data.bindingProfileId),'binding profile prerequisite missing');
  const combat=unit.combat,arsenal=combat.arsenal,selected=[];requireState(combat.kick&&typeof combat.kick==='object','combat recoil prerequisite missing');
  requireState(data.weapons.length===arsenal.weapons.length,'weapon inventory prerequisite mismatch');
- const weaponStates=data.weapons.map((state,index)=>{const weapon=arsenal.weapons[index];requireState(registry.weapons.get(state.id)===weapon.name,'weapon prerequisite mismatch');try{return validateArsenalWeapon(weapon,state.payload);}catch(error){throw new OwnPlayerPrerequisiteError(error.message);}});
+ const weaponStates=data.weapons.map((state,index)=>{const weapon=arsenal.weapons[index];requireState(registry.weapons.get(state.id)===weapon.name,'weapon prerequisite mismatch');try{return validateArsenalWeapon(weapon,state.payload,native);}catch(error){throw new OwnPlayerPrerequisiteError(error.message);}});
  for(let channel=0;channel<2;channel++){const index=data.selected[channel];if(index===255){requireState(!arsenal.channels[channel]?.length,'weapon channel prerequisite mismatch');selected.push(null);continue;}const weapon=arsenal.channels[channel]?.[index];requireState(weapon,'weapon prerequisite mismatch');selected.push(weapon);}
  const primary=selected[0],primaryState=primary&&weaponStates.find(entry=>entry.weapon===primary).state,primaryDef=primary?.levels[primaryState?.level];
  requireState(data.zoomStep<(primary?PlayerCombat.zooms(primaryDef).length:1),'invalid zoom step');const zoom=primary&&data.zoomStep?(PlayerCombat.zooms(primaryDef)[data.zoomStep]||1):1;
@@ -153,7 +153,7 @@ export function applyOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneration=
  if(data.remote){requireState(remotes&&!vehicle,'recon controller prerequisite missing');remoteDef=registry.combat?.definitions.get(data.remote.definitionId);requireState(remoteDef?.base==='droid','recon content prerequisite missing');remoteDroid=remotes.droids.find(d=>d.networkSlot===data.remote.id&&d.networkGeneration===data.remote.generation);requireState(!remoteDroid||remoteDroid.def===remoteDef,'recon definition changed within generation');remoteState=decodeRemoteCorrection(data.remote.payload,{arsenal:new Arsenal((remoteDef.weapons||[]).map(w=>({...w,ammo:w.ammo})))});requireState(remoteState.piloted&&!remoteState.dead,'invalid own recon state');}
  // Each body restore validates its complete payload before mutation. Everything
  // else has been validated above, so a failed prerequisite cannot half-apply.
- if(vehicle){if(vehicle.flying)restoreCompactFlight(vehicle,data.body);else restoreGroundCorrection(vehicle,data.body);}else if(unit.walker)restoreDroidekaState(unit.soldier,data.body);else restoreCompactSoldier(unit.soldier,data.body);
+ if(vehicle){if(vehicle.flying)restoreCompactFlight(vehicle,data.body,native);else restoreGroundCorrection(vehicle,data.body,native);}else if(unit.walker)restoreDroidekaState(unit.soldier,data.body,native);else restoreCompactSoldier(unit.soldier,data.body,native);
  if(mounted)applyValidatedMountedControl(mounted);
  hearOwn(unit,record,data);
  unit.team=combat.team=data.team;combat.health=data.health;combat.dead=data.dead;combat.deathTime=data.deathTime;unit.deadTime=data.unitDeadTime;unit.removed=data.removed;Object.assign(combat.kick,data.kick);combat.zoomStep=data.zoomStep;combat.firstPerson=data.firstPerson;combat.gunUnderwater=data.gunUnderwater;
@@ -164,6 +164,6 @@ export function applyOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneration=
   for(const droid of remotes.droids)if(stale(droid)){if(remotes.piloted===droid)remotes.exit();if(droid.mesh)remotes.scene.remove(droid.mesh);}
   remotes.droids=remotes.droids.filter(droid=>!stale(droid));remotes.strikes=remotes.strikes.filter(droid=>!stale(droid));
  }else if(remotes){remotes.exit();remotes.strikes.length=0;}
- const mount=data.mounted?decodeMountedControl(data.mounted):null;
+ const mount=data.mounted?decodeMountedControl(data.mounted,native):null;
  return {team:data.team,controlMode,mountId:mount?.id??0,mountGeneration:mount?.generation??0,mountSeat:mount?.index??0,epoch,contentEpoch:data.contentEpoch,id:unit.id,generation:unit.generation,tick:record.tick,classId:data.classId,vehicleId,vehicleGeneration,remoteId:effectiveRemote?.id??null,remoteGeneration:effectiveRemote?.generation??0,held,view:data.view,discardedInput:data.discardedInput,reset:!previous||previous.team!==data.team||previous.controlMode!==controlMode||previous.mountId!==(mount?.id??0)||previous.mountGeneration!==(mount?.generation??0)||previous.mountSeat!==(mount?.index??0)||previous.epoch!==epoch||previous.contentEpoch!==data.contentEpoch||previous.id!==unit.id||previous.generation!==unit.generation||previous.classId!==data.classId||previous.vehicleId!==vehicleId||previous.vehicleGeneration!==vehicleGeneration||previous.remoteId!==(effectiveRemote?.id??null)||previous.remoteGeneration!==(effectiveRemote?.generation??0)};
 }

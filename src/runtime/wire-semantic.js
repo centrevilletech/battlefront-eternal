@@ -26,9 +26,10 @@ export function createWireSemanticBridge(bridge) {
   const weapons = new WeakMap(), ownPayloads = new WeakMap(), summaries = new Map();
   const list = (words, values) => { words.push(values.length); for (const n of values) words.push(n); };
   const sid = value => typeof value === 'string' ? bridge.strings.id(value) : value === null ? -1 : -2;
-  function run(op, words) {
+  function run(op, words, raw = null) {
     if (!handle) throw Error('Semantic encoder disposed');
     const ptr = x.wire_semantic_room(handle, words.length); bridge.views(); bridge.f.set(words, ptr / 8);
+    if (raw) new Uint8Array(bridge.buffer, ptr + raw.at * 8, raw.bytes.length).set(raw.bytes);
     const error = x.wire_semantic_run(handle, op); if (error) throw Error(bridge.strings.at(error - 1));
     const at = x.wire_semantic_ptr(handle), length = x.wire_semantic_len(handle); bridge.views();
     const view = new DataView(bridge.buffer, at, length), count = view.getUint32(0, true), parts = []; let offset = 4;
@@ -78,11 +79,18 @@ export function createWireSemanticBridge(bridge) {
   function flight(v) {
     const words = [+(!!v.flying && !!v.flightConfig && !!v.seats?.[0])];
     for (const key of ['flightState', 'trick', 'flightLockState', 'flightWarning', 'landingMessage', 'landingReason']) words.push(sid(v[key]));
-    for (const key of flightNumbers) words.push(key === 'floorY' && typeof v[key] !== 'number' ? Infinity : num(v[key]));
+    const floor = new DataView(new ArrayBuffer(8)); let floorAt = 0;
+    for (const key of flightNumbers) {
+      const value = key === 'floorY' && typeof v[key] !== 'number' ? Infinity : num(v[key]);
+      // Number arrays can quiet signaling NaNs. Save this permitted NaN field
+      // before boxing, retaining the sampled value across later source reads.
+      if (key === 'floorY') { floorAt = words.length; floor.setFloat64(0, value, true); }
+      words.push(value);
+    }
     for (const key of ['position', 'velocity', 'flightStart', 'flightEnd', 'flightTrickRight']) vector(words, v[key]);
     for (const key of ['quaternion', 'flightStartQ', 'flightTrickLoopQ', 'flightTrickEndQ']) vector(words, v[key], true);
     for (const key of flightFlags) words.push(v[key] === undefined ? 2 : flag(v[key]));
-    seat(words, v.seats?.[0]); return run(5, words)[0];
+    seat(words, v.seats?.[0]); return run(5, words, { at: floorAt, bytes: new Uint8Array(floor.buffer) })[0];
   }
 
   function mounted({ mode, id, generation, index, target }) {

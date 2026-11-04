@@ -3,6 +3,7 @@ import { putWsSeparation, WsSeparationResultMirror, syncWsSeparationResult } fro
 import { clockPorts } from './world-clock-sim.js';
 import { eventPorts } from './world-events-sim.js';
 import { localPorts } from './world-local-sim.js';
+import { stepPorts } from './world-step-sim.js';
 
 const worlds = new WeakMap();
 
@@ -23,7 +24,7 @@ export function createWorldSim(instance) {
       unit.position.copy(value.position); unit.tickCount = value.tickCount;
     }
   }
-  const world = { bridge, separate, ...clockPorts(bridge), ...eventPorts(bridge), ...localPorts(bridge) };
+  const world = { bridge, separate, ...clockPorts(bridge), ...eventPorts(bridge), ...localPorts(bridge), ...stepPorts(bridge) };
   worlds.set(bridge, world);
   return world;
 }

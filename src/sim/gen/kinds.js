@@ -176,3 +176,4 @@ export const IMPORT_WAVER = 128;
 export const IMPORT_WORLD_CLOCK = 129;
 export const IMPORT_WORLD_EVENTS = 130;
 export const IMPORT_WORLD_LOCAL = 131;
+export const IMPORT_WORLD_STEP = 132;

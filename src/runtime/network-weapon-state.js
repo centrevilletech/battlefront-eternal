@@ -24,7 +24,9 @@ export function captureWeaponState(weapon, native = null) {
   return bytes;
 }
 
-export function decodeWeaponState(bytes) {
+export function decodeWeaponState(bytes, native = null) {
+  const decoded = typeof native?.decodeWeapon === 'function' ? native.decodeWeapon(bytes) : null;
+  if (decoded !== null) return decoded;
   if (!(bytes instanceof Uint8Array) || bytes.length !== weaponStateBytes || bytes[1] > 127) throw Error('invalid weapon state payload');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), state = { level: bytes[0] };
   WEAPON_STATE_FLAGS.forEach((key, index) => { state[key] = Boolean(bytes[1] & (1 << index)); });

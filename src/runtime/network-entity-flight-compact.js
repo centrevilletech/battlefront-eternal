@@ -30,7 +30,7 @@ export function captureCompactFlight(v, native = null) {
  for (const key of seatNumbers) { const n=v.seats[0][key];bytes[at++]=n===undefined?2:n===null?1:0;number(n??0); }
  return bytes;
 }
-export function restoreCompactFlight(v,bytes) {
+function readCompactFlight(v,bytes) {
  prerequisite(v);
  if (!(bytes instanceof Uint8Array) || bytes.length<6) throw Error('invalid compact flight payload');
  const values={}, view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);let at=0;
@@ -47,6 +47,11 @@ export function restoreCompactFlight(v,bytes) {
  const seat={};for(const key of seatNumbers){const kind=bytes[at++],n=number();if(kind>2)throw Error('invalid flight seat');seat[key]=kind===2?undefined:kind===1?null:n;}
  for(const key of ['previous','tickFrom'])if(!v[key]?.isVector3)throw Error(`missing flight history ${key}`);
  for(const key of ['flightPreviousQ','flightTickQ'])if(!v[key]?.isQuaternion)throw Error(`missing flight history ${key}`);
+ return {values,seat};
+}
+export function restoreCompactFlight(v,bytes,native=null) {
+ const decoded=typeof native?.readCompactFlight==='function'?native.readCompactFlight(v,bytes):null;
+ const {values,seat}=decoded??readCompactFlight(v,bytes),l=layout(values.flightState,values.trick);
  for(const key of [...l.numbers,...booleans,...Object.keys(enums)])v[key]=values[key];
  for(const key of [...l.vectors,...l.quaternions])v[key].fromArray(values[key]);
  Object.assign(v.seats[0],seat);
