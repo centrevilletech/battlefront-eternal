@@ -105,7 +105,7 @@ export class DebrisSim {
       }
       case "remove": { const p = this.publish(a.piece); d.scene.remove(p.mesh); break; }
       case "cast": {
-        const at = a.point.clone(), ray = a.direction.clone(), far = a.far, ignore = a.ignore === null ? null : this.ids.bodies[a.ignore];
+        const at = d.start.copy(a.point), ray = d.ray.copy(a.direction), far = a.far, ignore = a.ignore === null ? null : this.ids.bodies[a.ignore];
         const hit = d.collision.cast(at, ray, far, d.hit, ignore);
         this.lastHit = hit;
         if (hit) Object.assign(result, { hit: true, point: hit.point.clone(), normal: hit.normal.clone() }); break;
