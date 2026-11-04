@@ -3,6 +3,8 @@
 pub use crate::vehicles::f2_seats as seats;
 pub mod live_seats;
 pub mod firing;
+mod allocation;
+pub mod riders;
 
 use super::*;
 
@@ -15,6 +17,33 @@ static mut DESCS: Vec<super::super::spawn::SlotDesc> = Vec::new();
 static mut PAD_CLASSES: Vec<Vec<(f64, usize, StrId)>> = Vec::new();
 static mut ACC: f64 = 0.0;
 static mut TIME: f64 = 0.0;
+struct HullRow { pool: Vec<Hull>, config: Config, gear: Option<GearClip> }
+static mut HULL_ROWS: Vec<Option<HullRow>> = Vec::new();
+fn hull_rows() -> &'static mut Vec<Option<HullRow>> { unsafe { &mut *addr_of_mut!(HULL_ROWS) } }
+
+/// Vehicle construction resolves its class and flight keys once. Spare working
+/// rows let a synchronous damage hook reenter without borrowing the outer hull.
+fn register_hull(r: Ref<Vehicle>) {
+    let s = sim(); let v = s.store.vehicle.get(r).unwrap();
+    let name = String::from_utf16_lossy(s.strings.units(v.name));
+    let class = classes().get(&name).expect("registered hull class");
+    let (config, gear) = if v.flying { flight_keys(&name) } else { (Config::default(), None) };
+    let mut pool = Vec::with_capacity(4);
+    for _ in 0..4 { pool.push(Hull::from_store(r, v, class, 0, &s.strings)); }
+    let rows = hull_rows();
+    if rows.len() <= r.slot as usize { rows.resize_with(r.slot as usize + 1, || None); }
+    rows[r.slot as usize] = Some(HullRow { pool, config, gear });
+}
+pub fn flight_keys_for(r: Ref<Vehicle>) -> (Config, Option<GearClip>) {
+    let row = hull_rows()[r.slot as usize].as_ref().unwrap(); (row.config, row.gear.clone())
+}
+pub fn take_hull(r: Ref<Vehicle>, index: usize) -> Hull {
+    let row = hull_rows()[r.slot as usize].as_mut().unwrap();
+    let mut hull = row.pool.pop().expect("reserved reentrant hull row");
+    hull.index = index; let s = sim(); hull.load(s.store.vehicle.get(r).unwrap(), &s.strings); hull
+}
+pub fn recycle(hull: Hull) { hull_rows()[hull.id.slot as usize].as_mut().unwrap().pool.push(hull); }
+
 
 pub fn active() -> bool { unsafe { *addr_of_mut!(ACTIVE) } }
 fn io() -> &'static mut Vec<f64> { unsafe { &mut *addr_of_mut!(IO) } }
@@ -38,6 +67,7 @@ pub extern "C" fn f2_register(slot: u32, generation: u32) {
         s.store.vehicles.slots[pad].variants.entries.push((name, r));
     }
     publication().register(&s.store, r);
+    register_hull(r);
 }
 
 fn desc() -> &'static mut [f64; 16] { unsafe { &mut *addr_of_mut!(DESCRIPTOR) } }
@@ -163,6 +193,7 @@ fn spawns(dt: f64) {
         posing::out(&mut poses()[r.slot as usize].as_mut().unwrap().pose, out);
         out[length] = (out.len() - start) as f64;
         publish_posed();
+        recycle(hull);
         import_f2_life(&VehHull { hull: index as f64 });
     }
 }
@@ -203,6 +234,7 @@ pub extern "C" fn f2_step(dt: f64, tick: f64) {
     assert!(active(), "F2 must be initialized");
     let dt = three::clamp(dt, 0.0, 0.1);
     unsafe { *addr_of_mut!(TIME) += dt; *addr_of_mut!(CLOCK) = Some(io()[0]); }
+    allocation::begin();
     sim().events.clear();
     spawns(dt);
     foreign();
@@ -215,10 +247,11 @@ pub extern "C" fn f2_step(dt: f64, tick: f64) {
     import_f2_posed(&VehNothing {});
     firing::step(dt, io()[0]);
     import_f2_foreign(&VehNumber { value: dt });
-    live_seats::rider_bodies();
+    for i in 0..sim().store.vehicles.vehicles.len() { riders::hull(sim().store.vehicles.vehicles[i], true); }
     live_seats::turret_tick(dt);
     publish();
     live_seats::finish();
+    allocation::end();
 }
 
 /// Synchronous authoritative writes. Both slab generation and gameplay life
@@ -243,6 +276,7 @@ pub extern "C" fn f2_command(slot: u32, generation: u32, life: f64, code: u32, v
     // A callback may have retired the slot; never resurrect it.
     if !sim().store.vehicle.contains(r) { return 0; }
     store_hull(&hull);
+    recycle(hull);
     publish();
     1
 }

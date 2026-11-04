@@ -48,6 +48,8 @@ mod combat;
 pub use self::combat::*;
 mod f2_firing;
 pub use self::f2_firing::*;
+mod f2_riders;
+pub use self::f2_riders::*;
 mod f2;
 pub use self::f2::*;
 mod flight;

@@ -731,6 +731,7 @@ export class Vehicle {
   // riderHitShapes): his body as poseRider poses it, where seatRider places
   // it. Written to shapes; returns their count, 0 where none shows.
   riderShapes(i, unit, shapes) {
+    if (this.system.f2) return this.system.f2.riders.shapes(unit, shapes);
     const s = this.system.rider;
     const frame = riderBody(this, i, unit, s.points, s.frame, s);
     return frame ? riderHitShapes(s.points, frame, unit.rootScale, shapes) : 0;
@@ -738,6 +739,7 @@ export class Vehicle {
   // Where a rider killed on seat i starts to fall from, in the world: out,
   // or null where none shows (src/rider-pose.js riderDropPoint).
   riderDrop(i, unit, out) {
+    if (this.system.f2) return this.system.f2.riders.drop(unit, out);
     const s = this.system.rider;
     const frame = riderBody(this, i, unit, s.points, s.frame, s);
     return frame ? riderDropPoint(s.points, out).applyMatrix4(frame) : null;

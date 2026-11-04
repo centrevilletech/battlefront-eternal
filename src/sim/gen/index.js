@@ -61,6 +61,7 @@ export * from "./battle.js";
 export * from "./battlefield.js";
 export * from "./combat.js";
 export * from "./f2-firing.js";
+export * from "./f2-riders.js";
 export * from "./f2.js";
 export * from "./flight.js";
 export * from "./input.js";

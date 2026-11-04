@@ -29,11 +29,11 @@ struct State {
     depth: usize,
     input: Vec<f64>,
     io: [f64; F2SeatIo::WORDS],
-    leases: Block, units: Block, controls: Block, effects: Block, fire: Block, fire_rows: Vec<F2SeatFire>,
+    leases: Block, units: Block, controls: Block, effects: Block,
     body_effects: Vec<F2SeatEffect>,
     node_output: Block, nodes_pending: bool, ordnance_output: Block, ordnance_dirty: bool,
     body_refs: Vec<Option<Ref<Body>>>,
-    actors: Vec<bool>, rider_sides: Vec<bool>,
+    actors: Vec<bool>, rider_sides: Vec<bool>, rider_posed: Vec<bool>,
     turret_lives: Vec<f64>, posed: Vec<bool>, timed: Vec<bool>, weapons: Vec<Option<TurretWeapon>>, turret_rows: Vec<F2TurretOut>, turret_output: Block,
     event_rows: Vec<F2TurretEvent>, event_output: Block, rounds: Vec<Option<crate::ordnance::world::Shot>>,
 }
@@ -41,10 +41,10 @@ static mut STATE: Option<State> = None;
 fn state() -> &'static mut State {
     unsafe { (*addr_of_mut!(STATE)).get_or_insert_with(|| State {
         owner: Default::default(), depth: 0, input: vec![0.0; INPUT_CAPACITY], io: [0.0; F2SeatIo::WORDS],
-        leases: Block::default(), units: Block::default(), controls: Block::default(), effects: Block::default(), fire: Block::default(), fire_rows: Vec::with_capacity(512),
+        leases: Block::default(), units: Block::default(), controls: Block::default(), effects: Block::default(),
         node_output: Block::default(), nodes_pending: false, ordnance_output: Block { words: Vec::with_capacity(32768), heap: Vec::with_capacity(32768) }, ordnance_dirty: false,
         body_effects: Vec::with_capacity(512), body_refs: Vec::with_capacity(4096),
-        actors: Vec::with_capacity(512), rider_sides: Vec::with_capacity(512),
+        actors: Vec::with_capacity(512), rider_sides: Vec::with_capacity(512), rider_posed: Vec::with_capacity(512),
         turret_lives: Vec::with_capacity(128), posed: Vec::with_capacity(128), timed: Vec::with_capacity(128), weapons: Vec::with_capacity(128), turret_rows: Vec::with_capacity(128), turret_output: Block::default(),
         event_rows: Vec::with_capacity(512), event_output: Block::default(), rounds: Vec::with_capacity(32),
     }) }
@@ -149,9 +149,7 @@ pub fn latch(time: f64) {
         if let Some(v) = sim().store.vehicle.get(r) {
             if !v.seats.iter().any(|s| s.lease.is_some()) { continue; }
             touch_hull(r);
-            for s in &v.seats { if let Some(l) = s.lease {
-                if let Some(l) = sim().store.seat_lease.get(l) { if let Some(u) = l.unit { touch_unit(u); } }
-            } }
+
         }
     }
     let mut st = std::mem::take(&mut sim().store);
@@ -198,6 +196,7 @@ fn edges(i: &Intent) -> F2SeatEdges { F2SeatEdges { reload: i.reload, r#use: i.r
 
 /// Lease and body publication contains only rows touched since the last hook.
 pub fn publish() -> *const f64 {
+    for i in 0..state().owner.changed.hulls.len() { super::riders::hull(state().owner.changed.hulls[i], false); }
     let state = state();
     if !state.nodes_pending { state.node_output.begin(0, F2HullNode::WORDS); state.node_output.finish(); }
     state.nodes_pending = false;
@@ -212,11 +211,6 @@ pub fn publish() -> *const f64 {
         if let Some(v) = st.vehicle.get(r) { for s in &v.seats { if let Some(r) = s.lease {
             if !state.owner.changed.leases.contains(&r) { state.owner.changed.leases.push(r); }
         } } }
-    }
-    for &r in &state.owner.changed.leases {
-        if let Some(u) = st.seat_lease.get(r).and_then(|l| l.unit) {
-            if !state.owner.changed.units.contains(&u) { state.owner.changed.units.push(u); }
-        }
     }
     let retired = st.seat_lease.retired.len();
     let live = state.owner.changed.leases.iter().filter(|&&r| st.seat_lease.contains(r)).count();
@@ -237,7 +231,8 @@ pub fn publish() -> *const f64 {
         let zoom = riders.get(&r.slot).map_or(0.0, |r| r.combat.zoom_step);
         let out = F2SeatUnitOut { unit: r, seat: u.seat, targetable: u.targetable, tick_count: u.tick_count,
             soldier: body(s), intent: edges(&u.intent), mounted: u.combat.mounted, gun_underwater: u.combat.gun_underwater,
-            aim_override: u.combat.aim_override, zoom_step: zoom };
+            aim_override: u.combat.aim_override, zoom_step: zoom, rider_posed: state.rider_posed.get(r.slot as usize).copied().unwrap_or(false) };
+        if let Some(flag) = state.rider_posed.get_mut(r.slot as usize) { *flag = false; }
         let (row, heap) = state.units.row(i); out.put(row, heap);
     }
     state.units.finish();
@@ -255,14 +250,11 @@ pub fn publish() -> *const f64 {
     state.effects.finish(); state.body_effects.clear();
     publish_turrets(state);
     state.owner.changed.clear();
-    state.fire.begin(state.fire_rows.len(), F2SeatFire::WORDS);
-    for (i, row) in state.fire_rows.iter().enumerate() { let (words, heap) = state.fire.row(i); row.put(words, heap); }
-    state.fire.finish(); state.fire_rows.clear();
     F2SeatIo { emitter_mask: EMITTER_MASK, ordnance: state.ordnance_output.ptr() as usize as u32, nodes: state.node_output.ptr() as usize as u32, words: F2SeatIo::WORDS as u32, input: state.input.as_mut_ptr() as usize as u32, capacity: INPUT_CAPACITY as u32,
         header_words: F2SeatHeader::WORDS as u32, unit_words: F2SeatUnitIn::WORDS as u32, control_words: SeatAiControl::WORDS as u32,
-        look_words: F2SeatSample::WORDS as u32, body_words: F2RiderIn::WORDS as u32, leases: state.leases.ptr() as usize as u32, units: state.units.ptr() as usize as u32,
+        look_words: F2SeatSample::WORDS as u32, leases: state.leases.ptr() as usize as u32, units: state.units.ptr() as usize as u32,
         controls: state.controls.ptr() as usize as u32, effects: state.effects.ptr() as usize as u32,
-        fire: state.fire.ptr() as usize as u32, turrets: state.turret_output.ptr() as usize as u32, events: state.event_output.ptr() as usize as u32, ticks: state.owner.hulls.ticks, turret_ticks: st.turret_seats.ticks, turret_time: st.turret_seats.time }.put(&mut state.io, &mut state.effects.heap);
+        turrets: state.turret_output.ptr() as usize as u32, events: state.event_output.ptr() as usize as u32, riders: super::riders::publish() as usize as u32, ticks: state.owner.hulls.ticks, turret_ticks: st.turret_seats.ticks, turret_time: st.turret_seats.time }.put(&mut state.io, &mut state.effects.heap);
     state.io.as_ptr()
 }
 
@@ -300,6 +292,7 @@ impl SeatWorld for World {
     }
     fn crew_posed(&mut self, r: Ref<SeatLease>) {
         touch_lease(r);
+        if let Some(unit) = sim().store.seat_lease.get(r).and_then(|l| l.unit) { touch_unit(unit); }
         if let Some(t) = sim().store.seat_lease.get(r).and_then(|l| l.turret) {
             let i = state().owner.crews.turrets.iter().position(|v| v.turret == t).unwrap(); state().posed[i] = true; touch_turret(t);
         }
@@ -341,12 +334,10 @@ impl SeatWorld for World {
             Seating::Crews(_) => self.killed(unit, owner),
         }
     }
-    fn rider_drop(&mut self, h: Holder, index: usize, unit: u32) -> Option<Vector3> {
-        let (holder, turret) = holder(h);
-        let a = self.action(F2SeatAction { kind: F2SeatActionKind::Body, unit: Some(unit_ref(unit)), holder, turret, index: index as f64,
-            effect: SeatEffectKind::Dropped, ..Default::default() });
-        a.flag.then(|| vec(&a.point))
+    fn rider_drop(&mut self, _h: Holder, _index: usize, unit: u32) -> Option<Vector3> {
+        super::riders::drop(unit_ref(unit))
     }
+
     fn sync_rider(&mut self, r: Ref<SeatLease>, unit: &mut Unit) {
         // The pointer names a command-local shell. Borrow only its lease and
         // vehicle slabs, disjoint from the Unit row the solver lent this call.
@@ -364,7 +355,7 @@ impl SeatWorld for World {
             s.position = v3(&point); s.previous = s.position; s.settled = s.position;
             s.velocity = v.velocity; s.aim_yaw = v.seats[index].aim_yaw; s.aim_pitch = v.seats[index].pitch;
         }
-        unit.tick_count += 1.0; touch_unit(id);
+        unit.tick_count += 1.0; rider_posed(id);
     }
 
     fn controller_state(&mut self, unit: Option<u32>) -> Option<f64> {
@@ -593,6 +584,10 @@ fn publish_turrets(s: &mut State) {
         out.sample_pitch = if s.timed[i] { 0.0 } else { -t.pitch / (45.0 * (std::f64::consts::PI / 180.0)) };
         out.sample_turn = if s.timed[i] || !seats::truthy(t.desc.turn_rate) { 0.0 } else { t.yaw_vel / t.desc.turn_rate };
         out.sample_time = s.timed[i].then_some(0.0);
+        if let Some(unit) = t.lease.and_then(|r| sim().store.seat_lease.get(r)).and_then(|l| l.unit) {
+            let point = t.seat_point();
+            super::riders::turret(unit, t.turret, t.desc.rider, point, turn, out.sample_pitch, out.sample_turn);
+        }
         for (b, &node) in p.bones.iter_mut().zip(&t.rig.bones) {
             let n = t.rig.tree.node(node); b.p = v3(&n.position); b.q = [n.quaternion.x, n.quaternion.y, n.quaternion.z, n.quaternion.w];
             b.s = v3(&n.scale); b.world = n.matrix_world.elements;
@@ -899,20 +894,9 @@ pub extern "C" fn f2_bodies() {
     }
 }
 
-/// The foreign Vehicles.syncCrews body writes are current before later damage
-/// commands or turret queries can publish these units again. Intents stay frozen.
-pub fn rider_bodies() {
-    let h = F2SeatHeader::take(&state().input, &[]);
-    for i in 0..h.body_count as usize {
-        let at = h.bodies as usize + i * F2RiderIn::WORDS;
-        let a = F2RiderIn::take(&state().input[at..at + F2RiderIn::WORDS], &[]);
-        let Some(u) = sim().store.unit.get_mut(a.unit) else { continue };
-        if u.generation != a.generation { continue; }
-        u.tick_count = a.tick_count;
-        let Some(s) = soldier_mut(u) else { continue }; let p = a.soldier;
-        s.position = p.position; s.previous = p.previous; s.settled = p.settled; s.velocity = p.velocity; s.normal = p.normal;
-        s.aim_yaw = p.aim_yaw; s.aim_pitch = p.aim_pitch; s.air = p.air; s.posture = p.posture; s.grounded = p.grounded;
-        s.dive = p.dive; s.dive_from = p.dive_from; s.lock = p.lock; s.look_x = p.look_x; s.look_y = p.look_y;
-        s.fuel = p.fuel; s.state_time = p.state_time; s.pass_through = p.pass_through;
-    }
+pub fn has_actor(unit: Ref<Unit>) -> bool { state().actors.get(unit.slot as usize).copied().unwrap_or(false) }
+pub fn rider_posed(unit: Ref<Unit>) {
+    let flags = &mut state().rider_posed;
+    if flags.len() <= unit.slot as usize { flags.resize(unit.slot as usize + 1, false); }
+    flags[unit.slot as usize] = true; touch_unit(unit);
 }

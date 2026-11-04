@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { F2Seats } from './f2-seats.js';
 import { F2Firing } from './f2-firing.js';
+import { F2Riders } from './f2-riders.js';
 import { makeGround, makeHit } from './collision.js';
 import { Weapon } from './weapons.js';
 import { FLIGHT_CLASSES, flightConfig } from './flight/config.js';
@@ -77,7 +78,7 @@ class F2 {
         this.sync();
         this.firing.drain();
         if (vehicles.cosmetic !== false) vehicles.drawTethers(false);
-        vehicles.syncCrews(false); this.seats.prepareRiders();
+
       },
       f2Variant: (a) => {
         const slot = vehicles.slots[a.pad], name = a.name;
@@ -104,6 +105,7 @@ class F2 {
     bridge.refs[KIND_VEHICLE] = this.pool;
     this.seats = new F2Seats(this);
     this.firing = new F2Firing(this);
+    this.riders = new F2Riders(this);
     this.bodyArgs = { words: this.x.f2_body_words(), put: putF2Bodies }; this.bodyRefs = { bodies: [] };
     for (const v of vehicles.vehicles) this.adopt(v);
     this.bodiesIn();
@@ -461,11 +463,16 @@ class F2 {
     const previous = new THREE.Vector3(), q = new THREE.Quaternion(), own = new THREE.Quaternion(), matrix = new THREE.Matrix4();
     const center = new THREE.Vector3(), point = new THREE.Vector3();
     const probes = [];
+    const castResult = { found: false, distance: 0, point: this.hit.point, normal: this.hit.normal, terrain: false, body: -1 };
+    const pushResult = { undo: false, position, velocity };
+    const groundResult = { found: false, height: 0, normal: this.groundHit.normal };
     return {
       vehCast: (a) => {
         origin.copy(a.origin); direction.copy(a.direction);
         const hit = w.cast(origin, direction, a.far, this.hit, this.body(a.ignore));
-        return hit ? { found: true, distance: hit.distance, point: hit.point, normal: hit.normal, terrain: Boolean(hit.terrain), body: this.bodySlot(hit.body) } : MISS;
+        if (!hit) return MISS;
+        castResult.found = true; castResult.distance = hit.distance; castResult.terrain = Boolean(hit.terrain); castResult.body = this.bodySlot(hit.body);
+        return castResult;
       },
       vehPushWalls: (a) => {
         const hull = hullAt(a.hull), radius = a.radius, terrain = a.terrain;
@@ -474,11 +481,12 @@ class F2 {
         q.copy(a.q); previous.copy(a.previous); position.copy(a.position); velocity.copy(a.velocity);
         const mine = a.own ? own.copy(a.own) : null;
         const undo = w.pushWalls(hull, probes, radius, q, mine, previous, position, velocity, terrain);
-        return { undo: Boolean(undo), position, velocity };
+        pushResult.undo = Boolean(undo); return pushResult;
       },
       vehGround: (a) => {
         const g = w.ground(a.x, a.z, a.top, this.groundHit);
-        return g ? { found: true, height: g.height, normal: g.normal } : NO_GROUND;
+        if (!g) return NO_GROUND;
+        groundResult.found = true; groundResult.height = g.height; return groundResult;
       },
       vehSpringPolygons: (a) => {
         const hull = hullAt(a.hull), index = a.index, radius = a.radius;

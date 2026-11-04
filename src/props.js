@@ -916,6 +916,7 @@ export class Turret extends Building {
   // is drawn. Written to shapes; returns their count, 0 where none shows.
   // index: the seat's, always 0 (as Vehicle.riderShapes takes it).
   riderShapes(index, unit, shapes) {
+    if (this.f2Seats) return this.f2Seats.phase.riders.shapes(unit, shapes);
     const frame = this.riderBody(unit, riderScratch);
     return frame ? riderHitShapes(riderScratch.points, frame, unit.rootScale, shapes) : 0;
   }
@@ -923,6 +924,7 @@ export class Turret extends Building {
   // Where a gunner killed at the gun starts to fall from, in the world:
   // out, or null where none shows (src/rider-pose.js riderDropPoint).
   riderDrop(index, unit, out) {
+    if (this.f2Seats) return this.f2Seats.phase.riders.drop(unit, out);
     const frame = this.riderBody(unit, riderScratch);
     return frame ? riderDropPoint(riderScratch.points, out).applyMatrix4(frame) : null;
   }

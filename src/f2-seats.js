@@ -7,9 +7,9 @@ import { MirrorPool, Heap } from './sim/runtime.js';
 import { makeHit } from './collision.js';
 import { COMMAND_F2_SEAT, COMMAND_TABLE, KIND_TABLE, KIND_SEAT_LEASE, KIND_UNIT, KIND_ORDNANCE, KIND_EMITTER } from './sim/gen/index.js';
 import { F2SeatIoMirror, F2SeatHeaderMirror, F2SeatUnitInMirror, F2SeatUnitOutMirror, F2SeatCommandMirror, F2SeatResultMirror,
-  F2SeatAnswerMirror, F2SeatEffectMirror, F2LatchedMirror, F2SeatFireMirror,
-  F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2HullNodeMirror, syncF2HullNode, F2TurretTargetMirror, F2RiderInMirror, putF2RiderIn, syncF2TurretHeader, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
-  syncF2SeatIo, putF2SeatHeader, putF2SeatUnitIn, syncF2SeatUnitOut, syncF2SeatEffect, syncF2Latched, syncF2SeatFire, putF2SeatSample } from './sim/gen/f2.js';
+  F2SeatAnswerMirror, F2SeatEffectMirror, F2LatchedMirror, 
+  F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2HullNodeMirror, syncF2HullNode, F2TurretTargetMirror, syncF2TurretHeader, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
+  syncF2SeatIo, putF2SeatHeader, putF2SeatUnitIn, syncF2SeatUnitOut, syncF2SeatEffect, syncF2Latched, putF2SeatSample } from './sim/gen/f2.js';
 import { rigNodes } from './vehicle-phase-data.js';
 import { turretSettings, turretState } from './turrets-sim.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
@@ -75,10 +75,10 @@ export class F2Seats {
     this.leaseRows = new WeakMap();
     this.pool = new LeasePool(this); this.pool.owner = this; this.pool.released = new Map(); this.mounts = new WeakMap(); this.riderClips = new WeakMap(); this.riderSample = { clip: null, pitch: 0, turn: 0, time: null }; this.bridge.refs[KIND_SEAT_LEASE] = this.pool;
     this.emptyHeap = new Heap(); this.header = new F2SeatHeaderMirror(); this.io = new F2SeatIoMirror();
-    this.riderIn = new F2RiderInMirror(); this.unitIn = new F2SeatUnitInMirror(); this.unitOut = new F2SeatUnitOutMirror();
+    this.unitIn = new F2SeatUnitInMirror(); this.unitOut = new F2SeatUnitOutMirror();
     this.controlIn = { seatUnit: null, driven: false, intent: null };
     this.command = new F2SeatCommandMirror(); this.result = new F2SeatResultMirror();
-    this.answer = new F2SeatAnswerMirror(); this.effectRow = new F2SeatEffectMirror(); this.controlRow = new F2LatchedMirror(); this.fireRow = new F2SeatFireMirror();
+    this.answer = new F2SeatAnswerMirror(); this.effectRow = new F2SeatEffectMirror(); this.controlRow = new F2LatchedMirror();
     this.lookSamples = [[0, 0]]; this.networkScales = { scale: 1, invert: false, flightScale: 1, flightInvert: false };
     this.sample = { dx: 0, dy: 0 }; this.drop = new THREE.Vector3(); this.hit = makeHit();
     this.castResult = { found: false, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null };
@@ -173,21 +173,9 @@ export class F2Seats {
       const a = this.controlIn; a.seatUnit = c; a.driven = Boolean(c.controller); a.intent = c.intent;
       putSeatAiControl(b, a, f, this.inputBase + o, this.emptyHeap); o += this.io.controlWords; h.controlCount++;
     }
-    h.looks = o; h.lookCount = 0; h.bodies = o; h.bodyCount = 0;
+    h.looks = o; h.lookCount = 0;
     this.writeHeader(o);
     return o;
-  }
-  prepareRiders() {
-    this.units.length = 0; this.stamp++;
-    for (const v of this.vehicles.vehicles) if (v.alive) this.addHull(v);
-    const b = this.bridge, h = this.header; b.views();
-    h.unitCount = h.controlCount = h.lookCount = 0;
-    let o = this.io.headerWords; h.bodies = o; h.bodyCount = this.units.length;
-    for (const unit of this.units) {
-      const a = this.riderIn; a.unit = unit; a.generation = unit.generation; a.tickCount = unit.tickCount; a.soldier = unit.soldier;
-      putF2RiderIn(b, a, b.f, this.inputBase + o, this.emptyHeap); o += this.io.bodyWords;
-    }
-    this.writeHeader(o);
   }
   writeHeader(end, words = end) {
     if (end > this.capacity) throw Error('F2 seat input capacity exceeded');
@@ -195,6 +183,7 @@ export class F2Seats {
     this.phase.counters.inputFields += words;
   }
   invoke(op, unit = null, hull = null, lease = null, index = 0, options = null, direction = 1, looks = null, scales = null) {
+    this.phase.riders.ensure(unit, hull);
     const look = op === 'look' || op === 'network' || op === 'resetSticks';
     let o = look ? this.prepare(null, null, false) : this.prepare(unit, hull, false);
     const h = this.header;
@@ -286,6 +275,7 @@ export class F2Seats {
   }
   syncBodies() {
     const b = this.bridge, f = b.f;
+    this.phase.riders.sync(this.io.riders);
     let base = this.io.units / 8;
     if (base) {
       const n = f[base], stride = f[base + 1], heap = base + f[base + 2];
@@ -296,6 +286,7 @@ export class F2Seats {
         if (unit.seat?.turret) this.mounts.set(unit, unit.seat.turret);
         unit.seat = out.seat; unit.targetable = out.targetable; unit.tickCount = out.tickCount;
         if (unit.combat) { unit.combat.mounted = out.mounted; unit.combat.gunUnderwater = out.gunUnderwater; unit.combat.aimOverride = out.aimOverride; }
+        if (out.riderPosed) this.phase.riders.present(unit);
       }
       this.phase.counters.outputFields += n * stride + f[base + 3];
     }

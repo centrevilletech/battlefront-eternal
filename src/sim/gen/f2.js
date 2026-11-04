@@ -22,8 +22,6 @@ export const F2TurretTargetMode_INDEX = new Map(F2TurretTargetMode_NAMES.map((na
 
 export class F2SeatHeaderMirror {
   constructor() {
-    this.bodies = 0;
-    this.bodyCount = 0;
     this.units = 0;
     this.unitCount = 0;
     this.controls = 0;
@@ -38,39 +36,33 @@ export class F2SeatHeaderMirror {
 }
 
 export function syncF2SeatHeader(b, f, at, h, m) {
-  m.bodies = f[at + 0];
-  m.bodyCount = f[at + 1];
-  m.units = f[at + 2];
-  m.unitCount = f[at + 3];
-  m.controls = f[at + 4];
-  m.controlCount = f[at + 5];
-  m.looks = f[at + 6];
-  m.lookCount = f[at + 7];
-  m.mouseScale = f[at + 8];
-  m.invert = f[at + 9] !== 0;
-  m.flightScale = f[at + 10];
-  m.flightInvert = f[at + 11] !== 0;
+  m.units = f[at + 0];
+  m.unitCount = f[at + 1];
+  m.controls = f[at + 2];
+  m.controlCount = f[at + 3];
+  m.looks = f[at + 4];
+  m.lookCount = f[at + 5];
+  m.mouseScale = f[at + 6];
+  m.invert = f[at + 7] !== 0;
+  m.flightScale = f[at + 8];
+  m.flightInvert = f[at + 9] !== 0;
   return m;
 }
 
 export function putF2SeatHeader(b, o, f, at, heap) {
-  f[at + 0] = o.bodies;
-  f[at + 1] = o.bodyCount;
-  f[at + 2] = o.units;
-  f[at + 3] = o.unitCount;
-  f[at + 4] = o.controls;
-  f[at + 5] = o.controlCount;
-  f[at + 6] = o.looks;
-  f[at + 7] = o.lookCount;
-  f[at + 8] = o.mouseScale;
-  f[at + 9] = o.invert ? 1 : 0;
-  f[at + 10] = o.flightScale;
-  f[at + 11] = o.flightInvert ? 1 : 0;
+  f[at + 0] = o.units;
+  f[at + 1] = o.unitCount;
+  f[at + 2] = o.controls;
+  f[at + 3] = o.controlCount;
+  f[at + 4] = o.looks;
+  f[at + 5] = o.lookCount;
+  f[at + 6] = o.mouseScale;
+  f[at + 7] = o.invert ? 1 : 0;
+  f[at + 8] = o.flightScale;
+  f[at + 9] = o.flightInvert ? 1 : 0;
 }
 
 export function sameF2SeatHeader(a, b) {
-  if (!Object.is(a.bodies, b.bodies)) return ".bodies";
-  if (!Object.is(a.bodyCount, b.bodyCount)) return ".bodyCount";
   if (!Object.is(a.units, b.units)) return ".units";
   if (!Object.is(a.unitCount, b.unitCount)) return ".unitCount";
   if (!Object.is(a.controls, b.controls)) return ".controls";
@@ -89,8 +81,6 @@ export function exportF2SeatHeader(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.bodies = o.bodies;
-  v.bodyCount = o.bodyCount;
   v.units = o.units;
   v.unitCount = o.unitCount;
   v.controls = o.controls;
@@ -465,50 +455,6 @@ export function exportF2SeatEdges(o, cx) {
   return v;
 }
 
-export class F2RiderInMirror {
-  constructor() {
-    this.unit = null;
-    this.generation = NaN;
-    this.tickCount = NaN;
-    this.soldier = new F2SeatBodyMirror();
-  }
-}
-
-export function syncF2RiderIn(b, f, at, h, m) {
-  m.unit = b.refs[KIND_UNIT].at(f[at + 0], f[at + 1]);
-  m.generation = f[at + 2];
-  m.tickCount = f[at + 3];
-  m.soldier = syncF2SeatBody(b, f, at + 4, h, m.soldier ?? new F2SeatBodyMirror());
-  return m;
-}
-
-export function putF2RiderIn(b, o, f, at, heap) {
-  b.refs[KIND_UNIT].put(o.unit, f, at + 0);
-  f[at + 2] = o.generation;
-  f[at + 3] = o.tickCount;
-  putF2SeatBody(b, o.soldier, f, at + 4, heap);
-}
-
-export function sameF2RiderIn(a, b) {
-  if (!Object.is(a.unit, b.unit)) return ".unit";
-  if (!Object.is(a.generation, b.generation)) return ".generation";
-  if (!Object.is(a.tickCount, b.tickCount)) return ".tickCount";
-  { const d = sameF2SeatBody(a.soldier, b.soldier); if (d) return ".soldier" + d; }
-  return null;
-}
-
-export function exportF2RiderIn(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.unit = cx.ref("unit", o.unit);
-  v.generation = o.generation;
-  v.tickCount = o.tickCount;
-  v.soldier = exportF2SeatBody(o.soldier, cx);
-  return v;
-}
-
 export class F2SeatUnitOutMirror {
   constructor() {
     this.unit = null;
@@ -521,6 +467,7 @@ export class F2SeatUnitOutMirror {
     this.gunUnderwater = false;
     this.aimOverride = null;
     this.zoomStep = NaN;
+    this.riderPosed = false;
   }
 }
 
@@ -535,6 +482,7 @@ export function syncF2SeatUnitOut(b, f, at, h, m) {
   m.gunUnderwater = f[at + 51] !== 0;
   { const tag = f[at + 52]; if (tag === 0) { (m.aimOverride ??= new THREE.Vector3()).set(f[at + 53], f[at + 54], f[at + 55]); } else m.aimOverride = tag === 1 ? null : undefined; }
   m.zoomStep = f[at + 56];
+  m.riderPosed = f[at + 57] !== 0;
   return m;
 }
 
@@ -549,6 +497,7 @@ export function putF2SeatUnitOut(b, o, f, at, heap) {
   f[at + 51] = o.gunUnderwater ? 1 : 0;
   { const $x = o.aimOverride; if ($x === null || $x === undefined) { f[at + 52] = $x === null ? 1 : 2; f[at + 53] = 0; f[at + 54] = 0; f[at + 55] = 0; } else { f[at + 52] = 0; { const $v = $x; f[at + 53] = $v.x; f[at + 54] = $v.y; f[at + 55] = $v.z; } } }
   f[at + 56] = o.zoomStep;
+  f[at + 57] = o.riderPosed ? 1 : 0;
 }
 
 export function sameF2SeatUnitOut(a, b) {
@@ -562,6 +511,7 @@ export function sameF2SeatUnitOut(a, b) {
   if (!Object.is(a.gunUnderwater, b.gunUnderwater)) return ".gunUnderwater";
   { const p = a.aimOverride, q = b.aimOverride; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".aimOverride"; } else { if (!sameVec(p, q)) return ".aimOverride"; } }
   if (!Object.is(a.zoomStep, b.zoomStep)) return ".zoomStep";
+  if (!Object.is(a.riderPosed, b.riderPosed)) return ".riderPosed";
   return null;
 }
 
@@ -580,6 +530,7 @@ export function exportF2SeatUnitOut(o, cx) {
   v.gunUnderwater = o.gunUnderwater;
   v.aimOverride = ((x) => (x === null || x === undefined ? x : x.clone()))(o.aimOverride);
   v.zoomStep = o.zoomStep;
+  v.riderPosed = o.riderPosed;
   return v;
 }
 
@@ -653,45 +604,6 @@ export function exportF2Latched(o, cx) {
   v = {};
   cx.seen.set(o, v);
   v.control = cx.ref("seatUnit", o.control);
-  return v;
-}
-
-export class F2SeatFireMirror {
-  constructor() {
-    this.lease = null;
-    this.pressed = [NaN, NaN];
-    this.reload = false;
-  }
-}
-
-export function syncF2SeatFire(b, f, at, h, m) {
-  m.lease = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]);
-  { const a = (m.pressed ??= new Array(2)); a[0] = f[at + 2]; a[1] = f[at + 3]; }
-  m.reload = f[at + 4] !== 0;
-  return m;
-}
-
-export function putF2SeatFire(b, o, f, at, heap) {
-  b.refs[KIND_SEAT_LEASE].put(o.lease, f, at + 0);
-  { const $v = o.pressed; f[at + 2] = $v[0]; f[at + 3] = $v[1]; }
-  f[at + 4] = o.reload ? 1 : 0;
-}
-
-export function sameF2SeatFire(a, b) {
-  if (!Object.is(a.lease, b.lease)) return ".lease";
-  if (!sameArray(a.pressed, b.pressed, 2)) return ".pressed";
-  if (!Object.is(a.reload, b.reload)) return ".reload";
-  return null;
-}
-
-export function exportF2SeatFire(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.lease = cx.ref("seatLease", o.lease);
-  v.pressed = [...o.pressed];
-  v.reload = o.reload;
   return v;
 }
 
@@ -814,14 +726,13 @@ export class F2SeatIoMirror {
     this.unitWords = 0;
     this.controlWords = 0;
     this.lookWords = 0;
-    this.bodyWords = 0;
     this.leases = 0;
     this.units = 0;
     this.controls = 0;
     this.effects = 0;
-    this.fire = 0;
     this.turrets = 0;
     this.events = 0;
+    this.riders = 0;
     this.ticks = NaN;
     this.turretTicks = NaN;
     this.turretTime = NaN;
@@ -839,17 +750,16 @@ export function syncF2SeatIo(b, f, at, h, m) {
   m.unitWords = f[at + 7];
   m.controlWords = f[at + 8];
   m.lookWords = f[at + 9];
-  m.bodyWords = f[at + 10];
-  m.leases = f[at + 11];
-  m.units = f[at + 12];
-  m.controls = f[at + 13];
-  m.effects = f[at + 14];
-  m.fire = f[at + 15];
-  m.turrets = f[at + 16];
-  m.events = f[at + 17];
-  m.ticks = f[at + 18];
-  m.turretTicks = f[at + 19];
-  m.turretTime = f[at + 20];
+  m.leases = f[at + 10];
+  m.units = f[at + 11];
+  m.controls = f[at + 12];
+  m.effects = f[at + 13];
+  m.turrets = f[at + 14];
+  m.events = f[at + 15];
+  m.riders = f[at + 16];
+  m.ticks = f[at + 17];
+  m.turretTicks = f[at + 18];
+  m.turretTime = f[at + 19];
   return m;
 }
 
@@ -864,17 +774,16 @@ export function putF2SeatIo(b, o, f, at, heap) {
   f[at + 7] = o.unitWords;
   f[at + 8] = o.controlWords;
   f[at + 9] = o.lookWords;
-  f[at + 10] = o.bodyWords;
-  f[at + 11] = o.leases;
-  f[at + 12] = o.units;
-  f[at + 13] = o.controls;
-  f[at + 14] = o.effects;
-  f[at + 15] = o.fire;
-  f[at + 16] = o.turrets;
-  f[at + 17] = o.events;
-  f[at + 18] = o.ticks;
-  f[at + 19] = o.turretTicks;
-  f[at + 20] = o.turretTime;
+  f[at + 10] = o.leases;
+  f[at + 11] = o.units;
+  f[at + 12] = o.controls;
+  f[at + 13] = o.effects;
+  f[at + 14] = o.turrets;
+  f[at + 15] = o.events;
+  f[at + 16] = o.riders;
+  f[at + 17] = o.ticks;
+  f[at + 18] = o.turretTicks;
+  f[at + 19] = o.turretTime;
 }
 
 export function sameF2SeatIo(a, b) {
@@ -888,14 +797,13 @@ export function sameF2SeatIo(a, b) {
   if (!Object.is(a.unitWords, b.unitWords)) return ".unitWords";
   if (!Object.is(a.controlWords, b.controlWords)) return ".controlWords";
   if (!Object.is(a.lookWords, b.lookWords)) return ".lookWords";
-  if (!Object.is(a.bodyWords, b.bodyWords)) return ".bodyWords";
   if (!Object.is(a.leases, b.leases)) return ".leases";
   if (!Object.is(a.units, b.units)) return ".units";
   if (!Object.is(a.controls, b.controls)) return ".controls";
   if (!Object.is(a.effects, b.effects)) return ".effects";
-  if (!Object.is(a.fire, b.fire)) return ".fire";
   if (!Object.is(a.turrets, b.turrets)) return ".turrets";
   if (!Object.is(a.events, b.events)) return ".events";
+  if (!Object.is(a.riders, b.riders)) return ".riders";
   if (!Object.is(a.ticks, b.ticks)) return ".ticks";
   if (!Object.is(a.turretTicks, b.turretTicks)) return ".turretTicks";
   if (!Object.is(a.turretTime, b.turretTime)) return ".turretTime";
@@ -917,14 +825,13 @@ export function exportF2SeatIo(o, cx) {
   v.unitWords = o.unitWords;
   v.controlWords = o.controlWords;
   v.lookWords = o.lookWords;
-  v.bodyWords = o.bodyWords;
   v.leases = o.leases;
   v.units = o.units;
   v.controls = o.controls;
   v.effects = o.effects;
-  v.fire = o.fire;
   v.turrets = o.turrets;
   v.events = o.events;
+  v.riders = o.riders;
   v.ticks = o.ticks;
   v.turretTicks = o.turretTicks;
   v.turretTime = o.turretTime;
