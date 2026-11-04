@@ -8,7 +8,7 @@ import { battleParams } from './battle-query.js';
 // server, its address, the relay) and diagnostics kept.
 function battleUrl(query) {
   const next=battleParams(query),current=new URLSearchParams(globalThis.location?.search);
-  for(const name of ['network','server','address','port','relay','traceInput','profileRuntime'])if(current.has(name))next.set(name,current.get(name));
+  for(const name of ['network','server','address','port','relay','traceInput','profileRuntime','prediction'])if(current.has(name))next.set(name,current.get(name));
   return '/?'+next;
 }
 // Whether the page built another battle than the server plays: a value the

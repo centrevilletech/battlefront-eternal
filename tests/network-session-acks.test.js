@@ -88,7 +88,7 @@ test('spectator notice stays prominent and actionable across periodic connection
 
 test('a page that built another battle than the server plays loads the server\'s from its welcome, before any entity lands', async () => {
  const {otherBattle} = await import('../src/runtime/network-session.js');
- const page = '?map=bes2&side=rep&era=cw&ai=classic&seed=1&network=1&server=abc&address=10.0.0.5&port=18452';
+ const page = '?map=bes2&side=rep&era=cw&ai=classic&seed=1&network=1&server=abc&address=10.0.0.5&port=18452&prediction=rust';
  assert.equal(otherBattle(page, '?map=bes2&side=rep&ai=off&seed=1&match=' + 'a'.repeat(32)), true, 'bots off on the server, on in the page');
  assert.equal(otherBattle(page, '?map=bes2&side=rep&ai=classic&seed=1&match=' + 'b'.repeat(32)), false, 'the same battle: the match token and the page\'s own keys do not count');
  assert.equal(otherBattle(page, '?map=bes2&side=imp&ai=classic&seed=1'), true);
@@ -104,6 +104,7 @@ test('a page that built another battle than the server plays loads the server\'s
   const next = new URLSearchParams(visited[0].slice(2));
   assert.deepEqual([next.get('ai'), next.get('map'), next.get('server'), next.get('address'), next.get('port')], ['off', 'bes2', 'abc', '10.0.0.5', '18452'], 'the server\'s battle, over this page\'s connection');
   assert.equal(ready, false, 'this battle never starts');
+  assert.equal(next.get('prediction'), 'rust', 'the page retains its prediction diagnostic across battle changes');
   assert.equal(session.authenticated, false);
  } finally { globalThis.location = location; }
 });
