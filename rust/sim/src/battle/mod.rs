@@ -16,6 +16,7 @@ pub mod names;
 pub mod objectives;
 pub mod phase;
 pub mod posts;
+pub mod props;
 pub mod regions;
 pub mod roster;
 pub mod rules;
