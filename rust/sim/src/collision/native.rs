@@ -147,14 +147,14 @@ impl NativeCollision {
         });
         Ok((self.state.trees.len() - 1) as u32)
     }
-    pub(super) fn fixed_set(
+    pub(super) fn add_fixed_set(
         &mut self,
         tree: u32,
         bounds: &[f32],
         polygons: &[u32],
         offset: f64,
     ) -> Result<u32> {
-        self.tree(tree)?;
+        self.valid_tree(tree)?;
         if bounds.len() % 6 != 0 || polygons.len() < bounds.len() / 6 {
             return Err(invalid("invalid fixed set"));
         }
@@ -162,17 +162,17 @@ impl NativeCollision {
             self, tree, bounds, polygons, offset,
         ))
     }
-    fn world(&self, world: u32) -> Result<usize> {
+    fn valid_world(&self, world: u32) -> Result<usize> {
         ((world as usize) < self.state.worlds.len())
             .then_some(world as usize)
             .ok_or_else(|| invalid("invalid collision world"))
     }
-    fn tree(&self, tree: u32) -> Result<usize> {
+    fn valid_tree(&self, tree: u32) -> Result<usize> {
         ((tree as usize) < self.state.trees.len())
             .then_some(tree as usize)
             .ok_or_else(|| invalid("invalid collision tree"))
     }
-    fn grid(&self, grid: u32) -> Result<usize> {
+    fn valid_grid(&self, grid: u32) -> Result<usize> {
         ((grid as usize) < self.state.grids.len())
             .then_some(grid as usize)
             .ok_or_else(|| invalid("invalid collision grid"))
@@ -184,7 +184,7 @@ impl NativeCollision {
         Ok(())
     }
     pub(super) fn body(&mut self, world: u32, body: Body) -> Result<u32> {
-        let world = self.world(world)?;
+        let world = self.valid_world(world)?;
         if body.tree >= self.state.trees.len() {
             return Err(invalid("invalid body tree"));
         }
@@ -228,7 +228,7 @@ impl NativeCollision {
         Ok(())
     }
     pub(super) fn order(&mut self, world: u32, order: &[u32]) -> Result<()> {
-        let world = self.world(world)?;
+        let world = self.valid_world(world)?;
         if order.len() > MAX_BODIES {
             return Err(CollisionError::Capacity);
         }
@@ -244,7 +244,7 @@ impl NativeCollision {
     /// Remove a body's first place in this world's order. Slots are never
     /// recycled, like the legacy kernel; the next body gets a new local id.
     pub(super) fn remove(&mut self, world: u32, body: u32) -> Result<bool> {
-        let world = self.world(world)?;
+        let world = self.valid_world(world)?;
         if body as usize >= self.state.bodies.len() {
             return Err(invalid("invalid collision body"));
         }
@@ -257,7 +257,7 @@ impl NativeCollision {
         Ok(index.is_some())
     }
     pub(super) fn cache(&mut self, world: u32, margin: f64) -> Result<u32> {
-        self.world(world)?;
+        self.valid_world(world)?;
         self.caches.push(Cache {
             world,
             value: spheres::GatherCache::new(margin),
@@ -271,7 +271,7 @@ impl NativeCollision {
         z: f64,
         top: f64,
     ) -> Result<Option<(f64, [f64; 3])>> {
-        let world = self.world(world)?;
+        let world = self.valid_world(world)?;
         Ok(spheres::ground(&mut self.state, world, x, z, top))
     }
     fn ray(&mut self, ray: Ray, far: f64) {
@@ -301,7 +301,7 @@ impl NativeCollision {
                 static_only,
                 moving_only,
             } => {
-                let world = self.world(world)?;
+                let world = self.valid_world(world)?;
                 self.flags(world, flags)?;
                 self.ray(ray, far);
                 self.io[7] = hypot_xz;
@@ -349,7 +349,7 @@ impl NativeCollision {
                 blockers,
                 ignore,
             } => {
-                let w = self.world(world)?;
+                let w = self.valid_world(world)?;
                 self.flags(w, flags)?;
                 if blockers.is_some_and(|b| b as usize >= self.state.sets.len()) {
                     return Err(invalid("invalid blocker set"));
@@ -394,7 +394,7 @@ impl NativeCollision {
                 radius,
                 ignore,
             } => {
-                let world = self.world(world)?;
+                let world = self.valid_world(world)?;
                 self.flags(world, flags)?;
                 self.sphere(center, radius);
                 if spheres::overlaps_fixed(&mut self.state, world, center, radius) {
@@ -425,7 +425,7 @@ impl NativeCollision {
                 near,
                 far,
             } => {
-                let tree = self.tree(tree)?;
+                let tree = self.valid_tree(tree)?;
                 self.ray(ray, far);
                 self.io[8] = near;
                 if let Some(hit) = collision::tree_raycast(&self.state, tree, &ray, near, far) {
@@ -436,7 +436,7 @@ impl NativeCollision {
                 }
             }
             CollisionQuery::Grid { grid, ray, far } => {
-                let grid = self.grid(grid)?;
+                let grid = self.valid_grid(grid)?;
                 self.ray(ray, far);
                 if let Some(hit) = collision::grid_raycast(&mut self.state, grid, &ray, far) {
                     self.hit(hit);
@@ -450,7 +450,7 @@ impl NativeCollision {
                 center,
                 radius,
             } => {
-                let grid = self.grid(grid)?;
+                let grid = self.valid_grid(grid)?;
                 self.sphere(center, radius);
                 spheres::terrain_near(&mut self.state, grid, center, radius, &mut self.near);
                 self.near.len() as i32

@@ -74,7 +74,7 @@ impl Context {
         polygons: &[u32],
         offset: f64,
     ) -> Result<u32> {
-        self.collision_owner(|owner| owner.fixed_set(tree, bounds, polygons, offset))
+        self.collision_owner(|owner| owner.add_fixed_set(tree, bounds, polygons, offset))
     }
     /// Append a body to a world's order. The slot is local and never reused.
     pub fn collision_body(&self, world: u32, body: Body) -> Result<u32> {
