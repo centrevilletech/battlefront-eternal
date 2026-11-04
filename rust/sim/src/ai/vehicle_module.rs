@@ -527,6 +527,11 @@ pub extern "C" fn ai_vehicle_aux(op:u32) {
                 }
                 Aux::Consider=>{let id=input.read();live.consider(&mut w,id).put(&mut out);}
                 Aux::ReservationLive=>{live.reservation_live(&w);}
+                Aux::AdaptController=>{
+                    let id=input.read();let (policy,home)=live.adapt_controller(&w,id);
+                    [policy_word(policy) as f64,home.map_or(f64::NAN,|v|if v{1.0}else{0.0})].put(&mut out);
+                }
+                Aux::SteerState=>{let id=input.read();steering::steer_state(&mut w,id,|_|());}
                 _=>unreachable!(),
             }
         }

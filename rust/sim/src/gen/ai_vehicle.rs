@@ -25,10 +25,12 @@ pub enum AiVehicleAuxOp {
     BoardTick = 16,
     Consider = 17,
     ReservationLive = 18,
+    AdaptController = 19,
+    SteerState = 20,
 }
 
 impl AiVehicleAuxOp {
-    pub const NAMES: [&'static str; 19] = ["padGet", "padSet", "counterGet", "counterSet", "supportRead", "bodyOf", "entryOf", "leaseOf", "controllerLease", "nominalSpeed", "bodyReach", "walkerContacts", "walkerContact", "reachable", "playerNear", "stationary", "boardTick", "consider", "reservationLive"];
+    pub const NAMES: [&'static str; 21] = ["padGet", "padSet", "counterGet", "counterSet", "supportRead", "bodyOf", "entryOf", "leaseOf", "controllerLease", "nominalSpeed", "bodyReach", "walkerContacts", "walkerContact", "reachable", "playerNear", "stationary", "boardTick", "consider", "reservationLive", "adaptController", "steerState"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -51,6 +53,8 @@ impl AiVehicleAuxOp {
             16 => Some(AiVehicleAuxOp::BoardTick),
             17 => Some(AiVehicleAuxOp::Consider),
             18 => Some(AiVehicleAuxOp::ReservationLive),
+            19 => Some(AiVehicleAuxOp::AdaptController),
+            20 => Some(AiVehicleAuxOp::SteerState),
             _ => None,
         }
     }

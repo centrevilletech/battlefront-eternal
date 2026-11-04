@@ -8,11 +8,11 @@ import { ClassicRandom } from '../src/ai/random.js';
 import { classicBinding, VehicleAI } from '../src/ai/classic/vehicles/index.js';
 import { UnitBoardAgent, UnitFlyAgent, UnitUnBoardAgent } from '../src/ai/classic/vehicles/agents.js';
 const v=(x=0,y=0,z=0)=>new Vector3(x,y,z);
-async function fixture(native=false) {
-  const nav=ClassicNav.empty('synthetic');
+async function fixture(native=false,json=null,bin=null) {
+  const nav=json ? new ClassicNav(json,bin):ClassicNav.empty('synthetic');
   const world={time:30,nav,battle:{reinforcements:{1:100,2:100}},posts:{posts:[]},units:{query:()=>[]}};
   const ai={world,nav,randomA:new ClassicRandom(95),relation:(a,b)=>a===b?1:-1};
-  if(native){world.aiSim=attachAiSim(await loadSim());world.aiSim.bindNavigation(nav,null,null);}
+  if(native){world.aiSim=attachAiSim(await loadSim());world.aiSim.bindNavigation(nav,json,bin);}
   const service=classicBinding(ai);ai.vehicles=service;
   const events=[];
   const unit={id:1,generation:1,kind:5,alive:true,team:1,position:v(0,20),velocity:v(),bodyYaw:0,upY:1,
@@ -202,15 +202,13 @@ test('seat input keeps service fields and callback context on the same objects',
 });
 
 test('support cache is visible during LOS reentry on the shared service',async()=>{
-  const js=await fixture(),rs=await fixture(true);
-  for(const f of [js,rs]) {
-    const json={schema:1,map:'synthetic',hints:[],paths:[],regions:[],warnings:[],boundary:{references:[]},
+  const json={schema:1,map:'synthetic',hints:[],paths:[],regions:[],warnings:[],boundary:{references:[]},
       barriers:[{name:'post',xfrm:[1,0,0,0,1,0,0,0,-1,0,0,0],size:[20,0,20],flags:8}],
       graph:{info:[3,3,5],hubs:[30,40,60].map((x,i)=>({name:`hub${i}`,position:[x,0,0],radius:4,arcs:[0,1,2,255,255,255,255,255]})),
         arcs:[{name:'ab',hubs:[0,1],mask:31},{name:'ac',hubs:[0,2],mask:31},{name:'bc',hubs:[1,2],mask:31}],routes:{tables:5,count:45,byteOffset:0}}};
-    const words=new Uint32Array(45);words.fill((15<<3)|(((16<<3)|1)<<8));
-    const nav=f.ai.nav=f.world.nav=new ClassicNav(json,words.buffer);
-    f.world.aiSim?.bindNavigation(nav,json,words.buffer);
+  const words=new Uint32Array(45);words.fill((15<<3)|(((16<<3)|1)<<8));
+  const js=await fixture(false,json,words.buffer),rs=await fixture(true,json,words.buffer);
+  for(const f of [js,rs]) {
     f.unit.kind=2;f.unit.position.set(30,0,0);
     const post={position:v(),team:1},helper={mask:8,radius:2},cache=f.service.supportCache;
     let nested=false,calls=0;
@@ -226,4 +224,20 @@ test('support cache is visible during LOS reentry on the shared service',async()
     const byHull=cache.get(post);f.service.supportPoint(f.unit,post,helper);assert.equal(cache.get(post),byHull);assert.equal(calls,6);
   }
   assert.deepEqual(rs.answer,js.answer);assert.equal(rs.ai.randomA.state,js.ai.randomA.state);
+});
+
+test('controller binding keeps its object, policy identity and one request adapter',async()=>{
+  for(const kind of [0,2,5,6,7]) {
+    const js=await fixture(),rs=await fixture(true);
+    for(const f of [js,rs]) {
+      f.unit.kind=kind;if(kind===0)f.unit.seat=null;
+      if(kind===7)f.unit.turret={};
+      const c=f.c;f.service.adaptController(c,f.unit);const request=c.requestState;
+      f.service.adaptController(c,f.unit);assert.equal(c.requestState,request);assert.equal(f.unit.controller,c);
+      assert.equal(c.policy,f.service.controllerPolicy(f.unit));
+      for(const state of [0,1,2,3,4,5,6,7,8,9,10,11,100])c.requestState(state);
+      const bag=f.service.steerState(f.unit);assert.equal(f.service.steerState(f.unit),bag);
+    }
+    assert.deepEqual(rs.events,js.events);assert.equal(rs.c.homeFacing,js.c.homeFacing);assert.deepEqual(rs.unit.steer,js.unit.steer);
+  }
 });

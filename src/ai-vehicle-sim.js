@@ -24,6 +24,15 @@ class NativeVehicleAI {
     }
     const policies=[null,classes.mobile,classes.stationary,classes.fly];
     service.controllerPolicy=unit=>policies[this.command('controllerPolicy',[['option','Obj']],[unit],'u32')];
+    service.adaptController=(controller,unit)=>{
+      const [policy,home]=this.aux('adaptController',[['option','Obj']],[unit],['array','f64',2]);
+      controller.policy=policies[policy];if(!Number.isNaN(home))controller.homeFacing=Boolean(home);
+      if(controller.policyAdapted)return;
+      controller.policyAdapted=true;
+      const request=controller.requestState.bind(controller);
+      controller.requestState=state=>request(service.mountedState(controller,state));
+    };
+    service.steerState=unit=>{this.aux('steerState',['Obj'],[unit],'void');return unit.steer;};
     service.mountedState=(c,state)=>this.command('mountedState',['u32','f64'],[policies.indexOf(c.policy),state],'f64');
     service.agentFor=(state,c)=>this.command('agentFor',['u32','f64'],[policies.indexOf(c.policy),state],'bool') ? ((controller,goal)=>new classes.flyAgent(controller,goal)):null;
     service.createHelper=agent=>{
