@@ -9,6 +9,7 @@ const mutable = ['deployed', 'firing', 'timer', 'bottomless', 'perShot', 'clip',
   'floor', 'kick', 'spreadScale', 'sniperScale', 'yawSpreadOverride', 'wait', 'reloadLeft', 'throwTime',
   'released', 'hidden', 'charging', 'held', 'charge', 'limit', 'pattern', 'salvosLeft', 'salvoWait',
   'lockTargetId', 'lockGeneration', 'lockElapsed', 'lockComplete'];
+const cameraVectors = ['eye', 'center', 'offset', 'pivot', 'target', 'boom', 'local', 'right', 'up', 'dir'];
 const actions = ['use', 'nextPrimary', 'previousPrimary', 'nextSecondary', 'zoom', 'firePrimary', 'fireSecondary'];
 let nextSession = 1;
 
@@ -70,7 +71,8 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
   function create(context, predicted) {
     alive();
     const serial = nextSession++, definitions = [], classes = new Set(), objects = [predicted], lists = [];
-    const mirrors = new WeakMap(), ids = new WeakMap(), weapons = [], streams = [];
+    const mirrors = new WeakMap(), ids = new WeakMap(), weapons = [], streams = [], salvos = [];
+    const classLevels = new Map(), registered = new Map();
     let handle = x.prediction_remotes_create(), busy = false, steps = 0, view = context.simulationView;
     const cx = Object.create(bridge);
     cx.defs = { weapon: { id: value => register(value, true), at: id => definitions[id] } };
@@ -91,9 +93,12 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
     function register(value, weapon = false) {
       let id = ids.get(value);
       if (id === undefined) { id = definitions.length; ids.set(value, id); definitions.push(value); }
-      else if (!weapon || classes.has(id)) return id;
       if (weapon) classes.add(id);
-      const words = [id, weapon]; definition(words, value);
+      const words = [id, weapon];
+      definition(words, weapon ? { ...value, charges: classLevels.get(value)?.slice(1) ?? value.charges } : value);
+      const key = id * 2 + Number(weapon), old = registered.get(key);
+      if (old && old.length === words.length && old.every((value, i) => Object.is(value, words[i]))) return id;
+      registered.set(key, words);
       const { error } = run(0, words);
       if (error) throw Error(error);
       return id;
@@ -106,7 +111,9 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       if (enabled) view = context.simulationView;
       const camera = context.aimCamera;
       for (const droid of objects) for (const group of [droid.arsenal.weapons, ...droid.arsenal.channels])
-        for (const weapon of group) listId(weapons, weapon);
+        for (const weapon of group) { listId(weapons, weapon); classLevels.set(weapon.levels[0], weapon.levels); }
+      for (const droid of objects) if (droid.salvo) listId(salvos, droid.salvo);
+      for (const value of definitions) { register(value); if (classes.has(ids.get(value))) register(value, true); }
       const rng = listId(streams, context.random);
       for (const weapon of weapons) if (weapon.random) listId(streams, weapon.random);
       if (streams.some(stream => typeof stream !== 'function' || !('seed' in stream)))
@@ -116,7 +123,11 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       words.push(...camera.position.toArray(), ...camera.quaternion.toArray(), camera.aspect,
         view?.fov ?? NaN, view?.reach ?? NaN, Boolean(view?.fresh), view?.hfov ?? NaN, view?.firstFov ?? NaN, camera.fov,
         view?.motion.offset.x ?? 0, view?.motion.offset.y ?? 0, view?.motion.offset.z ?? 0,
-        view?.motion.turn.x ?? 0, view?.motion.turn.y ?? 0, view?.motion.turn.z ?? 0, weapons.length);
+        view?.motion.turn.x ?? 0, view?.motion.turn.y ?? 0, view?.motion.turn.z ?? 0);
+      words.push(view ? register(view.sections) : -1);
+      for (const name of cameraVectors) words.push(view?.[name].x ?? 0, view?.[name].y ?? 0, view?.[name].z ?? 0);
+      words.push(...(view?.want.toArray() ?? [0, 0, 0, 1]), ...(view?.inverse.toArray() ?? [0, 0, 0, 1]),
+        view?.euler.x ?? 0, view?.euler.y ?? 0, view?.euler.z ?? 0, view?.tilt ?? 0, weapons.length);
       for (const weapon of weapons) {
         const at = words.length; words.length += weaponWords;
         putWeapon(cx, weapon, words, at, null);
@@ -128,6 +139,12 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
         for (const def of weapon.levels) words.push(register(def));
         words.push(weapon.random ? streams.indexOf(weapon.random) : -1);
       }
+      words.push(salvos.length);
+      for (const salvo of salvos) {
+        words.push(register(salvo.def));
+        for (const name of ['at', 'x', 'y', 'z']) words.push(...salvo[name].toArray());
+        words.push(salvo.left, salvo.wait);
+      }
       words.push(objects.length);
       for (const droid of objects) {
         words.push(register(droid.def));
@@ -135,13 +152,7 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
         words.push(droid.yaw, droid.pitch, droid.health, droid.dead, droid.countdown, ...droid.arsenal.selected);
         for (const list of [droid.arsenal.weapons, ...droid.arsenal.channels])
           words.push(list.length, ...list.map(weapon => weapons.indexOf(weapon)));
-        const salvo = droid.salvo;
-        words.push(Boolean(salvo));
-        if (salvo) {
-          words.push(register(salvo.def));
-          for (const name of ['at', 'x', 'y', 'z']) words.push(...salvo[name].toArray());
-          words.push(salvo.left, salvo.wait);
-        }
+        words.push(droid.salvo ? salvos.indexOf(droid.salvo) : -1);
       }
       words.push(lists.length);
       for (const list of lists) words.push(list.length, ...list.map(item => objects.indexOf(item)));
@@ -165,6 +176,13 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
         view.motion.offset.fromArray(words, at); view.motion.turn.set(words[at + 3], words[at + 4], words[at + 5], 'ZYX');
       }
       at += 6;
+      const sections = words[at++];
+      if (view && sections >= 0) view.sections = definitions[sections];
+      for (const name of cameraVectors) { if (view) view[name].fromArray(words, at); at += 3; }
+      if (view) view.want.fromArray(words, at); at += 4;
+      if (view) view.inverse.fromArray(words, at); at += 4;
+      if (view) view.euler.set(words[at], words[at + 1], words[at + 2], 'YXZ'); at += 3;
+      if (view) view.tilt = words[at]; at++;
       context.piloted = piloted < 0 ? null : objects[piloted];
       context.simulationView = enabled ? view : null;
       if (!enabled) context.view = null;
@@ -183,6 +201,13 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
         if (mirror.hasRandom && stream >= 0) weapon.random = streams[stream];
         copySeed(weapon, mirror);
       }
+      const salvoCount = words[at++];
+      for (let i = 0; i < salvoCount; i++) {
+        const salvo = salvos[i] ??= { at: new Vector3(), x: new Vector3(), y: new Vector3(), z: new Vector3() };
+        salvo.def = definitions[words[at++]];
+        for (const name of ['at', 'x', 'y', 'z']) { salvo[name].fromArray(words, at); at += 3; }
+        salvo.left = words[at++]; salvo.wait = words[at++];
+      }
       const count = words[at++];
       for (let i = 0; i < count; i++) {
         const droid = objects[i]; droid.def = definitions[words[at++]];
@@ -194,12 +219,7 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
           const n = words[at++]; list.length = n;
           for (let j = 0; j < n; j++) list[j] = weapons[words[at++]];
         }
-        if (words[at++]) {
-          const salvo = droid.salvo ??= { at: new Vector3(), x: new Vector3(), y: new Vector3(), z: new Vector3() };
-          salvo.def = definitions[words[at++]];
-          for (const name of ['at', 'x', 'y', 'z']) { salvo[name].fromArray(words, at); at += 3; }
-          salvo.left = words[at++]; salvo.wait = words[at++];
-        } else droid.salvo = null;
+        const salvo = words[at++]; droid.salvo = salvo < 0 ? null : salvos[salvo];
       }
       const listCount = words[at++];
       for (let i = 0; i < listCount; i++) {
@@ -210,15 +230,19 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
     }
     function answer(op, args, controls) {
       if (op === 0) {
-        const from = new Vector3().fromArray(args), direction = new Vector3().fromArray(args, 3);
-        const hit = context.collision.cast(from, direction, args[6], context.hit);
-        return hit ? [1, hit.distance, ...hit.point.toArray(), ...hit.normal.toArray()] : [0];
+        const tag = args[7], droid = objects[args[8]];
+        const from = tag === 0 ? view.pivot : tag === 4 ? droid.eye : tag === 5 ? context.v[3] : context.v[0];
+        const direction = tag === 0 ? view.dir : tag >= 4 ? droid.aimDir : tag === 3 ? context.v[4] : context.v[2];
+        from.fromArray(args); direction.fromArray(args, 3);
+        const hit = context.collision.cast(from, direction, args[6], tag === 0 ? view.hit : context.hit);
+        return [...(hit ? [1, hit.distance, ...hit.point.toArray(), ...hit.normal.toArray()] : [0]), ...from.toArray(), ...direction.toArray()];
       }
       if (op === 1) {
-        const polygons = context.collision.gather(new Vector3().fromArray(args), args[3]), words = [0];
+        const center = context.v[0].fromArray(args), polygons = context.collision.gather(center, args[3]), words = [0];
         for (const polygon of polygons) for (const triangle of polygon.triangles) {
           words[0]++; words.push(...triangle.a.toArray(), ...triangle.b.toArray(), ...triangle.c.toArray());
         }
+        words.push(...center.toArray());
         return words;
       }
       if (op === 2) return [Boolean(context.water?.over(args[0], args[1]))];
@@ -245,7 +269,7 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       throw Error('unknown remote prediction query');
     }
     const session = {
-      get handle() { return handle; }, get steps() { return steps; },
+      get handle() { return handle; }, get disposed() { return !handle; }, get steps() { return steps; },
       step(command, controls, options = {}) {
         live(); if (busy) throw Error('remote prediction session is already running');
         busy = true;

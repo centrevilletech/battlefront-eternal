@@ -155,6 +155,21 @@ struct Camera {
     vertical_fov: f64,
     motion_offset: Vector3,
     motion_turn: Vector3,
+    sections: f64,
+    eye: Vector3,
+    center: Vector3,
+    offset: Vector3,
+    pivot: Vector3,
+    target: Vector3,
+    boom: Vector3,
+    local: Vector3,
+    right: Vector3,
+    up: Vector3,
+    dir: Vector3,
+    want: Quaternion,
+    inverse: Quaternion,
+    euler: Vector3,
+    tilt: f64,
 }
 #[derive(Clone)]
 struct Salvo {
@@ -182,7 +197,7 @@ struct Droid {
     selected: [f64; 2],
     weapons: Vec<usize>,
     channels: [Vec<usize>; 2],
-    salvo: Option<Salvo>,
+    salvo: Option<usize>,
 }
 struct Core {
     defs: Rc<RefCell<Definitions>>,
@@ -197,6 +212,7 @@ struct Core {
     first: f64,
     rng: usize,
     streams: Vec<ClassicRandom>,
+    salvos: Vec<Salvo>,
     weapons: Vec<Weapon>,
     reported_levels: Vec<f64>,
     level_ids: Vec<Vec<usize>>,
@@ -235,6 +251,21 @@ impl Core {
             vertical_fov: r.word()?,
             motion_offset: r.vec()?,
             motion_turn: r.vec()?,
+            sections: r.word()?,
+            eye: r.vec()?,
+            center: r.vec()?,
+            offset: r.vec()?,
+            pivot: r.vec()?,
+            target: r.vec()?,
+            boom: r.vec()?,
+            local: r.vec()?,
+            right: r.vec()?,
+            up: r.vec()?,
+            dir: r.vec()?,
+            want: r.quat()?,
+            inverse: r.quat()?,
+            euler: r.vec()?,
+            tilt: r.word()?,
         };
         let n = r.count()?;
         let mut weapons = Vec::new();
@@ -262,6 +293,19 @@ impl Core {
             });
         }
         let n = r.count()?;
+        let mut salvos = Vec::new();
+        for _ in 0..n {
+            salvos.push(Salvo {
+                def: r.count()?,
+                at: r.vec()?,
+                x: r.vec()?,
+                y: r.vec()?,
+                z: r.vec()?,
+                left: r.word()?,
+                wait: r.word()?,
+            });
+        }
+        let n = r.count()?;
         let mut droids = Vec::new();
         for _ in 0..n {
             let def = r.count()?;
@@ -282,18 +326,11 @@ impl Core {
                 r.list()?.into_iter().map(|x| x as usize).collect(),
                 r.list()?.into_iter().map(|x| x as usize).collect(),
             ];
-            let salvo = if r.flag()? {
-                Some(Salvo {
-                    def: r.count()?,
-                    at: r.vec()?,
-                    x: r.vec()?,
-                    y: r.vec()?,
-                    z: r.vec()?,
-                    left: r.word()?,
-                    wait: r.word()?,
-                })
-            } else {
+            let salvo = r.word()?;
+            let salvo = if salvo < 0.0 {
                 None
+            } else {
+                Some(salvo as usize)
             };
             droids.push(Droid {
                 def,
@@ -355,6 +392,7 @@ impl Core {
             zoom,
             first,
             rng,
+            salvos,
             streams,
             weapons,
             reported_levels,
@@ -390,6 +428,17 @@ impl Core {
         ]);
         put_vec(&mut a, &c.motion_offset);
         put_vec(&mut a, &c.motion_turn);
+        a.push(c.sections);
+        for v in [
+            &c.eye, &c.center, &c.offset, &c.pivot, &c.target, &c.boom, &c.local, &c.right, &c.up,
+            &c.dir,
+        ] {
+            put_vec(&mut a, v);
+        }
+        put_quat(&mut a, &c.want);
+        put_quat(&mut a, &c.inverse);
+        put_vec(&mut a, &c.euler);
+        a.push(c.tilt);
         a.push(self.weapons.len() as f64);
         for (i, w) in self.weapons.iter().enumerate() {
             let mut row = [0.0; Weapon::WORDS];
@@ -399,6 +448,14 @@ impl Core {
             a.push(self.level_ids[i].len() as f64);
             a.extend(self.level_ids[i].iter().map(|&id| id as f64));
             a.push(self.weapon_rng[i].map_or(-1.0, |id| id as f64));
+        }
+        a.push(self.salvos.len() as f64);
+        for s in &self.salvos {
+            a.push(s.def as f64);
+            for v in [&s.at, &s.x, &s.y, &s.z] {
+                put_vec(&mut a, v);
+            }
+            a.extend([s.left, s.wait]);
         }
         a.push(self.droids.len() as f64);
         for d in &self.droids {
@@ -419,14 +476,7 @@ impl Core {
                 a.push(list.len() as f64);
                 a.extend(list.iter().map(|&id| id as f64));
             }
-            a.push(d.salvo.is_some() as u8 as f64);
-            if let Some(s) = &d.salvo {
-                a.push(s.def as f64);
-                for v in [&s.at, &s.x, &s.y, &s.z] {
-                    put_vec(&mut a, v);
-                }
-                a.extend([s.left, s.wait]);
-            }
+            a.push(d.salvo.map_or(-1.0, |id| id as f64));
         }
         a.push(self.lists.len() as f64);
         for list in &self.lists {
@@ -453,8 +503,8 @@ impl Core {
     }
     fn zoom_value(&self) -> f64 {
         self.piloted
-            .and_then(|i| self.current(i, 0).map(|w| (i, w)))
-            .map_or(1.0, |(i, w)| {
+            .and_then(|i| self.current(i, 0))
+            .map_or(1.0, |w| {
                 if truth(self.zoom) {
                     self.level(w).get("ZoomMin").or(1.0)
                 } else {
@@ -539,17 +589,19 @@ impl Core {
     async fn cast(
         &mut self,
         world: &World,
-        from: &Vector3,
-        direction: &Vector3,
+        from: &mut Vector3,
+        direction: &mut Vector3,
         far: f64,
+        tag: u32,
+        droid: usize,
     ) -> Result<Option<Hit>, &'static str> {
         let mut a = Vec::new();
         put_vec(&mut a, from);
         put_vec(&mut a, direction);
-        a.push(far);
+        a.extend([far, tag as f64, droid as f64]);
         let a = self.ask(world, 0, a).await?;
         let mut r = Reader::new(&a);
-        Ok(if r.flag()? {
+        let hit = if r.flag()? {
             Some(Hit {
                 distance: r.word()?,
                 point: r.vec()?,
@@ -557,7 +609,10 @@ impl Core {
             })
         } else {
             None
-        })
+        };
+        *from = r.vec()?;
+        *direction = r.vec()?;
+        Ok(hit)
     }
     async fn take(&mut self, world: &World, action: u32) -> Result<bool, &'static str> {
         Ok(self.ask(world, 4, vec![action as f64]).await?.first() == Some(&1.0))
@@ -571,19 +626,14 @@ struct Hit {
 }
 
 impl Core {
-    async fn clearance(
-        &mut self,
-        world: &World,
-        pivot: &Vector3,
-        boom: &Vector3,
-    ) -> Result<f64, &'static str> {
-        if boom.length_sq() < 1e-8 {
+    async fn clearance(&mut self, world: &World) -> Result<f64, &'static str> {
+        if self.camera.boom.length_sq() < 1e-8 {
             return Ok(1.0);
         }
-        let mut right = Vector3::new(0.4, 0.0, 0.0);
-        right.apply_quaternion(&self.camera.q);
-        let mut up = Vector3::new(0.0, 0.4, 0.0);
-        up.apply_quaternion(&self.camera.q);
+        self.camera.right = Vector3::new(0.4, 0.0, 0.0);
+        self.camera.right.apply_quaternion(&self.camera.q);
+        self.camera.up = Vector3::new(0.0, 0.4, 0.0);
+        self.camera.up.apply_quaternion(&self.camera.q);
         let mut reach = 1.0;
         for (a, b) in [
             (0.0, 0.0),
@@ -592,11 +642,19 @@ impl Core {
             (-1.0, 1.0),
             (-1.0, -1.0),
         ] {
-            let mut dir = *boom;
-            dir.add_scaled_vector(&right, a).add_scaled_vector(&up, b);
-            let far = dir.length();
-            dir.divide_scalar(far);
-            if let Some(hit) = self.cast(world, pivot, &dir, far + 0.08).await? {
+            self.camera.dir = self.camera.boom;
+            self.camera
+                .dir
+                .add_scaled_vector(&self.camera.right, a)
+                .add_scaled_vector(&self.camera.up, b);
+            let far = self.camera.dir.length();
+            self.camera.dir.divide_scalar(far);
+            let mut pivot = self.camera.pivot;
+            let mut dir = self.camera.dir;
+            if let Some(hit) = self
+                .cast(world, &mut pivot, &mut dir, far + 0.08, 0, 0)
+                .await?
+            {
                 reach = min(reach, max(0.0, hit.distance - 0.08) / far);
             }
         }
@@ -606,111 +664,128 @@ impl Core {
         &mut self,
         world: &World,
         droid: &Droid,
-        def: &Js,
+        _def: &Js,
         dt: f64,
         zoom: f64,
         first: bool,
     ) -> Result<(), &'static str> {
-        let base = if first || zoom > 1.0 {
-            self.camera.first_fov
+        let sections = self.defs.borrow().values[self.camera.sections as usize].clone();
+        let section = if zoom > 1.0 && sections.get("STANDZOOM").truthy() {
+            sections.get("STANDZOOM")
         } else {
-            self.camera.hfov
+            sections.get("STAND")
+        };
+        self.camera.eye = if section.get("EyePointOffset").truthy() {
+            js_vec(section.get("EyePointOffset"))
+        } else if section.get("TrackCenter").truthy() {
+            js_vec(section.get("TrackCenter"))
+        } else {
+            Vector3::new(0.0, 1.8, 0.0)
+        };
+        self.camera.center = if section.get("TrackCenter").truthy() {
+            js_vec(section.get("TrackCenter"))
+        } else if section.get("EyePointOffset").truthy() {
+            js_vec(section.get("EyePointOffset"))
+        } else {
+            Vector3::new(0.0, 1.8, 0.0)
+        };
+        self.camera.offset = if section.get("TrackOffset").truthy() {
+            js_vec(section.get("TrackOffset"))
+        } else {
+            Vector3::new(0.0, 0.0, 3.5)
+        };
+        self.camera.tilt = section.get("TiltValue").nn(5.0) * (std::f64::consts::PI / 180.0);
+        let c = &mut self.camera;
+        let base = if first || zoom > 1.0 {
+            c.first_fov
+        } else {
+            c.hfov
         };
         let want = 2.0 * atan(tan(base / 2.0) / zoom);
-        self.camera.fov += (want - self.camera.fov) * (1.0 - exp(-25.0 * dt));
-        self.camera.vertical_fov = (2.0 * atan(tan(self.camera.fov / 2.0) / self.camera.aspect))
-            * (180.0 / std::f64::consts::PI);
+        c.fov += (want - c.fov) * (1.0 - exp(-25.0 * dt));
+        c.vertical_fov = (2.0 * atan(tan(c.fov / 2.0) / c.aspect)) * (180.0 / std::f64::consts::PI);
         if first {
-            self.camera.q.set_from_euler(&Euler::new(
-                droid.pitch,
-                droid.yaw + std::f64::consts::PI,
-                0.0,
+            c.euler = Vector3::new(droid.pitch, droid.yaw + std::f64::consts::PI, 0.0);
+            c.q.set_from_euler(&Euler::new(
+                c.euler.x,
+                c.euler.y,
+                c.euler.z,
                 EulerOrder::YXZ,
             ));
-            self.camera.position = droid.eye;
-            self.camera
-                .position
+            c.position = droid.eye;
+            c.position
                 .add_scaled_vector(&droid.aim, if zoom > 1.0 { -0.5 } else { -0.3 });
-            let mut local = self.camera.motion_offset;
-            local.apply_quaternion(&self.camera.q);
-            self.camera.position.add(&local);
-            let mut q = Quaternion::default();
-            q.set_from_euler(&Euler::new(
-                self.camera.motion_turn.x,
-                self.camera.motion_turn.y,
-                self.camera.motion_turn.z,
+            c.local = c.motion_offset;
+            c.local.apply_quaternion(&c.q);
+            c.position.add(&c.local);
+            c.want.set_from_euler(&Euler::new(
+                c.motion_turn.x,
+                c.motion_turn.y,
+                c.motion_turn.z,
                 EulerOrder::ZYX,
             ));
-            self.camera.q.multiply(&q);
-            self.camera.fresh = true;
+            c.q.multiply(&c.want);
+            c.fresh = true;
             return Ok(());
         }
-        let center = if def.get("TrackCenter").truthy() {
-            js_vec(def.get("TrackCenter"))
-        } else if def.get("EyePointOffset").truthy() {
-            js_vec(def.get("EyePointOffset"))
-        } else {
-            Vector3::new(0.0, 0.5, 0.0)
-        };
-        let offset = if def.get("TrackOffset").truthy() {
-            js_vec(def.get("TrackOffset"))
-        } else {
-            Vector3::new(0.0, -0.25, 1.5)
-        };
-        let tilt = def.get("TiltValue").nn(5.0) * (std::f64::consts::PI / 180.0);
-        let (sin, cos) = (sin(droid.yaw), cos(droid.yaw));
-        let pivot = Vector3::new(
-            droid.position.x + sin * center.z - cos * center.x,
-            droid.position.y + center.y,
-            droid.position.z + cos * center.z + sin * center.x,
+        let (sn, cs) = (sin(droid.yaw), cos(droid.yaw));
+        c.pivot = Vector3::new(
+            droid.position.x + sn * c.center.z - cs * c.center.x,
+            droid.position.y + c.center.y,
+            droid.position.z + cs * c.center.z + sn * c.center.x,
         );
-        let mut want = Quaternion::default();
-        want.set_from_euler(&Euler::new(
-            droid.pitch - tilt,
-            droid.yaw + std::f64::consts::PI,
-            0.0,
+        c.euler = Vector3::new(droid.pitch - c.tilt, droid.yaw + std::f64::consts::PI, 0.0);
+        c.want.set_from_euler(&Euler::new(
+            c.euler.x,
+            c.euler.y,
+            c.euler.z,
             EulerOrder::YXZ,
         ));
-        if self.camera.fresh || self.camera.position.distance_to(&pivot) > 80.0 {
-            self.camera.q = want;
+        if c.fresh || c.position.distance_to(&c.pivot) > 80.0 {
+            c.q = c.want;
         } else {
-            self.camera.q.slerp(&want, 1.0 - exp(-30.0 * dt));
+            c.q.slerp(&c.want, 1.0 - exp(-30.0 * dt));
         }
-        let mut boom = offset;
-        boom.apply_quaternion(&self.camera.q);
-        let reach = self.clearance(world, &pivot, &boom).await?;
-        if reach < self.camera.reach {
-            self.camera.reach = reach;
+        c.boom = c.offset;
+        c.boom.apply_quaternion(&c.q);
+        c.target = c.pivot;
+        c.target.add(&c.boom);
+        let reach = self.clearance(world).await?;
+        let c = &mut self.camera;
+        if reach < c.reach {
+            c.reach = reach;
         } else {
-            self.camera.reach += (reach - self.camera.reach) * (1.0 - exp(-6.0 * dt));
+            c.reach += (reach - c.reach) * (1.0 - exp(-6.0 * dt));
         }
-        let mut target = pivot;
-        target.add_scaled_vector(&boom, self.camera.reach);
-        if self.camera.fresh || self.camera.position.distance_to(&target) > 80.0 {
-            self.camera.position = target;
-            self.camera.fresh = false;
+        c.target = c.pivot;
+        c.target.add_scaled_vector(&c.boom, c.reach);
+        if c.fresh || c.position.distance_to(&c.target) > 80.0 {
+            c.position = c.target;
+            c.fresh = false;
             return Ok(());
         }
         let k = 1.0 - exp(-15.0 * dt);
-        let mut inverse = self.camera.q;
-        inverse.invert();
-        let mut local = target;
-        local
-            .sub(&self.camera.position)
-            .apply_quaternion(&inverse)
+        c.inverse = c.q;
+        c.inverse.invert();
+        c.local = c.target;
+        c.local
+            .sub(&c.position)
+            .apply_quaternion(&c.inverse)
             .multiply_scalar(k);
-        local.apply_quaternion(&self.camera.q);
-        self.camera.position.add(&local);
-        let mut boom = self.camera.position;
-        boom.sub(&pivot);
-        let clear = self.clearance(world, &pivot, &boom).await?;
+        c.local.apply_quaternion(&c.q);
+        c.position.add(&c.local);
+        c.boom = c.position;
+        c.boom.sub(&c.pivot);
+        let clear = self.clearance(world).await?;
+        let c = &mut self.camera;
         if clear < 1.0 {
-            self.camera.position = pivot;
-            self.camera.position.add_scaled_vector(&boom, clear);
+            c.position = c.pivot;
+            c.position.add_scaled_vector(&c.boom, clear);
         }
         Ok(())
     }
 }
+
 fn js_vec(v: &Js) -> Vector3 {
     Vector3::new(v.at(0).num(), v.at(1).num(), v.at(2).num())
 }
@@ -792,15 +867,7 @@ impl Core {
                 let selected = Some(w) == primary || Some(w) == secondary;
                 let class = defs.weapons.class(self.weapons[w].def);
                 self.weapons[w].update(
-                    w as u32,
-                    class,
-                    dt,
-                    selected,
-                    &trigger,
-                    false,
-                    &aim,
-                    &mut draws,
-                    &mut shots,
+                    w as u32, class, dt, selected, &trigger, false, &aim, &mut draws, &mut shots,
                 );
             }
         }
@@ -882,7 +949,8 @@ impl Core {
         let x = Vector3::new(cos(azimuth), 0.0, -sin(azimuth));
         let mut y = Vector3::default();
         y.cross_vectors(&z, &x);
-        self.droids[i].salvo = Some(Salvo {
+        self.droids[i].salvo = Some(self.salvos.len());
+        self.salvos.push(Salvo {
             def: id,
             at,
             x,
@@ -893,11 +961,12 @@ impl Core {
         });
         self.lists[self.strikes].push(i);
     }
-    fn update_strikes(&mut self, dt: f64) {
+    fn update_strikes(&mut self, dt: f64) -> Result<(), &'static str> {
         for i in self.lists[self.strikes].clone() {
-            let Some(s) = self.droids[i].salvo.as_mut() else {
-                continue;
-            };
+            let id = self.droids[i]
+                .salvo
+                .ok_or("recon strike requires a salvo")?;
+            let s = &mut self.salvos[id];
             let def = self.defs.borrow().values[s.def].clone();
             s.wait -= dt;
             while s.left > 0.0 && s.wait <= 0.0 {
@@ -929,6 +998,7 @@ impl Core {
             .collect();
         self.strikes = self.lists.len();
         self.lists.push(filtered);
+        Ok(())
     }
     async fn tick(&mut self, world: &World, input: Vec<f64>) -> Result<(), &'static str> {
         let mut r = Reader::new(&input);
@@ -1019,7 +1089,7 @@ impl Core {
             .collect();
         self.order = self.lists.len();
         self.lists.push(filtered);
-        self.update_strikes(dt);
+        self.update_strikes(dt)?;
         Ok(())
     }
 }
@@ -1186,6 +1256,7 @@ impl Core {
         dt: f64,
         input: Option<[f64; 3]>,
     ) -> Result<(), &'static str> {
+        let def_id = self.droids[i].def;
         let def = self.def(i);
         let altitude = def.get("SetAltitude").nn(1.75);
         let reach = RADIUS + 10.0 * altitude;
@@ -1194,7 +1265,14 @@ impl Core {
         let mut height = reach - 0.155;
         let mut n = UP;
         if let Some(below) = self
-            .cast(world, &c, &Vector3::new(0.0, -1.0, 0.0), reach)
+            .cast(
+                world,
+                &mut c,
+                &mut Vector3::new(0.0, -1.0, 0.0),
+                reach,
+                1,
+                i,
+            )
             .await?
         {
             height = below.distance - 0.155;
@@ -1213,7 +1291,7 @@ impl Core {
             let mut ray = Vector3::new(v.x, v.y - reach, v.z);
             let length = ray.length();
             ray.divide_scalar(length);
-            if let Some(ahead) = self.cast(world, &c, &ray, length).await? {
+            if let Some(ahead) = self.cast(world, &mut c, &mut ray, length, 2, i).await? {
                 let mut along = ahead.point;
                 along.sub(&c);
                 height = min(height, -along.dot(&ahead.normal));
@@ -1226,6 +1304,7 @@ impl Core {
                 }
             }
         }
+        let def = self.defs.borrow().values[def_id].clone();
         let f = clamp(1.0 - (height - altitude) / (9.0 * altitude), 0.0, 1.0);
         let v = &mut self.droids[i].velocity;
         v.y -= three::lerp(1.0, def.get("GravityScale").nn(1.0), f) * 9.8 * dt;
@@ -1306,8 +1385,12 @@ impl Core {
             let a = self.ask(world, 1, vec![c.x, c.y, c.z, RADIUS]).await?;
             let mut r = Reader::new(&a);
             let count = r.count()?;
+            let mut triangles = Vec::new();
             for _ in 0..count {
-                let tri = Triangle::new(r.vec()?, r.vec()?, r.vec()?);
+                triangles.push(Triangle::new(r.vec()?, r.vec()?, r.vec()?));
+            }
+            c = r.vec()?;
+            for tri in triangles {
                 let mut closest = Vector3::default();
                 tri.closest_point_to_point(&c, &mut closest);
                 let distance = closest.distance_to(&c);
@@ -1321,7 +1404,14 @@ impl Core {
                 RADIUS - best
             } else {
                 match self
-                    .cast(world, &c, &Vector3::new(0.0, -1.0, 0.0), RADIUS)
+                    .cast(
+                        world,
+                        &mut c,
+                        &mut Vector3::new(0.0, -1.0, 0.0),
+                        RADIUS,
+                        3,
+                        i,
+                    )
                     .await?
                 {
                     Some(hit) => {
@@ -1368,14 +1458,25 @@ impl Core {
         let p = d.pitch;
         d.aim.set(sin(d.yaw) * cos(p), sin(p), cos(d.yaw) * cos(p));
         let mut from = d.eye;
-        if flying && self.camera.enabled && !truth(self.first) && zoom <= 1.0 {
+        let chase = flying && self.camera.enabled && !truth(self.first) && zoom <= 1.0;
+        if chase {
             from = self.camera.position;
             let mut away = from;
             away.sub(&d.eye);
             from.add_scaled_vector(&d.aim, -away.dot(&d.aim));
         }
-        let dir = d.aim;
-        let hit = self.cast(world, &from, &dir, 512.0).await?;
+        let mut dir = d.aim;
+        let hit = self
+            .cast(
+                world,
+                &mut from,
+                &mut dir,
+                512.0,
+                if chase { 5 } else { 4 },
+                i,
+            )
+            .await?;
+        let dir = self.droids[i].aim;
         self.droids[i].target = from;
         self.droids[i]
             .target
