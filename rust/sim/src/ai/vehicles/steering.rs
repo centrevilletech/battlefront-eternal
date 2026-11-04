@@ -359,7 +359,7 @@ pub fn walker_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Opti
     }
     let yaw = unit.body_yaw;
     let turning = req.is_some_and(|r| r.valid) && !m.near && m.forward == 0.0;
-    let (holding, pressing, recovering) = steer_state(w, unit.obj, |st| {
+    let (holding, pressing, recovering, wedged) = steer_state(w, unit.obj, |st| {
     if !turning || !(abs(yaw - num(st.turn_yaw)) < 0.01) {
         st.turn_yaw = Some(yaw);
         st.turn_at = Some(env.now);
@@ -375,7 +375,7 @@ pub fn walker_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Opti
     }
     let pressing = m.forward > 0.0 && env.now >= num(st.walk_since) + WALKER_PRESS;
     let recovering = num(st.recovery) != 0.0;
-        (holding, pressing, recovering)
+        (holding, pressing, recovering, wedged)
     });
     if !holding && (recovering || pressing || wedged) {
         hover_recovery(w, unit, env, out);

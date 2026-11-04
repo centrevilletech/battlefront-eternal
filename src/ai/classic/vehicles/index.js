@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { bindVehicleAI } from "../../../ai-vehicle-sim.js";
 import { DONE, ROLE, roleOf } from "../controller.js";
 import { forwardSpeed } from "../weapons-ai.js";
 import { fallbackAnalogs } from "../scheduler.js";
@@ -37,7 +38,11 @@ export { UnitBoardAgent, UnitUnBoardAgent, UnitFlyAgent, FlyGotoHelper, controll
 export { serviceOf };
 
 export function classicBinding(ai) {
-  return serviceOf(ai) ?? registerService(ai, new VehicleAI(ai));
+  const existing = serviceOf(ai);
+  if (existing) return existing;
+  const service = registerService(ai, new VehicleAI(ai));
+  return bindVehicleAI(service, { mobile: MOBILE_POLICY, stationary: STATIONARY_POLICY, fly: FLY_POLICY,
+    flyAgent: UnitFlyAgent, stationaryHelper: StationaryHelper, flyHelper: FlyGotoHelper });
 }
 
 // The goal kind a mobile controller's state came from (the inverse of its
@@ -261,7 +266,7 @@ export class VehicleAI {
   // translated back to the goal kind and through the policy
   // (mountedState), once its requestState is adapted (the first bind).
   adaptController(controller, unit) {
-    const policy = controllerPolicy(unit);
+    const policy = this.controllerPolicy(unit);
     controller.policy = policy;
     policy?.bind?.(controller, unit);
     if (controller.policyAdapted) return;
