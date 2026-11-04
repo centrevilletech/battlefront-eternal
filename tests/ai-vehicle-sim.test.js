@@ -164,6 +164,7 @@ test('callbacks consume generator A draws between native pattern draws',async()=
 test('notifier uses world relations and keeps nested service writes',async()=>{
   for(const native of [false,true])for(const callback of [false,true]) {
     const f=await fixture(native);
+    f.hull.seats.push({lease:null,weapons:[],settings:{}});
     const infantry={...f.unit,id:10,team:2,kind:0,vehicle:null,lease:null,seat:null,soldier:{},controller:{isUnitController:true}};
     if(callback)infantry.controller.addVehicleNote=note=>{
       assert.equal(note.unit,f.unit);
@@ -175,4 +176,54 @@ test('notifier uses world relations and keeps nested service writes',async()=>{
     assert.equal(f.service.notifier.consider(f.service,f.unit),1);
     if(callback){assert.equal(f.service.notifier.counter,3);assert.equal(f.service.reservations.has(f.unit,infantry,2),true);}
   }
+});
+
+test('seat input keeps service fields and callback context on the same objects',async()=>{
+  const js=await fixture(),rs=await fixture(true);
+  for(const f of [js,rs]) {
+    const {service,unit,c}=f;
+    const seatOut=service.seatOut,pad=service.padLeft,decay=f.hull.decay={idle:0,sample:0};
+    pad.set(f.hull,20);assert.equal(pad.get(f.hull),20);
+    const r={valid:true,steeringTarget:v(30,21,100),waypoint:v(30,21,100),segmentDirection:v(0,0,1),mode:1,lower:-1,upper:1};
+    const inner={request:r,attach:u=>assert.equal(u,unit),update:()=>f.events.push(['inner'])};
+    c.navControl=inner;
+    const outer={request:r,attach:u=>assert.equal(u,unit),update:()=>{
+      f.events.push(['outer']);
+      service.analogs(unit,r,null,0.1,{});
+      service.reserveTarget(unit,unit);
+    }};
+    const intent={};assert.equal(service.seatInput(outer,unit,intent,0.1),intent);
+    service.updateDecay(0.1);
+    assert.equal(service.seatOut,seatOut);assert.equal(service.padLeft,pad);assert.equal(f.hull.decay,decay);
+    assert.deepEqual(seatOut,intent);assert.equal(service.reservations.has(unit,unit,2),true);
+    f.answer=intent;
+  }
+  assert.deepEqual(rs.events,js.events);assert.deepEqual(rs.answer,js.answer);assert.deepEqual(rs.hull.decay,js.hull.decay);
+});
+
+test('support cache is visible during LOS reentry on the shared service',async()=>{
+  const js=await fixture(),rs=await fixture(true);
+  for(const f of [js,rs]) {
+    const json={schema:1,map:'synthetic',hints:[],paths:[],regions:[],warnings:[],boundary:{references:[]},
+      barriers:[{name:'post',xfrm:[1,0,0,0,1,0,0,0,-1,0,0,0],size:[20,0,20],flags:8}],
+      graph:{info:[3,3,5],hubs:[30,40,60].map((x,i)=>({name:`hub${i}`,position:[x,0,0],radius:4,arcs:[0,1,2,255,255,255,255,255]})),
+        arcs:[{name:'ab',hubs:[0,1],mask:31},{name:'ac',hubs:[0,2],mask:31},{name:'bc',hubs:[1,2],mask:31}],routes:{tables:5,count:45,byteOffset:0}}};
+    const words=new Uint32Array(45);words.fill((15<<3)|(((16<<3)|1)<<8));
+    const nav=f.ai.nav=f.world.nav=new ClassicNav(json,words.buffer);
+    f.world.aiSim?.bindNavigation(nav,json,words.buffer);
+    f.unit.kind=2;f.unit.position.set(30,0,0);
+    const post={position:v(),team:1},helper={mask:8,radius:2},cache=f.service.supportCache;
+    let nested=false,calls=0;
+    f.world.los=()=>{
+      calls++;assert.equal(cache.has(post),true);
+      if(!nested){nested=true;f.service.reserveTarget(f.unit,f.unit);f.service.supportPoint(f.unit,post,{mask:8,radius:1});}
+      return true;
+    };
+    f.answer=f.service.supportPoint(f.unit,post,helper);
+    assert.ok(f.answer);assert.equal(calls,6);assert.equal(f.service.supportCache,cache);
+    assert.deepEqual([...cache.get(post).keys()],['8/1.0','8/2.0']);
+    assert.equal(f.service.reservations.has(f.unit,f.unit,2),true);
+    const byHull=cache.get(post);f.service.supportPoint(f.unit,post,helper);assert.equal(cache.get(post),byHull);assert.equal(calls,6);
+  }
+  assert.deepEqual(rs.answer,js.answer);assert.equal(rs.ai.randomA.state,js.ai.randomA.state);
 });

@@ -143,15 +143,19 @@ class NativeVehicleAI {
     const records=new Map();
     const read=()=>{
       const entries=this.command('reservationRead',[],[],['list','Reservation']);
-      return entries.map(r=>{
+      const present=new Set();
+      const rows=entries.map(r=>{
         const key=`${r.candidate.obj}:${r.candidate.generation}:${r.owner.obj}:${r.owner.generation}:${r.kind}`;
+        present.add(key);
         let row=records.get(key);
         if(!row){row={candidate:{unit:this.sim.objects[r.candidate.obj],generation:r.candidate.generation},owner:{unit:this.sim.objects[r.owner.obj],generation:r.owner.generation},time:r.time,type:r.kind};records.set(key,row);}
         row.time=r.time;return row;
       });
+      for(const key of records.keys())if(!present.has(key))records.delete(key);
+      return rows;
     };
     Object.defineProperty(reservations,'records',{configurable:true,enumerable:true,get:read});
-    reservations.clear=()=>this.command('reservationClear',[],[],'void');
+    reservations.clear=()=>{this.command('reservationClear',[],[],'void');records.clear();};
     reservations.release=(c,u,k=1)=>this.command('reservationRelease',['Obj','Obj','f64'],[c,u,k],'void');
     reservations.has=(c,u,k=1)=>this.command('reservationHas',['Obj','Obj','f64'],[c,u,k],'bool');
     reservations.count=(c,t,k=1)=>this.command('reservationCount',['Obj','f64','f64'],[c,t,k],'f64');

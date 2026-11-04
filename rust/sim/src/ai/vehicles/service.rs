@@ -961,6 +961,11 @@ pub trait VehicleServices: VehicleStorage {
         if !out_of_reach(w.nav().map(|n| &mut n.barriers), &center, reach, radius, v8math::to_uint32(mask)) {
             return None;
         }
+        // Publish the post's cache before callbacks that may inspect or
+        // populate it, just as supportPoint creates its Map first.
+        self.write(|s| {
+            if !s.support_cache.iter().any(|(p,_)| *p == post) { s.support_cache.push((post,Vec::new())); }
+        });
         let key_mask = w.helper_traversal(helper, false);
         let key_radius = w.helper_traversal(helper, true);
         let key = format!("{}/{}", bfe_content::js::number_to_string(key_mask), to_fixed_1(key_radius));

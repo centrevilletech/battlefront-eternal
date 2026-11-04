@@ -76,7 +76,9 @@ export function vehicleWorld(service, sim, args, frame) {
     case 'navRequest': {const c=optionalObj();return reply(['option','Request'],requestView((frame?.control ?? c?.navControl)?.request));}
     case 'reserveHint': {const h=obj(),c=obj(),now=read('f64');ai.nav?.hints?.reserve?.(h,c,now);return nothing();}
     case 'setHintReservedAt': {const h=obj(),at=read('f64');h.reservedAt=at;return nothing();}
-    case 'setIntentAnalogs': {const u=obj(),s=read('Stick');Object.assign(frame?.intent ?? u.intent,{forward:s.forward,right:s.right,turn:s.turn,pitch:s.pitch});return nothing();}
+    case 'setIntentAnalogs': {const u=obj(),s=read('Stick');
+      Object.assign(service.seatOut,{forward:s.forward,right:s.right,turn:s.turn,pitch:s.pitch});
+      Object.assign(frame?.intent ?? u.intent,service.seatOut);return nothing();}
     case 'requestObjective': {const c=obj(),exclude=read('bool');c.requestObjective?.(exclude);return nothing();}
     case 'controllerRequestExit': obj().requestExit();return nothing();
     case 'setReboardAt': {const c=obj(),t=read('f64');c.reboardAt=t;return nothing();}
