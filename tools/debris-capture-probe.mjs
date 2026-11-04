@@ -2,10 +2,16 @@
 // not change the authoritative tick: use the probe in both baseline and
 // candidate runs. Actual content supplies models, bones and collisions.
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { VehicleEffects } from '../src/vehicle-effects.js';
+import { DebrisIds, debrisState } from '../src/debris-sim.js';
+import { MAGIC, RECORD, Writer } from './sim-capture/format.mjs';
 let game, spawned = 0, flights = 0, rests = 0, settles = 0, removed = 0;
+const traceAt = process.argv.indexOf('--debris-trace'), trace = traceAt < 0 ? null : process.argv[traceAt + 1];
+const ids = new DebrisIds(), writer = new Writer(); let fd = null;
 export function battle(context) {
   game = context.game;
+  if (trace) { fd = fs.openSync(trace, 'w'); fs.writeSync(fd, MAGIC); }
   const fx = new VehicleEffects({ effects: game.effects, debris: game.debris });
   const world = context.world, step = world.step;
   world.step = function (...args) {
@@ -30,7 +36,17 @@ export function battle(context) {
     return step.apply(this, args);
   };
 }
+export function ticked(tick) {
+  if (fd === null) return;
+  const d = game.debris, state = debrisState(d, ids);
+  const meshes = d.pieces.map(p => ({ id: ids.key('mesh', p.mesh), position: p.mesh.position, quaternion: p.mesh.quaternion,
+    scale: p.mesh.scale, matrix: p.mesh.matrix, world: p.mesh.matrixWorld, children: p.mesh.children.map(child => child.position) }));
+  const effects = ids.effects.map(e => ({ position: e.position, velocity: e.velocity, stopped: e.stopped }));
+  writer.record(RECORD.frame, tick, 'debris', { state, meshes, effects, hit: { distance: d.hit.distance, point: d.hit.point, normal: d.hit.normal } });
+  fs.writeSync(fd, writer.bytes.subarray(0, writer.length)); writer.length = 0;
+}
 export function ended() {
+  if (fd !== null) { fs.closeSync(fd); fd = null; }
   assert.ok(spawned > 0, 'real chunks were launched'); assert.ok(flights > 0, 'real chunks flew'); assert.ok(rests > 0, 'real chunks rested');
   console.error(JSON.stringify({ debrisProbe: { spawned, flights, rests, settles, removed } }));
 }
