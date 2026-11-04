@@ -9,6 +9,7 @@ import { loadSim } from '../src/sim/module.js';
 import { Aimer, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap } from '../src/ai/classic/perception.js';
+import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -50,6 +51,59 @@ test('native perception queues preserve ties, discarded values and bounded objec
     }
     if(j.count) {const item={placed:true};j.place(j.count,-3.25,item);n.place(n.count,-3.25,item);assert.deepEqual(n.items,j.items);assert.deepEqual(n.priority,j.priority);}
     j.clear();n.clear();assert.equal(n.values.size,0);assert.deepEqual(ni,ji);assert.deepEqual(np,jp);
+  }
+});
+
+test('native scheduler preserves callback order, reentry and changing controller collections', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const ai={tick:0,world:{networkViews:false},controllers:[],history:[]};
+    const state=()=>[ai.scheduler.counter,ai.scheduler.parity,ai.scheduler.inputParity,ai.scheduler.skips,...Object.values(ai.scheduler.stats)];
+    const log=(...args)=>ai.history.push([...args,state()]);
+    const camera=(x,z)=>({matrixWorld:{elements:[1,0,0,0,0,1,0,0,0,0,1,0,x,0,z,1]},zoom:1,near:.1,far:200,fov:60,aspect:1.6});
+    ai.cameras=()=>{log('cameras');return ai.tick%29===0?[]:[camera(0,0),camera(100,50)];};
+    ai.lodDisabled=()=>{log('disabled');return ai.tick%37===0;};
+    ai.identity=u=>{log('identity',u.id);return u.id;};
+    ai.schedulerNumbers=()=>{log('config');return {cycle:ai.tick%71<35?3:15,losBudget:ai.tick%71<35?12:6};};
+    ai.humanUnits=()=>{log('humans');return [{id:501},{id:502}];};
+    ai.vehicles={notify(){log('notify');if(ai.tick%13===0)ai.controllers.reverse();}};
+    ai.nav={plannerIdle(){log('idle');return ai.tick%3===0;},service(budget){
+      log('nav',budget);
+      if(native) {sim.words(new Array(21000).fill(7));sim.x.ai_scheduler_read(0);}
+    }};
+    ai.combat={
+      broadcastAcoustic:u=>log('broadcast',u.id),rebuildProtected:()=>log('protected'),
+      dropLosRequests:c=>log('drop',c.id),scan:c=>log('scan',c.id),clearCandidate:c=>log('clear',c.id),
+      serviceLos:(_world,budget)=>{log('los',budget);return ai.tick%4===0;},
+    };
+    const make=id=>({id,processed:false,lodSkipped:false,live:true,
+      unit:{id,position:new Vector3(id%3?60+id:0,0,id%2?-70:70),velocity:new Vector3(id%5===0?10:0,0,0)},
+      update(dt,phase){
+        log('phase',id,dt,phase);
+        if(ai.tick===5 && phase===0 && id===0) {const gone=ai.controllers.splice(1,1)[0];gone.live=false;}
+        if(ai.tick===14 && phase===0 && id===4)ai.controllers.push(make(30));
+        if(ai.tick===18 && phase===0 && id===6)this.live=false;
+      },
+    });
+    ai.controllers=Array.from({length:18},(_,id)=>make(id));
+    ai.scheduler=native?sim.scheduler(ai):new ClassicScheduler(ai);
+    ai.scheduler.executeInput=(c,dt)=>{
+      log('input',c.id,dt);
+      if(ai.tick===9 && c.id===2)ai.controllers.splice(3,1);
+      if(ai.tick===11 && c.id===3)ai.controllers.push(make(31));
+    };
+    return ai;
+  }
+  const j=fixture(false),n=fixture(true);
+  const snapshot=ai=>({counter:ai.scheduler.counter,parity:ai.scheduler.parity,inputParity:ai.scheduler.inputParity,
+    skips:ai.scheduler.skips,stats:{...ai.scheduler.stats},controllers:ai.controllers.map(c=>[c.id,c.processed,c.lodSkipped,c.live])});
+  for(let tick=0;tick<256;tick++) {
+    j.tick=n.tick=tick;j.world.networkViews=n.world.networkViews=tick%2===0;
+    j.scheduler.update(tick%17===0?0:1/60);n.scheduler.update(tick%17===0?0:1/60);
+    j.scheduler.executeInputs(1/60);n.scheduler.executeInputs(1/60);
+    assert.deepEqual(n.history,j.history,`callbacks at ${tick}`);
+    assert.deepEqual(snapshot(n),snapshot(j),`state at ${tick}`);
+    j.history.length=n.history.length=0;
   }
 });
 

@@ -9,6 +9,7 @@ pub mod control;
 pub mod module;
 mod navigation_module;
 mod perception_module;
+mod scheduler_module;
 pub mod nav;
 pub mod random;
 pub mod vehicles;

@@ -4,6 +4,7 @@
 import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
+import { NativeScheduler } from './ai-scheduler-sim.js';
 
 const HEADER = 5;
 const ZERO = { x: 0, y: 0, z: 0 };
@@ -128,6 +129,7 @@ export class AiSim {
   }
 
   bindCombat(ai) {
+    ai.scheduler=this.scheduler(ai);
     const los=ai.world?.deferredLos;
     if(los) {
       if(los.active.size || los.scratch.size) throw Error('native sight queues must bind before scanning');
@@ -144,6 +146,7 @@ export class AiSim {
     };
   }
 
+  scheduler(ai) { return new NativeScheduler(this,ai); }
   heap(capacity,sentinel) { return new NativePriorityHeap(this,capacity,sentinel); }
   aimer() { return new NativeAimer(this); }
   enhancedAimer(random,profile,skill=1) { return new NativeEnhancedAimer(this,random,profile,skill); }
