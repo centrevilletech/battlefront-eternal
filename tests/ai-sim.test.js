@@ -8,7 +8,7 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -51,6 +51,38 @@ test('native perception queues preserve ties, discarded values and bounded objec
     }
     if(j.count) {const item={placed:true};j.place(j.count,-3.25,item);n.place(n.count,-3.25,item);assert.deepEqual(n.items,j.items);assert.deepEqual(n.priority,j.priority);}
     j.clear();n.clear();assert.equal(n.values.size,0);assert.deepEqual(ni,ji);assert.deepEqual(np,jp);
+  }
+});
+
+test('native target ranking preserves stale-reference boosts, queue overflow and shared draws', async () => {
+  const {sim}=await pair();
+  const j={id:1,generation:0,perception:{heap:new PriorityHeap(112,20000)}};
+  const n={id:1,generation:0,perception:{heap:sim.heap(112,20000)}};
+  const jq=new DeferredLos(),nq=new DeferredLos();
+  nq.active=sim.heap(200,200);nq.scratch=sim.heap(200,200);nq.nativeAi=sim;
+  const jr=new ClassicRandom(554),nr=new ClassicRandom(554),random=new ClassicRandom(988);
+  const units=Array.from({length:64},(_,id)=>({id,alive:true,generation:0}));
+  const request=r=>r&&[r.controller.id,r.generation,r.target&&[r.target.unit.id,r.target.generation]];
+  for(let i=0;i<512;i++) {
+    j.generation=n.generation=i%7;
+    for(const u of units) {u.alive=(u.id+i)%13!==0;u.generation=i%5;}
+    const count=i%113;
+    for(let k=0;k<count;k++) {
+      const u=units[random.int(0,63)],ref=k%17===0?null:{unit:u,generation:u.generation+(k%11===0?1:0)};
+      const priority=random.int(0,19999);
+      j.perception.heap.insert(priority,ref);n.perception.heap.insert(priority,ref);
+    }
+    const u=units[i%64],retained=i%3===0?null:{unit:u,generation:u.generation+(i%7===0?1:0)};
+    assert.equal(thin(n,{randomA:nr},retained,nq),thin(j,{randomA:jr},retained,jq));
+    assert.equal(nr.state,jr.state,`draws ${i}`);
+    assert.deepEqual(n.perception.heap.priority,j.perception.heap.priority);
+    assert.deepEqual(n.perception.heap.items,j.perception.heap.items);
+    assert.equal(nq.overflow,jq.overflow);
+    assert.equal(nq.active.dropped,jq.active.dropped);
+    assert.deepEqual(nq.active.priority,jq.active.priority);
+    assert.deepEqual(nq.active.slots().map(request),jq.active.slots().map(request));
+    assert.equal(n.perception.heap.values.size,0);
+    for(let k=0;k<i%9;k++)assert.deepEqual(request(nq.active.pop()),request(jq.active.pop()));
   }
 });
 

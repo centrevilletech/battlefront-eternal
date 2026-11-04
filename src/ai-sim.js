@@ -135,6 +135,7 @@ export class AiSim {
       if(los.active.size || los.scratch.size) throw Error('native sight queues must bind before scanning');
       los.active=this.heap(los.active.capacity,los.active.priority[0]);
       los.scratch=this.heap(los.scratch.capacity,los.scratch.priority[0]);
+      los.nativeAi=this;
     }
     const create = ai.combat.createPerception;
     ai.combat.createPerception = (...args) => {
@@ -203,6 +204,21 @@ class NativePriorityHeap {
   get priority() { this.observed=true;this.read();return this.priorityView; }
   get items() { this.observed=true;this.read();return this.itemView; }
   slots() { this.read();return this.itemView.slice(1,this.count+1); }
+  nativeThin(controller,world,retainedRef,queue) {
+    const random=world.randomA??world.random;
+    if(!Number.isInteger(random?.state))throw Error('native target ranking requires the shared ClassicRandom state');
+    const ref=r=>[this.sim.id(r?.unit),Number(Boolean(r?.unit?.alive)),r?.unit?.generation,r?.generation];
+    const words=[random.state,...ref(retainedRef)];
+    for(const [token,item] of this.values)words.push(token,...ref(item));
+    this.sim.words(words);this.sim.x.ai_heap_thin(this.id);
+    const answer=this.sim.out().slice();random.state=answer[0];
+    this.count=0;this.values.clear();if(this.observed)this.read();
+    for(let i=2;i<answer.length;i+=2) {
+      const unit=this.sim.objects[answer[i]];
+      queue.submit(controller,unit?{unit,generation:unit.generation}:null,answer[i+1]);
+    }
+    return answer[1];
+  }
 }
 
 // These facades keep the vector identities used by the gun and fire cone.
