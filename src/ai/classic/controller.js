@@ -526,6 +526,8 @@ export class UnitController extends Fsm {
   // -- the per-service update --------------------------------------------------
 
   update(dt, phase) {
+    const native=nativeFsm(this);
+    if(native)return native.controllerDriver.run(this,0,dt,phase);
     this.phase = phase;
     const restricted = phase === 0;
     if (restricted) this.clearRequests();
@@ -546,6 +548,8 @@ export class UnitController extends Fsm {
   // machine (normal mode), until no goal is pending; in phase 0 only tick
   // the current state, and only when no goal is waiting to start.
   driveCommands(dt, restricted) {
+    const native=nativeFsm(this);
+    if(native)return native.controllerDriver.run(this,1,dt,restricted);
     const commands = this.commands;
     if (restricted) {
       if (!commands.needsNextGoal()) super.update(dt, true);
@@ -579,6 +583,8 @@ export class UnitController extends Fsm {
   // Map the current goal to a state. A droid controller would map 2, 3 and
   // 7 differently; Classic infantry use the mobile mapping.
   goalToState() {
+    const native=nativeFsm(this);
+    if(native)return native.controllerDriver.run(this,3);
     const state = goalState(this.commands.current.kind);
     if (state) this.requestState(state);
   }
@@ -744,6 +750,8 @@ export class UnitController extends Fsm {
 
   // Low reinforcements make AI vehicle pilots leave.
   lowTicketExit() {
+    const native=nativeFsm(this);
+    if(native)return native.controllerDriver.run(this,2);
     const vehicles = this.ai.vehicles;
     if (!vehicles?.boarded?.(this)) return;
     if (vehicles.lowTickets?.(this.unit.team) && !vehicles.pilotKeepsSeat?.(this)) this.requestExit();

@@ -10,7 +10,7 @@ import { Aimer, aimPointFor, dropCorrect, leadPoint, skillCurves } from '../src/
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse, alertResponse, broadcastAcoustic, hazardResponse, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
-import { Fsm } from '../src/ai/classic/controller.js';
+import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -919,6 +919,52 @@ test('native state machines preserve transition reentry, opaque values and runaw
     return {first,history,keys:Object.keys(machine).slice(0,2),final:[machine.state,machine.pending]};
   }
   for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`state machine ${i}`);
+});
+
+test('native controller phases preserve captured queues, publication and low-ticket callbacks', async () => {
+  const {sim}=await pair(),kinds=[0,1,2,3,4,5,6,7,8,9,10,11,'3',null,NaN];
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},ai={world},c=new UnitController(ai,{index:i}),token={runaway:i};
+    let ticks=0,enters=0,nested=false;
+    const view=()=>({state:c.state,pending:c.pending,phase:c.phase,published:c.published,exit:c.exitRequest,
+      shot:{...c.shot,point:c.shot.point.toArray()},danger:{...c.danger,point:c.danger.point.toArray()},command:{...c.command},
+      acoustic:[...c.acoustic],notes:[...c.vehicleNotes],useTarget:c.useTarget,fire:[c.fireA,c.fireB],target:c.target,
+      facing:[c.facing,c.facingAux],range:c.rangeScale,jet:[c.jet.pending,c.jet.vector.toArray()],
+      queue:c.commands.queue.map(g=>g.kind),current:c.commands.current.kind,latch:c.commands.latch,currentDone:c.commands.currentDone});
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7700).fill(5));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    c.unit={id:1,team:i%4};c.state=i%3;c.pending=i%5===0?2:0;
+    c.fireA=c.fireB=c.facing=c.facingAux=c.jet.pending=true;c.jet.vector.set(1,2,3);c.rangeScale=2;c.target={id:3};
+    Object.assign(c.shot,{pending:true,known:true});c.danger.pending=true;c.command.pending=true;c.useTarget={id:4};c.acoustic.push(1,2);c.vehicleNotes.push(3,4);
+    const initial=c.commands;initial.latch=i%7!==0;initial.currentDone=i%3===0;
+    for(let j=0;j<i%5;j++)initial.queue.push(new SourceGoal(kinds[(i+j)%kinds.length]));
+    const replacement=new CommandQueue();replacement.queue.push(new SourceGoal(8));replacement.latch=true;
+    c.trace=function(kind,fields){log('trace',kind,{...fields},this===c);
+      if(kind==='goal' && i%17===0)this.commands=replacement;
+      if(kind==='goal' && i%19===0)initial.current.kind=9;
+    };
+    c.onExit=function(){log('exit',c.state,c.pending);if(i%53===0)throw Error('exit probe');};
+    c.onEnter=function(){enters++;log('enter',c.state,c.pending);if(i%11===0 && enters===1)this.publishObjective({name:'new-post'});};
+    c.onTick=function(dt){ticks++;log('tick',dt,c.phase,c.state,c.pending);
+      c.commands.currentDone=ticks<3;if(i%13===0 && ticks===1)this.commands=replacement;
+      if(i%23===0 && ticks===1)this.published=true;
+      if(i%29===0 && !nested){nested=true;this.goalToState();this.update(dt,0);}
+    };
+    c.runaway=function(){log('runaway',this===c);this.pending=0;return token;};
+    const originalClear=c.clearRequests;c.clearRequests=function(){log('clear',c.phase);originalClear.call(this);};
+    c.clearAcoustic=function(){log('acoustic',c.shot.pending,c.shot.known,c.danger.pending,c.command.pending,c.useTarget);this.acoustic.length=0;};
+    const vehicles=ai.vehicles={boarded(controller){log('boarded',this===vehicles,controller===c);if(i%5===0)ai.vehicles=otherVehicles;return i%7!==0;},
+      lowTickets(team){log('tickets',team,this===vehicles);c.unit.team+=1;return i%3!==0;},pilotKeepsSeat(controller){log('keeps',controller===c,this===vehicles);return i%11===0;},
+      requestExit(controller){log('request-old',controller===c,this===vehicles);}};
+    const otherVehicles={requestExit(controller){log('request-new',controller===c,this===otherVehicles);}};
+    if(i%31===0){initial.needsNextGoal=()=>true;initial.queue.length=0;c.state=0;c.pending=0;}
+    const dt=i%3===0?{step:i}:i/60,phase=[0,-0,1,2,'0',null,undefined,false][i%8];
+    let result,error=null;
+    try {result=i%4===0?c.driveCommands(dt,i%8===0):c.update(dt,phase);}catch(e){error=e.message;}
+    if(result!==undefined)assert.equal(result,token);
+    const other=new UnitController(ai,{});other.lowTicketExit=()=>{};other.update(dt,0);
+    return {history,view:view(),initial:{queue:initial.queue.map(g=>g.kind),latch:initial.latch,current:initial.current.kind},ticks,enters,result:result===token,error};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`controller phase ${i}`);
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {
