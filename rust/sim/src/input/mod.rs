@@ -3,5 +3,6 @@
 pub mod actions;
 pub mod fire;
 pub mod mailbox;
+pub mod controls;
 #[cfg(target_arch = "wasm32")]
 pub mod module;

@@ -5,6 +5,7 @@ import { putIaInput, IaResultMirror, syncIaResult } from '../sim/gen/input.js';
 import { putIfInput, IfResultMirror, syncIfResult } from '../sim/gen/input.js';
 import { putImInput, ImResultMirror, syncImResult } from '../sim/gen/input.js';
 import { validateMailboxCommand } from './transport.js';
+import { commandControlPorts } from './command-controls-sim.js';
 
 const number = value => typeof value === 'number' ? value : NaN;
 const edgeCopy = value => {
@@ -170,5 +171,5 @@ export function createInputSim(instance) {
     }).map(([key, value]) => [key, { value, configurable: true }])));
     owned.add(source); return source;
   }
-  return { bridge, actions, fire, mailbox, owns: source => owned.has(source) };
+  return { bridge, actions, fire, mailbox, ...commandControlPorts(bridge, owned), owns: source => owned.has(source) };
 }

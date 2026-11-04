@@ -1,7 +1,8 @@
 // Reliable input state and typed command values. The adapter checks
 // JavaScript value shapes before the native protocol rules consume them.
 export default {
-  enums: { IaOperation: ['push', 'take', 'clear', 'enable', 'drain', 'outcome'], ImOperation: ['admit', 'push', 'take', 'clear'] },
+  enums: { IaOperation: ['push', 'take', 'clear', 'enable', 'drain', 'outcome'], ImOperation: ['admit', 'push', 'take', 'clear'],
+    IqOperation: ['add', 'delete', 'has', 'clear'], IcOperation: ['accept', 'clear'] },
   records: {
     IaOutcome: { id: 'f64', status: 'str' },
     IaEntry: { id: 'f64', tick: 'f64', generation: 'f64', actions: 'list:str', human: 'list:rec:HsCommand' },
@@ -22,5 +23,14 @@ export default {
     ImTaken: { actions: 'list:str', look: 'list:rec:ImLook', human: 'list:f64', fire: 'list:rec:ImFire' },
     ImInput: { op: 'enum:ImOperation', state: 'rec:ImState', entry: 'rec:ImEntry|null', sequence: 'f64', epochMatches: 'bool', tick: 'f64', generation: 'f64' },
     ImResult: { state: 'rec:ImState', accepted: 'bool', command: 'rec:ImTaken|null', replacedLookTotal: 'bool', error: 'str|null' },
+    IqSlot: { index: 'f64', value: 'f64' },
+    IqCount: { name: 'f64', count: 'f64' },
+    IqState: { capacity: 'f64', read: 'f64', write: 'f64', length: 'f64', itemsLength: 'f64', items: 'list:rec:IqSlot', counts: 'list:rec:IqCount' },
+    IqInput: { op: 'enum:IqOperation', state: 'rec:IqState', name: 'f64' },
+    IqResult: { state: 'rec:IqState', accepted: 'bool', replacedItems: 'bool', error: 'str|null' },
+    IcState: { epoch: 'f64|undefined', generation: 'f64|undefined', sequence: 'f64|undefined', down: 'list:f64', queue: 'rec:IqState' },
+    IcInput: { op: 'enum:IcOperation', state: 'rec:IcState', epoch: 'f64|undefined', generation: 'f64|undefined', sequence: 'f64|undefined' },
+    IcResult: { state: 'rec:IcState', accepted: 'bool', replacedItems: 'bool' },
+    IkInput: { down: 'list:f64', plus: 'list:f64', minus: 'list:f64' },
   },
 };

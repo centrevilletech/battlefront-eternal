@@ -3777,6 +3777,7 @@ async function start() {
     killUnit: unit => (unit === playerUnit ? combat : unit.combat).damage(Infinity),
   }) : null;
   game.inputSim = game.battleSim ? (await import("./runtime/input-sim.js")).createInputSim(simInstance) : null;
+  game.inputSim?.controls(worldControls);
   game.aiSim = aiSim;
   if (!headless) window.__bf = game;
   if (!headless) await startClient();
