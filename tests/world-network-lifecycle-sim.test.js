@@ -4,6 +4,7 @@ import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { createNetworkLifecycleBridge } from '../src/runtime/world-network-lifecycle-sim.js';
+import { createWorldSim } from '../src/runtime/world-sim.js';
 import { entitySpawnPosts } from '../src/runtime/entity-spawn-posts.js';
 import { choosePost, spawnPointAt, RESPAWN_DELAY } from '../src/human-spawn.js';
 
@@ -69,7 +70,12 @@ function recordPorts(bridge, world) {
 }
 async function native() {
   const instance = await loadSim(), bridge = bridgeFor(instance);
-  return { instance, world: recordPorts(bridge, createNetworkLifecycleBridge(bridge)) };
+  const world = createWorldSim(instance);
+  assert.equal(world.bridge, bridge);
+  assert.equal(createWorldSim(bridge), world);
+  const lifecycle = createNetworkLifecycleBridge(bridge);
+  for (const key of ['networkSpawn', 'networkUnspawn', 'networkRemove']) assert.equal(world[key], lifecycle[key]);
+  return { instance, world: recordPorts(bridge, world) };
 }
 
 function fixture(world, options = {}, changed = () => {}) {

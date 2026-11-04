@@ -6,6 +6,7 @@ import { localPorts } from './world-local-sim.js';
 import { stepPorts } from './world-step-sim.js';
 import { networkPorts } from './world-network-sim.js';
 import { networkControlPorts } from './world-network-controls-sim.js';
+import { createNetworkLifecycleBridge } from './world-network-lifecycle-sim.js';
 
 const worlds = new WeakMap();
 
@@ -26,7 +27,7 @@ export function createWorldSim(instance) {
       unit.position.copy(value.position); unit.tickCount = value.tickCount;
     }
   }
-  const world = { bridge, separate, ...clockPorts(bridge), ...eventPorts(bridge), ...localPorts(bridge), ...stepPorts(bridge), ...networkPorts(bridge), ...networkControlPorts(bridge) };
+  const world = { bridge, separate, ...clockPorts(bridge), ...eventPorts(bridge), ...localPorts(bridge), ...stepPorts(bridge), ...networkPorts(bridge), ...networkControlPorts(bridge), ...createNetworkLifecycleBridge(bridge) };
   worlds.set(bridge, world);
   return world;
 }
