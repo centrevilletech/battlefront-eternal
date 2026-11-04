@@ -406,6 +406,48 @@ impl AiControllerDriverResult {
     }
 }
 
+impl AiDispatchArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiDispatchArgs {
+            op: { let p = format!("{path}.op"); AiDispatchOp::from_u8(name_of(v.get("op"), &AiDispatchOp::NAMES, &p)?).unwrap() },
+            number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Str(AiDispatchOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = Value::Num(self.number); fields.push(("number", x)); }
+        a.object("", fields)
+    }
+}
+
+impl AiDispatchResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiDispatchResult {
+            flag: { let p = format!("{path}.flag"); boolean(v.get("flag"), &p)? },
+            number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
+            values: { let p = format!("{path}.values"); { let mut out = Vec::new(); for (i, e) in list(v.get("values"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+            text: { let p = format!("{path}.text"); cx.str_in(v.get("text"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Bool(self.flag); fields.push(("flag", x)); }
+        { let x = Value::Num(self.number); fields.push(("number", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.values.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("values", x)); }
+        { let x = cx.str_out(self.text); fields.push(("text", x)); }
+        a.object("", fields)
+    }
+}
+
 impl AiFireArgs {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
