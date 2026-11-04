@@ -5447,12 +5447,13 @@ impl DbAction {
             ignore: { let p = format!("{path}.ignore"); match v.get("ignore").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("ignore"), &p)?) } },
             name: { let p = format!("{path}.name"); match v.get("name").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.str_in(v.get("name"), &p)?) } },
             velocity: { let p = format!("{path}.velocity"); match v.get("velocity").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(vec3(v.get("velocity"), &p)?) } },
+            impact: { let p = format!("{path}.impact"); boolean(v.get("impact"), &p)? },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(11);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(12);
         { let x = Value::Str(DbActionKind::NAMES[self.kind as usize].to_string()); fields.push(("kind", x)); }
         { let x = match &self.piece { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("piece", x)); }
         { let x = Value::Num(self.id); fields.push(("id", x)); }
@@ -5464,6 +5465,7 @@ impl DbAction {
         { let x = match &self.ignore { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("ignore", x)); }
         { let x = match &self.name { Some(v) => cx.str_out((*v)), None => Value::Null }; fields.push(("name", x)); }
         { let x = match &self.velocity { Some(v) => a.vec3((*v)), None => Value::Null }; fields.push(("velocity", x)); }
+        { let x = Value::Bool(self.impact); fields.push(("impact", x)); }
         a.object("", fields)
     }
 }

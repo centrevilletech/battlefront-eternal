@@ -23,11 +23,11 @@ impl World for JsWorld {
     fn low(&mut self, p: &Piece, q: &Quaternion) -> f64 {
         import_db_action(&DbAction { piece: Some(p.into()), turn: a4(*q), ..action(DbActionKind::Low) }).low
     }
-    fn play(&mut self, name: StrId, p: &Vector3, velocity: Option<&Vector3>) -> Option<u32> {
-        import_db_action(&DbAction { name: Some(name), point: a3(*p), velocity: velocity.copied().map(a3), ..action(DbActionKind::Play) }).effect.map(|n| n as u32)
+    fn play(&mut self, piece: &Piece, name: StrId, p: &Vector3, velocity: Option<&Vector3>, impact: bool) -> Option<u32> {
+        import_db_action(&DbAction { piece: Some(piece.into()), impact, name: Some(name), point: a3(*p), velocity: velocity.copied().map(a3), ..action(DbActionKind::Play) }).effect.map(|n| n as u32)
     }
-    fn move_effect(&mut self, id: u32, p: &Vector3, velocity: Option<&Vector3>) {
-        import_db_action(&DbAction { id: id as f64, point: a3(*p), velocity: velocity.copied().map(a3), ..action(DbActionKind::Move) });
+    fn move_effect(&mut self, p: &Piece, id: u32, velocity: bool) {
+        import_db_action(&DbAction { id: id as f64, piece: Some(p.into()), point: a3(p.position), velocity: velocity.then_some(a3(p.velocity)), ..action(DbActionKind::Move) });
     }
     fn stop_effect(&mut self, id: u32) { import_db_action(&DbAction { id: id as f64, ..action(DbActionKind::Stop) }); }
 }

@@ -30,7 +30,7 @@ export default {
       ignore: 'f64|null', center: 'bool', floor: 'f64' },
     DbInput: { op: 'enum:DbOperation', state: 'rec:DbState', launch: 'rec:DbLaunch|null', dt: 'f64', id: 'f64', floor: 'f64' },
     DbAction: { kind: 'enum:DbActionKind', piece: 'rec:DbPiece|null', id: 'f64', point: 'vec3', turn: 'quat', shift: 'vec3|null',
-      direction: 'vec3', far: 'f64', ignore: 'f64|null', name: 'str|null', velocity: 'vec3|null' },
+      direction: 'vec3', far: 'f64', ignore: 'f64|null', name: 'str|null', velocity: 'vec3|null', impact: 'bool' },
     DbActionResult: { hit: 'bool', point: 'vec3', normal: 'vec3', low: 'f64', effect: 'f64|null' },
     PbIdentity: { kind: 'f64', id: 'f64' },
     PbModel: { sphere: 'f64x4|null', low: 'vec3|null', high: 'vec3|null' },

@@ -107,6 +107,7 @@ export class DebrisSim {
       case "cast": {
         const at = a.point.clone(), ray = a.direction.clone(), far = a.far, ignore = a.ignore === null ? null : this.ids.bodies[a.ignore];
         const hit = d.collision.cast(at, ray, far, d.hit, ignore);
+        this.lastHit = hit;
         if (hit) Object.assign(result, { hit: true, point: hit.point.clone(), normal: hit.normal.clone() }); break;
       }
       case "low": {
@@ -116,12 +117,13 @@ export class DebrisSim {
         p.mesh.quaternion.copy(original); break;
       }
       case "play": {
-        const name = a.name, point = a.point.clone(), velocity = a.velocity?.clone();
+        const name = a.name, point = a.impact ? this.lastHit.point : this.ids.meshes[a.piece.id].position;
+        const velocity = a.velocity ? (a.piece.chunk.still ? a.velocity.clone() : d.out) : null;
         const effect = velocity ? d.effects.play(name, point, null, velocity) : d.effects.play(name, point);
         result.effect = this.ids.key("effect", effect); break;
       }
       case "move": {
-        const effect = this.ids.effects[a.id], point = a.point.clone(), velocity = a.velocity?.clone();
+        const effect = this.ids.effects[a.id], p = this.pieces.get(a.piece.id), point = p.position, velocity = a.velocity ? p.velocity : null;
         if (velocity) effect.move(point, null, velocity); else effect.move(point); break;
       }
       case "stop": { const effect = this.ids.effects[a.id]; effect.stop(); break; }

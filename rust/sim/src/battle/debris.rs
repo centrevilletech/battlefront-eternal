@@ -80,8 +80,8 @@ pub trait World {
     fn remove(&mut self, piece: &Piece);
     fn cast(&mut self, start: &Vector3, ray: &Vector3, far: f64, ignore: Option<u32>) -> Option<Hit>;
     fn low(&mut self, piece: &Piece, turned: &Quaternion) -> f64;
-    fn play(&mut self, name: StrId, point: &Vector3, velocity: Option<&Vector3>) -> Option<u32>;
-    fn move_effect(&mut self, effect: u32, point: &Vector3, velocity: Option<&Vector3>);
+    fn play(&mut self, piece: &Piece, name: StrId, point: &Vector3, velocity: Option<&Vector3>, impact: bool) -> Option<u32>;
+    fn move_effect(&mut self, piece: &Piece, effect: u32, velocity: bool);
     fn stop_effect(&mut self, effect: u32);
 }
 
@@ -139,8 +139,8 @@ impl Debris {
             position, previous: position, velocity, quaternion, hits: 0.0, lift, thin, settle: None,
             ignore: input.ignore, flight: 0.0, trail: None, smoke: None, gone: None };
         world.out(&self.out);
-        if let Some(name) = piece.chunk.trail { piece.trail = world.play(name, &piece.position, Some(&velocity)); }
-        if let Some(name) = piece.chunk.smoke { piece.smoke = world.play(name, &piece.position, None); }
+        if let Some(name) = piece.chunk.trail { piece.trail = world.play(&piece, name, &piece.position, Some(&velocity), false); }
+        if let Some(name) = piece.chunk.smoke { piece.smoke = world.play(&piece, name, &piece.position, None, false); }
         self.pieces.push(piece);
     }
 
@@ -155,7 +155,7 @@ impl Debris {
                         let ease = w * w * (3.0 - 2.0 * w);
                         piece.quaternion.slerp_quaternions(&s.from, &s.to, ease);
                         piece.position.y = s.y0 + (s.y1 - s.y0) * ease;
-                        if let Some(effect) = piece.smoke { world.move_effect(effect, &piece.position, None); }
+                        if let Some(effect) = piece.smoke { world.publish(piece); world.move_effect(piece, effect, false); }
                     }
                 }
                 world.publish(piece);
@@ -171,8 +171,8 @@ impl Debris {
             }
             bounce(&mut self.ray, &mut self.start, piece, world);
             world.publish(piece);
-            if let Some(effect) = piece.trail { world.move_effect(effect, &piece.position, Some(&piece.velocity)); }
-            if let Some(effect) = piece.smoke { world.move_effect(effect, &piece.position, None); }
+            if let Some(effect) = piece.trail { world.move_effect(piece, effect, true); }
+            if let Some(effect) = piece.smoke { world.move_effect(piece, effect, false); }
             if piece.flight > 20.0 { rest(piece, f64::NEG_INFINITY, world); }
             world.publish(piece);
         }
@@ -216,7 +216,7 @@ fn bounce(ray: &mut Vector3, start: &mut Vector3, p: &mut Piece, world: &mut imp
     p.position.copy(&hit.point).add_scaled_vector(&hit.normal, v8math::max(0.05, p.lift));
     world.publish(p);
     let most = p.chunk.terrain_collisions;
-    if p.hits < most { if let Some(name) = p.chunk.terrain_effect { world.play(name, &hit.point, None); } }
+    if p.hits < most { if let Some(name) = p.chunk.terrain_effect { world.play(p, name, &hit.point, None, true); } }
     p.hits += 1.0;
     p.velocity.add_scaled_vector(&hit.normal, -d);
     let along = p.velocity.length();

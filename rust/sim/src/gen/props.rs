@@ -759,13 +759,14 @@ pub struct DbAction {
     pub ignore: Option<f64>,
     pub name: Option<StrId>,
     pub velocity: Option<Vec3>,
+    pub impact: bool,
 }
 
 impl DbAction {
-    pub const WORDS: usize = 81;
+    pub const WORDS: usize = 82;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 81] = (&mut row[..81]).try_into().unwrap();
+        let row: &mut [f64; 82] = (&mut row[..82]).try_into().unwrap();
         row[0] = self.kind as u8 as f64;
         match &self.piece { Some(v) => { row[1] = 0.0; v.put(&mut row[1 + 1..], heap); } None => { row[1] = 1.0; row[1 + 1..1 + 56].fill(0.0); } }
         row[57] = self.id;
@@ -777,10 +778,11 @@ impl DbAction {
         match &self.ignore { Some(v) => { row[73] = 0.0; row[73 + 1] = (*v); } None => { row[73] = 1.0; row[73 + 1..73 + 2].fill(0.0); } }
         match &self.name { Some(v) => { row[75] = 0.0; row[75 + 1] = (*v).0 as f64; } None => { row[75] = 1.0; row[75 + 1..75 + 2].fill(0.0); } }
         match &self.velocity { Some(v) => { row[77] = 0.0; row[77 + 1..77 + 1 + 3].copy_from_slice(&(*v)); } None => { row[77] = 1.0; row[77 + 1..77 + 4].fill(0.0); } }
+        row[81] = if self.impact { 1.0 } else { 0.0 };
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 81] = (&row[..81]).try_into().unwrap();
+        let row: &[f64; 82] = (&row[..82]).try_into().unwrap();
         Self {
             kind: DbActionKind::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             piece: if row[1] == 0.0 { Some(DbPiece::take(&row[1 + 1..], heap)) } else { None },
@@ -793,6 +795,7 @@ impl DbAction {
             ignore: if row[73] == 0.0 { Some(row[73 + 1]) } else { None },
             name: if row[75] == 0.0 { Some(StrId(word_u32(row[75 + 1]))) } else { None },
             velocity: if row[77] == 0.0 { Some([row[77 + 1], row[77 + 1 + 1], row[77 + 1 + 2]]) } else { None },
+            impact: row[81] != 0.0,
         }
     }
 

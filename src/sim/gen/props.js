@@ -465,6 +465,7 @@ export class DbActionMirror {
     this.ignore = null;
     this.name = null;
     this.velocity = null;
+    this.impact = false;
   }
 }
 
@@ -480,6 +481,7 @@ export function syncDbAction(b, f, at, h, m) {
   { const tag = f[at + 73]; if (tag === 0) { m.ignore = f[at + 74]; } else m.ignore = tag === 1 ? null : undefined; }
   { const tag = f[at + 75]; if (tag === 0) { m.name = b.strings.at(f[at + 76]); } else m.name = tag === 1 ? null : undefined; }
   { const tag = f[at + 77]; if (tag === 0) { (m.velocity ??= new THREE.Vector3()).set(f[at + 78], f[at + 79], f[at + 80]); } else m.velocity = tag === 1 ? null : undefined; }
+  m.impact = f[at + 81] !== 0;
   return m;
 }
 
@@ -495,6 +497,7 @@ export function putDbAction(b, o, f, at, heap) {
   { const $x = o.ignore; if ($x === null || $x === undefined) { f[at + 73] = $x === null ? 1 : 2; f[at + 74] = 0; } else { f[at + 73] = 0; f[at + 74] = $x; } }
   { const $x = o.name; if ($x === null || $x === undefined) { f[at + 75] = $x === null ? 1 : 2; f[at + 76] = 0; } else { f[at + 75] = 0; f[at + 76] = b.strings.id($x); } }
   { const $x = o.velocity; if ($x === null || $x === undefined) { f[at + 77] = $x === null ? 1 : 2; f[at + 78] = 0; f[at + 79] = 0; f[at + 80] = 0; } else { f[at + 77] = 0; { const $v = $x; f[at + 78] = $v.x; f[at + 79] = $v.y; f[at + 80] = $v.z; } } }
+  f[at + 81] = o.impact ? 1 : 0;
 }
 
 export function sameDbAction(a, b) {
@@ -509,6 +512,7 @@ export function sameDbAction(a, b) {
   { const p = a.ignore, q = b.ignore; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".ignore"; } else { if (!Object.is(p, q)) return ".ignore"; } }
   { const p = a.name, q = b.name; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".name"; } else { if (!Object.is(p, q)) return ".name"; } }
   { const p = a.velocity, q = b.velocity; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".velocity"; } else { if (!sameVec(p, q)) return ".velocity"; } }
+  if (!Object.is(a.impact, b.impact)) return ".impact";
   return null;
 }
 
@@ -528,6 +532,7 @@ export function exportDbAction(o, cx) {
   v.ignore = o.ignore;
   v.name = o.name;
   v.velocity = ((x) => (x === null || x === undefined ? x : x.clone()))(o.velocity);
+  v.impact = o.impact;
   return v;
 }
 
