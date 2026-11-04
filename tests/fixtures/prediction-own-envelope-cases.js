@@ -152,7 +152,29 @@ export function ownEnvelopeCases() {
     }
     if (layout.ranges.mounted) {
       const start = layout.ranges.mounted.offset;
+      const mounted = base.payload.slice(start, start + layout.ranges.mounted.length);
+      for (let cut = 0; cut < mounted.length; cut++) add(`${kind}:mounted-cut${cut}`, base, r => replaceOwnRange(r, 'mounted', mounted.subarray(0, cut)));
       for (const mode of [0, 1, 2, 3, 4, 5]) add(`${kind}:mounted-mode${mode}`, base, r => { r.payload[start] = mode; return r; });
+      for (const [offset, values] of [[1, [0]], [5, [0]], [9, [0, 255]], [10, [0, 3, 4, 255]]]) for (const value of values) {
+        add(`${kind}:mounted-header${offset}:${value}`, base, r => {
+          if (offset === 1 || offset === 5) new DataView(r.payload.buffer).setUint32(start + offset, value, true);
+          else r.payload[start + offset] = value; return r;
+        });
+      }
+      const mode = mounted[0], values = mode === 4 ? 0 : mode === 3 ? 6 : 2 + Number(!!(mounted[10] & 1)) + Number(!!(mounted[10] & 2));
+      const countAt = 11 + values * 8;
+      for (let i = 0; i < values; i++) add(`${kind}:mounted-nan${i}`, base, r => {
+        new DataView(r.payload.buffer).setFloat64(start + 11 + i * 8, NaN, true); return r;
+      });
+      for (const count of [0, 1, 2, 3, 255]) add(`${kind}:mounted-count${count}`, base, r => { r.payload[start + countAt] = count; return r; });
+      if (mounted[countAt]) {
+        for (const barrel of [-1, .5, NaN, Infinity, 9007199254740992]) add(`${kind}:mounted-barrel:${barrel}`, base, r => {
+          new DataView(r.payload.buffer).setFloat64(start + countAt + 1, barrel, true); return r;
+        });
+        pair('barrel-before-view', r => {
+          new DataView(r.payload.buffer).setFloat64(start + countAt + 1, NaN, true); return r;
+        }, r => patchOwnField(r, layout, 'viewTick', -1));
+      }
       pair('mounted-before-trailing', r => { r.payload[start] = 255; return r; }, r => ({ ...r, payload: new Uint8Array([...r.payload, 0]) }));
       pair('mounted-before-view', r => { r.payload[start] = 255; return r; }, r => patchOwnField(r, layout, 'viewTick', -1));
     }
