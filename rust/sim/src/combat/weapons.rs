@@ -88,6 +88,9 @@ pub trait WeaponDraws {
     fn seeded(&mut self, seed: f64, value: f64);
     /// weapon.admitShot(weapon), for a weapon that has one.
     fn admit(&mut self, weapon: u32) -> Admission;
+    /// A level assignment occurred, including a write of the current level.
+    /// Private checkpoints can restore a definition without its numeric field.
+    fn level_written(&mut self, _weapon: u32, _level: f64) {}
 }
 
 /// `a < b` where `a` is a class's field (ToNumber; undefined is NaN).
@@ -448,6 +451,7 @@ impl Weapon {
                 self.wait = 0.0;
                 self.hidden = false;
                 self.base_level();
+                draws.level_written(index, self.level);
                 return;
             }
             self.released = true;
@@ -459,6 +463,7 @@ impl Weapon {
                 self.hidden = false;
             }
             self.base_level();
+            draws.level_written(index, self.level);
         }
     }
 
@@ -560,6 +565,7 @@ impl Weapon {
                 if trigger.held {
                     self.held = js_min(self.held + dt, most);
                     self.climb(class, most);
+                    draws.level_written(index, self.level);
                     return;
                 }
                 // Let go: fire at the charge reached.
@@ -576,12 +582,14 @@ impl Weapon {
             }
             if !self.busy() {
                 self.base_level();
+                draws.level_written(index, self.level);
             }
             if trigger.held && self.wait <= EPSILON && !self.overheated {
                 self.charging = true;
                 self.limit = most;
                 self.held = js_min(dt, most);
                 self.climb(class, most);
+                draws.level_written(index, self.level);
             }
             if self.wait < 0.0 {
                 self.wait = 0.0;
