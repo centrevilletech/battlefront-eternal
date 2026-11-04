@@ -230,7 +230,6 @@ export default {
   // explosion) sees every hull as the phase has left it, and what it does to
   // any hull comes back before the phase goes on.
   imports: {
-    f2Latch: { args: 'VehNothing', result: null },
     f2Variant: { args: 'F2Variant', result: null },
     f2Life: { args: 'VehHull', result: null },
     vehCast: { args: 'VehRay', result: 'VehHit' },

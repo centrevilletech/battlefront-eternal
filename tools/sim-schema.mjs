@@ -206,7 +206,7 @@ export function buildModel(files) {
       const where = `${file} command ${name}`;
       if (model.commands.has(name)) fail(where, 'declared twice');
       if (!spec || typeof spec.args !== 'string' || typeof spec.rust !== 'string') fail(where, 'a command is { args: Record, result: Record or null, rust: "module::function" }');
-      model.commands.set(name, { name, file, args: spec.args, result: spec.result ?? null, rust: spec.rust, where });
+      model.commands.set(name, { name, file, args: spec.args, result: spec.result ?? null, rust: spec.rust, detached: spec.detached === true, where });
     }
     for (const [name, spec] of Object.entries(schema.events || {})) {
       const where = `${file} event ${name}`;
@@ -752,6 +752,9 @@ function rustCalls(model) {
   consts('IMPORT', model.importsList);
   lines.push('/// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,', '/// its result written there after it; false for no such command.', 'pub fn run_command(sim: &mut crate::abi::Sim, code: u32) -> bool {', ...(!model.target.test ? ['    if !crate::abi::command_available(code) { return false; }'] : []), '    match code {');
   for (const c of model.commandsList) {
+    // A detached command has only a scalar export. The generic dispatcher
+    // borrows Sim, which must not survive its synchronous foreign hooks.
+    if (c.detached) { lines.push(`        COMMAND_${upper(c.name)} => return false,`); continue; }
     lines.push(`        COMMAND_${upper(c.name)} => {`, `            let args = { let (row, heap) = sim.calls.args(); ${c.args}::take(row, heap) };`);
     if (c.result) lines.push(`            let result = crate::${c.rust}(sim, args);`, `            sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`);
     else lines.push(`            crate::${c.rust}(sim, args);`, '            sim.calls.result(0, |_, _| {});');
@@ -767,7 +770,16 @@ function rustCalls(model) {
     const n = recordWords(model, c.args);
     const params = Array.from({ length: n }, (_, i) => `w${i}: f64`).join(', ');
     lines.push(`/// The command ${c.name}, its arguments' words as parameters.`, '#[no_mangle]', `pub extern "C" fn cmd_${snake(c.name).replace(/^r#/, '')}(${params}) -> *const f64 {`, `    if !crate::abi::command_available(COMMAND_${upper(c.name)}) { return std::ptr::null(); }`, `    let row: [f64; ${n}] = [${Array.from({ length: n }, (_, i) => `w${i}`).join(', ')}];`, `    let args = ${c.args}::take(&row, &[]);`, '    let sim = crate::abi::sim();');
-    if (c.result) lines.push(`    let result = crate::${c.rust}(sim, args);`, `    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
+    if (c.detached) {
+      // Decode the scalar record on the stack and acquire Sim only after the
+      // command returns. Reentrant commands can use the canonical instance.
+      lines.pop();
+      const call = `    let result = crate::${c.rust}(args);`;
+      lines.push(call, '    let sim = crate::abi::sim();');
+      if (c.result) lines.push(`    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
+      else lines.push('    std::ptr::null()');
+    }
+    else if (c.result) lines.push(`    let result = crate::${c.rust}(sim, args);`, `    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
     else lines.push(`    crate::${c.rust}(sim, args);`, '    std::ptr::null()');
     lines.push('}', '');
   }

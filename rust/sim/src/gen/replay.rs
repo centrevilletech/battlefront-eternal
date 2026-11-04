@@ -3997,6 +3997,798 @@ impl CbShield {
     }
 }
 
+impl F2SeatHeader {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatHeader {
+            weapons: { let p = format!("{path}.weapons"); (int(v.get("weapons"), &p, 0.0, u32::MAX as f64)? as u32) },
+            weapon_count: { let p = format!("{path}.weaponCount"); (int(v.get("weaponCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            units: { let p = format!("{path}.units"); (int(v.get("units"), &p, 0.0, u32::MAX as f64)? as u32) },
+            unit_count: { let p = format!("{path}.unitCount"); (int(v.get("unitCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            controls: { let p = format!("{path}.controls"); (int(v.get("controls"), &p, 0.0, u32::MAX as f64)? as u32) },
+            control_count: { let p = format!("{path}.controlCount"); (int(v.get("controlCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            looks: { let p = format!("{path}.looks"); (int(v.get("looks"), &p, 0.0, u32::MAX as f64)? as u32) },
+            look_count: { let p = format!("{path}.lookCount"); (int(v.get("lookCount"), &p, 0.0, u32::MAX as f64)? as u32) },
+            mouse_scale: { let p = format!("{path}.mouseScale"); num(v.get("mouseScale"), &p)? },
+            invert: { let p = format!("{path}.invert"); boolean(v.get("invert"), &p)? },
+            flight_scale: { let p = format!("{path}.flightScale"); num(v.get("flightScale"), &p)? },
+            flight_invert: { let p = format!("{path}.flightInvert"); boolean(v.get("flightInvert"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(12);
+        { let x = Value::Num(self.weapons as f64); fields.push(("weapons", x)); }
+        { let x = Value::Num(self.weapon_count as f64); fields.push(("weaponCount", x)); }
+        { let x = Value::Num(self.units as f64); fields.push(("units", x)); }
+        { let x = Value::Num(self.unit_count as f64); fields.push(("unitCount", x)); }
+        { let x = Value::Num(self.controls as f64); fields.push(("controls", x)); }
+        { let x = Value::Num(self.control_count as f64); fields.push(("controlCount", x)); }
+        { let x = Value::Num(self.looks as f64); fields.push(("looks", x)); }
+        { let x = Value::Num(self.look_count as f64); fields.push(("lookCount", x)); }
+        { let x = Value::Num(self.mouse_scale); fields.push(("mouseScale", x)); }
+        { let x = Value::Bool(self.invert); fields.push(("invert", x)); }
+        { let x = Value::Num(self.flight_scale); fields.push(("flightScale", x)); }
+        { let x = Value::Bool(self.flight_invert); fields.push(("flightInvert", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatSample {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatSample {
+            dx: { let p = format!("{path}.dx"); num(v.get("dx"), &p)? },
+            dy: { let p = format!("{path}.dy"); num(v.get("dy"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.dx); fields.push(("dx", x)); }
+        { let x = Value::Num(self.dy); fields.push(("dy", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatUnitIn {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatUnitIn {
+            unit: { let p = format!("{path}.unit"); Unit::ref_in(v.get("unit"), cx, &p)? },
+            generation: { let p = format!("{path}.generation"); num(v.get("generation"), &p)? },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            dead: { let p = format!("{path}.dead"); boolean(v.get("dead"), &p)? },
+            human: { let p = format!("{path}.human"); boolean(v.get("human"), &p)? },
+            network_human: { let p = format!("{path}.networkHuman"); match v.get("networkHuman").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("networkHuman"), &p)?) } },
+            walker: { let p = format!("{path}.walker"); boolean(v.get("walker"), &p)? },
+            team: { let p = format!("{path}.team"); num(v.get("team"), &p)? },
+            removed: { let p = format!("{path}.removed"); boolean(v.get("removed"), &p)? },
+            has_actor: { let p = format!("{path}.hasActor"); boolean(v.get("hasActor"), &p)? },
+            tick_count: { let p = format!("{path}.tickCount"); num(v.get("tickCount"), &p)? },
+            soldier: { let p = format!("{path}.soldier"); Soldier::from_value(v.get("soldier"), cx, &p)? },
+            intent: { let p = format!("{path}.intent"); Intent::from_value(v.get("intent"), cx, &p)? },
+            no_enter: { let p = format!("{path}.noEnter"); num(v.get("noEnter"), &p)? },
+            zoom_step: { let p = format!("{path}.zoomStep"); num(v.get("zoomStep"), &p)? },
+            zoom: { let p = format!("{path}.zoom"); num(v.get("zoom"), &p)? },
+            first_person: { let p = format!("{path}.firstPerson"); boolean(v.get("firstPerson"), &p)? },
+            blow_apart: { let p = format!("{path}.blowApart"); boolean(v.get("blowApart"), &p)? },
+            combat_dead: { let p = format!("{path}.combatDead"); boolean(v.get("combatDead"), &p)? },
+            targetable: { let p = format!("{path}.targetable"); match v.get("targetable").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("targetable"), &p)?) } },
+            mounted: { let p = format!("{path}.mounted"); match v.get("mounted").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("mounted"), &p)?) } },
+            gun_underwater: { let p = format!("{path}.gunUnderwater"); boolean(v.get("gunUnderwater"), &p)? },
+            aim_override: { let p = format!("{path}.aimOverride"); match v.get("aimOverride").value { Value::Null => Nullable::Null, Value::Undefined => Nullable::Undefined, _ => Nullable::Value(vec3(v.get("aimOverride"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(23);
+        { let x = Unit::ref_out(self.unit, cx, a); fields.push(("unit", x)); }
+        { let x = Value::Num(self.generation); fields.push(("generation", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = Value::Bool(self.dead); fields.push(("dead", x)); }
+        { let x = Value::Bool(self.human); fields.push(("human", x)); }
+        { let x = match &self.network_human { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("networkHuman", x)); }
+        { let x = Value::Bool(self.walker); fields.push(("walker", x)); }
+        { let x = Value::Num(self.team); fields.push(("team", x)); }
+        { let x = Value::Bool(self.removed); fields.push(("removed", x)); }
+        { let x = Value::Bool(self.has_actor); fields.push(("hasActor", x)); }
+        { let x = Value::Num(self.tick_count); fields.push(("tickCount", x)); }
+        { let x = self.soldier.to_value(cx, a); fields.push(("soldier", x)); }
+        { let x = self.intent.to_value(cx, a); fields.push(("intent", x)); }
+        { let x = Value::Num(self.no_enter); fields.push(("noEnter", x)); }
+        { let x = Value::Num(self.zoom_step); fields.push(("zoomStep", x)); }
+        { let x = Value::Num(self.zoom); fields.push(("zoom", x)); }
+        { let x = Value::Bool(self.first_person); fields.push(("firstPerson", x)); }
+        { let x = Value::Bool(self.blow_apart); fields.push(("blowApart", x)); }
+        { let x = Value::Bool(self.combat_dead); fields.push(("combatDead", x)); }
+        { let x = match &self.targetable { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("targetable", x)); }
+        { let x = match &self.mounted { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("mounted", x)); }
+        { let x = Value::Bool(self.gun_underwater); fields.push(("gunUnderwater", x)); }
+        { let x = match &self.aim_override { Nullable::Value(v) => a.vec3((*v)), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }; fields.push(("aimOverride", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatBody {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatBody {
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            previous: { let p = format!("{path}.previous"); vec3(v.get("previous"), &p)? },
+            settled: { let p = format!("{path}.settled"); vec3(v.get("settled"), &p)? },
+            velocity: { let p = format!("{path}.velocity"); vec3(v.get("velocity"), &p)? },
+            normal: { let p = format!("{path}.normal"); vec3(v.get("normal"), &p)? },
+            aim_yaw: { let p = format!("{path}.aimYaw"); num(v.get("aimYaw"), &p)? },
+            aim_pitch: { let p = format!("{path}.aimPitch"); num(v.get("aimPitch"), &p)? },
+            air: { let p = format!("{path}.air"); match v.get("air").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Air::from_u8(name_of(v.get("air"), &Air::NAMES, &p)?).unwrap()) } },
+            posture: { let p = format!("{path}.posture"); Posture::from_u8(name_of(v.get("posture"), &Posture::NAMES, &p)?).unwrap() },
+            grounded: { let p = format!("{path}.grounded"); boolean(v.get("grounded"), &p)? },
+            dive: { let p = format!("{path}.dive"); num(v.get("dive"), &p)? },
+            dive_from: { let p = format!("{path}.diveFrom"); Posture::from_u8(name_of(v.get("diveFrom"), &Posture::NAMES, &p)?).unwrap() },
+            lock: { let p = format!("{path}.lock"); num(v.get("lock"), &p)? },
+            look_x: { let p = format!("{path}.lookX"); num(v.get("lookX"), &p)? },
+            look_y: { let p = format!("{path}.lookY"); num(v.get("lookY"), &p)? },
+            fuel: { let p = format!("{path}.fuel"); num(v.get("fuel"), &p)? },
+            state_time: { let p = format!("{path}.stateTime"); num(v.get("stateTime"), &p)? },
+            pass_through: { let p = format!("{path}.passThrough"); match v.get("passThrough").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_BODY, v.get("passThrough"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(18);
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = a.vec3(self.previous); fields.push(("previous", x)); }
+        { let x = a.vec3(self.settled); fields.push(("settled", x)); }
+        { let x = a.vec3(self.velocity); fields.push(("velocity", x)); }
+        { let x = a.vec3(self.normal); fields.push(("normal", x)); }
+        { let x = Value::Num(self.aim_yaw); fields.push(("aimYaw", x)); }
+        { let x = Value::Num(self.aim_pitch); fields.push(("aimPitch", x)); }
+        { let x = match &self.air { Some(v) => Value::Str(Air::NAMES[(*v) as usize].to_string()), None => Value::Null }; fields.push(("air", x)); }
+        { let x = Value::Str(Posture::NAMES[self.posture as usize].to_string()); fields.push(("posture", x)); }
+        { let x = Value::Bool(self.grounded); fields.push(("grounded", x)); }
+        { let x = Value::Num(self.dive); fields.push(("dive", x)); }
+        { let x = Value::Str(Posture::NAMES[self.dive_from as usize].to_string()); fields.push(("diveFrom", x)); }
+        { let x = Value::Num(self.lock); fields.push(("lock", x)); }
+        { let x = Value::Num(self.look_x); fields.push(("lookX", x)); }
+        { let x = Value::Num(self.look_y); fields.push(("lookY", x)); }
+        { let x = Value::Num(self.fuel); fields.push(("fuel", x)); }
+        { let x = Value::Num(self.state_time); fields.push(("stateTime", x)); }
+        { let x = match &self.pass_through { Some(v) => cx.ref_out(KIND_BODY, (*v)), None => Value::Null }; fields.push(("passThrough", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatEdges {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatEdges {
+            reload: { let p = format!("{path}.reload"); boolean(v.get("reload"), &p)? },
+            r#use: { let p = format!("{path}.use"); boolean(v.get("use"), &p)? },
+            exit: { let p = format!("{path}.exit"); boolean(v.get("exit"), &p)? },
+            jump: { let p = format!("{path}.jump"); boolean(v.get("jump"), &p)? },
+            crouch: { let p = format!("{path}.crouch"); boolean(v.get("crouch"), &p)? },
+            prone: { let p = format!("{path}.prone"); boolean(v.get("prone"), &p)? },
+            next_primary: { let p = format!("{path}.nextPrimary"); boolean(v.get("nextPrimary"), &p)? },
+            previous_primary: { let p = format!("{path}.previousPrimary"); boolean(v.get("previousPrimary"), &p)? },
+            next_secondary: { let p = format!("{path}.nextSecondary"); boolean(v.get("nextSecondary"), &p)? },
+            zoom: { let p = format!("{path}.zoom"); boolean(v.get("zoom"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(10);
+        { let x = Value::Bool(self.reload); fields.push(("reload", x)); }
+        { let x = Value::Bool(self.r#use); fields.push(("use", x)); }
+        { let x = Value::Bool(self.exit); fields.push(("exit", x)); }
+        { let x = Value::Bool(self.jump); fields.push(("jump", x)); }
+        { let x = Value::Bool(self.crouch); fields.push(("crouch", x)); }
+        { let x = Value::Bool(self.prone); fields.push(("prone", x)); }
+        { let x = Value::Bool(self.next_primary); fields.push(("nextPrimary", x)); }
+        { let x = Value::Bool(self.previous_primary); fields.push(("previousPrimary", x)); }
+        { let x = Value::Bool(self.next_secondary); fields.push(("nextSecondary", x)); }
+        { let x = Value::Bool(self.zoom); fields.push(("zoom", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatUnitOut {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatUnitOut {
+            unit: { let p = format!("{path}.unit"); Unit::ref_in(v.get("unit"), cx, &p)? },
+            seat: { let p = format!("{path}.seat"); match v.get("seat").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(SeatLease::ref_in(v.get("seat"), cx, &p)?) } },
+            targetable: { let p = format!("{path}.targetable"); match v.get("targetable").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("targetable"), &p)?) } },
+            tick_count: { let p = format!("{path}.tickCount"); num(v.get("tickCount"), &p)? },
+            soldier: { let p = format!("{path}.soldier"); F2SeatBody::from_value(v.get("soldier"), cx, &p)? },
+            intent: { let p = format!("{path}.intent"); F2SeatEdges::from_value(v.get("intent"), cx, &p)? },
+            mounted: { let p = format!("{path}.mounted"); match v.get("mounted").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("mounted"), &p)?) } },
+            gun_underwater: { let p = format!("{path}.gunUnderwater"); boolean(v.get("gunUnderwater"), &p)? },
+            aim_override: { let p = format!("{path}.aimOverride"); match v.get("aimOverride").value { Value::Null => Nullable::Null, Value::Undefined => Nullable::Undefined, _ => Nullable::Value(vec3(v.get("aimOverride"), &p)?) } },
+            zoom_step: { let p = format!("{path}.zoomStep"); num(v.get("zoomStep"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(10);
+        { let x = Unit::ref_out(self.unit, cx, a); fields.push(("unit", x)); }
+        { let x = match &self.seat { Some(v) => SeatLease::ref_out((*v), cx, a), None => Value::Null }; fields.push(("seat", x)); }
+        { let x = match &self.targetable { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("targetable", x)); }
+        { let x = Value::Num(self.tick_count); fields.push(("tickCount", x)); }
+        { let x = self.soldier.to_value(cx, a); fields.push(("soldier", x)); }
+        { let x = self.intent.to_value(cx, a); fields.push(("intent", x)); }
+        { let x = match &self.mounted { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("mounted", x)); }
+        { let x = Value::Bool(self.gun_underwater); fields.push(("gunUnderwater", x)); }
+        { let x = match &self.aim_override { Nullable::Value(v) => a.vec3((*v)), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }; fields.push(("aimOverride", x)); }
+        { let x = Value::Num(self.zoom_step); fields.push(("zoomStep", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatEffect {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatEffect {
+            kind: { let p = format!("{path}.kind"); SeatEffectKind::from_u8(name_of(v.get("kind"), &SeatEffectKind::NAMES, &p)?).unwrap() },
+            unit: { let p = format!("{path}.unit"); Unit::ref_in(v.get("unit"), cx, &p)? },
+            point: { let p = format!("{path}.point"); vec3(v.get("point"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Str(SeatEffectKind::NAMES[self.kind as usize].to_string()); fields.push(("kind", x)); }
+        { let x = Unit::ref_out(self.unit, cx, a); fields.push(("unit", x)); }
+        { let x = a.vec3(self.point); fields.push(("point", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2Latched {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2Latched {
+            control: { let p = format!("{path}.control"); cx.ref_in(KIND_SEAT_UNIT, v.get("control"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = cx.ref_out(KIND_SEAT_UNIT, self.control); fields.push(("control", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatFire {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatFire {
+            lease: { let p = format!("{path}.lease"); SeatLease::ref_in(v.get("lease"), cx, &p)? },
+            pressed: { let p = format!("{path}.pressed"); numbers::<2>(v.get("pressed"), &p)? },
+            reload: { let p = format!("{path}.reload"); boolean(v.get("reload"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = SeatLease::ref_out(self.lease, cx, a); fields.push(("lease", x)); }
+        { let x = { let items = self.pressed.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("pressed", x)); }
+        { let x = Value::Bool(self.reload); fields.push(("reload", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2HullNode {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2HullNode {
+            hull: { let p = format!("{path}.hull"); Vehicle::ref_in(v.get("hull"), cx, &p)? },
+            node: { let p = format!("{path}.node"); (int(v.get("node"), &p, 0.0, u32::MAX as f64)? as u32) },
+            matrix: { let p = format!("{path}.matrix"); mat4(v.get("matrix"), &p)? },
+            world: { let p = format!("{path}.world"); mat4(v.get("world"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Vehicle::ref_out(self.hull, cx, a); fields.push(("hull", x)); }
+        { let x = Value::Num(self.node as f64); fields.push(("node", x)); }
+        { let x = mat4_value(a, self.matrix); fields.push(("matrix", x)); }
+        { let x = mat4_value(a, self.world); fields.push(("world", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatIo {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatIo {
+            emitter_mask: { let p = format!("{path}.emitterMask"); (int(v.get("emitterMask"), &p, 0.0, u32::MAX as f64)? as u32) },
+            ordnance: { let p = format!("{path}.ordnance"); (int(v.get("ordnance"), &p, 0.0, u32::MAX as f64)? as u32) },
+            nodes: { let p = format!("{path}.nodes"); (int(v.get("nodes"), &p, 0.0, u32::MAX as f64)? as u32) },
+            words: { let p = format!("{path}.words"); (int(v.get("words"), &p, 0.0, u32::MAX as f64)? as u32) },
+            input: { let p = format!("{path}.input"); (int(v.get("input"), &p, 0.0, u32::MAX as f64)? as u32) },
+            capacity: { let p = format!("{path}.capacity"); (int(v.get("capacity"), &p, 0.0, u32::MAX as f64)? as u32) },
+            header_words: { let p = format!("{path}.headerWords"); (int(v.get("headerWords"), &p, 0.0, u32::MAX as f64)? as u32) },
+            unit_words: { let p = format!("{path}.unitWords"); (int(v.get("unitWords"), &p, 0.0, u32::MAX as f64)? as u32) },
+            control_words: { let p = format!("{path}.controlWords"); (int(v.get("controlWords"), &p, 0.0, u32::MAX as f64)? as u32) },
+            look_words: { let p = format!("{path}.lookWords"); (int(v.get("lookWords"), &p, 0.0, u32::MAX as f64)? as u32) },
+            weapon_words: { let p = format!("{path}.weaponWords"); (int(v.get("weaponWords"), &p, 0.0, u32::MAX as f64)? as u32) },
+            leases: { let p = format!("{path}.leases"); (int(v.get("leases"), &p, 0.0, u32::MAX as f64)? as u32) },
+            units: { let p = format!("{path}.units"); (int(v.get("units"), &p, 0.0, u32::MAX as f64)? as u32) },
+            controls: { let p = format!("{path}.controls"); (int(v.get("controls"), &p, 0.0, u32::MAX as f64)? as u32) },
+            effects: { let p = format!("{path}.effects"); (int(v.get("effects"), &p, 0.0, u32::MAX as f64)? as u32) },
+            fire: { let p = format!("{path}.fire"); (int(v.get("fire"), &p, 0.0, u32::MAX as f64)? as u32) },
+            turrets: { let p = format!("{path}.turrets"); (int(v.get("turrets"), &p, 0.0, u32::MAX as f64)? as u32) },
+            events: { let p = format!("{path}.events"); (int(v.get("events"), &p, 0.0, u32::MAX as f64)? as u32) },
+            ticks: { let p = format!("{path}.ticks"); num(v.get("ticks"), &p)? },
+            turret_ticks: { let p = format!("{path}.turretTicks"); num(v.get("turretTicks"), &p)? },
+            turret_time: { let p = format!("{path}.turretTime"); num(v.get("turretTime"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(21);
+        { let x = Value::Num(self.emitter_mask as f64); fields.push(("emitterMask", x)); }
+        { let x = Value::Num(self.ordnance as f64); fields.push(("ordnance", x)); }
+        { let x = Value::Num(self.nodes as f64); fields.push(("nodes", x)); }
+        { let x = Value::Num(self.words as f64); fields.push(("words", x)); }
+        { let x = Value::Num(self.input as f64); fields.push(("input", x)); }
+        { let x = Value::Num(self.capacity as f64); fields.push(("capacity", x)); }
+        { let x = Value::Num(self.header_words as f64); fields.push(("headerWords", x)); }
+        { let x = Value::Num(self.unit_words as f64); fields.push(("unitWords", x)); }
+        { let x = Value::Num(self.control_words as f64); fields.push(("controlWords", x)); }
+        { let x = Value::Num(self.look_words as f64); fields.push(("lookWords", x)); }
+        { let x = Value::Num(self.weapon_words as f64); fields.push(("weaponWords", x)); }
+        { let x = Value::Num(self.leases as f64); fields.push(("leases", x)); }
+        { let x = Value::Num(self.units as f64); fields.push(("units", x)); }
+        { let x = Value::Num(self.controls as f64); fields.push(("controls", x)); }
+        { let x = Value::Num(self.effects as f64); fields.push(("effects", x)); }
+        { let x = Value::Num(self.fire as f64); fields.push(("fire", x)); }
+        { let x = Value::Num(self.turrets as f64); fields.push(("turrets", x)); }
+        { let x = Value::Num(self.events as f64); fields.push(("events", x)); }
+        { let x = Value::Num(self.ticks); fields.push(("ticks", x)); }
+        { let x = Value::Num(self.turret_ticks); fields.push(("turretTicks", x)); }
+        { let x = Value::Num(self.turret_time); fields.push(("turretTime", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2TurretBirth {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2TurretBirth {
+            settings: { let p = format!("{path}.settings"); PtSettings::from_value(v.get("settings"), cx, &p)? },
+            turret: { let p = format!("{path}.turret"); PcTurret::from_value(v.get("turret"), cx, &p)? },
+            weapon: { let p = format!("{path}.weapon"); match v.get("weapon").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Weapon::from_value(v.get("weapon"), cx, &p)?) } },
+            ordnance: { let p = format!("{path}.ordnance"); match v.get("ordnance").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.def_in("ordnance", v.get("ordnance"), &p)?) } },
+            channel: { let p = format!("{path}.channel"); num(v.get("channel"), &p)? },
+            collide: { let p = format!("{path}.collide"); boolean(v.get("collide"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(6);
+        { let x = self.settings.to_value(cx, a); fields.push(("settings", x)); }
+        { let x = self.turret.to_value(cx, a); fields.push(("turret", x)); }
+        { let x = match &self.weapon { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("weapon", x)); }
+        { let x = match &self.ordnance { Some(v) => cx.def_out("ordnance", (*v)), None => Value::Null }; fields.push(("ordnance", x)); }
+        { let x = Value::Num(self.channel); fields.push(("channel", x)); }
+        { let x = Value::Bool(self.collide); fields.push(("collide", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2TurretLife {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2TurretLife {
+            turret: { let p = format!("{path}.turret"); cx.ref_in(KIND_TURRET, v.get("turret"), &p)? },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            attacker: { let p = format!("{path}.attacker"); Attacker::from_value(v.get("attacker"), cx, &p)? },
+            center: { let p = format!("{path}.center"); vec3(v.get("center"), &p)? },
+            radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = cx.ref_out(KIND_TURRET, self.turret); fields.push(("turret", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = self.attacker.to_value(cx, a); fields.push(("attacker", x)); }
+        { let x = a.vec3(self.center); fields.push(("center", x)); }
+        { let x = Value::Num(self.radius); fields.push(("radius", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2TurretHeader {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2TurretHeader {
+            turret: { let p = format!("{path}.turret"); cx.ref_in(KIND_TURRET, v.get("turret"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = cx.ref_out(KIND_TURRET, self.turret); fields.push(("turret", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2TurretInput {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2TurretInput {
+            index: { let p = format!("{path}.index"); (int(v.get("index"), &p, 0.0, u32::MAX as f64)? as u32) },
+            has_random: { let p = format!("{path}.hasRandom"); boolean(v.get("hasRandom"), &p)? },
+            floor: { let p = format!("{path}.floor"); num(v.get("floor"), &p)? },
+            spread_scale: { let p = format!("{path}.spreadScale"); num(v.get("spreadScale"), &p)? },
+            sniper_scale: { let p = format!("{path}.sniperScale"); num(v.get("sniperScale"), &p)? },
+            yaw_spread_override: { let p = format!("{path}.yawSpreadOverride"); match v.get("yawSpreadOverride").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("yawSpreadOverride"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(6);
+        { let x = Value::Num(self.index as f64); fields.push(("index", x)); }
+        { let x = Value::Bool(self.has_random); fields.push(("hasRandom", x)); }
+        { let x = Value::Num(self.floor); fields.push(("floor", x)); }
+        { let x = Value::Num(self.spread_scale); fields.push(("spreadScale", x)); }
+        { let x = Value::Num(self.sniper_scale); fields.push(("sniperScale", x)); }
+        { let x = match &self.yaw_spread_override { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("yawSpreadOverride", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2TurretOut {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2TurretOut {
+            header: { let p = format!("{path}.header"); F2TurretHeader::from_value(v.get("header"), cx, &p)? },
+            state: { let p = format!("{path}.state"); PtState::from_value(v.get("state"), cx, &p)? },
+            lease: { let p = format!("{path}.lease"); match v.get("lease").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(SeatLease::ref_in(v.get("lease"), cx, &p)?) } },
+            gunner: { let p = format!("{path}.gunner"); match v.get("gunner").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Unit::ref_in(v.get("gunner"), cx, &p)?) } },
+            weapon: { let p = format!("{path}.weapon"); match v.get("weapon").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Weapon::from_value(v.get("weapon"), cx, &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = self.header.to_value(cx, a); fields.push(("header", x)); }
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = match &self.lease { Some(v) => SeatLease::ref_out((*v), cx, a), None => Value::Null }; fields.push(("lease", x)); }
+        { let x = match &self.gunner { Some(v) => Unit::ref_out((*v), cx, a), None => Value::Null }; fields.push(("gunner", x)); }
+        { let x = match &self.weapon { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("weapon", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2TurretDraw {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2TurretDraw {
+            turret: { let p = format!("{path}.turret"); (int(v.get("turret"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = Value::Num(self.turret as f64); fields.push(("turret", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2TurretLock {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2TurretLock {
+            turret: { let p = format!("{path}.turret"); (int(v.get("turret"), &p, 0.0, u32::MAX as f64)? as u32) },
+            origin: { let p = format!("{path}.origin"); vec3(v.get("origin"), &p)? },
+            direction: { let p = format!("{path}.direction"); vec3(v.get("direction"), &p)? },
+            lease: { let p = format!("{path}.lease"); SeatLease::ref_in(v.get("lease"), cx, &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Num(self.turret as f64); fields.push(("turret", x)); }
+        { let x = a.vec3(self.origin); fields.push(("origin", x)); }
+        { let x = a.vec3(self.direction); fields.push(("direction", x)); }
+        { let x = SeatLease::ref_out(self.lease, cx, a); fields.push(("lease", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2TurretLockAnswer {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2TurretLockAnswer {
+            id: { let p = format!("{path}.id"); num(v.get("id"), &p)? },
+            generation: { let p = format!("{path}.generation"); num(v.get("generation"), &p)? },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            found: { let p = format!("{path}.found"); boolean(v.get("found"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Num(self.id); fields.push(("id", x)); }
+        { let x = Value::Num(self.generation); fields.push(("generation", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = Value::Bool(self.found); fields.push(("found", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2TurretEvent {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2TurretEvent {
+            kind: { let p = format!("{path}.kind"); F2TurretEventKind::from_u8(name_of(v.get("kind"), &F2TurretEventKind::NAMES, &p)?).unwrap() },
+            turret: { let p = format!("{path}.turret"); cx.ref_in(KIND_TURRET, v.get("turret"), &p)? },
+            round: { let p = format!("{path}.round"); match v.get("round").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Round::ref_in(v.get("round"), cx, &p)?) } },
+            bolt: { let p = format!("{path}.bolt"); match v.get("bolt").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Bolt::ref_in(v.get("bolt"), cx, &p)?) } },
+            barrel: { let p = format!("{path}.barrel"); num(v.get("barrel"), &p)? },
+            owner: { let p = format!("{path}.owner"); match v.get("owner").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Unit::ref_in(v.get("owner"), cx, &p)?) } },
+            origin: { let p = format!("{path}.origin"); vec3(v.get("origin"), &p)? },
+            direction: { let p = format!("{path}.direction"); vec3(v.get("direction"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            pitch: { let p = format!("{path}.pitch"); num(v.get("pitch"), &p)? },
+            charge: { let p = format!("{path}.charge"); num(v.get("charge"), &p)? },
+            target_id: { let p = format!("{path}.targetId"); num(v.get("targetId"), &p)? },
+            target_generation: { let p = format!("{path}.targetGeneration"); num(v.get("targetGeneration"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(13);
+        { let x = Value::Str(F2TurretEventKind::NAMES[self.kind as usize].to_string()); fields.push(("kind", x)); }
+        { let x = cx.ref_out(KIND_TURRET, self.turret); fields.push(("turret", x)); }
+        { let x = match &self.round { Some(v) => Round::ref_out((*v), cx, a), None => Value::Null }; fields.push(("round", x)); }
+        { let x = match &self.bolt { Some(v) => Bolt::ref_out((*v), cx, a), None => Value::Null }; fields.push(("bolt", x)); }
+        { let x = Value::Num(self.barrel); fields.push(("barrel", x)); }
+        { let x = match &self.owner { Some(v) => Unit::ref_out((*v), cx, a), None => Value::Null }; fields.push(("owner", x)); }
+        { let x = a.vec3(self.origin); fields.push(("origin", x)); }
+        { let x = a.vec3(self.direction); fields.push(("direction", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.pitch); fields.push(("pitch", x)); }
+        { let x = Value::Num(self.charge); fields.push(("charge", x)); }
+        { let x = Value::Num(self.target_id); fields.push(("targetId", x)); }
+        { let x = Value::Num(self.target_generation); fields.push(("targetGeneration", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatCommand {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatCommand {
+            op: { let p = format!("{path}.op"); F2SeatOp::from_u8(name_of(v.get("op"), &F2SeatOp::NAMES, &p)?).unwrap() },
+            unit: { let p = format!("{path}.unit"); match v.get("unit").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Unit::ref_in(v.get("unit"), cx, &p)?) } },
+            unit_life: { let p = format!("{path}.unitLife"); num(v.get("unitLife"), &p)? },
+            hull: { let p = format!("{path}.hull"); match v.get("hull").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Vehicle::ref_in(v.get("hull"), cx, &p)?) } },
+            hull_life: { let p = format!("{path}.hullLife"); num(v.get("hullLife"), &p)? },
+            lease: { let p = format!("{path}.lease"); match v.get("lease").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(SeatLease::ref_in(v.get("lease"), cx, &p)?) } },
+            index: { let p = format!("{path}.index"); num(v.get("index"), &p)? },
+            placement: { let p = format!("{path}.placement"); boolean(v.get("placement"), &p)? },
+            reason: { let p = format!("{path}.reason"); SeatReason::from_u8(name_of(v.get("reason"), &SeatReason::NAMES, &p)?).unwrap() },
+            safe: { let p = format!("{path}.safe"); boolean(v.get("safe"), &p)? },
+            force: { let p = format!("{path}.force"); boolean(v.get("force"), &p)? },
+            promote: { let p = format!("{path}.promote"); match v.get("promote").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("promote"), &p)?) } },
+            post: { let p = format!("{path}.post"); match v.get("post").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Post::ref_in(v.get("post"), cx, &p)?) } },
+            direction: { let p = format!("{path}.direction"); num(v.get("direction"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(14);
+        { let x = Value::Str(F2SeatOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = match &self.unit { Some(v) => Unit::ref_out((*v), cx, a), None => Value::Null }; fields.push(("unit", x)); }
+        { let x = Value::Num(self.unit_life); fields.push(("unitLife", x)); }
+        { let x = match &self.hull { Some(v) => Vehicle::ref_out((*v), cx, a), None => Value::Null }; fields.push(("hull", x)); }
+        { let x = Value::Num(self.hull_life); fields.push(("hullLife", x)); }
+        { let x = match &self.lease { Some(v) => SeatLease::ref_out((*v), cx, a), None => Value::Null }; fields.push(("lease", x)); }
+        { let x = Value::Num(self.index); fields.push(("index", x)); }
+        { let x = Value::Bool(self.placement); fields.push(("placement", x)); }
+        { let x = Value::Str(SeatReason::NAMES[self.reason as usize].to_string()); fields.push(("reason", x)); }
+        { let x = Value::Bool(self.safe); fields.push(("safe", x)); }
+        { let x = Value::Bool(self.force); fields.push(("force", x)); }
+        { let x = match &self.promote { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("promote", x)); }
+        { let x = match &self.post { Some(v) => Post::ref_out((*v), cx, a), None => Value::Null }; fields.push(("post", x)); }
+        { let x = Value::Num(self.direction); fields.push(("direction", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatResult {
+            accepted: { let p = format!("{path}.accepted"); boolean(v.get("accepted"), &p)? },
+            value: { let p = format!("{path}.value"); num(v.get("value"), &p)? },
+            lease: { let p = format!("{path}.lease"); match v.get("lease").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(SeatLease::ref_in(v.get("lease"), cx, &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Bool(self.accepted); fields.push(("accepted", x)); }
+        { let x = Value::Num(self.value); fields.push(("value", x)); }
+        { let x = match &self.lease { Some(v) => SeatLease::ref_out((*v), cx, a), None => Value::Null }; fields.push(("lease", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatAction {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatAction {
+            kind: { let p = format!("{path}.kind"); F2SeatActionKind::from_u8(name_of(v.get("kind"), &F2SeatActionKind::NAMES, &p)?).unwrap() },
+            unit: { let p = format!("{path}.unit"); match v.get("unit").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Unit::ref_in(v.get("unit"), cx, &p)?) } },
+            holder: { let p = format!("{path}.holder"); num(v.get("holder"), &p)? },
+            turret: { let p = format!("{path}.turret"); boolean(v.get("turret"), &p)? },
+            index: { let p = format!("{path}.index"); num(v.get("index"), &p)? },
+            lease: { let p = format!("{path}.lease"); match v.get("lease").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(SeatLease::ref_in(v.get("lease"), cx, &p)?) } },
+            post: { let p = format!("{path}.post"); match v.get("post").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Post::ref_in(v.get("post"), cx, &p)?) } },
+            reason: { let p = format!("{path}.reason"); SeatReason::from_u8(name_of(v.get("reason"), &SeatReason::NAMES, &p)?).unwrap() },
+            effect: { let p = format!("{path}.effect"); SeatEffectKind::from_u8(name_of(v.get("effect"), &SeatEffectKind::NAMES, &p)?).unwrap() },
+            point: { let p = format!("{path}.point"); vec3(v.get("point"), &p)? },
+            direction: { let p = format!("{path}.direction"); vec3(v.get("direction"), &p)? },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            flag: { let p = format!("{path}.flag"); boolean(v.get("flag"), &p)? },
+            second: { let p = format!("{path}.second"); boolean(v.get("second"), &p)? },
+            attacker: { let p = format!("{path}.attacker"); Attacker::from_value(v.get("attacker"), cx, &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(15);
+        { let x = Value::Str(F2SeatActionKind::NAMES[self.kind as usize].to_string()); fields.push(("kind", x)); }
+        { let x = match &self.unit { Some(v) => Unit::ref_out((*v), cx, a), None => Value::Null }; fields.push(("unit", x)); }
+        { let x = Value::Num(self.holder); fields.push(("holder", x)); }
+        { let x = Value::Bool(self.turret); fields.push(("turret", x)); }
+        { let x = Value::Num(self.index); fields.push(("index", x)); }
+        { let x = match &self.lease { Some(v) => SeatLease::ref_out((*v), cx, a), None => Value::Null }; fields.push(("lease", x)); }
+        { let x = match &self.post { Some(v) => Post::ref_out((*v), cx, a), None => Value::Null }; fields.push(("post", x)); }
+        { let x = Value::Str(SeatReason::NAMES[self.reason as usize].to_string()); fields.push(("reason", x)); }
+        { let x = Value::Str(SeatEffectKind::NAMES[self.effect as usize].to_string()); fields.push(("effect", x)); }
+        { let x = a.vec3(self.point); fields.push(("point", x)); }
+        { let x = a.vec3(self.direction); fields.push(("direction", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Bool(self.flag); fields.push(("flag", x)); }
+        { let x = Value::Bool(self.second); fields.push(("second", x)); }
+        { let x = self.attacker.to_value(cx, a); fields.push(("attacker", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2SeatAnswer {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2SeatAnswer {
+            control: { let p = format!("{path}.control"); match v.get("control").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.ref_in(KIND_SEAT_UNIT, v.get("control"), &p)?) } },
+            value: { let p = format!("{path}.value"); match v.get("value").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("value"), &p)?) } },
+            flag: { let p = format!("{path}.flag"); boolean(v.get("flag"), &p)? },
+            point: { let p = format!("{path}.point"); vec3(v.get("point"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = match &self.control { Some(v) => cx.ref_out(KIND_SEAT_UNIT, (*v)), None => Value::Null }; fields.push(("control", x)); }
+        { let x = match &self.value { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("value", x)); }
+        { let x = Value::Bool(self.flag); fields.push(("flag", x)); }
+        { let x = a.vec3(self.point); fields.push(("point", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2HullLife {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2HullLife {
+            vehicle: { let p = format!("{path}.vehicle"); Vehicle::ref_in(v.get("vehicle"), cx, &p)? },
+            generation: { let p = format!("{path}.generation"); num(v.get("generation"), &p)? },
+            visible: { let p = format!("{path}.visible"); boolean(v.get("visible"), &p)? },
+            flight_class: { let p = format!("{path}.flightClass"); match v.get("flightClass").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(FlightClass::from_u8(name_of(v.get("flightClass"), &FlightClass::NAMES, &p)?).unwrap()) } },
+            min_speed: { let p = format!("{path}.minSpeed"); match v.get("minSpeed").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("minSpeed"), &p)?) } },
+            mid_speed: { let p = format!("{path}.midSpeed"); match v.get("midSpeed").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("midSpeed"), &p)?) } },
+            boost_speed: { let p = format!("{path}.boostSpeed"); match v.get("boostSpeed").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(num(v.get("boostSpeed"), &p)?) } },
+            speed: { let p = format!("{path}.speed"); num(v.get("speed"), &p)? },
+            turn_rate: { let p = format!("{path}.turnRate"); num(v.get("turnRate"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(9);
+        { let x = Vehicle::ref_out(self.vehicle, cx, a); fields.push(("vehicle", x)); }
+        { let x = Value::Num(self.generation); fields.push(("generation", x)); }
+        { let x = Value::Bool(self.visible); fields.push(("visible", x)); }
+        { let x = match &self.flight_class { Some(v) => Value::Str(FlightClass::NAMES[(*v) as usize].to_string()), None => Value::Null }; fields.push(("flightClass", x)); }
+        { let x = match &self.min_speed { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("minSpeed", x)); }
+        { let x = match &self.mid_speed { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("midSpeed", x)); }
+        { let x = match &self.boost_speed { Some(v) => Value::Num((*v)), None => Value::Undefined }; fields.push(("boostSpeed", x)); }
+        { let x = Value::Num(self.speed); fields.push(("speed", x)); }
+        { let x = Value::Num(self.turn_rate); fields.push(("turnRate", x)); }
+        a.object("", fields)
+    }
+}
+
+impl F2Pad {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2Pad {
+            index: { let p = format!("{path}.index"); num(v.get("index"), &p)? },
+            remaining: { let p = format!("{path}.remaining"); num(v.get("remaining"), &p)? },
+            vehicle: { let p = format!("{path}.vehicle"); match v.get("vehicle").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Vehicle::ref_in(v.get("vehicle"), cx, &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Num(self.index); fields.push(("index", x)); }
+        { let x = Value::Num(self.remaining); fields.push(("remaining", x)); }
+        { let x = match &self.vehicle { Some(v) => Vehicle::ref_out((*v), cx, a), None => Value::Null }; fields.push(("vehicle", x)); }
+        a.object("", fields)
+    }
+}
+
 impl IaOutcome {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
