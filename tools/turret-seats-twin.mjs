@@ -72,13 +72,13 @@ for (let fixture = 0; fixture < Number(option('fixtures', 12)); fixture++) {
       weapon: { floor: weapon.floor, kick: weapon.kick, spreadScale: weapon.spreadScale, sniperScale: weapon.sniperScale, yawSpreadOverride: weapon.yawSpreadOverride },
       controls: [...leases].filter(l => l.controllable).map(l => ({ lease: l, intent: { ...l.controllable.intent }, driven: Boolean(l.controllable.controller) })) };
   };
-  let reenter = false, firing = false;
+  let reenter = false, boardExit = false, firing = false;
   Object.assign(crews.world, {
     raycast() { return null; }, updateLock() {},
     weaponUpdate(_weapon, _dt, _selected, trigger) { return trigger.held ? [{ yaw: pick([0, .02, -.03]), pitch: pick([0, .01]) }, { yaw: 0, pitch: 0 }] : []; },
     fire() { if (reenter && !firing && turret.lease) { firing = true; crews.pose(turret.lease, 0); turret.muzzle(new THREE.Vector3(), null, true); firing = false; } return null; },
     bindRound() {}, sound() {}, fired() {},
-    boarded(unit) { if (reenter) { turret.holdYaw(.2); crews.requestExit(unit, { placement: false }); } },
+    boarded(unit) { if (boardExit) { turret.holdYaw(.2); crews.requestExit(unit, { placement: false }); } },
     unboarded() {}, riderDrop(_holder, _index, unit, out) { return out.copy(unit.position).add(new THREE.Vector3(.1, .3, -.2)); },
     kill(unit, attacker) { unit.alive = false; unit.dead = true; unit.combat.dead = true; unit.combat.lastAttacker = attacker; },
   });
@@ -102,7 +102,7 @@ for (let fixture = 0; fixture < Number(option('fixtures', 12)); fixture++) {
   for (let cycle = 0; cycle < Number(option('cycles', 30)); cycle++) {
     for (const lease of [...crews.leases]) run('vacate', lease, { placement: false });
     for (const unit of people) { unit.alive = true; unit.dead = false; unit.removed = false; unit.combat.dead = false; unit.classDef.NoEnterVehicles = 0; }
-    turret.health = 100; turret.state = 'built'; reenter = cycle % 7 === 0;
+    turret.health = 100; turret.state = 'built'; reenter = cycle % 7 === 1; boardExit = cycle % 7 === 0;
     run('canMan', null, turret); run('canMan', people[0], null);
     people[0].classDef.NoEnterVehicles = '1'; run('canMan', people[0], turret); people[0].classDef.NoEnterVehicles = 0;
     run('man', people[0], turret); run('seatOf', people[0]); run('man', people[1], turret);
