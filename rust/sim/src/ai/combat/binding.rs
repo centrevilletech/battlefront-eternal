@@ -40,6 +40,7 @@ pub struct CombatAi {
 pub enum EventRef {
     None,
     Ref(Ref),
+    Unit(Obj),
 }
 
 /// The journal's events the combat services read (combat.js:1503
@@ -47,7 +48,7 @@ pub enum EventRef {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Event {
     Shot { source: EventRef, target: EventRef },
-    Damage { target: EventRef, attacker: EventRef, amount: Option<f64>, generic: Option<f64>, typed: Option<f64>, known: bool, point: Option<Vector3> },
+    Damage { target: EventRef, attacker: EventRef, attacker_character: Option<Obj>, amount: Option<f64>, generic: Option<f64>, typed: Option<f64>, known: bool, point: Option<Vector3> },
 }
 
 /// combat.js:1525 `eventUnit(ref)`.
@@ -55,6 +56,7 @@ fn event_unit<W: World + ?Sized>(w: &W, r: EventRef) -> Option<Obj> {
     match r {
         EventRef::None => None,
         EventRef::Ref(r) => resolve(w, Some(r)),
+        EventRef::Unit(u) => w.unit(u).alive.then_some(u),
     }
 }
 
@@ -297,12 +299,16 @@ impl CombatAi {
                         notify_targeted_shot(w, shooter, target, &at);
                     }
                 }
-                Event::Damage { target, attacker, amount, generic, typed, known, point } => {
+                Event::Damage { target, attacker, attacker_character, amount, generic, typed, known, point } => {
                     let victim = event_unit(w, target);
                     let attacker = event_unit(w, attacker);
-                    if let (Some(victim), Some(a)) = (victim, attacker) {
+                    let attacker = if let Some(a) = attacker {
                         let character = w.unit(a).character;
-                        let attacker = Attacker { obj: a, character, team: Some(w.unit(a).team), character_team: character.map(|c| w.character_team(c)) };
+                        Some(Attacker { obj: a, character, team: Some(w.unit(a).team), character_team: character.map(|c| w.character_team(c)) })
+                    } else {
+                        attacker_character.map(|c| Attacker { obj: c, character: None, team: Some(w.character_team(c)), character_team: None })
+                    };
+                    if let (Some(victim), Some(attacker)) = (victim, attacker) {
                         let packet = Packet { amount, generic: Some(generic.unwrap_or(1.0)), typed: Some(typed.unwrap_or(1.0)) };
                         notify_damage(w, victim, attacker, packet, known, point);
                     }

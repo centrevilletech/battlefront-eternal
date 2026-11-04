@@ -332,7 +332,7 @@ pub fn forward_speed(u: &UnitView) -> f64 {
 
 /// weapons-ai.js:209 `categoryOf(unit)`: person 0, animal 1, droid 2,
 /// vehicle 3, building 4 (NaN for a HealthType naming an inherited
-/// property of a plain object: quirks P16-3).
+/// property of a plain object).
 pub fn category_of(u: &UnitView) -> f64 {
     if let Some(c) = u.category {
         if c.is_finite() && c.fract() == 0.0 {

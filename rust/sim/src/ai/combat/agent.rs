@@ -206,7 +206,7 @@ pub struct Reservation {
 }
 
 /// combat.js:244 `reservations`: by hint (a module WeakMap; the battle's
-/// here, quirks P16-1).
+/// here).
 #[derive(Clone, Debug, Default)]
 pub struct Reservations {
     pub by_hint: HashMap<Obj, Reservation>,

@@ -73,6 +73,7 @@ fn equal<T: Exact + std::fmt::Debug>(label: &str, got: &T, want: &T) {
 impl<'a> Host<'a> {
     fn new(capture: &'a Capture, frame: &'a Frame) -> Self {
         let s = frame.before();
+        assert_eq!(s.get("contract").opt_num(), Some(2.0), "AI combat capture needs complete entry caches");
         let mut h = Self {
             log: Log::new(frame), read: Read::new(capture), time: s.get("time").num(),
             difficulty: difficulty(s.get("difficulty")), bound: s.get("bound"), teams: s.get("teams"),
@@ -138,11 +139,17 @@ impl<'a> Host<'a> {
             if v.get("arsenal").str() != Some("omitted") { equal("weapon random generator", &actual.random, &writes.random); }
         }
         if !s.get("los").is_undefined() { equal("deferred LOS", &cx.los, &self.read.los(s.get("los"))); }
+        assert_eq!(cx.shared.clusters.states.len(), s.get("clusters").items().count(), "cluster membership");
         for v in s.get("clusters").items() {
-            let u = self.read.obj(v.get("target"));
-            let key = self.unit(u).controller.unwrap_or(u);
+            let key = self.read.obj(v.get("key"));
             let want = cluster(v);
             equal("cluster", cx.shared.clusters.states.get(&key).expect("captured cluster is present"), &want);
+        }
+        assert_eq!(cx.reservations.by_hint.len(), s.get("reservations").items().count(), "reservation membership");
+        for v in s.get("reservations").items() {
+            let key = Read::hint_obj(v.get("index").num());
+            let want = Reservation { owner: self.read.opt_obj(v.get("owner")), at: v.get("at").num() };
+            equal("reservation", cx.reservations.by_hint.get(&key).expect("captured reservation is present"), &want);
         }
         if let Some(e) = &cx.enhanced {
             if !s.get("skill").is_undefined() {
@@ -182,8 +189,7 @@ fn run(capture: &Capture, f: &Frame) {
     }
     if !before.get("los").is_nullish() { cx.los = h.read.los(before.get("los")); }
     for v in before.get("clusters").items() {
-        let u = h.read.obj(v.get("target"));
-        let key = h.unit(u).controller.unwrap_or(u);
+        let key = h.read.obj(v.get("key"));
         cx.shared.clusters.states.insert(key, cluster(v));
     }
     for data in before.get("weaponData").items() {
@@ -196,13 +202,16 @@ fn run(capture: &Capture, f: &Frame) {
             } })]);
         }
     }
-    for a in before.get("agents").items() {
-        for key in ["coverHint", "jetHint"] { h.read.reservation(a.get("patterns").get(key), &mut cx); }
-        h.read.reservation(a.get("patterns").get("cover").get("hint"), &mut cx);
+    for v in before.get("reservations").items() {
+        let key = Read::hint_obj(v.get("index").num());
+        cx.reservations.by_hint.insert(key, Reservation { owner: h.read.opt_obj(v.get("owner")), at: v.get("at").num() });
     }
     let a = h.read.opt_obj(f.arg(0));
     let b = h.read.opt_obj(f.arg(1));
     let r = f.result();
+    if matches!(f.name.as_str(), "aiCombat.attachController" | "aiCombat.detachController" | "aiCombat.rebuildProtected" | "aiCombat.dropLosRequests" | "aiCombat.clearCandidate" | "aiCombat.updateTarget" | "aiCombat.updateTargetSelection" | "aiCombat.gateFire" | "aiCombat.consumeFire" | "aiCombat.ingest" | "UnitCombatAgent.exit") {
+        assert!(r.is_undefined(), "void method returned {}", r.show());
+    }
     match f.name.as_str() {
         "aiCombat.createPerception" => {
             let c = a.unwrap(); let old = h.ctl(c).perception.clone();
@@ -238,7 +247,7 @@ fn run(capture: &Capture, f: &Frame) {
         "aiCombat.grenadeUpdate" => {
             let mut s = if before.get("danger").is_nullish() { DangerState { first_contact: f64::INFINITY, last_notify: -1.0 } } else { danger(before.get("danger")) };
             let owner = h.read.opt_obj(f.arg(2));
-            let x = cx.grenade_update(&mut h, &mut s, &vec(f.arg(1)), owner, f.arg(3).num());
+            let x = cx.grenade_update(&mut h, &mut s, &vec(f.arg(1)), owner, f.arg(3).opt_num().unwrap_or(f64::INFINITY));
             h.num(r, x); equal("grenade danger", &s, &danger(f.after().get("danger")));
         }
         "aiCombat.hazardResponse" | "aiCombat.alertResponse" | "aiCombat.acousticResponse" => {
@@ -257,7 +266,7 @@ fn run(capture: &Capture, f: &Frame) {
             let g = h.read.goal(before.get("goal"));
             let agent = CombatAgent::new(&h, id, c, cx.init_agent(c), g);
             let patterns_obj = h.read.opt_obj(f.after().get("created").get("patterns").get("self"));
-            h.agents.insert(id, AgentView { obj: id, patterns_obj, controller: c, tracker: Some(agent.tracker), helper, combat: Some(agent) });
+            h.agents.insert(id, AgentView { obj: id, patterns_obj, controller: c, tracker: None, helper, combat: Some(agent) });
             let want = h.read.agent(f.after().get("created"));
             equal("created agent", h.agents.get(&id).unwrap(), &want);
             h.check_obj(r, Some(id));

@@ -36,6 +36,7 @@ impl Host<'_> {
             if dispatch {
                 if let (Some(g), Some(w)) = (&mut got.perception, &want.perception) {
                     g.fire.channel = w.fire.channel; g.fire.sniper_active = w.fire.sniper_active;
+                    g.fire.last_release = w.fire.last_release; g.fire.charging = w.fire.charging; g.fire.burst.state = w.fire.burst.state;
                 }
             }
             if call.name == "nav.jetHints.tick" { got.jet = want.jet; }
@@ -64,10 +65,9 @@ impl Host<'_> {
             if helper { got.helper = want.helper.clone(); }
             if pattern {
                 // setDelay/defaultDelay only write the countdown fields.
-                if let (Some(g), Some(w)) = (&mut got.tracker, &want.tracker) {
-                    g.delay = w.delay; g.counting = w.counting; g.deadline = w.deadline;
+                if let (Some(g), Some(w)) = (&mut got.combat, &want.combat) {
+                    g.tracker.delay = w.tracker.delay; g.tracker.counting = w.tracker.counting; g.tracker.deadline = w.tracker.deadline;
                 }
-                if let (Some(g), Some(t)) = (&mut got.combat, got.tracker) { g.tracker = t; }
             }
             if pattern || call.name == "interrupts.tick" { equal(&format!("{} agent after", call.name), &got, &want); }
             self.agents.insert(got.obj, got);
@@ -150,7 +150,7 @@ impl World for Host<'_> {
     fn ctl(&self, c: Obj) -> &Ctl { self.ctls.get(&c).unwrap_or_else(|| panic!("controller {c} has no captured view")) }
     fn ctl_mut(&mut self, c: Obj) -> &mut Ctl { self.ctls.get_mut(&c).unwrap_or_else(|| panic!("controller {c} has no captured view")) }
     fn agent_controller(&self, a: Obj) -> Obj { self.agents[&a].controller }
-    fn tracker(&mut self, a: Obj) -> Option<&mut TargetTracker> { self.agents.get_mut(&a).unwrap().tracker.as_mut() }
+    fn tracker(&mut self, a: Obj) -> Option<&mut TargetTracker> { let a=self.agents.get_mut(&a).unwrap(); match &mut a.combat { Some(c)=>Some(&mut c.tracker),None=>a.tracker.as_mut() } }
     fn is_controller(&self, c: Obj) -> bool { self.ctls.contains_key(&c) }
     fn agent_accepts_alert(&mut self, a: Obj, known: bool, point: &Vector3) -> bool {
         let c = self.call("agent.acceptsAlert"); self.check_obj(c.arg(0),Some(a)); self.boolean(c.arg(1),known); self.vector(c.arg(2),point); c.result().bool()
@@ -201,8 +201,8 @@ impl World for Host<'_> {
     fn nav_segment_blocked(&mut self, _: &Vector3, _: &Vector3, _: Obj) -> Option<bool> { self.no_nav("segmentBlocked") }
     fn nav_direct_clear(&mut self, _: Obj, _: &Vector3) -> Option<bool> { self.no_nav("directClear") }
     fn nav_in_danger_region(&mut self, _: Obj) -> Option<bool> { self.no_nav("inDangerRegion") }
-    fn agent_sync(&mut self, a: &CombatAgent) { let v=self.agents.get_mut(&a.obj).unwrap(); v.tracker=Some(a.tracker); v.combat=Some(a.clone()); }
-    fn agent_resync(&mut self, a: &mut CombatAgent) { let v=&self.agents[&a.obj]; *a=v.combat.clone().unwrap(); if let Some(t)=v.tracker { a.tracker=t; } }
+    fn agent_sync(&mut self, a: &CombatAgent) { let v=self.agents.get_mut(&a.obj).unwrap(); v.combat=Some(a.clone()); }
+    fn agent_resync(&mut self, a: &mut CombatAgent) { *a=self.agents[&a.obj].combat.clone().unwrap(); }
     fn interrupts_tick(&mut self, _: Obj) -> bool { let c=self.call("interrupts.tick"); self.effects(c); c.result().bool() }
     fn agent_board_policy(&mut self, _: Obj, candidate: Obj) -> bool { let c=self.call("agent.boardPolicy"); self.check_obj(c.arg(0),Some(candidate)); c.result().bool() }
     fn has_helper(&self, a: Obj) -> bool { self.agents[&a].helper.is_some() }

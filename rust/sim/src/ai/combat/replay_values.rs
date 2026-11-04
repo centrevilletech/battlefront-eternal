@@ -3,6 +3,7 @@ use super::*;
 
 pub(super) fn vec(v: V) -> Vector3 {
     if let Some(a) = v.vec3() { return Vector3 { x: a[0], y: a[1], z: a[2] }; }
+    if matches!(v.node(), Some(Node::Array(_))) { return Vector3::new(v.at(0).num(), v.at(1).num(), v.at(2).num()); }
     Vector3 { x: v.get("x").num(), y: v.get("y").num(), z: v.get("z").num() }
 }
 pub(super) fn opt_vec(v: V) -> Option<Vector3> { (!v.is_nullish()).then(|| vec(v)) }
@@ -160,11 +161,6 @@ impl<'a> Read<'a> {
         (!v.is_nullish()).then(|| HintView { obj: Self::hint_obj(v.get("index").num()), position: vec(v.get("position")), forward: vec(v.get("forward")),
             primary_mask: v.get("primaryMask").opt_num(), secondary_mask: v.get("secondaryMask").opt_num(), side_mask: v.get("sideMask").opt_num(), siblings: v.get("siblings").items().map(|i| Self::hint_obj(i.num())).collect() })
     }
-    pub fn reservation(&mut self, v: V, cx: &mut CombatAi) {
-        if v.is_nullish() || v.get("reservation").is_nullish() { return; }
-        let id = Self::hint_obj(v.get("index").num()); let r = v.get("reservation");
-        cx.reservations.by_hint.insert(id, Reservation { owner: self.opt_obj(r.get("owner")), at: r.get("at").num() });
-    }
     pub fn agent(&mut self, v: V) -> AgentView {
         let obj = self.obj(v.get("self")); let controller = self.obj(v.get("controller"));
         let tracker = self.tracker(v.get("tracker")); let helper = self.helper(v.get("helper"));
@@ -179,12 +175,12 @@ impl<'a> Read<'a> {
             Some(CombatAgent { obj, controller, tracker: tracker.unwrap(), patterns, state: v.get("state").num(), pending: v.get("pending").num(), point: vec(v.get("point")), hazard: vec(v.get("hazard")),
                 align_at: v.get("alignAt").num(), looks: v.get("looks").num(), look_angle: v.get("lookAngle").num(), aligned: v.get("aligned").bool(), hazard_until: v.get("hazardUntil").num(), prone_until: v.get("proneUntil").num(), pattern: v.get("pattern").num(), stationary: v.get("stationary").bool() })
         } else { None };
-        AgentView { obj, patterns_obj: self.opt_obj(v.get("patterns").get("self")), controller, tracker, helper, combat }
+        AgentView { obj, patterns_obj: self.opt_obj(v.get("patterns").get("self")), controller, tracker: if combat.is_some() { None } else { tracker }, helper, combat }
     }
     pub fn goal(&mut self, v: V) -> Goal { Goal { mode: v.get("mode").opt_num(), point: opt_vec(v.get("point")), ref_a: self.reference(v.get("refA")) } }
     pub fn event(&mut self, v: V) -> CombatEvent {
-        let er = |r: &mut Self, x| r.reference(x).map_or(EventRef::None, EventRef::Ref);
+        let er = |r: &mut Self, x: V| if let Some(u)=r.opt_obj(x.get("direct")) { EventRef::Unit(u) } else { r.reference(x.get("ref")).map_or(EventRef::None, EventRef::Ref) };
         if v.get("kind").str() == Some("shot") { CombatEvent::Shot { source: er(self, v.get("source")), target: er(self, v.get("target")) } }
-        else { assert_eq!(v.get("kind").str(), Some("damage")); CombatEvent::Damage { target: er(self, v.get("target")), attacker: er(self, v.get("attacker")), amount: v.get("amount").opt_num(), generic: v.get("generic").opt_num(), typed: v.get("typed").opt_num(), known: v.get("known").bool(), point: opt_vec(v.get("point")) } }
+        else { assert_eq!(v.get("kind").str(), Some("damage")); CombatEvent::Damage { target: er(self, v.get("target")), attacker: er(self, v.get("attacker")), attacker_character: self.opt_obj(v.get("attackerCharacter")), amount: v.get("amount").opt_num(), generic: v.get("generic").opt_num(), typed: v.get("typed").opt_num(), known: v.get("known").bool(), point: opt_vec(v.get("point")) } }
     }
 }

@@ -20,7 +20,8 @@
 // The forwarders this file installs call straight through: the battle runs
 // as it would (tools/sim-capture.mjs checks the fingerprints). Nothing here
 // imports src/combat.js or src/weapons.js (capture hazard: seeded draws).
-import { clusterState } from '../../src/ai/classic/weapons-ai.js';
+import { peekClusterState } from '../../src/ai/classic/weapons-ai.js';
+import { alertControllers } from '../../src/ai/classic/perception.js';
 import { UnitCombatAgent, coverReservation } from '../../src/ai/classic/combat.js';
 import { Agent } from '../../src/ai/classic/agents.js';
 import { InterruptHelper } from '../../src/ai/classic/interrupts.js';
@@ -152,12 +153,26 @@ function agentView(a) {
     },
   };
 }
-// The cluster timestamps the frame's code may read (by target: its
-// controller's, else its own). Reading resets a stale human's, as the
-// game's own read would first (weapons-ai.js clusterState).
-function clusterView(u) {
-  const s = u ? clusterState(u) : null;
-  return s ? { target: u, scanAt: s.scanAt, flaggedAt: s.flaggedAt, generation: s.generation } : null;
+// Include query targets before the query runs. This is a sparse snapshot
+// of reachable entries, with no lazy initialization or generation reset.
+function clustersView(units) {
+  const seen = new Set(), result = [];
+  for (const u of new Set([...G.units.all(), ...units, ...aiOf(G).controllers.map((c) => c.unit)])) {
+    if (!u) continue;
+    const key = u.controller ?? u, s = peekClusterState(u);
+    if (!s || seen.has(key)) continue;
+    seen.add(key);
+    result.push({ key, scanAt: s.scanAt, flaggedAt: s.flaggedAt, generation: s.generation });
+  }
+  return result;
+}
+function reservationsView() {
+  const result = [];
+  for (let index = 0; index < hintList.length; index++) {
+    const r = coverReservation(hintList[index]);
+    if (r) result.push({ index, owner: r.owner, at: r.at });
+  }
+  return result;
 }
 
 // ---- The battle's settings the frames read.
@@ -190,7 +205,7 @@ function boundView() {
 function settingsView() {
   const enhanced = Boolean(G.ai?.enhanced);
   return {
-    time: world.time ?? 0, teams: teamsView(), difficulty: difficultyView(), bound: boundView(), sides: Object.keys(world.classData ?? {}),
+    contract: 2, time: world.time ?? 0, teams: teamsView(), difficulty: difficultyView(), bound: boundView(), sides: Object.keys(world.classData ?? {}),
     aimHooked, enhanced: enhanced ? { tier: world.difficulty?.tier ?? null } : null, weaponData,
   };
 }
@@ -243,7 +258,7 @@ function frameState(frame, end) {
   const ctls = new Set(frame.ctls);
   for (const a of frame.agents) if (a.controller) ctls.add(a.controller);
   // The Characters they name (a unit's, a controller's, an alert's source).
-  const characters = new Set();
+  const characters = new Set(frame.characters ?? []);
   for (const c of ctls) {
     if (c.character) characters.add(c.character);
     const src = c.shot?.source;
@@ -256,7 +271,7 @@ function frameState(frame, end) {
     units: [...units].map((u) => unitView(u, frame.own.has(u))),
     agents: [...frame.agents].map(agentView),
     characters: [...characters].map((c) => ({ self: c, unit: c.unit ?? null, remote: c.remote ?? null, team: c.team })),
-    clusters: [...units].map(clusterView).filter(Boolean),
+    clusters: clustersView(units), reservations: reservationsView(),
     ...(frame.los ? { los: losView(world.deferredLos) } : {}),
     ...(frame.extra ? frame.extra(end) : {}),
   };
@@ -548,13 +563,20 @@ const SERVICE_FRAMES = [
   serviceFrame('aim', (f, [c]) => { involve(f, { ctls: [c] }); f.extra = enhancedExtra(c); }),
   serviceFrame('ingest', (f) => {
     const evs = journalEvents();
-    for (const e of evs ?? []) for (const k of ['source', 'target', 'attacker']) if (e[k]?.unit) f.units.add(e[k].unit);
+    f.characters = new Set();
+    for (const e of evs ?? []) for (const k of ['source', 'target', 'attacker']) {
+      const r = e[k], u = r?.unit ?? (r?.alive !== undefined ? r : null);
+      if (u) f.units.add(u);
+    }
     for (const e of evs ?? []) {
-      for (const k of ['source', 'target']) {
-        const u = e[k]?.unit;
-        if (u?.controller) f.ctls.add(u.controller);
-        for (const l of u ? (bodyLeases(u) ?? []) : []) if (l?.controllableController) f.ctls.add(l.controllableController);
-        if (u?.seat?.controllable?.controller) f.ctls.add(u.seat.controllable.controller);
+      if (e.attackerCharacter) f.characters.add(e.attackerCharacter);
+      const source = e.source?.unit ?? e.source;
+      if (source?.controller) f.ctls.add(source.controller);
+      const explicit = e.target?.unit ?? (e.target?.alive !== undefined ? e.target : null);
+      const fallback = source?.controller?.target?.unit;
+      for (const u of [explicit, fallback]) if (u) {
+        f.units.add(u);
+        for (const c of alertControllers(u, [])) f.ctls.add(c);
       }
     }
     f.extra = (end) => (end ? {} : { events: evs ? evs.map(eventView) : null });
@@ -596,8 +618,9 @@ function journalEvents() {
   }
   return out;
 }
+const eventRefView = (r) => r?.unit ? { ref: refView(r) } : r?.alive !== undefined ? { direct: r } : null;
 const eventView = (e) => ({
-  kind: e.kind, source: refView(e.source), target: refView(e.target), attacker: refView(e.attacker), attackerCharacter: e.attackerCharacter ?? null,
+  kind: e.kind, source: eventRefView(e.source), target: eventRefView(e.target), attacker: eventRefView(e.attacker), attackerCharacter: e.attackerCharacter ?? null,
   amount: e.amount, generic: e.generic, typed: e.typed, known: Boolean(e.known), point: e.point ?? null,
 });
 
@@ -675,7 +698,7 @@ const queryAfter = () => {
   if (f?.collect) for (const u of result) if (u.controller) f.ctls.add(u.controller);
   return {
     tried: q?.tried ? q.tried.map(([u, team, answer]) => ({ unit: u, team, answer })) : null,
-    views: result.map((u) => unitView(u)),
+    views: result.map((u) => unitView(u, Boolean(f?.collect) || f?.own.has(u))),
     ctls: f?.collect ? result.filter((u) => u.controller).map((u) => ctlView(u.controller)) : null,
   };
 };
