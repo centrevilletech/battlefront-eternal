@@ -88,10 +88,10 @@ impl Scene<'_> {
     /// cast(origin, direction, far, out): the first hit against the
     /// buildings, the enabled bodies and the terrain.
     pub fn cast(&mut self, origin: V3, direction: V3, far: f64) -> Option<CastHit> {
-        let (candidates, enabled) = if let Some(buffers) = self.ground_cache.cast.as_mut() {
+        let (candidates, enabled): (&mut [u32], &mut [u8]) = if let Some(buffers) = self.ground_cache.cast.as_mut() {
             (&mut buffers.candidates[..], &mut buffers.enabled[..])
         } else {
-            unsafe { (&mut (*addr_of_mut!(crate::collision::CANDIDATES))[..], &mut (*addr_of_mut!(crate::collision::ENABLED))[..]) }
+            unsafe { (&mut *addr_of_mut!(crate::collision::CANDIDATES), &mut *addr_of_mut!(crate::collision::ENABLED)) }
         };
         cast_in(self.s, self.world, self.flags, origin, direction, far, candidates, enabled)
     }

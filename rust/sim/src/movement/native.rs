@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 #[derive(Clone)]
 pub struct MovementResult {
     pub mover: Mover,
+    /// Last loaded exchange, with the legacy store's output fields updated.
     pub io: [f64; IO_LEN],
     pub flags: Vec<u8>,
 }
