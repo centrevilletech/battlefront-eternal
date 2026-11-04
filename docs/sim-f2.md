@@ -17,9 +17,9 @@ and resets the new life. Retirement invalidates the slab handle before reuse.
 
 JavaScript readers still use Vehicle methods and their existing vectors. The
 published fields are the vehicle schema's mirror fields plus compact pose data.
-The full rig remains published during this milestone because the unported firing,
-boarding and rider code reads its nodes. That output can shrink after those users
-move. Full hull imports are construction-only, never a tick input.
+The full rig remains published because boarding and rider code reads its nodes.
+That output can shrink after those users move. Full hull imports are
+construction-only, never a tick input.
 
 Foreign inputs are registry facts and team relations, body flags, frozen crew
 input, seat look and lease facts, frozen triggers, AI weapon channels and spread modifiers, and
@@ -57,11 +57,10 @@ input words give the foreign block's end and start.
 
 The foreign block contains registry rows, team relations and frozen flight keys,
 then hull handles with pending mouse-stick commands, seat lease/input/aim facts,
-tow facts and recoil inputs. Its layout is independent of the complete vehicle
+and generated firing inputs. Its layout is independent of the complete vehicle
 schema. Mouse samples accumulate in JS input state; they never write the canonical
 stick mirror. They are consumed once before flight, including the original
-per-sample clamp and normalization order. Seats and tethers remain foreign state
-through their later steps.
+per-sample clamp and normalization order. Seat leases remain foreign state.
 
 Publications contain generated hull and pad rows, changed body matrices and
 bounds, compact pose records, weapon locks and life metadata. The last records
@@ -72,11 +71,11 @@ both retired slab handles and old gameplay lives. Retired references can still
 read their final mirror, but cannot target a replacement.
 
 The debug detector runs before and after the phase and checks the owned scalar,
-vector, matrix, wheel and flight fields. It excludes the declared foreign seat and
-tether state; attribution is checked by identity. Commands publish current state before returning.
+vector, matrix, wheel, tow and flight fields. It excludes the declared foreign seat
+state; attribution is checked by identity. Commands publish current state before returning.
 Debug runs also reject memory growth during the phase; initialization reserves a
 memory margin. Counters include the whole export rows and variable payloads,
-including rig output while the JS firing and rider readers remain.
+including rig output while the JS boarding and rider readers remain.
 
 ## Follow-on file ownership
 
@@ -116,3 +115,9 @@ descriptor; it is drained once, without getter or clear exports. Gameplay fired
 listeners keep their synchronous slot. Full rig publication and the existing JS
 matrix rebuild remain transitional for rider readers and are removed when rider
 writeback joins the native phase.
+
+Existing death and explosion handlers still combine immediate gameplay listeners
+with presentation. Their split, rider writeback and the shared scheduler's
+remaining temporary copies belong to the synchronous-hook consolidation. The
+mounted firing loop retains its definitions, geometry, shot scratch and output
+storage; it does not rebuild these per tick.

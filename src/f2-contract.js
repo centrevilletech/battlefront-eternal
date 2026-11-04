@@ -15,7 +15,7 @@ export class F2Counters {
 }
 
 // Store snapshots rather than references to mutable vectors. The caller supplies
-// only the fields owned by F2; foreign seat/weapon/tether state is excluded.
+// only the declared mirror fields; leases and presentation objects are excluded.
 export class F2MirrorCheck {
   constructor() { this.values = new Map(); }
   published(object, fields) {
