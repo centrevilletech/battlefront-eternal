@@ -28,6 +28,7 @@
 
 pub mod build;
 pub mod class;
+pub mod firing;
 pub mod hover;
 pub mod hull;
 pub mod native;

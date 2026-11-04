@@ -307,7 +307,7 @@ impl Hull {
 
     /// vehicles.js seatFrame (at the tick): the frame a seat's camera and
     /// aim hang from: a flyer's own frame, a ground hull's heading.
-    fn seat_frame(&self, i: usize) -> Matrix4 {
+    pub(crate) fn seat_frame(&self, i: usize) -> Matrix4 {
         let mut out = Matrix4::default();
         let mut q = Quaternion::default();
         if self.flying {
@@ -329,7 +329,7 @@ impl Hull {
     }
 
     /// vehicles.js seatEye: a seat's eye in the world.
-    fn seat_eye(&self, i: usize) -> Vector3 {
+    pub(crate) fn seat_eye(&self, i: usize) -> Vector3 {
         let frame = self.seat_frame(i);
         let mut out = self.pose.as_ref().unwrap().seats[i].eye;
         out.apply_matrix4(&frame);
@@ -338,7 +338,7 @@ impl Hull {
 
     /// vehicles.js seatForward: a seat's aim direction (a flyer's pilot's
     /// along its nose).
-    fn seat_forward(&self, i: usize) -> Vector3 {
+    pub(crate) fn seat_forward(&self, i: usize) -> Vector3 {
         if self.flying && i == 0 {
             let mut out = Vector3::new(0.0, 0.0, 1.0);
             out.apply_quaternion(&self.quaternion);
