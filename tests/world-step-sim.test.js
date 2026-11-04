@@ -77,7 +77,8 @@ function fixture(world, flags = 0, changed = () => {}) {
     soldier: { position: new THREE.Vector3(i ? 9 : 8, 0, 0) },
     combat: { pivot: position, origin: position, damage: amount => call(`unitDamage:${i}`, amount) },
     tick: dt => call(`unit:${i}`, dt), supply: { id: `supply:${i}` }, itemTarget: { id: `target:${i}` } })) };
-  env.unitsSim = flags & 256 ? { phase: dt => call('nativeUnits', dt) } : null;
+  env.unitsSim = flags & 256 ? { phase: dt => call('nativeUnits', dt),
+    sampleMuzzles(unit, dt) { assert.equal(unit, env.playerUnit); call('nativeMuzzles', dt); } } : null;
   env.turretSeats = flags & 4096 ? null : { update: dt => call('turretSeats', dt) };
   env.networkRemotes = flags & 8192 ? null : { finish: (tick, dt) => call('networkRemotes', tick, dt) };
   env.separateSoldiers = () => call('separate');
@@ -99,7 +100,7 @@ test('native phase order twins the actual game step across camera, actor, seat a
   const world = createWorldSim(await loadSim());
   for (let flags = 0; flags < 65536; flags += 113) {
     const js = fixture(null, flags), native = fixture(world, flags);
-    assert.equal(run(native), run(js), `error ${flags}`);
+    assert.equal(run(js), null, `JS error ${flags}`); assert.equal(run(native), null, `native error ${flags}`);
     assert.deepEqual(native.trace, js.trace, `trace ${flags}`);
     assert.deepEqual(native.view(), js.view(), `state ${flags}`);
   }
@@ -120,7 +121,7 @@ test('native phase guards observe mutations and newly appended grenades from ear
   ];
   for (const changed of mutations) for (const flags of [0, 1, 64, 8 + 1, 256 + 16, 256 + 1]) {
     const js = fixture(null, flags, changed), native = fixture(world, flags, changed);
-    assert.equal(run(native, null), run(js, null));
+    assert.equal(run(js, null), null); assert.equal(run(native, null), null);
     assert.deepEqual(native.trace, js.trace); assert.deepEqual(native.view(), js.view());
   }
 });

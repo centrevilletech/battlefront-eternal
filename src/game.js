@@ -2148,6 +2148,10 @@ async function start() {
   // The native driver chooses phase order and branches. These ports retain
   // object identity and the presentation or not-yet-owned phase boundaries.
   const stepSquads = [["squadMoveOut", 0, "moveout"], ["squadHold", 2, "hold"], ["squadFollow", 3, "follow"], ["squadAtEase", 1, "atease"]];
+  function samplePlayerMuzzles(dt) {
+    if (unitsSim) unitsSim.sampleMuzzles(playerUnit, dt);
+    else soldier.sampleMuzzles?.(dt);
+  }
   const worldStepHost = {
     state: () => ({ water: Boolean(water), remote: Boolean(remotes.active), walker, dead: combat.dead, server: Boolean(game.serverWorld),
       deathCamera: Boolean(deathView.active), driver: Boolean(driver?.active), gunner: Boolean(gunner.active), vehicles: Boolean(vehicles),
@@ -2225,7 +2229,7 @@ async function start() {
         case 'gunner': gunner.update(dt, soldier, tickControls, 1); break;
         case 'remotes': remotes.update(dt, flag ? droidInput : null, tickControls); break;
         case 'networkRemotes': networkRemotes.finish(tick, dt); break;
-        case 'muzzles': soldier.sampleMuzzles?.(dt); break;
+        case 'muzzles': samplePlayerMuzzles(dt); break;
         case 'combat': combat.update(dt, tickControls, value); break;
         case 'flushMuzzles': combat.flushMuzzles(); break;
         case 'pitchRange': { const [low, high] = soldier.pitchRange(); return { value: low, other: high }; }
@@ -2373,7 +2377,7 @@ async function start() {
     if (gunner.active) gunner.update(dt, soldier, tickControls, 1);
     remotes.update(dt, remotes.active ? droidInput : null, tickControls);
     networkRemotes?.finish(tick, dt);
-    soldier.sampleMuzzles?.(dt);
+    samplePlayerMuzzles(dt);
     if (!game.serverWorld) {
       combat.update(dt, tickControls, Math.max(Math.abs(input.forward), Math.abs(input.right)));
       combat.flushMuzzles();
@@ -2523,7 +2527,7 @@ async function start() {
     call(op, dt) {
       switch (op) {
         case 'jump': case 'crouch': case 'prone': case 'use': return worldControls.take(op);
-        case 'tick': soldier.tick(input, dt); break;
+        case 'tick': tickPlayerBody(dt); break;
         case 'impacts': takeImpacts(playerUnit); break;
         case 'deathRegion': return inDeathRegion(soldier.position);
         case 'kill': combat.damage(Infinity); break;
@@ -2536,6 +2540,11 @@ async function start() {
       }
     },
   };
+
+  function tickPlayerBody(dt) {
+    if (unitsSim) unitsSim.bodyTick(playerUnit, input, dt);
+    else soldier.tick(input, dt);
+  }
 
   function stepPlayer(dt) {
     if (game.worldSim) return game.worldSim.player(localWorldHost, dt);
@@ -2555,7 +2564,7 @@ async function start() {
     // gone) there is nothing to move.
     // Held by a creature (src/props.js), he goes where it takes him.
     if (playerUnit.removed || playerUnit.held) return;
-    soldier.tick(input, dt);
+    tickPlayerBody(dt);
     // Landing too hard hurts him as it does a bot (src/collision-damage.js).
     takeImpacts(playerUnit);
     // A death region kills him, as it does a bot; his body lies where it
