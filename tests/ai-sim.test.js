@@ -107,6 +107,58 @@ test('native scheduler preserves callback order, reentry and changing controller
   }
 });
 
+test('native scheduler inputs preserve carry, callback writes and both navigation fallbacks', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const ai={world:{nav:{}},controllers:[],history:[],kind:0};
+    ai.identity=u=>{if(ai.kind%41===0)ai.controllers[0].inputCarry=.2;return u.id;};
+    ai.lodDisabled=()=>ai.kind%11!==0;
+    ai.cameras=()=>[{matrixWorld:{elements:[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]}}];
+    ai.combat={
+      markSkip(c,on){ai.history.push(['skip',on,c.inputCarry]);if(ai.kind%43===0)c.inputCarry=.125;},
+      consumeFire(c,u,dt,intent){
+        ai.history.push(['fire',dt]);intent.buttons=[dt,-dt];
+        if(ai.kind%7===0)c.exitRequest=true;
+        if(ai.kind%23===0)u.intent={replaced:true};
+      },
+      aimPoint(c,_u,dt,out){ai.history.push(['aim',dt]);if(ai.kind%13===0)c.dodge=-1;return ai.kind%4===0?null:out.copy(c.aimPoint);},
+    };
+    ai.world.nav.control=c=>{ai.history.push(['control']);return ai.kind%3===0?{stance:c.stance}:null;};
+    ai.scheduler=native?sim.scheduler(ai):new ClassicScheduler(ai);
+    return ai;
+  }
+  const j=fixture(false),n=fixture(true);
+  function setup(ai,i) {
+    ai.kind=i;ai.history.length=0;
+    const soldier=i%9===0?null:{aimYaw:i*.07,aimPitch:i*.001,maxSpeed:i%7===0?0:3.3,maxStrafe:i%4===0?0:2.5,
+      maxTurn:i%13===0?0:2.7,posture:['stand','crouch','prone',''][i%4],mode:i%2?12:7,rolled:i%3?false:undefined};
+    const intent={buttons:[1,-1],forward:.7,right:-0,turn:.5,pitch:.25,jump:i%31===0,crouch:i%37===0,prone:false,use:false,exit:false};
+    const unit={id:i%19,kind:[0,1,3,5,6,7][i%6],position:new Vector3(i%13,0,i%2?70:-70),velocity:new Vector3(i%17===0?10:0,0,0),
+      soldier,classDef:{MaxPitchSpeed:i%5===0?0:.7},intent};
+    const c={unit,live:true,inputSkip:i%7===0,inputCarry:i%5/60,exitRequest:i%19===0,facing:i%2===0,
+      request:{valid:i%4!==0,steeringTarget:new Vector3(i%3?13:unit.position.x,0,14)},aimPoint:new Vector3(19,i%11,25),
+      stance:i%3,wantedMode:i%3,dodge:[-1,0,1,undefined,NaN][i%5],jet:{pending:i%6===0,vector:new Vector3(i%12?2:0,0,0)}};
+    ai.controllers=[c];ai.scheduler.inputParity=i%2;
+    ai.navigationInput=i%3===0?(control,u,target,dt,aim,options)=>{
+      assert.equal(u,unit);assert.equal(target,intent);ai.history.push(['nav',dt,aim?.toArray()??null,options.facing]);
+      target.forward=.3;target.right=-.2;target.turn=dt;target.pitch=-dt;c.jet.pending=false;
+    }:null;
+    ai.analogs=i%3===1?(u,request,aim,dt,out,options)=>{
+      assert.equal(u,unit);assert.equal(request,c.request);ai.history.push(['analogs',dt,aim?.toArray()??null,options.facing]);
+      out.forward=dt;out.right=-dt;out.turn=.4;out.pitch=-.3;
+    }:null;
+    return {c,unit,intent};
+  }
+  const snapshot=({c,unit,intent},s)=>({inputSkip:c.inputSkip,inputCarry:c.inputCarry,exitRequest:c.exitRequest,dodge:c.dodge,
+    jetPending:c.jet.pending,jet:c.jet.vector.toArray(),jetAlias:intent.jetDirection===c.jet.vector,intent,unitIntent:unit.intent,analogs:{...s.analogOut}});
+  for(let i=0;i<1536;i++) {
+    const a=setup(j,i),b=setup(n,i),dt=i%17===0?0:1/60;
+    assert.equal(n.scheduler.executeInput(b.c,dt),j.scheduler.executeInput(a.c,dt),`return ${i}`);
+    assert.deepEqual(n.history,j.history,`callbacks ${i}`);
+    assert.deepEqual(snapshot(b,n.scheduler),snapshot(a,j.scheduler),`input ${i}`);
+  }
+});
+
 test('native AI geometry and hints match the source with exact query outputs', async () => {
   const { js, native } = await pair();
   const random = new ClassicRandom(761);

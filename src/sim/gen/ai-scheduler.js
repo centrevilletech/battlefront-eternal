@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiScheduleOp_NAMES = ["config","notify","humans","broadcast","controllers","controller","processed","rebuild","lodSkip","service","plannerIdle","navService","losService","phase","dropLos","scan","clearCandidate","lodDisabled","identity","velocity","cameras","position","writeLod","inputAt","executeInput","budgets","visible"];
+export const AiScheduleOp_NAMES = ["config","notify","humans","broadcast","controllers","controller","processed","rebuild","lodSkip","service","plannerIdle","navService","losService","phase","dropLos","scan","clearCandidate","lodDisabled","identity","velocity","cameras","position","writeLod","inputAt","executeInput","budgets","visible","inputState","inputCarry","writeInput","markSkip","intent","consume","exitPending","exit","aim","navControl","navInput","posture","jet","applyJet","analogs","fallback","applyFallback","kind","droideka","dodge","applyDodge","postureInfo","crouch","prone","droidekaInfo","use"];
 export const AiScheduleOp_INDEX = new Map(AiScheduleOp_NAMES.map((name, i) => [name, i]));
 
 export class AiScheduleArgsMirror {
