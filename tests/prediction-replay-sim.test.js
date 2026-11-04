@@ -51,6 +51,15 @@ test('callback mutation retains the old endpoint and switches once at the live c
     assert.equal(ops.filter(e => e.op === 0).length, 1); assert.equal(ops.filter(e => e.op === 1).length, 1);
     assert.equal(ops.filter(e => e.op === 2).length, 1, 'the first callback commits before the one-way handoff');
     assert.deepEqual(late.events.filter(e => Array.isArray(e) && e[0] === 'apply').map(e => e[1]), [1, 2, 3, 4, 5, 6, 7]);
+    const descriptorAt = traces.length, descriptor = twin(scenario('mutation:descriptor-value'), native);
+    assert.deepEqual(descriptor.events, late.events);
+    assert.equal(numeric(traces.slice(descriptorAt)).filter(e => e.op === 1).length, 1);
+    for (const name of ['mutation:set-delete', 'mutation:set-delete-and-throw']) {
+      const start = traces.length, result = twin(scenario(name), native);
+      assert.ok(!result.events.includes('unexpected-private-delete'));
+      assert.equal(traces.slice(start).filter(e => e.op === 'drop').length, 1);
+      assert.equal(result.thrown, name.endsWith('and-throw'));
+    }
     const beyond = twin(scenario('mutation:append-beyond'), native);
     assert.equal(beyond.returned, 7); assert.equal(beyond.frames.length, 7);
     const aliases = twin(scenario('mutation:held-samples-and-view-object-aliases'), native);
@@ -110,7 +119,9 @@ test('opaque values preserve signed zero and NaN payload bits through each arena
       const pattern = BigInt(`0x${c.name.split('-').at(-1)}`), bytes = Buffer.alloc(8); bytes.writeBigUInt64LE(pattern);
       assert.equal(entry(result.frames[0], 'down').bits, bytes.toString('hex'), c.name);
       for (const key of ['mouseScale', 'aspect', 'gamepad', 'flightSettings']) assert.equal(entry(result.frames[0], key).bits, bytes.toString('hex'), `${c.name} ${key}`);
-      assert.equal(frames, c.name.startsWith('opaque:typed-') ? 1 : result.frames.length);
+      const nan = (pattern & 0x7ff0000000000000n) === 0x7ff0000000000000n && (pattern & 0xfffffffffffffn) !== 0n;
+      const originalElements = c.name.startsWith('opaque:typed-') || nan && !c.name.startsWith('opaque:bindings-');
+      assert.equal(frames, originalElements ? 1 : result.frames.length, 'array NaNs keep their original iterator/push boxing; opaque bindings still delegate');
     }
   } finally { native.dispose(); }
 });

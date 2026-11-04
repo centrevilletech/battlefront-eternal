@@ -17,7 +17,7 @@ export function replayFixture(native) {
     if (value === null || typeof value !== 'object') return value;
     const ref = f.id(value); if (seen.has(value)) return { ref }; seen.add(value);
     const entries = Object.entries(Object.getOwnPropertyDescriptors(value)).filter(([key]) => key !== 'length').map(([key, descriptor]) => [key,
-      'value' in descriptor ? f.snapshot(descriptor.value, seen) : { accessor: true }]);
+      Object.hasOwn(descriptor, 'value') ? f.snapshot(descriptor.value, seen) : { accessor: true }]);
     return { ref, type: Array.isArray(value) ? 'array' : 'object', entries };
   };
   f.frame = (tick, command, sequences) => ({ tick, keys: Object.keys(command), command: f.snapshot(command), sequences: f.snapshot(sequences) });
@@ -98,8 +98,11 @@ export function replayOrdinaryCases() {
 
 export function replayMutationCases() {
   const cases = [];
-  for (const mode of ['shift', 'unshift', 'replace', 'truncate', 'append-inside', 'append-beyond', 'wrong-life', 'reorder', 'late-accessor']) cases.push({ name: `mutation:${mode}`, native: true, build(native) {
+  for (const mode of ['shift', 'unshift', 'replace', 'truncate', 'append-inside', 'append-beyond', 'wrong-life', 'reorder', 'late-accessor', 'descriptor-value', 'set-delete', 'set-delete-and-throw']) cases.push({ name: `mutation:${mode}`, native: true, build(native) {
     const f = replayFixture(native); f.pending = [1, 3, 5, 7].map((tick, i) => f.command(tick, i + 1));
+    const inherited = Object.getOwnPropertyDescriptor(Object.prototype, 'value'), remove = Set.prototype.delete;
+    f.cleanup = () => { delete Object.prototype.value; if (inherited) Object.defineProperty(Object.prototype, 'value', inherited); Set.prototype.delete = remove; };
+    f.throwValue = f.tag(Symbol('after-delete-change'), 'after-delete-change');
     let viewReads = 0;
     Object.defineProperty(f.initialView, 'aspect', { get() { f.events.push(['initial-view', ++viewReads]); return 2; } });
     f.apply = (_tick, _command, _sequences, index) => {
@@ -113,6 +116,14 @@ export function replayMutationCases() {
       if (mode === 'wrong-life') f.pending[1].generation = 2;
       if (mode === 'reorder') [f.pending[1], f.pending[2]] = [f.pending[2], f.pending[1]];
       if (mode === 'late-accessor') Object.defineProperty(f.pending[1], 'tick', { get() { f.events.push('late-tick'); return 3; } });
+      if (mode === 'descriptor-value') {
+        Object.defineProperty(f.pending[1], 'tick', { get() { f.events.push('late-tick'); return 3; } });
+        Object.defineProperty(Object.prototype, 'value', { configurable: true, writable: true, value: 2 });
+      }
+      if (mode.startsWith('set-delete')) {
+        Set.prototype.delete = () => { f.events.push('unexpected-private-delete'); throw Error('private delete'); };
+        if (mode === 'set-delete-and-throw') throw f.throwValue;
+      }
     };
     f.final = () => ({ viewReads, pendingLength: f.pending.length }); return f;
   } });
@@ -150,7 +161,7 @@ export function replayMutationCases() {
 export function replayOpaqueCases() {
   const patterns = [0x8000000000000000n, 0n, 0x7ff0000000000001n, 0xfff0000000000123n, 0x7ff000000000ff00n, 0x7ff8000000000001n, 0xfff8000000000123n];
   const cases = [];
-  for (const pattern of patterns) for (const kind of ['packed', 'tagged', 'typed']) cases.push({ name: `opaque:${kind}-${pattern.toString(16)}`, build(native) {
+  for (const pattern of patterns) for (const kind of ['packed', 'tagged', 'typed', 'bindings']) cases.push({ name: `opaque:${kind}-${pattern.toString(16)}`, build(native) {
     const f = replayFixture(native), data = new DataView(new ArrayBuffer(8));
     const number = () => { data.setBigUint64(0, pattern, true); return data.getFloat64(0, true); };
     const elements = () => {
@@ -159,7 +170,8 @@ export function replayOpaqueCases() {
       return [number()];
     };
     f.held = number(); f.initialView = { mouseScale: number(), aspect: number(), gamepad: number(), flightSettings: number() };
-    const c = f.command(2, 1); c.sequence = number(); c.down = number(); c.actions = elements(); c.look = elements();
+    const c = f.command(2, 1); c.sequence = kind === 'bindings' ? 1 : number(); c.down = number();
+    c.actions = kind === 'bindings' ? [] : elements(); c.look = kind === 'bindings' ? [] : elements();
     c.mouseScale = number(); c.invertMouse = number(); c.firstPerson = number(); c.aspect = number(); c.viewTick = number(); c.gamepad = number(); c.flightSettings = number();
     f.pending = [c, f.command(4, 2, { down: number(), actions: [], look: [] })]; return f;
   } });
