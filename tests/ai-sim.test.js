@@ -1589,3 +1589,34 @@ test('native pattern transition policies preserve retry draws, reservations and 
   }
   for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`pattern transitions ${i}`);
 });
+
+test('native pattern actions preserve movement retries, captured helpers and transition order', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:i/5},ai={world};let h;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(7800).fill(7));};
+    const make=name=>{
+      const point={name},unit={kind:[0,2,6,'6'][i%4],classDef:{ForwardSpeed:[0,12.99,13,20][i%4]}};
+      const helper={arrived:i%3===0,flying:i%5===0,stop(){log('stop',name);},goto(p,o){log('goto',name,p,o);},follow:i%7===0?undefined:function(t,o){log('follow',name,t.position,o);}};
+      return {name,world,ai,controller:{unit},helper,stationary:false,
+        tracker:{point,freshTarget:i%11===0,target:i%13===0?null:{position:point},defaultDelay(t){log('default',name,t);if(i%17===0)h.agent=other;}},
+        nextLook(){log('next-look',name);}};
+    };
+    const a=make('first'),other=make('other');h=new AttackPatterns(a);
+    world.randomA={int(lo,hi){log('int',lo,hi);return i%19===0?'2':[1,2,3,4,5,6][i%6];}};
+    world.vehicles={sidestep(p){log('sidestep',p===h);if(i%23===0)h.agent=other;}};
+    world.nav={jetHints:{tick(c,hint,dt){log('hint-tick',c===h.controller,hint,dt);return [false,true,null,undefined,0,'yes'][i%6];}},
+      directClear(u,p){log('direct',u===h.controller.unit,p);if(i%29===0)h.agent=other;return i%2===0;}};
+    for(const [index,name] of ['tryCover','tryHintJet','tryDirectJet','tryLostTarget'].entries())h[name]=from=>{log(name,from);return i%31===index;};
+    h.face=p=>log('face',p);h.reposition=()=>log('reposition');h.flank=()=>log('flank');h.restore=()=>log('restore');
+    h.cover={done:[false,true,0,{},null][i%5],posture:i%3,update(dt,alternate){log('cover-update',dt,alternate);}};
+    h.paused=[false,true,'',{},0][i%5];h.pauseUntil=[0,Infinity,'100',NaN][i%4];
+    h.pathActive=[false,true,'yes',null][i%4];h.lastPath=[-100,'-100',Infinity,NaN][i%4];
+    h.jetStart=[-2,'0',Infinity,NaN][i%4];h.jetting=true;h.jetHint={jet:i};h.crouch='1';h.searched=[false,true,'yes',0][i%4];
+    const results=[];
+    for(const name of ['standing','pauseAndMove','melee','inCover','jetTick','hintJetTick','lostTarget'])results.push(h[name]({dt:i}));
+    h.redirect('3',i%3===0?'1':1);
+    return {history,results,values:[h.paused,h.pauseUntil,h.pathActive,h.lastPath,h.jetting,h.searched,h.toward,h.bandCheckAt],stationary:[a.stationary,other.stationary],agent:h.agent.name};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`pattern actions ${i}`);
+});

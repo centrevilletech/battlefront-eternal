@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiPatternOp_NAMES = ["field","initValue","request","flush","priorCapture","random","time","int","add","agent","state","stateValue","stop","roll","action","coverInit","jetEnter","delay","gotoTarget","vehicleEnter","stance","coverExit","jetExit","vehicleExit","vehicleTick","cleanup","range","rangeCompare","findCover","reserve","priorFrom","jetUnit","jetJump","jetBorder","jetFuel","jetReady","jetHints","hintFind","sampleTime"];
+export const AiPatternOp_NAMES = ["field","initValue","request","flush","priorCapture","random","time","int","add","agent","state","stateValue","stop","roll","action","coverInit","jetEnter","delay","gotoTarget","vehicleEnter","stance","coverExit","jetExit","vehicleExit","vehicleTick","cleanup","range","rangeCompare","findCover","reserve","priorFrom","jetUnit","jetJump","jetBorder","jetFuel","jetReady","jetHints","hintFind","sampleTime","transition","standingUnit","speed","sidestep","stationary","face","helper","arrived","stopHelper","reposition","redirect","flank","coverUpdate","coverDone","restore","fieldTruthy","plus","flying","hintTick","freshTarget","agentArrived","look","meleeStart","directClear","canFollow","follow","gotoMelee"];
 export const AiPatternOp_INDEX = new Map(AiPatternOp_NAMES.map((name, i) => [name, i]));
 
 export class AiPatternArgsMirror {

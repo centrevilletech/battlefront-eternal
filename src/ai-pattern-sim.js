@@ -1,3 +1,5 @@
+import { forwardSpeed } from './ai/classic/weapons-ai.js';
+
 const fields=['probability','coverRetry','prior','pathActive','crouch','paused','pauseUntil','toward','side',
   'bandCheckAt','stepAt','facing','stepped','lateralAt','lateralFacing','lastPath','retreatAt','coverHint',
   'jetting','jetRetry','jetStart','jetHint','hintJetRetry','searched','skipFire'];
@@ -50,6 +52,33 @@ export class NativePatterns {
       else if(op==='jetHints'){frame.jetHints=h.world.nav?.jetHints;result.flag=Boolean(frame.jetHints?.excluded?.(h.controller));}
       else if(op==='hintFind'){const hint=frame.jetHints?.find?.(h.controller)??null;h.jetHint=hint;result.flag=Boolean(hint);}
       else if(op==='sampleTime')result.number=h.agent.tracker.sampleTime;
+      else if(op==='transition')result.flag=Boolean(h[['tryCover','tryHintJet','tryDirectJet','tryLostTarget'][id]](number));
+      else if(op==='standingUnit'){frame.unit=h.controller.unit;result.flag=frame.unit.kind===6||frame.unit.kind===2;}
+      else if(op==='speed')result.number=forwardSpeed(frame.unit);
+      else if(op==='sidestep')h.world.vehicles?.sidestep?.(h);
+      else if(op==='stationary')h.agent.stationary=true;
+      else if(op==='face')h.face(id===1?h.crouch:id===2?h.cover.posture:0);
+      else if(op==='helper')frame.helper=h.agent.helper;
+      else if(op==='arrived')result.flag=Boolean(frame.helper?.arrived);
+      else if(op==='stopHelper')frame.helper?.stop?.();
+      else if(op==='reposition')h.reposition();
+      else if(op==='redirect'){if(id===0)h.toward=frame.value;else result.number=frame.probability+3;}
+      else if(op==='flank')h.flank();
+      else if(op==='coverUpdate')h.cover.update(frame.value,false);
+      else if(op==='coverDone')result.flag=Boolean(h.cover.done);
+      else if(op==='restore')h.restore();
+      else if(op==='fieldTruthy')result.flag=Boolean(h[fields[id]]);
+      else if(op==='plus')result.number=h[fields[id]]+number;
+      else if(op==='flying')result.flag=Boolean(h.agent.helper?.flying);
+      else if(op==='hintTick')result.flag=Boolean(h.world.nav?.jetHints?.tick?.(h.controller,h.jetHint,frame.value)??true);
+      else if(op==='freshTarget')result.flag=Boolean(a.tracker.freshTarget);
+      else if(op==='agentArrived')result.flag=Boolean(a.helper?.arrived);
+      else if(op==='look'){a.tracker.defaultDelay(Math.fround(h.world?.time??0));a.nextLook();}
+      else if(op==='meleeStart'){frame.unit=h.controller.unit;frame.target=h.agent.tracker.target;frame.helper=h.agent.helper;result.flag=Boolean(frame.target&&frame.helper);}
+      else if(op==='directClear')result.flag=Boolean(h.world.nav?.directClear?.(frame.unit,frame.target.position));
+      else if(op==='canFollow')result.flag=Boolean(frame.helper.follow);
+      else if(op==='follow')frame.helper.follow(frame.target,{mode:0,follow:1});
+      else if(op==='gotoMelee'){const helper=frame.helper,point=frame.target.position,options=id===1?{mode:'direct'}:undefined;helper?.goto?.(point,options);}
       else throw Error(`unknown pattern callback ${op}`);
       return result;
     }});
@@ -71,6 +100,6 @@ export class NativePatterns {
   }
   run(pattern,mode,value,probability,find,reserve) {
     this.bind(pattern);const frame={pattern,value,probability,find,reserve};this.frames.push(frame);
-    try {const flag=this.sim.x.ai_pattern_run(this.patterns.get(pattern),mode);return mode===4?frame.result:mode>=6?Boolean(flag):undefined;} finally {this.frames.pop();}
+    try {const flag=this.sim.x.ai_pattern_run(this.patterns.get(pattern),mode);return mode===4?frame.result:mode>=6&&mode<=10?Boolean(flag):undefined;} finally {this.frames.pop();}
   }
 }

@@ -16,6 +16,14 @@ fn int(current: bool,lo: f64,hi: f64) -> AiPatternResult {
 }
 fn sum(t: f64,draw: AiPatternResult) -> f64 {f(if draw.flag {t+draw.number} else {call(Op::Add,0,t).number})}
 fn deadline(t: f64,current: bool,lo: f64,hi: f64) -> f64 {sum(t,int(current,lo,hi))}
+fn truthy(id: u32,field: u32) -> bool {
+    match ai_pattern_kind(id,field) {0=>{let n=ai_pattern_field(id,field);n!=0.0 && !n.is_nan()},2=>false,3=>true,_=>call(Op::FieldTruthy,field,0.0).flag}
+}
+fn plus(id: u32,field: u32,n: f64) -> f64 {
+    if ai_pattern_kind(id,field)==0 {ai_pattern_field(id,field)+n} else {call(Op::Plus,field,n).number}
+}
+fn transition(kind: u32,from: f64) -> bool {call(Op::Transition,kind,from).flag}
+fn usual(from: f64,lost: bool) -> bool {transition(0,from)||transition(1,from)||transition(2,from)||(lost&&transition(3,from))}
 fn action(id: u32) {call(Op::Action,id,0.0);}
 
 #[no_mangle]
@@ -82,6 +90,59 @@ pub extern "C" fn ai_pattern_run(id: u32,mode: u32) -> u32 {
         let t=f(call(Op::Time,0,0.0).number);if !(read(id,19)<t) {return 0;}
         let draw=int(true,6.0,12.0);call(Op::PriorFrom,0,0.0);write(id,19,sum(t,draw));request(10.0);return 1;
     }
-    let t=f(call(Op::Time,0,0.0).number);if !(f(t-call(Op::SampleTime,0,0.0).number)>2.0) {return 0;}
-    call(Op::PriorFrom,0,0.0);request(12.0);1
+    if mode==10 {
+        let t=f(call(Op::Time,0,0.0).number);if !(f(t-call(Op::SampleTime,0,0.0).number)>2.0) {return 0;}
+        call(Op::PriorFrom,0,0.0);request(12.0);return 1;
+    }
+    if mode==11 {
+        if usual(2.0,false) {return 0;}
+        if call(Op::StandingUnit,0,0.0).flag && call(Op::Speed,0,0.0).number<13.0 {call(Op::Sidestep,0,0.0);}
+        call(Op::Stationary,0,0.0);call(Op::Face,1,0.0);return 0;
+    }
+    if mode==12 {
+        if usual(3.0,true) {return 0;}
+        let t=f(call(Op::Time,0,0.0).number);call(Op::Helper,0,0.0);
+        if !truthy(id,5) {
+            let arrived=call(Op::Arrived,0,0.0).flag;
+            let pause=if arrived {true} else {let draw=int(true,1.0,6.0);draw.flag && draw.number==2.0};
+            if pause {flag(id,5,true);write(id,6,f(t+f(1.9)));}
+            call(Op::Face,0,0.0);return 0;
+        }
+        if t<=read(id,6) {call(Op::StopHelper,0,0.0);call(Op::Face,0,0.0);return 0;}
+        flag(id,5,false);call(Op::Reposition,0,0.0);call(Op::Face,0,0.0);return 0;
+    }
+    if mode==13 {
+        call(Op::Redirect,0,0.0);let deadline=f(call(Op::Redirect,1,0.0).number);write(id,9,deadline);
+        call(Op::Flank,0,0.0);call(Op::Face,0,0.0);return 0;
+    }
+    if mode==14 {
+        call(Op::CoverUpdate,0,0.0);
+        if !call(Op::CoverDone,0,0.0).flag {call(Op::Face,2,0.0);} else {call(Op::Restore,0,0.0);}
+        return 0;
+    }
+    if mode==15 {
+        let after=f(plus(id,20,1.0));let t=f(call(Op::Time,0,0.0).number);
+        if after<t && !call(Op::Flying,0,0.0).flag {flag(id,18,false);call(Op::Restore,0,0.0);}
+        return 0;
+    }
+    if mode==16 {if call(Op::HintTick,0,0.0).flag {call(Op::Restore,0,0.0);}return 0;}
+    if mode==17 {
+        call(Op::Agent,0,0.0);
+        if call(Op::FreshTarget,0,0.0).flag {call(Op::Restore,0,0.0);return 0;}
+        if call(Op::AgentArrived,0,0.0).flag && !truthy(id,23) {flag(id,23,true);call(Op::Look,0,0.0);return 0;}
+        call(Op::Face,0,0.0);return 0;
+    }
+    if transition(3,6.0)||transition(2,6.0)||transition(1,6.0) {return 0;}
+    let t=f(call(Op::Time,0,0.0).number);
+    if call(Op::MeleeStart,0,0.0).flag {
+        if call(Op::DirectClear,0,0.0).flag {
+            if call(Op::CanFollow,0,0.0).flag {call(Op::Follow,0,0.0);} else {call(Op::GotoMelee,1,0.0);}
+            flag(id,3,false);
+        } else {
+            let mut wait=false;
+            if truthy(id,3) {if call(Op::Arrived,0,0.0).flag {flag(id,3,false);} else {wait=true;}}
+            if !wait && f(plus(id,15,2.0))<t {flag(id,3,true);write(id,15,t);call(Op::GotoMelee,0,0.0);}
+        }
+    }
+    call(Op::Face,0,0.0);0
 }

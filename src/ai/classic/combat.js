@@ -783,6 +783,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 2: stand and shoot --------------------------------------------
 
   standing() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,11,undefined,undefined,findCover,reserveHint);
     if (this.tryCover(2) || this.tryHintJet(2) || this.tryDirectJet(2)) return;
     const unit = this.controller.unit;
     // A slow walker or hover sidesteps now and then.
@@ -794,6 +795,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 3: pause, then move near optimal range ---------------------------
 
   pauseAndMove() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,12,undefined,undefined,findCover,reserveHint);
     if (this.tryCover(3) || this.tryHintJet(3) || this.tryDirectJet(3) || this.tryLostTarget(3)) return;
     const t = now(this.world);
     const helper = this.agent.helper;
@@ -872,6 +874,7 @@ export class AttackPatterns extends Fsm {
   }
 
   redirect(toward, t) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,13,toward,t,findCover,reserveHint);
     this.toward = toward;
     this.bandCheckAt = f(t + 3);
     this.flank();
@@ -962,6 +965,7 @@ export class AttackPatterns extends Fsm {
   // Follow the target while the way to it is clear; otherwise keep
   // an unfinished path, or ask for a new one every 2 s.
   melee() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,18,undefined,undefined,findCover,reserveHint);
     if (this.tryLostTarget(6) || this.tryDirectJet(6) || this.tryHintJet(6)) return;
     const t = now(this.world);
     const unit = this.controller.unit;
@@ -1009,6 +1013,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 9: cover ---------------------------------------------------------------
 
   inCover(dt) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,14,dt,undefined,findCover,reserveHint);
     this.cover.update(dt, false);
     if (!this.cover.done) {
       this.face(this.cover.posture);
@@ -1048,6 +1053,7 @@ export class AttackPatterns extends Fsm {
   }
 
   jetTick() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,15,undefined,undefined,findCover,reserveHint);
     if (f(this.jetStart + 1) < now(this.world) && !this.agent.helper?.flying) {
       this.jetting = false;
       this.restore();
@@ -1055,6 +1061,7 @@ export class AttackPatterns extends Fsm {
   }
 
   hintJetTick(dt) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,16,dt,undefined,findCover,reserveHint);
     const done = this.world.nav?.jetHints?.tick?.(this.controller, this.jetHint, dt) ?? true;
     if (done) this.restore();
   }
@@ -1062,6 +1069,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 12: lost target ------------------------------------------------------------
 
   lostTarget() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,17,undefined,undefined,findCover,reserveHint);
     const a = this.agent;
     if (a.tracker.freshTarget) {
       this.restore();

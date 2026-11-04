@@ -4,7 +4,10 @@ export default {
     'int', 'add', 'agent', 'state', 'stateValue', 'stop', 'roll', 'action', 'coverInit',
     'jetEnter', 'delay', 'gotoTarget', 'vehicleEnter', 'stance', 'coverExit', 'jetExit',
     'vehicleExit', 'vehicleTick', 'cleanup', 'range', 'rangeCompare', 'findCover', 'reserve', 'priorFrom',
-    'jetUnit', 'jetJump', 'jetBorder', 'jetFuel', 'jetReady', 'jetHints', 'hintFind', 'sampleTime'] },
+    'jetUnit', 'jetJump', 'jetBorder', 'jetFuel', 'jetReady', 'jetHints', 'hintFind', 'sampleTime', 'transition', 'standingUnit', 'speed', 'sidestep',
+    'stationary', 'face', 'helper', 'arrived', 'stopHelper', 'reposition', 'redirect', 'flank',
+    'coverUpdate', 'coverDone', 'restore', 'fieldTruthy', 'plus', 'flying', 'hintTick', 'freshTarget',
+    'agentArrived', 'look', 'meleeStart', 'directClear', 'canFollow', 'follow', 'gotoMelee'] },
   records: {
     AiPatternArgs: { op: 'enum:AiPatternOp', id: 'u32', number: 'f64', other: 'f64' },
     AiPatternResult: { flag: 'bool', number: 'f64', other: 'f64' },
