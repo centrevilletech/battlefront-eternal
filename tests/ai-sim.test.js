@@ -12,8 +12,8 @@ import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse,
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
 import { Agent } from '../src/ai/classic/agents.js';
-import { AttackPatterns, CoverHelper, coverReservation, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
-import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
+import { AttackPatterns, UnitCombatAgent, CoverHelper, boardingClear, inForwardCone, coverReservation, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
+import { FireControl, clusterState, consumeFire, effectiveRange, expandedRange, forwardSpeed, lowerBand, maxExpandedRange, sensorRange, upperBand, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -1690,4 +1690,168 @@ test('native direct jets preserve bounded retries, captured streams and mutable 
     return {history,jet:[h.jetStart,h.jetting],position:unit.position.toArray(),rng:[rng.state,randomA.state],queries,draws};
   }
   for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`direct jet ${i}`);
+});
+
+test('native combat-agent initialization retains raw state, vector identities and exit ordering', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},ai={world},controller={ai,world,unit:{id:1}};
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8200).fill(8));};
+    const target={id:2,alive:i%3!==0,generation:i%5},tracker={assign(t){log('assign',t?.id??null);}};
+    const helper={terminate(){log('terminate-helper');agent.helper=null;}};
+    ai.createHelper=()=>helper;ai.combat={initAgent(a){a.tracker=tracker;}};
+    const goal={mode:[0,1,2,3,'1',null,NaN][i%7],refA:{unit:target,generation:i%5+(i%4===0?1:0)},point:new Vector3(i,-0,i%3===0?'2':3)};
+    const agent=new UnitCombatAgent(controller,goal),start=[agent.state,agent.pending,agent.point.toArray(),agent.hazard.toArray()];
+    agent.alignAt='1';agent.looks=NaN;agent.aligned={value:i};agent.stationary=false;
+    const old=agent.point;agent.point=new Vector3(4,5,6);const current=agent.point;
+    old.x='old';current.x=-0;current.y=i%5===0?null:'7';agent.hazard.z={value:i};
+    assert.equal(agent.point,current);assert.notEqual(agent.point,old);
+    agent.patterns={cleanup(){log('patterns-cleanup');agent.hazard.x=11;},onExit(){log('patterns-exit');agent.state='4';}};
+    agent.state=i%2===0?4:'4';agent.onExit();agent.terminate=()=>log('terminate-agent');agent.exit();
+    return {history,start,old:old.toArray(),point:agent.point.toArray(),hazard:agent.hazard.toArray(),fields:[agent.alignAt,agent.looks,agent.aligned,agent.stationary,agent.state,agent.pending],wantedMode:controller.wantedMode,keys:Object.keys(agent),vectorKeys:Object.keys(agent.point)};
+  }
+  for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`combat agent fields ${i}`);
+});
+
+test('native combat-agent policies preserve mount callbacks, source gates and shield publications', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:5},ai={world};let agent,mounts=0;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8300).fill(9));};
+    const make=(name,kind)=>{const c={ai,world},u=c.unit={name,kind,position:new Vector3(),classDef:{ForwardSpeed:[0,10,20][i%3]},
+      soldier:{shield:i%17===0?null:{on:i%7===0,max:[1,'2',NaN,4][i%4],value:[.5,.75,2,3][i%4]}},forward(out){log('forward',name);out.set(0,0,1);}};
+      let fireA,fireB;Object.defineProperties(c,{fireA:{get:()=>fireA,set(v){log('fireA',name,v);fireA=v;if(i%19===0)agent.controller=other;}},fireB:{get:()=>fireB,set(v){log('fireB',name,v);fireB=v;}}});return c;};
+    const controller=make('first',[0,1,2,3,5,6,'5'][i%7]),other=make('other',0);
+    const tracker={target:i%11===0?null:{id:8},point:new Vector3(0,0,30)};
+    ai.createHelper=()=>null;ai.combat={initAgent(a){a.tracker=tracker;}};
+    ai.vehicles={mountReach:function(unit,p){mounts++;log('reach',unit.name,p.toArray(),this===undefined);if(i%5===0)agent.state=3;if(i%13===0)agent.controller=other;return i%2;}};
+    if(i%23===0)ai.vehicles.mountReach=null;
+    agent=new UnitCombatAgent(controller,null);agent.state=[2,3,4,5,'4',null][i%6];
+    agent.canEngage=s=>{log('engage',s.id);return i%2===0?{accepted:i}:null;};agent.boardPolicy=c=>{log('board-policy',c.id);return i%3===0?'yes':false;};
+    const point=new Vector3(i%3,0,i%2===0?-5:5),source={id:3,get position(){log('source-point');return point;}},candidate={id:4,position:new Vector3(1,0,2)};
+    world.units={query(p,r,out,filter){log('board-query',p.toArray(),r,filter(candidate),filter(agent.controller.unit));out.length=0;}};
+    const results=[agent.acceptsHazard(),agent.acceptsAlert(i%3===0?{}:false,point),agent.acceptsAcoustic(i%29===0?null:source),agent.acceptsBoard(candidate),agent.mountUnreachable(point),agent.raiseShield(controller.unit)];
+    return {history,results,flags:[controller.fireA,controller.fireB,other.fireA,other.fireB],state:agent.state,controller:agent.controller===controller?'first':'other',mounts};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`combat agent policies ${i}`);
+});
+
+test('native combat-agent phases preserve tracker replacement, shared dispatch and tail ordering', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:i/7,difficulty:{enemySkill:14}},otherWorld={...world,time:999},ai={world};let a;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8400).fill(3));};
+    const c={ai,world,roll:i%6,rangeScale:1},other={ai,world};
+    const unit=c.unit={id:1,kind:[0,1,2,3,5,6,'0'][i%7],alive:i%47!==0,position:new Vector3(i%4,0,0),classDef:{UnitType:'trooper',MaxSpeed:3},
+      origin(p){log('origin');p.copy(unit.position);},forward(p){p.set(0,0,1);}};other.unit=unit;unit.controller=c;
+    const target={id:2,kind:0,alive:true,generation:0,position:new Vector3(0,0,20),velocity:new Vector3(),category:0,sphere:{radius:1},maxHealth:100,aimPoint(p){log('target-aim');p.copy(target.position);}};
+    const weapon={id:0,channel:0,clip:12,reserve:30,rounds:1,def:{base:'rifle',ammo:30,ordnance:{base:'bolt',Damage:20},ai:{minRange:0,optimalRange:20,maxRange:50,extremeRange:80,implicitRange:false,categoryMask:0xffffffff}}};
+    unit.combat={arsenal:{weapons:[weapon],current(ch){log('current',ch);if(i%17===0)unit.position=new Vector3(50,0,3);return weapon;},select(w){log('select-weapon',w.id);return true;}}};
+    c.perception=new Perception(c);if(native)sim.bindPerception(c.perception);other.perception=c.perception;
+    const control=(c,name)=>{c.lookAt=p=>{log('look',name,p.toArray());if(i%19===0)a.point=new Vector3(1,2,3);};c.setStance=n=>{log('stance',name,n);if(i%23===0)a.controller=other;};
+      c.lookAlongPath=()=>log('along',name);c.requestFacing=()=>log('facing',name);};control(c,'first');control(other,'other');
+    const helper={flying:i%3===0,stop(){log('stop');},tick(dt){log('helper-tick',dt);if(i%13===0)a.tracker=tracker2;}};
+    const tracker=name=>({target:i%11===0?null:target,point:new Vector3(0,0,i%29===0?1000:20),
+      select(w){log('track-select',name,w===world);if(i%7===0)a.tracker=tracker2;if(i%31===0)a.world=otherWorld;return i%5===0?'changed':false;},
+      assignWeaponTarget(w){log('assign-weapon',name,w===world);},fireControls(w){log('fire',name,w===world);}});
+    const tracker1=tracker('first'),tracker2=tracker('second');ai.createHelper=()=>helper;ai.combat={initAgent(agent){agent.tracker=tracker1;}};
+    world.vehicles={dispatch(control,u,t,sw,w,out){log('dispatch',control===c,u===unit,t===target,sw,w===world);out.pattern=[0,2,3,'2'][i%4];out.probability=.5;return out;}};
+    a=new UnitCombatAgent(c,null);a.point.set(i%5,0,4);a.hazard.set(3,0,1);
+    a.requestState=n=>{log('request',n);a.pending=n;};a.nextLook=()=>{log('next-look');a.looks+=1;};a.evade=t=>log('evade',t);a.alignedTo=p=>{log('aligned',p===a.point);return i%3!==0;};
+    a.raiseShield=u=>{log('raise-shield',u===unit);return i%2===0;};
+    a.patterns={state:[2,11,'11'][i%3],skipFire:i%7===0?'skip':false,init(p,prob){log('pattern-init',p,prob);},
+      update(dt,alternate){log('pattern-update',dt,alternate);if(i%23===0)unit.kind=3;},onExit(){log('pattern-exit');}};
+    a.interrupts={tick(){log('interrupt');return i%37===0;}};
+    const state=[1,2,3,4,5,6,100,'4'][i%8];a.state=state;a.onEnter();const entered=[a.pending,a.pattern,a.point.toArray(),a.aligned,a.proneUntil];
+    a.controller=c;a.world=world;a.state=state;a.aligned=i%2===0?'yes':false;a.alignAt=[-1,Infinity,'0',NaN][i%4];a.looks=[0,1,'2',3][i%4];
+    a.hazardUntil=a.proneUntil=[-1,'0',Infinity,NaN][i%4];a.pattern=[0,2,3,'2'][i%4];a.stationary=true;
+    a.behave({step:i});
+    return {history,entered,values:[a.state,a.pending,a.alignAt,a.aligned,a.looks,a.pattern,a.stationary,a.hazardUntil,a.proneUntil],point:a.point.toArray(),mode:c.wantedMode,alert:c.alertAnim};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`combat agent phase ${i}`);
+});
+
+test('native combat geometry preserves shared direction writes, retained vectors and raw look counters', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],held=[],world={aiSim:native?sim:null,time:i/11},ai={world},rng=new ClassicRandom(227+i),next=new ClassicRandom(781+i);let agent,nested=false;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8500).fill(4));};
+    const stream=(r,name)=>({range(lo,hi){log('range',name,lo,hi);ai.randomA=otherRandom;const n=r.range(lo,hi);return i%17===0?String(n):n;},
+      int(lo,hi){log('int',name,lo,hi);const n=r.int(lo,hi);return i%19===0?String(n):n;}});
+    const original=stream(rng,'first'),otherRandom=stream(next,'other');ai.randomA=original;world.randomA=otherRandom;
+    const controller={ai,world},unit=controller.unit={kind:0,position:new Vector3(i%5,-0,i%3),controller,
+      origin(out){out.copy(unit.position);log('origin',out.toArray());held.push(out);if(i%11===0 && !nested)inner();},
+      forward(out){out.set([1,.25,-1,0][i%4],-0,[0,1,-.25,-1][i%4]);log('forward',out.toArray());held.push(out);if(i%7===0 && !nested)inner();}};
+    const aux={kind:0,position:new Vector3(),controller,forward(out){out.set(1,0,0);}};
+    function inner(){nested=true;log('nested',inForwardCone(aux,new Vector3(5,0,1)));nested=false;}
+    controller.lookAt=p=>{log('look',p===agent.point,p.toArray());if(i%5===0)agent.looks='1';if(i%13===0)agent.point=new Vector3(1,2,3);};
+    controller.setStance=n=>log('stance',n);controller.lookAlongPath=()=>log('along');
+    const helper={goto(p,o){log('goto',p.toArray(),o);held.push(p);},stop(){log('stop');}};
+    const target={aimPoint(out){out.set(0,0,20);log('aim');if(i%23===0)unit.position=new Vector3(3,0,1);}};
+    ai.createHelper=()=>helper;ai.combat={initAgent(a){a.tracker={freshTarget:i%29===0?null:target};}};
+    agent=new UnitCombatAgent(controller,null);agent.hazard.set(i%7-3,0,i%3*4);agent.looks=[0,'0',1,false][i%4];agent.lookAngle=.125;
+    const limit=i%31===0?{valueOf(){log('limit-coercion');return .5;}}:.5;
+    const results=[agent.facingTarget(limit),agent.alignedTo(new Vector3(i%3,0,10)),inForwardCone(unit,new Vector3(i%3,0,-4))];
+    agent.nextLook();agent.nextLook();agent.evade(i%3===0?'1':i/7);
+    return {history,results,point:agent.point.toArray(),fields:[agent.looks,agent.lookAngle,agent.hazardUntil,controller.dodge],held:held.map(p=>p.toArray()),rng:[rng.state,next.state]};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`combat geometry ${i}`);
+});
+
+test('native boarding scans retain the shared query list, eligibility gates and thirty-unit cap', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},unit={team:0},candidate={position:new Vector3(1,2,3)},innerCandidate={position:new Vector3()};let shared,nested=false;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8600).fill(2));};
+    const targets=Array.from({length:36},(_,id)=>({id,team:id,alive:i%5!==0||id%3!==0,targetable:i%7!==0||id%5!==0,
+      combat:{get maxHealth(){log('health',id);if(i%19===0 && id===0)shared.length=0;return i%11===0?3.4028234663852886e38:100;}}}));
+    const innerWorld={aiSim:native?sim:null,units:{query(p,r,out){log('inner-query',r);out.length=0;out.push({alive:false});},relation(){return 0;}}};
+    world.units={query(p,r,out,filter){log('query',p===candidate.position,r,filter(candidate),filter(unit));shared=out;out.length=0;out.push(...targets);},
+      relation(a,b){log('relation',a,b);if(i%13===0&&!nested){nested=true;log('inner-result',boardingClear(innerWorld,unit,innerCandidate));}return b===[0,29,30,34][i%4]?-1:0;}};
+    if(i%23===0)world.units=null;if(i%29===0)candidate.position=null;
+    const result=boardingClear(world,unit,candidate);
+    return {history,result,length:shared?.length};
+  }
+  for(let i=0;i<512;i++)assert.deepEqual(run(true,i),run(false,i),`boarding scan ${i}`);
+});
+
+test('native range policies preserve metadata reads, raw return values and mutable inventory levels', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},c={ai:{world},perception:{fire:{channel:0}}};let maxReads=0,optReads=0,extremeReads=0,defReads=0,appended=false,inInventory=false,scale=1;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8700).fill(6));};
+    const def={base:'rifle',ai:{minRange:1,optimalRange:20,maxRange:40,extremeRange:60}},alt={base:'rifle',ai:{minRange:0,optimalRange:10,maxRange:30,extremeRange:50}};
+    const meta=weaponAI(def);weaponAI(alt);
+    const maximum={valueOf(){log('max-coercion');return 25;}},extreme={valueOf(){log('extreme-coercion');return 15;}};
+    Object.defineProperties(meta,{maxRange:{get(){log('max',++maxReads);return [40,'30',maximum,NaN][i%4];}},
+      implicitRange:{get(){log('implicit');return i%3===0;}},minRange:{get(){log('minimum');return [1,'2',NaN,-0][i%4];}},
+      optimalRange:{get(){log('optimal',++optReads);return [20,'10',NaN,5][(i+optReads)%4];}},
+      extremeRange:{get(){log('extreme',++extremeReads);return [60,'10',extreme,NaN][i%4];}}});
+    const levels=[def,alt],weapon={levels,get def(){log('def',++defReads);return i%23===0&&defReads%2===0?alt:def;}};
+    const unit=c.unit={controller:c,kind:[0,2,3,'0'][i%4],combat:{arsenal:{weapons:[weapon,{def:alt}],current(ch){log('current',ch);return i%29===0?null:weapon;}}},
+      get classDef(){log('class');return {get ForwardSpeed(){log('speed');if(i%17===0)scale=2;return i%5===0?'3':2;}};}};
+    Object.defineProperty(c,'rangeScale',{get(){log('scale');return i%7===0?{valueOf(){log('scale-coercion');if(inInventory&&!appended){levels.push(alt);appended=true;}return scale;}}:scale;}});
+    const value=v=>v===maximum?'max-object':v===extreme?'extreme-object':v;
+    const results=[forwardSpeed(unit),effectiveRange(unit,c,def),expandedRange(unit,c,def)];
+    inInventory=true;results.push(maxExpandedRange(unit,c));inInventory=false;
+    results.push(sensorRange(unit,c),lowerBand(unit,c),upperBand(unit,c,i%11===0?'35':50));
+    for(let n=0;n<results.length;n++)results[n]=value(results[n]);
+    return {history,results,counts:[maxReads,optReads,extremeReads,defReads],levels:levels.length};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`range policy ${i}`);
+});
+
+test('native range inventory traversal closes nested iterators when a range callback throws', async () => {
+  const {sim}=await pair();
+  function run(native) {
+    const history=[],world={aiSim:native?sim:null},c={ai:{world}},def={base:'rifle',ai:{maxRange:40,extremeRange:80}};let calls=0;
+    const iterable=(name,items)=>({[Symbol.iterator](){history.push([name,'iterator']);let index=0;return {next(){history.push([name,'next',index]);return index<items.length?{value:items[index++],done:false}:{done:true};},return(){history.push([name,'return']);return {done:true};}};}});
+    const weapon={levels:iterable('levels',[def,def])},unit=c.unit={controller:c,kind:0,combat:{arsenal:{weapons:iterable('weapons',[weapon])}}};
+    Object.defineProperty(c,'rangeScale',{get(){history.push(['scale',++calls]);if(calls===2)throw Error('range callback failed');return 1;}});
+    let error;try{maxExpandedRange(unit,c);}catch(e){error=e.message;}
+    assert.equal(error,'range callback failed');
+    assert.deepEqual(history.slice(-2),[['levels','return'],['weapons','return']]);
+    return {history,error};
+  }
+  assert.deepEqual(run(true),run(false));
 });
