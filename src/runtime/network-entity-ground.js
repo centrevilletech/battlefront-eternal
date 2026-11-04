@@ -7,7 +7,8 @@ const numbers = ['health','team','yaw','tilt','roll','yawRate','forwardInput','r
 const seatFields = ['aimYaw','pitch','lookYaw','lookPitch','yawRate','lastYaw'];
 export const groundCorrectionBytes = numbers.length*8 + 24*2 + 32 + 2 + seatFields.length*9;
 function prerequisite(v) { if(v.flying||!v.seats?.[0]||!v.position?.isVector3||!v.velocity?.isVector3||!v.quaternion?.isQuaternion)throw Error('unsupported ground correction'); }
-export function captureGroundCorrection(v) {
+export function captureGroundCorrection(v, native = null) {
+ if (native) return native.ground(v);
  prerequisite(v); const bytes=new Uint8Array(groundCorrectionBytes),view=new DataView(bytes.buffer);let at=0;
  const number=n=>{if(!Number.isFinite(n))throw Error('nonfinite ground correction');view.setFloat64(at,n,true);at+=8;};
  for(const key of numbers)number(v[key]);

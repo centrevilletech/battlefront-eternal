@@ -7,11 +7,11 @@ const vectors = ['position', 'velocity', 'normal'];
 if (vectors.join() !== 'position,velocity,normal') throw Error('Soldier vectors changed: update captureCompactSoldier');
 const postures = ['stand', 'crouch', 'prone'];
 const airs = [null, 'jump', 'fall', 'thrown', 'jet'];
-export function captureCompactSoldier(s) { return capture(s, null); }
+export function captureCompactSoldier(s, native = null) { return native ? native.soldier(s) : capture(s, null); }
 // The same correction written into `into` ({bytes, view} over at least 149
 // bytes) and returned as a view of it, valid until the next capture into
 // it: a checkpoint copies the correction straight into its own payload.
-export function captureCompactSoldierInto(s, into) { return capture(s, into); }
+export function captureCompactSoldierInto(s, into, native = null) { return native ? native.soldier(s, into) : capture(s, into); }
 function capture(s, into) {
   if (s.contactCount !== 0 || s.contactMean.lengthSq() !== 0) throw Error('Soldier correction requires completed collision pass');
   const settled = !(Object.is(s.settled.x, s.position.x) && Object.is(s.settled.y, s.position.y) && Object.is(s.settled.z, s.position.z)), diving = s.dive !== 0;

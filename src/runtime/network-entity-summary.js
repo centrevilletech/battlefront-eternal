@@ -41,17 +41,18 @@ function record(w,{id,generation,tick,schema}){
  const r={kind:'summary',id,generation,tick,schema,payload};checkPayloadRecordFits(r);return r;
 }
 export function createPostRegistry(posts){const names=posts.map(p=>p.name).sort();if(new Set(names).size!==names.length||names.length>65535)throw Error('invalid post registry');return new Map(names.map((name,i)=>[i+1,name]));}
-export function captureBattleSummary(battle,{tick,epoch}){const w=writer(),teams=Object.keys(battle.reinforcements).map(Number).sort((a,b)=>a-b);if(teams.length>7)throw Error('summary team limit');w.u8(teams.length);for(const team of teams){w.u8(team);for(const key of ['reinforcements','start','noPost','bleed'])w.f64(battle[key]?.[team]??0);}for(const k of ['over','gameOver','finished','losing'])w.bool(!!battle[k]);w.u8(battle.loser||0);w.f64(battle.overTime);w.nullable(battle.victoryClock);w.nullable(battle.countdown);return record(w,{id:0,generation:epoch,tick,schema:1});}
-export function capturePostSummary(post,{tick,epoch,registry}){const w=writer(),id=lookup(registry.posts,post.name,false);w.u16(id);w.u8(post.team);w.u8(post.toward);w.f64(post.progress);w.f64(post.neutralize);w.bool(post.contested);w.bool(post.active!==false);const counts=[...post.counts];if(counts.length>7)throw Error('summary post team limit');w.u8(counts.length);for(const[team,count]of counts){w.u8(team);w.u16(count);}return record(w,{id,generation:epoch,tick,schema:2});}
+export function captureBattleSummary(battle,{tick,epoch,native=null}){if(native)return native.battleSummary(battle,{tick,epoch});const w=writer(),teams=Object.keys(battle.reinforcements).map(Number).sort((a,b)=>a-b);if(teams.length>7)throw Error('summary team limit');w.u8(teams.length);for(const team of teams){w.u8(team);for(const key of ['reinforcements','start','noPost','bleed'])w.f64(battle[key]?.[team]??0);}for(const k of ['over','gameOver','finished','losing'])w.bool(!!battle[k]);w.u8(battle.loser||0);w.f64(battle.overTime);w.nullable(battle.victoryClock);w.nullable(battle.countdown);return record(w,{id:0,generation:epoch,tick,schema:1});}
+export function capturePostSummary(post,{tick,epoch,registry,native=null}){if(native)return native.postSummary(post,{tick,epoch,registry});const w=writer(),id=lookup(registry.posts,post.name,false);w.u16(id);w.u8(post.team);w.u8(post.toward);w.f64(post.progress);w.f64(post.neutralize);w.bool(post.contested);w.bool(post.active!==false);const counts=[...post.counts];if(counts.length>7)throw Error('summary post team limit');w.u8(counts.length);for(const[team,count]of counts){w.u8(team);w.u16(count);}return record(w,{id,generation:epoch,tick,schema:2});}
 // Eligibility is provided by authoritative spawn policy, never derived from
 // partial CP samples on the client. Allowed classes and posts are complete sets.
-export function captureSpawnSummary(player,{tick,epoch,registry,eligiblePosts,eligibleClasses,slot=NO_SLOT}){if(!Array.isArray(eligiblePosts)||!Array.isArray(eligibleClasses)||eligiblePosts.length>64||eligibleClasses.length>64)throw Error('spawn eligibility limit');const s=player.spawn,w=writer();w.u32(player.unit?.id||0);w.u32(player.unit?.generation||0);w.u8(player.team);const phase=PHASES.indexOf(s.phase);if(phase<0)throw Error('invalid spawn phase');w.u8(phase);w.u16(lookup(registry.classes,s.className));w.u16(lookup(registry.posts,s.post));w.bool(!!s.spawnedOnce);w.bool(!!s.ended);w.f64(s.deadTime);w.bool(!!s.pending);if(s.pending){w.u16(lookup(registry.classes,s.pending.className,false));w.u16(lookup(registry.posts,s.pending.post));}w.bool(!!s.auto);if(s.auto){w.u8(s.auto.team);w.u16(lookup(registry.classes,s.auto.className,false));w.u16(lookup(registry.posts,s.auto.post));}for(const[list,map]of [[eligiblePosts,registry.posts],[eligibleClasses,registry.classes]]){w.u8(list.length);for(const name of list)w.u16(lookup(map,name,false));}
+export function captureSpawnSummary(player,{tick,epoch,registry,eligiblePosts,eligibleClasses,slot=NO_SLOT,native=null}){if(native)return native.spawnSummary(player,{tick,epoch,registry,eligiblePosts,eligibleClasses,slot});if(!Array.isArray(eligiblePosts)||!Array.isArray(eligibleClasses)||eligiblePosts.length>64||eligibleClasses.length>64)throw Error('spawn eligibility limit');const s=player.spawn,w=writer();w.u32(player.unit?.id||0);w.u32(player.unit?.generation||0);w.u8(player.team);const phase=PHASES.indexOf(s.phase);if(phase<0)throw Error('invalid spawn phase');w.u8(phase);w.u16(lookup(registry.classes,s.className));w.u16(lookup(registry.posts,s.post));w.bool(!!s.spawnedOnce);w.bool(!!s.ended);w.f64(s.deadTime);w.bool(!!s.pending);if(s.pending){w.u16(lookup(registry.classes,s.pending.className,false));w.u16(lookup(registry.posts,s.pending.post));}w.bool(!!s.auto);if(s.auto){w.u8(s.auto.team);w.u16(lookup(registry.classes,s.auto.className,false));w.u16(lookup(registry.posts,s.auto.post));}for(const[list,map]of [[eligiblePosts,registry.posts],[eligibleClasses,registry.classes]]){w.u8(list.length);for(const name of list)w.u16(lookup(map,name,false));}
  // His own slot in the roster (battle.characters): the scoreboard's and the HUD's personal stats.
  w.u8(Number.isInteger(slot)&&slot>=0&&slot<NO_SLOT?slot:NO_SLOT);return record(w,{id:65536,generation:epoch,tick,schema:3});}
 // players: Map of Character to { link } for every player attached. A
 // Character flagged human that belongs to no player (the headless engine's
 // own, never spawned) goes out as team 0: no row anywhere.
-export function captureRosterSummaries(battle,players=new Map(),{tick,epoch}){
+export function captureRosterSummaries(battle,players=new Map(),{tick,epoch,native=null}){
+ if(native)return native.rosterSummaries(battle,players,{tick,epoch});
  const characters=battle?.characters||[],records=[];if(characters.length>ROSTER_CHUNK*200)throw Error('roster summary limit');
  for(let start=0;start<characters.length;start+=ROSTER_CHUNK){
   const w=writer(),slice=characters.slice(start,start+ROSTER_CHUNK);w.u16(characters.length);w.u16(start);w.u8(slice.length);
@@ -130,7 +131,8 @@ function writeRecord(w,slot,packed,registry,quantum){
   const victims=p.victims.filter(([index])=>index<65535).slice(0,255);w.u8(victims.length);for(const [index,n] of victims){w.u16(index);w.u8(Math.min(255,n|0));}
  }
 }
-export function captureRecordSummaries(battle,registry,{tick,epoch,only=null,id=RECORD_SUMMARY_ID,quantum=1}){
+export function captureRecordSummaries(battle,registry,{tick,epoch,only=null,id=RECORD_SUMMARY_ID,quantum=1,native=null}){
+ if(native)return native.recordSummaries(battle,registry,{tick,epoch,only,id,quantum});
  const characters=battle?.characters||[],records=[];
  let w=null,count=0,countAt=0;
  const close=()=>{if(!w)return;w.bytes[countAt]=count;records.push(record(w,{id:id+records.length,generation:epoch,tick,schema:5}));w=null;};
@@ -151,10 +153,10 @@ export function captureRecordSummaries(battle,registry,{tick,epoch,only=null,id=
 
 // The players attached, by Character, with the link (ping and path) the session reports for each.
 function attachedPlayers(world){const players=new Map();for(const p of world.players?.values?.()||[])if(p.character)players.set(p.character,{link:p.link||null});return players;}
-export function captureWorldSummaries(game,world,registry,{tick=game.worldClock.tick,epoch=1,playerId,includeCommon=true,eligibilityCache}={}){
- const records=includeCommon?[captureBattleSummary(game.battle,{tick,epoch}),...game.posts.posts.map(post=>capturePostSummary(post,{tick,epoch,registry})),...captureRosterSummaries(game.battle,attachedPlayers(world),{tick,epoch}),
+export function captureWorldSummaries(game,world,registry,{tick=game.worldClock.tick,epoch=1,playerId,includeCommon=true,eligibilityCache,native=null}={}){
+ const records=includeCommon?[captureBattleSummary(game.battle,{tick,epoch,native}),...game.posts.posts.map(post=>capturePostSummary(post,{tick,epoch,registry,native})),...captureRosterSummaries(game.battle,attachedPlayers(world),{tick,epoch,native}),
   // Everyone's records once the scores stop (they no longer change), for the end table.
-  ...(game.battle.gameOver?captureRecordSummaries(game.battle,registry,{tick,epoch}):[])]:[];
+  ...(game.battle.gameOver?captureRecordSummaries(game.battle,registry,{tick,epoch,native}):[])]:[];
  const player=world.players.get(playerId);if(!player||player.spectator)return records;
  const over=game.battle.gameOver;
  // This optional cache belongs to one synchronous publication, never a match.
@@ -165,8 +167,8 @@ export function captureWorldSummaries(game,world,registry,{tick=game.worldClock.
  }
  const {eligiblePosts,eligibleClasses}=eligibility;
  const slot=game.battle?.characters?.indexOf(player.character)??-1;
- records.push(captureSpawnSummary(player,{tick,epoch,registry,eligiblePosts,eligibleClasses,slot:slot>=0?slot:NO_SLOT}));
+ records.push(captureSpawnSummary(player,{tick,epoch,registry,eligiblePosts,eligibleClasses,slot:slot>=0?slot:NO_SLOT,native}));
  // His own record all match long (DETAILS on his row), to the second.
- if(player.character)records.push(...captureRecordSummaries(game.battle,registry,{tick,epoch,only:player.character,id:OWN_RECORD_ID,quantum:1000}));
+ if(player.character)records.push(...captureRecordSummaries(game.battle,registry,{tick,epoch,only:player.character,id:OWN_RECORD_ID,quantum:1000,native}));
  return records;
 }
