@@ -157,6 +157,7 @@ fn stale_generations_and_retired_slots_do_not_retarget() {
     let a = unit(&mut st, 1, false);
     assert!(p.board(&mut st, &mut w, a, h, 0)); let old = seat(&st, a);
     st.unit.get_mut(a.unit).unwrap().generation += 1.0;
+    assert!(!p.killed(&mut st, &mut w, old), "an old rider life cannot drop the new body");
     p.latch(&mut st, &mut w, 1.0);
     assert!(st.seat_lease.get(old).unwrap().released);
     p.published(&mut st);

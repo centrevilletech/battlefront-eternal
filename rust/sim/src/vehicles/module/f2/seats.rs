@@ -61,13 +61,18 @@ impl Seats {
         let seats = st.vehicle.get(side.vehicle).expect("registered hull").seats.len();
         assert!(!self.hulls.hulls.iter().any(|h| h.vehicle == side.vehicle));
         self.hulls.hulls.push(side);
-        self.hulls.pending_exits.reserve(seats);
-        self.hulls.pending_deaths.reserve(seats);
-        self.hulls.latched.reserve(seats);
-        self.changed.hulls.reserve(1);
-        self.changed.leases.reserve(seats);
-        self.changed.units.reserve(seats);
-        self.retired.reserve(seats);
+        let mut capacity = seats;
+        for side in &self.hulls.hulls[..self.hulls.hulls.len() - 1] {
+            capacity += st.vehicle.get(side.vehicle).expect("registered hull").seats.len();
+        }
+        self.hulls.pending_exits.reserve(capacity);
+        self.hulls.pending_deaths.reserve(capacity);
+        self.hulls.latched.reserve(capacity);
+        self.changed.hulls.reserve(self.hulls.hulls.len());
+        let occupants = capacity + self.crews.turrets.len();
+        self.changed.leases.reserve(occupants);
+        self.changed.units.reserve(occupants);
+        self.retired.reserve(occupants);
     }
 
     /// Turret construction retains the rig and aim. Rebuilding a building
@@ -75,8 +80,8 @@ impl Seats {
     pub fn add_turret(&mut self, side: TurretSide) {
         assert!(!self.crews.turrets.iter().any(|t| t.turret == side.turret));
         self.crews.turrets.push(side);
-        self.crews.updating.reserve(1);
-        self.crews.latched.reserve(1);
+        self.crews.updating.reserve(self.crews.turrets.len());
+        self.crews.latched.reserve(self.crews.turrets.len());
         self.changed.turrets.reserve(1);
         self.changed.leases.reserve(1);
         self.changed.units.reserve(1);
@@ -99,6 +104,10 @@ impl Seats {
     fn lease(&self, st: &Store, r: Ref<SeatLease>) -> Option<Ref<Vehicle>> {
         let lease = st.seat_lease.get(r)?;
         if lease.released { return None; }
+        if let Some(unit) = lease.unit {
+            let unit = st.unit.get(unit)?;
+            if unit.generation != lease.generation || unit.seat != Some(r) { return None; }
+        }
         let v = lease.vehicle?;
         let hull = st.vehicle.get(v)?;
         let seat = hull.seats.get(lease.index as usize)?;
@@ -246,6 +255,10 @@ impl Seats {
     pub fn leave_turret<W: SeatWorld + ?Sized>(&mut self, st: &mut Store, world: &mut W, r: Ref<SeatLease>, how: Let) -> bool {
         let Some(lease) = st.seat_lease.get(r) else { return false };
         if lease.released { return false; }
+        if let Some(unit) = lease.unit {
+            let Some(unit) = st.unit.get(unit) else { return false };
+            if unit.generation != lease.generation || unit.seat != Some(r) { return false; }
+        }
         let Some(t) = self.crews.turrets.iter().position(|t| Some(t.turret) == lease.turret && t.lease == Some(r)) else { return false };
         self.changed.lease(st, r);
         self.touch_turret(st, t);
