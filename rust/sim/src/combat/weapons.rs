@@ -662,7 +662,7 @@ impl Weapon {
     /// when old <= hit < old + dt; the swing ends strictly past its length.
     fn melee_update(&mut self, index: u32, class: &WeaponClass, dt: f64, selected: bool, trigger: &Trigger, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let d = self.level(class);
-        let swings = melee_swings(d);
+        let swings = &d.melee_swings;
         let mut m = self.melee.clone().expect("a melee weapon's swing");
         if m.active && m.time > swings[m.index as usize].duration.num() {
             m.active = false;
@@ -693,23 +693,6 @@ impl Weapon {
             }
         }
         self.melee = Some(m);
-    }
-}
-
-/// A melee swing's length and hit time.
-struct Swing {
-    duration: Js,
-    hit: Js,
-}
-
-/// meleeSwings(weapon) (heroes.js:30): its class's swings, up to three, or
-/// one second-long swing that hits halfway.
-fn melee_swings(d: &Level) -> Vec<Swing> {
-    let swings = d.field("swings");
-    if swings.len() > 0 {
-        (0..swings.len().min(3)).map(|i| Swing { duration: swings.at(i).get("duration").clone(), hit: swings.at(i).get("hit").clone() }).collect()
-    } else {
-        vec![Swing { duration: Js::Num(1.0), hit: Js::Num(0.5) }]
     }
 }
 

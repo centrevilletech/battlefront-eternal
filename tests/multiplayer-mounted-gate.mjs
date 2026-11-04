@@ -74,7 +74,10 @@ export async function mountedGameGate([actor, observer]) {
         return {distance:Math.hypot(dx,dz),radius:v.radius,position:p.toArray(),seat:v.seats[0].lease?.unit?.id??null,
           authority:view?[view.getFloat64(52,true),view.getFloat64(60,true),view.getFloat64(68,true)]:null,
           hullPosition:v.position.toArray(),tick:__bf.worldClock.tick,predicted:__bf.client.predictedTick,
-          correctionWorst:__bf.client.smoother.worst};
+          correctionWorst:__bf.client.smoother.worst,
+          clocks:{latest:__bf.client.latest,input:__bf.client.inputClock.tick,target:__bf.client.target,ack:__bf.client.ackInput,pendingFirst:__bf.client.pending[0]?.tick,pendingLast:__bf.client.pending.at(-1)?.tick,batch:__bf.client.batch.length},
+          body:{air:__bf.soldier.air,grounded:__bf.soldier.grounded,velocity:__bf.soldier.velocity.toArray(),savedAir:__bf.client.saved?.[2]},
+          connection:{closed:__bf.client.host.closed,ready:__bf.client.ready}};
       },choice);
       if(navigation.invalid)console.log('mounted-interrupted',JSON.stringify(navigation));
       assert.ok(!navigation.invalid,'actor and selected hull stay alive during approach');

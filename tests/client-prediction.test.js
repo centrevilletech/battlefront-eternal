@@ -12,9 +12,9 @@ import { captureDroidekaState, restoreDroidekaState } from '../src/runtime/netwo
 import { actorCourse, createPredictionActor } from './fixtures/client-actors.js';
 import { createWeaponUnit, weaponDefinition, arsenalObservation } from './fixtures/client-weapons.js';
 
-function fixture(kind, course) {
+function fixture(kind, course, scenario) {
   const actor = createPredictionActor({kind, pattern: kind === 'droideka' ? 'droideka' : 'walk'}, course);
-  const unit = createWeaponUnit([weaponDefinition('burst', 0, {SalvoCount: 3, SalvoDelay: .04, ShotsPerSalvo: 3, RoundsPerClip: 80}),
+  const unit = createWeaponUnit(scenario==='soldier-melee' ? [weaponDefinition('blade',0,{base:'melee',ordnance:undefined,swings:[{duration:.16,hit:.03},{duration:.13,hit:.06},{duration:.22,hit:.1}]}),weaponDefinition('secondary',1)] : [weaponDefinition('burst', 0, {SalvoCount: 3, SalvoDelay: .04, ShotsPerSalvo: 3, RoundsPerClip: 80}),
     weaponDefinition('secondary', 1)]);
   actor.combat.arsenal = unit.combat.arsenal;
   actor.combat.zoomStep = 0;
@@ -32,6 +32,7 @@ const shotValue = (s, tick, sequence, id, held, button, level) => ({tick, sequen
 // synthetic geometry, clips and definitions, so CI needs no game installation.
 const encode=value=>typeof value==='number'?Buffer.from(new Float64Array([value]).buffer).toString('hex'):Array.isArray(value)?value.map(encode):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(k=>[k,encode(value[k])])):value;
 const referenceDigests = {
+  'soldier-melee': '44f8f27b509b3850773cd68f8a6b5a897e5df8bc0991487b830db28671eee877',
   'droideka-roll': '2428c0fdc3d49e9e0ebfaffae4ca9303372ce68071d63ced97cd2b7bc1084154',
   soldier: '3bbac210fb877e27c6df289b0fc00a1febbd74e53ef5a92ec3124a274811e684',
   droideka: '0d73e20a08f3015792bf94da61b93a9dea0e2ee8ba22f1a63544041b47904ce8',
@@ -41,8 +42,8 @@ const referenceDigests = {
 for (const [scenario, digest] of Object.entries(referenceDigests)) test(`${scenario} session matches frozen correction, checkpoint and shot identity`, async () => {
   const text=gunzipSync(readFileSync(new URL(`./fixtures/prediction-reference/${scenario}.json.gz`,import.meta.url))).toString('utf8').trimEnd();
   assert.equal(createHash('sha256').update(text).digest('hex'),digest);
-  const frames=JSON.parse(text),kind=scenario==='soldier'?'soldier':'droideka';
-  const instance=await loadSim(),course=actorCourse(await loadRayKernel(instance)),a=fixture(kind,course);
+  const frames=JSON.parse(text),kind=scenario.startsWith('soldier')?'soldier':'droideka';
+  const instance=await loadSim(),course=actorCourse(await loadRayKernel(instance)),a=fixture(kind,course,scenario);
   if(scenario==='droideka-grenade')a.combat.arsenal.weapons[0].def.ordnance.base='grenade';
   const session=createClientPrediction(instance,course.world),wa=new PredictionArsenal(),baseA=capture(a);
   let authority=0,pending=[],sequence=0,epoch=1;
@@ -76,7 +77,7 @@ for (const [scenario, digest] of Object.entries(referenceDigests)) test(`${scena
       assert.deepEqual(encode(result.kick),expected.kick,`frame ${frame} kick`);
       assert.deepEqual(encode(arsenalObservation(a.combat.arsenal,a.combat.zoomStep)),expected.arsenal,`frame ${frame} arsenal`);
       const actualShots=[];
-      session.present(a,null,(notice,w)=>actualShots.push(shotValue({yaw:notice.yaw,pitch:notice.pitch,charge:notice.charge,targetId:notice.target,targetGeneration:notice.targetGeneration},notice.tick,notice.sequence,notice.press,notice.held,notice.button,w.level)));
+      session.present(a,null,(notice,w)=>actualShots.push(shotValue({yaw:notice.yaw,pitch:notice.pitch,charge:notice.charge,targetId:notice.target,targetGeneration:notice.targetGeneration,swing:notice.swing,[notice.kind===1?'repair':notice.kind===2?'meleeStart':notice.kind===3?'meleeHit':notice.kind===4?'meleeEnd':'round']:true},notice.tick,notice.sequence,notice.press,notice.held,notice.button,w.level)));
       assert.deepEqual(encode(actualShots),expected.shots,`frame ${frame} shots`);
       assert.equal(Buffer.from(capture(a)).toString('hex'),expected.correction,`frame ${frame} presentation keeps checkpoint`);
       wa.restore();

@@ -292,7 +292,7 @@ impl Session {
                     if let Some(index) = arsenal.current(&self.defs, channel) {
                         let weapon = &arsenal.weapons[index];
                         let def = weapon.level(self.defs.class(weapon.def));
-                        if (weapon.deployed && def.field("droid").truthy())
+                        if (weapon.deployed && def.get(K::Droid).truthy())
                             || def.get(K::Base).is_str("shield")
                         {
                             *trigger = Trigger::default();

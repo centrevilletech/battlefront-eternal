@@ -10,7 +10,12 @@ export function predictionActorConfig(s, kind) {
   const words = [1, ...values];
   for (const c of clips) {
     words.push(flag(c));
-    if (c) words.push(c.frames, c.fps, flag(c.rootMotion), c.tracks.length, ...c.tracks, c.data.length, ...c.data);
+    if (c) {
+      words.push(c.frames, c.fps, flag(c.rootMotion), c.tracks.length);
+      for (const track of c.tracks) words.push(track);
+      words.push(c.data.length);
+      for (const value of c.data) words.push(value);
+    }
   }
   return { words };
 }

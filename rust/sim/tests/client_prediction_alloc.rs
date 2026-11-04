@@ -1,7 +1,7 @@
 #![cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 use bfe_sim::client::ClientPrediction;
 use bfe_sim::collision::{State, Tree, World};
-use bfe_sim::gen::{ClientCommand, ClientFrame, ClientResult, ClientMount, ClientAction, Droideka, Soldier, Weapon};
+use bfe_sim::gen::{ClientCommand, ClientFrame, ClientResult, ClientMount, ClientAction, Droideka, Melee, Soldier, Weapon};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -151,15 +151,7 @@ fn check_allocations(name: &str, session: &mut ClientPrediction, collision: &mut
 
 #[test]
 fn warm_grounded_session_reuses_collision_and_replay_storage() {
-    let mut collision = empty_collision();
-    let positions = vec![-100.0, 0.0, -100.0, 100.0, 0.0, -100.0, 100.0, 0.0, 100.0, -100.0, 0.0, 100.0];
-    let index = vec![0, 2, 1, 0, 3, 2];
-    let tree = bfe_content::bvh::build(bfe_content::bvh::Positions::F32(&positions), &index);
-    collision.positions[0] = bfe_sim::collision::Corners::F32(positions);
-    collision.trees[0] = Tree { roots: tree.roots, positions: 0, index, indexed: true,
-        indirect: tree.indirect, polygons: vec![0, 0] };
-    collision.sets[0].bounds = vec![-100.0,0.0,-100.0,100.0,0.0,100.0,-100.0,0.0,-100.0,100.0,0.0,100.0];
-    collision.sets[0].polygons = vec![0, 0];
+    let mut collision = floor_collision();
     let mut session = ClientPrediction::default();
     session.configure_actor(&[0.0], &mut collision).unwrap();
     let mut definition = vec![0.0, 7.0, 3.0];
@@ -174,4 +166,55 @@ fn warm_grounded_session_reuses_collision_and_replay_storage() {
     let result = ClientResult::take(&session.output, &[]);
     let body = Soldier::take(&session.output[result.actor_at as usize..], &[]);
     assert!(body.grounded, "the warm collision fixture must exercise real floor contacts");
+}
+
+fn floor_collision() -> State {
+    let mut collision = empty_collision();
+    let positions = vec![-100.0, 0.0, -100.0, 100.0, 0.0, -100.0, 100.0, 0.0, 100.0, -100.0, 0.0, 100.0];
+    let index = vec![0, 2, 1, 0, 3, 2];
+    let tree = bfe_content::bvh::build(bfe_content::bvh::Positions::F32(&positions), &index);
+    collision.positions[0] = bfe_sim::collision::Corners::F32(positions);
+    collision.trees[0] = Tree { roots: tree.roots, positions: 0, index, indexed: true,
+        indirect: tree.indirect, polygons: vec![0, 0] };
+    collision.sets[0].bounds = vec![-100.0,0.0,-100.0,100.0,0.0,100.0,-100.0,0.0,-100.0,100.0,0.0,100.0];
+    collision.sets[0].polygons = vec![0, 0];
+    collision
+}
+
+#[test]
+fn warm_melee_replay_retains_swing_metadata() {
+    let mut collision = floor_collision();
+    let mut session = ClientPrediction::default();
+    session.configure_actor(&[0.0], &mut collision).unwrap();
+    let mut definition = vec![0.0, 7.0, 3.0];
+    for (key, value) in [("base", "melee"), ("class", "fixture")] {
+        definition.push(key.len() as f64); definition.extend(key.encode_utf16().map(|v| v as f64));
+        definition.extend([5.0, value.len() as f64]); definition.extend(value.encode_utf16().map(|v| v as f64));
+    }
+    definition.push(7.0); definition.extend("channel".encode_utf16().map(|v| v as f64)); definition.extend([4.0, 0.0]);
+    session.configure_weapon(&definition).unwrap();
+    let short = melee_input(1.0); let long = melee_input(120.0);
+    check_allocations("grounded melee", &mut session, &mut collision, &short, &long);
+    let result = ClientResult::take(&session.output, &[]);
+    let weapon = Weapon::take(&session.output[result.weapons_at as usize + 1..], &[]);
+    assert!(weapon.melee.unwrap().time > 0.0, "the measured swing must have advanced");
+}
+fn melee_input(tick: f64) -> Vec<f64> {
+    let mut words = input(tick, 0.0);
+    let mut frame = ClientFrame::take(&words, &[]);
+    let at = frame.weapons_at as usize + 1;
+    let mut weapon = Weapon::take(&words[at..], &[]);
+    weapon.melee = Some(Melee { time: -1.0, index: 0.0, active: false });
+    weapon.put(&mut words[at..], &mut Vec::new());
+    let at = frame.commands_at as usize;
+    ClientCommand { tick: 1.0, generation: 1.0, sequence: 1.0, sent: true,
+        held: bfe_sim::client::PRIMARY, actions: 1 << ClientAction::FirePrimary as u8, ..ClientCommand::default() }
+        .put(&mut words[at..], &mut Vec::new());
+    if tick > 1.0 {
+        let at = words.len(); words.resize(at + ClientCommand::WORDS, 0.0);
+        ClientCommand { tick, generation: 1.0, sequence: tick, sent: true,
+            held: bfe_sim::client::PRIMARY, ..ClientCommand::default() }.put(&mut words[at..], &mut Vec::new());
+        frame.commands_count = 2;
+    }
+    frame.put(&mut words, &mut Vec::new()); words
 }
