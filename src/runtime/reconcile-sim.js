@@ -22,11 +22,11 @@ function data(value, key) {
   if (!('value' in found)) throw unsupported;
   return found.value;
 }
-function writable(value, keys) {
+function writable(value, keys, owned = true) {
   if (!object(value)) throw unsupported;
   for (const key of keys) {
     const own = Object.getOwnPropertyDescriptor(value, key), found = own || descriptor(value, key);
-    if (found && (!('value' in found) || !found.writable) || !own && !Object.isExtensible(value)) throw unsupported;
+    if (owned && !own || found && (!('value' in found) || !found.writable) || !own && !Object.isExtensible(value)) throw unsupported;
   }
 }
 function numbers(value, keys, write = false) {
@@ -116,7 +116,7 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
     get calls() { return calls; },
     get handle() { return handle; },
     estimatorReset(value) {
-      if (!prepare(() => { writable(value, ['at', 'count', 'offset', 'dropped']); return true; })) return false;
+      if (!prepare(() => { writable(value, ['at', 'count', 'offset', 'dropped'], false); return true; })) return false;
       return run(0, [], read => {
         value.at = read(); value.count = read();
         const offset = read(), n = read(); value.offset = offset ? n : null;
@@ -136,8 +136,11 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
       });
       if (!state) return false;
       return run(1, state.words, read => {
-        const at = read(), count = read(), present = read(), offset = read(), hasDropped = read(), dropped = read(), index = read(), entry = read();
-        value.dropped = hasDropped ? dropped : null;
+        const at = read(), count = read(), present = read(), offset = read();
+        read(); read(); const index = read(), entry = read();
+        // This is an assignment of the original Number, not arithmetic. Keep
+        // its payload when a caller supplied a signaling NaN.
+        value.dropped = dropped;
         if (index >= 0) state.offsets.value[index] = entry;
         value.at = at; value.count = count; value.offset = present ? offset : null;
         return true;
@@ -151,7 +154,7 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
       return state ? run(2, state, read => { const present = read(), value = read(); return { value: present ? value : null }; }) : null;
     },
     leadReset(value) {
-      const state = prepare(() => { writable(value, leadResetFields); return numbers(value, ['margin']); });
+      const state = prepare(() => { writable(value, leadResetFields, false); return numbers(value, ['margin']); });
       if (!state) return false;
       return run(3, state, read => {
         value.gapAt = read(); value.gapCount = read(); const present = read(), at = read(); value.arrivedAt = present ? at : null;
@@ -169,10 +172,11 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
       });
       if (!state) return false;
       return run(4, state.words, read => {
-        const latest = read(), present = read(), arrivedAt = read(), arrivedTick = read(), at = read(), count = read(), index = read(), entry = read();
-        value.latest = latest;
+        const latest = read(); read(); read();
+        const arrivedTick = read(), at = read(), count = read(), index = read(), entry = read();
+        if (tick > value.latest) value.latest = latest;
         if (index >= 0) state.gaps.value[index] = entry;
-        value.gapAt = at; value.gapCount = count; value.arrivedAt = present ? arrivedAt : null; value.arrivedTick = arrivedTick;
+        value.gapAt = at; value.gapCount = count; value.arrivedAt = now; value.arrivedTick = arrivedTick;
         return true;
       });
     },
@@ -181,6 +185,9 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
         if (!numeric(late, elapsed)) throw unsupported;
         const [maxLead, cooldownAcks, calmAcks] = numbers(value, ['maxLead', 'cooldownAcks', 'calmAcks']);
         const fields = numbers(value, ['late', 'extra', 'cooldown', 'calm'], true);
+        // Some acknowledgement branches leave these fields untouched or copy
+        // a policy value directly. Retain their raw NaN bits in that phase.
+        if ([maxLead, cooldownAcks, calmAcks, ...fields].some(Number.isNaN)) throw unsupported;
         return [maxLead, cooldownAcks, calmAcks, +!!data(value, 'recover'), ...fields, late, elapsed, +!!capped];
       });
       if (!state) return false;
@@ -214,13 +221,15 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
       return state ? run(8, state, read => { const result = read(); value.capped = !!read(); value.lead = read(); return { value: result }; }) : null;
     },
     smootherReset(value) {
-      if (!prepare(() => { writable(value, ['x', 'y', 'z']); return true; })) return false;
+      if (!prepare(() => { writable(value, ['x', 'y', 'z'], false); return true; })) return false;
       return run(9, [], read => { const x = read(), y = read(), z = read(); value.z = z; value.y = y; value.x = x; return true; });
     },
     note(value, ox, oy, oz, nx, ny, nz) {
       const state = prepare(() => {
         if (!numeric(ox, oy, oz, nx, ny, nz)) throw unsupported;
-        return [...numbers(value, ['x', 'y', 'z', 'count', 'worst'], true), ...numbers(value, ['snap']), ox, oy, oz, nx, ny, nz];
+        const fields = numbers(value, ['x', 'y', 'z', 'count', 'worst'], true);
+        if (Number.isNaN(fields[4])) throw unsupported;
+        return [...fields, ...numbers(value, ['snap']), ox, oy, oz, nx, ny, nz];
       });
       if (!state) return null;
       return run(10, state, read => {
