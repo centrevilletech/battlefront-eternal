@@ -41,6 +41,34 @@ export class ReliableOutbox {
   }
 }
 
+// Shared transport validation for the JavaScript and native mailboxes.
+export function validateMailboxCommand(command) {
+  if (!Number.isSafeInteger(command.tick) || command.tick < 1 || !Number.isSafeInteger(command.generation)) throw new Error('invalid input stamp');
+  if (!Array.isArray(command.down) || command.down.length > 64 || !command.down.every(x=>typeof x === 'string') ||
+      !Array.isArray(command.actions) || command.actions.length > 2048 || !command.actions.every(x=>typeof x === 'string') ||
+      !Array.isArray(command.look) || command.look.length > 2048 || !command.look.every(p=>Array.isArray(p) && p.length===2 && p.every(Number.isFinite))) throw new Error('invalid input payload');
+  if (command.lookTotal !== undefined && (!Array.isArray(command.lookTotal) || command.lookTotal.length !== 2 ||
+    !command.lookTotal.every(n => Number.isFinite(n) && Math.abs(n) <= 2 ** 48))) throw new Error('invalid cumulative look');
+  for (const key of ['mouseScale','aspect']) if (command[key] !== undefined && (!Number.isFinite(command[key]) || command[key] <= 0)) throw new Error('invalid view input');
+  for (const key of ['invertMouse','firstPerson']) if (command[key] !== undefined && typeof command[key] !== 'boolean') throw new Error('invalid view input');
+  if (command.viewTick !== undefined && (!Number.isFinite(command.viewTick) || command.viewTick < 0 || command.viewTick > 0xffffffff)) throw new Error('invalid view tick');
+  const fs=command.flightSettings;
+  if (fs !== undefined && (!fs || typeof fs !== 'object' || Array.isArray(fs) ||
+    fs.sensitivity !== undefined && (!Number.isFinite(fs.sensitivity) || fs.sensitivity<=0 || fs.sensitivity>10) ||
+    fs.invert !== undefined && typeof fs.invert !== 'boolean' ||
+    fs.curve !== undefined && (!Number.isFinite(fs.curve) || fs.curve<.1 || fs.curve>4) ||
+    fs.bindings !== undefined && (!fs.bindings || typeof fs.bindings !== 'object' || Array.isArray(fs.bindings) || Object.keys(fs.bindings).length>32 ||
+      !Object.entries(fs.bindings).every(([k,v])=>k.length<=64 && Array.isArray(v) && v.length<=8 && v.every(x=>typeof x==='string' && x.length<=64))))) throw new Error('invalid flight settings');
+  const pad=command.gamepad;
+  if (pad != null && (!Array.isArray(pad.axes) || pad.axes.length>16 || !pad.axes.every(x=>Number.isFinite(x)&&Math.abs(x)<=1) ||
+    !Array.isArray(pad.buttons) || pad.buttons.length>32 || !pad.buttons.every(x=>x && typeof x.pressed==='boolean'))) throw new Error('invalid gamepad input');
+  // Trigger edges (WorkerHost.edges): the world names a press's rounds by its id.
+  if (command.fire !== undefined && (!Array.isArray(command.fire) || command.fire.length > 16 || !command.fire.every(edge => edge && Number.isSafeInteger(edge.id) && edge.id > 0 &&
+    (edge.button === 0 || edge.button === 1) && typeof edge.pressed === 'boolean'))) throw new Error('invalid trigger edges');
+  // The spawn screen's choices: validated, and only their values kept.
+  return humanCommands(command.human);
+}
+
 export class InputMailbox {
   constructor(epoch = 1, capacity = 256) {
     this.epoch = epoch; this.capacity = capacity; this.received = 0; this.ack = 0; this.ackTick = 0; this.discarded = 0;
@@ -50,30 +78,7 @@ export class InputMailbox {
   }
   push(command) {
     if (command.epoch !== this.epoch || !Number.isSafeInteger(command.sequence) || command.sequence <= this.received) return false;
-    if (!Number.isSafeInteger(command.tick) || command.tick < 1 || !Number.isSafeInteger(command.generation)) throw new Error('invalid input stamp');
-    if (!Array.isArray(command.down) || command.down.length > 64 || !command.down.every(x=>typeof x === 'string') ||
-        !Array.isArray(command.actions) || command.actions.length > 2048 || !command.actions.every(x=>typeof x === 'string') ||
-        !Array.isArray(command.look) || command.look.length > 2048 || !command.look.every(p=>Array.isArray(p) && p.length===2 && p.every(Number.isFinite))) throw new Error('invalid input payload');
-    if (command.lookTotal !== undefined && (!Array.isArray(command.lookTotal) || command.lookTotal.length !== 2 ||
-      !command.lookTotal.every(n => Number.isFinite(n) && Math.abs(n) <= 2 ** 48))) throw new Error('invalid cumulative look');
-    for (const key of ['mouseScale','aspect']) if (command[key] !== undefined && (!Number.isFinite(command[key]) || command[key] <= 0)) throw new Error('invalid view input');
-    for (const key of ['invertMouse','firstPerson']) if (command[key] !== undefined && typeof command[key] !== 'boolean') throw new Error('invalid view input');
-    if (command.viewTick !== undefined && (!Number.isFinite(command.viewTick) || command.viewTick < 0 || command.viewTick > 0xffffffff)) throw new Error('invalid view tick');
-    const fs=command.flightSettings;
-    if (fs !== undefined && (!fs || typeof fs !== 'object' || Array.isArray(fs) ||
-      fs.sensitivity !== undefined && (!Number.isFinite(fs.sensitivity) || fs.sensitivity<=0 || fs.sensitivity>10) ||
-      fs.invert !== undefined && typeof fs.invert !== 'boolean' ||
-      fs.curve !== undefined && (!Number.isFinite(fs.curve) || fs.curve<.1 || fs.curve>4) ||
-      fs.bindings !== undefined && (!fs.bindings || typeof fs.bindings !== 'object' || Array.isArray(fs.bindings) || Object.keys(fs.bindings).length>32 ||
-        !Object.entries(fs.bindings).every(([k,v])=>k.length<=64 && Array.isArray(v) && v.length<=8 && v.every(x=>typeof x==='string' && x.length<=64))))) throw new Error('invalid flight settings');
-    const pad=command.gamepad;
-    if (pad != null && (!Array.isArray(pad.axes) || pad.axes.length>16 || !pad.axes.every(x=>Number.isFinite(x)&&Math.abs(x)<=1) ||
-      !Array.isArray(pad.buttons) || pad.buttons.length>32 || !pad.buttons.every(x=>x && typeof x.pressed==='boolean'))) throw new Error('invalid gamepad input');
-    // Trigger edges (WorkerHost.edges): the world names a press's rounds by its id.
-    if (command.fire !== undefined && (!Array.isArray(command.fire) || command.fire.length > 16 || !command.fire.every(edge => edge && Number.isSafeInteger(edge.id) && edge.id > 0 &&
-      (edge.button === 0 || edge.button === 1) && typeof edge.pressed === 'boolean'))) throw new Error('invalid trigger edges');
-    // The spawn screen's choices: validated, and only their values kept.
-    const human = humanCommands(command.human);
+    const human = validateMailboxCommand(command);
     if (this.queue.length >= this.capacity) throw new Error('input mailbox overflow');
     if (this.queue.length && command.tick < this.queue.at(-1).tick) throw new Error('input tick moved backwards');
     this.received = command.sequence; this.queue.push(human.length ? {...command,human} : command); return true;

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { InputActions } from '../src/runtime/input-actions.js';
 import { FireCommands } from '../src/runtime/fire-commands.js';
+import { InputMailbox } from '../src/runtime/transport.js';
 import { createInputSim } from '../src/runtime/input-sim.js';
 import { loadSim } from '../src/sim/module.js';
 import { ClassicRandom } from '../src/ai/random.js';
@@ -139,4 +140,68 @@ test('native fire preserves live button and queued edge identities through reset
     assert.equal(source.generation, 2); assert.deepEqual(source.buttons, [0, 0]);
   }
   assert.deepEqual(snapshot(native), snapshot(js));
+});
+
+test('native movement mailbox twins validation, loss, cumulative look, held views and queue bounds', async () => {
+  const input = createInputSim(await loadSim());
+  for (const seed of [1, 7, 79, 911, 4321]) {
+    const random = new ClassicRandom(seed), pick = values => values[Math.floor(random.uniform() * values.length)];
+    const js = new InputMailbox(1, 4), native = input.mailbox(new InputMailbox(1, 4));
+    let tick = 100, sequence = 0, generation = 2;
+    for (let i = 0; i < 1600; i++) {
+      const method = pick(['push', 'push', 'push', 'take', 'take', 'clear']);
+      let args;
+      if (method === 'push') {
+        const command = { epoch: 1, sequence: ++sequence, tick: tick + pick([-2, 0, 1, 120]), generation,
+          down: pick([[], ['KeyW'], ['Mouse0', 'KeyS']]), actions: pick([[], ['reload'], ['jump', 'jump']]), look: [[pick([-10, -0, 0, 10]), pick([-5, 0, 5])]] };
+        if (i % 3 === 0) Object.assign(command, pick([
+          { epoch: 2 }, { sequence: NaN }, { sequence: '1' }, { sequence: 1 }, { tick: 0 }, { tick: 1.25 },
+          { generation: generation - 1 }, { generation: '2' }, { down: null }, { actions: [false] }, { look: [null] },
+          { look: [[Infinity, 0]] }, { lookTotal: [sequence * 4, -sequence] }, { lookTotal: [0, 0] }, { lookTotal: [2 ** 49, 0] },
+          { mouseScale: 1.25, invertMouse: true, firstPerson: false, aspect: 2, viewTick: 0 }, { aspect: 0 }, { invertMouse: 1 },
+          { flightSettings: { sensitivity: 2, invert: true, curve: 1.35, bindings: { boost: ['ShiftLeft'] }, extra: 'retained' } },
+          { flightSettings: { bindings: { boost: 'bad' } } }, { flightSettings: { sensitivity: 11 } },
+          { gamepad: null }, { gamepad: { axes: [.5, -1], buttons: [{ pressed: true, value: .75 }] } }, { gamepad: { axes: [2], buttons: [] } },
+          { fire: [{ id: 1, button: 0, pressed: true }, { id: 2, button: 0, pressed: false }] }, { fire: [{ id: 0, button: 1, pressed: true }] },
+          { human: null }, { human: [{ kind: 'team', team: 2 }, { kind: 'spawn', className: 'trooper', post: null }] },
+        ]));
+        args = [command];
+      } else if (method === 'take') {
+        tick += pick([0, 1, 1, 2, 120]); if (i % 79 === 0) generation++;
+        args = [tick, generation];
+      } else args = [];
+      assert.deepEqual(invoke(native, method, args), invoke(js, method, args), `mailbox seed ${seed}, step ${i}, ${method}`);
+      assert.deepEqual(snapshot(native), snapshot(js), `mailbox state seed ${seed}, step ${i}, ${method}`);
+    }
+  }
+});
+
+test('native mailbox preserves foreign identities, queued edits and partial overflow state', async () => {
+  const input = createInputSim(await loadSim());
+  for (const source of [new InputMailbox(), input.mailbox(new InputMailbox())]) {
+    const queue = source.queue, view = source.view, priorLook = source.lookTotal;
+    const command = { epoch: 1, sequence: 1, tick: 1, generation: 1, down: ['KeyW'], actions: [], look: [[1, -0]],
+      flightSettings: { sensitivity: 2, extra: { kept: true } }, gamepad: null };
+    assert.ok(source.push(command)); assert.equal(source.queue[0], command);
+    command.down.push('KeyS'); command.look[0][0] = 2;
+    const taken = source.take(1, 1);
+    assert.equal(taken.down, command.down); assert.equal(taken.look[0], command.look[0]);
+    assert.equal(taken.flightSettings, command.flightSettings); assert.equal(taken.gamepad, null);
+    assert.equal(source.queue, queue); assert.equal(source.view, view); assert.notEqual(source.lookTotal, priorLook);
+    const total = source.lookTotal;
+    source.clear(); assert.equal(source.lookTotal, total); assert.equal(source.view.flightSettings, command.flightSettings);
+    assert.equal('gamepad' in source.view, false);
+    const human = [{ kind: 'spawn', className: 'trooper' }];
+    const choice = { ...command, sequence: 2, tick: 2, human };
+    assert.ok(source.push(choice)); assert.notEqual(source.queue[0], choice); assert.notEqual(source.queue[0].human, human);
+    assert.deepEqual(source.take(2, 1).human, [{ kind: 'spawn', className: 'trooper', post: null }]);
+  }
+  const js = new InputMailbox(), native = input.mailbox(new InputMailbox());
+  for (const source of [js, native]) {
+    for (let sequence = 1; sequence <= 2; sequence++) source.push({ epoch: 1, sequence, tick: 1, generation: 1, down: [],
+      actions: Array(2048).fill('jump'), look: [], mouseScale: sequence });
+  }
+  assert.deepEqual(invoke(native, 'take', [1, 1]), invoke(js, 'take', [1, 1]));
+  assert.deepEqual(snapshot(native), snapshot(js));
+  assert.equal(native.ack, 2); assert.equal(native.queue.length, 0); assert.equal(native.view.mouseScale, 2);
 });
