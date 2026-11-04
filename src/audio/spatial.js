@@ -76,6 +76,22 @@ const HRTF_LEVEL = 10 ** (-3.9 / 20);
 // tests/audio-loudness.mjs measures over a battle), on 5.1 with the
 // stabilizer 0.47, on 7.1 0.81.
 export const ORIGINAL_LEVEL = { stereo: 1.5, "5.1": 3.3, "7.1": 0.9, "7.1.4": 0.9, headphones: 0 };
+// A stream's channels to the enhanced mode's stereo speakers, [left, right]
+// each: mono on both at equal power; a quad bed's back pair folded onto its
+// own side, a little lower.
+const STEREO_BEDS = {
+  1: [[Math.SQRT1_2, Math.SQRT1_2]],
+  2: [
+    [1, 0],
+    [0, 1],
+  ],
+  4: [
+    [1, 0],
+    [0, 1],
+    [0.7, 0],
+    [0, 0.7],
+  ],
+};
 const LFE_CUTOFF = 120; // Hz
 const LFE_SEND = 0.5; // an explosion's LFE send, linear
 // A BiquadFilterNode's lowpass Q is in dB: -3.01 dB is a Butterworth section.
@@ -1163,6 +1179,10 @@ class BedOut {
       this.light();
       return;
     }
+    if (r.enhanced && r.mode === "stereo" && STEREO_BEDS[this.channels]) {
+      this.stereo(STEREO_BEDS[this.channels]);
+      return;
+    }
     const layout = r.layout;
     const N = r.channels;
     const keep = (n) => {
@@ -1292,24 +1312,29 @@ class BedOut {
   }
 
   // The light mix: each channel to both speakers by OpenAL Soft's stereo
-  // law at its angle for it, the angles ahead taken 3 times wider, in as
-  // few nodes as that takes (each one costs the audio thread every block):
-  // a stereo stream straight into the mix (its pair lands hard left and
-  // right), a mono one through one gain into both speakers alike, a quad
-  // bed's front pair straight to its own speakers and its rear pair
-  // through a gain to each.
+  // law at its angle for it, the angles ahead taken 3 times wider.
   light() {
+    const wide = ALSOFT.stereo.streamFront;
+    this.stereo(
+      ALSOFT_STREAM_ANGLES[this.channels].map((az) => {
+        const a = ((Math.abs(az) < 90 ? Math.sign(az) * Math.min(Math.abs(az) * wide, 90) : az) * Math.PI) / 180;
+        return alsoftStereo(-Math.sin(a), 0, -Math.cos(a), [0, 0]).map((g) => (Math.abs(g) < 1e-6 ? 0 : Math.abs(g - 1) < 1e-6 ? 1 : g));
+      }),
+    );
+  }
+
+  // Each channel to the two speakers by `gains`, [left, right] each, in as
+  // few nodes as that takes (each one costs the audio thread every block): a
+  // stereo stream straight into the mix, a mono one through one gain into
+  // both speakers alike, a quad bed's front pair straight to its own
+  // speakers and its rear pair through a gain to each.
+  stereo(gains) {
     const r = this.r;
     const ctx = r.ctx;
     const keep = (n) => {
       this.nodes.push(n);
       return n;
     };
-    const wide = ALSOFT.stereo.streamFront;
-    const gains = ALSOFT_STREAM_ANGLES[this.channels].map((az) => {
-      const a = ((Math.abs(az) < 90 ? Math.sign(az) * Math.min(Math.abs(az) * wide, 90) : az) * Math.PI) / 180;
-      return alsoftStereo(-Math.sin(a), 0, -Math.cos(a), [0, 0]).map((g) => (Math.abs(g) < 1e-6 ? 0 : Math.abs(g - 1) < 1e-6 ? 1 : g));
-    });
     if (gains.every(([left, right], c) => left === (c === 0 ? 1 : 0) && right === (c === 1 ? 1 : 0))) {
       this.gain.connect(r.mix);
       return;

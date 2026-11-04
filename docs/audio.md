@@ -800,7 +800,7 @@ The game's sound is the user's own copy and stays out of git.
 ```
 node --test tests/audio-units.test.js            # 20: hashing, ADPCM, distance, picks, graphs, panning, Doppler, music, voice-over, footsteps
 node --test tests/audio-soldiers.test.js         # 9: other soldiers' weapons and voices, out of earshot, the chatter's queue and lines, online hurts
-node --test tests/audio-light.test.js            # 13: the light mix's graph, panning law and soft clip; Enhanced's graph after a trip through it; worklets loaded only when needed; voices moving between graphs; the graphs with the voice engine and the master chain in the module
+node --test tests/audio-light.test.js            # 14: the light mix's graph, panning law and soft clip; Enhanced's graph after a trip through it; worklets loaded only when needed; voices moving between graphs; the graphs with the voice engine and the master chain in the module
 python3 -m unittest tests/test_zero_sound.py      # 5: the archive reader on made-up chunks
 PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs AUDIO_TEST_URL=http://127.0.0.1:18449 node tests/audio.mjs
                                                   # 80 offline checks in Chromium (no game assets)

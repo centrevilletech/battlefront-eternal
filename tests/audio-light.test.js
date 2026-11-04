@@ -593,6 +593,40 @@ test("the master chain goes into the mixer's module, and the rest of its graph w
   }
 });
 
+test("the enhanced mode's beds on stereo take as few nodes as the light mix's", async () => {
+  const { ctx, r } = await renderer({ quality: "enhanced", output: "stereo", dynamics: "normal" });
+  const bed = (channels, kind) => {
+    const gain = ctx.createGain();
+    return { gain, out: r.bed(channels, gain, kind) };
+  };
+  // Stereo: straight into the mix, the upmix being for surround.
+  const music = bed(2, "music");
+  assert.deepEqual(into(ctx, music.gain).map((e) => e.to), [r.mix]);
+  assert.equal(music.out.nodes.length, 0);
+  // Mono: one gain, into both speakers alike ("speakers").
+  const voice = bed(1, "voice");
+  assert.equal(voice.out.nodes.length, 1);
+  const both = voice.out.nodes[0];
+  assert.deepEqual(into(ctx, voice.gain).map((e) => e.to), [both]);
+  assert.deepEqual(into(ctx, both).map((e) => e.to), [r.mix]);
+  assert.ok(Math.abs(both.gain.value - Math.SQRT1_2) < 1e-9);
+  assert.deepEqual([both.channelCount, both.channelCountMode, both.channelInterpretation], [2, "explicit", "speakers"]);
+  // Quad: the front pair straight to its speakers, the back pair folded
+  // onto its side through a gain each.
+  const ambience = bed(4, "ambience");
+  const [split, route, ...amps] = ambience.out.nodes;
+  assert.equal(split.kind, "ChannelSplitterNode");
+  assert.equal(route.kind, "ChannelMergerNode");
+  assert.deepEqual(amps.map((a) => a.gain.value), [0.7, 0.7]);
+  const routes = ctx.edges.filter((e) => e.to === route).map((e) => [e.from === split ? e.output : e.from === amps[0] ? 2 : 3, e.input]);
+  assert.deepEqual(routes.sort(), [
+    [0, 0],
+    [1, 1],
+    [2, 0],
+    [3, 1],
+  ]);
+});
+
 test("a voice with a node of its own keeps the browser's nodes beside the voice engine", async () => {
   // A stream's line said somewhere, and the audio panel's test.
   for (const quality of ["original", "enhanced"]) {
