@@ -138,6 +138,7 @@ pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
     }
     io().resize(CAPACITY, 0.0);
     sim().events.reserve(262144, FfShot::WORDS, 1024);
+    if let Some(c) = collision_world() { c.prepare(crate::collision::state()); }
     desc()[F2Phase::INPUT] = io().as_mut_ptr() as usize as f64;
     desc()[F2Phase::CAPACITY] = CAPACITY as f64;
     desc().as_ptr()

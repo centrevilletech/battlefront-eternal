@@ -81,10 +81,13 @@ pub struct Gathered {
     count: usize,
     grouped: bool,
     index: PolygonIndex,
+    // The vehicle phase binds triangle storage to geometry identities at load.
+    // Query order may change without repeatedly growing a different slot.
+    spares: Vec<(u64, Vec<Tri>)>,
 }
 
 impl Default for Gathered {
-    fn default() -> Self { Gathered { polygons: Vec::new(), count: 0, grouped: false, index: PolygonIndex::new() } }
+    fn default() -> Self { Gathered { polygons: Vec::new(), count: 0, grouped: false, index: PolygonIndex::new(), spares: Vec::new() } }
 }
 
 impl Gathered {
@@ -92,7 +95,38 @@ impl Gathered {
     pub fn list(&self) -> &[Polygon] { &self.polygons[..self.count] }
     pub fn list_mut(&mut self) -> &mut [Polygon] { &mut self.polygons[..self.count] }
 
+    /// CollisionWorld's fixed and body geometry bounds the persistent storage.
+    /// Keep buffers per polygon id; their total capacity is linear in triangles,
+    /// rather than reserving the largest polygon for every possible query slot.
+    pub fn prepare(&mut self, s: &State, world: usize, blockers: Option<usize>) {
+        self.clear();
+        let mut counts = std::collections::BTreeMap::<u64, usize>::new();
+        let mut add = |ids: &[u32], offset: f64| {
+            for &id in ids { *counts.entry((id as f64 + offset).to_bits()).or_default() += 1; }
+        };
+        if let Some(set) = s.worlds[world].statics { let set = &s.sets[set]; add(&set.polygons,set.offset); }
+        if let Some(set) = blockers { let set = &s.sets[set]; add(&set.polygons,set.offset); }
+        for &slot in &s.worlds[world].order {
+            let body = &s.bodies[slot as usize]; add(&s.trees[body.tree].polygons,body.offset);
+        }
+        for (id,n) in counts {
+            match self.spares.binary_search_by_key(&id, |row| row.0) {
+                Ok(i) => { let v = &mut self.spares[i].1; v.reserve(n.saturating_sub(v.len())); }
+                Err(i) => self.spares.insert(i,(id,Vec::with_capacity(n))),
+            }
+        }
+        self.polygons.resize_with(self.spares.len(),Polygon::default);
+        self.index.reserve(self.spares.len());
+    }
+    pub fn capacity(&self) -> usize { self.polygons.len() }
     fn clear(&mut self) {
+        if !self.spares.is_empty() {
+            for p in &mut self.polygons[..self.count] {
+                if let Ok(i) = self.spares.binary_search_by_key(&p.id.to_bits(), |row| row.0) {
+                    std::mem::swap(&mut p.tris,&mut self.spares[i].1);
+                }
+            }
+        }
         self.count = 0;
         if self.grouped {
             self.index.clear();
@@ -120,6 +154,9 @@ impl Gathered {
         self.count += 1;
         if self.grouped { self.index.set(id, n); }
         let p = &mut self.polygons[n];
+        if let Ok(i) = self.spares.binary_search_by_key(&id.to_bits(), |row| row.0) {
+            std::mem::swap(&mut p.tris,&mut self.spares[i].1);
+        }
         p.id = id;
         p.tris.clear();
         p.done = false;
@@ -145,6 +182,10 @@ impl PolygonIndex {
         let mut p = PolygonIndex { bits: 0, mask: 0, count: 0, stamp: 1, ids: Vec::new(), at: Vec::new(), stamps: Vec::new() };
         p.allocate(8);
         p
+    }
+    fn reserve(&mut self, count: usize) {
+        let size = (count * 2).max(256).next_power_of_two();
+        if size > self.mask + 1 { self.allocate(size.trailing_zeros()); }
     }
     fn allocate(&mut self, bits: u32) {
         let size = 1usize << bits;
@@ -209,6 +250,13 @@ pub struct GatherCache {
 }
 
 impl GatherCache {
+    /// Caller construction reserves index lists for all loaded geometry.
+    /// A later cache refill changes values and length, never its allocation.
+    pub fn reserve(&mut self, statics: usize, blockers: usize, bodies: usize) {
+        self.statics.reserve(statics.saturating_sub(self.statics.len()));
+        self.blockers.reserve(blockers.saturating_sub(self.blockers.len()));
+        self.bodies.reserve(bodies.saturating_sub(self.bodies.len()));
+    }
     /// margin: how far past a query's bounds the cached triangles reach
     /// (collision.js's default is 0.75).
     pub fn new(margin: f64) -> Self {

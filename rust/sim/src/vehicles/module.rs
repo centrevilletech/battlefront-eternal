@@ -238,6 +238,7 @@ pub extern "C" fn veh_collider(walls: u32, springs: u32) {
         springs: v[F2ColliderHeader::WORDS + w..F2ColliderHeader::WORDS + w + n].iter().map(|&x| x as i64).collect(),
     };
     c.add_collider(header.body, collider);
+    if f2::active() { c.prepare(crate::collision::state()); }
 }
 
 /// The flags and places the hulls changed since the last call, for

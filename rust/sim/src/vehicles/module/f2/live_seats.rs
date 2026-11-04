@@ -815,6 +815,7 @@ pub extern "C" fn f2_bodies() {
         state().body_refs[row.body.slot as usize] = Some(row.body);
         collision_world().expect("F2 collision topology").name_body(row.body.slot, row.kernel);
     }
+    if super::active() { collision_world().unwrap().prepare(crate::collision::state()); }
 }
 
 /// riderBody chooses the animal frame by HealthType, not the movement base.

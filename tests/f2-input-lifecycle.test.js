@@ -378,3 +378,20 @@ test('live F2 generated collision records match world bodies without game files'
   }
   assert.deepEqual(await run(true), await run(false));
 });
+// Loaded geometry bounds each query's scratch, including polygons first met
+// after the hull starts moving. The phase itself must not grow those buffers.
+test('warm F2 native collision reuses storage at a later wall contact', async () => {
+  const { system } = await fleet(true, true, true);
+  try {
+    const v = system.vehicles[0], u = rider(system, 46);
+    assert.equal(system.board(u, v), true);
+    for (let i = 0; i < 30; i++) system.update(1 / 60);
+    u.intent.forward = 1;
+    for (let i = 0; i < 240; i++) {
+      system.update(1 / 60);
+      assert.equal(system.f2.x.f2_allocations(), 0, `collision allocation at ${i}`);
+    }
+    assert.ok(v.position.z > 0, 'the hull reaches the blocking geometry');
+    assert.ok(v.position.z < 2.6, 'the wall still stops the hull');
+  } finally { system.dispose(); }
+});

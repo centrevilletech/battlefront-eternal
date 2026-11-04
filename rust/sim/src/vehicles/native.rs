@@ -83,6 +83,7 @@ pub struct Collision {
     placed: Vec<u32>,
     marks: Vec<u8>,
     gathered: Gathered,
+    prepared: Option<u64>,
     polygons: Vec<Polygon>,
     near: Vec<u32>,
     points: Vec<[f64; 3]>,
@@ -107,6 +108,7 @@ impl Collision {
             placed: Vec::new(),
             marks: Vec::new(),
             gathered: Gathered::new(),
+            prepared: None,
             polygons: Vec::new(),
             near: Vec::new(),
             points: Vec::new(),
@@ -139,6 +141,30 @@ impl Collision {
             self.colliders.resize(b + 1, None);
         }
         self.colliders[b] = Some(collider);
+    }
+
+    /// CollisionWorld construction sizes native wall-query storage from the
+    /// loaded level. A new part of the map must not allocate on first contact.
+    pub fn prepare(&mut self, s: &State) {
+        let w = &s.worlds[self.world];
+        if self.prepared != Some(w.version) {
+            self.gathered.prepare(s,self.world,self.blockers);
+            let n = s.bodies.len();
+            self.near.reserve(self.gathered.capacity().saturating_sub(self.near.len()));
+            self.placed.reserve(n.saturating_sub(self.placed.len()));
+            self.toggled.reserve(n.saturating_sub(self.toggled.len()));
+            self.place_of.reserve(n.saturating_sub(self.place_of.len()));
+            self.marks.reserve(n.saturating_sub(self.marks.len()));
+            self.prepared = Some(w.version);
+        }
+        let statics = w.statics.map_or(0, |set| s.sets[set].polygons.len());
+        let blockers = self.blockers.map_or(0, |set| s.sets[set].polygons.len());
+        for c in self.colliders.iter().flatten() {
+            self.points.reserve(c.walls.len().saturating_sub(self.points.len()));
+            for &id in c.walls.iter().chain(&c.springs) {
+                if id >= 0 { spheres::caches()[id as usize].reserve(statics,blockers,w.order.len()); }
+            }
+        }
     }
 
     pub fn collider(&self, body: BodyId) -> Option<&Collider> {
