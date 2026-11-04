@@ -3,6 +3,7 @@ export default {
   enums: { AiAwarenessOp: ['alive', 'motion', 'weapon', 'active', 'mute', 'query', 'recipient', 'notify',
     'livingStart', 'livingNext', 'clear', 'protectQuery', 'protectRecipient', 'protectAppend',
     'dangerRow', 'dangerDraw', 'dangerTime', 'dangerFirst', 'dangerLast', 'dangerQuery', 'dangerRecipient',
+    'dangerSkill', 'dangerSkillCompare', 'dangerAdd',
     'dangerWarn', 'dangerHasNotify', 'dangerNotify', 'dangerWrite',
     'shotStart', 'shotSource', 'shotRelation', 'shotHuman', 'damageStart', 'damageRelation', 'damagePacket',
     'alertSeat', 'alertSeatController', 'alertOwn', 'alertCanNotify', 'alertBody', 'alertLeases', 'alertLease',

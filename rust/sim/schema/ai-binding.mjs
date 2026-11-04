@@ -6,7 +6,7 @@ export default {
     'aimer','aimerUpdate','reader','read','dangerState','dangerNew','dangerBind','dangerContact','dangerCompare','dangerWrite','dangerNotify',
     'eventKind','eventSource','eventTarget','eventAttacker','reference','referenceUnit','resolveUnit','resolveAlive','resolveGeneration',
     'resolveResult','referenceHasAlive','referenceAlive','referenceNull','shotController','shotFallback','shotReference','pair','shot',
-    'attackerFallback','damage'] },
+    'attackerFallback','damage','eligibleAlive','eligibleTargetable','eligibleHealth','eligibleHealthCompare','eligibleRelation','eligibleRelationCompare'] },
   records: {
     AiBindingArgs: { op: 'enum:AiBindingOp', id: 'u32', number: 'f64' },
     AiBindingResult: { flag: 'bool', number: 'f64', values: 'list:f64' },

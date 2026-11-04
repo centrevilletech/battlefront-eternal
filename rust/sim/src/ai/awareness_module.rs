@@ -71,14 +71,20 @@ pub extern "C" fn ai_rebuild_protected() {
 // perception.js notifyDanger: the difficulty and RNG callbacks run before
 // reading the projectile's timing fields, exactly as the source does.
 #[no_mangle]
-pub extern "C" fn ai_notify_danger(enemy_skill: f64) -> f64 {
+pub extern "C" fn ai_notify_danger() -> f64 {
     let row=call(Op::DangerRow,0,0.0);
-    let (lo,hi)=if row.flag {(row.values[0],row.values[1])} else if enemy_skill<17.0 {
-        if enemy_skill<14.0 {(f(1.1),f(2.1))} else {(f(0.6),f(1.3))}
+    let below=|threshold| {let skill=call(Op::DangerSkill,0,0.0);if skill.flag {skill.number<threshold} else {call(Op::DangerSkillCompare,0,threshold).flag}};
+    let (lo,hi)=if row.flag {(row.values[0],row.values[1])} else if below(17.0) {
+        if below(14.0) {(f(1.1),f(2.1))} else {(f(0.6),f(1.3))}
     } else {(0.0,f(0.8))};
     let delay=import_ai_awareness(&AiAwarenessArgs {op:Op::DangerDraw,id:if row.flag {1} else {0},number:lo,other:hi,..Default::default()}).number;
     let now=f(call(Op::DangerTime,0,0.0).number);
-    if !(f(call(Op::DangerFirst,0,0.0).number+delay)<now) || !(f(call(Op::DangerLast,0,0.0).number+1.0)<now) {return 0.0;}
+    let first=call(Op::DangerFirst,0,0.0);
+    let first_time=f(if first.flag {first.number+delay} else {call(Op::DangerAdd,0,0.0).number});
+    if !(first_time<now) {return 0.0;}
+    let last=call(Op::DangerLast,0,0.0);
+    let last_time=f(if last.flag {last.number+1.0} else {call(Op::DangerAdd,1,0.0).number});
+    if !(last_time<now) {return 0.0;}
     let found=call(Op::DangerQuery,0,0.0).ids;state().danger_targets=found;
     let mut warned=false;let mut notified=0.0;let mut index=0;
     while index<state().danger_targets.len() && index<175 {

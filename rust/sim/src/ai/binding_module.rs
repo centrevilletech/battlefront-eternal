@@ -30,6 +30,14 @@ fn event() {
         if call(Op::Pair,0).flag {call(Op::Damage,0);}
     }
 }
+fn eligible() -> bool {
+    let alive=call(Op::EligibleAlive,0);
+    if !alive.flag || alive.number!=0.0 || !call(Op::EligibleTargetable,0).flag {return false;}
+    let max=call(Op::EligibleHealth,0);
+    if !(if max.flag {max.number<3.4028234663852886e38} else {call(Op::EligibleHealthCompare,0).flag}) {return false;}
+    let relation=call(Op::EligibleRelation,0);
+    if relation.flag {relation.number<0.0} else {call(Op::EligibleRelationCompare,0).flag}
+}
 #[no_mangle]
 pub extern "C" fn ai_combat_binding(mode: u32) {
     match mode {
@@ -49,6 +57,7 @@ pub extern "C" fn ai_combat_binding(mode: u32) {
             if earlier {call(Op::DangerWrite,0);}call(Op::DangerNotify,0);
         }
         9 => event(),
+        10 => {let valid=eligible();call(Op::Result,u32::from(valid));}
         _ => panic!("invalid combat binding command"),
     }
 }

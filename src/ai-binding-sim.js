@@ -75,6 +75,12 @@ export class NativeBindings {
         const e=frame.event,notify=services.damage,vec=services.vec;
         notify(world,frame.refs[0],frame.refs[1],{amount:e.amount,generic:e.generic??1,typed:e.typed??1},Boolean(e.known),e.point?vec(e.point):null);
       }
+      else if(op==='eligibleAlive'){result.flag=Boolean(frame.target?.alive);result.number=Number(frame.target===frame.unit);}
+      else if(op==='eligibleTargetable')result.flag=frame.target.targetable!==false;
+      else if(op==='eligibleHealth'){const t=frame.target;frame.health=t.combat?.maxHealth??t.classDef?.MaxHealth??0;result.flag=typeof frame.health==='number';if(result.flag)result.number=frame.health;}
+      else if(op==='eligibleHealthCompare')result.flag=frame.health<3.4028234663852886e38;
+      else if(op==='eligibleRelation'){frame.relation=world.units.relation(frame.unit.team,frame.target.team);result.flag=typeof frame.relation==='number';if(result.flag)result.number=frame.relation;}
+      else if(op==='eligibleRelationCompare')result.flag=frame.relation<0;
       else throw Error(`unknown AI binding callback ${op}`);
       return result;
     }});
@@ -103,5 +109,9 @@ export class NativeBindings {
   event(world,event,services) {
     this.frames.push({world,event,services,refs:[]});
     try{this.sim.x.ai_combat_binding(9);}finally{this.frames.pop();}
+  }
+  target(world,unit,target) {
+    const frame={world,unit,target};this.frames.push(frame);
+    try{this.sim.x.ai_combat_binding(10);return frame.result;}finally{this.frames.pop();}
   }
 }

@@ -66,10 +66,16 @@ pub enum AiBindingOp {
     Shot = 57,
     AttackerFallback = 58,
     Damage = 59,
+    EligibleAlive = 60,
+    EligibleTargetable = 61,
+    EligibleHealth = 62,
+    EligibleHealthCompare = 63,
+    EligibleRelation = 64,
+    EligibleRelationCompare = 65,
 }
 
 impl AiBindingOp {
-    pub const NAMES: [&'static str; 60] = ["create", "reset", "arsenal", "weapons", "nextWeapon", "weaponRandom", "hasPerception", "clearCandidate", "unit", "weapon", "lead", "result", "fire", "hooked", "hasIntent", "update", "intentWrite", "hook", "intent", "aimStart", "forward", "difficulty", "curveA", "ownCurves", "aiCurves", "aiCurvesCall", "difficultyCurves", "difficultyCurvesCall", "nullCurves", "aimer", "aimerUpdate", "reader", "read", "dangerState", "dangerNew", "dangerBind", "dangerContact", "dangerCompare", "dangerWrite", "dangerNotify", "eventKind", "eventSource", "eventTarget", "eventAttacker", "reference", "referenceUnit", "resolveUnit", "resolveAlive", "resolveGeneration", "resolveResult", "referenceHasAlive", "referenceAlive", "referenceNull", "shotController", "shotFallback", "shotReference", "pair", "shot", "attackerFallback", "damage"];
+    pub const NAMES: [&'static str; 66] = ["create", "reset", "arsenal", "weapons", "nextWeapon", "weaponRandom", "hasPerception", "clearCandidate", "unit", "weapon", "lead", "result", "fire", "hooked", "hasIntent", "update", "intentWrite", "hook", "intent", "aimStart", "forward", "difficulty", "curveA", "ownCurves", "aiCurves", "aiCurvesCall", "difficultyCurves", "difficultyCurvesCall", "nullCurves", "aimer", "aimerUpdate", "reader", "read", "dangerState", "dangerNew", "dangerBind", "dangerContact", "dangerCompare", "dangerWrite", "dangerNotify", "eventKind", "eventSource", "eventTarget", "eventAttacker", "reference", "referenceUnit", "resolveUnit", "resolveAlive", "resolveGeneration", "resolveResult", "referenceHasAlive", "referenceAlive", "referenceNull", "shotController", "shotFallback", "shotReference", "pair", "shot", "attackerFallback", "damage", "eligibleAlive", "eligibleTargetable", "eligibleHealth", "eligibleHealthCompare", "eligibleRelation", "eligibleRelationCompare"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -133,6 +139,12 @@ impl AiBindingOp {
             57 => Some(AiBindingOp::Shot),
             58 => Some(AiBindingOp::AttackerFallback),
             59 => Some(AiBindingOp::Damage),
+            60 => Some(AiBindingOp::EligibleAlive),
+            61 => Some(AiBindingOp::EligibleTargetable),
+            62 => Some(AiBindingOp::EligibleHealth),
+            63 => Some(AiBindingOp::EligibleHealthCompare),
+            64 => Some(AiBindingOp::EligibleRelation),
+            65 => Some(AiBindingOp::EligibleRelationCompare),
             _ => None,
         }
     }
