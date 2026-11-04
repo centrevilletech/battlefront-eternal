@@ -384,6 +384,7 @@ export class CoverHelper extends Fsm {
     this.deadline = 0;
     this.checkAt = 0;
     this.reselectAt = 0;
+    agent.world?.aiSim?.cover.bind(this);
   }
 
   get world() {

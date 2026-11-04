@@ -2,7 +2,7 @@ import { selectedWeapon, weaponAI } from './ai/classic/weapons-ai.js';
 
 export class NativeCover {
   constructor(sim) {
-    this.sim=sim;this.frames=[];
+    this.sim=sim;this.frames=[];this.helpers=new WeakMap();
     sim.bridge.register({aiCover:args=>{
       const op=args.op,id=args.id,number=args.number,frame=this.frames[this.frames.length-1],a=frame.agent;
       const result={flag:false,number:0,values:[],ids:[]};
@@ -26,6 +26,18 @@ export class NativeCover {
       else throw Error(`unknown cover callback ${op}`);
       return result;
     }});
+  }
+  bind(helper) {
+    if(this.helpers.has(helper))return;
+    const x=this.sim.x,id=x.ai_cover_new(),opaque=[];
+    ['hint','posture','deadline','checkAt','reselectAt'].forEach((name,index)=>{
+      const initial=helper[name];
+      Object.defineProperty(helper,name,{enumerable:true,configurable:true,
+        get:()=>x.ai_cover_kind(id,index)===0?x.ai_cover_field(id,index):opaque[index],
+        set:value=>{if(typeof value==='number'){opaque[index]=undefined;x.ai_cover_write(id,index,0,value);}else{opaque[index]=value;x.ai_cover_write(id,index,1,0);}}});
+      helper[name]=initial;
+    });
+    this.helpers.set(helper,id);
   }
   score(agent,hint) {
     this.frames.push({agent,hint});

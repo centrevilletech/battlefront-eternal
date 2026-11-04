@@ -13,6 +13,7 @@ mod controller_driver_module;
 mod dispatch_module;
 #[cfg(target_arch = "wasm32")]
 mod cover_module;
+mod cover_state_module;
 mod fire_module;
 mod fsm_module;
 #[cfg(target_arch = "wasm32")]
