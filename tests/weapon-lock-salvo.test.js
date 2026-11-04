@@ -99,14 +99,14 @@ test('guided missiles track moving targets and never adopt a recycled unit', () 
   const t = target(), ctx = context([t]);
   const ord = rustOrdnance({ scene: new THREE.Scene(), collision: ctx.collision,
     model: () => null, effects: {}, lights: { add() {} } });
-  ord.units = ctx.units;
+  ord.units = {...ctx.units,raycast:()=>null};
   const def = { base: 'missile', Velocity: 40, LifeSpan: 8, TurnRate: 2, ScaleTime: .1 };
   const guided = ord.fire(def, ctx.origin, ctx.dir, null, null, null, null, { targetId: t.id, targetGeneration: t.generation });
   const free = ord.fire(def, ctx.origin, ctx.dir, null);
-  t.position.x = 10; ord.steer(guided, .1); ord.steer(free, .1);
+  t.position.x = 10; ord.update(.1,false);
   assert.ok(guided.velocity.x > 0); assert.equal(free.velocity.x, 0);
   const last = guided.desired.clone(); t.generation++; t.position.x = -30;
-  ord.steer(guided, .1); assert.equal(guided.targetId, -1); assert.deepEqual(guided.desired, last);
+  ord.update(.1,false); assert.equal(guided.targetId, -1); assert.deepEqual(guided.desired, last);
 });
 
 test('native cursor uses eight aim ticks and a separate fading diamond, without a circle', () => {

@@ -12,7 +12,7 @@ function checkGuidance(def) {
   const target = { id: 7, generation: 2, alive: true, team: 2, kind: 6,
     position: new THREE.Vector3(0, 0, 40), sphere: { radius: 1 },
     aimPoint(out) { return out.copy(this.position); } };
-  const units = { all: () => [target], byId: id => id === target.id ? target : null };
+  const units = { raycast:()=>null, all: () => [target], byId: id => id === target.id ? target : null };
   const origin = new THREE.Vector3(), dir = new THREE.Vector3(0, 0, 1);
   const collision = { cast: () => null };
   updateWeaponLock(weapon, (def.LockTime || def.MaxPressedTime) + .01,
@@ -26,10 +26,10 @@ function checkGuidance(def) {
   ordnance.units = units;
   const round = ordnance.fire(def.ordnance, origin, dir, null, null, null, null, shots[0]);
   target.position.x = 10;
-  ordnance.steer(round, .1);
+  ordnance.update(.1,false);
   assert.ok(round.desired.x > 0, `${def.class}: follows moving target`);
   target.generation++;
-  ordnance.steer(round, .1);
+  ordnance.update(.1,false);
   assert.equal(round.targetId, -1);
 }
 
@@ -98,7 +98,7 @@ test('vehicle construction, player firing and AI firing preserve secondary missi
   const target = { id: 7, generation: 2, alive: true, team: 2, kind: 6,
     position: v.seatEye(0, new THREE.Vector3()).addScaledVector(v.seatForward(0, new THREE.Vector3()), 40),
     sphere: { radius: 1 }, aimPoint(out) { return out.copy(this.position); } };
-  system.units = ordnance.units = { all: () => [v.aiTarget, target], byId: id => id === 7 ? target : null };
+  system.units = ordnance.units = { raycast:()=>null, all: () => [v.aiTarget, target], byId: id => id === 7 ? target : null };
   const idle = { take: () => false, held: () => false };
   for (let i = 0; i < 61; i++) v.fire(1 / 60, idle);
   assert.equal(v.current(1).lockComplete, true);
@@ -144,7 +144,7 @@ test('a seat locks along its reticle line (through the point under the crosshair
   const side = ahead.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), 20 * Math.PI / 180);
   const target = { id: 7, generation: 2, alive: true, team: 2, kind: 6, position: eye.clone().addScaledVector(side, 40),
     sphere: { radius: 1 }, aimPoint(out) { return out.copy(this.position); } };
-  system.units = ordnance.units = { all: () => [v.aiTarget, target], byId: id => id === 7 ? target : null };
+  system.units = ordnance.units = { raycast:()=>null, all: () => [v.aiTarget, target], byId: id => id === 7 ? target : null };
   const idle = { take: () => false, held: () => false };
   v.seats[0].target = null;
   for (let i = 0; i < 61; i++) v.fire(1 / 60, idle);

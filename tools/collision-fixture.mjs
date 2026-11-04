@@ -3,8 +3,7 @@
 import { CollisionWorld as World } from '../src/collision.js';
 import { loadRayKernel } from '../src/ray-kernel.js';
 const rays = await loadRayKernel();
-export class CollisionWorld extends World {
-  constructor(positions, indices, polygons, terrainPositions, terrainIndices, kernel = rays) {
-    super(positions, indices, polygons, terrainPositions, terrainIndices, kernel ?? rays);
-  }
+export function CollisionWorld(positions, indices, polygons, terrainPositions, terrainIndices, kernel = rays) {
+  return new World(positions, indices, polygons, terrainPositions, terrainIndices, kernel ?? rays);
 }
+CollisionWorld.prototype = World.prototype;

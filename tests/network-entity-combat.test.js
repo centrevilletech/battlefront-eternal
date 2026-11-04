@@ -1,3 +1,4 @@
+import { KIND_GRENADE } from '../src/sim/gen/index.js';
 import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {Scene,Vector3} from 'three';
@@ -200,7 +201,7 @@ test('shared Ordnance impact and shared Combat.damage produce feedback without r
  const f=fixture(),attacker={id:7,generation:2,team:1},target={id:8,generation:3,team:2,classDef:{}};let died=0,hits=0,kills=0;
  const combat=Object.create(PlayerCombat.prototype);target.combat=combat;
  Object.assign(combat,{soldier:{air:null},health:10,dead:false,chunks:0,animator:{die(){died++;}},updateHeld(){},onDamaged(amount,source){f.capture.event({kind:'damage',target:{unit:target,generation:3},attacker:{unit:source,generation:2},team:2,attackerTeam:1,position:[0,0,1]});},onDeath(){f.capture.event({kind:'death',target:{unit:target,generation:3},attacker:{unit:attacker,generation:2},team:2,attackerTeam:1,position:[0,0,1]});}});
- f.authority.castUnits=()=>({unit:target,point:new Vector3(0,0,1),normal:new Vector3(0,0,-1),part:'body'});
+ f.authority.world.raycastUnits=()=>({unit:target,point:new Vector3(0,0,1),normal:new Vector3(0,0,-1),part:'body'});
  f.authority.onHitUnit=(unit,def,point,owner)=>unit.combat.damage(20,20,point,owner);
  const bolt=f.authority.fire(def,new Vector3(),new Vector3(0,0,1),attacker);f.capture.drain();f.setTick(11);f.authority.update(1/60);
  assert.equal(combat.health,0);assert.equal(died,1);
@@ -329,7 +330,7 @@ test('actual grenade and shell samples render authoritative bounce/flight state 
  const decoded=decodeCombat(transfer(record));assert.ok(Math.abs(decoded.position[1]-grenade.position.y)<1e-6);assert.ok(Math.abs(decoded.quaternion[3])<1,'headless authority retains visible grenade tumble');
  f.presentation.receive(transfer(record),{epoch:1,tick:13});f.presentation.present(13);
  const view=f.presentation.dynamic.objects.get(record.id);assert.ok(view.mesh.position.distanceTo(grenade.position)<1e-6);
- f.authority.explode(grenade);f.setTick(14);const terminal=f.capture.drain()[0].record;assert.equal(terminal.schema,7);
+ grenade.resting=true;grenade.fuse=0;f.authority.sim.bridge.writeSome(KIND_GRENADE,[grenade],true);f.authority.update(0,false);f.setTick(14);const terminal=f.capture.drain()[0].record;assert.equal(terminal.schema,7);
  f.presentation.receive(transfer(terminal),{epoch:1,tick:14});assert.equal(f.presentation.dynamic.objects.size,1,'ends when the playout clock reaches it');
  f.presentation.present(14);assert.equal(f.presentation.dynamic.objects.size,0);assert.equal(view.mesh.parent,null);
  assert.equal(f.presentation.receive(transfer(record),{epoch:1,tick:16}),false,'late sample cannot revive retired projectile');
@@ -514,7 +515,7 @@ test('a FadeOutTime terminal whose launch never arrived is drawn from the shoote
  assert.ok(Math.abs(drawn.life-30/2000)<1e-12);
  f.presentation.present(11);f.client.drawnAt.set(-1,-1,-1);f.presentation.present(30);assert.deepEqual(f.client.drawnAt.toArray(),[1,0,30],'fading where it stopped');
  // A class without a FadeOutTime is gone with its terminal, as before.
- const g=fixture();g.muzzle(new Vector3(1,0,0));const plain=g.authority.bolt(def,new Vector3(),new Vector3(0,0,1),null);g.capture.drain();
+ const g=fixture();g.muzzle(new Vector3(1,0,0));const plain=g.authority.fire(def,new Vector3(),new Vector3(0,0,1),null);g.capture.drain();
  g.setTick(11);g.capture.impact(plain,{point:new Vector3(0,0,3),normal:new Vector3(0,0,-1),surface:1});
  g.presentation.receive(transfer(g.capture.drain()[0].record),{epoch:1,tick:11});assert.equal(g.presentation.records.get(1).bolt,undefined);
 });

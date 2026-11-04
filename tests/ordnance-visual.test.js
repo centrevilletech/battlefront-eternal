@@ -105,7 +105,7 @@ test('a beam leaves its ImpactEffect on whatever it touches; an older extract ke
   const make = (cast, raycast = () => null) => {
     const o = rustOrdnance({ scene: new THREE.Scene(), collision: { cast }, effects: { play: name => played.push(name) },
       lights: { add() {} }, texture: () => null });
-    o.castUnits = raycast;
+    o.world.raycastUnits = raycast;
     return o;
   };
   const ground = (from, dir, far, hit) => Object.assign(hit, { distance: 12, terrain: true, body: null });

@@ -1,3 +1,4 @@
+import { KIND_ITEM } from '../src/sim/gen/index.js';
 import { rustItems } from './helpers/rust-simulation.js';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {Scene,Vector3,Object3D,Group,Mesh,BoxGeometry} from 'three';
@@ -18,6 +19,8 @@ function fixture({ground=none,clientGround=ground,pools={mine:1,powerupitem:1},m
  const definitions=new Map([[1,mine],[2,pickup],[3,health]]),registry={definitions,definitionId:def=>def===mine?1:def===pickup?2:3};
  for(const name of ['update','watch','offer','expire','destroy','hurt'])client[name]=()=>{throw Error('client gameplay forbidden');};
  return{authority,client,capture:new EntityItemCapture(authority,registry),presentation:new EntityItemPresentation(client,registry),explosions:()=>explosions};}
+function publish(items,item) {items.sim.bridge.writeSome(KIND_ITEM,[item],true);}
+function remove(items,item) {item.life=0;publish(items,item);items.update(0);}
 let serial=0;
 const transfer=record=>decodeEntityPacket(encodeEntityPacket({epoch:1,packetId:++serial,tick:record.tick,records:[record]})).records[0];
 const spawn=(f,def=mine)=>{f.authority.update(0);return f.authority.spawn(def,new Vector3(2,0,3),new Vector3(),.3);};
@@ -37,7 +40,7 @@ const along=(path,tick)=>{const base=Math.floor(tick);return path[base].clone().
 test('actual mine is visible until shared authority triggers it; client never checks targets',()=>{
  const f=fixture(),item=spawn(f);item.landed=true;const live=f.capture.capture(1)[0];f.presentation.receive(transfer(live),1);f.presentation.present(1.5);
  const view=f.presentation.slots.get(live.id).view;assert.ok(view.mesh.parent===f.client.scene);assert.ok(view.mesh.position.distanceTo(item.position)<.004);
- f.authority.watch(item,[{relation:()=>-1,center:item.position.clone(),velocity:new Vector3(),radius:.3}]);assert.equal(f.explosions(),1);
+ publish(f.authority,item);f.authority.update(0,[{relation:()=>-1,position:item.position.clone(),center:item.position.clone(),velocity:new Vector3(),radius:.3}]);assert.equal(f.explosions(),1);
  const dead=f.capture.capture(2)[0];assert.equal(dead.active,false);f.presentation.receive(transfer(dead),1);
  f.presentation.present(1.9);assert.ok(view.mesh.parent===f.client.scene,'drawn until the playout clock reaches its removal');
  f.presentation.present(2);assert.equal(view.mesh.parent,null);assert.equal(f.presentation.slots.get(live.id).view,null);
@@ -46,14 +49,14 @@ test('actual mine is visible until shared authority triggers it; client never ch
 
 test('actual pickup grants on authority once and disappears without any client grant',()=>{
  const f=fixture(),item=spawn(f,pickup);item.landed=true;let grants=0;const live=f.capture.capture(1)[0];f.presentation.receive(transfer(live),1);f.presentation.present(1);
- f.authority.offer(item,[{position:item.position.clone(),give(){grants++;return true;}}]);assert.equal(grants,1);
+ publish(f.authority,item);f.authority.update(0,[{position:item.position.clone(),give(){grants++;return true;}}]);assert.equal(grants,1);
  const removed=transfer(f.capture.capture(2)[0]);f.presentation.receive(removed,1);f.presentation.receive(removed,1);assert.ok(f.presentation.slots.get(live.id).view);
  f.presentation.present(2);assert.equal(grants,1);assert.equal(f.presentation.slots.get(live.id).view,null);assert.equal(f.client.views.size,0);
 });
 
 test('slot reuse increments generation and ignores old terminal, including same-tick retirement',()=>{
  const f=fixture(),first=spawn(f),one=f.capture.capture(1)[0];f.presentation.receive(transfer(one),1);
- f.authority.remove(first);const gone=f.capture.capture(1)[0];assert.equal(f.presentation.receive(transfer(gone),1),true);
+ remove(f.authority,first);const gone=f.capture.capture(1)[0];assert.equal(f.presentation.receive(transfer(gone),1),true);
  spawn(f,pickup);const two=f.capture.capture(2)[0];assert.equal(two.id,one.id);assert.equal(two.generation,one.generation+1);f.presentation.receive(transfer(two),1);
  assert.equal(f.presentation.receive(transfer(gone),1),false);f.presentation.present(2);assert.equal(f.presentation.slots.get(two.id).view.def,pickup);assert.equal(f.client.views.size,1);
 });
@@ -66,13 +69,13 @@ test('resting item captures keep identity and ACKed state only sends bounded hea
 
 test('item receiver namespace and bounded slots survive repeated pickup lifetimes',()=>{
  const f=fixture(),receiver=new EntityReceiver({maxEntities:4});
- for(let i=0;i<100;i++){const item=spawn(f);const live=f.capture.capture(i*2+1)[0];receiver.apply(encodeEntityPacket({epoch:1,packetId:++serial,tick:live.tick,records:[live]}));f.authority.remove(item);const dead=f.capture.capture(i*2+2)[0];receiver.apply(encodeEntityPacket({epoch:1,packetId:++serial,tick:dead.tick,records:[dead]}));}
+ for(let i=0;i<100;i++){const item=spawn(f);const live=f.capture.capture(i*2+1)[0];receiver.apply(encodeEntityPacket({epoch:1,packetId:++serial,tick:live.tick,records:[live]}));remove(f.authority,item);const dead=f.capture.capture(i*2+2)[0];receiver.apply(encodeEntityPacket({epoch:1,packetId:++serial,tick:dead.tick,records:[dead]}));}
  assert.equal(f.capture.slots.length,2);assert.equal(f.capture.objects.size,0);assert.equal(receiver.records.size,1);
  receiver.apply(encodeEntityPacket({epoch:1,packetId:++serial,tick:201,records:[{kind:'tombstone',id:0,generation:999,tick:201}]}));assert.equal(receiver.records.size,2);assert.equal(receiver.get('item',0).generation,100);
 });
 
 test('lost removal is retransmitted until ACK and cannot retire the next generation',()=>{
- const f=fixture(),first=spawn(f),scheduler=new EntityScheduler();scheduler.update(f.capture.capture(1)[0]);f.authority.remove(first);scheduler.update(f.capture.capture(2)[0]);
+ const f=fixture(),first=spawn(f),scheduler=new EntityScheduler();scheduler.update(f.capture.capture(1)[0]);remove(f.authority,first);scheduler.update(f.capture.capture(2)[0]);
  const old=scheduler.packet({tick:2});scheduler.admitted(old.packetId);assert.ok(scheduler.packet({tick:3}));spawn(f,pickup);scheduler.update(f.capture.capture(4)[0]);scheduler.ack({epoch:1,packetId:old.packetId});
  assert.equal(scheduler.records.get('item:0').record.generation,2);
 });
@@ -92,7 +95,7 @@ test('world capture includes actual item pools and new epoch removes old visual 
 
  test('ACK for live item cannot retire a same-tick removal',()=>{
  const f=fixture(),item=spawn(f),scheduler=new EntityScheduler();scheduler.update(f.capture.capture(1)[0]);const live=scheduler.packet({tick:1});scheduler.admitted(live.packetId);
- f.authority.remove(item);scheduler.update(f.capture.capture(1)[0]);scheduler.ack({epoch:1,packetId:live.packetId});assert.equal(scheduler.records.get('item:0').record.active,false);
+ remove(f.authority,item);scheduler.update(f.capture.capture(1)[0]);scheduler.ack({epoch:1,packetId:live.packetId});assert.equal(scheduler.records.get('item:0').record.active,false);
  const terminal=scheduler.packet({tick:2});scheduler.admitted(terminal.packetId);scheduler.ack({epoch:1,packetId:terminal.packetId});assert.equal(scheduler.records.has('item:0'),false);
 });
 
@@ -138,7 +141,7 @@ test('an item appears when the clock reaches its first record and goes when it r
  const f=fixture(),item=spawn(f,pickup);item.landed=true;const live=transfer(f.capture.capture(10)[0]);f.presentation.receive(live,1);
  f.presentation.present(9.5);assert.equal(f.presentation.slots.get(live.id).view,null,'not before its first record');assert.equal(f.client.views.size,0);
  f.presentation.present(10);const view=f.presentation.slots.get(live.id).view;assert.ok(view.mesh.parent===f.client.scene&&f.client.views.has(view));
- f.authority.remove(item);f.presentation.receive(transfer(f.capture.capture(14)[0]),1);
+ remove(f.authority,item);f.presentation.receive(transfer(f.capture.capture(14)[0]),1);
  f.presentation.present(13.9);assert.ok(view.mesh.parent===f.client.scene,'drawn until the clock reaches its removal');assert.equal(f.presentation.slots.get(live.id).view,view);
  f.presentation.present(14);assert.equal(view.mesh.parent,null);assert.equal(f.presentation.slots.get(live.id).view,null);assert.equal(f.client.views.size,0);
 });
@@ -146,7 +149,7 @@ test('an item appears when the clock reaches its first record and goes when it r
 test('a slot reused inside the playout delay swaps its items on the clock',()=>{
  const f=fixture({pools:{mine:2,powerupitem:2}}),first=spawn(f,pickup);first.landed=true;const one=transfer(f.capture.capture(10)[0]);
  // Gone and replaced in the same tick: the next generation's first record is the only end the first item gets.
- f.authority.remove(first);spawn(f,mine).landed=true;const two=transfer(f.capture.capture(12)[0]);assert.equal(two.id,one.id);assert.equal(two.generation,one.generation+1);
+ remove(f.authority,first);spawn(f,mine).landed=true;const two=transfer(f.capture.capture(12)[0]);assert.equal(two.id,one.id);assert.equal(two.generation,one.generation+1);
  f.presentation.receive(one,1);f.presentation.receive(two,1);f.presentation.present(11);
  const entry=f.presentation.slots.get(one.id);assert.equal(entry.view,null,'the next item waits for the clock');assert.deepEqual([...f.client.views].map(view=>view.def),[pickup],'the one before it is still drawn');
  f.presentation.present(12);assert.equal(entry.view.def,mine);assert.deepEqual([...f.client.views].map(view=>view.def),[mine]);

@@ -47,7 +47,7 @@ test('fractional catch-up travels only the elapsed fraction then fixed ticks',()
  f.shooter.networkShot={viewTick:30.25};const bolt=f.ordnance.fire(definition,new Vector3(),forward,f.shooter);
  assert.ok(bolt.flown<=4);assert.equal(f.hits,0,'fractional timestamps cannot penetrate a current wall');
  const bounded=fixture({targetZ:100});for(let tick=0;tick<=80;tick++)bounded.history.capture(tick);
- bounded.shooter.networkShot={viewTick:30.25};assert.equal(bounded.ordnance.bolt(definition,new Vector3(),forward,bounded.shooter).flown,48);
+ bounded.shooter.networkShot={viewTick:30.25};assert.equal(bounded.ordnance.fire(definition,new Vector3(),forward,bounded.shooter).flown,48);
 });
 
 test('fractional history cannot interpolate across a teleport, death or new generation',()=>{
