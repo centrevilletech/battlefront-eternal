@@ -37,7 +37,7 @@ for (const query of ['?map=nab2&side=rep', '?map=geo1&side=rep', '?map=hot1&side
     buffers[key] = await response.arrayBuffer(); files.push([name, buffers[key].byteLength, sha256(new Uint8Array(buffers[key]))]);
   }
   authenticated.push({ query, hash: 'bfe-content-sha256-' + sha256(JSON.stringify(manifest)), manifest, files });
-  packs.push({ data, buffers });
+  packs.push({ data, buffers, fingerprint: sha256(JSON.stringify(files.map(([, size, hash]) => [size, hash]))) });
 }
 
 const corpusPath = option('corpus') ? resolve(option('corpus')) : null;
@@ -59,9 +59,9 @@ try {
       queries: (event.queries || []).map(q => ({ op: q.op, args: words(q.args), values: words(q.values) })) }) + '\n';
     corpusHash.update(line); corpusBytes += Buffer.byteLength(line); if (descriptor !== null) writeSync(descriptor, line); operations++;
   } });
-  for (const { data, buffers } of packs) for (const [name, def] of Object.entries(data.classes)) {
+  for (const { data, buffers, fingerprint } of packs) for (const [name, def] of Object.entries(data.classes)) {
     if (!['hover', 'walker', 'commandwalker', 'flyer'].includes(def.base || 'hover')) continue;
-    const id = sha256(JSON.stringify([name, def, data.models[def.model], data.animations?.[def.model]]));
+    const id = sha256(JSON.stringify([fingerprint, name, def, data.models[def.model], data.animations?.[def.model]]));
     if (unique.has(id)) continue; unique.add(id);
     const kind = def.base === 'flyer' ? 'flyer' : (def.settings?.HealthType || '').toLowerCase() === 'animal' ? 'creature'
       : ['walker', 'commandwalker'].includes(def.base) ? 'walker' : /hailfire/i.test(name) ? 'wheeled' : def.springs?.length ? 'springs' : 'hover';
