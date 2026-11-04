@@ -38,9 +38,24 @@ function numbers(value, keys, write = false) {
   });
 }
 function numeric(...values) { return values.every(value => typeof value === 'number'); }
+// Eligibility only: unusual values keep the original JavaScript phase. This
+// bound leaves room for timing products and sums without overflowing to NaN;
+// it never clamps a caller's state or changes the value used by the fallback.
+function bounded(...values) {
+  return values.every(value => typeof value === 'number' && value >= -Number.MAX_SAFE_INTEGER && value <= Number.MAX_SAFE_INTEGER);
+}
+function arithmetic(value, keys, write = false) {
+  const fields = numbers(value, keys, write);
+  if (!bounded(...fields)) throw unsupported;
+  return fields;
+}
 function optionalNumber(value) {
   if (value !== null && typeof value !== 'number') throw unsupported;
   return value === null ? [0, 0] : [1, value];
+}
+function optionalArithmetic(value) {
+  if (value !== null && !bounded(value)) throw unsupported;
+  return optionalNumber(value);
 }
 function metadata(make) {
   try { return make(); }
@@ -126,13 +141,13 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
     },
     estimatorArrive(value, tick, now, dropped) {
       const state = prepare(() => {
-        if (!numeric(tick, now, dropped)) throw unsupported;
-        const [hz, window, at, count] = numbers(value, ['hz', 'window', 'at', 'count']);
+        if (!bounded(tick, now, dropped)) throw unsupported;
+        const [hz, window, at, count] = arithmetic(value, ['hz', 'window', 'at', 'count']);
         const offsets = ring(data(value, 'offsets'), x.memory);
         if (window !== offsets.copy.length) throw unsupported;
         counter(at, count, offsets.copy.length);
         writable(value, ['at', 'count', 'offset', 'dropped']);
-        return { offsets, words: [hz, window, at, count, ...optionalNumber(data(value, 'offset')), ...optionalNumber(data(value, 'dropped')), tick, now, dropped, offsets.copy.length, ...offsets.copy] };
+        return { offsets, words: [hz, window, at, count, ...optionalArithmetic(data(value, 'offset')), ...optionalArithmetic(data(value, 'dropped')), tick, now, dropped, offsets.copy.length, ...offsets.copy] };
       });
       if (!state) return false;
       return run(1, state.words, read => {
@@ -148,13 +163,13 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
     },
     estimatorEstimate(value, now) {
       const state = prepare(() => {
-        if (!numeric(now)) throw unsupported;
-        return [numbers(value, ['hz'])[0], ...optionalNumber(data(value, 'offset')), now];
+        if (!bounded(now)) throw unsupported;
+        return [arithmetic(value, ['hz'])[0], ...optionalArithmetic(data(value, 'offset')), now];
       });
       return state ? run(2, state, read => { const present = read(), value = read(); return { value: present ? value : null }; }) : null;
     },
     leadReset(value) {
-      const state = prepare(() => { writable(value, leadResetFields, false); return numbers(value, ['margin']); });
+      const state = prepare(() => { writable(value, leadResetFields, false); return arithmetic(value, ['margin']); });
       if (!state) return false;
       return run(3, state, read => {
         value.gapAt = read(); value.gapCount = read(); const present = read(), at = read(); value.arrivedAt = present ? at : null;
@@ -164,11 +179,11 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
     },
     leadArrive(value, tick, now) {
       const state = prepare(() => {
-        if (!numeric(tick, now)) throw unsupported;
-        const [hz, latest, arrivedTick, at, count] = numbers(value, ['hz', 'latest', 'arrivedTick', 'gapAt', 'gapCount']);
+        if (!bounded(tick, now)) throw unsupported;
+        const [hz, latest, arrivedTick, at, count] = arithmetic(value, ['hz', 'latest', 'arrivedTick', 'gapAt', 'gapCount']);
         const gaps = ring(data(value, 'gaps'), x.memory); counter(at, count, gaps.copy.length);
         writable(value, ['latest', 'arrivedAt', 'arrivedTick', 'gapAt', 'gapCount']);
-        return { gaps, words: [hz, latest, ...optionalNumber(data(value, 'arrivedAt')), arrivedTick, at, count, tick, now, gaps.copy.length, ...gaps.copy] };
+        return { gaps, words: [hz, latest, ...optionalArithmetic(data(value, 'arrivedAt')), arrivedTick, at, count, tick, now, gaps.copy.length, ...gaps.copy] };
       });
       if (!state) return false;
       return run(4, state.words, read => {
@@ -182,19 +197,16 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
     },
     acknowledge(value, late, elapsed, capped) {
       const state = prepare(() => {
-        if (!numeric(late, elapsed)) throw unsupported;
-        const [maxLead, cooldownAcks, calmAcks] = numbers(value, ['maxLead', 'cooldownAcks', 'calmAcks']);
-        const fields = numbers(value, ['late', 'extra', 'cooldown', 'calm'], true);
-        // Some acknowledgement branches leave these fields untouched or copy
-        // a policy value directly. Retain their raw NaN bits in that phase.
-        if ([maxLead, cooldownAcks, calmAcks, ...fields].some(Number.isNaN)) throw unsupported;
+        if (!bounded(late, elapsed)) throw unsupported;
+        const [maxLead, cooldownAcks, calmAcks] = arithmetic(value, ['maxLead', 'cooldownAcks', 'calmAcks']);
+        const fields = arithmetic(value, ['late', 'extra', 'cooldown', 'calm'], true);
         return [maxLead, cooldownAcks, calmAcks, +!!data(value, 'recover'), ...fields, late, elapsed, +!!capped];
       });
       if (!state) return false;
       return run(5, state, read => { for (const key of ['late', 'extra', 'cooldown', 'calm']) value[key] = read(); return true; });
     },
     measureKey(value) {
-      const state = prepare(() => { writable(value, ['measuredKey']); return numbers(value, ['gapCount', 'gapAt', 'measuredKey']); });
+      const state = prepare(() => { writable(value, ['measuredKey']); return arithmetic(value, ['gapCount', 'gapAt', 'measuredKey']); });
       return state ? run(6, state, read => {
         const changed = !!read(), key = read();
         if (changed) value.measuredKey = key;
@@ -205,18 +217,18 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
       const state = prepare(() => {
         const [count] = numbers(value, ['gapCount']), gaps = ring(data(value, 'gaps'), x.memory, true);
         if (!Number.isSafeInteger(count) || count < 0 || count > gaps.copy.length) throw unsupported;
-        // The native numeric sort does not promise V8's payload order among
-        // distinct NaNs. Keep that slice/sort at its current JavaScript phase.
-        for (let i = 0; i < count; i++) if (Number.isNaN(gaps.copy[i])) throw unsupported;
+        // Keep unusual values, including V8's payload order among distinct
+        // NaNs, in the original slice/sort at this current phase.
+        for (let i = 0; i < count; i++) if (!bounded(gaps.copy[i])) throw unsupported;
         return [count, gaps.copy.length, ...gaps.copy];
       });
       return state ? run(7, state, read => ({ gap: read() })) : null;
     },
     target(value, estimate, latest, roundTrip) {
       const state = prepare(() => {
-        if (!numeric(latest, roundTrip)) throw unsupported;
+        if (!bounded(latest, roundTrip)) throw unsupported;
         writable(value, ['capped', 'lead']);
-        return [...numbers(value, ['hz', 'margin', 'maxLead', 'worstGap', 'extra']), +!!data(value, 'extrapolate'), ...optionalNumber(estimate), latest, roundTrip];
+        return [...arithmetic(value, ['hz', 'margin', 'maxLead', 'worstGap', 'extra']), +!!data(value, 'extrapolate'), ...optionalArithmetic(estimate), latest, roundTrip];
       });
       return state ? run(8, state, read => { const result = read(); value.capped = !!read(); value.lead = read(); return { value: result }; }) : null;
     },
@@ -226,10 +238,8 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
     },
     note(value, ox, oy, oz, nx, ny, nz) {
       const state = prepare(() => {
-        if (!numeric(ox, oy, oz, nx, ny, nz)) throw unsupported;
-        const fields = numbers(value, ['x', 'y', 'z', 'count', 'worst'], true);
-        if (Number.isNaN(fields[4])) throw unsupported;
-        return [...fields, ...numbers(value, ['snap']), ox, oy, oz, nx, ny, nz];
+        if (!bounded(ox, oy, oz, nx, ny, nz)) throw unsupported;
+        return [...arithmetic(value, ['x', 'y', 'z', 'count', 'worst'], true), ...arithmetic(value, ['snap']), ox, oy, oz, nx, ny, nz];
       });
       if (!state) return null;
       return run(10, state, read => {
@@ -240,13 +250,15 @@ export function createReconcileBridge(bridge, { trace = null } = {}) {
     },
     decay(value, dt) {
       const state = prepare(() => {
-        if (!numeric(dt)) throw unsupported;
-        return [...numbers(value, ['x', 'y', 'z'], true), ...numbers(value, ['tau']), dt];
+        if (!bounded(dt)) throw unsupported;
+        const offset = arithmetic(value, ['x', 'y', 'z'], true), [tau] = arithmetic(value, ['tau']);
+        if (!(tau > 0)) throw unsupported;
+        return [...offset, tau, dt];
       });
       return state ? run(11, state, read => { value.x = read(); value.y = read(); value.z = read(); return { reset: !!read() }; }) : null;
     },
     length(value) {
-      const state = prepare(() => numbers(value, ['x', 'y', 'z']));
+      const state = prepare(() => arithmetic(value, ['x', 'y', 'z']));
       return state ? run(12, state, read => ({ value: read() })) : null;
     },
     windowDecision(value, checkpoint, sameLife, authorityTick) {
