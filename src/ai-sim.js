@@ -8,7 +8,7 @@ import { NativeScheduler } from './ai-scheduler-sim.js';
 import { NativeAwareness } from './ai-awareness-sim.js';
 import { bindClusterState, chargeWeapon, categoryOf, clusterState, facingAndRange, maxExpandedRange, peekClusterState, prepareSpread, protectedVeto, selectedWeapon, setTarget, sniperWeapon, switchWeapon, validateFire, weaponAI } from './ai/classic/weapons-ai.js';
 import { recordTarget } from './ai/classic/perception.js';
-import { dropCorrect, isCannon } from './ai/classic/aim.js';
+import { dropCorrect, isCannon, selectedWeapon as selectedAimWeapon } from './ai/classic/aim.js';
 
 const HEADER = 5;
 const ZERO = { x: 0, y: 0, z: 0 };
@@ -50,7 +50,7 @@ export class AiSim {
     this.fires=new WeakMap();
     this.fireFrames=[];
     this.weaponFrames=[];this.weaponOrigin=new Vector3();this.weaponForward=new Vector3();
-    this.weaponLead=new Vector3();this.weaponPoint=new Vector3();
+    this.weaponLead=new Vector3();this.weaponPoint=new Vector3();this.aimForward=new Vector3();
     this.choiceOrigin=new Vector3();this.choicePoint=new Vector3();this.choiceUtility={ok:false,score:0};
     this.trackerLead=new Vector3();
     this.ballisticPoint=new Vector3();this.ballisticOrigin=new Vector3();this.ballisticZero=new Vector3();
@@ -210,6 +210,7 @@ export class AiSim {
     }});
     bridge.register({aiWeapon:args=>{
       const op=args.op,index=args.index,number=args.number,frame=this.weaponFrames[this.weaponFrames.length-1],{controller:c,unit}=frame;
+      const px=args.point[0],py=args.point[1],pz=args.point[2];
       const result={flag:false,values:[],point:[0,0,0]};
       if(op==='coneStart') {frame.weapon=selectedWeapon(unit,c);frame.aimer=c.perception?.aimer;result.flag=Boolean(frame.weapon && frame.aimer);}
       else if(op==='origin') {unit.origin(this.weaponOrigin);result.point=this.weaponOrigin.toArray();}
@@ -317,6 +318,14 @@ export class AiSim {
       else if(op==='utilityType') {const base=frame.ordnance.base;result.values=[Number(['grenade','sticky','haywire','beacon'].includes(base)),Number(['beam','missile','shell'].includes(base))];}
       else if(op==='utilityVelocity') {const v=frame.target.velocity;result.flag=Boolean(v);if(v)result.point=[v.x,v.y,v.z];}
       else if(op==='utilityAccept') {frame.out.ok=true;frame.out.score=number;}
+      else if(op==='aimState') result.values=[typeof c.aimState==='number'?c.aimState:NaN];
+      else if(op==='aimCopy') frame.result=frame.out.copy(c.aimPoint);
+      else if(op==='aimResolve') {const resolve=frame.resolve;frame.target=resolve(c.aimTarget??c.target);}
+      else if(op==='aimSelected') {frame.weapon=selectedAimWeapon(unit);result.flag=Boolean(frame.target && frame.weapon);}
+      else if(op==='aimLead') {this.leadPoint(frame.dt,unit,frame.target,frame.weapon,frame.out);frame.result=frame.out;}
+      else if(op==='aimOrigin') unit.origin(frame.out);
+      else if(op==='aimForward') {const v=unit.forward(this.aimForward),p=frame.out;result.values=[p.x,v.x,p.y,v.y,p.z,v.z];}
+      else if(op==='aimWrite') {frame.out.set(px,py,pz);frame.result=frame.out;}
       else throw Error(`unknown weapon geometry callback ${op}`);
       return result;
     }});
@@ -497,6 +506,11 @@ export class AiSim {
   weaponUtility(unit,weapon,target,out) {
     this.weaponFrames.push({unit,weapon,target,out});
     try {this.x.ai_weapon_utility();return out;}
+    finally {this.weaponFrames.pop();}
+  }
+  aimPointFor(controller,unit,dt,out,resolve) {
+    const frame={controller,unit,dt,out,resolve,result:null};this.weaponFrames.push(frame);
+    try {this.x.ai_aim_point();return frame.result;}
     finally {this.weaponFrames.pop();}
   }
   selectTarget(id,tracker,world) {

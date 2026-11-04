@@ -548,15 +548,17 @@ impl AiWeaponArgs {
             op: { let p = format!("{path}.op"); AiWeaponOp::from_u8(name_of(v.get("op"), &AiWeaponOp::NAMES, &p)?).unwrap() },
             index: { let p = format!("{path}.index"); (int(v.get("index"), &p, 0.0, u32::MAX as f64)? as u32) },
             number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
+            point: { let p = format!("{path}.point"); numbers::<3>(v.get("point"), &p)? },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
         { let x = Value::Str(AiWeaponOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
         { let x = Value::Num(self.index as f64); fields.push(("index", x)); }
         { let x = Value::Num(self.number); fields.push(("number", x)); }
+        { let x = { let items = self.point.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("point", x)); }
         a.object("", fields)
     }
 }

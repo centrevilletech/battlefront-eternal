@@ -6,7 +6,7 @@ import { ClassicRandom } from '../src/ai/random.js';
 import { attachAiSim } from '../src/ai-sim.js';
 import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
-import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
+import { Aimer, aimPointFor, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, broadcastAcoustic, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
@@ -758,6 +758,40 @@ test('native shot and damage alerts preserve crew order, attribution and nested 
     assert.deepEqual(n.history,j.history,`alert delivery ${i}`);
     assert.deepEqual(n.position.toArray(),j.position.toArray());
     assert.deepEqual(n.packet,j.packet);
+  }
+});
+
+test('native aim point orchestration preserves state types, aliases and shared forward vectors', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0;const history=[],world={aiSim:native?sim:null},c={ai:{world},aimState:0,aimPoint:new Vector3(),perception:{fire:new FireControl()}},out=new Vector3(),nestedOut=new Vector3();
+    if(native)sim.bindFire(c.perception.fire);
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7200).fill(3));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapon={def:{base:'rifle',ordnance:{base:'bolt',Velocity:70}},channel:0};
+    const target={id:4,alive:true,generation:0,position:new Vector3(),velocity:new Vector3(),aimPoint(p){log('target');p.copy(this.position);}};
+    const innerController={ai:{world},aimState:0,target:null},inner={controller:innerController,origin(p){log('nestedOrigin');p.set(-1,2,3);},forward(p){log('nestedForward');p.set(1,0,0);return p;}};
+    const unit=c.unit={controller:c,velocity:new Vector3(),combat:{arsenal:{current(channel){log('current',channel);return tick%17===0||channel===1?null:weapon;}}},
+      origin(p){log('origin');p.set(.5,1.5,-0);if(tick%19===0)target.velocity.x=3;},
+      forward(p){log('forward');p.set(0,0,1);if(tick%31===0)aimPointFor(innerController,inner,.1,nestedOut);return tick%29===0?point(.25,-.5,.75):p;}};
+    function resolve(r){log('resolve',r?.unit?.id,r?.generation,this===undefined);if(tick%23===0)c.aimPoint.x=9;return r?.unit?.alive && r.unit.generation===r.generation?r.unit:null;}
+    return {history,c,unit,out,target,resolve,nestedOut,setTick:i=>{tick=i;}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<2048;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.c.aimState=[0,-0,1,2,NaN,null,undefined,'0',true][i%9];x.c.aimPoint.set(i%17,-0,-i%13);
+      x.c.perception.fire.channel=i%2;x.target.generation=Math.floor(i/67);x.target.alive=i%37!==0;
+      x.target.position.set(i%7,2,20+i%100);x.target.velocity.set(.1,0,-.25);x.unit.velocity.set(i%3,0,0);
+      x.c.target=i%7===0?null:{unit:x.target,generation:x.target.generation+(i%41===0?1:0)};x.c.aimTarget=i%11===0?null:undefined;
+      x.output=i%3===0?x.c.aimPoint:x.out;x.output.set(i%5,1,-0);
+      x.result=aimPointFor(x.c,x.unit,i%43===0?NaN:i/60,x.output,i%2?x.resolve:undefined);
+      assert.ok(x.result===null||x.result===x.output);
+    }
+    assert.equal(n.result===null,j.result===null,`aim return ${i}`);
+    assert.deepEqual(n.history,j.history,`aim calls ${i}`);
+    for(const key of ['output','nestedOut'])assert.deepEqual(n[key].toArray(),j[key].toArray(),`aim ${key} ${i}`);
+    assert.deepEqual(n.target.velocity.toArray(),j.target.velocity.toArray());
+    assert.deepEqual(n.c.aimPoint.toArray(),j.c.aimPoint.toArray());
   }
 });
 

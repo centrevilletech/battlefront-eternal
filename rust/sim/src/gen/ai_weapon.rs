@@ -68,10 +68,18 @@ pub enum AiWeaponOp {
     UtilityType = 59,
     UtilityVelocity = 60,
     UtilityAccept = 61,
+    AimState = 62,
+    AimCopy = 63,
+    AimResolve = 64,
+    AimSelected = 65,
+    AimLead = 66,
+    AimOrigin = 67,
+    AimForward = 68,
+    AimWrite = 69,
 }
 
 impl AiWeaponOp {
-    pub const NAMES: [&'static str; 62] = ["coneStart", "origin", "forward", "conePoint", "coneFacts", "aimer", "range", "rangePoint", "protectionStart", "reference", "sphere", "validationStart", "target", "lead", "targetPoint", "spreadStart", "sniper", "spreadValues", "spreadWrite", "choiceStart", "choiceOrigin", "choiceAim", "choiceWeapon", "choiceUtility", "choiceCapacity", "choiceRange", "choiceSpeed", "choiceGrenade", "choiceCluster", "choiceRoll", "choiceWrite", "choiceSelected", "choiceSwitch", "switchStart", "switchChannel", "switchHasSelect", "switchSelect", "switchFallbackIndex", "switchCurrent", "switchCurrentAgain", "switchDeselect", "switchWrite", "setTargetStart", "setTargetSelected", "setTargetAi", "setTargetRelation", "setTargetRelationMask", "setTargetCategory", "setTargetReference", "utilityStart", "utilityHero", "utilityTrap", "utilityMask", "utilityBound", "utilityDamage", "utilityBlast", "utilityCapacity", "utilityHealth", "utilityOwner", "utilityType", "utilityVelocity", "utilityAccept"];
+    pub const NAMES: [&'static str; 70] = ["coneStart", "origin", "forward", "conePoint", "coneFacts", "aimer", "range", "rangePoint", "protectionStart", "reference", "sphere", "validationStart", "target", "lead", "targetPoint", "spreadStart", "sniper", "spreadValues", "spreadWrite", "choiceStart", "choiceOrigin", "choiceAim", "choiceWeapon", "choiceUtility", "choiceCapacity", "choiceRange", "choiceSpeed", "choiceGrenade", "choiceCluster", "choiceRoll", "choiceWrite", "choiceSelected", "choiceSwitch", "switchStart", "switchChannel", "switchHasSelect", "switchSelect", "switchFallbackIndex", "switchCurrent", "switchCurrentAgain", "switchDeselect", "switchWrite", "setTargetStart", "setTargetSelected", "setTargetAi", "setTargetRelation", "setTargetRelationMask", "setTargetCategory", "setTargetReference", "utilityStart", "utilityHero", "utilityTrap", "utilityMask", "utilityBound", "utilityDamage", "utilityBlast", "utilityCapacity", "utilityHealth", "utilityOwner", "utilityType", "utilityVelocity", "utilityAccept", "aimState", "aimCopy", "aimResolve", "aimSelected", "aimLead", "aimOrigin", "aimForward", "aimWrite"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -137,6 +145,14 @@ impl AiWeaponOp {
             59 => Some(AiWeaponOp::UtilityType),
             60 => Some(AiWeaponOp::UtilityVelocity),
             61 => Some(AiWeaponOp::UtilityAccept),
+            62 => Some(AiWeaponOp::AimState),
+            63 => Some(AiWeaponOp::AimCopy),
+            64 => Some(AiWeaponOp::AimResolve),
+            65 => Some(AiWeaponOp::AimSelected),
+            66 => Some(AiWeaponOp::AimLead),
+            67 => Some(AiWeaponOp::AimOrigin),
+            68 => Some(AiWeaponOp::AimForward),
+            69 => Some(AiWeaponOp::AimWrite),
             _ => None,
         }
     }
@@ -147,24 +163,27 @@ pub struct AiWeaponArgs {
     pub op: AiWeaponOp,
     pub index: u32,
     pub number: f64,
+    pub point: [f64; 3],
 }
 
 impl AiWeaponArgs {
-    pub const WORDS: usize = 3;
+    pub const WORDS: usize = 6;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
         row[0] = self.op as u8 as f64;
         row[1] = self.index as f64;
         row[2] = self.number;
+        row[3..3 + 3].copy_from_slice(&self.point);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
         Self {
             op: AiWeaponOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             index: word_u32(row[1]),
             number: row[2],
+            point: { let mut a = [0.0; 3]; a.copy_from_slice(&row[3..3 + 3]); a },
         }
     }
 

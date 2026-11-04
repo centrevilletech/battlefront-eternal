@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiWeaponOp_NAMES = ["coneStart","origin","forward","conePoint","coneFacts","aimer","range","rangePoint","protectionStart","reference","sphere","validationStart","target","lead","targetPoint","spreadStart","sniper","spreadValues","spreadWrite","choiceStart","choiceOrigin","choiceAim","choiceWeapon","choiceUtility","choiceCapacity","choiceRange","choiceSpeed","choiceGrenade","choiceCluster","choiceRoll","choiceWrite","choiceSelected","choiceSwitch","switchStart","switchChannel","switchHasSelect","switchSelect","switchFallbackIndex","switchCurrent","switchCurrentAgain","switchDeselect","switchWrite","setTargetStart","setTargetSelected","setTargetAi","setTargetRelation","setTargetRelationMask","setTargetCategory","setTargetReference","utilityStart","utilityHero","utilityTrap","utilityMask","utilityBound","utilityDamage","utilityBlast","utilityCapacity","utilityHealth","utilityOwner","utilityType","utilityVelocity","utilityAccept"];
+export const AiWeaponOp_NAMES = ["coneStart","origin","forward","conePoint","coneFacts","aimer","range","rangePoint","protectionStart","reference","sphere","validationStart","target","lead","targetPoint","spreadStart","sniper","spreadValues","spreadWrite","choiceStart","choiceOrigin","choiceAim","choiceWeapon","choiceUtility","choiceCapacity","choiceRange","choiceSpeed","choiceGrenade","choiceCluster","choiceRoll","choiceWrite","choiceSelected","choiceSwitch","switchStart","switchChannel","switchHasSelect","switchSelect","switchFallbackIndex","switchCurrent","switchCurrentAgain","switchDeselect","switchWrite","setTargetStart","setTargetSelected","setTargetAi","setTargetRelation","setTargetRelationMask","setTargetCategory","setTargetReference","utilityStart","utilityHero","utilityTrap","utilityMask","utilityBound","utilityDamage","utilityBlast","utilityCapacity","utilityHealth","utilityOwner","utilityType","utilityVelocity","utilityAccept","aimState","aimCopy","aimResolve","aimSelected","aimLead","aimOrigin","aimForward","aimWrite"];
 export const AiWeaponOp_INDEX = new Map(AiWeaponOp_NAMES.map((name, i) => [name, i]));
 
 export class AiWeaponArgsMirror {
@@ -10,6 +10,7 @@ export class AiWeaponArgsMirror {
     this.op = "coneStart";
     this.index = 0;
     this.number = NaN;
+    this.point = [NaN, NaN, NaN];
   }
 }
 
@@ -17,6 +18,7 @@ export function syncAiWeaponArgs(b, f, at, h, m) {
   m.op = AiWeaponOp_NAMES[f[at + 0]];
   m.index = f[at + 1];
   m.number = f[at + 2];
+  { const a = (m.point ??= new Array(3)); a[0] = f[at + 3]; a[1] = f[at + 4]; a[2] = f[at + 5]; }
   return m;
 }
 
@@ -24,12 +26,14 @@ export function putAiWeaponArgs(b, o, f, at, heap) {
   f[at + 0] = AiWeaponOp_INDEX.get(o.op);
   f[at + 1] = o.index;
   f[at + 2] = o.number;
+  { const $v = o.point; f[at + 3] = $v[0]; f[at + 4] = $v[1]; f[at + 5] = $v[2]; }
 }
 
 export function sameAiWeaponArgs(a, b) {
   if (!Object.is(a.op, b.op)) return ".op";
   if (!Object.is(a.index, b.index)) return ".index";
   if (!Object.is(a.number, b.number)) return ".number";
+  if (!sameArray(a.point, b.point, 3)) return ".point";
   return null;
 }
 
@@ -41,6 +45,7 @@ export function exportAiWeaponArgs(o, cx) {
   v.op = o.op;
   v.index = o.index;
   v.number = o.number;
+  v.point = [...o.point];
   return v;
 }
 

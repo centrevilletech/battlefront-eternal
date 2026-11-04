@@ -425,6 +425,8 @@ export function dropCorrect(point, shooter, weapon, out) {
 const aimFwd = new THREE.Vector3();
 
 export function aimPointFor(controller, unit, dt, out, resolve = defaultResolve) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native)return native.aimPointFor(controller,unit,dt,out,resolve);
   const state = controller.aimState;
   if (state === 1) return out.copy(controller.aimPoint);
   if (state !== 0) return null;

@@ -9,9 +9,10 @@ export default {
     'switchCurrentAgain', 'switchDeselect', 'switchWrite', 'setTargetStart', 'setTargetSelected', 'setTargetAi',
     'setTargetRelation', 'setTargetRelationMask', 'setTargetCategory', 'setTargetReference',
     'utilityStart', 'utilityHero', 'utilityTrap', 'utilityMask', 'utilityBound', 'utilityDamage', 'utilityBlast',
-    'utilityCapacity', 'utilityHealth', 'utilityOwner', 'utilityType', 'utilityVelocity', 'utilityAccept'] },
+    'utilityCapacity', 'utilityHealth', 'utilityOwner', 'utilityType', 'utilityVelocity', 'utilityAccept',
+    'aimState', 'aimCopy', 'aimResolve', 'aimSelected', 'aimLead', 'aimOrigin', 'aimForward', 'aimWrite'] },
   records: {
-    AiWeaponArgs: { op: 'enum:AiWeaponOp', index: 'u32', number: 'f64' },
+    AiWeaponArgs: { op: 'enum:AiWeaponOp', index: 'u32', number: 'f64', point: 'f64x3' },
     AiWeaponResult: { flag: 'bool', values: 'list:f64', point: 'f64x3' },
   },
   imports: { aiWeapon: { args: 'AiWeaponArgs', result: 'AiWeaponResult' } },
