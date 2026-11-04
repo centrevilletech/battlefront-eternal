@@ -14,7 +14,7 @@ use three::Vector3;
 use v8math::{cos, sin};
 
 use super::controllers::DONE;
-use super::service::VehicleAI;
+use super::service::VehicleServices;
 use super::world::{kind, HintView, Obj, Ref, World};
 
 /// The agent's machine as these read and write it (`this.state`,
@@ -96,7 +96,7 @@ impl BoardAgent {
     }
 
     /// onEnter() (agents.js:46).
-    pub fn on_enter<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &mut VehicleAI, fsm: &mut Fsm, cx: &AgentCx) {
+    pub fn on_enter<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx) {
         if fsm.state == 2.0 {
             let vehicle = self.candidate(w);
             if vehicle.is_none() || !ai.reserve_seat(w, Some(cx.controller), vehicle) {
@@ -113,7 +113,7 @@ impl BoardAgent {
     }
 
     /// behave(dt) (agents.js:60).
-    pub fn behave<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &mut VehicleAI, fsm: &mut Fsm, cx: &AgentCx, dt: f64) {
+    pub fn behave<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx, dt: f64) {
         if fsm.state == DONE {
             return;
         }
@@ -159,24 +159,24 @@ impl BoardAgent {
 
     /// contested() (agents.js:98): alerts, hazards and commands are refused
     /// while the vehicle is uncontested.
-    pub fn contested<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &VehicleAI, cx: &AgentCx) -> bool {
+    pub fn contested<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &(impl VehicleServices + ?Sized), cx: &AgentCx) -> bool {
         let Some(vehicle) = self.candidate(w) else { return true };
         !ai.board_path_clear(w, Some(cx.controller), vehicle)
     }
 
-    pub fn accepts_hazard<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &VehicleAI, cx: &AgentCx) -> bool {
+    pub fn accepts_hazard<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &(impl VehicleServices + ?Sized), cx: &AgentCx) -> bool {
         self.contested(w, ai, cx)
     }
 
-    pub fn accepts_alert<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &VehicleAI, cx: &AgentCx) -> bool {
+    pub fn accepts_alert<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &(impl VehicleServices + ?Sized), cx: &AgentCx) -> bool {
         self.contested(w, ai, cx)
     }
 
-    pub fn accepts_target<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &VehicleAI, cx: &AgentCx, target: Obj) -> bool {
+    pub fn accepts_target<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &(impl VehicleServices + ?Sized), cx: &AgentCx, target: Obj) -> bool {
         self.contested(w, ai, cx) && w.can_engage(cx.agent, target)
     }
 
-    pub fn accepts_acoustic<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &VehicleAI, cx: &AgentCx, source: Obj) -> bool {
+    pub fn accepts_acoustic<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &(impl VehicleServices + ?Sized), cx: &AgentCx, source: Obj) -> bool {
         self.contested(w, ai, cx) && w.can_engage(cx.agent, source)
     }
 
@@ -216,7 +216,7 @@ impl UnBoardAgent {
     }
 
     /// behave(dt) (agents.js:151).
-    pub fn behave<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &VehicleAI, fsm: &mut Fsm, cx: &AgentCx, dt: f64) {
+    pub fn behave<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &(impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx, dt: f64) {
         if fsm.state == DONE {
             return;
         }
@@ -294,7 +294,7 @@ impl FlyAgent {
     }
 
     /// onEnter() (agents.js:242).
-    pub fn on_enter<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut VehicleAI, fsm: &mut Fsm, cx: &AgentCx) {
+    pub fn on_enter<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx) {
         let helper = w.has_helper(cx.agent);
         let now = w.now();
         match fsm.state {
@@ -329,7 +329,7 @@ impl FlyAgent {
     }
 
     /// behave(dt) (agents.js:275).
-    pub fn behave<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut VehicleAI, fsm: &mut Fsm, cx: &AgentCx, dt: f64) {
+    pub fn behave<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx, dt: f64) {
         if fsm.state == DONE {
             return;
         }
@@ -461,7 +461,7 @@ impl FlyAgent {
 
     /// approach() (agents.js:379): the landing point in the hint's frame,
     /// and the approach to it.
-    fn approach<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut VehicleAI, fsm: &mut Fsm, cx: &AgentCx) {
+    fn approach<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx) {
         let Some(hint) = self.hint else {
             fsm.request_state(4.0);
             return;
@@ -485,7 +485,7 @@ impl FlyAgent {
     }
 
     /// landed() (agents.js:399).
-    fn landed<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut VehicleAI, fsm: &mut Fsm, cx: &AgentCx) {
+    fn landed<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx) {
         let now = w.now();
         let post = self.hint.and_then(|h| h.command_post).or(self.post);
         if self.flag {

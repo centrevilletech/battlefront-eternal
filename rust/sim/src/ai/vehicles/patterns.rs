@@ -13,6 +13,7 @@ use three::Vector3;
 use v8math::{cos, fround, hypot, max, min, sin};
 
 use super::steering::steer_state;
+use super::service::VehicleStorage;
 use super::world::{kind, Obj, Orbit, Ref, Settings, UnitView, World};
 
 /// The attack patterns' machine as the vehicle hooks read it
@@ -285,24 +286,24 @@ fn hover_tick<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &mut PatternSt
         }
     }
     let t = now(w);
-    steer_state(w, p.control).moving_turn_at = Some(t);
+    steer_state(w, p.control, |st| st.moving_turn_at = Some(t));
     w.face(p.obj, 0.0);
 }
 
 /// attackRunPath(patterns, unit, maxFly) (patterns.js:188).
-fn attack_run_path<W: World + ?Sized>(w: &mut W, run: &mut AttackRun, p: &PatternsView, unit: &UnitView, max_fly: f64) -> Option<[[f64; 3]; 4]> {
+fn attack_run_path<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), p: &PatternsView, unit: &UnitView, max_fly: f64) -> Option<[[f64; 3]; 4]> {
     let v = unit.class.as_ref().and_then(|c| c.max_speed).unwrap_or(30.0);
-    if run.a.is_none() {
-        run.a = Some(max(160.0, 4.0 * v));
-        run.b = Some(max(40.0, v));
-    }
+    run.write(|s| { if s.run.a.is_none() {
+        s.run.a = Some(max(160.0, 4.0 * v));
+        s.run.b = Some(max(40.0, v));
+    } });
     let pos = unit.position;
     let q = tracker_point(w, p)?;
     let mut d = Vector3::default();
     d.sub_vectors(&q, &pos);
     normalize_xz(&mut d);
     let clamp = |y: f64| min(y, max_fly);
-    let (a, b) = (run.a.unwrap(), run.b.unwrap_or(f64::NAN));
+    let (a, b) = run.read(|s| (s.run.a.unwrap(), s.run.b.unwrap_or(f64::NAN)));
     Some([
         [pos.x, pos.y, pos.z],
         [q.x - a * d.x, clamp(q.y + 90.0), q.z - a * d.z],
@@ -312,7 +313,7 @@ fn attack_run_path<W: World + ?Sized>(w: &mut W, run: &mut AttackRun, p: &Patter
 }
 
 /// attackRunEnter(patterns, env) (patterns.js:206).
-fn attack_run_enter<W: World + ?Sized>(w: &mut W, run: &mut AttackRun, settings: &Settings, p: &PatternsView) {
+fn attack_run_enter<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView) {
     w.set_delay(p.agent, 15.0, now(w));
     let unit = w.unit(p.control);
     if let Some(path) = attack_run_path(w, run, p, &unit, settings.max_fly_height) {
@@ -323,7 +324,7 @@ fn attack_run_enter<W: World + ?Sized>(w: &mut W, run: &mut AttackRun, settings:
 }
 
 /// attackRunTick(patterns, env) (patterns.js:216).
-fn attack_run_tick<W: World + ?Sized>(w: &mut W, run: &mut AttackRun, settings: &Settings, p: &PatternsView) {
+fn attack_run_tick<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView) {
     let unit = w.unit(p.control);
     if let Some(target) = p.fresh_target {
         let fwd = w.forward(p.control);
@@ -390,9 +391,10 @@ fn pursuit_tick<W: World + ?Sized>(w: &mut W, settings: &Settings, p: &PatternsV
         }
     }
     let t = now(w);
-    let steer = steer_state(w, p.control);
-    steer.loop_ = Some(st.loop_);
-    steer.loop_at = Some(t);
+    steer_state(w, p.control, |steer| {
+        steer.loop_ = Some(st.loop_);
+        steer.loop_at = Some(t);
+    });
     min_speed(w, p.control, 0.5 * v, t);
 }
 
@@ -418,7 +420,7 @@ fn orbit_request<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &PatternSta
         radius: if st.flip_b { -25.0 } else { 25.0 },
         factor: if towed { 1.0 } else { 2.5 },
     };
-    steer_state(w, p.control).orbit = Some(Some(orbit));
+    steer_state(w, p.control, |st| st.orbit = Some(Some(orbit)));
 }
 
 /// orbitTick(patterns) (patterns.js:300).
@@ -429,9 +431,7 @@ fn orbit_tick<W: World + ?Sized>(w: &mut W, p: &PatternsView, st: &PatternState)
 
 /// orbitExit(patterns) (patterns.js:305).
 fn orbit_exit<W: World + ?Sized>(w: &mut W, p: &PatternsView) {
-    if let Some(steer) = w.steer(p.control).as_mut() {
-        steer.orbit = Some(None);
-    }
+    w.edit_steer(p.control, |slot| { if let Some(steer) = slot.as_mut() { steer.orbit = Some(None); } });
     w.default_delay(p.agent, now(w));
 }
 
@@ -454,13 +454,14 @@ fn direct_tick<W: World + ?Sized>(w: &mut W, p: &PatternsView) {
 
 /// minSpeed(unit, speed, time) (patterns.js:324).
 fn min_speed<W: World + ?Sized>(w: &mut W, control: Obj, speed: f64, time: f64) {
-    let steer = steer_state(w, control);
-    steer.min_speed = Some(speed);
-    steer.min_speed_at = Some(time);
+    steer_state(w, control, |steer| {
+        steer.min_speed = Some(speed);
+        steer.min_speed_at = Some(time);
+    });
 }
 
 /// enterPattern(patterns, state, env) (patterns.js:332).
-pub fn enter_pattern<W: World + ?Sized>(w: &mut W, run: &mut AttackRun, settings: &Settings, p: &PatternsView, state: &mut Option<PatternState>, pattern: f64) {
+pub fn enter_pattern<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView, state: &mut Option<PatternState>, pattern: f64) {
     match pattern {
         x if x == 7.0 => hover_enter(w, p, state.get_or_insert_with(PatternState::default)),
         x if x == 13.0 => attack_run_enter(w, run, settings, p),
@@ -472,7 +473,7 @@ pub fn enter_pattern<W: World + ?Sized>(w: &mut W, run: &mut AttackRun, settings
 }
 
 /// tickPattern(patterns, state, dt, env) (patterns.js:348).
-pub fn tick_pattern<W: World + ?Sized>(w: &mut W, run: &mut AttackRun, settings: &Settings, p: &PatternsView, state: &mut Option<PatternState>, pattern: f64) {
+pub fn tick_pattern<W: World + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView, state: &mut Option<PatternState>, pattern: f64) {
     match pattern {
         x if x == 7.0 => hover_tick(w, p, state.get_or_insert_with(PatternState::default)),
         x if x == 13.0 => attack_run_tick(w, run, settings, p),
@@ -488,10 +489,10 @@ pub fn tick_pattern<W: World + ?Sized>(w: &mut W, run: &mut AttackRun, settings:
 
 /// exitPattern(patterns, state) (patterns.js:364).
 pub fn exit_pattern<W: World + ?Sized>(w: &mut W, p: &PatternsView, pattern: f64) {
-    if let Some(steer) = w.steer(p.control).as_mut() {
+    w.edit_steer(p.control, |slot| { if let Some(steer) = slot.as_mut() {
         steer.min_speed = Some(0.0);
         steer.loop_ = Some(false);
-    }
+    } });
     if pattern == 15.0 {
         orbit_exit(w, p);
         return;

@@ -10,7 +10,7 @@
 //! to its allies and neutrals regardless), and their team is not low on
 //! reinforcements.
 
-use super::service::VehicleAI;
+use super::service::{VehicleAI, VehicleStorage, VehicleServices};
 use super::world::{QueryFilter, Ref, World};
 
 /// VehicleNotifier's state (notify.js:233): the counter, None before the
@@ -21,13 +21,17 @@ pub struct Notifier {
 }
 
 impl VehicleAI {
+    pub fn notify<W: World + ?Sized>(&mut self, w: &mut W) -> f64 { VehicleNotify::notify(self, w) }
+}
+impl<T: VehicleStorage> VehicleNotify for T {}
+pub trait VehicleNotify: VehicleServices {
     /// notifier.run(vehicles) (notify.js:240): how many were told.
-    pub fn notify<W: World + ?Sized>(&mut self, w: &mut W) -> f64 {
+    fn notify<W: World + ?Sized>(&mut self, w: &mut W) -> f64 {
         let g = self.cycles_per_second(w);
         let n = 3.0 * g;
-        let counter = *self.notifier.counter.get_or_insert(n);
+        let counter = self.read(|s| s.notifier.counter.unwrap_or(n));
         let counter = if counter == n { 0.0 } else { counter + 1.0 };
-        self.notifier.counter = Some(counter);
+        self.write(|s| s.notifier.counter = Some(counter));
         let mut told = 0.0;
         for entry in self.boardables(w) {
             let id = w.unit(entry).id;

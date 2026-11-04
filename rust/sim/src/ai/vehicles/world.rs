@@ -596,6 +596,12 @@ pub trait World: Draws {
     /// A hull's decay clock (`v.decay`).
     fn decay(&mut self, hull: Obj) -> &mut Option<super::service::Decay>;
 
+    /// Scoped state edits allow live adapters to publish before a callback.
+    fn edit_steer<R>(&mut self, control: Obj, f: impl FnOnce(&mut Option<Steer>) -> R) -> R { f(self.steer(control)) }
+    fn read_decay(&mut self, hull: Obj) -> Option<super::service::Decay> { *self.decay(hull) }
+    fn write_decay(&mut self, hull: Obj, value: super::service::Decay) { *self.decay(hull) = Some(value); }
+    fn write_vehicle_intent(&mut self, control: Obj, value: SeatIntent) { if let Some(intent) = self.intent(control) { *intent = value; } }
+
     // ---- calls: collision, registry, line of sight
     /// CollisionWorld.cast (into its hit scratch), leaving out `ignore`.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit>;

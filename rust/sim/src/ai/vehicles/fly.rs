@@ -74,15 +74,16 @@ pub fn follow_path<H: FlyHost + ?Sized>(h: &mut H, helper: Obj, points: &[[f64; 
 /// setFlags(override, altitude) (fly.js:147).
 pub fn set_flags<H: FlyHost + ?Sized>(h: &mut H, helper: Obj, over: bool, altitude: bool) {
     let Some(unit) = h.fly_unit(helper) else { return };
-    let st = steer_state(h, unit);
-    st.path_override = Some(over);
-    st.path_altitude = Some(altitude);
+    steer_state(h, unit, |st| {
+        st.path_override = Some(over);
+        st.path_altitude = Some(altitude);
+    });
 }
 
 /// land(on) (fly.js:155).
 pub fn land<H: FlyHost + ?Sized>(h: &mut H, helper: Obj, on: bool) {
     if let Some(unit) = h.fly_unit(helper) {
-        steer_state(h, unit).land = Some(on);
+        steer_state(h, unit, |st| st.land = Some(on));
     }
 }
 

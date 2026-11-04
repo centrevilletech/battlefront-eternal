@@ -117,3 +117,45 @@ pub fn free_capacity<W: World + ?Sized>(reservations: &mut Reservations, w: &W, 
     }
     seats - players - reserved
 }
+
+/// Reservation access used by the live service. All world reads happen
+/// outside a state borrow, including weak-reference validation. A nested
+/// refresh or insertion therefore remains visible to the resumed call.
+pub trait ReservationService: super::service::VehicleStorage {
+    fn reservation_live<W: World + ?Sized>(&mut self, w: &W) -> Vec<Reservation> {
+        let now = w.now();
+        let records = self.read(|s| s.reservations.records.clone());
+        for r in records {
+            if !(now < r.time + RESERVATION_LIFE && resolve(w, &r.candidate).is_some() && resolve(w, &r.owner).is_some()) {
+                self.write(|s| s.reservations.records.retain(|current| *current != r));
+            }
+        }
+        self.read(|s| s.reservations.records.clone())
+    }
+    fn reservation_find<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, owner: Obj, kind: f64) -> Option<Reservation> {
+        self.reservation_live(w).into_iter().find(|r| r.kind == kind && resolve(w, &r.candidate) == Some(candidate) && resolve(w, &r.owner) == Some(owner))
+    }
+    fn reservation_has<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, owner: Obj, kind: f64) -> bool {
+        self.reservation_find(w, candidate, owner, kind).is_some()
+    }
+    fn reservation_count<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, team: f64, kind: f64) -> f64 {
+        let mut n = 0.0;
+        for r in self.reservation_live(w) {
+            if r.kind == kind && resolve(w, &r.candidate) == Some(candidate) && resolve(w, &r.owner).map(|o| w.unit(o).team) == Some(team) { n += 1.0; }
+        }
+        n
+    }
+    fn reservation_reserve<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, owner: Obj, kind: f64) {
+        if let Some(record) = self.reservation_find(w, candidate, owner, kind) {
+            let now = w.now();
+            self.write(|s| { if let Some(r) = s.reservations.records.iter_mut().find(|r| **r == record) { r.time = now; } });
+            return;
+        }
+        let record = Reservation {
+            candidate: Ref { obj: candidate, generation: w.unit(candidate).generation },
+            owner: Ref { obj: owner, generation: w.unit(owner).generation }, time: w.now(), kind,
+        };
+        self.write(|s| s.reservations.records.push(record));
+    }
+}
+impl<T: super::service::VehicleStorage + ?Sized> ReservationService for T {}
