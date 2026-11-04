@@ -39,7 +39,10 @@ impl Host<'_> {
                     g.fire.last_release = w.fire.last_release; g.fire.charging = w.fire.charging; g.fire.burst.state = w.fire.burst.state;
                 }
             }
-            if call.name == "nav.jetHints.tick" { got.jet = want.jet; }
+            // GroundGotoHelper.tick may call tryJet while following a
+            // path. Its navigation control owns this request, just as
+            // the authored jet-hint service does.
+            if matches!(call.name.as_str(), "nav.jetHints.tick" | "helper.tick") { got.jet = want.jet; }
             equal(&format!("{} controller after", call.name), &got, &want);
             self.ctls.insert(got.obj, got);
         }
