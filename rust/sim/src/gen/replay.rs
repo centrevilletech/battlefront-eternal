@@ -11033,6 +11033,90 @@ impl WorldClockReply {
     }
 }
 
+impl WorldEventState {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldEventState {
+            capacity: { let p = format!("{path}.capacity"); num(v.get("capacity"), &p)? },
+            seq: { let p = format!("{path}.seq"); num(v.get("seq"), &p)? },
+            time: { let p = format!("{path}.time"); num(v.get("time"), &p)? },
+            cursor: { let p = format!("{path}.cursor"); num(v.get("cursor"), &p)? },
+            dropped: { let p = format!("{path}.dropped"); num(v.get("dropped"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = Value::Num(self.capacity); fields.push(("capacity", x)); }
+        { let x = Value::Num(self.seq); fields.push(("seq", x)); }
+        { let x = Value::Num(self.time); fields.push(("time", x)); }
+        { let x = Value::Num(self.cursor); fields.push(("cursor", x)); }
+        { let x = Value::Num(self.dropped); fields.push(("dropped", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldEventInput {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldEventInput {
+            op: { let p = format!("{path}.op"); WorldEventOperation::from_u8(name_of(v.get("op"), &WorldEventOperation::NAMES, &p)?).unwrap() },
+            state: { let p = format!("{path}.state"); WorldEventState::from_value(v.get("state"), cx, &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Str(WorldEventOperation::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldEventArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldEventArgs {
+            op: { let p = format!("{path}.op"); WorldEventCall::from_u8(name_of(v.get("op"), &WorldEventCall::NAMES, &p)?).unwrap() },
+            state: { let p = format!("{path}.state"); WorldEventState::from_value(v.get("state"), cx, &p)? },
+            index: { let p = format!("{path}.index"); num(v.get("index"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Str(WorldEventCall::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Num(self.index); fields.push(("index", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldEventReply {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldEventReply {
+            state: { let p = format!("{path}.state"); WorldEventState::from_value(v.get("state"), cx, &p)? },
+            present: { let p = format!("{path}.present"); boolean(v.get("present"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Bool(self.present); fields.push(("present", x)); }
+        a.object("", fields)
+    }
+}
+
 impl Battle {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

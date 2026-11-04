@@ -43,6 +43,52 @@ impl WorldClockCall {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldEventOperation {
+    #[default] Emit = 0,
+    Read = 1,
+    Reset = 2,
+}
+
+impl WorldEventOperation {
+    pub const NAMES: [&'static str; 3] = ["emit", "read", "reset"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldEventOperation::Emit),
+            1 => Some(WorldEventOperation::Read),
+            2 => Some(WorldEventOperation::Reset),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldEventCall {
+    #[default] Write = 0,
+    Notify = 1,
+    Clear = 2,
+    Load = 3,
+    Deliver = 4,
+}
+
+impl WorldEventCall {
+    pub const NAMES: [&'static str; 5] = ["write", "notify", "clear", "load", "deliver"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldEventCall::Write),
+            1 => Some(WorldEventCall::Notify),
+            2 => Some(WorldEventCall::Clear),
+            3 => Some(WorldEventCall::Load),
+            4 => Some(WorldEventCall::Deliver),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WsMember {
     pub id: f64,
@@ -341,6 +387,118 @@ impl WorldClockReply {
         Self {
             state: WorldClockState::take(&row[0..], heap),
             time: row[13],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldEventState {
+    pub capacity: f64,
+    pub seq: f64,
+    pub time: f64,
+    pub cursor: f64,
+    pub dropped: f64,
+}
+
+impl WorldEventState {
+    pub const WORDS: usize = 5;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        row[0] = self.capacity;
+        row[1] = self.seq;
+        row[2] = self.time;
+        row[3] = self.cursor;
+        row[4] = self.dropped;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            capacity: row[0],
+            seq: row[1],
+            time: row[2],
+            cursor: row[3],
+            dropped: row[4],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldEventInput {
+    pub op: WorldEventOperation,
+    pub state: WorldEventState,
+}
+
+impl WorldEventInput {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            op: WorldEventOperation::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: WorldEventState::take(&row[1..], heap),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldEventArgs {
+    pub op: WorldEventCall,
+    pub state: WorldEventState,
+    pub index: f64,
+}
+
+impl WorldEventArgs {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        row[6] = self.index;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            op: WorldEventCall::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: WorldEventState::take(&row[1..], heap),
+            index: row[6],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldEventReply {
+    pub state: WorldEventState,
+    pub present: bool,
+}
+
+impl WorldEventReply {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[5] = if self.present { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            state: WorldEventState::take(&row[0..], heap),
+            present: row[5] != 0.0,
         }
     }
 

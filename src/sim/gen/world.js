@@ -9,6 +9,12 @@ export const WorldClockOperation_INDEX = new Map(WorldClockOperation_NAMES.map((
 export const WorldClockCall_NAMES = ["now","step"];
 export const WorldClockCall_INDEX = new Map(WorldClockCall_NAMES.map((name, i) => [name, i]));
 
+export const WorldEventOperation_NAMES = ["emit","read","reset"];
+export const WorldEventOperation_INDEX = new Map(WorldEventOperation_NAMES.map((name, i) => [name, i]));
+
+export const WorldEventCall_NAMES = ["write","notify","clear","load","deliver"];
+export const WorldEventCall_INDEX = new Map(WorldEventCall_NAMES.map((name, i) => [name, i]));
+
 export class WsMemberMirror {
   constructor() {
     this.id = NaN;
@@ -442,5 +448,161 @@ export function exportWorldClockReply(o, cx) {
   cx.seen.set(o, v);
   v.state = exportWorldClockState(o.state, cx);
   v.time = o.time;
+  return v;
+}
+
+export class WorldEventStateMirror {
+  constructor() {
+    this.capacity = NaN;
+    this.seq = NaN;
+    this.time = NaN;
+    this.cursor = NaN;
+    this.dropped = NaN;
+  }
+}
+
+export function syncWorldEventState(b, f, at, h, m) {
+  m.capacity = f[at + 0];
+  m.seq = f[at + 1];
+  m.time = f[at + 2];
+  m.cursor = f[at + 3];
+  m.dropped = f[at + 4];
+  return m;
+}
+
+export function putWorldEventState(b, o, f, at, heap) {
+  f[at + 0] = o.capacity;
+  f[at + 1] = o.seq;
+  f[at + 2] = o.time;
+  f[at + 3] = o.cursor;
+  f[at + 4] = o.dropped;
+}
+
+export function sameWorldEventState(a, b) {
+  if (!Object.is(a.capacity, b.capacity)) return ".capacity";
+  if (!Object.is(a.seq, b.seq)) return ".seq";
+  if (!Object.is(a.time, b.time)) return ".time";
+  if (!Object.is(a.cursor, b.cursor)) return ".cursor";
+  if (!Object.is(a.dropped, b.dropped)) return ".dropped";
+  return null;
+}
+
+export function exportWorldEventState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.capacity = o.capacity;
+  v.seq = o.seq;
+  v.time = o.time;
+  v.cursor = o.cursor;
+  v.dropped = o.dropped;
+  return v;
+}
+
+export class WorldEventInputMirror {
+  constructor() {
+    this.op = "emit";
+    this.state = new WorldEventStateMirror();
+  }
+}
+
+export function syncWorldEventInput(b, f, at, h, m) {
+  m.op = WorldEventOperation_NAMES[f[at + 0]];
+  m.state = syncWorldEventState(b, f, at + 1, h, m.state ?? new WorldEventStateMirror());
+  return m;
+}
+
+export function putWorldEventInput(b, o, f, at, heap) {
+  f[at + 0] = WorldEventOperation_INDEX.get(o.op);
+  putWorldEventState(b, o.state, f, at + 1, heap);
+}
+
+export function sameWorldEventInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameWorldEventState(a.state, b.state); if (d) return ".state" + d; }
+  return null;
+}
+
+export function exportWorldEventInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportWorldEventState(o.state, cx);
+  return v;
+}
+
+export class WorldEventArgsMirror {
+  constructor() {
+    this.op = "write";
+    this.state = new WorldEventStateMirror();
+    this.index = NaN;
+  }
+}
+
+export function syncWorldEventArgs(b, f, at, h, m) {
+  m.op = WorldEventCall_NAMES[f[at + 0]];
+  m.state = syncWorldEventState(b, f, at + 1, h, m.state ?? new WorldEventStateMirror());
+  m.index = f[at + 6];
+  return m;
+}
+
+export function putWorldEventArgs(b, o, f, at, heap) {
+  f[at + 0] = WorldEventCall_INDEX.get(o.op);
+  putWorldEventState(b, o.state, f, at + 1, heap);
+  f[at + 6] = o.index;
+}
+
+export function sameWorldEventArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameWorldEventState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.index, b.index)) return ".index";
+  return null;
+}
+
+export function exportWorldEventArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportWorldEventState(o.state, cx);
+  v.index = o.index;
+  return v;
+}
+
+export class WorldEventReplyMirror {
+  constructor() {
+    this.state = new WorldEventStateMirror();
+    this.present = false;
+  }
+}
+
+export function syncWorldEventReply(b, f, at, h, m) {
+  m.state = syncWorldEventState(b, f, at + 0, h, m.state ?? new WorldEventStateMirror());
+  m.present = f[at + 5] !== 0;
+  return m;
+}
+
+export function putWorldEventReply(b, o, f, at, heap) {
+  putWorldEventState(b, o.state, f, at + 0, heap);
+  f[at + 5] = o.present ? 1 : 0;
+}
+
+export function sameWorldEventReply(a, b) {
+  { const d = sameWorldEventState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.present, b.present)) return ".present";
+  return null;
+}
+
+export function exportWorldEventReply(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportWorldEventState(o.state, cx);
+  v.present = o.present;
   return v;
 }

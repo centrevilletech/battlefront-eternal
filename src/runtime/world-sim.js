@@ -1,6 +1,7 @@
 import { bridgeFor } from '../sim/runtime.js';
 import { putWsSeparation, WsSeparationResultMirror, syncWsSeparationResult } from '../sim/gen/world.js';
 import { clockPorts } from './world-clock-sim.js';
+import { eventPorts } from './world-events-sim.js';
 
 const worlds = new WeakMap();
 
@@ -21,7 +22,7 @@ export function createWorldSim(instance) {
       unit.position.copy(value.position); unit.tickCount = value.tickCount;
     }
   }
-  const world = { bridge, separate, ...clockPorts(bridge) };
+  const world = { bridge, separate, ...clockPorts(bridge), ...eventPorts(bridge) };
   worlds.set(bridge, world);
   return world;
 }
