@@ -4,7 +4,7 @@
 
 use super::{
     combat::{
-        aim::Aimer,
+        aim::{ballistic_lead, projectile_values, Aimer},
         enhanced::{EnhancedAimer, Profile},
         world::{Curves, Draws},
     },
@@ -18,6 +18,32 @@ use crate::{
 };
 use std::rc::Rc;
 use three::Vector3;
+
+#[no_mangle]
+pub extern "C" fn ai_lead_relative() {
+    let w:[f64;10]=sim().calls.args().0[..10].try_into().expect("relative lead input");
+    let h=v8math::fround(w[9]);
+    let s=state();s.out.clear();
+    for i in 0..3 {s.out.push(v8math::fround(w[i]+v8math::fround((w[i+3]-w[i+6])*h)));}
+}
+
+#[no_mangle]
+pub extern "C" fn ai_ballistic_weapon(alias: u32) -> u32 {
+    let w:[f64;16]=sim().calls.args().0[..16].try_into().expect("weapon lead input");
+    let mut p=Vector3::new(w[0],w[1],w[2]);
+    let mut v=Vector3::new(w[3],w[4],w[5]);
+    let mut origin=Vector3::new(w[6],w[7],w[8]);
+    let initial=Vector3::new(v8math::fround(p.x),v8math::fround(p.y),v8math::fround(p.z));
+    // The source writes out before reading its operands. A caller may
+    // deliberately use one of those vector objects as its output.
+    if alias&1!=0 {p=initial;}
+    if alias&2!=0 {v=initial;}
+    if alias&4!=0 {origin=initial;}
+    let base=(w[10]!=0.0).then(||text(word_u32(w[11])));
+    let (speed,gravity)=if w[9]!=0.0 {projectile_values(base.as_deref(),(w[12]!=0.0).then_some(w[13]),(w[14]!=0.0).then_some(w[15]))} else {(0.0,0.0)};
+    let (point,valid)=ballistic_lead(&p,&v,&origin,speed,gravity);
+    let s=state();s.out.clear();s.out.extend([point.x,point.y,point.z]);valid as u32
+}
 
 fn vector(v: &mut Vector3, field: u32, value: f64) {
     match field {

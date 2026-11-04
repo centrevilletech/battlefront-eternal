@@ -388,6 +388,8 @@ const projectileScratch = { speed: 0, gravity: 0 };
 // motion plus the projectile correction. weapon: the selected port Weapon
 // (null: no correction). Returns the solver's validity; writes out.
 export function leadPoint(h, shooter, target, weapon, out) {
+  const native=shooter?.controller?.ai?.world?.aiSim;
+  if(native)return native.leadPoint(h,shooter,target,weapon,out);
   target.aimPoint(leadP);
   const tv = target.velocity ?? zeroVelocity;
   const sv = shooter.velocity ?? zeroVelocity;
@@ -405,6 +407,8 @@ export function leadPoint(h, shooter, target, weapon, out) {
 // The ballistic correction with zero velocity: the drop correction the firing
 // check applies to a remembered point.
 export function dropCorrect(point, shooter, weapon, out) {
+  const native=shooter?.controller?.ai?.world?.aiSim;
+  if(native)return native.dropCorrect(point,shooter,weapon,out);
   shooter.origin(leadOrigin);
   const proj = projectileOfWeapon(weapon, projectileScratch);
   return ballisticLead(point, zeroVelocity, leadOrigin, proj.speed, proj.gravity, out);

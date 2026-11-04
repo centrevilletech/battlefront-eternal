@@ -624,6 +624,7 @@ export function setTarget(controller, unit, target, world) {
 // release turns code 1 into 2).
 
 export function pressButton(button, down) {
+  if(button.nativePress)return button.nativePress(down);
   const c = button.count;
   if (!down) {
     if (c === 0) button.count = -2;
@@ -682,6 +683,7 @@ export function arsenalInput(previous, intent, out = null) {
 
 export function consumeFire(controller, unit, world) {
   const fire = fireOf(controller);
+  if(fire?.nativeConsume)return fire.nativeConsume(controller,unit,world);
   if (!fire || !unit) return false;
   const now = world?.time ?? 0;
   const weapon = selectedWeapon(unit, controller);

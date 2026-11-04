@@ -2145,7 +2145,130 @@ async function start() {
   // How far this tick's mouse look turned him (a page showing a worker's
   // battle keeps it out of the body's interpolation, as previousYaw does).
   let tickLookYaw = 0;
+  // The native driver chooses phase order and branches. These ports retain
+  // object identity and the presentation or not-yet-owned phase boundaries.
+  const stepSquads = [["squadMoveOut", 0, "moveout"], ["squadHold", 2, "hold"], ["squadFollow", 3, "follow"], ["squadAtEase", 1, "atease"]];
+  const worldStepHost = {
+    state: () => ({ water: Boolean(water), remote: Boolean(remotes.active), walker, dead: combat.dead, server: Boolean(game.serverWorld),
+      deathCamera: Boolean(deathView.active), driver: Boolean(driver?.active), gunner: Boolean(gunner.active), vehicles: Boolean(vehicles),
+      ai: Boolean(ai), units: Boolean(unitsSim), turretSeats: Boolean(turretSeats), networkRemotes: Boolean(networkRemotes), removed: Boolean(playerUnit.removed),
+      grenadeUpdate: Boolean(ai?.grenadeUpdate), playerCommand: Boolean(ai?.playerCommand), eyeView: Boolean(combat.usesEyeView), live: Boolean(live),
+      playerWalker: Boolean(playerUnit.walker), playerTicks: playerUnit.tickCount, forward: input.forward, right: input.right, aimPitch: soldier.aimPitch }),
+    call(op, context, value, flag) {
+      const { dt, tick } = context, command = context.command, tickControls = worldControls;
+      switch (op) {
+        case 'start': {
+          runtimeProfile?.step(dt);
+          const command = context.recordedCommand || controls.command(tick, commandHistory.epoch, playerUnit.generation);
+          context.command = command;
+          activeCommand = command; tickHuman = command.human || null;
+          playerUnit.networkShots = command.fire?.filter(edge => edge.pressed) ?? []; playerUnit.networkShot = null;
+          if (typeof command.firstPerson === 'boolean' && command.firstPerson !== firstPerson) setPerspective(command.firstPerson);
+          if (Number.isFinite(command.aspect) && command.aspect > 0 && simulationCamera.aspect !== command.aspect) {
+            simulationCamera.aspect = command.aspect; simulationView.applyFov(command.aspect);
+          }
+          commandHistory.put(command);
+          if (!worldControls.accept(command)) throw new Error('stale world command');
+          if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; vehicles?.sim?.retune(name, key, value); }
+          const fs = command.flightSettings || {};
+          if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
+          const yawBeforeLook = soldier.aimYaw;
+          for (const [dx, dy] of command.look) applyLook(dx, dy);
+          tickLookYaw = soldier.aimYaw - yawBeforeLook;
+          presentation.previousYaw += soldier.aimYaw - yawBeforeLook; previewYaw = previewPitch = 0;
+          break;
+        }
+        case 'water': water.step(dt); break;
+        case 'clockAxes':
+          simTime = value; simEvents.time = simTime;
+          input.forward = tickControls.axis('forward'); input.right = tickControls.axis('right'); input.turn = tickControls.axis('turn');
+          droidInput.forward = input.forward; droidInput.right = input.right; droidInput.turn = input.turn; break;
+        case 'takeSquad': return { flag: tickControls.take(stepSquads[value][0]) };
+        case 'squad': ai.playerCommand(stepSquads[value][1]); hud.squadCommand(stepSquads[value][2]); break;
+        case 'takeUse': return { flag: tickControls.take('use') };
+        case 'toggleTurret': toggleTurret(); break;
+        case 'player': stepPlayer(dt); break;
+        case 'playerCount': playerUnit.tickCount = value; break;
+        case 'eye': combat.eye(soldier.position, simulationEye); simulationZoom = 1; break;
+        case 'deathCamera': deathView.update(dt, playerUnit.removed ? null : soldier.position, killerEyes()); deathView.apply(simulationCamera); break;
+        case 'remoteCamera': remotes.updateCamera(dt, firstPerson, true); break;
+        case 'driverCamera': driver.aimView.update(driver.vehicle, dt, firstPerson); break;
+        case 'gunnerCamera': gunner.updateCamera(dt, 1, firstPerson, true); break;
+        case 'zoom': simulationZoom = combat.zoom; break;
+        case 'camera': simulationView.update(dt, soldier.position, soldier.aimYaw, soldier.aimPitch,
+          soldier.air ? 'stand' : soldier.posture, combat.zoom, flag, flag ? simulationEye : null); break;
+        case 'cameraMatrix': simulationCamera.updateMatrixWorld(); break;
+        case 'restorePose': vehicles?.restoreTickPose?.(); break;
+        case 'ai': ai.update(dt); break;
+        case 'nativeUnits': unitsSim.phase(dt); break;
+        case 'hostUnits':
+          for (const unit of factory?.built || []) {
+            unit.tick(dt);
+            if (water && unit.alive && !unit.seat && !unit.held && !unit.walker) {
+              unit.waterContact ??= {};
+              const hurt = water.soldierStep(dt, unit.waterContact, unit.position, unit.combat.pivot, unit.combat.origin, unit.velocity,
+                at => presentEffect('watersplash_md', at));
+              unit.combat.gunUnderwater = Boolean(unit.waterContact.gunUnder);
+              if (hurt) unit.combat.damage(hurt);
+            }
+            if (water && unit.alive && !unit.seat && !unit.held && unit.walker) droidekaWater(unit.soldier, unit.combat, dt);
+            if (unit.alive && !unit.held && inDeathRegion(unit.position)) unit.combat.damage(Infinity);
+          }
+          break;
+        case 'vehicles': {
+          vehicles.spawnOccupant = combat.dead ? null : soldier.position;
+          const seated = driver.vehicle;
+          vehicles.update(dt, seated, seated ? seatInput(seated, seated.seatIndex, tickControls, command) : undefined); break;
+        }
+        case 'driver': driver.update(dt, tickControls); break;
+        case 'turretSeats': turretSeats.update(dt); break;
+        case 'gunner': gunner.update(dt, soldier, tickControls, 1); break;
+        case 'remotes': remotes.update(dt, flag ? droidInput : null, tickControls); break;
+        case 'networkRemotes': networkRemotes.finish(tick, dt); break;
+        case 'muzzles': soldier.sampleMuzzles?.(dt); break;
+        case 'combat': combat.update(dt, tickControls, value); break;
+        case 'flushMuzzles': combat.flushMuzzles(); break;
+        case 'pitchRange': { const [low, high] = soldier.pitchRange(); return { value: low, other: high }; }
+        case 'setPitch': soldier.aimPitch = value; break;
+        case 'separate': separateSoldiers(); break;
+        case 'served':
+          served.length = 0;
+          if (!combat.dead && !driver?.active) served.push(supplied);
+          for (const unit of factory?.built || []) if (unit.alive && !unit.seat && !unit.held) served.push(unit.supply);
+          break;
+        case 'live': live.update(dt, served, tick); break;
+        case 'ordnance': ordnance.update(dt, false); break;
+        case 'mineTargets':
+          bodyMiddle.set(soldier.position.x, soldier.position.y + BODY_MIDDLE, soldier.position.z);
+          mineTargets.length = 0;
+          if (!combat.dead && !gunner.active && !driver?.active) mineTargets.push(...itemTargets);
+          for (const unit of factory?.built || []) if (unit.alive && !unit.seat && !unit.held) mineTargets.push(unit.itemTarget);
+          if (vehicles) for (const v of vehicles.vehicles) if (v.alive) mineTargets.push(v.itemTarget);
+          break;
+        case 'items': items.update(dt, mineTargets); break;
+        case 'droidekaWater': droidekaWater(soldier, combat, dt); break;
+        case 'soldierWater': {
+          const hurt = water.soldierStep(dt, waterContact, soldier.position, combat.pivot, combat.origin, soldier.velocity, at => presentEffect('watersplash_md', at));
+          combat.gunUnderwater = Boolean(waterContact.gunUnder); if (hurt) combat.damage(hurt); break;
+        }
+        case 'battlefield': battlefield.update(dt, battle.characters); break;
+        case 'battle': updateBattle(dt); break;
+        case 'target': updateTargetHud(dt); break;
+        case 'grenades': context.grenades = ordnance.grenades[Symbol.iterator](); break;
+        case 'nextGrenade': {
+          context.grenadeBody = false;
+          const next = context.grenades.next();
+          if (next.done) { context.grenades = null; return { flag: false }; }
+          context.grenade = next.value; context.grenadeBody = true;
+          return { flag: true, value: Boolean(context.grenade.gone) ? 1 : 0 };
+        }
+        case 'grenade': { const g = context.grenade; ai.grenadeUpdate(g, g.owner === 'player' ? playerUnit : g.owner); break; }
+        case 'spawnFlush': humanSpawn.flush(); break;
+      }
+    },
+  };
   function step(dt, tick, recordedCommand = null) {
+    if (game.worldSim) return game.worldSim.step(worldStepHost, dt, tick, recordedCommand);
     runtimeProfile?.step(dt);
     const command = recordedCommand || controls.command(tick, commandHistory.epoch, playerUnit.generation);
     activeCommand = command;

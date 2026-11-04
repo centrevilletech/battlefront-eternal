@@ -5,9 +5,9 @@ import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
 import { NativeScheduler } from './ai-scheduler-sim.js';
-import { bindClusterState, facingAndRange, maxExpandedRange, peekClusterState, selectedWeapon, setTarget } from './ai/classic/weapons-ai.js';
+import { bindClusterState, chargeWeapon, facingAndRange, maxExpandedRange, peekClusterState, prepareSpread, protectedVeto, selectedWeapon, setTarget, sniperWeapon, validateFire, weaponAI } from './ai/classic/weapons-ai.js';
 import { recordTarget } from './ai/classic/perception.js';
-import { dropCorrect } from './ai/classic/aim.js';
+import { dropCorrect, isCannon } from './ai/classic/aim.js';
 
 const HEADER = 5;
 const ZERO = { x: 0, y: 0, z: 0 };
@@ -45,7 +45,10 @@ export class AiSim {
     this.sightPoint=new Vector3();this.sightEye=new Vector3();this.sightTargetEye=new Vector3();
     this.scanFound=[];this.scanLook=new Vector3();this.scanAim=new Vector3();
     this.trackers=new WeakMap();this.trackerFrames=[];
+    this.fires=new WeakMap();
+    this.fireFrames=[];
     this.trackerLead=new Vector3();
+    this.ballisticPoint=new Vector3();this.ballisticOrigin=new Vector3();this.ballisticZero=new Vector3();
     bridge.register({aiSight:args=>{
       const op=args.op,object=this.objects[args.id],frame=this.sightFrames[this.sightFrames.length-1];
       const from=new Vector3(...args.from),point=new Vector3(...args.point);
@@ -165,6 +168,39 @@ export class AiSim {
         try {result.number=this.x.ai_sight_near(frame.id);}
         finally {this.sightFrames.pop();}
       } else throw Error(`unknown target tracker callback ${op}`);
+      return result;
+    }});
+    bridge.register({aiFire:args=>{
+      const op=args.op,number=args.number,other=args.other,frame=this.fireFrames[this.fireFrames.length-1];
+      const {controller:c,unit,world}=frame,w=frame.weapon,result={number:0,flag:false,values:[]};
+      if(op==='start') {result.flag=Boolean(unit);if(unit)result.number=world?.time??0;}
+      else if(op==='selected') {frame.weapon=selectedWeapon(unit,c);result.flag=Boolean(frame.weapon);}
+      else if(op==='requests') result.values=[Number(Boolean(c.fireA)),Number(Boolean(c.fireB))];
+      else if(op==='target') {
+        const r=c.target,u=frame.target=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
+        result.values=[Number(Boolean(u?.alive)),u?.generation,tag(u?.generation),r?.generation,tag(r?.generation)];
+      } else if(op==='validate') result.flag=Boolean(validateFire(c,unit,frame.target,world));
+      else if(op==='charge') result.flag=chargeWeapon(w);
+      else if(op==='single') result.flag=Boolean(weaponAI(w.def).triggerSingle);
+      else if(op==='cannon') result.flag=isCannon(w.def);
+      else if(op==='gravity') result.number=['shell','grenade','sticky','haywire','beacon'].includes(w.def?.ordnance?.base)?-1:0;
+      else if(op==='limit') result.number=w.limit??w.levels?.[0]?.MaxPressedTime??w.def.MaxPressedTime;
+      else if(op==='chargeDraw') result.flag=unit.kind===0 && w.def.base!=='repair';
+      else if(op==='chargeHeld') result.values=[Number(Boolean(w.charging)),w.held];
+      else if(op==='drawRange') result.number=(world.randomA??world.random).range(number,other);
+      else if(op==='drawInt') result.number=(world.randomA??world.random).int(number,other);
+      else if(op==='sniper') result.flag=sniperWeapon(w);
+      else if(op==='idle') result.flag=!w.reloading && !w.charging && !w.busy && !(w.wait>1e-6) && !w.overheated;
+      else if(op==='deployer') result.flag=['dispenser','remote','detonator','shield'].includes(w.def.base);
+      else if(op==='clearRequests') {c.fireA=false;c.fireB=false;}
+      else if(op==='burst') {
+        const a=weaponAI(w.def);result.values=[w.heat,Number(Boolean(w.bottomless)),w.reserve,w.clip,w.rounds,
+          Number(Boolean(a.triggerSingle)),a.barrageMin,a.barrageMax,a.barrageDelay];
+      } else if(op==='burstHeat') result.values=[w.def.ShotsPerSalvo||1,w.def.HeatPerShot||0];
+      else if(op==='protected') result.flag=protectedVeto(c,unit,w);
+      else if(op==='spread') prepareSpread(c,unit,w);
+      else if(op==='buttons') {const buttons=unit.intent?.buttons;if(buttons) {buttons[0]=number;buttons[1]=other;}}
+      else throw Error(`unknown trigger callback ${op}`);
       return result;
     }});
   }
@@ -294,6 +330,7 @@ export class AiSim {
         perception.heap=this.heap(perception.heap.capacity,perception.heap.priority[0]);
       }
       this.perceptions.set(perception,new NativePerceptionFields(this,perception));
+      this.bindFire(perception.fire);
     }
     return perception;
   }
@@ -310,6 +347,15 @@ export class AiSim {
   bindTracker(tracker) {
     if(!this.trackers.has(tracker))this.trackers.set(tracker,new NativeTrackerFields(this,tracker));
     return tracker;
+  }
+  bindFire(fire) {
+    if(!this.fires.has(fire))this.fires.set(fire,new NativeFireFields(this,fire));
+    return fire;
+  }
+  consumeFire(id,controller,unit,world) {
+    this.fireFrames.push({controller,unit,world});
+    try {return Boolean(this.x.ai_fire_consume(id));}
+    finally {this.fireFrames.pop();}
   }
   selectTarget(id,tracker,world) {
     this.trackerFrames.push({tracker,world});
@@ -330,6 +376,27 @@ export class AiSim {
     this.trackerFrames.push({id,tracker,world,dispatch});
     try {return this.x.ai_tracker_operation(id,op);}
     finally {this.trackerFrames.pop();}
+  }
+  ballisticWeapon(point,velocity,origin,weapon,out) {
+    const o=weapon?.def?.ordnance;
+    this.words([point.x,point.y,point.z,velocity.x,velocity.y,velocity.z,origin.x,origin.y,origin.z,Number(Boolean(o)),
+      Number(typeof o?.base==='string'),typeof o?.base==='string'?this.bridge.strings.id(o.base):0,
+      Number(o?.Velocity!=null),o?.Velocity,Number(o?.Gravity!=null),o?.Gravity]);
+    const valid=Boolean(this.x.ai_ballistic_weapon(Number(point===out)|Number(velocity===out)<<1|Number(origin===out)<<2));
+    const v=this.out();out.set(v[0],v[1],v[2]);return valid;
+  }
+  leadPoint(h,shooter,target,weapon,out) {
+    target.aimPoint(this.ballisticPoint);
+    const tv=target.velocity??this.ballisticZero,sv=shooter.velocity??this.ballisticZero,p=this.ballisticPoint;
+    this.words([p.x,p.y,p.z,tv.x,tv.y,tv.z,sv.x,sv.y,sv.z,h]);this.x.ai_lead_relative();
+    const v=this.out();p.set(v[0],v[1],v[2]);
+    if(!weapon) {out.copy(p);return true;}
+    shooter.origin(this.ballisticOrigin);
+    return this.ballisticWeapon(p,tv,this.ballisticOrigin,weapon,out);
+  }
+  dropCorrect(point,shooter,weapon,out) {
+    shooter.origin(this.ballisticOrigin);
+    return this.ballisticWeapon(point,this.ballisticZero,this.ballisticOrigin,weapon,out);
   }
   cluster(target,create=false) {
     const owner=target?.controller??target;
@@ -361,6 +428,34 @@ export class AiSim {
   words(values) {
     const ptr=this.x.sim_call_room(values.length,0);
     this.bridge.views();this.bridge.f.set(values,ptr/8+HEADER);
+  }
+}
+
+class NativeFireFields {
+  constructor(sim,fire) {
+    const id=sim.x.ai_fire_new();let reference=fire.weaponTarget,serial=-1;
+    const setRef=value=>{
+      reference=value;serial=sim.x.ai_fire_ref(id,value===null?0:value===undefined?1:2,sim.id(value?.unit),value?.generation,
+        value?.generation===undefined?0:value?.generation===null?2:1);
+    };
+    Object.defineProperty(fire,'weaponTarget',{enumerable:true,configurable:true,get:()=>{
+      sim.x.ai_fire_read(id);const v=sim.out();
+      if(v[4]!==serial) {serial=v[4];reference=v[0]===0?null:v[0]===1?undefined:{unit:sim.objects[v[1]],generation:v[3]===0?undefined:v[3]===2?null:v[2]};}
+      return reference;
+    },set:setRef});setRef(reference);
+    const field=(object,name,index,flag=false)=>{
+      const initial=object[name];Object.defineProperty(object,name,{enumerable:true,configurable:true,
+        get:()=>flag?Boolean(sim.x.ai_fire_field(id,index)):sim.x.ai_fire_field(id,index),
+        set:value=>sim.x.ai_fire_write(id,index,flag?Number(Boolean(value)):value)});object[name]=initial;
+    };
+    ['channel','lastRelease','charging','hold','sniperActive','sniperDeadline'].forEach((key,i)=>field(fire,key,i,key==='charging'||key==='sniperActive'));
+    ['state','heatLimit','lastEnd','savedAmmo','count'].forEach((key,i)=>field(fire.burst,key,i+6));
+    for(let i=0;i<2;i++) {
+      const button=fire.buttons[i];field(button,'count',11+i*2);field(button,'code',12+i*2);
+      Object.defineProperty(button,'nativePress',{value:down=>{sim.x.ai_fire_press(id,i,Number(Boolean(down)));return button;}});
+    }
+    Object.defineProperty(fire,'reset',{configurable:true,writable:true,value:()=>{sim.x.ai_fire_reset(id);fire.protected.length=0;}});
+    Object.defineProperty(fire,'nativeConsume',{value:(controller,unit,world)=>sim.consumeFire(id,controller,unit,world)});
   }
 }
 

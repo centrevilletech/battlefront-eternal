@@ -151,6 +151,115 @@ impl WorldLocalCall {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldStepCall {
+    #[default] Start = 0,
+    Water = 1,
+    ClockAxes = 2,
+    TakeSquad = 3,
+    Squad = 4,
+    TakeUse = 5,
+    ToggleTurret = 6,
+    Player = 7,
+    PlayerCount = 8,
+    Eye = 9,
+    DeathCamera = 10,
+    RemoteCamera = 11,
+    DriverCamera = 12,
+    GunnerCamera = 13,
+    Zoom = 14,
+    Camera = 15,
+    CameraMatrix = 16,
+    RestorePose = 17,
+    Ai = 18,
+    NativeUnits = 19,
+    HostUnits = 20,
+    Vehicles = 21,
+    Driver = 22,
+    TurretSeats = 23,
+    Gunner = 24,
+    Remotes = 25,
+    NetworkRemotes = 26,
+    Muzzles = 27,
+    Combat = 28,
+    FlushMuzzles = 29,
+    PitchRange = 30,
+    SetPitch = 31,
+    Separate = 32,
+    Served = 33,
+    Live = 34,
+    Ordnance = 35,
+    MineTargets = 36,
+    Items = 37,
+    DroidekaWater = 38,
+    SoldierWater = 39,
+    Battlefield = 40,
+    Battle = 41,
+    Target = 42,
+    Grenades = 43,
+    NextGrenade = 44,
+    Grenade = 45,
+    SpawnFlush = 46,
+}
+
+impl WorldStepCall {
+    pub const NAMES: [&'static str; 47] = ["start", "water", "clockAxes", "takeSquad", "squad", "takeUse", "toggleTurret", "player", "playerCount", "eye", "deathCamera", "remoteCamera", "driverCamera", "gunnerCamera", "zoom", "camera", "cameraMatrix", "restorePose", "ai", "nativeUnits", "hostUnits", "vehicles", "driver", "turretSeats", "gunner", "remotes", "networkRemotes", "muzzles", "combat", "flushMuzzles", "pitchRange", "setPitch", "separate", "served", "live", "ordnance", "mineTargets", "items", "droidekaWater", "soldierWater", "battlefield", "battle", "target", "grenades", "nextGrenade", "grenade", "spawnFlush"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldStepCall::Start),
+            1 => Some(WorldStepCall::Water),
+            2 => Some(WorldStepCall::ClockAxes),
+            3 => Some(WorldStepCall::TakeSquad),
+            4 => Some(WorldStepCall::Squad),
+            5 => Some(WorldStepCall::TakeUse),
+            6 => Some(WorldStepCall::ToggleTurret),
+            7 => Some(WorldStepCall::Player),
+            8 => Some(WorldStepCall::PlayerCount),
+            9 => Some(WorldStepCall::Eye),
+            10 => Some(WorldStepCall::DeathCamera),
+            11 => Some(WorldStepCall::RemoteCamera),
+            12 => Some(WorldStepCall::DriverCamera),
+            13 => Some(WorldStepCall::GunnerCamera),
+            14 => Some(WorldStepCall::Zoom),
+            15 => Some(WorldStepCall::Camera),
+            16 => Some(WorldStepCall::CameraMatrix),
+            17 => Some(WorldStepCall::RestorePose),
+            18 => Some(WorldStepCall::Ai),
+            19 => Some(WorldStepCall::NativeUnits),
+            20 => Some(WorldStepCall::HostUnits),
+            21 => Some(WorldStepCall::Vehicles),
+            22 => Some(WorldStepCall::Driver),
+            23 => Some(WorldStepCall::TurretSeats),
+            24 => Some(WorldStepCall::Gunner),
+            25 => Some(WorldStepCall::Remotes),
+            26 => Some(WorldStepCall::NetworkRemotes),
+            27 => Some(WorldStepCall::Muzzles),
+            28 => Some(WorldStepCall::Combat),
+            29 => Some(WorldStepCall::FlushMuzzles),
+            30 => Some(WorldStepCall::PitchRange),
+            31 => Some(WorldStepCall::SetPitch),
+            32 => Some(WorldStepCall::Separate),
+            33 => Some(WorldStepCall::Served),
+            34 => Some(WorldStepCall::Live),
+            35 => Some(WorldStepCall::Ordnance),
+            36 => Some(WorldStepCall::MineTargets),
+            37 => Some(WorldStepCall::Items),
+            38 => Some(WorldStepCall::DroidekaWater),
+            39 => Some(WorldStepCall::SoldierWater),
+            40 => Some(WorldStepCall::Battlefield),
+            41 => Some(WorldStepCall::Battle),
+            42 => Some(WorldStepCall::Target),
+            43 => Some(WorldStepCall::Grenades),
+            44 => Some(WorldStepCall::NextGrenade),
+            45 => Some(WorldStepCall::Grenade),
+            46 => Some(WorldStepCall::SpawnFlush),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WsMember {
     pub id: f64,
@@ -743,6 +852,178 @@ impl WorldLocalReply {
         Self {
             state: WorldLocalState::take(&row[0..], heap),
             value: row[21] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldStepState {
+    pub water: bool,
+    pub remote: bool,
+    pub walker: bool,
+    pub dead: bool,
+    pub server: bool,
+    pub death_camera: bool,
+    pub driver: bool,
+    pub gunner: bool,
+    pub vehicles: bool,
+    pub ai: bool,
+    pub units: bool,
+    pub turret_seats: bool,
+    pub network_remotes: bool,
+    pub removed: bool,
+    pub grenade_update: bool,
+    pub player_command: bool,
+    pub eye_view: bool,
+    pub live: bool,
+    pub player_walker: bool,
+    pub player_ticks: f64,
+    pub forward: f64,
+    pub right: f64,
+    pub aim_pitch: f64,
+}
+
+impl WorldStepState {
+    pub const WORDS: usize = 23;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
+        row[0] = if self.water { 1.0 } else { 0.0 };
+        row[1] = if self.remote { 1.0 } else { 0.0 };
+        row[2] = if self.walker { 1.0 } else { 0.0 };
+        row[3] = if self.dead { 1.0 } else { 0.0 };
+        row[4] = if self.server { 1.0 } else { 0.0 };
+        row[5] = if self.death_camera { 1.0 } else { 0.0 };
+        row[6] = if self.driver { 1.0 } else { 0.0 };
+        row[7] = if self.gunner { 1.0 } else { 0.0 };
+        row[8] = if self.vehicles { 1.0 } else { 0.0 };
+        row[9] = if self.ai { 1.0 } else { 0.0 };
+        row[10] = if self.units { 1.0 } else { 0.0 };
+        row[11] = if self.turret_seats { 1.0 } else { 0.0 };
+        row[12] = if self.network_remotes { 1.0 } else { 0.0 };
+        row[13] = if self.removed { 1.0 } else { 0.0 };
+        row[14] = if self.grenade_update { 1.0 } else { 0.0 };
+        row[15] = if self.player_command { 1.0 } else { 0.0 };
+        row[16] = if self.eye_view { 1.0 } else { 0.0 };
+        row[17] = if self.live { 1.0 } else { 0.0 };
+        row[18] = if self.player_walker { 1.0 } else { 0.0 };
+        row[19] = self.player_ticks;
+        row[20] = self.forward;
+        row[21] = self.right;
+        row[22] = self.aim_pitch;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
+        Self {
+            water: row[0] != 0.0,
+            remote: row[1] != 0.0,
+            walker: row[2] != 0.0,
+            dead: row[3] != 0.0,
+            server: row[4] != 0.0,
+            death_camera: row[5] != 0.0,
+            driver: row[6] != 0.0,
+            gunner: row[7] != 0.0,
+            vehicles: row[8] != 0.0,
+            ai: row[9] != 0.0,
+            units: row[10] != 0.0,
+            turret_seats: row[11] != 0.0,
+            network_remotes: row[12] != 0.0,
+            removed: row[13] != 0.0,
+            grenade_update: row[14] != 0.0,
+            player_command: row[15] != 0.0,
+            eye_view: row[16] != 0.0,
+            live: row[17] != 0.0,
+            player_walker: row[18] != 0.0,
+            player_ticks: row[19],
+            forward: row[20],
+            right: row[21],
+            aim_pitch: row[22],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldStepInput {
+    pub state: WorldStepState,
+    pub tick: f64,
+}
+
+impl WorldStepInput {
+    pub const WORDS: usize = 24;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 24] = (&mut row[..24]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[23] = self.tick;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 24] = (&row[..24]).try_into().unwrap();
+        Self {
+            state: WorldStepState::take(&row[0..], heap),
+            tick: row[23],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldStepArgs {
+    pub op: WorldStepCall,
+    pub value: f64,
+    pub flag: bool,
+}
+
+impl WorldStepArgs {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        row[1] = self.value;
+        row[2] = if self.flag { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            op: WorldStepCall::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            value: row[1],
+            flag: row[2] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldStepReply {
+    pub state: WorldStepState,
+    pub value: f64,
+    pub other: f64,
+    pub flag: bool,
+}
+
+impl WorldStepReply {
+    pub const WORDS: usize = 26;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 26] = (&mut row[..26]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[23] = self.value;
+        row[24] = self.other;
+        row[25] = if self.flag { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 26] = (&row[..26]).try_into().unwrap();
+        Self {
+            state: WorldStepState::take(&row[0..], heap),
+            value: row[23],
+            other: row[24],
+            flag: row[25] != 0.0,
         }
     }
 
