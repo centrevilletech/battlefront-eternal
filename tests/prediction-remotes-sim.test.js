@@ -130,3 +130,42 @@ test('completed and empty recon replays release native sessions and permit reuse
     assert.throws(() => predictRemote(fixture.source, fixture.droid, remoteCommands(1), 0, 1, [], {}, cache, { native }), /disposed/);
   } finally { native.dispose(); }
 });
+
+test('recon projection callbacks see the original pose and stop immediately on throw or pilot exit', async () => {
+  let mutatedTrace = 0;
+  const native = createRemotePredictionSim(await loadSim(), { trace(event) {
+    if (event.output.length) { event.output[0] = 99999; mutatedTrace++; }
+    if (event.input.length) event.input[0] = NaN;
+  } });
+  const run = (backend, throwing) => {
+    const fixture = createRemoteFixture({}), cache = new RemotePredictionContext(), { source, droid } = fixture;
+    const { context, predicted } = cache.acquire(source, droid); fixture.setContext(context);
+    const authority = remoteObservation(source, droid), camera = context.aimCamera, update = camera.updateProjectionMatrix;
+    const marker = new Error('recon projection stopped'); let calls = 0;
+    fixture.events.length = 0;
+    camera.updateProjectionMatrix = function () {
+      calls++; fixture.events.push(['projection', this.fov, this.aspect, this.position.toArray(), this.quaternion.toArray(), context.active]);
+      if (throwing && calls === 2) throw marker;
+      return update.call(this);
+    };
+    const commands = remoteCommands(7);
+    commands[0].actions = ['use']; commands[0].firstPerson = false;
+    for (let i = 0; i < commands.length; i++) commands[i].aspect = 1.2 + i * .1;
+    let result;
+    if (throwing) {
+      assert.throws(() => predictRemote(source, droid, commands, 0, 1, [], {}, cache, { native: backend }), error => error === marker);
+      assert.equal(fixture.events.at(-1)[0], 'projection');
+    } else {
+      result = predictRemote(source, droid, commands, 0, 1, [], {}, cache, { native: backend });
+      assert.equal(result.context.active, false); assert.equal(camera.aspect, commands.at(-1).aspect);
+      if (backend) assert.equal(result.nativeSession.steps, 7);
+    }
+    assert.equal(calls, 2, 'restore and the last piloted frame each update projection once');
+    assert.deepEqual(remoteObservation(source, droid), authority); if (backend) assert.equal(backend.activeSessions, 0);
+    return { state: remoteObservation(context, predicted), events: fixture.events };
+  };
+  try {
+    for (const throwing of [false, true]) assert.deepEqual(run(native, throwing), run(null, throwing));
+    assert.ok(mutatedTrace > 10, 'diagnostic copies cannot change native continuation outputs');
+  } finally { native.dispose(); }
+});
