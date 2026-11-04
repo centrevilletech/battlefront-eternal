@@ -12,7 +12,7 @@ const words = values => {
 };
 let traces = [], cases = 0, throws = 0, sessions = 0, interleaved = false;
 const counts = Array(4).fill(0), live = new Set(), seen = new Set();
-const native = createReplaySim(await loadSim(), { trace: event => traces.push(event) });
+const native = createReplaySim(await loadSim(), { trace: event => { traces[traces.length] = event; } });
 try {
   for (const scenario of replayCases()) {
     traces = [];

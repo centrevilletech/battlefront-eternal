@@ -1,6 +1,7 @@
 import { replayTicks } from '../../src/runtime/reconcile.js';
 
 const viewKeys = ['mouseScale', 'invertMouse', 'firstPerson', 'aspect', 'viewTick', 'flightSettings', 'gamepad'];
+export function replayNumberBits(number) { const bytes = Buffer.alloc(8); bytes.writeDoubleLE(number); return bytes.toString('hex'); }
 export function replayFixture(native) {
   const ids = new Map(); let serial = 0;
   const f = { native, events: [], pending: [], from: 0, generation: 1, held: [], initialView: {}, retained: [] };
@@ -11,6 +12,7 @@ export function replayFixture(native) {
     return ids.get(value);
   };
   f.snapshot = (value, seen = new Set()) => {
+    if (typeof value === 'number') return { number: value, bits: replayNumberBits(value) };
     if (typeof value === 'symbol' || typeof value === 'function') return { ref: f.id(value), type: typeof value };
     if (value === null || typeof value !== 'object') return value;
     const ref = f.id(value); if (seen.has(value)) return { ref }; seen.add(value);
@@ -128,6 +130,39 @@ export function replayMutationCases() {
     f.final = () => ({ held: f.snapshot(held), sample: f.snapshot(sample), context: f.snapshot(context), action: f.snapshot(action),
       freshActions: new Set(f.retained.map(v => v.command.actions)).size, freshLook: new Set(f.retained.map(v => v.command.look)).size }); return f;
   } });
+  for (const mode of ['view-setter', 'array-push']) cases.push({ name: `mutation:installed-${mode}`, native: true, build(native) {
+    const f = replayFixture(native); f.pending = [f.command(1, 1), f.command(3, 2, { aspect: 2 }), f.command(5, 3)];
+    const push = Array.prototype.push, aspect = Object.getOwnPropertyDescriptor(Object.prototype, 'aspect');
+    f.cleanup = () => { Array.prototype.push = push; if (aspect) Object.defineProperty(Object.prototype, 'aspect', aspect); else delete Object.prototype.aspect; };
+    f.apply = (_tick, _command, _sequences, index) => {
+      if (index) return;
+      if (mode === 'view-setter') Object.defineProperty(Object.prototype, 'aspect', { configurable: true, set(value) {
+        f.events[f.events.length] = ['view-setter', value]; this.aspectSeen = value;
+      } });
+      else Array.prototype.push = function (...values) {
+        f.events[f.events.length] = ['push', typeof values[0], values.length]; return Reflect.apply(push, this, values);
+      };
+    }; return f;
+  } });
+  return cases;
+}
+
+export function replayOpaqueCases() {
+  const patterns = [0x8000000000000000n, 0n, 0x7ff0000000000001n, 0xfff0000000000123n, 0x7ff000000000ff00n, 0x7ff8000000000001n, 0xfff8000000000123n];
+  const cases = [];
+  for (const pattern of patterns) for (const kind of ['packed', 'tagged', 'typed']) cases.push({ name: `opaque:${kind}-${pattern.toString(16)}`, build(native) {
+    const f = replayFixture(native), data = new DataView(new ArrayBuffer(8));
+    const number = () => { data.setBigUint64(0, pattern, true); return data.getFloat64(0, true); };
+    const elements = () => {
+      if (kind === 'typed') { const v = new Float64Array(1); new DataView(v.buffer).setBigUint64(0, pattern, true); return v; }
+      if (kind === 'tagged') { const v = [null]; v.push(number()); return v; }
+      return [number()];
+    };
+    f.held = number(); f.initialView = { mouseScale: number(), aspect: number(), gamepad: number(), flightSettings: number() };
+    const c = f.command(2, 1); c.sequence = number(); c.down = number(); c.actions = elements(); c.look = elements();
+    c.mouseScale = number(); c.invertMouse = number(); c.firstPerson = number(); c.aspect = number(); c.viewTick = number(); c.gamepad = number(); c.flightSettings = number();
+    f.pending = [c, f.command(4, 2, { down: number(), actions: [], look: [] })]; return f;
+  } });
   return cases;
 }
 
@@ -173,6 +208,26 @@ export function replayObservableCases() {
     const f = replayFixture(native), c = f.command(1, 1); f.applyValue = 3;
     Object.defineProperty(c, 'sent', { get() { f.events.push('sent-before-bad-apply'); return false; } }); f.pending = [c]; return f;
   } });
+  for (const target of ['array', 'object']) cases.push({ name: `observable:indexed-prototype-${target}`, build(native) {
+    const f = replayFixture(native); f.pending = [f.command(1, 1), f.command(2, 2)];
+    const prototype = target === 'array' ? Array.prototype : Object.prototype, previous = Object.getOwnPropertyDescriptor(prototype, '0');
+    f.cleanup = () => { if (previous) Object.defineProperty(prototype, '0', previous); else delete prototype[0]; };
+    Object.defineProperty(prototype, '0', { configurable: true, set(value) {
+      Object.defineProperty(f.events, f.events.length, { configurable: true, writable: true, enumerable: true, value: ['indexed-setter', Array.isArray(this), typeof value] });
+      Object.defineProperty(this, '0', { configurable: true, writable: true, enumerable: true, value });
+    } });
+    return f;
+  } });
+  cases.push({ name: 'observable:action-body-throw-closes-iterator-with-original-value', native: true, build(native) {
+    const f = replayFixture(native), c = f.command(1, 1), push = Array.prototype.push, action = f.tag({ fire: true }, 'throwing-action');
+    f.throwValue = f.tag(Symbol('action-stop'), 'action-stop'); f.cleanup = () => { Array.prototype.push = push; };
+    const event = value => { f.events[f.events.length] = value; };
+    c.actions = { [Symbol.iterator]() { event('actions-iterator'); return {
+      next() { event('actions-next'); Array.prototype.push = function (value) { if (value === action) { event('push-throw'); throw f.throwValue; } return Reflect.apply(push, this, [value]); }; return { value: action, done: false }; },
+      return() { event('actions-return'); throw Error('secondary close error'); },
+    }; } };
+    f.pending = [c]; return f;
+  } });
   return cases;
 }
 
@@ -212,4 +267,4 @@ export function replayNestedCases() {
   } }];
 }
 
-export const replayCases = () => [...replayOrdinaryCases(), ...replayMutationCases(), ...replayObservableCases(), ...replayBoundaryCases(), ...replayNestedCases()];
+export const replayCases = () => [...replayOrdinaryCases(), ...replayMutationCases(), ...replayObservableCases(), ...replayBoundaryCases(), ...replayNestedCases(), ...replayOpaqueCases()];
