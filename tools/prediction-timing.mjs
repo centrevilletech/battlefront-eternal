@@ -28,7 +28,7 @@ export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=
  if(world.rays&&!world.movement)world.movement=new MovementKernel(world);
  const digest=createHash('sha1'),ticked=new Float64Array(6);
  const server=new Soldier(world,{}),local=new Soldier(world,{});server.spawn(...start,yaw);local.spawn(...start,yaw);
- const mailbox=new InputMailbox(),input=new FixedClock(),lead=new InputLead({maxLead:24,extrapolate:true,recover:true,native}),playout=new PlayoutClock({minDelay:6,maxDelay:18}),interval=new SnapshotInterval(),presentation=new SoldierPresentation(local),smoother=new CorrectionSmoother({native});
+ const mailbox=new InputMailbox(),input=new FixedClock(),lead=new InputLead({maxLead:24,extrapolate:true,recover:true},{native}),playout=new PlayoutClock({minDelay:6,maxDelay:18}),interval=new SnapshotInterval(),presentation=new SoldierPresentation(local),smoother=new CorrectionSmoother({},{native});
  const toServer=[],toClient=[],packets=[],corrections=[],late=[],stampAhead=[];
  let saved;
  let pending=[],held=[],latest=0,applied=0,sequence=0,predicted=false,predictedTick=0,predictedPosition=local.position.clone(),firstCommand=0,firstVisible=null,firstAck=null,firstConsumed=null,serverTick=0;

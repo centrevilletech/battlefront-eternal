@@ -66,7 +66,7 @@ function measured(options, native) {
 function blackout({ fps, stall }, native) {
   const world = plane(), authority = new Soldier(world, {}), local = new Soldier(world, {}), checker = new Soldier(world, {});
   for (const soldier of [authority, local, checker]) soldier.spawn(0, 0, 0, 0);
-  const window = new PredictionWindow(120, { native }), clock = new FixedClock(), lead = new InputLead({ maxLead: 24, extrapolate: true, native });
+  const window = new PredictionWindow(120, { native }), clock = new FixedClock(), lead = new InputLead({ maxLead: 24, extrapolate: true }, { native });
   let mailbox = new InputMailbox(), serverEpoch = 1, serverGeneration = 1, serverIdentity = 17, epoch = 1, generation = 1, identity = 17;
   let pending = [], held = [], sequence = 0, latest = 0, applied = 0, serverTick = 0, nextFrame = 1 / fps, lastFrame = 0;
   let saved = null, oldState = null, predicted = false, staleInjected = false, maxPending = 0, maxReplay = 0, frames = 0, exactCalls = 0, exactMatches = 0;
