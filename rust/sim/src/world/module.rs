@@ -1,8 +1,9 @@
-use super::{clock, events, local, separation::Separation};
+use super::{clock, events, local, step, separation::Separation};
 use crate::abi::sim;
 use crate::gen::{WsSeparation, WsSeparationResult, WorldClockInput, WorldClockResult, WorldClockState, WorldClockOperation, WorldClockCall, WorldClockArgs, import_world_clock};
 use crate::gen::{WorldEventState, WorldEventInput, WorldEventOperation, WorldEventCall, WorldEventArgs, import_world_events};
 use crate::gen::{WorldLocalState, WorldLocalInput, WorldLocalOperation, WorldLocalCall, WorldLocalArgs, import_world_local};
+use crate::gen::{WorldStepState, WorldStepInput, WorldStepCall, WorldStepArgs, WorldStepReply, import_world_step};
 use std::ptr::addr_of_mut;
 
 static mut SEPARATION: Option<Separation> = None;
@@ -115,4 +116,23 @@ pub extern "C" fn world_local_run() -> *const f64 {
     let sim = sim();
     sim.calls.result(WorldLocalState::WORDS, |row, heap| state.put(row, heap));
     sim.calls.block.ptr()
+}
+
+struct StepHost;
+impl step::Host for StepHost {
+    fn call(&mut self, state: &mut WorldStepState, op: WorldStepCall, value: f64, flag: bool) -> WorldStepReply {
+        let reply = import_world_step(&WorldStepArgs { op, value, flag });
+        *state = reply.state.clone();
+        reply
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn world_step_words() -> u32 { WorldStepInput::WORDS as u32 }
+
+#[no_mangle]
+pub extern "C" fn world_step_run() {
+    let input = { let (row, heap) = sim().calls.args(); WorldStepInput::take(row, heap) };
+    let mut state = input.state;
+    step::step(&mut state, input.tick, &mut StepHost);
 }

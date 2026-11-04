@@ -336,6 +336,8 @@ const FALLBACK_ORDNANCE = new Set(["beam", "missile", "shell"]);
 
 // Returns { ok, score }. owner/target: units.
 export function weaponUtility(owner, weapon, target, out = { ok: false, score: 0 }) {
+  const native=owner?.controller?.ai?.world?.aiSim;
+  if(native)return native.weaponUtility(owner,weapon,target,out);
   out.ok = false;
   out.score = 0;
   const def = weapon?.def;
@@ -410,6 +412,8 @@ const utility = { ok: false, score: 0 };
 // (index: the inventory index, -1 when none). switchAllowed: switch the
 // controller's selection to it when it differs.
 export function selectWeapon(controller, unit, target, switchAllowed, world, out = {}) {
+  const native = controller?.ai?.world?.aiSim;
+  if (native) return native.selectWeapon(controller, unit, target, switchAllowed, world, out);
   out.ok = false;
   out.index = -1;
   out.weapon = null;
@@ -573,6 +577,8 @@ function selectedIndex(unit, controller) {
 // Switch to inventory index i; resets the charge release time,
 // the sniper gate and the burst.
 export function switchWeapon(controller, unit, index) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native)return native.switchWeapon(controller,unit,index);
   const fire = fireOf(controller);
   const arsenal = unit?.combat?.arsenal;
   const weapon = arsenal?.weapons[index];
@@ -602,6 +608,8 @@ function selectInChannel(arsenal, weapon) {
 // weapon's own target only when its relationship and category masks allow
 // (a failed check clears it).
 export function setTarget(controller, unit, target, world) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native){native.setWeaponTarget(controller,unit,target,world);return;}
   controller.target = target ? { unit: target, generation: target.generation } : null;
   const fire = fireOf(controller);
   if (!fire) return;
@@ -624,6 +632,7 @@ export function setTarget(controller, unit, target, world) {
 // release turns code 1 into 2).
 
 export function pressButton(button, down) {
+  if(button.nativePress)return button.nativePress(down);
   const c = button.count;
   if (!down) {
     if (c === 0) button.count = -2;
@@ -682,6 +691,7 @@ export function arsenalInput(previous, intent, out = null) {
 
 export function consumeFire(controller, unit, world) {
   const fire = fireOf(controller);
+  if(fire?.nativeConsume)return fire.nativeConsume(controller,unit,world);
   if (!fire || !unit) return false;
   const now = world?.time ?? 0;
   const weapon = selectedWeapon(unit, controller);
@@ -862,6 +872,8 @@ const n3 = { x: 0, y: 0, z: 0 };
 const fwd3 = new THREE.Vector3();
 
 export function validateFire(controller, unit, target, world) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native)return native.weaponGuard(3,controller,unit,null,null,null,target);
   const fire = fireOf(controller);
   const weapon = selectedWeapon(unit, controller);
   const aimer = controller.perception?.aimer;
@@ -878,6 +890,8 @@ export function validateFire(controller, unit, target, world) {
 // The lead point in the firing cone and the target's aim point
 // inside the selected weapon's effective range.
 export function facingAndRange(controller, unit, lead, point) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native)return native.weaponGuard(1,controller,unit,point,lead);
   if (!firingCone(controller, unit, lead)) return false;
   const weapon = selectedWeapon(unit, controller);
   const range = Math.min(effectiveRange(unit, controller, weapon.def), harpoonReach(weapon.def));
@@ -904,6 +918,8 @@ let fireCos = null;
 // forward line. A soldier's zoomed single-shot weapon instead needs the point
 // within 0.25 units of the forward line.
 export function firingCone(controller, unit, point) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native)return native.weaponGuard(0,controller,unit,point);
   const weapon = selectedWeapon(unit, controller);
   const aimer = controller.perception?.aimer;
   if (!weapon || !aimer) return false;
@@ -963,6 +979,8 @@ export function rebuildProtectedHumans(world) {
 const cross = { x: 0, y: 0, z: 0 };
 
 export function protectedVeto(controller, unit, weapon) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native)return native.weaponGuard(2,controller,unit,null,null,weapon);
   const base = weapon?.def?.base;
   if (base === "repair" || base === "dispenser" || base === "remote" || base === "detonator") return false;
   const fire = fireOf(controller);
@@ -1000,6 +1018,8 @@ export function sniperYaw(distanceSq) {
 }
 
 export function prepareSpread(controller, unit, weapon) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native){native.weaponGuard(4,controller,unit,null,null,weapon);return;}
   if (!weapon) return;
   weapon.yawSpreadOverride = null;
   if (unit.human || (weapon.def.YawSpread || 0) !== 0 || !sniperWeapon(weapon)) return;

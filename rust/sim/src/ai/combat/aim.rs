@@ -208,7 +208,12 @@ pub fn projectile_of(def: Option<&JsObj>) -> (f64, f64) {
         return (0.0, 0.0);
     }
     let base = ordnance.get("base");
-    let b = base.str();
+    let v = ordnance.get("Velocity");
+    let g = ordnance.get("Gravity");
+    projectile_values(base.str(),(!v.is_nullish()).then(||v.num()),(!g.is_nullish()).then(||g.num()))
+}
+
+pub fn projectile_values(b: Option<&str>, velocity: Option<f64>, scale: Option<f64>) -> (f64, f64) {
     let falling = matches!(b, Some("shell" | "grenade" | "sticky" | "haywire" | "beacon"));
     let straight = matches!(b, Some("bolt" | "laser" | "bullet" | "fatray" | "towcable" | "grapplinghook"));
     let mut speed = 0.0;
@@ -216,12 +221,10 @@ pub fn projectile_of(def: Option<&JsObj>) -> (f64, f64) {
     if b == Some("missile") {
         speed = 3e8;
     } else if straight || falling {
-        let v = ordnance.get("Velocity");
-        speed = f(if v.is_nullish() { if b == Some("shell") { 35.0 } else { 150.0 } } else { v.num() });
+        speed = f(velocity.unwrap_or(if b == Some("shell") {35.0} else {150.0}));
     }
     if falling {
-        let g = ordnance.get("Gravity");
-        gravity = f(f(g.nn(1.0)) * f(-9.8));
+        gravity = f(f(scale.unwrap_or(1.0)) * f(-9.8));
     }
     (speed, gravity)
 }
