@@ -77,7 +77,7 @@ await c.ev(`(() => {
  rust.post=function(renderer,steps) {
    if(!T.want || !this.active || !this.enabled) return post.call(this,renderer,steps);
    const mode=this.ownedShaderSources;
-   if (${process.env.WHOLE_CHAIN ? 'true' : 'false'}) {
+   if (mode === false || ${process.env.WHOLE_CHAIN ? 'true' : 'false'}) {
      const images={},drawn={};
      for(const owned of (mode === false ? [true,false] : [false,true])) {
        this.ownedShaderSources=owned;drawn[owned]=post.call(this,renderer,steps);
@@ -85,6 +85,7 @@ await c.ev(`(() => {
        images[owned]=read(steps[steps.length-1].target);
      }
      T.pairs.push({key:'whole-chain',bridge:drawn.false,owned:drawn.true,...diff(images.false,images.true)});
+     if (mode === false) { this.ownedShaderSources=mode; return true; }
    }
    for(const step of steps) {
      const images={}, drawn={};
@@ -163,6 +164,7 @@ for (let k = 0; k < CAPTURES; k++) {
       g.rust.setActive(${v === 'rust' || v === 'bridge'}); g.rust.ownedShaderSources = ${v === 'rust'};
       const pin = () => { if (g.upscaling === 'temporal') g.upscaler.frame = k; };
       for (const w of g.cascadeWindows || []) w.invalidate();
+      for (let i = 0; i < ${manifest.settleFrames || 2}; i++) await b.lockstep(0, true);
       g.upscaler?.invalidate(); pin();
       for (let i = 0; i < ${manifest.historyFrames}; i++) await b.lockstep(0, true);
       G.resetFrame(); if (window.__lampLog) window.__lampLog.length = 0; T.want = true; T.shot = null; T.pairs = [];
@@ -256,7 +258,7 @@ const good = points.filter((p) => p.valid && p.rust && !p.rust.error);
 const sizeOk = setup.buffer[0] === 1600 && setup.buffer[1] === 900 && setup.target[0] === Math.round(1600 * testCase.settings.renderScale) && setup.target[1] === Math.round(900 * testCase.settings.renderScale);
 const samplesNote = setup.samples === WANT_SAMPLES ? `${setup.samples} samples` : (setup.supportedSamples || []).includes(WANT_SAMPLES) ? `${setup.samples} samples, not the ${WANT_SAMPLES} asked` : `${setup.samples} samples: the GPU offers ${JSON.stringify(setup.supportedSamples)}, no ${WANT_SAMPLES}`;
 const out = {
-  contract: { version: manifest.version, captures: CAPTURES, gap: GAP, historyFrames: manifest.historyFrames },
+  contract: { version: manifest.version, captures: CAPTURES, gap: GAP, historyFrames: manifest.historyFrames, settleFrames: manifest.settleFrames || 2 },
   complete: CAPTURES === manifest.captures && GAP === manifest.gap && MIN_VALID === manifest.captures,
   label: LABEL, query: process.env.Q, loaded, setup, samplesNote, sizeOk,
   emuArgs: process.env.EMU_ARGS || null, gpuDeathsAtStart: deathsAtStart, gpuDeaths: gpuDeaths(),
@@ -281,7 +283,7 @@ out.missingOracles = seen.filter(key => !inputHashes.programs.some(p => {
   return sources.some(s=>s.includes(shaderSources[key].vertex.trim())) && sources.some(s=>s.includes(shaderSources[key].fragment.trim()));
 }));
 out.mirrorCovered = testCase.camera !== 'water' || good.every(p => p.meta.rust.rustPhases.includes('mirror') && p.meta.rust.stages.reflection);
-out.exactPairs = good.flatMap(p => p.meta.rust.pairs || []);
+out.exactPairs = good.flatMap(p => [...(p.meta.bridge.pairs || []), ...(p.meta.rust.pairs || [])]);
 out.worstPairPixels = out.exactPairs.length ? Math.max(...out.exactPairs.map(p => p.differing)) : null;
 out.pass = out.valid && out.missingOracles.length === 0 && out.mirrorCovered && out.shaderPrograms.some(p => p.accepted && p.hash) && out.shaderPrograms.every(p => p.accepted) && out.exactPairs.length > 0 && out.exactPairs.every(p => p.bridge && p.owned && p.differing === 0);
 out.baselinePass = out.valid && good.every(p => p.rust.differing <= (testCase.preset === 'classic' ? 0 : 144) || p.controlResidual.differing === 0 || p.rust2.differing === 0);

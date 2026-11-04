@@ -805,5 +805,6 @@
     "post-hud/fxaa",
     "post-hud/fxaa-fast",
     "post-hud/hud"
-  ]
+  ],
+  "settleFrames": 2
 }

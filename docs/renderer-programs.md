@@ -69,8 +69,10 @@ are reported rather than silently assumed.
 
 Each point captures three, the previous Rust compiled-source bridge, the owned
 sources, and three again. All variants see the same tick and temporal jitter
-sequence, reset history once at the start of their sequence, and redraw static
-shadow caches. Far and resolved scene stages and the presented image including
+sequence. Two frames settle a renderer transition before history is reset and
+the four-frame measured history sequence begins; static shadow caches are
+redrawn. The bridge variant also replays the whole post chain on identical
+inputs, while the owned variant pairs its individual steps. Far and resolved scene stages and the presented image including
 the weapon and HUD are checked. GPU deaths, context loss, blank frames, disabled
 Rust, absent draws, mismatched ticks and GL errors invalidate a point. The final
 context-loss case separately verifies restored three fallback.
@@ -123,8 +125,8 @@ The planar mirror case aims from above four water cells and requires Rust mirror
 phase draws and reflection-stage captures; the ocean cases use the ocean's own
 reflection path. Each point records differences outside its control's per-pixel
 amplitude envelope, including differences on pixels where the control was stable.
-Control counts are not used as a blanket pixel budget. Shader pairing compares
-RGB channels, matching the existing presented-frame parity criterion.
+Control counts are not used as a blanket pixel budget. Shader pairing compares all RGBA channels, including temporal weight alpha;
+presented-frame and scene-stage comparisons retain the existing RGB criterion.
 
 Expanded three GLSL and active program layouts are collected after the controls
 have exercised fallback, since a covered program need never be compiled by
