@@ -59,7 +59,7 @@ const browser = electronMode ? null : await chromium.launch({ args: ['--use-angl
 const pageNetwork = electronMode ? null : await startPageNetwork();
 // Pace software rasterization separately from the unchanged 60 Hz world
 // and input clocks, leaving display opportunities for input between draws.
-const fixtureSettings={...PERFORMANCE_PRESETS.minimum.values,renderScale:0.25,dynamicResolution:'off',farTerrain:'full',deathCamera:'classic',frameLimit:'5'};
+const fixtureSettings={...PERFORMANCE_PRESETS.minimum.values,renderScale:0.25,dynamicResolution:'off',farTerrain:'full',deathCamera:'classic',frameLimit:'1'};
 const pages = [], bridges = [], errors = [];
 try {
   for (let i = 0; i < 2; i++) {
@@ -126,7 +126,7 @@ try {
   await Promise.all(pages.map(page => page.waitForFunction(() => window.__bf?.client?.ready, null, { timeout: 180000 })));
   const presentation=await Promise.all(pages.map(page=>page.evaluate(()=>({scale:__bf.settings.get('renderScale'),upscaler:__bf.settings.get('upscaler'),shadows:__bf.settings.get('shadows'),samples:__bf.settings.get('antialiasing'),frameLimit:__bf.settings.get('frameLimit')}))));
   console.log('presentation-settings',JSON.stringify(presentation));
-  for(const value of presentation)assert.deepEqual(value,{scale:0.25,upscaler:'off',shadows:'off',samples:'off',frameLimit:'5'});
+  for(const value of presentation)assert.deepEqual(value,{scale:0.25,upscaler:'off',shadows:'off',samples:'off',frameLimit:'1'});
   // A connected transport can precede the loading screen's final GPU work.
   // Exercise spawn input only after the normal handover releases the battle.
   if(process.env.BFE_TEST_CPU!=='1')await Promise.all(pages.map(page=>page.waitForFunction(()=>window.__loading?.closed,null,{timeout:180000})));
