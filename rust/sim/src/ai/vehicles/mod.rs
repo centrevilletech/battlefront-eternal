@@ -48,3 +48,6 @@ pub mod world;
 
 pub use service::VehicleAI;
 pub use world::World;
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) mod wire;

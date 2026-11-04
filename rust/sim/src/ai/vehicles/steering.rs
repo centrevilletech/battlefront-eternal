@@ -66,8 +66,8 @@ pub struct Env {
 
 /// steerState(unit) (steering.js:49): the control's bag, made whole the
 /// first time.
-pub fn steer_state<W: World + ?Sized>(w: &mut W, control: Obj) -> &mut Steer {
-    w.steer(control).get_or_insert_with(Steer::full)
+pub fn steer_state<W: World + ?Sized, R>(w: &mut W, control: Obj, f: impl FnOnce(&mut Steer) -> R) -> R {
+    w.edit_steer(control, |slot| f(slot.get_or_insert_with(Steer::full)))
 }
 
 /// arrivalRadius(unit) (steering.js:87).
@@ -253,7 +253,7 @@ fn arrived(m: &Move, env: &Env) -> bool {
 /// hoverInput(unit, request, aim, dt, env, out) (steering.js:248).
 pub fn hover_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Option<&Request>, aim: Option<&Vector3>, _dt: f64, env: &Env, out: &mut Stick) {
     let c = unit.class.clone().unwrap_or_default();
-    steer_state(w, unit.obj);
+    steer_state(w, unit.obj, |_| ());
     let mut factor = 1.0;
     let mut req = request.copied();
     let huge = c.ai_size_type.as_deref().unwrap_or("").to_lowercase() == "huge";
@@ -287,7 +287,7 @@ pub fn hover_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Optio
         Some(a) => nonlinear_pitch(w, unit, a),
         None => 0.0,
     };
-    let moving_turn_at = num(steer_state(w, unit.obj).moving_turn_at);
+    let moving_turn_at = steer_state(w, unit.obj, |st| num(st.moving_turn_at));
     if c.moving_turn_only == Some(true) && env.now <= moving_turn_at + REQUEST_LIFE && abs(out.turn) > 0.0001 {
         out.forward = if out.forward < 0.0 { min(-0.5, out.forward) } else { max(0.5, out.forward) };
     }
@@ -298,7 +298,7 @@ pub fn hover_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Optio
 /// hoverRecovery(unit, env, st, out) (steering.js:307).
 fn hover_recovery<W: World + ?Sized>(w: &mut W, unit: &UnitView, env: &Env, out: &mut Stick) {
     let now = env.now;
-    let st = steer_state(w, unit.obj);
+    steer_state(w, unit.obj, |st| {
     if num(st.recovery) == 0.0 {
         if env.status != 0.0 && now > num(st.last_recovery) + 4.0 {
             st.recovery = Some(1.0);
@@ -325,17 +325,17 @@ fn hover_recovery<W: World + ?Sized>(w: &mut W, unit: &UnitView, env: &Env, out:
         st.recovery = Some(0.0);
         st.last_recovery = Some(now);
     }
+    });
 }
 
 /// walkerInput(unit, request, aim, dt, env, out) (steering.js:340).
 pub fn walker_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Option<&Request>, aim: Option<&Vector3>, dt: f64, env: &Env, out: &mut Stick) {
     let c = unit.class.clone().unwrap_or_default();
-    let holding = {
-        let st = steer_state(w, unit.obj);
+    let holding = steer_state(w, unit.obj, |st| {
         let holding = env.now <= num(st.hold_since) + WALKER_HOLD;
         st.holding = Some(holding);
         holding
-    };
+    });
     let req = if holding { None } else { request };
     let m = translate(unit, req, or(c.max_speed, 1.0), 0.0, env.has_path);
     out.forward = m.forward;
@@ -359,7 +359,7 @@ pub fn walker_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Opti
     }
     let yaw = unit.body_yaw;
     let turning = req.is_some_and(|r| r.valid) && !m.near && m.forward == 0.0;
-    let st = steer_state(w, unit.obj);
+    let (holding, pressing, recovering, wedged) = steer_state(w, unit.obj, |st| {
     if !turning || !(abs(yaw - num(st.turn_yaw)) < 0.01) {
         st.turn_yaw = Some(yaw);
         st.turn_at = Some(env.now);
@@ -375,10 +375,12 @@ pub fn walker_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Opti
     }
     let pressing = m.forward > 0.0 && env.now >= num(st.walk_since) + WALKER_PRESS;
     let recovering = num(st.recovery) != 0.0;
+        (holding, pressing, recovering, wedged)
+    });
     if !holding && (recovering || pressing || wedged) {
         hover_recovery(w, unit, env, out);
     }
-    let st = steer_state(w, unit.obj);
+    let replan_kind = steer_state(w, unit.obj, |st| {
     if recovering && num(st.recovery) == 0.0 {
         let p = unit.position;
         match st.stuck_at.flatten() {
@@ -390,13 +392,16 @@ pub fn walker_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Opti
         }
         let count = num(st.stuck_count);
         if count == 2.0 {
-            replan(w, env, false);
+            return Some(false);
         } else if count >= 4.0 {
             st.stuck_at = Some(None);
             st.stuck_count = Some(0.0);
-            replan(w, env, true);
+            return Some(true);
         }
     }
+        None
+    });
+    if let Some(another) = replan_kind { replan(w, env, another); }
 }
 
 /// The analogs' `env.replan(another)` (index.js analogs): another post, or
@@ -453,7 +458,7 @@ fn volume(bounds: Option<[[f64; 3]; 2]>) -> f64 {
 /// walkerContact(unit, other, now) (steering.js:438).
 pub fn walker_contact<W: World + ?Sized>(w: &mut W, me: &UnitView, other_kind: f64, other_position: &Vector3, other_velocity: &Vector3, other_bounds: Option<[[f64; 3]; 2]>, now: f64) {
     if me.kind == kind::WALKER && walker_yields(me, other_kind, other_position, other_velocity, other_bounds) {
-        steer_state(w, me.obj).hold_since = Some(now);
+        steer_state(w, me.obj, |st| st.hold_since = Some(now));
     }
 }
 
@@ -476,7 +481,7 @@ pub fn stationary_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, aim: Opti
 /// pattern 15 holds one and its walker lives, with the tow pass's weapon
 /// switches; None when no orbit steers.
 pub fn orbit_input<W: World + ?Sized>(w: &mut W, unit: &UnitView) -> Option<Request> {
-    let orbit: Orbit = w.steer(unit.obj).as_ref().and_then(|s| s.orbit())?;
+    let orbit: Orbit = w.edit_steer(unit.obj, |s| s.as_ref().and_then(|s| s.orbit()))?;
     let target = orbit.target?;
     let entry = w.unit(target.obj);
     let hull = entry.vehicle?;
@@ -526,21 +531,18 @@ pub fn seat_analogs<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Opti
             let orbit = orbit_input(w, unit);
             let request = orbit.as_ref().or(request);
             // src/flight/ai.js `const st = unit.steer ||= {}`.
-            w.steer(unit.obj).get_or_insert_with(Steer::empty);
+            w.edit_steer(unit.obj, |s| { s.get_or_insert_with(Steer::empty); });
             let pilot = PilotEnv { has_path: env.has_path, min_fly_height: env.min_fly_height, max_fly_height: env.max_fly_height };
             full = w.pilot_input(unit.obj, request, aim, dt, &pilot);
         }
         k if k == kind::WALKER => walker_input(w, unit, request, aim, dt, env, &mut full),
         _ => stationary_input(w, unit, aim, dt, &mut full),
     }
-    if let Some(intent) = w.intent(unit.obj) {
-        intent.up = if full.up != 0.0 && !full.up.is_nan() { 1.0 } else { 0.0 };
-        intent.down = if full.down != 0.0 && !full.down.is_nan() { 1.0 } else { 0.0 };
-        intent.brake = full.brake;
-        intent.trick = full.trick;
-        intent.immelmann = full.immelmann;
-        intent.boost = full.boost;
-    }
+    w.write_vehicle_intent(unit.obj, super::world::SeatIntent {
+        up: if full.up != 0.0 && !full.up.is_nan() { 1.0 } else { 0.0 },
+        down: if full.down != 0.0 && !full.down.is_nan() { 1.0 } else { 0.0 },
+        brake: full.brake, trick: full.trick, immelmann: full.immelmann, boost: full.boost,
+    });
     Stick { forward: full.forward, right: full.right, turn: full.turn, pitch: full.pitch, ..Stick::default() }
 }
 

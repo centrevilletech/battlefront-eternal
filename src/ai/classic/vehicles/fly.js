@@ -18,6 +18,11 @@ import { steerState } from "./steering.js";
 // (steering.js), not the helper's.
 
 export class FlyGotoHelper extends NavFlyGotoHelper {
+  constructor(controller, world, options = {}) {
+    super(controller, world, options);
+    world.vehicles?.nativeVehicle?.bindHelper(this);
+  }
+
   goto(point, options = {}) {
     this.setFlags(false, false);
     super.goto(point, options);

@@ -25,3 +25,6 @@ mod tracker_module;
 pub mod nav;
 pub mod random;
 pub mod vehicles;
+
+#[cfg(target_arch = "wasm32")]
+pub mod vehicle_module;
