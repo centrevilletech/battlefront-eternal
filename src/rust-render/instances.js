@@ -346,9 +346,9 @@ class InstancePass {
   // found through their roots.
   findRigs() {
     const found = [];
-    // (Not the arc caster's warm-up stand-in, which three draws for its
-    // first frames to build its program and which then takes itself away.)
-    this.core.graphics.scene.traverse((o) => { if (o.isSkinnedMesh && !o.userData.poseSphere && o.name !== "body-shadow" && o.name !== "arc-shock-warm" && !Array.isArray(o.material)) found.push(o); });
+    // Shadow-only meshes belong to the shadow pass, not colour rigs. The
+    // arc caster's warm-up stand-in has its own program-registration path.
+    this.core.graphics.scene.traverse((o) => { if (o.isSkinnedMesh && !o.userData.poseSphere && o.name !== "body-shadow" && o.name !== "crowd-shadows" && o.name !== "arc-shock-warm" && !Array.isArray(o.material)) found.push(o); });
     this.rigList = found;
   }
 
