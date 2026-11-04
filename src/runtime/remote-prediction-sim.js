@@ -126,7 +126,9 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       words.push(view ? register(view.sections) : -1);
       for (const name of cameraVectors) words.push(view?.[name].x ?? 0, view?.[name].y ?? 0, view?.[name].z ?? 0);
       words.push(...(view?.want.toArray() ?? [0, 0, 0, 1]), ...(view?.inverse.toArray() ?? [0, 0, 0, 1]),
-        view?.euler.x ?? 0, view?.euler.y ?? 0, view?.euler.z ?? 0, view?.tilt ?? 0, weapons.length);
+        view?.euler.x ?? 0, view?.euler.y ?? 0, view?.euler.z ?? 0, view?.tilt ?? 0);
+      for (const vector of context.v) words.push(...vector.toArray());
+      words.push(...context.closest.toArray(), weapons.length);
       for (const weapon of weapons) {
         const at = words.length; words.length += weaponWords;
         putWeapon(cx, weapon, words, at, null);
@@ -185,6 +187,8 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       if (view) view.inverse.fromArray(words, at); at += 4;
       if (view) view.euler.set(words[at], words[at + 1], words[at + 2], 'YXZ'); at += 3;
       if (view) view.tilt = words[at]; at++;
+      for (const vector of context.v) { vector.fromArray(words, at); at += 3; }
+      context.closest.fromArray(words, at); at += 3;
       context.piloted = piloted < 0 ? null : objects[piloted];
       context.simulationView = enabled ? view : null;
       if (!enabled) context.view = null;

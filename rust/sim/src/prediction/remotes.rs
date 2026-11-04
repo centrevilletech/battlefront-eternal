@@ -219,6 +219,8 @@ struct Core {
     level_ids: Vec<Vec<usize>>,
     weapon_rng: Vec<Option<usize>>,
     camera: Camera,
+    scratch: [Vector3; 5],
+    closest: Vector3,
     on_fired: bool,
 }
 impl Core {
@@ -268,6 +270,8 @@ impl Core {
             euler: r.vec()?,
             tilt: r.word()?,
         };
+        let scratch = [r.vec()?, r.vec()?, r.vec()?, r.vec()?, r.vec()?];
+        let closest = r.vec()?;
         let n = r.count()?;
         let mut weapons = Vec::new();
         let mut reported_levels = Vec::new();
@@ -406,6 +410,8 @@ impl Core {
             level_ids,
             weapon_rng,
             camera,
+            scratch,
+            closest,
             on_fired,
         })
     }
@@ -446,6 +452,10 @@ impl Core {
         put_quat(&mut a, &c.inverse);
         put_vec(&mut a, &c.euler);
         a.push(c.tilt);
+        for v in &self.scratch {
+            put_vec(&mut a, v);
+        }
+        put_vec(&mut a, &self.closest);
         a.push(self.weapons.len() as f64);
         for (i, w) in self.weapons.iter().enumerate() {
             let mut row = [0.0; Weapon::WORDS];
@@ -608,6 +618,21 @@ impl Core {
         tag: u32,
         droid: usize,
     ) -> Result<Option<Hit>, &'static str> {
+        match tag {
+            0 => {}
+            1 | 2 => {
+                self.scratch[0] = *from;
+                self.scratch[2] = *direction;
+            }
+            3 => {
+                self.scratch[0] = *from;
+                self.scratch[4] = *direction;
+            }
+            5 => {
+                self.scratch[3] = *from;
+            }
+            _ => {}
+        }
         let mut a = Vec::new();
         put_vec(&mut a, from);
         put_vec(&mut a, direction);
@@ -682,6 +707,10 @@ impl Core {
         zoom: f64,
         first: bool,
     ) -> Result<(), &'static str> {
+        if first {
+            self.scratch[1] = droid.eye;
+            self.scratch[1].add_scaled_vector(&droid.aim, if zoom > 1.0 { -0.5 } else { -0.3 });
+        }
         let sections = self.defs.borrow().values[self.camera.sections as usize].clone();
         let section = if zoom > 1.0 && sections.get("STANDZOOM").truthy() {
             sections.get("STANDZOOM")
@@ -727,9 +756,7 @@ impl Core {
                 c.euler.z,
                 EulerOrder::YXZ,
             ));
-            c.position = droid.eye;
-            c.position
-                .add_scaled_vector(&droid.aim, if zoom > 1.0 { -0.5 } else { -0.3 });
+            c.position = self.scratch[1];
             c.local = c.motion_offset;
             c.local.apply_quaternion(&c.q);
             c.position.add(&c.local);
@@ -919,6 +946,9 @@ impl Core {
             axis.normalize();
             q.set_from_axis_angle(&axis, -pitch);
             dir.apply_quaternion(&q);
+            self.scratch[2] = at;
+            self.scratch[3] = axis;
+            self.scratch[4] = dir;
             if self.on_fired {
                 let mut args = vec![i as f64, weapon as f64];
                 put_shot(&mut args, &shot);
@@ -954,6 +984,7 @@ impl Core {
         let def = self.defs.borrow().values[id].clone();
         let mut at = self.droids[i].position;
         at.y += 0.155;
+        self.scratch[0] = at;
         let elevation = def.get("AimElevation").nn(90.0) * std::f64::consts::PI / 180.0;
         let azimuth = def.get("AimAzimuth").nn(0.0) * std::f64::consts::PI / 180.0;
         let z = Vector3::new(
@@ -1298,6 +1329,9 @@ impl Core {
         c.y += 0.155;
         let mut height = reach - 0.155;
         let mut n = UP;
+        self.scratch[0] = c;
+        self.scratch[1] = n;
+        self.scratch[2] = Vector3::new(0.0, -1.0, 0.0);
         if let Some(below) = self
             .cast(
                 world,
@@ -1311,6 +1345,7 @@ impl Core {
         {
             height = below.distance - 0.155;
             n = below.normal;
+            self.scratch[1] = n;
         }
         if self.ask(world, 2, vec![c.x, c.z]).await?.first() == Some(&1.0) {
             let level = self.ask(world, 3, vec![]).await?[0];
@@ -1318,6 +1353,7 @@ impl Core {
                 let level = self.ask(world, 3, vec![]).await?[0];
                 height = min(height, c.y - level - 0.155);
                 n = UP;
+                self.scratch[1] = n;
             }
         }
         let v = self.velocities[velocity_id];
@@ -1325,9 +1361,11 @@ impl Core {
             let mut ray = Vector3::new(v.x, v.y - reach, v.z);
             let length = ray.length();
             ray.divide_scalar(length);
+            self.scratch[2] = ray;
             if let Some(ahead) = self.cast(world, &mut c, &mut ray, length, 2, i).await? {
                 let mut along = ahead.point;
                 along.sub(&c);
+                self.scratch[3] = along;
                 height = min(height, -along.dot(&ahead.normal));
                 if ahead.normal.y > 0.0 {
                     n.lerp(
@@ -1335,6 +1373,7 @@ impl Core {
                         (1.0 - ahead.distance / length) * ahead.normal.y,
                     )
                     .normalize();
+                    self.scratch[1] = n;
                 }
             }
         }
@@ -1352,6 +1391,8 @@ impl Core {
         forward.add_scaled_vector(&n, -forward.dot(&n)).normalize();
         let mut right = Vector3::default();
         right.cross_vectors(&forward, &n).normalize();
+        self.scratch[3] = forward;
+        self.scratch[2] = right;
         let v = &mut self.velocities[velocity_id];
         let along = v.dot(&forward);
         let across = v.dot(&right);
@@ -1416,7 +1457,8 @@ impl Core {
             let mut c = self.droids[i].position;
             c.y += 0.155;
             let mut best = f64::INFINITY;
-            let mut n = Vector3::default();
+            let mut n = self.scratch[1];
+            self.scratch[0] = c;
             let a = self.ask(world, 1, vec![c.x, c.y, c.z, RADIUS]).await?;
             let mut r = Reader::new(&a);
             let count = r.count()?;
@@ -1428,11 +1470,13 @@ impl Core {
             for tri in triangles {
                 let mut closest = Vector3::default();
                 tri.closest_point_to_point(&c, &mut closest);
+                self.closest = closest;
                 let distance = closest.distance_to(&c);
                 if distance < RADIUS && distance < best && distance > 1e-5 {
                     best = distance;
                     n = c;
                     n.sub(&closest).divide_scalar(distance);
+                    self.scratch[1] = n;
                 }
             }
             let depth = if best < f64::INFINITY {
@@ -1451,6 +1495,7 @@ impl Core {
                 {
                     Some(hit) => {
                         n = hit.normal;
+                        self.scratch[1] = n;
                         RADIUS - hit.distance
                     }
                     None => break,
