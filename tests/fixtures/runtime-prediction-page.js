@@ -26,7 +26,8 @@ export async function exercisePredictionPage(native) {
       // Compact Soldier schema: four header bytes, six scalar fields, then XYZ.
       predicted ||= Math.hypot(p.x - saved.getFloat64(52, true), p.y - saved.getFloat64(60, true), p.z - saved.getFloat64(68, true)) > 1e-4;
     }
-    for (const round of b.ordnance.rounds) {
+    for (const round of c.entity.combat.dynamic.objects.values()) {
+      if (round.type !== 'round') continue;
       if (!round.mesh) continue;
       missiles++;
       badRotation ||= !round.quaternion?.isQuaternion || !round.mesh.quaternion.equals(round.quaternion);

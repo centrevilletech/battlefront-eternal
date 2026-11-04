@@ -55,6 +55,9 @@ const local=replica.playerUnit;
 assert.equal(replica.units.byId(lateVehicle.aiTarget.id).vehicle.name,lateVehicle.name,'late vehicle IDs remain distinct from joining infantry');
 assert.equal(local.combat.health,bu.combat.health);
 assert.ok(local.position.distanceTo(bu.position)<1e-9);
+// Roster names arrive on their staggered snapshot cadence, after the first
+// exact body correction has already assigned this player's roster slot.
+for(let n=0;n<30&&local.character.name!==bu.character.name;n++){world.step();publish();}
 assert.equal(local.character.name,bu.character.name);
 assert.deepEqual(local.combat.arsenal.weapons.map(w=>[w.clip,w.reserve]),bu.combat.arsenal.weapons.map(w=>[w.clip,w.reserve]));
 
