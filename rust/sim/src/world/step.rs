@@ -98,7 +98,7 @@ mod tests {
     fn server_steps_keep_the_dormant_player_out_of_body_combat_and_chase_camera() {
         let mut state = WorldStepState { server: true, removed: true, grenade_update: true, ..Default::default() };
         let mut host = PhaseLog::default(); step(&mut state, 60.0, &mut host);
-        assert!([Call::Player, Call::Combat, Call::FlushMuzzles, Call::Camera].iter().any(|op| host.calls.iter().any(|(seen, _)| seen == op)));
+        assert!(![Call::Player, Call::Combat, Call::FlushMuzzles, Call::Camera].iter().any(|op| host.calls.iter().any(|(seen, _)| seen == op)));
         let at = |op| host.calls.iter().position(|(seen, _)| *seen == op).unwrap();
         assert!(at(Call::Battle) < at(Call::Target)); assert!(at(Call::Target) < at(Call::Grenades));
         assert!(at(Call::NextGrenade) < at(Call::SpawnFlush));
