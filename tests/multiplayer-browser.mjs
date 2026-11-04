@@ -83,6 +83,13 @@ try {
     await pageNetwork.attach(page, join(directory, String(i)));
     }
     await page.addInitScript(({cpu,electronMode}) => {
+      // Rust HUD and preview passes can submit GL draws outside graphics.render.
+      // Keep CPU functionality runs independent of software rasterizer speed.
+      if(cpu)for(const context of [WebGLRenderingContext,WebGL2RenderingContext]) {
+        for(const method of ['drawArrays','drawElements','drawArraysInstanced','drawElementsInstanced','drawRangeElements']) {
+          if(context.prototype[method])context.prototype[method]=()=>{};
+        }
+      }
       if(cpu){let game;Object.defineProperty(window,'__bf',{configurable:true,get:()=>game,set:value=>{game=value;game.graphics.render=()=>{};game.graphics.renderer.render=()=>{};const clear=game.ordnance.clearProjectilePresentation.bind(game.ordnance);game.ordnance.clearProjectilePresentation=()=>{const before=['bolts','beams','grenades','rounds'].map(k=>game.ordnance[k].length);clear();if(!window.__bootstrapCleanup||before.some(n=>n>0))window.__bootstrapCleanup={before,after:['bolts','beams','grenades','rounds'].map(k=>game.ordnance[k].length)};};}});}
       localStorage.setItem('battlefront-eternal.settings',JSON.stringify({waterQuality:'low',antialiasing:'off',shadows:'off',renderScale:0.5}));
       if (electronMode && !window.bfeDesktop?.versions?.electron) throw Error('Actual Electron preload bridge missing');
