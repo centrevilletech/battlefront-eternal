@@ -235,6 +235,7 @@ impl Hulls {
         w.seated(unit);
         st.vehicle.get_mut(vref).unwrap().sleeping = Some(false);
         w.sync_rider(r, st.unit.get_mut(unit_ref(unit)).unwrap());
+        lease_views(st, vref);
         w.boarded(unit, Holder::Hull(self.hulls[hull].index), index);
         true
     }
@@ -258,7 +259,7 @@ impl Hulls {
     /// craft in flight, beside it in the air. reason Killed: he died on the
     /// seat, his body falls from where it rode.
     pub fn vacate<W: SeatWorld + ?Sized>(&mut self, st: &mut Store, w: &mut W, r: Ref<SeatLease>, how: Vacate) -> bool {
-        let lease = st.seat_lease.get(r).expect("the lease");
+        let Some(lease) = st.seat_lease.get(r) else { return false };
         if lease.released {
             return true;
         }
@@ -356,6 +357,7 @@ impl Hulls {
             place_on_foot(w, u, &spot, yaw, airborne && person);
             w.placed(unit.unwrap(), yaw);
         }
+        lease_views(st, vref);
         w.unboarded(unit, Holder::Hull(self.hulls[hull].index), index, how.post, how.reason);
         true
     }
@@ -413,6 +415,7 @@ impl Hulls {
             let c = w.controllable(r, index, role);
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
+        lease_views(st, vref);
         w.moved(unit, Holder::Hull(self.hulls[hull].index), index);
         r
     }
