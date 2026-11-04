@@ -486,6 +486,12 @@ function grenadePriority(controller, unit, target, def, ownerSoldier, now) {
 // docs/ai-combat.md).
 const clusters = new WeakMap();
 
+// The capture reads the stored timestamps without the generation reset
+// performed by clusterState when gameplay next consults the target.
+export function peekClusterState(target) {
+  return clusters.get(target?.controller ?? target) ?? null;
+}
+
 export function clusterState(target, create = false) {
   const key = target?.controller ?? target;
   if (!key) return null;
