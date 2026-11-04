@@ -50,5 +50,15 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   assert.notEqual(replacement.simGen, gen);
   assert.equal(f2.pool.at(slot, gen), v, 'retired reads preserve the old identity');
   assert.equal(f2.pool.at(replacement.simSlot, replacement.simGen), replacement);
+  // Registry entries can outlive a retired hull. They must remain dead facts,
+  // rather than asking targeting to resolve the replacement in the same slot.
+  f2.foreignIn();
+  const words = f2.bridge.f, start = f2.inputBase + words[f2.inputBase + f2.capacity - 1];
+  let oldTarget = null;
+  for (let i = 0; i < words[start]; i++) {
+    const at = start + 1 + i * 10;
+    if (words[at + 1] === target.id) oldTarget = [words[at], words[at + 3]];
+  }
+  assert.deepEqual(oldTarget, [2, 0], 'retired registry identity stays a dead foreign fact');
   assert.equal(f2.x.f2_command(slot, gen, target.generation, 1, 10, 0, 0, 0), 0, 'slot reuse cannot retarget the old identity');
 });

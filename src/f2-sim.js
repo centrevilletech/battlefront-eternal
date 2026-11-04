@@ -179,7 +179,8 @@ class F2 {
     values.push(all.length);
     for (const t of all) {
       const hull = t.vehicle ?? null;
-      const kind = t instanceof this.unitClass ? 0 : hull ? (hull.aiTarget === t ? 1 : 3) : 2;
+      const current = hull && this.pool.objects[hull.simSlot] === hull;
+      const kind = t instanceof this.unitClass ? 0 : current ? (hull.aiTarget === t ? 1 : 3) : 2;
       if (kind === 2) { if (t.aimPoint) t.aimPoint(p); else p.copy(t.position); }
       values.push(kind, t.id, t.generation ?? NaN, t.alive ? 1 : 0, t.team == null ? 0 : 1, t.team ?? 0,
         hull ? refs[KIND_VEHICLE].slotOf(hull) : -1, kind === 2 ? p.x : 0, kind === 2 ? p.y : 0, kind === 2 ? p.z : 0);
