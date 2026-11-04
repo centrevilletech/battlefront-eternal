@@ -62,7 +62,7 @@ export class PropsSim {
     });
     this.animated = new AnimatedPropsSim(bridge, live);
     this.queries = live.center && live.toward ? new LiveQueriesSim(this, live) : null;
-    this.turrets = new TurretsSim(bridge, live);
+    this.turrets = live.f2Seats ? null : new TurretsSim(bridge, live);
   }
 
   identity(object) {
@@ -93,6 +93,7 @@ export class PropsSim {
     const attacker = this.object(state.lastAttacker);
     if (attacker !== undefined || Object.hasOwn(b, "lastAttacker")) b.lastAttacker = attacker;
     if (b.aiTarget && state.targetGeneration !== null) b.aiTarget.generation = state.targetGeneration;
+    b.f2Seats?.turretLife(b);
   }
   syncStation(b, station) {
     this.syncState(b, station.building);

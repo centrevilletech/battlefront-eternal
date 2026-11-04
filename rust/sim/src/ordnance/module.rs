@@ -376,6 +376,7 @@ impl World for JsWorld {
     }
 
     fn gone(&mut self, x: BeamSource) -> bool {
+        if let Some(r) = crate::vehicles::module::f2::live_seats::emitter_lease(x) { return crate::vehicles::module::f2::live_seats::beam_gone(r); }
         // `x?.alive === false`: never for nobody or the player's own.
         if matches!(x, BeamSource::Null | BeamSource::Player) {
             return false;
@@ -384,10 +385,12 @@ impl World for JsWorld {
     }
 
     fn beam_local_origin(&mut self, source: BeamSource, origin: Vec3) -> Option<Vec3> {
+        if let Some(r) = crate::vehicles::module::f2::live_seats::emitter_lease(source) { return crate::vehicles::module::f2::live_seats::beam_local(r, origin); }
         point_of(import_beam_local_origin(&SourceArgs { source, origin }))
     }
 
     fn beam_pose(&mut self, source: BeamSource, local_origin: Vec3, position: &mut Vec3, direction: &mut Vec3) {
+        if let Some(r) = crate::vehicles::module::f2::live_seats::emitter_lease(source) { crate::vehicles::module::f2::live_seats::beam_pose(r, local_origin, position, direction); return; }
         let a = import_beam_pose(&BeamPoseArgs { source, local_origin, position: *position, direction: *direction });
         *position = a.position;
         *direction = a.direction;

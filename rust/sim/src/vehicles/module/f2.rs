@@ -1,21 +1,42 @@
 //! Persistent fleet scheduler. The generated slab is canonical; input contains
 //! foreign facts only. No complete vehicle row is imported by an ordinary tick.
 pub use crate::vehicles::f2_seats as seats;
+pub mod live_seats;
 
 use super::*;
-use crate::store::Nullable;
 
 const CAPACITY: usize = 262144;
 static mut ACTIVE: bool = false;
 static mut IO: Vec<f64> = Vec::new();
 static mut DESCRIPTOR: [f64; 16] = [0.0; 16];
-static mut LIVES: Vec<f64> = Vec::new();
+static mut PUBLICATION: Option<crate::vehicles::f2_publication::Publication> = None;
 static mut DESCS: Vec<super::super::spawn::SlotDesc> = Vec::new();
 static mut ACC: f64 = 0.0;
 static mut TIME: f64 = 0.0;
 
 pub fn active() -> bool { unsafe { *addr_of_mut!(ACTIVE) } }
 fn io() -> &'static mut Vec<f64> { unsafe { &mut *addr_of_mut!(IO) } }
+fn publication() -> &'static mut crate::vehicles::f2_publication::Publication {
+    unsafe { (*addr_of_mut!(PUBLICATION)).get_or_insert_with(Default::default) }
+}
+
+pub fn mark(r: Ref<Vehicle>) { publication().mark(r); }
+
+/// Vehicle construction registers its row without rewriting other pads or hulls.
+#[no_mangle]
+pub extern "C" fn f2_register(slot: u32, generation: u32) {
+    let r = Ref::new(slot, generation);
+    let s = sim();
+    let v = s.store.vehicle.get(r).expect("registered F2 hull");
+    let pad = v.slot_index as usize;
+    let name = v.name;
+    if !s.store.vehicles.vehicles.contains(&r) { s.store.vehicles.vehicles.push(r); }
+    if !s.store.vehicles.slots[pad].variants.entries.iter().any(|&(n, _)| n == name) {
+        s.store.vehicles.slots[pad].variants.entries.push((name, r));
+    }
+    publication().register(&s.store, r);
+}
+
 fn desc() -> &'static mut [f64; 16] { unsafe { &mut *addr_of_mut!(DESCRIPTOR) } }
 
 /// Allocate once while loading. The stable descriptor points at input and at
@@ -40,25 +61,27 @@ pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
 /// Publish without a getter crossing from JS, also before a synchronous hook.
 /// No reference to the store survives a foreign call.
 pub fn publish() {
-    let s = sim();
-    let lives = unsafe { &mut *addr_of_mut!(LIVES) };
-    lives.clear(); lives.push(s.store.vehicles.vehicles.len() as f64);
-    for r in &s.store.vehicles.vehicles {
-        let v = s.store.vehicle.get(*r).unwrap();
-        lives.extend_from_slice(&[r.slot as f64, v.target_generation, if v.visible { 1.0 } else { 0.0 },
-            v.flight_class.map_or(-1.0, |c| c as u8 as f64), v.min_speed.unwrap_or(f64::NAN),
-            v.mid_speed.unwrap_or(f64::NAN), v.boost_speed.unwrap_or(f64::NAN), v.speed, v.turn_rate]);
-    }
-    desc()[12] = 9.0;
-    desc()[11] = lives.as_ptr() as usize as f64;
-    desc()[2] = s.export(KIND_VEHICLE as u32, 0).expect("F2 hull output").ptr() as usize as f64;
-    desc()[3] = s.export(KIND_VEHICLES as u32, 0).expect("F2 pad output").ptr() as usize as f64;
+    desc()[13] = live_seats::publish() as usize as f64;
+    let p = publication();
+    p.flush(&mut sim().store);
+    desc()[2] = p.hulls.ptr() as usize as f64;
+    desc()[3] = p.pads.ptr() as usize as f64;
+    desc()[11] = p.lives.ptr() as usize as f64;
+    desc()[12] = 0.0;
     desc()[4] = veh_changes() as usize as f64;
-    desc()[5] = unsafe { (&*addr_of_mut!(POSED)).first().map_or(0.0, |_| (&*addr_of_mut!(POSED)).as_ptr() as usize as f64) };
-    desc()[6] = unsafe { (&*addr_of_mut!(LOCKS)).first().map_or(0.0, |_| (&*addr_of_mut!(LOCKS)).as_ptr() as usize as f64) };
+    desc()[5] = 0.0;
+    desc()[6] = 0.0;
     desc()[7] = unsafe { *addr_of_mut!(ACC) };
     desc()[8] = unsafe { *addr_of_mut!(FLIGHT_ACC) };
     desc()[9] = unsafe { *addr_of_mut!(TIME) };
+}
+
+/// Fresh pose output exists only after spawn rendering or the complete phase.
+fn publish_posed() {
+    live_seats::posed_nodes();
+    publish();
+    desc()[5] = unsafe { (&*addr_of_mut!(POSED)).first().map_or(0.0, |_| (&*addr_of_mut!(POSED)).as_ptr() as usize as f64) };
+    desc()[6] = unsafe { (&*addr_of_mut!(LOCKS)).first().map_or(0.0, |_| (&*addr_of_mut!(LOCKS)).as_ptr() as usize as f64) };
 }
 
 /// Only pad clocks are changed here. The JS registry/weapons receive a life
@@ -73,6 +96,7 @@ fn spawns(dt: f64) {
         let slot = sim().store.vehicles.slots[i].clone();
         if slot.vehicle.and_then(|r| sim().store.vehicle.get(r)).is_some_and(|v| v.alive) { continue; }
         let remaining = v8math::max(0.0, slot.remaining - dt);
+        if remaining.to_bits() != sim().store.vehicles.slots[i].remaining.to_bits() { publication().pad(i); }
         sim().store.vehicles.slots[i].remaining = remaining;
         if remaining > 0.0 || slot.vehicle.and_then(|r| sim().store.vehicle.get(r)).is_some_and(|v| v.dying > 0.0) { continue; }
         let team = if teams[i * 2] != 0.0 { teams[i * 2 + 1] }
@@ -98,8 +122,9 @@ fn spawns(dt: f64) {
             b.alive && super::super::spawn::footprints_overlap(&vec(&center), &vec(&size), &m, &vec(&b.center), &vec(&b.size), &b.matrix)
         });
         let near = occupant.is_some_and(|p| p.distance_to_squared(&Vector3::new(m[12], m[13], m[14])) < v8math::pow(radius + 1.0, 2.0));
-        if blocked || near { sim().store.vehicles.slots[i].remaining = 1.0; continue; }
+        if blocked || near { sim().store.vehicles.slots[i].remaining = 1.0; publication().pad(i); continue; }
         sim().store.vehicles.slots[i].vehicle = Some(r);
+        publication().pad(i);
         let index = hull_refs().iter().position(|&x| x == r).unwrap();
         let mut hull = if flying { load_flyer(r, index) } else { load(r, index) };
         let mut p = poses()[r.slot as usize].take().expect("F2 retained rig");
@@ -127,7 +152,7 @@ fn spawns(dt: f64) {
         out[0] += 1.0;
         out.extend_from_slice(&[r.slot as f64, numbers.len() as f64]);
         out.extend_from_slice(&numbers);
-        publish();
+        publish_posed();
         import_f2_life(&VehHull { hull: index as f64 });
     }
 }
@@ -135,6 +160,7 @@ fn spawns(dt: f64) {
 pub fn respawn_clock(hull: usize) {
     let r = hull_refs()[hull];
     let pad = sim().store.vehicle.get(r).unwrap().slot_index as usize;
+    publication().pad(pad);
     sim().store.vehicles.slots[pad].remaining = unsafe { (&*addr_of_mut!(DESCS))[pad].respawn_time };
 }
 
@@ -143,7 +169,7 @@ pub fn respawn_clock(hull: usize) {
 fn foreign() {
     let start = io()[CAPACITY - 1] as usize;
     let end = io()[CAPACITY - 2] as usize;
-    let data = io()[start..end].to_vec();
+    let data = &io()[start..end];
     let mut o = 0;
     let mut section = |stride: usize| {
         let n = data[o] as usize; o += 1;
@@ -162,20 +188,6 @@ fn foreign() {
     for _ in 0..n {
         let r = Ref::new(data[o] as u32, data[o + 1] as u32); o += 2;
         let Some(v) = sim().store.vehicle.get_mut(r) else { panic!("stale F2 foreign row") };
-        if data[o] != 0.0 { v.stick_x = Some(data[o + 1]); v.stick_y = Some(data[o + 2]); }
-        o += 3;
-        for (seat, lease) in v.seats.iter_mut().zip(&mut v.seat_leases) {
-            let has = data[o] != 0.0;
-            seat.lease = has.then(|| Ref::new(data[o + 1] as u32, data[o + 2] as u32));
-            *lease = if has { SeatLeaseView {
-                human: Some(data[o + 3] != 0.0), network_human: Some(data[o + 4] != 0.0),
-                unit: if data[o + 5] != 0.0 { Nullable::Value(Ref::new(data[o + 6] as u32, data[o + 7] as u32)) } else { Nullable::Null },
-                forward: Some(data[o + 8]), right: Some(data[o + 9]), turn: Some(data[o + 10]), pitch: Some(data[o + 11]), brake: Some(data[o + 12] != 0.0),
-            }} else { SeatLeaseView { unit: Nullable::Undefined, ..Default::default() } };
-            seat.aim_yaw = data[o + 13]; seat.pitch = data[o + 14];
-            seat.look_yaw = opt(data[o + 15], data[o + 16]); seat.look_pitch = opt(data[o + 17], data[o + 18]);
-            o += 19;
-        }
         // Tow state is foreign through step 5.
         v.tow_target = data[o]; v.tow_local.copy_from_slice(&data[o + 1..o + 4]);
         v.tow_leg = StrId(data[o + 4] as u32); v.tow_angle = data[o + 5]; v.tow_winding = data[o + 6]; o += 7;
@@ -190,14 +202,18 @@ pub extern "C" fn f2_step(dt: f64, tick: f64) {
     let dt = three::clamp(dt, 0.0, 0.1);
     unsafe { *addr_of_mut!(TIME) += dt; *addr_of_mut!(CLOCK) = Some(io()[0]); }
     spawns(dt);
-    publish();
-    import_f2_latch(&VehNothing {});
     foreign();
+    live_seats::latch(unsafe { *addr_of_mut!(TIME) });
     let flags = io()[2] as u32;
     let left = veh_ground(dt, unsafe { *addr_of_mut!(ACC) }, unsafe { *addr_of_mut!(FLIGHT_ACC) }, io()[1], io()[0], flags);
     unsafe { *addr_of_mut!(ACC) = left; }
     desc()[10] = tick;
+    live_seats::prepare_foreign_fire();
+    publish_posed();
+    import_f2_foreign(&VehNumber { value: dt });
+    live_seats::turret_tick(dt);
     publish();
+    live_seats::finish();
 }
 
 /// Synchronous authoritative writes. Both slab generation and gameplay life
@@ -234,9 +250,11 @@ pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 {
     JsWorld { craft: u32::MAX }.enable_body(body, false);
     let v = sim().store.vehicle.get_mut(r).unwrap();
     v.alive = false; v.visible = false;
+    live_seats::retire(r);
     if !sim().store.vehicle.retire(r) { return 0; }
     sim().store.vehicles.vehicles.retain(|&x| x != r);
-    for pad in &mut sim().store.vehicles.slots {
+    for (index, pad) in sim().store.vehicles.slots.iter_mut().enumerate() {
+        if pad.vehicle == Some(r) { publication().pad(index); }
         if pad.vehicle == Some(r) { pad.vehicle = None; }
         pad.variants.entries.retain(|(_, v)| *v != r);
     }

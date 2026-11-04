@@ -1,10 +1,12 @@
 // One whole ground/flight phase. Ordinary ticks import foreign inputs only.
 import * as THREE from 'three';
+import { F2Seats } from './f2-seats.js';
 import { makeGround, makeHit } from './collision.js';
 import { Weapon } from './weapons.js';
 import { FLIGHT_CLASSES, flightConfig } from './flight/config.js';
+import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad } from './sim/gen/f2.js';
 import { MirrorPool } from './sim/runtime.js';
-import { KIND_TABLE, KIND_VEHICLE, KIND_VEHICLES, KIND_BODY, KIND_UNIT, KIND_SEAT_LEASE, KIND_OWNER_SNAPSHOT, VEHICLE_KEYS } from './sim/gen/index.js';
+import { KIND_TABLE, KIND_VEHICLE, KIND_VEHICLES, KIND_BODY, KIND_UNIT, KIND_OWNER_SNAPSHOT, VEHICLE_KEYS } from './sim/gen/index.js';
 import { rigNodes, json, classKeys, giveMapRules, pullPose, poseInputs, applyPose, flightNumbers } from './vehicle-phase-data.js';
 import { putOrdnanceOwner } from './sim/gen/ordnance.js';
 import { ordnanceTests } from './ordnance-sim.js';
@@ -12,6 +14,7 @@ import { F2Counters, F2MirrorCheck, countedF2Exports } from './f2-contract.js';
 const MISS = { found: false, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: -1 };
 const NO_GROUND = { found: false, height: 0, normal: new THREE.Vector3() };
 const NO_INPUT = {};
+const EMPTY_UNITS = [];
 const OWNED_FIELDS = VEHICLE_KEYS;
 
 // Adopt the existing Vehicle objects. Respawns keep them; retirement/reuse uses
@@ -53,8 +56,11 @@ class F2 {
     this.unitClass = unitClass; this.debug = debug;
     this.detector = new F2MirrorCheck();
     this.kernel = false; this.bodiesVersion = -1; this.colliders = new WeakSet();
-    this.looks = new WeakMap();
-    this.classes = new Set(); this.values = []; this.memberPoint = new THREE.Vector3(); this.aimPoints = [];
+    this.mirrorRows = new WeakMap(); this.syncedRows = [];
+    this.lifeScratch = new F2HullLifeMirror(); this.padScratch = new F2PadMirror();
+    this.ownerScratch = new Float64Array(3);
+    this.classes = new Set(); this.values = []; this.teams = [];
+    this.padPosts = vehicles.slots.map(slot => slot.desc.post ? vehicles.posts?.posts.find(p => p.desc.name.toLowerCase() === slot.desc.post) : null); this.memberPoint = new THREE.Vector3(); this.aimPoints = [];
     this.hit = makeHit(); this.groundHit = makeGround();
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
     this.flag = { value: false }; this.number = { value: 0 };
@@ -65,24 +71,27 @@ class F2 {
     this.x.veh_flight_env(bridge.strings.id(json(vehicles.flightEnvironment ?? {})), vehicles.maxFlyHeight);
     for (const [name, c] of Object.entries(FLIGHT_CLASSES)) for (const [key, value] of Object.entries(c)) this.retune(name, key, value);
     bridge.register({ ...this.handlers(),
-      f2Latch: () => {
-        this.sync(true); this.inLatch = true;
-        try { vehicles.latchCrews(); this.withBridge(() => this.foreignIn()); }
-        finally { this.inLatch = false; }
+      f2Foreign: a => {
+        const dt = a.value;
+        this.sync();
+        vehicles.fireCrews(dt); vehicles.updateTethers();
+        if (vehicles.cosmetic !== false) vehicles.drawTethers(false);
+        vehicles.syncCrews(false);
       },
       f2Variant: (a) => {
         const slot = vehicles.slots[a.pad], name = a.name;
-        this.sync(true);
+        this.sync();
         const v = vehicles.variant(slot, name);
-        this.withBridge(() => { bridge.write(KIND_VEHICLES, [vehicles]); this.adopt(v); });
+        this.adopt(v);
         this.bodiesIn();
       },
       f2Life: (a) => {
         const v = vehicles.vehicles[a.hull];
         // A spawn precedes input latching. Reset this hull's aim, keeping
         // the other hulls' pending look samples until foreignIn consumes them.
-        this.sync(true, v);
+        this.sync();
         for (const seat of v.seats) for (const w of seat.weapons) { w.state = new Weapon(w.def); w.barrel = 0; }
+        this.foreignIn();
       },
     });
     bridge.write(KIND_VEHICLE, vehicles.vehicles);
@@ -91,6 +100,7 @@ class F2 {
     this.pool = new FleetMirrors(refs);
     // Existing identity is retained for union classification and body owners.
     bridge.refs[KIND_VEHICLE] = this.pool;
+    this.seats = new F2Seats(this);
     for (const v of vehicles.vehicles) this.adopt(v);
     this.bodiesIn();
     const ptr = this.x.f2_init(bridge.strings.id(json(vehicles.slots.map(s => s.desc))), vehicles.time, vehicles.acc);
@@ -114,14 +124,17 @@ class F2 {
       this.x.veh_class(b.strings.id(v.name), b.strings.id(json(classKeys(v.def))), v.turnRate);
     }
     b.writeSome(KIND_VEHICLE, [v]);
+    this.x.f2_register(v.simSlot, v.simGen);
     const values = pullPose(v), at = this.input(values.length);
     b.f.set(values, at);
     if (!this.x.veh_pull(slot, v.aiTarget.generation, values.length)) throw Error('F2 could not retain a vehicle rig');
+    this.seats.adopt(v);
+    this.record(v);
   }
 
   // A hook sees already-published canonical state and sends only commands back.
   hook(call) {
-    this.sync(!this.inPhase || this.inLatch);
+    this.sync();
     try { call(); } finally {
       this.bridge.views();
       if (this.kernel) for (let i = 0; i < this.collision.bodies.length; i++) this.bridge.u8[this.flags + i] = this.collision.bodies[i].enabled ? 1 : 0;
@@ -139,23 +152,20 @@ class F2 {
     if (this.kernel) for (let i = 0; i < this.collision.bodies.length; i++) b.u8[this.flags + i] = this.collision.bodies[i].enabled ? 1 : 0;
     const values = this.values; values.length = 0;
     values.push(vs.clock(), vs.water?.level ?? 0, 1 | (vs.cosmetic !== false ? 2 : 0) | 4 | (vs.flightAssists ? 8 : 0));
-    for (const slot of vs.slots) {
-      const post = slot.desc.post && vs.posts?.posts.find(p => p.desc.name.toLowerCase() === slot.desc.post);
+    for (let i = 0; i < vs.slots.length; i++) {
+      const post = this.padPosts[i];
       values.push(post ? 1 : 0, post?.team ?? 0);
     }
     const p = vs.spawnOccupant; values.push(p ? 1 : 0, p?.x ?? 0, p?.y ?? 0, p?.z ?? 0);
     this.writeInput(values, 0);
+    this.foreignIn();
+    this.seats.prepare();
     this.counters.ticks++;
     const memory = b.memory.buffer;
-    this.inPhase = true;
-    try { this.x.f2_step(dt, tick); } finally { this.inPhase = false; }
+    this.x.f2_step(dt, tick);
     if (this.debug && b.memory.buffer !== memory) throw Error('F2 memory grew during the phase');
     this.sync();
     vs.tickAlpha = Math.max(0, vs.acc / (1 / 120)); vs.presented = false;
-    vs.fireCrews(THREE.MathUtils.clamp(dt, 0, .1));
-    vs.updateTethers();
-    if (vs.cosmetic !== false) vs.drawTethers(false);
-    vs.syncCrews(false);
     if (this.debug) this.check();
   }
 
@@ -165,20 +175,14 @@ class F2 {
     this.counters.inputFields += values.length;
   }
 
-  lookState(v) {
-    if (v.system !== this.vehicles) return null;
-    let input = this.looks.get(v);
-    if (!input || input.generation !== v.aiTarget.generation) {
-      input = { generation: v.aiTarget.generation, stickX: v.stickX, stickY: v.stickY };
-      this.looks.set(v, input);
-    }
-    return input;
+  addTeam(team) {
+    for (const previous of this.teams) if (Object.is(previous, team)) return;
+    this.teams.push(team);
   }
-
   foreignIn() {
     const vs = this.vehicles, b = this.bridge, refs = b.refs, values = this.values, p = this.memberPoint;
     values.length = 0;
-    const all = vs.units?.all?.() ?? [];
+    const all = vs.units?.all?.() ?? EMPTY_UNITS;
     values.push(all.length);
     for (const t of all) {
       const hull = t.vehicle ?? null;
@@ -188,29 +192,22 @@ class F2 {
       values.push(kind, t.id, t.generation ?? NaN, t.alive ? 1 : 0, t.team == null ? 0 : 1, t.team ?? 0,
         hull ? refs[KIND_VEHICLE].slotOf(hull) : -1, kind === 2 ? p.x : 0, kind === 2 ? p.y : 0, kind === 2 ? p.z : 0);
     }
-    const teams = [];
-    for (const t of [...all, ...vs.vehicles]) if (!teams.some(x => Object.is(x, t.team ?? null))) teams.push(t.team ?? null);
+    const teams = this.teams; teams.length = 0;
+    for (const t of all) this.addTeam(t.team ?? null);
+    for (const v of vs.vehicles) this.addTeam(v.team ?? null);
     values.push(teams.length);
     for (const t of teams) values.push(t === null ? 0 : 1, t ?? 0);
     for (const a of teams) for (const c of teams) values.push(vs.units?.relation?.(a, c) ?? (a === c ? 1 : -1));
-    const craft = vs.vehicles.filter(v => v.flying); values.push(craft.length);
-    for (const v of craft) {
+    let count = 0; for (const v of vs.vehicles) if (v.flying) count++;
+    values.push(count);
+    for (const v of vs.vehicles) { if (!v.flying) continue;
       const l = v.seats[0]?.lease, network = l?.unit?.networkHuman && l.intent.flight;
       values.push(v.simSlot, network ? 1 : 0);
       flightNumbers(l?.input ?? NO_INPUT, values); flightNumbers(network || NO_INPUT, values);
     }
     values.push(vs.vehicles.length);
     for (const v of vs.vehicles) {
-      const look = this.looks.get(v), pending = look?.generation === v.aiTarget.generation;
-      values.push(v.simSlot, v.simGen, pending ? 1 : 0, pending ? look.stickX : 0, pending ? look.stickY : 0);
-      this.looks.delete(v);
-      for (const seat of v.seats) {
-        const l = seat.lease, i = l?.input ?? NO_INPUT, u = l?.unit;
-        values.push(l ? 1 : 0, l ? refs[KIND_SEAT_LEASE].slotOf(l) : 0, l ? refs[KIND_SEAT_LEASE].gens[refs[KIND_SEAT_LEASE].slotOf(l)] : 0,
-          l?.human ? 1 : 0, u?.networkHuman ? 1 : 0, u ? 1 : 0, u ? refs[KIND_UNIT].slotOf(u) : 0, 0,
-          i.forward ?? NaN, i.right ?? NaN, i.turn ?? NaN, i.pitch ?? NaN, i.brake ? 1 : 0,
-          seat.aimYaw, seat.pitch, seat.lookYaw === null ? 0 : 1, seat.lookYaw ?? 0, seat.lookPitch === null ? 0 : 1, seat.lookPitch ?? 0);
-      }
+      values.push(v.simSlot, v.simGen);
       values.push(v.towTarget, v.towLocal.x, v.towLocal.y, v.towLocal.z, b.strings.id(v.towLeg), v.towAngle, v.towWinding);
       poseInputs(v, values);
     }
@@ -221,46 +218,51 @@ class F2 {
     this.counters.inputFields += 2;
   }
 
-  sync(keepAim = false, resetAim = null) { return this.withBridge(() => this.syncState(keepAim, resetAim)); }
+  sync() {
+    const b = this.bridge, prior = b.x; b.x = this.x;
+    try { return this.syncState(); } finally { b.x = prior; }
+  }
 
-  syncState(keepAim, resetAim) {
+  syncState() {
     const b = this.bridge; b.views();
     if (this.descriptor === undefined) return;
     const d = this.descriptor;
-    for (const [kind, target, index] of [[KIND_VEHICLE, null, 2], [KIND_VEHICLES, this.vehicles, 3]]) {
-      const base = b.f[d + index] / 8;
-      if (!base) continue;
-      const f = b.f, k = KIND_TABLE[kind], rows = f[base], stride = f[base + 1], h = base + f[base + 2];
+    this.seats.syncLeases();
+    this.syncedRows.length = 0;
+    let base = b.f[d + 2] / 8;
+    if (base) {
+      const f = b.f, k = KIND_TABLE[KIND_VEHICLE], rows = f[base], stride = f[base + 1], h = base + f[base + 2];
       for (let i = 0; i < rows; i++) {
         const at = base + 5 + i * stride;
-        const v = target ?? (i < f[base + 4] ? this.pool.retire(f[at], f[at + 1]) : this.pool.at(f[at], f[at + 1]));
-        const leases = target ? null : v.seats.map(s => s.lease);
-        const aim = !target && keepAim && v !== resetAim ? v.seats.map(s => [s.aimYaw, s.pitch, s.lookYaw, s.lookPitch]) : null;
+        const v = i < f[base + 4] ? this.pool.retire(f[at], f[at + 1]) : this.pool.at(f[at], f[at + 1]);
+        this.syncedRows.push(v);
         k.sync(b, f, at, h, v);
-        if (leases) for (let j = 0; j < leases.length; j++) {
-          v.seats[j].lease = leases[j];
-          if (aim) [v.seats[j].aimYaw, v.seats[j].pitch, v.seats[j].lookYaw, v.seats[j].lookPitch] = aim[j];
-        }
-
       }
       this.counters.outputFields += rows * stride + f[base + 3];
     }
-    const lifeStride = b.f[d + 12] || 3;
-    let lives = b.f[d + 11] / 8;
-    if (lives) {
-      const n = b.f[lives++];
-      for (let i = 0; i < n; i++, lives += lifeStride) {
-        const v = this.pool.objects[b.f[lives]];
-        const changed = v.aiTarget.generation !== b.f[lives + 1];
-        v.aiTarget.generation = b.f[lives + 1]; v.root.visible = b.f[lives + 2] !== 0;
-        if (v.flying && changed && lifeStride >= 9) {
-          v.flightClass = ['fighter','scout','bomber','transport'][b.f[lives + 3]];
-          v.minSpeed = b.f[lives + 4]; v.midSpeed = b.f[lives + 5]; v.boostSpeed = b.f[lives + 6];
-          v.speed = b.f[lives + 7]; v.turnRate = b.f[lives + 8];
+    base = b.f[d + 3] / 8;
+    if (base) {
+      const f = b.f, rows = f[base], stride = f[base + 1], h = base + f[base + 2];
+      for (let i = 0; i < rows; i++) {
+        const pad = syncF2Pad(b, f, base + 5 + i * stride, h, this.padScratch);
+        const slot = this.vehicles.slots[pad.index]; slot.remaining = pad.remaining; slot.vehicle = pad.vehicle;
+      }
+      this.counters.outputFields += rows * stride + f[base + 3];
+    }
+    base = b.f[d + 11] / 8;
+    if (base) {
+      const f = b.f, rows = f[base], stride = f[base + 1], h = base + f[base + 2];
+      for (let i = 0; i < rows; i++) {
+        const life = syncF2HullLife(b, f, base + 5 + i * stride, h, this.lifeScratch), v = life.vehicle;
+        const changed = v.aiTarget.generation !== life.generation;
+        v.aiTarget.generation = life.generation; v.root.visible = life.visible;
+        if (v.flying && changed) {
+          v.flightClass = life.flightClass; v.minSpeed = life.minSpeed; v.midSpeed = life.midSpeed;
+          v.boostSpeed = life.boostSpeed; v.speed = life.speed; v.turnRate = life.turnRate;
           v.flightConfig = flightConfig(v.def, v.flightClass);
         }
       }
-      this.counters.outputFields += n * lifeStride;
+      this.counters.outputFields += rows * stride + f[base + 3];
     }
     this.bodiesOut();
     // Pose output is a compact flat record; retained tree state stays in Rust.
@@ -269,10 +271,11 @@ class F2 {
       const n = b.f[o++];
       for (let i = 0; i < n; i++) {
         const v = this.pool.objects[b.f[o]], count = b.f[o + 1]; o += 2;
-        applyPose(v, b.f, o); o += count; v.root.updateMatrixWorld(true);
+        applyPose(v, b.f, o); o += count;
         this.counters.outputFields += count + 2;
       }
     }
+    this.seats.syncNodes();
     o = b.f[d + 6] / 8;
     if (o) {
       const n = b.f[o++];
@@ -285,8 +288,9 @@ class F2 {
         this.counters.outputFields += 5;
       }
     }
+    this.seats.syncBodies();
     this.vehicles.acc = b.f[d + 7]; this.vehicles.flightAcc = b.f[d + 8]; this.vehicles.time = b.f[d + 9];
-    this.record();
+    if (this.debug) for (const v of this.syncedRows) this.record(v);
   }
 
   // Lifecycle output uses a side row so gameplay generations stay distinct
@@ -295,15 +299,16 @@ class F2 {
   retire(v) {
     if (!this.x.f2_retire(v.simSlot, v.simGen)) throw Error('stale F2 retirement');
     this.sync(); this.detector.retire(v); this.pool.identity.release(v);
+    const index = this.vehicles.vehicles.indexOf(v);
+    if (index >= 0) this.vehicles.vehicles.splice(index, 1);
     for (const slot of this.vehicles.slots) for (const [name, variant] of slot.variants) if (variant === v) slot.variants.delete(name);
   }
 
   command(v, code, value = 0, attacker = null) {
-    const owner = new Float64Array(3);
+    const owner = this.ownerScratch;
     putOrdnanceOwner(this.bridge, attacker, owner, 0, null);
-    const [tag, slot, gen] = owner;
-    if (!this.x.f2_command(v.simSlot, v.simGen, v.aiTarget.generation, code, value, tag, slot, gen)) throw Error('stale F2 command');
-    this.sync(true);
+    if (!this.x.f2_command(v.simSlot, v.simGen, v.aiTarget.generation, code, value, owner[0], owner[1], owner[2])) throw Error('stale F2 command');
+    this.sync();
   }
 
   owned(v) {
@@ -322,8 +327,32 @@ class F2 {
       ['lastAttacker', v.lastAttacker], ['driver', v.driver], ['seatIndex', v.seatIndex]);
     return out;
   }
-  record() { if (this.debug) for (const v of this.vehicles.vehicles) this.detector.published(v, this.owned(v)); }
-  check() { for (const v of this.vehicles.vehicles) this.detector.check(v, (o, path) => path.split('.').reduce((a, k) => a[k], o)); }
+  record(v) {
+    if (!this.debug) return;
+    let row = this.mirrorRows.get(v);
+    if (!row) {
+      const fields = this.owned(v), paths = new Array(fields.length);
+      for (let i = 0; i < fields.length; i++) paths[i] = fields[i][0].split('.');
+      row = { fields, paths }; this.mirrorRows.set(v, row);
+    }
+    for (let i = 0; i < row.fields.length; i++) {
+      let value = v;
+      for (const key of row.paths[i]) value = value[key];
+      row.fields[i][1] = value;
+    }
+    this.detector.published(v, row.fields);
+  }
+  check() {
+    for (const v of this.vehicles.vehicles) {
+      const row = this.mirrorRows.get(v), expected = this.detector.values.get(v);
+      if (!row || !expected) continue;
+      for (let i = 0; i < row.fields.length; i++) {
+        let value = v;
+        for (const key of row.paths[i]) value = value[key];
+        if (!Object.is(value, expected[i][1])) throw Error(`F2 mirror write: ${expected[i][0]}`);
+      }
+    }
+  }
   retune(name, key, value) {
     if (this.flight && typeof value === "number") this.x.veh_flight_tune(this.bridge.strings.id(name), this.bridge.strings.id(key), value);
   }

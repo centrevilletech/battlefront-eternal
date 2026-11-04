@@ -1,4 +1,5 @@
 import { seatControl, seatInput, seatLook } from '../boarding.js';
+const NO_ASSIST = { assist: false };
 import { networkSeatsFor } from './network-seats-sim.js';
 
 // Shared by authoritative network humans and local replay. Only input reaches
@@ -13,6 +14,10 @@ export function networkVehicleInput(vehicle, index, controls, command) {
 // (tools/sim-capture/seats.mjs): a module's own functions cannot be.
 export const networkVehicle = {
   input(vehicle, index, controls, command) {
+    if (vehicle.system?.f2?.seats) {
+      vehicle.system.f2.seats.network(vehicle, index, controls, command);
+      return seatInput(vehicle, index, controls, command, NO_ASSIST);
+    }
     const native = networkSeatsFor(vehicle);
     if (native) return native.input(vehicle, index, controls, command);
     const fs = command.flightSettings || {};

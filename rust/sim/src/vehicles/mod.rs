@@ -35,6 +35,8 @@ pub mod hover;
 pub mod hull;
 #[path = "module/f2/seats.rs"]
 pub mod f2_seats;
+#[path = "module/f2/publication.rs"]
+pub mod f2_publication;
 pub mod native;
 pub mod pose;
 pub mod posing;

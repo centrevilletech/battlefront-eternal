@@ -1421,6 +1421,7 @@ async function start() {
   gunner.random = gameplayRandom;
   turretSeats = new TurretSeats({ live, ordnance, collision, units });
   turretSeats.seatRandom = seatRandom;
+  if (vehicles?.f2) vehicles.f2.seats.attachTurrets(turretSeats);
   // The destructible posts (src/objectives.js): each its post's building,
   // and a target in the units registry while it stands.
   posts.attachBuildings(live);
@@ -2236,7 +2237,7 @@ async function start() {
           vehicles.update(dt, seated, seated ? seatInput(seated, seated.seatIndex, tickControls, command) : undefined); break;
         }
         case 'driver': driver.update(dt, tickControls); break;
-        case 'turretSeats': turretSeats.update(dt); break;
+        case 'turretSeats': if (!vehicles?.f2) turretSeats.update(dt); break;
         case 'gunner': gunner.update(dt, soldier, tickControls, 1); break;
         case 'remotes': remotes.update(dt, flag ? droidInput : null, tickControls); break;
         case 'networkRemotes': networkRemotes.finish(tick, dt); break;
@@ -2384,7 +2385,7 @@ async function start() {
       vehicles.update(dt, seated, seated ? seatInput(seated, seated.seatIndex, tickControls, command) : undefined);
       if (driver.active) driver.update(dt, tickControls);
     }
-    turretSeats?.update(dt);
+    if (!vehicles?.f2) turretSeats?.update(dt);
     if (gunner.active) gunner.update(dt, soldier, tickControls, 1);
     remotes.update(dt, remotes.active ? droidInput : null, tickControls);
     networkRemotes?.finish(tick, dt);
@@ -3993,7 +3994,7 @@ async function start() {
   game.trapsSim = wantBattle && simInstance && live?.traps.length ? (await import("./traps-sim.js")).attachTrapsSim(simInstance, live.traps) : null;
   game.battlefieldSim = wantBattle && simInstance ? (await import("./battlefield-sim.js")).attachBattlefieldSim(simInstance, battlefield, leavingWarning) : null;
   game.propsSim = wantBattle && simInstance && live ? (await import("./props-sim.js")).attachPropsSim(simInstance, live) : null;
-  game.turretSeatsSim = game.propsSim && game.turretSeats ? await (await import("./turret-seats-sim.js")).attachTurretSeatsSim(game.propsSim.bridge, game.turretSeats) : null;
+  game.turretSeatsSim = game.propsSim && game.turretSeats && !vehicles?.f2 ? await (await import("./turret-seats-sim.js")).attachTurretSeatsSim(game.propsSim.bridge, game.turretSeats) : null;
   game.battlePhaseSim = game.battleSim ? (await import("./battle-phase-sim.js")).attachBattlePhaseSim({
     battleSim: game.battleSim, postsSim: game.postsSim, spawningSim: game.spawningSim,
     units, vehicles: () => vehicles?.vehicles ?? [], playerUnit, playerMounted: () => driver?.active || gunner.active,

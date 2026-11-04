@@ -215,6 +215,7 @@ export class Building {
       if (on && !this.hologram.on) this.hologram.fade = 0;
       this.hologram.on = on;
     }
+    this.f2Seats?.turretLife(this);
   }
 
   setHealth(value) {
@@ -619,6 +620,7 @@ export class Turret extends Building {
     super.built();
     if (this.aiTarget) this.aiTarget.generation += 1;
     this.lastAttacker = null;
+    this.f2Seats?.turretLife(this);
   }
 
   // Damage to the turret is damage to whoever mans it, for the AI: the
@@ -1569,8 +1571,9 @@ export class LiveObjects {
     for (const station of this.stations) station.update(dt, target, this.vehicleTargets);
     for (const turret of this.turrets) {
       turret.regenerate(dt);
-      if (!turret.gunner && turret.alive) turret.aimGun(dt, null);
+      if (!this.f2Seats && !turret.gunner && turret.alive) turret.aimGun(dt, null);
     }
+    this.f2Seats?.idleTurrets(dt);
     if ((this.animated || []).length) {
       const positions = this.soldiers?.() || [];
       const bodies = this.bodies?.() || [];

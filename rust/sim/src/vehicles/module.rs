@@ -642,6 +642,7 @@ fn store(hull: &Hull) {
     let s = sim();
     let v = s.store.vehicle.get_mut(hull.id).expect("a hull the store holds");
     hull.to_store(v, &mut s.strings);
+    if f2::active() { f2::mark(hull.id); }
 }
 
 /// What seat 0's bot (a lease that is not a person's) holds as the tick
@@ -956,6 +957,7 @@ impl VehicleWorld for JsWorld {
     }
 
     fn destroyed_crew(&mut self, hull: usize) {
+        if f2::active() { f2::live_seats::destroyed(hull); return; }
         import_veh_destroyed_crew(&VehHull { hull: hull as f64 });
     }
 
@@ -969,6 +971,7 @@ impl VehicleWorld for JsWorld {
     }
 
     fn release_crew(&mut self, hull: usize) {
+        if f2::active() { f2::live_seats::release(hull); return; }
         import_veh_release_crew(&VehHull { hull: hull as f64 });
     }
 
