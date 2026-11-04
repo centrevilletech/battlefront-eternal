@@ -298,7 +298,7 @@ function installShims() {
         for (const f of frames) {
           const entry = f.spec.entries?.get(label);
           write(RECORD.frame, current, f.spec.name, { k: 'call', f: f.id, n: label, a: args, d: f.pending,
-            ...(entry ? { s: stateValue(entry(game, exporter(), args)) } : {}) });
+            ...(entry ? { s: stateValue(entry(game, exporter(), args, this)) } : {}) });
           f.pending = []; f.inner = []; f.depth++;
         }
         let result, threw = true;
@@ -308,7 +308,7 @@ function installShims() {
             f.depth--;
             const extra = f.spec.extras?.get(label);
             write(RECORD.frame, current, f.spec.name, { k: 'ret', f: f.id, n: label, r: threw ? new Omitted('threw') : result,
-              o: args.map((a) => (a && typeof a === 'object' ? a : undefined)), i: f.inner, ...(extra ? { x: stateValue(extra(game, exporter())) } : {}) });
+              o: args.map((a) => (a && typeof a === 'object' ? a : undefined)), i: f.inner, ...(extra ? { x: stateValue(extra(game, exporter(), args, this)) } : {}) });
             writer.whole.clear();
             f.inner = null;
           }

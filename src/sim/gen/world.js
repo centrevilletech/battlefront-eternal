@@ -9,6 +9,18 @@ export const WorldClockOperation_INDEX = new Map(WorldClockOperation_NAMES.map((
 export const WorldClockCall_NAMES = ["now","step"];
 export const WorldClockCall_INDEX = new Map(WorldClockCall_NAMES.map((name, i) => [name, i]));
 
+export const WorldEventOperation_NAMES = ["emit","read","reset"];
+export const WorldEventOperation_INDEX = new Map(WorldEventOperation_NAMES.map((name, i) => [name, i]));
+
+export const WorldEventCall_NAMES = ["write","notify","clear","load","deliver"];
+export const WorldEventCall_INDEX = new Map(WorldEventCall_NAMES.map((name, i) => [name, i]));
+
+export const WorldLocalOperation_NAMES = ["player","tail"];
+export const WorldLocalOperation_INDEX = new Map(WorldLocalOperation_NAMES.map((name, i) => [name, i]));
+
+export const WorldLocalCall_NAMES = ["jump","crouch","prone","use","tick","impacts","deathRegion","kill","battle","ready","spawn","clearHuman","remove","present"];
+export const WorldLocalCall_INDEX = new Map(WorldLocalCall_NAMES.map((name, i) => [name, i]));
+
 export class WsMemberMirror {
   constructor() {
     this.id = NaN;
@@ -442,5 +454,426 @@ export function exportWorldClockReply(o, cx) {
   cx.seen.set(o, v);
   v.state = exportWorldClockState(o.state, cx);
   v.time = o.time;
+  return v;
+}
+
+export class WorldEventStateMirror {
+  constructor() {
+    this.capacity = NaN;
+    this.seq = NaN;
+    this.time = NaN;
+    this.cursor = NaN;
+    this.dropped = NaN;
+  }
+}
+
+export function syncWorldEventState(b, f, at, h, m) {
+  m.capacity = f[at + 0];
+  m.seq = f[at + 1];
+  m.time = f[at + 2];
+  m.cursor = f[at + 3];
+  m.dropped = f[at + 4];
+  return m;
+}
+
+export function putWorldEventState(b, o, f, at, heap) {
+  f[at + 0] = o.capacity;
+  f[at + 1] = o.seq;
+  f[at + 2] = o.time;
+  f[at + 3] = o.cursor;
+  f[at + 4] = o.dropped;
+}
+
+export function sameWorldEventState(a, b) {
+  if (!Object.is(a.capacity, b.capacity)) return ".capacity";
+  if (!Object.is(a.seq, b.seq)) return ".seq";
+  if (!Object.is(a.time, b.time)) return ".time";
+  if (!Object.is(a.cursor, b.cursor)) return ".cursor";
+  if (!Object.is(a.dropped, b.dropped)) return ".dropped";
+  return null;
+}
+
+export function exportWorldEventState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.capacity = o.capacity;
+  v.seq = o.seq;
+  v.time = o.time;
+  v.cursor = o.cursor;
+  v.dropped = o.dropped;
+  return v;
+}
+
+export class WorldEventInputMirror {
+  constructor() {
+    this.op = "emit";
+    this.state = new WorldEventStateMirror();
+  }
+}
+
+export function syncWorldEventInput(b, f, at, h, m) {
+  m.op = WorldEventOperation_NAMES[f[at + 0]];
+  m.state = syncWorldEventState(b, f, at + 1, h, m.state ?? new WorldEventStateMirror());
+  return m;
+}
+
+export function putWorldEventInput(b, o, f, at, heap) {
+  f[at + 0] = WorldEventOperation_INDEX.get(o.op);
+  putWorldEventState(b, o.state, f, at + 1, heap);
+}
+
+export function sameWorldEventInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameWorldEventState(a.state, b.state); if (d) return ".state" + d; }
+  return null;
+}
+
+export function exportWorldEventInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportWorldEventState(o.state, cx);
+  return v;
+}
+
+export class WorldEventArgsMirror {
+  constructor() {
+    this.op = "write";
+    this.state = new WorldEventStateMirror();
+    this.index = NaN;
+  }
+}
+
+export function syncWorldEventArgs(b, f, at, h, m) {
+  m.op = WorldEventCall_NAMES[f[at + 0]];
+  m.state = syncWorldEventState(b, f, at + 1, h, m.state ?? new WorldEventStateMirror());
+  m.index = f[at + 6];
+  return m;
+}
+
+export function putWorldEventArgs(b, o, f, at, heap) {
+  f[at + 0] = WorldEventCall_INDEX.get(o.op);
+  putWorldEventState(b, o.state, f, at + 1, heap);
+  f[at + 6] = o.index;
+}
+
+export function sameWorldEventArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameWorldEventState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.index, b.index)) return ".index";
+  return null;
+}
+
+export function exportWorldEventArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportWorldEventState(o.state, cx);
+  v.index = o.index;
+  return v;
+}
+
+export class WorldEventReplyMirror {
+  constructor() {
+    this.state = new WorldEventStateMirror();
+    this.present = false;
+  }
+}
+
+export function syncWorldEventReply(b, f, at, h, m) {
+  m.state = syncWorldEventState(b, f, at + 0, h, m.state ?? new WorldEventStateMirror());
+  m.present = f[at + 5] !== 0;
+  return m;
+}
+
+export function putWorldEventReply(b, o, f, at, heap) {
+  putWorldEventState(b, o.state, f, at + 0, heap);
+  f[at + 5] = o.present ? 1 : 0;
+}
+
+export function sameWorldEventReply(a, b) {
+  { const d = sameWorldEventState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.present, b.present)) return ".present";
+  return null;
+}
+
+export function exportWorldEventReply(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportWorldEventState(o.state, cx);
+  v.present = o.present;
+  return v;
+}
+
+export class WorldLocalKeysMirror {
+  constructor() {
+    this.forward = NaN;
+    this.right = NaN;
+    this.turn = NaN;
+    this.jump = false;
+    this.crouch = false;
+    this.prone = false;
+    this.use = undefined;
+  }
+}
+
+export function syncWorldLocalKeys(b, f, at, h, m) {
+  m.forward = f[at + 0];
+  m.right = f[at + 1];
+  m.turn = f[at + 2];
+  m.jump = f[at + 3] !== 0;
+  m.crouch = f[at + 4] !== 0;
+  m.prone = f[at + 5] !== 0;
+  { const tag = f[at + 6]; if (tag === 0) { m.use = f[at + 7] !== 0; } else m.use = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putWorldLocalKeys(b, o, f, at, heap) {
+  f[at + 0] = o.forward;
+  f[at + 1] = o.right;
+  f[at + 2] = o.turn;
+  f[at + 3] = o.jump ? 1 : 0;
+  f[at + 4] = o.crouch ? 1 : 0;
+  f[at + 5] = o.prone ? 1 : 0;
+  { const $x = o.use; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = $x ? 1 : 0; } }
+}
+
+export function sameWorldLocalKeys(a, b) {
+  if (!Object.is(a.forward, b.forward)) return ".forward";
+  if (!Object.is(a.right, b.right)) return ".right";
+  if (!Object.is(a.turn, b.turn)) return ".turn";
+  if (!Object.is(a.jump, b.jump)) return ".jump";
+  if (!Object.is(a.crouch, b.crouch)) return ".crouch";
+  if (!Object.is(a.prone, b.prone)) return ".prone";
+  { const p = a.use, q = b.use; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".use"; } else { if (!Object.is(p, q)) return ".use"; } }
+  return null;
+}
+
+export function exportWorldLocalKeys(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.forward = o.forward;
+  v.right = o.right;
+  v.turn = o.turn;
+  v.jump = o.jump;
+  v.crouch = o.crouch;
+  v.prone = o.prone;
+  v.use = o.use;
+  return v;
+}
+
+export class WorldLocalStateMirror {
+  constructor() {
+    this.input = new WorldLocalKeysMirror();
+    this.walker = false;
+    this.dead = false;
+    this.remote = false;
+    this.gunner = false;
+    this.driver = false;
+    this.removed = false;
+    this.held = false;
+    this.server = false;
+    this.auto = false;
+    this.humanReady = false;
+    this.human = false;
+    this.deathTime = NaN;
+    this.corpseLinger = NaN;
+  }
+}
+
+export function syncWorldLocalState(b, f, at, h, m) {
+  m.input = syncWorldLocalKeys(b, f, at + 0, h, m.input ?? new WorldLocalKeysMirror());
+  m.walker = f[at + 8] !== 0;
+  m.dead = f[at + 9] !== 0;
+  m.remote = f[at + 10] !== 0;
+  m.gunner = f[at + 11] !== 0;
+  m.driver = f[at + 12] !== 0;
+  m.removed = f[at + 13] !== 0;
+  m.held = f[at + 14] !== 0;
+  m.server = f[at + 15] !== 0;
+  m.auto = f[at + 16] !== 0;
+  m.humanReady = f[at + 17] !== 0;
+  m.human = f[at + 18] !== 0;
+  m.deathTime = f[at + 19];
+  m.corpseLinger = f[at + 20];
+  return m;
+}
+
+export function putWorldLocalState(b, o, f, at, heap) {
+  putWorldLocalKeys(b, o.input, f, at + 0, heap);
+  f[at + 8] = o.walker ? 1 : 0;
+  f[at + 9] = o.dead ? 1 : 0;
+  f[at + 10] = o.remote ? 1 : 0;
+  f[at + 11] = o.gunner ? 1 : 0;
+  f[at + 12] = o.driver ? 1 : 0;
+  f[at + 13] = o.removed ? 1 : 0;
+  f[at + 14] = o.held ? 1 : 0;
+  f[at + 15] = o.server ? 1 : 0;
+  f[at + 16] = o.auto ? 1 : 0;
+  f[at + 17] = o.humanReady ? 1 : 0;
+  f[at + 18] = o.human ? 1 : 0;
+  f[at + 19] = o.deathTime;
+  f[at + 20] = o.corpseLinger;
+}
+
+export function sameWorldLocalState(a, b) {
+  { const d = sameWorldLocalKeys(a.input, b.input); if (d) return ".input" + d; }
+  if (!Object.is(a.walker, b.walker)) return ".walker";
+  if (!Object.is(a.dead, b.dead)) return ".dead";
+  if (!Object.is(a.remote, b.remote)) return ".remote";
+  if (!Object.is(a.gunner, b.gunner)) return ".gunner";
+  if (!Object.is(a.driver, b.driver)) return ".driver";
+  if (!Object.is(a.removed, b.removed)) return ".removed";
+  if (!Object.is(a.held, b.held)) return ".held";
+  if (!Object.is(a.server, b.server)) return ".server";
+  if (!Object.is(a.auto, b.auto)) return ".auto";
+  if (!Object.is(a.humanReady, b.humanReady)) return ".humanReady";
+  if (!Object.is(a.human, b.human)) return ".human";
+  if (!Object.is(a.deathTime, b.deathTime)) return ".deathTime";
+  if (!Object.is(a.corpseLinger, b.corpseLinger)) return ".corpseLinger";
+  return null;
+}
+
+export function exportWorldLocalState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.input = exportWorldLocalKeys(o.input, cx);
+  v.walker = o.walker;
+  v.dead = o.dead;
+  v.remote = o.remote;
+  v.gunner = o.gunner;
+  v.driver = o.driver;
+  v.removed = o.removed;
+  v.held = o.held;
+  v.server = o.server;
+  v.auto = o.auto;
+  v.humanReady = o.humanReady;
+  v.human = o.human;
+  v.deathTime = o.deathTime;
+  v.corpseLinger = o.corpseLinger;
+  return v;
+}
+
+export class WorldLocalInputMirror {
+  constructor() {
+    this.op = "player";
+    this.state = new WorldLocalStateMirror();
+    this.dt = NaN;
+  }
+}
+
+export function syncWorldLocalInput(b, f, at, h, m) {
+  m.op = WorldLocalOperation_NAMES[f[at + 0]];
+  m.state = syncWorldLocalState(b, f, at + 1, h, m.state ?? new WorldLocalStateMirror());
+  m.dt = f[at + 22];
+  return m;
+}
+
+export function putWorldLocalInput(b, o, f, at, heap) {
+  f[at + 0] = WorldLocalOperation_INDEX.get(o.op);
+  putWorldLocalState(b, o.state, f, at + 1, heap);
+  f[at + 22] = o.dt;
+}
+
+export function sameWorldLocalInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameWorldLocalState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  return null;
+}
+
+export function exportWorldLocalInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportWorldLocalState(o.state, cx);
+  v.dt = o.dt;
+  return v;
+}
+
+export class WorldLocalArgsMirror {
+  constructor() {
+    this.op = "jump";
+    this.state = new WorldLocalStateMirror();
+    this.dt = NaN;
+  }
+}
+
+export function syncWorldLocalArgs(b, f, at, h, m) {
+  m.op = WorldLocalCall_NAMES[f[at + 0]];
+  m.state = syncWorldLocalState(b, f, at + 1, h, m.state ?? new WorldLocalStateMirror());
+  m.dt = f[at + 22];
+  return m;
+}
+
+export function putWorldLocalArgs(b, o, f, at, heap) {
+  f[at + 0] = WorldLocalCall_INDEX.get(o.op);
+  putWorldLocalState(b, o.state, f, at + 1, heap);
+  f[at + 22] = o.dt;
+}
+
+export function sameWorldLocalArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameWorldLocalState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  return null;
+}
+
+export function exportWorldLocalArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportWorldLocalState(o.state, cx);
+  v.dt = o.dt;
+  return v;
+}
+
+export class WorldLocalReplyMirror {
+  constructor() {
+    this.state = new WorldLocalStateMirror();
+    this.value = false;
+  }
+}
+
+export function syncWorldLocalReply(b, f, at, h, m) {
+  m.state = syncWorldLocalState(b, f, at + 0, h, m.state ?? new WorldLocalStateMirror());
+  m.value = f[at + 21] !== 0;
+  return m;
+}
+
+export function putWorldLocalReply(b, o, f, at, heap) {
+  putWorldLocalState(b, o.state, f, at + 0, heap);
+  f[at + 21] = o.value ? 1 : 0;
+}
+
+export function sameWorldLocalReply(a, b) {
+  { const d = sameWorldLocalState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.value, b.value)) return ".value";
+  return null;
+}
+
+export function exportWorldLocalReply(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportWorldLocalState(o.state, cx);
+  v.value = o.value;
   return v;
 }

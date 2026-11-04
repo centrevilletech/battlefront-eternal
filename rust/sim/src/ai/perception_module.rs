@@ -6,6 +6,61 @@ use super::{combat::perception::{Inserted, PriorityHeap, ThinQueue, thin_candida
 use crate::{abi::sim, store::word_u32};
 use std::collections::HashMap;
 use three::Vector3;
+use super::combat::{perception::TargetTracker, world::Ref};
+
+pub(super) struct TrackerState {
+    pub data: TargetTracker,
+    pub ref_tag: u32,
+    pub generation_tag: u32,
+    pub serial: f64,
+}
+
+#[no_mangle]
+pub extern "C" fn ai_tracker_new(controller: u32) -> u32 {
+    let s=state();s.trackers.push(TrackerState {data:TargetTracker::new(controller as u64),ref_tag:0,generation_tag:0,serial:0.0});
+    (s.trackers.len()-1) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ai_tracker_ref(id: u32, tag: u32, target: u32, generation: f64, generation_tag: u32) -> f64 {
+    let t=&mut state().trackers[id as usize];t.ref_tag=tag;t.generation_tag=generation_tag;t.serial+=1.0;
+    t.data.target=(tag==2).then_some(Ref {obj:target as u64,generation});t.serial
+}
+
+#[no_mangle]
+pub extern "C" fn ai_tracker_read(id: u32) {
+    let s=state();let t=&s.trackers[id as usize];
+    let r=t.data.target.unwrap_or(Ref {obj:0,generation:0.0});s.out.clear();
+    s.out.extend([t.ref_tag as f64,r.obj as f64,r.generation,t.generation_tag as f64,t.serial]);
+}
+
+#[no_mangle]
+pub extern "C" fn ai_tracker_field(id: u32, field: u32) -> f64 {
+    let t=&state().trackers[id as usize].data;
+    match field {0=>t.point.x,1=>t.point.y,2=>t.point.z,3=>t.fresh as u32 as f64,4=>t.sample_time,
+        5=>t.cost,6=>t.delay,7=>t.frozen as u32 as f64,8=>t.counting as u32 as f64,9=>t.deadline,_=>panic!("invalid tracker field")}
+}
+
+#[no_mangle]
+pub extern "C" fn ai_tracker_write(id: u32, field: u32, value: f64) {
+    let t=&mut state().trackers[id as usize].data;let flag=value!=0.0 && !value.is_nan();
+    match field {0=>t.point.x=value,1=>t.point.y=value,2=>t.point.z=value,3=>t.fresh=flag,4=>t.sample_time=value,
+        5=>t.cost=value,6=>t.delay=value,7=>t.frozen=flag,8=>t.counting=flag,9=>t.deadline=value,_=>panic!("invalid tracker field")}
+}
+
+#[no_mangle]
+pub extern "C" fn ai_tracker_reset(id: u32, target: u32, generation: f64, generation_tag: u32) {
+    ai_tracker_ref(id,if target==0 {0} else {2},target,generation,generation_tag);
+    let t=&mut state().trackers[id as usize].data;
+    t.fresh=false;t.sample_time=-1000.0;t.cost=10000.0;t.counting=false;
+}
+
+#[no_mangle]
+pub extern "C" fn ai_tracker_command(id: u32, op: u32, number: f64, now: f64) {
+    let t=&mut state().trackers[id as usize].data;
+    match op {0=>t.start_countdown(now),1=>t.set_delay(number,now),2=>t.default_delay(now),
+        3=>t.freeze(number!=0.0 && !number.is_nan(),now),_=>panic!("invalid tracker command")}
+}
 
 #[derive(Default)]
 pub(super) struct CandidateState {

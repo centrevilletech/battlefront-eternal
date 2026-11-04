@@ -5,8 +5,9 @@ import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
 import { NativeScheduler } from './ai-scheduler-sim.js';
-import { bindClusterState, peekClusterState } from './ai/classic/weapons-ai.js';
+import { bindClusterState, facingAndRange, maxExpandedRange, peekClusterState, selectedWeapon, setTarget } from './ai/classic/weapons-ai.js';
 import { recordTarget } from './ai/classic/perception.js';
+import { dropCorrect } from './ai/classic/aim.js';
 
 const HEADER = 5;
 const ZERO = { x: 0, y: 0, z: 0 };
@@ -42,6 +43,9 @@ export class AiSim {
     this.navigation = null;
     this.perceptions=new WeakMap();this.clusters=new WeakMap();this.sightFrames=[];this.clusterFound=[];this.losViews=new WeakMap();
     this.sightPoint=new Vector3();this.sightEye=new Vector3();this.sightTargetEye=new Vector3();
+    this.scanFound=[];this.scanLook=new Vector3();this.scanAim=new Vector3();
+    this.trackers=new WeakMap();this.trackerFrames=[];
+    this.trackerLead=new Vector3();
     bridge.register({aiSight:args=>{
       const op=args.op,object=this.objects[args.id],frame=this.sightFrames[this.sightFrames.length-1];
       const from=new Vector3(...args.from),point=new Vector3(...args.point);
@@ -75,17 +79,92 @@ export class AiSim {
       else if(op==='keep') frame.to.insert(frame.priority,frame.request);
       else if(op==='swap') {frame.los.active=frame.to;frame.los.scratch=frame.from;}
       else if(op==='targetPoint') {
-        frame.unit=frame.request.controller.unit;frame.target=frame.request.target.unit;
+        if(frame.request) {frame.unit=frame.request.controller.unit;frame.target=frame.request.target.unit;}
         frame.target.aimPoint(this.sightPoint);result.point=this.sightPoint.toArray();result.flag=typeof frame.target.origin==='function';
       }
       else if(op==='targetOrigin') {frame.target.origin(this.sightTargetEye);result.point=this.sightTargetEye.toArray();}
       else if(op==='shooterOrigin') {frame.unit.origin(this.sightEye);result.point=this.sightEye.toArray();}
       else if(op==='los') {
-        this.sightEye.copy(from);this.sightPoint.copy(point);
         result.flag=Boolean(world.los(this.sightEye,this.sightPoint,frame.unit,frame.target));result.point=this.sightPoint.toArray();
       }
+      else if(op==='samplePoint') this.sightPoint.copy(point);
       else if(op==='record') recordTarget(frame.request.controller,frame.target,point,world);
+      else if(op==='scanReady') result.flag=Boolean(frame.unit?.alive && frame.perception);
+      else if(op==='scanClear') frame.perception.heap.clear();
+      else if(op==='scanShared') result.number=this.id(world.vehicles?.sharedTarget?.(frame.controller)??null);
+      else if(op==='scanRange') result.number=maxExpandedRange(frame.unit,frame.controller);
+      else if(op==='scanOrigin') {frame.unit.origin(this.sightEye);result.point=this.sightEye.toArray();}
+      else if(op==='scanQuery') {
+        this.sightEye.copy(point);
+        world.units.query(this.sightEye,from.x,this.scanFound,u=>u!==frame.unit && world.units.relation(frame.unit.team,u.team)<0);
+        result.ids=this.scanFound.map(u=>this.id(u));
+      }
+      else if(op==='scanTarget') {
+        const t=frame.target=object;
+        result.values=[Number(Boolean(t?.alive)),Number(t===frame.unit),Number(t?.targetable===false),t?.combat?.maxHealth??t?.classDef?.MaxHealth??0];
+      }
+      else if(op==='scanRelation') result.number=world.units.relation(frame.unit.team,frame.target.team);
+      else if(op==='scanCollision') result.flag=frame.target.collisionCategory===16;
+      else if(op==='scanForward') {frame.unit.forward(this.scanLook);result.point=this.scanLook.toArray();}
+      else if(op==='scanAim') {frame.target.aimPoint(this.scanAim);result.point=this.scanAim.toArray();}
+      else if(op==='scanBounds') {
+        const t=frame.target,s=t.soldier,posture=s?.air?'stand':s?.posture;
+        result.values=[frame.unit?.kind,t?.kind,Number(Boolean(s)),posture==='crouch'?1:posture==='prone'?2:0,t?.sphere?.radius??0];
+      }
+      else if(op==='scanDispatch') {
+        const e=frame.dispatch(frame.controller,frame.unit,frame.target,false,world);
+        result.values=[Number(Boolean(e.pattern)),Number(Boolean(e.aux))];
+      }
+      else if(op==='scanPriority') {
+        const u=frame.unit,t=frame.target,h=u?.pilot?u.vehicle:null;
+        result.values=[this.id(t?.building?.post),this.id(frame.controller?.objective),Number(Boolean(u?.pilot)),this.id(h),
+          h?.towTarget,this.id(t?.vehicle),this.id(h?.system?.vehicles?.[h?.towTarget]),u.kind,t.kind];
+      }
+      else if(op==='scanInsert') {
+        const t=frame.target;frame.perception.heap.insert(from.x,t?{unit:t,generation:t.generation}:null);
+      }
       else throw Error(`unknown sight callback ${op}`);
+      return result;
+    }});
+    bridge.register({aiTracker:args=>{
+      const op=args.op,object=this.objects[args.id],number=args.number,frame=this.trackerFrames[this.trackerFrames.length-1];
+      const t=frame.tracker,result={number:0,values:[]};
+      if(op==='start') {
+        frame.controller=t.controller;frame.unit=frame.controller.unit;const now=frame.world.time??0;frame.perception=frame.controller.perception;
+        result.values=[this.id(frame.unit),now];
+      } else if(op==='candidate' || op==='target') {
+        const r=op==='candidate'?frame.perception?.candidate:t.ref,u=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
+        result.values=[this.id(u),Number(Boolean(u?.alive)),u?.generation,tag(u?.generation),r?.generation,tag(r?.generation)];
+      } else if(op==='relation') result.number=frame.world.units.relation(frame.unit.team,object.team);
+      else if(op==='reset') t.reset(object);
+      else if(op==='countdown') t.startCountdown(number);
+      else if(op==='refresh') t.refresh(object,frame.perception.candidatePoint,number);
+      else if(op==='cost') {
+        const unit=frame.refresh?t.controller.unit:frame.unit;
+        result.number=frame.refresh && (!unit || !object)?10000:this.rawCost(frame.refresh?t.controller:frame.controller,unit,object);
+      } else if(op==='controller') frame.controller=t.controller;
+      else if(op==='fireStart') {frame.controller=t.controller;frame.unit=frame.controller.unit;result.number=this.id(frame.unit);}
+      else if(op==='setTarget') setTarget(frame.controller,frame.controller.unit,object,frame.world);
+      else if(op==='weaponLead') {
+        const weapon=selectedWeapon(frame.unit,frame.controller);
+        if(weapon)dropCorrect(t.point,frame.unit,weapon,this.trackerLead);else this.trackerLead.copy(t.point);
+        result.number=Number(Boolean(weapon));
+      } else if(op==='facing') result.number=Number(Boolean(facingAndRange(frame.controller,frame.unit,this.trackerLead,t.point)));
+      else if(op==='near') result.number=Number(Boolean(t.pointNearTarget()));
+      else if(op==='clearShot') {
+        frame.unit.origin(this.sightEye);
+        result.number=Number(Boolean(frame.world.los(this.sightEye,t.point,frame.unit,object)));
+      } else if(op==='writeFire') {frame.controller.fireA=Boolean(number);frame.controller.fireB=Boolean(args.id);}
+      else if(op==='select') t.select(frame.world);
+      else if(op==='updateReady') result.number=Number(Boolean(frame.controller.unit?.combat?.arsenal?.weapons?.length));
+      else if(op==='dispatch') frame.dispatch?.(frame.controller,frame.controller.unit,object,true,frame.world);
+      else if(op==='assign') t.assignWeaponTarget(frame.world);
+      else if(op==='fire') t.fireControls(frame.world);
+      else if(op==='pointNear') {
+        this.sightFrames.push({target:object});
+        try {result.number=this.x.ai_sight_near(frame.id);}
+        finally {this.sightFrames.pop();}
+      } else throw Error(`unknown target tracker callback ${op}`);
       return result;
     }});
   }
@@ -209,8 +288,48 @@ export class AiSim {
     finally {this.sightFrames.pop();}
   }
   bindPerception(perception) {
-    if(!this.perceptions.has(perception))this.perceptions.set(perception,new NativePerceptionFields(this,perception));
+    if(!this.perceptions.has(perception)) {
+      if(!(perception.heap instanceof NativePriorityHeap)) {
+        if(perception.heap.size)throw Error('native perception must bind before scanning');
+        perception.heap=this.heap(perception.heap.capacity,perception.heap.priority[0]);
+      }
+      this.perceptions.set(perception,new NativePerceptionFields(this,perception));
+    }
     return perception;
+  }
+  scan(id,controller,unit,world,dispatch) {
+    this.sightFrames.push({controller,unit,world,dispatch,perception:controller.perception});
+    try {return this.x.ai_sight_scan(id);}
+    finally {this.sightFrames.pop();}
+  }
+  rawCost(controller,unit,target) {
+    this.sightFrames.push({controller,unit,target});
+    try {return this.x.ai_sight_cost();}
+    finally {this.sightFrames.pop();}
+  }
+  bindTracker(tracker) {
+    if(!this.trackers.has(tracker))this.trackers.set(tracker,new NativeTrackerFields(this,tracker));
+    return tracker;
+  }
+  selectTarget(id,tracker,world) {
+    this.trackerFrames.push({tracker,world});
+    try {return Boolean(this.x.ai_tracker_select(id));}
+    finally {this.trackerFrames.pop();}
+  }
+  refreshTarget(id,tracker,target,point,now) {
+    this.trackerFrames.push({tracker,refresh:true});
+    try {this.words([point.x,point.y,point.z]);this.x.ai_tracker_refresh(id,this.id(target),now);}
+    finally {this.trackerFrames.pop();}
+  }
+  transitionTarget(id,tracker,op,number,now) {
+    this.trackerFrames.push({tracker});
+    try {this.x.ai_tracker_transition(id,op,number,now);}
+    finally {this.trackerFrames.pop();}
+  }
+  targetOperation(id,tracker,op,world,dispatch) {
+    this.trackerFrames.push({id,tracker,world,dispatch});
+    try {return this.x.ai_tracker_operation(id,op);}
+    finally {this.trackerFrames.pop();}
   }
   cluster(target,create=false) {
     const owner=target?.controller??target;
@@ -242,6 +361,39 @@ export class AiSim {
   words(values) {
     const ptr=this.x.sim_call_room(values.length,0);
     this.bridge.views();this.bridge.f.set(values,ptr/8+HEADER);
+  }
+}
+
+class NativeTrackerFields {
+  constructor(sim,tracker) {
+    const id=sim.x.ai_tracker_new(sim.id(tracker.controller));let reference=tracker.ref,serial=-1;
+    const setRef=value=>{
+      reference=value;
+      serial=sim.x.ai_tracker_ref(id,value===null?0:value===undefined?1:2,sim.id(value?.unit),value?.generation,
+        value?.generation===undefined?0:value?.generation===null?2:1);
+    };
+    Object.defineProperty(tracker,'ref',{enumerable:true,configurable:true,get:()=>{
+      sim.x.ai_tracker_read(id);const v=sim.out();
+      if(v[4]!==serial) {serial=v[4];reference=v[0]===0?null:v[0]===1?undefined:{unit:sim.objects[v[1]],generation:v[3]===0?undefined:v[3]===2?null:v[2]};}
+      return reference;
+    },set:setRef});setRef(reference);
+    const field=(object,name,index,flag=false)=>{
+      const initial=object[name];Object.defineProperty(object,name,{enumerable:true,configurable:true,
+        get:()=>flag?Boolean(sim.x.ai_tracker_field(id,index)):sim.x.ai_tracker_field(id,index),
+        set:value=>sim.x.ai_tracker_write(id,index,flag?Number(Boolean(value)):value)});object[name]=initial;
+    };
+    ['x','y','z'].forEach((key,i)=>field(tracker.point,key,i));
+    ['fresh','sampleTime','cost','delay','frozen','counting','deadline'].forEach((key,i)=>field(tracker,key,i+3,['fresh','frozen','counting'].includes(key)));
+    tracker.reset=target=>sim.x.ai_tracker_reset(id,sim.id(target),target?.generation,target?.generation===undefined?0:target?.generation===null?2:1);
+    tracker.refresh=(target,point,now)=>sim.refreshTarget(id,tracker,target,point,now);
+    tracker.startCountdown=now=>sim.x.ai_tracker_command(id,0,0,now);
+    tracker.setDelay=(seconds,now)=>sim.transitionTarget(id,tracker,0,seconds,now);
+    tracker.freeze=(on,now)=>sim.transitionTarget(id,tracker,1,Number(Boolean(on)),now);
+    tracker.select=world=>sim.selectTarget(id,tracker,world);
+    tracker.assignWeaponTarget=world=>sim.targetOperation(id,tracker,0,world)?tracker.point:null;
+    tracker.pointNearTarget=()=>Boolean(sim.targetOperation(id,tracker,1));
+    tracker.fireControls=world=>{sim.targetOperation(id,tracker,2,world);};
+    tracker.update=(world,dispatch)=>{sim.targetOperation(id,tracker,3,world,dispatch);};
   }
 }
 
@@ -290,6 +442,7 @@ class NativePerceptionFields {
     ['x','y','z'].forEach((key,index)=>field(perception.candidatePoint,key,index));
     field(perception,'lastScanCount',3);
     Object.defineProperty(perception,'nativeRecordTarget',{value:(controller,target,point,world)=>sim.recordTarget(id,controller,target,point,world)});
+    Object.defineProperty(perception,'nativeScan',{value:(controller,unit,world,dispatch)=>sim.scan(id,controller,unit,world,dispatch)});
   }
 }
 

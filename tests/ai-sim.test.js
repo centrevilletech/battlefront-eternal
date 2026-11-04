@@ -8,7 +8,7 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, Perception, recordTarget, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { clusterState, peekClusterState } from '../src/ai/classic/weapons-ai.js';
 
@@ -196,6 +196,177 @@ test('native deferred sight preserves lifetimes, budgets, point writes and heap 
     }
     assert.deepEqual(n.world.history,j.world.history,`queries ${i}`);
     assert.deepEqual(snapshot(n),snapshot(j),`sight ${i}`);
+  }
+});
+
+test('native sight scans preserve eligibility, query order, geometry and ranked heap state', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const world={time:0,tick:0,history:[]},post={},hull={towTarget:-1,system:{vehicles:[]}};
+    const unit={alive:true,kind:0,team:1,pilot:false,vehicle:hull,classDef:{ForwardSpeed:8},
+      combat:{arsenal:{weapons:[{def:{MaxRange:60,ExtremeRange:400}},{levels:[{MaxRange:150},{MaxRange:220}]}]}},
+      origin(out){world.history.push(['eye']);out.set(world.tick%11,-0,-3);},
+      forward(out){world.history.push(['forward']);out.set(0,0,1);},
+    };
+    const controller={unit,objective:null,rangeScale:1},p=controller.perception=new Perception(controller);
+    if(native)sim.bindPerception(p);
+    const targets=Array.from({length:220},(_,id)=>({id,alive:true,kind:id%11,team:2,generation:0,collisionCategory:0,
+      classDef:{MaxHealth:100},sphere:{radius:(id%5)*.17},soldier:id%11===0?{air:false,posture:'stand'}:null,
+      building:id%17===0?{post}:null,vehicle:{id},
+      position:new Vector3((id%23-11)*3.91,(id%5-2)*.13,(id%41-3)*2.13),
+      aimPoint(out){world.history.push(['aim',id]);out.copy(this.position);out.y+=.43;},
+    }));
+    hull.system.vehicles=targets.map(t=>t.vehicle);
+    world.vehicles={sharedTarget(c){world.history.push(['shared',p.heap.size,p.lastScanCount]);return world.tick%5===0?targets[world.tick%targets.length]:null;}};
+    world.units={
+      relation(a,b){world.history.push(['relation',a,b]);return a===0||b===0?0:a===b?1:-1;},
+      query(at,radius,out,filter){
+        world.history.push(['query',at.toArray(),radius]);out.length=0;
+        for(const t of targets)if(filter(t))out.push(t);
+      },
+    };
+    const dispatch=(c,u,t,secondary,w)=>{
+      world.history.push(['dispatch',t.id,secondary,p.heap.size,p.lastScanCount]);
+      assert.equal(c,controller);assert.equal(u,unit);assert.equal(w,world);
+      if(native) {sim.words(new Array(4000).fill(4));sim.x.ai_nav_boundary(2,0,0,0,0);}
+      if(world.tick%7===0)t.generation++;
+      return {pattern:t.id%3!==0,aux:t.id%5!==0};
+    };
+    return {world,unit,controller,p,targets,post,hull,dispatch};
+  }
+  const j=fixture(false),n=fixture(true);
+  const snapshot=x=>({count:x.p.lastScanCount,heapCount:x.p.heap.count,dropped:x.p.heap.dropped,
+    priority:Array.from(x.p.heap.priority),items:x.p.heap.items.map(r=>r&&[r.unit.id,r.generation])});
+  for(let i=0;i<256;i++) {
+    for(const x of [j,n]) {
+      x.world.tick=i;x.world.history.length=0;x.unit.alive=i%29!==0;x.unit.kind=i%11;x.unit.pilot=i%7===0;
+      x.hull.towTarget=i%220;x.controller.objective=i%3===0?x.post:null;x.controller.rangeScale=[.25,1,2,6][i%4];
+      for(const t of x.targets) {
+        t.alive=(i+t.id)%31!==0;t.team=(i+t.id)%43===0?1:2;t.targetable=(i+t.id)%37===0?false:undefined;
+        t.collisionCategory=(i+t.id)%41===0?16:0;
+        t.combat={maxHealth:[null,100,Infinity,NaN,-Infinity][(i+t.id)%5]};
+        if(t.soldier) {t.soldier.air=i%3===0;t.soldier.posture=['stand','crouch','prone','unknown'][i%4];}
+      }
+    }
+    assert.equal(scan(n.controller,n.world,n.dispatch),scan(j.controller,j.world,j.dispatch),`queued ${i}`);
+    assert.deepEqual(n.world.history,j.world.history,`scan callbacks ${i}`);
+    assert.deepEqual(snapshot(n),snapshot(j),`scan state ${i}`);
+  }
+});
+
+test('native target memory preserves retention, identities and state visible to callbacks', async () => {
+  const {sim}=await pair();
+  const ref=r=>r==null?r:[r.unit?.id,r.generation];
+  const snapshot=t=>({ref:ref(t.ref),fresh:t.fresh,point:t.point.toArray(),sampleTime:t.sampleTime,cost:t.cost,
+    delay:t.delay,frozen:t.frozen,counting:t.counting,deadline:t.deadline,target:t.target?.id??null,freshTarget:t.freshTarget?.id??null});
+  function fixture(native) {
+    const world={time:0,tick:0,history:[]},controller={unit:null};
+    let tracker;
+    const unit=controller.unit={id:100,alive:true,kind:0,team:1,origin(out){
+      world.history.push(['eye',snapshot(tracker)]);out.set(-0,2,world.tick%7);
+      if(native) {sim.words(new Array(8000).fill(1));sim.x.ai_nav_boundary(2,0,0,0,0);}
+    }};
+    const targets=Array.from({length:20},(_,id)=>({id,alive:true,generation:0,kind:id%11,team:2,
+      position:new Vector3(id/3,1,id+3),aimPoint(out){world.history.push(['aim',id]);out.copy(this.position);}}));
+    const p=controller.perception=new Perception(controller);if(native)sim.bindPerception(p);
+    tracker=new TargetTracker(controller);const point=tracker.point;if(native)sim.bindTracker(tracker);
+    assert.equal(tracker.point,point);
+    for(const key of ['reset','refresh','startCountdown']) {
+      const method=tracker[key];tracker[key]=function(...args){world.history.push(['method',key,snapshot(this)]);return method.apply(this,args);};
+    }
+    world.units={relation(a,b){world.history.push(['relation',a,b,snapshot(tracker)]);return a===b?1:-1;}};
+    return {world,controller,unit,targets,p,tracker,point};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<1024;i++) {
+    for(const x of [j,n]) {
+      x.world.time=i*.37;x.world.tick=i;x.world.history.length=0;
+      for(const t of x.targets) {t.alive=(i+t.id)%29!==0;t.team=(i+t.id)%11===0?1:2;t.generation=Math.floor(i/43);}
+      const target=x.targets[(i*7)%20];
+      x.p.candidate=i%5===0?null:{unit:target,generation:target.generation+(i%17===0?1:0)};
+      x.p.candidatePoint.set(target.position.x,1+i%3,target.position.z);
+      const t=x.tracker,now=x.world.time;
+      let result;
+      switch(i%13) {
+        case 0: result=t.reset(i%26===0?null:target);break;
+        case 1: result=t.assign(target);break;
+        case 2: result=t.refresh(target,new Vector3(i/7,-0,-i/3),now);break;
+        case 3: result=t.startCountdown(now);break;
+        case 4: result=t.setDelay([NaN,.4,4,16,Infinity,-3][i%6],now);break;
+        case 5: result=t.defaultDelay(now);break;
+        case 6: result=t.freeze(i%2===0,now);break;
+        default: result=t.select(x.world);
+      }
+      x.result=result;
+      assert.equal(t.point,x.point);assert.equal(t.ref,t.ref);
+    }
+    assert.equal(n.result,j.result,`result ${i}`);
+    assert.deepEqual(n.world.history,j.world.history,`tracker callbacks ${i}`);
+    assert.deepEqual(snapshot(n.tracker),snapshot(j.tracker),`tracker ${i}`);
+  }
+  for(const generation of [undefined,null,-0,NaN,7]) {
+    for(const x of [j,n]) {
+      const target=x.targets[0];target.generation=generation;target.alive=true;x.p.candidate={unit:target,generation};
+      x.tracker.reset(target);x.tracker.select(x.world);
+    }
+    assert.deepEqual(snapshot(n.tracker),snapshot(j.tracker));
+  }
+});
+
+test('native tracker firing keeps remembered points, public callbacks and weapon targets', async () => {
+  const {sim}=await pair();
+  const ref=r=>r&&[r.unit.id,r.generation];
+  function fixture(native) {
+    const world={time:0,tick:0,history:[]};let tracker;
+    const weapon={channel:0,def:{base:'rifle',ordnance:{base:'bolt',Velocity:500},ai:{maxRange:100,implicitRange:false,extremeRange:100}}};
+    const arsenal={weapons:[weapon],current(){world.history.push(['weapon']);return world.tick%9===0?null:weapon;}};
+    const unit={id:100,alive:true,generation:0,kind:0,team:1,classDef:{},soldier:{zoomed:false},combat:{arsenal},
+      origin(out){world.history.push(['eye']);out.set(0,1.7,0);},forward(out){world.history.push(['forward']);out.set(0,0,1);}};
+    const controller={unit,fireA:false,fireB:false,target:null};
+    const p=controller.perception=new Perception(controller);p.aimer.reset(new Vector3(0,0,1));if(native)sim.bindPerception(p);
+    tracker=new TargetTracker(controller);if(native)sim.bindTracker(tracker);
+    const targets=Array.from({length:4},(_,id)=>({id,alive:true,generation:0,kind:0,team:2,category:0,position:new Vector3(0,0,20+id),
+      origin(out){world.history.push(['target-eye',id]);out.copy(this.position);out.y+=1.7;},
+      aimPoint(out){world.history.push(['target-aim',id]);out.copy(this.position);out.y+=1;},
+    }));
+    const snapshot=()=>({ref:ref(tracker.ref),fresh:tracker.fresh,point:tracker.point.toArray(),cost:tracker.cost,
+      counting:tracker.counting,deadline:tracker.deadline,fire:[controller.fireA,controller.fireB],target:ref(controller.target),weaponTarget:ref(p.fire.weaponTarget)});
+    for(const key of ['select','assignWeaponTarget','fireControls','pointNearTarget']) {
+      const method=tracker[key];tracker[key]=function(...args){world.history.push(['method',key,snapshot()]);return method.apply(this,args);};
+    }
+    world.units={relation(a,b){world.history.push(['relation',a,b]);return a===b?1:-1;}};
+    world.los=(from,to,owner,target)=>{
+      assert.equal(to,tracker.point);assert.equal(owner,unit);
+      world.history.push(['los',from.toArray(),to.toArray(),target.id,snapshot()]);
+      if(native){sim.words(new Array(10000).fill(4));sim.x.ai_nav_boundary(2,0,0,0,0);}
+      if(world.tick%11===0)to.x+=.25;
+      return world.tick%7!==0;
+    };
+    const dispatch=(c,u,t,allowed,w)=>{
+      assert.equal(c,controller);assert.equal(u,unit);assert.equal(w,world);
+      world.history.push(['dispatch',t.id,allowed,snapshot()]);
+      if(world.tick%13===0)tracker.fresh=false;
+    };
+    return {world,unit,controller,p,tracker,targets,dispatch,snapshot};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<768;i++) {
+    for(const x of [j,n]) {
+      x.world.tick=i;x.world.time=i*.1;x.world.history.length=0;
+      const target=x.targets[i%4];
+      for(const t of x.targets) {t.alive=(i+t.id)%37!==0;t.generation=Math.floor(i/41);t.position.z=20+t.id+(i%7===0?4:0);}
+      x.tracker.reset(target);x.tracker.fresh=i%5===0;x.tracker.point.set(0,1.35,20+target.id);
+      x.p.candidate=i%3===0?{unit:target,generation:target.generation}:null;x.p.candidatePoint.copy(x.tracker.point);
+      let result;
+      if(i%4===0)result=x.tracker.update(x.world,x.dispatch);
+      else if(i%4===1)result=x.tracker.fireControls(x.world);
+      else if(i%4===2)result=x.tracker.assignWeaponTarget(x.world);
+      else result=x.tracker.pointNearTarget();
+      x.result=result===x.tracker.point?'point':result;
+    }
+    assert.equal(n.result,j.result,`fire result ${i}`);
+    assert.deepEqual(n.world.history,j.world.history,`fire callbacks ${i}`);
+    assert.deepEqual(n.snapshot(),j.snapshot(),`fire tracker ${i}`);
   }
 });
 
