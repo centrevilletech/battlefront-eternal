@@ -349,13 +349,16 @@ ran its page's main thread flat out and its world worker near its limit in
 a battle, while Chromium's real-time audio thread took 31 to 43% of a core
 for the original (Classic) sound, ahead of both. On stereo speakers the
 original now plays through the light mix (`docs/audio.md`, "The light
-mix"): each voice is its buffer source and two gains, no worklet, no
-reverb, no limiter, and a context that never loads a worklet renders on
-the device's own audio thread. Measured on a desktop Xeon in headless
+mix"), using the Rust voice engine by default, with browser nodes as the
+fallback. It has no reverb or limiter. The initial browser-node light mix
+used a buffer source and two gains per voice without a worklet. Measured
+for that initial implementation on a desktop Xeon in headless
 Chromium (`docs/audio.md`, "Cost"), the page's audio threads in a battle
 went from 24.5% to 16.7% of a core on Theed (13 voices heard) and from
 22.5% to 11.6% on Kamino, whose reverb the full output ran; the engine's
-update on the main thread from about 196 to 115 µs. Enhanced is unchanged.
+update on the main thread from about 196 to 115 µs. These measurements
+compare the browser-node light mix with the previous full output; see
+`docs/audio.md`, "The voice engine", for the current Rust implementation.
 
 A first session on a low-end CPU starts on Classic (`cpu-info.js`
 `lowEndCpu`: four threads or fewer and 4 GB of memory or less, as Chromium
@@ -927,7 +930,7 @@ would need the same module.
 
 ## The battle renderer in Rust
 
-Behind `?rust`, `rust/bfe-render` (Rust compiled to WebAssembly, built by
+By default, `rust/bfe-render` (Rust compiled to WebAssembly, built by
 `npm run rust:web` into `src/rust-pkg/`) draws part of the near scene inside
 three.js's own pass, on the same WebGL2 context: the map's opaque buckets
 (scrolling ones, the banners' wind and the leaves the tree canopies take
@@ -936,9 +939,11 @@ guns in his hand, instanced, then what the near scene blends: the map's
 blended buckets and the command posts' holograms and flares, in three's
 order. Its programs are made from the GLSL three compiled for each
 material, and vehicles' and props' skinned rigs (`?rustRigs=0` leaves
-those to three, for comparisons). Three.js draws everything else, and
-everything in a configuration the renderer does not cover (shadows, lamp
-lighting, the temporal upscaler). `?rustOff` loads it switched off,
+those to three, for comparisons). Three.js draws unsupported items and takes over if Rust fails to load or
+the WebGL context is lost. Enhanced features use the same per-item fallback;
+shadow casters still use three.js. `?rust` remains accepted for old links
+and has no effect. `?rustOff` skips loading the Rust renderer and its
+WebAssembly entirely, for recovery or comparisons.
 `?rustSort` orders the map's buckets by program rather than as three does,
 and `?rustRecord` keeps every call made to it, so that `rust/bfe-native` can
 replay the scene natively.

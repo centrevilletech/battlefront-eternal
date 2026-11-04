@@ -23,7 +23,7 @@ the engine's own-correction schema must fail readiness. Do not fall back to a
 server-local simulation string. Health checks must inspect the advertised
 contract as well as process liveness.
 
-The current engine requires `bfe-sim-27`, adapter ABI 4, and own-player
+The current engine requires `bfe-sim-28`, adapter ABI 4, and own-player
 correction schema 11. The server sends the verified entity registry followed by
 a `snapshot-delta-v1` welcome and starts the shared snapshot host directly.
 Local and remote worlds use the same records and the same snapshot codec
@@ -128,3 +128,19 @@ host's lag compensation leaves a round from where its shooter is, may rewind
 as far as a 300 ms round trip on top of his lead and playout delay, and locks
 a single-shot weapon out from when a late press was pressed
 (docs/semantic-combat.md "Sniper rounds online"). No content changes.
+
+Simulation `bfe-sim-28` uses the tick clock for barrel recoil and seeded
+streams for turret and network weapon spread and grenade spin. These rules
+also apply to the JavaScript simulation. Clients and servers on `bfe-sim-27`
+must update together: a mixed join is refused with "Update required" rather
+than allowing prediction to disagree. The wire format remains protocol 3;
+no content generation changes.
+
+Desktop releases package the pinned server adapter with that release's engine.
+The adapter reads the engine's simulation version, so this change does not
+require a new adapter ABI or server pin. The desktop boot updater installs the
+paired release before online play. The dedicated server updater stages the
+same release, waits for an empty server, then checks its advertised contract
+and advancing ticks before keeping the update. During that wait, updated
+clients cannot join an older server. Hosts using the standalone archive must
+install the matching release themselves. See [server-updates.md](server-updates.md).

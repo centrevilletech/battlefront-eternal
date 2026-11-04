@@ -1,3 +1,4 @@
+import { loadRustRenderer } from "./rust-render/load.js";
 import * as THREE from "three";
 import { FXAAFastShader, FXAAShader } from "./fxaa.js";
 import { Bloom, applyValues, fullScreenPass } from "./render-passes.js";
@@ -252,13 +253,14 @@ export class Graphics {
     this.background.material.depthTest = true;
     this.background.renderOrder = 1e9;
     this.scene.add(this.background);
-    // The Rust battle renderer (rust-render/), behind ?rust: it draws the
-    // map's opaque buckets and the soldiers first in the near scene's pass
-    // (from a hook of its own at the start of three's opaque list).
+    // The default battle renderer shares the WebGL context with three,
+    // which draws unsupported items and takes over if Rust is unavailable.
+    // ?rustOff skips the Rust renderer entirely for recovery and comparisons.
     this.rust = null;
+    this.rustReady = Promise.resolve();
     this.playerRoot = null;
-    if (typeof location !== "undefined" && new URLSearchParams(location.search).has("rust")) {
-      import("./rust-render/index.js").then((m) => m.createRustRender(this)).then((rust) => { this.rust = rust; })
+    if (typeof location !== "undefined") {
+      this.rustReady = loadRustRenderer(this, location.search).then((rust) => { this.rust = rust; })
         .catch((error) => console.warn("Rust renderer unavailable:", error));
     }
     this.downsample = fullScreenPass(
@@ -506,6 +508,20 @@ export class Graphics {
     // rest: the programs warmup() still had to make, all at once.
     const rest = this.warmup().programs;
     return { programs: count() - before, rest, ms: performance.now() - started };
+  }
+
+  // Compile() prepares three's programs, but Rust adopts their geometry
+  // and links its own programs when the scene is first drawn. Draw twice
+  // under the loading screen: three establishes the materials on the first
+  // pass, and Rust can take them on the second. Do this before joining a
+  // battle, whose incoming entity records must never wait behind the work.
+  async prepareRenderer(settle, draw) {
+    await this.rustReady;
+    for (let i = 0; i < 2; i++) {
+      this.render(0);
+      draw();
+      await settle();
+    }
   }
 
   // Compile every program the scenes can draw, before play starts. Three

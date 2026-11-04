@@ -1,7 +1,6 @@
-// The Rust battle renderer (rust/bfe-render, built to src/rust-pkg) behind
-// the `rust` query parameter: an experiment in drawing the near scene's
-// static world and its soldiers with far fewer WebGL calls than three makes
-// for them. Three.js still draws everything else and stays the default.
+// The default Rust battle renderer (rust/bfe-render, built to src/rust-pkg).
+// ?rustOff skips loading this renderer; ?rust is accepted for old links.
+// Three.js draws unsupported items and takes over after a context loss.
 //
 // It draws inside the near scene's pass, first of its opaque objects (from
 // an anchor at the start of three's opaque list; the far scene's image,
@@ -22,7 +21,7 @@
 //
 // It is made of passes, a file each here as in the renderer (renderer.rs):
 // the world (world.js), the instanced soldiers, guns and rigs
-// (instances.js), and, empty for now, the far scene, terrain, the
+// (instances.js), the far scene, terrain, the
 // transparent pass, effects, foliage, the first-person view and the post
 // passes. Each draws in a phase of the frame: far, near, transparent, view,
 // post (and mirror: the near phase's passes from a mirror's camera;

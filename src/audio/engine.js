@@ -521,6 +521,18 @@ class Voice {
       this.finish();
       return;
     }
+    const out = e.renderer.voice(this);
+    // The voice engine (unless ?voices=native) plays it: the mixer's, or the
+    // light mix's in the light mix, its gain or speaker gains and its rate
+    // sent as commands (src/audio/spatial.js, VoiceOut).
+    if (out.engine) {
+      const rate = this.rate();
+      out.engineStart(this.buffer, Math.max(offset, 0), this.loop, rate);
+      this.nodes = { source: null, gain: null, out, fresh: true, level: new Target(), rate: new Target() };
+      this.nodes.rate.hold(rate);
+      this.real = true;
+      return;
+    }
     const source = ctx.createBufferSource();
     source.buffer = this.buffer;
     source.loop = this.loop;
@@ -532,7 +544,6 @@ class Voice {
       gain.gain.value = 0;
       source.connect(gain);
     }
-    const out = e.renderer.voice(this);
     out.attach(gain || source, Boolean(gain));
     const rate = this.rate();
     source.playbackRate.value = rate;
@@ -569,7 +580,21 @@ class Voice {
     const raw = this.audible * e.categoryVolume(this.category) * (extra.gain ?? 1);
     const level = Number.isFinite(raw) ? raw : 0;
     const nodes = this.nodes;
-    if (!nodes.gain) {
+    // An engine voice whose mixer was replaced starts again, next frame.
+    if (nodes.out.engine && nodes.out.lost) {
+      this.release(STOP_FADE);
+      this.real = false;
+      return;
+    }
+    if (nodes.out.engine && !nodes.out.sides) {
+      if (nodes.fresh) {
+        nodes.out.engineGain(level);
+        nodes.level.hold(level);
+        nodes.fresh = false;
+      } else {
+        nodes.level.set(nodes.out.gainParam, level, now, SMOOTH);
+      }
+    } else if (!nodes.gain) {
       // Started in the light mix, which a settings change has since put
       // another graph in place of: it starts again there, next frame.
       if (!nodes.out.sides) {
@@ -590,7 +615,8 @@ class Voice {
         nodes.level.set(g, level, now, SMOOTH);
       }
     }
-    nodes.rate.set(nodes.source.playbackRate, this.rate(), now, SMOOTH);
+    if (nodes.source) nodes.rate.set(nodes.source.playbackRate, this.rate(), now, SMOOTH);
+    else if (nodes.out.engine) nodes.rate.set(nodes.out.rateParam, this.rate(), now, SMOOTH);
     extra.send = (extra.send ?? 0) * (e.renderer?.enhanced ? this.reverbGain : 1);
     // The Steam build's 2D voices never get their Pan: they play centred.
     const pan = e.renderer?.enhanced ? this.pan : 0;
@@ -607,6 +633,12 @@ class Voice {
     const nodes = this.nodes;
     if (!nodes) return;
     this.nodes = null;
+    if (nodes.out.engine) {
+      // The engine fades it and stops it; its slot is free once it has.
+      nodes.out.engineRelease(Math.max(fade, 1e-3) / 3, fade + 0.01);
+      setTimeout(() => nodes.out.dispose(), (fade + 0.1) * 1000);
+      return;
+    }
     const now = this.engine.ctx.currentTime;
     if (nodes.gain) {
       nodes.gain.gain.cancelScheduledValues(now);

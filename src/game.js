@@ -3924,7 +3924,7 @@ async function start() {
   // programs are left to link in the driver's own threads where the browser
   // compiles in parallel (graphics.js), and waited for here.
   let loadedOnce = null;
-  game.loaded = () => (loadedOnce ??= (async () => {
+  const prepareGraphics = () => (loadedOnce ??= (async () => {
     if (headless) return;
     const quiet = 400;
     const deadline = performance.now() + 60000;
@@ -3965,9 +3965,17 @@ async function start() {
     graphics.warmup();
     const programs = () => renderer.info.programs || [];
     while (performance.now() < deadline && programs().some((program) => program.isReady && !program.isReady())) await frame();
+    await graphics.prepareRenderer(gpuIdle, () => hud.render());
     await frame();
     await frame();
   })());
+  // Tools can see the game before its session is ready. They wait for the
+  // same preparation as the loading screen, and for the initial entities,
+  // before begin() can release the held battle.
+  game.loaded = async () => {
+    await prepareGraphics();
+    if (!headless) await clientReady;
+  };
   // What the load still waits on, for checks: texture URLs with requests out.
   game.texturesPending = () => [...texturesOut.keys()];
   // The pose sampler's switch (?anim=wasm's kernel), for measuring it
@@ -4012,6 +4020,7 @@ async function start() {
   game.predictionSim = predictionSim;
   if (!headless) window.__bf = game;
   if (!headless) {
+    await prepareGraphics();
     try { await startClient(); }
     catch (error) { try { disposePrediction(); } catch {} throw error; }
   }

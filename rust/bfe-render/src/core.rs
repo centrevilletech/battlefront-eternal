@@ -693,6 +693,11 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             let mut data = vec![0.0f32; rows * LAMP_TABLE_WIDTH * 4];
             data[..self.lamps.len()].copy_from_slice(&self.lamps);
             unsafe {
+                // Three's last image upload may have flipped rows. The lamp
+                // table is addressed by source index, so keep its row order.
+                self.gl.pixel_store_bool(0x9240, false); // UNPACK_FLIP_Y_WEBGL
+                self.gl.pixel_store_bool(0x9241, false); // UNPACK_PREMULTIPLY_ALPHA_WEBGL
+                self.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
                 self.gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA32F as i32, LAMP_TABLE_WIDTH as i32, rows as i32, 0, glow::RGBA, glow::FLOAT,
                     glow::PixelUnpackData::Slice(Some(bytes(&data))));
             }

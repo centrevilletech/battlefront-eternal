@@ -71,6 +71,7 @@ pub struct Limiter {
     ms_coef: f64,
     scaled: Vec<Vec<f32>>,
     sample_gain: Vec<f64>,
+    levels: Vec<f64>,
     wants: Vec<f32>,
     gains: Vec<f64>,
     block: usize,
@@ -123,6 +124,7 @@ impl Limiter {
             ms_coef: 1.0 - host::exp(-1.0 / (0.01 * rate)),
             scaled: Vec::new(),
             sample_gain: Vec::new(),
+            levels: Vec::new(),
             wants: Vec::new(),
             gains: Vec::new(),
             block: 0,
@@ -189,6 +191,7 @@ impl Limiter {
         self.block = n;
         self.scaled = (0..self.channels).map(|_| vec![0.0; n]).collect();
         self.sample_gain = vec![0.0; n];
+        self.levels = vec![0.0; n];
         self.wants = vec![0.0; n];
         self.gains = vec![0.0; n];
     }
@@ -215,7 +218,10 @@ impl Limiter {
             let ms_coef = self.ms_coef;
             let mut ms = self.ms;
             let mut comp_gain = self.comp_gain;
-            for i in 0..n {
+            // The mean squares first, and whether any is near the knee.
+            let mut levels = std::mem::take(&mut self.levels);
+            let mut loud = false;
+            for (i, level) in levels[..n].iter_mut().enumerate() {
                 let mut m = 0.0;
                 for c in 0..channels {
                     if c as i64 == skip {
@@ -227,10 +233,26 @@ impl Limiter {
                     }
                 }
                 ms += (m - ms) * ms_coef;
-                let want = if ms + 1e-12 < quiet { 1.0 } else { host::pow(10.0, self.curve(10.0 * host::log10(ms + 1e-12)) / 20.0) };
+                *level = ms + 1e-12;
+                loud |= !(*level < quiet);
+            }
+            // The block's math in two calls out of the module: a call a
+            // value costs the audio thread several times the math. (Under
+            // the knee the curve gives 0, so what quiet says of a sample,
+            // a gain of exactly 1, comes out with the rest.)
+            if loud {
+                host::log10_each(&mut levels[..n]);
+                for level in &mut levels[..n] {
+                    *level = self.curve(10.0 * *level) / 20.0;
+                }
+                host::pow10_each(&mut levels[..n]);
+            }
+            for (i, want) in levels[..n].iter().enumerate() {
+                let want = if loud { *want } else { 1.0 };
                 comp_gain += (want - comp_gain) * (if want < comp_gain { self.attack_coef } else { self.release_coef });
                 self.sample_gain[i] = self.makeup * comp_gain;
             }
+            self.levels = levels;
             self.ms = ms;
             self.comp_gain = comp_gain;
         } else {
