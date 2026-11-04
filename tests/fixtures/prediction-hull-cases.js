@@ -16,7 +16,7 @@ const box = (w, h, d, y = 0) => {
 // imported model, class, suspension and animation data remain unmodified.
 export function hullFromPack(data, buffers, name, options = {}) {
   const floor = box(20000, 2, 20000, -1);
-  const collision = new CollisionWorld(floor.positions, floor.indices, floor.polygons);
+  const collision = new CollisionWorld(floor.positions, floor.indices, floor.polygons, undefined, undefined, options.rays || null);
   const system = new Vehicles({ scene: new THREE.Scene(), camera: new THREE.PerspectiveCamera(50, 16 / 9, .1, 2000), collision,
     data: { ...data, blockers: null, spawns: [{ name: 'pad', matrix: new THREE.Matrix4().toArray(), team: 1, post: '', classes: { 1: name } }] },
     ...buffers, texture: () => null, effects: { play() { return null; } }, ordnance: { explosion() {} },

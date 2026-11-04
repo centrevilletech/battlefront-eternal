@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadSim } from '../src/sim/module.js';
 import { bridgeFor } from '../src/sim/runtime.js';
+import { loadRayKernel } from '../src/ray-kernel.js';
 import { createWireBridge } from '../src/runtime/wire-sim.js';
 import { predictVehicle, predictionVehicle } from '../src/runtime/vehicle-prediction.js';
 import { createVehiclePredictionSim, createVehiclePredictionBridge } from '../src/runtime/vehicle-prediction-sim.js';
@@ -113,6 +114,22 @@ test('query and trace callbacks retain owned state across reentry and memory gro
     for (const event of traces) {
       assert.ok(Array.isArray(event.input)); assert.ok(Array.isArray(event.output));
       for (const q of event.queries || []) { assert.ok(Array.isArray(q.args)); assert.ok(Array.isArray(q.values)); }
+    }
+    const rays = await loadRayKernel(instance);
+    for (const kind of ['springs', 'walker']) {
+      const c = { name: `${kind}-shared-native-collision`, kind, ticks: 12, batch: 4 };
+      const create = () => syntheticHull(kind, { rays });
+      let actual, expected, rayGrew = false;
+      try {
+        actual = runHullPredictionCase(c, { native, create, onQuery() {
+          exercise(); if (!rayGrew) { rayGrew = true; instance.exports.memory.grow(1); }
+        } });
+        expected = runHullPredictionCase(c, { create });
+        assert.deepEqual(actual.observations, expected.observations); assert.deepEqual(actual.events, expected.events);
+        assert.equal(actual.prediction.system.collision.rays, rays, 'private queries keep the shared native collision');
+        assert.equal(actual.source.system.collision.rays, rays, 'authority keeps its native collision');
+        assert.ok(rayGrew);
+      } finally { actual?.dispose(); expected?.dispose(); }
     }
   } finally { a?.dispose(); b?.dispose(); native.dispose(); inner.system.dispose(); }
 });
