@@ -486,6 +486,7 @@ impl Hull {
 
     /// vehicles.js damage: `attacker` (Null: nobody) is credited.
     pub fn damage<W: VehicleWorld>(&mut self, w: &mut W, amount: f64, attacker: OrdnanceOwner) {
+        if !w.damage_allowed() { return; }
         if !self.alive || !(amount > 0.0) {
             return;
         }
