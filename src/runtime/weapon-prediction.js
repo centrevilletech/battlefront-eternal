@@ -14,12 +14,14 @@ const random=()=>.5;
 // own draws (weapons.js spreadSeed), so a salvo's pellets fan out where the
 // authority's fly; any other round keeps the middle of the spread.
 export class WeaponPrediction {
-  constructor(){this.controls=new CommandControls();this.life=null;this.presentedThrough=-1;}
+  constructor({native=null}={}){this.controls=new CommandControls();this.life=null;this.presentedThrough=-1;this.native=native;this.nativeSession=null;}
   restore(){if(!this.saved)return;this.combat.arsenal=this.saved.arsenal;this.combat.zoomStep=this.saved.zoomStep;this.saved=null;}
+  dispose(){this.restore();this.nativeSession?.dispose();this.nativeSession=null;}
   begin(unit,{epoch=1,tick,checkpoint=null}={}){
     this.restore();
     const combat=unit.combat,authority=combat.arsenal,life=`${epoch}:${unit.id}:${unit.generation}`;
     if(this.life!==life||this.source!==authority){
+      this.nativeSession?.dispose();this.nativeSession=null;
       this.life=life;this.source=authority;this.presentedThrough=tick;
       this.arsenal=prepareMelee(new Arsenal(authority.weapons.map(w=>w.levels[0]),{random}));
     }
@@ -28,25 +30,30 @@ export class WeaponPrediction {
     // Captured states reference their source weapons; rebind to private slots.
     restoreArsenalState(this.arsenal,{selected:state.selected,weapons:state.weapons.map((entry,i)=>({...entry,weapon:this.arsenal.weapons[i]}))});
     combat.arsenal=this.arsenal;combat.zoomStep=state.zoomStep;
+    if(this.native){this.nativeSession||=this.native.createArsenal(this.arsenal);this.nativeSession.sync(combat);}
     this.presentedThrough=Math.max(this.presentedThrough,tick);
   }
   step(command,tick,onShot=()=>{},presses=null){
     const combat=this.combat,controls=this.controls;
     controls.down=new Set(command.down);controls.queued.clear();
     for(const action of command.actions)controls.queued.add(action);
-    const input=seedPresses(readWeaponInput(controls),this.unit,presses);
-    selectCombatWeapons(combat,controls,PlayerCombat.zooms);
-    const stick=Math.max(Math.abs(controls.axis('forward')),Math.abs(controls.axis('right')));
-    const blocked=infantryFireBlocked(combat.soldier,combat.gunUnderwater,stick);
-    // Deployed remote control and shield effects belong to their existing
-    // prediction modules. Their weapon timers still use the common rules.
-    for(const channel of [0,1]){
-      const weapon=this.arsenal.current(channel);
-      if(weapon?.deployed&&weapon.def.droid||weapon?.def.base==='shield'){
-        input[channel?'secondary':'primary']={held:false,pressed:false};
+    let shots;
+    if(this.nativeSession)shots=this.nativeSession.infantry(this.unit,combat,controls,presses);
+    else{
+      const input=seedPresses(readWeaponInput(controls),this.unit,presses);
+      selectCombatWeapons(combat,controls,PlayerCombat.zooms);
+      const stick=Math.max(Math.abs(controls.axis('forward')),Math.abs(controls.axis('right')));
+      const blocked=infantryFireBlocked(combat.soldier,combat.gunUnderwater,stick);
+      // Deployed remote control and shield effects belong to their existing
+      // prediction modules. Their weapon timers still use the common rules.
+      for(const channel of [0,1]){
+        const weapon=this.arsenal.current(channel);
+        if(weapon?.deployed&&weapon.def.droid||weapon?.def.base==='shield'){
+          input[channel?'secondary':'primary']={held:false,pressed:false};
+        }
       }
+      shots=this.arsenal.update(1/60,input,{stick,posture:combat.soldier.posture,zoomed:combat.zoomed,blocked,repairTarget:null});
     }
-    const shots=this.arsenal.update(1/60,input,{stick,posture:combat.soldier.posture,zoomed:combat.zoomed,blocked,repairTarget:null});
     if(tick>this.presentedThrough)for(const shot of shots)onShot(shot,command,tick);
     this.presentedThrough=Math.max(this.presentedThrough,tick);
     return shots;
