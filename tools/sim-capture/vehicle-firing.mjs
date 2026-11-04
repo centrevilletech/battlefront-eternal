@@ -2,9 +2,10 @@
 // the clock boundary. Import no runtime Weapon/Vehicle implementation.
 import { geometrySnapshot } from '../../src/vehicle-firing-sim.js';
 import { exportVgState } from '../../src/sim/gen/vehicle-firing.js';
+import { Vector3 } from 'three';
 
 const names = ['muzzleOf', 'muzzleOfSeat', 'heldByLimits', 'reticleRay', 'botAim', 'nose', 'shotDirection', 'beamDirection', 'spread', 'towHeld'];
-const zero = Object.freeze({ x: 0, y: 0, z: 0 });
+const zero = Object.freeze(new Vector3());
 const lists = new WeakMap();
 function nodesOf(v) {
   let nodes = lists.get(v);

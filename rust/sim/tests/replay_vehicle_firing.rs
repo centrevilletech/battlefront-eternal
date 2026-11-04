@@ -16,7 +16,7 @@ fn vector(v: [f64; 3]) -> Vector3 {
     Vector3::new(v[0], v[1], v[2])
 }
 fn read(v: V) -> Vector3 {
-    Vector3::new(v.get("x").num(), v.get("y").num(), v.get("z").num())
+    vector(v.vec3().expect("a geometry vector"))
 }
 fn optional(v: V) -> Option<Vector3> {
     (!v.is_nullish()).then(|| read(v))

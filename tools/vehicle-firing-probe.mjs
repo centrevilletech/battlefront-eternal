@@ -7,7 +7,7 @@ import { rigNodes } from '../src/vehicles-sim.js';
 import { MAGIC, RECORD, Writer } from './sim-capture/format.mjs';
 
 const names = ['muzzleOf', 'muzzleOfSeat', 'heldByLimits', 'reticleRay', 'botAim', 'nose', 'shotDirection', 'beamDirection', 'spread', 'towHeld'];
-let game, native, fd, active = false, records = 0, calls = 0, nativeCalls = 0, callbacks = 0, exercised = 0, depth = 0;
+let game, native, fd, active = false, records = 0, calls = 0, nativeCalls = 0, callbacks = 0, exercised = 0, depth = 0, withBarrels = 0;
 const writer = new Writer();
 function record(kind, data) { if (active) { writer.record(RECORD.frame, ++records, kind, data); fs.writeSync(fd, writer.take()); } }
 function state(v) {
@@ -37,6 +37,11 @@ export function ticked(tick) {
   assert.ok(hulls.length, 'real live armed hulls');
   for (const v of hulls) {
     const saved = state(v), nodes = [...rigNodes(v), v.root.parent], seatIndex = v.seats.findIndex(s => s.weapons.length), seat = v.seats[seatIndex], w = seat.weapons[0];
+    const savedNode = v.shotNode, savedEmitter = v.shotEmitter;
+    if (w.muzzles.some(m => m.barrel)) withBarrels++;
+    // The existing native pose keeps its temporary vectors in Rust. Give
+    // both public-method trials the same explicit input scratch values.
+    v.from.set(3.25, -2, 7); v.muzzle.set(1, 2, 3); v.direction.set(0, 0, 1); v.normal.set(0, 0, 0); v.beamFrom.set(4, 5, 6);
     const target = seat.target;
     const a = w.aimers[0] ?? null;
     const wrappers = [];
@@ -90,12 +95,15 @@ export function ticked(tick) {
       const n = nodes[i], s = saved.nodes[i]; n.position.fromArray(s); n.quaternion.fromArray(s, 3); n.scale.fromArray(s, 7);
       n.matrix.fromArray(s, 10); n.matrixWorld.fromArray(s, 26); n.matrixWorldNeedsUpdate = s[42];
     }
+    [v.from, v.muzzle, v.direction, v.normal, v.beamFrom].forEach((p, i) => p.fromArray(saved.vectors[i]));
+    v.shotNode = savedNode; v.shotEmitter = savedEmitter;
     // The retained pose sees the restored input before the next phase.
     v.nose(new Vector3()); exercised++;
   }
 }
 export function ended() {
-  fs.closeSync(fd); assert.ok(exercised > 0 && records > 400 && callbacks > 0);
+  fs.closeSync(fd); assert.ok(exercised > 0 && records >= exercised * 24 * 9 * 2);
+  if (withBarrels) assert.ok(callbacks > 0, 'prepared recoil barrels call the clock');
   if (native) assert.ok(nativeCalls > 0);
-  console.error(JSON.stringify({ geometryProbe: { exercised, records, callbacks, javascript: calls, native: nativeCalls } }));
+  console.error(JSON.stringify({ geometryProbe: { exercised, withBarrels, records, callbacks, javascript: calls, native: nativeCalls } }));
 }
