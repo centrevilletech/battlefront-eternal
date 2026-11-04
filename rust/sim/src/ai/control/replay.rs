@@ -549,7 +549,8 @@ fn controller_read(v: V) -> Controller {
     c.shot_pending = v.get("shot").get("pending").bool();
     c.shot_known = v.get("shot").get("known").bool();
     c.shot_point = arr3(v.get("shot").get("point"));
-    c.shot_source = num_opt(v.get("shot").get("source")).filter(|&p| p >= 0.0).map(|p| p as usize);
+    c.shot_source = num_opt(v.get("shot").get("unit")).map(|u| AlertSource::Unit(u as usize)).or_else(||
+        num_opt(v.get("shot").get("source")).filter(|&p| p >= 0.0).map(|p| AlertSource::Character(p as usize)));
     c.acoustic = v.get("acoustic").items().filter_map(ref_read).collect();
     c.vehicle_notes = v.get("vehicleNotes").items().filter_map(ref_read).collect();
     c.command_pending = v.get("command").get("pending").bool();
@@ -1532,8 +1533,10 @@ impl<'f> AiWorld for Served<'f> {
                 shot_known: row.get("shotKnown").bool(),
                 shot_point: arr3(row.get("shotPoint")),
                 shot_source: {
-                    let src = row.get("shotSource").num();
-                    if src >= 0.0 { Some(src as usize) } else { None }
+                    self.unit_of(row.get("shotUnit")).map(AlertSource::Unit).or_else(|| {
+                        let src = row.get("shotSource").num();
+                        if src >= 0.0 { Some(AlertSource::Character(src as usize)) } else { None }
+                    })
                 },
                 danger_pending: row.get("dangerPending").bool(),
                 danger_point: arr3(row.get("dangerPoint")),
@@ -2558,6 +2561,7 @@ fn remap(theirs: &mut Core, map: &[Option<usize>]) {
     }
     for c in &mut theirs.controllers {
         c.unit = c.unit.map(&m);
+        if let Some(AlertSource::Unit(unit)) = &mut c.shot_source { *unit = m(*unit); }
         goal_map(&mut c.commands.current, &m);
         for g in &mut c.commands.queue {
             goal_map(g, &m);

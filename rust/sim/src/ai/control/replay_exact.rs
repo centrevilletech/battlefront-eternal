@@ -21,7 +21,7 @@ macro_rules! scalar {
         }
     )*};
 }
-scalar!(bool, usize, u64, String, Policy, HelperKind, ForeignKind, ObjectiveFlavor);
+scalar!(bool, usize, u64, String, Policy, HelperKind, ForeignKind, ObjectiveFlavor, AlertSource);
 
 impl<T: Exact> Exact for Option<T> {
     fn exact(&self, other: &Self) -> bool {
