@@ -1243,6 +1243,7 @@ export class UnitCombatAgent extends Agent {
   // The target is fresh and the bot's flat aim
   // (unnormalized) dotted with the flat direction to it exceeds cosLimit.
   facingTarget(cosLimit) {
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.geometry(this,0,cosLimit,combatScratch);
     const target = this.tracker.freshTarget;
     if (!target) return false;
     const unit = this.controller.unit;
@@ -1256,6 +1257,7 @@ export class UnitCombatAgent extends Agent {
   // The next look: first 30..75 degrees to a random side, then -2x
   // the last; look 100 m that way (the direction's Y set to 0.0001).
   nextLook() {
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.geometry(this,1,undefined,combatScratch);
     const random = this.random;
     if (this.looks === 0) {
       this.lookAngle = f(drawRange(random, 30, 75) * f(0.017453292));
@@ -1273,6 +1275,7 @@ export class UnitCombatAgent extends Agent {
 
   // The bot's flat aim within acos(0.939) of the flat direction to `point`.
   alignedTo(point) {
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.geometry(this,2,point,combatScratch);
     const unit = this.controller.unit;
     unit.origin(ca);
     normalizeD3DX(f(point.x - ca.x), 0, f(point.z - ca.z), cn);
@@ -1349,6 +1352,7 @@ export class UnitCombatAgent extends Agent {
   // draw with the point more than 45 degrees off the heading, a dive to the
   // side (and stop).
   evade(t) {
+    if(this.world?.aiSim)return this.world.aiSim.combatAgents.geometry(this,3,t,combatScratch);
     const c = this.controller;
     const unit = c.unit;
     const P = unit.position;
@@ -1493,6 +1497,7 @@ export class UnitCombatAgent extends Agent {
 const boardFound = [];
 
 export function boardingClear(world, unit, candidate) {
+  if(world?.aiSim)return world.aiSim.combatAgents.boarding(world,unit,candidate,boardFound,validTarget);
   if (!world?.units || !candidate?.position) return true;
   world.units.query(candidate.position, 8, boardFound, (u) => u !== candidate && u !== unit);
   for (let i = 0; i < boardFound.length && i < 30; i++) if (validTarget(world, unit, boardFound[i])) return false;
@@ -1504,6 +1509,8 @@ let cosCone = null;
 // The point inside the 77.5-degree cone around the bot's flat
 // heading (both directions flattened and normalized).
 export function inForwardCone(unit, point) {
+  const native=unit?.controller?.ai?.world?.aiSim;
+  if(native)return native.combatAgents.cone(unit,point,combatScratch);
   cosCone ??= lookupCos(ANGLE.CONE);
   const P = unit.position;
   normalizeXZ(f(point.x - P.x), f(point.z - P.z), cn);

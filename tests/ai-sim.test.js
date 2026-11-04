@@ -12,7 +12,7 @@ import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse,
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
 import { Agent } from '../src/ai/classic/agents.js';
-import { AttackPatterns, UnitCombatAgent, CoverHelper, coverReservation, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
+import { AttackPatterns, UnitCombatAgent, CoverHelper, boardingClear, inForwardCone, coverReservation, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -1769,4 +1769,48 @@ test('native combat-agent phases preserve tracker replacement, shared dispatch a
     return {history,entered,values:[a.state,a.pending,a.alignAt,a.aligned,a.looks,a.pattern,a.stationary,a.hazardUntil,a.proneUntil],point:a.point.toArray(),mode:c.wantedMode,alert:c.alertAnim};
   }
   for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`combat agent phase ${i}`);
+});
+
+test('native combat geometry preserves shared direction writes, retained vectors and raw look counters', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],held=[],world={aiSim:native?sim:null,time:i/11},ai={world},rng=new ClassicRandom(227+i),next=new ClassicRandom(781+i);let agent,nested=false;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8500).fill(4));};
+    const stream=(r,name)=>({range(lo,hi){log('range',name,lo,hi);ai.randomA=otherRandom;const n=r.range(lo,hi);return i%17===0?String(n):n;},
+      int(lo,hi){log('int',name,lo,hi);const n=r.int(lo,hi);return i%19===0?String(n):n;}});
+    const original=stream(rng,'first'),otherRandom=stream(next,'other');ai.randomA=original;world.randomA=otherRandom;
+    const controller={ai,world},unit=controller.unit={kind:0,position:new Vector3(i%5,-0,i%3),controller,
+      origin(out){out.copy(unit.position);log('origin',out.toArray());held.push(out);if(i%11===0 && !nested)inner();},
+      forward(out){out.set([1,.25,-1,0][i%4],-0,[0,1,-.25,-1][i%4]);log('forward',out.toArray());held.push(out);if(i%7===0 && !nested)inner();}};
+    const aux={kind:0,position:new Vector3(),controller,forward(out){out.set(1,0,0);}};
+    function inner(){nested=true;log('nested',inForwardCone(aux,new Vector3(5,0,1)));nested=false;}
+    controller.lookAt=p=>{log('look',p===agent.point,p.toArray());if(i%5===0)agent.looks='1';if(i%13===0)agent.point=new Vector3(1,2,3);};
+    controller.setStance=n=>log('stance',n);controller.lookAlongPath=()=>log('along');
+    const helper={goto(p,o){log('goto',p.toArray(),o);held.push(p);},stop(){log('stop');}};
+    const target={aimPoint(out){out.set(0,0,20);log('aim');if(i%23===0)unit.position=new Vector3(3,0,1);}};
+    ai.createHelper=()=>helper;ai.combat={initAgent(a){a.tracker={freshTarget:i%29===0?null:target};}};
+    agent=new UnitCombatAgent(controller,null);agent.hazard.set(i%7-3,0,i%3*4);agent.looks=[0,'0',1,false][i%4];agent.lookAngle=.125;
+    const limit=i%31===0?{valueOf(){log('limit-coercion');return .5;}}:.5;
+    const results=[agent.facingTarget(limit),agent.alignedTo(new Vector3(i%3,0,10)),inForwardCone(unit,new Vector3(i%3,0,-4))];
+    agent.nextLook();agent.nextLook();agent.evade(i%3===0?'1':i/7);
+    return {history,results,point:agent.point.toArray(),fields:[agent.looks,agent.lookAngle,agent.hazardUntil,controller.dodge],held:held.map(p=>p.toArray()),rng:[rng.state,next.state]};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`combat geometry ${i}`);
+});
+
+test('native boarding scans retain the shared query list, eligibility gates and thirty-unit cap', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},unit={team:0},candidate={position:new Vector3(1,2,3)},innerCandidate={position:new Vector3()};let shared,nested=false;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8600).fill(2));};
+    const targets=Array.from({length:36},(_,id)=>({id,team:id,alive:i%5!==0||id%3!==0,targetable:i%7!==0||id%5!==0,
+      combat:{get maxHealth(){log('health',id);if(i%19===0 && id===0)shared.length=0;return i%11===0?3.4028234663852886e38:100;}}}));
+    const innerWorld={aiSim:native?sim:null,units:{query(p,r,out){log('inner-query',r);out.length=0;out.push({alive:false});},relation(){return 0;}}};
+    world.units={query(p,r,out,filter){log('query',p===candidate.position,r,filter(candidate),filter(unit));shared=out;out.length=0;out.push(...targets);},
+      relation(a,b){log('relation',a,b);if(i%13===0&&!nested){nested=true;log('inner-result',boardingClear(innerWorld,unit,innerCandidate));}return b===[0,29,30,34][i%4]?-1:0;}};
+    if(i%23===0)world.units=null;if(i%29===0)candidate.position=null;
+    const result=boardingClear(world,unit,candidate);
+    return {history,result,length:shared?.length};
+  }
+  for(let i=0;i<512;i++)assert.deepEqual(run(true,i),run(false,i),`boarding scan ${i}`);
 });

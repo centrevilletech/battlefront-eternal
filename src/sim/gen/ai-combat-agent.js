@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiCombatAgentOp_NAMES = ["goalMode","request","goalPoint","goalTarget","cleanup","base","mode","state","patternExit","unit","speed","mount","known","cone","sourcePoint","target","distanceStart","distanceTarget","engage","mountReach","mountCall","boarding","shield","shieldMax","shieldValue","switchShield","fireA","fireB","entryStart","capturedKind","capturedMode","stop","investigateStart","investigateNormal","investigateValues","investigatePoint","look","stance","nextLook","captureTarget","dispatch","storePattern","hasPattern","initPattern","evade","alongPath","behaveStart","capturedTime","select","assignWeapon","alert","jetState","flying","interrupt","aligned","field","fieldTruthy","fastTurn","patternUpdate","sensorStart","sensorDistance","samePattern","skipFire","raiseShield","helperTick","fireControls"];
+export const AiCombatAgentOp_NAMES = ["goalMode","request","goalPoint","goalTarget","cleanup","base","mode","state","patternExit","unit","speed","mount","known","cone","sourcePoint","target","distanceStart","distanceTarget","engage","mountReach","mountCall","boarding","shield","shieldMax","shieldValue","switchShield","fireA","fireB","entryStart","capturedKind","capturedMode","stop","investigateStart","investigateNormal","investigateValues","investigatePoint","look","stance","nextLook","captureTarget","dispatch","storePattern","hasPattern","initPattern","evade","alongPath","behaveStart","capturedTime","select","assignWeapon","alert","jetState","flying","interrupt","aligned","field","fieldTruthy","fastTurn","patternUpdate","sensorStart","sensorDistance","samePattern","skipFire","raiseShield","helperTick","fireControls","freshTarget","geometryUnit","targetAim","origin","forward","pointRead","pointWrite","inputNumber","random","range","int","capturePoint","unitPosition","setPoint","lookCurrent","incrementLooks","evadeStart","evadeValues","dodge","move","inputAdd","coneStart","boardStart","boardQuery","boardLength","boardValid"];
 export const AiCombatAgentOp_INDEX = new Map(AiCombatAgentOp_NAMES.map((name, i) => [name, i]));
 
 export class AiCombatAgentArgsMirror {
@@ -54,6 +54,7 @@ export class AiCombatAgentResultMirror {
     this.flag = false;
     this.number = NaN;
     this.values = [];
+    this.point = [NaN, NaN, NaN];
   }
 }
 
@@ -61,6 +62,7 @@ export function syncAiCombatAgentResult(b, f, at, h, m) {
   m.flag = f[at + 0] !== 0;
   m.number = f[at + 1];
   { const items = (m.values ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const a = (m.point ??= new Array(3)); a[0] = f[at + 4]; a[1] = f[at + 5]; a[2] = f[at + 6]; }
   return m;
 }
 
@@ -68,12 +70,14 @@ export function putAiCombatAgentResult(b, o, f, at, heap) {
   f[at + 0] = o.flag ? 1 : 0;
   f[at + 1] = o.number;
   heap.items(o.values, f, at + 2, 1, (f, at, v) => { f[at + 0] = v; });
+  { const $v = o.point; f[at + 4] = $v[0]; f[at + 5] = $v[1]; f[at + 6] = $v[2]; }
 }
 
 export function sameAiCombatAgentResult(a, b) {
   if (!Object.is(a.flag, b.flag)) return ".flag";
   if (!Object.is(a.number, b.number)) return ".number";
   if (!sameEach(a.values, b.values, (x, y) => Object.is(x, y))) return ".values";
+  if (!sameArray(a.point, b.point, 3)) return ".point";
   return null;
 }
 
@@ -85,5 +89,6 @@ export function exportAiCombatAgentResult(o, cx) {
   v.flag = o.flag;
   v.number = o.number;
   v.values = o.values.map((x) => x);
+  v.point = [...o.point];
   return v;
 }

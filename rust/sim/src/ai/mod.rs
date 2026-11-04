@@ -21,6 +21,8 @@ mod pattern_geometry_module;
 mod pattern_state_module;
 #[cfg(target_arch = "wasm32")]
 mod combat_agent_module;
+#[cfg(target_arch = "wasm32")]
+mod combat_agent_geometry_module;
 mod combat_agent_state_module;
 mod fire_module;
 mod fsm_module;

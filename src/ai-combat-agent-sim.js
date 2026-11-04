@@ -7,7 +7,7 @@ export class NativeCombatAgents {
     this.sim=sim;this.frames=[];this.agents=new WeakMap();this.vectors=new WeakSet();
     sim.bridge.register({aiCombatAgent:args=>{
       const op=args.op,id=args.id,number=args.number,point=[...args.point],frame=this.frames[this.frames.length-1],a=frame.agent;
-      const result={flag:false,number:0,values:[]},strict=value=>typeof value==='number'?value:NaN;
+      const result={flag:false,number:0,values:[],point:[0,0,0]},strict=value=>typeof value==='number'?value:NaN;
       if(op==='goalMode')result.number=strict(frame.value?.mode);
       else if(op==='request')a.requestState(number);
       else if(op==='goalPoint'){const goal=frame.value;if(goal.point)(id===0?a.point:a.hazard).copy(goal.point);}
@@ -74,6 +74,32 @@ export class NativeCombatAgents {
       else if(op==='raiseShield')result.flag=Boolean(a.raiseShield(frame.unit));
       else if(op==='helperTick')a.helper?.tick?.(frame.value);
       else if(op==='fireControls')a.tracker.fireControls(frame.world);
+      else if(op==='freshTarget'){frame.target=a.tracker.freshTarget;result.flag=Boolean(frame.target);}
+      else if(op==='geometryUnit')frame.unit=a.controller.unit;
+      else if(op==='targetAim')frame.target.aimPoint(frame.scratch.ca);
+      else if(op==='origin')frame.unit.origin(frame.scratch[id===0?'ca':'cb']);
+      else if(op==='forward')frame.unit.forward(frame.scratch[id===0?'ca':'cb']);
+      else if(op==='pointRead'){const p=id===4?a.point:id===5?a.hazard:id===6?frame.position:id===7?frame.value:frame.scratch[['ca','cb','cn','cm'][id]];result.point=[p.x,p.y,p.z];}
+      else if(op==='pointWrite'){const p=frame.scratch[['ca','cb','cn','cm'][id]];if(id<2)p.set(...point);else{p.x=point[0];p.y=point[1];p.z=point[2];}}
+      else if(op==='inputNumber'){result.flag=typeof frame.value==='number';if(result.flag||id===1)result.number=frame.value;}
+      else if(op==='random')frame.random=a.random;
+      else if(op==='range')result.number=frame.random.range(30,75);
+      else if(op==='int'){const n=(id===0?frame.random:a.random).int(0,1);result.flag=typeof n==='number';if(result.flag)result.number=n;}
+      else if(op==='capturePoint')frame.output=a.point;
+      else if(op==='unitPosition'){const u=frame.unit;result.point=[u.position.x,u.position.y,u.position.z];}
+      else if(op==='setPoint')frame.output.set(...point);
+      else if(op==='lookCurrent'){const c=a.controller,p=a.point;if(c.lookAt)c.lookAt(p);else{c.aimState=1;(c.aimPoint||=new Vector3()).copy(p);}}
+      else if(op==='incrementLooks')a.looks+=1;
+      else if(op==='evadeStart'){frame.controller=a.controller;frame.unit=frame.controller.unit;frame.position=frame.unit.position;}
+      else if(op==='evadeValues'){const p=frame.position;result.values=[p.x,a.hazard.x,p.z,a.hazard.z];}
+      else if(op==='dodge')frame.controller.dodge=number;
+      else if(op==='move'){const helper=a.helper;helper?.goto?.(frame.scratch.ca,undefined);}
+      else if(op==='inputAdd')result.number=frame.value+number;
+      else if(op==='coneStart')frame.position=frame.unit.position;
+      else if(op==='boardStart')result.flag=Boolean(frame.world?.units&&frame.candidate?.position);
+      else if(op==='boardQuery'){const {world,unit,candidate,found}=frame;world.units.query(candidate.position,8,found,u=>u!==candidate&&u!==unit);}
+      else if(op==='boardLength')result.number=frame.found.length;
+      else if(op==='boardValid'){const valid=frame.valid;result.flag=Boolean(valid(frame.world,frame.unit,frame.found[id]));}
       else throw Error(`unknown combat-agent callback ${op}`);
       return result;
     }});
@@ -102,6 +128,18 @@ export class NativeCombatAgents {
           x.ai_combat_agent_write(id,index,kind,kind===0?value:reference?this.sim.id(value):0);}});
       agent[name]=initial;
     });this.agents.set(agent,id);
+  }
+  geometry(agent,mode,value,scratch) {
+    this.bind(agent);this.frames.push({agent,value,scratch});
+    try {const result=this.sim.x.ai_combat_agent_geometry(this.agents.get(agent),mode);return mode===0||mode===2?Boolean(result):undefined;} finally {this.frames.pop();}
+  }
+  cone(unit,value,scratch) {
+    this.frames.push({unit,value,scratch});
+    try {return Boolean(this.sim.x.ai_combat_agent_geometry(0,4));} finally {this.frames.pop();}
+  }
+  boarding(world,unit,candidate,found,valid) {
+    this.frames.push({world,unit,candidate,found,valid});
+    try {return Boolean(this.sim.x.ai_combat_boarding());} finally {this.frames.pop();}
   }
   run(agent,mode,value,point,base,resolve,cone,clear,scratch,dispatch) {
     this.bind(agent);const frame={agent,value,point,base,resolve,cone,clear,scratch,dispatch};this.frames.push(frame);
