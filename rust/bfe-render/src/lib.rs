@@ -11,6 +11,7 @@ pub mod motion;
 pub mod post;
 pub mod renderer;
 pub mod shader;
+pub mod shadow;
 pub mod terrain;
 pub mod transparent;
 pub mod view;

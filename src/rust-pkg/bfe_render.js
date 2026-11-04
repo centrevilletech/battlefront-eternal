@@ -173,6 +173,20 @@ export class BfeRenderer {
         wasm.bferenderer_canopies_mesh(this.__wbg_ptr, val3, ptr0, len0, ptr1, len1, val4);
     }
     /**
+     * @returns {number}
+     */
+    caster_input_len() {
+        const ret = wasm.bferenderer_caster_input_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    caster_input_ptr() {
+        const ret = wasm.bferenderer_caster_input_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} item
      * @param {number} base
      */
@@ -808,6 +822,32 @@ export class BfeRenderer {
     }
     /**
      * @param {number} g
+     * @param {number} slot
+     * @param {Uint8Array | number[]} data
+     */
+    geometry_buffer_data(g, slot, data) {
+        const val2 = +g;
+        const val3 = +slot;
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_geometry_buffer_data(this.__wbg_ptr, val2, val3, ptr0, len0);
+    }
+    /**
+     * @param {number} g
+     * @param {number} slot
+     * @param {number} offset
+     * @param {Uint8Array | number[]} data
+     */
+    geometry_buffer_sub_data(g, slot, offset, data) {
+        const val2 = +g;
+        const val3 = +slot;
+        const val4 = +offset;
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_geometry_buffer_sub_data(this.__wbg_ptr, val2, val3, val4, ptr0, len0);
+    }
+    /**
+     * @param {number} g
      * @param {number} start
      * @param {number} count
      */
@@ -825,6 +865,28 @@ export class BfeRenderer {
         const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         wasm.bferenderer_geometry_index(this.__wbg_ptr, val2, ptr0, len0, val3);
+    }
+    /**
+     * @param {number} g
+     * @param {Uint8Array | number[]} data
+     */
+    geometry_index_data(g, data) {
+        const val2 = +g;
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_geometry_index_data(this.__wbg_ptr, val2, ptr0, len0);
+    }
+    /**
+     * @param {number} g
+     * @param {number} offset
+     * @param {Uint8Array | number[]} data
+     */
+    geometry_index_sub_data(g, offset, data) {
+        const val2 = +g;
+        const val3 = +offset;
+        const ptr0 = passArray8ToWasm0(data, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.bferenderer_geometry_index_sub_data(this.__wbg_ptr, val2, val3, ptr0, len0);
     }
     /**
      * @param {number} g
@@ -1158,6 +1220,18 @@ export class BfeRenderer {
         const ptr0 = passArray32ToWasm0(ids, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         wasm.bferenderer_set_shadow_maps(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    shadow_frame() {
+        const ret = wasm.bferenderer_shadow_frame(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * @returns {number}
@@ -1701,6 +1775,9 @@ function __wbg_get_imports() {
         __wbg_blendFuncSeparate_eb9098d760f4a25c: function(arg0, arg1, arg2, arg3, arg4) {
             arg0.blendFuncSeparate(arg1 >>> 0, arg2 >>> 0, arg3 >>> 0, arg4 >>> 0);
         },
+        __wbg_blitFramebuffer_d17b7bddf5e86dbc: function(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
+            arg0.blitFramebuffer(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 >>> 0, arg10 >>> 0);
+        },
         __wbg_bufferData_2fb8740d60478bf0: function(arg0, arg1, arg2, arg3) {
             arg0.bufferData(arg1 >>> 0, arg2, arg3 >>> 0);
         },
@@ -1732,6 +1809,12 @@ function __wbg_get_imports() {
         },
         __wbg_clearColor_195b5a731bca5836: function(arg0, arg1, arg2, arg3, arg4) {
             arg0.clearColor(arg1, arg2, arg3, arg4);
+        },
+        __wbg_clearDepth_3417be30229e823a: function(arg0, arg1) {
+            arg0.clearDepth(arg1);
+        },
+        __wbg_clearDepth_3dc1f52f96f29526: function(arg0, arg1) {
+            arg0.clearDepth(arg1);
         },
         __wbg_clear_3ffa1ed794f92a04: function(arg0, arg1) {
             arg0.clear(arg1 >>> 0);

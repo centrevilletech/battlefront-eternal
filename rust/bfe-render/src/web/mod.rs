@@ -10,6 +10,7 @@ mod hud;
 mod instances;
 mod motion;
 mod post;
+mod shadow;
 mod terrain;
 mod transparent;
 mod view;

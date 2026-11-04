@@ -49,6 +49,7 @@ import { waterPass } from "./water.js";
 import { nearPass } from "./near.js";
 import { canopiesPass } from "./canopies.js";
 import { motionPass } from "./motion.js";
+import { shadowPass } from "./shadow.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -108,6 +109,8 @@ const PHASES = {
   // The temporal upscaler's motion of the bodies that move on their own
   // (motion.js), once the scenes are drawn.
   motion: { view: null, draw: (rust, ctx) => rust.motion_frame(ctx.records) },
+  // A shadow cascade's pass in three's shadow pass's place (shadow.js).
+  shadow: { view: null, draw: (rust) => rust.shadow_frame() },
 };
 
 // three's renderer's entry points that read or change its state cache, each
@@ -220,7 +223,7 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass]) this.addPass(make(this));
     // The near phase's hook: first in three's opaque list of the near scene
     // (graphics.background, the far scene's image, is drawn last of it).
     this.nearAnchor = graphics.scene ? this.anchor(graphics.scene, { renderOrder: -1e9 }, (renderer, scene, camera) => this.pass(renderer, scene, camera)) : null;
@@ -723,6 +726,13 @@ export class RustRender {
   // nothing in it is left for three (near.js); true when it was.
   coverNear(renderer, scene, camera) {
     return this.byName.near?.cover(renderer, scene, camera) ?? false;
+  }
+
+  // graphics.js renderCascades: a shadow cascade's pass (shadow.js), drawn by
+  // the shadow pass when it can draw all of it; true when it was.
+  coverShadow(renderer, light, scene, camera, from) {
+    const target = renderer.getRenderTarget();
+    try { return this.byName.shadow?.cover(renderer, light, scene, camera, from) ?? false; } catch (error) { this.fail(error, renderer, target); return false; }
   }
 
   // hud.js: the battle HUD's batch, drawn by the HUD pass; true when it was.

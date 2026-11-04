@@ -34,6 +34,7 @@ use crate::hud::HudPass;
 use crate::instances::{InstancePass, BONES_LEN, INPUT_LEN};
 use crate::motion::MotionPass;
 use crate::post::PostPass;
+use crate::shadow::ShadowPass;
 use crate::terrain::TerrainPass;
 use crate::transparent::{self, Source, TransparentPass};
 use crate::view::ViewPass;
@@ -54,6 +55,7 @@ pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub post: PostPass<C>,
     pub hud: HudPass<C>,
     pub water: WaterPass<C>,
+    pub shadow: ShadowPass<C>,
     pub motion: MotionPass<C>,
     pub canopies: CanopiesPass<C>,
 }
@@ -72,9 +74,10 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let post = PostPass::new(&mut core);
         let hud = HudPass::new(&mut core);
         let water = WaterPass::new(&mut core);
+        let shadow = ShadowPass::new(&mut core);
         let motion = MotionPass::new(&mut core);
         let canopies = CanopiesPass::new(&mut core);
-        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water, motion, canopies }
+        Renderer { core, world, instances, far, terrain, transparent, effects, foliage, view, post, hud, water, shadow, motion, canopies }
     }
 
     // The far scene's phase, drawn into the far target before the near scene.
@@ -241,6 +244,15 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let stats = self.frame(records);
         self.core.swap_views(VIEW_NEAR, VIEW_SPARE);
         stats
+    }
+
+    // A shadow cascade's pass (shadow.rs), in three's shadow pass's place: the
+    // map cleared or given its cache's depth, then the casters the page wrote.
+    pub fn shadow_frame(&mut self) -> Result<Stats, String> {
+        self.core.begin_phase();
+        let drawn = self.shadow.draw(&mut self.core);
+        let stats = self.core.end_phase();
+        drawn.map(|_| stats)
     }
 
     // The temporal upscaler's motion phase, once the scenes are drawn: the
