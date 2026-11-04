@@ -511,8 +511,10 @@ async function start() {
   // Battle phases migrate together behind this opt-in switch. The player's
   // spawn state machine is the first live owner (human-spawn-sim.js).
   const wantBattle = headless && (params.get("battle") ?? globalThis.process?.env?.BFE_BATTLE) === "rust";
+  const wantAiSim = headless && (params.get("aiSim") ?? globalThis.process?.env?.BFE_AI_SIM) === "rust";
   // The kernels and the store on the battle's one instance of the module.
-  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantSeats || wantCombat || wantUnits || wantBattle ? await loadSimInstance() : null;
+  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantSeats || wantCombat || wantUnits || wantBattle || wantAiSim ? await loadSimInstance() : null;
+  const aiSim = wantAiSim && simInstance ? (await import("./ai-sim.js")).attachAiSim(simInstance) : null;
   const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
   const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
@@ -1638,6 +1640,7 @@ async function start() {
       weapons: { selectedWeapon, switchWeapon, effectiveRange, firingCone },
     };
     ai = await createAI(AI_MODE, aiWorld, {
+      aiSim,
       map: MAP,
       sides: Object.keys(sides),
       playerTeam,
@@ -2413,6 +2416,18 @@ async function start() {
   // while none are neutral has 20 s before it loses.
   const capturers = [];
   function updateBattle(dt) {
+    if (game.battlePhaseSim) game.battlePhaseSim.update(dt);
+    else updateBattleRules(dt);
+    // The local spawn screen, corpse and HUD follow the authoritative
+    // battle phase, including any respawn it completed this tick.
+    if (!game.serverWorld && policy.auto && ai?.humanReady && battle.human && !combat.dead) ai.humanReady(battle.human, { className: UNIT, post: spawnPosts()[spawnIndex] });
+    if (!game.serverWorld) humanSpawn.update(dt, tickHuman);
+    tickHuman = null;
+    if (combat.dead && !playerUnit.removed && combat.deathTime >= CORPSE_LINGER) removeCorpse();
+    presentBattle(dt);
+  }
+
+  function updateBattleRules(dt) {
     // Who counts toward a post: living soldiers on foot whose class captures
     // (CapturePosts, 1 for soldiers and droidekas, 0 for heroes); never
     // anyone seated in a vehicle or turret.
@@ -2439,12 +2454,7 @@ async function start() {
       // whoever hurt it last unless he is its owner's friend, and its
       // KillRegion goes off.
       if (event.destroyed) objectiveDestroyed(event);
-      audio.on("post", event);
-      ai?.postEvent?.(event);
-      const name = event.post.desc.displayName || event.post.label;
-      const team = event.kind === "captured" ? event.by : event.from;
-      const key = event.kind === "captured" ? "game.infomsg.captured" : "game.infomsg.lost";
-      hud.message(hud.text(key, battle.names[team] ?? "", name), posts.relation(team));
+      announcePost(event);
     }
     // The command vehicles' posts (src/mobile-posts.js): one whose vehicle
     // died is lost, and whoever hurt the vehicle last earns a post point
@@ -2455,25 +2465,26 @@ async function start() {
         const attacker = event.vehicle?.lastAttacker === "player" ? playerUnit : event.vehicle?.lastAttacker;
         const destroyer = attacker?.character ?? null;
         if (destroyer) battle.postDestroyed(destroyer, units.relation(destroyer.team, event.from));
-        announceLost(event);
       }
-      ai?.postEvent?.(event);
+      announceMobile(event);
     }
     ai?.beforeBattle?.(dt);
     battle.update(dt);
     ai?.afterBattle?.(dt);
-    // Without the spawn screen, whenever the Classic spawn manager asks for
-    // the player's choice while he is on his feet (the match's start), he
-    // confirms his current post at once; after a death the same choice comes
-    // from onRespawn. With the screen its choices are applied here, where the
-    // manager makes its own (src/human-spawn.js).
-    if (!game.serverWorld && policy.auto && ai?.humanReady && battle.human && !combat.dead) ai.humanReady(battle.human, { className: UNIT, post: spawnPosts()[spawnIndex] });
-    if (!game.serverWorld) humanSpawn.update(dt, tickHuman);
-    tickHuman = null;
-    // His body lies where it fell for 4 s, then is gone, as a bot's is
-    // (checked after the respawn that a URL's choice makes at that moment).
-    if (combat.dead && !playerUnit.removed && combat.deathTime >= CORPSE_LINGER) removeCorpse();
-    presentBattle(dt);
+  }
+
+  function announcePost(event) {
+    audio.on("post", event);
+    ai?.postEvent?.(event);
+    const name = event.post.desc.displayName || event.post.label;
+    const team = event.kind === "captured" ? event.by : event.from;
+    const key = event.kind === "captured" ? "game.infomsg.captured" : "game.infomsg.lost";
+    hud.message(hud.text(key, battle.names[team] ?? "", name), posts.relation(team));
+  }
+
+  function announceMobile(event) {
+    if (event.kind === "lost") announceLost(event);
+    ai?.postEvent?.(event);
   }
 
   function objectiveDestroyed(event) {
@@ -3758,6 +3769,14 @@ async function start() {
   game.trapsSim = wantBattle && simInstance && live?.traps.length ? (await import("./traps-sim.js")).attachTrapsSim(simInstance, live.traps) : null;
   game.battlefieldSim = wantBattle && simInstance ? (await import("./battlefield-sim.js")).attachBattlefieldSim(simInstance, battlefield, leavingWarning) : null;
   game.propsSim = wantBattle && simInstance && live ? (await import("./props-sim.js")).attachPropsSim(simInstance, live) : null;
+  game.battlePhaseSim = game.battleSim ? (await import("./battle-phase-sim.js")).attachBattlePhaseSim({
+    battleSim: game.battleSim, postsSim: game.postsSim, spawningSim: game.spawningSim,
+    units, vehicles: () => vehicles?.vehicles ?? [], playerUnit, playerMounted: () => driver?.active || gunner.active,
+    random: gameplayRandom, effect: presentEffect, postEvent: announcePost, mobileEvent: announceMobile,
+    killUnit: unit => (unit === playerUnit ? combat : unit.combat).damage(Infinity),
+  }) : null;
+  game.inputSim = game.battleSim ? (await import("./runtime/input-sim.js")).createInputSim(simInstance) : null;
+  game.aiSim = aiSim;
   if (!headless) window.__bf = game;
   if (!headless) await startClient();
   return game;

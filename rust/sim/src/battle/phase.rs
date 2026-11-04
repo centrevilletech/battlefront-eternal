@@ -8,12 +8,38 @@
 use super::mobile::MobileEvent;
 use super::objectives::{kill_region, KillRegionHost};
 use super::posts::{self, Capturer, Change};
-use super::rules;
+use super::rules::{self, RulesWorld};
+use super::stats::Text;
 use super::spawning::{self, Draws};
-use super::world::{BattleWorld, Victim};
-use crate::gen::{Character, Post, PostChange, Store};
-use crate::store::{Nullable, Ref, Strings};
+use super::world::{BattleWorld, Member, SpawningWorld, Victim};
+use crate::gen::{Building, Character, Post, PostChange, PostEvent, Store, Vehicle};
+use crate::store::{Nullable, Ref};
 use three::Vector3;
+
+/// Services outside the battle phase. Its rules, Characters, posts and
+/// spawning state stay together while a callback temporarily publishes
+/// them for another native command or a foreign body service.
+pub trait PhaseWorld: SpawningWorld + RulesWorld {
+    fn members(&mut self) -> Vec<Member>;
+    fn building_attacker(&mut self, building: Ref<Building>) -> Option<Ref<Character>>;
+    fn vehicle_attacker(&mut self, vehicle: Ref<Vehicle>) -> Option<Ref<Character>>;
+    fn kill_region_victims(&mut self) -> Vec<Victim>;
+    fn kill_victim(&mut self, s: &mut Store, victim: Victim);
+    fn effect(&mut self, s: &mut Store, name: &str, at: [f64; 3]);
+    fn post_event(&mut self, s: &mut Store, event: &PostEvent);
+    fn mobile_event(&mut self, s: &mut Store, event: &MobileEvent);
+}
+
+impl<T: BattleWorld + ?Sized> PhaseWorld for T {
+    fn members(&mut self) -> Vec<Member> { BattleWorld::members(self) }
+    fn building_attacker(&mut self, building: Ref<Building>) -> Option<Ref<Character>> { BattleWorld::building_attacker(self, building) }
+    fn vehicle_attacker(&mut self, vehicle: Ref<Vehicle>) -> Option<Ref<Character>> { BattleWorld::vehicle_attacker(self, vehicle) }
+    fn kill_region_victims(&mut self) -> Vec<Victim> { BattleWorld::kill_region_victims(self) }
+    fn kill_victim(&mut self, s: &mut Store, victim: Victim) { BattleWorld::kill_victim(self, s, victim); }
+    fn effect(&mut self, _: &mut Store, name: &str, at: [f64; 3]) { BattleWorld::effect(self, name, at); }
+    fn post_event(&mut self, s: &mut Store, event: &PostEvent) { BattleWorld::post_event(self, s, event); }
+    fn mobile_event(&mut self, s: &mut Store, event: &MobileEvent) { BattleWorld::mobile_event(self, s, event); }
+}
 
 fn v3(p: [f64; 3]) -> Vector3 {
     Vector3::new(p[0], p[1], p[2])
@@ -23,13 +49,13 @@ fn v3(p: [f64; 3]) -> Vector3 {
 /// spawn manager is the store's `spawning`); `random`: its generator A;
 /// `gameplay`: the gameplay stream (a kill region's draws).
 #[allow(clippy::too_many_arguments)]
-pub fn update_battle(
+pub fn update_battle<W: PhaseWorld + ?Sized>(
     dt: f64,
     s: &mut Store,
-    strings: &mut Strings,
+    strings: &dyn Text,
     ai: bool,
     stats_active: impl Fn(Ref<Character>, &Character) -> bool,
-    world: &mut dyn BattleWorld,
+    world: &mut W,
     random: &mut dyn Draws,
     gameplay: &mut dyn Draws,
 ) {
@@ -62,7 +88,7 @@ pub fn update_battle(
                 }
             }
         }
-        if event.kind == PostChange::Lost && event.destroyed == Some(true) {
+        if event.destroyed == Some(true) {
             objective_destroyed(post, event.from.unwrap_or(f64::NAN), s, world, gameplay);
         }
         world.post_event(s, &event);
@@ -91,20 +117,20 @@ pub fn update_battle(
 
 /// A destructible post's kill region as the battle runs it: the gameplay
 /// stream's draws, the page's effects, the living soldiers and hulls.
-struct Region<'w> {
-    world: &'w mut dyn BattleWorld,
+struct Region<'w, W: PhaseWorld + ?Sized> {
+    world: &'w mut W,
     gameplay: &'w mut dyn Draws,
     store: &'w mut Store,
     victims: Vec<Victim>,
 }
 
-impl KillRegionHost for Region<'_> {
+impl<W: PhaseWorld + ?Sized> KillRegionHost for Region<'_, W> {
     fn random(&mut self) -> f64 {
         self.gameplay.uniform()
     }
 
     fn play(&mut self, name: &str, point: Vector3) {
-        self.world.effect(name, [point.x, point.y, point.z]);
+        self.world.effect(self.store, name, [point.x, point.y, point.z]);
     }
 
     fn victims(&mut self) -> Vec<Vector3> {
@@ -124,7 +150,7 @@ impl KillRegionHost for Region<'_> {
 
 /// objectiveDestroyed(event) (game.js:2370): a post point for whoever hurt
 /// the building last unless he is its owner's friend, then its kill region.
-fn objective_destroyed(post: Ref<Post>, from: f64, s: &mut Store, world: &mut dyn BattleWorld, gameplay: &mut dyn Draws) {
+fn objective_destroyed<W: PhaseWorld + ?Sized>(post: Ref<Post>, from: f64, s: &mut Store, world: &mut W, gameplay: &mut dyn Draws) {
     let building = s.post.get(post).expect("a post").building;
     let destroyer = building.and_then(|b| world.building_attacker(b));
     if let Some(d) = destroyer {

@@ -35,6 +35,9 @@ export const PqOperation_INDEX = new Map(PqOperation_NAMES.map((name, i) => [nam
 export const PqActionKind_NAMES = ["target","sphere","cast","teamScale","damage","setHealth","may"];
 export const PqActionKind_INDEX = new Map(PqActionKind_NAMES.map((name, i) => [name, i]));
 
+export const PtOperation_NAMES = ["steer","holdYaw","viewDirection","present","gunWant","aimGun","pose","muzzle","fireDirection","eyePoint","aimOrigin","seatPoint","seatTurn","seatYaw"];
+export const PtOperation_INDEX = new Map(PtOperation_NAMES.map((name, i) => [name, i]));
+
 export class PbIdentityMirror {
   constructor() {
     this.kind = NaN;
@@ -2244,5 +2247,420 @@ export function exportPqActionResult(o, cx) {
   v.found = o.found;
   v.hitDistance = o.hitDistance;
   v.hitOwner = o.hitOwner;
+  return v;
+}
+
+export class PtSettingsMirror {
+  constructor() {
+    this.facing = NaN;
+    this.position = new THREE.Vector3();
+    this.matrix = new THREE.Matrix4();
+    this.pitchLimits = [NaN, NaN];
+    this.yawLimits = null;
+    this.wrapYaw = false;
+    this.gunPitchLimits = [NaN, NaN];
+    this.gunYawLimits = [NaN, NaN];
+    this.turnRate = NaN;
+    this.filter = NaN;
+    this.gunPitchRate = NaN;
+    this.gunYawRate = NaN;
+    this.yawFactor = NaN;
+    this.pitchFactor = NaN;
+    this.cameraEye = new THREE.Vector3();
+    this.cameraCenter = new THREE.Vector3();
+    this.cameraOffset = new THREE.Vector3();
+    this.cameraTilt = NaN;
+    this.pivot = new THREE.Vector3();
+    this.up = new THREE.Vector3();
+    this.drumParentTurn = null;
+    this.gunBind = null;
+    this.root = new THREE.Matrix4();
+    this.parents = [];
+    this.drum = null;
+    this.gun = null;
+    this.seat = null;
+    this.firePoints = [];
+  }
+}
+
+export function syncPtSettings(b, f, at, h, m) {
+  m.facing = f[at + 0];
+  (m.position ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 4 + i]; }
+  { const a = (m.pitchLimits ??= new Array(2)); a[0] = f[at + 20]; a[1] = f[at + 21]; }
+  { const tag = f[at + 22]; if (tag === 0) { { const a = (m.yawLimits ??= new Array(2)); a[0] = f[at + 23]; a[1] = f[at + 24]; } } else m.yawLimits = tag === 1 ? null : undefined; }
+  m.wrapYaw = f[at + 25] !== 0;
+  { const a = (m.gunPitchLimits ??= new Array(2)); a[0] = f[at + 26]; a[1] = f[at + 27]; }
+  { const a = (m.gunYawLimits ??= new Array(2)); a[0] = f[at + 28]; a[1] = f[at + 29]; }
+  m.turnRate = f[at + 30];
+  m.filter = f[at + 31];
+  m.gunPitchRate = f[at + 32];
+  m.gunYawRate = f[at + 33];
+  m.yawFactor = f[at + 34];
+  m.pitchFactor = f[at + 35];
+  (m.cameraEye ??= new THREE.Vector3()).set(f[at + 36], f[at + 37], f[at + 38]);
+  (m.cameraCenter ??= new THREE.Vector3()).set(f[at + 39], f[at + 40], f[at + 41]);
+  (m.cameraOffset ??= new THREE.Vector3()).set(f[at + 42], f[at + 43], f[at + 44]);
+  m.cameraTilt = f[at + 45];
+  (m.pivot ??= new THREE.Vector3()).set(f[at + 46], f[at + 47], f[at + 48]);
+  (m.up ??= new THREE.Vector3()).set(f[at + 49], f[at + 50], f[at + 51]);
+  { const tag = f[at + 52]; if (tag === 0) { (m.drumParentTurn ??= new THREE.Quaternion()).set(f[at + 53], f[at + 54], f[at + 55], f[at + 56]); } else m.drumParentTurn = tag === 1 ? null : undefined; }
+  { const tag = f[at + 57]; if (tag === 0) { (m.gunBind ??= new THREE.Quaternion()).set(f[at + 58], f[at + 59], f[at + 60], f[at + 61]); } else m.gunBind = tag === 1 ? null : undefined; }
+  { const e = (m.root ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 62 + i]; }
+  { const items = (m.parents ??= []), start = h + f[at + 78], n = f[at + 79]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const tag = f[at + 80]; if (tag === 0) { m.drum = f[at + 81]; } else m.drum = tag === 1 ? null : undefined; }
+  { const tag = f[at + 82]; if (tag === 0) { m.gun = f[at + 83]; } else m.gun = tag === 1 ? null : undefined; }
+  { const tag = f[at + 84]; if (tag === 0) { m.seat = f[at + 85]; } else m.seat = tag === 1 ? null : undefined; }
+  { const items = (m.firePoints ??= []), start = h + f[at + 86], n = f[at + 87]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  return m;
+}
+
+export function putPtSettings(b, o, f, at, heap) {
+  f[at + 0] = o.facing;
+  { const $v = o.position; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+  { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 4 + i] = e[i]; }
+  { const $v = o.pitchLimits; f[at + 20] = $v[0]; f[at + 21] = $v[1]; }
+  { const $x = o.yawLimits; if ($x === null || $x === undefined) { f[at + 22] = $x === null ? 1 : 2; f[at + 23] = 0; f[at + 24] = 0; } else { f[at + 22] = 0; { const $v = $x; f[at + 23] = $v[0]; f[at + 24] = $v[1]; } } }
+  f[at + 25] = o.wrapYaw ? 1 : 0;
+  { const $v = o.gunPitchLimits; f[at + 26] = $v[0]; f[at + 27] = $v[1]; }
+  { const $v = o.gunYawLimits; f[at + 28] = $v[0]; f[at + 29] = $v[1]; }
+  f[at + 30] = o.turnRate;
+  f[at + 31] = o.filter;
+  f[at + 32] = o.gunPitchRate;
+  f[at + 33] = o.gunYawRate;
+  f[at + 34] = o.yawFactor;
+  f[at + 35] = o.pitchFactor;
+  { const $v = o.cameraEye; f[at + 36] = $v.x; f[at + 37] = $v.y; f[at + 38] = $v.z; }
+  { const $v = o.cameraCenter; f[at + 39] = $v.x; f[at + 40] = $v.y; f[at + 41] = $v.z; }
+  { const $v = o.cameraOffset; f[at + 42] = $v.x; f[at + 43] = $v.y; f[at + 44] = $v.z; }
+  f[at + 45] = o.cameraTilt;
+  { const $v = o.pivot; f[at + 46] = $v.x; f[at + 47] = $v.y; f[at + 48] = $v.z; }
+  { const $v = o.up; f[at + 49] = $v.x; f[at + 50] = $v.y; f[at + 51] = $v.z; }
+  { const $x = o.drumParentTurn; if ($x === null || $x === undefined) { f[at + 52] = $x === null ? 1 : 2; f[at + 53] = 0; f[at + 54] = 0; f[at + 55] = 0; f[at + 56] = 0; } else { f[at + 52] = 0; { const $v = $x; f[at + 53] = $v.x; f[at + 54] = $v.y; f[at + 55] = $v.z; f[at + 56] = $v.w; } } }
+  { const $x = o.gunBind; if ($x === null || $x === undefined) { f[at + 57] = $x === null ? 1 : 2; f[at + 58] = 0; f[at + 59] = 0; f[at + 60] = 0; f[at + 61] = 0; } else { f[at + 57] = 0; { const $v = $x; f[at + 58] = $v.x; f[at + 59] = $v.y; f[at + 60] = $v.z; f[at + 61] = $v.w; } } }
+  { const e = o.root.elements; for (let i = 0; i < 16; i++) f[at + 62 + i] = e[i]; }
+  heap.items(o.parents, f, at + 78, 1, (f, at, v) => { f[at + 0] = v; });
+  { const $x = o.drum; if ($x === null || $x === undefined) { f[at + 80] = $x === null ? 1 : 2; f[at + 81] = 0; } else { f[at + 80] = 0; f[at + 81] = $x; } }
+  { const $x = o.gun; if ($x === null || $x === undefined) { f[at + 82] = $x === null ? 1 : 2; f[at + 83] = 0; } else { f[at + 82] = 0; f[at + 83] = $x; } }
+  { const $x = o.seat; if ($x === null || $x === undefined) { f[at + 84] = $x === null ? 1 : 2; f[at + 85] = 0; } else { f[at + 84] = 0; f[at + 85] = $x; } }
+  heap.items(o.firePoints, f, at + 86, 1, (f, at, v) => { f[at + 0] = v; });
+}
+
+export function samePtSettings(a, b) {
+  if (!Object.is(a.facing, b.facing)) return ".facing";
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameArray(a.matrix?.elements, b.matrix?.elements, 16)) return ".matrix";
+  if (!sameArray(a.pitchLimits, b.pitchLimits, 2)) return ".pitchLimits";
+  { const p = a.yawLimits, q = b.yawLimits; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".yawLimits"; } else { if (!sameArray(p, q, 2)) return ".yawLimits"; } }
+  if (!Object.is(a.wrapYaw, b.wrapYaw)) return ".wrapYaw";
+  if (!sameArray(a.gunPitchLimits, b.gunPitchLimits, 2)) return ".gunPitchLimits";
+  if (!sameArray(a.gunYawLimits, b.gunYawLimits, 2)) return ".gunYawLimits";
+  if (!Object.is(a.turnRate, b.turnRate)) return ".turnRate";
+  if (!Object.is(a.filter, b.filter)) return ".filter";
+  if (!Object.is(a.gunPitchRate, b.gunPitchRate)) return ".gunPitchRate";
+  if (!Object.is(a.gunYawRate, b.gunYawRate)) return ".gunYawRate";
+  if (!Object.is(a.yawFactor, b.yawFactor)) return ".yawFactor";
+  if (!Object.is(a.pitchFactor, b.pitchFactor)) return ".pitchFactor";
+  if (!sameVec(a.cameraEye, b.cameraEye)) return ".cameraEye";
+  if (!sameVec(a.cameraCenter, b.cameraCenter)) return ".cameraCenter";
+  if (!sameVec(a.cameraOffset, b.cameraOffset)) return ".cameraOffset";
+  if (!Object.is(a.cameraTilt, b.cameraTilt)) return ".cameraTilt";
+  if (!sameVec(a.pivot, b.pivot)) return ".pivot";
+  if (!sameVec(a.up, b.up)) return ".up";
+  { const p = a.drumParentTurn, q = b.drumParentTurn; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".drumParentTurn"; } else { if (!sameQuat(p, q)) return ".drumParentTurn"; } }
+  { const p = a.gunBind, q = b.gunBind; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".gunBind"; } else { if (!sameQuat(p, q)) return ".gunBind"; } }
+  if (!sameArray(a.root?.elements, b.root?.elements, 16)) return ".root";
+  if (!sameEach(a.parents, b.parents, (x, y) => Object.is(x, y))) return ".parents";
+  { const p = a.drum, q = b.drum; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".drum"; } else { if (!Object.is(p, q)) return ".drum"; } }
+  { const p = a.gun, q = b.gun; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".gun"; } else { if (!Object.is(p, q)) return ".gun"; } }
+  { const p = a.seat, q = b.seat; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".seat"; } else { if (!Object.is(p, q)) return ".seat"; } }
+  if (!sameEach(a.firePoints, b.firePoints, (x, y) => Object.is(x, y))) return ".firePoints";
+  return null;
+}
+
+export function exportPtSettings(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.facing = o.facing;
+  v.position = o.position.clone();
+  v.matrix = o.matrix.clone();
+  v.pitchLimits = [...o.pitchLimits];
+  v.yawLimits = ((x) => (x === null || x === undefined ? x : [...x]))(o.yawLimits);
+  v.wrapYaw = o.wrapYaw;
+  v.gunPitchLimits = [...o.gunPitchLimits];
+  v.gunYawLimits = [...o.gunYawLimits];
+  v.turnRate = o.turnRate;
+  v.filter = o.filter;
+  v.gunPitchRate = o.gunPitchRate;
+  v.gunYawRate = o.gunYawRate;
+  v.yawFactor = o.yawFactor;
+  v.pitchFactor = o.pitchFactor;
+  v.cameraEye = o.cameraEye.clone();
+  v.cameraCenter = o.cameraCenter.clone();
+  v.cameraOffset = o.cameraOffset.clone();
+  v.cameraTilt = o.cameraTilt;
+  v.pivot = o.pivot.clone();
+  v.up = o.up.clone();
+  v.drumParentTurn = ((x) => (x === null || x === undefined ? x : x.clone()))(o.drumParentTurn);
+  v.gunBind = ((x) => (x === null || x === undefined ? x : x.clone()))(o.gunBind);
+  v.root = o.root.clone();
+  v.parents = o.parents.map((x) => x);
+  v.drum = o.drum;
+  v.gun = o.gun;
+  v.seat = o.seat;
+  v.firePoints = o.firePoints.map((x) => x);
+  return v;
+}
+
+export class PtConfigurationMirror {
+  constructor() {
+    this.turrets = [];
+  }
+}
+
+export function syncPtConfiguration(b, f, at, h, m) {
+  { const items = (m.turrets ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 88; v = syncPtSettings(b, f, at + 0, h, v ?? new PtSettingsMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putPtConfiguration(b, o, f, at, heap) {
+  heap.items(o.turrets, f, at + 0, 88, (f, at, v) => { putPtSettings(b, v, f, at + 0, heap); });
+}
+
+export function samePtConfiguration(a, b) {
+  if (!sameEach(a.turrets, b.turrets, (x, y) => samePtSettings(x, y) === null)) return ".turrets";
+  return null;
+}
+
+export function exportPtConfiguration(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.turrets = o.turrets.map((x) => exportPtSettings(x, cx));
+  return v;
+}
+
+export class PtStateMirror {
+  constructor() {
+    this.index = NaN;
+    this.yaw = NaN;
+    this.pitch = NaN;
+    this.yawVel = NaN;
+    this.pitchVel = NaN;
+    this.gunYaw = NaN;
+    this.gunPitch = NaN;
+    this.barrel = NaN;
+    this.rootWorld = new THREE.Matrix4();
+    this.bones = [];
+  }
+}
+
+export function syncPtState(b, f, at, h, m) {
+  m.index = f[at + 0];
+  m.yaw = f[at + 1];
+  m.pitch = f[at + 2];
+  m.yawVel = f[at + 3];
+  m.pitchVel = f[at + 4];
+  m.gunYaw = f[at + 5];
+  m.gunPitch = f[at + 6];
+  m.barrel = f[at + 7];
+  { const e = (m.rootWorld ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 8 + i]; }
+  { const items = (m.bones ??= []), start = h + f[at + 24], n = f[at + 25]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 26; v = syncPaBone(b, f, at + 0, h, v ?? new PaBoneMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putPtState(b, o, f, at, heap) {
+  f[at + 0] = o.index;
+  f[at + 1] = o.yaw;
+  f[at + 2] = o.pitch;
+  f[at + 3] = o.yawVel;
+  f[at + 4] = o.pitchVel;
+  f[at + 5] = o.gunYaw;
+  f[at + 6] = o.gunPitch;
+  f[at + 7] = o.barrel;
+  { const e = o.rootWorld.elements; for (let i = 0; i < 16; i++) f[at + 8 + i] = e[i]; }
+  heap.items(o.bones, f, at + 24, 26, (f, at, v) => { putPaBone(b, v, f, at + 0, heap); });
+}
+
+export function samePtState(a, b) {
+  if (!Object.is(a.index, b.index)) return ".index";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  if (!Object.is(a.pitch, b.pitch)) return ".pitch";
+  if (!Object.is(a.yawVel, b.yawVel)) return ".yawVel";
+  if (!Object.is(a.pitchVel, b.pitchVel)) return ".pitchVel";
+  if (!Object.is(a.gunYaw, b.gunYaw)) return ".gunYaw";
+  if (!Object.is(a.gunPitch, b.gunPitch)) return ".gunPitch";
+  if (!Object.is(a.barrel, b.barrel)) return ".barrel";
+  if (!sameArray(a.rootWorld?.elements, b.rootWorld?.elements, 16)) return ".rootWorld";
+  if (!sameEach(a.bones, b.bones, (x, y) => samePaBone(x, y) === null)) return ".bones";
+  return null;
+}
+
+export function exportPtState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.index = o.index;
+  v.yaw = o.yaw;
+  v.pitch = o.pitch;
+  v.yawVel = o.yawVel;
+  v.pitchVel = o.pitchVel;
+  v.gunYaw = o.gunYaw;
+  v.gunPitch = o.gunPitch;
+  v.barrel = o.barrel;
+  v.rootWorld = o.rootWorld.clone();
+  v.bones = o.bones.map((x) => exportPaBone(x, cx));
+  return v;
+}
+
+export class PtInputMirror {
+  constructor() {
+    this.op = "steer";
+    this.state = new PtStateMirror();
+    this.dt = NaN;
+    this.turn = NaN;
+    this.pitch = NaN;
+    this.zoom = NaN;
+    this.yaw = NaN;
+    this.target = null;
+    this.from = new THREE.Vector3();
+    this.along = new THREE.Vector3();
+    this.advance = false;
+    this.direction = false;
+    this.alias = false;
+    this.firstPerson = false;
+  }
+}
+
+export function syncPtInput(b, f, at, h, m) {
+  m.op = PtOperation_NAMES[f[at + 0]];
+  m.state = syncPtState(b, f, at + 1, h, m.state ?? new PtStateMirror());
+  m.dt = f[at + 27];
+  m.turn = f[at + 28];
+  m.pitch = f[at + 29];
+  m.zoom = f[at + 30];
+  m.yaw = f[at + 31];
+  { const tag = f[at + 32]; if (tag === 0) { (m.target ??= new THREE.Vector3()).set(f[at + 33], f[at + 34], f[at + 35]); } else m.target = tag === 1 ? null : undefined; }
+  (m.from ??= new THREE.Vector3()).set(f[at + 36], f[at + 37], f[at + 38]);
+  (m.along ??= new THREE.Vector3()).set(f[at + 39], f[at + 40], f[at + 41]);
+  m.advance = f[at + 42] !== 0;
+  m.direction = f[at + 43] !== 0;
+  m.alias = f[at + 44] !== 0;
+  m.firstPerson = f[at + 45] !== 0;
+  return m;
+}
+
+export function putPtInput(b, o, f, at, heap) {
+  f[at + 0] = PtOperation_INDEX.get(o.op);
+  putPtState(b, o.state, f, at + 1, heap);
+  f[at + 27] = o.dt;
+  f[at + 28] = o.turn;
+  f[at + 29] = o.pitch;
+  f[at + 30] = o.zoom;
+  f[at + 31] = o.yaw;
+  { const $x = o.target; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f[at + 33] = 0; f[at + 34] = 0; f[at + 35] = 0; } else { f[at + 32] = 0; { const $v = $x; f[at + 33] = $v.x; f[at + 34] = $v.y; f[at + 35] = $v.z; } } }
+  { const $v = o.from; f[at + 36] = $v.x; f[at + 37] = $v.y; f[at + 38] = $v.z; }
+  { const $v = o.along; f[at + 39] = $v.x; f[at + 40] = $v.y; f[at + 41] = $v.z; }
+  f[at + 42] = o.advance ? 1 : 0;
+  f[at + 43] = o.direction ? 1 : 0;
+  f[at + 44] = o.alias ? 1 : 0;
+  f[at + 45] = o.firstPerson ? 1 : 0;
+}
+
+export function samePtInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = samePtState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.turn, b.turn)) return ".turn";
+  if (!Object.is(a.pitch, b.pitch)) return ".pitch";
+  if (!Object.is(a.zoom, b.zoom)) return ".zoom";
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  { const p = a.target, q = b.target; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".target"; } else { if (!sameVec(p, q)) return ".target"; } }
+  if (!sameVec(a.from, b.from)) return ".from";
+  if (!sameVec(a.along, b.along)) return ".along";
+  if (!Object.is(a.advance, b.advance)) return ".advance";
+  if (!Object.is(a.direction, b.direction)) return ".direction";
+  if (!Object.is(a.alias, b.alias)) return ".alias";
+  if (!Object.is(a.firstPerson, b.firstPerson)) return ".firstPerson";
+  return null;
+}
+
+export function exportPtInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportPtState(o.state, cx);
+  v.dt = o.dt;
+  v.turn = o.turn;
+  v.pitch = o.pitch;
+  v.zoom = o.zoom;
+  v.yaw = o.yaw;
+  v.target = ((x) => (x === null || x === undefined ? x : x.clone()))(o.target);
+  v.from = o.from.clone();
+  v.along = o.along.clone();
+  v.advance = o.advance;
+  v.direction = o.direction;
+  v.alias = o.alias;
+  v.firstPerson = o.firstPerson;
+  return v;
+}
+
+export class PtResultMirror {
+  constructor() {
+    this.state = new PtStateMirror();
+    this.point = new THREE.Vector3();
+    this.direction = new THREE.Vector3();
+    this.pair = [NaN, NaN];
+    this.number = NaN;
+    this.turn = new THREE.Quaternion();
+  }
+}
+
+export function syncPtResult(b, f, at, h, m) {
+  m.state = syncPtState(b, f, at + 0, h, m.state ?? new PtStateMirror());
+  (m.point ??= new THREE.Vector3()).set(f[at + 26], f[at + 27], f[at + 28]);
+  (m.direction ??= new THREE.Vector3()).set(f[at + 29], f[at + 30], f[at + 31]);
+  { const a = (m.pair ??= new Array(2)); a[0] = f[at + 32]; a[1] = f[at + 33]; }
+  m.number = f[at + 34];
+  (m.turn ??= new THREE.Quaternion()).set(f[at + 35], f[at + 36], f[at + 37], f[at + 38]);
+  return m;
+}
+
+export function putPtResult(b, o, f, at, heap) {
+  putPtState(b, o.state, f, at + 0, heap);
+  { const $v = o.point; f[at + 26] = $v.x; f[at + 27] = $v.y; f[at + 28] = $v.z; }
+  { const $v = o.direction; f[at + 29] = $v.x; f[at + 30] = $v.y; f[at + 31] = $v.z; }
+  { const $v = o.pair; f[at + 32] = $v[0]; f[at + 33] = $v[1]; }
+  f[at + 34] = o.number;
+  { const $v = o.turn; f[at + 35] = $v.x; f[at + 36] = $v.y; f[at + 37] = $v.z; f[at + 38] = $v.w; }
+}
+
+export function samePtResult(a, b) {
+  { const d = samePtState(a.state, b.state); if (d) return ".state" + d; }
+  if (!sameVec(a.point, b.point)) return ".point";
+  if (!sameVec(a.direction, b.direction)) return ".direction";
+  if (!sameArray(a.pair, b.pair, 2)) return ".pair";
+  if (!Object.is(a.number, b.number)) return ".number";
+  if (!sameQuat(a.turn, b.turn)) return ".turn";
+  return null;
+}
+
+export function exportPtResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportPtState(o.state, cx);
+  v.point = o.point.clone();
+  v.direction = o.direction.clone();
+  v.pair = [...o.pair];
+  v.number = o.number;
+  v.turn = o.turn.clone();
   return v;
 }
