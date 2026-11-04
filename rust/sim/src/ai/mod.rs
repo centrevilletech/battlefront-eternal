@@ -6,6 +6,7 @@
 pub mod combat;
 pub mod control;
 pub mod module;
+mod navigation_module;
 pub mod nav;
 pub mod random;
 pub mod vehicles;
