@@ -21,6 +21,9 @@ export const WorldLocalOperation_INDEX = new Map(WorldLocalOperation_NAMES.map((
 export const WorldLocalCall_NAMES = ["jump","crouch","prone","use","tick","impacts","deathRegion","kill","battle","ready","spawn","clearHuman","remove","present"];
 export const WorldLocalCall_INDEX = new Map(WorldLocalCall_NAMES.map((name, i) => [name, i]));
 
+export const WorldStepCall_NAMES = ["start","water","clockAxes","takeSquad","squad","takeUse","toggleTurret","player","playerCount","eye","deathCamera","remoteCamera","driverCamera","gunnerCamera","zoom","camera","cameraMatrix","restorePose","ai","nativeUnits","hostUnits","vehicles","driver","turretSeats","gunner","remotes","networkRemotes","muzzles","combat","flushMuzzles","pitchRange","setPitch","separate","served","live","ordnance","mineTargets","items","droidekaWater","soldierWater","battlefield","battle","target","grenades","nextGrenade","grenade","spawnFlush"];
+export const WorldStepCall_INDEX = new Map(WorldStepCall_NAMES.map((name, i) => [name, i]));
+
 export class WsMemberMirror {
   constructor() {
     this.id = NaN;
@@ -875,5 +878,261 @@ export function exportWorldLocalReply(o, cx) {
   cx.seen.set(o, v);
   v.state = exportWorldLocalState(o.state, cx);
   v.value = o.value;
+  return v;
+}
+
+export class WorldStepStateMirror {
+  constructor() {
+    this.water = false;
+    this.remote = false;
+    this.walker = false;
+    this.dead = false;
+    this.server = false;
+    this.deathCamera = false;
+    this.driver = false;
+    this.gunner = false;
+    this.vehicles = false;
+    this.ai = false;
+    this.units = false;
+    this.turretSeats = false;
+    this.networkRemotes = false;
+    this.removed = false;
+    this.grenadeUpdate = false;
+    this.playerCommand = false;
+    this.eyeView = false;
+    this.live = false;
+    this.playerWalker = false;
+    this.playerTicks = NaN;
+    this.forward = NaN;
+    this.right = NaN;
+    this.aimPitch = NaN;
+  }
+}
+
+export function syncWorldStepState(b, f, at, h, m) {
+  m.water = f[at + 0] !== 0;
+  m.remote = f[at + 1] !== 0;
+  m.walker = f[at + 2] !== 0;
+  m.dead = f[at + 3] !== 0;
+  m.server = f[at + 4] !== 0;
+  m.deathCamera = f[at + 5] !== 0;
+  m.driver = f[at + 6] !== 0;
+  m.gunner = f[at + 7] !== 0;
+  m.vehicles = f[at + 8] !== 0;
+  m.ai = f[at + 9] !== 0;
+  m.units = f[at + 10] !== 0;
+  m.turretSeats = f[at + 11] !== 0;
+  m.networkRemotes = f[at + 12] !== 0;
+  m.removed = f[at + 13] !== 0;
+  m.grenadeUpdate = f[at + 14] !== 0;
+  m.playerCommand = f[at + 15] !== 0;
+  m.eyeView = f[at + 16] !== 0;
+  m.live = f[at + 17] !== 0;
+  m.playerWalker = f[at + 18] !== 0;
+  m.playerTicks = f[at + 19];
+  m.forward = f[at + 20];
+  m.right = f[at + 21];
+  m.aimPitch = f[at + 22];
+  return m;
+}
+
+export function putWorldStepState(b, o, f, at, heap) {
+  f[at + 0] = o.water ? 1 : 0;
+  f[at + 1] = o.remote ? 1 : 0;
+  f[at + 2] = o.walker ? 1 : 0;
+  f[at + 3] = o.dead ? 1 : 0;
+  f[at + 4] = o.server ? 1 : 0;
+  f[at + 5] = o.deathCamera ? 1 : 0;
+  f[at + 6] = o.driver ? 1 : 0;
+  f[at + 7] = o.gunner ? 1 : 0;
+  f[at + 8] = o.vehicles ? 1 : 0;
+  f[at + 9] = o.ai ? 1 : 0;
+  f[at + 10] = o.units ? 1 : 0;
+  f[at + 11] = o.turretSeats ? 1 : 0;
+  f[at + 12] = o.networkRemotes ? 1 : 0;
+  f[at + 13] = o.removed ? 1 : 0;
+  f[at + 14] = o.grenadeUpdate ? 1 : 0;
+  f[at + 15] = o.playerCommand ? 1 : 0;
+  f[at + 16] = o.eyeView ? 1 : 0;
+  f[at + 17] = o.live ? 1 : 0;
+  f[at + 18] = o.playerWalker ? 1 : 0;
+  f[at + 19] = o.playerTicks;
+  f[at + 20] = o.forward;
+  f[at + 21] = o.right;
+  f[at + 22] = o.aimPitch;
+}
+
+export function sameWorldStepState(a, b) {
+  if (!Object.is(a.water, b.water)) return ".water";
+  if (!Object.is(a.remote, b.remote)) return ".remote";
+  if (!Object.is(a.walker, b.walker)) return ".walker";
+  if (!Object.is(a.dead, b.dead)) return ".dead";
+  if (!Object.is(a.server, b.server)) return ".server";
+  if (!Object.is(a.deathCamera, b.deathCamera)) return ".deathCamera";
+  if (!Object.is(a.driver, b.driver)) return ".driver";
+  if (!Object.is(a.gunner, b.gunner)) return ".gunner";
+  if (!Object.is(a.vehicles, b.vehicles)) return ".vehicles";
+  if (!Object.is(a.ai, b.ai)) return ".ai";
+  if (!Object.is(a.units, b.units)) return ".units";
+  if (!Object.is(a.turretSeats, b.turretSeats)) return ".turretSeats";
+  if (!Object.is(a.networkRemotes, b.networkRemotes)) return ".networkRemotes";
+  if (!Object.is(a.removed, b.removed)) return ".removed";
+  if (!Object.is(a.grenadeUpdate, b.grenadeUpdate)) return ".grenadeUpdate";
+  if (!Object.is(a.playerCommand, b.playerCommand)) return ".playerCommand";
+  if (!Object.is(a.eyeView, b.eyeView)) return ".eyeView";
+  if (!Object.is(a.live, b.live)) return ".live";
+  if (!Object.is(a.playerWalker, b.playerWalker)) return ".playerWalker";
+  if (!Object.is(a.playerTicks, b.playerTicks)) return ".playerTicks";
+  if (!Object.is(a.forward, b.forward)) return ".forward";
+  if (!Object.is(a.right, b.right)) return ".right";
+  if (!Object.is(a.aimPitch, b.aimPitch)) return ".aimPitch";
+  return null;
+}
+
+export function exportWorldStepState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.water = o.water;
+  v.remote = o.remote;
+  v.walker = o.walker;
+  v.dead = o.dead;
+  v.server = o.server;
+  v.deathCamera = o.deathCamera;
+  v.driver = o.driver;
+  v.gunner = o.gunner;
+  v.vehicles = o.vehicles;
+  v.ai = o.ai;
+  v.units = o.units;
+  v.turretSeats = o.turretSeats;
+  v.networkRemotes = o.networkRemotes;
+  v.removed = o.removed;
+  v.grenadeUpdate = o.grenadeUpdate;
+  v.playerCommand = o.playerCommand;
+  v.eyeView = o.eyeView;
+  v.live = o.live;
+  v.playerWalker = o.playerWalker;
+  v.playerTicks = o.playerTicks;
+  v.forward = o.forward;
+  v.right = o.right;
+  v.aimPitch = o.aimPitch;
+  return v;
+}
+
+export class WorldStepInputMirror {
+  constructor() {
+    this.state = new WorldStepStateMirror();
+    this.tick = NaN;
+  }
+}
+
+export function syncWorldStepInput(b, f, at, h, m) {
+  m.state = syncWorldStepState(b, f, at + 0, h, m.state ?? new WorldStepStateMirror());
+  m.tick = f[at + 23];
+  return m;
+}
+
+export function putWorldStepInput(b, o, f, at, heap) {
+  putWorldStepState(b, o.state, f, at + 0, heap);
+  f[at + 23] = o.tick;
+}
+
+export function sameWorldStepInput(a, b) {
+  { const d = sameWorldStepState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.tick, b.tick)) return ".tick";
+  return null;
+}
+
+export function exportWorldStepInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportWorldStepState(o.state, cx);
+  v.tick = o.tick;
+  return v;
+}
+
+export class WorldStepArgsMirror {
+  constructor() {
+    this.op = "start";
+    this.value = NaN;
+    this.flag = false;
+  }
+}
+
+export function syncWorldStepArgs(b, f, at, h, m) {
+  m.op = WorldStepCall_NAMES[f[at + 0]];
+  m.value = f[at + 1];
+  m.flag = f[at + 2] !== 0;
+  return m;
+}
+
+export function putWorldStepArgs(b, o, f, at, heap) {
+  f[at + 0] = WorldStepCall_INDEX.get(o.op);
+  f[at + 1] = o.value;
+  f[at + 2] = o.flag ? 1 : 0;
+}
+
+export function sameWorldStepArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.value, b.value)) return ".value";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  return null;
+}
+
+export function exportWorldStepArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.value = o.value;
+  v.flag = o.flag;
+  return v;
+}
+
+export class WorldStepReplyMirror {
+  constructor() {
+    this.state = new WorldStepStateMirror();
+    this.value = NaN;
+    this.other = NaN;
+    this.flag = false;
+  }
+}
+
+export function syncWorldStepReply(b, f, at, h, m) {
+  m.state = syncWorldStepState(b, f, at + 0, h, m.state ?? new WorldStepStateMirror());
+  m.value = f[at + 23];
+  m.other = f[at + 24];
+  m.flag = f[at + 25] !== 0;
+  return m;
+}
+
+export function putWorldStepReply(b, o, f, at, heap) {
+  putWorldStepState(b, o.state, f, at + 0, heap);
+  f[at + 23] = o.value;
+  f[at + 24] = o.other;
+  f[at + 25] = o.flag ? 1 : 0;
+}
+
+export function sameWorldStepReply(a, b) {
+  { const d = sameWorldStepState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.value, b.value)) return ".value";
+  if (!Object.is(a.other, b.other)) return ".other";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  return null;
+}
+
+export function exportWorldStepReply(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportWorldStepState(o.state, cx);
+  v.value = o.value;
+  v.other = o.other;
+  v.flag = o.flag;
   return v;
 }

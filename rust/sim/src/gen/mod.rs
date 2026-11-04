@@ -8,12 +8,16 @@ pub use crate::store::block::Block;
 pub use crate::store::{word_i32, word_u32, DefId, KindCode, Mat4, Nullable, Quat, Ref, RefSet, Slab, StrId, StrMap, Vec3};
 pub use crate::store::{IntObj, NumMap, RefMap, TypedArray};
 
+mod ai_fire;
+pub use self::ai_fire::*;
 mod ai_scheduler;
 pub use self::ai_scheduler::*;
 mod ai_sight;
 pub use self::ai_sight::*;
 mod ai_tracker;
 pub use self::ai_tracker::*;
+mod ai_weapon;
+pub use self::ai_weapon::*;
 mod ai;
 pub use self::ai::*;
 mod battle;
@@ -859,133 +863,136 @@ pub const COMMAND_NAMES: [&str; 5] = ["", "echo", "fill", "relay", "seatLatch"];
 pub const EVENT_ECHOED: u32 = 1;
 pub const EVENT_NAMES: [&str; 2] = ["", "echoed"];
 
-pub const IMPORT_AI_SCHEDULE: u32 = 1;
-pub const IMPORT_AI_SIGHT: u32 = 2;
-pub const IMPORT_AI_TRACKER: u32 = 3;
-pub const IMPORT_ASK: u32 = 4;
-pub const IMPORT_BATTLE_OVER: u32 = 5;
-pub const IMPORT_BATTLE_PHASE_ACTION: u32 = 6;
-pub const IMPORT_BATTLE_PHASE_QUERY: u32 = 7;
-pub const IMPORT_BATTLE_QUERY: u32 = 8;
-pub const IMPORT_BATTLEFIELD_ACTION: u32 = 9;
-pub const IMPORT_BATTLEFIELD_QUERY: u32 = 10;
-pub const IMPORT_BEAM_LOCAL_ORIGIN: u32 = 11;
-pub const IMPORT_BEAM_POSE: u32 = 12;
-pub const IMPORT_BLOCKED: u32 = 13;
-pub const IMPORT_BOUNCE: u32 = 14;
-pub const IMPORT_CAST: u32 = 15;
-pub const IMPORT_CAST_MOVING: u32 = 16;
-pub const IMPORT_COMBAT_ADMIT: u32 = 17;
-pub const IMPORT_COMBAT_ARC_TARGETS: u32 = 18;
-pub const IMPORT_COMBAT_BLOWN_APART: u32 = 19;
-pub const IMPORT_COMBAT_CAST: u32 = 20;
-pub const IMPORT_COMBAT_DAMAGED: u32 = 21;
-pub const IMPORT_COMBAT_DIED: u32 = 22;
-pub const IMPORT_COMBAT_DISPENSE: u32 = 23;
-pub const IMPORT_COMBAT_DRAW: u32 = 24;
-pub const IMPORT_COMBAT_FIRE_ROUND: u32 = 25;
-pub const IMPORT_COMBAT_FIRED: u32 = 26;
-pub const IMPORT_COMBAT_GUN_AT: u32 = 27;
-pub const IMPORT_COMBAT_HURT_ARC: u32 = 28;
-pub const IMPORT_COMBAT_LIGHTNING: u32 = 29;
-pub const IMPORT_COMBAT_LOCK_KEY: u32 = 30;
-pub const IMPORT_COMBAT_LOCK_ON: u32 = 31;
-pub const IMPORT_COMBAT_LOCK_PICK: u32 = 32;
-pub const IMPORT_COMBAT_MELEE_STRIKE: u32 = 33;
-pub const IMPORT_COMBAT_NEXT_GUN: u32 = 34;
-pub const IMPORT_COMBAT_PRESENT: u32 = 35;
-pub const IMPORT_COMBAT_REMOTE_ENTER: u32 = 36;
-pub const IMPORT_COMBAT_REMOTE_KILL: u32 = 37;
-pub const IMPORT_COMBAT_REMOTE_LAUNCH: u32 = 38;
-pub const IMPORT_COMBAT_REMOTE_OF: u32 = 39;
-pub const IMPORT_COMBAT_REPAIR: u32 = 40;
-pub const IMPORT_COMBAT_RESPAWN: u32 = 41;
-pub const IMPORT_COMBAT_SHIELD_HIT: u32 = 42;
-pub const IMPORT_DB_ACTION: u32 = 43;
-pub const IMPORT_DROP_ROLL: u32 = 44;
-pub const IMPORT_EXPLODE: u32 = 45;
-pub const IMPORT_EXPLOSION: u32 = 46;
-pub const IMPORT_FAT_QUERY: u32 = 47;
-pub const IMPORT_GIVE: u32 = 48;
-pub const IMPORT_GONE: u32 = 49;
-pub const IMPORT_GRENADE_CONTACT: u32 = 50;
-pub const IMPORT_HISTORY_TICK: u32 = 51;
-pub const IMPORT_HIT: u32 = 52;
-pub const IMPORT_HIT_UNIT: u32 = 53;
-pub const IMPORT_HS_ACTION: u32 = 54;
-pub const IMPORT_HS_QUERY: u32 = 55;
-pub const IMPORT_IMPACT: u32 = 56;
-pub const IMPORT_IS_DROID: u32 = 57;
-pub const IMPORT_ITEM_CAST: u32 = 58;
-pub const IMPORT_ITEM_MODEL: u32 = 59;
-pub const IMPORT_ITEM_RELATIONS: u32 = 60;
-pub const IMPORT_ITEM_TARGETS: u32 = 61;
-pub const IMPORT_ITEM_WATER_CROSSING: u32 = 62;
-pub const IMPORT_LAUNCH: u32 = 63;
-pub const IMPORT_MISSILE_TARGET: u32 = 64;
-pub const IMPORT_NAVIGATE_MISSILE: u32 = 65;
-pub const IMPORT_OWNER_KEY: u32 = 66;
-pub const IMPORT_PA_ACTION: u32 = 67;
-pub const IMPORT_PB_ACTION: u32 = 68;
-pub const IMPORT_PC_ACTION: u32 = 69;
-pub const IMPORT_PICKUP: u32 = 70;
-pub const IMPORT_POSTS_QUERY: u32 = 71;
-pub const IMPORT_PQ_ACTION: u32 = 72;
-pub const IMPORT_PREDICTION_HULL_QUERY: u32 = 73;
-pub const IMPORT_PROJECTILE: u32 = 74;
-pub const IMPORT_RAYCAST_UNITS: u32 = 75;
-pub const IMPORT_RIDER_MOUNT: u32 = 76;
-pub const IMPORT_ROSTER_ACTION: u32 = 77;
-pub const IMPORT_ROSTER_QUERY: u32 = 78;
-pub const IMPORT_SEAT_CAST: u32 = 79;
-pub const IMPORT_SEAT_CONTROLLABLE: u32 = 80;
-pub const IMPORT_SEAT_CONTROLLER_STATE: u32 = 81;
-pub const IMPORT_SEAT_OVERLAPS: u32 = 82;
-pub const IMPORT_SEAT_POLICY: u32 = 83;
-pub const IMPORT_SHOOTER: u32 = 84;
-pub const IMPORT_SHOT_TICK: u32 = 85;
-pub const IMPORT_SPAWNING_ACTION: u32 = 86;
-pub const IMPORT_SPAWNING_QUERY: u32 = 87;
-pub const IMPORT_SPIN: u32 = 88;
-pub const IMPORT_TRAPS_ACTION: u32 = 89;
-pub const IMPORT_TRAPS_QUERY: u32 = 90;
-pub const IMPORT_UNIT_AIM: u32 = 91;
-pub const IMPORT_UNIT_BODY_EVENT: u32 = 92;
-pub const IMPORT_UNIT_COMBAT: u32 = 93;
-pub const IMPORT_UNIT_DAMAGE: u32 = 94;
-pub const IMPORT_UNIT_REMOTE_STEP: u32 = 95;
-pub const IMPORT_UNIT_REMOVED: u32 = 96;
-pub const IMPORT_UNIT_SAMPLE_MUZZLES: u32 = 97;
-pub const IMPORT_UNIT_SPHERE: u32 = 98;
-pub const IMPORT_UNIT_SPLASH: u32 = 99;
-pub const IMPORT_VEH_AIM_POINT: u32 = 100;
-pub const IMPORT_VEH_AIM_POINTS: u32 = 101;
-pub const IMPORT_VEH_BODY_ENABLED: u32 = 102;
-pub const IMPORT_VEH_CAST: u32 = 103;
-pub const IMPORT_VEH_CLOCK: u32 = 104;
-pub const IMPORT_VEH_DAMAGED: u32 = 105;
-pub const IMPORT_VEH_DESTROYED: u32 = 106;
-pub const IMPORT_VEH_DESTROYED_CREW: u32 = 107;
-pub const IMPORT_VEH_EFFECT: u32 = 108;
-pub const IMPORT_VEH_ENABLE_BODY: u32 = 109;
-pub const IMPORT_VEH_EXPLOSION: u32 = 110;
-pub const IMPORT_VEH_GROUND: u32 = 111;
-pub const IMPORT_VEH_HAS_WATER: u32 = 112;
-pub const IMPORT_VEH_IN_DEATH_REGION: u32 = 113;
-pub const IMPORT_VEH_MOVE_BODY: u32 = 114;
-pub const IMPORT_VEH_PUSH_WALLS: u32 = 115;
-pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 116;
-pub const IMPORT_VEH_RELEASE_CREW: u32 = 117;
-pub const IMPORT_VEH_RESPAWN_CLOCK: u32 = 118;
-pub const IMPORT_VEH_SPRING_POLYGONS: u32 = 119;
-pub const IMPORT_VEH_WATER_LEVEL: u32 = 120;
-pub const IMPORT_VEH_WATER_OVER: u32 = 121;
-pub const IMPORT_WATER_CROSSING: u32 = 122;
-pub const IMPORT_WAVER: u32 = 123;
-pub const IMPORT_WORLD_CLOCK: u32 = 124;
-pub const IMPORT_WORLD_EVENTS: u32 = 125;
-pub const IMPORT_WORLD_LOCAL: u32 = 126;
-pub const IMPORT_NAMES: [&str; 127] = ["", "aiSchedule", "aiSight", "aiTracker", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dbAction", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "predictionHullQuery", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver", "worldClock", "worldEvents", "worldLocal"];
+pub const IMPORT_AI_FIRE: u32 = 1;
+pub const IMPORT_AI_SCHEDULE: u32 = 2;
+pub const IMPORT_AI_SIGHT: u32 = 3;
+pub const IMPORT_AI_TRACKER: u32 = 4;
+pub const IMPORT_AI_WEAPON: u32 = 5;
+pub const IMPORT_ASK: u32 = 6;
+pub const IMPORT_BATTLE_OVER: u32 = 7;
+pub const IMPORT_BATTLE_PHASE_ACTION: u32 = 8;
+pub const IMPORT_BATTLE_PHASE_QUERY: u32 = 9;
+pub const IMPORT_BATTLE_QUERY: u32 = 10;
+pub const IMPORT_BATTLEFIELD_ACTION: u32 = 11;
+pub const IMPORT_BATTLEFIELD_QUERY: u32 = 12;
+pub const IMPORT_BEAM_LOCAL_ORIGIN: u32 = 13;
+pub const IMPORT_BEAM_POSE: u32 = 14;
+pub const IMPORT_BLOCKED: u32 = 15;
+pub const IMPORT_BOUNCE: u32 = 16;
+pub const IMPORT_CAST: u32 = 17;
+pub const IMPORT_CAST_MOVING: u32 = 18;
+pub const IMPORT_COMBAT_ADMIT: u32 = 19;
+pub const IMPORT_COMBAT_ARC_TARGETS: u32 = 20;
+pub const IMPORT_COMBAT_BLOWN_APART: u32 = 21;
+pub const IMPORT_COMBAT_CAST: u32 = 22;
+pub const IMPORT_COMBAT_DAMAGED: u32 = 23;
+pub const IMPORT_COMBAT_DIED: u32 = 24;
+pub const IMPORT_COMBAT_DISPENSE: u32 = 25;
+pub const IMPORT_COMBAT_DRAW: u32 = 26;
+pub const IMPORT_COMBAT_FIRE_ROUND: u32 = 27;
+pub const IMPORT_COMBAT_FIRED: u32 = 28;
+pub const IMPORT_COMBAT_GUN_AT: u32 = 29;
+pub const IMPORT_COMBAT_HURT_ARC: u32 = 30;
+pub const IMPORT_COMBAT_LIGHTNING: u32 = 31;
+pub const IMPORT_COMBAT_LOCK_KEY: u32 = 32;
+pub const IMPORT_COMBAT_LOCK_ON: u32 = 33;
+pub const IMPORT_COMBAT_LOCK_PICK: u32 = 34;
+pub const IMPORT_COMBAT_MELEE_STRIKE: u32 = 35;
+pub const IMPORT_COMBAT_NEXT_GUN: u32 = 36;
+pub const IMPORT_COMBAT_PRESENT: u32 = 37;
+pub const IMPORT_COMBAT_REMOTE_ENTER: u32 = 38;
+pub const IMPORT_COMBAT_REMOTE_KILL: u32 = 39;
+pub const IMPORT_COMBAT_REMOTE_LAUNCH: u32 = 40;
+pub const IMPORT_COMBAT_REMOTE_OF: u32 = 41;
+pub const IMPORT_COMBAT_REPAIR: u32 = 42;
+pub const IMPORT_COMBAT_RESPAWN: u32 = 43;
+pub const IMPORT_COMBAT_SHIELD_HIT: u32 = 44;
+pub const IMPORT_DB_ACTION: u32 = 45;
+pub const IMPORT_DROP_ROLL: u32 = 46;
+pub const IMPORT_EXPLODE: u32 = 47;
+pub const IMPORT_EXPLOSION: u32 = 48;
+pub const IMPORT_FAT_QUERY: u32 = 49;
+pub const IMPORT_GIVE: u32 = 50;
+pub const IMPORT_GONE: u32 = 51;
+pub const IMPORT_GRENADE_CONTACT: u32 = 52;
+pub const IMPORT_HISTORY_TICK: u32 = 53;
+pub const IMPORT_HIT: u32 = 54;
+pub const IMPORT_HIT_UNIT: u32 = 55;
+pub const IMPORT_HS_ACTION: u32 = 56;
+pub const IMPORT_HS_QUERY: u32 = 57;
+pub const IMPORT_IMPACT: u32 = 58;
+pub const IMPORT_IS_DROID: u32 = 59;
+pub const IMPORT_ITEM_CAST: u32 = 60;
+pub const IMPORT_ITEM_MODEL: u32 = 61;
+pub const IMPORT_ITEM_RELATIONS: u32 = 62;
+pub const IMPORT_ITEM_TARGETS: u32 = 63;
+pub const IMPORT_ITEM_WATER_CROSSING: u32 = 64;
+pub const IMPORT_LAUNCH: u32 = 65;
+pub const IMPORT_MISSILE_TARGET: u32 = 66;
+pub const IMPORT_NAVIGATE_MISSILE: u32 = 67;
+pub const IMPORT_OWNER_KEY: u32 = 68;
+pub const IMPORT_PA_ACTION: u32 = 69;
+pub const IMPORT_PB_ACTION: u32 = 70;
+pub const IMPORT_PC_ACTION: u32 = 71;
+pub const IMPORT_PICKUP: u32 = 72;
+pub const IMPORT_POSTS_QUERY: u32 = 73;
+pub const IMPORT_PQ_ACTION: u32 = 74;
+pub const IMPORT_PREDICTION_HULL_QUERY: u32 = 75;
+pub const IMPORT_PROJECTILE: u32 = 76;
+pub const IMPORT_RAYCAST_UNITS: u32 = 77;
+pub const IMPORT_RIDER_MOUNT: u32 = 78;
+pub const IMPORT_ROSTER_ACTION: u32 = 79;
+pub const IMPORT_ROSTER_QUERY: u32 = 80;
+pub const IMPORT_SEAT_CAST: u32 = 81;
+pub const IMPORT_SEAT_CONTROLLABLE: u32 = 82;
+pub const IMPORT_SEAT_CONTROLLER_STATE: u32 = 83;
+pub const IMPORT_SEAT_OVERLAPS: u32 = 84;
+pub const IMPORT_SEAT_POLICY: u32 = 85;
+pub const IMPORT_SHOOTER: u32 = 86;
+pub const IMPORT_SHOT_TICK: u32 = 87;
+pub const IMPORT_SPAWNING_ACTION: u32 = 88;
+pub const IMPORT_SPAWNING_QUERY: u32 = 89;
+pub const IMPORT_SPIN: u32 = 90;
+pub const IMPORT_TRAPS_ACTION: u32 = 91;
+pub const IMPORT_TRAPS_QUERY: u32 = 92;
+pub const IMPORT_UNIT_AIM: u32 = 93;
+pub const IMPORT_UNIT_BODY_EVENT: u32 = 94;
+pub const IMPORT_UNIT_COMBAT: u32 = 95;
+pub const IMPORT_UNIT_DAMAGE: u32 = 96;
+pub const IMPORT_UNIT_REMOTE_STEP: u32 = 97;
+pub const IMPORT_UNIT_REMOVED: u32 = 98;
+pub const IMPORT_UNIT_SAMPLE_MUZZLES: u32 = 99;
+pub const IMPORT_UNIT_SPHERE: u32 = 100;
+pub const IMPORT_UNIT_SPLASH: u32 = 101;
+pub const IMPORT_VEH_AIM_POINT: u32 = 102;
+pub const IMPORT_VEH_AIM_POINTS: u32 = 103;
+pub const IMPORT_VEH_BODY_ENABLED: u32 = 104;
+pub const IMPORT_VEH_CAST: u32 = 105;
+pub const IMPORT_VEH_CLOCK: u32 = 106;
+pub const IMPORT_VEH_DAMAGED: u32 = 107;
+pub const IMPORT_VEH_DESTROYED: u32 = 108;
+pub const IMPORT_VEH_DESTROYED_CREW: u32 = 109;
+pub const IMPORT_VEH_EFFECT: u32 = 110;
+pub const IMPORT_VEH_ENABLE_BODY: u32 = 111;
+pub const IMPORT_VEH_EXPLOSION: u32 = 112;
+pub const IMPORT_VEH_GROUND: u32 = 113;
+pub const IMPORT_VEH_HAS_WATER: u32 = 114;
+pub const IMPORT_VEH_IN_DEATH_REGION: u32 = 115;
+pub const IMPORT_VEH_MOVE_BODY: u32 = 116;
+pub const IMPORT_VEH_PUSH_WALLS: u32 = 117;
+pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 118;
+pub const IMPORT_VEH_RELEASE_CREW: u32 = 119;
+pub const IMPORT_VEH_RESPAWN_CLOCK: u32 = 120;
+pub const IMPORT_VEH_SPRING_POLYGONS: u32 = 121;
+pub const IMPORT_VEH_WATER_LEVEL: u32 = 122;
+pub const IMPORT_VEH_WATER_OVER: u32 = 123;
+pub const IMPORT_WATER_CROSSING: u32 = 124;
+pub const IMPORT_WAVER: u32 = 125;
+pub const IMPORT_WORLD_CLOCK: u32 = 126;
+pub const IMPORT_WORLD_EVENTS: u32 = 127;
+pub const IMPORT_WORLD_LOCAL: u32 = 128;
+pub const IMPORT_WORLD_STEP: u32 = 129;
+pub const IMPORT_NAMES: [&str; 130] = ["", "aiFire", "aiSchedule", "aiSight", "aiTracker", "aiWeapon", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dbAction", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "predictionHullQuery", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver", "worldClock", "worldEvents", "worldLocal", "worldStep"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -1058,9 +1065,11 @@ impl Echo {
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "bfe")]
 extern "C" {
+    fn bfe_import_ai_fire();
     fn bfe_import_ai_schedule();
     fn bfe_import_ai_sight();
     fn bfe_import_ai_tracker();
+    fn bfe_import_ai_weapon();
     fn bfe_import_ask();
     fn bfe_import_battle_over();
     fn bfe_import_battle_phase_action();
@@ -1184,6 +1193,17 @@ extern "C" {
     fn bfe_import_world_clock();
     fn bfe_import_world_events();
     fn bfe_import_world_local();
+    fn bfe_import_world_step();
+}
+
+/// Asks JavaScript (the import aiFire): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_ai_fire(args: &AiFireArgs) -> AiFireResult {
+    crate::store::calls::import_out(AiFireArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_ai_fire() };
+    crate::store::calls::import_in(|row, heap| AiFireResult::take(row, heap))
 }
 
 /// Asks JavaScript (the import aiSchedule): its arguments go out in the import block,
@@ -1214,6 +1234,16 @@ pub fn import_ai_tracker(args: &AiTrackerArgs) -> AiTrackerResult {
     crate::store::calls::import_out(AiTrackerArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_ai_tracker() };
     crate::store::calls::import_in(|row, heap| AiTrackerResult::take(row, heap))
+}
+
+/// Asks JavaScript (the import aiWeapon): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_ai_weapon(args: &AiWeaponArgs) -> AiWeaponResult {
+    crate::store::calls::import_out(AiWeaponArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_ai_weapon() };
+    crate::store::calls::import_in(|row, heap| AiWeaponResult::take(row, heap))
 }
 
 /// Asks JavaScript (the import ask): its arguments go out in the import block,
@@ -2405,5 +2435,15 @@ pub fn import_world_local(args: &WorldLocalArgs) -> WorldLocalReply {
     crate::store::calls::import_out(WorldLocalArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_world_local() };
     crate::store::calls::import_in(|row, heap| WorldLocalReply::take(row, heap))
+}
+
+/// Asks JavaScript (the import worldStep): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_world_step(args: &WorldStepArgs) -> WorldStepReply {
+    crate::store::calls::import_out(WorldStepArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_world_step() };
+    crate::store::calls::import_in(|row, heap| WorldStepReply::take(row, heap))
 }
 

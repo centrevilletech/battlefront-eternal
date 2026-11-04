@@ -15,8 +15,7 @@
 // the phase is given what it reads of it (UnitsCombatView).
 //
 // What the Rust asks of the battle comes back as the module's imports
-// (rust/sim/schema/units.mjs): the AI's aimer, a droideka's muzzle rig
-// (posed in JavaScript for now) and death hooks, a network player's
+// (rust/sim/schema/units.mjs): the AI's aimer and death hooks, a network player's
 // recon droid, a JavaScript combat, a unit taken off the field. Inside the
 // phase the battle's JavaScript sees the units as the phase has left them:
 // an import that reads the battle has the units the phase changed synced
@@ -27,11 +26,12 @@
 // A world only: a page draws soldiers from their records.
 import * as THREE from "three";
 import { bridgeFor } from "./sim/runtime.js";
-import { KIND_BODY, KIND_UNIT, UNIT_EXPORT_STRIDE, putUnitsCombatViews, putUnitsPhase, syncCombat, syncUnit } from "./sim/gen/index.js";
+import { KIND_BODY, KIND_UNIT, UNIT_EXPORT_STRIDE, putMoveInput, putUnitsCombatViews, putUnitsPhase, syncCombat, syncUnit } from "./sim/gen/index.js";
 import { giveMapRules } from "./vehicles-sim.js";
 import { droidekaWaterDepth, waterDamageRule } from "./vehicle-water.js";
 import { unitWatch } from "./units.js";
 import { AnimKernel } from "./anim-kernel.js";
+import { UnitMuzzles } from "./unit-muzzles-sim.js";
 
 // A block's header words (rust/sim/src/store/block.rs).
 const HEADER = 5;
@@ -61,6 +61,7 @@ export class UnitsSim {
     this.aimReads = aimReads;
     // Whether the phase runs (a hook of the unit it ticks goes its way).
     this.active = false;
+    this.bodyOnly = false;
     this.bodiesVersion = -1;
     this.named = false;
     this.args = { dt: 0, level: NaN, units: [] };
@@ -71,13 +72,15 @@ export class UnitsSim {
     this.phaseRecord = { words: this.x.units_words(0), put: putUnitsPhase };
     this.viewsRecord = { words: this.x.units_words(1), put: putUnitsCombatViews };
     this.combatWords = this.x.units_words(2);
+    this.bodyInputRecord = { words: this.x.units_words(3), put: putMoveInput };
     this.aim = { aim: null };
     // The units the phase ticks (every built one on the field: one taken
     // off it does nothing in the loop, and is neither written nor synced).
     this.live = [];
     this.anim = new AnimKernel(this.x);
     this.droidekaClasses = new WeakMap();
-    this.droidekaBodies = new WeakSet();
+    this.droidekaBodies = new WeakMap();
+    this.muzzles = new UnitMuzzles(bridge);
     this.one = [];
     this.x.units_setup(combatSim ? 1 : 0, collision.rayWorld);
     giveMapRules(bridge, water, map);
@@ -86,6 +89,40 @@ export class UnitsSim {
   }
 
   // ---- the phase ----
+
+  // An authoritative local body, including one outside factory.built.
+  // The caller retains its impact, death-region and later combat order.
+  bodyTick(unit, input, dt) {
+    return this.bodyCommand(unit, () => {
+      this.bridge.callArgs(this.bodyInputRecord, input);
+      this.x.units_body_tick(unit.id, dt);
+    });
+  }
+
+  sampleMuzzles(unit, dt) {
+    if (!unit.walker || !unit.soldier.muzzleActor) return;
+    return this.bodyCommand(unit, () => this.x.units_sample_muzzles(unit.id, dt));
+  }
+
+  bodyCommand(unit, run) {
+    const previous = { live: this.live, active: this.active, bodyOnly: this.bodyOnly };
+    // Include the local unit in every callback's write-back. Nested combat
+    // and commands for another unit restore their caller's live set.
+    this.live = [...new Set([...this.factory.built.filter(u => !u.removed), ...(this.active ? this.live : []), unit])];
+    this.active = true;
+    this.bodyOnly = true;
+    try {
+      this.writeAll();
+      this.bodiesIn();
+      if (unit.walker) this.droideka(unit);
+      run();
+      this.syncDirty();
+    } finally {
+      this.live = previous.live;
+      this.active = previous.active;
+      this.bodyOnly = previous.bodyOnly;
+    }
+  }
 
   // The step's loop over the units (game.js), on the module.
   phase(dt) {
@@ -128,7 +165,11 @@ export class UnitsSim {
   // collision caches retained for each pooled body across its lives.
   droideka(unit) {
     const body = unit.soldier;
-    if (this.droidekaBodies.has(body)) return;
+    const kept = this.droidekaBodies.get(body);
+    if (kept?.unit === unit.id) {
+      this.muzzles.attach(unit, kept.id);
+      return;
+    }
     let id = this.droidekaClasses.get(body.def);
     if (id === undefined) {
       const words = [];
@@ -147,7 +188,8 @@ export class UnitsSim {
       this.droidekaClasses.set(body.def, id);
     }
     this.x.units_droideka_attach(unit.id, id);
-    this.droidekaBodies.add(body);
+    this.droidekaBodies.set(body, { unit: unit.id, id });
+    this.muzzles.attach(unit, id);
   }
 
   // A droideka class's water rule (game.js droidekaWater: waterDamageRule
@@ -167,13 +209,17 @@ export class UnitsSim {
   writeAll() {
     const live = this.live;
     this.bridge.writeSome(KIND_UNIT, live);
-    if (!this.combatSim) {
+    {
       const list = this.viewList;
-      list.length = live.length;
+      let count = 0;
       for (let i = 0; i < live.length; i++) {
-        const u = live[i], c = u.combat, v = (list[i] ??= { unit: 0, dead: false, pivot: null, origin: null });
+        const u = live[i], c = u.combat;
+        if (this.combatSim && c.sim === this.combatSim) continue;
+        const v = (list[count++] ??= { unit: 0, dead: false, pivot: null, origin: null });
         v.unit = u.id; v.dead = c.dead; v.pivot = c.pivot; v.origin = c.origin;
       }
+      list.length = count;
+      if (!count) return;
       this.views.list = list;
       this.bridge.callArgs(this.viewsRecord, this.views);
       this.x.units_combat_views();
@@ -190,20 +236,24 @@ export class UnitsSim {
     b.views();
     const f = b.f, base = ptr / 8, rows = f[base], stride = f[base + 1], h = base + f[base + 2];
     const refs = b.refs[KIND_UNIT], combat = Boolean(this.combatSim);
+    const posed = [];
     for (let i = 0; i < rows; i++) {
       const at = base + HEADER + i * stride, u = refs.objects[f[at]];
       syncUnit(b, f, at, h, u);
+      if (u.walker) posed.push(u);
       // (Which of his arrays his hit shapes are: a rider's set has more
       // than two.)
       u.hitSet = u.shapeCount > 2 && u.riderHits ? u.riderHits : u.shapes;
       let o = at + UNIT_EXPORT_STRIDE;
       if (combat) {
         const c = u.combat;
-        syncCombat(b, f, o, h, c.state);
+        if (c.sim === this.combatSim) syncCombat(b, f, o, h, c.state);
         o += this.combatWords;
-        c.kept.gunUnderwater = f[o] !== 0;
-      } else u.combat.gunUnderwater = f[o] !== 0;
+        if (c.sim === this.combatSim) c.kept.gunUnderwater = f[o] !== 0;
+      } else if (!this.bodyOnly) u.combat.gunUnderwater = f[o] !== 0;
     }
+    // The rig export can grow memory; finish reading the unit block first.
+    for (const u of posed) this.muzzles.sync(u);
   }
 
   // The battle's bodies as the soldiers' movement in the module meets

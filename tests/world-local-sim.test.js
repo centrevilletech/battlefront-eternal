@@ -22,12 +22,14 @@ function fixture(world, flags = 0, changed = () => {}) {
     playerUnit: { removed: Boolean(flags & 32), held: Boolean(flags & 64) },
     game: { worldSim: world, serverWorld: Boolean(flags & 128) }, policy: { auto: Boolean(flags & 512) },
     ai: {}, battle: { human: flags & 1024 ? null : { id: 5 } },
+    unitsSim: null,
     UNIT: 'soldier', spawnIndex: 1, tickHuman: [{ kind: 'spawn', className: 'soldier' }], CORPSE_LINGER: 4,
   };
   const inspect = () => ({ input: { ...env.input }, dead: env.combat.dead, removed: env.playerUnit.removed, human: api?.human() });
   const call = (op, args = []) => { trace.push([op, args, inspect()]); changed(op, env, api); };
   env.worldControls = { take(op) { call(op); return actions.delete(op); } };
   env.soldier = { position: { x: 1, y: 2, z: 3 }, tick(input, dt) { assert.equal(input, env.input); call('tick', [dt]); } };
+  if (flags & 8192) env.unitsSim = { bodyTick(unit, input, dt) { assert.equal(unit, env.playerUnit); assert.equal(input, env.input); call('nativeBody', [dt]); } };
   env.takeImpacts = unit => { assert.equal(unit, env.playerUnit); call('impacts'); };
   env.inDeathRegion = position => { assert.equal(position, env.soldier.position); call('region'); return Boolean(flags & 2048); };
   env.combat.damage = amount => { call('kill', [amount]); env.combat.dead = true; };
@@ -50,7 +52,7 @@ function invoke(fixture, op) {
 
 test('native local-player and battle-tail ordering twins the live game across body and spawn guards', async () => {
   const world = createWorldSim(await loadSim());
-  for (let mask = 0; mask < 8192; mask += 7) {
+  for (let mask = 0; mask < 16384; mask += 7) {
     const js = fixture(null, mask), native = fixture(world, mask);
     assert.equal(invoke(native, 'player'), invoke(js, 'player'));
     assert.equal(invoke(native, 'tail'), invoke(js, 'tail'));
