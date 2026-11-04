@@ -42,7 +42,7 @@ fn native_builder_matches_javascript_root_bytes_and_indirect_order() {
         let label = get(&value, "label").as_str().unwrap();
         let source = bytes(get(&value, "positions"));
         let index = words(get(&value, "indices"));
-        let tree = if get(&value, "wide").as_bool().unwrap() {
+        let tree = if matches!(get(&value, "wide"), Value::Bool(true)) {
             let positions = source
                 .chunks_exact(8)
                 .map(|b| f64::from_le_bytes(b.try_into().unwrap()))
