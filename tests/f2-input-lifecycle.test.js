@@ -9,9 +9,9 @@ import { Unit } from '../src/units.js';
 import { Turret } from '../src/props.js';
 import { TurretSeats } from '../src/seats.js';
 import { Ordnance } from '../src/ordnance.js';
-import { attachOrdnanceSim } from '../src/ordnance-sim.js';
+import { attachOrdnanceSim, ordnanceTests } from '../src/ordnance-sim.js';
 import { Soldier } from '../src/soldier.js';
-import { seatLook } from '../src/boarding.js';
+import { seatLook, leaveKilled } from '../src/boarding.js';
 import { loadSim } from '../src/sim/module.js';
 
 function box(w, h, d, y) {
@@ -79,6 +79,7 @@ function rider(system, id) {
   const unit = new Unit({ side: 'all', className: 'test', def: {}, actor: { root: new THREE.Object3D() }, soldier,
     animator: null, presentation: null, combat: { dead: false, zoomStep: 0, zoom: 1, firstPerson: false, blowApart: false } });
   unit.id = id; unit.generation = 1; unit.alive = true; unit.removed = false; unit.team = 1;
+  unit.combat.damage = () => { unit.alive = false; unit.dead = unit.combat.dead = true; leaveKilled(unit); };
   return unit;
 }
 
@@ -97,6 +98,8 @@ test('live F2 scalar commands publish leases before hooks and latch in f2_step',
     system.update(1 / 60);
     assert.equal(lease.input.forward, 1); assert.equal(lease.input.reload, true);
     assert.equal(u.intent.reload, false); assert.equal(u.seat, lease);
+    lease.input.forward = 2; assert.throws(() => system.f2.check(), /F2 lease mirror write/); lease.input.forward = 1;
+    v.seats[0].lookYaw = .7; assert.throws(() => system.f2.check(), /F2 mirror write: seats/); v.seats[0].lookYaw = null;
     assert.equal(system.requestExit(u, { placement: false }), true);
     system.update(1 / 60);
     assert.equal(u.seat, null); assert.equal(lease.released, true); assert.equal(v.seats[0].lease, null);
@@ -115,13 +118,36 @@ test('live F2 board hooks can synchronously board another hull', async () => {
   } finally { system.dispose(); }
 });
 
-function turret(x) {
+test('live F2 damage preserves the latest foreign hull rider body at kill entry', async () => {
+  const run = async native => {
+    const { system } = await fleet(native);
+    try {
+      const v = system.vehicles[0], u = rider(system, 13);
+      assert.equal(system.board(u, v), true);
+      u.intent.forward = 1;
+      for (let i = 0; i < 8; i++) system.update(1 / 60);
+      const before = { position: u.position.toArray(), yaw: u.soldier.aimYaw, ticks: u.tickCount };
+      let entry;
+      u.combat.damage = () => {
+        entry = { position: u.position.toArray(), yaw: u.soldier.aimYaw, ticks: u.tickCount };
+        u.alive = false; u.dead = u.combat.dead = true; leaveKilled(u);
+      };
+      v.damage(Infinity);
+      assert.deepEqual(entry, before, 'destroyedCrew sees the body already moved by syncCrews');
+      assert.equal(u.seat, null);
+      return entry;
+    } finally { system.dispose(); }
+  };
+  assert.deepEqual(await run(true), await run(false));
+});
+
+function turret(x, base = 'bolt') {
   const root = new THREE.Group(), drum = new THREE.Bone(), gun = new THREE.Bone(), seat = new THREE.Bone(), fire = new THREE.Bone();
   root.matrixAutoUpdate = false; root.matrix.makeTranslation(x, 3, 50);
   root.add(drum); drum.add(gun, seat); gun.add(fire); fire.position.z = 1; seat.position.z = -.5;
   const rig = { root, bones: [drum, gun, seat, fire], byName: { drum, gun, seat, fire }, model: { box: [[-1, 0, -1], [1, 2, 1]] } };
   const def = { class: 'fixture_turret', base: 'cannon', channel: 0, ShotDelay: .1, ShotsPerSalvo: 1, SalvoCount: 1, RoundsPerClip: 0,
-    ordnance: { class: 'fixture_bolt', base: 'bolt', Velocity: 40, LifeSpan: 1, Damage: 0 } };
+    ordnance: { class: `fixture_${base}`, base, Velocity: 40, LifeSpan: 1, Damage: 0 } };
   return new Turret({ base: 'armedbuilding', matrix: root.matrix.toArray(), weapon: def,
     settings: { MaxHealth: 100, TurretNodeName: 'drum', AimerNodeName: 'gun', PilotPosition: 'seat', FirePointName: 'fire' } },
     { built: rig }, {}, null);
@@ -147,5 +173,69 @@ test('live F2 turret crews place each body before its direct native ordnance cal
     assert.equal(ordnance.bolts.length, 2);
     assert.equal(crews.leave(a, { placement: false }), true);
     assert.equal(a.seat, null); assert.equal(turrets[0].gunner, null);
+    const old = b.seat; turrets[1].setHealth(0);
+    assert.equal(b.alive, false); assert.equal(b.seat, null); assert.equal(old.released, true);
+    turrets[1].setHealth(turrets[1].maxHealth);
+    const c = rider(system, 22); c.human = c.networkHuman = true;
+    assert.equal(crews.man(c, turrets[1]), true);
+    assert.notEqual(c.seat, old); assert.equal(old.unit, b); assert.equal(turrets[1].gunner, c.soldier);
+  } finally { system.dispose(); }
+});
+
+test('live F2 beams follow the original turret lease through departure and reuse', async () => {
+  async function run(native) {
+    const { system } = await fleet(native);
+    try {
+      const bridge = system.f2?.bridge ?? bridgeFor(await loadSim(), { classes: { Unit, Vehicle }, tests: ordnanceTests });
+      const ordnance = new Ordnance({ scene: new THREE.Scene(), collision: system.collision, effects: { play() {} }, lights: { add() {} }, texture: () => null });
+      attachOrdnanceSim(ordnance, bridge);
+      const t = turret(30, 'beam'), crews = new TurretSeats({ live: { turrets: [t] }, ordnance, collision: system.collision });
+      if (native) system.f2.seats.attachTurrets(crews);
+      const a = rider(system, 30), b = rider(system, 31);
+      a.human = b.human = a.networkHuman = b.networkHuman = true;
+      assert.equal(crews.man(a, t), true);
+      const trace = [];
+      for (let tick = 0; tick < 6; tick++) {
+        a.intent.turn = .4; a.intent.buttons[0] = tick === 0 ? 1 : 0;
+        if (tick === 3) { assert.equal(crews.leave(a, { placement: false }), true); assert.equal(crews.man(b, t), true); }
+        system.update(1 / 60); if (!native) crews.update(1 / 60);
+        ordnance.update(1 / 60);
+        trace.push([t.yaw, t.pitch, t.barrel, ordnance.beams.map(beam => [beam.position.toArray(), beam.direction.toArray(), beam.life])]);
+      }
+      return trace;
+    } finally { system.dispose(); }
+  }
+  assert.deepEqual(await run(true), await run(false));
+});
+
+test('live F2 stale leases do not reset a reused soldier body', async () => {
+  const { system } = await fleet(true);
+  try {
+    const v = system.vehicles[0], u = rider(system, 40);
+    assert.equal(system.board(u, v), true); const lease = u.seat;
+    u.presentation = { position: new THREE.Vector3(), reset() {} }; u.animator = { reset() {} }; u.combat.reset = () => {};
+    u.spawn(60, 2, 20, .4); const position = u.soldier.position.clone(), ticks = u.tickCount;
+    system.update(1 / 60);
+    assert.equal(u.seat, null); assert.equal(lease.released, true); assert.equal(v.seats[0].lease, null);
+    assert.deepEqual(u.soldier.position, position); assert.equal(u.tickCount, ticks);
+  } finally { system.dispose(); }
+});
+
+test('live F2 nested shot deaths keep the remaining crew snapshot valid', async () => {
+  const { system } = await fleet(true);
+  try {
+    const ordnance = new Ordnance({ scene: new THREE.Scene(), collision: system.collision, effects: { play() {} }, lights: { add() {} }, texture: () => null });
+    attachOrdnanceSim(ordnance, system.f2.bridge);
+    const turrets = [turret(20), turret(40)], crews = new TurretSeats({ live: { turrets }, ordnance, collision: system.collision });
+    system.f2.seats.attachTurrets(crews);
+    const a = rider(system, 50), b = rider(system, 51);
+    a.human = b.human = a.networkHuman = b.networkHuman = true;
+    assert.ok(crews.man(a, turrets[0])); assert.ok(crews.man(b, turrets[1]));
+    const fired = [], old = b.seat;
+    ordnance.hitHistory = { shotTick(owner) { fired.push(owner.id); if (owner === a) turrets[1].setHealth(0); return null; } };
+    a.intent.buttons[0] = b.intent.buttons[0] = 1;
+    system.update(1 / 60);
+    assert.deepEqual(fired, [50]); assert.equal(b.alive, false); assert.equal(b.seat, null);
+    assert.equal(old.released, true); assert.equal(a.seat.unit, a);
   } finally { system.dispose(); }
 });

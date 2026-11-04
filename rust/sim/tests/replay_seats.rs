@@ -419,7 +419,7 @@ impl CrewWorld for Served<'_, '_> {
     }
 
     fn weapon_update(&mut self, _turret: usize, dt: f64, held: bool, pressed: bool, reload: bool, out: &mut Vec<Shot>) {
-        let Some(call) = self.call("seats.weaponUpdate") else { return Vec::new() };
+        let Some(call) = self.call("seats.weaponUpdate") else { return };
         self.check(check_num("weaponUpdate dt", call.arg(1), dt));
         if !call.arg(2).truthy() {
             self.fail("weaponUpdate selected: not true".into());

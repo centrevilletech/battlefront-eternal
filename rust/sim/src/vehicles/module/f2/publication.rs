@@ -49,8 +49,11 @@ impl Publication {
         cache.life.resize(F2HullLife::WORDS, f64::NAN);
         self.life_scratch.resize(F2HullLife::WORDS, 0.0);
         self.dirty.reserve(count); self.selected.reserve(count);
-        self.hulls.words.reserve(cache.next.words.len());
-        self.hulls.heap.reserve(cache.next.heap.len());
+        let words: usize = self.last.iter().map(|r| r.next.words.len().max(r.row.words.len())).sum();
+        let heap: usize = self.last.iter().map(|r| r.next.heap.len().max(r.row.heap.len())).sum();
+        self.hulls.words.reserve(words); self.hulls.heap.reserve(heap);
+        self.lives.words.reserve(5 + count * F2HullLife::WORDS);
+        self.pad_dirty.reserve(st.vehicles.slots.len()); self.pads.words.reserve(5 + st.vehicles.slots.len() * F2Pad::WORDS);
         self.mark(r);
     }
 

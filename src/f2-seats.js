@@ -7,12 +7,13 @@ import { makeHit } from './collision.js';
 import { COMMAND_F2_SEAT, COMMAND_TABLE, KIND_TABLE, KIND_SEAT_LEASE, KIND_UNIT, KIND_ORDNANCE, KIND_EMITTER } from './sim/gen/index.js';
 import { F2SeatIoMirror, F2SeatHeaderMirror, F2SeatUnitInMirror, F2SeatUnitOutMirror, F2SeatCommandMirror, F2SeatResultMirror,
   F2SeatAnswerMirror, F2SeatEffectMirror, F2LatchedMirror, F2SeatFireMirror,
-  F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2TurretInputMirror, F2HullNodeMirror, syncF2HullNode, syncF2TurretHeader, putF2TurretInput, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
+  F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2TurretInputMirror, F2HullNodeMirror, syncF2HullNode, F2TurretTargetMirror, F2RiderInMirror, putF2RiderIn, syncF2TurretHeader, putF2TurretInput, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
   syncF2SeatIo, putF2SeatHeader, putF2SeatUnitIn, syncF2SeatUnitOut, syncF2SeatEffect, syncF2Latched, syncF2SeatFire, putF2SeatSample } from './sim/gen/f2.js';
 import { rigNodes } from './vehicle-phase-data.js';
 import { turretSettings, turretState } from './turrets-sim.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
-import { hasMissileLock, lockPick, seatLockTarget } from './weapon-targeting.js';
+import { hasMissileLock, seatLockTarget } from './weapon-targeting.js';
+import { weaponAI, categoryOf } from './ai/classic/weapons-ai.js';
 import { legacyRandom } from './ai/random.js';
 import { putSeatHullFacts, putSeatAiControl } from './sim/gen/seats.js';
 
@@ -75,12 +76,14 @@ export class F2Seats {
   constructor(phase) {
     this.phase = phase; this.bridge = phase.bridge; this.x = phase.x; this.vehicles = phase.vehicles;
     this.units = []; this.seen = []; this.stamp = 0; this.triggers = new WeakMap(); this.emitterIds = new WeakMap();
-    this.pool = new LeasePool(this); this.pool.owner = this; this.pool.released = new Map(); this.bridge.refs[KIND_SEAT_LEASE] = this.pool;
+    this.leaseRows = new WeakMap();
+    this.pool = new LeasePool(this); this.pool.owner = this; this.pool.released = new Map(); this.mounts = new WeakMap(); this.riderClips = new WeakMap(); this.riderSample = { clip: null, pitch: 0, turn: 0, time: null }; this.bridge.refs[KIND_SEAT_LEASE] = this.pool;
     this.emptyHeap = new Heap(); this.header = new F2SeatHeaderMirror(); this.io = new F2SeatIoMirror();
-    this.unitIn = new F2SeatUnitInMirror(); this.unitOut = new F2SeatUnitOutMirror();
+    this.riderIn = new F2RiderInMirror(); this.unitIn = new F2SeatUnitInMirror(); this.unitOut = new F2SeatUnitOutMirror();
     this.controlIn = { seatUnit: null, driven: false, intent: null };
     this.command = new F2SeatCommandMirror(); this.result = new F2SeatResultMirror();
     this.answer = new F2SeatAnswerMirror(); this.effectRow = new F2SeatEffectMirror(); this.controlRow = new F2LatchedMirror(); this.fireRow = new F2SeatFireMirror();
+    this.lookSamples = [[0, 0]]; this.networkScales = { scale: 1, invert: false, flightScale: 1, flightInvert: false };
     this.sample = { dx: 0, dy: 0 }; this.drop = new THREE.Vector3(); this.hit = makeHit();
     this.castResult = { found: false, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null };
     this.flag = { value: false }; this.drawAnswer = { value: 0 };
@@ -92,25 +95,17 @@ export class F2Seats {
     this.hullArgs = { words: this.x.f2_seats_adopt_words(), put: putSeatHullFacts };
     this.facts = new WeakMap(); this.turretRows = new WeakMap();
     this.hullNode = new F2HullNodeMirror(); this.turretHeader = new F2TurretHeaderMirror(); this.turretInput = new F2TurretInputMirror(); this.turretEvent = new F2TurretEventMirror();
-    this.turretLifeRow = { turret: null, alive: false, attacker: null, center: new THREE.Vector3(), radius: 0 };
+    this.turretLifeRow = { turret: null, generation: 0, alive: false, attacker: null, center: new THREE.Vector3(), radius: 0 };
     this.turretBirthArgs = { words: this.x.f2_turret_words(0), put: putF2TurretBirth };
     this.turretLifeArgs = { words: this.x.f2_turret_words(1), put: putF2TurretLife };
     this.shot = { weapon: null, yaw: 0, pitch: 0, charge: 0, targetId: -1, targetGeneration: -1 };
-    this.lockOptions = { units: null, collision: null, origin: null, dir: null, viewer: null, ignoreBody: null, target: undefined };
-    this.lockAnswer = { id: -1, generation: -1, alive: false, found: false };
+    this.targetRow = new F2TurretTargetMirror(); this.targetCategories = new WeakMap(); this.noEnter = new WeakMap();
     this.legacySpread = legacyRandom('weapon-spread');
     const vs = this.vehicles, b = this.bridge;
     b.register({
       f2SeatAction: a => this.action(a),
       f2TurretDraw: a => { const w = this.crews.turrets[a.turret].weapon; this.drawAnswer.value = w.random ? w.random() : this.legacySpread(); return this.drawAnswer; },
-      f2TurretLock: a => {
-        this.phase.sync();
-        const t = this.crews.turrets[a.turret], q = this.lockOptions;
-        q.units = this.crews.ordnance?.units; q.collision = this.crews.collision; q.origin = a.origin; q.dir = a.direction;
-        q.viewer = t.aiTarget; q.ignoreBody = t.bodies?.built; q.target = seatLockTarget(a.lease);
-        const p = lockPick(t.weapon, q)?.unit, out = this.lockAnswer;
-        out.id = p?.id ?? -1; out.generation = p?.generation ?? 0; out.alive = Boolean(p?.alive); out.found = Boolean(p); return out;
-      },
+      f2TurretTarget: a => this.target(a),
       seatCast: a => {
         const hit = vs.seatsWorld.cast(a.origin, a.direction, a.far, this.hit, a.ignore), out = this.castResult;
         out.found = Boolean(hit); out.distance = hit?.distance ?? 0; out.terrain = Boolean(hit?.terrain); out.body = hit?.body ?? null;
@@ -167,7 +162,9 @@ export class F2Seats {
       a.human = unit.human; a.networkHuman = unit.networkHuman; a.walker = unit.walker; a.team = unit.team;
       a.removed = unit.removed; a.hasActor = Boolean(unit.actor); a.tickCount = unit.tickCount;
       a.soldier = unit.soldier; a.intent = unit.intent;
-      a.noEnter = Number.parseFloat(unit.classDef?.NoEnterVehicles ?? 0);
+      let noEnter = this.noEnter.get(unit.classDef);
+      if (noEnter === undefined) { noEnter = Number.parseFloat(unit.classDef?.NoEnterVehicles ?? 0); if (unit.classDef) this.noEnter.set(unit.classDef, noEnter); }
+      a.noEnter = noEnter;
       a.zoomStep = unit.combat?.zoomStep ?? 0; a.zoom = unit.combat?.zoom ?? 1;
       a.firstPerson = Boolean(unit.combat?.firstPerson); a.blowApart = Boolean(unit.combat?.blowApart); a.combatDead = Boolean(unit.combat?.dead);
       a.targetable = unit.targetable; a.mounted = unit.combat?.mounted; a.gunUnderwater = Boolean(unit.combat?.gunUnderwater); a.aimOverride = unit.combat?.aimOverride;
@@ -188,9 +185,21 @@ export class F2Seats {
       a.spreadScale = w.spreadScale; a.sniperScale = w.sniperScale; a.yawSpreadOverride = w.yawSpreadOverride;
       putF2TurretInput(b, a, f, this.inputBase + o, this.emptyHeap); o += this.io.weaponWords; h.weaponCount++;
     }
-    h.looks = o; h.lookCount = 0;
+    h.looks = o; h.lookCount = 0; h.bodies = o; h.bodyCount = 0;
     this.writeHeader(o);
     return o;
+  }
+  prepareRiders() {
+    this.units.length = 0; this.stamp++;
+    for (const v of this.vehicles.vehicles) if (v.alive) this.addHull(v);
+    const b = this.bridge, h = this.header; b.views();
+    h.unitCount = h.controlCount = h.weaponCount = h.lookCount = 0;
+    let o = this.io.headerWords; h.bodies = o; h.bodyCount = this.units.length;
+    for (const unit of this.units) {
+      const a = this.riderIn; a.unit = unit; a.generation = unit.generation; a.tickCount = unit.tickCount; a.soldier = unit.soldier;
+      putF2RiderIn(b, a, b.f, this.inputBase + o, this.emptyHeap); o += this.io.bodyWords;
+    }
+    this.writeHeader(o);
   }
   writeHeader(end, words = end) {
     if (end > this.capacity) throw Error('F2 seat input capacity exceeded');
@@ -198,7 +207,8 @@ export class F2Seats {
     this.phase.counters.inputFields += words;
   }
   invoke(op, unit = null, hull = null, lease = null, index = 0, options = null, direction = 1, looks = null, scales = null) {
-    let o = this.prepare(unit, hull, false);
+    const look = op === 'look' || op === 'network' || op === 'resetSticks';
+    let o = look ? this.prepare(null, null, false) : this.prepare(unit, hull, false);
     const h = this.header;
     if (looks) {
       h.mouseScale = scales.scale; h.invert = scales.invert; h.flightScale = scales.flightScale; h.flightInvert = scales.flightInvert;
@@ -218,20 +228,42 @@ export class F2Seats {
     this.phase.sync();
     return this.result;
   }
+  resetSticks(unit) { return this.invoke('resetSticks', unit, unit.seat?.vehicle, unit.seat).accepted; }
   cycle(unit, direction = 1) { return this.invoke('cycle', unit, unit?.seat?.vehicle, unit?.seat, 0, null, direction).accepted; }
   network(vehicle, index, controls, command) {
     const fs = command.flightSettings;
-    const scales = this.networkScales ??= { scale: 1, invert: false, flightScale: 1, flightInvert: false };
+    const scales = this.networkScales;
     scales.scale = Math.min(2, command.mouseScale ?? 1); scales.invert = Boolean(command.invertMouse);
     scales.flightScale = Math.max(.05, Math.min(10, fs?.sensitivity ?? 1)); scales.flightInvert = Boolean(fs?.invert);
     this.invoke('network', vehicle.seats[index]?.lease?.unit, vehicle, vehicle.seats[index]?.lease, index, null, 1, command.look, scales);
   }
   look(vehicle, index, dx, dy, scales) {
-    const samples = this.lookSamples ??= [[0, 0]];
+    const samples = this.lookSamples;
     samples[0][0] = dx; samples[0][1] = dy;
     this.invoke('look', vehicle.seats[index]?.lease?.unit, vehicle, vehicle.seats[index]?.lease, index, null, 1, samples, scales);
   }
 
+  captureLease(lease) {
+    let row = this.leaseRows.get(lease);
+    if (!row) {
+      row = { input: new Float64Array(KIND_TABLE[KIND_SEAT_LEASE].importStride), saved: new Float64Array(KIND_TABLE[KIND_SEAT_LEASE].importStride), heap: new Heap(), savedHeap: [] };
+      this.leaseRows.set(lease, row);
+    }
+    row.heap.clear(); KIND_TABLE[KIND_SEAT_LEASE].put(this.bridge, lease, row.input, 0, row.heap); row.saved.set(row.input);
+    row.savedHeap.length = row.heap.words.length;
+    for (let i = 0; i < row.heap.words.length; i++) row.savedHeap[i] = row.heap.words[i];
+  }
+  check() {
+    if (!this.phase.debug) return;
+    for (const lease of this.pool.objects) {
+      if (!lease) continue;
+      const row = this.leaseRows.get(lease); if (!row) continue;
+      row.heap.clear(); KIND_TABLE[KIND_SEAT_LEASE].put(this.bridge, lease, row.input, 0, row.heap);
+      for (let i = 0; i < row.saved.length; i++) if (!Object.is(row.saved[i], row.input[i])) throw Error('F2 lease mirror write');
+      if (row.savedHeap.length !== row.heap.words.length) throw Error('F2 lease mirror write');
+      for (let i = 0; i < row.savedHeap.length; i++) if (!Object.is(row.savedHeap[i], row.heap.words[i])) throw Error('F2 lease mirror write');
+    }
+  }
   // Lease rows are resolved before hull and unit rows can refer to a new lease.
   syncLeases() {
     this.readIo(); const b = this.bridge, f = b.f, base = this.io.leases / 8;
@@ -241,7 +273,12 @@ export class F2Seats {
       const at = base + 5 + i * stride;
       const lease = i < retired ? this.pool.retire(f[at], f[at + 1]) : this.pool.create(f[at], f[at + 1]);
       KIND_TABLE[KIND_SEAT_LEASE].sync(b, f, at, heap, lease);
+      if (this.phase.debug) this.captureLease(lease);
       if (lease.turret && this.crews) {
+        if (!this.riderClips.has(lease)) {
+          const pose = lease.turret.riderSample?.(lease.unit?.animator?.clips, this.riderSample);
+          this.riderClips.set(lease, pose?.clip ?? null);
+        }
         const list = this.crews.leases, index = list.indexOf(lease);
         if (lease.released && index >= 0) list.splice(index, 1);
         else if (!lease.released && index < 0) list.push(lease);
@@ -268,6 +305,7 @@ export class F2Seats {
         const at = base + 5 + i * stride, unit = b.refs[KIND_UNIT].at(f[at], f[at + 1]), out = this.unitOut;
         out.soldier = unit.soldier; out.intent = unit.intent;
         syncF2SeatUnitOut(b, f, at, heap, out);
+        if (unit.seat?.turret) this.mounts.set(unit, unit.seat.turret);
         unit.seat = out.seat; unit.targetable = out.targetable; unit.tickCount = out.tickCount;
         if (unit.combat) { unit.combat.mounted = out.mounted; unit.combat.gunUnderwater = out.gunUnderwater; unit.combat.aimOverride = out.aimOverride; }
       }
@@ -307,10 +345,45 @@ export class F2Seats {
     else if (e.kind === 'unseated') {
       if (u.combat) u.combat.zoomed = false;
       u.animator?.gunner?.(null); u.actor?.root?.rotation?.set?.(0, e.yaw, 0);
+      if (this.mounts.get(u)?.hidesGunner && u.actor?.root && !u.removed && !u.combat?.blowApart) u.actor.root.visible = true;
     } else if (e.kind === 'placed') {
       u.presentation?.reset?.(); u.animator?.gunner?.(null); u.animator?.reset?.(e.yaw);
       if (u.actor?.root) { u.actor.root.visible = true; u.actor.root.rotation?.set?.(0, e.yaw, 0); }
     } else if (e.kind === 'dropped') { u.presentation?.reset?.(); u.actor?.root?.position?.copy?.(e.point); }
+  }
+  // lockPick supplies foreign target facts; cone selection and line of sight
+  // run natively without constructing per-candidate option objects.
+  target(a) {
+    const out = this.targetRow, units = this.crews.ordnance?.units, viewer = this.crews.turrets[a.turret].aiTarget;
+    out.mode = 'unavailable'; out.alive = out.eligible = false; out.hull = out.body = null;
+    if (!units) return out;
+    let unit;
+    if (a.index < 0) {
+      unit = seatLockTarget(a.lease);
+      if (unit === undefined) { out.mode = 'human'; return out; }
+      if (!unit) { out.mode = 'none'; return out; }
+    } else unit = units.all()[a.index];
+    out.mode = 'unit'; out.id = unit.id; out.generation = unit.generation ?? 0; out.alive = Boolean(unit.alive);
+    out.eligible = unit !== viewer && out.alive && !unit.seat && (unit.health ?? unit.combat?.health ?? 1) > 0 && unit.kind !== 10;
+    let category = unit.category;
+    if (!Number.isInteger(category)) {
+      category = this.targetCategories.get(unit);
+      if (category === undefined) { category = categoryOf(unit); this.targetCategories.set(unit, category); }
+    }
+    out.category = category; out.relation = units.relation?.(viewer?.team, unit.team) ?? (viewer?.team === unit.team ? 1 : -1);
+    const hull = unit.vehicle;
+    if (hull && this.phase.pool.objects[hull.simSlot] === hull) out.hull = hull;
+    if (a.shapes && !out.hull) {
+      const sphere = unit.sphere;
+      out.radius = Math.max(0, sphere?.radius ?? 0);
+      if (sphere?.center) out.center.copy(sphere.center);
+      else if (unit.aimPoint) unit.aimPoint(out.center); else out.center.copy(unit.position);
+    }
+    if (a.aim) {
+      if (unit.aimPoint) unit.aimPoint(out.aim); else out.aim.copy(unit.sphere?.center ?? unit.position);
+      out.body = hull?.body ?? unit.turret?.bodies?.built ?? unit.building?.bodies?.built ?? null;
+    }
+    return out;
   }
   // TurretSeats construction retains rigs once; only lifecycle facts return.
   attachTurrets(crews) {
@@ -320,13 +393,15 @@ export class F2Seats {
       const t = crews.turrets[index], w = t.weapon, state = turretState(t, index);
       if (w) registerWeaponClass(b, w.levels[0]);
       const radius = t.sphere(point), weapon = w ? { ...w, level: w.levels.indexOf(w.def), admits: Boolean(w.admitShot), hasRandom: Boolean(w.random), salvoSeed: null } : null;
-      const birth = { settings: turretSettings(t), turret: { state, turret: t, alive: t.alive, lease: null, gunner: null,
+      const locks = w ? w.levels.map(def => ({ range: Number(def.LockOnRange) || 0, on: Number(def.LockOnAngle) || 0,
+        off: Number(def.LockOffAngle || def.LockOnAngle) || 0, relationMask: weaponAI(def).relationMask, categoryMask: weaponAI(def).categoryMask >>> 0 })) : [];
+      const birth = { life: t.aiTarget?.generation ?? 0, timed: Boolean(t.rider && !t.rider.ninePose), locks, settings: turretSettings(t), turret: { state, turret: t, alive: t.alive, lease: null, gunner: null,
         attacker: t.lastAttacker ?? null, center: point, radius, weapon: Boolean(w), missileLock: hasMissileLock(w?.def), body: t.bodies?.built ?? null,
         rider: Boolean(t.rider), shootable: Boolean(t.rider?.shootable) }, weapon, ordnance: w?.def.ordnance ?? null,
         channel: w?.def.channel ?? 0, collide: Boolean(crews.collision) };
       if (birth.ordnance) crews.ordnance.sim.defId(birth.ordnance);
-      const mirror = new F2TurretOutMirror(); mirror.state = state;
-      this.turretRows.set(t, { mirror, state, center: point.clone(), radius, alive: t.alive, attacker: t.lastAttacker ?? null }); b.callArgs(this.turretBirthArgs, birth); this.x.f2_turret_adopt();
+      const mirror = new F2TurretOutMirror(); mirror.state = state; mirror.weapon = weapon;
+      this.turretRows.set(t, { mirror, state, center: point.clone(), radius, generation: t.aiTarget?.generation ?? 0, alive: t.alive, attacker: t.lastAttacker ?? null }); b.callArgs(this.turretBirthArgs, birth); this.x.f2_turret_adopt();
       t.f2Seats = this;
     }
     crews.man = (u, t) => this.invoke('man', u, t, null, crews.turrets.indexOf(t)).accepted;
@@ -335,13 +410,18 @@ export class F2Seats {
     crews.vacate = (lease, options) => this.invoke('vacate', lease?.unit, lease?.turret, lease, 0, options).accepted;
     crews.destroyed = t => { this.turretLife(t); return this.invoke('turretDestroyed', null, t, t.lease, crews.turrets.indexOf(t)).accepted; };
   }
-  idleTurrets(dt) { this.x.f2_turrets_idle(dt); this.phase.sync(); }
+  idleTurrets(dt) {
+    for (const t of this.crews.turrets) if (t.alive && !t.gunner && t.gun && (!Object.is(t.gunYaw, 0) || !Object.is(t.gunPitch, 0))) {
+      this.x.f2_turrets_idle(dt); this.phase.sync(); return;
+    }
+  }
   turretLife(t) {
     const a = this.turretLifeRow;
     const previous = this.turretRows.get(t), attacker = t.lastAttacker ?? null;
-    if (!previous || previous.alive === t.alive && previous.attacker === attacker) return;
-    previous.alive = t.alive; previous.attacker = attacker;
-    a.turret = t; a.alive = t.alive; a.attacker = attacker; a.center.copy(previous.center); a.radius = previous.radius;
+    const generation = t.aiTarget?.generation ?? 0;
+    if (!previous || previous.alive === t.alive && previous.attacker === attacker && previous.generation === generation) return;
+    previous.alive = t.alive; previous.attacker = attacker; previous.generation = generation;
+    a.turret = t; a.generation = generation; a.alive = t.alive; a.attacker = attacker; a.center.copy(previous.center); a.radius = previous.radius;
     this.bridge.callArgs(this.turretLifeArgs, a); this.x.f2_turret_life();
   }
   syncTurrets() {
@@ -363,15 +443,18 @@ export class F2Seats {
         t.rig.root.matrixWorld.copy(state.rootWorld);
         for (let j = 0; j < state.bones.length; j++) {
           const node = t.rig.bones[j], v = state.bones[j];
-          node.position.copy(v.p); node.quaternion.copy(v.q); node.scale.copy(v.s); node.matrixWorld.copy(v.world);
+          node.position.copy(v.p); node.scale.copy(v.s); node.matrixWorld.copy(v.world);
+          const q = node.quaternion; q._x = v.q.x; q._y = v.q.y; q._z = v.q.z; q._w = v.q.w;
         }
         t.lease = out.lease; t.gunner = out.gunner?.soldier ?? null;
         if (t.weapon && out.weapon) {
           for (const key of WEAPON_STATE) t.weapon[key] = out.weapon[key];
           t.weapon.def = t.weapon.levels[out.weapon.level];
         }
-        if (out.gunner?.actor?.root) {
-          const u = out.gunner; u.presentation?.reset?.(); u.actor.root.position.copy(u.soldier.position); u.actor.root.visible = !t.hidesGunner;
+        if (out.posed && out.gunner) {
+          const u = out.gunner; u.presentation?.reset?.();
+          if (u.actor?.root) { u.actor.root.position.copy(u.soldier.position); u.actor.root.visible = !t.hidesGunner; }
+          u.animator?.gunner?.(this.riderClips.get(out.lease) ?? null, out.samplePitch, out.sampleTurn, out.sampleTime, out.seatTurn);
         }
       }
       this.phase.counters.outputFields += n * stride + f[base + 3];
@@ -399,12 +482,12 @@ export class F2Seats {
     if (kind === 'flush') this.phase.sync();
     else if (kind === 'controller') answer.value = w.controllerState(unit);
     else if (kind === 'control') { this.phase.sync(); answer.control = w.controllable(lease); }
-    else if (kind === 'policy') { this.phase.sync(); if (a.turret) seatWeaponPolicy(v.weapon, flag, second ? this.crews.seatRandom : null); else v.setSeatPolicy(index, flag, second ? this.vehicles.seatRandom : null); }
+    else if (kind === 'policy') { this.phase.sync(); if (a.turret) { seatWeaponPolicy(v.weapon, flag, second ? this.crews.seatRandom : null); answer.flag = Boolean(v.weapon?.random); } else v.setSeatPolicy(index, flag, second ? this.vehicles.seatRandom : null); }
     else if (kind === 'boarded') { this.phase.sync(); w.boarded(unit, v, index); }
     else if (kind === 'unboarded') { this.phase.sync(); w.unboarded(unit, v, index, post, reason); }
     else if (kind === 'moved') { this.phase.sync(); w.moved(unit, v, index); }
     else if (kind === 'kill') { this.phase.sync(); w.kill(unit, attacker); this.prepare(unit, unit?.seat?.vehicle, true); }
-    else if (kind === 'raycast') { answer.value = w.raycast(a.point, a.direction, a.yaw, unit, this.hit)?.distance; }
+    else if (kind === 'raycast') { this.phase.sync(); answer.value = w.raycast(a.point, a.direction, a.yaw, unit, this.hit)?.distance; }
     else if (kind === 'body' && effect === 'dropped') {
       const point = w.riderDrop(v, index, unit, this.drop); answer.flag = Boolean(point); if (point) answer.point.copy(point);
     } else throw Error(`unknown F2 seat action ${kind}`);

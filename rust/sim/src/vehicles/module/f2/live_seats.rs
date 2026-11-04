@@ -13,7 +13,7 @@ use crate::combat::weapons::{Admission, Aim, LockTarget, Shot as WeaponShot, Sho
 
 struct TurretWeapon {
     state: Weapon, class: Option<WeaponClass>, ordnance: Option<crate::store::DefId>,
-    channel: f64, shots: Vec<WeaponShot>,
+    channel: f64, shots: Vec<WeaponShot>, locks: Vec<F2TurretLockLevel>,
 }
 struct Draws { turret: usize }
 impl WeaponDraws for Draws {
@@ -26,23 +26,26 @@ impl WeaponDraws for Draws {
 const INPUT_CAPACITY: usize = 262144;
 struct State {
     owner: crate::vehicles::f2_seats::Seats,
+    depth: usize,
     input: Vec<f64>,
     io: [f64; F2SeatIo::WORDS],
     leases: Block, units: Block, controls: Block, effects: Block, fire: Block, fire_rows: Vec<F2SeatFire>,
     body_effects: Vec<F2SeatEffect>,
     node_output: Block, nodes_pending: bool, ordnance_output: Block, ordnance_dirty: bool,
+    body_refs: Vec<Option<Ref<Body>>>,
     actors: Vec<bool>, rider_sides: Vec<bool>,
-    weapons: Vec<Option<TurretWeapon>>, turret_rows: Vec<F2TurretOut>, turret_output: Block,
+    turret_lives: Vec<f64>, posed: Vec<bool>, timed: Vec<bool>, weapons: Vec<Option<TurretWeapon>>, turret_rows: Vec<F2TurretOut>, turret_output: Block,
     event_rows: Vec<F2TurretEvent>, event_output: Block, rounds: Vec<Option<crate::ordnance::world::Shot>>,
 }
 static mut STATE: Option<State> = None;
 fn state() -> &'static mut State {
     unsafe { (*addr_of_mut!(STATE)).get_or_insert_with(|| State {
-        owner: Default::default(), input: vec![0.0; INPUT_CAPACITY], io: [0.0; F2SeatIo::WORDS],
+        owner: Default::default(), depth: 0, input: vec![0.0; INPUT_CAPACITY], io: [0.0; F2SeatIo::WORDS],
         leases: Block::default(), units: Block::default(), controls: Block::default(), effects: Block::default(), fire: Block::default(), fire_rows: Vec::with_capacity(512),
         node_output: Block::default(), nodes_pending: false, ordnance_output: Block { words: Vec::with_capacity(32768), heap: Vec::with_capacity(32768) }, ordnance_dirty: false,
-        body_effects: Vec::with_capacity(512), actors: Vec::with_capacity(512), rider_sides: Vec::with_capacity(512),
-        weapons: Vec::with_capacity(128), turret_rows: Vec::with_capacity(128), turret_output: Block::default(),
+        body_effects: Vec::with_capacity(512), body_refs: Vec::with_capacity(4096),
+        actors: Vec::with_capacity(512), rider_sides: Vec::with_capacity(512),
+        turret_lives: Vec::with_capacity(128), posed: Vec::with_capacity(128), timed: Vec::with_capacity(128), weapons: Vec::with_capacity(128), turret_rows: Vec::with_capacity(128), turret_output: Block::default(),
         event_rows: Vec::with_capacity(512), event_output: Block::default(), rounds: Vec::with_capacity(32),
     }) }
 }
@@ -111,6 +114,7 @@ fn inputs() {
         let start = h.units as usize + i * F2SeatUnitIn::WORDS;
         let a = F2SeatUnitIn::take(&state().input[start..start + F2SeatUnitIn::WORDS], &[]);
         let u = sim().store.unit.ensure(a.unit);
+        if u.generation != a.generation { u.seat = None; }
         u.generation = a.generation; u.alive = a.alive; u.dead = a.dead; u.human = a.human;
         u.network_human = a.network_human; u.walker = a.walker; u.team = a.team; u.removed = a.removed;
         u.tick_count = a.tick_count; u.soldier = UnitBody::Soldier(a.soldier); u.intent = a.intent; u.combat.dead = a.combat_dead;
@@ -146,7 +150,7 @@ fn refresh_hulls(hulls: &mut Hulls, st: &Store) {
 
 /// Vehicles.latchCrews runs between native spawn clocks and hull capture.
 pub fn latch(time: f64) {
-    inputs();
+    inputs(); state().depth += 1;
     let n = state().owner.hulls.hulls.len();
     for i in 0..n {
         let r = state().owner.hulls.hulls[i].vehicle;
@@ -163,7 +167,7 @@ pub fn latch(time: f64) {
     hulls.time = time; hulls.latched.clear(); hulls.made.clear(); refresh_hulls(&mut hulls, &st);
     let mut world = World::new(&mut st);
     hulls.latch_crews(&mut st, &mut world);
-    state().owner.hulls = hulls; sim().store = st;
+    state().owner.hulls = hulls; sim().store = st; state().depth -= 1;
     // Flight reads the newly frozen controls, never last tick's JS mirror.
     for i in 0..sim().store.vehicles.vehicles.len() {
         let r = sim().store.vehicles.vehicles[i];
@@ -264,7 +268,7 @@ pub fn publish() -> *const f64 {
     state.fire.finish(); state.fire_rows.clear();
     F2SeatIo { emitter_mask: EMITTER_MASK, ordnance: state.ordnance_output.ptr() as usize as u32, nodes: state.node_output.ptr() as usize as u32, words: F2SeatIo::WORDS as u32, input: state.input.as_mut_ptr() as usize as u32, capacity: INPUT_CAPACITY as u32,
         header_words: F2SeatHeader::WORDS as u32, unit_words: F2SeatUnitIn::WORDS as u32, control_words: SeatAiControl::WORDS as u32,
-        look_words: F2SeatSample::WORDS as u32, weapon_words: F2TurretInput::WORDS as u32, leases: state.leases.ptr() as usize as u32, units: state.units.ptr() as usize as u32,
+        look_words: F2SeatSample::WORDS as u32, body_words: F2RiderIn::WORDS as u32, weapon_words: F2TurretInput::WORDS as u32, leases: state.leases.ptr() as usize as u32, units: state.units.ptr() as usize as u32,
         controls: state.controls.ptr() as usize as u32, effects: state.effects.ptr() as usize as u32,
         fire: state.fire.ptr() as usize as u32, turrets: state.turret_output.ptr() as usize as u32, events: state.event_output.ptr() as usize as u32, ticks: state.owner.hulls.ticks, turret_ticks: st.turret_seats.ticks, turret_time: st.turret_seats.time }.put(&mut state.io, &mut state.effects.heap);
     state.io.as_ptr()
@@ -302,7 +306,12 @@ impl SeatWorld for World {
     fn crew_lease(&mut self, _: &mut Store, lease: SeatLease) -> Ref<SeatLease> {
         let r = sim().store.seat_lease.insert(lease); touch_lease(r); r
     }
-    fn crew_posed(&mut self, r: Ref<SeatLease>) { touch_lease(r); if let Some(t) = sim().store.seat_lease.get(r).and_then(|l| l.turret) { touch_turret(t); } }
+    fn crew_posed(&mut self, r: Ref<SeatLease>) {
+        touch_lease(r);
+        if let Some(t) = sim().store.seat_lease.get(r).and_then(|l| l.turret) {
+            let i = state().owner.crews.turrets.iter().position(|v| v.turret == t).unwrap(); state().posed[i] = true; touch_turret(t);
+        }
+    }
 
     fn publish_hulls(&mut self, st: &mut Store, hulls: &mut Hulls) {
         std::mem::swap(st, &mut sim().store); std::mem::swap(hulls, &mut state().owner.hulls);
@@ -311,6 +320,10 @@ impl SeatWorld for World {
         std::mem::swap(st, &mut sim().store); std::mem::swap(hulls, &mut state().owner.hulls);
     }
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<Ref<Body>>) -> Option<SeatHit> {
+        if let Some(hit) = collision_world().and_then(|c| c.cast(crate::collision::state(), origin, direction, far, ignore.map(|b| b.slot))) {
+            return hit.map(|h| SeatHit { point: h.point, normal: h.normal, distance: h.distance,
+                body: h.body.and_then(|b| state().body_refs[b as usize]) });
+        }
         let h = import_seat_cast(&SeatRay { origin: v3(origin), direction: v3(direction), far, ignore });
         h.found.then(|| SeatHit { point: vec(&h.point), normal: vec(&h.normal), distance: h.distance, body: h.body })
     }
@@ -318,6 +331,7 @@ impl SeatWorld for World {
         import_seat_overlaps(&SeatSphere { center: v3(center), radius, ignore }).value
     }
     fn raycast_units(&mut self, from: &Vector3, direction: &Vector3, far: f64, unit: Option<u32>) -> Option<f64> {
+        super::publish();
         self.action(F2SeatAction { kind: F2SeatActionKind::Raycast, unit: unit.map(unit_ref), point: v3(from),
             direction: v3(direction), yaw: far, ..Default::default() }).value
     }
@@ -330,9 +344,9 @@ impl SeatWorld for World {
             Seating::Hulls(hulls) => {
                 self.publish_hulls(st, hulls); self.killed(unit, owner); self.resume_hulls(st, hulls);
             }
-            Seating::Crews(crews) => {
-                self.publish_crews(st, crews); self.killed(unit, owner); self.resume_crews(st, crews);
-            }
+            // TurretSeats.vacate already transfers its command before kill;
+            // Hulls.destroyedCrew enters the hook with its local rows.
+            Seating::Crews(_) => self.killed(unit, owner),
         }
     }
     fn rider_drop(&mut self, h: Holder, index: usize, unit: u32) -> Option<Vector3> {
@@ -379,7 +393,17 @@ impl SeatWorld for World {
     fn dropped(&mut self, unit: u32, p: &Vector3) { self.emit_body(SeatEffectKind::Dropped, unit, 0.0, v3(p)); }
     fn seat_policy(&mut self, h: Holder, index: usize, player: bool, random: bool) {
         let (holder, turret) = holder(h); if !turret { touch_hull(sim().store.vehicles.vehicles[holder as usize]); } else { touch_turret(state().owner.crews.turrets[holder as usize].turret); }
-        super::publish(); self.action(F2SeatAction { kind: F2SeatActionKind::Policy, holder, turret, index: index as f64, flag: player, second: random, ..Default::default() });
+        if turret {
+            if let Some(w) = state().weapons[holder as usize].as_mut() {
+                let d = w.state.level(w.class.as_ref().unwrap());
+                w.state.floor = if player { -d.get(crate::combat::defs::K::SpreadThreshold).or(0.0) } else { 0.0 };
+                if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
+                w.state.spread_scale = 1.0; w.state.sniper_scale = 0.0; w.state.yaw_spread_override = None;
+            }
+        }
+        super::publish();
+        let answer = self.action(F2SeatAction { kind: F2SeatActionKind::Policy, holder, turret, index: index as f64, flag: player, second: random, ..Default::default() });
+        if turret { if let Some(w) = state().weapons[holder as usize].as_mut() { w.state.random = answer.flag; } }
     }
 }
 
@@ -390,19 +414,29 @@ pub fn command(a: F2SeatCommand) -> F2SeatResult {
     run(a)
 }
 fn run(a: F2SeatCommand) -> F2SeatResult {
+    state().depth += 1;
+    let result = run_command(a);
+    super::publish(); state().depth -= 1;
+    // TurretSeats.update keeps its starting lease list across nested deaths.
+    // Retire only when no solver can still hold one of those references.
+    if state().depth == 0 { state().owner.published(&mut sim().store); }
+    result
+}
+fn run_command(a: F2SeatCommand) -> F2SeatResult {
     let mut result = F2SeatResult::default(); result.value = -1.0;
+    let look = matches!(a.op, F2SeatOp::Look | F2SeatOp::Network | F2SeatOp::ResetSticks);
     if let Some(u) = a.unit {
         if !sim().store.unit.get(u).is_some_and(|u| u.generation == a.unit_life) { return result; }
-        touch_unit(u);
+        if !look { touch_unit(u); }
     }
     if let Some(v) = a.hull {
         if !sim().store.vehicle.get(v).is_some_and(|v| v.target_generation == a.hull_life) { return result; }
-        touch_hull(v);
+        if look { super::mark(v); } else { touch_hull(v); }
     }
     if let Some(r) = a.lease {
         let Some(l) = sim().store.seat_lease.get(r) else { return result };
         if !l.released && l.unit.is_some_and(|u| !sim().store.unit.get(u).is_some_and(|u| u.generation == l.generation && u.seat == Some(r))) { return result; }
-        touch_lease(r);
+        if !look { touch_lease(r); }
     }
     if matches!(a.op, F2SeatOp::Man | F2SeatOp::TurretLeave | F2SeatOp::TurretDestroyed | F2SeatOp::TurretRequestExit) ||
         a.lease.and_then(|r| sim().store.seat_lease.get(r)).is_some_and(|l| l.turret.is_some()) {
@@ -429,6 +463,7 @@ fn run(a: F2SeatCommand) -> F2SeatResult {
         F2SeatOp::Displace => if let Some(r) = a.lease { result.lease = hulls.displace(&mut st, &mut world, r); result.accepted = true; },
         F2SeatOp::Promote => if let Some(h) = h { result.lease = hulls.promote(&mut st, &mut world, h, a.index as usize); result.accepted = result.lease.is_some(); },
         F2SeatOp::Cycle => if let Some(u) = unit { result.accepted = seats::network::cycle_network_seat(&mut hulls, &mut st, &mut world, u, a.direction as i32); },
+        F2SeatOp::ResetSticks => if let Some(r) = a.hull { if let Some(v) = st.vehicle.get_mut(r) { v.stick_x = Some(0.0); v.stick_y = Some(0.0); result.accepted = true; } },
         F2SeatOp::Look | F2SeatOp::Network => if let Some(r) = a.hull {
             let header = F2SeatHeader::take(&state().input, &[]);
             let scales = seats::boarding::LookScales { scale: header.mouse_scale, invert: header.invert, flight_scale: header.flight_scale, flight_invert: header.flight_invert };
@@ -456,13 +491,13 @@ fn run(a: F2SeatCommand) -> F2SeatResult {
         _ => {},
     }
     if let Some(u) = a.unit { if let Some(l) = st.unit.get(u).and_then(|u| u.seat).and_then(|r| st.seat_lease.get(r)) { result.value = l.index; } }
-    for side in &hulls.hulls { seats::hulls::lease_views(&mut st, side.vehicle); }
+    if !look { if let Some(v) = a.hull { seats::hulls::lease_views(&mut st, v); } }
     state().owner.hulls = hulls; sim().store = st;
-    if let Some(v) = a.hull { touch_hull(v); }
-    if let Some(r) = a.lease { touch_lease(r); }
-    if let Some(u) = a.unit { touch_unit(u); }
-    super::publish();
-    state().owner.published(&mut sim().store);
+    if !look {
+        if let Some(v) = a.hull { touch_hull(v); }
+        if let Some(r) = a.lease { touch_lease(r); }
+        if let Some(u) = a.unit { touch_unit(u); }
+    }
     result
 }
 
@@ -534,9 +569,9 @@ pub extern "C" fn f2_turret_adopt() {
     let w = a.weapon.map(|weapon| {
         let class = crate::combat::module::defs().weapons.class(weapon.def).clone();
         TurretWeapon { state: weapon, class: Some(class), ordnance: a.ordnance, channel: a.channel,
-            shots: Vec::with_capacity(32) }
+            shots: Vec::with_capacity(32), locks: a.locks }
     });
-    state().weapons.push(w); state().turret_rows.push(out);
+    state().turret_lives.push(a.life); state().posed.push(false); state().timed.push(a.timed); state().weapons.push(w); state().turret_rows.push(out);
     let s = state();
     let bones: usize = s.turret_rows.iter().map(|r| r.state.bones.len() * PaBone::WORDS).sum();
     s.turret_output.words.reserve(5 + s.turret_rows.len() * F2TurretOut::WORDS + bones);
@@ -548,7 +583,10 @@ pub extern "C" fn f2_turret_adopt() {
 #[no_mangle]
 pub extern "C" fn f2_turret_life() {
     let a = { let (row, heap) = sim().calls.args(); F2TurretLife::take(row, heap) };
-    if let Some(t) = state().owner.crews.turrets.iter_mut().find(|t| t.turret == a.turret) {
+    if let Some(index) = state().owner.crews.turrets.iter().position(|t| t.turret == a.turret) {
+        if a.generation < state().turret_lives[index] { return; }
+        state().turret_lives[index] = a.generation;
+        let t = &mut state().owner.crews.turrets[index];
         t.alive = a.alive; t.last_attacker = By::Record(a.attacker); t.sphere = (vec(&a.center), a.radius);
     }
 }
@@ -557,12 +595,19 @@ fn publish_turrets(s: &mut State) {
     s.turret_output.begin(s.owner.changed.turrets.len(), F2TurretOut::WORDS);
     for (at, &r) in s.owner.changed.turrets.iter().enumerate() {
         let i = s.owner.crews.turrets.iter().position(|t| t.turret == r).unwrap();
-        let t = &s.owner.crews.turrets[i]; let out = &mut s.turret_rows[i];
+        let t = &mut s.owner.crews.turrets[i]; let out = &mut s.turret_rows[i];
+        out.posed = s.posed[i]; s.posed[i] = false;
         out.lease = t.lease; out.gunner = t.gunner.map(unit_ref);
         let p = &mut out.state;
         p.yaw = t.yaw; p.pitch = t.pitch; p.yaw_vel = t.yaw_vel; p.pitch_vel = t.pitch_vel;
         p.gun_yaw = t.gun_yaw; p.gun_pitch = t.gun_pitch; p.barrel = t.barrel;
         p.root_world = t.rig.tree.node(t.rig.root).matrix_world.elements;
+        let mut turn = three::Quaternion::default();
+        let node = t.rig.seat.unwrap_or(t.rig.root); t.rig.tree.get_world_quaternion(node, &mut turn);
+        out.seat_turn = [turn.x, turn.y, turn.z, turn.w];
+        out.sample_pitch = if s.timed[i] { 0.0 } else { -t.pitch / (45.0 * (std::f64::consts::PI / 180.0)) };
+        out.sample_turn = if s.timed[i] || !seats::truthy(t.desc.turn_rate) { 0.0 } else { t.yaw_vel / t.desc.turn_rate };
+        out.sample_time = s.timed[i].then_some(0.0);
         for (b, &node) in p.bones.iter_mut().zip(&t.rig.bones) {
             let n = t.rig.tree.node(node); b.p = v3(&n.position); b.q = [n.quaternion.x, n.quaternion.y, n.quaternion.z, n.quaternion.w];
             b.s = v3(&n.scale); b.world = n.matrix_world.elements;
@@ -578,21 +623,21 @@ fn publish_turrets(s: &mut State) {
 
 /// TurretSeats.update stays immediately after hull riders in the vehicle phase.
 pub fn turret_tick(dt: f64) {
+    state().depth += 1;
     let mut st = std::mem::take(&mut sim().store);
     let mut crews = std::mem::take(&mut state().owner.crews);
     let mut world = World::new(&mut st);
     world.turret = true;
     crews.update(&mut st, &mut world, dt);
-    state().owner.crews = crews; sim().store = st;
+    state().owner.crews = crews; sim().store = st; state().depth -= 1;
 }
 
 impl CrewWorld for World {
     fn update_lock(&mut self, turret: usize, dt: f64, origin: &Vector3, direction: &Vector3, lease: Ref<SeatLease>) {
-        super::publish();
-        let p = import_f2_turret_lock(&F2TurretLock { turret: turret as u32, origin: v3(origin), direction: v3(direction), lease });
+        super::publish(); self.action(F2SeatAction { kind: F2SeatActionKind::Flush, ..Default::default() });
+        let picked = turret_lock(turret, origin, direction, lease);
         let w = state().weapons[turret].as_mut().unwrap();
-        let target = p.found.then_some(LockTarget { id: p.id, generation: p.generation, alive: p.alive });
-        w.state.update_lock(w.class.as_ref().unwrap(), dt, target);
+        w.state.update_lock(w.class.as_ref().unwrap(), dt, picked);
     }
     /// TurretSeats.drive's Weapon.update, with the same draw stream as JS.
     fn weapon_update(&mut self, turret: usize, dt: f64, held: bool, pressed: bool, reload: bool, out: &mut Vec<Shot>) {
@@ -656,6 +701,7 @@ fn turret_command(a: F2SeatCommand) -> F2SeatResult {
     let index = a.lease.and_then(|r| sim().store.seat_lease.get(r)).and_then(|l| l.turret)
         .and_then(|r| state().owner.crews.turrets.iter().position(|t| t.turret == r)).unwrap_or(a.index as usize);
     if index >= state().owner.crews.turrets.len() { return result; }
+    if a.lease.is_none() && state().turret_lives[index] != a.hull_life { return result; }
     let r = state().owner.crews.turrets[index].turret; touch_turret(r);
     let mut st = std::mem::take(&mut sim().store);
     let mut crews = std::mem::take(&mut state().owner.crews);
@@ -666,14 +712,16 @@ fn turret_command(a: F2SeatCommand) -> F2SeatResult {
         F2SeatOp::TurretRequestExit => if let Some(unit) = a.unit { result.accepted = crews.request_exit(&mut st, unit.slot, a.post, a.placement); },
         F2SeatOp::TurretDestroyed => { crews.destroyed(&mut st, &mut world, index); result.accepted = true; },
         F2SeatOp::Vacate => if let Some(lease) = a.lease {
-            crews.vacate(&mut st, &mut world, lease, Let { placement: a.placement, post: a.post, ..Default::default() }); result.accepted = true;
+            crews.vacate(&mut st, &mut world, lease, Let { placement: a.placement, post: a.post, reason: match a.reason {
+                SeatReason::Exit => Reason::Exit, SeatReason::Killed => Reason::Killed, SeatReason::Destroyed => Reason::Destroyed,
+                SeatReason::Stale => Reason::Stale, SeatReason::Displaced => Reason::Displaced }, ..Default::default() }); result.accepted = true;
         },
         _ => {},
     }
     if let Some(unit) = a.unit { result.lease = st.unit.get(unit).and_then(|u| u.seat); }
     state().owner.crews = crews; sim().store = st;
     touch_turret(r); if let Some(unit) = a.unit { touch_unit(unit); } if let Some(lease) = a.lease { touch_lease(lease); }
-    super::publish(); state().owner.published(&mut sim().store); result
+    result
 }
 
 /// LiveObjects.update eases an unmanned gun at its original scheduler point.
@@ -745,4 +793,141 @@ pub fn beam_pose(r: Ref<SeatLease>, local: [f64; 3], position: &mut [f64; 3], di
     t.rig.tree.update_matrix_world(t.rig.root, true);
     let mut p = vec(&local); p.apply_matrix4(&t.rig.tree.node(node).matrix_world); *position = v3(&p);
     let mut dir = Vector3::default(); t.muzzle(false, Some(&mut dir)); *direction = v3(&dir);
+}
+
+/// lockSpan's largest cosine on a box edge (hud-units.js nearestCosine).
+fn nearest_cosine(a: &Vector3, e: &Vector3, d: &Vector3) -> f64 {
+    let a0 = a.dot(d); let a1 = e.dot(d);
+    let qa = e.length_sq(); let qb = 2.0 * a.dot(e); let qc = a.length_sq();
+    let at = |s: f64| (a0 + a1 * s) / v8math::sqrt(v8math::max(qa * s * s + qb * s + qc, 1e-12));
+    let mut best = v8math::max(at(0.0), at(1.0));
+    let denominator = a1 * qb / 2.0 - a0 * qa;
+    if v8math::abs(denominator) > 1e-12 {
+        let s = (a0 * qb / 2.0 - a1 * qc) / denominator;
+        if s > 0.0 && s < 1.0 { best = v8math::max(best, at(s)); }
+    }
+    best
+}
+
+/// hud-units.js lockSpan: hulls offer their box, units their lazy sphere.
+fn box_span(origin: &Vector3, direction: &Vector3, matrix: &Matrix4, lo: &Vector3, hi: &Vector3) -> (f64, f64) {
+    let mut inverse = *matrix; inverse.invert();
+    let mut o = *origin; o.apply_matrix4(&inverse);
+    let mut d = *direction; d.transform_direction(&inverse);
+    let near = Vector3::new(three::clamp(o.x, lo.x, hi.x), three::clamp(o.y, lo.y, hi.y), three::clamp(o.z, lo.z, hi.z));
+    let distance = near.distance_to(&o);
+    let os = [o.x, o.y, o.z]; let ds = [d.x, d.y, d.z];
+    let lows = [lo.x, lo.y, lo.z]; let highs = [hi.x, hi.y, hi.z];
+    let mut enter = 0.0; let mut leave = f64::INFINITY;
+    for k in 0..3 {
+        if v8math::abs(ds[k]) < 1e-9 {
+            if os[k] < lows[k] || os[k] > highs[k] { leave = -1.0; break; }
+            continue;
+        }
+        let t0 = (lows[k] - os[k]) / ds[k]; let t1 = (highs[k] - os[k]) / ds[k];
+        enter = v8math::max(enter, v8math::min(t0, t1));
+        leave = v8math::min(leave, v8math::max(t0, t1));
+        if enter > leave { break; }
+    }
+    if enter <= leave { return (0.0, distance); }
+    let corner = |i: usize| Vector3::new(if i & 1 != 0 { hi.x } else { lo.x }, if i & 2 != 0 { hi.y } else { lo.y }, if i & 4 != 0 { hi.z } else { lo.z });
+    let mut best = -1.0;
+    for i in 0..8 { for bit in [1, 2, 4] {
+        if i & bit != 0 { continue; }
+        let mut a = corner(i); a.sub(&o);
+        let mut e = corner(i | bit); e.sub(&o).sub(&a);
+        best = v8math::max(best, nearest_cosine(&a, &e, &d));
+    }}
+    (v8math::acos(v8math::min(1.0, best)), distance)
+}
+
+fn sphere_span(origin: &Vector3, direction: &Vector3, center: &Vector3, radius: f64) -> (f64, f64) {
+    let mut d = *center; d.sub(origin);
+    let span = d.length(); let distance = v8math::max(0.0, span - radius);
+    if span <= radius { return (0.0, distance); }
+    (v8math::max(0.0, v8math::acos(three::clamp(d.dot(direction) / span, -1.0, 1.0)) - v8math::asin(radius / span)), distance)
+}
+
+
+/// weapon-targeting.js lockPick, preserving lazy shape and sight queries.
+fn turret_lock(turret: usize, origin: &Vector3, direction: &Vector3, lease: Ref<SeatLease>) -> Option<LockTarget> {
+    let w = state().weapons[turret].as_ref().unwrap();
+    let l = &w.locks[w.state.level as usize];
+    let (range, on, off, relations, categories) = (l.range, l.on, l.off, l.relation_mask, l.category_mask);
+    let (complete, id, generation) = (w.state.lock_complete, w.state.lock_target_id, w.state.lock_generation);
+    let query = |index, shapes, aim| import_f2_turret_target(&F2TurretTargetQuery { turret: turret as u32, index, lease, shapes, aim });
+    let allowed = |t: &F2TurretTarget| relations & (1 << (t.relation as i32 + 1)) != 0 && categories & (1 << t.category) != 0;
+    let first = query(-1.0, false, false);
+    match first.mode {
+        F2TurretTargetMode::None | F2TurretTargetMode::Unavailable => return None,
+        F2TurretTargetMode::Unit => return (first.alive && allowed(&first)).then_some(LockTarget { id: first.id, generation: first.generation, alive: first.alive }),
+        F2TurretTargetMode::Human => {},
+    }
+    let mut direction = *direction; direction.normalize();
+    if range <= 0.0 || direction.length_sq() == 0.0 { return None; }
+    let ignore = state().owner.crews.turrets[turret].desc.body;
+    let n = unsafe { (&*addr_of_mut!(MEMBERS)).len() };
+    for pass in 0..2 {
+        if pass == 0 && !complete { continue; }
+        let cone = v8math::max(0.0, if pass == 0 { off } else { on }) * std::f64::consts::PI / 180.0;
+        let mut best = None; let mut best_angle = f64::INFINITY; let mut best_distance = f64::INFINITY;
+        for i in 0..n {
+            if pass == 0 {
+                let m = unsafe { (&*addr_of_mut!(MEMBERS))[i] };
+                if m.id != id || m.generation.unwrap_or(0.0) != generation { continue; }
+            }
+            let mut facts = query(i as f64, false, false);
+            if !facts.eligible || !allowed(&facts) { continue; }
+            let hull = facts.hull.and_then(|r| sim().store.vehicle.get(r));
+            let (angle, distance) = if let Some(v) = hull {
+                box_span(origin, &direction, &Matrix4 { elements: v.matrix }, &vec(&v.bounds_min), &vec(&v.bounds_max))
+            } else {
+                facts = query(i as f64, true, false);
+                sphere_span(origin, &direction, &vec(&facts.center), facts.radius)
+            };
+            if angle > cone || distance > range { continue; }
+            if best.is_some() && (best_angle < angle || best_angle == angle && best_distance <= distance) { continue; }
+            facts = query(i as f64, false, true);
+            let mut sight = vec(&facts.aim); sight.sub(origin); let length = sight.length();
+            if length >= 1e-6 {
+                let hit = World::default().cast(origin, sight.divide_scalar(length), length, ignore);
+                if hit.is_some_and(|h| h.body.is_none() || h.body != facts.body) { continue; }
+            }
+            best = Some(LockTarget { id: facts.id, generation: facts.generation, alive: facts.alive });
+            best_angle = angle; best_distance = distance;
+        }
+        if best.is_some() { return best; }
+    }
+    None
+}
+
+/// Collision body identities arrive with topology changes, never per crew.
+#[no_mangle]
+pub extern "C" fn f2_body_words() -> u32 { F2Bodies::WORDS as u32 }
+#[no_mangle]
+pub extern "C" fn f2_bodies() {
+    let a = { let (row, heap) = sim().calls.args(); F2Bodies::take(row, heap) };
+    for row in a.bodies {
+        if state().body_refs.len() <= row.body.slot as usize { state().body_refs.resize(row.body.slot as usize + 1, None); }
+        state().body_refs[row.body.slot as usize] = Some(row.body);
+        collision_world().expect("F2 collision topology").name_body(row.body.slot, row.kernel);
+    }
+}
+
+/// The foreign Vehicles.syncCrews body writes are current before later damage
+/// commands or turret queries can publish these units again. Intents stay frozen.
+pub fn rider_bodies() {
+    let h = F2SeatHeader::take(&state().input, &[]);
+    for i in 0..h.body_count as usize {
+        let at = h.bodies as usize + i * F2RiderIn::WORDS;
+        let a = F2RiderIn::take(&state().input[at..at + F2RiderIn::WORDS], &[]);
+        let Some(u) = sim().store.unit.get_mut(a.unit) else { continue };
+        if u.generation != a.generation { continue; }
+        u.tick_count = a.tick_count;
+        let Some(s) = soldier_mut(u) else { continue }; let p = a.soldier;
+        s.position = p.position; s.previous = p.previous; s.settled = p.settled; s.velocity = p.velocity; s.normal = p.normal;
+        s.aim_yaw = p.aim_yaw; s.aim_pitch = p.aim_pitch; s.air = p.air; s.posture = p.posture; s.grounded = p.grounded;
+        s.dive = p.dive; s.dive_from = p.dive_from; s.lock = p.lock; s.look_x = p.look_x; s.look_y = p.look_y;
+        s.fuel = p.fuel; s.state_time = p.state_time; s.pass_through = p.pass_through;
+    }
 }
