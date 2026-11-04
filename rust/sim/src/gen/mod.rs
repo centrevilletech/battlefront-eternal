@@ -1007,11 +1007,12 @@ pub const IMPORT_WATER_CROSSING: u32 = 129;
 pub const IMPORT_WAVER: u32 = 130;
 pub const IMPORT_WEAPON_ACTION: u32 = 131;
 pub const IMPORT_WORLD_CLOCK: u32 = 132;
-pub const IMPORT_WORLD_EVENTS: u32 = 133;
-pub const IMPORT_WORLD_LOCAL: u32 = 134;
-pub const IMPORT_WORLD_NETWORK: u32 = 135;
-pub const IMPORT_WORLD_STEP: u32 = 136;
-pub const IMPORT_NAMES: [&str; 137] = ["", "aiAwareness", "aiControllerDriver", "aiDispatch", "aiFire", "aiFsm", "aiSchedule", "aiSight", "aiTracker", "aiVehicleWorld", "aiWeapon", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dbAction", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "predictionHullQuery", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver", "weaponAction", "worldClock", "worldEvents", "worldLocal", "worldNetwork", "worldStep"];
+pub const IMPORT_WORLD_CONTROLS: u32 = 133;
+pub const IMPORT_WORLD_EVENTS: u32 = 134;
+pub const IMPORT_WORLD_LOCAL: u32 = 135;
+pub const IMPORT_WORLD_NETWORK: u32 = 136;
+pub const IMPORT_WORLD_STEP: u32 = 137;
+pub const IMPORT_NAMES: [&str; 138] = ["", "aiAwareness", "aiControllerDriver", "aiDispatch", "aiFire", "aiFsm", "aiSchedule", "aiSight", "aiTracker", "aiVehicleWorld", "aiWeapon", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dbAction", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "predictionHullQuery", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver", "weaponAction", "worldClock", "worldControls", "worldEvents", "worldLocal", "worldNetwork", "worldStep"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -1220,6 +1221,7 @@ extern "C" {
     fn bfe_import_waver();
     fn bfe_import_weapon_action();
     fn bfe_import_world_clock();
+    fn bfe_import_world_controls();
     fn bfe_import_world_events();
     fn bfe_import_world_local();
     fn bfe_import_world_network();
@@ -3560,6 +3562,24 @@ pub fn import_world_clock_in(context: &crate::abi::context::Context, args: &Worl
     let args = crate::abi::context::Record::new(WorldClockArgs::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_WORLD_CLOCK, args)?;
     Ok(reply.read(WorldClockReply::take))
+}
+
+/// Asks JavaScript (the import worldControls): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_world_controls(args: &WorldControlsArgs) -> WorldControlsReply {
+    crate::store::calls::import_out(WorldControlsArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_world_controls() };
+    crate::store::calls::import_in(|row, heap| WorldControlsReply::take(row, heap))
+}
+
+/// Calls the explicitly owned native host; no context borrow spans dispatch.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub fn import_world_controls_in(context: &crate::abi::context::Context, args: &WorldControlsArgs) -> Result<WorldControlsReply, crate::abi::context::Failure> {
+    let args = crate::abi::context::Record::new(WorldControlsArgs::WORDS, |row, heap| args.put(row, heap));
+    let reply = context.call_import(IMPORT_WORLD_CONTROLS, args)?;
+    Ok(reply.read(WorldControlsReply::take))
 }
 
 /// Asks JavaScript (the import worldEvents): its arguments go out in the import block,
