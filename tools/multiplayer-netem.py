@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the operator's RTC harness under real UDP loss in a private Linux namespace.
+"""Run the native UDP transport probe under real UDP loss in a private Linux namespace.
 
 Only the namespace's UDP loopback traffic gets netem. The host's routes,
 interfaces, DNS, SSH and application traffic remain outside this namespace.
@@ -22,8 +22,7 @@ def main():
     parser.add_argument('--server-repo', type=Path, default=Path(__file__).resolve().parents[2] / 'battlefront-eternal-server')
     parser.add_argument('--engine', type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument('--data', type=Path)
-    parser.add_argument('--client', choices=('chromium',), default='chromium')
-    parser.add_argument('--playwright-module', type=Path, default=os.environ.get('PLAYWRIGHT_MODULE'))
+    parser.add_argument('--client', choices=('native',), default='native')
     parser.add_argument('--seed', type=int, default=20261012, help='Verified kernel netem PRNG seed; changed packet cadence still changes loss events')
     parser.add_argument('--players', type=int, choices=(1, 2, 8, 32, 64), default=2)
     parser.add_argument('--seconds', type=int, default=20)
@@ -44,8 +43,6 @@ def main():
         args.input_lead_ms = 2 * (args.delay + args.jitter)
     if not 0 <= args.input_lead_ms <= 1400:
         parser.error('Input lead exceeds the bounded local test limits')
-    if not args.playwright_module or not args.playwright_module.is_file():
-        parser.error('Chromium requires --playwright-module or PLAYWRIGHT_MODULE')
     node = shutil.which('node')
     ip = shutil.which('ip')
     tc = shutil.which('tc') or '/usr/sbin/tc'
@@ -59,12 +56,7 @@ def main():
     created = False
     try:
         run(sudo + [ip, 'netns', 'add', namespace]); created = True
-        # A dummy address gives ICE a non-loopback host candidate. Its local
-        # route still crosses this namespace's loopback UDP queue.
         run(ns + [ip, 'link', 'set', 'lo', 'up'])
-        run(ns + [ip, 'link', 'add', 'bfe0', 'type', 'dummy'])
-        run(ns + [ip, 'addr', 'add', '192.0.2.2/32', 'dev', 'bfe0'])
-        run(ns + [ip, 'link', 'set', 'bfe0', 'up'])
         run(ns + [tc, 'qdisc', 'add', 'dev', 'lo', 'root', 'handle', '1:', 'prio'])
         run(ns + [tc, 'qdisc', 'add', 'dev', 'lo', 'parent', '1:3', 'handle', '30:', 'netem',
                   'delay', f'{args.delay}ms', f'{args.jitter}ms', 'loss', f'{args.loss}%', 'limit', '10000'])
@@ -75,10 +67,9 @@ def main():
                         f'BFE_ENGINE_DIR={args.engine.resolve()}',
                         f'BFE_DATA_DIR={(args.data or args.engine / "public").resolve()}',
                         f'BFE_SERVER_REPO={args.server_repo.resolve()}',
-                        f'PLAYWRIGHT_MODULE={args.playwright_module.resolve()}', node,
-                        'tools/multiplayer-chromium.mjs', f'--players={args.players}',
+                        node, 'tools/net-probe.mjs', f'--players={args.players}',
                         f'--seconds={args.seconds}', f'--warmup={args.warmup}',
-                        f'--input-lead-ms={args.input_lead_ms}']
+                        f'--lead={max(6, (args.input_lead_ms * 60 + 999) // 1000)}']
         command_cwd = args.engine.resolve()
         result = subprocess.run(command, cwd=command_cwd, capture_output=True, text=True,
                                 timeout=args.seconds + args.warmup + 180)
@@ -90,28 +81,33 @@ def main():
             if not result.returncode:
                 raise
             report = {'harnessOutput': result.stdout[-8000:]}
-        entity_mismatch = (report.get('profile') != 'entity-v1' or len(report.get('negotiated', [])) != args.players or not all(c.get('entity') for c in report.get('negotiated', [])))
-        if entity_mismatch:
-            report['protocolFailure'] = 'Every actual Chromium peer must negotiate entity-v1; fallback is not a qualification result'
-        if result.returncode or entity_mismatch:
+        contract = report.get('contract', {})
+        clients = report.get('clients', [])
+        protocol_mismatch = (contract.get('protocol') != 3 or
+                             contract.get('profile') != 'snapshot-delta-v1' or
+                             len(clients) != args.players or
+                             any(c.get('errors') or not c.get('packetsPerSecond', 0) for c in clients))
+        if protocol_mismatch:
+            report['protocolFailure'] = 'Every native UDP peer must use protocol 3 and snapshot-delta-v1'
+        if result.returncode or protocol_mismatch:
             report['failed'] = True
             report['harnessFailure'] = {'exitCode': result.returncode, 'stderr': result.stderr[-12000:]}
         report['netemSeed'] = args.seed
         report['netemSeedMeaning'] = 'Verified kernel PRNG initialization; changed packet cadence changes which packets encounter loss'
         report['clientBackend'] = args.client
-        report['requestedProtocol'] = {'revision': 'entity-v1', 'protocol': 2, 'simulation': 'bfe-sim-6', 'stateLifeMs': 50}
-        report['applicationImpairment'] = report.get('impairment')
+        report['requestedProtocol'] = contract
+        report['applicationImpairment'] = report.get('config', {}).get('impairment')
         report['impairment'] = {'kind': 'Linux tc netem on isolated namespace UDP traffic',
                                 'delayEachDirectionMs': args.delay, 'jitterMs': args.jitter, 'packetLossPercent': args.loss}
         report['netemCounters'] = run(ns + [tc, '-s', 'qdisc', 'show', 'dev', 'lo'], capture_output=True, text=True).stdout
         report['netemCountersScope'] = 'Entire scenario, including connection setup and warmup; both UDP directions'
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(report, indent=2) + '\n')
-        print(json.dumps({'report': str(args.output), 'players': args.players, 'status': 'failed' if result.returncode or entity_mismatch else 'completed'}))
-        if entity_mismatch:
-            raise RuntimeError(f'Entity profile was not negotiated; diagnostic report preserved at {args.output}')
+        print(json.dumps({'report': str(args.output), 'players': args.players, 'status': 'failed' if result.returncode or protocol_mismatch else 'completed'}))
+        if protocol_mismatch:
+            raise RuntimeError(f'Current native UDP contract was not negotiated; diagnostic report preserved at {args.output}')
         if result.returncode:
-            raise RuntimeError(f'RTC harness exited {result.returncode}; diagnostic report preserved at {args.output}')
+            raise RuntimeError(f'Native UDP probe exited {result.returncode}; diagnostic report preserved at {args.output}')
     finally:
         if created:
             # Reap only processes inside the namespace this invocation made.

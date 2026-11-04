@@ -4,6 +4,11 @@ The original gamma-space lighting, texture palette, baked lighting, near/far
 scene dissolve, map blur, and HUD ordering are preserved. Bloom, FXAA, and soft
 particle intersections are optional additions.
 
+The Rust battle renderer is enabled by default and shares Three.js's WebGL2
+context. Three.js draws unsupported items and takes over after a renderer
+failure. Launch with `?rustOff` to skip the Rust renderer and its WebAssembly
+entirely. WebGL2 is still required.
+
 ## Findings and fixes
 
 | Area | Finding | Change |

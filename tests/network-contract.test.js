@@ -7,7 +7,7 @@ import { UdpTransport } from '../src/runtime/udp-transport.js';
 
 test('mounted engine manifest agrees with its real wire and replay adapter boundaries', () => {
   assert.equal(NETWORK_CONTRACT.serverAdapterABI,4);
-  assert.equal(NETWORK_CONTRACT.simulation,'bfe-sim-27');
+  assert.equal(NETWORK_CONTRACT.simulation,'bfe-sim-28');
   assert.equal(NETWORK_CONTRACT.ownCorrectionSchema,OWN_PLAYER_SCHEMA);
   assert.equal(NETWORK_CONTRACT.profile,'snapshot-delta-v1');
   assert.ok(Object.isFrozen(NETWORK_CONTRACT));

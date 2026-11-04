@@ -349,13 +349,16 @@ ran its page's main thread flat out and its world worker near its limit in
 a battle, while Chromium's real-time audio thread took 31 to 43% of a core
 for the original (Classic) sound, ahead of both. On stereo speakers the
 original now plays through the light mix (`docs/audio.md`, "The light
-mix"): each voice is its buffer source and two gains, no worklet, no
-reverb, no limiter, and a context that never loads a worklet renders on
-the device's own audio thread. Measured on a desktop Xeon in headless
+mix"), using the Rust voice engine by default, with browser nodes as the
+fallback. It has no reverb or limiter. The initial browser-node light mix
+used a buffer source and two gains per voice without a worklet. Measured
+for that initial implementation on a desktop Xeon in headless
 Chromium (`docs/audio.md`, "Cost"), the page's audio threads in a battle
 went from 24.5% to 16.7% of a core on Theed (13 voices heard) and from
 22.5% to 11.6% on Kamino, whose reverb the full output ran; the engine's
-update on the main thread from about 196 to 115 µs. Enhanced is unchanged.
+update on the main thread from about 196 to 115 µs. These measurements
+compare the browser-node light mix with the previous full output; see
+`docs/audio.md`, "The voice engine", for the current Rust implementation.
 
 A first session on a low-end CPU starts on Classic (`cpu-info.js`
 `lowEndCpu`: four threads or fewer and 4 GB of memory or less, as Chromium

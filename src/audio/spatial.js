@@ -597,10 +597,9 @@ export class Renderer {
   // PC of 2004 summed them, each a gain to each speaker carrying its level
   // and OpenAL Soft's stereo law for its direction, so the image is the
   // Steam build's; streams' channels at its fixed angles; the level the
-  // dynamics profile plays at, and overs clipped softly. Every node is the
-  // browser's own: no worklet runs (nothing in JavaScript on the audio
-  // thread) and there is no reverb, no decoder, no limiter's lookahead, so
-  // the audio thread spends its time on the voices themselves.
+  // dynamics profile plays at, and overs clipped softly. Rust mixes the
+  // voices in a worklet by default; browser sources and gains are the
+  // fallback. Neither path needs reverb, a decoder or limiter lookahead.
   buildLight() {
     const ctx = this.ctx;
     const config = this.config;

@@ -1,3 +1,4 @@
+import { loadRustRenderer } from "./rust-render/load.js";
 import * as THREE from "three";
 import { loadRenderer } from "./rust-render/failure.js";
 import { FXAAFastShader, FXAAShader } from "./fxaa.js";

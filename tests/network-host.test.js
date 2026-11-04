@@ -65,7 +65,7 @@ test('nothing reaches the session before the network process proves the server',
   transport.message({ op: 'recv', items: [['events', JSON.stringify({ type: 'welcome' }), performance.timeOrigin + performance.now()]] });
   assert.equal(received.length, 0);
   assert.equal(channels.get('events').send('x'), false, 'and nothing leaves it');
-  transport.message({ op: 'connected', server: { id: 'a'.repeat(64), hello: { protocol: 3, profile: 'snapshot-delta-v1', simulation: 'bfe-sim-27', content: 'c' } }, path: { kind: 'direct', family: 'IPv4' }, rtt: 12 });
+  transport.message({ op: 'connected', server: { id: 'a'.repeat(64), hello: { protocol: 3, profile: 'snapshot-delta-v1', simulation: 'bfe-sim-28', content: 'c' } }, path: { kind: 'direct', family: 'IPv4' }, rtt: 12 });
   await connecting;
   assert.equal(channels.get('events').readyState, 'open');
   transport.message({ op: 'recv', items: [['events', JSON.stringify({ type: 'welcome' }), performance.timeOrigin + performance.now()]] });

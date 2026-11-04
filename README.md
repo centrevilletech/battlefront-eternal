@@ -6,7 +6,7 @@ maps, armies, sounds and music from your own Steam or GOG copy, through a new
 renderer, a new audio engine, a rebuilt front end and new netcode.
 
 This repository holds the desktop app and the engine: the WebGL renderer
-(built on Three.js), the 60 Hz simulation and the bots, the audio engine,
+(Rust/WebAssembly with Three.js fallback), the 60 Hz simulation and the bots, the audio engine,
 the menus, the multiplayer client and the tools that prepare game data from
 your copy. No original game files are included or distributed.
 

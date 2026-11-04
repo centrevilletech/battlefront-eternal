@@ -6,7 +6,7 @@ export const NETWORK_CONTRACT = Object.freeze({
   manifestVersion: 1,
   protocol: 3,
   profile: 'snapshot-delta-v1',
-  simulation: 'bfe-sim-27',
+  simulation: 'bfe-sim-28',
   serverAdapterABI: 4,
   ownCorrectionSchema: 11,
 });

@@ -438,6 +438,7 @@ try {
   const metrics=await requestMetrics();
   const metricsElapsed=(performance.now()-metricsBegun)/1000;
   const report={
+    contract: wireCompatibility(contract),
     measurement:{begunUnix,endedUnix,pairs,countersBefore,countersAfter,wire,networkBefore,network},
     config:{players,seconds:round(elapsed),warmup,remote:remoteMode?remoteHost:null,clientOffset,transport:'native UDP (BFE-UDP/1)',map,armySize,lead,inputHz:Number(arg('input-hz',30)),moving,firing,impairment:{latencyMs:latency,jitterMs:jitter,loss},stall:{client:stallClient,afterSeconds:stallAfter,seconds:stallSeconds},smoothing},
     server:!metrics?null:{measurementSeconds:metricsElapsed,metricsWindowOwned:reset!==null,ticksPerSecond:reset?round((metrics.tick-reset.tick)/metricsElapsed):null,simulationMs:summary(metrics.sim),publicationMs:summary(metrics.encode),droppedTicks:round(metrics.droppedTicks),liveUnits:metrics.liveUnits,units:metrics.units,humans:metrics.humans,armies:metrics.armies,worldThreadCores:metrics.threadCpu?round((metrics.threadCpu.user+metrics.threadCpu.system)/1e6/metricsElapsed):null,

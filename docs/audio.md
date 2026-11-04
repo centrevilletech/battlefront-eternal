@@ -8,7 +8,7 @@ The port's sound has two modes, switched live in Settings → Audio:
   through what the build's OpenAL Soft 1.20.1 output does with them.
   `docs/formats.md` ("Sound") has the rules. On stereo speakers it plays
   through the light mix (below): the same mix without the reverb, summed by
-  the browser's own nodes, so a slow PC's audio thread can afford it.
+  the Rust voice engine by default, with browser nodes as the fallback.
 - **Enhanced (2026)** keeps every one of those decisions (which sound, when,
   how loud in the mix, from where) and renders them for a 2026 room: a
   spatial sound stage for headphones, stereo, 5.1, 7.1 and 7.1.4, rooms and
@@ -182,7 +182,9 @@ What stands in for something:
   so the two modes match in loudness. Nothing else in the mix changes.
 - **7.1.4** is beyond OpenAL Soft 1.20.1: the original plays 7.1, the
   heights silent.
-- **Resampling** is the browser's, not OpenAL Soft's.
+- **Resampling** follows Chromium's linear interpolation, in Rust for engine
+  voices and in browser buffer sources for fallback voices. It does not use
+  OpenAL Soft's resampler.
 
 Footsteps: the two detectors keep the original game's rules for when a step
 is due (a foot rising from its plant; the stride as the fallback), but the
@@ -222,9 +224,14 @@ from the page and the world worker that already had none to spare. The
 light mix keeps every decision the game makes (which sound, when, how loud,
 the distance curve and the Steam build's falloff, Doppler, the pitch
 glides, the 32 heard voices of 64 and how they are ranked and stolen) and
-sums the result the way a PC of 2004 did, in the browser's own nodes:
+sums the result with the Rust voice engine by default. If WebAssembly is
+unavailable, or `?voices=native` is selected, browser nodes provide the
+fallback. The paths share the same voice decisions and stereo law:
 
-- Each voice is its buffer source and two gains, one into each speaker,
+- The default voice worklet mixes decoded samples in Rust with per-voice
+  levels, pitch glides and stereo gains. It does not create a browser buffer
+  source and gain nodes for each voice.
+- In the browser fallback, each voice is its buffer source and two gains, one into each speaker,
   carrying its level times OpenAL Soft's first-order stereo law for its
   direction (front azimuths widened 1.5 times, as before): three nodes, as
   many as before, with no gain node of its own, no filter, no send and no
@@ -472,8 +479,8 @@ gates).
 - The DSP runs in AudioWorklets (panning, stabilizer, reverb, dynamics,
   meter) and native nodes (filters, convolvers); the main thread only
   decides, and sends each frame's voice directions in one message. The
-  light mix runs no worklet: its panning is two native gains a voice, set
-  from the main thread.
+  light mix uses the Rust voice worklet by default. Its browser fallback
+  pans with two native gains per voice, set from the main thread.
 - Per-battle decoding: only the sub-level's samples load (24 MB of PCM, or
   the enhanced FLACs in the background, six at a time). Streams are
   fetched by byte range per segment, decoded in a worker, and kept for at
@@ -565,11 +572,12 @@ the light mix's device thread alone. The engine's update on the main thread
 (48 voices, 12 heard) went from about 196 to 115 µs: the light mix sends no
 mixer batch and no reverb sends.
 
-What is left is the voices themselves: the browser resamples a voice by
+Before the Rust voice engine, the remaining cost was the voices themselves:
+the browser resamples a voice by
 interpolating whenever it plays at any rate but its sample's own (the
 game's samples are mostly 22.05 kHz), about 13 to 14% of a core for 32
 voices at 48 kHz against 0.9% at their own rate, and in real time every
-node costs something each block. Two ways further, measured and not taken:
+node costs something each block. Two alternatives were measured:
 
 - A context at 22.05 kHz, the rate of most of the game's samples: the
   light mix measured 10% of a core on Theed against 17%. But the music and
@@ -582,8 +590,8 @@ node costs something each block. Two ways further, measured and not taken:
   3.9% of a core for 32 voices against 9 to 14% for the browser's buffer
   sources, the same linear interpolation. It moves the playing of every
   voice (starts, loops, offsets, fades, ends) into the worklet, a larger
-  change, now under way: the enhanced mode's voices play that way behind
-  a switch, and the light mix is next (see "The voice engine").
+  change subsequently implemented in Rust and enabled by default for
+  Enhanced speaker output and the light mix (see "The voice engine").
 
 ## The voice engine
 
