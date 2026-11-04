@@ -3754,6 +3754,10 @@ async function start() {
   chatReady = true;
   game.postsSim = wantBattle && simInstance ? (await import("./posts-sim.js")).attachPostsSim(simInstance, posts) : null;
   game.battleSim = wantBattle && simInstance ? (await import("./battle-sim.js")).attachBattleSim(simInstance, battle) : null;
+  game.spawningSim = game.battleSim && ai?.spawning ? (await import("./spawning-sim.js")).attachSpawningSim(ai.spawning, game.battleSim, game.postsSim) : null;
+  game.trapsSim = wantBattle && simInstance && live?.traps.length ? (await import("./traps-sim.js")).attachTrapsSim(simInstance, live.traps) : null;
+  game.battlefieldSim = wantBattle && simInstance ? (await import("./battlefield-sim.js")).attachBattlefieldSim(simInstance, battlefield, leavingWarning) : null;
+  game.propsSim = wantBattle && simInstance && live ? (await import("./props-sim.js")).attachPropsSim(simInstance, live) : null;
   if (!headless) window.__bf = game;
   if (!headless) await startClient();
   return game;

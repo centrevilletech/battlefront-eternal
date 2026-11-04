@@ -7,13 +7,13 @@ use crate::abi::sim;
 use crate::gen::*;
 use crate::store::{Ref, StrId};
 
-fn swap(s: &mut Store) {
+pub(crate) fn swap(s: &mut Store) {
     let sim = sim();
     std::mem::swap(&mut sim.store.battle, &mut s.battle);
     std::mem::swap(&mut sim.store.character, &mut s.character);
 }
 
-struct ModuleText;
+pub(crate) struct ModuleText;
 impl Text for ModuleText {
     fn nonempty(&self, id: StrId) -> bool { !sim().strings.units(id).is_empty() }
 }

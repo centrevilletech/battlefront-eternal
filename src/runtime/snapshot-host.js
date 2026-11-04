@@ -157,7 +157,7 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
     if (registry) return;
     registry = createEntityRegistry(game.data, { contentEpoch: epoch, inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES, posts: entityPostNames(game), native: native ? createWireRegistryBridge(game.simBridge) : null });
     shots = new EntityShotCounters(game.simEvents, { bridge: native ? game.simBridge : null });
-    combatCapture = new CombatCapture({ tick: () => game.worldClock.tick, definitionId: registry.combat.definitionId, generation: epoch });
+    combatCapture = new CombatCapture({ tick: () => game.worldClock.tick, definitionId: registry.combat.definitionId, generation: epoch, bridge: native ? game.simBridge : null });
     combatDispose = attachCombatCapture(game, combatCapture);
     presentationDispose = attachPresentationCapture(game, combatCapture, registry, nativePresentation);
     capture = new EntityWorldCapture(game, registry, { fireCounter: unit => shots.counter(unit), bridge: native ? game.simBridge : null });
@@ -445,6 +445,6 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
     // them. They stay as no-ops until the server moves to ABI 4.
     ack() {}, admitted() {}, dropped() {},
     advanceEdges, consumedEdges, publish, inspect, staleClients, setLocalInterval,
-    dispose() { for (const id of clients.keys()) removeClient(id); capture?.dispose?.(); stagger.dispose?.(); nativeHost?.dispose(); nativeCosmetics?.dispose(); nativeSemantic?.dispose(); nativePresentation?.dispose(); native?.dispose(); history?.dispose(); presentationDispose?.(); combatDispose?.(); shots?.dispose(); presentationDispose = combatDispose = null; },
+    dispose() { for (const id of clients.keys()) removeClient(id); capture?.dispose?.(); combatCapture?.dispose?.(); stagger.dispose?.(); nativeHost?.dispose(); nativeCosmetics?.dispose(); nativeSemantic?.dispose(); nativePresentation?.dispose(); native?.dispose(); history?.dispose(); presentationDispose?.(); combatDispose?.(); shots?.dispose(); presentationDispose = combatDispose = null; },
   };
 }

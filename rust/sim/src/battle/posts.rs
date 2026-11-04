@@ -246,7 +246,7 @@ pub fn class_spawn_world<W: PostsWorld + ?Sized>(s: &Store, p: SpawnPost, world:
         SpawnPost::MobilePost(r) => {
             let post = s.mobile_post.get(r).expect("a command vehicle's post");
             match post.vehicle {
-                Some(_) if post.active => world.class_spawn_world(r),
+                Some(_) if post.active => world.class_spawn_world(s, r),
                 _ => Vec::new(),
             }
         }

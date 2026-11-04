@@ -17,3 +17,4 @@ pub use module::Runtime;
 pub mod registry;
 pub mod capture;
 pub mod shots;
+pub mod combat;

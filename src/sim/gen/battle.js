@@ -42,6 +42,15 @@ export const PsQueryOp_INDEX = new Map(PsQueryOp_NAMES.map((name, i) => [name, i
 export const PsMobileEventKind_NAMES = ["lost","owner"];
 export const PsMobileEventKind_INDEX = new Map(PsMobileEventKind_NAMES.map((name, i) => [name, i]));
 
+export const SpOperation_NAMES = ["update","clock","updateCharacters","updateCharacter","awaitingHuman","setClass","activate","pickClass","prepare","choosePost","reserve","release","changePost","tickets","spendTicket","waiting","spawn","onDeath","onHumanReady","switchTeam","padQuotas","queueOf"];
+export const SpOperation_INDEX = new Map(SpOperation_NAMES.map((name, i) => [name, i]));
+
+export const SpQueryOp_NAMES = ["draw","health","heroName","spawnGoal"];
+export const SpQueryOp_INDEX = new Map(SpQueryOp_NAMES.map((name, i) => [name, i]));
+
+export const SpActionOp_NAMES = ["spawnUnit","forceKill","requestObjective","republish"];
+export const SpActionOp_INDEX = new Map(SpActionOp_NAMES.map((name, i) => [name, i]));
+
 export function variantOfPostRef(b, x) {
   if (x === null) return 0;
   if (x === undefined) return 1;
@@ -1516,6 +1525,7 @@ export class PsQueryArgsMirror {
     this.building = null;
     this.vehicle = null;
     this.post = null;
+    this.points = [];
   }
 }
 
@@ -1525,6 +1535,7 @@ export function syncPsQueryArgs(b, f, at, h, m) {
   { const tag = f[at + 2]; if (tag === 0) { m.building = b.refs[KIND_BUILDING].at(f[at + 3], f[at + 4]); } else m.building = tag === 1 ? null : undefined; }
   { const tag = f[at + 5]; if (tag === 0) { m.vehicle = b.refs[KIND_VEHICLE].at(f[at + 6], f[at + 7]); } else m.vehicle = tag === 1 ? null : undefined; }
   { const tag = f[at + 8]; if (tag === 0) { m.post = b.refs[KIND_MOBILE_POST].at(f[at + 9], f[at + 10]); } else m.post = tag === 1 ? null : undefined; }
+  { const items = (m.points ??= []), start = h + f[at + 11], n = f[at + 12]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 4; { const a = (v ??= new Array(4)); a[0] = f[at + 0]; a[1] = f[at + 1]; a[2] = f[at + 2]; a[3] = f[at + 3]; } } items[i] = v; } }
   return m;
 }
 
@@ -1534,6 +1545,7 @@ export function putPsQueryArgs(b, o, f, at, heap) {
   { const $x = o.building; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; f[at + 4] = 0; } else { f[at + 2] = 0; b.refs[KIND_BUILDING].put($x, f, at + 3); } }
   { const $x = o.vehicle; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f[at + 6] = 0; f[at + 7] = 0; } else { f[at + 5] = 0; b.refs[KIND_VEHICLE].put($x, f, at + 6); } }
   { const $x = o.post; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; f[at + 10] = 0; } else { f[at + 8] = 0; b.refs[KIND_MOBILE_POST].put($x, f, at + 9); } }
+  heap.items(o.points, f, at + 11, 4, (f, at, v) => { { const $v = v; f[at + 0] = $v[0]; f[at + 1] = $v[1]; f[at + 2] = $v[2]; f[at + 3] = $v[3]; } });
 }
 
 export function samePsQueryArgs(a, b) {
@@ -1542,6 +1554,7 @@ export function samePsQueryArgs(a, b) {
   { const p = a.building, q = b.building; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".building"; } else { if (!Object.is(p, q)) return ".building"; } }
   { const p = a.vehicle, q = b.vehicle; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".vehicle"; } else { if (!Object.is(p, q)) return ".vehicle"; } }
   { const p = a.post, q = b.post; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".post"; } else { if (!Object.is(p, q)) return ".post"; } }
+  if (!sameEach(a.points, b.points, (x, y) => sameArray(x, y, 4))) return ".points";
   return null;
 }
 
@@ -1555,6 +1568,7 @@ export function exportPsQueryArgs(o, cx) {
   v.building = ((x) => (x === null || x === undefined ? x : cx.ref("building", x)))(o.building);
   v.vehicle = ((x) => (x === null || x === undefined ? x : cx.ref("vehicle", x)))(o.vehicle);
   v.post = ((x) => (x === null || x === undefined ? x : cx.ref("mobilePost", x)))(o.post);
+  v.points = o.points.map((x) => [...x]);
   return v;
 }
 
@@ -1604,6 +1618,295 @@ export function exportPsQueryResult(o, cx) {
   v.position = [...o.position];
   v.pad = ((x) => (x === null || x === undefined ? x : exportPsPad(x, cx)))(o.pad);
   v.points = o.points.map((x) => [...x]);
+  return v;
+}
+
+export class SpInputMirror {
+  constructor() {
+    this.op = "update";
+    this.dt = NaN;
+    this.team = NaN;
+    this.character = null;
+    this.classIndex = null;
+    this.className = null;
+    this.post = null;
+    this.hasPost = false;
+    this.human = false;
+    this.own = false;
+  }
+}
+
+export function syncSpInput(b, f, at, h, m) {
+  m.op = SpOperation_NAMES[f[at + 0]];
+  m.dt = f[at + 1];
+  m.team = f[at + 2];
+  { const tag = f[at + 3]; if (tag === 0) { m.character = b.refs[KIND_CHARACTER].at(f[at + 4], f[at + 5]); } else m.character = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.classIndex = f[at + 7]; } else m.classIndex = tag === 1 ? null : undefined; }
+  { const tag = f[at + 8]; if (tag === 0) { m.className = b.strings.at(f[at + 9]); } else m.className = tag === 1 ? null : undefined; }
+  m.post = syncPostRef(b, f, at + 10, h, m.post);
+  m.hasPost = f[at + 13] !== 0;
+  m.human = f[at + 14] !== 0;
+  m.own = f[at + 15] !== 0;
+  return m;
+}
+
+export function putSpInput(b, o, f, at, heap) {
+  f[at + 0] = SpOperation_INDEX.get(o.op);
+  f[at + 1] = o.dt;
+  f[at + 2] = o.team;
+  { const $x = o.character; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 3] = 0; b.refs[KIND_CHARACTER].put($x, f, at + 4); } }
+  { const $x = o.classIndex; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = $x; } }
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = b.strings.id($x); } }
+  putPostRef(b, o.post, f, at + 10, heap);
+  f[at + 13] = o.hasPost ? 1 : 0;
+  f[at + 14] = o.human ? 1 : 0;
+  f[at + 15] = o.own ? 1 : 0;
+}
+
+export function sameSpInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.character, q = b.character; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".character"; } else { if (!Object.is(p, q)) return ".character"; } }
+  { const p = a.classIndex, q = b.classIndex; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".classIndex"; } else { if (!Object.is(p, q)) return ".classIndex"; } }
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  if (!samePostRef(a.post, b.post)) return ".post";
+  if (!Object.is(a.hasPost, b.hasPost)) return ".hasPost";
+  if (!Object.is(a.human, b.human)) return ".human";
+  if (!Object.is(a.own, b.own)) return ".own";
+  return null;
+}
+
+export function exportSpInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.dt = o.dt;
+  v.team = o.team;
+  v.character = ((x) => (x === null || x === undefined ? x : cx.ref("character", x)))(o.character);
+  v.classIndex = o.classIndex;
+  v.className = o.className;
+  v.post = exportPostRef(o.post, cx);
+  v.hasPost = o.hasPost;
+  v.human = o.human;
+  v.own = o.own;
+  return v;
+}
+
+export class SpResultMirror {
+  constructor() {
+    this.number = NaN;
+    this.flag = false;
+    this.post = null;
+    this.unit = null;
+  }
+}
+
+export function syncSpResult(b, f, at, h, m) {
+  m.number = f[at + 0];
+  m.flag = f[at + 1] !== 0;
+  m.post = syncPostRef(b, f, at + 2, h, m.post);
+  { const tag = f[at + 5]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 6], f[at + 7]); } else m.unit = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putSpResult(b, o, f, at, heap) {
+  f[at + 0] = o.number;
+  f[at + 1] = o.flag ? 1 : 0;
+  putPostRef(b, o.post, f, at + 2, heap);
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f[at + 6] = 0; f[at + 7] = 0; } else { f[at + 5] = 0; b.refs[KIND_UNIT].put($x, f, at + 6); } }
+}
+
+export function sameSpResult(a, b) {
+  if (!Object.is(a.number, b.number)) return ".number";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  if (!samePostRef(a.post, b.post)) return ".post";
+  { const p = a.unit, q = b.unit; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".unit"; } else { if (!Object.is(p, q)) return ".unit"; } }
+  return null;
+}
+
+export function exportSpResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.number = o.number;
+  v.flag = o.flag;
+  v.post = exportPostRef(o.post, cx);
+  v.unit = ((x) => (x === null || x === undefined ? x : cx.ref("unit", x)))(o.unit);
+  return v;
+}
+
+export class SpQueryArgsMirror {
+  constructor() {
+    this.op = "draw";
+    this.unit = null;
+    this.className = null;
+    this.character = null;
+  }
+}
+
+export function syncSpQueryArgs(b, f, at, h, m) {
+  m.op = SpQueryOp_NAMES[f[at + 0]];
+  { const tag = f[at + 1]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 2], f[at + 3]); } else m.unit = tag === 1 ? null : undefined; }
+  { const tag = f[at + 4]; if (tag === 0) { m.className = b.strings.at(f[at + 5]); } else m.className = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.character = b.refs[KIND_CHARACTER].at(f[at + 7], f[at + 8]); } else m.character = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putSpQueryArgs(b, o, f, at, heap) {
+  f[at + 0] = SpQueryOp_INDEX.get(o.op);
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; f[at + 3] = 0; } else { f[at + 1] = 0; b.refs[KIND_UNIT].put($x, f, at + 2); } }
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = b.strings.id($x); } }
+  { const $x = o.character; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; f[at + 8] = 0; } else { f[at + 6] = 0; b.refs[KIND_CHARACTER].put($x, f, at + 7); } }
+}
+
+export function sameSpQueryArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const p = a.unit, q = b.unit; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".unit"; } else { if (!Object.is(p, q)) return ".unit"; } }
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  { const p = a.character, q = b.character; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".character"; } else { if (!Object.is(p, q)) return ".character"; } }
+  return null;
+}
+
+export function exportSpQueryArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.unit = ((x) => (x === null || x === undefined ? x : cx.ref("unit", x)))(o.unit);
+  v.className = o.className;
+  v.character = ((x) => (x === null || x === undefined ? x : cx.ref("character", x)))(o.character);
+  return v;
+}
+
+export class SpQueryResultMirror {
+  constructor() {
+    this.number = NaN;
+    this.name = null;
+    this.goal = null;
+  }
+}
+
+export function syncSpQueryResult(b, f, at, h, m) {
+  m.number = f[at + 0];
+  { const tag = f[at + 1]; if (tag === 0) { m.name = b.strings.at(f[at + 2]); } else m.name = tag === 1 ? null : undefined; }
+  { const tag = f[at + 3]; if (tag === 0) { { const a = (m.goal ??= new Array(3)); a[0] = f[at + 4]; a[1] = f[at + 5]; a[2] = f[at + 6]; } } else m.goal = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putSpQueryResult(b, o, f, at, heap) {
+  f[at + 0] = o.number;
+  { const $x = o.name; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; } else { f[at + 1] = 0; f[at + 2] = b.strings.id($x); } }
+  { const $x = o.goal; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; f[at + 6] = 0; } else { f[at + 3] = 0; { const $v = $x; f[at + 4] = $v[0]; f[at + 5] = $v[1]; f[at + 6] = $v[2]; } } }
+}
+
+export function sameSpQueryResult(a, b) {
+  if (!Object.is(a.number, b.number)) return ".number";
+  { const p = a.name, q = b.name; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".name"; } else { if (!Object.is(p, q)) return ".name"; } }
+  { const p = a.goal, q = b.goal; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".goal"; } else { if (!sameArray(p, q, 3)) return ".goal"; } }
+  return null;
+}
+
+export function exportSpQueryResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.number = o.number;
+  v.name = o.name;
+  v.goal = ((x) => (x === null || x === undefined ? x : [...x]))(o.goal);
+  return v;
+}
+
+export class SpActionArgsMirror {
+  constructor() {
+    this.op = "spawnUnit";
+    this.character = null;
+    this.unit = null;
+    this.className = null;
+    this.post = null;
+    this.position = [NaN, NaN, NaN];
+    this.yaw = undefined;
+  }
+}
+
+export function syncSpActionArgs(b, f, at, h, m) {
+  m.op = SpActionOp_NAMES[f[at + 0]];
+  m.character = b.refs[KIND_CHARACTER].at(f[at + 1], f[at + 2]);
+  { const tag = f[at + 3]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 4], f[at + 5]); } else m.unit = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { m.className = b.strings.at(f[at + 7]); } else m.className = tag === 1 ? null : undefined; }
+  m.post = syncPostRef(b, f, at + 8, h, m.post);
+  { const a = (m.position ??= new Array(3)); a[0] = f[at + 11]; a[1] = f[at + 12]; a[2] = f[at + 13]; }
+  { const tag = f[at + 14]; if (tag === 0) { m.yaw = f[at + 15]; } else m.yaw = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putSpActionArgs(b, o, f, at, heap) {
+  f[at + 0] = SpActionOp_INDEX.get(o.op);
+  b.refs[KIND_CHARACTER].put(o.character, f, at + 1);
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; f[at + 5] = 0; } else { f[at + 3] = 0; b.refs[KIND_UNIT].put($x, f, at + 4); } }
+  { const $x = o.className; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = b.strings.id($x); } }
+  putPostRef(b, o.post, f, at + 8, heap);
+  { const $v = o.position; f[at + 11] = $v[0]; f[at + 12] = $v[1]; f[at + 13] = $v[2]; }
+  { const $x = o.yaw; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f[at + 15] = 0; } else { f[at + 14] = 0; f[at + 15] = $x; } }
+}
+
+export function sameSpActionArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.character, b.character)) return ".character";
+  { const p = a.unit, q = b.unit; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".unit"; } else { if (!Object.is(p, q)) return ".unit"; } }
+  { const p = a.className, q = b.className; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".className"; } else { if (!Object.is(p, q)) return ".className"; } }
+  if (!samePostRef(a.post, b.post)) return ".post";
+  if (!sameArray(a.position, b.position, 3)) return ".position";
+  { const p = a.yaw, q = b.yaw; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".yaw"; } else { if (!Object.is(p, q)) return ".yaw"; } }
+  return null;
+}
+
+export function exportSpActionArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.character = cx.ref("character", o.character);
+  v.unit = ((x) => (x === null || x === undefined ? x : cx.ref("unit", x)))(o.unit);
+  v.className = o.className;
+  v.post = exportPostRef(o.post, cx);
+  v.position = [...o.position];
+  v.yaw = o.yaw;
+  return v;
+}
+
+export class SpActionResultMirror {
+  constructor() {
+    this.unit = null;
+  }
+}
+
+export function syncSpActionResult(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { m.unit = b.refs[KIND_UNIT].at(f[at + 1], f[at + 2]); } else m.unit = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putSpActionResult(b, o, f, at, heap) {
+  { const $x = o.unit; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; } else { f[at + 0] = 0; b.refs[KIND_UNIT].put($x, f, at + 1); } }
+}
+
+export function sameSpActionResult(a, b) {
+  { const p = a.unit, q = b.unit; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".unit"; } else { if (!Object.is(p, q)) return ".unit"; } }
+  return null;
+}
+
+export function exportSpActionResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.unit = ((x) => (x === null || x === undefined ? x : cx.ref("unit", x)))(o.unit);
   return v;
 }
 
