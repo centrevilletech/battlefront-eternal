@@ -701,6 +701,8 @@ function weaponNoise(weapon, sounds) {
 // sound table: until it is wired they stand in with 2 x speed up to 50
 // (provisional).
 export function noiseRadius(unit, sounds = null) {
+  const native=unit?.controller?.ai?.world?.aiSim;
+  if(native)return native.awareness.noise(unit,sounds);
   const v = unit.velocity;
   const speed = v ? f(Math.sqrt(lengthSq32(v.x, v.y, v.z))) : 0;
   const k = unit.kind;
@@ -723,6 +725,7 @@ const n3 = { x: 0, y: 0, z: 0 };
 
 // `source` is a unit (bot or human). Returns how many bots were notified.
 export function broadcastAcoustic(source, world, sounds = null) {
+  if(world.aiSim)return world.aiSim.awareness.broadcast(source,world,sounds);
   if (!source?.alive) return 0;
   const raw = noiseRadius(source, sounds);
   const R = raw <= 30 ? raw : 30;

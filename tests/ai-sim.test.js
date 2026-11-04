@@ -8,9 +8,9 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, TargetTracker, broadcastAcoustic, noiseRadius, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
-import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
+import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -636,6 +636,55 @@ test('native weapon utility preserves exact damage math and callback-visible acc
     return {out,history,ownerKind:owner.kind};
   }
   for(let i=0;i<3072;i++)assert.deepEqual(run(true,i),run(false,i),`weapon utility ${i}`);
+});
+
+test('native acoustic and protection services preserve query reuse, limits and nested notifications', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0,nested=false,announced=false;const history=[],world={aiSim:native?sim:null};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(6000).fill(3));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapons=[{def:{MuteDistance:400},wait:.01},{def:{MuteDistance:'80'},charging:true},{def:{MuteDistance:NaN},busy:true}];
+    const units=Array.from({length:210},(_,id)=>({id,alive:true,generation:0,kind:id%9,team:id%3,position:new Vector3(id%9,0,id%11),velocity:new Vector3(),human:false}));
+    for(const u of units) {
+      const fire=new FireControl();if(native)sim.bindFire(fire);
+      u.controller={ai:{world},perception:{fire},addAcoustic(ref){
+        log('notify',u.id,ref.unit.id,ref.generation);
+        if(!nested && !announced && tick%17===0){announced=true;nested=true;log('nested',broadcastAcoustic(units[2],world,sounds));nested=false;}
+        if(tick%29===0)units[1].generation++;
+      }};
+      u.combat={arsenal:{current(channel){log('current',u.id,channel);return tick%13===0?null:weapons[(u.id+tick)%weapons.length];}}};
+    }
+    const buffers=new Map();
+    world.units={
+      *living(){log('living');for(let i=0;i<units.length;i++)if(units[i].alive){yield units[i];if(i===11 && tick%31===0)units[20].alive=false;}},
+      relation(a,b){return a===b?1:a===0||b===0?0:-1;},
+      query(at,radius,out,predicate){
+        log('query',radius,at.toArray());const key=radius===50?'protected':'acoustic';
+        if(buffers.has(key))assert.equal(out,buffers.get(key),'source query buffer identity');else buffers.set(key,out);
+        out.length=0;for(const u of units)if(u.alive&&predicate(u))out.push(u);
+        if(nested)out.splice(9);
+        if(tick%19===0)at.y+=.5;
+      },
+    };
+    function sounds(w){log('sound',weapons.indexOf(w));if(tick%23===0)units[0].velocity.z=9;return [undefined,null,0,-0,22,NaN][tick%6];}
+    return {world,units,weapons,history,sounds,setTick:i=>{tick=i;announced=false;}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<192;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;
+      for(const u of x.units){u.alive=(u.id+i)%37!==0;u.human=u.id<i%11;u.kind=(u.id+i)%9;u.generation=Math.floor(i/19);
+        u.position.set((u.id%9)-4,u.id%3?0:10,u.id%11);u.velocity.set(i%17===0?NaN:(u.id+i)%20,0,-0);}
+      const source=x.units[i%3];source.kind=i%9;source.alive=i%41!==0;
+      x.noise= noiseRadius(source,x.sounds);
+      x.count=broadcastAcoustic(source,x.world,x.sounds);
+      assert.equal(rebuildProtectedHumans(x.world),undefined);
+    }
+    assert.equal(n.noise,j.noise,`noise ${i}`);assert.equal(n.count,j.count,`broadcast count ${i}`);
+    assert.deepEqual(n.history,j.history,`awareness callbacks ${i}`);
+    const snapshot=x=>x.units.map(u=>[u.alive,u.generation,u.position.toArray(),u.controller.perception.fire.protected.map(r=>[r.unit.id,r.generation])]);
+    assert.deepEqual(snapshot(n),snapshot(j),`awareness state ${i}`);
+  }
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {

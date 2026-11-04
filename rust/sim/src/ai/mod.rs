@@ -5,6 +5,8 @@
 
 pub mod combat;
 mod aim_module;
+#[cfg(target_arch = "wasm32")]
+mod awareness_module;
 mod fire_module;
 #[cfg(target_arch = "wasm32")]
 mod fire_service_module;

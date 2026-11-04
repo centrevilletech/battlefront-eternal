@@ -956,6 +956,7 @@ function perpSq(rx, ry, rz, d) {
 const near = [];
 
 export function rebuildProtectedHumans(world) {
+  if(world.aiSim){world.aiSim.awareness.rebuild(world);return;}
   const units = world.units;
   const humans = [];
   for (const u of units.living()) if (u.human) humans.push(u);
