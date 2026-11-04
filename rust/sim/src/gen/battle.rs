@@ -346,6 +346,109 @@ impl PsMobileEventKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SpOperation {
+    #[default] Update = 0,
+    Clock = 1,
+    UpdateCharacters = 2,
+    UpdateCharacter = 3,
+    AwaitingHuman = 4,
+    SetClass = 5,
+    Activate = 6,
+    PickClass = 7,
+    Prepare = 8,
+    ChoosePost = 9,
+    Reserve = 10,
+    Release = 11,
+    ChangePost = 12,
+    Tickets = 13,
+    SpendTicket = 14,
+    Waiting = 15,
+    Spawn = 16,
+    OnDeath = 17,
+    OnHumanReady = 18,
+    SwitchTeam = 19,
+    PadQuotas = 20,
+    QueueOf = 21,
+}
+
+impl SpOperation {
+    pub const NAMES: [&'static str; 22] = ["update", "clock", "updateCharacters", "updateCharacter", "awaitingHuman", "setClass", "activate", "pickClass", "prepare", "choosePost", "reserve", "release", "changePost", "tickets", "spendTicket", "waiting", "spawn", "onDeath", "onHumanReady", "switchTeam", "padQuotas", "queueOf"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(SpOperation::Update),
+            1 => Some(SpOperation::Clock),
+            2 => Some(SpOperation::UpdateCharacters),
+            3 => Some(SpOperation::UpdateCharacter),
+            4 => Some(SpOperation::AwaitingHuman),
+            5 => Some(SpOperation::SetClass),
+            6 => Some(SpOperation::Activate),
+            7 => Some(SpOperation::PickClass),
+            8 => Some(SpOperation::Prepare),
+            9 => Some(SpOperation::ChoosePost),
+            10 => Some(SpOperation::Reserve),
+            11 => Some(SpOperation::Release),
+            12 => Some(SpOperation::ChangePost),
+            13 => Some(SpOperation::Tickets),
+            14 => Some(SpOperation::SpendTicket),
+            15 => Some(SpOperation::Waiting),
+            16 => Some(SpOperation::Spawn),
+            17 => Some(SpOperation::OnDeath),
+            18 => Some(SpOperation::OnHumanReady),
+            19 => Some(SpOperation::SwitchTeam),
+            20 => Some(SpOperation::PadQuotas),
+            21 => Some(SpOperation::QueueOf),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SpQueryOp {
+    #[default] Draw = 0,
+    Health = 1,
+    HeroName = 2,
+}
+
+impl SpQueryOp {
+    pub const NAMES: [&'static str; 3] = ["draw", "health", "heroName"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(SpQueryOp::Draw),
+            1 => Some(SpQueryOp::Health),
+            2 => Some(SpQueryOp::HeroName),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SpActionOp {
+    #[default] SpawnUnit = 0,
+    ForceKill = 1,
+    RequestObjective = 2,
+    Republish = 3,
+}
+
+impl SpActionOp {
+    pub const NAMES: [&'static str; 4] = ["spawnUnit", "forceKill", "requestObjective", "republish"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(SpActionOp::SpawnUnit),
+            1 => Some(SpActionOp::ForceKill),
+            2 => Some(SpActionOp::RequestObjective),
+            3 => Some(SpActionOp::Republish),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PostRef {
     Null,
@@ -1384,28 +1487,31 @@ pub struct PsQueryArgs {
     pub building: Option<Ref<Building>>,
     pub vehicle: Option<Ref<Vehicle>>,
     pub post: Option<Ref<MobilePost>>,
+    pub points: Vec<[f64; 4]>,
 }
 
 impl PsQueryArgs {
-    pub const WORDS: usize = 11;
+    pub const WORDS: usize = 13;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 11] = (&mut row[..11]).try_into().unwrap();
+        let row: &mut [f64; 13] = (&mut row[..13]).try_into().unwrap();
         row[0] = self.op as u8 as f64;
         row[1] = self.number;
         match &self.building { Some(v) => { row[2] = 0.0; row[2 + 1] = (*v).slot as f64; row[2 + 1 + 1] = (*v).gen as f64; } None => { row[2] = 1.0; row[2 + 1..2 + 3].fill(0.0); } }
         match &self.vehicle { Some(v) => { row[5] = 0.0; row[5 + 1] = (*v).slot as f64; row[5 + 1 + 1] = (*v).gen as f64; } None => { row[5] = 1.0; row[5 + 1..5 + 3].fill(0.0); } }
         match &self.post { Some(v) => { row[8] = 0.0; row[8 + 1] = (*v).slot as f64; row[8 + 1 + 1] = (*v).gen as f64; } None => { row[8] = 1.0; row[8 + 1..8 + 3].fill(0.0); } }
+        { let at = heap.len(); row[11] = at as f64; row[11 + 1] = self.points.len() as f64; heap.resize(at + self.points.len() * 4, 0.0); for (i, e) in self.points.iter().enumerate() { let mut item = [0.0f64; 4]; { let row = &mut item; row[0..0 + 4].copy_from_slice(&(*e)); } heap[at + i * 4..at + (i + 1) * 4].copy_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 11] = (&row[..11]).try_into().unwrap();
+        let row: &[f64; 13] = (&row[..13]).try_into().unwrap();
         Self {
             op: PsQueryOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             number: row[1],
             building: if row[2] == 0.0 { Some(Ref::new(word_u32(row[2 + 1]), word_u32(row[2 + 1 + 1]))) } else { None },
             vehicle: if row[5] == 0.0 { Some(Ref::new(word_u32(row[5 + 1]), word_u32(row[5 + 1 + 1]))) } else { None },
             post: if row[8] == 0.0 { Some(Ref::new(word_u32(row[8 + 1]), word_u32(row[8 + 1 + 1]))) } else { None },
+            points: { let (at, n) = (word_u32(row[11]) as usize, word_u32(row[11 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push({ let mut a = [0.0; 4]; a.copy_from_slice(&row[0..0 + 4]); a }); } out },
         }
     }
 
@@ -1440,6 +1546,201 @@ impl PsQueryResult {
             position: { let mut a = [0.0; 3]; a.copy_from_slice(&row[2..2 + 3]); a },
             pad: if row[5] == 0.0 { Some(PsPad::take(&row[5 + 1..], heap)) } else { None },
             points: { let (at, n) = (word_u32(row[34]) as usize, word_u32(row[34 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push({ let mut a = [0.0; 4]; a.copy_from_slice(&row[0..0 + 4]); a }); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpInput {
+    pub op: SpOperation,
+    pub dt: f64,
+    pub team: f64,
+    pub character: Option<Ref<Character>>,
+    pub class_index: Option<f64>,
+    pub class_name: Option<StrId>,
+    pub post: PostRef,
+    pub has_post: bool,
+    pub human: bool,
+    pub own: bool,
+}
+
+impl SpInput {
+    pub const WORDS: usize = 16;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 16] = (&mut row[..16]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        row[1] = self.dt;
+        row[2] = self.team;
+        match &self.character { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v).slot as f64; row[3 + 1 + 1] = (*v).gen as f64; } None => { row[3] = 1.0; row[3 + 1..3 + 3].fill(0.0); } }
+        match &self.class_index { Some(v) => { row[6] = 0.0; row[6 + 1] = (*v); } None => { row[6] = 1.0; row[6 + 1..6 + 2].fill(0.0); } }
+        match &self.class_name { Some(v) => { row[8] = 0.0; row[8 + 1] = (*v).0 as f64; } None => { row[8] = 1.0; row[8 + 1..8 + 2].fill(0.0); } }
+        self.post.put(&mut row[10..10 + 3], heap);
+        row[13] = if self.has_post { 1.0 } else { 0.0 };
+        row[14] = if self.human { 1.0 } else { 0.0 };
+        row[15] = if self.own { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 16] = (&row[..16]).try_into().unwrap();
+        Self {
+            op: SpOperation::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            dt: row[1],
+            team: row[2],
+            character: if row[3] == 0.0 { Some(Ref::new(word_u32(row[3 + 1]), word_u32(row[3 + 1 + 1]))) } else { None },
+            class_index: if row[6] == 0.0 { Some(row[6 + 1]) } else { None },
+            class_name: if row[8] == 0.0 { Some(StrId(word_u32(row[8 + 1]))) } else { None },
+            post: PostRef::take(&row[10..10 + 3], heap),
+            has_post: row[13] != 0.0,
+            human: row[14] != 0.0,
+            own: row[15] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpResult {
+    pub number: f64,
+    pub flag: bool,
+    pub post: PostRef,
+    pub unit: Option<Ref<Unit>>,
+}
+
+impl SpResult {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        row[0] = self.number;
+        row[1] = if self.flag { 1.0 } else { 0.0 };
+        self.post.put(&mut row[2..2 + 3], heap);
+        match &self.unit { Some(v) => { row[5] = 0.0; row[5 + 1] = (*v).slot as f64; row[5 + 1 + 1] = (*v).gen as f64; } None => { row[5] = 1.0; row[5 + 1..5 + 3].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            number: row[0],
+            flag: row[1] != 0.0,
+            post: PostRef::take(&row[2..2 + 3], heap),
+            unit: if row[5] == 0.0 { Some(Ref::new(word_u32(row[5 + 1]), word_u32(row[5 + 1 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpQueryArgs {
+    pub op: SpQueryOp,
+    pub unit: Option<Ref<Unit>>,
+    pub class_name: Option<StrId>,
+}
+
+impl SpQueryArgs {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        match &self.unit { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).slot as f64; row[1 + 1 + 1] = (*v).gen as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 3].fill(0.0); } }
+        match &self.class_name { Some(v) => { row[4] = 0.0; row[4 + 1] = (*v).0 as f64; } None => { row[4] = 1.0; row[4 + 1..4 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            op: SpQueryOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            unit: if row[1] == 0.0 { Some(Ref::new(word_u32(row[1 + 1]), word_u32(row[1 + 1 + 1]))) } else { None },
+            class_name: if row[4] == 0.0 { Some(StrId(word_u32(row[4 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpQueryResult {
+    pub number: f64,
+    pub name: Option<StrId>,
+}
+
+impl SpQueryResult {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.number;
+        match &self.name { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v).0 as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            number: row[0],
+            name: if row[1] == 0.0 { Some(StrId(word_u32(row[1 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpActionArgs {
+    pub op: SpActionOp,
+    pub character: Ref<Character>,
+    pub unit: Option<Ref<Unit>>,
+    pub class_name: Option<StrId>,
+    pub post: PostRef,
+    pub position: [f64; 3],
+    pub yaw: Option<f64>,
+}
+
+impl SpActionArgs {
+    pub const WORDS: usize = 16;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 16] = (&mut row[..16]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        row[1] = self.character.slot as f64; row[1 + 1] = self.character.gen as f64;
+        match &self.unit { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v).slot as f64; row[3 + 1 + 1] = (*v).gen as f64; } None => { row[3] = 1.0; row[3 + 1..3 + 3].fill(0.0); } }
+        match &self.class_name { Some(v) => { row[6] = 0.0; row[6 + 1] = (*v).0 as f64; } None => { row[6] = 1.0; row[6 + 1..6 + 2].fill(0.0); } }
+        self.post.put(&mut row[8..8 + 3], heap);
+        row[11..11 + 3].copy_from_slice(&self.position);
+        match &self.yaw { Some(v) => { row[14] = 0.0; row[14 + 1] = (*v); } None => { row[14] = 2.0; row[14 + 1..14 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 16] = (&row[..16]).try_into().unwrap();
+        Self {
+            op: SpActionOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            character: Ref::new(word_u32(row[1]), word_u32(row[1 + 1])),
+            unit: if row[3] == 0.0 { Some(Ref::new(word_u32(row[3 + 1]), word_u32(row[3 + 1 + 1]))) } else { None },
+            class_name: if row[6] == 0.0 { Some(StrId(word_u32(row[6 + 1]))) } else { None },
+            post: PostRef::take(&row[8..8 + 3], heap),
+            position: { let mut a = [0.0; 3]; a.copy_from_slice(&row[11..11 + 3]); a },
+            yaw: if row[14] == 0.0 { Some(row[14 + 1]) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SpActionResult {
+    pub unit: Option<Ref<Unit>>,
+}
+
+impl SpActionResult {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        match &self.unit { Some(v) => { row[0] = 0.0; row[0 + 1] = (*v).slot as f64; row[0 + 1 + 1] = (*v).gen as f64; } None => { row[0] = 1.0; row[0 + 1..0 + 3].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            unit: if row[0] == 0.0 { Some(Ref::new(word_u32(row[0 + 1]), word_u32(row[0 + 1 + 1]))) } else { None },
         }
     }
 

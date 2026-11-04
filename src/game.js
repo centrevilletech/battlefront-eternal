@@ -3754,6 +3754,7 @@ async function start() {
   chatReady = true;
   game.postsSim = wantBattle && simInstance ? (await import("./posts-sim.js")).attachPostsSim(simInstance, posts) : null;
   game.battleSim = wantBattle && simInstance ? (await import("./battle-sim.js")).attachBattleSim(simInstance, battle) : null;
+  game.spawningSim = game.battleSim && ai?.spawning ? (await import("./spawning-sim.js")).attachSpawningSim(ai.spawning, game.battleSim, game.postsSim) : null;
   if (!headless) window.__bf = game;
   if (!headless) await startClient();
   return game;

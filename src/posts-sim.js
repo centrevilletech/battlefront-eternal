@@ -2,7 +2,7 @@
 // loss, containment, scoring queries and command-vehicle ownership.
 import { bridgeFor } from './sim/runtime.js';
 import { KIND_COMMAND_POSTS, KIND_POST, KIND_MOBILE_POSTS, KIND_MOBILE_POST, PsResultMirror, putPsInput, syncPsResult } from './sim/gen/index.js';
-import { MobilePost, isCommandClass } from './mobile-posts.js';
+import { MobilePost, commandSpawnPoint, isCommandClass } from './mobile-posts.js';
 
 const xyz = p => [p.x, p.y, p.z];
 const change = c => c && (c.kind === 'captured' ? { kind: c.kind, by: c.by }
@@ -34,12 +34,12 @@ export function attachPostsSim(instance, source) {
   const output = { Mirror: PsResultMirror, sync: syncPsResult };
   const emptyMobile = { posts: [] };
   bridge.register({
-    postsQuery({ op, number, building, vehicle, post }) {
+    postsQuery({ op, number, building, vehicle, points }) {
       const out = { number: 0, flag: false, position: [0, 0, 0], pad: null, points: [] };
       if (op === 'captureTeam') out.number = source.teams ? source.teams.captureTeam(number) : number;
       else if (op === 'buildingAlive') out.flag = Boolean(building.alive);
       else if (op === 'vehiclePosition') out.position = xyz(vehicle.position);
-      else if (op === 'classSpawnWorld') out.points = post.ai.classSpawnWorld;
+      else if (op === 'classSpawnWorld') out.points = points.map(point => commandSpawnPoint(vehicle, point));
       else if (op === 'pad') {
         const p = source.mobile.posts.find(p => p.index === number);
         out.pad = { variants: [...(p.slot.variants?.values?.() ?? [])].map(v => hull(v, p.classes)), vehicle: p.slot.vehicle ? hull(p.slot.vehicle, p.classes) : null };
@@ -96,5 +96,17 @@ export function attachPostsSim(instance, source) {
       refresh() { run('refresh', { mobile: post }); return post; },
     });
   }
-  return { bridge, source };
+  return { bridge, source,
+    feed() {
+      bridge.write(KIND_POST, source.posts, true);
+      bridge.write(KIND_COMMAND_POSTS, [source], true);
+      bridge.write(KIND_MOBILE_POST, source.mobile?.posts ?? [], true);
+      bridge.write(KIND_MOBILE_POSTS, [source.mobile ?? emptyMobile], true);
+    },
+    sync() {
+      bridge.sync(KIND_POST);
+      bridge.sync(KIND_COMMAND_POSTS, source);
+      bridge.sync(KIND_MOBILE_POST);
+    },
+  };
 }

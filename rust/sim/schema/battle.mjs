@@ -29,6 +29,9 @@ export default {
     PsOperation: ['update', 'all', 'owned', 'at', 'mobileEvents', 'refreshAll', 'refresh', 'postUpdate', 'destroy', 'contains', 'remaining'],
     PsQueryOp: ['captureTeam', 'buildingAlive', 'pad', 'vehiclePosition', 'classSpawnWorld'],
     PsMobileEventKind: ['lost', 'owner'],
+    SpOperation: ['update', 'clock', 'updateCharacters', 'updateCharacter', 'awaitingHuman', 'setClass', 'activate', 'pickClass', 'prepare', 'choosePost', 'reserve', 'release', 'changePost', 'tickets', 'spendTicket', 'waiting', 'spawn', 'onDeath', 'onHumanReady', 'switchTeam', 'padQuotas', 'queueOf'],
+    SpQueryOp: ['draw', 'health', 'heroName'],
+    SpActionOp: ['spawnUnit', 'forceKill', 'requestObjective', 'republish'],
   },
   unions: {
     // A post the AI sends a Character to, or one he spawns at: a placed
@@ -70,8 +73,14 @@ export default {
     PsClass: { atk: 'list:f64|null', def: 'list:f64|null', valueBleed: 'f64|null', points: 'list:f64x4' },
     PsHull: { vehicle: 'ref:vehicle', alive: 'bool', command: 'bool', generation: 'f64', team: 'f64', controllingTeam: 'f64', seated: 'bool', yaw: 'f64', name: 'str', label: 'str', radius: 'f64', speed: 'f64', valueBleed: 'f64', record: 'rec:PsClass|null' },
     PsPad: { variants: 'list:rec:PsHull', vehicle: 'rec:PsHull|null' },
-    PsQueryArgs: { op: 'enum:PsQueryOp', number: 'f64', building: 'ref:building|null', vehicle: 'ref:vehicle|null', post: 'ref:mobilePost|null' },
+    PsQueryArgs: { op: 'enum:PsQueryOp', number: 'f64', building: 'ref:building|null', vehicle: 'ref:vehicle|null', post: 'ref:mobilePost|null', points: 'list:f64x4' },
     PsQueryResult: { number: 'f64', flag: 'bool', position: 'f64x3', pad: 'rec:PsPad|null', points: 'list:f64x4' },
+    SpInput: { op: 'enum:SpOperation', dt: 'f64', team: 'f64', character: 'ref:character|null', classIndex: 'f64|null', className: 'str|null', post: 'union:PostRef', hasPost: 'bool', human: 'bool', own: 'bool' },
+    SpResult: { number: 'f64', flag: 'bool', post: 'union:PostRef', unit: 'ref:unit|null' },
+    SpQueryArgs: { op: 'enum:SpQueryOp', unit: 'ref:unit|null', className: 'str|null' },
+    SpQueryResult: { number: 'f64', name: 'str|null' },
+    SpActionArgs: { op: 'enum:SpActionOp', character: 'ref:character', unit: 'ref:unit|null', className: 'str|null', post: 'union:PostRef', position: 'f64x3', yaw: 'f64|undefined' },
+    SpActionResult: { unit: 'ref:unit|null' },
     // A team as the mission's table gives it (map.json mission.teams).
     TeamDesc: { units: 'f64|undefined', reinforcements: 'f64|undefined', bleed: 'list:f64x2|undefined' },
     // The kills ring the sprees count in (battle-stats.js BattleStats.ring).
@@ -316,5 +325,7 @@ export default {
     battleQuery: { args: 'BrQueryArgs', result: 'BrQueryResult' },
     battleOver: { args: 'BrNumber', result: null },
     postsQuery: { args: 'PsQueryArgs', result: 'PsQueryResult' },
+    spawningQuery: { args: 'SpQueryArgs', result: 'SpQueryResult' },
+    spawningAction: { args: 'SpActionArgs', result: 'SpActionResult' },
   },
 };

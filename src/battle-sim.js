@@ -59,5 +59,5 @@ export function attachBattleSim(instance, battle) {
     updateLocals(team) { run('updateLocals', { team }); },
   };
   Object.defineProperties(battle, Object.fromEntries(Object.entries(methods).map(([name, value]) => [name, { value, configurable: true }])));
-  return { bridge, source: battle };
+  return { bridge, source: battle, feed, sync };
 }

@@ -8,7 +8,7 @@ use crate::gen::*;
 use crate::store::Ref;
 use three::Vector3;
 
-fn swap(s: &mut Store) {
+pub(crate) fn swap(s: &mut Store) {
     let sim = sim();
     std::mem::swap(&mut sim.store.command_posts, &mut s.command_posts);
     std::mem::swap(&mut sim.store.post, &mut s.post);
@@ -17,7 +17,7 @@ fn swap(s: &mut Store) {
 }
 
 fn query(op: PsQueryOp, number: f64, building: Option<Ref<Building>>, vehicle: Option<Ref<Vehicle>>, post: Option<Ref<MobilePost>>) -> PsQueryResult {
-    import_posts_query(&PsQueryArgs { op, number, building, vehicle, post })
+    import_posts_query(&PsQueryArgs { op, number, building, vehicle, post, points: Vec::new() })
 }
 
 fn hull(h: PsHull) -> Hull {
@@ -27,12 +27,16 @@ fn hull(h: PsHull) -> Hull {
         record: h.record.map(|r| ClassRecord { atk: r.atk, def: r.def, value_bleed: r.value_bleed, spawn_points: r.points }) }
 }
 
-struct JsPostsWorld;
+pub(crate) struct JsPostsWorld;
 impl PostsWorld for JsPostsWorld {
     fn capture_team(&mut self, team: f64) -> f64 { query(PsQueryOp::CaptureTeam, team, None, None, None).number }
     fn building_alive(&mut self, building: Ref<Building>) -> bool { query(PsQueryOp::BuildingAlive, 0.0, Some(building), None, None).flag }
     fn vehicle_position(&mut self, vehicle: Ref<Vehicle>) -> [f64; 3] { query(PsQueryOp::VehiclePosition, 0.0, None, Some(vehicle), None).position }
-    fn class_spawn_world(&mut self, post: Ref<MobilePost>) -> Vec<[f64; 4]> { query(PsQueryOp::ClassSpawnWorld, 0.0, None, None, Some(post)).points }
+    fn class_spawn_world(&mut self, s: &Store, post: Ref<MobilePost>) -> Vec<[f64; 4]> {
+        let p = s.mobile_post.get(post).expect("a mobile post");
+        import_posts_query(&PsQueryArgs { op: PsQueryOp::ClassSpawnWorld, number: 0.0,
+            building: None, vehicle: p.vehicle, post: Some(post), points: p.ai.points.clone() }).points
+    }
     fn pad(&mut self, slot: f64) -> Pad {
         let p = query(PsQueryOp::Pad, slot, None, None, None).pad.expect("a command vehicle pad");
         Pad { variants: p.variants.into_iter().map(hull).collect(), vehicle: p.vehicle.map(hull) }
