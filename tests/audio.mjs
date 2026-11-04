@@ -8,8 +8,8 @@ const base = process.env.AUDIO_TEST_URL || "http://127.0.0.1:18449";
 const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
 try {
   let total = 0;
-  // Chromium can exhaust native HRTF resources after many offline
-  // contexts in one page. Give each headphone master a fresh page.
+  // Long runs of offline contexts can render HRTF silence on both sides
+  // in Chromium. Give each headphone master a fresh page.
   for (const headphoneMaster of [null, "classic", "binaural", "hrtf"]) {
     const page = await browser.newPage();
     const errors = [];
