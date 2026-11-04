@@ -8,6 +8,7 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
+import { PriorityHeap } from '../src/ai/classic/perception.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -24,6 +25,33 @@ async function pair(options = {}) {
   sim.bindNavigation(native, json, null, options);
   return { js, native, sim };
 }
+
+test('native perception queues preserve ties, discarded values and bounded object retention', async () => {
+  const {sim}=await pair();
+  const random=new ClassicRandom(581);
+  for(const capacity of [1,5,112,200]) {
+    const j=new PriorityHeap(capacity,20000),n=sim.heap(capacity,20000);
+    const ji=j.items,ni=n.items,jp=j.priority,np=n.priority;
+    for(let i=0;i<2048;i++) {
+      const kind=i%23;
+      if(i%257===0) {j.clear();n.clear();}
+      else if(kind<17) {
+        const priority=i%47===0?NaN:i%41===0?-Infinity:i%31===0?-0:i%29===0?-(2**40)-i:random.int(-2,20)+i%3/4;
+        const item=i%13===0?null:i%17===0?undefined:{i};
+        assert.equal(n.insert(priority,item),j.insert(priority,item));
+      } else if(kind<21) assert.equal(n.pop(),j.pop());
+      else { assert.equal(n.peek(),j.peek());assert.equal(n.peekPriority(),j.peekPriority()); }
+      assert.equal(n.size,j.size);assert.equal(n.count,j.count);assert.equal(n.dropped,j.dropped);
+      assert.equal(n.minIndex(),j.minIndex());
+      assert.deepEqual(ni,ji,`retained items after ${capacity}:${i}`);
+      assert.deepEqual(np,jp,`retained priorities after ${capacity}:${i}`);
+      assert.deepEqual(n.slots(),j.slots());
+      assert.ok(n.values.size<=capacity,'released values do not accumulate');
+    }
+    if(j.count) {const item={placed:true};j.place(j.count,-3.25,item);n.place(n.count,-3.25,item);assert.deepEqual(n.items,j.items);assert.deepEqual(n.priority,j.priority);}
+    j.clear();n.clear();assert.equal(n.values.size,0);assert.deepEqual(ni,ji);assert.deepEqual(np,jp);
+  }
+});
 
 test('native AI geometry and hints match the source with exact query outputs', async () => {
   const { js, native } = await pair();

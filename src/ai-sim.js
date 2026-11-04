@@ -128,14 +128,23 @@ export class AiSim {
   }
 
   bindCombat(ai) {
+    const los=ai.world?.deferredLos;
+    if(los) {
+      if(los.active.size || los.scratch.size) throw Error('native sight queues must bind before scanning');
+      los.active=this.heap(los.active.capacity,los.active.priority[0]);
+      los.scratch=this.heap(los.scratch.capacity,los.scratch.priority[0]);
+    }
     const create = ai.combat.createPerception;
     ai.combat.createPerception = (...args) => {
       const perception = create(...args);
+      if(perception.heap.size) throw Error('native perception must bind before scanning');
+      perception.heap=this.heap(perception.heap.capacity,perception.heap.priority[0]);
       perception.aimer = this.aimer();
       return perception;
     };
   }
 
+  heap(capacity,sentinel) { return new NativePriorityHeap(this,capacity,sentinel); }
   aimer() { return new NativeAimer(this); }
   enhancedAimer(random,profile,skill=1) { return new NativeEnhancedAimer(this,random,profile,skill); }
 
@@ -143,6 +152,54 @@ export class AiSim {
     const ptr=this.x.sim_call_room(values.length,0);
     this.bridge.views();this.bridge.f.set(values,ptr/8+HEADER);
   }
+}
+
+class NativePriorityHeap {
+  constructor(sim,capacity,sentinel) {
+    this.sim=sim;this.id=sim.x.ai_heap_new(capacity,sentinel);this.capacity=capacity;
+    this.values=new Map();this.next=1;this.count=0;this.dropped=0;
+    this.observed=false;
+    this.itemView=new Array(capacity+1).fill(null);this.priorityView=new Int32Array(capacity+1);
+  }
+  get size() { return this.count; }
+  run(op,priority=0,item=0,slot=0) {
+    this.sim.x.ai_heap_command(this.id,op,priority,item,slot);
+    const answer=this.sim.out(),result=answer[0];this.count=answer[1];this.dropped=answer[2];
+    if(this.observed)this.read();
+    return result;
+  }
+  value(token) { return token===0?null:this.values.get(token); }
+  token(item) {
+    if(this.next>0xffffffff) throw Error('perception item tokens exhausted');
+    const token=this.next++;this.values.set(token,item);return token;
+  }
+  clear() { this.run(0);this.values.clear(); }
+  place(slot,priority,item) { this.run(6,priority,this.token(item),slot);this.read(true); }
+  minIndex() { return this.run(5); }
+  insert(priority,item) {
+    const result=this.run(1,priority,this.token(item)),value=this.value(result);
+    if(result)this.values.delete(result);
+    return value;
+  }
+  peek() { return this.value(this.run(2)); }
+  peekPriority() { return this.run(3); }
+  pop() {
+    const token=this.run(4),value=this.value(token);
+    if(token)this.values.delete(token);
+    return value;
+  }
+  read(prune=false) {
+    this.sim.x.ai_heap_read(this.id);const answer=this.sim.out();
+    this.count=answer[0];this.dropped=answer[1];const kept=new Set();
+    for(let i=0;i<=this.capacity;i++) {
+      this.priorityView[i]=answer[2+i*2];const token=answer[3+i*2];
+      this.itemView[i]=this.value(token);if(token)kept.add(token);
+    }
+    if(prune)for(const token of this.values.keys())if(!kept.has(token))this.values.delete(token);
+  }
+  get priority() { this.observed=true;this.read();return this.priorityView; }
+  get items() { this.observed=true;this.read();return this.itemView; }
+  slots() { this.read();return this.itemView.slice(1,this.count+1); }
 }
 
 // These facades keep the vector identities used by the gun and fire cone.
