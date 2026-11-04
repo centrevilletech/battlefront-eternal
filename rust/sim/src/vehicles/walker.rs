@@ -94,9 +94,11 @@ pub fn stand_on_legs<W: VehicleWorld>(v: &mut Hull, w: &mut W, dt: f64, legs: &s
     let mut q = Quaternion::default();
     q.set_from_euler(&Euler::new(-v.tilt, v.yaw, v.roll, EulerOrder::YXZ));
     let mut heights: Vec<f64> = Vec::with_capacity(legs.pairs.len());
-    if v.leg_side.is_none() {
+    let created = v.leg_side.is_none();
+    if created {
         v.leg_side = Some(vec![0.0; legs.pairs.len()]);
     }
+    w.leg_side(v.index, v.leg_side.as_mut().unwrap(), created);
     for (i, pair) in legs.pairs.iter().enumerate() {
         let mut h = [0.0; 2];
         for (j, at) in pair.iter().enumerate() {
@@ -113,7 +115,12 @@ pub fn stand_on_legs<W: VehicleWorld>(v: &mut Hull, w: &mut W, dt: f64, legs: &s
         heights.push(if legs.orient_roll { (h[0] + h[1]) / 2.0 } else { lo + (hi - lo) * clamp((hi - l / 2.0) / (0.4 * l), 0.0, 1.0) });
         let side = clamp(-0.6 * (h[0] - h[1]), -1.0, 1.0);
         let sides = v.leg_side.as_mut().unwrap();
+        w.leg_side(v.index, sides, false);
+        // A shared array can be shortened by a query callback. JavaScript
+        // then reads undefined, adds to NaN, and extends it at this index.
+        if sides.len() <= i { sides.resize(i + 1, f64::NAN); }
         sides[i] += (side - sides[i]) * min(1.0, 0.4 * k);
+        w.leg_side(v.index, sides, true);
     }
     // The rays meet terrain and buildings, not water: a walker wades.
     if heights.len() >= 2 {
