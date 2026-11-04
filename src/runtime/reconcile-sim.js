@@ -1,6 +1,7 @@
 import { bridgeFor } from '../sim/runtime.js';
 
 const unsupported = Symbol('observable reconciliation state');
+const hasOwn = Object.hasOwn;
 const typed = Object.getOwnPropertyDescriptors(Object.getPrototypeOf(Float64Array.prototype));
 const floatSlice = Float64Array.prototype.slice, floatSort = Float64Array.prototype.sort;
 const floatSpecies = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Float64Array), Symbol.species);
@@ -19,14 +20,14 @@ function data(value, key) {
   if (!object(value)) throw unsupported;
   const found = descriptor(value, key);
   if (!found) return undefined;
-  if (!('value' in found)) throw unsupported;
+  if (!hasOwn(found, 'value')) throw unsupported;
   return found.value;
 }
 function writable(value, keys, owned = true) {
   if (!object(value)) throw unsupported;
   for (const key of keys) {
     const own = Object.getOwnPropertyDescriptor(value, key), found = own || descriptor(value, key);
-    if (owned && !own || found && (!('value' in found) || !found.writable) || !own && !Object.isExtensible(value)) throw unsupported;
+    if (owned && !own || found && (!hasOwn(found, 'value') || !found.writable) || !own && !Object.isExtensible(value)) throw unsupported;
   }
 }
 function numbers(value, keys, write = false) {
@@ -63,18 +64,18 @@ function metadata(make) {
 }
 function species(value, expected) {
   const found = descriptor(value, Symbol.species);
-  return found && found.get === expected.get && found.set === expected.set && !('value' in found);
+  return found && !hasOwn(found, 'value') && found.get === expected.get && found.set === expected.set;
 }
 function ring(value, memory, sorted = false) {
   if (!(value instanceof Float64Array) || Object.getPrototypeOf(value) !== Float64Array.prototype
     || Reflect.apply(typed[Symbol.toStringTag].get, value, []) !== 'Float64Array') throw unsupported;
   for (const key of ['length', 'buffer', 'byteOffset', 'byteLength']) {
     const found = descriptor(value, key), expected = typed[key];
-    if (!found || found.get !== expected.get || found.set !== expected.set || 'value' in found) throw unsupported;
+    if (!found || hasOwn(found, 'value') || found.get !== expected.get || found.set !== expected.set) throw unsupported;
   }
   if (value.buffer === memory.buffer || typeof SharedArrayBuffer === 'function' && value.buffer instanceof SharedArrayBuffer) throw unsupported;
-  if (sorted && (descriptor(value, 'slice')?.value !== floatSlice || descriptor(value, 'sort')?.value !== floatSort
-    || descriptor(value, 'constructor')?.value !== Float64Array || !species(Float64Array, floatSpecies))) throw unsupported;
+  if (sorted && (data(value, 'slice') !== floatSlice || data(value, 'sort') !== floatSort
+    || data(value, 'constructor') !== Float64Array || !species(Float64Array, floatSpecies))) throw unsupported;
   const copy = new Array(value.length);
   for (let i = 0; i < copy.length; i++) copy[i] = value[i];
   return { value, copy };
@@ -85,12 +86,12 @@ function counter(at, count, length) {
 }
 function commands(value, sliced = false) {
   if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
-    || descriptor(value, 'filter')?.value !== arrayFilter || descriptor(value, 'constructor')?.value !== Array
-    || !species(Array, arraySpecies) || sliced && descriptor(value, 'slice')?.value !== arraySlice) throw unsupported;
+    || data(value, 'filter') !== arrayFilter || data(value, 'constructor') !== Array
+    || !species(Array, arraySpecies) || sliced && data(value, 'slice') !== arraySlice) throw unsupported;
   const copy = new Array(value.length);
   for (let i = 0; i < copy.length; i++) {
     const item = Object.getOwnPropertyDescriptor(value, String(i));
-    if (!item || !('value' in item)) throw unsupported;
+    if (!item || !hasOwn(item, 'value')) throw unsupported;
     copy[i] = item.value;
   }
   return copy;

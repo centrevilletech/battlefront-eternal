@@ -9,12 +9,83 @@ import { PredictionWindow, retainPredictionCommands } from '../src/runtime/predi
 import { reconcileNumericCases, reconcileCallbackCases, reconcileArithmeticCases, runReconcileCase, ringBytes, leadState, smootherState, estimatorState, attempt, windowFixture } from './fixtures/prediction-reconcile-cases.js';
 
 const callback = name => reconcileCallbackCases().find(c => c.name === name);
+const defineProperty = Object.defineProperty, ownDescriptor = Object.getOwnPropertyDescriptor;
 function twin(scenario, native) {
   const actual = runReconcileCase(scenario, native), expected = runReconcileCase(scenario);
   assert.deepEqual(actual.result, expected.result, scenario.name);
   if (scenario.native) assert.ok(actual.calls > 0, `${scenario.name} delegates`);
   return actual.result;
 }
+
+test('descriptor eligibility distinguishes own fields from inherited markers at every boundary', async () => {
+  const originalMarker = ownDescriptor(Object.prototype, 'value');
+  const phases = [], native = createReconcileSim(await loadSim(), { trace: event => phases.push(event.op) });
+  const run = (mode, native) => {
+    const events = [], marker = ownDescriptor(Object.prototype, 'value');
+    let operation, cleanup = () => {};
+    if (mode === 'estimate' || mode === 'estimate-throw') {
+      const estimator = new WorldTickEstimator({ hz: 2 }, { native });
+      defineProperty(estimator, 'offset', { configurable: true, get() {
+        events.push('offset'); if (mode === 'estimate-throw') throw null; return 3;
+      } });
+      operation = () => estimator.estimate(2);
+    } else if (mode === 'length' || mode === 'write') {
+      const smoother = new CorrectionSmoother({}, { native }); let x = 2;
+      smoother.y = 3; smoother.z = 4;
+      defineProperty(smoother, 'x', { configurable: true, get() { events.push('x'); return x; },
+        set(value) { events.push(['x', value]); x = value; } });
+      operation = () => mode === 'write' ? smoother.reset() : smoother.length;
+    } else if (mode.startsWith('ring-')) {
+      const lead = new InputLead({ gapWindow: 3 }, { native });
+      lead.gaps.set([9, 2, 5]); lead.gapCount = 3;
+      const field = mode.slice(5);
+      if (['slice', 'sort', 'constructor', 'buffer'].includes(field)) {
+        const value = lead.gaps[field];
+        defineProperty(lead.gaps, field, { configurable: true, get() { events.push(field); return value; } });
+      } else if (field === 'species') {
+        const saved = ownDescriptor(Float64Array, Symbol.species);
+        defineProperty(Float64Array, Symbol.species, { configurable: true, get() { events.push('species'); return Float64Array; } });
+        cleanup = () => { delete Float64Array[Symbol.species]; if (saved) defineProperty(Float64Array, Symbol.species, saved); };
+      }
+      operation = () => { lead.measure(); return lead.worstGap; };
+    } else {
+      const command = { generation: 1, epoch: 1, tick: 11 }, commands = [command], field = mode.slice(6);
+      if (['filter', 'slice', 'constructor'].includes(field)) {
+        const value = commands[field];
+        defineProperty(commands, field, { configurable: true, get() { events.push(field); return value; } });
+      } else if (field === 'entry') {
+        defineProperty(commands, 0, { configurable: true, get() { events.push('entry'); return command; } });
+      } else if (field === 'species') {
+        const saved = ownDescriptor(Array, Symbol.species);
+        defineProperty(Array, Symbol.species, { configurable: true, get() { events.push('species'); return Array; } });
+        cleanup = () => { delete Array[Symbol.species]; if (saved) defineProperty(Array, Symbol.species, saved); };
+      }
+      operation = () => { const selected = retainPredictionCommands(commands, 12, 1, 1, 3, { native }); return [selected.length, selected[0] === command]; };
+    }
+    let value, thrown = false, error;
+    defineProperty(Object.prototype, 'value', { value: 17, configurable: true, writable: true });
+    try { value = operation(); }
+    catch (caught) { thrown = true; error = caught; }
+    finally {
+      delete Object.prototype.value;
+      try { cleanup(); }
+      finally { if (marker) defineProperty(Object.prototype, 'value', marker); }
+    }
+    return { value, thrown, error, events };
+  };
+  try {
+    for (const mode of ['estimate', 'estimate-throw', 'length', 'write', 'ring-data', 'ring-buffer', 'ring-slice', 'ring-sort', 'ring-constructor', 'ring-species',
+      'array-data', 'array-filter', 'array-slice', 'array-constructor', 'array-entry', 'array-species']) {
+      const before = phases.length, actual = run(mode, native), expected = run(mode, null);
+      assert.deepEqual(actual, expected, mode);
+      if (mode === 'estimate') assert.deepEqual(actual.events, ['offset', 'offset']);
+      if (mode === 'estimate-throw') { assert.equal(actual.thrown, true); assert.equal(actual.error, null); }
+      if (mode === 'ring-data') assert.ok(phases.slice(before).includes(7), 'ordinary typed storage remains native with an inherited marker');
+      if (mode === 'array-data') assert.ok(phases.slice(before).includes(15), 'ordinary command storage remains native with an inherited marker');
+      assert.deepEqual(ownDescriptor(Object.prototype, 'value'), originalMarker);
+    }
+  } finally { native.dispose(); }
+});
 
 test('native timing and window phases match numeric boundaries and retained command identity', async () => {
   const counts = Array(16).fill(0), native = createReconcileSim(await loadSim(), { trace: e => counts[e.op]++ });
