@@ -93,10 +93,10 @@ impl World for Served<'_, '_> {
     fn kill(&mut self, s: &mut HumanSpawn, events: &mut Vec<Event>) {
         if let Some((_, at)) = self.call("human.kill") { self.restore(at, s, events); }
     }
-    fn cancel(&mut self) {
+    fn cancel(&mut self, _: &mut HumanSpawn, _: &mut Vec<Event>) {
         if let Some((_, at)) = self.call("human.cancel") { self.reads = self.afters[at].reads.clone(); }
     }
-    fn rejected(&mut self, _: StrId, _: f64) {}
+    fn rejected(&mut self, _: &mut HumanSpawn, _: &mut Vec<Event>, _: StrId, _: f64) {}
 }
 
 fn replay(frame: &Frame) -> Result<(), String> {

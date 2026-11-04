@@ -5,6 +5,12 @@
 // (src/ai/classic/spawning.js). What these objects hold that is content (a
 // mission's team table, a post's rules and regions), the AI's (a post's AI
 // record) or a page's (holograms, colours) is read and not mirrored.
+const humanFields = {
+  auto: 'rec:HumanAuto|null', className: 'str', post: 'str|null',
+  phase: 'enum:HumanPhase', canSwitchTeams: 'bool', spawnedOnce: 'bool',
+  deadTime: 'f64', pending: 'rec:HumanPick|null', ended: 'bool',
+};
+
 export default {
   enums: {
     // A post changing hands (CommandPosts.events: captured, neutralized, or
@@ -13,6 +19,19 @@ export default {
     // A region's TYPE (the world files name no other).
     RegionType: ['sphere', 'box', 'cylinder'],
     HumanPhase: ['unspawned', 'alive', 'dying', 'awaiting'],
+    HsOperation: ['update', 'apply', 'phase', 'realize', 'died', 'spawned', 'teamChanged', 'state', 'authority'],
+    HsQueryOp: ['team', 'dead', 'over', 'roster', 'classic', 'characterSpawn', 'canSpawn'],
+    HsActionOp: ['setTeam', 'spawn', 'ready', 'kill', 'cancel', 'rejected'],
+    HsEventKind: ['awaitingSpawn', 'spawned', 'teamChanged', 'playerDied'],
+    HsCommandKind: ['team', 'spawn', 'suicide', 'cancel'],
+    BrOperation: ['update', 'spend', 'credit', 'headshot', 'vehicleDestroyed', 'point', 'postDestroyed', 'score', 'updateTeam', 'updateLocals'],
+    BrQueryOp: ['relation', 'unitAlive', 'observe', 'living', 'owned', 'statsActive'],
+    PsOperation: ['update', 'all', 'owned', 'at', 'mobileEvents', 'refreshAll', 'refresh', 'postUpdate', 'destroy', 'contains', 'remaining'],
+    PsQueryOp: ['captureTeam', 'buildingAlive', 'pad', 'vehiclePosition', 'classSpawnWorld'],
+    PsMobileEventKind: ['lost', 'owner'],
+    SpOperation: ['update', 'clock', 'updateCharacters', 'updateCharacter', 'awaitingHuman', 'setClass', 'activate', 'pickClass', 'prepare', 'choosePost', 'reserve', 'release', 'changePost', 'tickets', 'spendTicket', 'waiting', 'spawn', 'onDeath', 'onHumanReady', 'switchTeam', 'padQuotas', 'queueOf'],
+    SpQueryOp: ['draw', 'health', 'heroName', 'spawnGoal'],
+    SpActionOp: ['spawnUnit', 'forceKill', 'requestObjective', 'republish'],
   },
   unions: {
     // A post the AI sends a Character to, or one he spawns at: a placed
@@ -27,6 +46,41 @@ export default {
   records: {
     HumanPick: { className: 'str', post: 'str|null' },
     HumanAuto: { team: 'f64', className: 'str', post: 'str|null' },
+    // The live bridge hands owned values across callbacks. Neither the
+    // store nor the string table stays borrowed while JavaScript runs.
+    HsOwned: humanFields,
+    HsState: { phase: 'enum:HumanPhase', team: 'f64', className: 'str', classIndex: 'f64', post: 'str|null', canSwitchTeams: 'bool', over: 'bool' },
+    HsEvent: { kind: 'enum:HsEventKind', state: 'rec:HsState|null', team: 'f64', previous: 'f64', className: 'str|null', post: 'str|null' },
+    HsCommand: { kind: 'enum:HsCommandKind', team: 'f64', className: 'str|null', post: 'str|null' },
+    HsAuthority: { phase: 'enum:HumanPhase', className: 'str|null', post: 'str|null', spawnedOnce: 'bool', ended: 'bool', deadTime: 'f64', pending: 'rec:HumanPick|null', auto: 'rec:HumanAuto|null' },
+    HsInput: { op: 'enum:HsOperation', dt: 'f64', commands: 'list:rec:HsCommand', className: 'str|null', post: 'str|null', team: 'f64', previous: 'f64', authority: 'rec:HsAuthority|null' },
+    HsResult: { events: 'list:rec:HsEvent', view: 'rec:HsState|null' },
+    HsQueryArgs: { op: 'enum:HsQueryOp', team: 'f64', className: 'str|null' },
+    HsQueryResult: { number: 'f64', flag: 'bool', roster: 'list:str', present: 'bool', hasUnit: 'bool', timer: 'f64' },
+    HsActionArgs: { op: 'enum:HsActionOp', state: 'rec:HsOwned', events: 'list:rec:HsEvent', team: 'f64', className: 'str|null', post: 'str|null' },
+    HsActionResult: { state: 'rec:HsOwned', accepted: 'bool' },
+    BrInput: { op: 'enum:BrOperation', dt: 'f64', team: 'f64', count: 'f64', victim: 'ref:character|null', killer: 'ref:character|null', relation: 'f64' },
+    BrNumber: { value: 'f64' },
+    BrFavourite: { key: 'str|null', label: 'str|null' },
+    BrSeen: { position: 'f64x3|null', health: 'f64|null', weapon: 'rec:BrFavourite|null', vehicle: 'rec:BrFavourite|null', classLabel: 'str|null' },
+    BrQueryArgs: { op: 'enum:BrQueryOp', a: 'f64', b: 'f64', unit: 'ref:unit|null', character: 'ref:character|null' },
+    BrQueryResult: { number: 'f64', optionalNumber: 'f64|null', flag: 'bool', values: 'list:(f64|undefined)', seen: 'rec:BrSeen|null' },
+    PsCapturer: { team: 'f64', position: 'f64x3' },
+    PsInput: { op: 'enum:PsOperation', dt: 'f64', team: 'f64', post: 'ref:post|null', mobile: 'ref:mobilePost|null', position: 'f64x3', soldiers: 'list:rec:PsCapturer' },
+    PsChange: { kind: 'enum:PostChange', from: 'f64|undefined', by: 'f64|undefined', destroyed: 'bool|undefined' },
+    PsMobileEvent: { kind: 'enum:PsMobileEventKind', post: 'ref:mobilePost', vehicle: 'ref:vehicle|null', from: 'f64', to: 'f64|undefined' },
+    PsResult: { list: 'list:union:SpawnPost', post: 'ref:post|null', mobileEvents: 'list:rec:PsMobileEvent', change: 'rec:PsChange|null', number: 'f64', flag: 'bool' },
+    PsClass: { atk: 'list:f64|null', def: 'list:f64|null', valueBleed: 'f64|null', points: 'list:f64x4' },
+    PsHull: { vehicle: 'ref:vehicle', alive: 'bool', command: 'bool', generation: 'f64', team: 'f64', controllingTeam: 'f64', seated: 'bool', yaw: 'f64', name: 'str', label: 'str', radius: 'f64', speed: 'f64', valueBleed: 'f64', record: 'rec:PsClass|null' },
+    PsPad: { variants: 'list:rec:PsHull', vehicle: 'rec:PsHull|null' },
+    PsQueryArgs: { op: 'enum:PsQueryOp', number: 'f64', building: 'ref:building|null', vehicle: 'ref:vehicle|null', post: 'ref:mobilePost|null', points: 'list:f64x4' },
+    PsQueryResult: { number: 'f64', flag: 'bool', position: 'f64x3', pad: 'rec:PsPad|null', points: 'list:f64x4' },
+    SpInput: { op: 'enum:SpOperation', dt: 'f64', team: 'f64', character: 'ref:character|null', classIndex: 'f64|null', className: 'str|null', post: 'union:PostRef', hasPost: 'bool', human: 'bool', own: 'bool' },
+    SpResult: { number: 'f64', flag: 'bool', post: 'union:PostRef', unit: 'ref:unit|null' },
+    SpQueryArgs: { op: 'enum:SpQueryOp', unit: 'ref:unit|null', className: 'str|null', character: 'ref:character|null' },
+    SpQueryResult: { number: 'f64', name: 'str|null', goal: 'f64x3|null' },
+    SpActionArgs: { op: 'enum:SpActionOp', character: 'ref:character', unit: 'ref:unit|null', className: 'str|null', post: 'union:PostRef', position: 'f64x3', yaw: 'f64|undefined' },
+    SpActionResult: { unit: 'ref:unit|null' },
     // A team as the mission's table gives it (map.json mission.teams).
     TeamDesc: { units: 'f64|undefined', reinforcements: 'f64|undefined', bleed: 'list:f64x2|undefined' },
     // The kills ring the sprees count in (battle-stats.js BattleStats.ring).
@@ -73,11 +127,7 @@ export default {
     humanSpawn: {
       singleton: true,
       class: 'HumanSpawn',
-      fields: {
-        auto: 'rec:HumanAuto|null', className: 'str', post: 'str|null',
-        phase: 'enum:HumanPhase', canSwitchTeams: 'bool', spawnedOnce: 'bool',
-        deadTime: 'f64', pending: 'rec:HumanPick|null', ended: 'bool',
-      },
+      fields: humanFields,
       skip: {
         world: 'the world callbacks (battle/human.rs World)',
         listeners: 'the screen and HUD observers',
@@ -268,5 +318,14 @@ export default {
         objectives: 'the AI\'s objectives',
       },
     },
+  },
+  imports: {
+    hsQuery: { args: 'HsQueryArgs', result: 'HsQueryResult' },
+    hsAction: { args: 'HsActionArgs', result: 'HsActionResult' },
+    battleQuery: { args: 'BrQueryArgs', result: 'BrQueryResult' },
+    battleOver: { args: 'BrNumber', result: null },
+    postsQuery: { args: 'PsQueryArgs', result: 'PsQueryResult' },
+    spawningQuery: { args: 'SpQueryArgs', result: 'SpQueryResult' },
+    spawningAction: { args: 'SpActionArgs', result: 'SpActionResult' },
   },
 };

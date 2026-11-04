@@ -19,6 +19,12 @@ pub struct Boundary {
 }
 
 impl Boundary {
+    /// Already compiled edges, in the source boundary's traversal order.
+    pub fn from_edges(polygons: &[Vec<[f64; 4]>]) -> Self {
+        Self { polygons: polygons.iter().map(|edges| edges.iter().map(|e|
+            Edge { x: e[0], z: e[1], nx: e[2], nz: e[3] }).collect()).collect() }
+    }
+
     pub fn new(polygons: &[Vec<Vec3>]) -> Self {
         let polygons = polygons
             .iter()

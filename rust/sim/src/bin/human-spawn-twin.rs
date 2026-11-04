@@ -145,8 +145,8 @@ impl World for Twin<'_> {
         self.timer = 4.0;
         human::died(s, events, self);
     }
-    fn cancel(&mut self) { self.call("cancel", vec![]); }
-    fn rejected(&mut self, class: StrId, team: f64) { self.call("rejected", vec![self.text(class), bits(team)]); }
+    fn cancel(&mut self, _: &mut HumanSpawn, _: &mut Vec<Event>) { self.call("cancel", vec![]); }
+    fn rejected(&mut self, _: &mut HumanSpawn, _: &mut Vec<Event>, class: StrId, team: f64) { self.call("rejected", vec![self.text(class), bits(team)]); }
 }
 
 fn main() {

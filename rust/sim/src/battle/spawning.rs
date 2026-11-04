@@ -19,7 +19,8 @@
 use super::names::{human_name, BotNames, NameLists};
 use super::posts::{self, post_ref, spawn_post, SpawnView};
 use super::rules::{new_character, spend};
-use super::world::BattleWorld;
+use super::world::SpawningWorld;
+use super::stats::Text;
 use crate::gen::{Character, PlayerId, PostRef, Spawn, SpawnClass, SpawnPost, SpawnTeam, Spawning, Store, Unit};
 use crate::store::{Nullable, Ref, StrId, Strings, TypedArray};
 use jsrt::conv::{fround, to_int32};
@@ -331,7 +332,7 @@ struct Listed {
     views: Vec<SpawnView>,
 }
 
-fn listed(s: &mut Store, world: &mut dyn BattleWorld) -> Listed {
+fn listed<W: SpawningWorld + ?Sized>(s: &mut Store, world: &mut W) -> Listed {
     let ids = posts::all(s, world);
     let views = ids.iter().map(|p| posts::spawn_view(s, *p, world)).collect();
     Listed { ids, views }
@@ -381,7 +382,7 @@ pub fn new_spawning(calls: &[Call], unit_scale: f64, heroes: bool, demo: bool, n
 /// begin() (spawning.js:339): humans join their teams, bots fill each team
 /// to its unit count (named by their team), then each team pads its class
 /// targets and activates its Characters in order.
-pub fn begin(s: &mut Store, humans: &[HumanSpec], naming: &mut Naming, strings: &mut Strings, world: &mut dyn BattleWorld, random: &mut dyn Draws) {
+pub fn begin<W: SpawningWorld + ?Sized>(s: &mut Store, humans: &[HumanSpec], naming: &mut Naming, strings: &mut Strings, world: &mut W, random: &mut dyn Draws) {
     if s.spawning.started {
         return;
     }
@@ -453,7 +454,7 @@ pub fn bot_name(sp: &Spawning, t: usize, naming: &mut Naming, strings: &mut Stri
 }
 
 /// setupTeam(team) (spawning.js:392).
-fn setup_team(s: &mut Store, t: usize, strings: &mut Strings, world: &mut dyn BattleWorld, random: &mut dyn Draws) {
+fn setup_team<W: SpawningWorld + ?Sized>(s: &mut Store, t: usize, strings: &mut Strings, world: &mut W, random: &mut dyn Draws) {
     pad_quotas(&mut s.spawning, t, random);
     let list = s.spawning.teams[t].characters.clone();
     for r in list {
@@ -479,7 +480,7 @@ pub fn pad_quotas(sp: &mut Spawning, t: usize, random: &mut dyn Draws) {
 
 /// activate(character) (spawning.js:422): class 0, the final heroCount slots
 /// take the hero classes, a bot draws its objective, then it prepares.
-pub fn activate(s: &mut Store, r: Ref<Character>, strings: &mut Strings, world: &mut dyn BattleWorld, random: &mut dyn Draws) {
+pub fn activate<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) {
     let t = ch(s, r).team;
     set_class(s, r, 0.0, strings, world);
     if !ch(s, r).human {
@@ -595,9 +596,20 @@ fn human_spawn_post(sp: &Spawning, post: Option<SpawnPost>, list: &Listed, team:
 }
 
 /// choosePost(character) (spawning.js:496).
-fn choose_post(s: &mut Store, r: Ref<Character>, world: &mut dyn BattleWorld, random: &mut dyn Draws) -> Option<SpawnPost> {
+pub fn choose_post<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W, random: &mut dyn Draws) -> Option<SpawnPost> {
+    let goal = if ch(s, r).human { None } else { world.spawn_goal(r) };
     let list = listed(s, world);
     let c = ch(s, r);
+    if let Some(goal) = goal {
+        let mut best = None;
+        let mut best_distance = f64::INFINITY;
+        for (i, p) in list.views.iter().enumerate() {
+            if !friendly_spawn(&s.spawning, p, c.team) { continue; }
+            let d = v8math::hypot(p.position[0] - goal[0], p.position[2] - goal[2]);
+            if d < best_distance { best_distance = d; best = Some(list.ids[i]); }
+        }
+        if best.is_some() { return best; }
+    }
     let old = spawn_post(sp(c).post);
     if c.human {
         human_spawn_post(&s.spawning, old, &list, c.team)
@@ -613,7 +625,7 @@ fn own(s: &Store, c: &Character, post: SpawnPost) -> bool {
 
 // ---- Post queues.
 
-fn queue_of(sp: &mut Spawning, post: SpawnPost) -> &mut [f64; 4] {
+pub fn queue_of(sp: &mut Spawning, post: SpawnPost) -> &mut [f64; 4] {
     if !sp.queues.has(&post) {
         // [AI at an ally's post, humans there, AI at own post, humans there]
         sp.queues.set(post, [0.0; 4]);
@@ -622,7 +634,7 @@ fn queue_of(sp: &mut Spawning, post: SpawnPost) -> &mut [f64; 4] {
 }
 
 /// reserve(post, human, own) (spawning.js:513).
-fn reserve(sp: &mut Spawning, post: SpawnPost, human: bool, own: bool) -> f64 {
+pub fn reserve(sp: &mut Spawning, post: SpawnPost, human: bool, own: bool) -> f64 {
     let queue = queue_of(sp, post);
     let i = (if human { 1 } else { 0 }) + (if own { 2 } else { 0 });
     let before = queue[i];
@@ -635,7 +647,7 @@ fn reserve(sp: &mut Spawning, post: SpawnPost, human: bool, own: bool) -> f64 {
 }
 
 /// release(post, human, own) (spawning.js:520).
-fn release(sp: &mut Spawning, post: SpawnPost, human: bool, own: bool) -> f64 {
+pub fn release(sp: &mut Spawning, post: SpawnPost, human: bool, own: bool) -> f64 {
     let queue = queue_of(sp, post);
     let i = (if human { 1 } else { 0 }) + (if own { 2 } else { 0 });
     queue[i] -= 1.0;
@@ -677,7 +689,7 @@ pub fn tickets(s: &Store, team: f64) -> f64 {
 }
 
 /// spendTicket(team) (spawning.js:546).
-fn spend_ticket(s: &mut Store, team: f64) {
+pub fn spend_ticket(s: &mut Store, team: f64) {
     if s.battle.reinforcements.at(team).is_some() {
         spend(&mut s.battle, team, 1.0);
     } else {
@@ -689,7 +701,7 @@ fn spend_ticket(s: &mut Store, team: f64) {
 
 /// setClass(character, index) (spawning.js:433): a hero class takes the
 /// hero's name too.
-fn set_class(s: &mut Store, r: Ref<Character>, index: f64, strings: &Strings, world: &mut dyn BattleWorld) {
+pub fn set_class<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, index: f64, strings: &dyn Text, world: &mut W) {
     let t = ch(s, r).team;
     let team = team(&s.spawning, t);
     let cls = (index >= 0.0 && index.fract() == 0.0).then(|| team.classes.get(index as usize)).flatten().cloned();
@@ -699,7 +711,7 @@ fn set_class(s: &mut Store, r: Ref<Character>, index: f64, strings: &Strings, wo
     c.class_name = Some(cls.name);
     c.hero = Some(cls.hero);
     if cls.hero {
-        if let Some(name) = world.hero_name(cls.name).filter(|n| !strings.units(*n).is_empty()) {
+        if let Some(name) = world.hero_name(cls.name).filter(|n| strings.nonempty(*n)) {
             ch_mut(s, r).name = Some(name);
         }
     }
@@ -707,7 +719,7 @@ fn set_class(s: &mut Store, r: Ref<Character>, index: f64, strings: &Strings, wo
 
 /// pickClass(character) (spawning.js:461): the roster-deficit draw. A hero
 /// keeps his class; no deficit anywhere keeps the current one.
-fn pick_class(s: &Store, r: Ref<Character>, random: &mut dyn Draws) -> f64 {
+pub fn pick_class(s: &Store, r: Ref<Character>, random: &mut dyn Draws) -> f64 {
     let c = ch(s, r);
     let team = team(&s.spawning, c.team);
     let class_of = |i: Option<f64>| i.filter(|x| *x >= 0.0 && x.fract() == 0.0).and_then(|x| team.classes.get(x as usize));
@@ -749,7 +761,7 @@ fn pick_class(s: &Store, r: Ref<Character>, random: &mut dyn Draws) -> f64 {
 /// class and is ready, a human waits; it keeps or picks a post, joins its
 /// queue, and is scheduled for the next wave (two ahead if the wave clock is
 /// overdue).
-fn prepare(s: &mut Store, r: Ref<Character>, strings: &mut Strings, world: &mut dyn BattleWorld, random: &mut dyn Draws) {
+pub fn prepare<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) {
     if !ch(s, r).human {
         if !is_hero(ch(s, r)) {
             let index = pick_class(s, r, random);
@@ -779,7 +791,7 @@ pub fn awaiting_human(c: &Character) -> bool {
 
 /// clock(dt) (spawning.js:574): the manager's two clocks, one step each, and
 /// the locals' living cap.
-pub fn clock(s: &mut Store, dt: f64, world: &mut dyn BattleWorld) {
+pub fn clock<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, world: &mut W) {
     let dt = fround(dt);
     let mut cap = 0.0;
     let list = listed(s, world);
@@ -812,13 +824,13 @@ pub fn clock(s: &mut Store, dt: f64, world: &mut dyn BattleWorld) {
 
 /// waiting(character) (spawning.js:601): whether the wave and stagger gate
 /// holds him back.
-fn waiting(sp: &Spawning, c: &Character) -> bool {
+pub fn waiting(sp: &Spawning, c: &Character) -> bool {
     let spawn = self::sp(c);
     (num(spawn.wave) - sp.wave) * sp.q - sp.released + num(spawn.ordinal) >= 0.0
 }
 
 /// updateCharacters(dt) (spawning.js:561): every Character in roster order.
-pub fn update_characters(s: &mut Store, dt: f64, strings: &mut Strings, world: &mut dyn BattleWorld, random: &mut dyn Draws) {
+pub fn update_characters<W: SpawningWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) {
     let mut i = 0;
     while i < s.spawning.characters.len() {
         let r = s.spawning.characters[i];
@@ -828,7 +840,7 @@ pub fn update_characters(s: &mut Store, dt: f64, strings: &mut Strings, world: &
 }
 
 /// updateCharacter(character, dt) (spawning.js:605).
-fn update_character(s: &mut Store, r: Ref<Character>, dt: f64, strings: &mut Strings, world: &mut dyn BattleWorld, random: &mut dyn Draws) {
+pub fn update_character<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, dt: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) {
     let dt = fround(dt);
     let mut t = ch(s, r).team;
     if let Some(unit) = ch(s, r).unit {
@@ -888,7 +900,7 @@ fn update_character(s: &mut Store, r: Ref<Character>, dt: f64, strings: &mut Str
 /// spawnPoint(post, allied) (spawning.js:651): a random point of the post's
 /// spawn path (its ally path when the post is an ally's), else a random
 /// class spawn point (own posts only), else the post itself.
-fn spawn_point(s: &Store, post: SpawnPost, allied: bool, world: &mut dyn BattleWorld, random: &mut dyn Draws) -> [f64; 4] {
+fn spawn_point<W: SpawningWorld + ?Sized>(s: &Store, post: SpawnPost, allied: bool, world: &mut W, random: &mut dyn Draws) -> [f64; 4] {
     let view = posts::spawn_view(s, post, world);
     let path = if allied { view.ally_path.as_ref() } else { view.spawn_path.as_ref() };
     if let Some(points) = path.filter(|p| p.present).map(|p| &p.points) {
@@ -910,7 +922,7 @@ fn spawn_point(s: &Store, post: SpawnPost, allied: bool, world: &mut dyn BattleW
 
 /// spawn(character) (spawning.js:664): into the world; if the class can't be
 /// made, class 0 is tried once.
-fn spawn(s: &mut Store, r: Ref<Character>, strings: &mut Strings, world: &mut dyn BattleWorld, random: &mut dyn Draws) -> Option<Ref<Unit>> {
+pub fn spawn<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) -> Option<Ref<Unit>> {
     let post = spawn_post(sp(ch(s, r)).post).expect("a post");
     let t = ch(s, r).team;
     let allied = t != owner_of(posts::team_of(s, post).0);
@@ -954,7 +966,7 @@ fn spawn(s: &mut Store, r: Ref<Character>, strings: &mut Strings, world: &mut dy
 /// onDeath(character) (spawning.js:690): he prepares again in 4 s; a bot
 /// draws a fresh objective and forgets its post; the team's living count
 /// drops (heroes aren't counted) and it spends a reinforcement.
-pub fn on_death(s: &mut Store, r: Ref<Character>, world: &mut dyn BattleWorld) {
+pub fn on_death<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W) {
     let t = ch(s, r).team;
     sp_mut(ch_mut(s, r)).timer = RESPAWN_DELAY;
     if !ch(s, r).human {
@@ -982,7 +994,7 @@ pub struct HumanChoice {
 /// onHumanReady(character, choice) (spawning.js:705): a class from his
 /// team's roster (by name or index; a name outside it is his class, not
 /// counted) and a post if he chose one; he spawns on the next update.
-pub fn on_human_ready(s: &mut Store, r: Ref<Character>, choice: HumanChoice, strings: &Strings, world: &mut dyn BattleWorld) {
+pub fn on_human_ready<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, choice: HumanChoice, strings: &dyn Text, world: &mut W) {
     let t = ch(s, r).team;
     if let Some(name) = choice.class_name {
         match team(&s.spawning, t).classes.iter().position(|c| c.name == name) {
@@ -1002,7 +1014,7 @@ pub fn on_human_ready(s: &mut Store, r: Ref<Character>, choice: HumanChoice, str
 
 /// switchTeam(character, to) (spawning.js:723): a non-hero Character to
 /// another team with room; a bot picks a class there.
-pub fn switch_team(s: &mut Store, r: Ref<Character>, to: f64, strings: &mut Strings, world: &mut dyn BattleWorld, random: &mut dyn Draws) -> bool {
+pub fn switch_team<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, to: f64, strings: &dyn Text, world: &mut W, random: &mut dyn Draws) -> bool {
     let c = ch(s, r);
     if is_hero(c) || c.team == to || to < 1.0 || to >= TEAM_COUNT as f64 {
         return false;

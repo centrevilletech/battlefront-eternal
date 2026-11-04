@@ -116,8 +116,8 @@ impl World for Served<'_, '_> {
             _ => None,
         }
     }
-    fn clear_attacker(&mut self, vehicle: usize) { self.hulls[vehicle].attacker = None; }
-    fn set_health(&mut self, vehicle: usize, health: f64) {
+    fn clear_attacker(&mut self, _: &mut Trap, vehicle: usize) { self.hulls[vehicle].attacker = None; }
+    fn set_health(&mut self, _: &mut Trap, vehicle: usize, health: f64) {
         let Some(call) = self.call(&format!("trap.health:{vehicle}")) else { return };
         self.number("hull setHealth", call.arg(0), health);
         let extra = call.extra();
@@ -132,20 +132,20 @@ impl World for Served<'_, '_> {
         self.hulls = extra.get("after").items().map(Hull::read).collect();
         self.kills += 1;
     }
-    fn set_dying(&mut self, vehicle: usize, time: f64) { self.hulls[vehicle].dying = time; }
-    fn hide_root(&mut self, vehicle: usize) { if self.hulls[vehicle].visible.is_some() { self.hulls[vehicle].visible = Some(false); } }
-    fn show(&mut self, built: bool) {
+    fn set_dying(&mut self, _: &mut Trap, vehicle: usize, time: f64) { self.hulls[vehicle].dying = time; }
+    fn hide_root(&mut self, _: &mut Trap, vehicle: usize) { if self.hulls[vehicle].visible.is_some() { self.hulls[vehicle].visible = Some(false); } }
+    fn show(&mut self, _: &mut Trap, built: bool) {
         let Some(call) = self.call(&format!("trap.show:{}", self.index)) else { return };
         if call.arg(0).str() != Some(if built { "built" } else { "unbuilt" }) { self.fail("show state differs"); }
         self.shown = call.extra().get("shown");
     }
-    fn sound(&mut self, name: StrId, at: [f64; 3]) {
+    fn sound(&mut self, _: &mut Trap, name: StrId, at: [f64; 3]) {
         let Some(call) = self.call("trap.sound") else { return };
         if call.arg(0).str() != Some("sound") { self.fail("sound event type differs"); }
         self.text(call.arg(1), name);
         if let Err(e) = check_vec3("sound position", call.arg(2), at) { self.fail(e); }
     }
-    fn effect(&mut self, name: StrId, at: [f64; 3]) {
+    fn effect(&mut self, _: &mut Trap, name: StrId, at: [f64; 3]) {
         let Some(call) = self.call(&format!("trap.effect:{}", self.index)) else { return };
         self.text(call.arg(0), name);
         if let Err(e) = check_vec3("effect position", call.arg(1), at) { self.fail(e); }

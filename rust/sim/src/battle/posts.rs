@@ -16,7 +16,7 @@
 
 use super::mobile::{self, MobileEvent};
 use super::regions::in_region;
-use super::world::BattleWorld;
+use super::world::PostsWorld;
 use crate::gen::{Post, PostChange, PostEvent, PostRef, SpawnPath, SpawnPost, Store};
 use crate::store::{NumMap, Ref};
 use three::Vector3;
@@ -179,7 +179,7 @@ pub struct Capturer {
 
 /// all() (commandposts.js:349): every post the battle counts, the command
 /// vehicles' as they are now.
-pub fn all(s: &mut Store, world: &mut dyn BattleWorld) -> Vec<SpawnPost> {
+pub fn all<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) -> Vec<SpawnPost> {
     mobile::refresh_all(s, world);
     let mut out: Vec<SpawnPost> = s.command_posts.posts.iter().map(|&r| SpawnPost::Post(r)).collect();
     out.extend(s.mobile_posts.posts.iter().map(|&r| SpawnPost::MobilePost(r)));
@@ -201,7 +201,7 @@ pub fn team_of(s: &Store, p: SpawnPost) -> (f64, bool) {
 }
 
 /// What the spawn manager reads of a post in all()'s list.
-pub fn spawn_view(s: &Store, p: SpawnPost, world: &mut dyn BattleWorld) -> SpawnView {
+pub fn spawn_view<W: PostsWorld + ?Sized>(s: &Store, p: SpawnPost, world: &mut W) -> SpawnView {
     let owner = |team: f64| jsrt::conv::to_int32(team) as f64;
     match p {
         SpawnPost::Post(r) => {
@@ -240,13 +240,13 @@ pub fn spawn_view(s: &Store, p: SpawnPost, world: &mut dyn BattleWorld) -> Spawn
 
 /// A post's class spawn points where its hull is now (a command vehicle's:
 /// classSpawnWorld); a placed post's are its record's.
-pub fn class_spawn_world(s: &Store, p: SpawnPost, world: &mut dyn BattleWorld) -> Vec<[f64; 4]> {
+pub fn class_spawn_world<W: PostsWorld + ?Sized>(s: &Store, p: SpawnPost, world: &mut W) -> Vec<[f64; 4]> {
     match p {
         SpawnPost::Post(r) => s.post.get(r).expect("a post").ai.as_ref().map(|ai| ai.class_spawn_world.clone()).unwrap_or_default(),
         SpawnPost::MobilePost(r) => {
             let post = s.mobile_post.get(r).expect("a command vehicle's post");
             match post.vehicle {
-                Some(_) if post.active => world.class_spawn_world(r),
+                Some(_) if post.active => world.class_spawn_world(s, r),
                 _ => Vec::new(),
             }
         }
@@ -263,7 +263,7 @@ pub fn value_bleed(s: &Store, p: SpawnPost) -> Option<f64> {
 
 /// owned(team) (commandposts.js:414): the posts a team holds, its living
 /// command vehicles' included.
-pub fn owned(s: &mut Store, team: f64, world: &mut dyn BattleWorld) -> Vec<SpawnPost> {
+pub fn owned<W: PostsWorld + ?Sized>(s: &mut Store, team: f64, world: &mut W) -> Vec<SpawnPost> {
     let list = all(s, world);
     list.into_iter()
         .filter(|p| {
@@ -275,7 +275,7 @@ pub fn owned(s: &mut Store, team: f64, world: &mut dyn BattleWorld) -> Vec<Spawn
 
 /// The command vehicles' posts lost or changed hands since the last call
 /// (mobileEvents).
-pub fn mobile_events(s: &mut Store, world: &mut dyn BattleWorld) -> Vec<MobileEvent> {
+pub fn mobile_events<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) -> Vec<MobileEvent> {
     mobile::events(s, world)
 }
 
@@ -291,7 +291,7 @@ pub fn at(s: &Store, point: &Vector3) -> Option<Ref<Post>> {
 /// update(dt, soldiers) (commandposts.js:379) on a world (no camera). Each
 /// soldier counts for his team's capture team (the registry's, when the
 /// posts have its table: the world answers).
-pub fn update(s: &mut Store, dt: f64, soldiers: &[Capturer], world: &mut dyn BattleWorld) {
+pub fn update<W: PostsWorld + ?Sized>(s: &mut Store, dt: f64, soldiers: &[Capturer], world: &mut W) {
     s.command_posts.time += dt;
     for i in 0..s.command_posts.posts.len() {
         let r = s.command_posts.posts[i];
