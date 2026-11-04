@@ -106,8 +106,8 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     }
 
     // The near scene's phase, inside three's near-scene pass right after the
-    // far scene's image: the static world, then the soldiers (records: how
-    // many the page wrote), then the terrain, foliage and tree canopies, and
+    // far scene's image: the tree canopies, then the static world and the
+    // soldiers (records: how many the page wrote), terrain and foliage, and
     // the Enhanced ocean's surface (the far pass's items from the near scene).
     pub fn frame(&mut self, records: usize) -> Result<Stats, String> {
         let core = &mut self.core;
@@ -118,11 +118,13 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();
+        // TreeCanopies creates its material before buildWorld creates the
+        // map's materials. Keep three's opaque order at multisampled edges.
+        self.canopies.draw(core);
         self.world.draw(core, &camera);
         self.instances.draw(core, &camera, records);
         self.terrain.draw(core);
         self.foliage.draw(core);
-        self.canopies.draw(core);
         self.far.draw_near(core);
         Ok(core.end_phase())
     }
