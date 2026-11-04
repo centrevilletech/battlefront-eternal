@@ -46,7 +46,7 @@ export function createWireSemanticBridge(bridge) {
   function arsenal(w, base) {
     const words = weaponWords(w), melee = w.melee ? w.melee.captureState() : null;
     words.push(...base(), +!!melee);
-    if (melee) words.push(Number(melee.time), Number(melee.index), Number(melee.active));
+    if (melee) words.push(+melee.time, +melee.index, Number(melee.active));
     const bytes = run(1, words)[0], cached = weapons.get(w);
     if (equal(cached, bytes)) return cached;
     weapons.set(w, bytes); return bytes;
@@ -172,8 +172,8 @@ export function createWireSemanticBridge(bridge) {
     const characters = battle?.characters || [], words = [characters.length];
     for (const c of characters) {
       const link = players.get(c)?.link, path = link?.path;
-      words.push(+players.has(c), +!!c.human, Number(c.team));
-      for (const key of ['kills', 'teamKills', 'deaths', 'captures']) words.push(Number(c[key]));
+      words.push(+players.has(c), +!!c.human, c.team - 0);
+      for (const key of ['kills', 'teamKills', 'deaths', 'captures']) words.push(c[key] - 0);
       words.push(num(link?.rtt), path?.kind && path?.family ? sid(typeof path.kind === 'string' ? path.kind : 'other') : -1, path?.kind && path?.family ? sid(String(path.family)) : -1, sid(String(c.name ?? '')));
     }
     return run(12, words).map((bytes, i) => summary(bytes, 70000 + i, 4, options));
@@ -181,12 +181,13 @@ export function createWireSemanticBridge(bridge) {
   function recordSummaries(battle, registry, options) {
     const { only = null, id = 80000, quantum = 1 } = options, characters = battle?.characters || [];
     const rows = []; for (let slot = 0; slot < characters.length && slot < 65535; slot++) { const c = characters[slot]; if ((!only || c === only) && c?.record) rows.push([slot, c.record]); }
-    const words = [num(quantum), rows.length];
+    const words = [quantum - 0, rows.length];
     for (const [slot, record] of rows) {
       words.push(slot, record.slots.length);
       for (const s of record.slots) {
-        for (const key of ['teamKills', 'vehiclesDestroyed', 'spree', 'survivalist', 'lifeKillsBest', 'headshots', 'deaths', 'escapes', 'lifeBest', 'campBest']) words.push(num(s[key]));
-        words.push(s.victims.size); for (const [victim, count] of s.victims) words.push(characters.indexOf(victim), Number(count));
+        const tallies = ['teamKills', 'vehiclesDestroyed', 'spree', 'survivalist', 'lifeKillsBest', 'headshots', 'deaths', 'escapes', 'lifeBest', 'campBest'].map(key => s[key]);
+        words.push(+tallies.some(Boolean)); for (const value of tallies) words.push(value - 0);
+        words.push(s.victims.size); for (const [victim, count] of s.victims) words.push(characters.indexOf(victim), count - 0);
         for (const table of ['classes', 'weapons', 'vehicles']) { words.push(s[table].length); const ids = table === 'weapons' ? registry.weaponIds : registry.classIds; for (const entry of s[table]) words.push(ids?.get(entry.key) ?? 0, num(entry.time)); }
       }
     }

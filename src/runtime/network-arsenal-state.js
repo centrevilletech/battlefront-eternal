@@ -41,7 +41,7 @@ if(WEAPON_STATE_FLAGS.join()!=='deployed,firing,overheated,released,hidden,charg
 const flag=(value,bit)=>{if(typeof value!=='boolean')throw Error('invalid weapon state flag');return Number(value)<<bit;};
 const finite=value=>{if(!Number.isFinite(value))throw Error('invalid weapon state number');return value;};
 export function captureArsenalWeapon(weapon,native=null){
-  if(native)return native.arsenal(weapon,()=>baseValues(weapon));
+  if(typeof native?.arsenal==='function')return native.arsenal(weapon,()=>baseValues(weapon));
   const level=weapon.levels.indexOf(weapon.def);
   if(level<0||level>255)throw Error('weapon state definition mismatch');
   const w=weapon;

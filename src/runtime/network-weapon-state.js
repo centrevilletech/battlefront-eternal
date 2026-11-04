@@ -5,7 +5,7 @@ export const WEAPON_STATE_FLAGS = ['deployed','firing','overheated','released','
 export const weaponStateBytes = 2 + WEAPON_STATE_NUMBERS.length * 8;
 
 export function captureWeaponState(weapon, native = null) {
-  if (native) return native.weapon(weapon);
+  if (typeof native?.weapon === 'function') return native.weapon(weapon);
   const bytes = new Uint8Array(weaponStateBytes), view = new DataView(bytes.buffer);
   const level = weapon.levels.indexOf(weapon.def);
   if (level < 0 || level > 255) throw Error('weapon state definition mismatch');

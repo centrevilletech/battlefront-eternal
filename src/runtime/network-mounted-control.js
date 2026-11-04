@@ -28,7 +28,7 @@ function identity(unit) {
 
 export function captureMountedControl(unit, native = null) {
   const { mode, id, generation, index, target } = identity(unit);
-  if (native) return native.mounted({ mode, id, generation, index, target });
+  if (typeof native?.mounted === 'function') return native.mounted({ mode, id, generation, index, target });
   const fields = mode === VEHICLE_PILOT_CONTROL ? [] : mode === VEHICLE_PASSENGER_CONTROL ? passengerFields : turretFields;
   // Null look targets mean no mouse override; preserve them independently.
   let flags = 0;

@@ -916,6 +916,7 @@ fn record_summaries(input: &mut Input<'_>) -> Result<Vec<Vec<u8>>> {
         let mut packed = Vec::new();
         let mut mask = 0u32;
         for i in 0..slots {
+            let tally_nonzero = input.n()? != 0.;
             let mut p = Packed {
                 tallies: [0.; 10],
                 favourites: [None; 3],
@@ -942,9 +943,8 @@ fn record_summaries(input: &mut Input<'_>) -> Result<Vec<Vec<u8>>> {
                     }
                 }
             }
-            let nonzero = p.tallies.iter().any(|n| jsrt::num_truthy(*n))
-                || !p.victims.is_empty()
-                || p.favourites.iter().any(Option::is_some);
+            let nonzero =
+                tally_nonzero || !p.victims.is_empty() || p.favourites.iter().any(Option::is_some);
             if nonzero {
                 mask |= 1u32.wrapping_shl(i as u32);
                 packed.push(p);
@@ -1112,10 +1112,10 @@ mod tests {
     #[test]
     fn record_selection_and_quantization_skip_empty_and_unknown_victims() {
         let strings = Strings::default();
-        let mut words = vec![1000., 2., 0., 1.];
+        let mut words = vec![1000., 2., 0., 1., 0.];
         words.extend([0.; 10]);
         words.extend([1., -1., 255., 0., 0., 0.]);
-        words.extend([7., 1.]);
+        words.extend([7., 1., 1.]);
         words.extend([0., 0., 0., 0., 0., 65536., 0., 0., 13.9999, 2.0001]);
         words.extend([1., 4., 300.]);
         words.extend([2., 1., 13.9999, 2., 13.9999, 0., 0.]);

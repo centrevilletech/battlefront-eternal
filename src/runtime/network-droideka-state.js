@@ -16,7 +16,7 @@ function prerequisite(d) {
 }
 
 export function captureDroidekaState(d, native = null) {
-  if (native) return native.droideka(d);
+  if (typeof native?.droideka === 'function') return native.droideka(d);
   prerequisite(d);
   if (!Number.isInteger(d.mode) || d.mode < 0 || d.mode > 13 || !Number.isSafeInteger(d.gun) || d.gun < 0) throw Error('invalid droideka mode or barrel');
   let flags = 0;

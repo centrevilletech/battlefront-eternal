@@ -128,6 +128,14 @@ test('compact body twins cover conditional posture, flight histories, seat tags 
   } finally { native.dispose(); }
 });
 
+test('optional semantic hooks preserve legacy callback and ignored-argument use', () => {
+  const weapons = [new Weapon(definition(0)), new Weapon(definition(1))], soldiers = [soldier(), soldier()];
+  assert.deepEqual(weapons.map(captureWeaponState), weapons.map(w => captureWeaponState(w)));
+  assert.deepEqual(weapons.map(captureArsenalWeapon), weapons.map(w => captureArsenalWeapon(w)));
+  assert.deepEqual(soldiers.map(captureCompactSoldier), soldiers.map(s => captureCompactSoldier(s)));
+  assert.deepEqual(captureCompactSoldier(soldiers[0], { previous: true }), captureCompactSoldier(soldiers[0]));
+});
+
 test('mounted pilot, passenger and turret weapon checkpoints match their live encoders', async () => {
   const native = createWireSemantic(await loadSim()), w = new Weapon(definition());
   const vehicle = { aiTarget: { id: 91, generation: 4 }, seats: [{ weapons: [{ state: w, barrel: 12 }] }, { ...seat(), weapons: [{ state: w, barrel: 9 }] }] };
@@ -254,7 +262,7 @@ test('native record summaries select favourites, filter victims and quantize bou
     }
   }
   try {
-    for (const quantum of [1, 1000]) {
+    for (const quantum of [1, 1000, '1000']) {
       const options = { tick: 123, epoch: 7, quantum }, expected = captureRecordSummaries(battle, registry, options), actual = captureRecordSummaries(battle, registry, { ...options, native });
       assert.deepEqual(actual, expected); assert.ok(actual.length > 2);
       for (const record of actual) assert.ok(record.payload.length <= 900);
@@ -267,6 +275,12 @@ test('native record summaries select favourites, filter victims and quantize bou
     for (const s of large.slots) for (const victim of all) s.victims.set(victim, 255);
     const options = { tick: 1, epoch: 1 };
     assert.deepEqual(captureRecordSummaries({ characters: all }, registry, { ...options, native }), captureRecordSummaries({ characters: all }, registry, options), 'oversized entries are omitted');
+    const coerced = [{}, {}, {}];
+    recordOf(coerced[0]).slots[0].teamKills = '0';
+    recordOf(coerced[1]).slots[0].lifeBest = '13.9999';
+    recordOf(coerced[2]).slots[1].deaths = true;
+    recordOf(coerced[2]).slots[1].victims.set(coerced[0], '17');
+    assert.deepEqual(captureRecordSummaries({ characters: coerced }, registry, { ...options, native }), captureRecordSummaries({ characters: coerced }, registry, options), 'raw truthiness precedes numeric tally coercion');
     recordOf(characters[1]).slots[0].headshots = -1;
     sameError(() => captureRecordSummaries(battle, registry, options), () => captureRecordSummaries(battle, registry, { ...options, native }));
   } finally { native.dispose(); }
