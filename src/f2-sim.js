@@ -60,7 +60,8 @@ class F2 {
     this.flag = { value: false }; this.number = { value: 0 };
     giveMapRules(bridge, vehicles.water, map);
     this.posing = this.pack(pack); this.flight = true;
-    if (!this.posing) throw Error('F2 requires the vehicle pack');
+    // A map without hulls has an empty pack and an empty fleet to step.
+    if (!this.posing && (vehicles.vehicles.length || vehicles.slots.length)) throw Error('F2 requires the vehicle pack');
     this.x.veh_flight_env(bridge.strings.id(json(vehicles.flightEnvironment ?? {})), vehicles.maxFlyHeight);
     for (const [name, c] of Object.entries(FLIGHT_CLASSES)) for (const [key, value] of Object.entries(c)) this.retune(name, key, value);
     bridge.register({ ...this.handlers(),
