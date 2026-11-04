@@ -271,6 +271,10 @@ export class CommandQueue {
 // states requesting each other would hang it); the port stops and warns.
 const DRAIN_LIMIT = 64;
 
+function nativeFsm(machine) {
+  return (machine.ai??machine.controller?.ai??machine.agent?.ai)?.world?.aiSim;
+}
+
 export class Fsm {
   constructor() {
     this.state = 0;
@@ -291,6 +295,8 @@ export class Fsm {
   onTick(_dt) {}
 
   update(dt, alternate = false) {
+    const native=nativeFsm(this);
+    if(native)return native.driveFsm(this,0,dt,alternate);
     if (alternate) {
       if (this.state !== 0) this.onTick(dt);
       return;
@@ -315,6 +321,8 @@ export class Fsm {
 
   // Apply pending transitions without ticking.
   flush() {
+    const native=nativeFsm(this);
+    if(native)return native.driveFsm(this,1);
     let rounds = 0;
     while (this.pending !== 0) {
       if (++rounds > DRAIN_LIMIT) return this.runaway();
@@ -327,6 +335,8 @@ export class Fsm {
 
   // Leave the current state for the terminal one (no entry runs).
   terminate() {
+    const native=nativeFsm(this);
+    if(native)return native.driveFsm(this,2);
     this.onExit();
     this.state = DONE;
   }

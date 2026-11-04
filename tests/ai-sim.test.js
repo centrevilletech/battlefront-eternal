@@ -10,6 +10,7 @@ import { Aimer, aimPointFor, dropCorrect, leadPoint, skillCurves } from '../src/
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse, broadcastAcoustic, hazardResponse, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
+import { Fsm } from '../src/ai/classic/controller.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -841,6 +842,42 @@ test('native acoustic responses preserve live references, policy order and mount
     return {result:result?{...result,point:result.point.toArray()}:null,history,unit:c.unit?.id,kind:unit.kind,positions:sources.map(s=>s.position.toArray()),list:list.map(r=>r.unit.id)};
   }
   for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`acoustic response ${i}`);
+});
+
+test('native state machines preserve transition reentry, opaque values and runaway returns', async () => {
+  const {sim}=await pair(),opaque={state:'opaque'},symbol=Symbol('state'),values=[0,-0,1,2,100,NaN,null,undefined,false,true,'1',opaque,symbol];
+  function run(native,i) {
+    const machine=new Fsm(),history=[],token={runaway:i};let enters=0,ticks=0,exits=0,depth=0,reentered=false;
+    machine.ai={world:{aiSim:native?sim:null}};
+    const dt=i%3===0?{step:i}:i%5===0?'step':i/60;
+    const log=name=>{history.push([name,machine.state,machine.pending,machine.done,enters,ticks,exits,depth]);if(native){sim.words(new Array(7500).fill(4));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    machine.onExit=function(){assert.equal(this,machine);exits++;log('exit');
+      if(i%43===0 && exits===1)throw Error('exit probe');
+      if(i%11===0 && exits===1)this.pending=values[(i+3)%values.length];
+    };
+    machine.onEnter=function(){assert.equal(this,machine);enters++;log('enter');
+      if(i%47===0 && enters===1)throw Error('enter probe');
+      if(i%31===0 || enters<2)this.requestState(i%31===0?opaque:values[(i+enters)%values.length]);
+    };
+    machine.onTick=function(value){assert.equal(this,machine);assert.equal(value,dt);ticks++;log('tick');
+      if(i%53===0 && ticks===1)throw Error('tick probe');
+      if(!reentered && i%17===0){reentered=true;depth++;this.requestState(7);this.update(dt,true);depth--;}
+      if(ticks<3 && i%7!==0)this.requestState(values[(i+ticks)%values.length]);
+    };
+    machine.runaway=function(){assert.equal(this,machine);log('runaway');if(i%23!==0)this.pending=0;return token;};
+    machine.state=values[i%values.length];machine.pending=values[(i+1)%values.length];
+    let result,error=null;
+    try {result=i%9===0?machine.terminate():i%4===0?machine.flush():machine.update(dt,[false,true,0,{},null][i%5]);}
+    catch(e){error=e.message;}
+    if(result!==undefined)assert.equal(result,token);
+    const first=[machine.state,machine.pending,machine.done,result===token,error];
+    machine.pending=0;
+    // A thrown import must release the host frame so a different machine
+    // can enter and tick on the same instance immediately afterward.
+    const other=new Fsm();other.ai=machine.ai;other.requestState(3);other.onTick=()=>{history.push(['other',other.state,other.pending]);};other.update(dt);
+    return {first,history,keys:Object.keys(machine).slice(0,2),final:[machine.state,machine.pending]};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`state machine ${i}`);
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {

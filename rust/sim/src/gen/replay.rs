@@ -408,6 +408,23 @@ impl AiFireResult {
     }
 }
 
+impl AiFsmArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiFsmArgs {
+            op: { let p = format!("{path}.op"); AiFsmOp::from_u8(name_of(v.get("op"), &AiFsmOp::NAMES, &p)?).unwrap() },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = Value::Str(AiFsmOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        a.object("", fields)
+    }
+}
+
 impl AiScheduleArgs {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

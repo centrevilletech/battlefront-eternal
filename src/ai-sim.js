@@ -6,6 +6,7 @@ import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
 import { NativeScheduler } from './ai-scheduler-sim.js';
 import { NativeAwareness } from './ai-awareness-sim.js';
+import { NativeFsmFields } from './ai-fsm-sim.js';
 import { bindClusterState, chargeWeapon, categoryOf, clusterState, facingAndRange, maxExpandedRange, peekClusterState, prepareSpread, protectedVeto, selectedWeapon, setTarget, sniperWeapon, switchWeapon, validateFire, weaponAI } from './ai/classic/weapons-ai.js';
 import { recordTarget } from './ai/classic/perception.js';
 import { dropCorrect, isCannon, selectedWeapon as selectedAimWeapon } from './ai/classic/aim.js';
@@ -48,6 +49,7 @@ export class AiSim {
     this.scanFound=[];this.scanLook=new Vector3();this.scanAim=new Vector3();
     this.trackers=new WeakMap();this.trackerFrames=[];
     this.fires=new WeakMap();
+    this.fsms=new WeakMap();this.fsmFrames=[];
     this.fireFrames=[];
     this.weaponFrames=[];this.weaponOrigin=new Vector3();this.weaponForward=new Vector3();
     this.weaponLead=new Vector3();this.weaponPoint=new Vector3();this.aimForward=new Vector3();
@@ -174,6 +176,14 @@ export class AiSim {
         finally {this.sightFrames.pop();}
       } else throw Error(`unknown target tracker callback ${op}`);
       return result;
+    }});
+    bridge.register({aiFsm:args=>{
+      const op=args.op,frame=this.fsmFrames[this.fsmFrames.length-1],machine=frame.machine;
+      if(op==='exit')machine.onExit();
+      else if(op==='enter')machine.onEnter();
+      else if(op==='tick')machine.onTick(frame.dt);
+      else if(op==='runaway')frame.result=machine.runaway();
+      else throw Error(`unknown state-machine callback ${op}`);
     }});
     bridge.register({aiFire:args=>{
       const op=args.op,number=args.number,other=args.other,frame=this.fireFrames[this.fireFrames.length-1];
@@ -512,6 +522,13 @@ export class AiSim {
     const frame={controller,unit,dt,out,resolve,result:null};this.weaponFrames.push(frame);
     try {this.x.ai_aim_point();return frame.result;}
     finally {this.weaponFrames.pop();}
+  }
+  driveFsm(machine,mode,dt,alternate=false) {
+    let fields=this.fsms.get(machine);
+    if(!fields){fields=new NativeFsmFields(this,machine);this.fsms.set(machine,fields);}
+    const frame={machine,dt,result:undefined};this.fsmFrames.push(frame);
+    try {this.x.ai_fsm_drive(fields.id,mode,Number(Boolean(alternate)));return frame.result;}
+    finally {this.fsmFrames.pop();}
   }
   selectTarget(id,tracker,world) {
     this.trackerFrames.push({tracker,world});
