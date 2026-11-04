@@ -149,7 +149,7 @@ function blackout({ fps, stall }, native) {
     predicted = true;
   }
   assert.equal(serverTick, 600); assert.equal(epoch, 2); assert.equal(generation, 2); assert.equal(identity, 90);
-  assert.ok(sequence > 500 && maxPending <= 120 && maxReplay <= 120 && exactCalls > 0);
+  assert.ok(sequence > 500 && maxPending <= 120 && maxReplay <= 120 && exactCalls > 0 && exactMatches > 0);
   return { fps, stall, sequence, frames, physicsTicks, maxPending, maxReplay, exactCalls, exactMatches, epoch, generation, identity,
     commandSha256: commands.digest('hex'), bodySha256: bodies.digest('hex'), checkpointSha256: checkpoints.digest('hex'),
     finalBody: Array.from(captureCompactSoldier(local)), finalAuthority: Array.from(captureCompactSoldier(authority)) };
