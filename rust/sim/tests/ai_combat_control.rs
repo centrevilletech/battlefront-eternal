@@ -1,6 +1,6 @@
-use sim::ai::combat::{control::Objects, perception::Perception, world::{Ctl, Obj, Ref}};
-use sim::ai::control::{controller::Controller, world::{AlertSource, CombatInput, ControlObs, EntRef, UKey}};
-use sim::ai::nav::math::Vec3;
+use bfe_sim::ai::combat::{control::Objects, perception::Perception, world::{Ctl, Obj, Ref}};
+use bfe_sim::ai::control::{controller::Controller, world::{AlertSource, CombatInput, ControlObs, EntRef, UKey}};
+use bfe_sim::ai::nav::math::Vec3;
 use three::Vector3;
 
 struct Ids;
