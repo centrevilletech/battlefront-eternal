@@ -52,6 +52,7 @@ fn input(tick: f64, authority: f64) -> Vec<f64> {
 #[test]
 fn replay_length_does_not_allocate_in_a_warm_infantry_session() {
     let mut collision = State::default();
+    collision.positions.push(bfe_sim::collision::Corners::F32(Vec::new()));
     collision.trees.push(Tree { roots: Vec::new(), positions: 0, index: Vec::new(),
         indexed: true, indirect: Vec::new(), polygons: Vec::new() });
     collision.sets.push(bfe_sim::collision::spheres::FixedSet { tree: 0, bounds: Vec::new(), polygons: Vec::new(), offset: 0.0 });

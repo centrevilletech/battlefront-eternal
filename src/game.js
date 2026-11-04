@@ -2849,7 +2849,7 @@ async function start() {
     const replayActions = client.host.entityInput.replayActions(true, true);
     const actions = commands => commands.map(command => ({...command, actions: replayActions.actions.get(command.sequence) || []}));
     const pending = predictionCommands(actions(client.pending), actions([...client.pendingActions, ...replayActions.shieldCommands]), 0, client.held);
-    if (predictionSession && (combat.dead || playerUnit.removed || driver?.active || gunner.active || remotes.active || playerUnit.seat || playerUnit.held)) predictionSession.reset();
+    if (predictionSession && (walker || combat.dead || playerUnit.removed || driver?.active || gunner.active || remotes.active || playerUnit.seat || playerUnit.held)) predictionSession.reset();
     if (remotes.piloted && !combat.dead && !playerUnit.removed) {
       const droid=remotes.piloted,state=captureRemoteReplay(remotes,droid);
       const prediction=predictRemote(remotes,droid,pending,worldClock.tick,playerUnit.generation,
@@ -2901,7 +2901,9 @@ async function start() {
     if (walker) client.savedDroideka = captureDroidekaState(soldier);
     else client.saved = captureCompactSoldier(soldier);
     client.predictionBodyPending = true;
-    if (predictionSession) {
+    // Cosmetic droideka fire advances gun/lastGun inside presentation. Keep
+    // that shared cursor on the JS replay path until its checkpoint is owned.
+    if (predictionSession && !walker) {
       client.weapons ||= new WeaponPrediction();
       client.weapons.begin(playerUnit, { epoch: commandHistory.epoch, tick: worldClock.tick });
       const fireEdges = [];
