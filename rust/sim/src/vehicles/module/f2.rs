@@ -1,5 +1,7 @@
 //! Persistent fleet scheduler. The generated slab is canonical; input contains
 //! foreign facts only. No complete vehicle row is imported by an ordinary tick.
+pub use crate::vehicles::f2_seats as seats;
+
 use super::*;
 use crate::store::Nullable;
 

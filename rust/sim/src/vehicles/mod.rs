@@ -33,6 +33,8 @@ pub mod firing;
 mod firing_module;
 pub mod hover;
 pub mod hull;
+#[path = "module/f2/seats.rs"]
+pub mod f2_seats;
 pub mod native;
 pub mod pose;
 pub mod posing;
