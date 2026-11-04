@@ -4,6 +4,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { VehicleEffects } from '../src/vehicle-effects.js';
+import { Effects } from '../src/effects.js';
 import { DebrisIds, debrisState } from '../src/debris-sim.js';
 import { MAGIC, RECORD, Writer } from './sim-capture/format.mjs';
 let game, spawned = 0, flights = 0, rests = 0, settles = 0, removed = 0;
@@ -11,6 +12,10 @@ const traceAt = process.argv.indexOf('--debris-trace'), trace = traceAt < 0 ? nu
 const ids = new DebrisIds(), writer = new Writer(); let fd = null;
 export function battle(context) {
   game = context.game;
+  // Headless games replace Effects.play with a null stub. This optional
+  // probe restores real emitter creation only for debris, leaving the
+  // battle's other presentation calls alone.
+  if (process.argv.includes('--debris-effects')) game.debris.effects = { play(...args) { return Effects.prototype.play.apply(game.effects, args); } };
   if (trace) { fd = fs.openSync(trace, 'w'); fs.writeSync(fd, MAGIC); }
   const fx = new VehicleEffects({ effects: game.effects, debris: game.debris });
   const world = context.world, step = world.step;
@@ -48,5 +53,5 @@ export function ticked(tick) {
 export function ended() {
   if (fd !== null) { fs.closeSync(fd); fd = null; }
   assert.ok(spawned > 0, 'real chunks were launched'); assert.ok(flights > 0, 'real chunks flew'); assert.ok(rests > 0, 'real chunks rested');
-  console.error(JSON.stringify({ debrisProbe: { spawned, flights, rests, settles, removed } }));
+  console.error(JSON.stringify({ debrisProbe: { spawned, flights, rests, settles, removed, effects: game.effects.effects.length } }));
 }
