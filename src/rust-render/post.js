@@ -6,13 +6,12 @@
 // full-screen pass (render-passes.js) into a target (three's, or the
 // canvas), with the values it is drawn with (applyValues: set on its
 // material as the step is written, as three's postStep sets them); the
-// renderer draws them all with three's programs for their materials, as
-// three compiled them (Kind::Plain), or three draws them all: a step it
-// can't draw (one that draws itself, a pass three has not yet drawn once)
-// leaves the frame's post passes to three (cover returns false). What a
-// step does once the frame's steps are drawn (the temporal upscaler's
-// commit: `after`) graphics.js runs, whoever drew them.
+// renderer uses source-owned programs for tagged post/HUD materials and the
+// compiled-source bridge for unported materials (Kind::Plain). A refused step
+// leaves the whole chain to three. The temporal commit (`after`) runs once,
+// whoever drew the steps.
 import * as THREE from "three";
+import { ownedProgram } from "./programs.js";
 import { applyValues } from "../render-passes.js";
 
 const PLAIN = 3;
@@ -47,6 +46,7 @@ const plainPrograms = new WeakMap();
 // Whether plainProgram has made (or refused) the renderer's program for
 // three's current one of a material, so that calling it makes no program.
 export function plainProgramKnown(core, material) {
+  if (material.userData?.bfeProgram && core.ownedShaderSources !== false) return core.ownedPrograms?.has(material.userData.bfeProgram) || false;
   const threeProgram = core.renderer.properties.get(material).currentProgram;
   return !threeProgram || plainPrograms.has(threeProgram);
 }
@@ -61,11 +61,13 @@ const unread = (material, name) => (name === "zeroLights" || name === "zeroLight
 // or null for three's own attributes at locations 0, 1... (entry.attributes,
 // for core.geometry).
 export function plainProgram(core, material, attributes) {
+  if (material.userData?.bfeProgram && core.ownedShaderSources !== false && core.rust.add_owned_program) return ownedProgram(core, material, attributes);
   const threeProgram = core.renderer.properties.get(material).currentProgram;
   if (!threeProgram) return undefined;
   let entry = plainPrograms.get(threeProgram);
   if (entry !== undefined) return entry;
   entry = null;
+  const start = material.userData?.bfeProgram ? performance.now() : 0;
   const gl = core.gl, p = threeProgram.program;
   let locations = null;
   if (attributes === null) {
@@ -86,6 +88,7 @@ export function plainProgram(core, material, attributes) {
       core.errors.push(`plain p${threeProgram.id}: ${String(error).slice(0, 300)}`);
     }
   } else core.errors.push(`plain p${threeProgram.id}: ${uniforms.filter((u) => !u.type || u.size !== 1).map((u) => u.name).join(" ")}`);
+  if (material.userData?.bfeProgram) (core.shaderPrograms ||= []).push({ key: material.userData.bfeProgram, owned: false, ms: performance.now() - start, accepted: !!entry });
   plainPrograms.set(threeProgram, entry);
   return entry;
 }

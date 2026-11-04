@@ -57,6 +57,7 @@ class HudPass {
     const batch = hud.batch;
     // One program for every material of the batch (batch.js makes them all
     // from the same shaders): the first one three has made.
+    if (this.ownedSources !== (core.ownedShaderSources !== false)) { this.program = null; this.ownedSources = core.ownedShaderSources !== false; }
     if (!this.program) {
       for (const material of batch.mesh.material) { const p = plainProgram(core, material, ATTRIBUTES); if (p !== undefined) { this.program = p; break; } }
       if (!this.program) return false;

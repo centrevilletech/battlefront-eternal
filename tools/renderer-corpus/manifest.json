@@ -1,0 +1,793 @@
+{
+  "version": 1,
+  "captures": 4,
+  "gap": 30,
+  "historyFrames": 4,
+  "cases": [
+    {
+      "id": "classic-bes1",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-bes2",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-end1",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-geo1",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-hot1",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-kas1",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-kas2",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-nab1",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-rhn1",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic",
+        "dynamic-noise"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-rhn2",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-tat1",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-tat2",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-tat3",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-yav1",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "classic-yav2",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "classic"
+      ],
+      "preset": "classic"
+    },
+    {
+      "id": "balanced-bes1",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-bes2",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-end1",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-geo1",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-hot1",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-kas1",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-kas2",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-nab1",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-rhn1",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-rhn2",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-tat1",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-tat2",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-tat3",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-yav1",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "balanced-yav2",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "balanced"
+    },
+    {
+      "id": "high-bes1",
+      "query": "map=bes1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-bes2",
+      "query": "map=bes2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-end1",
+      "query": "map=end1&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-geo1",
+      "query": "map=geo1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-hot1",
+      "query": "map=hot1&side=imp&era=gcw&unit=imp_inf_storm_troopersnow&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-kas1",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-kas2",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-nab1",
+      "query": "map=nab1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-rhn1",
+      "query": "map=rhn1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows",
+        "dynamic-noise"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-rhn2",
+      "query": "map=rhn2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-tat1",
+      "query": "map=tat1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-tat2",
+      "query": "map=tat2&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-tat3",
+      "query": "map=tat3&side=imp&era=gcw&unit=imp_inf_storm_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-yav1",
+      "query": "map=yav1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "high-yav2",
+      "query": "map=yav2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "first-person",
+        "hud",
+        "shadows"
+      ],
+      "preset": "high"
+    },
+    {
+      "id": "mirror-kas1",
+      "query": "map=kas1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "ocean",
+        "mirror"
+      ],
+      "preset": "high",
+      "settings": {
+        "waterQuality": "ultra"
+      }
+    },
+    {
+      "id": "mirror-kas2",
+      "query": "map=kas2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "ocean",
+        "mirror"
+      ],
+      "preset": "high",
+      "settings": {
+        "waterQuality": "ultra"
+      }
+    },
+    {
+      "id": "mirror-kam1",
+      "query": "map=kam1&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "ocean",
+        "mirror"
+      ],
+      "preset": "high",
+      "settings": {
+        "waterQuality": "ultra"
+      }
+    },
+    {
+      "id": "bilinear-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "bilinear"
+      ],
+      "preset": "classic",
+      "settings": {
+        "renderScale": 0.75,
+        "upscaler": "bilinear"
+      }
+    },
+    {
+      "id": "spatial-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "spatial"
+      ],
+      "preset": "classic",
+      "settings": {
+        "renderScale": 0.75,
+        "upscaler": "spatial"
+      }
+    },
+    {
+      "id": "fxaa-fast-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "fxaa-fast"
+      ],
+      "preset": "classic",
+      "settings": {
+        "renderScale": 0.75,
+        "antialiasing": "fxaa-fast"
+      }
+    },
+    {
+      "id": "context-loss-nab2",
+      "query": "map=nab2&side=rep&era=cw&unit=rep_inf_clone_trooper&ai=classic&tier=medium&heroes=0&seed=1&noreload=1&profileRuntime=1&view=1st",
+      "tags": [
+        "context-loss"
+      ],
+      "contextLoss": true,
+      "preset": "high"
+    }
+  ],
+  "presets": {
+    "classic": {
+      "physicsRate": "60",
+      "performancePreset": "custom",
+      "frameLimit": "60",
+      "dynamicResolution": "off",
+      "renderScale": 1,
+      "upscaler": "off",
+      "upscaleSharpness": 0.4,
+      "textureCompression": false,
+      "antialiasing": "2x",
+      "shadows": "off",
+      "anisotropy": 1,
+      "bumpMapping": true,
+      "softFocus": false,
+      "bloom": false,
+      "vehicleMotionBlur": false,
+      "softParticles": false,
+      "lampLighting": false,
+      "waterQuality": "low",
+      "treeDetail": "original",
+      "droidekaEffects": "classic",
+      "destructionEffects": "classic",
+      "jetpackEffects": "classic",
+      "environmentEffects": "classic",
+      "rainEffects": "classic",
+      "oceanEffects": "classic",
+      "boltEffects": "classic",
+      "arcCasterEffects": "classic",
+      "sniperEffects": "classic",
+      "terrainDetail": "original",
+      "deathCamera": "enhanced",
+      "flightSensitivity": 1,
+      "flightInvertY": false,
+      "flightResponseCurve": 1.35,
+      "flightFirstPerson": false,
+      "keyBindings": {},
+      "flightBindings": {},
+      "viewDistance": "original",
+      "farTerrain": "reduced",
+      "mouseSensitivity": 5,
+      "invertMouse": false,
+      "showStats": false,
+      "menuTheme": "eternal",
+      "friendlyFire": true,
+      "aiMode": "classic",
+      "aiDifficulty": "medium",
+      "aiHeroes": false,
+      "battleSize": "full",
+      "audioQuality": "original",
+      "audioOutput": "7.1.4",
+      "audioDynamics": "normal",
+      "audioMono": false,
+      "audioClarity": true,
+      "masterVolume": 0.05,
+      "effectsVolume": 1,
+      "musicVolume": 1,
+      "voiceVolume": 1,
+      "ambienceVolume": 1,
+      "interfaceVolume": 1
+    },
+    "balanced": {
+      "physicsRate": "60",
+      "performancePreset": "balanced",
+      "frameLimit": "60",
+      "dynamicResolution": "off",
+      "renderScale": 1,
+      "upscaler": "temporal",
+      "upscaleSharpness": 0.4,
+      "textureCompression": false,
+      "antialiasing": "2x",
+      "shadows": "low",
+      "anisotropy": 8,
+      "bumpMapping": true,
+      "softFocus": true,
+      "bloom": true,
+      "vehicleMotionBlur": false,
+      "softParticles": true,
+      "lampLighting": true,
+      "waterQuality": "low",
+      "treeDetail": "original",
+      "droidekaEffects": "enhanced",
+      "destructionEffects": "enhanced",
+      "jetpackEffects": "enhanced",
+      "environmentEffects": "classic",
+      "rainEffects": "classic",
+      "oceanEffects": "classic",
+      "boltEffects": "enhanced",
+      "arcCasterEffects": "enhanced",
+      "sniperEffects": "enhanced",
+      "terrainDetail": "enhanced",
+      "deathCamera": "enhanced",
+      "flightSensitivity": 1,
+      "flightInvertY": false,
+      "flightResponseCurve": 1.35,
+      "flightFirstPerson": false,
+      "keyBindings": {},
+      "flightBindings": {},
+      "viewDistance": "original",
+      "farTerrain": "full",
+      "mouseSensitivity": 5,
+      "invertMouse": false,
+      "showStats": false,
+      "menuTheme": "eternal",
+      "friendlyFire": true,
+      "aiMode": "classic",
+      "aiDifficulty": "medium",
+      "aiHeroes": false,
+      "battleSize": "full",
+      "audioQuality": "original",
+      "audioOutput": "7.1.4",
+      "audioDynamics": "normal",
+      "audioMono": false,
+      "audioClarity": true,
+      "masterVolume": 0.05,
+      "effectsVolume": 1,
+      "musicVolume": 1,
+      "voiceVolume": 1,
+      "ambienceVolume": 1,
+      "interfaceVolume": 1
+    },
+    "high": {
+      "physicsRate": "60",
+      "performancePreset": "quality",
+      "frameLimit": "60",
+      "dynamicResolution": "off",
+      "renderScale": 1,
+      "upscaler": "temporal",
+      "upscaleSharpness": 0.4,
+      "textureCompression": false,
+      "antialiasing": "2x",
+      "shadows": "high",
+      "anisotropy": 16,
+      "bumpMapping": true,
+      "softFocus": true,
+      "bloom": true,
+      "vehicleMotionBlur": true,
+      "softParticles": true,
+      "lampLighting": true,
+      "waterQuality": "high",
+      "treeDetail": "enhanced",
+      "droidekaEffects": "enhanced",
+      "destructionEffects": "enhanced",
+      "jetpackEffects": "enhanced",
+      "environmentEffects": "enhanced",
+      "rainEffects": "enhanced",
+      "oceanEffects": "enhanced",
+      "boltEffects": "enhanced",
+      "arcCasterEffects": "enhanced",
+      "sniperEffects": "enhanced",
+      "terrainDetail": "enhanced",
+      "deathCamera": "enhanced",
+      "flightSensitivity": 1,
+      "flightInvertY": false,
+      "flightResponseCurve": 1.35,
+      "flightFirstPerson": false,
+      "keyBindings": {},
+      "flightBindings": {},
+      "viewDistance": "original",
+      "farTerrain": "full",
+      "mouseSensitivity": 5,
+      "invertMouse": false,
+      "showStats": false,
+      "menuTheme": "eternal",
+      "friendlyFire": true,
+      "aiMode": "classic",
+      "aiDifficulty": "medium",
+      "aiHeroes": false,
+      "battleSize": "full",
+      "audioQuality": "original",
+      "audioOutput": "7.1.4",
+      "audioDynamics": "normal",
+      "audioMono": false,
+      "audioClarity": true,
+      "masterVolume": 0.05,
+      "effectsVolume": 1,
+      "musicVolume": 1,
+      "voiceVolume": 1,
+      "ambienceVolume": 1,
+      "interfaceVolume": 1
+    }
+  }
+}

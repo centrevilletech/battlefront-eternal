@@ -1,3 +1,4 @@
+import { shaderSources } from "../render-shaders.js";
 import * as THREE from "three";
 
 // Quads gathered in draw order, one draw per run of the same texture: every
@@ -6,32 +7,8 @@ import * as THREE from "three";
 
 const QUADS = 2048;
 
-const VERTEX = /* glsl */ `
-  attribute vec2 maskUv;
-  attribute vec4 tint;
-  varying vec2 vUv;
-  varying vec2 vMaskUv;
-  varying vec4 vTint;
-  void main() {
-    vUv = uv;
-    vMaskUv = maskUv;
-    vTint = tint;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-const FRAGMENT = /* glsl */ `
-  uniform sampler2D map;
-  uniform sampler2D mask;
-  uniform bool masked;
-  varying vec2 vUv;
-  varying vec2 vMaskUv;
-  varying vec4 vTint;
-  void main() {
-    vec4 color = texture2D(map, vUv) * vTint;
-    if (masked) color.a *= texture2D(mask, vMaskUv).a;
-    gl_FragColor = color;
-  }
-`;
+const VERTEX = shaderSources["post-hud/hud"].vertex;
+const FRAGMENT = shaderSources["post-hud/hud"].fragment;
 
 export class Batch {
   constructor() {
@@ -81,7 +58,9 @@ export class Batch {
         }),
       );
     }
-    return byMask.get(key);
+    const material = byMask.get(key);
+    material.userData.bfeProgram = "post-hud/hud";
+    return material;
   }
 
   begin() {
