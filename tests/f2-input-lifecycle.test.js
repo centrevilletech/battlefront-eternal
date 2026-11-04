@@ -23,9 +23,14 @@ function box(w, h, d, y) {
     polygons: Array(geometry.index.count / 3).fill(0) };
 }
 
-async function fleet(native) {
+async function fleet(native, cage = false) {
   const floor = box(2000, 2, 2000, -1);
   const collision = new CollisionWorld(new Float32Array(floor.positions), new Uint32Array(floor.indices), new Uint32Array(floor.polygons));
+  if (cage) for (const axis of ['x', 'z']) for (const side of [-1, 1]) {
+    const wall = box(axis === 'x' ? .1 : 16, 10, axis === 'z' ? .1 : 16, 4);
+    for (let i = axis === 'x' ? 0 : 2; i < wall.positions.length; i += 3) wall.positions[i] += side * 2.6;
+    collision.addBody(new Float32Array(wall.positions), new Uint32Array(wall.indices), new Uint32Array(wall.polygons));
+  }
   const def = { model: 'tank', base: 'hover', settings: { MaxHealth: 1000, ForwardSpeed: 12, TurnRate: 1 },
     seats: [{ name: 'BODY', settings: {}, weapons: [] }], explosion: null };
   const post = { desc: { name: 'cp' }, team: 1 };
@@ -122,6 +127,20 @@ test('live F2 board hooks can synchronously board another hull', async () => {
   } finally { system.dispose(); }
 });
 
+test('live F2 safe exits refuse blocked geometry and retain the same lease', async () => {
+  const run = async native => {
+    const { system } = await fleet(native, true);
+    try {
+      const v = system.vehicles[0], u = rider(system, 15); u.human = u.networkHuman = true;
+      assert.equal(system.board(u, v), true); const lease = u.seat;
+      assert.equal(system.unboard(u), false); assert.equal(u.seat, lease); assert.equal(lease.released, false);
+      assert.equal(system.unboard(u, { force: true }), true); assert.equal(u.seat, null);
+      return { position: u.position.toArray(), grounded: u.soldier.grounded };
+    } finally { system.dispose(); }
+  };
+  assert.deepEqual(await run(true), await run(false));
+});
+
 test('live F2 private hull replay leaves the native authority input untouched', async () => {
   const { system } = await fleet(true);
   try {
@@ -161,9 +180,9 @@ test('live F2 damage preserves the latest foreign hull rider body at kill entry'
   assert.deepEqual(await run(true), await run(false));
 });
 
-function turret(x, base = 'bolt') {
+function turret(x, base = 'bolt', height = 3) {
   const root = new THREE.Group(), drum = new THREE.Bone(), gun = new THREE.Bone(), seat = new THREE.Bone(), fire = new THREE.Bone();
-  root.matrixAutoUpdate = false; root.matrix.makeTranslation(x, 3, 50);
+  root.matrixAutoUpdate = false; root.matrix.makeTranslation(x, height, 50);
   root.add(drum); drum.add(gun, seat); gun.add(fire); fire.position.z = 1; seat.position.z = -.5;
   const rig = { root, bones: [drum, gun, seat, fire], byName: { drum, gun, seat, fire }, model: { box: [[-1, 0, -1], [1, 2, 1]] } };
   const def = { class: 'fixture_turret', base: 'cannon', channel: 0, ShotDelay: .1, ShotsPerSalvo: 1, SalvoCount: 1, RoundsPerClip: 0,
@@ -172,6 +191,22 @@ function turret(x, base = 'bolt') {
     settings: { MaxHealth: 100, TurretNodeName: 'drum', AimerNodeName: 'gun', PilotPosition: 'seat', FirePointName: 'fire' } },
     { built: rig }, {}, null);
 }
+
+test('live F2 Classic turret exits exhaust unsupported candidates before fallback', async () => {
+  const run = async native => {
+    const { system } = await fleet(native);
+    try {
+      const t = turret(20, 'bolt', 50); t.weapon = null;
+      const crews = new TurretSeats({ live: { turrets: [t] }, collision: system.collision });
+      if (native) system.f2.seats.attachTurrets(crews);
+      const u = rider(system, 35); u.human = u.networkHuman = true;
+      assert.equal(crews.man(u, t), true); assert.equal(crews.leave(u), true);
+      assert.deepEqual(u.position.toArray(), t.position.toArray());
+      return { position: u.position.toArray(), grounded: u.soldier.grounded, air: u.soldier.air };
+    } finally { system.dispose(); }
+  };
+  assert.deepEqual(await run(true), await run(false));
+});
 
 test('live F2 turret exits use built bounds after construction and rebuild', async () => {
   const run = async native => {
