@@ -4,11 +4,18 @@
 import assert from 'node:assert/strict';
 
 let game, server, action = 0, deaths = 0;
-export function battle({ game: world, server: local }) {
+export function battle({ game: world, server: local, world: host }) {
   game = world; server = local;
   assert.ok(server.actor.unit.walker, 'the probe player is a droideka');
+  const step = host.step;
+  host.step = function (...args) {
+    // Every plugin has begun the tick before the host steps. In particular,
+    // damage belongs inside the capture window, including its RNG draws.
+    exercise(game.worldClock.tick + 1);
+    return step.apply(this, args);
+  };
 }
-export function tick(tick) {
+function exercise(tick) {
   if (tick === 30 || tick === 180) server.world.actions(server.id, {
     epoch: 1, id: ++action, tick, generation: server.actor.unit.generation, actions: ['use'],
   });
