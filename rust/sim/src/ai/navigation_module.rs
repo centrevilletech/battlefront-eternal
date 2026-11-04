@@ -7,7 +7,7 @@ use super::{
     nav::{
         goto::{GotoWorld, Resolved},
         math::Vec3,
-        units::{ClassDef, NavUnit, SoldierView, UnitRef},
+        units::{Air, ClassDef, NavUnit, Posture, SoldierView, UnitRef},
     },
     random::ClassicRandom,
 };
@@ -173,11 +173,19 @@ impl Input<'_> {
                 max_speed: self.optional(),
                 forward_speed: self.optional(),
                 turn_rate: self.optional(),
+                max_strafe_speed: self.optional(),
+                max_turn_speed: self.optional(),
+                max_pitch_speed: self.optional(),
                 ..Default::default()
             });
         }
         if self.number() != 0.0 {
             let aim_yaw = self.optional();
+            let aim_pitch = self.optional();
+            let max_speed = self.optional();
+            let max_strafe = self.optional();
+            let max_turn = self.optional();
+            let max_pitch = self.optional();
             let avoidance = if self.number() != 0.0 {
                 Some(self.vector())
             } else {
@@ -185,12 +193,34 @@ impl Input<'_> {
             };
             u.soldier = Some(SoldierView {
                 aim_yaw,
+                aim_pitch,
+                max_speed,
+                max_strafe,
+                max_turn,
+                max_pitch,
                 avoidance,
+                air: match word_u32(self.number()) {
+                    0 => Air::None,
+                    1 => Air::Jump,
+                    2 => Air::Jet,
+                    _ => Air::Other,
+                },
+                posture: match word_u32(self.number()) {
+                    0 => Posture::Stand,
+                    1 => Posture::Crouch,
+                    2 => Posture::Prone,
+                    _ => Posture::Other,
+                },
+                lock: self.number(),
+                dive: self.number() != 0.0,
                 ..Default::default()
             });
         }
         if self.number() != 0.0 {
             u.forward = Some(self.vector());
+        }
+        if self.number() != 0.0 {
+            u.origin = Some(self.vector());
         }
         Some(u)
     }
@@ -243,6 +273,10 @@ pub extern "C" fn ai_nav_control_command(op: u32, control: u32, a: f64, b: f64, 
         leader,
         far: input.number(),
     };
+    let aim_present = input.number() != 0.0;
+    let aim = input.vector();
+    let facing = input.number() != 0.0;
+    let mut intent = None;
     let s = state();
     let n = &mut s.nav;
     let owner = control as usize;
@@ -343,6 +377,17 @@ pub extern "C" fn ai_nav_control_command(op: u32, control: u32, a: f64, b: f64, 
             0.0
         }
         15 => n.control_status(owner, unit.as_ref()),
+        16 => {
+            intent = Some(n.navigation_input(
+                owner,
+                unit.as_mut().expect("navigation input unit"),
+                a,
+                aim_present.then_some(aim),
+                facing,
+                &mut world,
+            ));
+            0.0
+        }
         _ => panic!("invalid navigation control command"),
     };
     s.out.clear();
@@ -352,6 +397,25 @@ pub extern "C" fn ai_nav_control_command(op: u32, control: u32, a: f64, b: f64, 
         vector(&mut s.out, avoidance);
     } else {
         s.out.extend([0.0, 0.0, 0.0, 0.0]);
+    }
+    if let Some(intent) = intent {
+        s.out.extend([
+            1.0,
+            intent.forward,
+            intent.right,
+            intent.turn,
+            intent.pitch,
+            intent.jump as u8 as f64,
+            intent.crouch as u8 as f64,
+            intent.prone as u8 as f64,
+            match intent.jet_direction {
+                None => 0.0,
+                Some(None) => 1.0,
+                Some(Some(_)) => 2.0,
+            },
+        ]);
+    } else {
+        s.out.push(0.0);
     }
     for (owner, path, ready) in n.publications.as_mut().unwrap().drain(..) {
         s.out.extend([

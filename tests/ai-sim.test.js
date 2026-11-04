@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three';
-import { ClassicNav, NavControl, PathExecutor } from '../src/ai/classic/nav/index.js';
+import { ClassicNav, NavControl, PathExecutor, navigationInput } from '../src/ai/classic/nav/index.js';
 import { ClassicRandom } from '../src/ai/random.js';
 import { attachAiSim } from '../src/ai-sim.js';
 import { bridgeFor } from '../src/sim/runtime.js';
@@ -250,6 +250,43 @@ test('native aim filters keep exact curves, write-through vectors and shared str
       if(i%17===0)assert.equal(ne.gaussian(),je.gaussian());
       assert.deepEqual(enhancedView(ne),enhancedView(je),`Enhanced ${tier}:${i}`);
       assert.equal(nr.state,jr.state,`stream C ${tier}:${i}`);
+    }
+  }
+});
+
+test('native navigation input preserves analogs, jet aliases and existing intent edges', async () => {
+  const {js,native}=await pair();
+  const random=new ClassicRandom(618);
+  for(const kind of [0,1,2,3,5,6]) {
+    const unit=()=>({kind,generation:1,position:new Vector3(),velocity:new Vector3(),
+      classDef:{MaxSpeed:9,MaxStrafeSpeed:7,MaxTurnSpeed:2,MaxPitchSpeed:.5,ForwardSpeed:20,TurnRate:2},
+      soldier:kind===0||kind===3 ? {aimYaw:0,aimPitch:0,maxSpeed:9,maxStrafe:7,maxTurn:2,maxPitch:.5,air:null,posture:'stand',lock:0,dive:false,avoidance:new Vector3()} : null,
+      forward:out=>out.set(.6,0,.8),origin(out){return out.copy(this.position).add(new Vector3(0,1.5,0));}});
+    const ju=unit(),nu=unit();
+    const jc=js.control({unit:ju,world:{randomB:new ClassicRandom(71)}}),nc=native.control({unit:nu,world:{randomB:new ClassicRandom(71)}});
+    assert.equal(typeof nc.nativeInput,'function');jc.attach(ju);nc.attach(nu);
+    for(let i=0;i<192;i++) {
+      ju.position.set(random.range(-5,5),random.range(-1,1),random.range(-5,5));nu.position.copy(ju.position);
+      ju.velocity.set(random.range(-4,4),0,random.range(-4,4));nu.velocity.copy(ju.velocity);
+      if(ju.soldier) {
+        Object.assign(ju.soldier,{aimYaw:random.range(-3,3),aimPitch:random.range(-1,1),air:[null,'jump','jet','fall'][i%4],posture:['stand','crouch','prone'][i%3],lock:i%11===0?1:0,dive:i%17===0});
+        Object.assign(nu.soldier,{...ju.soldier,avoidance:nu.soldier.avoidance});
+      }
+      if(i%13===0) {
+        const end=ju.position.clone().add(new Vector3(0,0,10));
+        jc.install(js.planner.segment(ju.position,end));nc.install(native.planner.segment(nu.position,end));
+      } else if(i%13===7) {jc.stop();nc.stop();}
+      jc.stance=nc.stance=i%3;
+      jc.jet.pending=nc.jet.pending=i%19===0;
+      const jet=i%2===0 ? new Vector3() : new Vector3(0,1,-0);
+      jc.jet.vector.copy(jet);nc.jet.vector.copy(jet);
+      const aim=i%5===0?null:new Vector3(random.range(-8,8),random.range(-2,8),random.range(-8,8));
+      const ji={jump:i%7===0,crouch:false,prone:false,jetDirection:'previous'},ni={...ji};
+      const dt=i%31===0?0:1/60,options={facing:i%3===0};
+      navigationInput(jc,ju,ji,dt,aim,options);navigationInput(nc,nu,ni,dt,aim,options);
+      assert.deepEqual(ni,ji,`intent ${kind}:${i}`);
+      if(ji.jetDirection===jc.jet.vector)assert.equal(ni.jetDirection,nc.jet.vector);
+      assert.deepEqual(controlView(nc),controlView(jc),`control ${kind}:${i}`);
     }
   }
 });

@@ -374,20 +374,26 @@ class NativePlanner {
 
 // Unit reads used by the path executor. Optional numeric fields carry a
 // presence bit so a NaN is distinct from an absent coefficient.
-function navigationUnit(sim, words, unit, forward) {
+function navigationUnit(sim, words, unit, forward, origin = null) {
   if (!unit) { words.push(0); return; }
   const vec = p => words.push(p.x, p.y, p.z);
   const optional = value => words.push(value != null ? 1 : 0, value ?? 0);
   words.push(1, sim.id(unit), unit.kind); vec(unit.position); vec(unit.velocity ?? ZERO);
   optional(unit.generation);
   const def = unit.classDef; words.push(def ? 1 : 0);
-  if (def) { optional(def.MaxSpeed); optional(def.ForwardSpeed); optional(def.TurnRate); }
+  if (def) {
+    for (const key of ['MaxSpeed','ForwardSpeed','TurnRate','MaxStrafeSpeed','MaxTurnSpeed','MaxPitchSpeed']) optional(def[key]);
+  }
   const soldier = unit.soldier; words.push(soldier ? 1 : 0);
   if (soldier) {
-    optional(soldier.aimYaw); words.push(soldier.avoidance ? 1 : 0);
+    for (const key of ['aimYaw','aimPitch','maxSpeed','maxStrafe','maxTurn','maxPitch']) optional(soldier[key]);
+    words.push(soldier.avoidance ? 1 : 0);
     if (soldier.avoidance) vec(soldier.avoidance);
+    words.push(!soldier.air?0:soldier.air==='jump'?1:soldier.air==='jet'?2:3,
+      soldier.posture==='stand'?0:soldier.posture==='crouch'?1:soldier.posture==='prone'?2:3,soldier.lock,Number(Boolean(soldier.dive)));
   }
   words.push(forward ? 1 : 0); if (forward) vec(forward);
+  words.push(origin ? 1 : 0); if (origin) vec(origin);
 }
 
 class NativeNavControl extends NavControl {
@@ -442,7 +448,7 @@ class NativeNavControl extends NavControl {
     for (const path of new Set([...previous,this.published,this.trail,this.executor?.path])) path?.read();
   }
 
-  run(op, a = 0, b = 0, c = 0, unit = this.unit, explicitLeader = null) {
+  run(op, a = 0, b = 0, c = 0, unit = this.unit, explicitLeader = null, aim = null, facing = false, intent = null) {
     const words = [], world = this.controller?.world;
     const rng = world?.randomB ?? world?.gameRandom ?? world?.random;
     const ref = this.leader;
@@ -450,13 +456,15 @@ class NativeNavControl extends NavControl {
     // These methods are pure unit reads. Only operations that can steer
     // request the flyer direction, and only a due trail sample asks for
     // its leader's direction.
-    const steer = [4,5,6,8,11,12].includes(op);
+    const steer = [4,5,6,8,11,12,16].includes(op);
     const forward = steer && unit?.kind === 5 && unit.forward ? unit.forward(this.strandedAt.clone()) : null;
-    const sample = (op === 8 || op === 11) && leader && !this.executor?.hold && Math.fround(this.trailDelay - a) < 0;
+    const sample = (op === 8 || op === 11 || op === 16) && leader && !this.executor?.hold && Math.fround(this.trailDelay - a) < 0;
     const leaderForward = sample && leader.forward ? leader.forward(this.strandedAt.clone()) : null;
-    navigationUnit(this.sim, words, unit, forward);
+    const origin = op === 16 && unit?.origin ? unit.origin(this.strandedAt.clone()) : null;
+    navigationUnit(this.sim, words, unit, forward, origin);
     navigationUnit(this.sim, words, leader, leaderForward);
     words.push(rng?.state ?? 0, this.controller?.ai?.followRadii?.far ?? world?.missionControls?.formation?.far ?? 3);
+    words.push(Number(Boolean(aim)),aim?.x??0,aim?.y??0,aim?.z??0,Number(Boolean(facing)));
     const ptr = this.sim.x.sim_call_room(words.length,0);
     this.sim.bridge.views(); this.sim.bridge.f.set(words,ptr/8+HEADER);
     this.planner.feed();
@@ -466,8 +474,14 @@ class NativeNavControl extends NavControl {
     if (answer[2] && unit?.soldier?.avoidance) {
       const v=unit.soldier.avoidance; v.x=answer[3];v.y=answer[4];v.z=answer[5];
     }
-    this.planner.publications(answer,6);
+    const start=answer[6] ? 15 : 7;
+    this.planner.publications(answer,start);
     this.read();
+    if (answer[6]) {
+      intent.forward=answer[7];intent.right=answer[8];intent.turn=answer[9];intent.pitch=answer[10];
+      if(answer[11])intent.jump=true;if(answer[12])intent.crouch=true;if(answer[13])intent.prone=true;
+      if(answer[14])intent.jetDirection=answer[14]===1?null:this.jet.vector;
+    }
     return answer[0];
   }
 
@@ -490,6 +504,7 @@ class NativeNavControl extends NavControl {
   consumeSegment() { this.run(13); }
   dispose() { this.run(14); }
   get status() { return this.run(15); }
+  nativeInput(unit,intent,dt,aim,options) { this.run(16,dt,0,0,unit,null,aim,options.facing,intent);return intent; }
 }
 
 class NativeExecutor {
