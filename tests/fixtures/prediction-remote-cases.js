@@ -213,7 +213,7 @@ export function remotePredictionCases() {
   ];
 }
 
-export function runRemotePredictionCase(scenario, { native = null, onQuery = null, onFired = null, before = null, collision = null } = {}) {
+export function runRemotePredictionCase(scenario, { native = null, replay = null, onQuery = null, onFired = null, before = null, collision = null } = {}) {
   const fixture = createRemoteFixture(scenario, { onQuery, onFired, collision }), { source, droid } = fixture, cache = new RemotePredictionContext();
   const { context, predicted } = cache.acquire(source, droid); fixture.setContext(context);
   if (scenario.privateLevelEdit) {
@@ -241,7 +241,7 @@ export function runRemotePredictionCase(scenario, { native = null, onQuery = nul
     if (i % 13 === 1) pending[i].worldLook = [[10001, -10001]];
   }
   let result, error = null;
-  try { result = predictRemote(source, droid, pending, scenario.from || 0, 1, ['KeyW'], { aspect: 1.6, mouseScale: .5 }, cache, { native }); }
+  try { result = predictRemote(source, droid, pending, scenario.from || 0, 1, ['KeyW'], { aspect: 1.6, mouseScale: .5 }, cache, { native, replay }); }
   catch (caught) { error = caught; }
   assert.deepEqual(remoteObservation(source, droid), authority, 'prediction leaves authority and random state unchanged');
   for (const [name, value] of vectors) assert.equal(droid[name], value, `authority ${name} identity`);

@@ -145,7 +145,7 @@ export function mountedPredictionCases() {
   ];
 }
 
-export function runMountedPredictionCase(scenario, { native = null, ownerRead = null, ownerWrite = null, towCall = null, afterPredict = null } = {}) {
+export function runMountedPredictionCase(scenario, { native = null, replay = null, ownerRead = null, ownerWrite = null, towCall = null, afterPredict = null } = {}) {
   const weapons = structuredClone(scenario.definitions).map(d => new Weapon(d, { random: forbiddenRandom }));
   for (const weapon of weapons) weapon.admitShot = forbiddenAdmission;
   const owners = Array.from({ length: Math.max(...scenario.entries.map(e => e.owner)) + 1 }, (_, index) => {
@@ -158,7 +158,7 @@ export function runMountedPredictionCase(scenario, { native = null, ownerRead = 
   } };
   const unit = { generation: 3, alive: scenario.alive !== false, combat: { dead: !!scenario.dead }, seat: scenario.turret
     ? { turret: Object.assign(owners[0], { weapon: weapons[0] }) } : { index: 0, vehicle, released: !!scenario.released } };
-  const prediction = new MountedWeaponPrediction({ native }), observe = () => ({ weapons: weapons.map(weaponObservation), barrels: owners.map(o => o.barrel), tick: prediction.tick });
+  const prediction = new MountedWeaponPrediction({ native, replay }), observe = () => ({ weapons: weapons.map(weaponObservation), barrels: owners.map(o => o.barrel), tick: prediction.tick });
   const before = observe(), ticks = [], observations = [];
   for (let i = 0; i < 2; i++) { ticks.push(prediction.predict(unit, scenario.pending, scenario.from, scenario.held, scenario.view)); observations.push(observe()); afterPredict?.(prediction); }
   unit.seat = null; prediction.restore(); const restored = observe();

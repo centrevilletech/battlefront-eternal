@@ -2850,7 +2850,7 @@ async function start() {
     if (remotes.piloted && !combat.dead && !playerUnit.removed) {
       const droid=remotes.piloted,state=captureRemoteReplay(remotes,droid);
       const prediction=predictRemote(remotes,droid,pending,worldClock.tick,playerUnit.generation,
-        client.heldGeneration===playerUnit.generation?client.held:[],client.replayView,client.remoteReplay,{native:predictionSim?.remotes});
+        client.heldGeneration===playerUnit.generation?client.held:[],client.replayView,client.remoteReplay,{native:predictionSim?.remotes,replay:predictionSim?.replay});
       restoreRemoteReplay(remotes,droid,prediction.state);
       client.remotePrediction={droid,state};client.predictedTick=prediction.tick;
       client.predictionWindow.reset();client.vehicleWindow.reset();client.vehiclePrediction=null;
@@ -2870,7 +2870,7 @@ async function start() {
       // pending tick of hull physics, every frame, to the same result.
       const continuation = client.vehicleWindow.select(context, (checkpoint) => predictedExactly(checkpoint.state, driver.vehicle, context.authorityTick));
       client.vehiclePrediction = continuation.checkpoint && !continuation.commands.length ? continuation.checkpoint.state
-        : predictVehicle(continuation.checkpoint?.state || driver.vehicle, continuation.commands, continuation.from, playerUnit.generation, continuation.held, { native: predictionSim?.vehicles });
+        : predictVehicle(continuation.checkpoint?.state || driver.vehicle, continuation.commands, continuation.from, playerUnit.generation, continuation.held, { native: predictionSim?.vehicles, replay: predictionSim?.replay });
       if (client.vehiclePrediction) {
         const previous = previousVehiclePrediction;
         const current = client.vehiclePrediction;
@@ -2886,7 +2886,7 @@ async function start() {
       }
     } else client.vehicleWindow.reset();
     if (playerUnit.seat && !combat.dead) {
-      client.mountedWeapons ||= new MountedWeaponPrediction({ native: predictionSim?.weapons });
+      client.mountedWeapons ||= new MountedWeaponPrediction({ native: predictionSim?.weapons, replay: predictionSim?.replay });
       client.mountedWeapons.predict(playerUnit, pending, worldClock.tick,
         client.heldGeneration === playerUnit.generation ? client.held : [], client.replayView);
     }

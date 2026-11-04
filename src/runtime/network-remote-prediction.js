@@ -12,7 +12,7 @@ export const REMOTE_REPLAY_TICKS=120;
 // clock running while the checkpoint stands still) wait for a newer
 // checkpoint: the droid is shown at the window's end, and every frame still
 // draws, rather than each one failing until the packets come back.
-export function predictRemote(source,droid,pending,from,generation,held=[],view={},cache=null,{native=null}={}) {
+export function predictRemote(source,droid,pending,from,generation,held=[],view={},cache=null,{native=null,replay=null}={}) {
  pending=pending.filter(command=>command.tick<=from+REMOTE_REPLAY_TICKS);
  const {context,predicted,initialCamera}=cache?cache.acquire(source,droid):createPredictionContext(source,droid);
  context.droids.length=0;context.droids.push(predicted);context.strikes.length=0;
@@ -33,7 +33,7 @@ export function predictRemote(source,droid,pending,from,generation,held=[],view=
   for(const [dx,dy] of command.look)if(context.active)context.look(Math.max(-10000,Math.min(10000,dx)),Math.max(-10000,Math.min(10000,dy)),scale,command.invertMouse||false);
   if(context.active)context.updateCamera(1/60,Boolean(context.firstPerson),true);
   context.update(1/60,{forward:controls.axis('forward'),right:controls.axis('right'),turn:controls.axis('turn')},controls);
- },view);}finally{nativeSession?.dispose();}
+ },view,{native:replay});}finally{nativeSession?.dispose();}
  return {context,droid:predicted,tick,state:captureRemoteReplay(context,predicted),...(nativeSession?{nativeSession}:{})};
 }
 

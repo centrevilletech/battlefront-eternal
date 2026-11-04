@@ -9,7 +9,7 @@ const cosmeticRandom = () => .5;
 // emitted: damage, projectiles, sounds, lock acquisition and admission stay on
 // the authority. Restore before applying a correction or changing the lease.
 export class MountedWeaponPrediction {
-  constructor({ native = null } = {}) { this.saved = []; this.controls = new CommandControls(); this.tick = 0; this.native = native; this.nativeSession = null; }
+  constructor({ native = null, replay = null } = {}) { this.saved = []; this.controls = new CommandControls(); this.tick = 0; this.native = native; this.nativeSession = null; this.replay = replay; }
   restore() {
     for (const entry of this.saved) {
       applyValidatedWeaponState(entry);
@@ -55,7 +55,7 @@ export class MountedWeaponPrediction {
             }
           } finally { weapon.random = random; weapon.admitShot = admission; }
         }
-      }, view);
+      }, view, { native: this.replay });
       return this.tick;
     } catch (error) { this.restore(); throw error; }
   }

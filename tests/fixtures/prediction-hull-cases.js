@@ -183,7 +183,7 @@ export function observeHullQueries(source, onQuery = null) {
   } };
 }
 
-export function runHullPredictionCase(scenario, { native = null, create = null, onQuery = null, after = null, queries = true } = {}) {
+export function runHullPredictionCase(scenario, { native = null, replay = null, create = null, onQuery = null, after = null, queries = true } = {}) {
   const fixture = create ? create() : syntheticHull(scenario.kind, scenario.options);
   const source = fixture.v, original = hullObservation(source), collider = source.body.matrix.toArray(), enabled = source.body.enabled;
   let legQueries = 0;
@@ -212,7 +212,7 @@ export function runHullPredictionCase(scenario, { native = null, create = null, 
         if (source.seats[1]) Object.assign(source.seats[1], { aimYaw: tick / 37, pitch: tick / 97, lease: { human: true } });
       }
       const authority = hullObservation(source), sharedLegSide = Array.isArray(source.legSide);
-      const next = predictVehicle(previous, batch, tick, 3, held, { native });
+      const next = predictVehicle(previous, batch, tick, 3, held, { native, replay });
       if (next) {
         predictions.push(next); assertPredictionClone(next, previous);
         assert.deepEqual(source.body.matrix.toArray(), collider); assert.equal(source.body.enabled, enabled);

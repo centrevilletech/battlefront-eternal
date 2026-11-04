@@ -82,7 +82,7 @@ export function predictedExactly(prediction, source, tick) {
 // for any tick the page predicted since the last one.
 const HISTORY = 60;
 
-export function predictVehicle(source, pending, from, generation, held = [], { native = null } = {}) {
+export function predictVehicle(source, pending, from, generation, held = [], { native = null, replay = null } = {}) {
   if (!source?.alive) return null;
   const vehicle = predictionVehicle(source), controls = new CommandControls();
   vehicle.predictionTick = from;
@@ -116,7 +116,7 @@ export function predictVehicle(source, pending, from, generation, held = [], { n
       vehicle.predictionPath.set(command.tick, vehicle.position.clone());
       vehicle.predictionStates.set(command.tick, hullState(vehicle));
       vehicle.predictionTick = command.tick;
-    });
+    }, undefined, { native: replay });
   } finally {
     try { source.body.enabled = enabled; } finally { session?.dispose(); }
   }
