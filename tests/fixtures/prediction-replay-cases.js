@@ -43,7 +43,7 @@ export function runReplayCase(scenario, native = null) {
     exception = value instanceof Error ? { name: value.name, message: value.message, same: value === f.throwValue }
       : { value: f.snapshot(value), same: value === f.throwValue };
   } finally { f.cleanup?.(); }
-  const result = { returned, thrown, exception, frames, retained: f.retained.map(({ tick, command, sequences }) => f.frame(tick, command, sequences)),
+  const result = { initial: f.initial, returned, thrown, exception, frames, retained: f.retained.map(({ tick, command, sequences }) => f.frame(tick, command, sequences)),
     events: f.events, final: f.final?.() };
   return { result, calls: (native?.calls ?? 0) - before };
 }
@@ -167,13 +167,18 @@ export function replayOpaqueCases() {
     const elements = () => {
       if (kind === 'typed') { const v = new Float64Array(1); new DataView(v.buffer).setBigUint64(0, pattern, true); return v; }
       if (kind === 'tagged') { const v = [null]; v.push(number()); return v; }
-      return [number()];
+      // Start with double storage so the first NaN does not change this
+      // literal's allocation feedback between the two fixture constructions.
+      const v = [.5]; v[0] = number(); return v;
     };
     f.held = number(); f.initialView = { mouseScale: number(), aspect: number(), gamepad: number(), flightSettings: number() };
     const c = f.command(2, 1); c.sequence = kind === 'bindings' ? 1 : number(); c.down = number();
     c.actions = kind === 'bindings' ? [] : elements(); c.look = kind === 'bindings' ? [] : elements();
     c.mouseScale = number(); c.invertMouse = number(); c.firstPerson = number(); c.aspect = number(); c.viewTick = number(); c.gamepad = number(); c.flightSettings = number();
-    f.pending = [c, f.command(4, 2, { down: number(), actions: [], look: [] })]; return f;
+    f.pending = [c, f.command(4, 2, { down: number(), actions: [], look: [] })];
+    f.initial = { held: replayNumberBits(f.held), down: replayNumberBits(c.down), sequence: replayNumberBits(c.sequence),
+      actions: f.snapshot(c.actions), look: f.snapshot(c.look), view: f.snapshot(f.initialView) };
+    return f;
   } });
   return cases;
 }
