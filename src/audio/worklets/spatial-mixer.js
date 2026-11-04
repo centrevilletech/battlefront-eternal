@@ -21,7 +21,12 @@
 //
 // Output 0 is the speaker feeds (or the ambisonic channels); output 1 (mono)
 // is the LFE send, which the main thread low-passes and adds to the LFE
-// channel.
+// channel. With the master chain (processorOptions.master, the enhanced
+// mode unless ?master=native: rust/audio/src/master.rs) the module carries on
+// from there, and output 0 is the finished sound: the reverb, the LFE, the
+// clarity stage, the limiter and the volume, the last two inputs bringing
+// what still comes through the browser's nodes, reverb sends and the mix's
+// beds.
 
 const BLOCK = 128;
 
@@ -33,11 +38,33 @@ const BLOCK = 128;
 // module cannot be instantiated.
 const DSP_MATH = { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin, js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10 };
 const DSP_LAWS = { panpot: 0, vbap: 1, alsoft: 2, ambi3: 3 };
+// The master chain's reverb and dynamics, by the module's slots (as
+// reverb.js and limiter.js hand theirs over).
+const DSP_ROOM = ["room", "roomHF", "decay", "hfRatio", "reflections", "reflDelay", "reverb", "reverbDelay", "diffusion", "density", "hfReference"];
+const DSP_DYN = ["threshold", "ratio", "knee", "attack", "release", "makeup", "skip"];
+// The volume's time constant (s), as Renderer.setVolume's on the browser's
+// gain.
+const VOLUME_TAU = 0.05;
 function dspExports(options) {
   const m = options?.processorOptions?.dsp;
   if (!m) return null;
   try {
-    return new WebAssembly.Instance(m, { env: DSP_MATH }).exports;
+    // The compressor's math, a block's worth in one call out of the module
+    // (a call a value costs the audio thread several times the math): each
+    // of the n doubles at `at` in place.
+    let x = null;
+    let heap = new Float64Array(0);
+    const doubles = () => (heap.length ? heap : (heap = new Float64Array(x.memory.buffer)));
+    const js_log10s = (at, n) => {
+      const a = doubles();
+      for (let i = at >>> 3, end = i + n; i < end; i++) a[i] = Math.log10(a[i]);
+    };
+    const js_pow10s = (at, n) => {
+      const a = doubles();
+      for (let i = at >>> 3, end = i + n; i < end; i++) a[i] = Math.pow(10, a[i]);
+    };
+    x = new WebAssembly.Instance(m, { env: { ...DSP_MATH, js_log10s, js_pow10s } }).exports;
+    return x;
   } catch {
     return null;
   }
@@ -47,6 +74,27 @@ function dspExports(options) {
 // module's memory: the staging a call reads or fills.
 function dspViews(x, ptr, count) {
   return Array.from({ length: count }, (_, i) => new Float32Array(x.memory.buffer, ptr + i * 512, 128));
+}
+
+// A message for a voice engine (rust/audio/src/voices.rs) through the
+// module's calls for it (`sample`, `commandsPtr`, `commands`): a sample
+// (its storage allocated here, between blocks, never in process), or a
+// frame's commands. Returns whether it was one.
+function engineMessage(x, h, calls, m) {
+  if (m.type === "sample") {
+    const at = calls.sample(h, m.id, m.data.length, m.rate);
+    if (at) new Float32Array(x.memory.buffer, at, m.data.length).set(m.data);
+    return true;
+  }
+  if (m.type === "voices") {
+    const at = calls.commandsPtr(h, m.data.length);
+    if (at) {
+      new Float64Array(x.memory.buffer, at, m.data.length).set(m.data);
+      calls.commands(h, m.data.length);
+    }
+    return true;
+  }
+  return false;
 }
 
 // The 16 harmonics at a unit vector (x front, y left, z up).
@@ -73,7 +121,10 @@ class SpatialMixer extends AudioWorkletProcessor {
   constructor(options) {
     super();
     const o = options.processorOptions || {};
-    this.slots = options.numberOfInputs;
+    // The browser's inputs feed the first slots; with the master chain the
+    // engine's slots run on past them (processorOptions.slots).
+    this.inputs = options.numberOfInputs - (o.master ? 2 : 0);
+    this.slots = o.slots ?? this.inputs;
     this.channels = o.channels || 2;
     this.law = o.law || "panpot";
     this.decoder = o.decoder || null;
@@ -90,9 +141,14 @@ class SpatialMixer extends AudioWorkletProcessor {
     if (o.params) this.take(o.params, true);
     const x = dspExports(options);
     if (x) {
-      this.dsp = { x, h: x.mixer_new(this.slots, this.channels) };
+      this.dsp = { x, h: x.mixer_new(this.slots, this.channels), calls: { sample: x.mixer_sample, commandsPtr: x.mixer_commands_ptr, commands: x.mixer_commands } };
       this.dspLayout(this.law, o.speakers || [], this.decoder, 0);
       if (o.params) this.dspParams(o.params, 1);
+      // The voice engine (unless ?voices=native): voices the module
+      // renders into the slots itself (rust/audio/src/voices.rs), their
+      // sends summed into output 2.
+      if (o.engine) x.mixer_engine(this.dsp.h, sampleRate, o.engine.q, o.engine.x86 === false ? 0 : 1);
+      if (o.master && o.engine) this.dspMaster(o.master, o.engine.x86 === false ? 0 : 1);
     }
     this.port.onmessage = (event) => {
       const m = event.data;
@@ -103,6 +159,17 @@ class SpatialMixer extends AudioWorkletProcessor {
         // A voice took this slot: its first gains apply at once.
         this.fresh[m.slot] = 1;
         if (this.dsp) this.dsp.x.mixer_start(this.dsp.h, m.slot);
+      } else if (this.dsp && engineMessage(this.dsp.x, this.dsp.h, this.dsp.calls, m)) {
+        // (a sample or commands for the voice engine)
+      } else if (m.type === "sync") {
+        // Every message before this one has been applied (offline renders
+        // wait for it, so a frame's messages land on its block).
+        this.port.postMessage({ type: "sync", id: m.id });
+      } else if (m.type === "room") {
+        if (this.dsp?.master) this.dspRoom(m.params, 0);
+      } else if (m.type === "volume") {
+        // A setTargetAtTime on the volume at context time m.time.
+        if (this.dsp?.master) this.dsp.x.master_volume(this.dsp.h, m.value, VOLUME_TAU, m.time, 0);
       } else if (m.type === "layout") {
         this.law = m.law;
         this.decoder = m.decoder || null;
@@ -135,6 +202,77 @@ class SpatialMixer extends AudioWorkletProcessor {
     x.mixer_params(h, p.length, fresh);
   }
 
+  // The master chain as the page describes it (Renderer.masterOptions).
+  dspMaster(m, x86) {
+    const { x, h } = this.dsp;
+    x.mixer_inputs(h, this.inputs);
+    x.master_new(h, sampleRate, this.channels, m.ceiling, m.release, m.lookahead ?? 0.0015, x86);
+    this.dsp.master = {};
+    x.master_rooms(h, m.rooms);
+    x.master_highpass(h, m.highpass[0], m.highpass[1]);
+    if (m.lfe) x.master_lfe(h, m.lfe[0], m.lfe[1], m.lfe[2]);
+    for (const [kind, frequency, gain, q] of m.eq) x.master_eq(h, kind, frequency, gain, q);
+    if (m.clarity) x.master_clarity(h, m.clarity.skip, m.clarity.level);
+    this.dspKeyed(DSP_DYN, m.dynamics);
+    x.master_dynamics(h);
+    this.dspRoom(m.room || {}, 1);
+    x.master_volume(h, m.volume, 0, m.time, 1);
+  }
+
+  dspRoom(params, initial) {
+    this.dspKeyed(DSP_ROOM, params);
+    this.dsp.x.master_room(this.dsp.h, initial);
+  }
+
+  // Named values into the master's slots: those given, and the mask of them.
+  dspKeyed(keys, values) {
+    const { x, h } = this.dsp;
+    const io = new Float64Array(x.memory.buffer, x.master_io(h), keys.length + 1);
+    let mask = 0;
+    keys.forEach((k, i) => {
+      if (values[k] !== undefined) {
+        io[i] = values[k];
+        mask |= 1 << i;
+      }
+    });
+    io[keys.length] = mask;
+  }
+
+  // Views of the master's staging, made again only if the module's memory
+  // grew (which empties the old ones).
+  masterViews() {
+    const { x, h, master: m } = this.dsp;
+    m.bus = dspViews(x, x.master_bus(h), 1 + this.channels);
+    m.flags = new Uint8Array(x.memory.buffer, x.master_flags(h), 2);
+    m.outs = dspViews(x, x.master_out(h), this.channels);
+    m.io = new Float64Array(x.memory.buffer, x.master_io(h), 1);
+  }
+
+  // The master chain over the block the mixer just rendered, into `out`.
+  dspChain(inputs, out) {
+    const d = this.dsp;
+    const { x, h, master: m } = d;
+    if (!m.outs || m.outs[0].byteLength === 0) this.masterViews();
+    const send = inputs[this.inputs]?.[0];
+    m.flags[0] = send ? 1 : 0;
+    if (send) m.bus[0].set(send);
+    const mix = inputs[this.inputs + 1];
+    const channels = mix?.length || 0;
+    m.flags[1] = channels ? 1 : 0;
+    if (channels) {
+      for (let c = 0; c < this.channels; c++) {
+        if (c < channels) m.bus[1 + c].set(mix[c]);
+        else m.bus[1 + c].fill(0);
+      }
+    }
+    const report = x.master_process(h, this.lfe >= 0 ? 1 : 0);
+    // (A processor's first block can allocate.)
+    if (m.outs[0].byteLength === 0) this.masterViews();
+    if (report) this.port.postMessage({ reduction: m.io[0] });
+    for (let c = 0; c < out.length; c++) out[c].set(m.outs[c]);
+    return true;
+  }
+
   // One block through the module (128 frames, as worklets always get).
   processDsp(inputs, outputs) {
     const d = this.dsp;
@@ -142,12 +280,14 @@ class SpatialMixer extends AudioWorkletProcessor {
     // A view per slot and output channel, made again only if the
     // module's memory grew (which empties the old ones).
     if (!d.ins || d.ins[0].byteLength === 0) {
-      d.ins = dspViews(x, x.mixer_in(h), this.slots);
+      d.ins = dspViews(x, x.mixer_in(h), this.inputs);
       d.outs = dspViews(x, x.mixer_out(h), this.channels + 1);
-      d.present = new Uint8Array(x.memory.buffer, x.mixer_present(h), this.slots);
+      d.present = new Uint8Array(x.memory.buffer, x.mixer_present(h), this.inputs);
+      const send = x.mixer_send(h);
+      d.send = send ? new Float32Array(x.memory.buffer, send, BLOCK) : null;
     }
     const { ins, outs, present } = d;
-    for (let s = 0; s < this.slots; s++) {
+    for (let s = 0; s < this.inputs; s++) {
       const input = inputs[s];
       if (input && input.length) {
         present[s] = 1;
@@ -156,10 +296,20 @@ class SpatialMixer extends AudioWorkletProcessor {
     }
     const out = outputs[0];
     const lfeOut = outputs[1]?.[0];
+    // The voice engine's block starts at the context's frame (its commands
+    // land by it).
+    if (d.send && typeof currentFrame === "number") x.mixer_frame(h, currentFrame);
+    if (d.master) {
+      x.mixer_process(h, out.length, this.lfe >= 0 ? 1 : 0);
+      return this.dspChain(inputs, out);
+    }
     x.mixer_process(h, out.length, lfeOut ? 1 : 0);
     for (let c = 0; c < out.length; c++) out[c].set(outs[c]);
     // The LFE send follows the channels written.
     if (lfeOut) lfeOut.set(outs[out.length]);
+    // The voice engine's reverb send.
+    const sendOut = outputs[2]?.[0];
+    if (sendOut && d.send) sendOut.set(d.send);
     return true;
   }
 
@@ -452,3 +602,39 @@ class SpatialMixer extends AudioWorkletProcessor {
 }
 
 registerProcessor("spatial-mixer", SpatialMixer);
+
+// The light mix's voices (the voice engine, unless ?voices=native): every
+// voice's source and its two speaker gains in the module
+// (rust/audio/src/voices.rs, render_light), one stereo output in place of
+// the light mix's nodes a voice. No inputs.
+// processorOptions: dsp (the module), slots, x86. Messages: "sample",
+// "voices" (a frame's commands) and "sync", as the spatial mixer's.
+class VoiceEngine extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    const o = options.processorOptions || {};
+    const x = dspExports(options);
+    this.dsp = x ? { x, h: x.light_new(o.slots || 64, sampleRate, o.x86 === false ? 0 : 1), calls: { sample: x.light_sample, commandsPtr: x.light_commands_ptr, commands: x.light_commands } } : null;
+    this.port.onmessage = (event) => {
+      const m = event.data;
+      if (this.dsp && engineMessage(this.dsp.x, this.dsp.h, this.dsp.calls, m)) return;
+      if (m.type === "sync") this.port.postMessage({ type: "sync", id: m.id });
+    };
+  }
+
+  process(inputs, outputs) {
+    const d = this.dsp;
+    const out = outputs[0];
+    // (The page builds this only with the module: without it, silence.)
+    if (!d || out.length < 2) return true;
+    const { x, h } = d;
+    if (!d.outs || d.outs[0].byteLength === 0) d.outs = dspViews(x, x.light_out(h), 2);
+    x.light_frame(h, currentFrame);
+    x.light_process(h);
+    out[0].set(d.outs[0]);
+    out[1].set(d.outs[1]);
+    return true;
+  }
+}
+
+registerProcessor("voice-engine", VoiceEngine);

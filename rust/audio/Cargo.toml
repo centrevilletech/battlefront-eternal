@@ -11,3 +11,9 @@ publish = false
 # native host to build the same DSP in.
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The voice engine's per-block math (src/voices.rs), in Rust rather than
+# through the host's Math: a call out of the module costs several times
+# more on the audio thread.
+v8math = { path = "../v8math" }

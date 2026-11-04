@@ -34,11 +34,16 @@ const HIGH_SIN = Math.sin(Math.PI / 8);
 // below runs without it: with ?audio=js (an A/B switch), or when the
 // module cannot be instantiated.
 const DSP_MATH = { js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin, js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10 };
+// (The compressor's block-at-a-time math: only the limiter and the master
+// chain run it.)
+const dspUnused = () => {
+  throw new Error("not in this processor");
+};
 function dspExports(options) {
   const m = options?.processorOptions?.dsp;
   if (!m) return null;
   try {
-    return new WebAssembly.Instance(m, { env: DSP_MATH }).exports;
+    return new WebAssembly.Instance(m, { env: { ...DSP_MATH, js_log10s: dspUnused, js_pow10s: dspUnused } }).exports;
   } catch {
     return null;
   }
