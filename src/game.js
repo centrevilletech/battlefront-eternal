@@ -134,11 +134,13 @@ async function attachHullPhase(instance, vehicles, map, pack, unitClass) {
 // leases, hulls and riders written in before it and synced after it), on
 // the instance's one bridge (src/seats-sim.js).
 async function attachSeatPhase(instance, vehicles) {
-  const [{ bridgeFor }, { attachSeatsSim }, { Soldier }, { Droideka }, { SeatLease, SeatUnit }, { Turret }] = await Promise.all([
-    import("./sim/runtime.js"), import("./seats-sim.js"), import("./soldier.js"), import("./droideka.js"), import("./seats.js"), import("./props.js")]);
+  const [{ bridgeFor }, { attachSeatsSim }, { Soldier }, { Droideka }, { SeatLease, SeatUnit }, { Turret }, { attachNetworkSeatsSim }] = await Promise.all([
+    import("./sim/runtime.js"), import("./seats-sim.js"), import("./soldier.js"), import("./droideka.js"), import("./seats.js"), import("./props.js"), import("./runtime/network-seats-sim.js")]);
   const bridge = bridgeFor(instance, { classes: { Unit, Vehicle, Soldier, Droideka, SeatLease, SeatUnit, Turret } });
   bridge.reserve(4 << 20);
-  return attachSeatsSim(vehicles, bridge);
+  const seats = attachSeatsSim(vehicles, bridge);
+  attachNetworkSeatsSim(vehicles, bridge);
+  return seats;
 }
 
 // A world's units' phase on the battle's instance of the module, through the
