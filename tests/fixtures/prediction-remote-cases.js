@@ -68,10 +68,14 @@ const shotState = (shot, droid) => ({ weapon: droid.arsenal.weapons.indexOf(shot
 export function createRemoteFixture(scenario, { onQuery = null, onFired = null, collision: realCollision = null } = {}) {
   const events = [], shots = [], surfaces = planes(scenario), polys = [{ triangles: triangles(scenario) }], hit = { distance: 0, point: new Vector3(), normal: new Vector3(), body: null, terrain: false };
   let effects = 0, firing = 0, viewContext = null, firstAt = null, changedFly = false;
+  const retainedVelocities = [];
   const record = (name, args, values = {}) => { const event = [name, ...args]; events.push(event); onQuery?.({ name, args, events, context: viewContext, ...values }); return event; };
   const collision = {
     cast(from, direction, far, out = hit) {
       record('cast', [from.toArray(), direction.toArray(), far], { from, direction, out });
+      if (viewContext && scenario.replaceVelocity === 'fly' && !retainedVelocities.length && direction.x === 0 && direction.y === -1 && direction.z === 0 && far > 1 && far < 100) {
+        const droid = viewContext.droids[0]; retainedVelocities.push(droid.velocity); droid.velocity = new Vector3(9, 0, 0);
+      }
       if (viewContext && scenario.mutateAim && far === 512) { from.x += .015625; direction.y += .03125; }
       if (viewContext && scenario.mutateFly && !changedFly && direction.x === 0 && direction.y === -1 && direction.z === 0 && far > 1 && far < 100) {
         changedFly = true; const droid = viewContext.droids[0];
@@ -92,7 +96,13 @@ export function createRemoteFixture(scenario, { onQuery = null, onFired = null, 
       if (out.normal.dot(direction) > 0) out.normal.negate();
       out.body = null; out.terrain = picked === surfaces[0]; return out;
     },
-    gather(center, radius) { record('gather', [center.toArray(), radius]); return realCollision ? realCollision.gather(center, radius) : polys; },
+    gather(center, radius) {
+      record('gather', [center.toArray(), radius]);
+      if (viewContext && scenario.replaceVelocity === 'collide' && !retainedVelocities.length) {
+        const droid = viewContext.droids[0]; retainedVelocities.push(droid.velocity); droid.velocity = new Vector3(9, 0, 0);
+      }
+      return realCollision ? realCollision.gather(center, radius) : polys;
+    },
   };
   const water = scenario.water ? { over(x, z) { record('water-over', [x, z]); return z > -8 && x < 6; },
     get level() { record('water-level', []); return .65; } } : null;
@@ -131,7 +141,7 @@ export function createRemoteFixture(scenario, { onQuery = null, onFired = null, 
       if (scenario.throwOnFired === firing) throw marker;
     } });
   const owner = { id: 23, generation: 4, team: 1, human: true, alive: true }, source = base.createContext(owner, { random: reconRandom(0x123abc, 'fixture') });
-  const definition = remoteDefinition(structuredClone(scenario.definition || {}));
+  const definition = scenario.exactDefinition ? structuredClone(scenario.definition) : remoteDefinition(structuredClone(scenario.definition || {}));
   const droid = source.launch({ def: { SwitchImmediately: 1, droid: definition } }, new Vector3(...(scenario.position || [0, 2, 0])),
     new Vector3(...(scenario.velocity || [0, 0, 0])), scenario.yaw ?? 0, 1);
   droid.networkGeneration = 1; source.firstPerson = false;
@@ -144,8 +154,15 @@ export function createRemoteFixture(scenario, { onQuery = null, onFired = null, 
   }
   if (scenario.strike) { source.strike(droid, droid.arsenal.current(1).def); if (scenario.dead) source.kill(droid); }
   events.length = 0; shots.length = 0; effects = 0;
-  return { source, droid, collision, events, shots, marker, effects: () => effects,
+  return { source, droid, collision, events, shots, marker, retainedVelocities, effects: () => effects,
     setContext(context) { viewContext = context; } };
+}
+
+export function remoteVelocityReplacementCases() {
+  return [
+    { name: 'fly-keeps-captured-velocity-object', ticks: 30, replaceVelocity: 'fly', velocity: [1, -.2, 3] },
+    { name: 'collision-keeps-captured-velocity-object', ticks: 30, replaceVelocity: 'collide', position: [0, 2, 6.6], velocity: [0, 0, 18], definition: { MaxHealth: 1000 } },
+  ];
 }
 
 export function remotePredictionCases() {
@@ -191,6 +208,7 @@ export function runRemotePredictionCase(scenario, { native = null, onQuery = nul
   before?.({ ...fixture, cache, context, predicted });
   fixture.events.length = 0; fixture.shots.length = 0;
   const authority = remoteObservation(source, droid), weapons = droid.arsenal.weapons.slice(), random = source.random;
+  const vectors = ['position', 'velocity', 'eye', 'aimDir', 'target'].map(name => [name, droid[name]]);
   const pending = remoteCommands(scenario.ticks, { from: scenario.from || 0, pattern: scenario.pattern || 'drive' });
   if (scenario.gaps) for (let i = 0; i < pending.length; i++) {
     pending[i].tick += Math.floor(i / 7);
@@ -202,9 +220,11 @@ export function runRemotePredictionCase(scenario, { native = null, onQuery = nul
   try { result = predictRemote(source, droid, pending, scenario.from || 0, 1, ['KeyW'], { aspect: 1.6, mouseScale: .5 }, cache, { native }); }
   catch (caught) { error = caught; }
   assert.deepEqual(remoteObservation(source, droid), authority, 'prediction leaves authority and random state unchanged');
+  for (const [name, value] of vectors) assert.equal(droid[name], value, `authority ${name} identity`);
   assert.equal(source.random, random); assert.deepEqual(droid.arsenal.weapons, weapons); assert.equal(fixture.effects(), 0, 'authority effects are suppressed');
   if (scenario.throwOnFired) assert.equal(error, fixture.marker, 'original callback error escapes'); else assert.ifError(error);
   return { ...fixture, cache, result, error, pending,
-    observation: remoteObservation(context, predicted), partial: error ? remoteObservation(context, predicted) : null,
+    observation: { ...remoteObservation(context, predicted), retainedVelocities: fixture.retainedVelocities.map(value => value.toArray()) },
+    partial: error ? remoteObservation(context, predicted) : null,
     disposed() { return result?.nativeSession?.disposed; } };
 }
