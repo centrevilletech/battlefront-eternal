@@ -27,25 +27,27 @@ fn words(v: &Value) -> Vec<f64> {
 
 #[test]
 fn private_weapon_prediction_matches_the_js_and_wasm_corpus() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let node = std::env::var_os("BFE_NODE").unwrap_or_else(|| "node".into());
-    let oracle = Command::new(node)
-        .arg(root.join("tools/prediction-weapons-twin.mjs"))
-        .current_dir(&root)
-        .output()
-        .expect("run prediction oracle");
-    assert!(
-        oracle.status.success(),
-        "{}",
-        String::from_utf8_lossy(&oracle.stderr)
-    );
+    let external = std::env::var_os("BFE_WEAPON_PREDICTION_CORPUS");
+    let corpus = if let Some(path) = &external {
+        std::fs::read_to_string(path).expect("read owned prediction corpus")
+    } else {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let node = std::env::var_os("BFE_NODE").unwrap_or_else(|| "node".into());
+        let oracle = Command::new(node)
+            .arg(root.join("tools/prediction-weapons-twin.mjs"))
+            .current_dir(&root)
+            .output()
+            .expect("run prediction oracle");
+        assert!(
+            oracle.status.success(),
+            "{}",
+            String::from_utf8_lossy(&oracle.stderr)
+        );
+        String::from_utf8(oracle.stdout).expect("prediction corpus UTF-8")
+    };
     let mut sessions: HashMap<String, Session> = HashMap::new();
-    let mut counts = [0usize; 4];
-    for (line, source) in std::str::from_utf8(&oracle.stdout)
-        .unwrap()
-        .lines()
-        .enumerate()
-    {
+    let mut counts = [0usize; 5];
+    for (line, source) in corpus.lines().enumerate() {
         let event = json::parse(source).unwrap();
         let session = sessions
             .entry(text(get(&event, "session")).into())
@@ -76,7 +78,10 @@ fn private_weapon_prediction_matches_the_js_and_wasm_corpus() {
     assert!(counts[0] >= 12);
     assert!(counts[1] >= 20);
     assert!(counts[2] >= 850);
-    assert!(counts[3] >= 1000);
+    if external.is_none() {
+        assert!(counts[3] >= 1000);
+        assert!(counts[4] >= 1000);
+    }
     eprintln!(
         "prediction weapons: {} sessions, operations {counts:?}",
         sessions.len()

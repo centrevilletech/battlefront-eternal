@@ -56,9 +56,11 @@ test('prediction callbacks own their outputs across nested bridge calls and memo
     a = runWeaponPredictionCase(scenario, { native, onShot({ prediction }) { reenter(); checkpoints.push(prediction.checkpoint()); } });
     b = runWeaponPredictionCase(scenario);
     assert.deepEqual(a.observations, b.observations);
-    c = runMountedPredictionCase(mountedPredictionCases()[2], { native, ownerWrite(i, value) { mountedCalls.push(['barrel', i, value]); reenter(); }, towCall(i) { mountedCalls.push(['tow', i]); reenter(); } });
+    c = runMountedPredictionCase(mountedPredictionCases()[2], { native, ownerRead(i, value) { mountedCalls.push(['read', i, value]); reenter(); },
+      ownerWrite(i, value) { mountedCalls.push(['barrel', i, value]); reenter(); }, towCall(i) { mountedCalls.push(['tow', i]); reenter(); } });
     const expectedCalls = [];
-    d = runMountedPredictionCase(mountedPredictionCases()[2], { ownerWrite: (i, value) => expectedCalls.push(['barrel', i, value]), towCall: i => expectedCalls.push(['tow', i]) });
+    d = runMountedPredictionCase(mountedPredictionCases()[2], { ownerRead: (i, value) => expectedCalls.push(['read', i, value]),
+      ownerWrite: (i, value) => expectedCalls.push(['barrel', i, value]), towCall: i => expectedCalls.push(['tow', i]) });
     assert.deepEqual(c.observations, d.observations); assert.deepEqual(c.restored, d.restored); assert.deepEqual(mountedCalls, expectedCalls);
     assert.ok(checkpoints.length > 10); assert.ok(traces.length > 200); assert.ok(grew);
     for (const trace of traces) { assert.ok(Array.isArray(trace.input)); assert.ok(Array.isArray(trace.output)); }
@@ -90,4 +92,22 @@ test('callback exceptions preserve the same restore and presentation sequence', 
     const out = { barrel, tick: prediction.tick, weapon: weaponObservation(weapon) }; prediction.dispose?.(); return out;
   };
   assert.deepEqual(mounted(native), mounted(null));
+});
+
+test('disposing prediction owners releases native sessions and restores authority after memory growth', async () => {
+  const instance = await loadSim(), native = createWeaponPredictionSim(instance), unit = createWeaponUnit([weaponDefinition('lifecycle')]);
+  const authority = unit.combat.arsenal, baseline = arsenalObservation(authority, 0), handles = [];
+  for (let i = 0; i < 40; i++) {
+    const prediction = new WeaponPrediction({ native }); prediction.begin(unit, { epoch: i + 1, tick: 0 });
+    const handle = prediction.nativeSession; handles.push(handle); assert.ok(handle.handle);
+    prediction.step({ actions: ['firePrimary'], down: ['Mouse0'] }, 1, () => {}, [i + 1, null]);
+    if (i % 7 === 0) instance.exports.memory.grow(1);
+    prediction.dispose(); prediction.dispose(); assert.equal(handle.handle, 0);
+    assert.equal(unit.combat.arsenal, authority); assert.deepEqual(arsenalObservation(authority, 0), baseline);
+  }
+  const prediction = new WeaponPrediction({ native }); prediction.begin(unit, { tick: 0 }); const handle = prediction.nativeSession;
+  native.dispose(); native.dispose(); assert.equal(handle.handle, 0);
+  assert.throws(() => prediction.step({ actions: [], down: [] }, 1), /disposed/);
+  prediction.dispose(); assert.equal(unit.combat.arsenal, authority);
+  assert.deepEqual(arsenalObservation(authority, 0), baseline); assert.ok(handles.every(h => h.handle === 0));
 });

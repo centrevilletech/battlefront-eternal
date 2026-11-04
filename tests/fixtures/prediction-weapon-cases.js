@@ -145,12 +145,12 @@ export function mountedPredictionCases() {
   ];
 }
 
-export function runMountedPredictionCase(scenario, { native = null, ownerWrite = null, towCall = null, afterPredict = null } = {}) {
+export function runMountedPredictionCase(scenario, { native = null, ownerRead = null, ownerWrite = null, towCall = null, afterPredict = null } = {}) {
   const weapons = structuredClone(scenario.definitions).map(d => new Weapon(d, { random: forbiddenRandom }));
   for (const weapon of weapons) weapon.admitShot = forbiddenAdmission;
   const owners = Array.from({ length: Math.max(...scenario.entries.map(e => e.owner)) + 1 }, (_, index) => {
     let barrel = index * 3;
-    return { get barrel() { return barrel; }, set barrel(value) { barrel = value; ownerWrite?.(index, value); } };
+    return { get barrel() { ownerRead?.(index, barrel); return barrel; }, set barrel(value) { barrel = value; ownerWrite?.(index, value); } };
   });
   const entries = scenario.entries.map(e => ({ state: weapons[e.weapon], owner: owners[e.owner], muzzles: Array.from({ length: e.muzzles }, () => ({})) }));
   const vehicle = { flying: !!scenario.flying, flightState: scenario.flightState, seats: [{ weapons: entries }], towHeld(entry) {
