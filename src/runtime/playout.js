@@ -12,20 +12,27 @@
 // - The clock runs at wall speed, trimmed by at most `trim` (10%) toward
 //   its target. It never passes the newest tick: starved, it waits.
 // - Far from its target (a stall, a resume, the first packets), it jumps.
+const nativeModels = new WeakMap(), weakGet = WeakMap.prototype.get, weakSet = WeakMap.prototype.set, invoke = Reflect.apply;
+const nativeModel = value => invoke(weakGet, nativeModels, [value]);
 export class PlayoutClock {
-  constructor({ hz = 60, minDelay = 2, maxDelay = 10, margin = 1, window = 120, trim = 0.1, snap = 12 } = {}) {
+  constructor({ hz = 60, minDelay = 2, maxDelay = 10, margin = 1, window = 120, trim = 0.1, snap = 12 } = {}, { native = null } = {}) {
     this.hz = hz; this.minDelay = minDelay; this.maxDelay = maxDelay; this.margin = margin;
     this.window = window; this.trim = trim; this.snap = snap;
+    if (native) invoke(weakSet, nativeModels, [this, native]);
     this.reset();
   }
   reset() {
-    this.clock = 0; this.latest = 0; this.delay = this.minDelay; this.rate = 1;
-    this.gaps = new Float64Array(this.window); this.gapAt = 0; this.gapCount = 0;
+    const native = nativeModel(this), token = native?.entry();
+    if (!native?.resetHead(this, token)) { this.clock = 0; this.latest = 0; this.delay = this.minDelay; this.rate = 1; }
+    this.gaps = new Float64Array(this.window);
+    if (native?.resetTail(this, token)) return;
+    this.gapAt = 0; this.gapCount = 0;
     this.arrivedAt = null; this.arrivedTick = 0; this.started = false; this.waits = 0; this.measuredKey = -1;
   }
   // A packet for `tick` arrived at wall time `now` (seconds). `interval`
   // is the stream's snapshot spacing in ticks (1 for per-tick streams).
   arrive(tick, now, interval = 1) {
+    if (nativeModel(this)?.arrive(this, tick, now, interval)) return;
     if (tick > this.latest) this.latest = tick;
     if (this.arrivedAt !== null && tick > this.arrivedTick) {
       // How late this arrival ran against one interval after the previous
@@ -42,15 +49,20 @@ export class PlayoutClock {
   // The delay to hold: the 95th percentile recent arrival gap plus a
   // margin, so sustained jitter widens the cushion and one stall does not.
   measure() {
-    const key = this.gapCount * 4096 + this.gapAt;
-    if (key !== this.measuredKey) {
-      this.measuredKey = key;
+    const native = nativeModel(this), token = native?.entry(), measured = native?.measureKey(this, token);
+    const key = measured ? measured.key : this.gapCount * 4096 + this.gapAt;
+    if (measured ? measured.changed : key !== this.measuredKey) {
+      if (!measured) this.measuredKey = key;
       let gap = 0;
       if (this.gapCount) {
-        const sorted = this.gaps.slice(0, this.gapCount).sort();
-        gap = sorted[Math.min(this.gapCount - 1, Math.floor(this.gapCount * 0.95))];
+        const sampled = native?.measureGap(this, token);
+        if (sampled) gap = sampled.value;
+        else {
+          const sorted = this.gaps.slice(0, this.gapCount).sort();
+          gap = sorted[Math.min(this.gapCount - 1, Math.floor(this.gapCount * 0.95))];
+        }
       }
-      this.delay = Math.min(this.maxDelay, Math.max(this.minDelay, gap + this.margin));
+      if (!native?.measureDelay(this, gap, token)) this.delay = Math.min(this.maxDelay, Math.max(this.minDelay, gap + this.margin));
     }
     return this.delay;
   }
@@ -58,7 +70,9 @@ export class PlayoutClock {
   // (fractional: the integer part is the newest tick applied, the fraction
   // the way to the next).
   advance(dt) {
+    const native = nativeModel(this), token = native?.entry();
     this.measure();
+    if (native?.advance(this, dt, token)) return this.clock;
     const target = this.latest - this.delay;
     if (!this.started) {
       if (this.latest <= 0) return this.clock;
@@ -75,5 +89,8 @@ export class PlayoutClock {
     return this.clock;
   }
   // The newest tick the page should have applied for the clock's position.
-  get shownTick() { return Math.floor(this.clock) + 1; }
+  get shownTick() {
+    const result = nativeModel(this)?.shownTick(this);
+    return result ? result.value : Math.floor(this.clock) + 1;
+  }
 }
