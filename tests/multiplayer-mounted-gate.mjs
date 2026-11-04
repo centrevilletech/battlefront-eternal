@@ -33,7 +33,9 @@ export async function mountedGameGate([actor, observer]) {
     await actor.waitForFunction(()=>['unspawned','awaiting'].includes(__bf.spawnPort.humanState().phase),null,{timeout:60000});
     await actor.evaluate(choice=>__bf.spawnPort.request(choice),choice);
     await actor.waitForFunction(c=>__bf.playerUnit.alive&&__bf.playerUnit.className===c.className&&__bf.playerTeam===c.team,choice,{timeout:60000});
-    await actor.evaluate(()=>{__bf.controls.locked=true;if(__bf.menu.isOpen)__bf.menu.close(true);});
+    await actor.waitForFunction(()=>!__bf.spawnScreen?.isOpen&&__bf.controls.enabled&&!__bf.soldier.air&&__bf.soldier.lock<=0,null,{timeout:15000});
+    await actor.bringToFront();
+    await actor.evaluate(()=>{if(__bf.menu.isOpen)__bf.menu.close(true);__bf.controls.locked=true;});
   }
   if(!await actor.evaluate(()=>__bf.playerUnit.alive))await spawn();
   const first=await actor.evaluate(()=>({id:__bf.playerUnit.id,generation:__bf.playerUnit.generation}));
@@ -55,6 +57,7 @@ export async function mountedGameGate([actor, observer]) {
   let navigation;
   try {
     await actor.keyboard.down('KeyW');
+    assert.ok(await actor.evaluate(()=>__bf.controls.down.has('KeyW')),'movement key reaches enabled Controls after the spawn screen closes');
     for(let step=0;step<240;step++) {
       navigation=await actor.evaluate(({vehicleId,vehicleGeneration})=>{
         const v=__bf.vehicles.vehicles.find(v=>v.aiTarget.id===vehicleId&&v.aiTarget.generation===vehicleGeneration);
@@ -77,6 +80,7 @@ export async function mountedGameGate([actor, observer]) {
   } finally {await actor.keyboard.up('KeyW');}
   console.log('mounted-approach',JSON.stringify(navigation));
   assert.ok(navigation.distance<navigation.radius+2.5,'ordinary movement reaches boarding distance');
+  await actor.waitForFunction(()=>!__bf.soldier.air&&__bf.soldier.lock<=0,null,{timeout:15000});
   await actor.keyboard.press('KeyE');
   await actor.waitForFunction(c=>__bf.playerUnit.seat?.vehicle?.aiTarget.id===c.vehicleId,choice,{timeout:15000});
   // Ordinary seat cycling may exchange a bot pilot with the human passenger.
