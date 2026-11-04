@@ -68,6 +68,8 @@ mod traps;
 pub use self::traps::*;
 mod units;
 pub use self::units::*;
+mod vehicle_firing;
+pub use self::vehicle_firing::*;
 mod vehicles;
 pub use self::vehicles::*;
 mod weapon_runtime;
@@ -1012,16 +1014,17 @@ pub const IMPORT_VEH_RESPAWN_CLOCK: u32 = 128;
 pub const IMPORT_VEH_SPRING_POLYGONS: u32 = 129;
 pub const IMPORT_VEH_WATER_LEVEL: u32 = 130;
 pub const IMPORT_VEH_WATER_OVER: u32 = 131;
-pub const IMPORT_WATER_CROSSING: u32 = 132;
-pub const IMPORT_WAVER: u32 = 133;
-pub const IMPORT_WEAPON_ACTION: u32 = 134;
-pub const IMPORT_WORLD_CLOCK: u32 = 135;
-pub const IMPORT_WORLD_CONTROLS: u32 = 136;
-pub const IMPORT_WORLD_EVENTS: u32 = 137;
-pub const IMPORT_WORLD_LOCAL: u32 = 138;
-pub const IMPORT_WORLD_NETWORK: u32 = 139;
-pub const IMPORT_WORLD_STEP: u32 = 140;
-pub const IMPORT_NAMES: [&str; 141] = ["", "aiAwareness", "aiControllerDriver", "aiCover", "aiDispatch", "aiFire", "aiFsm", "aiPattern", "aiSchedule", "aiSight", "aiTracker", "aiVehicleWorld", "aiWeapon", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dbAction", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "networkSeatsWorld", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "predictionHullQuery", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver", "weaponAction", "worldClock", "worldControls", "worldEvents", "worldLocal", "worldNetwork", "worldStep"];
+pub const IMPORT_VEHICLE_GEOMETRY_CLOCK: u32 = 132;
+pub const IMPORT_WATER_CROSSING: u32 = 133;
+pub const IMPORT_WAVER: u32 = 134;
+pub const IMPORT_WEAPON_ACTION: u32 = 135;
+pub const IMPORT_WORLD_CLOCK: u32 = 136;
+pub const IMPORT_WORLD_CONTROLS: u32 = 137;
+pub const IMPORT_WORLD_EVENTS: u32 = 138;
+pub const IMPORT_WORLD_LOCAL: u32 = 139;
+pub const IMPORT_WORLD_NETWORK: u32 = 140;
+pub const IMPORT_WORLD_STEP: u32 = 141;
+pub const IMPORT_NAMES: [&str; 142] = ["", "aiAwareness", "aiControllerDriver", "aiCover", "aiDispatch", "aiFire", "aiFsm", "aiPattern", "aiSchedule", "aiSight", "aiTracker", "aiVehicleWorld", "aiWeapon", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dbAction", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "networkSeatsWorld", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "predictionHullQuery", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "vehicleGeometryClock", "waterCrossing", "waver", "weaponAction", "worldClock", "worldControls", "worldEvents", "worldLocal", "worldNetwork", "worldStep"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -1229,6 +1232,7 @@ extern "C" {
     fn bfe_import_veh_spring_polygons();
     fn bfe_import_veh_water_level();
     fn bfe_import_veh_water_over();
+    fn bfe_import_vehicle_geometry_clock();
     fn bfe_import_water_crossing();
     fn bfe_import_waver();
     fn bfe_import_weapon_action();
@@ -3556,6 +3560,24 @@ pub fn import_veh_water_over_in(context: &crate::abi::context::Context, args: &V
     let args = crate::abi::context::Record::new(VehColumn::WORDS, |row, heap| args.put(row, heap));
     let reply = context.call_import(IMPORT_VEH_WATER_OVER, args)?;
     Ok(reply.read(VehFlag::take))
+}
+
+/// Asks JavaScript (the import vehicleGeometryClock): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_vehicle_geometry_clock(args: &VgClock) -> VgTime {
+    crate::store::calls::import_out(VgClock::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_vehicle_geometry_clock() };
+    crate::store::calls::import_in(|row, heap| VgTime::take(row, heap))
+}
+
+/// Calls the explicitly owned native host; no context borrow spans dispatch.
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub fn import_vehicle_geometry_clock_in(context: &crate::abi::context::Context, args: &VgClock) -> Result<VgTime, crate::abi::context::Failure> {
+    let args = crate::abi::context::Record::new(VgClock::WORDS, |row, heap| args.put(row, heap));
+    let reply = context.call_import(IMPORT_VEHICLE_GEOMETRY_CLOCK, args)?;
+    Ok(reply.read(VgTime::take))
 }
 
 /// Asks JavaScript (the import waterCrossing): its arguments go out in the import block,
