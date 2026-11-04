@@ -153,6 +153,7 @@ export function exportFfSeatInput(o, cx) {
 
 export class FfWeaponInputMirror {
   constructor() {
+    this.channel = NaN;
     this.pressed = false;
     this.held = false;
     this.reload = false;
@@ -166,31 +167,34 @@ export class FfWeaponInputMirror {
 }
 
 export function syncFfWeaponInput(b, f, at, h, m) {
-  m.pressed = f[at + 0] !== 0;
-  m.held = f[at + 1] !== 0;
-  m.reload = f[at + 2] !== 0;
-  m.target = f[at + 3];
-  m.hasRandom = f[at + 4] !== 0;
-  m.floor = f[at + 5];
-  m.spreadScale = f[at + 6];
-  m.sniperScale = f[at + 7];
-  { const tag = f[at + 8]; if (tag === 0) { m.yawSpreadOverride = f[at + 9]; } else m.yawSpreadOverride = tag === 1 ? null : undefined; }
+  m.channel = f[at + 0];
+  m.pressed = f[at + 1] !== 0;
+  m.held = f[at + 2] !== 0;
+  m.reload = f[at + 3] !== 0;
+  m.target = f[at + 4];
+  m.hasRandom = f[at + 5] !== 0;
+  m.floor = f[at + 6];
+  m.spreadScale = f[at + 7];
+  m.sniperScale = f[at + 8];
+  { const tag = f[at + 9]; if (tag === 0) { m.yawSpreadOverride = f[at + 10]; } else m.yawSpreadOverride = tag === 1 ? null : undefined; }
   return m;
 }
 
 export function putFfWeaponInput(b, o, f, at, heap) {
-  f[at + 0] = o.pressed ? 1 : 0;
-  f[at + 1] = o.held ? 1 : 0;
-  f[at + 2] = o.reload ? 1 : 0;
-  f[at + 3] = o.target;
-  f[at + 4] = o.hasRandom ? 1 : 0;
-  f[at + 5] = o.floor;
-  f[at + 6] = o.spreadScale;
-  f[at + 7] = o.sniperScale;
-  { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = $x; } }
+  f[at + 0] = o.channel;
+  f[at + 1] = o.pressed ? 1 : 0;
+  f[at + 2] = o.held ? 1 : 0;
+  f[at + 3] = o.reload ? 1 : 0;
+  f[at + 4] = o.target;
+  f[at + 5] = o.hasRandom ? 1 : 0;
+  f[at + 6] = o.floor;
+  f[at + 7] = o.spreadScale;
+  f[at + 8] = o.sniperScale;
+  { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f[at + 10] = 0; } else { f[at + 9] = 0; f[at + 10] = $x; } }
 }
 
 export function sameFfWeaponInput(a, b) {
+  if (!Object.is(a.channel, b.channel)) return ".channel";
   if (!Object.is(a.pressed, b.pressed)) return ".pressed";
   if (!Object.is(a.held, b.held)) return ".held";
   if (!Object.is(a.reload, b.reload)) return ".reload";
@@ -208,6 +212,7 @@ export function exportFfWeaponInput(o, cx) {
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
+  v.channel = o.channel;
   v.pressed = o.pressed;
   v.held = o.held;
   v.reload = o.reload;
@@ -223,20 +228,28 @@ export function exportFfWeaponInput(o, cx) {
 export class FfMuzzleMirror {
   constructor() {
     this.emitter = null;
+    this.node = NaN;
+    this.aimer = NaN;
   }
 }
 
 export function syncFfMuzzle(b, f, at, h, m) {
   m.emitter = syncBeamSource(b, f, at + 0, h, m.emitter);
+  m.node = f[at + 3];
+  m.aimer = f[at + 4];
   return m;
 }
 
 export function putFfMuzzle(b, o, f, at, heap) {
   putBeamSource(b, o.emitter, f, at + 0, heap);
+  f[at + 3] = o.node;
+  f[at + 4] = o.aimer;
 }
 
 export function sameFfMuzzle(a, b) {
   if (!sameBeamSource(a.emitter, b.emitter)) return ".emitter";
+  if (!Object.is(a.node, b.node)) return ".node";
+  if (!Object.is(a.aimer, b.aimer)) return ".aimer";
   return null;
 }
 
@@ -246,6 +259,8 @@ export function exportFfMuzzle(o, cx) {
   v = {};
   cx.seen.set(o, v);
   v.emitter = exportBeamSource(o.emitter, cx);
+  v.node = o.node;
+  v.aimer = o.aimer;
   return v;
 }
 
@@ -264,6 +279,8 @@ export class FfWeaponBirthMirror {
     this.directionNodes = [];
     this.outside = [];
     this.emitter = null;
+    this.emitterNode = NaN;
+    this.emitterAimer = NaN;
     this.muzzles = [];
   }
 }
@@ -282,7 +299,9 @@ export function syncFfWeaponBirth(b, f, at, h, m) {
   { const items = (m.directionNodes ??= []), start = h + f[at + 52], n = f[at + 53]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   { const items = (m.outside ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
   m.emitter = syncBeamSource(b, f, at + 56, h, m.emitter);
-  { const items = (m.muzzles ??= []), start = h + f[at + 59], n = f[at + 60]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncFfMuzzle(b, f, at + 0, h, v ?? new FfMuzzleMirror()); } items[i] = v; } }
+  m.emitterNode = f[at + 59];
+  m.emitterAimer = f[at + 60];
+  { const items = (m.muzzles ??= []), start = h + f[at + 61], n = f[at + 62]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncFfMuzzle(b, f, at + 0, h, v ?? new FfMuzzleMirror()); } items[i] = v; } }
   return m;
 }
 
@@ -300,7 +319,9 @@ export function putFfWeaponBirth(b, o, f, at, heap) {
   heap.items(o.directionNodes, f, at + 52, 1, (f, at, v) => { f[at + 0] = v; });
   heap.items(o.outside, f, at + 54, 1, (f, at, v) => { f[at + 0] = v; });
   putBeamSource(b, o.emitter, f, at + 56, heap);
-  heap.items(o.muzzles, f, at + 59, 3, (f, at, v) => { putFfMuzzle(b, v, f, at + 0, heap); });
+  f[at + 59] = o.emitterNode;
+  f[at + 60] = o.emitterAimer;
+  heap.items(o.muzzles, f, at + 61, 5, (f, at, v) => { putFfMuzzle(b, v, f, at + 0, heap); });
 }
 
 export function sameFfWeaponBirth(a, b) {
@@ -317,6 +338,8 @@ export function sameFfWeaponBirth(a, b) {
   if (!sameEach(a.directionNodes, b.directionNodes, (x, y) => Object.is(x, y))) return ".directionNodes";
   if (!sameEach(a.outside, b.outside, (x, y) => Object.is(x, y))) return ".outside";
   if (!sameBeamSource(a.emitter, b.emitter)) return ".emitter";
+  if (!Object.is(a.emitterNode, b.emitterNode)) return ".emitterNode";
+  if (!Object.is(a.emitterAimer, b.emitterAimer)) return ".emitterAimer";
   if (!sameEach(a.muzzles, b.muzzles, (x, y) => sameFfMuzzle(x, y) === null)) return ".muzzles";
   return null;
 }
@@ -339,6 +362,8 @@ export function exportFfWeaponBirth(o, cx) {
   v.directionNodes = o.directionNodes.map((x) => x);
   v.outside = o.outside.map((x) => x);
   v.emitter = exportBeamSource(o.emitter, cx);
+  v.emitterNode = o.emitterNode;
+  v.emitterAimer = o.emitterAimer;
   v.muzzles = o.muzzles.map((x) => exportFfMuzzle(x, cx));
   return v;
 }
@@ -350,12 +375,12 @@ export class FfSeatBirthMirror {
 }
 
 export function syncFfSeatBirth(b, f, at, h, m) {
-  { const items = (m.weapons ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 61; v = syncFfWeaponBirth(b, f, at + 0, h, v ?? new FfWeaponBirthMirror()); } items[i] = v; } }
+  { const items = (m.weapons ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 63; v = syncFfWeaponBirth(b, f, at + 0, h, v ?? new FfWeaponBirthMirror()); } items[i] = v; } }
   return m;
 }
 
 export function putFfSeatBirth(b, o, f, at, heap) {
-  heap.items(o.weapons, f, at + 0, 61, (f, at, v) => { putFfWeaponBirth(b, v, f, at + 0, heap); });
+  heap.items(o.weapons, f, at + 0, 63, (f, at, v) => { putFfWeaponBirth(b, v, f, at + 0, heap); });
 }
 
 export function sameFfSeatBirth(a, b) {

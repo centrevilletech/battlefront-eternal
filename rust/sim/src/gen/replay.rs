@@ -4082,6 +4082,7 @@ impl FfWeaponInput {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         object(v, path)?;
         Ok(FfWeaponInput {
+            channel: { let p = format!("{path}.channel"); num(v.get("channel"), &p)? },
             pressed: { let p = format!("{path}.pressed"); boolean(v.get("pressed"), &p)? },
             held: { let p = format!("{path}.held"); boolean(v.get("held"), &p)? },
             reload: { let p = format!("{path}.reload"); boolean(v.get("reload"), &p)? },
@@ -4096,7 +4097,8 @@ impl FfWeaponInput {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(9);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(10);
+        { let x = Value::Num(self.channel); fields.push(("channel", x)); }
         { let x = Value::Bool(self.pressed); fields.push(("pressed", x)); }
         { let x = Value::Bool(self.held); fields.push(("held", x)); }
         { let x = Value::Bool(self.reload); fields.push(("reload", x)); }
@@ -4116,13 +4118,17 @@ impl FfMuzzle {
         object(v, path)?;
         Ok(FfMuzzle {
             emitter: { let p = format!("{path}.emitter"); BeamSource::from_value(v.get("emitter"), cx, &p)? },
+            node: { let p = format!("{path}.node"); num(v.get("node"), &p)? },
+            aimer: { let p = format!("{path}.aimer"); num(v.get("aimer"), &p)? },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
         { let x = self.emitter.to_value(cx, a); fields.push(("emitter", x)); }
+        { let x = Value::Num(self.node); fields.push(("node", x)); }
+        { let x = Value::Num(self.aimer); fields.push(("aimer", x)); }
         a.object("", fields)
     }
 }
@@ -4145,13 +4151,15 @@ impl FfWeaponBirth {
             direction_nodes: { let p = format!("{path}.directionNodes"); { let mut out = Vec::new(); for (i, e) in list(v.get("directionNodes"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
             outside: { let p = format!("{path}.outside"); { let mut out = Vec::new(); for (i, e) in list(v.get("outside"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
             emitter: { let p = format!("{path}.emitter"); BeamSource::from_value(v.get("emitter"), cx, &p)? },
+            emitter_node: { let p = format!("{path}.emitterNode"); num(v.get("emitterNode"), &p)? },
+            emitter_aimer: { let p = format!("{path}.emitterAimer"); num(v.get("emitterAimer"), &p)? },
             muzzles: { let p = format!("{path}.muzzles"); { let mut out = Vec::new(); for (i, e) in list(v.get("muzzles"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(FfMuzzle::from_value(e, cx, &at)?); } out } },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(14);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(16);
         { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
         { let x = match &self.ordnance { Some(v) => cx.def_out("ordnance", (*v)), None => Value::Null }; fields.push(("ordnance", x)); }
         { let x = Value::Bool(self.tow); fields.push(("tow", x)); }
@@ -4165,6 +4173,8 @@ impl FfWeaponBirth {
         { let x = { let mut items = Vec::new(); for e in self.direction_nodes.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("directionNodes", x)); }
         { let x = { let mut items = Vec::new(); for e in self.outside.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("outside", x)); }
         { let x = self.emitter.to_value(cx, a); fields.push(("emitter", x)); }
+        { let x = Value::Num(self.emitter_node); fields.push(("emitterNode", x)); }
+        { let x = Value::Num(self.emitter_aimer); fields.push(("emitterAimer", x)); }
         { let x = { let mut items = Vec::new(); for e in self.muzzles.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("muzzles", x)); }
         a.object("", fields)
     }
