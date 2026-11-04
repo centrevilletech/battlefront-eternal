@@ -3781,6 +3781,7 @@ async function start() {
   game.inputSim = game.battleSim ? (await import("./runtime/input-sim.js")).createInputSim(simInstance) : null;
   game.inputSim?.controls(worldControls);
   game.worldSim = game.inputSim ? (await import("./runtime/world-sim.js")).createWorldSim(simInstance) : null;
+  game.worldSim?.clock(worldClock);
   game.aiSim = aiSim;
   if (!headless) window.__bf = game;
   if (!headless) await startClient();

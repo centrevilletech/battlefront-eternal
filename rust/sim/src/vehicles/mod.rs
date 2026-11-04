@@ -79,6 +79,13 @@ pub struct Polygon {
 /// call as the JavaScript makes it. `hull` names a hull by its place in the
 /// battle's list (Vehicles.vehicles).
 pub trait VehicleWorld {
+    /// Private replay hulls override damage with a no-op. Battle worlds
+    /// retain the normal damage path unless they explicitly opt out.
+    fn damage_allowed(&self) -> bool { true }
+    /// A private clone may share its leg-side array with a JavaScript
+    /// source. Publish a native write, or refresh after a world callback.
+    /// Worlds that own the whole hull need no exchange.
+    fn leg_side(&mut self, _hull: usize, _sides: &mut Vec<f64>, _publish: bool) {}
     /// CollisionWorld.cast: the first hit along a ray within `far`, leaving
     /// out `ignore`.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit>;

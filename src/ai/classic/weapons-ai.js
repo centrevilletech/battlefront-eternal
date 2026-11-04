@@ -485,16 +485,27 @@ function grenadePriority(controller, unit, target, def, ownerSoldier, now) {
 // Controller holds them in the 2004 game; provisional for humans, see
 // docs/ai-combat.md).
 const clusters = new WeakMap();
+const nativeClusters = new WeakMap();
+
+// The live module takes ownership of a cache through these two views.
+// Looking without a generation reset remains separate from gameplay lookup.
+export function bindClusterState(target, lookup, peek) {
+  nativeClusters.set(target?.controller ?? target, { lookup, peek });
+}
 
 // The capture reads the stored timestamps without the generation reset
 // performed by clusterState when gameplay next consults the target.
 export function peekClusterState(target) {
-  return clusters.get(target?.controller ?? target) ?? null;
+  const key=target?.controller ?? target;
+  const native=nativeClusters.get(key);
+  return native ? native.peek() : clusters.get(key) ?? null;
 }
 
 export function clusterState(target, create = false) {
   const key = target?.controller ?? target;
   if (!key) return null;
+  const native=nativeClusters.get(key);
+  if(native)return native.lookup(target,create);
   let state = clusters.get(key);
   if (!state && create) {
     state = { scanAt: -Infinity, flaggedAt: -Infinity, generation: target.generation };

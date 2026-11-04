@@ -1,8 +1,12 @@
 import { bridgeFor } from '../sim/runtime.js';
 import { putWsSeparation, WsSeparationResultMirror, syncWsSeparationResult } from '../sim/gen/world.js';
+import { clockPorts } from './world-clock-sim.js';
+
+const worlds = new WeakMap();
 
 export function createWorldSim(instance) {
   const bridge = bridgeFor(instance), x = bridge.x;
+  if (worlds.has(bridge)) return worlds.get(bridge);
   const input = { words: x.world_separation_words(0), put: putWsSeparation };
   const output = { Mirror: WsSeparationResultMirror, sync: syncWsSeparationResult };
   function separate(all, { player = null, playerOut = false, global = false, camera }) {
@@ -17,5 +21,7 @@ export function createWorldSim(instance) {
       unit.position.copy(value.position); unit.tickCount = value.tickCount;
     }
   }
-  return { bridge, separate };
+  const world = { bridge, separate, ...clockPorts(bridge) };
+  worlds.set(bridge, world);
+  return world;
 }
