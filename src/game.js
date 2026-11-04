@@ -484,8 +484,9 @@ async function start() {
   // units and combat move over together. Its soldiers move through the
   // module's copy of the collision world, so it brings the ray kernel.
   const wantUnits = headless && (params.get("units") ?? globalThis.process?.env?.BFE_UNITS) === "rust";
-  const wantPrediction = !headless && params.get("prediction") === "rust";
-  const wantRays = movement || wantUnits || wantPrediction || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm";
+  const wantPredictionSession = !headless && params.get("predictionSession") === "rust";
+  const wantPrediction = !wantPredictionSession && !headless && params.get("prediction") === "rust";
+  const wantRays = movement || wantUnits || wantPrediction || wantPredictionSession || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm";
   // The page's pose sampling in WebAssembly (src/anim-kernel.js) unless
   // ?anim=js, to the last bit as its JavaScript, which stays the fallback
   // when the module cannot load. The page's poses only: a headless world
@@ -2816,6 +2817,7 @@ async function start() {
       client.pending.length = 0; client.pendingActions.length = 0;
       client.vehiclePrediction = null; client.continuationState.clear();
     }
+    release(() => predictionSession?.dispose());
     release(() => predictionSim?.dispose());
     if (failed) throw failure;
   }
@@ -2847,6 +2849,7 @@ async function start() {
     const replayActions = client.host.entityInput.replayActions(true, true);
     const actions = commands => commands.map(command => ({...command, actions: replayActions.actions.get(command.sequence) || []}));
     const pending = predictionCommands(actions(client.pending), actions([...client.pendingActions, ...replayActions.shieldCommands]), 0, client.held);
+    if (predictionSession && (combat.dead || playerUnit.removed || driver?.active || gunner.active || remotes.active || playerUnit.seat || playerUnit.held)) predictionSession.reset();
     if (remotes.piloted && !combat.dead && !playerUnit.removed) {
       const droid=remotes.piloted,state=captureRemoteReplay(remotes,droid);
       const prediction=predictRemote(remotes,droid,pending,worldClock.tick,playerUnit.generation,
@@ -2898,6 +2901,34 @@ async function start() {
     if (walker) client.savedDroideka = captureDroidekaState(soldier);
     else client.saved = captureCompactSoldier(soldier);
     client.predictionBodyPending = true;
+    if (predictionSession) {
+      client.weapons ||= new WeaponPrediction();
+      client.weapons.begin(playerUnit, { epoch: commandHistory.epoch, tick: worldClock.tick });
+      const fireEdges = [];
+      for (const item of client.host.entityInput.outcomes.values()) fireEdges.push({ ...item.edge, sequence: item.sequence });
+      const crowd = [];
+      for (const unit of units.all()) if (unit !== playerUnit && !unit.seat && !unit.held && unit.soldier && !unit.removed && (unit.alive || unit.dead)) crowd.push(unit);
+      const result = predictionSession.predict(playerUnit, pending, {
+        epoch: commandHistory.epoch, tick: worldClock.tick,
+        held: client.heldGeneration === playerUnit.generation ? client.held : [],
+        view: client.replayView, mouseScale: settings.mouseScale, fireEdges, crowd, checkTick: client.predictedTick,
+      });
+      if (result.checkFound) client.smoother.note(client.predictedPosition.x, client.predictedPosition.y, client.predictedPosition.z,
+        result.checkPosition.x, result.checkPosition.y, result.checkPosition.z);
+      predictionSession.present(playerUnit, presentation, (notice, weapon) => {
+        const shot = { weapon, yaw: notice.yaw, pitch: notice.pitch, charge: notice.charge,
+          targetId: notice.target, targetGeneration: notice.targetGeneration };
+        if (notice.kind) shot[notice.kind === 1 ? 'repair' : notice.kind === 2 ? 'meleeStart' : notice.kind === 3 ? 'meleeHit' : 'meleeEnd'] = true;
+        if (notice.kind === 2) shot.swing = notice.swing;
+        const command = { sequence: notice.sequence || undefined, epoch: commandHistory.epoch, tick: notice.tick };
+        game.predictedShots?.fire({ id: notice.press, held: notice.held, button: notice.button, pressed: true,
+          tick: notice.tick, epoch: commandHistory.epoch, generation: playerUnit.generation,
+          ...combat.convergedAim(soldier.aimYaw, soldier.aimPitch) }, playerUnit, command, shot);
+      });
+      client.predictedTick = result.tick;
+      client.predictedPosition.copy(soldier.position);
+      return true;
+    }
     // The commands go on tick by tick as the worker's mailbox takes them
     // (reconcile.js replayTicks): keys stay held through a tick that has no
     // command of its own, and a command the worker will take late goes on
@@ -4008,6 +4039,9 @@ async function start() {
   const predictionSim = wantPrediction && simInstance && rays
     ? (await import('./runtime/page-prediction.js')).createPagePrediction(simInstance, collision) : null;
   game.predictionSim = predictionSim;
+  const predictionSession = wantPredictionSession && simInstance && rays
+    ? (await import('./runtime/client-prediction.js')).createClientPrediction(simInstance, collision) : null;
+  game.predictionSession = predictionSession;
   if (!headless) window.__bf = game;
   if (!headless) {
     await prepareGraphics();

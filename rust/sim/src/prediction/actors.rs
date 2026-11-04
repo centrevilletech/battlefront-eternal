@@ -131,8 +131,8 @@ pub struct Session {
     pub input: Vec<f64>,
     pub output: Vec<f64>,
     kind: Option<u32>,
-    unit: Unit,
-    combat: Combat,
+    pub(crate) unit: Unit,
+    pub(crate) combat: Combat,
     mover: Mover,
     caches: [GatherCache; PART_CACHES],
     gathered: Gathered,
@@ -283,13 +283,48 @@ impl Session {
         r.done()?;
         self.unit.soldier = soldier;
         self.unit.input = input;
+        let kick_write = truthy(kick.rate) || truthy(kick.hold) || truthy(kick.offset);
         self.combat.kick = kick;
-        if kind == 0 {
+        self.step(collision, world, ignored as i64, &flags, dt, scratch, movement_backend,
+            shield, underwater, pressed, airborne, dive, lock)?;
+        match &self.unit.soldier {
+            UnitBody::Soldier(s) => {
+                self.output.resize(Soldier::WORDS, 0.0);
+                s.put(&mut self.output, &mut Vec::new());
+                let (count, mean, blocked) = if movement_backend {
+                    scratch
+                } else {
+                    self.mover.prediction_scratch()
+                };
+                self.output
+                    .extend([count, mean.x, mean.y, mean.z, blocked as u8 as f64]);
+            }
+            UnitBody::Droideka(d) => {
+                self.output.resize(crate::gen::Droideka::WORDS, 0.0);
+                d.put(&mut self.output, &mut Vec::new());
+            }
+        }
+        self.output.extend([
+            kick_write as u8 as f64,
+            self.combat.kick.rate,
+            self.combat.kick.hold,
+            self.combat.kick.offset,
+        ]);
+        Ok(())
+    }
+
+    /// InfantryPrediction.step / DroidekaPrediction.step on retained private
+    /// state. A whole replay uses this entry without rows or foreign callbacks.
+    pub(crate) fn step(&mut self, collision: &mut State, world: usize, ignored: i64,
+        flags: &[u8], dt: f64, scratch: (f64, V3, bool), movement_backend: bool,
+        shield: bool, underwater: bool, pressed: bool, airborne: bool, dive: bool, lock: f64,
+    ) -> Result<(), &'static str> {
+        if self.kind == Some(0) {
             let UnitBody::Soldier(s) = &mut self.unit.soldier else {
                 unreachable!()
             };
             let m = &mut self.mover;
-            load_mover(m, s, world, ignored as i64);
+            load_mover(m, s, world, ignored);
             m.set_prediction_scratch(
                 if movement_backend { 0.0 } else { scratch.0 },
                 if movement_backend {
@@ -332,7 +367,7 @@ impl Session {
             let mut scene = Scene {
                 s: collision,
                 world,
-                flags: &flags,
+                flags,
                 gathered: &mut self.gathered,
                 caches: &mut self.caches,
                 ground_cache: &mut self.ground,
@@ -343,7 +378,7 @@ impl Session {
             let mut scene = ActorWorld {
                 collision,
                 world,
-                flags: &flags,
+                flags,
                 caches: &mut self.caches,
                 gathered: &mut self.gathered,
             };
@@ -369,35 +404,10 @@ impl Session {
                 d.toggle_shield();
             }
         }
-        let kick_write = truthy(self.combat.kick.rate)
-            || truthy(self.combat.kick.hold)
-            || truthy(self.combat.kick.offset);
         update_kick(&mut self.combat, &mut self.unit, dt);
-        match &self.unit.soldier {
-            UnitBody::Soldier(s) => {
-                self.output.resize(Soldier::WORDS, 0.0);
-                s.put(&mut self.output, &mut Vec::new());
-                let (count, mean, blocked) = if movement_backend {
-                    scratch
-                } else {
-                    self.mover.prediction_scratch()
-                };
-                self.output
-                    .extend([count, mean.x, mean.y, mean.z, blocked as u8 as f64]);
-            }
-            UnitBody::Droideka(d) => {
-                self.output.resize(crate::gen::Droideka::WORDS, 0.0);
-                d.put(&mut self.output, &mut Vec::new());
-            }
-        }
-        self.output.extend([
-            kick_write as u8 as f64,
-            self.combat.kick.rate,
-            self.combat.kick.hold,
-            self.combat.kick.offset,
-        ]);
         Ok(())
     }
+
 }
 
 fn load_mover(m: &mut Mover, s: &Soldier, world: usize, ignored: i64) {

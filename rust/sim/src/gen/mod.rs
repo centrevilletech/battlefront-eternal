@@ -44,6 +44,8 @@ mod battle;
 pub use self::battle::*;
 mod battlefield;
 pub use self::battlefield::*;
+mod client;
+pub use self::client::*;
 mod combat;
 pub use self::combat::*;
 mod flight;

@@ -777,19 +777,18 @@ impl Arsenal<'_> {
 
     /// current(channel) (weapons.js:511): the selected weapon's place.
     pub fn current(&self, defs: &WeaponDefs, c: usize) -> Option<usize> {
-        let list = self.channel(defs, c);
-        let s = self.selected[c];
-        if s >= 0.0 && (s as usize) < list.len() && s.fract() == 0.0 {
-            Some(list[s as usize])
-        } else {
-            None
+        let selected = self.selected[c];
+        if selected < 0.0 || !selected.is_finite() || selected.fract() != 0.0 {
+            return None;
         }
+        self.weapons.iter().enumerate().filter(|(_, w)| w.in_channel(defs, c as f64))
+            .nth(selected as usize).map(|(i, _)| i)
     }
 
     /// next(channel, direction) (weapons.js:530).
     pub fn next(&mut self, defs: &WeaponDefs, c: usize, direction: f64) -> bool {
-        let list = self.channel(defs, c);
-        if list.len() < 2 {
+        let count = self.weapons.iter().filter(|w| w.in_channel(defs, c as f64)).count();
+        if count < 2 {
             return false;
         }
         if let Some(old) = self.current(defs, c) {
@@ -798,7 +797,7 @@ impl Arsenal<'_> {
             }
             self.weapons[old].deselect();
         }
-        let n = list.len() as f64;
+        let n = count as f64;
         self.selected[c] = jsrt::conv::js_mod(self.selected[c] + direction + n, n);
         true
     }

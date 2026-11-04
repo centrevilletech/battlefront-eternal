@@ -264,3 +264,7 @@ export function createActorPredictionBridge(bridge, collision, { trace = null } 
     dispose() { if (disposed) return; disposed = true; for (const owner of owners) drop(owner); },
   };
 }
+
+// Phase-boundary value helpers. The whole-session owner uses these once per
+// frame or life; it never binds a live actor adapter or calls eligible().
+export { config as predictionActorConfig, ingress as packPredictionActor, publish as publishPredictionActor };

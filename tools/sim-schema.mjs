@@ -249,9 +249,10 @@ export function buildModel(files) {
       if (model.records.has(name)) fail(where, 'declared twice');
       claim(name, where);
       // `$class`: the JavaScript class its objects are (a union of records
-      // tells them apart by it); every other key is a field.
-      const { $class = null, ...plain } = fields;
-      model.records.set(name, { name, file, classes: [$class ?? []].flat(), fields: Object.entries(plain).map(([f, spec]) => parseField(f, spec, `${where}.${f}`)) });
+      // tells them apart by it). `$layout` exports its flat row size for
+      // phase boundaries; every other key is a field.
+      const { $class = null, $layout = false, ...plain } = fields;
+      model.records.set(name, { name, file, layout: $layout, classes: [$class ?? []].flat(), fields: Object.entries(plain).map(([f, spec]) => parseField(f, spec, `${where}.${f}`)) });
     }
     for (const [name, spec] of Object.entries(schema.kinds || {})) {
       const where = `${file} kind ${name}`;
@@ -1272,6 +1273,7 @@ function jsRecord(model, rec) {
   let at = 0;
   const placed = rec.fields.map((f) => { const p = { field: f, at }; at += words(model, f.type); return p; });
   return [
+    ...(rec.layout ? [`export const ${upper(rec.name)}_WORDS = ${at};`, ''] : []),
     ...jsMirror(model, `${rec.name}Mirror`, rec.fields, false),
     ...jsSyncFn(model, `sync${rec.name}`, placed),
     ...jsPutFn(model, `put${rec.name}`, placed),

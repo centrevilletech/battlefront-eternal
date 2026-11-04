@@ -190,3 +190,5 @@ export function createWeaponPredictionBridge(bridge, { trace = null } = {}) {
     dispose() { if (disposed) return; for (const session of sessions) session.dispose(); disposed = true; },
   };
 }
+
+export { definition as packPredictionWeaponDefinition };

@@ -120,13 +120,13 @@ impl<'a> Reader<'a> {
 pub struct Session {
     pub input: Vec<f64>,
     pub output: Vec<f64>,
-    defs: WeaponDefs,
-    weapons: Vec<Weapon>,
-    selected: [f64; 2],
-    zoom: f64,
+    pub(crate) defs: WeaponDefs,
+    pub(crate) weapons: Vec<Weapon>,
+    pub(crate) selected: [f64; 2],
+    pub(crate) zoom: f64,
     barrels: Vec<f64>,
     barrel_writes: Vec<bool>,
-    shots: Vec<Shot>,
+    pub(crate) shots: Vec<Shot>,
     error: Option<&'static str>,
 }
 

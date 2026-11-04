@@ -57,6 +57,7 @@ export * from "./ai-weapon.js";
 export * from "./ai.js";
 export * from "./battle.js";
 export * from "./battlefield.js";
+export * from "./client.js";
 export * from "./combat.js";
 export * from "./flight.js";
 export * from "./input.js";
