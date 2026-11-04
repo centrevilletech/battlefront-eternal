@@ -14,6 +14,11 @@ const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
 const DOWN: Vector3 = Vector3::new(0.0, -1.0, 0.0);
 const AXES: [Vector3; 3] = [Vector3::new(1.0, 0.0, 0.0), UP, Vector3::new(0.0, 0.0, 1.0)];
 
+// V8's Math.min/max produce the canonical negative quiet NaN. Preserve
+// those bits at this boundary as well as their signed-zero ordering.
+fn js_min(a: f64, b: f64) -> f64 { if a.is_nan() || b.is_nan() { f64::from_bits(0xfff8_0000_0000_0000) } else { v8math::min(a, b) } }
+fn js_max(a: f64, b: f64) -> f64 { if a.is_nan() || b.is_nan() { f64::from_bits(0xfff8_0000_0000_0000) } else { v8math::max(a, b) } }
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Chunk {
     pub speed: f64,
@@ -110,13 +115,13 @@ pub struct Debris {
 
 impl Debris {
     pub fn launch(&mut self, input: Launch, world: &mut impl World) {
-        let factor = if input.health <= -50.0 { 1.0 } else { v8math::min(0.1 - (0.9 * input.health) / 50.0, 1.0) };
+        let factor = if input.health <= -50.0 { 1.0 } else { js_min(0.1 - (0.9 * input.health) / 50.0, 1.0) };
         let (mut lift, mut thin) = (0.0, 1);
         let (mut size, mut middle) = (Vector3::default(), Vector3::default());
         if input.center && !input.bounds.empty() {
             middle.add_vectors(&input.bounds.min, &input.bounds.max).multiply_scalar(0.5);
             size.sub_vectors(&input.bounds.max, &input.bounds.min);
-            lift = v8math::min(v8math::min(size.x, size.y), size.z) / 2.0;
+            lift = js_min(js_min(size.x, size.y), size.z) / 2.0;
             thin = if size.x <= size.y && size.x <= size.z { 0 } else if size.y <= size.z { 1 } else { 2 };
         }
         let shift = (input.center && !input.bounds.empty()).then_some(middle);
@@ -124,7 +129,7 @@ impl Debris {
         input.matrix.decompose(&mut position, &mut quaternion, &mut scale);
         if input.center {
             position.copy(&middle.apply_matrix4(&input.matrix));
-            position.y = v8math::max(position.y, input.floor + size.y / 2.0);
+            position.y = js_max(position.y, input.floor + size.y / 2.0);
         }
         world.add(input.id, &position, &quaternion, shift.as_ref());
         self.out.sub_vectors(&position, &input.origin);
@@ -150,7 +155,7 @@ impl Debris {
                 piece.left -= dt;
                 if let Some(s) = &mut piece.settle {
                     if s.t < SETTLE {
-                        s.t = v8math::min(s.t + dt, SETTLE);
+                        s.t = js_min(s.t + dt, SETTLE);
                         let w = s.t / SETTLE;
                         let ease = w * w * (3.0 - 2.0 * w);
                         piece.quaternion.slerp_quaternions(&s.from, &s.to, ease);
@@ -213,14 +218,14 @@ fn bounce(ray: &mut Vector3, start: &mut Vector3, p: &mut Piece, world: &mut imp
     world.vectors(ray, start);
     let Some(hit) = world.cast(start, ray, length + 0.1 + p.lift, p.ignore) else { return };
     let d = p.velocity.dot(&hit.normal); if d >= 0.0 { return; }
-    p.position.copy(&hit.point).add_scaled_vector(&hit.normal, v8math::max(0.05, p.lift));
+    p.position.copy(&hit.point).add_scaled_vector(&hit.normal, js_max(0.05, p.lift));
     world.publish(p);
     let most = p.chunk.terrain_collisions;
     if p.hits < most { if let Some(name) = p.chunk.terrain_effect { world.play(p, name, &hit.point, None, true); } }
     p.hits += 1.0;
     p.velocity.add_scaled_vector(&hit.normal, -d);
     let along = p.velocity.length();
-    if along > 0.0 { p.velocity.multiply_scalar(v8math::max(along - v8math::min(FRICTION * -d, along), 0.0) / along); }
+    if along > 0.0 { p.velocity.multiply_scalar(js_max(along - js_min(FRICTION * -d, along), 0.0) / along); }
     p.velocity.add_scaled_vector(&hit.normal, RESTITUTION * -d);
     if p.hits >= most || p.velocity.length() < 1.0 { rest(p, hit.point.y, world); }
 }
