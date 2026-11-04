@@ -10,7 +10,7 @@ import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/ai
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
-import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, selectWeapon, validateFire } from '../src/ai/classic/weapons-ai.js';
+import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -566,6 +566,46 @@ test('native weapon selection preserves inventory changes, grenade priority and 
     assert.deepEqual(n.fireSnapshot(),j.fireSnapshot(),`switch state ${i}`);
     assert.deepEqual(n.arsenal.weapons.map(w=>w.id),j.arsenal.weapons.map(w=>w.id));
     assert.equal(n.arsenal.selected,j.arsenal.selected);
+  }
+});
+
+test('native target and weapon transitions preserve masks, references and selection callbacks', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0,reads=0;
+    const history=[],world={aiSim:native?sim:null},c={ai:{world}},fire=new FireControl(),other=new FireControl();
+    const ref=r=>r==null?r:[r.unit.id,r.generation];
+    const fireState=f=>[f.channel,f.lastRelease,f.charging,f.sniperActive,f.burst.state,ref(f.weaponTarget)];
+    const state=()=>[ref(c.target),fireState(fire),fireState(other)];
+    const log=(name,...args)=>{history.push([name,...args,state()]);if(native){sim.words(new Array(8000).fill(2));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapons=Array.from({length:5},(_,id)=>({id,channel:id%2,busy:false,def:{base:'rifle',ai:{relationMask:7,categoryMask:0xffffffff}},
+      deselect(){log('deselect',id);if(tick%7===0)this.channel=1;}}));
+    const arsenal={weapons,selected:[0,0],channels:[weapons.filter(w=>w.channel===0),weapons.filter(w=>w.channel===1)],
+      current(channel){log('current',channel);reads++;if(tick%31===0)c.perception.fire=other;return tick%37===0?null:this.channels[channel]?.[this.selected[channel]];}};
+    const select=weapon=>{log('select',weapon.id);if(tick%17===0)return false;arsenal.selected[weapon.channel]=arsenal.channels[weapon.channel].indexOf(weapon);return tick%11===0?undefined:true;};
+    const unit=c.unit={kind:0,id:1,team:1,combat:{arsenal}};
+    c.perception={fire};if(native){sim.bindFire(fire);sim.bindFire(other);}
+    const target={id:5,kind:0,team:2,generation:0,get category(){log('category');return [0,1,2,3,4,32,-1,NaN][tick%8];}};
+    world.units={relation(a,b){log('relation',a,b);if(tick%13===0)target.generation=null;
+      if(tick%19===0)for(const weapon of weapons)weaponAI(weapon.def).categoryMask=0;
+      return [-1,0,1,NaN,31][tick%5];}};
+    return {history,world,c,fire,other,unit,target,arsenal,weapons,select,state,setTick:i=>{tick=i;reads=0;}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<2048;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.c.perception={fire:i%61===0?null:x.fire};
+      x.arsenal.selected=[i%3,i%2];x.arsenal.select=i%2?x.select:undefined;
+      x.target.generation=[undefined,null,0,-0,i][i%5];
+      for(const w of x.weapons){w.channel=w.id%2;w.busy=(w.id+i)%23===0;const a=weaponAI(w.def);a.relationMask=[7,1,2,4,0][i%5];a.categoryMask=i%3?0xffffffff:1;}
+      for(const f of [x.fire,x.other]){f.channel=i%2;f.lastRelease=7;f.charging=true;f.sniperActive=true;f.burst.state=3;f.weaponTarget={unit:x.unit,generation:0};}
+      assert.equal(setTarget(x.c,i%43===0?null:x.unit,i%41===0?null:x.target,x.world),undefined);
+      x.result=switchWeapon(x.c,i%47===0?null:x.unit,i%53===0?-1:i%5);
+    }
+    assert.equal(n.result,j.result,`switch result ${i}`);
+    assert.deepEqual(n.state(),j.state(),`weapon state ${i}`);
+    assert.deepEqual(n.history,j.history,`transition callbacks ${i}`);
+    assert.deepEqual(n.arsenal.selected,j.arsenal.selected);
   }
 });
 

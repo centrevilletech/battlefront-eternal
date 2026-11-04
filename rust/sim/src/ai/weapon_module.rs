@@ -3,6 +3,7 @@
 
 use super::combat::math::{angle,dot32,f,length_sq32,lookup_cos,normalize_or_x};
 use super::combat::weapons_ai::sniper_yaw;
+use super::{module::state,fire_module::ai_fire_ref};
 use crate::gen::{import_ai_weapon,AiWeaponArgs,AiWeaponOp as Op,AiWeaponResult};
 
 fn call(op: Op,index: u32) -> AiWeaponResult {import_ai_weapon(&AiWeaponArgs {op,index,number:0.0})}
@@ -156,4 +157,52 @@ pub extern "C" fn ai_weapon_select(switch_allowed: u32) {
     let Some(best)=best else {return;};
     import_ai_weapon(&AiWeaponArgs {op:Op::ChoiceWrite,index:best,number:if best_in_band {1.0} else {0.0}});
     if switch_allowed!=0 && call(Op::ChoiceSelected,0).values[0]!=best as f64 {call(Op::ChoiceSwitch,best);}
+}
+
+// weapons-ai.js switchWeapon/selectInChannel. Reset state is visible to
+// selection callbacks before they can reenter the AI.
+#[no_mangle]
+pub extern "C" fn ai_weapon_switch() -> u32 {
+    let start=call(Op::SwitchStart,0);
+    if !start.flag {return 0;}
+    let id=start.values[0] as usize;
+    {
+        let fire=&mut state().fires[id].data;
+        fire.sniper_active=false;fire.last_release=-1.0;fire.charging=false;fire.burst.state=0.0;
+    }
+    let channel=call(Op::SwitchChannel,0).values[0];
+    state().fires[id].data.channel=channel;
+    if call(Op::SwitchHasSelect,0).flag {return call(Op::SwitchSelect,0).flag as u32;}
+    let index=call(Op::SwitchFallbackIndex,0).values[0];
+    if index<0.0 {return 0;}
+    if call(Op::SwitchCurrent,0).flag {return 1;}
+    if call(Op::SwitchCurrentAgain,0).flag {return 0;}
+    call(Op::SwitchDeselect,0);
+    import_ai_weapon(&AiWeaponArgs {op:Op::SwitchWrite,index:0,number:index});
+    1
+}
+
+// weapons-ai.js setTarget. The controller target stays a P15 write while
+// the native fire target retains its independent generation and masks.
+#[no_mangle]
+pub extern "C" fn ai_weapon_target() {
+    let start=call(Op::SetTargetStart,0);
+    if !start.flag {return;}
+    let id=start.values[0] as u32;
+    if !call(Op::SetTargetSelected,0).flag {return;}
+    let mut kept=start.values[1]!=0.0;
+    if kept {
+        call(Op::SetTargetAi,0);
+        let relation=call(Op::SetTargetRelation,0).values[0];
+        let mask=call(Op::SetTargetRelationMask,0).values[0];
+        if v8math::to_uint32(mask)&(1u32<<(v8math::to_uint32(relation+1.0)&31))==0 {kept=false;}
+        else {
+            let v=call(Op::SetTargetCategory,0).values;
+            if v8math::to_uint32(v[0])&(1u32<<(v8math::to_uint32(v[1])&31))==0 {kept=false;}
+        }
+    }
+    if kept {
+        let v=call(Op::SetTargetReference,0).values;
+        ai_fire_ref(id,2,v[0] as u32,v[1],v[2] as u32);
+    } else {ai_fire_ref(id,0,0,0.0,0);}
 }

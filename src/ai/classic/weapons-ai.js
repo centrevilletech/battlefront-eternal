@@ -575,6 +575,8 @@ function selectedIndex(unit, controller) {
 // Switch to inventory index i; resets the charge release time,
 // the sniper gate and the burst.
 export function switchWeapon(controller, unit, index) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native)return native.switchWeapon(controller,unit,index);
   const fire = fireOf(controller);
   const arsenal = unit?.combat?.arsenal;
   const weapon = arsenal?.weapons[index];
@@ -604,6 +606,8 @@ function selectInChannel(arsenal, weapon) {
 // weapon's own target only when its relationship and category masks allow
 // (a failed check clears it).
 export function setTarget(controller, unit, target, world) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native){native.setWeaponTarget(controller,unit,target,world);return;}
   controller.target = target ? { unit: target, generation: target.generation } : null;
   const fire = fireOf(controller);
   if (!fire) return;

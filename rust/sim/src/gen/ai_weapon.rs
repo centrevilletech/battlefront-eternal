@@ -39,10 +39,26 @@ pub enum AiWeaponOp {
     ChoiceWrite = 30,
     ChoiceSelected = 31,
     ChoiceSwitch = 32,
+    SwitchStart = 33,
+    SwitchChannel = 34,
+    SwitchHasSelect = 35,
+    SwitchSelect = 36,
+    SwitchFallbackIndex = 37,
+    SwitchCurrent = 38,
+    SwitchCurrentAgain = 39,
+    SwitchDeselect = 40,
+    SwitchWrite = 41,
+    SetTargetStart = 42,
+    SetTargetSelected = 43,
+    SetTargetAi = 44,
+    SetTargetRelation = 45,
+    SetTargetRelationMask = 46,
+    SetTargetCategory = 47,
+    SetTargetReference = 48,
 }
 
 impl AiWeaponOp {
-    pub const NAMES: [&'static str; 33] = ["coneStart", "origin", "forward", "conePoint", "coneFacts", "aimer", "range", "rangePoint", "protectionStart", "reference", "sphere", "validationStart", "target", "lead", "targetPoint", "spreadStart", "sniper", "spreadValues", "spreadWrite", "choiceStart", "choiceOrigin", "choiceAim", "choiceWeapon", "choiceUtility", "choiceCapacity", "choiceRange", "choiceSpeed", "choiceGrenade", "choiceCluster", "choiceRoll", "choiceWrite", "choiceSelected", "choiceSwitch"];
+    pub const NAMES: [&'static str; 49] = ["coneStart", "origin", "forward", "conePoint", "coneFacts", "aimer", "range", "rangePoint", "protectionStart", "reference", "sphere", "validationStart", "target", "lead", "targetPoint", "spreadStart", "sniper", "spreadValues", "spreadWrite", "choiceStart", "choiceOrigin", "choiceAim", "choiceWeapon", "choiceUtility", "choiceCapacity", "choiceRange", "choiceSpeed", "choiceGrenade", "choiceCluster", "choiceRoll", "choiceWrite", "choiceSelected", "choiceSwitch", "switchStart", "switchChannel", "switchHasSelect", "switchSelect", "switchFallbackIndex", "switchCurrent", "switchCurrentAgain", "switchDeselect", "switchWrite", "setTargetStart", "setTargetSelected", "setTargetAi", "setTargetRelation", "setTargetRelationMask", "setTargetCategory", "setTargetReference"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -79,6 +95,22 @@ impl AiWeaponOp {
             30 => Some(AiWeaponOp::ChoiceWrite),
             31 => Some(AiWeaponOp::ChoiceSelected),
             32 => Some(AiWeaponOp::ChoiceSwitch),
+            33 => Some(AiWeaponOp::SwitchStart),
+            34 => Some(AiWeaponOp::SwitchChannel),
+            35 => Some(AiWeaponOp::SwitchHasSelect),
+            36 => Some(AiWeaponOp::SwitchSelect),
+            37 => Some(AiWeaponOp::SwitchFallbackIndex),
+            38 => Some(AiWeaponOp::SwitchCurrent),
+            39 => Some(AiWeaponOp::SwitchCurrentAgain),
+            40 => Some(AiWeaponOp::SwitchDeselect),
+            41 => Some(AiWeaponOp::SwitchWrite),
+            42 => Some(AiWeaponOp::SetTargetStart),
+            43 => Some(AiWeaponOp::SetTargetSelected),
+            44 => Some(AiWeaponOp::SetTargetAi),
+            45 => Some(AiWeaponOp::SetTargetRelation),
+            46 => Some(AiWeaponOp::SetTargetRelationMask),
+            47 => Some(AiWeaponOp::SetTargetCategory),
+            48 => Some(AiWeaponOp::SetTargetReference),
             _ => None,
         }
     }

@@ -5,7 +5,7 @@ import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
 import { NativeScheduler } from './ai-scheduler-sim.js';
-import { bindClusterState, chargeWeapon, clusterState, facingAndRange, maxExpandedRange, peekClusterState, prepareSpread, protectedVeto, selectedWeapon, setTarget, sniperWeapon, switchWeapon, validateFire, weaponAI, weaponUtility } from './ai/classic/weapons-ai.js';
+import { bindClusterState, chargeWeapon, categoryOf, clusterState, facingAndRange, maxExpandedRange, peekClusterState, prepareSpread, protectedVeto, selectedWeapon, setTarget, sniperWeapon, switchWeapon, validateFire, weaponAI, weaponUtility } from './ai/classic/weapons-ai.js';
 import { recordTarget } from './ai/classic/perception.js';
 import { dropCorrect, isCannon } from './ai/classic/aim.js';
 
@@ -274,6 +274,27 @@ export class AiSim {
       } else if(op==='choiceSelected') {
         const weapon=selectedWeapon(unit,c);result.values=[weapon?unit.combat.arsenal.weapons.indexOf(weapon):-1];
       } else if(op==='choiceSwitch') switchWeapon(c,unit,index);
+      else if(op==='switchStart') {
+        const fire=frame.fire=c?.perception?.fire??null,arsenal=frame.arsenal=unit?.combat?.arsenal,weapon=frame.weapon=arsenal?.weapons[frame.index];
+        result.flag=Boolean(fire && weapon);if(result.flag){this.bindFire(fire);result.values=[this.fires.get(fire).id];}
+      } else if(op==='switchChannel') result.values=[frame.weapon.channel];
+      else if(op==='switchHasSelect') result.flag=Boolean(frame.arsenal.select);
+      else if(op==='switchSelect') result.flag=frame.arsenal.select(frame.weapon)!==false;
+      else if(op==='switchFallbackIndex') result.values=[frame.arsenal.channels[frame.weapon.channel].indexOf(frame.weapon)];
+      else if(op==='switchCurrent') result.flag=frame.arsenal.current(frame.weapon.channel)===frame.weapon;
+      else if(op==='switchCurrentAgain') {frame.oldWeapon=frame.arsenal.current(frame.weapon.channel);result.flag=Boolean(frame.oldWeapon?.busy);}
+      else if(op==='switchDeselect') frame.oldWeapon?.deselect();
+      else if(op==='switchWrite') frame.arsenal.selected[frame.weapon.channel]=number;
+      else if(op==='setTargetStart') {
+        c.target=frame.target?{unit:frame.target,generation:frame.target.generation}:null;
+        const fire=frame.fire=c?.perception?.fire??null;result.flag=Boolean(fire);
+        if(fire){this.bindFire(fire);result.values=[this.fires.get(fire).id,Number(Boolean(frame.target))];}
+      } else if(op==='setTargetSelected') {frame.weapon=selectedWeapon(unit,c);result.flag=Boolean(frame.weapon);}
+      else if(op==='setTargetAi') frame.ai=weaponAI(frame.weapon.def);
+      else if(op==='setTargetRelation') result.values=[frame.world?.units?.relation?frame.world.units.relation(unit.team,frame.target.team):-1];
+      else if(op==='setTargetRelationMask') result.values=[frame.ai.relationMask];
+      else if(op==='setTargetCategory') result.values=[frame.ai.categoryMask,categoryOf(frame.target)];
+      else if(op==='setTargetReference') {const u=frame.target,g=u.generation;result.values=[this.id(u),g,g===undefined?0:g===null?2:1];}
       else throw Error(`unknown weapon geometry callback ${op}`);
       return result;
     }});
@@ -441,6 +462,16 @@ export class AiSim {
     try {this.x.ai_weapon_select(Number(Boolean(switchAllowed)));return out;}
     finally {this.weaponFrames.pop();}
   }
+  switchWeapon(controller,unit,index) {
+    this.weaponFrames.push({controller,unit,index});
+    try {return Boolean(this.x.ai_weapon_switch());}
+    finally {this.weaponFrames.pop();}
+  }
+  setWeaponTarget(controller,unit,target,world) {
+    this.weaponFrames.push({controller,unit,target,world});
+    try {this.x.ai_weapon_target();}
+    finally {this.weaponFrames.pop();}
+  }
   selectTarget(id,tracker,world) {
     this.trackerFrames.push({tracker,world});
     try {return Boolean(this.x.ai_tracker_select(id));}
@@ -517,7 +548,7 @@ export class AiSim {
 
 class NativeFireFields {
   constructor(sim,fire) {
-    const id=sim.x.ai_fire_new();let reference=fire.weaponTarget,serial=-1;
+    const id=this.id=sim.x.ai_fire_new();let reference=fire.weaponTarget,serial=-1;
     const setRef=value=>{
       reference=value;serial=sim.x.ai_fire_ref(id,value===null?0:value===undefined?1:2,sim.id(value?.unit),value?.generation,
         value?.generation===undefined?0:value?.generation===null?2:1);
