@@ -10,7 +10,8 @@ const meshState = (mesh, ids) => ({ id: ids.key('mesh', mesh), position: mesh.po
   children: mesh.children.map(child => child.position) });
 function prepare(game) {
   if (books.has(game)) return books.get(game);
-  const d = game.debris, ids = new DebrisIds(), book = { ids, bones: new Map(), factories: [], made: null, found: false, factory: -1, effect: null };
+  const d = game.debris, ids = new DebrisIds(), book = { ids, bones: new Map(), factories: [], made: null, found: false, factory: -1, effect: null,
+    changed: false, count: d.pieces.length };
   book.bone = b => { if (!b) return null; if (!book.bones.has(b)) book.bones.set(b, book.bones.size); return book.bones.get(b); };
   book.edge = { make(index) { return book.made = book.factories[index](); } };
   const model = d.model;
@@ -22,6 +23,9 @@ function prepare(game) {
   };
   const play = d.effects.play;
   d.effects.play = function (...args) { return book.effect = play.apply(this, args); };
+  for (const method of ['blowApart', 'rest', 'clear']) {
+    const base = d[method]; d[method] = function (...args) { book.changed = true; return base.apply(this, args); };
+  }
   books.set(game, book); return book;
 }
 function boundaries(game) {
@@ -59,4 +63,8 @@ export const debris = { frames: METHODS.map(method => ({ method: `Debris.${metho
       dt: method === 'update' ? args[0] : 0, id: ['bounce', 'rest'].includes(method) ? b.ids.key('mesh', args[0].mesh) : 0,
       floor: method === 'rest' && args[1] !== undefined ? args[1] : -Infinity };
   },
-})) };
+})), events(game, note) {
+  const b = prepare(game), count = game.debris.pieces.length;
+  if (b.changed || count !== b.count) note('debris', count);
+  b.changed = false; b.count = count;
+} };
