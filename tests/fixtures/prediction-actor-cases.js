@@ -56,7 +56,8 @@ export function createPredictionActor(scenario, course, content = null) {
     soldier.waterClock = 3.25;
   } else soldier = new Soldier(course.world, content?.definition || scenario.definition || {});
   soldier.spawn(...(scenario.spawn || [0, 0, 0, 0]));
-  soldier.getupTime = .9; soldier.diveTime = .6; soldier.maxFlyHeight = 14;
+  if (kind === 'droideka') soldier.nextGun(new THREE.Vector3());
+  soldier.getupTime = content?.getupTime ?? .9; soldier.diveTime = content?.diveTime ?? .6; soldier.maxFlyHeight = content?.maxFlyHeight ?? 14;
   if (scenario.patch) for (const [key, value] of Object.entries(scenario.patch)) {
     if (soldier[key]?.isVector3) soldier[key].fromArray(value); else soldier[key] = value;
   }
@@ -124,9 +125,10 @@ export function actorRigState(actor) {
   return [actor.root, ...actor.bones].map(b => [b.position.toArray(), b.quaternion.toArray(), b.scale.toArray(), b.matrixWorld.toArray()]);
 }
 
-export function runActorPredictionCase(scenario, { rays = null, makeNative = null, create = null, before = null, after = null } = {}) {
-  const course = actorCourse(rays), fixture = create ? create(scenario, course) : createPredictionActor(scenario, course);
+export function runActorPredictionCase(scenario, { rays = null, makeNative = null, makeCourse = null, create = null, before = null, after = null } = {}) {
+  const course = makeCourse ? makeCourse(rays) : actorCourse(rays), fixture = create ? create(scenario, course) : createPredictionActor(scenario, course);
   const { soldier: s, combat } = fixture, native = makeNative?.(course.world), observations = [], wrappers = [], rig = actorRigState(fixture.actor);
+  const muzzleRig = actorRigState(s.muzzleActor), muzzleAnimator = s.muzzleAnimator;
   const Wrapper = scenario.kind === 'droideka' ? DroidekaPrediction : InfantryPrediction;
   let prediction, continuation, kick;
   const coverage = { jump: 0, fall: 0, thrown: 0, jet: 0, prone: 0, crouch: 0, dive: 0, lock: 0, shield: 0, stepBlocked: 0, modes: new Set() };
@@ -160,6 +162,8 @@ export function runActorPredictionCase(scenario, { rays = null, makeNative = nul
       if (scenario.capturedFlags) weapons[1].def.base = fixture.arsenal[1].def.base;
       assert.deepEqual(weapons, fixture.arsenal, 'weapons are not ticked');
       assert.deepEqual(actorRigState(fixture.actor), rig, 'prediction does not pose the visible rig');
+      assert.deepEqual(actorRigState(s.muzzleActor), muzzleRig, 'prediction does not pose the physical muzzle rig');
+      assert.equal(s.muzzleAnimator, muzzleAnimator, 'prediction keeps its physical animator owner');
       if (scenario.kind === 'droideka') { assert.equal(fixture.deathCalls(), 0); assert.equal(s.onDeathBlast, fixture.callbacks[0]); assert.equal(s.onExploded, fixture.callbacks[1]); }
     }
     return { ...fixture, course, native, prediction, wrappers, observations, coverage,
