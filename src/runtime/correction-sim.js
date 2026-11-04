@@ -25,6 +25,7 @@ const passengerFields = ['aimYaw', 'pitch', 'lookYaw', 'lookPitch'];
 const turretFields = ['yaw', 'pitch', 'yawVel', 'pitchVel', 'gunYaw', 'gunPitch'];
 const unsupported = Symbol('observable correction prerequisite');
 const isObject = value => value !== null && (typeof value === 'object' || typeof value === 'function');
+const hasOwn = Object.hasOwn;
 const typedPrototype = Object.getPrototypeOf(Uint8Array.prototype);
 const typedDescriptors = Object.getOwnPropertyDescriptors(typedPrototype);
 const viewDescriptors = Object.getOwnPropertyDescriptors(DataView.prototype);
@@ -39,12 +40,16 @@ function descriptor(value, key) {
     if (found) return found;
   }
 }
+function descriptorValue(found) { return found && hasOwn(found, 'value') ? found.value : undefined; }
+function sameAccessor(got, expected) {
+  return !!got && !hasOwn(got, 'value') && got.get === expected.get && got.set === expected.set;
+}
 function data(value, key) {
   if (value == null) return undefined;
   if (!isObject(value)) throw unsupported;
   const found = descriptor(value, key);
   if (!found) return undefined;
-  if (!('value' in found)) throw unsupported;
+  if (!hasOwn(found, 'value')) throw unsupported;
   return found.value;
 }
 function tagged(value, key, tag = 'isVector3') {
@@ -81,20 +86,20 @@ function byteInput(bytes, memory, sliced) {
   if (prototype !== Uint8Array.prototype && (!bufferPrototype || prototype !== bufferPrototype)) return null;
   for (const key of ['length', 'buffer', 'byteOffset', 'byteLength']) {
     const got = descriptor(bytes, key), expected = typedDescriptors[key];
-    if (!got || got.get !== expected.get || got.set !== expected.set || 'value' in got) return null;
+    if (!sameAccessor(got, expected)) return null;
   }
   // Module growth must not detach a caller's correction during publication.
   if (bytes.buffer === memory.buffer || typeof SharedArrayBuffer === 'function' && bytes.buffer instanceof SharedArrayBuffer) return null;
   if (sliced) {
     const method = sliced === 'subarray' ? 'subarray' : 'slice';
     const expected = prototype === bufferPrototype ? (method === 'slice' ? bufferSlice : bufferSubarray) : (method === 'slice' ? byteSlice : byteSubarray);
-    if (descriptor(bytes, method)?.value !== expected) return null;
+    if (descriptorValue(descriptor(bytes, method)) !== expected) return null;
     if (prototype === bufferPrototype) {
-      if (descriptor(bytes, 'subarray')?.value !== bufferSubarray) return null;
+      if (descriptorValue(descriptor(bytes, 'subarray')) !== bufferSubarray) return null;
     } else {
-      if (descriptor(bytes, 'constructor')?.value !== Uint8Array) return null;
+      if (descriptorValue(descriptor(bytes, 'constructor')) !== Uint8Array) return null;
       const species = descriptor(Uint8Array, Symbol.species);
-      if (!species || species.get !== byteSpecies.get || species.set !== byteSpecies.set || 'value' in species) return null;
+      if (!sameAccessor(species, byteSpecies)) return null;
     }
   }
   const copy = new Array(bytes.length);
@@ -177,11 +182,11 @@ export function createCorrectionBridge(bridge, { trace = null } = {}) {
     live();
     if (!input?.valid) return null;
     for (const key of ['getUint8', 'getUint16', 'getUint32', 'getFloat64']) {
-      if (descriptor(fields.view, key)?.value !== viewDescriptors[key].value) return null;
+      if (descriptorValue(descriptor(fields.view, key)) !== viewDescriptors[key].value) return null;
     }
     for (const key of ['buffer', 'byteOffset', 'byteLength']) {
       const got = descriptor(fields.view, key), expected = viewDescriptors[key];
-      if (!got || got.get !== expected.get || got.set !== expected.set || 'value' in got) return null;
+      if (!sameAccessor(got, expected)) return null;
     }
     // Fields keeps its original fixed DataView across foreign reads. A resized
     // or detached source must continue on that view, with its original errors.
@@ -320,7 +325,7 @@ export function createCorrectionBridge(bridge, { trace = null } = {}) {
     readArsenalMask(bytes) { return decode(9, bytes, r => r.number()); },
     expandArsenal(full, bytes, mask) {
       live();
-      if (descriptor(full, 'set')?.value !== byteSet) return null;
+      if (descriptorValue(descriptor(full, 'set')) !== byteSet) return null;
       const base = byteInput(full, x.memory, false), input = byteInput(bytes, x.memory, 'subarray');
       live();
       if (!base?.valid || base.bytes.length !== 162 || !input?.valid || !input.bytes.length) return null;
