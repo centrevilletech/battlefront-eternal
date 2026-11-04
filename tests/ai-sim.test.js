@@ -12,7 +12,7 @@ import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse,
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
 import { Agent } from '../src/ai/classic/agents.js';
-import { dispatch, rangePolicy } from '../src/ai/classic/combat.js';
+import { AttackPatterns, CoverHelper, coverReservation, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -691,6 +691,92 @@ test('native range policies retain strict actions and callback-visible coercion 
     return {out:{...out},history,skillReads};
   }
   for(let i=0;i<3072;i++)assert.deepEqual(run(true,i),run(false,i),`range policy ${i}`);
+});
+
+test('native cover scores preserve exact bands and captured mutable position references', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},c={rangeScale:[.5,1,2,NaN][i%4],perception:{fire:{channel:i%2}}},other={rangeScale:2,perception:{fire:{channel:1}}};let reads=0;
+    const hint={position:new Vector3(i%11-5,i%3,[5,15,-5,50,NaN][i%5]),forward:new Vector3(0,0,i%7===0?-1:1)};
+    const weapon={def:{base:'rifle',ai:{minRange:i%7,optimalRange:18,maxRange:[20,40,60,NaN][i%4],extremeRange:100,implicitRange:i%3===0}}};
+    const unit=c.unit={kind:[0,2,3,'0'][i%4],position:new Vector3(0,i%3,0),combat:{arsenal:{current(channel){
+      reads++;history.push(['current',channel]);if(native)sim.words(new Array(7300).fill(9));
+      if(reads===1){if(i%11===0)agent.controller=other;if(i%13===0)hint.position.x+=.25;if(i%17===0)unit.position.z+=.125;}
+      return i%19===0?null:weapon;
+    }}}};other.unit=unit;
+    const agent={world,controller:c,tracker:{point:new Vector3(0,1,20)}};
+    if(i%23===0){const forward=hint.forward;Object.defineProperty(hint,'forward',{get(){
+      const inner={world,controller:{unit:{kind:0,position:new Vector3()}},tracker:{point:new Vector3(20,0,0)}};
+      const score=coverScore(inner,{position:new Vector3(5,0,0),forward:new Vector3(1,0,0)});history.push(['nested-score',score]);return forward;
+    }});}
+    const value=coverScore(agent,hint);
+    return {value,history,position:unit.position.toArray(),hint:hint.position.toArray(),controller:agent.controller===c?'first':'other'};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`cover score ${i}`);
+});
+
+test('native cover search retains query priority, reservations and captured random streams', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:i/7},ai={world},c={ai,world,rangeScale:1,perception:{fire:{channel:0}}};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7400).fill(8));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapon={def:{base:'rifle',ai:{minRange:0,optimalRange:10,maxRange:40,extremeRange:100,implicitRange:false}}};
+    const unit=c.unit={id:1,kind:0,position:new Vector3(),combat:{arsenal:{current(channel){log('weapon',channel);return i%13===0?null:weapon;}}}};
+    unit.controller=c;
+    const hints=Array.from({length:36},(_,id)=>({id,position:new Vector3((id%9)-4,0,2+Math.floor(id/9)),forward:new Vector3(0,0,id%7===0?-1:1),primaryMask:7,secondaryMask:7,sideMask:3,siblings:[]}));
+    hints[0].siblings=[hints[1],hints[0],hints[2]];
+    const tracker={point:new Vector3(0,0,20),freeze(on,t){log('freeze',on,t);}},helper={goto(p){log('goto',p.toArray());}};
+    const agent={world,ai,controller:c,tracker,helper};
+    const reserveOwner={id:9,position:new Vector3()},otherAgent={world,ai,controller:{unit:reserveOwner},tracker,helper};
+    reserveOwner.controller={ai};
+    const rng=new ClassicRandom(985+i),next=new ClassicRandom(785+i);let draws=0;
+    const original={int(lo,hi){draws++;log('draw',lo,hi,this===original);if(i%3===0)world.randomA={int(){throw Error('unexpected replacement stream');}};
+      if(hi<30 && i%7===0)hints[3].position.x+=.125;return rng.int(lo,hi);}};
+    world.randomA=next;
+    const reservation=new CoverHelper(i%5===0?agent:otherAgent);reservation.init(hints[0]);
+    world.time+=[0,2.9999999,3,3.0000001,-Infinity,NaN][i%6];
+    world.randomA=original;history.length=0;
+    const query=function(mask,center,half,cap){log('query',mask,center===unit.position,half,cap,this===world.nav?.hints);if(i%11===0)world.randomA=next;return i%17===0?null:hints;};
+    if(i%2)world.nav={hints:{query}};
+    else ai.nav={queryHints(options){log('fallback',options.mask,options.center===unit.position,options.halfExtent,options.cap,this===undefined);return i%17===0?null:hints;}};
+    const result=findCover(agent);
+    return {history,result:result?.id??null,draws,random:rng.state,next:next.state,positions:hints.map(h=>h.position.toArray()),
+      reservations:hints.map(h=>{const r=coverReservation(h);return r?[r.owner?.id,r.at]:null;})};
+  }
+  for(let i=0;i<384;i++)assert.deepEqual(run(true,i),run(false,i),`cover search ${i}`);
+});
+
+test('native cover fields retain posture, timing and hint identities through helper transitions', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],random=new ClassicRandom(171+i),otherRandom=new ClassicRandom(871+i),world={aiSim:native?sim:null,time:i/9},ai={world};
+    const c={ai,world,rangeScale:1,unit:{id:1,kind:0,position:new Vector3()}};c.unit.controller=c;
+    const hint={id:1,position:new Vector3(0,0,5),forward:new Vector3([0,-0,.125][i%3],-0,1),primaryMask:i%3?7:1,secondaryMask:i%5?7:0,sideMask:i%2?3:0,siblings:[]};
+    const hint2={...hint,id:2,position:new Vector3(2,0,5),siblings:[]};hint.siblings=[hint2];
+    const log=(...v)=>{history.push(v);if(native)sim.words(new Array(7500).fill(3));};
+    const stream=(rng,name)=>({int(lo,hi){log('draw',name,lo,hi);const value=rng.int(lo,hi);if(i%23===0 && hi<=2)world.randomA=other;
+      return (hi<=2?i%19===0:i%17===0)?String(value):value;}});
+    const first=stream(random,'first'),other=stream(otherRandom,'other');world.randomA=first;
+    const helper={arrived:false,goto(p,options){log('goto',p.toArray(),options);}};
+    const tracker={point:new Vector3(0,0,20),freeze(on,t){log('freeze',on,t);if(on && i%29===0)cover.deadline='2';},
+      setDelay(delay,t){log('delay',delay,t);if(i%31===0)cover.hint=hint2;},defaultDelay(t){log('default',t);}};
+    const agent={ai,world,controller:c,helper,tracker},cover=new CoverHelper(agent);
+    world.nav={hints:{query(mask,center,half,cap){log('query',mask,center===c.unit.position,half,cap);return [hint,hint2];}}};
+    const snapshots=[],view=()=>[cover.state,cover.pending,cover.hint?.id??cover.hint,cover.posture,cover.deadline,cover.checkAt,cover.reselectAt];
+    cover.init(hint);assert.equal(cover.hint,hint);snapshots.push(view());
+    for(const [index,state] of [2,3,4,5,100,'3'].entries()) {
+      cover.requestState(state);cover.flush();snapshots.push(view());
+      world.time+=.75;helper.arrived=index%2===0;
+      cover.checkAt=i%7===0 && index===1?-1:Infinity;
+      cover.reselectAt=i%11===0 && index===2?-1:Infinity;
+      cover.deadline=index%2===0?-0:'0';
+      cover.onTick();snapshots.push(view());
+    }
+    cover.cleanup();snapshots.push(view());
+    return {history,snapshots,keys:Object.keys(cover),random:[random.state,otherRandom.state],
+      reservations:[hint,hint2].map(h=>{const r=coverReservation(h);return r?[r.owner?.id,r.at]:null;})};
+  }
+  for(let i=0;i<512;i++)assert.deepEqual(run(true,i),run(false,i),`cover helper fields ${i}`);
 });
 
 test('native acoustic and protection services preserve query reuse, limits and nested notifications', async () => {
@@ -1448,4 +1534,160 @@ test('native navigation input preserves analogs, jet aliases and existing intent
       assert.deepEqual(controlView(nc),controlView(jc),`control ${kind}:${i}`);
     }
   }
+});
+
+test('native attack-pattern lifecycle preserves captured services, opaque fields and action returns', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],random=new ClassicRandom(711+i),otherRandom=new ClassicRandom(171+i),world={aiSim:native?sim:null,time:i/11},ai={world};
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(7600).fill(4));};
+    let h,draws=0;
+    const stream=(rng,name)=>({int(lo,hi){log('draw',name,lo,hi);draws++;if(draws===1 && i%5===0)world.randomA=other;
+      if(h && draws===2 && i%7===0)h.agent=alternate;const n=rng.int(lo,hi);return i%13===0?String(n):n;}});
+    const original=stream(random,'original'),other=stream(otherRandom,'other');world.randomA=original;
+    const make=name=>{const c={roll:i%13-3,unit:{id:name},setStance(n){log('stance',name,n);if(i%17===0)h.state=12;}};
+      return {name,world,ai,controller:c,helper:{stop(){log('stop',name);if(i%19===0)h.agent=alternate;},goto(p,o){log('goto',name,p,o);}},
+        tracker:{point:name,setDelay(n,t){log('delay',name,n,t);if(i%23===0)h.agent=alternate;},defaultDelay(t){log('default',name,t);}}};};
+    const agent=make('first'),alternate=make('other');h=new AttackPatterns(agent);
+    world.nav={jetHints:{enter(c,hint){log('jet-enter',c.unit.id,hint);},exit(c,hint){log('jet-exit',c.unit.id,hint);}}};
+    world.vehicles={enterPattern(p,s){log('vehicle-enter',p===h,s);},exitPattern(p,s){log('vehicle-exit',p===h,s);},tickPattern(p,s,dt){log('vehicle-tick',p===h,s,dt);return 'discarded';}};
+    const cover={state:3,pending:7,init(hint){log('cover-init',hint);},onExit(){log('cover-exit');if(i%29===0)h.cover=cover2;},cleanup(){log('cover-cleanup');}};
+    const cover2={...cover,cleanup(){log('cover2-cleanup');}};h.cover=cover;
+    for(const method of ['standing','pauseAndMove','bandFlank','lateral','melee','retreat','inCover','jetTick','hintJetTick','lostTarget','reposition','flank','directJet'])
+      h[method]=function(...args){log(method,args);if(i%31===0)this.skipFire='changed';return {method,args};};
+    h.requestState=function(value){log('request',value);this.pending=value;};h.flush=function(){log('flush');};
+    const states=[0,2,3,4,5,6,7,8,9,10,11,12,13,14,16,100,'9',null,NaN],state=states[i%states.length];
+    const raw={from:i},hint={hint:i};h.coverHint=hint;h.jetHint=raw;
+    h.init(state,i%4===0?'0.625':.375);h.prior=raw;h.restore();assert.equal(h.pending,raw);
+    h.state=state;h.onEnter();const result=h.onTick('dt');h.onExit();h.cleanup();
+    const fields=['probability','coverRetry','prior','pathActive','crouch','paused','pauseUntil','toward','side','bandCheckAt','stepAt','facing','stepped','lateralAt','lateralFacing','lastPath','retreatAt','coverHint','jetting','jetRetry','jetStart','jetHint','hintJetRetry','searched','skipFire'];
+    return {history,result,values:fields.map(k=>h[k]),state:h.state,pending:h.pending,cover:[h.cover===cover,h.cover.state,h.cover.pending],agent:h.agent.name,keys:Object.keys(h),random:[random.state,otherRandom.state]};
+  }
+  for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`pattern lifecycle ${i}`);
+});
+
+test('native pattern transition policies preserve retry draws, reservations and fuel checks', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],random=new ClassicRandom(113+i),next=new ClassicRandom(771+i),world={aiSim:native?sim:null,time:i/8},ai={world};
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(7700).fill(6));};
+    let h;
+    const stream=(rng,name)=>({int(lo,hi){log('int',name,lo,hi);const n=rng.int(lo,hi);if(i%7===0)world.randomA=other;return i%17===0?String(n):n;},
+      range(lo,hi){log('range',name,lo,hi);const n=rng.range(lo,hi);return i%19===0?{valueOf(){log('range-coercion');h.probability=0;return n;}}:n;}});
+    const first=stream(random,'first'),other=stream(next,'other');world.randomA=first;
+    const c={ai,world,roll:1,rangeScale:1,perception:{fire:{channel:0}}},unit=c.unit={id:1,kind:[0,0,0,2,'0'][i%5],position:new Vector3(),classDef:{JetJump:i%3,JetFuelMinBorder:.25},soldier:{fuel:[.2,.5,1,NaN][i%4],jet:i%3?{jump:1,minBorder:.125}:null}};unit.controller=c;
+    const hint={id:1,position:new Vector3(0,0,5),forward:new Vector3(0,0,1),siblings:[]};
+    const tracker={point:new Vector3(0,0,20),sampleTime:world.time-[0,2,2.0000001,3][i%4]},agent={ai,world,controller:c,tracker};
+    world.nav={hints:{query(){log('query');return i%11===0?[]:[hint];}},jetHints:{
+      excluded(controller){log('excluded',controller===c);return i%13===0;},find(controller){log('hint-find',controller===c);return i%5===0?null:hint;}}};
+    h=new AttackPatterns(agent);h.requestState=function(n){log('request',n);this.pending=n;};
+    h.probability=[0,.5,1,'1'][i%4];h.coverRetry=h.hintJetRetry=h.jetRetry=[-1,Infinity,'0',NaN][i%4];
+    const from={from:i},results=[];
+    for(const method of ['jetReady','tryCover','tryHintJet','tryDirectJet','tryLostTarget'])results.push(h[method](from));
+    const reservation=coverReservation(hint);
+    return {history,results,values:[h.probability,h.coverRetry,h.hintJetRetry,h.jetRetry,h.prior,h.pending,h.coverHint?.id??null,h.jetHint?.id??null],random:[random.state,next.state],reservation:reservation?[reservation.owner?.id,reservation.at]:null};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`pattern transitions ${i}`);
+});
+
+test('native pattern actions preserve movement retries, captured helpers and transition order', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:i/5},ai={world};let h;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(7800).fill(7));};
+    const make=name=>{
+      const point={name},unit={kind:[0,2,6,'6'][i%4],classDef:{ForwardSpeed:[0,12.99,13,20][i%4]}};
+      const helper={arrived:i%3===0,flying:i%5===0,stop(){log('stop',name);},goto(p,o){log('goto',name,p,o);},follow:i%7===0?undefined:function(t,o){log('follow',name,t.position,o);}};
+      return {name,world,ai,controller:{unit},helper,stationary:false,
+        tracker:{point,freshTarget:i%11===0,target:i%13===0?null:{position:point},defaultDelay(t){log('default',name,t);if(i%17===0)h.agent=other;}},
+        nextLook(){log('next-look',name);}};
+    };
+    const a=make('first'),other=make('other');h=new AttackPatterns(a);
+    world.randomA={int(lo,hi){log('int',lo,hi);return i%19===0?'2':[1,2,3,4,5,6][i%6];}};
+    world.vehicles={sidestep(p){log('sidestep',p===h);if(i%23===0)h.agent=other;}};
+    world.nav={jetHints:{tick(c,hint,dt){log('hint-tick',c===h.controller,hint,dt);return [false,true,null,undefined,0,'yes'][i%6];}},
+      directClear(u,p){log('direct',u===h.controller.unit,p);if(i%29===0)h.agent=other;return i%2===0;}};
+    for(const [index,name] of ['tryCover','tryHintJet','tryDirectJet','tryLostTarget'].entries())h[name]=from=>{log(name,from);return i%31===index;};
+    h.face=p=>log('face',p);h.reposition=()=>log('reposition');h.flank=()=>log('flank');h.restore=()=>log('restore');
+    h.cover={done:[false,true,0,{},null][i%5],posture:i%3,update(dt,alternate){log('cover-update',dt,alternate);}};
+    h.paused=[false,true,'',{},0][i%5];h.pauseUntil=[0,Infinity,'100',NaN][i%4];
+    h.pathActive=[false,true,'yes',null][i%4];h.lastPath=[-100,'-100',Infinity,NaN][i%4];
+    h.jetStart=[-2,'0',Infinity,NaN][i%4];h.jetting=true;h.jetHint={jet:i};h.crouch='1';h.searched=[false,true,'yes',0][i%4];
+    const results=[];
+    for(const name of ['standing','pauseAndMove','melee','inCover','jetTick','hintJetTick','lostTarget'])results.push(h[name]({dt:i}));
+    h.redirect('3',i%3===0?'1':1);
+    return {history,results,values:[h.paused,h.pauseUntil,h.pathActive,h.lastPath,h.jetting,h.searched,h.toward,h.bandCheckAt],stationary:[a.stationary,other.stationary],agent:h.agent.name};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`pattern actions ${i}`);
+});
+
+test('native pattern geometry retains shared scratch vectors through nested movement callbacks', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],held=[],world={aiSim:native?sim:null,time:5},ai={world},rng=new ClassicRandom(771+i);let nested=false,h,draws=0,reads=0;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(7900).fill(2));};
+    world.randomA={uniform(){const n=rng.uniform();draws++;log('uniform',draws);return i%13===0 && draws%3===2?{valueOf(){throw Error('dropped draw was coerced');}}:n;},
+      int(lo,hi){log('int',lo,hi);const n=rng.int(lo,hi);if(i%23===0)h.side='0';return i%19===0?String(n):n;},range(lo,hi){log('range',lo,hi);return rng.range(lo,hi);}};
+    const move=name=>({goto(p,o){log('goto',name,p.toArray(),o);held.push(p);if(i%29===0)p.x+=.25;},stop(){log('stop',name);}});
+    const unit={kind:[0,2,3,6][i%4],position:new Vector3(i%7-3,-0,i%11-5)},c={ai,world,unit,rangeScale:[.5,1,2][i%3],perception:{fire:{channel:0}}};unit.controller=c;
+    const agent={world,ai,controller:c,helper:move('first'),tracker:{point:new Vector3(i%3*20,1,20)}};
+    const other=new AttackPatterns({world,ai,controller:{unit:{kind:0,position:new Vector3(-2,0,3)}},helper:move('nested'),tracker:{point:new Vector3(5,0,-20)}});
+    other.upperBand=()=>12;
+    const weapon={def:{base:'rifle',ai:{minRange:i%4,optimalRange:[5,15,30,NaN][i%4],maxRange:[10,40,80][i%3],implicitRange:i%5===0,extremeRange:100}}};
+    unit.combat={arsenal:{current(channel){reads++;log('weapon',channel);if(!nested && i%7===0){nested=true;other.stepToBand();nested=false;}
+      if(i%11===0)unit.position.z+=.125;return i%17===0?null:weapon;}}};
+    h=new AttackPatterns(agent);h.toward=[1,3,'1',NaN][i%4];h.side=[0,2,'0',null][i%4];
+    h.upperBand=()=>{log('upper');if(i%5===0){other.flank();}return [5,20,50,NaN][i%4];};
+    h.reposition();h.flank();const inBand=h.stepToBand();
+    return {history,inBand,held:held.map(v=>v.toArray()),oneScratch:held.every(p=>p===held[0]),state:[h.side,h.toward,c.dodge],position:unit.position.toArray(),rng:rng.state,reads};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`pattern geometry ${i}`);
+});
+
+test('native band, lateral and retreat patterns preserve shared directions and raw action results', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:20+i/9},ai={world},rng=new ClassicRandom(417+i),next=new ClassicRandom(177+i);let h;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8000).fill(1));};
+    const stream=(r,name)=>({int(lo,hi){log('int',name,lo,hi);const n=r.int(lo,hi);return i%13===0?String(n):n;},range(lo,hi){log('range',name,lo,hi);if(i%17===0)world.randomA=otherRandom;const n=r.range(lo,hi);return i%19===0?String(n):n;}});
+    const original=stream(rng,'first'),otherRandom=stream(next,'other');world.randomA=original;
+    const weapon={def:{base:'rifle',ai:{minRange:i%5,optimalRange:20,maxRange:50,extremeRange:80,implicitRange:false}}};
+    const c={ai,world,rangeScale:1,perception:{fire:{channel:0}}},unit=c.unit={kind:0,position:new Vector3(i%3*10,-0,i%7),
+      combat:{arsenal:{current(){log('weapon');if(i%23===0)other.flank();return i%11===0?null:weapon;}}},forward(out){log('forward');out.set(.125,-0,1);if(i%29===0)other.flank();return out;}};
+    const agent={world,ai,controller:c,helper:{goto(p,o){log('goto',p.toArray(),o);},stop(){log('stop');}},tracker:{point:new Vector3(0,1,10)},
+      facingTarget(angle){log('facing',angle);return [false,true,0,'yes',{}][i%5];}};
+    const other=new AttackPatterns({world,ai,controller:{unit:{kind:0,position:new Vector3()}},helper:{goto(p){log('nested-goto',p.toArray());}},tracker:{point:new Vector3(20,0,-3)}});
+    h=new AttackPatterns(agent);
+    for(const [index,name] of ['tryCover','tryHintJet','tryDirectJet','tryLostTarget'].entries())h[name]=from=>{log(name,from);return i%37===index;};
+    h.face=value=>log('face',value);h.upperBand=()=>{log('upper');return [1,15,40,NaN][i%4];};
+    h.stepToBand=()=>{log('step');if(i%7===0)other.flank();return [false,true,'yes',0][i%4];};
+    h.redirect=(toward,t)=>{log('redirect',toward,t);return {toward,t};};
+    h.facing=[false,true,'yes',0][i%4];h.stepAt=h.bandCheckAt=h.lateralAt=h.retreatAt=[-1,'0',Infinity,NaN][i%4];
+    const results=[h.bandFlank(),h.lateral(),h.retreat()];
+    return {history,results,fields:[h.facing,h.stepAt,h.bandCheckAt,h.lateralAt,h.lateralFacing,h.retreatAt,h.stepped],rng:[rng.state,next.state]};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`band/lateral/retreat ${i}`);
+});
+
+test('native direct jets preserve bounded retries, captured streams and mutable shared query points', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:i/7,mission:{}},ai={world},rng=new ClassicRandom(571+i),randomA=new ClassicRandom(991+i);let h,queries=0,draws=0;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8100).fill(5));};
+    world.randomA=randomA;
+    const first={uniform(){draws++;log('draw',draws);world.randomB={uniform(){throw Error('replacement stream used');}};const n=rng.uniform();
+      return i%13===0 && draws%3===2?{valueOf(){throw Error('dropped draw coerced');}}:n;}};world.randomB=first;
+    const unit={kind:0,position:new Vector3(i%3,-0,i%5)},c={unit},otherController={requestJet(p){log('other-jet',p.toArray());}};
+    c.requestJet=i%7===0?undefined:p=>log('jet',p.toArray());
+    const other=new AttackPatterns({world,ai,controller:{unit:{kind:0,position:new Vector3()}},helper:{goto(p){log('nested-goto',p.toArray());}},tracker:{point:new Vector3(2,0,-10)}});
+    const agent={world,ai,controller:c,helper:{goto(p,o){log('goto',p.toArray(),o);if(i%17===0)h.agent={...agent,world:{time:999},controller:otherController};}},tracker:{point:new Vector3()}};
+    h=new AttackPatterns(agent);h.restore=()=>log('restore');
+    world.nav={pointClear(p,u){queries++;log('point',queries,p.toArray(),u===unit);if(i%5===0)unit.position=new Vector3(2,1,3);world.nav={pointClear(){throw Error('replacement navigation used');}};return i%3!==0 && (queries+i)%2===0;},
+      segmentBlocked(p,q,u){log('segment',p.toArray(),q.toArray(),u===unit);return i%11===0;}};
+    world.los=(p,q,u,target)=>{log('los',p.toArray(),q.toArray(),u===unit,target);if(i%19===0)other.flank();else if(i%23===0)p.x+=.25;
+      world.mission.noJetObstacleTest=i%29===0;return i%4!==0;};
+    h.directJet();
+    return {history,jet:[h.jetStart,h.jetting],position:unit.position.toArray(),rng:[rng.state,randomA.state],queries,draws};
+  }
+  for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`direct jet ${i}`);
 });

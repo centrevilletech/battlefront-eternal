@@ -406,6 +406,54 @@ impl AiControllerDriverResult {
     }
 }
 
+impl AiCoverArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiCoverArgs {
+            op: { let p = format!("{path}.op"); AiCoverOp::from_u8(name_of(v.get("op"), &AiCoverOp::NAMES, &p)?).unwrap() },
+            id: { let p = format!("{path}.id"); (int(v.get("id"), &p, 0.0, u32::MAX as f64)? as u32) },
+            number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
+            other: { let p = format!("{path}.other"); num(v.get("other"), &p)? },
+            point: { let p = format!("{path}.point"); numbers::<3>(v.get("point"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = Value::Str(AiCoverOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = Value::Num(self.id as f64); fields.push(("id", x)); }
+        { let x = Value::Num(self.number); fields.push(("number", x)); }
+        { let x = Value::Num(self.other); fields.push(("other", x)); }
+        { let x = { let items = self.point.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("point", x)); }
+        a.object("", fields)
+    }
+}
+
+impl AiCoverResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiCoverResult {
+            flag: { let p = format!("{path}.flag"); boolean(v.get("flag"), &p)? },
+            number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
+            values: { let p = format!("{path}.values"); { let mut out = Vec::new(); for (i, e) in list(v.get("values"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+            ids: { let p = format!("{path}.ids"); { let mut out = Vec::new(); for (i, e) in list(v.get("ids"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push((int(e, &at, 0.0, u32::MAX as f64)? as u32)); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Bool(self.flag); fields.push(("flag", x)); }
+        { let x = Value::Num(self.number); fields.push(("number", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.values.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("values", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.ids.iter() { let x = Value::Num((*e) as f64); items.push(x); } a.array(items) }; fields.push(("ids", x)); }
+        a.object("", fields)
+    }
+}
+
 impl AiDispatchArgs {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -503,6 +551,56 @@ impl AiFsmArgs {
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
         let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
         { let x = Value::Str(AiFsmOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        a.object("", fields)
+    }
+}
+
+impl AiPatternArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiPatternArgs {
+            op: { let p = format!("{path}.op"); AiPatternOp::from_u8(name_of(v.get("op"), &AiPatternOp::NAMES, &p)?).unwrap() },
+            id: { let p = format!("{path}.id"); (int(v.get("id"), &p, 0.0, u32::MAX as f64)? as u32) },
+            number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
+            other: { let p = format!("{path}.other"); num(v.get("other"), &p)? },
+            point: { let p = format!("{path}.point"); numbers::<3>(v.get("point"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = Value::Str(AiPatternOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = Value::Num(self.id as f64); fields.push(("id", x)); }
+        { let x = Value::Num(self.number); fields.push(("number", x)); }
+        { let x = Value::Num(self.other); fields.push(("other", x)); }
+        { let x = { let items = self.point.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("point", x)); }
+        a.object("", fields)
+    }
+}
+
+impl AiPatternResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiPatternResult {
+            flag: { let p = format!("{path}.flag"); boolean(v.get("flag"), &p)? },
+            number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
+            other: { let p = format!("{path}.other"); num(v.get("other"), &p)? },
+            point: { let p = format!("{path}.point"); numbers::<3>(v.get("point"), &p)? },
+            values: { let p = format!("{path}.values"); { let mut out = Vec::new(); for (i, e) in list(v.get("values"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = Value::Bool(self.flag); fields.push(("flag", x)); }
+        { let x = Value::Num(self.number); fields.push(("number", x)); }
+        { let x = Value::Num(self.other); fields.push(("other", x)); }
+        { let x = { let items = self.point.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("point", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.values.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("values", x)); }
         a.object("", fields)
     }
 }

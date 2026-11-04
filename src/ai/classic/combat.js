@@ -255,11 +255,14 @@ export function coverReservation(hint) {
 
 function hintAvailable(hint, owner, t) {
   const r = reservations.get(hint);
+  if(r?.nativeAvailable)return r.nativeAvailable(owner,t);
   return !r || r.owner === owner || !(f(t - r.at) < 3);
 }
 
 function reserveHint(hint, owner, t) {
   if (!hint) return;
+  const native=owner?.controller?.ai?.world?.aiSim;
+  if(native)return native.cover.reserve(hint,owner,t,reservations,hintRing);
   for (const h of hintRing(hint)) reservations.set(h, { owner, at: t });
 }
 
@@ -304,6 +307,7 @@ const coverN = { x: 0, y: 0, z: 0 };
 // horizontal distance from the target is between the lower band and the
 // cover range. Score: 2.25 x |H - P|^2 + |H - T|^2, horizontally.
 export function coverScore(agent, hint) {
+  if(agent.world?.aiSim)return agent.world.aiSim.cover.score(agent,hint);
   const unit = agent.controller.unit;
   const T = agent.tracker.point;
   const P = unit.position;
@@ -344,6 +348,7 @@ function queryCover(agent, center, half) {
 // The cover hints within the cover range of the bot,
 // visited in random order; the available one with the strictly lowest score.
 export function findCover(agent) {
+  if(agent.world?.aiSim)return agent.world.aiSim.cover.find(agent,queryCover,hintAvailable,coverScore);
   const c = agent.controller;
   const world = agent.world;
   const list = queryCover(agent, c.unit.position, Math.trunc(coverRange(agent))).slice(0, 30);
@@ -382,6 +387,7 @@ export class CoverHelper extends Fsm {
     this.deadline = 0;
     this.checkAt = 0;
     this.reselectAt = 0;
+    agent.world?.aiSim?.cover.bind(this);
   }
 
   get world() {
@@ -393,6 +399,7 @@ export class CoverHelper extends Fsm {
   }
 
   init(hint) {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,0,hint,reserveHint,releaseHint,coverScore,findCover);
     const t = now(this.world);
     this.hint = hint;
     reserveHint(hint, this.agent.controller.unit, t);
@@ -404,10 +411,12 @@ export class CoverHelper extends Fsm {
   }
 
   renew() {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,1,null,reserveHint,releaseHint,coverScore,findCover);
     reserveHint(this.hint, this.agent.controller.unit, now(this.world));
   }
 
   onEnter() {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,2,null,reserveHint,releaseHint,coverScore,findCover);
     const a = this.agent;
     const t = now(this.world);
     switch (this.state) {
@@ -438,6 +447,7 @@ export class CoverHelper extends Fsm {
   }
 
   onExit() {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,3,null,reserveHint,releaseHint,coverScore,findCover);
     const a = this.agent;
     const t = now(this.world);
     this.posture = 0;
@@ -446,6 +456,7 @@ export class CoverHelper extends Fsm {
   }
 
   onTick() {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,4,null,reserveHint,releaseHint,coverScore,findCover);
     if (this.state === DONE) return;
     const a = this.agent;
     const t = now(this.world);
@@ -495,6 +506,7 @@ export class CoverHelper extends Fsm {
   }
 
   cleanup() {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,5,null,reserveHint,releaseHint,coverScore,findCover);
     releaseHint(this.hint);
     this.hint = null;
   }
@@ -507,6 +519,7 @@ const pa = new THREE.Vector3();
 const pb = new THREE.Vector3();
 const pc = new THREE.Vector3();
 const pn = { x: 0, y: 0, z: 0 };
+const patternScratch = { pa, pb, pc, pn };
 let cosTight = null;
 let cosWide = null;
 
@@ -540,6 +553,7 @@ export class AttackPatterns extends Fsm {
     this.hintJetRetry = 0;
     this.searched = false; // pattern 12
     this.skipFire = false;
+    this.world?.aiSim?.patterns.bind(this);
   }
 
   get world() {
@@ -556,6 +570,7 @@ export class AttackPatterns extends Fsm {
 
   // Start a pattern with a cover probability.
   init(pattern, probability) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,0,pattern,probability,findCover,reserveHint);
     this.probability = f(probability);
     this.prior = DONE;
     this.requestState(pattern);
@@ -564,12 +579,14 @@ export class AttackPatterns extends Fsm {
 
   // Back to the pattern that was interrupted.
   restore() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,1,undefined,undefined,findCover,reserveHint);
     const next = this.prior;
     this.prior = DONE;
     this.requestState(next);
   }
 
   onEnter() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,2,undefined,undefined,findCover,reserveHint);
     const random = this.random;
     const t = now(this.world);
     this.coverRetry = -1;
@@ -624,6 +641,7 @@ export class AttackPatterns extends Fsm {
   }
 
   onExit() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,3,undefined,undefined,findCover,reserveHint);
     const a = this.agent;
     const t = now(this.world);
     setStance(this.controller, 0);
@@ -655,6 +673,7 @@ export class AttackPatterns extends Fsm {
   }
 
   onTick(dt) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,4,dt,undefined,findCover,reserveHint);
     this.skipFire = false;
     switch (this.state) {
       case 2:
@@ -683,6 +702,7 @@ export class AttackPatterns extends Fsm {
   }
 
   cleanup() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,5,undefined,undefined,findCover,reserveHint);
     this.cover.cleanup();
   }
 
@@ -695,6 +715,7 @@ export class AttackPatterns extends Fsm {
 
   // Every 16..25 s, with the cover probability, take cover.
   tryCover(from) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,6,from,undefined,findCover,reserveHint);
     const random = this.random;
     const t = now(this.world);
     if (!(this.coverRetry < t)) return false;
@@ -711,6 +732,7 @@ export class AttackPatterns extends Fsm {
 
   // A jetpack (class JetJump > 0) with more fuel than JetFuelMinBorder.
   jetReady() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,7,undefined,undefined,findCover,reserveHint);
     const unit = this.controller.unit;
     if (unit?.kind !== 0) return false;
     const jet = unit.soldier?.jet;
@@ -721,6 +743,7 @@ export class AttackPatterns extends Fsm {
 
   // A jet hint, retried every 3..8 s.
   tryHintJet(from) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,8,from,undefined,findCover,reserveHint);
     if (!this.jetReady()) return false;
     const jetHints = this.world.nav?.jetHints;
     if (jetHints?.excluded?.(this.controller)) return false;
@@ -737,6 +760,7 @@ export class AttackPatterns extends Fsm {
 
   // A direct jet move, every 6..12 s.
   tryDirectJet(from) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,9,from,undefined,findCover,reserveHint);
     if (!this.jetReady()) return false;
     const t = now(this.world);
     if (!(this.jetRetry < t)) return false;
@@ -749,6 +773,7 @@ export class AttackPatterns extends Fsm {
 
   // The target unseen for over 2 s: go look (pattern 12).
   tryLostTarget(from) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,10,from,undefined,findCover,reserveHint);
     const t = now(this.world);
     if (!(f(t - this.agent.tracker.sampleTime) > 2)) return false;
     this.prior = from;
@@ -759,6 +784,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 2: stand and shoot --------------------------------------------
 
   standing() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,11,undefined,undefined,findCover,reserveHint);
     if (this.tryCover(2) || this.tryHintJet(2) || this.tryDirectJet(2)) return;
     const unit = this.controller.unit;
     // A slow walker or hover sidesteps now and then.
@@ -770,6 +796,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 3: pause, then move near optimal range ---------------------------
 
   pauseAndMove() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,12,undefined,undefined,findCover,reserveHint);
     if (this.tryCover(3) || this.tryHintJet(3) || this.tryDirectJet(3) || this.tryLostTarget(3)) return;
     const t = now(this.world);
     const helper = this.agent.helper;
@@ -795,6 +822,7 @@ export class AttackPatterns extends Fsm {
   // x nudged by 0.0001) at a distance drawn from [Optimal - 0.2 (Optimal -
   // Min), Optimal + 0.2 (effective - Optimal)] from the target's point.
   reposition() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,0,patternScratch);
     const r = this.random;
     const z = f(f(r.uniform() - 0.5) * 2);
     r.uniform(); // y, dropped
@@ -818,6 +846,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 4: keep in the band, moving across ------------------------------
 
   bandFlank() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,3,patternScratch);
     if (this.tryCover(4) || this.tryHintJet(4) || this.tryDirectJet(4) || this.tryLostTarget(4)) return;
     const t = now(this.world);
     const was = this.facing;
@@ -848,6 +877,7 @@ export class AttackPatterns extends Fsm {
   }
 
   redirect(toward, t) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,13,toward,t,findCover,reserveHint);
     this.toward = toward;
     this.bandCheckAt = f(t + 3);
     this.flank();
@@ -863,6 +893,7 @@ export class AttackPatterns extends Fsm {
   // 30 m across (the side alternating) and 30 m toward (1) or
   // away (3) from the target's point; one time in five also a dive aside.
   flank() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,1,patternScratch);
     const unit = this.controller.unit;
     const T = this.agent.tracker.point;
     const P = unit.position;
@@ -880,6 +911,7 @@ export class AttackPatterns extends Fsm {
   // A 15 m step from the target's point toward the band; true
   // (after stopping) when already in it.
   stepToBand() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,2,patternScratch);
     const unit = this.controller.unit;
     const T = this.agent.tracker.point;
     const P = unit.position;
@@ -903,6 +935,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 5: across the target at optimal range --------------------------------
 
   lateral() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,4,patternScratch);
     if (this.tryCover(5) || this.tryHintJet(5) || this.tryDirectJet(5) || this.tryLostTarget(5)) return;
     const t = now(this.world);
     if (this.lateralAt < t) {
@@ -938,6 +971,7 @@ export class AttackPatterns extends Fsm {
   // Follow the target while the way to it is clear; otherwise keep
   // an unfinished path, or ask for a new one every 2 s.
   melee() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,18,undefined,undefined,findCover,reserveHint);
     if (this.tryLostTarget(6) || this.tryDirectJet(6) || this.tryHintJet(6)) return;
     const t = now(this.world);
     const unit = this.controller.unit;
@@ -967,6 +1001,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 8 (dormant: no stock dispatch selects it): retreat ---------------------
 
   retreat() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,5,patternScratch);
     if (this.tryCover(8) || this.tryHintJet(8) || this.tryDirectJet(8)) return;
     const t = now(this.world);
     if (this.retreatAt < t) {
@@ -985,6 +1020,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 9: cover ---------------------------------------------------------------
 
   inCover(dt) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,14,dt,undefined,findCover,reserveHint);
     this.cover.update(dt, false);
     if (!this.cover.done) {
       this.face(this.cover.posture);
@@ -999,6 +1035,7 @@ export class AttackPatterns extends Fsm {
   // made horizontal), clear of barriers, with 40 m of open sky above it, and
   // a clear barrier segment to it; then jet there.
   directJet() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,6,patternScratch);
     const world = this.world;
     const unit = this.controller.unit;
     const nav = world.nav;
@@ -1024,6 +1061,7 @@ export class AttackPatterns extends Fsm {
   }
 
   jetTick() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,15,undefined,undefined,findCover,reserveHint);
     if (f(this.jetStart + 1) < now(this.world) && !this.agent.helper?.flying) {
       this.jetting = false;
       this.restore();
@@ -1031,6 +1069,7 @@ export class AttackPatterns extends Fsm {
   }
 
   hintJetTick(dt) {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,16,dt,undefined,findCover,reserveHint);
     const done = this.world.nav?.jetHints?.tick?.(this.controller, this.jetHint, dt) ?? true;
     if (done) this.restore();
   }
@@ -1038,6 +1077,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 12: lost target ------------------------------------------------------------
 
   lostTarget() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.run(this,17,undefined,undefined,findCover,reserveHint);
     const a = this.agent;
     if (a.tracker.freshTarget) {
       this.restore();

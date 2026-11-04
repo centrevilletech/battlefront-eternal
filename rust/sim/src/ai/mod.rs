@@ -11,6 +11,14 @@ mod awareness_module;
 mod controller_driver_module;
 #[cfg(target_arch = "wasm32")]
 mod dispatch_module;
+#[cfg(target_arch = "wasm32")]
+mod cover_module;
+mod cover_state_module;
+#[cfg(target_arch = "wasm32")]
+mod pattern_module;
+#[cfg(target_arch = "wasm32")]
+mod pattern_geometry_module;
+mod pattern_state_module;
 mod fire_module;
 mod fsm_module;
 #[cfg(target_arch = "wasm32")]
