@@ -132,6 +132,11 @@ pub trait SeatWorld {
     /// CollisionWorld.cast: the first hit along a ray within `far`, leaving
     /// out `ignore` (a collision body, by the store's reference).
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<Ref<Body>>) -> Option<Hit>;
+    /// Support rays omit the JavaScript ignore-body argument entirely.
+    /// Native worlds can use the ordinary unfiltered cast.
+    fn cast_support(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<Hit> {
+        self.cast(origin, direction, far, None)
+    }
     /// CollisionWorld.overlapsSphere: whether a sphere overlaps anything
     /// solid but `ignore`.
     fn overlaps_sphere(&mut self, center: &Vector3, radius: f64, ignore: Option<Ref<Body>>) -> bool;

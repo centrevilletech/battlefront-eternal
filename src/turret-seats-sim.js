@@ -152,7 +152,8 @@ export class TurretSeatsSim {
         this.bridge.writeSome(KIND_SEAT_LEASE, [lease]); result.lease = lease; break;
       }
       case "cast": {
-        const h = flag ? s.collision.cast(point, direction, value, this.hit) : w.cast(point, direction, value, s.hit, body);
+        const h = flag ? s.collision.cast(point, direction, value, this.hit)
+          : second ? w.cast(point, direction, value, s.hit) : w.cast(point, direction, value, s.hit, body);
         result.hit = { found: Boolean(h), distance: h?.distance ?? 0, point: h?.point ?? point, normal: h?.normal ?? direction, terrain: Boolean(h?.terrain), body: h?.body ?? null }; break;
       }
       case "overlaps": result.flag = w.overlapsSphere(point, value, body); break;

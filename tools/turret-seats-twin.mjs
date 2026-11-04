@@ -91,7 +91,10 @@ for (let fixture = 0; fixture < Number(option('fixtures', 12)); fixture++) {
   // observes. These records are compared byte for byte across both paths.
   for (const name of ['cast', 'raycast', 'controllable', 'updateLock', 'weaponUpdate', 'fire', 'bindRound', 'sound', 'fired', 'boarded', 'unboarded', 'riderDrop', 'kill']) {
     const base = crews.world[name]; crews.world[name] = function (...a) {
-      callbacks++; write(`${name}:enter`, { args: a, state: snapshot() });
+      // Cast/raycast's scratch argument is write-only; compare its returned
+      // hit along with every input, retaining omitted-vs-present arguments.
+      const input = name === 'cast' ? [...a.slice(0, 3), ...a.slice(4)] : name === 'raycast' ? a.slice(0, 4) : a;
+      callbacks++; write(`${name}:enter`, { args: input, state: snapshot() });
       const result = base.apply(this, a); write(`${name}:exit`, { result, state: snapshot() }); return result;
     };
   }

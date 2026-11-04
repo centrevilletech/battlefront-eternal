@@ -110,6 +110,10 @@ impl SeatWorld for JsWorld {
         let h = import_pc_action(&PcAction { point: a3(origin), direction: a3(direction), value: far, body: ignore, ..self.args(PcActionKind::Cast) }).hit?;
         h.found.then(|| Hit { distance: h.distance, point: v3(h.point), normal: v3(h.normal), body: h.body })
     }
+    fn cast_support(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<Hit> {
+        let h = import_pc_action(&PcAction { point: a3(origin), direction: a3(direction), value: far, second: true, ..self.args(PcActionKind::Cast) }).hit?;
+        h.found.then(|| Hit { distance: h.distance, point: v3(h.point), normal: v3(h.normal), body: h.body })
+    }
     fn overlaps_sphere(&mut self, center: &Vector3, radius: f64, ignore: Option<Ref<Body>>) -> bool {
         import_pc_action(&PcAction { point: a3(center), value: radius, body: ignore, ..self.args(PcActionKind::Overlaps) }).flag
     }
