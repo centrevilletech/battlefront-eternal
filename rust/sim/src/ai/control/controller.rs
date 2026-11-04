@@ -583,7 +583,7 @@ impl Controller {
         self.danger_point = point;
     }
 
-    pub fn notify_shot(&mut self, source: Option<usize>, known: bool, point: Option<Vec3>) {
+    pub fn notify_shot(&mut self, source: Option<AlertSource>, known: bool, point: Option<Vec3>) {
         let Some(source) = source else { return };
         self.shot_pending = true;
         self.shot_source = Some(source);

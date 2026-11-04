@@ -2561,6 +2561,7 @@ fn remap(theirs: &mut Core, map: &[Option<usize>]) {
     }
     for c in &mut theirs.controllers {
         c.unit = c.unit.map(&m);
+        if let Some(AlertSource::Unit(unit)) = &mut c.shot_source { *unit = m(*unit); }
         goal_map(&mut c.commands.current, &m);
         for g in &mut c.commands.queue {
             goal_map(g, &m);
