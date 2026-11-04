@@ -47,6 +47,10 @@ export const EDITS = {
     { anchor: 'export function seededRandom(seed) {\n  let a = seed >>> 0;\n',
       text: 'export function seededRandom(seed) {\n  const draws = seededRandomOf(seed);\n  return globalThis.__bfeDraw ? globalThis.__bfeDraw.seeded(seed, draws) : draws;\n}\nfunction seededRandomOf(seed) {\n  let a = seed >>> 0;\n' },
   ],
+  '/src/ai/enhanced/aim.js': [
+    { anchor: '  const random = new ClassicRandom((seed ^ 0x51ed270b) >>> 0);\n',
+      text: '  const random = new ClassicRandom((seed ^ 0x51ed270b) >>> 0);\n  globalThis.__bfeDraw?.named(random, "C");\n' },
+  ],
 };
 
 // Applies a file's edits: each anchor once, the edited text never holding

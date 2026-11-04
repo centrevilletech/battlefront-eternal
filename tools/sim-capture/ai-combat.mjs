@@ -41,7 +41,7 @@ const soldierView = (s) => (s ? {
   jet: Boolean(s.jet), jetJump: s.jet?.jump, jetMinBorder: s.jet?.minBorder, fuel: s.fuel, maxSpeed: s.maxSpeed,
 } : null);
 const weaponView = (w) => ({
-  def: w.def, levels: w.levels ?? null, channel: w.channel, clip: w.clip, reserve: w.reserve, rounds: w.rounds, bottomless: Boolean(w.bottomless),
+  self: w, def: w.def, levels: w.levels ?? null, channel: w.channel, clip: w.clip, reserve: w.reserve, rounds: w.rounds, bottomless: Boolean(w.bottomless),
   heat: w.heat, overheated: Boolean(w.overheated), charging: Boolean(w.charging), held: w.held, wait: w.wait, limit: w.limit,
   reloading: Boolean(w.reloading), busy: Boolean(w.busy), spreadScale: w.spreadScale, sniperScale: w.sniperScale,
   yawSpreadOverride: w.yawSpreadOverride, kick: w.kick, floor: w.floor, enhancedFloor: Boolean(w.enhancedFloor), random: Boolean(w.random),
@@ -140,7 +140,7 @@ function agentView(a) {
     point: clone(a.point), hazard: clone(a.hazard), alignAt: a.alignAt, looks: a.looks, lookAngle: a.lookAngle, aligned: Boolean(a.aligned),
     hazardUntil: a.hazardUntil, proneUntil: a.proneUntil, pattern: a.pattern, stationary: Boolean(a.stationary),
     patterns: {
-      state: p.state, pending: p.pending, probability: p.probability, coverRetry: p.coverRetry, prior: p.prior, pathActive: Boolean(p.pathActive),
+      self: p, state: p.state, pending: p.pending, probability: p.probability, coverRetry: p.coverRetry, prior: p.prior, pathActive: Boolean(p.pathActive),
       crouch: p.crouch, paused: Boolean(p.paused), pauseUntil: p.pauseUntil, toward: p.toward, side: p.side, bandCheckAt: p.bandCheckAt,
       stepAt: p.stepAt, facing: Boolean(p.facing), stepped: Boolean(p.stepped), lateralAt: p.lateralAt, lateralFacing: Boolean(p.lateralFacing),
       lastPath: p.lastPath, retreatAt: p.retreatAt, coverHint: hintView(p.coverHint), jetting: Boolean(p.jetting), jetRetry: p.jetRetry,
@@ -188,7 +188,7 @@ function settingsView() {
   const enhanced = Boolean(G.ai?.enhanced);
   return {
     time: world.time ?? 0, teams: teamsView(), difficulty: difficultyView(), bound: boundView(), sides: Object.keys(world.classData ?? {}),
-    aimHooked, enhanced: enhanced ? { tier: world.difficulty?.tier ?? null } : null,
+    aimHooked, enhanced: enhanced ? { tier: world.difficulty?.tier ?? null } : null, weaponData,
   };
 }
 
@@ -368,6 +368,7 @@ function spreadPick(name, args) {
 }
 
 let prepared = false;
+let weaponData = [];
 function prepare(game) {
   if (prepared) return;
   prepared = true;
@@ -375,6 +376,11 @@ function prepare(game) {
   const ai = aiOf(game);
   if (!ai?.combat) return;
   world = ai.world;
+  // Named content records are written once by the capture, then referenced.
+  // Keep registration order, including shared class names on later sides.
+  weaponData = Object.entries(world.classData ?? {}).map(([side, data]) => ({
+    class: `aiWeapons:${side}`, base: 'aiWeaponData', weapons: data.weapons ?? {},
+  }));
   hintList = world.nav?.hints?.list ?? [];
   // Geometry of every kind of unit the frames meet.
   forwardGeometry(Object.getPrototypeOf(game.playerUnit));
@@ -428,7 +434,8 @@ function prepare(game) {
     const base = services[name];
     if (typeof base !== 'function') continue;
     let inner = base;
-    if (name === 'aim') inner = (...a) => { const r = base(...a); aimHooked = true; noteSkill(a[0]); return r; };
+    if (name === 'createPerception') inner = (...a) => { const r = base(...a); RESULTS.set('createPerception', r); return r; };
+    else if (name === 'aim') inner = (...a) => { const r = base(...a); aimHooked = true; noteSkill(a[0]); return r; };
     else if (name === 'consumeFire') inner = (...a) => { const r = base(...a); noteSkill(a[0]); return r; };
     else if (name === 'ingest') inner = (...a) => { const r = base(...a); ingestFrom = world.events?.seq ?? null; return r; };
     FRAMES[name] = inner;
@@ -447,6 +454,22 @@ function prepare(game) {
   keep(ai.vehicles, 'currentControllable', 'vehicles.currentControllable');
   keep(ai, 'createHelper', 'ai.createHelper');
   ai.agents.combat = function CombatAgentFactory(controller, goal) { return FRAMES.createCombatAgent(controller, goal); };
+  for (const [label, target, name] of [
+    ['vehicles.dispatch', VEHICLES, 'dispatch'],
+    ...['enterPattern', 'exitPattern', 'tickPattern', 'sidestep'].map((name) => [`vehicles.${name}`, world.vehicles, name]),
+    ['interrupts.tick', InterruptHelper.prototype, 'tick'],
+    ['arsenal.select', Object.getPrototypeOf(game.playerUnit?.combat?.arsenal ?? {}), 'select'],
+    ...Object.keys(HELPER).map((name) => [`helper.${name}`, HELPER, name]),
+    ...['find', 'enter', 'exit', 'tick'].map((name) => [`nav.jetHints.${name}`, JETS, name]),
+  ]) {
+    const base = target?.[name];
+    if (typeof base !== 'function') continue;
+    target[name] = function (...args) {
+      const before = after();
+      try { return base.apply(this, args); }
+      finally { BEFORE.set(label, before); }
+    };
+  }
 }
 function noteSkill(c) {
   const a = c?.perception?.enhancedAimer;
@@ -481,7 +504,10 @@ const agentArg = (frame, a) => {
   forwardHelper(a.helper);
 };
 const SERVICE_FRAMES = [
-  serviceFrame('createPerception', (f, [c]) => involve(f, { ctls: [c] })),
+  serviceFrame('createPerception', (f, [c]) => {
+    involve(f, { ctls: [c] });
+    f.extra = (end) => end ? { createdPerception: perceptionView(RESULTS.get('createPerception')) } : {};
+  }),
   serviceFrame('attachController', (f, [c]) => involve(f, { ctls: [c] })),
   serviceFrame('detachController', (f, [c]) => involve(f, { ctls: [c] })),
   serviceFrame('rebuildProtected', (f) => {
@@ -507,7 +533,10 @@ const SERVICE_FRAMES = [
   serviceFrame('acousticRange', (f, [c]) => involve(f, { ctls: [c] })),
   serviceFrame('consumeFire', (f, [c, u]) => { involve(f, { ctls: [c], units: [u], own: u }); f.extra = enhancedExtra(c); }),
   serviceFrame('aimPoint', (f, [c, u]) => involve(f, { ctls: [c], units: [u], own: u })),
-  serviceFrame('leadPoint', (f, [c, t]) => involve(f, { ctls: [c], units: [t] })),
+  serviceFrame('leadPoint', (f, [c, t, dt, out]) => {
+    involve(f, { ctls: [c], units: [t] });
+    f.extra = () => ({ leadOut: clone(out) });
+  }),
   serviceFrame('aim', (f, [c]) => { involve(f, { ctls: [c] }); f.extra = enhancedExtra(c); }),
   serviceFrame('ingest', (f) => {
     const evs = journalEvents();
@@ -621,6 +650,7 @@ const lastCreated = () => created;
 
 // ---- The boundaries.
 const RESULTS = new Map(); // label -> the last answer of a kept call
+const BEFORE = new Map(); // label -> the state immediately before that call
 const top = () => opened[opened.length - 1] ?? null;
 // After a call that can change what the frame holds: the frame's views again.
 const after = () => {
@@ -645,17 +675,8 @@ const unitAfter = (label) => () => {
   const u = RESULTS.get(label);
   return { view: u ? unitView(u) : null, after: after() };
 };
-const helperAfter = () => {
-  const f = top();
-  const a = f ? [...f.agents][0] : null;
-  return { helper: helperView(a?.helper ?? null) };
-};
 const hintsAfter = () => ({ hints: (RESULTS.get('nav.hints.query') ?? []).map(hintView) });
-const jetAfter = () => {
-  const f = top();
-  const a = f ? [...f.agents][0] : null;
-  return { agent: agentView(a), helper: helperView(a?.helper ?? null) };
-};
+const effectsAfter = (label) => () => ({ before: BEFORE.get(label), after: after() });
 function boundaries(game) {
   prepare(game);
   const ai = aiOf(game);
@@ -670,30 +691,30 @@ function boundaries(game) {
     ['units.query', game.units, 'query', queryAfter],
     ['world.los', world, 'los'],
     ['vehicles.sharedTarget', vehicles, 'sharedTarget', unitAfter('vehicles.sharedTarget')],
-    ['vehicles.dispatch', VEHICLES, 'dispatch', after],
-    ['vehicles.enterPattern', vehicles, 'enterPattern', after],
-    ['vehicles.exitPattern', vehicles, 'exitPattern', after],
-    ['vehicles.tickPattern', vehicles, 'tickPattern', after],
-    ['vehicles.sidestep', vehicles, 'sidestep', after],
+    ['vehicles.dispatch', VEHICLES, 'dispatch', effectsAfter('vehicles.dispatch')],
+    ['vehicles.enterPattern', vehicles, 'enterPattern', effectsAfter('vehicles.enterPattern')],
+    ['vehicles.exitPattern', vehicles, 'exitPattern', effectsAfter('vehicles.exitPattern')],
+    ['vehicles.tickPattern', vehicles, 'tickPattern', effectsAfter('vehicles.tickPattern')],
+    ['vehicles.sidestep', vehicles, 'sidestep', effectsAfter('vehicles.sidestep')],
     ['vehicles.mountReach', bag, 'mountReach'],
     ['vehicles.currentControllable', bag, 'currentControllable', unitAfter('vehicles.currentControllable')],
     ['agent.boardPolicy', Agent.prototype, 'boardPolicy'],
     ['nav.hints.query', HINTS, 'query', hintsAfter],
     ['nav.jetHints.excluded', JETS, 'excluded'],
-    ['nav.jetHints.find', JETS, 'find', jetAfter],
-    ['nav.jetHints.enter', JETS, 'enter', jetAfter],
-    ['nav.jetHints.exit', JETS, 'exit', jetAfter],
-    ['nav.jetHints.tick', JETS, 'tick', jetAfter],
-    ['interrupts.tick', InterruptHelper.prototype, 'tick', after],
-    ['helper.goto', HELPER, 'goto', helperAfter],
-    ['helper.stop', HELPER, 'stop', helperAfter],
-    ['helper.tick', HELPER, 'tick', helperAfter],
-    ['helper.follow', HELPER, 'follow', helperAfter],
-    ['helper.terminate', HELPER, 'terminate', helperAfter],
+    ['nav.jetHints.find', JETS, 'find', effectsAfter('nav.jetHints.find')],
+    ['nav.jetHints.enter', JETS, 'enter', effectsAfter('nav.jetHints.enter')],
+    ['nav.jetHints.exit', JETS, 'exit', effectsAfter('nav.jetHints.exit')],
+    ['nav.jetHints.tick', JETS, 'tick', effectsAfter('nav.jetHints.tick')],
+    ['interrupts.tick', InterruptHelper.prototype, 'tick', effectsAfter('interrupts.tick')],
+    ['helper.goto', HELPER, 'goto', effectsAfter('helper.goto')],
+    ['helper.stop', HELPER, 'stop', effectsAfter('helper.stop')],
+    ['helper.tick', HELPER, 'tick', effectsAfter('helper.tick')],
+    ['helper.follow', HELPER, 'follow', effectsAfter('helper.follow')],
+    ['helper.terminate', HELPER, 'terminate', effectsAfter('helper.terminate')],
     ['agent.acceptsAlert', POLICY, 'acceptsAlert'],
     ['agent.acceptsHazard', POLICY, 'acceptsHazard'],
     ['agent.acceptsAcoustic', POLICY, 'acceptsAcoustic'],
-    ['arsenal.select', proto(game.playerUnit?.combat?.arsenal), 'select', after],
+    ['arsenal.select', proto(game.playerUnit?.combat?.arsenal), 'select', effectsAfter('arsenal.select')],
     ['ai.stayInTurrets', ai, 'stayInTurrets'],
     ['ai.curvesFor', ai, 'curvesFor'],
     ['ai.createHelper', ai, 'createHelper', () => ({ helper: helperView(RESULTS.get('ai.createHelper') ?? null) })],

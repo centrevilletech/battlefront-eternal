@@ -18,3 +18,6 @@ pub mod math;
 pub mod perception;
 pub mod weapons_ai;
 pub mod world;
+
+#[cfg(feature = "replay")]
+pub mod replay;
