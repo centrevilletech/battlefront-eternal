@@ -91,6 +91,20 @@ pub trait WeaponDraws {
     /// A level assignment occurred, including a write of the current level.
     /// Private checkpoints can restore a definition without its numeric field.
     fn level_written(&mut self, _weapon: u32, _level: f64) {}
+    /// Ordinary authority callbacks can inspect and change the weapon at
+    /// the call site. Private and replay hosts keep the original callbacks.
+    /// `first` captures one round's generator; nested updates need their
+    /// own invocation frame so they cannot replace an outer round's `r`.
+    fn draw_visible(&mut self, weapon: u32, _state: &mut Weapon, _first: bool) -> f64 { self.draw(weapon) }
+    fn legacy_visible(&mut self, weapon: u32, _state: &mut Weapon) -> f64 { self.legacy(weapon) }
+    fn admit_visible(&mut self, weapon: u32, _state: &mut Weapon) -> Admission { self.admit(weapon) }
+    /// A new press replaces its retained generator before any admission.
+    fn salvo_started(&mut self, _weapon: u32, _state: &Weapon) {}
+    /// The authority may retain a separately consumed seeded closure.
+    /// Default hosts retain the original diagnostic event and value.
+    fn seeded_visible(&mut self, _weapon: u32, _state: &mut Weapon, _first: bool, seed: f64, value: f64) -> f64 {
+        self.seeded(seed, value); value
+    }
 }
 
 /// `a < b` where `a` is a class's field (ToNumber; undefined is NaN).
@@ -308,24 +322,24 @@ impl Weapon {
 
     /// The press's seeded generator's number `n` (from 0: salvoRandom(),
     /// seededRandom(salvoSeed) drawn n + 1 times).
-    fn seeded_draw(&self, n: f64, draws: &mut dyn WeaponDraws) -> f64 {
-        let seed = jsrt::conv::to_uint32(self.salvo_seed.expect("a seeded salvo")) as f64;
+    fn seeded_draw(seed: f64, n: f64) -> (f64, f64) {
+        let seed = jsrt::conv::to_uint32(seed) as f64;
         let mut m = Mulberry32::new(seed);
         let mut v = 0.0;
         for _ in 0..=(n as u64) {
             v = m.next_f64();
         }
-        draws.seeded(seed, v);
-        v
+        (seed, v)
     }
 
     /// The `k`th of a round's four draws: its press's (salvoCount was
     /// counted on by four as the round began), else its generator's.
-    fn salvo_draw(&mut self, index: u32, k: f64, draws: &mut dyn WeaponDraws) -> f64 {
-        if self.salvo_seed.is_some() {
-            self.seeded_draw(self.salvo_count - 4.0 + k, draws)
+    fn salvo_draw(&mut self, index: u32, k: f64, seed: Option<f64>, start: f64, draws: &mut dyn WeaponDraws) -> f64 {
+        if let Some(seed) = seed {
+            let (seed, value) = Self::seeded_draw(seed, start + k);
+            draws.seeded_visible(index, self, k == 0.0, seed, value)
         } else {
-            draws.draw(index)
+            draws.draw_visible(index, self, k == 0.0)
         }
     }
 
@@ -344,7 +358,7 @@ impl Weapon {
         let before = out.len();
         let mut i = 0.0;
         while i < count && self.can_shoot() {
-            let admission = if self.admit_shot { draws.admit(index) } else { Admission::Yes };
+            let admission = if self.admit_shot { draws.admit_visible(index, self) } else { Admission::Yes };
             if admission == Admission::No {
                 break;
             }
@@ -363,33 +377,35 @@ impl Weapon {
                 aside = entry.at(1).num();
                 self.pattern = jsrt::conv::js_mod(self.pattern + 1.0, entries);
             }
-            let charge = self.charge;
-            if self.salvo_seed.is_some() || self.random {
+            // JavaScript retains `r` for all four draws of this round.
+            // A callback can re-enter and replace the weapon's generator.
+            let seed = self.salvo_seed;
+            let start = self.salvo_count;
+            if seed.is_some() || self.random {
                 // A press's seeded draws or the AI's generator, in the
                 // original game's order: pitch, then yaw.
-                if self.salvo_seed.is_some() {
+                if seed.is_some() {
                     self.salvo_count += 4.0;
                 }
-                let a = self.salvo_draw(index, 0.0, draws);
-                let tipped = a - self.salvo_draw(index, 1.0, draws);
-                let b = self.salvo_draw(index, 2.0, draws);
-                let turned = b - self.salvo_draw(index, 3.0, draws);
-                out.push(Shot { weapon: index, kind: ShotKind::Round { yaw: (aside + yaw * turned) * DEG, pitch: (-down + pitch * tipped) * DEG, charge, target_id, target_generation, admission: admitted } });
+                let a = self.salvo_draw(index, 0.0, seed, start, draws);
+                let tipped = a - self.salvo_draw(index, 1.0, seed, start, draws);
+                let b = self.salvo_draw(index, 2.0, seed, start, draws);
+                let turned = b - self.salvo_draw(index, 3.0, seed, start, draws);
+                out.push(Shot { weapon: index, kind: ShotKind::Round { yaw: (aside + yaw * turned) * DEG, pitch: (-down + pitch * tipped) * DEG, charge: self.charge, target_id, target_generation, admission: admitted } });
                 i += 1.0;
                 continue;
             }
-            let a = draws.legacy(index);
-            let turned = a - draws.legacy(index);
+            let a = draws.legacy_visible(index, self);
+            let turned = a - draws.legacy_visible(index, self);
             let shot_yaw = (aside + yaw * turned) * DEG;
-            let b = draws.legacy(index);
-            let tipped = b - draws.legacy(index);
-            out.push(Shot { weapon: index, kind: ShotKind::Round { yaw: shot_yaw, pitch: (-down + pitch * tipped) * DEG, charge, target_id, target_generation, admission: admitted } });
+            let b = draws.legacy_visible(index, self);
+            let tipped = b - draws.legacy_visible(index, self);
+            out.push(Shot { weapon: index, kind: ShotKind::Round { yaw: shot_yaw, pitch: (-down + pitch * tipped) * DEG, charge: self.charge, target_id, target_generation, admission: admitted } });
             i += 1.0;
         }
         if self.admit_shot && out.len() == before {
             return;
         }
-        let d = self.level(class);
         self.kick = js_min(self.kick + d.get(K::SpreadPerShot).or(0.0) * self.spread_scale, d.get(K::SpreadLimit).nn(f64::INFINITY));
     }
 
@@ -397,6 +413,7 @@ impl Weapon {
     fn start_burst(&mut self, index: u32, class: &WeaponClass, aim: &Aim, seed: Option<f64>, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         self.salvo_seed = seed;
         self.salvo_count = 0.0;
+        draws.salvo_started(index, self);
         let d = self.level(class);
         self.salvos_left = js_max(1.0, jsrt::conv::js_floor(d.get(K::SalvoCount).or(1.0)));
         self.salvo_wait = js_max(0.0, d.get(K::InitialSalvoDelay).or(0.0));
@@ -653,7 +670,9 @@ impl Weapon {
             out.push(Shot { weapon: index, kind: ShotKind::MeleeEnd });
         }
         if !m.active && selected && trigger.pressed {
-            let r = if self.random { draws.draw(index) } else { draws.legacy(index) };
+            self.melee = Some(m);
+            let r = if self.random { draws.draw_visible(index, self, true) } else { draws.legacy_visible(index, self) };
+            m = self.melee.clone().expect("a melee weapon's swing");
             let n = swings.len() as f64;
             m.index = js_max(0.0, js_min(n - 1.0, js_trunc(r * n - 0.001)));
             m.active = true;

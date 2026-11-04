@@ -3,6 +3,9 @@ import { unitsArray, defaultRelation, lockSpan } from './hud-units.js';
 import { weaponAI, categoryOf, relationBit } from './ai/classic/weapons-ai.js';
 import { derivedFrom } from './combat-sources.js';
 
+const nativeWeapons = new WeakMap();
+export function bindWeaponLockRuntime(weapon, runtime) { nativeWeapons.set(weapon, runtime); }
+
 export const hasMissileLock = def => def?.base === 'launcher' && def.ordnance?.base === 'missile';
 
 // These tank launchers ship as cannon/bullet weapons with zeroed targeting
@@ -90,6 +93,8 @@ const hit = { point: new THREE.Vector3(), normal: new THREE.Vector3() };
 // A cannon's targeting fields still colour its reticle, but never start
 // launcher state 4.
 export function updateWeaponLock(weapon, dt, options = {}) {
+  const native = nativeWeapons.get(weapon);
+  if (native) { native.updateLock(weapon, dt, options); return; }
   if (!hasMissileLock(weapon.def)) return;
   const picked = lockPick(weapon, options);
   if (picked === undefined) { weapon.clearLock(); return; }

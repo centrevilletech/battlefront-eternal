@@ -15,8 +15,8 @@ use three::Vector3;
 use v8math::{abs, asin, atan2, cos, hypot, max, min, sin, trunc};
 
 use super::controllers::{self, MountedAgent, Policy, DONE};
-use super::patterns::{self, AttackRun, Dispatch, PatternState, PatternsView};
-use super::reservations::{free_capacity, Reservations, SEAT};
+use super::patterns::{self, AttackRun, Dispatch, PatternsView};
+use super::reservations::{Reservations, ReservationService, SEAT};
 use super::steering::{self, seat_analogs, steer_state, Env};
 use super::support::{self, out_of_reach, SupportHub, REACH_MARGIN};
 use super::notify::Notifier;
@@ -127,9 +127,6 @@ impl VehicleAI {
         VehicleAI::default()
     }
 
-    // ---- the bodies -----------------------------------------------------------------
-
-    /// bodyOf(x) for a unit, a control or an entry.
     pub fn body_of_unit(u: &UnitView) -> Option<Body> {
         if let Some(h) = u.vehicle {
             return Some(Body::Hull(h));
@@ -137,7 +134,6 @@ impl VehicleAI {
         u.turret.map(Body::Turret)
     }
 
-    /// bodyOf(lease).
     pub fn body_of_lease(l: &LeaseView) -> Option<Body> {
         if let Some(h) = l.vehicle {
             return Some(Body::Hull(h));
@@ -145,7 +141,6 @@ impl VehicleAI {
         l.turret.map(Body::Turret)
     }
 
-    /// entryOf(body): its registry entry.
     pub fn entry_of<W: World + ?Sized>(w: &W, body: Option<Body>) -> Option<Obj> {
         match body? {
             Body::Hull(h) => Some(w.hull(h).entry),
@@ -153,8 +148,6 @@ impl VehicleAI {
         }
     }
 
-    /// leaseOf(x): the live bot lease a unit (a control, or a seated
-    /// soldier) holds.
     pub fn lease_of<W: World + ?Sized>(w: &W, x: Option<Obj>) -> Option<LeaseView> {
         let u = w.unit(x?);
         let own = u.lease.map(|l| w.lease(l)).filter(|l| l.controllable == Some(u.obj));
@@ -168,14 +161,153 @@ impl VehicleAI {
         Some(lease)
     }
 
-    /// controllerLease(controller).
     pub fn controller_lease<W: World + ?Sized>(w: &W, controller: Option<Obj>) -> Option<LeaseView> {
         Self::lease_of(w, w.controller(controller?).unit)
     }
 
+    pub fn mounted_state(policy: Option<Policy>, state: f64) -> f64 {
+        controllers::mounted_state(policy, state)
+    }
+
+    pub fn agent_for(policy: Option<Policy>, state: f64) -> Option<MountedAgent> {
+        policy?.agent_for(state)
+    }
+
+    pub fn seat_count<W: World + ?Sized>(&self, w: &W, entry: Obj) -> f64 { VehicleServices::seat_count(self, w, entry) }
+
+    pub fn occupied_seats<W: World + ?Sized>(&self, w: &W, entry: Obj) -> f64 { VehicleServices::occupied_seats(self, w, entry) }
+
+    pub fn human_occupants<W: World + ?Sized>(&self, w: &W, entry: Obj) -> f64 { VehicleServices::human_occupants(self, w, entry) }
+
+    pub fn human_aboard<W: World + ?Sized>(&self, w: &W, entry: Obj) -> bool { VehicleServices::human_aboard(self, w, entry) }
+
+    pub fn boardables<W: World + ?Sized>(&self, w: &W) -> Vec<Obj> { VehicleServices::boardables(self, w) }
+
+    pub fn cycles_per_second<W: World + ?Sized>(&self, w: &W) -> f64 { VehicleServices::cycles_per_second(self, w) }
+
+    pub fn current_controllable<W: World + ?Sized>(&self, w: &W, character: Option<Obj>) -> Option<Obj> { VehicleServices::current_controllable(self, w, character) }
+
+    pub fn adapt_controller<W: World + ?Sized>(&self, w: &W, unit: Option<Obj>) -> (Option<Policy>, Option<bool>) { VehicleServices::adapt_controller(self, w, unit) }
+
+    pub fn seat_input<W: World + ?Sized>(&mut self, w: &mut W, unit: Obj, dt: f64, aim: Option<&Vector3>) -> Stick { VehicleServices::seat_input(self, w, unit, dt, aim) }
+
+    pub fn analogs<W: World + ?Sized>(&mut self, w: &mut W, unit: Obj, request: Option<&Request>, aim: Option<&Vector3>, dt: f64, options: AnalogOptions) -> Stick { VehicleServices::analogs(self, w, unit, request, aim, dt, options) }
+
+    pub fn walker_contacts<W: World + ?Sized>(&self, w: &mut W, unit: &UnitView) { VehicleServices::walker_contacts(self, w, unit) }
+
+    pub fn create_helper<W: World + ?Sized>(&self, w: &W, controller: Option<Obj>) -> HelperKind { VehicleServices::create_helper(self, w, controller) }
+
+    pub fn boarded<W: World + ?Sized>(&self, w: &W, controller: Option<Obj>) -> bool { VehicleServices::boarded(self, w, controller) }
+
+    pub fn boarded_vehicle<W: World + ?Sized>(&self, w: &W, controller: Option<Obj>) -> Option<Obj> { VehicleServices::boarded_vehicle(self, w, controller) }
+
+    pub fn boarded_vehicle_of<W: World + ?Sized>(&self, w: &W, unit: Option<Obj>) -> Option<Obj> { VehicleServices::boarded_vehicle_of(self, w, unit) }
+
+    pub fn boarded_vehicle_of_character<W: World + ?Sized>(&self, w: &W, character: Option<Obj>) -> Option<Obj> { VehicleServices::boarded_vehicle_of_character(self, w, character) }
+
+    pub fn is_mounted_turret<W: World + ?Sized>(&self, w: &W, sender: Option<Obj>) -> bool { VehicleServices::is_mounted_turret(self, w, sender) }
+
+    pub fn empty_seats<W: World + ?Sized>(&self, w: &W, sender: Option<Obj>) -> f64 { VehicleServices::empty_seats(self, w, sender) }
+
+    pub fn crew_controllers<W: World + ?Sized>(&self, w: &W, entry: Option<Obj>, source: Option<Obj>) -> Vec<Obj> { VehicleServices::crew_controllers(self, w, entry, source) }
+
+    pub fn seats_full<W: World + ?Sized>(&self, w: &W, entry: Obj) -> bool { VehicleServices::seats_full(self, w, entry) }
+
+    pub fn pending_reservations<W: World + ?Sized>(&mut self, w: &W, entry: Obj, team: f64) -> bool { VehicleServices::pending_reservations(self, w, entry, team) }
+
+    pub fn request_exit<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, post: Option<Obj>) -> bool { VehicleServices::request_exit(self, w, controller, post) }
+
+    pub fn low_tickets<W: World + ?Sized>(&self, w: &W, team: f64) -> bool { VehicleServices::low_tickets(self, w, team) }
+
+    pub fn pilot_keeps_seat(&self) -> bool { VehicleServices::pilot_keeps_seat(self) }
+
+    pub fn alerts_blocked(&self) -> bool { VehicleServices::alerts_blocked(self) }
+
+    pub fn refuses_hold(&self) -> bool { VehicleServices::refuses_hold(self) }
+
+    pub fn can_enter<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, candidate: Obj) -> bool { VehicleServices::can_enter(self, w, controller, candidate) }
+
+    pub fn free_seats<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, team: f64, kind: f64) -> f64 { VehicleServices::free_seats(self, w, candidate, team, kind) }
+
+    pub fn reserve<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, unit: Obj, kind: f64) { VehicleServices::reserve(self, w, candidate, unit, kind) }
+
+    pub fn reserve_seat<W: World + ?Sized>(&mut self, w: &W, controller: Option<Obj>, candidate: Option<Obj>) -> bool { VehicleServices::reserve_seat(self, w, controller, candidate) }
+
+    pub fn hold_reservation<W: World + ?Sized>(&mut self, w: &W, controller: Option<Obj>, candidate: Obj) -> bool { VehicleServices::hold_reservation(self, w, controller, candidate) }
+
+    pub fn board_now<W: World + ?Sized>(&mut self, w: &mut W, controller: Option<Obj>, candidate: Obj) -> bool { VehicleServices::board_now(self, w, controller, candidate) }
+
+    pub fn board_path_clear<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, candidate: Obj) -> bool { VehicleServices::board_path_clear(self, w, controller, candidate) }
+
+    pub fn relation<W: World + ?Sized>(&self, w: &mut W, a: f64, b: f64) -> f64 { VehicleServices::relation(self, w, a, b) }
+
+    pub fn board_policy<W: World + ?Sized>(&self, w: &mut W, agent: Obj, controller: Obj, candidate: Obj) -> bool { VehicleServices::board_policy(self, w, agent, controller, candidate) }
+
+    pub fn nominal_speed<W: World + ?Sized>(&self, w: &W, candidate: &UnitView) -> f64 { VehicleServices::nominal_speed(self, w, candidate) }
+
+    pub fn target_reserved<W: World + ?Sized>(&mut self, w: &W, target: Obj, team: f64) -> bool { VehicleServices::target_reserved(self, w, target, team) }
+
+    pub fn reserve_target<W: World + ?Sized>(&mut self, w: &W, target: Obj, unit: Obj) { VehicleServices::reserve_target(self, w, target, unit) }
+
+    pub fn mount_reach<W: World + ?Sized>(&self, w: &mut W, unit: Option<Obj>, point: &Vector3) -> bool { VehicleServices::mount_reach(self, w, unit, point) }
+
+    pub fn body_reach<W: World + ?Sized>(&self, w: &mut W, body: Option<Body>, point: &Vector3) -> bool { VehicleServices::body_reach(self, w, body, point) }
+
+    pub fn unreachable_from_mount<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, point: &Vector3) -> bool { VehicleServices::unreachable_from_mount(self, w, controller, point) }
+
+    pub fn shared_target<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>) -> Option<Obj> { VehicleServices::shared_target(self, w, controller) }
+
+    pub fn dispatch<W: World + ?Sized>(&self, w: &mut W, controller: Obj, unit: Obj, target: Obj, switch_allowed: bool) -> Dispatch { VehicleServices::dispatch(self, w, controller, unit, target, switch_allowed) }
+
+    pub fn enter_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut (impl patterns::PatternAccess + ?Sized), pattern: f64) { VehicleServices::enter_pattern(self, w, p, state, pattern) }
+
+    pub fn tick_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut (impl patterns::PatternAccess + ?Sized), pattern: f64) { VehicleServices::tick_pattern(self, w, p, state, pattern) }
+
+    pub fn exit_pattern<W: World + ?Sized>(&self, w: &mut W, p: &PatternsView, pattern: f64) { VehicleServices::exit_pattern(self, w, p, pattern) }
+
+    pub fn sidestep<W: World + ?Sized>(&self, w: &mut W, p: &PatternsView) -> bool { VehicleServices::sidestep(self, w, p) }
+
+    pub fn is_at_at<W: World + ?Sized>(&self, w: &W, unit: Obj) -> bool { VehicleServices::is_at_at(self, w, unit) }
+
+    pub fn patrol_mounted<W: World + ?Sized>(&self, w: &mut W, patrol: &PatrolView) -> bool { VehicleServices::patrol_mounted(self, w, patrol) }
+
+    pub fn support_point<W: World + ?Sized>(&mut self, w: &mut W, unit: Option<Obj>, post: Option<Obj>, helper: Option<Obj>) -> Option<Vector3> { VehicleServices::support_point(self, w, unit, post, helper) }
+
+    pub fn hold_hint<W: World + ?Sized>(&self, w: &mut W, hint: Obj, controller: Obj) { VehicleServices::hold_hint(self, w, hint, controller) }
+
+    pub fn close_hint<W: World + ?Sized>(&self, w: &mut W, hint: Obj, until: f64) { VehicleServices::close_hint(self, w, hint, until) }
+
+    pub fn disembark_passengers<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, post: Option<Obj>) -> f64 { VehicleServices::disembark_passengers(self, w, controller, post) }
+
+    pub fn destroy_stuck<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>) { VehicleServices::destroy_stuck(self, w, controller) }
+
+    pub fn abandon_pad<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) -> f64 { VehicleServices::abandon_pad(self, w, controller) }
+
+    pub fn update_decay<W: World + ?Sized>(&self, w: &mut W, dt: f64) { VehicleServices::update_decay(self, w, dt) }
+
+    pub fn player_near<W: World + ?Sized>(&self, w: &mut W, v: &super::world::HullView) -> bool { VehicleServices::player_near(self, w, v) }
+
+    pub fn reachable<W: World + ?Sized>(&self, w: &mut W, entry: Obj) -> bool { VehicleServices::reachable(self, w, entry) }
+}
+
+/// Access to the service's persistent state. Closures only read or write
+/// owned fields; they must never call a world method or an import.
+pub trait VehicleStorage {
+    fn read<R>(&self, f: impl FnOnce(&VehicleAI) -> R) -> R;
+    fn write<R>(&mut self, f: impl FnOnce(&mut VehicleAI) -> R) -> R;
+}
+impl VehicleStorage for VehicleAI {
+    fn read<R>(&self, f: impl FnOnce(&VehicleAI) -> R) -> R { f(self) }
+    fn write<R>(&mut self, f: impl FnOnce(&mut VehicleAI) -> R) -> R { f(self) }
+}
+impl<T: VehicleStorage> VehicleServices for T {}
+
+/// The same algorithms run against owned replay state or a live accessor.
+/// The live accessor holds no reference to the battle across a world call.
+pub trait VehicleServices: VehicleStorage {
     /// seatCount(entry).
-    pub fn seat_count<W: World + ?Sized>(&self, w: &W, entry: Obj) -> f64 {
-        match Self::body_of_unit(&w.unit(entry)) {
+    fn seat_count<W: World + ?Sized>(&self, w: &W, entry: Obj) -> f64 {
+        match VehicleAI::body_of_unit(&w.unit(entry)) {
             None => 0.0,
             Some(Body::Hull(h)) => w.hull(h).seats.len() as f64,
             Some(Body::Turret(_)) => 1.0,
@@ -183,8 +315,8 @@ impl VehicleAI {
     }
 
     /// occupiedSeats(entry).
-    pub fn occupied_seats<W: World + ?Sized>(&self, w: &W, entry: Obj) -> f64 {
-        match Self::body_of_unit(&w.unit(entry)) {
+    fn occupied_seats<W: World + ?Sized>(&self, w: &W, entry: Obj) -> f64 {
+        match VehicleAI::body_of_unit(&w.unit(entry)) {
             None => 0.0,
             Some(Body::Hull(h)) => {
                 let hull = w.hull(h);
@@ -203,8 +335,8 @@ impl VehicleAI {
     }
 
     /// humanOccupants(entry).
-    pub fn human_occupants<W: World + ?Sized>(&self, w: &W, entry: Obj) -> f64 {
-        match Self::body_of_unit(&w.unit(entry)) {
+    fn human_occupants<W: World + ?Sized>(&self, w: &W, entry: Obj) -> f64 {
+        match VehicleAI::body_of_unit(&w.unit(entry)) {
             None => 0.0,
             Some(Body::Hull(h)) => {
                 let hull = w.hull(h);
@@ -230,12 +362,12 @@ impl VehicleAI {
     }
 
     /// humanAboard(entry).
-    pub fn human_aboard<W: World + ?Sized>(&self, w: &W, entry: Obj) -> bool {
+    fn human_aboard<W: World + ?Sized>(&self, w: &W, entry: Obj) -> bool {
         self.human_occupants(w, entry) > 0.0
     }
 
     /// boardables(): built turrets' entries, then living vehicles'.
-    pub fn boardables<W: World + ?Sized>(&self, w: &W) -> Vec<Obj> {
+    fn boardables<W: World + ?Sized>(&self, w: &W) -> Vec<Obj> {
         let mut out = Vec::new();
         for t in w.turrets() {
             let turret = w.turret(t);
@@ -254,10 +386,8 @@ impl VehicleAI {
         out
     }
 
-    // ---- clocks and mission settings ------------------------------------------------
-
     /// cyclesPerSecond(): `Math.trunc(30 / cycle) || 1`.
-    pub fn cycles_per_second<W: World + ?Sized>(&self, w: &W) -> f64 {
+    fn cycles_per_second<W: World + ?Sized>(&self, w: &W) -> f64 {
         let n = trunc(30.0 / w.settings().cycle);
         if n == 0.0 || n.is_nan() {
             1.0
@@ -266,11 +396,9 @@ impl VehicleAI {
         }
     }
 
-    // ---- the controller and scheduler hooks (adaptClassicAI, made explicit) ----------
-
     /// currentControllable(character): the control a Character's controller
     /// drives, the seat its body sits in (a bot), else None (its own unit).
-    pub fn current_controllable<W: World + ?Sized>(&self, w: &W, character: Option<Obj>) -> Option<Obj> {
+    fn current_controllable<W: World + ?Sized>(&self, w: &W, character: Option<Obj>) -> Option<Obj> {
         let unit = w.character_unit(character?)?;
         let lease = w.lease(w.unit(unit).seat?);
         if lease.human || lease.released {
@@ -286,7 +414,7 @@ impl VehicleAI {
 
     /// adaptController(controller, unit): the policy a controller bound to
     /// `unit` takes, and the home-facing flag a stationary one sets.
-    pub fn adapt_controller<W: World + ?Sized>(&self, w: &W, unit: Option<Obj>) -> (Option<Policy>, Option<bool>) {
+    fn adapt_controller<W: World + ?Sized>(&self, w: &W, unit: Option<Obj>) -> (Option<Policy>, Option<bool>) {
         let view = unit.map(|u| w.unit(u));
         let policy = controllers::controller_policy(view.as_ref());
         let home = match (policy, view.as_ref()) {
@@ -296,21 +424,10 @@ impl VehicleAI {
         (policy, home)
     }
 
-    /// mountedState(controller, state).
-    pub fn mounted_state(policy: Option<Policy>, state: f64) -> f64 {
-        controllers::mounted_state(policy, state)
-    }
-
-    /// agentFor(state, controller): the mounted agent for a policy's own
-    /// state (None: the AI's own table).
-    pub fn agent_for(policy: Option<Policy>, state: f64) -> Option<MountedAgent> {
-        policy?.agent_for(state)
-    }
-
     /// seatInput(control, unit, intent, dt, aim, options): the path
     /// executor's step (navigation's), then the seat's analogs, which go
     /// into the intent's four analogs.
-    pub fn seat_input<W: World + ?Sized>(&mut self, w: &mut W, unit: Obj, dt: f64, aim: Option<&Vector3>) -> Stick {
+    fn seat_input<W: World + ?Sized>(&mut self, w: &mut W, unit: Obj, dt: f64, aim: Option<&Vector3>) -> Stick {
         let controller = w.unit(unit).controller;
         w.nav_attach(controller, unit);
         w.nav_update(controller, dt);
@@ -322,7 +439,7 @@ impl VehicleAI {
 
     /// analogs(unit, request, aim, dt, out, options): the AI input step's
     /// analog conversion for a seat.
-    pub fn analogs<W: World + ?Sized>(&mut self, w: &mut W, unit: Obj, request: Option<&Request>, aim: Option<&Vector3>, dt: f64, options: AnalogOptions) -> Stick {
+    fn analogs<W: World + ?Sized>(&mut self, w: &mut W, unit: Obj, request: Option<&Request>, aim: Option<&Vector3>, dt: f64, options: AnalogOptions) -> Stick {
         let view = w.unit(unit);
         let controller = options.controller.or(view.controller);
         let mut request = request.copied();
@@ -354,7 +471,7 @@ impl VehicleAI {
 
     /// walkerContacts(unit): a walker's yielding contacts with the hulls
     /// whose footprints it moves into.
-    pub fn walker_contacts<W: World + ?Sized>(&self, w: &mut W, unit: &UnitView) {
+    fn walker_contacts<W: World + ?Sized>(&self, w: &mut W, unit: &UnitView) {
         let Some(me) = unit.vehicle else { return };
         let me = w.hull(me);
         let v = me.velocity;
@@ -382,9 +499,9 @@ impl VehicleAI {
 
     /// createHelper(agent): the movement helper a control's agent gets
     /// (None: the AI's own).
-    pub fn create_helper<W: World + ?Sized>(&self, w: &W, controller: Option<Obj>) -> HelperKind {
+    fn create_helper<W: World + ?Sized>(&self, w: &W, controller: Option<Obj>) -> HelperKind {
         let unit = controller.and_then(|c| w.controller(c).unit);
-        let Some(lease) = Self::lease_of(w, unit) else { return HelperKind::None };
+        let Some(lease) = VehicleAI::lease_of(w, unit) else { return HelperKind::None };
         if unit != lease.controllable {
             return HelperKind::None;
         }
@@ -398,41 +515,39 @@ impl VehicleAI {
         HelperKind::None
     }
 
-    // ---- seats ------------------------------------------------------------------------
-
     /// boarded(controller).
-    pub fn boarded<W: World + ?Sized>(&self, w: &W, controller: Option<Obj>) -> bool {
-        Self::controller_lease(w, controller).is_some()
+    fn boarded<W: World + ?Sized>(&self, w: &W, controller: Option<Obj>) -> bool {
+        VehicleAI::controller_lease(w, controller).is_some()
     }
 
     /// boardedVehicle(controller).
-    pub fn boarded_vehicle<W: World + ?Sized>(&self, w: &W, controller: Option<Obj>) -> Option<Obj> {
-        let lease = Self::controller_lease(w, controller)?;
-        Self::entry_of(w, Self::body_of_lease(&lease))
+    fn boarded_vehicle<W: World + ?Sized>(&self, w: &W, controller: Option<Obj>) -> Option<Obj> {
+        let lease = VehicleAI::controller_lease(w, controller)?;
+        VehicleAI::entry_of(w, VehicleAI::body_of_lease(&lease))
     }
 
     /// boardedVehicleOf(unit).
-    pub fn boarded_vehicle_of<W: World + ?Sized>(&self, w: &W, unit: Option<Obj>) -> Option<Obj> {
-        let lease = Self::lease_of(w, unit)?;
-        Self::entry_of(w, Self::body_of_lease(&lease))
+    fn boarded_vehicle_of<W: World + ?Sized>(&self, w: &W, unit: Option<Obj>) -> Option<Obj> {
+        let lease = VehicleAI::lease_of(w, unit)?;
+        VehicleAI::entry_of(w, VehicleAI::body_of_lease(&lease))
     }
 
     /// boardedVehicleOfCharacter(character).
-    pub fn boarded_vehicle_of_character<W: World + ?Sized>(&self, w: &W, character: Option<Obj>) -> Option<Obj> {
+    fn boarded_vehicle_of_character<W: World + ?Sized>(&self, w: &W, character: Option<Obj>) -> Option<Obj> {
         let unit = character.and_then(|c| w.character_unit(c));
         self.boarded_vehicle_of(w, unit)
     }
 
     /// isMountedTurret(sender): `sender.turret ?? sender.lease?.turret ?? sender.seat?.turret`.
-    pub fn is_mounted_turret<W: World + ?Sized>(&self, w: &W, sender: Option<Obj>) -> bool {
+    fn is_mounted_turret<W: World + ?Sized>(&self, w: &W, sender: Option<Obj>) -> bool {
         let Some(s) = sender else { return false };
         let u = w.unit(s);
         u.turret.is_some() || u.lease.is_some_and(|l| w.lease(l).turret.is_some()) || u.seat.is_some_and(|l| w.lease(l).turret.is_some())
     }
 
     /// emptySeats(sender).
-    pub fn empty_seats<W: World + ?Sized>(&self, w: &W, sender: Option<Obj>) -> f64 {
-        let body = Self::lease_of(w, sender).and_then(|l| Self::body_of_lease(&l)).or_else(|| sender.and_then(|s| Self::body_of_unit(&w.unit(s))));
+    fn empty_seats<W: World + ?Sized>(&self, w: &W, sender: Option<Obj>) -> f64 {
+        let body = VehicleAI::lease_of(w, sender).and_then(|l| VehicleAI::body_of_lease(&l)).or_else(|| sender.and_then(|s| VehicleAI::body_of_unit(&w.unit(s))));
         match body {
             Some(Body::Hull(h)) => w.hull(h).free_seats,
             _ => 0.0,
@@ -441,9 +556,9 @@ impl VehicleAI {
 
     /// crewControllers(entry, source): the AI controllers aboard, but the
     /// source Character's.
-    pub fn crew_controllers<W: World + ?Sized>(&self, w: &W, entry: Option<Obj>, source: Option<Obj>) -> Vec<Obj> {
+    fn crew_controllers<W: World + ?Sized>(&self, w: &W, entry: Option<Obj>, source: Option<Obj>) -> Vec<Obj> {
         let mut out = Vec::new();
-        let Some(Body::Hull(h)) = entry.and_then(|e| Self::body_of_unit(&w.unit(e))) else { return out };
+        let Some(Body::Hull(h)) = entry.and_then(|e| VehicleAI::body_of_unit(&w.unit(e))) else { return out };
         for seat in w.hull(h).seats {
             let Some(lease) = seat.lease.map(|l| w.lease(l)) else { continue };
             // `lease.unit?.character === source` (undefined without a unit).
@@ -460,19 +575,19 @@ impl VehicleAI {
     }
 
     /// seatsFull(entry).
-    pub fn seats_full<W: World + ?Sized>(&self, w: &W, entry: Obj) -> bool {
+    fn seats_full<W: World + ?Sized>(&self, w: &W, entry: Obj) -> bool {
         self.occupied_seats(w, entry) >= self.seat_count(w, entry)
     }
 
     /// pendingReservations(entry, team).
-    pub fn pending_reservations<W: World + ?Sized>(&mut self, w: &W, entry: Obj, team: f64) -> bool {
-        self.reservations.count(w, entry, team, SEAT) > 0.0
+    fn pending_reservations<W: World + ?Sized>(&mut self, w: &W, entry: Obj, team: f64) -> bool {
+        self.reservation_count(w, entry, team, SEAT) > 0.0
     }
 
     /// requestExit(controller, post): leave at the next input batch, taking
     /// up `post` once out.
-    pub fn request_exit<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, post: Option<Obj>) -> bool {
-        let Some(lease) = Self::controller_lease(w, controller) else { return false };
+    fn request_exit<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, post: Option<Obj>) -> bool {
+        let Some(lease) = VehicleAI::controller_lease(w, controller) else { return false };
         let character = lease.unit.and_then(|u| w.unit(u).character);
         if let (Some(post), Some(character)) = (post, character) {
             w.set_objective(character, post);
@@ -488,7 +603,7 @@ impl VehicleAI {
     }
 
     /// lowTickets(team): teams 1 and 2 with 25 reinforcements or fewer.
-    pub fn low_tickets<W: World + ?Sized>(&self, w: &W, team: f64) -> bool {
+    fn low_tickets<W: World + ?Sized>(&self, w: &W, team: f64) -> bool {
         if team != 1.0 && team != 2.0 {
             return false;
         }
@@ -497,22 +612,22 @@ impl VehicleAI {
 
     /// pilotKeepsSeat(), alertsBlocked(), refusesHold(): false for every
     /// stock control.
-    pub fn pilot_keeps_seat(&self) -> bool {
-        false
-    }
-    pub fn alerts_blocked(&self) -> bool {
-        false
-    }
-    pub fn refuses_hold(&self) -> bool {
+    fn pilot_keeps_seat(&self) -> bool {
         false
     }
 
-    // ---- boarding -----------------------------------------------------------------------
+    fn alerts_blocked(&self) -> bool {
+        false
+    }
+
+    fn refuses_hold(&self) -> bool {
+        false
+    }
 
     /// canEnter(controller, candidate): a living soldier on foot, the
     /// candidate alive and not left for a pad's while, by the boarding
     /// rules every boarder follows.
-    pub fn can_enter<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, candidate: Obj) -> bool {
+    fn can_enter<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, candidate: Obj) -> bool {
         let Some(unit) = controller.and_then(|c| w.controller(c).unit) else { return false };
         let u = w.unit(unit);
         if u.seat.is_some() || !u.soldier || u.walker || u.kind != 0.0 || !u.alive {
@@ -522,7 +637,7 @@ impl VehicleAI {
             return false;
         }
         let entry = w.unit(candidate);
-        let Some(body) = Self::body_of_unit(&entry) else { return false };
+        let Some(body) = VehicleAI::body_of_unit(&entry) else { return false };
         let alive = match body {
             Body::Hull(h) => w.hull(h).alive,
             Body::Turret(t) => w.turret(t).alive,
@@ -533,7 +648,7 @@ impl VehicleAI {
         let body_obj = match body {
             Body::Hull(h) | Body::Turret(h) => h,
         };
-        let until = self.pad_left.iter().find(|(h, _)| *h == body_obj).map_or(f64::NEG_INFINITY, |(_, t)| *t);
+        let until = self.read(|s| s.pad_left.iter().find(|(h, _)| *h == body_obj).map_or(f64::NEG_INFINITY, |(_, t)| *t));
         if until > w.now() {
             return false;
         }
@@ -556,59 +671,61 @@ impl VehicleAI {
     }
 
     /// freeSeats(candidate, team, type).
-    pub fn free_seats<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, team: f64, kind: f64) -> f64 {
+    fn free_seats<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, team: f64, kind: f64) -> f64 {
         let seats = self.seat_count(w, candidate);
         let humans = self.human_occupants(w, candidate);
-        free_capacity(&mut self.reservations, w, candidate, team, kind, seats, humans)
+        { let reserved = self.reservation_count(w, candidate, team, kind);
+            let players = if kind == SEAT { humans } else { 0.0 };
+            if seats < players + reserved { 0.0 } else { seats - players - reserved } }
     }
 
     /// reserve(candidate, unit, type).
-    pub fn reserve<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, unit: Obj, kind: f64) {
-        self.reservations.reserve(w, candidate, unit, kind);
+    fn reserve<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, unit: Obj, kind: f64) {
+        self.reservation_reserve(w, candidate, unit, kind);
     }
 
     /// reserveSeat(controller, candidate): the boarding agent's entry.
-    pub fn reserve_seat<W: World + ?Sized>(&mut self, w: &W, controller: Option<Obj>, candidate: Option<Obj>) -> bool {
+    fn reserve_seat<W: World + ?Sized>(&mut self, w: &W, controller: Option<Obj>, candidate: Option<Obj>) -> bool {
         let Some(unit) = controller.and_then(|c| w.controller(c).unit) else { return false };
         let Some(candidate) = candidate else { return false };
-        if self.reservations.has(w, candidate, unit, SEAT) {
+        if self.reservation_has(w, candidate, unit, SEAT) {
             return true;
         }
         let team = w.unit(unit).team;
         if self.free_seats(w, candidate, team, SEAT) > 0.0 {
-            self.reservations.reserve(w, candidate, unit, SEAT);
+            self.reservation_reserve(w, candidate, unit, SEAT);
             return true;
         }
         false
     }
 
     /// holdReservation(controller, candidate): the boarding agent's tick.
-    pub fn hold_reservation<W: World + ?Sized>(&mut self, w: &W, controller: Option<Obj>, candidate: Obj) -> bool {
+    fn hold_reservation<W: World + ?Sized>(&mut self, w: &W, controller: Option<Obj>, candidate: Obj) -> bool {
         let Some(unit) = controller.and_then(|c| w.controller(c).unit) else { return false };
-        if !self.reservations.has(w, candidate, unit, SEAT) {
+        if !self.reservation_has(w, candidate, unit, SEAT) {
             return false;
         }
-        self.reservations.reserve(w, candidate, unit, SEAT);
+        self.reservation_reserve(w, candidate, unit, SEAT);
         true
     }
 
     /// boardNow(controller, candidate): the board request, carried out.
-    pub fn board_now<W: World + ?Sized>(&mut self, w: &mut W, controller: Option<Obj>, candidate: Obj) -> bool {
+    fn board_now<W: World + ?Sized>(&mut self, w: &mut W, controller: Option<Obj>, candidate: Obj) -> bool {
         let unit = controller.and_then(|c| w.controller(c).unit);
-        let body = Self::body_of_unit(&w.unit(candidate));
+        let body = VehicleAI::body_of_unit(&w.unit(candidate));
         let (Some(unit), Some(body)) = (unit, body) else { return false };
         let ok = match body {
             Body::Hull(h) => w.board(unit, h),
             Body::Turret(t) => w.man(unit, t),
         };
         if ok {
-            self.reservations.release(candidate, unit, SEAT);
+            self.write(|s| s.reservations.release(candidate, unit, SEAT));
         }
         ok
     }
 
     /// boardPathClear(controller, candidate): no eligible enemy within 8 m.
-    pub fn board_path_clear<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, candidate: Obj) -> bool {
+    fn board_path_clear<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, candidate: Obj) -> bool {
         let Some(unit) = controller.and_then(|c| w.controller(c).unit) else { return true };
         let team = w.unit(unit).team;
         let at = w.unit(candidate).position;
@@ -618,16 +735,16 @@ impl VehicleAI {
     }
 
     /// relation(a, b).
-    pub fn relation<W: World + ?Sized>(&self, w: &mut W, a: f64, b: f64) -> f64 {
+    fn relation<W: World + ?Sized>(&self, w: &mut W, a: f64, b: f64) -> f64 {
         w.relation(a, b)
     }
 
     /// boardPolicy(agent, candidate): a moving candidate always; a
     /// stationary one with a remembered target it could reach, or, with
     /// StayInTurrets, for any role but the repair roles.
-    pub fn board_policy<W: World + ?Sized>(&self, w: &mut W, agent: Obj, controller: Obj, candidate: Obj) -> bool {
+    fn board_policy<W: World + ?Sized>(&self, w: &mut W, agent: Obj, controller: Obj, candidate: Obj) -> bool {
         let entry = w.unit(candidate);
-        let body = Self::body_of_unit(&entry);
+        let body = VehicleAI::body_of_unit(&entry);
         if self.nominal_speed(w, &entry) > 0.0 {
             return true;
         }
@@ -641,8 +758,8 @@ impl VehicleAI {
 
     /// nominalSpeed(candidate): its class's MaxSpeed (walkers, flyers) or
     /// ForwardSpeed; a turret's 0.
-    pub fn nominal_speed<W: World + ?Sized>(&self, w: &W, candidate: &UnitView) -> f64 {
-        let Some(Body::Hull(h)) = Self::body_of_unit(candidate) else { return 0.0 };
+    fn nominal_speed<W: World + ?Sized>(&self, w: &W, candidate: &UnitView) -> f64 {
+        let Some(Body::Hull(h)) = VehicleAI::body_of_unit(candidate) else { return 0.0 };
         let hull = w.hull(h);
         let n = if hull.flying || hull.walking { hull.max_speed_setting } else { hull.forward_speed_setting };
         if n.is_finite() {
@@ -654,26 +771,25 @@ impl VehicleAI {
 
     /// targetReserved(target, team) / reserveTarget(target, unit): flyer
     /// target reservations (type 2).
-    pub fn target_reserved<W: World + ?Sized>(&mut self, w: &W, target: Obj, team: f64) -> bool {
-        self.reservations.count(w, target, team, 2.0) > 0.0
-    }
-    pub fn reserve_target<W: World + ?Sized>(&mut self, w: &W, target: Obj, unit: Obj) {
-        self.reservations.reserve(w, target, unit, 2.0);
+    fn target_reserved<W: World + ?Sized>(&mut self, w: &W, target: Obj, team: f64) -> bool {
+        self.reservation_count(w, target, team, 2.0) > 0.0
     }
 
-    // ---- mounted reach and perception -------------------------------------------------------
+    fn reserve_target<W: World + ?Sized>(&mut self, w: &W, target: Obj, unit: Obj) {
+        self.reservation_reserve(w, target, unit, 2.0);
+    }
 
     /// mountReach(unit, point): one of the control's mounts can bring its
     /// weapon to bear on `point` by angle alone.
-    pub fn mount_reach<W: World + ?Sized>(&self, w: &mut W, unit: Option<Obj>, point: &Vector3) -> bool {
-        let lease = Self::lease_of(w, unit).or_else(|| unit.and_then(|u| w.unit(u).lease).map(|l| w.lease(l)));
+    fn mount_reach<W: World + ?Sized>(&self, w: &mut W, unit: Option<Obj>, point: &Vector3) -> bool {
+        let lease = VehicleAI::lease_of(w, unit).or_else(|| unit.and_then(|u| w.unit(u).lease).map(|l| w.lease(l)));
         let Some(lease) = lease else { return true };
         let origin = Origin::Lease(lease.obj);
         mount_angles(w, lease.vehicle, lease.turret, lease.index, origin, point)
     }
 
     /// bodyReach(body, point): any mount of a candidate reaches it.
-    pub fn body_reach<W: World + ?Sized>(&self, w: &mut W, body: Option<Body>, point: &Vector3) -> bool {
+    fn body_reach<W: World + ?Sized>(&self, w: &mut W, body: Option<Body>, point: &Vector3) -> bool {
         match body {
             None => false,
             Some(Body::Turret(t)) => mount_angles(w, None, Some(t), 0.0, Origin::TurretPivot(t), point),
@@ -694,7 +810,7 @@ impl VehicleAI {
 
     /// unreachableFromMount(controller, point): a zero-speed control that
     /// cannot turn to the point.
-    pub fn unreachable_from_mount<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, point: &Vector3) -> bool {
+    fn unreachable_from_mount<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, point: &Vector3) -> bool {
         let Some(unit) = controller.and_then(|c| w.controller(c).unit) else { return false };
         let u = w.unit(unit);
         if u.lease.is_none() || patterns::forward_speed(&u) != 0.0 {
@@ -705,9 +821,9 @@ impl VehicleAI {
 
     /// sharedTarget(controller): an AI gun in a walker or hover a person
     /// drives fires at the person's target when its mount reaches it.
-    pub fn shared_target<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>) -> Option<Obj> {
+    fn shared_target<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>) -> Option<Obj> {
         let unit = controller.and_then(|c| w.controller(c).unit);
-        let lease = Self::lease_of(w, unit)?;
+        let lease = VehicleAI::lease_of(w, unit)?;
         let h = lease.vehicle?;
         let body = w.hull(h);
         if body.flying {
@@ -731,10 +847,8 @@ impl VehicleAI {
         }
     }
 
-    // ---- combat hooks (world.vehicles) ---------------------------------------------------
-
     /// dispatch(controller, unit, target, switchAllowed, world, out).
-    pub fn dispatch<W: World + ?Sized>(&self, w: &mut W, controller: Obj, unit: Obj, target: Obj, switch_allowed: bool) -> Dispatch {
+    fn dispatch<W: World + ?Sized>(&self, w: &mut W, controller: Obj, unit: Obj, target: Obj, switch_allowed: bool) -> Dispatch {
         let mut out = Dispatch::default();
         let u = w.unit(unit);
         let t = w.unit(target);
@@ -744,37 +858,35 @@ impl VehicleAI {
     }
 
     /// enterPattern(patterns, state).
-    pub fn enter_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut Option<PatternState>, pattern: f64) {
+    fn enter_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut (impl patterns::PatternAccess + ?Sized), pattern: f64) {
         let settings = w.settings().clone();
-        patterns::enter_pattern(w, &mut self.run, &settings, p, state, pattern);
+        patterns::enter_pattern(w, self, &settings, p, state, pattern);
     }
 
     /// tickPattern(patterns, state, dt).
-    pub fn tick_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut Option<PatternState>, pattern: f64) {
+    fn tick_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut (impl patterns::PatternAccess + ?Sized), pattern: f64) {
         let settings = w.settings().clone();
-        patterns::tick_pattern(w, &mut self.run, &settings, p, state, pattern);
+        patterns::tick_pattern(w, self, &settings, p, state, pattern);
     }
 
     /// exitPattern(patterns, state).
-    pub fn exit_pattern<W: World + ?Sized>(&self, w: &mut W, p: &PatternsView, pattern: f64) {
+    fn exit_pattern<W: World + ?Sized>(&self, w: &mut W, p: &PatternsView, pattern: f64) {
         patterns::exit_pattern(w, p, pattern);
     }
 
     /// sidestep(patterns).
-    pub fn sidestep<W: World + ?Sized>(&self, w: &mut W, p: &PatternsView) -> bool {
+    fn sidestep<W: World + ?Sized>(&self, w: &mut W, p: &PatternsView) -> bool {
         let per_second = self.cycles_per_second(w);
         patterns::sidestep(w, p, per_second)
     }
 
     /// isAtAt(unit).
-    pub fn is_at_at<W: World + ?Sized>(&self, w: &W, unit: Obj) -> bool {
+    fn is_at_at<W: World + ?Sized>(&self, w: &W, unit: Obj) -> bool {
         patterns::is_at_at(w, &w.unit(unit))
     }
 
-    // ---- patrol, flyer objective ------------------------------------------------------------
-
     /// patrolMounted(patrol): Patrol's mounted branch (state 1).
-    pub fn patrol_mounted<W: World + ?Sized>(&self, w: &mut W, patrol: &PatrolView) -> bool {
+    fn patrol_mounted<W: World + ?Sized>(&self, w: &mut W, patrol: &PatrolView) -> bool {
         let controller = patrol.controller;
         let unit = w.controller(controller).unit;
         if patrol.support {
@@ -827,7 +939,7 @@ impl VehicleAI {
     /// movement helper the JavaScript hands in (None: none): its traversal
     /// mask and radius are read from it at each point the JavaScript reads
     /// `helper.mask` and `helper.radius`.
-    pub fn support_point<W: World + ?Sized>(&mut self, w: &mut W, unit: Option<Obj>, post: Option<Obj>, helper: Option<Obj>) -> Option<Vector3> {
+    fn support_point<W: World + ?Sized>(&mut self, w: &mut W, unit: Option<Obj>, post: Option<Obj>, helper: Option<Obj>) -> Option<Vector3> {
         let (Some(unit), Some(post)) = (unit, post) else { return None };
         if !w.has_graph() {
             return None;
@@ -849,10 +961,15 @@ impl VehicleAI {
         if !out_of_reach(w.nav().map(|n| &mut n.barriers), &center, reach, radius, v8math::to_uint32(mask)) {
             return None;
         }
+        // Publish the post's cache before callbacks that may inspect or
+        // populate it, just as supportPoint creates its Map first.
+        self.write(|s| {
+            if !s.support_cache.iter().any(|(p,_)| *p == post) { s.support_cache.push((post,Vec::new())); }
+        });
         let key_mask = w.helper_traversal(helper, false);
         let key_radius = w.helper_traversal(helper, true);
         let key = format!("{}/{}", bfe_content::js::number_to_string(key_mask), to_fixed_1(key_radius));
-        let cached = self.support_cache.iter().find(|(p, _)| *p == post).and_then(|(_, m)| m.iter().find(|(k, _)| *k == key)).map(|(_, h)| h.clone());
+        let cached = self.read(|s| s.support_cache.iter().find(|(p, _)| *p == post).and_then(|(_, m)| m.iter().find(|(k, _)| *k == key)).map(|(_, h)| h.clone()));
         let hubs = match cached {
             Some(h) => h,
             None => {
@@ -881,10 +998,10 @@ impl VehicleAI {
                     hubs.push(SupportHub { hub: c.hub, distance: c.distance });
                 }
                 support::sort_by_distance(&mut hubs);
-                match self.support_cache.iter_mut().find(|(p, _)| *p == post) {
-                    Some((_, m)) => m.push((key, hubs.clone())),
-                    None => self.support_cache.push((post, vec![(key, hubs.clone())])),
-                }
+                self.write(|s| match s.support_cache.iter_mut().find(|(p, _)| *p == post) {
+                    Some((_, m)) => match m.iter_mut().find(|(k,_)| *k==key) { Some((_,value))=>*value=hubs.clone(), None=>m.push((key,hubs.clone())) },
+                    None => s.support_cache.push((post, vec![(key, hubs.clone())])),
+                });
                 hubs
             }
         };
@@ -900,13 +1017,13 @@ impl VehicleAI {
     }
 
     /// holdHint(hint, controller): the hint reserved for the controller now.
-    pub fn hold_hint<W: World + ?Sized>(&self, w: &mut W, hint: Obj, controller: Obj) {
+    fn hold_hint<W: World + ?Sized>(&self, w: &mut W, hint: Obj, controller: Obj) {
         let now = w.now();
         w.reserve_hint(hint, controller, now);
     }
 
     /// closeHint(hint, until): every hint of its ring taken until `until`.
-    pub fn close_hint<W: World + ?Sized>(&self, w: &mut W, hint: Obj, until: f64) {
+    fn close_hint<W: World + ?Sized>(&self, w: &mut W, hint: Obj, until: f64) {
         let mut h = hint;
         loop {
             w.set_hint_reserved_at(h, until - 4.0);
@@ -919,8 +1036,8 @@ impl VehicleAI {
 
     /// disembarkPassengers(controller, post): every AI aboard but the pilot
     /// gets out, taking up `post`.
-    pub fn disembark_passengers<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, post: Option<Obj>) -> f64 {
-        let Some(h) = Self::controller_lease(w, controller).and_then(|l| l.vehicle) else { return 0.0 };
+    fn disembark_passengers<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>, post: Option<Obj>) -> f64 {
+        let Some(h) = VehicleAI::controller_lease(w, controller).and_then(|l| l.vehicle) else { return 0.0 };
         let seats = w.hull(h).seats;
         let mut n = 0.0;
         for seat in seats.iter().skip(1) {
@@ -940,22 +1057,22 @@ impl VehicleAI {
     }
 
     /// destroyStuck(controller): a stranded flyer is destroyed.
-    pub fn destroy_stuck<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>) {
-        if let Some(h) = Self::controller_lease(w, controller).and_then(|l| l.vehicle) {
+    fn destroy_stuck<W: World + ?Sized>(&self, w: &mut W, controller: Option<Obj>) {
+        if let Some(h) = VehicleAI::controller_lease(w, controller).and_then(|l| l.vehicle) {
             w.damage(h, f64::INFINITY);
         }
     }
 
     /// abandonPad(controller): a craft its pilot cannot lift off its pad:
     /// every bot aboard gets out, none boards for 15 s, none is invited for 60.
-    pub fn abandon_pad<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) -> f64 {
-        let Some(lease) = Self::controller_lease(w, Some(controller)) else { return 0.0 };
+    fn abandon_pad<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) -> f64 {
+        let Some(lease) = VehicleAI::controller_lease(w, Some(controller)) else { return 0.0 };
         let Some(h) = lease.vehicle else { return 0.0 };
         let now = w.now();
-        match self.pad_left.iter_mut().find(|(b, _)| *b == h) {
+        self.write(|s| match s.pad_left.iter_mut().find(|(b, _)| *b == h) {
             Some(entry) => entry.1 = now + 60.0,
-            None => self.pad_left.push((h, now + 60.0)),
-        }
+            None => s.pad_left.push((h, now + 60.0)),
+        });
         let seats = w.hull(h).seats;
         let mut n = 0.0;
         for seat in seats.iter().rev() {
@@ -979,21 +1096,19 @@ impl VehicleAI {
         n
     }
 
-    // ---- VehicleSpawn decay ----------------------------------------------------------------
-
     /// updateDecay(dt): the unattended-vehicle service, once a step: a hull
     /// outside the map's boundary, or one that has lost its team on a pad
     /// linked to a post, with nobody aboard, gathers idle time, a sample a
     /// second (a person who could board it near pauses the count); past 20
     /// samples it loses MaxHealth / DecayTime a sample.
-    pub fn update_decay<W: World + ?Sized>(&self, w: &mut W, dt: f64) {
+    fn update_decay<W: World + ?Sized>(&self, w: &mut W, dt: f64) {
         for h in w.hulls() {
             let v = w.hull(h);
             if !v.alive {
                 continue;
             }
             // `v.decay ||= { idle: 0, sample: 0 }`.
-            let mut st = *w.decay(h).get_or_insert_with(Decay::default);
+            let mut st = w.read_decay(h).unwrap_or_default();
             let inside = !w.nav().is_some_and(|nav| nav.outside(crate::ai::nav::math::Vec3::new(v.position.x, v.position.y, v.position.z)));
             let damage = (|| {
                 if inside && (!v.slot_post || v.controlling_team != 0.0) {
@@ -1012,15 +1127,15 @@ impl VehicleAI {
                 Some(())
             })();
             if damage.is_none() {
-                *w.decay(h) = Some(st);
+                w.write_decay(h, st);
                 continue;
             }
-            *w.decay(h) = Some(st);
+            w.write_decay(h, st);
             if self.player_near(w, &v) {
                 continue;
             }
             st.idle += 1.0;
-            *w.decay(h) = Some(st);
+            w.write_decay(h, st);
             if st.idle > 20.0 {
                 let amount = v.max_health / v.decay_time.unwrap_or(10.0);
                 w.damage(h, amount);
@@ -1030,7 +1145,7 @@ impl VehicleAI {
 
     /// playerNear(v): a person who could board it within its radius and
     /// his, plus 10 m.
-    pub fn player_near<W: World + ?Sized>(&self, w: &mut W, v: &super::world::HullView) -> bool {
+    fn player_near<W: World + ?Sized>(&self, w: &mut W, v: &super::world::HullView) -> bool {
         for unit in w.human_units() {
             let u = w.unit(unit);
             if !u.alive {
@@ -1050,7 +1165,7 @@ impl VehicleAI {
 
     /// reachable(entry): soldiers can reach where the vehicle sits (the
     /// barriers clear at 2 m, then at its own traversal radius).
-    pub fn reachable<W: World + ?Sized>(&self, w: &mut W, entry: Obj) -> bool {
+    fn reachable<W: World + ?Sized>(&self, w: &mut W, entry: Obj) -> bool {
         let e = w.unit(entry);
         let r = match e.vehicle {
             Some(h) => {
@@ -1068,7 +1183,6 @@ impl VehicleAI {
     }
 }
 
-/// characterOf(u) (index.js): a unit's Character, or a crew's.
 fn character_of<W: World + ?Sized>(w: &W, u: Obj) -> bool {
     let unit = w.unit(u);
     if unit.character.is_some() {
@@ -1258,5 +1372,5 @@ pub use steering::{arrival_radius, nonlinear_yaw, translate};
 pub use support::{hubs_at, routes};
 /// The unused steerState accessor, for tests and debugging.
 pub fn steer_of<W: World + ?Sized>(w: &mut W, control: Obj) -> super::world::Steer {
-    *steer_state(w, control)
+    steer_state(w, control, |st| *st)
 }

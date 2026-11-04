@@ -93,7 +93,7 @@ test('a page that built another battle than the server plays loads the server\'s
  assert.equal(otherBattle(page, '?map=bes2&side=rep&ai=classic&seed=1&match=' + 'b'.repeat(32)), false, 'the same battle: the match token and the page\'s own keys do not count');
  assert.equal(otherBattle(page, '?map=bes2&side=imp&ai=classic&seed=1'), true);
  const visited = [], location = globalThis.location;
- globalThis.location = { search: page, assign: url => visited.push(url) };
+ globalThis.location = { search: page + '&prediction=rust', assign: url => visited.push(url) };
  try {
   const session = new NetworkSession({ lifecycle: null, onEntityRegistry: () => ({ inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES }), onEntities: () => {} });
   session.query = page;
@@ -104,6 +104,7 @@ test('a page that built another battle than the server plays loads the server\'s
   const next = new URLSearchParams(visited[0].slice(2));
   assert.deepEqual([next.get('ai'), next.get('map'), next.get('server'), next.get('address'), next.get('port')], ['off', 'bes2', 'abc', '10.0.0.5', '18452'], 'the server\'s battle, over this page\'s connection');
   assert.equal(ready, false, 'this battle never starts');
+  assert.equal(next.get('prediction'), 'rust', 'the page retains its prediction diagnostic across battle changes');
   assert.equal(session.authenticated, false);
  } finally { globalThis.location = location; }
 });

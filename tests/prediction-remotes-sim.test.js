@@ -131,6 +131,87 @@ test('completed and empty recon replays release native sessions and permit reuse
   } finally { native.dispose(); }
 });
 
+test('closing a recon bridge during a nested shot lets active steps finish and releases every session', async () => {
+  const instance = await loadSim(), native = createRemotePredictionSim(instance), other = createRemotePredictionSim(instance);
+  const sessions = [], create = native.create;
+  native.create = (...args) => { const session = create(...args); sessions.push(session); return session; };
+  const idleFixture = createRemoteFixture({}), idleCache = new RemotePredictionContext();
+  const idleState = idleCache.acquire(idleFixture.source, idleFixture.droid);
+  const idle = native.create(idleState.context, idleState.predicted);
+  let child, independent, closed = 0;
+  try {
+    const outer = runRemotePredictionCase({ ticks: 1 }, { native, onFired() {
+      child = runRemotePredictionCase({ ticks: 1 }, { native, onFired() {
+        assert.equal(native.activeSessions, 3);
+        native.dispose(); native.dispose(); closed++;
+        assert.equal(idle.handle, 0);
+        assert.equal(native.activeSessions, 2, 'busy owners retain handles until their steps unwind');
+        for (const session of sessions.slice(1)) assert.notEqual(session.handle, 0);
+        assert.throws(() => native.create(idleState.context, idleState.predicted), /bridge is disposed/);
+        assert.throws(() => sessions[1].step(remoteCommands(1)[0], {}), /bridge is disposed/);
+        independent = runRemotePredictionCase({ ticks: 1 }, { native: other });
+      } });
+      assert.equal(native.activeSessions, 1, 'the outer step still owns its suspended continuation');
+      assert.equal(child.result.nativeSession.handle, 0);
+    } });
+    const reference = runRemotePredictionCase({ ticks: 1 });
+    for (const result of [outer, child, independent]) {
+      assert.deepEqual(result.observation, reference.observation);
+      assert.deepEqual(result.events, reference.events);
+      assert.equal(result.result.nativeSession.steps, 1);
+    }
+    assert.equal(closed, 1); assert.equal(native.activeSessions, 0);
+    for (const session of sessions) { assert.equal(session.handle, 0); assert.equal(session.disposed, true); }
+    const reused = runRemotePredictionCase({ ticks: 2 }, { native: other });
+    assert.deepEqual(reused.observation, runRemotePredictionCase({ ticks: 2 }).observation);
+  } finally { native.dispose(); other.dispose(); }
+});
+
+test('deferred recon disposal preserves callback-thrown values and partial state', async () => {
+  const instance = await loadSim();
+  const observe = (native, marker) => {
+    const cache = new RemotePredictionContext(); let calls = 0;
+    const fixture = createRemoteFixture({}, { onFired() { calls++; native?.dispose(); throw marker; } });
+    const { source, droid } = fixture, { context, predicted } = cache.acquire(source, droid);
+    fixture.setContext(context); fixture.events.length = 0;
+    let caught = Symbol('no callback error');
+    try { predictRemote(source, droid, remoteCommands(3), 0, 1, [], {}, cache, { native }); }
+    catch (error) { caught = error; }
+    assert.equal(caught, marker); assert.equal(calls, 1);
+    assert.equal(fixture.events.at(-1)[0], 'fired', 'no later foreign callback runs after the throw');
+    return { state: remoteObservation(context, predicted), events: fixture.events };
+  };
+  for (const marker of [new Error('closed from shot'), null, undefined]) {
+    const native = createRemotePredictionSim(instance), sessions = [], create = native.create;
+    native.create = (...args) => { const session = create(...args); sessions.push(session); return session; };
+    try {
+      assert.deepEqual(observe(native, marker), observe(null, marker));
+      assert.equal(native.activeSessions, 0);
+      assert.equal(sessions.length, 1); assert.equal(sessions[0].handle, 0);
+    } finally { native.dispose(); }
+  }
+  const other = createRemotePredictionSim(instance);
+  try { assert.equal(runRemotePredictionCase({ ticks: 1 }, { native: other }).result.nativeSession.steps, 1); }
+  finally { other.dispose(); }
+});
+
+test('disposing a busy recon session retires it after the step without closing its bridge', async () => {
+  const native = createRemotePredictionSim(await loadSim()), create = native.create;
+  let session, disposed = 0;
+  native.create = (...args) => (session = create(...args));
+  try {
+    const result = runRemotePredictionCase({ ticks: 1 }, { native, onFired() {
+      session.dispose(); session.dispose(); disposed++;
+      assert.notEqual(session.handle, 0); assert.equal(native.activeSessions, 1);
+      assert.throws(() => session.step(remoteCommands(1)[0], {}), /already running/);
+    } });
+    assert.equal(disposed, 1); assert.equal(result.result.nativeSession.handle, 0);
+    assert.equal(native.activeSessions, 0);
+    assert.deepEqual(result.observation, runRemotePredictionCase({ ticks: 1 }).observation);
+    assert.equal(runRemotePredictionCase({ ticks: 2 }, { native }).result.nativeSession.steps, 2);
+  } finally { native.dispose(); }
+});
+
 test('recon projection callbacks see the original pose and stop immediately on throw or pilot exit', async () => {
   let mutatedTrace = 0;
   const native = createRemotePredictionSim(await loadSim(), { trace(event) {

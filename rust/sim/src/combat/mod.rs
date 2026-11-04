@@ -27,6 +27,8 @@ pub mod defs;
 #[cfg(target_arch = "wasm32")]
 #[allow(clippy::too_many_arguments)]
 pub mod module;
+#[cfg(target_arch = "wasm32")]
+pub mod weapon_module;
 #[allow(clippy::neg_cmp_op_on_partial_ord, clippy::too_many_arguments)]
 pub mod weapons;
 pub mod world;

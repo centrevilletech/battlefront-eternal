@@ -26,6 +26,7 @@
 // A world only: a page draws soldiers from their records, and its own
 // player keeps his PlayerCombat.
 import * as THREE from "three";
+import { valueWords, weaponClasses, registerWeaponClass } from "./weapon-content-sim.js";
 import { bridgeFor } from "./sim/runtime.js";
 import { CbOutMirror, CombatMirror, KIND_UNIT, putCbDamageIn, putCbExplodeIn, putCbIn, syncCbOut, syncCombat } from "./sim/gen/index.js";
 import { BLAST_BODY, PlayerCombat } from "./combat.js";
@@ -41,30 +42,6 @@ const HEADER = 5;
 const legacySpread = legacyRandom("weapon-spread");
 const legacyChunks = legacyRandom("blow-apart");
 const PRESENT = ["weaponAction", "endWeaponAction", "lightning"];
-
-// A JavaScript value as words for the module's content (module.rs
-// `read_js`): a weapon class inside a unit class is its index.
-function valueWords(v, strings, out, weapons = null, depth = 0) {
-  if (v === undefined) out.push(0);
-  else if (v === null) out.push(1);
-  else if (v === false) out.push(2);
-  else if (v === true) out.push(3);
-  else if (typeof v === "number") out.push(4, v);
-  else if (typeof v === "string") out.push(5, strings.id(v));
-  else if (weapons?.has(v)) out.push(8, weapons.get(v));
-  else if (Array.isArray(v) && depth < 12) {
-    out.push(6, v.length);
-    for (const x of v) valueWords(x, strings, out, weapons, depth + 1);
-  } else if (typeof v === "object" && depth < 12) {
-    const keys = Object.keys(v);
-    out.push(7, keys.length);
-    for (const k of keys) {
-      out.push(strings.id(k));
-      valueWords(v[k], strings, out, weapons, depth + 1);
-    }
-  } else out.push(9);
-  return out;
-}
 
 // What tells apart the objects a combat's unions hold that are no class's
 // instances: what src/ordnance-owner.js froze of a unit whose life ended
@@ -85,7 +62,7 @@ export class CombatSim {
     this.bridge = bridge;
     this.x = bridge.x;
     this.facades = [];
-    this.weaponsSent = new Map(); // a weapon class -> its index
+    this.weaponsSent = weaponClasses(bridge); // a weapon class -> its index
     this.classesSent = new Set();
     this.explosions = new Map(); // an explosion -> its index
     this.out = new CbOutMirror();
@@ -115,12 +92,7 @@ export class CombatSim {
   }
 
   weaponClass(def) {
-    let id = this.weaponsSent.get(def);
-    if (id !== undefined) return id;
-    id = this.bridge.defs.weapon.id(def);
-    this.weaponsSent.set(def, id);
-    this.send(valueWords(def, this.bridge.strings, []), () => this.x.cmb_weapon(id));
-    return id;
+    return registerWeaponClass(this.bridge, def);
   }
 
   unitClass(def) {

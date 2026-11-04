@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld, makeHit } from '../src/collision.js';
 import { Turret, scanVector } from '../src/props.js';
 import { TurretSeats, turretAimPoint } from '../src/seats.js';
 import { Gunner, TurretCamera, previewSteer } from '../src/gunner.js';
@@ -319,6 +319,7 @@ test('imported: every turret class frames its gun and puts its rounds under the 
   for (const map of CLASS_MAPS) {
     const game = await headlessGame(`map=${map}&side=imp&ai=off`);
     await game.ready;
+    await game.factory.prepare(game.playerUnit.className);
     const T = game.THREE;
     for (const turret of game.live.turrets) {
       const cls = turret.desc.class;
@@ -343,9 +344,12 @@ test('imported: every turret class frames its gun and puts its rounds under the 
         for (const firstPerson of [false, true]) for (const extreme of ['level', 'low', 'high']) {
           const view = `${cls} ${firstPerson ? 'first' : 'third'} ${extreme}`;
           const pitch = extreme === 'low' ? turret.pitchLimits[0] : extreme === 'high' ? turret.pitchLimits[1] : 0;
-          const unit = { id: 90000 + seen.size, generation: 1, team: 1, alive: true, dead: false, human: true, networkHuman: true, seat: null, walker: false, classDef: {},
-            intent: blankIntent(), combat: { firstPerson, zoom: 1 },
-            soldier: { position: new T.Vector3(), previous: new T.Vector3(), settled: new T.Vector3(), velocity: new T.Vector3(), aimYaw: 0, aimPitch: 0 } };
+          // The imported world fires real ordnance, whose owner must be a
+          // real unit on the shared bridge, just as a network rider is.
+          const unit = game.factory.build(game.playerUnit.className);
+          unit.team = 1; unit.human = true; unit.networkHuman = true;
+          unit.spawn(0, 0, 0, 0); unit.intent = blankIntent();
+          unit.combat.firstPerson = firstPerson;
           assert.ok(game.turretSeats.man(unit, turret), cls);
           turret.yaw = turret.yawVel = turret.pitchVel = 0;
           turret.pitch = pitch;
@@ -353,8 +357,11 @@ test('imported: every turret class frames its gun and puts its rounds under the 
           fired.length = 0;
           unit.intent.buttons = [1, 0];
           for (let i = 0; i < 90; i++) { game.turretSeats.update(1 / 60); if (i === 30) unit.intent.buttons = [0, 0]; if (i === 50) unit.intent.buttons = [1, 0]; }
-          const target = game.turretSeats.target.clone();
           const aim = turret.viewDirection(new T.Vector3());
+          // Read the public aim independently of either implementation's
+          // scratch state; emitted origins and directions above are copies.
+          const target = turretAimPoint(turret, firstPerson, aim,
+            game.turretSeats.world, game.turretSeats.world, unit, new T.Vector3(), makeHit());
           const from = firstPerson ? turret.eyePoint(new T.Vector3()) : turret.cameraRest(new T.Vector3());
           const v = target.clone().sub(from);
           assert.ok(v.clone().addScaledVector(aim, -v.dot(aim)).length() < 1e-3, `${view}: aim point on the crosshair ray`);
@@ -371,6 +378,7 @@ test('imported: every turret class frames its gun and puts its rounds under the 
             assert.ok(miss <= spread, `${view}: the round meets the aim point (${(miss * 180 / Math.PI).toFixed(4)} degrees off)`);
           }
           game.turretSeats.leave(unit, { placement: false });
+          unit.remove();
         }
       } finally {
         ordnance.fire = fire;

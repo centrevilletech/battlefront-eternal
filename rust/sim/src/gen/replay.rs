@@ -687,6 +687,42 @@ impl AiTrackerResult {
     }
 }
 
+impl AiVehicleWorldArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiVehicleWorldArgs {
+            op: { let p = format!("{path}.op"); AiVehicleWorldOp::from_u8(name_of(v.get("op"), &AiVehicleWorldOp::NAMES, &p)?).unwrap() },
+            values: { let p = format!("{path}.values"); { let mut out = Vec::new(); for (i, e) in list(v.get("values"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Str(AiVehicleWorldOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.values.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("values", x)); }
+        a.object("", fields)
+    }
+}
+
+impl AiVehicleWorldResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiVehicleWorldResult {
+            values: { let p = format!("{path}.values"); { let mut out = Vec::new(); for (i, e) in list(v.get("values"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = { let mut items = Vec::new(); for e in self.values.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("values", x)); }
+        a.object("", fields)
+    }
+}
+
 impl AiWeaponArgs {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -9996,6 +10032,189 @@ impl WaterRule {
     }
 }
 
+impl WpState {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WpState {
+            weapon: { let p = format!("{path}.weapon"); Weapon::from_value(v.get("weapon"), cx, &p)? },
+            numeric_level: { let p = format!("{path}.numericLevel"); num(v.get("numericLevel"), &p)? },
+            numeric_seed: { let p = format!("{path}.numericSeed"); match v.get("numericSeed").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("numericSeed"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = self.weapon.to_value(cx, a); fields.push(("weapon", x)); }
+        { let x = Value::Num(self.numeric_level); fields.push(("numericLevel", x)); }
+        { let x = match &self.numeric_seed { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("numericSeed", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WpTarget {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WpTarget {
+            id: { let p = format!("{path}.id"); num(v.get("id"), &p)? },
+            generation: { let p = format!("{path}.generation"); num(v.get("generation"), &p)? },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Num(self.id); fields.push(("id", x)); }
+        { let x = Value::Num(self.generation); fields.push(("generation", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WpInput {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WpInput {
+            op: { let p = format!("{path}.op"); WpOperation::from_u8(name_of(v.get("op"), &WpOperation::NAMES, &p)?).unwrap() },
+            state: { let p = format!("{path}.state"); WpState::from_value(v.get("state"), cx, &p)? },
+            dt: { let p = format!("{path}.dt"); num(v.get("dt"), &p)? },
+            selected: { let p = format!("{path}.selected"); boolean(v.get("selected"), &p)? },
+            held: { let p = format!("{path}.held"); boolean(v.get("held"), &p)? },
+            pressed: { let p = format!("{path}.pressed"); boolean(v.get("pressed"), &p)? },
+            seed: { let p = format!("{path}.seed"); match v.get("seed").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("seed"), &p)?) } },
+            late: { let p = format!("{path}.late"); num(v.get("late"), &p)? },
+            reload: { let p = format!("{path}.reload"); boolean(v.get("reload"), &p)? },
+            stick: { let p = format!("{path}.stick"); num(v.get("stick"), &p)? },
+            posture: { let p = format!("{path}.posture"); match v.get("posture").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(Posture::from_u8(name_of(v.get("posture"), &Posture::NAMES, &p)?).unwrap()) } },
+            zoomed: { let p = format!("{path}.zoomed"); boolean(v.get("zoomed"), &p)? },
+            repair_target: { let p = format!("{path}.repairTarget"); boolean(v.get("repairTarget"), &p)? },
+            target: { let p = format!("{path}.target"); match v.get("target").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(WpTarget::from_value(v.get("target"), cx, &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(14);
+        { let x = Value::Str(WpOperation::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Num(self.dt); fields.push(("dt", x)); }
+        { let x = Value::Bool(self.selected); fields.push(("selected", x)); }
+        { let x = Value::Bool(self.held); fields.push(("held", x)); }
+        { let x = Value::Bool(self.pressed); fields.push(("pressed", x)); }
+        { let x = match &self.seed { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("seed", x)); }
+        { let x = Value::Num(self.late); fields.push(("late", x)); }
+        { let x = Value::Bool(self.reload); fields.push(("reload", x)); }
+        { let x = Value::Num(self.stick); fields.push(("stick", x)); }
+        { let x = match &self.posture { Some(v) => Value::Str(Posture::NAMES[(*v) as usize].to_string()), None => Value::Undefined }; fields.push(("posture", x)); }
+        { let x = Value::Bool(self.zoomed); fields.push(("zoomed", x)); }
+        { let x = Value::Bool(self.repair_target); fields.push(("repairTarget", x)); }
+        { let x = match &self.target { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("target", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WpShot {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WpShot {
+            kind: { let p = format!("{path}.kind"); WpShotKind::from_u8(name_of(v.get("kind"), &WpShotKind::NAMES, &p)?).unwrap() },
+            yaw: { let p = format!("{path}.yaw"); num(v.get("yaw"), &p)? },
+            pitch: { let p = format!("{path}.pitch"); num(v.get("pitch"), &p)? },
+            charge: { let p = format!("{path}.charge"); num(v.get("charge"), &p)? },
+            target_id: { let p = format!("{path}.targetId"); num(v.get("targetId"), &p)? },
+            target_generation: { let p = format!("{path}.targetGeneration"); num(v.get("targetGeneration"), &p)? },
+            admission: { let p = format!("{path}.admission"); match v.get("admission").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("admission"), &p)?) } },
+            swing: { let p = format!("{path}.swing"); num(v.get("swing"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(8);
+        { let x = Value::Str(WpShotKind::NAMES[self.kind as usize].to_string()); fields.push(("kind", x)); }
+        { let x = Value::Num(self.yaw); fields.push(("yaw", x)); }
+        { let x = Value::Num(self.pitch); fields.push(("pitch", x)); }
+        { let x = Value::Num(self.charge); fields.push(("charge", x)); }
+        { let x = Value::Num(self.target_id); fields.push(("targetId", x)); }
+        { let x = Value::Num(self.target_generation); fields.push(("targetGeneration", x)); }
+        { let x = match &self.admission { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("admission", x)); }
+        { let x = Value::Num(self.swing); fields.push(("swing", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WpOutput {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WpOutput {
+            state: { let p = format!("{path}.state"); WpState::from_value(v.get("state"), cx, &p)? },
+            shots: { let p = format!("{path}.shots"); { let mut out = Vec::new(); for (i, e) in list(v.get("shots"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(WpShot::from_value(e, cx, &at)?); } out } },
+            flag: { let p = format!("{path}.flag"); boolean(v.get("flag"), &p)? },
+            spread: { let p = format!("{path}.spread"); numbers::<2>(v.get("spread"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.shots.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("shots", x)); }
+        { let x = Value::Bool(self.flag); fields.push(("flag", x)); }
+        { let x = { let items = self.spread.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("spread", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WpAction {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WpAction {
+            kind: { let p = format!("{path}.kind"); WpCallback::from_u8(name_of(v.get("kind"), &WpCallback::NAMES, &p)?).unwrap() },
+            state: { let p = format!("{path}.state"); WpState::from_value(v.get("state"), cx, &p)? },
+            first: { let p = format!("{path}.first"); boolean(v.get("first"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Str(WpCallback::NAMES[self.kind as usize].to_string()); fields.push(("kind", x)); }
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Bool(self.first); fields.push(("first", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WpReply {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WpReply {
+            state: { let p = format!("{path}.state"); WpState::from_value(v.get("state"), cx, &p)? },
+            value: { let p = format!("{path}.value"); num(v.get("value"), &p)? },
+            admission: { let p = format!("{path}.admission"); (int(v.get("admission"), &p, 0.0, u32::MAX as f64)? as u32) },
+            target: { let p = format!("{path}.target"); match v.get("target").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(WpTarget::from_value(v.get("target"), cx, &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Num(self.value); fields.push(("value", x)); }
+        { let x = Value::Num(self.admission as f64); fields.push(("admission", x)); }
+        { let x = match &self.target { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("target", x)); }
+        a.object("", fields)
+    }
+}
+
 impl WcStamped {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -11945,6 +12164,112 @@ impl WorldStepReply {
         { let x = Value::Num(self.value); fields.push(("value", x)); }
         { let x = Value::Num(self.other); fields.push(("other", x)); }
         { let x = Value::Bool(self.flag); fields.push(("flag", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldNetworkState {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldNetworkState {
+            disconnected: { let p = format!("{path}.disconnected"); boolean(v.get("disconnected"), &p)? },
+            disconnected_at: { let p = format!("{path}.disconnectedAt"); num(v.get("disconnectedAt"), &p)? },
+            spectator: { let p = format!("{path}.spectator"); boolean(v.get("spectator"), &p)? },
+            stale: { let p = format!("{path}.stale"); boolean(v.get("stale"), &p)? },
+            last_input_at: { let p = format!("{path}.lastInputAt"); num(v.get("lastInputAt"), &p)? },
+            separate_actions: { let p = format!("{path}.separateActions"); boolean(v.get("separateActions"), &p)? },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            removed: { let p = format!("{path}.removed"); boolean(v.get("removed"), &p)? },
+            dead_time: { let p = format!("{path}.deadTime"); num(v.get("deadTime"), &p)? },
+            auto_respawn: { let p = format!("{path}.autoRespawn"); boolean(v.get("autoRespawn"), &p)? },
+            spawned_once: { let p = format!("{path}.spawnedOnce"); boolean(v.get("spawnedOnce"), &p)? },
+            team_select: { let p = format!("{path}.teamSelect"); boolean(v.get("teamSelect"), &p)? },
+            choice: { let p = format!("{path}.choice"); WorldNetworkChoice::from_u8(name_of(v.get("choice"), &WorldNetworkChoice::NAMES, &p)?).unwrap() },
+            choice_team: { let p = format!("{path}.choiceTeam"); num(v.get("choiceTeam"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(14);
+        { let x = Value::Bool(self.disconnected); fields.push(("disconnected", x)); }
+        { let x = Value::Num(self.disconnected_at); fields.push(("disconnectedAt", x)); }
+        { let x = Value::Bool(self.spectator); fields.push(("spectator", x)); }
+        { let x = Value::Bool(self.stale); fields.push(("stale", x)); }
+        { let x = Value::Num(self.last_input_at); fields.push(("lastInputAt", x)); }
+        { let x = Value::Bool(self.separate_actions); fields.push(("separateActions", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = Value::Bool(self.removed); fields.push(("removed", x)); }
+        { let x = Value::Num(self.dead_time); fields.push(("deadTime", x)); }
+        { let x = Value::Bool(self.auto_respawn); fields.push(("autoRespawn", x)); }
+        { let x = Value::Bool(self.spawned_once); fields.push(("spawnedOnce", x)); }
+        { let x = Value::Bool(self.team_select); fields.push(("teamSelect", x)); }
+        { let x = Value::Str(WorldNetworkChoice::NAMES[self.choice as usize].to_string()); fields.push(("choice", x)); }
+        { let x = Value::Num(self.choice_team); fields.push(("choiceTeam", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldNetworkInput {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldNetworkInput {
+            state: { let p = format!("{path}.state"); WorldNetworkState::from_value(v.get("state"), cx, &p)? },
+            tick: { let p = format!("{path}.tick"); num(v.get("tick"), &p)? },
+            at: { let p = format!("{path}.at"); num(v.get("at"), &p)? },
+            grace: { let p = format!("{path}.grace"); num(v.get("grace"), &p)? },
+            respawn: { let p = format!("{path}.respawn"); num(v.get("respawn"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Num(self.tick); fields.push(("tick", x)); }
+        { let x = Value::Num(self.at); fields.push(("at", x)); }
+        { let x = Value::Num(self.grace); fields.push(("grace", x)); }
+        { let x = Value::Num(self.respawn); fields.push(("respawn", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldNetworkArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldNetworkArgs {
+            op: { let p = format!("{path}.op"); WorldNetworkCall::from_u8(name_of(v.get("op"), &WorldNetworkCall::NAMES, &p)?).unwrap() },
+            value: { let p = format!("{path}.value"); num(v.get("value"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Str(WorldNetworkCall::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = Value::Num(self.value); fields.push(("value", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldNetworkReply {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldNetworkReply {
+            state: { let p = format!("{path}.state"); WorldNetworkState::from_value(v.get("state"), cx, &p)? },
+            value: { let p = format!("{path}.value"); boolean(v.get("value"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Bool(self.value); fields.push(("value", x)); }
         a.object("", fields)
     }
 }

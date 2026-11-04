@@ -2,6 +2,7 @@
 // publish their results, retaining live property reads and setter order.
 import { bridgeFor } from '../sim/runtime.js';
 import { WEAPON_STATE_NUMBERS, WEAPON_STATE_FLAGS } from './network-weapon-state.js';
+import { NETWORK_CONTRACT } from './network-contract.js';
 
 const compactSoldierNumbers = ['fuel', 'aimYaw', 'aimPitch', 'dive', 'stateTime', 'lock'];
 const soldierNumbers = 'maxSpeed maxStrafe maxJump maxTurn maxPitch accel fuel maxFlyHeight getupTime diveTime aimYaw aimPitch dive stateTime lock lookX lookY tickLength contactCount groundAdjustment'.split(' ');
@@ -26,8 +27,10 @@ const unsupported = Symbol('observable correction prerequisite');
 const isObject = value => value !== null && (typeof value === 'object' || typeof value === 'function');
 const typedPrototype = Object.getPrototypeOf(Uint8Array.prototype);
 const typedDescriptors = Object.getOwnPropertyDescriptors(typedPrototype);
+const viewDescriptors = Object.getOwnPropertyDescriptors(DataView.prototype);
 const bufferPrototype = typeof Buffer === 'function' ? Buffer.prototype : null;
-const byteSlice = Uint8Array.prototype.slice, bufferSlice = bufferPrototype?.slice, bufferSubarray = bufferPrototype?.subarray;
+const byteSlice = Uint8Array.prototype.slice, byteSubarray = Uint8Array.prototype.subarray, byteSet = Uint8Array.prototype.set;
+const bufferSlice = bufferPrototype?.slice, bufferSubarray = bufferPrototype?.subarray;
 const byteSpecies = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array), Symbol.species);
 
 function descriptor(value, key) {
@@ -71,6 +74,9 @@ function metadata(make) {
 }
 function byteInput(bytes, memory, sliced) {
   if (!(bytes instanceof Uint8Array)) return { valid: 0, bytes: [] };
+  // A replaced prototype does not change a typed array's element storage.
+  // Inspect its intrinsic tag without invoking an overridden toStringTag.
+  if (Reflect.apply(typedDescriptors[Symbol.toStringTag].get, bytes, []) !== 'Uint8Array') return null;
   const prototype = Object.getPrototypeOf(bytes);
   if (prototype !== Uint8Array.prototype && (!bufferPrototype || prototype !== bufferPrototype)) return null;
   for (const key of ['length', 'buffer', 'byteOffset', 'byteLength']) {
@@ -80,8 +86,9 @@ function byteInput(bytes, memory, sliced) {
   // Module growth must not detach a caller's correction during publication.
   if (bytes.buffer === memory.buffer || typeof SharedArrayBuffer === 'function' && bytes.buffer instanceof SharedArrayBuffer) return null;
   if (sliced) {
-    const expected = prototype === bufferPrototype ? bufferSlice : byteSlice;
-    if (descriptor(bytes, 'slice')?.value !== expected) return null;
+    const method = sliced === 'subarray' ? 'subarray' : 'slice';
+    const expected = prototype === bufferPrototype ? (method === 'slice' ? bufferSlice : bufferSubarray) : (method === 'slice' ? byteSlice : byteSubarray);
+    if (descriptor(bytes, method)?.value !== expected) return null;
     if (prototype === bufferPrototype) {
       if (descriptor(bytes, 'subarray')?.value !== bufferSubarray) return null;
     } else {
@@ -111,6 +118,12 @@ function reader(bytes) {
     },
   };
 }
+function weaponState(r) {
+  const state = { level: r.number() }, flags = r.number();
+  for (let i = 0; i < WEAPON_STATE_FLAGS.length; i++) state[WEAPON_STATE_FLAGS[i]] = !!(flags & 1 << i);
+  for (const key of WEAPON_STATE_NUMBERS) { const n = r.number(); state[key] = Number.isNaN(n) ? null : n; }
+  return state;
+}
 
 export function createCorrectionSim(instance, options) { return createCorrectionBridge(bridgeFor(instance), options); }
 // One reusable owned parser belongs to this bridge until dispose(). Neither
@@ -119,7 +132,7 @@ export function createCorrectionBridge(bridge, { trace = null } = {}) {
   const x = bridge.x;
   let handle = 0, calls = 0, disposed = false;
   const live = () => { if (disposed) throw Error('correction bridge is disposed'); };
-  function run(op, meta, input, unpack) {
+  function run(op, meta, input, unpack, failed = null) {
     live();
     const words = Float64Array.from([meta.length, ...meta, input.valid, input.bytes.length, ...input.bytes]);
     if (!handle) handle = x.prediction_corrections_create();
@@ -133,7 +146,7 @@ export function createCorrectionBridge(bridge, { trace = null } = {}) {
     // A packed Number array can quiet signaling NaNs. Read copied float bytes
     // directly into fields, just as the original DataView reader does.
     // Construct the result before a trace can reenter or grow memory.
-    const result = ok ? unpack(reader(output)) : null;
+    const result = ok ? unpack(reader(output)) : failed && output.length ? failed(reader(output)) : null;
     if (trace) trace({ op, input: Array.from(words), output: Array.from(new Float64Array(output.buffer)), error });
     if (!ok) throw Error(error);
     return result;
@@ -154,17 +167,39 @@ export function createCorrectionBridge(bridge, { trace = null } = {}) {
     live();
     return meta ? run(op, meta, input, unpack) : null;
   }
+  function recon(op, source, extra, unpack, sliced = false) {
+    live();
+    const fields = metadata(() => ({ bytes: data(source, 'bytes'), view: data(source, 'view'), at: data(source, 'at') }));
+    live();
+    if (!fields || !(fields.view instanceof DataView) || !Number.isSafeInteger(fields.at) || fields.at < 0
+      || !descriptor(source, 'at')?.writable) return null;
+    const input = byteInput(fields.bytes, x.memory, sliced);
+    live();
+    if (!input?.valid) return null;
+    for (const key of ['getUint8', 'getUint16', 'getUint32', 'getFloat64']) {
+      if (descriptor(fields.view, key)?.value !== viewDescriptors[key].value) return null;
+    }
+    for (const key of ['buffer', 'byteOffset', 'byteLength']) {
+      const got = descriptor(fields.view, key), expected = viewDescriptors[key];
+      if (!got || got.get !== expected.get || got.set !== expected.set || 'value' in got) return null;
+    }
+    // Fields keeps its original fixed DataView across foreign reads. A resized
+    // or detached source must continue on that view, with its original errors.
+    try {
+      if (fields.view.buffer !== fields.bytes.buffer || fields.view.byteOffset !== fields.bytes.byteOffset
+        || fields.view.byteLength !== fields.bytes.byteLength) return null;
+    } catch { return null; }
+    return run(op, op === 13 ? [] : [fields.at, ...extra], input, r => {
+      const at = r.number(), value = unpack(r, fields.bytes);
+      source.at = at; return value;
+    });
+  }
   return {
     bridge,
     get calls() { return calls; },
     get handle() { return handle; },
     decodeWeapon(bytes) {
-      return decode(0, bytes, r => {
-        const state = { level: r.number() }, flags = r.number();
-        for (let i = 0; i < WEAPON_STATE_FLAGS.length; i++) state[WEAPON_STATE_FLAGS[i]] = !!(flags & 1 << i);
-        for (const key of WEAPON_STATE_NUMBERS) { const n = r.number(); state[key] = Number.isNaN(n) ? null : n; }
-        return state;
-      });
+      return decode(0, bytes, weaponState);
     },
     readCompactSoldier(value, bytes) {
       return body(1, value, bytes, () => ['position', 'velocity', 'normal', 'settled', 'previous', 'contactMean'].map(key => tagged(value, key)), r => {
@@ -231,6 +266,115 @@ export function createCorrectionBridge(bridge, { trace = null } = {}) {
         for (let i = 0; i < count; i++) { const barrel = r.number(), offset = r.number(), length = r.number(); weapons.push({ barrel, payload: bytes.slice(offset, offset + length) }); }
         return { mode, id, generation, index, state, weapons };
       }, true);
+    },
+    decodeOwn(record) {
+      live();
+      if (!isObject(record)) return null;
+      const fields = metadata(() => {
+        const supported = data(record, 'kind') === 'correction' && data(record, 'schema') === NETWORK_CONTRACT.ownCorrectionSchema;
+        return { supported, payload: supported ? data(record, 'payload') : null };
+      });
+      live();
+      if (!fields) return null;
+      const input = fields.supported ? byteInput(fields.payload, x.memory, true) : { valid: 0, bytes: [] };
+      live();
+      if (!input) return null;
+      return run(8, [+fields.supported], input, r => {
+        // Materialize spans before tracing. Standard Buffer slices share their
+        // source; Uint8Array slices own bytes, as in the original field reader.
+        const take = () => { const offset = r.number(), length = r.number(); return fields.payload.slice(offset, offset + length); };
+        const result = { epoch: r.number(), contentEpoch: r.number(), classId: r.number(), team: r.number(), bodySchema: r.number(), vehicleId: r.number(), vehicleGeneration: r.number() };
+        result.body = take(); result.health = r.number(); const dead = r.number();
+        result.deathTime = r.number(); result.unitDeadTime = r.number(); const removed = r.number();
+        result.dead = !!dead; result.removed = !!removed; result.kick = {};
+        r.numbers(result.kick, ['rate', 'hold', 'offset']);
+        result.zoomStep = r.number(); result.zoom = r.number(); const first = r.number();
+        result.firstPerson = !!(first & 1); result.gunUnderwater = !!(first & 2);
+        result.selected = [r.number(), r.number()];
+        result.weapons = Array.from({ length: r.number() }, () => ({ id: r.number(), payload: take() }));
+        result.heldBits = take(); const flags = r.number();
+        const view = { invertMouse: !!(flags & 1), firstPerson: !!(flags & 2) };
+        if (flags & 32) view.mouseScale = r.number();
+        if (flags & 64) view.aspect = r.number();
+        if (flags & 128) view.viewTick = r.number();
+        result.bindingProfileId = r.number();
+        if (flags & 4) view.flightSettings = { invert: !!(flags & 8) };
+        if (flags & 256) view.flightSettings.sensitivity = r.number();
+        if (flags & 512) view.flightSettings.curve = r.number();
+        result.hasBindings = !!(flags & 1024);
+        if (flags & 16) {
+          const axes = Array.from({ length: 4 }, () => r.number()), buttons = r.number();
+          view.gamepad = { axes, buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: !!(buttons & (1 << i)) })) };
+        }
+        result.discardedInput = r.number(); const remote = r.number();
+        result.controlMode = remote; result.mounted = null;
+        if (remote >= 2) result.mounted = take();
+        result.remote = null;
+        if (remote === 1) {
+          result.remote = { id: r.number(), generation: r.number(), definitionId: r.number() };
+          result.remote.payload = take();
+        }
+        result.view = view; return result;
+      });
+    },
+    readArsenalMask(bytes) { return decode(9, bytes, r => r.number()); },
+    expandArsenal(full, bytes, mask) {
+      live();
+      if (descriptor(full, 'set')?.value !== byteSet) return null;
+      const base = byteInput(full, x.memory, false), input = byteInput(bytes, x.memory, 'subarray');
+      live();
+      if (!base?.valid || base.bytes.length !== 162 || !input?.valid || !input.bytes.length) return null;
+      // A custom defaults slice may return a view into the delta itself. Each
+      // original set can then change the next source word, so retain that loop.
+      if (full.buffer === bytes.buffer) return null;
+      const publish = r => {
+        const at = r.number(), expanded = Uint8Array.from({ length: 162 }, () => r.number());
+        full.set(expanded); return at;
+      };
+      // A later truncated word still leaves the preceding header/word copies
+      // in the caller's full array. Copy that owned partial output on error.
+      return run(10, [mask, ...base.bytes], input, publish, publish);
+    },
+    readArsenalMelee(bytes, at) {
+      live(); const input = byteInput(bytes, x.memory, false); live();
+      if (!input?.valid) return null;
+      return run(11, [at], input, r => ({ time: r.number(), index: r.number(), active: r.number(), at: r.number() }));
+    },
+    finishArsenal(full, bytes, at, tail, bound) {
+      live();
+      const input = byteInput(full, x.memory, false), source = byteInput(bytes, x.memory, false);
+      live();
+      if (!input?.valid || !source?.valid) return null;
+      return run(12, [at, source.bytes.length, +!!tail, tail?.time ?? 0, tail?.index ?? 0, tail?.active ?? 0, bound], input, weaponState);
+    },
+    readReconHeader(source) {
+      return recon(13, source, [], r => {
+        const bits = r.number(), state = { dead: !!(bits & 1), piloted: !!(bits & 2), firstPerson: !!(bits & 4) };
+        r.numbers(state, ['yaw', 'pitch', 'health', 'countdown', 'lookX', 'lookY']);
+        state.zoomStep = r.number(); state.randomSeed = r.number();
+        r.vectors(state, ['position', 'velocity']); state.selected = [r.number(), r.number()];
+        return { state, count: r.number() };
+      });
+    },
+    readReconRange(source) {
+      return recon(14, source, [], (r, bytes) => { const at = r.number(), length = r.number(); return bytes.slice(at, at + length); }, true);
+    },
+    readReconVector(source, length) {
+      return recon(15, source, [length], r => Array.from({ length }, () => r.number()));
+    },
+    readReconSalvo(source) {
+      return recon(16, source, [], r => r.number() ? { present: true, index: r.number(), level: r.number() } : { present: false });
+    },
+    readReconSalvoState(source) {
+      return recon(17, source, [], r => ({ left: r.number(), wait: r.number() }));
+    },
+    readReconCamera(source) {
+      return recon(18, source, [], r => {
+        if (!r.number()) return { present: false };
+        const value = {}; r.vectors(value, ['position']); r.vectors(value, ['quaternion'], 4);
+        r.numbers(value, ['aspect', 'fov', 'reach']); value.fresh = !!r.number();
+        return { present: true, value };
+      });
     },
     dispose() { if (disposed) return; disposed = true; if (handle) { x.prediction_corrections_drop(handle); handle = 0; } },
   };
