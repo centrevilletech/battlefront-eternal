@@ -2,6 +2,7 @@
 // publish their results, retaining live property reads and setter order.
 import { bridgeFor } from '../sim/runtime.js';
 import { WEAPON_STATE_NUMBERS, WEAPON_STATE_FLAGS } from './network-weapon-state.js';
+import { NETWORK_CONTRACT } from './network-contract.js';
 
 const compactSoldierNumbers = ['fuel', 'aimYaw', 'aimPitch', 'dive', 'stateTime', 'lock'];
 const soldierNumbers = 'maxSpeed maxStrafe maxJump maxTurn maxPitch accel fuel maxFlyHeight getupTime diveTime aimYaw aimPitch dive stateTime lock lookX lookY tickLength contactCount groundAdjustment'.split(' ');
@@ -231,6 +232,56 @@ export function createCorrectionBridge(bridge, { trace = null } = {}) {
         for (let i = 0; i < count; i++) { const barrel = r.number(), offset = r.number(), length = r.number(); weapons.push({ barrel, payload: bytes.slice(offset, offset + length) }); }
         return { mode, id, generation, index, state, weapons };
       }, true);
+    },
+    decodeOwn(record) {
+      live();
+      if (!isObject(record)) return null;
+      const fields = metadata(() => {
+        const supported = data(record, 'kind') === 'correction' && data(record, 'schema') === NETWORK_CONTRACT.ownCorrectionSchema;
+        return { supported, payload: supported ? data(record, 'payload') : null };
+      });
+      live();
+      if (!fields) return null;
+      const input = fields.supported ? byteInput(fields.payload, x.memory, true) : { valid: 0, bytes: [] };
+      live();
+      if (!input) return null;
+      return run(8, [+fields.supported], input, r => {
+        // Materialize spans before tracing. Standard Buffer slices share their
+        // source; Uint8Array slices own bytes, as in the original field reader.
+        const take = () => { const offset = r.number(), length = r.number(); return fields.payload.slice(offset, offset + length); };
+        const result = { epoch: r.number(), contentEpoch: r.number(), classId: r.number(), team: r.number(), bodySchema: r.number(), vehicleId: r.number(), vehicleGeneration: r.number() };
+        result.body = take(); result.health = r.number(); const dead = r.number();
+        result.deathTime = r.number(); result.unitDeadTime = r.number(); const removed = r.number();
+        result.dead = !!dead; result.removed = !!removed; result.kick = {};
+        r.numbers(result.kick, ['rate', 'hold', 'offset']);
+        result.zoomStep = r.number(); result.zoom = r.number(); const first = r.number();
+        result.firstPerson = !!(first & 1); result.gunUnderwater = !!(first & 2);
+        result.selected = [r.number(), r.number()];
+        result.weapons = Array.from({ length: r.number() }, () => ({ id: r.number(), payload: take() }));
+        result.heldBits = take(); const flags = r.number();
+        const view = { invertMouse: !!(flags & 1), firstPerson: !!(flags & 2) };
+        if (flags & 32) view.mouseScale = r.number();
+        if (flags & 64) view.aspect = r.number();
+        if (flags & 128) view.viewTick = r.number();
+        result.bindingProfileId = r.number();
+        if (flags & 4) view.flightSettings = { invert: !!(flags & 8) };
+        if (flags & 256) view.flightSettings.sensitivity = r.number();
+        if (flags & 512) view.flightSettings.curve = r.number();
+        result.hasBindings = !!(flags & 1024);
+        if (flags & 16) {
+          const axes = Array.from({ length: 4 }, () => r.number()), buttons = r.number();
+          view.gamepad = { axes, buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: !!(buttons & (1 << i)) })) };
+        }
+        result.discardedInput = r.number(); const remote = r.number();
+        result.controlMode = remote; result.mounted = null;
+        if (remote >= 2) result.mounted = take();
+        result.remote = null;
+        if (remote === 1) {
+          result.remote = { id: r.number(), generation: r.number(), definitionId: r.number() };
+          result.remote.payload = take();
+        }
+        result.view = view; return result;
+      });
     },
     dispose() { if (disposed) return; disposed = true; if (handle) { x.prediction_corrections_drop(handle); handle = 0; } },
   };

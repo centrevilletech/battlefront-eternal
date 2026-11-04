@@ -102,7 +102,8 @@ export function captureOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneratio
  // The check reserves the enclosing packet header and length, as encoding did.
  checkCorrectionRecordFits(record.payload);return record;
 }
-export function decodeOwnPlayer(record){
+export function decodeOwnPlayer(record,native=null){
+ const decoded=typeof native?.decodeOwn==='function'?native.decodeOwn(record):null;if(decoded!==null)return decoded;
  if(record.kind!=='correction'||record.schema!==OWN_PLAYER_SCHEMA||!(record.payload instanceof Uint8Array))throw Error('unsupported own-player correction');
  const r=new Fields(record.payload),result={epoch:r.u32(),contentEpoch:r.u32(),classId:r.u16(),team:r.u8(),bodySchema:r.u8(),vehicleId:r.u32(),vehicleGeneration:r.u32()};if(result.team<1||result.team>2)throw Error('invalid own team');result.body=r.take(r.u16());
  result.health=r.readNumber();const dead=r.u8();result.deathTime=r.readNumber();result.unitDeadTime=r.readNumber();const removed=r.u8();if(dead>1||removed>1)throw Error('invalid life flags');result.dead=!!dead;result.removed=!!removed;result.kick={};for(const key of ['rate','hold','offset'])result.kick[key]=r.readNumber();result.zoomStep=r.u8();result.zoom=r.readNumber();const first=r.u8();result.firstPerson=!!(first&1);result.gunUnderwater=!!(first&2);if(first>3)throw Error('invalid weapon view flags');
@@ -130,7 +131,7 @@ function hearOwn(unit,record,data){
  if(!was||was.generation!==record.generation||record.tick>was.tick)heard.set(unit,{generation:record.generation,tick:record.tick,health:data.health,dead:data.dead});
 }
 export function applyOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneration=0,epoch,registry,record,previous=null,remoteLifecycle=null,native=null}){
- const data=decodeOwnPlayer(record);let mounted=null;if(data.mounted){requireState(Boolean(vehicle)===(data.controlMode===VEHICLE_PILOT_CONTROL),'conflicting mounted vehicle body');try{mounted=validateMountedControl(unit,data.mounted,native);}catch(error){throw new OwnPlayerPrerequisiteError(error.message);}}requireState(vehicle?unit.seat?.vehicle===vehicle&&unit.seat.index===0:!unit.seat||mounted,'pilot lease prerequisite missing');requireState(data.epoch===epoch,'world epoch mismatch');registryChecks(registry,data.contentEpoch,data.classId,unit);
+ const data=decodeOwnPlayer(record,native);let mounted=null;if(data.mounted){requireState(Boolean(vehicle)===(data.controlMode===VEHICLE_PILOT_CONTROL),'conflicting mounted vehicle body');try{mounted=validateMountedControl(unit,data.mounted,native);}catch(error){throw new OwnPlayerPrerequisiteError(error.message);}}requireState(vehicle?unit.seat?.vehicle===vehicle&&unit.seat.index===0:!unit.seat||mounted,'pilot lease prerequisite missing');requireState(data.epoch===epoch,'world epoch mismatch');registryChecks(registry,data.contentEpoch,data.classId,unit);
  requireState(record.id===unit.id&&record.generation===unit.generation,'player life prerequisite missing');
  requireState(!(previous&&previous.epoch===epoch&&previous.id===unit.id&&previous.generation===unit.generation&&record.tick<previous.tick),'stale own-player correction');
  requireState(data.bodySchema===(vehicle?(vehicle.flying?COMPACT_FLIGHT_SCHEMA:GROUND_CORRECTION_SCHEMA):unit.walker?DROIDEKA_BODY_SCHEMA:COMPACT_SOLDIER_SCHEMA)&&data.vehicleId===vehicleId&&data.vehicleGeneration===vehicleGeneration,'vehicle lease prerequisite missing');
