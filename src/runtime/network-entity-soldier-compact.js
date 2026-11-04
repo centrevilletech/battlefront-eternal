@@ -31,7 +31,7 @@ function capture(s, into) {
   if (diving) { const n = postures.indexOf(s.diveFrom); if (n < 0) throw Error('invalid dive posture'); bytes[at++] = n; }
   return into ? bytes.subarray(0, length) : bytes;
 }
-export function restoreCompactSoldier(s, bytes) {
+function readCompactSoldier(s, bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < 124 || bytes[0] > 3 || bytes[1] > 2 || bytes[2] > 4 || bytes[3] > 1) throw Error('invalid compact Soldier correction');
   const settled = !!(bytes[0] & 1), diving = !!(bytes[0] & 2);
   if (bytes.length !== 124 + (settled ? 24 : 0) + (diving ? 1 : 0)) throw Error('invalid compact Soldier length');
@@ -45,6 +45,11 @@ export function restoreCompactSoldier(s, bytes) {
   }
   const diveFrom = diving ? postures[bytes[at++]] : postures[bytes[1]];
   if (!diveFrom || !s.previous?.isVector3 || !s.settled?.isVector3 || !s.contactMean?.isVector3) throw Error('invalid Soldier prerequisite');
+  return { values, settled, diveFrom };
+}
+export function restoreCompactSoldier(s, bytes, native = null) {
+  const decoded = typeof native?.readCompactSoldier === 'function' ? native.readCompactSoldier(s, bytes) : null;
+  const { values, settled, diveFrom } = decoded ?? readCompactSoldier(s, bytes);
   // Validate first. Reset draw history locally; never transmit another machine's
   // accumulated smoothing displacement or mutate the shared collision world.
   for (const key of numbers) s[key] = values[key];

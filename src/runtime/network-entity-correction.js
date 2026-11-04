@@ -25,8 +25,7 @@ export function captureSoldierCorrection(soldier,schema=SOLDIER_CORRECTION_SCHEM
  for(const key of booleans){if(typeof soldier[key]!=='boolean')throw Error(`invalid soldier ${key}`);bytes[at++]=Number(soldier[key]);}
  return bytes;
 }
-export function restoreSoldierCorrection(soldier,payload,schema=SOLDIER_CORRECTION_SCHEMA){
- const vectors=fieldsFor(schema);
+function readSoldierCorrection(soldier,payload,vectors){
  if(!(payload instanceof Uint8Array)||payload.length!==byteCount(vectors))throw Error('unsupported soldier correction');
  const view=new DataView(payload.buffer,payload.byteOffset,payload.byteLength),values={};let at=0;
  const number=()=>{const v=view.getFloat64(at,true);at+=8;if(!Number.isFinite(v))throw Error('nonfinite soldier correction');return v;};
@@ -34,6 +33,12 @@ export function restoreSoldierCorrection(soldier,payload,schema=SOLDIER_CORRECTI
  for(const key of vectors){if(!soldier[key]?.isVector3)throw Error(`missing soldier vector ${key}`);values[key]=[number(),number(),number()];}
  for(const [key,items]of Object.entries(enums)){const n=payload[at++];if(n>=items.length)throw Error('invalid correction enum');values[key]=items[n];}
  for(const key of booleans){const n=payload[at++];if(n>1)throw Error('invalid correction boolean');values[key]=!!n;}
+ return values;
+}
+export function restoreSoldierCorrection(soldier,payload,schema=SOLDIER_CORRECTION_SCHEMA,native=null){
+ const vectors=fieldsFor(schema);
+ const decoded=typeof native?.readSoldier==='function'?native.readSoldier(soldier,payload,schema):null;
+ const values=decoded??readSoldierCorrection(soldier,payload,vectors);
  // Validate the complete payload before mutating any live simulation state.
  for(const key of numbers)soldier[key]=values[key];
  for(const key of vectors)soldier[key].fromArray(values[key]);

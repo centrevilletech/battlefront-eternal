@@ -42,7 +42,9 @@ export function captureDroidekaState(d, native = null) {
   return bytes;
 }
 
-export function decodeDroidekaState(bytes) {
+export function decodeDroidekaState(bytes, native = null) {
+  const decoded = typeof native?.decodeDroideka === 'function' ? native.decodeDroideka(bytes) : null;
+  if (decoded !== null) return decoded;
   if (!(bytes instanceof Uint8Array) || bytes.length < baseBytes) throw Error('invalid droideka state length');
   const mode = bytes[0], flags = bytes[1];
   if (mode > 13 || flags > 63 || flags & 16 && !(flags & 8) ||
@@ -59,8 +61,8 @@ export function decodeDroidekaState(bytes) {
   return state;
 }
 
-export function restoreDroidekaState(d, bytes) {
-  prerequisite(d); const state = decodeDroidekaState(bytes);
+export function restoreDroidekaState(d, bytes, native = null) {
+  prerequisite(d); const state = decodeDroidekaState(bytes, native);
   if (Boolean(state.shield) !== Boolean(d.shield) || state.shield && state.shield.value > d.shield.max ||
       state.lastGun !== undefined && !validBarrel(d, state.lastGun)) throw Error('droideka content prerequisite mismatch');
   for (const key of [...numbers, 'mode', 'grounded', 'reverse', 'dead', 'lastGun']) d[key] = state[key];

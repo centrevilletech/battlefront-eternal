@@ -17,7 +17,7 @@ export function captureGroundCorrection(v, native = null) {
  for(const key of seatFields){const n=v.seats[0][key];bytes[at++]=n===undefined?2:n===null?1:0;number(n??0);}
  return bytes;
 }
-export function restoreGroundCorrection(v,bytes) {
+function readGroundCorrection(v,bytes) {
  prerequisite(v);if(!(bytes instanceof Uint8Array)||bytes.length!==groundCorrectionBytes)throw Error('invalid ground correction length');
  const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),values={},seat={};let at=0;
  const number=()=>{const n=view.getFloat64(at,true);at+=8;if(!Number.isFinite(n))throw Error('nonfinite ground correction');return n;};
@@ -27,6 +27,11 @@ export function restoreGroundCorrection(v,bytes) {
  for(const key of ['alive','sleeping']){const n=bytes[at++];if(n>1)throw Error('invalid ground flags');values[key]=!!n;}
  for(const key of seatFields){const kind=bytes[at++],n=number();if(kind>2)throw Error('invalid ground seat');seat[key]=kind===2?undefined:kind===1?null:n;}
  if(!v.previous?.isVector3||!v.tickFrom?.isVector3)throw Error('missing ground presentation history');
+ return {values,seat};
+}
+export function restoreGroundCorrection(v,bytes,native=null) {
+ const decoded=typeof native?.readGround==='function'?native.readGround(v,bytes):null;
+ const {values,seat}=decoded??readGroundCorrection(v,bytes);
  for(const key of [...numbers,'alive','sleeping'])v[key]=values[key];
  for(const key of ['position','velocity','quaternion'])v[key].fromArray(values[key]);
  Object.assign(v.seats[0],seat);v.previous.copy(v.position);v.tickFrom.copy(v.position);

@@ -58,7 +58,9 @@ export function captureMountedControl(unit, native = null) {
   return bytes;
 }
 
-export function decodeMountedControl(bytes) {
+export function decodeMountedControl(bytes, native = null) {
+  const decoded = typeof native?.decodeMounted === 'function' ? native.decodeMounted(bytes) : null;
+  if (decoded !== null) return decoded;
   if (!(bytes instanceof Uint8Array) || bytes.length < 11) throw Error('truncated mounted control');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const mode = view.getUint8(0), id = view.getUint32(1, true), generation = view.getUint32(5, true);
@@ -93,15 +95,15 @@ export function decodeMountedControl(bytes) {
 
 // Separate validation allows the containing own correction to validate every
 // prerequisite before changing the soldier, lease, recoil, or mounted aim.
-export function validateMountedControl(unit, bytes) {
-  const data = decodeMountedControl(bytes), lease = identity(unit);
+export function validateMountedControl(unit, bytes, native = null) {
+  const data = decodeMountedControl(bytes, native), lease = identity(unit);
   for (const key of ['mode', 'id', 'generation', 'index']) {
     if (data[key] !== lease[key]) throw Error('mounted control lease mismatch');
   }
   const targets = weaponsFor(lease.target, lease.mode);
   if (targets.length !== data.weapons.length) throw Error('mounted weapon content mismatch');
   const weapons = targets.map(({ weapon, owner }, index) => ({
-    ...validateArsenalWeapon(weapon, data.weapons[index].payload), owner, barrel: data.weapons[index].barrel,
+    ...validateArsenalWeapon(weapon, data.weapons[index].payload, native), owner, barrel: data.weapons[index].barrel,
   }));
   return { target: lease.target, state: data.state, weapons };
 }
@@ -111,6 +113,6 @@ export function applyValidatedMountedControl({ target, state, weapons }) {
   for (const entry of weapons) { applyValidatedWeaponState(entry); entry.owner.barrel = entry.barrel; }
 }
 
-export function restoreMountedControl(unit, bytes) {
-  applyValidatedMountedControl(validateMountedControl(unit, bytes));
+export function restoreMountedControl(unit, bytes, native = null) {
+  applyValidatedMountedControl(validateMountedControl(unit, bytes, native));
 }
