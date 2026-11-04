@@ -810,6 +810,403 @@ pub fn decode_mounted(bytes: Option<&[u8]>) -> Result<MountedState> {
     })
 }
 
+/// A span in the original correction payload. It retains no borrowed storage;
+/// callers can preserve their own copy or view semantics when resolving it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PayloadRange {
+    pub offset: usize,
+    pub length: usize,
+}
+impl PayloadRange {
+    pub fn get<'a>(&self, bytes: &'a [u8]) -> Option<&'a [u8]> {
+        bytes.get(self.offset..self.offset.checked_add(self.length)?)
+    }
+    fn words(&self, out: &mut Vec<f64>) {
+        out.extend([self.offset as f64, self.length as f64]);
+    }
+}
+
+const OWN_FIELD: &str = "own-player envelope exceeds budget";
+const OWN_SLICE: &str = "truncated own-player payload";
+// The envelope has no fixed accepted size. Each field checks its own bounds,
+// while counted slices use the original reader's distinct truncation error.
+struct OwnReader<'a> {
+    bytes: &'a [u8],
+    at: usize,
+}
+impl<'a> OwnReader<'a> {
+    fn fixed<const N: usize>(&mut self) -> Result<[u8; N]> {
+        let end = self.at.checked_add(N).ok_or(OWN_FIELD)?;
+        let source = self.bytes.get(self.at..end).ok_or(OWN_FIELD)?;
+        let mut bytes = [0; N];
+        bytes.copy_from_slice(source);
+        self.at = end;
+        Ok(bytes)
+    }
+    fn byte(&mut self) -> Result<u8> {
+        Ok(self.fixed::<1>()?[0])
+    }
+    fn u16(&mut self) -> Result<u16> {
+        Ok(u16::from_le_bytes(self.fixed()?))
+    }
+    fn u32(&mut self) -> Result<u32> {
+        Ok(u32::from_le_bytes(self.fixed()?))
+    }
+    fn number(&mut self) -> Result<f64> {
+        let n = f64::from_le_bytes(self.fixed()?);
+        if n.is_finite() {
+            Ok(n)
+        } else {
+            Err("invalid own-player number")
+        }
+    }
+    fn take(&mut self, length: usize) -> Result<PayloadRange> {
+        let end = self.at.checked_add(length).ok_or(OWN_SLICE)?;
+        if end > self.bytes.len() {
+            return Err(OWN_SLICE);
+        }
+        let range = PayloadRange {
+            offset: self.at,
+            length,
+        };
+        self.at = end;
+        Ok(range)
+    }
+    fn counted(&mut self) -> Result<PayloadRange> {
+        let length = self.u16()? as usize;
+        self.take(length)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnWeapon {
+    pub id: u16,
+    pub payload: PayloadRange,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnMounted {
+    pub payload: PayloadRange,
+    /// Nested weapon offsets are relative to the complete envelope, matching
+    /// every other PayloadRange in OwnPlayerState.
+    pub state: MountedState,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnRemote {
+    pub id: u16,
+    pub generation: u32,
+    pub definition_id: u16,
+    pub payload: PayloadRange,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnFlightSettings {
+    pub invert: bool,
+    pub sensitivity: Option<f64>,
+    pub curve: Option<f64>,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnGamepad {
+    pub axes: [f64; 4],
+    pub buttons: u16,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnView {
+    pub flags: u16,
+    pub invert_mouse: bool,
+    pub first_person: bool,
+    pub mouse_scale: Option<f64>,
+    pub aspect: Option<f64>,
+    pub view_tick: Option<f64>,
+    pub flight_settings: Option<OwnFlightSettings>,
+    pub gamepad: Option<OwnGamepad>,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct OwnPlayerState {
+    pub epoch: u32,
+    pub content_epoch: u32,
+    pub class_id: u16,
+    pub team: u8,
+    pub body_schema: u8,
+    pub vehicle_id: u32,
+    pub vehicle_generation: u32,
+    pub body: PayloadRange,
+    pub health: f64,
+    pub dead: bool,
+    pub death_time: f64,
+    pub unit_dead_time: f64,
+    pub removed: bool,
+    /// Recoil rate, hold and offset, in that order.
+    pub kick: [f64; 3],
+    pub zoom_step: u8,
+    pub zoom: f64,
+    pub first_person: bool,
+    pub gun_underwater: bool,
+    pub selected: [u8; 2],
+    pub weapons: Vec<OwnWeapon>,
+    pub held_bits: PayloadRange,
+    pub binding_profile_id: u16,
+    pub has_bindings: bool,
+    pub discarded_input: u32,
+    pub control_mode: u8,
+    pub mounted: Option<OwnMounted>,
+    pub remote: Option<OwnRemote>,
+    pub view: OwnView,
+}
+impl OwnPlayerState {
+    /// Scalar transport follows wire order, replacing every source slice with
+    /// offset and length. View flags select the same optional scalar fields.
+    /// Nested mounted state is already validated; its raw span is sufficient
+    /// for the JavaScript caller, which returns that span without decoding it.
+    pub fn words(&self) -> Vec<f64> {
+        let mut out = vec![
+            self.epoch as f64,
+            self.content_epoch as f64,
+            self.class_id as f64,
+            self.team as f64,
+            self.body_schema as f64,
+            self.vehicle_id as f64,
+            self.vehicle_generation as f64,
+        ];
+        self.body.words(&mut out);
+        out.extend([
+            self.health,
+            self.dead as u8 as f64,
+            self.death_time,
+            self.unit_dead_time,
+            self.removed as u8 as f64,
+        ]);
+        out.extend(self.kick);
+        out.extend([
+            self.zoom_step as f64,
+            self.zoom,
+            (self.first_person as u8 | (self.gun_underwater as u8) << 1) as f64,
+            self.selected[0] as f64,
+            self.selected[1] as f64,
+            self.weapons.len() as f64,
+        ]);
+        for weapon in &self.weapons {
+            out.push(weapon.id as f64);
+            weapon.payload.words(&mut out);
+        }
+        self.held_bits.words(&mut out);
+        out.push(self.view.flags as f64);
+        out.extend(self.view.mouse_scale);
+        out.extend(self.view.aspect);
+        out.extend(self.view.view_tick);
+        out.push(self.binding_profile_id as f64);
+        if let Some(flight) = &self.view.flight_settings {
+            out.extend(flight.sensitivity);
+            out.extend(flight.curve);
+        }
+        if let Some(gamepad) = &self.view.gamepad {
+            out.extend(gamepad.axes);
+            out.push(gamepad.buttons as f64);
+        }
+        out.extend([self.discarded_input as f64, self.control_mode as f64]);
+        if let Some(mounted) = &self.mounted {
+            mounted.payload.words(&mut out);
+        }
+        if let Some(remote) = &self.remote {
+            out.extend([
+                remote.id as f64,
+                remote.generation as f64,
+                remote.definition_id as f64,
+            ]);
+            remote.payload.words(&mut out);
+        }
+        out
+    }
+}
+
+/// Decode the own-player envelope after a plain record's kind/schema check.
+/// Body, arsenal and recon bytes remain opaque. Only mounted structure is
+/// validated here, at its original position before trailing and view checks.
+/// The writer's allocation size does not limit accepted envelope lengths.
+pub fn decode_own_player(bytes: Option<&[u8]>, supported_record: bool) -> Result<OwnPlayerState> {
+    if !supported_record {
+        return Err("unsupported own-player correction");
+    }
+    let bytes = bytes.ok_or("unsupported own-player correction")?;
+    let mut r = OwnReader { bytes, at: 0 };
+    let epoch = r.u32()?;
+    let content_epoch = r.u32()?;
+    let class_id = r.u16()?;
+    let team = r.byte()?;
+    let body_schema = r.byte()?;
+    let vehicle_id = r.u32()?;
+    let vehicle_generation = r.u32()?;
+    if !(1..=2).contains(&team) {
+        return Err("invalid own team");
+    }
+    let body = r.counted()?;
+    let health = r.number()?;
+    let dead = r.byte()?;
+    let death_time = r.number()?;
+    let unit_dead_time = r.number()?;
+    let removed = r.byte()?;
+    if dead > 1 || removed > 1 {
+        return Err("invalid life flags");
+    }
+    let kick = [r.number()?, r.number()?, r.number()?];
+    let zoom_step = r.byte()?;
+    let zoom = r.number()?;
+    let first = r.byte()?;
+    if first > 3 {
+        return Err("invalid weapon view flags");
+    }
+    let selected = [r.byte()?, r.byte()?];
+    let count = r.byte()?;
+    let mut weapons = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        weapons.push(OwnWeapon {
+            id: r.u16()?,
+            payload: r.counted()?,
+        });
+    }
+    let held_bits = r.take(16)?;
+    let flags = r.u16()?;
+    if flags > 2047 {
+        return Err("unknown own-player flags");
+    }
+    let mouse_scale = if flags & 32 != 0 {
+        Some(r.number()?)
+    } else {
+        None
+    };
+    let aspect = if flags & 64 != 0 {
+        Some(r.number()?)
+    } else {
+        None
+    };
+    let view_tick = if flags & 128 != 0 {
+        Some(r.number()?)
+    } else {
+        None
+    };
+    let binding_profile_id = r.u16()?;
+    let mut flight_settings = (flags & 4 != 0).then_some(OwnFlightSettings {
+        invert: flags & 8 != 0,
+        sensitivity: None,
+        curve: None,
+    });
+    if flags & 256 != 0 {
+        let flight = flight_settings.as_mut().ok_or("invalid flight context")?;
+        flight.sensitivity = Some(r.number()?);
+    }
+    if flags & 512 != 0 {
+        let flight = flight_settings.as_mut().ok_or("invalid flight context")?;
+        flight.curve = Some(r.number()?);
+    }
+    let has_bindings = flags & 1024 != 0;
+    if has_bindings && flight_settings.is_none() {
+        return Err("invalid flight bindings context");
+    }
+    let gamepad = if flags & 16 != 0 {
+        Some(OwnGamepad {
+            axes: [r.number()?, r.number()?, r.number()?, r.number()?],
+            buttons: r.u16()?,
+        })
+    } else {
+        None
+    };
+    let discarded_input = r.u32()?;
+    let control_mode = r.byte()?;
+    if control_mode > 4 {
+        return Err("invalid own control mode");
+    }
+    let mounted = if control_mode >= 2 {
+        let payload = r.counted()?;
+        let mut state = decode_mounted(payload.get(bytes))?;
+        if state.mode != control_mode {
+            return Err("mounted control mode mismatch");
+        }
+        // The nested decoder validates every end against its source length,
+        // so translating those offsets stays inside the complete envelope.
+        for weapon in &mut state.weapons {
+            weapon.offset += payload.offset;
+        }
+        Some(OwnMounted { payload, state })
+    } else {
+        None
+    };
+    let remote = if control_mode == 1 {
+        let id = r.u16()?;
+        let generation = r.u32()?;
+        let definition_id = r.u16()?;
+        if id >= 4096 || generation == 0 {
+            return Err("invalid recon identity");
+        }
+        Some(OwnRemote {
+            id,
+            generation,
+            definition_id,
+            payload: r.counted()?,
+        })
+    } else {
+        None
+    };
+    if r.at != bytes.len() {
+        return Err("trailing own-player payload");
+    }
+    if view_tick.is_some_and(|n| n < 0.0 || n > 4294967295.0) {
+        return Err("invalid replay view tick");
+    }
+    if mouse_scale.is_some_and(|n| n <= 0.0)
+        || aspect.is_some_and(|n| n <= 0.0)
+        || flight_settings
+            .as_ref()
+            .and_then(|flight| flight.sensitivity)
+            .is_some_and(|n| n <= 0.0 || n > 10.0)
+        || flight_settings
+            .as_ref()
+            .and_then(|flight| flight.curve)
+            .is_some_and(|n| n < 0.1 || n > 4.0)
+        || gamepad
+            .as_ref()
+            .is_some_and(|pad| pad.axes.iter().any(|n| n.abs() > 1.0))
+    {
+        return Err("invalid replay view");
+    }
+    Ok(OwnPlayerState {
+        epoch,
+        content_epoch,
+        class_id,
+        team,
+        body_schema,
+        vehicle_id,
+        vehicle_generation,
+        body,
+        health,
+        dead: dead != 0,
+        death_time,
+        unit_dead_time,
+        removed: removed != 0,
+        kick,
+        zoom_step,
+        zoom,
+        first_person: first & 1 != 0,
+        gun_underwater: first & 2 != 0,
+        selected,
+        weapons,
+        held_bits,
+        binding_profile_id,
+        has_bindings,
+        discarded_input,
+        control_mode,
+        mounted,
+        remote,
+        view: OwnView {
+            flags,
+            invert_mouse: flags & 1 != 0,
+            first_person: flags & 2 != 0,
+            mouse_scale,
+            aspect,
+            view_tick,
+            flight_settings,
+            gamepad,
+        },
+    })
+}
+
 /// Scalar transport for the optional shared-bridge adapter. Input is metadata
 /// length/values, Uint8Array flag, and byte length/values. All output is owned.
 #[derive(Default)]
@@ -861,6 +1258,7 @@ impl Session {
             5 => decode_compact_flight(bytes, flag(0)?, flags(meta, 1)?, flags(meta, 10)?)?.words(),
             6 => decode_flight(bytes, number(0)?, flag(1)?, flags(meta, 2)?, flag(15)?)?.words(),
             7 => decode_mounted(bytes)?.words(),
+            8 => decode_own_player(bytes, flag(0)?)?.words(),
             _ => return Err(EXCHANGE),
         };
         Ok(())
