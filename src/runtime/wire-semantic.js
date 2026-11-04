@@ -52,7 +52,7 @@ export function createWireSemanticBridge(bridge) {
     weapons.set(w, bytes); return bytes;
   }
   function soldier(s, into = null) {
-    const words = [s.contactCount, s.contactMean.lengthSq(), sid(s.posture), sid(s.air), flag(s.grounded), sid(s.diveFrom)];
+    const words = [num(s.contactCount), s.contactMean.lengthSq(), sid(s.posture), sid(s.air), flag(s.grounded), sid(s.diveFrom)];
     for (const key of soldierNumbers) words.push(num(s[key]));
     for (const key of ['position', 'velocity', 'normal', 'settled']) vector(words, s[key]);
     const bytes = run(3, words)[0]; if (!into) return bytes;
@@ -78,7 +78,7 @@ export function createWireSemanticBridge(bridge) {
   function flight(v) {
     const words = [+(!!v.flying && !!v.flightConfig && !!v.seats?.[0])];
     for (const key of ['flightState', 'trick', 'flightLockState', 'flightWarning', 'landingMessage', 'landingReason']) words.push(sid(v[key]));
-    for (const key of flightNumbers) words.push(num(v[key]));
+    for (const key of flightNumbers) words.push(key === 'floorY' && typeof v[key] !== 'number' ? Infinity : num(v[key]));
     for (const key of ['position', 'velocity', 'flightStart', 'flightEnd', 'flightTrickRight']) vector(words, v[key]);
     for (const key of ['quaternion', 'flightStartQ', 'flightTrickLoopQ', 'flightTrickEndQ']) vector(words, v[key], true);
     for (const key of flightFlags) words.push(v[key] === undefined ? 2 : flag(v[key]));
@@ -174,7 +174,7 @@ export function createWireSemanticBridge(bridge) {
       const link = players.get(c)?.link, path = link?.path;
       words.push(+players.has(c), +!!c.human, Number(c.team));
       for (const key of ['kills', 'teamKills', 'deaths', 'captures']) words.push(Number(c[key]));
-      words.push(num(link?.rtt), path?.kind && path?.family ? sid(String(path.kind)) : -1, path?.kind && path?.family ? sid(String(path.family)) : -1, sid(String(c.name ?? '')));
+      words.push(num(link?.rtt), path?.kind && path?.family ? sid(typeof path.kind === 'string' ? path.kind : 'other') : -1, path?.kind && path?.family ? sid(String(path.family)) : -1, sid(String(c.name ?? '')));
     }
     return run(12, words).map((bytes, i) => summary(bytes, 70000 + i, 4, options));
   }

@@ -173,21 +173,6 @@ fn weapon(input: &mut Input<'_>, arsenal: bool) -> Result<Vec<u8>> {
     }
     Ok(w.bytes)
 }
-fn vector(
-    input: &mut Input<'_>,
-    w: &mut Writer,
-    len: usize,
-    missing: &'static str,
-    number: &'static str,
-) -> Result<()> {
-    if input.n()? != 1. {
-        return Err(missing);
-    }
-    for _ in 0..len {
-        w.f64(input.n()?, number)?;
-    }
-    Ok(())
-}
 const SOLDIER_NUM: &str = "nonfinite Soldier correction";
 fn soldier(input: &mut Input<'_>, strings: &Strings) -> Result<Vec<u8>> {
     if input.n()? != 0. || input.n()? != 0. {
@@ -697,10 +682,10 @@ fn recon(input: &mut Input<'_>) -> Result<Vec<u8>> {
         let fov = input.n()?;
         let reach = input.n()?;
         let fresh = bool_value(input.n()?, "invalid recon camera")?;
-        if !(aspect > 0.) || q.len() != 4 || (jsrt::js_hypot(&q) - 1.).abs() > 0.001 {
+        if !(aspect > 0.) || (jsrt::js_hypot(&q) - 1.).abs() > 0.001 {
             return Err("invalid recon camera");
         }
-        if position.len() != 3 {
+        if position.len() != 3 || q.len() != 4 {
             return Err("invalid recon vector");
         }
         for n in position.into_iter().chain(q).chain([aspect, fov, reach]) {
@@ -1092,4 +1077,56 @@ pub unsafe extern "C" fn wire_semantic_ptr(p: *mut Semantic) -> *const u8 {
 #[no_mangle]
 pub unsafe extern "C" fn wire_semantic_len(p: *mut Semantic) -> u32 {
     (*p).output.len() as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn weapon_delta_retains_signed_zero_and_canonical_nullable_nan() {
+        let strings = Strings::default();
+        let mut words = vec![0., 1., 0., 1., 0., 1., 0., 1., 1.];
+        let mut values = [0.; 20];
+        values[0] = -0.;
+        values[2] = f64::INFINITY;
+        values[7] = NAN;
+        words.extend(values);
+        let full = encode(0, &words, &strings).unwrap().remove(0);
+        assert_eq!(&full[..2], &[0, 85]);
+        assert_eq!(&full[2..10], &(-0_f64).to_le_bytes());
+        assert_eq!(&full[58..66], &NAN.to_le_bytes());
+        values[0] = 0.;
+        words.extend(values);
+        words.push(0.);
+        let delta = encode(1, &words, &strings).unwrap().remove(0);
+        assert_eq!(&delta[..6], &[0, 85, 1, 0, 0, 0]);
+        assert_eq!(&delta[6..], &(-0_f64).to_le_bytes());
+        words[1] = f64::NAN;
+        assert_eq!(
+            encode(1, &words, &strings),
+            Err("invalid weapon state flag")
+        );
+    }
+
+    #[test]
+    fn record_selection_and_quantization_skip_empty_and_unknown_victims() {
+        let strings = Strings::default();
+        let mut words = vec![1000., 2., 0., 1.];
+        words.extend([0.; 10]);
+        words.extend([1., -1., 255., 0., 0., 0.]);
+        words.extend([7., 1.]);
+        words.extend([0., 0., 0., 0., 0., 65536., 0., 0., 13.9999, 2.0001]);
+        words.extend([1., 4., 300.]);
+        words.extend([2., 1., 13.9999, 2., 13.9999, 0., 0.]);
+        let result = encode(13, &words, &strings).unwrap();
+        assert_eq!(result.len(), 1);
+        let bytes = &result[0];
+        assert_eq!(&bytes[..4], &[1, 7, 0, 1]);
+        assert_eq!(&bytes[9..11], &[255, 255]);
+        assert_eq!(&bytes[13..17], &13000u32.to_le_bytes());
+        assert_eq!(&bytes[17..21], &2000u32.to_le_bytes());
+        assert_eq!(&bytes[21..27], &[1, 0, 200, 50, 0, 0]);
+        assert_eq!(&bytes[31..], &[1, 4, 0, 255]);
+    }
 }
