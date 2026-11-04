@@ -19,6 +19,20 @@ export function audioWasm() {
   }
 }
 
+// Whether the voices render in the module's voice engine
+// (rust/audio/src/voices.rs) rather than through a chain of the browser's
+// nodes each, in the enhanced mode and the light mix: unless ?voices=native,
+// a developer's A/B switch. The two give the same samples, to the bit
+// where the browser's own are reproducible (docs/audio.md, "The voice
+// engine"); the engine costs the audio thread about half as much.
+export function voicesRust() {
+  try {
+    return new URLSearchParams(globalThis.location?.search || "").get("voices") !== "native";
+  } catch {
+    return true;
+  }
+}
+
 // The compiled module, or null with ?audio=js (also null when it cannot be
 // compiled: the JavaScript worklets then simply run, the same sound).
 export function loadAudioDsp() {

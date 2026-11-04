@@ -20,7 +20,9 @@ const BLOCK = 128;
 const only = process.argv.slice(2);
 const wanted = (name) => !only.length || only.some((o) => name.includes(o));
 
-// A worklet file's processor class, with the worklet globals stubbed.
+// A worklet file's processor class (its first: spatial-mixer.js also
+// registers the light mix's voice engine, which has no JavaScript to
+// compare), with the worklet globals stubbed.
 function loadProcessor(file, rate = RATE) {
   const code = fs.readFileSync(new URL(`../src/audio/worklets/${file}`, import.meta.url), "utf8");
   let Processor = null;
@@ -32,7 +34,7 @@ function loadProcessor(file, rate = RATE) {
         this.port = { onmessage: null, messages: [], postMessage(m) { this.messages.push(m); } };
       }
     },
-    registerProcessor: (name, cls) => { Processor = cls; },
+    registerProcessor: (name, cls) => { Processor ??= cls; },
   };
   vm.runInNewContext(code, sandbox, { filename: file });
   assert(Processor, `${file} registered a processor`);

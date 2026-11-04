@@ -3,11 +3,15 @@ import assert from "node:assert/strict";
 import { ALSOFT, alsoftGains, alsoftStereo } from "../src/audio/layouts.js";
 import { LIGHT_LEVELS, ORIGINAL_LEVEL, Renderer, softClip } from "../src/audio/spatial.js";
 import { AudioEngine } from "../src/audio/engine.js";
+import { voicesRust } from "../src/audio/wasm-dsp.js";
 import { SoundData } from "../src/audio/data.js";
 
 // The light mix (Classic on stereo speakers) against a stand-in for the
 // browser's audio graph that records nodes and connections; the rendered
-// sound is checked in Chromium (tests/audio-checks.js).
+// sound is checked in Chromium (tests/audio-checks.js). These look at the
+// browser's own nodes a voice, so the page is as with ?voices=native; the
+// voice engine's graph has a test of its own (voicesRust set).
+globalThis.location = { search: "?voices=native" };
 
 let ids = 0;
 class Param {
@@ -422,6 +426,98 @@ test("the engine plays through the light mix: the voice's level and OpenAL Soft'
   // Stopped: both fade out, the source stops.
   v.stop(0.03);
   sides.forEach((side) => assert.deepEqual(side.gain.events.at(-1), ["target", 0, ctx.currentTime, 0.01]));
+});
+
+test("the voice engine is the default; ?voices=native keeps the browser's nodes", () => {
+  const page = globalThis.location;
+  try {
+    for (const [search, on] of [["", true], ["?map=bes1", true], ["?voices=native", false], ["?voices=rust", true]]) {
+      globalThis.location = { search };
+      assert.equal(voicesRust(), on, search || "(none)");
+    }
+  } finally {
+    globalThis.location = page;
+  }
+});
+
+test("the voice engine plays the light mix's voices in one worklet, sent what the browser's gains would be set to", async () => {
+  const ctx = new FakeContext({ channels: 8 });
+  const pcm = new Int16Array(22050).fill(1000);
+  const data = new SoundData(
+    {
+      objects: [
+        { type: "Bus", Name: "0x00000001", Gain: 1 },
+        { type: "SoundProperties", Name: "0x0000c001", Bus: "0x00000001", Mode3D: 1, MinDistance: 5, MaxDistance: 100, MuteDistance: 100, Looping: 1, ModeDoppler: 0, SampleList: [["0x00000100", 1]] },
+      ],
+      samples: { "0x00000100": [0, pcm.length, 22050] },
+    },
+    pcm.buffer,
+  );
+  const engine = new AudioEngine({ context: ctx });
+  const r = engine.renderer;
+  r.voicesRust = true;
+  const config = { quality: "original", output: "stereo", dynamics: "normal" };
+  await r.load(null, config);
+  assert.ok(ctx.modules.includes("spatial-mixer.js"), "the worklets load for the engine");
+  await r.configure(config);
+  engine.setData(data);
+  engine.setListener({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }, { x: 0, y: 1, z: 0 });
+  assert.equal(r.light, true);
+  assert.equal(r.engine, true);
+  assert.equal(r.mixer.name, "voice-engine");
+  assert.deepEqual(into(ctx, r.mixer).map((e) => e.to), [r.mix], "into the mix, as the pair");
+  const sent = [];
+  r.mixer.port.postMessage = (m) => sent.push(m);
+  // The commands the messages carried, each [code, ...its numbers].
+  const ARITY = { 1: 7, 2: 3, 3: 4, 4: 4, 5: 4, 6: 4, 7: 4, 8: 1, 9: 4, 10: 5, 11: 3, 12: 2 };
+  const commands = () => {
+    const out = [];
+    for (const m of sent.splice(0)) {
+      if (m.type !== "voices") continue;
+      for (let i = 0; i < m.data.length; i += 1 + ARITY[m.data[i]]) out.push([...m.data.subarray(i, i + 1 + ARITY[m.data[i]])]);
+    }
+    return out;
+  };
+  const near = (got, want) => got.length === want.length && got.every((x, i) => Math.abs(x - want[i]) < 1e-9);
+  const sources = ctx.nodes.filter((n) => n.kind === "AudioBufferSourceNode").length;
+  const v = engine.play("0x0000c001", { position: { x: -20, y: 0, z: -2 }, category: "effects" });
+  engine.update(1 / 60);
+  assert.ok(v.real, "heard");
+  assert.equal(ctx.nodes.filter((n) => n.kind === "AudioBufferSourceNode").length, sources, "no buffer source");
+  assert.equal(sent[0].type, "sample");
+  const slot = v.nodes.out.slot;
+  const t = ctx.currentTime;
+  const pan = alsoftStereo(v.local.x, v.local.y, v.local.z, [0, 0]);
+  // The start (sample 0 from 0 s, looping, at rate 1), its speaker gains
+  // made at 0, then placed as the browser's would be (AudioParam.value),
+  // all at the context's time.
+  const first = commands();
+  assert.deepEqual(first.slice(0, 3), [
+    [1, slot, 0, 0, 1, 1, 20000, t],
+    [9, slot, 0, 0, t],
+    [9, slot, 1, 0, t],
+  ]);
+  const placed = first.slice(3).filter((c) => c[0] === 9);
+  assert.equal(placed.length, 2);
+  placed.forEach((c, side) => assert.ok(near(c, [9, slot, side, v.audible * pan[side], t]), `placed ${side}: ${c}`));
+  // Closer: both speaker gains eased to the new level and panning.
+  engine.setListener({ x: -12, y: 0, z: 0 }, { x: 0, y: 0, z: -1 }, { x: 0, y: 1, z: 0 });
+  engine.update(1 / 60);
+  const now = alsoftStereo(v.local.x, v.local.y, v.local.z, [0, 0]);
+  const eased = commands().filter((c) => c[0] === 10);
+  assert.equal(eased.length, 2);
+  eased.forEach((c, side) => assert.ok(near(c, [10, slot, side, v.audible * now[side], 0.015, t]), `eased ${side}: ${c}`));
+  // Stopped: both fade out from now, and the source stops 40 ms on (sent
+  // once the task is done, not a frame later).
+  v.stop(0.03);
+  await Promise.resolve();
+  assert.deepEqual(commands(), [
+    [11, slot, 0, t],
+    [10, slot, 0, 0, 0.01, t],
+    [11, slot, 1, t],
+    [10, slot, 1, 0, 0.01, t],
+    [12, slot, t + 0.04],
+  ]);
 });
 
 test("a voice playing when the light mix comes or goes carries on in the new graph", async () => {

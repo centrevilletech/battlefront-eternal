@@ -52,6 +52,25 @@ function sine(ctx, freq, amp, phase = 0) {
   return src;
 }
 
+// Every message sent to a renderer's mixer applied, and its worklets built
+// (the worklet thread makes them in order), before an offline render starts:
+// one that starts first can outrun them and render silence throughout.
+function settled(r) {
+  if (!r?.mixer) return Promise.resolve();
+  return new Promise((resolve) => {
+    const port = r.mixer.port;
+    const id = Math.random();
+    const before = port.onmessage;
+    port.onmessage = (e) => {
+      if (e.data?.type === "sync" && e.data.id === id) {
+        port.onmessage = before;
+        resolve();
+      } else before?.(e);
+    };
+    port.postMessage({ type: "sync", id });
+  });
+}
+
 export async function checkAudio() {
   const results = [];
   const assert = (name, ok, detail) => {
@@ -102,6 +121,9 @@ export async function checkAudio() {
   {
     const ctx = new OfflineAudioContext(6, RATE, RATE);
     const r = new Renderer(ctx);
+    // (A check that hands the renderer its own sources plays them through
+    // the browser's nodes; the voice engine against those is 6b and 6c.)
+    r.voicesRust = false;
     await r.load();
     r.configure({ quality: "enhanced", output: "5.1", dynamics: "home", clarity: false });
     const out = r.voice({ mode3D: 1 });
@@ -118,6 +140,7 @@ export async function checkAudio() {
     });
     mixLow.start();
     mixHigh.start();
+    await settled(r);
     const rendered = await ctx.startRendering();
     const lfe = rendered.getChannelData(3).slice(RATE / 4);
     // Split the LFE channel's 50 Hz and 2 kHz content by correlation.
@@ -145,6 +168,7 @@ export async function checkAudio() {
   {
     const ctx = new OfflineAudioContext(6, RATE / 2, RATE);
     const r = new Renderer(ctx);
+    r.voicesRust = false;
     await r.load();
     r.configure({ quality: "enhanced", output: "5.1", dynamics: "home", clarity: false });
     const gain = ctx.createGain();
@@ -152,6 +176,7 @@ export async function checkAudio() {
     const src = sine(ctx, 400, 0.3);
     src.connect(bed.input);
     src.start();
+    await settled(r);
     const rendered = await ctx.startRendering();
     const trim = 10 ** (-DYNAMICS.home.makeup / 20);
     const levels = [0, 1, 2, 3, 4, 5].map((c) => rms(rendered.getChannelData(c), RATE / 8) * trim);
@@ -308,6 +333,7 @@ export async function checkAudio() {
       const one = new ConstantSourceNode(ctx, { offset: 1 });
       one.connect(node, 0, 0);
       one.start();
+      await settled({ mixer: node });
       const rendered = await ctx.startRendering();
       return Array.from({ length: N }, (_, c) => rendered.getChannelData(c)[300]);
     };
@@ -381,6 +407,7 @@ export async function checkAudio() {
     // and the pair 0.4481 (all of a tone well under 5 kHz).
     const ctx = new OfflineAudioContext(6, RATE / 2, RATE);
     const r = new Renderer(ctx);
+    r.voicesRust = false;
     await r.load();
     r.configure({ quality: "original", output: "5.1", dynamics: "home" });
     const out = r.voice({ mode3D: 0 });
@@ -389,6 +416,7 @@ export async function checkAudio() {
     out.update(null, 0, 0, { send: 0 });
     r.flush();
     src.start();
+    await settled(r);
     const rendered = await ctx.startRendering();
     const trim = 10 ** (-(DYNAMICS.home.makeup + ORIGINAL_LEVEL["5.1"]) / 20) / (0.25 / Math.SQRT2);
     const levels = [0, 1, 2, 3, 4, 5].map((c) => rms(rendered.getChannelData(c), RATE / 4) * trim);
@@ -402,9 +430,11 @@ export async function checkAudio() {
     const light = async (feed, dynamics = "home") => {
       const ctx = new OfflineAudioContext(2, RATE / 8, RATE);
       const r = new Renderer(ctx);
+      r.voicesRust = false;
       await r.load();
       r.configure({ quality: "original", output: "stereo", dynamics });
       feed(ctx, r);
+      await settled(r);
       const rendered = await ctx.startRendering();
       return { r, at: (c, i = RATE / 16) => rendered.getChannelData(c)[i], peak: Math.max(...[0, 1].map((c) => Math.max(...rendered.getChannelData(c).map(Math.abs)))) };
     };
@@ -498,6 +528,7 @@ export async function checkAudio() {
     const v = engine.play("0x0000c001", { position: { x: 15, y: 0, z: -14 }, category: "effects", offline: true });
     engine.update(1 / 60);
     const pan = alsoftGains("stereo", v.local.x, v.local.y, v.local.z);
+    await settled(engine.renderer);
     const rendered = await ctx.startRendering();
     const got = [0, 1].map((c) => rendered.getChannelData(c)[RATE / 16]);
     const want = pan.map((g) => 0.5 * v.audible * g * scale);
@@ -575,6 +606,205 @@ export async function checkAudio() {
     assert("clarity: an attack lands harder; the bed between is left alone", attack > 1.5 && attack < 4.5 && Math.abs(bed) < 0.6, { attack: attack.toFixed(2), bed: bed.toFixed(2) });
   }
 
+  // 6b. The voice engine (?voices=rust, rust/audio/src/voices.rs): the
+  // enhanced graph with its voices rendered in the mixer's module gives the
+  // samples of the browser's own nodes, bit for bit, with the listener
+  // moving and the voices' doppler, levels, air and sends moving every
+  // frame. Each frame's messages reach the mixer before its block renders
+  // (a sync round trip), as the browser's automation reaches its nodes.
+  // Twelve voices with the reverb silent (its room at 0), and two with it
+  // on: the browser adds up three or more connections into one input (the
+  // voices' sends into the reverb) in the order of a hash of where its
+  // nodes sit in memory, which changes from one graph to the next, so its
+  // own renders of the same scene differ from each other in the last bits
+  // there (by about -110 dBFS at most with 24 voices); the engine adds them
+  // in its slots' order.
+  {
+    const render = async (voicesRust, voices, room) => {
+      const seconds = 2;
+      const ctx = new OfflineAudioContext(2, RATE * seconds, RATE);
+      const pcm = new Int16Array(22050);
+      let seed = 1;
+      const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296) * 2 - 1;
+      for (let i = 0; i < pcm.length; i++) pcm[i] = Math.round(6000 * Math.sin(i / 7) + 3000 * rand());
+      const manifest = {
+        objects: [
+          { type: "Bus", Name: "0x00000001", Gain: 1 },
+          ...Array.from({ length: voices }, (_, i) => ({
+            type: "SoundProperties", Name: `0x0000c${String(i).padStart(3, "0")}`, Bus: "0x00000001", Mode3D: 1, MinDistance: 2,
+            MaxDistance: 400, MuteDistance: 400, RollOff: 1, Looping: 1, Bias: 0.0001, ReverbGain: 0.5, PitchVariation: 0, ModeDoppler: 1,
+            SampleList: [["0x00000100", 1]],
+          })),
+        ],
+        samples: { "0x00000100": [0, pcm.length, 22050] },
+      };
+      const engine = new AudioEngine({ context: ctx });
+      engine.renderer.voicesRust = voicesRust;
+      // The room before the graph is built, so the reverb starts in it.
+      if (room) engine.renderer.setRoom({ room, decay: 1.2, reflections: 0.3 });
+      const config = { quality: "enhanced", output: "stereo", dynamics: "normal", mono: false };
+      await engine.renderer.load(null, config);
+      await engine.renderer.configure(config);
+      engine.setData(new SoundData(manifest, pcm.buffer));
+      engine.shape = (voice) => {
+        const e = voice.extra;
+        e.cutoff = voice.distance > 10 ? Math.min(Math.max(20000 / (1 + (voice.distance - 10) / 35), 1800), 20000) : 20000;
+        e.gain = 1;
+        e.send = 1;
+        e.lfe = 0;
+        return e;
+      };
+      for (let i = 0; i < voices; i++) {
+        const a = (i / voices) * Math.PI * 2;
+        const r = 5 + ((i * 13) % 90);
+        engine.play(`0x0000c${String(i).padStart(3, "0")}`, { position: { x: r * Math.sin(a), y: 0, z: r * Math.cos(a) }, loop: true, category: "ambience" });
+      }
+      const port = engine.renderer.mixer.port;
+      const waits = new Map();
+      let ids = 0;
+      port.onmessage = (e) => {
+        if (e.data?.type === "sync") waits.get(e.data.id)?.();
+      };
+      const sync = () => new Promise((r) => waits.set(++ids, r) && port.postMessage({ type: "sync", id: ids }));
+      const step = (k) => {
+        const t = k / 60;
+        engine.setListener({ x: 3 * Math.sin(t), y: 1.6, z: Math.sin(t * 0.3) }, { x: -Math.sin(t * 0.8), y: 0, z: -Math.cos(t * 0.8) }, { x: 0, y: 1, z: 0 });
+        engine.update(1 / 60);
+      };
+      step(0);
+      for (let k = 1; k / 60 < seconds; k++) {
+        ctx.suspend((Math.round(((k / 60) * RATE) / 128) * 128) / RATE).then(async () => {
+          step(k);
+          await sync();
+          ctx.resume();
+        });
+      }
+      await sync();
+      const out = await ctx.startRendering();
+      return { channels: [out.getChannelData(0), out.getChannelData(1)], engine: engine.renderer.engine };
+    };
+    for (const [voices, room, what] of [
+      [12, 0, "the browser's nodes' samples, bit for bit"],
+      [2, 0.5, "the same with the reverb on, bit for bit"],
+    ]) {
+      const browser = await render(false, voices, room);
+      const module = await render(true, voices, room);
+      let differ = 0;
+      let peak = 0;
+      for (let c = 0; c < 2; c++) {
+        for (let i = 0; i < browser.channels[c].length; i++) {
+          if (!Object.is(browser.channels[c][i], module.channels[c][i])) differ++;
+          peak = Math.max(peak, Math.abs(browser.channels[c][i]));
+        }
+      }
+      assert(`voice engine: ${what}`, module.engine && !browser.engine && differ === 0 && peak > 0.01, { voices, room, differ, peak, engine: module.engine });
+    }
+  }
+
+  // 6c. The voice engine through a voice's whole life, bit for bit against
+  // the browser's nodes, in the enhanced mode (its reverb on) and in the
+  // light mix: two voices at most at a time (the browser adds three or more
+  // connections into one input in an order of its own, 6b), one looping
+  // throughout as the listener moves (its panning, level and Doppler), the
+  // other a one-shot that ends, then a loop stopped with a fade, then one
+  // that starts out of earshot and comes into it partway through its
+  // sample (a start at an offset, at the Doppler-shifted rate).
+  {
+    const render = async (voicesRust, quality) => {
+      const seconds = 2.5;
+      const ctx = new OfflineAudioContext(2, RATE * seconds, RATE);
+      // A second of 22.05 kHz sound and 0.4 s of 44.1 kHz sound.
+      const pcm = new Int16Array(22050 + 17640);
+      let seed = 3;
+      const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296) * 2 - 1;
+      for (let i = 0; i < pcm.length; i++) pcm[i] = Math.round(7000 * Math.sin(i / (i < 22050 ? 9 : 5)) + 2500 * rand());
+      const sound = (name, sample, looping) => ({
+        type: "SoundProperties", Name: name, Bus: "0x00000001", Mode3D: 1, MinDistance: 2, MaxDistance: 60, MuteDistance: 60, RollOff: 1,
+        Looping: looping, Bias: 0.0001, ReverbGain: 0.5, PitchVariation: 0, ModeDoppler: 1, SampleList: [[sample, 1]],
+      });
+      const manifest = {
+        objects: [
+          { type: "Bus", Name: "0x00000001", Gain: 1 },
+          sound("0x0000d001", "0x00000100", 1),
+          sound("0x0000d002", "0x00000101", 0),
+          sound("0x0000d003", "0x00000100", 1),
+        ],
+        samples: { "0x00000100": [0, 22050, 22050], "0x00000101": [22050, 17640, 44100] },
+      };
+      const engine = new AudioEngine({ context: ctx });
+      engine.renderer.voicesRust = voicesRust;
+      if (quality === "enhanced") engine.renderer.setRoom({ room: 0.5, decay: 1.2, reflections: 0.3 });
+      const config = { quality, output: "stereo", dynamics: "normal", mono: false };
+      await engine.renderer.load(null, config);
+      await engine.renderer.configure(config);
+      engine.setData(new SoundData(manifest, pcm.buffer));
+      engine.shape = (voice) => {
+        const e = voice.extra;
+        e.cutoff = voice.distance > 6 ? Math.max(20000 / (1 + (voice.distance - 6) / 10), 1800) : 20000;
+        e.gain = 1;
+        e.send = 1;
+        e.lfe = 0;
+        return e;
+      };
+      const port = engine.renderer.mixer?.port;
+      const waits = new Map();
+      let ids = 0;
+      if (port) {
+        port.onmessage = (e) => {
+          if (e.data?.type === "sync") waits.get(e.data.id)?.();
+        };
+      }
+      const sync = () => (port ? new Promise((r) => waits.set(++ids, r) && port.postMessage({ type: "sync", id: ids })) : Promise.resolve());
+      const handles = {};
+      const seen = { ended: false, stopped: false, offset: -1 };
+      const step = (k) => {
+        const t = k / 60;
+        engine.setListener({ x: 2 * Math.sin(t * 1.3), y: 1.6, z: Math.sin(t * 0.7) }, { x: -Math.sin(t), y: 0, z: -Math.cos(t) }, { x: 0, y: 1, z: 0 });
+        if (k === 0) handles.a = engine.play("0x0000d001", { position: { x: -4, y: 0, z: -3 }, loop: true, category: "ambience" });
+        handles.a?.moveTo({ x: -4 + 3 * Math.sin(t * 2), y: 0, z: -3 + 2 * Math.cos(t * 1.5) });
+        // (A one-shot plays in a suspended context only when asked to.)
+        if (k === 15) handles.b = engine.play("0x0000d002", { position: { x: 5, y: 0, z: 2 }, category: "effects", offline: true });
+        if (k === 48) handles.c = engine.play("0x0000d001", { position: { x: 1, y: 0, z: -9 }, loop: true, category: "ambience" });
+        if (k === 78) handles.c.stop(0.05);
+        // Out of earshot (past MuteDistance) at first, then within it.
+        if (k === 84) handles.d = engine.play("0x0000d003", { position: { x: 0, y: 0, z: 90 }, loop: true, category: "ambience" });
+        if (k === 108) handles.d.moveTo({ x: 6, y: 0, z: 8 });
+        engine.update(1 / 60);
+        if (handles.b && !handles.b.playing) seen.ended = true;
+        if (handles.c && !handles.c.playing) seen.stopped = true;
+        if (k === 108 && handles.d.real) seen.offset = handles.d.elapsed;
+      };
+      step(0);
+      for (let k = 1; k / 60 < seconds; k++) {
+        ctx.suspend((Math.round(((k / 60) * RATE) / 128) * 128) / RATE).then(async () => {
+          step(k);
+          await sync();
+          ctx.resume();
+        });
+      }
+      await sync();
+      const out = await ctx.startRendering();
+      return { channels: [out.getChannelData(0), out.getChannelData(1)], engine: engine.renderer.engine, light: engine.renderer.light, seen };
+    };
+    for (const [quality, what] of [
+      ["enhanced", "the enhanced mode, reverb on"],
+      ["original", "the light mix"],
+    ]) {
+      const browser = await render(false, quality);
+      const module = await render(true, quality);
+      let differ = 0;
+      let peak = 0;
+      for (let c = 0; c < 2; c++) {
+        for (let i = 0; i < browser.channels[c].length; i++) {
+          if (!Object.is(browser.channels[c][i], module.channels[c][i])) differ++;
+          peak = Math.max(peak, Math.abs(browser.channels[c][i]));
+        }
+      }
+      const lived = module.seen.ended && module.seen.stopped && module.seen.offset > 0;
+      assert(`voice engine, ${what}: starts, ends, stops and an offset start, bit for bit`, module.engine && !browser.engine && module.light === (quality === "original") && lived && differ === 0 && peak > 0.01, { differ, peak, seen: module.seen, engine: module.engine });
+    }
+  }
+
   // 7. The headphone decoder. The encoder's harmonics against the values
   // tools/make_binaural.py checked against spaudiopy (written with the
   // filters), spread keeping the energy, and the decoded ears: a source on
@@ -622,6 +852,7 @@ export async function checkAudio() {
     const ears = async (local, mode3D = 1, freq = 1000) => {
       const ctx = new OfflineAudioContext(2, RATE / 2, RATE);
       const r = new Renderer(ctx);
+      r.voicesRust = false;
       await r.load("/audio");
       r.configure({ quality: "enhanced", output: "headphones", dynamics: "home", clarity: false });
       const out = r.voice({ mode3D });
@@ -630,6 +861,7 @@ export async function checkAudio() {
       out.update(local, 20, 0, { cutoff: 20000, send: 0 });
       r.flush();
       src.start();
+      await settled(r);
       const rendered = await ctx.startRendering();
       const trim = 10 ** (-DYNAMICS.home.makeup / 20) / (0.25 / Math.SQRT2);
       const level = (c) => db(rms(rendered.getChannelData(c), RATE / 8) * trim);
