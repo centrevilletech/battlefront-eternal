@@ -30,6 +30,9 @@ for (const scenario of remotePredictionCases()) {
       if (!process.stdout.write(JSON.stringify(event) + '\n')) await once(process.stdout, 'drain');
       operations++; if (trace.op === 2) steps++;
     }
+    for (const session of new Set(traces.map(trace => String(trace.session)))) {
+      if (!process.stdout.write(JSON.stringify({ type: 'dispose', label: scenario.name, session }) + '\n')) await once(process.stdout, 'drain');
+    }
     cases++; shots += actual.shots.length;
   } finally { native.dispose(); }
 }

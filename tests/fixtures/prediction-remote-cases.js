@@ -52,7 +52,8 @@ function triangles(scenario) {
 export function remoteObservation(context, droid) {
   const state = structuredClone(captureRemoteReplay(context, droid));
   return { state, level: droid.arsenal.weapons.map(w => w.level), bytes: droid.arsenal.weapons.map(w => Array.from(captureWeaponState(w))),
-    omitted: droid.arsenal.weapons.map(w => ({ salvoSeed: w.salvoSeed, salvoCount: w.salvoCount, random: w.random === context.random, seeded: !!w.salvoRandom })),
+    omitted: droid.arsenal.weapons.map(w => ({ salvoSeed: w.salvoSeed, salvoCount: w.salvoCount, random: w.random === context.random,
+      randomSeed: w.random?.seed, seeded: !!w.salvoRandom })),
     order: context.droids.map(d => ({ position: d.position.toArray(), dead: d.dead, health: d.health, salvo: !!d.salvo, main: d === droid })),
     strikes: context.strikes.map(d => ({ main: d === droid, dead: d.dead, left: d.salvo?.left, wait: d.salvo?.wait })),
     camera: context.aimCamera ? { position: context.aimCamera.position.toArray(), quaternion: context.aimCamera.quaternion.toArray(),
@@ -118,6 +119,12 @@ export function createRemoteFixture(scenario, { onQuery = null, onFired = null, 
         const replacement = new Weapon(remoteGun({ class: 'replacement', ShotsPerSalvo: 2, RoundsPerClip: 31 }));
         droid.arsenal.weapons[0] = replacement; droid.arsenal.channels[0][0] = replacement; shot.weapon.clip = .777;
       }
+      if (scenario.sharedSalvo && firing === 1) {
+        this.strike(droid, droid.arsenal.current(1).def);
+        const other = this.createDroid(droid.def, null, new Vector3(-3, 3, -2), new Vector3(), 0, 2);
+        other.dead = true; other.salvo = droid.salvo; this.droids.push(other); this.strikes.push(other);
+      }
+      if (scenario.replaceRandom && firing === 1) { this.random = reconRandom(0x765432, 'callback'); this.strike(droid, droid.arsenal.current(1).def); }
       if (scenario.mutateDrain && firing === 1) droid.def.AddHealth = -1000;
       if (scenario.killOnFired && firing === 2) { this.strike(droid, droid.arsenal.current(1).def); this.kill(droid); }
       onFired?.({ context: this, droid, shot, at, event, count: firing, events });
@@ -160,6 +167,9 @@ export function remotePredictionCases() {
       weapons: [{ index: 0, fields: { salvosLeft: 3, salvoWait: .01 } }] },
     { name: 'partial-shot-state-and-mutation', ticks: 100, mutate: true, definition: { weapons: [partial, remoteStrike()] } },
     { name: 'queued-shots-keep-replaced-weapon-identity', ticks: 60, replaceWeapon: true, definition: { weapons: [partial, remoteStrike()] } },
+    { name: 'shared-salvo-clock-and-owner-filter', ticks: 90, sharedSalvo: true, definition: { weapons: [partial, remoteStrike()] } },
+    { name: 'shot-callback-replaces-context-rng', ticks: 90, replaceRandom: true,
+      definition: { weapons: [partial, remoteStrike({ SalvoCount: 8, SalvoDelay: .4 })] } },
     { name: 'aim-callback-mutates-shared-vectors', ticks: 60, mutateAim: true },
     { name: 'shot-callback-mutates-same-definition', ticks: 40, mutateDrain: true, definition: { MaxHealth: 12, weapons: [partial, remoteStrike()] } },
     { name: 'downward-cast-mutates-held-definition', ticks: 60, mutateFly: true },
