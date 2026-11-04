@@ -50,7 +50,7 @@ export class WsMemberMirror {
 
 export function syncWsMember(b, f, at, h, m) {
   m.id = f[at + 0];
-  (m.position ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   m.tickCount = f[at + 4];
   m.walker = f[at + 5] !== 0;
   m.posture = Posture_NAMES[f[at + 6]];
@@ -122,7 +122,7 @@ export function syncWsSeparation(b, f, at, h, m) {
   { const tag = f[at + 2]; if (tag === 0) { m.player = f[at + 3]; } else m.player = tag === 1 ? null : undefined; }
   m.playerOut = f[at + 4] !== 0;
   m.global = f[at + 5] !== 0;
-  (m.camera ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
+  { const $v = (m.camera ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
   return m;
 }
 
@@ -164,7 +164,7 @@ export class WsSeparatedMirror {
 }
 
 export function syncWsSeparated(b, f, at, h, m) {
-  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
   m.tickCount = f[at + 3];
   return m;
 }

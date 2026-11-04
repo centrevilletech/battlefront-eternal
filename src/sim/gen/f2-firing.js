@@ -438,9 +438,9 @@ export class FfLegMirror {
 
 export function syncFfLeg(b, f, at, h, m) {
   m.name = b.strings.at(f[at + 0]);
-  { const tag = f[at + 1]; if (tag === 0) { (m.thigh ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]); } else m.thigh = tag === 1 ? null : undefined; }
-  { const tag = f[at + 5]; if (tag === 0) { (m.calf ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]); } else m.calf = tag === 1 ? null : undefined; }
-  { const tag = f[at + 9]; if (tag === 0) { (m.foot ??= new THREE.Vector3()).set(f[at + 10], f[at + 11], f[at + 12]); } else m.foot = tag === 1 ? null : undefined; }
+  { const tag = f[at + 1]; if (tag === 0) { { const $v = (m.thigh ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; } } else m.thigh = tag === 1 ? null : undefined; }
+  { const tag = f[at + 5]; if (tag === 0) { { const $v = (m.calf ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; } } else m.calf = tag === 1 ? null : undefined; }
+  { const tag = f[at + 9]; if (tag === 0) { { const $v = (m.foot ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; } } else m.foot = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -655,8 +655,8 @@ export function syncFfCableOut(b, f, at, h, m) {
   m.seat = f[at + 4];
   m.weapon = f[at + 5];
   m.length = f[at + 6];
-  (m.start ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
-  (m.end ??= new THREE.Vector3()).set(f[at + 10], f[at + 11], f[at + 12]);
+  { const $v = (m.start ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
+  { const $v = (m.end ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; }
   return m;
 }
 
@@ -797,9 +797,9 @@ export function syncFfTargetFacts(b, f, at, h, m) {
   m.eligible = f[at + 1] !== 0;
   m.relation = f[at + 2];
   m.category = f[at + 3];
-  (m.center ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
   m.radius = f[at + 7];
-  (m.aim ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
+  { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 8]; $v.y = f[at + 9]; $v.z = f[at + 10]; }
   m.body = f[at + 11];
   return m;
 }
@@ -873,8 +873,8 @@ export function syncFfShot(b, f, at, h, m) {
   m.charge = f[at + 52];
   m.targetId = f[at + 53];
   m.targetGeneration = f[at + 54];
-  (m.origin ??= new THREE.Vector3()).set(f[at + 55], f[at + 56], f[at + 57]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 58], f[at + 59], f[at + 60]);
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 55]; $v.y = f[at + 56]; $v.z = f[at + 57]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 58]; $v.y = f[at + 59]; $v.z = f[at + 60]; }
   return m;
 }
 

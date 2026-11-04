@@ -17,10 +17,10 @@ export class F2RiderBoneMirror {
 export function syncF2RiderBone(b, f, at, h, m) {
   m.name = b.strings.at(f[at + 0]);
   m.parent = f[at + 1];
-  (m.p ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
-  (m.q ??= new THREE.Quaternion()).set(f[at + 5], f[at + 6], f[at + 7], f[at + 8]);
-  (m.s ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]);
-  { const tag = f[at + 12]; if (tag === 0) { (m.bind ??= new THREE.Vector3()).set(f[at + 13], f[at + 14], f[at + 15]); } else m.bind = tag === 1 ? null : undefined; }
+  { const $v = (m.p ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
+  { const $q = (m.q ??= new THREE.Quaternion()); $q._x = f[at + 5]; $q._y = f[at + 6]; $q._z = f[at + 7]; $q._w = f[at + 8]; $q._onChangeCallback(); }
+  { const $v = (m.s ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
+  { const tag = f[at + 12]; if (tag === 0) { { const $v = (m.bind ??= new THREE.Vector3()); $v.x = f[at + 13]; $v.y = f[at + 14]; $v.z = f[at + 15]; } } else m.bind = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -126,7 +126,7 @@ export function syncF2RiderBirth(b, f, at, h, m) {
   m.unit = b.refs[KIND_UNIT].at(f[at + 0], f[at + 1]);
   m.life = f[at + 2];
   m.scale = f[at + 3];
-  { const tag = f[at + 4]; if (tag === 0) { (m.rootBind ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]); } else m.rootBind = tag === 1 ? null : undefined; }
+  { const tag = f[at + 4]; if (tag === 0) { { const $v = (m.rootBind ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; } } else m.rootBind = tag === 1 ? null : undefined; }
   { const items = (m.bones ??= []), start = h + f[at + 8], n = f[at + 9]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 16; v = syncF2RiderBone(b, f, at + 0, h, v ?? new F2RiderBoneMirror()); } items[i] = v; } }
   { const items = (m.clips ??= []), start = h + f[at + 10], n = f[at + 11]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 11; v = syncF2RiderClip(b, f, at + 0, h, v ?? new F2RiderClipMirror()); } items[i] = v; } }
   return m;
@@ -178,8 +178,8 @@ export class F2RiderShapeMirror {
 export function syncF2RiderShape(b, f, at, h, m) {
   m.capsule = f[at + 0] !== 0;
   m.head = f[at + 1] !== 0;
-  (m.center ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
-  (m.half ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
+  { const $v = (m.half ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
   m.radius = f[at + 8];
   return m;
 }
@@ -236,7 +236,7 @@ export function syncF2RiderOut(b, f, at, h, m) {
   m.pitch = f[at + 5];
   m.turn = f[at + 6];
   { const tag = f[at + 7]; if (tag === 0) { m.time = f[at + 8]; } else m.time = tag === 1 ? null : undefined; }
-  { const tag = f[at + 9]; if (tag === 0) { (m.drop ??= new THREE.Vector3()).set(f[at + 10], f[at + 11], f[at + 12]); } else m.drop = tag === 1 ? null : undefined; }
+  { const tag = f[at + 9]; if (tag === 0) { { const $v = (m.drop ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; } } else m.drop = tag === 1 ? null : undefined; }
   { const items = (m.shapes ??= []), start = h + f[at + 13], n = f[at + 14]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncF2RiderShape(b, f, at + 0, h, v ?? new F2RiderShapeMirror()); } items[i] = v; } }
   return m;
 }

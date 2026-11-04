@@ -1017,11 +1017,14 @@ function jsSync(model, t, target, k) {
     case 'f64': case 'f32': case 'i32': case 'u32': case 'u8': return `${target} = f[at + ${k}];`;
     case 'index': return `${target} = ${target.replace(/\.[A-Za-z_$][\w$]*$/, '')}.${t.of}[f[at + ${k}]];`;
     case 'bool': return `${target} = f[at + ${k}] !== 0;`;
-    case 'vec3': return `(${target} ??= new THREE.Vector3()).set(f[at + ${k}], f[at + ${k + 1}], f[at + ${k + 2}]);`;
-    case 'quat': return `(${target} ??= new THREE.Quaternion()).set(f[at + ${k}], f[at + ${k + 1}], f[at + ${k + 2}], f[at + ${k + 3}]);`;
+    // Scalar stores avoid boxing float arguments at Vector3.set and
+    // Quaternion.set call sites in large phase readers. Keep the quaternion's
+    // one change callback after all four components, exactly as set does.
+    case 'vec3': return `{ const $v = (${target} ??= new THREE.Vector3()); $v.x = f[at + ${k}]; $v.y = f[at + ${k + 1}]; $v.z = f[at + ${k + 2}]; }`;
+    case 'quat': return `{ const $q = (${target} ??= new THREE.Quaternion()); $q._x = f[at + ${k}]; $q._y = f[at + ${k + 1}]; $q._z = f[at + ${k + 2}]; $q._w = f[at + ${k + 3}]; $q._onChangeCallback(); }`;
     case 'mat4': return `{ const e = (${target} ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + ${k} + i]; }`;
     case 'f64xN': return `{ const a = (${target} ??= new Array(${t.n})); ${Array.from({ length: t.n }, (_, i) => `a[${i}] = f[at + ${k + i}];`).join(' ')} }`;
-    case 'typed': return `(${target} ??= new ${t.class}(${t.n})).set(f.subarray(at + ${k}, at + ${k + t.n}));`;
+    case 'typed': return `{ const $a = (${target} ??= new ${t.class}(${t.n})); for (let i = 0; i < ${t.n}; i++) $a[i] = f[at + ${k} + i]; }`;
     case 'str': return `${target} = b.strings.at(f[at + ${k}]);`;
     case 'enum': return `${target} = ${jsEnum(model.enums.get(t.of))}[f[at + ${k}]];`;
     case 'def': return `${target} = b.defs.${t.of}.at(f[at + ${k}]);`;

@@ -20,9 +20,9 @@ export class VgNodeMirror {
 }
 
 export function syncVgNode(b, f, at, h, m) {
-  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.quaternion ??= new THREE.Quaternion()).set(f[at + 3], f[at + 4], f[at + 5], f[at + 6]);
-  (m.scale ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $q = (m.quaternion ??= new THREE.Quaternion()); $q._x = f[at + 3]; $q._y = f[at + 4]; $q._z = f[at + 5]; $q._w = f[at + 6]; $q._onChangeCallback(); }
+  { const $v = (m.scale ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 10 + i]; }
   { const e = (m.matrixWorld ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 26 + i]; }
   m.auto = f[at + 42] !== 0;
@@ -85,7 +85,7 @@ export class VgAimerMirror {
 export function syncVgAimer(b, f, at, h, m) {
   m.bone = f[at + 0];
   m.directionNode = f[at + 1];
-  (m.facing ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  { const $v = (m.facing ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
   m.posed = f[at + 5] !== 0;
   m.onTarget = f[at + 6] !== 0;
   { const tag = f[at + 7]; if (tag === 0) { m.inLimits = f[at + 8] !== 0; } else m.inLimits = tag === 1 ? null : undefined; }
@@ -239,11 +239,11 @@ export class VgSeatMirror {
 export function syncVgSeat(b, f, at, h, m) {
   m.yaw = f[at + 0];
   m.pitch = f[at + 1];
-  { const tag = f[at + 2]; if (tag === 0) { (m.target ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]); } else m.target = tag === 1 ? null : undefined; }
+  { const tag = f[at + 2]; if (tag === 0) { { const $v = (m.target ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; } } else m.target = tag === 1 ? null : undefined; }
   m.leased = f[at + 6] !== 0;
   m.human = f[at + 7] !== 0;
   m.aiming = f[at + 8] !== 0;
-  (m.aim ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]);
+  { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
   m.turret = f[at + 12];
   { const items = (m.weapons ??= []), start = h + f[at + 13], n = f[at + 14]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncVgWeapon(b, f, at + 0, h, v ?? new VgWeaponMirror()); } items[i] = v; } }
   return m;
@@ -306,10 +306,10 @@ export class VgStateMirror {
 
 export function syncVgState(b, f, at, h, m) {
   m.flying = f[at + 0] !== 0;
-  (m.center ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
-  (m.size ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
+  { const $v = (m.size ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 7 + i]; }
-  (m.quaternion ??= new THREE.Quaternion()).set(f[at + 23], f[at + 24], f[at + 25], f[at + 26]);
+  { const $q = (m.quaternion ??= new THREE.Quaternion()); $q._x = f[at + 23]; $q._y = f[at + 24]; $q._z = f[at + 25]; $q._w = f[at + 26]; $q._onChangeCallback(); }
   m.seatIndex = f[at + 27];
   { const items = (m.seats ??= []), start = h + f[at + 28], n = f[at + 29]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncVgSeat(b, f, at + 0, h, v ?? new VgSeatMirror()); } items[i] = v; } }
   { const items = (m.nodes ??= []), start = h + f[at + 30], n = f[at + 31]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 45; v = syncVgNode(b, f, at + 0, h, v ?? new VgNodeMirror()); } items[i] = v; } }
@@ -384,12 +384,12 @@ export function syncVgInput(b, f, at, h, m) {
   m.seat = f[at + 35];
   m.weapon = f[at + 36];
   m.aimer = f[at + 37];
-  (m.from ??= new THREE.Vector3()).set(f[at + 38], f[at + 39], f[at + 40]);
-  { const tag = f[at + 41]; if (tag === 0) { (m.target ??= new THREE.Vector3()).set(f[at + 42], f[at + 43], f[at + 44]); } else m.target = tag === 1 ? null : undefined; }
-  { const tag = f[at + 45]; if (tag === 0) { (m.fallback ??= new THREE.Vector3()).set(f[at + 46], f[at + 47], f[at + 48]); } else m.fallback = tag === 1 ? null : undefined; }
-  (m.out ??= new THREE.Vector3()).set(f[at + 49], f[at + 50], f[at + 51]);
-  (m.normal ??= new THREE.Vector3()).set(f[at + 52], f[at + 53], f[at + 54]);
-  (m.beamFrom ??= new THREE.Vector3()).set(f[at + 55], f[at + 56], f[at + 57]);
+  { const $v = (m.from ??= new THREE.Vector3()); $v.x = f[at + 38]; $v.y = f[at + 39]; $v.z = f[at + 40]; }
+  { const tag = f[at + 41]; if (tag === 0) { { const $v = (m.target ??= new THREE.Vector3()); $v.x = f[at + 42]; $v.y = f[at + 43]; $v.z = f[at + 44]; } } else m.target = tag === 1 ? null : undefined; }
+  { const tag = f[at + 45]; if (tag === 0) { { const $v = (m.fallback ??= new THREE.Vector3()); $v.x = f[at + 46]; $v.y = f[at + 47]; $v.z = f[at + 48]; } } else m.fallback = tag === 1 ? null : undefined; }
+  { const $v = (m.out ??= new THREE.Vector3()); $v.x = f[at + 49]; $v.y = f[at + 50]; $v.z = f[at + 51]; }
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 52]; $v.y = f[at + 53]; $v.z = f[at + 54]; }
+  { const $v = (m.beamFrom ??= new THREE.Vector3()); $v.x = f[at + 55]; $v.y = f[at + 56]; $v.z = f[at + 57]; }
   m.node = f[at + 58];
   m.yaw = f[at + 59];
   m.pitch = f[at + 60];
@@ -479,9 +479,9 @@ export class VgOutputMirror {
 
 export function syncVgOutput(b, f, at, h, m) {
   m.state = syncVgState(b, f, at + 0, h, m.state ?? new VgStateMirror());
-  (m.out ??= new THREE.Vector3()).set(f[at + 32], f[at + 33], f[at + 34]);
-  (m.normal ??= new THREE.Vector3()).set(f[at + 35], f[at + 36], f[at + 37]);
-  (m.beamFrom ??= new THREE.Vector3()).set(f[at + 38], f[at + 39], f[at + 40]);
+  { const $v = (m.out ??= new THREE.Vector3()); $v.x = f[at + 32]; $v.y = f[at + 33]; $v.z = f[at + 34]; }
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 35]; $v.y = f[at + 36]; $v.z = f[at + 37]; }
+  { const $v = (m.beamFrom ??= new THREE.Vector3()); $v.x = f[at + 38]; $v.y = f[at + 39]; $v.z = f[at + 40]; }
   m.node = f[at + 41];
   m.aimer = f[at + 42];
   m.emitter = f[at + 43];

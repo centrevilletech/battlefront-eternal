@@ -132,7 +132,7 @@ export function syncVehicle(b, f, at, h, m) {
   { const tag = f[at + 35]; if (tag === 0) { m.gear = f[at + 36]; } else m.gear = tag === 1 ? null : undefined; }
   { const tag = f[at + 37]; if (tag === 0) { m.landingMessage = b.strings.at(f[at + 38]); } else m.landingMessage = tag === 1 ? null : undefined; }
   { const tag = f[at + 39]; if (tag === 0) { m.landingMessageTime = f[at + 40]; } else m.landingMessageTime = tag === 1 ? null : undefined; }
-  { const tag = f[at + 41]; if (tag === 0) { (m.flightTrickRight ??= new THREE.Vector3()).set(f[at + 42], f[at + 43], f[at + 44]); } else m.flightTrickRight = tag === 1 ? null : undefined; }
+  { const tag = f[at + 41]; if (tag === 0) { { const $v = (m.flightTrickRight ??= new THREE.Vector3()); $v.x = f[at + 42]; $v.y = f[at + 43]; $v.z = f[at + 44]; } } else m.flightTrickRight = tag === 1 ? null : undefined; }
   { const tag = f[at + 45]; if (tag === 0) { m.flightClock = f[at + 46]; } else m.flightClock = tag === 1 ? null : undefined; }
   { const tag = f[at + 47]; if (tag === 0) { m.boostExhausted = f[at + 48] !== 0; } else m.boostExhausted = tag === 1 ? null : undefined; }
   { const tag = f[at + 49]; if (tag === 0) { m.landingReason = b.strings.at(f[at + 50]); } else m.landingReason = tag === 1 ? null : undefined; }
@@ -144,20 +144,20 @@ export function syncVehicle(b, f, at, h, m) {
   { const tag = f[at + 61]; if (tag === 0) { m.flightLockTimer = f[at + 62]; } else m.flightLockTimer = tag === 1 ? null : undefined; }
   { const tag = f[at + 63]; if (tag === 0) { m.flightLostLOS = f[at + 64]; } else m.flightLostLOS = tag === 1 ? null : undefined; }
   { const tag = f[at + 65]; if (tag === 0) { m.flightLockState = b.strings.at(f[at + 66]); } else m.flightLockState = tag === 1 ? null : undefined; }
-  { const tag = f[at + 67]; if (tag === 0) { (m.flightStart ??= new THREE.Vector3()).set(f[at + 68], f[at + 69], f[at + 70]); } else m.flightStart = tag === 1 ? null : undefined; }
-  { const tag = f[at + 71]; if (tag === 0) { (m.flightEnd ??= new THREE.Vector3()).set(f[at + 72], f[at + 73], f[at + 74]); } else m.flightEnd = tag === 1 ? null : undefined; }
-  { const tag = f[at + 75]; if (tag === 0) { (m.flightStartQ ??= new THREE.Quaternion()).set(f[at + 76], f[at + 77], f[at + 78], f[at + 79]); } else m.flightStartQ = tag === 1 ? null : undefined; }
-  { const tag = f[at + 80]; if (tag === 0) { (m.flightTrickLoopQ ??= new THREE.Quaternion()).set(f[at + 81], f[at + 82], f[at + 83], f[at + 84]); } else m.flightTrickLoopQ = tag === 1 ? null : undefined; }
-  { const tag = f[at + 85]; if (tag === 0) { (m.flightTrickEndQ ??= new THREE.Quaternion()).set(f[at + 86], f[at + 87], f[at + 88], f[at + 89]); } else m.flightTrickEndQ = tag === 1 ? null : undefined; }
-  { const tag = f[at + 90]; if (tag === 0) { (m.flightPreviousQ ??= new THREE.Quaternion()).set(f[at + 91], f[at + 92], f[at + 93], f[at + 94]); } else m.flightPreviousQ = tag === 1 ? null : undefined; }
-  { const tag = f[at + 95]; if (tag === 0) { (m.flightTickQ ??= new THREE.Quaternion()).set(f[at + 96], f[at + 97], f[at + 98], f[at + 99]); } else m.flightTickQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 67]; if (tag === 0) { { const $v = (m.flightStart ??= new THREE.Vector3()); $v.x = f[at + 68]; $v.y = f[at + 69]; $v.z = f[at + 70]; } } else m.flightStart = tag === 1 ? null : undefined; }
+  { const tag = f[at + 71]; if (tag === 0) { { const $v = (m.flightEnd ??= new THREE.Vector3()); $v.x = f[at + 72]; $v.y = f[at + 73]; $v.z = f[at + 74]; } } else m.flightEnd = tag === 1 ? null : undefined; }
+  { const tag = f[at + 75]; if (tag === 0) { { const $q = (m.flightStartQ ??= new THREE.Quaternion()); $q._x = f[at + 76]; $q._y = f[at + 77]; $q._z = f[at + 78]; $q._w = f[at + 79]; $q._onChangeCallback(); } } else m.flightStartQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 80]; if (tag === 0) { { const $q = (m.flightTrickLoopQ ??= new THREE.Quaternion()); $q._x = f[at + 81]; $q._y = f[at + 82]; $q._z = f[at + 83]; $q._w = f[at + 84]; $q._onChangeCallback(); } } else m.flightTrickLoopQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 85]; if (tag === 0) { { const $q = (m.flightTrickEndQ ??= new THREE.Quaternion()); $q._x = f[at + 86]; $q._y = f[at + 87]; $q._z = f[at + 88]; $q._w = f[at + 89]; $q._onChangeCallback(); } } else m.flightTrickEndQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 90]; if (tag === 0) { { const $q = (m.flightPreviousQ ??= new THREE.Quaternion()); $q._x = f[at + 91]; $q._y = f[at + 92]; $q._z = f[at + 93]; $q._w = f[at + 94]; $q._onChangeCallback(); } } else m.flightPreviousQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 95]; if (tag === 0) { { const $q = (m.flightTickQ ??= new THREE.Quaternion()); $q._x = f[at + 96]; $q._y = f[at + 97]; $q._z = f[at + 98]; $q._w = f[at + 99]; $q._onChangeCallback(); } } else m.flightTickQ = tag === 1 ? null : undefined; }
   { const tag = f[at + 100]; if (tag === 0) { m.flightActionHeld = f[at + 101] !== 0; } else m.flightActionHeld = tag === 1 ? null : undefined; }
   { const tag = f[at + 102]; if (tag === 0) { m.trickHeld = f[at + 103] !== 0; } else m.trickHeld = tag === 1 ? null : undefined; }
   { const tag = f[at + 104]; if (tag === 0) { m.immelmannHeld = f[at + 105] !== 0; } else m.immelmannHeld = tag === 1 ? null : undefined; }
-  { const tag = f[at + 106]; if (tag === 0) { (m.flightFrameQ ??= new THREE.Quaternion()).set(f[at + 107], f[at + 108], f[at + 109], f[at + 110]); } else m.flightFrameQ = tag === 1 ? null : undefined; }
-  (m.position ??= new THREE.Vector3()).set(f[at + 111], f[at + 112], f[at + 113]);
-  (m.previous ??= new THREE.Vector3()).set(f[at + 114], f[at + 115], f[at + 116]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 117], f[at + 118], f[at + 119]);
+  { const tag = f[at + 106]; if (tag === 0) { { const $q = (m.flightFrameQ ??= new THREE.Quaternion()); $q._x = f[at + 107]; $q._y = f[at + 108]; $q._z = f[at + 109]; $q._w = f[at + 110]; $q._onChangeCallback(); } } else m.flightFrameQ = tag === 1 ? null : undefined; }
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 111]; $v.y = f[at + 112]; $v.z = f[at + 113]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 114]; $v.y = f[at + 115]; $v.z = f[at + 116]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 117]; $v.y = f[at + 118]; $v.z = f[at + 119]; }
   m.yaw = f[at + 120];
   m.previousYaw = f[at + 121];
   m.tilt = f[at + 122];
@@ -175,21 +175,21 @@ export function syncVehicle(b, f, at, h, m) {
   m.health = f[at + 135];
   m.dying = f[at + 136];
   m.waterClock = f[at + 137];
-  (m.quaternion ??= new THREE.Quaternion()).set(f[at + 138], f[at + 139], f[at + 140], f[at + 141]);
+  { const $q = (m.quaternion ??= new THREE.Quaternion()); $q._x = f[at + 138]; $q._y = f[at + 139]; $q._z = f[at + 140]; $q._w = f[at + 141]; $q._onChangeCallback(); }
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 142 + i]; }
-  (m.itemCenter ??= new THREE.Vector3()).set(f[at + 158], f[at + 159], f[at + 160]);
-  (m.supportNormal ??= new THREE.Vector3()).set(f[at + 161], f[at + 162], f[at + 163]);
+  { const $v = (m.itemCenter ??= new THREE.Vector3()); $v.x = f[at + 158]; $v.y = f[at + 159]; $v.z = f[at + 160]; }
+  { const $v = (m.supportNormal ??= new THREE.Vector3()); $v.x = f[at + 161]; $v.y = f[at + 162]; $v.z = f[at + 163]; }
   { const tag = f[at + 164]; if (tag === 0) { { const items = (m.legSide ??= []), start = h + f[at + 165], n = f[at + 166]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.legSide = tag === 1 ? null : undefined; }
   m.seatIndex = f[at + 167];
   { const tag = f[at + 168]; if (tag === 0) { m.driver = b.refs[KIND_VEHICLE_DRIVER].at(f[at + 169], f[at + 170]); } else m.driver = tag === 1 ? null : undefined; }
   { const items = (m.wheels ??= []), start = h + f[at + 171], n = f[at + 172]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncVehicleWheel(b, f, at + 0, h, v ?? new VehicleWheelMirror()); } items[i] = v; } }
   { const items = (m.seats ??= []), start = h + f[at + 173], n = f[at + 174]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncVehicleSeat(b, f, at + 0, h, v ?? new VehicleSeatMirror()); } items[i] = v; } }
-  { const tag = f[at + 175]; if (tag === 0) { (m.tickFrom ??= new THREE.Vector3()).set(f[at + 176], f[at + 177], f[at + 178]); } else m.tickFrom = tag === 1 ? null : undefined; }
+  { const tag = f[at + 175]; if (tag === 0) { { const $v = (m.tickFrom ??= new THREE.Vector3()); $v.x = f[at + 176]; $v.y = f[at + 177]; $v.z = f[at + 178]; } } else m.tickFrom = tag === 1 ? null : undefined; }
   { const tag = f[at + 179]; if (tag === 0) { m.tickFromYaw = f[at + 180]; } else m.tickFromYaw = tag === 1 ? null : undefined; }
   { const tag = f[at + 181]; if (tag === 0) { m.tickFromTilt = f[at + 182]; } else m.tickFromTilt = tag === 1 ? null : undefined; }
   { const tag = f[at + 183]; if (tag === 0) { m.tickFromRoll = f[at + 184]; } else m.tickFromRoll = tag === 1 ? null : undefined; }
   m.towTarget = f[at + 185];
-  (m.towLocal ??= new THREE.Vector3()).set(f[at + 186], f[at + 187], f[at + 188]);
+  { const $v = (m.towLocal ??= new THREE.Vector3()); $v.x = f[at + 186]; $v.y = f[at + 187]; $v.z = f[at + 188]; }
   m.towLeg = b.strings.at(f[at + 189]);
   m.towAngle = f[at + 190];
   m.towWinding = f[at + 191];
@@ -228,7 +228,7 @@ export function syncFullVehicle(b, f, at, h, m) {
   { const tag = f[at + 46]; if (tag === 0) { m.gear = f[at + 47]; } else m.gear = tag === 1 ? null : undefined; }
   { const tag = f[at + 48]; if (tag === 0) { m.landingMessage = b.strings.at(f[at + 49]); } else m.landingMessage = tag === 1 ? null : undefined; }
   { const tag = f[at + 50]; if (tag === 0) { m.landingMessageTime = f[at + 51]; } else m.landingMessageTime = tag === 1 ? null : undefined; }
-  { const tag = f[at + 52]; if (tag === 0) { (m.flightTrickRight ??= new THREE.Vector3()).set(f[at + 53], f[at + 54], f[at + 55]); } else m.flightTrickRight = tag === 1 ? null : undefined; }
+  { const tag = f[at + 52]; if (tag === 0) { { const $v = (m.flightTrickRight ??= new THREE.Vector3()); $v.x = f[at + 53]; $v.y = f[at + 54]; $v.z = f[at + 55]; } } else m.flightTrickRight = tag === 1 ? null : undefined; }
   { const tag = f[at + 56]; if (tag === 0) { m.flightClock = f[at + 57]; } else m.flightClock = tag === 1 ? null : undefined; }
   { const tag = f[at + 58]; if (tag === 0) { m.boostExhausted = f[at + 59] !== 0; } else m.boostExhausted = tag === 1 ? null : undefined; }
   { const tag = f[at + 60]; if (tag === 0) { m.landingReason = b.strings.at(f[at + 61]); } else m.landingReason = tag === 1 ? null : undefined; }
@@ -240,17 +240,17 @@ export function syncFullVehicle(b, f, at, h, m) {
   { const tag = f[at + 72]; if (tag === 0) { m.flightLockTimer = f[at + 73]; } else m.flightLockTimer = tag === 1 ? null : undefined; }
   { const tag = f[at + 74]; if (tag === 0) { m.flightLostLOS = f[at + 75]; } else m.flightLostLOS = tag === 1 ? null : undefined; }
   { const tag = f[at + 76]; if (tag === 0) { m.flightLockState = b.strings.at(f[at + 77]); } else m.flightLockState = tag === 1 ? null : undefined; }
-  { const tag = f[at + 78]; if (tag === 0) { (m.flightStart ??= new THREE.Vector3()).set(f[at + 79], f[at + 80], f[at + 81]); } else m.flightStart = tag === 1 ? null : undefined; }
-  { const tag = f[at + 82]; if (tag === 0) { (m.flightEnd ??= new THREE.Vector3()).set(f[at + 83], f[at + 84], f[at + 85]); } else m.flightEnd = tag === 1 ? null : undefined; }
-  { const tag = f[at + 86]; if (tag === 0) { (m.flightStartQ ??= new THREE.Quaternion()).set(f[at + 87], f[at + 88], f[at + 89], f[at + 90]); } else m.flightStartQ = tag === 1 ? null : undefined; }
-  { const tag = f[at + 91]; if (tag === 0) { (m.flightTrickLoopQ ??= new THREE.Quaternion()).set(f[at + 92], f[at + 93], f[at + 94], f[at + 95]); } else m.flightTrickLoopQ = tag === 1 ? null : undefined; }
-  { const tag = f[at + 96]; if (tag === 0) { (m.flightTrickEndQ ??= new THREE.Quaternion()).set(f[at + 97], f[at + 98], f[at + 99], f[at + 100]); } else m.flightTrickEndQ = tag === 1 ? null : undefined; }
-  { const tag = f[at + 101]; if (tag === 0) { (m.flightPreviousQ ??= new THREE.Quaternion()).set(f[at + 102], f[at + 103], f[at + 104], f[at + 105]); } else m.flightPreviousQ = tag === 1 ? null : undefined; }
-  { const tag = f[at + 106]; if (tag === 0) { (m.flightTickQ ??= new THREE.Quaternion()).set(f[at + 107], f[at + 108], f[at + 109], f[at + 110]); } else m.flightTickQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 78]; if (tag === 0) { { const $v = (m.flightStart ??= new THREE.Vector3()); $v.x = f[at + 79]; $v.y = f[at + 80]; $v.z = f[at + 81]; } } else m.flightStart = tag === 1 ? null : undefined; }
+  { const tag = f[at + 82]; if (tag === 0) { { const $v = (m.flightEnd ??= new THREE.Vector3()); $v.x = f[at + 83]; $v.y = f[at + 84]; $v.z = f[at + 85]; } } else m.flightEnd = tag === 1 ? null : undefined; }
+  { const tag = f[at + 86]; if (tag === 0) { { const $q = (m.flightStartQ ??= new THREE.Quaternion()); $q._x = f[at + 87]; $q._y = f[at + 88]; $q._z = f[at + 89]; $q._w = f[at + 90]; $q._onChangeCallback(); } } else m.flightStartQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 91]; if (tag === 0) { { const $q = (m.flightTrickLoopQ ??= new THREE.Quaternion()); $q._x = f[at + 92]; $q._y = f[at + 93]; $q._z = f[at + 94]; $q._w = f[at + 95]; $q._onChangeCallback(); } } else m.flightTrickLoopQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 96]; if (tag === 0) { { const $q = (m.flightTrickEndQ ??= new THREE.Quaternion()); $q._x = f[at + 97]; $q._y = f[at + 98]; $q._z = f[at + 99]; $q._w = f[at + 100]; $q._onChangeCallback(); } } else m.flightTrickEndQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 101]; if (tag === 0) { { const $q = (m.flightPreviousQ ??= new THREE.Quaternion()); $q._x = f[at + 102]; $q._y = f[at + 103]; $q._z = f[at + 104]; $q._w = f[at + 105]; $q._onChangeCallback(); } } else m.flightPreviousQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 106]; if (tag === 0) { { const $q = (m.flightTickQ ??= new THREE.Quaternion()); $q._x = f[at + 107]; $q._y = f[at + 108]; $q._z = f[at + 109]; $q._w = f[at + 110]; $q._onChangeCallback(); } } else m.flightTickQ = tag === 1 ? null : undefined; }
   { const tag = f[at + 111]; if (tag === 0) { m.flightActionHeld = f[at + 112] !== 0; } else m.flightActionHeld = tag === 1 ? null : undefined; }
   { const tag = f[at + 113]; if (tag === 0) { m.trickHeld = f[at + 114] !== 0; } else m.trickHeld = tag === 1 ? null : undefined; }
   { const tag = f[at + 115]; if (tag === 0) { m.immelmannHeld = f[at + 116] !== 0; } else m.immelmannHeld = tag === 1 ? null : undefined; }
-  { const tag = f[at + 117]; if (tag === 0) { (m.flightFrameQ ??= new THREE.Quaternion()).set(f[at + 118], f[at + 119], f[at + 120], f[at + 121]); } else m.flightFrameQ = tag === 1 ? null : undefined; }
+  { const tag = f[at + 117]; if (tag === 0) { { const $q = (m.flightFrameQ ??= new THREE.Quaternion()); $q._x = f[at + 118]; $q._y = f[at + 119]; $q._z = f[at + 120]; $q._w = f[at + 121]; $q._onChangeCallback(); } } else m.flightFrameQ = tag === 1 ? null : undefined; }
   m.name = b.strings.at(f[at + 122]);
   m.flying = f[at + 123] !== 0;
   m.walking = f[at + 124] !== 0;
@@ -264,21 +264,21 @@ export function syncFullVehicle(b, f, at, h, m) {
   m.deceleration = f[at + 132];
   m.turnRate = f[at + 133];
   m.hover = f[at + 134];
-  ((m.bounds ??= {}).min ??= new THREE.Vector3()).set(f[at + 135], f[at + 136], f[at + 137]);
-  ((m.bounds ??= {}).max ??= new THREE.Vector3()).set(f[at + 138], f[at + 139], f[at + 140]);
-  (m.center ??= new THREE.Vector3()).set(f[at + 141], f[at + 142], f[at + 143]);
-  (m.size ??= new THREE.Vector3()).set(f[at + 144], f[at + 145], f[at + 146]);
+  { const $v = ((m.bounds ??= {}).min ??= new THREE.Vector3()); $v.x = f[at + 135]; $v.y = f[at + 136]; $v.z = f[at + 137]; }
+  { const $v = ((m.bounds ??= {}).max ??= new THREE.Vector3()); $v.x = f[at + 138]; $v.y = f[at + 139]; $v.z = f[at + 140]; }
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 141]; $v.y = f[at + 142]; $v.z = f[at + 143]; }
+  { const $v = (m.size ??= new THREE.Vector3()); $v.x = f[at + 144]; $v.y = f[at + 145]; $v.z = f[at + 146]; }
   m.boundRadius = f[at + 147];
   m.probeRadius = f[at + 148];
-  { const items = (m.probes ??= []), start = h + f[at + 149], n = f[at + 150]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
-  { const items = (m.supportProbes ??= []), start = h + f[at + 151], n = f[at + 152]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
+  { const items = (m.probes ??= []), start = h + f[at + 149], n = f[at + 150]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
+  { const items = (m.supportProbes ??= []), start = h + f[at + 151], n = f[at + 152]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
   m.maxHealth = f[at + 153];
   { const tag = f[at + 154]; if (tag === 0) { m.waterRule = syncWaterRule(b, f, at + 155, h, m.waterRule ?? new WaterRuleMirror()); } else m.waterRule = tag === 1 ? null : undefined; }
   m.waterDepth = f[at + 157];
   m.body = b.refs[KIND_BODY].at(f[at + 158], f[at + 159]);
-  (m.position ??= new THREE.Vector3()).set(f[at + 160], f[at + 161], f[at + 162]);
-  (m.previous ??= new THREE.Vector3()).set(f[at + 163], f[at + 164], f[at + 165]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 166], f[at + 167], f[at + 168]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 160]; $v.y = f[at + 161]; $v.z = f[at + 162]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 163]; $v.y = f[at + 164]; $v.z = f[at + 165]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 166]; $v.y = f[at + 167]; $v.z = f[at + 168]; }
   m.yaw = f[at + 169];
   m.previousYaw = f[at + 170];
   m.tilt = f[at + 171];
@@ -296,10 +296,10 @@ export function syncFullVehicle(b, f, at, h, m) {
   m.health = f[at + 184];
   m.dying = f[at + 185];
   m.waterClock = f[at + 186];
-  (m.quaternion ??= new THREE.Quaternion()).set(f[at + 187], f[at + 188], f[at + 189], f[at + 190]);
+  { const $q = (m.quaternion ??= new THREE.Quaternion()); $q._x = f[at + 187]; $q._y = f[at + 188]; $q._z = f[at + 189]; $q._w = f[at + 190]; $q._onChangeCallback(); }
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 191 + i]; }
-  (m.itemCenter ??= new THREE.Vector3()).set(f[at + 207], f[at + 208], f[at + 209]);
-  (m.supportNormal ??= new THREE.Vector3()).set(f[at + 210], f[at + 211], f[at + 212]);
+  { const $v = (m.itemCenter ??= new THREE.Vector3()); $v.x = f[at + 207]; $v.y = f[at + 208]; $v.z = f[at + 209]; }
+  { const $v = (m.supportNormal ??= new THREE.Vector3()); $v.x = f[at + 210]; $v.y = f[at + 211]; $v.z = f[at + 212]; }
   { const tag = f[at + 213]; if (tag === 0) { { const items = (m.legSide ??= []), start = h + f[at + 214], n = f[at + 215]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } } } else m.legSide = tag === 1 ? null : undefined; }
   m.seatIndex = f[at + 216];
   { const tag = f[at + 217]; if (tag === 0) { m.driver = b.refs[KIND_VEHICLE_DRIVER].at(f[at + 218], f[at + 219]); } else m.driver = tag === 1 ? null : undefined; }
@@ -307,13 +307,13 @@ export function syncFullVehicle(b, f, at, h, m) {
   { const items = (m.seats ??= []), start = h + f[at + 222], n = f[at + 223]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncVehicleSeat(b, f, at + 0, h, v ?? new VehicleSeatMirror()); } items[i] = v; } }
   { const items = (m.seatViews ??= []), start = h + f[at + 224], n = f[at + 225]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSeatView(b, f, at + 0, h, v ?? new SeatViewMirror()); } items[i] = v; } }
   { const items = (m.seatLeases ??= []), start = h + f[at + 226], n = f[at + 227]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSeatLeaseView(b, f, at + 0, h, v ?? new SeatLeaseViewMirror()); } items[i] = v; } }
-  { const tag = f[at + 228]; if (tag === 0) { (m.tickFrom ??= new THREE.Vector3()).set(f[at + 229], f[at + 230], f[at + 231]); } else m.tickFrom = tag === 1 ? null : undefined; }
+  { const tag = f[at + 228]; if (tag === 0) { { const $v = (m.tickFrom ??= new THREE.Vector3()); $v.x = f[at + 229]; $v.y = f[at + 230]; $v.z = f[at + 231]; } } else m.tickFrom = tag === 1 ? null : undefined; }
   { const tag = f[at + 232]; if (tag === 0) { m.tickFromYaw = f[at + 233]; } else m.tickFromYaw = tag === 1 ? null : undefined; }
   { const tag = f[at + 234]; if (tag === 0) { m.tickFromTilt = f[at + 235]; } else m.tickFromTilt = tag === 1 ? null : undefined; }
   { const tag = f[at + 236]; if (tag === 0) { m.tickFromRoll = f[at + 237]; } else m.tickFromRoll = tag === 1 ? null : undefined; }
   (m.root ??= {}).visible = f[at + 238] !== 0;
   m.towTarget = f[at + 239];
-  (m.towLocal ??= new THREE.Vector3()).set(f[at + 240], f[at + 241], f[at + 242]);
+  { const $v = (m.towLocal ??= new THREE.Vector3()); $v.x = f[at + 240]; $v.y = f[at + 241]; $v.z = f[at + 242]; }
   m.towLeg = b.strings.at(f[at + 243]);
   m.towAngle = f[at + 244];
   m.towWinding = f[at + 245];

@@ -40,8 +40,8 @@ export class F2ColliderHeaderMirror {
 export function syncF2ColliderHeader(b, f, at, h, m) {
   m.body = f[at + 0];
   m.kernel = f[at + 1];
-  (m.min ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
-  (m.max ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  { const $v = (m.min ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
+  { const $v = (m.max ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
   return m;
 }
 
@@ -158,8 +158,8 @@ export class F2BodyPlacedMirror {
 
 export function syncF2BodyPlaced(b, f, at, h, m) {
   m.kernel = f[at + 0];
-  (m.min ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
-  (m.max ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  { const $v = (m.min ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
+  { const $v = (m.max ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
   { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 7 + i]; }
   { const e = (m.inverse ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 23 + i]; }
   return m;
@@ -355,7 +355,7 @@ export function syncF2Input(b, f, at, h, m) {
   m.level = f[at + 1];
   m.flags = f[at + 2];
   m.pads = f[at + 3];
-  { const tag = f[at + 4]; if (tag === 0) { (m.occupant ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]); } else m.occupant = tag === 1 ? null : undefined; }
+  { const tag = f[at + 4]; if (tag === 0) { { const $v = (m.occupant ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; } } else m.occupant = tag === 1 ? null : undefined; }
   m.memberLength = f[at + 8];
   m.members = f[at + 9];
   m.memberCount = f[at + 10];
@@ -490,7 +490,7 @@ export function syncF2Member(b, f, at, h, m) {
   m.hasTeam = f[at + 5] !== 0;
   m.team = f[at + 6];
   m.hull = f[at + 7];
-  (m.point ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 8]; $v.y = f[at + 9]; $v.z = f[at + 10]; }
   return m;
 }
 
@@ -803,7 +803,7 @@ export function syncF2Aimer(b, f, at, h, m) {
   m.pitch = f[at + 1];
   { const tag = f[at + 2]; if (tag === 0) { m.inLimits = f[at + 3] !== 0; } else m.inLimits = tag === 1 ? null : undefined; }
   m.onTarget = f[at + 4] !== 0;
-  (m.facing ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  { const $v = (m.facing ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
   m.posed = f[at + 8] !== 0;
   return m;
 }
@@ -858,10 +858,10 @@ export function syncF2PoseSeat(b, f, at, h, m) {
   { const tag = f[at + 0]; if (tag === 0) { m.lastYaw = f[at + 1]; } else m.lastYaw = tag === 1 ? null : undefined; }
   m.yawRate = f[at + 2];
   m.hasTarget = f[at + 3] !== 0;
-  (m.target ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  { const $v = (m.target ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
   { const items = (m.aimers ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncF2Aimer(b, f, at + 0, h, v ?? new F2AimerMirror()); } items[i] = v; } }
-  (m.eye ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]);
-  (m.forward ??= new THREE.Vector3()).set(f[at + 12], f[at + 13], f[at + 14]);
+  { const $v = (m.eye ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
+  { const $v = (m.forward ??= new THREE.Vector3()); $v.x = f[at + 12]; $v.y = f[at + 13]; $v.z = f[at + 14]; }
   { const e = (m.frame ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 15 + i]; }
   return m;
 }
@@ -923,9 +923,9 @@ export function syncF2Pose(b, f, at, h, m) {
   m.age = f[at + 2];
   m.walkPhase = f[at + 3];
   m.walkBlend = f[at + 4];
-  (m.visual ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
-  (m.rootQ ??= new THREE.Quaternion()).set(f[at + 8], f[at + 9], f[at + 10], f[at + 11]);
-  (m.rootEuler ??= new THREE.Vector3()).set(f[at + 12], f[at + 13], f[at + 14]);
+  { const $v = (m.visual ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
+  { const $q = (m.rootQ ??= new THREE.Quaternion()); $q._x = f[at + 8]; $q._y = f[at + 9]; $q._z = f[at + 10]; $q._w = f[at + 11]; $q._onChangeCallback(); }
+  { const $v = (m.rootEuler ??= new THREE.Vector3()); $v.x = f[at + 12]; $v.y = f[at + 13]; $v.z = f[at + 14]; }
   { const items = (m.seats ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 31; v = syncF2PoseSeat(b, f, at + 0, h, v ?? new F2PoseSeatMirror()); } items[i] = v; } }
   return m;
 }
@@ -1136,7 +1136,7 @@ export function syncF2SeatUnitIn(b, f, at, h, m) {
   { const tag = f[at + 49]; if (tag === 0) { m.targetable = f[at + 50] !== 0; } else m.targetable = tag === 1 ? null : undefined; }
   { const tag = f[at + 51]; if (tag === 0) { m.mounted = f[at + 52] !== 0; } else m.mounted = tag === 1 ? null : undefined; }
   m.gunUnderwater = f[at + 53] !== 0;
-  { const tag = f[at + 54]; if (tag === 0) { (m.aimOverride ??= new THREE.Vector3()).set(f[at + 55], f[at + 56], f[at + 57]); } else m.aimOverride = tag === 1 ? null : undefined; }
+  { const tag = f[at + 54]; if (tag === 0) { { const $v = (m.aimOverride ??= new THREE.Vector3()); $v.x = f[at + 55]; $v.y = f[at + 56]; $v.z = f[at + 57]; } } else m.aimOverride = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -1281,11 +1281,11 @@ export class F2SeatBodyMirror {
 }
 
 export function syncF2SeatBody(b, f, at, h, m) {
-  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.previous ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
-  (m.settled ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]);
-  (m.normal ??= new THREE.Vector3()).set(f[at + 12], f[at + 13], f[at + 14]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
+  { const $v = (m.settled ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 12]; $v.y = f[at + 13]; $v.z = f[at + 14]; }
   m.aimYaw = f[at + 15];
   m.aimPitch = f[at + 16];
   { const tag = f[at + 17]; if (tag === 0) { m.air = Air_NAMES[f[at + 18]]; } else m.air = tag === 1 ? null : undefined; }
@@ -1470,7 +1470,7 @@ export function syncF2SeatUnitOut(b, f, at, h, m) {
   m.intent = syncF2SeatEdges(b, f, at + 39, h, m.intent ?? new F2SeatEdgesMirror());
   { const tag = f[at + 49]; if (tag === 0) { m.mounted = f[at + 50] !== 0; } else m.mounted = tag === 1 ? null : undefined; }
   m.gunUnderwater = f[at + 51] !== 0;
-  { const tag = f[at + 52]; if (tag === 0) { (m.aimOverride ??= new THREE.Vector3()).set(f[at + 53], f[at + 54], f[at + 55]); } else m.aimOverride = tag === 1 ? null : undefined; }
+  { const tag = f[at + 52]; if (tag === 0) { { const $v = (m.aimOverride ??= new THREE.Vector3()); $v.x = f[at + 53]; $v.y = f[at + 54]; $v.z = f[at + 55]; } } else m.aimOverride = tag === 1 ? null : undefined; }
   m.zoomStep = f[at + 56];
   m.riderPosed = f[at + 57] !== 0;
   return m;
@@ -1536,7 +1536,7 @@ export class F2SeatEffectMirror {
 export function syncF2SeatEffect(b, f, at, h, m) {
   m.kind = SeatEffectKind_NAMES[f[at + 0]];
   m.unit = b.refs[KIND_UNIT].at(f[at + 1], f[at + 2]);
-  (m.point ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   m.yaw = f[at + 6];
   return m;
 }
@@ -1913,7 +1913,7 @@ export function syncF2TurretLife(b, f, at, h, m) {
   m.generation = f[at + 2];
   m.alive = f[at + 3] !== 0;
   m.attacker = syncAttacker(b, f, at + 4, h, m.attacker);
-  (m.center ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; }
   m.radius = f[at + 10];
   return m;
 }
@@ -2066,18 +2066,18 @@ export function syncF2TurretOut(b, f, at, h, m) {
   m.header = syncF2TurretHeader(b, f, at + 0, h, m.header ?? new F2TurretHeaderMirror());
   m.posed = f[at + 2] !== 0;
   m.state = syncF2TurretPose(b, f, at + 3, h, m.state ?? new F2TurretPoseMirror());
-  (m.origin ??= new THREE.Vector3()).set(f[at + 10], f[at + 11], f[at + 12]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 13], f[at + 14], f[at + 15]);
-  (m.eye ??= new THREE.Vector3()).set(f[at + 16], f[at + 17], f[at + 18]);
-  (m.chase ??= new THREE.Vector3()).set(f[at + 19], f[at + 20], f[at + 21]);
-  (m.seatPoint ??= new THREE.Vector3()).set(f[at + 22], f[at + 23], f[at + 24]);
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 10]; $v.y = f[at + 11]; $v.z = f[at + 12]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 13]; $v.y = f[at + 14]; $v.z = f[at + 15]; }
+  { const $v = (m.eye ??= new THREE.Vector3()); $v.x = f[at + 16]; $v.y = f[at + 17]; $v.z = f[at + 18]; }
+  { const $v = (m.chase ??= new THREE.Vector3()); $v.x = f[at + 19]; $v.y = f[at + 20]; $v.z = f[at + 21]; }
+  { const $v = (m.seatPoint ??= new THREE.Vector3()); $v.x = f[at + 22]; $v.y = f[at + 23]; $v.z = f[at + 24]; }
   m.seatYaw = f[at + 25];
-  (m.muzzle ??= new THREE.Vector3()).set(f[at + 26], f[at + 27], f[at + 28]);
-  (m.muzzleDirection ??= new THREE.Vector3()).set(f[at + 29], f[at + 30], f[at + 31]);
+  { const $v = (m.muzzle ??= new THREE.Vector3()); $v.x = f[at + 26]; $v.y = f[at + 27]; $v.z = f[at + 28]; }
+  { const $v = (m.muzzleDirection ??= new THREE.Vector3()); $v.x = f[at + 29]; $v.y = f[at + 30]; $v.z = f[at + 31]; }
   { const tag = f[at + 32]; if (tag === 0) { m.lease = b.refs[KIND_SEAT_LEASE].at(f[at + 33], f[at + 34]); } else m.lease = tag === 1 ? null : undefined; }
   { const tag = f[at + 35]; if (tag === 0) { m.gunner = b.refs[KIND_UNIT].at(f[at + 36], f[at + 37]); } else m.gunner = tag === 1 ? null : undefined; }
   { const tag = f[at + 38]; if (tag === 0) { m.weapon = syncWeapon(b, f, at + 39, h, m.weapon ?? new WeaponMirror()); } else m.weapon = tag === 1 ? null : undefined; }
-  (m.seatTurn ??= new THREE.Quaternion()).set(f[at + 81], f[at + 82], f[at + 83], f[at + 84]);
+  { const $q = (m.seatTurn ??= new THREE.Quaternion()); $q._x = f[at + 81]; $q._y = f[at + 82]; $q._z = f[at + 83]; $q._w = f[at + 84]; $q._onChangeCallback(); }
   m.samplePitch = f[at + 85];
   m.sampleTurn = f[at + 86];
   { const tag = f[at + 87]; if (tag === 0) { m.sampleTime = f[at + 88]; } else m.sampleTime = tag === 1 ? null : undefined; }
@@ -2258,9 +2258,9 @@ export function syncF2TurretTarget(b, f, at, h, m) {
   m.category = f[at + 6];
   { const tag = f[at + 7]; if (tag === 0) { m.hull = b.refs[KIND_VEHICLE].at(f[at + 8], f[at + 9]); } else m.hull = tag === 1 ? null : undefined; }
   { const tag = f[at + 10]; if (tag === 0) { m.body = b.refs[KIND_BODY].at(f[at + 11], f[at + 12]); } else m.body = tag === 1 ? null : undefined; }
-  (m.center ??= new THREE.Vector3()).set(f[at + 13], f[at + 14], f[at + 15]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 13]; $v.y = f[at + 14]; $v.z = f[at + 15]; }
   m.radius = f[at + 16];
-  (m.aim ??= new THREE.Vector3()).set(f[at + 17], f[at + 18], f[at + 19]);
+  { const $v = (m.aim ??= new THREE.Vector3()); $v.x = f[at + 17]; $v.y = f[at + 18]; $v.z = f[at + 19]; }
   return m;
 }
 
@@ -2340,8 +2340,8 @@ export function syncF2TurretEvent(b, f, at, h, m) {
   { const tag = f[at + 6]; if (tag === 0) { m.bolt = b.refs[KIND_BOLT].at(f[at + 7], f[at + 8]); } else m.bolt = tag === 1 ? null : undefined; }
   m.barrel = f[at + 9];
   { const tag = f[at + 10]; if (tag === 0) { m.owner = b.refs[KIND_UNIT].at(f[at + 11], f[at + 12]); } else m.owner = tag === 1 ? null : undefined; }
-  (m.origin ??= new THREE.Vector3()).set(f[at + 13], f[at + 14], f[at + 15]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 16], f[at + 17], f[at + 18]);
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 13]; $v.y = f[at + 14]; $v.z = f[at + 15]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 16]; $v.y = f[at + 17]; $v.z = f[at + 18]; }
   m.yaw = f[at + 19];
   m.pitch = f[at + 20];
   m.charge = f[at + 21];
@@ -2567,8 +2567,8 @@ export function syncF2SeatAction(b, f, at, h, m) {
   { const tag = f[at + 10]; if (tag === 0) { m.post = b.refs[KIND_POST].at(f[at + 11], f[at + 12]); } else m.post = tag === 1 ? null : undefined; }
   m.reason = SeatReason_NAMES[f[at + 13]];
   m.effect = SeatEffectKind_NAMES[f[at + 14]];
-  (m.point ??= new THREE.Vector3()).set(f[at + 15], f[at + 16], f[at + 17]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 18], f[at + 19], f[at + 20]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 15]; $v.y = f[at + 16]; $v.z = f[at + 17]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 18]; $v.y = f[at + 19]; $v.z = f[at + 20]; }
   m.yaw = f[at + 21];
   m.flag = f[at + 22] !== 0;
   m.second = f[at + 23] !== 0;
@@ -2649,7 +2649,7 @@ export function syncF2SeatAnswer(b, f, at, h, m) {
   { const tag = f[at + 0]; if (tag === 0) { m.control = b.refs[KIND_SEAT_UNIT].at(f[at + 1], f[at + 2]); } else m.control = tag === 1 ? null : undefined; }
   { const tag = f[at + 3]; if (tag === 0) { m.value = f[at + 4]; } else m.value = tag === 1 ? null : undefined; }
   m.flag = f[at + 5] !== 0;
-  (m.point ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
   return m;
 }
 

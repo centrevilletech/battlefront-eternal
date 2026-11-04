@@ -114,6 +114,20 @@ test('every type of field written as a row reads back the same', () => {
   assert.deepEqual([back[0].body.count, back[1].body.stride, back[1].body.side], [4, 1.5, [1, -1]]);
 });
 
+test('numeric mirror blits retain storage and notify quaternion changes once', () => {
+  const cx = context(), { things } = shelf(cx), words = block(cx, KIND_THING, things);
+  const k = KIND_TABLE[KIND_THING], mirror = new k.Mirror();
+  let changes = 0;
+  const vector = mirror.where, rotation = mirror.facing;
+  rotation._onChange(() => { changes++; });
+  k.syncFull(cx, words, 5, words[2], mirror);
+  assert.equal(mirror.where, vector); assert.equal(mirror.facing, rotation);
+  assert.equal(changes, 1); assert.deepEqual(vector.toArray(), things[0].where.toArray());
+  assert.deepEqual(rotation.toArray(), things[0].facing.toArray());
+  k.syncFull(cx, words, 5, words[2], mirror);
+  assert.equal(changes, 2);
+});
+
 test('number keys and object keys keep JavaScript\'s order through the rows', () => {
   const cx = context();
   const { shelf: s, things, people } = shelf(cx);

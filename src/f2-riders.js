@@ -45,8 +45,8 @@ export class F2Riders {
   }
   sync(ptr) {
     if (!ptr) return;
-    const b = this.bridge, f = b.f, base = ptr / 8;
-    const count = f[base], stride = f[base + 1], heap = base + f[base + 2];
+    const b = this.bridge, f = b.f, base = (ptr / 8) | 0;
+    const count = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
     for (let i = 0; i < count; i++) {
       const at = base + 5 + i * stride, unit = b.refs[KIND_UNIT].at(f[at], f[at + 1]);
       syncF2RiderOut(b, f, at, heap, this.rows.get(unit));

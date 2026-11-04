@@ -137,7 +137,7 @@ export class F2Firing {
   // those submitted values; post-fire mirrors may already contain later weapon
   // state that must be compared and sent on the following tick.
   commitInput(start) {
-    const f = this.bridge.f, n = f[start + FfInputsLayout.count];
+    const f = this.bridge.f, n = f[start + FfInputsLayout.count] | 0;
     for (let i = 0; i < n; i++) {
       const at = start + FfInputsLayout.words + i * FfWeaponChangeLayout.words;
       const v = this.phase.pool.objects[f[at + FfWeaponChangeLayout.hull]], seat = f[at + FfWeaponChangeLayout.seat], weapon = f[at + FfWeaponChangeLayout.weapon];
@@ -148,7 +148,7 @@ export class F2Firing {
   syncDescriptor(ptr) {
     if (!ptr) return;
     const b = this.bridge; b.views();
-    const p = syncFfPhase(b, b.f, ptr / 8, 0, this.phaseFields);
+    const p = syncFfPhase(b, b.f, (ptr / 8) | 0, 0, this.phaseFields);
     this.sync(p.weapons, p.cables);
   }
   // fireCrews publishes changed mounted state, preserving the JS Weapon
@@ -158,7 +158,7 @@ export class F2Firing {
     const b = this.bridge; b.views();
     const f = b.f;
     if (ptr) {
-      const base = ptr / 8, n = f[base], stride = f[base + 1], heap = base + f[base + 2];
+      const base = (ptr / 8) | 0, n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
       this.phase.counters.outputFields += n * stride + f[base + 3];
       this.phase.counters.outputFiring += n * stride + f[base + 3];
       for (let ri = 0; ri < n; ri++) {
@@ -179,7 +179,7 @@ export class F2Firing {
     // presentation only; a release event hides the existing line rather than
     // leaving an old cable attached to a respawned hull.
     if (cables) {
-      const base = cables / 8, n = f[base], stride = f[base + 1], heap = base + f[base + 2];
+      const base = (cables / 8) | 0, n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
       this.phase.counters.outputFields += n * stride + f[base + 3];
       this.phase.counters.outputFiring += n * stride + f[base + 3];
       for (let i = 0; i < n; i++) {
@@ -229,7 +229,7 @@ export class F2Firing {
   // value. These are shot/lifecycle allocations, not idle phase scratch.
   drain() {
     const b = this.bridge; b.views();
-    const f = b.f, base = this.phaseFields.events / 8, end = base + 1 + f[base];
+    const f = b.f, base = (this.phaseFields.events / 8) | 0, end = base + 1 + f[base];
     for (let at = base + 1; at < end; at += 2 + f[at + 1]) {
       const e = EVENT_TABLE[f[at]], r = e.record;
       const a = r.sync(b, f, at + 2, at + 2 + r.words, this.eventRows[f[at]]);

@@ -132,8 +132,8 @@ export const PLANNER_REQUEST_EXPORT_STRIDE = 16, PLANNER_REQUEST_IMPORT_STRIDE =
 export function syncPlannerRequest(b, f, at, h, m) {
   { const tag = f[at + 2]; if (tag === 0) { m.owner = b.refs[KIND_NAV_CONTROL].at(f[at + 3], f[at + 4]); } else m.owner = tag === 1 ? null : undefined; }
   m.serial = f[at + 5];
-  (m.start ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
-  (m.end ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]);
+  { const $v = (m.start ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
+  { const $v = (m.end ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
   m.radius = f[at + 12];
   m.mask = f[at + 13];
   m.priority = f[at + 14];
@@ -145,8 +145,8 @@ export function syncPlannerRequest(b, f, at, h, m) {
 export function syncFullPlannerRequest(b, f, at, h, m) {
   { const tag = f[at + 2]; if (tag === 0) { m.owner = b.refs[KIND_NAV_CONTROL].at(f[at + 3], f[at + 4]); } else m.owner = tag === 1 ? null : undefined; }
   m.serial = f[at + 5];
-  (m.start ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
-  (m.end ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]);
+  { const $v = (m.start ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
+  { const $v = (m.end ??= new THREE.Vector3()); $v.x = f[at + 9]; $v.y = f[at + 10]; $v.z = f[at + 11]; }
   m.radius = f[at + 12];
   m.mask = f[at + 13];
   m.priority = f[at + 14];

@@ -5,8 +5,8 @@ import { F2DeltaLayout as D } from './sim/gen/f2.js';
 const MASK_BITS = 32;
 export function applyDelta(f, at, heap, row) {
   if (f[at + D.length] > row.length) throw Error('F2 delta row capacity exceeded');
-  let value = heap + f[at + D.values];
-  const mask = heap + f[at + D.mask], length = f[at + D.maskLength];
+  let value = heap + (f[at + D.values] | 0);
+  const mask = heap + (f[at + D.mask] | 0), length = f[at + D.maskLength] | 0;
   for (let i = 0; i < length; i++) {
     let bits = f[mask + i] >>> 0;
     while (bits) {

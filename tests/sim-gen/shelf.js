@@ -77,7 +77,7 @@ export function whichHalf(b, x) {
 export function syncHalf(b, f, at, h, current) {
   switch (f[at]) {
     case 0: { let v = variantOfHalf(b, current) === 0 ? current : undefined; v = f[at + 1]; return v; }
-    case 1: { let v = variantOfHalf(b, current) === 1 ? current : undefined; (v ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]); return v; }
+    case 1: { let v = variantOfHalf(b, current) === 1 ? current : undefined; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; } return v; }
     default: throw Error('Half: no such variant');
   }
 }
@@ -211,8 +211,8 @@ export class SpotMirror {
 }
 
 export function syncSpot(b, f, at, h, m) {
-  (m.at ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.turn ??= new THREE.Quaternion()).set(f[at + 3], f[at + 4], f[at + 5], f[at + 6]);
+  { const $v = (m.at ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $q = (m.turn ??= new THREE.Quaternion()); $q._x = f[at + 3]; $q._y = f[at + 4]; $q._z = f[at + 5]; $q._w = f[at + 6]; $q._onChangeCallback(); }
   { const tag = f[at + 7]; if (tag === 0) { m.label = b.strings.at(f[at + 8]); } else m.label = tag === 1 ? null : undefined; }
   m.mark = Colour_NAMES[f[at + 9]];
   { const tag = f[at + 10]; if (tag === 0) { m.near = b.refs[KIND_PERSON].at(f[at + 11], f[at + 12]); } else m.near = tag === 1 ? null : undefined; }
@@ -344,7 +344,7 @@ export class WheelsMirror {
 
 export function syncWheels(b, f, at, h, m) {
   m.count = f[at + 0];
-  (m.grip ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.grip ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   return m;
 }
 
@@ -443,8 +443,8 @@ export function syncShelf(b, f, at, h, m) {
   { const map = (m.spotsAt ??= new Map()), start = h + f[at + 23], n = f[at + 24]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(f[start + i * 18], key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(f[start + kept * 18], key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 18, key = f[e]; let v = map.get(key); { const at = e; v = syncSpot(b, f, at + 1, h, v ?? new SpotMirror()); } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const map = (m.tally ??= new Map()), start = h + f[at + 25], n = f[at + 26]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(b.refs[KIND_THING].at(f[start + i * 3], f[start + i * 3 + 1]), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(b.refs[KIND_THING].at(f[start + kept * 3], f[start + kept * 3 + 1]), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = b.refs[KIND_THING].at(f[e], f[e + 1]); let v = map.get(key); { const at = e; v = f[at + 2]; } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const map = (m.queues ??= new Map()), start = h + f[at + 27], n = f[at + 28]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(syncWho(b, f, start + i * 5, h, undefined), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(syncWho(b, f, start + kept * 5, h, undefined), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 5, key = syncWho(b, f, e, h, undefined); let v = map.get(key); { const at = e; { const items = (v ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } if (i >= kept) map.delete(key); map.set(key, v); } }
-  (m.times ??= new Float64Array(5)).set(f.subarray(at + 29, at + 34));
-  (m.slots ??= new Int32Array(4)).set(f.subarray(at + 34, at + 38));
+  { const $a = (m.times ??= new Float64Array(5)); for (let i = 0; i < 5; i++) $a[i] = f[at + 29 + i]; }
+  { const $a = (m.slots ??= new Int32Array(4)); for (let i = 0; i < 4; i++) $a[i] = f[at + 34 + i]; }
   { const items = (m.ring ??= []), start = h + f[at + 38], n = f[at + 39]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_THING].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   return m;
 }
@@ -464,8 +464,8 @@ export function syncFullShelf(b, f, at, h, m) {
   { const map = (m.spotsAt ??= new Map()), start = h + f[at + 23], n = f[at + 24]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(f[start + i * 18], key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(f[start + kept * 18], key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 18, key = f[e]; let v = map.get(key); { const at = e; v = syncSpot(b, f, at + 1, h, v ?? new SpotMirror()); } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const map = (m.tally ??= new Map()), start = h + f[at + 25], n = f[at + 26]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(b.refs[KIND_THING].at(f[start + i * 3], f[start + i * 3 + 1]), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(b.refs[KIND_THING].at(f[start + kept * 3], f[start + kept * 3 + 1]), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = b.refs[KIND_THING].at(f[e], f[e + 1]); let v = map.get(key); { const at = e; v = f[at + 2]; } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const map = (m.queues ??= new Map()), start = h + f[at + 27], n = f[at + 28]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(syncWho(b, f, start + i * 5, h, undefined), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(syncWho(b, f, start + kept * 5, h, undefined), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 5, key = syncWho(b, f, e, h, undefined); let v = map.get(key); { const at = e; { const items = (v ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_THING].at(f[at + 0], f[at + 1]); } items[i] = v; } } } if (i >= kept) map.delete(key); map.set(key, v); } }
-  (m.times ??= new Float64Array(5)).set(f.subarray(at + 29, at + 34));
-  (m.slots ??= new Int32Array(4)).set(f.subarray(at + 34, at + 38));
+  { const $a = (m.times ??= new Float64Array(5)); for (let i = 0; i < 5; i++) $a[i] = f[at + 29 + i]; }
+  { const $a = (m.slots ??= new Int32Array(4)); for (let i = 0; i < 4; i++) $a[i] = f[at + 34 + i]; }
   { const items = (m.ring ??= []), start = h + f[at + 38], n = f[at + 39]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const tag = f[at + 0]; if (tag === 0) { v = b.refs[KIND_THING].at(f[at + 1], f[at + 2]); } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   return m;
 }
@@ -627,8 +627,8 @@ export function syncThing(b, f, at, h, m) {
   m.light = f[at + 5];
   m.mass = f[at + 6];
   m.on = f[at + 7] !== 0;
-  (m.where ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
-  (m.facing ??= new THREE.Quaternion()).set(f[at + 11], f[at + 12], f[at + 13], f[at + 14]);
+  { const $v = (m.where ??= new THREE.Vector3()); $v.x = f[at + 8]; $v.y = f[at + 9]; $v.z = f[at + 10]; }
+  { const $q = (m.facing ??= new THREE.Quaternion()); $q._x = f[at + 11]; $q._y = f[at + 12]; $q._z = f[at + 13]; $q._w = f[at + 14]; $q._onChangeCallback(); }
   { const a = (m.pair ??= new Array(2)); a[0] = f[at + 15]; a[1] = f[at + 16]; }
   m.name = b.strings.at(f[at + 17]);
   m.colour = Colour_NAMES[f[at + 18]];
@@ -640,7 +640,7 @@ export function syncThing(b, f, at, h, m) {
   { const tag = f[at + 46]; if (tag === 0) { m.next = b.refs[KIND_THING].at(f[at + 47], f[at + 48]); } else m.next = tag === 1 ? null : undefined; }
   { const tag = f[at + 49]; if (tag === 0) { { const map = (m.tags ??= new Map()), start = h + f[at + 50], n = f[at + 51]; map.clear(); for (let i = 0; i < n; i++) { const e = start + i * 2; let v; { const at = e; v = b.strings.at(f[at + 1]); } map.set(b.strings.at(f[e]), v); } } } else m.tags = tag === 1 ? null : undefined; }
   { const items = (m.marks ??= []), start = h + f[at + 52], n = f[at + 53]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.probes ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
+  { const items = (m.probes ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
   { const items = (m.flags ??= []), start = h + f[at + 56], n = f[at + 57]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
   { const items = (m.spots ??= []), start = h + f[at + 58], n = f[at + 59]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
   { const items = (m.holders ??= []), start = h + f[at + 60], n = f[at + 61]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
@@ -648,7 +648,7 @@ export function syncThing(b, f, at, h, m) {
   { const items = (m.shapes ??= []), start = h + f[at + 78], n = f[at + 79]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
   { const tag = f[at + 80]; if (tag === 0) { m.hitSet = m.shapes[f[at + 81]]; } else m.hitSet = tag === 1 ? null : undefined; }
   m.body = syncBody(b, f, at + 82, h, m.body);
-  { const tag = f[at + 87]; if (tag === 0) { (m.gains ??= new Float32Array(2)).set(f.subarray(at + 88, at + 90)); } else m.gains = tag === 1 ? null : undefined; }
+  { const tag = f[at + 87]; if (tag === 0) { { const $a = (m.gains ??= new Float32Array(2)); for (let i = 0; i < 2; i++) $a[i] = f[at + 88 + i]; } } else m.gains = tag === 1 ? null : undefined; }
   { const items = (m.maybe ??= []), start = h + f[at + 90], n = f[at + 91]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   { const map = (m.seenBy ??= new Map()), start = h + f[at + 92], n = f[at + 93]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(b.refs[KIND_PERSON].at(f[start + i * 3], f[start + i * 3 + 1]), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(b.refs[KIND_PERSON].at(f[start + kept * 3], f[start + kept * 3 + 1]), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = b.refs[KIND_PERSON].at(f[e], f[e + 1]); let v = map.get(key); { const at = e; v = f[at + 2]; } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const o = (m.marked ??= {}), start = h + f[at + 94], n = f[at + 95]; for (const key in o) { let i = 0; while (i < n && f[start + i * 19] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 19, key = f[e]; let v = o[key]; { const at = e; { const tag = f[at + 1]; if (tag === 0) { v = syncSpot(b, f, at + 2, h, v ?? new SpotMirror()); } else v = tag === 1 ? null : undefined; } } o[key] = v; } }
@@ -663,8 +663,8 @@ export function syncFullThing(b, f, at, h, m) {
   m.light = f[at + 5];
   m.mass = f[at + 6];
   m.on = f[at + 7] !== 0;
-  (m.where ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
-  (m.facing ??= new THREE.Quaternion()).set(f[at + 11], f[at + 12], f[at + 13], f[at + 14]);
+  { const $v = (m.where ??= new THREE.Vector3()); $v.x = f[at + 8]; $v.y = f[at + 9]; $v.z = f[at + 10]; }
+  { const $q = (m.facing ??= new THREE.Quaternion()); $q._x = f[at + 11]; $q._y = f[at + 12]; $q._z = f[at + 13]; $q._w = f[at + 14]; $q._onChangeCallback(); }
   { const a = (m.pair ??= new Array(2)); a[0] = f[at + 15]; a[1] = f[at + 16]; }
   m.name = b.strings.at(f[at + 17]);
   m.colour = Colour_NAMES[f[at + 18]];
@@ -678,7 +678,7 @@ export function syncFullThing(b, f, at, h, m) {
   m.hidden = f[at + 52];
   (m.box ??= {}).size = f[at + 53];
   { const items = (m.marks ??= []), start = h + f[at + 54], n = f[at + 55]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
-  { const items = (m.probes ??= []), start = h + f[at + 56], n = f[at + 57]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
+  { const items = (m.probes ??= []), start = h + f[at + 56], n = f[at + 57]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
   { const items = (m.flags ??= []), start = h + f[at + 58], n = f[at + 59]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0] !== 0; } items[i] = v; } }
   { const items = (m.spots ??= []), start = h + f[at + 60], n = f[at + 61]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 17; v = syncSpot(b, f, at + 0, h, v ?? new SpotMirror()); } items[i] = v; } }
   { const items = (m.holders ??= []), start = h + f[at + 62], n = f[at + 63]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncHolder(b, f, at + 0, h, v); } items[i] = v; } }
@@ -687,7 +687,7 @@ export function syncFullThing(b, f, at, h, m) {
   { const items = (m.shapes ??= []), start = h + f[at + 81], n = f[at + 82]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 5; v = syncShape(b, f, at + 0, h, v ?? new ShapeMirror()); } items[i] = v; } }
   { const tag = f[at + 83]; if (tag === 0) { m.hitSet = m.shapes[f[at + 84]]; } else m.hitSet = tag === 1 ? null : undefined; }
   m.body = syncBody(b, f, at + 85, h, m.body);
-  { const tag = f[at + 90]; if (tag === 0) { (m.gains ??= new Float32Array(2)).set(f.subarray(at + 91, at + 93)); } else m.gains = tag === 1 ? null : undefined; }
+  { const tag = f[at + 90]; if (tag === 0) { { const $a = (m.gains ??= new Float32Array(2)); for (let i = 0; i < 2; i++) $a[i] = f[at + 91 + i]; } } else m.gains = tag === 1 ? null : undefined; }
   { const items = (m.maybe ??= []), start = h + f[at + 93], n = f[at + 94]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; { const tag = f[at + 0]; if (tag === 0) { v = f[at + 1]; } else v = tag === 1 ? null : undefined; } } items[i] = v; } }
   { const map = (m.seenBy ??= new Map()), start = h + f[at + 95], n = f[at + 96]; for (const key of map.keys()) { let i = 0; while (i < n && !Object.is(b.refs[KIND_PERSON].at(f[start + i * 3], f[start + i * 3 + 1]), key)) i++; if (i === n) map.delete(key); } let kept = 0; for (const key of map.keys()) { if (kept < n && Object.is(b.refs[KIND_PERSON].at(f[start + kept * 3], f[start + kept * 3 + 1]), key)) kept++; else break; } for (let i = 0; i < n; i++) { const e = start + i * 3, key = b.refs[KIND_PERSON].at(f[e], f[e + 1]); let v = map.get(key); { const at = e; v = f[at + 2]; } if (i >= kept) map.delete(key); map.set(key, v); } }
   { const o = (m.marked ??= {}), start = h + f[at + 97], n = f[at + 98]; for (const key in o) { let i = 0; while (i < n && f[start + i * 19] !== +key) i++; if (i === n) delete o[key]; } for (let i = 0; i < n; i++) { const e = start + i * 19, key = f[e]; let v = o[key]; { const at = e; { const tag = f[at + 1]; if (tag === 0) { v = syncSpot(b, f, at + 2, h, v ?? new SpotMirror()); } else v = tag === 1 ? null : undefined; } } o[key] = v; } }

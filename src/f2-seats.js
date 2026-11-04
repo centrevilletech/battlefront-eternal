@@ -93,8 +93,8 @@ export class F2Seats {
     this.sample = { dx: 0, dy: 0 }; this.drop = new THREE.Vector3(); this.hit = makeHit();
     this.castResult = { found: false, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null };
     this.flag = { value: false }; this.drawAnswer = { value: 0 };
-    this.ioBase = this.x.f2_seats_init() / 8; this.bridge.views(); this.readIo();
-    this.inputBase = this.io.input / 8; this.capacity = this.io.capacity;
+    this.ioBase = (this.x.f2_seats_init() / 8) | 0; this.bridge.views(); this.readIo();
+    this.inputBase = (this.io.input / 8) | 0; this.capacity = this.io.capacity;
     this.bridge.refs[KIND_EMITTER] = new LeaseEmitters(this, this.bridge.refs[KIND_EMITTER]);
     this.header.mouseScale = this.header.flightScale = 1;
     this.header.invert = this.header.flightInvert = false;
@@ -303,14 +303,14 @@ export class F2Seats {
   // belong to each mirror generation, so an old released emitter keeps its
   // last occupancy while a reused slot receives a complete new initial row.
   syncLeases() {
-    this.readIo(); const b = this.bridge, f = b.f, base = this.io.leases / 8;
+    this.readIo(); const b = this.bridge, f = b.f, base = (this.io.leases / 8) | 0;
     if (!base) return;
-    const n = f[base], stride = f[base + 1], heap = base + f[base + 2], retired = f[base + 4];
+    const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0), retired = f[base + 4] | 0;
     for (let i = 0; i < n; i++) {
       const at = base + 5 + i * stride;
-      const lease = i < retired ? this.pool.retire(f[at], f[at + 1]) : this.pool.create(f[at], f[at + 1]);
+      const lease = i < retired ? this.pool.retire(f[at] >>> 0, f[at + 1] >>> 0) : this.pool.create(f[at] >>> 0, f[at + 1] >>> 0);
       applyDelta(f, at, heap, lease.f2Words);
-      KIND_TABLE[KIND_SEAT_LEASE].sync(b, lease.f2Words, 5, lease.f2Words[2], lease);
+      KIND_TABLE[KIND_SEAT_LEASE].sync(b, lease.f2Words, 5, lease.f2Words[2] | 0, lease);
       if (this.phase.debug) this.captureLease(lease);
       if (lease.turret && this.crews) {
         if (!this.riderClips.has(lease)) {
@@ -331,14 +331,14 @@ export class F2Seats {
   syncBodies() {
     const b = this.bridge, f = b.f;
     this.phase.riders.sync(this.io.riders);
-    let base = this.io.units / 8;
+    let base = (this.io.units / 8) | 0;
     if (base) {
-      const n = f[base], stride = f[base + 1], heap = base + f[base + 2];
+      const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
       for (let i = 0; i < n; i++) {
         const at = base + 5 + i * stride, unit = b.refs[KIND_UNIT].at(f[at], f[at + 1]), out = this.unitOut;
         out.soldier = unit.soldier; out.intent = unit.intent;
         const words = this.unitWords.get(unit); applyDelta(f, at, heap, words);
-        syncF2SeatUnitOut(b, words, 5, words[2], out);
+        syncF2SeatUnitOut(b, words, 5, words[2] | 0, out);
         if (unit.seat?.turret) this.mounts.set(unit, unit.seat.turret);
         unit.seat = out.seat; unit.targetable = out.targetable; unit.tickCount = out.tickCount;
         if (unit.combat) { unit.combat.mounted = out.mounted; unit.combat.gunUnderwater = out.gunUnderwater; unit.combat.aimOverride = out.aimOverride; }
@@ -349,9 +349,9 @@ export class F2Seats {
       this.phase.counters.outputFields += n * stride + f[base + 3];
       this.phase.counters.outputUnits += n * stride + f[base + 3];
     }
-    base = this.io.controls / 8;
+    base = (this.io.controls / 8) | 0;
     if (base) {
-      const n = f[base], stride = f[base + 1], heap = base + f[base + 2];
+      const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
       for (let i = 0; i < n; i++) {
         const row = syncF2Latched(b, f, base + 5 + i * stride, heap, this.controlRow), intent = row.control.intent;
         intent.reload = intent.use = intent.exit = intent.jump = intent.crouch = intent.prone = false;
@@ -360,9 +360,9 @@ export class F2Seats {
       this.phase.counters.outputFields += n * stride + f[base + 3];
       this.phase.counters.outputControls += n * stride + f[base + 3];
     }
-    base = this.io.effects / 8;
+    base = (this.io.effects / 8) | 0;
     if (base) {
-      const n = f[base], stride = f[base + 1], heap = base + f[base + 2];
+      const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
       for (let i = 0; i < n; i++) this.effect(syncF2SeatEffect(b, f, base + 5 + i * stride, heap, this.effectRow));
       this.phase.counters.outputFields += n * stride + f[base + 3];
       this.phase.counters.outputEffects += n * stride + f[base + 3];
@@ -486,9 +486,9 @@ export class F2Seats {
       KIND_TABLE[KIND_ORDNANCE].sync(b, f, ord + 5, ord + f[ord + 2], this.crews.ordnance);
       this.phase.counters.outputFields += f[ord + 1] + f[ord + 3];
     }
-    let base = this.io.turrets / 8;
+    let base = (this.io.turrets / 8) | 0;
     if (base) {
-      const n = f[base], stride = f[base + 1], heap = base + f[base + 2];
+      const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0);
       for (let i = 0; i < n; i++) {
         const at = base + 5 + i * stride;
         const header = syncF2TurretHeader(b, f, at, heap, this.turretHeader), t = header.turret;
@@ -509,9 +509,9 @@ export class F2Seats {
       this.phase.counters.outputFields += n * stride + f[base + 3];
       this.phase.counters.outputTurrets += n * stride + f[base + 3];
     }
-    base = this.io.events / 8;
+    base = (this.io.events / 8) | 0;
     if (base && this.crews) {
-      const n = f[base], stride = f[base + 1], heap = base + f[base + 2], world = this.crews.world;
+      const n = f[base] | 0, stride = f[base + 1] | 0, heap = base + (f[base + 2] | 0), world = this.crews.world;
       for (let i = 0; i < n; i++) {
         const e = syncF2TurretEvent(b, f, base + 5 + i * stride, heap, this.turretEvent), shot = this.shot;
         shot.weapon = e.turret.weapon; shot.yaw = e.yaw; shot.pitch = e.pitch; shot.charge = e.charge; shot.targetId = e.targetId; shot.targetGeneration = e.targetGeneration;

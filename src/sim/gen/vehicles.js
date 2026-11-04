@@ -255,8 +255,8 @@ export class VehRayMirror {
 }
 
 export function syncVehRay(b, f, at, h, m) {
-  (m.origin ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.direction ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  { const $v = (m.origin ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.direction ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
   m.far = f[at + 6];
   m.ignore = f[at + 7];
   return m;
@@ -303,8 +303,8 @@ export class VehHitMirror {
 export function syncVehHit(b, f, at, h, m) {
   m.found = f[at + 0] !== 0;
   m.distance = f[at + 1];
-  (m.point ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
-  (m.normal ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  { const $v = (m.point ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 5]; $v.y = f[at + 6]; $v.z = f[at + 7]; }
   m.terrain = f[at + 8] !== 0;
   m.body = f[at + 9];
   return m;
@@ -359,13 +359,13 @@ export class VehPushMirror {
 
 export function syncVehPush(b, f, at, h, m) {
   m.hull = f[at + 0];
-  { const items = (m.probes ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
+  { const items = (m.probes ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
   m.radius = f[at + 3];
-  (m.q ??= new THREE.Quaternion()).set(f[at + 4], f[at + 5], f[at + 6], f[at + 7]);
-  { const tag = f[at + 8]; if (tag === 0) { (m.own ??= new THREE.Quaternion()).set(f[at + 9], f[at + 10], f[at + 11], f[at + 12]); } else m.own = tag === 1 ? null : undefined; }
-  (m.previous ??= new THREE.Vector3()).set(f[at + 13], f[at + 14], f[at + 15]);
-  (m.position ??= new THREE.Vector3()).set(f[at + 16], f[at + 17], f[at + 18]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 19], f[at + 20], f[at + 21]);
+  { const $q = (m.q ??= new THREE.Quaternion()); $q._x = f[at + 4]; $q._y = f[at + 5]; $q._z = f[at + 6]; $q._w = f[at + 7]; $q._onChangeCallback(); }
+  { const tag = f[at + 8]; if (tag === 0) { { const $q = (m.own ??= new THREE.Quaternion()); $q._x = f[at + 9]; $q._y = f[at + 10]; $q._z = f[at + 11]; $q._w = f[at + 12]; $q._onChangeCallback(); } } else m.own = tag === 1 ? null : undefined; }
+  { const $v = (m.previous ??= new THREE.Vector3()); $v.x = f[at + 13]; $v.y = f[at + 14]; $v.z = f[at + 15]; }
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 16]; $v.y = f[at + 17]; $v.z = f[at + 18]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 19]; $v.y = f[at + 20]; $v.z = f[at + 21]; }
   m.terrain = f[at + 22] !== 0;
   return m;
 }
@@ -422,8 +422,8 @@ export class VehPushedMirror {
 
 export function syncVehPushed(b, f, at, h, m) {
   m.undo = f[at + 0] !== 0;
-  (m.position ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
-  (m.velocity ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
+  { const $v = (m.velocity ??= new THREE.Vector3()); $v.x = f[at + 4]; $v.y = f[at + 5]; $v.z = f[at + 6]; }
   return m;
 }
 
@@ -501,7 +501,7 @@ export class VehGroundMirror {
 export function syncVehGround(b, f, at, h, m) {
   m.found = f[at + 0] !== 0;
   m.height = f[at + 1];
-  (m.normal ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  { const $v = (m.normal ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
   return m;
 }
 
@@ -541,7 +541,7 @@ export class VehSpringMirror {
 export function syncVehSpring(b, f, at, h, m) {
   m.hull = f[at + 0];
   m.index = f[at + 1];
-  (m.center ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  { const $v = (m.center ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
   m.radius = f[at + 5];
   return m;
 }
@@ -584,9 +584,9 @@ export class VehTriangleMirror {
 }
 
 export function syncVehTriangle(b, f, at, h, m) {
-  (m.a ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
-  (m.b ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
-  (m.c ??= new THREE.Vector3()).set(f[at + 6], f[at + 7], f[at + 8]);
+  { const $v = (m.a ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
+  { const $v = (m.b ??= new THREE.Vector3()); $v.x = f[at + 3]; $v.y = f[at + 4]; $v.z = f[at + 5]; }
+  { const $v = (m.c ??= new THREE.Vector3()); $v.x = f[at + 6]; $v.y = f[at + 7]; $v.z = f[at + 8]; }
   return m;
 }
 
@@ -732,7 +732,7 @@ export class VehPointMirror {
 }
 
 export function syncVehPoint(b, f, at, h, m) {
-  (m.position ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; }
   return m;
 }
 
@@ -949,7 +949,7 @@ export class VehBlastMirror {
 export function syncVehBlast(b, f, at, h, m) {
   m.hull = f[at + 0];
   m.final = f[at + 1] !== 0;
-  (m.position ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 2]; $v.y = f[at + 3]; $v.z = f[at + 4]; }
   return m;
 }
 
@@ -986,7 +986,7 @@ export class VehEffectMirror {
 
 export function syncVehEffect(b, f, at, h, m) {
   m.name = b.strings.at(f[at + 0]);
-  (m.position ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  { const $v = (m.position ??= new THREE.Vector3()); $v.x = f[at + 1]; $v.y = f[at + 2]; $v.z = f[at + 3]; }
   return m;
 }
 
@@ -1049,7 +1049,7 @@ export class VehPointsMirror {
 }
 
 export function syncVehPoints(b, f, at, h, m) {
-  { const items = (m.points ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; (v ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]); } items[i] = v; } }
+  { const items = (m.points ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; { const $v = (v ??= new THREE.Vector3()); $v.x = f[at + 0]; $v.y = f[at + 1]; $v.z = f[at + 2]; } } items[i] = v; } }
   return m;
 }
 
@@ -1121,7 +1121,7 @@ export const VEHICLES_EXPORT_STRIDE = 10, VEHICLES_IMPORT_STRIDE = 10, VEHICLES_
 export function syncVehicles(b, f, at, h, m) {
   { const items = (m.vehicles ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const items = (m.slots ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSpawnSlot(b, f, at + 0, h, v ?? new SpawnSlotMirror()); } items[i] = v; } }
-  { const tag = f[at + 6]; if (tag === 0) { (m.spawnOccupant ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]); } else m.spawnOccupant = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { { const $v = (m.spawnOccupant ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; } } else m.spawnOccupant = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -1129,7 +1129,7 @@ export function syncVehicles(b, f, at, h, m) {
 export function syncFullVehicles(b, f, at, h, m) {
   { const items = (m.vehicles ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const items = (m.slots ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 6; v = syncSpawnSlot(b, f, at + 0, h, v ?? new SpawnSlotMirror()); } items[i] = v; } }
-  { const tag = f[at + 6]; if (tag === 0) { (m.spawnOccupant ??= new THREE.Vector3()).set(f[at + 7], f[at + 8], f[at + 9]); } else m.spawnOccupant = tag === 1 ? null : undefined; }
+  { const tag = f[at + 6]; if (tag === 0) { { const $v = (m.spawnOccupant ??= new THREE.Vector3()); $v.x = f[at + 7]; $v.y = f[at + 8]; $v.z = f[at + 9]; } } else m.spawnOccupant = tag === 1 ? null : undefined; }
   return m;
 }
 

@@ -138,8 +138,8 @@ class F2 {
     for (const v of vehicles.vehicles) this.adopt(v);
     this.bodiesIn();
     const ptr = this.x.f2_init(bridge.strings.id(json(vehicles.slots.map(s => s.desc))), vehicles.time, vehicles.acc);
-    bridge.views(); this.descriptor = ptr / 8;
-    this.inputBase = bridge.f[this.descriptor + PHASE.input] / 8;
+    bridge.views(); this.descriptor = (ptr / 8) | 0;
+    this.inputBase = (bridge.f[this.descriptor + PHASE.input] / 8) | 0;
     this.capacity = bridge.f[this.descriptor + PHASE.capacity];
     bridge.reserve(16 * 1024 * 1024);
     this.counters.reset();
@@ -341,6 +341,8 @@ class F2 {
     try { return this.syncState(); } finally { b.x = prior; }
   }
 
+  // Block counts and word addresses are integers in the wasm32 ABI. Keep
+  // them integral in JS too, avoiding boxed doubles at decoder call sites.
   // Generated delta masks address retained numeric rows, not JS properties.
   // Resolve leases first so hull and unit references can name new occupancies;
   // then update hulls, life metadata, weapons, poses and rider bodies in order.
@@ -350,22 +352,22 @@ class F2 {
     const d = this.descriptor;
     this.seats.syncLeases();
     this.syncedCount = 0; this.syncStamp++;
-    let base = b.f[d + PHASE.hulls] / 8;
+    let base = (b.f[d + PHASE.hulls] / 8) | 0;
     if (base) {
-      const f = b.f, k = KIND_TABLE[KIND_VEHICLE], rows = f[base], stride = f[base + 1], h = base + f[base + 2];
+      const f = b.f, k = KIND_TABLE[KIND_VEHICLE], rows = f[base] | 0, stride = f[base + 1] | 0, h = base + (f[base + 2] | 0);
       for (let i = 0; i < rows; i++) {
         const at = base + 5 + i * stride;
-        const v = i < f[base + 4] ? this.pool.retire(f[at], f[at + 1]) : this.pool.at(f[at], f[at + 1]);
+        const v = i < f[base + 4] ? this.pool.retire(f[at] >>> 0, f[at + 1] >>> 0) : this.pool.at(f[at] >>> 0, f[at + 1] >>> 0);
         this.synced(v);
         applyDelta(f, at, h, v.f2HullWords);
-        k.sync(b, v.f2HullWords, 5, v.f2HullWords[2], v);
+        k.sync(b, v.f2HullWords, 5, v.f2HullWords[2] | 0, v);
       }
       this.counters.outputFields += rows * stride + f[base + 3];
       this.counters.outputHulls += rows * stride + f[base + 3];
     }
-    base = b.f[d + PHASE.pads] / 8;
+    base = (b.f[d + PHASE.pads] / 8) | 0;
     if (base) {
-      const f = b.f, rows = f[base], stride = f[base + 1], h = base + f[base + 2];
+      const f = b.f, rows = f[base] | 0, stride = f[base + 1] | 0, h = base + (f[base + 2] | 0);
       for (let i = 0; i < rows; i++) {
         const pad = syncF2Pad(b, f, base + 5 + i * stride, h, this.padScratch);
         const slot = this.vehicles.slots[pad.index]; slot.remaining = pad.remaining; slot.vehicle = pad.vehicle;
@@ -376,9 +378,9 @@ class F2 {
     // Gameplay life is separate from slab identity. A respawn reuses the
     // Vehicle and target object, but changes generation, visibility and fixed
     // flight configuration. These records are omitted during ordinary motion.
-    base = b.f[d + PHASE.lives] / 8;
+    base = (b.f[d + PHASE.lives] / 8) | 0;
     if (base) {
-      const f = b.f, rows = f[base], stride = f[base + 1], h = base + f[base + 2];
+      const f = b.f, rows = f[base] | 0, stride = f[base + 1] | 0, h = base + (f[base + 2] | 0);
       for (let i = 0; i < rows; i++) {
         const life = syncF2HullLife(b, f, base + 5 + i * stride, h, this.lifeScratch), v = life.vehicle;
         const changed = v.aiTarget.generation !== life.generation;
@@ -392,17 +394,17 @@ class F2 {
       this.counters.outputFields += rows * stride + f[base + 3];
       this.counters.outputLives += rows * stride + f[base + 3];
     }
-    this.firing.syncDescriptor(b.f[d + PHASE.firing]);
+    this.firing.syncDescriptor(b.f[d + PHASE.firing] >>> 0);
     this.bodiesOut();
     // poseOut retains only world-readable seat and animation scalars. The
     // skeleton and all rig transforms stay with the native phase.
-    let o = b.f[d + PHASE.poses] / 8;
+    let o = (b.f[d + PHASE.poses] / 8) | 0;
     if (o) {
-      const n = b.f[o], stride = b.f[o + 1], heap = o + b.f[o + 2];
+      const n = b.f[o] | 0, stride = b.f[o + 1] | 0, heap = o + (b.f[o + 2] | 0);
       for (let i = 0; i < n; i++) {
         const at = o + 5 + i * stride, v = this.pool.at(b.f[at], b.f[at + 1]);
         applyDelta(b.f, at, heap, v.f2PoseWords);
-        const row = syncF2Pose(b, v.f2PoseWords, 5, v.f2PoseWords[2], v.f2Pose);
+        const row = syncF2Pose(b, v.f2PoseWords, 5, v.f2PoseWords[2] | 0, v.f2Pose);
         v.age = row.age; v.walkPhase = row.walkPhase; v.walkBlend = row.walkBlend; v.visual.copy(row.visual);
         v.root.position.copy(row.visual);
         // Keep the root fields observable without invoking three.js Euler
@@ -591,7 +593,7 @@ class F2 {
     const ptr = this.bridge.f[this.descriptor + PHASE.bodies];
     this.bridge.views();
     const f = this.bridge.f, bodies = this.collision.rays.bodies;
-    let o = ptr / 8;
+    let o = (ptr / 8) | 0;
     const toggled = f[o + BODY_HEADER.toggled], placed = f[o + BODY_HEADER.placed];
     this.counters.outputFields += toggled * TOGGLE.words + placed * PLACED.words;
     this.counters.outputCollision += toggled * TOGGLE.words + placed * PLACED.words;
