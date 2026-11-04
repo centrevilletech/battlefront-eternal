@@ -13,7 +13,8 @@ const encoder=new TextEncoder(),decoder=new TextDecoder('utf-8',{fatal:true});
 // unless it is the bytes the unit's last record had: that payload is kept,
 // so an unchanged state allocates nothing and compares by identity.
 const NO_REPAIR=new Uint8Array(0),scratch=new Uint8Array(21+128+12*39),scratchView=new DataView(scratch.buffer),payloads=new WeakMap();
-export function captureUnitState(unit,registry,tick){
+export function captureUnitState(unit,registry,tick,native=null){
+  if(native)return {kind:'summary',id:UNIT_STATE_ID+unit.id,generation:unit.generation,tick,schema:UNIT_STATE_SCHEMA,payload:native.unit(unit,registry)};
   const weapons=unit.combat.arsenal.weapons;
   if(weapons.length>12)throw Error('Unit weapon count exceeds presentation limit');
   const repair=unit.combat.repairLock?encoder.encode(unit.combat.repairLock):NO_REPAIR;if(repair.length>128)throw Error('Repair identity too long');

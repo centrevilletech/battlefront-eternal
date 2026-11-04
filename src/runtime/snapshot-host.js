@@ -1,3 +1,6 @@
+import { createWirePresentationBridge } from './wire-presentation.js';
+import { createWireBridge } from './wire-sim.js';
+import { attachHitHistoryBridge } from './hit-history-sim.js';
 import { entityPostNames } from './entity-spawn-posts.js';
 import { attachPresentationCapture } from './entity-presentation-events.js';
 import { captureUnitState, UNIT_STATE_ID, UNIT_STATE_SCHEMA } from './entity-unit-state.js';
@@ -116,8 +119,13 @@ export function chooseSharedBaselines(tick, acks, max = MAX_SHARED_BASELINES) {
 // The most ticks a local page waits between snapshots (a page drawing 20
 // frames a second or fewer).
 export const MAX_LOCAL_INTERVAL = 3;
-export function createSnapshotHost({ game, world, epoch = 1, local = false, stateBytesPerSecond, staleAfterMs = local ? Infinity : STALE_AFTER_MS, now = () => performance.now() } = {}) {
+export function createSnapshotHost({ game, world, wire = globalThis.process?.env?.BFE_WIRE === 'rust', epoch = 1, local = false, stateBytesPerSecond, staleAfterMs = local ? Infinity : STALE_AFTER_MS, now = () => performance.now() } = {}) {
   if (!game || !world) throw Error('snapshot host requires a game and a multiplayer world');
+  const native = wire && game.simBridge ? createWireBridge(game.simBridge) : null;
+  if (wire && !native) throw Error('native snapshot host requires the shared simulation bridge');
+  native?.start();
+  const nativePresentation = native ? createWirePresentationBridge(game.simBridge) : null;
+  const history = native && game.ordnance?.hitHistory ? attachHitHistoryBridge(game.simBridge, game.ordnance.hitHistory) : null;
   // A snapshot every `interval` ticks, each carrying every change since the
   // client's acknowledged baseline: every 2nd tick online; locally every
   // tick, or as many ticks as the page takes to draw a frame
@@ -131,7 +139,7 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
   const clients = new Map();
   // A snapshot leaving the ring hands its entries to the next captures.
   const spare = new EntrySpare();
-  const ring = new SnapshotRing(128, (snapshot, held) => spare.recycle(snapshot, held.get(held.oldestTick)));
+  const ring = new SnapshotRing(128, native ? null : (snapshot, held) => spare.recycle(snapshot, held.get(held.oldestTick)));
   const slots = new SnapshotSlotTable();
   const stagger = new WorldFieldStagger();
   let registry, capture, shots, combatCapture, combatDispose, presentationDispose;
@@ -258,10 +266,11 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
       complete.add(5);
     }
     const unitStates = [];
-    for (const u of game.units.all()) if (u.soldier && u.combat && !u.removed && stagger.isFieldDue(tick, UNIT_STATE_SCHEMA, UNIT_STATE_ID + u.id)) unitStates.push(captureUnitState(u, registry, tick));
+    for (const u of game.units.all()) if (u.soldier && u.combat && !u.removed && stagger.isFieldDue(tick, UNIT_STATE_SCHEMA, UNIT_STATE_ID + u.id)) unitStates.push(captureUnitState(u, registry, tick, nativePresentation));
     // Stations and tows the stagger would not take now are not built.
-    stagger.take(tick, [...common, ...unitStates, ...captureWorldPresentation(game, tick, epoch, (schema, id, stateTeam) => stagger.held(tick, schema, id, stateTeam))], complete);
-    const snapshot = snapshotFromRecords({ tick, epoch, records, world: stagger.world(), slots, previous: lastSnapshot, spare });
+    stagger.take(tick, [...common, ...unitStates, ...captureWorldPresentation(game, tick, epoch, (schema, id, stateTeam) => stagger.held(tick, schema, id, stateTeam), nativePresentation)], complete);
+    const snapshot = native ? native.capture({ tick, epoch, records, world: stagger.world() })
+      : snapshotFromRecords({ tick, epoch, records, world: stagger.world(), slots, previous: lastSnapshot, spare });
     ring.set(tick, epoch, snapshot);
     lastSnapshot = snapshot; capturedTick = tick;
     encodeCache.tick = tick; encodeCache.parts.clear();
@@ -274,7 +283,7 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
     if (parts) return parts;
     const baseline = baselineTick === 0 ? null : ring.get(baselineTick, epoch);
     if (baselineTick !== 0 && !baseline) throw Error('chosen snapshot baseline not held');
-    parts = encodeEntities(snapshot, baseline, { interval });
+    parts = native ? native.encodeHeld(snapshot, baseline, { interval }) : encodeEntities(snapshot, baseline, { interval });
     encodeCache.parts.set(baselineTick, parts);
     return parts;
   }
@@ -353,8 +362,8 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
         const baselineOwn = state.ownRing.get(baselineTick, epoch);
         state.ownRing.set(tick, epoch, { payload: correction?.payload ?? baselineOwn?.payload ?? null, summaries: ownSummaries });
         // Views of the codec's scratch, copied into the own datagram below.
-        const correctionDelta = correction ? encodeWordDeltaView(correction.payload, baselineOwn?.payload ?? null) : null;
-        const summariesSection = encodeWorldSectionView(ownSummaries, baselineOwn?.summaries ?? null);
+        const correctionDelta = correction ? (native ? native.encodeWordDelta(correction.payload, baselineOwn?.payload ?? null) : encodeWordDeltaView(correction.payload, baselineOwn?.payload ?? null)) : null;
+        const summariesSection = native ? native.encodeWorldSection(ownSummaries, baselineOwn?.summaries ?? null) : encodeWorldSectionView(ownSummaries, baselineOwn?.summaries ?? null);
         const header = { epoch, tick, interval, baselineTick, ackInput: actor.mailbox.ack, correction, correctionDelta, summariesSection };
         const cosmeticBudget = Math.max(0, SNAPSHOT_MAX_DATAGRAM - SNAPSHOT_HEADER_BYTES - 1 - (correction ? 12 + correctionDelta.length : 0) - (2 + summariesSection.length) - 2);
         const spare = budget - budgetUsed(state, at) - (full ? parts.reduce((n, part) => n + part.byteLength, 0) : 0) - (SNAPSHOT_MAX_DATAGRAM - cosmeticBudget);
@@ -376,9 +385,9 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
           chargeBytes(state, at, group.bytes);
         } else state.metrics.ownOnly++;
         const sendOwn = buffer => { ownPackets.push({ client, epoch, tick, own: true, capturedAtUnixMs, buffer: asArrayBuffer(buffer) }); state.metrics.datagrams++; state.metrics.bytes += buffer.byteLength; chargeBytes(state, at, buffer.byteLength); };
-        sendOwn(encodeOwnDatagram({ ...header, cosmeticBytes: cosmeticBytes.first, ownParts: cosmeticBytes.second ? 2 : 1 }));
+        sendOwn((native ? native.encodeOwnDatagram : encodeOwnDatagram)({ ...header, cosmeticBytes: cosmeticBytes.first, ownParts: cosmeticBytes.second ? 2 : 1 }));
         state.ownSentAt = at;
-        if (cosmeticBytes.second) sendOwn(encodeOwnDatagram({ epoch, tick, interval, baselineTick, ackInput: actor.mailbox.ack, cosmeticBytes: cosmeticBytes.second, second: true }));
+        if (cosmeticBytes.second) sendOwn((native ? native.encodeOwnDatagram : encodeOwnDatagram)({ epoch, tick, interval, baselineTick, ackInput: actor.mailbox.ack, cosmeticBytes: cosmeticBytes.second, second: true }));
         state.metrics.cosmeticsDropped = state.outbox.dropped; state.metrics.cosmeticsOwedDropped = state.outbox.owedDropped; state.metrics.cosmeticsResent = state.outbox.resent;
         if (full) state.metrics.snapshots++;
       } catch (error) { faults.push({ client, error }); }
@@ -396,7 +405,7 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
   function inspect(id) {
     const state = clients.get(id);
     if (!state) return undefined;
-    return { profile: 'snapshot-delta-v1', interval, baselineTick: state.baselineTick, ringNewest: ring.newestTick, encodes: encodeCache.parts.size, stateBytes: budgetUsed(state, now()), stateBytesPerSecond: budget, heardMsAgo: now() - state.heardAt, ...state.metrics };
+    return { profile: 'snapshot-delta-v1', wire: native ? 'rust' : 'js', interval, baselineTick: state.baselineTick, ringNewest: ring.newestTick, encodes: encodeCache.parts.size, stateBytes: budgetUsed(state, now()), stateBytesPerSecond: budget, heardMsAgo: now() - state.heardAt, ...state.metrics };
   }
   return {
     get registry() { return registry; },
@@ -410,6 +419,6 @@ export function createSnapshotHost({ game, world, epoch = 1, local = false, stat
     // them. They stay as no-ops until the server moves to ABI 4.
     ack() {}, admitted() {}, dropped() {},
     advanceEdges, consumedEdges, publish, inspect, staleClients, setLocalInterval,
-    dispose() { presentationDispose?.(); combatDispose?.(); shots?.dispose(); presentationDispose = combatDispose = null; },
+    dispose() { nativePresentation?.dispose(); native?.dispose(); history?.dispose(); presentationDispose?.(); combatDispose?.(); shots?.dispose(); presentationDispose = combatDispose = null; },
   };
 }

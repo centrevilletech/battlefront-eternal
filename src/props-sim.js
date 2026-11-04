@@ -7,6 +7,7 @@ import { emitSound } from "./audio/events.js";
 import { bridgeFor } from "./sim/runtime.js";
 import { putPbConfiguration, putPbInput, PbResultMirror, syncPbResult } from "./sim/gen/props.js";
 import { putPaConfiguration, putPaInput, PaResultMirror, syncPaResult } from "./sim/gen/props.js";
+import { putPqInput, PqResultMirror, syncPqResult } from "./sim/gen/props.js";
 import { makeRiderPoints, riderPoints } from "./rider-pose.js";
 
 const num = value => {
@@ -59,6 +60,7 @@ export class PropsSim {
       });
     });
     this.animated = new AnimatedPropsSim(bridge, live);
+    this.queries = live.center && live.toward ? new LiveQueriesSim(this, live) : null;
   }
 
   identity(object) {
@@ -260,5 +262,100 @@ export class AnimatedPropsSim {
     }
     return { body: ["letGo", "damage", "remove"].includes(kind) ? this.body(unit, p, key) : null,
       found, root: this.points.root, turn: this.points.rootTurn };
+  }
+}
+
+// Definitions have already been extracted into primitive fields. Keep
+// missing, null, false, numeric zero and numeric strings distinct: repair
+// flags test strict zero, while repair amounts use truthiness/coercion.
+const queryValue = value => {
+  const kind = value === undefined ? "undefined" : value === null ? "null" : typeof value;
+  if (!["undefined", "null", "boolean", "number", "string"].includes(kind)) throw TypeError("a query definition field must be a primitive");
+  return { kind, number: kind === "number" ? value : kind === "boolean" ? Number(value) : 0, text: kind === "string" ? value : "" };
+};
+const queryField = v => v.kind === "undefined" ? undefined : v.kind === "null" ? null : v.kind === "boolean" ? Boolean(v.number) : v.kind === "string" ? v.text : v.number;
+const QUERY_ZERO = new THREE.Vector3(), QUERY_IDENTITY = new THREE.Matrix4();
+const QUERY_HEALTH = new Set(["building", "vehicle", "rebuild", "build"]), QUERY_STATE = new Set(["built", "unbuilt", "destroyed"]);
+function queryDefinition(def) {
+  return { repair: ["BuildingHealth", "VehicleHealth", "BuildingRebuild", "BuildingBuild"].map(k => queryValue(def?.[k])),
+    targetVehicle: queryValue(def?.TargetVehicle), targetNeutral: queryValue(def?.TargetNeutral), targetEnemy: queryValue(def?.TargetEnemy), targetFriendly: queryValue(def?.TargetFriendly),
+    range: queryValue(def?.LockOnRange), angle: queryValue(def?.LockOnAngle), shieldScale: queryValue(def?.ShieldScale),
+    damage: queryValue(def?.Damage), inner: queryValue(def?.DamageRadiusInner), outer: queryValue(def?.DamageRadiusOuter),
+    scales: ["PersonScale", "AnimalScale", "DroidScale", "VehicleScale", "BuildingScale"].map(k => queryValue(def?.[k])) };
+}
+export class LiveQueriesSim {
+  constructor(props, live) {
+    this.props = props; this.live = live; this.bridge = props.bridge; this.x = props.x; this.contexts = [];
+    this.input = { words: this.x.live_words(0), put: putPqInput };
+    this.output = { words: this.x.live_words(1), Mirror: PqResultMirror, sync: syncPqResult };
+    this.sight = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: null };
+    // Find the real base constructor without importing props.js before
+    // the game's seeded weapon code has been loaded.
+    for (const b of live.buildings) for (let p = Object.getPrototypeOf(b); p; p = Object.getPrototypeOf(p)) {
+      if (p.constructor?.name === "Building") { this.Building = p.constructor; break; }
+    }
+    this.bridge.register({ pqAction: a => this.action(a) });
+    live.blast = (def, position, owner = null, teamScale = null) => { this.run("blast", { def, a: position, owner, teamScale }); };
+    live.struck = (body, def, owner = null, teamScale = null, direction = null) => {
+      this.run("struck", { def, one: body?.owner, building: Boolean(this.Building && body?.owner instanceof this.Building), owner, teamScale, direction });
+    };
+    live.repairs = (def, target, team = live.playerTeam) => this.run("repairs", { def, one: target, team }).flag;
+    live.repair = (def, target, team = live.playerTeam) => this.run("repair", { def, one: target, team }).flag;
+    live.lockOn = (eye, dir, def, current, held, team = live.playerTeam) => this.run("lockOn", { a: eye, b: dir, def, one: current, held, team }).target;
+    live.enterable = (eye, dir, may = null) => this.run("enterable", { a: eye, b: dir, may }).target;
+  }
+  state() { return { center: this.live.center, toward: this.live.toward }; }
+  sync(state) { this.live.center.copy(state.center); this.live.toward.copy(state.toward); }
+  target(t) {
+    const body = t.bodies?.[t.state];
+    return { alive: Boolean(t.alive), state: QUERY_STATE.has(t.state) ? t.state : null, healthType: QUERY_HEALTH.has(t.healthType) ? t.healthType : null,
+      health: t.health ?? NaN, maxHealth: t.maxHealth ?? NaN, team: t.team ?? NaN, body: body ? this.props.identity(body).id : null,
+      gunner: Boolean(t.gunner), position: t.position, matrix: t.matrix ?? QUERY_IDENTITY };
+  }
+  run(op, { def = null, one = null, owner = null, building = true, a = QUERY_ZERO, b = QUERY_ZERO, direction = null, team = NaN, held = false, teamScale = null, may = null }) {
+    const live = this.live, targets = [...new Set([...live.buildings, ...(live.vehicleTargets ?? []), ...(one ? [one] : [])])];
+    const args = { op, definition: queryDefinition(def), state: this.state(), buildings: live.buildings.map(t => targets.indexOf(t)),
+      vehicles: (live.vehicleTargets ?? []).map(t => targets.indexOf(t)), turrets: live.turrets.map(t => targets.indexOf(t)),
+      one: one ? targets.indexOf(one) : -1, building, owner: this.props.identity(owner), a, b, direction, team, held: Boolean(held), teamScale: Boolean(teamScale), may: Boolean(may), collision: Boolean(live.collision) };
+    this.contexts.push({ targets, teamScale, may });
+    try {
+      this.bridge.callArgs(this.input, args);
+      const result = this.bridge.callResult(this.output, this.x.live_run());
+      this.sync(result.state);
+      return { flag: result.flag, target: result.selected < 0 ? null : targets[result.selected] };
+    } finally { this.contexts.pop(); }
+  }
+  action(a) {
+    const { targets, teamScale, may } = this.contexts.at(-1), target = targets[a.index], kind = a.kind;
+    const result = { state: this.state(), target: null, point: QUERY_ZERO, number: 0, flag: false, found: false, hitDistance: 0, hitOwner: -1 };
+    if (["teamScale", "damage", "setHealth", "may"].includes(kind)) this.sync(a.state);
+    switch (kind) {
+      case "target": result.target = this.target(target); break;
+      case "sphere":
+        this.live.center.copy(a.point);
+        result.number = target[a.blast ? "blastSphere" : "sphere"](this.live.center);
+        result.point = this.live.center;
+        break;
+      case "cast": {
+        const point = a.point.clone(), direction = a.direction.clone(), far = a.far, lock = a.lock;
+        const ignore = a.ignore === null ? null : this.props.objects[a.ignore];
+        if (lock) this.live.toward.copy(direction);
+        const hit = lock ? this.live.collision.cast(point, direction, far, this.live.hit)
+          : this.live.collision.cast(point, direction, far, this.sight, ignore, true);
+        result.found = Boolean(hit); result.hitDistance = hit?.distance ?? 0; result.hitOwner = targets.indexOf(hit?.body?.owner);
+        break;
+      }
+      case "teamScale": result.number = teamScale(target); break;
+      case "may": result.flag = Boolean(may(target)); break;
+      case "damage": {
+        const amount = a.amount, owner = this.props.object(a.owner);
+        const info = a.info ? { direction: a.info.direction?.clone() ?? null, amount: a.info.amount, typed: a.info.typed, generic: queryField(a.info.generic) } : null;
+        if (info) target.damage(amount, owner, info); else target.damage(amount, owner);
+        break;
+      }
+      case "setHealth": target.setHealth(queryField(a.value)); break;
+      default: throw Error(`unknown live query action ${kind}`);
+    }
+    return result;
   }
 }
