@@ -7,6 +7,20 @@ const methods = ['muzzleOf', 'muzzleOfSeat', 'heldByLimits', 'reticleRay', 'botA
 const zero = Object.freeze({ x: 0, y: 0, z: 0 });
 const num = value => Number.isFinite(parseFloat(value)) ? parseFloat(value) : 0;
 
+export function geometrySnapshot(c) {
+  const v = c.v, named = name => v.byName[(name || '').toLowerCase()];
+  return { flying: v.flying, center: v.center, size: v.size, matrix: v.matrix, quaternion: v.quaternion, seatIndex: v.seatIndex,
+    seats: v.seats.map(s => ({ yaw: s.aimYaw, pitch: s.pitch, target: s.target, leased: Boolean(s.lease), human: Boolean(s.lease?.human),
+      aiming: Boolean(s.lease?.input?.aiming), aim: s.lease?.input?.aim ?? zero, turret: c.node(s.view.turret),
+      weapons: s.weapons.map(w => ({ barrel: w.barrel, weaponNode: c.node(named(w.def.FirePointName)),
+        fallbackNode: c.node(named(w.aimers[0]?.FirePointName || w.aimers[0]?.node || w.def.FirePointName)),
+        aimers: w.aimers.map(a => ({ bone: c.node(a.bone), directionNode: c.node(named(a.FirePointName)), facing: a.facing,
+          posed: Boolean(a.posed), onTarget: Boolean(a.onTarget), inLimits: a.inLimits, outside: num(a.FireOutsideLimits ?? s.settings?.FireOutsideLimits) })),
+        muzzles: w.muzzles.map(m => ({ node: c.node(m.fireNode), aimer: w.aimers.indexOf(m.sourceAimer), barrel: c.node(m.barrel), kickAt: m.kickAt })) })) })),
+    nodes: c.nodes.map(n => ({ position: n.position, quaternion: n.quaternion, scale: n.scale, matrix: n.matrix, matrixWorld: n.matrixWorld,
+      auto: n.matrixAutoUpdate, worldAuto: n.matrixWorldAutoUpdate, needs: n.matrixWorldNeedsUpdate })) };
+}
+
 export class VehicleFiringSim {
   constructor(owner, nodesOf) {
     this.owner = owner; this.bridge = owner.bridge; this.x = owner.x; this.nodesOf = nodesOf;
@@ -31,19 +45,7 @@ export class VehicleFiringSim {
     return { v, nodes, index, node: n => n == null ? -1 : index.get(n) ?? -1 };
   }
 
-  snapshot(c) {
-    const v = c.v, named = name => v.byName[(name || '').toLowerCase()];
-    return { flying: v.flying, center: v.center, size: v.size, matrix: v.matrix, quaternion: v.quaternion, seatIndex: v.seatIndex,
-      seats: v.seats.map(s => ({ yaw: s.aimYaw, pitch: s.pitch, target: s.target, leased: Boolean(s.lease), human: Boolean(s.lease?.human),
-        aiming: Boolean(s.lease?.input?.aiming), aim: s.lease?.input?.aim ?? zero, turret: c.node(s.view.turret),
-        weapons: s.weapons.map(w => ({ barrel: w.barrel, weaponNode: c.node(named(w.def.FirePointName)),
-          fallbackNode: c.node(named(w.aimers[0]?.FirePointName || w.aimers[0]?.node || w.def.FirePointName)),
-          aimers: w.aimers.map(a => ({ bone: c.node(a.bone), directionNode: c.node(named(a.FirePointName)), facing: a.facing,
-            posed: Boolean(a.posed), onTarget: Boolean(a.onTarget), inLimits: a.inLimits, outside: num(a.FireOutsideLimits ?? s.settings?.FireOutsideLimits) })),
-          muzzles: w.muzzles.map(m => ({ node: c.node(m.fireNode), aimer: w.aimers.indexOf(m.sourceAimer), barrel: c.node(m.barrel), kickAt: m.kickAt })) })) })),
-      nodes: c.nodes.map(n => ({ position: n.position, quaternion: n.quaternion, scale: n.scale, matrix: n.matrix, matrixWorld: n.matrixWorld,
-        auto: n.matrixAutoUpdate, worldAuto: n.matrixWorldAutoUpdate, needs: n.matrixWorldNeedsUpdate })) };
-  }
+  snapshot(c) { return geometrySnapshot(c); }
 
   // Only geometry-owned fields are published. In particular this does not
   // turn a quaternion back into an Euler or update untouched child matrices.
