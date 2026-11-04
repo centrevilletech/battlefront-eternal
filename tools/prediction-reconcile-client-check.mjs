@@ -120,6 +120,7 @@ function blackout({ fps, stall }, native) {
     maxPending = Math.max(maxPending, pending.length);
     saved = captureCompactSoldier(local);
     const context = { source: local, identity, epoch, generation, authorityTick: applied, pending, held };
+    const previousCheckpoint = window.checkpoint;
     const selected = window.select(context, checkpoint => {
       exactCalls++; restoreCompactSoldier(checker, saved);
       const last = replayTicks(pending.filter(c => c.tick <= checkpoint.tick), applied, generation, held,
@@ -130,9 +131,13 @@ function blackout({ fps, stall }, native) {
       return same;
     });
     if (selected.checkpoint) {
+      assert.equal(selected.checkpoint, previousCheckpoint, 'retained checkpoint identity');
       assert.equal(selected.held, selected.checkpoint.held, 'held-key alias');
       restoreCompactSoldier(local, selected.checkpoint.state);
-    } else assert.equal(selected.commands, pending, 'authority retains pending array identity');
+    } else {
+      assert.equal(selected.commands, pending, 'authority retains pending array identity');
+      assert.equal(selected.held, held, 'authority retains held-key identity');
+    }
     assert.ok(selected.commands.every(command => pending.includes(command)), 'selected command identities');
     let work = 0;
     const end = replayTicks(selected.commands, selected.from, generation, selected.held, (_tick, command) => { work++; step(local, command); });
@@ -150,17 +155,23 @@ function blackout({ fps, stall }, native) {
     finalBody: Array.from(captureCompactSoldier(local)), finalAuthority: Array.from(captureCompactSoldier(authority)) };
 }
 let report, completed = false;
+const phaseCounts = () => ({ ...opcodes });
+const requirePhases = (before, phases) => {
+  for (const phase of phases) assert.ok((opcodes[phase] || 0) > (before[phase] || 0), `${label} native phase ${phase} delegated`);
+};
 try {
   for (const fps of [20, 60, 90, 144]) for (const network of [{}, { jitterMs: 30, lossEvery: 7, snapshotLossEvery: 11 }]) {
     label = `plane-${fps}-${network.lossEvery || 0}`;
-    const options = { fps, ...network }, first = native.calls, expected = measured(options, null), actual = measured(options, native);
+    const options = { fps, ...network }, first = native.calls, before = phaseCounts(), expected = measured(options, null), actual = measured(options, native);
     assert.deepEqual(actual, expected, label); assert.ok(native.calls > first + 100, `${label} native timing delegated`);
+    requirePhases(before, [1, 8, 11, 12]);
     cases.push({ label, ...actual, nativeCalls: native.calls - first });
   }
   for (const fps of [20, 59.94, 60, 90, 144]) for (const stall of [false, true]) {
     label = `blackout-${fps}-${stall}`;
-    const first = native.calls, expected = blackout({ fps, stall }, null), actual = blackout({ fps, stall }, native);
+    const first = native.calls, before = phaseCounts(), expected = blackout({ fps, stall }, null), actual = blackout({ fps, stall }, native);
     assert.deepEqual(actual, expected, label); assert.ok(native.calls > first + 100, `${label} native windows delegated`);
+    requirePhases(before, [1, 8, 13, 14, 15]);
     cases.push({ label, ...actual, nativeCalls: native.calls - first });
   }
   const files = [], loaded = new Map(), query = '?map=nab2&side=rep';
@@ -182,10 +193,12 @@ try {
   for (const fps of [60, 144]) {
     label = `content-nab2-${fps}`;
     const options = { fps, jitterMs: 30, lossEvery: 7, snapshotLossEvery: 11, start: spawn.slice(0, 3), yaw: spawn[3] };
-    const first = native.calls, expected = measured({ ...options, world: new CollisionWorld(...geometry) }, null), actual = measured({ ...options, world: new CollisionWorld(...geometry) }, native);
+    const first = native.calls, before = phaseCounts(), expected = measured({ ...options, world: new CollisionWorld(...geometry) }, null), actual = measured({ ...options, world: new CollisionWorld(...geometry) }, native);
     assert.deepEqual(actual, expected, label); assert.ok(native.calls > first + 100, `${label} authenticated timing delegated`);
+    requirePhases(before, [1, 8, 11, 12]);
     cases.push({ label, ...actual, nativeCalls: native.calls - first });
   }
+  requirePhases({}, [10]);
   report = { revision, closed: true, cases, caseCount: cases.length,
     authentication: { query, manifest, files, fingerprint: 'bfe-content-sha256-' + sha256(JSON.stringify(manifest)) },
     operations, opcodes, corpusBytes, corpusSha256: corpusHash.digest('hex') };
