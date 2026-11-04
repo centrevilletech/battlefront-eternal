@@ -2,6 +2,9 @@
 // carry immutable rig keys once; ordinary ticks carry frozen foreign inputs.
 export default {
   records: {
+    FfPhase: { weapons: 'u32', cables: 'u32', events: 'u32' },
+    FfSupplyResult: { changed: 'bool', output: 'u32' },
+    FfSupply: { hull: 'ref:vehicle', life: 'f64', amount: 'f64' },
     FfSeatInput: { aiming: 'bool', aim: 'vec3' },
     FfWeaponInput: { pressed: 'bool', held: 'bool', reload: 'bool', target: 'i32', hasRandom: 'bool', floor: 'f64', spreadScale: 'f64', sniperScale: 'f64', yawSpreadOverride: 'f64|null' },
     FfMuzzle: { emitter: 'union:BeamSource' },
@@ -18,7 +21,7 @@ export default {
     FfDraw: { hull: 'ref:vehicle', seat: 'u32', weapon: 'u32' },
     // Unit hit shapes and other pre-F3 registry facts remain foreign. This
     // query is synchronous so lazy shape timing is retained.
-    FfTargetQuery: { index: 'u32', viewer: 'ref:vehicle' },
+    FfTargetQuery: { index: 'u32', viewer: 'ref:vehicle', shapes: 'bool', aim: 'bool' },
     FfTargetFacts: { alive: 'bool', eligible: 'bool', relation: 'f64', category: 'u32', center: 'vec3', radius: 'f64', aim: 'vec3', body: 'f64' },
     FfShot: { hull: 'ref:vehicle', life: 'f64', seat: 'u32', weapon: 'u32', state: 'rec:Weapon', owner: 'union:OrdnanceOwner',
       yaw: 'f64', pitch: 'f64', charge: 'f64', targetId: 'f64', targetGeneration: 'f64', origin: 'vec3', direction: 'vec3' },

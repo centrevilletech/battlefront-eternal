@@ -1,11 +1,12 @@
 // The mounted weapon boundary: definitions and emitter identities at birth,
 // frozen foreign input at latch, publication and ordered presentation at end.
+import { EVENT_TABLE } from './sim/gen/index.js';
 import { Vector3 } from 'three';
 import { rigNodes } from './vehicle-phase-data.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
 import { seatLockTarget } from './weapon-targeting.js';
 import { categoryOf, weaponAI } from './ai/classic/weapons-ai.js';
-import { putFfBirth, putFfWeaponInput, putFfSeatInput, FfHullOutMirror, FfSeatOutMirror, FfWeaponOutMirror, syncFfHullOut, FfCableOutMirror, syncFfCableOut } from './sim/gen/f2-firing.js';
+import { putFfBirth, putFfSupply, putFfWeaponInput, putFfSeatInput, FfHullOutMirror, FfSeatOutMirror, FfWeaponOutMirror, syncFfHullOut, FfCableOutMirror, syncFfCableOut, FfSupplyResultMirror, syncFfSupplyResult, FfPhaseMirror, syncFfPhase } from './sim/gen/f2-firing.js';
 
 const zero = new Vector3();
 const mutable = ['deployed', 'firing', 'timer', 'bottomless', 'perShot', 'clip', 'reserve', 'heat', 'overheated', 'floor', 'kick',
@@ -15,13 +16,19 @@ const num = x => Number.isFinite(parseFloat(x)) ? parseFloat(x) : 0;
 export class F2Firing {
   constructor(phase) {
     this.phase = phase; this.bridge = phase.bridge; this.vs = phase.vehicles;
+    this.categories = new WeakMap();
     this.aim = new Vector3(); this.number = { value: 0 };
     this.facts = { alive: false, eligible: false, relation: 0, category: 0, center: new Vector3(), radius: 0, aim: this.aim, body: -1 };
+    this.phaseFields = new FfPhaseMirror();
     this.rows = []; this.cableRow = new FfCableOutMirror();
     this.inputWords = phase.x.f2_firing_words(1);
     this.frozen = { pressed: false, held: false, reload: false, target: -2, hasRandom: false, floor: 0, spreadScale: 1, sniperScale: 0, yawSpreadOverride: null };
     this.seatWords = phase.x.f2_firing_words(2);
     this.seatInput = { aiming: false, aim: zero };
+    this.supplyArgs = { words: phase.x.f2_firing_words(3), put: putFfSupply };
+    this.supplyResult = new FfSupplyResultMirror();
+    this.supplyResultType = { words: phase.x.f2_firing_words(4), Mirror: FfSupplyResultMirror, sync: syncFfSupplyResult };
+    this.supplyRow = { hull: null, life: 0, amount: 0 };
     this.birthArgs = { words: phase.x.f2_firing_words(0), put: putFfBirth };
     this.bridge.register({
       f2Posed: () => phase.sync(),
@@ -35,6 +42,13 @@ export class F2Firing {
         this.vs.world.fired(a.hull, a.seat, this.shot(a), a.owner, a.origin.clone(), a.direction.clone());
       },
     });
+  }
+  supply(v, amount) {
+    const a = this.supplyRow; a.hull = v; a.life = v.aiTarget.generation; a.amount = amount;
+    this.bridge.callArgs(this.supplyArgs, a);
+    const ptr = this.phase.x.f2_firing_supply();
+    const result = this.bridge.callResult(this.supplyResultType, ptr, this.supplyResult);
+    this.sync(result.output, 0); return result.changed;
   }
   draw(a) {
     const random = a.hull.seats[a.seat].weapons[a.weapon].state.random;
@@ -86,6 +100,12 @@ export class F2Firing {
     }
     return at - start;
   }
+  syncDescriptor(ptr) {
+    if (!ptr) return;
+    const b = this.bridge; b.views();
+    const p = syncFfPhase(b, b.f, ptr / 8, 0, this.phaseFields);
+    this.sync(p.weapons, p.cables);
+  }
   sync(ptr, cables) {
     const b = this.bridge; b.views();
     const f = b.f;
@@ -130,11 +150,18 @@ export class F2Firing {
     if (!t) { out.alive = out.eligible = false; return out; }
     const eligible = t !== viewer.aiTarget && t.alive && !t.seat && (t.health ?? t.combat?.health ?? 1) > 0 && t.kind !== 10;
     // lockSpan asks lazy unit bounds only after the candidate passes filters.
-    const sphere = eligible ? t.sphere : null;
+    const sphere = eligible && a.shapes ? t.sphere : null;
     out.center.copy(sphere?.center ?? t.position ?? zero);
-    if (eligible && t.aimPoint) t.aimPoint(this.aim); else this.aim.copy(out.center);
+    if (a.aim && t.aimPoint) t.aimPoint(this.aim); else this.aim.copy(out.center);
     out.alive = Boolean(t.alive); out.eligible = Boolean(eligible);
-    out.relation = this.vs.units.relation(viewer.team, t.team); out.category = categoryOf(t);
+    out.relation = this.vs.units.relation(viewer.team, t.team);
+    const def = t.classDef;
+    if (Number.isInteger(t.category)) out.category = t.category;
+    else if (def) {
+      let category = this.categories.get(def);
+      if (category === undefined) { category = categoryOf(t); this.categories.set(def, category); }
+      out.category = category;
+    } else out.category = categoryOf(t);
     out.radius = Math.max(0, sphere?.radius ?? 0); out.body = this.phase.bodySlot(t.vehicle?.body ?? t.turret?.body ?? t.building?.body);
     return out;
   }
@@ -144,17 +171,24 @@ export class F2Firing {
       targetId: a.targetId, targetGeneration: a.targetGeneration };
   }
   drain() {
-    this.bridge.drain({
-      f2Shot: a => {
-        const shot = this.shot(a), w = this.vs.world;
-        w.sound('turretFire', a.hull, shot);
-        if (shot.weapon.def.MuzzleFlashEffect) w.effect(shot.weapon.def.MuzzleFlashEffect, a.origin.clone());
-        w.flash(a.origin.clone());
-      },
-      f2Tow: a => {
-        const def = a.source.seats[a.seat].weapons[a.weapon].def;
-        this.vs.world.sound(a.reason === 'attached' ? 'towAttach' : 'towRelease', a.source, def, ...(a.reason === 'attached' ? [] : [a.reason]));
-      },
-    });
+    const b = this.bridge; b.views();
+    const f = b.f, base = this.phaseFields.events / 8, end = base + 1 + f[base];
+    for (let at = base + 1; at < end; at += 2 + f[at + 1]) {
+      const e = EVENT_TABLE[f[at]], r = e.record;
+      const a = r.sync(b, f, at + 2, at + 2 + r.words, new r.Mirror());
+      if (e.name === 'f2Shot') this.presentShot(a);
+      else if (e.name === 'f2Tow') this.presentTow(a);
+    }
+  }
+  presentShot(a) {
+    const shot = this.shot(a), w = this.vs.world;
+    w.sound('turretFire', a.hull, shot);
+    if (shot.weapon.def.MuzzleFlashEffect) w.effect(shot.weapon.def.MuzzleFlashEffect, a.origin.clone());
+    w.flash(a.origin.clone());
+  }
+  presentTow(a) {
+    const def = a.source.seats[a.seat].weapons[a.weapon].def;
+    if (a.reason === 'attached') this.vs.world.sound('towAttach', a.source, def);
+    else this.vs.world.sound('towRelease', a.source, def, a.reason);
   }
 }

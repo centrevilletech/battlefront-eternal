@@ -8,6 +8,7 @@ use crate::store::{Ref, StrId};
 use crate::store::Slab;
 use crate::flight::FlightWorld;
 use crate::store::block::Block;
+use crate::store::calls::Calls;
 use crate::vehicles::{Hull, VehicleWorld};
 use crate::vehicles::firing::{spread, WeaponGeometry};
 use crate::vehicles::module::{poses, JsWorld, MEMBERS, MemberRow, v3, vec};
@@ -44,18 +45,18 @@ struct Cable {
 struct Emitter { identity: Ref<crate::gen::Emitter>, hull: Ref<Vehicle>, life: f64, seat: usize, weapon: usize, node: Option<three::NodeId>, aimer: Option<usize> }
 struct State {
     emitters: Vec<Option<Emitter>>, weapons: Slab<Mounted>, crafts: Vec<Option<Craft>>, cables: Vec<Cable>,
-    output: Block, cable_output: Block, published: Vec<FfHullOut>, locked: StrId, attached: StrId, snapped: StrId, tripped: StrId, empty: StrId, class_names: [StrId; 4],
+    phase: [f64; FfPhase::WORDS], supply_result: Calls, output: Block, cable_output: Block, published: Vec<FfHullOut>, locked: StrId, attached: StrId, snapped: StrId, tripped: StrId, empty: StrId, class_names: [StrId; 4],
 }
 static mut STATE: Option<State> = None;
 fn state() -> &'static mut State {
     unsafe { (*addr_of_mut!(STATE)).get_or_insert_with(|| State { emitters: Vec::with_capacity(1024), weapons: Slab::with_capacity(512), crafts: Vec::with_capacity(128),
-        cables: Vec::with_capacity(128), output: Block::default(), cable_output: Block::default(), published: Vec::with_capacity(128), locked: sim().strings.intern_str("Locked"), attached: sim().strings.intern_str("attached"), snapped: sim().strings.intern_str("snapped"), tripped: sim().strings.intern_str("tripped"), empty: sim().strings.intern_str(""), class_names: FlightClass::NAMES.map(|n| sim().strings.intern_str(n)) }) }
+        cables: Vec::with_capacity(128), phase: [0.0; FfPhase::WORDS], supply_result: Calls::default(), output: Block::default(), cable_output: Block::default(), published: Vec::with_capacity(128), locked: sim().strings.intern_str("Locked"), attached: sim().strings.intern_str("attached"), snapped: sim().strings.intern_str("snapped"), tripped: sim().strings.intern_str("tripped"), empty: sim().strings.intern_str(""), class_names: FlightClass::NAMES.map(|n| sim().strings.intern_str(n)) }) }
 }
 fn node(n: f64) -> Option<three::NodeId> { (n >= 0.0).then_some(n as three::NodeId) }
 
 #[no_mangle]
 pub extern "C" fn f2_firing_words(which: u32) -> u32 {
-    match which { 0 => FfBirth::WORDS as u32, 1 => FfWeaponInput::WORDS as u32, 2 => FfSeatInput::WORDS as u32, _ => 0 }
+    match which { 0 => FfBirth::WORDS as u32, 1 => FfWeaponInput::WORDS as u32, 2 => FfSeatInput::WORDS as u32, 3 => FfSupply::WORDS as u32, 4 => FfSupplyResult::WORDS as u32, _ => 0 }
 }
 
 /// Vehicle construction and respawn give mounted weapons a new gameplay life.
@@ -179,12 +180,14 @@ fn dirty(st: &State, c: &Craft) -> bool {
     c.seats.iter().any(|s| s.iter().any(|&r| st.weapons.get(r).unwrap().dirty))
 }
 /// FfHullOut contains only hulls whose mounted state changed since publication.
-pub fn publish() -> *const f64 {
+pub fn publish() -> *const f64 { publish_for(None) }
+fn publish_for(only: Option<Ref<Vehicle>>) -> *const f64 {
     let st = state();
-    let n = st.crafts.iter().flatten().filter(|c| dirty(st, c)).count();
+    let n = st.crafts.iter().flatten().filter(|c| only.is_none_or(|r| c.id == r) && dirty(st, c)).count();
     st.output.begin(n, FfHullOut::WORDS);
     let mut at = 0;
     for row in &mut st.published {
+        if only.is_some_and(|r| row.hull != r) { continue; }
         let c = st.crafts[row.hull.slot as usize].as_ref().unwrap();
         let changed = c.seats.iter().any(|s| s.iter().any(|&r| st.weapons.get(r).unwrap().dirty));
         if !changed { continue; }
@@ -211,7 +214,15 @@ pub fn publish() -> *const f64 {
     st.cable_output.finish();
     st.output.ptr()
 }
-pub fn cables_ptr() -> *const f64 { state().cable_output.ptr() }
+/// The existing F2 descriptor points to a generated firing descriptor.
+/// Its event address removes getter/clear exports from the ordinary tick.
+pub fn phase_ptr() -> *const f64 {
+    let weapons = publish() as usize as u32;
+    let st = state();
+    let value = FfPhase { weapons, cables: st.cable_output.ptr() as usize as u32, events: sim().events.ptr() as usize as u32 };
+    value.put(&mut st.phase, &mut st.cable_output.heap);
+    st.phase.as_ptr()
+}
 
 struct Draws { hull: Ref<Vehicle>, seat: u32, weapon: u32 }
 impl WeaponDraws for Draws {
@@ -255,7 +266,7 @@ fn lock_pick(r: Ref<Vehicle>, class: &WeaponClass, w: &Weapon, seat: usize, targ
     let range = d.get(K::LockOnRange).or(0.0);
     if target >= -1 {
         if target < 0 { return None; }
-        let facts = target_facts(r, target as usize);
+        let facts = target_facts(r, target as usize, false, false);
         if !facts.alive || !allowed(masks, &facts) { return None; }
         return Some(target_key(target as usize, facts.alive));
     }
@@ -269,14 +280,16 @@ fn lock_pick(r: Ref<Vehicle>, class: &WeaponClass, w: &Weapon, seat: usize, targ
         for i in 0..n {
             let member = member(i);
             if pass == 0 && (member.id != w.lock_target_id || member.generation.unwrap_or(0.0) != w.lock_generation) { continue; }
-            let facts = target_facts(r, i);
+            let mut facts = target_facts(r, i, false, false);
             if !facts.eligible || !allowed(masks, &facts) { continue; }
             let hull = if member.kind == 1 || member.kind == 3 { sim().store.vehicle.at(member.hull).map(|(_, v)| v) } else { None };
+            if hull.is_none() { facts = target_facts(r, i, true, false); }
             let (a, distance) = if let Some(v) = hull {
                 box_span(&origin, &direction, &Matrix4 { elements: v.matrix }, &vec(&v.bounds_min), &vec(&v.bounds_max))
             } else { sphere_span(&origin, &direction, &vec(&facts.center), facts.radius) };
             if a > cone || distance > range { continue; }
             if best.is_some() && (best_angle < a || best_angle == a && best_distance <= distance) { continue; }
+            facts = target_facts(r, i, false, true);
             let mut sight = vec(&facts.aim); sight.sub(&origin);
             let length = sight.length();
             let hit = if length < 1e-6 { None } else { JsWorld { craft: r.slot }.cast(&origin, sight.divide_scalar(length), length, Some(sim().store.vehicle.get(r).unwrap().body.slot)) };
@@ -289,8 +302,8 @@ fn lock_pick(r: Ref<Vehicle>, class: &WeaponClass, w: &Weapon, seat: usize, targ
 }
 fn member(i: usize) -> MemberRow { unsafe { (&*addr_of_mut!(MEMBERS))[i] } }
 fn target_key(i: usize, alive: bool) -> LockTarget { let m = member(i); LockTarget { id: m.id, generation: m.generation.unwrap_or(0.0), alive } }
-fn target_facts(r: Ref<Vehicle>, i: usize) -> FfTargetFacts {
-    import_f2_target_facts(&FfTargetQuery { index: i as u32, viewer: r })
+fn target_facts(r: Ref<Vehicle>, i: usize, shapes: bool, aim: bool) -> FfTargetFacts {
+    import_f2_target_facts(&FfTargetQuery { index: i as u32, viewer: r, shapes, aim })
 }
 fn allowed(masks: (u32, u32), f: &FfTargetFacts) -> bool {
     masks.0 & (1 << (f.relation as i32 + 1)) != 0 && masks.1 & (1 << f.category) != 0
@@ -337,7 +350,8 @@ fn fire_seat(r: Ref<Vehicle>, seat: usize, weapon: usize, dt: f64, clock: f64) {
     let wr = state().crafts[r.slot as usize].as_ref().unwrap().seats[seat][weapon];
     let (mut w, class, input, mut shots, tow, masks, angles) = {
         let m = state().weapons.get_mut(wr).unwrap();
-        (std::mem::take(&mut m.state), m.class.take().unwrap(), std::mem::take(&mut m.input), std::mem::take(&mut m.shots), m.birth.tow, (m.birth.relation_mask, m.birth.category_mask), m.lock_angles[m.state.level as usize])
+        let angles = m.lock_angles[m.state.level as usize];
+        (std::mem::take(&mut m.state), m.class.take().unwrap(), std::mem::take(&mut m.input), std::mem::take(&mut m.shots), m.birth.tow, (m.birth.relation_mask, m.birth.category_mask), angles)
     };
     let v = sim().store.vehicle.get(r).unwrap();
     if v.flying {
@@ -424,8 +438,9 @@ fn assist(r: Ref<Vehicle>, origin: &Vector3, direction: &mut Vector3) {
     let mut world = JsWorld { craft: r.slot };
     if !world.environment().assists || id < 0.0 { return; }
     let Some(i) = world.member_by_id(id) else { return };
-    if !world.member(i).alive { return; }
-    let point = world.aim_point(i);
+    let facts = target_facts(r, i, false, true);
+    if !facts.alive { return; }
+    let point = vec(&facts.aim);
     let t = world.tuning(class);
     let mut d = point; d.sub(origin).normalize();
     if direction.dot(&d) > v8math::cos(t.assist_cone * std::f64::consts::PI / 180.0) {
@@ -605,4 +620,28 @@ pub fn emitter_pose(source: BeamSource, local: [f64; 3], position: &mut [f64; 3]
     let keys = &state().weapons.get(wr).unwrap().keys;
     let d = h.beam_direction(e.seat, e.weapon, e.node, e.aimer, keys, &mut Vector3::default());
     keep_geometry(e.hull); *direction = v3(&d); true
+}
+
+/// PowerupStation.serve sends ammunition as one scalar command per hull.
+/// It never imports the mirrored weapon clocks back into the mounted slab.
+#[no_mangle]
+pub extern "C" fn f2_firing_supply() -> *const f64 {
+    let a = { let (row, heap) = sim().calls.args(); FfSupply::take(row, heap) };
+    let mut changed = false;
+    let current = sim().store.vehicle.get(a.hull).is_some_and(|v| v.target_generation == a.life);
+    if current {
+        let c = state().crafts[a.hull.slot as usize].as_ref().unwrap();
+        for s in &c.seats { for &r in s {
+            let m = state().weapons.get_mut(r).unwrap();
+            let w = &mut m.state; let d = w.level(m.class.as_ref().unwrap());
+            let ammo = d.get(K::Ammo).num();
+            if w.bottomless || !(ammo > 0.0) { continue; }
+            let loaded = if w.clip >= w.per_shot - 1e-6 { 1.0 } else { 0.0 };
+            let next = three::clamp(w.reserve + a.amount, 0.0, ammo - loaded);
+            if v8math::abs(next - w.reserve) > 0.0001 { w.reserve = next; m.dirty = true; changed = true; }
+        }}
+    }
+    let result = FfSupplyResult { changed, output: publish_for(Some(a.hull)) as usize as u32 };
+    state().supply_result.result(FfSupplyResult::WORDS, |row, heap| result.put(row, heap));
+    state().supply_result.block.ptr()
 }
