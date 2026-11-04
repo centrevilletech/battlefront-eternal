@@ -183,7 +183,7 @@ export class NetworkSession {
     const now=performance.now();
     if(!this.entityMode||!this.snapshotAck||now-(this.lastEntityAckAt??-Infinity)<100||now-(this.lastInputSentAt??-Infinity)<100)return false;
     const channel=this.channels.get('state');if(this.closed||!this.authenticated||channel?.readyState!=='open'||channel.bufferedAmount>32768)return false;
-    channel.send(encodeSnapshotAckKeepalive(this.snapshotAck));this.lastEntityAckAt=performance.now();return true;
+    channel.send(encodeSnapshotAckKeepalive(this.snapshotAck,this.entityRegistry));this.lastEntityAckAt=performance.now();return true;
   }
   call(method, args = {}) { if (method === 'suspend' || method === 'lockstep') { this.entityInput?.clearPending(); } if (this.closed || this.pending.size >= 32) return Promise.reject(Error('Network host unavailable')); const id = ++this.request; return new Promise((resolve, reject) => { const timer = setTimeout(() => { this.pending.delete(id); reject(Error(`Server request timed out: ${method}`)); }, 10000); this.pending.set(id, { resolve, reject, timer }); if (!this.send({ type: 'call', id, method, args })) { clearTimeout(timer); this.pending.delete(id); reject(Error('Server is not connected')); } }); }
   chat(message) { return this.send({ type: 'chat', text: String(message.text || '').slice(0, 240), team: message.channel === 'team' }); }
