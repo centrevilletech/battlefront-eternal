@@ -10,6 +10,7 @@
 //! trap state machine has its own [`traps::World`] for hulls and effects.
 
 pub mod battlefield;
+pub mod animated;
 pub mod human;
 pub mod mobile;
 pub mod names;
