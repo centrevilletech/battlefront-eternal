@@ -36,7 +36,7 @@ export function countedF2Exports(exports, counters) {
     typeof value !== 'function' ? value : (...args) => {
       counters.wasmCalls++;
       if (name === 'f2_step') { counters.phaseCalls++; counters.inputFields += 2; }
-      else if (name === 'f2_command') { counters.commandCalls++; counters.inputFields += args.length; }
+      else if (name === 'f2_command' || name === 'f2_firing_supply') { counters.commandCalls++; counters.inputFields += args.length; }
       else counters.lifecycleCalls++;
       if (name === 'sim_import_room') counters.inputFields += args[1] * args[2] + args[3];
       if (name === 'veh_input') counters.inputFields += args[0];
