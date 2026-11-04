@@ -12,6 +12,7 @@ import { InputMailbox } from './transport.js';
 import { InputActions } from './input-actions.js';
 import { createMultiplayerRoster } from './multiplayer-roster.js';
 import { networkViews } from './network-views.js';
+import { createNetworkStepHost } from './world-network-host.js';
 
 // A disconnected player's body and roster place are held this long in
 // simulated seconds (60 s at the 60 Hz world clock), for a reconnect.
@@ -130,6 +131,56 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
     if (game.ai?.spawning?.teams?.[p.team]) game.ai.spawning.teams[p.team].living--;
     p.spawn.phase = 'unspawned'; p.spawn.spawnedOnce = false; p.spawn.post = null; p.spawn.deadTime = unit.deadTime;
   }
+  function applyNetworkControls(p, u, command, tick) {
+    const c=p.controls, intent=u.intent;
+    for(const [action,kind,label]of [['squadMoveOut',0,'moveout'],['squadHold',2,'hold'],['squadFollow',3,'follow'],['squadAtEase',1,'atease']]){
+      if(c.take(action)&&game.ai?.playerCommand){game.ai.playerCommand(kind,p.character);game.simEvents.emit('presentation',{event:{kind:'squad',ownerId:u.id,ownerGeneration:u.generation,label}});}
+    }
+    // Older clients still send N (nextSpawn): dropped, so it never piles up.
+    while(c.take('nextSpawn'));
+    // Fire and seat keys as his seat reads them now (src/boarding.js).
+    c.flightScheme=()=>seatScheme(u.seat?.vehicle,command.flightSettings?.bindings);
+    if(typeof command.firstPerson==='boolean')u.combat.firstPerson=command.firstPerson;
+    if(u.combat.remotes){if(typeof command.firstPerson==='boolean')u.combat.remotes.firstPerson=command.firstPerson;if(Number.isFinite(command.aspect)&&command.aspect>0&&u.combat.remotes.aimCamera)u.combat.remotes.aimCamera.aspect=command.aspect;}
+    for(const axis of ['forward','right','turn'])intent[axis]=c.axis(axis);
+    intent.pitch=0;
+    for(const action of ['jump','crouch','prone','use','reload','nextPrimary','previousPrimary','nextSecondary','zoom'])intent[action]=c.take(action);
+    u.networkShot = null;u.networkShots=[];
+    u.networkViewTick = p.inputsStale ? null : command.viewTick;
+    u.networkInputLeadTicks = p.inputsStale ? null : (p.inputLeadTicks ?? null);
+    u.networkPlayoutMaxTicks = ONLINE_PLAYOUT_MAX_TICKS;
+    if(p.reliableFire) {
+      const fire=p.fire.take(tick,u.generation,{tick:p.mailbox.stateTick,buttons:[c.down.has('Mouse0'),c.down.has('Mouse2')]});
+      intent.buttons[0]=fire.buttons[0];intent.buttons[1]=fire.buttons[1];
+      // How late each press ran: its lockout counts from its own tick.
+      for(const shot of fire.shots)shot.late=Math.max(0,tick-shot.tick);
+      u.networkShots=fire.shots;
+    } else { intent.buttons[0]=c.held('firePrimary')?1:0; intent.buttons[1]=c.held('fireSecondary')?1:0; }
+    intent.brake=c.down.has('Space'); intent.up=c.down.has('Space')?1:0; intent.down=c.down.has('ControlLeft')?1:0;
+    const scale=Math.min(command.mouseScale ?? game.settings.mouseScale,2);
+    for(const [dx,dy] of command.look){const x=Math.max(-10000,Math.min(10000,dx)),y=Math.max(-10000,Math.min(10000,dy));if(u.combat.remotes?.active)u.combat.remotes.look(x,y,scale,command.invertMouse||false);else (u.soldier.lookRaw || u.soldier.look).call(u.soldier,x/u.combat.zoom,y/u.combat.zoom,scale,command.invertMouse || false);}
+    if (u.seat) {
+      if (u.seat.vehicle) {
+        if(intent.nextPrimary)cycleNetworkSeat(game.vehicles,u,1);
+        if(intent.previousPrimary)cycleNetworkSeat(game.vehicles,u,-1);
+        intent.nextPrimary=intent.previousPrimary=false;
+        // The keys of the seat he holds after any switch, as the hull takes them.
+        const keys=networkVehicleInput(u.seat.vehicle,u.seat.index,c,command);
+        intent.flight=keys; intent.forward=keys.forward||0; intent.right=keys.right||0; intent.turn=keys.turn||0; intent.brake=Boolean(keys.brake);
+      } else {
+        intent.turn += command.look.reduce((n,v)=>n+v[0],0)*scale*60 / 2048;
+        intent.pitch = -command.look.reduce((n,v)=>n+v[1],0)*scale*60 / 2048*(command.invertMouse?-1:1);
+      }
+    } else if (intent.use && !u.combat.remotes?.active) {
+      // What his E reaches, by the player's rules (src/boarding.js).
+      const mount=mountInReach(game,u,true);
+      if(mount?.vehicle) game.vehicles.board(u,mount.vehicle);
+      else if(mount?.turret) game.turretSeats?.man(u,mount.turret);
+      if(u.seat) intent.use=false;
+    }
+  }
+  const networkStepHost = createNetworkStepHost({ game, players, hitHistory, roster, remoteWorld,
+    stopInput, spawn, traceHuman, controls: applyNetworkControls, updateViews });
   return {
     players, roster, spawn,
     // spawn: false joins at the spawn screen (the original's Character starts
@@ -209,6 +260,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
     // the step's one clock input: half a second of it without input stops a
     // player (stopInput).
     step(at = performance.now()) {
+      if (game.worldSim?.network) return game.worldSim.network(networkStepHost, game.worldClock.tick, at, disconnectGraceTicks, RESPAWN_DELAY);
       const tick=game.worldClock.tick+1;
       hitHistory.capture(game.worldClock.tick);
       for(const p of players.values()) {
@@ -249,52 +301,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
         if(!u.alive && p.autoRespawn && u.deadTime+1e-6>=RESPAWN_DELAY)spawn(p,p.className,p.spawn.post);
         u=p.unit;
         if(!u.alive) { p.spawn.phase=!p.spawn.spawnedOnce?'unspawned':u.deadTime+1e-6>=RESPAWN_DELAY?'awaiting':'dying'; p.spawn.deadTime=u.deadTime; continue; }
-        const c=p.controls, intent=u.intent;
-        for(const [action,kind,label]of [['squadMoveOut',0,'moveout'],['squadHold',2,'hold'],['squadFollow',3,'follow'],['squadAtEase',1,'atease']]){
-          if(c.take(action)&&game.ai?.playerCommand){game.ai.playerCommand(kind,p.character);game.simEvents.emit('presentation',{event:{kind:'squad',ownerId:u.id,ownerGeneration:u.generation,label}});}
-        }
-        // Older clients still send N (nextSpawn): dropped, so it never piles up.
-        while(c.take('nextSpawn'));
-        // Fire and seat keys as his seat reads them now (src/boarding.js).
-        c.flightScheme=()=>seatScheme(u.seat?.vehicle,command.flightSettings?.bindings);
-        if(typeof command.firstPerson==='boolean')u.combat.firstPerson=command.firstPerson;
-        if(u.combat.remotes){if(typeof command.firstPerson==='boolean')u.combat.remotes.firstPerson=command.firstPerson;if(Number.isFinite(command.aspect)&&command.aspect>0&&u.combat.remotes.aimCamera)u.combat.remotes.aimCamera.aspect=command.aspect;}
-        for(const axis of ['forward','right','turn'])intent[axis]=c.axis(axis);
-        intent.pitch=0;
-        for(const action of ['jump','crouch','prone','use','reload','nextPrimary','previousPrimary','nextSecondary','zoom'])intent[action]=c.take(action);
-        u.networkShot = null;u.networkShots=[];
-        u.networkViewTick = p.inputsStale ? null : command.viewTick;
-        u.networkInputLeadTicks = p.inputsStale ? null : (p.inputLeadTicks ?? null);
-        u.networkPlayoutMaxTicks = ONLINE_PLAYOUT_MAX_TICKS;
-        if(p.reliableFire) {
-          const fire=p.fire.take(tick,u.generation,{tick:p.mailbox.stateTick,buttons:[c.down.has('Mouse0'),c.down.has('Mouse2')]});
-          intent.buttons[0]=fire.buttons[0];intent.buttons[1]=fire.buttons[1];
-          // How late each press ran: its lockout counts from its own tick.
-          for(const shot of fire.shots)shot.late=Math.max(0,tick-shot.tick);
-          u.networkShots=fire.shots;
-        } else { intent.buttons[0]=c.held('firePrimary')?1:0; intent.buttons[1]=c.held('fireSecondary')?1:0; }
-        intent.brake=c.down.has('Space'); intent.up=c.down.has('Space')?1:0; intent.down=c.down.has('ControlLeft')?1:0;
-        const scale=Math.min(command.mouseScale ?? game.settings.mouseScale,2);
-        for(const [dx,dy] of command.look){const x=Math.max(-10000,Math.min(10000,dx)),y=Math.max(-10000,Math.min(10000,dy));if(u.combat.remotes?.active)u.combat.remotes.look(x,y,scale,command.invertMouse||false);else (u.soldier.lookRaw || u.soldier.look).call(u.soldier,x/u.combat.zoom,y/u.combat.zoom,scale,command.invertMouse || false);}
-        if (u.seat) {
-          if (u.seat.vehicle) {
-            if(intent.nextPrimary)cycleNetworkSeat(game.vehicles,u,1);
-            if(intent.previousPrimary)cycleNetworkSeat(game.vehicles,u,-1);
-            intent.nextPrimary=intent.previousPrimary=false;
-            // The keys of the seat he holds after any switch, as the hull takes them.
-            const keys=networkVehicleInput(u.seat.vehicle,u.seat.index,c,command);
-            intent.flight=keys; intent.forward=keys.forward||0; intent.right=keys.right||0; intent.turn=keys.turn||0; intent.brake=Boolean(keys.brake);
-          } else {
-            intent.turn += command.look.reduce((n,v)=>n+v[0],0)*scale*60 / 2048;
-            intent.pitch = -command.look.reduce((n,v)=>n+v[1],0)*scale*60 / 2048*(command.invertMouse?-1:1);
-          }
-        } else if (intent.use && !u.combat.remotes?.active) {
-          // What his E reaches, by the player's rules (src/boarding.js).
-          const mount=mountInReach(game,u,true);
-          if(mount?.vehicle) game.vehicles.board(u,mount.vehicle);
-          else if(mount?.turret) game.turretSeats?.man(u,mount.turret);
-          if(u.seat) intent.use=false;
-        }
+        applyNetworkControls(p, u, command, tick);
       }
       updateViews();
       game.step({epoch:1,sequence:tick,tick,generation:game.playerUnit.generation,down:[],actions:[],look:[]});

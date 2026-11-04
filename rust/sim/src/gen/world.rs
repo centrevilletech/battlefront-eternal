@@ -260,6 +260,96 @@ impl WorldStepCall {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldNetworkChoice {
+    #[default] Other = 0,
+    Suicide = 1,
+    Team = 2,
+    Spawn = 3,
+}
+
+impl WorldNetworkChoice {
+    pub const NAMES: [&'static str; 4] = ["other", "suicide", "team", "spawn"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldNetworkChoice::Other),
+            1 => Some(WorldNetworkChoice::Suicide),
+            2 => Some(WorldNetworkChoice::Team),
+            3 => Some(WorldNetworkChoice::Spawn),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldNetworkCall {
+    #[default] Capture = 0,
+    Players = 1,
+    NextPlayer = 2,
+    Ended = 3,
+    Release = 4,
+    Retire = 5,
+    Delete = 6,
+    Stop = 7,
+    Command = 8,
+    Actions = 9,
+    Accept = 10,
+    Choices = 11,
+    NextChoice = 12,
+    Suicide = 13,
+    SwitchTeam = 14,
+    Team = 15,
+    CurrentAlive = 16,
+    Spawn = 17,
+    Trace = 18,
+    Unit = 19,
+    DeadTime = 20,
+    AutoSpawn = 21,
+    DeadPhase = 22,
+    Controls = 23,
+    Views = 24,
+    Step = 25,
+}
+
+impl WorldNetworkCall {
+    pub const NAMES: [&'static str; 26] = ["capture", "players", "nextPlayer", "ended", "release", "retire", "delete", "stop", "command", "actions", "accept", "choices", "nextChoice", "suicide", "switchTeam", "team", "currentAlive", "spawn", "trace", "unit", "deadTime", "autoSpawn", "deadPhase", "controls", "views", "step"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldNetworkCall::Capture),
+            1 => Some(WorldNetworkCall::Players),
+            2 => Some(WorldNetworkCall::NextPlayer),
+            3 => Some(WorldNetworkCall::Ended),
+            4 => Some(WorldNetworkCall::Release),
+            5 => Some(WorldNetworkCall::Retire),
+            6 => Some(WorldNetworkCall::Delete),
+            7 => Some(WorldNetworkCall::Stop),
+            8 => Some(WorldNetworkCall::Command),
+            9 => Some(WorldNetworkCall::Actions),
+            10 => Some(WorldNetworkCall::Accept),
+            11 => Some(WorldNetworkCall::Choices),
+            12 => Some(WorldNetworkCall::NextChoice),
+            13 => Some(WorldNetworkCall::Suicide),
+            14 => Some(WorldNetworkCall::SwitchTeam),
+            15 => Some(WorldNetworkCall::Team),
+            16 => Some(WorldNetworkCall::CurrentAlive),
+            17 => Some(WorldNetworkCall::Spawn),
+            18 => Some(WorldNetworkCall::Trace),
+            19 => Some(WorldNetworkCall::Unit),
+            20 => Some(WorldNetworkCall::DeadTime),
+            21 => Some(WorldNetworkCall::AutoSpawn),
+            22 => Some(WorldNetworkCall::DeadPhase),
+            23 => Some(WorldNetworkCall::Controls),
+            24 => Some(WorldNetworkCall::Views),
+            25 => Some(WorldNetworkCall::Step),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WsMember {
     pub id: f64,
@@ -1024,6 +1114,151 @@ impl WorldStepReply {
             value: row[23],
             other: row[24],
             flag: row[25] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldNetworkState {
+    pub disconnected: bool,
+    pub disconnected_at: f64,
+    pub spectator: bool,
+    pub stale: bool,
+    pub last_input_at: f64,
+    pub separate_actions: bool,
+    pub alive: bool,
+    pub removed: bool,
+    pub dead_time: f64,
+    pub auto_respawn: bool,
+    pub spawned_once: bool,
+    pub team_select: bool,
+    pub choice: WorldNetworkChoice,
+    pub choice_team: f64,
+}
+
+impl WorldNetworkState {
+    pub const WORDS: usize = 14;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 14] = (&mut row[..14]).try_into().unwrap();
+        row[0] = if self.disconnected { 1.0 } else { 0.0 };
+        row[1] = self.disconnected_at;
+        row[2] = if self.spectator { 1.0 } else { 0.0 };
+        row[3] = if self.stale { 1.0 } else { 0.0 };
+        row[4] = self.last_input_at;
+        row[5] = if self.separate_actions { 1.0 } else { 0.0 };
+        row[6] = if self.alive { 1.0 } else { 0.0 };
+        row[7] = if self.removed { 1.0 } else { 0.0 };
+        row[8] = self.dead_time;
+        row[9] = if self.auto_respawn { 1.0 } else { 0.0 };
+        row[10] = if self.spawned_once { 1.0 } else { 0.0 };
+        row[11] = if self.team_select { 1.0 } else { 0.0 };
+        row[12] = self.choice as u8 as f64;
+        row[13] = self.choice_team;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 14] = (&row[..14]).try_into().unwrap();
+        Self {
+            disconnected: row[0] != 0.0,
+            disconnected_at: row[1],
+            spectator: row[2] != 0.0,
+            stale: row[3] != 0.0,
+            last_input_at: row[4],
+            separate_actions: row[5] != 0.0,
+            alive: row[6] != 0.0,
+            removed: row[7] != 0.0,
+            dead_time: row[8],
+            auto_respawn: row[9] != 0.0,
+            spawned_once: row[10] != 0.0,
+            team_select: row[11] != 0.0,
+            choice: WorldNetworkChoice::from_u8(word_u32(row[12]) as u8).unwrap_or_default(),
+            choice_team: row[13],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldNetworkInput {
+    pub state: WorldNetworkState,
+    pub tick: f64,
+    pub at: f64,
+    pub grace: f64,
+    pub respawn: f64,
+}
+
+impl WorldNetworkInput {
+    pub const WORDS: usize = 18;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 18] = (&mut row[..18]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[14] = self.tick;
+        row[15] = self.at;
+        row[16] = self.grace;
+        row[17] = self.respawn;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 18] = (&row[..18]).try_into().unwrap();
+        Self {
+            state: WorldNetworkState::take(&row[0..], heap),
+            tick: row[14],
+            at: row[15],
+            grace: row[16],
+            respawn: row[17],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldNetworkArgs {
+    pub op: WorldNetworkCall,
+    pub value: f64,
+}
+
+impl WorldNetworkArgs {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        row[1] = self.value;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            op: WorldNetworkCall::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            value: row[1],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldNetworkReply {
+    pub state: WorldNetworkState,
+    pub value: bool,
+}
+
+impl WorldNetworkReply {
+    pub const WORDS: usize = 15;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 15] = (&mut row[..15]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[14] = if self.value { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 15] = (&row[..15]).try_into().unwrap();
+        Self {
+            state: WorldNetworkState::take(&row[0..], heap),
+            value: row[14] != 0.0,
         }
     }
 

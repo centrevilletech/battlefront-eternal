@@ -5,7 +5,12 @@
 
 pub mod combat;
 mod aim_module;
+#[cfg(target_arch = "wasm32")]
+mod awareness_module;
+#[cfg(target_arch = "wasm32")]
+mod controller_driver_module;
 mod fire_module;
+mod fsm_module;
 #[cfg(target_arch = "wasm32")]
 mod fire_service_module;
 #[cfg(target_arch = "wasm32")]
@@ -23,3 +28,6 @@ mod tracker_module;
 pub mod nav;
 pub mod random;
 pub mod vehicles;
+
+#[cfg(target_arch = "wasm32")]
+pub mod vehicle_module;

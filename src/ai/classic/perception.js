@@ -701,6 +701,8 @@ function weaponNoise(weapon, sounds) {
 // sound table: until it is wired they stand in with 2 x speed up to 50
 // (provisional).
 export function noiseRadius(unit, sounds = null) {
+  const native=unit?.controller?.ai?.world?.aiSim;
+  if(native)return native.awareness.noise(unit,sounds);
   const v = unit.velocity;
   const speed = v ? f(Math.sqrt(lengthSq32(v.x, v.y, v.z))) : 0;
   const k = unit.kind;
@@ -723,6 +725,7 @@ const n3 = { x: 0, y: 0, z: 0 };
 
 // `source` is a unit (bot or human). Returns how many bots were notified.
 export function broadcastAcoustic(source, world, sounds = null) {
+  if(world?.aiSim)return world.aiSim.awareness.broadcast(source,world,sounds);
   if (!source?.alive) return 0;
   const raw = noiseRadius(source, sounds);
   const R = raw <= 30 ? raw : 30;
@@ -760,6 +763,7 @@ export function dangerDelayRange(enemySkill) {
 }
 
 export function notifyDanger(world, state, position, owner, enemySkill, onWarn = null) {
+  if(world?.aiSim)return world.aiSim.awareness.notifyDanger(world,state,position,owner,enemySkill,onWarn);
   const [lo, hi] = world.difficulty?.dangerRow?.() ?? dangerDelayRange(enemySkill);
   const delay = rngA(world).range(lo, hi);
   const now = f(world.time ?? 0);
@@ -791,6 +795,7 @@ export function notifyDanger(world, state, position, owner, enemySkill, onWarn =
 // A shot aimed at `target` by `shooter` (units): every AI controller on the
 // target hears it, with the shooter's position, when they are enemies.
 export function notifyTargetedShot(world, shooter, target, shooterPosition = shooter?.position) {
+  if(world?.aiSim)return world.aiSim.awareness.shot(world,shooter,target,shooterPosition);
   if (!shooter || !target?.alive) return false;
   const source = shooter.character ?? null;
   if (!source) return false;
@@ -838,6 +843,7 @@ export function alertControllers(target, out = []) {
 // either factor; `known`/`point` as the damage producer supplies them (bolt
 // hits back-project 30 units along the round).
 export function notifyDamage(world, victim, attacker, packet, known = false, point = null) {
+  if(world?.aiSim)return world.aiSim.awareness.damage(world,victim,attacker,packet,known,point);
   if (!victim?.alive || !attacker) return false;
   const source = attacker.character ?? attacker;
   const team = attacker.team ?? source.team;
@@ -883,6 +889,7 @@ const delta = new THREE.Vector3();
 // soldier that heard it but cannot engage instead dodges to a random point
 // within 1 of itself (mode 2).
 export function alertResponse(controller, world, agent, dispatch) {
+  if(world?.aiSim)return world.aiSim.awareness.alertResponse(controller,world,agent,dispatch);
   const shot = controller.shot;
   if (!shot?.pending) return null;
   const unit = controller.unit;
@@ -926,6 +933,7 @@ function mountedExit(controller, world, point) {
 // A grenade or sticky charge nearby: a soldier whose agent accepts
 // gets combat goal mode 2 at the danger point.
 export function hazardResponse(controller, world, agent) {
+  if(world?.aiSim)return world.aiSim.awareness.hazardResponse(controller,world,agent);
   const danger = controller.danger;
   if (!danger?.pending) return null;
   const unit = controller.unit;
@@ -939,6 +947,7 @@ export function hazardResponse(controller, world, agent) {
 // within the bot's sensor range (horizontal; half for a droideka) gives
 // combat goal mode 0 at its current position.
 export function acousticResponse(controller, world, agent) {
+  if(world?.aiSim)return world.aiSim.awareness.acousticResponse(controller,world,agent);
   const unit = controller.unit;
   if (!unit || !controller.acoustic?.length) return null;
   if (unit.kind === 5 && world.nav?.inDangerRegion?.(unit)) return null;

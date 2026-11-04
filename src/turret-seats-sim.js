@@ -3,6 +3,7 @@
 // Native state is published before callbacks and their effects return
 // through a fresh snapshot, including a synchronous death or boarding.
 import * as THREE from "three";
+import { attachWeaponSim } from "./weapon-sim.js";
 import { bridgeFor } from "./sim/runtime.js";
 import { makeHit } from "./collision.js";
 import { turretState, syncTurretState } from "./turrets-sim.js";
@@ -33,6 +34,8 @@ export function attachTurretSeatsWithClasses(instance, crews, classes) {
 export class TurretSeatsSim {
   constructor(bridge, crews, classes) {
     this.bridge = bridge; this.x = bridge.x; this.crews = crews; this.classes = classes; this.contexts = [];
+    this.weapons = attachWeaponSim(bridge);
+    for (const turret of crews.turrets) if (turret.weapon) this.weapons.attach(turret.weapon);
     this.input = { words: this.x.crew_words(0), put: putPcInput };
     this.output = { words: this.x.crew_words(1), Mirror: PcResultMirror, sync: syncPcResult };
     this.hit = makeHit(); this.drop = new THREE.Vector3(); this.turn = new THREE.Quaternion();
@@ -52,6 +55,7 @@ export class TurretSeatsSim {
   context() { return this.contexts.at(-1); }
   snapshot() {
     const s = this.crews, ctx = this.context();
+    for (const turret of s.turrets) if (turret.weapon) this.weapons.attach(turret.weapon);
     const rows = new Set([...s.leases, ...ctx.leases]);
     const units = new Set(ctx.units);
     for (const t of s.turrets) if (t.lease) rows.add(t.lease);

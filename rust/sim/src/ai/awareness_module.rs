@@ -1,0 +1,217 @@
+//! Acoustic geometry and protected-human scheduling. Controller notification
+//! queues and the protection reference views remain explicit foreign writes.
+
+use super::{module::state,combat::math::{dot32,f,length_sq32,length_sq_xz32,normalize_or_x}};
+use crate::gen::{import_ai_awareness,AiAwarenessArgs,AiAwarenessOp as Op,AiAwarenessResult};
+
+fn call(op: Op,id: u32,number: f64) -> AiAwarenessResult {import_ai_awareness(&AiAwarenessArgs {op,id,number,..Default::default()})}
+fn clamp50(x: f64) -> f64 {if x<0.0 {0.0} else if 50.0<x {50.0} else {x}}
+
+// perception.js noiseRadius/weaponNoise.
+#[no_mangle]
+pub extern "C" fn ai_noise_radius() -> f64 {
+    let v=call(Op::Motion,0,0.0).values;
+    let speed=if v[0]!=0.0 {f(v8math::sqrt(length_sq32(v[1],v[2],v[3])))} else {0.0};
+    let kind=v[4];
+    if kind==7.0 {return 0.0;}
+    if kind==5.0 {return 1.0;}
+    if kind!=0.0 {return clamp50(f(speed*2.0));}
+    let noise=if call(Op::Weapon,0,0.0).flag && call(Op::Active,0,0.0).flag {f(call(Op::Mute,0,0.0).number)} else {0.0};
+    let w=f(noise*0.5);let m=clamp50(f(speed*3.0));
+    if w<=m {m} else {w}
+}
+
+// perception.js broadcastAcoustic. Shared query results retain the source's
+// mutation behavior when an addAcoustic callback broadcasts again.
+#[no_mangle]
+pub extern "C" fn ai_broadcast_acoustic() -> f64 {
+    if !call(Op::Alive,0,0.0).flag {return 0.0;}
+    let raw=ai_noise_radius();let radius=if raw<=30.0 {raw} else {30.0};
+    if !(radius>0.0) {return 0.0;}
+    let found=call(Op::Query,0,radius).ids;
+    state().acoustic_targets=found;
+    let mut notified=0.0;let mut index=0;
+    while index<state().acoustic_targets.len() && index<175 {
+        let id=state().acoustic_targets[index];index+=1;
+        let r=call(Op::Recipient,id,0.0);
+        if !r.flag {continue;}
+        let v=r.values;let dx=f(v[0]-v[1]);let dy=f(v[2]-v[3]);let dz=f(v[4]-v[5]);
+        let n=normalize_or_x(dx,dy,dz);
+        let vertical=dot32(0.0,1.0,0.0,n.x,n.y,n.z).abs();
+        if f(0.87)<=vertical && f(12.25)<=length_sq32(dx,dy,dz) {continue;}
+        call(Op::Notify,0,0.0);notified+=1.0;
+    }
+    notified
+}
+
+// weapons-ai.js rebuildProtectedHumans. Each living iterator is started at
+// the same point as the source; fewer than nine humans enables the rebuild.
+#[no_mangle]
+pub extern "C" fn ai_rebuild_protected() {
+    call(Op::LivingStart,0,0.0);
+    let mut humans=Vec::new();
+    loop {
+        let u=call(Op::LivingNext,0,0.0);if !u.flag {break;}
+        if u.number!=0.0 {humans.push(u.ids[0]);}
+    }
+    if humans.len()>=9 {return;}
+    call(Op::LivingStart,0,1.0);
+    loop {let u=call(Op::LivingNext,0,1.0);if !u.flag {break;}call(Op::Clear,u.ids[0],0.0);}
+    for human in humans {
+        let found=call(Op::ProtectQuery,human,0.0).ids;
+        let count=found.len().min(20);state().protection_targets=found;
+        for index in 0..count {
+            let id=state().protection_targets[index];
+            let recipient=call(Op::ProtectRecipient,id,0.0);
+            if recipient.flag && recipient.number<8.0 {call(Op::ProtectAppend,human,0.0);}
+        }
+    }
+}
+
+// perception.js notifyDanger: the difficulty and RNG callbacks run before
+// reading the projectile's timing fields, exactly as the source does.
+#[no_mangle]
+pub extern "C" fn ai_notify_danger(enemy_skill: f64) -> f64 {
+    let row=call(Op::DangerRow,0,0.0);
+    let (lo,hi)=if row.flag {(row.values[0],row.values[1])} else if enemy_skill<17.0 {
+        if enemy_skill<14.0 {(f(1.1),f(2.1))} else {(f(0.6),f(1.3))}
+    } else {(0.0,f(0.8))};
+    let delay=import_ai_awareness(&AiAwarenessArgs {op:Op::DangerDraw,id:if row.flag {1} else {0},number:lo,other:hi,..Default::default()}).number;
+    let now=f(call(Op::DangerTime,0,0.0).number);
+    if !(f(call(Op::DangerFirst,0,0.0).number+delay)<now) || !(f(call(Op::DangerLast,0,0.0).number+1.0)<now) {return 0.0;}
+    let found=call(Op::DangerQuery,0,0.0).ids;state().danger_targets=found;
+    let mut warned=false;let mut notified=0.0;let mut index=0;
+    while index<state().danger_targets.len() && index<175 {
+        let id=state().danger_targets[index];index+=1;
+        let r=call(Op::DangerRecipient,id,0.0);
+        if !r.flag {continue;}
+        if !warned && r.number==0.0 {warned=true;call(Op::DangerWarn,0,0.0);}
+        if call(Op::DangerHasNotify,0,0.0).flag {call(Op::DangerNotify,0,0.0);notified+=1.0;}
+    }
+    call(Op::DangerWrite,0,now);
+    notified
+}
+
+fn add_alert(id: u32) {
+    if id!=0 && call(Op::AlertCanNotify,id,0.0).flag && !state().alerted.contains(&id) {state().alerted.push(id);}
+}
+
+// perception.js alertControllers: primary seat/body, then every eligible
+// crew member, with shared ordered deduplication during nested notifications.
+fn alert_controllers() {
+    state().alerted.clear();
+    let v=call(Op::AlertSeat,0,0.0).values;
+    let id=if v[0]!=0.0 && v[1]==0.0 && v[2]!=0.0 {call(Op::AlertSeatController,0,0.0).number} else {call(Op::AlertOwn,0,0.0).number};
+    add_alert(id as u32);
+    if call(Op::AlertBody,0,0.0).flag {
+        let leases=call(Op::AlertLeases,0,0.0).ids;
+        for lease in leases {
+            if lease==0 {continue;}
+            let v=call(Op::AlertLease,lease,0.0).values;
+            if v[0]!=0.0 || v[1]!=0.0 || v[2]!=0.0 {continue;}
+            let id=call(Op::AlertCrew,lease,0.0).number;add_alert(id as u32);
+        }
+    }
+}
+
+// perception.js notifyTargetedShot/notifyDamage. Character/unit source and
+// point objects retain their host identities through each notification.
+#[no_mangle]
+pub extern "C" fn ai_notify_alert(kind: u32) -> u32 {
+    if kind==0 {
+        if !call(Op::ShotStart,0,0.0).flag || !call(Op::ShotSource,0,0.0).flag {return 0;}
+        if !(call(Op::ShotRelation,0,0.0).number<0.0) || call(Op::ShotHuman,0,0.0).flag {return 0;}
+    } else {
+        if !call(Op::DamageStart,0,0.0).flag || !(call(Op::DamageRelation,0,0.0).number<0.0) {return 0;}
+        let v=call(Op::DamagePacket,0,0.0).values;
+        let amount=f(v[0]);let generic=f(v[1]);let typed=f(v[2]);
+        if !(f(amount*generic)>1.0 || f(amount*typed)>1.0) {return 0;}
+    }
+    alert_controllers();
+    let mut notified=false;let mut index=0;
+    while index<state().alerted.len() {
+        let id=state().alerted[index];index+=1;call(Op::AlertNotify,id,0.0);notified=true;
+    }
+    notified as u32
+}
+
+// perception.js hazardResponse: agent policy remains a callback into its
+// active controller, and may change the observed unit or danger fields.
+#[no_mangle]
+pub extern "C" fn ai_hazard_response() {
+    if !call(Op::HazardStart,0,0.0).flag {return;}
+    if !call(Op::ResponseUnit,0,0.0).flag || !call(Op::ResponseWeapon,0,0.0).flag || !call(Op::HazardAccept,0,0.0).flag {return;}
+    if call(Op::ResponseKind,0,0.0).number==5.0 && call(Op::ResponseDangerRegion,0,0.0).flag {return;}
+    if call(Op::ResponseKind,0,0.0).number!=0.0 {return;}
+    call(Op::HazardPoint,0,0.0);
+    call(Op::ResponseResult,2,0.0);
+}
+
+fn mounted_exit() -> bool {
+    let unit=call(Op::ResponseMountStart,0,0.0);
+    if !unit.flag || f(unit.number)!=0.0 {return false;}
+    if call(Op::ResponseStay,0,0.0).flag {return false;}
+    call(Op::ResponseReach,0,0.0).flag && !call(Op::ResponseCanReach,0,0.0).flag
+}
+
+// perception.js acousticResponse: resolve each reference when visited, then
+// observe the active policy and selected weapon before testing its point.
+#[no_mangle]
+pub extern "C" fn ai_acoustic_response() {
+    if !call(Op::ResponseUnit,0,0.0).flag || !call(Op::AcousticList,0,0.0).flag {return;}
+    if call(Op::ResponseKind,0,0.0).number==5.0 && call(Op::ResponseDangerRegion,0,0.0).flag {return;}
+    call(Op::AcousticStart,0,0.0);
+    loop {
+        let next=call(Op::AcousticNext,0,0.0);if !next.flag {return;}
+        let v=next.values;
+        if v[0]==0.0 || v[2]!=v[4] || !(v[2]==0.0 || v[2]==2.0 || v[1]==v[3]) {continue;}
+        if !call(Op::ResponseWeapon,0,0.0).flag || !call(Op::AcousticAccept,0,0.0).flag {continue;}
+        let sensor=call(Op::ResponseSensor,0,0.0);
+        let mut range=if sensor.flag {
+            let v=sensor.values;let base=if v[6]!=0.0 {super::weapon_module::effective_range(&v)} else {0.0};
+            f(base+f(f(v[5])*5.0))
+        } else {0.0};
+        if call(Op::ResponseKind,0,0.0).number==3.0 {range=f(range*0.5);}
+        call(Op::AcousticPoint,0,0.0);
+        let v=call(Op::ResponseHorizontal,0,0.0).values;
+        if length_sq_xz32(f(v[0]-v[1]),f(v[2]-v[3]))<f(range*range) {
+            let exit=mounted_exit();
+            import_ai_awareness(&AiAwarenessArgs {op:Op::ResponseResult,id:0,number:if exit {1.0} else {0.0},other:1.0,..Default::default()});
+            return;
+        }
+    }
+}
+
+// Resolve the attributed source even when the captured controller unit is
+// absent. Policy/dispatch callbacks may replace the controller's current unit;
+// range and dodge decisions still use the original one.
+#[no_mangle]
+pub extern "C" fn ai_alert_response() {
+    if !call(Op::ResponseShot,0,0.0).flag {return;}
+    let unit=call(Op::ResponseUnit,0,0.0).flag;
+    let source=call(Op::ResponseSource,0,0.0).flag;
+    if !unit || !source {return;}
+    call(Op::ResponsePoint,0,0.0);
+    if !call(Op::ResponseWeapon,0,0.0).flag || !call(Op::ResponseAlertAccept,0,0.0).flag {return;}
+    let sight=call(Op::ResponseSight,0,0.0);let v=sight.values;
+    let radius=if sight.flag {
+        if v[1]==0.0 {super::combat::perception::posture_radius("stand")}
+        else if v[1]==1.0 {super::combat::perception::posture_radius("crouch")}
+        else if v[1]==2.0 {super::combat::perception::posture_radius("prone")}
+        else {f64::NAN}
+    } else {f(v[1])};
+    let range=f(f(f(f(radius*20.0)+30.0))*v[0]);
+    let v=call(Op::ResponseDelta,0,0.0).values;
+    if length_sq32(f(v[0]-v[1]),f(v[2]-v[3]),f(v[4]-v[5]))<f(range*range)
+        && call(Op::ResponseArmed,0,0.0).flag && call(Op::ResponseDispatch,0,0.0).flag {
+        let exit=mounted_exit();call(Op::ResponseResult,0,if exit {1.0} else {0.0});return;
+    }
+    if call(Op::ResponseKind,0,0.0).number!=0.0 {return;}
+    call(Op::ResponseRandom,0,0.0);
+    let z=f(2.0*f(call(Op::ResponseDraw,0,0.0).number-0.5));
+    let y=f(2.0*f(call(Op::ResponseDraw,0,0.0).number-0.5));
+    let x=f(2.0*f(call(Op::ResponseDraw,0,0.0).number-0.5));
+    let p=call(Op::ResponsePosition,0,0.0).values;
+    import_ai_awareness(&AiAwarenessArgs {op:Op::ResponseDodge,point:[f(p[0]+x),f(p[1]+y),f(p[2]+z)],..Default::default()});
+    call(Op::ResponseResult,2,0.0);
+}

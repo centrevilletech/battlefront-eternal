@@ -1,9 +1,10 @@
-use super::{clock, events, local, step, separation::Separation};
+use super::{clock, events, local, step, network, separation::Separation};
 use crate::abi::sim;
 use crate::gen::{WsSeparation, WsSeparationResult, WorldClockInput, WorldClockResult, WorldClockState, WorldClockOperation, WorldClockCall, WorldClockArgs, import_world_clock};
 use crate::gen::{WorldEventState, WorldEventInput, WorldEventOperation, WorldEventCall, WorldEventArgs, import_world_events};
 use crate::gen::{WorldLocalState, WorldLocalInput, WorldLocalOperation, WorldLocalCall, WorldLocalArgs, import_world_local};
 use crate::gen::{WorldStepState, WorldStepInput, WorldStepCall, WorldStepArgs, WorldStepReply, import_world_step};
+use crate::gen::{WorldNetworkState, WorldNetworkInput, WorldNetworkCall, WorldNetworkArgs, import_world_network};
 use std::ptr::addr_of_mut;
 
 static mut SEPARATION: Option<Separation> = None;
@@ -135,4 +136,23 @@ pub extern "C" fn world_step_run() {
     let input = { let (row, heap) = sim().calls.args(); WorldStepInput::take(row, heap) };
     let mut state = input.state;
     step::step(&mut state, input.tick, &mut StepHost);
+}
+
+struct NetworkHost;
+impl network::Host for NetworkHost {
+    fn call(&mut self, state: &mut WorldNetworkState, op: WorldNetworkCall, value: f64) -> bool {
+        let reply = import_world_network(&WorldNetworkArgs { op, value });
+        *state = reply.state;
+        reply.value
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn world_network_words() -> u32 { WorldNetworkInput::WORDS as u32 }
+
+#[no_mangle]
+pub extern "C" fn world_network_run() -> f64 {
+    let input = { let (row, heap) = sim().calls.args(); WorldNetworkInput::take(row, heap) };
+    let mut state = input.state;
+    network::step(&mut state, input.tick, input.at, input.grace, input.respawn, &mut NetworkHost)
 }

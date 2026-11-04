@@ -6,11 +6,12 @@ import { ClassicRandom } from '../src/ai/random.js';
 import { attachAiSim } from '../src/ai-sim.js';
 import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
-import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
+import { Aimer, aimPointFor, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse, alertResponse, broadcastAcoustic, hazardResponse, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
-import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
+import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
+import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -636,6 +637,334 @@ test('native weapon utility preserves exact damage math and callback-visible acc
     return {out,history,ownerKind:owner.kind};
   }
   for(let i=0;i<3072;i++)assert.deepEqual(run(true,i),run(false,i),`weapon utility ${i}`);
+});
+
+test('native acoustic and protection services preserve query reuse, limits and nested notifications', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0,nested=false,announced=false;const history=[],world={aiSim:native?sim:null};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(6000).fill(3));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapons=[{def:{MuteDistance:400},wait:.01},{def:{MuteDistance:'80'},charging:true},{def:{MuteDistance:NaN},busy:true}];
+    const units=Array.from({length:210},(_,id)=>({id,alive:true,generation:0,kind:id%9,team:id%3,position:new Vector3(id%9,0,id%11),velocity:new Vector3(),human:false}));
+    for(const u of units) {
+      const fire=new FireControl();if(native)sim.bindFire(fire);
+      u.controller={ai:{world},perception:{fire},addAcoustic(ref){
+        log('notify',u.id,ref.unit.id,ref.generation);
+        if(!nested && !announced && tick%17===0){announced=true;nested=true;log('nested',broadcastAcoustic(units[2],world,sounds));nested=false;}
+        if(tick%29===0)units[1].generation++;
+      }};
+      u.combat={arsenal:{current(channel){log('current',u.id,channel);return tick%13===0?null:weapons[(u.id+tick)%weapons.length];}}};
+    }
+    const buffers=new Map();
+    world.units={
+      *living(){log('living');for(let i=0;i<units.length;i++)if(units[i].alive){yield units[i];if(i===11 && tick%31===0)units[20].alive=false;}},
+      relation(a,b){return a===b?1:a===0||b===0?0:-1;},
+      query(at,radius,out,predicate){
+        log('query',radius,at.toArray());const key=radius===50?'protected':'acoustic';
+        if(buffers.has(key))assert.equal(out,buffers.get(key),'source query buffer identity');else buffers.set(key,out);
+        out.length=0;for(const u of units)if(u.alive&&predicate(u))out.push(u);
+        if(nested)out.splice(9);
+        if(tick%19===0)at.y+=.5;
+      },
+    };
+    function sounds(w){log('sound',weapons.indexOf(w),this===undefined);if(tick%23===0)units[0].velocity.z=9;return [undefined,null,0,-0,22,NaN][tick%6];}
+    return {world,units,weapons,history,sounds,setTick:i=>{tick=i;announced=false;}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<192;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;
+      for(const u of x.units){u.alive=(u.id+i)%37!==0;u.human=u.id<i%11;u.kind=(u.id+i)%9;u.generation=Math.floor(i/19);
+        u.position.set((u.id%9)-4,u.id%3?0:10,u.id%11);u.velocity.set(i%17===0?NaN:(u.id+i)%20,0,-0);}
+      const source=x.units[i%3];source.kind=i%9;source.alive=i%41!==0;
+      x.noise= noiseRadius(source,x.sounds);
+      x.count=broadcastAcoustic(source,x.world,x.sounds);
+      assert.equal(rebuildProtectedHumans(x.world),undefined);
+    }
+    assert.equal(n.noise,j.noise,`noise ${i}`);assert.equal(n.count,j.count,`broadcast count ${i}`);
+    assert.deepEqual(n.history,j.history,`awareness callbacks ${i}`);
+    const snapshot=x=>x.units.map(u=>[u.alive,u.generation,u.position.toArray(),u.controller.perception.fire.protected.map(r=>[r.unit.id,r.generation])]);
+    assert.deepEqual(snapshot(n),snapshot(j),`awareness state ${i}`);
+  }
+});
+
+test('native danger broadcasts preserve shared draws and callback-visible projectile timing', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0,nested=false,announced=false;const history=[],state={firstContact:0,lastNotify:-1},position=new Vector3(),world={aiSim:native?sim:null,time:0,randomA:new ClassicRandom(713)};
+    const snapshot=()=>[state.firstContact,state.lastNotify,position.toArray(),world.randomA.state];
+    const log=(...v)=>{history.push([...v,snapshot()]);if(native){sim.words(new Array(6000).fill(4));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const units=Array.from({length:190},(_,id)=>({id,human:id%7===0,kind:id%6,controller:null}));
+    const notify=(u,p)=>{log('notify',u.id,p.toArray());if(tick%29===0)p.x+=.125;
+      if(!nested && !announced && tick%17===0){announced=true;nested=true;log('nested',notifyDanger(world,{firstContact:-100,lastNotify:-100},position,units[3],15,null));nested=false;}};
+    for(const u of units)if(u.id%5)u.controller={notifyDanger:p=>notify(u,p)};
+    const range=world.randomA.range;
+    world.randomA.range=function(lo,hi){log('range',lo,hi);if(tick%23===0)state.lastNotify=-100;return range.call(this,lo,hi);};
+    world.units={query(at,radius,out,predicate){log('query',radius);out.length=0;for(const u of units)if(predicate(u))out.push(u);if(nested)out.splice(7);}};
+    const dangerRow=()=>{log('row');if(tick%19===0)state.firstContact=-100;return tick%7===0?null:tick%11===0?[]:[.15,.85];};
+    function onWarn(u){log('warn',u.id,this===undefined);state.lastNotify=333;if(u.controller && tick%13===0)u.controller.notifyDanger=null;}
+    return {history,state,position,world,units,dangerRow,onWarn,snapshot,setTick:i=>{tick=i;announced=false;for(const u of units)if(u.controller)u.controller.notifyDanger=p=>notify(u,p);}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<384;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.world.time=i%41===0?NaN:i/6;
+      x.world.difficulty=i%3?{dangerRow:x.dangerRow}:null;
+      x.state.firstContact=i%5?x.world.time-3:Infinity;x.state.lastNotify=i%7?x.world.time-2:x.world.time;
+      x.position.set(i%17,-0,-i%9);
+      x.result=notifyDanger(x.world,x.state,x.position,i%2?x.units[1]:null,[13,14,16,17,NaN][i%5],i%31===0?null:x.onWarn);
+    }
+    assert.equal(n.result,j.result,`danger result ${i}`);
+    assert.deepEqual(n.history,j.history,`danger callbacks ${i}`);
+    assert.deepEqual(n.snapshot(),j.snapshot(),`danger state ${i}`);
+  }
+});
+
+test('native shot and damage alerts preserve crew order, attribution and nested delivery', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0,nested=false,announced=false;const history=[],world={aiSim:native?sim:null};
+    const packet={amount:5,generic:1,typed:1},position=new Vector3(),character={id:100,team:1},shooter={id:2,character,team:1,position};
+    const controllers=Array.from({length:5},(_,id)=>({id}));
+    const inner={id:9,alive:true,team:2,human:false,controller:controllers[3],vehicle:{seats:[{lease:{unit:{controller:controllers[4]}}}]}};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(6500).fill(2));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const notify=(id,source,known,p)=>{
+      log('notify',id,source.id,known,p?.toArray?.()??p);
+      if(!nested && !announced && tick%17===0){announced=true;nested=true;log('nested',notifyTargetedShot(world,shooter,inner));nested=false;}
+      if(p && tick%23===0){if(Array.isArray(p))p[0]+=.25;else p.x+=.25;}
+    };
+    const leases=controllers.map((c,id)=>({human:false,released:false,live:true,controllable:id%2?null:{controller:c},unit:{controller:c}}));
+    const target={id:7,alive:true,team:2,human:false,controller:controllers[0],seat:null,turret:null,vehicle:{seats:leases.map(lease=>({lease}))}};
+    world.units={relation(a,b){log('relation',a,b);if(tick%19===0)packet.generic=0;if(tick%29===0)target.human=true;return [-1,0,1,NaN][tick%4];}};
+    return {history,world,packet,position,character,shooter,controllers,leases,target,
+      setTick:i=>{tick=i;announced=false;for(const c of controllers)c.notifyShot=(source,known,p)=>notify(c.id,source,known,p);}};
+  }
+  const j=fixture(false),n=fixture(true);
+  assert.equal(broadcastAcoustic(null,undefined),0);
+  assert.equal(notifyTargetedShot(undefined,null,null),false);
+  assert.equal(notifyDamage(undefined,null,null,null),false);
+  for(let i=0;i<1536;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.position.set(i%7,-0,-i%11);
+      x.packet.amount=[0,1,2,5,NaN,Infinity,'3'][i%7];x.packet.generic=[undefined,0,.5,2][i%4];x.packet.typed=i%11?1:2;
+      x.shooter.character=i%31===0?null:x.character;x.shooter.team=i%43===0?undefined:1;
+      x.target.alive=i%37!==0;x.target.human=i%41===0;x.target.lease=i%13===0?{}:null;
+      x.target.seat=i%2?x.leases[1]:null;x.target.turret=i%3===0?{lease:x.leases[4]}:null;
+      for(let k=0;k<x.leases.length;k++){const lease=x.leases[k];lease.human=(i+k)%17===0;lease.released=(i+k)%19===0;lease.live=[true,false,0,undefined][(i+k)%4];}
+      if(i%23===0)x.controllers[1].notifyShot=null;
+      x.result=[notifyTargetedShot(x.world,i%47===0?null:x.shooter,x.target),
+        notifyDamage(x.world,x.target,i%53===0?null:i%5?x.shooter:x.character,x.packet,i%7===0?'known':false,i%3===0?null:x.position)];
+    }
+    assert.deepEqual(n.result,j.result,`alert returns ${i}`);
+    assert.deepEqual(n.history,j.history,`alert delivery ${i}`);
+    assert.deepEqual(n.position.toArray(),j.position.toArray());
+    assert.deepEqual(n.packet,j.packet);
+  }
+});
+
+test('native aim point orchestration preserves state types, aliases and shared forward vectors', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0;const history=[],world={aiSim:native?sim:null},c={ai:{world},aimState:0,aimPoint:new Vector3(),perception:{fire:new FireControl()}},out=new Vector3(),nestedOut=new Vector3();
+    if(native)sim.bindFire(c.perception.fire);
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7200).fill(3));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapon={def:{base:'rifle',ordnance:{base:'bolt',Velocity:70}},channel:0};
+    const target={id:4,alive:true,generation:0,position:new Vector3(),velocity:new Vector3(),aimPoint(p){log('target');p.copy(this.position);}};
+    const innerController={ai:{world},aimState:0,target:null},inner={controller:innerController,origin(p){log('nestedOrigin');p.set(-1,2,3);},forward(p){log('nestedForward');p.set(1,0,0);return p;}};
+    const unit=c.unit={controller:c,velocity:new Vector3(),combat:{arsenal:{current(channel){log('current',channel);return tick%17===0||channel===1?null:weapon;}}},
+      origin(p){log('origin');p.set(.5,1.5,-0);if(tick%19===0)target.velocity.x=3;},
+      forward(p){log('forward');p.set(0,0,1);if(tick%31===0)aimPointFor(innerController,inner,.1,nestedOut);return tick%29===0?point(.25,-.5,.75):p;}};
+    function resolve(r){log('resolve',r?.unit?.id,r?.generation,this===undefined);if(tick%23===0)c.aimPoint.x=9;return r?.unit?.alive && r.unit.generation===r.generation?r.unit:null;}
+    return {history,c,unit,out,target,resolve,nestedOut,setTick:i=>{tick=i;}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<2048;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.c.aimState=[0,-0,1,2,NaN,null,undefined,'0',true][i%9];x.c.aimPoint.set(i%17,-0,-i%13);
+      x.c.perception.fire.channel=i%2;x.target.generation=Math.floor(i/67);x.target.alive=i%37!==0;
+      x.target.position.set(i%7,2,20+i%100);x.target.velocity.set(.1,0,-.25);x.unit.velocity.set(i%3,0,0);
+      x.c.target=i%7===0?null:{unit:x.target,generation:x.target.generation+(i%41===0?1:0)};x.c.aimTarget=i%11===0?null:undefined;
+      x.output=i%3===0?x.c.aimPoint:x.out;x.output.set(i%5,1,-0);
+      x.result=aimPointFor(x.c,x.unit,i%43===0?NaN:i/60,x.output,i%2?x.resolve:undefined);
+      assert.ok(x.result===null||x.result===x.output);
+    }
+    assert.equal(n.result===null,j.result===null,`aim return ${i}`);
+    assert.deepEqual(n.history,j.history,`aim calls ${i}`);
+    for(const key of ['output','nestedOut'])assert.deepEqual(n[key].toArray(),j[key].toArray(),`aim ${key} ${i}`);
+    assert.deepEqual(n.target.velocity.toArray(),j.target.velocity.toArray());
+    assert.deepEqual(n.c.aimPoint.toArray(),j.c.aimPoint.toArray());
+  }
+});
+
+test('native hazard responses retain policy effects and the captured danger reference', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},point=new Vector3(i%7,-0,-i%9),danger={pending:i%11!==0,point},c={danger,perception:{fire:{channel:i%2}}};
+    const unit={kind:[0,5,3,null,undefined,'0',0][i%7],combat:{arsenal:{current(channel){
+      history.push(['weapon',channel]);if(i%13===0)c.unit={kind:6};if(native)sim.words(new Array(7000).fill(2));return i%17===0?null:{};
+    }}}};c.unit=i%29===0?null:unit;
+    world.nav={inDangerRegion(u){history.push(['region',u===unit]);if(i%5===0)u.kind=0;return i%3===0;}};
+    const agent={acceptsHazard(){history.push(['accept',this===agent]);point.y+=.25;
+      if(i%19===0)c.danger={pending:true,point:new Vector3(100,200,300)};
+      if(i%23===0)unit.kind=0;
+      return i%31!==0;
+    }};
+    const result=hazardResponse(c,world,i%37===0?null:agent);
+    if(result){assert.notEqual(result.point,point);assert.notEqual(result.point,c.danger.point);}
+    return {result:result?{...result,point:result.point.toArray()}:null,history,kind:unit.kind,danger:c.danger.point.toArray(),point:point.toArray()};
+  }
+  for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`hazard response ${i}`);
+});
+
+test('native acoustic responses preserve live references, policy order and mounted exits', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,mission:{stayInTurrets:i%7===0}},c={rangeScale:[.5,1,2,NaN][i%4]},ai=c.ai={world};let reads=0,accepted=0;
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7400).fill(6));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapon={def:{base:'rifle',ai:{maxRange:20,extremeRange:200,implicitRange:true}}};
+    const unit={id:0,kind:[0,3,5][i%3],position:new Vector3(),classDef:{MaxSpeed:i%2?0:3},combat:{arsenal:{current(channel){
+      reads++;log('weapon',channel);if(i%19===0)unit.classDef.MaxSpeed=4;
+      if(i%23===0)c.unit=other;return i%17===0?null:weapon;
+    }}}};
+    const other={id:9,kind:6,position:new Vector3(),classDef:{ForwardSpeed:0},combat:unit.combat};
+    c.unit=i%37===0?null:unit;c.perception={fire:{channel:i%2}};
+    const sources=Array.from({length:6},(_,id)=>({id:id+1,alive:(id+i)%13!==0,generation:[0,undefined,null,NaN][(id+i)%4],position:new Vector3((id*13+i)%71,2,id%3)}));
+    const list=sources.slice(0,4).map((u,id)=>({unit:u,generation:(id+i)%11===0?99:u.generation}));c.acoustic=i%41===0?[]:list;
+    world.nav={inDangerRegion(u){log('region',u.id);if(i%11===0)u.kind=3;return i%29===0;}};
+    ai.stayInTurrets=function(){log('stay',this===ai);return i%5===0?undefined:i%31===0;};
+    function reach(u,p){log('reach',u.id,p.toArray(),this===undefined);p.y+=.25;return i%3===0;}
+    if(i%2)ai.vehicles={mountReach:reach};else world.vehicles={mountReach:reach};
+    const agent={acceptsAcoustic(src){accepted++;log('accept',src.id,this===agent);
+      if(accepted===1){if(i%11===0)list.push({unit:sources[5],generation:sources[5].generation});if(i%13===0)c.acoustic=[{unit:sources[4],generation:sources[4].generation}];}
+      src.position.x+=.125;return (src.id+i)%5!==0;
+    }};
+    const result=acousticResponse(c,world,i%43===0?null:agent);
+    return {result:result?{...result,point:result.point.toArray()}:null,history,unit:c.unit?.id,kind:unit.kind,positions:sources.map(s=>s.position.toArray()),list:list.map(r=>r.unit.id)};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`acoustic response ${i}`);
+});
+
+test('native shot responses preserve captured references, policy order and shared dodge draws', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,mission:{stayInTurrets:i%13===0}},c={},ai=c.ai={world};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7600).fill(3));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const unit={id:1,kind:[0,0,5,3,null,'0',0][i%7],position:new Vector3(-0,i%3,-i%5),classDef:{ForwardSpeed:i%2?0:4}};
+    const other={id:2,kind:5,position:new Vector3(999,998,997),classDef:{MaxSpeed:0}};
+    unit.combat={arsenal:{weapons:i%19===0?[]:[{}],current(channel){log('weapon',channel);if(i%17===0)c.unit=other;return i%23===0?null:{};}}};other.combat=unit.combat;
+    c.unit=i%31===0?null:unit;c.perception={fire:{channel:i%2}};
+    const target={id:3,kind:i%3===0?0:2,alive:i%29!==0,position:new Vector3((i%41)*3,i%11,i%7),sphere:{radius:[.5,3,NaN,-0][i%4]},
+      soldier:{air:i%11===0?'jet':null,posture:['stand','crouch','prone','unknown','constructor'][i%5]}};
+    const remote={id:4,alive:true,kind:6,position:new Vector3(i%43,i%7,-0),sphere:{radius:1}};
+    const character={id:5,remote:i%5===0?remote:null,unit:target};
+    const source=i%3===0?target:i%37===0?null:character;
+    const shot=c.shot={pending:i%41!==0,known:i%2===0,source};let acceptedPoint=null,nested=false,draws=0;
+    ai.vehicles={currentControllable(s){log('source',s===character,this===ai.vehicles);if(i%7===0)c.unit=other;return i%5===0?null:target;},
+      mountReach(u,p){log('reach',u.id,p.toArray(),this===undefined);p.y+=.125;return i%3===0;}};
+    ai.stayInTurrets=function(){log('stay',this===ai);return i%7===0?undefined:i%17===0;};
+    const rng=new ClassicRandom(437+i),replacement={uniform(){log('replacement');return .125;}};
+    const original={uniform(){draws++;log('draw',draws,this===original);if(i%5===0)world.randomB=replacement;
+      if(draws===2)unit.position.x+=.125;if(i%53===0)return NaN;return rng.uniform();}};
+    if(i%3===0)world.random=original;else if(i%3===1)world.randomA=original;else world.randomB=original;
+    const agent={acceptsAlert(known,p){log('accept',known,p.toArray(),this===agent);acceptedPoint=p;p.z+=.25;
+      if(i%11===0)c.shot={pending:false,known:!known,source:remote};
+      if(i%13===0)unit.kind=0;
+      if(i%47===0 && !nested){nested=true;const nestedControl={unit:null,shot:{pending:true,source:character},ai};const value=alertResponse(nestedControl,world,null);log('nested',value);}
+      return i%43!==0;
+    }};
+    function dispatch(control,u,s,alternate,w){log('dispatch',control===c,u===unit,s.id,alternate,w===world,this===undefined);
+      if(i%7===0)unit.kind=0;if(i%17===0)c.unit=other;
+      if(i%19===0)acceptedPoint.x+=.5;
+      return i%5===0?null:{pattern:i%3===0?null:{}};
+    }
+    const result=alertResponse(c,world,i%59===0?null:agent,i%61===0?null:dispatch);
+    if(result){assert.equal(Object.hasOwn(result,'alert'),false);if(result.mode===0)assert.equal(result.point,acceptedPoint);else assert.notEqual(result.point,acceptedPoint);}
+    return {result:result?{...result,point:result.point.toArray()}:null,history,unit:c.unit?.id,kind:unit.kind,
+      position:unit.position.toArray(),point:acceptedPoint?.toArray(),shot:c.shot===shot,draws,random:rng.state};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`shot response ${i}`);
+});
+
+test('native state machines preserve transition reentry, opaque values and runaway returns', async () => {
+  const {sim}=await pair(),opaque={state:'opaque'},symbol=Symbol('state'),values=[0,-0,1,2,100,NaN,null,undefined,false,true,'1',opaque,symbol];
+  function run(native,i) {
+    const machine=new Fsm(),history=[],token={runaway:i};let enters=0,ticks=0,exits=0,depth=0,reentered=false;
+    machine.ai={world:{aiSim:native?sim:null}};
+    const dt=i%3===0?{step:i}:i%5===0?'step':i/60;
+    const log=name=>{history.push([name,machine.state,machine.pending,machine.done,enters,ticks,exits,depth]);if(native){sim.words(new Array(7500).fill(4));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    machine.onExit=function(){assert.equal(this,machine);exits++;log('exit');
+      if(i%43===0 && exits===1)throw Error('exit probe');
+      if(i%11===0 && exits===1)this.pending=values[(i+3)%values.length];
+    };
+    machine.onEnter=function(){assert.equal(this,machine);enters++;log('enter');
+      if(i%47===0 && enters===1)throw Error('enter probe');
+      if(i%31===0 || enters<2)this.requestState(i%31===0?opaque:values[(i+enters)%values.length]);
+    };
+    machine.onTick=function(value){assert.equal(this,machine);assert.equal(value,dt);ticks++;log('tick');
+      if(i%53===0 && ticks===1)throw Error('tick probe');
+      if(!reentered && i%17===0){reentered=true;depth++;this.requestState(7);this.update(dt,true);depth--;}
+      if(ticks<3 && i%7!==0)this.requestState(values[(i+ticks)%values.length]);
+    };
+    machine.runaway=function(){assert.equal(this,machine);log('runaway');if(i%23!==0)this.pending=0;return token;};
+    machine.state=values[i%values.length];machine.pending=values[(i+1)%values.length];
+    let result,error=null;
+    try {result=i%9===0?machine.terminate():i%4===0?machine.flush():machine.update(dt,[false,true,0,{},null][i%5]);}
+    catch(e){error=e.message;}
+    if(result!==undefined)assert.equal(result,token);
+    const first=[machine.state,machine.pending,machine.done,result===token,error];
+    machine.pending=0;
+    // A thrown import must release the host frame so a different machine
+    // can enter and tick on the same instance immediately afterward.
+    const other=new Fsm();other.ai=machine.ai;other.requestState(3);other.onTick=()=>{history.push(['other',other.state,other.pending]);};other.update(dt);
+    return {first,history,keys:Object.keys(machine).slice(0,2),final:[machine.state,machine.pending]};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`state machine ${i}`);
+});
+
+test('native controller phases preserve captured queues, publication and low-ticket callbacks', async () => {
+  const {sim}=await pair(),kinds=[0,1,2,3,4,5,6,7,8,9,10,11,'3',null,NaN];
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},ai={world},c=new UnitController(ai,{index:i}),token={runaway:i};
+    let ticks=0,enters=0,nested=false;
+    const view=()=>({state:c.state,pending:c.pending,phase:c.phase,published:c.published,exit:c.exitRequest,
+      shot:{...c.shot,point:c.shot.point.toArray()},danger:{...c.danger,point:c.danger.point.toArray()},command:{...c.command},
+      acoustic:[...c.acoustic],notes:[...c.vehicleNotes],useTarget:c.useTarget,fire:[c.fireA,c.fireB],target:c.target,
+      facing:[c.facing,c.facingAux],range:c.rangeScale,jet:[c.jet.pending,c.jet.vector.toArray()],
+      queue:c.commands.queue.map(g=>g.kind),current:c.commands.current.kind,latch:c.commands.latch,currentDone:c.commands.currentDone});
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7700).fill(5));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    c.unit={id:1,team:i%4};c.state=i%3;c.pending=i%5===0?2:0;
+    c.fireA=c.fireB=c.facing=c.facingAux=c.jet.pending=true;c.jet.vector.set(1,2,3);c.rangeScale=2;c.target={id:3};
+    Object.assign(c.shot,{pending:true,known:true});c.danger.pending=true;c.command.pending=true;c.useTarget={id:4};c.acoustic.push(1,2);c.vehicleNotes.push(3,4);
+    const initial=c.commands;initial.latch=i%7!==0;initial.currentDone=i%3===0;
+    for(let j=0;j<i%5;j++)initial.queue.push(new SourceGoal(kinds[(i+j)%kinds.length]));
+    const replacement=new CommandQueue();replacement.queue.push(new SourceGoal(8));replacement.latch=true;
+    c.trace=function(kind,fields){log('trace',kind,{...fields},this===c);
+      if(kind==='goal' && i%17===0)this.commands=replacement;
+      if(kind==='goal' && i%19===0)initial.current.kind=9;
+    };
+    c.onExit=function(){log('exit',c.state,c.pending);if(i%53===0)throw Error('exit probe');};
+    c.onEnter=function(){enters++;log('enter',c.state,c.pending);if(i%11===0 && enters===1)this.publishObjective({name:'new-post'});};
+    c.onTick=function(dt){ticks++;log('tick',dt,c.phase,c.state,c.pending);
+      c.commands.currentDone=ticks<3;if(i%13===0 && ticks===1)this.commands=replacement;
+      if(i%23===0 && ticks===1)this.published=true;
+      if(i%29===0 && !nested){nested=true;this.goalToState();this.update(dt,0);}
+    };
+    c.runaway=function(){log('runaway',this===c);this.pending=0;return token;};
+    const originalClear=c.clearRequests;c.clearRequests=function(){log('clear',c.phase);originalClear.call(this);};
+    c.clearAcoustic=function(){log('acoustic',c.shot.pending,c.shot.known,c.danger.pending,c.command.pending,c.useTarget);this.acoustic.length=0;};
+    const vehicles=ai.vehicles={boarded(controller){log('boarded',this===vehicles,controller===c);if(i%5===0)ai.vehicles=otherVehicles;return i%7!==0;},
+      lowTickets(team){log('tickets',team,this===vehicles);c.unit.team+=1;return i%3!==0;},pilotKeepsSeat(controller){log('keeps',controller===c,this===vehicles);return i%11===0;},
+      requestExit(controller){log('request-old',controller===c,this===vehicles);}};
+    const otherVehicles={requestExit(controller){log('request-new',controller===c,this===otherVehicles);}};
+    if(i%31===0){initial.needsNextGoal=()=>true;initial.queue.length=0;c.state=0;c.pending=0;}
+    const dt=i%3===0?{step:i}:i/60,phase=[0,-0,1,2,'0',null,undefined,false][i%8];
+    let result,error=null;
+    try {result=i%4===0?c.driveCommands(dt,i%8===0):c.update(dt,phase);}catch(e){error=e.message;}
+    if(result!==undefined)assert.equal(result,token);
+    const other=new UnitController(ai,{});other.lowTicketExit=()=>{};other.update(dt,0);
+    return {history,view:view(),initial:{queue:initial.queue.map(g=>g.kind),latch:initial.latch,current:initial.current.kind},ticks,enters,result:result===token,error};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`controller phase ${i}`);
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {

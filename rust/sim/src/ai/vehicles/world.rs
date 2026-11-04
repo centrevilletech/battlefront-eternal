@@ -596,6 +596,12 @@ pub trait World: Draws {
     /// A hull's decay clock (`v.decay`).
     fn decay(&mut self, hull: Obj) -> &mut Option<super::service::Decay>;
 
+    /// Scoped state edits allow live adapters to publish before a callback.
+    fn edit_steer<R>(&mut self, control: Obj, f: impl FnOnce(&mut Option<Steer>) -> R) -> R { f(self.steer(control)) }
+    fn read_decay(&mut self, hull: Obj) -> Option<super::service::Decay> { *self.decay(hull) }
+    fn write_decay(&mut self, hull: Obj, value: super::service::Decay) { *self.decay(hull) = Some(value); }
+    fn write_vehicle_intent(&mut self, control: Obj, value: SeatIntent) { if let Some(intent) = self.intent(control) { *intent = value; } }
+
     // ---- calls: collision, registry, line of sight
     /// CollisionWorld.cast (into its hit scratch), leaving out `ignore`.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit>;
@@ -604,6 +610,8 @@ pub trait World: Draws {
     fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter) -> Vec<Obj>;
     /// world.relation(a, b).
     fn relation(&mut self, a: f64, b: f64) -> f64;
+    /// The notifier uses the world's relations, independently of AI policy.
+    fn notify_relation(&mut self, a: f64, b: f64) -> f64 { self.relation(a, b) }
     /// world.los(a, b) (None: the world has none).
     fn los(&mut self, a: &Vector3, b: &Vector3) -> Option<bool>;
     /// A unit's bounding sphere this tick (world.js sphere).

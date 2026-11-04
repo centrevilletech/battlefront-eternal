@@ -38,6 +38,7 @@ export class UnitBoardAgent extends Agent {
     super(controller, goal);
     this.vehicle = goal?.refA ?? null;
     this.requestState(2);
+    serviceOf(this.ai)?.nativeVehicle?.bindAgent(this, 0);
   }
 
   get candidate() {
@@ -143,6 +144,7 @@ export class UnitUnBoardAgent extends Agent {
     super(controller, goal);
     this.state = 0;
     this.requestState(1);
+    serviceOf(this.ai)?.nativeVehicle?.bindAgent(this, 1);
   }
 
   onEnter() {
@@ -217,6 +219,7 @@ export class UnitFlyAgent extends Agent {
     this.post = null;
     this.state = 0;
     this.requestState(1);
+    serviceOf(this.ai)?.nativeVehicle?.bindAgent(this, 2);
   }
 
   get flyer() {

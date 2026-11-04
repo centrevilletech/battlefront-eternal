@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { headlessGame } from '../tools/headless-world.mjs';
-import {createEntityHost} from '../src/runtime/entity-host.js';
+import {createSnapshotHost,publicationBuffersFor} from '../src/runtime/snapshot-host.js';
 import {EntityGameState} from '../src/runtime/network-entity-game.js';
 import {EntitySeats} from '../src/runtime/entity-seats.js';
 import { createMultiplayerWorld } from '../src/runtime/multiplayer-world.js';
@@ -36,15 +36,18 @@ const slot=game.vehicles.slots[0];
 const variantName=[...game.vehicles.templates.keys()].find(name=>!slot.variants.has(name));
 assert.ok(variantName);
 const lateVehicle=game.vehicles.variant(slot,variantName);
-const replica=await headlessGame(query);
+// A page receives state into presentation objects; authoritative native units
+// belong to the server even when this content fixture runs without a renderer.
+const replica=await headlessGame(query+'&sim=js&units=js&combat=js&hulls=js&seats=js&battle=js&aiSim=js');
 replica.validateAuthoritativeHumanTeam=()=>{};
 replica.applyAuthoritativeHumanTeam=team=>replica.setHumanTeam(team,false);
 Object.defineProperty(replica,'client',{value:{seats:new EntitySeats(replica)}});
-const host=createEntityHost({game,world,local:true});host.addClient('bob');host.setReady('bob');host.setStarted('bob',true);
+const host=createSnapshotHost({game,world,local:true});host.addClient('bob');host.setReady('bob');host.setStarted('bob',true);
 const adapter=new EntityGameState(replica,host.registry,{onApplied:p=>host.ack('bob',p.ack)});adapter.initialize();
 function publish(){
  const out=host.publish();assert.deepEqual(out.faults,[]);
- for(const packet of out.packets){host.admitted('bob',packet.packetId);adapter.receive(new Uint8Array(packet.buffer));bytes+=packet.buffer.byteLength;}
+ for(const buffer of publicationBuffersFor(out,'bob')){adapter.receive(new Uint8Array(buffer));bytes+=buffer.byteLength;}
+ for(const event of out.reliableEvents)if(event.client==='bob')adapter.receiveGameplay(event.records,event.tick);
  adapter.present(game.worldClock.tick);
 }
 lateVehicle.spawn(2);publish();
@@ -52,7 +55,10 @@ const local=replica.playerUnit;
 assert.equal(replica.units.byId(lateVehicle.aiTarget.id).vehicle.name,lateVehicle.name,'late vehicle IDs remain distinct from joining infantry');
 assert.equal(local.combat.health,bu.combat.health);
 assert.ok(local.position.distanceTo(bu.position)<1e-9);
-assert.equal(local.character.name,'Player');
+// Roster names arrive on their staggered snapshot cadence, after the first
+// exact body correction has already assigned this player's roster slot.
+for(let n=0;n<30&&local.character.name!==bu.character.name;n++){world.step();publish();}
+assert.equal(local.character.name,bu.character.name);
 assert.deepEqual(local.combat.arsenal.weapons.map(w=>[w.clip,w.reserve]),bu.combat.arsenal.weapons.map(w=>[w.clip,w.reserve]));
 
 const tickets=game.battle.reinforcements[1],kills=bu.character.kills;
