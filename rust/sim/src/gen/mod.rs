@@ -30,6 +30,8 @@ mod units;
 pub use self::units::*;
 mod vehicles;
 pub use self::vehicles::*;
+mod wire;
+pub use self::wire::*;
 #[cfg(feature = "replay")]
 mod replay;
 #[cfg(feature = "replay")]
