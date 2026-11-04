@@ -58,6 +58,8 @@ mod units;
 pub use self::units::*;
 mod vehicles;
 pub use self::vehicles::*;
+mod weapon_runtime;
+pub use self::weapon_runtime::*;
 mod wire_capture;
 pub use self::wire_capture::*;
 mod wire_combat;
@@ -994,12 +996,13 @@ pub const IMPORT_VEH_WATER_LEVEL: u32 = 124;
 pub const IMPORT_VEH_WATER_OVER: u32 = 125;
 pub const IMPORT_WATER_CROSSING: u32 = 126;
 pub const IMPORT_WAVER: u32 = 127;
-pub const IMPORT_WORLD_CLOCK: u32 = 128;
-pub const IMPORT_WORLD_EVENTS: u32 = 129;
-pub const IMPORT_WORLD_LOCAL: u32 = 130;
-pub const IMPORT_WORLD_NETWORK: u32 = 131;
-pub const IMPORT_WORLD_STEP: u32 = 132;
-pub const IMPORT_NAMES: [&str; 133] = ["", "aiAwareness", "aiFire", "aiSchedule", "aiSight", "aiTracker", "aiVehicleWorld", "aiWeapon", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dbAction", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "predictionHullQuery", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver", "worldClock", "worldEvents", "worldLocal", "worldNetwork", "worldStep"];
+pub const IMPORT_WEAPON_ACTION: u32 = 128;
+pub const IMPORT_WORLD_CLOCK: u32 = 129;
+pub const IMPORT_WORLD_EVENTS: u32 = 130;
+pub const IMPORT_WORLD_LOCAL: u32 = 131;
+pub const IMPORT_WORLD_NETWORK: u32 = 132;
+pub const IMPORT_WORLD_STEP: u32 = 133;
+pub const IMPORT_NAMES: [&str; 134] = ["", "aiAwareness", "aiFire", "aiSchedule", "aiSight", "aiTracker", "aiVehicleWorld", "aiWeapon", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dbAction", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "predictionHullQuery", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver", "weaponAction", "worldClock", "worldEvents", "worldLocal", "worldNetwork", "worldStep"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -1199,6 +1202,7 @@ extern "C" {
     fn bfe_import_veh_water_over();
     fn bfe_import_water_crossing();
     fn bfe_import_waver();
+    fn bfe_import_weapon_action();
     fn bfe_import_world_clock();
     fn bfe_import_world_events();
     fn bfe_import_world_local();
@@ -2435,6 +2439,16 @@ pub fn import_waver(args: &NoArgs) -> NumberAnswer {
     crate::store::calls::import_out(NoArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_waver() };
     crate::store::calls::import_in(|row, heap| NumberAnswer::take(row, heap))
+}
+
+/// Asks JavaScript (the import weaponAction): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_weapon_action(args: &WpAction) -> WpReply {
+    crate::store::calls::import_out(WpAction::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_weapon_action() };
+    crate::store::calls::import_in(|row, heap| WpReply::take(row, heap))
 }
 
 /// Asks JavaScript (the import worldClock): its arguments go out in the import block,

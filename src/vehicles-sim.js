@@ -35,6 +35,7 @@
 // A world only; the seats' latch has its own switch (src/seats-sim.js),
 // and the fire and tow cables stay JavaScript's until they move.
 import * as THREE from "three";
+import { attachWeaponSim } from "./weapon-sim.js";
 import { KIND_VEHICLE, KIND_VEHICLES, KIND_BODY } from "./sim/gen/index.js";
 import { FLIGHT_CLASSES } from "./flight/config.js";
 
@@ -110,6 +111,8 @@ export class VehiclesSim {
     this.vehicles = vehicles;
     this.bridge = bridge;
     this.x = bridge.x;
+    this.weapons = attachWeaponSim(bridge);
+    for (const vehicle of vehicles.vehicles) for (const seat of vehicle.seats) for (const weapon of seat.weapons) this.weapons.attach(weapon.state);
     this.world = vehicles.world;
     this.collision = vehicles.collision;
     this.classes = new Set();
@@ -296,6 +299,7 @@ export class VehiclesSim {
   // The hulls into the store: each one's fields, and the battle's list.
   write() {
     const b = this.bridge, vs = this.vehicles;
+    for (const vehicle of vs.vehicles) for (const seat of vehicle.seats) for (const weapon of seat.weapons) this.weapons.attach(weapon.state);
     for (const v of vs.vehicles) if (!this.classes.has(v.name)) {
       this.classes.add(v.name);
       this.x.veh_class(b.strings.id(v.name), b.strings.id(json(classKeys(v.def))), v.turnRate);
