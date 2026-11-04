@@ -2,6 +2,7 @@
 // Navigation's planner, path pool, hints and geometry live in Rust;
 // controller facades can keep their answer slots while callers migrate.
 import { bridgeFor } from './sim/runtime.js';
+import { NavControl } from './ai/classic/nav/control.js';
 
 const HEADER = 5;
 const ZERO = { x: 0, y: 0, z: 0 };
@@ -72,6 +73,7 @@ export class AiSim {
     boundary.outside = point => Boolean(this.x.ai_nav_boundary(0, 0, point.x, point.y, point.z));
     if (nav.graph) this.bindGraph(nav.graph);
     nav.planner = new NativePlanner(this, nav.barriers, options.pools ?? {});
+    nav.control = controller => controller.navControl ?? (controller.navControl = new NativeNavControl(nav, controller));
     const hints = nav.hints;
     for (const hint of hints.list) {
       const index = hint.index;
@@ -237,8 +239,10 @@ class NativePlanner {
     return id;
   }
   feed() {
-    this.owners.forEach((owner, id) => this.sim.x.ai_nav_owner_feed(id, owner.serial, Boolean(owner.disposed), owner.segments,
-      owner.published?.id ?? -1, Boolean(owner.ready)));
+    this.owners.forEach((owner, id) => {
+      if (!owner.nativeControl) this.sim.x.ai_nav_owner_feed(id, owner.serial, Boolean(owner.disposed), owner.segments,
+        owner.published?.id ?? -1, Boolean(owner.ready));
+    });
   }
   pathOf(id) {
     if (id < 0) return null;
@@ -251,8 +255,15 @@ class NativePlanner {
     // Publishing a path can release its predecessor through another
     // export; copy these few words before that reentry uses the answer.
     const answer = this.sim.out().slice();
-    for (let i = 1; i < answer.length; i += 3) this.owners[answer[i]].publish(this.pathOf(answer[i + 1]), Boolean(answer[i + 2]));
+    this.publications(answer, 1);
     return answer[0];
+  }
+  publications(answer, start) {
+    for (let i = start; i < answer.length; i += 3) {
+      const owner = this.owners[answer[i]];
+      if (owner.nativeControl) owner.read();
+      else owner.publish(this.pathOf(answer[i + 1]), Boolean(answer[i + 2]));
+    }
   }
   path() { return this.pathOf(this.run(4)); }
   segment(a, b) { return this.pathOf(this.run(5, null, a, b)); }
@@ -272,4 +283,148 @@ class NativePlanner {
       radius: a[i + 8], mask: a[i + 9], priority: a[i + 10], served: a[i + 11] });
     return result;
   }
+}
+
+// Unit reads used by the path executor. Optional numeric fields carry a
+// presence bit so a NaN is distinct from an absent coefficient.
+function navigationUnit(sim, words, unit, forward) {
+  if (!unit) { words.push(0); return; }
+  const vec = p => words.push(p.x, p.y, p.z);
+  const optional = value => words.push(value != null ? 1 : 0, value ?? 0);
+  words.push(1, sim.id(unit), unit.kind); vec(unit.position); vec(unit.velocity ?? ZERO);
+  optional(unit.generation);
+  const def = unit.classDef; words.push(def ? 1 : 0);
+  if (def) { optional(def.MaxSpeed); optional(def.ForwardSpeed); optional(def.TurnRate); }
+  const soldier = unit.soldier; words.push(soldier ? 1 : 0);
+  if (soldier) {
+    optional(soldier.aimYaw); words.push(soldier.avoidance ? 1 : 0);
+    if (soldier.avoidance) vec(soldier.avoidance);
+  }
+  words.push(forward ? 1 : 0); if (forward) vec(forward);
+}
+
+class NativeNavControl extends NavControl {
+  constructor(nav, controller) {
+    super(nav, controller);
+    this.sim = nav.planner.sim;
+    this.id = this.planner.owner(this);
+    this.nativeControl = true;
+    this.pulling = false;
+    this.fields = [];
+    this.executors = new Map();
+    const field = (object, name, index, decode = value => value, encode = Number) => {
+      let value = object[name];
+      Object.defineProperty(object, name, { enumerable: true, configurable: true,
+        get: () => value,
+        set: next => {
+          value = next;
+          if (!this.pulling) this.sim.x.ai_nav_control_write(this.id, index, encode(next));
+        } });
+      this.fields.push([object, name, index, decode, encode]);
+    };
+    field(this, 'unit', 0, value => this.sim.objects[value], value => this.sim.id(value));
+    for (const [name,index] of [['generation',1],['serial',2],['segments',6],['stance',10],['avoidSide',13],['strandedFor',15],['trailDelay',20]]) field(this,name,index);
+    for (const [name,index] of [['disposed',3],['ready',5],['landing',9],['jetting',12],['stranded',14]]) field(this,name,index,Boolean);
+    for (const [name,index] of [['published',4],['trail',19]]) field(this,name,index,value=>this.planner.pathOf(value),value=>value?.id??-1);
+    field(this.installFlags,0,7,Boolean); field(this.installFlags,1,8,Boolean);
+    field(this.jet,'pending',11,Boolean);
+    field(this.request,'valid',21,Boolean);
+    for (const [name,index] of [['mode',22],['lower',23],['upper',24]]) field(this.request,name,index);
+    for (const [object,index] of [[this.jet.vector,25],[this.strandedAt,28],[this.request.steeringTarget,31],[this.request.waypoint,34],[this.request.segmentDirection,37]]) {
+      ['x','y','z'].forEach((key,axis)=>field(object,key,index+axis));
+    }
+    for (const [object,name,index,,encode] of this.fields) this.sim.x.ai_nav_control_write(this.id,index,encode(object[name]));
+    this.read();
+  }
+
+  read() {
+    const previous = [this.published,this.trail,this.executor?.path];
+    this.sim.x.ai_nav_control_read(this.id);
+    const words = this.sim.out().slice();
+    this.pulling = true;
+    try {
+      for (const [object,name,index,decode] of this.fields) object[name] = decode(words[index]);
+      this.leader = words[16] ? { unit:this.sim.objects[words[16]], generation:words[17] ? words[18] : undefined } : null;
+      if (words[40] < 0) this.executor = null;
+      else {
+        let executor = this.executors.get(words[40]);
+        if (!executor) { executor = new NativeExecutor(this,words[40]); this.executors.set(words[40],executor); }
+        executor.read(words); this.executor = executor;
+      }
+    } finally { this.pulling = false; }
+    for (const path of new Set([...previous,this.published,this.trail,this.executor?.path])) path?.read();
+  }
+
+  run(op, a = 0, b = 0, c = 0, unit = this.unit, explicitLeader = null) {
+    const words = [], world = this.controller?.world;
+    const rng = world?.randomB ?? world?.gameRandom ?? world?.random;
+    const ref = this.leader;
+    const leader = explicitLeader ?? (ref?.unit?.alive && ref.unit.generation === ref.generation ? ref.unit : null);
+    // These methods are pure unit reads. Only operations that can steer
+    // request the flyer direction, and only a due trail sample asks for
+    // its leader's direction.
+    const steer = [4,5,6,8,11,12].includes(op);
+    const forward = steer && unit?.kind === 5 && unit.forward ? unit.forward(this.strandedAt.clone()) : null;
+    const sample = (op === 8 || op === 11) && leader && !this.executor?.hold && Math.fround(this.trailDelay - a) < 0;
+    const leaderForward = sample && leader.forward ? leader.forward(this.strandedAt.clone()) : null;
+    navigationUnit(this.sim, words, unit, forward);
+    navigationUnit(this.sim, words, leader, leaderForward);
+    words.push(rng?.state ?? 0, this.controller?.ai?.followRadii?.far ?? world?.missionControls?.formation?.far ?? 3);
+    const ptr = this.sim.x.sim_call_room(words.length,0);
+    this.sim.bridge.views(); this.sim.bridge.f.set(words,ptr/8+HEADER);
+    this.planner.feed();
+    this.sim.x.ai_nav_control_command(op,this.id,a,b,c);
+    const answer = this.sim.out().slice();
+    if (rng) rng.state = answer[1];
+    if (answer[2] && unit?.soldier?.avoidance) {
+      const v=unit.soldier.avoidance; v.x=answer[3];v.y=answer[4];v.z=answer[5];
+    }
+    this.planner.publications(answer,6);
+    this.read();
+    return answer[0];
+  }
+
+  attach(unit) {
+    if (unit === this.unit && unit?.generation === this.generation) return this;
+    this.run(0,0,0,0,unit); return this;
+  }
+  reset() { this.run(1); }
+  strand(on = true) { this.run(2,Number(on)); }
+  publish(path,ready) { this.run(3,path?.id??-1,Number(ready)); }
+  consume(mode) { const answer=this.run(4,mode); return { ready:Boolean(answer&1),success:Boolean(answer&2) }; }
+  install(path,a=true,b=false) { this.run(5,path.id,Number(a),Number(b)); }
+  append(path) { this.run(6,path.id); path.read(); }
+  stop() { this.run(7); }
+  update(dt) { this.run(8,dt); }
+  dropExecutor() { this.run(9); }
+  setLeader(ref) { this.run(10,this.sim.id(ref?.unit),Number(ref?.generation!=null),ref?.generation??0); this.leader=ref; }
+  sampleTrail(dt,leader) { this.run(11,dt,0,0,this.unit,leader); }
+  recordTrail(on) { this.run(12,Number(on)); }
+  consumeSegment() { this.run(13); }
+  dispose() { this.run(14); }
+  get status() { return this.run(15); }
+}
+
+class NativeExecutor {
+  constructor(control,path) {
+    this.control=control; this.path=control.planner.pathOf(path);
+    this.values=[];
+    for (const [name,index] of [['index',41],['mode',42],['side',43],['complete',44],['status',45],['stationary',46],['best',47],['noProgress',48],['hold',49]]) {
+      Object.defineProperty(this,name,{enumerable:true,get:()=>this.values[index],set:value=>{
+        if (name!=='hold' && name!=='complete') throw Error(`navigation executor ${name} is native`);
+        this.values[index]=Boolean(value);
+        control.sim.x.ai_nav_control_write(control.id,index,Number(value));
+      }});
+    }
+    for (const name of ['prev','waypoint','next','final','direction','anchor','target']) this[name]={x:0,y:0,z:0};
+  }
+  read(words) {
+    this.values=words;
+    this.values[44]=Boolean(words[44]); this.values[49]=Boolean(words[49]);
+    for (const [i,name] of ['prev','waypoint','next','final','direction','anchor','target'].entries()) {
+      const at=50+i*3,point=this[name]; point.x=words[at];point.y=words[at+1];point.z=words[at+2];
+    }
+  }
+  get node() { return this.path.nodes[this.index]; }
+  get last() { return this.index >= this.path.nodes.length-1; }
 }

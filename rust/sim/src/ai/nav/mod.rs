@@ -433,7 +433,7 @@ impl Nav {
         self.controls[control].request.write(p, p, dir, 0.0, -1.0, 1.0);
     }
 
-    fn control_drop_executor(&mut self, control: usize) {
+    pub fn control_drop_executor(&mut self, control: usize) {
         let Some(executor) = self.controls[control].executor.take() else {
             return;
         };
