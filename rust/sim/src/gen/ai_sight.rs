@@ -22,10 +22,26 @@ pub enum AiSightOp {
     ShooterOrigin = 13,
     Los = 14,
     Record = 15,
+    ScanReady = 16,
+    ScanClear = 17,
+    ScanShared = 18,
+    ScanRange = 19,
+    ScanOrigin = 20,
+    ScanQuery = 21,
+    ScanTarget = 22,
+    ScanRelation = 23,
+    ScanCollision = 24,
+    ScanForward = 25,
+    ScanAim = 26,
+    ScanBounds = 27,
+    ScanDispatch = 28,
+    ScanPriority = 29,
+    ScanInsert = 30,
+    SamplePoint = 31,
 }
 
 impl AiSightOp {
-    pub const NAMES: [&'static str; 16] = ["cluster", "time", "query", "relation", "kind", "clearScratch", "hasRequest", "pop", "candidate", "keep", "swap", "targetPoint", "targetOrigin", "shooterOrigin", "los", "record"];
+    pub const NAMES: [&'static str; 32] = ["cluster", "time", "query", "relation", "kind", "clearScratch", "hasRequest", "pop", "candidate", "keep", "swap", "targetPoint", "targetOrigin", "shooterOrigin", "los", "record", "scanReady", "scanClear", "scanShared", "scanRange", "scanOrigin", "scanQuery", "scanTarget", "scanRelation", "scanCollision", "scanForward", "scanAim", "scanBounds", "scanDispatch", "scanPriority", "scanInsert", "samplePoint"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -45,6 +61,22 @@ impl AiSightOp {
             13 => Some(AiSightOp::ShooterOrigin),
             14 => Some(AiSightOp::Los),
             15 => Some(AiSightOp::Record),
+            16 => Some(AiSightOp::ScanReady),
+            17 => Some(AiSightOp::ScanClear),
+            18 => Some(AiSightOp::ScanShared),
+            19 => Some(AiSightOp::ScanRange),
+            20 => Some(AiSightOp::ScanOrigin),
+            21 => Some(AiSightOp::ScanQuery),
+            22 => Some(AiSightOp::ScanTarget),
+            23 => Some(AiSightOp::ScanRelation),
+            24 => Some(AiSightOp::ScanCollision),
+            25 => Some(AiSightOp::ScanForward),
+            26 => Some(AiSightOp::ScanAim),
+            27 => Some(AiSightOp::ScanBounds),
+            28 => Some(AiSightOp::ScanDispatch),
+            29 => Some(AiSightOp::ScanPriority),
+            30 => Some(AiSightOp::ScanInsert),
+            31 => Some(AiSightOp::SamplePoint),
             _ => None,
         }
     }

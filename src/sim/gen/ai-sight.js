@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiSightOp_NAMES = ["cluster","time","query","relation","kind","clearScratch","hasRequest","pop","candidate","keep","swap","targetPoint","targetOrigin","shooterOrigin","los","record"];
+export const AiSightOp_NAMES = ["cluster","time","query","relation","kind","clearScratch","hasRequest","pop","candidate","keep","swap","targetPoint","targetOrigin","shooterOrigin","los","record","scanReady","scanClear","scanShared","scanRange","scanOrigin","scanQuery","scanTarget","scanRelation","scanCollision","scanForward","scanAim","scanBounds","scanDispatch","scanPriority","scanInsert","samplePoint"];
 export const AiSightOp_INDEX = new Map(AiSightOp_NAMES.map((name, i) => [name, i]));
 
 export class AiSightArgsMirror {
