@@ -62,3 +62,41 @@ test('actor method descriptors inspect only their own value, get and set fields'
     assert.deepEqual(actual, expected, `${kind} ${key}`);
   }
 });
+
+test('actor fallback preserves source calls and partial throws when collection intrinsics change', async () => {
+  const instance = await loadSim(), rays = await loadRayKernel(instance), apply = Reflect.apply;
+  const iteratorPrototype = Object.getPrototypeOf([][Symbol.iterator]());
+  const surfaces = [[Object, 'entries'], [Array.prototype, Symbol.iterator], [iteratorPrototype, 'next']];
+  let cases = 0;
+  for (const kind of ['soldier', 'droideka']) for (const [surface, key] of surfaces) {
+    for (const getter of [false, true]) for (const throws of [false, true]) {
+      const saved = Object.getOwnPropertyDescriptor(surface, key);
+      const label = `${kind} ${String(key)} ${getter ? 'getter' : 'method'} ${throws ? 'throw' : 'return'}`;
+      const run = useNative => {
+        const course = actorCourse(rays), scenario = { kind, pattern: 'walk' };
+        const actor = createPredictionActor(scenario, course), native = useNative ? createActorPredictionSim(instance, course.world) : null;
+        const Prediction = kind === 'soldier' ? InfantryPrediction : DroidekaPrediction;
+        const prediction = new Prediction(actor.soldier, actor.combat, undefined, { native });
+        const input = actorInput(scenario, 0), events = [];
+        const marker = key === 'entries' ? { reason: 'enumeration stopped' } : key === 'next' ? undefined : false;
+        const replacement = function (...args) {
+          events.push('call'); if (throws) throw marker; return apply(saved.value, this, args);
+        };
+        let result;
+        try {
+          Object.defineProperty(surface, key, getter
+            ? { __proto__: null, configurable: true, get() { events.push('get'); if (throws) throw marker; return saved.value; } }
+            : { __proto__: null, configurable: true, writable: true, value: replacement });
+          try { result = caught(() => prediction.step(input, 1 / 60)); }
+          finally { Object.defineProperty(surface, key, saved); }
+          return { events, thrown: result.thrown, original: result.thrown && Object.is(result.value, marker),
+            steps: prediction.nativeSession?.steps ?? 0, observation: actorObservation(actor.soldier, prediction.kick) };
+        } finally { prediction.dispose(); native?.dispose(); course.dispose(); }
+      };
+      const actual = run(true), expected = run(false);
+      assert.equal(actual.steps, 0, `${label}: changed intrinsics use the source path`);
+      assert.deepEqual(actual, expected, label); cases++;
+    }
+  }
+  assert.equal(cases, 24);
+});
