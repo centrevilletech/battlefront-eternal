@@ -103,7 +103,7 @@ export async function loadBattle(c, { settings, map = process.env.MAP || 'nab2',
   }
   if (!process.env.WINDOWED) { await fitWindow(c); await c.psend('Runtime.evaluate', { expression: 'document.fullscreenElement || document.documentElement.requestFullscreen().catch(e => String(e))', userGesture: true, awaitPromise: true }); }
   const load = await c.ev(`(async () => { const b = __bf; b.pause(); await Promise.race([b.ready, new Promise(r => setTimeout(r, 180000))]); const prepareStart=performance.now(); await b.loaded?.(); const prepareMs=performance.now()-prepareStart; const initialTick=await b.lockstep(0,false); b.begin?.(); b.pause(); b.controls.locked = true; b.controls.enabled = true;
-    for (let i = 0; i < ${warm} * 60; i++) await b.lockstep(1 / 60, false);
+    for (let i = initialTick; i < ${warm} * 60; i++) await b.lockstep(1 / 60, false);
     for (let i = 0; i < ${drawn}; i++) await b.lockstep(1 / 60, true);
     const u = b.playerUnit;
     return { prepareMs, initialTick, size: [innerWidth, innerHeight], spawned: !!(u && u.alive), unit: u ? (u.className || u.name || null) : null }; })()`);
