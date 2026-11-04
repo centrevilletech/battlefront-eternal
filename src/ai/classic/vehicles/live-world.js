@@ -10,6 +10,7 @@ export function vehicleWorld(service, sim, args, frame) {
   const obj=()=>objects[read('Obj')], optionalObj=()=>{const n=read(['option','Obj']);return n==null ? null:objects[n];};
   const vector=()=>{const v=read('Vector3');return new Vector3(v.x,v.y,v.z);};
   const ai=service.ai,world=service.world,system=service.system,turrets=service.turrets,port=service.port;
+  const notifyRelation=(a,b)=>world.relation ? world.relation(a,b) : world.units?.relation ? world.units.relation(a,b) : a===b ? (a?1:0) : !a||!b ? 0:-1;
   const reply=(type,value)=>{d.done();return {values:type ? encode(type,value,sim):[]};};
   const nothing=()=>reply(null);
   switch(op) {
@@ -43,9 +44,10 @@ export function vehicleWorld(service, sim, args, frame) {
       const ok=world.collision?.cast(origin,direction,far,hit,ignore);
       return reply(['option','Hit'],ok ? {...hit,body:hit.body ? id(hit.body):null}:null);}
     case 'query': {const center=vector(),radius=read('f64'),kind=read('f64'),source=obj(),team=read('f64');
-      const filter=u=>u!==source && (kind===2 ? service.relation(team,u.team)>=0 : u.alive && service.relation(team,u.team)<0 && (kind===1 || u.targetable!==false));
+      const filter=u=>u!==source && (kind===2 ? notifyRelation(team,u.team)>=0 : u.alive && service.relation(team,u.team)<0 && (kind===1 || u.targetable!==false));
       const found=world.units?.query?.(center,radius,[],filter) ?? [];return reply(['list','Obj'],found.map(id));}
     case 'relation': {const a=read('f64'),b=read('f64');return reply('f64',ai.relation?.(a,b) ?? (a===b?1:!a||!b?0:-1));}
+    case 'notifyRelation': {const a=read('f64'),b=read('f64');return reply('f64',notifyRelation(a,b));}
     case 'los': {const a=vector(),b=vector();return reply(['option','bool'],world.los ? Boolean(world.los(a,b)):null);}
     case 'sphere': {const s=port.sphere(obj());return reply('Sphere',{center:s.center,radius:s.radius});}
     case 'origin': {const u=obj();return reply('Vector3',u.origin(new Vector3()));}
@@ -80,7 +82,7 @@ export function vehicleWorld(service, sim, args, frame) {
     case 'setReboardAt': {const c=obj(),t=read('f64');c.reboardAt=t;return nothing();}
     case 'fireA': obj().fireA=true;return nothing();
     case 'invalidateRequest': obj().request.valid=false;return nothing();
-    case 'addVehicleNote': {const c=obj(),r=read('Ref');c.addVehicleNote({unit:objects[r.obj],generation:r.generation});return nothing();}
+    case 'addVehicleNote': {const c=obj(),r=read('Ref');c.addVehicleNote?.({unit:objects[r.obj],generation:r.generation});return nothing();}
     case 'setObjective': {const c=obj(),p=obj();c.objective=p;return nothing();}
     case 'setSupportHolds': {const a=obj(),n=read('f64');a.supportHolds=n;return nothing();}
     case 'setPatrolExpires': {const p=obj(),t=read('f64');p.expires=t;return nothing();}

@@ -288,10 +288,11 @@ pub enum AiVehicleWorldOp {
     FlyInstall = 97,
     FlySetDestination = 98,
     FlySetFollowed = 99,
+    NotifyRelation = 100,
 }
 
 impl AiVehicleWorldOp {
-    pub const NAMES: [&'static str; 100] = ["settings", "readSteer", "writeSteer", "readDecay", "writeDecay", "writeVehicleIntent", "nextA", "query", "mountOrigin", "captureRegion", "now", "unit", "hull", "turret", "lease", "controller", "post", "characterUnit", "characterController", "hulls", "turrets", "weapons", "reinforcements", "humanUnits", "hasPlanner", "hasGraph", "supportHolds", "hintLink", "cast", "relation", "los", "sphere", "origin", "forward", "holdYaw", "eligibleSeat", "firstFreeSeat", "board", "man", "requestExitVehicle", "requestExitTurret", "unboard", "humanTarget", "damage", "pilotInput", "navAttach", "navUpdate", "navRequest", "reserveHint", "setHintReservedAt", "setIntentAnalogs", "requestObjective", "controllerRequestExit", "setReboardAt", "fireA", "invalidateRequest", "addVehicleNote", "setObjective", "setSupportHolds", "setPatrolExpires", "patrolRequestState", "cpCenter", "helperTraversal", "memoryPoint", "selectWeapon", "switchWeapon", "face", "setDelay", "defaultDelay", "helperGoto", "helperStop", "helperFollowPath", "helperLand", "agentState", "agentRequestState", "flyFields", "writeFlyFields", "patternFields", "writePatternFields", "interruptsTick", "updateCombatTarget", "aim", "tickHelper", "canEngage", "hasHelper", "helperArrived", "helperFailed", "posts", "queryHints", "flyUnit", "flySuperGoto", "flySuperStop", "flyHasPlanner", "flyPlannerCancel", "flyPathNew", "flyPathPrepend", "flyPathRelease", "flyInstall", "flySetDestination", "flySetFollowed"];
+    pub const NAMES: [&'static str; 101] = ["settings", "readSteer", "writeSteer", "readDecay", "writeDecay", "writeVehicleIntent", "nextA", "query", "mountOrigin", "captureRegion", "now", "unit", "hull", "turret", "lease", "controller", "post", "characterUnit", "characterController", "hulls", "turrets", "weapons", "reinforcements", "humanUnits", "hasPlanner", "hasGraph", "supportHolds", "hintLink", "cast", "relation", "los", "sphere", "origin", "forward", "holdYaw", "eligibleSeat", "firstFreeSeat", "board", "man", "requestExitVehicle", "requestExitTurret", "unboard", "humanTarget", "damage", "pilotInput", "navAttach", "navUpdate", "navRequest", "reserveHint", "setHintReservedAt", "setIntentAnalogs", "requestObjective", "controllerRequestExit", "setReboardAt", "fireA", "invalidateRequest", "addVehicleNote", "setObjective", "setSupportHolds", "setPatrolExpires", "patrolRequestState", "cpCenter", "helperTraversal", "memoryPoint", "selectWeapon", "switchWeapon", "face", "setDelay", "defaultDelay", "helperGoto", "helperStop", "helperFollowPath", "helperLand", "agentState", "agentRequestState", "flyFields", "writeFlyFields", "patternFields", "writePatternFields", "interruptsTick", "updateCombatTarget", "aim", "tickHelper", "canEngage", "hasHelper", "helperArrived", "helperFailed", "posts", "queryHints", "flyUnit", "flySuperGoto", "flySuperStop", "flyHasPlanner", "flyPlannerCancel", "flyPathNew", "flyPathPrepend", "flyPathRelease", "flyInstall", "flySetDestination", "flySetFollowed", "notifyRelation"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -395,6 +396,7 @@ impl AiVehicleWorldOp {
             97 => Some(AiVehicleWorldOp::FlyInstall),
             98 => Some(AiVehicleWorldOp::FlySetDestination),
             99 => Some(AiVehicleWorldOp::FlySetFollowed),
+            100 => Some(AiVehicleWorldOp::NotifyRelation),
             _ => None,
         }
     }

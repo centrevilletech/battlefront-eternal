@@ -610,6 +610,8 @@ pub trait World: Draws {
     fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter) -> Vec<Obj>;
     /// world.relation(a, b).
     fn relation(&mut self, a: f64, b: f64) -> f64;
+    /// The notifier uses the world's relations, independently of AI policy.
+    fn notify_relation(&mut self, a: f64, b: f64) -> f64 { self.relation(a, b) }
     /// world.los(a, b) (None: the world has none).
     fn los(&mut self, a: &Vector3, b: &Vector3) -> Option<bool>;
     /// A unit's bounding sphere this tick (world.js sphere).

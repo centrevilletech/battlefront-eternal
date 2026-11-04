@@ -19,6 +19,7 @@ async function fixture(native=false) {
     classDef:{VehicleType:'fighter',MaxSpeed:30,MinSpeed:10,LandingTime:5,LandingSpeed:3,LandedHeight:2,ForwardSpeed:20,StrafeSpeed:4},
     sphere:new Sphere(v(),2),origin:out=>out.copy(unit.position),forward:out=>out.set(0,0,1),intent:{},human:false};
   const hull={name:'synthetic',alive:true,aiTarget:unit,flying:true,walking:false,grounded:false,flightState:'Flying',gear:0,speed:30,
+    flightConfig:{minSpeed:10,maxSpeed:30,cruiseSpeed:20,turnRate:2,trickCost:20},airspeed:30,flightClock:0,power:100,
     def:{label:'synthetic',settings:{MaxSpeed:'30',ForwardSpeed:'20'}},position:unit.position,velocity:unit.velocity,yaw:0,quaternion:new Quaternion(),matrix:new Matrix4(),
     bounds:{min:v(-1,-1,-2),max:v(1,1,2)},boundRadius:3,size:v(2,2,4),seats:[],occupants:1,freeSeats:2,occupied:true,controllingTeam:1,towTarget:-1,maxHealth:100};
   const character={unit};unit.character=character;
@@ -158,4 +159,20 @@ test('callbacks consume generator A draws between native pattern draws',async()=
     f.pattern=p;
   }
   assert.deepEqual(rs.events,js.events);assert.deepEqual(rs.pattern.vehicle,js.pattern.vehicle);assert.equal(rs.ai.randomA.state,js.ai.randomA.state);
+});
+
+test('notifier uses world relations and keeps nested service writes',async()=>{
+  for(const native of [false,true])for(const callback of [false,true]) {
+    const f=await fixture(native);
+    const infantry={...f.unit,id:10,team:2,kind:0,vehicle:null,lease:null,seat:null,soldier:{},controller:{isUnitController:true}};
+    if(callback)infantry.controller.addVehicleNote=note=>{
+      assert.equal(note.unit,f.unit);
+      f.service.reserveTarget(f.unit,infantry);
+      f.service.notifier.counter=3;
+    };
+    f.world.relation=()=>1;
+    f.world.units.query=(_p,_r,_out,filter)=>[infantry].filter(filter);
+    assert.equal(f.service.notifier.consider(f.service,f.unit),1);
+    if(callback){assert.equal(f.service.notifier.counter,3);assert.equal(f.service.reservations.has(f.unit,infantry,2),true);}
+  }
 });

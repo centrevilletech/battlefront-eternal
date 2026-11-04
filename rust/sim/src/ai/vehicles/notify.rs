@@ -75,7 +75,7 @@ pub trait VehicleNotify: VehicleServices {
             if no_enter != 0.0 {
                 continue;
             }
-            if team > 0.0 && !(w.relation(team, u.team) > 0.0) && !human_pilot {
+            if team > 0.0 && !(w.notify_relation(team, u.team) > 0.0) && !human_pilot {
                 continue;
             }
             if self.low_tickets(w, u.team) {

@@ -61,7 +61,7 @@ export function controllerView(c,id) {
 export function requestView(r) {
   if (!r) return null;
   return {valid:r.valid,steering_target:r.steeringTarget ?? zero,waypoint:r.waypoint ?? zero,segment_direction:r.segmentDirection ?? zero,
-    mode:r.mode ?? 0,lower:r.lower ?? -1,upper:r.upper ?? 1,blend:opt(r.blend),throttle:opt(r.throttle)};
+    mode:r.mode,lower:r.lower,upper:r.upper,blend:opt(r.blend),throttle:opt(r.throttle)};
 }
 export function requestObject(r) {
   if (!r) return null;

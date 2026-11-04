@@ -120,6 +120,9 @@ impl World for LiveWorld {
         let mut args=Vec::new(); a.put(&mut args); b.put(&mut args);
         call(Op::Relation,args).read()
     }
+    fn notify_relation(&mut self, a: f64, b: f64) -> f64 {
+        call(Op::NotifyRelation,vec![a,b]).read()
+    }
     fn los(&mut self, a: &Vector3, b: &Vector3) -> Option<bool> {
         let mut args=Vec::new(); a.put(&mut args); b.put(&mut args);
         call(Op::Los,args).read()
