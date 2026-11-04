@@ -282,13 +282,18 @@ pub fn measurement_key(gap_count: f64, gap_at: f64, previous: f64) -> Measuremen
 }
 
 /// Called only after the new measuredKey has been published. The host keeps
-/// custom slice, sort and species calls in its original continuation.
+/// custom slice, sort and species calls in its original continuation. Samples
+/// containing NaN also stay there: V8's native numeric sort can reorder tied
+/// NaN payloads, whereas the shared numeric sort preserves their input order.
 pub fn measure_gap(gaps: &[f64], gap_count: usize) -> Result<f64> {
     let mut sorted = gaps.get(..gap_count).ok_or(EXCHANGE)?.to_vec();
+    if sorted.iter().any(|value| value.is_nan()) {
+        return Err(EXCHANGE);
+    }
     if gap_count == 0 {
         return Ok(0.0);
     }
-    jsrt::typed_sort_f64(&mut sorted);
+    jsrt::sort::typed_sort_f64(&mut sorted);
     let at = js_min(gap_count as f64 - 1.0, (gap_count as f64 * 0.85).floor()) as usize;
     Ok(sorted[at])
 }
@@ -560,7 +565,8 @@ fn indices_words(indices: Vec<usize>) -> Vec<f64> {
 /// - 5: [maxLead,cooldownAcks,calmAcks,recover,lateCount,extra,cooldown,calm,
 ///   late,elapsedTicks,capped] -> [lateCount,extra,cooldown,calm].
 /// - 6: [gapCount,gapAt,measuredKey] -> [changed,key]. Publish key before 7.
-/// - 7: [gapCount,gapsList] -> [gap]. gapCount is an integer within the list.
+/// - 7: [gapCount,gapsList] -> [gap]. gapCount is an integer within the list;
+///   sampled NaNs require the host's original numeric sort.
 /// - 8: [hz,margin,maxLead,worstGap,extra,extrapolate,estimate?,estimate,latest,
 ///   roundTrip] -> [bounded,capped,lead], after host measure and estimate calls.
 /// - 9: [] -> [x,y,z] after smoother reset; statistics are retained by the host.
