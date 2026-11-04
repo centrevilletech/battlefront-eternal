@@ -25,6 +25,7 @@ const soldierVectors = ['position', 'previous', 'settled', 'velocity', 'normal',
 const droidekaVectors = ['position', 'previous', 'settled', 'velocity', 'avoidance'];
 const postures = ['stand', 'crouch', 'prone'], airs = [null, 'jump', 'fall', 'thrown', 'jet'];
 const rowContext = { defs: { unitClass: { id: () => 0 }, weapon: { id: () => 0 } } };
+const hasOwn = Object.hasOwn;
 let nextSession = 1;
 const flag = value => value ? 1 : 0;
 const same = (a, b) => a?.length === b.length && b.every((value, i) => Object.is(value, a[i]));
@@ -35,14 +36,15 @@ const descriptor = (object, key) => {
 };
 const plain = (object, key, writable = false) => {
   const desc = descriptor(object, key);
-  return !desc || 'value' in desc && (!writable || desc.writable);
+  return !desc || hasOwn(desc, 'value') && (!writable || desc.writable);
 };
 function methods(object, prototype, saved) {
   if (Object.getPrototypeOf(object) !== prototype) return false;
   for (const [key, expected] of Object.entries(saved)) {
     if (key === 'constructor') continue;
     const got = descriptor(object, key);
-    if (got?.value !== expected.value || got?.get !== expected.get || got?.set !== expected.set) return false;
+    if (!got || hasOwn(got, 'value') !== hasOwn(expected, 'value')) return false;
+    if (hasOwn(expected, 'value') ? got.value !== expected.value : got.get !== expected.get || got.set !== expected.set) return false;
   }
   return true;
 }
@@ -94,7 +96,7 @@ function tracksSupported(tracks) {
       || !plain(tracks, Symbol.iterator) || tracks[Symbol.iterator] !== Array.prototype[Symbol.iterator]) return false;
     for (let i = 0; i < tracks.length; i++) if (!plain(tracks, i)) return false;
   } else if (!(ArrayBuffer.isView(tracks) && Object.getPrototypeOf(tracks) === Int32Array.prototype)
-    || Object.hasOwn(tracks, 'length') || !plain(tracks, 'indexOf') || tracks.indexOf !== Int32Array.prototype.indexOf
+    || hasOwn(tracks, 'length') || !plain(tracks, 'indexOf') || tracks.indexOf !== Int32Array.prototype.indexOf
     || !plain(tracks, Symbol.iterator) || tracks[Symbol.iterator] !== Int32Array.prototype[Symbol.iterator]) return false;
   for (let i = 0; i < tracks.length; i++) if (!Number.isInteger(tracks[i]) || tracks[i] < -1 || tracks[i] > 2147483647) return false;
   return true;
@@ -114,7 +116,7 @@ function config(s, kind, owner) {
   for (const c of clips) {
     if (c && (!['frames', 'fps', 'rootMotion', 'tracks', 'data'].every(key => plain(c, key))
       || !Number.isInteger(c.frames) || c.frames <= 0 || !numeric(c.fps)
-      || !(ArrayBuffer.isView(c.data) && Object.getPrototypeOf(c.data) === Float32Array.prototype) || Object.hasOwn(c.data, 'length')
+      || !(ArrayBuffer.isView(c.data) && Object.getPrototypeOf(c.data) === Float32Array.prototype) || hasOwn(c.data, 'length')
       || !tracksSupported(c.tracks) || c.data.length !== c.tracks.length * c.frames * 7)) return false;
     signature.push(c, c?.frames, c?.fps, c?.tracks, c?.data, c?.rootMotion);
   }
@@ -141,10 +143,10 @@ function ingress(s, kick, input, dt, collision, kind, prediction, pressed) {
   const flags = collision.bodies.map(body => flag(body.enabled)), words = [collision.rayWorld, kind ? -1 : s.passThrough?.raySlot ?? -1, dt, flags.length, ...flags];
   const body = Object.create(s), row = new Array(kind ? 77 : 64).fill(0);
   if (kind) {
-    Object.defineProperties(body, { def: { value: null }, muzzleAnimator: { value: undefined }, waterClock: { value: undefined }, lastGun: { value: undefined } });
+    Object.defineProperties(body, { def: { __proto__: null, value: null }, muzzleAnimator: { __proto__: null, value: undefined }, waterClock: { __proto__: null, value: undefined }, lastGun: { __proto__: null, value: undefined } });
     putDroideka(rowContext, body, row, 0, null);
   } else {
-    Object.defineProperties(body, { passThrough: { value: null }, mover: { value: -1 }, dead: { value: undefined } });
+    Object.defineProperties(body, { passThrough: { __proto__: null, value: null }, mover: { __proto__: null, value: -1 }, dead: { __proto__: null, value: undefined } });
     putSoldier(rowContext, body, row, 0, null);
   }
   words.push(...row);
