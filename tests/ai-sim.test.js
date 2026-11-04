@@ -12,7 +12,7 @@ import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse,
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
 import { Agent } from '../src/ai/classic/agents.js';
-import { CoverHelper, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
+import { CoverHelper, coverReservation, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -722,22 +722,26 @@ test('native cover search retains query priority, reservations and captured rand
     const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7400).fill(8));sim.x.ai_nav_boundary(2,0,0,0,0);}};
     const weapon={def:{base:'rifle',ai:{minRange:0,optimalRange:10,maxRange:40,extremeRange:100,implicitRange:false}}};
     const unit=c.unit={id:1,kind:0,position:new Vector3(),combat:{arsenal:{current(channel){log('weapon',channel);return i%13===0?null:weapon;}}}};
+    unit.controller=c;
     const hints=Array.from({length:36},(_,id)=>({id,position:new Vector3((id%9)-4,0,2+Math.floor(id/9)),forward:new Vector3(0,0,id%7===0?-1:1),primaryMask:7,secondaryMask:7,sideMask:3,siblings:[]}));
     hints[0].siblings=[hints[1],hints[0],hints[2]];
     const tracker={point:new Vector3(0,0,20),freeze(on,t){log('freeze',on,t);}},helper={goto(p){log('goto',p.toArray());}};
     const agent={world,ai,controller:c,tracker,helper};
     const reserveOwner={id:9,position:new Vector3()},otherAgent={world,ai,controller:{unit:reserveOwner},tracker,helper};
+    reserveOwner.controller={ai};
     const rng=new ClassicRandom(985+i),next=new ClassicRandom(785+i);let draws=0;
     const original={int(lo,hi){draws++;log('draw',lo,hi,this===original);if(i%3===0)world.randomA={int(){throw Error('unexpected replacement stream');}};
       if(hi<30 && i%7===0)hints[3].position.x+=.125;return rng.int(lo,hi);}};
     world.randomA=next;
     const reservation=new CoverHelper(i%5===0?agent:otherAgent);reservation.init(hints[0]);
+    world.time+=[0,2.9999999,3,3.0000001,-Infinity,NaN][i%6];
     world.randomA=original;history.length=0;
     const query=function(mask,center,half,cap){log('query',mask,center===unit.position,half,cap,this===world.nav?.hints);if(i%11===0)world.randomA=next;return i%17===0?null:hints;};
     if(i%2)world.nav={hints:{query}};
     else ai.nav={queryHints(options){log('fallback',options.mask,options.center===unit.position,options.halfExtent,options.cap,this===undefined);return i%17===0?null:hints;}};
     const result=findCover(agent);
-    return {history,result:result?.id??null,draws,random:rng.state,next:next.state,positions:hints.map(h=>h.position.toArray())};
+    return {history,result:result?.id??null,draws,random:rng.state,next:next.state,positions:hints.map(h=>h.position.toArray()),
+      reservations:hints.map(h=>{const r=coverReservation(h);return r?[r.owner?.id,r.at]:null;})};
   }
   for(let i=0;i<384;i++)assert.deepEqual(run(true,i),run(false,i),`cover search ${i}`);
 });
@@ -746,7 +750,7 @@ test('native cover fields retain posture, timing and hint identities through hel
   const {sim}=await pair();
   function run(native,i) {
     const history=[],random=new ClassicRandom(171+i),otherRandom=new ClassicRandom(871+i),world={aiSim:native?sim:null,time:i/9},ai={world};
-    const c={ai,world,rangeScale:1,unit:{kind:0,position:new Vector3()}};
+    const c={ai,world,rangeScale:1,unit:{id:1,kind:0,position:new Vector3()}};c.unit.controller=c;
     const hint={id:1,position:new Vector3(0,0,5),forward:new Vector3([0,-0,.125][i%3],-0,1),primaryMask:i%3?7:1,secondaryMask:i%5?7:0,sideMask:i%2?3:0,siblings:[]};
     const hint2={...hint,id:2,position:new Vector3(2,0,5),siblings:[]};hint.siblings=[hint2];
     const log=(...v)=>{history.push(v);if(native)sim.words(new Array(7500).fill(3));};
@@ -769,7 +773,8 @@ test('native cover fields retain posture, timing and hint identities through hel
       cover.onTick();snapshots.push(view());
     }
     cover.cleanup();snapshots.push(view());
-    return {history,snapshots,keys:Object.keys(cover),random:[random.state,otherRandom.state]};
+    return {history,snapshots,keys:Object.keys(cover),random:[random.state,otherRandom.state],
+      reservations:[hint,hint2].map(h=>{const r=coverReservation(h);return r?[r.owner?.id,r.at]:null;})};
   }
   for(let i=0;i<512;i++)assert.deepEqual(run(true,i),run(false,i),`cover helper fields ${i}`);
 });

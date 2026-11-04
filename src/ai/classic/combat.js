@@ -255,11 +255,14 @@ export function coverReservation(hint) {
 
 function hintAvailable(hint, owner, t) {
   const r = reservations.get(hint);
+  if(r?.nativeAvailable)return r.nativeAvailable(owner,t);
   return !r || r.owner === owner || !(f(t - r.at) < 3);
 }
 
 function reserveHint(hint, owner, t) {
   if (!hint) return;
+  const native=owner?.controller?.ai?.world?.aiSim;
+  if(native)return native.cover.reserve(hint,owner,t,reservations,hintRing);
   for (const h of hintRing(hint)) reservations.set(h, { owner, at: t });
 }
 

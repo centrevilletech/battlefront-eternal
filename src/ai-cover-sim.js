@@ -64,10 +64,24 @@ export class NativeCover {
       const initial=helper[name];
       Object.defineProperty(helper,name,{enumerable:true,configurable:true,
         get:()=>x.ai_cover_kind(id,index)===0?x.ai_cover_field(id,index):opaque[index],
-        set:value=>{if(typeof value==='number'){opaque[index]=undefined;x.ai_cover_write(id,index,0,value);}else{opaque[index]=value;x.ai_cover_write(id,index,1,0);}}});
+        set:value=>{if(typeof value==='number'){opaque[index]=undefined;x.ai_cover_write(id,index,0,value);}else{opaque[index]=value;
+          const reference=index===0 && value && (typeof value==='object'||typeof value==='function');x.ai_cover_write(id,index,1,reference?this.sim.id(value):0);}}});
       helper[name]=initial;
     });
     this.helpers.set(helper,id);
+  }
+  reserve(hint,owner,at,reservations,ring) {
+    const sim=this.sim,x=sim.x,ownerId=sim.id(owner);
+    for(const h of ring(hint)) {
+      if(h===null || (typeof h!=='object' && typeof h!=='function'))reservations.set(h,null);
+      const id=sim.id(h);x.ai_cover_reserve(id,ownerId,at);
+      reservations.set(h,{
+        get owner(){const ownerId=x.ai_cover_reservation_owner(id);return ownerId?sim.objects[ownerId]:owner;},
+        get at(){return x.ai_cover_reservation_at(id);},
+        set at(value){x.ai_cover_reservation_write(id,value);},
+        nativeAvailable(owner,at){return Boolean(x.ai_cover_available(id,sim.id(owner),at));},
+      });
+    }
   }
   helper(helper,mode,hintIn,reserve,release,score,find) {
     this.bind(helper);this.frames.push({helper,hintIn,reserve,release,score,find});
