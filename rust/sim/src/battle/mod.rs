@@ -12,6 +12,9 @@
 pub mod battlefield;
 #[cfg(target_arch = "wasm32")]
 pub mod battlefield_module;
+pub mod animated;
+#[cfg(target_arch = "wasm32")]
+pub mod animated_module;
 pub mod human;
 #[cfg(target_arch = "wasm32")]
 pub mod human_module;
@@ -28,6 +31,9 @@ pub mod names;
 pub mod objectives;
 pub mod phase;
 pub mod posts;
+pub mod props;
+#[cfg(target_arch = "wasm32")]
+pub mod props_module;
 pub mod regions;
 pub mod roster;
 pub mod rules;
