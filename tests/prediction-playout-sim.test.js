@@ -7,7 +7,7 @@ import { createPlayoutSim, createPlayoutBridge } from '../src/runtime/playout-si
 import { PlayoutClock } from '../src/runtime/playout.js';
 import { SnapshotInterval, renderedViewTick } from '../src/runtime/snapshot-interval.js';
 import { playoutCases, playoutNumericCases, playoutCallbackCases, intervalCallbackCases, playoutRawCases, playoutDescriptorCases,
-  runPlayoutCase, playoutState, intervalState, playoutRing, playoutBits, playoutAttempt } from './fixtures/prediction-playout-cases.js';
+  runPlayoutCase, playoutEmptyWindowControls, playoutState, intervalState, playoutRing, playoutBits, playoutAttempt } from './fixtures/prediction-playout-cases.js';
 
 const F64 = Float64Array;
 const named = name => playoutCases().find(c => c.name === name);
@@ -21,7 +21,13 @@ function twin(scenario, native) {
 test('native playout and brackets match arrival, startup, snap, trim and wait progression', async () => {
   const counts = Array(13).fill(0), native = createPlayoutSim(await loadSim(), { trace: e => counts[e.op]++ });
   try {
-    for (const scenario of playoutNumericCases()) twin(scenario, native);
+    for (const scenario of playoutNumericCases()) {
+      if (scenario.name === 'clock:empty') {
+        const [first, second] = playoutEmptyWindowControls(scenario);
+        assert.deepEqual(first, second, 'zero-window JS controls retain identical initial and output bits');
+      }
+      twin(scenario, native);
+    }
     assert.ok(counts.every(n => n > 0), `all thirteen phases execute: ${counts}`); assert.ok(native.calls > 5000);
     assert.deepEqual(Object.keys(new PlayoutClock({}, { native })), Object.keys(new PlayoutClock()));
     assert.deepEqual(Object.keys(new SnapshotInterval({ native })), Object.keys(new SnapshotInterval()));

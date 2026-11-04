@@ -326,3 +326,10 @@ export function runPlayoutCase(scenario, native = null) {
   const calls = native?.calls ?? 0, result = scenario.run(native);
   return { result, calls: (native?.calls ?? 0) - calls };
 }
+
+export function playoutEmptyWindowControls(scenario) {
+  // The first JS modulo-zero result can differ in NaN sign from later runs.
+  // Warm that original path, then keep two full, independently captured controls.
+  runPlayoutCase(scenario);
+  return [runPlayoutCase(scenario).result, runPlayoutCase(scenario).result];
+}
