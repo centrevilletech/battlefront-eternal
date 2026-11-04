@@ -8,7 +8,7 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, Perception, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { clusterState, peekClusterState } from '../src/ai/classic/weapons-ai.js';
 
@@ -251,6 +251,65 @@ test('native sight scans preserve eligibility, query order, geometry and ranked 
     assert.equal(scan(n.controller,n.world,n.dispatch),scan(j.controller,j.world,j.dispatch),`queued ${i}`);
     assert.deepEqual(n.world.history,j.world.history,`scan callbacks ${i}`);
     assert.deepEqual(snapshot(n),snapshot(j),`scan state ${i}`);
+  }
+});
+
+test('native target memory preserves retention, identities and state visible to callbacks', async () => {
+  const {sim}=await pair();
+  const ref=r=>r==null?r:[r.unit?.id,r.generation];
+  const snapshot=t=>({ref:ref(t.ref),fresh:t.fresh,point:t.point.toArray(),sampleTime:t.sampleTime,cost:t.cost,
+    delay:t.delay,frozen:t.frozen,counting:t.counting,deadline:t.deadline,target:t.target?.id??null,freshTarget:t.freshTarget?.id??null});
+  function fixture(native) {
+    const world={time:0,tick:0,history:[]},controller={unit:null};
+    let tracker;
+    const unit=controller.unit={id:100,alive:true,kind:0,team:1,origin(out){
+      world.history.push(['eye',snapshot(tracker)]);out.set(-0,2,world.tick%7);
+      if(native) {sim.words(new Array(8000).fill(1));sim.x.ai_nav_boundary(2,0,0,0,0);}
+    }};
+    const targets=Array.from({length:20},(_,id)=>({id,alive:true,generation:0,kind:id%11,team:2,
+      position:new Vector3(id/3,1,id+3),aimPoint(out){world.history.push(['aim',id]);out.copy(this.position);}}));
+    const p=controller.perception=new Perception(controller);if(native)sim.bindPerception(p);
+    tracker=new TargetTracker(controller);const point=tracker.point;if(native)sim.bindTracker(tracker);
+    assert.equal(tracker.point,point);
+    for(const key of ['reset','refresh','startCountdown']) {
+      const method=tracker[key];tracker[key]=function(...args){world.history.push(['method',key,snapshot(this)]);return method.apply(this,args);};
+    }
+    world.units={relation(a,b){world.history.push(['relation',a,b,snapshot(tracker)]);return a===b?1:-1;}};
+    return {world,controller,unit,targets,p,tracker,point};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<1024;i++) {
+    for(const x of [j,n]) {
+      x.world.time=i*.37;x.world.tick=i;x.world.history.length=0;
+      for(const t of x.targets) {t.alive=(i+t.id)%29!==0;t.team=(i+t.id)%11===0?1:2;t.generation=Math.floor(i/43);}
+      const target=x.targets[(i*7)%20];
+      x.p.candidate=i%5===0?null:{unit:target,generation:target.generation+(i%17===0?1:0)};
+      x.p.candidatePoint.set(target.position.x,1+i%3,target.position.z);
+      const t=x.tracker,now=x.world.time;
+      let result;
+      switch(i%13) {
+        case 0: result=t.reset(i%26===0?null:target);break;
+        case 1: result=t.assign(target);break;
+        case 2: result=t.refresh(target,new Vector3(i/7,-0,-i/3),now);break;
+        case 3: result=t.startCountdown(now);break;
+        case 4: result=t.setDelay([NaN,.4,4,16,Infinity,-3][i%6],now);break;
+        case 5: result=t.defaultDelay(now);break;
+        case 6: result=t.freeze(i%2===0,now);break;
+        default: result=t.select(x.world);
+      }
+      x.result=result;
+      assert.equal(t.point,x.point);assert.equal(t.ref,t.ref);
+    }
+    assert.equal(n.result,j.result,`result ${i}`);
+    assert.deepEqual(n.world.history,j.world.history,`tracker callbacks ${i}`);
+    assert.deepEqual(snapshot(n.tracker),snapshot(j.tracker),`tracker ${i}`);
+  }
+  for(const generation of [undefined,null,-0,NaN,7]) {
+    for(const x of [j,n]) {
+      const target=x.targets[0];target.generation=generation;target.alive=true;x.p.candidate={unit:target,generation};
+      x.tracker.reset(target);x.tracker.select(x.world);
+    }
+    assert.deepEqual(snapshot(n.tracker),snapshot(j.tracker));
   }
 });
 

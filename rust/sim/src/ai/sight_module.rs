@@ -115,6 +115,9 @@ fn scan_cost() -> f64 {
 }
 
 #[no_mangle]
+pub extern "C" fn ai_sight_cost() -> f64 {scan_cost()}
+
+#[no_mangle]
 pub extern "C" fn ai_sight_scan(id: u32) -> f64 {
     if !call(Op::ScanReady,0).flag {return 0.0;}
     call(Op::ScanClear,0);

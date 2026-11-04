@@ -521,6 +521,7 @@ export class TargetTracker {
     this.frozen = false; // deadline at FLT_MAX
     this.counting = false;
     this.deadline = 0;
+    controller.ai?.world?.aiSim?.bindTracker(this);
   }
 
   get target() {

@@ -43,6 +43,7 @@ export class AiSim {
     this.perceptions=new WeakMap();this.clusters=new WeakMap();this.sightFrames=[];this.clusterFound=[];this.losViews=new WeakMap();
     this.sightPoint=new Vector3();this.sightEye=new Vector3();this.sightTargetEye=new Vector3();
     this.scanFound=[];this.scanLook=new Vector3();this.scanAim=new Vector3();
+    this.trackers=new WeakMap();this.trackerFrames=[];
     bridge.register({aiSight:args=>{
       const op=args.op,object=this.objects[args.id],frame=this.sightFrames[this.sightFrames.length-1];
       const from=new Vector3(...args.from),point=new Vector3(...args.point);
@@ -121,6 +122,25 @@ export class AiSim {
         const t=frame.target;frame.perception.heap.insert(from.x,t?{unit:t,generation:t.generation}:null);
       }
       else throw Error(`unknown sight callback ${op}`);
+      return result;
+    }});
+    bridge.register({aiTracker:args=>{
+      const op=args.op,object=this.objects[args.id],number=args.number,frame=this.trackerFrames[this.trackerFrames.length-1];
+      const t=frame.tracker,result={number:0,values:[]};
+      if(op==='start') {
+        frame.unit=t.controller.unit;const now=frame.world.time??0;frame.perception=t.controller.perception;
+        result.values=[this.id(frame.unit),now];
+      } else if(op==='candidate' || op==='target') {
+        const r=op==='candidate'?frame.perception?.candidate:t.ref,u=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
+        result.values=[this.id(u),Number(Boolean(u?.alive)),u?.generation,tag(u?.generation),r?.generation,tag(r?.generation)];
+      } else if(op==='relation') result.number=frame.world.units.relation(frame.unit.team,object.team);
+      else if(op==='reset') t.reset(object);
+      else if(op==='countdown') t.startCountdown(number);
+      else if(op==='refresh') t.refresh(object,frame.perception.candidatePoint,number);
+      else if(op==='cost') {
+        const unit=frame.refresh?t.controller.unit:frame.unit;
+        result.number=frame.refresh && (!unit || !object)?10000:this.rawCost(t.controller,unit,object);
+      } else throw Error(`unknown target tracker callback ${op}`);
       return result;
     }});
   }
@@ -258,6 +278,30 @@ export class AiSim {
     try {return this.x.ai_sight_scan(id);}
     finally {this.sightFrames.pop();}
   }
+  rawCost(controller,unit,target) {
+    this.sightFrames.push({controller,unit,target});
+    try {return this.x.ai_sight_cost();}
+    finally {this.sightFrames.pop();}
+  }
+  bindTracker(tracker) {
+    if(!this.trackers.has(tracker))this.trackers.set(tracker,new NativeTrackerFields(this,tracker));
+    return tracker;
+  }
+  selectTarget(id,tracker,world) {
+    this.trackerFrames.push({tracker,world});
+    try {return Boolean(this.x.ai_tracker_select(id));}
+    finally {this.trackerFrames.pop();}
+  }
+  refreshTarget(id,tracker,target,point,now) {
+    this.trackerFrames.push({tracker,refresh:true});
+    try {this.words([point.x,point.y,point.z]);this.x.ai_tracker_refresh(id,this.id(target),now);}
+    finally {this.trackerFrames.pop();}
+  }
+  transitionTarget(id,tracker,op,number,now) {
+    this.trackerFrames.push({tracker});
+    try {this.x.ai_tracker_transition(id,op,number,now);}
+    finally {this.trackerFrames.pop();}
+  }
   cluster(target,create=false) {
     const owner=target?.controller??target;
     if(!owner)return null;
@@ -288,6 +332,35 @@ export class AiSim {
   words(values) {
     const ptr=this.x.sim_call_room(values.length,0);
     this.bridge.views();this.bridge.f.set(values,ptr/8+HEADER);
+  }
+}
+
+class NativeTrackerFields {
+  constructor(sim,tracker) {
+    const id=sim.x.ai_tracker_new(sim.id(tracker.controller));let reference=tracker.ref,serial=-1;
+    const setRef=value=>{
+      reference=value;
+      serial=sim.x.ai_tracker_ref(id,value===null?0:value===undefined?1:2,sim.id(value?.unit),value?.generation,
+        value?.generation===undefined?0:value?.generation===null?2:1);
+    };
+    Object.defineProperty(tracker,'ref',{enumerable:true,configurable:true,get:()=>{
+      sim.x.ai_tracker_read(id);const v=sim.out();
+      if(v[4]!==serial) {serial=v[4];reference=v[0]===0?null:v[0]===1?undefined:{unit:sim.objects[v[1]],generation:v[3]===0?undefined:v[3]===2?null:v[2]};}
+      return reference;
+    },set:setRef});setRef(reference);
+    const field=(object,name,index,flag=false)=>{
+      const initial=object[name];Object.defineProperty(object,name,{enumerable:true,configurable:true,
+        get:()=>flag?Boolean(sim.x.ai_tracker_field(id,index)):sim.x.ai_tracker_field(id,index),
+        set:value=>sim.x.ai_tracker_write(id,index,flag?Number(Boolean(value)):value)});object[name]=initial;
+    };
+    ['x','y','z'].forEach((key,i)=>field(tracker.point,key,i));
+    ['fresh','sampleTime','cost','delay','frozen','counting','deadline'].forEach((key,i)=>field(tracker,key,i+3,['fresh','frozen','counting'].includes(key)));
+    tracker.reset=target=>sim.x.ai_tracker_reset(id,sim.id(target),target?.generation,target?.generation===undefined?0:target?.generation===null?2:1);
+    tracker.refresh=(target,point,now)=>sim.refreshTarget(id,tracker,target,point,now);
+    tracker.startCountdown=now=>sim.x.ai_tracker_command(id,0,0,now);
+    tracker.setDelay=(seconds,now)=>sim.transitionTarget(id,tracker,0,seconds,now);
+    tracker.freeze=(on,now)=>sim.transitionTarget(id,tracker,1,Number(Boolean(on)),now);
+    tracker.select=world=>sim.selectTarget(id,tracker,world);
   }
 }
 
