@@ -11,14 +11,15 @@ export function f2Spec({ hullExport, seatState, crewState, poseState, tetherStat
       if (!vs) return { vehicles: null };
       // Leases must be exported whole before their derived hull views. The
       // shared helper writes those views explicitly, avoiding shape aliasing.
-      const seats = seatState(game, cap), turrets = crewState(game, cap);
+      const seats = seatState(game, cap);
+      const turrets = game.turretSeats ? crewState(game, cap) : null;
       return {
         time: vs.time, ticks: vs.ticks, acc: vs.acc, flightAcc: vs.flightAcc,
         tickAlpha: vs.tickAlpha, spawnOccupant: vs.spawnOccupant?.clone() ?? null,
         slots: vs.slots.map(s => ({ remaining: s.remaining, vehicle: s.vehicle,
           variants: [...s.variants] })),
         hulls: vs.vehicles.map(v => hullExport(cap, v)),
-        poses: vs.vehicles.map(v => poseState(v, [1, 0], false, true)),
+        poses: vs.vehicles.map(v => poseState(v, [1, 0], true, true)),
         seats, turrets,
         mountedWeapons: vs.vehicles.map(v => v.seats.map(s => s.weapons.map(w => exportWeapon(w.state, { seen: new WeakMap(), def: (_table, def) => def })))),
         tethers: tetherState(game, cap),

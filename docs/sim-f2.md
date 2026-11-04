@@ -70,8 +70,8 @@ both retired slab handles and old gameplay lives. Retired references can still
 read their final mirror, but cannot target a replacement.
 
 The debug detector runs before and after the phase and checks the owned scalar,
-vector, matrix, wheel and flight fields. It excludes the declared foreign seat,
-tether and attribution objects. Commands publish current state before returning.
+vector, matrix, wheel and flight fields. It excludes the declared foreign seat and
+tether state; attribution is checked by identity. Commands publish current state before returning.
 Debug runs also reject memory growth during the phase; initialization reserves a
 memory margin. Counters include the whole export rows and variable payloads,
 including rig output while the JS firing and rider readers remain.
