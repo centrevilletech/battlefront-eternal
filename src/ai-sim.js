@@ -74,7 +74,8 @@ export class AiSim {
     boundary.outside = point => Boolean(this.x.ai_nav_boundary(0, 0, point.x, point.y, point.z));
     if (nav.graph) this.bindGraph(nav.graph);
     nav.planner = new NativePlanner(this, nav.barriers, options.pools ?? {});
-    nav.control = controller => controller.navControl ?? (controller.navControl = new NativeNavControl(nav, controller));
+    nav.nativeControl = controller => new NativeNavControl(nav, controller);
+    nav.control = controller => controller.navControl ?? (controller.navControl = nav.nativeControl(controller));
     const hints = nav.hints;
     for (const hint of hints.list) {
       const index = hint.index;
