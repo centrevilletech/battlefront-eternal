@@ -73,7 +73,7 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
     const serial = nextSession++, definitions = [], classes = new Set(), objects = [predicted], lists = [];
     const mirrors = new WeakMap(), ids = new WeakMap(), weapons = [], streams = [], salvos = [];
     const classLevels = new Map(), registered = new Map();
-    let handle = x.prediction_remotes_create(), busy = false, steps = 0, view = context.simulationView;
+    let handle = x.prediction_remotes_create(), busy = false, steps = 0, view = context.simulationView, projectNext = false;
     const cx = Object.create(bridge);
     cx.defs = { weapon: { id: value => register(value, true), at: id => definitions[id] } };
     const live = () => { alive(); if (!handle) throw Error('remote prediction session is disposed'); };
@@ -170,7 +170,8 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       camera.position.fromArray(words, at); at += 3; camera.quaternion.fromArray(words, at); at += 4;
       camera.aspect = words[at++];
       const fov = words[at++], reach = words[at++], fresh = Boolean(words[at++]), hfov = words[at++], firstFov = words[at++];
-      camera.fov = words[at++]; camera.updateProjectionMatrix();
+      camera.fov = words[at++];
+      if (projectNext) { camera.updateProjectionMatrix(); projectNext = false; }
       if (view) {
         view.fov = fov; view.reach = reach; view.fresh = fresh; view.hfov = hfov; view.firstFov = firstFov;
         view.motion.offset.fromArray(words, at); view.motion.turn.set(words[at + 3], words[at + 4], words[at + 5], 'ZYX');
@@ -273,6 +274,7 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       step(command, controls, options = {}) {
         live(); if (busy) throw Error('remote prediction session is already running');
         busy = true;
+        projectNext = Boolean(context.piloted && context.simulationView);
         try {
           const look = command.look;
           const words = [1 / 60, typeof command.firstPerson === 'boolean' ? Number(command.firstPerson) : NaN,
