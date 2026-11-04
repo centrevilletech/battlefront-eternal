@@ -13,6 +13,8 @@ mod perception_module;
 mod scheduler_module;
 #[cfg(target_arch = "wasm32")]
 mod sight_module;
+#[cfg(target_arch = "wasm32")]
+mod tracker_module;
 pub mod nav;
 pub mod random;
 pub mod vehicles;

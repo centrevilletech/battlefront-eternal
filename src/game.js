@@ -2389,7 +2389,33 @@ async function start() {
     }
   }
 
+  const localWorldHost = {
+    state: () => ({ input, walker, dead: combat.dead, remote: Boolean(remotes.active), gunner: Boolean(gunner.active), driver: Boolean(driver?.active),
+      removed: Boolean(playerUnit.removed), held: Boolean(playerUnit.held), server: Boolean(game.serverWorld), auto: Boolean(policy.auto),
+      humanReady: Boolean(ai?.humanReady), human: Boolean(battle.human), deathTime: combat.deathTime, corpseLinger: CORPSE_LINGER }),
+    publish(state) {
+      for (const key of ['forward', 'right', 'turn', 'jump', 'crouch', 'prone']) input[key] = state.input[key];
+      if (state.input.use !== undefined || Object.hasOwn(input, 'use')) input.use = state.input.use;
+    },
+    call(op, dt) {
+      switch (op) {
+        case 'jump': case 'crouch': case 'prone': case 'use': return worldControls.take(op);
+        case 'tick': soldier.tick(input, dt); break;
+        case 'impacts': takeImpacts(playerUnit); break;
+        case 'deathRegion': return inDeathRegion(soldier.position);
+        case 'kill': combat.damage(Infinity); break;
+        case 'battle': if (game.battlePhaseSim) game.battlePhaseSim.update(dt); else updateBattleRules(dt); break;
+        case 'ready': ai.humanReady(battle.human, { className: UNIT, post: spawnPosts()[spawnIndex] }); break;
+        case 'spawn': humanSpawn.update(dt, tickHuman); break;
+        case 'clearHuman': tickHuman = null; break;
+        case 'remove': removeCorpse(); break;
+        case 'present': presentBattle(dt); break;
+      }
+    },
+  };
+
   function stepPlayer(dt) {
+    if (game.worldSim) return game.worldSim.player(localWorldHost, dt);
     input.jump = worldControls.take("jump");
     input.crouch = worldControls.take("crouch");
     input.prone = worldControls.take("prone");
@@ -2418,6 +2444,7 @@ async function start() {
   // while none are neutral has 20 s before it loses.
   const capturers = [];
   function updateBattle(dt) {
+    if (game.worldSim) return game.worldSim.battleTail(localWorldHost, dt);
     if (game.battlePhaseSim) game.battlePhaseSim.update(dt);
     else updateBattleRules(dt);
     // The local spawn screen, corpse and HUD follow the authoritative
@@ -3782,6 +3809,7 @@ async function start() {
   game.inputSim?.controls(worldControls);
   game.worldSim = game.inputSim ? (await import("./runtime/world-sim.js")).createWorldSim(simInstance) : null;
   game.worldSim?.clock(worldClock);
+  game.worldSim?.events(simEvents);
   game.aiSim = aiSim;
   if (!headless) window.__bf = game;
   if (!headless) await startClient();

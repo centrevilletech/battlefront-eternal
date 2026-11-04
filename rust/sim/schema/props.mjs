@@ -2,6 +2,8 @@
 // mutable state and foreign supply targets cross during a command.
 export default {
   enums: {
+    DbOperation: ['launch', 'update', 'bounce', 'rest', 'clear'],
+    DbActionKind: ['add', 'remove', 'cast', 'low', 'play', 'move', 'stop', 'publish', 'out', 'vectors'],
     PbStateName: ['unbuilt', 'built', 'destroyed'],
     PbKind: ['building', 'turret', 'objective'],
     PbMode: ['waiting', 'active'],
@@ -19,6 +21,17 @@ export default {
       'boarded', 'unboarded', 'seated', 'unseated', 'placed', 'dropped', 'seatPolicy', 'pose', 'lock', 'weapon', 'fire', 'bind', 'sound', 'fired'],
   },
   records: {
+    DbChunk: { speed: 'f64', omega: 'vec3', still: 'bool', terrainCollisions: 'f64', terrainEffect: 'str|null', trail: 'str|null', smoke: 'str|null' },
+    DbSettle: { from: 'quat', to: 'quat', y0: 'f64', y1: 'f64', t: 'f64' },
+    DbPiece: { id: 'f64', chunk: 'rec:DbChunk', position: 'vec3', previous: 'vec3', velocity: 'vec3', omega: 'vec3', quaternion: 'quat', hits: 'f64',
+      lift: 'f64', thin: 'f64', settle: 'rec:DbSettle|null', ignore: 'f64|null', resting: 'bool', flight: 'f64', left: 'f64', trail: 'f64|null', smoke: 'f64|null', gone: 'bool|undefined' },
+    DbState: { pieces: 'list:rec:DbPiece', ray: 'vec3', start: 'vec3', out: 'vec3' },
+    DbLaunch: { id: 'f64', chunk: 'rec:DbChunk', matrix: 'mat4', low: 'vec3', high: 'vec3', origin: 'vec3', velocity: 'vec3', health: 'f64',
+      ignore: 'f64|null', center: 'bool', floor: 'f64' },
+    DbInput: { op: 'enum:DbOperation', state: 'rec:DbState', launch: 'rec:DbLaunch|null', dt: 'f64', id: 'f64', floor: 'f64' },
+    DbAction: { kind: 'enum:DbActionKind', piece: 'rec:DbPiece|null', id: 'f64', point: 'vec3', turn: 'quat', shift: 'vec3|null',
+      direction: 'vec3', far: 'f64', ignore: 'f64|null', name: 'str|null', velocity: 'vec3|null', impact: 'bool' },
+    DbActionResult: { hit: 'bool', point: 'vec3', normal: 'vec3', low: 'f64', effect: 'f64|null' },
     PbIdentity: { kind: 'f64', id: 'f64' },
     PbModel: { sphere: 'f64x4|null', low: 'vec3|null', high: 'vec3|null' },
     PbSettings: {
@@ -100,5 +113,6 @@ export default {
       flag: 'bool', value: 'f64|undefined', point: 'vec3', shots: 'list:rec:PcShot' },
   },
   imports: { pbAction: { args: 'PbAction', result: 'PbActionResult' }, paAction: { args: 'PaAction', result: 'PaActionResult' }, pqAction: { args: 'PqAction', result: 'PqActionResult' },
+    dbAction: { args: 'DbAction', result: 'DbActionResult' },
     pcAction: { args: 'PcAction', result: 'PcActionResult' } },
 };

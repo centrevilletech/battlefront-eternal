@@ -1,6 +1,8 @@
-use super::{clock, separation::Separation};
+use super::{clock, events, local, separation::Separation};
 use crate::abi::sim;
 use crate::gen::{WsSeparation, WsSeparationResult, WorldClockInput, WorldClockResult, WorldClockState, WorldClockOperation, WorldClockCall, WorldClockArgs, import_world_clock};
+use crate::gen::{WorldEventState, WorldEventInput, WorldEventOperation, WorldEventCall, WorldEventArgs, import_world_events};
+use crate::gen::{WorldLocalState, WorldLocalInput, WorldLocalOperation, WorldLocalCall, WorldLocalArgs, import_world_local};
 use std::ptr::addr_of_mut;
 
 static mut SEPARATION: Option<Separation> = None;
@@ -59,3 +61,58 @@ pub extern "C" fn world_clock_run() -> *const f64 {
 
 #[no_mangle]
 pub extern "C" fn world_clock_time(tick: f64, hz: f64) -> f64 { tick / hz }
+
+struct EventHost;
+impl events::Host for EventHost {
+    fn call(&mut self, state: &mut WorldEventState, op: WorldEventCall, index: f64) -> bool {
+        let reply = import_world_events(&WorldEventArgs { op, state: state.clone(), index });
+        *state = reply.state;
+        reply.present
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn world_events_words(which: u32) -> u32 {
+    (match which { 0 => WorldEventInput::WORDS, 1 => WorldEventState::WORDS, _ => 0 }) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn world_events_run() -> *const f64 {
+    let input = { let (row, heap) = sim().calls.args(); WorldEventInput::take(row, heap) };
+    let mut state = input.state;
+    match input.op {
+        WorldEventOperation::Emit => events::emit(&mut state, &mut EventHost),
+        WorldEventOperation::Read => events::read(&mut state, &mut EventHost),
+        WorldEventOperation::Reset => events::reset(&mut state, &mut EventHost),
+    }
+    let sim = sim();
+    sim.calls.result(WorldEventState::WORDS, |row, heap| state.put(row, heap));
+    sim.calls.block.ptr()
+}
+
+struct LocalHost;
+impl local::Host for LocalHost {
+    fn call(&mut self, state: &mut WorldLocalState, op: WorldLocalCall, dt: f64) -> bool {
+        let reply = import_world_local(&WorldLocalArgs { op, state: state.clone(), dt });
+        *state = reply.state;
+        reply.value
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn world_local_words(which: u32) -> u32 {
+    (match which { 0 => WorldLocalInput::WORDS, 1 => WorldLocalState::WORDS, _ => 0 }) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn world_local_run() -> *const f64 {
+    let input = { let (row, heap) = sim().calls.args(); WorldLocalInput::take(row, heap) };
+    let mut state = input.state;
+    match input.op {
+        WorldLocalOperation::Player => local::player(&mut state, input.dt, &mut LocalHost),
+        WorldLocalOperation::Tail => local::tail(&mut state, input.dt, &mut LocalHost),
+    }
+    let sim = sim();
+    sim.calls.result(WorldLocalState::WORDS, |row, heap| state.put(row, heap));
+    sim.calls.block.ptr()
+}

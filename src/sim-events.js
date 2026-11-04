@@ -11,6 +11,11 @@
 // replace it.
 
 const CAPACITY = 4096;
+const nativeJournals = new WeakMap();
+
+// Attach after world construction so existing listeners, readers, records
+// and their identities continue to belong to the same journal.
+export function bindEventJournal(journal, port) { nativeJournals.set(journal, port); }
 
 export class SimEvents {
   constructor(capacity = CAPACITY) {
@@ -28,6 +33,8 @@ export class SimEvents {
       const value = fields[key];
       record[key] = value && value.isVector3 ? [value.x, value.y, value.z] : value;
     }
+    const native = nativeJournals.get(this);
+    if (native) return native.emit(record);
     this.ring[this.seq % this.capacity] = record;
     this.seq += 1;
     for (const listener of this.listeners) listener(record);
@@ -47,6 +54,8 @@ export class SimEvents {
   }
 
   reset() {
+    const native = nativeJournals.get(this);
+    if (native) return native.reset();
     this.ring.fill(null);
     this.seq = 0;
   }
@@ -62,6 +71,8 @@ class EventReader {
   // Calls fn(record) for each event since the last read.
   read(fn) {
     const j = this.journal;
+    const native = nativeJournals.get(j);
+    if (native) return native.read(this, fn);
     if (j.seq - this.cursor > j.capacity) {
       this.dropped += j.seq - this.cursor - j.capacity;
       this.cursor = j.seq - j.capacity;

@@ -43,6 +43,114 @@ impl WorldClockCall {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldEventOperation {
+    #[default] Emit = 0,
+    Read = 1,
+    Reset = 2,
+}
+
+impl WorldEventOperation {
+    pub const NAMES: [&'static str; 3] = ["emit", "read", "reset"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldEventOperation::Emit),
+            1 => Some(WorldEventOperation::Read),
+            2 => Some(WorldEventOperation::Reset),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldEventCall {
+    #[default] Write = 0,
+    Notify = 1,
+    Clear = 2,
+    Load = 3,
+    Deliver = 4,
+}
+
+impl WorldEventCall {
+    pub const NAMES: [&'static str; 5] = ["write", "notify", "clear", "load", "deliver"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldEventCall::Write),
+            1 => Some(WorldEventCall::Notify),
+            2 => Some(WorldEventCall::Clear),
+            3 => Some(WorldEventCall::Load),
+            4 => Some(WorldEventCall::Deliver),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldLocalOperation {
+    #[default] Player = 0,
+    Tail = 1,
+}
+
+impl WorldLocalOperation {
+    pub const NAMES: [&'static str; 2] = ["player", "tail"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldLocalOperation::Player),
+            1 => Some(WorldLocalOperation::Tail),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldLocalCall {
+    #[default] Jump = 0,
+    Crouch = 1,
+    Prone = 2,
+    Use = 3,
+    Tick = 4,
+    Impacts = 5,
+    DeathRegion = 6,
+    Kill = 7,
+    Battle = 8,
+    Ready = 9,
+    Spawn = 10,
+    ClearHuman = 11,
+    Remove = 12,
+    Present = 13,
+}
+
+impl WorldLocalCall {
+    pub const NAMES: [&'static str; 14] = ["jump", "crouch", "prone", "use", "tick", "impacts", "deathRegion", "kill", "battle", "ready", "spawn", "clearHuman", "remove", "present"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldLocalCall::Jump),
+            1 => Some(WorldLocalCall::Crouch),
+            2 => Some(WorldLocalCall::Prone),
+            3 => Some(WorldLocalCall::Use),
+            4 => Some(WorldLocalCall::Tick),
+            5 => Some(WorldLocalCall::Impacts),
+            6 => Some(WorldLocalCall::DeathRegion),
+            7 => Some(WorldLocalCall::Kill),
+            8 => Some(WorldLocalCall::Battle),
+            9 => Some(WorldLocalCall::Ready),
+            10 => Some(WorldLocalCall::Spawn),
+            11 => Some(WorldLocalCall::ClearHuman),
+            12 => Some(WorldLocalCall::Remove),
+            13 => Some(WorldLocalCall::Present),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WsMember {
     pub id: f64,
@@ -341,6 +449,300 @@ impl WorldClockReply {
         Self {
             state: WorldClockState::take(&row[0..], heap),
             time: row[13],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldEventState {
+    pub capacity: f64,
+    pub seq: f64,
+    pub time: f64,
+    pub cursor: f64,
+    pub dropped: f64,
+}
+
+impl WorldEventState {
+    pub const WORDS: usize = 5;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
+        row[0] = self.capacity;
+        row[1] = self.seq;
+        row[2] = self.time;
+        row[3] = self.cursor;
+        row[4] = self.dropped;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
+        Self {
+            capacity: row[0],
+            seq: row[1],
+            time: row[2],
+            cursor: row[3],
+            dropped: row[4],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldEventInput {
+    pub op: WorldEventOperation,
+    pub state: WorldEventState,
+}
+
+impl WorldEventInput {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            op: WorldEventOperation::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: WorldEventState::take(&row[1..], heap),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldEventArgs {
+    pub op: WorldEventCall,
+    pub state: WorldEventState,
+    pub index: f64,
+}
+
+impl WorldEventArgs {
+    pub const WORDS: usize = 7;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        row[6] = self.index;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        Self {
+            op: WorldEventCall::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: WorldEventState::take(&row[1..], heap),
+            index: row[6],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldEventReply {
+    pub state: WorldEventState,
+    pub present: bool,
+}
+
+impl WorldEventReply {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[5] = if self.present { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            state: WorldEventState::take(&row[0..], heap),
+            present: row[5] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldLocalKeys {
+    pub forward: f64,
+    pub right: f64,
+    pub turn: f64,
+    pub jump: bool,
+    pub crouch: bool,
+    pub prone: bool,
+    pub r#use: Option<bool>,
+}
+
+impl WorldLocalKeys {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        row[0] = self.forward;
+        row[1] = self.right;
+        row[2] = self.turn;
+        row[3] = if self.jump { 1.0 } else { 0.0 };
+        row[4] = if self.crouch { 1.0 } else { 0.0 };
+        row[5] = if self.prone { 1.0 } else { 0.0 };
+        match &self.r#use { Some(v) => { row[6] = 0.0; row[6 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[6] = 2.0; row[6 + 1..6 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            forward: row[0],
+            right: row[1],
+            turn: row[2],
+            jump: row[3] != 0.0,
+            crouch: row[4] != 0.0,
+            prone: row[5] != 0.0,
+            r#use: if row[6] == 0.0 { Some(row[6 + 1] != 0.0) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldLocalState {
+    pub input: WorldLocalKeys,
+    pub walker: bool,
+    pub dead: bool,
+    pub remote: bool,
+    pub gunner: bool,
+    pub driver: bool,
+    pub removed: bool,
+    pub held: bool,
+    pub server: bool,
+    pub auto: bool,
+    pub human_ready: bool,
+    pub human: bool,
+    pub death_time: f64,
+    pub corpse_linger: f64,
+}
+
+impl WorldLocalState {
+    pub const WORDS: usize = 21;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 21] = (&mut row[..21]).try_into().unwrap();
+        self.input.put(&mut row[0..], heap);
+        row[8] = if self.walker { 1.0 } else { 0.0 };
+        row[9] = if self.dead { 1.0 } else { 0.0 };
+        row[10] = if self.remote { 1.0 } else { 0.0 };
+        row[11] = if self.gunner { 1.0 } else { 0.0 };
+        row[12] = if self.driver { 1.0 } else { 0.0 };
+        row[13] = if self.removed { 1.0 } else { 0.0 };
+        row[14] = if self.held { 1.0 } else { 0.0 };
+        row[15] = if self.server { 1.0 } else { 0.0 };
+        row[16] = if self.auto { 1.0 } else { 0.0 };
+        row[17] = if self.human_ready { 1.0 } else { 0.0 };
+        row[18] = if self.human { 1.0 } else { 0.0 };
+        row[19] = self.death_time;
+        row[20] = self.corpse_linger;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 21] = (&row[..21]).try_into().unwrap();
+        Self {
+            input: WorldLocalKeys::take(&row[0..], heap),
+            walker: row[8] != 0.0,
+            dead: row[9] != 0.0,
+            remote: row[10] != 0.0,
+            gunner: row[11] != 0.0,
+            driver: row[12] != 0.0,
+            removed: row[13] != 0.0,
+            held: row[14] != 0.0,
+            server: row[15] != 0.0,
+            auto: row[16] != 0.0,
+            human_ready: row[17] != 0.0,
+            human: row[18] != 0.0,
+            death_time: row[19],
+            corpse_linger: row[20],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldLocalInput {
+    pub op: WorldLocalOperation,
+    pub state: WorldLocalState,
+    pub dt: f64,
+}
+
+impl WorldLocalInput {
+    pub const WORDS: usize = 23;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        row[22] = self.dt;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
+        Self {
+            op: WorldLocalOperation::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: WorldLocalState::take(&row[1..], heap),
+            dt: row[22],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldLocalArgs {
+    pub op: WorldLocalCall,
+    pub state: WorldLocalState,
+    pub dt: f64,
+}
+
+impl WorldLocalArgs {
+    pub const WORDS: usize = 23;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 23] = (&mut row[..23]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        row[22] = self.dt;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 23] = (&row[..23]).try_into().unwrap();
+        Self {
+            op: WorldLocalCall::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: WorldLocalState::take(&row[1..], heap),
+            dt: row[22],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldLocalReply {
+    pub state: WorldLocalState,
+    pub value: bool,
+}
+
+impl WorldLocalReply {
+    pub const WORDS: usize = 22;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 22] = (&mut row[..22]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[21] = if self.value { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 22] = (&row[..22]).try_into().unwrap();
+        Self {
+            state: WorldLocalState::take(&row[0..], heap),
+            value: row[21] != 0.0,
         }
     }
 
