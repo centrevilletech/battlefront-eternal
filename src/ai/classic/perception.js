@@ -264,6 +264,7 @@ export function sightRange(owner, target) {
 
 // Living, finite MaxHealth, a targetable class, hostile.
 export function validTarget(world, unit, target) {
+  if(world?.aiSim)return world.aiSim.bindings.target(world,unit,target);
   if (!target?.alive || target === unit) return false;
   if (target.targetable === false) return false;
   const max = target.combat?.maxHealth ?? target.classDef?.MaxHealth ?? 0;

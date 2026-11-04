@@ -43,13 +43,16 @@ export class NativeAwareness {
         if(result.flag){const [lo,hi]=row;frame.bounds=[lo,hi];result.values=[lo,hi];}
       } else if(op==='dangerDraw') {
         const lo=id===1?frame.bounds[0]:number,hi=id===1?frame.bounds[1]:other;
-        result.number=(frame.world.randomA??frame.world.random).range(lo,hi);
+        frame.delay=(frame.world.randomA??frame.world.random).range(lo,hi);result.flag=typeof frame.delay==='number';if(result.flag)result.number=frame.delay;
       }
+      else if(op==='dangerSkill'){result.flag=typeof frame.enemySkill==='number';if(result.flag)result.number=frame.enemySkill;}
+      else if(op==='dangerSkillCompare')result.flag=frame.enemySkill<number;
       else if(op==='dangerTime') result.number=frame.world.time??0;
-      else if(op==='dangerFirst') result.number=frame.state.firstContact;
-      else if(op==='dangerLast') result.number=frame.state.lastNotify;
+      else if(op==='dangerFirst'){frame.dangerScalar=frame.state.firstContact;result.flag=typeof frame.dangerScalar==='number'&&typeof frame.delay==='number';if(result.flag)result.number=frame.dangerScalar;}
+      else if(op==='dangerLast'){frame.dangerScalar=frame.state.lastNotify;result.flag=typeof frame.dangerScalar==='number';if(result.flag)result.number=frame.dangerScalar;}
+      else if(op==='dangerAdd')result.number=frame.dangerScalar+(id===0?frame.delay:1);
       else if(op==='dangerQuery') {frame.world.units.query(frame.position,7.5,this.danger,u=>u!==frame.owner);result.ids=this.danger.map(u=>sim.id(u));}
-      else if(op==='dangerRecipient') {const u=frame.recipient=sim.objects[id],c=frame.controller=u.controller;result.flag=Boolean(c||u.human);if(result.flag)result.number=u.kind;}
+      else if(op==='dangerRecipient') {const u=frame.recipient=sim.objects[id],c=frame.controller=u.controller;result.flag=Boolean(c||u.human);if(result.flag){const kind=u.kind;result.number=typeof kind==='number'?kind:NaN;}}
       else if(op==='dangerWarn') {const onWarn=frame.onWarn;onWarn?.(frame.recipient);}
       else if(op==='dangerHasNotify') result.flag=Boolean(frame.controller?.notifyDanger);
       else if(op==='dangerNotify') frame.controller.notifyDanger(frame.position);
@@ -136,8 +139,8 @@ export class NativeAwareness {
     try {return this.sim.x.ai_broadcast_acoustic();} finally {this.frames.pop();}
   }
   notifyDanger(world,state,position,owner,enemySkill,onWarn) {
-    this.frames.push({world,state,position,owner,onWarn});
-    try {return this.sim.x.ai_notify_danger(enemySkill);} finally {this.frames.pop();}
+    this.frames.push({world,state,position,owner,enemySkill,onWarn});
+    try {return this.sim.x.ai_notify_danger();} finally {this.frames.pop();}
   }
   shot(world,shooter,target,point) {
     this.frames.push({world,shooter,target,point,known:true});
