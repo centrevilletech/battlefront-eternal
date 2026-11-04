@@ -29,13 +29,14 @@ function fixture(world, flags = 0, changed = () => {}) {
     aim: [env.soldier.aimYaw, env.soldier.aimPitch], remote: env.remotes.active, driver: env.driver.active,
     gunner: env.gunner.active, time: env.simEvents.time, lexical: api?.inspect() });
   const call = (name, ...args) => { trace.push([name, args, view()]); changed(name, env, api); };
-  const cmd = { look: [[3, -4], [-2, 1]], fire: [{ pressed: true, id: 3 }, { pressed: false, id: 4 }],
+  const cmd = { id: 17, look: [[3, -4], [-2, 1]], fire: [{ pressed: true, id: 3 }, { pressed: false, id: 4 }],
     firstPerson: true, aspect: 1.5, human: [{ kind: 'spawn' }], flightSettings: { sensitivity: 0.75, invert: true },
     flightTuning: { fighter: { acceleration: 4, unknown: 10 } } };
-  env.commandHistory = { epoch: 1, put(command) { assert.equal(command, cmd); call('history'); } };
+  const commands = new Set([cmd]);
+  env.commandHistory = { epoch: 1, put(command) { assert.ok(commands.has(command)); call('history', command.id); } };
   env.controls = { command(tick, epoch, generation) { call('command', tick, epoch, generation); return cmd; } };
   env.runtimeProfile = { step: dt => call('profile', dt) };
-  env.worldControls = { accept(command) { assert.equal(command, cmd); call('accept'); return !env.stale; },
+  env.worldControls = { accept(command) { assert.ok(commands.has(command)); call('accept', command.id); return !env.stale; },
     axis(name) { call(`axis:${name}`); return { forward: -0.75, right: 0.25, turn: 0.125 }[name]; },
     take(name) { call(`take:${name}`); return down.delete(name); } };
   env.applyLook = (dx, dy) => { call('look', dx, dy); env.soldier.aimYaw += dx / 2048; env.soldier.aimPitch += dy / 2048; };
@@ -60,7 +61,7 @@ function fixture(world, flags = 0, changed = () => {}) {
   env.vehicles = flags & 2048 ? null : { vehicles: [hull, { alive: false }],
     sim: { retune: (...args) => call('retune', ...args) }, restoreTickPose: () => call('restorePose'),
     update(dt, v, keys) { call('vehicles', dt, v === hull, keys ?? null); } };
-  env.seatInput = (v, index, controls, command) => { assert.equal(command, cmd); call('seatInput', index); return { forward: 1 }; };
+  env.seatInput = (v, index, controls, command) => { assert.ok(commands.has(command)); call('seatInput', index, command.id); return { forward: 1 }; };
   env.hud = { squadCommand: label => call('squadHud', label) };
   env.ai = flags & 1024 ? null : { update: dt => call('ai', dt), playerCommand: kind => call('squad', kind),
     grenadeUpdate: (g, owner) => call(`grenade:${g.id}`, owner === env.playerUnit ? 'player' : owner) };
@@ -89,7 +90,7 @@ function fixture(world, flags = 0, changed = () => {}) {
   env.humanSpawn = { flush: () => call('spawnFlush') };
   api = Function(...Object.keys(env), `${code}\nreturn { step, inspect: () => ({ firstPerson, tickHuman, tickLookYaw,
     previousYaw: presentation.previousYaw, previewYaw, previewPitch, simTime, simulationZoom }), perspective: value => { firstPerson = value; } };`)(...Object.values(env));
-  return { env, api, trace, command: cmd, view };
+  return { env, api, trace, command: cmd, commands, view };
 }
 
 const run = (f, command = f.command, tick = 17) => { try { f.api.step(1 / 60, tick, command); return null; } catch (e) { return e.message; } };
@@ -146,11 +147,15 @@ test('native world steps preserve per-call commands through nested ticks and mem
     let nested = false;
     const f = fixture(native ? world : null, 64 + 256, (op, env, api) => {
       if (op === 'ai' && !nested) {
-        nested = true; api.step(1 / 120, 19, f.command);
+        nested = true;
+        const command = { ...f.command, id: 19, look: [[10, 1]], firstPerson: false };
+        f.commands.add(command); api.step(1 / 120, 19, command);
         if (native) instance.exports.memory.grow(1);
       }
     });
-    assert.equal(run(f), null); return { trace: f.trace, state: f.view() };
+    assert.equal(run(f), null);
+    assert.deepEqual(f.trace.filter(([name]) => name === 'seatInput').map(([, args]) => args[1]), [19, 17]);
+    return { trace: f.trace, state: f.view() };
   };
   assert.deepEqual(exercise(true), exercise(false));
 });
