@@ -18,6 +18,7 @@ export function createReaderWeapon(kind = 'gun', definition = readerDefinition(k
   if (kind === 'melee') prepareMelee({ weapons: [weapon] });
   Object.assign(weapon, { salvoSeed: 123, salvoCount: 7, salvoRandom: { retained: true }, random: () => .25 });
   const ids = new Map([[weapon, 'weapon'], [weapon.melee, 'melee']]);
+  ids.set(weapon.random, 'random'); ids.set(weapon.salvoRandom, 'salvoRandom');
   weapon.levels.forEach((d, i) => { ids.set(d, `level${i}`); d.swings?.forEach((s, n) => ids.set(s, `level${i}.swing${n}`)); });
   ids.delete(null); return { weapon, definition, levels: weapon.levels, timeline: weapon.melee, ids };
 }
@@ -42,6 +43,7 @@ export function readerWeaponSnapshot(fixture) {
   const { weapon, ids } = fixture, descriptors = Object.getOwnPropertyDescriptors(weapon), state = {};
   for (const key of ['level', ...WEAPON_STATE_NUMBERS, ...WEAPON_STATE_FLAGS, 'salvoSeed', 'salvoCount']) if ('value' in (descriptors[key] || {})) state[key] = descriptors[key].value;
   if ('value' in (descriptors.def || {})) state.definition = ids.get(descriptors.def.value) ?? 'other';
+  for (const key of ['random', 'salvoRandom']) if ('value' in (descriptors[key] || {})) state[key] = descriptors[key].value === null ? null : ids.get(descriptors[key].value) ?? typeof descriptors[key].value;
   const timeline = descriptors.melee?.value;
   if (timeline) state.melee = { time: timeline.time, index: timeline.index, active: timeline.active,
     swing: timeline.swing == null ? timeline.swing : ids.get(timeline.swing) ?? 'other' };
@@ -154,9 +156,220 @@ export function stateReaderCases() {
       for (const value of values) add(`${key}:${value}`, { mutate: b => patchRemoteField(b, layout, key, value) });
     }
   }
-  return cases;
+  return [...cases, ...stateReaderCallbackCases()];
 }
 export function runStateReaderCase(scenario, native = null) {
   const before = native?.calls ?? 0, result = scenario.run(native);
   return { result, calls: (native?.calls ?? 0) - before };
+}
+
+export function stateReaderCallbackCases() {
+  const cases = [];
+  cases.push(arsenalReaderCase('saved-mask-after-cold-constructor', { payload: () => deltaBytes({ numbers: { heat: .125 } }), setup(f) {
+    Object.defineProperty(f.definition, 'ammo', { configurable: true, get() {
+      f.events.push('ammo'); f.bytes[0] = 1; f.bytes[1] = 127;
+      const view = new DataView(f.bytes.buffer); view.setUint32(2, 4, true); view.setFloat64(6, .75, true); return 4;
+    } });
+  } }));
+  for (const late of [false, true]) cases.push(arsenalReaderCase(`subarray-copy-timing-${late}`, {
+    payload: () => deltaBytes({ numbers: { timer: .125, heat: .25 } }), setup(f) {
+      const install = () => {
+        Object.defineProperty(f.bytes, 'subarray', { configurable: true, get() {
+          f.events.push('subarray'); return function (start, end) {
+            f.events.push(['copy', start, end]);
+            if (start === 0) f.bytes[1] = 64;
+            if (start === 6) new DataView(f.bytes.buffer).setFloat64(14, .875, true);
+            return Uint8Array.prototype.subarray.call(this, start, end);
+          };
+        } });
+      };
+      if (late) Object.defineProperty(f.definition, 'ammo', { configurable: true, get() { f.events.push('ammo'); install(); return 4; } });
+      else install();
+    },
+  }));
+  cases.push(arsenalReaderCase('melee-current-three-incoming-one', { kind: 'melee', apply: true,
+    payload: () => deltaBytes({ level: 1, melee: { time: .5, index: 2, active: 1 } }) }));
+  cases.push(arsenalReaderCase('melee-current-one-incoming-three', { kind: 'melee',
+    payload: () => deltaBytes({ level: 0, melee: { time: .5, index: 2, active: 1 } }), setup(f) { f.weapon.def = f.levels[1]; } }));
+  cases.push(arsenalReaderCase('melee-limit-after-copied-values', { kind: 'melee', setup(f) {
+    Object.defineProperty(f.weapon, 'def', { configurable: true, get() {
+      f.events.push('current def'); f.bytes[0] = 255; f.bytes[1] = 255;
+      new DataView(f.bytes.buffer).setFloat64(6, NaN, true); f.bytes[f.bytes.length - 1] = 0; return f.definition;
+    } });
+  } }));
+  cases.push(arsenalReaderCase('melee-invalid-time-skips-definition', { kind: 'melee',
+    payload: () => deltaBytes({ flags: 255, melee: { time: NaN, index: 2, active: 255 } }), setup(f) {
+      Object.defineProperty(f.weapon, 'def', { get() { f.events.push('unexpected def'); throw Error('definition observed'); } });
+    } }));
+  for (const bound of [0, '0', -1, 2, 3, Infinity, NaN]) cases.push(arsenalReaderCase(`melee-bound-coercion-${String(bound)}-${typeof bound}`, { kind: 'melee', setup(f) {
+    f.definition.swings = { get length() {
+      f.events.push('length'); return { valueOf() { f.events.push(['bound', bound]); return bound; } };
+    } };
+  } }));
+  cases.push(arsenalReaderCase('late-buffer-getter-melee-view', { kind: 'melee', setup(f) {
+    const source = f.bytes.buffer, alternate = source.slice(0); let changed = false;
+    new DataView(alternate).setFloat64(f.bytes.length - 10, .875, true);
+    Object.defineProperty(f.definition, 'ammo', { get() {
+      f.events.push('ammo'); if (!changed) { changed = true; Object.defineProperty(f.bytes, 'buffer', { get() { f.events.push('buffer'); return alternate; } }); } return 4;
+    } });
+  } }));
+  for (const throwing of [false, true]) cases.push(arsenalReaderCase(`publication-replacement-${throwing}`, { kind: 'melee', apply: true, setup(f) {
+    const replacement = { time: -1, index: 0, active: false, swing: null, restoreState(state) { f.events.push(['restore replacement', { ...state }, this === replacement]); this.time = state.time; } };
+    Object.defineProperty(f.weapon, 'def', { configurable: true, get: () => f.definition, set(value) { f.events.push(['set def', f.ids.get(value)]); f.weapon.melee = replacement; } });
+    let timer = f.weapon.timer;
+    Object.defineProperty(f.weapon, 'timer', { configurable: true, get: () => timer, set(value) { f.events.push(['set timer', value]); if (throwing) throw Error('timer stopped publication'); timer = value; } });
+  } }));
+
+  const evaluate = (weapon, bytes, native) => {
+    try { const entry = validateArsenalWeapon(weapon, bytes, native); return { state: entry.state, melee: entry.melee, same: entry.weapon === weapon }; }
+    catch (error) { return { error: { name: error.name, message: error.message } }; }
+  };
+  const script = (name, run) => cases.push({ name: `arsenal:${name}`, run });
+  script('warm-shared-definition-cache', native => {
+    const f = createReaderWeapon(), events = [], bytes = deltaBytes(); captureArsenalWeapon(f.weapon);
+    Object.defineProperty(f.definition, 'ammo', { configurable: true, get() { events.push('cached ammo'); return 10; } });
+    const other = new Weapon(f.definition); events.length = 0;
+    const first = evaluate(f.weapon, bytes, native), shared = evaluate(other, bytes, native);
+    const fresh = createReaderWeapon('gun', { ...readerDefinition(), ammo: 10 });
+    const changed = evaluate(fresh.weapon, bytes, native);
+    return { first, shared, changed, events };
+  });
+  script('cold-cache-failure-and-later-parse-failure', native => {
+    const f = createReaderWeapon(), events = []; let first = true;
+    Object.defineProperty(f.definition, 'ammo', { get() { events.push('ammo'); if (first) { first = false; throw Error('cold constructor failed'); } return 4; } });
+    const outcomes = [evaluate(f.weapon, deltaBytes(), native), evaluate(f.weapon, deltaBytes({ mask: 3, numbers: { timer: .25 } }), native), evaluate(f.weapon, deltaBytes(), native)];
+    return { outcomes, events };
+  });
+  script('reentrant-shared-cold-initial', native => {
+    const f = createReaderWeapon(), other = new Weapon(f.definition), events = []; let once = true;
+    Object.defineProperty(f.definition, 'ammo', { get() {
+      events.push('ammo'); if (once) { once = false; events.push(['nested', evaluate(other, deltaBytes({ numbers: { heat: .875 } }), native)]); } return 4;
+    } });
+    const outcome = evaluate(f.weapon, deltaBytes({ numbers: { timer: -.125 } }), native);
+    return { outcome, events };
+  });
+  script('retained-baseline-slice-partial-copy', native => {
+    const f = createReaderWeapon(), events = [], bytes = deltaBytes({ level: 1, flags: 65, mask: 3, numbers: { timer: .25 } });
+    const own = Object.getOwnPropertyDescriptor(Uint8Array, Symbol.species); let retained = null, once = true;
+    const restore = () => { if (own) Object.defineProperty(Uint8Array, Symbol.species, own); else delete Uint8Array[Symbol.species]; };
+    Object.defineProperty(f.definition, 'ammo', { get() {
+      events.push('ammo'); if (once) { once = false; Object.defineProperty(Uint8Array, Symbol.species, { configurable: true, get() {
+        events.push('slice species'); return function (length) { retained = new Uint8Array(length); restore(); return retained; };
+      } }); } return 4;
+    } });
+    let outcome; try { outcome = evaluate(f.weapon, bytes, native); } finally { restore(); }
+    return { outcome, events, partial: retained && Array.from(retained) };
+  });
+  script('overlapping-baseline-slice-sequential-copy', native => {
+    const f = createReaderWeapon(), events = [], storage = new ArrayBuffer(166), bytes = new Uint8Array(storage, 0, 22);
+    bytes.set(deltaBytes({ numbers: { clip: .25, reserve: .75 } }));
+    const own = Object.getOwnPropertyDescriptor(Uint8Array, Symbol.species); let full = null, once = true;
+    const restore = () => { if (own) Object.defineProperty(Uint8Array, Symbol.species, own); else delete Uint8Array[Symbol.species]; };
+    Object.defineProperty(f.definition, 'ammo', { get() {
+      events.push('ammo'); if (once) { once = false; Object.defineProperty(Uint8Array, Symbol.species, { configurable: true, get() {
+        events.push('slice species'); return function () { full = new Uint8Array(storage, 4, 162); restore(); return full; };
+      } }); } return 4;
+    } });
+    let outcome; try { outcome = evaluate(f.weapon, bytes, native); } finally { restore(); }
+    return { outcome, events, full: full && Array.from(full), shared: full?.buffer === bytes.buffer };
+  });
+  return [...cases, ...reconReaderCallbackCases()];
+}
+
+export function reconReaderCallbackCases() {
+  const cases = [], source = captureReaderRemote(createReaderRemote()), layout = remoteReaderLayout(source);
+  const add = (name, options = {}) => cases.push(remoteReaderCase(name, { template: source, ...options }));
+  for (const truncated of [false, true]) add(`weapon-before-length-${truncated}`, {
+    mutate: b => truncated ? b.subarray(0, layout.fields['weapon0.length'].offset) : b,
+    setup(f) { Object.defineProperty(f.arsenal.weapons, '0', { get() {
+      f.events.push('weapon0'); if (!truncated) patchRemoteField(f.bytes, layout, 'weapon0.length', 65535); return f.weapons[0];
+    } }); },
+  });
+  add('invalid-count-skips-arsenal', { mutate: b => patchRemoteField(b, layout, 'count', 3), setup(f) {
+    Object.defineProperty(f.droid, 'arsenal', { get() { f.events.push('unexpected arsenal'); throw Error('arsenal observed'); } });
+  } });
+  add('channel-zero-rejection-skips-channel-one', { mutate: b => patchRemoteField(b, layout, 'selected0', 255), setup(f) {
+    f.arsenal.channels = { 0: { get length() { f.events.push('channel0 length'); return 1; } }, get 1() { f.events.push('unexpected channel1'); throw Error('channel1 observed'); } };
+  } });
+  add('live-arsenal-replacement', { setup(f) {
+    const changed = new Arsenal([{ ...readerDefinition(), ammo: 10 }, f.weapons[1].levels[0]]); let reads = 0;
+    changed.weapons[1] = f.weapons[1]; changed.channels[1][0] = f.weapons[1];
+    Object.defineProperty(f.droid, 'arsenal', { get() { f.events.push(['arsenal', ++reads]); return reads === 1 ? f.arsenal : changed; } });
+  } });
+  add('retained-dataview-after-buffer-getter', { setup(f) {
+    const alternate = f.bytes.slice(); patchRemoteField(alternate, layout, 'camera.aspect', -1);
+    Object.defineProperty(f.arsenal.weapons, '0', { get() {
+      f.events.push('weapon0'); Object.defineProperty(f.bytes, 'buffer', { configurable: true, get() { f.events.push('replacement buffer'); return alternate.buffer; } }); return f.weapons[0];
+    } });
+  } });
+  for (const buffer of [false, true]) add(`nested-payload-copy-${buffer}`, { mutate: b => framedCorrection(b, 5, buffer), setup(f) {
+    Object.defineProperty(f.weapons[0].levels[0], 'ammo', { get() { f.events.push('ammo'); f.bytes[layout.ranges.weapon0.offset + 1] = 255; return 4; } });
+  } });
+  add('nested-read-and-outer-tail-mutation', { setup(f) {
+    const other = createReaderRemote({ empty: true }), payload = captureReaderRemote(other); let once = true;
+    Object.defineProperty(f.weapons[0].levels[0], 'ammo', { get() {
+      f.events.push('ammo'); if (once) {
+        once = false; const nested = decodeRemoteCorrection(payload, other.droid, f.native); f.events.push(['nested health', nested.health]);
+        patchRemoteField(f.bytes, layout, 'selected0', 255); patchRemoteField(f.bytes, layout, 'camera.aspect', 1.25);
+      } return 4;
+    } });
+  } });
+  add('retained-salvo-definition-and-count-order', { setup(f) {
+    captureArsenalWeapon(f.weapons[1]);
+    const def = f.weapons[1].levels[0], replacement = { ...def, SalvoCount: 99 }; f.ids.set(replacement, 'replacement strike');
+    Object.defineProperty(def, 'strike', { configurable: true, get() {
+      f.events.push('strike'); patchRemoteField(f.bytes, layout, 'salvo.left', 2); patchRemoteField(f.bytes, layout, 'salvo.wait', .875);
+      f.weapons[1].levels[0] = replacement; return {};
+    } });
+    Object.defineProperty(def, 'SalvoCount', { configurable: true, get() {
+      f.events.push('old SalvoCount'); patchRemoteField(f.bytes, layout, 'salvo.left', 99); patchRemoteField(f.bytes, layout, 'salvo.at0', 123); return 3;
+    } });
+  } });
+  add('invalid-wait-skips-salvo-count', { mutate: b => patchRemoteField(b, layout, 'salvo.wait', NaN), setup(f) {
+    captureArsenalWeapon(f.weapons[1]);
+    Object.defineProperty(f.weapons[1].levels[0], 'SalvoCount', { get() { f.events.push('unexpected SalvoCount'); throw Error('count observed'); } });
+  } });
+  for (const throwing of [false, true]) add(`vector-method-before-read-${throwing}`, { setup(f) {
+    const original = Object.getOwnPropertyDescriptor(Vector3.prototype, 'fromArray'), intrinsic = original.value; let gets = 0, calls = 0;
+    Object.defineProperty(Vector3.prototype, 'fromArray', { configurable: true, get() {
+      f.events.push(['fromArray getter', ++gets]);
+      if (gets === 1) patchRemoteField(f.bytes, layout, 'salvo.at0', 321);
+      return function (values, offset = 0) {
+        f.events.push(['fromArray call', ++calls, Array.from(values)]);
+        if (throwing) throw Error('vector callback stopped');
+        if (calls === 1) { patchRemoteField(f.bytes, layout, 'salvo.x0', 654); patchRemoteField(f.bytes, layout, 'camera.aspect', 1.75); }
+        if (calls === 2) return { vectorResult: values.slice(), marker: 'custom return' };
+        return intrinsic.call(this, values, offset);
+      };
+    } });
+    return () => Object.defineProperty(Vector3.prototype, 'fromArray', original);
+  } });
+  add('resizable-source-retains-original-view-bounds', { mutate(b) {
+    const storage = new ArrayBuffer(b.length - 10, { maxByteLength: b.length + 64 }), bytes = new Uint8Array(storage);
+    bytes.set(b.subarray(0, bytes.length)); return bytes;
+  }, setup(f) {
+    Object.defineProperty(f.arsenal.weapons, '0', { get() {
+      f.events.push('grow source'); const old = f.bytes.length; f.bytes.buffer.resize(source.length); f.bytes.set(source.subarray(old), old); return f.weapons[0];
+    } });
+  } });
+  const meleeSource = createReaderRemote({ melee: true }); meleeSource.weapons[0].def = meleeSource.weapons[0].levels[1];
+  cases.push(remoteReaderCase('restore-keeps-melee-and-numeric-level-omissions', { template: captureReaderRemote(meleeSource), options: { melee: true }, restore: true, setup(f) {
+    f.weapons[0].level = 73; const swing = f.weapons[0].melee; swing.time = .987; swing.index = 2; swing.swing = f.weapons[0].def.swings[2]; swing.active = true;
+  } }));
+  const adjacent = (n, delta) => {
+    const buffer = new ArrayBuffer(8), view = new DataView(buffer); view.setFloat64(0, n, true); view.setBigUint64(0, view.getBigUint64(0, true) + BigInt(delta), true); return view.getFloat64(0, true);
+  };
+  for (const [directionIndex, direction] of [[.1, .2, .3, .4], [1, 1, 1, 1], [2 ** -500, 1, 2 ** -300, 2 ** -200]].entries()) {
+    const norm = Math.hypot(...direction);
+    for (const target of [.999, 1.001]) for (const ulp of [-2, -1, 0, 1, 2]) {
+      const scale = adjacent(target, ulp), q = direction.map(value => value / norm * scale);
+      add(`camera-hypot-${directionIndex}-${target}-${ulp}`, { mutate(b) {
+        q.forEach((value, i) => patchRemoteField(b, layout, `camera.quaternion${i}`, value)); return b;
+      } });
+    }
+  }
+  for (const [name, q] of [['large', [1e308, 1e308, 1e308, 1e308]], ['subnormal', [Number.MIN_VALUE, Number.MIN_VALUE, 0, -0]]]) {
+    add(`camera-hypot-${name}`, { mutate(b) { q.forEach((value, i) => patchRemoteField(b, layout, `camera.quaternion${i}`, value)); return b; } });
+  }
+  return cases;
 }
