@@ -109,6 +109,7 @@ export async function createAI(mode, world, options) {
   const seed = options.seed >>> 0;
   world.randomB = world.gameRandom = new ClassicRandom((seed ^ 0x9e3779b9) >>> 0);
   world.nav = data.nav ? new ClassicNav(data.nav, data.navBin, { posts: world.posts.posts }) : ClassicNav.empty(options.map);
+  options.aiSim?.bindNavigation(world.nav, data.nav, data.navBin, { posts: world.posts.posts });
   world.classData = data.classes;
 
   // The mission's AI calls, in source order: the setters for difficulty,
