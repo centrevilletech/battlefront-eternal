@@ -90,6 +90,7 @@ if (!['rust', 'js'].includes(battleRules)) throw Error(`--battle ${battleRules}:
 if (!['rust', 'js'].includes(combat)) throw Error(`--combat ${combat}: rust or js`);
 // --hulls rust: the ground hulls' phase on the module (?hulls=rust, src/vehicles-sim.js).
 const hulls = opt('hulls', 'js');
+const f2 = opt('f2', process.env.BFE_F2 ?? 'js');
 // --units rust: the units' phase on the module (?units=rust, src/units-sim.js).
 const units = opt('units', 'js');
 if (!['rust', 'js'].includes(units)) throw Error(`--units ${units}: rust or js`);
@@ -118,8 +119,8 @@ const { headlessGame } = await import('./headless-world.mjs');
 const { createLocalServer } = await import('../src/runtime/local-server.js');
 const { worldState } = await import('../src/runtime/world-state.js');
 const { encodeSnapshotAckKeepalive } = await import('../src/runtime/network-entity-input.js');
-const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&aiSim=${aiSim}&seed=${seed}&rays=${rays}&movement=${movement}&battle=${battleRules}${sim === 'js' ? '&sim=js' : ''}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${hulls === 'rust' ? '&hulls=rust' : ''}${combat === 'rust' ? '&combat=rust' : ''}${seats === 'rust' ? '&seats=rust' : ''}${units === 'rust' ? '&units=rust' : ''}`;
-const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, sim, hulls, combat, seats, units, battle: battleRules, ai, aiSim, heroes, unit, mount, battles, nativeRandom, query };
+const query = `?map=${map}&side=${side}&era=${era}&ai=${ai}&aiSim=${aiSim}&seed=${seed}&rays=${rays}&movement=${movement}&battle=${battleRules}${sim === 'js' ? '&sim=js' : ''}${heroes ? '&heroes=1' : ''}${unit ? `&unit=${unit}` : ''}${hulls === 'rust' ? '&hulls=rust' : ''}${f2 === 'rust' ? `&f2=rust${argv.includes('--f2-debug') ? '&f2Debug=1' : ''}` : ''}${combat === 'rust' ? '&combat=rust' : ''}${seats === 'rust' ? '&seats=rust' : ''}${units === 'rust' ? '&units=rust' : ''}`;
+const options = { map, side, era, seed, ticks, interval, ack, view, rays, movement, sim, hulls, f2, combat, seats, units, battle: battleRules, ai, aiSim, heroes, unit, mount, battles, nativeRandom, query };
 const xyz = (v) => (v ? [v.x, v.y, v.z] : null);
 const hash = (data) => crypto.createHash('sha1').update(data).digest('hex').slice(0, 16);
 
@@ -141,6 +142,7 @@ async function battle(index) {
   if ((units === 'rust') !== Boolean(game.unitsSim)) throw Error(units === 'rust' ? 'the units are not on the module' : 'the units are on the module for a JavaScript run');
   if ((movement === 'wasm') !== Boolean(game.collision.movement)) throw Error(movement === 'wasm' ? 'movement kernel not loaded' : 'movement kernel loaded for a JavaScript run');
   if ((sim === 'rust') !== Boolean(game.ordnance.sim && game.items.sim)) throw Error(sim === 'rust' ? 'the rounds and items are not on the module' : 'the rounds or items are on the module for a JavaScript run');
+  if ((f2 === 'rust') !== Boolean(game.vehicles?.f2)) throw Error('F2 owner did not match the requested switch');
   let sent = [];
   const server = await createLocalServer(game, { name: 'Player', send: (channel, payload) => sent.push([channel, payload]) });
   server.welcome();

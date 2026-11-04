@@ -10470,6 +10470,25 @@ impl VehNothing {
     }
 }
 
+impl F2Variant {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(F2Variant {
+            pad: { let p = format!("{path}.pad"); num(v.get("pad"), &p)? },
+            name: { let p = format!("{path}.name"); cx.str_in(v.get("name"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.pad); fields.push(("pad", x)); }
+        { let x = cx.str_out(self.name); fields.push(("name", x)); }
+        a.object("", fields)
+    }
+}
+
 impl VehHull {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

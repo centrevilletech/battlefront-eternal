@@ -3,6 +3,7 @@ export class F2Counters {
   constructor() { this.reset(); }
   reset() {
     this.ticks = 0;
+    this.wasmCalls = 0;
     this.phaseCalls = 0;
     this.commandCalls = 0;
     this.lifecycleCalls = 0;
@@ -26,4 +27,19 @@ export class F2MirrorCheck {
     }
   }
   retire(object) { this.values.delete(object); }
+}
+
+// A plain forwarding table, scoped to this subsystem's bridge. No global
+// intrinsic or exported function is replaced.
+export function countedF2Exports(exports, counters) {
+  return Object.fromEntries(Object.entries(exports).map(([name, value]) => [name,
+    typeof value !== 'function' ? value : (...args) => {
+      counters.wasmCalls++;
+      if (name === 'f2_step') { counters.phaseCalls++; counters.inputFields += 2; }
+      else if (name === 'f2_command') { counters.commandCalls++; counters.inputFields += args.length; }
+      else counters.lifecycleCalls++;
+      if (name === 'sim_import_room') counters.inputFields += args[1] * args[2] + args[3];
+      if (name === 'veh_input') counters.inputFields += args[0];
+      return value(...args);
+    }]));
 }

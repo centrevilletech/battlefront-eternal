@@ -830,6 +830,40 @@ export function exportVehNothing(o, cx) {
   return v;
 }
 
+export class F2VariantMirror {
+  constructor() {
+    this.pad = NaN;
+    this.name = '';
+  }
+}
+
+export function syncF2Variant(b, f, at, h, m) {
+  m.pad = f[at + 0];
+  m.name = b.strings.at(f[at + 1]);
+  return m;
+}
+
+export function putF2Variant(b, o, f, at, heap) {
+  f[at + 0] = o.pad;
+  f[at + 1] = b.strings.id(o.name);
+}
+
+export function sameF2Variant(a, b) {
+  if (!Object.is(a.pad, b.pad)) return ".pad";
+  if (!Object.is(a.name, b.name)) return ".name";
+  return null;
+}
+
+export function exportF2Variant(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.pad = o.pad;
+  v.name = o.name;
+  return v;
+}
+
 export class VehHullMirror {
   constructor() {
     this.hull = NaN;

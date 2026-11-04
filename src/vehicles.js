@@ -920,6 +920,7 @@ export class Vehicle {
 
   // attacker (optional): who is credited, a unit or whatever owned the round.
   damage(amount, attacker = null) {
+    if (this.system.f2) return this.system.f2.command(this, 0, amount, attacker);
     if (!this.alive || !(amount > 0)) return;
     if (attacker) this.lastAttacker = attacker;
     this.system.world.damaged(this, amount, attacker);
@@ -927,6 +928,7 @@ export class Vehicle {
   }
 
   setHealth(value) {
+    if (this.system.f2) return this.system.f2.command(this, 1, value);
     if (!this.alive) return;
     this.health = THREE.MathUtils.clamp(value, 0, this.maxHealth);
     if (this.health > 0) return;
@@ -2063,6 +2065,7 @@ export class Vehicles {
   // taken once; their exits happen before the substeps, their weapons fire
   // after them, and their bodies follow their seats at the end.
   update(dt, driven = null, input = idle) {
+    if (this.f2) return this.f2.step(dt, this.ticks + 1);
     dt = THREE.MathUtils.clamp(dt, 0, .1);
     this.time += dt;
     this.updateSpawns(dt);
@@ -2283,7 +2286,8 @@ export class Vehicles {
     if (!unit.networkHuman) lease.controllable = this.seatsWorld.controllable(lease);
     unit.seat = lease;
     seatBody(unit);
-    vehicle.sleeping = false;
+    if (this.f2) this.f2.command(vehicle, 2);
+    else vehicle.sleeping = false;
     this.syncRider(lease);
     this.seatsWorld.boarded(unit, vehicle, index);
     return true;

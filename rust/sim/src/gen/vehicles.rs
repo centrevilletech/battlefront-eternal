@@ -589,6 +589,31 @@ impl VehNothing {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct F2Variant {
+    pub pad: f64,
+    pub name: StrId,
+}
+
+impl F2Variant {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.pad;
+        row[1] = self.name.0 as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            pad: row[0],
+            name: StrId(word_u32(row[1])),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct VehHull {
     pub hull: f64,
 }

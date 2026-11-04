@@ -502,11 +502,12 @@ async function start() {
   // A world's ground hulls on the module (src/vehicles-sim.js), where it asks
   // for them: ?hulls=rust, or under Node BFE_HULLS=rust. Off by default until
   // the hull phase moves whole (flight, seats and fire with it).
-  const wantHulls = headless && (params.get("hulls") ?? globalThis.process?.env?.BFE_HULLS) === "rust";
+  const wantF2 = headless && (params.get("f2") ?? globalThis.process?.env?.BFE_F2) === "rust";
+  const wantHulls = !wantF2 && headless && (params.get("hulls") ?? globalThis.process?.env?.BFE_HULLS) === "rust";
   // The hulls' seats' input batch on the module (src/seats-sim.js), where a
   // world asks for it: ?seats=rust, or under Node BFE_SEATS=rust. Off by
   // default until the seats move whole with the hulls (F2).
-  const wantSeats = headless && (params.get("seats") ?? globalThis.process?.env?.BFE_SEATS) === "rust";
+  const wantSeats = !wantF2 && headless && (params.get("seats") ?? globalThis.process?.env?.BFE_SEATS) === "rust";
   // A world's combats on the module (src/combat-sim.js), where it asks for
   // them: ?combat=rust, or under Node BFE_COMBAT=rust. Off by default until
   // units and combat move over together.
@@ -516,7 +517,7 @@ async function start() {
   const wantBattle = headless && (params.get("battle") ?? globalThis.process?.env?.BFE_BATTLE) === "rust";
   const wantAiSim = headless && (params.get("aiSim") ?? globalThis.process?.env?.BFE_AI_SIM) === "rust";
   // The kernels and the store on the battle's one instance of the module.
-  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantSeats || wantCombat || wantUnits || wantBattle || wantAiSim ? await loadSimInstance() : null;
+  const simInstance = wantRays || wantAnim || wantSim || wantF2 || wantHulls || wantSeats || wantCombat || wantUnits || wantBattle || wantAiSim ? await loadSimInstance() : null;
   const aiSim = wantAiSim && simInstance ? (await import("./ai-sim.js")).attachAiSim(simInstance) : null;
   const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
   const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
@@ -1377,6 +1378,13 @@ async function start() {
     vehicles.humanTarget = (vehicle) => driver.vehicle === vehicle ? humanReticleTarget : null;
     vehicles.random = gameplayRandom;
     vehicles.seatRandom = seatRandom;
+    if (wantF2 && simInstance) {
+      const [{ bridgeFor }, { attachF2 }] = await Promise.all([import('./sim/runtime.js'), import('./f2-sim.js')]);
+      await attachF2(vehicles, bridgeFor(simInstance, { classes: { Unit, Vehicle } }),
+        { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
+        { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) },
+        Unit, params.get('f2Debug') === '1');
+    }
     if (wantHulls && simInstance) await attachHullPhase(simInstance, vehicles, { killY, deathRegions: world.deathRegions, scripted: world.mission?.deathRegions },
       { data: vehicleDef, buffer: vehicleBuf, indexBuffer: vehicleIndexBuf, animationBuffer: vehicleAnimationBuf || new ArrayBuffer(0) }, Unit);
     if (wantSeats && simInstance) await attachSeatPhase(simInstance, vehicles);

@@ -25,6 +25,8 @@
 //! (`veh_changes`), and JavaScript gives every body's flag again after a
 //! hook (`veh_flags`), for the same reason.
 
+pub mod f2;
+
 use super::class::HullClass;
 use super::hull::{Hull, Input};
 use super::native::{Collider, Collision, MapRules};
@@ -672,6 +674,15 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
     let locks = unsafe { &mut *addr_of_mut!(LOCKS) };
     locks.clear();
     locks.push(0.0);
+    if f2::active() {
+        for (i, &r) in refs.iter().enumerate() {
+            let v = sim().store.vehicle.get(r).expect("F2 hull");
+            if v.alive && !v.flying {
+                let mut hull = load(r, i);
+                hull.capture_tick(); store(&hull);
+            }
+        }
+    }
     if flight_on != 0 {
         if let Some(env) = unsafe { (*addr_of_mut!(FLIGHT_ENV)).as_mut() } {
             env.assists = assists != 0;
@@ -722,7 +733,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
     }
     for (i, &r) in refs.iter().enumerate() {
         let v = sim().store.vehicle.get(r).expect("a hull the store holds");
-        if v.alive && !v.flying {
+        if !f2::active() && v.alive && !v.flying {
             let mut hull = load(r, i);
             hull.capture_tick();
             store(&hull);
@@ -953,7 +964,8 @@ impl VehicleWorld for JsWorld {
     }
 
     fn respawn_clock(&mut self, hull: usize) {
-        import_veh_respawn_clock(&VehHull { hull: hull as f64 });
+        if f2::active() { f2::respawn_clock(hull); }
+        else { import_veh_respawn_clock(&VehHull { hull: hull as f64 }); }
     }
 
     fn release_crew(&mut self, hull: usize) {
@@ -987,6 +999,7 @@ impl VehicleWorld for JsWorld {
 
     fn current(&mut self, hull: &Hull) {
         store_hull(hull);
+        if f2::active() { f2::publish(); }
     }
 
     fn reload(&mut self, hull: &mut Hull) {

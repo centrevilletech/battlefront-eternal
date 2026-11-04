@@ -91,6 +91,7 @@ export default {
     VehFlag: { value: 'bool' },
     VehNumber: { value: 'f64' },
     VehNothing: {},
+    F2Variant: { pad: 'f64', name: 'str' },
     VehHull: { hull: 'f64' },
     VehDamaged: { hull: 'f64', amount: 'f64', attacker: 'union:OrdnanceOwner' },
     VehBlast: { hull: 'f64', final: 'bool', position: 'vec3' },
@@ -229,6 +230,9 @@ export default {
   // explosion) sees every hull as the phase has left it, and what it does to
   // any hull comes back before the phase goes on.
   imports: {
+    f2Latch: { args: 'VehNothing', result: null },
+    f2Variant: { args: 'F2Variant', result: null },
+    f2Life: { args: 'VehHull', result: null },
     vehCast: { args: 'VehRay', result: 'VehHit' },
     vehPushWalls: { args: 'VehPush', result: 'VehPushed' },
     vehGround: { args: 'VehColumn', result: 'VehGround' },
