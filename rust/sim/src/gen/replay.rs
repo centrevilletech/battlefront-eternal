@@ -328,15 +328,17 @@ impl AiAwarenessArgs {
             op: { let p = format!("{path}.op"); AiAwarenessOp::from_u8(name_of(v.get("op"), &AiAwarenessOp::NAMES, &p)?).unwrap() },
             id: { let p = format!("{path}.id"); (int(v.get("id"), &p, 0.0, u32::MAX as f64)? as u32) },
             number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
+            other: { let p = format!("{path}.other"); num(v.get("other"), &p)? },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
         { let x = Value::Str(AiAwarenessOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
         { let x = Value::Num(self.id as f64); fields.push(("id", x)); }
         { let x = Value::Num(self.number); fields.push(("number", x)); }
+        { let x = Value::Num(self.other); fields.push(("other", x)); }
         a.object("", fields)
     }
 }
