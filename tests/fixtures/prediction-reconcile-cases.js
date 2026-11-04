@@ -127,6 +127,37 @@ export function reconcileNumericCases() {
 
 export function reconcileCallbackCases() {
   return [
+    { name: 'models:untouched-scalar-nan-payloads-and-raw-arrival-arguments', group: 'callback', run(native) {
+      const out = [], bytes = new ArrayBuffer(8), view = new DataView(bytes);
+      const value = bits => { view.setBigUint64(0, bits, true); return view.getFloat64(0, true); };
+      const bits = number => { view.setFloat64(0, number, true); return view.getBigUint64(0, true).toString(16).padStart(16, '0'); };
+      for (const pattern of [0x7ff0000000000001n, 0xfff0000000000123n, 0x7ff000000000ff00n, 0x7ff8000000000001n, 0xfff8000000000123n]) {
+        const smoother = new CorrectionSmoother({}, options(native)); smoother.worst = value(pattern);
+        const worstBefore = bits(smoother.worst); smoother.note(1, 0, 0, 0, 0, 0);
+        const lead = new InputLead({}, options(native)); lead.extra = value(pattern);
+        const extraBefore = bits(lead.extra); lead.acknowledge(1, 1, true);
+        lead.latest = value(pattern); const latestBefore = bits(lead.latest); lead.arrive(1, 0);
+        const latestAfter = bits(lead.latest); lead.arrive(2, value(pattern));
+        const estimator = new WorldTickEstimator({}, options(native)); estimator.arrive(1, 0, value(pattern));
+        out.push({ pattern: pattern.toString(16), worstBefore, worst: bits(smoother.worst), extraBefore, extra: bits(lead.extra), latestBefore,
+          latest: latestAfter, arrivedAt: bits(lead.arrivedAt), dropped: bits(estimator.dropped) });
+      }
+      return out;
+    } },
+    { name: 'models:skipped-inherited-fields-remain-inherited', group: 'callback', run(native) {
+      const inherit = (target, names) => {
+        const prototype = Object.create(Object.getPrototypeOf(target));
+        for (const name of names) { prototype[name] = target[name]; delete target[name]; }
+        Object.setPrototypeOf(target, prototype);
+      };
+      const lead = new InputLead({}, options(native)); inherit(lead, ['extra', 'calm']); lead.acknowledge(1, 1, true);
+      const arrival = new InputLead({}, options(native)); inherit(arrival, ['latest', 'gapAt', 'gapCount']); arrival.arrive(-1, 0);
+      const smoother = new CorrectionSmoother({}, options(native)); smoother.worst = 10; inherit(smoother, ['worst']); smoother.note(1, 0, 0, 0, 0, 0);
+      const estimator = new WorldTickEstimator({ window: 1 }, options(native)); estimator.arrive(1, 0); inherit(estimator, ['count']); estimator.arrive(2, 0);
+      return { ack: { extra: lead.extra, ownExtra: Object.hasOwn(lead, 'extra'), ownCalm: Object.hasOwn(lead, 'calm') },
+        arrival: { latest: arrival.latest, ownLatest: Object.hasOwn(arrival, 'latest'), ownAt: Object.hasOwn(arrival, 'gapAt'), ownCount: Object.hasOwn(arrival, 'gapCount') },
+        smoother: { worst: smoother.worst, ownWorst: Object.hasOwn(smoother, 'worst') }, estimator: { count: estimator.count, ownCount: Object.hasOwn(estimator, 'count') } };
+    } },
     { name: 'estimator:untouched-ring-payload-and-zero-tie', group: 'callback', native: true, run(native) {
       const e = new WorldTickEstimator({ hz: 0, window: 5 }, options(native)), ring = e.offsets;
       seedRing(ring); const before = ringBytes(ring); e.reset(); const reset = ringBytes(ring);

@@ -73,6 +73,12 @@ test('ring writes preserve untouched payload bits and percentile fallback stays 
     lead.measure(); return { bits: scalarBits(lead.worstGap), before: bytes, after: ringBytes(lead.gaps), key: lead.measuredKey };
   };
   try {
+    const payloads = twin(callback('models:untouched-scalar-nan-payloads-and-raw-arrival-arguments'), native);
+    for (const entry of payloads) {
+      for (const key of ['worstBefore', 'worst', 'extraBefore', 'extra', 'latestBefore', 'latest', 'arrivedAt', 'dropped']) assert.equal(entry[key], entry.pattern, key);
+    }
+    const inheritance = twin(callback('models:skipped-inherited-fields-remain-inherited'), native);
+    assert.deepEqual(inheritance, { ack: { extra: 0, ownExtra: false, ownCalm: false }, arrival: { latest: 0, ownLatest: false, ownAt: false, ownCount: false }, smoother: { worst: 10, ownWorst: false }, estimator: { count: 1, ownCount: false } });
     const retained = twin(callback('estimator:untouched-ring-payload-and-zero-tie'), native);
     assert.equal(retained.before, retained.reset); assert.equal(retained.identity, true); assert.equal(retained.zeroTie, true);
     assert.equal(retained.first.bytes.slice(16), retained.before.slice(16));
