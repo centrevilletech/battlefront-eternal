@@ -1,5 +1,5 @@
 // Source-owned programs. Names belong to a family, independently of the draw
-// kind and pass numbers. The manifest is also the browser fallback's layout.
+// kind and pass numbers. The manifest also declares browser phase layouts.
 use crate::{core::{Core, MultiDraw}, shader::Kind};
 use glow::HasContext;
 #[path = "program_catalog.rs"]
