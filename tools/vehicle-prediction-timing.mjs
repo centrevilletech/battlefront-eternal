@@ -28,6 +28,10 @@ const root=resolve(process.env.BFE_DATA_DIR||'public');
 globalThis.fetch=async path=>{const filename=resolve(root,`.${path}`);assert.ok(filename.startsWith(root+sep));try{return new Response(await readFile(filename));}catch(error){if(error.code==='ENOENT')return new Response('',{status:404});throw error;}};
 const fps=Number(process.env.FPS||144),seconds=Number(process.env.SECONDS||8),rtt=Number(process.env.RTT_MS||100)/1000,jitter=Number(process.env.JITTER_MS||30)/1000,lossEvery=Number(process.env.LOSS_EVERY||20),snapshotLossEvery=Number(process.env.SNAPSHOT_LOSS_EVERY||20);
 const redundantTransitions=process.env.TRANSITION_REDUNDANCY==='1';
+// The model advances simulated time faster than real time. Use its clock
+// for input expiry too, so a slow host cannot inject an unmodelled timeout.
+let wallTime = 0;
+performance.now = () => wallTime;
 const game=await createGame({headless:true,query:'?map=bes1&side=all&ai=classic&seed=1'});
 const world=createMultiplayerWorld(game,{armySize:Number(process.env.ARMY_SIZE||1)}),aircraft=game.vehicles.vehicles.find(v=>v.flying&&v.alive&&[1,2].includes(v.team));assert.ok(aircraft);
 const player=await world.addPlayer('pilot',{team:aircraft.team,separateActions:true,reliableFire:true}),unit=world.players.get('pilot').unit;
@@ -55,7 +59,7 @@ const quantize=v=>{
  return v;
 };
 for(let micro=1;micro<=seconds*7200;micro++){
- now=micro/7200;
+ now=micro/7200;wallTime=now*1000;
  while(toWorld.length&&toWorld[0].at<=now+1e-10){const {kind,message}=toWorld.shift();if(kind==='state')for(const c of message.commands)world.input('pilot',c);else world.actions('pilot',message);}
  if(micro%120===0){
   world.step();states.add(aircraft.flightState);peakSpeed=Math.max(peakSpeed,aircraft.airspeed);
