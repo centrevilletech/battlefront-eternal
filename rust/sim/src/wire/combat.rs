@@ -127,7 +127,9 @@ pub fn feedback(c: &WbEncode) -> Result<Vec<u8>> {
     w.bytes(&(c.has_source as u16).to_le_bytes())?;
     if c.has_source {
         for n in &c.source {
-            w.f64(*n, "invalid feedback source")?;
+            // Array.every skips holes. Iteration subsequently writes those
+            // holes as NaN; decodeFeedback is the later validation point.
+            w.bytes(&n.to_le_bytes())?;
         }
     } else {
         for _ in 0..3 {

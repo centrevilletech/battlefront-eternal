@@ -44,6 +44,7 @@ export class WireCombat {
   }
   feedback(r) {
     const e = r.event, source = e.source, schema = e.kind === 'damage' ? 3 : e.kind === 'death' ? 4 : 0;
+    if (!schema) return record(r, schema, this.encode(1, { schema }));
     const hasSource = Array.isArray(source) && source.length === 3 && source.every(Number.isFinite);
     const payload = this.encode(1, { schema, expiryTick: number(r.tick + 18),
       targetId: number(e.target?.unit?.id ?? 0), targetGeneration: number(e.target?.generation ?? 0),
