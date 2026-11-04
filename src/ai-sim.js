@@ -5,7 +5,7 @@ import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
 import { NativeScheduler } from './ai-scheduler-sim.js';
-import { bindClusterState, chargeWeapon, facingAndRange, maxExpandedRange, peekClusterState, prepareSpread, protectedVeto, selectedWeapon, setTarget, sniperWeapon, validateFire, weaponAI } from './ai/classic/weapons-ai.js';
+import { bindClusterState, chargeWeapon, clusterState, facingAndRange, maxExpandedRange, peekClusterState, prepareSpread, protectedVeto, selectedWeapon, setTarget, sniperWeapon, switchWeapon, validateFire, weaponAI, weaponUtility } from './ai/classic/weapons-ai.js';
 import { recordTarget } from './ai/classic/perception.js';
 import { dropCorrect, isCannon } from './ai/classic/aim.js';
 
@@ -49,6 +49,7 @@ export class AiSim {
     this.fireFrames=[];
     this.weaponFrames=[];this.weaponOrigin=new Vector3();this.weaponForward=new Vector3();
     this.weaponLead=new Vector3();this.weaponPoint=new Vector3();
+    this.choiceOrigin=new Vector3();this.choicePoint=new Vector3();this.choiceUtility={ok:false,score:0};
     this.trackerLead=new Vector3();
     this.ballisticPoint=new Vector3();this.ballisticOrigin=new Vector3();this.ballisticZero=new Vector3();
     bridge.register({aiSight:args=>{
@@ -241,6 +242,38 @@ export class AiSim {
       } else if(op==='sniper') result.flag=sniperWeapon(frame.weapon);
       else if(op==='spreadValues') {const p=unit.position,q=frame.target.position;result.values=[p.x,p.y,p.z,q.x,q.y,q.z,frame.weapon.sniperScale??0];}
       else if(op==='spreadWrite') frame.weapon.yawSpreadOverride=number;
+      else if(op==='choiceStart') {
+        const out=frame.out;out.ok=false;out.index=-1;out.weapon=null;out.action=6;out.inBand=false;
+        frame.weapons=unit?.combat?.arsenal?.weapons||[];
+        result.flag=Boolean(frame.target && frame.weapons.length);
+        if(result.flag)result.values=[frame.world?.time??0];
+      } else if(op==='choiceOrigin') unit.origin(this.choiceOrigin);
+      else if(op==='choiceAim') {
+        frame.target.aimPoint(this.choicePoint);const p=this.choicePoint,q=this.choiceOrigin;
+        result.values=[p.x,p.y,p.z,q.x,q.y,q.z,unit.kind];
+      } else if(op==='choiceWeapon') {
+        result.flag=index<frame.weapons.length;
+        if(result.flag) {
+          const w=frame.choiceWeapon=frame.weapons[index];
+          result.values=w?[1,Number(Boolean(w.bottomless)),Number(w.reserve===Infinity),w.clip,w.reserve,w.rounds]:[0];
+        }
+      } else if(op==='choiceUtility') {
+        const utility=weaponUtility(unit,frame.choiceWeapon,frame.target,this.choiceUtility);
+        result.flag=utility.ok;result.values=[utility.score];
+      } else if(op==='choiceCapacity') {
+        const w=frame.choiceWeapon;result.values=[w?.def?.ammo,Number(Boolean(w?.bottomless)),w?.rounds??1];
+      } else if(op==='choiceRange') {
+        const a=weaponAI(frame.choiceWeapon.def);
+        result.values=[unit?.kind,c?.rangeScale??1,a.maxRange,Number(Boolean(a.implicitRange)),a.extremeRange,a.minRange];
+      } else if(op==='choiceSpeed') result.values=[unit?.classDef?.ForwardSpeed??unit?.classDef?.MaxSpeed??0];
+      else if(op==='choiceGrenade') result.flag=frame.choiceWeapon.def.base==='grenade';
+      else if(op==='choiceCluster') {const cache=clusterState(frame.target);result.flag=Boolean(cache);if(cache)result.values=[cache.flaggedAt];}
+      else if(op==='choiceRoll') result.values=[c?.roll??c?.id??0];
+      else if(op==='choiceWrite') {
+        const out=frame.out;out.ok=true;out.index=index;out.weapon=frame.weapons[index];out.action=weaponAI(out.weapon.def).action;out.inBand=Boolean(number);
+      } else if(op==='choiceSelected') {
+        const weapon=selectedWeapon(unit,c);result.values=[weapon?unit.combat.arsenal.weapons.indexOf(weapon):-1];
+      } else if(op==='choiceSwitch') switchWeapon(c,unit,index);
       else throw Error(`unknown weapon geometry callback ${op}`);
       return result;
     }});
@@ -401,6 +434,11 @@ export class AiSim {
   weaponGuard(op,controller,unit,point,lead=null,weapon=null,expected=null) {
     this.weaponFrames.push({op,controller,unit,point,lead,weapon,expected});
     try {return Boolean(this.x.ai_weapon_guard(op));}
+    finally {this.weaponFrames.pop();}
+  }
+  selectWeapon(controller,unit,target,switchAllowed,world,out) {
+    this.weaponFrames.push({controller,unit,target,world,out});
+    try {this.x.ai_weapon_select(Number(Boolean(switchAllowed)));return out;}
     finally {this.weaponFrames.pop();}
   }
   selectTarget(id,tracker,world) {

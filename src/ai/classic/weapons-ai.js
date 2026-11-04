@@ -410,6 +410,8 @@ const utility = { ok: false, score: 0 };
 // (index: the inventory index, -1 when none). switchAllowed: switch the
 // controller's selection to it when it differs.
 export function selectWeapon(controller, unit, target, switchAllowed, world, out = {}) {
+  const native = controller?.ai?.world?.aiSim;
+  if (native) return native.selectWeapon(controller, unit, target, switchAllowed, world, out);
   out.ok = false;
   out.index = -1;
   out.weapon = null;

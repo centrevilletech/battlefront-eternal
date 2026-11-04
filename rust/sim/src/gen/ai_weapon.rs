@@ -25,10 +25,24 @@ pub enum AiWeaponOp {
     Sniper = 16,
     SpreadValues = 17,
     SpreadWrite = 18,
+    ChoiceStart = 19,
+    ChoiceOrigin = 20,
+    ChoiceAim = 21,
+    ChoiceWeapon = 22,
+    ChoiceUtility = 23,
+    ChoiceCapacity = 24,
+    ChoiceRange = 25,
+    ChoiceSpeed = 26,
+    ChoiceGrenade = 27,
+    ChoiceCluster = 28,
+    ChoiceRoll = 29,
+    ChoiceWrite = 30,
+    ChoiceSelected = 31,
+    ChoiceSwitch = 32,
 }
 
 impl AiWeaponOp {
-    pub const NAMES: [&'static str; 19] = ["coneStart", "origin", "forward", "conePoint", "coneFacts", "aimer", "range", "rangePoint", "protectionStart", "reference", "sphere", "validationStart", "target", "lead", "targetPoint", "spreadStart", "sniper", "spreadValues", "spreadWrite"];
+    pub const NAMES: [&'static str; 33] = ["coneStart", "origin", "forward", "conePoint", "coneFacts", "aimer", "range", "rangePoint", "protectionStart", "reference", "sphere", "validationStart", "target", "lead", "targetPoint", "spreadStart", "sniper", "spreadValues", "spreadWrite", "choiceStart", "choiceOrigin", "choiceAim", "choiceWeapon", "choiceUtility", "choiceCapacity", "choiceRange", "choiceSpeed", "choiceGrenade", "choiceCluster", "choiceRoll", "choiceWrite", "choiceSelected", "choiceSwitch"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -51,6 +65,20 @@ impl AiWeaponOp {
             16 => Some(AiWeaponOp::Sniper),
             17 => Some(AiWeaponOp::SpreadValues),
             18 => Some(AiWeaponOp::SpreadWrite),
+            19 => Some(AiWeaponOp::ChoiceStart),
+            20 => Some(AiWeaponOp::ChoiceOrigin),
+            21 => Some(AiWeaponOp::ChoiceAim),
+            22 => Some(AiWeaponOp::ChoiceWeapon),
+            23 => Some(AiWeaponOp::ChoiceUtility),
+            24 => Some(AiWeaponOp::ChoiceCapacity),
+            25 => Some(AiWeaponOp::ChoiceRange),
+            26 => Some(AiWeaponOp::ChoiceSpeed),
+            27 => Some(AiWeaponOp::ChoiceGrenade),
+            28 => Some(AiWeaponOp::ChoiceCluster),
+            29 => Some(AiWeaponOp::ChoiceRoll),
+            30 => Some(AiWeaponOp::ChoiceWrite),
+            31 => Some(AiWeaponOp::ChoiceSelected),
+            32 => Some(AiWeaponOp::ChoiceSwitch),
             _ => None,
         }
     }
