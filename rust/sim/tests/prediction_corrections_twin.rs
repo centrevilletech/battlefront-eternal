@@ -26,6 +26,63 @@ fn words(value: &Value) -> Vec<f64> {
 }
 
 #[test]
+fn flight_floor_nan_bits_and_owned_results_survive_later_reads() {
+    use bfe_sim::prediction::corrections::{decode_compact_flight, decode_flight};
+    fn command(bytes: &[u8], metadata: &[f64]) -> Vec<f64> {
+        let mut out = vec![metadata.len() as f64];
+        out.extend(metadata);
+        out.extend([1.0, bytes.len() as f64]);
+        out.extend(bytes.iter().map(|n| *n as f64));
+        out
+    }
+    let mut session = Session::default();
+    for bits in [
+        0x7ff8000000000000u64,
+        0x7ff8000000000001,
+        0x7ff8123456789abc,
+        0xfff8000000001234,
+        0x7ff0000000000001,
+        0xfff000000000abcd,
+    ] {
+        let mut full_bytes = vec![0u8; 726];
+        full_bytes[128..136].copy_from_slice(&bits.to_le_bytes());
+        let full = decode_flight(Some(&full_bytes), 2.0, true, [true; 13], true).unwrap();
+        assert_eq!(full.numbers[16].to_bits(), bits);
+        assert_eq!(full.words()[16].to_bits(), bits);
+        let mut full_metadata = vec![2.0, 1.0];
+        full_metadata.extend([1.0; 14]);
+        session.input = command(&full_bytes, &full_metadata);
+        session.run(6).unwrap();
+        assert_eq!(session.output[16].to_bits(), bits);
+        let saved_output = session.output.clone();
+
+        // Flying without a trick has one unit quaternion and no travel fields.
+        let mut compact_bytes = vec![0u8; 382];
+        compact_bytes[0] = 2;
+        compact_bytes[110..118].copy_from_slice(&bits.to_le_bytes());
+        compact_bytes[310..318].copy_from_slice(&1.0f64.to_le_bytes());
+        let compact =
+            decode_compact_flight(Some(&compact_bytes), true, [true; 9], [true; 4]).unwrap();
+        assert_eq!(compact.numbers[13].to_bits(), bits);
+        assert_eq!(compact.words()[19].to_bits(), bits);
+        session.input = command(&compact_bytes, &[1.0; 14]);
+        session.run(5).unwrap();
+        assert_eq!(session.output[19].to_bits(), bits);
+
+        full_bytes.fill(255);
+        compact_bytes.fill(255);
+        session.input.clear();
+        assert!(session.run(0).is_err());
+        assert!(session.output.is_empty());
+        assert_eq!(saved_output[16].to_bits(), bits);
+        assert_eq!(full.numbers[16].to_bits(), bits);
+        assert_eq!(compact.numbers[13].to_bits(), bits);
+        assert_eq!(full.words()[16].to_bits(), bits);
+        assert_eq!(compact.words()[19].to_bits(), bits);
+    }
+}
+
+#[test]
 fn correction_readers_match_js_validation_and_wasm_words() {
     let content = match std::env::var("BFE_CORRECTION_CORPUS_KIND").as_deref() {
         Err(std::env::VarError::NotPresent) | Ok("synthetic") => false,
