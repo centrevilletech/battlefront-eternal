@@ -8,7 +8,8 @@ message naming the variant. Unported shader families still borrow three programs
 
 Each variant has a unique `<family>/<name>` key, self-contained vertex and
 fragment bodies, explicit attribute locations, and named uniform slots with the
-renderer types (float/vector 1..4, integer/bool 5, mat3 9, mat4 16, sampler2D 32).
+renderer types (float/vector 1..4, integer/bool 5, mat3 9, mat4 16, sampler2D 32,
+sampler3D 33).
 Order in the uniform object defines slot order. Include every active input;
 inactive declared inputs may remain. The linker validates active uniforms and
 attribute locations against the declaration. Unknown keys, incompatible layouts
@@ -123,15 +124,23 @@ shader material to compile. The main HUD registers Rust directly; unrelated UI
 quad consumers still compile their material. Unported families retain their
 preparation work, so source ownership alone does not remove the long loading task.
 
-The current cache avoids repeated linking in one context. In local software-GPU
-diagnostics, first registration of all twelve variants in a warm driver/context
-took 121.970 ms; repeating those keys took 0.165 ms and returned the same IDs.
-This is not a cold-start or persistent-binary measurement. Interleaved full-load
-rounds did not establish a startup improvement: bridge preparation was
-129.929/139.614 s and owned preparation 142.394/143.518 s. Driver caches were
-retained and software-GPU contention limits that comparison. No laptop speedup
-is claimed. Compile/link enqueue time was below 3 ms; shader/program status waits
-dominated (one diagnostic pair: 68.449/9.457 s versus 59.178/8.724 s).
+The current cache avoids repeated linking in one context. In an earlier warm
+GPU-driver diagnostic, first registration of all twelve variants took 121.970 ms
+and repeating the keys took 0.165 ms, returning the same IDs. In fresh default-path
+applications, registering ten unused variants with two already cached took
+2.925–5.941 seconds; repeating all twelve took 0.075–0.145 ms. Driver-cache state
+and queued status waits matter. Neither probe measures persistent binary reuse.
+
+Local interleaved frozen-reference/candidate/candidate/reference load diagnostics
+used Classic settings, draws enabled, 1600x900, three preparation draws, twelve
+seconds of simulation warmup and retained driver caches. Reference preparation
+was 144.014/153.056 s; candidate was 128.816/151.910 s. Both linked 134 programs.
+Worst main-thread tasks were 86.817/104.908 s versus 81.682/96.096 s. These
+software-GPU rounds do not establish a startup improvement or reproduce the
+reported 24-second loading configuration. No laptop speedup is claimed.
+Compile/link API calls queued work in 2.4–4.2 ms; combined shader/program status
+waits took 77.684–97.170 s. Owning source permits earlier or paced compilation,
+but the remaining driver waits still need that scheduling work.
 
 A persistent cache needs source/schema hashes, variant flags, backend and GPU/driver
 identity. WebGL offers no portable program-binary persistence; browser/ANGLE disk
