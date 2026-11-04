@@ -7,7 +7,7 @@ import { rigNodes } from '../src/vehicles-sim.js';
 import { MAGIC, RECORD, Writer } from './sim-capture/format.mjs';
 
 const names = ['muzzleOf', 'muzzleOfSeat', 'heldByLimits', 'reticleRay', 'botAim', 'nose', 'shotDirection', 'beamDirection', 'spread', 'towHeld'];
-let game, native, fd, active = false, records = 0, calls = 0, nativeCalls = 0, callbacks = 0, exercised = 0;
+let game, native, fd, active = false, records = 0, calls = 0, nativeCalls = 0, callbacks = 0, exercised = 0, depth = 0;
 const writer = new Writer();
 function record(kind, data) { if (active) { writer.record(RECORD.frame, ++records, kind, data); fs.writeSync(fd, writer.take()); } }
 function state(v) {
@@ -45,10 +45,13 @@ export function ticked(tick) {
       if (native) assert.ok(Object.hasOwn(v, name), `${name} is native`);
       v[name] = function (...args) {
         if (native) nativeCalls++;
-        record(`${name}:before`, state(this));
-        const result = original.apply(this, args);
-        record(`${name}:after`, { state: state(this), result: result instanceof Vector3 ? result.toArray() : typeof result === 'boolean' ? result : result ? w.aimers.indexOf(result) : null });
-        return result;
+        const outer = depth++ === 0;
+        if (outer) record(`${name}:before`, state(this));
+        try {
+          const result = original.apply(this, args);
+          if (outer) record(`${name}:after`, { state: state(this), result: result instanceof Vector3 ? result.toArray() : typeof result === 'boolean' ? result : result ? w.aimers.indexOf(result) : null });
+          return result;
+        } finally { depth--; }
       };
       wrappers.push([name, original]);
     }
@@ -56,7 +59,10 @@ export function ticked(tick) {
     let nested = false, iteration = 0;
     v.system.world.clock = function (...args) {
       callbacks++; record('clock', state(v));
-      if (iteration % 7 === 0 && !nested) { nested = true; v.muzzleOf(w, new Vector3()); nested = false; }
+      if (iteration % 7 === 0 && !nested) {
+        nested = true; const point = new Vector3(); v.muzzleOf(w, point);
+        record('nested-result', { point: point.toArray(), state: state(v) }); nested = false;
+      }
       if (iteration % 3 === 0) { w.barrel += .25; if (a?.bone) a.bone.position.x += .125; }
       if (native && iteration === 0 && !nested) game.vehicles.sim.x.memory.grow(1);
       return clock.apply(this, args);
