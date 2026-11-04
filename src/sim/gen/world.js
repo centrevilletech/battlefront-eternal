@@ -30,6 +30,9 @@ export const WorldNetworkChoice_INDEX = new Map(WorldNetworkChoice_NAMES.map((na
 export const WorldNetworkCall_NAMES = ["capture","players","nextPlayer","ended","release","retire","delete","stop","command","actions","accept","choices","nextChoice","suicide","switchTeam","team","currentAlive","spawn","trace","unit","deadTime","autoSpawn","deadPhase","controls","views","step"];
 export const WorldNetworkCall_INDEX = new Map(WorldNetworkCall_NAMES.map((name, i) => [name, i]));
 
+export const WorldControlsCall_NAMES = ["start","squadTake","squadReady","squad","squadEvent","nextSpawn","scheme","firstPerson","combatView","remotes","remoteView","finiteAspect","positiveAspect","aimCamera","aspect","axis","pitchZero","action","metadata","reliable","fire","fireButtons","shots","nextShot","shotTick","shotLate","publishShots","held","key","scale","looks","nextLook","dx","dy","remoteActive","remoteLook","soldierLook","seat","vehicle","selection","cycle","clearSelection","vehicleInput","vehicleKeys","turnStart","reduce","turn","turnOther","invert","pitch","pitchOther","use","mount","mountVehicle","board","mountTurret","man","clearUse","clear","unit","stopIntent","stopMetadata","driver","stopSticks"];
+export const WorldControlsCall_INDEX = new Map(WorldControlsCall_NAMES.map((name, i) => [name, i]));
+
 export class WsMemberMirror {
   constructor() {
     this.id = NaN;
@@ -1351,5 +1354,83 @@ export function exportWorldNetworkReply(o, cx) {
   cx.seen.set(o, v);
   v.state = exportWorldNetworkState(o.state, cx);
   v.value = o.value;
+  return v;
+}
+
+export class WorldControlsArgsMirror {
+  constructor() {
+    this.op = "start";
+    this.index = NaN;
+    this.value = NaN;
+    this.other = NaN;
+  }
+}
+
+export function syncWorldControlsArgs(b, f, at, h, m) {
+  m.op = WorldControlsCall_NAMES[f[at + 0]];
+  m.index = f[at + 1];
+  m.value = f[at + 2];
+  m.other = f[at + 3];
+  return m;
+}
+
+export function putWorldControlsArgs(b, o, f, at, heap) {
+  f[at + 0] = WorldControlsCall_INDEX.get(o.op);
+  f[at + 1] = o.index;
+  f[at + 2] = o.value;
+  f[at + 3] = o.other;
+}
+
+export function sameWorldControlsArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  if (!Object.is(a.index, b.index)) return ".index";
+  if (!Object.is(a.value, b.value)) return ".value";
+  if (!Object.is(a.other, b.other)) return ".other";
+  return null;
+}
+
+export function exportWorldControlsArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.index = o.index;
+  v.value = o.value;
+  v.other = o.other;
+  return v;
+}
+
+export class WorldControlsReplyMirror {
+  constructor() {
+    this.value = NaN;
+    this.flag = false;
+  }
+}
+
+export function syncWorldControlsReply(b, f, at, h, m) {
+  m.value = f[at + 0];
+  m.flag = f[at + 1] !== 0;
+  return m;
+}
+
+export function putWorldControlsReply(b, o, f, at, heap) {
+  f[at + 0] = o.value;
+  f[at + 1] = o.flag ? 1 : 0;
+}
+
+export function sameWorldControlsReply(a, b) {
+  if (!Object.is(a.value, b.value)) return ".value";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  return null;
+}
+
+export function exportWorldControlsReply(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.value = o.value;
+  v.flag = o.flag;
   return v;
 }

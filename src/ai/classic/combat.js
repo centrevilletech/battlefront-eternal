@@ -136,6 +136,7 @@ export function roleOf(classDef) {
 const choice = { ok: false, index: -1, weapon: null, action: 6, inBand: false };
 
 export function dispatch(controller, unit, target, switchAllowed, world, out = {}) {
+  if(world?.aiSim)return world.aiSim.dispatch.run(controller,unit,target,switchAllowed,world,out,selectOnly);
   out.pattern = 0;
   out.probability = 0;
   out.aux = false;
@@ -197,6 +198,7 @@ function footPolicy(controller, unit, target, role, switchAllowed, world, out) {
 // 0.5 and a pattern by the GLOBAL enemy skill, the Hard tier and the
 // controller's roll mod 6.
 export function rangePolicy(controller, world, out) {
+  if(world?.aiSim)return world.aiSim.dispatch.rangePolicy(controller,world,out);
   const B = out.inBand;
   out.pattern = 0;
   if (out.action === 2) {
