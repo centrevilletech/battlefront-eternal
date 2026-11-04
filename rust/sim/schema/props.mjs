@@ -13,6 +13,7 @@ export default {
     PqHealth: ['building', 'vehicle', 'rebuild', 'build'],
     PqOperation: ['blast', 'struck', 'repairs', 'repair', 'lockOn', 'enterable'],
     PqActionKind: ['target', 'sphere', 'cast', 'teamScale', 'damage', 'setHealth', 'may'],
+    PtOperation: ['steer', 'holdYaw', 'viewDirection', 'present', 'gunWant', 'aimGun', 'pose', 'muzzle', 'fireDirection', 'eyePoint', 'aimOrigin', 'seatPoint', 'seatTurn', 'seatYaw'],
   },
   records: {
     PbIdentity: { kind: 'f64', id: 'f64' },
@@ -68,6 +69,15 @@ export default {
     PqAction: { kind: 'enum:PqActionKind', state: 'rec:PqState', index: 'f64', point: 'vec3', direction: 'vec3', far: 'f64', ignore: 'f64|null',
       blast: 'bool', lock: 'bool', staticOnly: 'bool', amount: 'f64', owner: 'rec:PbIdentity', info: 'rec:PqDamage|null', value: 'rec:PqValue' },
     PqActionResult: { state: 'rec:PqState', target: 'rec:PqTarget|null', point: 'vec3', number: 'f64', flag: 'bool', found: 'bool', hitDistance: 'f64', hitOwner: 'f64' },
+    PtSettings: { facing: 'f64', position: 'vec3', matrix: 'mat4', pitchLimits: 'f64x2', yawLimits: 'f64x2|null', wrapYaw: 'bool',
+      gunPitchLimits: 'f64x2', gunYawLimits: 'f64x2', turnRate: 'f64', filter: 'f64', gunPitchRate: 'f64', gunYawRate: 'f64', yawFactor: 'f64', pitchFactor: 'f64',
+      cameraEye: 'vec3', cameraCenter: 'vec3', cameraOffset: 'vec3', cameraTilt: 'f64', pivot: 'vec3', up: 'vec3', drumParentTurn: 'quat|null', gunBind: 'quat|null',
+      root: 'mat4', parents: 'list:f64', drum: 'f64|null', gun: 'f64|null', seat: 'f64|null', firePoints: 'list:f64' },
+    PtConfiguration: { turrets: 'list:rec:PtSettings' },
+    PtState: { index: 'f64', yaw: 'f64', pitch: 'f64', yawVel: 'f64', pitchVel: 'f64', gunYaw: 'f64', gunPitch: 'f64', barrel: 'f64', rootWorld: 'mat4', bones: 'list:rec:PaBone' },
+    PtInput: { op: 'enum:PtOperation', state: 'rec:PtState', dt: 'f64', turn: 'f64', pitch: 'f64', zoom: 'f64', yaw: 'f64', target: 'vec3|null',
+      from: 'vec3', along: 'vec3', advance: 'bool', direction: 'bool', alias: 'bool', firstPerson: 'bool' },
+    PtResult: { state: 'rec:PtState', point: 'vec3', direction: 'vec3', pair: 'f64x2', number: 'f64', turn: 'quat' },
   },
   imports: { pbAction: { args: 'PbAction', result: 'PbActionResult' }, paAction: { args: 'PaAction', result: 'PaActionResult' }, pqAction: { args: 'PqAction', result: 'PqActionResult' } },
 };

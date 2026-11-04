@@ -331,7 +331,14 @@ impl TurretSide {
     /// the gun has turned as far toward it as it can; along the gun while it
     /// is still turning.
     pub fn fire_direction(&mut self, from: &Vector3, target: &Vector3, dir: &mut Vector3) {
-        let Some(gun) = self.rig.gun else { return };
+        *dir = self.fire_direction_to(from, target, dir, true);
+    }
+
+    /// The same operation when `along` and `out` may be different objects.
+    /// A short target ray falls back to along; with the same object it
+    /// keeps the short ray just written there, as Vector3.copy does.
+    pub fn fire_direction_to(&mut self, from: &Vector3, target: &Vector3, along: &Vector3, alias: bool) -> Vector3 {
+        let Some(gun) = self.rig.gun else { return *along };
         let mut eye = Vector3::default();
         self.rig.tree.get_world_position(gun, &mut eye);
         let mut aim = Vector3::default();
@@ -339,14 +346,16 @@ impl TurretSide {
         let span = aim.length();
         let (want_yaw, want_pitch) = self.gun_want(Some(target));
         let settled = v8math::abs(want_yaw - self.gun_yaw) <= AIMED && v8math::abs(want_pitch - self.gun_pitch) <= AIMED;
-        if span > 1e-3 && (settled || aim.dot(dir) > span * math::cos(AIMED)) {
+        if span > 1e-3 && (settled || aim.dot(along) > span * math::cos(AIMED)) {
+            let mut dir = *along;
             dir.sub_vectors(target, from);
             if dir.length_sq() > 1e-8 {
                 dir.normalize();
+                return dir;
             }
-            // (Else `out.copy(along)`: along is out, which now holds the
-            // short line to the target, unnormalized.)
+            if alias { return dir; }
         }
+        *along
     }
 
     /// Turret.aimFrame (props.js:678): at the drum's pivot, looking along
