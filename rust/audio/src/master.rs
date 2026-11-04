@@ -247,3 +247,101 @@ impl Master {
         report
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RATE: f64 = 48000.0;
+
+    // A chain over `channels`, its room long and the send's high-pass in.
+    fn chain(channels: usize) -> Master {
+        let mut m = Master::new(RATE, channels, -1.0, 0.08, 0.0015, true);
+        let mut room = [0.0; PARAM_COUNT];
+        room[0] = 0.5;
+        room[2] = 1.2;
+        m.room(&room, 0b101, true);
+        m.set_highpass(180.0, -3.0103);
+        m
+    }
+
+    // Each channel's peak over `blocks` blocks of the chain, as given.
+    #[allow(clippy::too_many_arguments)]
+    fn peaks(m: &mut Master, blocks: usize, feeds: &[f32], lfe: Option<&[f32]>, send: &[f32], send_in: Option<&[f32]>, mix_in: Option<&[f32]>) -> Vec<f32> {
+        let n = m.channels;
+        let mut out = vec![0.0; n * FRAMES];
+        let mut peak = vec![0.0f32; n];
+        for b in 0..blocks {
+            m.process(feeds, lfe, send, send_in, mix_in, (b * FRAMES) as u64, &mut out);
+            for c in 0..n {
+                for x in &out[c * FRAMES..(c + 1) * FRAMES] {
+                    peak[c] = peak[c].max(x.abs());
+                }
+            }
+        }
+        peak
+    }
+
+    #[test]
+    fn the_reverb_reaches_the_speakers_it_should_and_the_lfe_its_channel() {
+        // Left, right, LFE: a send and an LFE send, no feeds.
+        let mut m = chain(3);
+        m.set_rooms(0b011);
+        m.set_lfe(2, 120.0, -3.0103);
+        let silence = vec![0.0f32; 3 * FRAMES];
+        let tone: Vec<f32> = (0..FRAMES).map(|i| 0.5 * (i as f32 * 0.3).sin()).collect();
+        let low: Vec<f32> = (0..FRAMES).map(|i| 0.5 * (i as f32 * 0.01).sin()).collect();
+        let none = vec![0.0f32; FRAMES];
+        let peak = peaks(&mut m, 400, &silence, Some(&none), &tone, None, None);
+        assert!(peak[0] > 1e-3 && peak[1] > 1e-3, "the room's on the speakers: {peak:?}");
+        assert_eq!(peak[2], 0.0, "and not on the LFE");
+        let peak = peaks(&mut m, 200, &silence, Some(&low), &none, None, None);
+        assert!(peak[2] > 1e-3, "the LFE's send on its channel: {peak:?}");
+    }
+
+    #[test]
+    fn what_comes_through_the_browser_joins_the_send_and_the_mix() {
+        let silence = vec![0.0f32; 2 * FRAMES];
+        let none = vec![0.0f32; FRAMES];
+        let tone: Vec<f32> = (0..FRAMES).map(|i| 0.5 * (i as f32 * 0.3).sin()).collect();
+        // An input to the send sounds as the engine's own send does.
+        let (mut a, mut b) = (chain(2), chain(2));
+        let by_engine = peaks(&mut a, 200, &silence, None, &tone, None, None);
+        let by_input = peaks(&mut b, 200, &silence, None, &none, Some(&tone), None);
+        assert_eq!(by_engine, by_input);
+        // The mix's input sounds as the speaker feeds do.
+        let feeds: Vec<f32> = tone.iter().chain(tone.iter()).copied().collect();
+        let (mut a, mut b) = (chain(2), chain(2));
+        let by_feeds = peaks(&mut a, 50, &feeds, None, &none, None, None);
+        let by_mix = peaks(&mut b, 50, &silence, None, &none, None, Some(&feeds));
+        assert_eq!(by_feeds, by_mix);
+        assert!(by_mix[0] > 0.1);
+    }
+
+    #[test]
+    fn the_volume_follows_its_value_and_its_automation() {
+        let mut m = Master::new(RATE, 1, 0.0, 0.08, 0.0015, true);
+        let feeds = vec![0.25f32; FRAMES];
+        let none = vec![0.0f32; FRAMES];
+        m.volume(0.5, 0.0, 0.0, true, 0.0);
+        let at = |m: &mut Master, b: usize| {
+            let mut out = vec![0.0; FRAMES];
+            m.process(&feeds, None, &none, None, None, (b * FRAMES) as u64, &mut out);
+            out[FRAMES - 1]
+        };
+        // Past the limiter's lookahead: the set value on the signal.
+        let mut last = 0.0;
+        for b in 0..8 {
+            last = at(&mut m, b);
+        }
+        assert_eq!(last, 0.125);
+        // A fade to 0, 50 ms a time constant: e^-1 of the way left at 50 ms.
+        let frame = (8 * FRAMES) as f64;
+        m.volume(0.0, 0.05, frame / RATE, false, frame);
+        let blocks = (0.05 * RATE / FRAMES as f64).round() as usize;
+        for b in 8..8 + blocks {
+            last = at(&mut m, b);
+        }
+        assert!((last - 0.125 * 0.3679).abs() < 0.002, "{last}");
+    }
+}
