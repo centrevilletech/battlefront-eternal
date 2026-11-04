@@ -200,3 +200,19 @@ test('edited presentation clip durations do not change private actor motion timi
   };
   assert.deepEqual(run(true), run(false));
 });
+
+test('disposal during actor eligibility prevents both native entry and JavaScript fallback', async () => {
+  const instance = await loadSim(), rays = await loadRayKernel(instance), course = actorCourse(rays), scenario = { kind: 'soldier', pattern: 'walk' };
+  const actor = createPredictionActor(scenario, course), native = createActorPredictionSim(instance, course.world);
+  const p = new InfantryPrediction(actor.soldier, actor.combat, undefined, { native }), before = actorObservation(actor.soldier, p.kick);
+  let calls = 0;
+  Object.defineProperty(course.world, 'rays', { configurable: true, get() { calls++; native.dispose(); return null; } });
+  try {
+    assert.throws(() => p.step(actorInput(scenario, 0), 1 / 60), /disposed/);
+    assert.equal(calls, 1); assert.equal(p.nativeSession.steps, 0); assert.equal(p.nativeSession.handle, 0);
+    assert.deepEqual(actorObservation(actor.soldier, p.kick), before);
+  } finally {
+    Object.defineProperty(course.world, 'rays', { configurable: true, writable: true, value: rays });
+    p.dispose(); native.dispose(); course.dispose();
+  }
+});
