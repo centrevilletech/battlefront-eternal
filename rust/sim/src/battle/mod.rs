@@ -13,6 +13,10 @@ pub mod battlefield;
 #[cfg(target_arch = "wasm32")]
 pub mod battlefield_module;
 pub mod animated;
+pub mod debris;
+pub mod debris_commands;
+#[cfg(target_arch = "wasm32")]
+pub mod debris_module;
 #[cfg(target_arch = "wasm32")]
 pub mod animated_module;
 pub mod human;

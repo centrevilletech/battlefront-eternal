@@ -5,6 +5,12 @@ import { KIND_BODY, KIND_POST, KIND_SEAT_LEASE, KIND_SEAT_UNIT, KIND_TURRET, KIN
 import { exportAttacker, putAttacker, sameAttacker, syncAttacker } from "./combat.js";
 import { SeatAiControlMirror, SeatHitMirror, SeatReason_INDEX, SeatReason_NAMES, SeatRole_INDEX, SeatRole_NAMES, exportSeatAiControl, exportSeatHit, putSeatAiControl, putSeatHit, sameSeatAiControl, sameSeatHit, syncSeatAiControl, syncSeatHit } from "./seats.js";
 
+export const DbOperation_NAMES = ["launch","update","bounce","rest","clear"];
+export const DbOperation_INDEX = new Map(DbOperation_NAMES.map((name, i) => [name, i]));
+
+export const DbActionKind_NAMES = ["add","remove","cast","low","play","move","stop","publish","out","vectors"];
+export const DbActionKind_INDEX = new Map(DbActionKind_NAMES.map((name, i) => [name, i]));
+
 export const PbStateName_NAMES = ["unbuilt","built","destroyed"];
 export const PbStateName_INDEX = new Map(PbStateName_NAMES.map((name, i) => [name, i]));
 
@@ -46,6 +52,533 @@ export const PcOperation_INDEX = new Map(PcOperation_NAMES.map((name, i) => [nam
 
 export const PcActionKind_NAMES = ["publish","resume","makeLease","cast","overlaps","raycast","standUp","kill","riderDrop","controllerState","controllable","boarded","unboarded","seated","unseated","placed","dropped","seatPolicy","pose","lock","weapon","fire","bind","sound","fired"];
 export const PcActionKind_INDEX = new Map(PcActionKind_NAMES.map((name, i) => [name, i]));
+
+export class DbChunkMirror {
+  constructor() {
+    this.speed = NaN;
+    this.omega = new THREE.Vector3();
+    this.still = false;
+    this.terrainCollisions = NaN;
+    this.terrainEffect = null;
+    this.trail = null;
+    this.smoke = null;
+  }
+}
+
+export function syncDbChunk(b, f, at, h, m) {
+  m.speed = f[at + 0];
+  (m.omega ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  m.still = f[at + 4] !== 0;
+  m.terrainCollisions = f[at + 5];
+  { const tag = f[at + 6]; if (tag === 0) { m.terrainEffect = b.strings.at(f[at + 7]); } else m.terrainEffect = tag === 1 ? null : undefined; }
+  { const tag = f[at + 8]; if (tag === 0) { m.trail = b.strings.at(f[at + 9]); } else m.trail = tag === 1 ? null : undefined; }
+  { const tag = f[at + 10]; if (tag === 0) { m.smoke = b.strings.at(f[at + 11]); } else m.smoke = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putDbChunk(b, o, f, at, heap) {
+  f[at + 0] = o.speed;
+  { const $v = o.omega; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+  f[at + 4] = o.still ? 1 : 0;
+  f[at + 5] = o.terrainCollisions;
+  { const $x = o.terrainEffect; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = b.strings.id($x); } }
+  { const $x = o.trail; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = b.strings.id($x); } }
+  { const $x = o.smoke; if ($x === null || $x === undefined) { f[at + 10] = $x === null ? 1 : 2; f[at + 11] = 0; } else { f[at + 10] = 0; f[at + 11] = b.strings.id($x); } }
+}
+
+export function sameDbChunk(a, b) {
+  if (!Object.is(a.speed, b.speed)) return ".speed";
+  if (!sameVec(a.omega, b.omega)) return ".omega";
+  if (!Object.is(a.still, b.still)) return ".still";
+  if (!Object.is(a.terrainCollisions, b.terrainCollisions)) return ".terrainCollisions";
+  { const p = a.terrainEffect, q = b.terrainEffect; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".terrainEffect"; } else { if (!Object.is(p, q)) return ".terrainEffect"; } }
+  { const p = a.trail, q = b.trail; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".trail"; } else { if (!Object.is(p, q)) return ".trail"; } }
+  { const p = a.smoke, q = b.smoke; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".smoke"; } else { if (!Object.is(p, q)) return ".smoke"; } }
+  return null;
+}
+
+export function exportDbChunk(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.speed = o.speed;
+  v.omega = o.omega.clone();
+  v.still = o.still;
+  v.terrainCollisions = o.terrainCollisions;
+  v.terrainEffect = o.terrainEffect;
+  v.trail = o.trail;
+  v.smoke = o.smoke;
+  return v;
+}
+
+export class DbSettleMirror {
+  constructor() {
+    this.from = new THREE.Quaternion();
+    this.to = new THREE.Quaternion();
+    this.y0 = NaN;
+    this.y1 = NaN;
+    this.t = NaN;
+  }
+}
+
+export function syncDbSettle(b, f, at, h, m) {
+  (m.from ??= new THREE.Quaternion()).set(f[at + 0], f[at + 1], f[at + 2], f[at + 3]);
+  (m.to ??= new THREE.Quaternion()).set(f[at + 4], f[at + 5], f[at + 6], f[at + 7]);
+  m.y0 = f[at + 8];
+  m.y1 = f[at + 9];
+  m.t = f[at + 10];
+  return m;
+}
+
+export function putDbSettle(b, o, f, at, heap) {
+  { const $v = o.from; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; f[at + 3] = $v.w; }
+  { const $v = o.to; f[at + 4] = $v.x; f[at + 5] = $v.y; f[at + 6] = $v.z; f[at + 7] = $v.w; }
+  f[at + 8] = o.y0;
+  f[at + 9] = o.y1;
+  f[at + 10] = o.t;
+}
+
+export function sameDbSettle(a, b) {
+  if (!sameQuat(a.from, b.from)) return ".from";
+  if (!sameQuat(a.to, b.to)) return ".to";
+  if (!Object.is(a.y0, b.y0)) return ".y0";
+  if (!Object.is(a.y1, b.y1)) return ".y1";
+  if (!Object.is(a.t, b.t)) return ".t";
+  return null;
+}
+
+export function exportDbSettle(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.from = o.from.clone();
+  v.to = o.to.clone();
+  v.y0 = o.y0;
+  v.y1 = o.y1;
+  v.t = o.t;
+  return v;
+}
+
+export class DbPieceMirror {
+  constructor() {
+    this.id = NaN;
+    this.chunk = new DbChunkMirror();
+    this.position = new THREE.Vector3();
+    this.previous = new THREE.Vector3();
+    this.velocity = new THREE.Vector3();
+    this.omega = new THREE.Vector3();
+    this.quaternion = new THREE.Quaternion();
+    this.hits = NaN;
+    this.lift = NaN;
+    this.thin = NaN;
+    this.settle = null;
+    this.ignore = null;
+    this.resting = false;
+    this.flight = NaN;
+    this.left = NaN;
+    this.trail = null;
+    this.smoke = null;
+    this.gone = undefined;
+  }
+}
+
+export function syncDbPiece(b, f, at, h, m) {
+  m.id = f[at + 0];
+  m.chunk = syncDbChunk(b, f, at + 1, h, m.chunk ?? new DbChunkMirror());
+  (m.position ??= new THREE.Vector3()).set(f[at + 13], f[at + 14], f[at + 15]);
+  (m.previous ??= new THREE.Vector3()).set(f[at + 16], f[at + 17], f[at + 18]);
+  (m.velocity ??= new THREE.Vector3()).set(f[at + 19], f[at + 20], f[at + 21]);
+  (m.omega ??= new THREE.Vector3()).set(f[at + 22], f[at + 23], f[at + 24]);
+  (m.quaternion ??= new THREE.Quaternion()).set(f[at + 25], f[at + 26], f[at + 27], f[at + 28]);
+  m.hits = f[at + 29];
+  m.lift = f[at + 30];
+  m.thin = f[at + 31];
+  { const tag = f[at + 32]; if (tag === 0) { m.settle = syncDbSettle(b, f, at + 33, h, m.settle ?? new DbSettleMirror()); } else m.settle = tag === 1 ? null : undefined; }
+  { const tag = f[at + 44]; if (tag === 0) { m.ignore = f[at + 45]; } else m.ignore = tag === 1 ? null : undefined; }
+  m.resting = f[at + 46] !== 0;
+  m.flight = f[at + 47];
+  m.left = f[at + 48];
+  { const tag = f[at + 49]; if (tag === 0) { m.trail = f[at + 50]; } else m.trail = tag === 1 ? null : undefined; }
+  { const tag = f[at + 51]; if (tag === 0) { m.smoke = f[at + 52]; } else m.smoke = tag === 1 ? null : undefined; }
+  { const tag = f[at + 53]; if (tag === 0) { m.gone = f[at + 54] !== 0; } else m.gone = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putDbPiece(b, o, f, at, heap) {
+  f[at + 0] = o.id;
+  putDbChunk(b, o.chunk, f, at + 1, heap);
+  { const $v = o.position; f[at + 13] = $v.x; f[at + 14] = $v.y; f[at + 15] = $v.z; }
+  { const $v = o.previous; f[at + 16] = $v.x; f[at + 17] = $v.y; f[at + 18] = $v.z; }
+  { const $v = o.velocity; f[at + 19] = $v.x; f[at + 20] = $v.y; f[at + 21] = $v.z; }
+  { const $v = o.omega; f[at + 22] = $v.x; f[at + 23] = $v.y; f[at + 24] = $v.z; }
+  { const $v = o.quaternion; f[at + 25] = $v.x; f[at + 26] = $v.y; f[at + 27] = $v.z; f[at + 28] = $v.w; }
+  f[at + 29] = o.hits;
+  f[at + 30] = o.lift;
+  f[at + 31] = o.thin;
+  { const $x = o.settle; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f.fill(0, at + 33, at + 44); } else { f[at + 32] = 0; putDbSettle(b, $x, f, at + 33, heap); } }
+  { const $x = o.ignore; if ($x === null || $x === undefined) { f[at + 44] = $x === null ? 1 : 2; f[at + 45] = 0; } else { f[at + 44] = 0; f[at + 45] = $x; } }
+  f[at + 46] = o.resting ? 1 : 0;
+  f[at + 47] = o.flight;
+  f[at + 48] = o.left;
+  { const $x = o.trail; if ($x === null || $x === undefined) { f[at + 49] = $x === null ? 1 : 2; f[at + 50] = 0; } else { f[at + 49] = 0; f[at + 50] = $x; } }
+  { const $x = o.smoke; if ($x === null || $x === undefined) { f[at + 51] = $x === null ? 1 : 2; f[at + 52] = 0; } else { f[at + 51] = 0; f[at + 52] = $x; } }
+  { const $x = o.gone; if ($x === null || $x === undefined) { f[at + 53] = $x === null ? 1 : 2; f[at + 54] = 0; } else { f[at + 53] = 0; f[at + 54] = $x ? 1 : 0; } }
+}
+
+export function sameDbPiece(a, b) {
+  if (!Object.is(a.id, b.id)) return ".id";
+  { const d = sameDbChunk(a.chunk, b.chunk); if (d) return ".chunk" + d; }
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameVec(a.previous, b.previous)) return ".previous";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  if (!sameVec(a.omega, b.omega)) return ".omega";
+  if (!sameQuat(a.quaternion, b.quaternion)) return ".quaternion";
+  if (!Object.is(a.hits, b.hits)) return ".hits";
+  if (!Object.is(a.lift, b.lift)) return ".lift";
+  if (!Object.is(a.thin, b.thin)) return ".thin";
+  { const p = a.settle, q = b.settle; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".settle"; } else { { const d = sameDbSettle(p, q); if (d) return ".settle" + d; } } }
+  { const p = a.ignore, q = b.ignore; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".ignore"; } else { if (!Object.is(p, q)) return ".ignore"; } }
+  if (!Object.is(a.resting, b.resting)) return ".resting";
+  if (!Object.is(a.flight, b.flight)) return ".flight";
+  if (!Object.is(a.left, b.left)) return ".left";
+  { const p = a.trail, q = b.trail; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".trail"; } else { if (!Object.is(p, q)) return ".trail"; } }
+  { const p = a.smoke, q = b.smoke; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".smoke"; } else { if (!Object.is(p, q)) return ".smoke"; } }
+  { const p = a.gone, q = b.gone; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".gone"; } else { if (!Object.is(p, q)) return ".gone"; } }
+  return null;
+}
+
+export function exportDbPiece(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.id = o.id;
+  v.chunk = exportDbChunk(o.chunk, cx);
+  v.position = o.position.clone();
+  v.previous = o.previous.clone();
+  v.velocity = o.velocity.clone();
+  v.omega = o.omega.clone();
+  v.quaternion = o.quaternion.clone();
+  v.hits = o.hits;
+  v.lift = o.lift;
+  v.thin = o.thin;
+  v.settle = ((x) => (x === null || x === undefined ? x : exportDbSettle(x, cx)))(o.settle);
+  v.ignore = o.ignore;
+  v.resting = o.resting;
+  v.flight = o.flight;
+  v.left = o.left;
+  v.trail = o.trail;
+  v.smoke = o.smoke;
+  v.gone = o.gone;
+  return v;
+}
+
+export class DbStateMirror {
+  constructor() {
+    this.pieces = [];
+    this.ray = new THREE.Vector3();
+    this.start = new THREE.Vector3();
+    this.out = new THREE.Vector3();
+  }
+}
+
+export function syncDbState(b, f, at, h, m) {
+  { const items = (m.pieces ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 55; v = syncDbPiece(b, f, at + 0, h, v ?? new DbPieceMirror()); } items[i] = v; } }
+  (m.ray ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
+  (m.start ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  (m.out ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
+  return m;
+}
+
+export function putDbState(b, o, f, at, heap) {
+  heap.items(o.pieces, f, at + 0, 55, (f, at, v) => { putDbPiece(b, v, f, at + 0, heap); });
+  { const $v = o.ray; f[at + 2] = $v.x; f[at + 3] = $v.y; f[at + 4] = $v.z; }
+  { const $v = o.start; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
+  { const $v = o.out; f[at + 8] = $v.x; f[at + 9] = $v.y; f[at + 10] = $v.z; }
+}
+
+export function sameDbState(a, b) {
+  if (!sameEach(a.pieces, b.pieces, (x, y) => sameDbPiece(x, y) === null)) return ".pieces";
+  if (!sameVec(a.ray, b.ray)) return ".ray";
+  if (!sameVec(a.start, b.start)) return ".start";
+  if (!sameVec(a.out, b.out)) return ".out";
+  return null;
+}
+
+export function exportDbState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.pieces = o.pieces.map((x) => exportDbPiece(x, cx));
+  v.ray = o.ray.clone();
+  v.start = o.start.clone();
+  v.out = o.out.clone();
+  return v;
+}
+
+export class DbLaunchMirror {
+  constructor() {
+    this.id = NaN;
+    this.chunk = new DbChunkMirror();
+    this.matrix = new THREE.Matrix4();
+    this.low = new THREE.Vector3();
+    this.high = new THREE.Vector3();
+    this.origin = new THREE.Vector3();
+    this.velocity = new THREE.Vector3();
+    this.health = NaN;
+    this.ignore = null;
+    this.center = false;
+    this.floor = NaN;
+  }
+}
+
+export function syncDbLaunch(b, f, at, h, m) {
+  m.id = f[at + 0];
+  m.chunk = syncDbChunk(b, f, at + 1, h, m.chunk ?? new DbChunkMirror());
+  { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 13 + i]; }
+  (m.low ??= new THREE.Vector3()).set(f[at + 29], f[at + 30], f[at + 31]);
+  (m.high ??= new THREE.Vector3()).set(f[at + 32], f[at + 33], f[at + 34]);
+  (m.origin ??= new THREE.Vector3()).set(f[at + 35], f[at + 36], f[at + 37]);
+  (m.velocity ??= new THREE.Vector3()).set(f[at + 38], f[at + 39], f[at + 40]);
+  m.health = f[at + 41];
+  { const tag = f[at + 42]; if (tag === 0) { m.ignore = f[at + 43]; } else m.ignore = tag === 1 ? null : undefined; }
+  m.center = f[at + 44] !== 0;
+  m.floor = f[at + 45];
+  return m;
+}
+
+export function putDbLaunch(b, o, f, at, heap) {
+  f[at + 0] = o.id;
+  putDbChunk(b, o.chunk, f, at + 1, heap);
+  { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 13 + i] = e[i]; }
+  { const $v = o.low; f[at + 29] = $v.x; f[at + 30] = $v.y; f[at + 31] = $v.z; }
+  { const $v = o.high; f[at + 32] = $v.x; f[at + 33] = $v.y; f[at + 34] = $v.z; }
+  { const $v = o.origin; f[at + 35] = $v.x; f[at + 36] = $v.y; f[at + 37] = $v.z; }
+  { const $v = o.velocity; f[at + 38] = $v.x; f[at + 39] = $v.y; f[at + 40] = $v.z; }
+  f[at + 41] = o.health;
+  { const $x = o.ignore; if ($x === null || $x === undefined) { f[at + 42] = $x === null ? 1 : 2; f[at + 43] = 0; } else { f[at + 42] = 0; f[at + 43] = $x; } }
+  f[at + 44] = o.center ? 1 : 0;
+  f[at + 45] = o.floor;
+}
+
+export function sameDbLaunch(a, b) {
+  if (!Object.is(a.id, b.id)) return ".id";
+  { const d = sameDbChunk(a.chunk, b.chunk); if (d) return ".chunk" + d; }
+  if (!sameArray(a.matrix?.elements, b.matrix?.elements, 16)) return ".matrix";
+  if (!sameVec(a.low, b.low)) return ".low";
+  if (!sameVec(a.high, b.high)) return ".high";
+  if (!sameVec(a.origin, b.origin)) return ".origin";
+  if (!sameVec(a.velocity, b.velocity)) return ".velocity";
+  if (!Object.is(a.health, b.health)) return ".health";
+  { const p = a.ignore, q = b.ignore; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".ignore"; } else { if (!Object.is(p, q)) return ".ignore"; } }
+  if (!Object.is(a.center, b.center)) return ".center";
+  if (!Object.is(a.floor, b.floor)) return ".floor";
+  return null;
+}
+
+export function exportDbLaunch(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.id = o.id;
+  v.chunk = exportDbChunk(o.chunk, cx);
+  v.matrix = o.matrix.clone();
+  v.low = o.low.clone();
+  v.high = o.high.clone();
+  v.origin = o.origin.clone();
+  v.velocity = o.velocity.clone();
+  v.health = o.health;
+  v.ignore = o.ignore;
+  v.center = o.center;
+  v.floor = o.floor;
+  return v;
+}
+
+export class DbInputMirror {
+  constructor() {
+    this.op = "launch";
+    this.state = new DbStateMirror();
+    this.launch = null;
+    this.dt = NaN;
+    this.id = NaN;
+    this.floor = NaN;
+  }
+}
+
+export function syncDbInput(b, f, at, h, m) {
+  m.op = DbOperation_NAMES[f[at + 0]];
+  m.state = syncDbState(b, f, at + 1, h, m.state ?? new DbStateMirror());
+  { const tag = f[at + 12]; if (tag === 0) { m.launch = syncDbLaunch(b, f, at + 13, h, m.launch ?? new DbLaunchMirror()); } else m.launch = tag === 1 ? null : undefined; }
+  m.dt = f[at + 59];
+  m.id = f[at + 60];
+  m.floor = f[at + 61];
+  return m;
+}
+
+export function putDbInput(b, o, f, at, heap) {
+  f[at + 0] = DbOperation_INDEX.get(o.op);
+  putDbState(b, o.state, f, at + 1, heap);
+  { const $x = o.launch; if ($x === null || $x === undefined) { f[at + 12] = $x === null ? 1 : 2; f.fill(0, at + 13, at + 59); } else { f[at + 12] = 0; putDbLaunch(b, $x, f, at + 13, heap); } }
+  f[at + 59] = o.dt;
+  f[at + 60] = o.id;
+  f[at + 61] = o.floor;
+}
+
+export function sameDbInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameDbState(a.state, b.state); if (d) return ".state" + d; }
+  { const p = a.launch, q = b.launch; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".launch"; } else { { const d = sameDbLaunch(p, q); if (d) return ".launch" + d; } } }
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.id, b.id)) return ".id";
+  if (!Object.is(a.floor, b.floor)) return ".floor";
+  return null;
+}
+
+export function exportDbInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportDbState(o.state, cx);
+  v.launch = ((x) => (x === null || x === undefined ? x : exportDbLaunch(x, cx)))(o.launch);
+  v.dt = o.dt;
+  v.id = o.id;
+  v.floor = o.floor;
+  return v;
+}
+
+export class DbActionMirror {
+  constructor() {
+    this.kind = "add";
+    this.piece = null;
+    this.id = NaN;
+    this.point = new THREE.Vector3();
+    this.turn = new THREE.Quaternion();
+    this.shift = null;
+    this.direction = new THREE.Vector3();
+    this.far = NaN;
+    this.ignore = null;
+    this.name = null;
+    this.velocity = null;
+  }
+}
+
+export function syncDbAction(b, f, at, h, m) {
+  m.kind = DbActionKind_NAMES[f[at + 0]];
+  { const tag = f[at + 1]; if (tag === 0) { m.piece = syncDbPiece(b, f, at + 2, h, m.piece ?? new DbPieceMirror()); } else m.piece = tag === 1 ? null : undefined; }
+  m.id = f[at + 57];
+  (m.point ??= new THREE.Vector3()).set(f[at + 58], f[at + 59], f[at + 60]);
+  (m.turn ??= new THREE.Quaternion()).set(f[at + 61], f[at + 62], f[at + 63], f[at + 64]);
+  { const tag = f[at + 65]; if (tag === 0) { (m.shift ??= new THREE.Vector3()).set(f[at + 66], f[at + 67], f[at + 68]); } else m.shift = tag === 1 ? null : undefined; }
+  (m.direction ??= new THREE.Vector3()).set(f[at + 69], f[at + 70], f[at + 71]);
+  m.far = f[at + 72];
+  { const tag = f[at + 73]; if (tag === 0) { m.ignore = f[at + 74]; } else m.ignore = tag === 1 ? null : undefined; }
+  { const tag = f[at + 75]; if (tag === 0) { m.name = b.strings.at(f[at + 76]); } else m.name = tag === 1 ? null : undefined; }
+  { const tag = f[at + 77]; if (tag === 0) { (m.velocity ??= new THREE.Vector3()).set(f[at + 78], f[at + 79], f[at + 80]); } else m.velocity = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putDbAction(b, o, f, at, heap) {
+  f[at + 0] = DbActionKind_INDEX.get(o.kind);
+  { const $x = o.piece; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f.fill(0, at + 2, at + 57); } else { f[at + 1] = 0; putDbPiece(b, $x, f, at + 2, heap); } }
+  f[at + 57] = o.id;
+  { const $v = o.point; f[at + 58] = $v.x; f[at + 59] = $v.y; f[at + 60] = $v.z; }
+  { const $v = o.turn; f[at + 61] = $v.x; f[at + 62] = $v.y; f[at + 63] = $v.z; f[at + 64] = $v.w; }
+  { const $x = o.shift; if ($x === null || $x === undefined) { f[at + 65] = $x === null ? 1 : 2; f[at + 66] = 0; f[at + 67] = 0; f[at + 68] = 0; } else { f[at + 65] = 0; { const $v = $x; f[at + 66] = $v.x; f[at + 67] = $v.y; f[at + 68] = $v.z; } } }
+  { const $v = o.direction; f[at + 69] = $v.x; f[at + 70] = $v.y; f[at + 71] = $v.z; }
+  f[at + 72] = o.far;
+  { const $x = o.ignore; if ($x === null || $x === undefined) { f[at + 73] = $x === null ? 1 : 2; f[at + 74] = 0; } else { f[at + 73] = 0; f[at + 74] = $x; } }
+  { const $x = o.name; if ($x === null || $x === undefined) { f[at + 75] = $x === null ? 1 : 2; f[at + 76] = 0; } else { f[at + 75] = 0; f[at + 76] = b.strings.id($x); } }
+  { const $x = o.velocity; if ($x === null || $x === undefined) { f[at + 77] = $x === null ? 1 : 2; f[at + 78] = 0; f[at + 79] = 0; f[at + 80] = 0; } else { f[at + 77] = 0; { const $v = $x; f[at + 78] = $v.x; f[at + 79] = $v.y; f[at + 80] = $v.z; } } }
+}
+
+export function sameDbAction(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  { const p = a.piece, q = b.piece; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".piece"; } else { { const d = sameDbPiece(p, q); if (d) return ".piece" + d; } } }
+  if (!Object.is(a.id, b.id)) return ".id";
+  if (!sameVec(a.point, b.point)) return ".point";
+  if (!sameQuat(a.turn, b.turn)) return ".turn";
+  { const p = a.shift, q = b.shift; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".shift"; } else { if (!sameVec(p, q)) return ".shift"; } }
+  if (!sameVec(a.direction, b.direction)) return ".direction";
+  if (!Object.is(a.far, b.far)) return ".far";
+  { const p = a.ignore, q = b.ignore; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".ignore"; } else { if (!Object.is(p, q)) return ".ignore"; } }
+  { const p = a.name, q = b.name; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".name"; } else { if (!Object.is(p, q)) return ".name"; } }
+  { const p = a.velocity, q = b.velocity; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".velocity"; } else { if (!sameVec(p, q)) return ".velocity"; } }
+  return null;
+}
+
+export function exportDbAction(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.piece = ((x) => (x === null || x === undefined ? x : exportDbPiece(x, cx)))(o.piece);
+  v.id = o.id;
+  v.point = o.point.clone();
+  v.turn = o.turn.clone();
+  v.shift = ((x) => (x === null || x === undefined ? x : x.clone()))(o.shift);
+  v.direction = o.direction.clone();
+  v.far = o.far;
+  v.ignore = o.ignore;
+  v.name = o.name;
+  v.velocity = ((x) => (x === null || x === undefined ? x : x.clone()))(o.velocity);
+  return v;
+}
+
+export class DbActionResultMirror {
+  constructor() {
+    this.hit = false;
+    this.point = new THREE.Vector3();
+    this.normal = new THREE.Vector3();
+    this.low = NaN;
+    this.effect = null;
+  }
+}
+
+export function syncDbActionResult(b, f, at, h, m) {
+  m.hit = f[at + 0] !== 0;
+  (m.point ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+  (m.normal ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  m.low = f[at + 7];
+  { const tag = f[at + 8]; if (tag === 0) { m.effect = f[at + 9]; } else m.effect = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putDbActionResult(b, o, f, at, heap) {
+  f[at + 0] = o.hit ? 1 : 0;
+  { const $v = o.point; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+  { const $v = o.normal; f[at + 4] = $v.x; f[at + 5] = $v.y; f[at + 6] = $v.z; }
+  f[at + 7] = o.low;
+  { const $x = o.effect; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = $x; } }
+}
+
+export function sameDbActionResult(a, b) {
+  if (!Object.is(a.hit, b.hit)) return ".hit";
+  if (!sameVec(a.point, b.point)) return ".point";
+  if (!sameVec(a.normal, b.normal)) return ".normal";
+  if (!Object.is(a.low, b.low)) return ".low";
+  { const p = a.effect, q = b.effect; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".effect"; } else { if (!Object.is(p, q)) return ".effect"; } }
+  return null;
+}
+
+export function exportDbActionResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.hit = o.hit;
+  v.point = o.point.clone();
+  v.normal = o.normal.clone();
+  v.low = o.low;
+  v.effect = o.effect;
+  return v;
+}
 
 export class PbIdentityMirror {
   constructor() {
