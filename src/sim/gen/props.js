@@ -23,6 +23,18 @@ export const PaOperation_INDEX = new Map(PaOperation_NAMES.map((name, i) => [nam
 export const PaActionKind_NAMES = ["sound","letGo","damage","remove","rider"];
 export const PaActionKind_INDEX = new Map(PaActionKind_NAMES.map((name, i) => [name, i]));
 
+export const PqValueKind_NAMES = ["undefined","null","boolean","number","string"];
+export const PqValueKind_INDEX = new Map(PqValueKind_NAMES.map((name, i) => [name, i]));
+
+export const PqHealth_NAMES = ["building","vehicle","rebuild","build"];
+export const PqHealth_INDEX = new Map(PqHealth_NAMES.map((name, i) => [name, i]));
+
+export const PqOperation_NAMES = ["blast","struck","repairs","repair","lockOn","enterable"];
+export const PqOperation_INDEX = new Map(PqOperation_NAMES.map((name, i) => [name, i]));
+
+export const PqActionKind_NAMES = ["target","sphere","cast","teamScale","damage","setHealth","may"];
+export const PqActionKind_INDEX = new Map(PqActionKind_NAMES.map((name, i) => [name, i]));
+
 export class PbIdentityMirror {
   constructor() {
     this.kind = NaN;
@@ -1651,5 +1663,586 @@ export function exportPaActionResult(o, cx) {
   v.found = o.found;
   v.root = o.root.clone();
   v.turn = o.turn.clone();
+  return v;
+}
+
+export class PqValueMirror {
+  constructor() {
+    this.kind = "undefined";
+    this.number = NaN;
+    this.text = '';
+  }
+}
+
+export function syncPqValue(b, f, at, h, m) {
+  m.kind = PqValueKind_NAMES[f[at + 0]];
+  m.number = f[at + 1];
+  m.text = b.strings.at(f[at + 2]);
+  return m;
+}
+
+export function putPqValue(b, o, f, at, heap) {
+  f[at + 0] = PqValueKind_INDEX.get(o.kind);
+  f[at + 1] = o.number;
+  f[at + 2] = b.strings.id(o.text);
+}
+
+export function samePqValue(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  if (!Object.is(a.number, b.number)) return ".number";
+  if (!Object.is(a.text, b.text)) return ".text";
+  return null;
+}
+
+export function exportPqValue(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.number = o.number;
+  v.text = o.text;
+  return v;
+}
+
+export class PqDefinitionMirror {
+  constructor() {
+    this.repair = [];
+    this.targetVehicle = new PqValueMirror();
+    this.targetNeutral = new PqValueMirror();
+    this.targetEnemy = new PqValueMirror();
+    this.targetFriendly = new PqValueMirror();
+    this.range = new PqValueMirror();
+    this.angle = new PqValueMirror();
+    this.shieldScale = new PqValueMirror();
+    this.damage = new PqValueMirror();
+    this.inner = new PqValueMirror();
+    this.outer = new PqValueMirror();
+    this.scales = [];
+  }
+}
+
+export function syncPqDefinition(b, f, at, h, m) {
+  { const items = (m.repair ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncPqValue(b, f, at + 0, h, v ?? new PqValueMirror()); } items[i] = v; } }
+  m.targetVehicle = syncPqValue(b, f, at + 2, h, m.targetVehicle ?? new PqValueMirror());
+  m.targetNeutral = syncPqValue(b, f, at + 5, h, m.targetNeutral ?? new PqValueMirror());
+  m.targetEnemy = syncPqValue(b, f, at + 8, h, m.targetEnemy ?? new PqValueMirror());
+  m.targetFriendly = syncPqValue(b, f, at + 11, h, m.targetFriendly ?? new PqValueMirror());
+  m.range = syncPqValue(b, f, at + 14, h, m.range ?? new PqValueMirror());
+  m.angle = syncPqValue(b, f, at + 17, h, m.angle ?? new PqValueMirror());
+  m.shieldScale = syncPqValue(b, f, at + 20, h, m.shieldScale ?? new PqValueMirror());
+  m.damage = syncPqValue(b, f, at + 23, h, m.damage ?? new PqValueMirror());
+  m.inner = syncPqValue(b, f, at + 26, h, m.inner ?? new PqValueMirror());
+  m.outer = syncPqValue(b, f, at + 29, h, m.outer ?? new PqValueMirror());
+  { const items = (m.scales ??= []), start = h + f[at + 32], n = f[at + 33]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 3; v = syncPqValue(b, f, at + 0, h, v ?? new PqValueMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putPqDefinition(b, o, f, at, heap) {
+  heap.items(o.repair, f, at + 0, 3, (f, at, v) => { putPqValue(b, v, f, at + 0, heap); });
+  putPqValue(b, o.targetVehicle, f, at + 2, heap);
+  putPqValue(b, o.targetNeutral, f, at + 5, heap);
+  putPqValue(b, o.targetEnemy, f, at + 8, heap);
+  putPqValue(b, o.targetFriendly, f, at + 11, heap);
+  putPqValue(b, o.range, f, at + 14, heap);
+  putPqValue(b, o.angle, f, at + 17, heap);
+  putPqValue(b, o.shieldScale, f, at + 20, heap);
+  putPqValue(b, o.damage, f, at + 23, heap);
+  putPqValue(b, o.inner, f, at + 26, heap);
+  putPqValue(b, o.outer, f, at + 29, heap);
+  heap.items(o.scales, f, at + 32, 3, (f, at, v) => { putPqValue(b, v, f, at + 0, heap); });
+}
+
+export function samePqDefinition(a, b) {
+  if (!sameEach(a.repair, b.repair, (x, y) => samePqValue(x, y) === null)) return ".repair";
+  { const d = samePqValue(a.targetVehicle, b.targetVehicle); if (d) return ".targetVehicle" + d; }
+  { const d = samePqValue(a.targetNeutral, b.targetNeutral); if (d) return ".targetNeutral" + d; }
+  { const d = samePqValue(a.targetEnemy, b.targetEnemy); if (d) return ".targetEnemy" + d; }
+  { const d = samePqValue(a.targetFriendly, b.targetFriendly); if (d) return ".targetFriendly" + d; }
+  { const d = samePqValue(a.range, b.range); if (d) return ".range" + d; }
+  { const d = samePqValue(a.angle, b.angle); if (d) return ".angle" + d; }
+  { const d = samePqValue(a.shieldScale, b.shieldScale); if (d) return ".shieldScale" + d; }
+  { const d = samePqValue(a.damage, b.damage); if (d) return ".damage" + d; }
+  { const d = samePqValue(a.inner, b.inner); if (d) return ".inner" + d; }
+  { const d = samePqValue(a.outer, b.outer); if (d) return ".outer" + d; }
+  if (!sameEach(a.scales, b.scales, (x, y) => samePqValue(x, y) === null)) return ".scales";
+  return null;
+}
+
+export function exportPqDefinition(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.repair = o.repair.map((x) => exportPqValue(x, cx));
+  v.targetVehicle = exportPqValue(o.targetVehicle, cx);
+  v.targetNeutral = exportPqValue(o.targetNeutral, cx);
+  v.targetEnemy = exportPqValue(o.targetEnemy, cx);
+  v.targetFriendly = exportPqValue(o.targetFriendly, cx);
+  v.range = exportPqValue(o.range, cx);
+  v.angle = exportPqValue(o.angle, cx);
+  v.shieldScale = exportPqValue(o.shieldScale, cx);
+  v.damage = exportPqValue(o.damage, cx);
+  v.inner = exportPqValue(o.inner, cx);
+  v.outer = exportPqValue(o.outer, cx);
+  v.scales = o.scales.map((x) => exportPqValue(x, cx));
+  return v;
+}
+
+export class PqTargetMirror {
+  constructor() {
+    this.alive = false;
+    this.state = null;
+    this.healthType = null;
+    this.health = NaN;
+    this.maxHealth = NaN;
+    this.team = NaN;
+    this.body = null;
+    this.gunner = false;
+    this.position = new THREE.Vector3();
+    this.matrix = new THREE.Matrix4();
+  }
+}
+
+export function syncPqTarget(b, f, at, h, m) {
+  m.alive = f[at + 0] !== 0;
+  { const tag = f[at + 1]; if (tag === 0) { m.state = PbStateName_NAMES[f[at + 2]]; } else m.state = tag === 1 ? null : undefined; }
+  { const tag = f[at + 3]; if (tag === 0) { m.healthType = PqHealth_NAMES[f[at + 4]]; } else m.healthType = tag === 1 ? null : undefined; }
+  m.health = f[at + 5];
+  m.maxHealth = f[at + 6];
+  m.team = f[at + 7];
+  { const tag = f[at + 8]; if (tag === 0) { m.body = f[at + 9]; } else m.body = tag === 1 ? null : undefined; }
+  m.gunner = f[at + 10] !== 0;
+  (m.position ??= new THREE.Vector3()).set(f[at + 11], f[at + 12], f[at + 13]);
+  { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 14 + i]; }
+  return m;
+}
+
+export function putPqTarget(b, o, f, at, heap) {
+  f[at + 0] = o.alive ? 1 : 0;
+  { const $x = o.state; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; } else { f[at + 1] = 0; f[at + 2] = PbStateName_INDEX.get($x); } }
+  { const $x = o.healthType; if ($x === null || $x === undefined) { f[at + 3] = $x === null ? 1 : 2; f[at + 4] = 0; } else { f[at + 3] = 0; f[at + 4] = PqHealth_INDEX.get($x); } }
+  f[at + 5] = o.health;
+  f[at + 6] = o.maxHealth;
+  f[at + 7] = o.team;
+  { const $x = o.body; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = $x; } }
+  f[at + 10] = o.gunner ? 1 : 0;
+  { const $v = o.position; f[at + 11] = $v.x; f[at + 12] = $v.y; f[at + 13] = $v.z; }
+  { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 14 + i] = e[i]; }
+}
+
+export function samePqTarget(a, b) {
+  if (!Object.is(a.alive, b.alive)) return ".alive";
+  { const p = a.state, q = b.state; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".state"; } else { if (!Object.is(p, q)) return ".state"; } }
+  { const p = a.healthType, q = b.healthType; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".healthType"; } else { if (!Object.is(p, q)) return ".healthType"; } }
+  if (!Object.is(a.health, b.health)) return ".health";
+  if (!Object.is(a.maxHealth, b.maxHealth)) return ".maxHealth";
+  if (!Object.is(a.team, b.team)) return ".team";
+  { const p = a.body, q = b.body; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".body"; } else { if (!Object.is(p, q)) return ".body"; } }
+  if (!Object.is(a.gunner, b.gunner)) return ".gunner";
+  if (!sameVec(a.position, b.position)) return ".position";
+  if (!sameArray(a.matrix?.elements, b.matrix?.elements, 16)) return ".matrix";
+  return null;
+}
+
+export function exportPqTarget(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.alive = o.alive;
+  v.state = o.state;
+  v.healthType = o.healthType;
+  v.health = o.health;
+  v.maxHealth = o.maxHealth;
+  v.team = o.team;
+  v.body = o.body;
+  v.gunner = o.gunner;
+  v.position = o.position.clone();
+  v.matrix = o.matrix.clone();
+  return v;
+}
+
+export class PqStateMirror {
+  constructor() {
+    this.center = new THREE.Vector3();
+    this.toward = new THREE.Vector3();
+  }
+}
+
+export function syncPqState(b, f, at, h, m) {
+  (m.center ??= new THREE.Vector3()).set(f[at + 0], f[at + 1], f[at + 2]);
+  (m.toward ??= new THREE.Vector3()).set(f[at + 3], f[at + 4], f[at + 5]);
+  return m;
+}
+
+export function putPqState(b, o, f, at, heap) {
+  { const $v = o.center; f[at + 0] = $v.x; f[at + 1] = $v.y; f[at + 2] = $v.z; }
+  { const $v = o.toward; f[at + 3] = $v.x; f[at + 4] = $v.y; f[at + 5] = $v.z; }
+}
+
+export function samePqState(a, b) {
+  if (!sameVec(a.center, b.center)) return ".center";
+  if (!sameVec(a.toward, b.toward)) return ".toward";
+  return null;
+}
+
+export function exportPqState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.center = o.center.clone();
+  v.toward = o.toward.clone();
+  return v;
+}
+
+export class PqDamageMirror {
+  constructor() {
+    this.direction = null;
+    this.amount = NaN;
+    this.typed = NaN;
+    this.generic = new PqValueMirror();
+  }
+}
+
+export function syncPqDamage(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { (m.direction ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]); } else m.direction = tag === 1 ? null : undefined; }
+  m.amount = f[at + 4];
+  m.typed = f[at + 5];
+  m.generic = syncPqValue(b, f, at + 6, h, m.generic ?? new PqValueMirror());
+  return m;
+}
+
+export function putPqDamage(b, o, f, at, heap) {
+  { const $x = o.direction; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; f[at + 2] = 0; f[at + 3] = 0; } else { f[at + 0] = 0; { const $v = $x; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; } } }
+  f[at + 4] = o.amount;
+  f[at + 5] = o.typed;
+  putPqValue(b, o.generic, f, at + 6, heap);
+}
+
+export function samePqDamage(a, b) {
+  { const p = a.direction, q = b.direction; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".direction"; } else { if (!sameVec(p, q)) return ".direction"; } }
+  if (!Object.is(a.amount, b.amount)) return ".amount";
+  if (!Object.is(a.typed, b.typed)) return ".typed";
+  { const d = samePqValue(a.generic, b.generic); if (d) return ".generic" + d; }
+  return null;
+}
+
+export function exportPqDamage(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.direction = ((x) => (x === null || x === undefined ? x : x.clone()))(o.direction);
+  v.amount = o.amount;
+  v.typed = o.typed;
+  v.generic = exportPqValue(o.generic, cx);
+  return v;
+}
+
+export class PqInputMirror {
+  constructor() {
+    this.op = "blast";
+    this.state = new PqStateMirror();
+    this.definition = new PqDefinitionMirror();
+    this.buildings = [];
+    this.vehicles = [];
+    this.turrets = [];
+    this.one = NaN;
+    this.building = false;
+    this.owner = new PbIdentityMirror();
+    this.a = new THREE.Vector3();
+    this.b = new THREE.Vector3();
+    this.direction = null;
+    this.team = NaN;
+    this.held = false;
+    this.teamScale = false;
+    this.may = false;
+    this.collision = false;
+  }
+}
+
+export function syncPqInput(b, f, at, h, m) {
+  m.op = PqOperation_NAMES[f[at + 0]];
+  m.state = syncPqState(b, f, at + 1, h, m.state ?? new PqStateMirror());
+  m.definition = syncPqDefinition(b, f, at + 7, h, m.definition ?? new PqDefinitionMirror());
+  { const items = (m.buildings ??= []), start = h + f[at + 41], n = f[at + 42]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.vehicles ??= []), start = h + f[at + 43], n = f[at + 44]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.turrets ??= []), start = h + f[at + 45], n = f[at + 46]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  m.one = f[at + 47];
+  m.building = f[at + 48] !== 0;
+  m.owner = syncPbIdentity(b, f, at + 49, h, m.owner ?? new PbIdentityMirror());
+  (m.a ??= new THREE.Vector3()).set(f[at + 51], f[at + 52], f[at + 53]);
+  (m.b ??= new THREE.Vector3()).set(f[at + 54], f[at + 55], f[at + 56]);
+  { const tag = f[at + 57]; if (tag === 0) { (m.direction ??= new THREE.Vector3()).set(f[at + 58], f[at + 59], f[at + 60]); } else m.direction = tag === 1 ? null : undefined; }
+  m.team = f[at + 61];
+  m.held = f[at + 62] !== 0;
+  m.teamScale = f[at + 63] !== 0;
+  m.may = f[at + 64] !== 0;
+  m.collision = f[at + 65] !== 0;
+  return m;
+}
+
+export function putPqInput(b, o, f, at, heap) {
+  f[at + 0] = PqOperation_INDEX.get(o.op);
+  putPqState(b, o.state, f, at + 1, heap);
+  putPqDefinition(b, o.definition, f, at + 7, heap);
+  heap.items(o.buildings, f, at + 41, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.vehicles, f, at + 43, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.turrets, f, at + 45, 1, (f, at, v) => { f[at + 0] = v; });
+  f[at + 47] = o.one;
+  f[at + 48] = o.building ? 1 : 0;
+  putPbIdentity(b, o.owner, f, at + 49, heap);
+  { const $v = o.a; f[at + 51] = $v.x; f[at + 52] = $v.y; f[at + 53] = $v.z; }
+  { const $v = o.b; f[at + 54] = $v.x; f[at + 55] = $v.y; f[at + 56] = $v.z; }
+  { const $x = o.direction; if ($x === null || $x === undefined) { f[at + 57] = $x === null ? 1 : 2; f[at + 58] = 0; f[at + 59] = 0; f[at + 60] = 0; } else { f[at + 57] = 0; { const $v = $x; f[at + 58] = $v.x; f[at + 59] = $v.y; f[at + 60] = $v.z; } } }
+  f[at + 61] = o.team;
+  f[at + 62] = o.held ? 1 : 0;
+  f[at + 63] = o.teamScale ? 1 : 0;
+  f[at + 64] = o.may ? 1 : 0;
+  f[at + 65] = o.collision ? 1 : 0;
+}
+
+export function samePqInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = samePqState(a.state, b.state); if (d) return ".state" + d; }
+  { const d = samePqDefinition(a.definition, b.definition); if (d) return ".definition" + d; }
+  if (!sameEach(a.buildings, b.buildings, (x, y) => Object.is(x, y))) return ".buildings";
+  if (!sameEach(a.vehicles, b.vehicles, (x, y) => Object.is(x, y))) return ".vehicles";
+  if (!sameEach(a.turrets, b.turrets, (x, y) => Object.is(x, y))) return ".turrets";
+  if (!Object.is(a.one, b.one)) return ".one";
+  if (!Object.is(a.building, b.building)) return ".building";
+  { const d = samePbIdentity(a.owner, b.owner); if (d) return ".owner" + d; }
+  if (!sameVec(a.a, b.a)) return ".a";
+  if (!sameVec(a.b, b.b)) return ".b";
+  { const p = a.direction, q = b.direction; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".direction"; } else { if (!sameVec(p, q)) return ".direction"; } }
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.held, b.held)) return ".held";
+  if (!Object.is(a.teamScale, b.teamScale)) return ".teamScale";
+  if (!Object.is(a.may, b.may)) return ".may";
+  if (!Object.is(a.collision, b.collision)) return ".collision";
+  return null;
+}
+
+export function exportPqInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportPqState(o.state, cx);
+  v.definition = exportPqDefinition(o.definition, cx);
+  v.buildings = o.buildings.map((x) => x);
+  v.vehicles = o.vehicles.map((x) => x);
+  v.turrets = o.turrets.map((x) => x);
+  v.one = o.one;
+  v.building = o.building;
+  v.owner = exportPbIdentity(o.owner, cx);
+  v.a = o.a.clone();
+  v.b = o.b.clone();
+  v.direction = ((x) => (x === null || x === undefined ? x : x.clone()))(o.direction);
+  v.team = o.team;
+  v.held = o.held;
+  v.teamScale = o.teamScale;
+  v.may = o.may;
+  v.collision = o.collision;
+  return v;
+}
+
+export class PqResultMirror {
+  constructor() {
+    this.state = new PqStateMirror();
+    this.selected = NaN;
+    this.flag = false;
+  }
+}
+
+export function syncPqResult(b, f, at, h, m) {
+  m.state = syncPqState(b, f, at + 0, h, m.state ?? new PqStateMirror());
+  m.selected = f[at + 6];
+  m.flag = f[at + 7] !== 0;
+  return m;
+}
+
+export function putPqResult(b, o, f, at, heap) {
+  putPqState(b, o.state, f, at + 0, heap);
+  f[at + 6] = o.selected;
+  f[at + 7] = o.flag ? 1 : 0;
+}
+
+export function samePqResult(a, b) {
+  { const d = samePqState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.selected, b.selected)) return ".selected";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  return null;
+}
+
+export function exportPqResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportPqState(o.state, cx);
+  v.selected = o.selected;
+  v.flag = o.flag;
+  return v;
+}
+
+export class PqActionMirror {
+  constructor() {
+    this.kind = "target";
+    this.state = new PqStateMirror();
+    this.index = NaN;
+    this.point = new THREE.Vector3();
+    this.direction = new THREE.Vector3();
+    this.far = NaN;
+    this.ignore = null;
+    this.blast = false;
+    this.lock = false;
+    this.staticOnly = false;
+    this.amount = NaN;
+    this.owner = new PbIdentityMirror();
+    this.info = null;
+    this.value = new PqValueMirror();
+  }
+}
+
+export function syncPqAction(b, f, at, h, m) {
+  m.kind = PqActionKind_NAMES[f[at + 0]];
+  m.state = syncPqState(b, f, at + 1, h, m.state ?? new PqStateMirror());
+  m.index = f[at + 7];
+  (m.point ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
+  (m.direction ??= new THREE.Vector3()).set(f[at + 11], f[at + 12], f[at + 13]);
+  m.far = f[at + 14];
+  { const tag = f[at + 15]; if (tag === 0) { m.ignore = f[at + 16]; } else m.ignore = tag === 1 ? null : undefined; }
+  m.blast = f[at + 17] !== 0;
+  m.lock = f[at + 18] !== 0;
+  m.staticOnly = f[at + 19] !== 0;
+  m.amount = f[at + 20];
+  m.owner = syncPbIdentity(b, f, at + 21, h, m.owner ?? new PbIdentityMirror());
+  { const tag = f[at + 23]; if (tag === 0) { m.info = syncPqDamage(b, f, at + 24, h, m.info ?? new PqDamageMirror()); } else m.info = tag === 1 ? null : undefined; }
+  m.value = syncPqValue(b, f, at + 33, h, m.value ?? new PqValueMirror());
+  return m;
+}
+
+export function putPqAction(b, o, f, at, heap) {
+  f[at + 0] = PqActionKind_INDEX.get(o.kind);
+  putPqState(b, o.state, f, at + 1, heap);
+  f[at + 7] = o.index;
+  { const $v = o.point; f[at + 8] = $v.x; f[at + 9] = $v.y; f[at + 10] = $v.z; }
+  { const $v = o.direction; f[at + 11] = $v.x; f[at + 12] = $v.y; f[at + 13] = $v.z; }
+  f[at + 14] = o.far;
+  { const $x = o.ignore; if ($x === null || $x === undefined) { f[at + 15] = $x === null ? 1 : 2; f[at + 16] = 0; } else { f[at + 15] = 0; f[at + 16] = $x; } }
+  f[at + 17] = o.blast ? 1 : 0;
+  f[at + 18] = o.lock ? 1 : 0;
+  f[at + 19] = o.staticOnly ? 1 : 0;
+  f[at + 20] = o.amount;
+  putPbIdentity(b, o.owner, f, at + 21, heap);
+  { const $x = o.info; if ($x === null || $x === undefined) { f[at + 23] = $x === null ? 1 : 2; f.fill(0, at + 24, at + 33); } else { f[at + 23] = 0; putPqDamage(b, $x, f, at + 24, heap); } }
+  putPqValue(b, o.value, f, at + 33, heap);
+}
+
+export function samePqAction(a, b) {
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  { const d = samePqState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.index, b.index)) return ".index";
+  if (!sameVec(a.point, b.point)) return ".point";
+  if (!sameVec(a.direction, b.direction)) return ".direction";
+  if (!Object.is(a.far, b.far)) return ".far";
+  { const p = a.ignore, q = b.ignore; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".ignore"; } else { if (!Object.is(p, q)) return ".ignore"; } }
+  if (!Object.is(a.blast, b.blast)) return ".blast";
+  if (!Object.is(a.lock, b.lock)) return ".lock";
+  if (!Object.is(a.staticOnly, b.staticOnly)) return ".staticOnly";
+  if (!Object.is(a.amount, b.amount)) return ".amount";
+  { const d = samePbIdentity(a.owner, b.owner); if (d) return ".owner" + d; }
+  { const p = a.info, q = b.info; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".info"; } else { { const d = samePqDamage(p, q); if (d) return ".info" + d; } } }
+  { const d = samePqValue(a.value, b.value); if (d) return ".value" + d; }
+  return null;
+}
+
+export function exportPqAction(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.kind = o.kind;
+  v.state = exportPqState(o.state, cx);
+  v.index = o.index;
+  v.point = o.point.clone();
+  v.direction = o.direction.clone();
+  v.far = o.far;
+  v.ignore = o.ignore;
+  v.blast = o.blast;
+  v.lock = o.lock;
+  v.staticOnly = o.staticOnly;
+  v.amount = o.amount;
+  v.owner = exportPbIdentity(o.owner, cx);
+  v.info = ((x) => (x === null || x === undefined ? x : exportPqDamage(x, cx)))(o.info);
+  v.value = exportPqValue(o.value, cx);
+  return v;
+}
+
+export class PqActionResultMirror {
+  constructor() {
+    this.state = new PqStateMirror();
+    this.target = null;
+    this.point = new THREE.Vector3();
+    this.number = NaN;
+    this.flag = false;
+    this.found = false;
+    this.hitDistance = NaN;
+    this.hitOwner = NaN;
+  }
+}
+
+export function syncPqActionResult(b, f, at, h, m) {
+  m.state = syncPqState(b, f, at + 0, h, m.state ?? new PqStateMirror());
+  { const tag = f[at + 6]; if (tag === 0) { m.target = syncPqTarget(b, f, at + 7, h, m.target ?? new PqTargetMirror()); } else m.target = tag === 1 ? null : undefined; }
+  (m.point ??= new THREE.Vector3()).set(f[at + 37], f[at + 38], f[at + 39]);
+  m.number = f[at + 40];
+  m.flag = f[at + 41] !== 0;
+  m.found = f[at + 42] !== 0;
+  m.hitDistance = f[at + 43];
+  m.hitOwner = f[at + 44];
+  return m;
+}
+
+export function putPqActionResult(b, o, f, at, heap) {
+  putPqState(b, o.state, f, at + 0, heap);
+  { const $x = o.target; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f.fill(0, at + 7, at + 37); } else { f[at + 6] = 0; putPqTarget(b, $x, f, at + 7, heap); } }
+  { const $v = o.point; f[at + 37] = $v.x; f[at + 38] = $v.y; f[at + 39] = $v.z; }
+  f[at + 40] = o.number;
+  f[at + 41] = o.flag ? 1 : 0;
+  f[at + 42] = o.found ? 1 : 0;
+  f[at + 43] = o.hitDistance;
+  f[at + 44] = o.hitOwner;
+}
+
+export function samePqActionResult(a, b) {
+  { const d = samePqState(a.state, b.state); if (d) return ".state" + d; }
+  { const p = a.target, q = b.target; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".target"; } else { { const d = samePqTarget(p, q); if (d) return ".target" + d; } } }
+  if (!sameVec(a.point, b.point)) return ".point";
+  if (!Object.is(a.number, b.number)) return ".number";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  if (!Object.is(a.found, b.found)) return ".found";
+  if (!Object.is(a.hitDistance, b.hitDistance)) return ".hitDistance";
+  if (!Object.is(a.hitOwner, b.hitOwner)) return ".hitOwner";
+  return null;
+}
+
+export function exportPqActionResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportPqState(o.state, cx);
+  v.target = ((x) => (x === null || x === undefined ? x : exportPqTarget(x, cx)))(o.target);
+  v.point = o.point.clone();
+  v.number = o.number;
+  v.flag = o.flag;
+  v.found = o.found;
+  v.hitDistance = o.hitDistance;
+  v.hitOwner = o.hitOwner;
   return v;
 }
