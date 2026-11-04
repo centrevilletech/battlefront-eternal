@@ -22,7 +22,7 @@ export class F2Firing {
     this.phaseFields = new FfPhaseMirror();
     this.rows = []; this.cableRow = new FfCableOutMirror();
     this.inputWords = phase.x.f2_firing_words(1);
-    this.frozen = { pressed: false, held: false, reload: false, target: -2, hasRandom: false, floor: 0, spreadScale: 1, sniperScale: 0, yawSpreadOverride: null };
+    this.frozen = { channel: 0, pressed: false, held: false, reload: false, target: -2, hasRandom: false, floor: 0, spreadScale: 1, sniperScale: 0, yawSpreadOverride: null };
     this.seatWords = phase.x.f2_firing_words(2);
     this.seatInput = { aiming: false, aim: zero };
     this.supplyArgs = { words: phase.x.f2_firing_words(3), put: putFfSupply };
@@ -60,13 +60,14 @@ export class F2Firing {
     const seats = v.seats.map(s => ({ weapons: s.weapons.map(w => {
       registerWeaponClass(b, w.state.levels[0]);
       if (w.def.ordnance) this.vs.ordnance.sim.defId(w.def.ordnance);
+      const emitter = (w.muzzles.length ? w.emitter : w.aimers[0]?.emitter ?? w.emitter) ?? s.emitter;
       const state = { ...w.state, level: w.state.levels.indexOf(w.state.def), admits: false, hasRandom: Boolean(w.state.random), melee: null };
       return { state, ordnance: w.def.ordnance ?? null, tow: w.def.ordnance?.base === 'towcable', range: Math.max(20, w.def.LockOnRange || 0),
         cableLength: Math.max(10, w.def.ordnance?.CableLength || 60), channel: w.state.channel ?? 0, relationMask: weaponAI(w.def).relationMask, categoryMask: weaponAI(w.def).categoryMask,
         weaponNode: node(named(w.def.FirePointName)), fallbackNode: node(named(w.aimers[0]?.FirePointName || w.aimers[0]?.node || w.def.FirePointName)),
         directionNodes: w.aimers.map(a => node(named(a.FirePointName))), outside: w.aimers.map(a => num(a.FireOutsideLimits ?? s.settings?.FireOutsideLimits)),
-        emitter: (w.muzzles.length ? w.emitter : w.aimers[0]?.emitter ?? w.emitter) ?? s.emitter,
-        muzzles: w.muzzles.map(m => ({ emitter: m.emitter ?? w.emitter ?? s.emitter })) };
+        emitter, emitterNode: node(emitter?.node), emitterAimer: w.aimers.indexOf(emitter?.aimer),
+        muzzles: w.muzzles.map(m => { const e = m.emitter ?? w.emitter ?? s.emitter; return { emitter: e, node: node(e?.node), aimer: w.aimers.indexOf(e?.aimer) }; }) };
     }) }));
     b.callArgs(this.birthArgs, { hull: v, life: v.aiTarget.generation, commandWalker: v.base === 'commandwalker', legTop: v.legTop, legs: v.legs, seats });
     this.phase.x.f2_firing_adopt();
@@ -92,6 +93,7 @@ export class F2Firing {
         out.reload = Boolean(input?.reload);
         for (let c = 0; c < seat.weapons.length; c++) {
           const w = seat.weapons[c].state;
+          out.channel = w.channel ?? 0;
           out.pressed = Boolean(input?.pressed[c]); out.held = Boolean(input?.held[c]); out.hasRandom = Boolean(w.random);
           out.floor = w.floor; out.spreadScale = w.spreadScale; out.sniperScale = w.sniperScale; out.yawSpreadOverride = w.yawSpreadOverride;
           putFfWeaponInput(b, out, b.f, at, null); at += this.inputWords;

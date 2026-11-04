@@ -45,12 +45,12 @@ struct Cable {
 struct Emitter { identity: Ref<crate::gen::Emitter>, hull: Ref<Vehicle>, life: f64, seat: usize, weapon: usize, node: Option<three::NodeId>, aimer: Option<usize> }
 struct State {
     emitters: Vec<Option<Emitter>>, weapons: Slab<Mounted>, crafts: Vec<Option<Craft>>, cables: Vec<Cable>,
-    phase: [f64; FfPhase::WORDS], supply_result: Calls, output: Block, cable_output: Block, published: Vec<FfHullOut>, locked: StrId, attached: StrId, snapped: StrId, tripped: StrId, empty: StrId, class_names: [StrId; 4],
+    phase: [f64; FfPhase::WORDS], supply_result: Calls, output: Block, cable_output: Block, published: Vec<FfHullOut>, locked: StrId, attached: StrId, snapped: StrId, retow: StrId, tripped: StrId, empty: StrId, class_names: [StrId; 4],
 }
 static mut STATE: Option<State> = None;
 fn state() -> &'static mut State {
     unsafe { (*addr_of_mut!(STATE)).get_or_insert_with(|| State { emitters: Vec::with_capacity(1024), weapons: Slab::with_capacity(512), crafts: Vec::with_capacity(128),
-        cables: Vec::with_capacity(128), phase: [0.0; FfPhase::WORDS], supply_result: Calls::default(), output: Block::default(), cable_output: Block::default(), published: Vec::with_capacity(128), locked: sim().strings.intern_str("Locked"), attached: sim().strings.intern_str("attached"), snapped: sim().strings.intern_str("snapped"), tripped: sim().strings.intern_str("tripped"), empty: sim().strings.intern_str(""), class_names: FlightClass::NAMES.map(|n| sim().strings.intern_str(n)) }) }
+        cables: Vec::with_capacity(128), phase: [0.0; FfPhase::WORDS], supply_result: Calls::default(), output: Block::default(), cable_output: Block::default(), published: Vec::with_capacity(128), locked: sim().strings.intern_str("Locked"), attached: sim().strings.intern_str("attached"), snapped: sim().strings.intern_str("snapped"), retow: sim().strings.intern_str("retow"), tripped: sim().strings.intern_str("tripped"), empty: sim().strings.intern_str(""), class_names: FlightClass::NAMES.map(|n| sim().strings.intern_str(n)) }) }
 }
 fn node(n: f64) -> Option<three::NodeId> { (n >= 0.0).then_some(n as three::NodeId) }
 
@@ -94,15 +94,11 @@ pub extern "C" fn f2_firing_adopt() {
         for weapon in 0..n {
             let wr = state().crafts[i].as_ref().unwrap().seats[seat][weapon];
             let b = &state().weapons.get(wr).unwrap().birth;
-            let p = &poses()[a.hull.slot as usize].as_ref().unwrap().pose;
-            let node = node(if b.muzzles.is_empty() { b.fallback_node } else { b.weapon_node });
-            let aimer = if b.muzzles.is_empty() && p.seats[seat].weapons[weapon].aimers.first().is_some_and(|a| a.bone.is_some()) { Some(0) } else { None };
-            register_emitter(b.emitter, a.hull, a.life, seat, weapon, node, aimer);
+            register_emitter(b.emitter, a.hull, a.life, seat, weapon, node(b.emitter_node), node(b.emitter_aimer).map(|n| n as usize));
             let n = state().weapons.get(wr).unwrap().birth.muzzles.len();
             for k in 0..n {
-                let emitter = state().weapons.get(wr).unwrap().birth.muzzles[k].emitter;
-                let m = poses()[a.hull.slot as usize].as_ref().unwrap().pose.rig.seats[seat].weapons[weapon].muzzles[k];
-                register_emitter(emitter, a.hull, a.life, seat, weapon, Some(m.fire_node), m.source_aimer);
+                let m = &state().weapons.get(wr).unwrap().birth.muzzles[k];
+                register_emitter(m.emitter, a.hull, a.life, seat, weapon, node(m.node), node(m.aimer).map(|n| n as usize));
             }
         }
     }
@@ -164,6 +160,7 @@ pub fn inputs(data: &[f64]) -> usize {
             let w = st.weapons.get_mut(r).unwrap();
             w.input = FfWeaponInput::take(&data[o..o + FfWeaponInput::WORDS], &[]);
             o += FfWeaponInput::WORDS;
+            w.birth.channel = w.input.channel;
             w.state.random = w.input.has_random;
             w.state.floor = w.input.floor;
             if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
@@ -239,6 +236,7 @@ fn geometry(r: Ref<Vehicle>) -> &'static mut Hull {
     let v = sim().store.vehicle.get(r).unwrap();
     let h = &mut c.geometry;
     h.id = r; h.alive = v.alive; h.flying = v.flying;
+    h.position = vec(&v.position); h.yaw = v.yaw;
     h.center = vec(&v.center); h.size = vec(&v.size); h.matrix.elements = v.matrix;
     h.quaternion = three::Quaternion::new(v.quaternion[0], v.quaternion[1], v.quaternion[2], v.quaternion[3]);
     h.seat_index = v.seat_index as usize;
@@ -517,7 +515,7 @@ fn launch_tow(r: Ref<Vehicle>, seat: usize, weapon: usize, wr: Ref<Mounted>, ori
         }
     }
     let Some((leg, local)) = leg else { return false };
-    if sim().store.vehicle.get(r).unwrap().tow_target >= 0.0 { release(r, state().snapped); }
+    if sim().store.vehicle.get(r).unwrap().tow_target >= 0.0 { release(r, state().retow); }
     let target_life = sim().store.vehicle.get(target).unwrap().target_generation;
     let source = sim().store.vehicle.get(r).unwrap();
     let source_life = source.target_generation;
@@ -590,6 +588,7 @@ fn register_emitter(source: BeamSource, hull: Ref<Vehicle>, life: f64, seat: usi
     }
 }
 fn emitter(source: BeamSource) -> Option<Emitter> {
+    if !super::super::active() { return None; }
     let BeamSource::Emitter(r) = source else { return None };
     state().emitters.get(r.slot as usize).copied().flatten().filter(|e| e.identity == r)
 }
