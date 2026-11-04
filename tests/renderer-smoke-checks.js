@@ -165,7 +165,10 @@ export async function checkRenderer(backend) {
     const compare = (name) => {
       // Warm both owners before comparing, then alternate on one context.
       for (let i = 0; i < 4; i++) capture(true);
-      const a = capture(false), a2 = capture(false), b = capture(true), b2 = capture(true);
+      for (let i = 0; i < 3; i++) capture(false);
+      const a = capture(false), a2 = capture(false);
+      for (let i = 0; i < 3; i++) capture(true);
+      const b = capture(true), b2 = capture(true);
       assert(`${name}: stable three frame`, a.every((v,i) => v === a2[i]));
       assert(`${name}: stable Rust frame`, b.every((v,i) => v === b2[i]));
       let max = 0, changed = 0, visible = 0;
