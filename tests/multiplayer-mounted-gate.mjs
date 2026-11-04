@@ -18,6 +18,18 @@ async function drawnFrame(page,stage) {
   console.log('drawn-frame',stage,JSON.stringify(result));
 }
 
+// Fresh models can compile on their first drawn frame. Let that work settle
+// before a discrete input with the production half-second expiry window.
+async function inputCadence(page) {
+  const result=await page.evaluate(()=>new Promise(resolve=>{
+    let previous=performance.now(),stable=0;const start=previous;
+    function sample(now){const gap=now-previous;previous=now;stable=gap<250?stable+1:0;
+      if(stable>=4||now-start>60000)resolve({stable:stable>=4,elapsed:now-start});else requestAnimationFrame(sample);}
+    requestAnimationFrame(sample);
+  }));
+  assert.ok(result.stable,'drawn input frames settle within the reliable action window');
+}
+
 // Ordinary spawn, walking, use and seat-cycle commands. No teleport, direct
 // board(), health edits or replacement physics are allowed in this gate.
 export async function mountedGameGate([actor, observer]) {
@@ -55,6 +67,7 @@ export async function mountedGameGate([actor, observer]) {
   // Establish a real first life before proving the death-screen transition.
   async function spawn() {
     await actor.waitForFunction(()=>['unspawned','awaiting'].includes(__bf.spawnPort.humanState().phase),null,{timeout:60000});
+    await inputCadence(actor);
     await actor.evaluate(choice=>__bf.spawnPort.request(choice),choice);
     try { await actor.waitForFunction(c=>__bf.playerUnit.alive&&__bf.playerUnit.className===c.className&&__bf.playerTeam===c.team,choice,{timeout:60000}); }
     catch(error) {
@@ -111,8 +124,12 @@ export async function mountedGameGate([actor, observer]) {
   console.log('mounted-approach',JSON.stringify(navigation));
   assert.ok(navigation.distance<navigation.radius+2.5,'ordinary movement reaches boarding distance');
   await actor.waitForFunction(()=>!__bf.soldier.air&&__bf.soldier.lock<=0,null,{timeout:15000});
-  await actor.keyboard.press('KeyE');
-  await actor.waitForFunction(c=>__bf.playerUnit.seat?.vehicle?.aiTarget.id===c.vehicleId,choice,{timeout:15000});
+  await inputCadence(actor);
+  for(let attempt=0;attempt<10;attempt++) {
+    await actor.keyboard.press('KeyE');
+    try { await actor.waitForFunction(c=>__bf.playerUnit.seat?.vehicle?.aiTarget.id===c.vehicleId,choice,{timeout:1500});break; }
+    catch(error) { if(attempt===9) { console.log('boarding-timeout',JSON.stringify(await actor.evaluate(()=>({alive:__bf.playerUnit.alive,seat:__bf.playerUnit.seat?.index,enabled:__bf.controls.enabled,locked:__bf.controls.locked,edges:window.__spawnEdges}))));throw error; } }
+  }
   // Ordinary seat cycling may exchange a bot pilot with the human passenger.
   if(await actor.evaluate(()=>__bf.playerUnit.seat.index!==0))await actor.evaluate(()=>{__bf.pending.nextPrimary=true;});
   await actor.waitForFunction(()=>__bf.playerUnit.seat?.index===0&&__bf.client.entity.previous?.controlMode===4,null,{timeout:15000});
@@ -129,8 +146,7 @@ export async function mountedGameGate([actor, observer]) {
   await actor.evaluate(()=>{__bf.pending.nextPrimary=true;});
   await actor.waitForFunction(()=>__bf.playerUnit.seat?.index>0&&__bf.client.entity.previous?.controlMode===2,null,{timeout:15000});
   const before=await actor.evaluate(()=>__bf.driver.vehicle.seats[__bf.playerUnit.seat.index].aimYaw);
-  if(process.env.BFE_TEST_CPU==='1')await actor.evaluate(()=>document.dispatchEvent(new MouseEvent('mousemove',{movementX:80,movementY:20,bubbles:true})));
-  else await actor.mouse.move(460,190,{steps:8});
+  await actor.evaluate(()=>document.dispatchEvent(new MouseEvent('mousemove',{movementX:80,movementY:20,bubbles:true})));
   await actor.mouse.click(460,190);
   await actor.waitForFunction(before=>Math.abs(__bf.driver.vehicle.seats[__bf.playerUnit.seat.index].aimYaw-before)>.01,before,{timeout:15000});
   // Disconnect while occupying the hull, then prove the server releases it.

@@ -58,7 +58,7 @@ const browser = electronMode ? null : await chromium.launch({ args: ['--use-angl
 // real one (native UDP) in this process through tools/net-page-bridge.mjs.
 const pageNetwork = electronMode ? null : await startPageNetwork();
 // Keep both clients within the software rasterizer's input-frame budget.
-const fixtureSettings={...PERFORMANCE_PRESETS.minimum.values,renderScale:0.25,dynamicResolution:'off',farTerrain:'full'};
+const fixtureSettings={...PERFORMANCE_PRESETS.minimum.values,renderScale:0.25,dynamicResolution:'off',farTerrain:'full',deathCamera:'classic'};
 const pages = [], bridges = [], errors = [];
 try {
   for (let i = 0; i < 2; i++) {
