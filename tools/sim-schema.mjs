@@ -750,7 +750,7 @@ function rustCalls(model) {
   consts('COMMAND', model.commandsList);
   consts('EVENT', model.eventsList);
   consts('IMPORT', model.importsList);
-  lines.push('/// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,', '/// its result written there after it; false for no such command.', 'pub fn run_command(sim: &mut crate::abi::Sim, code: u32) -> bool {', '    match code {');
+  lines.push('/// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,', '/// its result written there after it; false for no such command.', 'pub fn run_command(sim: &mut crate::abi::Sim, code: u32) -> bool {', ...(!model.target.test ? ['    if !crate::abi::command_available(code) { return false; }'] : []), '    match code {');
   for (const c of model.commandsList) {
     lines.push(`        COMMAND_${upper(c.name)} => {`, `            let args = { let (row, heap) = sim.calls.args(); ${c.args}::take(row, heap) };`);
     if (c.result) lines.push(`            let result = crate::${c.rust}(sim, args);`, `            sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`);
@@ -766,7 +766,7 @@ function rustCalls(model) {
     if (!flat(model, c.args)) continue;
     const n = recordWords(model, c.args);
     const params = Array.from({ length: n }, (_, i) => `w${i}: f64`).join(', ');
-    lines.push(`/// The command ${c.name}, its arguments' words as parameters.`, '#[no_mangle]', `pub extern "C" fn cmd_${snake(c.name).replace(/^r#/, '')}(${params}) -> *const f64 {`, `    let row: [f64; ${n}] = [${Array.from({ length: n }, (_, i) => `w${i}`).join(', ')}];`, `    let args = ${c.args}::take(&row, &[]);`, '    let sim = crate::abi::sim();');
+    lines.push(`/// The command ${c.name}, its arguments' words as parameters.`, '#[no_mangle]', `pub extern "C" fn cmd_${snake(c.name).replace(/^r#/, '')}(${params}) -> *const f64 {`, `    if !crate::abi::command_available(COMMAND_${upper(c.name)}) { return std::ptr::null(); }`, `    let row: [f64; ${n}] = [${Array.from({ length: n }, (_, i) => `w${i}`).join(', ')}];`, `    let args = ${c.args}::take(&row, &[]);`, '    let sim = crate::abi::sim();');
     if (c.result) lines.push(`    let result = crate::${c.rust}(sim, args);`, `    sim.calls.result(${c.result}::WORDS, |row, heap| result.put(row, heap));`, '    sim.calls.block.ptr()');
     else lines.push(`    crate::${c.rust}(sim, args);`, '    std::ptr::null()');
     lines.push('}', '');
@@ -783,6 +783,11 @@ function rustCalls(model) {
       lines.push(`/// Asks JavaScript (the import ${c.name}): its arguments go out in the import block,`, '/// its result comes back there (store::calls). The module only (a native build serves', '/// its boundary from elsewhere: the replay harness, or Rust).', '#[cfg(target_arch = "wasm32")]', `pub fn import_${fn}(args: &${c.args}) -> ${c.result ?? '()'} {`, `    crate::store::calls::import_out(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    unsafe { bfe_import_${fn}() };`);
       if (c.result) lines.push(`    crate::store::calls::import_in(|row, heap| ${c.result}::take(row, heap))`);
       lines.push('}', '');
+      if (!model.target.test) {
+        lines.push('/// Calls the explicitly owned native host; no context borrow spans dispatch.', '#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]', `pub fn import_${fn}_in(context: &crate::abi::context::Context, args: &${c.args}) -> Result<${c.result ?? '()'}, crate::abi::context::Failure> {`, `    let args = crate::abi::context::Record::new(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    let reply = context.call_import(IMPORT_${upper(c.name)}, args)?;`);
+        lines.push(c.result ? `    Ok(reply.read(${c.result}::take))` : '    Ok(())');
+        lines.push('}', '');
+      }
     }
   }
   return lines;
