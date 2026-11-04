@@ -114,11 +114,14 @@ fn owned_results_survive_reuse_and_invalid_exchange_clears_output() {
     session.input = vec![0.0, -0.0, 0.0];
     assert_eq!(session.run(12), Ok(()));
     assert_eq!(session.output[0].to_bits(), 0.0f64.to_bits());
-    for input in [vec![], vec![1.0, 0.0], vec![1.0, f64::INFINITY]] {
+    for input in [vec![], vec![1.0, 1.0], vec![1.0, f64::INFINITY]] {
         session.input = input;
         assert_eq!(session.run(14), Err("invalid reconciliation exchange"));
         assert!(session.output.is_empty());
     }
+    session.input = vec![1.0, 1.0, f64::NAN];
+    assert_eq!(session.run(7), Err("invalid reconciliation exchange"));
+    assert!(session.output.is_empty());
     session.input.clear();
     assert_eq!(session.run(0), Ok(()));
     assert_eq!(kept, vec![2.0, 2.0, 3.0]);

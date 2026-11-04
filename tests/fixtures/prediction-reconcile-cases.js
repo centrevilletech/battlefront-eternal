@@ -186,6 +186,33 @@ export function reconcileCallbackCases() {
       lead.measure = () => { events.push(['measure', lead.latest]); lead.latest = 100; lead.margin = 2; lead.estimator = { estimate(now) { events.push(['estimate', now, lead.latest]); lead.margin = 3; lead.worstGap = -.5; lead.extra = 1; lead.extrapolate = true; return 13; } }; };
       const result = lead.target(.25); return { result, events, state: pick(lead, ['latest', 'lead', 'capped', 'margin', 'extra', 'worstGap']) };
     } },
+    { name: 'lead:acknowledgement-capped-and-nan-cooldown', group: 'callback', native: true, run(native) {
+      const lead = new InputLead({ recover: true, calm: 4, cooldown: 2 }, options(native)), out = [];
+      for (const cooldown of [NaN, -0, 2.5, Infinity, -2]) for (const capped of [false, true]) {
+        Object.assign(lead, { cooldown, calm: 3.5, extra: 2, late: .5 });
+        lead.acknowledge(2.5, 1.5, capped); out.push(leadState(lead));
+        lead.acknowledge(-0, 1.5, false); out.push(leadState(lead));
+      }
+      return out;
+    } },
+    { name: 'models:constructor-reset-and-prerequisite-read-order', group: 'callback', run(native) {
+      const events = [];
+      class Estimator extends WorldTickEstimator {
+        reset() { events.push(['estimator-reset', this.hz, this.window, this.offsets.length]); super.reset(); }
+      }
+      class Lead extends InputLead {
+        reset() { events.push(['lead-reset', this.margin, this.gaps.length, this.estimator.offset]); super.reset(); }
+      }
+      class Window extends PredictionWindow {
+        reset() { events.push(['window-reset', this.limit]); super.reset(); }
+      }
+      const e = new Estimator({}, options(native)), lead = new Lead({ recover: true }, options(native)), window = new Window(undefined, options(native));
+      Object.defineProperty(e, 'hz', { get() { events.push('hz'); throw fail('unreached-hz'); } });
+      const empty = e.estimate(0);
+      Object.defineProperty(lead, 'margin', { get() { events.push(['margin', lead.latest]); return 3; } });
+      lead.reset();
+      return { events, empty, lead: lead.lead, calmAcks: lead.calmAcks, limit: window.limit };
+    } },
     { name: 'smoother:reset-sees-published-note-and-increment-is-late', group: 'callback', native: true, run(native) {
       const s = new CorrectionSmoother({ snap: .5 }, options(native)), events = [];
       s.reset = function () { events.push(smootherState(this)); this.snaps = 40; this.x = .25; this.y = -.25; this.z = 0; };
