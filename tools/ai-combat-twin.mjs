@@ -9,6 +9,8 @@ import { Aimer, ballisticLead, filterDirection, skillCurves } from '../src/ai/cl
 import { PriorityHeap, matchupPriority } from '../src/ai/classic/perception.js';
 import { pressButton, registerAIData, triggerFromCounts, weaponAI } from '../src/ai/classic/weapons-ai.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
+import { classicBinding } from '../src/ai/classic/combat.js';
+import { UnitController } from '../src/ai/classic/controller.js';
 
 if (!process.versions.v8.startsWith('13.6.')) throw Error('Use the reference V8 13.6');
 if (!process.argv[2]) throw Error('Pass an output filename');
@@ -16,7 +18,7 @@ const rng = new ClassicRandom(0x45ab913);
 const n = (scale = 1) => (rng.uniform() * 2 - 1) * scale;
 const vector = (scale = 1) => new Vector3(n(scale), n(scale), n(scale));
 const plain = (v) => [v.x, v.y, v.z];
-const output = { node: process.version, v8: process.versions.v8, heaps: [], filter: [], aimer: [], ballistic: [], weapons: [], buttons: [], priorities: [], enhanced: [] };
+const output = { node: process.version, v8: process.versions.v8, heaps: [], filter: [], aimer: [], ballistic: [], weapons: [], buttons: [], priorities: [], enhanced: [], ingest: [] };
 
 for (const capacity of [1, 2, 3, 7, 112, 200]) {
   const heap = new PriorityHeap(capacity, 20000), ops = [];
@@ -94,6 +96,38 @@ for (const tier of [1, 2, 3]) for (const skill of [0.9, 1, 1.1]) {
   }
   output.enhanced.push({ tier, skill, seed: 0x91e7 + tier, steps });
 }
+for (let i = 0; i < 128; i++) {
+  const character = { id: 201, team: 1 }, fallback = { id: 202, team: i % 3 === 0 ? 2 : 1 };
+  const ctls = Array.from({ length: 5 }, (_, k) => Object.assign(Object.create(UnitController.prototype), {
+    id: 101 + k, shot: { pending: false, source: null, known: i % 2 === 0, point: new Vector3(7, -0, 9) },
+  }));
+  const shooter = { id: 1, generation: 3, alive: i % 11 !== 0, team: 1, character, controller: ctls[4], position: new Vector3(3, 4, -5) };
+  const victim = { id: 2, generation: 5, alive: i % 13 !== 0, team: 2, human: i % 17 === 0, controller: ctls[0] };
+  if (i % 4 === 0) victim.seat = { human: false, controllable: { controller: ctls[1] } };
+  if (i % 4 === 1) victim.vehicle = { seats: [
+    { lease: { human: false, controllable: { controller: ctls[2] } } },
+    { lease: { human: i % 8 === 1, unit: { controller: ctls[3] } } },
+    { lease: { released: true, controllable: { controller: ctls[1] } } },
+    { lease: { human: false, controllable: { controller: ctls[2] } } },
+  ] };
+  ctls[4].perception = { fire: {} }; ctls[4].target = { unit: victim, generation: 5 };
+  const ref = (u, mode) => mode === 0 ? null : mode === 1 ? u : { unit: u, generation: u.generation + (mode === 3 ? 1 : 0) };
+  const events = [
+    { kind: 'damage', target: ref(victim, 1 + i % 3), attacker: ref(shooter, i % 4), attackerCharacter: i % 7 ? fallback : null,
+      amount: [0, 1, 1.01, 20][i % 4], generic: i % 5 ? 1 : 0, typed: 1, known: i % 3 === 1, point: i % 6 ? [1.25, -2.5, -0] : null },
+    { kind: 'shot', source: ref(shooter, 1 + i % 3), target: ref(victim, Math.trunc(i / 3) % 4) },
+  ];
+  const eventRef = (r) => !r ? null : r.unit ? { unit: r.unit.id, generation: r.generation } : { direct: r.id };
+  const lease = (l) => l ? { human: Boolean(l.human), released: Boolean(l.released), liveFalse: l.live === false,
+    controller: l.controllable?.controller?.id ?? null, unitController: l.unit?.controller?.id ?? null } : null;
+  const input = { alive: [shooter.alive, victim.alive], human: victim.human, seat: lease(victim.seat), leases: victim.vehicle?.seats.map((s) => lease(s.lease)) ?? null,
+    fallbackTeam: fallback.team, known: i % 2 === 0,
+    events: events.map((e) => ({ ...e, source: eventRef(e.source), target: eventRef(e.target), attacker: eventRef(e.attacker), attackerCharacter: e.attackerCharacter?.id ?? null })),
+  };
+  const world = { units: { relation: (a, b) => a === b ? 1 : -1 }, events: { reader: () => ({ read: (f) => events.forEach(f) }) } };
+  classicBinding({ world }).ingest();
+  output.ingest.push({ ...input, after: ctls.map((c) => ({ pending: c.shot.pending, source: c.shot.source?.id ?? null, known: c.shot.known, point: plain(c.shot.point) })) });
+}
 const bytes = new DataView(new ArrayBuffer(8));
 const encoded = JSON.stringify(output, (_, v) => {
   if (typeof v !== 'number') return v;
@@ -101,4 +135,4 @@ const encoded = JSON.stringify(output, (_, v) => {
   return { $f64: bytes.getBigUint64(0, false).toString(16).padStart(16, '0') };
 });
 fs.writeFileSync(process.argv[2], encoded + '\n');
-console.log('7200 heap operations, 2048 direction filters, 1024 Aimer steps, 2048 ballistic leads, 256 weapon records, 2048 trigger steps, 144 priorities, 2304 Enhanced aim steps');
+console.log('7200 heap operations, 2048 direction filters, 1024 Aimer steps, 2048 ballistic leads, 256 weapon records, 2048 trigger steps, 144 priorities, 2304 Enhanced aim steps, 256 attributed events');

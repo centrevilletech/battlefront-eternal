@@ -11,7 +11,7 @@ use super::world::*;
 use crate::combat::defs::{Js, JsObj};
 use sim_replay::{Call, Capture, Frame, Log};
 use sim_replay::value::{Node, V, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use three::Vector3;
 
@@ -60,6 +60,7 @@ struct Host<'a> {
     teams: V<'a>,
     units: HashMap<Obj, UnitView>,
     writes: HashMap<Obj, UnitWrites>,
+    arsenal_known: HashSet<Obj>,
     ctls: HashMap<Obj, Ctl>,
     agents: HashMap<Obj, AgentView>,
     characters: HashMap<Obj, (Option<Obj>, Option<Obj>, f64)>,
@@ -77,7 +78,7 @@ impl<'a> Host<'a> {
         let mut h = Self {
             log: Log::new(frame), read: Read::new(capture), time: s.get("time").num(),
             difficulty: difficulty(s.get("difficulty")), bound: s.get("bound"), teams: s.get("teams"),
-            units: HashMap::new(), writes: HashMap::new(), ctls: HashMap::new(), agents: HashMap::new(),
+            units: HashMap::new(), writes: HashMap::new(), arsenal_known: HashSet::new(), ctls: HashMap::new(), agents: HashMap::new(),
             characters: HashMap::new(), living: Vec::new(),
         };
         h.read.tier = s.get("enhanced").get("tier").opt_num().unwrap_or(2.0);
@@ -97,6 +98,15 @@ impl<'a> Host<'a> {
     fn add_unit(&mut self, v: V) -> Obj {
         let u = self.read.unit(v);
         let id = u.obj;
+        let has_arsenal_view = v.get("arsenal").str() != Some("omitted");
+        // A queried recipient can first appear only as another bot's
+        // target. Its arsenal was not readable before this query.
+        if self.units.contains_key(&id) && has_arsenal_view && !self.arsenal_known.contains(&id) {
+            self.units.get_mut(&id).unwrap().arsenal = u.arsenal.clone();
+            let view = self.read.unit_writes(v);
+            let writes = self.writes.get_mut(&id).unwrap();
+            writes.random = view.random; writes.weapons = view.weapons;
+        }
         if let Some(old) = self.units.get(&id) {
             let mut expected = u;
             if v.get("arsenal").str() == Some("omitted") { expected.arsenal = old.arsenal.clone(); }
@@ -106,6 +116,7 @@ impl<'a> Host<'a> {
             let writes = self.read.unit_writes(v);
             self.writes.insert(id, writes);
         }
+        if has_arsenal_view { self.arsenal_known.insert(id); }
         id
     }
 

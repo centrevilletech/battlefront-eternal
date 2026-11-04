@@ -243,6 +243,10 @@ function ctlUnits(c) {
 }
 function frameState(frame, end) {
   const units = new Set(frame.units);
+  for (const c of frame.characters ?? []) {
+    const lease = c.unit?.seat;
+    for (const u of [c.unit, c.remote, lease && !lease.human && !lease.released ? lease.controllable : null]) if (u) units.add(u);
+  }
   if (frame.los) {
     for (const h of [world.deferredLos.active, world.deferredLos.scratch]) {
       for (let i = 1; i <= h.count; i++) if (h.items[i]?.target?.unit) units.add(h.items[i].target.unit);
@@ -567,6 +571,7 @@ const SERVICE_FRAMES = [
     for (const e of evs ?? []) for (const k of ['source', 'target', 'attacker']) {
       const r = e[k], u = r?.unit ?? (r?.alive !== undefined ? r : null);
       if (u) f.units.add(u);
+      if (u?.character) f.characters.add(u.character);
     }
     for (const e of evs ?? []) {
       if (e.attackerCharacter) f.characters.add(e.attackerCharacter);
@@ -696,10 +701,14 @@ const queryAfter = () => {
   lastQuery = null;
   const result = q?.result ?? [];
   if (f?.collect) for (const u of result) if (u.controller) f.ctls.add(u.controller);
+  const ctls = f?.collect ? result.filter((u) => u.controller).map((u) => u.controller) : [];
+  const views = new Set(result);
+  for (const c of ctls) for (const u of ctlUnits(c)) if (u) views.add(u);
+  const own = new Set(ctls.map((c) => c.unit));
   return {
     tried: q?.tried ? q.tried.map(([u, team, answer]) => ({ unit: u, team, answer })) : null,
-    views: result.map((u) => unitView(u, Boolean(f?.collect) || f?.own.has(u))),
-    ctls: f?.collect ? result.filter((u) => u.controller).map((u) => ctlView(u.controller)) : null,
+    views: [...views].map((u) => unitView(u, own.has(u) || f?.own.has(u))),
+    ctls: ctls.map(ctlView),
   };
 };
 const unitAfter = (label) => () => {
