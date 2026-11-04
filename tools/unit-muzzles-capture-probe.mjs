@@ -13,7 +13,7 @@ export function tick(tick) {
     epoch: 1, id: ++action, tick, generation: server.actor.unit.generation, actions: ['use'],
   });
   if (tick >= 120 && tick % 60 === 0) {
-    const u = game.factory.built.find(u => u.alive && !u.removed && u.soldier.def.ChunkFrequency > 0 && u.soldier.def.chunks?.length);
+    const u = game.factory.built.find(u => u.alive && !u.removed && u.combat.chunks > 0 && u.soldier.air !== 'thrown');
     if (u) { u.combat.damage(Infinity); deaths++; }
   }
   if (tick === 400) {
