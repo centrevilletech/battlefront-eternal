@@ -3,6 +3,46 @@
 
 use super::*;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldClockOperation {
+    #[default] Advance = 0,
+    Reset = 1,
+    Rebase = 2,
+}
+
+impl WorldClockOperation {
+    pub const NAMES: [&'static str; 3] = ["advance", "reset", "rebase"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldClockOperation::Advance),
+            1 => Some(WorldClockOperation::Reset),
+            2 => Some(WorldClockOperation::Rebase),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldClockCall {
+    #[default] Now = 0,
+    Step = 1,
+}
+
+impl WorldClockCall {
+    pub const NAMES: [&'static str; 2] = ["now", "step"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldClockCall::Now),
+            1 => Some(WorldClockCall::Step),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WsMember {
     pub id: f64,
@@ -128,6 +168,179 @@ impl WsSeparationResult {
         let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
         Self {
             members: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 4..at + (i + 1) * 4]; out.push(WsSeparated::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldClockState {
+    pub hz: f64,
+    pub dt: f64,
+    pub max_steps: f64,
+    pub budget: f64,
+    pub max_debt: f64,
+    pub tick: f64,
+    pub elapsed: f64,
+    pub compensation: f64,
+    pub debt: f64,
+    pub alpha: f64,
+    pub overloads: f64,
+    pub dropped: f64,
+    pub step_cost: f64,
+}
+
+impl WorldClockState {
+    pub const WORDS: usize = 13;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 13] = (&mut row[..13]).try_into().unwrap();
+        row[0] = self.hz;
+        row[1] = self.dt;
+        row[2] = self.max_steps;
+        row[3] = self.budget;
+        row[4] = self.max_debt;
+        row[5] = self.tick;
+        row[6] = self.elapsed;
+        row[7] = self.compensation;
+        row[8] = self.debt;
+        row[9] = self.alpha;
+        row[10] = self.overloads;
+        row[11] = self.dropped;
+        row[12] = self.step_cost;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 13] = (&row[..13]).try_into().unwrap();
+        Self {
+            hz: row[0],
+            dt: row[1],
+            max_steps: row[2],
+            budget: row[3],
+            max_debt: row[4],
+            tick: row[5],
+            elapsed: row[6],
+            compensation: row[7],
+            debt: row[8],
+            alpha: row[9],
+            overloads: row[10],
+            dropped: row[11],
+            step_cost: row[12],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldClockInput {
+    pub op: WorldClockOperation,
+    pub state: WorldClockState,
+    pub seconds: f64,
+    pub limited: bool,
+}
+
+impl WorldClockInput {
+    pub const WORDS: usize = 16;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 16] = (&mut row[..16]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        row[14] = self.seconds;
+        row[15] = if self.limited { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 16] = (&row[..16]).try_into().unwrap();
+        Self {
+            op: WorldClockOperation::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: WorldClockState::take(&row[1..], heap),
+            seconds: row[14],
+            limited: row[15] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldClockResult {
+    pub state: WorldClockState,
+    pub ran: f64,
+    pub error: Option<StrId>,
+}
+
+impl WorldClockResult {
+    pub const WORDS: usize = 16;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 16] = (&mut row[..16]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[13] = self.ran;
+        match &self.error { Some(v) => { row[14] = 0.0; row[14 + 1] = (*v).0 as f64; } None => { row[14] = 1.0; row[14 + 1..14 + 2].fill(0.0); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 16] = (&row[..16]).try_into().unwrap();
+        Self {
+            state: WorldClockState::take(&row[0..], heap),
+            ran: row[13],
+            error: if row[14] == 0.0 { Some(StrId(word_u32(row[14 + 1]))) } else { None },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldClockArgs {
+    pub op: WorldClockCall,
+    pub state: WorldClockState,
+    pub dt: f64,
+    pub tick: f64,
+}
+
+impl WorldClockArgs {
+    pub const WORDS: usize = 16;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 16] = (&mut row[..16]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        row[14] = self.dt;
+        row[15] = self.tick;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 16] = (&row[..16]).try_into().unwrap();
+        Self {
+            op: WorldClockCall::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: WorldClockState::take(&row[1..], heap),
+            dt: row[14],
+            tick: row[15],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldClockReply {
+    pub state: WorldClockState,
+    pub time: f64,
+}
+
+impl WorldClockReply {
+    pub const WORDS: usize = 14;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 14] = (&mut row[..14]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[13] = self.time;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 14] = (&row[..14]).try_into().unwrap();
+        Self {
+            state: WorldClockState::take(&row[0..], heap),
+            time: row[13],
         }
     }
 

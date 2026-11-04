@@ -10820,6 +10820,133 @@ impl WsSeparationResult {
     }
 }
 
+impl WorldClockState {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldClockState {
+            hz: { let p = format!("{path}.hz"); num(v.get("hz"), &p)? },
+            dt: { let p = format!("{path}.dt"); num(v.get("dt"), &p)? },
+            max_steps: { let p = format!("{path}.maxSteps"); num(v.get("maxSteps"), &p)? },
+            budget: { let p = format!("{path}.budget"); num(v.get("budget"), &p)? },
+            max_debt: { let p = format!("{path}.maxDebt"); num(v.get("maxDebt"), &p)? },
+            tick: { let p = format!("{path}.tick"); num(v.get("tick"), &p)? },
+            elapsed: { let p = format!("{path}.elapsed"); num(v.get("elapsed"), &p)? },
+            compensation: { let p = format!("{path}.compensation"); num(v.get("compensation"), &p)? },
+            debt: { let p = format!("{path}.debt"); num(v.get("debt"), &p)? },
+            alpha: { let p = format!("{path}.alpha"); num(v.get("alpha"), &p)? },
+            overloads: { let p = format!("{path}.overloads"); num(v.get("overloads"), &p)? },
+            dropped: { let p = format!("{path}.dropped"); num(v.get("dropped"), &p)? },
+            step_cost: { let p = format!("{path}.stepCost"); num(v.get("stepCost"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(13);
+        { let x = Value::Num(self.hz); fields.push(("hz", x)); }
+        { let x = Value::Num(self.dt); fields.push(("dt", x)); }
+        { let x = Value::Num(self.max_steps); fields.push(("maxSteps", x)); }
+        { let x = Value::Num(self.budget); fields.push(("budget", x)); }
+        { let x = Value::Num(self.max_debt); fields.push(("maxDebt", x)); }
+        { let x = Value::Num(self.tick); fields.push(("tick", x)); }
+        { let x = Value::Num(self.elapsed); fields.push(("elapsed", x)); }
+        { let x = Value::Num(self.compensation); fields.push(("compensation", x)); }
+        { let x = Value::Num(self.debt); fields.push(("debt", x)); }
+        { let x = Value::Num(self.alpha); fields.push(("alpha", x)); }
+        { let x = Value::Num(self.overloads); fields.push(("overloads", x)); }
+        { let x = Value::Num(self.dropped); fields.push(("dropped", x)); }
+        { let x = Value::Num(self.step_cost); fields.push(("stepCost", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldClockInput {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldClockInput {
+            op: { let p = format!("{path}.op"); WorldClockOperation::from_u8(name_of(v.get("op"), &WorldClockOperation::NAMES, &p)?).unwrap() },
+            state: { let p = format!("{path}.state"); WorldClockState::from_value(v.get("state"), cx, &p)? },
+            seconds: { let p = format!("{path}.seconds"); num(v.get("seconds"), &p)? },
+            limited: { let p = format!("{path}.limited"); boolean(v.get("limited"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Str(WorldClockOperation::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Num(self.seconds); fields.push(("seconds", x)); }
+        { let x = Value::Bool(self.limited); fields.push(("limited", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldClockResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldClockResult {
+            state: { let p = format!("{path}.state"); WorldClockState::from_value(v.get("state"), cx, &p)? },
+            ran: { let p = format!("{path}.ran"); num(v.get("ran"), &p)? },
+            error: { let p = format!("{path}.error"); match v.get("error").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(cx.str_in(v.get("error"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Num(self.ran); fields.push(("ran", x)); }
+        { let x = match &self.error { Some(v) => cx.str_out((*v)), None => Value::Null }; fields.push(("error", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldClockArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldClockArgs {
+            op: { let p = format!("{path}.op"); WorldClockCall::from_u8(name_of(v.get("op"), &WorldClockCall::NAMES, &p)?).unwrap() },
+            state: { let p = format!("{path}.state"); WorldClockState::from_value(v.get("state"), cx, &p)? },
+            dt: { let p = format!("{path}.dt"); num(v.get("dt"), &p)? },
+            tick: { let p = format!("{path}.tick"); num(v.get("tick"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Str(WorldClockCall::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Num(self.dt); fields.push(("dt", x)); }
+        { let x = Value::Num(self.tick); fields.push(("tick", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldClockReply {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldClockReply {
+            state: { let p = format!("{path}.state"); WorldClockState::from_value(v.get("state"), cx, &p)? },
+            time: { let p = format!("{path}.time"); num(v.get("time"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Num(self.time); fields.push(("time", x)); }
+        a.object("", fields)
+    }
+}
+
 impl Battle {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

@@ -3,6 +3,12 @@ import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 import { Posture_INDEX, Posture_NAMES } from "./units.js";
 
+export const WorldClockOperation_NAMES = ["advance","reset","rebase"];
+export const WorldClockOperation_INDEX = new Map(WorldClockOperation_NAMES.map((name, i) => [name, i]));
+
+export const WorldClockCall_NAMES = ["now","step"];
+export const WorldClockCall_INDEX = new Map(WorldClockCall_NAMES.map((name, i) => [name, i]));
+
 export class WsMemberMirror {
   constructor() {
     this.id = NaN;
@@ -186,5 +192,255 @@ export function exportWsSeparationResult(o, cx) {
   v = {};
   cx.seen.set(o, v);
   v.members = o.members.map((x) => exportWsSeparated(x, cx));
+  return v;
+}
+
+export class WorldClockStateMirror {
+  constructor() {
+    this.hz = NaN;
+    this.dt = NaN;
+    this.maxSteps = NaN;
+    this.budget = NaN;
+    this.maxDebt = NaN;
+    this.tick = NaN;
+    this.elapsed = NaN;
+    this.compensation = NaN;
+    this.debt = NaN;
+    this.alpha = NaN;
+    this.overloads = NaN;
+    this.dropped = NaN;
+    this.stepCost = NaN;
+  }
+}
+
+export function syncWorldClockState(b, f, at, h, m) {
+  m.hz = f[at + 0];
+  m.dt = f[at + 1];
+  m.maxSteps = f[at + 2];
+  m.budget = f[at + 3];
+  m.maxDebt = f[at + 4];
+  m.tick = f[at + 5];
+  m.elapsed = f[at + 6];
+  m.compensation = f[at + 7];
+  m.debt = f[at + 8];
+  m.alpha = f[at + 9];
+  m.overloads = f[at + 10];
+  m.dropped = f[at + 11];
+  m.stepCost = f[at + 12];
+  return m;
+}
+
+export function putWorldClockState(b, o, f, at, heap) {
+  f[at + 0] = o.hz;
+  f[at + 1] = o.dt;
+  f[at + 2] = o.maxSteps;
+  f[at + 3] = o.budget;
+  f[at + 4] = o.maxDebt;
+  f[at + 5] = o.tick;
+  f[at + 6] = o.elapsed;
+  f[at + 7] = o.compensation;
+  f[at + 8] = o.debt;
+  f[at + 9] = o.alpha;
+  f[at + 10] = o.overloads;
+  f[at + 11] = o.dropped;
+  f[at + 12] = o.stepCost;
+}
+
+export function sameWorldClockState(a, b) {
+  if (!Object.is(a.hz, b.hz)) return ".hz";
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.maxSteps, b.maxSteps)) return ".maxSteps";
+  if (!Object.is(a.budget, b.budget)) return ".budget";
+  if (!Object.is(a.maxDebt, b.maxDebt)) return ".maxDebt";
+  if (!Object.is(a.tick, b.tick)) return ".tick";
+  if (!Object.is(a.elapsed, b.elapsed)) return ".elapsed";
+  if (!Object.is(a.compensation, b.compensation)) return ".compensation";
+  if (!Object.is(a.debt, b.debt)) return ".debt";
+  if (!Object.is(a.alpha, b.alpha)) return ".alpha";
+  if (!Object.is(a.overloads, b.overloads)) return ".overloads";
+  if (!Object.is(a.dropped, b.dropped)) return ".dropped";
+  if (!Object.is(a.stepCost, b.stepCost)) return ".stepCost";
+  return null;
+}
+
+export function exportWorldClockState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.hz = o.hz;
+  v.dt = o.dt;
+  v.maxSteps = o.maxSteps;
+  v.budget = o.budget;
+  v.maxDebt = o.maxDebt;
+  v.tick = o.tick;
+  v.elapsed = o.elapsed;
+  v.compensation = o.compensation;
+  v.debt = o.debt;
+  v.alpha = o.alpha;
+  v.overloads = o.overloads;
+  v.dropped = o.dropped;
+  v.stepCost = o.stepCost;
+  return v;
+}
+
+export class WorldClockInputMirror {
+  constructor() {
+    this.op = "advance";
+    this.state = new WorldClockStateMirror();
+    this.seconds = NaN;
+    this.limited = false;
+  }
+}
+
+export function syncWorldClockInput(b, f, at, h, m) {
+  m.op = WorldClockOperation_NAMES[f[at + 0]];
+  m.state = syncWorldClockState(b, f, at + 1, h, m.state ?? new WorldClockStateMirror());
+  m.seconds = f[at + 14];
+  m.limited = f[at + 15] !== 0;
+  return m;
+}
+
+export function putWorldClockInput(b, o, f, at, heap) {
+  f[at + 0] = WorldClockOperation_INDEX.get(o.op);
+  putWorldClockState(b, o.state, f, at + 1, heap);
+  f[at + 14] = o.seconds;
+  f[at + 15] = o.limited ? 1 : 0;
+}
+
+export function sameWorldClockInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameWorldClockState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.seconds, b.seconds)) return ".seconds";
+  if (!Object.is(a.limited, b.limited)) return ".limited";
+  return null;
+}
+
+export function exportWorldClockInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportWorldClockState(o.state, cx);
+  v.seconds = o.seconds;
+  v.limited = o.limited;
+  return v;
+}
+
+export class WorldClockResultMirror {
+  constructor() {
+    this.state = new WorldClockStateMirror();
+    this.ran = NaN;
+    this.error = null;
+  }
+}
+
+export function syncWorldClockResult(b, f, at, h, m) {
+  m.state = syncWorldClockState(b, f, at + 0, h, m.state ?? new WorldClockStateMirror());
+  m.ran = f[at + 13];
+  { const tag = f[at + 14]; if (tag === 0) { m.error = b.strings.at(f[at + 15]); } else m.error = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putWorldClockResult(b, o, f, at, heap) {
+  putWorldClockState(b, o.state, f, at + 0, heap);
+  f[at + 13] = o.ran;
+  { const $x = o.error; if ($x === null || $x === undefined) { f[at + 14] = $x === null ? 1 : 2; f[at + 15] = 0; } else { f[at + 14] = 0; f[at + 15] = b.strings.id($x); } }
+}
+
+export function sameWorldClockResult(a, b) {
+  { const d = sameWorldClockState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.ran, b.ran)) return ".ran";
+  { const p = a.error, q = b.error; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".error"; } else { if (!Object.is(p, q)) return ".error"; } }
+  return null;
+}
+
+export function exportWorldClockResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportWorldClockState(o.state, cx);
+  v.ran = o.ran;
+  v.error = o.error;
+  return v;
+}
+
+export class WorldClockArgsMirror {
+  constructor() {
+    this.op = "now";
+    this.state = new WorldClockStateMirror();
+    this.dt = NaN;
+    this.tick = NaN;
+  }
+}
+
+export function syncWorldClockArgs(b, f, at, h, m) {
+  m.op = WorldClockCall_NAMES[f[at + 0]];
+  m.state = syncWorldClockState(b, f, at + 1, h, m.state ?? new WorldClockStateMirror());
+  m.dt = f[at + 14];
+  m.tick = f[at + 15];
+  return m;
+}
+
+export function putWorldClockArgs(b, o, f, at, heap) {
+  f[at + 0] = WorldClockCall_INDEX.get(o.op);
+  putWorldClockState(b, o.state, f, at + 1, heap);
+  f[at + 14] = o.dt;
+  f[at + 15] = o.tick;
+}
+
+export function sameWorldClockArgs(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameWorldClockState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.dt, b.dt)) return ".dt";
+  if (!Object.is(a.tick, b.tick)) return ".tick";
+  return null;
+}
+
+export function exportWorldClockArgs(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportWorldClockState(o.state, cx);
+  v.dt = o.dt;
+  v.tick = o.tick;
+  return v;
+}
+
+export class WorldClockReplyMirror {
+  constructor() {
+    this.state = new WorldClockStateMirror();
+    this.time = NaN;
+  }
+}
+
+export function syncWorldClockReply(b, f, at, h, m) {
+  m.state = syncWorldClockState(b, f, at + 0, h, m.state ?? new WorldClockStateMirror());
+  m.time = f[at + 13];
+  return m;
+}
+
+export function putWorldClockReply(b, o, f, at, heap) {
+  putWorldClockState(b, o.state, f, at + 0, heap);
+  f[at + 13] = o.time;
+}
+
+export function sameWorldClockReply(a, b) {
+  { const d = sameWorldClockState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.time, b.time)) return ".time";
+  return null;
+}
+
+export function exportWorldClockReply(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportWorldClockState(o.state, cx);
+  v.time = o.time;
   return v;
 }

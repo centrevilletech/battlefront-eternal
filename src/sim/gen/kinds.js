@@ -164,3 +164,4 @@ export const IMPORT_VEH_WATER_LEVEL = 116;
 export const IMPORT_VEH_WATER_OVER = 117;
 export const IMPORT_WATER_CROSSING = 118;
 export const IMPORT_WAVER = 119;
+export const IMPORT_WORLD_CLOCK = 120;
