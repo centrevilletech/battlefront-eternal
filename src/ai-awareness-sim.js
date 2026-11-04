@@ -37,8 +37,13 @@ export class NativeAwareness {
       } else if(op==='protectRecipient') {
         const fire=frame.fire=sim.objects[id].controller?.perception?.fire;result.flag=Boolean(fire);if(fire)result.number=fire.protected.length;
       } else if(op==='protectAppend') {const human=sim.objects[id];frame.fire.protected.push({unit:human,generation:human.generation});}
-      else if(op==='dangerRow') {const row=frame.world.difficulty?.dangerRow?.();result.flag=row!=null;if(result.flag)result.values=[row[0],row[1]];}
-      else if(op==='dangerDraw') result.number=(frame.world.randomA??frame.world.random).range(number,other);
+      else if(op==='dangerRow') {
+        const row=frame.world.difficulty?.dangerRow?.();result.flag=row!=null;
+        if(result.flag){const [lo,hi]=row;frame.bounds=[lo,hi];result.values=[lo,hi];}
+      } else if(op==='dangerDraw') {
+        const lo=id===1?frame.bounds[0]:number,hi=id===1?frame.bounds[1]:other;
+        result.number=(frame.world.randomA??frame.world.random).range(lo,hi);
+      }
       else if(op==='dangerTime') result.number=frame.world.time??0;
       else if(op==='dangerFirst') result.number=frame.state.firstContact;
       else if(op==='dangerLast') result.number=frame.state.lastNotify;

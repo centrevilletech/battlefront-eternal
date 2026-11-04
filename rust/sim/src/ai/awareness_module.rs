@@ -76,7 +76,7 @@ pub extern "C" fn ai_notify_danger(enemy_skill: f64) -> f64 {
     let (lo,hi)=if row.flag {(row.values[0],row.values[1])} else if enemy_skill<17.0 {
         if enemy_skill<14.0 {(f(1.1),f(2.1))} else {(f(0.6),f(1.3))}
     } else {(0.0,f(0.8))};
-    let delay=import_ai_awareness(&AiAwarenessArgs {op:Op::DangerDraw,id:0,number:lo,other:hi}).number;
+    let delay=import_ai_awareness(&AiAwarenessArgs {op:Op::DangerDraw,id:if row.flag {1} else {0},number:lo,other:hi}).number;
     let now=f(call(Op::DangerTime,0,0.0).number);
     if !(f(call(Op::DangerFirst,0,0.0).number+delay)<now) || !(f(call(Op::DangerLast,0,0.0).number+1.0)<now) {return 0.0;}
     let found=call(Op::DangerQuery,0,0.0).ids;state().danger_targets=found;
