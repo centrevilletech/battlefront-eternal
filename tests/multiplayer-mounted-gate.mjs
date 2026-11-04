@@ -58,7 +58,7 @@ export async function mountedGameGate([actor, observer]) {
         }
       }
     }
-    return options.sort((a,b)=>a.distance-b.distance).find(c=>!nearby||c.distance<25&&c.speed<2);
+    return options.sort((a,b)=>a.distance-b.distance).find(c=>!nearby||c.distance<60&&c.speed<2);
   };
   let choice;
   for(let attempt=0;attempt<60&&!choice;attempt++){choice=await actor.evaluate(choose);if(!choice)await actor.waitForTimeout(250);}
@@ -93,8 +93,8 @@ export async function mountedGameGate([actor, observer]) {
   await actor.waitForFunction(()=>!__bf.playerUnit.alive,null,{timeout:15000});
   await observer.waitForFunction(({id,generation})=>{const u=__bf.units.byId(id);return !u?.alive||u.generation!==generation;},first,{timeout:15000});
   await actor.waitForFunction(()=>__bf.spawnPort.humanState().phase==='awaiting'&&__bf.spawnScreen?.isOpen,null,{timeout:60000});
-  // Wait for a nearby slow hull, rather than chasing a bot-driven tank
-  // across the battle. Vehicle destruction and respawns remain authoritative.
+  // A stationary hull within a short walk can be outside the spawn post's
+  // immediate area. Vehicle destruction and respawns remain authoritative.
   choice=null;
   for(let attempt=0;attempt<480&&!choice;attempt++){choice=await actor.evaluate(choose,true);if(!choice)await actor.waitForTimeout(250);}
   assert.ok(choice,'a live hull becomes available near an eligible spawn');
