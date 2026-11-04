@@ -13,6 +13,8 @@
 // change once built, so each is copied once; a body's place is copied as it
 // moves; and before each query, whether the bodies it can meet are enabled.
 import { loadSim } from "./sim/module.js";
+import { Box3 } from 'three';
+import { MeshBVH } from './mesh-bvh.js';
 
 // The kernel of a battle, on its instance of the simulation's module (the
 // one its other kernels use), or on an instance of its own: the module is
@@ -78,6 +80,29 @@ export class RayKernel {
       this.positionIds.set(array, id);
     }
     return id;
+  }
+
+  // The same packed indirect tree as MeshBVH's CENTER builder, constructed
+  // where the collision queries keep it. Deserialization retains the JS
+  // traversal for fallback without building or copying the tree in again.
+  buildBVH(geometry) {
+    const position = geometry.attributes.position, index = geometry.index;
+    if (!index || position.itemSize !== 3 || position.normalized || position.isInterleavedBufferAttribute || index.count % 3) throw Error('Unsupported geometry for the native tree builder');
+    const id = this.x.tree_new(this.positions(position.array), index.array.length, 0);
+    this.u32(this.x.tree_index(id), index.array.length).set(index.array);
+    this.x.tree_build(id);
+    const roots = [];
+    for (let i = 0, n = this.x.tree_roots(id); i < n; i++) {
+      const ptr = this.x.tree_root_at(id, i), length = this.x.tree_root_len(id, i);
+      roots.push(this.u32(ptr, length).slice().buffer);
+    }
+    const indirect = this.u32(this.x.tree_indirect(id), index.count / 3);
+    const indirectBuffer = index.count / 3 > 65536 ? Uint32Array.from(indirect) : Uint16Array.from(indirect);
+    const bvh = MeshBVH.deserialize({ roots, index: index.array, indirectBuffer }, geometry, { setIndex: false });
+    if (!geometry.boundingBox) geometry.boundingBox = bvh.getBoundingBox(new Box3());
+    this.treeIds.set(bvh, id);
+    this.refresh();
+    return bvh;
   }
 
   // A MeshBVH (indirect, as collision.js builds them) as the module's tree.
