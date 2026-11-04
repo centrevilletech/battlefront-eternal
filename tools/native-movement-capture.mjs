@@ -17,7 +17,7 @@ if(args.includes('--verify')) {
   for(const [file,sha] of Object.entries(m.contentFiles)) assert.equal(digest(fs.readFileSync(path.join(content,file))),sha,file);
   console.log(JSON.stringify({verified:m.map,ticks:m.ticks,sha256:m.sha256}));
 } else {
-  const file=opt('out'), map=opt('map'), ticks=Number(opt('ticks',240));assert(file&&map);assert(process.env.BFE_COMMIT);
+  const file=opt('out'), map=opt('map'), ticks=Number(opt('ticks',2400));assert(file&&map);assert(process.env.BFE_COMMIT);
   const {headlessGame}=await import('./headless-world.mjs');
   const contentFiles={}, fetch=globalThis.fetch;
   globalThis.fetch=async url=>{
@@ -44,8 +44,10 @@ if(args.includes('--verify')) {
     server.step();await new Promise(resolve=>setImmediate(resolve));
   }
   server.dispose?.();
-  const summary=trace.finish({map,worldTicks:ticks});assert(summary.ticks>0);assert(summary.contexts===1);
-  if(ticks>=240) {assert(summary.creates>=2);assert(summary.ticks>=ticks*2);}
+  const summary=trace.finish({map,worldTicks:ticks,aliveSoldiers:game.units.all().filter(u=>u.alive&&u.soldier).length});assert(summary.ticks>0);assert(summary.contexts===1);
+  // The first mission spawn wave is normally at 15 seconds. A full corpus
+  // keeps the real timers and runs long enough to include the living bots.
+  if(ticks>=2400) {assert(summary.creates>=2);assert(summary.ticks>=ticks*2);}
   const manifest={...summary,file:path.basename(file),source:process.env.BFE_COMMIT,node:process.version,sourceFiles,contentFiles};
   fs.writeFileSync(file+'.json',JSON.stringify(manifest,null,2)+'\n');console.log(JSON.stringify(summary));
 }
