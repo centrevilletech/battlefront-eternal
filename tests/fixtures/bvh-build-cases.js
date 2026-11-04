@@ -41,8 +41,8 @@ export function* builderCases({ large = true } = {}) {
   }
 }
 
-export function recordFor({ label, positions, indices }) {
-  const tree = referenceTree(positions, indices), hex = array => Buffer.from(array.buffer, array.byteOffset, array.byteLength).toString('hex');
+export function recordFor({ label, positions, indices }, tree = referenceTree(positions, indices)) {
+  const hex = array => Buffer.from(array.buffer, array.byteOffset, array.byteLength).toString('hex');
   return { label, wide: positions instanceof Float64Array, positions: hex(positions), indices: hex(indices),
     roots: tree._roots.map(root => hex(new Uint8Array(root))), indirect: hex(Uint32Array.from(tree._indirectBuffer)), width: tree._indirectBuffer.BYTES_PER_ELEMENT };
 }

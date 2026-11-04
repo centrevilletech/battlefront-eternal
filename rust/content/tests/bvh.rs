@@ -4,7 +4,11 @@ use bfe_content::{
     bvh::{build, Positions},
     json, Value,
 };
-use std::{path::Path, process::Command};
+use std::{
+    io::{BufRead, BufReader},
+    path::Path,
+    process::{Command, Stdio},
+};
 
 fn get<'a>(value: &'a Value, name: &str) -> &'a Value {
     value.get(name).unwrap()
@@ -26,19 +30,15 @@ fn words(value: &Value) -> Vec<u32> {
 #[test]
 fn native_builder_matches_javascript_root_bytes_and_indirect_order() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let oracle = Command::new(std::env::var_os("BFE_NODE").unwrap_or_else(|| "node".into()))
+    let mut oracle = Command::new(std::env::var_os("BFE_NODE").unwrap_or_else(|| "node".into()))
         .arg(root.join("tools/bvh-build-twin.mjs"))
         .current_dir(&root)
-        .output()
+        .stdout(Stdio::piped())
+        .spawn()
         .expect("run BVH oracle");
-    assert!(
-        oracle.status.success(),
-        "{}",
-        String::from_utf8_lossy(&oracle.stderr)
-    );
     let mut count = 0;
-    for line in std::str::from_utf8(&oracle.stdout).unwrap().lines() {
-        let value = json::parse(line).unwrap();
+    for line in BufReader::new(oracle.stdout.take().unwrap()).lines() {
+        let value = json::parse(&line.unwrap()).unwrap();
         let label = get(&value, "label").as_str().unwrap();
         let source = bytes(get(&value, "positions"));
         let index = words(get(&value, "indices"));
@@ -69,6 +69,11 @@ fn native_builder_matches_javascript_root_bytes_and_indirect_order() {
         );
         count += 1;
     }
-    assert_eq!(count, 107);
+    assert!(oracle.wait().expect("BVH oracle exits").success());
+    if std::env::var_os("BFE_BVH_CORPUS").is_some() {
+        assert!(count > 107, "no live corpus cases checked");
+    } else {
+        assert_eq!(count, 107);
+    }
     eprintln!("BVH: {count} native packed-tree cases identical to JavaScript");
 }
