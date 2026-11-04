@@ -5,8 +5,8 @@ It is independent of the older hull and seat experiments and defaults off.
 
 The final F2 boundary covers pads, hulls, flight, rigs, leases, mounted weapons,
 tethers and rider writeback. The first milestone transfers hull and flight
-scheduling; seats, firing, tethers and riders are foreign operations until their
-remaining steps land.
+scheduling. Mounted weapons and tethers also run natively after the pose passes;
+seats and rider writeback still have foreign operations.
 
 Rust owns each vehicle's position, previous position, velocity, heading and rates,
 support, health, dying clock, water clock, sleeping flag, flight checkpoint,
@@ -22,15 +22,17 @@ boarding and rider code reads its nodes. That output can shrink after those user
 move. Full hull imports are construction-only, never a tick input.
 
 Foreign inputs are registry facts and team relations, body flags, frozen crew
-input, seat look and lease facts, and firing recoil inputs. JS still owns weapons,
-lease lifecycle and tethers. Those are explicit boundary inputs, not permission to
+input, seat look and lease facts, frozen triggers, weapon spread modifiers and
+bot target identities. Rust owns mounted weapon clocks, ammunition, heat, lock
+progress, barrel counters, recoil times and ordered tether state. JS still owns
+lease lifecycle. Those are explicit boundary inputs, not permission to
 write physics or flight mirrors. AI intents remain JS-owned. Damage, health,
 supply and wake writes become synchronous scalar commands; commands publish the
 touched mirror before returning. A stale handle or gameplay life is rejected.
 
 The scheduler order is clamp/time, spawn clocks, latch/exits, ground capture,
 flight, ground substeps, dying, all aim passes, all gameplay render passes, then
-foreign fire, tether and rider work. Render's leg easing and the ground leftover
+native crew fire and tethers, then foreign rider work. Render's leg easing and the ground leftover
 alpha are gameplay state and must remain. No foreign callback may retain a Rust
 borrow or reimport a whole fleet.
 
@@ -90,3 +92,27 @@ Both use the same generation-qualified hull references and canonical vehicle
 slab. The integrator joins their calls in the existing scheduler order. Step 6
 then consolidates synchronous hooks and rider writeback before step 7 removes the
 remaining JS world path and measures the default-flip candidate.
+
+## Mounted fire boundary
+
+Mounted weapons enter a generation-qualified slab at construction or respawn.
+Only the new life resets its weapons. Rig node keys, barrel emitters, leg columns
+and targeting masks are construction data. Ordinary input uses generated fixed
+records; it carries no weapon clocks or tow mirrors back into Rust. Supply is a
+scalar hull command and publishes only the affected mounted rows.
+
+Vehicle.fireSeat calls the native weapon state machine, retained-rig geometry,
+lock selection, flight assist and ordnance directly. Mounted beams resolve their
+emitter frames in Rust. Unit bounds and aim points remain synchronous foreign
+facts, with lazy bounds requested only after eligibility and mask tests pass.
+Damage commands publish a touched hull before synchronous listeners run. Cable
+release is committed before trip damage, and no saved hull is written back over
+a reciprocal blast callback.
+
+The post-pose publication supplies foreign gameplay readers once before firing.
+Changed hull and mounted rows follow at phase end. Shot and cable presentation
+uses the ordered event journal, whose address is part of the generated firing
+descriptor; it is drained once, without getter or clear exports. Gameplay fired
+listeners keep their synchronous slot. Full rig publication and the existing JS
+matrix rebuild remain transitional for rider readers and are removed when rider
+writeback joins the native phase.

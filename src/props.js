@@ -387,7 +387,9 @@ export class PowerupStation extends Building {
       else target.health = Math.min(target.health + health, target.maxHealth);
       served |= 1;
     }
-    if (ammo > 0) {
+    if (ammo > 0 && target.system?.f2) {
+      if (target.system.f2.firing.supply(target, ammo)) served |= 2;
+    } else if (ammo > 0) {
       for (const weapon of target.weapons) {
         if (weapon.bottomless || !(weapon.def.ammo > 0)) continue;
         const loaded = weapon.clip >= weapon.perShot - 1e-6 ? 1 : 0;

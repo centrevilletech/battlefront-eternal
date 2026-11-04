@@ -13,6 +13,7 @@ import { F2Counters, F2MirrorCheck, countedF2Exports } from './f2-contract.js';
 const MISS = { found: false, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), terrain: false, body: -1 };
 const NO_GROUND = { found: false, height: 0, normal: new THREE.Vector3() };
 const NO_INPUT = {};
+const FIRING_DESCRIPTOR = 13;
 const OWNED_FIELDS = VEHICLE_KEYS;
 
 // Adopt the existing Vehicle objects. Respawns keep them; retirement/reuse uses
@@ -265,7 +266,7 @@ class F2 {
       }
       this.counters.outputFields += n * lifeStride;
     }
-    this.firing.sync(b.f[d + 13], b.f[d + 14]);
+    this.firing.syncDescriptor(b.f[d + FIRING_DESCRIPTOR]);
     this.bodiesOut();
     // Pose output is a compact flat record; retained tree state stays in Rust.
     let o = b.f[d + 5] / 8;
@@ -300,7 +301,7 @@ class F2 {
 
   owned(v) {
     const out = [];
-    const foreign = new Set(['seats', 'towTarget', 'towLocal', 'towLeg', 'towAngle', 'towWinding', 'lastAttacker', 'driver', 'seatIndex', 'body', 'root', 'aiTarget', 'seatViews', 'seatLeases', 'flightConfig']);
+    const foreign = new Set(['seats', 'lastAttacker', 'driver', 'seatIndex', 'body', 'root', 'aiTarget', 'seatViews', 'seatLeases', 'flightConfig']);
     const add = (path, value) => {
       if (value?.isVector3) for (const axis of ['x','y','z']) add(`${path}.${axis}`, value[axis]);
       else if (value?.isQuaternion) for (const axis of ['x','y','z','w']) add(`${path}.${axis}`, value[axis]);

@@ -6,6 +6,7 @@ use super::*;
 use crate::store::Nullable;
 
 const CAPACITY: usize = 262144;
+const FIRING_DESCRIPTOR: usize = 13;
 static mut ACTIVE: bool = false;
 static mut IO: Vec<f64> = Vec::new();
 static mut DESCRIPTOR: [f64; 16] = [0.0; 16];
@@ -43,8 +44,7 @@ fn firing_output() {
     for i in 0..n { row_out(changed()[i], i); }
     touched().finish(); desc()[2] = touched().ptr() as usize as f64;
     desc()[4] = veh_changes() as usize as f64;
-    desc()[13] = firing::publish() as usize as f64;
-    desc()[14] = firing::cables_ptr() as usize as f64;
+    desc()[FIRING_DESCRIPTOR] = firing::phase_ptr() as usize as f64;
 }
 
 pub fn active() -> bool { unsafe { *addr_of_mut!(ACTIVE) } }
@@ -84,8 +84,7 @@ pub fn publish() {
             v.flight_class.map_or(-1.0, |c| c as u8 as f64), v.min_speed.unwrap_or(f64::NAN),
             v.mid_speed.unwrap_or(f64::NAN), v.boost_speed.unwrap_or(f64::NAN), v.speed, v.turn_rate]);
     }
-    desc()[13] = firing::publish() as usize as f64;
-    desc()[14] = firing::cables_ptr() as usize as f64;
+    desc()[FIRING_DESCRIPTOR] = firing::phase_ptr() as usize as f64;
     desc()[12] = 9.0;
     desc()[11] = lives.as_ptr() as usize as f64;
     desc()[2] = s.export(KIND_VEHICLE as u32, 0).expect("F2 hull output").ptr() as usize as f64;
@@ -222,6 +221,7 @@ fn foreign() {
 #[no_mangle]
 pub extern "C" fn f2_step(dt: f64, tick: f64) {
     assert!(active(), "F2 must be initialized");
+    sim().events.clear();
     let dt = three::clamp(dt, 0.0, 0.1);
     unsafe { *addr_of_mut!(TIME) += dt; *addr_of_mut!(CLOCK) = Some(io()[0]); }
     spawns(dt);
