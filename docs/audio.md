@@ -623,10 +623,11 @@ to this gate:
    Chromium reproduces its own output: one or two voices into an input,
    across automation, starts, stops, loops and playback rates.
 2. With three or more voices into one input, the engine sums them in slot
-   order, and its render may differ from a native render by no more than
-   two native renders of the same scene differ from each other (the
-   largest difference over several pairs of pages; in the enhanced mode,
-   over as many pairs on each side, with the medians alike: below).
+   order. In the light mix its render may differ from a native render by
+   no more than two native renders of the same scene differ from each
+   other (the largest difference over several pairs of pages). In the
+   enhanced mode every sample must stay within -96 dBFS of every native
+   render, under the smallest step of 16-bit sound: below for why.
 
 The second rule is there because Chromium's own output is not
 reproducible in that case. A node input adds up its connections in the
@@ -675,21 +676,22 @@ rendered with the browser's nodes in six pages and once with the engine.
   and 32 voices, -132.5, -126.4 and -126.4 dBFS; at 24 voices twelve
   seeds of twelve.
 - In the enhanced mode the reverb spreads the rounding over its tail, so
-  the largest difference is an extreme value, and an extreme taken over
-  more pairs runs larger: six natives make fifteen pairs among
-  themselves, the engine against them only six, so the engine was judged
-  by its six against the natives' fifteen (it came out above, by 0.1 to
-  1.7 dB, in three runs of seven). Like is compared with like instead:
-  six native pairs drawn at random (from the seed) against the engine's
-  six, the engine's largest within theirs, and its median within 0.5 dB
-  of theirs. An engine no different from one more native render meets
-  the first about half the time, so the gate reports the rate at which
-  seeds meet both. Over twelve seeds: the largest within the natives' in
-  4, the medians within 0.5 dB in 5, both in 2. Six natives' median moves
-  by 1 to 2 dB from seed to seed, more than the band; of the medians
-  outside it, the engine's was the smaller (closer to the natives than
-  they are to one another) in four of seven. Every difference in these
-  renders is below -108 dBFS.
+  the largest difference is an extreme value that moves from seed to seed,
+  and an extreme taken over more pairs runs larger: six natives make
+  fifteen pairs among themselves, the engine against them only six, and
+  judged by its six against their fifteen it came out above, by 0.1 to
+  1.7 dB, in three runs of seven. An engine no different from one more
+  native render would meet the natives' own largest only about half the
+  time, on any comparison of extremes. So the rule here is a limit: sound
+  plays on each player's own machine and feeds nothing back into the
+  world, and a difference this far down is under the smallest step of
+  16-bit sound, in bits Chromium does not reproduce itself. Over two runs
+  of twelve seeds every difference is below -108 dBFS, 12 dB under the
+  limit. The gate still reports the comparison like with like (six
+  native pairs drawn at random from the seed against the engine's six,
+  its largest within theirs, its median within 0.5 dB of theirs), and it
+  moves with Chromium's own orders: the largest within the natives' in 4
+  and 8 seeds of the twelve, the medians in 5 and 6, both in 2 and 5.
 
 ### What it saves
 

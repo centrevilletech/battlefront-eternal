@@ -1,25 +1,24 @@
 // The voice engine's exactness gate, its second rule (docs/audio.md, "The
-// voice engine"): with three or more voices into one input, the engine's
-// render may differ from a native render by no more than native renders of
-// the same scene differ from each other. Chromium adds a node input's
-// connections in an order of its own that changes from graph to graph, so
-// its renders of one scene differ in the last bits; the engine adds them in
-// slot order. Each scene (the enhanced mode with its reverb on, and the
-// light mix) renders with the browser's nodes (?voices=native) in PAGES
-// pages and with the voice engine (the default) in one, offline, many
+// voice engine"): with three or more voices into one input, Chromium adds a
+// node input's connections in an order of its own that changes from graph
+// to graph, so its renders of one scene differ in the last bits; the engine
+// adds them in slot order. Each scene (the enhanced mode with its reverb on,
+// and the light mix) renders with the browser's nodes (?voices=native) in
+// PAGES pages and with the voice engine (the default) in one, offline, many
 // voices moving every frame, once a seed (the scene's noise and the
 // listener's path).
 //
 // - The light mix: the engine's largest difference from any native render
 //   must be within the largest between any two of them.
-// - The enhanced mode: its reverb spreads the rounding over its tail, so the
-//   largest difference is an extreme value, and an extreme over more pairs
-//   runs larger. Like is compared with like: the engine against the PAGES
-//   natives is PAGES pairs, so PAGES native pairs are drawn at random (from
-//   the seed); the engine's largest must be within theirs, and its median
-//   within 0.5 dB of theirs. An engine no different from one more native
-//   render meets the first about half the time, so this reports the rate
-//   at which a seed meets both; it fails only on the light mix's rule.
+// - The enhanced mode: every sample of the engine's render must be within
+//   LIMIT_DB of every native render, under the smallest step of 16-bit
+//   sound. Its reverb spreads the rounding over its tail, so the largest
+//   difference is an extreme value that moves from seed to seed, and the
+//   engine meets the natives' own largest about half the time, as one more
+//   native render would; that comparison is still reported, like with like
+//   (the engine against the PAGES natives is PAGES pairs, so PAGES native
+//   pairs are drawn at random, from the seed: the engine's largest within
+//   theirs, its median within 0.5 dB of theirs), as a rate over the seeds.
 // The first rule (one or two voices, bit for bit) is in tests/audio-checks.js.
 //
 // Start Vite separately (or set AUDIO_TEST_URL). Set PLAYWRIGHT_MODULE to an
@@ -31,6 +30,7 @@ const VOICES = +(process.env.VOICES || 24);
 const SECONDS = +(process.env.SECONDS || 3);
 const PAGES = Math.max(2, +(process.env.PAGES || 6));
 const SEEDS = Math.max(1, +(process.env.SEEDS || 5));
+const LIMIT_DB = -96;
 
 // One render of the scene in a fresh page: `quality` enhanced (reverb on) or
 // original (on stereo: the light mix); `engine` the voice engine (the
@@ -142,6 +142,7 @@ const draw = (seed) => () => {
 const browser = await chromium.launch({ args: ["--autoplay-policy=no-user-gesture-required"] });
 let failed = 0;
 const rate = { max: 0, medians: 0, both: 0 };
+let worst = 0;
 try {
   for (let seed = 1; seed <= SEEDS; seed++) {
     for (const [quality, label] of [
@@ -174,12 +175,15 @@ try {
       rate.max += maxOk;
       rate.medians += medOk;
       rate.both += maxOk && medOk;
+      worst = Math.max(worst, off);
+      const ok = dB(off) < LIMIT_DB;
+      if (!ok) failed++;
       console.log(
-        `${maxOk && medOk ? "ok  " : medOk ? "max " : "FAIL"} ${head} engine against native ${db(off)} at most, median ${db(median(offs))}; ${pairs.length} native pairs ${db(Math.max(...pairs))} at most, median ${db(median(pairs))}`,
+        `${ok ? "ok  " : "FAIL"} ${head} engine against native ${db(off)} at most, median ${db(median(offs))}; ${pairs.length} native pairs ${db(Math.max(...pairs))} at most, median ${db(median(pairs))}${maxOk && medOk ? ", like with like" : ""}`,
       );
     }
   }
-  console.log(`Enhanced over ${SEEDS} seeds: the largest within the natives' ${rate.max}/${SEEDS}, the medians within 0.5 dB ${rate.medians}/${SEEDS}, both (a pass) ${rate.both}/${SEEDS}`);
+  console.log(`Enhanced over ${SEEDS} seeds: the largest difference ${db(worst)} (the limit ${LIMIT_DB} dBFS); like with like, the largest within the natives' ${rate.max}/${SEEDS}, the medians within 0.5 dB ${rate.medians}/${SEEDS}, both ${rate.both}/${SEEDS}`);
 } finally {
   await browser.close();
 }
