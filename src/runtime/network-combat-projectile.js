@@ -9,7 +9,8 @@ const changedFlight=(a,b)=>{
  return speedA>1e-6&&(speedB<speedA*.25||a.reduce((sum,n,i)=>sum+n*b[i],0)<speedA*speedB*.5);
 };
 const u32=n=>{if(!Number.isSafeInteger(n)||n<0||n>0xffffffff)throw Error('invalid projectile integer');return n;};
-export function projectileRecord({id,generation,tick,definitionId,type,ownerId=0,ownerGeneration=0,fireId=0,channel=0,launchTick=tick,position,velocity=[0,0,0],quaternion=[0,0,0,1],end=position,life=0,terminal=false}){
+export function projectileRecord({id,generation,tick,definitionId,type,ownerId=0,ownerGeneration=0,fireId=0,channel=0,launchTick=tick,position,velocity=[0,0,0],quaternion=[0,0,0,1],end=position,life=0,terminal=false,native=null}){
+ if(native)return native.projectile({id,generation,tick,definitionId,type,ownerId,ownerGeneration,fireId,channel,launchTick,position,velocity,quaternion,end,life,terminal});
  const payload=new Uint8Array(terminal?4:82),v=new DataView(payload.buffer);let at=0;
  const u=n=>{v.setUint32(at,u32(n),true);at+=4;},f=n=>{if(!Number.isFinite(n)||Math.abs(n)>1e8)throw Error('invalid projectile sample');v.setFloat32(at,n,true);at+=4;};
  u(tick+18);
@@ -38,9 +39,9 @@ export class ProjectileCapture {
   const c=this.capture,tick=c.tick(),live=new Set();
   for(const[type,list]of[['grenade',this.ordnance.grenades],['round',this.ordnance.rounds],['beam',this.ordnance.beams]])for(const p of list){
    if(p.gone||type==='beam'&&p.life<=0)continue;live.add(p);this.launch(p,type);const entry=this.active.get(p);if(entry.terminal)continue;
-   c.emit(projectileRecord({...entry,tick,position:p.position.toArray(),velocity:p.velocity?.toArray()??[0,0,0],quaternion:(p.quaternion??p.mesh?.quaternion)?.toArray()??[0,0,0,1],end:p.end?.toArray()??p.position.toArray(),life:Math.max(0,p.life??p.fuse??0)}));
+   c.emit(projectileRecord({...entry,tick,position:p.position.toArray(),velocity:p.velocity?.toArray()??[0,0,0],quaternion:(p.quaternion??p.mesh?.quaternion)?.toArray()??[0,0,0,1],end:p.end?.toArray()??p.position.toArray(),life:Math.max(0,p.life??p.fuse??0),native:c.native}));
   }
-  for(const[p,entry]of this.active)if(!live.has(p)){if(!entry.terminal)c.emit(projectileRecord({...entry,tick,terminal:true}));this.active.delete(p);}
+  for(const[p,entry]of this.active)if(!live.has(p)){if(!entry.terminal)c.emit(projectileRecord({...entry,tick,terminal:true,native:c.native}));this.active.delete(p);}
  }
 }
 

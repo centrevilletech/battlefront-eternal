@@ -4,6 +4,7 @@ import { Vector3 } from 'three';
 import { feedbackRecord, decodeFeedback } from './network-combat-feedback.js';
 import { explosionRecord, decodeExplosion } from './network-combat-explosion.js';
 import { emitSound } from '../audio/events.js';
+import { WireCombat } from './wire-combat.js';
 
 // Projectile identity is independent of trigger identity: pellets and automatic
 // rounds each have a lifetime. Terminal records retain the same identity.
@@ -11,7 +12,8 @@ export const COMBAT_LAUNCH = 1, COMBAT_TERMINAL = 2;
 export const LAUNCH_PRESENTATION_TICKS = 24;
 const uint = n => { if (!Number.isSafeInteger(n) || n < 0 || n > 0xffffffff) throw Error('invalid combat integer'); return n; };
 const vector = v => [v.x, v.y, v.z];
-export function combatRecord({ id, generation, tick, schema, expiryTick, definitionId, ownerId=0, ownerGeneration=0, fireId=0, channel=0, launchTick=tick, executionTick=tick, position, direction, offset=[0,0,0], speed=0, life=0, merge=0, surface=5 }) {
+export function combatRecord({ id, generation, tick, schema, expiryTick, definitionId, ownerId=0, ownerGeneration=0, fireId=0, channel=0, launchTick=tick, executionTick=tick, position, direction, offset=[0,0,0], speed=0, life=0, merge=0, surface=5, native=null }) {
+  if(native)return native.bolt({id,generation,tick,schema,expiryTick,definitionId,ownerId,ownerGeneration,fireId,channel,launchTick,executionTick,position,direction,offset,speed,life,merge,surface});
   if (![1,2].includes(schema)) throw Error('unsupported combat schema');
   for(const vector of [position,direction,offset])if(!Array.isArray(vector)||vector.length!==3)throw Error('invalid combat vector');
   const payload=new Uint8Array(schema===1?130:82), view=new DataView(payload.buffer);let at=0;
@@ -45,26 +47,33 @@ export function decodeCombat(record){
 }
 
 export class CombatCapture {
-  constructor({tick,definitionId,generation=1,maxRecords=4096}){Object.assign(this,{tick,definitionId,generation,maxRecords});this.nextId=1;this.projectiles=new WeakMap();this.pending=new Map();this.faults=[];}
+  constructor({tick,definitionId,generation=1,maxRecords=4096,instance=null,bridge=null}){
+    Object.assign(this,{tick,definitionId,generation,maxRecords});this.nextId=1;this.projectiles=new WeakMap();this.pending=new Map();this.faults=[];
+    if(bridge||instance){this.native=new WireCombat({bridge:bridge??undefined,instance});Object.defineProperties(this,{
+      nextId:{enumerable:true,configurable:true,get:()=>this.native.nextId,set:id=>{this.native.nextId=id;}},
+      faults:{enumerable:true,configurable:true,get:()=>this.native.faults},
+    });}
+  }
   // A newer record replaces a pending one of the same identity (a dynamic
   // projectile's newest sample), except a bolt's terminal: it queues beside
   // its undrained launch. A bolt that ends before the next drain (a short
   // flight, or one flown to its end inside its lag-compensated launch) would
   // otherwise reach every client as an impact with no bolt to draw. The
   // decoded view goes with it, so publication need not decode it again.
-  emit(record){const tick=this.tick();if(this.prunedTick!==tick){for(const [id,event]of this.pending)if(event.expiresTick<tick)this.pending.delete(id);this.prunedTick=tick;}const key=record.schema===2&&this.pending.get(record.id)?.record.schema===1?-record.id:record.id;if(!this.pending.has(key)&&this.pending.size>=this.maxRecords)throw Error('combat capture capacity exceeded');const view=decodeCombat(record);this.pending.set(key,{record,view,expiresTick:view.expiryTick,retention:[3,4,5,PRESENTATION_SCHEMA].includes(record.schema)?'cosmetic':'projectile'});}
+  emit(record){if(this.native)return this.native.emit(this,record,decodeCombat);const tick=this.tick();if(this.prunedTick!==tick){for(const [id,event]of this.pending)if(event.expiresTick<tick)this.pending.delete(id);this.prunedTick=tick;}const key=record.schema===2&&this.pending.get(record.id)?.record.schema===1?-record.id:record.id;if(!this.pending.has(key)&&this.pending.size>=this.maxRecords)throw Error('combat capture capacity exceeded');const view=decodeCombat(record);this.pending.set(key,{record,view,expiresTick:view.expiryTick,retention:[3,4,5,PRESENTATION_SCHEMA].includes(record.schema)?'cosmetic':'projectile'});}
   launch(bolt,{tick:sampleTick}={}){
     if(this.nextId>0xffffffff)throw Error('combat identity exhausted');
     const tick=this.tick(),launchTick=sampleTick??tick,state={launchTick,executionTick:tick,id:this.nextId++,generation:this.generation,expiryTick:Math.ceil(launchTick+bolt.life*60)+120,definitionId:this.definitionId(bolt.def),ownerId:bolt.networkFireUnit,ownerGeneration:bolt.networkFireGeneration,fireId:bolt.networkFireId,channel:bolt.networkFireChannel??0};
     this.projectiles.set(bolt,state);
-    this.emit(combatRecord({...state,tick,schema:1,position:vector(bolt.position),direction:vector(bolt.direction),offset:bolt.offset?vector(bolt.offset):[0,0,0],speed:bolt.speed,life:bolt.life,merge:bolt.merge}));
+    this.emit(combatRecord({...state,tick,schema:1,position:vector(bolt.position),direction:vector(bolt.direction),offset:bolt.offset?vector(bolt.offset):[0,0,0],speed:bolt.speed,life:bolt.life,merge:bolt.merge,native:this.native}));
   }
-  impact(bolt,hit){const dynamic=this.dynamic?.active.get(bolt),state=this.projectiles.get(bolt)??dynamic;if(!state)return;this.projectiles.delete(bolt);if(dynamic)dynamic.terminal=true;this.emit(combatRecord({...state,executionTick:state.executionTick??state.launchTick,expiryTick:state.expiryTick??this.tick()+18,tick:this.tick(),schema:2,position:vector(hit.point),direction:vector(hit.normal),surface:hit.surface}));}
-  explosion(definition,position,{wet=false}={}){if(this.nextId>0xffffffff)throw Error('combat identity exhausted');this.emit(explosionRecord({id:this.nextId++,generation:this.generation,tick:this.tick(),definitionId:this.definitionId(definition),position:vector(position),wet}));}
-  event(event){if(!['damage','death'].includes(event.kind))return;if(this.nextId>0xffffffff)throw Error('combat identity exhausted');this.emit(feedbackRecord({id:this.nextId++,generation:this.generation,tick:this.tick(),event}));}
-  fault(error){this.faults.push(String(error?.message??error).slice(0,160));if(this.faults.length>8)this.faults.shift();}
-  drainFaults(){return this.faults.splice(0);}
-  drain(){try{this.dynamic?.sample();}catch(error){this.fault(error);}const records=[...this.pending.values()];this.pending.clear();return records;}
+  impact(bolt,hit){const dynamic=this.dynamic?.active.get(bolt),state=this.projectiles.get(bolt)??dynamic;if(!state)return;this.projectiles.delete(bolt);if(dynamic)dynamic.terminal=true;this.emit(combatRecord({...state,executionTick:state.executionTick??state.launchTick,expiryTick:state.expiryTick??this.tick()+18,tick:this.tick(),schema:2,position:vector(hit.point),direction:vector(hit.normal),surface:hit.surface,native:this.native}));}
+  explosion(definition,position,{wet=false}={}){if(this.nextId>0xffffffff)throw Error('combat identity exhausted');this.emit(explosionRecord({id:this.nextId++,generation:this.generation,tick:this.tick(),definitionId:this.definitionId(definition),position:vector(position),wet,native:this.native}));}
+  event(event){if(!['damage','death'].includes(event.kind))return;if(this.nextId>0xffffffff)throw Error('combat identity exhausted');this.emit(feedbackRecord({id:this.nextId++,generation:this.generation,tick:this.tick(),event,native:this.native}));}
+  fault(error){if(this.native)return this.native.fault(error);this.faults.push(String(error?.message??error).slice(0,160));if(this.faults.length>8)this.faults.shift();}
+  drainFaults(){return this.native?this.native.drainFaults():this.faults.splice(0);}
+  drain(){try{this.dynamic?.sample();}catch(error){this.fault(error);}if(this.native)return this.native.drain(this);const records=[...this.pending.values()];this.pending.clear();return records;}
+  dispose(){this.native?.dispose();}
 }
 
 // A linear bolt's drawn flight cut at `point`, where its round stopped short
