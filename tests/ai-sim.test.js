@@ -11,6 +11,7 @@ import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse, alertResponse, broadcastAcoustic, hazardResponse, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
+import { Agent } from '../src/ai/classic/agents.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -965,6 +966,64 @@ test('native controller phases preserve captured queues, publication and low-tic
     return {history,view:view(),initial:{queue:initial.queue.map(g=>g.kind),latch:initial.latch,current:initial.current.kind},ticks,enters,result:result===token,error};
   }
   for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`controller phase ${i}`);
+});
+
+test('native controller agent callbacks retain factory binding and replacement order', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},ai={world},c=new UnitController(ai,{}),replacement=new CommandQueue();
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7800).fill(1));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    c.state=[0,1,2,3,NaN,'2'][i%6];c.phase=[0,1,'0',false][i%4];
+    const second={tick(){return true;},exit(){log('second-exit',this===second);},dispose(){log('second-dispose',this===second,c.agent===null);}};
+    const first={tick(dt,phase){log('tick',this===first,dt,phase);if(i%3===0)c.commands=replacement;return [false,true,0,NaN,{},null][i%6];},
+      exit(){log('exit',this===first);if(i%5===0)c.agent=second;},dispose(){log('dispose',this===first,c.agent===null);if(i%7===0)c.agent=second;}};
+    ai.agentFor=function(state,controller){log('factory',state,controller===c,this===ai);c.commands.current=new SourceGoal(i%11);
+      if(i%13===0)return null;
+      return function(controller,goal){log('create',controller===c,goal===c.commands.current,goal.kind,this===undefined);c.state=4;return i%17===0?null:first;};
+    };
+    c.trace=function(kind,fields){log('trace',kind,{...fields},this===c);if(i%19===0)c.agent=second;};
+    const original=c.commands,dt=i%3?i/60:{step:i};
+    c.onEnter();c.onTick(dt);c.onExit();c.disposeAgent();
+    return {history,agent:c.agent===second?'second':c.agent===first?'first':c.agent,state:c.state,
+      originalDone:original.currentDone,replacementDone:replacement.currentDone,current:c.commands.current.kind};
+  }
+  for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`controller lifecycle ${i}`);
+});
+
+test('native agent base preserves phase dispatch, captured aim services and unbound eligibility', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},ai={world},controller={ai,world,unit:{id:1},phase:[0,1,'0',false][i%4]};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7900).fill(2));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const helper={terminate(){log('terminate-helper',this===helper);agent.helper=otherHelper;},stop(){log('stop-helper',this===helper);}};
+    const otherHelper={dispose(){log('dispose-helper',this===otherHelper);}};
+    if(i%3===0)helper.terminate=null;if(i%5===0)helper.stop=null;
+    ai.createHelper=()=>helper;
+    const agent=new Agent(controller,null),target={id:2,generation:i%5},memory=new Vector3(3,4,5),look=new Vector3(6,7,8),otherController={id:9};
+    function setters(c,label){
+      c.setStance=function(stance){log(label,'stance',stance,this===c);if(i%7===0)agent.controller=otherController;};
+      c.aimAt=function(ref){log(label,'target',ref.unit.id,ref.generation,this===c);};
+      c.lookAt=function(p){log(label,'look',p===memory?'memory':p===look?'look':'other',p.toArray(),this===c);p.y+=.125;};
+      c.lookAlongPath=function(){log(label,'along',this===c);};
+    }
+    setters(controller,'first');setters(otherController,'other');otherController.phase=controller.phase;
+    const second={currentTarget(){log('wrong-current');return null;},memoryPoint(){log('wrong-memory');return null;}};
+    const combat=ai.combat={currentTarget(a){log('current',a===agent,this===combat);if(i%11===0)ai.combat=second;target.generation+=1;return i%3===0?target:null;},
+      memoryPoint(a){log('memory',a===agent,this===combat);return i%5===0?memory:null;},
+      rankTargets(a){log('rank',a===agent,this===combat);a.state=i%13===0?'100':100;},
+      canEngage(c,t){log('engage',c===agent.controller,t===target,this===undefined);return i%2?{}:null;}};
+    if(i%17===0)combat.canEngage=null;
+    const vehicles=ai.vehicles={boardPolicy(a,t){log('board',a===agent,t===target,this===vehicles);return i%3;}};
+    if(i%19===0)vehicles.boardPolicy=null;
+    target.soldier=i%23===0?{maxSpeed:'2'}:null;target.classDef={ForwardSpeed:i%2?3:0};
+    agent.behave=function(dt){log('behave',dt,this===agent);this.state=i%7===0?'100':100;};
+    agent.onEnter=function(){log('enter',agent.state);};agent.onExit=function(){log('exit',agent.state);};
+    const phase=[0,-0,1,'0',false,undefined][i%6],dt=i%3===0?{step:i}:i/60;
+    const done=agent.tick(dt,phase),can=agent.canEngage(target),board=agent.boardPolicy(i%29===0?null:target);
+    agent.aim(i%3,i%31===0?null:look);agent.exit();agent.dispose();
+    return {history,done,can,board,state:agent.state,pending:agent.pending,controller:agent.controller===controller?'first':'other',memory:memory.toArray(),look:look.toArray()};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`agent base ${i}`);
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {

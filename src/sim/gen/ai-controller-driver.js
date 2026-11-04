@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiControllerDriverOp_NAMES = ["phase","clearRequests","driveCommands","clearAlerts","lowTicketExit","commands","needsNext","count","pop","unlatch","traceGoal","goalKind","request","fsm","published","runaway","boarded","lowTickets","keepsSeat","requestExit","currentKind"];
+export const AiControllerDriverOp_NAMES = ["phase","clearRequests","driveCommands","clearAlerts","lowTicketExit","commands","needsNext","count","pop","unlatch","traceGoal","goalKind","request","fsm","published","runaway","boarded","lowTickets","keepsSeat","requestExit","currentKind","factory","createAgent","traceEnter","hasAgent","exitAgent","disposeAgent","tickAgent","currentDone","captureAgent","releaseAgent","agentPhase","agentUpdate","agentState","controllerPhase","rankTargets","behave","hasHelper","stopHelper","terminateAgent","aimStart","combat","currentTarget","aimTarget","memoryPoint","hasLook","aimLook","aimAlong","engageHook","engage","boardHook","board","nominalSpeed"];
 export const AiControllerDriverOp_INDEX = new Map(AiControllerDriverOp_NAMES.map((name, i) => [name, i]));
 
 export class AiControllerDriverArgsMirror {
