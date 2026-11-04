@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from './collision-fixture.mjs';
 import { RayKernel } from '../src/ray-kernel.js';
 import { loadSim } from '../src/sim/module.js';
 

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { loadSim } from '../src/sim/module.js';
 import { RayKernel } from '../src/ray-kernel.js';
 import { MovementKernel } from '../src/movement-kernel.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from './collision-fixture.mjs';
 import { Soldier } from '../src/soldier.js';
 import { MovementTrace } from './native-movement-records.mjs';
 const args=process.argv.slice(2), file=args[args.indexOf('--out')+1];

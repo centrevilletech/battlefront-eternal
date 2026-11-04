@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles, VehicleDriver } from '../src/vehicles.js';
 const box = (x, y, z, w, h, d) => {
   const g = new THREE.BoxGeometry(w, h, d).translate(x, y, z);

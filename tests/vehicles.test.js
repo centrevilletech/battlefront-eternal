@@ -4,7 +4,8 @@ import { initFlight } from '../src/flight/model.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { CollisionWorld, makeHit } from '../src/collision.js';
+import { makeHit } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles, VehicleDriver } from '../src/vehicles.js';
 import { LiveObjects } from '../src/props.js';
 

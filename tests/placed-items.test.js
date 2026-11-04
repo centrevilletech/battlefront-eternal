@@ -6,7 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { spawnPlacedItems } from '../src/placed-items.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 
 const health100 = { class: 'com_item_powerup_health100', base: 'powerupitem', Gravity: 1, Rebound: 0, Friction: 1,
   GeometryName: 'item_powerup_health100', PersonHealth: 75, DroidHealth: 75, LifeSpan: 30 };

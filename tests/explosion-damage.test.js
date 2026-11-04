@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Soldier } from '../src/soldier.js';
 import { PlayerCombat } from '../src/combat.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
 import { LiveObjects } from '../src/props.js';
 import { RemoteDroids } from '../src/remote.js';

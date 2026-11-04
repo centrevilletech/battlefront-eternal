@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Vehicles } from '../src/vehicles.js';
 // A real ground hull with a pilot seat and a turreted gunner seat, built by the
 // shared Vehicles system from synthetic data (no retail content). Shared by the

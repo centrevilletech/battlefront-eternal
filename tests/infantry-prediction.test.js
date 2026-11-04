@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Soldier} from '../src/soldier.js';
 import {PlayerCombat} from '../src/combat.js';
-import {CollisionWorld} from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import {InfantryPrediction} from '../src/runtime/infantry-prediction.js';
 import {captureSoldierCorrection,SOLDIER_REPLAY_SCHEMA} from '../src/runtime/network-entity-correction.js';
 const world=()=>new CollisionWorld(new Float32Array([-100,0,-100,100,0,-100,100,0,100,-100,0,100]),new Uint32Array([0,2,1,0,3,2]),new Uint32Array([0,1]));

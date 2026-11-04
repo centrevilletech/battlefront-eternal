@@ -1,8 +1,6 @@
 // Owned-content functional correction/replay proof. Does not measure transport,
 // rendering performance or player capacity; no retail data is emitted.
-// BFE_MOVEMENT=wasm runs the soldiers' movement in WebAssembly (?movement=wasm);
-// the digests of the authoritative packet and of every replayed tick must
-// then come out as without it.
+// Soldiers always use the required Rust movement kernel.
 import assert from 'node:assert/strict';import {createHash} from 'node:crypto';import {readFile} from 'node:fs/promises';import {resolve,sep} from 'node:path';import {execFileSync} from 'node:child_process';
 import {createGame} from '../src/game.js';import {createMultiplayerWorld} from '../src/runtime/multiplayer-world.js';
 import {captureOwnPlayer,applyOwnPlayer} from '../src/runtime/network-entity-player.js';

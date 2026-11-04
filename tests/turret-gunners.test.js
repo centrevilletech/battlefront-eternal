@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Turret } from '../src/props.js';
 import { SeatLease, TurretSeats } from '../src/seats.js';
 import { Gunner } from '../src/gunner.js';

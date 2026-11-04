@@ -23,7 +23,7 @@ import { FixedClock } from '../src/runtime/fixed-clock.js';
 import { InputMailbox } from '../src/runtime/transport.js';
 import { captureCompactSoldier, restoreCompactSoldier } from '../src/runtime/network-entity-soldier-compact.js';
 import { Soldier } from '../src/soldier.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from './collision-fixture.mjs';
 
 const args = process.argv.slice(2), option = name => { const i = args.indexOf(`--${name}`); return i < 0 ? null : args[i + 1]; };
 const playoutMode = args.includes('--playout'), replayMode = !playoutMode && args.includes('--replay');

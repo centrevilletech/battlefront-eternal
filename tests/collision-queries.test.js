@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
-import { CollisionWorld, makeHit } from '../src/collision.js';
+import { makeHit } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 
 function box(x, y, z, width, height, depth) {
   const g = new THREE.BoxGeometry(width, height, depth).translate(x, y, z);

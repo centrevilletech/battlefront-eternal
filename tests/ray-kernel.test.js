@@ -3,7 +3,8 @@ let digest;
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
-import { CollisionWorld, makeHit } from '../src/collision.js';
+import { makeHit } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { loadRayKernel, RayKernel } from '../src/ray-kernel.js';
 
 test('query input views stay within reserved memory at a page boundary and after growth', () => {

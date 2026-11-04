@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { Soldier } from '../src/soldier.js';
 import { Droideka } from '../src/droideka.js';
 import { SOLDIER_COLLISION, DROIDEKA_COLLISION, collisionRule, contactDamage, outOfWorld, takeImpacts } from '../src/collision-damage.js';

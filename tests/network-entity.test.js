@@ -68,7 +68,7 @@ test('seat ownership changes atomically and stale competing claims cannot create
  r.apply(packet(8,[seat(2,7,11)]));assert.equal(r.seatOwner(11,1,0),null,'destroyed hull cannot acquire a stale-generation pilot');
 });
 
-import {CollisionWorld} from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 test('exact correction resumes actual Soldier collision, jump and stance physics identically',()=>{
  const world=new CollisionWorld(new Float32Array([-100,0,-100,100,0,-100,100,0,100,-100,0,100]),new Uint32Array([0,2,1,0,3,2]),new Uint32Array([0,1]));
  const a=new Soldier(world,{}),b=new Soldier(world,{});a.spawn(0,0,0,0);b.spawn(0,0,0,0);

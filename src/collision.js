@@ -1,8 +1,6 @@
 import * as THREE from "three";
-import { loadRayKernel } from "./ray-kernel.js";
 import { MovementKernel } from "./movement-kernel.js";
 
-const defaultRays = await loadRayKernel();
 
 // Polygon numbers of the vehicle-only barriers, apart from the buildings'
 // and the bodies'.
@@ -78,8 +76,8 @@ function empty(list) {
 // ground's ray, gather, overlapsSphere and terrainNear in WebAssembly, with
 // the same answers. A kernel is required for every world.
 export class CollisionWorld {
-  constructor(positions, indices, polygons, terrainPositions, terrainIndices, rays = defaultRays) {
-    rays ??= defaultRays;
+  constructor(positions, indices, polygons, terrainPositions, terrainIndices, rays) {
+    if (!rays) throw Error("Collision world requires the Rust ray kernel");
     this.bvh = buildBVH(positions, indices, rays);
     this.polygonOf = polygons;
     this.positions = positions;
@@ -611,7 +609,7 @@ class TriangleGrid {
 
 }
 
-function buildBVH(positions, indices, rays = defaultRays) {
+function buildBVH(positions, indices, rays) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
