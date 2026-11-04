@@ -125,3 +125,60 @@ test('a movement-kernel-backed actor keeps the same retained JS scratch fields',
     assert.equal(actual.soldier.contactCount, 7); assert.deepEqual(actual.soldier.contactMean.toArray(), [.25, -.5, 1.5]);
   } finally { p.dispose(); native.dispose(); a.dispose(); b.dispose(); }
 });
+
+test('private actor clips observe in-place data and track changes between steps', async () => {
+  const instance = await loadSim(), rays = await loadRayKernel(instance), course = actorCourse(rays), reference = actorCourse();
+  const scenario = { kind: 'droideka', pattern: 'reverse' }, a = createPredictionActor(scenario, course), b = createPredictionActor(scenario, reference);
+  const native = createActorPredictionSim(instance, course.world), p = new DroidekaPrediction(a.soldier, a.combat, undefined, { native }), q = new DroidekaPrediction(b.soldier, b.combat);
+  try {
+    for (let tick = 0; tick < 120; tick++) {
+      if (tick % 10 === 0) for (const actor of [a, b]) for (const [name, clip] of actor.clips) if (name.includes('foot')) {
+        clip.data[6] += .125; clip.data[clip.data.length - 1] += .25; clip.tracks[0] = tick % 20 === 0 ? -1 : 0;
+      }
+      p.step(actorInput(scenario, tick), 1 / 60); q.step(actorInput(scenario, tick), 1 / 60);
+      assert.equal(p.nativeSession.steps, tick + 1, 'edited ordinary clips continue natively');
+      assert.deepEqual(actorObservation(a.soldier, p.kick), actorObservation(b.soldier, q.kick), `clip edit tick ${tick}`);
+    }
+  } finally { p.dispose(); native.dispose(); course.dispose(); reference.dispose(); }
+});
+
+test('custom clip accessors and track methods retain JavaScript call order', async () => {
+  const instance = await loadSim(), rays = await loadRayKernel(instance);
+  for (const change of ['data-getter', 'track-indexOf']) {
+    const run = useNative => {
+      const course = actorCourse(useNative ? rays : null), scenario = { kind: 'droideka', pattern: 'reverse' }, actor = createPredictionActor(scenario, course), calls = [];
+      for (const [name, clip] of actor.clips) if (name.includes('foot')) {
+        if (change === 'data-getter') {
+          const data = clip.data;
+          Object.defineProperty(clip, 'data', { configurable: true, get() { calls.push(name); return data; } });
+        } else {
+          const indexOf = clip.tracks.indexOf;
+          clip.tracks.indexOf = function (...args) { calls.push([name, ...args]); return indexOf.apply(this, args); };
+        }
+      }
+      const native = useNative ? createActorPredictionSim(instance, course.world) : null;
+      const p = new DroidekaPrediction(actor.soldier, actor.combat, undefined, { native }), observations = [];
+      try {
+        for (let tick = 0; tick < 30; tick++) {
+          p.step(actorInput(scenario, tick), 1 / 60); observations.push(actorObservation(actor.soldier, p.kick));
+          if (native) assert.equal(p.nativeSession.steps, 0);
+        }
+        assert.ok(calls.length > 0); return { observations, calls };
+      } finally { p.dispose(); native?.dispose(); course.dispose(); }
+    };
+    assert.deepEqual(run(true), run(false), change);
+  }
+});
+
+test('disposal during collision preparation happens before native actor entry', async () => {
+  const instance = await loadSim(), rays = await loadRayKernel(instance), course = actorCourse(rays), scenario = { kind: 'soldier', pattern: 'walk' };
+  const actor = createPredictionActor(scenario, course), native = createActorPredictionSim(instance, course.world);
+  const p = new InfantryPrediction(actor.soldier, actor.combat, undefined, { native }), before = actorObservation(actor.soldier, p.kick);
+  let calls = 0;
+  Object.defineProperty(course.world, 'rayOrder', { configurable: true, get() { calls++; native.dispose(); return course.world.bodiesVersion; } });
+  try {
+    assert.throws(() => p.step(actorInput(scenario, 0), 1 / 60), /disposed/);
+    assert.equal(calls, 1); assert.equal(p.nativeSession.steps, 0); assert.equal(p.nativeSession.handle, 0);
+    assert.deepEqual(actorObservation(actor.soldier, p.kick), before);
+  } finally { p.dispose(); native.dispose(); course.dispose(); }
+});
