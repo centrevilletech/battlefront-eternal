@@ -3,6 +3,8 @@
 // controller facades can keep their answer slots while callers migrate.
 import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
+import { Vector3 } from 'three';
+import { NativeScheduler } from './ai-scheduler-sim.js';
 
 const HEADER = 5;
 const ZERO = { x: 0, y: 0, z: 0 };
@@ -73,7 +75,8 @@ export class AiSim {
     boundary.outside = point => Boolean(this.x.ai_nav_boundary(0, 0, point.x, point.y, point.z));
     if (nav.graph) this.bindGraph(nav.graph);
     nav.planner = new NativePlanner(this, nav.barriers, options.pools ?? {});
-    nav.control = controller => controller.navControl ?? (controller.navControl = new NativeNavControl(nav, controller));
+    nav.nativeControl = controller => new NativeNavControl(nav, controller);
+    nav.control = controller => controller.navControl ?? (controller.navControl = nav.nativeControl(controller));
     const hints = nav.hints;
     for (const hint of hints.list) {
       const index = hint.index;
@@ -123,6 +126,150 @@ export class AiSim {
       this.x.ai_nav_graph(4, -1, 0, 0, mask, point.x, point.y, point.z, 0);
       const index = this.out()[0]; return index < 0 ? null : graph.arcs[index];
     };
+  }
+
+  bindCombat(ai) {
+    ai.scheduler=this.scheduler(ai);
+    const los=ai.world?.deferredLos;
+    if(los) {
+      if(los.active.size || los.scratch.size) throw Error('native sight queues must bind before scanning');
+      los.active=this.heap(los.active.capacity,los.active.priority[0]);
+      los.scratch=this.heap(los.scratch.capacity,los.scratch.priority[0]);
+    }
+    const create = ai.combat.createPerception;
+    ai.combat.createPerception = (...args) => {
+      const perception = create(...args);
+      if(perception.heap.size) throw Error('native perception must bind before scanning');
+      perception.heap=this.heap(perception.heap.capacity,perception.heap.priority[0]);
+      perception.aimer = this.aimer();
+      return perception;
+    };
+  }
+
+  scheduler(ai) { return new NativeScheduler(this,ai); }
+  heap(capacity,sentinel) { return new NativePriorityHeap(this,capacity,sentinel); }
+  aimer() { return new NativeAimer(this); }
+  enhancedAimer(random,profile,skill=1) { return new NativeEnhancedAimer(this,random,profile,skill); }
+
+  words(values) {
+    const ptr=this.x.sim_call_room(values.length,0);
+    this.bridge.views();this.bridge.f.set(values,ptr/8+HEADER);
+  }
+}
+
+class NativePriorityHeap {
+  constructor(sim,capacity,sentinel) {
+    this.sim=sim;this.id=sim.x.ai_heap_new(capacity,sentinel);this.capacity=capacity;
+    this.values=new Map();this.next=1;this.count=0;this.dropped=0;
+    this.observed=false;
+    this.itemView=new Array(capacity+1).fill(null);this.priorityView=new Int32Array(capacity+1);
+  }
+  get size() { return this.count; }
+  run(op,priority=0,item=0,slot=0) {
+    this.sim.x.ai_heap_command(this.id,op,priority,item,slot);
+    const answer=this.sim.out(),result=answer[0];this.count=answer[1];this.dropped=answer[2];
+    if(this.observed)this.read();
+    return result;
+  }
+  value(token) { return token===0?null:this.values.get(token); }
+  token(item) {
+    if(this.next>0xffffffff) throw Error('perception item tokens exhausted');
+    const token=this.next++;this.values.set(token,item);return token;
+  }
+  clear() { this.run(0);this.values.clear(); }
+  place(slot,priority,item) { this.run(6,priority,this.token(item),slot);this.read(true); }
+  minIndex() { return this.run(5); }
+  insert(priority,item) {
+    const result=this.run(1,priority,this.token(item)),value=this.value(result);
+    if(result)this.values.delete(result);
+    return value;
+  }
+  peek() { return this.value(this.run(2)); }
+  peekPriority() { return this.run(3); }
+  pop() {
+    const token=this.run(4),value=this.value(token);
+    if(token)this.values.delete(token);
+    return value;
+  }
+  read(prune=false) {
+    this.sim.x.ai_heap_read(this.id);const answer=this.sim.out();
+    this.count=answer[0];this.dropped=answer[1];const kept=new Set();
+    for(let i=0;i<=this.capacity;i++) {
+      this.priorityView[i]=answer[2+i*2];const token=answer[3+i*2];
+      this.itemView[i]=this.value(token);if(token)kept.add(token);
+    }
+    if(prune)for(const token of this.values.keys())if(!kept.has(token))this.values.delete(token);
+  }
+  get priority() { this.observed=true;this.read();return this.priorityView; }
+  get items() { this.observed=true;this.read();return this.itemView; }
+  slots() { this.read();return this.itemView.slice(1,this.count+1); }
+}
+
+// These facades keep the vector identities used by the gun and fire cone.
+// Assignments from other AI services immediately update the native filter.
+class AimFields {
+  constructor(sim,id,read,write) { this.sim=sim;this.id=id;this.readExport=read;this.writeExport=write;this.fields=[];this.pulling=false; }
+  field(object,name,index,decode=value=>value,encode=Number) {
+    let value=object[name];
+    Object.defineProperty(object,name,{enumerable:true,configurable:true,get:()=>value,set:next=>{
+      value=next;if(!this.pulling)this.sim.x[this.writeExport](this.id,index,encode(next));
+    }});
+    this.fields.push([object,name,index,decode]);
+  }
+  vector(object,index) { ['x','y','z'].forEach((key,axis)=>this.field(object,key,index+axis)); }
+  read() {
+    this.sim.x[this.readExport](this.id);const values=this.sim.out().slice();this.pulling=true;
+    try {for(const [object,name,index,decode] of this.fields)object[name]=decode(values[index]);}
+    finally {this.pulling=false;}
+  }
+}
+
+class NativeAimer extends AimFields {
+  constructor(sim) {
+    super(sim,sim.x.ai_aimer_new(),'ai_aimer_read','ai_aimer_write');
+    this.direction=new Vector3(0,0,1);this.velocity=new Vector3();this.started=false;this.curves={A:0,D:0,B:1,S:0};
+    this.vector(this.direction,0);this.vector(this.velocity,3);this.field(this,'started',6,Boolean);
+    ['A','D','B','S'].forEach((key,index)=>this.field(this.curves,key,index+7));this.read();
+  }
+  run(op,desired,dt=0,curves=null,weapon=null,hero=false) {
+    const def=weapon?.def;
+    this.sim.words([desired.x,desired.y,desired.z,dt,Number(Boolean(hero)),Number(Boolean(curves)),
+      typeof curves?.A==='number'?curves.A:NaN,curves?.D,Number(curves?.B!=null),curves?.B??0,Number(curves?.S!=null),curves?.S??0,
+      Number(def!=null),this.sim.bridge.strings.id(typeof def?.base==='string'?def.base:'')]);
+    this.sim.x.ai_aimer_update(this.id,op);
+    const answer=this.sim.out();
+    if(answer[0]) {weapon.spreadScale=answer[1];weapon.sniperScale=answer[2];}
+    this.read();return this.direction;
+  }
+  reset(direction) {this.run(0,direction);}
+  update(desired,dt,curves,weapon=null,hero=false) {return this.run(1,desired,dt,curves,weapon,hero);}
+}
+
+class NativeEnhancedAimer extends AimFields {
+  constructor(sim,random,profile,skill) {
+    super(sim,sim.x.ai_enhanced_aimer_new(profile.reaction,profile.reactionFloor,profile.convergence,profile.sigma25,profile.slew,skill),'ai_enhanced_aimer_read','ai_enhanced_aimer_write');
+    this.random=random;this.profile=profile;this.skill=skill;this.direction=new Vector3(0,0,1);this.started=false;
+    this.error=[0,0];this.bias=[0,0];this.key=null;this.lastKey=null;this.lostAt=-Infinity;this.acquiredAt=-Infinity;this.readyAt=-Infinity;
+    this.vector(this.direction,0);this.field(this,'started',3,Boolean);
+    this.field(this.error,0,4);this.field(this.error,1,5);this.field(this.bias,0,6);this.field(this.bias,1,7);
+    for(const [name,index] of [['key',8],['lastKey',9]])this.field(this,name,index,value=>value?sim.bridge.strings.at(value-1):null,value=>value==null?0:sim.bridge.strings.id(value)+1);
+    for(const [name,index] of [['lostAt',10],['acquiredAt',11],['readyAt',12]])this.field(this,name,index);
+    this.read();
+  }
+  run(op,values) {
+    while(values.length<9)values.push(0);
+    this.sim.words(values);
+    const result=this.sim.x.ai_enhanced_aimer_command(this.id,op,this.random.state);
+    this.random.state=this.sim.out()[0];this.read();return result;
+  }
+  reset(direction) {this.run(0,[direction.x,direction.y,direction.z]);}
+  observe(target,now) {this.run(1,[target?this.sim.bridge.strings.id(`${target.id}:${target.generation}`)+1:0,now]);}
+  reacting(now) {return Boolean(this.run(2,[now]));}
+  sigma(distance,speedFraction,scoped=false) {return this.run(3,[distance,speedFraction,Number(Boolean(scoped))]);}
+  gaussian() {return this.run(5,[]);}
+  update(desired,dt,{distance=25,speedFraction=0,scoped=false,now=0,hero=false}={}) {
+    this.run(4,[desired.x,desired.y,desired.z,dt,distance,speedFraction,Number(Boolean(scoped)),now,Number(Boolean(hero))]);
+    return this.direction;
   }
 }
 
@@ -287,20 +434,26 @@ class NativePlanner {
 
 // Unit reads used by the path executor. Optional numeric fields carry a
 // presence bit so a NaN is distinct from an absent coefficient.
-function navigationUnit(sim, words, unit, forward) {
+function navigationUnit(sim, words, unit, forward, origin = null) {
   if (!unit) { words.push(0); return; }
   const vec = p => words.push(p.x, p.y, p.z);
   const optional = value => words.push(value != null ? 1 : 0, value ?? 0);
   words.push(1, sim.id(unit), unit.kind); vec(unit.position); vec(unit.velocity ?? ZERO);
   optional(unit.generation);
   const def = unit.classDef; words.push(def ? 1 : 0);
-  if (def) { optional(def.MaxSpeed); optional(def.ForwardSpeed); optional(def.TurnRate); }
+  if (def) {
+    for (const key of ['MaxSpeed','ForwardSpeed','TurnRate','MaxStrafeSpeed','MaxTurnSpeed','MaxPitchSpeed']) optional(def[key]);
+  }
   const soldier = unit.soldier; words.push(soldier ? 1 : 0);
   if (soldier) {
-    optional(soldier.aimYaw); words.push(soldier.avoidance ? 1 : 0);
+    for (const key of ['aimYaw','aimPitch','maxSpeed','maxStrafe','maxTurn','maxPitch']) optional(soldier[key]);
+    words.push(soldier.avoidance ? 1 : 0);
     if (soldier.avoidance) vec(soldier.avoidance);
+    words.push(!soldier.air?0:soldier.air==='jump'?1:soldier.air==='jet'?2:3,
+      soldier.posture==='stand'?0:soldier.posture==='crouch'?1:soldier.posture==='prone'?2:3,soldier.lock,Number(Boolean(soldier.dive)));
   }
   words.push(forward ? 1 : 0); if (forward) vec(forward);
+  words.push(origin ? 1 : 0); if (origin) vec(origin);
 }
 
 class NativeNavControl extends NavControl {
@@ -355,7 +508,7 @@ class NativeNavControl extends NavControl {
     for (const path of new Set([...previous,this.published,this.trail,this.executor?.path])) path?.read();
   }
 
-  run(op, a = 0, b = 0, c = 0, unit = this.unit, explicitLeader = null) {
+  run(op, a = 0, b = 0, c = 0, unit = this.unit, explicitLeader = null, aim = null, facing = false, intent = null) {
     const words = [], world = this.controller?.world;
     const rng = world?.randomB ?? world?.gameRandom ?? world?.random;
     const ref = this.leader;
@@ -363,13 +516,15 @@ class NativeNavControl extends NavControl {
     // These methods are pure unit reads. Only operations that can steer
     // request the flyer direction, and only a due trail sample asks for
     // its leader's direction.
-    const steer = [4,5,6,8,11,12].includes(op);
+    const steer = [4,5,6,8,11,12,16].includes(op);
     const forward = steer && unit?.kind === 5 && unit.forward ? unit.forward(this.strandedAt.clone()) : null;
-    const sample = (op === 8 || op === 11) && leader && !this.executor?.hold && Math.fround(this.trailDelay - a) < 0;
+    const sample = (op === 8 || op === 11 || op === 16) && leader && !this.executor?.hold && Math.fround(this.trailDelay - a) < 0;
     const leaderForward = sample && leader.forward ? leader.forward(this.strandedAt.clone()) : null;
-    navigationUnit(this.sim, words, unit, forward);
+    const origin = op === 16 && unit?.origin ? unit.origin(this.strandedAt.clone()) : null;
+    navigationUnit(this.sim, words, unit, forward, origin);
     navigationUnit(this.sim, words, leader, leaderForward);
     words.push(rng?.state ?? 0, this.controller?.ai?.followRadii?.far ?? world?.missionControls?.formation?.far ?? 3);
+    words.push(Number(Boolean(aim)),aim?.x??0,aim?.y??0,aim?.z??0,Number(Boolean(facing)));
     const ptr = this.sim.x.sim_call_room(words.length,0);
     this.sim.bridge.views(); this.sim.bridge.f.set(words,ptr/8+HEADER);
     this.planner.feed();
@@ -379,8 +534,14 @@ class NativeNavControl extends NavControl {
     if (answer[2] && unit?.soldier?.avoidance) {
       const v=unit.soldier.avoidance; v.x=answer[3];v.y=answer[4];v.z=answer[5];
     }
-    this.planner.publications(answer,6);
+    const start=answer[6] ? 15 : 7;
+    this.planner.publications(answer,start);
     this.read();
+    if (answer[6]) {
+      intent.forward=answer[7];intent.right=answer[8];intent.turn=answer[9];intent.pitch=answer[10];
+      if(answer[11])intent.jump=true;if(answer[12])intent.crouch=true;if(answer[13])intent.prone=true;
+      if(answer[14])intent.jetDirection=answer[14]===1?null:this.jet.vector;
+    }
     return answer[0];
   }
 
@@ -403,6 +564,7 @@ class NativeNavControl extends NavControl {
   consumeSegment() { this.run(13); }
   dispose() { this.run(14); }
   get status() { return this.run(15); }
+  nativeInput(unit,intent,dt,aim,options) { this.run(16,dt,0,0,unit,null,aim,options.facing,intent);return intent; }
 }
 
 class NativeExecutor {

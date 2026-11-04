@@ -8,6 +8,7 @@
 // plentiful server bandwidth does not make that upload cost free. Operators
 // configure stateBytesPerSecond for the clients' constrained paths, and use
 // tools/net-probe.mjs shaped-link measurements to check actual IP traffic.
+import { createWireBudgetBridge } from './wire-host.js';
 export const DEFAULT_STATE_BYTES_PER_SECOND=100000;
 export const MIN_STATE_BYTES_PER_SECOND=20000, MAX_STATE_BYTES_PER_SECOND=500000;
 // Roughly one publication's worth of datagrams may be sent at once; a burst
@@ -19,8 +20,9 @@ export function readStateBudget({stateBytesPerSecond}={}) {
   return {bytesPerSecond:rate,burstBytes:burstFor(rate)};
 }
 export class EntityBudget {
-  constructor({bytesPerSecond=DEFAULT_STATE_BYTES_PER_SECOND,burstBytes=burstFor(bytesPerSecond),now=performance.now()}={}) {
+  constructor({bytesPerSecond=DEFAULT_STATE_BYTES_PER_SECOND,burstBytes=burstFor(bytesPerSecond),now=performance.now(),bridge=null}={}) {
     if(!Number.isFinite(bytesPerSecond)||bytesPerSecond<=0||!Number.isSafeInteger(burstBytes)||burstBytes<1100)throw Error('invalid entity budget');
+    if(bridge)return createWireBudgetBridge(bridge,{bytesPerSecond,burstBytes,now});
     this.rate=bytesPerSecond;this.burst=burstBytes;this.tokens=burstBytes;this.at=now;this.offeredBytes=0;this.denied=0;
   }
   available(now=performance.now()) {

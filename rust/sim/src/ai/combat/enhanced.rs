@@ -10,7 +10,7 @@ use three::Vector3;
 use super::aim::resolve;
 use super::binding::CombatAi;
 use super::weapons_ai::{consume_fire, def_at, selected_weapon, sniper_weapon, weapon_mut};
-use super::world::{uniform, Gen, Obj, World};
+use super::world::{uniform, Draws, Gen, Obj, World};
 
 const DEG: f64 = std::f64::consts::PI / 180.0;
 
@@ -85,14 +85,14 @@ impl EnhancedAimer {
     }
 
     /// aim.js:79 `gaussian()`.
-    fn gaussian<W: World + ?Sized>(w: &mut W) -> f64 {
+    pub(crate) fn gaussian<W: Draws + ?Sized>(w: &mut W) -> f64 {
         let u = v8math::max(uniform(w, Gen::C), 1e-12);
         let v = uniform(w, Gen::C);
         v8math::sqrt(-2.0 * v8math::log(u)) * v8math::cos(2.0 * std::f64::consts::PI * v)
     }
 
     /// aim.js:85 `reset(direction)`.
-    fn reset(&mut self, direction: &Vector3) {
+    pub fn reset(&mut self, direction: &Vector3) {
         self.direction = *direction;
         self.started = true;
     }
@@ -104,6 +104,12 @@ impl EnhancedAimer {
             let u = w.unit(t);
             key_of(u.id, u.generation)
         });
+        self.observe_key(w, key, now);
+    }
+
+    /// An already resolved target identity, for adapters whose unit
+    /// facade still supplies the source object's id and generation.
+    pub fn observe_key<W: Draws + ?Sized>(&mut self, w: &mut W, key: Option<String>, now: f64) {
         if key == self.key {
             return;
         }
@@ -130,7 +136,7 @@ impl EnhancedAimer {
     }
 
     /// aim.js:118 `sigma(d, speedFraction, scoped)`.
-    fn sigma(&self, d: f64, speed_fraction: f64, scoped: bool) -> f64 {
+    pub fn sigma(&self, d: f64, speed_fraction: f64, scoped: bool) -> f64 {
         let range = 0.7 + 0.3 * v8math::min(v8math::max(d / 25.0, 0.0), 4.0);
         let scope = if scoped { SCOPE } else { 1.0 };
         self.profile.sigma25 * DEG * self.skill * range * (1.0 + MOVEMENT * speed_fraction) * scope
@@ -138,7 +144,7 @@ impl EnhancedAimer {
 
     /// aim.js:125 `update(desired, dt, options)`: the gun direction.
     #[allow(clippy::too_many_arguments)]
-    pub fn update<W: World + ?Sized>(&mut self, w: &mut W, desired: &Vector3, dt: f64, distance: f64, speed_fraction: f64, scoped: bool, now: f64, hero: bool) -> Vector3 {
+    pub fn update<W: Draws + ?Sized>(&mut self, w: &mut W, desired: &Vector3, dt: f64, distance: f64, speed_fraction: f64, scoped: bool, now: f64, hero: bool) -> Vector3 {
         if !self.started {
             self.reset(desired);
         }

@@ -1,5 +1,9 @@
 import { createWirePresentationBridge } from './wire-presentation.js';
 import { createWireBridge } from './wire-sim.js';
+import { createWireHostBridge, createWireStaggerBridge } from './wire-host.js';
+import { createWireCosmeticsBridge } from './wire-cosmetics.js';
+import { createWireSemanticBridge } from './wire-semantic.js';
+import { createWireRegistryBridge } from './wire-registry.js';
 import { attachHitHistoryBridge } from './hit-history-sim.js';
 import { entityPostNames } from './entity-spawn-posts.js';
 import { attachPresentationCapture } from './entity-presentation-events.js';
@@ -121,10 +125,14 @@ export function chooseSharedBaselines(tick, acks, max = MAX_SHARED_BASELINES) {
 export const MAX_LOCAL_INTERVAL = 3;
 export function createSnapshotHost({ game, world, wire = globalThis.process?.env?.BFE_WIRE === 'rust', epoch = 1, local = false, stateBytesPerSecond, staleAfterMs = local ? Infinity : STALE_AFTER_MS, now = () => performance.now() } = {}) {
   if (!game || !world) throw Error('snapshot host requires a game and a multiplayer world');
+  if (wire && !game.simBridge) throw Error('native snapshot host requires the shared simulation bridge');
+  const budget = local ? Infinity : readStateBudget({ stateBytesPerSecond }).bytesPerSecond;
+  if (!(staleAfterMs > 0)) throw Error('invalid stale client time');
   const native = wire && game.simBridge ? createWireBridge(game.simBridge) : null;
-  if (wire && !native) throw Error('native snapshot host requires the shared simulation bridge');
   native?.start();
   const nativePresentation = native ? createWirePresentationBridge(game.simBridge) : null;
+  const nativeCosmetics = native ? createWireCosmeticsBridge(game.simBridge) : null;
+  const nativeSemantic = native ? createWireSemanticBridge(game.simBridge) : null;
   const history = native && game.ordnance?.hitHistory ? attachHitHistoryBridge(game.simBridge, game.ordnance.hitHistory) : null;
   // A snapshot every `interval` ticks, each carrying every change since the
   // client's acknowledged baseline: every 2nd tick online; locally every
@@ -132,54 +140,60 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
   // (setLocalInterval), so a page drawing 20 frames a second decodes one
   // snapshot a frame, not three it has no frame to show.
   let interval = local ? 1 : 2;
-  function setLocalInterval(ticks) { if (local) interval = Math.max(1, Math.min(MAX_LOCAL_INTERVAL, Math.floor(ticks) || 1)); }
+  function setLocalInterval(ticks) { if (nativeHost) { nativeHost.setLocalInterval(ticks); interval = nativeHost.interval; } else if (local) interval = Math.max(1, Math.min(MAX_LOCAL_INTERVAL, Math.floor(ticks) || 1)); }
   // A local client shares the process: no link to protect.
-  const budget = local ? Infinity : readStateBudget({ stateBytesPerSecond }).bytesPerSecond;
-  if (!(staleAfterMs > 0)) throw Error('invalid stale client time');
+  const nativeHost = native ? createWireHostBridge(game.simBridge, { local, budget, staleAfterMs, epoch }) : null;
   const clients = new Map();
   // A snapshot leaving the ring hands its entries to the next captures.
   const spare = new EntrySpare();
   const ring = new SnapshotRing(128, native ? null : (snapshot, held) => spare.recycle(snapshot, held.get(held.oldestTick)));
   const slots = new SnapshotSlotTable();
-  const stagger = new WorldFieldStagger();
+  const stagger = native ? createWireStaggerBridge(game.simBridge) : new WorldFieldStagger();
   let registry, capture, shots, combatCapture, combatDispose, presentationDispose;
   let lastSnapshot = null, capturedTick = -1, diagnosedTick = -1, rosterLength = -1;
   const encodeCache = { tick: -1, parts: new Map() };
 
   function ensureRuntime() {
     if (registry) return;
-    registry = createEntityRegistry(game.data, { contentEpoch: epoch, inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES, posts: entityPostNames(game) });
-    shots = new EntityShotCounters(game.simEvents);
-    combatCapture = new CombatCapture({ tick: () => game.worldClock.tick, definitionId: registry.combat.definitionId, generation: epoch });
+    registry = createEntityRegistry(game.data, { contentEpoch: epoch, inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES, posts: entityPostNames(game), native: native ? createWireRegistryBridge(game.simBridge) : null });
+    shots = new EntityShotCounters(game.simEvents, { bridge: native ? game.simBridge : null });
+    combatCapture = new CombatCapture({ tick: () => game.worldClock.tick, definitionId: registry.combat.definitionId, generation: epoch, bridge: native ? game.simBridge : null });
     combatDispose = attachCombatCapture(game, combatCapture);
-    presentationDispose = attachPresentationCapture(game, combatCapture, registry);
-    capture = new EntityWorldCapture(game, registry, { fireCounter: unit => shots.counter(unit) });
+    presentationDispose = attachPresentationCapture(game, combatCapture, registry, nativePresentation);
+    capture = new EntityWorldCapture(game, registry, { fireCounter: unit => shots.counter(unit), bridge: native ? game.simBridge : null });
   }
   function addClient(id) {
     ensureRuntime();
     if (clients.has(id)) throw Error('snapshot client already joined');
-    clients.set(id, {
+    const state = nativeHost ? nativeHost.add(id, now()) : {
       started: false, ready: false,
       // Acknowledged ticks, newest first; baselineTick is the newest.
       acked: [], baselineTick: 0,
       ownRing: new SnapshotRing(128),
-      edges: new EntityEdges({ actor: world.players.get(id), world, client: id, registry }),
       // State bytes sent inside the budget window: [time, bytes] pairs.
       sent: [], sentBytes: 0, ownSentAt: -Infinity, heardAt: now(),
-      // The cosmetic combat events this client is owed (snapshot-cosmetic-outbox.js).
-      outbox: new CosmeticOutbox({ range: COSMETIC_RANGE }),
       metrics: { snapshots: 0, datagrams: 0, bytes: 0, cosmeticsDropped: 0, cosmeticsOwedDropped: 0, cosmeticsResent: 0, emptyBaselines: 0, budgetSkips: 0, ownOnly: 0, staleSkips: 0 },
-      ownSummariesCache: null, ownSummariesDue: 0,
-      inputDiagnostics: { accepted: 0, rejected: 0, reasons: {}, last: {} },
-    });
+      ownSummariesDue: 0,
+    };
+    try {
+      state.edges = new EntityEdges({ actor: world.players.get(id), world, client: id, registry, bridge: native ? game.simBridge : null });
+      state.outbox = nativeCosmetics ? nativeCosmetics.createOutbox({ range: COSMETIC_RANGE }) : new CosmeticOutbox({ range: COSMETIC_RANGE });
+      state.ownSummariesCache = null;
+      state.inputDiagnostics = { accepted: 0, rejected: 0, reasons: {}, last: {} };
+      clients.set(id, state);
+    } catch (error) {
+      state.edges?.dispose?.(); state.outbox?.dispose?.(); nativeHost?.remove(id);
+      throw error;
+    }
   }
-  function removeClient(id) { clients.delete(id); }
+  function removeClient(id) { const state = clients.get(id); state?.edges.dispose?.(); state?.outbox.dispose?.(); nativeHost?.remove(id); clients.delete(id); }
   function setStarted(id, started) { const s = clients.get(id); if (s) { s.started = Boolean(started); if (s.started) s.heardAt = now(); } }
   function setReady(id) { const s = clients.get(id); if (s) s.ready = true; }
   // A client's acknowledgement is cumulative (its newest complete snapshot),
   // so each new one is a snapshot it holds. Only ticks this host published
   // to this client, still in both rings, are kept as its baselines.
   function acceptAck(state, ack) {
+    if (nativeHost) { if (nativeHost.acceptAck(state, ack)) state.outbox.acknowledge(ack.tick); return; }
     if (!ack || ack.epoch !== epoch || !Number.isSafeInteger(ack.tick)) return;
     if (ack.tick > state.baselineTick && ring.has(ack.tick, epoch) && state.ownRing.has(ack.tick, epoch)) {
       state.acked.unshift(ack.tick);
@@ -191,12 +205,14 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
   // The client's acknowledged ticks still held (and young enough for the
   // client to hold) at `tick`, newest first.
   function heldAcks(state, tick) {
+    if (nativeHost) return nativeHost.heldAcks(state, tick);
     const acked = state.acked;
     for (let i = acked.length - 1; i >= 0; i--) if (tick - acked[i] >= CLIENT_BASELINE_TICKS || !ring.has(acked[i], epoch) || !state.ownRing.has(acked[i], epoch)) acked.splice(i, 1);
     return acked;
   }
-  function chargeBytes(state, at, bytes) { state.sent.push(at, bytes); state.sentBytes += bytes; }
+  function chargeBytes(state, at, bytes) { if (nativeHost) nativeHost.chargeBytes(state, at, bytes); else { state.sent.push(at, bytes); state.sentBytes += bytes; } }
   function budgetUsed(state, at) {
+    if (nativeHost) return nativeHost.budgetUsed(state, at);
     const sent = state.sent;
     let drop = 0;
     while (drop < sent.length && sent[drop] <= at - BUDGET_WINDOW_MS) { state.sentBytes -= sent[drop + 1]; drop += 2; }
@@ -242,7 +258,7 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
   function captureSnapshot(tick) {
     const characters = game.battle.characters;
     for (const [slot, c] of characters.entries()) c.rosterSlot = slot;
-    const records = capture.capture(tick);
+    const records = native ? capture.captureNative(tick) : capture.capture(tick);
     // The fields captureWorldSummaries produces for everyone. Skipping the
     // roster when none of its chunks is due and its chunk count (set by the
     // character count) is unchanged publishes exactly what capturing it would.
@@ -251,27 +267,28 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
     const captureRecords = captureBattle && stagger.schemaDue(tick, RECORD_WORLD_SCHEMAS);
     const complete = new Set(PRESENTATION_WORLD_SCHEMAS), common = [];
     if (captureBattle) {
-      common.push(captureBattleSummary(game.battle, { tick, epoch }), ...game.posts.posts.map(post => capturePostSummary(post, { tick, epoch, registry })));
+      common.push(captureBattleSummary(game.battle, { tick, epoch, native: nativeSemantic }), ...game.posts.posts.map(post => capturePostSummary(post, { tick, epoch, registry, native: nativeSemantic })));
       for (const schema of BATTLE_COMPLETE_SCHEMAS) complete.add(schema);
     }
     if (captureRoster) {
-      common.push(...captureRosterSummaries(game.battle, attachedPlayers(world), { tick, epoch }));
+      common.push(...captureRosterSummaries(game.battle, attachedPlayers(world), { tick, epoch, native: nativeSemantic }));
       complete.add(4); rosterLength = characters.length;
     }
     // Everyone's records (battle-stats.js), for DETAILS from Tab's table in
     // whole seconds, and exact once the scores stop (they no longer
     // change) for the end table's DETAILS and AWARDS.
     if (captureRecords) {
-      common.push(...captureRecordSummaries(game.battle, registry, { tick, epoch, quantum: game.battle.gameOver ? 1 : 1000 }));
+      common.push(...captureRecordSummaries(game.battle, registry, { tick, epoch, quantum: game.battle.gameOver ? 1 : 1000, native: nativeSemantic }));
       complete.add(5);
     }
     const unitStates = [];
     for (const u of game.units.all()) if (u.soldier && u.combat && !u.removed && stagger.isFieldDue(tick, UNIT_STATE_SCHEMA, UNIT_STATE_ID + u.id)) unitStates.push(captureUnitState(u, registry, tick, nativePresentation));
     // Stations and tows the stagger would not take now are not built.
     stagger.take(tick, [...common, ...unitStates, ...captureWorldPresentation(game, tick, epoch, (schema, id, stateTeam) => stagger.held(tick, schema, id, stateTeam), nativePresentation)], complete);
-    const snapshot = native ? native.capture({ tick, epoch, records, world: stagger.world() })
+    const snapshot = native ? native.captureProduced({ tick, epoch, source: capture, world: stagger })
       : snapshotFromRecords({ tick, epoch, records, world: stagger.world(), slots, previous: lastSnapshot, spare });
     ring.set(tick, epoch, snapshot);
+    nativeHost?.captured(tick);
     lastSnapshot = snapshot; capturedTick = tick;
     encodeCache.tick = tick; encodeCache.parts.clear();
     return snapshot;
@@ -299,7 +316,7 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
     // that publishes once per catch-up batch can land on any tick. Until
     // then the first snapshot aligns to the interval, so an unhurried host
     // keeps the even-tick cadence.
-    const snapshotDue = capturedTick < 0 ? tick % interval === 0 : tick - capturedTick >= interval;
+    const snapshotDue = nativeHost ? nativeHost.due(tick) : capturedTick < 0 ? tick % interval === 0 : tick - capturedTick >= interval;
     let snapshot = null, cosmetics = [], gameplay = [];
     if (snapshotDue) {
       try { snapshot = captureSnapshot(tick); } catch (error) { faults.push({ client: null, error }); }
@@ -309,7 +326,8 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
             // Decoded once, when captured.
             const view = event.view ?? decodeCombat(event.record);
             if (isGameplayCombat(event.record)) gameplay.push({ record: event.record, view });
-            else cosmetics.push(cosmeticEvent(event.record, view, encodeCosmeticEvent(event.record, undefined, view)));
+            else cosmetics.push(nativeCosmetics ? nativeCosmetics.cosmeticEvent(event.record, view, nativeCosmetics.encodeCosmeticEvent(event.record, undefined, view))
+              : cosmeticEvent(event.record, view, encodeCosmeticEvent(event.record, undefined, view)));
           } catch { /* malformed cosmetic content is dropped, never fatal */ }
         }
       }
@@ -325,8 +343,11 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
       if (actor) inputAcks.push({ client, epoch, serverTick: tick, generation: actor.unit?.generation ?? 0, ack: actor.mailbox.ack, ackTick: actor.mailbox.ackTick, dropped: droppedTicks, discardedInput: actor.mailbox.discarded ?? 0, discardedActions: actor.actions?.discarded ?? 0, ackActions: 0 });
       const feedback = state.edges.feedback();
       if (feedback.received.length || feedback.results.length) edgeResults.push({ client, ...feedback });
-      if (!snapshot || !state.ready) continue;
-      if (at - state.heardAt > staleAfterMs) { state.metrics.staleSkips++; continue; }
+      if (nativeHost) { if (!nativeHost.eligible(state, at, snapshot)) continue; }
+      else {
+        if (!snapshot || !state.ready) continue;
+        if (at - state.heardAt > staleAfterMs) { state.metrics.staleSkips++; continue; }
+      }
       // Owed even when the budget skips this snapshot: they go in the next.
       if (cosmetics.length) state.outbox.offer(cosmetics, actor?.unit?.seat?.vehicle?.position || actor?.unit?.position, actor?.unit?.id);
       if (gameplay.length) {
@@ -335,13 +356,16 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
         for (const e of gameplay) if (feedbackConcerns(e.view, actor?.unit?.id)) records.push(e.record);
         if (records.length) reliableEvents.push({ client, tick, records });
       }
-      if (budgetUsed(state, at) < budget) recipients.push({ client, state, actor, full: true });
+      if (nativeHost) {
+        const delivery = nativeHost.delivery(state, at);
+        if (delivery) recipients.push({ client, state, actor, full: delivery === 2 });
+      } else if (budgetUsed(state, at) < budget) recipients.push({ client, state, actor, full: true });
       else {
         state.metrics.budgetSkips++;
         if (at - state.ownSentAt >= OWN_FALLBACK_MS) recipients.push({ client, state, actor, full: false });
       }
     }
-    const chosen = chooseSharedBaselines(tick, recipients.filter(r => r.full).map(r => heldAcks(r.state, tick)));
+    const chosen = (nativeHost ? nativeHost.chooseSharedBaselines : chooseSharedBaselines)(tick, recipients.filter(r => r.full).map(r => heldAcks(r.state, tick)));
     for (const { client, state, actor, full } of recipients) {
       try {
         // The newest chosen baseline this client acknowledged; an own-only
@@ -354,16 +378,20 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
         // staggered per client keeps 64-client publication bounded. The
         // spawn summary's deadTime lags at most 100 ms as a result.
         if (!state.ownSummariesCache || tick >= state.ownSummariesDue) {
-          state.ownSummariesCache = ownSummaryFields(actor.spectator ? [] : captureWorldSummaries(game, world, registry, { tick, epoch, playerId: client, includeCommon: false, eligibilityCache }));
+          state.ownSummariesCache = ownSummaryFields(actor.spectator ? [] : captureWorldSummaries(game, world, registry, { tick, epoch, playerId: client, includeCommon: false, eligibilityCache, native: nativeSemantic }));
           state.ownSummariesDue = tick + 6;
         }
         const ownSummaries = state.ownSummariesCache;
-        const correction = actor.spectator ? null : capturePlayerCorrection(game, world, client, { registry, bindingProfileId: 0, epoch });
-        const baselineOwn = state.ownRing.get(baselineTick, epoch);
-        state.ownRing.set(tick, epoch, { payload: correction?.payload ?? baselineOwn?.payload ?? null, summaries: ownSummaries });
-        // Views of the codec's scratch, copied into the own datagram below.
-        const correctionDelta = correction ? (native ? native.encodeWordDelta(correction.payload, baselineOwn?.payload ?? null) : encodeWordDeltaView(correction.payload, baselineOwn?.payload ?? null)) : null;
-        const summariesSection = native ? native.encodeWorldSection(ownSummaries, baselineOwn?.summaries ?? null) : encodeWorldSectionView(ownSummaries, baselineOwn?.summaries ?? null);
+        const correction = actor.spectator ? null : capturePlayerCorrection(game, world, client, { registry, bindingProfileId: 0, epoch, native: nativeSemantic });
+        let correctionDelta, summariesSection;
+        if (nativeHost) ({ correctionDelta, summariesSection } = nativeHost.prepareOwn(state, { tick, baselineTick, correction, summaries: ownSummaries }));
+        else {
+          const baselineOwn = state.ownRing.get(baselineTick, epoch);
+          state.ownRing.set(tick, epoch, { payload: correction?.payload ?? baselineOwn?.payload ?? null, summaries: ownSummaries });
+          // Views of the codec's scratch, copied into the own datagram below.
+          correctionDelta = correction ? encodeWordDeltaView(correction.payload, baselineOwn?.payload ?? null) : null;
+          summariesSection = encodeWorldSectionView(ownSummaries, baselineOwn?.summaries ?? null);
+        }
         const header = { epoch, tick, interval, baselineTick, ackInput: actor.mailbox.ack, correction, correctionDelta, summariesSection };
         const cosmeticBudget = Math.max(0, SNAPSHOT_MAX_DATAGRAM - SNAPSHOT_HEADER_BYTES - 1 - (correction ? 12 + correctionDelta.length : 0) - (2 + summariesSection.length) - 2);
         const spare = budget - budgetUsed(state, at) - (full ? parts.reduce((n, part) => n + part.byteLength, 0) : 0) - (SNAPSHOT_MAX_DATAGRAM - cosmeticBudget);
@@ -399,6 +427,7 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
   // A suspended client is not expected to send and is never listed.
   function staleClients(seconds = staleAfterMs / 1000) {
     const at = now(), stale = [];
+    if (nativeHost) return nativeHost.staleClients(at, seconds);
     for (const [client, state] of clients) if (state.started && at - state.heardAt >= seconds * 1000) stale.push(client);
     return stale;
   }
@@ -411,7 +440,7 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
     get registry() { return registry; },
     descriptor() { ensureRuntime(); return entityRegistryDescriptor(registry); },
     addClient, removeClient, setStarted, setReady,
-    resync(id) { const s = clients.get(id); if (s) { s.acked.length = 0; s.baselineTick = 0; s.outbox.resend(); } },
+    resync(id) { const s = clients.get(id); if (s) { if (nativeHost) nativeHost.resync(s); else { s.acked.length = 0; s.baselineTick = 0; } s.outbox.resend(); } },
     has: id => clients.has(id),
     inputDiagnostics: id => clients.get(id)?.inputDiagnostics,
     input, edgeAck,
@@ -419,6 +448,6 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
     // them. They stay as no-ops until the server moves to ABI 4.
     ack() {}, admitted() {}, dropped() {},
     advanceEdges, consumedEdges, publish, inspect, staleClients, setLocalInterval,
-    dispose() { nativePresentation?.dispose(); native?.dispose(); history?.dispose(); presentationDispose?.(); combatDispose?.(); shots?.dispose(); presentationDispose = combatDispose = null; },
+    dispose() { for (const id of clients.keys()) removeClient(id); capture?.dispose?.(); combatCapture?.dispose?.(); stagger.dispose?.(); nativeHost?.dispose(); nativeCosmetics?.dispose(); nativeSemantic?.dispose(); nativePresentation?.dispose(); native?.dispose(); history?.dispose(); presentationDispose?.(); combatDispose?.(); shots?.dispose(); presentationDispose = combatDispose = null; },
   };
 }

@@ -27,6 +27,7 @@ use std::ptr::addr_of_mut;
 
 pub mod spheres;
 pub mod broad;
+pub mod build;
 pub mod install;
 
 /// The f64 slots calls exchange: 0-2 ray origin, 3-5 direction, 6 far,

@@ -66,7 +66,7 @@ impl<T: Clone> PriorityHeap<T> {
 
     /// perception.js:86 `place(k, priority, item)`: bubble up past
     /// strictly lower parents.
-    fn place(&mut self, mut k: usize, priority: f64, item: Option<T>) {
+    pub fn place(&mut self, mut k: usize, priority: f64, item: Option<T>) {
         let mut parent = k >> 1;
         while (self.priority[parent] as f64) < priority {
             self.priority[k] = self.priority[parent];
@@ -80,7 +80,7 @@ impl<T: Clone> PriorityHeap<T> {
 
     /// perception.js:100 `minIndex()`: zero-based, scanning floor(n/2)..n,
     /// the earlier on ties.
-    fn min_index(&self) -> isize {
+    pub fn min_index(&self) -> isize {
         let mut best = self.count >> 1;
         for i in best + 1..=self.count {
             if self.priority[i] < self.priority[best] {

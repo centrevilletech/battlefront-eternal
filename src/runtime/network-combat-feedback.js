@@ -2,7 +2,8 @@ import { damageDirection } from '../combat-input.js';
 import { radarRelation } from '../hud-units.js';
 // Damage/death notifications never apply health. Health and dead state remain
 // independently replicated actor state; losing this record cannot revive a body.
-export function feedbackRecord({id,generation,tick,event}){
+export function feedbackRecord({id,generation,tick,event,native=null}){
+ if(native)return native.feedback({id,generation,tick,event});
  const schema=event.kind==='damage'?3:event.kind==='death'?4:0;if(!schema)throw Error('unsupported combat feedback');
  const payload=new Uint8Array(78),v=new DataView(payload.buffer);let at=0;
  for(const n of [tick+18,event.target?.unit?.id??0,event.target?.generation??0,event.attacker?.unit?.id??0,event.attacker?.generation??0]){if(!Number.isSafeInteger(n)||n<0||n>0xffffffff)throw Error('invalid feedback identity');v.setUint32(at,n,true);at+=4;}

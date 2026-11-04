@@ -179,7 +179,7 @@ test('history instances, callbacks, memory growth and disposal stay isolated', a
   } finally { p.adapter.dispose(); other.adapter.dispose(); }
 });
 
-test('attachment refuses existing samples and restores pre-existing method descriptors', async () => {
+test('attachment is idempotent and restores pre-existing method descriptors', async () => {
   const instance = await loadSim(), unit = body(1), history = new HitHistory({ all: () => [unit] });
   const capture = function(tick) { return HitHistory.prototype.capture.call(this, tick); };
   Object.defineProperty(history, 'capture', { value: capture, enumerable: true, writable: true, configurable: true });
@@ -192,8 +192,89 @@ test('attachment refuses existing samples and restores pre-existing method descr
   assert.notEqual(next, adapter, 'a released fresh history can attach again');
   history.capture(0); next.dispose();
   assert.deepEqual(Object.getOwnPropertyDescriptor(history, 'capture'), descriptor);
-  assert.throws(() => attachHitHistorySim(instance, history), /fresh history/);
+  const populated = attachHitHistorySim(instance, history);
   assert.equal(history.frame(0).entries[0].unit, unit);
   history.capture(1);
   assert.equal(history.raycast(.5, xyz(), xyz(0,0,1), 20).unit, unit);
+  populated.dispose();
+  assert.deepEqual(Object.getOwnPropertyDescriptor(history, 'capture'), descriptor);
+});
+
+test('populated histories retain exact samples and rays through attachment, disposal and reattachment', async () => {
+  const instance = await loadSim(), units = [body(1), body(2), body(3)], part = { limb: 'arm' };
+  let blocked = false, order = units.slice(), adapter;
+  const list = { all() { assert.equal(blocked, false, 'attachment must not enumerate live units'); return order.filter(unit => !unit.gone); } };
+  const js = new HitHistory(list, 8), rust = new HitHistory(list, 8);
+  for (const unit of units) unit.hitShapes = function() { return this.shapes; };
+  function capture(tick) {
+    const [a, b, c] = units;
+    a.position.set(tick / 50, -0, 5); b.position.set(tick >= 11 ? 7 : 2, 0, 6); c.position.set(-2, 0, 7);
+    b.generation = tick < 7 ? 1 : 2; c.generation = undefined; c.gone = tick >= 10;
+    a.shapes = [{ type: 'sphere', part, center: a.position.clone(), radius: .5 },
+      { type: 'box', part: tick < 9 ? null : 'head', center: a.position.clone(), half: xyz(.2, .3, .4), yaw: tick % 2 ? -3.1 : 3.1 }];
+    b.shapes = [{ type: tick < 9 ? 'cylinder' : 'sphere', part: 'body', center: b.position.clone(), radius: .4, half: .7 }];
+    if (tick < 8) b.shapes.push({ type: 'unknown', center: b.position.clone(), part: undefined });
+    c.shapes = [{ type: 'capsule', part, center: c.position.clone(), radius: .3, half: xyz(0, .6, 0) }];
+    if (tick % 3 === 0) order.reverse();
+    js.capture(tick); rust.capture(tick);
+  }
+  function attach() {
+    const descriptors = [];
+    blocked = true;
+    for (const unit of units) for (const name of ['generation', 'position', 'sphere', 'alive', 'removed', 'hitShapes']) {
+      descriptors.push([unit, name, Object.getOwnPropertyDescriptor(unit, name)]);
+      Object.defineProperty(unit, name, { configurable: true, get() { assert.fail(`attachment read live ${name}`); } });
+    }
+    try {
+      adapter = attachHitHistorySim(instance, rust);
+      assert.equal(attachHitHistorySim(instance, rust), adapter);
+    } finally {
+      blocked = false;
+      for (const [unit, name, descriptor] of descriptors) Object.defineProperty(unit, name, descriptor);
+    }
+  }
+  function compare() {
+    assert.equal(rust.tick, js.tick);
+    const ticks = new Set([-1, 0, 100]);
+    for (const frame of js.frames) if (frame.tick !== -1) {
+      ticks.add(frame.tick); ticks.add(frame.tick + .25); ticks.add(frame.tick + .5);
+    }
+    for (const tick of ticks) {
+      const expected = sampled(js.sample(tick)), actual = sampled(rust.sample(tick));
+      assert.deepEqual(actual, expected, `sample at ${tick}`);
+      const bytes = value => {
+        const words = [];
+        function visit(item) {
+          if (typeof item === 'number') words.push(item);
+          else if (item && typeof item === 'object') for (const value of Object.values(item)) visit(value);
+        }
+        visit(value); return Buffer.from(Float64Array.from(words).buffer);
+      };
+      assert.deepEqual(bytes(actual), bytes(expected), `sample float64 bytes at ${tick}`);
+      for (const unit of units) {
+        assert.deepEqual(rust.position(unit, tick)?.toArray(), js.position(unit, tick)?.toArray());
+        unit.networkViewTick = tick;
+        assert.equal(rust.shotTick(unit), js.shotTick(unit), `rewind at ${tick}, latest ${js.tick}`);
+      }
+      for (const entry of expected?.entries || []) {
+        const direction = xyz(...entry.center).normalize();
+        assert.deepEqual(result(rust.raycast(tick, xyz(), direction, 40)), result(js.raycast(tick, xyz(), direction, 40)), `ray at ${tick}`);
+      }
+    }
+  }
+  try {
+    for (let tick = 0; tick <= 14; tick++) capture(tick);
+    capture(7); // Retained future frames do not advance the latest capture.
+    rust.sample(6.5); js.sample(6.5);
+    attach(); compare();
+    capture(15); compare();
+    capture(16); // Leave a native frame unmaterialized for disposal.
+    adapter.dispose(); compare();
+    assert.equal(rust.capture, HitHistory.prototype.capture);
+    capture(17); compare();
+    attach(); compare();
+    capture(18); compare();
+    adapter.dispose(); compare();
+    capture(19); compare();
+  } finally { adapter?.dispose(); }
 });

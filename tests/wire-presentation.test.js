@@ -4,6 +4,8 @@ import { loadSim } from '../src/sim/module.js';
 import { createWirePresentation } from '../src/runtime/wire-presentation.js';
 import { captureUnitState } from '../src/runtime/entity-unit-state.js';
 import { captureWorldPresentation } from '../src/runtime/entity-world-state.js';
+import { presentationRecord, attachPresentationCapture } from '../src/runtime/entity-presentation-events.js';
+import { emitSound } from '../src/audio/events.js';
 
 const NUMBERS = ['heat', 'wait', 'reloadLeft', 'throwTime', 'charge', 'held', 'lockElapsed'];
 const FLAGS = ['overheated', 'released', 'hidden', 'charging', 'lockComplete'];
@@ -94,4 +96,78 @@ test('unit presentation failures preserve the byte writer validation', async () 
     unit.deadTime = Infinity; compareError(); unit.deadTime = 0;
     unit.combat.arsenal.weapons = Array(13).fill(w); compareError();
   } finally { native.dispose(); }
+});
+
+test('presentation event JSON preserves entry order, vector holes, UTF-16 and visual damage clamping', async () => {
+  const instance = await loadSim(), native = createWirePresentation(instance), u = random(2281);
+  const kinds = ['weaponAction', 'endWeaponAction', 'shot', 'remoteShot', 'shieldHit', 'deathBlast', 'blowApart', 'remoteBlast', 'effect', 'lightning', 'vo', 'bounce', 'pickup', 'serve', 'towAttach', 'towRelease', 'squad'];
+  const texts = ['雪😀\ud800\udfff', '"\\\n\u0000\u2028\u2029', null, '', 'reload'];
+  try {
+    for (let i = 0; i < 1800; i++) {
+      const pairs = [['kind', kinds[i % kinds.length]], ['amount', i % 7 === 0 ? -Infinity : (u() - 0.5) * 1000],
+        ['position', i % 3 ? [u() * 1e-7, -0, 1000000000000000100] : null], ['name', texts[i % texts.length]],
+        ['ownerId', i % 3 ? 0xffffffff : -0], ['ownerGeneration', i], ['channel', i % 2], ['human', i % 2 === 0], ['prepare', false]];
+      if (pairs[0][1] !== 'blowApart' && !Number.isFinite(pairs[1][1])) pairs[1][1] = -Number.MAX_VALUE;
+      for (let j = pairs.length - 1; j > 0; j--) { const k = Math.floor(u() * (j + 1)); [pairs[j], pairs[k]] = [pairs[k], pairs[j]]; }
+      const event = Object.fromEntries(pairs), options = { id: i, generation: 4, tick: 99, event };
+      if (i % 197 === 0) instance.exports.memory.grow(1);
+      assert.deepEqual(presentationRecord({ ...options, native }), presentationRecord(options), `event ${i}`);
+    }
+    for (const event of [
+      { kind: 'blowApart', amount: -Infinity }, { kind: 'blowApart', amount: null }, { kind: 'blowApart', amount: '-100' },
+      { kind: 'blowApart', amount: false }, { kind: 'blowApart', amount: [] }, { kind: 'blowApart', amount: { valueOf: () => -90 } },
+      { kind: 'shot', position: Array(3) }, { kind: 'shot', position: [, -0, ] },
+      Object.create({ kind: 'shot' }, { amount: { value: 1, enumerable: true } }),
+    ]) {
+      // A sparse vector must still have the three entries the validator expects.
+      if (event.position) event.position.length = 3;
+      assert.deepEqual(presentationRecord({ event, native }), presentationRecord({ event }));
+    }
+    const event = { kind: 'blowApart', amount: { valueOf() { instance.exports.memory.grow(1); native.world([1e-7, '雪'], 17); return -Infinity; } } };
+    assert.deepEqual(presentationRecord({ event, native }), presentationRecord({ event }), 'foreign damage coercion completes before native state is borrowed');
+  } finally { native.dispose(); }
+});
+
+test('presentation event failures retain field validation order and exact error text', async () => {
+  const native = createWirePresentation(await loadSim());
+  const invalid = [undefined, null, {}, { kind: 'unknown' }, { kind: 'shot', name: 1 }, { kind: 'shot', name: '😀'.repeat(65) },
+    { kind: 'shot', position: [0, 0, undefined] }, { kind: 'shot', position: [0, 0, NaN] }, { kind: 'shot', position: [0, 0] },
+    { kind: 'shot', position: { x: 0, y: 0, z: 0 } }, { kind: 'shot', channel: '0' }, { kind: 'shot', channel: 2 },
+    { kind: 'shot', ownerId: -1 }, { kind: 'shot', ownerId: 4294967296 }, { kind: 'shot', ownerId: '1' },
+    { kind: 'shot', amount: Infinity }, { kind: 'shot', amount: null }, { kind: 'shot', human: 1 }, { kind: 'shot', end: null },
+    { kind: 'shot', 'unknown\ud800': 1 }, { amount: NaN, kind: 'unknown' }, { amount: NaN, kind: 'shot', ownerId: -1 },
+    { ownerId: -1, kind: 'shot', amount: NaN }, { kind: 'blowApart' }, { kind: 'blowApart', amount: Infinity },
+    Object.create({ kind: 'blowApart', amount: -Infinity }),
+    Object.fromEntries(['kind', 'name', 'action', 'bank', 'posture', 'hitKind', 'line', 'reason', 'label', 'property'].map(key => [key, key === 'kind' ? 'shot' : '雪'.repeat(128)]))];
+  try {
+    for (const event of invalid) {
+      let expected; try { presentationRecord({ event }); } catch (error) { expected = error; }
+      assert.ok(expected, 'reference rejects event');
+      assert.throws(() => presentationRecord({ event, native }), error => error.constructor === expected.constructor && error.message === expected.message);
+    }
+  } finally { native.dispose(); }
+});
+
+test('live presentation listener uses native bytes for simulation and observed sound events', async () => {
+  const native = createWirePresentation(await loadSim()), registry = { weaponIds: new Map([['rifle', 1]]), combat: { definitionId: () => 8 } };
+  const fixture = encoder => {
+    let listener; const records = [], faults = [], building = {}, supply = {}, vehicle = { aiTarget: { id: 29, generation: 3 } };
+    const game = { simEvents: { listen(fn) { listener = fn; return () => { listener = null; }; } }, live: { buildings: [building] }, units: { all: () => [{ id: 7, generation: 2, supply }] }, vehicles: { vehicles: [vehicle] } };
+    const capture = { nextId: 1000, generation: 2, tick: () => 19, emit: record => records.push(record), fault: error => faults.push(error.message) };
+    const dispose = attachPresentationCapture(game, capture, registry, encoder);
+    return { records, faults, dispose, feed: event => listener(event), building, supply, vehicle };
+  };
+  const a = fixture(null), b = fixture(native);
+  try {
+    const source = { generation: 3, unit: { id: 7, combat: { arsenal: { weapons: [{ name: 'rifle', channel: 0 }] } } } };
+    for (const event of [
+      { kind: 'presentation', event: { kind: 'blowApart', amount: -Infinity, ownerId: 7, ownerGeneration: 3 } },
+      { kind: 'vo', source, team: 2, position: [1, 2, 3], human: true, property: 'radio', positional: false },
+      { kind: 'shot', source, weapon: 'rifle', position: [3, 2, 1], repair: false, melee: false, swing: 0 },
+      { kind: 'remoteShot', droid: {}, channel: 1, position: [3, 2, 1] },
+      { kind: 'presentation', event: { kind: 'effect', position: [0, 0, NaN] } },
+    ]) { a.feed(event); b.feed(event); }
+    emitSound('bounce', {}, [4, 5, 6], 0.3); emitSound('pickup', {}, [7, 8, 9], 2);
+    assert.deepEqual(b.records, a.records); assert.deepEqual(b.faults, a.faults); assert.equal(b.records.length, 6); assert.equal(b.faults.length, 1);
+  } finally { a.dispose(); b.dispose(); native.dispose(); }
 });

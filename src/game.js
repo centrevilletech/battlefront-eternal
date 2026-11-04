@@ -2308,6 +2308,8 @@ async function start() {
   const pushers = [];
   let push = null;
   function separateSoldiers() {
+    if (game.worldSim) return game.worldSim.separate(units.all(), { player: playerUnit,
+      playerOut: Boolean(driver?.active || gunner.active || combat.dead), global: separationScope.global, camera: simulationCamera.position });
     pushers.length = 0;
     for (const unit of units.all()) {
       if (unit.seat || unit.held || !unit.soldier || unit.removed || !(unit.alive || unit.dead)) continue;
@@ -3769,6 +3771,7 @@ async function start() {
   game.trapsSim = wantBattle && simInstance && live?.traps.length ? (await import("./traps-sim.js")).attachTrapsSim(simInstance, live.traps) : null;
   game.battlefieldSim = wantBattle && simInstance ? (await import("./battlefield-sim.js")).attachBattlefieldSim(simInstance, battlefield, leavingWarning) : null;
   game.propsSim = wantBattle && simInstance && live ? (await import("./props-sim.js")).attachPropsSim(simInstance, live) : null;
+  game.turretSeatsSim = game.propsSim && game.turretSeats ? await (await import("./turret-seats-sim.js")).attachTurretSeatsSim(game.propsSim.bridge, game.turretSeats) : null;
   game.battlePhaseSim = game.battleSim ? (await import("./battle-phase-sim.js")).attachBattlePhaseSim({
     battleSim: game.battleSim, postsSim: game.postsSim, spawningSim: game.spawningSim,
     units, vehicles: () => vehicles?.vehicles ?? [], playerUnit, playerMounted: () => driver?.active || gunner.active,
@@ -3776,6 +3779,8 @@ async function start() {
     killUnit: unit => (unit === playerUnit ? combat : unit.combat).damage(Infinity),
   }) : null;
   game.inputSim = game.battleSim ? (await import("./runtime/input-sim.js")).createInputSim(simInstance) : null;
+  game.inputSim?.controls(worldControls);
+  game.worldSim = game.inputSim ? (await import("./runtime/world-sim.js")).createWorldSim(simInstance) : null;
   game.aiSim = aiSim;
   if (!headless) window.__bf = game;
   if (!headless) await startClient();

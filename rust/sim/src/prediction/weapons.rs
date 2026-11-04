@@ -1,0 +1,473 @@
+//! Private infantry and mounted weapon replay. The page supplies commands
+//! and mirrors; this owner retains weapons, selections and barrel counters.
+//! No gameplay or presentation callback runs inside a command.
+
+use crate::combat::defs::{Js, JsObj, WeaponClass, WeaponDefs, K};
+use crate::combat::weapons::{
+    Admission, Aim, Arsenal, ArsenalInput, Shot, ShotKind, Trigger, WeaponDraws,
+};
+use crate::gen::{Posture, Weapon};
+use crate::store::DefId;
+use jsrt::conv::{js_max, js_mod};
+use std::rc::Rc;
+
+const INVALID: &str = "invalid prediction weapon command";
+
+struct Middle;
+impl WeaponDraws for Middle {
+    fn draw(&mut self, _: u32) -> f64 {
+        0.5
+    }
+    fn legacy(&mut self, _: u32) -> f64 {
+        0.5
+    }
+    fn seeded(&mut self, _: f64, _: f64) {}
+    fn admit(&mut self, _: u32) -> Admission {
+        Admission::Yes
+    }
+}
+
+struct Reader<'a> {
+    words: &'a [f64],
+    at: usize,
+}
+impl<'a> Reader<'a> {
+    fn new(words: &'a [f64]) -> Self {
+        Self { words, at: 0 }
+    }
+    fn word(&mut self) -> Result<f64, &'static str> {
+        let v = *self.words.get(self.at).ok_or(INVALID)?;
+        self.at += 1;
+        Ok(v)
+    }
+    fn count(&mut self) -> Result<usize, &'static str> {
+        let v = self.word()?;
+        if !v.is_finite() || v < 0.0 || v.fract() != 0.0 || v > u32::MAX as f64 {
+            return Err(INVALID);
+        }
+        Ok(v as usize)
+    }
+    fn flag(&mut self) -> Result<bool, &'static str> {
+        Ok(self.word()? != 0.0)
+    }
+    fn text(&mut self) -> Result<Rc<str>, &'static str> {
+        let n = self.count()?;
+        if n > self.words.len() - self.at {
+            return Err(INVALID);
+        }
+        let mut chars = Vec::with_capacity(n);
+        for _ in 0..n {
+            chars.push(self.count()?.try_into().map_err(|_| INVALID)?);
+        }
+        Ok(Rc::from(String::from_utf16_lossy(&chars)))
+    }
+    fn value(&mut self, depth: usize) -> Result<Js, &'static str> {
+        if depth > 16 {
+            return Err(INVALID);
+        }
+        Ok(match self.count()? {
+            0 => Js::Undefined,
+            1 => Js::Null,
+            2 => Js::Bool(false),
+            3 => Js::Bool(true),
+            4 => Js::Num(self.word()?),
+            5 => Js::Str(self.text()?),
+            6 => {
+                let n = self.count()?;
+                if n > self.words.len() - self.at {
+                    return Err(INVALID);
+                }
+                let mut values = Vec::with_capacity(n);
+                for _ in 0..n {
+                    values.push(self.value(depth + 1)?);
+                }
+                Js::Arr(Rc::new(values))
+            }
+            7 => {
+                let n = self.count()?;
+                if n > self.words.len() - self.at {
+                    return Err(INVALID);
+                }
+                let mut fields = Vec::with_capacity(n);
+                for _ in 0..n {
+                    fields.push((self.text()?, self.value(depth + 1)?));
+                }
+                Js::Obj(Rc::new(JsObj { fields, def: None }))
+            }
+            _ => return Err(INVALID),
+        })
+    }
+    fn done(&self) -> Result<(), &'static str> {
+        if self.at == self.words.len() {
+            Ok(())
+        } else {
+            Err(INVALID)
+        }
+    }
+}
+
+/// The scalar protocol used by weapon-prediction-sim.js and native twins.
+/// 0: definition id, recursive Js value (tags 0..7; strings as UTF-16).
+/// 1: weapon count and generated Weapon rows, selections, zoom, barrel count/values.
+/// 2: id, generation, primary/secondary pressed+held, reload, selection actions,
+/// zoom action, forward/right, posture, air, dive, lock, rolled, underwater,
+/// then each press's presence/value.
+/// 3: entry count, then weapon/owner slots, advance/tow flags, pressed/held/reload.
+/// 4: owner slot, current barrel, shot count; returns the advanced barrel.
+/// Commands 1..3 return rows, selections, zoom, barrels with write flags,
+/// then ordered shots (weapon, kind, yaw, pitch, charge, target, generation, swing).
+#[derive(Default)]
+pub struct Session {
+    pub input: Vec<f64>,
+    pub output: Vec<f64>,
+    defs: WeaponDefs,
+    weapons: Vec<Weapon>,
+    selected: [f64; 2],
+    zoom: f64,
+    barrels: Vec<f64>,
+    barrel_writes: Vec<bool>,
+    shots: Vec<Shot>,
+    error: Option<&'static str>,
+}
+
+impl Session {
+    pub fn run(&mut self, op: u32) -> Result<(), &'static str> {
+        self.output.clear();
+        self.shots.clear();
+        self.barrel_writes.fill(false);
+        let mut r = Reader::new(&self.input);
+        match op {
+            0 => {
+                let id = DefId(r.count()? as u32);
+                let Js::Obj(def) = r.value(0)? else {
+                    return Err(INVALID);
+                };
+                r.done()?;
+                self.defs.set(id, WeaponClass::new(def));
+                return Ok(());
+            }
+            1 => {
+                let n = r.count()?;
+                if n > (r.words.len() - r.at) / Weapon::WORDS {
+                    return Err(INVALID);
+                }
+                let mut weapons = Vec::with_capacity(n);
+                for _ in 0..n {
+                    let w = Weapon::take(&r.words[r.at..r.at + Weapon::WORDS], &[]);
+                    r.at += Weapon::WORDS;
+                    if !self.defs.has(w.def)
+                        || !w.level.is_finite()
+                        || w.level < 0.0
+                        || w.level.fract() != 0.0
+                        || w.level >= self.defs.class(w.def).levels.len() as f64
+                    {
+                        return Err(INVALID);
+                    }
+                    weapons.push(w);
+                }
+                let selected = [r.word()?, r.word()?];
+                let zoom = r.word()?;
+                let count = r.count()?;
+                if count > r.words.len() - r.at {
+                    return Err(INVALID);
+                }
+                let mut barrels = Vec::with_capacity(count);
+                for _ in 0..count {
+                    barrels.push(r.word()?);
+                }
+                r.done()?;
+                self.weapons = weapons;
+                self.selected = selected;
+                self.zoom = zoom;
+                self.barrels = barrels;
+                self.barrel_writes = vec![false; count];
+            }
+            2 => {
+                let id = r.word()?;
+                let generation = r.word()?;
+                let primary = Trigger {
+                    pressed: r.flag()?,
+                    held: r.flag()?,
+                    ..Trigger::default()
+                };
+                let secondary = Trigger {
+                    pressed: r.flag()?,
+                    held: r.flag()?,
+                    ..Trigger::default()
+                };
+                let mut input = ArsenalInput {
+                    primary,
+                    secondary,
+                    reload: r.flag()?,
+                };
+                let next = r.flag()?;
+                let previous = r.flag()?;
+                let next_secondary = r.flag()?;
+                let zoom = r.flag()?;
+                let stick = js_max(r.word()?.abs(), r.word()?.abs());
+                let posture = match r.word()? {
+                    0.0 => Some(Posture::Stand),
+                    1.0 => Some(Posture::Crouch),
+                    2.0 => Some(Posture::Prone),
+                    _ => None,
+                };
+                let air = r.word()?;
+                let dive = r.flag()?;
+                let lock = r.word()?;
+                let rolled = r.flag()?;
+                let underwater = r.flag()?;
+                for (channel, trigger) in [&mut input.primary, &mut input.secondary]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let has = r.flag()?;
+                    let press = r.word()?;
+                    trigger.held |= trigger.pressed;
+                    if has && trigger.pressed {
+                        trigger.seed = Some(jsrt::rng::spread_seed_f64(
+                            id,
+                            generation,
+                            channel as f64,
+                            press,
+                        ));
+                    }
+                }
+                r.done()?;
+                let airborne = air >= 0.0 && air != 3.0;
+                let blocked = airborne
+                    || dive
+                    || lock > 0.0
+                    || rolled
+                    || (posture == Some(Posture::Prone) && stick > 0.1)
+                    || underwater;
+                let mut arsenal = Arsenal {
+                    weapons: &mut self.weapons,
+                    selected: &mut self.selected,
+                };
+                if next && arsenal.next(&self.defs, 0, 1.0) {
+                    self.zoom = 0.0;
+                }
+                if previous && arsenal.next(&self.defs, 0, -1.0) {
+                    self.zoom = 0.0;
+                }
+                if next_secondary {
+                    arsenal.next(&self.defs, 1, 1.0);
+                }
+                let primary = arsenal.current(&self.defs, 0);
+                if zoom {
+                    if let Some(index) = primary {
+                        let weapon = &arsenal.weapons[index];
+                        let def = weapon.level(self.defs.class(weapon.def));
+                        let mut last = 1.0;
+                        let mut count = 1.0;
+                        for value in [
+                            def.get(K::ZoomMin).or(1.0),
+                            if def.get(K::ZoomRate).truthy() {
+                                0.0
+                            } else {
+                                def.get(K::ZoomMax).or(1.0)
+                            },
+                        ] {
+                            if value > last {
+                                last = value;
+                                count += 1.0;
+                            }
+                        }
+                        self.zoom = js_mod(self.zoom + 1.0, count);
+                    }
+                }
+                if airborne
+                    || dive
+                    || primary.is_some_and(|index| arsenal.weapons[index].reloading())
+                {
+                    self.zoom = 0.0;
+                }
+                for (channel, trigger) in [&mut input.primary, &mut input.secondary]
+                    .into_iter()
+                    .enumerate()
+                {
+                    if let Some(index) = arsenal.current(&self.defs, channel) {
+                        let weapon = &arsenal.weapons[index];
+                        let def = weapon.level(self.defs.class(weapon.def));
+                        if (weapon.deployed && def.field("droid").truthy())
+                            || def.get(K::Base).is_str("shield")
+                        {
+                            *trigger = Trigger::default();
+                        }
+                    }
+                }
+                let aim = Aim {
+                    stick,
+                    posture,
+                    zoomed: self.zoom > 0.0,
+                    repair_target: false,
+                };
+                arsenal.update(
+                    &self.defs,
+                    1.0 / 60.0,
+                    &input,
+                    &aim,
+                    blocked,
+                    &mut Middle,
+                    &mut self.shots,
+                );
+            }
+            3 => {
+                let n = r.count()?;
+                let mut entries = Vec::with_capacity(n.min(1024));
+                for _ in 0..n {
+                    let weapon = r.count()?;
+                    let owner = r.count()?;
+                    let advance = r.flag()?;
+                    let tow = r.flag()?;
+                    let pressed = r.flag()?;
+                    let held = r.flag()?;
+                    let reload = r.flag()?;
+                    if weapon >= self.weapons.len() || owner >= self.barrels.len() {
+                        return Err(INVALID);
+                    }
+                    entries.push((weapon, owner, advance, tow, pressed, held, reload));
+                }
+                r.done()?;
+                let aim = Aim {
+                    stick: 0.0,
+                    posture: Some(Posture::Stand),
+                    zoomed: false,
+                    repair_target: false,
+                };
+                for (index, owner, advance, tow, pressed, held, reload) in entries {
+                    let weapon = &mut self.weapons[index];
+                    let random = weapon.random;
+                    let admission = weapon.admit_shot;
+                    weapon.random = true;
+                    weapon.admit_shot = false;
+                    let before = self.shots.len();
+                    let trigger = Trigger {
+                        pressed: !tow && pressed,
+                        held: !tow && (pressed || held),
+                        ..Trigger::default()
+                    };
+                    weapon.update(
+                        index as u32,
+                        self.defs.class(weapon.def),
+                        1.0 / 60.0,
+                        true,
+                        &trigger,
+                        reload,
+                        &aim,
+                        &mut Middle,
+                        &mut self.shots,
+                    );
+                    weapon.random = random;
+                    weapon.admit_shot = admission;
+                    if advance {
+                        self.barrels[owner] += (self.shots.len() - before) as f64;
+                        self.barrel_writes[owner] = true;
+                    }
+                }
+            }
+            4 => {
+                let owner = r.count()?;
+                let barrel = r.word()?;
+                let count = r.word()?;
+                r.done()?;
+                if owner >= self.barrels.len() {
+                    return Err(INVALID);
+                }
+                self.barrels[owner] = barrel + count;
+                self.output.push(self.barrels[owner]);
+                return Ok(());
+            }
+            _ => return Err(INVALID),
+        }
+        self.write();
+        Ok(())
+    }
+
+    fn write(&mut self) {
+        self.output.push(self.weapons.len() as f64);
+        for weapon in &self.weapons {
+            let at = self.output.len();
+            self.output.resize(at + Weapon::WORDS, 0.0);
+            weapon.put(&mut self.output[at..], &mut Vec::new());
+        }
+        self.output.extend(self.selected);
+        self.output.push(self.zoom);
+        self.output.push(self.barrels.len() as f64);
+        for (value, written) in self.barrels.iter().zip(&self.barrel_writes) {
+            self.output.extend([*value, *written as u8 as f64]);
+        }
+        self.output.push(self.shots.len() as f64);
+        for shot in &self.shots {
+            let mut out = [0.0; 8];
+            out[0] = shot.weapon as f64;
+            match shot.kind {
+                ShotKind::Round {
+                    yaw,
+                    pitch,
+                    charge,
+                    target_id,
+                    target_generation,
+                    ..
+                } => {
+                    out[2] = yaw;
+                    out[3] = pitch;
+                    out[4] = charge;
+                    out[5] = target_id;
+                    out[6] = target_generation;
+                }
+                ShotKind::Repair => out[1] = 1.0,
+                ShotKind::MeleeStart { swing } => {
+                    out[1] = 2.0;
+                    out[7] = swing;
+                }
+                ShotKind::MeleeHit => out[1] = 3.0,
+                ShotKind::MeleeEnd => out[1] = 4.0,
+            }
+            self.output.extend(out);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+mod module {
+    use super::*;
+    #[no_mangle]
+    pub extern "C" fn prediction_weapons_create() -> *mut Session {
+        Box::into_raw(Box::new(Session::default()))
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn prediction_weapons_drop(ptr: *mut Session) {
+        if !ptr.is_null() {
+            drop(Box::from_raw(ptr));
+        }
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn prediction_weapons_room(ptr: *mut Session, count: u32) -> *mut f64 {
+        let s = &mut *ptr;
+        s.input.resize(count as usize, 0.0);
+        s.input.as_mut_ptr()
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn prediction_weapons_run(ptr: *mut Session, op: u32) -> u32 {
+        let s = &mut *ptr;
+        s.error = s.run(op).err();
+        s.error.is_none() as u32
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn prediction_weapons_output(ptr: *mut Session) -> *const f64 {
+        (*ptr).output.as_ptr()
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn prediction_weapons_output_len(ptr: *mut Session) -> u32 {
+        (*ptr).output.len() as u32
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn prediction_weapons_error(ptr: *mut Session) -> *const u8 {
+        (*ptr).error.unwrap_or("").as_ptr()
+    }
+    #[no_mangle]
+    pub unsafe extern "C" fn prediction_weapons_error_len(ptr: *mut Session) -> u32 {
+        (*ptr).error.unwrap_or("").len() as u32
+    }
+}

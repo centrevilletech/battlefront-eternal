@@ -6,12 +6,15 @@ import { ActionQueue } from '../src/runtime/action-queue.js';
 import { CommandControls } from '../src/runtime/commands.js';
 import { PlayerCombat } from '../src/combat.js';
 import { Arsenal } from '../src/weapons.js';
+import { createInputSim } from '../src/runtime/input-sim.js';
+import { loadSim } from '../src/sim/module.js';
 
-function fixture(loadout) {
+function fixture(loadout, inputSim = null) {
   const page = Object.assign(Object.create(Controls.prototype), {
     queued: new ActionQueue(), down: new Set(), looks: [], human: [], sequence: 0,
   });
   const world = new CommandControls(), shots = [];
+  inputSim?.controls(world);
   const combat = Object.assign(Object.create(PlayerCombat.prototype), {
     arsenal: new Arsenal(loadout), soldier: { posture: 'stand', air: 'jet', dive: 0, lock: 0 },
     animator: { setBank() {}, weaponAction() {}, endWeaponAction() {}, fire() {} },
@@ -42,10 +45,11 @@ test('G cycles secondary items through world commands without switching the prim
   assert.equal(combat.arsenal.current(0), primary);
 });
 
-const unitsPath = new URL('../public/sides/rep/units.json', import.meta.url);
-test('G cycles and fires both secondary items in the retail clone trooper loadout', { skip: !existsSync(unitsPath) }, () => {
+const unitsPath = process.env.BFE_CONTENT_DIR ? `${process.env.BFE_CONTENT_DIR}/sides/rep/units.json` : new URL('../public/sides/rep/units.json', import.meta.url);
+for (const native of [false, true]) {
+test(`G cycles and fires both secondary items in the retail clone trooper loadout (${native ? 'native' : 'JavaScript'} controls)`, { skip: !existsSync(unitsPath) }, async () => {
   const loadout = JSON.parse(readFileSync(unitsPath)).units.rep_inf_clone_trooper.weapons;
-  const { combat, shots, step } = fixture(loadout);
+  const { combat, shots, step } = fixture(loadout, native ? createInputSim(await loadSim()) : null);
   const [first, second] = combat.arsenal.channels[1];
   assert.ok(first && second);
   for (const expected of [second, first]) {
@@ -58,10 +62,11 @@ test('G cycles and fires both secondary items in the retail clone trooper loadou
   assert.equal(shots.length, 2);
 });
 
-test('jet trooper throws its sole secondary with right-click or Alt, including in flight', { skip: !existsSync(unitsPath) }, () => {
+test(`jet trooper throws its sole secondary with right-click or Alt, including in flight (${native ? 'native' : 'JavaScript'} controls)`, { skip: !existsSync(unitsPath) }, async () => {
   const loadout = JSON.parse(readFileSync(unitsPath)).units.rep_inf_jet_trooper.weapons;
+  const inputSim = native ? createInputSim(await loadSim()) : null;
   for (const code of ['Mouse2', 'AltLeft', 'AltRight']) {
-    const { combat, shots, step } = fixture(loadout);
+    const { combat, shots, step } = fixture(loadout, inputSim);
     const grenade = combat.arsenal.current(1);
     assert.equal(combat.arsenal.channels[1].length, 1);
     assert.equal(grenade.def.base, 'grenade');
@@ -75,3 +80,4 @@ test('jet trooper throws its sole secondary with right-click or Alt, including i
     assert.equal(combat.shown, combat.arsenal.current(0), 'returns to the primary after throwing');
   }
 });
+}

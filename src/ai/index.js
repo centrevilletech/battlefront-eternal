@@ -110,6 +110,7 @@ export async function createAI(mode, world, options) {
   world.randomB = world.gameRandom = new ClassicRandom((seed ^ 0x9e3779b9) >>> 0);
   world.nav = data.nav ? new ClassicNav(data.nav, data.navBin, { posts: world.posts.posts }) : ClassicNav.empty(options.map);
   options.aiSim?.bindNavigation(world.nav, data.nav, data.navBin, { posts: world.posts.posts });
+  if (options.aiSim) world.aiSim = options.aiSim;
   world.classData = data.classes;
 
   // The mission's AI calls, in source order: the setters for difficulty,
@@ -155,6 +156,8 @@ export async function createAI(mode, world, options) {
   const classic = createClassicAI(world, { modules, ...(enhanced ? enhancedOptions(world, { tier: options.tier, seed }) : {}) });
   await classic.ready;
   modules.vehicles?.adaptClassicAI?.(classic.ai);
+  options.aiSim?.bindCombat(classic.ai);
+  classic.scheduler = classic.ai.scheduler;
   for (const character of world.spawning.characters) classic.attach(character);
   const combat = classic.ai.combat;
   const spawning = world.spawning;
