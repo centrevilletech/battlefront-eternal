@@ -22,3 +22,24 @@ test('wire results survive memory growth, later calls and rejected encodes', asy
   assert.deepEqual(sim.encodeEntities(empty,null), encodeEntities(empty,null));
   assert.throws(() => sim.encodeOwnDatagram({epoch:1,tick:1,cosmeticBytes:new Uint8Array(1100)}), /exceeds budget/);
 });
+
+test('wire calls retain defaults and their own inputs across a reentrant observer', async () => {
+  const instance = await loadSim();
+  let nested = false, sim;
+  sim = createWireSim(instance, { trace() {
+    if (nested) return;
+    nested = true;
+    try { sim.encodeWordDelta(new Uint8Array(900).fill(99)); }
+    finally { nested = false; }
+  } });
+  const payload = new Uint8Array(81).fill(17);
+  assert.deepEqual(sim.encodeWordDelta(payload), encodeWordDelta(payload));
+  const { encodeOwnDatagram } = await import('../src/runtime/snapshot-own.js');
+  const args = { epoch: 1, tick: 8, interval: undefined, baselineTick: undefined, ackInput: undefined, ownParts: undefined };
+  assert.deepEqual(sim.encodeOwnDatagram(args), encodeOwnDatagram(args));
+  sim.start();
+  const current = sim.capture({ tick: 1, records: [] });
+  assert.deepEqual(sim.encodeHeld(current, null), encodeEntities(emptySnapshot(1, 1), null));
+  sim.dispose();
+  assert.throws(() => sim.encodeHeld(current, null), /disposed/);
+});
