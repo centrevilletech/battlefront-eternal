@@ -169,7 +169,31 @@ test('history instances, callbacks, memory growth and disposal stay isolated', a
     assert.throws(() => p.rust.raycast(0, xyz(), xyz(0,0,1), 20, null, undefined, () => { throw Error('filter'); }), /filter/);
     assert.equal(p.rust.raycast(0, xyz(), xyz(0,0,1), 20).unit, first, 'a thrown filter releases its query');
     p.adapter.dispose(); p.adapter.dispose();
-    assert.throws(() => p.rust.capture(2), /disposed/);
+    assert.equal(p.rust.capture, HitHistory.prototype.capture, 'disposal restores inherited methods');
+    assert.deepEqual(sampled(p.rust.frame(0)), sampled(p.js.frame(0)), 'disposal returns retained frames');
+    assert.deepEqual(sampled(p.rust.sample(.5)), sampled(p.js.sample(.5)));
+    first.position.x = .25;
+    p.capture(2);
+    assert.deepEqual(result(p.rust.raycast(1.5, xyz(), xyz(0,0,1), 20)), result(p.js.raycast(1.5, xyz(), xyz(0,0,1), 20)));
     assert.equal(other.rust.frame(0).entries[0].unit.id, 9);
   } finally { p.adapter.dispose(); other.adapter.dispose(); }
+});
+
+test('attachment refuses existing samples and restores pre-existing method descriptors', async () => {
+  const instance = await loadSim(), unit = body(1), history = new HitHistory({ all: () => [unit] });
+  const capture = function(tick) { return HitHistory.prototype.capture.call(this, tick); };
+  Object.defineProperty(history, 'capture', { value: capture, enumerable: true, writable: true, configurable: true });
+  const descriptor = Object.getOwnPropertyDescriptor(history, 'capture');
+  const adapter = attachHitHistorySim(instance, history);
+  assert.equal(attachHitHistorySim(instance, history), adapter, 'attachment is idempotent');
+  adapter.dispose();
+  assert.deepEqual(Object.getOwnPropertyDescriptor(history, 'capture'), descriptor);
+  const next = attachHitHistorySim(instance, history);
+  assert.notEqual(next, adapter, 'a released fresh history can attach again');
+  history.capture(0); next.dispose();
+  assert.deepEqual(Object.getOwnPropertyDescriptor(history, 'capture'), descriptor);
+  assert.throws(() => attachHitHistorySim(instance, history), /fresh history/);
+  assert.equal(history.frame(0).entries[0].unit, unit);
+  history.capture(1);
+  assert.equal(history.raycast(.5, xyz(), xyz(0,0,1), 20).unit, unit);
 });

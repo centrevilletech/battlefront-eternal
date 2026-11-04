@@ -21,6 +21,9 @@ export function attachHitHistoryBridge(bridge, source) {
     if (prior.bridge !== bridge) throw Error('hit history already belongs to another simulation');
     return prior;
   }
+  // Attach at world setup, before its first capture. A populated history
+  // must keep all its rewind samples, so never silently replace it.
+  if (source.tick !== -1 || source.frames.some(frame => frame.tick !== -1)) throw Error('native hit history requires a fresh history');
   const x = bridge.x;
   let handle = x.history_create(source.maxTicks), nextKey = 1;
   const keys = new WeakMap(), refs = new Map(), words = [], types = shapeTypes.slice(), parts = [];
@@ -190,14 +193,25 @@ export function attachHitHistoryBridge(bridge, source) {
     bridge, source,
     dispose() {
       if (!handle) return;
-      x.history_drop(handle); handle = 0; refs.clear();
-      for (const frame of [...source.frames, source.interpolated]) {
-        for (const entry of frame.entries) entry.unit = null;
-        frame.count = 0;
+      // The snapshot host can leave before the multiplayer world does.
+      // Hand every held sample back before releasing the native owner.
+      for (const held of source.frames) {
+        if (held.nativeDirty) frame(held.tick);
+        delete held.nativeDirty;
       }
+      source.sampledAt = -1;
+      delete source.interpolated.nativeDirty;
+      x.history_drop(handle); handle = 0; refs.clear();
+      for (const [name, descriptor] of descriptors) {
+        if (descriptor) Object.defineProperty(source, name, descriptor);
+        else delete source[name];
+      }
+      attached.delete(source);
     },
   };
-  for (const [name, value] of Object.entries({ capture, frame, sample, shotTick, position, raycast })) {
+  const methods = { capture, frame, sample, shotTick, position, raycast };
+  const descriptors = Object.keys(methods).map(name => [name, Object.getOwnPropertyDescriptor(source, name)]);
+  for (const [name, value] of Object.entries(methods)) {
     Object.defineProperty(source, name, { value, configurable: true });
   }
   attached.set(source, adapter);
