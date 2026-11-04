@@ -5,6 +5,7 @@
 
 pub mod combat;
 pub mod control;
+pub mod module;
 pub mod nav;
 pub mod random;
 pub mod vehicles;

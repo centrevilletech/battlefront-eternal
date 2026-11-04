@@ -1,0 +1,275 @@
+// The AI uses the battle's existing simulation instance and bridge.
+// Navigation's planner, path pool, hints and geometry live in Rust;
+// controller facades can keep their answer slots while callers migrate.
+import { bridgeFor } from './sim/runtime.js';
+
+const HEADER = 5;
+const ZERO = { x: 0, y: 0, z: 0 };
+
+// Static content only, once per battle. Numbers cross as f64 words so
+// signed zero and non-finite settings are never changed by JSON text.
+function contentWords(v, strings, out) {
+  if (v == null) out.push(0);
+  else if (v === false) out.push(1);
+  else if (v === true) out.push(2);
+  else if (typeof v === 'number') out.push(3, v);
+  else if (typeof v === 'string') out.push(4, strings.id(v));
+  else if (Array.isArray(v) || ArrayBuffer.isView(v)) {
+    out.push(5, v.length);
+    for (const item of v) contentWords(item, strings, out);
+  } else {
+    const keys = Object.keys(v);
+    out.push(6, keys.length);
+    for (const key of keys) { out.push(strings.id(key)); contentWords(v[key], strings, out); }
+  }
+}
+
+export function attachAiSim(instance) {
+  return new AiSim(bridgeFor(instance));
+}
+
+export class AiSim {
+  constructor(bridge) {
+    this.bridge = bridge;
+    this.x = bridge.x;
+    this.ids = new WeakMap();
+    this.objects = [null];
+    this.navigation = null;
+  }
+
+  id(object) {
+    if (!object) return 0;
+    let id = this.ids.get(object);
+    if (id === undefined) { id = this.objects.length; this.objects.push(object); this.ids.set(object, id); }
+    return id;
+  }
+
+  out() {
+    const ptr = this.x.ai_nav_out(), length = this.x.ai_nav_out_len();
+    this.bridge.views();
+    return this.bridge.f.subarray(ptr / 8, ptr / 8 + length);
+  }
+
+  // Called before the AI binds, with the same authored map and binary
+  // routing words ClassicNav received. Immutable view objects keep their
+  // identity for existing agents; every mutable planner/path record is
+  // native, and tactical reservation setters write through immediately.
+  bindNavigation(nav, json, bin, options = {}) {
+    if (this.navigation) throw Error('the battle already has native AI navigation');
+    const words = [];
+    const bytes = bin == null ? [] : bin instanceof ArrayBuffer ? new Uint8Array(bin) : new Uint8Array(bin.buffer, bin.byteOffset, bin.byteLength);
+    contentWords({ nav: json, bin: bytes, pools: options.pools ?? {}, hintCapacity: options.hintCapacity,
+      posts: (options.posts ?? []).map(p => [p.name, this.id(p), p.position.x, p.position.y, p.position.z]) }, this.bridge.strings, words);
+    const ptr = this.x.sim_call_room(words.length, 0);
+    this.bridge.views(); this.bridge.f.set(words, ptr / 8 + HEADER);
+    const error = this.x.ai_nav_init();
+    if (error) throw Error(this.bridge.strings.at(error - 1));
+    const old = nav.barriers;
+    nav.barriers = new NativeBarriers(this, old);
+    const boundary = nav.boundary;
+    Object.defineProperty(boundary, 'empty', { configurable: true, get: () => Boolean(this.x.ai_nav_boundary(2, 0, 0, 0, 0)) });
+    boundary.contains = (index, point) => Boolean(this.x.ai_nav_boundary(1, index, point.x, point.y, point.z));
+    boundary.outside = point => Boolean(this.x.ai_nav_boundary(0, 0, point.x, point.y, point.z));
+    if (nav.graph) this.bindGraph(nav.graph);
+    nav.planner = new NativePlanner(this, nav.barriers, options.pools ?? {});
+    const hints = nav.hints;
+    for (const hint of hints.list) {
+      const index = hint.index;
+      Object.defineProperties(hint, {
+        reservedAt: { enumerable: true, configurable: true,
+          get: () => { this.x.ai_nav_hint_read(index); return this.out()[0]; },
+          set: value => { this.x.ai_nav_hint_read(index); const owner = this.out()[1]; this.x.ai_nav_hint_write(index, value, owner); } },
+        reservedBy: { enumerable: true, configurable: true,
+          get: () => { this.x.ai_nav_hint_read(index); return this.objects[this.out()[1]]; },
+          set: value => { this.x.ai_nav_hint_read(index); const at = this.out()[0]; this.x.ai_nav_hint_write(index, at, this.id(value)); } },
+      });
+    }
+    hints.query = (mask, center, half, cap = Infinity, out = [], requester = null, now = 0) => {
+      this.x.ai_nav_hints(mask, center.x, center.y, center.z, half, cap, this.id(requester), now);
+      const answer = this.out(); out.length = 0;
+      for (const index of answer) out.push(hints.list[index]);
+      return out;
+    };
+    this.navigation = nav;
+    return nav;
+  }
+
+  bindGraph(graph) {
+    graph.table = mask => {
+      this.x.ai_nav_graph(0, -1, 0, 0, mask, 0, 0, 0, 0); return this.out()[0];
+    };
+    const route = (op, previous, from, to, mask, random) => {
+      if (!Number.isInteger(random?.state)) throw Error('native AI routing requires the shared ClassicRandom state');
+      this.x.ai_nav_graph(op, previous?.index ?? -1, from.index, to?.index ?? 0, mask, 0, 0, 0, random.state);
+      const answer = this.out().slice(); random.state = answer[1];
+      for (let i = 2; i < answer.length; i += 5) {
+        if (answer[i] === 0) graph.report('routeTable', { mask: answer[i + 1] });
+        else graph.report('routeHang', { hub: answer[i + 1], table: answer[i + 2], destination: answer[i + 3], word: answer[i + 4] });
+      }
+      return answer[0] < 0 ? null : graph.arcs[answer[0]];
+    };
+    graph.select = (previous, from, to, mask, random) => route(1, previous, from, to, mask, random);
+    graph.alternate = (from, previous, mask, random) => route(2, previous, from, null, mask, random);
+    graph.attach = (point, mask, out = { type: 0, hub: null, arc: null }) => {
+      this.x.ai_nav_graph(3, -1, 0, 0, mask, point.x, point.y, point.z, 0);
+      const answer = this.out(); out.type = answer[0];
+      out.hub = answer[1] < 0 ? null : graph.hubs[answer[1]];
+      out.arc = answer[2] < 0 ? null : graph.arcs[answer[2]];
+      return out;
+    };
+    graph.nearestArc = (point, mask) => {
+      this.x.ai_nav_graph(4, -1, 0, 0, mask, point.x, point.y, point.z, 0);
+      const index = this.out()[0]; return index < 0 ? null : graph.arcs[index];
+    };
+  }
+}
+
+class NativeBarriers {
+  constructor(sim, old) {
+    this.sim = sim;
+    this.list = old.list;
+    this.work = null;
+    this.found = [];
+  }
+
+  query(op, a, b, radius, mask) {
+    const work = this.work;
+    this.sim.x.ai_nav_geometry(op, a.x, a.y, a.z, b.x, b.y, b.z, radius, mask, work ? work.count : NaN, work?.cap ?? 0);
+    const out = this.sim.out();
+    if (work) work.count = out[9];
+    return out;
+  }
+
+  gather(x0, z0, x1, z1, out = this.found) {
+    this.sim.x.ai_nav_geometry(5, x0, 0, z0, x1, 0, z1, 0, 0, NaN, 0);
+    const answer = this.sim.out(); out.length = 0;
+    for (const index of answer) out.push(this.list[index]);
+    return out;
+  }
+
+  pointClear(p, r, mask, out = null) {
+    const answer = this.query(0, p, ZERO, r, mask);
+    if (out) out.barrier = answer[1] < 0 ? null : this.list[answer[1]];
+    return Boolean(answer[0]);
+  }
+  segmentBlocked(a, b, r, mask) { return Boolean(this.query(1, a, b, r, mask)[0]); }
+  nearest(a, b, r, mask, out) {
+    const answer = this.query(2, a, b, r, mask);
+    out.barrier = answer[1] < 0 ? null : this.list[answer[1]]; out.distanceSq = answer[2];
+    return Boolean(answer[0]);
+  }
+  correct(p, r, mask) {
+    const answer = this.query(3, p, ZERO, r, mask);
+    p.x = answer[3]; p.z = answer[5];
+    return Boolean(answer[0]);
+  }
+  obstruct(a, b, r, mask, normal = null) {
+    const answer = this.query(4, a, b, r, mask);
+    b.x = answer[3]; b.y = answer[4]; b.z = answer[5];
+    if (normal && answer[0]) { normal.x = answer[6]; normal.y = answer[7]; normal.z = answer[8]; }
+    return Boolean(answer[0]);
+  }
+}
+
+class NativePool {
+  constructor(planner, offset) { this.planner = planner; this.offset = offset; }
+  get capacity() { return this.planner.info()[this.offset]; }
+  get used() { return this.planner.info()[this.offset + 1]; }
+  get full() { const a = this.planner.info(); return a[this.offset + 1] >= a[this.offset]; }
+  get free() { const a = this.planner.info(); return a[this.offset] - a[this.offset + 1]; }
+}
+
+class NativePath {
+  constructor(planner, id) {
+    this.planner = planner; this.id = id; this.pools = planner.pools;
+    this.nodes = []; this.released = false;
+    this.read();
+  }
+  node(x, y, z, initialFlag) {
+    const node = { x, y, z }; let flag = initialFlag;
+    Object.defineProperty(node, 'flag', { enumerable: true, configurable: true,
+      get: () => flag,
+      set: value => {
+        flag = value;
+        const index = this.nodes.indexOf(node);
+        if (index >= 0) this.planner.sim.x.ai_nav_path(5, this.id, index, 0, 0, value);
+      } });
+    return node;
+  }
+  read() {
+    this.planner.sim.x.ai_nav_path(0, this.id, 0, 0, 0, 0);
+    const words = this.planner.sim.out();
+    this.released = Boolean(words[0]); this.nodes.length = 0;
+    for (let i = 1; i < words.length; i += 4) this.nodes.push(this.node(words[i], words[i + 1], words[i + 2], words[i + 3]));
+  }
+  prepend(x, y, z) {
+    if (!this.planner.sim.x.ai_nav_path(1, this.id, x, y, z, 0)) return false;
+    this.planner.sim.x.ai_nav_path(0, this.id, 0, 0, 0, 0);
+    const a = this.planner.sim.out(); this.nodes.unshift(this.node(a[1], a[2], a[3], a[4]));
+    return true;
+  }
+  append(node) {
+    const { x, y, z } = node, flag = node.flag ?? 0;
+    if (!this.planner.sim.x.ai_nav_path(2, this.id, x, y, z, flag)) return false;
+    this.nodes.push(this.node(x, y, z, flag)); return true;
+  }
+  dropFront(count) {
+    this.planner.sim.x.ai_nav_path(3, this.id, count, 0, 0, 0);
+    if (count > 0) this.nodes.splice(0, count);
+  }
+  get length() { return this.nodes.length; }
+  release() {
+    if (this.released) return;
+    this.planner.sim.x.ai_nav_path(4, this.id, 0, 0, 0, 0);
+    this.released = true; this.nodes.length = 0;
+  }
+}
+
+class NativePlanner {
+  constructor(sim, barriers, options) {
+    this.sim = sim; this.barriers = barriers; this.capacity = options.requests ?? 75;
+    this.owners = []; this.ownerIds = new WeakMap(); this.paths = [];
+    this.pools = { paths: new NativePool(this, 4), nodes: new NativePool(this, 6) };
+  }
+  owner(object) {
+    let id = this.ownerIds.get(object);
+    if (id === undefined) { id = this.sim.x.ai_nav_owner(); this.ownerIds.set(object, id); this.owners[id] = object; }
+    return id;
+  }
+  feed() {
+    this.owners.forEach((owner, id) => this.sim.x.ai_nav_owner_feed(id, owner.serial, Boolean(owner.disposed), owner.segments,
+      owner.published?.id ?? -1, Boolean(owner.ready)));
+  }
+  pathOf(id) {
+    if (id < 0) return null;
+    return this.paths[id] ?? (this.paths[id] = new NativePath(this, id));
+  }
+  run(op, owner = null, a = ZERO, b = ZERO, radius = 0, mask = 0, priority = 0) {
+    const id = owner ? this.owner(owner) : 0;
+    this.feed();
+    this.sim.x.ai_nav_planner(op, id, a.x, a.y, a.z, b.x, b.y, b.z, radius, mask, priority);
+    // Publishing a path can release its predecessor through another
+    // export; copy these few words before that reentry uses the answer.
+    const answer = this.sim.out().slice();
+    for (let i = 1; i < answer.length; i += 3) this.owners[answer[i]].publish(this.pathOf(answer[i + 1]), Boolean(answer[i + 2]));
+    return answer[0];
+  }
+  path() { return this.pathOf(this.run(4)); }
+  segment(a, b) { return this.pathOf(this.run(5, null, a, b)); }
+  request(owner, a, b, radius, mask, priority) { return Boolean(this.run(0, owner, a, b, radius, mask, priority)); }
+  cancel(owner) { this.run(1, owner); }
+  promote(owner) { this.run(2, owner); }
+  service(budget = 1) { this.run(3, null, ZERO, ZERO, 0, 0, budget); }
+  info() { this.sim.x.ai_nav_planner_info(); return this.sim.out(); }
+  get idle() { return Boolean(this.info()[0]); }
+  get served() { return this.info()[1]; }
+  get current() { const id = this.info()[9]; return id < 0 ? null : { owner: this.owners[id] }; }
+  get work() { const a = this.info(); return { count: a[2], cap: a[3] }; }
+  get queue() {
+    const a = this.info(), result = [];
+    for (let i = 10; i < a.length; i += 12) result.push({ owner: this.owners[a[i]], serial: a[i + 1],
+      start: { x: a[i + 2], y: a[i + 3], z: a[i + 4] }, end: { x: a[i + 5], y: a[i + 6], z: a[i + 7] },
+      radius: a[i + 8], mask: a[i + 9], priority: a[i + 10], served: a[i + 11] });
+    return result;
+  }
+}

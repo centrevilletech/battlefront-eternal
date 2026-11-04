@@ -636,6 +636,7 @@ function controllerSnap(ctx, c, ai) {
       pending: Boolean(c.shot?.pending), known: Boolean(c.shot?.known),
       point: v3(c.shot?.point) ?? [0, 0, 0],
       source: c.shot?.source ? ctx.characterIndex.get(c.shot.source) ?? null : null,
+      unit: c.shot?.source && c.shot.source.alive !== undefined && c.shot.source.position ? ctx.keyOf(c.shot.source) : null,
     },
     acoustic: (c.acoustic ?? []).map((r) => refSnap(ctx, r)),
     vehicleNotes: (c.vehicleNotes ?? []).map((r) => refSnap(ctx, r)),
@@ -767,6 +768,7 @@ function aiState(game, retained = [], remember = null) {
   };
   for (const c of controllersInRoster) {
     if (c.unit) keyOf(c.unit);
+    if (c.shot?.source && c.shot.source.alive !== undefined && c.shot.source.position) keyOf(c.shot.source);
     nameRefs(c.commands.current);
     for (const g of c.commands.queue ?? []) nameRefs(g);
     for (const r of [c.aimTarget, c.target, c.leader]) if (r?.unit) keyOf(r.unit);
@@ -1029,6 +1031,7 @@ function alertExtra(game) {
       shotPending: Boolean(c.shot?.pending), shotKnown: Boolean(c.shot?.known),
       shotPoint: v3(c.shot?.point) ?? [0, 0, 0],
       shotSource: c.shot?.source ? characters.indexOf(c.shot.source) : -1,
+      shotUnit: c.shot?.source && c.shot.source.alive !== undefined && c.shot.source.position ? c.shot.source : null,
       dangerPending: Boolean(c.danger?.pending), dangerPoint: v3(c.danger?.point) ?? [0, 0, 0],
       acoustic: (c.acoustic ?? []).map((r) => (r?.unit ? { u: r.unit, g: r.generation ?? 0 } : null)),
       dodge: num(own(c, 'dodge') ?? undefined) ?? null,

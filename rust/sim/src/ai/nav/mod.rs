@@ -94,6 +94,9 @@ pub struct Nav {
     capacity: f64,
     // Per-controller navigation state (control.js), by index.
     pub controls: Vec<NavControl>,
+    /// Publications for an external control facade during the ownership
+    /// transition. Native controls use their answer slots directly.
+    pub publications: Option<Vec<(usize, Option<usize>, bool)>>,
 }
 
 impl Nav {
@@ -122,6 +125,7 @@ impl Nav {
             served: 0.0,
             capacity: pools.requests,
             controls: Vec::new(),
+            publications: None,
         }
     }
 
@@ -145,6 +149,7 @@ impl Nav {
             served: 0.0,
             capacity: pools.requests,
             controls: Vec::new(),
+            publications: None,
         }
     }
 
@@ -367,6 +372,7 @@ impl Nav {
         let c = &mut self.controls[control];
         c.published = path;
         c.ready = ready;
+        if let Some(publications) = &mut self.publications { publications.push((control, path, ready)); }
     }
 
     /// Take a finished answer (control.js:149): (ready, success).

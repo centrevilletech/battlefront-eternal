@@ -511,8 +511,10 @@ async function start() {
   // Battle phases migrate together behind this opt-in switch. The player's
   // spawn state machine is the first live owner (human-spawn-sim.js).
   const wantBattle = headless && (params.get("battle") ?? globalThis.process?.env?.BFE_BATTLE) === "rust";
+  const wantAiSim = headless && (params.get("aiSim") ?? globalThis.process?.env?.BFE_AI_SIM) === "rust";
   // The kernels and the store on the battle's one instance of the module.
-  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantSeats || wantCombat || wantUnits || wantBattle ? await loadSimInstance() : null;
+  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantSeats || wantCombat || wantUnits || wantBattle || wantAiSim ? await loadSimInstance() : null;
+  const aiSim = wantAiSim && simInstance ? (await import("./ai-sim.js")).attachAiSim(simInstance) : null;
   const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
   const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
@@ -1638,6 +1640,7 @@ async function start() {
       weapons: { selectedWeapon, switchWeapon, effectiveRange, firingCone },
     };
     ai = await createAI(AI_MODE, aiWorld, {
+      aiSim,
       map: MAP,
       sides: Object.keys(sides),
       playerTeam,
@@ -3773,6 +3776,7 @@ async function start() {
     killUnit: unit => (unit === playerUnit ? combat : unit.combat).damage(Infinity),
   }) : null;
   game.inputSim = game.battleSim ? (await import("./runtime/input-sim.js")).createInputSim(simInstance) : null;
+  game.aiSim = aiSim;
   if (!headless) window.__bf = game;
   if (!headless) await startClient();
   return game;

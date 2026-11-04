@@ -26,6 +26,7 @@ export default {
     // What a controller drives (UnitController.unit): nothing, its body,
     // or the seat it sits in.
     ControllerUnit: ['null', 'ref:unit', 'ref:seatUnit'],
+    AlertSource: ['null', 'undefined', 'ref:character', 'ref:unit', 'ref:seatUnit', 'ref:vehicleTarget', 'ref:turretTarget', 'ref:objectiveTarget', 'ref:serviceTarget'],
   },
 
   records: {
@@ -65,8 +66,8 @@ export default {
     DangerIn: { pending: 'bool', point: 'vec3' },
 
     // A targeted shot or damage alert (controller.js:411); its source is
-    // the Character whose control shot.
-    ShotIn: { pending: 'bool', known: 'bool', point: 'vec3', source: 'ref:character|null' },
+    // the Character whose control shot, or the unit when it has none.
+    ShotIn: { pending: 'bool', known: 'bool', point: 'vec3', source: 'union:AlertSource' },
 
     // A squad command (squads.js:20): who issued it, what (COMMAND),
     // when, and its entity (a follow's leader, a board's vehicle).
