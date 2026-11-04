@@ -9,5 +9,10 @@ export default {
     IaState: { epoch: 'f64', capacity: 'f64', received: 'f64', ack: 'f64', discarded: 'f64', queue: 'list:rec:IaEntry', outcomes: 'list:rec:IaOutcome|null' },
     IaInput: { op: 'enum:IaOperation', state: 'rec:IaState', entry: 'rec:IaEntry|null', sameEpoch: 'bool', sameGeneration: 'bool', payloadValid: 'bool', humanValid: 'bool', human: 'list:rec:IaHuman', tick: 'f64', generation: 'f64', id: 'f64', status: 'str|null' },
     IaResult: { state: 'rec:IaState', accepted: 'bool', actions: 'list:str', human: 'list:rec:HsCommand', outcomes: 'list:rec:IaOutcome', error: 'str|null' },
+    IfEdge: { id: 'f64', externalId: 'f64|undefined', tick: 'f64', generation: 'f64', button: 'f64', pressed: 'bool', aimYaw: 'f64|undefined', aimPitch: 'f64|undefined', viewTick: 'f64|undefined' },
+    IfState: { received: 'f64', queue: 'list:rec:IfEdge', buttons: 'f64x2', pressTicks: 'f64x2', generation: 'f64|null', outcomes: 'list:rec:IaOutcome|null' },
+    IfMovement: { tick: 'f64', buttons: 'f64x2' },
+    IfInput: { op: 'enum:IaOperation', state: 'rec:IfState', edge: 'rec:IfEdge|null', epochOne: 'bool', pressedValid: 'bool', sameGeneration: 'bool', tick: 'f64', generation: 'f64', movement: 'rec:IfMovement|null', id: 'f64', status: 'str|null' },
+    IfResult: { state: 'rec:IfState', accepted: 'bool', shots: 'list:rec:IfEdge', outcomes: 'list:rec:IaOutcome', error: 'str|null', replacedQueue: 'bool', replacedButtons: 'bool' },
   },
 };

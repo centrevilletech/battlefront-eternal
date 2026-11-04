@@ -319,3 +319,298 @@ export function exportIaResult(o, cx) {
   v.error = o.error;
   return v;
 }
+
+export class IfEdgeMirror {
+  constructor() {
+    this.id = NaN;
+    this.externalId = undefined;
+    this.tick = NaN;
+    this.generation = NaN;
+    this.button = NaN;
+    this.pressed = false;
+    this.aimYaw = undefined;
+    this.aimPitch = undefined;
+    this.viewTick = undefined;
+  }
+}
+
+export function syncIfEdge(b, f, at, h, m) {
+  m.id = f[at + 0];
+  { const tag = f[at + 1]; if (tag === 0) { m.externalId = f[at + 2]; } else m.externalId = tag === 1 ? null : undefined; }
+  m.tick = f[at + 3];
+  m.generation = f[at + 4];
+  m.button = f[at + 5];
+  m.pressed = f[at + 6] !== 0;
+  { const tag = f[at + 7]; if (tag === 0) { m.aimYaw = f[at + 8]; } else m.aimYaw = tag === 1 ? null : undefined; }
+  { const tag = f[at + 9]; if (tag === 0) { m.aimPitch = f[at + 10]; } else m.aimPitch = tag === 1 ? null : undefined; }
+  { const tag = f[at + 11]; if (tag === 0) { m.viewTick = f[at + 12]; } else m.viewTick = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putIfEdge(b, o, f, at, heap) {
+  f[at + 0] = o.id;
+  { const $x = o.externalId; if ($x === null || $x === undefined) { f[at + 1] = $x === null ? 1 : 2; f[at + 2] = 0; } else { f[at + 1] = 0; f[at + 2] = $x; } }
+  f[at + 3] = o.tick;
+  f[at + 4] = o.generation;
+  f[at + 5] = o.button;
+  f[at + 6] = o.pressed ? 1 : 0;
+  { const $x = o.aimYaw; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = $x; } }
+  { const $x = o.aimPitch; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f[at + 10] = 0; } else { f[at + 9] = 0; f[at + 10] = $x; } }
+  { const $x = o.viewTick; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; } else { f[at + 11] = 0; f[at + 12] = $x; } }
+}
+
+export function sameIfEdge(a, b) {
+  if (!Object.is(a.id, b.id)) return ".id";
+  { const p = a.externalId, q = b.externalId; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".externalId"; } else { if (!Object.is(p, q)) return ".externalId"; } }
+  if (!Object.is(a.tick, b.tick)) return ".tick";
+  if (!Object.is(a.generation, b.generation)) return ".generation";
+  if (!Object.is(a.button, b.button)) return ".button";
+  if (!Object.is(a.pressed, b.pressed)) return ".pressed";
+  { const p = a.aimYaw, q = b.aimYaw; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".aimYaw"; } else { if (!Object.is(p, q)) return ".aimYaw"; } }
+  { const p = a.aimPitch, q = b.aimPitch; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".aimPitch"; } else { if (!Object.is(p, q)) return ".aimPitch"; } }
+  { const p = a.viewTick, q = b.viewTick; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".viewTick"; } else { if (!Object.is(p, q)) return ".viewTick"; } }
+  return null;
+}
+
+export function exportIfEdge(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.id = o.id;
+  v.externalId = o.externalId;
+  v.tick = o.tick;
+  v.generation = o.generation;
+  v.button = o.button;
+  v.pressed = o.pressed;
+  v.aimYaw = o.aimYaw;
+  v.aimPitch = o.aimPitch;
+  v.viewTick = o.viewTick;
+  return v;
+}
+
+export class IfStateMirror {
+  constructor() {
+    this.received = NaN;
+    this.queue = [];
+    this.buttons = [NaN, NaN];
+    this.pressTicks = [NaN, NaN];
+    this.generation = null;
+    this.outcomes = null;
+  }
+}
+
+export function syncIfState(b, f, at, h, m) {
+  m.received = f[at + 0];
+  { const items = (m.queue ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 13; v = syncIfEdge(b, f, at + 0, h, v ?? new IfEdgeMirror()); } items[i] = v; } }
+  { const a = (m.buttons ??= new Array(2)); a[0] = f[at + 3]; a[1] = f[at + 4]; }
+  { const a = (m.pressTicks ??= new Array(2)); a[0] = f[at + 5]; a[1] = f[at + 6]; }
+  { const tag = f[at + 7]; if (tag === 0) { m.generation = f[at + 8]; } else m.generation = tag === 1 ? null : undefined; }
+  { const tag = f[at + 9]; if (tag === 0) { { const items = (m.outcomes ??= []), start = h + f[at + 10], n = f[at + 11]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } } } else m.outcomes = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putIfState(b, o, f, at, heap) {
+  f[at + 0] = o.received;
+  heap.items(o.queue, f, at + 1, 13, (f, at, v) => { putIfEdge(b, v, f, at + 0, heap); });
+  { const $v = o.buttons; f[at + 3] = $v[0]; f[at + 4] = $v[1]; }
+  { const $v = o.pressTicks; f[at + 5] = $v[0]; f[at + 6] = $v[1]; }
+  { const $x = o.generation; if ($x === null || $x === undefined) { f[at + 7] = $x === null ? 1 : 2; f[at + 8] = 0; } else { f[at + 7] = 0; f[at + 8] = $x; } }
+  { const $x = o.outcomes; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f[at + 10] = 0; f[at + 11] = 0; } else { f[at + 9] = 0; heap.items($x, f, at + 10, 2, (f, at, v) => { putIaOutcome(b, v, f, at + 0, heap); }); } }
+}
+
+export function sameIfState(a, b) {
+  if (!Object.is(a.received, b.received)) return ".received";
+  if (!sameEach(a.queue, b.queue, (x, y) => sameIfEdge(x, y) === null)) return ".queue";
+  if (!sameArray(a.buttons, b.buttons, 2)) return ".buttons";
+  if (!sameArray(a.pressTicks, b.pressTicks, 2)) return ".pressTicks";
+  { const p = a.generation, q = b.generation; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".generation"; } else { if (!Object.is(p, q)) return ".generation"; } }
+  { const p = a.outcomes, q = b.outcomes; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".outcomes"; } else { if (!sameEach(p, q, (x, y) => sameIaOutcome(x, y) === null)) return ".outcomes"; } }
+  return null;
+}
+
+export function exportIfState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.received = o.received;
+  v.queue = o.queue.map((x) => exportIfEdge(x, cx));
+  v.buttons = [...o.buttons];
+  v.pressTicks = [...o.pressTicks];
+  v.generation = o.generation;
+  v.outcomes = ((x) => (x === null || x === undefined ? x : x.map((x) => exportIaOutcome(x, cx))))(o.outcomes);
+  return v;
+}
+
+export class IfMovementMirror {
+  constructor() {
+    this.tick = NaN;
+    this.buttons = [NaN, NaN];
+  }
+}
+
+export function syncIfMovement(b, f, at, h, m) {
+  m.tick = f[at + 0];
+  { const a = (m.buttons ??= new Array(2)); a[0] = f[at + 1]; a[1] = f[at + 2]; }
+  return m;
+}
+
+export function putIfMovement(b, o, f, at, heap) {
+  f[at + 0] = o.tick;
+  { const $v = o.buttons; f[at + 1] = $v[0]; f[at + 2] = $v[1]; }
+}
+
+export function sameIfMovement(a, b) {
+  if (!Object.is(a.tick, b.tick)) return ".tick";
+  if (!sameArray(a.buttons, b.buttons, 2)) return ".buttons";
+  return null;
+}
+
+export function exportIfMovement(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.tick = o.tick;
+  v.buttons = [...o.buttons];
+  return v;
+}
+
+export class IfInputMirror {
+  constructor() {
+    this.op = "push";
+    this.state = new IfStateMirror();
+    this.edge = null;
+    this.epochOne = false;
+    this.pressedValid = false;
+    this.sameGeneration = false;
+    this.tick = NaN;
+    this.generation = NaN;
+    this.movement = null;
+    this.id = NaN;
+    this.status = null;
+  }
+}
+
+export function syncIfInput(b, f, at, h, m) {
+  m.op = IaOperation_NAMES[f[at + 0]];
+  m.state = syncIfState(b, f, at + 1, h, m.state ?? new IfStateMirror());
+  { const tag = f[at + 13]; if (tag === 0) { m.edge = syncIfEdge(b, f, at + 14, h, m.edge ?? new IfEdgeMirror()); } else m.edge = tag === 1 ? null : undefined; }
+  m.epochOne = f[at + 27] !== 0;
+  m.pressedValid = f[at + 28] !== 0;
+  m.sameGeneration = f[at + 29] !== 0;
+  m.tick = f[at + 30];
+  m.generation = f[at + 31];
+  { const tag = f[at + 32]; if (tag === 0) { m.movement = syncIfMovement(b, f, at + 33, h, m.movement ?? new IfMovementMirror()); } else m.movement = tag === 1 ? null : undefined; }
+  m.id = f[at + 36];
+  { const tag = f[at + 37]; if (tag === 0) { m.status = b.strings.at(f[at + 38]); } else m.status = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putIfInput(b, o, f, at, heap) {
+  f[at + 0] = IaOperation_INDEX.get(o.op);
+  putIfState(b, o.state, f, at + 1, heap);
+  { const $x = o.edge; if ($x === null || $x === undefined) { f[at + 13] = $x === null ? 1 : 2; f.fill(0, at + 14, at + 27); } else { f[at + 13] = 0; putIfEdge(b, $x, f, at + 14, heap); } }
+  f[at + 27] = o.epochOne ? 1 : 0;
+  f[at + 28] = o.pressedValid ? 1 : 0;
+  f[at + 29] = o.sameGeneration ? 1 : 0;
+  f[at + 30] = o.tick;
+  f[at + 31] = o.generation;
+  { const $x = o.movement; if ($x === null || $x === undefined) { f[at + 32] = $x === null ? 1 : 2; f[at + 33] = 0; f[at + 34] = 0; f[at + 35] = 0; } else { f[at + 32] = 0; putIfMovement(b, $x, f, at + 33, heap); } }
+  f[at + 36] = o.id;
+  { const $x = o.status; if ($x === null || $x === undefined) { f[at + 37] = $x === null ? 1 : 2; f[at + 38] = 0; } else { f[at + 37] = 0; f[at + 38] = b.strings.id($x); } }
+}
+
+export function sameIfInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameIfState(a.state, b.state); if (d) return ".state" + d; }
+  { const p = a.edge, q = b.edge; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".edge"; } else { { const d = sameIfEdge(p, q); if (d) return ".edge" + d; } } }
+  if (!Object.is(a.epochOne, b.epochOne)) return ".epochOne";
+  if (!Object.is(a.pressedValid, b.pressedValid)) return ".pressedValid";
+  if (!Object.is(a.sameGeneration, b.sameGeneration)) return ".sameGeneration";
+  if (!Object.is(a.tick, b.tick)) return ".tick";
+  if (!Object.is(a.generation, b.generation)) return ".generation";
+  { const p = a.movement, q = b.movement; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".movement"; } else { { const d = sameIfMovement(p, q); if (d) return ".movement" + d; } } }
+  if (!Object.is(a.id, b.id)) return ".id";
+  { const p = a.status, q = b.status; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".status"; } else { if (!Object.is(p, q)) return ".status"; } }
+  return null;
+}
+
+export function exportIfInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportIfState(o.state, cx);
+  v.edge = ((x) => (x === null || x === undefined ? x : exportIfEdge(x, cx)))(o.edge);
+  v.epochOne = o.epochOne;
+  v.pressedValid = o.pressedValid;
+  v.sameGeneration = o.sameGeneration;
+  v.tick = o.tick;
+  v.generation = o.generation;
+  v.movement = ((x) => (x === null || x === undefined ? x : exportIfMovement(x, cx)))(o.movement);
+  v.id = o.id;
+  v.status = o.status;
+  return v;
+}
+
+export class IfResultMirror {
+  constructor() {
+    this.state = new IfStateMirror();
+    this.accepted = false;
+    this.shots = [];
+    this.outcomes = [];
+    this.error = null;
+    this.replacedQueue = false;
+    this.replacedButtons = false;
+  }
+}
+
+export function syncIfResult(b, f, at, h, m) {
+  m.state = syncIfState(b, f, at + 0, h, m.state ?? new IfStateMirror());
+  m.accepted = f[at + 12] !== 0;
+  { const items = (m.shots ??= []), start = h + f[at + 13], n = f[at + 14]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 13; v = syncIfEdge(b, f, at + 0, h, v ?? new IfEdgeMirror()); } items[i] = v; } }
+  { const items = (m.outcomes ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIaOutcome(b, f, at + 0, h, v ?? new IaOutcomeMirror()); } items[i] = v; } }
+  { const tag = f[at + 17]; if (tag === 0) { m.error = b.strings.at(f[at + 18]); } else m.error = tag === 1 ? null : undefined; }
+  m.replacedQueue = f[at + 19] !== 0;
+  m.replacedButtons = f[at + 20] !== 0;
+  return m;
+}
+
+export function putIfResult(b, o, f, at, heap) {
+  putIfState(b, o.state, f, at + 0, heap);
+  f[at + 12] = o.accepted ? 1 : 0;
+  heap.items(o.shots, f, at + 13, 13, (f, at, v) => { putIfEdge(b, v, f, at + 0, heap); });
+  heap.items(o.outcomes, f, at + 15, 2, (f, at, v) => { putIaOutcome(b, v, f, at + 0, heap); });
+  { const $x = o.error; if ($x === null || $x === undefined) { f[at + 17] = $x === null ? 1 : 2; f[at + 18] = 0; } else { f[at + 17] = 0; f[at + 18] = b.strings.id($x); } }
+  f[at + 19] = o.replacedQueue ? 1 : 0;
+  f[at + 20] = o.replacedButtons ? 1 : 0;
+}
+
+export function sameIfResult(a, b) {
+  { const d = sameIfState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.accepted, b.accepted)) return ".accepted";
+  if (!sameEach(a.shots, b.shots, (x, y) => sameIfEdge(x, y) === null)) return ".shots";
+  if (!sameEach(a.outcomes, b.outcomes, (x, y) => sameIaOutcome(x, y) === null)) return ".outcomes";
+  { const p = a.error, q = b.error; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".error"; } else { if (!Object.is(p, q)) return ".error"; } }
+  if (!Object.is(a.replacedQueue, b.replacedQueue)) return ".replacedQueue";
+  if (!Object.is(a.replacedButtons, b.replacedButtons)) return ".replacedButtons";
+  return null;
+}
+
+export function exportIfResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportIfState(o.state, cx);
+  v.accepted = o.accepted;
+  v.shots = o.shots.map((x) => exportIfEdge(x, cx));
+  v.outcomes = o.outcomes.map((x) => exportIaOutcome(x, cx));
+  v.error = o.error;
+  v.replacedQueue = o.replacedQueue;
+  v.replacedButtons = o.replacedButtons;
+  return v;
+}

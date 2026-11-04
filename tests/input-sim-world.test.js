@@ -1,0 +1,42 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+
+const content = process.env.BFE_CONTENT_DIR || new URL('../public', import.meta.url).pathname;
+test('native multiplayer input lanes execute short clicks and delayed choices and reattach after reconnect',
+  { skip: !existsSync(`${content}/maps/nab2/map.json`) }, async () => {
+    process.env.BFE_CONTENT_DIR ||= content;
+    const { headlessGame } = await import('../tools/headless-world.mjs');
+    const { createMultiplayerWorld } = await import('../src/runtime/multiplayer-world.js');
+    const game = await headlessGame('?map=nab2&side=rep&ai=classic&seed=1&sim=rust&battle=rust&aiSim=rust&units=rust&combat=rust&hulls=rust&seats=rust');
+    const world = createMultiplayerWorld(game);
+    const options = { team: 1, separateActions: true, reliableFire: true };
+    await world.addPlayer('input', options);
+    let p = world.players.get('input');
+    assert.ok(game.inputSim.owns(p.actions) && game.inputSim.owns(p.fire));
+    p.actions.enableOutcomes(); p.fire.enableOutcomes();
+    const tick = game.worldClock.tick + 1, generation = p.unit.generation;
+    assert.ok(world.actions('input', { epoch: 1, id: 1, tick, generation, actions: ['jump', 'jump', 'reload'] }));
+    assert.ok(world.input('input', { epoch: 1, sequence: 20, tick, generation, down: [], actions: [], look: [] }));
+    assert.ok(world.fire('input', { epoch: 1, id: 1, tick, generation, button: 0, pressed: true }));
+    assert.ok(world.fire('input', { epoch: 1, id: 2, tick, generation, button: 0, pressed: false }));
+    world.step();
+    assert.equal(p.actions.ack, 0);
+    assert.deepEqual(p.fire.buttons, [1, 0]);
+    assert.deepEqual(p.fire.drainOutcomes(), [{ id: 1, status: 'consumed' }]);
+    world.step();
+    assert.equal(p.actions.ack, 1); assert.deepEqual(p.fire.buttons, [0, 0]);
+    assert.deepEqual(p.actions.drainOutcomes(), [{ id: 1, status: 'consumed' }]);
+    assert.deepEqual(p.fire.drainOutcomes(), [{ id: 2, status: 'consumed' }]);
+    assert.ok(world.actions('input', { epoch: 1, id: 2, tick, generation, actions: [], human: [{ kind: 'suicide' }] }));
+    world.step();
+    assert.equal(p.unit.alive, false); assert.equal(p.actions.ack, 2); assert.equal(p.mailbox.ack, 20);
+    assert.deepEqual(p.actions.drainOutcomes(), [{ id: 2, status: 'consumed' }]);
+    const previous = p.actions;
+    world.removePlayer('input'); await world.addPlayer('input', options);
+    p = world.players.get('input');
+    assert.notEqual(p.actions, previous);
+    assert.ok(game.inputSim.owns(p.actions) && game.inputSim.owns(p.fire));
+    assert.ok(p.unit.generation > generation);
+    assert.equal(world.actions('input', { epoch: 1, id: 3, tick: game.worldClock.tick + 1, generation, actions: ['reload'] }), false);
+  });
