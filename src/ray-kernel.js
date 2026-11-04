@@ -202,9 +202,10 @@ export class RayKernel {
   // Room for `count` f64s of a query's input, as a view (made again when
   // the room moves or memory grows).
   input(count) {
-    const ptr = this.x.input_reserve(count), view = this.inputView;
-    if (view && view.byteOffset === ptr && view.length >= count && view.byteLength) return view;
-    return this.inputView = new Float64Array(this.memory.buffer, ptr, Math.max(count, 256));
+    const length = Math.max(count, 256);
+    const ptr = this.x.input_reserve(length), view = this.inputView;
+    if (view && view.byteOffset === ptr && view.length >= length && view.byteLength) return view;
+    return this.inputView = new Float64Array(this.memory.buffer, ptr, length);
   }
 
   // Each body's enabled flag by its place in the world's order.

@@ -2,7 +2,42 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
 import { CollisionWorld, makeHit } from '../src/collision.js';
-import { loadRayKernel } from '../src/ray-kernel.js';
+import { loadRayKernel, RayKernel } from '../src/ray-kernel.js';
+
+test('query input views stay within reserved memory at a page boundary and after growth', () => {
+  const memory = new WebAssembly.Memory({ initial: 1 });
+  let pointer = memory.buffer.byteLength - 130 * 8, capacity = 0;
+  const rays = Object.assign(Object.create(RayKernel.prototype), {
+    memory, inputView: null,
+    x: { input_reserve(count) {
+      // A conforming allocator may leave no spare room beyond the request.
+      if (count > capacity) {
+        capacity = count;
+        const missing = pointer + count * 8 - memory.buffer.byteLength;
+        if (missing > 0) memory.grow(Math.ceil(missing / 65536));
+      }
+      return pointer;
+    } },
+  });
+  const first = rays.input(106);
+  assert.ok(first.length >= 106);
+  assert.ok(first.byteLength <= capacity * 8, 'the whole writable view belongs to the input allocation');
+  first[105] = -31.5;
+  assert.equal(rays.input(16), first, 'a smaller request reuses the live view');
+  memory.grow(1);
+  assert.equal(first.byteLength, 0);
+  const grown = rays.input(106);
+  assert.equal(grown[105], -31.5, 'growth retains the input values');
+  assert.equal(grown.buffer, memory.buffer);
+  pointer = memory.buffer.byteLength - 513 * 8;
+  capacity = 513;
+  const moved = rays.input(513);
+  assert.equal(moved.byteOffset, pointer);
+  assert.equal(moved.length, 513);
+  moved[512] = 7;
+  assert.equal(rays.input(1), moved, 'a moved allocation is cached at its new address');
+  assert.equal(rays.input(513)[512], 7);
+});
 
 // The ray kernel (src/ray-kernel.js, rust/sim/src/collision) must answer cast, castMoving
 // and ground exactly as collision.js's JavaScript does: the same numbers to
