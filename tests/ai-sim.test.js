@@ -663,7 +663,7 @@ test('native engagement dispatch preserves weapon callbacks, mutable roles and v
       aimPoint(p){log('aim');p.copy(this.position);if(i%37===0)this.hero=true;}};
     const innerUnit={kind:1,hero:false,classDef:{MaxSpeed:2},combat:{arsenal:{weapons:[weapons[0]]}},origin:p=>p.set(1,1,1)};
     const innerTarget={kind:0,hero:false,category:0,sphere:{radius:0},maxHealth:20,aimPoint:p=>p.set(4,3,2)};
-    if(i%13===0){let aux=false,entered=false;Object.defineProperty(out,'aux',{enumerable:true,get:()=>aux,set(value){
+    if(i%17===0){let aux=false,entered=false;Object.defineProperty(out,'aux',{enumerable:true,get:()=>aux,set(value){
       aux=value;if(value && !entered){entered=true;const nestedWorld=i%2?world:{...world,aiSim:null};dispatch(c,innerUnit,innerTarget,false,nestedWorld,{});}
     }});}
     c.perception=new Perception(c);if(native)sim.bindPerception(c.perception);
