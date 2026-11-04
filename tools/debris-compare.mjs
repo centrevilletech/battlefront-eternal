@@ -38,7 +38,7 @@ for (const file of fs.readdirSync(left).filter(f => /^debris-\d+\.bfecap$/.test(
     if (av.done || bv.done) { if (av.done !== bv.done) throw Error(`${file}: different record count`); break; }
     compare(av.value, bv.value, `${file}:${++records}`);
   }
-  files.push({ file, byteExact, objectIsExact: true, nonfinite, records, nanBitDifferences: nanBits - before });
+  files.push({ file, byteExact, objectIsDiagnostic: true, nonfinite, records, nanBitDifferences: nanBits - before });
 }
 if (!files.length) throw Error('no debris traces');
 console.log(JSON.stringify({ files, nanBitDifferences: nanBits }));

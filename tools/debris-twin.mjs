@@ -3,11 +3,12 @@
 // and the piece state visible at that call. No float normalization.
 import fs from 'node:fs';
 import path from 'node:path';
+import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Debris } from '../src/debris.js';
 import { DebrisIds, debrisState } from '../src/debris-sim.js';
 import { ClassicRandom } from '../src/ai/random.js';
-import { Handle, MAGIC, RECORD, Writer } from './sim-capture/format.mjs';
+import { Handle, MAGIC, RECORD, Writer, readRecords } from './sim-capture/format.mjs';
 
 const args = process.argv.slice(2), option = (key, fallback) => { const i = args.indexOf(`--${key}`); return i < 0 ? fallback : args[i + 1]; };
 const out = option('out', null); if (!out) throw Error('debris-twin requires --out DIRECTORY');
@@ -15,6 +16,9 @@ fs.mkdirSync(out, { recursive: true });
 const seed = Number(option('seed', 1)), rng = new ClassicRandom(seed), pick = xs => xs[Math.floor(rng.uniform() * xs.length)];
 let operations = 0, callbacks = 0;
 for (let fixture = 0; fixture < Number(option('fixtures', 18)); fixture++) {
+  const replies = option('callback-replies', null);
+  const recorded = replies ? [...readRecords(fs.readFileSync(path.join(replies, `debris-${fixture}.bfecap`)))].filter(r => r.name === 'cast:result') : null;
+  let reply = 0;
   const ids = new DebrisIds(), meshes = [], effects = [], bodies = [{}, {}];
   const identify = object => {
     const mesh = meshes.indexOf(object); if (mesh >= 0) return new Handle('mesh', mesh);
@@ -41,9 +45,23 @@ for (let fixture = 0; fixture < Number(option('fixtures', 18)); fixture++) {
   } };
   const collision = { cast(at, ray, far, hit, ignore) {
     call('cast', [at, ray, far, ignore]);
-    if (fixture % 7 === 6 || ray.y >= 0 || at.y < 0) return null;
-    const distance = -at.y / ray.y; if (distance > far) return null;
-    hit.distance = distance; hit.point.copy(at).addScaledVector(ray, distance); hit.normal.set(0, 1, 0); return hit;
+    const input = { at, ray, far, ignore: bodies.indexOf(ignore) };
+    let result = null;
+    if (recorded) {
+      const saved = recorded[reply++]?.value; assert.ok(saved, 'captured collision reply');
+      // Compare the actual query words before serving its result words.
+      // No NaN normalization or piece afterstate enters this path.
+      const view = new DataView(new ArrayBuffer(8)), bits = n => { view.setFloat64(0, n); return view.getBigUint64(0); };
+      const words = v => [v.at.x, v.at.y, v.at.z, v.ray.x, v.ray.y, v.ray.z, v.far, v.ignore].map(bits);
+      assert.deepEqual(words(input), words(saved.input), 'captured collision inputs');
+      if (saved.result) {
+        hit.distance = saved.result.distance; hit.point.copy(saved.result.point); hit.normal.copy(saved.result.normal); result = hit;
+      }
+    } else if (!(fixture % 7 === 6 || ray.y >= 0 || at.y < 0)) {
+      const distance = -at.y / ray.y;
+      if (!(distance > far)) { hit.distance = distance; hit.point.copy(at).addScaledVector(ray, distance); hit.normal.set(0, 1, 0); result = hit; }
+    }
+    write('cast:result', { input, result, ...snapshot() }); return result;
   } };
   const model = name => {
     call('model', [name]); if (name === 'absent') return null;
@@ -78,6 +96,7 @@ for (let fixture = 0; fixture < Number(option('fixtures', 18)); fixture++) {
     }
     run('clear');
   }
+  if (recorded) assert.equal(reply, recorded.length, 'all captured collision replies consumed');
   fs.closeSync(fd);
 }
 console.log(JSON.stringify({ debrisTwin: { seed, operations, callbacks } }));
