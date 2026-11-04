@@ -9,7 +9,7 @@ import { loadAudioDsp, masterRust, voicesRust } from "./wasm-dsp.js";
 // - "original": what the Steam build's OpenAL Soft 1.20.1 output gives.
 //   Stereo speakers: the light mix (buildLight), the game's voices summed
 //   as a PC of 2004 summed them, each panned by OpenAL Soft's stereo law;
-//   no reverb and no worklet, so it costs the audio thread little more than
+//   no reverb and no limiter, so it costs the audio thread little more than
 //   the voices themselves. Surround: its own panning, 2D ambisonic decoders
 //   of second order on 5.1, third on 7.1 (src/audio/layouts.js, ALSOFT),
 //   and streams' channels at its fixed angles; its front stabilizer (the
