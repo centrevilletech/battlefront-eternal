@@ -201,6 +201,28 @@ test('recon native correction preserves selected weapons, salvo and camera with 
   } finally { native.dispose(); }
 });
 
+test('own recon mode composes the live captured controller and exact nested weapon checkpoint', async () => {
+  const native = createWireSemantic(await loadSim()), base = ownFixture(), { unit, registry } = base;
+  const arsenal = new Arsenal([definition(0), { ...definition(1), strike: {}, SalvoCount: 2 }]);
+  const droid = { def: { base: 'droid' }, arsenal, yaw: -0, pitch: 0.6, health: 0.8, dead: false, countdown: 37 };
+  for (const key of ['position', 'velocity', 'eye', 'aimDir', 'target']) droid[key] = new Vector3(0, 2, -3);
+  droid.salvo = { def: arsenal.current(1).def, left: 2, wait: 0.5, at: new Vector3(1, 0, 1), x: new Vector3(1, 0, 0), y: new Vector3(0, 1, 0), z: new Vector3(0, 0, 1) };
+  const remote = { random: { seed: 0xf0123456 }, piloted: droid, lookX: -0, lookY: 0.07, zoomStep: 1, firstPerson: true,
+    simulationView: { fov: 60, reach: 300, fresh: true }, aimCamera: { position: new Vector3(0, 2, 0), quaternion: new Quaternion(), aspect: 1.6 },
+    identityFor: () => ({ id: 17, generation: 5 }) };
+  unit.combat.remotes = remote; registry.combat = { definitionId: () => 23 };
+  try {
+    for (let i = 0; i < 160; i++) {
+      remote.random.seed = i * 671; remote.firstPerson = i % 2 === 0; remote.simulationView.fresh = i % 3 === 0;
+      arsenal.current(0).heat = i / 300; arsenal.current(1).wait = -i / 60; droid.salvo.left = i % 3;
+      const options = { ...base, tick: i, held: ['Mouse0'], view: { gamepad: { axes: [-0, 0, 0.5, -0.2] } } };
+      assert.deepEqual(captureOwnPlayer({ ...options, native }), captureOwnPlayer(options), `nested own recon ${i}`);
+    }
+    remote.identityFor = () => ({ id: 4096, generation: 5 });
+    sameError(() => captureOwnPlayer(base), () => captureOwnPlayer({ ...base, native }));
+  } finally { native.dispose(); }
+});
+
 test('battle, post and spawn native summaries preserve scalar order and nullable fields', async () => {
   const native = createWireSemantic(await loadSim()), { registry } = ownFixture(), u = random(632);
   const battle = { reinforcements: { 2: 200, 1: 100 }, start: { 1: 100, 2: 200 }, noPost: {}, bleed: {}, over: false, gameOver: false, finished: false, losing: false, loser: null, overTime: 0, victoryClock: null, countdown: 1 };
