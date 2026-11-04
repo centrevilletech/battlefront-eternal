@@ -32,6 +32,7 @@ export * from "./store.js";
 export * from "./traps.js";
 export * from "./units.js";
 export * from "./vehicles.js";
+export * from "./wire.js";
 
 // By code: name, layout hash (the same as the module's), singleton, key (the
 // numeric field that names an object), home (singleton kind and list field),

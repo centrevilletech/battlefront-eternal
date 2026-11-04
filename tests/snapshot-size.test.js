@@ -23,12 +23,22 @@ test('snapshot sizes on real 32 + 32 captures', { skip: !existsSync(`${content}/
   const { captureWorldSummaries } = await import('../src/runtime/network-entity-summary.js');
   const { EntityShotCounters } = await import('../src/runtime/network-entity-shots.js');
   const { snapshotFromRecords, SnapshotSlotTable, WorldFieldStagger } = await import('../src/runtime/snapshot-records.js');
-  const { encodeEntities } = await import('../src/runtime/snapshot-codec.js');
-  const { encodeOwnDelta, encodeOwnDatagram, ownDatagramBudget } = await import('../src/runtime/snapshot-own.js');
+  const { encodeEntities: jsEntities } = await import('../src/runtime/snapshot-codec.js');
+  const { encodeOwnDelta: jsDelta, encodeOwnDatagram: jsOwn, ownDatagramBudget } = await import('../src/runtime/snapshot-own.js');
   const { packCosmeticEvents } = await import('../src/runtime/snapshot-cosmetics.js');
   const { combatRecord } = await import('../src/runtime/network-entity-combat.js');
 
   const game = await headlessGame('?map=nab2&side=rep&ai=classic&seed=1');
+  const wire = process.env.BFE_WIRE === 'rust'
+    ? (await import('../src/runtime/wire-sim.js')).createWireBridge(game.simBridge) : null;
+  const twin = (native, reference) => (...args) => {
+    const expected = reference(...args);
+    if (!wire) return expected;
+    const actual = native(...args); assert.deepEqual(actual, expected); return actual;
+  };
+  const encodeEntities = twin(wire?.encodeEntities, jsEntities);
+  const encodeOwnDelta = twin(wire?.encodeWordDelta, jsDelta);
+  const encodeOwnDatagram = twin(wire?.encodeOwnDatagram, jsOwn);
   const world = createMultiplayerWorld(game, { armySize: 32 });
   await world.addPlayer('size', { reliableFire: true, separateActions: true });
   const actor = world.players.get('size'); actor.autoRespawn = true;

@@ -11,7 +11,8 @@ const encode=new TextEncoder(),decode=new TextDecoder('utf-8',{fatal:true});
 // A record whose JSON is what that field last had keeps that payload object:
 // no encoding, and comparisons of it end on identity.
 const payloads=new Map();
-function make(id,generation,tick,schema,value){
+function make(id,generation,tick,schema,value,native=null){
+  if(native)return {kind:'summary',id,generation,tick,schema,payload:native.world(value,schema*4294967296+id)};
   const json=JSON.stringify(value),key=schema*4294967296+id,kept=payloads.get(key);let payload;
   if(kept?.json===json)payload=kept.payload;else{payload=encode.encode(json);if(payloads.size>=4096)payloads.clear();payloads.set(key,{json,payload});}
   if(payload.length>900)throw Error('World presentation record too large');return {kind:'summary',id,generation,tick,schema,payload};
@@ -25,20 +26,20 @@ const jsonText=v=>typeof v==='string'?v:typeof v==='number'&&Number.isFinite(v)?
 // of them every tick were most of a snapshot's world cost, while the stagger
 // keeps the last value it took between refreshes anyway. Creatures and traps
 // refresh on any change of their record, so theirs are always built.
-export function captureWorldPresentation(game,tick,epoch,held=null){
+export function captureWorldPresentation(game,tick,epoch,held=null,native=null){
   const records=[],turrets=game.turretSeats?.turrets||[];
   for(const [index,b]of (game.live?.buildings||[]).entries())if(!turrets.includes(b)){
     const value=[index,b.state,Number.isFinite(b.health)?b.health:null,b.team||0,b.mode??null,b.active||0,b.pulse||0,b.facing||0,b.yaw||0,b.servedHealth||false,b.servedAmmo||false];
     const kept=held?.(BUILDING_STATE_SCHEMA,200000+index,`${jsonText(value[1])}:${jsonText(value[3])}`);
     if(kept!==undefined){if(kept)records.push(kept);continue;}
-    records.push(make(200000+index,epoch,tick,7,value));
+    records.push(make(200000+index,epoch,tick,7,value,native));
   }
-  for(const [index,prop]of (game.live?.animated||[]).entries())if(prop.grabs?.length&&prop.slot>=0)records.push(make(CREATURE_STATE_ID+index,epoch,tick,CREATURE_STATE_SCHEMA,[index,...prop.state()]));
-  for(const [index,trap]of (game.live?.traps||[]).entries())records.push(make(TRAP_STATE_ID+index,epoch,tick,TRAP_STATE_SCHEMA,[index,...trap.stateRecord()]));
+  for(const [index,prop]of (game.live?.animated||[]).entries())if(prop.grabs?.length&&prop.slot>=0)records.push(make(CREATURE_STATE_ID+index,epoch,tick,CREATURE_STATE_SCHEMA,[index,...prop.state()],native));
+  for(const [index,trap]of (game.live?.traps||[]).entries())records.push(make(TRAP_STATE_ID+index,epoch,tick,TRAP_STATE_SCHEMA,[index,...trap.stateRecord()],native));
   for(const v of game.vehicles?.vehicles||[])if(v.alive){
     const kept=held?.(TOW_STATE_SCHEMA,300000+v.aiTarget.id);
     if(kept!==undefined){if(kept)records.push(kept);continue;}
-    const target=game.vehicles.vehicles[v.towTarget];records.push(make(300000+v.aiTarget.id,v.aiTarget.generation,tick,8,[v.aiTarget.id,target?.aiTarget.id||0,target?.aiTarget.generation||0,v.towLocal?.toArray()||[0,0,0],v.towLeg||'',v.towAngle||0,v.towWinding||0]));
+    const target=game.vehicles.vehicles[v.towTarget];records.push(make(300000+v.aiTarget.id,v.aiTarget.generation,tick,8,[v.aiTarget.id,target?.aiTarget.id||0,target?.aiTarget.generation||0,v.towLocal?.toArray()||[0,0,0],v.towLeg||'',v.towAngle||0,v.towWinding||0],native));
   }
   return records;
 }

@@ -45,3 +45,5 @@ pub mod seats;
 pub mod store;
 pub mod units;
 pub mod vehicles;
+
+pub mod wire;
