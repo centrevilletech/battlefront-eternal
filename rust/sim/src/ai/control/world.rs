@@ -34,6 +34,14 @@ pub struct EntRef {
     pub generation: f64,
 }
 
+/// Damage attribution names a Character when one is available, else the
+/// attacking unit itself. These tables have independent indices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AlertSource {
+    Character(usize),
+    Unit(UKey),
+}
+
 /// A soldier body's fields the core reads (units.js Unit.soldier for a
 /// soldier or a droideka; a seat controllable has none).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -460,6 +468,57 @@ pub struct CombatWrites {
     pub alert_anim: Option<bool>,
 }
 
+/// The controller fields combat reads before a service. Perception and
+/// trackers stay in combat's own tables; feeding this view never resets
+/// their heaps, aim filters, fire timers or target memory.
+#[derive(Clone, Debug)]
+pub struct CombatInput<'a> {
+    pub unit: Option<UKey>,
+    pub generation: f64,
+    pub character: usize,
+    pub objective: Option<usize>,
+    pub target: Option<EntRef>,
+    pub fire_a: bool,
+    pub fire_b: bool,
+    pub roll: f64,
+    pub range_scale: f64,
+    pub aim_state: f64,
+    pub aim_point: Vec3,
+    pub aim_target: Option<EntRef>,
+    pub stance: f64,
+    pub nav_stance: Option<f64>,
+    pub facing: bool,
+    pub wanted_mode: f64,
+    pub dodge: Option<f64>,
+    pub alert_anim: Option<bool>,
+    pub shot_pending: bool,
+    pub shot_known: bool,
+    pub shot_point: Vec3,
+    pub shot_source: Option<AlertSource>,
+    pub danger_pending: bool,
+    pub danger_point: Vec3,
+    pub acoustic: &'a [EntRef],
+    pub difficulty: Option<super::difficulty::Curves>,
+    pub jet_pending: bool,
+    pub jet_vector: Vec3,
+}
+
+impl<'a> CombatInput<'a> {
+    pub fn read(c: &'a super::controller::Controller, objective: Option<usize>) -> Self {
+        Self {
+            unit: c.unit, generation: c.generation, character: c.character, objective,
+            target: c.target, fire_a: c.fire_a, fire_b: c.fire_b, roll: c.roll, range_scale: c.range_scale,
+            aim_state: c.aim_state, aim_point: c.aim_point, aim_target: c.aim_target,
+            stance: c.stance, nav_stance: c.nav_control.as_ref().map(|n| n.stance), facing: c.facing,
+            wanted_mode: c.wanted_mode, dodge: c.dodge, alert_anim: c.alert_anim,
+            shot_pending: c.shot_pending, shot_known: c.shot_known, shot_point: c.shot_point, shot_source: c.shot_source,
+            danger_pending: c.danger_pending, danger_point: c.danger_point, acoustic: &c.acoustic, difficulty: c.difficulty,
+            jet_pending: c.nav_control.as_ref().map_or(c.jet_pending, |n| n.jet_pending),
+            jet_vector: c.nav_control.as_ref().map_or(c.jet_vector, |n| n.jet_vector),
+        }
+    }
+}
+
 /// One controller's alert state after combat's ingest.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AlertState {
@@ -467,7 +526,7 @@ pub struct AlertState {
     pub shot_pending: bool,
     pub shot_known: bool,
     pub shot_point: Vec3,
-    pub shot_source: Option<usize>,
+    pub shot_source: Option<AlertSource>,
     pub danger_pending: bool,
     pub danger_point: Vec3,
     pub acoustic: Vec<EntRef>,
@@ -658,6 +717,10 @@ pub trait AiWorld {
 
     // -- AI combat services (classic/index.js combatAdapter +
     // combat.js classicBinding; the combat package's).
+    /// A live native host keeps the control and combat projections of
+    /// this controller current before entering combat. Boundary replays
+    /// already supply their entry state and need no additional action.
+    fn combat_feed(&mut self, _controller: usize, _input: &CombatInput) {}
     fn combat_create_perception(&mut self, controller: usize);
     fn combat_attach_controller(&mut self, controller: usize);
     fn combat_detach_controller(&mut self, controller: usize);

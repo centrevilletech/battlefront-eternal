@@ -113,6 +113,74 @@ export function exportControllerUnit(x, cx) {
   }
 }
 
+export function variantOfAlertSource(b, x) {
+  if (x === null) return 0;
+  if (b?.refs[KIND_CHARACTER].is(x)) return 1;
+  if (b?.refs[KIND_UNIT].is(x)) return 2;
+  if (b?.refs[KIND_SEAT_UNIT].is(x)) return 3;
+  if (b?.refs[KIND_VEHICLE_TARGET].is(x)) return 4;
+  if (b?.refs[KIND_TURRET_TARGET].is(x)) return 5;
+  if (b?.refs[KIND_OBJECTIVE_TARGET].is(x)) return 6;
+  if (b?.refs[KIND_SERVICE_TARGET].is(x)) return 7;
+  return -1;
+}
+
+// Which of AlertSource's variants a value is.
+export function whichAlertSource(b, x) {
+  const i = variantOfAlertSource(b, x);
+  if (i < 0) throw Error(`AlertSource: ${x?.constructor?.name ?? x} is none of its variants`);
+  return i;
+}
+
+// An export row's union (from `at`) as a value: a vector or record the field held, if it is of the variant, read into in place.
+export function syncAlertSource(b, f, at, h, current) {
+  switch (f[at]) {
+    case 0: return null;
+    case 1: return b.refs[KIND_CHARACTER].at(f[at + 1], f[at + 2]);
+    case 2: return b.refs[KIND_UNIT].at(f[at + 1], f[at + 2]);
+    case 3: return b.refs[KIND_SEAT_UNIT].at(f[at + 1], f[at + 2]);
+    case 4: return b.refs[KIND_VEHICLE_TARGET].at(f[at + 1], f[at + 2]);
+    case 5: return b.refs[KIND_TURRET_TARGET].at(f[at + 1], f[at + 2]);
+    case 6: return b.refs[KIND_OBJECTIVE_TARGET].at(f[at + 1], f[at + 2]);
+    case 7: return b.refs[KIND_SERVICE_TARGET].at(f[at + 1], f[at + 2]);
+    default: throw Error('AlertSource: no such variant');
+  }
+}
+
+export function putAlertSource(b, x, f, at, heap) {
+  const i = whichAlertSource(b, x);
+  f[at + 1] = 0; f[at + 2] = 0;
+  f[at] = i;
+  switch (i) {
+    case 1: b.refs[KIND_CHARACTER].put(x, f, at + 1); break;
+    case 2: b.refs[KIND_UNIT].put(x, f, at + 1); break;
+    case 3: b.refs[KIND_SEAT_UNIT].put(x, f, at + 1); break;
+    case 4: b.refs[KIND_VEHICLE_TARGET].put(x, f, at + 1); break;
+    case 5: b.refs[KIND_TURRET_TARGET].put(x, f, at + 1); break;
+    case 6: b.refs[KIND_OBJECTIVE_TARGET].put(x, f, at + 1); break;
+    case 7: b.refs[KIND_SERVICE_TARGET].put(x, f, at + 1); break;
+  }
+}
+
+export function sameAlertSource(x, y) {
+  if (Object.is(x, y)) return true;
+  if (x === null || y === null || x === undefined || y === undefined) return false;
+  return false;
+}
+
+export function exportAlertSource(x, cx) {
+  switch (whichAlertSource(cx, x)) {
+    case 0: return null;
+    case 1: return cx.ref("character", x);
+    case 2: return cx.ref("unit", x);
+    case 3: return cx.ref("seatUnit", x);
+    case 4: return cx.ref("vehicleTarget", x);
+    case 5: return cx.ref("turretTarget", x);
+    case 6: return cx.ref("objectiveTarget", x);
+    case 7: return cx.ref("serviceTarget", x);
+  }
+}
+
 export class AiUnitRefMirror {
   constructor() {
     this.unit = null;
@@ -385,7 +453,7 @@ export function syncShotIn(b, f, at, h, m) {
   m.pending = f[at + 0] !== 0;
   m.known = f[at + 1] !== 0;
   (m.point ??= new THREE.Vector3()).set(f[at + 2], f[at + 3], f[at + 4]);
-  { const tag = f[at + 5]; if (tag === 0) { m.source = b.refs[KIND_CHARACTER].at(f[at + 6], f[at + 7]); } else m.source = tag === 1 ? null : undefined; }
+  m.source = syncAlertSource(b, f, at + 5, h, m.source);
   return m;
 }
 
@@ -393,14 +461,14 @@ export function putShotIn(b, o, f, at, heap) {
   f[at + 0] = o.pending ? 1 : 0;
   f[at + 1] = o.known ? 1 : 0;
   { const $v = o.point; f[at + 2] = $v.x; f[at + 3] = $v.y; f[at + 4] = $v.z; }
-  { const $x = o.source; if ($x === null || $x === undefined) { f[at + 5] = $x === null ? 1 : 2; f[at + 6] = 0; f[at + 7] = 0; } else { f[at + 5] = 0; b.refs[KIND_CHARACTER].put($x, f, at + 6); } }
+  putAlertSource(b, o.source, f, at + 5, heap);
 }
 
 export function sameShotIn(a, b) {
   if (!Object.is(a.pending, b.pending)) return ".pending";
   if (!Object.is(a.known, b.known)) return ".known";
   if (!sameVec(a.point, b.point)) return ".point";
-  { const p = a.source, q = b.source; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".source"; } else { if (!Object.is(p, q)) return ".source"; } }
+  if (!sameAlertSource(a.source, b.source)) return ".source";
   return null;
 }
 
@@ -412,7 +480,7 @@ export function exportShotIn(o, cx) {
   v.pending = o.pending;
   v.known = o.known;
   v.point = o.point.clone();
-  v.source = ((x) => (x === null || x === undefined ? x : cx.ref("character", x)))(o.source);
+  v.source = exportAlertSource(o.source, cx);
   return v;
 }
 

@@ -54,6 +54,30 @@ impl ControllerUnit {
     }
 }
 
+impl AlertSource {
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        match v.value {
+            Value::Null => return Ok(AlertSource::Null),
+            Value::Handle(kind, _) => match kind.as_str() { "character" => return Ok(AlertSource::Character(Character::ref_in(v, cx, path)?)), "unit" => return Ok(AlertSource::Unit(Unit::ref_in(v, cx, path)?)), "seatUnit" => return Ok(AlertSource::SeatUnit(cx.ref_in(KIND_SEAT_UNIT, v, path)?)), "vehicleTarget" => return Ok(AlertSource::VehicleTarget(cx.ref_in(KIND_VEHICLE_TARGET, v, path)?)), "turretTarget" => return Ok(AlertSource::TurretTarget(cx.ref_in(KIND_TURRET_TARGET, v, path)?)), "objectiveTarget" => return Ok(AlertSource::ObjectiveTarget(cx.ref_in(KIND_OBJECTIVE_TARGET, v, path)?)), "serviceTarget" => return Ok(AlertSource::ServiceTarget(cx.ref_in(KIND_SERVICE_TARGET, v, path)?)), _ => {} },
+            _ => {}
+        }
+        Err(format!("{path}: none of AlertSource's variants ({})", v.show()))
+    }
+
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        match self {
+            AlertSource::Null => Value::Null,
+            AlertSource::Character(r) => Character::ref_out(*r, cx, a),
+            AlertSource::Unit(r) => Unit::ref_out(*r, cx, a),
+            AlertSource::SeatUnit(r) => cx.ref_out(KIND_SEAT_UNIT, *r),
+            AlertSource::VehicleTarget(r) => cx.ref_out(KIND_VEHICLE_TARGET, *r),
+            AlertSource::TurretTarget(r) => cx.ref_out(KIND_TURRET_TARGET, *r),
+            AlertSource::ObjectiveTarget(r) => cx.ref_out(KIND_OBJECTIVE_TARGET, *r),
+            AlertSource::ServiceTarget(r) => cx.ref_out(KIND_SERVICE_TARGET, *r),
+        }
+    }
+}
+
 impl PostRef {
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
         match v.value {
@@ -418,7 +442,7 @@ impl ShotIn {
             pending: { let p = format!("{path}.pending"); boolean(v.get("pending"), &p)? },
             known: { let p = format!("{path}.known"); boolean(v.get("known"), &p)? },
             point: { let p = format!("{path}.point"); vec3(v.get("point"), &p)? },
-            source: { let p = format!("{path}.source"); match v.get("source").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(Character::ref_in(v.get("source"), cx, &p)?) } },
+            source: { let p = format!("{path}.source"); AlertSource::from_value(v.get("source"), cx, &p)? },
         })
     }
 
@@ -428,7 +452,7 @@ impl ShotIn {
         { let x = Value::Bool(self.pending); fields.push(("pending", x)); }
         { let x = Value::Bool(self.known); fields.push(("known", x)); }
         { let x = a.vec3(self.point); fields.push(("point", x)); }
-        { let x = match &self.source { Some(v) => Character::ref_out((*v), cx, a), None => Value::Null }; fields.push(("source", x)); }
+        { let x = self.source.to_value(cx, a); fields.push(("source", x)); }
         a.object("", fields)
     }
 }

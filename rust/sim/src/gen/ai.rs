@@ -80,6 +80,55 @@ impl ControllerUnit {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum AlertSource {
+    Null,
+    Character(Ref<Character>),
+    Unit(Ref<Unit>),
+    SeatUnit(Ref<SeatUnit>),
+    VehicleTarget(Ref<VehicleTarget>),
+    TurretTarget(Ref<TurretTarget>),
+    ObjectiveTarget(Ref<ObjectiveTarget>),
+    ServiceTarget(Ref<ServiceTarget>),
+}
+
+impl Default for AlertSource {
+    fn default() -> Self { AlertSource::Null }
+}
+
+impl AlertSource {
+    pub const WORDS: usize = 3;
+
+    /// Its row words: the variant, then its value (a reference's slot and generation).
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        row[1..3].fill(0.0);
+        match self {
+            AlertSource::Null => row[0] = 0.0,
+            AlertSource::Character(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::Unit(r) => { row[0] = 2.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::SeatUnit(r) => { row[0] = 3.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::VehicleTarget(r) => { row[0] = 4.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::TurretTarget(r) => { row[0] = 5.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::ObjectiveTarget(r) => { row[0] = 6.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::ServiceTarget(r) => { row[0] = 7.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+        }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        match word_u32(row[0]) {
+            0 => AlertSource::Null,
+            1 => AlertSource::Character(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            2 => AlertSource::Unit(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            3 => AlertSource::SeatUnit(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            4 => AlertSource::VehicleTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            5 => AlertSource::TurretTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            6 => AlertSource::ObjectiveTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            7 => AlertSource::ServiceTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            _ => AlertSource::default(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AiUnitRef {
     pub unit: RefUnit,
@@ -268,7 +317,7 @@ pub struct ShotIn {
     pub pending: bool,
     pub known: bool,
     pub point: Vec3,
-    pub source: Option<Ref<Character>>,
+    pub source: AlertSource,
 }
 
 impl ShotIn {
@@ -279,7 +328,7 @@ impl ShotIn {
         row[0] = if self.pending { 1.0 } else { 0.0 };
         row[1] = if self.known { 1.0 } else { 0.0 };
         row[2..2 + 3].copy_from_slice(&self.point);
-        match &self.source { Some(v) => { row[5] = 0.0; row[5 + 1] = (*v).slot as f64; row[5 + 1 + 1] = (*v).gen as f64; } None => { row[5] = 1.0; row[5 + 1..5 + 3].fill(0.0); } }
+        self.source.put(&mut row[5..5 + 3], heap);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
@@ -288,7 +337,7 @@ impl ShotIn {
             pending: row[0] != 0.0,
             known: row[1] != 0.0,
             point: [row[2], row[2 + 1], row[2 + 2]],
-            source: if row[5] == 0.0 { Some(Ref::new(word_u32(row[5 + 1]), word_u32(row[5 + 1 + 1]))) } else { None },
+            source: AlertSource::take(&row[5..5 + 3], heap),
         }
     }
 

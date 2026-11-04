@@ -5,7 +5,7 @@
 //! whole roster is in reach.
 
 use super::fsm::Fsm;
-use super::world::{AiWorld, ControlObs, EntRef, HelperObs, Policy, UKey};
+use super::world::{AiWorld, AlertSource, ControlObs, EntRef, HelperObs, Policy, UKey};
 use super::super::nav::math::Vec3;
 use std::collections::HashMap;
 
@@ -407,7 +407,7 @@ pub struct Controller {
     pub shot_pending: bool,
     pub shot_known: bool,
     pub shot_point: Vec3,
-    pub shot_source: Option<usize>,
+    pub shot_source: Option<AlertSource>,
     pub acoustic: Vec<EntRef>,
     pub vehicle_notes: Vec<EntRef>,
     pub command_pending: bool,
