@@ -362,3 +362,32 @@ test("a phase that made no GL call leaves three's state alone", () => {
   core.phase("transparent", renderer, scene, camera);
   assert.deepEqual(calls.map((c) => c[0]).filter((n) => n !== "add_texture" && n !== "set_far_map"), ["transparent_frame"]);
 });
+
+test("painted terrain binds an empty color texture for an unpainted layer between active layers", () => {
+  const { core, calls, renderer, scene, camera } = bridge();
+  standIns(core, ["layerMap0", "layerMap1", "layerMap2"]);
+  const textures = [], first = new THREE.Texture(), last = new THREE.Texture();
+  core.texture = (texture) => { textures.push(texture); return textures.length - 1; };
+  const material = new THREE.ShaderMaterial({ defines: { TERRAIN: "", WORLD_SPACE: "", TERRAIN_LAYERS: 3 }, uniforms: {
+    layerMap0: { value: first }, layerMap1: { value: null }, layerMap2: { value: last },
+  } });
+  const geometry = new THREE.BufferGeometry(), index = new THREE.BufferAttribute(new Uint32Array([0, 1, 2]), 1);
+  geometry.setIndex(index);
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(geometry, material));
+  group.material = material;
+  group.userData.patches = { full: { index, cells: [{ start: 0, end: 3, box: new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) }] }, bounds: new THREE.Sphere(new THREE.Vector3(), 2) };
+  scene.add(group);
+  Object.assign(renderer.properties.get(material), { currentProgram: {}, __version: material.version });
+  core.pass(renderer, scene, camera);
+  const bindings = calls.filter((c) => c[0] === "world_texture");
+  assert.deepEqual(bindings.map((c) => c[2]), [6, 7, 8], "every active sampler gets a binding, including the zero-weight layer");
+  const bound = bindings.map((c) => textures[c[3]]);
+  assert.equal(bound[0], first);
+  assert.equal(bound[2], last);
+  assert.ok(bound[1].isDataTexture);
+  assert.deepEqual([...bound[1].image.data], [0, 0, 0, 0], "the same empty color texel three binds for null");
+  assert.equal(material.visible, false, "the phase takes the complete terrain draw");
+  core.pass(renderer, scene, camera);
+  assert.equal(calls.filter((c) => c[0] === "world_texture").length, bindings.length, "registered once, with no per-frame texture allocation");
+});
