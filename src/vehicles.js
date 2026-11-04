@@ -184,6 +184,7 @@ const nine = { pitch: 0, turn: 0 };
 // now. Every barrel has its own, so a salvo's beams stay apart.
 function beamSource(vehicle, index, node, aimer) {
   return {
+    node, aimer,
     get matrix() { return node?.matrixWorld ?? vehicle.matrix; },
     get alive() { return vehicle.alive; },
     viewDirection: (out) => vehicle.beamDirection(index, node, aimer, out),

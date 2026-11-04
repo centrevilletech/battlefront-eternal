@@ -310,7 +310,13 @@ class F2 {
       else if (value && typeof value === 'object') for (const [k, x] of Object.entries(value)) add(`${path}.${k}`, x);
       else out.push([path, value]);
     };
-    for (const key of OWNED_FIELDS) if (!foreign.has(key)) add(key, v[key]);
+    for (const key of OWNED_FIELDS) if (!foreign.has(key)) {
+      // VehicleWheel's schema has numeric fields; its JS bone points back
+      // into the rig and scene and is not part of the canonical row.
+      if (key === 'wheels') {
+        for (let i = 0; i < v.wheels.length; i++) for (const k of ['x', 'radius', 'phase', 'previous', 'tickFrom']) add(`wheels.${i}.${k}`, v.wheels[i][k]);
+      } else add(key, v[key]);
+    }
     out.push(['root.visible', v.root.visible], ['aiTarget.generation', v.aiTarget.generation],
       ['lastAttacker', v.lastAttacker], ['driver', v.driver], ['seatIndex', v.seatIndex]);
     return out;

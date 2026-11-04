@@ -22,7 +22,7 @@ boarding and rider code reads its nodes. That output can shrink after those user
 move. Full hull imports are construction-only, never a tick input.
 
 Foreign inputs are registry facts and team relations, body flags, frozen crew
-input, seat look and lease facts, frozen triggers, weapon spread modifiers and
+input, seat look and lease facts, frozen triggers, AI weapon channels and spread modifiers, and
 bot target identities. Rust owns mounted weapon clocks, ammunition, heat, lock
 progress, barrel counters, recoil times and ordered tether state. JS still owns
 lease lifecycle. Those are explicit boundary inputs, not permission to
