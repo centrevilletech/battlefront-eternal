@@ -1,146 +1,118 @@
 # Vehicle phase ownership
 
-The F2 opt-in is `?f2=rust` in a headless world, or `BFE_F2=rust` under Node.
+The F2 opt-in is `?f2=rust` in a world worker or `BFE_F2=rust` under Node.
 It is independent of the older hull and seat experiments and defaults off.
+The existing JS implementation remains available for comparison.
 
-The final F2 boundary covers pads, hulls, flight, rigs, leases, mounted weapons,
-tethers and rider writeback. Rust currently owns hull and flight scheduling,
-hull leases and stationary turret crews. Hull firing, tethers and continuous
-hull rider writeback remain foreign operations.
+Rust owns spawn clocks, hull and flight state, retained rigs, hull leases,
+stationary turret crews, mounted weapons, tethers and rider body writeback.
+The vehicle slab is canonical. Retained class, animation and geometry handles
+are resolved at construction; a hull's substeps reuse native working storage.
+Respawn preserves the Vehicle facade, increments its gameplay generation and
+resets that life. Slab retirement invalidates old references before slot reuse.
 
-Rust owns each vehicle's position, previous position, velocity, heading and rates,
-support, health, dying clock, water clock, sleeping flag, flight checkpoint,
-wheels, tick capture and retained rig. The generated vehicle slab stores hull and
-flight state. Retained rigs are keyed by the slab handle and gameplay life.
-A respawn keeps the Vehicle and target objects, increments the target generation,
-and resets the new life. Retirement invalidates the slab handle before reuse.
+JS owns AI intent until its phase moves, plus the foreign unit registry, team
+relations and building health/rebuild lifecycle. Unit facts enter at phase entry,
+before spawn callbacks can issue scalar commands. Logical latching stays in its
+original scheduler slot; a command amends only its touched canonical actors. Body changes, registry changes, remote flight keys and weapon modifiers
+use retained numeric baselines; only changed records cross. Cache baselines
+commit after native latching, so a pre-latch lifecycle callback cannot discard
+pending input from another hull. Clock and water samples retain the original
+phase-start value through those callbacks.
 
-JavaScript readers still use Vehicle methods and their existing vectors. The
-published fields are the vehicle schema's mirror fields plus compact pose data.
-The full rig remains published because foreign hull firing and rider writeback
-read its nodes. That output can shrink after those users
-move. Full hull imports are construction-only, never a tick input.
+Synchronous scalar commands cover health, damage, wake, attribution, boarding,
+exits, promotion, movement between seats, displacement, network seat input,
+disconnect, death unseating, seat cycling and look. They validate both slab and
+gameplay generations, publish the touched mirrors and return with JS readers
+current. Released lease generations cannot target a replacement occupant.
+Private prediction hulls clear their authority owner before replaying input.
 
-Foreign inputs are registry facts and team relations, body flags, unit facts,
-AI intents and firing recoil inputs. JS still owns hull weapons and tethers.
-Lease lifecycle, look, seat commands and turret weapons are native. These inputs
-do not permit writes to physics, flight or lease mirrors. AI intents remain JS-owned. Damage, health,
-supply and wake writes become synchronous scalar commands; commands publish the
-touched mirror before returning. A stale handle or gameplay life is rejected.
+## Scheduler and native readers
 
-The scheduler order is clamp/time, spawn clocks, latch/exits, ground capture,
-flight, ground substeps, dying, all aim passes, all gameplay render passes, then
-foreign hull fire, tether and rider work, then native turret crews. Unmanned
-turret guns ease at the building lifecycle's existing scheduler point. Render's leg easing and the ground leftover
-alpha are gameplay state and must remain. No foreign callback may retain a Rust
-borrow or reimport a whole fleet. Native intermediate writes stay pending until
-the next foreign hook or command return; only those boundaries publish output.
+`f2_step(dt,tick)` preserves Vehicles.update's order: clamp/time, spawn clocks,
+crew latching and exits, ground capture, flight, ground substeps, dying, all aim
+passes, all gameplay render passes, hull fire and tethers, hull rider writeback,
+then stationary turret crews. Render's leg easing and ground leftover alpha are
+gameplay state. Dormant server-local Gunner/Driver instances stay inactive.
+Unmanned turret easing remains at the building lifecycle's scheduler point.
 
-Boundary counters distinguish F2 export phase calls, lifecycle calls, commands
-and debug calls. Generic import bridges keep their own accounting; these totals
-are not a census of every call made by the shared simulation instance. Field counts are scalar words actually copied, including list payloads and
-rig output, rather than a count of property names. Debug mirror checks compare
-published values with `Object.is`, so signed zero and NaN retain their meaning.
-They do not install property traps or alter JavaScript intrinsics.
+Hull firing reads canonical leases after latching. Hull and turret weapons share
+Weapon.update, round execution and human lock targeting. CrewWorld preserves
+each turret crew's aim, body placement and shot order. It calls ordnance directly,
+without a JS fire detour. Both native beam-emitter intercepts remain because a
+hull emitter's life and a stationary lease's life are different identities.
+Random draws still import the world's existing streams on shots. Ordered events
+carry bind, sound and fired presentation; state-sensitive hooks stay synchronous.
 
-Native seat orchestration lives in `f2/seats` and `f2/live_seats`; firing and tow
-work belongs in `f2/firing`.
-The scheduler owns ordering, lifecycle owns birth/retirement, and the integrator
-owns the schema, shared publication and game wiring. Changes to those shared
-interfaces must land before parallel seats and firing work begins.
+Native rigs supply seat eye/frame/direction and muzzle geometry. Rider skeletons,
+clip bindings and sampling scratch persist per actor life. Rust computes exposed
+hit shapes, drop points and rider bodies in their original scheduler slots.
+It preserves Unit.tickCount and the existing lazy hit-shape invalidation rules.
+JS applies compact reader samples and actor presentation fields. World-phase
+readers neither traverse JS rig nodes nor call updateMatrixWorld. Render-facing
+scene matrices can still update during presentation, outside this world phase.
 
-## Milestone boundary layout
+## Generated boundary and publication
 
-`f2_init` reserves the input and returns a stable descriptor. `f2_step(dt, tick)`
-publishes output addresses in that descriptor, so reading the result requires no
-getter exports. Inputs begin with clock, water level and pose/flight flags, then
-one post-presence/team pair per pad and an optional spawn occupant. The last two
-input words give the foreign block's end and start.
+`f2_init` reserves input and returns a stable generated descriptor. One phase
+export updates its output addresses, so ordinary reads require no getter calls.
+The phase prefix, foreign records, flags, commands, compact geometry and sparse
+publications all use schema-generated layouts. The standard counted-block header
+is the shared store ABI. Named flag bits preserve the old pose/flight switches.
 
-The foreign block contains registry rows, team relations and frozen flight keys,
-then hull handles with tow facts and recoil inputs. Its layout is independent of
-the complete vehicle schema. Generated F2 seat input records carry foreign unit
-facts and AI intents separately. Dynamic bodies return after foreign hull rider writeback
-so later damage cannot restore a stale body. Mouse samples use scalar commands and preserve
-the original per-sample clamp and normalization order. A lifecycle callback
-cannot replace another hull's pending input.
+Generated word masks address retained encoded mirrors. Native publication compares
+bits, including signed zero and NaN payloads, then sends changed words only. Hulls
+and riders that did not change are omitted. JS retains the encoded row and applies
+the generated reader locally. There is no full rig publication or rider-body
+handoff. Collision bounds/matrices are published only when changed and use the
+same generated layout for native and fallback query worlds.
 
-Publications contain generated dirty hull and pad rows, changed body matrices
-and bounds, compact pose records, weapon locks and life metadata. Hull rows are
-compared bitwise with the last publication; unchanged rows are omitted, including
-across reentrant commands. Native rig matrices are copied without JS rig updates. The last records
-keep gameplay generations distinct from slab generations and initialize fixed
-flight configuration on a newly constructed variant. A spawn publishes its
-render before latching, so boarding reads the new life's frame. Commands reject
-both retired slab handles and old gameplay lives. Retired references can still
-read their final mirror, but cannot target a replacement.
+Commands and reentrant hooks publish pending touched rows, never a whole fleet.
+A spawn publishes only its new life's frame before boarding can read it. No
+foreign callback keeps a Rust borrow across JS. Resuming a callback reads the
+canonical slabs rather than restoring an outer snapshot. Lease views refresh
+after every seat change, including promotion and destruction in the same phase.
 
-The debug detector runs before and after the phase and checks the owned scalar,
-vector, matrix, wheel and flight fields. It excludes the declared foreign weapon and
-tether state; attribution is checked by identity. Commands publish current state before returning.
-Debug runs also reject memory growth during the phase; initialization reserves a
-memory margin. Counters include the whole export rows and variable payloads,
-including rig output while the JS firing and rider readers remain.
+The optional mirror detector compares saved scalars with Object.is and rejects
+owned JS writes. It does not install traps or replace intrinsics. Initialization
+reserves a memory margin; debug phases also reject unexpected memory growth.
+The production boundary reuses arrays, numeric buffers, native working hulls,
+collision query storage and pose/targeting scratch. Loaded geometry reserves
+wall-cache indices and triangle buffers by polygon identity, so reaching a new
+part of the map does not grow query storage. Allocation tests exercise the live
+scheduler over synthetic hulls, crews and exposed riders without game files.
 
-## Follow-on file ownership
+Boundary counters distinguish phase exports, scalar commands and lifecycle calls.
+They count scalar words actually copied, including variable event payloads.
+Generic query and RNG bridges keep their existing accounting and are outside
+this export/copy census. A command burst or lifecycle hook adds export calls;
+ordinary ticks use one f2_step call.
 
-Seats work can add `rust/sim/src/vehicles/module/f2/seats.rs` and
-`src/f2-seats.js`; firing/tow work can add
-`rust/sim/src/vehicles/module/f2/firing.rs` and `src/f2-firing.js`. Neither should
-edit the other's files. The integrator owns `module/f2.rs`, `f2-sim.js`, the
-schemas, `vehicle-phase-data.js`, game wiring and regenerated artifacts.
+The seed-1 window below is ticks 901 through 1200. The earlier boundary already
+had native seats but still published full rigs and handed rider bodies through JS.
 
-Seats replace the latch callback and the seat part of the foreign block; firing
-replaces the JS calls after native posing and the recoil/tow parts of that block.
-Both use the same generation-qualified hull references and canonical vehicle
-slab. The integrator joins their calls in the existing scheduler order. Step 6
-then consolidates synchronous hooks and rider writeback before step 7 removes the
-remaining JS world path and measures the default-flip candidate.
-
-## Native seat orchestration
-
-`vehicles::f2_seats` retains hull seat facts and turret rigs beside the canonical
-store. It sequences the existing seat solvers and validates commands against
-slab generations and gameplay lives. Commands collect changed hull, turret,
-lease and rider references for publication. Released leases retire after the
-caller publishes their final state, allowing old emitter objects to keep their
-identity. Latch and turret iteration reuse their scratch buffers.
-
-The live F2 scheduler imports foreign unit facts once before native latching.
-Generated lease and body records refresh the existing JS facades, including before
-synchronous board, exit and death hooks. Scalar commands cover boarding, exits,
-moves, displacement, network input, seat cycling, stick reset and destruction.
-Lease slab generations and occupant gameplay generations cannot retarget old
-references after reuse.
-
-Turret crews retain their aim, rig, weapon and occupant. CrewWorld calls
-Weapon::update and ordnance::Cx::fire_round directly, preserving each crew's aim,
-body placement and fire order. Shot storage is reused. Random draws still import
-the world's existing stream on shots. Bind, sound and fired records use a reserved
-ordered journal; native lease emitters preserve beam occupancy across departures.
-Building health and rebuild remain JS-owned lifecycle facts. The overlapping props
-adapter does not install turret method adapters on this path.
-
-The old seat bridges remain available for their independent switches. F2 never
-routes through them. Full hull rig publication and foreign continuous hull rider
-writeback remain until the firing merge and consolidated unit writeback. Native
-turret targeting and firing currently duplicate a few mounted-weapon helpers;
-those can share an implementation when the two owners merge. Private prediction
-hulls clear the authority command owner before replaying input.
-
-The warm F2 census below uses ticks 901 through 1200, seed 1, and the same
-export/explicit-copy counters as the earlier hull-only boundary. Values are per
-tick; inputs and outputs are scalar words. Imported query and RNG bridges are
-outside this counter scope.
-
-| Map | Export calls before | Export calls now | Input words before | Input words now | Output words before | Output words now |
+| Map | Earlier calls/tick | Current calls/tick | Earlier input words/tick | Current input words/tick | Earlier output words/tick | Current output words/tick |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| hot1 | 1.01 | 1.01 | 2314.08 | 3734.63 | 15386.55 | 23903.18 |
-| bes1 | 1.06 | 1.0633 | 3077.32 | 4881.07 | 16798.41 | 20468.79 |
+| hot1 | 1.01 | 1.097 | 3734.63 | 969.99 | 23903.18 | 1790.54 |
+| bes1 | 1.063 | 1.480 | 4881.07 | 1213.19 | 20468.79 | 2436.72 |
 
-Words increased while full native rig matrices, native lease/body mirrors and
-the foreign hull rider body handoff coexist. Continuous hull rider writeback
-still runs the existing JS rider helpers, including their node queries. Removing
-those readers and their rig output belongs with consolidated rider writeback.
-These counters do not establish a performance improvement or an allocation
-claim for the pre-existing hull physics loaders.
+Most input is still foreign unit facts and intent. Most output is compact rider
+samples, body/lease mirrors, weapon state and hull/seat geometry for existing JS
+readers. These are explicit transitional readers, not a second simulation owner.
+With native collision enabled, flags and changed collider matrices add the
+following scalar copies. A copied flag counts as one word in this census.
+
+| Map | Calls/tick | Input words/tick | Output words/tick |
+| --- | ---: | ---: | ---: |
+| hot1 | 1.097 | 1089.99 | 2129.15 |
+| bes1 | 1.480 | 1309.19 | 2814.11 |
+
+Both native-collision windows make zero native allocation requests. The warmed
+synthetic JS boundary also has no sampled object allocations. Live JS allocation
+sampling still records numeric and presentation allocations, so the strict
+whole-battle zero-allocation target is not met. The word census alone does not
+establish a CPU improvement; local emulator measurements are reported separately.
+
+The old `seats-sim.js` and `turret-seats-sim.js` adapters remain for their independent
+switches. F2 never routes through them. Building lifecycle and ordinary unit AI
+remain foreign; their later ports can further reduce the unit fact boundary.
