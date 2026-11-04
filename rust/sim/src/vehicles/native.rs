@@ -18,6 +18,7 @@
 //!   bobs with the battle's clock, comes in with each phase) and the death
 //!   regions (game.js inDeathRegion over src/regions.js inRegion).
 
+use crate::gen::{F2BodyHeader, F2BodyToggle, F2BodyPlaced};
 use super::{BodyId, Ground, Hit, Polygon};
 use crate::collision::spheres::{self, box_apply_matrix4, Bounds, GatherCache, Gathered, Probes, Pushed};
 use crate::collision::{self, broad, candidate, State, MAX_BODIES, MISS, TERRAIN};
@@ -191,23 +192,20 @@ impl Collision {
     pub fn take_changes(&mut self, s: &mut State, out: &mut Vec<f64>) {
         out.clear();
         let (toggled, placed) = (self.toggled.len(), self.placed.len());
-        out.push(toggled as f64);
-        out.push(placed as f64);
+        let mut heap = Vec::new();
+        out.resize(F2BodyHeader::WORDS,0.0);
+        F2BodyHeader { toggled: toggled as u32, placed: placed as u32 }.put(out,&mut heap);
         for i in 0..toggled {
             let k = self.toggled[i] as usize;
-            let flag = match self.place(s, k) {
-                Some(p) => self.flags[p],
-                None => 0,
-            };
-            out.push(k as f64);
-            out.push(flag as f64);
+            let enabled = self.place(s,k).is_some_and(|p| self.flags[p] != 0);
+            let at = out.len(); out.resize(at + F2BodyToggle::WORDS,0.0);
+            F2BodyToggle { kernel: k as u32, enabled }.put(&mut out[at..],&mut heap);
         }
         for &k in &self.placed {
             let b = &s.bodies[k as usize];
-            out.push(k as f64);
-            out.extend_from_slice(&b.bounds);
-            out.extend_from_slice(&b.matrix);
-            out.extend_from_slice(&b.inverse);
+            let at = out.len(); out.resize(at + F2BodyPlaced::WORDS,0.0);
+            F2BodyPlaced { kernel: k, min: [b.bounds[0],b.bounds[1],b.bounds[2]], max: [b.bounds[3],b.bounds[4],b.bounds[5]],
+                matrix: b.matrix, inverse: b.inverse }.put(&mut out[at..],&mut heap);
         }
         for &k in self.toggled.iter().chain(&self.placed) {
             self.marks[k as usize] = 0;

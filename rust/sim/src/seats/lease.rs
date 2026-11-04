@@ -342,7 +342,7 @@ pub enum Played<'a> {
 }
 
 /// Where the seat controls live: SeatUnit by its handle.
-pub type Controls = std::collections::BTreeMap<(u32, u32), SeatControl>;
+pub type Controls = super::rows::Rows<(u32,u32),SeatControl>;
 
 /// The key of a seat unit's handle in `Controls`.
 pub fn control_key(r: Ref<SeatUnit>) -> (u32, u32) {

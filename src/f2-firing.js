@@ -13,7 +13,13 @@ const mutable = ['deployed', 'firing', 'timer', 'bottomless', 'perShot', 'clip',
   'spreadScale', 'sniperScale', 'yawSpreadOverride', 'wait', 'reloadLeft', 'throwTime', 'released', 'hidden', 'charging', 'held',
   'charge', 'limit', 'pattern', 'salvosLeft', 'salvoWait', 'salvoSeed', 'salvoCount', 'lockTargetId', 'lockGeneration', 'lockElapsed', 'lockComplete'];
 const num = x => Number.isFinite(parseFloat(x)) ? parseFloat(x) : 0;
+// Vehicle.fireSeat now runs entirely in Rust. This facade supplies immutable
+// weapon/rig bindings, changed AI modifiers and the existing random stream.
+// It never executes Weapon.update or routes a round back through JS fire.
 export class F2Firing {
+  // Definitions and mirror shapes are registered before the phase starts.
+  // Keep one decoder per event type, since presentation drains repeatedly over
+  // the same reserved event buffer in a warm battle.
   constructor(phase) {
     this.phase = phase; this.bridge = phase.bridge; this.vs = phase.vehicles;
     this.categories = new WeakMap();
@@ -33,10 +39,13 @@ export class F2Firing {
     this.supplyRow = { hull: null, life: 0, amount: 0 };
     this.birthArgs = { words: phase.x.f2_firing_words(0), put: putFfBirth };
     this.bridge.register({
-      f2Posed: () => phase.sync(),
+      f2Posed: () => { phase.commitForeign(); phase.sync(); },
       f2WeaponDraw: a => this.draw(a),
       f2TargetFacts: a => this.targetFacts(a),
       // AI and other state-changing listeners retain their synchronous slot.
+      // VehiclesWorld.fired can change AI or trigger damage immediately. Keep
+      // that listener synchronous with the shot; sound, flash and cable visuals
+      // use the ordered presentation journal instead.
       f2Fired: a => {
         const w = a.hull.seats[a.seat].weapons[a.weapon].state;
         for (let i = 0; i < mutable.length; i++) w[mutable[i]] = a.state[mutable[i]];
@@ -45,6 +54,9 @@ export class F2Firing {
       },
     });
   }
+  // PowerupStation.serve changes canonical ammo, including a shot in the same
+  // tick. Only the supplied hull's weapon rows are published. The scalar
+  // command rejects both a retired handle and an earlier gameplay life.
   supply(v, amount) {
     const a = this.supplyRow; a.hull = v; a.life = v.aiTarget.generation; a.amount = amount;
     const previous = this.bridge.x; this.bridge.x = this.phase.x;
@@ -54,10 +66,16 @@ export class F2Firing {
     const result = this.bridge.callResult(this.supplyResultType, ptr, this.supplyResult);
     this.sync(result.output, 0); return result.changed;
   }
+  // Weapon draws still use the world's existing stream. Retaining this
+  // per-shot seam preserves the draw order across hulls and turrets while
+  // avoiding an import for idle weapons or ordinary weapon clocks.
   draw(a) {
     const random = a.hull.seats[a.seat].weapons[a.weapon].state.random;
     this.number.value = random(); return this.number;
   }
+  // Vehicle construction and respawn resolve nodes once, in rigNodes order.
+  // Store actual emitter nodes and aimer indices, including the fallback beam
+  // emitter whose frame may differ from the current muzzle.
   adopt(v) {
     const b = this.bridge, nodes = rigNodes(v), node = n => n ? nodes.indexOf(n) : -1;
     const named = name => v.byName[(name || '').toLowerCase()];
@@ -86,6 +104,9 @@ export class F2Firing {
     this.rows[v.simSlot] = row;
     for (const seat of v.seats) for (const weapon of seat.weapons) { const cache = new Float64Array(this.inputWords); cache.fill(NaN); this.inputCache.set(weapon, cache); }
   }
+  // seatLockTarget and AI spread/channel edits remain foreign until AI owns
+  // native rows. Canonical lease triggers and aim are deliberately omitted.
+  // The cache is committed only after native latch reads the pending batch.
   input(at) {
     const start = at, out = this.frozen, b = this.bridge;
     at += FfInputsLayout.words; let count = 0;
@@ -101,11 +122,13 @@ export class F2Firing {
           out.floor = w.floor; out.spreadScale = w.spreadScale; out.sniperScale = w.sniperScale; out.yawSpreadOverride = w.yawSpreadOverride;
           putFfWeaponInput(b, out, this.inputScratch, 0, null);
           const cache = this.inputCache.get(seat.weapons[c]); let changed = false;
-          for (let j = 0; j < this.inputWords; j++) if (!Object.is(cache[j], this.inputScratch[j])) changed = true;
+          for (let j = 0; j < this.inputWords; j++) {
+            const old = cache[j], next = this.inputScratch[j];
+            if (old === next ? old === 0 && 1 / old !== 1 / next : old === old || next === next) changed = true;
+          }
           if (changed) {
             const a = this.change; a.hull = v; a.seat = si; a.weapon = c; a.input = out;
             putFfWeaponChange(b, a, b.f, at, null); at += FfWeaponChangeLayout.words; count++;
-            cache.set(this.inputScratch);
           }
         }
       }
@@ -113,12 +136,27 @@ export class F2Firing {
     b.f[start + FfInputsLayout.count] = count;
     return at - start;
   }
+  // A lifecycle callback may have rebuilt the batch before latch. Accept only
+  // those submitted values; post-fire mirrors may already contain later weapon
+  // state that must be compared and sent on the following tick.
+  commitInput(start) {
+    const f = this.bridge.f, n = f[start + FfInputsLayout.count];
+    for (let i = 0; i < n; i++) {
+      const at = start + FfInputsLayout.words + i * FfWeaponChangeLayout.words;
+      const v = this.phase.pool.objects[f[at + FfWeaponChangeLayout.hull]], seat = f[at + FfWeaponChangeLayout.seat], weapon = f[at + FfWeaponChangeLayout.weapon];
+      const cache = this.inputCache.get(v.seats[seat].weapons[weapon]);
+      for (let j = 0; j < cache.length; j++) cache[j] = f[at + FfWeaponChangeLayout.input + j];
+    }
+  }
   syncDescriptor(ptr) {
     if (!ptr) return;
     const b = this.bridge; b.views();
     const p = syncFfPhase(b, b.f, ptr / 8, 0, this.phaseFields);
     this.sync(p.weapons, p.cables);
   }
+  // fireCrews publishes changed mounted state, preserving the JS Weapon
+  // objects held by AI and capture. Barrel and kick metadata belong to the same
+  // native weapon life, rather than a new wrapper made for each shot.
   sync(ptr, cables) {
     const b = this.bridge; b.views();
     const f = b.f;
@@ -140,6 +178,9 @@ export class F2Firing {
         }
       }
     }
+    // updateTethers owns cable endpoints. JS retains line objects for visual
+    // presentation only; a release event hides the existing line rather than
+    // leaving an old cable attached to a respawned hull.
     if (cables) {
       const base = cables / 8, n = f[base], stride = f[base + 1], heap = base + f[base + 2];
       this.phase.counters.outputFields += n * stride + f[base + 3];
@@ -157,6 +198,9 @@ export class F2Firing {
       }
     }
   }
+  // weapon-targeting.js requests lazy bounds only after eligibility passes.
+  // Do not eagerly ask every unit's sphere while rebuilding input, because
+  // that would change when exposed rider hit shapes become current.
   targetFacts(a) {
     const t = this.vs.units?.all()[a.index], viewer = a.viewer;
     const out = this.facts;
@@ -183,6 +227,9 @@ export class F2Firing {
     return { weapon: a.hull.seats[a.seat].weapons[a.weapon].state, yaw: a.yaw, pitch: a.pitch, charge: a.charge,
       targetId: a.targetId, targetGeneration: a.targetGeneration };
   }
+  // The event buffer is ordered across shots and cable transitions. Reuse
+  // decoders, while effects that retain a position receive their own event
+  // value. These are shot/lifecycle allocations, not idle phase scratch.
   drain() {
     const b = this.bridge; b.views();
     const f = b.f, base = this.phaseFields.events / 8, end = base + 1 + f[base];
@@ -194,6 +241,9 @@ export class F2Firing {
       else if (e.name === 'f2Tow') this.presentTow(a);
     }
   }
+  // Vehicle.emitShot emits sound and flash even when no projectile survives
+  // a synchronous launch listener. Preserve that slot and use the copied event
+  // origin, which cannot move with the hull before presentation reads it.
   presentShot(a) {
     const shot = this.shot(a), w = this.vs.world;
     w.sound('turretFire', a.hull, shot);

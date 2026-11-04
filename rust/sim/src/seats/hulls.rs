@@ -18,7 +18,7 @@ use crate::gen::{ExitRequest, Post, SeatLease, SeatLeaseView, SeatUnit, Store, U
 use crate::rig::math;
 use crate::store::{Nullable, Ref};
 use crate::vehicles::hull::angle;
-use std::collections::BTreeMap;
+use super::rows::Rows;
 use three::{clamp, Matrix4, Vector3};
 
 /// A hull as its seats read it beyond the store's fields.
@@ -59,7 +59,7 @@ pub struct Hulls {
     pub time: f64,
     pub ticks: f64,
     pub hulls: Vec<HullSide>,
-    pub riders: BTreeMap<u32, RiderFacts>,
+    pub riders: Rows<u32,RiderFacts>,
     pub controls: Controls,
     /// Leases made since this was last emptied, in the order made (a
     /// replay names them as the capture does).
@@ -181,7 +181,7 @@ impl Hulls {
     }
 
     fn facts(&mut self, unit: u32) -> &mut RiderFacts {
-        self.riders.entry(unit).or_default()
+        self.riders.get_or_default(unit)
     }
 
     /// Vehicles.seatOf (2189): the seat a unit holds in one of these hulls.

@@ -10,11 +10,15 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 import { CollisionWorld } from '../src/collision.js';
-import { Vehicles, VehicleDriver } from '../src/vehicles.js';
+import { Vehicles, Vehicle, VehicleDriver } from '../src/vehicles.js';
 import { Units, makeUnitHit, segmentCapsule, strikeable } from '../src/registry.js';
 import { Ordnance } from '../src/ordnance.js';
 import { HitHistory } from '../src/runtime/hit-history.js';
 import { Unit } from '../src/units.js';
+import { Soldier } from '../src/soldier.js';
+import { attachF2 } from '../src/f2-sim.js';
+import { bridgeFor } from '../src/sim/runtime.js';
+import { loadSim } from '../src/sim/module.js';
 import { leaveKilled } from '../src/boarding.js';
 
 const same = (actual, expected, message) => assert.ok(actual === expected, message ?? `${typeof actual} !== ${typeof expected}`);
@@ -96,7 +100,7 @@ function mount({ seats = [{}], healthType = null, enclose = false } = {}) {
   if (healthType) v.healthType = healthType;
   const units = new Units();
   system.attachUnits(units);
-  return { collision, system, v, units };
+  return { collision, system, v, units, pack: { data, buffer: new ArrayBuffer(0), indexBuffer: new ArrayBuffer(0) } };
 }
 
 // Rounds through the shared Ordnance, struck units and hulls recorded.
@@ -382,4 +386,31 @@ test('a crewman hidden inside a hull that is destroyed stays out of sight in tha
   world.system.presentRiders(1 / 60);
   assert.equal(inside.actor.root.visible, true);
   assert.equal(world.system.vanished.size, 0);
+});
+
+// This is the live phase over a complete invented rider, rather than a
+// sampler-only twin. It also exercises lazy bounds after native body writes.
+test('live F2 retains exposed rider samples and body timing without game files', async () => {
+  async function run(native, animal) {
+    const world = mount({ healthType: animal ? 'animal' : null });
+    const { system, collision, v } = world;
+    system.clock = () => system.time;
+    try {
+      if (native) attachF2(system, bridgeFor(await loadSim(), { classes: { Unit, Vehicle } }),
+        { killY: -300, deathRegions: [], scripted: [] }, world.pack, Unit);
+      const u = rider(); u.id = 41;
+      u.soldier = new Soldier(collision, {}); u.soldier.position.set(30, 0, 0);
+      seat(world, u); u.intent.forward = .5;
+      for (let i = 0; i < 60; i++) system.update(1 / 60);
+      const before = u.tickCount;
+      for (let i = 0; i < 120; i++) {
+        system.update(1 / 60);
+        if (native) assert.equal(system.f2.x.f2_allocations(), 0, `rider allocation at tick ${i}`);
+      }
+      return { ticks: u.tickCount - before, position: u.position.toArray(), velocity: u.velocity.toArray(),
+        shapes: u.hitShapes().map(s => [s.type, s.part, s.center.toArray(), s.halfSize?.toArray(), s.radius]),
+        drop: v.riderDrop(0, u, new THREE.Vector3()).toArray() };
+    } finally { system.dispose(); }
+  }
+  for (const animal of [false, true]) assert.deepEqual(await run(true, animal), await run(false, animal));
 });

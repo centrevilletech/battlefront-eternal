@@ -113,7 +113,7 @@ pub fn hull(r: Ref<Vehicle>, write_body: bool) {
                 p.turn_rates[index], crate::vehicles::hull::angle(seat.aim_yaw - v.yaw), seat.pitch, sp.yaw_rate)
         };
         let q = p.pose.rig.tree.node(p.pose.rig.root).quaternion;
-        sample(unit, Some(r), None, index, node.is_some(), point, frame, v.creature.then_some(q), pitch, turn, p.pose.age);
+        sample(unit, Some(r), None, index, node.is_some(), point, frame, super::live_seats::animal(r).then_some(q), pitch, turn, p.pose.age);
         if write_body && super::live_seats::has_actor(unit) {
             let u = sim().store.unit.get_mut(unit).unwrap();
             if let Some(s) = crate::seats::bodies::soldier_mut(u) {

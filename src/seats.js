@@ -740,6 +740,7 @@ const ZERO = new THREE.Vector3();
 // A turret's gun pivot: the gun node, else its fire point, else the drum's
 // bounding centre.
 export function turretOrigin(turret, out) {
+  if (turret.f2Seats) return out.copy(turret.f2Pose.origin);
   const node = turret.gun || turret.firePoint;
   if (node) {
     turret.rig?.root?.updateMatrixWorld?.(true);

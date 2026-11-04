@@ -128,11 +128,13 @@ test('F2 resets only the respawning hull\'s mounted weapons', async () => {
   for (let tick = 0; tick < 90; tick++) {
     for (const f of [js, rust]) {
       if (tick === 7) f.target.damage(Infinity);
+      // A pending foreign edit must survive the other hull's spawn callback.
+      if (tick === 13) { f.v.seats[0].weapons[0].state.spreadScale = .25; f.v.seats[0].weapons[0].state.channel = 1; }
       f.crew.intent.buttons[0] = 1;
       f.vs.update(1 / 60);
     }
     const a = js.v.seats[0].weapons[0].state, b = rust.v.seats[0].weapons[0].state;
-    for (const key of fields) assert.equal(b[key], a[key], `respawn tick ${tick} ${key}`);
+    for (const key of [...fields, 'spreadScale', 'channel']) assert.equal(b[key], a[key], `respawn tick ${tick} ${key}`);
     assert.equal(rust.draws(), js.draws());
     assert.deepEqual(rust.shots, js.shots);
   }

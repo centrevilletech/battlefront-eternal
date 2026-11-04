@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Session } from 'node:inspector/promises';
 import * as THREE from 'three';
 import { CollisionWorld } from '../src/collision.js';
 import { Vehicles, Vehicle } from '../src/vehicles.js';
@@ -13,6 +14,7 @@ import { attachOrdnanceSim, ordnanceTests } from '../src/ordnance-sim.js';
 import { Soldier } from '../src/soldier.js';
 import { seatLook, leaveKilled } from '../src/boarding.js';
 import { loadSim } from '../src/sim/module.js';
+import { loadRayKernel } from '../src/ray-kernel.js';
 import { predictionVehicle } from '../src/runtime/vehicle-prediction.js';
 import { networkVehicleInput } from '../src/runtime/network-vehicle.js';
 import { CommandControls } from '../src/runtime/commands.js';
@@ -23,9 +25,11 @@ function box(w, h, d, y) {
     polygons: Array(geometry.index.count / 3).fill(0) };
 }
 
-async function fleet(native, cage = false) {
+async function fleet(native, cage = false, nativeCollision = false) {
+  const instance = native ? await loadSim() : null;
+  const rays = nativeCollision ? await loadRayKernel(instance) : null;
   const floor = box(2000, 2, 2000, -1);
-  const collision = new CollisionWorld(new Float32Array(floor.positions), new Uint32Array(floor.indices), new Uint32Array(floor.polygons));
+  const collision = new CollisionWorld(new Float32Array(floor.positions), new Uint32Array(floor.indices), new Uint32Array(floor.polygons), undefined, undefined, rays);
   if (cage) for (const axis of ['x', 'z']) for (const side of [-1, 1]) {
     const wall = box(axis === 'x' ? .1 : 16, 10, axis === 'z' ? .1 : 16, 4);
     for (let i = axis === 'x' ? 0 : 2; i < wall.positions.length; i += 3) wall.positions[i] += side * 2.6;
@@ -43,7 +47,7 @@ async function fleet(native, cage = false) {
     collision, posts: { posts: [post] }, texture: () => null, ordnance: { explosion() {} }, effects: { play() {} } });
   system.clock = () => system.time;
   if (native) {
-    attachF2(system, bridgeFor(await loadSim(), { classes: { Unit, Vehicle } }),
+    attachF2(system, bridgeFor(instance, { classes: { Unit, Vehicle } }),
       { killY: -300, deathRegions: [], scripted: [] }, { data, buffer, indexBuffer }, Unit, true);
   }
   return { system, post };
@@ -53,6 +57,35 @@ function observe(v) {
   return { name: v.name, alive: v.alive, health: v.health, position: v.position.toArray(), velocity: v.velocity.toArray(),
     yaw: v.yaw, yawRate: v.yawRate, seats: v.seats.map(s => [s.aimYaw, s.pitch, s.lookYaw, s.lookPitch]) };
 }
+
+// Sample allocation requests in the real boundary after both its buffers and
+// V8's hot loops are warm. Native requests have their separate exact counter.
+test('warm live F2 boundary creates no sampled JavaScript objects', async () => {
+  const { system } = await fleet(true, false, true);
+  system.f2.debug = false;
+  const session = new Session(); session.connect();
+  try {
+    const u = rider(system, 42); assert.equal(system.board(u, system.vehicles[0]), true);
+    u.intent.forward = .5;
+    for (let i = 0; i < 1600; i++) system.update(1 / 60);
+    // Warm the profiler's own allocation-stack metadata before the measured
+    // interval, as well as warming the game and V8's phase loops above.
+    await session.post('HeapProfiler.startSampling', { samplingInterval: 1,
+      includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+    for (let i = 0; i < 120; i++) system.update(1 / 60);
+    await session.post('HeapProfiler.stopSampling');
+    await session.post('HeapProfiler.startSampling', { samplingInterval: 1,
+      includeObjectsCollectedByMajorGC: true, includeObjectsCollectedByMinorGC: true });
+    for (let i = 0; i < 120; i++) system.update(1 / 60);
+    const { profile } = await session.post('HeapProfiler.stopSampling');
+    const allocations = [];
+    function visit(node) {
+      if (node.selfSize && /\/src\/f2-[^/]+\.js$/.test(node.callFrame.url)) allocations.push({ function: node.callFrame.functionName, bytes: node.selfSize });
+      for (const child of node.children) visit(child);
+    }
+    visit(profile.head); assert.deepEqual(allocations, []);
+  } finally { session.disconnect(); system.dispose(); }
+});
 
 for (const replacement of [false, true]) {
   test(`F2 preserves another hull's pending look during ${replacement ? 'variant construction' : 'respawn'}`, async () => {
@@ -330,4 +363,18 @@ test('warm live F2 hull and crew phases reuse their native storage', async () =>
       assert.equal(system.f2.x.f2_allocations(), 0, `native allocation at warm tick ${i}`);
     }
   } finally { system.dispose(); }
+});
+
+test('live F2 generated collision records match world bodies without game files', async () => {
+  async function run(native) {
+    const { system } = await fleet(native, false, native);
+    try {
+      const v = system.vehicles[0], u = rider(system, 51); assert.equal(system.board(u, v), true);
+      u.intent.forward = .5;
+      for (let i = 0; i < 120; i++) system.update(1 / 60);
+      return { hull: observe(v), bounds: [v.body.bounds.min.toArray(), v.body.bounds.max.toArray()],
+        matrix: v.body.matrix.toArray(), inverse: v.body.inverse.toArray() };
+    } finally { system.dispose(); }
+  }
+  assert.deepEqual(await run(true), await run(false));
 });

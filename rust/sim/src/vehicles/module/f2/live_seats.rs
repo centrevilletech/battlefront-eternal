@@ -2,7 +2,7 @@
 //! leases and hull links are never imported from JavaScript. Command-local Store
 //! shells transfer ownership across hooks, so no canonical borrow survives JS.
 use super::*;
-use super::firing::{box_span, sphere_span};
+use super::firing::{LockFacts, LockQuery, LockView, allowed, pick_view};
 use crate::seats::{self, Attacker as By, Hit as SeatHit, Holder, Reason, SeatWorld, Seating};
 use crate::seats::bodies::{CombatFlags, soldier, soldier_mut};
 use crate::seats::hulls::{Hulls, HullSide, RiderFacts, Vacate};
@@ -108,6 +108,14 @@ pub extern "C" fn f2_seats_adopt() {
     super::geometry::register(a.vehicle);
 }
 
+/// Foreign actor facts keep one row per registry unit, including units that
+/// board late. Their ordered table must not allocate a tree node on insertion.
+pub fn reserve_riders(count: usize) {
+    let s = state();
+    s.owner.hulls.riders.reserve(count.saturating_sub(s.owner.hulls.riders.len()));
+    s.owner.crews.riders.reserve(count.saturating_sub(s.owner.crews.riders.len()));
+}
+
 /// Foreign units remain JS-owned until their phase moves. All these records are
 /// fixed width: decoding neither clones a table nor allocates a temporary list.
 fn inputs() {
@@ -122,7 +130,7 @@ fn inputs() {
         }
         u.generation = a.generation; u.alive = a.alive; u.dead = a.dead; u.human = a.human;
         u.network_human = a.network_human; u.walker = a.walker; u.team = a.team; u.removed = a.removed;
-        u.tick_count = a.tick_count; u.soldier = UnitBody::Soldier(a.soldier); u.intent = a.intent; u.combat.dead = a.combat_dead;
+        u.tick_count = a.tick_count; u.intent = a.intent; u.combat.dead = a.combat_dead;
         u.targetable = a.targetable; u.combat.mounted = a.mounted; u.combat.gun_underwater = a.gun_underwater; u.combat.aim_override = a.aim_override;
         let id = a.unit.slot as usize;
         if state().actors.len() <= id { state().actors.resize(id + 1, false); state().rider_sides.resize(id + 1, false); }
@@ -130,6 +138,10 @@ fn inputs() {
         let f = RiderFacts { no_enter: a.no_enter, combat: CombatFlags { zoom_step: a.zoom_step, zoom: a.zoom, first_person: a.first_person, blow_apart: a.blow_apart } };
         state().owner.hulls.riders.insert(a.unit.slot, f);
         state().owner.crews.riders.insert(a.unit.slot, f);
+    }
+    for i in 0..h.soldier_count as usize {
+        let a = F2SeatSoldier::take(&state().input[h.soldiers as usize + i * F2SeatSoldier::WORDS..], &[]);
+        sim().store.unit.get_mut(a.unit).unwrap().soldier = UnitBody::Soldier(a.soldier);
     }
     for i in 0..h.control_count as usize {
         let start = h.controls as usize + i * SeatAiControl::WORDS;
@@ -554,7 +566,7 @@ pub extern "C" fn f2_turret_adopt() {
     t.turret = v.turret; t.alive = v.alive; t.last_attacker = By::Record(v.attacker);
     t.sphere = (vec(&v.center), v.radius); t.weapon = v.weapon; t.missile_lock = v.missile_lock;
     t.desc.body = v.body; t.desc.rider = v.rider; t.desc.shootable = v.shootable;
-    let out = F2TurretOut { header: F2TurretHeader { turret: t.turret }, state: crate::battle::turrets::state(&t), weapon: a.weapon.clone(), ..Default::default() };
+    let out = F2TurretOut { header: F2TurretHeader { turret: t.turret }, state: F2TurretPose { yaw: t.yaw, pitch: t.pitch, yaw_vel: t.yaw_vel, pitch_vel: t.pitch_vel, gun_yaw: t.gun_yaw, gun_pitch: t.gun_pitch, barrel: t.barrel }, weapon: a.weapon.clone(), ..Default::default() };
     state().owner.crews.collide = a.collide;
     state().owner.add_turret(t);
     let w = a.weapon.map(|weapon| {
@@ -564,10 +576,9 @@ pub extern "C" fn f2_turret_adopt() {
     });
     state().turret_lives.push(a.life); state().posed.push(false); state().timed.push(a.timed); state().weapons.push(w); state().turret_rows.push(out);
     let s = state();
-    let bones: usize = s.turret_rows.iter().map(|r| r.state.bones.len() * PaBone::WORDS).sum();
-    s.turret_output.words.reserve(5 + s.turret_rows.len() * F2TurretOut::WORDS + bones);
-    s.turret_output.heap.reserve(bones);
+    s.turret_output.words.reserve(5 + s.turret_rows.len() * F2TurretOut::WORDS);
     s.event_output.words.reserve(32768);
+    let turret = state().owner.crews.turrets.last().unwrap().turret; touch_turret(turret); super::publish();
 }
 
 /// Building health and rebuilding remain foreign lifecycle facts.
@@ -592,7 +603,10 @@ fn publish_turrets(s: &mut State) {
         let p = &mut out.state;
         p.yaw = t.yaw; p.pitch = t.pitch; p.yaw_vel = t.yaw_vel; p.pitch_vel = t.pitch_vel;
         p.gun_yaw = t.gun_yaw; p.gun_pitch = t.gun_pitch; p.barrel = t.barrel;
-        p.root_world = t.rig.tree.node(t.rig.root).matrix_world.elements;
+        out.origin = v3(&t.origin()); out.direction = v3(&t.view_direction(t.yaw,t.pitch));
+        out.eye = v3(&t.aim_origin(true,t.yaw,t.pitch)); out.chase = v3(&t.aim_origin(false,t.yaw,t.pitch));
+        out.seat_point = v3(&t.seat_point()); out.seat_yaw = t.seat_yaw();
+        let mut along = Vector3::default(); out.muzzle = v3(&t.muzzle(false,Some(&mut along))); out.muzzle_direction = v3(&along);
         let mut turn = three::Quaternion::default();
         let node = t.rig.seat.unwrap_or(t.rig.root); t.rig.tree.get_world_quaternion(node, &mut turn);
         out.seat_turn = [turn.x, turn.y, turn.z, turn.w];
@@ -602,10 +616,6 @@ fn publish_turrets(s: &mut State) {
         if let Some(unit) = t.lease.and_then(|r| sim().store.seat_lease.get(r)).and_then(|l| l.unit) {
             let point = t.seat_point();
             super::riders::turret(unit, t.turret, t.desc.rider, point, turn, out.sample_pitch, out.sample_turn);
-        }
-        for (b, &node) in p.bones.iter_mut().zip(&t.rig.bones) {
-            let n = t.rig.tree.node(node); b.p = v3(&n.position); b.q = [n.quaternion.x, n.quaternion.y, n.quaternion.z, n.quaternion.w];
-            b.s = v3(&n.scale); b.world = n.matrix_world.elements;
         }
         if let Some(w) = &s.weapons[i] { out.weapon.as_mut().unwrap().clone_from(&w.state); }
         let (row, heap) = s.turret_output.row(at); out.put(row, heap);
@@ -768,49 +778,30 @@ fn turret_lock(turret: usize, origin: &Vector3, direction: &Vector3, lease: Ref<
     let (range, on, off, relations, categories) = (l.range, l.on, l.off, l.relation_mask, l.category_mask);
     let (complete, id, generation) = (w.state.lock_complete, w.state.lock_target_id, w.state.lock_generation);
     let query = |index, shapes, aim| import_f2_turret_target(&F2TurretTargetQuery { turret: turret as u32, index, lease, shapes, aim });
-    let allowed = |t: &F2TurretTarget| relations & (1 << (t.relation as i32 + 1)) != 0 && categories & (1 << t.category) != 0;
     let first = query(-1.0, false, false);
     match first.mode {
         F2TurretTargetMode::None | F2TurretTargetMode::Unavailable => return None,
-        F2TurretTargetMode::Unit => return (first.alive && allowed(&first)).then_some(LockTarget { id: first.id, generation: first.generation, alive: first.alive }),
+        F2TurretTargetMode::Unit => return (first.alive && allowed(relations,categories,first.relation,first.category)).then_some(LockTarget { id: first.id, generation: first.generation, alive: first.alive }),
         F2TurretTargetMode::Human => {},
     }
     let mut direction = *direction; direction.normalize();
-    if range <= 0.0 || direction.length_sq() == 0.0 { return None; }
     let ignore = state().owner.crews.turrets[turret].desc.body;
-    let n = unsafe { (&*addr_of_mut!(MEMBERS)).len() };
-    for pass in 0..2 {
-        if pass == 0 && !complete { continue; }
-        let cone = v8math::max(0.0, if pass == 0 { off } else { on }) * std::f64::consts::PI / 180.0;
-        let mut best = None; let mut best_angle = f64::INFINITY; let mut best_distance = f64::INFINITY;
-        for i in 0..n {
-            if pass == 0 {
-                let m = unsafe { (&*addr_of_mut!(MEMBERS))[i] };
-                if m.id != id || m.generation.unwrap_or(0.0) != generation { continue; }
-            }
-            let mut facts = query(i as f64, false, false);
-            if !facts.eligible || !allowed(&facts) { continue; }
-            let hull = facts.hull.and_then(|r| sim().store.vehicle.get(r));
-            let (angle, distance) = if let Some(v) = hull {
-                box_span(origin, &direction, &Matrix4 { elements: v.matrix }, &vec(&v.bounds_min), &vec(&v.bounds_max))
-            } else {
-                facts = query(i as f64, true, false);
-                sphere_span(origin, &direction, &vec(&facts.center), facts.radius)
-            };
-            if angle > cone || distance > range { continue; }
-            if best.is_some() && (best_angle < angle || best_angle == angle && best_distance <= distance) { continue; }
-            facts = query(i as f64, false, true);
-            let mut sight = vec(&facts.aim); sight.sub(origin); let length = sight.length();
-            if length >= 1e-6 {
-                let hit = World::default().cast(origin, sight.divide_scalar(length), length, ignore);
-                if hit.is_some_and(|h| h.body.is_none() || h.body != facts.body) { continue; }
-            }
-            best = Some(LockTarget { id: facts.id, generation: facts.generation, alive: facts.alive });
-            best_angle = angle; best_distance = distance;
-        }
-        if best.is_some() { return best; }
+    pick_view(&mut TurretQuery { turret, lease, ignore }, LockView { range,on,off,relations,categories,complete,id,generation }, origin,&direction)
+}
+struct TurretQuery { turret: usize, lease: Ref<SeatLease>, ignore: Option<Ref<Body>> }
+impl LockQuery for TurretQuery {
+    fn facts(&mut self, index: usize, shapes: bool, aim: bool) -> LockFacts {
+        let f = import_f2_turret_target(&F2TurretTargetQuery { turret: self.turret as u32, index: index as f64, lease: self.lease, shapes, aim });
+        LockFacts { id: f.id, generation: f.generation, alive: f.alive, eligible: f.eligible, relation: f.relation, category: f.category,
+            hull: f.hull, body: f.body.map(|r| r.slot), center: vec(&f.center), radius: f.radius, aim: vec(&f.aim) }
     }
-    None
+    fn clear(&mut self, origin: &Vector3, sight: &mut Vector3, length: f64, body: Option<u32>) -> bool {
+        if length >= 1e-6 {
+            let hit = World::default().cast(origin,sight.divide_scalar(length),length,self.ignore);
+            if hit.is_some_and(|h| h.body.is_none() || h.body.map(|b| b.slot) != body) { return false; }
+        }
+        true
+    }
 }
 
 /// Collision body identities arrive with topology changes, never per crew.
@@ -826,6 +817,10 @@ pub extern "C" fn f2_bodies() {
     }
 }
 
+/// riderBody chooses the animal frame by HealthType, not the movement base.
+pub fn animal(hull: Ref<Vehicle>) -> bool {
+    state().owner.hulls.hulls.iter().find(|h| h.vehicle == hull).is_some_and(|h| h.animal)
+}
 pub fn has_actor(unit: Ref<Unit>) -> bool { state().actors.get(unit.slot as usize).copied().unwrap_or(false) }
 pub fn rider_posed(unit: Ref<Unit>) {
     let flags = &mut state().rider_posed;

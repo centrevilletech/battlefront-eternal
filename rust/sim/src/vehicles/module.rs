@@ -40,7 +40,6 @@ use bfe_content::content::VehicleTemplate;
 use bfe_content::value::Value;
 use super::{BodyId, Ground, Hit, Polygon, VehicleWorld};
 use crate::abi::sim;
-use crate::collision::spheres::Bounds;
 use crate::gen::*;
 use crate::store::{Ref, StrId};
 use std::collections::HashMap;
@@ -231,15 +230,14 @@ pub extern "C" fn veh_collider(walls: u32, springs: u32) {
     let Some(c) = collision_world() else { return };
     let v = input();
     let (w, n) = (walls as usize, springs as usize);
-    let mut local_bounds: Bounds = [0.0; 6];
-    local_bounds.copy_from_slice(&v[2..8]);
+    let header = F2ColliderHeader::take(v, &[]);
     let collider = Collider {
-        kernel: v[1] as u32,
-        local_bounds,
-        walls: v[8..8 + w].iter().map(|&x| x as i64).collect(),
-        springs: v[8 + w..8 + w + n].iter().map(|&x| x as i64).collect(),
+        kernel: header.kernel,
+        local_bounds: [header.min[0],header.min[1],header.min[2],header.max[0],header.max[1],header.max[2]],
+        walls: v[F2ColliderHeader::WORDS..F2ColliderHeader::WORDS + w].iter().map(|&x| x as i64).collect(),
+        springs: v[F2ColliderHeader::WORDS + w..F2ColliderHeader::WORDS + w + n].iter().map(|&x| x as i64).collect(),
     };
-    c.add_collider(v[0] as BodyId, collider);
+    c.add_collider(header.body, collider);
 }
 
 /// The flags and places the hulls changed since the last call, for
@@ -686,7 +684,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
     let mut world = JsWorld { craft: u32::MAX };
     let locks = unsafe { &mut *addr_of_mut!(LOCKS) };
     locks.clear();
-    locks.push(0.0);
+    locks.resize(F2LockHeader::WORDS,0.0);
     if f2::active() {
         for (i, &r) in refs.iter().enumerate() {
             let v = sim().store.vehicle.get(r).expect("F2 hull");
@@ -740,7 +738,8 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
         unsafe { *addr_of_mut!(FLIGHT_ACC) = flight_acc };
         for (i, lock) in last.iter().enumerate() {
             if let Some(l) = lock {
-                locks.extend_from_slice(&[refs[i].slot as f64, l.target_id, l.generation, l.elapsed, if l.complete { 1.0 } else { 0.0 }]);
+                let at = locks.len(); locks.resize(at + F2Lock::WORDS, 0.0);
+                F2Lock { hull: refs[i].slot, id: l.target_id, generation: l.generation, elapsed: l.elapsed, complete: l.complete }.put(&mut locks[at..], &mut Vec::new());
                 locks[0] += 1.0;
             }
         }

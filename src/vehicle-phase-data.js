@@ -47,6 +47,9 @@ export function giveMapRules(bridge, water, map) {
 }
 
 // A hull's whole pose state, in posing.rs pull's order.
+// This remains construction input for F2 and full input for the older bridge.
+// F2 never calls applyPose during the world phase: its world-facing camera
+// geometry and rider samples come from generated compact native records.
 export function pullPose(v) {
   const out = [v.age, v.hoverPhase, v.walkPhase, v.walkBlend, v.visual.x, v.visual.y, v.visual.z];
   for (const seat of v.seats) {
@@ -69,6 +72,9 @@ export function pullPose(v) {
 // What JavaScript changed of a hull's pose state between poses, in
 // posing.rs inputs' order: each seat's frozen aim, each weapon's next
 // barrel and its muzzles' kick times.
+// The older hull switch still imports these foreign weapon and aim edits.
+// F2 reads canonical leases and native mounted rows instead, so this format
+// must stay independent until the older switch is retired.
 export function poseInputs(v, out) {
   for (const seat of v.seats) {
     const input = seat.lease?.input, aim = input?.aim;

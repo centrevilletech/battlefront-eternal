@@ -57,6 +57,8 @@ pub struct Seats {
 
 impl Seats {
     /// Vehicle construction registers fixed seat facts once, before a tick.
+    // Vehicle construction records fixed seat facts beside the canonical slab.
+    // Publication capacity grows here, not during normal crew iteration.
     pub fn add_hull(&mut self, st: &Store, side: HullSide) {
         let seats = st.vehicle.get(side.vehicle).expect("registered hull").seats.len();
         assert!(!self.hulls.hulls.iter().any(|h| h.vehicle == side.vehicle));
@@ -73,6 +75,8 @@ impl Seats {
         self.changed.leases.reserve(occupants);
         self.changed.units.reserve(occupants);
         self.retired.reserve(occupants);
+        self.hulls.controls.reserve(occupants.saturating_sub(self.hulls.controls.len()));
+        self.crews.controls.reserve(occupants.saturating_sub(self.crews.controls.len()));
     }
 
     /// Turret construction retains the rig and aim. Rebuilding a building
@@ -88,14 +92,20 @@ impl Seats {
         self.changed.leases.reserve(occupants);
         self.changed.units.reserve(occupants);
         self.retired.reserve(occupants);
+        self.hulls.controls.reserve(occupants.saturating_sub(self.hulls.controls.len()));
+        self.crews.controls.reserve(occupants.saturating_sub(self.crews.controls.len()));
     }
 
+    // A pooled Vehicle has two identities. Both the slab generation and the
+    // registry target's gameplay life must match before a command can write it.
     fn hull(&self, st: &Store, target: HullLife) -> Option<usize> {
         let v = st.vehicle.get(target.vehicle)?;
         if v.target_generation != target.life { return None; }
         self.hulls.hulls.iter().position(|h| h.vehicle == target.vehicle)
     }
 
+    // Unit bodies are pooled too. Reject a command from a previous soldier
+    // life even when the opaque unit handle still names the same JS object.
     fn unit(&self, st: &Store, target: UnitLife) -> Option<u32> {
         let u = st.unit.get(target.unit)?;
         (u.generation == target.life).then_some(target.unit.slot)
@@ -116,6 +126,8 @@ impl Seats {
         (seat.lease == Some(r)).then_some(v)
     }
 
+    // Vehicle.seatLeases is derived, not a second ownership source. Refresh it
+    // immediately after each seat mutation before a later intra-phase read.
     fn touch_hull(&mut self, st: &Store, v: Ref<Vehicle>) {
         if !self.changed.hulls.contains(&v) { self.changed.hulls.push(v); }
         if let Some(hull) = st.vehicle.get(v) {
@@ -140,6 +152,8 @@ impl Seats {
 
     /// Vehicles.latchCrews: freeze AI inputs, release stale leases, apply exit
     /// requests and promotions, then expose fresh derived controls to physics.
+    // Vehicles.latchCrews releases stale occupancies and processes requested
+    // exits before physics. Reuse the solvers and their ordered exit scratch.
     pub fn latch<W: SeatWorld + ?Sized>(&mut self, st: &mut Store, world: &mut W, time: f64) {
         self.hulls.time = time;
         self.hulls.latched.clear();
@@ -154,6 +168,8 @@ impl Seats {
     }
 
     /// Vehicles.board, including a network human's takeover of a bot's seat.
+    // Vehicles.board can displace or promote another occupant. Let the solver
+    // finish each mutation and refresh views before reporting the touched rows.
     pub fn board<W: SeatWorld + ?Sized>(&mut self, st: &mut Store, world: &mut W, unit: UnitLife, hull: HullLife, index: i32) -> bool {
         let Some(id) = self.unit(st, unit) else { return false };
         let Some(h) = self.hull(st, hull) else { return false };
@@ -216,6 +232,8 @@ impl Seats {
 
     /// networkVehicleInput applies a packet's mouse samples in order. Flight
     /// bindings remain foreign input; drive keys are returned to their caller.
+    // Network input names an occupancy, not merely a physical seat. An old
+    // packet must not steer whoever later takes that seat after lease reuse.
     pub fn network_input(&mut self, st: &mut Store, r: Ref<SeatLease>, keys: &SeatKeys, command: &SeatCommand) -> Option<SeatKeysOut> {
         let v = self.lease(st, r)?;
         let lease = st.seat_lease.get(r)?;
@@ -226,6 +244,8 @@ impl Seats {
     }
 
     /// Vehicles.destroyedCrew releases all riders before any death hook runs.
+    // Vehicles.destroyedCrew preserves the solver's kill-entry slot, including
+    // promotion and rider drop reads performed by synchronous death hooks.
     pub fn destroyed<W: SeatWorld + ?Sized>(&mut self, st: &mut Store, world: &mut W, hull: HullLife) -> bool {
         let Some(h) = self.hull(st, hull) else { return false };
         self.touch_hull(st, hull.vehicle);
@@ -271,6 +291,8 @@ impl Seats {
 
     /// TurretSeats.update follows hull fire, tow and rider writeback. A server
     /// world's dormant local Gunner/Driver is deliberately absent here.
+    // TurretSeats.update keeps per-crew aim, pose and fire interleaved. A
+    // whole-phase fire batch would expose different bodies to later shots.
     pub fn turret_tick<W: CrewWorld + ?Sized>(&mut self, st: &mut Store, world: &mut W, dt: f64) {
         self.crews.latched.clear();
         self.crews.made.clear();
@@ -282,6 +304,8 @@ impl Seats {
 
     /// After publication, retire released leases and their AI controls. Old
     /// generation-qualified commands then fail even if the slab slot is reused.
+    // Retire released lease rows only after their final state can be read.
+    // Their generation-qualified emitters remain valid historical identities.
     pub fn published(&mut self, st: &mut Store) {
         self.retired.clear();
         for &r in &st.seats.leases {

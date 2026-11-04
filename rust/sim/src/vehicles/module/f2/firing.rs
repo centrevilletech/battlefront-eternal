@@ -111,6 +111,10 @@ pub fn update_mounted(weapon: &mut crate::gen::Weapon, index: u32, class: &crate
 }
 
 #[cfg(target_arch = "wasm32")]
+mod targeting;
+#[cfg(target_arch = "wasm32")]
+pub use targeting::*;
+#[cfg(target_arch = "wasm32")]
 mod live;
 #[cfg(target_arch = "wasm32")]
 pub use live::*;

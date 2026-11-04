@@ -15,6 +15,5 @@ export function applyDelta(f, at, heap, row) {
     }
   }
 }
-export function deltaWords(f, at) { return D.words + f[at + D.maskLength] + f[at + D.valuesLength]; }
 // Buffers are allocated with a hull, lease or actor, outside ordinary ticks.
 export function deltaBuffer() { return new Float64Array(4096); }

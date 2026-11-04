@@ -17,12 +17,15 @@ static mut DESCRIPTOR: [f64; F2Phase::WORDS] = [0.0; F2Phase::WORDS];
 static mut PUBLICATION: Option<crate::vehicles::f2_publication::Publication> = None;
 static mut DESCS: Vec<super::super::spawn::SlotDesc> = Vec::new();
 static mut PAD_CLASSES: Vec<Vec<(f64, usize, StrId)>> = Vec::new();
-const FLAG_POSES: u32 = 1;
-const FLAG_COSMETIC: u32 = 2;
-const FLAG_FLIGHT: u32 = 4;
-const FLAG_ASSISTS: u32 = 8;
+const FLAG_POSES: u32 = 1 << F2PhaseFlag::Poses as u32;
+const FLAG_COSMETIC: u32 = 1 << F2PhaseFlag::Cosmetic as u32;
+const FLAG_FLIGHT: u32 = 1 << F2PhaseFlag::Flight as u32;
+const FLAG_ASSISTS: u32 = 1 << F2PhaseFlag::Assists as u32;
 static mut ACC: f64 = 0.0;
 static mut TIME: f64 = 0.0;
+// Vehicle.load resolves class data once. Working rows keep dynamic solver
+// scratch, while revisions avoid reloading the row just stored by a substep.
+// Spare rows permit synchronous damage hooks without aliasing the outer hull.
 struct HullRow { revision: u64, pool: Vec<Hull>, config: Config, gear: Option<GearClip> }
 static mut HULL_ROWS: Vec<Option<HullRow>> = Vec::new();
 fn hull_rows() -> &'static mut Vec<Option<HullRow>> { unsafe { &mut *addr_of_mut!(HULL_ROWS) } }
@@ -35,14 +38,24 @@ fn register_hull(r: Ref<Vehicle>) {
     let class = classes().get(&name).expect("registered hull class");
     let (config, gear) = if v.flying { flight_keys(&name) } else { (Config::default(), None) };
     let mut pool = Vec::with_capacity(4);
-    for _ in 0..4 { pool.push(Hull::from_store(r, v, class, 0, &s.strings)); }
+    for _ in 0..4 {
+        let mut hull = Hull::from_store(r,v,class,0,&s.strings);
+        if v.flying { hull.target_scratch.reserve(unsafe { (&*addr_of_mut!(MEMBERS)).len() }); }
+        pool.push(hull);
+    }
     let rows = hull_rows();
     if rows.len() <= r.slot as usize { rows.resize_with(r.slot as usize + 1, || None); }
     rows[r.slot as usize] = Some(HullRow { revision: 1, pool, config, gear });
 }
+// initFlight uses immutable class/gear handles. GearClip shares its clip by
+// reference count; copying this handle allocates no animation or key table.
+// Mutable flight state continues to come from the canonical vehicle row.
 pub fn flight_keys_for(r: Ref<Vehicle>) -> (Config, Option<GearClip>) {
     let row = hull_rows()[r.slot as usize].as_ref().unwrap(); (row.config, row.gear.clone())
 }
+// Vehicles.update can revisit a hull several times in one tick. Reload after
+// an external canonical write, but reuse the current working row across native
+// substeps. A callback never receives a borrow into this pool.
 pub fn take_hull(r: Ref<Vehicle>, index: usize) -> Hull {
     let row = hull_rows()[r.slot as usize].as_mut().unwrap();
     let mut hull = row.pool.pop().expect("reserved reentrant hull row");
@@ -61,6 +74,9 @@ fn publication() -> &'static mut crate::vehicles::f2_publication::Publication {
     unsafe { (*addr_of_mut!(PUBLICATION)).get_or_insert_with(Default::default) }
 }
 
+// Seat commands and cable writes can change canonical fields outside physics.
+// Invalidate working copies as well as publication, since the next native
+// substep must see those changes even if a mirror was already published.
 pub fn mark(r: Ref<Vehicle>) {
     if let Some(Some(row)) = hull_rows().get_mut(r.slot as usize) { row.revision += 1; }
     publication().mark(r); geometry::mark(r);
@@ -95,6 +111,9 @@ fn desc() -> &'static mut [f64; F2Phase::WORDS] { unsafe { &mut *addr_of_mut!(DE
 /// Allocate once while loading. The stable descriptor points at input and at
 /// each publication; output blocks may move, so their pointers are republished.
 #[no_mangle]
+// Vehicles construction supplies pad descriptions and fixed class names.
+// The descriptor is a generated record; buffers remain battle-local because
+// one WASM instance owns one battle and its callback stack.
 pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
     let text = String::from_utf16_lossy(sim().strings.units(StrId(json)));
     let value = bfe_content::json::parse(&text).expect("F2 pad descriptions");
@@ -119,6 +138,9 @@ pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
 
 /// Publish without a getter crossing from JS, also before a synchronous hook.
 /// No reference to the store survives a foreign call.
+// Flush the pending touched rows before exposing addresses. Native callbacks
+// can publish recursively, so every block represents this flush rather than
+// an append-only fleet snapshot that a later hook might read again.
 pub fn publish() {
     desc()[F2Phase::FIRING] = firing::phase_ptr() as usize as f64;
     desc()[F2Phase::SEATS] = live_seats::publish() as usize as f64;
@@ -129,20 +151,24 @@ pub fn publish() {
     desc()[F2Phase::LIVES] = p.lives.ptr() as usize as f64;
     desc()[F2Phase::BODIES] = veh_changes() as usize as f64;
     desc()[F2Phase::POSES] = geometry::publish() as usize as f64;
-    desc()[F2Phase::LOCKS] = 0.0;
     desc()[F2Phase::ACC] = unsafe { *addr_of_mut!(ACC) };
     desc()[F2Phase::FLIGHT_ACC] = unsafe { *addr_of_mut!(FLIGHT_ACC) };
     desc()[F2Phase::TIME] = unsafe { *addr_of_mut!(TIME) };
 }
 
 /// Fresh pose output exists only after spawn rendering or the complete phase.
+// Vehicle.aimTick/render already completed the retained rig. Publish compact
+// camera and scalar pose changes at the pre-fire slot, allowing unit raycasts
+// and synchronous fired listeners to read current state without JS rig math.
 fn publish_posed() {
     publish();
-    desc()[F2Phase::LOCKS] = unsafe { (&*addr_of_mut!(LOCKS)).first().map_or(0.0, |_| (&*addr_of_mut!(LOCKS)).as_ptr() as usize as f64) };
 }
 
 /// Only pad clocks are changed here. The JS registry/weapons receive a life
 /// notification; they never construct or step the hull's new mutable state.
+// Vehicles.spawnSlots runs before latching. Pad choice and obstruction order
+// are observable: keep pad order, first matching class, occupant exclusion and
+// the delayed retry without resetting another hull's pending seat samples.
 fn spawns(dt: f64) {
     let descs = unsafe { &*addr_of_mut!(DESCS) };
     let header = F2Input::take(io(), &[]);
@@ -175,6 +201,9 @@ fn spawns(dt: f64) {
         let v = sim().store.vehicle.get(r).expect("F2 variant");
         let (center, size, radius, flying) = (v.center, v.size, v.radius, v.flying);
         let m = d.matrix;
+        // Footprints use canonical hull matrices, including variants retained on
+        // other pads. Do not test the scene's presented rig or rebuild collision
+        // bounds through JS while deciding whether this life may spawn.
         let blocked = sim().store.vehicles.vehicles.iter().any(|&other| {
             if other == r { return false; }
             let b = sim().store.vehicle.get(other).expect("F2 hull");
@@ -225,6 +254,9 @@ pub fn respawn_clock(hull: usize) {
 
 /// Consume only foreign state. Layout is deliberately separate from vehicle
 /// rows, so adding a hull field cannot silently turn this into a full import.
+// The input records contain retained registry changes and foreign control
+// facts. They cannot overwrite physics, lease or weapon ownership. Reset lazy
+// aim-query scratch for this phase without allocating a new registry vector.
 fn foreign() {
     let h = F2Input::take(io(), &[]);
     let members = unsafe { &mut *addr_of_mut!(MEMBERS) };
@@ -234,6 +266,14 @@ fn foreign() {
         members[a.index as usize] = MemberRow { kind: a.kind as u8, id: a.id, generation: (!a.generation.is_nan()).then_some(a.generation), alive: a.alive,
             team: team(if a.has_team { 1.0 } else { 0.0 }, a.team), hull: a.hull as u32, point: vec(&a.point) };
     }
+    // Candidate storage belongs to fleet/registry construction, even when a
+    // craft stays empty for many ticks before its first pilot takes control.
+    for row in hull_rows().iter_mut().flatten() {
+        for hull in &mut row.pool { if hull.flying { hull.target_scratch.reserve(h.member_length as usize); } }
+    }
+    let wanted = unsafe { &mut *addr_of_mut!(AIM_WANTED) };
+    if wanted.capacity() < h.member_length as usize { wanted.reserve((h.member_length as usize).saturating_sub(wanted.len())); }
+    live_seats::reserve_riders(h.member_length as usize);
     let cache = unsafe { &mut *addr_of_mut!(AIM_CACHE) }; cache.resize(h.member_length as usize, None); cache.fill(None);
     let teams = unsafe { &mut *addr_of_mut!(TEAMS) }; teams.clear();
     for i in 0..h.team_count as usize { let t = F2PadTeam::take(&io()[h.teams as usize + i * F2PadTeam::WORDS..], &[]); teams.push(team(if t.has_team { 1.0 } else { 0.0 }, t.team)); }
@@ -255,29 +295,43 @@ fn foreign() {
 }
 
 #[no_mangle]
+// Vehicles.update and the adjacent TurretSeats slot retain their ordering.
+// All aim passes precede gameplay rendering, then hull fire/tow, rider body
+// writeback and the interleaved turret crew phase. Effects cannot move a
+// state-changing hook past a later read in that sequence.
 pub extern "C" fn f2_step(dt: f64, tick: f64) {
     assert!(active(), "F2 must be initialized");
     let dt = three::clamp(dt, 0.0, 0.1);
     unsafe { *addr_of_mut!(TIME) += dt; *addr_of_mut!(CLOCK) = Some(io()[F2Input::CLOCK]); }
     allocation::begin();
     sim().events.clear();
-    spawns(dt);
+    { let _scope = allocation::enter(allocation::LIFECYCLE); spawns(dt); }
+    allocation::stage(allocation::Stage::Foreign);
     foreign();
+    allocation::stage(allocation::Stage::Latch);
     live_seats::latch(unsafe { *addr_of_mut!(TIME) });
     let flags = io()[F2Input::FLAGS] as u32 & (FLAG_POSES | FLAG_COSMETIC | FLAG_FLIGHT | FLAG_ASSISTS);
+    allocation::stage(allocation::Stage::Hulls);
     let left = veh_ground(dt, unsafe { *addr_of_mut!(ACC) }, unsafe { *addr_of_mut!(FLIGHT_ACC) }, io()[F2Input::LEVEL], io()[F2Input::CLOCK], flags);
     unsafe { *addr_of_mut!(ACC) = left; }
     desc()[F2Phase::TICK] = tick;
+    allocation::stage(allocation::Stage::Publish);
+    firing::flight_locks();
     publish_posed();
     import_f2_posed(&VehNothing {});
+    allocation::stage(allocation::Stage::Fire);
     firing::step(dt, io()[F2Input::CLOCK]);
     // fireCrews changed weapons and cables. Publish those writes before the
     // presentation callback, replacing the already-consumed pose publication.
     publish();
     import_f2_foreign(&VehNumber { value: dt });
+    allocation::stage(allocation::Stage::Riders);
     for i in 0..sim().store.vehicles.vehicles.len() { riders::hull(sim().store.vehicles.vehicles[i], true); }
+    allocation::stage(allocation::Stage::Turrets);
     live_seats::turret_tick(dt);
+    allocation::stage(allocation::Stage::Publish);
     publish();
+    allocation::stage(allocation::Stage::Finish);
     live_seats::finish();
     allocation::end();
 }
@@ -285,21 +339,24 @@ pub extern "C" fn f2_step(dt: f64, tick: f64) {
 /// Synchronous authoritative writes. Both slab generation and gameplay life
 /// are checked; no old reference can write into a replacement's state.
 #[no_mangle]
+// Vehicle.damage/setHealth/wake/attribution validate the command before taking
+// a working row. Reentrant hooks may retire it, in which case the outer write
+// must not recreate the slot or publish into a replacement's life.
 pub extern "C" fn f2_command(slot: u32, generation: u32, life: f64, code: u32, value: f64, tag: u32, owner_slot: u32, owner_gen: u32) -> u32 {
     let r = Ref::new(slot, generation);
     let Some(v) = sim().store.vehicle.get(r) else { return 0 };
     if v.target_generation != life { return 0; }
+    if code > 3 || tag > 4 { return 0; }
     let flying = v.flying;
     let index = sim().store.vehicles.vehicles.iter().position(|&x| x == r).expect("F2 ordered hull");
     let mut hull = if flying { load_flyer(r, index) } else { load(r, index) };
     let owner = match tag { 0 => OrdnanceOwner::Null, 1 => OrdnanceOwner::Player, 2 => OrdnanceOwner::Unit(Ref::new(owner_slot, owner_gen)), 3 => OrdnanceOwner::Vehicle(Ref::new(owner_slot, owner_gen)), 4 => OrdnanceOwner::OwnerSnapshot(Ref::new(owner_slot, owner_gen)), _ => return 0 };
     let mut world = JsWorld { craft: u32::MAX };
-    match code {
-        0 => hull.damage(&mut world, value, owner),
-        1 => hull.set_health(&mut world, value),
-        2 => hull.sleeping = Some(false),
-        3 => hull.last_attacker = owner,
-        _ => return 0,
+    match F2HullOp::from_u8(code as u8).unwrap() {
+        F2HullOp::Damage => hull.damage(&mut world, value, owner),
+        F2HullOp::Health => hull.set_health(&mut world, value),
+        F2HullOp::Wake => hull.sleeping = Some(false),
+        F2HullOp::Attacker => hull.last_attacker = owner,
     }
     // A callback may have retired the slot; never resurrect it.
     if !sim().store.vehicle.contains(r) { return 0; }
@@ -310,6 +367,9 @@ pub extern "C" fn f2_command(slot: u32, generation: u32, life: f64, code: u32, v
 }
 
 #[no_mangle]
+// Vehicle retirement disables collision and releases seats, weapons and cables
+// while the old handle still names its final rows. Remove retained pose data
+// before the slab can reuse the slot for another vehicle.
 pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 {
     let r = Ref::new(slot, generation);
     let Some(v) = sim().store.vehicle.get(r) else { return 0 };

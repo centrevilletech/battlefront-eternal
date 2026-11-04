@@ -692,6 +692,12 @@ fn compute_min_run_length(mut n: i64) -> i64 {
 /// The comparator returns a JavaScript Number; NaN counts as +0.
 #[derive(Clone, Debug)]
 pub struct SortScratch<T> { tmp: Vec<T>, runs: Vec<(i64, i64)> }
+impl<T> SortScratch<T> {
+    pub fn reserve(&mut self, length: usize) {
+        if self.tmp.capacity() < length { self.tmp.reserve(length.saturating_sub(self.tmp.len())); }
+        if self.runs.capacity() < K_MAX_MERGE_PENDING { self.runs.reserve(K_MAX_MERGE_PENDING.saturating_sub(self.runs.len())); }
+    }
+}
 impl<T> Default for SortScratch<T> { fn default() -> Self { Self { tmp: Vec::new(), runs: Vec::new() } } }
 
 /// ArrayTimSort with caller-owned merge storage. Reset minGallop each call,

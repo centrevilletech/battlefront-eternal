@@ -648,6 +648,7 @@ export class Turret extends Building {
   // the pitch (up positive). yaw and pitch: the aim's (the turret's own by
   // default; a page passes the one it shows).
   viewDirection(out, yaw = this.yaw, pitch = this.pitch) {
+    if (this.f2Seats) return out.copy(this.f2Pose.direction);
     return aimVector(this.facing + yaw, pitch, out);
   }
 
@@ -692,6 +693,7 @@ export class Turret extends Building {
   // The eye: EyePointOffset in the aim frame. What a gunner looks from in
   // first person, and the plane the chase camera's aim starts at.
   eyePoint(out, yaw = this.yaw, pitch = this.pitch) {
+    if (this.f2Seats) return out.copy(this.f2Pose.eye);
     return out.copy(this.camera.eye).applyMatrix4(this.aimFrame(this.frameMatrix, yaw, pitch));
   }
 
@@ -724,6 +726,7 @@ export class Turret extends Building {
   // aim, so the point the gun turns to is the one under it. The page's
   // Gunner and the server's TurretSeats both aim from here.
   aimOrigin(out, firstPerson = false, yaw = this.yaw, pitch = this.pitch) {
+    if (this.f2Seats) return out.copy(firstPerson ? this.f2Pose.eye : this.f2Pose.chase);
     if (firstPerson) return this.eyePoint(out, yaw, pitch);
     this.cameraRest(out, yaw, pitch);
     const eye = this.eyePoint(aimEye, yaw, pitch);
@@ -799,6 +802,7 @@ export class Turret extends Building {
 
   // The direction the gun points, and its fire point, in the world.
   muzzle(position, direction, advance = false) {
+    if (this.f2Seats) { if (direction) direction.copy(this.f2Pose.muzzleDirection); return position.copy(this.f2Pose.muzzle); }
     this.rig.root.updateMatrixWorld(true);
     const point = this.firePoints?.length > 1 ? this.firePoints[this.barrel % this.firePoints.length] : this.firePoint;
     if (advance) this.barrel++;
@@ -878,6 +882,7 @@ export class Turret extends Building {
   // Where the gunner stands, in the world: the seat node's place, written
   // to out (the turret's root without one).
   seatPoint(out) {
+    if (this.f2Seats) return out.copy(this.f2Pose.seatPoint);
     return (this.seat || this.rig.root).getWorldPosition(out);
   }
 
@@ -888,12 +893,14 @@ export class Turret extends Building {
   // of a turret placed on a slope (one Hoth dish turret stands 9 degrees
   // off level), with any turn the node itself is bound with.
   seatTurn(out) {
+    if (this.f2Seats) return out.copy(this.f2Pose.seatTurn);
     return (this.seat || this.rig.root).getWorldQuaternion(out);
   }
 
   // The heading of that turn: where the gunner's +z points, about the
   // vertical (the soldier's aimYaw while he mans it).
   seatYaw() {
+    if (this.f2Seats) return this.f2Pose.seatYaw;
     const node = this.seat || this.rig.root;
     node.updateWorldMatrix(true, false);
     const e = node.matrixWorld.elements;

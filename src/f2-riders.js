@@ -8,6 +8,7 @@ const standins = { man_minigun: ['human_minigun_9pose', 4], drivesnowspeeder: ['
 export class F2Riders {
   constructor(phase) {
     this.phase = phase; this.bridge = phase.bridge; this.kernel = new AnimKernel(phase.x);
+    this.sample = { clip: null, pitch: 0, turn: 0, time: null };
     this.known = new WeakMap(); this.rows = new WeakMap(); this.clips = [];
     this.birthArgs = { words: phase.x.f2_rider_birth_words(), put: putF2RiderBirth };
   }
@@ -28,10 +29,12 @@ export class F2Riders {
       let clip = rider && (animator.clips.get(rider.clip) || animator.clips.get(rider.anim));
       const standin = rider && !clip && standins[rider.anim];
       if (standin) clip = animator.clips.get(standin[0]);
+      const turretSample = !holder.seats ? holder.riderSample(animator.clips, this.sample) : null;
+      if (!holder.seats) clip = turretSample?.clip ?? null;
       const id = clip ? this.kernel.clip(clip) : -1;
       if (clip) this.clips[id] = clip;
       bindings.push({ hull: holder.seats ? holder : null, turret: holder.seats ? null : holder, index: i,
-        clip: id, nine: Boolean(rider?.ninePose), time: standin && clip ? standin[1] / clip.fps : null });
+        clip: id, nine: holder.seats ? Boolean(rider?.ninePose) : turretSample?.time == null, time: holder.seats ? (standin && clip ? standin[1] / clip.fps : null) : turretSample?.time ?? null });
     }
     const a = { unit, life: unit.generation, scale: unit.rootScale ?? 1, rootBind: animator.rootBind ?? null, bones: descriptions, clips: bindings };
     this.bridge.callArgs(this.birthArgs, a); this.phase.x.f2_rider_birth();

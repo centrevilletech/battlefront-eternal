@@ -22,7 +22,7 @@ use crate::gen::{Body, Post, SeatLease, SeatRole, SeatUnit, Store, Turret};
 use crate::rig::math;
 use crate::store::Ref;
 use crate::vehicles::pose::{aim_vector, look_basis};
-use std::collections::BTreeMap;
+use super::rows::Rows;
 use three::{clamp, Euler, EulerOrder, Matrix4, NodeId, Quaternion, TransformTree, Vector3};
 
 const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
@@ -508,7 +508,7 @@ pub fn turret_aim_point<W: SeatWorld + ?Sized>(w: &mut W, t: &mut TurretSide, fi
 #[derive(Clone, Debug, Default)]
 pub struct Crews {
     pub turrets: Vec<TurretSide>,
-    pub riders: BTreeMap<u32, RiderFacts>,
+    pub riders: Rows<u32,RiderFacts>,
     pub controls: Controls,
     pub made: Vec<Ref<SeatLease>>,
     /// The seat controls whose intents the updates took edges from (as
@@ -528,7 +528,7 @@ impl Crews {
     }
 
     fn facts(&mut self, unit: u32) -> &mut RiderFacts {
-        self.riders.entry(unit).or_default()
+        self.riders.get_or_default(unit)
     }
 
     /// TurretSeats.seatOf (820).

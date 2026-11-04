@@ -40,6 +40,7 @@ pub mod boarding;
 pub mod bodies;
 pub mod exits;
 pub mod hulls;
+pub mod rows;
 pub mod lease;
 pub mod module;
 pub mod network;

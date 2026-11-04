@@ -1,4 +1,8 @@
 // Counters describe actual crossings and scalar words copied, not estimates.
+// Phase exports and explicit scalar copies are counted separately from the
+// shared bridge's query and RNG imports. Constructor work and commands are
+// visible categories, so a low phase-call count cannot hide lifecycle traffic.
+// Reader groups explain the remaining words when comparing boundary costs.
 export class F2Counters {
   constructor() { this.reset(); }
   reset() {
@@ -11,7 +15,7 @@ export class F2Counters {
     this.inputFields = 0;
     this.outputFields = 0;
     this.inputRegistry = this.inputFiring = this.inputFlight = this.inputWorld = this.inputFlags = this.inputSeats = 0;
-    this.outputHulls = this.outputPads = this.outputLives = this.outputPoses = this.outputLocks = this.outputCollision = 0;
+    this.outputHulls = this.outputPads = this.outputLives = this.outputPoses = this.outputCollision = 0;
     this.outputLeases = this.outputUnits = this.outputControls = this.outputTurrets = this.outputRiders = this.outputFiring = this.outputEffects = 0;
   }
   snapshot() { return { ...this }; }
@@ -41,6 +45,9 @@ export class F2MirrorCheck {
 
 // A plain forwarding table, scoped to this subsystem's bridge. No global
 // intrinsic or exported function is replaced.
+// Keep a plain forwarding table local to this phase. Fixed arguments avoid a
+// rest-array allocation on every export. The original bridge table is restored
+// after synchronous publication, including nested damage and seat callbacks.
 export function countedF2Exports(exports, counters) {
   const counted = {};
   for (const name of Object.keys(exports)) {

@@ -36,6 +36,20 @@ pub struct TargetScratch {
     asked: Vec<usize>, order: Vec<usize>, sort: jsrt::sort::SortScratch<usize>,
 }
 
+impl TargetScratch {
+    /// bestTarget may first run when a pilot boards long after a battle warmed.
+    /// Size its work from the registry before that first acquisition, rather
+    /// than allocating candidates as enemies enter the cone.
+    pub fn reserve(&mut self, count: usize) {
+        if self.candidates.capacity() < count { self.candidates.reserve(count.saturating_sub(self.candidates.len())); }
+        if self.scores.capacity() < count { self.scores.reserve(count.saturating_sub(self.scores.len())); }
+        if self.sights.capacity() < count { self.sights.reserve(count.saturating_sub(self.sights.len())); }
+        if self.asked.capacity() < count { self.asked.reserve(count.saturating_sub(self.asked.len())); }
+        if self.order.capacity() < count { self.order.reserve(count.saturating_sub(self.order.len())); }
+        self.sort.reserve(count);
+    }
+}
+
 impl Hull {
     /// inCone(v, t, cone): a living enemy entry within the cone and in
     /// range: its score (the cosine to the nose), else None.
