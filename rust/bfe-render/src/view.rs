@@ -15,7 +15,11 @@
 // (DRAW f64 each): three's program for its material as three compiled it
 // (Kind::Plain), its geometry, blending and state (transparent.rs DrawState),
 // the sides it is drawn with in turn, its index range and every uniform its
-// program reads (post.rs UNIFORM each).
+// program reads (post.rs UNIFORM each). A part that blends whose material
+// is a zero material (its lights and lamps per instance) is a record of its
+// own kind (instances.rs KIND_BLENDED_RIGID): its draw is that record's
+// (program below 0, D_GEOMETRY the k-th of the records that blend), in the
+// same order.
 use crate::core::{Camera, Core, MultiDraw, PASS_INSTANCES, PASS_VIEW};
 use crate::instances::InstancePass;
 use crate::post::{set_uniform, UNIFORM};
@@ -68,6 +72,14 @@ impl<C: HasContext> ViewPass<C> {
         let draws = (self.input[IN_DRAWS] as usize).min(MAX_DRAWS);
         for d in 0..draws {
             let v = &self.input[IN_FIRST_DRAW + d * DRAW..IN_FIRST_DRAW + (d + 1) * DRAW];
+            if v[D_PROGRAM] < 0.0 {
+                let before = core.stats.pass_draws[PASS_INSTANCES];
+                instances.draw_blended(core, v[D_GEOMETRY] as usize);
+                let drawn = core.stats.pass_draws[PASS_INSTANCES] - before;
+                core.stats.pass_draws[PASS_INSTANCES] = before;
+                core.stats.pass_draws[PASS_VIEW] += drawn;
+                continue;
+            }
             let (program, geometry) = (v[D_PROGRAM] as usize, v[D_GEOMETRY] as usize);
             if program >= core.programs.len() || geometry >= core.geometries.len() || v[D_RANGE + 1] <= 0.0 {
                 continue;

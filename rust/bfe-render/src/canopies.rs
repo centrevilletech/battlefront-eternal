@@ -1,6 +1,6 @@
 // The Enhanced tree canopies (tree-canopies.js): the leaves the near jungle
 // backdrop's models are rebuilt with near the eye, one camera-facing card an
-// instance, drawn in the near phase (and a mirror's) after the opaque world,
+// instance, drawn in the near phase (and a mirror's) before the opaque world,
 // with three's program for their material (the frame block's camera, time
 // and fog: the World kind) and its state: both sides, alpha to coverage,
 // depth tested and written, no blending.

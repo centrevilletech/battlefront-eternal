@@ -176,10 +176,11 @@ class InstancePass {
   // not seen yet, registered now and so hidden from three before it lists
   // them (the renderer draws them from their first frame), their materials'
   // programs built by three first where it has none yet (compileFor).
-  beforeSort(renderer, scene, camera, target) {
+  beforeSort(renderer, scene, camera, target, added) {
     const graphics = this.core.graphics;
     if (this.active === false || this.presortFailed || scene !== graphics.scene || camera !== graphics.camera || target !== graphics.sceneTarget) return;
     try {
+      this.standIn(renderer, scene, camera, added);
       const fresh = this.fresh, roots = graphics.playerRoot ? [...graphics.cullRoots, graphics.playerRoot] : graphics.cullRoots;
       fresh.length = 0;
       const add = (mesh, materials) => { if (unbuilt(renderer, materials)) fresh.push([mesh, materials]); };
@@ -195,6 +196,30 @@ class InstancePass {
       this.core.errors.push(`instances before sort failed: ${String(error?.stack || error).slice(0, 400)}`);
       this.presortFailed = true;
     }
+  }
+
+  // The arc caster's stand-in for a shock's glow (arc-lightning.js
+  // warmShock: one bone, nothing drawn), which three draws for its first 90
+  // frames so that the glow's program is built while the battle loads: that
+  // program built by three without a draw and the renderer's made from it
+  // now (as a struck body's glow will want them), and the stand-in kept from
+  // three, its count of frames run here as three's draws would run it (it
+  // takes itself away at the end of it).
+  standIn(renderer, scene, camera, added) {
+    for (const root of added || []) root.traverse((o) => { if (o.isSkinnedMesh && o.name === "arc-shock-warm") this.warm = o; });
+    const warm = this.warm;
+    if (!warm) return;
+    if (!warm.parent || !warm.visible) { if (warm.material) warm.material.visible = true; this.warm = null; return; }
+    const material = warm.material;
+    if (!this.warmProgram) {
+      if (unbuilt(renderer, material)) compileFor(renderer, [[warm, material]], camera, scene);
+      const programs = sidesOf(material).map((side) => { const p = programForSide(renderer, material, side); return p && this.core.program(p, SKINNED, material, POLICIES[SKINNED]); });
+      this.warmProgram = programs.length > 0 && programs.every(Boolean);
+      // Not the renderer's to make: three draws it, as before.
+      if (!this.warmProgram) { this.warm = null; return; }
+    }
+    material.visible = false;
+    warm.onBeforeRender(renderer, scene, camera, warm.geometry, material, null);
   }
 
   // The materials a body's groups draw with (its groups merged as the
@@ -479,6 +504,7 @@ class InstancePass {
   // guns, rigs and flying parts again, and this pass writes no records.
   setActive(on) {
     this.active = on;
+    if (!on && this.warm?.material) this.warm.material.visible = true;
     const set = (m) => { if (m) m.visible = !on; };
     for (const record of this.bodyRecords) for (const m of record.used) set(m);
     for (const record of this.meshRecords) set(record.material);

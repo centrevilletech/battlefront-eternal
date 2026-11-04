@@ -146,3 +146,68 @@ test("the motion pass: the proxies three would draw, in its order, then the view
   }
   assert.equal(motionVectors.drawer, null, "restored: three draws");
 });
+
+// A sky ship's motion mesh as sky-flyers.js makes one: a model part drawn
+// instanced, each ship's matrices now and last frame and whether it shows
+// as instance attributes, a material shared by every part.
+function shipMotion(material, count, at) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), 3));
+  geometry.setIndex([0, 1, 2]);
+  const previous = new THREE.InstancedBufferAttribute(new Float32Array(count * 16).map((_, i) => i + 0.5), 16);
+  const shown = new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1);
+  geometry.setAttribute("previousMatrix", previous);
+  geometry.setAttribute("shown", shown);
+  const mesh = new THREE.InstancedMesh(geometry, material, count);
+  for (let i = 0; i < count; i++) mesh.setMatrixAt(i, new THREE.Matrix4().makeTranslation(at.x + i, at.y, at.z));
+  mesh.frustumCulled = false;
+  mesh.updateMatrixWorld(true);
+  return mesh;
+}
+
+test("the sky's ships' own motion: drawn by the renderer first, in three's order, their instances and uniforms written, their hook run", () => {
+  const { core, calls, renderer, properties } = bridge();
+  const { camera } = cameras();
+  const material = new THREE.ShaderMaterial({
+    uniforms: { currentViewProjection: { value: new THREE.Matrix4() }, previousViewProjection: { value: new THREE.Matrix4() }, sceneDepth: { value: null }, still: { value: 0 } },
+    depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+  });
+  // The nearer ship's part drawn first, as three sorts them (z, then id).
+  const far = shipMotion(material, 3, new THREE.Vector3(0, 50, -400)), near = shipMotion(material, 2, new THREE.Vector3(0, 20, -100));
+  const hooks = [];
+  for (const mesh of [far, near]) { mesh.onBeforeRender = () => hooks.push(mesh); motionVectors.addExtra(mesh); }
+  const target = { texture: new THREE.Texture(), width: 8, height: 4 }, depth = new THREE.DepthTexture(8, 4);
+  const current = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), previous = current.clone();
+  const root = new THREE.Scene();
+  try {
+    // Until three has drawn them once: three.
+    motionVectors.render(renderer, { target, root, camera, viewScene: null, view: null, depth, current, previous });
+    assert.ok(calls.some((c) => c[0] === "render") && !calls.some((c) => c[0] === "motion_frame"), "three renders it");
+    assert.equal(core.byName.motion.why, "extra: no program yet");
+    properties.get(material).currentProgram = program([["modelMatrix", GL.FLOAT_MAT4], ["projectionMatrix", GL.FLOAT_MAT4], ["viewMatrix", GL.FLOAT_MAT4],
+      ["currentViewProjection", GL.FLOAT_MAT4], ["previousViewProjection", GL.FLOAT_MAT4], ["still", GL.FLOAT], ["sceneDepth", GL.SAMPLER_2D]],
+    ["position", "instanceMatrix", "previousMatrix", "shown"]);
+    calls.length = 0;
+    hooks.length = 0;
+    motionVectors.render(renderer, { target, root, camera, viewScene: null, view: null, depth, current, previous });
+    assert.ok(!calls.some((c) => c[0] === "render"), "three renders none of it");
+    assert.deepEqual(calls.find((c) => c[0] === "motion_frame"), ["motion_frame", 0], "no proxies");
+    assert.deepEqual(calls.filter((c) => c[0] === "add_program").map((c) => c[1]), [3], "one plain program for the shared material");
+    const extras = calls.filter((c) => c[0] === "motion_extra");
+    assert.equal(extras.length, 2, "each mesh registered");
+    assert.deepEqual([...extras[0][4]], [1, 4, 4, 2, 4, 4, 3, 1, 1], "instance matrix, last frame's (four columns each), shown");
+    assert.deepEqual(hooks, [near, far], "their hooks, in their order");
+    const ex = core.motionExtras, values = core.motionExtraValues, EXTRA = 5 + 8 * 18;
+    assert.equal(ex[0], 2);
+    // The nearer first: registered second (id 1), its two ships.
+    assert.deepEqual([ex[1], ex[2], ex[3], ex[4], ex[5]], [1, 2, 2, 0, 7], "id, instances, both sides, values at 0, seven uniforms");
+    assert.deepEqual([ex[1 + EXTRA], ex[2 + EXTRA], ex[4 + EXTRA]], [0, 3, 2 * 33], "then the far one's three ships");
+    assert.deepEqual([...values.subarray(0, 32)], [...near.instanceMatrix.array.subarray(0, 32)]);
+    assert.deepEqual([...values.subarray(32, 64)], [...near.geometry.attributes.previousMatrix.array.subarray(0, 32)]);
+    assert.deepEqual([...values.subarray(64, 66)], [1, 1]);
+    assert.equal(core.motionInput[102], 1, "the target cleared first");
+  } finally {
+    for (const mesh of [far, near]) motionVectors.removeExtra(mesh);
+    core.restore();
+  }
+});

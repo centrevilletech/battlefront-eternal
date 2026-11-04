@@ -51,9 +51,9 @@ function bridge() {
 
 test("the passes are made in the renderer's order, each in its phase", () => {
   const { core } = bridge();
-  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "transparent", "effects", "foliage", "view", "post", "hud", "water", "near", "canopies", "sea", "motion"]);
+  assert.deepEqual(core.passes.map((p) => p.name), ["world", "instances", "far", "terrain", "image", "transparent", "effects", "foliage", "view", "post", "hud", "water", "near", "canopies", "sea", "motion", "shadow", "clouds", "underwater", "mirrorCover", "fog"]);
   const phases = Object.fromEntries(Object.entries(core.phases).map(([name, passes]) => [name, passes.map((p) => p.name)]));
-  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage", "canopies", "sea"], transparent: ["transparent", "effects", "water"], view: ["view"], post: ["post"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage", "canopies", "sea"], mirrorTransparent: ["transparent", "effects", "water"], begin: ["near"], farMirror: ["far"], probe: ["far"], motion: ["motion"] });
+  assert.deepEqual(phases, { far: ["far"], near: ["world", "instances", "terrain", "foliage", "canopies", "sea"], transparent: ["image", "transparent", "effects", "water", "fog"], view: ["view"], post: ["post"], hud: ["hud"], mirror: ["world", "instances", "terrain", "foliage", "canopies", "sea"], mirrorTransparent: ["image", "transparent", "effects", "water", "fog"], begin: ["near", "mirrorCover"], farMirror: ["far"], probe: ["far"], motion: ["motion"], shadow: ["shadow"], image: [], skyClouds: ["clouds"], underwater: ["underwater"] });
   assert.throws(() => core.addPass({ name: "x", phase: "nowhere" }), /no phase nowhere/);
 });
 
@@ -166,7 +166,7 @@ test("the transparent list: armed after the near phase on three's last opaque it
   assert.deepEqual(calls, []);
   wall.onAfterRender(renderer, scene, camera, null, list.opaque[1].material, null);
   assert.equal(calls.filter((c) => c[0] === "transparent_frame").length, 1);
-  assert.deepEqual(calls.find((c) => c[0] === "transparent_frame").slice(1), [2]);
+  assert.deepEqual(calls.find((c) => c[0] === "transparent_frame").slice(1), [2, 0], "three's two items' keys; no image of the renderer's (three draws it)");
   assert.ok(!Object.prototype.hasOwnProperty.call(wall, "onAfterRender"), "its hook is taken off once it ran");
   // three's items' keys, in three's order.
   assert.deepEqual([...core.transparentKeys.subarray(0, 8)], [0, 0, 0.9, a.id, 0, 3, 0.2, b.id]);
@@ -361,4 +361,33 @@ test("a phase that made no GL call leaves three's state alone", () => {
   core.rust.transparent_frame = () => { calls.push(["transparent_frame"]); return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; };
   core.phase("transparent", renderer, scene, camera);
   assert.deepEqual(calls.map((c) => c[0]).filter((n) => n !== "add_texture" && n !== "set_far_map"), ["transparent_frame"]);
+});
+
+test("painted terrain binds an empty color texture for an unpainted layer between active layers", () => {
+  const { core, calls, renderer, scene, camera } = bridge();
+  standIns(core, ["layerMap0", "layerMap1", "layerMap2"]);
+  const textures = [], first = new THREE.Texture(), last = new THREE.Texture();
+  core.texture = (texture) => { textures.push(texture); return textures.length - 1; };
+  const material = new THREE.ShaderMaterial({ defines: { TERRAIN: "", WORLD_SPACE: "", TERRAIN_LAYERS: 3 }, uniforms: {
+    layerMap0: { value: first }, layerMap1: { value: null }, layerMap2: { value: last },
+  } });
+  const geometry = new THREE.BufferGeometry(), index = new THREE.BufferAttribute(new Uint32Array([0, 1, 2]), 1);
+  geometry.setIndex(index);
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(geometry, material));
+  group.material = material;
+  group.userData.patches = { full: { index, cells: [{ start: 0, end: 3, box: new THREE.Box3(new THREE.Vector3(-1, -1, -1), new THREE.Vector3(1, 1, 1)) }] }, bounds: new THREE.Sphere(new THREE.Vector3(), 2) };
+  scene.add(group);
+  Object.assign(renderer.properties.get(material), { currentProgram: {}, __version: material.version });
+  core.pass(renderer, scene, camera);
+  const bindings = calls.filter((c) => c[0] === "world_texture");
+  assert.deepEqual(bindings.map((c) => c[2]), [6, 7, 8], "every active sampler gets a binding, including the zero-weight layer");
+  const bound = bindings.map((c) => textures[c[3]]);
+  assert.equal(bound[0], first);
+  assert.equal(bound[2], last);
+  assert.ok(bound[1].isDataTexture);
+  assert.deepEqual([...bound[1].image.data], [0, 0, 0, 0], "the same empty color texel three binds for null");
+  assert.equal(material.visible, false, "the phase takes the complete terrain draw");
+  core.pass(renderer, scene, camera);
+  assert.equal(calls.filter((c) => c[0] === "world_texture").length, bindings.length, "registered once, with no per-frame texture allocation");
 });
