@@ -18,6 +18,7 @@ struct Mounted {
     birth: FfWeaponBirth,
     state: Weapon,
     class: Option<WeaponClass>,
+    missile_lock: bool,
     lock_angles: Vec<[f64; 2]>,
     keys: WeaponGeometry,
     input: FfWeaponInput,
@@ -77,10 +78,13 @@ pub extern "C" fn f2_firing_adopt() {
         let mut refs = Vec::new();
         for birth in seat.weapons {
             let class = defs.weapons.class(birth.state.def).clone();
+            // hasMissileLock uses immutable definition fields. Resolve it
+            // once, alongside the model's fire points and lock cone angles.
+            let missile_lock = class.base().get(K::Base).is_str("launcher") && class.base().get(K::Ordnance).get("base").is_str("missile");
             let keys = WeaponGeometry { weapon_node: node(birth.weapon_node), fallback_node: node(birth.fallback_node),
                 direction_nodes: birth.direction_nodes.iter().map(|&n| node(n)).collect(), outside_limits: birth.outside.clone() };
             let lock_angles = class.levels.iter().map(|d| { let on = d.field("LockOnAngle").or(0.0); [on, d.field("LockOffAngle").or(on)] }).collect();
-            let r = state().weapons.insert(Mounted { lock_angles, state: birth.state.clone(), birth, class: Some(class), keys, input: FfWeaponInput::default(), shots: Vec::with_capacity(32), dirty: true });
+            let r = state().weapons.insert(Mounted { lock_angles, state: birth.state.clone(), birth, class: Some(class), missile_lock, keys, input: FfWeaponInput::default(), shots: Vec::with_capacity(32), dirty: true });
             refs.push(r);
         }
         craft.seats.push(refs);
@@ -346,16 +350,16 @@ pub fn step(dt: f64, clock: f64) {
 
 fn fire_seat(r: Ref<Vehicle>, seat: usize, weapon: usize, dt: f64, clock: f64) {
     let wr = state().crafts[r.slot as usize].as_ref().unwrap().seats[seat][weapon];
-    let (mut w, class, input, mut shots, tow, masks, angles) = {
+    let (mut w, class, input, mut shots, tow, missile_lock, masks, angles) = {
         let m = state().weapons.get_mut(wr).unwrap();
         let angles = m.lock_angles[m.state.level as usize];
-        (std::mem::take(&mut m.state), m.class.take().unwrap(), std::mem::take(&mut m.input), std::mem::take(&mut m.shots), m.birth.tow, (m.birth.relation_mask, m.birth.category_mask), angles)
+        (std::mem::take(&mut m.state), m.class.take().unwrap(), std::mem::take(&mut m.input), std::mem::take(&mut m.shots), m.birth.tow, m.missile_lock, (m.birth.relation_mask, m.birth.category_mask), angles)
     };
     let v = sim().store.vehicle.get(r).unwrap();
     if v.flying {
         w.lock_target_id = v.flight_lock_id.unwrap_or(-1.0); w.lock_generation = v.flight_lock_generation.unwrap_or(-1.0);
         w.lock_elapsed = v.flight_lock_timer.unwrap_or(0.0); w.lock_complete = v.flight_lock_state == Some(state().locked);
-    } else if class.base().get(K::Base).is_str("launcher") && class.base().get(K::Ordnance).get("base").is_str("missile") {
+    } else if missile_lock {
         let picked = lock_pick(r, &class, &w, seat, input.target, masks, angles);
         w.update_lock(&class, dt, picked);
     }

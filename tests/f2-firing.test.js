@@ -50,6 +50,7 @@ async function fixture(native, def, options = {}) {
       seats: [{ name: 'BODY', settings: {}, weapons: [] }], explosion: null };
     data.spawns.push({ name: 'target', matrix: new THREE.Matrix4().makeTranslation(options.trip ? 12 : 0, 0, options.trip ? 0 : 30).toArray(), team: 2, respawnTime: 10, classes: { 2: 'walker' } });
   }
+  if (options.other) data.spawns.push({ name: 'other', matrix: new THREE.Matrix4().makeTranslation(80, 0, 0).toArray(), team: 1, respawnTime: .1, classes: { 1: 'hull' } });
   if (options.trip) {
     Object.assign(data.classes.hull.settings, { ForwardSpeed: 12, StrafeSpeed: 0, TurnRate: 1, Traction: 1000, Acceleration: 1000, Deceleration: 1000 });
     data.classes.walker.explosion = { class: 'fixture-trip-blast', Damage: 0, DamageRadiusInner: 0, DamageRadiusOuter: 0 };
@@ -117,6 +118,27 @@ for (const base of ['bolt', 'missile', 'beam', 'beamFallback', 'multibarrel', 'd
       js.o.beams.map(b => [b.localOrigin?.toArray(), b.position.toArray(), b.direction.toArray(), b.end.toArray()]), `${base} tick ${tick} following beam`);
   }
   assert.ok(js.shots.length > 2);
+});
+
+test('F2 resets only the respawning hull\'s mounted weapons', async () => {
+  const def = weaponDefinition('fixture-mounted-respawn');
+  const js = await fixture(false, def, { other: true }), rust = await fixture(true, def, { other: true });
+  const life = rust.target.aiTarget.generation, sourceLife = rust.v.aiTarget.generation;
+  const freshClip = rust.target.seats[0].weapons[0].state.clip;
+  for (let tick = 0; tick < 90; tick++) {
+    for (const f of [js, rust]) {
+      if (tick === 7) f.target.damage(Infinity);
+      f.crew.intent.buttons[0] = 1;
+      f.vs.update(1 / 60);
+    }
+    const a = js.v.seats[0].weapons[0].state, b = rust.v.seats[0].weapons[0].state;
+    for (const key of fields) assert.equal(b[key], a[key], `respawn tick ${tick} ${key}`);
+    assert.equal(rust.draws(), js.draws());
+    assert.deepEqual(rust.shots, js.shots);
+  }
+  assert.equal(rust.target.aiTarget.generation, life + 1);
+  assert.equal(rust.v.aiTarget.generation, sourceLife);
+  assert.equal(rust.target.seats[0].weapons[0].state.clip, freshClip);
 });
 
 
