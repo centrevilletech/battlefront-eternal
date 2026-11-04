@@ -76,7 +76,7 @@ test('all extracted ground vehicle missile launchers acquire and guide shots', {
 
 test('vehicle construction, player firing and AI firing preserve secondary missile guidance', async () => {
   const { Vehicles } = await import('../src/vehicles.js');
-  const { CollisionWorld } = await import('../src/collision.js');
+  const { CollisionWorld } = await import('../tools/collision-fixture.mjs');
   const geometry = (w, h, d, y) => {
     const g = new THREE.BoxGeometry(w, h, d).translate(0, y, 0);
     return { positions: g.attributes.position.array, indices: g.index.array, polygons: new Uint32Array(g.index.count / 3) };
@@ -120,7 +120,7 @@ test('vehicle construction, player firing and AI firing preserve secondary missi
 
 test('a seat locks along its reticle line (through the point under the crosshair), not its eye\'s forward', async () => {
   const { Vehicles } = await import('../src/vehicles.js');
-  const { CollisionWorld } = await import('../src/collision.js');
+  const { CollisionWorld } = await import('../tools/collision-fixture.mjs');
   const geometry = (w, h, d, y) => {
     const g = new THREE.BoxGeometry(w, h, d).translate(0, y, 0);
     return { positions: g.attributes.position.array, indices: g.index.array, polygons: new Uint32Array(g.index.count / 3) };

@@ -183,7 +183,7 @@ test('an effect scale multiplies drawn sizes on both paths; inherit adds a share
 });
 
 test('a destroyed walker\'s blast goes off at its ExplosionOffset, turned with the hull', async () => {
-  const { CollisionWorld } = await import('../src/collision.js');
+  const { CollisionWorld } = await import('../tools/collision-fixture.mjs');
   const { Vehicles } = await import('../src/vehicles.js');
   const box = (x, y, z, w, h, d) => {
     const g = new THREE.BoxGeometry(w, h, d).translate(x, y, z);
@@ -314,7 +314,7 @@ test('a placed turret burns its damage effects while built and flies apart when 
 });
 
 test('a piece passes through the wreck it starts inside, and lands on the ground', async () => {
-  const { CollisionWorld } = await import('../src/collision.js');
+  const { CollisionWorld } = await import('../tools/collision-fixture.mjs');
   const { Debris } = await import('../src/debris.js');
   const box = (x, y, z, w, h, d) => {
     const g = new THREE.BoxGeometry(w, h, d).translate(x, y, z);
@@ -348,7 +348,7 @@ const plate = () => () => {
   return group;
 };
 const ground = async () => {
-  const { CollisionWorld } = await import('../src/collision.js');
+  const { CollisionWorld } = await import('../tools/collision-fixture.mjs');
   const g = new THREE.BoxGeometry(400, 2, 400).translate(0, -1, 0);
   return new CollisionWorld(g.attributes.position.array, g.index.array, new Uint32Array(g.index.count / 3));
 };
