@@ -36,7 +36,9 @@ const slot=game.vehicles.slots[0];
 const variantName=[...game.vehicles.templates.keys()].find(name=>!slot.variants.has(name));
 assert.ok(variantName);
 const lateVehicle=game.vehicles.variant(slot,variantName);
-const replica=await headlessGame(query);
+// A page receives state into presentation objects; authoritative native units
+// belong to the server even when this content fixture runs without a renderer.
+const replica=await headlessGame(query+'&sim=js&units=js&combat=js&hulls=js&seats=js&battle=js&aiSim=js');
 replica.validateAuthoritativeHumanTeam=()=>{};
 replica.applyAuthoritativeHumanTeam=team=>replica.setHumanTeam(team,false);
 Object.defineProperty(replica,'client',{value:{seats:new EntitySeats(replica)}});
@@ -53,7 +55,7 @@ const local=replica.playerUnit;
 assert.equal(replica.units.byId(lateVehicle.aiTarget.id).vehicle.name,lateVehicle.name,'late vehicle IDs remain distinct from joining infantry');
 assert.equal(local.combat.health,bu.combat.health);
 assert.ok(local.position.distanceTo(bu.position)<1e-9);
-assert.equal(local.character.name,'Player');
+assert.equal(local.character.name,bu.character.name);
 assert.deepEqual(local.combat.arsenal.weapons.map(w=>[w.clip,w.reserve]),bu.combat.arsenal.weapons.map(w=>[w.clip,w.reserve]));
 
 const tickets=game.battle.reinforcements[1],kills=bu.character.kills;
