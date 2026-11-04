@@ -72,6 +72,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
   // hull's sticks and a flown recon droid's keys alike; leaving also hands
   // the droid back (removePlayer), but a pause or a gap in his input does not.
   function stopInput(p) {
+    if (game.worldSim?.networkStop) return game.worldSim.networkStop(p);
     p.mailbox.clear();p.controls.clear();p.fire.clear();p.actions.clear();
     const unit=p.unit;if(!unit)return;
     Object.assign(unit.intent,blankSeatIntent(),{flight:{}});
@@ -132,6 +133,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
     p.spawn.phase = 'unspawned'; p.spawn.spawnedOnce = false; p.spawn.post = null; p.spawn.deadTime = unit.deadTime;
   }
   function applyNetworkControls(p, u, command, tick) {
+    if (game.worldSim?.networkControls) return game.worldSim.networkControls(game, p, u, command, tick);
     const c=p.controls, intent=u.intent;
     for(const [action,kind,label]of [['squadMoveOut',0,'moveout'],['squadHold',2,'hold'],['squadFollow',3,'follow'],['squadAtEase',1,'atease']]){
       if(c.take(action)&&game.ai?.playerCommand){game.ai.playerCommand(kind,p.character);game.simEvents.emit('presentation',{event:{kind:'squad',ownerId:u.id,ownerGeneration:u.generation,label}});}

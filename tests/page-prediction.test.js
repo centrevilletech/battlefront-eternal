@@ -6,6 +6,7 @@ import { createPagePrediction } from '../src/runtime/page-prediction.js';
 import { InfantryPrediction } from '../src/runtime/infantry-prediction.js';
 import { WeaponPrediction } from '../src/runtime/weapon-prediction.js';
 import { NetworkSession } from '../src/runtime/network-session.js';
+import { InputLead } from '../src/runtime/reconcile.js';
 import { captureWeaponState } from '../src/runtime/network-weapon-state.js';
 import { actorCourse, createPredictionActor, actorInput } from './fixtures/prediction-actor-cases.js';
 import { createWeaponUnit, weaponDefinition } from './fixtures/prediction-weapon-cases.js';
@@ -22,7 +23,7 @@ test('page teardown releases cached native actors, active weapons and correction
     infantry.dispose(); weapons.dispose(); owner.dispose();
   } });
   try {
-    for (const name of ['actors', 'weapons', 'vehicles', 'remotes', 'corrections']) assert.equal(owner[name].bridge, owner.bridge);
+    for (const name of ['actors', 'weapons', 'vehicles', 'remotes', 'corrections', 'reconcile']) assert.equal(owner[name].bridge, owner.bridge);
     assert.equal(owner.bridge.x, rays.x);
     infantry.step(actorInput(scenario, 0), 1 / 60);
     const cached = owner.actors.bind(actor.soldier);
@@ -34,18 +35,24 @@ test('page teardown releases cached native actors, active weapons and correction
     const bytes = captureWeaponState(authority.weapons[0]);
     owner.corrections.decodeWeapon(bytes);
     assert.ok(owner.corrections.handle);
+    const lead = new InputLead({}, { native: owner.reconcile });
+    lead.arrive(1, 1 / 60);
+    assert.equal(lead.estimator.estimate(1 / 60), 1);
+    assert.ok(owner.reconcile.handle);
     instance.exports.memory.grow(1);
     lifecycle.dispatchEvent(new Event('pagehide'));
     assert.equal(owner.disposed, true);
     assert.equal(cached.handle, 0);
     assert.equal(weaponSession.handle, 0);
     assert.equal(owner.corrections.handle, 0);
+    assert.equal(owner.reconcile.handle, 0);
     assert.equal(unit.combat.arsenal, authority);
     assert.throws(() => owner.actors.bind(actor.soldier), /disposed/);
     assert.throws(() => owner.weapons.createArsenal(authority), /disposed/);
     assert.throws(() => owner.vehicles.create({}), /disposed/);
     assert.throws(() => owner.remotes.create({}, {}), /disposed/);
     assert.throws(() => owner.corrections.decodeWeapon(bytes), /disposed/);
+    assert.throws(() => lead.arrive(2, 2 / 60), /disposed/);
     session.dispose(); owner.dispose();
   } finally { session.dispose(); owner.dispose(); course.dispose(); }
 });
@@ -56,7 +63,7 @@ test('page owner attempts every release and preserves the first cleanup failure 
   try {
     const bytes = captureWeaponState(createWeaponUnit([weaponDefinition('cleanup')]).combat.arsenal.weapons[0]);
     owner.corrections.decodeWeapon(bytes);
-    for (const name of ['actors', 'weapons', 'vehicles', 'remotes', 'corrections']) {
+    for (const name of ['actors', 'weapons', 'vehicles', 'remotes', 'corrections', 'reconcile']) {
       const dispose = owner[name].dispose;
       owner[name].dispose = () => {
         dispose(); released.push(name); owner.dispose();
@@ -67,8 +74,8 @@ test('page owner attempts every release and preserves the first cleanup failure 
     let caught = false;
     try { owner.dispose(); } catch (error) { caught = true; assert.equal(error, undefined); }
     assert.equal(caught, true);
-    assert.deepEqual(released, ['actors', 'weapons', 'vehicles', 'remotes', 'corrections']);
+    assert.deepEqual(released, ['actors', 'weapons', 'vehicles', 'remotes', 'corrections', 'reconcile']);
     assert.equal(owner.corrections.handle, 0);
-    owner.dispose(); assert.equal(released.length, 5);
+    owner.dispose(); assert.equal(released.length, 6);
   } finally { owner.dispose(); course.dispose(); }
 });
