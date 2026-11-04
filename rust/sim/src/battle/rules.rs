@@ -20,6 +20,29 @@ pub const END_SEQUENCE: f64 = 7.0;
 /// The no-post countdown, s.
 pub const NO_POST: f64 = 20.0;
 
+/// The services used by the rules and tallies. Native whole-battle hosts
+/// use BattleWorld below; the live module can also call these rules while
+/// the command posts and bodies still belong to JavaScript.
+pub trait RulesWorld {
+    fn relation(&mut self, a: f64, b: f64) -> f64;
+    fn unit_alive(&mut self, unit: Ref<crate::gen::Unit>) -> bool;
+    fn observe(&mut self, character: Ref<Character>, unit: Option<Ref<crate::gen::Unit>>) -> Option<Seen>;
+    fn living(&mut self, team: f64) -> Option<f64>;
+    fn owned_values(&mut self, s: &mut Store, team: f64) -> Vec<Option<f64>>;
+    fn battle_over(&mut self, s: &mut Store, loser: f64);
+}
+
+impl<T: BattleWorld + ?Sized> RulesWorld for T {
+    fn relation(&mut self, a: f64, b: f64) -> f64 { BattleWorld::relation(self, a, b) }
+    fn unit_alive(&mut self, unit: Ref<crate::gen::Unit>) -> bool { BattleWorld::unit_alive(self, unit) }
+    fn observe(&mut self, character: Ref<Character>, unit: Option<Ref<crate::gen::Unit>>) -> Option<Seen> { BattleWorld::observe(self, character, unit) }
+    fn living(&mut self, team: f64) -> Option<f64> { BattleWorld::living(self, team) }
+    fn owned_values(&mut self, s: &mut Store, team: f64) -> Vec<Option<f64>> {
+        posts::owned(s, team, self).into_iter().map(|post| posts::value_bleed(s, post)).collect()
+    }
+    fn battle_over(&mut self, _: &mut Store, loser: f64) { BattleWorld::battle_over(self, loser); }
+}
+
 /// new Character(index, team, human) (battle.js:52): his name a human's
 /// ("Player 1"), else none until his roster names him.
 pub fn new_character(index: f64, team: f64, human: bool, strings: &mut Strings) -> Character {
@@ -131,7 +154,7 @@ pub fn post_destroyed(s: &mut Store, destroyer: Option<Ref<Character>>, relation
 
 /// The living soldiers of a team, heroes excepted: the spawn manager's
 /// count, else the Characters' own (battle.js:111).
-pub fn living(s: &Store, team: f64, world: &mut dyn BattleWorld) -> f64 {
+pub fn living<W: RulesWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> f64 {
     if let Some(n) = world.living(team) {
         return n;
     }
@@ -147,7 +170,7 @@ pub fn living(s: &Store, team: f64, world: &mut dyn BattleWorld) -> f64 {
 
 /// update(dt) (battle.js:205). `stats_active(him)`: whether his tallies run
 /// this tick (battle.statsActive).
-pub fn update(s: &mut Store, dt: f64, strings: &Strings, stats_active: impl Fn(Ref<Character>, &Character) -> bool, world: &mut dyn BattleWorld) {
+pub fn update<W: RulesWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn stats::Text, stats_active: impl Fn(Ref<Character>, &Character) -> bool, world: &mut W) {
     if !s.battle.game_over {
         let list = s.battle.characters.clone();
         stats::tick(&mut s.battle.stats, dt, &list, &mut s.character, strings, stats_active, |r, c| -> Option<Seen> { world.observe(r, c.unit) });
@@ -195,27 +218,27 @@ pub fn update(s: &mut Store, dt: f64, strings: &Strings, stats_active: impl Fn(R
         b.over = true;
         b.loser = Some(loser);
         b.countdown = Nullable::Null;
-        world.battle_over(loser);
+        world.battle_over(s, loser);
     }
 }
 
 /// score(team) (battle.js:237): the ValueBleed of each post it holds (its
 /// command vehicles' too), plus 1 per neutral post.
-pub fn score(s: &mut Store, team: f64, world: &mut dyn BattleWorld) -> f64 {
+pub fn score<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, world: &mut W) -> f64 {
     let mut owned = 0.0;
-    for p in posts::owned(s, team, world) {
-        owned += posts::value_bleed(s, p).unwrap_or(10.0);
+    for value in world.owned_values(s, team) {
+        owned += value.unwrap_or(10.0);
     }
-    owned + posts::owned(s, 0.0, world).len() as f64
+    owned + world.owned_values(s, 0.0).len() as f64
 }
 
 /// updateTeam(team, dt) (battle.js:242).
-fn update_team(s: &mut Store, team: f64, dt: f64, world: &mut dyn BattleWorld) {
+pub fn update_team<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, dt: f64, world: &mut W) {
     if team > 2.0 {
         update_locals(s, team, world);
         return;
     }
-    let owned = posts::owned(s, team, world).len();
+    let owned = world.owned_values(s, team).len();
     let score = score(s, team, world);
     let b = &mut s.battle;
     let rules = b.bleed_rules.get(team).filter(|r| !r.is_empty()).cloned();
@@ -248,7 +271,7 @@ fn update_team(s: &mut Store, team: f64, dt: f64, world: &mut dyn BattleWorld) {
 
 /// updateLocals(team) (battle.js:268): a local team friendly with exactly
 /// one army follows it out of the battle.
-fn update_locals(s: &mut Store, team: f64, world: &mut dyn BattleWorld) {
+pub fn update_locals<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, world: &mut W) {
     let mut ally = 0.0;
     for army in [1.0, 2.0] {
         if world.relation(team, army) > 0.0 {

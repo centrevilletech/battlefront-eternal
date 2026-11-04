@@ -24,6 +24,11 @@ export default {
     HsActionOp: ['setTeam', 'spawn', 'ready', 'kill', 'cancel', 'rejected'],
     HsEventKind: ['awaitingSpawn', 'spawned', 'teamChanged', 'playerDied'],
     HsCommandKind: ['team', 'spawn', 'suicide', 'cancel'],
+    BrOperation: ['update', 'spend', 'credit', 'headshot', 'vehicleDestroyed', 'point', 'postDestroyed', 'score', 'updateTeam', 'updateLocals'],
+    BrQueryOp: ['relation', 'unitAlive', 'observe', 'living', 'owned', 'statsActive'],
+    PsOperation: ['update', 'all', 'owned', 'at', 'mobileEvents', 'refreshAll', 'refresh', 'postUpdate', 'destroy', 'contains', 'remaining'],
+    PsQueryOp: ['captureTeam', 'buildingAlive', 'pad', 'vehiclePosition', 'classSpawnWorld'],
+    PsMobileEventKind: ['lost', 'owner'],
   },
   unions: {
     // A post the AI sends a Character to, or one he spawns at: a placed
@@ -51,6 +56,22 @@ export default {
     HsQueryResult: { number: 'f64', flag: 'bool', roster: 'list:str', present: 'bool', hasUnit: 'bool', timer: 'f64' },
     HsActionArgs: { op: 'enum:HsActionOp', state: 'rec:HsOwned', events: 'list:rec:HsEvent', team: 'f64', className: 'str|null', post: 'str|null' },
     HsActionResult: { state: 'rec:HsOwned', accepted: 'bool' },
+    BrInput: { op: 'enum:BrOperation', dt: 'f64', team: 'f64', count: 'f64', victim: 'ref:character|null', killer: 'ref:character|null', relation: 'f64' },
+    BrNumber: { value: 'f64' },
+    BrFavourite: { key: 'str|null', label: 'str|null' },
+    BrSeen: { position: 'f64x3|null', health: 'f64|null', weapon: 'rec:BrFavourite|null', vehicle: 'rec:BrFavourite|null', classLabel: 'str|null' },
+    BrQueryArgs: { op: 'enum:BrQueryOp', a: 'f64', b: 'f64', unit: 'ref:unit|null', character: 'ref:character|null' },
+    BrQueryResult: { number: 'f64', optionalNumber: 'f64|null', flag: 'bool', values: 'list:(f64|undefined)', seen: 'rec:BrSeen|null' },
+    PsCapturer: { team: 'f64', position: 'f64x3' },
+    PsInput: { op: 'enum:PsOperation', dt: 'f64', team: 'f64', post: 'ref:post|null', mobile: 'ref:mobilePost|null', position: 'f64x3', soldiers: 'list:rec:PsCapturer' },
+    PsChange: { kind: 'enum:PostChange', from: 'f64|undefined', by: 'f64|undefined', destroyed: 'bool|undefined' },
+    PsMobileEvent: { kind: 'enum:PsMobileEventKind', post: 'ref:mobilePost', vehicle: 'ref:vehicle|null', from: 'f64', to: 'f64|undefined' },
+    PsResult: { list: 'list:union:SpawnPost', post: 'ref:post|null', mobileEvents: 'list:rec:PsMobileEvent', change: 'rec:PsChange|null', number: 'f64', flag: 'bool' },
+    PsClass: { atk: 'list:f64|null', def: 'list:f64|null', valueBleed: 'f64|null', points: 'list:f64x4' },
+    PsHull: { vehicle: 'ref:vehicle', alive: 'bool', command: 'bool', generation: 'f64', team: 'f64', controllingTeam: 'f64', seated: 'bool', yaw: 'f64', name: 'str', label: 'str', radius: 'f64', speed: 'f64', valueBleed: 'f64', record: 'rec:PsClass|null' },
+    PsPad: { variants: 'list:rec:PsHull', vehicle: 'rec:PsHull|null' },
+    PsQueryArgs: { op: 'enum:PsQueryOp', number: 'f64', building: 'ref:building|null', vehicle: 'ref:vehicle|null', post: 'ref:mobilePost|null' },
+    PsQueryResult: { number: 'f64', flag: 'bool', position: 'f64x3', pad: 'rec:PsPad|null', points: 'list:f64x4' },
     // A team as the mission's table gives it (map.json mission.teams).
     TeamDesc: { units: 'f64|undefined', reinforcements: 'f64|undefined', bleed: 'list:f64x2|undefined' },
     // The kills ring the sprees count in (battle-stats.js BattleStats.ring).
@@ -292,5 +313,8 @@ export default {
   imports: {
     hsQuery: { args: 'HsQueryArgs', result: 'HsQueryResult' },
     hsAction: { args: 'HsActionArgs', result: 'HsActionResult' },
+    battleQuery: { args: 'BrQueryArgs', result: 'BrQueryResult' },
+    battleOver: { args: 'BrNumber', result: null },
+    postsQuery: { args: 'PsQueryArgs', result: 'PsQueryResult' },
   },
 };

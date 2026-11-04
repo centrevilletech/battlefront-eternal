@@ -3752,6 +3752,8 @@ async function start() {
     if (!headless) followBattle({ spawnPort, scoreboardPort: { players: () => game.scoreboardPort?.players() ?? null } });
   };
   chatReady = true;
+  game.postsSim = wantBattle && simInstance ? (await import("./posts-sim.js")).attachPostsSim(simInstance, posts) : null;
+  game.battleSim = wantBattle && simInstance ? (await import("./battle-sim.js")).attachBattleSim(simInstance, battle) : null;
   if (!headless) window.__bf = game;
   if (!headless) await startClient();
   return game;
