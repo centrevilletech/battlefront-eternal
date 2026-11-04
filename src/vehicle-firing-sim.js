@@ -51,8 +51,7 @@ export class VehicleFiringSim {
     for (let i = 0; i < state.seats.length; i++) for (let j = 0; j < state.seats[i].weapons.length; j++) {
       const w = c.v.seats[i].weapons[j], s = state.seats[i].weapons[j]; w.barrel = s.barrel;
       for (let k = 0; k < s.muzzles.length; k++) {
-        if (s.muzzles[k].kickAt === undefined) delete w.muzzles[k].kickAt;
-        else w.muzzles[k].kickAt = s.muzzles[k].kickAt;
+        if (s.muzzles[k].kickAt !== undefined) w.muzzles[k].kickAt = s.muzzles[k].kickAt;
       }
     }
     for (let i = 0; i < c.nodes.length; i++) {
