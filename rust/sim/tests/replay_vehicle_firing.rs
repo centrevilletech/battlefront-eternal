@@ -106,6 +106,7 @@ fn hull(state: &VgState, parents: V) -> Hull {
             .collect(),
     };
     let pose = HullPose {
+        work: Default::default(),
         rig,
         visual: Vector3::default(),
         age: 0.0,

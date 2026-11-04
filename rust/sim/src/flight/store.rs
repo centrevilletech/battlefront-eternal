@@ -35,6 +35,18 @@ fn text(strings: &Strings, id: Option<StrId>) -> std::borrow::Cow<'static, str> 
     }
 }
 
+/// initFlight resolves the finite prompt and trick vocabulary once. Native
+/// phase writes use enum indices, so a newly reached warning cannot intern a
+/// string or grow the string table halfway through a warm battle.
+pub struct FlightTextIds { tricks: [StrId; 4], messages: [StrId; 8], locks: [StrId; 3] }
+impl FlightTextIds {
+    pub fn new(strings: &mut Strings) -> Self {
+        Self { tricks: Trick::TEXTS.map(|text| strings.intern_str(text)),
+            messages: Message::TEXTS.map(|text| strings.intern_str(text)),
+            locks: LockState::TEXTS.map(|text| strings.intern_str(text)) }
+    }
+}
+
 impl Flight {
     /// A hull's flight as the store holds it; a craft's class definition's
     /// keys (`config`) and takeoff clip from its class. Err for a text no
@@ -113,6 +125,19 @@ impl Flight {
     /// What the tick changed, back into the store's hull: every hull's
     /// fields, and a craft's own (a ground hull has none of them).
     pub fn to_store(&self, v: &mut Vehicle, strings: &mut Strings) {
+        let ids = if v.flying && v.flight_class.is_some() {
+            [strings.intern_str(self.trick.text()), strings.intern_str(self.landing_message.text()),
+                strings.intern_str(self.landing_reason.text()), strings.intern_str(self.warning.text()),
+                strings.intern_str(self.lock_state.text())]
+        } else { [StrId(0); 5] };
+        self.to_store_ids(v,ids);
+    }
+    /// The F2 owner already resolved every text at hull construction.
+    pub fn to_store_cached(&self, v: &mut Vehicle, ids: &FlightTextIds) {
+        self.to_store_ids(v,[ids.tricks[self.trick as usize],ids.messages[self.landing_message as usize],
+            ids.messages[self.landing_reason as usize],ids.messages[self.warning as usize],ids.locks[self.lock_state as usize]]);
+    }
+    fn to_store_ids(&self, v: &mut Vehicle, ids: [StrId; 5]) {
         v.flight_state = self.state;
         v.grounded = self.grounded;
         v.altitude = self.altitude;
@@ -124,33 +149,32 @@ impl Flight {
         if !v.flying || v.flight_class.is_none() {
             return;
         }
-        let mut intern = |s: &str| Some(strings.intern_str(s));
         v.power = Some(self.power);
         v.stick_x = Some(self.stick_x);
         v.stick_y = Some(self.stick_y);
         v.flight_roll_rate = Some(self.roll_rate);
         v.roll_lock = Some(self.roll_lock);
         v.boosting = Some(self.boosting);
-        v.trick = intern(self.trick.text());
+        v.trick = Some(ids[0]);
         v.trick_time = Some(self.trick_time);
         v.trick_cooldown = Some(self.trick_cooldown);
         v.trick_pending = Some(self.trick_pending);
         v.trick_direction = Some(self.trick_direction);
         v.gear = Some(self.gear);
-        v.landing_message = intern(self.landing_message.text());
+        v.landing_message = Some(ids[1]);
         v.landing_message_time = Some(self.landing_message_time);
         v.flight_trick_right = Some(a3(&self.trick_right));
         v.flight_clock = Some(self.clock);
         v.boost_exhausted = Some(self.boost_exhausted);
-        v.landing_reason = intern(self.landing_reason.text());
-        v.flight_warning = intern(self.warning.text());
+        v.landing_reason = Some(ids[2]);
+        v.flight_warning = Some(ids[3]);
         v.terrain_warning = Some(self.terrain_warning);
         v.flight_assist_id = Some(self.assist_id);
         v.flight_lock_id = Some(self.lock_id);
         v.flight_lock_generation = Some(self.lock_generation);
         v.flight_lock_timer = Some(self.lock_timer);
         v.flight_lost_los = Some(self.lost_los);
-        v.flight_lock_state = intern(self.lock_state.text());
+        v.flight_lock_state = Some(ids[4]);
         v.flight_start = Some(a3(&self.start));
         v.flight_end = Some(a3(&self.end));
         v.flight_start_q = Some(a4(&self.start_q));

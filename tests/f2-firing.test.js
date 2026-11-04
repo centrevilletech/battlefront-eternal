@@ -57,7 +57,7 @@ async function fixture(native, def, options = {}) {
     data.classes.walker.explosion = { class: 'fixture-trip-blast', Damage: 0, DamageRadiusInner: 0, DamageRadiusOuter: 0 };
   }
   const buffer = new ArrayBuffer(0), indexBuffer = new ArrayBuffer(0);
-  const vs = new Vehicles({ scene, data, buffer, indexBuffer, collision, units, ordnance: o, texture() {}, effects: { play() {} } });
+  const vs = new Vehicles({ scene, data, buffer, indexBuffer, collision, units, ordnance: o, texture() {}, effects: { play() {} }, flightEnvironment: options.environment });
   vs.clock = () => vs.time;
   vs.flightAssists = Boolean(options.flying);
   // Rider writeback is a separate phase; this fixture observes firing only.
@@ -235,4 +235,23 @@ test('F2 flight assists locked pilot missiles and retains native flight tuning',
   }
   assert.ok(js.shots.length > 0); assert.ok(js.shots.some(s => s[4] === js.target.aiTarget.id));
   assert.ok(js.shots.some(s => s[10] !== 0), 'the assist bends shots vertically toward the target');
+});
+
+// A new warning used to intern its text on the first high-altitude tick.
+// Reach that transition after warming the actual scheduler, not a text helper.
+test('warm F2 flight reaches a new warning without allocating native storage', async () => {
+  const f = await fixture(true, weaponDefinition('fixture-flight-warning'),
+    { flying: true, tow: true, network: true, environment: { ceiling: 15 } });
+  const keys = { forward: 1, right: 0, stickX: 0, stickY: 0 };
+  f.crew.intent.flight = keys;
+  let ceiling = false;
+  try {
+    for (let tick = 0; tick < 600; tick++) {
+      if (tick === 200) keys.stickY = .2;
+      f.vs.update(1 / 60);
+      if (tick > 60) assert.equal(f.vs.f2.x.f2_allocations(), 0, `flight allocation at ${tick}`);
+      if (tick >= 200 && f.v.flightWarning === 'Flight ceiling') ceiling = true;
+    }
+    assert.ok(ceiling, `the warmed pilot reaches a previously unused warning: ${f.v.position.toArray()} ${f.v.flightState}`);
+  } finally { f.vs.dispose(); }
 });

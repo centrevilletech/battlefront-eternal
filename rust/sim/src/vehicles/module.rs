@@ -612,9 +612,11 @@ fn read_flight(hull: &mut Hull) {
 fn store_hull(hull: &Hull) {
     store(hull);
     if hull.flying {
-        let s = sim();
-        let v = s.store.vehicle.get_mut(hull.id).expect("a hull the store holds");
-        hull.flight.to_store(v, &mut s.strings);
+        if f2::active() { f2::store_flight(hull); } else {
+            let s = sim();
+            let v = s.store.vehicle.get_mut(hull.id).expect("a hull the store holds");
+            hull.flight.to_store(v, &mut s.strings);
+        }
     }
 }
 
@@ -910,6 +912,7 @@ impl VehicleWorld for JsWorld {
     }
 
     fn spring_polygons(&mut self, hull: usize, index: usize, center: &Vector3, radius: f64, out: &mut Vec<Polygon>) {
+        let _allocation = f2::allocation::nested(f2::allocation::Stage::Polygons);
         if let Some(c) = collision_world() {
             if c.spring_polygons(crate::collision::state(), body_of(hull), index, center, radius, out).is_some() {
                 return;

@@ -302,7 +302,6 @@ export class F2Seats {
       for (let i = 0; i < row.savedHeap.length; i++) if (!Object.is(row.savedHeap[i], row.heap.words[i])) throw Error('F2 lease mirror write');
     }
   }
-  // Lease rows are resolved before hull and unit rows can refer to a new lease.
   // Resolve leases before hull or unit rows that name them. Delta buffers
   // belong to each mirror generation, so an old released emitter keeps its
   // last occupancy while a reused slot receives a complete new initial row.
@@ -458,8 +457,11 @@ export class F2Seats {
   // Send a command only while a gun can still move; occupied crews run later
   // inside f2_step, in their original lease order.
   idleTurrets(dt) {
-    for (const t of this.crews.turrets) if (t.alive && !t.gunner && t.gun && (!Object.is(t.gunYaw, 0) || !Object.is(t.gunPitch, 0))) {
-      this.x.f2_turrets_idle(dt); this.phase.sync(); return;
+    for (let i = 0; i < this.crews.turrets.length; i++) {
+      const t = this.crews.turrets[i];
+      if (t.alive && !t.gunner && t.gun && (t.gunYaw !== 0 || 1 / t.gunYaw === -Infinity || t.gunPitch !== 0 || 1 / t.gunPitch === -Infinity)) {
+        this.x.f2_turrets_idle(dt); this.phase.sync(); return;
+      }
     }
   }
   // A rebuild changes which building model supplies collision bounds. Send

@@ -211,7 +211,7 @@ impl Session {
                 let left = walk_clip(&mut r)?;
                 let right = walk_clip(&mut r)?;
                 hull.pose = Some(HullPose {
-        work: Default::default(),
+                    work: Default::default(),
                     rig: HullRig::new(&HullDesc::default()),
                     visual: Vector3::default(),
                     age: 0.0,

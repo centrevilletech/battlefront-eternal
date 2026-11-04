@@ -3,7 +3,7 @@
 pub use crate::vehicles::f2_seats as seats;
 pub mod live_seats;
 pub mod firing;
-mod allocation;
+pub(super) mod allocation;
 pub mod riders;
 mod geometry;
 pub use crate::vehicles::f2_delta as delta;
@@ -26,7 +26,7 @@ static mut TIME: f64 = 0.0;
 // Vehicle.load resolves class data once. Working rows keep dynamic solver
 // scratch, while revisions avoid reloading the row just stored by a substep.
 // Spare rows permit synchronous damage hooks without aliasing the outer hull.
-struct HullRow { revision: u64, pool: Vec<Hull>, config: Config, gear: Option<GearClip> }
+struct HullRow { revision: u64, pool: Vec<Hull>, config: Config, gear: Option<GearClip>, texts: crate::flight::store::FlightTextIds }
 static mut HULL_ROWS: Vec<Option<HullRow>> = Vec::new();
 fn hull_rows() -> &'static mut Vec<Option<HullRow>> { unsafe { &mut *addr_of_mut!(HULL_ROWS) } }
 
@@ -43,9 +43,10 @@ fn register_hull(r: Ref<Vehicle>) {
         if v.flying { hull.target_scratch.reserve(unsafe { (&*addr_of_mut!(MEMBERS)).len() }); }
         pool.push(hull);
     }
+    let texts = crate::flight::store::FlightTextIds::new(&mut sim().strings);
     let rows = hull_rows();
     if rows.len() <= r.slot as usize { rows.resize_with(r.slot as usize + 1, || None); }
-    rows[r.slot as usize] = Some(HullRow { revision: 1, pool, config, gear });
+    rows[r.slot as usize] = Some(HullRow { revision: 1, pool, config, gear, texts });
 }
 // initFlight uses immutable class/gear handles. GearClip shares its clip by
 // reference count; copying this handle allocates no animation or key table.
@@ -53,10 +54,16 @@ fn register_hull(r: Ref<Vehicle>) {
 pub fn flight_keys_for(r: Ref<Vehicle>) -> (Config, Option<GearClip>) {
     let row = hull_rows()[r.slot as usize].as_ref().unwrap(); (row.config, row.gear.clone())
 }
+/// Write flight enums through the construction-time text handles.
+pub fn store_flight(hull: &Hull) {
+    let texts = &hull_rows()[hull.id.slot as usize].as_ref().unwrap().texts;
+    hull.flight.to_store_cached(sim().store.vehicle.get_mut(hull.id).unwrap(),texts);
+}
 // Vehicles.update can revisit a hull several times in one tick. Reload after
 // an external canonical write, but reuse the current working row across native
 // substeps. A callback never receives a borrow into this pool.
 pub fn take_hull(r: Ref<Vehicle>, index: usize) -> Hull {
+    let _allocation = allocation::nested(allocation::Stage::Load);
     let row = hull_rows()[r.slot as usize].as_mut().unwrap();
     let mut hull = row.pool.pop().expect("reserved reentrant hull row");
     hull.index = index;
@@ -231,7 +238,7 @@ fn spawns(dt: f64) {
             v.min_speed = Some(hull.flight.min_speed); v.mid_speed = Some(hull.flight.mid_speed);
             v.boost_speed = Some(hull.flight.boost_speed); v.speed = hull.speed; v.turn_rate = hull.turn_rate;
         }
-        hull.flight.to_store(v, &mut s.strings);
+        store_flight(&hull);
         // Spawn's render is observable by boarding in the following latch.
         let out = unsafe { &mut *addr_of_mut!(POSED) };
         if out.is_empty() { out.push(0.0); }

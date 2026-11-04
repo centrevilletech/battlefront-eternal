@@ -10,12 +10,15 @@ static mut COUNT: u32 = 0;
 static mut GROUP: usize = 0;
 static mut GROUPS: [u32; 3] = [0; 3];
 static mut STAGE: usize = 0;
-static mut STAGES: [u32; 8] = [0; 8];
-pub enum Stage { Foreign, Latch, Hulls, Fire, Riders, Turrets, Publish, Finish }
+static mut STAGES: [u32; 10] = [0; 10];
+pub enum Stage { Foreign, Latch, Hulls, Fire, Riders, Turrets, Publish, Finish, Polygons, Load }
 pub fn stage(stage: Stage) { unsafe { *addr_of_mut!(STAGE) = stage as usize; } }
 pub const CORE: usize = 0;
 pub const ORDNANCE: usize = 1;
 pub const LIFECYCLE: usize = 2;
+pub struct StageScope(usize);
+impl Drop for StageScope { fn drop(&mut self) { unsafe { *addr_of_mut!(STAGE) = self.0; } } }
+pub fn nested(stage: Stage) -> StageScope { let previous = unsafe { *addr_of_mut!(STAGE) }; self::stage(stage); StageScope(previous) }
 pub struct Scope(usize);
 impl Drop for Scope { fn drop(&mut self) { unsafe { *addr_of_mut!(GROUP) = self.0; } } }
 pub fn enter(group: usize) -> Scope {
@@ -41,7 +44,7 @@ unsafe impl GlobalAlloc for Counted {
 }
 #[global_allocator]
 static ALLOCATOR: Counted = Counted;
-pub fn begin() { unsafe { *addr_of_mut!(STAGE) = 0; *addr_of_mut!(STAGES) = [0; 8]; *addr_of_mut!(GROUP) = CORE; *addr_of_mut!(GROUPS) = [0; 3]; *addr_of_mut!(COUNT) = 0; *addr_of_mut!(ACTIVE) = true; } }
+pub fn begin() { unsafe { *addr_of_mut!(STAGE) = 0; *addr_of_mut!(STAGES) = [0; 10]; *addr_of_mut!(GROUP) = CORE; *addr_of_mut!(GROUPS) = [0; 3]; *addr_of_mut!(COUNT) = 0; *addr_of_mut!(ACTIVE) = true; } }
 pub fn end() { unsafe { *addr_of_mut!(ACTIVE) = false; } }
 #[no_mangle]
 pub extern "C" fn f2_allocations() -> u32 { unsafe { *addr_of_mut!(COUNT) } }
