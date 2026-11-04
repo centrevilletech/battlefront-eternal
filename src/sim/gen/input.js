@@ -9,6 +9,12 @@ export const IaOperation_INDEX = new Map(IaOperation_NAMES.map((name, i) => [nam
 export const ImOperation_NAMES = ["admit","push","take","clear"];
 export const ImOperation_INDEX = new Map(ImOperation_NAMES.map((name, i) => [name, i]));
 
+export const IqOperation_NAMES = ["add","delete","has","clear"];
+export const IqOperation_INDEX = new Map(IqOperation_NAMES.map((name, i) => [name, i]));
+
+export const IcOperation_NAMES = ["accept","clear"];
+export const IcOperation_INDEX = new Map(IcOperation_NAMES.map((name, i) => [name, i]));
+
 export class IaOutcomeMirror {
   constructor() {
     this.id = NaN;
@@ -1042,5 +1048,391 @@ export function exportImResult(o, cx) {
   v.command = ((x) => (x === null || x === undefined ? x : exportImTaken(x, cx)))(o.command);
   v.replacedLookTotal = o.replacedLookTotal;
   v.error = o.error;
+  return v;
+}
+
+export class IqSlotMirror {
+  constructor() {
+    this.index = NaN;
+    this.value = NaN;
+  }
+}
+
+export function syncIqSlot(b, f, at, h, m) {
+  m.index = f[at + 0];
+  m.value = f[at + 1];
+  return m;
+}
+
+export function putIqSlot(b, o, f, at, heap) {
+  f[at + 0] = o.index;
+  f[at + 1] = o.value;
+}
+
+export function sameIqSlot(a, b) {
+  if (!Object.is(a.index, b.index)) return ".index";
+  if (!Object.is(a.value, b.value)) return ".value";
+  return null;
+}
+
+export function exportIqSlot(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.index = o.index;
+  v.value = o.value;
+  return v;
+}
+
+export class IqCountMirror {
+  constructor() {
+    this.name = NaN;
+    this.count = NaN;
+  }
+}
+
+export function syncIqCount(b, f, at, h, m) {
+  m.name = f[at + 0];
+  m.count = f[at + 1];
+  return m;
+}
+
+export function putIqCount(b, o, f, at, heap) {
+  f[at + 0] = o.name;
+  f[at + 1] = o.count;
+}
+
+export function sameIqCount(a, b) {
+  if (!Object.is(a.name, b.name)) return ".name";
+  if (!Object.is(a.count, b.count)) return ".count";
+  return null;
+}
+
+export function exportIqCount(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.name = o.name;
+  v.count = o.count;
+  return v;
+}
+
+export class IqStateMirror {
+  constructor() {
+    this.capacity = NaN;
+    this.read = NaN;
+    this.write = NaN;
+    this.length = NaN;
+    this.itemsLength = NaN;
+    this.items = [];
+    this.counts = [];
+  }
+}
+
+export function syncIqState(b, f, at, h, m) {
+  m.capacity = f[at + 0];
+  m.read = f[at + 1];
+  m.write = f[at + 2];
+  m.length = f[at + 3];
+  m.itemsLength = f[at + 4];
+  { const items = (m.items ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIqSlot(b, f, at + 0, h, v ?? new IqSlotMirror()); } items[i] = v; } }
+  { const items = (m.counts ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = syncIqCount(b, f, at + 0, h, v ?? new IqCountMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putIqState(b, o, f, at, heap) {
+  f[at + 0] = o.capacity;
+  f[at + 1] = o.read;
+  f[at + 2] = o.write;
+  f[at + 3] = o.length;
+  f[at + 4] = o.itemsLength;
+  heap.items(o.items, f, at + 5, 2, (f, at, v) => { putIqSlot(b, v, f, at + 0, heap); });
+  heap.items(o.counts, f, at + 7, 2, (f, at, v) => { putIqCount(b, v, f, at + 0, heap); });
+}
+
+export function sameIqState(a, b) {
+  if (!Object.is(a.capacity, b.capacity)) return ".capacity";
+  if (!Object.is(a.read, b.read)) return ".read";
+  if (!Object.is(a.write, b.write)) return ".write";
+  if (!Object.is(a.length, b.length)) return ".length";
+  if (!Object.is(a.itemsLength, b.itemsLength)) return ".itemsLength";
+  if (!sameEach(a.items, b.items, (x, y) => sameIqSlot(x, y) === null)) return ".items";
+  if (!sameEach(a.counts, b.counts, (x, y) => sameIqCount(x, y) === null)) return ".counts";
+  return null;
+}
+
+export function exportIqState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.capacity = o.capacity;
+  v.read = o.read;
+  v.write = o.write;
+  v.length = o.length;
+  v.itemsLength = o.itemsLength;
+  v.items = o.items.map((x) => exportIqSlot(x, cx));
+  v.counts = o.counts.map((x) => exportIqCount(x, cx));
+  return v;
+}
+
+export class IqInputMirror {
+  constructor() {
+    this.op = "add";
+    this.state = new IqStateMirror();
+    this.name = NaN;
+  }
+}
+
+export function syncIqInput(b, f, at, h, m) {
+  m.op = IqOperation_NAMES[f[at + 0]];
+  m.state = syncIqState(b, f, at + 1, h, m.state ?? new IqStateMirror());
+  m.name = f[at + 10];
+  return m;
+}
+
+export function putIqInput(b, o, f, at, heap) {
+  f[at + 0] = IqOperation_INDEX.get(o.op);
+  putIqState(b, o.state, f, at + 1, heap);
+  f[at + 10] = o.name;
+}
+
+export function sameIqInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameIqState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.name, b.name)) return ".name";
+  return null;
+}
+
+export function exportIqInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportIqState(o.state, cx);
+  v.name = o.name;
+  return v;
+}
+
+export class IqResultMirror {
+  constructor() {
+    this.state = new IqStateMirror();
+    this.accepted = false;
+    this.replacedItems = false;
+    this.error = null;
+  }
+}
+
+export function syncIqResult(b, f, at, h, m) {
+  m.state = syncIqState(b, f, at + 0, h, m.state ?? new IqStateMirror());
+  m.accepted = f[at + 9] !== 0;
+  m.replacedItems = f[at + 10] !== 0;
+  { const tag = f[at + 11]; if (tag === 0) { m.error = b.strings.at(f[at + 12]); } else m.error = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putIqResult(b, o, f, at, heap) {
+  putIqState(b, o.state, f, at + 0, heap);
+  f[at + 9] = o.accepted ? 1 : 0;
+  f[at + 10] = o.replacedItems ? 1 : 0;
+  { const $x = o.error; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; } else { f[at + 11] = 0; f[at + 12] = b.strings.id($x); } }
+}
+
+export function sameIqResult(a, b) {
+  { const d = sameIqState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.accepted, b.accepted)) return ".accepted";
+  if (!Object.is(a.replacedItems, b.replacedItems)) return ".replacedItems";
+  { const p = a.error, q = b.error; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".error"; } else { if (!Object.is(p, q)) return ".error"; } }
+  return null;
+}
+
+export function exportIqResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportIqState(o.state, cx);
+  v.accepted = o.accepted;
+  v.replacedItems = o.replacedItems;
+  v.error = o.error;
+  return v;
+}
+
+export class IcStateMirror {
+  constructor() {
+    this.epoch = undefined;
+    this.generation = undefined;
+    this.sequence = undefined;
+    this.down = [];
+    this.queue = new IqStateMirror();
+  }
+}
+
+export function syncIcState(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { m.epoch = f[at + 1]; } else m.epoch = tag === 1 ? null : undefined; }
+  { const tag = f[at + 2]; if (tag === 0) { m.generation = f[at + 3]; } else m.generation = tag === 1 ? null : undefined; }
+  { const tag = f[at + 4]; if (tag === 0) { m.sequence = f[at + 5]; } else m.sequence = tag === 1 ? null : undefined; }
+  { const items = (m.down ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  m.queue = syncIqState(b, f, at + 8, h, m.queue ?? new IqStateMirror());
+  return m;
+}
+
+export function putIcState(b, o, f, at, heap) {
+  { const $x = o.epoch; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; } else { f[at + 0] = 0; f[at + 1] = $x; } }
+  { const $x = o.generation; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = $x; } }
+  { const $x = o.sequence; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; } else { f[at + 4] = 0; f[at + 5] = $x; } }
+  heap.items(o.down, f, at + 6, 1, (f, at, v) => { f[at + 0] = v; });
+  putIqState(b, o.queue, f, at + 8, heap);
+}
+
+export function sameIcState(a, b) {
+  { const p = a.epoch, q = b.epoch; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".epoch"; } else { if (!Object.is(p, q)) return ".epoch"; } }
+  { const p = a.generation, q = b.generation; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".generation"; } else { if (!Object.is(p, q)) return ".generation"; } }
+  { const p = a.sequence, q = b.sequence; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".sequence"; } else { if (!Object.is(p, q)) return ".sequence"; } }
+  if (!sameEach(a.down, b.down, (x, y) => Object.is(x, y))) return ".down";
+  { const d = sameIqState(a.queue, b.queue); if (d) return ".queue" + d; }
+  return null;
+}
+
+export function exportIcState(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.epoch = o.epoch;
+  v.generation = o.generation;
+  v.sequence = o.sequence;
+  v.down = o.down.map((x) => x);
+  v.queue = exportIqState(o.queue, cx);
+  return v;
+}
+
+export class IcInputMirror {
+  constructor() {
+    this.op = "accept";
+    this.state = new IcStateMirror();
+    this.epoch = undefined;
+    this.generation = undefined;
+    this.sequence = undefined;
+  }
+}
+
+export function syncIcInput(b, f, at, h, m) {
+  m.op = IcOperation_NAMES[f[at + 0]];
+  m.state = syncIcState(b, f, at + 1, h, m.state ?? new IcStateMirror());
+  { const tag = f[at + 18]; if (tag === 0) { m.epoch = f[at + 19]; } else m.epoch = tag === 1 ? null : undefined; }
+  { const tag = f[at + 20]; if (tag === 0) { m.generation = f[at + 21]; } else m.generation = tag === 1 ? null : undefined; }
+  { const tag = f[at + 22]; if (tag === 0) { m.sequence = f[at + 23]; } else m.sequence = tag === 1 ? null : undefined; }
+  return m;
+}
+
+export function putIcInput(b, o, f, at, heap) {
+  f[at + 0] = IcOperation_INDEX.get(o.op);
+  putIcState(b, o.state, f, at + 1, heap);
+  { const $x = o.epoch; if ($x === null || $x === undefined) { f[at + 18] = $x === null ? 1 : 2; f[at + 19] = 0; } else { f[at + 18] = 0; f[at + 19] = $x; } }
+  { const $x = o.generation; if ($x === null || $x === undefined) { f[at + 20] = $x === null ? 1 : 2; f[at + 21] = 0; } else { f[at + 20] = 0; f[at + 21] = $x; } }
+  { const $x = o.sequence; if ($x === null || $x === undefined) { f[at + 22] = $x === null ? 1 : 2; f[at + 23] = 0; } else { f[at + 22] = 0; f[at + 23] = $x; } }
+}
+
+export function sameIcInput(a, b) {
+  if (!Object.is(a.op, b.op)) return ".op";
+  { const d = sameIcState(a.state, b.state); if (d) return ".state" + d; }
+  { const p = a.epoch, q = b.epoch; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".epoch"; } else { if (!Object.is(p, q)) return ".epoch"; } }
+  { const p = a.generation, q = b.generation; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".generation"; } else { if (!Object.is(p, q)) return ".generation"; } }
+  { const p = a.sequence, q = b.sequence; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".sequence"; } else { if (!Object.is(p, q)) return ".sequence"; } }
+  return null;
+}
+
+export function exportIcInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.op = o.op;
+  v.state = exportIcState(o.state, cx);
+  v.epoch = o.epoch;
+  v.generation = o.generation;
+  v.sequence = o.sequence;
+  return v;
+}
+
+export class IcResultMirror {
+  constructor() {
+    this.state = new IcStateMirror();
+    this.accepted = false;
+    this.replacedItems = false;
+  }
+}
+
+export function syncIcResult(b, f, at, h, m) {
+  m.state = syncIcState(b, f, at + 0, h, m.state ?? new IcStateMirror());
+  m.accepted = f[at + 17] !== 0;
+  m.replacedItems = f[at + 18] !== 0;
+  return m;
+}
+
+export function putIcResult(b, o, f, at, heap) {
+  putIcState(b, o.state, f, at + 0, heap);
+  f[at + 17] = o.accepted ? 1 : 0;
+  f[at + 18] = o.replacedItems ? 1 : 0;
+}
+
+export function sameIcResult(a, b) {
+  { const d = sameIcState(a.state, b.state); if (d) return ".state" + d; }
+  if (!Object.is(a.accepted, b.accepted)) return ".accepted";
+  if (!Object.is(a.replacedItems, b.replacedItems)) return ".replacedItems";
+  return null;
+}
+
+export function exportIcResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.state = exportIcState(o.state, cx);
+  v.accepted = o.accepted;
+  v.replacedItems = o.replacedItems;
+  return v;
+}
+
+export class IkInputMirror {
+  constructor() {
+    this.down = [];
+    this.plus = [];
+    this.minus = [];
+  }
+}
+
+export function syncIkInput(b, f, at, h, m) {
+  { const items = (m.down ??= []), start = h + f[at + 0], n = f[at + 1]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.plus ??= []), start = h + f[at + 2], n = f[at + 3]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.minus ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  return m;
+}
+
+export function putIkInput(b, o, f, at, heap) {
+  heap.items(o.down, f, at + 0, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.plus, f, at + 2, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.minus, f, at + 4, 1, (f, at, v) => { f[at + 0] = v; });
+}
+
+export function sameIkInput(a, b) {
+  if (!sameEach(a.down, b.down, (x, y) => Object.is(x, y))) return ".down";
+  if (!sameEach(a.plus, b.plus, (x, y) => Object.is(x, y))) return ".plus";
+  if (!sameEach(a.minus, b.minus, (x, y) => Object.is(x, y))) return ".minus";
+  return null;
+}
+
+export function exportIkInput(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.down = o.down.map((x) => x);
+  v.plus = o.plus.map((x) => x);
+  v.minus = o.minus.map((x) => x);
   return v;
 }

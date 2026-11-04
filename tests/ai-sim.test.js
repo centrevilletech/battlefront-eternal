@@ -8,6 +8,9 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
+import { PriorityHeap, DeferredLos, Perception, recordTarget, thin } from '../src/ai/classic/perception.js';
+import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
+import { clusterState, peekClusterState } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -24,6 +27,282 @@ async function pair(options = {}) {
   sim.bindNavigation(native, json, null, options);
   return { js, native, sim };
 }
+
+test('native perception queues preserve ties, discarded values and bounded object retention', async () => {
+  const {sim}=await pair();
+  const random=new ClassicRandom(581);
+  for(const capacity of [1,5,112,200]) {
+    const j=new PriorityHeap(capacity,20000),n=sim.heap(capacity,20000);
+    const ji=j.items,ni=n.items,jp=j.priority,np=n.priority;
+    for(let i=0;i<2048;i++) {
+      const kind=i%23;
+      if(i%257===0) {j.clear();n.clear();}
+      else if(kind<17) {
+        const priority=i%47===0?NaN:i%41===0?-Infinity:i%31===0?-0:i%29===0?-(2**40)-i:random.int(-2,20)+i%3/4;
+        const item=i%13===0?null:i%17===0?undefined:{i};
+        assert.equal(n.insert(priority,item),j.insert(priority,item));
+      } else if(kind<21) assert.equal(n.pop(),j.pop());
+      else { assert.equal(n.peek(),j.peek());assert.equal(n.peekPriority(),j.peekPriority()); }
+      assert.equal(n.size,j.size);assert.equal(n.count,j.count);assert.equal(n.dropped,j.dropped);
+      assert.equal(n.minIndex(),j.minIndex());
+      assert.deepEqual(ni,ji,`retained items after ${capacity}:${i}`);
+      assert.deepEqual(np,jp,`retained priorities after ${capacity}:${i}`);
+      assert.deepEqual(n.slots(),j.slots());
+      assert.ok(n.values.size<=capacity,'released values do not accumulate');
+    }
+    if(j.count) {const item={placed:true};j.place(j.count,-3.25,item);n.place(n.count,-3.25,item);assert.deepEqual(n.items,j.items);assert.deepEqual(n.priority,j.priority);}
+    j.clear();n.clear();assert.equal(n.values.size,0);assert.deepEqual(ni,ji);assert.deepEqual(np,jp);
+  }
+});
+
+test('native target ranking preserves stale-reference boosts, queue overflow and shared draws', async () => {
+  const {sim}=await pair();
+  const j={id:1,generation:0,perception:{heap:new PriorityHeap(112,20000)}};
+  const n={id:1,generation:0,perception:{heap:sim.heap(112,20000)}};
+  const jq=new DeferredLos(),nq=new DeferredLos();
+  nq.active=sim.heap(200,200);nq.scratch=sim.heap(200,200);nq.nativeAi=sim;
+  const jr=new ClassicRandom(554),nr=new ClassicRandom(554),random=new ClassicRandom(988);
+  const units=Array.from({length:64},(_,id)=>({id,alive:true,generation:0}));
+  const request=r=>r&&[r.controller.id,r.generation,r.target&&[r.target.unit.id,r.target.generation]];
+  for(let i=0;i<512;i++) {
+    j.generation=n.generation=i%7;
+    for(const u of units) {u.alive=(u.id+i)%13!==0;u.generation=i%5;}
+    const count=i%113;
+    for(let k=0;k<count;k++) {
+      const u=units[random.int(0,63)],ref=k%17===0?null:{unit:u,generation:u.generation+(k%11===0?1:0)};
+      const priority=random.int(0,19999);
+      j.perception.heap.insert(priority,ref);n.perception.heap.insert(priority,ref);
+    }
+    const u=units[i%64],retained=i%3===0?null:{unit:u,generation:u.generation+(i%7===0?1:0)};
+    assert.equal(thin(n,{randomA:nr},retained,nq),thin(j,{randomA:jr},retained,jq));
+    assert.equal(nr.state,jr.state,`draws ${i}`);
+    assert.deepEqual(n.perception.heap.priority,j.perception.heap.priority);
+    assert.deepEqual(n.perception.heap.items,j.perception.heap.items);
+    assert.equal(nq.overflow,jq.overflow);
+    assert.equal(nq.active.dropped,jq.active.dropped);
+    assert.deepEqual(nq.active.priority,jq.active.priority);
+    assert.deepEqual(nq.active.slots().map(request),jq.active.slots().map(request));
+    assert.equal(n.perception.heap.values.size,0);
+    for(let k=0;k<i%9;k++)assert.deepEqual(request(nq.active.pop()),request(jq.active.pop()));
+  }
+});
+
+test('native acquired targets preserve candidate identities and cluster cache lifetimes', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const controller={unit:{team:1}},p=controller.perception=new Perception(controller);
+    const point=p.candidatePoint;
+    if(native)sim.bindPerception(p);
+    assert.equal(p.candidatePoint,point);
+    const owners=[{},{},{}],targets=Array.from({length:18},(_,id)=>({id,kind:id%7===0?6:0,team:2,generation:0,
+      controller:id%3===0?null:owners[id%3],position:new Vector3(id,0,0)}));
+    for(const target of targets) {const c=clusterState(target,true);c.scanAt=-10;c.flaggedAt=-20;}
+    const world={time:0,history:[]};
+    const ref=r=>r==null?r:[r.unit.id,r.generation];
+    world.units={
+      relation(a,b){world.history.push(['relation',a,b]);return a===b?1:a===0||b===0?0:-1;},
+      query(at,radius,out,filter){
+        world.history.push(['query',at.toArray(),radius,ref(p.candidate),p.candidatePoint.toArray(),{...peekClusterState(targets[at.x])}]);
+        for(const u of targets)if(filter(u))out.push(u);
+        // The source uses its out array; no returned array is required.
+      },
+    };
+    return {controller,p,point,targets,world};
+  }
+  const j=fixture(false),n=fixture(true);
+  const snapshot=x=>({candidate:x.p.candidate==null?x.p.candidate:[x.p.candidate.unit.id,x.p.candidate.generation],
+    point:x.p.candidatePoint.toArray(),count:x.p.lastScanCount,
+    clusters:x.targets.map(t=>{const c=peekClusterState(t);return c&&{...c};})});
+  for(let i=0;i<512;i++) {
+    const target=i%18;
+    for(const x of [j,n]) {
+      x.world.time=i*.27;x.world.history.length=0;
+      x.controller.unit.team=i%19===0?2:1;
+      for(const u of x.targets) {u.team=u.id%11===i%11?1:2;u.generation=Math.floor(i/37);}
+      x.p.lastScanCount=i;
+      const previous=x.p.candidate;
+      recordTarget(x.controller,x.targets[target],new Vector3(i%7===0?-0:i/3,2,-i/9),x.world);
+      assert.notEqual(x.p.candidate,previous);
+      assert.equal(x.p.candidate,x.p.candidate,'candidate reference remains stable between publications');
+      assert.equal(x.p.candidatePoint,x.point);
+    }
+    assert.deepEqual(n.world.history,j.world.history,`query ordering ${i}`);
+    assert.deepEqual(snapshot(n),snapshot(j),`candidate/cache ${i}`);
+    if(i%43===0) {j.p.reset();n.p.reset();assert.deepEqual(snapshot(n),snapshot(j));}
+  }
+  for(const generation of [undefined,null,-0,NaN,7]) {
+    for(const x of [j,n]) {
+      const target=x.targets[0];target.generation=generation;
+      recordTarget(x.controller,target,new Vector3(1,2,3),x.world);
+    }
+    assert.deepEqual(snapshot(n),snapshot(j));
+  }
+  const ref={unit:n.targets[1],generation:null};n.p.candidate=ref;assert.equal(n.p.candidate,ref);
+  n.p.candidate=undefined;assert.equal(n.p.candidate,undefined);
+});
+
+test('native deferred sight preserves lifetimes, budgets, point writes and heap swaps', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const world={time:0,tick:0,history:[]},queue=new DeferredLos();
+    if(native)sim.bindLos(queue);
+    const targets=Array.from({length:20},(_,id)=>{
+      const u={id,alive:true,generation:0,kind:id%3===0?0:6,team:2,position:new Vector3(id*.3,0,id),
+        aimPoint(out){world.history.push(['aim',id]);out.copy(this.position);out.y+=.37;},
+      };
+      if(id%2===0)u.origin=function(out){world.history.push(['target-eye',id]);out.copy(this.position);out.y+=1.61;};
+      return u;
+    });
+    const controllers=Array.from({length:8},(_,id)=>{
+      const c={id,generation:0,unit:{id:100+id,alive:true,team:1,origin(out){world.history.push(['eye',id]);out.set(id,-0,0);}}};
+      c.saved=new Perception(c);c.perception=native?sim.bindPerception(c.saved):c.saved;return c;
+    });
+    world.units={relation:(a,b)=>a===b?1:-1,query(at,radius,out,filter){out.length=0;for(const u of targets)if(filter(u))out.push(u);}};
+    world.los=(from,to,unit,target)=>{
+      world.history.push(['los',from.toArray(),to.toArray(),unit.id,target.id,queue.tested]);
+      if(native) {sim.words(new Array(1000).fill(3));sim.x.ai_nav_boundary(2,0,0,0,0);}
+      if(world.tick%17===0)to.x+=.03125;
+      if(world.tick%19===0)target.alive=false;
+      return (world.tick+target.id)%3!==0;
+    };
+    return {world,queue,targets,controllers,first:queue.active};
+  }
+  const j=fixture(false),n=fixture(true),random=new ClassicRandom(411);
+  const ref=r=>r==null?r:[r.unit.id,r.generation];
+  const req=r=>r&&[r.controller.id,r.generation,ref(r.target)];
+  const heap=h=>({count:h.count,dropped:h.dropped,priority:Array.from(h.priority),items:h.items.map(req)});
+  const snapshot=x=>({activeFirst:x.queue.active===x.first,active:heap(x.queue.active),scratch:heap(x.queue.scratch),
+    overflow:x.queue.overflow,tested:x.queue.tested,
+    candidates:x.controllers.map(c=>c.perception&&[ref(c.perception.candidate),c.perception.candidatePoint.toArray()])});
+  for(let i=0;i<384;i++) {
+    for(const x of [j,n]) {
+      x.world.time=i*.41;x.world.tick=i;x.world.history.length=0;
+      for(const c of x.controllers) {c.generation=Math.floor(i/29);c.unit.alive=(i+c.id)%23!==0;c.perception=(i+c.id)%31===0?null:c.saved;if(c.perception && i%7===0)c.perception.candidate=null;}
+      for(const t of x.targets) {t.alive=(i+t.id)%17!==0;t.generation=Math.floor(i/37);}
+    }
+    for(let k=0;k<20;k++) {
+      const ci=random.int(0,7),ti=random.int(0,19),priority=random.int(0,199);
+      for(const x of [j,n]) {
+        const target=x.targets[ti];
+        const r=k%13===0?null:{unit:target,generation:target.generation+(k%7===0?1:0)};
+        assert.equal(x.queue.submit(x.controllers[ci],r,priority),undefined);
+      }
+    }
+    if(i%13===0) {
+      assert.equal(j.queue.drain(j.controllers[i%8]),undefined);assert.equal(n.queue.drain(n.controllers[i%8]),undefined);
+    } else {
+      const budget=[0,.5,1,3,12,Infinity,NaN,-1][i%8];
+      assert.equal(n.queue.service(n.world,budget),j.queue.service(j.world,budget),`service ${i}`);
+    }
+    assert.deepEqual(n.world.history,j.world.history,`queries ${i}`);
+    assert.deepEqual(snapshot(n),snapshot(j),`sight ${i}`);
+  }
+});
+
+test('native scheduler preserves callback order, reentry and changing controller collections', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const ai={tick:0,world:{networkViews:false},controllers:[],history:[]};
+    const state=()=>[ai.scheduler.counter,ai.scheduler.parity,ai.scheduler.inputParity,ai.scheduler.skips,...Object.values(ai.scheduler.stats)];
+    const log=(...args)=>ai.history.push([...args,state()]);
+    const camera=(x,z)=>({matrixWorld:{elements:[1,0,0,0,0,1,0,0,0,0,1,0,x,0,z,1]},zoom:1,near:.1,far:200,fov:60,aspect:1.6});
+    ai.cameras=()=>{log('cameras');return ai.tick%29===0?[]:[camera(0,0),camera(100,50)];};
+    ai.lodDisabled=()=>{log('disabled');return ai.tick%37===0;};
+    ai.identity=u=>{log('identity',u.id);return u.id;};
+    ai.schedulerNumbers=()=>{log('config');return {cycle:ai.tick%71<35?3:15,losBudget:ai.tick%71<35?12:6};};
+    ai.humanUnits=()=>{log('humans');return [{id:501},{id:502}];};
+    ai.vehicles={notify(){log('notify');if(ai.tick%13===0)ai.controllers.reverse();}};
+    ai.nav={plannerIdle(){log('idle');return ai.tick%3===0;},service(budget){
+      log('nav',budget);
+      if(native) {sim.words(new Array(21000).fill(7));sim.x.ai_scheduler_read(0);}
+    }};
+    ai.combat={
+      broadcastAcoustic:u=>log('broadcast',u.id),rebuildProtected:()=>log('protected'),
+      dropLosRequests:c=>log('drop',c.id),scan:c=>log('scan',c.id),clearCandidate:c=>log('clear',c.id),
+      serviceLos:(_world,budget)=>{log('los',budget);return ai.tick%4===0;},
+    };
+    const make=id=>({id,processed:false,lodSkipped:false,live:true,
+      unit:{id,position:new Vector3(id%3?60+id:0,0,id%2?-70:70),velocity:new Vector3(id%5===0?10:0,0,0)},
+      update(dt,phase){
+        log('phase',id,dt,phase);
+        if(ai.tick===5 && phase===0 && id===0) {const gone=ai.controllers.splice(1,1)[0];gone.live=false;}
+        if(ai.tick===14 && phase===0 && id===4)ai.controllers.push(make(30));
+        if(ai.tick===18 && phase===0 && id===6)this.live=false;
+      },
+    });
+    ai.controllers=Array.from({length:18},(_,id)=>make(id));
+    ai.scheduler=native?sim.scheduler(ai):new ClassicScheduler(ai);
+    ai.scheduler.executeInput=(c,dt)=>{
+      log('input',c.id,dt);
+      if(ai.tick===9 && c.id===2)ai.controllers.splice(3,1);
+      if(ai.tick===11 && c.id===3)ai.controllers.push(make(31));
+    };
+    return ai;
+  }
+  const j=fixture(false),n=fixture(true);
+  const snapshot=ai=>({counter:ai.scheduler.counter,parity:ai.scheduler.parity,inputParity:ai.scheduler.inputParity,
+    skips:ai.scheduler.skips,stats:{...ai.scheduler.stats},controllers:ai.controllers.map(c=>[c.id,c.processed,c.lodSkipped,c.live])});
+  for(let tick=0;tick<256;tick++) {
+    j.tick=n.tick=tick;j.world.networkViews=n.world.networkViews=tick%2===0;
+    j.scheduler.update(tick%17===0?0:1/60);n.scheduler.update(tick%17===0?0:1/60);
+    j.scheduler.executeInputs(1/60);n.scheduler.executeInputs(1/60);
+    assert.deepEqual(n.history,j.history,`callbacks at ${tick}`);
+    assert.deepEqual(snapshot(n),snapshot(j),`state at ${tick}`);
+    j.history.length=n.history.length=0;
+  }
+});
+
+test('native scheduler inputs preserve carry, callback writes and both navigation fallbacks', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const ai={world:{nav:{}},controllers:[],history:[],kind:0};
+    ai.identity=u=>{if(ai.kind%41===0)ai.controllers[0].inputCarry=.2;return u.id;};
+    ai.lodDisabled=()=>ai.kind%11!==0;
+    ai.cameras=()=>[{matrixWorld:{elements:[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]}}];
+    ai.combat={
+      markSkip(c,on){ai.history.push(['skip',on,c.inputCarry]);if(ai.kind%43===0)c.inputCarry=.125;},
+      consumeFire(c,u,dt,intent){
+        ai.history.push(['fire',dt]);intent.buttons=[dt,-dt];
+        if(ai.kind%7===0)c.exitRequest=true;
+        if(ai.kind%23===0)u.intent={replaced:true};
+      },
+      aimPoint(c,_u,dt,out){ai.history.push(['aim',dt]);if(ai.kind%13===0)c.dodge=-1;return ai.kind%4===0?null:out.copy(c.aimPoint);},
+    };
+    ai.world.nav.control=c=>{ai.history.push(['control']);return ai.kind%3===0?{stance:c.stance}:null;};
+    ai.scheduler=native?sim.scheduler(ai):new ClassicScheduler(ai);
+    return ai;
+  }
+  const j=fixture(false),n=fixture(true);
+  function setup(ai,i) {
+    ai.kind=i;ai.history.length=0;
+    const soldier=i%9===0?null:{aimYaw:i*.07,aimPitch:i*.001,maxSpeed:i%7===0?0:3.3,maxStrafe:i%4===0?0:2.5,
+      maxTurn:i%13===0?0:2.7,posture:['stand','crouch','prone',''][i%4],mode:i%2?12:7,rolled:i%3?false:undefined};
+    const intent={buttons:[1,-1],forward:.7,right:-0,turn:.5,pitch:.25,jump:i%31===0,crouch:i%37===0,prone:false,use:false,exit:false};
+    const unit={id:i%19,kind:[0,1,3,5,6,7][i%6],position:new Vector3(i%13,0,i%2?70:-70),velocity:new Vector3(i%17===0?10:0,0,0),
+      soldier,classDef:{MaxPitchSpeed:i%5===0?0:.7},intent};
+    const c={unit,live:true,inputSkip:i%7===0,inputCarry:i%5/60,exitRequest:i%19===0,facing:i%2===0,
+      request:{valid:i%4!==0,steeringTarget:new Vector3(i%3?13:unit.position.x,0,14)},aimPoint:new Vector3(19,i%11,25),
+      stance:i%3,wantedMode:i%3,dodge:[-1,0,1,undefined,NaN][i%5],jet:{pending:i%6===0,vector:new Vector3(i%12?2:0,0,0)}};
+    ai.controllers=[c];ai.scheduler.inputParity=i%2;
+    ai.navigationInput=i%3===0?(control,u,target,dt,aim,options)=>{
+      assert.equal(u,unit);assert.equal(target,intent);ai.history.push(['nav',dt,aim?.toArray()??null,options.facing]);
+      target.forward=.3;target.right=-.2;target.turn=dt;target.pitch=-dt;c.jet.pending=false;
+    }:null;
+    ai.analogs=i%3===1?(u,request,aim,dt,out,options)=>{
+      assert.equal(u,unit);assert.equal(request,c.request);ai.history.push(['analogs',dt,aim?.toArray()??null,options.facing]);
+      out.forward=dt;out.right=-dt;out.turn=.4;out.pitch=-.3;
+    }:null;
+    return {c,unit,intent};
+  }
+  const snapshot=({c,unit,intent},s)=>({inputSkip:c.inputSkip,inputCarry:c.inputCarry,exitRequest:c.exitRequest,dodge:c.dodge,
+    jetPending:c.jet.pending,jet:c.jet.vector.toArray(),jetAlias:intent.jetDirection===c.jet.vector,intent,unitIntent:unit.intent,analogs:{...s.analogOut}});
+  for(let i=0;i<1536;i++) {
+    const a=setup(j,i),b=setup(n,i),dt=i%17===0?0:1/60;
+    assert.equal(n.scheduler.executeInput(b.c,dt),j.scheduler.executeInput(a.c,dt),`return ${i}`);
+    assert.deepEqual(n.history,j.history,`callbacks ${i}`);
+    assert.deepEqual(snapshot(b,n.scheduler),snapshot(a,j.scheduler),`input ${i}`);
+  }
+});
 
 test('native AI geometry and hints match the source with exact query outputs', async () => {
   const { js, native } = await pair();

@@ -442,6 +442,7 @@ export function thin(controller, world, retainedRef, queue) {
   const p = controller.perception;
   if (!p) return 0;
   const heap = p.heap;
+  if (heap.nativeThin && queue.nativeAi === heap.sim) return heap.nativeThin(controller, world, retainedRef, queue);
   const total = heap.size;
   const retained = resolve(retainedRef);
   let rank = LOCAL_CAPACITY;
@@ -476,6 +477,7 @@ const clusterFound = [];
 
 export function recordTarget(controller, target, point, world) {
   const p = controller.perception;
+  if (p.nativeRecordTarget) return p.nativeRecordTarget(controller, target, point, world);
   p.candidate = refOf(target);
   p.candidatePoint.copy(point);
   if (target.kind !== 0) return;

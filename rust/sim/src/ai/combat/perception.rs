@@ -66,7 +66,7 @@ impl<T: Clone> PriorityHeap<T> {
 
     /// perception.js:86 `place(k, priority, item)`: bubble up past
     /// strictly lower parents.
-    fn place(&mut self, mut k: usize, priority: f64, item: Option<T>) {
+    pub fn place(&mut self, mut k: usize, priority: f64, item: Option<T>) {
         let mut parent = k >> 1;
         while (self.priority[parent] as f64) < priority {
             self.priority[k] = self.priority[parent];
@@ -80,7 +80,7 @@ impl<T: Clone> PriorityHeap<T> {
 
     /// perception.js:100 `minIndex()`: zero-based, scanning floor(n/2)..n,
     /// the earlier on ties.
-    fn min_index(&self) -> isize {
+    pub fn min_index(&self) -> isize {
         let mut best = self.count >> 1;
         for i in best + 1..=self.count {
             if self.priority[i] < self.priority[best] {
@@ -507,24 +507,51 @@ pub fn thin<W: World + ?Sized>(w: &mut W, los: &mut DeferredLos, controller: Obj
         return 0.0;
     }
     let generation = w.ctl(controller).generation;
-    let total = w.ctl(controller).perception.as_ref().unwrap().heap.size();
     let retained = resolve(w, retained);
+    thin_candidates(&mut WorldThin { w, los, controller, generation }, retained)
+}
+
+/// The heap and shared draws used by thinning. The live boundary and a
+/// fully native combat world use the same rank and random-skip loop.
+pub trait ThinQueue {
+    fn size(&self) -> usize;
+    fn pop(&mut self) -> Option<Obj>;
+    fn skip(&mut self) -> bool;
+    fn submit(&mut self, target: Option<Obj>, priority: f64);
+}
+
+struct WorldThin<'a, W: World + ?Sized> {
+    w: &'a mut W,
+    los: &'a mut DeferredLos,
+    controller: Obj,
+    generation: f64,
+}
+
+impl<W: World + ?Sized> ThinQueue for WorldThin<'_,W> {
+    fn size(&self) -> usize { self.w.ctl(self.controller).perception.as_ref().unwrap().heap.size() }
+    fn pop(&mut self) -> Option<Obj> {
+        let r = self.w.ctl_mut(self.controller).perception.as_mut().unwrap().heap.pop().unwrap();
+        resolve(self.w,r)
+    }
+    fn skip(&mut self) -> bool { super::world::draw_int(self.w,Gen::A,1.0,2.0) != 1.0 }
+    fn submit(&mut self, target: Option<Obj>, priority: f64) {
+        self.los.submit(self.controller,self.generation,ref_of(self.w,target),priority);
+    }
+}
+
+pub fn thin_candidates(q: &mut impl ThinQueue, retained: Option<Obj>) -> f64 {
+    let total = q.size();
     let mut rank = LOCAL_CAPACITY as f64;
     let mut submitted = 0.0;
-    let pop = |w: &mut W| -> Option<Obj> {
-        let r = w.ctl_mut(controller).perception.as_mut().unwrap().heap.pop().unwrap();
-        resolve(w, r)
-    };
-    let size = |w: &W| w.ctl(controller).perception.as_ref().unwrap().heap.size();
-    while size(w) > 0 {
-        let mut c = pop(w);
+    while q.size() > 0 {
+        let mut c = q.pop();
         if total > 4 {
             let mut skip = true;
-            while size(w) > 0 && skip {
-                skip = super::world::draw_int(w, Gen::A, 1.0, 2.0) != 1.0;
+            while q.size() > 0 && skip {
+                skip = q.skip();
                 if retained.is_none() || c != retained {
                     if skip {
-                        c = pop(w);
+                        c = q.pop();
                     }
                 } else {
                     skip = false;
@@ -535,8 +562,7 @@ pub fn thin<W: World + ?Sized>(w: &mut W, los: &mut DeferredLos, controller: Obj
         if c == retained {
             priority = v8math::max(rank, LOCAL_CAPACITY as f64 - 2.0);
         }
-        let r = ref_of(w, c);
-        los.submit(controller, generation, r, priority);
+        q.submit(c,priority);
         submitted += 1.0;
         rank -= 1.0;
     }

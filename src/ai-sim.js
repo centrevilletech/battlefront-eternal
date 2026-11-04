@@ -4,6 +4,9 @@
 import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
+import { NativeScheduler } from './ai-scheduler-sim.js';
+import { bindClusterState, peekClusterState } from './ai/classic/weapons-ai.js';
+import { recordTarget } from './ai/classic/perception.js';
 
 const HEADER = 5;
 const ZERO = { x: 0, y: 0, z: 0 };
@@ -37,6 +40,54 @@ export class AiSim {
     this.ids = new WeakMap();
     this.objects = [null];
     this.navigation = null;
+    this.perceptions=new WeakMap();this.clusters=new WeakMap();this.sightFrames=[];this.clusterFound=[];this.losViews=new WeakMap();
+    this.sightPoint=new Vector3();this.sightEye=new Vector3();this.sightTargetEye=new Vector3();
+    bridge.register({aiSight:args=>{
+      const op=args.op,object=this.objects[args.id],frame=this.sightFrames[this.sightFrames.length-1];
+      const from=new Vector3(...args.from),point=new Vector3(...args.point);
+      const result={number:0,ids:[],values:[],flag:false,point:[0,0,0]},world=frame.world;
+      if(op==='cluster') {this.cluster(object,true);result.number=this.id(object.controller??object);}
+      else if(op==='time') result.number=world.time??0;
+      else if(op==='query') {
+        frame.attacker=frame.controller.unit;
+        const units=world.units;
+        const found=this.clusterFound;
+        units.query(object.position,9,found,u=>u!==object && units.relation(object.team,u.team)!==0);
+        result.ids=found.map(u=>this.id(u));
+      }
+      else if(op==='relation') result.number=world.units.relation(frame.attacker.team,object.team);
+      else if(op==='kind') result.number=object.kind;
+      else if(op==='clearScratch') frame.to.clear();
+      else if(op==='hasRequest') result.flag=Boolean((frame.drain?frame.from:frame.los.active).size);
+      else if(op==='pop') {
+        const heap=frame.drain?frame.from:frame.los.active;
+        if(frame.drain)frame.priority=heap.peekPriority();
+        const req=frame.request=heap.pop(),c=req?.controller,r=req?.target,u=r?.unit;
+        const tag=v=>v===undefined?0:v===null?2:1;
+        result.values=[Number(c===frame.controller),Number(Boolean(c?.unit?.alive)),c?.generation,tag(c?.generation),
+          req?.generation,tag(req?.generation),Number(Boolean(c?.perception)),Number(Boolean(u?.alive)),
+          u?.generation,tag(u?.generation),r?.generation,tag(r?.generation)];
+      }
+      else if(op==='candidate') {
+        const r=frame.request.controller.perception?.candidate,u=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
+        result.values=[Number(Boolean(u?.alive)),u?.generation,tag(u?.generation),r?.generation,tag(r?.generation)];
+      }
+      else if(op==='keep') frame.to.insert(frame.priority,frame.request);
+      else if(op==='swap') {frame.los.active=frame.to;frame.los.scratch=frame.from;}
+      else if(op==='targetPoint') {
+        frame.unit=frame.request.controller.unit;frame.target=frame.request.target.unit;
+        frame.target.aimPoint(this.sightPoint);result.point=this.sightPoint.toArray();result.flag=typeof frame.target.origin==='function';
+      }
+      else if(op==='targetOrigin') {frame.target.origin(this.sightTargetEye);result.point=this.sightTargetEye.toArray();}
+      else if(op==='shooterOrigin') {frame.unit.origin(this.sightEye);result.point=this.sightEye.toArray();}
+      else if(op==='los') {
+        this.sightEye.copy(from);this.sightPoint.copy(point);
+        result.flag=Boolean(world.los(this.sightEye,this.sightPoint,frame.unit,frame.target));result.point=this.sightPoint.toArray();
+      }
+      else if(op==='record') recordTarget(frame.request.controller,frame.target,point,world);
+      else throw Error(`unknown sight callback ${op}`);
+      return result;
+    }});
   }
 
   id(object) {
@@ -128,20 +179,180 @@ export class AiSim {
   }
 
   bindCombat(ai) {
+    ai.scheduler=this.scheduler(ai);
+    const los=ai.world?.deferredLos;
+    if(los)this.bindLos(los);
     const create = ai.combat.createPerception;
     ai.combat.createPerception = (...args) => {
       const perception = create(...args);
+      if(perception.heap.size) throw Error('native perception must bind before scanning');
+      perception.heap=this.heap(perception.heap.capacity,perception.heap.priority[0]);
       perception.aimer = this.aimer();
+      this.bindPerception(perception);
       return perception;
     };
   }
 
+  scheduler(ai) { return new NativeScheduler(this,ai); }
+  bindLos(los) {
+    if(this.losViews.has(los))return los;
+    if(los.active.size || los.scratch.size)throw Error('native sight queues must bind before scanning');
+    if(!(los.active instanceof NativePriorityHeap))los.active=this.heap(los.active.capacity,los.active.priority[0]);
+    if(!(los.scratch instanceof NativePriorityHeap))los.scratch=this.heap(los.scratch.capacity,los.scratch.priority[0]);
+    los.nativeAi=this;this.losViews.set(los,new NativeLosFields(this,los));return los;
+  }
+  runLos(id,los,world,controller,op,budget) {
+    const frame={los,world,controller,drain:op===0};
+    if(frame.drain) {frame.from=los.active;frame.to=los.scratch;}
+    this.sightFrames.push(frame);
+    try {return this.x.ai_sight_los(id,op,budget);}
+    finally {this.sightFrames.pop();}
+  }
+  bindPerception(perception) {
+    if(!this.perceptions.has(perception))this.perceptions.set(perception,new NativePerceptionFields(this,perception));
+    return perception;
+  }
+  cluster(target,create=false) {
+    const owner=target?.controller??target;
+    if(!owner)return null;
+    const key=this.id(owner);
+    let view=this.clusters.get(owner);
+    if(!view) {
+      const previous=peekClusterState(target);
+      if(previous && !this.x.ai_cluster_has(key))this.x.ai_cluster_seed(key,previous.scanAt,previous.flaggedAt,previous.generation);
+      view={};
+      ['scanAt','flaggedAt','generation'].forEach((name,index)=>Object.defineProperty(view,name,{enumerable:true,
+        get:()=>this.x.ai_cluster_field(key,index),set:value=>this.x.ai_cluster_write(key,index,value)}));
+      this.clusters.set(owner,view);
+      bindClusterState(target,(unit,create)=>this.cluster(unit,create),()=>this.x.ai_cluster_has(key)?view:null);
+    }
+    return this.x.ai_cluster_lookup(this.id(target),this.id(target.controller),target.generation,Number(create))?view:null;
+  }
+  recordTarget(id,controller,target,point,world) {
+    this.sightFrames.push({controller,target,world});
+    try {
+      this.words([this.id(target),target.generation,target.kind,point.x,point.y,point.z,target.generation===undefined?0:target.generation===null?2:1]);
+      this.x.ai_sight_record(id);
+    } finally {this.sightFrames.pop();}
+  }
+  heap(capacity,sentinel) { return new NativePriorityHeap(this,capacity,sentinel); }
   aimer() { return new NativeAimer(this); }
   enhancedAimer(random,profile,skill=1) { return new NativeEnhancedAimer(this,random,profile,skill); }
 
   words(values) {
     const ptr=this.x.sim_call_room(values.length,0);
     this.bridge.views();this.bridge.f.set(values,ptr/8+HEADER);
+  }
+}
+
+class NativeLosFields {
+  constructor(sim,los) {
+    const id=sim.x.ai_los_new(los.active.id,los.scratch.id,los.overflow,los.tested);
+    const heaps=new Map([[los.active.id,los.active],[los.scratch.id,los.scratch]]);
+    ['active','scratch'].forEach((key,index)=>Object.defineProperty(los,key,{enumerable:true,configurable:true,
+      get:()=>heaps.get(sim.x.ai_los_field(id,index)),set:heap=>{
+        if(!(heap instanceof NativePriorityHeap) || heap.sim!==sim)throw Error('sight queue heap belongs to another adapter');
+        heaps.set(heap.id,heap);sim.x.ai_los_write(id,index,heap.id);
+      }}));
+    ['overflow','tested'].forEach((key,index)=>Object.defineProperty(los,key,{enumerable:true,configurable:true,
+      get:()=>sim.x.ai_los_field(id,index+2),set:value=>sim.x.ai_los_write(id,index+2,value)}));
+    los.submit=(controller,target,priority)=>{
+      const heap=los.active,token=heap.token({controller,target,generation:controller.generation});
+      sim.x.ai_los_submit(id,priority,token);const answer=sim.out(),removed=answer[0];
+      heap.count=answer[1];heap.dropped=answer[2];if(removed)heap.values.delete(removed);if(heap.observed)heap.read();
+    };
+    los.drain=controller=>{sim.runLos(id,los,null,controller,0,0);};
+    los.service=(world,budget)=>Boolean(sim.runLos(id,los,world,null,1,budget));
+  }
+}
+
+class NativePerceptionFields {
+  constructor(sim,perception) {
+    this.sim=sim;this.id=sim.x.ai_perception_new();
+    const id=this.id;let candidate=perception.candidate,serial=-1;
+    const setCandidate=value=>{
+      candidate=value;
+      serial=sim.x.ai_perception_candidate(id,value===null?0:value===undefined?1:2,sim.id(value?.unit),value?.generation,value?.generation===undefined?0:value?.generation===null?2:1);
+    };
+    Object.defineProperty(perception,'candidate',{enumerable:true,configurable:true,
+      get:()=>{
+        sim.x.ai_perception_read(id);const v=sim.out();
+        if(v[4]!==serial) {serial=v[4];candidate=v[0]===0?null:v[0]===1?undefined:{unit:sim.objects[v[1]],generation:v[3]===0?undefined:v[3]===2?null:v[2]};}
+        return candidate;
+      },set:setCandidate});
+    setCandidate(candidate);
+    const field=(object,name,index)=>{
+      const old=object[name];
+      Object.defineProperty(object,name,{enumerable:true,configurable:true,
+        get:()=>sim.x.ai_perception_field(id,index),set:value=>sim.x.ai_perception_write(id,index,value)});
+      object[name]=old;
+    };
+    ['x','y','z'].forEach((key,index)=>field(perception.candidatePoint,key,index));
+    field(perception,'lastScanCount',3);
+    Object.defineProperty(perception,'nativeRecordTarget',{value:(controller,target,point,world)=>sim.recordTarget(id,controller,target,point,world)});
+  }
+}
+
+class NativePriorityHeap {
+  constructor(sim,capacity,sentinel) {
+    this.sim=sim;this.id=sim.x.ai_heap_new(capacity,sentinel);this.capacity=capacity;
+    this.values=new Map();this.next=1;this.count=0;this.dropped=0;
+    this.observed=false;
+    this.itemView=new Array(capacity+1).fill(null);this.priorityView=new Int32Array(capacity+1);
+  }
+  get size() { return this.count; }
+  run(op,priority=0,item=0,slot=0) {
+    this.sim.x.ai_heap_command(this.id,op,priority,item,slot);
+    const answer=this.sim.out(),result=answer[0];this.count=answer[1];this.dropped=answer[2];
+    if(this.observed)this.read();
+    return result;
+  }
+  value(token) { return token===0?null:this.values.get(token); }
+  token(item) {
+    if(this.next>0xffffffff) throw Error('perception item tokens exhausted');
+    const token=this.next++;this.values.set(token,item);return token;
+  }
+  clear() { this.run(0);this.values.clear(); }
+  place(slot,priority,item) { this.run(6,priority,this.token(item),slot);this.read(true); }
+  minIndex() { return this.run(5); }
+  insert(priority,item) {
+    const result=this.run(1,priority,this.token(item)),value=this.value(result);
+    if(result)this.values.delete(result);
+    return value;
+  }
+  peek() { return this.value(this.run(2)); }
+  peekPriority() { return this.run(3); }
+  pop() {
+    const token=this.run(4),value=this.value(token);
+    if(token)this.values.delete(token);
+    return value;
+  }
+  read(prune=false) {
+    this.sim.x.ai_heap_read(this.id);const answer=this.sim.out();
+    this.count=answer[0];this.dropped=answer[1];const kept=new Set();
+    for(let i=0;i<=this.capacity;i++) {
+      this.priorityView[i]=answer[2+i*2];const token=answer[3+i*2];
+      this.itemView[i]=this.value(token);if(token)kept.add(token);
+    }
+    if(prune)for(const token of this.values.keys())if(!kept.has(token))this.values.delete(token);
+  }
+  get priority() { this.observed=true;this.read();return this.priorityView; }
+  get items() { this.observed=true;this.read();return this.itemView; }
+  slots() { this.read();return this.itemView.slice(1,this.count+1); }
+  nativeThin(controller,world,retainedRef,queue) {
+    const random=world.randomA??world.random;
+    if(!Number.isInteger(random?.state))throw Error('native target ranking requires the shared ClassicRandom state');
+    const ref=r=>[this.sim.id(r?.unit),Number(Boolean(r?.unit?.alive)),r?.unit?.generation,r?.generation];
+    const words=[random.state,...ref(retainedRef)];
+    for(const [token,item] of this.values)words.push(token,...ref(item));
+    this.sim.words(words);this.sim.x.ai_heap_thin(this.id);
+    const answer=this.sim.out().slice();random.state=answer[0];
+    this.count=0;this.values.clear();if(this.observed)this.read();
+    for(let i=2;i<answer.length;i+=2) {
+      const unit=this.sim.objects[answer[i]];
+      queue.submit(controller,unit?{unit,generation:unit.generation}:null,answer[i+1]);
+    }
+    return answer[1];
   }
 }
 
