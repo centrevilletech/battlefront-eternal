@@ -18,11 +18,11 @@ impl Text for ModuleText {
     fn nonempty(&self, id: StrId) -> bool { !sim().strings.units(id).is_empty() }
 }
 
-fn query(op: BrQueryOp, a: f64, b: f64, unit: Option<Ref<Unit>>, character: Option<Ref<Character>>) -> BrQueryResult {
+pub(crate) fn query(op: BrQueryOp, a: f64, b: f64, unit: Option<Ref<Unit>>, character: Option<Ref<Character>>) -> BrQueryResult {
     import_battle_query(&BrQueryArgs { op, a, b, unit, character })
 }
 
-struct JsRulesWorld;
+pub(crate) struct JsRulesWorld;
 impl RulesWorld for JsRulesWorld {
     fn relation(&mut self, a: f64, b: f64) -> f64 { query(BrQueryOp::Relation, a, b, None, None).number }
     fn unit_alive(&mut self, unit: Ref<Unit>) -> bool { query(BrQueryOp::UnitAlive, 0.0, 0.0, Some(unit), None).flag }
@@ -32,7 +32,7 @@ impl RulesWorld for JsRulesWorld {
             weapon: s.weapon.map(|v| (v.key, v.label)), vehicle: s.vehicle.map(|v| (v.key, v.label)),
         })
     }
-    fn living(&mut self, team: f64) -> Option<f64> { query(BrQueryOp::Living, team, 0.0, None, None).optional_number }
+    fn living(&mut self, _: &Store, team: f64) -> Option<f64> { query(BrQueryOp::Living, team, 0.0, None, None).optional_number }
     fn owned_values(&mut self, _: &mut Store, team: f64) -> Vec<Option<f64>> { query(BrQueryOp::Owned, team, 0.0, None, None).values }
     fn battle_over(&mut self, s: &mut Store, loser: f64) {
         swap(s);

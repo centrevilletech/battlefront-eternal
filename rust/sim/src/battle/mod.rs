@@ -33,6 +33,8 @@ pub mod mobile;
 pub mod names;
 pub mod objectives;
 pub mod phase;
+#[cfg(target_arch = "wasm32")]
+pub mod phase_module;
 pub mod posts;
 pub mod props;
 #[cfg(target_arch = "wasm32")]

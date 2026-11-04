@@ -125,6 +125,7 @@ async function battle(index) {
   const prefix = index ? `${index + 1}:` : '';
   const game = await headlessGame(query);
   if ((battleRules === 'rust') !== Boolean(game.battleSim)) throw Error('battle rules do not match the requested module');
+  if ((battleRules === 'rust') !== Boolean(game.battlePhaseSim)) throw Error('battle phase does not match the requested module');
   if (battleRules === 'rust' && (!game.postsSim || !game.battlefieldSim || game.ai?.spawning && !game.spawningSim || game.live && !game.propsSim || game.live?.traps.length && !game.trapsSim)) throw Error('a requested native battle phase was not attached');
   // Each kernel on or off as asked, whatever the environment says (the
   // movement kernel and the units' phase bring the ray kernel with them).

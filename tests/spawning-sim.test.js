@@ -8,6 +8,7 @@ import { ClassicRandom } from '../src/ai/random.js';
 import { attachBattleSim } from '../src/battle-sim.js';
 import { attachPostsSim } from '../src/posts-sim.js';
 import { attachSpawningSim } from '../src/spawning-sim.js';
+import { attachBattlePhaseSim } from '../src/battle-phase-sim.js';
 import { loadSim } from '../src/sim/module.js';
 import { ExportContext, exportState } from '../src/sim/runtime.js';
 
@@ -43,15 +44,21 @@ async function pair() {
       },
     });
     reenter = true;
+    let phase;
     if (rust) {
       const instance = await loadSim(), ps = attachPostsSim(instance, posts), bs = attachBattleSim(instance, battle);
-      attachSpawningSim(spawning, bs, ps);
+      const ss = attachSpawningSim(spawning, bs, ps);
+      phase = attachBattlePhaseSim({ battleSim: bs, postsSim: ps, spawningSim: ss,
+        units: { all: () => battle.characters.map(c => c.unit).filter(Boolean) }, random: () => random.uniform() });
     }
     const snapshot = () => {
       const cx = new ExportContext({ classes: { Post: posts.posts[0].constructor }, ref: (kind, v) => ({ kind, id: kind === 'character' ? v.index : v.id ?? v.name }) });
       return { battle: exportState('battle', battle, cx), spawning: exportState('spawning', spawning, cx), characters: battle.characters.map(c => exportState('character', c, cx)), seed: random.seed, trace: structuredClone(trace) };
     };
-    return { spawning, posts, battle, snapshot };
+    return { spawning, posts, battle, snapshot, tick(dt) {
+      if (phase) phase.update(dt);
+      else { posts.update(dt, []); spawning.clock(dt); battle.update(dt); spawning.updateCharacters(dt); }
+    } };
   };
   const js = await make(false), rust = await make(true);
   return { js, rust, step(fn) {
@@ -79,6 +86,14 @@ test('native class changes, post queues and team transfers preserve identities',
   step(({ spawning }) => spawning.onHumanReady(spawning.human, { className: '' }));
   step(({ spawning }) => spawning.awaitingHuman(spawning.human));
   step(({ spawning }) => spawning.pickClass(spawning.characters[1]));
+});
+
+test('the whole native battle phase keeps spawn clocks, callbacks and Character updates in source order', async () => {
+  const { step } = await pair();
+  step(({ spawning, posts }) => spawning.onHumanReady(spawning.human, { classIndex: 1, post: posts.posts[0] }));
+  for (let i = 0; i < 180; i++) step(({ tick }) => tick(1 / 60));
+  step(({ spawning }) => spawning.onDeath(spawning.characters.find(c => !c.human && c.unit)));
+  for (let i = 0; i < 70; i++) step(({ tick }) => tick(0.1));
 });
 
 test('native hero removal can reenter the spawn manager and battle rules', async () => {
