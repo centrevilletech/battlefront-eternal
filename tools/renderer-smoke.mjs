@@ -10,9 +10,13 @@ if (backend === 'warp' && process.platform !== 'win32') throw new Error('WARP re
 const server = await createServer({ publicDir: false, server: { host: '127.0.0.1', port: 0 }, clearScreen: false });
 await server.listen();
 const url = server.resolvedUrls.local[0];
+// Electron treats a present ELECTRON_RUN_AS_NODE as enabled on Windows,
+// even when its value is empty. Remove the key from the child environment.
+const childEnv = { ...process.env };
+for (const key of Object.keys(childEnv)) if (key.toUpperCase() === 'ELECTRON_RUN_AS_NODE') delete childEnv[key];
 try {
   const child = spawn(electron, [...(process.env.BFE_SMOKE_NO_SANDBOX === '1' ? ['--no-sandbox'] : []), fileURLToPath(new URL('../tests/support/renderer-smoke-electron.cjs', import.meta.url)), url, backend], {
-    stdio: 'inherit', env: { ...process.env, ELECTRON_RUN_AS_NODE: '' },
+    stdio: 'inherit', env: childEnv,
   });
   const timer = setTimeout(() => child.kill(), 180_000);
   try {
