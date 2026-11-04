@@ -90,3 +90,20 @@ Both use the same generation-qualified hull references and canonical vehicle
 slab. The integrator joins their calls in the existing scheduler order. Step 6
 then consolidates synchronous hooks and rider writeback before step 7 removes the
 remaining JS world path and measures the default-flip candidate.
+
+## Native seat orchestration
+
+`vehicles::f2_seats` retains hull seat facts and turret rigs beside the canonical
+store. It sequences the existing seat solvers and validates commands against
+slab generations and gameplay lives. Commands collect changed hull, turret,
+lease and rider references for publication. Released leases retire after the
+caller publishes their final state, allowing old emitter objects to keep their
+identity. Latch and turret iteration reuse their scratch buffers.
+
+This owner currently runs in native synthetic tests. The live F2 scheduler still
+uses the foreign latch and seat-input block described above. Connecting the
+owner requires generated foreign-unit input rows, lease and rider publication,
+and synchronous hooks that transfer access to the canonical store across a
+reentrant callback. The current JavaScript seat bridges are not that boundary.
+Turret weapon execution must join the native mounted-weapon owner before the
+crew phase can leave the JavaScript world path.
