@@ -1,4 +1,5 @@
 import { seatControl, seatInput, seatLook } from '../boarding.js';
+import { networkSeatsFor } from './network-seats-sim.js';
 
 // Shared by authoritative network humans and local replay. Only input reaches
 // the server: the resulting hull pose remains entirely simulation-owned. The
@@ -12,6 +13,8 @@ export function networkVehicleInput(vehicle, index, controls, command) {
 // (tools/sim-capture/seats.mjs): a module's own functions cannot be.
 export const networkVehicle = {
   input(vehicle, index, controls, command) {
+    const native = networkSeatsFor(vehicle);
+    if (native) return native.input(vehicle, index, controls, command);
     const fs = command.flightSettings || {};
     const look = { scale: Math.min(2, command.mouseScale ?? 1), invert: Boolean(command.invertMouse),
       flightScale: Math.max(.05, Math.min(10, fs.sensitivity ?? 1)), flightInvert: Boolean(fs.invert) };

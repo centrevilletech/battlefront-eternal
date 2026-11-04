@@ -187,21 +187,68 @@ pub struct LookScales {
 /// boarding.js seatLook: mouse counts on a seat. A craft's pilot moves its
 /// virtual stick (stickX, stickY, kept inside the unit circle); any other
 /// seat turns its look, held inside the seat's limits.
-pub fn seat_look(v: &mut Vehicle, index: usize, dx: f64, dy: f64, s: &LookScales) {
-    if seat_control(v, index) == Some(SeatControl::Flight) {
-        let x = three::clamp(v.stick_x.unwrap_or(f64::NAN) + (dx * s.flight_scale) / 120.0, -1.0, 1.0);
-        v.stick_x = Some(x);
-        let y = three::clamp(v.stick_y.unwrap_or(f64::NAN) + ((if s.flight_invert { -dy } else { dy }) * s.flight_scale) / 120.0, -1.0, 1.0);
-        v.stick_y = Some(y);
-        let radius = v8math::max(1.0, v8math::hypot(x, y));
-        v.stick_x = Some(x / radius);
-        v.stick_y = Some(y / radius);
-        return;
+#[derive(Clone, Copy)]
+pub enum LookField { StickX, StickY, Yaw, Pitch }
+
+/// Reads and writes release their receiver before a method callback. Yaw
+/// and pitch reads apply the source's nullish fallback to the seat's aim.
+pub trait LookAccess {
+    type Error;
+    fn control(&mut self) -> Result<Option<SeatControl>, Self::Error>;
+    fn look_read(&mut self, field: LookField) -> Result<f64, Self::Error>;
+    fn look_write(&mut self, field: LookField, value: f64) -> Result<(), Self::Error>;
+    fn clamp(&mut self) -> Result<(), Self::Error>;
+}
+
+pub fn seat_look_with<A: LookAccess>(a: &mut A, dx: f64, dy: f64, s: &LookScales) -> Result<(), A::Error> {
+    use LookField::*;
+    if a.control()? == Some(SeatControl::Flight) {
+        let x = three::clamp(a.look_read(StickX)? + (dx * s.flight_scale) / 120.0, -1.0, 1.0);
+        a.look_write(StickX, x)?;
+        let y = three::clamp(a.look_read(StickY)? + ((if s.flight_invert { -dy } else { dy }) * s.flight_scale) / 120.0, -1.0, 1.0);
+        a.look_write(StickY, y)?;
+        let radius = v8math::max(1.0, v8math::hypot(a.look_read(StickX)?, a.look_read(StickY)?));
+        let x = a.look_read(StickX)? / radius;
+        a.look_write(StickX, x)?;
+        let y = a.look_read(StickY)? / radius;
+        a.look_write(StickY, y)?;
+    } else {
+        let yaw = a.look_read(Yaw)? - (dx * s.scale) / 2048.0;
+        a.look_write(Yaw, yaw)?;
+        let pitch = a.look_read(Pitch)? + ((if s.invert { dy } else { -dy }) * s.scale) / 2048.0;
+        a.look_write(Pitch, pitch)?;
+        a.clamp()?;
     }
-    let seat = &mut v.seats[index];
-    seat.look_yaw = Some(seat.look_yaw.unwrap_or(seat.aim_yaw) - (dx * s.scale) / 2048.0);
-    seat.look_pitch = Some(seat.look_pitch.unwrap_or(seat.pitch) + ((if s.invert { dy } else { -dy }) * s.scale) / 2048.0);
-    super::hulls::clamp_aim(v, index);
+    Ok(())
+}
+
+pub(super) struct NativeLook<'a> { pub vehicle: &'a mut Vehicle, pub index: usize }
+impl LookAccess for NativeLook<'_> {
+    type Error = std::convert::Infallible;
+    fn control(&mut self) -> Result<Option<SeatControl>, Self::Error> { Ok(seat_control(self.vehicle, self.index)) }
+    fn look_read(&mut self, field: LookField) -> Result<f64, Self::Error> {
+        let v = &self.vehicle;
+        Ok(match field {
+            LookField::StickX => v.stick_x.unwrap_or(f64::NAN),
+            LookField::StickY => v.stick_y.unwrap_or(f64::NAN),
+            LookField::Yaw => v.seats[self.index].look_yaw.unwrap_or(v.seats[self.index].aim_yaw),
+            LookField::Pitch => v.seats[self.index].look_pitch.unwrap_or(v.seats[self.index].pitch),
+        })
+    }
+    fn look_write(&mut self, field: LookField, value: f64) -> Result<(), Self::Error> {
+        match field {
+            LookField::StickX => self.vehicle.stick_x = Some(value),
+            LookField::StickY => self.vehicle.stick_y = Some(value),
+            LookField::Yaw => self.vehicle.seats[self.index].look_yaw = Some(value),
+            LookField::Pitch => self.vehicle.seats[self.index].look_pitch = Some(value),
+        }
+        Ok(())
+    }
+    fn clamp(&mut self) -> Result<(), Self::Error> { super::hulls::clamp_aim(self.vehicle, self.index); Ok(()) }
+}
+
+pub fn seat_look(v: &mut Vehicle, index: usize, dx: f64, dy: f64, s: &LookScales) {
+    seat_look_with(&mut NativeLook { vehicle: v, index }, dx, dy, s).unwrap();
 }
 
 /// boarding.js turretTakeover: whether a person may take this turret from

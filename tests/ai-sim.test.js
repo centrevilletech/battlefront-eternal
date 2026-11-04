@@ -11,6 +11,8 @@ import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse, alertResponse, broadcastAcoustic, hazardResponse, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
+import { Agent } from '../src/ai/classic/agents.js';
+import { dispatch, rangePolicy } from '../src/ai/classic/combat.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -639,6 +641,58 @@ test('native weapon utility preserves exact damage math and callback-visible acc
   for(let i=0;i<3072;i++)assert.deepEqual(run(true,i),run(false,i),`weapon utility ${i}`);
 });
 
+test('native engagement dispatch preserves weapon callbacks, mutable roles and vehicle results', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:i/11,difficulty:{enemySkill:[12,14,17,20][i%4],hard:i%3===0,tier:i%4}},out={retained:8};
+    const c={ai:{world},roll:[-7,-0,1,2,3,4,5,6,NaN,'9'][i%10],rangeScale:1};let nested=false,roleReads=0;
+    const snapshot=o=>({...o,weapon:o.weapon?.id??o.weapon});
+    const log=(...v)=>{history.push([...v,snapshot(out)]);if(native){sim.words(new Array(8100).fill(7));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapons=Array.from({length:4},(_,id)=>({id,channel:0,clip:12,reserve:24,rounds:1,
+      def:{base:['rifle','grenade','cannon','melee'][id],ammo:30,ordnance:{base:'bolt',Damage:10+id*10,VehicleScale:1},
+        ai:{minRange:0,maxRange:30+id*20,extremeRange:150,implicitRange:false,categoryMask:0xffffffff}}}));
+    const arsenal={weapons:i%13===0?[]:weapons,selected:0,current(channel){log('current',channel);return this.weapons[this.selected];},
+      select(w){log('select',w.id,this===arsenal);this.selected=this.weapons.indexOf(w);if(i%23===0)target.hero=true;return i%19!==0;}};
+    const classDef={MaxSpeed:3,UnitType:['scout','assault','pilot','support','constructor','unknown','  Trooper  '][i%7],
+      ai:{get role(){roleReads++;log('role-ai',roleReads);return i%11===0?(roleReads===1?0:2):i%7===0?2:undefined;}},
+      get role(){log('role');return i%5===0?0:undefined;}};
+    const unit=c.unit={kind:[0,1,2,3,5,6,7,'0',null][i%9],hero:i%17===0,classDef,combat:{arsenal},
+      origin(p){log('origin');p.set(-0,1,0);if(i%29===0 && !nested){nested=true;const inner={};const value=dispatch(c,innerUnit,innerTarget,false,world,inner);log('nested',snapshot(value));}}};
+    const target={id:9,alive:true,generation:0,kind:[0,1,2,3,4,5,6,7,8,9,'5'][Math.floor(i/9)%11],hero:i%31===0,category:i%5,
+      position:new Vector3(i%111,0,4),velocity:new Vector3(),sphere:{radius:1},maxHealth:100,
+      aimPoint(p){log('aim');p.copy(this.position);if(i%37===0)this.hero=true;}};
+    const innerUnit={kind:1,hero:false,classDef:{MaxSpeed:2},combat:{arsenal:{weapons:[weapons[0]]}},origin:p=>p.set(1,1,1)};
+    const innerTarget={kind:0,hero:false,category:0,sphere:{radius:0},maxHealth:20,aimPoint:p=>p.set(4,3,2)};
+    if(i%17===0){let aux=false,entered=false;Object.defineProperty(out,'aux',{enumerable:true,get:()=>aux,set(value){
+      aux=value;if(value && !entered){entered=true;const nestedWorld=i%2?world:{...world,aiSim:null};dispatch(c,innerUnit,innerTarget,false,nestedWorld,{});}
+    }});}
+    c.perception=new Perception(c);if(native)sim.bindPerception(c.perception);
+    const vehicleResult={other:i};
+    const vehicles=world.vehicles={dispatch(control,u,t,s,w,o){log('vehicle',control===c,u===unit,t===target,s,w===world,o===out,this===vehicles);o.pattern=17;return i%3===0?vehicleResult:i%5===0?null:o;}};
+    if(i%7===0)vehicles.dispatch=null;
+    const result=dispatch(i%43===0?null:c,i%47===0?null:unit,i%53===0?null:target,i%2===0,world,out);
+    return {history,out:snapshot(out),result:result===out?'out':result,selected:arsenal.selected,hero:target.hero,roleReads};
+  }
+  for(let i=0;i<2304;i++)assert.deepEqual(run(true,i),run(false,i),`engagement ${i}`);
+});
+
+test('native range policies retain strict actions and callback-visible coercion order', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},c={},out={inBand:i%3===0?{}:i%2===0,action:[0,1,2,3,4,6,'2',null,NaN][i%9]};
+    let pattern=-1,probability=9,skillReads=0;
+    const log=(...v)=>{history.push(v);if(native)sim.words(new Array(7200).fill(8));};
+    const difficulty=world.difficulty={enemySkill:i%5===0?{valueOf(){skillReads++;log('skill-coercion',skillReads);return skillReads===1?16:12;}}:[12,14,17,20,NaN,'14'][i%6],
+      hard:i%7===0?undefined:i%4===0,tier:i%3===0?3:2};
+    Object.defineProperty(c,'roll',{get(){log('roll');out.inBand=!out.inBand;return i%11===0?{valueOf(){log('roll-coercion');return -7;}}:[-9,-2,-0,0,1,2,3,4,5,NaN,'9'][i%11];}});
+    Object.defineProperty(out,'pattern',{enumerable:true,get:()=>pattern,set(value){log('pattern',value);pattern=value;if(i%13===0)out.inBand=false;}});
+    Object.defineProperty(out,'probability',{enumerable:true,get:()=>probability,set(value){log('probability',value);probability=value;if(i%17===0)difficulty.hard=true;}});
+    assert.equal(rangePolicy(c,world,out),out);
+    return {out:{...out},history,skillReads};
+  }
+  for(let i=0;i<3072;i++)assert.deepEqual(run(true,i),run(false,i),`range policy ${i}`);
+});
+
 test('native acoustic and protection services preserve query reuse, limits and nested notifications', async () => {
   const {sim}=await pair();
   function fixture(native) {
@@ -965,6 +1019,64 @@ test('native controller phases preserve captured queues, publication and low-tic
     return {history,view:view(),initial:{queue:initial.queue.map(g=>g.kind),latch:initial.latch,current:initial.current.kind},ticks,enters,result:result===token,error};
   }
   for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`controller phase ${i}`);
+});
+
+test('native controller agent callbacks retain factory binding and replacement order', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},ai={world},c=new UnitController(ai,{}),replacement=new CommandQueue();
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7800).fill(1));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    c.state=[0,1,2,3,NaN,'2'][i%6];c.phase=[0,1,'0',false][i%4];
+    const second={tick(){return true;},exit(){log('second-exit',this===second);},dispose(){log('second-dispose',this===second,c.agent===null);}};
+    const first={tick(dt,phase){log('tick',this===first,dt,phase);if(i%3===0)c.commands=replacement;return [false,true,0,NaN,{},null][i%6];},
+      exit(){log('exit',this===first);if(i%5===0)c.agent=second;},dispose(){log('dispose',this===first,c.agent===null);if(i%7===0)c.agent=second;}};
+    ai.agentFor=function(state,controller){log('factory',state,controller===c,this===ai);c.commands.current=new SourceGoal(i%11);
+      if(i%13===0)return null;
+      return function(controller,goal){log('create',controller===c,goal===c.commands.current,goal.kind,this===undefined);c.state=4;return i%17===0?null:first;};
+    };
+    c.trace=function(kind,fields){log('trace',kind,{...fields},this===c);if(i%19===0)c.agent=second;};
+    const original=c.commands,dt=i%3?i/60:{step:i};
+    c.onEnter();c.onTick(dt);c.onExit();c.disposeAgent();
+    return {history,agent:c.agent===second?'second':c.agent===first?'first':c.agent,state:c.state,
+      originalDone:original.currentDone,replacementDone:replacement.currentDone,current:c.commands.current.kind};
+  }
+  for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`controller lifecycle ${i}`);
+});
+
+test('native agent base preserves phase dispatch, captured aim services and unbound eligibility', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},ai={world},controller={ai,world,unit:{id:1},phase:[0,1,'0',false][i%4]};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7900).fill(2));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const helper={terminate(){log('terminate-helper',this===helper);agent.helper=otherHelper;},stop(){log('stop-helper',this===helper);}};
+    const otherHelper={dispose(){log('dispose-helper',this===otherHelper);}};
+    if(i%3===0)helper.terminate=null;if(i%5===0)helper.stop=null;
+    ai.createHelper=()=>helper;
+    const agent=new Agent(controller,null),target={id:2,generation:i%5},memory=new Vector3(3,4,5),look=new Vector3(6,7,8),otherController={id:9};
+    function setters(c,label){
+      c.setStance=function(stance){log(label,'stance',stance,this===c);if(i%7===0)agent.controller=otherController;};
+      c.aimAt=function(ref){log(label,'target',ref.unit.id,ref.generation,this===c);};
+      c.lookAt=function(p){log(label,'look',p===memory?'memory':p===look?'look':'other',p.toArray(),this===c);p.y+=.125;};
+      c.lookAlongPath=function(){log(label,'along',this===c);};
+    }
+    setters(controller,'first');setters(otherController,'other');otherController.phase=controller.phase;
+    const second={currentTarget(){log('wrong-current');return null;},memoryPoint(){log('wrong-memory');return null;}};
+    const combat=ai.combat={currentTarget(a){log('current',a===agent,this===combat);if(i%11===0)ai.combat=second;target.generation+=1;return i%3===0?target:null;},
+      memoryPoint(a){log('memory',a===agent,this===combat);return i%5===0?memory:null;},
+      rankTargets(a){log('rank',a===agent,this===combat);a.state=i%13===0?'100':100;},
+      canEngage(c,t){log('engage',c===agent.controller,t===target,this===undefined);return i%2?{}:null;}};
+    if(i%17===0)combat.canEngage=null;
+    const vehicles=ai.vehicles={boardPolicy(a,t){log('board',a===agent,t===target,this===vehicles);return i%3;}};
+    if(i%19===0)vehicles.boardPolicy=null;
+    target.soldier=i%23===0?{maxSpeed:'2'}:null;target.classDef={ForwardSpeed:i%2?3:0};
+    agent.behave=function(dt){log('behave',dt,this===agent);this.state=i%7===0?'100':100;};
+    agent.onEnter=function(){log('enter',agent.state);};agent.onExit=function(){log('exit',agent.state);};
+    const phase=[0,-0,1,'0',false,undefined][i%6],dt=i%3===0?{step:i}:i/60;
+    const done=agent.tick(dt,phase),can=agent.canEngage(target),board=agent.boardPolicy(i%29===0?null:target);
+    agent.aim(i%3,i%31===0?null:look);agent.exit();agent.dispose();
+    return {history,done,can,board,state:agent.state,pending:agent.pending,controller:agent.controller===controller?'first':'other',memory:memory.toArray(),look:look.toArray()};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`agent base ${i}`);
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {

@@ -590,12 +590,16 @@ export class UnitController extends Fsm {
   }
 
   onEnter() {
+    const native=nativeFsm(this);
+    if(native)return native.controllerDriver.run(this,4);
     const factory = this.ai.agentFor(this.state, this);
     this.agent = factory ? factory(this, this.commands.current) : null;
     this.trace("enter", { state: this.state, agent: this.agent?.constructor.name ?? null });
   }
 
   onExit() {
+    const native=nativeFsm(this);
+    if(native)return native.controllerDriver.run(this,5);
     if (this.agent) {
       this.agent.exit();
       this.disposeAgent();
@@ -603,10 +607,14 @@ export class UnitController extends Fsm {
   }
 
   onTick(dt) {
+    const native=nativeFsm(this);
+    if(native)return native.controllerDriver.run(this,6,dt);
     if (this.agent) this.commands.currentDone = Boolean(this.agent.tick(dt, this.phase));
   }
 
   disposeAgent() {
+    const native=nativeFsm(this);
+    if(native)return native.controllerDriver.run(this,7);
     const agent = this.agent;
     this.agent = null;
     agent?.dispose?.();

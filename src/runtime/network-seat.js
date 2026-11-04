@@ -11,6 +11,7 @@ export function cycleNetworkSeat(system, unit, direction = 1) {
 // (tools/sim-capture/seats.mjs): a module's own functions cannot be.
 export const networkSeat = {
   cycle(system, unit, direction = 1) {
+    if (system?.networkSeatsSim) return system.networkSeatsSim.cycle(system, unit, direction);
     const lease = unit?.seat, vehicle = lease?.vehicle;
     if (!unit?.networkHuman || !vehicle?.alive || lease.released) return false;
     return switchSeat(system, vehicle, lease, lease.index, direction) >= 0;

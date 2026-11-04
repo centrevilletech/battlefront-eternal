@@ -350,6 +350,149 @@ impl WorldNetworkCall {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum WorldControlsCall {
+    #[default] Start = 0,
+    SquadTake = 1,
+    SquadReady = 2,
+    Squad = 3,
+    SquadEvent = 4,
+    NextSpawn = 5,
+    Scheme = 6,
+    FirstPerson = 7,
+    CombatView = 8,
+    Remotes = 9,
+    RemoteView = 10,
+    FiniteAspect = 11,
+    PositiveAspect = 12,
+    AimCamera = 13,
+    Aspect = 14,
+    Axis = 15,
+    PitchZero = 16,
+    Action = 17,
+    Metadata = 18,
+    Reliable = 19,
+    Fire = 20,
+    FireButtons = 21,
+    Shots = 22,
+    NextShot = 23,
+    ShotTick = 24,
+    ShotLate = 25,
+    PublishShots = 26,
+    Held = 27,
+    Key = 28,
+    Scale = 29,
+    Looks = 30,
+    NextLook = 31,
+    Dx = 32,
+    Dy = 33,
+    RemoteActive = 34,
+    RemoteLook = 35,
+    SoldierLook = 36,
+    Seat = 37,
+    Vehicle = 38,
+    Selection = 39,
+    Cycle = 40,
+    ClearSelection = 41,
+    VehicleInput = 42,
+    VehicleKeys = 43,
+    TurnStart = 44,
+    Reduce = 45,
+    Turn = 46,
+    TurnOther = 47,
+    Invert = 48,
+    Pitch = 49,
+    PitchOther = 50,
+    Use = 51,
+    Mount = 52,
+    MountVehicle = 53,
+    Board = 54,
+    MountTurret = 55,
+    Man = 56,
+    ClearUse = 57,
+    Clear = 58,
+    Unit = 59,
+    StopIntent = 60,
+    StopMetadata = 61,
+    Driver = 62,
+    StopSticks = 63,
+}
+
+impl WorldControlsCall {
+    pub const NAMES: [&'static str; 64] = ["start", "squadTake", "squadReady", "squad", "squadEvent", "nextSpawn", "scheme", "firstPerson", "combatView", "remotes", "remoteView", "finiteAspect", "positiveAspect", "aimCamera", "aspect", "axis", "pitchZero", "action", "metadata", "reliable", "fire", "fireButtons", "shots", "nextShot", "shotTick", "shotLate", "publishShots", "held", "key", "scale", "looks", "nextLook", "dx", "dy", "remoteActive", "remoteLook", "soldierLook", "seat", "vehicle", "selection", "cycle", "clearSelection", "vehicleInput", "vehicleKeys", "turnStart", "reduce", "turn", "turnOther", "invert", "pitch", "pitchOther", "use", "mount", "mountVehicle", "board", "mountTurret", "man", "clearUse", "clear", "unit", "stopIntent", "stopMetadata", "driver", "stopSticks"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(WorldControlsCall::Start),
+            1 => Some(WorldControlsCall::SquadTake),
+            2 => Some(WorldControlsCall::SquadReady),
+            3 => Some(WorldControlsCall::Squad),
+            4 => Some(WorldControlsCall::SquadEvent),
+            5 => Some(WorldControlsCall::NextSpawn),
+            6 => Some(WorldControlsCall::Scheme),
+            7 => Some(WorldControlsCall::FirstPerson),
+            8 => Some(WorldControlsCall::CombatView),
+            9 => Some(WorldControlsCall::Remotes),
+            10 => Some(WorldControlsCall::RemoteView),
+            11 => Some(WorldControlsCall::FiniteAspect),
+            12 => Some(WorldControlsCall::PositiveAspect),
+            13 => Some(WorldControlsCall::AimCamera),
+            14 => Some(WorldControlsCall::Aspect),
+            15 => Some(WorldControlsCall::Axis),
+            16 => Some(WorldControlsCall::PitchZero),
+            17 => Some(WorldControlsCall::Action),
+            18 => Some(WorldControlsCall::Metadata),
+            19 => Some(WorldControlsCall::Reliable),
+            20 => Some(WorldControlsCall::Fire),
+            21 => Some(WorldControlsCall::FireButtons),
+            22 => Some(WorldControlsCall::Shots),
+            23 => Some(WorldControlsCall::NextShot),
+            24 => Some(WorldControlsCall::ShotTick),
+            25 => Some(WorldControlsCall::ShotLate),
+            26 => Some(WorldControlsCall::PublishShots),
+            27 => Some(WorldControlsCall::Held),
+            28 => Some(WorldControlsCall::Key),
+            29 => Some(WorldControlsCall::Scale),
+            30 => Some(WorldControlsCall::Looks),
+            31 => Some(WorldControlsCall::NextLook),
+            32 => Some(WorldControlsCall::Dx),
+            33 => Some(WorldControlsCall::Dy),
+            34 => Some(WorldControlsCall::RemoteActive),
+            35 => Some(WorldControlsCall::RemoteLook),
+            36 => Some(WorldControlsCall::SoldierLook),
+            37 => Some(WorldControlsCall::Seat),
+            38 => Some(WorldControlsCall::Vehicle),
+            39 => Some(WorldControlsCall::Selection),
+            40 => Some(WorldControlsCall::Cycle),
+            41 => Some(WorldControlsCall::ClearSelection),
+            42 => Some(WorldControlsCall::VehicleInput),
+            43 => Some(WorldControlsCall::VehicleKeys),
+            44 => Some(WorldControlsCall::TurnStart),
+            45 => Some(WorldControlsCall::Reduce),
+            46 => Some(WorldControlsCall::Turn),
+            47 => Some(WorldControlsCall::TurnOther),
+            48 => Some(WorldControlsCall::Invert),
+            49 => Some(WorldControlsCall::Pitch),
+            50 => Some(WorldControlsCall::PitchOther),
+            51 => Some(WorldControlsCall::Use),
+            52 => Some(WorldControlsCall::Mount),
+            53 => Some(WorldControlsCall::MountVehicle),
+            54 => Some(WorldControlsCall::Board),
+            55 => Some(WorldControlsCall::MountTurret),
+            56 => Some(WorldControlsCall::Man),
+            57 => Some(WorldControlsCall::ClearUse),
+            58 => Some(WorldControlsCall::Clear),
+            59 => Some(WorldControlsCall::Unit),
+            60 => Some(WorldControlsCall::StopIntent),
+            61 => Some(WorldControlsCall::StopMetadata),
+            62 => Some(WorldControlsCall::Driver),
+            63 => Some(WorldControlsCall::StopSticks),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WsMember {
     pub id: f64,
@@ -1259,6 +1402,62 @@ impl WorldNetworkReply {
         Self {
             state: WorldNetworkState::take(&row[0..], heap),
             value: row[14] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldControlsArgs {
+    pub op: WorldControlsCall,
+    pub index: f64,
+    pub value: f64,
+    pub other: f64,
+}
+
+impl WorldControlsArgs {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        row[1] = self.index;
+        row[2] = self.value;
+        row[3] = self.other;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            op: WorldControlsCall::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            index: row[1],
+            value: row[2],
+            other: row[3],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WorldControlsReply {
+    pub value: f64,
+    pub flag: bool,
+}
+
+impl WorldControlsReply {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = self.value;
+        row[1] = if self.flag { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            value: row[0],
+            flag: row[1] != 0.0,
         }
     }
 

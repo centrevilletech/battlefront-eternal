@@ -8,6 +8,9 @@
 //! Any call here can grow the memory, so JavaScript makes its views after
 //! the call.
 
+#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
+pub mod context;
+
 use std::ptr::addr_of_mut;
 
 use crate::gen::{Echo, Fill, Store, KINDS, KIND_HASHES};
@@ -32,7 +35,7 @@ pub struct Sim {
 }
 
 impl Sim {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Sim {
             store: Store::default(),
             strings: Strings::default(),
@@ -41,6 +44,34 @@ impl Sim {
             events: Events::default(),
             scratch: Vec::new(),
         }
+    }
+}
+
+impl Default for Sim {
+    fn default() -> Self { Self::new() }
+}
+
+impl Sim {
+    pub fn scratch_room(&mut self, bytes: usize) -> &mut [u8] {
+        self.scratch.clear();
+        self.scratch.resize(bytes, 0);
+        &mut self.scratch
+    }
+
+    pub fn intern_scratch(&mut self, units: usize) -> StrId {
+        let list: Vec<u16> = self.scratch[..units * 2].chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+        self.strings.intern(&list)
+    }
+
+    pub fn export(&mut self, kind: u32, mode: u32) -> Option<&Block> {
+        let block = self.blocks.get_mut(kind as usize)?;
+        self.store.export(kind as KindCode, block, mode).then_some(block)
+    }
+
+    pub fn import(&mut self, kind: u32, flags: u32) -> bool {
+        let Some(block) = self.blocks.get_mut(kind as usize) else { return false };
+        self.store.import(kind as KindCode, block, flags & 1 != 0, flags & 2 != 0)
     }
 }
 
@@ -66,19 +97,13 @@ pub extern "C" fn sim_kind_hash(kind: u32) -> u32 { KIND_HASHES.get(kind as usiz
 /// Room for `bytes` bytes of input, where JavaScript writes it.
 #[no_mangle]
 pub extern "C" fn sim_scratch(bytes: u32) -> *mut u8 {
-    let s = &mut sim().scratch;
-    s.clear();
-    s.resize(bytes as usize, 0);
-    s.as_mut_ptr()
+    sim().scratch_room(bytes as usize).as_mut_ptr()
 }
 
 /// Interns the string whose `units` UTF-16 units are in the scratch buffer.
 #[no_mangle]
 pub extern "C" fn sim_str_intern(units: u32) -> u32 {
-    let s = sim();
-    let n = units as usize;
-    let list: Vec<u16> = s.scratch[..n * 2].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
-    s.strings.intern(&list).0
+    sim().intern_scratch(units as usize).0
 }
 
 #[no_mangle]
@@ -98,9 +123,7 @@ pub extern "C" fn sim_str_ptr(id: u32) -> *const u16 { sim().strings.units(StrId
 /// mirror write detector compares, leaving them for the next export).
 #[no_mangle]
 pub extern "C" fn sim_export(kind: u32, mode: u32) -> *const f64 {
-    let s = sim();
-    let Some(block) = s.blocks.get_mut(kind as usize) else { return std::ptr::null() };
-    if s.store.export(kind as KindCode, block, mode) { block.ptr() } else { std::ptr::null() }
+    sim().export(kind, mode).map_or(std::ptr::null(), Block::ptr)
 }
 
 /// Retires an entity (`Slab::retire`); 0, or -1 if it is gone or of a kind
@@ -124,11 +147,7 @@ pub extern "C" fn sim_import_room(kind: u32, rows: u32, stride: u32, heap: u32) 
 /// JavaScript's list). 0, or -1 for a kind the store holds no fields of.
 #[no_mangle]
 pub extern "C" fn sim_import(kind: u32, flags: u32) -> i32 {
-    let s = sim();
-    let block = std::mem::take(&mut s.blocks[kind as usize]);
-    let ok = s.store.import(kind as KindCode, &block, flags & 1 != 0, flags & 2 != 0);
-    s.blocks[kind as usize] = block;
-    if ok { 0 } else { -1 }
+    if sim().import(kind, flags) { 0 } else { -1 }
 }
 
 /// Room for a call's record (`words` words, then `heap` heap words): a
@@ -169,6 +188,15 @@ pub extern "C" fn sim_events() -> *const f64 { sim().events.ptr() }
 #[no_mangle]
 pub extern "C" fn sim_events_clear() { sim().events.clear() }
 
+/// Legacy raw exports have no native callback owner. Context commands use
+/// their explicit dispatcher instead; unsupported raw commands return null.
+pub fn command_available(code: u32) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    { let _ = code; true }
+    #[cfg(not(target_arch = "wasm32"))]
+    { matches!(code, crate::gen::COMMAND_ECHO | crate::gen::COMMAND_FILL) }
+}
+
 /// The store's own command (rust/sim/schema/store.mjs), for its tests and
 /// benchmarks: its arguments back, `value` one more, after emitting
 /// `events` echoed events.
@@ -186,7 +214,7 @@ pub fn relay(_sim: &mut Sim, args: Echo) -> Echo {
     #[cfg(target_arch = "wasm32")]
     return crate::gen::import_ask(&args);
     #[cfg(not(target_arch = "wasm32"))]
-    return args;
+    panic!("native relay requires abi::context::Context");
 }
 
 /// The store's other command: `count` new entities of a kind, its fields'

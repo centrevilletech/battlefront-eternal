@@ -64,6 +64,8 @@ impl Events {
     /// The events' words, after their total length (what JavaScript drains).
     pub fn ptr(&self) -> *const f64 { self.words.as_ptr() }
 
+    pub fn snapshot(&self) -> Vec<f64> { self.words.clone() }
+
     pub fn len(&self) -> usize { self.words.len() - 1 }
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
@@ -85,57 +87,66 @@ impl Events {
 /// makes another import) has read its arguments first and writes its
 /// result after.
 pub const EXCHANGE: usize = 1 << 13;
-static mut EXCHANGE_WORDS: [f64; EXCHANGE] = [0.0; EXCHANGE];
-static mut EXCHANGE_HEAP: Vec<f64> = Vec::new();
-
-fn exchange() -> &'static mut [f64; EXCHANGE] {
-    // SAFETY: one thread; the borrow ends before the import is called.
-    unsafe { &mut *std::ptr::addr_of_mut!(EXCHANGE_WORDS) }
+/// An owned exchange with the same layout and capacity as the WASM facade.
+/// Native contexts copy records out before dispatch, so no borrow of this
+/// allocation survives a callback (including same-context reentry).
+pub struct ImportExchange {
+    words: [f64; EXCHANGE],
+    heap: Vec<f64>,
 }
 
-/// Writes an import's arguments (a record of `words` words, then its heap).
-pub fn import_out(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) {
-    let x = exchange();
-    // SAFETY: as exchange().
-    let heap = unsafe { &mut *std::ptr::addr_of_mut!(EXCHANGE_HEAP) };
-    heap.clear();
-    put(&mut x[HEADER..HEADER + words], heap);
-    let start = HEADER + words;
-    let n = heap.len();
-    assert!(start + n <= EXCHANGE, "an import's arguments outgrow the exchange block");
-    x[start..start + n].copy_from_slice(heap);
-    x[0] = 1.0;
-    x[1] = words as f64;
-    x[2] = start as f64;
-    x[3] = n as f64;
-    x[4] = 0.0;
+impl Default for ImportExchange {
+    fn default() -> Self { Self::new() }
 }
 
-/// Reads the result JavaScript wrote.
-pub fn import_in<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T {
-    let x = exchange();
-    let words = word_u32(x[1]) as usize;
-    let start = word_u32(x[2]) as usize;
-    let n = word_u32(x[3]) as usize;
-    take(&x[HEADER..HEADER + words], &x[start..start + n])
+impl ImportExchange {
+    pub const fn new() -> Self { Self { words: [0.0; EXCHANGE], heap: Vec::new() } }
+
+    pub fn out(&mut self, words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) {
+        self.heap.clear();
+        put(&mut self.words[HEADER..HEADER + words], &mut self.heap);
+        let start = HEADER + words;
+        let n = self.heap.len();
+        assert!(start + n <= EXCHANGE, "an import's arguments outgrow the exchange block");
+        self.words[start..start + n].copy_from_slice(&self.heap);
+        self.words[0] = 1.0;
+        self.words[1] = words as f64;
+        self.words[2] = start as f64;
+        self.words[3] = n as f64;
+        self.words[4] = 0.0;
+    }
+
+    pub fn read<T>(&self, take: impl FnOnce(&[f64], &[f64]) -> T) -> T {
+        let words = word_u32(self.words[1]) as usize;
+        let start = word_u32(self.words[2]) as usize;
+        let n = word_u32(self.words[3]) as usize;
+        take(&self.words[HEADER..HEADER + words], &self.words[start..start + n])
+    }
+
+    pub fn ptr(&self) -> *const f64 { self.words.as_ptr() }
+
+    pub fn room(&mut self, words: usize, heap: usize) -> *mut f64 {
+        assert!(HEADER + words + heap <= EXCHANGE, "an import's result outgrows the exchange block");
+        self.words[0] = 1.0;
+        self.words[1] = words as f64;
+        self.words[2] = (HEADER + words) as f64;
+        self.words[3] = heap as f64;
+        self.words[4] = 0.0;
+        self.words.as_mut_ptr()
+    }
 }
 
-/// Where the import block is (for JavaScript to read the arguments and
-/// write the result): the same place for the instance's life.
-pub fn import_args_ptr() -> *const f64 { exchange().as_ptr() }
+static mut EXCHANGE_BLOCK: ImportExchange = ImportExchange::new();
 
-/// Room for an import's result (the block's header set for it), for a
-/// caller that asks rather than writing the header itself.
-pub fn import_room(words: usize, heap: usize) -> *mut f64 {
-    assert!(HEADER + words + heap <= EXCHANGE, "an import's result outgrows the exchange block");
-    let x = exchange();
-    x[0] = 1.0;
-    x[1] = words as f64;
-    x[2] = (HEADER + words) as f64;
-    x[3] = heap as f64;
-    x[4] = 0.0;
-    x.as_mut_ptr()
+fn exchange() -> &'static mut ImportExchange {
+    // WASM facade: one instance, one thread; no borrow spans an import.
+    unsafe { &mut *std::ptr::addr_of_mut!(EXCHANGE_BLOCK) }
 }
+
+pub fn import_out(words: usize, put: impl FnOnce(&mut [f64], &mut Vec<f64>)) { exchange().out(words, put); }
+pub fn import_in<T>(take: impl FnOnce(&[f64], &[f64]) -> T) -> T { exchange().read(take) }
+pub fn import_args_ptr() -> *const f64 { exchange().ptr() }
+pub fn import_room(words: usize, heap: usize) -> *mut f64 { exchange().room(words, heap) }
 
 const _: () = assert!(HEADER == 5);
 

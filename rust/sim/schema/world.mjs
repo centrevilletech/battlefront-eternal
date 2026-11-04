@@ -15,6 +15,13 @@ export default {
     WorldNetworkCall: ['capture', 'players', 'nextPlayer', 'ended', 'release', 'retire', 'delete', 'stop', 'command', 'actions',
       'accept', 'choices', 'nextChoice', 'suicide', 'switchTeam', 'team', 'currentAlive', 'spawn', 'trace', 'unit', 'deadTime',
       'autoSpawn', 'deadPhase', 'controls', 'views', 'step'],
+    WorldControlsCall: ['start', 'squadTake', 'squadReady', 'squad', 'squadEvent', 'nextSpawn', 'scheme',
+      'firstPerson', 'combatView', 'remotes', 'remoteView', 'finiteAspect', 'positiveAspect', 'aimCamera', 'aspect',
+      'axis', 'pitchZero', 'action', 'metadata', 'reliable', 'fire', 'fireButtons', 'shots', 'nextShot', 'shotTick',
+      'shotLate', 'publishShots', 'held', 'key', 'scale', 'looks', 'nextLook', 'dx', 'dy', 'remoteActive', 'remoteLook',
+      'soldierLook', 'seat', 'vehicle', 'selection', 'cycle', 'clearSelection', 'vehicleInput', 'vehicleKeys',
+      'turnStart', 'reduce', 'turn', 'turnOther', 'invert', 'pitch', 'pitchOther', 'use', 'mount', 'mountVehicle',
+      'board', 'mountTurret', 'man', 'clearUse', 'clear', 'unit', 'stopIntent', 'stopMetadata', 'driver', 'stopSticks'],
   },
   records: {
     WsMember: { id: 'f64', position: 'vec3', tickCount: 'f64', walker: 'bool', posture: 'enum:Posture', seat: 'bool', held: 'bool', removed: 'bool', alive: 'bool', dead: 'bool' },
@@ -49,6 +56,8 @@ export default {
     WorldNetworkInput: { state: 'rec:WorldNetworkState', tick: 'f64', at: 'f64', grace: 'f64', respawn: 'f64' },
     WorldNetworkArgs: { op: 'enum:WorldNetworkCall', value: 'f64' },
     WorldNetworkReply: { state: 'rec:WorldNetworkState', value: 'bool' },
+    WorldControlsArgs: { op: 'enum:WorldControlsCall', index: 'f64', value: 'f64', other: 'f64' },
+    WorldControlsReply: { value: 'f64', flag: 'bool' },
   },
   imports: {
     worldClock: { args: 'WorldClockArgs', result: 'WorldClockReply' },
@@ -56,5 +65,6 @@ export default {
     worldLocal: { args: 'WorldLocalArgs', result: 'WorldLocalReply' },
     worldStep: { args: 'WorldStepArgs', result: 'WorldStepReply' },
     worldNetwork: { args: 'WorldNetworkArgs', result: 'WorldNetworkReply' },
+    worldControls: { args: 'WorldControlsArgs', result: 'WorldControlsReply' },
   },
 };
