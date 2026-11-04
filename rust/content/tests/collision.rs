@@ -10,17 +10,21 @@
 //!
 //! BFE_NODE names the Node to run; BFE_CONTENT_MAP limits it to one map.
 
+use bfe_content::bvh::{build, Positions};
 use bfe_content::collision::MapCollision;
 use bfe_content::install::{install, read_trees};
+use bfe_content::js::js_hypot;
 use bfe_sim::collision::install::Kernel;
 use bfe_sim::collision::{state, world_cast_ray, Ray, MISS, TERRAIN};
-use bfe_content::js::js_hypot;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[test]
 fn installed_world_casts_as_the_javascript() {
-    let Some(root) = std::env::var_os("BFE_CONTENT_DIR").map(PathBuf::from).filter(|r| r.join("maps").is_dir()) else {
+    let Some(root) = std::env::var_os("BFE_CONTENT_DIR")
+        .map(PathBuf::from)
+        .filter(|r| r.join("maps").is_dir())
+    else {
         eprintln!("skipped: no game files (BFE_CONTENT_DIR)");
         return;
     };
@@ -32,7 +36,10 @@ fn installed_world_casts_as_the_javascript() {
         .unwrap()
         .filter_map(|e| e.ok())
         .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|m| root.join("maps").join(m).join("collision.bin").exists() && only_map.as_ref().is_none_or(|o| o == m))
+        .filter(|m| {
+            root.join("maps").join(m).join("collision.bin").exists()
+                && only_map.as_ref().is_none_or(|o| o == m)
+        })
         .collect();
     maps.sort();
     assert!(!maps.is_empty(), "no maps in the content");
@@ -48,8 +55,12 @@ fn installed_world_casts_as_the_javascript() {
             .current_dir(&repo)
             .status()
             .expect("node runs tools/collision-trees.mjs");
-        assert!(status.success(), "tools/collision-trees.mjs failed on {map}");
-        let (buildings, terrain, casts) = read_trees(&std::fs::read(&file).unwrap()).unwrap();
+        assert!(
+            status.success(),
+            "tools/collision-trees.mjs failed on {map}"
+        );
+        let (expected_buildings, expected_terrain, casts) =
+            read_trees(&std::fs::read(&file).unwrap()).unwrap();
         // The map's collision as this crate loads it (game.js 429-436).
         let read = |name: &str| std::fs::read(root.join("maps").join(map).join(name)).unwrap();
         let collision = MapCollision::load(
@@ -60,23 +71,80 @@ fn installed_world_casts_as_the_javascript() {
             &read("terrain_collision_index.bin"),
         )
         .unwrap();
+        // Construct from the source geometry independently of the oracle's
+        // trees; exact root bytes retain collision gather and tie order.
+        let buildings = build(Positions::F32(&collision.positions), &collision.indices);
+        assert_eq!(
+            buildings.roots, expected_buildings.roots,
+            "{map}: building roots"
+        );
+        assert_eq!(
+            buildings.indirect, expected_buildings.indirect,
+            "{map}: building indirect"
+        );
+        let terrain = (!collision.terrain_indices.is_empty()).then(|| {
+            build(
+                Positions::F32(&collision.terrain_positions),
+                &collision.terrain_indices,
+            )
+        });
+        assert_eq!(
+            terrain.is_some(),
+            expected_terrain.is_some(),
+            "{map}: terrain presence"
+        );
+        if let (Some(actual), Some(expected)) = (&terrain, &expected_terrain) {
+            assert_eq!(actual.roots, expected.roots, "{map}: terrain roots");
+            assert_eq!(
+                actual.indirect, expected.indirect,
+                "{map}: terrain indirect"
+            );
+        }
         let ids = install(&mut Kernel, &collision, &buildings, terrain.as_ref()).unwrap();
         for (i, cast) in casts.iter().enumerate() {
-            let ray = Ray { ox: cast.origin[0], oy: cast.origin[1], oz: cast.origin[2], dx: cast.direction[0], dy: cast.direction[1], dz: cast.direction[2] };
+            let ray = Ray {
+                ox: cast.origin[0],
+                oy: cast.origin[1],
+                oz: cast.origin[2],
+                dx: cast.direction[0],
+                dy: cast.direction[1],
+                dz: cast.direction[2],
+            };
             let hypot = js_hypot(&[cast.direction[0], cast.direction[2]]);
             let (code, hit) = world_cast_ray(state(), ids.world as usize, &ray, cast.far, hypot, 0);
             let got = [hit.distance, hit.px, hit.py, hit.pz, hit.nx, hit.ny, hit.nz];
-            let same = code == cast.code && (code == MISS || got.iter().zip(cast.hit.iter()).all(|(a, b)| a.to_bits() == b.to_bits()));
+            let same = code == cast.code
+                && (code == MISS
+                    || got
+                        .iter()
+                        .zip(cast.hit.iter())
+                        .all(|(a, b)| a.to_bits() == b.to_bits()));
             if !same {
-                differing.push(format!("{map} cast {i}: rust {code} {got:?}, js {} {:?}", cast.code, cast.hit));
+                differing.push(format!(
+                    "{map} cast {i}: rust {code} {got:?}, js {} {:?}",
+                    cast.code, cast.hit
+                ));
             }
         }
         let hits = casts.iter().filter(|c| c.code != MISS).count();
         let terrain_hits = casts.iter().filter(|c| c.code == TERRAIN).count();
-        eprintln!("{map}: {} casts ({hits} hits, {terrain_hits} on the terrain)", casts.len());
+        eprintln!(
+            "{map}: {} casts ({hits} hits, {terrain_hits} on the terrain)",
+            casts.len()
+        );
         total += casts.len();
     }
     let _ = std::fs::remove_dir_all(&out);
-    assert!(differing.is_empty(), "{} casts differ:\n{}", differing.len(), differing.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
+    assert!(
+        differing.is_empty(),
+        "{} casts differ:\n{}",
+        differing.len(),
+        differing
+            .iter()
+            .take(20)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
     eprintln!("{total} casts on {} maps identical", maps.len());
 }

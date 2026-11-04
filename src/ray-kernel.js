@@ -87,7 +87,13 @@ export class RayKernel {
   // traversal for fallback without building or copying the tree in again.
   buildBVH(geometry) {
     const position = geometry.attributes.position, index = geometry.index;
-    if (!index || position.itemSize !== 3 || position.normalized || position.isInterleavedBufferAttribute || index.count % 3) throw Error('Unsupported geometry for the native tree builder');
+    // CollisionWorld creates exactly this indexed, full-range geometry.
+    // Other callers retain MeshBVH's general attribute/range handling.
+    if (!index || index.itemSize !== 1 || index.normalized || index.isInterleavedBufferAttribute || index.count % 3
+      || !position || position.itemSize !== 3 || position.normalized || position.isInterleavedBufferAttribute
+      || !(position.array instanceof Float32Array || position.array instanceof Float64Array)
+      || !(index.array instanceof Uint16Array || index.array instanceof Uint32Array)
+      || geometry.groups.length || geometry.drawRange.start !== 0 || geometry.drawRange.count !== Infinity) return new MeshBVH(geometry, { indirect: true });
     const id = this.x.tree_new(this.positions(position.array), index.array.length, 0);
     this.u32(this.x.tree_index(id), index.array.length).set(index.array);
     this.x.tree_build(id);
