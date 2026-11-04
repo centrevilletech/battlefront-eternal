@@ -318,3 +318,16 @@ test('live F2 nested shot deaths keep the remaining crew snapshot valid', async 
     assert.equal(old.released, true); assert.equal(a.seat.unit, a);
   } finally { system.dispose(); }
 });
+
+test('warm live F2 hull and crew phases reuse their native storage', async () => {
+  const { system } = await fleet(true);
+  try {
+    const u = rider(system, 40); assert.equal(system.board(u, system.vehicles[0]), true);
+    u.intent.forward = .5;
+    for (let i = 0; i < 60; i++) system.update(1 / 60);
+    for (let i = 0; i < 1200; i++) {
+      system.update(1 / 60);
+      assert.equal(system.f2.x.f2_allocations(), 0, `native allocation at warm tick ${i}`);
+    }
+  } finally { system.dispose(); }
+});

@@ -256,20 +256,23 @@ impl Collision {
     /// flags now. None: the hull's body is not one this knows.
     #[allow(clippy::too_many_arguments)]
     pub fn push_walls(&mut self, s: &mut State, body: BodyId, probes: &[Vector3], radius: f64, q: &Quaternion, own: Option<&Quaternion>, previous: &Vector3, position: &mut Vector3, velocity: &mut Vector3, terrain: bool) -> Option<bool> {
-        let walls = self.collider(body)?.walls.clone();
+        let walls = &self.colliders.get(body as usize)?.as_ref()?.walls;
         if walls.len() < probes.len() {
             return None;
         }
         let all = spheres::caches();
         let base = all.as_mut_ptr();
         // Each probe's own cache (distinct per probe, as a hull keeps them).
-        let mut caches: Vec<Option<&mut GatherCache>> = walls[..probes.len()].iter().map(|&id| if id >= 0 { Some(unsafe { &mut *base.add(id as usize) }) } else { None }).collect();
+        let mut caches: [Option<&mut GatherCache>; 256] = [const { None }; 256];
+        for (i, &id) in walls.iter().take(probes.len()).enumerate() {
+            if id >= 0 { caches[i] = Some(unsafe { &mut *base.add(id as usize) }); }
+        }
         self.points.clear();
         self.points.extend(probes.iter().map(|p| [p.x, p.y, p.z]));
         let p = Probes { points: &self.points, radius, q: [q.x, q.y, q.z, q.w], own: own.map(|o| [o.x, o.y, o.z, o.w]), previous: [previous.x, previous.y, previous.z], terrain };
         let mut h = Pushed { position: [position.x, position.y, position.z], velocity: [velocity.x, velocity.y, velocity.z], undo_turn: false };
         let n = s.worlds[self.world].order.len();
-        spheres::push_walls(s, self.world, &p, &mut caches, self.blockers, &self.flags[..n], &mut h, &mut self.gathered, &mut self.near);
+        spheres::push_walls(s, self.world, &p, &mut caches[..probes.len()], self.blockers, &self.flags[..n], &mut h, &mut self.gathered, &mut self.near);
         position.set(h.position[0], h.position[1], h.position[2]);
         velocity.set(h.velocity[0], h.velocity[1], h.velocity[2]);
         Some(h.undo_turn)

@@ -509,8 +509,8 @@ pub extern "C" fn veh_relations(count: u32) {
     let n = count as usize;
     let v = &input()[..n * 2 + n * n];
     unsafe {
-        *addr_of_mut!(TEAMS) = (0..n).map(|i| team(v[2 * i], v[2 * i + 1])).collect();
-        *addr_of_mut!(RELATIONS) = v[n * 2..].to_vec();
+        let teams = &mut *addr_of_mut!(TEAMS); teams.clear(); teams.extend((0..n).map(|i| team(v[2 * i], v[2 * i + 1])));
+        let relations = &mut *addr_of_mut!(RELATIONS); relations.clear(); relations.extend_from_slice(&v[n * 2..]);
     }
 }
 
@@ -603,9 +603,10 @@ fn load_flyer(r: Ref<Vehicle>, index: usize) -> Hull {
 fn read_flight(hull: &mut Hull) {
     let s = sim();
     let v = s.store.vehicle.get(hull.id).expect("a hull the store holds");
-    let name = String::from_utf16_lossy(s.strings.units(v.name));
-    let (config, gear) = flight_keys(&name);
-    hull.flight = Flight::from_store(v, &s.strings, config, gear).unwrap_or_else(|e| panic!("{name}'s flight: {e}"));
+    let (config, gear) = if f2::active() { f2::flight_keys_for(hull.id) } else {
+        flight_keys(&String::from_utf16_lossy(s.strings.units(v.name)))
+    };
+    hull.flight = Flight::from_store(v, &s.strings, config, gear).expect("registered hull flight");
 }
 
 /// A hull back into the store, a craft's flight with it.
@@ -630,6 +631,7 @@ fn hull_refs() -> Vec<Ref<Vehicle>> {
 
 /// Hull `index` (its store handle `r`) as the phase works on it.
 fn load(r: Ref<Vehicle>, index: usize) -> Hull {
+    if f2::active() { return f2::take_hull(r, index); }
     let s = sim();
     let v = s.store.vehicle.get(r).expect("a hull the store holds");
     let name = String::from_utf16_lossy(s.strings.units(v.name));
@@ -662,6 +664,12 @@ fn input_of(hull: &Hull) -> Input {
 /// (aimTick, then render where `cosmetic`, as Vehicles.update poses every
 /// hull), at the tick's alpha. Returns what is left over. `level`: the
 /// water's level this phase (`water.level`), for a map with water;
+static mut PHASE_REFS: Vec<Ref<Vehicle>> = Vec::new();
+static mut PHASE_MINE: Vec<(usize, Ref<Vehicle>)> = Vec::new();
+static mut PHASE_POSED: Vec<bool> = Vec::new();
+static mut PHASE_LOCKS: Vec<Option<crate::flight::state::Lock>> = Vec::new();
+fn recycle_hull(hull: Hull) { if f2::active() { f2::recycle(hull); } }
+
 /// `clock`: the clock barrels kick back on.
 #[no_mangle]
 pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clock: f64, flags: u32) -> f64 {
@@ -670,7 +678,8 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
         m.level = level;
     }
     unsafe { *addr_of_mut!(CLOCK) = Some(clock) };
-    let refs = hull_refs();
+    let mut refs = unsafe { std::mem::take(&mut *addr_of_mut!(PHASE_REFS)) };
+    refs.clear(); refs.extend_from_slice(&sim().store.vehicles.vehicles);
     let mut world = JsWorld { craft: u32::MAX };
     let locks = unsafe { &mut *addr_of_mut!(LOCKS) };
     locks.clear();
@@ -680,7 +689,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
             let v = sim().store.vehicle.get(r).expect("F2 hull");
             if v.alive && !v.flying {
                 let mut hull = load(r, i);
-                hull.capture_tick(); store(&hull);
+                hull.capture_tick(); store(&hull); recycle_hull(hull);
             }
         }
     }
@@ -691,7 +700,8 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
         // The crafts first (Vehicles.update): each live craft's tick start
         // and step, at 1/60 s, as many as the time left over makes.
         let mut flight_acc = flight_acc + dt;
-        let mut last: Vec<Option<crate::flight::state::Lock>> = vec![None; refs.len()];
+        let mut last = unsafe { std::mem::take(&mut *addr_of_mut!(PHASE_LOCKS)) };
+        last.resize(refs.len(), None); last.fill(None);
         while flight_acc + 1e-9 >= 1.0 / 60.0 {
             for (i, &r) in refs.iter().enumerate() {
                 let v = sim().store.vehicle.get(r).expect("a hull the store holds");
@@ -720,7 +730,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
                 if let Some(lock) = hull.flight.lock {
                     last[i] = Some(lock);
                 }
-                store_hull(&hull);
+                store_hull(&hull); recycle_hull(hull);
             }
             flight_acc -= 1.0 / 60.0;
         }
@@ -731,13 +741,14 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
                 locks[0] += 1.0;
             }
         }
+        unsafe { *addr_of_mut!(PHASE_LOCKS) = last; }
     }
     for (i, &r) in refs.iter().enumerate() {
         let v = sim().store.vehicle.get(r).expect("a hull the store holds");
         if !f2::active() && v.alive && !v.flying {
             let mut hull = load(r, i);
             hull.capture_tick();
-            store(&hull);
+            store(&hull); recycle_hull(hull);
         }
     }
     let mut acc = acc + dt;
@@ -748,7 +759,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
                 let mut hull = load(r, i);
                 let input = input_of(&hull);
                 hull.tick(&mut world, FIXED_STEP, &input);
-                store(&hull);
+                store(&hull); recycle_hull(hull);
             }
         }
         acc -= FIXED_STEP;
@@ -757,6 +768,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
     out.clear();
     out.push(0.0);
     if poses_on == 0 {
+        unsafe { *addr_of_mut!(PHASE_REFS) = refs; }
         return acc;
     }
     let cosmetic = cosmetic != 0;
@@ -765,22 +777,20 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
         if !v.alive && v.dying > 0.0 {
             let mut hull = load(r, i);
             hull.dying_tick(&mut world, dt);
-            store(&hull);
+            store(&hull); recycle_hull(hull);
         }
     }
     let alpha = v8math::max(0.0, acc / FIXED_STEP);
     // The hulls whose pose is the module's (this life's), in order.
     // A craft needs its flight state and gear clip as well as its rig.
-    let mine: Vec<(usize, Ref<Vehicle>)> = refs
-        .iter()
-        .enumerate()
-        .filter(|&(_, &r)| {
-            let v = sim().store.vehicle.get(r).expect("a hull the store holds");
-            (!v.flying || flight_on != 0) && matches!(poses().get(r.slot as usize), Some(Some(p)) if p.generation == v.target_generation)
-        })
-        .map(|(i, &r)| (i, r))
-        .collect();
-    let mut posed = vec![false; mine.len()];
+    let mut mine = unsafe { std::mem::take(&mut *addr_of_mut!(PHASE_MINE)) };
+    mine.clear();
+    for (i, &r) in refs.iter().enumerate() {
+        let v = sim().store.vehicle.get(r).expect("a hull the store holds");
+        if (!v.flying || flight_on != 0) && matches!(poses().get(r.slot as usize), Some(Some(p)) if p.generation == v.target_generation) { mine.push((i, r)); }
+    }
+    let mut posed = unsafe { std::mem::take(&mut *addr_of_mut!(PHASE_POSED)) };
+    posed.resize(mine.len(), false); posed.fill(false);
     for pass in 0..2 {
         if pass == 1 && !cosmetic {
             break;
@@ -804,23 +814,22 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
                 }
             }
             poses()[r.slot as usize] = Some(Posed { generation, pose: hull.pose.take().expect("the hull's pose"), turn_rates });
-            store_hull(&hull);
+            store_hull(&hull); recycle_hull(hull);
         }
     }
     let mut count = 0;
-    let mut numbers = Vec::new();
+
     for (k, &(_, r)) in mine.iter().enumerate() {
         if !posed[k] {
             continue;
         }
-        numbers.clear();
-        posing::out(&mut poses()[r.slot as usize].as_mut().expect("the hull's pose").pose, &mut numbers);
-        out.push(r.slot as f64);
-        out.push(numbers.len() as f64);
-        out.extend_from_slice(&numbers);
+        out.push(r.slot as f64); let length = out.len(); out.push(0.0); let start = out.len();
+        posing::out(&mut poses()[r.slot as usize].as_mut().expect("the hull's pose").pose, out);
+        out[length] = (out.len() - start) as f64;
         count += 1;
     }
     out[0] = count as f64;
+    unsafe { *addr_of_mut!(PHASE_REFS) = refs; *addr_of_mut!(PHASE_MINE) = mine; *addr_of_mut!(PHASE_POSED) = posed; }
     acc
 }
 
@@ -850,6 +859,8 @@ fn body_of(hull: usize) -> BodyId {
 /// The battle: the module's own collision world, water and death regions
 /// where it holds them (native.rs), the imports for the rest. `craft`: the
 /// craft whose flight steps now (its store slot), for its registry entry.
+static mut PUSH_PROBES: Vec<Vec3> = Vec::new();
+
 pub struct JsWorld {
     craft: u32,
 }
@@ -868,9 +879,11 @@ impl VehicleWorld for JsWorld {
                 return undo;
             }
         }
-        let r = import_veh_push_walls(&VehPush {
+        let mut points = unsafe { std::mem::take(&mut *addr_of_mut!(PUSH_PROBES)) };
+        points.clear(); points.extend(probes.iter().map(v3));
+        let args = VehPush {
             hull: hull as f64,
-            probes: probes.iter().map(v3).collect(),
+            probes: points,
             radius,
             q: [q.x, q.y, q.z, q.w],
             own: own.map(|o| [o.x, o.y, o.z, o.w]),
@@ -878,7 +891,9 @@ impl VehicleWorld for JsWorld {
             position: v3(position),
             velocity: v3(velocity),
             terrain,
-        });
+        };
+        let r = import_veh_push_walls(&args);
+        unsafe { *addr_of_mut!(PUSH_PROBES) = args.probes; }
         *position = vec(&r.position);
         *velocity = vec(&r.velocity);
         r.undo

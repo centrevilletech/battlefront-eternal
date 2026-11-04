@@ -176,6 +176,7 @@ pub fn pose_from_value(v: V, index: usize, mut rig: crate::rig::hull::HullRig) -
             })
             .collect(),
         pose: Some(HullPose {
+        work: Default::default(),
             wheel_bones: v.get("wheels").items().map(|w| (node(w.get("bone")), vec3(w.get("axis")))).collect(),
             rig,
             visual: vec3(v.get("visual")),

@@ -180,6 +180,8 @@ pub struct Hull {
     pub bound_radius: f64,
     pub probe_radius: f64,
     pub probes: Vec<Vector3>,
+    /// hoverContacts retains gathered polygon storage between substeps.
+    pub spring_polygons: Vec<super::Polygon>,
     pub support_probes: Vec<Vector3>,
     pub max_health: f64,
     pub water_rule: Option<WaterRule>,

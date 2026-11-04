@@ -25,8 +25,14 @@ fn a4(q: &Quaternion) -> [f64; 4] {
     [q.x, q.y, q.z, q.w]
 }
 
-fn text(strings: &Strings, id: Option<StrId>) -> String {
-    id.map(|id| String::from_utf16_lossy(strings.units(id))).unwrap_or_default()
+fn text(strings: &Strings, id: Option<StrId>) -> std::borrow::Cow<'static, str> {
+    let Some(id) = id else { return std::borrow::Cow::Borrowed("") };
+    let units = strings.units(id);
+    match Message::TEXTS.iter().chain(Trick::TEXTS.iter()).chain(LockState::TEXTS.iter())
+        .copied().find(|name| units.iter().copied().eq(name.encode_utf16())) {
+        Some(name) => std::borrow::Cow::Borrowed(name),
+        None => std::borrow::Cow::Owned(String::from_utf16_lossy(units)),
+    }
 }
 
 impl Flight {
