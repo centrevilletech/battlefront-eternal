@@ -4,9 +4,9 @@ import { selectedWeapon } from './ai/classic/weapons-ai.js';
 
 export class NativeAwareness {
   constructor(sim) {
-    this.sim=sim;this.frames=[];this.heard=[];this.near=[];
+    this.sim=sim;this.frames=[];this.heard=[];this.near=[];this.danger=[];
     sim.bridge.register({aiAwareness:args=>{
-      const op=args.op,id=args.id,number=args.number,frame=this.frames[this.frames.length-1];
+      const op=args.op,id=args.id,number=args.number,other=args.other,frame=this.frames[this.frames.length-1];
       const source=frame.source,result={flag:false,number:0,ids:[],values:[]};
       if(op==='alive') result.flag=Boolean(source?.alive);
       else if(op==='motion') {const v=source.velocity;result.values=[Number(Boolean(v)),v?v.x:0,v?v.y:0,v?v.z:0,source.kind];}
@@ -37,6 +37,17 @@ export class NativeAwareness {
       } else if(op==='protectRecipient') {
         const fire=frame.fire=sim.objects[id].controller?.perception?.fire;result.flag=Boolean(fire);if(fire)result.number=fire.protected.length;
       } else if(op==='protectAppend') {const human=sim.objects[id];frame.fire.protected.push({unit:human,generation:human.generation});}
+      else if(op==='dangerRow') {const row=frame.world.difficulty?.dangerRow?.();result.flag=row!=null;if(result.flag)result.values=[row[0],row[1]];}
+      else if(op==='dangerDraw') result.number=(frame.world.randomA??frame.world.random).range(number,other);
+      else if(op==='dangerTime') result.number=frame.world.time??0;
+      else if(op==='dangerFirst') result.number=frame.state.firstContact;
+      else if(op==='dangerLast') result.number=frame.state.lastNotify;
+      else if(op==='dangerQuery') {frame.world.units.query(frame.position,7.5,this.danger,u=>u!==frame.owner);result.ids=this.danger.map(u=>sim.id(u));}
+      else if(op==='dangerRecipient') {const u=frame.recipient=sim.objects[id],c=frame.controller=u.controller;result.flag=Boolean(c||u.human);if(result.flag)result.number=u.kind;}
+      else if(op==='dangerWarn') frame.onWarn?.(frame.recipient);
+      else if(op==='dangerHasNotify') result.flag=Boolean(frame.controller?.notifyDanger);
+      else if(op==='dangerNotify') frame.controller.notifyDanger(frame.position);
+      else if(op==='dangerWrite') frame.state.lastNotify=number;
       else throw Error(`unknown awareness callback ${op}`);
       return result;
     }});
@@ -48,6 +59,10 @@ export class NativeAwareness {
   broadcast(source,world,sounds) {
     this.frames.push({source,world,sounds});
     try {return this.sim.x.ai_broadcast_acoustic();} finally {this.frames.pop();}
+  }
+  notifyDanger(world,state,position,owner,enemySkill,onWarn) {
+    this.frames.push({world,state,position,owner,onWarn});
+    try {return this.sim.x.ai_notify_danger(enemySkill);} finally {this.frames.pop();}
   }
   rebuild(world) {
     this.frames.push({world});

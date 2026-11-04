@@ -4,7 +4,7 @@
 use super::{module::state,combat::math::{dot32,f,length_sq32,normalize_or_x}};
 use crate::gen::{import_ai_awareness,AiAwarenessArgs,AiAwarenessOp as Op,AiAwarenessResult};
 
-fn call(op: Op,id: u32,number: f64) -> AiAwarenessResult {import_ai_awareness(&AiAwarenessArgs {op,id,number})}
+fn call(op: Op,id: u32,number: f64) -> AiAwarenessResult {import_ai_awareness(&AiAwarenessArgs {op,id,number,other:0.0})}
 fn clamp50(x: f64) -> f64 {if x<0.0 {0.0} else if 50.0<x {50.0} else {x}}
 
 // perception.js noiseRadius/weaponNoise.
@@ -66,4 +66,28 @@ pub extern "C" fn ai_rebuild_protected() {
             if recipient.flag && recipient.number<8.0 {call(Op::ProtectAppend,human,0.0);}
         }
     }
+}
+
+// perception.js notifyDanger: the difficulty and RNG callbacks run before
+// reading the projectile's timing fields, exactly as the source does.
+#[no_mangle]
+pub extern "C" fn ai_notify_danger(enemy_skill: f64) -> f64 {
+    let row=call(Op::DangerRow,0,0.0);
+    let (lo,hi)=if row.flag {(row.values[0],row.values[1])} else if enemy_skill<17.0 {
+        if enemy_skill<14.0 {(f(1.1),f(2.1))} else {(f(0.6),f(1.3))}
+    } else {(0.0,f(0.8))};
+    let delay=import_ai_awareness(&AiAwarenessArgs {op:Op::DangerDraw,id:0,number:lo,other:hi}).number;
+    let now=f(call(Op::DangerTime,0,0.0).number);
+    if !(f(call(Op::DangerFirst,0,0.0).number+delay)<now) || !(f(call(Op::DangerLast,0,0.0).number+1.0)<now) {return 0.0;}
+    let found=call(Op::DangerQuery,0,0.0).ids;state().danger_targets=found;
+    let mut warned=false;let mut notified=0.0;let mut index=0;
+    while index<state().danger_targets.len() && index<175 {
+        let id=state().danger_targets[index];index+=1;
+        let r=call(Op::DangerRecipient,id,0.0);
+        if !r.flag {continue;}
+        if !warned && r.number==0.0 {warned=true;call(Op::DangerWarn,0,0.0);}
+        if call(Op::DangerHasNotify,0,0.0).flag {call(Op::DangerNotify,0,0.0);notified+=1.0;}
+    }
+    call(Op::DangerWrite,0,now);
+    notified
 }

@@ -8,7 +8,7 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, Perception, TargetTracker, broadcastAcoustic, noiseRadius, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, TargetTracker, broadcastAcoustic, noiseRadius, notifyDanger, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
@@ -684,6 +684,38 @@ test('native acoustic and protection services preserve query reuse, limits and n
     assert.deepEqual(n.history,j.history,`awareness callbacks ${i}`);
     const snapshot=x=>x.units.map(u=>[u.alive,u.generation,u.position.toArray(),u.controller.perception.fire.protected.map(r=>[r.unit.id,r.generation])]);
     assert.deepEqual(snapshot(n),snapshot(j),`awareness state ${i}`);
+  }
+});
+
+test('native danger broadcasts preserve shared draws and callback-visible projectile timing', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0,nested=false,announced=false;const history=[],state={firstContact:0,lastNotify:-1},position=new Vector3(),world={aiSim:native?sim:null,time:0,randomA:new ClassicRandom(713)};
+    const snapshot=()=>[state.firstContact,state.lastNotify,position.toArray(),world.randomA.state];
+    const log=(...v)=>{history.push([...v,snapshot()]);if(native){sim.words(new Array(6000).fill(4));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const units=Array.from({length:190},(_,id)=>({id,human:id%7===0,kind:id%6,controller:null}));
+    const notify=(u,p)=>{log('notify',u.id,p.toArray());if(tick%29===0)p.x+=.125;
+      if(!nested && !announced && tick%17===0){announced=true;nested=true;log('nested',notifyDanger(world,{firstContact:-100,lastNotify:-100},position,units[3],15,null));nested=false;}};
+    for(const u of units)if(u.id%5)u.controller={notifyDanger:p=>notify(u,p)};
+    const range=world.randomA.range;
+    world.randomA.range=function(lo,hi){log('range',lo,hi);if(tick%23===0)state.lastNotify=-100;return range.call(this,lo,hi);};
+    world.units={query(at,radius,out,predicate){log('query',radius);out.length=0;for(const u of units)if(predicate(u))out.push(u);if(nested)out.splice(7);}};
+    const dangerRow=()=>{log('row');if(tick%19===0)state.firstContact=-100;return tick%7===0?null:tick%11===0?[]:[.15,.85];};
+    const onWarn=u=>{log('warn',u.id);state.lastNotify=333;if(u.controller && tick%13===0)u.controller.notifyDanger=null;};
+    return {history,state,position,world,units,dangerRow,onWarn,snapshot,setTick:i=>{tick=i;announced=false;for(const u of units)if(u.controller)u.controller.notifyDanger=p=>notify(u,p);}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<384;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.world.time=i%41===0?NaN:i/6;
+      x.world.difficulty=i%3?{dangerRow:x.dangerRow}:null;
+      x.state.firstContact=i%5?x.world.time-3:Infinity;x.state.lastNotify=i%7?x.world.time-2:x.world.time;
+      x.position.set(i%17,-0,-i%9);
+      x.result=notifyDanger(x.world,x.state,x.position,i%2?x.units[1]:null,[13,14,16,17,NaN][i%5],i%31===0?null:x.onWarn);
+    }
+    assert.equal(n.result,j.result,`danger result ${i}`);
+    assert.deepEqual(n.history,j.history,`danger callbacks ${i}`);
+    assert.deepEqual(n.snapshot(),j.snapshot(),`danger state ${i}`);
   }
 });
 

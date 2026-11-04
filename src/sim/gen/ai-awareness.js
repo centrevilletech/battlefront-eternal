@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiAwarenessOp_NAMES = ["alive","motion","weapon","active","mute","query","recipient","notify","livingStart","livingNext","clear","protectQuery","protectRecipient","protectAppend"];
+export const AiAwarenessOp_NAMES = ["alive","motion","weapon","active","mute","query","recipient","notify","livingStart","livingNext","clear","protectQuery","protectRecipient","protectAppend","dangerRow","dangerDraw","dangerTime","dangerFirst","dangerLast","dangerQuery","dangerRecipient","dangerWarn","dangerHasNotify","dangerNotify","dangerWrite"];
 export const AiAwarenessOp_INDEX = new Map(AiAwarenessOp_NAMES.map((name, i) => [name, i]));
 
 export class AiAwarenessArgsMirror {
@@ -10,6 +10,7 @@ export class AiAwarenessArgsMirror {
     this.op = "alive";
     this.id = 0;
     this.number = NaN;
+    this.other = NaN;
   }
 }
 
@@ -17,6 +18,7 @@ export function syncAiAwarenessArgs(b, f, at, h, m) {
   m.op = AiAwarenessOp_NAMES[f[at + 0]];
   m.id = f[at + 1];
   m.number = f[at + 2];
+  m.other = f[at + 3];
   return m;
 }
 
@@ -24,12 +26,14 @@ export function putAiAwarenessArgs(b, o, f, at, heap) {
   f[at + 0] = AiAwarenessOp_INDEX.get(o.op);
   f[at + 1] = o.id;
   f[at + 2] = o.number;
+  f[at + 3] = o.other;
 }
 
 export function sameAiAwarenessArgs(a, b) {
   if (!Object.is(a.op, b.op)) return ".op";
   if (!Object.is(a.id, b.id)) return ".id";
   if (!Object.is(a.number, b.number)) return ".number";
+  if (!Object.is(a.other, b.other)) return ".other";
   return null;
 }
 
@@ -41,6 +45,7 @@ export function exportAiAwarenessArgs(o, cx) {
   v.op = o.op;
   v.id = o.id;
   v.number = o.number;
+  v.other = o.other;
   return v;
 }
 

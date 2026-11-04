@@ -763,6 +763,7 @@ export function dangerDelayRange(enemySkill) {
 }
 
 export function notifyDanger(world, state, position, owner, enemySkill, onWarn = null) {
+  if(world.aiSim)return world.aiSim.awareness.notifyDanger(world,state,position,owner,enemySkill,onWarn);
   const [lo, hi] = world.difficulty?.dangerRow?.() ?? dangerDelayRange(enemySkill);
   const delay = rngA(world).range(lo, hi);
   const now = f(world.time ?? 0);

@@ -20,10 +20,21 @@ pub enum AiAwarenessOp {
     ProtectQuery = 11,
     ProtectRecipient = 12,
     ProtectAppend = 13,
+    DangerRow = 14,
+    DangerDraw = 15,
+    DangerTime = 16,
+    DangerFirst = 17,
+    DangerLast = 18,
+    DangerQuery = 19,
+    DangerRecipient = 20,
+    DangerWarn = 21,
+    DangerHasNotify = 22,
+    DangerNotify = 23,
+    DangerWrite = 24,
 }
 
 impl AiAwarenessOp {
-    pub const NAMES: [&'static str; 14] = ["alive", "motion", "weapon", "active", "mute", "query", "recipient", "notify", "livingStart", "livingNext", "clear", "protectQuery", "protectRecipient", "protectAppend"];
+    pub const NAMES: [&'static str; 25] = ["alive", "motion", "weapon", "active", "mute", "query", "recipient", "notify", "livingStart", "livingNext", "clear", "protectQuery", "protectRecipient", "protectAppend", "dangerRow", "dangerDraw", "dangerTime", "dangerFirst", "dangerLast", "dangerQuery", "dangerRecipient", "dangerWarn", "dangerHasNotify", "dangerNotify", "dangerWrite"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -41,6 +52,17 @@ impl AiAwarenessOp {
             11 => Some(AiAwarenessOp::ProtectQuery),
             12 => Some(AiAwarenessOp::ProtectRecipient),
             13 => Some(AiAwarenessOp::ProtectAppend),
+            14 => Some(AiAwarenessOp::DangerRow),
+            15 => Some(AiAwarenessOp::DangerDraw),
+            16 => Some(AiAwarenessOp::DangerTime),
+            17 => Some(AiAwarenessOp::DangerFirst),
+            18 => Some(AiAwarenessOp::DangerLast),
+            19 => Some(AiAwarenessOp::DangerQuery),
+            20 => Some(AiAwarenessOp::DangerRecipient),
+            21 => Some(AiAwarenessOp::DangerWarn),
+            22 => Some(AiAwarenessOp::DangerHasNotify),
+            23 => Some(AiAwarenessOp::DangerNotify),
+            24 => Some(AiAwarenessOp::DangerWrite),
             _ => None,
         }
     }
@@ -51,24 +73,27 @@ pub struct AiAwarenessArgs {
     pub op: AiAwarenessOp,
     pub id: u32,
     pub number: f64,
+    pub other: f64,
 }
 
 impl AiAwarenessArgs {
-    pub const WORDS: usize = 3;
+    pub const WORDS: usize = 4;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
         row[0] = self.op as u8 as f64;
         row[1] = self.id as f64;
         row[2] = self.number;
+        row[3] = self.other;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
         Self {
             op: AiAwarenessOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             id: word_u32(row[1]),
             number: row[2],
+            other: row[3],
         }
     }
 
