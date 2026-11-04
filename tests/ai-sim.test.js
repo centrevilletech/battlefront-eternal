@@ -705,6 +705,10 @@ test('native cover scores preserve exact bands and captured mutable position ref
       return i%19===0?null:weapon;
     }}}};other.unit=unit;
     const agent={world,controller:c,tracker:{point:new Vector3(0,1,20)}};
+    if(i%23===0){const forward=hint.forward;Object.defineProperty(hint,'forward',{get(){
+      const inner={world,controller:{unit:{kind:0,position:new Vector3()}},tracker:{point:new Vector3(20,0,0)}};
+      const score=coverScore(inner,{position:new Vector3(5,0,0),forward:new Vector3(1,0,0)});history.push(['nested-score',score]);return forward;
+    }});}
     const value=coverScore(agent,hint);
     return {value,history,position:unit.position.toArray(),hint:hint.position.toArray(),controller:agent.controller===c?'first':'other'};
   }
