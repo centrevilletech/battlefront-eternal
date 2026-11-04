@@ -21,7 +21,8 @@ function validate(e){
   }
   return e;
 }
-export function presentationRecord({id,generation,tick,event}){
+export function presentationRecord({id,generation,tick,event,native=null}){
+  if(native)return {kind:'combat',id,generation,tick,schema:PRESENTATION_SCHEMA,payload:native.event(event)};
   // Scripted kills use infinite damage. Debris already saturates its speed
   // at -50 health; send that finite visual value instead of losing the event.
   if(event?.kind==='blowApart')event={...event,amount:Math.max(-50,event.amount)};
@@ -33,8 +34,8 @@ export function decodePresentation(record){
   const event=validate(JSON.parse(decoder.decode(record.payload)));
   return {...record,...event,kind:'combat',presentationKind:event.kind,expiryTick:record.tick+120};
 }
-export function attachPresentationCapture(game,capture,registry){
-  const emit=event=>{try{capture.emit(presentationRecord({id:capture.nextId++,generation:capture.generation,tick:capture.tick(),event}));}catch(error){capture.fault(error);}};
+export function attachPresentationCapture(game,capture,registry,native=null){
+  const emit=event=>{try{capture.emit(presentationRecord({id:capture.nextId++,generation:capture.generation,tick:capture.tick(),event,native}));}catch(error){capture.fault(error);}};
   const describe=record=>{
     if(record.kind==='presentation')emit(record.event);
     if(record.kind==='vo'){
