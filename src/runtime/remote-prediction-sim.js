@@ -4,7 +4,7 @@ import { putWeapon, syncWeapon, WeaponMirror } from '../sim/gen/combat.js';
 import { seededRandom } from '../weapons.js';
 
 const weaponWords = 42;
-const vectors = ['position', 'velocity', 'eye', 'aimDir', 'target'];
+const vectors = ['eye', 'aimDir', 'target'];
 const mutable = ['deployed', 'firing', 'timer', 'bottomless', 'perShot', 'clip', 'reserve', 'heat', 'overheated',
   'floor', 'kick', 'spreadScale', 'sniperScale', 'yawSpreadOverride', 'wait', 'reloadLeft', 'throwTime',
   'released', 'hidden', 'charging', 'held', 'charge', 'limit', 'pattern', 'salvosLeft', 'salvoWait',
@@ -71,11 +71,11 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
   function create(context, predicted) {
     alive();
     const serial = nextSession++, definitions = [], classes = new Set(), objects = [predicted], lists = [];
-    const mirrors = new WeakMap(), ids = new WeakMap(), weapons = [], streams = [], salvos = [];
-    const classLevels = new Map(), registered = new Map();
-    let handle = x.prediction_remotes_create(), busy = false, steps = 0, view = context.simulationView, projectNext = false;
+    const mirrors = new WeakMap(), ids = new WeakMap(), weapons = [], streams = [], salvos = [], velocities = [];
+    const registered = new Map();
+    let handle = x.prediction_remotes_create(), busy = false, steps = 0, view = context.simulationView;
     const cx = Object.create(bridge);
-    cx.defs = { weapon: { id: value => register(value, true), at: id => definitions[id] } };
+    cx.defs = { weapon: { id: () => 0, at: id => definitions[id]?.[0] } };
     const live = () => { alive(); if (!handle) throw Error('remote prediction session is disposed'); };
     function run(op, words) {
       live();
@@ -87,16 +87,15 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       const output = Array.from(bridge.f.subarray(ptrOut, ptrOut + x.prediction_remotes_output_len(handle)));
       const error = ok ? null : new TextDecoder().decode(new Uint8Array(x.memory.buffer,
         x.prediction_remotes_error(handle), x.prediction_remotes_error_len(handle)));
-      trace?.({ session: serial, op, input: Array.from(input), output, error });
+      trace?.({ session: serial, op, input: Array.from(input), output: output.slice(), error });
       return { output, error };
     }
-    function register(value, weapon = false) {
+    function register(value, kind = 0) {
       let id = ids.get(value);
       if (id === undefined) { id = definitions.length; ids.set(value, id); definitions.push(value); }
-      if (weapon) classes.add(id);
-      const words = [id, weapon];
-      definition(words, weapon ? { ...value, charges: classLevels.get(value)?.slice(1) ?? value.charges } : value);
-      const key = id * 2 + Number(weapon), old = registered.get(key);
+      if (kind === 2) classes.add(id);
+      const words = [id, kind]; definition(words, value);
+      const key = id * 3 + kind, old = registered.get(key);
       if (old && old.length === words.length && old.every((value, i) => Object.is(value, words[i]))) return id;
       registered.set(key, words);
       const { error } = run(0, words);
@@ -111,9 +110,9 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       if (enabled) view = context.simulationView;
       const camera = context.aimCamera;
       for (const droid of objects) for (const group of [droid.arsenal.weapons, ...droid.arsenal.channels])
-        for (const weapon of group) { listId(weapons, weapon); classLevels.set(weapon.levels[0], weapon.levels); }
-      for (const droid of objects) if (droid.salvo) listId(salvos, droid.salvo);
-      for (const value of definitions) { register(value); if (classes.has(ids.get(value))) register(value, true); }
+        for (const weapon of group) listId(weapons, weapon);
+      for (const droid of objects) { listId(velocities, droid.velocity); if (droid.salvo) listId(salvos, droid.salvo); }
+      for (const value of definitions) register(value, classes.has(ids.get(value)) ? 2 : 0);
       const rng = listId(streams, context.random);
       for (const weapon of weapons) if (weapon.random) listId(streams, weapon.random);
       if (streams.some(stream => typeof stream !== 'function' || !('seed' in stream)))
@@ -131,6 +130,7 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       for (const weapon of weapons) {
         const at = words.length; words.length += weaponWords;
         putWeapon(cx, weapon, words, at, null);
+        words[at] = register(weapon.levels, 2);
         words[at + 1] = weapon.levels.indexOf(weapon.def);
         words[at + 14] = Boolean(weapon.random);
         words[at + 2] = Boolean(weapon.admitShot);
@@ -139,6 +139,7 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
         for (const def of weapon.levels) words.push(register(def));
         words.push(weapon.random ? streams.indexOf(weapon.random) : -1);
       }
+      words.push(velocities.length);for (const velocity of velocities) words.push(...velocity.toArray());
       words.push(salvos.length);
       for (const salvo of salvos) {
         words.push(register(salvo.def));
@@ -148,6 +149,7 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       words.push(objects.length);
       for (const droid of objects) {
         words.push(register(droid.def));
+        words.push(...droid.position.toArray(), velocities.indexOf(droid.velocity));
         for (const name of vectors) words.push(...droid[name].toArray());
         words.push(droid.yaw, droid.pitch, droid.health, droid.dead, droid.countdown, ...droid.arsenal.selected);
         for (const list of [droid.arsenal.weapons, ...droid.arsenal.channels])
@@ -171,7 +173,6 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       camera.aspect = words[at++];
       const fov = words[at++], reach = words[at++], fresh = Boolean(words[at++]), hfov = words[at++], firstFov = words[at++];
       camera.fov = words[at++];
-      if (projectNext) { camera.updateProjectionMatrix(); projectNext = false; }
       if (view) {
         view.fov = fov; view.reach = reach; view.fresh = fresh; view.hfov = hfov; view.firstFov = firstFov;
         view.motion.offset.fromArray(words, at); view.motion.turn.set(words[at + 3], words[at + 4], words[at + 5], 'ZYX');
@@ -202,6 +203,8 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
         if (mirror.hasRandom && stream >= 0) weapon.random = streams[stream];
         copySeed(weapon, mirror);
       }
+      const velocityCount = words[at++];
+      for (let i = 0; i < velocityCount; i++) { velocities[i].fromArray(words, at); at += 3; }
       const salvoCount = words[at++];
       for (let i = 0; i < salvoCount; i++) {
         const salvo = salvos[i] ??= { at: new Vector3(), x: new Vector3(), y: new Vector3(), z: new Vector3() };
@@ -212,6 +215,7 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       const count = words[at++];
       for (let i = 0; i < count; i++) {
         const droid = objects[i]; droid.def = definitions[words[at++]];
+        droid.position.fromArray(words, at); at += 3; droid.velocity = velocities[words[at++]];
         for (const name of vectors) { droid[name].fromArray(words, at); at += 3; }
         droid.yaw = words[at++]; droid.pitch = words[at++]; droid.health = words[at++];
         droid.dead = Boolean(words[at++]); droid.countdown = words[at++];
@@ -267,6 +271,7 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
         return [];
       }
       if (op === 8) return [controls.axis('forward'), controls.axis('right'), controls.axis('turn')];
+      if (op === 9) { context.aimCamera.updateProjectionMatrix(); return []; }
       throw Error('unknown remote prediction query');
     }
     const session = {
@@ -274,7 +279,6 @@ export function createRemotePredictionBridge(bridge, { trace = null } = {}) {
       step(command, controls, options = {}) {
         live(); if (busy) throw Error('remote prediction session is already running');
         busy = true;
-        projectNext = Boolean(context.piloted && context.simulationView);
         try {
           const look = command.look;
           const words = [1 / 60, typeof command.firstPerson === 'boolean' ? Number(command.firstPerson) : NaN,

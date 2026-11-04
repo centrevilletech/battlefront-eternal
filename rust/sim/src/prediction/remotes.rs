@@ -2,7 +2,7 @@
 //! the caller resumes it after foreign code has finished. No Rust call or
 //! accessible working-state reference remains on the foreign call stack.
 
-use crate::combat::defs::{Js, JsObj, WeaponClass, WeaponDefs};
+use crate::combat::defs::{Js, JsObj, Level, WeaponClass, WeaponDefs};
 use crate::combat::weapons::{Admission, Aim, Shot, ShotKind, Trigger, WeaponDraws};
 use crate::gen::{Posture, Weapon};
 use crate::store::DefId;
@@ -185,7 +185,7 @@ struct Salvo {
 struct Droid {
     def: usize,
     position: Vector3,
-    velocity: Vector3,
+    velocity: usize,
     eye: Vector3,
     aim: Vector3,
     target: Vector3,
@@ -212,6 +212,7 @@ struct Core {
     first: f64,
     rng: usize,
     streams: Vec<ClassicRandom>,
+    velocities: Vec<Vector3>,
     salvos: Vec<Salvo>,
     weapons: Vec<Weapon>,
     reported_levels: Vec<f64>,
@@ -293,6 +294,11 @@ impl Core {
             });
         }
         let n = r.count()?;
+        let mut velocities = Vec::new();
+        for _ in 0..n {
+            velocities.push(r.vec()?);
+        }
+        let n = r.count()?;
         let mut salvos = Vec::new();
         for _ in 0..n {
             salvos.push(Salvo {
@@ -311,7 +317,7 @@ impl Core {
             let def = r.count()?;
             defs.borrow().get(def)?;
             let position = r.vec()?;
-            let velocity = r.vec()?;
+            let velocity = r.count()?;
             let eye = r.vec()?;
             let aim = r.vec()?;
             let target = r.vec()?;
@@ -392,6 +398,7 @@ impl Core {
             zoom,
             first,
             rng,
+            velocities,
             salvos,
             streams,
             weapons,
@@ -449,6 +456,10 @@ impl Core {
             a.extend(self.level_ids[i].iter().map(|&id| id as f64));
             a.push(self.weapon_rng[i].map_or(-1.0, |id| id as f64));
         }
+        a.push(self.velocities.len() as f64);
+        for v in &self.velocities {
+            put_vec(&mut a, v);
+        }
         a.push(self.salvos.len() as f64);
         for s in &self.salvos {
             a.push(s.def as f64);
@@ -460,7 +471,9 @@ impl Core {
         a.push(self.droids.len() as f64);
         for d in &self.droids {
             a.push(d.def as f64);
-            for v in [&d.position, &d.velocity, &d.eye, &d.aim, &d.target] {
+            put_vec(&mut a, &d.position);
+            a.push(d.velocity as f64);
+            for v in [&d.eye, &d.aim, &d.target] {
                 put_vec(&mut a, v);
             }
             a.extend([
@@ -704,6 +717,8 @@ impl Core {
         let want = 2.0 * atan(tan(base / 2.0) / zoom);
         c.fov += (want - c.fov) * (1.0 - exp(-25.0 * dt));
         c.vertical_fov = (2.0 * atan(tan(c.fov / 2.0) / c.aspect)) * (180.0 / std::f64::consts::PI);
+        self.ask(world, 9, vec![]).await?;
+        let c = &mut self.camera;
         if first {
             c.euler = Vector3::new(droid.pitch, droid.yaw + std::f64::consts::PI, 0.0);
             c.q.set_from_euler(&Euler::new(
@@ -1112,7 +1127,8 @@ fn put_shot(a: &mut Vec<f64>, shot: &Shot) {
 }
 
 type Job = Pin<Box<dyn Future<Output = (Core, Result<(), &'static str>)>>>;
-/// 0 registers [id, weapon-class flag, recursive Js value]. 1 adopts the
+/// 0 registers [id, kind, recursive Js value] (kind 0 is a value,
+/// 1 a class, and 2 its exact retained levels). 1 adopts the
 /// selectively restored JS state. 2 starts one command; 3 resumes a yield
 /// with [success, value count/values, state count/state]. Output is either
 /// [0,state count/state] or [1,query,args count/args,state count/state].
@@ -1133,19 +1149,36 @@ impl Session {
             0 => {
                 let mut r = Reader::new(&self.input);
                 let id = r.count()?;
-                let weapon = r.flag()?;
+                let kind = r.count()?;
                 let value = r.value(0)?;
                 r.done()?;
                 let mut defs = self.defs.borrow_mut();
                 if defs.values.len() <= id {
                     defs.values.resize(id + 1, Js::Undefined);
                 }
-                if weapon {
+                if kind == 1 {
                     let Js::Obj(obj) = &value else {
                         return Err(INVALID);
                     };
                     defs.weapons
                         .set(DefId(id as u32), WeaponClass::new(obj.clone()));
+                } else if kind == 2 {
+                    let Js::Arr(values) = &value else {
+                        return Err(INVALID);
+                    };
+                    let mut levels = Vec::new();
+                    for value in values.iter() {
+                        let Js::Obj(obj) = value else {
+                            return Err(INVALID);
+                        };
+                        levels.push(Level::new(obj.clone()));
+                    }
+                    if levels.is_empty() {
+                        return Err(INVALID);
+                    }
+                    defs.weapons.set(DefId(id as u32), WeaponClass { levels });
+                } else if kind != 0 {
+                    return Err(INVALID);
                 }
                 defs.values[id] = value;
             }
@@ -1256,6 +1289,7 @@ impl Core {
         dt: f64,
         input: Option<[f64; 3]>,
     ) -> Result<(), &'static str> {
+        let velocity_id = self.droids[i].velocity;
         let def_id = self.droids[i].def;
         let def = self.def(i);
         let altitude = def.get("SetAltitude").nn(1.75);
@@ -1286,7 +1320,7 @@ impl Core {
                 n = UP;
             }
         }
-        let v = self.droids[i].velocity;
+        let v = self.velocities[velocity_id];
         if hypot(v.x, v.z) > 5.0 {
             let mut ray = Vector3::new(v.x, v.y - reach, v.z);
             let length = ray.length();
@@ -1306,7 +1340,7 @@ impl Core {
         }
         let def = self.defs.borrow().values[def_id].clone();
         let f = clamp(1.0 - (height - altitude) / (9.0 * altitude), 0.0, 1.0);
-        let v = &mut self.droids[i].velocity;
+        let v = &mut self.velocities[velocity_id];
         v.y -= three::lerp(1.0, def.get("GravityScale").nn(1.0), f) * 9.8 * dt;
         let lift = (altitude - height) * def.get("LiftSpring").nn(5.0) + 9.8 * f
             - v.dot(&n) * def.get("LiftDamp").nn(2.0);
@@ -1318,7 +1352,7 @@ impl Core {
         forward.add_scaled_vector(&n, -forward.dot(&n)).normalize();
         let mut right = Vector3::default();
         right.cross_vectors(&forward, &n).normalize();
-        let v = &mut self.droids[i].velocity;
+        let v = &mut self.velocities[velocity_id];
         let along = v.dot(&forward);
         let across = v.dot(&right);
         let most = def.get("Acceleraton").nn(70.0) * f * max(n.y, 0.0) * dt;
@@ -1361,11 +1395,12 @@ impl Core {
             self.look_x = 0.0;
             self.look_y = 0.0;
         }
-        let velocity = self.droids[i].velocity;
+        let velocity = self.velocities[velocity_id];
         self.droids[i].position.add_scaled_vector(&velocity, dt);
         self.collide(world, i).await
     }
     async fn collide(&mut self, world: &World, i: usize) -> Result<(), &'static str> {
+        let velocity_id = self.droids[i].velocity;
         let def = self.def(i);
         let limits = def.get("CollisionThreshold");
         let (base, slope) = if limits.truthy() {
@@ -1425,7 +1460,7 @@ impl Core {
                 break;
             }
             self.droids[i].position.add_scaled_vector(&n, depth);
-            let approach = self.droids[i].velocity.dot(&n);
+            let approach = self.velocities[velocity_id].dot(&n);
             if approach >= 0.0 {
                 continue;
             }
@@ -1435,7 +1470,7 @@ impl Core {
                 let excess = speed - threshold;
                 self.hurt(i, scale * (excess * excess));
             }
-            let v = &mut self.droids[i].velocity;
+            let v = &mut self.velocities[velocity_id];
             v.add_scaled_vector(&n, -approach);
             let length = v.length();
             if length > 1e-6 {
