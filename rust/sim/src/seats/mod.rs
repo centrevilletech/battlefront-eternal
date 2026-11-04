@@ -43,6 +43,7 @@ pub mod hulls;
 pub mod lease;
 pub mod module;
 pub mod network;
+pub mod network_module;
 pub mod targets;
 pub mod turrets;
 
