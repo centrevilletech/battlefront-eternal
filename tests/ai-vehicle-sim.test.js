@@ -1,0 +1,127 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Matrix4, Quaternion, Sphere, Vector3 } from 'three';
+import { loadSim } from '../src/sim/module.js';
+import { attachAiSim } from '../src/ai-sim.js';
+import { ClassicNav } from '../src/ai/classic/nav/index.js';
+import { ClassicRandom } from '../src/ai/random.js';
+import { classicBinding, VehicleAI } from '../src/ai/classic/vehicles/index.js';
+import { UnitBoardAgent, UnitFlyAgent, UnitUnBoardAgent } from '../src/ai/classic/vehicles/agents.js';
+const v=(x=0,y=0,z=0)=>new Vector3(x,y,z);
+async function fixture(native=false) {
+  const nav=ClassicNav.empty('synthetic');
+  const world={time:30,nav,battle:{reinforcements:{1:100,2:100}},posts:{posts:[]},units:{query:()=>[]}};
+  const ai={world,nav,randomA:new ClassicRandom(95),relation:(a,b)=>a===b?1:-1};
+  if(native){world.aiSim=attachAiSim(await loadSim());world.aiSim.bindNavigation(nav,null,null);}
+  const service=classicBinding(ai);ai.vehicles=service;
+  const events=[];
+  const unit={id:1,generation:1,kind:5,alive:true,team:1,position:v(0,20),velocity:v(),bodyYaw:0,upY:1,
+    classDef:{VehicleType:'fighter',MaxSpeed:30,MinSpeed:10,LandingTime:5,LandingSpeed:3,LandedHeight:2,ForwardSpeed:20,StrafeSpeed:4},
+    sphere:new Sphere(v(),2),origin:out=>out.copy(unit.position),forward:out=>out.set(0,0,1),intent:{},human:false};
+  const hull={name:'synthetic',alive:true,aiTarget:unit,flying:true,walking:false,grounded:false,flightState:'Flying',gear:0,speed:30,
+    def:{label:'synthetic',settings:{MaxSpeed:'30',ForwardSpeed:'20'}},position:unit.position,velocity:unit.velocity,yaw:0,quaternion:new Quaternion(),matrix:new Matrix4(),
+    bounds:{min:v(-1,-1,-2),max:v(1,1,2)},boundRadius:3,size:v(2,2,4),seats:[],occupants:1,freeSeats:2,occupied:true,controllingTeam:1,towTarget:-1,maxHealth:100};
+  const character={unit};unit.character=character;
+  const lease={released:false,human:false,live:true,unit,controllable:unit,vehicle:hull,index:0,team:1,origin:out=>out.copy(unit.position)};
+  unit.vehicle=hull;unit.lease=lease;unit.seat=lease;hull.seats=[{lease,weapons:[],settings:{}}];
+  const c={unit,generation:1,executorStatus:0,request:{valid:true},requestState:s=>events.push(['controllerState',s]),
+    requestExit:()=>events.push(['exit']),requestObjective:e=>events.push(['objective',e]),isUnitController:true};
+  unit.controller=c;character.controller=c;
+  const system=world.vehicleSystem={vehicles:[hull],requestExit:(u,o)=>{events.push(['requestExit',o]);return true;},
+    unboard:(u,o)=>{events.push(['unboard',u.id,o]);return true;},humanTarget:()=>null};hull.system=system;
+  const h={position:v(10,0,20),forward:v(0,0,1),up:v(0,1,0),commandPost:{position:v(10,0,20),team:2}};h.link=h;
+  world.posts.posts=[h.commandPost];
+  const hintEvents=[];ai.nav.hints.reserve=(hint,owner,now)=>{hintEvents.push([hint===h,owner===c,now]);};
+  const helper={arrived:false,failed:false,state:6,destination:v(),hasPath:false,
+    goto:(p,o)=>events.push(['goto',p.toArray(),o]),stop:()=>events.push(['stop']),
+    followPath:(points,over,alt)=>events.push(['path',points.map(p=>[...p]),over,alt]),land:on=>events.push(['land',on])};
+  function agent(kind) {
+    const Type=[UnitBoardAgent,UnitUnBoardAgent,UnitFlyAgent][kind],a=Object.create(Type.prototype);
+    Object.assign(a,{ai,world,controller:c,unit,helper,state:1,pending:0,vehicle:null,hint:null,searchAt:-Infinity,flag:false,deadline:0,post:null,
+      interrupts:{tick:()=>{events.push(['interrupt']);return false;}},updateCombatTarget:()=>events.push(['target']),aim:s=>events.push(['aim',s]),
+      tickHelper:dt=>events.push(['tickHelper',dt]),canEngage:()=>true,now:()=>world.time,requestState(s){this.pending=s;}});
+    c.agent=a;if(native)service.nativeVehicle.bindAgent(a,kind);return a;
+  }
+  return {ai,world,service,events,unit,hull,c,lease,h,helper,agent,hintEvents};
+}
+
+test('vehicle services preserve identity and nested reservation changes',async()=>{
+  const f=await fixture(true),{service,unit,c,hull}=f;
+  assert.equal(classicBinding(f.ai),service);assert.equal(f.world.vehicles,service);
+  const reservations=service.reservations;
+  const other={...unit,id:2,generation:2,seat:null,lease:null,vehicle:null};
+  const target={...unit,id:3,generation:3};
+  service.reserveSeat(c,unit);
+  const record=reservations.records[0];
+  service.reserveSeat(c,unit);assert.equal(reservations.records[0],record);
+  f.world.vehicleSystem.board=()=>{
+    assert.equal(reservations.has(unit,unit),true);
+    reservations.clear();reservations.reserve(target,other,2);
+    // Resize the shared call block during a callback.
+    f.world.aiSim.words(new Array(25000).fill(0));
+    return true;
+  };
+  assert.equal(service.boardNow(c,unit),true);
+  assert.equal(service.reservations,reservations);
+  assert.equal(reservations.count(target,other.team,2),1);
+  assert.equal(reservations.has(unit,unit),false);
+  assert.equal(service.currentControllable(unit.character),unit);
+  assert.equal(hull.aiTarget,unit);
+});
+
+test('leaving and flyer landing states match source callbacks and writes',async()=>{
+  for(const kind of [1,2])for(const state of kind===1?[1]:[5,6])for(const transport of [false,true]) {
+    const js=await fixture(),rs=await fixture(true);
+    for(const f of [js,rs]) {
+      const a=f.agent(kind);a.state=state;a.hint=f.h;a.flag=true;
+      f.unit.classDef.VehicleType=transport?'transport':'fighter';
+      a.onEnter();a.behave(0.25);if(kind===2)a.onExit();
+    }
+    // Object targets retain their identity within each world; compare the
+    // foreign argument fields without serializing cyclic object graphs.
+    const shape=f=>({events:f.events.map(e=>e.map(x=>x?.post ? {...x,post:x.post===f.h.commandPost}:x)),
+      pending:f.c.agent.pending,flag:f.c.agent.flag,reboardAt:f.c.reboardAt,hintAt:f.h.reservedAt,hints:f.hintEvents,random:f.ai.randomA.state});
+    assert.deepEqual(shape(rs),shape(js),`${kind}/${state}/${transport}`);
+  }
+});
+
+test('hold and close hints, passenger exit and stuck destruction preserve reentry',async()=>{
+  for(const native of [false,true]) {
+    const f=await fixture(native),{service,h,c,unit,hull}=f;
+    const next={...h,link:h};h.link=next;
+    service.holdHint(h,c);service.closeHint(h,80);assert.equal(h.reservedAt,76);assert.equal(next.reservedAt,76);
+    const passenger={id:4,character:{}};
+    hull.seats.push({lease:{unit:passenger,human:false,released:false,vehicle:hull},weapons:[],settings:{}});
+    const post=h.commandPost;
+    f.world.vehicleSystem.unboard=(u,options)=>{assert.equal(u,passenger);assert.equal(u.character.objective,post);service.reserveTarget(unit,unit);return options.promote;};
+    assert.equal(service.disembarkPassengers(c,post),1);
+    hull.damage=amount=>{assert.equal(amount,Infinity);assert.equal(service.targetReserved(unit,1),true);};
+    assert.equal(service.destroyStuck(c),undefined);
+  }
+});
+
+test('dormant patterns preserve random draws, callback order and live state',async()=>{
+  for(const pattern of [14,16]) {
+    const js=await fixture(),rs=await fixture(true);
+    for(const f of [js,rs]) {
+      const a=f.agent(2),target={...f.unit,id:7,position:v(5,21,-20),velocity:v(1,0,1)};
+      a.tracker={point:target.position,freshTarget:target,target,setDelay:(s,n)=>f.events.push(['delay',s,n]),defaultDelay:n=>f.events.push(['default',n])};
+      const p={agent:a,controller:f.c,world:f.world,random:f.ai.randomA,face:s=>f.events.push(['face',s])};
+      f.pattern=p;f.service.enterPattern(p,pattern);
+      for(let i=0;i<100;i++){f.unit.upY=i%2?-1:1;f.service.tickPattern(p,pattern,0.1);}
+      f.service.exitPattern(p,pattern);
+    }
+    assert.deepEqual(rs.events,js.events);assert.deepEqual(rs.unit.steer,js.unit.steer);assert.deepEqual(rs.pattern.vehicle,js.pattern.vehicle);
+    assert.equal(rs.ai.randomA.state,js.ai.randomA.state);assert.equal(rs.c.fireA,js.c.fireA);
+  }
+});
+
+test('a human pilot shares a nonnull target with the same gunner object',async()=>{
+  for(const native of [false,true]) {
+    const f=await fixture(native);f.hull.flying=false;
+    const human={...f.lease,human:true};f.hull.seats.unshift({lease:human,weapons:[],settings:{}});f.lease.index=1;
+    const target={...f.unit,id:8,team:2,position:v(0,20,40)};
+    f.world.vehicleSystem.humanTarget=()=>target;
+    assert.equal(f.service.sharedTarget(f.c),target);
+  }
+});
