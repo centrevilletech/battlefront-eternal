@@ -14,7 +14,11 @@ const stateRecords = { world_step_run: ['WorldStepState', 23], world_network_run
 const counts = Object.fromEntries([...names].map(n => [n, 0]));
 const bridges = new WeakMap(); let next = 0, failures = 0, tests = 0;
 const hex = values => { const bytes = Buffer.alloc(values.length * 8); values.forEach((v, i) => bytes.writeDoubleLE(v, i * 8)); return bytes.toString('hex'); };
-const emit = value => writeSync(1, JSON.stringify(value) + '\n');
+const emit = value => {
+  const bytes = Buffer.from(JSON.stringify(value) + '\n');
+  // Pipes may accept only a prefix of a large mailbox/queue record.
+  for (let offset = 0; offset < bytes.length;) offset += writeSync(1, bytes, offset, bytes.length - offset);
+};
 function block(b, ptr) {
   b.views(); const at = ptr / 8, n = b.f[at + 1], heap = at + b.f[at + 2];
   return { row: hex(Array.from(b.f.slice(at + 5, at + 5 + n))), heap: hex(Array.from(b.f.slice(heap, heap + b.f[at + 3]))) };

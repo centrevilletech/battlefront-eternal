@@ -80,7 +80,8 @@ fn native_consumers_match_existing_js_wasm_input_and_world_fixtures() {
     let mut count = 0;
     let mut summary = false;
     for text in reader.lines() {
-        let event = json::parse(&text.unwrap()).unwrap();
+        let event = json::parse(&text.unwrap())
+            .unwrap_or_else(|error| panic!("consumer record {count}: {error:?}"));
         if event.get("summary").is_some() {
             summary = true;
             continue;
