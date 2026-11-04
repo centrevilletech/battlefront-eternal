@@ -23,7 +23,7 @@ export function captureFlightCorrection(vehicle){
  for(const key of seatNumbers){const value=vehicle.seats[0][key];bytes[at++]=value===undefined?2:value===null?1:0;number(value??0);}
  return bytes;
 }
-export function restoreFlightCorrection(vehicle,payload,schema=FLIGHT_CORRECTION_SCHEMA){
+function readFlightCorrection(vehicle,payload,schema){
  if(schema!==FLIGHT_CORRECTION_SCHEMA||!vehicle.flying||!vehicle.flightConfig||!(payload instanceof Uint8Array)||payload.length!==flightCorrectionBytes)throw Error('unsupported flight correction');
  const values={},view=new DataView(payload.buffer,payload.byteOffset,payload.byteLength);let at=0;
  const number=(allowNaN=false)=>{const v=view.getFloat64(at,true);at+=8;if(!Number.isFinite(v)&&!(allowNaN&&Number.isNaN(v)))throw Error('nonfinite flight correction');return v;};
@@ -33,6 +33,11 @@ export function restoreFlightCorrection(vehicle,payload,schema=FLIGHT_CORRECTION
  for(const [key,items]of Object.entries(enums)){const n=payload[at++];if(n>=items.length)throw Error('invalid flight enum');values[key]=items[n];}
  const seat={};for(const key of seatNumbers){const kind=payload[at++],value=number();if(kind>2)throw Error('invalid flight seat field');seat[key]=kind===2?undefined:kind===1?null:value;}
  if(!vehicle.seats?.[0])throw Error('missing pilot seat');
+ return {values,seat};
+}
+export function restoreFlightCorrection(vehicle,payload,schema=FLIGHT_CORRECTION_SCHEMA,native=null){
+ const decoded=typeof native?.readFlight==='function'?native.readFlight(vehicle,payload,schema):null;
+ const {values,seat}=decoded??readFlightCorrection(vehicle,payload,schema);
  for(const key of [...numbers,...booleans,...Object.keys(enums)])vehicle[key]=values[key];
  for(const key of [...vectors,...quaternions])vehicle[key].fromArray(values[key]);
  Object.assign(vehicle.seats[0],seat);
