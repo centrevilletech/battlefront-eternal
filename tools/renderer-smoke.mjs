@@ -19,10 +19,13 @@ const reportDir = await mkdtemp(join(tmpdir(), 'renderer-smoke-'));
 const reportPath = join(reportDir, 'report.jsonl');
 const childEnv = { ...process.env, BFE_SMOKE_REPORT: reportPath };
 for (const key of Object.keys(childEnv)) if (key.toUpperCase() === 'ELECTRON_RUN_AS_NODE') delete childEnv[key];
+console.log(`Starting Electron for ANGLE ${backend}`);
 try {
   const child = spawn(electron, [...(process.env.BFE_SMOKE_NO_SANDBOX === '1' ? ['--no-sandbox'] : []), fileURLToPath(new URL('../tests/support/renderer-smoke-electron.cjs', import.meta.url)), url, backend], {
-    stdio: 'inherit', env: childEnv,
+    stdio: ['ignore', 'pipe', 'pipe'], env: childEnv,
   });
+  child.stdout.on('data', (data) => process.stdout.write(data));
+  child.stderr.on('data', (data) => process.stderr.write(data));
   const timer = setTimeout(() => child.kill(), 180_000);
   try {
     process.exitCode = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', (code) => resolve(code ?? 1)); });
