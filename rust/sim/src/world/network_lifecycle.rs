@@ -7,6 +7,7 @@ pub trait Host {
     fn call(&mut self, op: Call, value: f64) -> Reply;
 }
 
+/// `src/runtime/multiplayer-world.js`: spawn (entry at line 82).
 pub fn spawn(host: &mut impl Host, respawn: f64, remote: bool, weapons: bool) -> bool {
     if host.call(Call::BattleOver, 0.0).flag || !host.call(Call::Roster, 0.0).flag { return false; }
     if host.call(Call::Current, 0.0).flag && !host.call(Call::Alive, 0.0).flag
@@ -48,6 +49,7 @@ pub fn spawn(host: &mut impl Host, respawn: f64, remote: bool, weapons: bool) ->
     true
 }
 
+/// `src/runtime/multiplayer-world.js`: unspawn (entry at line 128).
 pub fn unspawn(host: &mut impl Host, respawn: f64) {
     host.call(Call::UnspawnUnit, 0.0);
     host.call(Call::UnspawnFlags, 0.0);
@@ -57,6 +59,7 @@ pub fn unspawn(host: &mut impl Host, respawn: f64) {
     host.call(Call::UnspawnStatus, 0.0);
 }
 
+/// `src/runtime/multiplayer-world.js`: removePlayer (entry at line 219).
 pub fn remove(host: &mut impl Host) {
     if !host.call(Call::Player, 0.0).flag { return; }
     host.call(Call::Disconnect, 0.0);

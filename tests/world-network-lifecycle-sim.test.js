@@ -463,3 +463,122 @@ test('nested lifecycle calls on the same player retain outer bodies and recover 
     assert.deepEqual(run(true), run(false), at);
   }
 });
+
+test('nested removal retains the original player after the map replaces and deletes its entry', async () => {
+  const { world } = await native();
+  for (const at of ['stop', 'exit']) {
+    const pair = twin(world, { method: 'removePlayer', args: () => ['connection'], setup(f) {
+      f.reconnected = f.object('reconnected player', { id: 'connection', unit: f.selected, disconnectedAt: null });
+      f.raw(f.previous).seat = { turret: {} };
+      f.raw(f.selected).seat = { vehicle: {} };
+      f.raw(f.replacement).seat = { turret: {} };
+    }, changed(op, f) {
+      if (op !== at || f.nestedRemoval) return;
+      f.nestedRemoval = true;
+      f.players.set('connection', f.reconnected);
+      f.raw(f.raw(f.game).worldClock).tick = 40;
+      assert.equal(f.api.removePlayer('connection'), undefined);
+      f.players.delete('connection');
+      f.raw(f.p).unit = f.replacement;
+      f.raw(f.p).id = 'retained connection';
+    } });
+    assert.deepEqual(pair.result, { result: undefined });
+    for (const f of [pair.js, pair.wasm]) {
+      assert.equal(f.nestedRemoval, true);
+      assert.equal(f.players.size, 0);
+      assert.equal(f.raw(f.p).disconnectedAt, 21);
+      assert.equal(f.raw(f.reconnected).disconnectedAt, 41);
+      assert.equal(f.raw(f.selected).seat, null);
+      assert.equal(f.raw(f.replacement).seat, null);
+      assert.notEqual(f.raw(f.previous).seat, null);
+      assert.equal(f.trace.filter(([op]) => op === 'player lookup').length, 2);
+      assert.deepEqual(f.trace.filter(([op]) => op === 'unboard' || op === 'leave').map(([op, unit]) => [op, unit]),
+        [['unboard', 'selected'], ['leave', 'replacement']]);
+    }
+  }
+});
+
+test('chained assignments retain earlier receivers while later getters and setters replace aliases', async () => {
+  const { world } = await native();
+  for (const fail of [false, true]) {
+    const pair = twin(world, { options: { noRemote: true }, setup(f) {
+      const previous = f.raw(f.previous), combat = f.raw(previous.combat);
+      Object.defineProperty(combat, 'player', { enumerable: true, configurable: true, set(value) {
+        f.call('retire player setter', value); combat.retiredPlayer = value;
+        Object.defineProperty(previous, 'networkHuman', { enumerable: true, configurable: true, set(value) {
+          f.call('retire network setter', value); previous.retiredNetwork = value;
+          if (fail) throw false;
+        } });
+      } });
+      Object.defineProperty(previous, 'human', { enumerable: true, configurable: true, set(value) {
+        f.call('retire human setter', value); previous.retiredHuman = value;
+        f.raw(f.p).unit = f.replacement;
+      } });
+    } });
+    assert.deepEqual(pair.wasm.trace.filter(([op]) => /^retire .* setter$/.test(op)).map(([op]) => op),
+      fail ? ['retire player setter', 'retire network setter']
+        : ['retire player setter', 'retire network setter', 'retire human setter']);
+    assert.deepEqual(pair.result, fail ? { threw: true, error: false } : { result: true });
+  }
+  const team = twin(world, { setup(f) {
+    const selected = f.raw(f.selected), original = selected.combat;
+    let armed = false, swapped = false;
+    f.retainedCombat = original;
+    Object.defineProperty(f.raw(original), 'player', { enumerable: true, configurable: true, set(value) {
+      f.call('combat player setter', value); armed = true;
+    } });
+    Object.defineProperty(f.raw(f.p), 'team', { enumerable: true, configurable: true, get() {
+      f.call('current team getter');
+      if (armed && !swapped) {
+        swapped = true; selected.combat = f.raw(f.replacement).combat;
+        f.raw(f.p).unit = f.replacement;
+      }
+      return swapped ? 2 : 1;
+    } });
+  } });
+  for (const f of [team.js, team.wasm]) {
+    assert.equal(f.raw(f.retainedCombat).team, 2);
+    assert.equal(f.raw(f.raw(f.replacement).combat).team, 1);
+    assert.equal(f.raw(f.selected).team, 2);
+  }
+  const dead = twin(world, { method: 'unspawn', args: f => [f.p], setup(f) {
+    let writes = 0;
+    const shared = f.object('shared death receiver', {}), unit = f.raw(f.previous);
+    Object.defineProperty(f.raw(shared), 'dead', { enumerable: true, configurable: true, set(value) {
+      f.call('shared dead setter', ++writes, value);
+      unit.combat = f.raw(f.selected).combat; unit.soldier = f.raw(f.selected).soldier;
+    } });
+    unit.combat = unit.soldier = shared;
+    Object.defineProperty(unit, 'dead', { enumerable: true, configurable: true, set(value) {
+      f.call('outer dead setter', value); unit.finalDead = value;
+    } });
+  } });
+  assert.deepEqual(dead.wasm.trace.filter(([op]) => op === 'shared dead setter' || op === 'outer dead setter'),
+    [['shared dead setter', 1, true], ['shared dead setter', 2, true], ['outer dead setter', true]]);
+  assert.deepEqual(dead.result, { result: undefined });
+});
+
+test('lifecycle port caching preserves the same handler and isolates distinct simulation bridges', async () => {
+  const instance = await loadSim(), bridge = bridgeFor(instance);
+  const first = createNetworkLifecycleBridge(bridge), handler = bridge.handlers.networkLifecycle;
+  assert.equal(createNetworkLifecycleBridge(bridge), first);
+  assert.equal(bridge.handlers.networkLifecycle, handler);
+  assert.deepEqual(Object.keys(first).sort(), ['networkRemove', 'networkSpawn', 'networkUnspawn']);
+  for (const key of ['networkRemove', 'networkSpawn', 'networkUnspawn']) assert.equal(Object.hasOwn(first, key), true);
+  const world = recordPorts(bridge, first), recordedHandler = bridge.handlers.networkLifecycle;
+  const refused = fixture(world, { gameOver: true });
+  assert.equal(Object.hasOwn(refused.raw(refused.selected), 'networkShot'), false);
+  assert.deepEqual(invoke(refused, 'spawn', refused.p, 'second', 'home'), { result: false });
+  assert.equal(Object.hasOwn(refused.raw(refused.selected), 'networkShot'), false);
+  const f = fixture(world);
+  assert.deepEqual(invoke(f, 'spawn', f.p, 'second', 'home'), { result: true });
+  assert.deepEqual(invoke(f, 'unspawn', f.p), { result: undefined });
+  assert.deepEqual(invoke(f, 'removePlayer', 'connection'), { result: undefined });
+  assert.equal(createNetworkLifecycleBridge(bridge), first);
+  assert.equal(bridge.handlers.networkLifecycle, recordedHandler);
+  const otherInstance = await loadSim(), otherBridge = bridgeFor(otherInstance);
+  const other = createNetworkLifecycleBridge(otherBridge);
+  assert.notEqual(other, first);
+  assert.notEqual(otherBridge.handlers.networkLifecycle, recordedHandler);
+  assert.equal(createNetworkLifecycleBridge(otherBridge), other);
+});
