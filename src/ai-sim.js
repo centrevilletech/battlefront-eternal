@@ -3,6 +3,7 @@
 // controller facades can keep their answer slots while callers migrate.
 import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
+import { Vector3 } from 'three';
 
 const HEADER = 5;
 const ZERO = { x: 0, y: 0, z: 0 };
@@ -123,6 +124,91 @@ export class AiSim {
       this.x.ai_nav_graph(4, -1, 0, 0, mask, point.x, point.y, point.z, 0);
       const index = this.out()[0]; return index < 0 ? null : graph.arcs[index];
     };
+  }
+
+  bindCombat(ai) {
+    const create = ai.combat.createPerception;
+    ai.combat.createPerception = (...args) => {
+      const perception = create(...args);
+      perception.aimer = this.aimer();
+      return perception;
+    };
+  }
+
+  aimer() { return new NativeAimer(this); }
+  enhancedAimer(random,profile,skill=1) { return new NativeEnhancedAimer(this,random,profile,skill); }
+
+  words(values) {
+    const ptr=this.x.sim_call_room(values.length,0);
+    this.bridge.views();this.bridge.f.set(values,ptr/8+HEADER);
+  }
+}
+
+// These facades keep the vector identities used by the gun and fire cone.
+// Assignments from other AI services immediately update the native filter.
+class AimFields {
+  constructor(sim,id,read,write) { this.sim=sim;this.id=id;this.readExport=read;this.writeExport=write;this.fields=[];this.pulling=false; }
+  field(object,name,index,decode=value=>value,encode=Number) {
+    let value=object[name];
+    Object.defineProperty(object,name,{enumerable:true,configurable:true,get:()=>value,set:next=>{
+      value=next;if(!this.pulling)this.sim.x[this.writeExport](this.id,index,encode(next));
+    }});
+    this.fields.push([object,name,index,decode]);
+  }
+  vector(object,index) { ['x','y','z'].forEach((key,axis)=>this.field(object,key,index+axis)); }
+  read() {
+    this.sim.x[this.readExport](this.id);const values=this.sim.out().slice();this.pulling=true;
+    try {for(const [object,name,index,decode] of this.fields)object[name]=decode(values[index]);}
+    finally {this.pulling=false;}
+  }
+}
+
+class NativeAimer extends AimFields {
+  constructor(sim) {
+    super(sim,sim.x.ai_aimer_new(),'ai_aimer_read','ai_aimer_write');
+    this.direction=new Vector3(0,0,1);this.velocity=new Vector3();this.started=false;this.curves={A:0,D:0,B:1,S:0};
+    this.vector(this.direction,0);this.vector(this.velocity,3);this.field(this,'started',6,Boolean);
+    ['A','D','B','S'].forEach((key,index)=>this.field(this.curves,key,index+7));this.read();
+  }
+  run(op,desired,dt=0,curves=null,weapon=null,hero=false) {
+    const def=weapon?.def;
+    this.sim.words([desired.x,desired.y,desired.z,dt,Number(Boolean(hero)),Number(Boolean(curves)),
+      typeof curves?.A==='number'?curves.A:NaN,curves?.D,Number(curves?.B!=null),curves?.B??0,Number(curves?.S!=null),curves?.S??0,
+      Number(def!=null),this.sim.bridge.strings.id(typeof def?.base==='string'?def.base:'')]);
+    this.sim.x.ai_aimer_update(this.id,op);
+    const answer=this.sim.out();
+    if(answer[0]) {weapon.spreadScale=answer[1];weapon.sniperScale=answer[2];}
+    this.read();return this.direction;
+  }
+  reset(direction) {this.run(0,direction);}
+  update(desired,dt,curves,weapon=null,hero=false) {return this.run(1,desired,dt,curves,weapon,hero);}
+}
+
+class NativeEnhancedAimer extends AimFields {
+  constructor(sim,random,profile,skill) {
+    super(sim,sim.x.ai_enhanced_aimer_new(profile.reaction,profile.reactionFloor,profile.convergence,profile.sigma25,profile.slew,skill),'ai_enhanced_aimer_read','ai_enhanced_aimer_write');
+    this.random=random;this.profile=profile;this.skill=skill;this.direction=new Vector3(0,0,1);this.started=false;
+    this.error=[0,0];this.bias=[0,0];this.key=null;this.lastKey=null;this.lostAt=-Infinity;this.acquiredAt=-Infinity;this.readyAt=-Infinity;
+    this.vector(this.direction,0);this.field(this,'started',3,Boolean);
+    this.field(this.error,0,4);this.field(this.error,1,5);this.field(this.bias,0,6);this.field(this.bias,1,7);
+    for(const [name,index] of [['key',8],['lastKey',9]])this.field(this,name,index,value=>value?sim.bridge.strings.at(value-1):null,value=>value==null?0:sim.bridge.strings.id(value)+1);
+    for(const [name,index] of [['lostAt',10],['acquiredAt',11],['readyAt',12]])this.field(this,name,index);
+    this.read();
+  }
+  run(op,values) {
+    while(values.length<9)values.push(0);
+    this.sim.words(values);
+    const result=this.sim.x.ai_enhanced_aimer_command(this.id,op,this.random.state);
+    this.random.state=this.sim.out()[0];this.read();return result;
+  }
+  reset(direction) {this.run(0,[direction.x,direction.y,direction.z]);}
+  observe(target,now) {this.run(1,[target?this.sim.bridge.strings.id(`${target.id}:${target.generation}`)+1:0,now]);}
+  reacting(now) {return Boolean(this.run(2,[now]));}
+  sigma(distance,speedFraction,scoped=false) {return this.run(3,[distance,speedFraction,Number(Boolean(scoped))]);}
+  gaussian() {return this.run(5,[]);}
+  update(desired,dt,{distance=25,speedFraction=0,scoped=false,now=0,hero=false}={}) {
+    this.run(4,[desired.x,desired.y,desired.z,dt,distance,speedFraction,Number(Boolean(scoped)),now,Number(Boolean(hero))]);
+    return this.direction;
   }
 }
 

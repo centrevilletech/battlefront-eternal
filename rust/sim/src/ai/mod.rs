@@ -4,6 +4,7 @@
 //! controllers, agents, goals), with perception, combat and aim (`combat`).
 
 pub mod combat;
+mod aim_module;
 pub mod control;
 pub mod module;
 mod navigation_module;
