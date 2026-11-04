@@ -9,6 +9,7 @@ import { NativeAwareness } from './ai-awareness-sim.js';
 import { NativeFsmFields } from './ai-fsm-sim.js';
 import { NativeControllerDriver } from './ai-controller-driver-sim.js';
 import { NativeDispatch } from './ai-dispatch-sim.js';
+import { NativeCover } from './ai-cover-sim.js';
 import { bindClusterState, chargeWeapon, categoryOf, clusterState, facingAndRange, maxExpandedRange, peekClusterState, prepareSpread, protectedVeto, selectedWeapon, setTarget, sniperWeapon, switchWeapon, validateFire, weaponAI } from './ai/classic/weapons-ai.js';
 import { recordTarget } from './ai/classic/perception.js';
 import { dropCorrect, isCannon, selectedWeapon as selectedAimWeapon } from './ai/classic/aim.js';
@@ -48,6 +49,7 @@ export class AiSim {
     this.awareness=new NativeAwareness(this);
     this.controllerDriver=new NativeControllerDriver(this);
     this.dispatch=new NativeDispatch(this);
+    this.cover=new NativeCover(this);
     this.perceptions=new WeakMap();this.clusters=new WeakMap();this.sightFrames=[];this.clusterFound=[];this.losViews=new WeakMap();
     this.sightPoint=new Vector3();this.sightEye=new Vector3();this.sightTargetEye=new Vector3();
     this.scanFound=[];this.scanLook=new Vector3();this.scanAim=new Vector3();

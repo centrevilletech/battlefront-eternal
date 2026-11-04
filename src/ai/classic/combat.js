@@ -304,6 +304,7 @@ const coverN = { x: 0, y: 0, z: 0 };
 // horizontal distance from the target is between the lower band and the
 // cover range. Score: 2.25 x |H - P|^2 + |H - T|^2, horizontally.
 export function coverScore(agent, hint) {
+  if(agent.world?.aiSim)return agent.world.aiSim.cover.score(agent,hint);
   const unit = agent.controller.unit;
   const T = agent.tracker.point;
   const P = unit.position;
@@ -344,6 +345,7 @@ function queryCover(agent, center, half) {
 // The cover hints within the cover range of the bot,
 // visited in random order; the available one with the strictly lowest score.
 export function findCover(agent) {
+  if(agent.world?.aiSim)return agent.world.aiSim.cover.find(agent,queryCover,hintAvailable,coverScore);
   const c = agent.controller;
   const world = agent.world;
   const list = queryCover(agent, c.unit.position, Math.trunc(coverRange(agent))).slice(0, 30);

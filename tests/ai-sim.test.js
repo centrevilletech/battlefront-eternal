@@ -12,7 +12,7 @@ import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse,
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
 import { Agent } from '../src/ai/classic/agents.js';
-import { dispatch, rangePolicy } from '../src/ai/classic/combat.js';
+import { CoverHelper, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -691,6 +691,51 @@ test('native range policies retain strict actions and callback-visible coercion 
     return {out:{...out},history,skillReads};
   }
   for(let i=0;i<3072;i++)assert.deepEqual(run(true,i),run(false,i),`range policy ${i}`);
+});
+
+test('native cover scores preserve exact bands and captured mutable position references', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},c={rangeScale:[.5,1,2,NaN][i%4],perception:{fire:{channel:i%2}}},other={rangeScale:2,perception:{fire:{channel:1}}};let reads=0;
+    const hint={position:new Vector3(i%11-5,i%3,[5,15,-5,50,NaN][i%5]),forward:new Vector3(0,0,i%7===0?-1:1)};
+    const weapon={def:{base:'rifle',ai:{minRange:i%7,optimalRange:18,maxRange:[20,40,60,NaN][i%4],extremeRange:100,implicitRange:i%3===0}}};
+    const unit=c.unit={kind:[0,2,3,'0'][i%4],position:new Vector3(0,i%3,0),combat:{arsenal:{current(channel){
+      reads++;history.push(['current',channel]);if(native)sim.words(new Array(7300).fill(9));
+      if(reads===1){if(i%11===0)agent.controller=other;if(i%13===0)hint.position.x+=.25;if(i%17===0)unit.position.z+=.125;}
+      return i%19===0?null:weapon;
+    }}}};other.unit=unit;
+    const agent={world,controller:c,tracker:{point:new Vector3(0,1,20)}};
+    const value=coverScore(agent,hint);
+    return {value,history,position:unit.position.toArray(),hint:hint.position.toArray(),controller:agent.controller===c?'first':'other'};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`cover score ${i}`);
+});
+
+test('native cover search retains query priority, reservations and captured random streams', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:i/7},ai={world},c={ai,world,rangeScale:1,perception:{fire:{channel:0}}};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7400).fill(8));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapon={def:{base:'rifle',ai:{minRange:0,optimalRange:10,maxRange:40,extremeRange:100,implicitRange:false}}};
+    const unit=c.unit={id:1,kind:0,position:new Vector3(),combat:{arsenal:{current(channel){log('weapon',channel);return i%13===0?null:weapon;}}}};
+    const hints=Array.from({length:36},(_,id)=>({id,position:new Vector3((id%9)-4,0,2+Math.floor(id/9)),forward:new Vector3(0,0,id%7===0?-1:1),primaryMask:7,secondaryMask:7,sideMask:3,siblings:[]}));
+    hints[0].siblings=[hints[1],hints[0],hints[2]];
+    const tracker={point:new Vector3(0,0,20),freeze(on,t){log('freeze',on,t);}},helper={goto(p){log('goto',p.toArray());}};
+    const agent={world,ai,controller:c,tracker,helper};
+    const reserveOwner={id:9,position:new Vector3()},otherAgent={world,ai,controller:{unit:reserveOwner},tracker,helper};
+    const rng=new ClassicRandom(985+i),next=new ClassicRandom(785+i);let draws=0;
+    const original={int(lo,hi){draws++;log('draw',lo,hi,this===original);if(i%3===0)world.randomA={int(){throw Error('unexpected replacement stream');}};
+      if(hi<30 && i%7===0)hints[3].position.x+=.125;return rng.int(lo,hi);}};
+    world.randomA=next;
+    const reservation=new CoverHelper(i%5===0?agent:otherAgent);reservation.init(hints[0]);
+    world.randomA=original;history.length=0;
+    const query=function(mask,center,half,cap){log('query',mask,center===unit.position,half,cap,this===world.nav?.hints);if(i%11===0)world.randomA=next;return i%17===0?null:hints;};
+    if(i%2)world.nav={hints:{query}};
+    else ai.nav={queryHints(options){log('fallback',options.mask,options.center===unit.position,options.halfExtent,options.cap,this===undefined);return i%17===0?null:hints;}};
+    const result=findCover(agent);
+    return {history,result:result?.id??null,draws,random:rng.state,next:next.state,positions:hints.map(h=>h.position.toArray())};
+  }
+  for(let i=0;i<384;i++)assert.deepEqual(run(true,i),run(false,i),`cover search ${i}`);
 });
 
 test('native acoustic and protection services preserve query reuse, limits and nested notifications', async () => {
