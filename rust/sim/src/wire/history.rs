@@ -556,12 +556,14 @@ mod module {
 
     #[no_mangle]
     pub unsafe extern "C" fn history_ray_count(ptr: *mut Raycast) -> u32 {
-        (*ptr).frame.entries.len() as u32
+        let ray = &*ptr;
+        ray.frame.entries.len() as u32
     }
 
     #[no_mangle]
     pub unsafe extern "C" fn history_ray_key(ptr: *mut Raycast, index: u32) -> u32 {
-        (&(*ptr).frame.entries)[index as usize].key
+        let ray = &*ptr;
+        ray.frame.entries[index as usize].key
     }
 
     #[no_mangle]
@@ -571,7 +573,8 @@ mod module {
         has_generation: u32,
         generation: f64,
     ) -> u32 {
-        ((&(*ptr).frame.entries)[index as usize].generation
+        let ray = &*ptr;
+        (ray.frame.entries[index as usize].generation
             == (has_generation != 0).then_some(generation)) as u32
     }
 
