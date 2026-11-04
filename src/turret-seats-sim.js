@@ -7,7 +7,7 @@ import { bridgeFor } from "./sim/runtime.js";
 import { makeHit } from "./collision.js";
 import { turretState, syncTurretState } from "./turrets-sim.js";
 import { putPcInput, PcResultMirror, syncPcResult } from "./sim/gen/props.js";
-import { CombatMirror, KIND_UNIT, KIND_SEAT_LEASE, KIND_TABLE } from "./sim/gen/index.js";
+import { KIND_UNIT, KIND_SEAT_LEASE, KIND_TABLE } from "./sim/gen/index.js";
 
 const EDGES = ["reload", "use", "exit", "jump", "crouch", "prone", "nextPrimary", "previousPrimary", "nextSecondary", "zoom"];
 const EMPTY_BUTTONS = [0, 0];
@@ -78,7 +78,8 @@ export class TurretSeatsSim {
           rider: Boolean(t.rider), shootable: Boolean(t.rider?.shootable) };
       }),
       riders: [...units].map(unit => ({ unit, noEnter: Number.parseFloat(unit.classDef?.NoEnterVehicles ?? 0), zoomStep: unit.combat?.zoomStep ?? 0,
-        zoom: unit.combat?.zoom ?? 1, firstPerson: Boolean(unit.combat?.firstPerson), blowApart: Boolean(unit.combat?.blowApart) })),
+        zoom: unit.combat?.zoom ?? 1, firstPerson: Boolean(unit.combat?.firstPerson), blowApart: Boolean(unit.combat?.blowApart),
+        dead: Boolean(unit.combat?.dead), mounted: unit.combat?.mounted, gunUnderwater: Boolean(unit.combat?.gunUnderwater), aimOverride: unit.combat?.aimOverride })),
       controls, collide: Boolean(s.collision), latched: [] };
     this.bridge.writeSome(KIND_UNIT, state.units);
     this.bridge.writeSome(KIND_SEAT_LEASE, state.rows);
@@ -94,19 +95,18 @@ export class TurretSeatsSim {
       const lease = b.refs[KIND_SEAT_LEASE].objects[slot];
       if (!retired && rows.has(lease)) KIND_TABLE[KIND_SEAT_LEASE].sync(b, f, at, h, lease);
     });
-    const combats = new Map(), scratch = new Map();
-    for (const u of units) { combats.set(u, u.combat); const c = new CombatMirror(); scratch.set(u, c); u.combat = c; }
-    try {
-      b.exported(KIND_UNIT, 2, (f, at, h, slot, gen, retired) => {
-        const unit = b.refs[KIND_UNIT].objects[slot];
-        if (!retired && units.has(unit)) KIND_TABLE[KIND_UNIT].sync(b, f, at, h, unit);
-      });
-    } finally { for (const [u, c] of combats) u.combat = c; }
+    b.exported(KIND_UNIT, 2, (f, at, h, slot, gen, retired) => {
+      const unit = b.refs[KIND_UNIT].objects[slot];
+      if (!retired && units.has(unit)) KIND_TABLE[KIND_UNIT].sync(b, f, at, h, unit);
+    });
+    // Combat is deliberately outside Unit's import/mirror rows. The
+    // command returns just the flags the seat owns, leaving its facade
+    // and the rest of its state with the combat phase.
     for (const fact of state.riders) {
-      const unit = fact.unit, combat = unit.combat, c = scratch.get(unit);
-      if (combat && c) {
-        if (c.mounted !== undefined) combat.mounted = c.mounted;
-        combat.gunUnderwater = c.gunUnderwater; combat.aimOverride = c.aimOverride;
+      const combat = fact.unit.combat;
+      if (combat) {
+        combat.mounted = fact.mounted;
+        combat.gunUnderwater = fact.gunUnderwater; combat.aimOverride = fact.aimOverride;
         if ("zoomStep" in combat) combat.zoomStep = fact.zoomStep;
       }
     }

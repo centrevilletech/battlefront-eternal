@@ -5838,18 +5838,26 @@ impl PcRider {
             zoom: { let p = format!("{path}.zoom"); num(v.get("zoom"), &p)? },
             first_person: { let p = format!("{path}.firstPerson"); boolean(v.get("firstPerson"), &p)? },
             blow_apart: { let p = format!("{path}.blowApart"); boolean(v.get("blowApart"), &p)? },
+            dead: { let p = format!("{path}.dead"); boolean(v.get("dead"), &p)? },
+            mounted: { let p = format!("{path}.mounted"); match v.get("mounted").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("mounted"), &p)?) } },
+            gun_underwater: { let p = format!("{path}.gunUnderwater"); boolean(v.get("gunUnderwater"), &p)? },
+            aim_override: { let p = format!("{path}.aimOverride"); match v.get("aimOverride").value { Value::Null => Nullable::Null, Value::Undefined => Nullable::Undefined, _ => Nullable::Value(vec3(v.get("aimOverride"), &p)?) } },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(6);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(10);
         { let x = Unit::ref_out(self.unit, cx, a); fields.push(("unit", x)); }
         { let x = Value::Num(self.no_enter); fields.push(("noEnter", x)); }
         { let x = Value::Num(self.zoom_step); fields.push(("zoomStep", x)); }
         { let x = Value::Num(self.zoom); fields.push(("zoom", x)); }
         { let x = Value::Bool(self.first_person); fields.push(("firstPerson", x)); }
         { let x = Value::Bool(self.blow_apart); fields.push(("blowApart", x)); }
+        { let x = Value::Bool(self.dead); fields.push(("dead", x)); }
+        { let x = match &self.mounted { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("mounted", x)); }
+        { let x = Value::Bool(self.gun_underwater); fields.push(("gunUnderwater", x)); }
+        { let x = match &self.aim_override { Nullable::Value(v) => a.vec3((*v)), Nullable::Null => Value::Null, Nullable::Undefined => Value::Undefined }; fields.push(("aimOverride", x)); }
         a.object("", fields)
     }
 }

@@ -2201,23 +2201,31 @@ pub struct PcRider {
     pub zoom: f64,
     pub first_person: bool,
     pub blow_apart: bool,
+    pub dead: bool,
+    pub mounted: Option<bool>,
+    pub gun_underwater: bool,
+    pub aim_override: Nullable<Vec3>,
 }
 
 impl PcRider {
-    pub const WORDS: usize = 7;
+    pub const WORDS: usize = 15;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
+        let row: &mut [f64; 15] = (&mut row[..15]).try_into().unwrap();
         row[0] = self.unit.slot as f64; row[0 + 1] = self.unit.gen as f64;
         row[2] = self.no_enter;
         row[3] = self.zoom_step;
         row[4] = self.zoom;
         row[5] = if self.first_person { 1.0 } else { 0.0 };
         row[6] = if self.blow_apart { 1.0 } else { 0.0 };
+        row[7] = if self.dead { 1.0 } else { 0.0 };
+        match &self.mounted { Some(v) => { row[8] = 0.0; row[8 + 1] = if (*v) { 1.0 } else { 0.0 }; } None => { row[8] = 2.0; row[8 + 1..8 + 2].fill(0.0); } }
+        row[10] = if self.gun_underwater { 1.0 } else { 0.0 };
+        match &self.aim_override { Nullable::Value(v) => { row[11] = 0.0; row[11 + 1..11 + 1 + 3].copy_from_slice(&(*v)); } Nullable::Null => { row[11] = 1.0; row[11 + 1..11 + 4].fill(0.0); } Nullable::Undefined => { row[11] = 2.0; row[11 + 1..11 + 4].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
+        let row: &[f64; 15] = (&row[..15]).try_into().unwrap();
         Self {
             unit: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
             no_enter: row[2],
@@ -2225,6 +2233,10 @@ impl PcRider {
             zoom: row[4],
             first_person: row[5] != 0.0,
             blow_apart: row[6] != 0.0,
+            dead: row[7] != 0.0,
+            mounted: if row[8] == 0.0 { Some(row[8 + 1] != 0.0) } else { None },
+            gun_underwater: row[10] != 0.0,
+            aim_override: match word_u32(row[11]) { 0 => Nullable::Value([row[11 + 1], row[11 + 1 + 1], row[11 + 1 + 2]]), 1 => Nullable::Null, _ => Nullable::Undefined },
         }
     }
 
@@ -2313,7 +2325,7 @@ impl PcState {
         { let at = heap.len(); row[4] = at as f64; row[4 + 1] = self.rows.len() as f64; heap.resize(at + self.rows.len() * 2, 0.0); for (i, e) in self.rows.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
         { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.units.len() as f64; heap.resize(at + self.units.len() * 2, 0.0); for (i, e) in self.units.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
         { let at = heap.len(); row[8] = at as f64; row[8 + 1] = self.turrets.len() as f64; heap.resize(at + self.turrets.len() * 49, 0.0); for (i, e) in self.turrets.iter().enumerate() { let mut item = [0.0f64; 49]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 49..at + (i + 1) * 49].copy_from_slice(&item); } }
-        { let at = heap.len(); row[10] = at as f64; row[10 + 1] = self.riders.len() as f64; heap.resize(at + self.riders.len() * 7, 0.0); for (i, e) in self.riders.iter().enumerate() { let mut item = [0.0f64; 7]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 7..at + (i + 1) * 7].copy_from_slice(&item); } }
+        { let at = heap.len(); row[10] = at as f64; row[10 + 1] = self.riders.len() as f64; heap.resize(at + self.riders.len() * 15, 0.0); for (i, e) in self.riders.iter().enumerate() { let mut item = [0.0f64; 15]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 15..at + (i + 1) * 15].copy_from_slice(&item); } }
         { let at = heap.len(); row[12] = at as f64; row[12 + 1] = self.controls.len() as f64; heap.resize(at + self.controls.len() * 29, 0.0); for (i, e) in self.controls.iter().enumerate() { let mut item = [0.0f64; 29]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 29..at + (i + 1) * 29].copy_from_slice(&item); } }
         row[14] = if self.collide { 1.0 } else { 0.0 };
         { let at = heap.len(); row[15] = at as f64; row[15 + 1] = self.latched.len() as f64; heap.resize(at + self.latched.len() * 2, 0.0); for (i, e) in self.latched.iter().enumerate() { let mut item = [0.0f64; 2]; { let row = &mut item; row[0] = (*e).slot as f64; row[0 + 1] = (*e).gen as f64; } heap[at + i * 2..at + (i + 1) * 2].copy_from_slice(&item); } }
@@ -2328,7 +2340,7 @@ impl PcState {
             rows: { let (at, n) = (word_u32(row[4]) as usize, word_u32(row[4 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out },
             units: { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out },
             turrets: { let (at, n) = (word_u32(row[8]) as usize, word_u32(row[8 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 49..at + (i + 1) * 49]; out.push(PcTurret::take(&row[0..], heap)); } out },
-            riders: { let (at, n) = (word_u32(row[10]) as usize, word_u32(row[10 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 7..at + (i + 1) * 7]; out.push(PcRider::take(&row[0..], heap)); } out },
+            riders: { let (at, n) = (word_u32(row[10]) as usize, word_u32(row[10 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 15..at + (i + 1) * 15]; out.push(PcRider::take(&row[0..], heap)); } out },
             controls: { let (at, n) = (word_u32(row[12]) as usize, word_u32(row[12 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 29..at + (i + 1) * 29]; out.push(SeatAiControl::take(&row[0..], heap)); } out },
             collide: row[14] != 0.0,
             latched: { let (at, n) = (word_u32(row[15]) as usize, word_u32(row[15 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 2..at + (i + 1) * 2]; out.push(Ref::new(word_u32(row[0]), word_u32(row[0 + 1]))); } out },

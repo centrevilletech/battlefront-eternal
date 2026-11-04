@@ -38,6 +38,11 @@ fn read(value: PcState) -> (Store, Crews) {
     }
     st.seats.leases = st.seat_lease.iter().map(|(r,_)| r).collect();
     st.turret_seats = TurretSeats { time: value.time, ticks: value.ticks, leases: value.leases };
+    for r in &value.riders {
+        let combat = &mut st.unit.get_mut(r.unit).expect("crew combat flags").combat;
+        combat.dead = r.dead; combat.mounted = r.mounted;
+        combat.gun_underwater = r.gun_underwater; combat.aim_override = r.aim_override.clone();
+    }
     let crews = Crews { collide: value.collide,
         turrets: value.turrets.into_iter().map(|v| {
             let settings = super::turrets_module::settings(v.state.index as usize);
@@ -58,8 +63,12 @@ fn record(st: &Store, crews: &Crews, latched: Vec<Ref<SeatUnit>>) -> PcState {
         turrets: crews.turrets.iter().map(|t| PcTurret { state: super::turrets::state(t), turret: t.turret, alive: t.alive, lease: t.lease,
             gunner: t.gunner.map(seats::unit_ref), attacker: attacker(t.last_attacker), center: a3(&t.sphere.0), radius: t.sphere.1, weapon: t.weapon,
             missile_lock: t.missile_lock, body: t.desc.body, rider: t.desc.rider, shootable: t.desc.shootable }).collect(),
-        riders: crews.riders.iter().map(|(&unit, r)| PcRider { unit: seats::unit_ref(unit), no_enter: r.no_enter,
-            zoom_step: r.combat.zoom_step, zoom: r.combat.zoom, first_person: r.combat.first_person, blow_apart: r.combat.blow_apart }).collect(),
+        riders: crews.riders.iter().map(|(&unit, r)| {
+            let combat = &st.unit.get(seats::unit_ref(unit)).expect("crew combat flags").combat;
+            PcRider { unit: seats::unit_ref(unit), no_enter: r.no_enter,
+                zoom_step: r.combat.zoom_step, zoom: r.combat.zoom, first_person: r.combat.first_person, blow_apart: r.combat.blow_apart,
+                dead: combat.dead, mounted: combat.mounted, gun_underwater: combat.gun_underwater, aim_override: combat.aim_override.clone() }
+        }).collect(),
         controls: crews.controls.iter().map(|(&(slot, gen), c)| SeatAiControl { seat_unit: Ref::new(slot, gen), driven: c.driven, intent: intent_record(&c.intent) }).collect(),
         collide: crews.collide, latched }
 }

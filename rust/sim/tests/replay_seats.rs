@@ -297,7 +297,20 @@ impl SeatWorld for Served<'_, '_> {
         std::mem::swap(&mut self.cx.store, st);
         let read = match seating {
             Seating::Hulls(h) => load_hulls(self.cx, after, h),
-            Seating::Crews(c) => load_crews(self.cx, after, c),
+            Seating::Crews(c) => {
+                let entry = call.call.root().get("s");
+                if !entry.is_undefined() {
+                    let named = entry.get("seats").get("leases").items().map(|l| SeatLease::ref_in(l.get("$id"), self.cx, "kill entry lease")).collect::<Result<Vec<_>, _>>();
+                    match named {
+                        Ok(named) => {
+                            let (arena, mine) = write_crews(self.cx, c, entry, entry, &named);
+                            if let Some(d) = diff(entry, arena.view(&mine)) { self.fail(format!("crew kill entry {d} (capture | port)")); }
+                        }
+                        Err(e) => self.fail(format!("crew kill entry: {e}")),
+                    }
+                }
+                load_crews(self.cx, after, c)
+            }
         };
         std::mem::swap(&mut self.cx.store, st);
         if let Err(e) = read {
@@ -1230,6 +1243,39 @@ fn turret_crews_as_captured() {
         }
         report.assert_clean();
     }
+}
+
+#[test]
+fn turret_crews_reject_state_and_kill_entry_mutations() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    let (mut state, mut entry) = (false, false);
+    for capture in corpus.captures() { let capture = capture.unwrap();
+        for name in ["turretSeats.update", "turretSeats.vacate", "turretSeats.destroyed"] {
+            for frame in capture.frames(name) { let frame = frame.unwrap();
+                assert!(matches!(replay_crew_frame(&frame, name, &mut BTreeMap::new()), Outcome::Same), "unmodified crew frame");
+                if !state {
+                    let mut changed = frame.clone(); let id = changed.after().get("turretSeats").node_id().unwrap();
+                    if let sim_replay::Node::Object { fields, .. } = &mut changed.exit.arena.nodes[id as usize] {
+                        fields.iter_mut().find(|(k,_)| k == "ticks").unwrap().1 = Value::Num(987654.0);
+                    }
+                    assert!(matches!(replay_crew_frame(&changed, name, &mut BTreeMap::new()), Outcome::Failed(_)), "wrong crew clock accepted"); state = true;
+                }
+                if !entry { for (index, event) in frame.events.iter().enumerate() {
+                    let sim_replay::Event::Call(call) = event else { continue };
+                    if call.name != "crews.kill" { continue; }
+                    let Some(id) = call.call.root().get("s").get("units").at(0).get("unit").node_id() else { continue };
+                    let mut changed = frame.clone();
+                    let sim_replay::Event::Call(call) = &mut changed.events[index] else { unreachable!() };
+                    if let sim_replay::Node::Object { fields, .. } = &mut call.call.arena.nodes[id as usize] {
+                        fields.iter_mut().find(|(k,_)| k == "tickCount").unwrap().1 = Value::Num(987654.0);
+                    }
+                    assert!(matches!(replay_crew_frame(&changed, name, &mut BTreeMap::new()), Outcome::Failed(_)), "wrong callback entry accepted"); entry = true; break;
+                } }
+                if state && entry { return; }
+            }
+        }
+    }
+    panic!("missing crew mutation coverage: state={state}, kill entry={entry}");
 }
 
 // ---- A network human's mouse and keys in a hull's seat.

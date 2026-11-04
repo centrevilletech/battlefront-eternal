@@ -2682,6 +2682,10 @@ export class PcRiderMirror {
     this.zoom = NaN;
     this.firstPerson = false;
     this.blowApart = false;
+    this.dead = false;
+    this.mounted = undefined;
+    this.gunUnderwater = false;
+    this.aimOverride = null;
   }
 }
 
@@ -2692,6 +2696,10 @@ export function syncPcRider(b, f, at, h, m) {
   m.zoom = f[at + 4];
   m.firstPerson = f[at + 5] !== 0;
   m.blowApart = f[at + 6] !== 0;
+  m.dead = f[at + 7] !== 0;
+  { const tag = f[at + 8]; if (tag === 0) { m.mounted = f[at + 9] !== 0; } else m.mounted = tag === 1 ? null : undefined; }
+  m.gunUnderwater = f[at + 10] !== 0;
+  { const tag = f[at + 11]; if (tag === 0) { (m.aimOverride ??= new THREE.Vector3()).set(f[at + 12], f[at + 13], f[at + 14]); } else m.aimOverride = tag === 1 ? null : undefined; }
   return m;
 }
 
@@ -2702,6 +2710,10 @@ export function putPcRider(b, o, f, at, heap) {
   f[at + 4] = o.zoom;
   f[at + 5] = o.firstPerson ? 1 : 0;
   f[at + 6] = o.blowApart ? 1 : 0;
+  f[at + 7] = o.dead ? 1 : 0;
+  { const $x = o.mounted; if ($x === null || $x === undefined) { f[at + 8] = $x === null ? 1 : 2; f[at + 9] = 0; } else { f[at + 8] = 0; f[at + 9] = $x ? 1 : 0; } }
+  f[at + 10] = o.gunUnderwater ? 1 : 0;
+  { const $x = o.aimOverride; if ($x === null || $x === undefined) { f[at + 11] = $x === null ? 1 : 2; f[at + 12] = 0; f[at + 13] = 0; f[at + 14] = 0; } else { f[at + 11] = 0; { const $v = $x; f[at + 12] = $v.x; f[at + 13] = $v.y; f[at + 14] = $v.z; } } }
 }
 
 export function samePcRider(a, b) {
@@ -2711,6 +2723,10 @@ export function samePcRider(a, b) {
   if (!Object.is(a.zoom, b.zoom)) return ".zoom";
   if (!Object.is(a.firstPerson, b.firstPerson)) return ".firstPerson";
   if (!Object.is(a.blowApart, b.blowApart)) return ".blowApart";
+  if (!Object.is(a.dead, b.dead)) return ".dead";
+  { const p = a.mounted, q = b.mounted; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".mounted"; } else { if (!Object.is(p, q)) return ".mounted"; } }
+  if (!Object.is(a.gunUnderwater, b.gunUnderwater)) return ".gunUnderwater";
+  { const p = a.aimOverride, q = b.aimOverride; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".aimOverride"; } else { if (!sameVec(p, q)) return ".aimOverride"; } }
   return null;
 }
 
@@ -2725,6 +2741,10 @@ export function exportPcRider(o, cx) {
   v.zoom = o.zoom;
   v.firstPerson = o.firstPerson;
   v.blowApart = o.blowApart;
+  v.dead = o.dead;
+  v.mounted = o.mounted;
+  v.gunUnderwater = o.gunUnderwater;
+  v.aimOverride = ((x) => (x === null || x === undefined ? x : x.clone()))(o.aimOverride);
   return v;
 }
 
@@ -2839,7 +2859,7 @@ export function syncPcState(b, f, at, h, m) {
   { const items = (m.rows ??= []), start = h + f[at + 4], n = f[at + 5]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_LEASE].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const items = (m.units ??= []), start = h + f[at + 6], n = f[at + 7]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_UNIT].at(f[at + 0], f[at + 1]); } items[i] = v; } }
   { const items = (m.turrets ??= []), start = h + f[at + 8], n = f[at + 9]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 49; v = syncPcTurret(b, f, at + 0, h, v ?? new PcTurretMirror()); } items[i] = v; } }
-  { const items = (m.riders ??= []), start = h + f[at + 10], n = f[at + 11]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 7; v = syncPcRider(b, f, at + 0, h, v ?? new PcRiderMirror()); } items[i] = v; } }
+  { const items = (m.riders ??= []), start = h + f[at + 10], n = f[at + 11]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 15; v = syncPcRider(b, f, at + 0, h, v ?? new PcRiderMirror()); } items[i] = v; } }
   { const items = (m.controls ??= []), start = h + f[at + 12], n = f[at + 13]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 29; v = syncSeatAiControl(b, f, at + 0, h, v ?? new SeatAiControlMirror()); } items[i] = v; } }
   m.collide = f[at + 14] !== 0;
   { const items = (m.latched ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 2; v = b.refs[KIND_SEAT_UNIT].at(f[at + 0], f[at + 1]); } items[i] = v; } }
@@ -2853,7 +2873,7 @@ export function putPcState(b, o, f, at, heap) {
   heap.items(o.rows, f, at + 4, 2, (f, at, v) => { b.refs[KIND_SEAT_LEASE].put(v, f, at + 0); });
   heap.items(o.units, f, at + 6, 2, (f, at, v) => { b.refs[KIND_UNIT].put(v, f, at + 0); });
   heap.items(o.turrets, f, at + 8, 49, (f, at, v) => { putPcTurret(b, v, f, at + 0, heap); });
-  heap.items(o.riders, f, at + 10, 7, (f, at, v) => { putPcRider(b, v, f, at + 0, heap); });
+  heap.items(o.riders, f, at + 10, 15, (f, at, v) => { putPcRider(b, v, f, at + 0, heap); });
   heap.items(o.controls, f, at + 12, 29, (f, at, v) => { putSeatAiControl(b, v, f, at + 0, heap); });
   f[at + 14] = o.collide ? 1 : 0;
   heap.items(o.latched, f, at + 15, 2, (f, at, v) => { b.refs[KIND_SEAT_UNIT].put(v, f, at + 0); });
