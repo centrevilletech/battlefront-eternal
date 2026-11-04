@@ -1,3 +1,4 @@
+import { rustOrdnance } from './helpers/rust-simulation.js';
 // Optional intake/runtime contract test; retail assets remain local and ignored.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -5,7 +6,6 @@ import fs from 'node:fs';
 import * as THREE from 'three';
 import { CollisionWorld } from '../src/collision.js';
 import { Vehicles } from '../src/vehicles.js';
-import { Ordnance } from '../src/ordnance.js';
 import { Weapon } from '../src/weapons.js';
 import { CommandControls } from '../src/runtime/commands.js';
 import { classSetting } from '../src/vehicle-motion.js';
@@ -24,7 +24,7 @@ test('extracted vehicle rigs, collision, controllers and every weapon seat initi
   const g=new THREE.BoxGeometry(20000,2,20000).translate(0,-1,0);
   const collision=new CollisionWorld(g.attributes.position.array,g.index.array,new Uint32Array(g.index.count/3));
   const effects={play:()=>null},lights={add(){},flash(){}};
-  const ordnance=new Ordnance({scene,collision,effects,lights,texture:()=>null,model:()=>null});
+  const ordnance=rustOrdnance({scene,collision,effects,lights,texture:()=>null,model:()=>null});
  const shots=[];const fire=ordnance.fire.bind(ordnance);ordnance.fire=(...args)=>{shots.push({def:args[0],origin:args[1].clone(),direction:args[2].clone(),ignore:args[5]});return fire(...args)};
   // A neutral test floor isolates asset/controller contracts from map layout.
   const spawns=names.map((name,i)=>({name,matrix:new THREE.Matrix4().makeTranslation(i*100,0,0).toArray(),team:1,post:'',respawnTime:45,classes:{1:name}}));

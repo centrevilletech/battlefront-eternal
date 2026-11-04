@@ -1,5 +1,8 @@
 # Development and playtesting
 
+
+Collision queries, soldier movement, world rounds and items require the Rust simulation module on the page, local world worker and dedicated server. Module failures stop startup or the query. The former `sim`, `rays` and `movement` query parameters and `BFE_SIM` / `BFE_RAYS` environment controls have been removed. Historical measurements below describe the builds measured at the time; compare current builds against recorded fingerprints with `world-hash-matrix.mjs --against`, rather than selecting an old implementation at runtime.
+
 Developer setup, controls and implementation notes for Battlefront Eternal.
 For the project overview and roadmap, see the [README](../README.md).
 

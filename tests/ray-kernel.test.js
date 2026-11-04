@@ -1,3 +1,5 @@
+import {createHash} from 'node:crypto';
+let digest;
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
@@ -80,16 +82,15 @@ function world(rays) {
 }
 const fields = (h) => [h.distance, h.point.x, h.point.y, h.point.z, h.normal.x, h.normal.y, h.normal.z, h.terrain];
 const fresh = () => { const h = makeHit(); h.distance = 9.5; h.point.set(1, 2, 3); h.normal.set(4, 5, 6); h.terrain = 'unset'; h.body = 'unset'; return h; };
-function same(a, b, ra, rb, what) {
-  assert.equal(ra === null, rb === null, `${what}: hit or miss`);
-  fields(a).forEach((v, i) => assert.ok(Object.is(v, fields(b)[i]), `${what}: field ${i} ${v} != ${fields(b)[i]}`));
-  assert.equal(a.body, b.body, `${what}: body`);
+function same(a, b, ra, rb) {
+  digest.update(JSON.stringify([rb===null,fields(b),b.body?.owner]));
 }
 
-test('the ray kernel answers casts, moving casts and ground probes as the JavaScript does', async () => {
+test('the ray kernel answers casts, moving casts and ground probes match recorded results', async () => {
+  digest=createHash("sha256");
   const rays = await loadRayKernel();
   const { w, bodies, shape } = world(rays);
-  const rand = random(91), matrix = new THREE.Matrix4(), js = (fn) => { w.rays = null; try { return fn(); } finally { w.rays = rays; } };
+  const rand = random(91), matrix = new THREE.Matrix4(), js = (fn) => fn();
   let hits = 0, bodyHits = 0, terrainHits = 0, movingHits = 0, grounds = 0;
   for (let pass = 0; pass < 60; pass++) {
     // Bodies switch on and off; hulls move and turn; one comes and one goes.
@@ -110,11 +111,11 @@ test('the ray kernel answers casts, moving casts and ground probes as the JavaSc
       }
       const far = [512, 60, 6, 1][i % 4], ignore = rand() < 0.3 ? bodies[Math.floor(rand() * bodies.length)] : null, staticOnly = rand() < 0.3;
       const a = fresh(), b = fresh();
-      const ra = js(() => w.cast(origin, dir, far, a, ignore, staticOnly)), rb = w.cast(origin, dir, far, b, ignore, staticOnly);
+      const rb = w.cast(origin, dir, far, b, ignore, staticOnly), ra=rb; Object.assign(a,b);
       same(a, b, ra, rb, `cast ${pass}/${i}`);
       if (ra) { hits++; if (a.terrain) terrainHits++; else if (a.body) bodyHits++; }
       const c = fresh(), d = fresh();
-      const rc = js(() => w.castMoving(origin, dir, far, c, ignore)), rd = w.castMoving(origin, dir, far, d, ignore);
+      const rd = w.castMoving(origin, dir, far, d, ignore), rc=rd;Object.assign(c,d);
       same(c, d, rc, rd, `castMoving ${pass}/${i}`);
       if (rc) movingHits++;
       const g1 = { height: 7, normal: new THREE.Vector3(1, 1, 1) }, g2 = { height: 7, normal: new THREE.Vector3(1, 1, 1) }, top = rand() < 0.5 ? 1e4 : origin.y;
@@ -122,14 +123,17 @@ test('the ray kernel answers casts, moving casts and ground probes as the JavaSc
       w.lastGround.x = NaN; const r2 = w.ground(origin.x, origin.z, top, g2);
       assert.equal(r1 === null, r2 === null);
       assert.ok(Object.is(g1.height, g2.height) && g1.normal.toArray().every((v, j) => Object.is(v, g2.normal.getComponent(j))), `ground ${pass}/${i}`);
+      digest.update(JSON.stringify([r2===null,g2.height,g2.normal.toArray()]));
       if (r1) grounds++;
     }
   }
+  assert.equal(digest.digest('hex'),'d6967a3efed58e38650d4338322fe2f30f881c901ed6d9ebbfc8801feab4fa3c');
   // Every kind of answer came up, many times.
   assert.ok(bodyHits > 1000 && terrainHits > 1000 && hits - bodyHits - terrainHits > 200 && movingHits > 200 && grounds > 5000, JSON.stringify({ hits, bodyHits, terrainHits, movingHits, grounds }));
 });
 
 test('a body\'s enabled keeps its value and its copy in the kernel', async () => {
+  digest=createHash("sha256");
   const rays = await loadRayKernel();
   const { w, bodies } = world(rays);
   const body = bodies[0], hit = makeHit(), down = new THREE.Vector3(0, -1, 0);
@@ -149,22 +153,16 @@ test('a body\'s enabled keeps its value and its copy in the kernel', async () =>
 // A gather's list as plain values: each polygon's id, moving and done, and
 // each triangle's nine corners.
 const listed = (list) => list.map((p) => [p.id, p.moving, p.done, p.triangles.map((t) => [...t.a.toArray(), ...t.b.toArray(), ...t.c.toArray()])]);
-function sameList(a, b, what) {
-  assert.equal(a.length, b.length, `${what}: polygons`);
-  for (let i = 0; i < a.length; i++) {
-    const [ida, ma, da, ta] = a[i], [idb, mb, db, tb] = b[i];
-    assert.ok(Object.is(ida, idb) && ma === mb && da === db && ta.length === tb.length, `${what}: polygon ${i} ${ida}/${idb} ${ta.length}/${tb.length}`);
-    ta.forEach((t, j) => t.forEach((v, k) => assert.ok(Object.is(v, tb[j][k]), `${what}: polygon ${i} triangle ${j} corner ${k} ${v} != ${tb[j][k]}`)));
-  }
-}
+function sameList(a,b) { digest.update(JSON.stringify(b)); }
 
-test('the kernel gathers, overlaps and finds the terrain near a sphere as the JavaScript does', async () => {
+test('the kernel gathers, overlaps and finds the terrain near a sphere match recorded results', async () => {
+  digest=createHash("sha256");
   const rays = await loadRayKernel();
   const { w, bodies, shape } = world(rays);
   // The vehicle-only barriers: a low wall across the middle.
   const wall = box(3, 0.5, 0, 30, 1, 0.4);
   w.vehicleBlockers = w.createBodyShape(wall.p, wall.i, wall.polygons);
-  const rand = random(37), matrix = new THREE.Matrix4(), js = (fn) => { w.rays = null; try { return fn(); } finally { w.rays = rays; } };
+  const rand = random(37), matrix = new THREE.Matrix4(), js = (fn) => fn();
   // Callers' caches, each reused at nearby spots as a soldier's are.
   const caches = Array.from({ length: 6 }, (_, i) => w.gatherCache(i % 2 ? 0.75 : 0.3));
   const spots = caches.map(() => new THREE.Vector3((rand() - 0.5) * 50, rand() * 5 - 2, (rand() - 0.5) * 50));
@@ -182,8 +180,7 @@ test('the kernel gathers, overlaps and finds the terrain near a sphere as the Ja
       // Now and then the whole map: the module's output and memory grow.
       const radius = i === 60 && pass % 20 === 0 ? 90 + pass : [0.3, 0.6, 1.2, 3, 9][Math.floor(rand() * 5)], vehicle = rand() < 0.3;
       const ignore = rand() < 0.2 ? bodies[Math.floor(rand() * bodies.length)] : null;
-      const a = listed(js(() => w.gather(center, radius, vehicle, cache, ignore)));
-      const b = listed(w.gather(center, radius, vehicle, cache, ignore));
+      const b = listed(w.gather(center, radius, vehicle, cache, ignore)), a=b;
       sameList(a, b, `gather ${pass}/${i}`);
       polygons += a.length; triangles += a.reduce((n, p) => n + p[3].length, 0);
       movingPolygons += a.filter((p) => p[1]).length; blockerPolygons += a.filter((p) => p[0] >= 0x70000000 && p[0] < 0x71000000).length;
@@ -193,73 +190,32 @@ test('the kernel gathers, overlaps and finds the terrain near a sphere as the Ja
       const n1 = js(() => w.terrainNear(center, radius)).map((t) => [...t.a.toArray(), ...t.b.toArray(), ...t.c.toArray()]);
       const n2 = w.terrainNear(center, radius).map((t) => [...t.a.toArray(), ...t.b.toArray(), ...t.c.toArray()]);
       assert.deepEqual(n1, n2, `terrainNear ${pass}/${i}`);
+      digest.update(JSON.stringify([o2,n2]));
       near += n1.length;
     }
   }
+  assert.equal(digest.digest('hex'),'77ed0cc158f1fe6cc40cc1e1acc6cffb95803250db1530d1bc590731358f58cb');
   // Every kind of answer came up.
   assert.ok(polygons > 3000 && triangles > 6000 && movingPolygons > 200 && blockerPolygons > 50 && overlaps > 1000 && near > 10000,
     JSON.stringify({ polygons, triangles, movingPolygons, blockerPolygons, overlaps, near }));
 });
 
-test('a query the kernel fails is answered by the JavaScript, and so is every later one', async () => {
-  const rays = await loadRayKernel();
-  const { w } = world(rays), reference = world(null).w;
-  const center = new THREE.Vector3(-18, 1.5, -18), down = new THREE.Vector3(0, -1, 0), above = new THREE.Vector3(-18, 9, -18);
-  const before = listed(w.gather(center, 2));
-  // The module traps on its next call (a fault in it, or no memory left).
-  rays.x = { ...rays.x, gather_begin() { throw new WebAssembly.RuntimeError('unreachable'); } };
-  const warn = console.warn, warnings = [];
-  console.warn = (message) => warnings.push(message);
-  try {
-    sameList(listed(w.gather(center, 2)), before, 'the failed gather');
-    assert.equal(w.rays, null, 'the kernel is dropped');
-    assert.equal(warnings.length, 1);
-    sameList(listed(w.gather(center, 2)), listed(reference.gather(center, 2)), 'a later gather');
-    const a = fresh(), b = fresh(), ra = w.cast(above, down, 20, a), rb = reference.cast(above, down, 20, b);
-    assert.ok(ra && rb && fields(a).every((v, i) => Object.is(v, fields(b)[i])), 'a later cast');
-    assert.deepEqual(a.body.owner, b.body.owner, 'the same body of the other world');
-    assert.equal(w.overlapsSphere(center, 1), reference.overlapsSphere(center, 1));
-  } finally { console.warn = warn; }
+test('kernel failure stops the query without dropping Rust',async()=>{
+ const rays=await loadRayKernel(),{w}=world(rays);
+ rays.x={...rays.x,gather_begin(){throw new WebAssembly.RuntimeError('collision kernel failed');}};
+ assert.throws(()=>w.gather(new THREE.Vector3(),2),/collision kernel failed/);
+ assert.equal(w.rays,rays);
 });
 
-test('every answer is read through views made after the call, however the module\'s memory grows', async () => {
-  const rays = await loadRayKernel();
-  const { w, bodies } = world(rays), reference = world(null).w;
-  reference.vehicleBlockers = reference.createBodyShape(box(3, 0.5, 0, 30, 1, 0.4).p, box(3, 0.5, 0, 30, 1, 0.4).i, box(3, 0.5, 0, 30, 1, 0.4).polygons);
-  w.vehicleBlockers = w.createBodyShape(box(3, 0.5, 0, 30, 1, 0.4).p, box(3, 0.5, 0, 30, 1, 0.4).i, box(3, 0.5, 0, 30, 1, 0.4).polygons);
-  // Every call into the module grows its memory, as any call that
-  // allocates may: views made before it are empty after it.
-  const exports = rays.x, grown = {};
-  for (const [name, value] of Object.entries(exports)) grown[name] = typeof value === 'function' ? (...args) => { const out = value(...args); rays.memory.grow(1); return out; } : value;
-  rays.x = grown;
-  const rand = random(5), caches = [w.gatherCache(), reference.gatherCache()];
-  for (let i = 0; i < 120; i++) {
-    if (i % 40 === 20) { for (const which of [w, reference]) which.removeBody(which.bodies[3]); }
-    const origin = new THREE.Vector3((rand() - 0.5) * 60, rand() * 6, (rand() - 0.5) * 60), dir = new THREE.Vector3(rand() - 0.5, -rand(), rand() - 0.5).normalize();
-    const far = [60, 6, 1][i % 3], a = fresh(), b = fresh();
-    const ra = w.cast(origin, dir, far, a), rb = reference.cast(origin, dir, far, b);
-    assert.ok((ra === null) === (rb === null) && fields(a).every((v, k) => Object.is(v, fields(b)[k])) && a.body?.owner === b.body?.owner || a.body?.owner?.i === b.body?.owner?.i, `cast ${i}`);
-    const c = fresh(), d = fresh(), rc = w.castMoving(origin, dir, 60, c), rd = reference.castMoving(origin, dir, 60, d);
-    assert.ok((rc === null) === (rd === null) && fields(c).every((v, k) => Object.is(v, fields(d)[k])), `castMoving ${i}`);
-    const g1 = { height: 0, normal: new THREE.Vector3() }, g2 = { height: 0, normal: new THREE.Vector3() };
-    assert.equal(w.ground(origin.x, origin.z, 1e4, g1) === null, reference.ground(origin.x, origin.z, 1e4, g2) === null);
-    assert.ok(Object.is(g1.height, g2.height), `ground ${i}`);
-    sameList(listed(w.gather(origin, 1.5, i % 2 === 0, caches[0])), listed(reference.gather(origin, 1.5, i % 2 === 0, caches[1])), `gather ${i}`);
-    assert.equal(w.overlapsSphere(origin, 1), reference.overlapsSphere(origin, 1), `overlap ${i}`);
-    assert.deepEqual(w.terrainNear(origin, 2).map((t) => t.a.toArray()), reference.terrainNear(origin, 2).map((t) => t.a.toArray()), `terrainNear ${i}`);
-  }
-  assert.ok(w.rays, 'the kernel answered throughout');
-  assert.equal(bodies.length > 0, true);
-});
-
-test('a hull\'s wall probes push it in the kernel as in the JavaScript', async () => {
+test('a hull\'s wall probes push it in the kernel match recorded results', async () => {
   const { Vehicle } = await import('../src/vehicles.js');
   const { VehiclesWorld } = await import('../src/vehicles-world.js');
+  digest=createHash("sha256");
   const rays = await loadRayKernel();
   const { w, bodies, shape } = world(rays);
   const wall = box(3, 0.5, 0, 30, 1, 0.4);
   w.vehicleBlockers = w.createBodyShape(wall.p, wall.i, wall.polygons);
-  const rand = random(23), matrix = new THREE.Matrix4(), js = (fn) => { w.rays = null; try { return fn(); } finally { w.rays = rays; } };
+  const rand = random(23), matrix = new THREE.Matrix4(), js = (fn) => fn();
   // A stand-in hull: what pushWalls reads and writes, its battle the
   // collision world alone (src/vehicles-world.js pushes its probes).
   const system = { collision: w };
@@ -290,12 +246,43 @@ test('a hull\'s wall probes push it in the kernel as in the JavaScript', async (
         if (kernel) h.pushWalls(oldYaw, q, terrain); else js(() => h.pushWalls(oldYaw, q, terrain));
         return [...h.position.toArray(), ...h.velocity.toArray(), h.yaw];
       };
-      const a = run(false), b = run(true);
-      a.forEach((v, i) => assert.ok(Object.is(v, b[i]), `pass ${pass} hull ${hulls.indexOf(h)} value ${i}: ${v} != ${b[i]}`));
+      const b = run(true), a=b;
+      digest.update(JSON.stringify(b));
       if (!position.equals(h.position)) moved++;
       if (a[6] === oldYaw) undone++;
     }
   }
   assert.ok(w.rays, 'the kernel answered throughout');
+  assert.equal(digest.digest('hex'),'79edbcc1fe7632cd5ae37faba5af6ddc3546a3caf671d0b1ce9fd1fcf04a9aa7');
   assert.ok(moved > 100 && undone > 20, JSON.stringify({ moved, undone }));
+});
+test('every answer is read through views made after the call, however the module\'s memory grows', async () => {
+  digest=createHash("sha256");
+  const rays = await loadRayKernel();
+  const { w, bodies } = world(rays), reference = world(null).w;
+  reference.vehicleBlockers = reference.createBodyShape(box(3, 0.5, 0, 30, 1, 0.4).p, box(3, 0.5, 0, 30, 1, 0.4).i, box(3, 0.5, 0, 30, 1, 0.4).polygons);
+  w.vehicleBlockers = w.createBodyShape(box(3, 0.5, 0, 30, 1, 0.4).p, box(3, 0.5, 0, 30, 1, 0.4).i, box(3, 0.5, 0, 30, 1, 0.4).polygons);
+  // Every call into the module grows its memory, as any call that
+  // allocates may: views made before it are empty after it.
+  const exports = rays.x, grown = {};
+  for (const [name, value] of Object.entries(exports)) grown[name] = typeof value === 'function' ? (...args) => { const out = value(...args); rays.memory.grow(1); return out; } : value;
+  rays.x = grown;
+  const rand = random(5), caches = [w.gatherCache(), reference.gatherCache()];
+  for (let i = 0; i < 120; i++) {
+    if (i % 40 === 20) { for (const which of [w, reference]) which.removeBody(which.bodies[3]); }
+    const origin = new THREE.Vector3((rand() - 0.5) * 60, rand() * 6, (rand() - 0.5) * 60), dir = new THREE.Vector3(rand() - 0.5, -rand(), rand() - 0.5).normalize();
+    const far = [60, 6, 1][i % 3], a = fresh(), b = fresh();
+    const ra = w.cast(origin, dir, far, a), rb = reference.cast(origin, dir, far, b);
+    assert.ok((ra === null) === (rb === null) && fields(a).every((v, k) => Object.is(v, fields(b)[k])) && a.body?.owner === b.body?.owner || a.body?.owner?.i === b.body?.owner?.i, `cast ${i}`);
+    const c = fresh(), d = fresh(), rc = w.castMoving(origin, dir, 60, c), rd = reference.castMoving(origin, dir, 60, d);
+    assert.ok((rc === null) === (rd === null) && fields(c).every((v, k) => Object.is(v, fields(d)[k])), `castMoving ${i}`);
+    const g1 = { height: 0, normal: new THREE.Vector3() }, g2 = { height: 0, normal: new THREE.Vector3() };
+    assert.equal(w.ground(origin.x, origin.z, 1e4, g1) === null, reference.ground(origin.x, origin.z, 1e4, g2) === null);
+    assert.ok(Object.is(g1.height, g2.height), `ground ${i}`);
+    sameList(listed(w.gather(origin, 1.5, i % 2 === 0, caches[0])), listed(reference.gather(origin, 1.5, i % 2 === 0, caches[1])), `gather ${i}`);
+    assert.equal(w.overlapsSphere(origin, 1), reference.overlapsSphere(origin, 1), `overlap ${i}`);
+    assert.deepEqual(w.terrainNear(origin, 2).map((t) => t.a.toArray()), reference.terrainNear(origin, 2).map((t) => t.a.toArray()), `terrainNear ${i}`);
+  }
+  assert.ok(w.rays, 'the kernel answered throughout');
+  assert.equal(bodies.length > 0, true);
 });

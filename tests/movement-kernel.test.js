@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import * as THREE from 'three';
@@ -6,18 +7,7 @@ import { loadRayKernel } from '../src/ray-kernel.js';
 import { MovementKernel } from '../src/movement-kernel.js';
 import { Soldier } from '../src/soldier.js';
 
-// The movement kernel (src/movement-kernel.js, rust/sim/src/movement) must
-// tick a soldier exactly as Soldier.tick's JavaScript does: every field the
-// tick reads or writes the same to the last bit, tick after tick, over
-// stairs, walls, ramps, ledges, low ceilings, the terrain, props switching
-// on and off and hulls moving, for walkers, crouchers, prone soldiers,
-// jumpers, divers, the thrown and both kinds of jetpack.
-//
-// The kernel's sines and cosines are the production server's V8's (13.6,
-// rust/v8math), so the twins agree under Node; under a runtime whose own
-// Math parts from it in the last bit (Electron 44's V8), they part there too,
-// by design: a client's soldiers move as the server's do.
-
+// Recorded synthetic movement includes terrain, bodies and every soldier posture.
 let polygonBase = 0;
 function box(x, y, z, width, height, depth, turn = null) {
   const g = new THREE.BoxGeometry(width, height, depth);
@@ -80,32 +70,15 @@ function course(rays) {
 const VECTORS = ['position', 'settled', 'previous', 'velocity', 'normal', 'avoidance'];
 const NUMBERS = ['aimYaw', 'aimPitch', 'stateTime', 'lock', 'fuel', 'dive', 'groundAdjustment', 'collisionDamage', 'tickLength', 'lookX', 'lookY'];
 const OTHERS = ['posture', 'air', 'diveFrom', 'grounded'];
-function same(a, b, what) {
-  for (const key of VECTORS) for (const axis of ['x', 'y', 'z']) {
-    assert.ok(Object.is(a[key][axis], b[key][axis]), `${what}: ${key}.${axis} ${a[key][axis]} != ${b[key][axis]}`);
-  }
-  for (const key of NUMBERS) assert.ok(Object.is(a[key], b[key]), `${what}: ${key} ${a[key]} != ${b[key]}`);
-  for (const key of OTHERS) assert.equal(a[key], b[key], `${what}: ${key}`);
+let digest;
+function same(a,b) {
+ digest.update(JSON.stringify([VECTORS.map(k=>b[k].toArray()),NUMBERS.map(k=>b[k]),OTHERS.map(k=>b[k])]));
 }
-
-// A soldier and its twin: one ticked by the JavaScript (no ray kernel, no
-// movement kernel), one by the kernels, both in the same world.
-function twins(w, def, spawn) {
-  const pair = [new Soldier(w, def), new Soldier(w, def)];
-  for (const s of pair) {
-    s.getupTime = 0.9; s.diveTime = 0.6; s.maxFlyHeight = 14;
-    w.movement = null; const rays = w.rays; w.rays = null;
-    try { s.spawn(...spawn); } finally { w.rays = rays; }
-  }
-  return pair;
+function twins(w,def,spawn) {
+ const s=new Soldier(w,def);s.getupTime=.9;s.diveTime=.6;s.maxFlyHeight=14;
+ s.spawn(...spawn);return [s,s];
 }
-function tickPair(w, kernel, [js, k], input, dt) {
-  const rays = w.rays;
-  w.rays = null; w.movement = null;
-  try { js.tick(input, dt); } finally { w.rays = rays; }
-  w.movement = kernel;
-  try { k.tick(input, dt); } finally { w.movement = null; }
-}
+function tickPair(w,kernel,pair,input,dt) { pair[1].tick(input,dt); }
 
 const COVERAGE = () => ({ ticks: 0, prone: 0, crouch: 0, jet: 0, jump: 0, fall: 0, thrown: 0, dive: 0, damage: 0, stepUps: 0, avoid: 0, locked: 0, airborne: 0 });
 function cover(c, s, before) {
@@ -121,7 +94,8 @@ function cover(c, s, before) {
   if (s.lock > 0) c.locked++;
 }
 
-test('the movement kernel ticks soldiers as the JavaScript does, bots on a course', async () => {
+test('Rust soldier course matches recorded movement', async () => {
+  digest=createHash("sha256");
   const rays = await loadRayKernel();
   const { w, props, hulls } = course(rays);
   const kernel = new MovementKernel(w);
@@ -146,7 +120,7 @@ test('the movement kernel ticks soldiers as the JavaScript does, bots on a cours
       }
       const input = { ...one.input, jump: rand() < 0.04, crouch: rand() < 0.015, prone: rand() < 0.01 };
       // An explosion now and then throws him.
-      if (rand() < 0.002) one.pair.forEach((s) => { s.air = 'thrown'; s.velocity.set(4, 7, -3); s.stateTime = 0; });
+      if (rand() < 0.002) one.pair.slice(1).forEach((s) => { s.air = 'thrown'; s.velocity.set(4, 7, -3); s.stateTime = 0; });
       // A stray command (a page's own turn rate).
       if (rand() < 0.01) input.turn = -0;
       const before = { groundAdjustment: one.pair[1].groundAdjustment };
@@ -154,16 +128,18 @@ test('the movement kernel ticks soldiers as the JavaScript does, bots on a cours
       same(one.pair[0], one.pair[1], `tick ${tick}`);
       cover(c, one.pair[1], before);
       // His look between ticks, as a page's mouse makes it.
-      if (rand() < 0.3) one.pair.forEach((s) => s.lookRaw(7, -3, 1.25, false));
+      if (rand() < 0.3) one.pair.slice(1).forEach((s) => s.lookRaw(7, -3, 1.25, false));
       // A bot's path executor reads and clears his avoidance.
-      if (rand() < 0.05) one.pair.forEach((s) => s.avoidance.set(0, 0, 0));
+      if (rand() < 0.05) one.pair.slice(1).forEach((s) => s.avoidance.set(0, 0, 0));
     }
   }
+  assert.equal(digest.digest('hex'),'a7250156e1cf231bb444eab2ae0e83298de5d286eb1edba1bec60b99f7a2d330');
   for (const key of ['prone', 'crouch', 'jet', 'jump', 'fall', 'thrown', 'dive', 'avoid', 'locked']) assert.ok(c[key] > 20, `coverage ${key}: ${JSON.stringify(c)}`);
   assert.ok(c.damage > 0 && c.stepUps > 0, `coverage: ${JSON.stringify(c)}`);
 });
 
-test('the movement kernel climbs stairs, crawls under a slab and falls off a tower as the JavaScript does', async () => {
+test('Rust stairs, crawl and falling match recorded movement', async () => {
+  digest=createHash("sha256");
   const rays = await loadRayKernel();
   const { w } = course(rays);
   const kernel = new MovementKernel(w);
@@ -195,17 +171,10 @@ test('the movement kernel climbs stairs, crawls under a slab and falls off a tow
     }
     if (n < 6 && n % 2 === 0 && highest > 1.7) climbed++;
   }
+  assert.equal(digest.digest('hex'),'1ccefdf9c11a2f8b4c2f8c4841b132cf54f34c9ed17de258d2906d85f5bf0505');
   assert.ok(damage > 0, 'the fall hurt');
   assert.equal(climbed, 3, 'all three climbs reached the top');
 });
 
-test('the movement kernel leaves a state it does not know to the JavaScript', async () => {
-  const rays = await loadRayKernel();
-  const { w } = course(rays);
-  const kernel = new MovementKernel(w);
-  const [js, k] = twins(w, {}, [0, 0, 0, 0]);
-  js.air = k.air = 'swimming';
-  tickPair(w, kernel, [js, k], { forward: 1, right: 0, turn: 0 }, 1 / 60);
-  same(js, k, 'unknown air');
-  assert.equal(k.mover, -1, 'never handed to the kernel');
-});
+
+test('unknown movement state reports an error',async()=>{const {w}=course(await loadRayKernel());const s=new Soldier(w,{});s.spawn(0,0,0,0);s.air='swimming';assert.throws(()=>s.tick({forward:1,right:0},1/60),/Invalid soldier movement state/);});

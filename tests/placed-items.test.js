@@ -1,10 +1,10 @@
+import { rustItems } from './helpers/rust-simulation.js';
 // A map's placed power-ups (src/placed-items.js, tools/zero_placed_items.py):
 // the world makes each an ordinary item where the map puts it, facing its
 // instance's way; tools/placed-items-check.mjs runs one in a headless match.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { Items } from '../src/items.js';
 import { spawnPlacedItems } from '../src/placed-items.js';
 import { CollisionWorld } from '../src/collision.js';
 
@@ -14,7 +14,7 @@ const health100 = { class: 'com_item_powerup_health100', base: 'powerupitem', Gr
 function world() {
   const g = new THREE.PlaneGeometry(200, 200).rotateX(-Math.PI / 2);
   const collision = new CollisionWorld(g.attributes.position.array, g.index.array, new Uint32Array(g.index.count / 3));
-  return new Items({ scene: new THREE.Scene(), collision, effects: { play() {} }, lights: { add() {} }, model: () => null, explode() {} });
+  return rustItems({ scene: new THREE.Scene(), collision, effects: { play() {} }, lights: { add() {} }, model: () => null, explode() {} });
 }
 
 test('each placed power-up is an item from the start, where and as the map places it', () => {

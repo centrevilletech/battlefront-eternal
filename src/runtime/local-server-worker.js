@@ -17,12 +17,7 @@ self.onmessage=({data})=>{messages=messages.then(async()=>{
   if(data.type==='init'){
     if(server||initializing)throw Error('Local world already initialized');initializing=true;
     if(await contentHash(data.query)!==data.content)throw Error('Local content changed during loading');
-    // The collision's queries and the soldiers' movement in WebAssembly
-    // unless the battle's query says rays=js (or movement=js, for the
-    // movement alone; src/ray-kernel.js, src/movement-kernel.js): the same
-    // answers as the JavaScript, which a page and a dedicated server keep by
-    // default.
-    const game=await createGame({query:data.query,headless:true,savedSettings:data.settings,rays:'wasm',movement:'wasm'});
+    const game=await createGame({query:data.query,headless:true,savedSettings:data.settings});
     server=await createLocalServer(game,{name:data.playerName,send});
     self.__bf=game;self.__server=server;
     server.welcome();

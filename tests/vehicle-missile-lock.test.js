@@ -1,9 +1,9 @@
+import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import * as THREE from 'three';
 import { Weapon } from '../src/weapons.js';
-import { Ordnance } from '../src/ordnance.js';
 import { hasMissileLock, vehicleMissileDefinition, targetingWeapon, updateWeaponLock } from '../src/weapon-targeting.js';
 import { vehiclePacks } from '../tools/vehicle-packs.mjs';
 
@@ -21,7 +21,7 @@ function checkGuidance(def) {
   const shots = weapon.update(0, true, { pressed: true, held: true }, false, { posture: 'stand', stick: 0 });
   assert.ok(shots.length, def.class);
   assert.equal(shots[0].targetId, target.id, def.class);
-  const ordnance = new Ordnance({ scene: new THREE.Scene(), collision,
+  const ordnance = rustOrdnance({ scene: new THREE.Scene(), collision,
     model: () => null, effects: { play() {} }, lights: { add() {} } });
   ordnance.units = units;
   const round = ordnance.fire(def.ordnance, origin, dir, null, null, null, null, shots[0]);
@@ -84,7 +84,7 @@ test('vehicle construction, player firing and AI firing preserve secondary missi
   const floor = geometry(200, 2, 200, -1);
   const collision = new CollisionWorld(floor.positions, floor.indices, floor.polygons);
   const scene = new THREE.Scene(), effects = { play() {} }, lights = { add() {}, flash() {} };
-  const ordnance = new Ordnance({ scene, collision, effects, lights, model: () => null });
+  const ordnance = rustOrdnance({ scene, collision, effects, lights, model: () => null });
   const missile = { class: 'rep_weap_hover_fightertank_missile', base: 'cannon',
     RoundsPerClip: 4, ammo: 4, ShotDelay: .25, TriggerSingle: 1,
     ordnance: { base: 'bullet', Velocity: 50, LifeSpan: 5 } };
@@ -128,7 +128,7 @@ test('a seat locks along its reticle line (through the point under the crosshair
   const floor = geometry(400, 2, 400, -1);
   const collision = new CollisionWorld(floor.positions, floor.indices, floor.polygons);
   const scene = new THREE.Scene(), effects = { play() {} }, lights = { add() {}, flash() {} };
-  const ordnance = new Ordnance({ scene, collision, effects, lights, model: () => null });
+  const ordnance = rustOrdnance({ scene, collision, effects, lights, model: () => null });
   const missile = { class: 'imp_weap_hover_fightertank_missile', base: 'cannon', RoundsPerClip: 2, ammo: 50, ShotDelay: 1,
     ordnance: { base: 'bullet', Velocity: 40, LifeSpan: 7 } };
   const data = { models: { tank: { bones: [], parts: [] } }, collision: { tank: geometry(2, 2, 4, 1) },

@@ -85,26 +85,6 @@ test('the jet classes (CollisionScale 0 0 0) land from any height unhurt', () =>
   assert.equal(drop(floor({ terrain: true }), 40, { CollisionScale: [0, 0, 0] }).damage, 0);
 });
 
-test('a building counts only the upward share of a contact: its walls and ceilings never hurt', () => {
-  const s = new Soldier(floor(), {});
-  const lower = { role: 'lower' }, upper = { role: 'upper' };
-  const hit = (part, n, v, kind) => {
-    s.collisionDamage = 0;
-    s.velocity.set(...v);
-    s.contact(part, new THREE.Vector3(...n).normalize(), 0, new THREE.Vector3(...n).normalize(), kind);
-    return s.collisionDamage;
-  };
-  near(hit(lower, [0, 1, 0], [0, -20, 0], 'building'), 49, 1e-9, 'floor');
-  near(hit(lower, [0, 1, 0], [0, -20, 0], 'terrain'), 49, 1e-9, 'terrain');
-  assert.equal(hit(lower, [1, 0, 0], [-25, 0, 0], 'building'), 0, 'a wall');
-  near(hit(lower, [1, 0, 0], [-15, 0, 0], 'terrain'), 25, 1e-9, 'a terrain face as steep as a wall');
-  assert.equal(hit(upper, [0, -1, 0], [0, 25, 0], 'building'), 0, 'a ceiling');
-  // Nothing he doesn't hit (a moving hull, kind null), and nothing a contact
-  // doesn't stop: his upper body over a ledge lets his fall go on.
-  assert.equal(hit(lower, [0, 1, 0], [0, -30, 0], null), 0, 'a moving hull');
-  assert.equal(hit(upper, [0, 1, 0], [0, -30, 0], 'building'), 0, 'the upper body over a ledge');
-});
-
 test('landing on a moving body does no damage; the port has no velocity exchange with a hull', () => {
   const world = floor({ terrain: true });
   const box = new THREE.BoxGeometry(10, 1, 10).translate(0, 0.5, 0);

@@ -1,3 +1,4 @@
+import { rustOrdnance } from './helpers/rust-simulation.js';
 import { fixture as flightFixture } from './flight-fixture.js';
 import { initFlight } from '../src/flight/model.js';
 import test from 'node:test';
@@ -5,7 +6,6 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { CollisionWorld, makeHit } from '../src/collision.js';
 import { Vehicles, VehicleDriver } from '../src/vehicles.js';
-import { Ordnance } from '../src/ordnance.js';
 import { LiveObjects } from '../src/props.js';
 
 const box = (x, y, z, w, h, d) => {
@@ -46,18 +46,18 @@ test('moving body keeps one BVH while ray, overlap and soldier contacts follow r
 test('projectile tests moving target at arrival, not its location at fire time',()=>{
   const c=collision(),body=c.addMovingBody(shape(c),identity().makeTranslation(20,0,5));
   let hits=0;
-  const ord=new Ordnance({scene:new THREE.Scene(),collision:c,effects:{play(){}},lights:{add(){}},texture:()=>null,onHit:b=>{assert.equal(b,body);hits++}});
+  const ord=rustOrdnance({scene:new THREE.Scene(),collision:c,effects:{play(){}},lights:{add(){}},texture:()=>null,onHit:b=>{assert.equal(b,body);hits++}});
   const def={base:'bolt',Velocity:10,LifeSpan:3,Damage:100};
   ord.fire(def,new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1),null);
   const bolt=ord.bolts[0];
   c.moveBody(body,identity().makeTranslation(0,0,5));
-  ord.stepBolt(bolt,.5);
+  ord.update(.5);
   assert.equal(hits,1);
   assert.equal(bolt.position.z,3);
   ord.fire(def,new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1),null);
   const second=ord.bolts[1];
   c.moveBody(body,identity().makeTranslation(20,0,5));
-  ord.stepBolt(second,1);
+  ord.update(1);
   assert.equal(hits,1);
   assert.ok(second.life>0);
 });
@@ -65,10 +65,10 @@ test('projectile tests moving target at arrival, not its location at fire time',
 test('straight rockets also hit vehicles entering their flight segment',()=>{
   const c=collision(),body=c.addMovingBody(shape(c),identity().makeTranslation(20,0,5));
   let hits=0;
-  const ord=new Ordnance({scene:new THREE.Scene(),collision:c,effects:{play(){}},lights:{add(){}},model:()=>null,onHit:()=>hits++});
+  const ord=rustOrdnance({scene:new THREE.Scene(),collision:c,effects:{play(){}},lights:{add(){}},model:()=>null,onHit:()=>hits++});
   ord.fire({base:'bullet',Velocity:10,LifeSpan:3},new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1),null);
   c.moveBody(body,identity().makeTranslation(0,0,5));
-  ord.stepRound(ord.rounds[0],.5);
+  ord.update(.5);
   assert.equal(hits,1);
   assert.equal(ord.rounds[0].gone,true);
 });
@@ -135,9 +135,9 @@ test('damage scales and pilot repair apply to vehicle health',()=>{
 test('beams maintain a continuous segment and integrate damage independent of frame rate',()=>{
  for(const rate of [30,60,144]){
   const c=collision(),body=c.addMovingBody(shape(c),identity().makeTranslation(0,0,10));let damage=0;
-  const ord=new Ordnance({scene:new THREE.Scene(),collision:c,effects:{play(){}},lights:{add(){}},texture:()=>null,onHit:(b,d)=>{assert.equal(b,body);damage+=d.Damage}});
+  const ord=rustOrdnance({scene:new THREE.Scene(),collision:c,effects:{play(){}},lights:{add(){}},texture:()=>null,onHit:(b,d)=>{assert.equal(b,body);damage+=d.Damage}});
   ord.fire({base:'beam',Damage:300,LifeSpan:.6},new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1),null);
-  while(ord.beams[0].life>0)ord.stepBeam(ord.beams[0],1/rate);
+  while(ord.beams[0].life>0)ord.update(1/rate);
   assert.ok(Math.abs(damage-300)<1e-8,`${rate}: ${damage}`);
   assert.equal(ord.beams[0].end.z,8);
  }
@@ -354,7 +354,7 @@ test('fatray: the LR1K sonic round strikes everyone within its width along its f
   const near=unit(.8,10),wide=unit(3.5,12),behind=unit(0,40);
   const units={list:[near,wide,behind],query(center,radius,out=[],filter){out.length=0;for(const u of this.list){const reach=radius+u.sphere.radius;if(u.sphere.center.distanceToSquared(center)>reach*reach)continue;if(filter&&!filter(u))continue;out.push(u);}return out;},raycast(){return null;}};
   const struck=[],explosions=[];
-  const ord=new Ordnance({scene:new THREE.Scene(),collision:c,effects:{play(){return null}},lights:{add(){}},texture:()=>null,onHit(){}});
+  const ord=rustOrdnance({scene:new THREE.Scene(),collision:c,effects:{play(){return null}},lights:{add(){}},texture:()=>null,onHit(){}});
   ord.units=units;ord.onHitUnit=(u,def)=>struck.push([u,def.Damage]);
   ord.explosion=(def,at)=>explosions.push([def,at.clone()]);
   const fat={base:'fatray',class:'geo_weap_bldg_geoturret_ord',Velocity:100,LifeSpan:.45,Damage:400,TrailEffect:'geo_blunderbuss_blast'};

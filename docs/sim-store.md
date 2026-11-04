@@ -1,5 +1,8 @@
 # The simulation's module and entity store
 
+
+Collision queries, soldier movement, world rounds and items require the Rust simulation module on the page, local world worker and dedicated server. Module failures stop startup or the query. The former `sim`, `rays` and `movement` query parameters and `BFE_SIM` / `BFE_RAYS` environment controls have been removed. Historical measurements below describe the builds measured at the time; compare current builds against recorded fingerprints with `world-hash-matrix.mjs --against`, rather than selecting an old implementation at runtime.
+
 The world's simulation is moving from JavaScript to Rust, one group of
 subsystems at a time, without changing a bit of any tick: the world worker,
 the page's replay of its own soldier and the dedicated server must keep
@@ -391,9 +394,7 @@ beams, grenades and rounds: rockets, missiles, shells, fat rays, with the
 Ordnance that lists them; `rust/sim/src/ordnance`, `src/ordnance-sim.js`)
 and the things lying about (mines and power-ups, with the Items that lists
 them and each dispenser's own; `rust/sim/src/items`, `src/items-sim.js`). A
-world hands them over as it loads (`createGame`, unless `?sim=js` or, under
-Node, `BFE_SIM=js`, which keep the JavaScript ones for A/B runs and
-bisecting); from then on:
+world hands them over as it loads (`createGame`); from then on:
 
 - `Ordnance.fire`, `update` and `flightMissile` (a flyer's missile), and
   `Items.update`, `spawn`, `dispense`, `dropFor`, `blast` and `hurt`, run in
@@ -427,7 +428,7 @@ integration branch, which does not ship: nothing from it reaches players
 until a world's net step with the rounds and items on the module is no
 worse than with the JavaScript ones, measured on the emulated laptop or the
 laptop itself (world step p50 and p90, interleaved runs against
-`?sim=js`). Each call the rounds make into JavaScript costs a crossing, so
+a frozen reference build). Each call the rounds make into JavaScript costs a crossing, so
 the flip pays for itself as the code they call (hulls, then units and
 combat) moves to Rust and those calls stop crossing.
 

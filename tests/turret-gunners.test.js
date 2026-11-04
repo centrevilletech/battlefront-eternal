@@ -1,3 +1,4 @@
+import { rustOrdnance } from './helpers/rust-simulation.js';
 // Turret gunners (docs/formats.md "Riders" and "Turrets"): a turret whose
 // class names a pilot animation shows its gunner, and rounds, swings and
 // blasts meet him where he is drawn, whoever he is (a bot, a network human,
@@ -125,7 +126,7 @@ function emplacement(settings = {}, { drumTurn = 0 } = {}) {
 
 // Rounds through the shared Ordnance, struck units and bodies recorded.
 function rounds(world) {
-  const ordnance = new Ordnance({ scene: new THREE.Scene(), collision: world.collision, effects: { play() {} }, lights: { add() {}, flash() {} }, texture: () => null });
+  const ordnance = rustOrdnance({ scene: new THREE.Scene(), collision: world.collision, effects: { play() {} }, lights: { add() {}, flash() {} }, texture: () => null });
   const struck = { units: [], bodies: [] };
   ordnance.units = world.units;
   ordnance.onHitUnit = (unit, def, point, owner, part) => { struck.units.push({ unit, part }); unit.combat.damage((def.Damage || 0) * (part === 'head' ? 3 : 1), 0, point, owner); };

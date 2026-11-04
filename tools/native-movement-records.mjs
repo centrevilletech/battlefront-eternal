@@ -16,27 +16,10 @@ const vectors = ['position','settled','previous','velocity','normal','avoidance'
 const numbers = ['aimYaw','aimPitch','stateTime','lock','fuel','dive','groundAdjustment','collisionDamage','tickLength','lookX','lookY'];
 const codes = ['posture','air','diveFrom','grounded'];
 
-function copySoldier(s, previous) {
-  const copy = previous ?? new Soldier(s.world, {});
-  for (const [key, value] of Object.entries(s)) {
-    if (key === 'gatherCaches') continue;
-    if (value?.isVector3) copy[key] = value.clone();
-    else if (key === 'hit') copy.hit = {...value, point: value.point.clone(), normal: value.normal.clone()};
-    else if (key === 'groundHit') copy.groundHit = {...value, normal: value.normal.clone()};
-    else copy[key] = value;
-  }
-  return copy;
-}
-function same(a, b, context) {
-  for (const key of vectors) for (const axis of ['x','y','z']) assert(Object.is(a[key][axis], b[key][axis]), `${context} ${key}.${axis}: ${a[key][axis]} != ${b[key][axis]}`);
-  for (const key of numbers) assert(Object.is(a[key], b[key]), `${context} ${key}: ${a[key]} != ${b[key]}`);
-  for (const key of codes) assert.equal(a[key], b[key], `${context} ${key}`);
-}
-
 export class MovementTrace {
   constructor(file, header) {
     this.fd = fs.openSync(file, 'wx'); this.hash = createHash('sha256'); this.lines = 0;
-    this.scenes = new Map(); this.twins = new WeakMap(); this.ticks = 0; this.creates = 0; this.bodyChanges = 0;
+    this.scenes = new Map(); this.ticks = 0; this.creates = 0; this.bodyChanges = 0;
     this.postures = new Set(); this.airs = new Set(); this.flags = new Set();
     this.emit({op:'header', ...header});
   }
@@ -96,13 +79,8 @@ export class MovementTrace {
     };
   }
   tick(kernel, soldier, input, dt, run) {
-    const world = kernel.collision, reference = copySoldier(soldier, this.twins.get(soldier));
-    this.twins.set(soldier,reference);
-    const rays=world.rays, movement=world.movement;
-    world.rays=null; world.movement=null;
-    try { reference.tick(input,dt); } finally { world.rays=rays; world.movement=movement; }
     const result=run(); assert.equal(result,true,'movement must use the kernel');
-    same(reference,soldier,`tick ${this.ticks}`); return result;
+    return result;
   }
   finish(extra={}) {
     const summary={op:'summary',contexts:this.scenes.size,ticks:this.ticks,creates:this.creates,bodyChanges:this.bodyChanges,postures:[...this.postures],airs:[...this.airs],flags:[...this.flags],maxGather:Math.max(...[...this.scenes.values()].map(s=>s.maxGather)),...extra};

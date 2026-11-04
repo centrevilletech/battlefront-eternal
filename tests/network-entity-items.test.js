@@ -1,3 +1,4 @@
+import { rustItems } from './helpers/rust-simulation.js';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {Scene,Vector3,Object3D,Group,Mesh,BoxGeometry} from 'three';
 import {Items} from '../src/items.js';
@@ -13,7 +14,7 @@ const mine={base:'mine',GeometryName:'mine',TriggerRadius:2,SuppressRadius:1,Exp
 const health={base:'powerupitem',class:'com_item_powerup_dual',GeometryName:'dual',Gravity:1,Rebound:0,Friction:1,LifeSpan:30};
 // Flat ground at y = 0, or none.
 const flat={cast(start,dir,length,hit){if(dir.y>=0||start.y<0)return null;const t=start.y/-dir.y;if(t>length)return null;hit.distance=t;hit.point.copy(start).addScaledVector(dir,t);hit.normal.set(0,1,0);return hit;}},none={cast:()=>null};
-function fixture({ground=none,clientGround=ground,pools={mine:1,powerupitem:1},model=()=>()=>new Object3D()}={}){let explosions=0;const make=collision=>new Items({scene:new Scene(),collision,effects:{},lights:{add(){}},model,explode(){explosions++;},pools}),authority=make(ground),client=make(clientGround);
+function fixture({ground=none,clientGround=ground,pools={mine:1,powerupitem:1},model=()=>()=>new Object3D()}={}){let explosions=0;const make=collision=>rustItems({scene:new Scene(),collision,effects:{},lights:{add(){}},model,explode(){explosions++;},pools}),authority=make(ground),client=make(clientGround);
  const definitions=new Map([[1,mine],[2,pickup],[3,health]]),registry={definitions,definitionId:def=>def===mine?1:def===pickup?2:3};
  for(const name of ['update','watch','offer','expire','destroy','hurt'])client[name]=()=>{throw Error('client gameplay forbidden');};
  return{authority,client,capture:new EntityItemCapture(authority,registry),presentation:new EntityItemPresentation(client,registry),explosions:()=>explosions};}

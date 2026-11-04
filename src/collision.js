@@ -1,5 +1,8 @@
 import * as THREE from "three";
-import { MeshBVH } from "./mesh-bvh.js";
+import { loadRayKernel } from "./ray-kernel.js";
+import { MovementKernel } from "./movement-kernel.js";
+
+const defaultRays = await loadRayKernel();
 
 // Polygon numbers of the vehicle-only barriers, apart from the buildings'
 // and the bodies'.
@@ -73,9 +76,10 @@ function empty(list) {
 //
 // rays: a RayKernel (src/ray-kernel.js) to answer cast, castMoving, the
 // ground's ray, gather, overlapsSphere and terrainNear in WebAssembly, with
-// the same answers; null for JavaScript.
+// the same answers. A kernel is required for every world.
 export class CollisionWorld {
-  constructor(positions, indices, polygons, terrainPositions, terrainIndices, rays = null) {
+  constructor(positions, indices, polygons, terrainPositions, terrainIndices, rays = defaultRays) {
+    rays ??= defaultRays;
     this.bvh = buildBVH(positions, indices, rays);
     this.polygonOf = polygons;
     this.positions = positions;
@@ -118,48 +122,10 @@ export class CollisionWorld {
     this.fillBounds = null;
     this.overlapCenter = null;
     this.overlapRadiusSq = 0;
-    // Queries run synchronously. Keep their callbacks and contact records
-    // across ticks instead of allocating them for every body and sphere.
-    this.gatherQuery = {
-      intersectsBounds: (box) => box.intersectsBox(this.box),
-      intersectsTriangle: (tri, index) => {
-        this.triBox.min.copy(tri.a).min(tri.b).min(tri.c);
-        this.triBox.max.copy(tri.a).max(tri.b).max(tri.c);
-        if (!this.triBox.intersectsBox(this.box)) return false;
-        this.polygon(this.gatherPolygonOf[index] + this.gatherOffset, this.gatherMatrix !== null).triangles.push(this.triangle(tri));
-        return false;
-      },
-    };
-    // Fills a caller's cache with every fixed triangle near its query, in
-    // the tree's own order (see gather).
-    this.cacheQuery = {
-      intersectsBounds: (box) => box.intersectsBox(this.cacheBox),
-      intersectsTriangle: (tri, index) => {
-        const b = this.fillBounds, o = index * 6, box = this.cacheBox;
-        if (b[o + 3] < box.min.x || b[o] > box.max.x || b[o + 4] < box.min.y || b[o + 1] > box.max.y
-          || b[o + 5] < box.min.z || b[o + 2] > box.max.z) return false;
-        const cache = this.filling;
-        if (cache.count === cache.list.length) {
-          const grown = new Uint32Array(cache.list.length * 2);
-          grown.set(cache.list);
-          cache.list = grown;
-        }
-        cache.list[cache.count++] = index;
-        return false;
-      },
-    };
-    this.cacheBox = new THREE.Box3();
     this.terrainNearList = [];
     this.terrainNearPool = [];
-    this.overlapQuery = {
-      intersectsBounds: (box) => box.intersectsBox(this.box),
-      intersectsTriangle: (tri) => {
-        tri.closestPointToPoint(this.overlapCenter, this.nearest);
-        return this.nearest.distanceToSquared(this.overlapCenter) < this.overlapRadiusSq;
-      },
-    };
     this.rays = rays;
-    if (rays) {
+    {
       this.rayGrid = this.terrainGrid ? rays.grid(this.terrainGrid) : -1;
       this.rayWorld = rays.world(rays.tree(this.bvh), this.terrain ? rays.tree(this.terrain) : -1, this.rayGrid);
       rays.x.world_statics(this.rayWorld, rays.fixedSet(this.staticSet, this.bvh));
@@ -167,20 +133,10 @@ export class CollisionWorld {
       this.rayOrder = -1;
       this.rayGround = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
     }
+    this.movement = new MovementKernel(this);
   }
 
-  // The ray kernel failed (it should not: a fault in it, or no memory left
-  // for it to grow): this query and every later one are answered by the
-  // JavaScript, which gives the same answers, so the battle goes on as it
-  // would have.
-  dropRays(error) {
-    console.warn(`The collision's WebAssembly failed (${error?.message ?? error}); its JavaScript answers from now on.`);
-    this.rays = null;
-    // The soldiers' movement runs in the same module (src/movement-kernel.js).
-    if (this.movement) this.movement = null;
-  }
-
-  // A body's copy in the ray kernel: its tree, and its place (a moving
+    // A body's copy in the ray kernel: its tree, and its place (a moving
   // body's as it moves, in moveBody).
   rayBody(body, moving) {
     body.raySlot = this.rays.body(body, moving);
@@ -226,7 +182,7 @@ export class CollisionWorld {
     body.bounds = body.bvh.getBoundingBox(new THREE.Box3());
     this.bodies.push(body);
     this.bodiesVersion++;
-    if (this.rays) try { this.rayBody(body, false); } catch (error) { this.dropRays(error); }
+    this.rayBody(body, false);
     return body;
   }
 
@@ -243,7 +199,7 @@ export class CollisionWorld {
       enabled: true, moving: true, owner };
     this.bodies.push(body);
     this.bodiesVersion++;
-    if (this.rays) try { this.rayBody(body, true); } catch (error) { this.dropRays(error); }
+    this.rayBody(body, true);
     this.moveBody(body, matrix);
     return body;
   }
@@ -252,7 +208,7 @@ export class CollisionWorld {
     body.matrix.copy(matrix);
     body.inverse.copy(matrix).invert();
     body.bounds.copy(body.localBounds).applyMatrix4(matrix);
-    if (this.rays && body.raySlot !== undefined) try { this.rays.place(body.raySlot, body.bounds, body.matrix, body.inverse); } catch (error) { this.dropRays(error); }
+    this.rays.place(body.raySlot, body.bounds, body.matrix, body.inverse);
   }
 
   removeBody(body) {
@@ -265,23 +221,7 @@ export class CollisionWorld {
   // Test only moving objects over a projectile's current flight segment.
   // Static impacts remain precomputed; a moving target is never snapshotted.
   castMoving(origin, direction, far, out, ignoreBody = null) {
-    if (this.rays) try { return this.rayCastMoving(origin, direction, far, out, ignoreBody); } catch (error) { this.dropRays(error); }
-    this.ray.set(origin, direction);
-    let closest = far;
-    let found = false;
-    for (const body of this.bodies) {
-      if (!body.moving || !body.enabled || body === ignoreBody || !this.ray.intersectsBox(body.bounds)) continue;
-      this.localRay.copy(this.ray).applyMatrix4(body.inverse);
-      const hit = body.bvh.raycastFirst(this.localRay, THREE.DoubleSide, 0, closest);
-      if (!hit) continue;
-      closest = hit.distance;
-      out.point.copy(hit.point).applyMatrix4(body.matrix);
-      out.normal.copy(hit.face.normal).transformDirection(body.matrix);
-      if (out.normal.dot(direction) > 0) out.normal.negate();
-      out.distance = closest; out.body = body; out.terrain = false;
-      found = true;
-    }
-    return found ? out : null;
+    return this.rayCastMoving(origin, direction, far, out, ignoreBody);
   }
 
   // Polygons with a triangle whose bounds overlap the sphere's bounds, each as a
@@ -298,33 +238,7 @@ export class CollisionWorld {
   // vehicle: the vehicle-only barriers count too (a hull's query).
   // ignoreBody: a body whose polygons are left out (a dead rider's mount).
   gather(center, radius, vehicle = false, cache = null, ignoreBody = null) {
-    if (this.rays) try { return this.rayGather(center, radius, vehicle, cache, ignoreBody); } catch (error) { this.dropRays(error); }
-    this.box.min.set(center.x - radius, center.y - radius, center.z - radius);
-    this.box.max.set(center.x + radius, center.y + radius, center.z + radius);
-    this.used = 0;
-    this.polygonUsed = 0;
-    if (this.grouped) {
-      this.groups.clear();
-      this.grouped = false;
-    }
-    empty(this.list);
-    this.gatherMatrix = null;
-    const blockers = vehicle ? this.vehicleBlockers : null;
-    if (cache) this.gatherCached(cache, blockers);
-    else {
-      this.gatherFrom(this.bvh, this.polygonOf, 0);
-      if (blockers) this.gatherFrom(blockers.bvh, blockers.polygonOf, BLOCKER_POLYGONS);
-    }
-    this.worldBox.copy(this.box);
-    for (const body of cache ? this.cachedBodies(cache) : this.bodies) {
-      if (!body.enabled || body === ignoreBody || !body.bounds.intersectsBox(this.worldBox)) continue;
-      this.gatherMatrix = body.matrix || null;
-      if (body.inverse) this.box.copy(this.worldBox).applyMatrix4(body.inverse);
-      this.gatherFrom(body.bvh, body.polygonOf, body.offset);
-      this.box.copy(this.worldBox);
-    }
-    this.gatherMatrix = null;
-    return this.list;
+    return this.rayGather(center, radius, vehicle, cache, ignoreBody);
   }
 
   // The current gather's record of polygon `id` (a new one, at the end of
@@ -366,62 +280,9 @@ export class CollisionWorld {
       ray: -1 };
   }
 
-  // The bodies a cached query can meet, in the world's order: every moving
-  // one, and the fixed ones whose bounds meet the cache's box.
-  cachedBodies(cache) {
-    if (cache.bodiesVersion !== this.bodiesVersion || cache.bodiesFill !== cache.fill) {
-      empty(cache.bodies);
-      for (const body of this.bodies) if (body.moving || body.bounds.intersectsBox(cache.box)) cache.bodies.push(body);
-      cache.bodiesVersion = this.bodiesVersion;
-      cache.bodiesFill = cache.fill;
-    }
-    return cache.bodies;
-  }
-
   // blockers: the vehicle-only barriers too (a hull's query), else null.
-  gatherCached(cache, blockers) {
-    const box = this.box;
-    const set = blockers ? this.blockerSet(blockers) : null;
-    if (!cache.box.containsBox(box) || cache.blockers.set !== set) {
-      this.cacheBox.copy(box).expandByScalar(cache.margin);
-      cache.box.copy(this.cacheBox);
-      cache.fill++;
-      this.fillCache(this.bvh, this.staticSet, cache.statics);
-      if (set) this.fillCache(blockers.bvh, set, cache.blockers);
-      else cache.blockers.set = null;
-    }
-    this.gatherSet(cache.statics);
-    if (set) this.gatherSet(cache.blockers);
-  }
-
-  // A cache's list of a set's triangles whose bounds meet cacheBox.
-  fillCache(bvh, set, into) {
-    into.set = set;
-    into.count = 0;
-    this.filling = into;
-    this.fillBounds = set.triBounds;
-    bvh.shapecast(this.cacheQuery);
-    this.filling = null;
-    this.fillBounds = null;
-  }
 
   // A cache's triangles of a fixed set whose bounds meet the query's box,
-  // filed by polygon as the tree's own query files them.
-  gatherSet(cached) {
-    const set = cached.set, list = cached.list, count = cached.count;
-    const box = this.box, b = set.triBounds, p = set.positions, ix = set.indices, polygonOf = set.polygonOf, triangles = set.triangles;
-    const minX = box.min.x, minY = box.min.y, minZ = box.min.z, maxX = box.max.x, maxY = box.max.y, maxZ = box.max.z;
-    for (let i = 0; i < count; i++) {
-      const index = list[i], o = index * 6;
-      if (b[o + 3] < minX || b[o] > maxX || b[o + 4] < minY || b[o + 1] > maxY || b[o + 5] < minZ || b[o + 2] > maxZ) continue;
-      const polygon = this.polygon(polygonOf[index] + set.offset, false);
-      // Fixed triangles never move. Materialize each encountered triangle
-      // once instead of copying nine coordinates per body sphere every
-      // physics tick. Moving hulls still use the transient world pool.
-      polygon.triangles.push(triangles[index] || fixedTriangle(set, index));
-    }
-  }
-
   // gather, in the ray kernel: the same polygons in the same order, each
   // with the same triangles (a fixed set's own Triangles, as gatherSet
   // gives them; a body's copied into the pool, as triangle() does). Bodies'
@@ -521,12 +382,6 @@ export class CollisionWorld {
     return this.blockers;
   }
 
-  gatherFrom(bvh, polygonOf, offset) {
-    this.gatherPolygonOf = polygonOf;
-    this.gatherOffset = offset;
-    bvh.shapecast(this.gatherQuery);
-  }
-
   triangle(tri) {
     if (this.used === this.pool.length) this.pool.push(new THREE.Triangle());
     const out = this.pool[this.used++];
@@ -544,25 +399,7 @@ export class CollisionWorld {
   // Clearance for a swept posture, including live props. Unlike gather this
   // does not disturb the polygon contact list currently being resolved.
   overlapsSphere(center, radius, ignoreBody = null) {
-    if (this.rays) try { return this.rayOverlapsSphere(center, radius, ignoreBody); } catch (error) { this.dropRays(error); }
-    this.box.min.copy(center).addScalar(-radius);
-    this.box.max.copy(center).addScalar(radius);
-    this.overlapCenter = center;
-    this.overlapRadiusSq = radius * radius;
-    if (this.bvh.shapecast(this.overlapQuery) || this.terrainGrid?.overlapsSphere(center, radius)) return true;
-    this.worldBox.copy(this.box);
-    for (const body of this.bodies) {
-      if (!body.enabled || body === ignoreBody || !body.bounds.intersectsBox(this.worldBox)) continue;
-      if (body.inverse) {
-        this.box.copy(this.worldBox).applyMatrix4(body.inverse);
-        this.overlapCenter = this.localCenter.copy(center).applyMatrix4(body.inverse);
-      }
-      const hit = body.bvh.shapecast(this.overlapQuery);
-      this.box.copy(this.worldBox);
-      this.overlapCenter = center;
-      if (hit) return true;
-    }
-    return false;
+    return this.rayOverlapsSphere(center, radius, ignoreBody);
   }
 
   // overlapsSphere, in the ray kernel: the buildings and the terrain in the
@@ -595,9 +432,7 @@ export class CollisionWorld {
     cached.x = x; cached.z = z; cached.top = top;
     this.ray.origin.set(x, top, z);
     this.ray.direction.copy(this.down);
-    let hit = null;
-    if (this.rays) try { hit = this.rayGroundHit(); } catch (error) { this.dropRays(error); }
-    if (!this.rays) hit = this.terrainGrid.raycastFirst(this.ray, Infinity);
+    const hit = this.rayGroundHit();
     cached.hit = Boolean(hit);
     if (!hit) return null;
     out.height = hit.point.y;
@@ -612,10 +447,9 @@ export class CollisionWorld {
   // its bounds cover), as Triangles the next call reuses: a hull meets the
   // terrain's steep faces as walls (Vehicle.pushWalls).
   terrainNear(center, radius) {
-    const out = this.terrainNearList ||= [];
+    const out = this.terrainNearList;
     empty(out);
-    if (this.rays && this.terrainGrid) try { this.rayTerrainNear(center, radius, out, this.terrainNearPool ||= []); return out; } catch (error) { this.dropRays(error); empty(out); }
-    this.terrainGrid?.near(center, radius, out, this.terrainNearPool ||= []);
+    if (this.terrainGrid) this.rayTerrainNear(center, radius, out, this.terrainNearPool);
     return out;
   }
 
@@ -636,54 +470,12 @@ export class CollisionWorld {
     }
   }
 
-  // The terrain's nearest hit: the grid for rays that cross few of its cells
-  // (straight down, short), the tree for long ones. Same answer either way.
-  castTerrain(ray, far) {
-    const grid = this.terrainGrid;
-    if (!grid) return null;
-    const d = ray.direction;
-    if (far * Math.hypot(d.x, d.z) / d.length() <= grid.size * 12) return grid.raycastFirst(ray, far);
-    return this.terrain.raycastFirst(ray, THREE.DoubleSide, 0, far);
-  }
-
   // First hit along a ray, against buildings, bodies, and terrain. The normal
   // faces back toward the ray's origin; `terrain` says the terrain was hit,
   // and `body` which body, if one was. A firing turret can exclude its own
   // live body without excluding nearby architecture or other turrets.
   cast(origin, direction, far, out, ignoreBody = null, staticOnly = false) {
-    if (this.rays) try { return this.rayCast(origin, direction, far, out, ignoreBody, staticOnly); } catch (error) { this.dropRays(error); }
-    this.ray.origin.copy(origin);
-    this.ray.direction.copy(direction);
-    let hit = this.bvh.raycastFirst(this.ray, THREE.DoubleSide, 0, far);
-    out.body = null;
-    for (const body of this.bodies) {
-      if (!body.enabled || body === ignoreBody || (staticOnly && body.moving) || !this.ray.intersectsBox(body.bounds)) continue;
-      const ray = body.inverse ? this.localRay.copy(this.ray).applyMatrix4(body.inverse) : this.ray;
-      const near = body.bvh.raycastFirst(ray, THREE.DoubleSide, 0, hit ? hit.distance : far);
-      if (near && body.matrix) {
-        near.point.applyMatrix4(body.matrix);
-        near.face.normal.transformDirection(body.matrix);
-      }
-      if (near && (!hit || near.distance < hit.distance)) {
-        hit = near;
-        out.body = body;
-      }
-    }
-    const low = this.castTerrain(this.ray, hit ? hit.distance : far);
-    out.terrain = Boolean(low && (!hit || low.distance < hit.distance));
-    if (out.terrain) {
-      out.body = null;
-      out.distance = low.distance;
-      out.point.copy(low.point);
-      out.normal.copy(low.face ? low.face.normal : low.normal);
-    } else {
-      if (!hit) return null;
-      out.distance = hit.distance;
-      out.point.copy(hit.point);
-      out.normal.copy(hit.face.normal);
-    }
-    if (out.normal.dot(direction) > 0) out.normal.negate();
-    return out;
+    return this.rayCast(origin, direction, far, out, ignoreBody, staticOnly);
   }
 
   // cast, in the ray kernel: `out` and the world's ray as cast leaves them.
@@ -817,134 +609,15 @@ class TriangleGrid {
     this.hit = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
   }
 
-  load(t) {
-    const p = this.positions, ix = this.indices, i = t * 3;
-    this.a.fromArray(p, ix[i] * 3);
-    this.b.fromArray(p, ix[i + 1] * 3);
-    this.c.fromArray(p, ix[i + 2] * 3);
-  }
-
-  // Tests one cell's triangles not yet tested by this ray; returns the
-  // nearest distance found so far.
-  testCell(ray, cell, far, best) {
-    const cells = this.cells, stamp = this.stamp, serial = this.serial;
-    for (let i = this.start[cell], end = this.start[cell + 1]; i < end; i++) {
-      const t = cells[i];
-      if (stamp[t] === serial) continue;
-      stamp[t] = serial;
-      this.load(t);
-      if (!ray.intersectTriangle(this.a, this.b, this.c, false, this.point)) continue;
-      const distance = ray.origin.distanceTo(this.point);
-      if (distance > far || !(distance < best)) continue;
-      best = distance;
-      this.hit.distance = distance;
-      this.hit.point.copy(this.point);
-      this.triangle.getNormal(this.hit.normal);
-    }
-    return best;
-  }
-
-  nextSerial() {
-    if (++this.serial === 0xffffffff) { this.stamp.fill(0); this.serial = 1; }
-  }
-
-  // The nearest hit within `far`, as { distance, point, normal } (the
-  // triangle's face normal, unflipped), or null. Reused by the next call.
-  raycastFirst(ray, far) {
-    const o = ray.origin, d = ray.direction, size = this.size;
-    // Clip the ray to the grid's ground rectangle.
-    let t0 = 0, t1 = Infinity;
-    if (Math.abs(d.x) < 1e-12) {
-      if (o.x < this.minX || o.x >= this.maxX) return null;
-    } else {
-      const a = (this.minX - o.x) / d.x, b = (this.maxX - o.x) / d.x;
-      t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
-    }
-    if (Math.abs(d.z) < 1e-12) {
-      if (o.z < this.minZ || o.z >= this.maxZ) return null;
-    } else {
-      const a = (this.minZ - o.z) / d.z, b = (this.maxZ - o.z) / d.z;
-      t0 = Math.max(t0, Math.min(a, b)); t1 = Math.min(t1, Math.max(a, b));
-    }
-    const length = d.length();
-    if (length === 0) return null;
-    t1 = Math.min(t1, far / length);
-    if (!(t0 <= t1)) return null;
-    this.nextSerial();
-    let x = Math.min(this.nx - 1, Math.max(0, Math.floor((o.x + d.x * t0 - this.minX) / size)));
-    let z = Math.min(this.nz - 1, Math.max(0, Math.floor((o.z + d.z * t0 - this.minZ) / size)));
-    const stepX = d.x > 0 ? 1 : -1, stepZ = d.z > 0 ? 1 : -1;
-    let nextX = Math.abs(d.x) < 1e-12 ? Infinity : (this.minX + (x + (stepX > 0 ? 1 : 0)) * size - o.x) / d.x;
-    let nextZ = Math.abs(d.z) < 1e-12 ? Infinity : (this.minZ + (z + (stepZ > 0 ? 1 : 0)) * size - o.z) / d.z;
-    const deltaX = Math.abs(d.x) < 1e-12 ? Infinity : size / Math.abs(d.x);
-    const deltaZ = Math.abs(d.z) < 1e-12 ? Infinity : size / Math.abs(d.z);
-    let best = Infinity;
-    for (;;) {
-      best = this.testCell(ray, z * this.nx + x, far, best);
-      const exit = Math.min(nextX, nextZ);
-      // A hit inside the walked cells cannot be beaten by a later cell.
-      if (best <= exit * length || exit >= t1) break;
-      if (nextX < nextZ) { x += stepX; nextX += deltaX; if (x < 0 || x >= this.nx) break; }
-      else { z += stepZ; nextZ += deltaZ; if (z < 0 || z >= this.nz) break; }
-    }
-    return best < Infinity ? this.hit : null;
-  }
-
-  // The triangles filed in the cells a sphere's bounds cover, each once,
-  // copied into pooled Triangles pushed to out.
-  near(center, radius, out, pool) {
-    const size = this.size;
-    const x0 = Math.floor((center.x - radius - this.minX) / size), x1 = Math.floor((center.x + radius - this.minX) / size);
-    const z0 = Math.floor((center.z - radius - this.minZ) / size), z1 = Math.floor((center.z + radius - this.minZ) / size);
-    this.nextSerial();
-    for (let z = Math.max(0, z0); z <= Math.min(this.nz - 1, z1); z++) {
-      for (let x = Math.max(0, x0); x <= Math.min(this.nx - 1, x1); x++) {
-        const cell = z * this.nx + x;
-        for (let i = this.start[cell], end = this.start[cell + 1]; i < end; i++) {
-          const t = this.cells[i];
-          if (this.stamp[t] === this.serial) continue;
-          this.stamp[t] = this.serial;
-          if (out.length === pool.length) pool.push(new THREE.Triangle());
-          const tri = pool[out.length];
-          this.load(t);
-          tri.a.copy(this.a); tri.b.copy(this.b); tri.c.copy(this.c);
-          out.push(tri);
-        }
-      }
-    }
-    return out;
-  }
-
-  // Whether any triangle comes within `radius` of `center`.
-  overlapsSphere(center, radius) {
-    const size = this.size, r2 = radius * radius;
-    const x0 = Math.floor((center.x - radius - this.minX) / size), x1 = Math.floor((center.x + radius - this.minX) / size);
-    const z0 = Math.floor((center.z - radius - this.minZ) / size), z1 = Math.floor((center.z + radius - this.minZ) / size);
-    this.nextSerial();
-    for (let z = Math.max(0, z0); z <= Math.min(this.nz - 1, z1); z++) {
-      for (let x = Math.max(0, x0); x <= Math.min(this.nx - 1, x1); x++) {
-        const cell = z * this.nx + x;
-        for (let i = this.start[cell], end = this.start[cell + 1]; i < end; i++) {
-          const t = this.cells[i];
-          if (this.stamp[t] === this.serial) continue;
-          this.stamp[t] = this.serial;
-          this.load(t);
-          this.triangle.closestPointToPoint(center, this.closest);
-          if (this.closest.distanceToSquared(center) < r2) return true;
-        }
-      }
-    }
-    return false;
-  }
 }
 
-function buildBVH(positions, indices, rays = null) {
+function buildBVH(positions, indices, rays = defaultRays) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   // Indirect keeps the triangle order, so triangle numbers still match the
   // polygon list.
-  return rays?.buildBVH ? rays.buildBVH(geometry) : new MeshBVH(geometry, { indirect: true });
+  return rays.buildBVH(geometry);
 }
 
 export function makeHit() {

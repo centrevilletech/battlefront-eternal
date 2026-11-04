@@ -1,3 +1,4 @@
+import { rustOrdnance } from './helpers/rust-simulation.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -5,7 +6,6 @@ import * as THREE from 'three';
 import { Weapon, Arsenal } from '../src/weapons.js';
 import { updateWeaponLock, lockTickRadii } from '../src/weapon-targeting.js';
 import { BattleHud } from '../src/hud.js';
-import { Ordnance } from '../src/ordnance.js';
 
 const aim = { stick: 0, posture: 'stand', zoomed: false };
 const released = { held: false, pressed: false }, pressed = { held: true, pressed: true };
@@ -97,7 +97,7 @@ test('zero-delay unlimited weapons cannot hang the firing loop', () => {
 
 test('guided missiles track moving targets and never adopt a recycled unit', () => {
   const t = target(), ctx = context([t]);
-  const ord = new Ordnance({ scene: new THREE.Scene(), collision: ctx.collision,
+  const ord = rustOrdnance({ scene: new THREE.Scene(), collision: ctx.collision,
     model: () => null, effects: {}, lights: { add() {} } });
   ord.units = ctx.units;
   const def = { base: 'missile', Velocity: 40, LifeSpan: 8, TurnRate: 2, ScaleTime: .1 };

@@ -35,9 +35,9 @@ function key(triangle) { return [...triangle.a, ...triangle.b, ...triangle.c].jo
 
 test('repeated terrain columns reuse only exact coordinates and ceiling, without aliasing caller output', () => {
   const { world } = fixture();
-  const raycast = world.terrainGrid.raycastFirst.bind(world.terrainGrid);
+  const raycast = world.rayGroundHit.bind(world);
   let queries = 0;
-  world.terrainGrid.raycastFirst = (...args) => { queries++; return raycast(...args); };
+  world.rayGroundHit = (...args) => { queries++; return raycast(...args); };
   const out = { height: 0, normal: new THREE.Vector3() };
   assert.equal(world.ground(0, 0, 100, out), out);
   const height = out.height, normal = out.normal.clone();
