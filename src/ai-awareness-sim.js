@@ -1,12 +1,13 @@
 // Awareness uses the same AI instance and preserves host query/notification
 // order while geometry and recipient iteration run in the module.
 import { selectedWeapon, weaponAI } from './ai/classic/weapons-ai.js';
+import { Vector3 } from 'three';
 
 export class NativeAwareness {
   constructor(sim) {
     this.sim=sim;this.frames=[];this.heard=[];this.near=[];this.danger=[];
     sim.bridge.register({aiAwareness:args=>{
-      const op=args.op,id=args.id,number=args.number,other=args.other,frame=this.frames[this.frames.length-1];
+      const op=args.op,id=args.id,number=args.number,other=args.other,point=[...args.point],frame=this.frames[this.frames.length-1];
       const source=frame.source,result={flag:false,number:0,ids:[],values:[]};
       if(op==='alive') result.flag=Boolean(source?.alive);
       else if(op==='motion') {const v=source.velocity;result.values=[Number(Boolean(v)),v?v.x:0,v?v.y:0,v?v.z:0,source.kind];}
@@ -100,6 +101,28 @@ export class NativeAwareness {
       else if(op==='responseStay') {const ai=frame.mountAi=frame.control.ai;result.flag=Boolean(ai?.stayInTurrets?.()??frame.world.mission?.stayInTurrets);}
       else if(op==='responseReach') {frame.reach=frame.mountAi?.vehicles?.mountReach??frame.world.vehicles?.mountReach;result.flag=Boolean(frame.reach);}
       else if(op==='responseCanReach') {const reach=frame.reach;result.flag=Boolean(reach(frame.mountUnit,frame.responsePoint));}
+      else if(op==='responseShot') {frame.shot=frame.control.shot;result.flag=Boolean(frame.shot?.pending);}
+      else if(op==='responseSource') {
+        const source=frame.shot.source;let unit=null;
+        if(source) {
+          if(source.alive!==undefined && source.position)unit=source.alive?source:null;
+          else {const u=frame.control.ai?.vehicles?.currentControllable?.(source)??source.remote??source.unit??null;unit=u?.alive?u:null;}
+        }
+        frame.responseSource=unit;result.flag=Boolean(unit);
+      } else if(op==='responsePoint') frame.responsePoint=frame.responseSource.position.clone();
+      else if(op==='responseAlertAccept') result.flag=Boolean(frame.agent?.acceptsAlert?.(frame.shot.known,frame.responsePoint));
+      else if(op==='responseSight') {
+        const multiplier=frame.unit?.kind===5?2:1,target=frame.responseSource;
+        result.flag=Boolean(target?.kind===0 && target.soldier);
+        if(result.flag){const posture=target.soldier.air?'stand':target.soldier.posture;result.values=[multiplier,({stand:0,crouch:1,prone:2}[posture]??0)];}
+        else result.values=[multiplier,target?.sphere?.radius??0];
+      } else if(op==='responseDelta') {const p=frame.responsePoint,u=frame.unit.position;result.values=[p.x,u.x,p.y,u.y,p.z,u.z];}
+      else if(op==='responseArmed') result.flag=Boolean(frame.unit.combat?.arsenal?.weapons?.length);
+      else if(op==='responseDispatch') {const dispatch=frame.dispatch;result.flag=Boolean(dispatch?.(frame.control,frame.unit,frame.responseSource,false,frame.world)?.pattern);}
+      else if(op==='responseRandom') frame.random=frame.world.randomB??frame.world.randomA??frame.world.random;
+      else if(op==='responseDraw') result.number=frame.random.uniform();
+      else if(op==='responsePosition') {const p=frame.unit.position;result.values=[p.x,p.y,p.z];}
+      else if(op==='responseDodge') frame.responsePoint=new Vector3(...point);
       else throw Error(`unknown awareness callback ${op}`);
       return result;
     }});
@@ -131,6 +154,10 @@ export class NativeAwareness {
   acousticResponse(control,world,agent) {
     const frame={control,world,agent,response:null};this.frames.push(frame);
     try {this.sim.x.ai_acoustic_response();return frame.response;} finally {this.frames.pop();}
+  }
+  alertResponse(control,world,agent,dispatch) {
+    const frame={control,world,agent,dispatch,response:null};this.frames.push(frame);
+    try {this.sim.x.ai_alert_response();return frame.response;} finally {this.frames.pop();}
   }
   rebuild(world) {
     this.frames.push({world});

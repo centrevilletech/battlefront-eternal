@@ -8,7 +8,7 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, aimPointFor, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse, broadcastAcoustic, hazardResponse, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse, alertResponse, broadcastAcoustic, hazardResponse, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { Fsm } from '../src/ai/classic/controller.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
@@ -842,6 +842,47 @@ test('native acoustic responses preserve live references, policy order and mount
     return {result:result?{...result,point:result.point.toArray()}:null,history,unit:c.unit?.id,kind:unit.kind,positions:sources.map(s=>s.position.toArray()),list:list.map(r=>r.unit.id)};
   }
   for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`acoustic response ${i}`);
+});
+
+test('native shot responses preserve captured references, policy order and shared dodge draws', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,mission:{stayInTurrets:i%13===0}},c={},ai=c.ai={world};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(7600).fill(3));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const unit={id:1,kind:[0,0,5,3,null,'0',0][i%7],position:new Vector3(-0,i%3,-i%5),classDef:{ForwardSpeed:i%2?0:4}};
+    const other={id:2,kind:5,position:new Vector3(999,998,997),classDef:{MaxSpeed:0}};
+    unit.combat={arsenal:{weapons:i%19===0?[]:[{}],current(channel){log('weapon',channel);if(i%17===0)c.unit=other;return i%23===0?null:{};}}};other.combat=unit.combat;
+    c.unit=i%31===0?null:unit;c.perception={fire:{channel:i%2}};
+    const target={id:3,kind:i%3===0?0:2,alive:i%29!==0,position:new Vector3((i%41)*3,i%11,i%7),sphere:{radius:[.5,3,NaN,-0][i%4]},
+      soldier:{air:i%11===0?'jet':null,posture:['stand','crouch','prone','unknown','constructor'][i%5]}};
+    const remote={id:4,alive:true,kind:6,position:new Vector3(i%43,i%7,-0),sphere:{radius:1}};
+    const character={id:5,remote:i%5===0?remote:null,unit:target};
+    const source=i%3===0?target:i%37===0?null:character;
+    const shot=c.shot={pending:i%41!==0,known:i%2===0,source};let acceptedPoint=null,nested=false,draws=0;
+    ai.vehicles={currentControllable(s){log('source',s===character,this===ai.vehicles);if(i%7===0)c.unit=other;return i%5===0?null:target;},
+      mountReach(u,p){log('reach',u.id,p.toArray(),this===undefined);p.y+=.125;return i%3===0;}};
+    ai.stayInTurrets=function(){log('stay',this===ai);return i%7===0?undefined:i%17===0;};
+    const rng=new ClassicRandom(437+i),replacement={uniform(){log('replacement');return .125;}};
+    const original={uniform(){draws++;log('draw',draws,this===original);if(i%5===0)world.randomB=replacement;
+      if(draws===2)unit.position.x+=.125;if(i%53===0)return NaN;return rng.uniform();}};
+    if(i%3===0)world.random=original;else if(i%3===1)world.randomA=original;else world.randomB=original;
+    const agent={acceptsAlert(known,p){log('accept',known,p.toArray(),this===agent);acceptedPoint=p;p.z+=.25;
+      if(i%11===0)c.shot={pending:false,known:!known,source:remote};
+      if(i%13===0)unit.kind=0;
+      if(i%47===0 && !nested){nested=true;const nestedControl={unit:null,shot:{pending:true,source:character},ai};const value=alertResponse(nestedControl,world,null);log('nested',value);}
+      return i%43!==0;
+    }};
+    function dispatch(control,u,s,alternate,w){log('dispatch',control===c,u===unit,s.id,alternate,w===world,this===undefined);
+      if(i%7===0)unit.kind=0;if(i%17===0)c.unit=other;
+      if(i%19===0)acceptedPoint.x+=.5;
+      return i%5===0?null:{pattern:i%3===0?null:{}};
+    }
+    const result=alertResponse(c,world,i%59===0?null:agent,i%61===0?null:dispatch);
+    if(result){assert.equal(Object.hasOwn(result,'alert'),false);if(result.mode===0)assert.equal(result.point,acceptedPoint);else assert.notEqual(result.point,acceptedPoint);}
+    return {result:result?{...result,point:result.point.toArray()}:null,history,unit:c.unit?.id,kind:unit.kind,
+      position:unit.position.toArray(),point:acceptedPoint?.toArray(),shot:c.shot===shot,draws,random:rng.state};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`shot response ${i}`);
 });
 
 test('native state machines preserve transition reentry, opaque values and runaway returns', async () => {

@@ -4,7 +4,7 @@
 use super::{module::state,combat::math::{dot32,f,length_sq32,length_sq_xz32,normalize_or_x}};
 use crate::gen::{import_ai_awareness,AiAwarenessArgs,AiAwarenessOp as Op,AiAwarenessResult};
 
-fn call(op: Op,id: u32,number: f64) -> AiAwarenessResult {import_ai_awareness(&AiAwarenessArgs {op,id,number,other:0.0})}
+fn call(op: Op,id: u32,number: f64) -> AiAwarenessResult {import_ai_awareness(&AiAwarenessArgs {op,id,number,..Default::default()})}
 fn clamp50(x: f64) -> f64 {if x<0.0 {0.0} else if 50.0<x {50.0} else {x}}
 
 // perception.js noiseRadius/weaponNoise.
@@ -76,7 +76,7 @@ pub extern "C" fn ai_notify_danger(enemy_skill: f64) -> f64 {
     let (lo,hi)=if row.flag {(row.values[0],row.values[1])} else if enemy_skill<17.0 {
         if enemy_skill<14.0 {(f(1.1),f(2.1))} else {(f(0.6),f(1.3))}
     } else {(0.0,f(0.8))};
-    let delay=import_ai_awareness(&AiAwarenessArgs {op:Op::DangerDraw,id:if row.flag {1} else {0},number:lo,other:hi}).number;
+    let delay=import_ai_awareness(&AiAwarenessArgs {op:Op::DangerDraw,id:if row.flag {1} else {0},number:lo,other:hi,..Default::default()}).number;
     let now=f(call(Op::DangerTime,0,0.0).number);
     if !(f(call(Op::DangerFirst,0,0.0).number+delay)<now) || !(f(call(Op::DangerLast,0,0.0).number+1.0)<now) {return 0.0;}
     let found=call(Op::DangerQuery,0,0.0).ids;state().danger_targets=found;
@@ -176,8 +176,42 @@ pub extern "C" fn ai_acoustic_response() {
         let v=call(Op::ResponseHorizontal,0,0.0).values;
         if length_sq_xz32(f(v[0]-v[1]),f(v[2]-v[3]))<f(range*range) {
             let exit=mounted_exit();
-            import_ai_awareness(&AiAwarenessArgs {op:Op::ResponseResult,id:0,number:if exit {1.0} else {0.0},other:1.0});
+            import_ai_awareness(&AiAwarenessArgs {op:Op::ResponseResult,id:0,number:if exit {1.0} else {0.0},other:1.0,..Default::default()});
             return;
         }
     }
+}
+
+// Resolve the attributed source even when the captured controller unit is
+// absent. Policy/dispatch callbacks may replace the controller's current unit;
+// range and dodge decisions still use the original one.
+#[no_mangle]
+pub extern "C" fn ai_alert_response() {
+    if !call(Op::ResponseShot,0,0.0).flag {return;}
+    let unit=call(Op::ResponseUnit,0,0.0).flag;
+    let source=call(Op::ResponseSource,0,0.0).flag;
+    if !unit || !source {return;}
+    call(Op::ResponsePoint,0,0.0);
+    if !call(Op::ResponseWeapon,0,0.0).flag || !call(Op::ResponseAlertAccept,0,0.0).flag {return;}
+    let sight=call(Op::ResponseSight,0,0.0);let v=sight.values;
+    let radius=if sight.flag {
+        if v[1]==0.0 {super::combat::perception::posture_radius("stand")}
+        else if v[1]==1.0 {super::combat::perception::posture_radius("crouch")}
+        else if v[1]==2.0 {super::combat::perception::posture_radius("prone")}
+        else {f64::NAN}
+    } else {f(v[1])};
+    let range=f(f(f(f(radius*20.0)+30.0))*v[0]);
+    let v=call(Op::ResponseDelta,0,0.0).values;
+    if length_sq32(f(v[0]-v[1]),f(v[2]-v[3]),f(v[4]-v[5]))<f(range*range)
+        && call(Op::ResponseArmed,0,0.0).flag && call(Op::ResponseDispatch,0,0.0).flag {
+        let exit=mounted_exit();call(Op::ResponseResult,0,if exit {1.0} else {0.0});return;
+    }
+    if call(Op::ResponseKind,0,0.0).number!=0.0 {return;}
+    call(Op::ResponseRandom,0,0.0);
+    let z=f(2.0*f(call(Op::ResponseDraw,0,0.0).number-0.5));
+    let y=f(2.0*f(call(Op::ResponseDraw,0,0.0).number-0.5));
+    let x=f(2.0*f(call(Op::ResponseDraw,0,0.0).number-0.5));
+    let p=call(Op::ResponsePosition,0,0.0).values;
+    import_ai_awareness(&AiAwarenessArgs {op:Op::ResponseDodge,point:[f(p[0]+x),f(p[1]+y),f(p[2]+z)],..Default::default()});
+    call(Op::ResponseResult,2,0.0);
 }

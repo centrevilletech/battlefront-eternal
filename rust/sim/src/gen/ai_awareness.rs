@@ -66,10 +66,22 @@ pub enum AiAwarenessOp {
     ResponseStay = 57,
     ResponseReach = 58,
     ResponseCanReach = 59,
+    ResponseShot = 60,
+    ResponseSource = 61,
+    ResponsePoint = 62,
+    ResponseAlertAccept = 63,
+    ResponseSight = 64,
+    ResponseDelta = 65,
+    ResponseArmed = 66,
+    ResponseDispatch = 67,
+    ResponseRandom = 68,
+    ResponseDraw = 69,
+    ResponsePosition = 70,
+    ResponseDodge = 71,
 }
 
 impl AiAwarenessOp {
-    pub const NAMES: [&'static str; 60] = ["alive", "motion", "weapon", "active", "mute", "query", "recipient", "notify", "livingStart", "livingNext", "clear", "protectQuery", "protectRecipient", "protectAppend", "dangerRow", "dangerDraw", "dangerTime", "dangerFirst", "dangerLast", "dangerQuery", "dangerRecipient", "dangerWarn", "dangerHasNotify", "dangerNotify", "dangerWrite", "shotStart", "shotSource", "shotRelation", "shotHuman", "damageStart", "damageRelation", "damagePacket", "alertSeat", "alertSeatController", "alertOwn", "alertCanNotify", "alertBody", "alertLeases", "alertLease", "alertCrew", "alertNotify", "hazardStart", "responseUnit", "responseWeapon", "hazardAccept", "responseKind", "responseDangerRegion", "hazardPoint", "responseResult", "acousticList", "acousticStart", "acousticNext", "acousticAccept", "responseSensor", "acousticPoint", "responseHorizontal", "responseMountStart", "responseStay", "responseReach", "responseCanReach"];
+    pub const NAMES: [&'static str; 72] = ["alive", "motion", "weapon", "active", "mute", "query", "recipient", "notify", "livingStart", "livingNext", "clear", "protectQuery", "protectRecipient", "protectAppend", "dangerRow", "dangerDraw", "dangerTime", "dangerFirst", "dangerLast", "dangerQuery", "dangerRecipient", "dangerWarn", "dangerHasNotify", "dangerNotify", "dangerWrite", "shotStart", "shotSource", "shotRelation", "shotHuman", "damageStart", "damageRelation", "damagePacket", "alertSeat", "alertSeatController", "alertOwn", "alertCanNotify", "alertBody", "alertLeases", "alertLease", "alertCrew", "alertNotify", "hazardStart", "responseUnit", "responseWeapon", "hazardAccept", "responseKind", "responseDangerRegion", "hazardPoint", "responseResult", "acousticList", "acousticStart", "acousticNext", "acousticAccept", "responseSensor", "acousticPoint", "responseHorizontal", "responseMountStart", "responseStay", "responseReach", "responseCanReach", "responseShot", "responseSource", "responsePoint", "responseAlertAccept", "responseSight", "responseDelta", "responseArmed", "responseDispatch", "responseRandom", "responseDraw", "responsePosition", "responseDodge"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -133,6 +145,18 @@ impl AiAwarenessOp {
             57 => Some(AiAwarenessOp::ResponseStay),
             58 => Some(AiAwarenessOp::ResponseReach),
             59 => Some(AiAwarenessOp::ResponseCanReach),
+            60 => Some(AiAwarenessOp::ResponseShot),
+            61 => Some(AiAwarenessOp::ResponseSource),
+            62 => Some(AiAwarenessOp::ResponsePoint),
+            63 => Some(AiAwarenessOp::ResponseAlertAccept),
+            64 => Some(AiAwarenessOp::ResponseSight),
+            65 => Some(AiAwarenessOp::ResponseDelta),
+            66 => Some(AiAwarenessOp::ResponseArmed),
+            67 => Some(AiAwarenessOp::ResponseDispatch),
+            68 => Some(AiAwarenessOp::ResponseRandom),
+            69 => Some(AiAwarenessOp::ResponseDraw),
+            70 => Some(AiAwarenessOp::ResponsePosition),
+            71 => Some(AiAwarenessOp::ResponseDodge),
             _ => None,
         }
     }
@@ -144,26 +168,29 @@ pub struct AiAwarenessArgs {
     pub id: u32,
     pub number: f64,
     pub other: f64,
+    pub point: [f64; 3],
 }
 
 impl AiAwarenessArgs {
-    pub const WORDS: usize = 4;
+    pub const WORDS: usize = 7;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
         row[0] = self.op as u8 as f64;
         row[1] = self.id as f64;
         row[2] = self.number;
         row[3] = self.other;
+        row[4..4 + 3].copy_from_slice(&self.point);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
         Self {
             op: AiAwarenessOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             id: word_u32(row[1]),
             number: row[2],
             other: row[3],
+            point: { let mut a = [0.0; 3]; a.copy_from_slice(&row[4..4 + 3]); a },
         }
     }
 
