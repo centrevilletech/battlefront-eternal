@@ -6,6 +6,7 @@ import { createRemotePredictionBridge } from './remote-prediction-sim.js';
 import { createCorrectionBridge } from './correction-sim.js';
 import { createReconcileBridge } from './reconcile-sim.js';
 import { createReplayBridge } from './replay-sim.js';
+import { createPlayoutBridge } from './playout-sim.js';
 
 // The page owns these sessions for one battle. Short-lived replay wrappers
 // borrow them; closing a connection releases the cached body owners as well.
@@ -30,7 +31,8 @@ export function createPagePrediction(instance, collision) {
     const corrections = keep(createCorrectionBridge(bridge));
     const reconcile = keep(createReconcileBridge(bridge));
     const replay = keep(createReplayBridge(bridge));
-    return { bridge, actors, weapons, vehicles, remotes, corrections, reconcile, replay, dispose, get disposed() { return disposed; } };
+    const playout = keep(createPlayoutBridge(bridge));
+    return { bridge, actors, weapons, vehicles, remotes, corrections, reconcile, replay, playout, dispose, get disposed() { return disposed; } };
   } catch (error) {
     try { dispose(); } catch {}
     throw error;

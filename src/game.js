@@ -2985,7 +2985,7 @@ async function start() {
       pendingActions: [], ackActions: 0,
       // Online, remote actors are drawn one 20 Hz publication (3 ticks) plus
       // a margin behind the newest packet; measured arrival gaps widen it.
-      latest: 0, clock: 0, playout: new PlayoutClock(params.has("network") ? { minDelay: 4, maxDelay: 10 } : {}), applyMs: 0, pending: [], inputClock: new FixedClock(), saved: null, predicted: false, playerAlpha: 1,
+      latest: 0, clock: 0, playout: new PlayoutClock(params.has("network") ? { minDelay: 4, maxDelay: 10 } : {}, { native: predictionSim?.playout }), applyMs: 0, pending: [], inputClock: new FixedClock(), saved: null, predicted: false, playerAlpha: 1,
       // Command stamps follow the worker's estimated clock (reconcile.js);
       // the last acknowledged keys start each replay; small corrections to
       // the predicted body blend away instead of snapping.
