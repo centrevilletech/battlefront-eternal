@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { headlessGame } from '../tools/headless-world.mjs';
-import {createEntityHost} from '../src/runtime/entity-host.js';
+import {createSnapshotHost,publicationBuffersFor} from '../src/runtime/snapshot-host.js';
 import {EntityGameState} from '../src/runtime/network-entity-game.js';
 import {EntitySeats} from '../src/runtime/entity-seats.js';
 import { createMultiplayerWorld } from '../src/runtime/multiplayer-world.js';
@@ -40,11 +40,12 @@ const replica=await headlessGame(query);
 replica.validateAuthoritativeHumanTeam=()=>{};
 replica.applyAuthoritativeHumanTeam=team=>replica.setHumanTeam(team,false);
 Object.defineProperty(replica,'client',{value:{seats:new EntitySeats(replica)}});
-const host=createEntityHost({game,world,local:true});host.addClient('bob');host.setReady('bob');host.setStarted('bob',true);
+const host=createSnapshotHost({game,world,local:true});host.addClient('bob');host.setReady('bob');host.setStarted('bob',true);
 const adapter=new EntityGameState(replica,host.registry,{onApplied:p=>host.ack('bob',p.ack)});adapter.initialize();
 function publish(){
  const out=host.publish();assert.deepEqual(out.faults,[]);
- for(const packet of out.packets){host.admitted('bob',packet.packetId);adapter.receive(new Uint8Array(packet.buffer));bytes+=packet.buffer.byteLength;}
+ for(const buffer of publicationBuffersFor(out,'bob')){adapter.receive(new Uint8Array(buffer));bytes+=buffer.byteLength;}
+ for(const event of out.reliableEvents)if(event.client==='bob')adapter.receiveGameplay(event.records,event.tick);
  adapter.present(game.worldClock.tick);
 }
 lateVehicle.spawn(2);publish();
