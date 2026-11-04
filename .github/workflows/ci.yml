@@ -89,3 +89,38 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
           path: rust/target/generated/
+
+  renderer-smoke:
+    # Public, generated fixtures only. WARP exercises ANGLE's D3D11 path
+    # without requiring a physical GPU; it does not qualify GPU drivers.
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            backend: warp
+          - os: ubuntu-latest
+            backend: gl
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install Electron executable
+        run: node node_modules/electron/install.js
+      - name: ANGLE D3D11 software renderer
+        if: runner.os == 'Windows'
+        run: node tools/renderer-smoke.mjs warp
+      - name: ANGLE OpenGL software baseline
+        if: runner.os == 'Linux'
+        env:
+          LIBGL_ALWAYS_SOFTWARE: '1'
+          BFE_SMOKE_NO_SANDBOX: '1'
+        run: xvfb-run -a node tools/renderer-smoke.mjs gl
