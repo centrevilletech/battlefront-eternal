@@ -556,6 +556,10 @@ test("the master chain goes into the mixer's module, and the rest of its graph w
   assert.equal(m.dynamics.skip, 3);
   assert.equal(m.dynamics.threshold, -30);
   assert.equal(m.volume, 0.5);
+  // The meter reads the finished sound.
+  r.meter(true);
+  assert.deepEqual(into(ctx, r.mixer).map((e) => e.to), [ctx.destination, r.meterNode]);
+  r.meter(false);
   // A voice in the slots asks for the LFE as ever (update's r.lfe).
   assert.ok(r.lfe);
   // A voice in the engine takes a slot with no input; one that keeps the
