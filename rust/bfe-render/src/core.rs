@@ -76,7 +76,8 @@ pub const PASS_WATER: usize = 10;
 pub const PASS_SHADOW: usize = 11;
 pub const PASS_MOTION: usize = 12;
 pub const PASS_CANOPIES: usize = 13;
-pub const PASSES: usize = 14;
+pub const PASS_SCREEN: usize = 14;
+pub const PASSES: usize = 15;
 
 // The multi-draw call, which glow does not wrap (WEBGL_multi_draw on the web).
 pub trait MultiDraw {

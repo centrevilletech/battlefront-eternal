@@ -130,25 +130,31 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     // What the near scene blends (transparent.rs), at the start of three's
     // transparent list: every source's items sorted as three sorts, three's
     // own remaining items (`three` keys the page wrote) merged in, and the
-    // first segment drawn; transparent_segment draws the others.
-    pub fn transparent_frame(&mut self, three: usize) -> Result<Stats, String> {
-        self.transparent_list(three, VIEW_NEAR)
+    // first segment drawn; transparent_segment draws the others. image: the
+    // post steps the page wrote for the far scene's image (graphics.background,
+    // the last of the near scene's opaque objects, which three then leaves
+    // out), drawn first: right after three's last opaque item.
+    pub fn transparent_frame(&mut self, three: usize, image: usize) -> Result<Stats, String> {
+        self.transparent_list(three, VIEW_NEAR, image)
     }
 
     // What a mirror's render of the near scene blends (water.js's
     // reflection, drawn before the frame's own): the transparent phase for
     // the mirror camera, read with its frame block (VIEW_SPARE's), which its
-    // later segments bind again.
-    pub fn mirror_transparent_frame(&mut self, three: usize) -> Result<Stats, String> {
-        self.transparent_list(three, VIEW_SPARE)
+    // later segments bind again; the mirror's far image first, as above.
+    pub fn mirror_transparent_frame(&mut self, three: usize, image: usize) -> Result<Stats, String> {
+        self.transparent_list(three, VIEW_SPARE, image)
     }
 
     // The transparent phase for the camera whose values the page wrote last
     // (the frame's own, or a mirror's), with its frame block in `frame`'s
     // buffer.
-    fn transparent_list(&mut self, three: usize, frame: usize) -> Result<Stats, String> {
+    fn transparent_list(&mut self, three: usize, frame: usize, image: usize) -> Result<Stats, String> {
         let core = &mut self.core;
         core.begin_phase();
+        // The far scene's image, at the far plane and depth tested, as three
+        // draws it last of the opaque objects (post.rs draw_screen).
+        self.post.draw_screen(core, image);
         let view = transparent::view(core);
         let mut list = std::mem::take(&mut self.transparent.list);
         list.items.clear();
@@ -161,11 +167,11 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         list.order(&self.transparent.keys, three.min(transparent::MAX_THREE));
         list.frame = frame;
         if list.items.is_empty() {
-            // Nothing to draw: no GL call at all, so three's state stands
-            // (the page skips its reset).
+            // Nothing to draw: no GL call at all (but the image's), so three's
+            // state stands (the page skips its reset).
             list.view = Some(view);
             self.transparent.list = list;
-            return Ok(core.stats);
+            return Ok(if image > 0 { core.end_phase() } else { core.stats });
         }
         core.upload_frame(frame);
         core.upload_shadow();
@@ -233,6 +239,16 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     pub fn post_frame(&mut self, steps: usize) -> Result<Stats, String> {
         self.core.begin_phase();
         self.post.draw(&mut self.core, steps);
+        Ok(self.core.end_phase())
+    }
+
+    // A full-screen pass outside the post chain, drawn on its own (the
+    // storm's cloud panorama into its target, the underwater tint over the
+    // finished frame): the steps the page wrote, each with its own state
+    // (post.rs draw_screen).
+    pub fn screen_frame(&mut self, steps: usize) -> Result<Stats, String> {
+        self.core.begin_phase();
+        self.post.draw_screen(&mut self.core, steps);
         Ok(self.core.end_phase())
     }
 

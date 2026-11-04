@@ -50,6 +50,8 @@ import { nearPass } from "./near.js";
 import { canopiesPass } from "./canopies.js";
 import { motionPass } from "./motion.js";
 import { shadowPass } from "./shadow.js";
+import { imagePass, cloudsPass, underwaterPass, fogPass } from "./screen.js";
+import { mirrorPass } from "./mirror.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
 // VIEW_*). This file imports the passes, so a pass reads these inside its
@@ -88,14 +90,15 @@ const GL_TYPES = { Float32Array: 0x1406, Uint16Array: 0x1403, Uint8Array: 0x1401
 const PHASES = {
   far: { view: VIEW_FAR, draw: (rust) => rust.far_frame() },
   near: { view: VIEW_NEAR, draw: (rust, ctx) => rust.frame(ctx.records) },
-  transparent: { view: VIEW_NEAR, draw: (rust, ctx) => rust.transparent_frame(ctx.three ?? 0) },
+  // ctx.image: the far scene's image drawn first (screen.js).
+  transparent: { view: VIEW_NEAR, draw: (rust, ctx) => rust.transparent_frame(ctx.three ?? 0, ctx.image ?? 0) },
   view: { view: VIEW_FIRST_PERSON, draw: (rust, ctx) => rust.view_frame(ctx.records) },
   post: { view: null, draw: (rust, ctx) => rust.post_frame(ctx.steps ?? 0) },
   hud: { view: null, draw: (rust) => rust.hud_frame() },
   // The near phase's passes from a mirror camera (water.js's reflection).
   mirror: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_frame(ctx.records) },
   // The transparent phase's passes from that mirror camera.
-  mirrorTransparent: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_transparent_frame(ctx.three ?? 0) },
+  mirrorTransparent: { view: VIEW_SPARE, draw: (rust, ctx) => rust.mirror_transparent_frame(ctx.three ?? 0, ctx.image ?? 0) },
   // The near scene's start when it is drawn in place of three's render
   // (near.js): its target cleared, the far scene's image drawn into it.
   begin: { view: null, draw: (rust, ctx) => rust.near_begin(ctx.clear, ctx.steps ?? 0) },
@@ -111,6 +114,12 @@ const PHASES = {
   motion: { view: null, draw: (rust, ctx) => rust.motion_frame(ctx.records) },
   // A shadow cascade's pass in three's shadow pass's place (shadow.js).
   shadow: { view: null, draw: (rust) => rust.shadow_frame() },
+  // Full-screen passes three renders on their own (screen.js): the storm's
+  // cloud panorama into its target (storm-sky.js), and the Low water's tint
+  // over the finished frame with the eye under the surface (water.js).
+  image: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
+  skyClouds: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
+  underwater: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
 };
 
 // three's renderer's entry points that read or change its state cache, each
@@ -223,7 +232,7 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, imagePass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, shadowPass, cloudsPass, underwaterPass, mirrorPass, fogPass]) this.addPass(make(this));
     // The near phase's hook: first in three's opaque list of the near scene
     // (graphics.background, the far scene's image, is drawn last of it).
     this.nearAnchor = graphics.scene ? this.anchor(graphics.scene, { renderOrder: -1e9 }, (renderer, scene, camera) => this.pass(renderer, scene, camera)) : null;
@@ -285,6 +294,21 @@ export class RustRender {
     } finally {
       for (const pass of this.passes) pass.reveal?.(false);
     }
+  }
+
+  // three's render list of the near scene being drawn (a pass's phase runs
+  // inside three's render of it): the one whose opaque list holds the near
+  // phase's hook or the far scene's image (three lists the image only where
+  // the renderer doesn't draw it: screen.js; lists are kept per render
+  // depth).
+  nearList(renderer, scene) {
+    const anchor = this.nearAnchor, background = this.graphics.background;
+    for (let depth = 0; depth < 4; depth++) {
+      const list = renderer.renderLists.get(scene, depth);
+      if (!list.opaque.length) return null;
+      if (list.opaque.some((item) => item.object === anchor || item.object === background)) return list;
+    }
+    return null;
   }
 
   // A typed view of the renderer's memory, kept as this[name]: a Type over
@@ -594,7 +618,8 @@ export class RustRender {
   // only when three is next used (settle), so that phases drawn one after
   // another reset it once. walked: the transparent list's items as near.js
   // walked the scene for three's render it draws in place of (ctx.walked).
-  phase(name, renderer, scene, camera, defer = false, walked = null) {
+  // values: more of the phase's values (ctx), for its passes and its call.
+  phase(name, renderer, scene, camera, defer = false, walked = null, values = null) {
     if (!this.enabled || !this.active) return;
     if (!this.supported()) { this.restore(); return; }
     const phase = PHASES[name], target = renderer.getRenderTarget();
@@ -602,6 +627,7 @@ export class RustRender {
     // What the passes have written into the renderer's input so far: records
     // and bones, and where each skeleton's bones are.
     const ctx = { renderer, scene, camera, records: 0, bones: 0, skeletons: new Map(), defer, walked };
+    if (values) Object.assign(ctx, values);
     for (const pass of this.phases[name]) pass.draw?.(ctx);
     if (name === "near" && this.recording?.keepFrames > 0) {
       this.recording.keepFrames--;
@@ -611,8 +637,9 @@ export class RustRender {
     const t0 = performance.now();
     const stats = this.phaseStats[name] = phase.draw(this.rust, ctx);
     this.phaseMs[name] = performance.now() - t0;
-    // A phase that made no GL call left three's state as it was.
-    if (stats?.[4] !== 0) {
+    // A phase that made no GL call left three's state as it was, unless a
+    // pass registered something with GL calls of its own (ctx.reset).
+    if (stats?.[4] !== 0 || ctx.reset) {
       if (defer) this.stale = true;
       else {
         this.stale = false;
@@ -733,6 +760,13 @@ export class RustRender {
   coverShadow(renderer, light, scene, camera, from) {
     const target = renderer.getRenderTarget();
     try { return this.byName.shadow?.cover(renderer, light, scene, camera, from) ?? false; } catch (error) { this.fail(error, renderer, target); return false; }
+  }
+
+  // water.js: a water mirror's render of the near scene, drawn in place of
+  // three's render of it when nothing in it is left for three (mirror.js);
+  // true when it was.
+  coverMirror(renderer, scene, camera) {
+    return this.byName.mirrorCover?.cover(renderer, scene, camera) ?? false;
   }
 
   // hud.js: the battle HUD's batch, drawn by the HUD pass; true when it was.

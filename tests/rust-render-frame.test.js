@@ -682,3 +682,38 @@ test("a command post's beam, hidden until the player comes near: registered befo
   scene.onBeforeRender(renderer, scene, camera, graphics.sceneTarget);
   assert.equal(compiled.length, 1, "nothing added since: nothing looked over");
 });
+
+test("a water mirror's render of the near scene: drawn in place of three's when everything three would list is the renderer's", () => {
+  const { core, calls, renderer, scene, setTarget } = nearBridge();
+  const mirror = new THREE.PerspectiveCamera();
+  mirror.userData.mirror = true;
+  mirror.updateMatrixWorld(true);
+  const reflection = { name: "reflection", samples: 0, width: 8, height: 4 };
+  setTarget(reflection);
+  // On by default (?rustMirror=0 turns it off), apart from the frame's cover (?rustNear).
+  assert.equal(core.byName.mirrorCover.on, true);
+  const hidden = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial({ visible: false }));
+  scene.add(hidden);
+  scene.updateMatrixWorld(true);
+  assert.equal(core.coverMirror(renderer, scene, mirror), true);
+  assert.deepEqual(calls.map((c) => c[0]).filter((n) => /frame$|^near_begin$/.test(n)), ["near_begin", "mirror_frame", "mirror_transparent_frame"]);
+  assert.deepEqual(calls.find((c) => c[0] === "mirror_transparent_frame").slice(1), [0, 0], "the image drawn by the begin phase, not again");
+  assert.equal(core.postInput[1], -2, "the image into the target bound now");
+  assert.equal(core.stale, true, "three's state reset when three is next used");
+  // Not the frame's camera, nor a render something three draws itself is in.
+  assert.equal(core.coverMirror(renderer, scene, new THREE.PerspectiveCamera()), false);
+  const wall = new THREE.Mesh(partGeometry(), new THREE.MeshBasicMaterial());
+  wall.position.set(0, 0, -5);
+  scene.add(wall);
+  scene.updateMatrixWorld(true);
+  calls.length = 0;
+  assert.equal(core.coverMirror(renderer, scene, mirror), false);
+  assert.equal(core.byName.mirrorCover.stopped, wall);
+  assert.ok(!calls.some((c) => /frame$|^near_begin$/.test(c[0])), "three renders it");
+  // Switched off alone: three's.
+  wall.material.visible = false;
+  core.byName.mirrorCover.setActive(false);
+  assert.equal(core.coverMirror(renderer, scene, mirror), false);
+  core.byName.mirrorCover.setActive(true);
+  assert.equal(core.coverMirror(renderer, scene, mirror), true);
+});

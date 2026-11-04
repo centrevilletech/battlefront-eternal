@@ -156,6 +156,10 @@ class TransparentPass {
     this.three = [];
     this.hooks = new Map();
     this.segmentStats = [];
+    // What runs after the list's last draw in this render (a pass's draw in
+    // the transparent phase sets it; screen.js fog): after the renderer's
+    // last segment or three's last item, whichever comes last.
+    this.atEnd = null;
     // What this pass draws in three's place: three's object -> { bucket,
     // id, material, program (three's, front pass), frame (registered) }, or
     // null for one left to three. Candidates: items seen in three's list
@@ -191,6 +195,7 @@ class TransparentPass {
   afterPhase(name, ctx) {
     if (name === "near" || name === "mirror") {
       this.disarm();
+      this.atEnd = null;
       this.frameNo++;
       this.list = null;
       this.takenCount = 0;
@@ -207,15 +212,30 @@ class TransparentPass {
       // Nothing of three's drawn after the near phase's own hook (or the
       // scene walked, all of it the renderer's): the transparent list
       // follows now. Else right after three's last opaque item (the far
-      // scene's image, drawn last of them).
+      // scene's image where three draws it, last of them; where it doesn't,
+      // the image is the transparent phase's first draw: screen.js).
       if (ctx.walked || last.object === this.core.nearAnchor) start();
       else this.arm(last, start, ctx);
     } else if (name === "transparent" || name === "mirrorTransparent") {
       const core = this.core, rust = core.rust;
       const n = rust.transparent_segments_len(), segments = new Uint32Array(core.wasm.memory.buffer, rust.transparent_segments_ptr(), n);
       this.segmentStats.length = 0;
-      for (let k = 1; k + 1 < n && k <= this.three.length; k++) {
-        if (segments[k + 1] > segments[k]) { const segment = k; this.arm(this.three[k - 1], () => this.drawSegment(segment), ctx); }
+      // The list's end (atEnd): after the last segment when it follows
+      // three's last item, else right after three's last item; with none of
+      // three's, now (the phase drew the whole list).
+      const end = this.atEnd, last = this.three.length;
+      this.atEnd = null;
+      let ended = !end;
+      for (let k = 1; k + 1 < n && k <= last; k++) {
+        if (segments[k + 1] > segments[k]) {
+          const segment = k, then = k === last ? end : null;
+          this.arm(this.three[k - 1], then ? () => { this.drawSegment(segment); then(); } : () => this.drawSegment(segment), ctx);
+          if (then) ended = true;
+        }
+      }
+      if (!ended) {
+        if (last === 0) end();
+        else this.arm(this.three[last - 1], end, ctx);
       }
     }
   }
@@ -238,16 +258,9 @@ class TransparentPass {
     return props.currentProgram === entry.program && drawnAsNow(props, entry) && entry.frame <= this.frameNo;
   }
 
-  // three's render list for the near scene being drawn: the one whose
-  // opaque list holds the far scene's image (lists are kept per render depth).
+  // three's render list for the near scene being drawn (core.nearList).
   threeList(renderer, scene) {
-    const background = this.core.graphics.background;
-    for (let depth = 0; depth < 4; depth++) {
-      const list = renderer.renderLists.get(scene, depth);
-      if (!list.opaque.length) return null;
-      if (list.opaque.some((item) => item.object === background)) return list;
-    }
-    return null;
+    return this.core.nearList(renderer, scene);
   }
 
   // fn right after three draws `item` (its object's onAfterRender for that

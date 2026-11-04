@@ -14,12 +14,18 @@
 // locked mask's program and the view's camera. The renderer draws them when
 // it has a program for every one (three has drawn a proxy of each kind,
 // and the mask, once); otherwise three draws the frame's motion as before.
-// The sky's ships, which draw their own motion (MotionVectors.addExtra),
-// stay three's: drawn first, into the target three clears, where the near
-// scene drew nothing (no proxy's pixel: a proxy keeps only what lies on the
-// near scene's surface), so the order is three's.
+// The sky's ships draw their own motion (MotionVectors.addExtra: an
+// instanced mesh a model part, sky-flyers.js), first, in three's order
+// (render order, material, depth, id), each with three's program for its
+// material as three compiled it (Kind::Plain: every uniform set per draw)
+// and its ships' instance attributes written each frame; their hook (the
+// flyers' still frame) runs first, as three runs it. They write only where
+// the near scene drew nothing (no proxy's pixel: a proxy keeps only what
+// lies on the near scene's surface), so drawing them before the proxies is
+// three's order.
 import * as THREE from "three";
 import { motionUniforms, motionVectors } from "../motion-vectors.js";
+import { plainProgram, writeUniform } from "./post.js";
 
 const MOTION = 9;
 const KIND_PROXY = 1, KIND_LOCKED = 2;
@@ -29,6 +35,10 @@ const IN = { PROJECTION: 0, VIEW: 16, VIEW_PROJECTION: 32, VIEW_VIEW: 48, CURREN
 const R = { KIND: 0, PROGRAM: 1, GEOMETRY: 2, FIRST: 3, COUNT: 4, SIDE: 5, BONE_AT: 6, PREVIOUS_AT: 7, WORLD: 8, PREVIOUS_WORLD: 24, BIND: 40,
   BIND_INVERSE: 56, PREVIOUS_BIND_INVERSE: 72 };
 const STRIDE = 88, MAX_RECORDS = 256, MAX_BONES = (1024 * 32) / 4;
+// motion.rs's extras: each its registration, instances, side, where its
+// instances' values start, its uniforms (post.rs's layout).
+const EX = { ID: 0, INSTANCES: 1, SIDE: 2, AT: 3, UNIFORMS: 4, FIRST: 5 };
+const UNIFORM = 18, MAX_EXTRA_UNIFORMS = 8, EXTRA = EX.FIRST + MAX_EXTRA_UNIFORMS * UNIFORM, MAX_EXTRAS = 16;
 // What a motion program reads besides the frame's values the pass sets
 // (the projection, the view-projections now and last frame, the depth
 // range): its row's matrices, both frames' bones, the scene's depth.
@@ -81,6 +91,11 @@ class MotionPass {
     this.proxies = [];
     this.records = [];
     this.skeletons = new Map();
+    // The sky's ships' meshes drawn this frame, in three's order, and each
+    // one's registration (null: never the renderer's).
+    this.extras = [];
+    this.extraEntries = new Map();
+    this.scratch = new Float64Array(EX.FIRST + MAX_EXTRA_UNIFORMS * UNIFORM);
     this.drawn = 0;
     this.left = 0;
     // Why the last frame was left to three (for the measurement tools).
@@ -124,7 +139,7 @@ class MotionPass {
   // view scene to mark fixed (or null) and its camera, the scene's depth.
   cover(renderer, motion, { target, camera, viewScene, view, depth }) {
     const core = this.core;
-    if (!core.enabled || !core.active || core.lost || this.on === false || !core.supported()) return this.decline("off");
+    if (!core.enabled || !core.active || core.lost || this.on === false || !core.supported()) return this.decline("off", false);
     const records = this.records;
     records.length = 0;
     this.skeletons.clear();
@@ -170,15 +185,9 @@ class MotionPass {
     const targetTexture = core.renderer.properties.get(target.texture).__webglTexture ? core.texture(target.texture) : -1;
     const depthTexture = depth && core.renderer.properties.get(depth).__webglTexture ? core.texture(depth) : -1;
     if (targetTexture < 0 || depthTexture < 0) return this.decline(targetTexture < 0 ? "target" : "depth");
-    // The sky's ships, three's: into the target three clears.
-    let clear = true;
-    for (const extra of motion.extras) {
-      if (!extra.visible) continue;
-      motion.drawExtras(renderer, camera, target);
-      clear = false;
-      break;
-    }
-    this.pending = { camera, view, target, targetTexture, depthTexture, clear, bones };
+    // The sky's ships' own motion, first.
+    if (!this.extrasOf(motion, camera)) return this.decline(`extra: ${this.extraWhy}`);
+    this.pending = { camera, view, target, targetTexture, depthTexture, clear: true, bones, motion };
     this.complete = false;
     try {
       core.phase("motion", renderer, null, camera, true);
@@ -191,11 +200,82 @@ class MotionPass {
     return this.complete;
   }
 
-  // A frame left to three, and why.
-  decline(why) {
+  // A frame left to three, and why. What the pass registered on the way
+  // (registered: it may have) made GL calls of its own: three's state is
+  // reset before three draws.
+  decline(why, registered = true) {
     this.left++;
     this.why = why;
+    if (registered) this.core.stale = true;
     return false;
+  }
+
+  // The sky's ships' meshes three's render of the frame's motion would list
+  // (shown, on the camera's layers; never culled), in its order: render
+  // order, material, z (its bounding sphere's centre through the camera, as
+  // projectObject takes it), id. False when one isn't the renderer's (yet).
+  extrasOf(motion, camera) {
+    const list = this.extras, point = this.point ??= new THREE.Vector3();
+    list.length = 0;
+    for (const mesh of motion.extras) {
+      if (!mesh.visible || !mesh.layers.test(camera.layers)) continue;
+      if (mesh.frustumCulled && !this.frustum.intersectsObject(mesh)) continue;
+      const entry = this.extra(mesh, camera);
+      if (!entry) { this.extraWhy = entry === undefined ? "no program yet" : "unsupported"; return false; }
+      if (list.length >= MAX_EXTRAS) { this.extraWhy = "too many"; return false; }
+      if (mesh.boundingSphere !== undefined) { if (mesh.boundingSphere === null) mesh.computeBoundingSphere(); point.copy(mesh.boundingSphere.center); }
+      else { if (mesh.geometry.boundingSphere === null) mesh.geometry.computeBoundingSphere(); point.copy(mesh.geometry.boundingSphere.center); }
+      entry.z = point.applyMatrix4(mesh.matrixWorld).applyMatrix4(this.screen).z;
+      list.push(mesh);
+    }
+    const entries = this.extraEntries;
+    list.sort((a, b) => a.renderOrder - b.renderOrder || a.material.id - b.material.id || entries.get(a).z - entries.get(b).z || a.id - b.id);
+    return true;
+  }
+
+  // A ship's mesh as the renderer's: three's program for its material (with
+  // three's attribute locations: an instance matrix takes four), its
+  // geometry's shared attributes and index, and its instance attributes
+  // (the mesh's matrices, the geometry's instanced ones, a buffer each).
+  // undefined until three has drawn it; null for one the renderer can't
+  // draw as three does.
+  extra(mesh, camera) {
+    let entry = this.extraEntries.get(mesh);
+    if (entry !== undefined) return entry;
+    const core = this.core, gl = core.gl, threeProgram = core.renderer.properties.get(mesh.material).currentProgram;
+    if (!threeProgram) return undefined;
+    entry = null;
+    const p = threeProgram.program, attributes = [];
+    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_ATTRIBUTES); i < n; i++) {
+      const name = gl.getActiveAttrib(p, i).name;
+      attributes.push([name, gl.getAttribLocation(p, name)]);
+    }
+    const geometry = mesh.geometry, material = mesh.material;
+    const perInstance = (name) => name === "instanceMatrix" || Boolean(geometry.attributes[name]?.isInstancedBufferAttribute);
+    const program = mesh.isInstancedMesh && !Array.isArray(material) && !geometry.groups.length && geometry.index
+      ? plainProgram(core, material, attributes.map(([name, location]) => `${name}:${location}`).join(",")) : null;
+    const instanced = [], layout = [];
+    let ok = Boolean(program) && program.uniforms.length <= MAX_EXTRA_UNIFORMS && material.blending === THREE.NormalBlending && !material.transparent
+      && !material.depthTest && !material.depthWrite && material.colorWrite;
+    for (const [name, location] of ok ? attributes : []) {
+      if (!perInstance(name)) continue;
+      const attribute = name === "instanceMatrix" ? mesh.instanceMatrix : geometry.attributes[name];
+      const size = attribute?.itemSize;
+      if (!(attribute?.array instanceof Float32Array) || attribute.isInterleavedBufferAttribute || (attribute.meshPerAttribute ?? 1) !== 1 || (size > 4 && size !== 16)) { ok = false; break; }
+      layout.push(location, size > 4 ? 4 : 1, size > 4 ? 4 : size);
+      instanced.push({ attribute, size });
+    }
+    // Every uniform it reads has a value the renderer can set.
+    for (let k = 0; ok && k < program.uniforms.length; k++) ok = writeUniform(core, this.scratch, 0, k, program.uniforms[k], material, mesh, camera);
+    if (ok) {
+      const g = core.geometry(geometry, { id: program.id, attributes: attributes.filter(([name]) => !perInstance(name)) });
+      if (g !== null && g !== undefined) {
+        const max = mesh.instanceMatrix.count;
+        entry = { id: core.rust.motion_extra(program.id, g, max, new Uint32Array(layout)), program, instanced, max, z: 0 };
+      }
+    }
+    this.extraEntries.set(mesh, entry);
+    return entry;
   }
 
   // The view scene walked as three's projectObject walks it (shown, on the
@@ -251,9 +331,15 @@ class MotionPass {
       core.addView("motionInput", Float64Array, () => core.rust.motion_input_ptr(), () => core.rust.motion_input_len());
       core.addView("motionBones", Float32Array, () => core.rust.motion_bones_ptr(), () => core.rust.motion_bones_len());
       core.addView("motionPrevious", Float32Array, () => core.rust.motion_previous_ptr(), () => core.rust.motion_previous_len());
+      core.addView("motionExtras", Float64Array, () => core.rust.motion_extras_ptr(), () => core.rust.motion_extras_len());
+      core.addView("motionExtraValues", Float32Array, () => core.rust.motion_extra_values_ptr(), () => core.rust.motion_extra_values_len());
       this.input = true;
     }
+    // The ships' hooks first, as three runs them before each draw (the
+    // flyers' still frame: once a frame).
+    for (const mesh of this.extras) mesh.onBeforeRender(ctx.renderer, p.motion.scene, p.camera, mesh.geometry, mesh.material, null);
     core.views();
+    this.writeExtras(core, p.camera);
     const input = core.motionInput, bones = core.motionBones, previous = core.motionPrevious;
     input.set(p.camera.projectionMatrix.elements, IN.PROJECTION);
     input.set(p.camera.matrixWorldInverse.elements, IN.VIEW);
@@ -293,6 +379,28 @@ class MotionPass {
     }
     ctx.records = records.length;
     this.complete = true;
+  }
+
+  // The ships' meshes this frame (extrasOf), each its registration, its
+  // instances (three draws the mesh's count), its side, its instance
+  // attributes' values and its uniforms as three would set them.
+  writeExtras(core, camera) {
+    const out = core.motionExtras, values = core.motionExtraValues;
+    let n = 0, at = 0;
+    for (const mesh of this.extras) {
+      const entry = this.extraEntries.get(mesh), o = 1 + n * EXTRA, count = Math.min(mesh.count, entry.max);
+      out[o + EX.ID] = entry.id; out[o + EX.INSTANCES] = count; out[o + EX.SIDE] = mesh.material.side; out[o + EX.AT] = at;
+      for (const { attribute, size } of entry.instanced) {
+        if (at + count * size > values.length) { out[o + EX.INSTANCES] = 0; break; }
+        values.set(attribute.array.subarray(0, count * size), at);
+        at += count * size;
+      }
+      const uniforms = entry.program.uniforms;
+      out[o + EX.UNIFORMS] = uniforms.length;
+      for (let k = 0; k < uniforms.length; k++) writeUniform(core, out, o + EX.FIRST + k * UNIFORM, k, uniforms[k], mesh.material, mesh, camera);
+      n++;
+    }
+    out[0] = n;
   }
 }
 

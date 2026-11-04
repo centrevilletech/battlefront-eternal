@@ -1044,10 +1044,11 @@ export class BfeRenderer {
     }
     /**
      * @param {number} three
+     * @param {number} image
      * @returns {Uint32Array}
      */
-    mirror_transparent_frame(three) {
-        const ret = wasm.bferenderer_mirror_transparent_frame(this.__wbg_ptr, three);
+    mirror_transparent_frame(three, image) {
+        const ret = wasm.bferenderer_mirror_transparent_frame(this.__wbg_ptr, three, image);
         if (ret[3]) {
             throw takeFromExternrefTable0(ret[2]);
         }
@@ -1067,6 +1068,50 @@ export class BfeRenderer {
      */
     motion_bones_ptr() {
         const ret = wasm.bferenderer_motion_bones_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} program
+     * @param {number} geometry
+     * @param {number} max
+     * @param {Uint32Array | number[]} layout
+     * @returns {number}
+     */
+    motion_extra(program, geometry, max, layout) {
+        const val2 = +program;
+        const val3 = +geometry;
+        const val4 = +max;
+        const ptr0 = passArray32ToWasm0(layout, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.bferenderer_motion_extra(this.__wbg_ptr, val2, val3, val4, ptr0, len0);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_extra_values_len() {
+        const ret = wasm.bferenderer_motion_extra_values_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_extra_values_ptr() {
+        const ret = wasm.bferenderer_motion_extra_values_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_extras_len() {
+        const ret = wasm.bferenderer_motion_extras_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    motion_extras_ptr() {
+        const ret = wasm.bferenderer_motion_extras_ptr(this.__wbg_ptr);
         return ret >>> 0;
     }
     /**
@@ -1178,6 +1223,20 @@ export class BfeRenderer {
         return ret >>> 0;
     }
     /**
+     * @returns {number}
+     */
+    post_states_len() {
+        const ret = wasm.bferenderer_post_states_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    post_states_ptr() {
+        const ret = wasm.bferenderer_post_states_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} texture
      * @returns {number}
      */
@@ -1198,6 +1257,19 @@ export class BfeRenderer {
     records_at() {
         const ret = wasm.bferenderer_records_at(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} steps
+     * @returns {Uint32Array}
+     */
+    screen_frame(steps) {
+        const ret = wasm.bferenderer_screen_frame(this.__wbg_ptr, steps);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * @param {number} texture
@@ -1327,10 +1399,11 @@ export class BfeRenderer {
     }
     /**
      * @param {number} three
+     * @param {number} image
      * @returns {Uint32Array}
      */
-    transparent_frame(three) {
-        const ret = wasm.bferenderer_transparent_frame(this.__wbg_ptr, three);
+    transparent_frame(three, image) {
+        const ret = wasm.bferenderer_transparent_frame(this.__wbg_ptr, three, image);
         if (ret[3]) {
             throw takeFromExternrefTable0(ret[2]);
         }
