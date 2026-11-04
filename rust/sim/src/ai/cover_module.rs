@@ -2,6 +2,7 @@
 //! observed through the hint service while helpers migrate to native state.
 
 use super::combat::math::{angle,dot32,f,length_sq_xz32,lookup_cos,normalize_xz,FLT_MAX};
+use super::module::state;
 use crate::gen::{import_ai_cover,AiCoverArgs,AiCoverOp as Op,AiCoverResult};
 
 fn call(op: Op,id: u32,number: f64) -> AiCoverResult {import_ai_cover(&AiCoverArgs {op,id,number})}
@@ -20,8 +21,10 @@ pub extern "C" fn ai_cover_score() -> f64 {
     let ex=f(v[6]-v[0]);let ey=f(v[7]-v[1]);let ez=f(v[8]-v[2]);
     if !(dot32(dx,0.0,dz,ex,ey,ez)<0.0) {return FLT_MAX;}
     let n=normalize_xz(f(v[0]-v[6]),f(v[2]-v[8]));
+    state().cover_normal=[n.x,n.y,n.z];
     let forward=call(Op::Forward,0,0.0).values;
-    if !(lookup_cos(angle::face_wide())<dot32(forward[0],forward[1],forward[2],n.x,n.y,n.z)) {return FLT_MAX;}
+    let n=state().cover_normal;
+    if !(lookup_cos(angle::face_wide())<dot32(forward[0],forward[1],forward[2],n[0],n[1],n[2])) {return FLT_MAX;}
     let r=range();let h2=length_sq_xz32(ex,ez);
     if !(h2<f(r*r)) {return FLT_MAX;}
     let low=call(Op::Lower,0,0.0);
