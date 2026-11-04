@@ -8,9 +8,9 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, TargetTracker, broadcastAcoustic, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
-import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
+import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -636,6 +636,129 @@ test('native weapon utility preserves exact damage math and callback-visible acc
     return {out,history,ownerKind:owner.kind};
   }
   for(let i=0;i<3072;i++)assert.deepEqual(run(true,i),run(false,i),`weapon utility ${i}`);
+});
+
+test('native acoustic and protection services preserve query reuse, limits and nested notifications', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0,nested=false,announced=false;const history=[],world={aiSim:native?sim:null};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(6000).fill(3));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapons=[{def:{MuteDistance:400},wait:.01},{def:{MuteDistance:'80'},charging:true},{def:{MuteDistance:NaN},busy:true}];
+    const units=Array.from({length:210},(_,id)=>({id,alive:true,generation:0,kind:id%9,team:id%3,position:new Vector3(id%9,0,id%11),velocity:new Vector3(),human:false}));
+    for(const u of units) {
+      const fire=new FireControl();if(native)sim.bindFire(fire);
+      u.controller={ai:{world},perception:{fire},addAcoustic(ref){
+        log('notify',u.id,ref.unit.id,ref.generation);
+        if(!nested && !announced && tick%17===0){announced=true;nested=true;log('nested',broadcastAcoustic(units[2],world,sounds));nested=false;}
+        if(tick%29===0)units[1].generation++;
+      }};
+      u.combat={arsenal:{current(channel){log('current',u.id,channel);return tick%13===0?null:weapons[(u.id+tick)%weapons.length];}}};
+    }
+    const buffers=new Map();
+    world.units={
+      *living(){log('living');for(let i=0;i<units.length;i++)if(units[i].alive){yield units[i];if(i===11 && tick%31===0)units[20].alive=false;}},
+      relation(a,b){return a===b?1:a===0||b===0?0:-1;},
+      query(at,radius,out,predicate){
+        log('query',radius,at.toArray());const key=radius===50?'protected':'acoustic';
+        if(buffers.has(key))assert.equal(out,buffers.get(key),'source query buffer identity');else buffers.set(key,out);
+        out.length=0;for(const u of units)if(u.alive&&predicate(u))out.push(u);
+        if(nested)out.splice(9);
+        if(tick%19===0)at.y+=.5;
+      },
+    };
+    function sounds(w){log('sound',weapons.indexOf(w),this===undefined);if(tick%23===0)units[0].velocity.z=9;return [undefined,null,0,-0,22,NaN][tick%6];}
+    return {world,units,weapons,history,sounds,setTick:i=>{tick=i;announced=false;}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<192;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;
+      for(const u of x.units){u.alive=(u.id+i)%37!==0;u.human=u.id<i%11;u.kind=(u.id+i)%9;u.generation=Math.floor(i/19);
+        u.position.set((u.id%9)-4,u.id%3?0:10,u.id%11);u.velocity.set(i%17===0?NaN:(u.id+i)%20,0,-0);}
+      const source=x.units[i%3];source.kind=i%9;source.alive=i%41!==0;
+      x.noise= noiseRadius(source,x.sounds);
+      x.count=broadcastAcoustic(source,x.world,x.sounds);
+      assert.equal(rebuildProtectedHumans(x.world),undefined);
+    }
+    assert.equal(n.noise,j.noise,`noise ${i}`);assert.equal(n.count,j.count,`broadcast count ${i}`);
+    assert.deepEqual(n.history,j.history,`awareness callbacks ${i}`);
+    const snapshot=x=>x.units.map(u=>[u.alive,u.generation,u.position.toArray(),u.controller.perception.fire.protected.map(r=>[r.unit.id,r.generation])]);
+    assert.deepEqual(snapshot(n),snapshot(j),`awareness state ${i}`);
+  }
+});
+
+test('native danger broadcasts preserve shared draws and callback-visible projectile timing', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0,nested=false,announced=false;const history=[],state={firstContact:0,lastNotify:-1},position=new Vector3(),world={aiSim:native?sim:null,time:0,randomA:new ClassicRandom(713)};
+    const snapshot=()=>[state.firstContact,state.lastNotify,position.toArray(),world.randomA.state];
+    const log=(...v)=>{history.push([...v,snapshot()]);if(native){sim.words(new Array(6000).fill(4));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const units=Array.from({length:190},(_,id)=>({id,human:id%7===0,kind:id%6,controller:null}));
+    const notify=(u,p)=>{log('notify',u.id,p.toArray());if(tick%29===0)p.x+=.125;
+      if(!nested && !announced && tick%17===0){announced=true;nested=true;log('nested',notifyDanger(world,{firstContact:-100,lastNotify:-100},position,units[3],15,null));nested=false;}};
+    for(const u of units)if(u.id%5)u.controller={notifyDanger:p=>notify(u,p)};
+    const range=world.randomA.range;
+    world.randomA.range=function(lo,hi){log('range',lo,hi);if(tick%23===0)state.lastNotify=-100;return range.call(this,lo,hi);};
+    world.units={query(at,radius,out,predicate){log('query',radius);out.length=0;for(const u of units)if(predicate(u))out.push(u);if(nested)out.splice(7);}};
+    const dangerRow=()=>{log('row');if(tick%19===0)state.firstContact=-100;return tick%7===0?null:tick%11===0?[]:[.15,.85];};
+    function onWarn(u){log('warn',u.id,this===undefined);state.lastNotify=333;if(u.controller && tick%13===0)u.controller.notifyDanger=null;}
+    return {history,state,position,world,units,dangerRow,onWarn,snapshot,setTick:i=>{tick=i;announced=false;for(const u of units)if(u.controller)u.controller.notifyDanger=p=>notify(u,p);}};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<384;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.world.time=i%41===0?NaN:i/6;
+      x.world.difficulty=i%3?{dangerRow:x.dangerRow}:null;
+      x.state.firstContact=i%5?x.world.time-3:Infinity;x.state.lastNotify=i%7?x.world.time-2:x.world.time;
+      x.position.set(i%17,-0,-i%9);
+      x.result=notifyDanger(x.world,x.state,x.position,i%2?x.units[1]:null,[13,14,16,17,NaN][i%5],i%31===0?null:x.onWarn);
+    }
+    assert.equal(n.result,j.result,`danger result ${i}`);
+    assert.deepEqual(n.history,j.history,`danger callbacks ${i}`);
+    assert.deepEqual(n.snapshot(),j.snapshot(),`danger state ${i}`);
+  }
+});
+
+test('native shot and damage alerts preserve crew order, attribution and nested delivery', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0,nested=false,announced=false;const history=[],world={aiSim:native?sim:null};
+    const packet={amount:5,generic:1,typed:1},position=new Vector3(),character={id:100,team:1},shooter={id:2,character,team:1,position};
+    const controllers=Array.from({length:5},(_,id)=>({id}));
+    const inner={id:9,alive:true,team:2,human:false,controller:controllers[3],vehicle:{seats:[{lease:{unit:{controller:controllers[4]}}}]}};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(6500).fill(2));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const notify=(id,source,known,p)=>{
+      log('notify',id,source.id,known,p?.toArray?.()??p);
+      if(!nested && !announced && tick%17===0){announced=true;nested=true;log('nested',notifyTargetedShot(world,shooter,inner));nested=false;}
+      if(p && tick%23===0){if(Array.isArray(p))p[0]+=.25;else p.x+=.25;}
+    };
+    const leases=controllers.map((c,id)=>({human:false,released:false,live:true,controllable:id%2?null:{controller:c},unit:{controller:c}}));
+    const target={id:7,alive:true,team:2,human:false,controller:controllers[0],seat:null,turret:null,vehicle:{seats:leases.map(lease=>({lease}))}};
+    world.units={relation(a,b){log('relation',a,b);if(tick%19===0)packet.generic=0;if(tick%29===0)target.human=true;return [-1,0,1,NaN][tick%4];}};
+    return {history,world,packet,position,character,shooter,controllers,leases,target,
+      setTick:i=>{tick=i;announced=false;for(const c of controllers)c.notifyShot=(source,known,p)=>notify(c.id,source,known,p);}};
+  }
+  const j=fixture(false),n=fixture(true);
+  assert.equal(broadcastAcoustic(null,undefined),0);
+  assert.equal(notifyTargetedShot(undefined,null,null),false);
+  assert.equal(notifyDamage(undefined,null,null,null),false);
+  for(let i=0;i<1536;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.position.set(i%7,-0,-i%11);
+      x.packet.amount=[0,1,2,5,NaN,Infinity,'3'][i%7];x.packet.generic=[undefined,0,.5,2][i%4];x.packet.typed=i%11?1:2;
+      x.shooter.character=i%31===0?null:x.character;x.shooter.team=i%43===0?undefined:1;
+      x.target.alive=i%37!==0;x.target.human=i%41===0;x.target.lease=i%13===0?{}:null;
+      x.target.seat=i%2?x.leases[1]:null;x.target.turret=i%3===0?{lease:x.leases[4]}:null;
+      for(let k=0;k<x.leases.length;k++){const lease=x.leases[k];lease.human=(i+k)%17===0;lease.released=(i+k)%19===0;lease.live=[true,false,0,undefined][(i+k)%4];}
+      if(i%23===0)x.controllers[1].notifyShot=null;
+      x.result=[notifyTargetedShot(x.world,i%47===0?null:x.shooter,x.target),
+        notifyDamage(x.world,x.target,i%53===0?null:i%5?x.shooter:x.character,x.packet,i%7===0?'known':false,i%3===0?null:x.position)];
+    }
+    assert.deepEqual(n.result,j.result,`alert returns ${i}`);
+    assert.deepEqual(n.history,j.history,`alert delivery ${i}`);
+    assert.deepEqual(n.position.toArray(),j.position.toArray());
+    assert.deepEqual(n.packet,j.packet);
+  }
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {
