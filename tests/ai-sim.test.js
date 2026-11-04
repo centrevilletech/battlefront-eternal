@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Vector3 } from 'three';
 import { ClassicNav, NavControl, PathExecutor } from '../src/ai/classic/nav/index.js';
 import { ClassicRandom } from '../src/ai/random.js';
 import { attachAiSim } from '../src/ai-sim.js';
@@ -150,4 +151,61 @@ test('native graph routing retains shared RNG draws, identities and diagnostics'
     assert.equal(n.nearestArc(p,mask)?.index,j.nearestArc(p,mask)?.index);
     assert.deepEqual(native.issues,js.issues);
   }
+});
+
+function controlView(c) {
+  const p = v => v ? [v.x,v.y,v.z] : null;
+  const e = c.executor;
+  return { generation:c.generation,serial:c.serial,disposed:c.disposed,ready:c.ready,segments:c.segments,
+    flags:[...c.installFlags],landing:c.landing,stance:c.stance,jet:[c.jet.pending,p(c.jet.vector),c.jetting],
+    avoid:c.avoidSide,stranded:[c.stranded,c.strandedFor,p(c.strandedAt)],leader:c.leader?.unit.tag??null,
+    trail:nodes(c.trail),trailDelay:c.trailDelay,published:nodes(c.published),
+    request:[c.request.valid,p(c.request.steeringTarget),p(c.request.waypoint),p(c.request.segmentDirection),c.request.mode,c.request.lower,c.request.upper],
+    executor:e ? { nodes:nodes(e.path),index:e.index,prev:p(e.prev),waypoint:p(e.waypoint),next:p(e.next),final:p(e.final),direction:p(e.direction),
+      mode:e.mode,side:e.side,complete:e.complete,status:e.status,anchor:p(e.anchor),stationary:e.stationary,best:e.best,noProgress:e.noProgress,hold:e.hold,target:p(e.target) } : null,
+    following:c.following,status:c.status };
+}
+
+test('native navigation controls retain executors, trails, contacts and life changes', async () => {
+  const {js,native}=await pair();
+  const unit = tag => ({tag,kind:0,generation:1,alive:true,position:new Vector3(-12,0,0),velocity:new Vector3(0,0,3),
+    soldier:{aimYaw:-0,avoidance:new Vector3()},forward:out=>out.set(.6,0,.8)});
+  const ju=unit('unit'),nu=unit('unit'),jl=unit('leader'),nl=unit('leader');
+  const jw={randomB:new ClassicRandom(367)},nw={randomB:new ClassicRandom(367)};
+  const jc=js.control({unit:ju,world:jw}),nc=native.control({unit:nu,world:nw});
+  assert.equal(nc.nativeControl,true);
+  const compare = label => {
+    assert.deepEqual(controlView(nc),controlView(jc),label);
+    assert.equal(nw.randomB.state,jw.randomB.state,label+' stream B');
+    assert.deepEqual(nu.soldier.avoidance,ju.soldier.avoidance,label+' contact');
+    assert.deepEqual([native.planner.pools.paths.used,native.planner.pools.nodes.used],[js.planner.pools.paths.used,js.planner.pools.nodes.used],label+' pools');
+  };
+  jc.attach(ju);nc.attach(nu); compare('attach');
+  for(let i=0;i<240;i++) {
+    const z=i/12;
+    ju.position.set(-12,0,z);nu.position.copy(ju.position);
+    jl.position.set(-10+Math.sin(i/9),0,z+4);nl.position.copy(jl.position);
+    if(i%30===0) {
+      const a=point(-12,0,z),b=point(-12,0,z+3);
+      jc.install(js.planner.segment(a,b));nc.install(native.planner.segment(a,b));
+    } else if(i%30===4) {
+      const a=point(-12,0,z+3),b=point(-11,0,z+5);
+      jc.append(js.planner.segment(a,b));nc.append(native.planner.segment(a,b));
+    } else if(i%30===6) { jc.executor.hold=true;nc.executor.hold=true; }
+    else if(i%30===8) { jc.executor.hold=false;nc.executor.hold=false; }
+    else if(i%30===10) {
+      jc.setLeader({unit:jl,generation:1});nc.setLeader({unit:nl,generation:1});
+      jc.recordTrail(true);nc.recordTrail(true);
+    } else if(i%30===15) { jc.recordTrail(false);nc.recordTrail(false); }
+    else if(i%30===20) { jc.setLeader(null);nc.setLeader(null);jc.strand();nc.strand(); }
+    else if(i%30===25) { jc.stop();nc.stop(); }
+    if(i%17===0) { ju.soldier.avoidance.set(1,0,-.25);nu.soldier.avoidance.copy(ju.soldier.avoidance); }
+    jc.update(1/60);nc.update(1/60); compare(`step ${i}`);
+    if(i===119) { ju.generation++;nu.generation++;jc.attach(ju);nc.attach(nu);compare('new life'); }
+  }
+  jc.reset();nc.reset(); compare('reset');
+  jc.request.write(point(-0,0,1),point(1,2,3),point(0,0,1),2,-1,1);
+  nc.request.write(point(-0,0,1),point(1,2,3),point(0,0,1),2,-1,1);
+  nc.read();compare('shared request writes');
+  jc.dispose();nc.dispose();compare('dispose');
 });

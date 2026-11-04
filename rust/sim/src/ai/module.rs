@@ -12,7 +12,7 @@ pub struct State {
     pub vehicles: VehicleAI,
     pub core: Option<Core>,
     pub combat: CombatAi,
-    out: Vec<f64>,
+    pub(super) out: Vec<f64>,
 }
 
 static mut STATE: Option<State> = None;
