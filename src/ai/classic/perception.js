@@ -889,6 +889,7 @@ const delta = new THREE.Vector3();
 // soldier that heard it but cannot engage instead dodges to a random point
 // within 1 of itself (mode 2).
 export function alertResponse(controller, world, agent, dispatch) {
+  if(world?.aiSim)return world.aiSim.awareness.alertResponse(controller,world,agent,dispatch);
   const shot = controller.shot;
   if (!shot?.pending) return null;
   const unit = controller.unit;

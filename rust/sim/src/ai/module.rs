@@ -23,6 +23,7 @@ pub struct State {
     pub(super) protection_targets: Vec<u32>,
     pub(super) trackers: Vec<super::perception_module::TrackerState>,
     pub(super) fires: Vec<super::fire_module::FireState>,
+    pub(super) fsms: Vec<super::fsm_module::LiveFsm>,
     pub(super) aimers: Vec<Aimer>,
     pub(super) enhanced_aimers: Vec<EnhancedAimer>,
     pub(super) out: Vec<f64>,
@@ -99,7 +100,7 @@ pub extern "C" fn ai_nav_init() -> u32 {
     };
     nav.publications = Some(Vec::new());
     // SAFETY: initialization is called before AI work begins on this instance.
-    unsafe { *addr_of_mut!(STATE) = Some(State { nav, vehicles: VehicleAI::new(), core: None, scheduler: Default::default(), combat: CombatAi::default(), heaps: Vec::new(), perceptions: Vec::new(), sight_queues: Vec::new(), scan_targets: Vec::new(), acoustic_targets: Vec::new(), danger_targets: Vec::new(), alerted: Vec::new(), protection_targets: Vec::new(), trackers: Vec::new(), fires: Vec::new(), aimers: Vec::new(), enhanced_aimers: Vec::new(), out: Vec::new() }); }
+    unsafe { *addr_of_mut!(STATE) = Some(State { nav, vehicles: VehicleAI::new(), core: None, scheduler: Default::default(), combat: CombatAi::default(), heaps: Vec::new(), perceptions: Vec::new(), sight_queues: Vec::new(), scan_targets: Vec::new(), acoustic_targets: Vec::new(), danger_targets: Vec::new(), alerted: Vec::new(), protection_targets: Vec::new(), trackers: Vec::new(), fires: Vec::new(), fsms: Vec::new(), aimers: Vec::new(), enhanced_aimers: Vec::new(), out: Vec::new() }); }
     0
 }
 

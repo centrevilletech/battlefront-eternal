@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiAwarenessOp_NAMES = ["alive","motion","weapon","active","mute","query","recipient","notify","livingStart","livingNext","clear","protectQuery","protectRecipient","protectAppend","dangerRow","dangerDraw","dangerTime","dangerFirst","dangerLast","dangerQuery","dangerRecipient","dangerWarn","dangerHasNotify","dangerNotify","dangerWrite","shotStart","shotSource","shotRelation","shotHuman","damageStart","damageRelation","damagePacket","alertSeat","alertSeatController","alertOwn","alertCanNotify","alertBody","alertLeases","alertLease","alertCrew","alertNotify","hazardStart","responseUnit","responseWeapon","hazardAccept","responseKind","responseDangerRegion","hazardPoint","responseResult","acousticList","acousticStart","acousticNext","acousticAccept","responseSensor","acousticPoint","responseHorizontal","responseMountStart","responseStay","responseReach","responseCanReach"];
+export const AiAwarenessOp_NAMES = ["alive","motion","weapon","active","mute","query","recipient","notify","livingStart","livingNext","clear","protectQuery","protectRecipient","protectAppend","dangerRow","dangerDraw","dangerTime","dangerFirst","dangerLast","dangerQuery","dangerRecipient","dangerWarn","dangerHasNotify","dangerNotify","dangerWrite","shotStart","shotSource","shotRelation","shotHuman","damageStart","damageRelation","damagePacket","alertSeat","alertSeatController","alertOwn","alertCanNotify","alertBody","alertLeases","alertLease","alertCrew","alertNotify","hazardStart","responseUnit","responseWeapon","hazardAccept","responseKind","responseDangerRegion","hazardPoint","responseResult","acousticList","acousticStart","acousticNext","acousticAccept","responseSensor","acousticPoint","responseHorizontal","responseMountStart","responseStay","responseReach","responseCanReach","responseShot","responseSource","responsePoint","responseAlertAccept","responseSight","responseDelta","responseArmed","responseDispatch","responseRandom","responseDraw","responsePosition","responseDodge"];
 export const AiAwarenessOp_INDEX = new Map(AiAwarenessOp_NAMES.map((name, i) => [name, i]));
 
 export class AiAwarenessArgsMirror {
@@ -11,6 +11,7 @@ export class AiAwarenessArgsMirror {
     this.id = 0;
     this.number = NaN;
     this.other = NaN;
+    this.point = [NaN, NaN, NaN];
   }
 }
 
@@ -19,6 +20,7 @@ export function syncAiAwarenessArgs(b, f, at, h, m) {
   m.id = f[at + 1];
   m.number = f[at + 2];
   m.other = f[at + 3];
+  { const a = (m.point ??= new Array(3)); a[0] = f[at + 4]; a[1] = f[at + 5]; a[2] = f[at + 6]; }
   return m;
 }
 
@@ -27,6 +29,7 @@ export function putAiAwarenessArgs(b, o, f, at, heap) {
   f[at + 1] = o.id;
   f[at + 2] = o.number;
   f[at + 3] = o.other;
+  { const $v = o.point; f[at + 4] = $v[0]; f[at + 5] = $v[1]; f[at + 6] = $v[2]; }
 }
 
 export function sameAiAwarenessArgs(a, b) {
@@ -34,6 +37,7 @@ export function sameAiAwarenessArgs(a, b) {
   if (!Object.is(a.id, b.id)) return ".id";
   if (!Object.is(a.number, b.number)) return ".number";
   if (!Object.is(a.other, b.other)) return ".other";
+  if (!sameArray(a.point, b.point, 3)) return ".point";
   return null;
 }
 
@@ -46,6 +50,7 @@ export function exportAiAwarenessArgs(o, cx) {
   v.id = o.id;
   v.number = o.number;
   v.other = o.other;
+  v.point = [...o.point];
   return v;
 }
 
