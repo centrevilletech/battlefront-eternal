@@ -7,12 +7,19 @@ import { putDbInput, DbStateMirror, syncDbState } from "./sim/gen/props.js";
 
 const ZERO = new THREE.Vector3();
 export class DebrisIds {
-  constructor() { this.meshes = []; this.bodies = []; this.effects = []; this.meshMap = new Map(); this.bodyMap = new Map(); this.effectMap = new Map(); }
+  constructor() {
+    this.meshes = []; this.bodies = []; this.effects = []; this.meshMap = new Map(); this.bodyMap = new Map(); this.effectMap = new Map();
+    this.free = { mesh: [], body: [], effect: [] };
+  }
   key(kind, value) {
     if (value == null) return null;
     const values = this[{ mesh: "meshes", body: "bodies", effect: "effects" }[kind]], ids = this[`${kind}Map`];
-    if (!ids.has(value)) { ids.set(value, values.length); values.push(value); }
+    if (!ids.has(value)) { const id = this.free[kind].pop() ?? values.length; ids.set(value, id); values[id] = value; }
     return ids.get(value);
+  }
+  release(kind, kept) {
+    const values = this[{ mesh: 'meshes', body: 'bodies', effect: 'effects' }[kind]], ids = this[`${kind}Map`];
+    for (const [value, id] of ids) if (!kept.has(value)) { ids.delete(value); values[id] = null; this.free[kind].push(id); }
   }
 }
 // Text remains JavaScript text, including case conversion and empty names.
@@ -55,6 +62,11 @@ export class DebrisSim {
     const pieces = result.pieces.map(p => this.publish(p));
     if (op === "update" || op === "clear") d.pieces = pieces;
     else for (const p of pieces) if (!d.pieces.includes(p)) d.pieces.push(p);
+    const live = new Set(d.pieces.map(p => this.ids.key("mesh", p.mesh)));
+    for (const id of this.pieces.keys()) if (!live.has(id)) { this.pieces.delete(id); this.chunks.delete(id); }
+    this.ids.release("mesh", new Set(d.pieces.map(p => p.mesh)));
+    this.ids.release("body", new Set(d.pieces.map(p => p.ignore)));
+    this.ids.release("effect", new Set(d.pieces.flatMap(p => [p.trail, p.smoke])));
   }
   publish(v) {
     let p = this.pieces.get(v.id);
