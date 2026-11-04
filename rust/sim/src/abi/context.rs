@@ -12,6 +12,12 @@
 //! Rc makes handles !Send and !Sync. All buffers returned here are owned copies,
 //! valid after growth, nested calls and disposal. Entity and string IDs are local
 //! to this context. Store-only reset is deliberately not a context operation.
+#[path = "context_input.rs"]
+mod input;
+#[path = "context_world.rs"]
+mod world;
+pub use world::{NetworkResult, WorldFailure};
+
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
