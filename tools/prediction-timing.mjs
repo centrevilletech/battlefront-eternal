@@ -23,7 +23,7 @@ import {PlayoutClock} from '../src/runtime/playout.js';
 import {SnapshotInterval} from '../src/runtime/snapshot-interval.js';
 import {InputLead,advanceInputClock,replayTicks,CorrectionSmoother} from '../src/runtime/reconcile.js';
 
-export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=null,rays=null,start=[0,0,0],yaw=0,quantized=false,lossEvery=0,snapshotLossEvery=0,native=null,observe=null}={}) {
+export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=null,rays=null,start=[0,0,0],yaw=0,quantized=false,lossEvery=0,snapshotLossEvery=0,native=null,nativeReplay=null,observe=null}={}) {
  world??=new CollisionWorld(new Float32Array([-100,0,-100,100,0,-100,100,0,100,-100,0,100]),new Uint32Array([0,2,1,0,3,2]),new Uint32Array([0,1]),undefined,undefined,rays);
  if(world.rays&&!world.movement)world.movement=new MovementKernel(world);
  const digest=createHash('sha1'),ticked=new Float64Array(6);
@@ -70,11 +70,12 @@ export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=
   }
   if(pending.length){
    saved=captureCompactSoldier(local);const checkTick=predictedTick>applied?predictedTick:0,previous=predictedPosition.clone();
-   predictedTick=replayTicks(pending,applied,1,held,(tick,command)=>{
+   predictedTick=replayTicks(pending,applied,1,held,(tick,command,sequences)=>{
+    observe?.('replay',command,{tick,sequences});
     if(command.last)presentation.beforeStep();physics(local,command);
     if(tick===checkTick){const distance=previous.distanceTo(local.position);if(distance>1e-6)corrections.push(distance);smoother.note(...previous.toArray(),...local.position.toArray());}
     if(command.last)presentation.afterStep();
-   });predictedPosition.copy(local.position);predicted=true;
+   },{}, {native:nativeReplay});predictedPosition.copy(local.position);predicted=true;
   }
   presentation.update(dt,predicted?input.alpha:interval.alpha(clock));const visual=presentation.position.x*Math.sin(yaw)+presentation.position.z*Math.cos(yaw)+(predicted?smoother.x*Math.sin(yaw)+smoother.z*Math.cos(yaw):0);
   for(const response of responses){if(now<response.at)response.baseline=visual;else if(response.visible===null&&response.baseline!==null&&visual-response.baseline>.001)response.visible=(now-response.at)*1000;}

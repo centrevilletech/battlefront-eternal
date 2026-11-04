@@ -227,36 +227,55 @@ export function advanceInputClock(clock, target, dt, step, bound = target + 7, {
 // in; `command.last`: the final tick) and returns the last tick replayed,
 // or `from` if nothing was replayed.
 const REPLAY_VIEW_FIELDS = ['mouseScale', 'invertMouse', 'firstPerson', 'aspect', 'viewTick', 'flightSettings', 'gamepad'];
-export function replayTicks(pending, from, generation, held, apply, initialView = {}) {
-  let last = from;
-  for (const command of pending) if (command.generation === generation && command.tick > last) last = command.tick;
-  let mine = false;
-  for (const command of pending) if (command.generation === generation) { mine = true; break; }
-  if (!mine) return from;
-  // Commands the world took late are applied on the first tick it can.
-  if (last === from) last = from + 1;
-  let index = 0, down = held;
-  // Semantic own-player corrections include the authoritative persistent view
-  // at `from`. A gap before the first pending command must replay with that
-  // context, especially flight/gamepad state, rather than renderer defaults.
-  const view = {};
-  for (const key of REPLAY_VIEW_FIELDS) if (initialView[key] !== undefined) view[key] = initialView[key];
-  for (let tick = from + 1; tick <= last; tick++) {
-    const actions = [], look = [], sequences = [];
-    let any = false;
-    while (index < pending.length && pending[index].tick <= tick) {
-      const command = pending[index++];
-      if (command.generation !== generation) continue;
-      any = true; sequences.push(command.sequence);
-      for (const action of command.actions) actions.push(action);
-      if (command.sent === false) continue;
-      down = command.down;
-      for (const sample of command.worldLook ?? command.look) look.push(sample);
-      for (const key of REPLAY_VIEW_FIELDS) if (command[key] !== undefined) view[key] = command[key];
+export function replayTicks(pending, from, generation, held, apply, initialView = {}, { native = null } = {}) {
+  const cursor = native?.begin(pending, from, generation) ?? null;
+  let failed = false;
+  try {
+    let last = from, mine = false;
+    if (cursor) { const position = cursor.position; last = position.last; mine = position.mine; }
+    else {
+      for (const command of pending) if (command.generation === generation && command.tick > last) last = command.tick;
+      for (const command of pending) if (command.generation === generation) { mine = true; break; }
     }
-    apply(tick, { tick, generation, down, actions, look, any, last: tick === last, ...view }, sequences);
-  }
-  return last;
+    if (!mine) return from;
+    // Commands the world took late are applied on the first tick it can.
+    if (!cursor && last === from) last = from + 1;
+    let index = 0, down = held;
+    // Semantic own-player corrections include the authoritative persistent view
+    // at `from`. A gap before the first pending command must replay with that
+    // context, especially flight/gamepad state, rather than renderer defaults.
+    const view = {};
+    for (const key of REPLAY_VIEW_FIELDS) if (initialView[key] !== undefined) view[key] = initialView[key];
+    let current = cursor, tick = cursor ? cursor.position.tick : from + 1;
+    while (tick <= last) {
+      const actions = [], look = [], sequences = [];
+      let any = false;
+      const frame = current?.frame(pending, down, view, REPLAY_VIEW_FIELDS, { actions, look, sequences }) ?? null;
+      if (frame) {
+        index = frame.index; down = frame.down;
+        apply(tick, frame.command, frame.sequences);
+        tick = current.advance().tick;
+        continue;
+      }
+      // Once an observable frame appears, retain these locals and finish in
+      // the original loop. No scan, view read, action or callback is retried.
+      current = null;
+      while (index < pending.length && pending[index].tick <= tick) {
+        const command = pending[index++];
+        if (command.generation !== generation) continue;
+        any = true; sequences.push(command.sequence);
+        for (const action of command.actions) actions.push(action);
+        if (command.sent === false) continue;
+        down = command.down;
+        for (const sample of command.worldLook ?? command.look) look.push(sample);
+        for (const key of REPLAY_VIEW_FIELDS) if (command[key] !== undefined) view[key] = command[key];
+      }
+      apply(tick, { tick, generation, down, actions, look, any, last: tick === last, ...view }, sequences);
+      tick++;
+    }
+    return last;
+  } catch (error) { failed = true; throw error; }
+  finally { cursor?.finish(failed); }
 }
 
 // A visual offset that hides a small correction to the predicted position:
