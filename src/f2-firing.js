@@ -45,7 +45,9 @@ export class F2Firing {
   }
   supply(v, amount) {
     const a = this.supplyRow; a.hull = v; a.life = v.aiTarget.generation; a.amount = amount;
-    this.bridge.callArgs(this.supplyArgs, a);
+    const previous = this.bridge.x; this.bridge.x = this.phase.x;
+    try { this.bridge.callArgs(this.supplyArgs, a); } finally { this.bridge.x = previous; }
+    this.phase.counters.inputFields += this.supplyArgs.words;
     const ptr = this.phase.x.f2_firing_supply();
     const result = this.bridge.callResult(this.supplyResultType, ptr, this.supplyResult);
     this.sync(result.output, 0); return result.changed;
