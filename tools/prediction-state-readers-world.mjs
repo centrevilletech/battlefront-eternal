@@ -9,7 +9,7 @@ import { capturePlayerCorrection } from '../src/runtime/network-entity-capture.j
 import { decodeOwnPlayer } from '../src/runtime/network-entity-player.js';
 import { validateArsenalWeapon } from '../src/runtime/network-arsenal-state.js';
 import { captureWeaponState } from '../src/runtime/network-weapon-state.js';
-import { validateMountedControl } from '../src/runtime/network-mounted-control.js';
+import { captureMountedControl, validateMountedControl } from '../src/runtime/network-mounted-control.js';
 import { createCorrectionBridge } from '../src/runtime/correction-sim.js';
 import { contentManifest } from '../src/runtime/content-hash.js';
 
@@ -89,6 +89,7 @@ export function ticked(tick) {
     inventory++;
   }
   if (data.mounted) {
+    const mountedBefore = captureMountedControl(unit);
     const first = native.calls, expected = validateMountedControl(unit, data.mounted), actual = validateMountedControl(unit, data.mounted, native);
     assert.ok(native.calls > first, `${label} native mounted parsing`);
     assert.equal(actual.target, expected.target); assert.deepEqual(actual.state, expected.state);
@@ -99,6 +100,7 @@ export function ticked(tick) {
       assert.equal(actual.weapons[i].barrel, expected.weapons[i].barrel);
       mountedWeapons++;
     }
+    assert.deepEqual(captureMountedControl(unit), mountedBefore, `${label} mounted aim, weapon, melee and barrel state unchanged`);
     mounted++;
   }
   assert.deepEqual(new Uint8Array(record.payload.buffer, record.payload.byteOffset, record.payload.byteLength), before, `${label} source bytes unchanged`);
@@ -113,7 +115,10 @@ export function ended() {
 
 export async function finish() {
   assert.equal(current, null);
-  assert.ok(samples > 0 && inventory > 0 && Object.keys(opcodes).some(op => Number(op) > 8), 'live corrections reached staged native parsing');
+  assert.ok(samples > 0 && inventory > 0, 'live corrections sampled');
+  for (const op of [9, 10, 12]) assert.ok(opcodes[op] > 0, `live arsenal phase ${op} delegated`);
+  if (mounted) assert.ok(opcodes[7] > 0, 'live mounted envelope delegated');
+  if (melee) assert.ok(opcodes[11] > 0, 'live melee phase delegated');
   if (descriptor !== null) { closeSync(descriptor); descriptor = null; }
   const authentication = [];
   for (const query of queries) {

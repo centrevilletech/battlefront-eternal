@@ -2,8 +2,8 @@
 // restore private copies and continue replay. Native transcripts stay external.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { openSync, writeSync, closeSync, writeFileSync, existsSync } from 'node:fs';
-import { resolve, relative, isAbsolute, dirname, join } from 'node:path';
+import { openSync, writeSync, closeSync, writeFileSync, existsSync, realpathSync } from 'node:fs';
+import { resolve, relative, isAbsolute, dirname, basename, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { root } from './headless-world.mjs';
 import { contentManifest } from '../src/runtime/content-hash.js';
@@ -61,14 +61,17 @@ for (const side of ['rep', 'cis', 'all', 'imp']) {
 }
 assert.ok(definitions.size > 0 && loadouts.length > 0, 'authenticated definitions');
 
-const corpusPath = option('corpus') ? resolve(option('corpus')) : null;
+const requestedCorpus = option('corpus') ? resolve(option('corpus')) : null;
+const corpusPath = requestedCorpus ? join(realpathSync(dirname(requestedCorpus)), basename(requestedCorpus)) : null;
 if (corpusPath) {
-  const within = relative(root, corpusPath);
+  const within = relative(realpathSync(root), corpusPath);
   assert.ok(isAbsolute(within) || within === '..' || within.startsWith('../'), 'content corpus must stay outside the checkout');
   for (let dir = dirname(corpusPath); ; dir = dirname(dir)) {
     assert.equal(existsSync(join(dir, '.git')), false, 'content corpus must stay outside repositories');
     if (dir === dirname(dir)) break;
   }
+  assert.equal(existsSync(corpusPath), false, 'content corpus already exists');
+  assert.equal(existsSync(corpusPath + '.manifest.json'), false, 'content corpus manifest already exists');
 }
 const descriptor = corpusPath ? openSync(corpusPath, 'wx') : null;
 const corpusHash = createHash('sha256'), stateHash = createHash('sha256'), opcodes = {}, bases = new Set();
@@ -207,7 +210,8 @@ try {
     } finally { actualWorld.dispose(); expectedWorld.dispose(); }
   }
   assert.ok(weaponCheckpoints > 500 && reconCheckpoints >= 60 && salvoCheckpoints > 0);
-  assert.ok(Object.keys(opcodes).filter(op => Number(op) > 8).length > 5, 'staged native paths covered');
+  for (const op of [9, 10, 12, 13, 14, 15, 16, 17, 18]) assert.ok(opcodes[op] > 0, `authenticated parser phase ${op} delegated`);
+  if (meleeCheckpoints) assert.ok(opcodes[11] > 0, 'authenticated melee phase delegated');
   report = { revision, authentication, files: [...files.values()], definitionHashes: [...definitions.keys()],
     loadouts: loadouts.length, reconDefinitions: definitions.size, maps: 2, weaponCheckpoints, meleeCheckpoints, reconCheckpoints, salvoCheckpoints,
     continuationTicks, bases: [...bases].sort(), operations, opcodes, stateSha256: stateHash.digest('hex'), corpusBytes, corpusSha256: corpusHash.digest('hex') };
