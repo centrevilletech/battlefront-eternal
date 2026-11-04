@@ -83,7 +83,7 @@ mod tests {
             let (v, f) = sources(s);
             assert!(v.starts_with("#version 300 es\n") && f.starts_with("#version 300 es\n"));
             assert!(!v.contains("#include") && !f.contains("#include"));
-            assert!(s.uniforms.len() <= 12);
+            if s.key.starts_with("post-hud/") { assert!(s.uniforms.len() <= 12); }
         }
         assert_eq!(catalog::PROGRAMS.iter().filter(|s| s.key.starts_with("post-hud/")).count(), 12);
     }

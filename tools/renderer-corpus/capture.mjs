@@ -61,10 +61,10 @@ const setup = await c.ev(`(async () => { const b = __bf, g = b.graphics, R = b.r
 await c.ev(`(() => { const g = __bf.graphics, R = g.renderer, gl = R.getContext(), T = window.__gatePar, before = g.postSteps;
  g.postSteps = function (...args) {
    if (T.want) { T.stages = {}; const old = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
-     for (const [name, target] of [['far', g.farTarget], ['scene', g.sceneTarget], ...(g.scene.userData.water?.reflectionFar ? [['reflection',g.scene.userData.water.target],['reflectionFar',g.scene.userData.water.reflectionFar]] : [])]) {
-       const buf = new Uint8Array(target.width * target.height * 4);
+     for (const [name, target] of [['far', g.farTarget], ['scene', g.sceneTarget], ...(g.upscaling === 'temporal' ? [['velocity',g.upscaler.velocity],['motion',g.upscaler.motion],['history',g.upscaler.history[g.upscaler.read]]] : []), ...(g.scene.userData.water?.reflectionFar ? [['reflection',g.scene.userData.water.target],['reflectionFar',g.scene.userData.water.reflectionFar]] : [])]) {
+       const half = target.texture.type === 1016; const buf = half ? new Uint16Array(target.width * target.height * 4) : new Uint8Array(target.width * target.height * 4);
        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, R.properties.get(target).__webglFramebuffer);
-       gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, buf); T.stages[name] = buf;
+       gl.readPixels(0, 0, target.width, target.height, gl.RGBA, half ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE, buf); T.stages[name] = buf;
      } gl.bindFramebuffer(gl.READ_FRAMEBUFFER, old);
    } return before.apply(this, args);
  }; return 1; })()`);
@@ -72,11 +72,20 @@ await c.ev(`(() => {
  const g=__bf.graphics, rust=g.rust, R=g.renderer, gl=R.getContext(), T=window.__gatePar;
  T.pairs=[];
  const read=(target)=> { const w=target?.width || gl.drawingBufferWidth,h=target?.height || gl.drawingBufferHeight,buf=target?.texture.type === 1016 ? new Uint16Array(w*h*4) : target?.texture.type === 1015 ? new Float32Array(w*h*4) : new Uint8Array(w*h*4); if(target) R.readRenderTargetPixels(target,0,0,w,h,buf); else { R.setRenderTarget(null);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,buf); } const error=gl.getError();if(error)throw Error('stage read GL '+error+' type '+target?.texture.type);return buf; };
- const diff=(a,b)=> {let differing=0,maxDelta=0;for(let i=0;i<a.length;i+=4){let d=0;for(let j=0;j<3;j++)d=Math.max(d,Math.abs(a[i+j]-b[i+j]));if(d){differing++;maxDelta=Math.max(maxDelta,d);}}return {differing,maxDelta};};
+ const diff=(a,b)=> {let differing=0,maxDelta=0;for(let i=0;i<a.length;i+=4){let d=0;for(let j=0;j<4;j++)d=Math.max(d,Math.abs(a[i+j]-b[i+j]));if(d){differing++;maxDelta=Math.max(maxDelta,d);}}return {differing,maxDelta};};
  const post=rust.post;
  rust.post=function(renderer,steps) {
    if(!T.want || !this.active || !this.enabled) return post.call(this,renderer,steps);
    const mode=this.ownedShaderSources;
+   if (${process.env.WHOLE_CHAIN ? 'true' : 'false'}) {
+     const images={},drawn={};
+     for(const owned of (mode === false ? [true,false] : [false,true])) {
+       this.ownedShaderSources=owned;drawn[owned]=post.call(this,renderer,steps);
+       if(!drawn[owned]) for(const step of steps)g.postStep(renderer,step);
+       images[owned]=read(steps[steps.length-1].target);
+     }
+     T.pairs.push({key:'whole-chain',bridge:drawn.false,owned:drawn.true,...diff(images.false,images.true)});
+   }
    for(const step of steps) {
      const images={}, drawn={};
      for(const owned of (mode === false ? [true,false] : [false,true])) {
@@ -244,7 +253,7 @@ const shaderDir = `${OUT}/shaders`;
 fs.mkdirSync(shaderDir, { recursive: true });
 for (const shader of inputHashes.shaders) { fs.writeFileSync(`${shaderDir}/${shader.hash}.glsl`, shader.source); delete shader.source; }
 const good = points.filter((p) => p.valid && p.rust && !p.rust.error);
-const sizeOk = setup.buffer[0] === 1600 && setup.buffer[1] === 900 && setup.target[0] === 1600 && setup.target[1] === 900;
+const sizeOk = setup.buffer[0] === 1600 && setup.buffer[1] === 900 && setup.target[0] === Math.round(1600 * testCase.settings.renderScale) && setup.target[1] === Math.round(900 * testCase.settings.renderScale);
 const samplesNote = setup.samples === WANT_SAMPLES ? `${setup.samples} samples` : (setup.supportedSamples || []).includes(WANT_SAMPLES) ? `${setup.samples} samples, not the ${WANT_SAMPLES} asked` : `${setup.samples} samples: the GPU offers ${JSON.stringify(setup.supportedSamples)}, no ${WANT_SAMPLES}`;
 const out = {
   contract: { version: manifest.version, captures: CAPTURES, gap: GAP, historyFrames: manifest.historyFrames },
