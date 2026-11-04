@@ -125,3 +125,37 @@ test('a human pilot shares a nonnull target with the same gunner object',async()
     assert.equal(f.service.sharedTarget(f.c),target);
   }
 });
+
+test('native steering matches the source for every mounted family and preserves bags',async()=>{
+  for(const kind of [2,5,6,7])for(const empty of [false,true]) {
+    const js=await fixture(),rs=await fixture(true);
+    for(const f of [js,rs]) {
+      f.unit.kind=kind;f.unit.classDef.TurnRate=2;f.unit.classDef.PitchRate=1;
+      f.unit.classDef.MaxPitchSpeed=0.5;f.unit.classDef.MaxTurnSpeed=2;f.unit.classDef.MaxYawSpeed=1;
+      f.unit.classDef.MovingTurnOnly=true;
+      if(empty)f.unit.steer={};
+      const original=f.unit.steer;
+      const r={valid:true,steeringTarget:v(30,21,100),waypoint:v(30,21,100),segmentDirection:v(0,0,1),mode:1,lower:-1,upper:1};
+      const out={};f.answer=out;
+      for(let i=0;i<8;i++){f.world.time+=0.1;assert.equal(f.service.analogs(f.unit,r,v(20,24,90),0.1,out),out);}
+      if(original)assert.equal(f.unit.steer,original);
+    }
+    assert.deepEqual(rs.answer,js.answer,`${kind}/${empty} stick`);
+    assert.deepEqual(rs.unit.steer,js.unit.steer,`${kind}/${empty} steer`);
+    assert.deepEqual(rs.unit.intent,js.unit.intent,`${kind}/${empty} intent`);
+  }
+});
+
+test('callbacks consume generator A draws between native pattern draws',async()=>{
+  const js=await fixture(),rs=await fixture(true);
+  for(const f of [js,rs]) {
+    const a=f.agent(2),target={...f.unit,id:9,position:v(10,20,-10)};
+    a.tracker={point:target.position,freshTarget:target,target,setDelay(){f.events.push(['delayDraw',f.ai.randomA.next()]);}};
+    const goto=f.helper.goto;
+    f.helper.goto=(p,o)=>{f.events.push(['helperDraw',f.ai.randomA.next()]);f.service.reserveTarget(target,f.unit);goto(p,o);};
+    const p={agent:a,controller:f.c,world:f.world,random:f.ai.randomA,face:()=>{}};
+    f.service.enterPattern(p,14);for(let i=0;i<30;i++)f.service.tickPattern(p,14,0.1);
+    f.pattern=p;
+  }
+  assert.deepEqual(rs.events,js.events);assert.deepEqual(rs.pattern.vehicle,js.pattern.vehicle);assert.equal(rs.ai.randomA.state,js.ai.randomA.state);
+});

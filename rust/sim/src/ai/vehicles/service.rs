@@ -994,7 +994,7 @@ pub trait VehicleServices: VehicleStorage {
                 }
                 support::sort_by_distance(&mut hubs);
                 self.write(|s| match s.support_cache.iter_mut().find(|(p, _)| *p == post) {
-                    Some((_, m)) => m.push((key, hubs.clone())),
+                    Some((_, m)) => match m.iter_mut().find(|(k,_)| *k==key) { Some((_,value))=>*value=hubs.clone(), None=>m.push((key,hubs.clone())) },
                     None => s.support_cache.push((post, vec![(key, hubs.clone())])),
                 });
                 hubs

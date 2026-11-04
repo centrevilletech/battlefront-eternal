@@ -2,6 +2,9 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
+export const AiVehicleAuxOp_NAMES = ["padGet","padSet","counterGet","counterSet","supportRead","bodyOf","entryOf","leaseOf","controllerLease","nominalSpeed","bodyReach","walkerContacts","walkerContact","reachable","playerNear","stationary","boardTick","consider","reservationLive"];
+export const AiVehicleAuxOp_INDEX = new Map(AiVehicleAuxOp_NAMES.map((name, i) => [name, i]));
+
 export const AiVehicleServiceOp_NAMES = ["currentControllable","seatCount","occupiedSeats","humanOccupants","humanAboard","boardables","cyclesPerSecond","boarded","boardedVehicle","boardedVehicleOf","boardedVehicleOfCharacter","isMountedTurret","emptySeats","crewControllers","seatsFull","pendingReservations","requestExit","lowTickets","pilotKeepsSeat","alertsBlocked","refusesHold","canEnter","freeSeats","reserve","reserveSeat","holdReservation","boardNow","boardPathClear","relation","targetReserved","reserveTarget","mountReach","unreachableFromMount","sharedTarget","isAtAt","holdHint","closeHint","disembarkPassengers","destroyStuck","abandonPad","updateDecay","supportPoint","notify","boardPolicy","patrolMounted","dispatch","analogs","seatInput","controllerPolicy","mountedState","agentFor","createHelper","reservationRead","reservationClear","reservationRelease","reservationHas","reservationCount"];
 export const AiVehicleServiceOp_INDEX = new Map(AiVehicleServiceOp_NAMES.map((name, i) => [name, i]));
 

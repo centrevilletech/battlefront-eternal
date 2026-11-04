@@ -41,7 +41,7 @@ impl World for LiveWorld {
     }
     fn capture_region(&mut self,id:Obj)->Option<(f64,f64)> { call(Op::CaptureRegion,vec![id as f64]).read::<Option<[f64;2]>>().map(|v|(v[0],v[1])) }
     fn now(&self) -> f64 {
-        let mut args=Vec::new();
+        let args=Vec::new();
         call(Op::Now,args).read()
     }
     fn unit(&self, u: Obj) -> UnitView {
@@ -77,11 +77,11 @@ impl World for LiveWorld {
         call(Op::CharacterController,args).read()
     }
     fn hulls(&self) -> Vec<Obj> {
-        let mut args=Vec::new();
+        let args=Vec::new();
         call(Op::Hulls,args).read()
     }
     fn turrets(&self) -> Vec<Obj> {
-        let mut args=Vec::new();
+        let args=Vec::new();
         call(Op::Turrets,args).read()
     }
     fn weapons(&self, control: Obj) -> Option<Vec<WeaponView>> {
@@ -93,15 +93,15 @@ impl World for LiveWorld {
         call(Op::Reinforcements,args).read()
     }
     fn human_units(&mut self) -> Vec<Obj> {
-        let mut args=Vec::new();
+        let args=Vec::new();
         call(Op::HumanUnits,args).read()
     }
     fn has_planner(&self) -> bool {
-        let mut args=Vec::new();
+        let args=Vec::new();
         call(Op::HasPlanner,args).read()
     }
     fn has_graph(&self) -> bool {
-        let mut args=Vec::new();
+        let args=Vec::new();
         call(Op::HasGraph,args).read()
     }
     fn support_holds(&self, agent: Obj) -> Option<f64> {
@@ -375,7 +375,7 @@ fn policy_word(p:Option<super::vehicles::controllers::Policy>)->u32 {
     match p {Some(Policy::Mobile)=>1,Some(Policy::Stationary)=>2,Some(Policy::Fly)=>3,None=>0}
 }
 
-use super::vehicles::{agents::{AgentHost, AgentMachine, AgentCx, BoardAgent, UnBoardAgent, FlyAgent, FlyAccess, FlyBehavior}, fly::{self,FlyHost}, patterns::{self,PatternAccess,PatternState,PatternsView}};
+use super::vehicles::{agents::{AgentHost, AgentMachine, AgentCx, BoardAgent, UnBoardAgent, FlyAgent, FlyAccess, FlyBehavior}, fly::{self,FlyHost}, patterns::{PatternAccess,PatternState,PatternsView}};
 impl AgentHost for LiveWorld {
     fn interrupts_tick(&mut self, agent: Obj) -> bool {let mut args=Vec::new(); agent.put(&mut args); call(Op::InterruptsTick,args).read()}
     fn update_combat_target(&mut self, agent: Obj) {let mut args=Vec::new(); agent.put(&mut args); call(Op::UpdateCombatTarget,args);}
@@ -385,7 +385,7 @@ impl AgentHost for LiveWorld {
     fn has_helper(&self, agent: Obj) -> bool {let mut args=Vec::new(); agent.put(&mut args); call(Op::HasHelper,args).read()}
     fn helper_arrived(&mut self, agent: Obj) -> bool {let mut args=Vec::new(); agent.put(&mut args); call(Op::HelperArrived,args).read()}
     fn helper_failed(&mut self, agent: Obj) -> bool {let mut args=Vec::new(); agent.put(&mut args); call(Op::HelperFailed,args).read()}
-    fn posts(&self) -> Vec<Obj> {let mut args=Vec::new(); call(Op::Posts,args).read()}
+    fn posts(&self) -> Vec<Obj> {let args=Vec::new(); call(Op::Posts,args).read()}
     fn query_hints(&mut self, center: &Vector3, requester: Obj, now: f64) -> Option<Vec<HintView>> {let mut args=Vec::new(); center.put(&mut args); requester.put(&mut args); now.put(&mut args); call(Op::QueryHints,args).read()}
 }
 impl FlyHost for LiveWorld {
@@ -479,6 +479,54 @@ pub extern "C" fn ai_vehicle_helper(op:u32) {
         3=>fly::land(&mut w,id,over),
         4=>fly::set_flags(&mut w,id,over,altitude),
         _=>panic!("invalid flyer helper command"),
+    }
+    state().out=out;
+}
+
+#[no_mangle]
+pub extern "C" fn ai_vehicle_aux(op:u32) {
+    use crate::gen::AiVehicleAuxOp as Aux;
+    use super::vehicles::{service::{Body,StationaryHelper}, reservations::ReservationService, steering};
+    let mut input=Reader::new(sim().calls.args().0.to_vec());let mut out=Vec::new();let mut live=Live;
+    match Aux::from_u8(op as u8).expect("vehicle auxiliary command") {
+        Aux::PadGet=>{let id=input.read();live.read(|s|s.pad_left.iter().find(|(h,_)|*h==id).map(|(_,t)|*t)).put(&mut out);}
+        Aux::PadSet=>{let id=input.read();let time=input.read();live.write(|s|match s.pad_left.iter_mut().find(|(h,_)|*h==id){Some((_,t))=>*t=time,None=>s.pad_left.push((id,time))});}
+        Aux::CounterGet=>live.read(|s|s.notifier.counter).put(&mut out),
+        Aux::CounterSet=>{let value=input.read();live.write(|s|s.notifier.counter=value);}
+        Aux::SupportRead=>{
+            let posts=live.read(|s|s.support_cache.clone());posts.len().put(&mut out);
+            for (post,keys) in posts {post.put(&mut out);keys.len().put(&mut out);for (key,hubs) in keys {key.put(&mut out);hubs.put(&mut out);}}
+        }
+        op=>{
+            let mut w=LiveWorld::new();
+            match op {
+                Aux::BodyOf=>{let id:Option<Obj>=input.read();let b=id.and_then(|id|VehicleAI::body_of_unit(&w.unit(id)));b.map(|b|match b{Body::Hull(id)|Body::Turret(id)=>id}).put(&mut out);}
+                Aux::EntryOf=>{let id:Option<Obj>=input.read();let b=id.and_then(|id|VehicleAI::body_of_unit(&w.unit(id)));VehicleAI::entry_of(&w,b).put(&mut out);}
+                Aux::LeaseOf=>{let id=input.read();VehicleAI::lease_of(&w,id).map(|l|l.obj).put(&mut out);}
+                Aux::ControllerLease=>{let id=input.read();VehicleAI::controller_lease(&w,id).map(|l|l.obj).put(&mut out);}
+                Aux::NominalSpeed=>{let id=input.read();live.nominal_speed(&w,&w.unit(id)).put(&mut out);}
+                Aux::BodyReach=>{let id:Option<Obj>=input.read();let point=input.read();let body=id.and_then(|id|VehicleAI::body_of_unit(&w.unit(id)));live.body_reach(&mut w,body,&point).put(&mut out);}
+                Aux::WalkerContacts=>{let id=input.read();let unit=w.unit(id);live.walker_contacts(&mut w,&unit);}
+                Aux::WalkerContact=>{let id=input.read();let other:UnitView=input.read();let unit=w.unit(id);let now=w.now();steering::walker_contact(&mut w,&unit,other.kind,&other.position,&other.velocity,other.class.and_then(|c|c.bounds),now);}
+                Aux::Reachable=>{let id=input.read();live.reachable(&mut w,id).put(&mut out);}
+                Aux::PlayerNear=>{let id=input.read();let hull=w.hull(id);live.player_near(&mut w,&hull).put(&mut out);}
+                Aux::Stationary=>{let id=input.read();StationaryHelper::default().stop(&mut w,id);}
+                Aux::BoardTick=>{
+                    let cx:AgentCx=input.read();let target:Option<Obj>=input.read();let mut fsm=LiveMachine(cx.agent);
+                    if let Some(target)=target {
+                        if live.can_enter(&mut w,Some(cx.controller),target) && live.hold_reservation(&w,Some(cx.controller),target) {
+                            if let Some(unit)=w.controller(cx.controller).unit {
+                                let a=w.sphere(unit);let b=w.sphere(target);let reach=a.radius+b.radius+0.5;
+                                if a.center.distance_to_squared(&b.center)<reach*reach {live.board_now(&mut w,Some(cx.controller),target);}
+                            }
+                        } else {fsm.request_state(super::vehicles::controllers::DONE);}
+                    } else {fsm.request_state(super::vehicles::controllers::DONE);}
+                }
+                Aux::Consider=>{let id=input.read();live.consider(&mut w,id).put(&mut out);}
+                Aux::ReservationLive=>{live.reservation_live(&w);}
+                _=>unreachable!(),
+            }
+        }
     }
     state().out=out;
 }

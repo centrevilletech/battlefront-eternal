@@ -1,6 +1,8 @@
 // Lossless numeric boundary for vehicle views. Object tokens use the
 // battle's existing AiSim identity table; strings use its shared interner.
 export const shapes = {
+  SupportCachePost: [["post","Obj"],["keys",["list","SupportCacheKey"]]],
+  SupportCacheKey: [["key","String"],["hubs",["list","SupportHub"]]],
   Dispatch: [["pattern","f64"],["probability","f64"],["aux","bool"],["action","f64"],["in_band","bool"],["weapon",["option","Obj"]]],
   "Ref": [["obj","Obj"],["generation","f64"]],
   "ClassView": [["ai_size_type",["option","String"]],["forward_speed",["option","f64"]],["strafe_speed",["option","f64"]],["turn_rate",["option","f64"]],["pitch_rate",["option","f64"]],["moving_turn_only",["option","bool"]],["max_speed",["option","f64"]],["min_speed",["option","f64"]],["max_turn_speed",["option","f64"]],["max_pitch_speed",["option","f64"]],["max_yaw_speed",["option","f64"]],["vehicle_type",["option","String"]],["landing_time",["option","f64"]],["landing_speed",["option","f64"]],["landed_height",["option","f64"]],["bounds",["option",["array",["array","f64",3],2]]],["no_enter_vehicles","f64"],["role","f64"]],

@@ -5,6 +5,59 @@ use super::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
+pub enum AiVehicleAuxOp {
+    #[default] PadGet = 0,
+    PadSet = 1,
+    CounterGet = 2,
+    CounterSet = 3,
+    SupportRead = 4,
+    BodyOf = 5,
+    EntryOf = 6,
+    LeaseOf = 7,
+    ControllerLease = 8,
+    NominalSpeed = 9,
+    BodyReach = 10,
+    WalkerContacts = 11,
+    WalkerContact = 12,
+    Reachable = 13,
+    PlayerNear = 14,
+    Stationary = 15,
+    BoardTick = 16,
+    Consider = 17,
+    ReservationLive = 18,
+}
+
+impl AiVehicleAuxOp {
+    pub const NAMES: [&'static str; 19] = ["padGet", "padSet", "counterGet", "counterSet", "supportRead", "bodyOf", "entryOf", "leaseOf", "controllerLease", "nominalSpeed", "bodyReach", "walkerContacts", "walkerContact", "reachable", "playerNear", "stationary", "boardTick", "consider", "reservationLive"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(AiVehicleAuxOp::PadGet),
+            1 => Some(AiVehicleAuxOp::PadSet),
+            2 => Some(AiVehicleAuxOp::CounterGet),
+            3 => Some(AiVehicleAuxOp::CounterSet),
+            4 => Some(AiVehicleAuxOp::SupportRead),
+            5 => Some(AiVehicleAuxOp::BodyOf),
+            6 => Some(AiVehicleAuxOp::EntryOf),
+            7 => Some(AiVehicleAuxOp::LeaseOf),
+            8 => Some(AiVehicleAuxOp::ControllerLease),
+            9 => Some(AiVehicleAuxOp::NominalSpeed),
+            10 => Some(AiVehicleAuxOp::BodyReach),
+            11 => Some(AiVehicleAuxOp::WalkerContacts),
+            12 => Some(AiVehicleAuxOp::WalkerContact),
+            13 => Some(AiVehicleAuxOp::Reachable),
+            14 => Some(AiVehicleAuxOp::PlayerNear),
+            15 => Some(AiVehicleAuxOp::Stationary),
+            16 => Some(AiVehicleAuxOp::BoardTick),
+            17 => Some(AiVehicleAuxOp::Consider),
+            18 => Some(AiVehicleAuxOp::ReservationLive),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
 pub enum AiVehicleServiceOp {
     #[default] CurrentControllable = 0,
     SeatCount = 1,

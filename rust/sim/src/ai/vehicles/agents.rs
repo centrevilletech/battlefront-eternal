@@ -298,12 +298,6 @@ impl FlyAgent {
     pub fn on_enter<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx) { FlyBehavior::on_enter(self, w, ai, fsm, cx) }
     pub fn behave<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx, dt: f64) { FlyBehavior::behave(self, w, ai, fsm, cx, dt) }
     pub fn on_exit<W: AgentHost + ?Sized>(&self, w: &mut W, fsm: &(impl AgentMachine + ?Sized), cx: &AgentCx) { FlyBehavior::on_exit(self, w, fsm, cx) }
-    fn clear_above<W: AgentHost + ?Sized>(&self, w: &mut W, cx: &AgentCx) -> bool { FlyBehavior::clear_above(self, w, cx) }
-    fn pick_post<W: AgentHost + ?Sized>(&mut self, w: &mut W, cx: &AgentCx) { FlyBehavior::pick_post(self, w, cx) }
-    fn friendly<W: World + ?Sized>(&self, w: &mut W, unit: &super::world::UnitView, post: Obj) -> bool { FlyBehavior::friendly(self, w, unit, post) }
-    fn find_hint<W: AgentHost + ?Sized>(&mut self, w: &mut W, cx: &AgentCx) -> bool { FlyBehavior::find_hint(self, w, cx) }
-    fn approach<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx) { FlyBehavior::approach(self, w, ai, fsm, cx) }
-    fn landed<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx) { FlyBehavior::landed(self, w, ai, fsm, cx) }
     pub fn accepts_target<W: AgentHost + ?Sized>(&self, w: &mut W, fsm: &(impl AgentMachine + ?Sized), cx: &AgentCx, target: Obj) -> bool { FlyBehavior::accepts_target(self, w, fsm, cx, target) }
     pub fn accepts_hazard(&self) -> bool { FlyBehavior::accepts_hazard(self) }
     pub fn accepts_alert(&self) -> bool { FlyBehavior::accepts_alert(self) }

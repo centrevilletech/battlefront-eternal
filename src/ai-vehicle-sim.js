@@ -1,11 +1,11 @@
 // Vehicle algorithms join the battle's AI bridge. The service and its
 // controller-facing objects keep their identity when native ownership binds.
 import { Vector3 } from 'three';
-import { AiVehicleServiceOp_INDEX } from './sim/gen/ai-vehicle.js';
+import { AiVehicleServiceOp_INDEX, AiVehicleAuxOp_INDEX } from './sim/gen/ai-vehicle.js';
 import { vehicleCommands } from './ai/classic/vehicles/live-commands.js';
 import { vehicleWorld } from './ai/classic/vehicles/live-world.js';
 import { encode,decoder } from './ai/classic/vehicles/wire.js';
-import { requestView } from './ai/classic/vehicles/live-views.js';
+import { requestView,unitView } from './ai/classic/vehicles/live-views.js';
 
 export function bindVehicleAI(service, classes) {
   const sim=service.world.aiSim;
@@ -28,7 +28,10 @@ class NativeVehicleAI {
     service.agentFor=(state,c)=>this.command('agentFor',['u32','f64'],[policies.indexOf(c.policy),state],'bool') ? ((controller,goal)=>new classes.flyAgent(controller,goal)):null;
     service.createHelper=agent=>{
       const kind=this.command('createHelper',[['option','Obj']],[agent.controller],'u32');
-      return kind===1 ? new classes.stationaryHelper(agent):kind===2 ? new classes.flyHelper(agent.controller,service.world,{agent}):null;
+      if(kind===1) {
+        const h=new classes.stationaryHelper(agent);h.goto=h.stop=()=>this.aux('stationary',['Obj'],[agent.controller],'void');return h;
+      }
+      return kind===2 ? new classes.flyHelper(agent.controller,service.world,{agent}):null;
     };
     service.freeSeats=(c,t,k=1)=>this.command('freeSeats',['Obj','f64','f64'],[c,t,k],'f64');
     service.requestExit=(c,p=null)=>this.command('requestExit',[['option','Obj'],['option','Obj']],[c,p],'bool');
@@ -48,9 +51,7 @@ class NativeVehicleAI {
       Object.assign(out,{forward:answer.forward,right:answer.right,turn:answer.turn,pitch:answer.pitch});return out;
     };
     service.seatInput=(control,u,intent,dt,aim=null,options={})=>{
-      this.frames.push({control,intent,options});
-      try {this.command('seatInput',['Obj','f64',['option','Vector3']],[u,dt,aim],'Stick');return intent;}
-      finally {this.frames.pop();}
+      this.command('seatInput',['Obj','f64',['option','Vector3']],[u,dt,aim],'Stick',false,{control,intent,options});return intent;
     };
     for(const [name,op] of [['enterPattern',0],['tickPattern',1],['exitPattern',2],['sidestep',3]]) {
       service[name]=(p,state=0)=>{
@@ -61,18 +62,48 @@ class NativeVehicleAI {
         if(op===3)return Boolean(sim.out()[0]);
       };
     }
+    for(const name of ['bodyOf','entryOf','leaseOf','controllerLease'])service[name]=o=>this.aux(name,[['option','Obj']],[o],['option','Obj']);
+    for(const name of ['nominalSpeed','reachable','playerNear'])service[name]=o=>this.aux(name,['Obj'],[o],name==='nominalSpeed'?'f64':'bool');
+    service.bodyReach=(body,point)=>this.aux('bodyReach',[['option','Obj'],'Vector3'],[body,point],'bool');
+    service.walkerContacts=u=>this.aux('walkerContacts',['Obj'],[u],'void');
+    service.walkerContact=(u,other)=>this.aux('walkerContact',['Obj','UnitView'],[u,unitView(other,id)],'void');
+    service.boardTick=a=>this.aux('boardTick',['AgentCx',['option','Obj']],[{agent:id(a),controller:id(a.controller),unit:optional(a.unit)},a.vehicle?.unit],'void');
+    const pad=service.padLeft;
+    pad.get=o=>this.aux('padGet',['Obj'],[o],['option','f64']) ?? undefined;
+    pad.has=o=>pad.get(o)!==undefined;
+    pad.set=(o,time)=>{this.aux('padSet',['Obj','f64'],[o,time],'void');return pad;};
+    Object.defineProperty(service.notifier,'counter',{configurable:true,enumerable:true,
+      get:()=>this.aux('counterGet',[],[],['option','f64']),set:v=>this.aux('counterSet',[['option','f64']],[v],'void')});
+    service.notifier.run=()=>service.notify();service.notifier.consider=(_,e)=>this.aux('consider',['Obj'],[e],'f64');
+    const cache=service.supportCache;
+    const refresh=()=>{
+      const posts=this.aux('supportRead',[],[],['list','SupportCachePost']);
+      for(const p of posts) {
+        const post=sim.objects[p.post];let keys=Map.prototype.get.call(cache,post);
+        if(!keys)Map.prototype.set.call(cache,post,keys=new Map());
+        for(const row of p.keys)keys.set(row.key,row.hubs.map(h=>({hub:service.world.nav.graph.hubs[h.hub],distance:h.distance})));
+      }
+    };
+    cache.get=post=>{refresh();return Map.prototype.get.call(cache,post);};
+    cache.has=post=>{refresh();return Map.prototype.has.call(cache,post);};
+    cache.entries=cache[Symbol.iterator]=()=>{refresh();return Map.prototype.entries.call(cache);};
     this.bindReservations(service.reservations);
     service.reserve=(candidate,owner,kind=1)=>service.reservations.reserve(candidate,owner,kind);
     service.reserveTarget=(candidate,owner)=>service.reservations.reserve(candidate,owner,2);
   }
-  command(name,types,args,result) {
+  aux(name,types,args,result) {return this.command(name,types,args,result,true);}
+  command(name,types,args,result,aux=false,frame=null) {
     const values=[];
     for(let i=0;i<types.length;i++) {
       const t=types[i],v=args[i];
       encode(t,t==='Obj' ? this.sim.id(v):Array.isArray(t) && t[0]==='option' && t[1]==='Obj' ? (v?this.sim.id(v):null):v,this.sim,values);
     }
     this.sim.words(values);
-    this.sim.x.ai_vehicle_service(AiVehicleServiceOp_INDEX.get(name));
+    this.frames.push(frame);
+    try {
+      if(aux)this.sim.x.ai_vehicle_aux(AiVehicleAuxOp_INDEX.get(name));
+      else this.sim.x.ai_vehicle_service(AiVehicleServiceOp_INDEX.get(name));
+    } finally {this.frames.pop();}
     if(result==='void')return;
     const d=decoder([...this.sim.out()],this.sim),value=d.read(result);d.done();
     if(result==='Obj')return this.sim.objects[value];
@@ -130,6 +161,6 @@ class NativeVehicleAI {
       this.command('reserve',['Obj','Obj','f64'],[c,u,k],'void');
       return read().find(r=>r.candidate.unit===c && r.owner.unit===u && r.type===k) ?? null;
     };
-    reservations.live=()=>{reservations.count(null,0,0);return read();};
+    reservations.live=()=>{this.aux('reservationLive',[],[],'void');return read();};
   }
 }
