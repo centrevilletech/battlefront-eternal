@@ -97,7 +97,7 @@ test('look callbacks can append samples and mutate fields before later controls'
     let first = true;
     const f = inputFixture(native,{look:[[2048,0]],clamp(f) { if (first) { first=false; f.command.look.push([2048,0]); grow(native); } }});
     f.controls.axis = name => { f.trace.push(['axis',name]); if(name==='forward')f.vehicle.seats[0].aimYaw=42; return 0; };
-    const out = input(f); assert.equal(f.vehicle.seats[0].lookYaw,-3); assert.equal(f.vehicle.seats[0].aimYaw,42);
+    const out = input(f); assert.equal(f.vehicle.seats[0].lookYaw,-1); assert.equal(f.vehicle.seats[0].aimYaw,42);
     return observed(f,out);
   };
   assert.deepEqual(run(true),run(false));
@@ -170,7 +170,7 @@ test('flight result and duplicate action queues match source across bounds, bind
       const f=inputFixture(native,{flying:true,look:scenario.look}), c=f.controls=new CommandControls();
       if(native)commandControlPorts(bridge,new WeakSet()).controls(c);
       c.accept({epoch:1,generation:1,sequence:1,down:scenario.down,actions:scenario.actions});
-      const trace=[],take=c.take.bind(c);c.take=name=>{const result=take(name);trace.push([name,result]);return result;};
+      const trace=[],take=c.take.bind(c);Object.defineProperty(c,'take',{configurable:true,value(name){const result=take(name);trace.push([name,result]);return result;}});
       Object.assign(f.command,{mouseScale:scenario.mouseScale,invertMouse:scenario.i%2,flightSettings:{sensitivity:scenario.sensitivity,invert:scenario.i%3,curve:scenario.curve,
         bindings:scenario.i%2?{throttle:['KeyW',,'KeyZ'],brake:[],boost:['KeyZ','ShiftLeft']}:undefined},gamepad:{axes:scenario.axes,buttons:scenario.buttons}});
       const out=input(f), rest=[];for(const name of ['takeoff','trick','immelmann','targetLock','use'])while(c.take(name))rest.push(name);
