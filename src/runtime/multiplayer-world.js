@@ -25,6 +25,10 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
   // is separated everywhere, and clients predict the same push.
   if (game.separationScope) game.separationScope.global = true;
   const players = new Map();
+  const inputActions = () => {
+    const source = new InputActions();
+    return game.inputSim ? game.inputSim.actions(source) : source;
+  };
   const disconnectGraceTicks = Math.round(DISCONNECT_GRACE_SECONDS * (game.worldClock.hz ?? 60));
   game.serverWorld = true;
   let humanTraceLeft = globalThis.process?.env?.BFE_TRACE_HUMAN === '1' ? 64 : 0;
@@ -124,7 +128,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
       if (existing) {
         if (!existing.disconnectedAt) throw new Error('player already joined');
         existing.disconnectedAt = null; existing.mailbox = new InputMailbox(); existing.controls = new CommandControls(); existing.fire = new FireCommands(); existing.reliableFire = reliableFire; existing.lastInputAt = performance.now(); existing.inputsStale=false;
-        existing.actions = new InputActions(); existing.separateActions = separateActions;
+        existing.actions = inputActions(); existing.separateActions = separateActions;
         if (existing.unit) existing.unit.generation++;
         return this.player(id);
       }
@@ -136,7 +140,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
       const character = spectator ? new Character(-1,team,true) : roster.reserve(team,id,name);
       if (spectator) character.name = String(name).slice(0,32);
       character.hero = false;
-      const p = { id,team,className,character,spectator,reliableFire,separateActions,teamSelect:teamSelect!==false,actions:new InputActions(),fire:new FireCommands(),lastInputAt:performance.now(),inputsStale:false,ordinal:players.size+1, mailbox:new InputMailbox(),controls:new CommandControls(),unit:null,
+      const p = { id,team,className,character,spectator,reliableFire,separateActions,teamSelect:teamSelect!==false,actions:inputActions(),fire:new FireCommands(),lastInputAt:performance.now(),inputsStale:false,ordinal:players.size+1, mailbox:new InputMailbox(),controls:new CommandControls(),unit:null,
         spawn:{phase:'unspawned',className,post:null,spawnedOnce:false,deadTime:0,pending:null,ended:false,auto:null} };
       players.set(id,p);
       if (!spectator && !spawn(p)) { players.delete(id); roster.release(character); throw new Error('no eligible spawn'); }

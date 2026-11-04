@@ -112,6 +112,7 @@ assert.equal(world.players.get('bob').unit.team,1);
 assert.ok(world.players.get('bob').unit.alive,'team and class menu choices spawn the selected body');
 // A late reliable menu edge remains valid after newer unreliable movement.
 const split=await world.addPlayer('split-lanes',{team:2,separateActions:true});
+if(game.inputSim)assert.ok(game.inputSim.owns(world.players.get('split-lanes').actions),'the reliable lane uses the shared native runtime');
 const splitUnit=world.players.get('split-lanes').unit,splitTick=game.worldClock.tick+1;
 world.input('split-lanes',{epoch:1,sequence:20,tick:splitTick,generation:split.generation,down:[],actions:[],look:[],lookTotal:[0,0],human:[{kind:'suicide'}]});
 world.step();

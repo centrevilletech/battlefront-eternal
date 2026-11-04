@@ -13,6 +13,7 @@
 pub mod agent;
 pub mod aim;
 pub mod binding;
+pub mod control;
 pub mod enhanced;
 pub mod math;
 pub mod perception;

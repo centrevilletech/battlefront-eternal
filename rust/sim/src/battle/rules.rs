@@ -27,7 +27,7 @@ pub trait RulesWorld {
     fn relation(&mut self, a: f64, b: f64) -> f64;
     fn unit_alive(&mut self, unit: Ref<crate::gen::Unit>) -> bool;
     fn observe(&mut self, character: Ref<Character>, unit: Option<Ref<crate::gen::Unit>>) -> Option<Seen>;
-    fn living(&mut self, team: f64) -> Option<f64>;
+    fn living(&mut self, s: &Store, team: f64) -> Option<f64>;
     fn owned_values(&mut self, s: &mut Store, team: f64) -> Vec<Option<f64>>;
     fn battle_over(&mut self, s: &mut Store, loser: f64);
 }
@@ -36,7 +36,7 @@ impl<T: BattleWorld + ?Sized> RulesWorld for T {
     fn relation(&mut self, a: f64, b: f64) -> f64 { BattleWorld::relation(self, a, b) }
     fn unit_alive(&mut self, unit: Ref<crate::gen::Unit>) -> bool { BattleWorld::unit_alive(self, unit) }
     fn observe(&mut self, character: Ref<Character>, unit: Option<Ref<crate::gen::Unit>>) -> Option<Seen> { BattleWorld::observe(self, character, unit) }
-    fn living(&mut self, team: f64) -> Option<f64> { BattleWorld::living(self, team) }
+    fn living(&mut self, _: &Store, team: f64) -> Option<f64> { BattleWorld::living(self, team) }
     fn owned_values(&mut self, s: &mut Store, team: f64) -> Vec<Option<f64>> {
         posts::owned(s, team, self).into_iter().map(|post| posts::value_bleed(s, post)).collect()
     }
@@ -155,7 +155,7 @@ pub fn post_destroyed(s: &mut Store, destroyer: Option<Ref<Character>>, relation
 /// The living soldiers of a team, heroes excepted: the spawn manager's
 /// count, else the Characters' own (battle.js:111).
 pub fn living<W: RulesWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> f64 {
-    if let Some(n) = world.living(team) {
+    if let Some(n) = world.living(s, team) {
         return n;
     }
     let mut n = 0.0;

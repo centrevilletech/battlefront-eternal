@@ -352,8 +352,8 @@ impl Core {
         }
         self.unit_controller.insert(unit, ci);
         if self.options.bind.combat {
-            w.combat_create_perception(ci);
-            w.combat_attach_controller(ci);
+            self.combat_call(w, ci, |w| w.combat_create_perception(ci));
+            self.combat_call(w, ci, |w| w.combat_attach_controller(ci));
         }
         let character = self.controllers[ci].character;
         if let Some(post) = self.characters[character].objective {
@@ -375,7 +375,7 @@ impl Core {
             }
         }
         if self.options.bind.combat {
-            w.combat_detach_controller(ci);
+            self.combat_call(w, ci, |w| w.combat_detach_controller(ci));
         }
         let c = &mut self.controllers[ci];
         c.unit = None;
@@ -689,6 +689,26 @@ impl Core {
         }
     }
 
+    fn feed_combat(&self, w: &mut dyn AiWorld, ci: usize) {
+        let c = &self.controllers[ci];
+        let objective = self.characters[c.character].objective;
+        w.combat_feed(ci, &world::CombatInput::read(c, objective));
+    }
+
+    fn feed_all_combat(&self, w: &mut dyn AiWorld) {
+        for ci in 0..self.controllers.len() { self.feed_combat(w, ci); }
+    }
+
+    fn combat_call<T>(&self, w: &mut dyn AiWorld, ci: usize, call: impl FnOnce(&mut dyn AiWorld) -> T) -> T {
+        self.feed_combat(w, ci);
+        call(w)
+    }
+
+    fn combat_all<T>(&self, w: &mut dyn AiWorld, call: impl FnOnce(&mut dyn AiWorld) -> T) -> T {
+        self.feed_all_combat(w);
+        call(w)
+    }
+
     fn make_agent(&mut self, w: &mut dyn AiWorld, d: &mut dyn Draws, ci: usize) {
         let state = self.controllers[ci].fsm.state;
         let goal = self.controllers[ci].commands.current;
@@ -697,7 +717,7 @@ impl Core {
         let policy = self.controllers[ci].policy;
         if self.options.bind.vehicle_adapter && self.options.bind.vehicles && policy != Policy::None {
             if w.vehicles_policy_agent(policy, state) {
-                let (tick, control) = w.foreign_agent_create(ci, ForeignKind::Fly, &world::ForeignShared::read(&self.controllers[ci]));
+                let (tick, control) = self.combat_call(w, ci, |w| w.foreign_agent_create(ci, ForeignKind::Fly, &world::ForeignShared::read(&self.controllers[ci])));
                 self.apply_service_effects(tick.effects);
                 if let Some(shared) = tick.shared { shared.apply(&mut self.controllers[ci]); }
                 if let Some(control) = control {
@@ -787,7 +807,7 @@ impl Core {
                 self.controllers[ci].agent = None;
             }
             Made::Foreign(kind) => {
-                let (tick, control) = w.foreign_agent_create(ci, kind, &world::ForeignShared::read(&self.controllers[ci]));
+                let (tick, control) = self.combat_call(w, ci, |w| w.foreign_agent_create(ci, kind, &world::ForeignShared::read(&self.controllers[ci])));
                 self.apply_service_effects(tick.effects);
                 if let Some(shared) = tick.shared { shared.apply(&mut self.controllers[ci]); }
                 if let Some(control) = control {
@@ -827,7 +847,7 @@ impl Core {
                     kind,
                 });
                 if self.options.bind.combat {
-                    w.combat_init_agent(ci);
+                    self.combat_call(w, ci, |w| w.combat_init_agent(ci));
                 }
                 if let Some(state) = request {
                     self.request_state(Owner::Agent(ci), state);
@@ -847,7 +867,7 @@ impl Core {
             self.fsm_terminate(w, d, Owner::Mine(ci));
         }
         if foreign {
-            let (shared, effects) = w.foreign_agent_exit(ci, &world::ForeignShared::read(&self.controllers[ci]));
+            let (shared, effects) = self.combat_call(w, ci, |w| w.foreign_agent_exit(ci, &world::ForeignShared::read(&self.controllers[ci])));
             self.apply_service_effects(effects);
             if let Some(shared) = shared {
                 shared.apply(&mut self.controllers[ci]);
@@ -1047,7 +1067,7 @@ impl Core {
 
     fn can_engage(&mut self, w: &mut dyn AiWorld, ci: usize, target: UKey) -> bool {
         if self.options.bind.combat {
-            w.combat_can_engage(ci, target)
+            self.combat_call(w, ci, |w| w.combat_can_engage(ci, target))
         } else {
             true
         }
@@ -1081,12 +1101,12 @@ impl Core {
             }
             return;
         }
-        if let Some(target) = w.combat_current_target(ci) {
+        if let Some(target) = self.combat_call(w, ci, |w| w.combat_current_target(ci)) {
             let r = self.ref_of(w, Some(target));
             self.controllers[ci].aim_at(r);
             return;
         }
-        if let Some(memory) = w.combat_memory_point(ci) {
+        if let Some(memory) = self.combat_call(w, ci, |w| w.combat_memory_point(ci)) {
             self.controllers[ci].look_at(memory);
         } else if let Some(point) = look {
             self.controllers[ci].look_at(point);
@@ -1097,7 +1117,7 @@ impl Core {
 
     fn update_combat_target(&mut self, w: &mut dyn AiWorld, ci: usize) {
         if self.options.bind.combat {
-            w.combat_update_target(ci);
+            self.combat_call(w, ci, |w| w.combat_update_target(ci));
             self.sync_combat_writes(w, ci);
         }
     }
@@ -1147,7 +1167,7 @@ impl Core {
                 let Some(agent) = &self.controllers[ci].agent else { return };
                 let phase = self.controllers[ci].phase;
                 let done = if matches!(agent.kind, AgentKind::Foreign(_)) {
-                    let tick = w.foreign_agent_tick(ci, dt, phase, &world::ForeignShared::read(&self.controllers[ci]));
+                    let tick = self.combat_call(w, ci, |w| w.foreign_agent_tick(ci, dt, phase, &world::ForeignShared::read(&self.controllers[ci])));
                     self.apply_service_effects(tick.effects);
                     if let Some(shared) = tick.shared { shared.apply(&mut self.controllers[ci]); }
                     self.sync_control(w, ci);
@@ -1169,7 +1189,7 @@ impl Core {
                 // Agent.onTick (agents.js:322).
                 if self.controllers[ci].phase != 0.0 {
                     if self.options.bind.combat {
-                        w.combat_rank_targets(ci);
+                        self.combat_call(w, ci, |w| w.combat_rank_targets(ci));
                     }
                     return;
                 }
@@ -1707,7 +1727,7 @@ impl Core {
             let unit = self.agent_unit(ci);
             if let Some(unit) = unit {
                 if agents::nominal_speed(Some(w.unit(unit))) == 0.0 {
-                    let memory = if self.options.bind.combat { w.combat_memory_point(ci) } else { None };
+                    let memory = if self.options.bind.combat { self.combat_call(w, ci, |w| w.combat_memory_point(ci)) } else { None };
                     if memory.is_none() {
                         let since = match &self.controllers[ci].agent.as_ref().unwrap().kind {
                             AgentKind::Wait { since, .. } => *since,
@@ -1725,12 +1745,12 @@ impl Core {
                     }
                 }
             }
-            let target = if self.options.bind.combat { w.combat_current_target(ci) } else { None };
+            let target = if self.options.bind.combat { self.combat_call(w, ci, |w| w.combat_current_target(ci)) } else { None };
             if let Some(target) = target {
                 let r = self.ref_of(w, Some(target));
                 self.controllers[ci].aim_at(r);
             } else {
-                let memory = if self.options.bind.combat { w.combat_memory_point(ci) } else { None };
+                let memory = if self.options.bind.combat { self.combat_call(w, ci, |w| w.combat_memory_point(ci)) } else { None };
                 let point = memory.unwrap_or_else(|| match &self.controllers[ci].agent.as_ref().unwrap().kind {
                     AgentKind::Wait { look_point, .. } => *look_point,
                     _ => Vec3::default(),
@@ -1954,12 +1974,12 @@ impl Core {
             if d.a_int(1.0, 9.0) == 2.0 {
                 self.hold_pick_look(w, d, ci);
             }
-            let target = if self.options.bind.combat { w.combat_current_target(ci) } else { None };
+            let target = if self.options.bind.combat { self.combat_call(w, ci, |w| w.combat_current_target(ci)) } else { None };
             if let Some(target) = target {
                 let r = self.ref_of(w, Some(target));
                 self.controllers[ci].aim_at(r);
             } else {
-                let memory = if self.options.bind.combat { w.combat_memory_point(ci) } else { None };
+                let memory = if self.options.bind.combat { self.combat_call(w, ci, |w| w.combat_memory_point(ci)) } else { None };
                 let point = memory.unwrap_or_else(|| match &self.controllers[ci].agent.as_ref().unwrap().kind {
                     AgentKind::Hold { look_point, .. } => *look_point,
                     _ => Vec3::default(),
@@ -2064,7 +2084,7 @@ impl Core {
         if state == 1.0 || state == 2.0 || state == 3.0 || state == fsm::DONE {
             self.update_combat_target(w, ci);
         } else if state == 4.0 && self.options.bind.combat {
-            w.combat_update_target_selection(ci);
+            self.combat_call(w, ci, |w| w.combat_update_target_selection(ci));
             self.sync_combat_writes(w, ci);
         }
         match state {
@@ -2101,7 +2121,7 @@ impl Core {
                             self.aim(w, ci, stance, if look { Some(look_point) } else { None });
                         }
                         if self.options.bind.combat {
-                            w.combat_gate_fire(ci);
+                            self.combat_call(w, ci, |w| w.combat_gate_fire(ci));
                             self.sync_combat_writes(w, ci);
                         }
                     } else {
@@ -2788,9 +2808,9 @@ impl Core {
                 o.snipe.look_point = look_point;
             }
             let point = if self.options.bind.combat {
-                match w.combat_current_target(ci) {
+                match self.combat_call(w, ci, |w| w.combat_current_target(ci)) {
                     Some(t) => Some(w.unit(t).position),
-                    None => w.combat_memory_point(ci).or(Some(look_point)),
+                    None => self.combat_call(w, ci, |w| w.combat_memory_point(ci)).or(Some(look_point)),
                 }
             } else {
                 Some(look_point)
@@ -2998,9 +3018,9 @@ impl Core {
     fn choose_weapon(&mut self, w: &mut dyn AiWorld, ci: usize, weapon: usize) {
         let (has_fire, _) = w.perception_flags(ci);
         if has_fire {
-            w.weapons_switch(ci, weapon);
+            self.combat_call(w, ci, |w| w.weapons_switch(ci, weapon));
         } else {
-            w.weapons_select(ci, weapon);
+            self.combat_call(w, ci, |w| w.weapons_select(ci, weapon));
         }
     }
 
@@ -3037,7 +3057,7 @@ impl Core {
             return;
         };
         // selectedWeapon / chooseWeapon cross to the combat package.
-        let selected = w.weapons_selected(ci);
+        let selected = self.combat_call(w, ci, |w| w.weapons_selected(ci));
         if selected != Some(weapon) {
             self.choose_weapon(w, ci, weapon);
             return;
@@ -3312,9 +3332,9 @@ impl Core {
         let now = self.now(w);
         let distance = agents::horizontal_distance_sq(w.unit(unit).position, w.unit(target).position);
         let current = w.combat_repair_target(unit).or_else(|| self.controllers[ci].target.map(|t| t.unit));
-        let selected = w.weapons_selected(ci);
+        let selected = self.combat_call(w, ci, |w| w.weapons_selected(ci));
         let range_weapon = selected.unwrap_or(weapon);
-        let range = w.weapons_effective_range(ci, range_weapon);
+        let range = self.combat_call(w, ci, |w| w.weapons_effective_range(ci, range_weapon));
         let locked = current.is_some_and(|current| current == target || w.unit(target).repair_aliases.contains(&current));
         let close = distance < range * range && (locked || distance < 25.0);
         // Reservation touch.
@@ -3370,7 +3390,7 @@ impl Core {
                 }
             }
         }
-        if w.weapons_selected(ci) != Some(weapon) {
+        if self.combat_call(w, ci, |w| w.weapons_selected(ci)) != Some(weapon) {
             self.choose_weapon(w, ci, weapon);
             if let Some(o) = self.objective_mut(ci) {
                 if let Some(s) = &mut o.service {
@@ -3384,7 +3404,7 @@ impl Core {
         let has_origin_forward = snap.origin.is_some() && snap.forward.is_some();
         if has_aimer && has_origin_forward {
             let aim = w.unit(target).aim_point.unwrap_or_else(|| w.unit(target).position);
-            if !w.weapons_firing_cone(ci, aim) {
+            if !self.combat_call(w, ci, |w| w.weapons_firing_cone(ci, aim)) {
                 let workable = self.objective(ci).and_then(|o| o.service.as_ref().and_then(|s| s.workable)).unwrap_or(now);
                 if let Some(o) = self.objective_mut(ci) {
                     if let Some(s) = &mut o.service {
@@ -3775,7 +3795,7 @@ impl Core {
 
     fn armed(&mut self, w: &mut dyn AiWorld, ci: usize) -> bool {
         if self.options.bind.combat {
-            w.combat_has_weapon(ci)
+            self.combat_call(w, ci, |w| w.combat_has_weapon(ci))
         } else {
             true
         }
@@ -3860,7 +3880,7 @@ impl Core {
         }
         if self.options.bind.combat {
             let mut state = world::ResponseState::read(&self.controllers[ci]);
-            let result = w.combat_hazard_response(ci, &mut state);
+            let result = self.combat_call(w, ci, |w| w.combat_hazard_response(ci, &mut state));
             state.apply(&mut self.controllers[ci]);
             return self.adopt_response(w, ci, result);
         }
@@ -3885,7 +3905,7 @@ impl Core {
         }
         if self.options.bind.combat {
             let mut state = world::ResponseState::read(&self.controllers[ci]);
-            let result = w.combat_alert_response(ci, &mut state);
+            let result = self.combat_call(w, ci, |w| w.combat_alert_response(ci, &mut state));
             state.apply(&mut self.controllers[ci]);
             return self.adopt_response(w, ci, result);
         }
@@ -3898,7 +3918,9 @@ impl Core {
         if !pending {
             return None;
         }
-        let source_ch = source_ch?;
+        // This unbound fallback asks for a Character's current control;
+        // direct unit sources are handled by the combat binding.
+        let world::AlertSource::Character(source_ch) = source_ch? else { return None };
         let source = self.current_controllable(w, source_ch)?;
         let self_pos = w.unit(unit).position;
         let point = w.unit(source).position;
@@ -3906,7 +3928,7 @@ impl Core {
             return None;
         }
         let range = if self.options.bind.combat {
-            w.combat_sensor_range(ci, source)
+            self.combat_call(w, ci, |w| w.combat_sensor_range(ci, source))
         } else {
             self.options.fallback_sensor_range
         };
@@ -3932,7 +3954,7 @@ impl Core {
             return None;
         }
         let unit = self.controllers[ci].unit;
-        let target = if self.options.bind.combat { w.combat_acquired_target(ci) } else { None }?;
+        let target = if self.options.bind.combat { self.combat_call(w, ci, |w| w.combat_acquired_target(ci)) } else { None }?;
         if !self.accepts_target(w, ci, target) {
             return None;
         }
@@ -3959,7 +3981,7 @@ impl Core {
         }
         if self.options.bind.combat {
             let mut state = world::ResponseState::read(&self.controllers[ci]);
-            let result = w.combat_acoustic_response(ci, &mut state);
+            let result = self.combat_call(w, ci, |w| w.combat_acoustic_response(ci, &mut state));
             state.apply(&mut self.controllers[ci]);
             return self.adopt_response(w, ci, result);
         }
@@ -3973,7 +3995,7 @@ impl Core {
             }
             let point = w.unit(source).position;
             let mut range = if self.options.bind.combat {
-                w.combat_acoustic_range(ci)
+                self.combat_call(w, ci, |w| w.combat_acoustic_range(ci))
             } else {
                 self.options.fallback_sensor_range
             };
@@ -4363,7 +4385,7 @@ impl Core {
 
     pub fn decide(&mut self, w: &mut dyn AiWorld, d: &mut dyn Draws, dt: f64) {
         if self.options.bind.combat {
-            for state in w.combat_ingest() {
+            for state in self.combat_all(w, |w| w.combat_ingest()) {
                 let c = &mut self.controllers[state.controller];
                 c.shot_pending = state.shot_pending;
                 c.shot_known = state.shot_known;
@@ -4405,7 +4427,7 @@ impl Core {
                     .filter(|&u| w.unit(u).alive)
                     .collect();
                 for unit in humans {
-                    for (ci2, r) in w.combat_broadcast_acoustic(unit) {
+                    for (ci2, r) in self.combat_all(w, |w| w.combat_broadcast_acoustic(unit)) {
                         self.controllers[ci2].add_acoustic(r);
                     }
                 }
@@ -4415,7 +4437,7 @@ impl Core {
                 self.controllers[ci].processed = false;
             }
             if self.options.bind.combat {
-                w.combat_rebuild_protected();
+                self.combat_all(w, |w| w.combat_rebuild_protected());
             }
         }
         let budget = scheduler::candidate_budget(self.live.len() as f64, cycle, self.scheduler.counter);
@@ -4448,11 +4470,11 @@ impl Core {
             self.controller_update(w, d, ci, dt, 0.0);
         }
         if self.options.bind.combat {
-            w.combat_drop_los_requests(ci);
-            w.combat_scan(ci);
+            self.combat_call(w, ci, |w| w.combat_drop_los_requests(ci));
+            self.combat_call(w, ci, |w| w.combat_scan(ci));
             if self.controllers[ci].unit.is_some() {
                 let unit = self.controllers[ci].unit.unwrap();
-                for (ci2, r) in w.combat_broadcast_acoustic(unit) {
+                for (ci2, r) in self.combat_all(w, |w| w.combat_broadcast_acoustic(unit)) {
                     self.controllers[ci2].add_acoustic(r);
                 }
             }
@@ -4461,7 +4483,7 @@ impl Core {
             self.controller_update(w, d, ci, dt, 1.0);
         }
         if self.options.bind.combat {
-            w.combat_clear_candidate(ci);
+            self.combat_call(w, ci, |w| w.combat_clear_candidate(ci));
         }
     }
 
@@ -4479,7 +4501,7 @@ impl Core {
             }
         }
         let exhausted = if self.options.bind.combat {
-            w.combat_service_los(los_budget * scale)
+            self.combat_all(w, |w| w.combat_service_los(los_budget * scale))
         } else {
             false
         };
@@ -4557,7 +4579,7 @@ impl Core {
                 self.controllers[ci].input_skip = true;
                 self.controllers[ci].input_carry = dt;
                 if self.options.bind.combat {
-                    w.combat_mark_skip(ci, true);
+                    self.combat_call(w, ci, |w| w.combat_mark_skip(ci, true));
                 }
                 return false;
             }
@@ -4566,8 +4588,8 @@ impl Core {
         self.controllers[ci].input_skip = false;
         self.controllers[ci].input_carry = 0.0;
         if self.options.bind.combat {
-            w.combat_mark_skip(ci, false);
-            w.combat_consume_fire(ci, step);
+            self.combat_call(w, ci, |w| w.combat_mark_skip(ci, false));
+            self.combat_call(w, ci, |w| w.combat_consume_fire(ci, step));
             self.sync_combat_writes(w, ci);
         }
         if self.controllers[ci].exit_request {
@@ -4638,7 +4660,7 @@ impl Core {
 
     fn scheduler_aim_point(&mut self, w: &mut dyn AiWorld, ci: usize, dt: f64) -> Option<Vec3> {
         if self.options.bind.combat {
-            let point = w.combat_aim_point(ci, dt);
+            let point = self.combat_call(w, ci, |w| w.combat_aim_point(ci, dt));
             self.sync_combat_writes(w, ci);
             return point;
         }

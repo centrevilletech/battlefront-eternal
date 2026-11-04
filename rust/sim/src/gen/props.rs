@@ -276,6 +276,49 @@ impl PqActionKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PtOperation {
+    #[default] Steer = 0,
+    HoldYaw = 1,
+    ViewDirection = 2,
+    Present = 3,
+    GunWant = 4,
+    AimGun = 5,
+    Pose = 6,
+    Muzzle = 7,
+    FireDirection = 8,
+    EyePoint = 9,
+    AimOrigin = 10,
+    SeatPoint = 11,
+    SeatTurn = 12,
+    SeatYaw = 13,
+}
+
+impl PtOperation {
+    pub const NAMES: [&'static str; 14] = ["steer", "holdYaw", "viewDirection", "present", "gunWant", "aimGun", "pose", "muzzle", "fireDirection", "eyePoint", "aimOrigin", "seatPoint", "seatTurn", "seatYaw"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(PtOperation::Steer),
+            1 => Some(PtOperation::HoldYaw),
+            2 => Some(PtOperation::ViewDirection),
+            3 => Some(PtOperation::Present),
+            4 => Some(PtOperation::GunWant),
+            5 => Some(PtOperation::AimGun),
+            6 => Some(PtOperation::Pose),
+            7 => Some(PtOperation::Muzzle),
+            8 => Some(PtOperation::FireDirection),
+            9 => Some(PtOperation::EyePoint),
+            10 => Some(PtOperation::AimOrigin),
+            11 => Some(PtOperation::SeatPoint),
+            12 => Some(PtOperation::SeatTurn),
+            13 => Some(PtOperation::SeatYaw),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PbIdentity {
     pub kind: f64,
@@ -1773,6 +1816,278 @@ impl PqActionResult {
             found: row[42] != 0.0,
             hit_distance: row[43],
             hit_owner: row[44],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PtSettings {
+    pub facing: f64,
+    pub position: Vec3,
+    pub matrix: Mat4,
+    pub pitch_limits: [f64; 2],
+    pub yaw_limits: Option<[f64; 2]>,
+    pub wrap_yaw: bool,
+    pub gun_pitch_limits: [f64; 2],
+    pub gun_yaw_limits: [f64; 2],
+    pub turn_rate: f64,
+    pub filter: f64,
+    pub gun_pitch_rate: f64,
+    pub gun_yaw_rate: f64,
+    pub yaw_factor: f64,
+    pub pitch_factor: f64,
+    pub camera_eye: Vec3,
+    pub camera_center: Vec3,
+    pub camera_offset: Vec3,
+    pub camera_tilt: f64,
+    pub pivot: Vec3,
+    pub up: Vec3,
+    pub drum_parent_turn: Option<Quat>,
+    pub gun_bind: Option<Quat>,
+    pub root: Mat4,
+    pub parents: Vec<f64>,
+    pub drum: Option<f64>,
+    pub gun: Option<f64>,
+    pub seat: Option<f64>,
+    pub fire_points: Vec<f64>,
+}
+
+impl PtSettings {
+    pub const WORDS: usize = 88;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 88] = (&mut row[..88]).try_into().unwrap();
+        row[0] = self.facing;
+        row[1..1 + 3].copy_from_slice(&self.position);
+        row[4..4 + 16].copy_from_slice(&self.matrix);
+        row[20..20 + 2].copy_from_slice(&self.pitch_limits);
+        match &self.yaw_limits { Some(v) => { row[22] = 0.0; row[22 + 1..22 + 1 + 2].copy_from_slice(&(*v)); } None => { row[22] = 1.0; row[22 + 1..22 + 3].fill(0.0); } }
+        row[25] = if self.wrap_yaw { 1.0 } else { 0.0 };
+        row[26..26 + 2].copy_from_slice(&self.gun_pitch_limits);
+        row[28..28 + 2].copy_from_slice(&self.gun_yaw_limits);
+        row[30] = self.turn_rate;
+        row[31] = self.filter;
+        row[32] = self.gun_pitch_rate;
+        row[33] = self.gun_yaw_rate;
+        row[34] = self.yaw_factor;
+        row[35] = self.pitch_factor;
+        row[36..36 + 3].copy_from_slice(&self.camera_eye);
+        row[39..39 + 3].copy_from_slice(&self.camera_center);
+        row[42..42 + 3].copy_from_slice(&self.camera_offset);
+        row[45] = self.camera_tilt;
+        row[46..46 + 3].copy_from_slice(&self.pivot);
+        row[49..49 + 3].copy_from_slice(&self.up);
+        match &self.drum_parent_turn { Some(v) => { row[52] = 0.0; row[52 + 1..52 + 1 + 4].copy_from_slice(&(*v)); } None => { row[52] = 1.0; row[52 + 1..52 + 5].fill(0.0); } }
+        match &self.gun_bind { Some(v) => { row[57] = 0.0; row[57 + 1..57 + 1 + 4].copy_from_slice(&(*v)); } None => { row[57] = 1.0; row[57 + 1..57 + 5].fill(0.0); } }
+        row[62..62 + 16].copy_from_slice(&self.root);
+        { let at = heap.len(); row[78] = at as f64; row[78 + 1] = self.parents.len() as f64; heap.resize(at + self.parents.len() * 1, 0.0); for (i, e) in self.parents.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        match &self.drum { Some(v) => { row[80] = 0.0; row[80 + 1] = (*v); } None => { row[80] = 1.0; row[80 + 1..80 + 2].fill(0.0); } }
+        match &self.gun { Some(v) => { row[82] = 0.0; row[82 + 1] = (*v); } None => { row[82] = 1.0; row[82 + 1..82 + 2].fill(0.0); } }
+        match &self.seat { Some(v) => { row[84] = 0.0; row[84 + 1] = (*v); } None => { row[84] = 1.0; row[84 + 1..84 + 2].fill(0.0); } }
+        { let at = heap.len(); row[86] = at as f64; row[86 + 1] = self.fire_points.len() as f64; heap.resize(at + self.fire_points.len() * 1, 0.0); for (i, e) in self.fire_points.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 88] = (&row[..88]).try_into().unwrap();
+        Self {
+            facing: row[0],
+            position: [row[1], row[1 + 1], row[1 + 2]],
+            matrix: { let mut m = [0.0; 16]; m.copy_from_slice(&row[4..4 + 16]); m },
+            pitch_limits: { let mut a = [0.0; 2]; a.copy_from_slice(&row[20..20 + 2]); a },
+            yaw_limits: if row[22] == 0.0 { Some({ let mut a = [0.0; 2]; a.copy_from_slice(&row[22 + 1..22 + 1 + 2]); a }) } else { None },
+            wrap_yaw: row[25] != 0.0,
+            gun_pitch_limits: { let mut a = [0.0; 2]; a.copy_from_slice(&row[26..26 + 2]); a },
+            gun_yaw_limits: { let mut a = [0.0; 2]; a.copy_from_slice(&row[28..28 + 2]); a },
+            turn_rate: row[30],
+            filter: row[31],
+            gun_pitch_rate: row[32],
+            gun_yaw_rate: row[33],
+            yaw_factor: row[34],
+            pitch_factor: row[35],
+            camera_eye: [row[36], row[36 + 1], row[36 + 2]],
+            camera_center: [row[39], row[39 + 1], row[39 + 2]],
+            camera_offset: [row[42], row[42 + 1], row[42 + 2]],
+            camera_tilt: row[45],
+            pivot: [row[46], row[46 + 1], row[46 + 2]],
+            up: [row[49], row[49 + 1], row[49 + 2]],
+            drum_parent_turn: if row[52] == 0.0 { Some([row[52 + 1], row[52 + 1 + 1], row[52 + 1 + 2], row[52 + 1 + 3]]) } else { None },
+            gun_bind: if row[57] == 0.0 { Some([row[57 + 1], row[57 + 1 + 1], row[57 + 1 + 2], row[57 + 1 + 3]]) } else { None },
+            root: { let mut m = [0.0; 16]; m.copy_from_slice(&row[62..62 + 16]); m },
+            parents: { let (at, n) = (word_u32(row[78]) as usize, word_u32(row[78 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            drum: if row[80] == 0.0 { Some(row[80 + 1]) } else { None },
+            gun: if row[82] == 0.0 { Some(row[82 + 1]) } else { None },
+            seat: if row[84] == 0.0 { Some(row[84 + 1]) } else { None },
+            fire_points: { let (at, n) = (word_u32(row[86]) as usize, word_u32(row[86 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PtConfiguration {
+    pub turrets: Vec<PtSettings>,
+}
+
+impl PtConfiguration {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.turrets.len() as f64; heap.resize(at + self.turrets.len() * 88, 0.0); for (i, e) in self.turrets.iter().enumerate() { let mut item = [0.0f64; 88]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 88..at + (i + 1) * 88].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            turrets: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 88..at + (i + 1) * 88]; out.push(PtSettings::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PtState {
+    pub index: f64,
+    pub yaw: f64,
+    pub pitch: f64,
+    pub yaw_vel: f64,
+    pub pitch_vel: f64,
+    pub gun_yaw: f64,
+    pub gun_pitch: f64,
+    pub barrel: f64,
+    pub root_world: Mat4,
+    pub bones: Vec<PaBone>,
+}
+
+impl PtState {
+    pub const WORDS: usize = 26;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 26] = (&mut row[..26]).try_into().unwrap();
+        row[0] = self.index;
+        row[1] = self.yaw;
+        row[2] = self.pitch;
+        row[3] = self.yaw_vel;
+        row[4] = self.pitch_vel;
+        row[5] = self.gun_yaw;
+        row[6] = self.gun_pitch;
+        row[7] = self.barrel;
+        row[8..8 + 16].copy_from_slice(&self.root_world);
+        { let at = heap.len(); row[24] = at as f64; row[24 + 1] = self.bones.len() as f64; heap.resize(at + self.bones.len() * 26, 0.0); for (i, e) in self.bones.iter().enumerate() { let mut item = [0.0f64; 26]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 26..at + (i + 1) * 26].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 26] = (&row[..26]).try_into().unwrap();
+        Self {
+            index: row[0],
+            yaw: row[1],
+            pitch: row[2],
+            yaw_vel: row[3],
+            pitch_vel: row[4],
+            gun_yaw: row[5],
+            gun_pitch: row[6],
+            barrel: row[7],
+            root_world: { let mut m = [0.0; 16]; m.copy_from_slice(&row[8..8 + 16]); m },
+            bones: { let (at, n) = (word_u32(row[24]) as usize, word_u32(row[24 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 26..at + (i + 1) * 26]; out.push(PaBone::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PtInput {
+    pub op: PtOperation,
+    pub state: PtState,
+    pub dt: f64,
+    pub turn: f64,
+    pub pitch: f64,
+    pub zoom: f64,
+    pub yaw: f64,
+    pub target: Option<Vec3>,
+    pub from: Vec3,
+    pub along: Vec3,
+    pub advance: bool,
+    pub direction: bool,
+    pub alias: bool,
+    pub first_person: bool,
+}
+
+impl PtInput {
+    pub const WORDS: usize = 46;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 46] = (&mut row[..46]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        row[27] = self.dt;
+        row[28] = self.turn;
+        row[29] = self.pitch;
+        row[30] = self.zoom;
+        row[31] = self.yaw;
+        match &self.target { Some(v) => { row[32] = 0.0; row[32 + 1..32 + 1 + 3].copy_from_slice(&(*v)); } None => { row[32] = 1.0; row[32 + 1..32 + 4].fill(0.0); } }
+        row[36..36 + 3].copy_from_slice(&self.from);
+        row[39..39 + 3].copy_from_slice(&self.along);
+        row[42] = if self.advance { 1.0 } else { 0.0 };
+        row[43] = if self.direction { 1.0 } else { 0.0 };
+        row[44] = if self.alias { 1.0 } else { 0.0 };
+        row[45] = if self.first_person { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 46] = (&row[..46]).try_into().unwrap();
+        Self {
+            op: PtOperation::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: PtState::take(&row[1..], heap),
+            dt: row[27],
+            turn: row[28],
+            pitch: row[29],
+            zoom: row[30],
+            yaw: row[31],
+            target: if row[32] == 0.0 { Some([row[32 + 1], row[32 + 1 + 1], row[32 + 1 + 2]]) } else { None },
+            from: [row[36], row[36 + 1], row[36 + 2]],
+            along: [row[39], row[39 + 1], row[39 + 2]],
+            advance: row[42] != 0.0,
+            direction: row[43] != 0.0,
+            alias: row[44] != 0.0,
+            first_person: row[45] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PtResult {
+    pub state: PtState,
+    pub point: Vec3,
+    pub direction: Vec3,
+    pub pair: [f64; 2],
+    pub number: f64,
+    pub turn: Quat,
+}
+
+impl PtResult {
+    pub const WORDS: usize = 39;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 39] = (&mut row[..39]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[26..26 + 3].copy_from_slice(&self.point);
+        row[29..29 + 3].copy_from_slice(&self.direction);
+        row[32..32 + 2].copy_from_slice(&self.pair);
+        row[34] = self.number;
+        row[35..35 + 4].copy_from_slice(&self.turn);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 39] = (&row[..39]).try_into().unwrap();
+        Self {
+            state: PtState::take(&row[0..], heap),
+            point: [row[26], row[26 + 1], row[26 + 2]],
+            direction: [row[29], row[29 + 1], row[29 + 2]],
+            pair: { let mut a = [0.0; 2]; a.copy_from_slice(&row[32..32 + 2]); a },
+            number: row[34],
+            turn: [row[35], row[35 + 1], row[35 + 2], row[35 + 3]],
         }
     }
 
