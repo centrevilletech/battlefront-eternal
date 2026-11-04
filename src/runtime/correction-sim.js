@@ -74,6 +74,9 @@ function metadata(make) {
 }
 function byteInput(bytes, memory, sliced) {
   if (!(bytes instanceof Uint8Array)) return { valid: 0, bytes: [] };
+  // A replaced prototype does not change a typed array's element storage.
+  // Inspect its intrinsic tag without invoking an overridden toStringTag.
+  if (Reflect.apply(typedDescriptors[Symbol.toStringTag].get, bytes, []) !== 'Uint8Array') return null;
   const prototype = Object.getPrototypeOf(bytes);
   if (prototype !== Uint8Array.prototype && (!bufferPrototype || prototype !== bufferPrototype)) return null;
   for (const key of ['length', 'buffer', 'byteOffset', 'byteLength']) {
