@@ -946,7 +946,7 @@ export async function checkAudio() {
       }
       await sync();
       const out = await ctx.startRendering();
-      return { channels: Array.from({ length: channels }, (_, c) => out.getChannelData(c)), master: r.master, limiter: r.limiter };
+      return { channels: Array.from({ length: channels }, (_, c) => out.getChannelData(c)), master: r.master };
     };
     const compare = (a, b) => {
       let differ = 0;

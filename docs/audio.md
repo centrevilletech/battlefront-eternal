@@ -100,7 +100,7 @@ panner.
 from `rust/audio`, that the worklets run, or null with `?audio=js`, which
 runs their JavaScript instead: the same samples to the bit, for A/B; its
 `engine` is whether the voices play in the module's voice engine, as they
-do unless `?voices=native`: see "The voice engine"), `streams` (`queues`: the lines waiting),
+do unless `?voices=native`, and `master` whether the chain after them does, with `?master=rust`: see "The voice engine"), `streams` (`queues`: the lines waiting),
 `music`, `vo`, `player`, `soldiers`, `chatter`, `scene`, `ambience`,
 `acoustics`, `data`, and `log` (sounds asked for that don't exist).
 
@@ -605,9 +605,13 @@ high-pass, the LFE's filters, the clarity EQ and stage, the limiter and
 the volume, in place of three worklets and the browser's nodes between
 them. One worklet's output is then the finished sound, and what still comes
 through the browser's nodes (the stream beds, a voice that keeps them)
-reaches it through two more inputs. The binaural decoder's convolvers and
-the mono fold keep the nodes. Not built yet, in this order: the stream
-beds, Classic on surround, and headphones.
+reaches it through two more inputs, the mixer needing only those and eight
+for such voices, not one for each of its 64 slots. The binaural decoder's
+convolvers and the mono fold keep the nodes. The stream beds stay in the
+browser's nodes too, a source and two gains and, on stereo, as few routes
+as they take: with the chain in the module three beds cost the audio thread
+under a point of a core, too little to pay for moving decoded streams into
+it. Not built yet, in this order: Classic on surround, and headphones.
 
 The page still decides everything (ranking, distance, Doppler, levels,
 air, sends). Instead of AudioParam calls it sends one message a frame of
@@ -733,6 +737,15 @@ and from 68 to 37% on Hoth, the page's audio phase from 3.3-3.5 to
 Bespin and from 24 to 26.5 on Hoth. Most of what is left on that thread is the worklets
 themselves (the mixer with the engine is about half of that), then the
 master chain's gains and filters and the stream beds' nodes.
+
+The master chain in the module, on a live context (offline renders run too
+fast for the module's code to reach its optimizing tier), 32 voices moving
+and three beds on a desktop: the audio threads took 26.8% of a core with
+the chain in nodes and 23.0 with it in the module. On the slow-PC emulator
+(Enhanced on stereo, alternating runs), the AudioWorklet thread went from
+28-30% to 23% on Bespin Platforms and from 27-28 to 24-26% on Theed.
+The rest of that thread is mostly the voices' own work, then the reverb,
+clarity and limiter's, spread evenly enough that no one stage stands out.
 
 The light mix, offline (the same scene): 110 ms a second of sound down to
 58 with 32 voices, 46 to 34 with 8; with a single voice the worklet costs
