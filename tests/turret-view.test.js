@@ -319,6 +319,7 @@ test('imported: every turret class frames its gun and puts its rounds under the 
   for (const map of CLASS_MAPS) {
     const game = await headlessGame(`map=${map}&side=imp&ai=off`);
     await game.ready;
+    await game.factory.prepare(game.playerUnit.className);
     const T = game.THREE;
     for (const turret of game.live.turrets) {
       const cls = turret.desc.class;
@@ -343,9 +344,12 @@ test('imported: every turret class frames its gun and puts its rounds under the 
         for (const firstPerson of [false, true]) for (const extreme of ['level', 'low', 'high']) {
           const view = `${cls} ${firstPerson ? 'first' : 'third'} ${extreme}`;
           const pitch = extreme === 'low' ? turret.pitchLimits[0] : extreme === 'high' ? turret.pitchLimits[1] : 0;
-          const unit = { id: 90000 + seen.size, generation: 1, team: 1, alive: true, dead: false, human: true, networkHuman: true, seat: null, walker: false, classDef: {},
-            intent: blankIntent(), combat: { firstPerson, zoom: 1 },
-            soldier: { position: new T.Vector3(), previous: new T.Vector3(), settled: new T.Vector3(), velocity: new T.Vector3(), aimYaw: 0, aimPitch: 0 } };
+          // The imported world fires real ordnance, whose owner must be a
+          // real unit on the shared bridge, just as a network rider is.
+          const unit = game.factory.build(game.playerUnit.className);
+          unit.team = 1; unit.human = true; unit.networkHuman = true;
+          unit.spawn(0, 0, 0, 0); unit.intent = blankIntent();
+          unit.combat.firstPerson = firstPerson;
           assert.ok(game.turretSeats.man(unit, turret), cls);
           turret.yaw = turret.yawVel = turret.pitchVel = 0;
           turret.pitch = pitch;
