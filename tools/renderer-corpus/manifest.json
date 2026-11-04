@@ -596,7 +596,8 @@
       "preset": "classic",
       "settings": {
         "renderScale": 0.75,
-        "antialiasing": "fxaa-fast"
+        "antialiasing": "fxaa-fast",
+        "upscaler": "bilinear"
       }
     },
     {

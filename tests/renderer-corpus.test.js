@@ -21,5 +21,6 @@ test('the parity corpus includes every map in every preset with valid spawn quer
   assert.equal(new Set(manifest.cases.map(c => c.id)).size, manifest.cases.length);
   assert.deepEqual(manifest.programs.toSorted(), Object.keys(shaderSources).toSorted());
   assert.equal(manifest.cases.filter(c => c.contextLoss).length, 1);
+  for (const c of manifest.cases) if (c.settings.renderScale < 1) assert.notEqual(c.settings.upscaler, "off", "scaled cases retain the native canvas for HUD capture");
   for (const map of ['kas1','kas2','kam1']) assert.equal(manifest.cases.find(c=>c.id===`mirror-${map}`).settings.waterQuality,'ultra');
 });

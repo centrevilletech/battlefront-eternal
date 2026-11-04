@@ -153,12 +153,12 @@ const deathsAtStart = gpuDeaths();
 const points = [];
 let worst = null;
 for (let k = 0; k < CAPTURES; k++) {
-  await c.ev(`(async () => { const b = __bf, g = b.graphics, G = window.__gate; g.rust.setActive(true);
+  await c.ev(`(async () => { const b = __bf, g = b.graphics, G = window.__gate; g.rust.setActive(true); g.rust.ownedShaderSources = true; window.__gatePar.bridgeStages = null;
     G.key('KeyW', true); window.dispatchEvent(new MouseEvent('mousedown', {button:0,bubbles:true}));
     for (let i = 0; i < ${GAP}; i++) { const f = ${k} * ${GAP} + i; if (f % 90 === 0) G.key('KeyA', true); if (f % 90 === 45) G.key('KeyA', false); G.look(Math.round(9 * Math.sin(f * 0.07)), Math.round(3 * Math.cos(f * 0.05))); await b.lockstep(1 / 60, true); }
     window.dispatchEvent(new MouseEvent('mouseup', {button:0,bubbles:true})); G.key('KeyW', false); G.key('KeyA', false); window.__gatePar.place?.(${k}); return 1; })()`);
   const shots = {}, meta = {};
-  for (const v of ['three', 'bridge', 'rust', 'three2']) {
+  for (const v of (process.env.SWAP ? ['three', 'rust', 'bridge', 'three2'] : ['three', 'bridge', 'rust', 'three2'])) {
     const raw = await c.ev(`(async () => { const k = ${k}; const b = __bf, g = b.graphics, G = window.__gate, T = window.__gatePar, gl = b.renderer.getContext();
       g.rust.setActive(${v === 'rust' || v === 'bridge'}); g.rust.ownedShaderSources = ${v === 'rust'};
       const pin = () => { if (g.upscaling === 'temporal') g.upscaler.frame = k; };
@@ -171,7 +171,7 @@ for (let k = 0; k < CAPTURES; k++) {
       const stages = {}; if (${v === 'three'}) T.stageRef = T.stages;
       for (const [name, buf] of Object.entries(T.stages || {})) { const a = T.stageRef[name]; let differing=0,maxDelta=0; for(let i=0;i<buf.length;i+=4) {let delta=0;for(let j=0;j<3;j++) delta=Math.max(delta,Math.abs(a[i+j]-buf[i+j]));if(delta){differing++;maxDelta=Math.max(maxDelta,delta);}} stages[name]={differing,maxDelta}; }
       if (${v === 'bridge'}) T.bridgeStages = T.stages;
-      if (${v === 'rust'}) for (const [name, buf] of Object.entries(T.stages || {})) {
+      if (${v === 'rust'} && T.bridgeStages) for (const [name, buf] of Object.entries(T.stages || {})) {
         const a = T.bridgeStages[name]; let differing = 0, maxDelta = 0;
         for (let i=0;i<buf.length;i+=4) { let d=0; for(let j=0;j<3;j++) d=Math.max(d, Math.abs(a[i+j]-buf[i+j])); if(d) { differing++; maxDelta=Math.max(d,maxDelta); } }
         stages[name].owned = { differing, maxDelta };
