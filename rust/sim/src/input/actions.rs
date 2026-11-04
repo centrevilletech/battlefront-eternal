@@ -3,7 +3,7 @@
 use crate::gen::{HsCommand, HsCommandKind, IaEntry, IaHuman, IaInput, IaOperation, IaOutcome, IaResult, IaState};
 use crate::store::{StrId, Strings};
 
-fn safe_integer(n: f64) -> bool { n.is_finite() && n.abs() <= 9007199254740991.0 && n.trunc() == n }
+pub(super) fn safe_integer(n: f64) -> bool { n.is_finite() && n.abs() <= 9007199254740991.0 && n.trunc() == n }
 
 fn human_valid(value: &IaHuman, strings: &Strings) -> bool {
     if !value.valid { return false; }

@@ -5,14 +5,16 @@
 use std::{ptr::addr_of_mut, rc::Rc};
 use bfe_content::{Object, Value};
 use crate::{abi::sim, store::{StrId, Strings, word_u32}};
-use super::{combat::binding::CombatAi, control::Core, nav::{Nav, PlannerOptions, barriers::Work, graph::GraphReport, hints::HintPosts, math::Vec3, planner::PathNode}, random::ClassicRandom, vehicles::VehicleAI};
+use super::{combat::{aim::Aimer, binding::CombatAi, enhanced::EnhancedAimer}, control::Core, nav::{Nav, PlannerOptions, barriers::Work, graph::GraphReport, hints::HintPosts, math::Vec3, planner::PathNode}, random::ClassicRandom, vehicles::VehicleAI};
 
 pub struct State {
     pub nav: Nav,
     pub vehicles: VehicleAI,
     pub core: Option<Core>,
     pub combat: CombatAi,
-    out: Vec<f64>,
+    pub(super) aimers: Vec<Aimer>,
+    pub(super) enhanced_aimers: Vec<EnhancedAimer>,
+    pub(super) out: Vec<f64>,
 }
 
 static mut STATE: Option<State> = None;
@@ -86,7 +88,7 @@ pub extern "C" fn ai_nav_init() -> u32 {
     };
     nav.publications = Some(Vec::new());
     // SAFETY: initialization is called before AI work begins on this instance.
-    unsafe { *addr_of_mut!(STATE) = Some(State { nav, vehicles: VehicleAI::new(), core: None, combat: CombatAi::default(), out: Vec::new() }); }
+    unsafe { *addr_of_mut!(STATE) = Some(State { nav, vehicles: VehicleAI::new(), core: None, combat: CombatAi::default(), aimers: Vec::new(), enhanced_aimers: Vec::new(), out: Vec::new() }); }
     0
 }
 

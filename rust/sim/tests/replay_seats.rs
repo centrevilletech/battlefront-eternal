@@ -287,6 +287,7 @@ impl SeatWorld for Served<'_, '_> {
             Attacker::Player => a.str() == Some("player"),
             Attacker::Unit(id) => a.handle_num("unit") == Some(id as f64),
             Attacker::Hull(i) => a.handle_num("vehicle") == Some(i as f64),
+            Attacker::Record(record) => { let mut arena = Arena::default(); let value = record.to_value(self.cx, &mut arena); sim_replay::same(a, arena.view(&value)) },
         };
         if !ok {
             self.fail(format!("kill attacker: the capture has {}, the port {attacker:?}", a.show()));
@@ -296,7 +297,20 @@ impl SeatWorld for Served<'_, '_> {
         std::mem::swap(&mut self.cx.store, st);
         let read = match seating {
             Seating::Hulls(h) => load_hulls(self.cx, after, h),
-            Seating::Crews(c) => load_crews(self.cx, after, c),
+            Seating::Crews(c) => {
+                let entry = call.call.root().get("s");
+                if !entry.is_undefined() {
+                    let named = entry.get("seats").get("leases").items().map(|l| SeatLease::ref_in(l.get("$id"), self.cx, "kill entry lease")).collect::<Result<Vec<_>, _>>();
+                    match named {
+                        Ok(named) => {
+                            let (arena, mine) = write_crews(self.cx, c, entry, entry, &named);
+                            if let Some(d) = diff(entry, arena.view(&mine)) { self.fail(format!("crew kill entry {d} (capture | port)")); }
+                        }
+                        Err(e) => self.fail(format!("crew kill entry: {e}")),
+                    }
+                }
+                load_crews(self.cx, after, c)
+            }
         };
         std::mem::swap(&mut self.cx.store, st);
         if let Err(e) = read {
@@ -488,7 +502,7 @@ fn lease_controls(st: &Store) -> BTreeMap<(u32, u32), (u32, u32)> {
 
 // ---- A frame's state.
 
-fn attacker_of(v: V) -> Attacker {
+fn attacker_of(v: V, cx: &mut Replay) -> Attacker {
     if v.is_nullish() {
         Attacker::Nobody
     } else if v.str() == Some("player") {
@@ -498,7 +512,7 @@ fn attacker_of(v: V) -> Attacker {
     } else if let Some(i) = v.handle_num("vehicle") {
         Attacker::Hull(i as usize)
     } else {
-        panic!("an attacker that is none of nobody, the player, a unit or a hull: {}", v.show())
+        Attacker::Record(bfe_sim::gen::Attacker::from_value(v, cx, "seat attacker").expect("combat attacker identity"))
     }
 }
 
@@ -588,7 +602,7 @@ fn load_hulls(cx: &mut Replay, s: V, hulls: &mut Hulls) -> Result<(), String> {
         let mine = HullSide {
             index: h.get("index").num() as usize,
             vehicle: r,
-            last_attacker: attacker_of(side.get("lastAttacker")),
+            last_attacker: attacker_of(side.get("lastAttacker"), cx),
             hover: side.get("hover").bool(),
             animal: side.get("animal").bool(),
             turret_nodes: side.get("turretNodes").items().map(|x| x.bool()).collect(),
@@ -672,6 +686,7 @@ fn write_state(cx: &mut Replay, hulls: &Hulls, leases: &[Ref<SeatLease>], after:
             Attacker::Player => Value::Str("player".into()),
             Attacker::Unit(id) => Value::handle("unit", Value::Num(id as f64)),
             Attacker::Hull(i) => Value::handle("vehicle", Value::Num(i as f64)),
+            Attacker::Record(record) => record.to_value(cx, &mut a),
         };
         let nodes = side.turret_nodes.iter().map(|&b| Value::Bool(b)).collect();
         let nodes = a.array(nodes);
@@ -921,7 +936,7 @@ fn turret_of(cx: &mut Replay, t: V) -> Result<TurretSide, String> {
         gun_yaw: t.get("gunYaw").num(),
         gun_pitch: t.get("gunPitch").num(),
         barrel: t.get("barrel").num(),
-        last_attacker: attacker_of(t.get("lastAttacker")),
+        last_attacker: attacker_of(t.get("lastAttacker"), cx),
         sphere: (vec3(t.get("sphere").get("center")), t.get("sphere").get("radius").num()),
         weapon: !weapon.is_null(),
         missile_lock: !weapon.is_null() && weapon.get("missileLock").bool(),
@@ -1162,7 +1177,7 @@ fn replay_crew_frame(frame: &Frame, name: &str, tally: &mut BTreeMap<String, usi
                 }
                 how.kill = o.get("kill").truthy();
                 if !o.get("attacker").is_undefined() {
-                    how.attacker = attacker_of(o.get("attacker"));
+                    how.attacker = attacker_of(o.get("attacker"), served.cx);
                 }
                 how.reason = match o.get("reason").str() {
                     None | Some("exit") => Reason::Exit,
@@ -1228,6 +1243,39 @@ fn turret_crews_as_captured() {
         }
         report.assert_clean();
     }
+}
+
+#[test]
+fn turret_crews_reject_state_and_kill_entry_mutations() {
+    let Some(corpus) = Corpus::from_env().unwrap() else { return };
+    let (mut state, mut entry) = (false, false);
+    for capture in corpus.captures() { let capture = capture.unwrap();
+        for name in ["turretSeats.update", "turretSeats.vacate", "turretSeats.destroyed"] {
+            for frame in capture.frames(name) { let frame = frame.unwrap();
+                assert!(matches!(replay_crew_frame(&frame, name, &mut BTreeMap::new()), Outcome::Same), "unmodified crew frame");
+                if !state {
+                    let mut changed = frame.clone(); let id = changed.after().get("turretSeats").node_id().unwrap();
+                    if let sim_replay::Node::Object { fields, .. } = &mut changed.exit.arena.nodes[id as usize] {
+                        fields.iter_mut().find(|(k,_)| k == "ticks").unwrap().1 = Value::Num(987654.0);
+                    }
+                    assert!(matches!(replay_crew_frame(&changed, name, &mut BTreeMap::new()), Outcome::Failed(_)), "wrong crew clock accepted"); state = true;
+                }
+                if !entry { for (index, event) in frame.events.iter().enumerate() {
+                    let sim_replay::Event::Call(call) = event else { continue };
+                    if call.name != "crews.kill" { continue; }
+                    let Some(id) = call.call.root().get("s").get("units").at(0).get("unit").node_id() else { continue };
+                    let mut changed = frame.clone();
+                    let sim_replay::Event::Call(call) = &mut changed.events[index] else { unreachable!() };
+                    if let sim_replay::Node::Object { fields, .. } = &mut call.call.arena.nodes[id as usize] {
+                        fields.iter_mut().find(|(k,_)| k == "tickCount").unwrap().1 = Value::Num(987654.0);
+                    }
+                    assert!(matches!(replay_crew_frame(&changed, name, &mut BTreeMap::new()), Outcome::Failed(_)), "wrong callback entry accepted"); entry = true; break;
+                } }
+                if state && entry { return; }
+            }
+        }
+    }
+    panic!("missing crew mutation coverage: state={state}, kill entry={entry}");
 }
 
 // ---- A network human's mouse and keys in a hull's seat.

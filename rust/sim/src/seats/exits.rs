@@ -118,12 +118,12 @@ pub fn classic_seat_exit<W: SeatWorld + ?Sized>(w: &mut W, frame: &ExitFrame, ou
         let mut found = false;
         for (i, &[dx, _, dz]) in offsets.iter().enumerate() {
             let mut sample = Vector3::new(point.x + dx, point.y, point.z + dz);
-            let above = w.cast(&sample, &UP, SUPPORT_UP, None);
+            let above = w.cast_support(&sample, &UP, SUPPORT_UP);
             sample.y += (match above {
                 Some(hit) => hit.distance,
                 None => SUPPORT_UP,
             }) - 0.1;
-            match w.cast(&sample, &DOWN, SUPPORT_DOWN, None) {
+            match w.cast_support(&sample, &DOWN, SUPPORT_DOWN) {
                 Some(below) if below.distance < SUPPORT_DOWN => {
                     heights[i] = Some(sample.y - below.distance);
                     found = true;

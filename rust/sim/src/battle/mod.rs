@@ -17,6 +17,11 @@ pub mod animated;
 pub mod animated_module;
 pub mod human;
 #[cfg(target_arch = "wasm32")]
+pub mod crews_module;
+pub mod live;
+#[cfg(target_arch = "wasm32")]
+pub mod live_module;
+#[cfg(target_arch = "wasm32")]
 pub mod human_module;
 #[cfg(target_arch = "wasm32")]
 pub mod rules_module;
@@ -26,9 +31,6 @@ pub mod posts_module;
 pub mod spawning_module;
 #[cfg(target_arch = "wasm32")]
 pub mod traps_module;
-pub mod live;
-#[cfg(target_arch = "wasm32")]
-pub mod live_module;
 pub mod mobile;
 pub mod names;
 pub mod objectives;
