@@ -78,6 +78,10 @@ pub enum Attacker {
     Player,
     Unit(u32),
     Hull(usize),
+    /// The combat schema also names a frozen owner or a turret. Preserve
+    /// that identity through live crew deaths instead of resolving it to
+    /// whichever unit occupies its old registry slot now.
+    Record(crate::gen::Attacker),
 }
 
 /// The seats' own state a call across the boundary may change by coming
