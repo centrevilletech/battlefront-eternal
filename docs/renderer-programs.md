@@ -2,7 +2,8 @@
 
 `rust/bfe-render/shaders/<family>/manifest.json` declares source-owned program
 variants. The `post-hud` family owns twelve stable full-screen and battle HUD
-programs. Those passes register Rust source directly. They have no source switch,
+programs. The FXAA source license is retained in `shaders/post-hud/NOTICE`.
+Those passes register Rust source directly. They have no source switch,
 compiled-three-program bridge, or shader fallback. Registration errors throw a
 message naming the variant. Unported shader families still borrow three programs.
 
