@@ -1849,6 +1849,8 @@ test('native range inventory traversal closes nested iterators when a range call
     const weapon={levels:iterable('levels',[def,def])},unit=c.unit={controller:c,kind:0,combat:{arsenal:{weapons:iterable('weapons',[weapon])}}};
     Object.defineProperty(c,'rangeScale',{get(){history.push(['scale',++calls]);if(calls===2)throw Error('range callback failed');return 1;}});
     let error;try{maxExpandedRange(unit,c);}catch(e){error=e.message;}
+    assert.equal(error,'range callback failed');
+    assert.deepEqual(history.slice(-2),[['levels','return'],['weapons','return']]);
     return {history,error};
   }
   assert.deepEqual(run(true),run(false));
