@@ -91,3 +91,46 @@ pub extern "C" fn ai_notify_danger(enemy_skill: f64) -> f64 {
     call(Op::DangerWrite,0,now);
     notified
 }
+
+fn add_alert(id: u32) {
+    if id!=0 && call(Op::AlertCanNotify,id,0.0).flag && !state().alerted.contains(&id) {state().alerted.push(id);}
+}
+
+// perception.js alertControllers: primary seat/body, then every eligible
+// crew member, with shared ordered deduplication during nested notifications.
+fn alert_controllers() {
+    state().alerted.clear();
+    let v=call(Op::AlertSeat,0,0.0).values;
+    let id=if v[0]!=0.0 && v[1]==0.0 && v[2]!=0.0 {call(Op::AlertSeatController,0,0.0).number} else {call(Op::AlertOwn,0,0.0).number};
+    add_alert(id as u32);
+    if call(Op::AlertBody,0,0.0).flag {
+        let leases=call(Op::AlertLeases,0,0.0).ids;
+        for lease in leases {
+            if lease==0 {continue;}
+            let v=call(Op::AlertLease,lease,0.0).values;
+            if v[0]!=0.0 || v[1]!=0.0 || v[2]!=0.0 {continue;}
+            let id=call(Op::AlertCrew,lease,0.0).number;add_alert(id as u32);
+        }
+    }
+}
+
+// perception.js notifyTargetedShot/notifyDamage. Character/unit source and
+// point objects retain their host identities through each notification.
+#[no_mangle]
+pub extern "C" fn ai_notify_alert(kind: u32) -> u32 {
+    if kind==0 {
+        if !call(Op::ShotStart,0,0.0).flag || !call(Op::ShotSource,0,0.0).flag {return 0;}
+        if !(call(Op::ShotRelation,0,0.0).number<0.0) || call(Op::ShotHuman,0,0.0).flag {return 0;}
+    } else {
+        if !call(Op::DamageStart,0,0.0).flag || !(call(Op::DamageRelation,0,0.0).number<0.0) {return 0;}
+        let v=call(Op::DamagePacket,0,0.0).values;
+        let amount=f(v[0]);let generic=f(v[1]);let typed=f(v[2]);
+        if !(f(amount*generic)>1.0 || f(amount*typed)>1.0) {return 0;}
+    }
+    alert_controllers();
+    let mut notified=false;let mut index=0;
+    while index<state().alerted.len() {
+        let id=state().alerted[index];index+=1;call(Op::AlertNotify,id,0.0);notified=true;
+    }
+    notified as u32
+}

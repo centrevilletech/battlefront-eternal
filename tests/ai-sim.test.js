@@ -8,7 +8,7 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, Perception, TargetTracker, broadcastAcoustic, noiseRadius, notifyDanger, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, TargetTracker, broadcastAcoustic, noiseRadius, notifyDanger, notifyDamage, notifyTargetedShot, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
@@ -716,6 +716,48 @@ test('native danger broadcasts preserve shared draws and callback-visible projec
     assert.equal(n.result,j.result,`danger result ${i}`);
     assert.deepEqual(n.history,j.history,`danger callbacks ${i}`);
     assert.deepEqual(n.snapshot(),j.snapshot(),`danger state ${i}`);
+  }
+});
+
+test('native shot and damage alerts preserve crew order, attribution and nested delivery', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    let tick=0,nested=false,announced=false;const history=[],world={aiSim:native?sim:null};
+    const packet={amount:5,generic:1,typed:1},position=new Vector3(),character={id:100,team:1},shooter={id:2,character,team:1,position};
+    const controllers=Array.from({length:5},(_,id)=>({id}));
+    const inner={id:9,alive:true,team:2,human:false,controller:controllers[3],vehicle:{seats:[{lease:{unit:{controller:controllers[4]}}}]}};
+    const log=(...v)=>{history.push(v);if(native){sim.words(new Array(6500).fill(2));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const notify=(id,source,known,p)=>{
+      log('notify',id,source.id,known,p?.toArray?.()??p);
+      if(!nested && !announced && tick%17===0){announced=true;nested=true;log('nested',notifyTargetedShot(world,shooter,inner));nested=false;}
+      if(p && tick%23===0){if(Array.isArray(p))p[0]+=.25;else p.x+=.25;}
+    };
+    const leases=controllers.map((c,id)=>({human:false,released:false,live:true,controllable:id%2?null:{controller:c},unit:{controller:c}}));
+    const target={id:7,alive:true,team:2,human:false,controller:controllers[0],seat:null,turret:null,vehicle:{seats:leases.map(lease=>({lease}))}};
+    world.units={relation(a,b){log('relation',a,b);if(tick%19===0)packet.generic=0;if(tick%29===0)target.human=true;return [-1,0,1,NaN][tick%4];}};
+    return {history,world,packet,position,character,shooter,controllers,leases,target,
+      setTick:i=>{tick=i;announced=false;for(const c of controllers)c.notifyShot=(source,known,p)=>notify(c.id,source,known,p);}};
+  }
+  const j=fixture(false),n=fixture(true);
+  assert.equal(broadcastAcoustic(null,undefined),0);
+  assert.equal(notifyTargetedShot(undefined,null,null),false);
+  assert.equal(notifyDamage(undefined,null,null,null),false);
+  for(let i=0;i<1536;i++) {
+    for(const x of [j,n]) {
+      x.setTick(i);x.history.length=0;x.position.set(i%7,-0,-i%11);
+      x.packet.amount=[0,1,2,5,NaN,Infinity,'3'][i%7];x.packet.generic=[undefined,0,.5,2][i%4];x.packet.typed=i%11?1:2;
+      x.shooter.character=i%31===0?null:x.character;x.shooter.team=i%43===0?undefined:1;
+      x.target.alive=i%37!==0;x.target.human=i%41===0;x.target.lease=i%13===0?{}:null;
+      x.target.seat=i%2?x.leases[1]:null;x.target.turret=i%3===0?{lease:x.leases[4]}:null;
+      for(let k=0;k<x.leases.length;k++){const lease=x.leases[k];lease.human=(i+k)%17===0;lease.released=(i+k)%19===0;lease.live=[true,false,0,undefined][(i+k)%4];}
+      if(i%23===0)x.controllers[1].notifyShot=null;
+      x.result=[notifyTargetedShot(x.world,i%47===0?null:x.shooter,x.target),
+        notifyDamage(x.world,x.target,i%53===0?null:i%5?x.shooter:x.character,x.packet,i%7===0?'known':false,i%3===0?null:x.position)];
+    }
+    assert.deepEqual(n.result,j.result,`alert returns ${i}`);
+    assert.deepEqual(n.history,j.history,`alert delivery ${i}`);
+    assert.deepEqual(n.position.toArray(),j.position.toArray());
+    assert.deepEqual(n.packet,j.packet);
   }
 });
 

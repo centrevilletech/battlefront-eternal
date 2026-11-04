@@ -725,7 +725,7 @@ const n3 = { x: 0, y: 0, z: 0 };
 
 // `source` is a unit (bot or human). Returns how many bots were notified.
 export function broadcastAcoustic(source, world, sounds = null) {
-  if(world.aiSim)return world.aiSim.awareness.broadcast(source,world,sounds);
+  if(world?.aiSim)return world.aiSim.awareness.broadcast(source,world,sounds);
   if (!source?.alive) return 0;
   const raw = noiseRadius(source, sounds);
   const R = raw <= 30 ? raw : 30;
@@ -763,7 +763,7 @@ export function dangerDelayRange(enemySkill) {
 }
 
 export function notifyDanger(world, state, position, owner, enemySkill, onWarn = null) {
-  if(world.aiSim)return world.aiSim.awareness.notifyDanger(world,state,position,owner,enemySkill,onWarn);
+  if(world?.aiSim)return world.aiSim.awareness.notifyDanger(world,state,position,owner,enemySkill,onWarn);
   const [lo, hi] = world.difficulty?.dangerRow?.() ?? dangerDelayRange(enemySkill);
   const delay = rngA(world).range(lo, hi);
   const now = f(world.time ?? 0);
@@ -795,6 +795,7 @@ export function notifyDanger(world, state, position, owner, enemySkill, onWarn =
 // A shot aimed at `target` by `shooter` (units): every AI controller on the
 // target hears it, with the shooter's position, when they are enemies.
 export function notifyTargetedShot(world, shooter, target, shooterPosition = shooter?.position) {
+  if(world?.aiSim)return world.aiSim.awareness.shot(world,shooter,target,shooterPosition);
   if (!shooter || !target?.alive) return false;
   const source = shooter.character ?? null;
   if (!source) return false;
@@ -842,6 +843,7 @@ export function alertControllers(target, out = []) {
 // either factor; `known`/`point` as the damage producer supplies them (bolt
 // hits back-project 30 units along the round).
 export function notifyDamage(world, victim, attacker, packet, known = false, point = null) {
+  if(world?.aiSim)return world.aiSim.awareness.damage(world,victim,attacker,packet,known,point);
   if (!victim?.alive || !attacker) return false;
   const source = attacker.character ?? attacker;
   const team = attacker.team ?? source.team;

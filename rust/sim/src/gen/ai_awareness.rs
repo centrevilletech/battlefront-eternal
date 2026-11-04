@@ -31,10 +31,26 @@ pub enum AiAwarenessOp {
     DangerHasNotify = 22,
     DangerNotify = 23,
     DangerWrite = 24,
+    ShotStart = 25,
+    ShotSource = 26,
+    ShotRelation = 27,
+    ShotHuman = 28,
+    DamageStart = 29,
+    DamageRelation = 30,
+    DamagePacket = 31,
+    AlertSeat = 32,
+    AlertSeatController = 33,
+    AlertOwn = 34,
+    AlertCanNotify = 35,
+    AlertBody = 36,
+    AlertLeases = 37,
+    AlertLease = 38,
+    AlertCrew = 39,
+    AlertNotify = 40,
 }
 
 impl AiAwarenessOp {
-    pub const NAMES: [&'static str; 25] = ["alive", "motion", "weapon", "active", "mute", "query", "recipient", "notify", "livingStart", "livingNext", "clear", "protectQuery", "protectRecipient", "protectAppend", "dangerRow", "dangerDraw", "dangerTime", "dangerFirst", "dangerLast", "dangerQuery", "dangerRecipient", "dangerWarn", "dangerHasNotify", "dangerNotify", "dangerWrite"];
+    pub const NAMES: [&'static str; 41] = ["alive", "motion", "weapon", "active", "mute", "query", "recipient", "notify", "livingStart", "livingNext", "clear", "protectQuery", "protectRecipient", "protectAppend", "dangerRow", "dangerDraw", "dangerTime", "dangerFirst", "dangerLast", "dangerQuery", "dangerRecipient", "dangerWarn", "dangerHasNotify", "dangerNotify", "dangerWrite", "shotStart", "shotSource", "shotRelation", "shotHuman", "damageStart", "damageRelation", "damagePacket", "alertSeat", "alertSeatController", "alertOwn", "alertCanNotify", "alertBody", "alertLeases", "alertLease", "alertCrew", "alertNotify"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -63,6 +79,22 @@ impl AiAwarenessOp {
             22 => Some(AiAwarenessOp::DangerHasNotify),
             23 => Some(AiAwarenessOp::DangerNotify),
             24 => Some(AiAwarenessOp::DangerWrite),
+            25 => Some(AiAwarenessOp::ShotStart),
+            26 => Some(AiAwarenessOp::ShotSource),
+            27 => Some(AiAwarenessOp::ShotRelation),
+            28 => Some(AiAwarenessOp::ShotHuman),
+            29 => Some(AiAwarenessOp::DamageStart),
+            30 => Some(AiAwarenessOp::DamageRelation),
+            31 => Some(AiAwarenessOp::DamagePacket),
+            32 => Some(AiAwarenessOp::AlertSeat),
+            33 => Some(AiAwarenessOp::AlertSeatController),
+            34 => Some(AiAwarenessOp::AlertOwn),
+            35 => Some(AiAwarenessOp::AlertCanNotify),
+            36 => Some(AiAwarenessOp::AlertBody),
+            37 => Some(AiAwarenessOp::AlertLeases),
+            38 => Some(AiAwarenessOp::AlertLease),
+            39 => Some(AiAwarenessOp::AlertCrew),
+            40 => Some(AiAwarenessOp::AlertNotify),
             _ => None,
         }
     }

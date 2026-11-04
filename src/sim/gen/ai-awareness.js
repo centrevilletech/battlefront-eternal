@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiAwarenessOp_NAMES = ["alive","motion","weapon","active","mute","query","recipient","notify","livingStart","livingNext","clear","protectQuery","protectRecipient","protectAppend","dangerRow","dangerDraw","dangerTime","dangerFirst","dangerLast","dangerQuery","dangerRecipient","dangerWarn","dangerHasNotify","dangerNotify","dangerWrite"];
+export const AiAwarenessOp_NAMES = ["alive","motion","weapon","active","mute","query","recipient","notify","livingStart","livingNext","clear","protectQuery","protectRecipient","protectAppend","dangerRow","dangerDraw","dangerTime","dangerFirst","dangerLast","dangerQuery","dangerRecipient","dangerWarn","dangerHasNotify","dangerNotify","dangerWrite","shotStart","shotSource","shotRelation","shotHuman","damageStart","damageRelation","damagePacket","alertSeat","alertSeatController","alertOwn","alertCanNotify","alertBody","alertLeases","alertLease","alertCrew","alertNotify"];
 export const AiAwarenessOp_INDEX = new Map(AiAwarenessOp_NAMES.map((name, i) => [name, i]));
 
 export class AiAwarenessArgsMirror {

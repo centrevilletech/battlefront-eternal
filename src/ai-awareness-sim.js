@@ -48,6 +48,25 @@ export class NativeAwareness {
       else if(op==='dangerHasNotify') result.flag=Boolean(frame.controller?.notifyDanger);
       else if(op==='dangerNotify') frame.controller.notifyDanger(frame.position);
       else if(op==='dangerWrite') frame.state.lastNotify=number;
+      else if(op==='shotStart') result.flag=Boolean(frame.shooter && frame.target?.alive);
+      else if(op==='shotSource') {frame.source=frame.shooter.character??null;result.flag=Boolean(frame.source);}
+      else if(op==='shotRelation') result.number=frame.world.units.relation(frame.shooter.team,frame.target.team);
+      else if(op==='shotHuman') result.flag=Boolean(frame.target.human);
+      else if(op==='damageStart') {
+        result.flag=Boolean(frame.target?.alive && frame.attacker);
+        if(result.flag){frame.source=frame.attacker.character??frame.attacker;frame.team=frame.attacker.team??frame.source.team;}
+      } else if(op==='damageRelation') result.number=frame.world.units.relation(frame.target.team,frame.team);
+      else if(op==='damagePacket') result.values=[frame.packet?.amount??0,frame.packet?.generic??1,frame.packet?.typed??1];
+      else if(op==='alertSeat') {
+        const lease=frame.lease=frame.target.seat;result.values=[Number(Boolean(lease)),Number(Boolean(lease?.human)),lease&&!lease.human?sim.id(lease.controllable?.controller):0];
+      } else if(op==='alertSeatController') result.number=sim.id(frame.lease.controllable.controller);
+      else if(op==='alertOwn') result.number=sim.id(frame.target.controller);
+      else if(op==='alertCanNotify') result.flag=Boolean(sim.objects[id]?.notifyShot);
+      else if(op==='alertBody') {frame.body=frame.target.turret??frame.target.vehicle??null;result.flag=Boolean(frame.body&&!frame.target.lease);}
+      else if(op==='alertLeases') {const body=frame.body;result.ids=(Array.isArray(body.seats)?body.seats.map(s=>s.lease):[body.lease]).map(l=>sim.id(l));}
+      else if(op==='alertLease') {const lease=sim.objects[id];result.values=[Number(Boolean(lease.human)),Number(Boolean(lease.released)),Number(lease.live===false)];}
+      else if(op==='alertCrew') {const lease=sim.objects[id];result.number=sim.id(lease.controllable?.controller??lease.unit?.controller);}
+      else if(op==='alertNotify') sim.objects[id].notifyShot(frame.source,frame.known,frame.point);
       else throw Error(`unknown awareness callback ${op}`);
       return result;
     }});
@@ -63,6 +82,14 @@ export class NativeAwareness {
   notifyDanger(world,state,position,owner,enemySkill,onWarn) {
     this.frames.push({world,state,position,owner,onWarn});
     try {return this.sim.x.ai_notify_danger(enemySkill);} finally {this.frames.pop();}
+  }
+  shot(world,shooter,target,point) {
+    this.frames.push({world,shooter,target,point,known:true});
+    try {return Boolean(this.sim.x.ai_notify_alert(0));} finally {this.frames.pop();}
+  }
+  damage(world,target,attacker,packet,known,point) {
+    this.frames.push({world,target,attacker,packet,known,point});
+    try {return Boolean(this.sim.x.ai_notify_alert(1));} finally {this.frames.pop();}
   }
   rebuild(world) {
     this.frames.push({world});
