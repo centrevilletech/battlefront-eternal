@@ -6,7 +6,7 @@ import { ClassicRandom } from '../src/ai/random.js';
 import { attachAiSim } from '../src/ai-sim.js';
 import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
-import { Aimer, skillCurves } from '../src/ai/classic/aim.js';
+import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
@@ -367,6 +367,35 @@ test('native tracker firing keeps remembered points, public callbacks and weapon
     assert.equal(n.result,j.result,`fire result ${i}`);
     assert.deepEqual(n.world.history,j.world.history,`fire callbacks ${i}`);
     assert.deepEqual(n.snapshot(),j.snapshot(),`fire tracker ${i}`);
+  }
+});
+
+test('native projectile leading preserves source order, aliases and exact solver outputs', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const history=[],target={velocity:new Vector3(),position:new Vector3(),
+      aimPoint(out){history.push('target');out.copy(this.position);}},
+    shooter={velocity:new Vector3(),controller:{ai:{world:{aiSim:native?sim:null}}},
+      origin(out){history.push('origin');target.velocity.x+=.03125;out.set(-.13,1.7,4.11);
+        if(native){sim.words(new Array(4000).fill(2));sim.x.ai_nav_boundary(2,0,0,0,0);}}};
+    return {history,target,shooter,out:new Vector3(),point:new Vector3()};
+  }
+  const j=fixture(false),n=fixture(true),bases=['bolt','missile','shell','grenade','sticky','laser','beam','unknown'];
+  const values=[undefined,null,0,-0,.00001,35,150,NaN,Infinity,'28.7'];
+  for(let i=0;i<2048;i++) {
+    const def=i%19===0?{}:{ordnance:{base:bases[i%bases.length],Velocity:values[Math.floor(i/8)%values.length],Gravity:values[Math.floor(i/80)%values.length]}};
+    const weapon=i%13===0?null:{def};
+    for(const x of [j,n]) {
+      x.history.length=0;x.target.position.set(i/7-100,i%7-2,i/5);x.target.velocity.set(i%17-8,.1,i%11-5);
+      x.shooter.velocity.set(i%5-2,0,-.3);x.point.set(i/9,-0,37+i/13);
+      const out=i%17===0?x.point:x.out;
+      x.result=i%3===0?dropCorrect(x.point,x.shooter,weapon,out):leadPoint((i%23)/60,x.shooter,x.target,weapon,out);
+      x.answer=out.toArray();
+    }
+    assert.equal(n.result,j.result,`projectile validity ${i}`);
+    assert.deepEqual(n.answer,j.answer,`projectile point ${i}`);
+    assert.deepEqual(n.history,j.history,`projectile calls ${i}`);
+    assert.deepEqual(n.target.velocity.toArray(),j.target.velocity.toArray());
   }
 });
 

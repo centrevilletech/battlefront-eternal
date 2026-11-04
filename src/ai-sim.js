@@ -46,6 +46,7 @@ export class AiSim {
     this.scanFound=[];this.scanLook=new Vector3();this.scanAim=new Vector3();
     this.trackers=new WeakMap();this.trackerFrames=[];
     this.trackerLead=new Vector3();
+    this.ballisticPoint=new Vector3();this.ballisticOrigin=new Vector3();this.ballisticZero=new Vector3();
     bridge.register({aiSight:args=>{
       const op=args.op,object=this.objects[args.id],frame=this.sightFrames[this.sightFrames.length-1];
       const from=new Vector3(...args.from),point=new Vector3(...args.point);
@@ -330,6 +331,27 @@ export class AiSim {
     this.trackerFrames.push({id,tracker,world,dispatch});
     try {return this.x.ai_tracker_operation(id,op);}
     finally {this.trackerFrames.pop();}
+  }
+  ballisticWeapon(point,velocity,origin,weapon,out) {
+    const o=weapon?.def?.ordnance;
+    this.words([point.x,point.y,point.z,velocity.x,velocity.y,velocity.z,origin.x,origin.y,origin.z,Number(Boolean(o)),
+      Number(typeof o?.base==='string'),typeof o?.base==='string'?this.bridge.strings.id(o.base):0,
+      Number(o?.Velocity!=null),o?.Velocity,Number(o?.Gravity!=null),o?.Gravity]);
+    const valid=Boolean(this.x.ai_ballistic_weapon(Number(point===out)|Number(velocity===out)<<1|Number(origin===out)<<2));
+    const v=this.out();out.set(v[0],v[1],v[2]);return valid;
+  }
+  leadPoint(h,shooter,target,weapon,out) {
+    target.aimPoint(this.ballisticPoint);
+    const tv=target.velocity??this.ballisticZero,sv=shooter.velocity??this.ballisticZero,p=this.ballisticPoint;
+    this.words([p.x,p.y,p.z,tv.x,tv.y,tv.z,sv.x,sv.y,sv.z,h]);this.x.ai_lead_relative();
+    const v=this.out();p.set(v[0],v[1],v[2]);
+    if(!weapon) {out.copy(p);return true;}
+    shooter.origin(this.ballisticOrigin);
+    return this.ballisticWeapon(p,tv,this.ballisticOrigin,weapon,out);
+  }
+  dropCorrect(point,shooter,weapon,out) {
+    shooter.origin(this.ballisticOrigin);
+    return this.ballisticWeapon(point,this.ballisticZero,this.ballisticOrigin,weapon,out);
   }
   cluster(target,create=false) {
     const owner=target?.controller??target;
