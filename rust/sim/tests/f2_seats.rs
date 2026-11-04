@@ -344,3 +344,23 @@ fn a_nested_crew_death_preserves_the_outer_pending_deaths() {
     assert!(!st.unit.get(c.unit).unwrap().alive);
     assert_eq!(w.events[w.events.len() - 3..], [Event::Kill(3), Event::Kill(1), Event::Kill(2)]);
 }
+
+#[test]
+fn another_hull_birth_keeps_existing_crew_look_and_pending_ai_input() {
+    let (mut st, mut p, mut w, h) = setup(2);
+    let human = unit(&mut st, 1, true); let bot = unit(&mut st, 2, false);
+    assert!(p.board(&mut st, &mut w, human, h, 0));
+    assert!(p.board(&mut st, &mut w, bot, h, 1));
+    let human_lease = seat(&st, human); let bot_lease = seat(&st, bot);
+    let control = st.seat_lease.get(bot_lease).unwrap().controllable.unwrap();
+    p.control(control, SeatControl { driven: true, intent: SeatIntent { forward: 0.75, ..SeatIntent::default() } }, false);
+    p.network_input(&mut st, human_lease, &SeatKeys::default(), &SeatCommand { look: vec![(10.0, 5.0)], ..SeatCommand::default() }).unwrap();
+    let yaw = st.vehicle.get(h.vehicle).unwrap().seats[0].aim_yaw;
+    let pitch = st.vehicle.get(h.vehicle).unwrap().seats[0].pitch;
+    let other = hull(&mut st, &mut p, 1);
+    assert_ne!(other.vehicle, h.vehicle);
+    p.latch(&mut st, &mut w, 1.0);
+    assert_eq!(st.vehicle.get(h.vehicle).unwrap().seats[0].aim_yaw, yaw);
+    assert_eq!(st.vehicle.get(h.vehicle).unwrap().seats[0].pitch, pitch);
+    assert_eq!(st.seat_lease.get(bot_lease).unwrap().input.forward, 0.75);
+}
