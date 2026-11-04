@@ -12,6 +12,7 @@ import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse,
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
 import { Agent } from '../src/ai/classic/agents.js';
+import { dispatch, rangePolicy } from '../src/ai/classic/combat.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -638,6 +639,55 @@ test('native weapon utility preserves exact damage math and callback-visible acc
     return {out,history,ownerKind:owner.kind};
   }
   for(let i=0;i<3072;i++)assert.deepEqual(run(true,i),run(false,i),`weapon utility ${i}`);
+});
+
+test('native engagement dispatch preserves weapon callbacks, mutable roles and vehicle results', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:i/11,difficulty:{enemySkill:[12,14,17,20][i%4],hard:i%3===0,tier:i%4}},out={retained:8};
+    const c={ai:{world},roll:[-7,-0,1,2,3,4,5,6,NaN,'9'][i%10],rangeScale:1};let nested=false,roleReads=0;
+    const snapshot=o=>({...o,weapon:o.weapon?.id??o.weapon});
+    const log=(...v)=>{history.push([...v,snapshot(out)]);if(native){sim.words(new Array(8100).fill(7));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const weapons=Array.from({length:4},(_,id)=>({id,channel:0,clip:12,reserve:24,rounds:1,
+      def:{base:['rifle','grenade','cannon','melee'][id],ammo:30,ordnance:{base:'bolt',Damage:10+id*10,VehicleScale:1},
+        ai:{minRange:0,maxRange:30+id*20,extremeRange:150,implicitRange:false,categoryMask:0xffffffff}}}));
+    const arsenal={weapons:i%13===0?[]:weapons,selected:0,current(channel){log('current',channel);return this.weapons[this.selected];},
+      select(w){log('select',w.id,this===arsenal);this.selected=this.weapons.indexOf(w);if(i%23===0)target.hero=true;return i%19!==0;}};
+    const classDef={MaxSpeed:3,UnitType:['scout','assault','pilot','support','constructor','unknown','  Trooper  '][i%7],
+      ai:{get role(){roleReads++;log('role-ai',roleReads);return i%11===0?(roleReads===1?0:2):i%7===0?2:undefined;}},
+      get role(){log('role');return i%5===0?0:undefined;}};
+    const unit=c.unit={kind:[0,1,2,3,5,6,7,'0',null][i%9],hero:i%17===0,classDef,combat:{arsenal},
+      origin(p){log('origin');p.set(-0,1,0);if(i%29===0 && !nested){nested=true;const inner={};const value=dispatch(c,innerUnit,innerTarget,false,world,inner);log('nested',snapshot(value));}}};
+    const target={id:9,alive:true,generation:0,kind:[0,1,2,3,4,5,6,7,8,9,'5'][Math.floor(i/9)%11],hero:i%31===0,category:i%5,
+      position:new Vector3(i%111,0,4),velocity:new Vector3(),sphere:{radius:1},maxHealth:100,
+      aimPoint(p){log('aim');p.copy(this.position);if(i%37===0)this.hero=true;}};
+    const innerUnit={kind:1,hero:false,classDef:{MaxSpeed:2},combat:{arsenal:{weapons:[weapons[0]]}},origin:p=>p.set(1,1,1)};
+    const innerTarget={kind:0,hero:false,category:0,sphere:{radius:0},maxHealth:20,aimPoint:p=>p.set(4,3,2)};
+    c.perception=new Perception(c);if(native)sim.bindPerception(c.perception);
+    const vehicleResult={other:i};
+    const vehicles=world.vehicles={dispatch(control,u,t,s,w,o){log('vehicle',control===c,u===unit,t===target,s,w===world,o===out,this===vehicles);o.pattern=17;return i%3===0?vehicleResult:i%5===0?null:o;}};
+    if(i%7===0)vehicles.dispatch=null;
+    const result=dispatch(i%43===0?null:c,i%47===0?null:unit,i%53===0?null:target,i%2===0,world,out);
+    return {history,out:snapshot(out),result:result===out?'out':result,selected:arsenal.selected,hero:target.hero,roleReads};
+  }
+  for(let i=0;i<2304;i++)assert.deepEqual(run(true,i),run(false,i),`engagement ${i}`);
+});
+
+test('native range policies retain strict actions and callback-visible coercion order', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},c={},out={inBand:i%3===0?{}:i%2===0,action:[0,1,2,3,4,6,'2',null,NaN][i%9]};
+    let pattern=-1,probability=9,skillReads=0;
+    const log=(...v)=>{history.push(v);if(native)sim.words(new Array(7200).fill(8));};
+    const difficulty=world.difficulty={enemySkill:i%5===0?{valueOf(){skillReads++;log('skill-coercion',skillReads);return skillReads===1?16:12;}}:[12,14,17,20,NaN,'14'][i%6],
+      hard:i%7===0?undefined:i%4===0,tier:i%3===0?3:2};
+    Object.defineProperty(c,'roll',{get(){log('roll');out.inBand=!out.inBand;return i%11===0?{valueOf(){log('roll-coercion');return -7;}}:[-9,-2,-0,0,1,2,3,4,5,NaN,'9'][i%11];}});
+    Object.defineProperty(out,'pattern',{enumerable:true,get:()=>pattern,set(value){log('pattern',value);pattern=value;if(i%13===0)out.inBand=false;}});
+    Object.defineProperty(out,'probability',{enumerable:true,get:()=>probability,set(value){log('probability',value);probability=value;if(i%17===0)difficulty.hard=true;}});
+    assert.equal(rangePolicy(c,world,out),out);
+    return {out:{...out},history,skillReads};
+  }
+  for(let i=0;i<3072;i++)assert.deepEqual(run(true,i),run(false,i),`range policy ${i}`);
 });
 
 test('native acoustic and protection services preserve query reuse, limits and nested notifications', async () => {

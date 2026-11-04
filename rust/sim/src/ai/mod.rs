@@ -9,6 +9,8 @@ mod aim_module;
 mod awareness_module;
 #[cfg(target_arch = "wasm32")]
 mod controller_driver_module;
+#[cfg(target_arch = "wasm32")]
+mod dispatch_module;
 mod fire_module;
 mod fsm_module;
 #[cfg(target_arch = "wasm32")]
