@@ -194,11 +194,12 @@ export const seatScheme = (vehicle, bindings) => (vehicle?.flying ? flightBindin
 // the seat's limits (the mouse scale and invert).
 export function seatLook(vehicle, index, dx, dy, { scale = 1, invert = false, flightScale = 1, flightInvert = false } = {}) {
   if (seatControl(vehicle, index) === "flight") {
-    vehicle.stickX = THREE.MathUtils.clamp(vehicle.stickX + (dx * flightScale) / 120, -1, 1);
-    vehicle.stickY = THREE.MathUtils.clamp(vehicle.stickY + ((flightInvert ? -dy : dy) * flightScale) / 120, -1, 1);
-    const radius = Math.max(1, Math.hypot(vehicle.stickX, vehicle.stickY));
-    vehicle.stickX /= radius;
-    vehicle.stickY /= radius;
+    const stick = vehicle.system?.f2?.lookState(vehicle) ?? vehicle;
+    stick.stickX = THREE.MathUtils.clamp(stick.stickX + (dx * flightScale) / 120, -1, 1);
+    stick.stickY = THREE.MathUtils.clamp(stick.stickY + ((flightInvert ? -dy : dy) * flightScale) / 120, -1, 1);
+    const radius = Math.max(1, Math.hypot(stick.stickX, stick.stickY));
+    stick.stickX /= radius;
+    stick.stickY /= radius;
     return;
   }
   const seat = vehicle.seats[index];

@@ -44,3 +44,49 @@ Later seats work belongs in `f2/seats`; firing and tow work belongs in `f2/firin
 The scheduler owns ordering, lifecycle owns birth/retirement, and the integrator
 owns the schema, shared publication and game wiring. Changes to those shared
 interfaces must land before parallel seats and firing work begins.
+
+## Milestone boundary layout
+
+`f2_init` reserves the input and returns a stable descriptor. `f2_step(dt, tick)`
+publishes output addresses in that descriptor, so reading the result requires no
+getter exports. Inputs begin with clock, water level and pose/flight flags, then
+one post-presence/team pair per pad and an optional spawn occupant. The last two
+input words give the foreign block's end and start.
+
+The foreign block contains registry rows, team relations and frozen flight keys,
+then hull handles with pending mouse-stick commands, seat lease/input/aim facts,
+tow facts and recoil inputs. Its layout is independent of the complete vehicle
+schema. Mouse samples accumulate in JS input state; they never write the canonical
+stick mirror. They are consumed once before flight, including the original
+per-sample clamp and normalization order. Seats and tethers remain foreign state
+through their later steps.
+
+Publications contain generated hull and pad rows, changed body matrices and
+bounds, compact pose records, weapon locks and life metadata. The last records
+keep gameplay generations distinct from slab generations and initialize fixed
+flight configuration on a newly constructed variant. A spawn publishes its
+render before latching, so boarding reads the new life's frame. Commands reject
+both retired slab handles and old gameplay lives. Retired references can still
+read their final mirror, but cannot target a replacement.
+
+The debug detector runs before and after the phase and checks the owned scalar,
+vector, matrix, wheel and flight fields. It excludes the declared foreign seat,
+tether and attribution objects. Commands publish current state before returning.
+Debug runs also reject memory growth during the phase; initialization reserves a
+memory margin. Counters include the whole export rows and variable payloads,
+including rig output while the JS firing and rider readers remain.
+
+## Follow-on file ownership
+
+Seats work can add `rust/sim/src/vehicles/module/f2/seats.rs` and
+`src/f2-seats.js`; firing/tow work can add
+`rust/sim/src/vehicles/module/f2/firing.rs` and `src/f2-firing.js`. Neither should
+edit the other's files. The integrator owns `module/f2.rs`, `f2-sim.js`, the
+schemas, `vehicle-phase-data.js`, game wiring and regenerated artifacts.
+
+Seats replace the latch callback and the seat part of the foreign block; firing
+replaces the JS calls after native posing and the recoil/tow parts of that block.
+Both use the same generation-qualified hull references and canonical vehicle
+slab. The integrator joins their calls in the existing scheduler order. Step 6
+then consolidates synchronous hooks and rider writeback before step 7 removes the
+remaining JS world path and measures the default-flip candidate.

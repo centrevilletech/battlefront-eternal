@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { makeGround, makeHit } from './collision.js';
 import { Weapon } from './weapons.js';
-import { FLIGHT_CLASSES } from './flight/config.js';
+import { FLIGHT_CLASSES, flightConfig } from './flight/config.js';
 import { MirrorPool } from './sim/runtime.js';
 import { KIND_TABLE, KIND_VEHICLE, KIND_VEHICLES, KIND_BODY, KIND_UNIT, KIND_SEAT_LEASE, KIND_OWNER_SNAPSHOT, VEHICLE_KEYS } from './sim/gen/index.js';
 import { rigNodes, json, classKeys, giveMapRules, pullPose, poseInputs, applyPose, flightNumbers } from './vehicle-phase-data.js';
@@ -17,14 +17,24 @@ const OWNED_FIELDS = VEHICLE_KEYS;
 // Adopt the existing Vehicle objects. Respawns keep them; retirement/reuse uses
 // a new object and a new slab generation, never retargeting an old reference.
 class FleetMirrors extends MirrorPool {
-  constructor(identity) { super(KIND_VEHICLE); this.identity = identity; this.objects = identity.objects; }
-  slotOf(v) { return this.identity.slotOf(v); }
-  put(v, f, o) { this.identity.put(v, f, o); }
+  constructor(identity) { super(KIND_VEHICLE); this.identity = identity; this.objects = identity.objects; this.retired = new Map(); }
+  slotOf(v) { return v.simSlot ?? this.identity.slotOf(v); }
+  put(v, f, o) {
+    if (v.simSlot === undefined) this.identity.put(v, f, o);
+    else { f[o] = v.simSlot; f[o + 1] = v.simGen; }
+  }
+  retire(slot, gen) {
+    const v = super.retire(slot, gen);
+    this.retired.set(`${slot}:${gen}`, v);
+    return v;
+  }
   is(v) { return this.identity.is(v); }
   at(slot, gen) {
     const v = this.objects[slot];
-    if (!v || v.simGen !== gen) throw Error('stale F2 mirror handle');
-    return v;
+    if (v?.simGen === gen) return v;
+    const retired = this.retired.get(`${slot}:${gen}`);
+    if (retired) return retired;
+    throw Error('stale F2 mirror handle');
   }
 }
 
@@ -43,6 +53,7 @@ class F2 {
     this.unitClass = unitClass; this.debug = debug;
     this.detector = new F2MirrorCheck();
     this.kernel = false; this.bodiesVersion = -1; this.colliders = new WeakSet();
+    this.looks = new WeakMap();
     this.classes = new Set(); this.values = []; this.memberPoint = new THREE.Vector3(); this.aimPoints = [];
     this.hit = makeHit(); this.groundHit = makeGround();
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
@@ -132,8 +143,10 @@ class F2 {
     const p = vs.spawnOccupant; values.push(p ? 1 : 0, p?.x ?? 0, p?.y ?? 0, p?.z ?? 0);
     this.writeInput(values, 0);
     this.counters.ticks++;
+    const memory = b.memory.buffer;
     this.inPhase = true;
     try { this.x.f2_step(dt, tick); } finally { this.inPhase = false; }
+    if (this.debug && b.memory.buffer !== memory) throw Error('F2 memory grew during the phase');
     this.sync();
     vs.tickAlpha = Math.max(0, vs.acc / (1 / 120)); vs.presented = false;
     vs.fireCrews(THREE.MathUtils.clamp(dt, 0, .1));
@@ -147,6 +160,16 @@ class F2 {
     if (offset + values.length >= this.capacity - 2) throw Error('F2 foreign input capacity exceeded');
     this.bridge.views(); this.bridge.f.set(values, this.inputBase + offset);
     this.counters.inputFields += values.length;
+  }
+
+  lookState(v) {
+    if (v.system !== this.vehicles) return null;
+    let input = this.looks.get(v);
+    if (!input || input.generation !== v.aiTarget.generation) {
+      input = { generation: v.aiTarget.generation, stickX: v.stickX, stickY: v.stickY };
+      this.looks.set(v, input);
+    }
+    return input;
   }
 
   foreignIn() {
@@ -174,7 +197,9 @@ class F2 {
     }
     values.push(vs.vehicles.length);
     for (const v of vs.vehicles) {
-      values.push(v.simSlot, v.simGen);
+      const look = this.looks.get(v), pending = look?.generation === v.aiTarget.generation;
+      values.push(v.simSlot, v.simGen, pending ? 1 : 0, pending ? look.stickX : 0, pending ? look.stickY : 0);
+      this.looks.delete(v);
       for (const seat of v.seats) {
         const l = seat.lease, i = l?.input ?? NO_INPUT, u = l?.unit;
         values.push(l ? 1 : 0, l ? refs[KIND_SEAT_LEASE].slotOf(l) : 0, l ? refs[KIND_SEAT_LEASE].gens[refs[KIND_SEAT_LEASE].slotOf(l)] : 0,
@@ -216,14 +241,22 @@ class F2 {
       }
       this.counters.outputFields += rows * stride + f[base + 3];
     }
+    const lifeStride = b.f[d + 12] || 3;
     let lives = b.f[d + 11] / 8;
     if (lives) {
       const n = b.f[lives++];
-      for (let i = 0; i < n; i++, lives += 3) {
+      for (let i = 0; i < n; i++, lives += lifeStride) {
         const v = this.pool.objects[b.f[lives]];
+        const changed = v.aiTarget.generation !== b.f[lives + 1];
         v.aiTarget.generation = b.f[lives + 1]; v.root.visible = b.f[lives + 2] !== 0;
+        if (v.flying && changed && lifeStride >= 9) {
+          v.flightClass = ['fighter','scout','bomber','transport'][b.f[lives + 3]];
+          v.minSpeed = b.f[lives + 4]; v.midSpeed = b.f[lives + 5]; v.boostSpeed = b.f[lives + 6];
+          v.speed = b.f[lives + 7]; v.turnRate = b.f[lives + 8];
+          v.flightConfig = flightConfig(v.def, v.flightClass);
+        }
       }
-      this.counters.outputFields += n * 3;
+      this.counters.outputFields += n * lifeStride;
     }
     this.bodiesOut();
     // Pose output is a compact flat record; retained tree state stays in Rust.
@@ -281,7 +314,8 @@ class F2 {
       else out.push([path, value]);
     };
     for (const key of OWNED_FIELDS) if (!foreign.has(key)) add(key, v[key]);
-    out.push(['root.visible', v.root.visible], ['aiTarget.generation', v.aiTarget.generation]);
+    out.push(['root.visible', v.root.visible], ['aiTarget.generation', v.aiTarget.generation],
+      ['lastAttacker', v.lastAttacker], ['driver', v.driver], ['seatIndex', v.seatIndex]);
     return out;
   }
   record() { if (this.debug) for (const v of this.vehicles.vehicles) this.detector.published(v, this.owned(v)); }

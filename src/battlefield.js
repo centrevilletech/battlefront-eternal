@@ -93,7 +93,7 @@ export class Battlefield {
       if (unit.seat?.vehicle) {
         // The hull goes, and everyone aboard with it.
         const vehicle = unit.seat.vehicle;
-        if (vehicle.system.f2) vehicle.system.f2.command(vehicle, 3);
+        if (vehicle.system?.f2) vehicle.system.f2.command(vehicle, 3);
         else vehicle.lastAttacker = null;
         vehicle.damage(Infinity);
       }

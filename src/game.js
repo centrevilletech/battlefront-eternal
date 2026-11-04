@@ -2184,7 +2184,7 @@ async function start() {
           }
           commandHistory.put(command);
           if (!worldControls.accept(command)) throw new Error('stale world command');
-          if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; vehicles?.sim?.retune(name, key, value); }
+          if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key, value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value > 0) { FLIGHT_CLASSES[name][key] = value; (vehicles?.f2 ?? vehicles?.sim)?.retune(name, key, value); }
           const fs = command.flightSettings || {};
           if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
           const yawBeforeLook = soldier.aimYaw;
@@ -2278,7 +2278,7 @@ async function start() {
           return { flag: true, value: Boolean(context.grenade.gone) ? 1 : 0 };
         }
         case 'grenade': { const g = context.grenade; ai.grenadeUpdate(g, g.owner === 'player' ? playerUnit : g.owner); break; }
-        case 'spawnFlush': humanSpawn.flush(); break;
+        case 'spawnFlush': humanSpawn.flush(); if (vehicles?.f2?.debug) vehicles.f2.check(); break;
       }
     },
   };
@@ -2299,7 +2299,7 @@ async function start() {
     }
     commandHistory.put(command);
     if (!worldControls.accept(command)) throw new Error("stale world command");
-    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key,value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value>0) { FLIGHT_CLASSES[name][key]=value; vehicles?.sim?.retune(name, key, value); }
+    if (command.flightTuning) for (const [name, values] of Object.entries(command.flightTuning)) if (FLIGHT_CLASSES[name]) for (const [key,value] of Object.entries(values)) if (key in FLIGHT_CLASSES[name] && Number.isFinite(value) && value>0) { FLIGHT_CLASSES[name][key]=value; (vehicles?.f2 ?? vehicles?.sim)?.retune(name, key, value); }
     const fs = command.flightSettings || {};
     if (driver) { driver.flightSensitivity = fs.sensitivity ?? 1; driver.flightInvert = Boolean(fs.invert); }
     const yawBeforeLook = soldier.aimYaw;
@@ -2425,6 +2425,7 @@ async function start() {
     }
     // The spawn screen hears what this tick did to the player.
     humanSpawn.flush();
+    if (vehicles?.f2?.debug) vehicles.f2.check();
   }
 
   // Soldiers push each other apart, as the original game's collision pass does

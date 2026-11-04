@@ -471,4 +471,3 @@ export class VehiclesSim {
     };
   }
 }
-

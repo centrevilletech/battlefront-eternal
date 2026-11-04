@@ -43,8 +43,11 @@ pub fn publish() {
     lives.clear(); lives.push(s.store.vehicles.vehicles.len() as f64);
     for r in &s.store.vehicles.vehicles {
         let v = s.store.vehicle.get(*r).unwrap();
-        lives.extend_from_slice(&[r.slot as f64, v.target_generation, if v.visible { 1.0 } else { 0.0 }]);
+        lives.extend_from_slice(&[r.slot as f64, v.target_generation, if v.visible { 1.0 } else { 0.0 },
+            v.flight_class.map_or(-1.0, |c| c as u8 as f64), v.min_speed.unwrap_or(f64::NAN),
+            v.mid_speed.unwrap_or(f64::NAN), v.boost_speed.unwrap_or(f64::NAN), v.speed, v.turn_rate]);
     }
+    desc()[12] = 9.0;
     desc()[11] = lives.as_ptr() as usize as f64;
     desc()[2] = s.export(KIND_VEHICLE as u32, 0).expect("F2 hull output").ptr() as usize as f64;
     desc()[3] = s.export(KIND_VEHICLES as u32, 0).expect("F2 pad output").ptr() as usize as f64;
@@ -107,7 +110,21 @@ fn spawns(dt: f64) {
         // Ground spawn initializes flight fields too.
         store(&hull);
         let s = sim();
-        hull.flight.to_store(s.store.vehicle.get_mut(r).unwrap(), &mut s.strings);
+        let v = s.store.vehicle.get_mut(r).unwrap();
+        if hull.flying {
+            v.flight_class = Some(hull.flight.class);
+            v.min_speed = Some(hull.flight.min_speed); v.mid_speed = Some(hull.flight.mid_speed);
+            v.boost_speed = Some(hull.flight.boost_speed); v.speed = hull.speed; v.turn_rate = hull.turn_rate;
+        }
+        hull.flight.to_store(v, &mut s.strings);
+        // Spawn's render is observable by boarding in the following latch.
+        let mut numbers = Vec::new();
+        posing::out(&mut poses()[r.slot as usize].as_mut().unwrap().pose, &mut numbers);
+        let out = unsafe { &mut *addr_of_mut!(POSED) };
+        if out.is_empty() { out.push(0.0); }
+        out[0] += 1.0;
+        out.extend_from_slice(&[r.slot as f64, numbers.len() as f64]);
+        out.extend_from_slice(&numbers);
         publish();
         import_f2_life(&VehHull { hull: index as f64 });
     }
@@ -143,6 +160,8 @@ fn foreign() {
     for _ in 0..n {
         let r = Ref::new(data[o] as u32, data[o + 1] as u32); o += 2;
         let Some(v) = sim().store.vehicle.get_mut(r) else { panic!("stale F2 foreign row") };
+        if data[o] != 0.0 { v.stick_x = Some(data[o + 1]); v.stick_y = Some(data[o + 2]); }
+        o += 3;
         for (seat, lease) in v.seats.iter_mut().zip(&mut v.seat_leases) {
             let has = data[o] != 0.0;
             seat.lease = has.then(|| Ref::new(data[o + 1] as u32, data[o + 2] as u32));

@@ -27,6 +27,16 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   assert.equal(target.generation, generation + 1);
   assert.equal(v.health, v.maxHealth);
   assert.equal(f2.x.f2_command(slot, gen, generation, 0, 10, 0, 0, 0), 0, 'stale gameplay life rejected');
+  const flyer = vs.vehicles.find(v => v.flying), flyerPad = flyer.slot;
+  f2.retire(flyer);
+  vs.update(1 / 60);
+  const fresh = flyerPad.vehicle;
+  assert.notEqual(fresh, flyer);
+  assert.ok(fresh.alive);
+  assert.equal(fresh.flightClass, flyer.flightClass);
+  assert.equal(fresh.minSpeed, flyer.minSpeed);
+  assert.equal(fresh.power, 100);
+  assert.ok(fresh.flightStart?.isVector3, 'a newly constructed flyer has its complete checkpoint');
   v.health--;
   assert.throws(() => f2.check(), /F2 mirror write: health/);
   v.health++;
@@ -38,5 +48,7 @@ test('F2 keeps pooled identity through death and respawn and rejects retired han
   assert.notEqual(replacement, v);
   assert.equal(replacement.simSlot, slot);
   assert.notEqual(replacement.simGen, gen);
+  assert.equal(f2.pool.at(slot, gen), v, 'retired reads preserve the old identity');
+  assert.equal(f2.pool.at(replacement.simSlot, replacement.simGen), replacement);
   assert.equal(f2.x.f2_command(slot, gen, target.generation, 1, 10, 0, 0, 0), 0, 'slot reuse cannot retarget the old identity');
 });
