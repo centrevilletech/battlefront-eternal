@@ -53,6 +53,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: npm
+      - name: Install JavaScript dependencies for the Rust test oracles
+        run: npm ci
       - name: The Rust toolchain rust/rust-toolchain.toml pins
         working-directory: rust
         run: rustup toolchain install
@@ -74,6 +77,7 @@ jobs:
         run: node tools/build-rust.mjs --check
       - name: Rust unit tests
         working-directory: rust
+        # The content BVH oracle uses the installed three and three-mesh-bvh.
         # sim-replay's format test has Node write a made-up capture; the
         # replays of real battles need game data, so they pass empty here.
         run: cargo test --locked -p sim -p sim-replay -p bfe-render -p content -p v8math -p jsrt -p three -p audio --features sim/replay
