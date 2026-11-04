@@ -937,8 +937,9 @@ blended buckets and the command posts' holograms and flares, in three's
 order. Its programs are made from the GLSL three compiled for each
 material, and vehicles' and props' skinned rigs (`?rustRigs=0` leaves
 those to three, for comparisons), and the sun's shadow cascades. Three.js
-handles unsupported items and takes over if Rust fails to load or the WebGL
-context is lost. Enhanced features use the same per-item fallback. `?rust`
+handles unsupported items and takes over if the WebGL context is lost.
+A Rust module-load failure stops battle preparation and reports the GPU
+renderer name and original error through the loading screen. Enhanced features use the same per-item fallback. `?rust`
 remains accepted for old links and has no effect. `?rustOff` loads Rust with
 drawing disabled,
 

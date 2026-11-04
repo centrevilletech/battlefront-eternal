@@ -1209,3 +1209,9 @@ sixteen RGBA fetches and unpacks per cascade, now four comparison fetches on
 open ground and the exact sixteen only on steep walls; the caster side saves
 the map's 300,000 to 450,000 triangles a frame and their depth-only fill, at
 the cost of one depth copy a cascade a frame.
+
+## Renderer initialization errors
+
+Battle preparation requires the Rust renderer module. If fetching or
+initializing it fails, loading stops with the GPU renderer name and the
+original error. This is reported through the game loading error screen.
