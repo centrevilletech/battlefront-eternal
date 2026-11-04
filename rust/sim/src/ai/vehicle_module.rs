@@ -299,7 +299,7 @@ impl World for LiveWorld {
 #[no_mangle]
 pub extern "C" fn ai_vehicle_service(op:u32) {
     use crate::gen::AiVehicleServiceOp as Service;
-    use super::vehicles::{service::{AnalogOptions, PatrolView}, controllers::{Policy, controller_policy}, reservations::ReservationService};
+    use super::vehicles::{service::{AnalogOptions, PatrolView}, controllers::controller_policy, reservations::ReservationService};
     let mut input=Reader::new(sim().calls.args().0.to_vec());
     let mut out=Vec::new();
     let op=Service::from_u8(op as u8).expect("vehicle service command");
@@ -373,4 +373,112 @@ fn policy(word:u32)->Option<super::vehicles::controllers::Policy> {
 fn policy_word(p:Option<super::vehicles::controllers::Policy>)->u32 {
     use super::vehicles::controllers::Policy;
     match p {Some(Policy::Mobile)=>1,Some(Policy::Stationary)=>2,Some(Policy::Fly)=>3,None=>0}
+}
+
+use super::vehicles::{agents::{AgentHost, AgentMachine, AgentCx, BoardAgent, UnBoardAgent, FlyAgent, FlyAccess, FlyBehavior}, fly::{self,FlyHost}, patterns::{self,PatternAccess,PatternState,PatternsView}};
+impl AgentHost for LiveWorld {
+    fn interrupts_tick(&mut self, agent: Obj) -> bool {let mut args=Vec::new(); agent.put(&mut args); call(Op::InterruptsTick,args).read()}
+    fn update_combat_target(&mut self, agent: Obj) {let mut args=Vec::new(); agent.put(&mut args); call(Op::UpdateCombatTarget,args);}
+    fn aim(&mut self, agent: Obj, stance: f64) {let mut args=Vec::new(); agent.put(&mut args); stance.put(&mut args); call(Op::Aim,args);}
+    fn tick_helper(&mut self, agent: Obj, dt: f64) {let mut args=Vec::new(); agent.put(&mut args); dt.put(&mut args); call(Op::TickHelper,args);}
+    fn can_engage(&mut self, agent: Obj, target: Obj) -> bool {let mut args=Vec::new(); agent.put(&mut args); target.put(&mut args); call(Op::CanEngage,args).read()}
+    fn has_helper(&self, agent: Obj) -> bool {let mut args=Vec::new(); agent.put(&mut args); call(Op::HasHelper,args).read()}
+    fn helper_arrived(&mut self, agent: Obj) -> bool {let mut args=Vec::new(); agent.put(&mut args); call(Op::HelperArrived,args).read()}
+    fn helper_failed(&mut self, agent: Obj) -> bool {let mut args=Vec::new(); agent.put(&mut args); call(Op::HelperFailed,args).read()}
+    fn posts(&self) -> Vec<Obj> {let mut args=Vec::new(); call(Op::Posts,args).read()}
+    fn query_hints(&mut self, center: &Vector3, requester: Obj, now: f64) -> Option<Vec<HintView>> {let mut args=Vec::new(); center.put(&mut args); requester.put(&mut args); now.put(&mut args); call(Op::QueryHints,args).read()}
+}
+impl FlyHost for LiveWorld {
+    fn fly_unit(&mut self, helper: Obj) -> Option<Obj> {let mut args=Vec::new(); helper.put(&mut args); call(Op::FlyUnit,args).read()}
+    fn fly_super_goto(&mut self, helper: Obj, point: &Vector3, direct: bool) {let mut args=Vec::new(); helper.put(&mut args); point.put(&mut args); direct.put(&mut args); call(Op::FlySuperGoto,args);}
+    fn fly_super_stop(&mut self, helper: Obj) {let mut args=Vec::new(); helper.put(&mut args); call(Op::FlySuperStop,args);}
+    fn fly_has_planner(&self, helper: Obj) -> bool {let mut args=Vec::new(); helper.put(&mut args); call(Op::FlyHasPlanner,args).read()}
+    fn fly_planner_cancel(&mut self, helper: Obj) {let mut args=Vec::new(); helper.put(&mut args); call(Op::FlyPlannerCancel,args);}
+    fn fly_path_new(&mut self, helper: Obj) -> u64 {let mut args=Vec::new(); helper.put(&mut args); call(Op::FlyPathNew,args).read()}
+    fn fly_path_prepend(&mut self, path: u64, x: f64, y: f64, z: f64) -> bool {let mut args=Vec::new(); path.put(&mut args); x.put(&mut args); y.put(&mut args); z.put(&mut args); call(Op::FlyPathPrepend,args).read()}
+    fn fly_path_release(&mut self, path: u64) {let mut args=Vec::new(); path.put(&mut args); call(Op::FlyPathRelease,args);}
+    fn fly_install(&mut self, helper: Obj, path: u64, over: bool, altitude: bool) {let mut args=Vec::new(); helper.put(&mut args); path.put(&mut args); over.put(&mut args); altitude.put(&mut args); call(Op::FlyInstall,args);}
+    fn fly_set_destination(&mut self, helper: Obj, destination: &Vector3) {let mut args=Vec::new(); helper.put(&mut args); destination.put(&mut args); call(Op::FlySetDestination,args);}
+    fn fly_set_followed(&mut self, helper: Obj, failed: bool, state: f64, pending: f64) {let mut args=Vec::new(); helper.put(&mut args); failed.put(&mut args); state.put(&mut args); pending.put(&mut args); call(Op::FlySetFollowed,args);}
+}
+struct LiveMachine(Obj);
+impl AgentMachine for LiveMachine {
+    fn state(&self)->f64 {call(Op::AgentState,vec![self.0 as f64]).read()}
+    fn request_state(&mut self,value:f64) {call(Op::AgentRequestState,vec![self.0 as f64,value]);}
+}
+struct LiveFly(Obj);
+impl FlyAccess for LiveFly {
+    fn fly(&self)->FlyAgent {call(Op::FlyFields,vec![self.0 as f64]).read()}
+    fn edit_fly(&mut self,f:impl FnOnce(&mut FlyAgent)) {
+        let mut fields=self.fly();f(&mut fields);let mut args=vec![self.0 as f64];fields.put(&mut args);call(Op::WriteFlyFields,args);
+    }
+}
+struct LivePattern(Obj);
+impl PatternAccess for LivePattern {
+    fn pattern(&self)->PatternState {call(Op::PatternFields,vec![self.0 as f64]).read::<Option<PatternState>>().unwrap_or_default()}
+    fn edit(&mut self,f:impl FnOnce(&mut PatternState)) {
+        let mut fields=self.pattern();f(&mut fields);let mut args=vec![self.0 as f64];fields.put(&mut args);call(Op::WritePatternFields,args);
+    }
+}
+#[no_mangle]
+pub extern "C" fn ai_vehicle_agent(kind:u32,op:u32) {
+    let mut input=Reader::new(sim().calls.args().0.to_vec());
+    let cx:AgentCx=input.read();let dt:f64=input.read();let target:Obj=input.read();let board:BoardAgent=input.read();input.done();
+    let mut w=LiveWorld::new();let mut ai=Live;let mut fsm=LiveMachine(cx.agent);let mut out=Vec::new();
+    match kind {
+        0=>match op {
+            0=>board.on_enter(&mut w,&mut ai,&mut fsm,&cx),
+            1=>board.behave(&mut w,&mut ai,&mut fsm,&cx,dt),
+            3=>board.contested(&mut w,&ai,&cx).put(&mut out),
+            4=>board.accepts_target(&mut w,&ai,&cx,target).put(&mut out),
+            _=>panic!("invalid board agent command"),
+        },
+        1=>match op {
+            0=>UnBoardAgent.on_enter(&mut w,&fsm,&cx),
+            1=>UnBoardAgent.behave(&mut w,&ai,&mut fsm,&cx,dt),
+            _=>panic!("invalid leaving agent command"),
+        },
+        2=>{let mut agent=LiveFly(cx.agent);match op {
+            0=>agent.on_enter(&mut w,&mut ai,&mut fsm,&cx),
+            1=>agent.behave(&mut w,&mut ai,&mut fsm,&cx,dt),
+            2=>agent.on_exit(&mut w,&fsm,&cx),
+            4=>agent.accepts_target(&mut w,&fsm,&cx,target).put(&mut out),
+            5=>agent.clear_above(&mut w,&cx).put(&mut out),
+            6=>agent.pick_post(&mut w,&cx),
+            7=>agent.find_hint(&mut w,&cx).put(&mut out),
+            8=>agent.approach(&mut w,&mut ai,&mut fsm,&cx),
+            9=>agent.landed(&mut w,&mut ai,&mut fsm,&cx),
+            _=>panic!("invalid flying agent command"),
+        }},
+        _=>panic!("invalid vehicle agent"),
+    }
+    state().out=out;
+}
+#[no_mangle]
+pub extern "C" fn ai_vehicle_pattern(op:u32) {
+    let mut input=Reader::new(sim().calls.args().0.to_vec());let p:PatternsView=input.read();let pattern:f64=input.read();input.done();
+    let mut w=LiveWorld::new();let mut live=Live;let mut fields=LivePattern(p.obj);let mut out=Vec::new();
+    match op {
+        0=>live.enter_pattern(&mut w,&p,&mut fields,pattern),
+        1=>live.tick_pattern(&mut w,&p,&mut fields,pattern),
+        2=>live.exit_pattern(&mut w,&p,pattern),
+        3=>live.sidestep(&mut w,&p).put(&mut out),
+        _=>panic!("invalid vehicle pattern command"),
+    }
+    state().out=out;
+}
+#[no_mangle]
+pub extern "C" fn ai_vehicle_helper(op:u32) {
+    let mut input=Reader::new(sim().calls.args().0.to_vec());let id:Obj=input.read();let point:Vector3=input.read();
+    let points:Vec<[f64;3]>=input.read();let over:bool=input.read();let altitude:bool=input.read();input.done();
+    let mut w=LiveWorld::new();let mut out=Vec::new();
+    match op {
+        0=>fly::goto(&mut w,id,&point,over),
+        1=>fly::follow_path(&mut w,id,&points,over,altitude).put(&mut out),
+        2=>fly::stop(&mut w,id),
+        3=>fly::land(&mut w,id,over),
+        4=>fly::set_flags(&mut w,id,over,altitude),
+        _=>panic!("invalid flyer helper command"),
+    }
+    state().out=out;
 }

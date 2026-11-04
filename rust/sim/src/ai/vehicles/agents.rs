@@ -31,6 +31,17 @@ impl Fsm {
     }
 }
 
+/// Agent-machine access without retaining a controller snapshot across
+/// interrupts, helper calls or same-instance reentry.
+pub trait AgentMachine {
+    fn state(&self)->f64;
+    fn request_state(&mut self, state:f64);
+}
+impl AgentMachine for Fsm {
+    fn state(&self)->f64 { self.state }
+    fn request_state(&mut self, state:f64) { self.pending=state; }
+}
+
 /// An agent of the base as these see it: itself, its controller and the
 /// unit it was made for (`this.unit`, the controller's unit then).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -96,8 +107,8 @@ impl BoardAgent {
     }
 
     /// onEnter() (agents.js:46).
-    pub fn on_enter<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx) {
-        if fsm.state == 2.0 {
+    pub fn on_enter<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx) {
+        if fsm.state() == 2.0 {
             let vehicle = self.candidate(w);
             if vehicle.is_none() || !ai.reserve_seat(w, Some(cx.controller), vehicle) {
                 fsm.request_state(DONE);
@@ -107,14 +118,14 @@ impl BoardAgent {
                 let at = w.unit(vehicle.unwrap()).position;
                 w.helper_goto(cx.agent, &at, false);
             }
-        } else if fsm.state == 3.0 && w.has_helper(cx.agent) {
+        } else if fsm.state() == 3.0 && w.has_helper(cx.agent) {
             w.helper_stop(cx.agent);
         }
     }
 
     /// behave(dt) (agents.js:60).
-    pub fn behave<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx, dt: f64) {
-        if fsm.state == DONE {
+    pub fn behave<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx, dt: f64) {
+        if fsm.state() == DONE {
             return;
         }
         if w.interrupts_tick(cx.agent) {
@@ -136,7 +147,7 @@ impl BoardAgent {
             fsm.request_state(DONE);
             return;
         }
-        if fsm.state == 2.0 {
+        if fsm.state() == 2.0 {
             let a = w.sphere(unit);
             let b = w.sphere(vehicle);
             let reach = a.radius + b.radius + 0.5;
@@ -151,7 +162,7 @@ impl BoardAgent {
                 return;
             }
             w.aim(cx.agent, 0.0);
-        } else if fsm.state == 3.0 {
+        } else if fsm.state() == 3.0 {
             ai.board_now(w, Some(cx.controller), vehicle);
         }
         w.tick_helper(cx.agent, dt);
@@ -209,15 +220,15 @@ impl UnBoardAgent {
     }
 
     /// onEnter() (agents.js:147): the exit asked for.
-    pub fn on_enter<W: AgentHost + ?Sized>(&self, w: &mut W, fsm: &Fsm, cx: &AgentCx) {
-        if fsm.state == 1.0 {
+    pub fn on_enter<W: AgentHost + ?Sized>(&self, w: &mut W, fsm: &(impl AgentMachine + ?Sized), cx: &AgentCx) {
+        if fsm.state() == 1.0 {
             w.controller_request_exit(cx.controller);
         }
     }
 
     /// behave(dt) (agents.js:151).
-    pub fn behave<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &(impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx, dt: f64) {
-        if fsm.state == DONE {
+    pub fn behave<W: AgentHost + ?Sized>(&self, w: &mut W, ai: &(impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx, dt: f64) {
+        if fsm.state() == DONE {
             return;
         }
         if w.interrupts_tick(cx.agent) {
@@ -266,41 +277,58 @@ pub struct FlyAgent {
 const DOWN_UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
 
 impl FlyAgent {
-    /// constructor (agents.js:210), after the base's: state 0, state 1
-    /// requested.
     pub fn new(fsm: &mut Fsm) -> FlyAgent {
         fsm.state = 0.0;
         fsm.request_state(1.0);
         FlyAgent { hint: None, search_at: f64::NEG_INFINITY, flag: false, deadline: 0.0, post: None }
     }
-
     fn flyer<W: World + ?Sized>(w: &W, cx: &AgentCx) -> Option<super::world::HullView> {
         cx.unit.and_then(|u| w.unit(u).vehicle).map(|h| w.hull(h))
     }
-
-    /// VehicleType Transport.
     fn transport<W: World + ?Sized>(w: &W, cx: &AgentCx) -> bool {
         let t = cx.unit.and_then(|u| w.unit(u).class).and_then(|c| c.vehicle_type);
         t.as_deref().unwrap_or("").to_lowercase() == "transport"
     }
-
     fn airborne<W: World + ?Sized>(w: &W, cx: &AgentCx) -> bool {
         Self::flyer(w, cx).is_some_and(|v| !v.grounded)
     }
-
-    /// On its pad: landed, or lifting off it (a lift a roof holds).
     fn on_pad<W: World + ?Sized>(w: &W, cx: &AgentCx) -> bool {
         Self::flyer(w, cx).is_some_and(|v| v.grounded || (v.flight_state.as_deref() == Some("TakingOff") && v.gear >= 1.0))
     }
-
-    /// onEnter() (agents.js:242).
-    pub fn on_enter<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx) {
+    pub fn on_enter<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx) { FlyBehavior::on_enter(self, w, ai, fsm, cx) }
+    pub fn behave<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx, dt: f64) { FlyBehavior::behave(self, w, ai, fsm, cx, dt) }
+    pub fn on_exit<W: AgentHost + ?Sized>(&self, w: &mut W, fsm: &(impl AgentMachine + ?Sized), cx: &AgentCx) { FlyBehavior::on_exit(self, w, fsm, cx) }
+    fn clear_above<W: AgentHost + ?Sized>(&self, w: &mut W, cx: &AgentCx) -> bool { FlyBehavior::clear_above(self, w, cx) }
+    fn pick_post<W: AgentHost + ?Sized>(&mut self, w: &mut W, cx: &AgentCx) { FlyBehavior::pick_post(self, w, cx) }
+    fn friendly<W: World + ?Sized>(&self, w: &mut W, unit: &super::world::UnitView, post: Obj) -> bool { FlyBehavior::friendly(self, w, unit, post) }
+    fn find_hint<W: AgentHost + ?Sized>(&mut self, w: &mut W, cx: &AgentCx) -> bool { FlyBehavior::find_hint(self, w, cx) }
+    fn approach<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx) { FlyBehavior::approach(self, w, ai, fsm, cx) }
+    fn landed<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx) { FlyBehavior::landed(self, w, ai, fsm, cx) }
+    pub fn accepts_target<W: AgentHost + ?Sized>(&self, w: &mut W, fsm: &(impl AgentMachine + ?Sized), cx: &AgentCx, target: Obj) -> bool { FlyBehavior::accepts_target(self, w, fsm, cx, target) }
+    pub fn accepts_hazard(&self) -> bool { FlyBehavior::accepts_hazard(self) }
+    pub fn accepts_alert(&self) -> bool { FlyBehavior::accepts_alert(self) }
+    pub fn accepts_acoustic(&self) -> bool { FlyBehavior::accepts_acoustic(self) }
+    pub fn accepts_board(&self) -> bool { FlyBehavior::accepts_board(self) }
+    pub fn accepts_secondary_wait(&self) -> bool { FlyBehavior::accepts_secondary_wait(self) }
+    pub fn saves_on_interrupt(&self) -> bool { FlyBehavior::saves_on_interrupt(self) }
+}
+pub trait FlyAccess {
+    fn fly(&self)->FlyAgent;
+    fn edit_fly(&mut self, f:impl FnOnce(&mut FlyAgent));
+}
+impl FlyAccess for FlyAgent {
+    fn fly(&self)->FlyAgent { *self }
+    fn edit_fly(&mut self,f:impl FnOnce(&mut FlyAgent)) { f(self); }
+}
+impl<T:FlyAccess> FlyBehavior for T {}
+pub trait FlyBehavior:FlyAccess {
+    fn on_enter<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx) {
         let helper = w.has_helper(cx.agent);
         let now = w.now();
-        match fsm.state {
+        match fsm.state() {
             s if s == 1.0 => {
-                self.flag = true;
-                if Self::airborne(w, cx) {
+                { let value = true; self.edit_fly(|s| s.flag = value); }
+                if FlyAgent::airborne(w, cx) {
                     fsm.request_state(4.0);
                 } else if helper {
                     w.helper_stop(cx.agent);
@@ -316,7 +344,7 @@ impl FlyAgent {
                 }
             }
             s if s == 3.0 => {
-                self.deadline = if Self::transport(w, cx) && self.flag { now + 10.0 } else { 4.0 };
+                { let value = if FlyAgent::transport(w, cx) && self.fly().flag { now + 10.0 } else { 4.0 }; self.edit_fly(|s| s.deadline = value); }
                 if helper {
                     w.helper_stop(cx.agent);
                 }
@@ -327,15 +355,13 @@ impl FlyAgent {
             _ => {}
         }
     }
-
-    /// behave(dt) (agents.js:275).
-    pub fn behave<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx, dt: f64) {
-        if fsm.state == DONE {
+    fn behave<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx, dt: f64) {
+        if fsm.state() == DONE {
             return;
         }
         if w.controller(cx.controller).executor_status == 2.0 {
             // Never off the pad: the crew get out and go on foot.
-            if Self::on_pad(w, cx) {
+            if FlyAgent::on_pad(w, cx) {
                 ai.abandon_pad(w, cx.controller);
                 fsm.request_state(DONE);
                 return;
@@ -348,7 +374,7 @@ impl FlyAgent {
         }
         w.update_combat_target(cx.agent);
         let now = w.now();
-        match fsm.state {
+        match fsm.state() {
             s if s == 1.0 => fsm.request_state(3.0),
             s if s == 2.0 => {
                 if self.clear_above(w, cx) {
@@ -356,7 +382,7 @@ impl FlyAgent {
                 }
             }
             s if s == 3.0 => {
-                if now > self.deadline {
+                if now > self.fly().deadline {
                     let next = if self.clear_above(w, cx) { 4.0 } else { 2.0 };
                     fsm.request_state(next);
                 }
@@ -371,10 +397,10 @@ impl FlyAgent {
                 }
             }
             s if s == 5.0 => {
-                if let Some(hint) = self.hint {
+                if let Some(hint) = self.fly().hint {
                     ai.hold_hint(w, hint.obj, cx.controller);
                 }
-                if !Self::airborne(w, cx) {
+                if !FlyAgent::airborne(w, cx) {
                     fsm.request_state(6.0);
                 }
             }
@@ -383,62 +409,52 @@ impl FlyAgent {
         w.aim(cx.agent, 0.0);
         w.tick_helper(cx.agent, dt);
     }
-
-    /// onExit() (agents.js:320).
-    pub fn on_exit<W: AgentHost + ?Sized>(&self, w: &mut W, fsm: &Fsm, cx: &AgentCx) {
-        if fsm.state == 5.0 && w.has_helper(cx.agent) {
+    fn on_exit<W: AgentHost + ?Sized>(&self, w: &mut W, fsm: &(impl AgentMachine + ?Sized), cx: &AgentCx) {
+        if fsm.state() == 5.0 && w.has_helper(cx.agent) {
             w.helper_land(cx.agent, false);
         }
     }
-
-    /// clearAbove() (agents.js:325): 100 m straight up is clear.
     fn clear_above<W: AgentHost + ?Sized>(&self, w: &mut W, cx: &AgentCx) -> bool {
         let p = w.unit(cx.unit.expect("the flyer agent's unit")).position;
-        let body = Self::flyer(w, cx).and_then(|v| v.body);
+        let body = FlyAgent::flyer(w, cx).and_then(|v| v.body);
         w.cast(&p, &DOWN_UP, 100.0, body).is_none()
     }
-
-    /// pickPost() (agents.js:334): state 4's destination.
     fn pick_post<W: AgentHost + ?Sized>(&mut self, w: &mut W, cx: &AgentCx) {
         let posts = w.posts();
         if posts.is_empty() {
             return;
         }
         let unit = w.unit(cx.unit.expect("the flyer agent's unit"));
-        let transport = Self::transport(w, cx);
+        let transport = FlyAgent::transport(w, cx);
         let mut post;
         let mut attempt = 1;
         loop {
             post = posts[w.int(0.0, (posts.len() - 1) as f64) as usize];
-            let ok = !transport || if self.flag { !self.friendly(w, &unit, post) } else { self.friendly(w, &unit, post) };
+            let ok = !transport || if self.fly().flag { !self.friendly(w, &unit, post) } else { self.friendly(w, &unit, post) };
             let near = w.post(post).position.distance_to_squared(&unit.position) < 10000.0;
             if ok || !near || attempt >= 10 {
                 break;
             }
             attempt += 1;
         }
-        self.post = Some(post);
+        { let value = Some(post); self.edit_fly(|s| s.post = value); }
         let mut q = w.post(post).position;
         q.y += 20.0;
         if w.has_helper(cx.agent) {
             w.helper_goto(cx.agent, &q, false);
         }
     }
-
-    /// friendly(post): held by the unit's side or an ally.
     fn friendly<W: World + ?Sized>(&self, w: &mut W, unit: &super::world::UnitView, post: Obj) -> bool {
         let team = w.post(post).team;
         w.relation(unit.team, team) > 0.0
     }
-
-    /// findHint() (agents.js:359): one landing hint near, every 3 s.
     fn find_hint<W: AgentHost + ?Sized>(&mut self, w: &mut W, cx: &AgentCx) -> bool {
         let now = w.now();
-        if !(now > self.search_at) {
+        if !(now > self.fly().search_at) {
             return false;
         }
-        self.hint = None;
-        self.search_at = now + 3.0;
+        { let value = None; self.edit_fly(|s| s.hint = value); }
+        { let value = now + 3.0; self.edit_fly(|s| s.search_at = value); }
         let unit = w.unit(cx.unit.expect("the flyer agent's unit"));
         let Some(found) = w.query_hints(&unit.position, cx.controller, now) else { return false };
         if found.is_empty() {
@@ -446,23 +462,20 @@ impl FlyAgent {
         }
         let hint = found[w.int(0.0, (found.len() - 1) as f64) as usize];
         let Some(post) = hint.command_post else { return false };
-        if Self::transport(w, cx) {
+        if FlyAgent::transport(w, cx) {
             let friendly = self.friendly(w, &unit, post);
-            if if self.flag { friendly } else { !friendly } {
+            if if self.fly().flag { friendly } else { !friendly } {
                 return false;
             }
         }
         if hint.position.y > unit.position.y {
             return false;
         }
-        self.hint = Some(hint);
+        { let value = Some(hint); self.edit_fly(|s| s.hint = value); }
         true
     }
-
-    /// approach() (agents.js:379): the landing point in the hint's frame,
-    /// and the approach to it.
-    fn approach<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx) {
-        let Some(hint) = self.hint else {
+    fn approach<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx) {
+        let Some(hint) = self.fly().hint else {
             fsm.request_state(4.0);
             return;
         };
@@ -483,53 +496,47 @@ impl FlyAgent {
             w.helper_land(cx.agent, true);
         }
     }
-
-    /// landed() (agents.js:399).
-    fn landed<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut Fsm, cx: &AgentCx) {
+    fn landed<W: AgentHost + ?Sized>(&mut self, w: &mut W, ai: &mut (impl VehicleServices + ?Sized), fsm: &mut (impl AgentMachine + ?Sized), cx: &AgentCx) {
         let now = w.now();
-        let post = self.hint.and_then(|h| h.command_post).or(self.post);
-        if self.flag {
+        let post = self.fly().hint.and_then(|h| h.command_post).or(self.fly().post);
+        if self.fly().flag {
             ai.disembark_passengers(w, Some(cx.controller), post);
         }
-        let transport = Self::transport(w, cx);
+        let transport = FlyAgent::transport(w, cx);
         if !transport {
-            if let Some(hint) = self.hint {
+            if let Some(hint) = self.fly().hint {
                 ai.close_hint(w, hint.obj, now + 20.0);
             }
             ai.request_exit(w, Some(cx.controller), post);
             w.set_reboard_at(cx.controller, now + 15.0);
         }
-        if transport || !self.flag {
-            self.flag = !self.flag;
+        if transport || !self.fly().flag {
+            { let value = !self.fly().flag; self.edit_fly(|s| s.flag = value); }
             fsm.request_state(3.0);
         }
     }
-
-    /// The pilot's policies: a scanner target only outside the climb-out
-    /// and landing states and never for a transport; the crew wait yes;
-    /// the interrupted goal saved.
-    pub fn accepts_target<W: AgentHost + ?Sized>(&self, w: &mut W, fsm: &Fsm, cx: &AgentCx, target: Obj) -> bool {
-        if fsm.state == 2.0 || fsm.state == 5.0 || Self::transport(w, cx) {
+    fn accepts_target<W: AgentHost + ?Sized>(&self, w: &mut W, fsm: &(impl AgentMachine + ?Sized), cx: &AgentCx, target: Obj) -> bool {
+        if fsm.state() == 2.0 || fsm.state() == 5.0 || FlyAgent::transport(w, cx) {
             return false;
         }
         w.can_engage(cx.agent, target)
     }
-    pub fn accepts_hazard(&self) -> bool {
+    fn accepts_hazard(&self) -> bool {
         false
     }
-    pub fn accepts_alert(&self) -> bool {
+    fn accepts_alert(&self) -> bool {
         false
     }
-    pub fn accepts_acoustic(&self) -> bool {
+    fn accepts_acoustic(&self) -> bool {
         false
     }
-    pub fn accepts_board(&self) -> bool {
+    fn accepts_board(&self) -> bool {
         false
     }
-    pub fn accepts_secondary_wait(&self) -> bool {
+    fn accepts_secondary_wait(&self) -> bool {
         true
     }
-    pub fn saves_on_interrupt(&self) -> bool {
+    fn saves_on_interrupt(&self) -> bool {
         true
     }
 }

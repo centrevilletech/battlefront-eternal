@@ -15,7 +15,7 @@ use three::Vector3;
 use v8math::{abs, asin, atan2, cos, hypot, max, min, sin, trunc};
 
 use super::controllers::{self, MountedAgent, Policy, DONE};
-use super::patterns::{self, AttackRun, Dispatch, PatternState, PatternsView};
+use super::patterns::{self, AttackRun, Dispatch, PatternsView};
 use super::reservations::{Reservations, ReservationService, SEAT};
 use super::steering::{self, seat_analogs, steer_state, Env};
 use super::support::{self, out_of_reach, SupportHub, REACH_MARGIN};
@@ -259,9 +259,9 @@ impl VehicleAI {
 
     pub fn dispatch<W: World + ?Sized>(&self, w: &mut W, controller: Obj, unit: Obj, target: Obj, switch_allowed: bool) -> Dispatch { VehicleServices::dispatch(self, w, controller, unit, target, switch_allowed) }
 
-    pub fn enter_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut Option<PatternState>, pattern: f64) { VehicleServices::enter_pattern(self, w, p, state, pattern) }
+    pub fn enter_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut (impl patterns::PatternAccess + ?Sized), pattern: f64) { VehicleServices::enter_pattern(self, w, p, state, pattern) }
 
-    pub fn tick_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut Option<PatternState>, pattern: f64) { VehicleServices::tick_pattern(self, w, p, state, pattern) }
+    pub fn tick_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut (impl patterns::PatternAccess + ?Sized), pattern: f64) { VehicleServices::tick_pattern(self, w, p, state, pattern) }
 
     pub fn exit_pattern<W: World + ?Sized>(&self, w: &mut W, p: &PatternsView, pattern: f64) { VehicleServices::exit_pattern(self, w, p, pattern) }
 
@@ -858,13 +858,13 @@ pub trait VehicleServices: VehicleStorage {
     }
 
     /// enterPattern(patterns, state).
-    fn enter_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut Option<PatternState>, pattern: f64) {
+    fn enter_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut (impl patterns::PatternAccess + ?Sized), pattern: f64) {
         let settings = w.settings().clone();
         patterns::enter_pattern(w, self, &settings, p, state, pattern);
     }
 
     /// tickPattern(patterns, state, dt).
-    fn tick_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut Option<PatternState>, pattern: f64) {
+    fn tick_pattern<W: World + ?Sized>(&mut self, w: &mut W, p: &PatternsView, state: &mut (impl patterns::PatternAccess + ?Sized), pattern: f64) {
         let settings = w.settings().clone();
         patterns::tick_pattern(w, self, &settings, p, state, pattern);
     }

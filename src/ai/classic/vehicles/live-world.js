@@ -1,6 +1,7 @@
 // Calls outside the vehicle package, on the existing live objects. Each
 // packet is copied before decoding because callbacks can reenter the ABI.
 import { Vector3 } from 'three';
+import { agentWorld } from './live-agent-world.js';
 import { encode, decoder, shapes } from './wire.js';
 import { unitView,hullView,turretView,leaseView,controllerView,requestView,requestObject,steerView,writeSteer,exitOptions } from './live-views.js';
 export function vehicleWorld(service, sim, args, frame) {
@@ -98,6 +99,6 @@ export function vehicleWorld(service, sim, args, frame) {
     case 'helperStop': obj().helper?.stop?.();return nothing();
     case 'helperFollowPath': {const a=obj(),points=read(['list',['array','f64',3]]),over=read('bool'),altitude=read('bool');a.helper?.followPath?.(points,over,altitude);return nothing();}
     case 'helperLand': {const a=obj(),on=read('bool');a.helper?.land?.(on);return nothing();}
-    default: throw Error(`unknown vehicle world call ${op}`);
+    default: return agentWorld(service,sim,op,values);
   }
 }

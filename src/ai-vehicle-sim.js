@@ -52,6 +52,15 @@ class NativeVehicleAI {
       try {this.command('seatInput',['Obj','f64',['option','Vector3']],[u,dt,aim],'Stick');return intent;}
       finally {this.frames.pop();}
     };
+    for(const [name,op] of [['enterPattern',0],['tickPattern',1],['exitPattern',2],['sidestep',3]]) {
+      service[name]=(p,state=0)=>{
+        const a=p.agent,c=p.controller,u=c.unit;
+        const view={obj:id(p),agent:id(a),controller:id(c),control:id(u),tracker_point:a.tracker?.point ?? null,
+          fresh_target:optional(a.tracker?.freshTarget),target:optional(a.tracker?.target),helper:Boolean(a.helper),helper_arrived:Boolean(a.helper?.arrived)};
+        const values=encode('PatternsView',view,sim);encode('f64',state,sim,values);sim.words(values);sim.x.ai_vehicle_pattern(op);
+        if(op===3)return Boolean(sim.out()[0]);
+      };
+    }
     this.bindReservations(service.reservations);
     service.reserve=(candidate,owner,kind=1)=>service.reservations.reserve(candidate,owner,kind);
     service.reserveTarget=(candidate,owner)=>service.reservations.reserve(candidate,owner,2);
@@ -69,6 +78,35 @@ class NativeVehicleAI {
     if(result==='Obj')return this.sim.objects[value];
     if(Array.isArray(result) && result[1]==='Obj')return result[0]==='list' ? value.map(id=>this.sim.objects[id]):this.sim.objects[value] ?? null;
     return value;
+  }
+  bindAgent(agent,kind) {
+    const sim=this.sim,id=o=>sim.id(o);
+    const invoke=(op,dt=0,target=null)=>{
+      const values=encode('AgentCx',{agent:id(agent),controller:id(agent.controller),unit:agent.unit ? id(agent.unit):null},sim);
+      encode('f64',dt,sim,values);encode('Obj',id(target),sim,values);
+      encode('BoardAgent',{vehicle:agent.vehicle ? {obj:id(agent.vehicle.unit),generation:agent.vehicle.generation}:null},sim,values);
+      sim.words(values);sim.x.ai_vehicle_agent(kind,op);
+      if([3,4,5,7].includes(op))return Boolean(sim.out()[0]);
+    };
+    agent.onEnter=()=>invoke(0);agent.behave=dt=>invoke(1,dt);
+    if(kind===0) {
+      agent.contested=()=>invoke(3);agent.acceptsTarget=t=>invoke(4,0,t);agent.acceptsAcoustic=t=>invoke(4,0,t);
+    } else if(kind===2) {
+      agent.onExit=()=>invoke(2);agent.acceptsTarget=t=>invoke(4,0,t);agent.clearAbove=()=>invoke(5);
+      agent.pickPost=()=>invoke(6);agent.findHint=()=>invoke(7);agent.approach=()=>invoke(8);agent.landed=()=>invoke(9);
+    }
+  }
+  bindHelper(helper) {
+    const sim=this.sim;
+    const invoke=(op,point={x:0,y:0,z:0},points=[],over=false,altitude=false)=>{
+      const values=encode('Obj',sim.id(helper),sim);encode('Vector3',point,sim,values);
+      encode(['list',['array','f64',3]],points,sim,values);encode('bool',over,sim,values);encode('bool',altitude,sim,values);
+      sim.words(values);sim.x.ai_vehicle_helper(op);if(op===1)return Boolean(sim.out()[0]);
+    };
+    helper.goto=(p,options={})=>invoke(0,p,[],options.mode==='direct');
+    helper.followPath=(p,over=false,alt=false)=>invoke(1,undefined,p ?? [],over,alt);
+    helper.stop=()=>invoke(2);helper.land=(on=true)=>invoke(3,undefined,[],on);
+    helper.setFlags=(over,alt)=>invoke(4,undefined,[],over,alt);
   }
   bindReservations(reservations) {
     const records=new Map();
