@@ -26,11 +26,11 @@ export function otherBattle(page, server) {
 // One gameplay session for local and remote battles. The transport provides the
 // state/events/bulk channels; every world supplies only entity records.
 export class NetworkSession {
-  constructor({transport, onError=()=>{}, onChat=()=>{},
+  constructor({transport, onError=()=>{}, onChat=()=>{}, onDispose=()=>{},
     onEntityRegistry, onEntities, onGameplayEvents=()=>{}, onEntityDiagnostics=()=>{}, onInputAck=()=>{},
     onFire=()=>{}, getAim=()=>({}), playerName='', lifecycle=globalThis.window,
     rotationPollMs=1000} = {}) {
-    Object.assign(this, {transport,onError,onChat,onEntityRegistry,onEntities,onGameplayEvents,onEntityDiagnostics,onInputAck,onFire,getAim,lifecycle,rotationPollMs});
+    Object.assign(this, {transport,onError,onChat,onDispose,onEntityRegistry,onEntities,onGameplayEvents,onEntityDiagnostics,onInputAck,onFire,getAim,lifecycle,rotationPollMs});
     this.playerName=String(playerName || '').replace(/[\x00-\x1f\x7f]/g,'').trim().slice(0,32);
     this.channels=new Map();this.pending=new Map();this.request=0;this.stateSequence=0;
     this.entityQueue=[];this.snapshotAck=null;this.entityWaiters=[];this.closed=false;this.authenticated=false;
@@ -248,9 +248,16 @@ export class NetworkSession {
   dispose(error=Error('Disconnected from server'), { preserveRotation=false }={}) {
     if(!preserveRotation){clearTimeout(this.rotationTimer);if(this.rotation)this.rotation.cancelled=true;this.transport?.cancelMatchProbe?.();this.lifecycle?.removeEventListener('pagehide',this.onPageHide);}
     if(this.closed)return;this.closed=true;
-    clearTimeout(this.timeout);clearInterval(this.ackTimer);
-    this.statusElement?.remove();this.statusElement=null;this.rejectReady?.(error);this.transport?.dispose();
-    for(const waiter of this.entityWaiters.splice(0)){clearTimeout(waiter.timer);waiter.reject(error);}
-    for(const job of this.pending.values()){clearTimeout(job.timer);job.reject(error);}this.pending.clear();this.entityQueue=[];
+    let failure, failed = false;
+    try {
+      clearTimeout(this.timeout);clearInterval(this.ackTimer);
+      this.statusElement?.remove();this.statusElement=null;this.rejectReady?.(error);this.transport?.dispose();
+      for(const waiter of this.entityWaiters.splice(0)){clearTimeout(waiter.timer);waiter.reject(error);}
+      for(const job of this.pending.values()){clearTimeout(job.timer);job.reject(error);}this.pending.clear();this.entityQueue=[];
+    } catch (caught) { failure = caught; failed = true; }
+    // The battle's owned prediction sessions must close even if a transport
+    // cleanup failed. Reentrant or repeated disposal still notifies once.
+    try { this.onDispose(error); } catch (caught) { if (!failed) { failure = caught; failed = true; } }
+    if (failed) throw failure;
   }
 }
