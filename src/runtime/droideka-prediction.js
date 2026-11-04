@@ -6,12 +6,13 @@ const quiet = () => {};
 // Shared movement and recoil, with the same post-movement shield edge as
 // PlayerCombat.update. Never replay weapons, damage, or death presentation.
 export class DroidekaPrediction extends InfantryPrediction {
-  constructor(soldier, combat, kick = combat.kick) {
-    super(soldier, combat, kick);
+  constructor(soldier, combat, kick = combat.kick, options) {
+    super(soldier, combat, kick, options);
     this.shieldEquipped = combat.arsenal.current(1)?.def.base === 'shield';
     this.gunUnderwater = combat.gunUnderwater;
   }
   step(input, dt, shieldPressed = false) {
+    if (this.nativeSession?.step(this, input, dt, shieldPressed)) return;
     const s = this.soldier;
     const blast = s.onDeathBlast, exploded = s.onExploded;
     s.onDeathBlast = s.onExploded = quiet;
