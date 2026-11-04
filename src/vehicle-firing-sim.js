@@ -2,9 +2,10 @@
 // aimer identities stay with the Vehicle; commands own their arithmetic,
 // matrix updates, barrel counters and kick times. The clock can re-enter.
 import { putVgInput, VgOutputMirror, syncVgOutput } from './sim/gen/vehicle-firing.js';
+import { Vector3 } from 'three';
 
 const methods = ['muzzleOf', 'muzzleOfSeat', 'heldByLimits', 'reticleRay', 'botAim', 'nose', 'shotDirection', 'beamDirection', 'spread', 'towHeld'];
-const zero = Object.freeze({ x: 0, y: 0, z: 0 });
+const zero = Object.freeze(new Vector3());
 const num = value => Number.isFinite(parseFloat(value)) ? parseFloat(value) : 0;
 
 export function geometrySnapshot(c) {

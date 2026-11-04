@@ -29,6 +29,7 @@
 pub mod build;
 pub mod class;
 pub mod firing;
+#[cfg(target_arch = "wasm32")]
 mod firing_module;
 pub mod hover;
 pub mod hull;
