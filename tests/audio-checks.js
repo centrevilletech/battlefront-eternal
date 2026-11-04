@@ -805,6 +805,46 @@ export async function checkAudio() {
     }
   }
 
+  // 6d. A voice that plays through a node of its own (a stream's line said
+  // somewhere, the audio panel's test) beside the voice engine: it sounds,
+  // through the browser's nodes, the same to the bit as with no engine.
+  {
+    const render = async (voicesRust, quality) => {
+      const ctx = new OfflineAudioContext(2, RATE, RATE);
+      const r = new Renderer(ctx);
+      r.voicesRust = voicesRust;
+      if (quality === "enhanced") r.setRoom({ room: 0.5, decay: 1.2, reflections: 0.3 });
+      const config = { quality, output: "stereo", dynamics: "normal", mono: false };
+      await r.load(null, config);
+      await r.configure(config);
+      const src = sine(ctx, 440, 0.25);
+      const out = r.voice({ mode3D: 1 }, true);
+      out.attach(src);
+      out.update({ x: 0.6, y: 0, z: -0.8 }, 5, 0, { send: 0.5, cutoff: 8000 });
+      r.flush();
+      src.start();
+      await settled(r);
+      const rendered = await ctx.startRendering();
+      return { channels: [rendered.getChannelData(0), rendered.getChannelData(1)], engine: r.engine, voice: Boolean(out.engine) };
+    };
+    for (const [quality, what] of [
+      ["enhanced", "the enhanced mode"],
+      ["original", "the light mix"],
+    ]) {
+      const browser = await render(false, quality);
+      const module = await render(true, quality);
+      let differ = 0;
+      let peak = 0;
+      for (let c = 0; c < 2; c++) {
+        for (let i = 0; i < browser.channels[c].length; i++) {
+          if (!Object.is(browser.channels[c][i], module.channels[c][i])) differ++;
+          peak = Math.max(peak, Math.abs(module.channels[c][i]));
+        }
+      }
+      assert(`voice engine, ${what}: a voice with a node of its own plays beside it, bit for bit`, module.engine && !module.voice && !browser.engine && differ === 0 && peak > 0.01, { differ, peak, engine: module.engine, voice: module.voice });
+    }
+  }
+
   // 7. The headphone decoder. The encoder's harmonics against the values
   // tools/make_binaural.py checked against spaudiopy (written with the
   // filters), spread keeping the energy, and the decoded ears: a source on

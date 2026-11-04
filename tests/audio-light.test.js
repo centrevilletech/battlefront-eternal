@@ -520,6 +520,37 @@ test("the voice engine plays the light mix's voices in one worklet, sent what th
   ]);
 });
 
+test("a voice with a node of its own keeps the browser's nodes beside the voice engine", async () => {
+  // A stream's line said somewhere, and the audio panel's test.
+  for (const quality of ["original", "enhanced"]) {
+    const ctx = new FakeContext();
+    const r = new Renderer(ctx);
+    r.voicesRust = true;
+    const config = { quality, output: "stereo", dynamics: "normal" };
+    await r.load(null, config);
+    await r.configure(config);
+    assert.equal(r.engine, true, quality);
+    const line = ctx.createGain();
+    const out = r.voice({ mode3D: 1 }, true);
+    out.attach(line);
+    assert.ok(!out.engine, `${quality}: not in the engine`);
+    if (quality === "original") {
+      assert.deepEqual(into(ctx, line).map((e) => into(ctx, e.to)[0].to), [r.pair, r.pair]);
+    } else {
+      const [filter, send] = into(ctx, line).map((e) => e.to);
+      assert.equal(filter.kind, "BiquadFilterNode");
+      assert.deepEqual(into(ctx, filter).map((e) => [e.to, e.input]), [[r.mixer, out.slot]]);
+      assert.deepEqual(into(ctx, send).map((e) => e.to), [r.reverbIn]);
+    }
+    // A voice without one still plays in the engine, on another slot.
+    const other = r.voice({ mode3D: 1 });
+    assert.ok(other.engine, `${quality}: the rest play in the engine`);
+    assert.notEqual(other.slot, out.slot);
+    out.dispose();
+    other.dispose();
+  }
+});
+
 test("a voice playing when the light mix comes or goes carries on in the new graph", async () => {
   const { ctx, engine } = await engineWith({ quality: "original", output: "stereo", dynamics: "normal" });
   const r = engine.renderer;

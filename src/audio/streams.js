@@ -402,7 +402,7 @@ class StreamVoice {
     source.playbackRate.value = this.pitch;
     if (this.mode3D) {
       if (!this.voiceOut) {
-        this.voiceOut = this.engine.renderer.voice(this);
+        this.voiceOut = this.engine.renderer.voice(this, true);
         this.voiceOut.attach(this.out);
       }
       source.connect(this.out);

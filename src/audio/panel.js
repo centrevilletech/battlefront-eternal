@@ -227,7 +227,7 @@ export class AudioPanel {
     g.gain.value = 0.3;
     src.connect(g);
     const fake = { mode3D: 1 };
-    const out = r.voice(fake);
+    const out = r.voice(fake, true);
     out.attach(g);
     src.start();
     const start = performance.now();

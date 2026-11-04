@@ -658,8 +658,11 @@ export class Renderer {
   }
 
   // A voice's way out. Returns { attach(node), update(...), dispose() }.
-  voice(voice) {
-    const out = new VoiceOut(this, voice);
+  // `own`: the caller plays it through a node of its own (attach), a
+  // stream's line said somewhere or the audio panel's test, so it takes
+  // the browser's nodes where the voice engine plays the others.
+  voice(voice, own = false) {
+    const out = new VoiceOut(this, voice, own);
     this.voices.add(out);
     out.rebuild();
     return out;
@@ -727,9 +730,10 @@ export class Renderer {
 // an engine voice has no gain of its own there (attach(source, false)), and
 // its level (this.level) goes on these two with its panning.
 class VoiceOut {
-  constructor(renderer, voice) {
+  constructor(renderer, voice, own = false) {
     this.r = renderer;
     this.voice = voice;
+    this.own = own;
     this.slot = -1;
     this.nodes = [];
     this.source = null;
@@ -754,7 +758,7 @@ class VoiceOut {
     // A new voice with a slot to go to renders in the voice engine (the
     // enhanced mode's or the light mix's): no nodes, its sample and
     // parameters sent as commands.
-    if (r.engine && !this.source && (this.voice.mode3D || !r.binaural) && r.slots.length) {
+    if (r.engine && !this.own && !this.source && (this.voice.mode3D || !r.binaural) && r.slots.length) {
       this.engine = true;
       this.lost = false;
       this.filter = null;
