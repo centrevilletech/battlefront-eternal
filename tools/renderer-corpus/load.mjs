@@ -22,7 +22,7 @@ const extraSrc = `(() => {
 const c = await connect();
 try {
   const loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query + (bridge ? '&rustShaderBridge' : ''), extraSrc });
-  const metrics = await c.ev(`({load:window.__shaderLoad, programs:__bf.graphics.rust.shaderPrograms || [],enabled:__bf.graphics.rust.enabled,errors:__bf.graphics.rust.errors})`);
+  const metrics = await c.ev(`({coverage:(() => {const g=__bf.graphics, R=g.renderer,materials=[g.downsample.material,g.composite.material,g.fxaa.material,g.fxaaFast?.material,g.bloom.extract.material,g.bloom.blur.material,...[g.upscaler.motionPass,g.upscaler.resolvePass,g.upscaler.sharpenPass,g.upscaler.spatialPass,g.upscaler.bilinearPass].map(p=>p.material),...__bf.hud.batch.mesh.material].filter(Boolean);return materials.map(m=>({key:m.userData.bfeProgram,three:!!R.properties.get(m).currentProgram,owned:g.rust.ownedPrograms?.has(m.userData.bfeProgram)||false}));})(),load:window.__shaderLoad, programs:__bf.graphics.rust.shaderPrograms || [],enabled:__bf.graphics.rust.enabled,errors:__bf.graphics.rust.errors})`);
   const cacheProbe = process.env.BFE_SHADER_CACHE_PROBE ? await c.ev(`(() => {
     const g=__bf.graphics,r=g.rust.rust,rows=[];
     for(const key of ${JSON.stringify(Object.keys(shaderSources))}) {
@@ -32,7 +32,7 @@ try {
     }
     g.renderer.resetState();return {rows,error:g.renderer.getContext().getError()};
   })()`) : null;
-  const result = { cacheProbe, case: testCase.id, bridge, loaded, ...metrics };
+  const result = { environment: { node: process.version, warm: Number(process.env.WARM ?? 12), renderWarm: Number(process.env.RENDER_WARM ?? 20), drawsSuppressed: !!process.env.EMU_NODRAW, settings: testCase.settings }, cacheProbe, case: testCase.id, bridge, loaded, ...metrics };
   fs.writeFileSync(`${process.env.OUT}/${process.env.LABEL}.json`, JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
   if (loaded.error || !loaded.spawned || !metrics.enabled) process.exitCode = 1;

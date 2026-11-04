@@ -13,6 +13,7 @@ if (!runner) throw Error('Supply --runner executable (see docs/renderer-programs
 const out = resolve(arg('--out', 'renderer-corpus-out'));
 const dist = resolve(arg('--dist', 'dist-desktop'));
 const jobs = Number(arg('--jobs', '1'));
+if (!Number.isInteger(jobs) || jobs < 1) throw Error('--jobs must be a positive integer');
 const selected = arg('--cases', '').split(',').filter(Boolean);
 const cases = manifest.cases.filter(c => !selected.length || selected.includes(c.id));
 if (!cases.length || selected.some(id => !cases.some(c => c.id === id))) throw Error('Unknown corpus cases');
@@ -37,6 +38,7 @@ await Promise.all(Array.from({ length: Math.max(1, Math.min(jobs, cases.length))
 results.sort((a,b) => a.id.localeCompare(b.id));
 const programs = new Set();
 for (const c of cases) { try { const r=JSON.parse(readFileSync(`${out}/${c.id}.json`)); for(const p of r.shaderPrograms || []) if(p.accepted && p.hash) programs.add(p.key); } catch {} }
-const summary = { programs: [...programs].sort(), version: manifest.version, corpusHash: createHash('sha256').update(manifestBytes).digest('hex'), dist, complete: cases.length === manifest.cases.length, cases: results, pass: results.every(r => r.pass), baselinePass: results.every(r => r.baselinePass) };
+const missingPrograms = (manifest.programs || []).filter(key => !programs.has(key));
+const summary = { missingPrograms, programs: [...programs].sort(), version: manifest.version, corpusHash: createHash('sha256').update(manifestBytes).digest('hex'), dist, complete: cases.length === manifest.cases.length, cases: results, pass: results.length === cases.length && results.every(r => r.pass) && (cases.length < manifest.cases.length || missingPrograms.length === 0), baselinePass: results.every(r => r.baselinePass) };
 writeFileSync(`${out}/summary.json`, JSON.stringify(summary, null, 2));
 process.exitCode = summary.pass ? 0 : 1;

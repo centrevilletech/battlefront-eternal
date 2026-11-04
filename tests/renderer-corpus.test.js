@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { shaderSources } from '../src/render-shaders.js';
 import { expand } from '../tools/renderer-corpus/manifest.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -18,6 +19,7 @@ test('the parity corpus includes every map in every preset with valid spawn quer
     assert.equal(q.get('unit'), map === 'hot1' ? 'imp_inf_storm_troopersnow' : q.get('side') === 'imp' ? 'imp_inf_storm_trooper' : 'rep_inf_clone_trooper');
   }
   assert.equal(new Set(manifest.cases.map(c => c.id)).size, manifest.cases.length);
+  assert.deepEqual(manifest.programs.toSorted(), Object.keys(shaderSources).toSorted());
   assert.equal(manifest.cases.filter(c => c.contextLoss).length, 1);
   for (const map of ['kas1','kas2','kam1']) assert.equal(manifest.cases.find(c=>c.id===`mirror-${map}`).settings.waterQuality,'ultra');
 });

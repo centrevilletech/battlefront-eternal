@@ -790,5 +790,19 @@
       "ambienceVolume": 1,
       "interfaceVolume": 1
     }
-  }
+  },
+  "programs": [
+    "post-hud/bloom-extract",
+    "post-hud/bloom-blur",
+    "post-hud/copy",
+    "post-hud/composite",
+    "post-hud/motion",
+    "post-hud/resolve",
+    "post-hud/sharpen",
+    "post-hud/bilinear",
+    "post-hud/spatial",
+    "post-hud/fxaa",
+    "post-hud/fxaa-fast",
+    "post-hud/hud"
+  ]
 }

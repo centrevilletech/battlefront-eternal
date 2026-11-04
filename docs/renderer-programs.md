@@ -63,7 +63,7 @@ The immutable manifest freezes all 17 map queries, valid player classes,
 Classic/Balanced/High settings at requested 2x MSAA, four walking/turning capture
 points, and four history frames per variant. Additional cases cover Ultra water
 on the ocean/mirror maps, bilinear/spatial/fast FXAA, and deliberate context loss.
-`--cases id,id` is an iteration smoke, not the complete gate. The summary records
+`--cases id,id` is an iteration smoke, not the complete gate. The summary records missing required variants and
 whether the whole manifest ran and its SHA-256. Driver-supported sample counts
 are reported rather than silently assumed.
 
@@ -92,8 +92,10 @@ The corpus does not claim to visit every possible effect or camera position.
 Owned source removes the dependency on three's first draw and makes variants
 known before drawing. It enables prewarming, pacing work behind the loading
 screen, source/layout content-addressed caches, and eventually avoiding three's
-duplicate compile for covered materials. This packet keeps three's initial
-compilation and preparation frames for unported families and fallback.
+duplicate compile for covered materials. Tagged post and HUD passes can draw before three has compiled their materials,
+avoiding that duplicate compilation on the covered path. Three compiles them
+on demand when fallback is exercised. This packet keeps the preparation frames
+and initial three compilation required by unported families.
 Consequently it does not promise to remove the existing long loading task.
 
 The current cache is bounded by the fixed variants used in one context. It
@@ -111,7 +113,9 @@ correctness timings are not slow-PC performance measurements.
 local load diagnostics. Set `BFE_SHADER_BRIDGE=1` for the old compiled-source
 path. It records GL compile/link/status/reflection and initial draw API calls,
 source submissions versus unique source texts, long tasks, preparation and ready
-times, and per-program registration durations. Use fresh applications in
+times, and per-program registration durations. `BFE_SHADER_CACHE_PROBE=1` additionally
+registers all declared variants and repeats each registration after loading,
+recording context-local ID reuse separately from startup work. Use fresh applications in
 interleaved rounds; record whether driver caches were retained. It deliberately
 does not run through the farm performance gate.
 
