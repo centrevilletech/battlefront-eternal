@@ -11,6 +11,7 @@ static mut IO: Vec<f64> = Vec::new();
 static mut DESCRIPTOR: [f64; 16] = [0.0; 16];
 static mut PUBLICATION: Option<crate::vehicles::f2_publication::Publication> = None;
 static mut DESCS: Vec<super::super::spawn::SlotDesc> = Vec::new();
+static mut PAD_CLASSES: Vec<Vec<(f64, usize, StrId)>> = Vec::new();
 static mut ACC: f64 = 0.0;
 static mut TIME: f64 = 0.0;
 
@@ -45,8 +46,13 @@ fn desc() -> &'static mut [f64; 16] { unsafe { &mut *addr_of_mut!(DESCRIPTOR) } 
 pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
     let text = String::from_utf16_lossy(sim().strings.units(StrId(json)));
     let value = bfe_content::json::parse(&text).expect("F2 pad descriptions");
-    let ds = value.as_array().expect("F2 pads").iter().map(super::super::spawn::SlotDesc::of).collect();
+    let ds: Vec<_> = value.as_array().expect("F2 pads").iter().map(super::super::spawn::SlotDesc::of).collect();
+    let names = ds.iter().map(|d| d.classes.iter().enumerate().filter_map(|(i, (key, name))| {
+        let team = bfe_content::js::string_to_number(key);
+        (bfe_content::js::number_to_string(team) == *key && !name.is_empty()).then(|| (team, i, sim().strings.intern_str(name)))
+    }).collect()).collect();
     unsafe {
+        *addr_of_mut!(PAD_CLASSES) = names;
         *addr_of_mut!(DESCS) = ds;
         *addr_of_mut!(ACTIVE) = true;
         *addr_of_mut!(TIME) = time;
@@ -87,23 +93,24 @@ fn publish_posed() {
 /// Only pad clocks are changed here. The JS registry/weapons receive a life
 /// notification; they never construct or step the hull's new mutable state.
 fn spawns(dt: f64) {
-    let descs = unsafe { (&*addr_of_mut!(DESCS)).clone() };
+    let descs = unsafe { &*addr_of_mut!(DESCS) };
     // Input prefix: clock, level, flags, pad team pairs, occupant flag/xyz.
-    let teams = io()[3..3 + descs.len() * 2].to_vec();
     let o = 3 + descs.len() * 2;
     let occupant = (io()[o] != 0.0).then(|| Vector3::new(io()[o + 1], io()[o + 2], io()[o + 3]));
     for (i, d) in descs.iter().enumerate() {
-        let slot = sim().store.vehicles.slots[i].clone();
-        if slot.vehicle.and_then(|r| sim().store.vehicle.get(r)).is_some_and(|v| v.alive) { continue; }
-        let remaining = v8math::max(0.0, slot.remaining - dt);
+        let slot = &sim().store.vehicles.slots[i];
+        let (vehicle, left) = (slot.vehicle, slot.remaining);
+        if vehicle.and_then(|r| sim().store.vehicle.get(r)).is_some_and(|v| v.alive) { continue; }
+        let remaining = v8math::max(0.0, left - dt);
         if remaining.to_bits() != sim().store.vehicles.slots[i].remaining.to_bits() { publication().pad(i); }
         sim().store.vehicles.slots[i].remaining = remaining;
-        if remaining > 0.0 || slot.vehicle.and_then(|r| sim().store.vehicle.get(r)).is_some_and(|v| v.dying > 0.0) { continue; }
-        let team = if teams[i * 2] != 0.0 { teams[i * 2 + 1] }
+        if remaining > 0.0 || vehicle.and_then(|r| sim().store.vehicle.get(r)).is_some_and(|v| v.dying > 0.0) { continue; }
+        let team = if io()[3 + i * 2] != 0.0 { io()[4 + i * 2] }
             else if d.team.is_some_and(super::super::hull::truthy) { d.team.unwrap() }
             else if d.classes.len() == 1 { bfe_content::js::string_to_number(&d.classes[0].0) } else { 0.0 };
-        let Some(name) = d.class_for(team).map(str::to_owned) else { continue };
-        let name_id = sim().strings.intern_str(&name);
+        let names = unsafe { &(&*addr_of_mut!(PAD_CLASSES))[i] };
+        let Some(&(_, class, name_id)) = names.iter().find(|(n, _, _)| *n == team || n.is_nan() && team.is_nan()) else { continue };
+        let name = &d.classes[class].1;
         let find = || sim().store.vehicles.slots[i].variants.entries.iter().find(|(n, _)| *n == name_id).map(|(_, r)| *r);
         let r = match find() {
             Some(r) => r,
@@ -116,7 +123,7 @@ fn spawns(dt: f64) {
         let v = sim().store.vehicle.get(r).expect("F2 variant");
         let (center, size, radius, flying) = (v.center, v.size, v.radius, v.flying);
         let m = d.matrix;
-        let blocked = hull_refs().iter().any(|&other| {
+        let blocked = sim().store.vehicles.vehicles.iter().any(|&other| {
             if other == r { return false; }
             let b = sim().store.vehicle.get(other).expect("F2 hull");
             b.alive && super::super::spawn::footprints_overlap(&vec(&center), &vec(&size), &m, &vec(&b.center), &vec(&b.size), &b.matrix)
@@ -125,12 +132,12 @@ fn spawns(dt: f64) {
         if blocked || near { sim().store.vehicles.slots[i].remaining = 1.0; publication().pad(i); continue; }
         sim().store.vehicles.slots[i].vehicle = Some(r);
         publication().pad(i);
-        let index = hull_refs().iter().position(|&x| x == r).unwrap();
+        let index = sim().store.vehicles.vehicles.iter().position(|&x| x == r).unwrap();
         let mut hull = if flying { load_flyer(r, index) } else { load(r, index) };
         let mut p = poses()[r.slot as usize].take().expect("F2 retained rig");
         hull.pose = Some(p.pose);
-        let def = unsafe { (*addr_of_mut!(DEFS)).as_ref().unwrap().get(&name).unwrap().clone() };
-        hull.spawn(&mut JsWorld { craft: u32::MAX }, team, &m, &def, &name);
+        let def = unsafe { (*addr_of_mut!(DEFS)).as_ref().unwrap().get(name).unwrap() };
+        hull.spawn(&mut JsWorld { craft: u32::MAX }, team, &m, def, name);
         p.generation = hull.target_generation;
         p.pose = hull.pose.take().unwrap();
         poses()[r.slot as usize] = Some(p);
@@ -145,13 +152,12 @@ fn spawns(dt: f64) {
         }
         hull.flight.to_store(v, &mut s.strings);
         // Spawn's render is observable by boarding in the following latch.
-        let mut numbers = Vec::new();
-        posing::out(&mut poses()[r.slot as usize].as_mut().unwrap().pose, &mut numbers);
         let out = unsafe { &mut *addr_of_mut!(POSED) };
         if out.is_empty() { out.push(0.0); }
-        out[0] += 1.0;
-        out.extend_from_slice(&[r.slot as f64, numbers.len() as f64]);
-        out.extend_from_slice(&numbers);
+        out[0] += 1.0; out.push(r.slot as f64);
+        let length = out.len(); out.push(0.0); let start = out.len();
+        posing::out(&mut poses()[r.slot as usize].as_mut().unwrap().pose, out);
+        out[length] = (out.len() - start) as f64;
         publish_posed();
         import_f2_life(&VehHull { hull: index as f64 });
     }
@@ -211,6 +217,7 @@ pub extern "C" fn f2_step(dt: f64, tick: f64) {
     live_seats::prepare_foreign_fire();
     publish_posed();
     import_f2_foreign(&VehNumber { value: dt });
+    live_seats::rider_bodies();
     live_seats::turret_tick(dt);
     publish();
     live_seats::finish();
@@ -224,7 +231,7 @@ pub extern "C" fn f2_command(slot: u32, generation: u32, life: f64, code: u32, v
     let Some(v) = sim().store.vehicle.get(r) else { return 0 };
     if v.target_generation != life { return 0; }
     let flying = v.flying;
-    let index = hull_refs().iter().position(|&x| x == r).expect("F2 ordered hull");
+    let index = sim().store.vehicles.vehicles.iter().position(|&x| x == r).expect("F2 ordered hull");
     let mut hull = if flying { load_flyer(r, index) } else { load(r, index) };
     let owner = match tag { 0 => OrdnanceOwner::Null, 1 => OrdnanceOwner::Player, 2 => OrdnanceOwner::Unit(Ref::new(owner_slot, owner_gen)), 3 => OrdnanceOwner::Vehicle(Ref::new(owner_slot, owner_gen)), 4 => OrdnanceOwner::OwnerSnapshot(Ref::new(owner_slot, owner_gen)), _ => return 0 };
     let mut world = JsWorld { craft: u32::MAX };

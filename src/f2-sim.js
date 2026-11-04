@@ -4,7 +4,7 @@ import { F2Seats } from './f2-seats.js';
 import { makeGround, makeHit } from './collision.js';
 import { Weapon } from './weapons.js';
 import { FLIGHT_CLASSES, flightConfig } from './flight/config.js';
-import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad } from './sim/gen/f2.js';
+import { F2HullLifeMirror, F2PadMirror, syncF2HullLife, syncF2Pad, putF2Bodies } from './sim/gen/f2.js';
 import { MirrorPool } from './sim/runtime.js';
 import { KIND_TABLE, KIND_VEHICLE, KIND_VEHICLES, KIND_BODY, KIND_UNIT, KIND_OWNER_SNAPSHOT, VEHICLE_KEYS } from './sim/gen/index.js';
 import { rigNodes, json, classKeys, giveMapRules, pullPose, poseInputs, applyPose, flightNumbers } from './vehicle-phase-data.js';
@@ -76,7 +76,7 @@ class F2 {
         this.sync();
         vehicles.fireCrews(dt); vehicles.updateTethers();
         if (vehicles.cosmetic !== false) vehicles.drawTethers(false);
-        vehicles.syncCrews(false);
+        vehicles.syncCrews(false); this.seats.prepareRiders();
       },
       f2Variant: (a) => {
         const slot = vehicles.slots[a.pad], name = a.name;
@@ -101,6 +101,7 @@ class F2 {
     // Existing identity is retained for union classification and body owners.
     bridge.refs[KIND_VEHICLE] = this.pool;
     this.seats = new F2Seats(this);
+    this.bodyArgs = { words: this.x.f2_body_words(), put: putF2Bodies }; this.bodyRefs = { bodies: [] };
     for (const v of vehicles.vehicles) this.adopt(v);
     this.bodiesIn();
     const ptr = this.x.f2_init(bridge.strings.id(json(vehicles.slots.map(s => s.desc))), vehicles.time, vehicles.acc);
@@ -272,6 +273,7 @@ class F2 {
       for (let i = 0; i < n; i++) {
         const v = this.pool.objects[b.f[o]], count = b.f[o + 1]; o += 2;
         applyPose(v, b.f, o); o += count;
+        if (!this.syncedRows.includes(v)) this.syncedRows.push(v);
         this.counters.outputFields += count + 2;
       }
     }
@@ -323,6 +325,11 @@ class F2 {
       else out.push([path, value]);
     };
     for (const key of OWNED_FIELDS) if (!foreign.has(key)) add(key, v[key]);
+    for (let i = 0; i < v.seats.length; i++) {
+      const s = v.seats[i];
+      for (const key of ['aimYaw', 'pitch', 'lookYaw', 'lookPitch', 'lease', 'lastYaw', 'yawRate']) out.push([`seats.${i}.${key}`, s[key]]);
+      for (const axis of ['x', 'y', 'z']) out.push([`seats.${i}.target.${axis}`, s.target?.[axis]]);
+    }
     out.push(['root.visible', v.root.visible], ['aiTarget.generation', v.aiTarget.generation],
       ['lastAttacker', v.lastAttacker], ['driver', v.driver], ['seatIndex', v.seatIndex]);
     return out;
@@ -337,18 +344,19 @@ class F2 {
     }
     for (let i = 0; i < row.fields.length; i++) {
       let value = v;
-      for (const key of row.paths[i]) value = value[key];
+      for (const key of row.paths[i]) value = value?.[key];
       row.fields[i][1] = value;
     }
     this.detector.published(v, row.fields);
   }
   check() {
+    this.seats.check();
     for (const v of this.vehicles.vehicles) {
       const row = this.mirrorRows.get(v), expected = this.detector.values.get(v);
       if (!row || !expected) continue;
       for (let i = 0; i < row.fields.length; i++) {
         let value = v;
-        for (const key of row.paths[i]) value = value[key];
+        for (const key of row.paths[i]) value = value?.[key];
         if (!Object.is(value, expected[i][1])) throw Error(`F2 mirror write: ${expected[i][0]}`);
       }
     }
@@ -389,11 +397,11 @@ class F2 {
       this.bodiesVersion = -1;
     }
     c.rayBodies();
-    const bodies = c.bodies, refs = this.bridge.refs[KIND_BODY];
+    const bodies = c.bodies;
     if (this.bodiesVersion !== c.bodiesVersion) {
-      const at = this.input(bodies.length * 2), f = this.bridge.f;
-      for (let i = 0; i < bodies.length; i++) { f[at + 2 * i] = refs.slotOf(bodies[i]); f[at + 2 * i + 1] = bodies[i].raySlot; }
-      this.x.veh_bodies(bodies.length);
+      const rows = this.bodyRefs.bodies; rows.length = bodies.length;
+      for (let i = 0; i < bodies.length; i++) { const row = rows[i] ??= { body: null, kernel: 0 }; row.body = bodies[i]; row.kernel = bodies[i].raySlot; }
+      this.bridge.callArgs(this.bodyArgs, this.bodyRefs); this.x.f2_bodies();
       this.bodiesVersion = c.bodiesVersion;
     }
     for (const v of this.vehicles.vehicles) if (!this.colliders.has(v.body)) this.collider(v);
@@ -490,18 +498,7 @@ class F2 {
         const v = hullAt(a.hull), amount = a.amount, attacker = a.attacker;
         this.hook(() => w.damaged(v, amount, attacker));
       },
-      vehDestroyedCrew: (a) => { const v = hullAt(a.hull); this.hook(() => vs.destroyedCrew?.(v)); },
       vehDestroyed: (a) => { const v = hullAt(a.hull); this.hook(() => w.destroyed(v)); },
-      vehRespawnClock: (a) => { const v = hullAt(a.hull); v.slot.remaining = v.slot.desc.respawnTime; },
-      vehReleaseCrew: (a) => {
-        for (const seat of hullAt(a.hull).seats) {
-          const lease = seat.lease;
-          if (!lease) continue;
-          lease.released = true;
-          if (lease.unit?.seat === lease) lease.unit.seat = null;
-          seat.lease = null;
-        }
-      },
       vehExplosion: (a) => {
         const v = hullAt(a.hull);
         // At the hull's own position (the very vector, as the JavaScript
