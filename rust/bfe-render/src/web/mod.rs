@@ -124,6 +124,14 @@ impl BfeRenderer {
     pub fn transparent_frame(&mut self, three: u32, image: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.transparent_frame(three as usize, image as usize).map_err(|e| JsValue::from_str(&e))?.values())
     }
+    // An effects batch drawn into a texture of its own (registered) of
+    // width x height, cleared first: its count instances and values as the
+    // page wrote them from `at` of the effects' data, capacity its room
+    // (web/effects.rs). three binds its own framebuffer again after.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fx_into_frame(&mut self, batch: u32, target: u32, width: u32, height: u32, count: u32, at: u32, capacity: u32) -> Result<Vec<u32>, JsValue> {
+        Ok(self.r.fx_into_frame(batch as usize, target, width as i32, height as i32, count as usize, at as usize, capacity as usize).map_err(|e| JsValue::from_str(&e))?.values())
+    }
     // records: how many the page wrote for the view's parts.
     pub fn view_frame(&mut self, records: u32) -> Result<Vec<u32>, JsValue> {
         Ok(self.r.view_frame(records as usize).map_err(|e| JsValue::from_str(&e))?.values())

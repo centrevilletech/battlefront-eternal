@@ -649,6 +649,14 @@ export class BfeRenderer {
     }
     /**
      * @param {number} batch
+     * @param {number} flags
+     * @param {number} func
+     */
+    fx_batch_depth(batch, flags, func) {
+        wasm.bferenderer_fx_batch_depth(this.__wbg_ptr, batch, flags, func);
+    }
+    /**
+     * @param {number} batch
      */
     fx_batch_interleaved(batch) {
         wasm.bferenderer_fx_batch_interleaved(this.__wbg_ptr, batch);
@@ -732,6 +740,25 @@ export class BfeRenderer {
     fx_input_ptr() {
         const ret = wasm.bferenderer_fx_input_ptr(this.__wbg_ptr);
         return ret >>> 0;
+    }
+    /**
+     * @param {number} batch
+     * @param {number} target
+     * @param {number} width
+     * @param {number} height
+     * @param {number} count
+     * @param {number} at
+     * @param {number} capacity
+     * @returns {Uint32Array}
+     */
+    fx_into_frame(batch, target, width, height, count, at, capacity) {
+        const ret = wasm.bferenderer_fx_into_frame(this.__wbg_ptr, batch, target, width, height, count, at, capacity);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
     }
     /**
      * @returns {number}

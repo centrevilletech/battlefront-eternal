@@ -68,6 +68,8 @@ import { jetpackVolumes } from "../jetpack-volume.js";
 import { destructionPools, destructionArcs } from "../destruction-fx.js";
 import { rainImpacts } from "../rain-impacts.js";
 import { fountainJets } from "../fountain-jets.js";
+import { environmentVolumes } from "../environment-volume.js";
+import { fountainWaters } from "../fountain-water.js";
 import { particleDepth } from "../particle-depth.js";
 import { compileFor, unbuilt } from "./instances.js";
 import { lighting } from "../materials.js";
@@ -158,6 +160,13 @@ const KINDS = {
   jets: { attributes: "instanced", base: "rest", static: true, hiddenBy: "material", depth: true,
     values: ["jetTime", "side", "perFountain", "sources", "levels", "lows", "visible", "wind", "hasFoam", "hasDepth", "hasScene", "sceneResolution", "fragScale"],
     samplers: ["atlas", "foamMap", "sceneColor"], copies: "always" },
+  // The steam's volumes (environment-volume.js): boxes ray-marched through a
+  // 3D noise texture, drawn into the volumes' own half-size target (cleared
+  // first) for their composite to lay over the frame, not into the scene
+  // (drawVolumes); neither depth tested nor written, back faces. Without the
+  // pass, the composite's onBeforeRender has three draw them there.
+  volume: { attributes: "instanced", base: "rest", values: ["volumeTime", "volumeResolution", "hasDepth", "wakes", "motion", "reflectionMatrix", "hasReflection"],
+    samplers: ["noiseField", "reflection"], into: true },
 };
 // The batches of fixed seeds found in three's list by their meshes' names,
 // and the shader models (registerShader).
@@ -174,7 +183,8 @@ const JETS = new Set(["fountain-pool", "fountain-overflow", "fountain-ropes", "f
 const NO_CORNER = 0xffffffff;
 // noiseField: the jetpack flame's 3D noise, on the unit the core keeps for
 // it (core.rs UNIT_FLAME_NOISE).
-const SAMPLER_UNITS = { flakes: 7, boxes: 8, cover: 9, atlas: 10, foamMap: 11, sceneColor: 12, noiseField: 21 };
+const SAMPLER_UNITS = { flakes: 7, boxes: 8, cover: 9, atlas: 10, foamMap: 11, sceneColor: 12, reflection: 13, noiseField: 21 };
+
 // A shader model's units for what it samples besides its map and the scene's depth.
 const MODEL_UNITS = [9, 10, 11];
 const LIGHTNING = [["position", 3], ["uv", 2], ["color", 4]];
@@ -445,9 +455,18 @@ class EffectsPass {
         const mesh = batch.mesh;
         if (mesh && mesh.visible && unbuilt(renderer, mesh.material)) fresh.push([mesh, mesh.material]);
       }
-      if (!fresh.length) return;
-      compileFor(renderer, fresh, camera, scene);
-      this.batches();
+      if (fresh.length) {
+        compileFor(renderer, fresh, camera, scene);
+        this.batches();
+      }
+      // The steam's volumes, drawn into their target by the renderer from
+      // the frame after their composite was registered (three builds their
+      // program here, outside its render).
+      for (const record of this.glowList) {
+        if (record.volume !== undefined || !environmentVolumes.has(record.mesh)) continue;
+        const volume = this.registerVolume(environmentVolumes.get(record.mesh), camera);
+        if (volume !== undefined) record.volume = volume;
+      }
     } catch (error) {
       this.core.errors.push(`effects before sort failed: ${String(error?.stack || error).slice(0, 400)}`);
       this.presortFailed = true;
@@ -478,6 +497,75 @@ class EffectsPass {
     }
   }
 
+  // A steam volume's own pass (environment-volume.js): its batch of boxes,
+  // drawn into its target (KINDS.volume) with three's program for it, which
+  // three builds now without a draw where it has none (for its own render of
+  // the volumes' scene, as the composite's onBeforeRender would make it).
+  // Null when the renderer can't draw it, undefined to look again.
+  registerVolume(volume, camera) {
+    const renderer = this.core.renderer, mesh = volume.volumeMesh, g = mesh.geometry;
+    if (unbuilt(renderer, mesh.material)) compileFor(renderer, [[mesh, mesh.material]], camera, volume.volumeScene);
+    const arrays = {};
+    for (const [name, a] of Object.entries(g.attributes)) if (a.isInstancedBufferAttribute) arrays[name] = a.array;
+    const batch = { mesh, material: mesh.material, geometry: g, get count() { return g.instanceCount; }, capacity: g.getAttribute("origin").count, arrays, external: false };
+    const record = this.registerBatch(batch, "volume", null);
+    if (record) record.source = volume;
+    return record;
+  }
+
+  // The steam's volumes into their target, as the composite's onBeforeRender
+  // would have three draw them (environment-volume.js renderVolumes): the
+  // scene's depth taken and the target sized by the volumes' prepare(), then
+  // the renderer's own call (fx_into_frame), after which three binds the
+  // frame's target again. False when three is to draw them (their composite's
+  // onBeforeRender).
+  drawVolumes(ctx, record) {
+    const core = this.core, renderer = ctx.renderer, volume = record.source, camera = ctx.camera;
+    let ready = false;
+    particleDepth.early(() => { ready = volume.prepare(renderer, ctx.scene, camera); });
+    if (!ready) return true;
+    // (None: the target cleared all the same, as three's render of the
+    // empty volumes' scene would leave it.)
+    const b = record.batch, count = Math.max(0, b.count), source = renderer.getRenderTarget();
+    const target = volume.target;
+    if (!renderer.properties.get(target.texture).__webglTexture) renderer.initRenderTarget(target);
+    const texture = core.texture(target.texture);
+    if (texture < 0) return false;
+    // Its samplers (the fountains' reflection, made anew as it resizes).
+    for (const sampler of record.samplers) {
+      const tex = b.material.uniforms[sampler.name].value ?? null, handle = this.handle(tex);
+      if (tex !== sampler.map || handle !== sampler.handle) {
+        sampler.map = tex; sampler.handle = handle;
+        bindSampler(core, record.id, sampler, tex, tex ? core.texture(tex) : -1);
+      }
+    }
+    const depth = particleDepth.map.value ? core.texture(particleDepth.map.value) : -1;
+    const need = count * record.stride + record.values.reduce((sum, [, size]) => sum + size, 0);
+    core.views();
+    if (need > core.fxData.length) { core.rust.fx_reserve(Math.max(need * 2, core.fxData.length * 2)); core.buffer = null; core.views(); }
+    const data = core.fxData;
+    let at = 0;
+    for (let k = 0; k < record.attributes.length; k++) at = copy(data, at, b.arrays[record.attributes[k][0]], 0, count * record.sizes[k]);
+    for (const [name] of record.values) at = put(data, at, b.material.uniforms[name].value);
+    this.writeSoft(depth);
+    core.rust.fx_into_frame(record.id, texture, target.width, target.height, count, 0, b.capacity);
+    record.capacity = b.capacity;
+    renderer.resetState();
+    renderer.setRenderTarget(source);
+    return true;
+  }
+
+  // The frame's soft particle values for the renderer (effects.rs IN_SOFT):
+  // whether soft particles are on, the depth's size, the camera's range, the
+  // scene's depth (registered texture, -1 none).
+  writeSoft(depth) {
+    const input = this.core.fxInput;
+    input[IN_SOFT] = particleDepth.enabled.value;
+    input[IN_SOFT + 1] = particleDepth.resolution.value.x; input[IN_SOFT + 2] = particleDepth.resolution.value.y;
+    input[IN_SOFT + 3] = particleDepth.cameraRange.value.x; input[IN_SOFT + 4] = particleDepth.cameraRange.value.y;
+    input[IN_SOFT + 5] = depth;
+  }
+
   // three's render list of the near scene being drawn: the one whose opaque
   // list holds the far scene's image (lists are kept per render depth).
   threeList(renderer, scene) {
@@ -497,6 +585,11 @@ class EffectsPass {
       if (this.glows.has(object) || this.byBatch.has(object)) continue;
       if (glowOf(object)) this.registerGlow(object.parent);
       else if (shieldOf(object) || (SHADER_MODELS.has(object.name) && object.material?.isShaderMaterial)) this.registerShader(object);
+      // The fountains' water (fountain-water.js): every mesh drawn with its
+      // material at once (hiding the material hides them all from three).
+      else if (fountainWaters.has(object) && object.material?.isShaderMaterial) {
+        for (const mesh of fountainWaters.get(object).meshes()) if (!this.glows.has(mesh)) this.registerShader(mesh, false);
+      }
       else if (object.name === "map-snow" && object.material?.isShaderMaterial) {
         const record = this.registerBatch(flakes(object), "snow", null);
         if (record !== undefined) this.byBatch.set(object, record);
@@ -626,8 +719,9 @@ class EffectsPass {
     const fail = (why) => { core.errors.push(`effects ${kind}: ${why}`); return null; };
     const blend = blendOf(material), state = stateOf(material), sides = sidesOf(material);
     // A particle material: depth tested less-or-equal, not written, drawn in
-    // one pass (double-sided, or the side three draws).
-    if (!blend || !state || state.func !== 0x0203 || state.flags !== 5 || sides.length !== 1) return fail("state");
+    // one pass (double-sided, or the side three draws); one drawn into a
+    // texture of its own (`into`) as its material has it.
+    if (!blend || !state || (!spec.into && (state.func !== 0x0203 || state.flags !== 5)) || sides.length !== 1) return fail("state");
     const program = core.program(threeProgram, EFFECT, material, policyOf(spec), this.programs);
     if (!program) return fail("program");
     // Attributes as its geometry has them: instance ones, then its base.
@@ -679,6 +773,7 @@ class EffectsPass {
     }
     if (spec.interleaved) core.rust.fx_batch_interleaved(id);
     if (sides[0] !== 2) core.rust.fx_batch_side(id, sides[0]);
+    if (spec.into) core.rust.fx_batch_depth(id, state.flags, state.func);
     if (values.length) core.rust.fx_batch_values(id, values.map(([name, size, form]) => `${name}:${size}:${form}`).join(","));
     for (const sampler of samplers) bindSampler(core, id, sampler, sampler.map, sampler.id);
     // Its key but z, which never changes: no group above it but the map's
@@ -691,6 +786,9 @@ class EffectsPass {
       interleaved: Boolean(spec.interleaved), versioned: Boolean(spec.versioned), dataVersion: -1, depth: Boolean(spec.depth),
       jets: kind === "jets" ? fountainJets.get(batch.mesh) : null, copies: spec.copies ?? null, requested: false,
       hiddenBy: spec.hiddenBy ?? "external", synced: false, capacity: -1, from: this.frame };
+    // One drawn into a texture of its own: not an item of the list, nothing
+    // of three's to hide (drawVolumes).
+    if (spec.into) return record;
     this.hide(record, true);
     this.records.push(record);
     return record;
@@ -827,7 +925,9 @@ class EffectsPass {
   // samples: its first texture on the map's unit, the scene's depth on its
   // own (the pass binds it), any other on a unit of its own (MODEL_UNITS).
   // One three does not cull is never culled.
-  registerShader(mesh) {
+  // hide: the material hidden from three once registered (false: the
+  // caller hides it once every mesh drawn with it is).
+  registerShader(mesh, hide = true) {
     const core = this.core, renderer = core.renderer, material = mesh.material, geometry = mesh.geometry;
     const props = renderer.properties.get(material);
     if (!props.currentProgram || props.__version !== material.version) return; // three draws it first
@@ -838,7 +938,10 @@ class EffectsPass {
     // The uniforms it may read: its own, the matrices set per draw.
     const uniforms = material.uniforms, names = Object.keys(uniforms);
     const samplers = names.filter((name) => name === "sceneDepth" || uniforms[name].value?.isTexture || (uniforms[name].value === null && /map$/i.test(name)));
-    const textures = samplers.filter((name) => name !== "sceneDepth");
+    // A depth of its own (the fountains' water copies the frame so far) is a
+    // texture like any other; the scene's (particle-depth.js) the pass binds.
+    const ownDepth = "sceneDepth" in uniforms && uniforms.sceneDepth !== particleDepth.map;
+    const textures = samplers.filter((name) => name !== "sceneDepth" || ownDepth);
     if (textures.length > 1 + MODEL_UNITS.length) return fail("samplers");
     const policy = { uniforms: new Set([...names, "modelViewMatrix", "modelMatrix", "normalMatrix"]), material: new Set() };
     const programs = sides.map((side) => { const p = side === 2 ? props.currentProgram : programForSide(renderer, material, side); return p && core.program(p, WORLD, material, policy, this.programs); });
@@ -856,13 +959,16 @@ class EffectsPass {
       if (!form) return fail(`value ${name}`);
       values.push([name, ...form]);
     }
+    // A target never drawn yet (a mirror off) has no texture: none bound
+    // until it has one (drawFrame looks again each frame).
+    const pending = (t, id) => t && id < 0 && !t.isRenderTargetTexture && !t.isDepthTexture;
     const map = textures.length ? uniforms[textures[0]].value : null;
     const texture = map ? core.texture(map) : -1;
-    if (map && texture < 0) return; // its texture first
+    if (pending(map, texture)) return; // its texture first
     const extra = textures.slice(1).map((name, k) => ({ name, unit: MODEL_UNITS[k], map: uniforms[name].value, handle: null, id: -1 }));
     for (const x of extra) {
       x.id = x.map ? core.texture(x.map) : -1;
-      if (x.map && x.id < 0) return; // its textures first
+      if (pending(x.map, x.id)) return; // its textures first
       x.handle = this.handle(x.map);
     }
     if (!geometry.boundingSphere) geometry.computeBoundingSphere();
@@ -870,11 +976,11 @@ class EffectsPass {
     const model = core.rust.fx_add_model(texture, new Uint32Array(blend), state.flags & 3, state.func, values.map(([name, size, form]) => `${name}:${size}:${form}`).join(","), new Float64Array(sphere));
     sides.forEach((side, i) => core.rust.fx_model_pass(model, programs[i].id, side, geometries[i]));
     for (const x of extra) core.rust.fx_model_sampler(model, x.name, x.unit, x.id);
-    const record = { mesh, model, material, map, handle: this.handle(map), sampler: textures[0] ?? null, extra, depth: samplers.includes("sceneDepth"), values, shader: true, from: this.frame,
+    const record = { mesh, model, material, map, handle: this.handle(map), sampler: textures[0] ?? null, extra, depth: samplers.includes("sceneDepth") && !ownDepth, values, shader: true, from: this.frame,
       copies: SHADER_COPIES[mesh.name] ?? null, atOnce: AT_ONCE.has(mesh.name), requested: false };
     this.glows.set(mesh, record);
     this.glowList.push(record);
-    material.visible = false;
+    if (hide || (fountainWaters.has(mesh) && fountainWaters.get(mesh).meshes().every((m) => this.glows.get(m)))) material.visible = false;
   }
 
   // A texture's GL handle, uploaded first if three has a newer version of
@@ -1027,12 +1133,17 @@ class EffectsPass {
     // (it sets whether the camera is inside it); its texture follows three's.
     for (const record of this.glowList) {
       if (record.from === frame || !record.mesh.visible || !this.shown(record.mesh, camera)) continue;
+      // A shader model's material three still draws (the fountains' water
+      // while not every mesh of it is registered), or one it no longer wears.
+      if (record.shader && (record.material.visible || record.mesh.material !== record.material)) continue;
       glowing.push(record);
       if (!record.shader) { need += 13; continue; }
       if (record.depth) reads = true;
       if (!record.requested && !record.atOnce) late = lateOf(record, late);
       const beforeRender = () => record.mesh.onBeforeRender(ctx.renderer, ctx.scene, camera, record.mesh.geometry, record.material, null);
-      if (record.atOnce) particleDepth.early(beforeRender);
+      // The steam's volumes drawn into their target by the renderer, when it can.
+      if (record.volume && this.drawVolumes(ctx, record.volume)) { /* drawn */ }
+      else if (record.atOnce) particleDepth.early(beforeRender);
       else particleDepth.ahead(beforeRender, record.requested);
       for (const [, size] of record.values) need += size;
       const map = record.sampler ? record.material.uniforms[record.sampler].value : null;
@@ -1136,10 +1247,7 @@ class EffectsPass {
     }
     input[IN_DRAWS] = draws;
     input[IN_OWNERS] = draws ? owners : 0;
-    input[IN_SOFT] = particleDepth.enabled.value;
-    input[IN_SOFT + 1] = particleDepth.resolution.value.x; input[IN_SOFT + 2] = particleDepth.resolution.value.y;
-    input[IN_SOFT + 3] = particleDepth.cameraRange.value.x; input[IN_SOFT + 4] = particleDepth.cameraRange.value.y;
-    input[IN_SOFT + 5] = depth;
+    this.writeSoft(depth);
     this.draws = draws;
     this.instances = instances;
   }

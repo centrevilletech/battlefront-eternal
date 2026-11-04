@@ -1570,6 +1570,53 @@ test("new this frame: a soldier, his gun and a particle batch registered as thre
   assert.equal(compiled.length, 0);
 });
 
+test("the steam's volumes: their own pass drawn into their target by the renderer, its program built without a draw, the composite over the frame", async () => {
+  const { EnvironmentVolume, EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { ParticleDepth, particleDepth } = await import("../src/particle-depth.js");
+  const { core, calls, scene, camera, renderer, list, frame, drawn, fx } = bridge();
+  const saved = { ...particleDepth }, map = particleDepth.map.value;
+  try {
+    const depth = new ParticleDepth(renderer);
+    depth.copy = () => { depth.copies++; };
+    const rendered = [];
+    Object.assign(renderer, { getClearColor: (c) => c, getClearAlpha: () => 1, setClearColor() {}, render: (s) => rendered.push(s) });
+    const volumeProgram = program(["projectionMatrix", "viewMatrix", "cameraPosition", "noiseField", "sceneDepth", "reflection", "reflectionMatrix", "volumeResolution", "cameraRange",
+      "volumeTime", "hasDepth", "hasReflection", "wakes[0]", "motion[0]"], ["position", "origin", "direction", "extent", "kind"]);
+    const compiled = [];
+    renderer.compile = (list, cam, s) => { list.traverse((o) => { compiled.push([o, s]); drawn(o.material, volumeProgram); }); };
+    const steam = new EnvironmentVolume(scene, 2, new EnvironmentWakes());
+    steam.update(1, [{ position: new THREE.Vector3(0, 0, -6), direction: new THREE.Vector3(0, 1, 0), extent: new THREE.Vector3(6, 5.5, 6), kind: 0 }]);
+    list.transparent.push({ object: steam.mesh, material: steam.mesh.material, group: null });
+    drawn(steam.mesh.material, program(["volumeMap", "sceneDepth", "volumeResolution", "depthResolution", "cameraRange", "enabled"], ["position"]));
+    const target = core.graphics.sceneTarget;
+    const render = () => { depth.begin(target, camera, false); scene.onBeforeRender(renderer, scene, camera, target); frame(); };
+    // Its composite registered as three draws it (three draws the volumes this frame, in its onBeforeRender).
+    render();
+    list.transparent.length = 0;
+    assert.equal(calls.filter((c) => c[0] === "fx_add_model").length, 1);
+    // The next frame: the volumes' program built for their own scene, their batch registered (drawn into their target).
+    render();
+    assert.equal(compiled.length, 1);
+    assert.equal(compiled[0][0], steam.volumeMesh);
+    assert.equal(compiled[0][1], steam.volumeScene, "built for the volumes' own scene");
+    const batch = calls.find((c) => c[0] === "fx_add_batch");
+    assert.ok(batch, `registered (${core.errors.join("; ")})`);
+    assert.ok(calls.some((c) => c[0] === "fx_batch_depth" && c[2] === 4), "neither tested nor written: colour only");
+    assert.ok(calls.some((c) => c[0] === "fx_batch_side" && c[2] === 1), "back faces");
+    assert.equal(fx.records.length, 0, "not an item of the transparent list");
+    const into = calls.filter((c) => c[0] === "fx_into_frame");
+    assert.equal(into.length, 1, "drawn into the target this frame");
+    assert.deepEqual(into[0].slice(3, 7), [400, 300, 1, 0], "the frame's half, one volume, its instances from the data's start");
+    assert.equal(rendered.length, 0, "not by three (the composite's onBeforeRender left alone)");
+    assert.equal(steam.mesh.material.uniforms.enabled.value, 1);
+    assert.equal(depth.copies, 1, "the depth taken for them");
+    assert.equal(core.fxInput[0], 1, "the composite drawn by the renderer");
+  } finally {
+    Object.assign(particleDepth, saved);
+    particleDepth.map.value = map;
+  }
+});
+
 test("a glow model added to the scene (a side's logo as it takes a post): registered as three starts its render, its programs built without a draw", () => {
   const { core, calls, scene, camera, renderer, frame, drawn } = bridge();
   const target = core.graphics.sceneTarget;
@@ -1595,4 +1642,74 @@ test("a glow model added to the scene (a side's logo as it takes a post): regist
   assert.equal(material.visible, false, "hidden from three before three lists it");
   frame();
   assert.equal(core.fxInput[0], 1, "drawn by the renderer this frame");
+});
+
+test("the arc caster's stand-in for a shock's glow: its program built without a draw and the renderer's made from it, the stand-in kept from three, its frames counted", () => {
+  const { core, calls, scene, camera, renderer, drawn } = bridge();
+  const target = core.graphics.sceneTarget;
+  const shock = program(["projectionMatrix", "modelViewMatrix", "normalMatrix", "boneTexture", "bindMatrix", "bindMatrixInverse", "shockTime", "intensity"], ["position", "normal", "skinIndex", "skinWeight"]);
+  const compiled = [];
+  renderer.compile = (list) => { list.traverse((o) => { compiled.push(o); drawn(o.material, shock); }); };
+  // As arc-lightning.js warmShock makes it: one bone, its onBeforeRender counting down, then taking itself away.
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(9), 3));
+  geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(new Uint16Array(12), 4));
+  geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(new Float32Array(12), 4));
+  const material = new THREE.ShaderMaterial({ name: "arc-shock", transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, uniforms: { shockTime: { value: 0 }, intensity: { value: 0 } } });
+  const warm = new THREE.SkinnedMesh(geometry, material), bone = new THREE.Bone();
+  warm.add(bone);
+  warm.bind(new THREE.Skeleton([bone]));
+  warm.name = "arc-shock-warm";
+  let warming = 3;
+  warm.onBeforeRender = () => { if (--warming > 0) return; warm.visible = false; };
+  scene.add(warm);
+  const programsBefore = calls.filter((c) => c[0] === "add_program").length;
+  scene.onBeforeRender(renderer, scene, camera, target);
+  assert.deepEqual(compiled, [warm], "its program built by three, no draw");
+  assert.equal(calls.filter((c) => c[0] === "add_program").length, programsBefore + 1, "the renderer's made from it now");
+  assert.equal(material.visible, false, "kept from three");
+  assert.equal(warming, 2, "a frame counted");
+  scene.onBeforeRender(renderer, scene, camera, target);
+  scene.onBeforeRender(renderer, scene, camera, target);
+  assert.equal(warming, 0);
+  assert.equal(warm.visible, false, "it took itself away");
+  scene.onBeforeRender(renderer, scene, camera, target);
+  assert.equal(compiled.length, 1);
+});
+
+test("the fountains' water: every mesh drawn with its material a shader model at once, its own copy of the frame so far bound as a texture of its own", async () => {
+  const { FountainWater } = await import("../src/fountain-water.js");
+  const { EnvironmentWakes } = await import("../src/environment-volume.js");
+  const { TIER } = await import("../src/fountain-jets.js");
+  const { core, calls, scene, list, frame, drawn, renderer } = bridge();
+  // Its onBeforeRender copies the frame so far (fountain-water.js capture): three's blit, stood in.
+  const blits = [];
+  renderer.state = { bindFramebuffer() {} };
+  renderer.getContext().blitFramebuffer = (...args) => blits.push(args);
+  const basinGeometry = new THREE.CircleGeometry(2, 12).rotateX(-Math.PI / 2).translate(0, 0, -6);
+  const basin = new THREE.Mesh(basinGeometry, new THREE.MeshBasicMaterial());
+  basin.name = "nab2_prop_fountain_water";
+  scene.add(basin);
+  const water = new FountainWater(core.graphics, [{ texture: "nab2_prop_fountain_water", center: [0, 0, -6], radius: 2 }], new EnvironmentWakes(), new THREE.Texture(), TIER);
+  water.setEnabled(true);
+  water.update(1.5);
+  const material = water.material;
+  assert.equal(basin.material, material);
+  for (const object of [basin, water.tier]) list.transparent.push({ object, material, group: null });
+  const uniforms = ["projectionMatrix", "viewMatrix", "modelMatrix", "reflection", "sceneColor", "sceneDepth", "foamMap", "reflectionMatrix", "waterResolution", "cameraRange", "waterTime", "hasReflection",
+    "hasFoam", "hasTier", "sky", "waterSunDirection", "waterSunColor", "wakes[0]", "motion[0]", "basins[0]"];
+  const back = program(uniforms, ["position"], "#define FLIP_SIDED\nvertex"), front = program(uniforms, ["position"]);
+  drawn(material, front, [back, front]);
+  frame();
+  const models = calls.filter((c) => c[0] === "fx_add_model");
+  assert.equal(models.length, 2, `both meshes at once (${core.errors.join("; ")})`);
+  assert.ok(models[0][5].includes("waterTime:1:0") && models[0][5].includes("waterSunDirection"), "its own clock and sun uniforms avoid frame-field declarations");
+  assert.deepEqual(calls.filter((c) => c[0] === "fx_model_sampler" && c[1] === 0).map((c) => c.slice(2, 4)), [["sceneColor", 9], ["sceneDepth", 10], ["foamMap", 11]],
+    "its own copy of the frame's depth on a unit of its own, not the scene's");
+  assert.equal(material.visible, false, "hidden from three once every mesh is the renderer's");
+  list.transparent.length = 0;
+  frame();
+  assert.equal(core.fxInput[0], 2, "both drawn by the renderer");
+  assert.equal(blits.length, 1, "the frame so far copied once, by its onBeforeRender");
 });

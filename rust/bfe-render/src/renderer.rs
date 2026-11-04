@@ -138,6 +138,19 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.transparent_list(three, VIEW_NEAR, image)
     }
 
+    // A batch of the effects drawn into a texture of its own before the
+    // transparent phase reads it (the steam's volumes into their target), with
+    // the near view's frame block as the page wrote it for that phase. The
+    // page has three bind its own framebuffer again after.
+    #[allow(clippy::too_many_arguments)]
+    pub fn fx_into_frame(&mut self, batch: usize, target: u32, width: i32, height: i32, count: usize, at: usize, capacity: usize) -> Result<Stats, String> {
+        let core = &mut self.core;
+        core.begin_phase();
+        core.upload_frame(VIEW_NEAR);
+        self.effects.draw_into(core, batch, target, width, height, count, at, capacity);
+        Ok(core.end_phase())
+    }
+
     // What a mirror's render of the near scene blends (water.js's
     // reflection, drawn before the frame's own): the transparent phase for
     // the mirror camera, read with its frame block (VIEW_SPARE's), which its
