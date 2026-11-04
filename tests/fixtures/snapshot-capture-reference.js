@@ -56,7 +56,7 @@ export class EntityItemCapture {
 // network-entity-capture.js
 const enumerate=(values,name)=>{const index=values.indexOf(name);if(index<0)throw Error(`unsupported entity state ${name}`);return index;};
 const reverse=map=>{const result=new Map();for(const[id,name]of map){if(result.has(name))throw Error('ambiguous entity registry');result.set(name,id);}return result;};
-const boundedHealth=value=>{if(!Number.isFinite(value)||value>65535)throw Error('entity health outside uint16 representation');return Math.round(Math.max(0,value));};
+const boundedHealth=value=>{if(!Number.isFinite(value))throw Error('entity health is not a number');return Math.round(Math.min(65535,Math.max(0,value)));};
 const required=(map,name)=>{const id=map.get(name);if(id===undefined)throw Error(`entity registry missing ${name}`);return id;};
 export function captureEntitySoldier(unit,{tick,classId,weaponId=0,fireCounter=0}){
  const s=unit.soldier,state=unit.dead?(s.air==='thrown'?'thrownDead':'dead'):s.dive?(s.dive>0?'diveRight':'diveLeft'):s.air||'ground';

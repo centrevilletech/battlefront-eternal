@@ -73,3 +73,9 @@ M-hot1-all-1-mount --map hot1 --side all --seed 1 --ticks 2400 --view 2.5 --moun
 M-bes1-rep-1-mount --map bes1 --side rep --seed 1 --ticks 2400 --view 2.5 --mount 300
 M-tat1-rep-1-mount --map tat1 --side rep --seed 1 --ticks 2400 --view 2.5 --ack --mount 300
 M-kas2-cis-2-mount --map kas2 --side cis --seed 2 --ticks 2400 --view 2.5 --mount 600
+#
+# Instant Action heroes (Darth Vader has more health than a record holds).
+H-tat2-imp-1 --map tat2 --side imp --seed 1 --ticks 2400 --heroes
+H-rhn1-imp-2 --map rhn1 --side imp --seed 2 --ticks 2400 --heroes --view 2.5
+H-nab2-rep-3 --map nab2 --side rep --seed 3 --ticks 2400 --heroes --ai enhanced
+H-hot1-all-1 --map hot1 --side all --seed 1 --ticks 2400 --heroes
