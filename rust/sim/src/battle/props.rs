@@ -214,7 +214,11 @@ impl Station {
     pub fn update(&mut self, dt: f64, settings: &Settings, supply: &Supply, targets: &mut [Target], soldiers: &[usize], vehicles: &[usize], world: &mut impl World) {
         self.building.regenerate(dt, settings, world);
         if !self.building.alive() { return; }
-        if self.active_mode { self.active += dt; }
+        if self.active_mode {
+            // V8's += keeps a NaN right operand's payload. LLVM may
+            // commute this addition independently of the pulse's below.
+            self.active = if dt.is_nan() { dt } else { self.active + dt };
+        }
         self.pulse += dt;
         if self.pulse >= supply.delay {
             self.pulse -= supply.delay;
