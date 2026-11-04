@@ -9,9 +9,15 @@ import { MovementKernel } from '../movement-kernel.js';
 import { Vector3 } from 'three';
 import { putSoldier, putDroideka } from '../sim/gen/units.js';
 
-const soldierPrototype = Object.getOwnPropertyDescriptors(Soldier.prototype);
-const droidekaPrototype = Object.getOwnPropertyDescriptors(Droideka.prototype);
-const collisionPrototype = Object.getOwnPropertyDescriptors(CollisionWorld.prototype);
+const objectEntries = Object.entries, ownDescriptor = Object.getOwnPropertyDescriptor;
+const arrayIterator = Array.prototype[Symbol.iterator];
+const arrayIteratorPrototype = Object.getPrototypeOf([][Symbol.iterator]());
+const arrayIteratorNext = arrayIteratorPrototype.next;
+// These private expected descriptors never change; actual receiver descriptors
+// are checked again on every step. Indexed reads keep these tables unexposed.
+const soldierMethods = objectEntries(Object.getOwnPropertyDescriptors(Soldier.prototype));
+const droidekaMethods = objectEntries(Object.getOwnPropertyDescriptors(Droideka.prototype));
+const collisionMethods = objectEntries(Object.getOwnPropertyDescriptors(CollisionWorld.prototype));
 const movementTick = MovementKernel.prototype.tick, updateKick = PlayerCombat.prototype.updateKick, vectorSet = Vector3.prototype.set;
 const clipNames = ['idle', 'turnl', 'turnr', 'death01', null, 'idle_to_leftfoot', null, 'walk_leftfoot_rightfoot',
   'walk_rightfoot_leftfoot', 'leftfoot_to_idle', 'rightfoot_to_idle', 'fold', 'roll', 'unfold'];
@@ -38,9 +44,14 @@ const plain = (object, key, writable = false) => {
   const desc = descriptor(object, key);
   return !desc || hasOwn(desc, 'value') && (!writable || desc.writable);
 };
+function intrinsic(object, key, value) {
+  const desc = ownDescriptor(object, key);
+  return desc && hasOwn(desc, 'value') && desc.value === value;
+}
 function methods(object, prototype, saved) {
   if (Object.getPrototypeOf(object) !== prototype) return false;
-  for (const [key, expected] of Object.entries(saved)) {
+  for (let i = 0; i < saved.length; i++) {
+    const key = saved[i][0], expected = saved[i][1];
     if (key === 'constructor') continue;
     const got = descriptor(object, key);
     if (!got || hasOwn(got, 'value') !== hasOwn(expected, 'value')) return false;
@@ -55,13 +66,15 @@ function vector(value) {
 }
 function numbers(array, length) { return (Array.isArray(array) || ArrayBuffer.isView(array)) && array.length === length && Array.from(array).every(numeric); }
 function eligible(s, prediction, input, collision, kind) {
+  if (!intrinsic(Object, 'entries', objectEntries) || !intrinsic(Array.prototype, Symbol.iterator, arrayIterator)
+    || !intrinsic(arrayIteratorPrototype, 'next', arrayIteratorNext)) return false;
   if (!['soldier', 'updateKick', 'kick', 'shieldEquipped', 'gunUnderwater'].every(key => plain(prediction, key)) || prediction.soldier !== s
     || !['world', 'pitchLimits', 'collisionRule', 'jet', 'air', 'diveFrom', 'posture', 'passThrough'].every(key => {
       if (kind && key === 'posture') return true;
       return plain(s, key);
     })) return false;
-  if (prediction.updateKick !== updateKick || s.world !== collision || !methods(collision, CollisionWorld.prototype, collisionPrototype)) return false;
-  if (!methods(s, kind ? Droideka.prototype : Soldier.prototype, kind ? droidekaPrototype : soldierPrototype)) return false;
+  if (prediction.updateKick !== updateKick || s.world !== collision || !methods(collision, CollisionWorld.prototype, collisionMethods)) return false;
+  if (!methods(s, kind ? Droideka.prototype : Soldier.prototype, kind ? droidekaMethods : soldierMethods)) return false;
   const vectors = kind ? droidekaVectors : soldierVectors;
   if (!numericFields(s, kind ? droidekaNumbers : soldierNumbers) || vectors.some(key => !plain(s, key) || !vector(s[key]))
     || new Set(vectors.map(key => s[key])).size !== vectors.length || !numbers(s.pitchLimits, 2)
