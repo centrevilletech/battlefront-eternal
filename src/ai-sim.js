@@ -47,6 +47,7 @@ export class AiSim {
     this.trackers=new WeakMap();this.trackerFrames=[];
     this.fires=new WeakMap();
     this.fireFrames=[];
+    this.weaponFrames=[];this.weaponOrigin=new Vector3();this.weaponForward=new Vector3();
     this.trackerLead=new Vector3();
     this.ballisticPoint=new Vector3();this.ballisticOrigin=new Vector3();this.ballisticZero=new Vector3();
     bridge.register({aiSight:args=>{
@@ -203,6 +204,34 @@ export class AiSim {
       else throw Error(`unknown trigger callback ${op}`);
       return result;
     }});
+    bridge.register({aiWeapon:args=>{
+      const op=args.op,index=args.index,frame=this.weaponFrames[this.weaponFrames.length-1],{controller:c,unit}=frame;
+      const result={flag:false,values:[],point:[0,0,0]};
+      if(op==='coneStart') {frame.weapon=selectedWeapon(unit,c);frame.aimer=c.perception?.aimer;result.flag=Boolean(frame.weapon && frame.aimer);}
+      else if(op==='origin') {unit.origin(this.weaponOrigin);result.point=this.weaponOrigin.toArray();}
+      else if(op==='forward') {unit.forward(this.weaponForward);result.point=this.weaponForward.toArray();}
+      else if(op==='conePoint') {const p=frame.op===1?frame.lead:frame.point;result.point=[p.x,p.y,p.z];}
+      else if(op==='coneFacts') result.values=[Number(sniperWeapon(frame.weapon)),unit.kind,Number(frame.weapon.def.base==='melee')];
+      else if(op==='aimer') {const p=frame.aimer.direction;result.point=[p.x,p.y,p.z];}
+      else if(op==='range') {
+        const weapon=selectedWeapon(unit,c),def=weapon.def,a=weaponAI(def);
+        result.values=[unit?.kind,c?.rangeScale??1,a.maxRange,Number(Boolean(a.implicitRange)),a.extremeRange,
+          Number(def?.ordnance?.base==='towcable'),def.LockOnRange||0];
+      } else if(op==='rangePoint') {const p=frame.point;result.point=[p.x,p.y,p.z];}
+      else if(op==='protectionStart') {
+        if(!['repair','dispenser','remote','detonator'].includes(frame.weapon?.def?.base)) {
+          frame.fire=c?.perception?.fire;result.flag=Boolean(frame.fire?.protected.length);
+        }
+      } else if(op==='reference') {
+        result.flag=index<frame.fire.protected.length;
+        if(result.flag) {
+          const r=frame.fire.protected[index],u=frame.human=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
+          result.values=[Number(Boolean(u?.alive)),u?.generation,tag(u?.generation),r?.generation,tag(r?.generation)];
+        }
+      } else if(op==='sphere') {const s=frame.human.sphere;result.point=[s.center.x,s.center.y,s.center.z];result.values=[s.radius];}
+      else throw Error(`unknown weapon geometry callback ${op}`);
+      return result;
+    }});
   }
 
   id(object) {
@@ -356,6 +385,11 @@ export class AiSim {
     this.fireFrames.push({controller,unit,world});
     try {return Boolean(this.x.ai_fire_consume(id));}
     finally {this.fireFrames.pop();}
+  }
+  weaponGuard(op,controller,unit,point,lead=null,weapon=null) {
+    this.weaponFrames.push({op,controller,unit,point,lead,weapon});
+    try {return Boolean(this.x.ai_weapon_guard(op));}
+    finally {this.weaponFrames.pop();}
   }
   selectTarget(id,tracker,world) {
     this.trackerFrames.push({tracker,world});

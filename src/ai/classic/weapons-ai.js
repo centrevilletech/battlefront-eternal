@@ -880,6 +880,8 @@ export function validateFire(controller, unit, target, world) {
 // The lead point in the firing cone and the target's aim point
 // inside the selected weapon's effective range.
 export function facingAndRange(controller, unit, lead, point) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native)return native.weaponGuard(1,controller,unit,point,lead);
   if (!firingCone(controller, unit, lead)) return false;
   const weapon = selectedWeapon(unit, controller);
   const range = Math.min(effectiveRange(unit, controller, weapon.def), harpoonReach(weapon.def));
@@ -906,6 +908,8 @@ let fireCos = null;
 // forward line. A soldier's zoomed single-shot weapon instead needs the point
 // within 0.25 units of the forward line.
 export function firingCone(controller, unit, point) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native)return native.weaponGuard(0,controller,unit,point);
   const weapon = selectedWeapon(unit, controller);
   const aimer = controller.perception?.aimer;
   if (!weapon || !aimer) return false;
@@ -965,6 +969,8 @@ export function rebuildProtectedHumans(world) {
 const cross = { x: 0, y: 0, z: 0 };
 
 export function protectedVeto(controller, unit, weapon) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native)return native.weaponGuard(2,controller,unit,null,null,weapon);
   const base = weapon?.def?.base;
   if (base === "repair" || base === "dispenser" || base === "remote" || base === "detonator") return false;
   const fire = fireOf(controller);

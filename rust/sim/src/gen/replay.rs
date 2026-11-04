@@ -494,6 +494,46 @@ impl AiTrackerResult {
     }
 }
 
+impl AiWeaponArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiWeaponArgs {
+            op: { let p = format!("{path}.op"); AiWeaponOp::from_u8(name_of(v.get("op"), &AiWeaponOp::NAMES, &p)?).unwrap() },
+            index: { let p = format!("{path}.index"); (int(v.get("index"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Str(AiWeaponOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = Value::Num(self.index as f64); fields.push(("index", x)); }
+        a.object("", fields)
+    }
+}
+
+impl AiWeaponResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiWeaponResult {
+            flag: { let p = format!("{path}.flag"); boolean(v.get("flag"), &p)? },
+            values: { let p = format!("{path}.values"); { let mut out = Vec::new(); for (i, e) in list(v.get("values"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+            point: { let p = format!("{path}.point"); numbers::<3>(v.get("point"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Bool(self.flag); fields.push(("flag", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.values.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("values", x)); }
+        { let x = { let items = self.point.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("point", x)); }
+        a.object("", fields)
+    }
+}
+
 impl AiUnitRef {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
