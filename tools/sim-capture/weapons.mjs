@@ -17,7 +17,14 @@ function book(game) {
   return value;
 }
 function state(game, args, _cap, weapon) {
-  const owner = book(game).get(weapon);
+  let owner = book(game).get(weapon);
+  // Hull spawns construct new Weapon instances. Discover them when their
+  // first method runs, including a spawn inside the current tick.
+  if (!owner) {
+    const current = owners(game);
+    for (const [weapon, owner] of current) book(game).set(weapon, owner);
+    owner = current.get(weapon);
+  }
   if (!owner) return { skipped: true };
   const value = exportWeapon(weapon, { seen: new WeakMap(), def: (_table, def) => def });
   return { owner, weapon: value, definition: weapon.levels.indexOf(weapon.def), seeded: Boolean(weapon.salvoRandom),
