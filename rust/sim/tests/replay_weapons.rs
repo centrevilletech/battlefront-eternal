@@ -68,7 +68,7 @@ fn shot_value(shot: &Shot, frame: &Frame, arena: &mut Arena) -> Value {
 }
 fn replay_frame(capture: &Capture, frame: &Frame, mutation: Mutation) -> Result<bool, String> {
     let before = frame.before();
-    if before.get("skipped").bool() { return Ok(false); }
+    if before.get("skipped").truthy() { return Ok(false); }
     let mut cx = Replay::default();
     let mut weapon = Weapon::from_value(before.get("weapon"), &mut cx, "weapon")?;
     if weapon.level.to_bits() != before.get("definition").num().to_bits() { return Err("ordinary weapon has a separate numeric level".into()); }
@@ -78,17 +78,17 @@ fn replay_frame(capture: &Capture, frame: &Frame, mutation: Mutation) -> Result<
     let mut draws = Draws { log: Log::new(frame), failure: None, nudge: matches!(mutation, Mutation::Draw) };
     let mut arena = Arena::default();
     let mut result = Value::Undefined;
-    let mut dt = frame.arg(0).num();
+    let mut dt = if matches!(frame.name.as_str(), "Weapon.update" | "Weapon.updateLock") { frame.arg(0).num() } else { 0.0 };
     if matches!(mutation, Mutation::Dt) { dt = f64::from_bits(dt.to_bits() + 1); }
     match frame.name.as_str() {
         "Weapon.update" => {
             let trigger = frame.arg(2); let aim = frame.arg(4);
             let seed = trigger.get("seed"); let late = trigger.get("late").opt_num().unwrap_or(0.0);
             let mut shots = Vec::new();
-            weapon.update(0, &class, dt, frame.arg(1).bool(), &Trigger { held: trigger.get("held").bool(), pressed: trigger.get("pressed").bool(),
-                seed: (!seed.is_nullish()).then(|| seed.num()), late }, frame.arg(3).bool(),
-                &Aim { stick: aim.get("stick").num(), posture: match aim.get("posture").str() { Some("stand") => Some(Posture::Stand), Some("crouch") => Some(Posture::Crouch), Some("prone") => Some(Posture::Prone), _ => None },
-                    zoomed: aim.get("zoomed").bool(), repair_target: !aim.get("repairTarget").is_nullish() && aim.get("repairTarget").opt_bool() != Some(false) }, &mut draws, &mut shots);
+            weapon.update(0, &class, dt, frame.arg(1).truthy(), &Trigger { held: trigger.get("held").truthy(), pressed: trigger.get("pressed").truthy(),
+                seed: (!seed.is_nullish()).then(|| seed.num()), late }, frame.arg(3).truthy(),
+                &Aim { stick: aim.get("stick").opt_num().unwrap_or(0.0), posture: match aim.get("posture").str() { Some("stand") => Some(Posture::Stand), Some("crouch") => Some(Posture::Crouch), Some("prone") => Some(Posture::Prone), _ => None },
+                    zoomed: aim.get("zoomed").truthy(), repair_target: aim.get("repairTarget").truthy() }, &mut draws, &mut shots);
             let shots = shots.iter().map(|s| shot_value(s, frame, &mut arena)).collect(); result = arena.array(shots);
         }
         "Weapon.deselect" => weapon.deselect(),
