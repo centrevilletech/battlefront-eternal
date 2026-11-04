@@ -70,7 +70,11 @@ export async function mountedGameGate([actor, observer]) {
         preview.lookRaw(1,0,__bf.settings.mouseScale,false);
         const rate=preview.aimYaw-__bf.soldier.aimYaw;
         if(Math.abs(rate)>1e-9)__bf.controls.looks.push([Math.max(-10000,Math.min(10000,difference/rate)),0]);
-        return {distance:Math.hypot(dx,dz),radius:v.radius,position:p.toArray(),seat:v.seats[0].lease?.unit?.id??null};
+        const saved=__bf.client.saved,view=saved&&new DataView(saved.buffer,saved.byteOffset,saved.byteLength);
+        return {distance:Math.hypot(dx,dz),radius:v.radius,position:p.toArray(),seat:v.seats[0].lease?.unit?.id??null,
+          authority:view?[view.getFloat64(52,true),view.getFloat64(60,true),view.getFloat64(68,true)]:null,
+          hullPosition:v.position.toArray(),tick:__bf.worldClock.tick,predicted:__bf.client.predictedTick,
+          correctionWorst:__bf.client.smoother.worst};
       },choice);
       if(navigation.invalid)console.log('mounted-interrupted',JSON.stringify(navigation));
       assert.ok(!navigation.invalid,'actor and selected hull stay alive during approach');

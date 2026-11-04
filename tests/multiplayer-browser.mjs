@@ -160,6 +160,11 @@ try {
     const {stationaryTurretGate}=await import('./multiplayer-stationary-gate.mjs');await stationaryTurretGate(pages);assert.deepEqual(errors,[]);
   } else if(process.env.BFE_TEST_MOUNTED_ONLY==='1'){
     const {mountedGameGate}=await import('./multiplayer-mounted-gate.mjs');await mountedGameGate(pages);assert.deepEqual(errors,[]);
+    if (process.env.BFE_PREDICTION_SESSION === 'rust') {
+      const counters = await Promise.all(pages.map(page => page.evaluate(() => ({ ...__bf.predictionSession.counters }))));
+      assert.ok(counters[0].calls > 0 && counters[0].ticks > 0, 'the mounted actor executed infantry session replay before boarding');
+      console.log('mounted-prediction-sessions', JSON.stringify(counters));
+    }
   } else if(process.env.BFE_TEST_DROIDEKA_ONLY==='1'){
     const actor=pages[0],observer=pages[1];await actor.bringToFront();
     await actor.evaluate(()=>{if(__bf.menu.isOpen){__bf.controls.locked=true;__bf.menu.close(true);}});
