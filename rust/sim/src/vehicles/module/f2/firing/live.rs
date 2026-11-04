@@ -2,7 +2,7 @@
 use super::*;
 use crate::abi::sim;
 use crate::combat::defs::{K, WeaponClass};
-use crate::combat::weapons::{Admission, Aim, Shot, ShotKind, Trigger, WeaponDraws, LockTarget};
+use crate::combat::weapons::{Admission, Shot, ShotKind, WeaponDraws, LockTarget};
 use crate::gen::*;
 use crate::store::{Ref, StrId};
 use crate::store::Slab;
@@ -57,7 +57,7 @@ fn node(n: f64) -> Option<three::NodeId> { (n >= 0.0).then_some(n as three::Node
 
 #[no_mangle]
 pub extern "C" fn f2_firing_words(which: u32) -> u32 {
-    match which { 0 => FfBirth::WORDS as u32, 1 => FfWeaponInput::WORDS as u32, 2 => FfSeatInput::WORDS as u32, 3 => FfSupply::WORDS as u32, 4 => FfSupplyResult::WORDS as u32, _ => 0 }
+    match which { 0 => FfBirth::WORDS as u32, 1 => FfWeaponInput::WORDS as u32, 3 => FfSupply::WORDS as u32, 4 => FfSupplyResult::WORDS as u32, _ => 0 }
 }
 
 /// Vehicle construction and respawn give mounted weapons a new gameplay life.
@@ -151,29 +151,32 @@ pub fn inputs(data: &[f64]) -> usize {
     for c in st.crafts.iter_mut().flatten() {
         for used in &mut c.consumed { *used = false; }
     }
-    // Follow Vehicles.vehicles, not slab order after retirement and reuse.
-    let n = sim().store.vehicles.vehicles.len();
-    for i in 0..n {
-        let r = sim().store.vehicles.vehicles[i];
-        let c = st.crafts[r.slot as usize].as_ref().expect("mounted hull birth");
-        for (si, s) in c.seats.iter().enumerate() {
-            let aim = FfSeatInput::take(&data[o..o + FfSeatInput::WORDS], &[]); o += FfSeatInput::WORDS;
-            let sp = &mut poses()[r.slot as usize].as_mut().unwrap().pose.seats[si];
-            sp.aiming = aim.aiming; sp.aim = vec(&aim.aim);
-            for &r in s {
-            let w = st.weapons.get_mut(r).unwrap();
-            w.input = FfWeaponInput::take(&data[o..o + FfWeaponInput::WORDS], &[]);
-            o += FfWeaponInput::WORDS;
-            w.birth.channel = w.input.channel;
-            w.state.random = w.input.has_random;
-            w.state.floor = w.input.floor;
-            if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
-            w.state.spread_scale = w.input.spread_scale;
-            w.state.sniper_scale = w.input.sniper_scale;
-            w.state.yaw_spread_override = w.input.yaw_spread_override;
-        }}
+    let header = FfInputs::take(data, &[]); o += FfInputs::WORDS;
+    for _ in 0..header.count {
+        let a = FfWeaponChange::take(&data[o..], &[]); o += FfWeaponChange::WORDS;
+        let c = st.crafts[a.hull.slot as usize].as_ref().unwrap();
+        let wr = c.seats[a.seat as usize][a.weapon as usize];
+        st.weapons.get_mut(wr).unwrap().input = a.input;
     }
+    for c in st.crafts.iter().flatten() { for seat in &c.seats { for &wr in seat {
+        let w = st.weapons.get_mut(wr).unwrap();
+        w.birth.channel = w.input.channel; w.state.random = w.input.has_random;
+        w.state.floor = w.input.floor;
+        if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
+        w.state.spread_scale = w.input.spread_scale; w.state.sniper_scale = w.input.sniper_scale;
+        w.state.yaw_spread_override = w.input.yaw_spread_override;
+    } } }
     o
+}
+
+pub fn policy(r: Ref<Vehicle>, seat: usize, player: bool, random: bool) {
+    let c = state().crafts[r.slot as usize].as_ref().unwrap();
+    for &wr in &c.seats[seat] {
+        let w = state().weapons.get_mut(wr).unwrap(); let d = w.state.level(w.class.as_ref().unwrap());
+        w.state.floor = if player { -d.get(K::SpreadThreshold).or(0.0) } else { 0.0 };
+        if w.state.kick < w.state.floor { w.state.kick = w.state.floor; }
+        w.state.spread_scale = 1.0; w.state.sniper_scale = 0.0; w.state.yaw_spread_override = None; w.state.random = random; w.dirty = true;
+    }
 }
 
 /// Copies just mounted state; physics and leases remain in their canonical slab.
@@ -343,7 +346,10 @@ pub fn step(dt: f64, clock: f64) {
             if count == 0 { continue; }
             state().crafts[r.slot as usize].as_mut().unwrap().consumed[seat] = true;
             for weapon in 0..count { fire_seat(r, seat, weapon, dt, clock); }
-            if let Some(l) = sim().store.vehicle.get(r).unwrap().seats[seat].lease.and_then(|l| sim().store.seat_lease.get_mut(l)) { l.input.reload = false; }
+            if let Some(lr) = sim().store.vehicle.get(r).unwrap().seats[seat].lease {
+                let l = sim().store.seat_lease.get_mut(lr).unwrap();
+                if l.input.reload { l.input.reload = false; super::super::live_seats::changed_lease(lr); }
+            }
         }
     }
     update_tethers();
@@ -351,15 +357,17 @@ pub fn step(dt: f64, clock: f64) {
 
 fn fire_seat(r: Ref<Vehicle>, seat: usize, weapon: usize, dt: f64, clock: f64) {
     let wr = state().crafts[r.slot as usize].as_ref().unwrap().seats[seat][weapon];
-    let (mut w, class, mut input, mut shots, tow, missile_lock, masks, angles) = {
+    let (mut w, class, input, mut shots, tow, missile_lock, masks, angles) = {
         let m = state().weapons.get_mut(wr).unwrap();
         let angles = m.lock_angles[m.state.level as usize];
         (std::mem::take(&mut m.state), m.class.take().unwrap(), std::mem::take(&mut m.input), std::mem::take(&mut m.shots), m.birth.tow, m.missile_lock, (m.birth.relation_mask, m.birth.category_mask), angles)
     };
-    if let Some(l) = sim().store.vehicle.get(r).unwrap().seats[seat].lease.and_then(|l| sim().store.seat_lease.get_mut(l)) {
-        input.pressed = l.input.pressed.get(weapon).copied().unwrap_or(false); input.held = l.input.held.get(weapon).copied().unwrap_or(false); input.reload = l.input.reload;
+    let (mut pressed, mut held, mut reload) = (false, false, false);
+    if let Some(lr) = sim().store.vehicle.get(r).unwrap().seats[seat].lease {
+        let l = sim().store.seat_lease.get_mut(lr).unwrap();
+        pressed = l.input.pressed.get(weapon).copied().unwrap_or(false); held = l.input.held.get(weapon).copied().unwrap_or(false); reload = l.input.reload;
         if let Some(pressed) = l.input.pressed.get_mut(weapon) { *pressed = false; }
-        super::super::live_seats::changed_lease(l.unit, r);
+        if pressed { super::super::live_seats::changed_lease(lr); }
     }
     let v = sim().store.vehicle.get(r).unwrap();
     if v.flying {
@@ -370,11 +378,9 @@ fn fire_seat(r: Ref<Vehicle>, seat: usize, weapon: usize, dt: f64, clock: f64) {
         w.update_lock(&class, dt, picked);
     }
     let suppressed = tow && sim().store.vehicle.get(r).unwrap().tow_target >= 0.0;
-    let trigger = Trigger { pressed: !suppressed && input.pressed, held: !suppressed && (input.held || input.pressed), seed: None, late: 0.0 };
-    shots.clear();
-    w.update(weapon as u32, &class, dt, true, &trigger, input.reload, &Aim { stick: 0.0, posture: Some(Posture::Stand), zoomed: false, repair_target: false },
+    update_mounted(&mut w, weapon as u32, &class, dt, !suppressed && (held || pressed), !suppressed && pressed, reload,
         &mut Draws { hull: r, seat: seat as u32, weapon: weapon as u32 }, &mut shots);
-    { let m = state().weapons.get_mut(wr).unwrap(); m.state = w; m.class = Some(class); m.dirty = true; }
+    { let m = state().weapons.get_mut(wr).unwrap(); m.state = w; m.input = input; m.class = Some(class); m.dirty = true; }
     for shot in &shots {
         if !sim().store.vehicle.get(r).is_some_and(|v| v.alive) { break; }
         if let ShotKind::Round { yaw, pitch, charge, target_id, target_generation, .. } = shot.kind {
@@ -421,21 +427,27 @@ fn emit(r: Ref<Vehicle>, seat: usize, weapon: usize, wr: Ref<Mounted>, yaw: f64,
     };
     if tow { launch_tow(r, seat, weapon, wr, &muzzle, &direction); }
     else if let Some(def) = ordnance {
-        // This is an internal Rust call. No game Weapon or Ordnance adapter
-        // participates in the mounted fire path.
-        let (store, strings) = crate::ordnance::module::parts();
-        let mut world = crate::ordnance::module::JsWorld::new(store, strings);
-        let mut cx = unsafe { crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world) };
-        let round = cx.fire_round(def, v3(&muzzle), v3(&direction), owner, None, Some(body), emitter, channel, Some(target_id), Some(target_generation));
-        if flying { if let Some(crate::ordnance::world::Shot::Round(round)) = round {
-            if sim().store.round.get(round).is_some_and(|r| r.kind == RoundKind::Missile) {
-                cx.flight_missile(round, Some(state().class_names[class.unwrap_or_default() as usize]), config.missile_lifetime, config.missile_speed);
-            }
-        }}
+        fire_round(def, v3(&muzzle), v3(&direction), owner, Some(body), emitter, channel, target_id, target_generation,
+            flying.then_some((state().class_names[class.unwrap_or_default() as usize], config.missile_lifetime, config.missile_speed)));
     }
     let event = FfShot { state: state().weapons.get(wr).unwrap().state.clone(), hull: r, life, seat: seat as u32, weapon: weapon as u32, owner, yaw, pitch, charge, target_id, target_generation, origin: v3(&muzzle), direction: v3(&direction) };
     event.emit(&mut sim().events);
     import_f2_fired(&event);
+}
+
+/// Shared Ordnance.fire seam for hulls and stationary crews. Beam emitters
+/// retain their original identity; only hull flight missiles get flight keys.
+#[allow(clippy::too_many_arguments)]
+pub fn fire_round(def: crate::store::DefId, origin: Vec3, direction: Vec3, owner: OrdnanceOwner, body: Option<Ref<Body>>,
+    emitter: BeamSource, channel: f64, target: f64, generation: f64, flight: Option<(StrId, f64, f64)>) -> Option<crate::ordnance::world::Shot> {
+    let (store, strings) = crate::ordnance::module::parts();
+    let mut world = crate::ordnance::module::JsWorld::new(store, strings);
+    let mut cx = unsafe { crate::ordnance::Cx::new(store, strings, crate::ordnance::module::defs(), &mut world) };
+    let round = cx.fire_round(def, origin, direction, owner, None, body, emitter, channel, Some(target), Some(generation));
+    if let Some((class, lifetime, speed)) = flight { if let Some(crate::ordnance::world::Shot::Round(r)) = round {
+        if sim().store.round.get(r).is_some_and(|r| r.kind == RoundKind::Missile) { cx.flight_missile(r, Some(class), lifetime, speed); }
+    } }
+    round
 }
 
 /// flight/targeting.js assistShot, on canonical hull fields and registry facts.

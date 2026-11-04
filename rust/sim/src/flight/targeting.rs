@@ -24,9 +24,16 @@ use v8math::{abs, max, min};
 const PI: f64 = std::f64::consts::PI;
 
 /// What inCone leaves for clear(): the direction to the target and how far.
+#[derive(Clone, Debug)]
 struct Sight {
     direction: Vector3,
     distance: f64,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct TargetScratch {
+    candidates: Vec<usize>, scores: Vec<f64>, sights: Vec<Option<(f64, Sight)>>,
+    asked: Vec<usize>, order: Vec<usize>, sort: jsrt::sort::SortScratch<usize>,
 }
 
 impl Hull {
@@ -77,21 +84,24 @@ impl Hull {
     }
 
     /// bestTarget(v, cone): the best entry in the cone the craft can see.
-    fn best_target<W: FlightWorld>(&self, w: &mut W, t: &Tuning, nose: &Vector3, cone: f64) -> Option<usize> {
-        let mut candidates: Vec<usize> = Vec::new();
-        let mut scores: Vec<f64> = Vec::new();
-        let mut sights: Vec<Option<(f64, Sight)>> = Vec::new();
+    fn best_target<W: FlightWorld>(&mut self, w: &mut W, t: &Tuning, nose: &Vector3, cone: f64) -> Option<usize> {
+        let mut scratch = std::mem::take(&mut self.target_scratch);
+        let result = self.best_target_with(w, t, nose, cone, &mut scratch);
+        self.target_scratch = scratch; result
+    }
+    fn best_target_with<W: FlightWorld>(&self, w: &mut W, t: &Tuning, nose: &Vector3, cone: f64, scratch: &mut TargetScratch) -> Option<usize> {
+        let TargetScratch { candidates, scores, sights, asked, order, sort } = scratch;
+        candidates.clear(); scores.clear(); sights.clear(); asked.clear(); order.clear();
         let n = w.member_count();
         // The entries inCone will ask the aim point of (living, not the
         // craft's own, enemies), in its order.
-        let mut asked: Vec<usize> = Vec::new();
         for i in 0..n {
             let m = w.member(i);
             if m.alive && !m.own && w.relation(self.flight.team, m.team) < 0.0 {
                 asked.push(i);
             }
         }
-        w.prefetch_aim_points(&asked);
+        w.prefetch_aim_points(asked);
         for i in 0..n {
             if let Some((score, sight)) = self.in_cone(w, t, nose, i, cone) {
                 candidates.push(i);
@@ -100,16 +110,16 @@ impl Hull {
             }
         }
         // order: by score, highest first, then by place (V8's sort).
-        let mut order: Vec<usize> = (0..candidates.len()).collect();
-        jsrt::sort::js_sort(&mut order, &mut |&a: &usize, &b: &usize| {
+        order.extend(0..candidates.len());
+        jsrt::sort::js_sort_reuse(order, &mut |&a: &usize, &b: &usize| {
             let d = scores[b] - scores[a];
             if truthy(d) {
                 d
             } else {
                 a as f64 - b as f64
             }
-        });
-        for &k in &order {
+        }, sort);
+        for &k in order.iter() {
             let i = candidates[k];
             // inCone again, for its direction and distance (its calls made
             // again too). Nothing it reads has changed since the first

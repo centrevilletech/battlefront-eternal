@@ -20,6 +20,703 @@ export const F2TurretEventKind_INDEX = new Map(F2TurretEventKind_NAMES.map((name
 export const F2TurretTargetMode_NAMES = ["human","none","unit","unavailable"];
 export const F2TurretTargetMode_INDEX = new Map(F2TurretTargetMode_NAMES.map((name, i) => [name, i]));
 
+export const F2DeltaLayout = Object.freeze({ words: 7, slot: 0, generation: 1, length: 2, mask: 3, maskLength: 4, values: 5, valuesLength: 6 });
+
+export class F2DeltaMirror {
+  constructor() {
+    this.slot = 0;
+    this.generation = 0;
+    this.length = 0;
+    this.mask = [];
+    this.values = [];
+  }
+}
+
+export function syncF2Delta(b, f, at, h, m) {
+  m.slot = f[at + 0];
+  m.generation = f[at + 1];
+  m.length = f[at + 2];
+  { const items = (m.mask ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 5], n = f[at + 6]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  return m;
+}
+
+export function putF2Delta(b, o, f, at, heap) {
+  f[at + 0] = o.slot;
+  f[at + 1] = o.generation;
+  f[at + 2] = o.length;
+  heap.items(o.mask, f, at + 3, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.values, f, at + 5, 1, (f, at, v) => { f[at + 0] = v; });
+}
+
+export function sameF2Delta(a, b) {
+  if (!Object.is(a.slot, b.slot)) return ".slot";
+  if (!Object.is(a.generation, b.generation)) return ".generation";
+  if (!Object.is(a.length, b.length)) return ".length";
+  if (!sameEach(a.mask, b.mask, (x, y) => Object.is(x, y))) return ".mask";
+  if (!sameEach(a.values, b.values, (x, y) => Object.is(x, y))) return ".values";
+  return null;
+}
+
+export function exportF2Delta(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.slot = o.slot;
+  v.generation = o.generation;
+  v.length = o.length;
+  v.mask = o.mask.map((x) => x);
+  v.values = o.values.map((x) => x);
+  return v;
+}
+
+export const F2InputLayout = Object.freeze({ words: 18, clock: 0, level: 1, flags: 2, pads: 3, occupant: 4, memberLength: 8, members: 9, memberCount: 10, teams: 11, teamCount: 12, relations: 13, flights: 14, flightCount: 15, firing: 16, end: 17 });
+
+export class F2InputMirror {
+  constructor() {
+    this.clock = NaN;
+    this.level = NaN;
+    this.flags = 0;
+    this.pads = 0;
+    this.occupant = null;
+    this.memberLength = 0;
+    this.members = 0;
+    this.memberCount = 0;
+    this.teams = 0;
+    this.teamCount = 0;
+    this.relations = 0;
+    this.flights = 0;
+    this.flightCount = 0;
+    this.firing = 0;
+    this.end = 0;
+  }
+}
+
+export function syncF2Input(b, f, at, h, m) {
+  m.clock = f[at + 0];
+  m.level = f[at + 1];
+  m.flags = f[at + 2];
+  m.pads = f[at + 3];
+  { const tag = f[at + 4]; if (tag === 0) { (m.occupant ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]); } else m.occupant = tag === 1 ? null : undefined; }
+  m.memberLength = f[at + 8];
+  m.members = f[at + 9];
+  m.memberCount = f[at + 10];
+  m.teams = f[at + 11];
+  m.teamCount = f[at + 12];
+  m.relations = f[at + 13];
+  m.flights = f[at + 14];
+  m.flightCount = f[at + 15];
+  m.firing = f[at + 16];
+  m.end = f[at + 17];
+  return m;
+}
+
+export function putF2Input(b, o, f, at, heap) {
+  f[at + 0] = o.clock;
+  f[at + 1] = o.level;
+  f[at + 2] = o.flags;
+  f[at + 3] = o.pads;
+  { const $x = o.occupant; if ($x === null || $x === undefined) { f[at + 4] = $x === null ? 1 : 2; f[at + 5] = 0; f[at + 6] = 0; f[at + 7] = 0; } else { f[at + 4] = 0; { const $v = $x; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; } } }
+  f[at + 8] = o.memberLength;
+  f[at + 9] = o.members;
+  f[at + 10] = o.memberCount;
+  f[at + 11] = o.teams;
+  f[at + 12] = o.teamCount;
+  f[at + 13] = o.relations;
+  f[at + 14] = o.flights;
+  f[at + 15] = o.flightCount;
+  f[at + 16] = o.firing;
+  f[at + 17] = o.end;
+}
+
+export function sameF2Input(a, b) {
+  if (!Object.is(a.clock, b.clock)) return ".clock";
+  if (!Object.is(a.level, b.level)) return ".level";
+  if (!Object.is(a.flags, b.flags)) return ".flags";
+  if (!Object.is(a.pads, b.pads)) return ".pads";
+  { const p = a.occupant, q = b.occupant; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".occupant"; } else { if (!sameVec(p, q)) return ".occupant"; } }
+  if (!Object.is(a.memberLength, b.memberLength)) return ".memberLength";
+  if (!Object.is(a.members, b.members)) return ".members";
+  if (!Object.is(a.memberCount, b.memberCount)) return ".memberCount";
+  if (!Object.is(a.teams, b.teams)) return ".teams";
+  if (!Object.is(a.teamCount, b.teamCount)) return ".teamCount";
+  if (!Object.is(a.relations, b.relations)) return ".relations";
+  if (!Object.is(a.flights, b.flights)) return ".flights";
+  if (!Object.is(a.flightCount, b.flightCount)) return ".flightCount";
+  if (!Object.is(a.firing, b.firing)) return ".firing";
+  if (!Object.is(a.end, b.end)) return ".end";
+  return null;
+}
+
+export function exportF2Input(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.clock = o.clock;
+  v.level = o.level;
+  v.flags = o.flags;
+  v.pads = o.pads;
+  v.occupant = ((x) => (x === null || x === undefined ? x : x.clone()))(o.occupant);
+  v.memberLength = o.memberLength;
+  v.members = o.members;
+  v.memberCount = o.memberCount;
+  v.teams = o.teams;
+  v.teamCount = o.teamCount;
+  v.relations = o.relations;
+  v.flights = o.flights;
+  v.flightCount = o.flightCount;
+  v.firing = o.firing;
+  v.end = o.end;
+  return v;
+}
+
+export const F2PadTeamLayout = Object.freeze({ words: 2, hasTeam: 0, team: 1 });
+
+export class F2PadTeamMirror {
+  constructor() {
+    this.hasTeam = false;
+    this.team = NaN;
+  }
+}
+
+export function syncF2PadTeam(b, f, at, h, m) {
+  m.hasTeam = f[at + 0] !== 0;
+  m.team = f[at + 1];
+  return m;
+}
+
+export function putF2PadTeam(b, o, f, at, heap) {
+  f[at + 0] = o.hasTeam ? 1 : 0;
+  f[at + 1] = o.team;
+}
+
+export function sameF2PadTeam(a, b) {
+  if (!Object.is(a.hasTeam, b.hasTeam)) return ".hasTeam";
+  if (!Object.is(a.team, b.team)) return ".team";
+  return null;
+}
+
+export function exportF2PadTeam(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.hasTeam = o.hasTeam;
+  v.team = o.team;
+  return v;
+}
+
+export const F2MemberLayout = Object.freeze({ words: 11, index: 0, kind: 1, id: 2, generation: 3, alive: 4, hasTeam: 5, team: 6, hull: 7, point: 8 });
+
+export class F2MemberMirror {
+  constructor() {
+    this.index = 0;
+    this.kind = 0;
+    this.id = NaN;
+    this.generation = NaN;
+    this.alive = false;
+    this.hasTeam = false;
+    this.team = NaN;
+    this.hull = 0;
+    this.point = new THREE.Vector3();
+  }
+}
+
+export function syncF2Member(b, f, at, h, m) {
+  m.index = f[at + 0];
+  m.kind = f[at + 1];
+  m.id = f[at + 2];
+  m.generation = f[at + 3];
+  m.alive = f[at + 4] !== 0;
+  m.hasTeam = f[at + 5] !== 0;
+  m.team = f[at + 6];
+  m.hull = f[at + 7];
+  (m.point ??= new THREE.Vector3()).set(f[at + 8], f[at + 9], f[at + 10]);
+  return m;
+}
+
+export function putF2Member(b, o, f, at, heap) {
+  f[at + 0] = o.index;
+  f[at + 1] = o.kind;
+  f[at + 2] = o.id;
+  f[at + 3] = o.generation;
+  f[at + 4] = o.alive ? 1 : 0;
+  f[at + 5] = o.hasTeam ? 1 : 0;
+  f[at + 6] = o.team;
+  f[at + 7] = o.hull;
+  { const $v = o.point; f[at + 8] = $v.x; f[at + 9] = $v.y; f[at + 10] = $v.z; }
+}
+
+export function sameF2Member(a, b) {
+  if (!Object.is(a.index, b.index)) return ".index";
+  if (!Object.is(a.kind, b.kind)) return ".kind";
+  if (!Object.is(a.id, b.id)) return ".id";
+  if (!Object.is(a.generation, b.generation)) return ".generation";
+  if (!Object.is(a.alive, b.alive)) return ".alive";
+  if (!Object.is(a.hasTeam, b.hasTeam)) return ".hasTeam";
+  if (!Object.is(a.team, b.team)) return ".team";
+  if (!Object.is(a.hull, b.hull)) return ".hull";
+  if (!sameVec(a.point, b.point)) return ".point";
+  return null;
+}
+
+export function exportF2Member(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.index = o.index;
+  v.kind = o.kind;
+  v.id = o.id;
+  v.generation = o.generation;
+  v.alive = o.alive;
+  v.hasTeam = o.hasTeam;
+  v.team = o.team;
+  v.hull = o.hull;
+  v.point = o.point.clone();
+  return v;
+}
+
+export class F2FlightKeysMirror {
+  constructor() {
+    this.forward = NaN;
+    this.right = NaN;
+    this.turn = NaN;
+    this.pitch = NaN;
+    this.up = NaN;
+    this.down = NaN;
+    this.takeoff = NaN;
+    this.hasX = false;
+    this.stickX = NaN;
+    this.hasY = false;
+    this.stickY = NaN;
+    this.boost = NaN;
+    this.trick = NaN;
+    this.immelmann = NaN;
+    this.rollLock = NaN;
+    this.targetLock = NaN;
+    this.bot = NaN;
+    this.responseCurve = NaN;
+    this.noAssist = false;
+  }
+}
+
+export function syncF2FlightKeys(b, f, at, h, m) {
+  m.forward = f[at + 0];
+  m.right = f[at + 1];
+  m.turn = f[at + 2];
+  m.pitch = f[at + 3];
+  m.up = f[at + 4];
+  m.down = f[at + 5];
+  m.takeoff = f[at + 6];
+  m.hasX = f[at + 7] !== 0;
+  m.stickX = f[at + 8];
+  m.hasY = f[at + 9] !== 0;
+  m.stickY = f[at + 10];
+  m.boost = f[at + 11];
+  m.trick = f[at + 12];
+  m.immelmann = f[at + 13];
+  m.rollLock = f[at + 14];
+  m.targetLock = f[at + 15];
+  m.bot = f[at + 16];
+  m.responseCurve = f[at + 17];
+  m.noAssist = f[at + 18] !== 0;
+  return m;
+}
+
+export function putF2FlightKeys(b, o, f, at, heap) {
+  f[at + 0] = o.forward;
+  f[at + 1] = o.right;
+  f[at + 2] = o.turn;
+  f[at + 3] = o.pitch;
+  f[at + 4] = o.up;
+  f[at + 5] = o.down;
+  f[at + 6] = o.takeoff;
+  f[at + 7] = o.hasX ? 1 : 0;
+  f[at + 8] = o.stickX;
+  f[at + 9] = o.hasY ? 1 : 0;
+  f[at + 10] = o.stickY;
+  f[at + 11] = o.boost;
+  f[at + 12] = o.trick;
+  f[at + 13] = o.immelmann;
+  f[at + 14] = o.rollLock;
+  f[at + 15] = o.targetLock;
+  f[at + 16] = o.bot;
+  f[at + 17] = o.responseCurve;
+  f[at + 18] = o.noAssist ? 1 : 0;
+}
+
+export function sameF2FlightKeys(a, b) {
+  if (!Object.is(a.forward, b.forward)) return ".forward";
+  if (!Object.is(a.right, b.right)) return ".right";
+  if (!Object.is(a.turn, b.turn)) return ".turn";
+  if (!Object.is(a.pitch, b.pitch)) return ".pitch";
+  if (!Object.is(a.up, b.up)) return ".up";
+  if (!Object.is(a.down, b.down)) return ".down";
+  if (!Object.is(a.takeoff, b.takeoff)) return ".takeoff";
+  if (!Object.is(a.hasX, b.hasX)) return ".hasX";
+  if (!Object.is(a.stickX, b.stickX)) return ".stickX";
+  if (!Object.is(a.hasY, b.hasY)) return ".hasY";
+  if (!Object.is(a.stickY, b.stickY)) return ".stickY";
+  if (!Object.is(a.boost, b.boost)) return ".boost";
+  if (!Object.is(a.trick, b.trick)) return ".trick";
+  if (!Object.is(a.immelmann, b.immelmann)) return ".immelmann";
+  if (!Object.is(a.rollLock, b.rollLock)) return ".rollLock";
+  if (!Object.is(a.targetLock, b.targetLock)) return ".targetLock";
+  if (!Object.is(a.bot, b.bot)) return ".bot";
+  if (!Object.is(a.responseCurve, b.responseCurve)) return ".responseCurve";
+  if (!Object.is(a.noAssist, b.noAssist)) return ".noAssist";
+  return null;
+}
+
+export function exportF2FlightKeys(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.forward = o.forward;
+  v.right = o.right;
+  v.turn = o.turn;
+  v.pitch = o.pitch;
+  v.up = o.up;
+  v.down = o.down;
+  v.takeoff = o.takeoff;
+  v.hasX = o.hasX;
+  v.stickX = o.stickX;
+  v.hasY = o.hasY;
+  v.stickY = o.stickY;
+  v.boost = o.boost;
+  v.trick = o.trick;
+  v.immelmann = o.immelmann;
+  v.rollLock = o.rollLock;
+  v.targetLock = o.targetLock;
+  v.bot = o.bot;
+  v.responseCurve = o.responseCurve;
+  v.noAssist = o.noAssist;
+  return v;
+}
+
+export const F2FlightInLayout = Object.freeze({ words: 21, hull: 0, network: 1, remote: 2 });
+
+export class F2FlightInMirror {
+  constructor() {
+    this.hull = 0;
+    this.network = false;
+    this.remote = new F2FlightKeysMirror();
+  }
+}
+
+export function syncF2FlightIn(b, f, at, h, m) {
+  m.hull = f[at + 0];
+  m.network = f[at + 1] !== 0;
+  m.remote = syncF2FlightKeys(b, f, at + 2, h, m.remote ?? new F2FlightKeysMirror());
+  return m;
+}
+
+export function putF2FlightIn(b, o, f, at, heap) {
+  f[at + 0] = o.hull;
+  f[at + 1] = o.network ? 1 : 0;
+  putF2FlightKeys(b, o.remote, f, at + 2, heap);
+}
+
+export function sameF2FlightIn(a, b) {
+  if (!Object.is(a.hull, b.hull)) return ".hull";
+  if (!Object.is(a.network, b.network)) return ".network";
+  { const d = sameF2FlightKeys(a.remote, b.remote); if (d) return ".remote" + d; }
+  return null;
+}
+
+export function exportF2FlightIn(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.hull = o.hull;
+  v.network = o.network;
+  v.remote = exportF2FlightKeys(o.remote, cx);
+  return v;
+}
+
+export const F2PhaseLayout = Object.freeze({ words: 14, input: 0, capacity: 1, hulls: 2, pads: 3, bodies: 4, poses: 5, locks: 6, acc: 7, flightAcc: 8, time: 9, tick: 10, lives: 11, seats: 12, firing: 13 });
+
+export class F2PhaseMirror {
+  constructor() {
+    this.input = 0;
+    this.capacity = 0;
+    this.hulls = 0;
+    this.pads = 0;
+    this.bodies = 0;
+    this.poses = 0;
+    this.locks = 0;
+    this.acc = NaN;
+    this.flightAcc = NaN;
+    this.time = NaN;
+    this.tick = NaN;
+    this.lives = 0;
+    this.seats = 0;
+    this.firing = 0;
+  }
+}
+
+export function syncF2Phase(b, f, at, h, m) {
+  m.input = f[at + 0];
+  m.capacity = f[at + 1];
+  m.hulls = f[at + 2];
+  m.pads = f[at + 3];
+  m.bodies = f[at + 4];
+  m.poses = f[at + 5];
+  m.locks = f[at + 6];
+  m.acc = f[at + 7];
+  m.flightAcc = f[at + 8];
+  m.time = f[at + 9];
+  m.tick = f[at + 10];
+  m.lives = f[at + 11];
+  m.seats = f[at + 12];
+  m.firing = f[at + 13];
+  return m;
+}
+
+export function putF2Phase(b, o, f, at, heap) {
+  f[at + 0] = o.input;
+  f[at + 1] = o.capacity;
+  f[at + 2] = o.hulls;
+  f[at + 3] = o.pads;
+  f[at + 4] = o.bodies;
+  f[at + 5] = o.poses;
+  f[at + 6] = o.locks;
+  f[at + 7] = o.acc;
+  f[at + 8] = o.flightAcc;
+  f[at + 9] = o.time;
+  f[at + 10] = o.tick;
+  f[at + 11] = o.lives;
+  f[at + 12] = o.seats;
+  f[at + 13] = o.firing;
+}
+
+export function sameF2Phase(a, b) {
+  if (!Object.is(a.input, b.input)) return ".input";
+  if (!Object.is(a.capacity, b.capacity)) return ".capacity";
+  if (!Object.is(a.hulls, b.hulls)) return ".hulls";
+  if (!Object.is(a.pads, b.pads)) return ".pads";
+  if (!Object.is(a.bodies, b.bodies)) return ".bodies";
+  if (!Object.is(a.poses, b.poses)) return ".poses";
+  if (!Object.is(a.locks, b.locks)) return ".locks";
+  if (!Object.is(a.acc, b.acc)) return ".acc";
+  if (!Object.is(a.flightAcc, b.flightAcc)) return ".flightAcc";
+  if (!Object.is(a.time, b.time)) return ".time";
+  if (!Object.is(a.tick, b.tick)) return ".tick";
+  if (!Object.is(a.lives, b.lives)) return ".lives";
+  if (!Object.is(a.seats, b.seats)) return ".seats";
+  if (!Object.is(a.firing, b.firing)) return ".firing";
+  return null;
+}
+
+export function exportF2Phase(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.input = o.input;
+  v.capacity = o.capacity;
+  v.hulls = o.hulls;
+  v.pads = o.pads;
+  v.bodies = o.bodies;
+  v.poses = o.poses;
+  v.locks = o.locks;
+  v.acc = o.acc;
+  v.flightAcc = o.flightAcc;
+  v.time = o.time;
+  v.tick = o.tick;
+  v.lives = o.lives;
+  v.seats = o.seats;
+  v.firing = o.firing;
+  return v;
+}
+
+export class F2AimerMirror {
+  constructor() {
+    this.yaw = NaN;
+    this.pitch = NaN;
+    this.inLimits = undefined;
+    this.onTarget = false;
+    this.facing = new THREE.Vector3();
+    this.posed = false;
+  }
+}
+
+export function syncF2Aimer(b, f, at, h, m) {
+  m.yaw = f[at + 0];
+  m.pitch = f[at + 1];
+  { const tag = f[at + 2]; if (tag === 0) { m.inLimits = f[at + 3] !== 0; } else m.inLimits = tag === 1 ? null : undefined; }
+  m.onTarget = f[at + 4] !== 0;
+  (m.facing ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  m.posed = f[at + 8] !== 0;
+  return m;
+}
+
+export function putF2Aimer(b, o, f, at, heap) {
+  f[at + 0] = o.yaw;
+  f[at + 1] = o.pitch;
+  { const $x = o.inLimits; if ($x === null || $x === undefined) { f[at + 2] = $x === null ? 1 : 2; f[at + 3] = 0; } else { f[at + 2] = 0; f[at + 3] = $x ? 1 : 0; } }
+  f[at + 4] = o.onTarget ? 1 : 0;
+  { const $v = o.facing; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
+  f[at + 8] = o.posed ? 1 : 0;
+}
+
+export function sameF2Aimer(a, b) {
+  if (!Object.is(a.yaw, b.yaw)) return ".yaw";
+  if (!Object.is(a.pitch, b.pitch)) return ".pitch";
+  { const p = a.inLimits, q = b.inLimits; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".inLimits"; } else { if (!Object.is(p, q)) return ".inLimits"; } }
+  if (!Object.is(a.onTarget, b.onTarget)) return ".onTarget";
+  if (!sameVec(a.facing, b.facing)) return ".facing";
+  if (!Object.is(a.posed, b.posed)) return ".posed";
+  return null;
+}
+
+export function exportF2Aimer(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.yaw = o.yaw;
+  v.pitch = o.pitch;
+  v.inLimits = o.inLimits;
+  v.onTarget = o.onTarget;
+  v.facing = o.facing.clone();
+  v.posed = o.posed;
+  return v;
+}
+
+export class F2PoseSeatMirror {
+  constructor() {
+    this.lastYaw = null;
+    this.yawRate = NaN;
+    this.hasTarget = false;
+    this.target = new THREE.Vector3();
+    this.aimers = [];
+    this.eye = new THREE.Vector3();
+    this.forward = new THREE.Vector3();
+    this.frame = new THREE.Matrix4();
+  }
+}
+
+export function syncF2PoseSeat(b, f, at, h, m) {
+  { const tag = f[at + 0]; if (tag === 0) { m.lastYaw = f[at + 1]; } else m.lastYaw = tag === 1 ? null : undefined; }
+  m.yawRate = f[at + 2];
+  m.hasTarget = f[at + 3] !== 0;
+  (m.target ??= new THREE.Vector3()).set(f[at + 4], f[at + 5], f[at + 6]);
+  { const items = (m.aimers ??= []), start = h + f[at + 7], n = f[at + 8]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 9; v = syncF2Aimer(b, f, at + 0, h, v ?? new F2AimerMirror()); } items[i] = v; } }
+  (m.eye ??= new THREE.Vector3()).set(f[at + 9], f[at + 10], f[at + 11]);
+  (m.forward ??= new THREE.Vector3()).set(f[at + 12], f[at + 13], f[at + 14]);
+  { const e = (m.frame ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 15 + i]; }
+  return m;
+}
+
+export function putF2PoseSeat(b, o, f, at, heap) {
+  { const $x = o.lastYaw; if ($x === null || $x === undefined) { f[at + 0] = $x === null ? 1 : 2; f[at + 1] = 0; } else { f[at + 0] = 0; f[at + 1] = $x; } }
+  f[at + 2] = o.yawRate;
+  f[at + 3] = o.hasTarget ? 1 : 0;
+  { const $v = o.target; f[at + 4] = $v.x; f[at + 5] = $v.y; f[at + 6] = $v.z; }
+  heap.items(o.aimers, f, at + 7, 9, (f, at, v) => { putF2Aimer(b, v, f, at + 0, heap); });
+  { const $v = o.eye; f[at + 9] = $v.x; f[at + 10] = $v.y; f[at + 11] = $v.z; }
+  { const $v = o.forward; f[at + 12] = $v.x; f[at + 13] = $v.y; f[at + 14] = $v.z; }
+  { const e = o.frame.elements; for (let i = 0; i < 16; i++) f[at + 15 + i] = e[i]; }
+}
+
+export function sameF2PoseSeat(a, b) {
+  { const p = a.lastYaw, q = b.lastYaw; if (p === null || p === undefined || q === null || q === undefined) { if (p !== q) return ".lastYaw"; } else { if (!Object.is(p, q)) return ".lastYaw"; } }
+  if (!Object.is(a.yawRate, b.yawRate)) return ".yawRate";
+  if (!Object.is(a.hasTarget, b.hasTarget)) return ".hasTarget";
+  if (!sameVec(a.target, b.target)) return ".target";
+  if (!sameEach(a.aimers, b.aimers, (x, y) => sameF2Aimer(x, y) === null)) return ".aimers";
+  if (!sameVec(a.eye, b.eye)) return ".eye";
+  if (!sameVec(a.forward, b.forward)) return ".forward";
+  if (!sameArray(a.frame?.elements, b.frame?.elements, 16)) return ".frame";
+  return null;
+}
+
+export function exportF2PoseSeat(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.lastYaw = o.lastYaw;
+  v.yawRate = o.yawRate;
+  v.hasTarget = o.hasTarget;
+  v.target = o.target.clone();
+  v.aimers = o.aimers.map((x) => exportF2Aimer(x, cx));
+  v.eye = o.eye.clone();
+  v.forward = o.forward.clone();
+  v.frame = o.frame.clone();
+  return v;
+}
+
+export class F2PoseMirror {
+  constructor() {
+    this.hull = null;
+    this.age = NaN;
+    this.walkPhase = NaN;
+    this.walkBlend = NaN;
+    this.visual = new THREE.Vector3();
+    this.rootQ = new THREE.Quaternion();
+    this.rootEuler = new THREE.Vector3();
+    this.seats = [];
+  }
+}
+
+export function syncF2Pose(b, f, at, h, m) {
+  m.hull = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]);
+  m.age = f[at + 2];
+  m.walkPhase = f[at + 3];
+  m.walkBlend = f[at + 4];
+  (m.visual ??= new THREE.Vector3()).set(f[at + 5], f[at + 6], f[at + 7]);
+  (m.rootQ ??= new THREE.Quaternion()).set(f[at + 8], f[at + 9], f[at + 10], f[at + 11]);
+  (m.rootEuler ??= new THREE.Vector3()).set(f[at + 12], f[at + 13], f[at + 14]);
+  { const items = (m.seats ??= []), start = h + f[at + 15], n = f[at + 16]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 31; v = syncF2PoseSeat(b, f, at + 0, h, v ?? new F2PoseSeatMirror()); } items[i] = v; } }
+  return m;
+}
+
+export function putF2Pose(b, o, f, at, heap) {
+  b.refs[KIND_VEHICLE].put(o.hull, f, at + 0);
+  f[at + 2] = o.age;
+  f[at + 3] = o.walkPhase;
+  f[at + 4] = o.walkBlend;
+  { const $v = o.visual; f[at + 5] = $v.x; f[at + 6] = $v.y; f[at + 7] = $v.z; }
+  { const $v = o.rootQ; f[at + 8] = $v.x; f[at + 9] = $v.y; f[at + 10] = $v.z; f[at + 11] = $v.w; }
+  { const $v = o.rootEuler; f[at + 12] = $v.x; f[at + 13] = $v.y; f[at + 14] = $v.z; }
+  heap.items(o.seats, f, at + 15, 31, (f, at, v) => { putF2PoseSeat(b, v, f, at + 0, heap); });
+}
+
+export function sameF2Pose(a, b) {
+  if (!Object.is(a.hull, b.hull)) return ".hull";
+  if (!Object.is(a.age, b.age)) return ".age";
+  if (!Object.is(a.walkPhase, b.walkPhase)) return ".walkPhase";
+  if (!Object.is(a.walkBlend, b.walkBlend)) return ".walkBlend";
+  if (!sameVec(a.visual, b.visual)) return ".visual";
+  if (!sameQuat(a.rootQ, b.rootQ)) return ".rootQ";
+  if (!sameVec(a.rootEuler, b.rootEuler)) return ".rootEuler";
+  if (!sameEach(a.seats, b.seats, (x, y) => sameF2PoseSeat(x, y) === null)) return ".seats";
+  return null;
+}
+
+export function exportF2Pose(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.hull = cx.ref("vehicle", o.hull);
+  v.age = o.age;
+  v.walkPhase = o.walkPhase;
+  v.walkBlend = o.walkBlend;
+  v.visual = o.visual.clone();
+  v.rootQ = o.rootQ.clone();
+  v.rootEuler = o.rootEuler.clone();
+  v.seats = o.seats.map((x) => exportF2PoseSeat(x, cx));
+  return v;
+}
+
 export class F2SeatHeaderMirror {
   constructor() {
     this.units = 0;
@@ -670,55 +1367,10 @@ export function exportF2Bodies(o, cx) {
   return v;
 }
 
-export class F2HullNodeMirror {
-  constructor() {
-    this.hull = null;
-    this.node = 0;
-    this.matrix = new THREE.Matrix4();
-    this.world = new THREE.Matrix4();
-  }
-}
-
-export function syncF2HullNode(b, f, at, h, m) {
-  m.hull = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]);
-  m.node = f[at + 2];
-  { const e = (m.matrix ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 3 + i]; }
-  { const e = (m.world ??= new THREE.Matrix4()).elements; for (let i = 0; i < 16; i++) e[i] = f[at + 19 + i]; }
-  return m;
-}
-
-export function putF2HullNode(b, o, f, at, heap) {
-  b.refs[KIND_VEHICLE].put(o.hull, f, at + 0);
-  f[at + 2] = o.node;
-  { const e = o.matrix.elements; for (let i = 0; i < 16; i++) f[at + 3 + i] = e[i]; }
-  { const e = o.world.elements; for (let i = 0; i < 16; i++) f[at + 19 + i] = e[i]; }
-}
-
-export function sameF2HullNode(a, b) {
-  if (!Object.is(a.hull, b.hull)) return ".hull";
-  if (!Object.is(a.node, b.node)) return ".node";
-  if (!sameArray(a.matrix?.elements, b.matrix?.elements, 16)) return ".matrix";
-  if (!sameArray(a.world?.elements, b.world?.elements, 16)) return ".world";
-  return null;
-}
-
-export function exportF2HullNode(o, cx) {
-  let v = cx.seen.get(o);
-  if (v) return v;
-  v = {};
-  cx.seen.set(o, v);
-  v.hull = cx.ref("vehicle", o.hull);
-  v.node = o.node;
-  v.matrix = o.matrix.clone();
-  v.world = o.world.clone();
-  return v;
-}
-
 export class F2SeatIoMirror {
   constructor() {
     this.emitterMask = 0;
     this.ordnance = 0;
-    this.nodes = 0;
     this.words = 0;
     this.input = 0;
     this.capacity = 0;
@@ -742,54 +1394,51 @@ export class F2SeatIoMirror {
 export function syncF2SeatIo(b, f, at, h, m) {
   m.emitterMask = f[at + 0];
   m.ordnance = f[at + 1];
-  m.nodes = f[at + 2];
-  m.words = f[at + 3];
-  m.input = f[at + 4];
-  m.capacity = f[at + 5];
-  m.headerWords = f[at + 6];
-  m.unitWords = f[at + 7];
-  m.controlWords = f[at + 8];
-  m.lookWords = f[at + 9];
-  m.leases = f[at + 10];
-  m.units = f[at + 11];
-  m.controls = f[at + 12];
-  m.effects = f[at + 13];
-  m.turrets = f[at + 14];
-  m.events = f[at + 15];
-  m.riders = f[at + 16];
-  m.ticks = f[at + 17];
-  m.turretTicks = f[at + 18];
-  m.turretTime = f[at + 19];
+  m.words = f[at + 2];
+  m.input = f[at + 3];
+  m.capacity = f[at + 4];
+  m.headerWords = f[at + 5];
+  m.unitWords = f[at + 6];
+  m.controlWords = f[at + 7];
+  m.lookWords = f[at + 8];
+  m.leases = f[at + 9];
+  m.units = f[at + 10];
+  m.controls = f[at + 11];
+  m.effects = f[at + 12];
+  m.turrets = f[at + 13];
+  m.events = f[at + 14];
+  m.riders = f[at + 15];
+  m.ticks = f[at + 16];
+  m.turretTicks = f[at + 17];
+  m.turretTime = f[at + 18];
   return m;
 }
 
 export function putF2SeatIo(b, o, f, at, heap) {
   f[at + 0] = o.emitterMask;
   f[at + 1] = o.ordnance;
-  f[at + 2] = o.nodes;
-  f[at + 3] = o.words;
-  f[at + 4] = o.input;
-  f[at + 5] = o.capacity;
-  f[at + 6] = o.headerWords;
-  f[at + 7] = o.unitWords;
-  f[at + 8] = o.controlWords;
-  f[at + 9] = o.lookWords;
-  f[at + 10] = o.leases;
-  f[at + 11] = o.units;
-  f[at + 12] = o.controls;
-  f[at + 13] = o.effects;
-  f[at + 14] = o.turrets;
-  f[at + 15] = o.events;
-  f[at + 16] = o.riders;
-  f[at + 17] = o.ticks;
-  f[at + 18] = o.turretTicks;
-  f[at + 19] = o.turretTime;
+  f[at + 2] = o.words;
+  f[at + 3] = o.input;
+  f[at + 4] = o.capacity;
+  f[at + 5] = o.headerWords;
+  f[at + 6] = o.unitWords;
+  f[at + 7] = o.controlWords;
+  f[at + 8] = o.lookWords;
+  f[at + 9] = o.leases;
+  f[at + 10] = o.units;
+  f[at + 11] = o.controls;
+  f[at + 12] = o.effects;
+  f[at + 13] = o.turrets;
+  f[at + 14] = o.events;
+  f[at + 15] = o.riders;
+  f[at + 16] = o.ticks;
+  f[at + 17] = o.turretTicks;
+  f[at + 18] = o.turretTime;
 }
 
 export function sameF2SeatIo(a, b) {
   if (!Object.is(a.emitterMask, b.emitterMask)) return ".emitterMask";
   if (!Object.is(a.ordnance, b.ordnance)) return ".ordnance";
-  if (!Object.is(a.nodes, b.nodes)) return ".nodes";
   if (!Object.is(a.words, b.words)) return ".words";
   if (!Object.is(a.input, b.input)) return ".input";
   if (!Object.is(a.capacity, b.capacity)) return ".capacity";
@@ -817,7 +1466,6 @@ export function exportF2SeatIo(o, cx) {
   cx.seen.set(o, v);
   v.emitterMask = o.emitterMask;
   v.ordnance = o.ordnance;
-  v.nodes = o.nodes;
   v.words = o.words;
   v.input = o.input;
   v.capacity = o.capacity;

@@ -749,10 +749,12 @@ export class Vehicle {
   // EyePointOffset in the seat's frame. What the seat sees and aims from.
   seatOrigin(i, out) { return this.seatEye(this.seats[i] ? i : 0, out); }
   seatEye(i, out, presented = false) {
+    if (this.system.f2 && !presented) return out.copy(this.f2Pose.seats[i].eye);
     return out.copy(this.seats[i].view.eye).applyMatrix4(this.seatFrame(i, this.frameScratch.frame, presented));
   }
   // A seat's aim direction.
   seatForward(i, out) {
+    if (this.system.f2) return out.copy(this.f2Pose.seats[this.seats[i] ? i : 0].forward);
     if (this.flying && i === 0) return out.set(0, 0, 1).applyQuaternion(this.quaternion);
     const seat = this.seats[i] || this.seats[0];
     return out.set(Math.sin(seat.aimYaw) * Math.cos(seat.pitch), Math.sin(seat.pitch), Math.cos(seat.aimYaw) * Math.cos(seat.pitch));
@@ -764,6 +766,7 @@ export class Vehicle {
   // along the seat's aim, its up the node's. presented: as drawn between
   // ticks; else at the tick.
   seatFrame(i, out, presented = false) {
+    if (this.system.f2 && !presented) return out.copy(this.f2Pose.seats[i].frame);
     if (this.flying && i === 0) return out.compose(presented ? this.root.position : this.position, presented ? this.root.quaternion : this.quaternion, UNIT_SCALE);
     const s = this.frameScratch;
     const yaw = presented ? this.root.rotation.y : this.yaw;

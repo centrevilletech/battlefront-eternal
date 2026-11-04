@@ -328,6 +328,7 @@ pub extern "C" fn veh_pull(slot: u32, generation: f64, count: u32) -> u32 {
     };
     let Some((mut pose, turn_rates)) = made else { return 0 };
     let ok = posing::pull(&mut pose, &input()[..count as usize]);
+    if f2::active() { pose.rig.tree.update_matrix_world(pose.rig.root, true); }
     all[slot as usize] = Some(Posed { generation: if ok { generation } else { f64::NAN }, pose, turn_rates });
     ok as u32
 }
@@ -644,7 +645,7 @@ fn store(hull: &Hull) {
     let s = sim();
     let v = s.store.vehicle.get_mut(hull.id).expect("a hull the store holds");
     hull.to_store(v, &mut s.strings);
-    if f2::active() { f2::mark(hull.id); }
+    if f2::active() { f2::stored(hull); }
 }
 
 /// What seat 0's bot (a lease that is not a person's) holds as the tick
@@ -664,6 +665,8 @@ fn input_of(hull: &Hull) -> Input {
 /// (aimTick, then render where `cosmetic`, as Vehicles.update poses every
 /// hull), at the tick's alpha. Returns what is left over. `level`: the
 /// water's level this phase (`water.level`), for a map with water;
+static mut AIM_WANTED: Vec<f64> = Vec::new();
+static mut POLYGON_SPARES: Vec<Polygon> = Vec::new();
 static mut PHASE_REFS: Vec<Ref<Vehicle>> = Vec::new();
 static mut PHASE_MINE: Vec<(usize, Ref<Vehicle>)> = Vec::new();
 static mut PHASE_POSED: Vec<bool> = Vec::new();
@@ -824,7 +827,7 @@ pub extern "C" fn veh_ground(dt: f64, acc: f64, flight_acc: f64, level: f64, clo
             continue;
         }
         out.push(r.slot as f64); let length = out.len(); out.push(0.0); let start = out.len();
-        posing::out(&mut poses()[r.slot as usize].as_mut().expect("the hull's pose").pose, out);
+        if f2::active() { f2::mark(r); } else { posing::out(&mut poses()[r.slot as usize].as_mut().expect("the hull's pose").pose, out); }
         out[length] = (out.len() - start) as f64;
         count += 1;
     }
@@ -913,9 +916,19 @@ impl VehicleWorld for JsWorld {
                 return;
             }
         }
-        let r = import_veh_spring_polygons(&VehSpring { hull: hull as f64, index: index as f64, center: v3(center), radius });
-        out.clear();
-        out.extend(r.polygons.iter().map(|p| Polygon { id: p.id, moving: p.moving, triangles: p.triangles.iter().map(|t| [vec(&t.a), vec(&t.b), vec(&t.c)]).collect() }));
+        import_veh_spring_polygons_read(&VehSpring { hull: hull as f64, index: index as f64, center: v3(center), radius }, |row, heap| {
+            let polygons = VehPolygons::polygons_rows(row, heap);
+            let spare = unsafe { &mut *addr_of_mut!(POLYGON_SPARES) };
+            while out.len() > polygons.len() { spare.push(out.pop().unwrap()); }
+            for (i, words) in polygons.enumerate() {
+                if i == out.len() { out.push(spare.pop().unwrap_or_default()); }
+                let p = &mut out[i]; p.id = words[VehPolygon::ID]; p.moving = words[VehPolygon::MOVING] != 0.0;
+                p.triangles.clear();
+                for t in VehPolygon::triangles_rows(words, heap) {
+                    let t = VehTriangle::take(t, heap); p.triangles.push([vec(&t.a), vec(&t.b), vec(&t.c)]);
+                }
+            }
+        });
     }
 
     fn move_body(&mut self, body: BodyId, matrix: &Matrix4) {
@@ -1110,15 +1123,16 @@ impl FlightWorld for JsWorld {
     fn prefetch_aim_points(&mut self, members: &[usize]) {
         let rows = unsafe { &*addr_of_mut!(MEMBERS) };
         let cache = unsafe { &*addr_of_mut!(AIM_CACHE) };
-        let wanted: Vec<f64> = members.iter().copied().filter(|&i| rows[i].kind == MEMBER_UNIT && cache[i].is_none()).map(|i| i as f64).collect();
-        if wanted.is_empty() {
-            return;
+        let mut args = VehMembers { indices: unsafe { std::mem::take(&mut *addr_of_mut!(AIM_WANTED)) } };
+        args.indices.clear();
+        args.indices.extend(members.iter().copied().filter(|&i| rows[i].kind == MEMBER_UNIT && cache[i].is_none()).map(|i| i as f64));
+        if !args.indices.is_empty() {
+            import_veh_aim_points_read(&args, |row, heap| {
+                let cache = unsafe { &mut *addr_of_mut!(AIM_CACHE) };
+                for (&i, point) in args.indices.iter().zip(VehPoints::points_rows(row, heap)) { cache[i as usize] = Some(Vector3::new(point[0], point[1], point[2])); }
+            });
         }
-        let points = import_veh_aim_points(&VehMembers { indices: wanted.clone() }).points;
-        let cache = unsafe { &mut *addr_of_mut!(AIM_CACHE) };
-        for (k, &i) in wanted.iter().enumerate() {
-            cache[i as usize] = Some(vec(&points[k]));
-        }
+        unsafe { *addr_of_mut!(AIM_WANTED) = args.indices; }
     }
 
     fn body_is_hull(&mut self, body: BodyId) -> bool {

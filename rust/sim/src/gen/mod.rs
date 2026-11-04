@@ -3522,6 +3522,14 @@ pub fn import_veh_aim_points(args: &VehMembers) -> VehPoints {
     crate::store::calls::import_in(|row, heap| VehPoints::take(row, heap))
 }
 
+/// Read a variable result into retained caller storage.
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_aim_points_read<T>(args: &VehMembers, read: impl FnOnce(&[f64], &[f64]) -> T) -> T {
+    crate::store::calls::import_out(VehMembers::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_aim_points() };
+    crate::store::calls::import_in(read)
+}
+
 /// Calls the explicitly owned native host; no context borrow spans dispatch.
 #[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]
 pub fn import_veh_aim_points_in(context: &crate::abi::context::Context, args: &VehMembers) -> Result<VehPoints, crate::abi::context::Failure> {
@@ -3835,6 +3843,14 @@ pub fn import_veh_spring_polygons(args: &VehSpring) -> VehPolygons {
     crate::store::calls::import_out(VehSpring::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_veh_spring_polygons() };
     crate::store::calls::import_in(|row, heap| VehPolygons::take(row, heap))
+}
+
+/// Read a variable result into retained caller storage.
+#[cfg(target_arch = "wasm32")]
+pub fn import_veh_spring_polygons_read<T>(args: &VehSpring, read: impl FnOnce(&[f64], &[f64]) -> T) -> T {
+    crate::store::calls::import_out(VehSpring::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_veh_spring_polygons() };
+    crate::store::calls::import_in(read)
 }
 
 /// Calls the explicitly owned native host; no context borrow spans dispatch.

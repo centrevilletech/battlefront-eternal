@@ -573,6 +573,8 @@ export function exportVehSpring(o, cx) {
   return v;
 }
 
+export const VehTriangleLayout = Object.freeze({ words: 9, a: 0, b: 3, c: 6 });
+
 export class VehTriangleMirror {
   constructor() {
     this.a = new THREE.Vector3();
@@ -612,6 +614,8 @@ export function exportVehTriangle(o, cx) {
   return v;
 }
 
+export const VehPolygonLayout = Object.freeze({ words: 4, id: 0, moving: 1, triangles: 2, trianglesLength: 3 });
+
 export class VehPolygonMirror {
   constructor() {
     this.id = NaN;
@@ -650,6 +654,8 @@ export function exportVehPolygon(o, cx) {
   v.triangles = o.triangles.map((x) => exportVehTriangle(x, cx));
   return v;
 }
+
+export const VehPolygonsLayout = Object.freeze({ words: 2, polygons: 0, polygonsLength: 1 });
 
 export class VehPolygonsMirror {
   constructor() {
@@ -1033,6 +1039,8 @@ export function exportVehMembers(o, cx) {
   v.indices = o.indices.map((x) => x);
   return v;
 }
+
+export const VehPointsLayout = Object.freeze({ words: 2, points: 0, pointsLength: 1 });
 
 export class VehPointsMirror {
   constructor() {

@@ -408,6 +408,9 @@ pub struct VehTriangle {
 
 impl VehTriangle {
     pub const WORDS: usize = 9;
+    pub const A: usize = 0;
+    pub const B: usize = 3;
+    pub const C: usize = 6;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
@@ -436,6 +439,10 @@ pub struct VehPolygon {
 
 impl VehPolygon {
     pub const WORDS: usize = 4;
+    pub const ID: usize = 0;
+    pub const MOVING: usize = 1;
+    pub const TRIANGLES: usize = 2;
+    pub fn triangles_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[2] as usize; let length = row[3] as usize; heap[start..start + length * 9].chunks_exact(9) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
@@ -462,6 +469,8 @@ pub struct VehPolygons {
 
 impl VehPolygons {
     pub const WORDS: usize = 2;
+    pub const POLYGONS: usize = 0;
+    pub fn polygons_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[0] as usize; let length = row[1] as usize; heap[start..start + length * 4].chunks_exact(4) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
@@ -745,6 +754,8 @@ pub struct VehPoints {
 
 impl VehPoints {
     pub const WORDS: usize = 2;
+    pub const POINTS: usize = 0;
+    pub fn points_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[0] as usize; let length = row[1] as usize; heap[start..start + length * 3].chunks_exact(3) }
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
         let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();

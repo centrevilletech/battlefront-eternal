@@ -85,25 +85,58 @@ impl FfSupply {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct FfSeatInput {
-    pub aiming: bool,
-    pub aim: Vec3,
+pub struct FfInputs {
+    pub count: u32,
 }
 
-impl FfSeatInput {
-    pub const WORDS: usize = 4;
+impl FfInputs {
+    pub const WORDS: usize = 1;
+    pub const COUNT: usize = 0;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
-        row[0] = if self.aiming { 1.0 } else { 0.0 };
-        row[1..1 + 3].copy_from_slice(&self.aim);
+        let row: &mut [f64; 1] = (&mut row[..1]).try_into().unwrap();
+        row[0] = self.count as f64;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        let row: &[f64; 1] = (&row[..1]).try_into().unwrap();
         Self {
-            aiming: row[0] != 0.0,
-            aim: [row[1], row[1 + 1], row[1 + 2]],
+            count: word_u32(row[0]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FfWeaponChange {
+    pub hull: Ref<Vehicle>,
+    pub seat: u32,
+    pub weapon: u32,
+    pub input: FfWeaponInput,
+}
+
+impl FfWeaponChange {
+    pub const WORDS: usize = 12;
+    pub const HULL: usize = 0;
+    pub const SEAT: usize = 2;
+    pub const WEAPON: usize = 3;
+    pub const INPUT: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 12] = (&mut row[..12]).try_into().unwrap();
+        row[0] = self.hull.slot as f64; row[0 + 1] = self.hull.gen as f64;
+        row[2] = self.seat as f64;
+        row[3] = self.weapon as f64;
+        self.input.put(&mut row[4..], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 12] = (&row[..12]).try_into().unwrap();
+        Self {
+            hull: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
+            seat: word_u32(row[2]),
+            weapon: word_u32(row[3]),
+            input: FfWeaponInput::take(&row[4..], heap),
         }
     }
 
@@ -112,9 +145,6 @@ impl FfSeatInput {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FfWeaponInput {
     pub channel: f64,
-    pub pressed: bool,
-    pub held: bool,
-    pub reload: bool,
     pub target: i32,
     pub has_random: bool,
     pub floor: f64,
@@ -124,35 +154,36 @@ pub struct FfWeaponInput {
 }
 
 impl FfWeaponInput {
-    pub const WORDS: usize = 11;
+    pub const WORDS: usize = 8;
+    pub const CHANNEL: usize = 0;
+    pub const TARGET: usize = 1;
+    pub const HAS_RANDOM: usize = 2;
+    pub const FLOOR: usize = 3;
+    pub const SPREAD_SCALE: usize = 4;
+    pub const SNIPER_SCALE: usize = 5;
+    pub const YAW_SPREAD_OVERRIDE: usize = 6;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 11] = (&mut row[..11]).try_into().unwrap();
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
         row[0] = self.channel;
-        row[1] = if self.pressed { 1.0 } else { 0.0 };
-        row[2] = if self.held { 1.0 } else { 0.0 };
-        row[3] = if self.reload { 1.0 } else { 0.0 };
-        row[4] = self.target as f64;
-        row[5] = if self.has_random { 1.0 } else { 0.0 };
-        row[6] = self.floor;
-        row[7] = self.spread_scale;
-        row[8] = self.sniper_scale;
-        match &self.yaw_spread_override { Some(v) => { row[9] = 0.0; row[9 + 1] = (*v); } None => { row[9] = 1.0; row[9 + 1..9 + 2].fill(0.0); } }
+        row[1] = self.target as f64;
+        row[2] = if self.has_random { 1.0 } else { 0.0 };
+        row[3] = self.floor;
+        row[4] = self.spread_scale;
+        row[5] = self.sniper_scale;
+        match &self.yaw_spread_override { Some(v) => { row[6] = 0.0; row[6 + 1] = (*v); } None => { row[6] = 1.0; row[6 + 1..6 + 2].fill(0.0); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 11] = (&row[..11]).try_into().unwrap();
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
         Self {
             channel: row[0],
-            pressed: row[1] != 0.0,
-            held: row[2] != 0.0,
-            reload: row[3] != 0.0,
-            target: word_i32(row[4]),
-            has_random: row[5] != 0.0,
-            floor: row[6],
-            spread_scale: row[7],
-            sniper_scale: row[8],
-            yaw_spread_override: if row[9] == 0.0 { Some(row[9 + 1]) } else { None },
+            target: word_i32(row[1]),
+            has_random: row[2] != 0.0,
+            floor: row[3],
+            spread_scale: row[4],
+            sniper_scale: row[5],
+            yaw_spread_override: if row[6] == 0.0 { Some(row[6 + 1]) } else { None },
         }
     }
 

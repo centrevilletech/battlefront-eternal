@@ -218,7 +218,7 @@ export function buildModel(files) {
       const where = `${file} import ${name}`;
       if (model.imports.has(name)) fail(where, 'declared twice');
       if (!spec || typeof spec.args !== 'string') fail(where, 'an import is { args: Record, result: Record or null }');
-      model.imports.set(name, { name, file, args: spec.args, result: spec.result ?? null, where });
+      model.imports.set(name, { name, file, args: spec.args, result: spec.result ?? null, borrow: spec.borrow === true, where });
     }
     for (const [name, values] of Object.entries(schema.enums || {})) {
       const where = `${file} enum ${name}`;
@@ -250,8 +250,8 @@ export function buildModel(files) {
       claim(name, where);
       // `$class`: the JavaScript class its objects are (a union of records
       // tells them apart by it); every other key is a field.
-      const { $class = null, ...plain } = fields;
-      model.records.set(name, { name, file, classes: [$class ?? []].flat(), fields: Object.entries(plain).map(([f, spec]) => parseField(f, spec, `${where}.${f}`)) });
+      const { $class = null, $layout = false, ...plain } = fields;
+      model.records.set(name, { name, file, layout: $layout, classes: [$class ?? []].flat(), fields: Object.entries(plain).map(([f, spec]) => parseField(f, spec, `${where}.${f}`)) });
     }
     for (const [name, spec] of Object.entries(schema.kinds || {})) {
       const where = `${file} kind ${name}`;
@@ -590,7 +590,7 @@ const sameLayout = (a, b) => a.stride === b.stride && a.fields.length === b.fiel
 function rustRecord(model, rec) {
   let at = 0;
   const placed = rec.fields.map((f) => { const p = { field: f, at }; at += words(model, f.type); return p; });
-  return [...rustStruct(model, rec.name, rec.fields), `impl ${rec.name} {`, `    pub const WORDS: usize = ${at};`, '', ...rustRows(model, placed, at, 'put', 'take', false), '}', ''];
+  return [...rustStruct(model, rec.name, rec.fields), `impl ${rec.name} {`, `    pub const WORDS: usize = ${at};`, ...(rec.layout ? placed.map(p => `    pub const ${upper(p.field.name)}: usize = ${p.at};`) : []), ...(rec.layout ? placed.filter(p => p.field.type.base === 'list').map(p => `    pub fn ${snake(p.field.name)}_rows<'a>(row: &[f64], heap: &'a [f64]) -> std::slice::ChunksExact<'a, f64> { let start = row[${p.at}] as usize; let length = row[${p.at + 1}] as usize; heap[start..start + length * ${words(model, p.field.type.value)}].chunks_exact(${words(model, p.field.type.value)}) }`) : []), '', ...rustRows(model, placed, at, 'put', 'take', false), '}', ''];
 }
 
 function rustEnum(e) {
@@ -795,6 +795,9 @@ function rustCalls(model) {
       lines.push(`/// Asks JavaScript (the import ${c.name}): its arguments go out in the import block,`, '/// its result comes back there (store::calls). The module only (a native build serves', '/// its boundary from elsewhere: the replay harness, or Rust).', '#[cfg(target_arch = "wasm32")]', `pub fn import_${fn}(args: &${c.args}) -> ${c.result ?? '()'} {`, `    crate::store::calls::import_out(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    unsafe { bfe_import_${fn}() };`);
       if (c.result) lines.push(`    crate::store::calls::import_in(|row, heap| ${c.result}::take(row, heap))`);
       lines.push('}', '');
+      if (c.borrow && c.result) {
+        lines.push('/// Read a variable result into retained caller storage.', '#[cfg(target_arch = "wasm32")]', `pub fn import_${fn}_read<T>(args: &${c.args}, read: impl FnOnce(&[f64], &[f64]) -> T) -> T {`, `    crate::store::calls::import_out(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    unsafe { bfe_import_${fn}() };`, '    crate::store::calls::import_in(read)', '}', '');
+      }
       if (!model.target.test) {
         lines.push('/// Calls the explicitly owned native host; no context borrow spans dispatch.', '#[cfg(all(not(target_arch = "wasm32"), panic = "unwind"))]', `pub fn import_${fn}_in(context: &crate::abi::context::Context, args: &${c.args}) -> Result<${c.result ?? '()'}, crate::abi::context::Failure> {`, `    let args = crate::abi::context::Record::new(${c.args}::WORDS, |row, heap| args.put(row, heap));`, `    let reply = context.call_import(IMPORT_${upper(c.name)}, args)?;`);
         lines.push(c.result ? `    Ok(reply.read(${c.result}::take))` : '    Ok(())');
@@ -1284,6 +1287,7 @@ function jsRecord(model, rec) {
   let at = 0;
   const placed = rec.fields.map((f) => { const p = { field: f, at }; at += words(model, f.type); return p; });
   return [
+    ...(rec.layout ? [`export const ${rec.name}Layout = Object.freeze({ words: ${at}, ${placed.flatMap(p => p.field.type.base === 'list' ? [`${p.field.name}: ${p.at}`, `${p.field.name}Length: ${p.at + 1}`] : [`${p.field.name}: ${p.at}`]).join(', ')} });`, ''] : []),
     ...jsMirror(model, `${rec.name}Mirror`, rec.fields, false),
     ...jsSyncFn(model, `sync${rec.name}`, placed),
     ...jsPutFn(model, `put${rec.name}`, placed),

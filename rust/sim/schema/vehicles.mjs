@@ -83,9 +83,9 @@ export default {
     VehColumn: { x: 'f64', z: 'f64', top: 'f64' },
     VehGround: { found: 'bool', height: 'f64', normal: 'vec3' },
     VehSpring: { hull: 'f64', index: 'f64', center: 'vec3', radius: 'f64' },
-    VehTriangle: { a: 'vec3', b: 'vec3', c: 'vec3' },
-    VehPolygon: { id: 'f64', moving: 'bool', triangles: 'list:rec:VehTriangle' },
-    VehPolygons: { polygons: 'list:rec:VehPolygon' },
+    VehTriangle: { $layout: true, a: 'vec3', b: 'vec3', c: 'vec3' },
+    VehPolygon: { $layout: true, id: 'f64', moving: 'bool', triangles: 'list:rec:VehTriangle' },
+    VehPolygons: { $layout: true, polygons: 'list:rec:VehPolygon' },
     VehBody: { body: 'f64', matrix: 'mat4', enabled: 'bool' },
     VehPoint: { position: 'vec3' },
     VehFlag: { value: 'bool' },
@@ -98,7 +98,7 @@ export default {
     VehEffect: { name: 'str', position: 'vec3' },
     // Registry entries by their places in units.all(), and their aim points.
     VehMembers: { indices: 'list:f64' },
-    VehPoints: { points: 'list:vec3' },
+    VehPoints: { $layout: true, points: 'list:vec3' },
 
     // A walker's water damage (src/vehicle-water.js waterDamageRule).
     WaterRule: {
@@ -235,7 +235,7 @@ export default {
     vehCast: { args: 'VehRay', result: 'VehHit' },
     vehPushWalls: { args: 'VehPush', result: 'VehPushed' },
     vehGround: { args: 'VehColumn', result: 'VehGround' },
-    vehSpringPolygons: { args: 'VehSpring', result: 'VehPolygons' },
+    vehSpringPolygons: { borrow: true, args: 'VehSpring', result: 'VehPolygons' },
     vehMoveBody: { args: 'VehBody', result: null },
     vehEnableBody: { args: 'VehBody', result: null },
     vehBodyEnabled: { args: 'VehBody', result: 'VehFlag' },
@@ -257,6 +257,6 @@ export default {
     // units.all()), for flight's targeting.
     vehAimPoint: { args: 'VehHull', result: 'VehPoint' },
     // The aim points of several units at once (a targeting pass's), in order.
-    vehAimPoints: { args: 'VehMembers', result: 'VehPoints' },
+    vehAimPoints: { borrow: true, args: 'VehMembers', result: 'VehPoints' },
   },
 };

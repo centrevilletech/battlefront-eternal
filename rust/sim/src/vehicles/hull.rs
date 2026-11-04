@@ -159,6 +159,7 @@ pub struct Input {
 pub struct Hull {
     /// Its place in the battle's list (Vehicles.vehicles), and its handle in the store.
     pub index: usize,
+    pub f2_revision: std::cell::Cell<u64>,
     pub id: crate::store::Ref<crate::gen::Vehicle>,
     // What it is, for the battle.
     pub flying: bool,
@@ -181,6 +182,8 @@ pub struct Hull {
     pub probe_radius: f64,
     pub probes: Vec<Vector3>,
     /// hoverContacts retains gathered polygon storage between substeps.
+    pub support_heights: Vec<f64>,
+    pub target_scratch: crate::flight::targeting::TargetScratch,
     pub spring_polygons: Vec<super::Polygon>,
     pub support_probes: Vec<Vector3>,
     pub max_health: f64,

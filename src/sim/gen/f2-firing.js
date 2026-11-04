@@ -117,46 +117,88 @@ export function exportFfSupply(o, cx) {
   return v;
 }
 
-export class FfSeatInputMirror {
+export const FfInputsLayout = Object.freeze({ words: 1, count: 0 });
+
+export class FfInputsMirror {
   constructor() {
-    this.aiming = false;
-    this.aim = new THREE.Vector3();
+    this.count = 0;
   }
 }
 
-export function syncFfSeatInput(b, f, at, h, m) {
-  m.aiming = f[at + 0] !== 0;
-  (m.aim ??= new THREE.Vector3()).set(f[at + 1], f[at + 2], f[at + 3]);
+export function syncFfInputs(b, f, at, h, m) {
+  m.count = f[at + 0];
   return m;
 }
 
-export function putFfSeatInput(b, o, f, at, heap) {
-  f[at + 0] = o.aiming ? 1 : 0;
-  { const $v = o.aim; f[at + 1] = $v.x; f[at + 2] = $v.y; f[at + 3] = $v.z; }
+export function putFfInputs(b, o, f, at, heap) {
+  f[at + 0] = o.count;
 }
 
-export function sameFfSeatInput(a, b) {
-  if (!Object.is(a.aiming, b.aiming)) return ".aiming";
-  if (!sameVec(a.aim, b.aim)) return ".aim";
+export function sameFfInputs(a, b) {
+  if (!Object.is(a.count, b.count)) return ".count";
   return null;
 }
 
-export function exportFfSeatInput(o, cx) {
+export function exportFfInputs(o, cx) {
   let v = cx.seen.get(o);
   if (v) return v;
   v = {};
   cx.seen.set(o, v);
-  v.aiming = o.aiming;
-  v.aim = o.aim.clone();
+  v.count = o.count;
   return v;
 }
+
+export const FfWeaponChangeLayout = Object.freeze({ words: 12, hull: 0, seat: 2, weapon: 3, input: 4 });
+
+export class FfWeaponChangeMirror {
+  constructor() {
+    this.hull = null;
+    this.seat = 0;
+    this.weapon = 0;
+    this.input = new FfWeaponInputMirror();
+  }
+}
+
+export function syncFfWeaponChange(b, f, at, h, m) {
+  m.hull = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]);
+  m.seat = f[at + 2];
+  m.weapon = f[at + 3];
+  m.input = syncFfWeaponInput(b, f, at + 4, h, m.input ?? new FfWeaponInputMirror());
+  return m;
+}
+
+export function putFfWeaponChange(b, o, f, at, heap) {
+  b.refs[KIND_VEHICLE].put(o.hull, f, at + 0);
+  f[at + 2] = o.seat;
+  f[at + 3] = o.weapon;
+  putFfWeaponInput(b, o.input, f, at + 4, heap);
+}
+
+export function sameFfWeaponChange(a, b) {
+  if (!Object.is(a.hull, b.hull)) return ".hull";
+  if (!Object.is(a.seat, b.seat)) return ".seat";
+  if (!Object.is(a.weapon, b.weapon)) return ".weapon";
+  { const d = sameFfWeaponInput(a.input, b.input); if (d) return ".input" + d; }
+  return null;
+}
+
+export function exportFfWeaponChange(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.hull = cx.ref("vehicle", o.hull);
+  v.seat = o.seat;
+  v.weapon = o.weapon;
+  v.input = exportFfWeaponInput(o.input, cx);
+  return v;
+}
+
+export const FfWeaponInputLayout = Object.freeze({ words: 8, channel: 0, target: 1, hasRandom: 2, floor: 3, spreadScale: 4, sniperScale: 5, yawSpreadOverride: 6 });
 
 export class FfWeaponInputMirror {
   constructor() {
     this.channel = NaN;
-    this.pressed = false;
-    this.held = false;
-    this.reload = false;
     this.target = 0;
     this.hasRandom = false;
     this.floor = NaN;
@@ -168,36 +210,27 @@ export class FfWeaponInputMirror {
 
 export function syncFfWeaponInput(b, f, at, h, m) {
   m.channel = f[at + 0];
-  m.pressed = f[at + 1] !== 0;
-  m.held = f[at + 2] !== 0;
-  m.reload = f[at + 3] !== 0;
-  m.target = f[at + 4];
-  m.hasRandom = f[at + 5] !== 0;
-  m.floor = f[at + 6];
-  m.spreadScale = f[at + 7];
-  m.sniperScale = f[at + 8];
-  { const tag = f[at + 9]; if (tag === 0) { m.yawSpreadOverride = f[at + 10]; } else m.yawSpreadOverride = tag === 1 ? null : undefined; }
+  m.target = f[at + 1];
+  m.hasRandom = f[at + 2] !== 0;
+  m.floor = f[at + 3];
+  m.spreadScale = f[at + 4];
+  m.sniperScale = f[at + 5];
+  { const tag = f[at + 6]; if (tag === 0) { m.yawSpreadOverride = f[at + 7]; } else m.yawSpreadOverride = tag === 1 ? null : undefined; }
   return m;
 }
 
 export function putFfWeaponInput(b, o, f, at, heap) {
   f[at + 0] = o.channel;
-  f[at + 1] = o.pressed ? 1 : 0;
-  f[at + 2] = o.held ? 1 : 0;
-  f[at + 3] = o.reload ? 1 : 0;
-  f[at + 4] = o.target;
-  f[at + 5] = o.hasRandom ? 1 : 0;
-  f[at + 6] = o.floor;
-  f[at + 7] = o.spreadScale;
-  f[at + 8] = o.sniperScale;
-  { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 9] = $x === null ? 1 : 2; f[at + 10] = 0; } else { f[at + 9] = 0; f[at + 10] = $x; } }
+  f[at + 1] = o.target;
+  f[at + 2] = o.hasRandom ? 1 : 0;
+  f[at + 3] = o.floor;
+  f[at + 4] = o.spreadScale;
+  f[at + 5] = o.sniperScale;
+  { const $x = o.yawSpreadOverride; if ($x === null || $x === undefined) { f[at + 6] = $x === null ? 1 : 2; f[at + 7] = 0; } else { f[at + 6] = 0; f[at + 7] = $x; } }
 }
 
 export function sameFfWeaponInput(a, b) {
   if (!Object.is(a.channel, b.channel)) return ".channel";
-  if (!Object.is(a.pressed, b.pressed)) return ".pressed";
-  if (!Object.is(a.held, b.held)) return ".held";
-  if (!Object.is(a.reload, b.reload)) return ".reload";
   if (!Object.is(a.target, b.target)) return ".target";
   if (!Object.is(a.hasRandom, b.hasRandom)) return ".hasRandom";
   if (!Object.is(a.floor, b.floor)) return ".floor";
@@ -213,9 +246,6 @@ export function exportFfWeaponInput(o, cx) {
   v = {};
   cx.seen.set(o, v);
   v.channel = o.channel;
-  v.pressed = o.pressed;
-  v.held = o.held;
-  v.reload = o.reload;
   v.target = o.target;
   v.hasRandom = o.hasRandom;
   v.floor = o.floor;

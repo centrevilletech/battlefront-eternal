@@ -94,7 +94,7 @@ pub fn hull(r: Ref<Vehicle>, write_body: bool) {
     let Some(v) = sim().store.vehicle.get(r) else { return };
     if !v.alive { return; }
     let p = poses()[r.slot as usize].as_mut().unwrap();
-    p.pose.rig.tree.update_matrix_world(p.pose.rig.root, true);
+    // aimTick/render already finished the world matrices for this pose.
     for index in 0..v.seats.len() {
         let seat = &v.seats[index];
         let Some(l) = seat.lease.and_then(|l| sim().store.seat_lease.get(l)) else { continue };

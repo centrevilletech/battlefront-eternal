@@ -82,6 +82,7 @@ pub struct Collision {
     placed: Vec<u32>,
     marks: Vec<u8>,
     gathered: Gathered,
+    polygons: Vec<Polygon>,
     near: Vec<u32>,
     points: Vec<[f64; 3]>,
 }
@@ -105,6 +106,7 @@ impl Collision {
             placed: Vec::new(),
             marks: Vec::new(),
             gathered: Gathered::new(),
+            polygons: Vec::new(),
             near: Vec::new(),
             points: Vec::new(),
         }
@@ -300,10 +302,10 @@ impl Collision {
         let cache = if id >= 0 { Some(unsafe { &mut *spheres::caches().as_mut_ptr().add(id as usize) }) } else { None };
         let n = s.worlds[self.world].order.len();
         let count = spheres::gather(s, self.world, [center.x, center.y, center.z], radius, self.blockers, cache, -1, &self.flags[..n], &mut self.gathered);
-        out.truncate(count);
+        while out.len() > count { self.polygons.push(out.pop().unwrap()); }
         for (k, p) in self.gathered.list().iter().enumerate() {
             if k == out.len() {
-                out.push(Polygon::default());
+                out.push(self.polygons.pop().unwrap_or_default());
             }
             let o = &mut out[k];
             o.id = p.id;

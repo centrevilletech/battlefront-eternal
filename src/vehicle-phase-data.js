@@ -115,11 +115,22 @@ export function applyPose(v, f, o) {
 // An input object as flight reads it (rust/sim/src/vehicles/module.rs
 // flight_input: 19 numbers): each key as arithmetic reads it (undefined
 // NaN, a boolean 0 or 1), the sticks with whether they are given.
-const NO_INPUT = Object.freeze({});
 const jn = (x) => (x === undefined ? NaN : x === null ? 0 : typeof x === "boolean" ? (x ? 1 : 0) : x);
 export function flightNumbers(i, out) {
   const sx = i.stickX, sy = i.stickY;
   out.push(jn(i.forward), jn(i.right), jn(i.turn), jn(i.pitch), jn(i.up), jn(i.down), jn(i.takeoff),
     sx == null ? 0 : 1, sx == null ? 0 : jn(sx), sy == null ? 0 : 1, sy == null ? 0 : jn(sy),
     jn(i.boost), jn(i.trick), jn(i.immelmann), jn(i.rollLock), jn(i.targetLock), jn(i.bot), jn(i.responseCurve), i.steeringAssist === false ? 1 : 0);
+}
+
+// The network pilot keys remain foreign. The ordinary pilot input is frozen
+// from the canonical lease inside F2, after exits and promotions have run.
+export function flightKeys(out, i) {
+  out.forward = jn(i.forward); out.right = jn(i.right); out.turn = jn(i.turn); out.pitch = jn(i.pitch);
+  out.up = jn(i.up); out.down = jn(i.down); out.takeoff = jn(i.takeoff);
+  out.hasX = i.stickX != null; out.stickX = out.hasX ? jn(i.stickX) : 0;
+  out.hasY = i.stickY != null; out.stickY = out.hasY ? jn(i.stickY) : 0;
+  out.boost = jn(i.boost); out.trick = jn(i.trick); out.immelmann = jn(i.immelmann);
+  out.rollLock = jn(i.rollLock); out.targetLock = jn(i.targetLock); out.bot = jn(i.bot);
+  out.responseCurve = jn(i.responseCurve); out.noAssist = i.steeringAssist === false;
 }

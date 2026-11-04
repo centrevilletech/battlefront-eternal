@@ -21,7 +21,7 @@ export class F2Riders {
     }
     if (known.holders.has(holder)) return;
     const descriptions = fresh ? bones.map(b => ({ name: b.name, parent: bones.indexOf(b.parent), p: b.position, q: b.quaternion, s: b.scale,
-      bind: animator.bindLengths?.get(b) ?? null })) : [];
+      bind: animator.bindLengths?.find(pair => pair[0] === b)?.[1] ?? null })) : [];
     const bindings = [], seats = holder.seats ?? [null];
     for (let i = 0; i < seats.length; i++) {
       const rider = seats[i]?.view.rider ?? holder.rider;
@@ -49,6 +49,7 @@ export class F2Riders {
       syncF2RiderOut(b, f, at, heap, this.rows.get(unit));
     }
     this.phase.counters.outputFields += count * stride + f[base + 3];
+    this.phase.counters.outputRiders += count * stride + f[base + 3];
   }
   // Unit.updateSpheres owns when the samples become its hit shapes. Do not
   // touch spheresTick here, including across boarding and synchronous deaths.

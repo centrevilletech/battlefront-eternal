@@ -11,7 +11,7 @@ fn a_command_publishes_only_the_hull_it_changed() {
     p.mark(a); p.flush(&mut st);
     assert_eq!(p.hulls.rows(), 1);
     assert_eq!(p.hulls.read(0).0[0], a.slot as f64);
-    assert_eq!(p.lives.rows(), 1);
+    assert_eq!(p.lives.rows(), 0, "health does not recopy unchanged life metadata");
     p.mark(a); p.flush(&mut st);
     assert_eq!(p.hulls.rows(), 0, "identical rows are not copied");
 }

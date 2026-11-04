@@ -6,7 +6,7 @@ import { rigNodes } from './vehicle-phase-data.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
 import { seatLockTarget } from './weapon-targeting.js';
 import { categoryOf, weaponAI } from './ai/classic/weapons-ai.js';
-import { putFfBirth, putFfSupply, putFfWeaponInput, putFfSeatInput, FfHullOutMirror, FfSeatOutMirror, FfWeaponOutMirror, syncFfHullOut, FfCableOutMirror, syncFfCableOut, FfSupplyResultMirror, syncFfSupplyResult, FfPhaseMirror, syncFfPhase } from './sim/gen/f2-firing.js';
+import { putFfBirth, putFfSupply, putFfWeaponInput, putFfWeaponChange, FfInputsLayout, FfWeaponInputLayout, FfWeaponChangeLayout, FfHullOutMirror, FfSeatOutMirror, FfWeaponOutMirror, syncFfHullOut, FfCableOutMirror, syncFfCableOut, FfSupplyResultMirror, syncFfSupplyResult, FfPhaseMirror, syncFfPhase } from './sim/gen/f2-firing.js';
 
 const zero = new Vector3();
 const mutable = ['deployed', 'firing', 'timer', 'bottomless', 'perShot', 'clip', 'reserve', 'heat', 'overheated', 'floor', 'kick',
@@ -20,11 +20,13 @@ export class F2Firing {
     this.aim = new Vector3(); this.number = { value: 0 };
     this.facts = { alive: false, eligible: false, relation: 0, category: 0, center: new Vector3(), radius: 0, aim: this.aim, body: -1 };
     this.phaseFields = new FfPhaseMirror();
+    this.eventRows = [];
+    for (const e of EVENT_TABLE) if (e && (e.name === 'f2Shot' || e.name === 'f2Tow')) this.eventRows[e.code ?? EVENT_TABLE.indexOf(e)] = new e.record.Mirror();
     this.rows = []; this.cableRow = new FfCableOutMirror();
-    this.inputWords = phase.x.f2_firing_words(1);
-    this.frozen = { channel: 0, pressed: false, held: false, reload: false, target: -2, hasRandom: false, floor: 0, spreadScale: 1, sniperScale: 0, yawSpreadOverride: null };
-    this.seatWords = phase.x.f2_firing_words(2);
-    this.seatInput = { aiming: false, aim: zero };
+    this.inputWords = FfWeaponInputLayout.words;
+    this.change = { hull: null, seat: 0, weapon: 0, input: null };
+    this.inputScratch = new Float64Array(this.inputWords); this.inputCache = new WeakMap();
+    this.frozen = { channel: 0, target: -2, hasRandom: false, floor: 0, spreadScale: 1, sniperScale: 0, yawSpreadOverride: null };
     this.supplyArgs = { words: phase.x.f2_firing_words(3), put: putFfSupply };
     this.supplyResult = new FfSupplyResultMirror();
     this.supplyResultType = { words: phase.x.f2_firing_words(4), Mirror: FfSupplyResultMirror, sync: syncFfSupplyResult };
@@ -82,26 +84,33 @@ export class F2Firing {
       row.seats.push(s);
     }
     this.rows[v.simSlot] = row;
+    for (const seat of v.seats) for (const weapon of seat.weapons) { const cache = new Float64Array(this.inputWords); cache.fill(NaN); this.inputCache.set(weapon, cache); }
   }
   input(at) {
     const start = at, out = this.frozen, b = this.bridge;
+    at += FfInputsLayout.words; let count = 0;
     for (let vi = 0; vi < this.vs.vehicles.length; vi++) {
       const v = this.vs.vehicles[vi];
       for (let si = 0; si < v.seats.length; si++) {
-        const seat = v.seats[si], l = seat.lease, input = l?.input, picked = seatLockTarget(l);
-        this.seatInput.aiming = Boolean(input?.aiming); this.seatInput.aim = input?.aim ?? zero;
-        putFfSeatInput(b, this.seatInput, b.f, at, null); at += this.seatWords;
+        const seat = v.seats[si], l = seat.lease, picked = seatLockTarget(l);
         out.target = picked === undefined ? -2 : picked === null ? -1 : this.vs.units.all().indexOf(picked);
-        out.reload = Boolean(input?.reload);
         for (let c = 0; c < seat.weapons.length; c++) {
           const w = seat.weapons[c].state;
           out.channel = w.channel ?? 0;
-          out.pressed = Boolean(input?.pressed[c]); out.held = Boolean(input?.held[c]); out.hasRandom = Boolean(w.random);
+          out.hasRandom = Boolean(w.random);
           out.floor = w.floor; out.spreadScale = w.spreadScale; out.sniperScale = w.sniperScale; out.yawSpreadOverride = w.yawSpreadOverride;
-          putFfWeaponInput(b, out, b.f, at, null); at += this.inputWords;
+          putFfWeaponInput(b, out, this.inputScratch, 0, null);
+          const cache = this.inputCache.get(seat.weapons[c]); let changed = false;
+          for (let j = 0; j < this.inputWords; j++) if (!Object.is(cache[j], this.inputScratch[j])) changed = true;
+          if (changed) {
+            const a = this.change; a.hull = v; a.seat = si; a.weapon = c; a.input = out;
+            putFfWeaponChange(b, a, b.f, at, null); at += FfWeaponChangeLayout.words; count++;
+            cache.set(this.inputScratch);
+          }
         }
       }
     }
+    b.f[start + FfInputsLayout.count] = count;
     return at - start;
   }
   syncDescriptor(ptr) {
@@ -116,6 +125,7 @@ export class F2Firing {
     if (ptr) {
       const base = ptr / 8, n = f[base], stride = f[base + 1], heap = base + f[base + 2];
       this.phase.counters.outputFields += n * stride + f[base + 3];
+      this.phase.counters.outputFiring += n * stride + f[base + 3];
       for (let ri = 0; ri < n; ri++) {
         const at = base + 5 + ri * stride;
         const row = syncFfHullOut(b, f, at, heap, this.rows[f[at]]), v = row.hull;
@@ -133,6 +143,7 @@ export class F2Firing {
     if (cables) {
       const base = cables / 8, n = f[base], stride = f[base + 1], heap = base + f[base + 2];
       this.phase.counters.outputFields += n * stride + f[base + 3];
+      this.phase.counters.outputFiring += n * stride + f[base + 3];
       for (let i = 0; i < n; i++) {
         const row = syncFfCableOut(b, f, base + 5 + i * stride, heap, this.cableRow);
         let t = this.vs.tethers.get(row.source);
@@ -177,7 +188,8 @@ export class F2Firing {
     const f = b.f, base = this.phaseFields.events / 8, end = base + 1 + f[base];
     for (let at = base + 1; at < end; at += 2 + f[at + 1]) {
       const e = EVENT_TABLE[f[at]], r = e.record;
-      const a = r.sync(b, f, at + 2, at + 2 + r.words, new r.Mirror());
+      const a = r.sync(b, f, at + 2, at + 2 + r.words, this.eventRows[f[at]]);
+      this.phase.counters.outputFields += f[at + 1]; this.phase.counters.outputFiring += f[at + 1];
       if (e.name === 'f2Shot') this.presentShot(a);
       else if (e.name === 'f2Tow') this.presentTow(a);
     }

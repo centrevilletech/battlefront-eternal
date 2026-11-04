@@ -564,7 +564,7 @@ impl<Q: Query> FlightWorld for World<'_, Q> {
                         floor_y: a[6],
                     });
                 }
-                Some(zones)
+                Some(zones.into())
             } else {
                 None
             };

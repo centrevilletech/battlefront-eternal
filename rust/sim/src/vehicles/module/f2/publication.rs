@@ -1,6 +1,7 @@
 //! Vehicles.update publication and synchronous hull callbacks. Each dirty hull
 //! is encoded against its last publication; unchanged rows never cross to JS.
-use crate::gen::{F2HullLife, F2Pad, Store, Vehicle};
+use crate::gen::{F2Delta, F2HullLife, F2Pad, Store, Vehicle};
+use crate::vehicles::f2_delta::Delta;
 use crate::store::block::Block;
 use crate::store::Ref;
 
@@ -9,6 +10,7 @@ struct Last {
     row: Block,
     next: Block,
     life: Vec<f64>,
+    delta: Delta,
 }
 
 #[derive(Default)]
@@ -18,7 +20,7 @@ pub struct Publication {
     pub pads: Block,
     last: Vec<Last>,
     dirty: Vec<Ref<Vehicle>>,
-    selected: Vec<Ref<Vehicle>>,
+    selected: Vec<Ref<Vehicle>>, life_selected: Vec<Ref<Vehicle>>,
     pad_dirty: Vec<usize>,
     life_scratch: Vec<f64>,
 }
@@ -40,15 +42,17 @@ impl Publication {
         let count = self.last.len();
         let cache = &mut self.last[r.slot as usize];
         let v = st.vehicle.get(r).expect("registered publication hull");
+        cache.row.words.clear();
         cache.next.begin(1, Vehicle::EXPORT_STRIDE);
         let (row, heap) = cache.next.row(0);
         row[0] = r.slot as f64; row[1] = r.gen as f64;
         v.put_export(row, heap); cache.next.finish();
         cache.row.words.reserve(cache.next.words.len());
+        cache.delta.reserve(cache.next.words.len());
         cache.row.heap.reserve(cache.next.heap.len());
         cache.life.resize(F2HullLife::WORDS, f64::NAN);
         self.life_scratch.resize(F2HullLife::WORDS, 0.0);
-        self.dirty.reserve(count); self.selected.reserve(count);
+        self.dirty.reserve(count); self.selected.reserve(count); self.life_selected.reserve(count);
         let words: usize = self.last.iter().map(|r| r.next.words.len().max(r.row.words.len())).sum();
         let heap: usize = self.last.iter().map(|r| r.next.heap.len().max(r.row.heap.len())).sum();
         self.hulls.words.reserve(words); self.hulls.heap.reserve(heap);
@@ -70,9 +74,14 @@ impl Publication {
     /// Publish dirty hulls before a foreign hook or at the phase boundary.
     /// A callback may publish recursively; the next flush starts a new block.
     pub fn flush(&mut self, st: &mut Store) {
-        self.selected.clear();
+        self.selected.clear(); self.life_selected.clear();
         let mut retired = 0;
-        for &(r, _) in &st.vehicle.retired {
+        for &(r, ref v) in &st.vehicle.retired {
+            let cache = &mut self.last[r.slot as usize];
+            cache.next.begin(1, Vehicle::EXPORT_STRIDE); let (row, heap) = cache.next.row(0);
+            row[0] = r.slot as f64; row[1] = r.gen as f64; v.put_export(row,heap); cache.next.finish();
+            cache.delta.encode(r.slot,r.gen,&cache.next,&cache.row);
+            std::mem::swap(&mut cache.row,&mut cache.next);
             self.selected.push(r); retired += 1;
         }
         for &r in &self.dirty {
@@ -83,21 +92,24 @@ impl Publication {
             row[0] = r.slot as f64; row[1] = r.gen as f64;
             v.put_export(row, heap); cache.next.finish();
             life(r, v).put(&mut self.life_scratch, &mut self.lives.heap);
-            if !same(&cache.row.words, &cache.next.words) || !same(&cache.life, &self.life_scratch) {
+            if !same(&cache.life, &self.life_scratch) {
+                self.life_selected.push(r); cache.life.copy_from_slice(&self.life_scratch);
+            }
+            if !same(&cache.row.words, &cache.next.words) {
+                cache.delta.encode(r.slot, r.gen, &cache.next, &cache.row);
                 self.selected.push(r);
                 std::mem::swap(&mut cache.row, &mut cache.next);
-                cache.life.copy_from_slice(&self.life_scratch);
             }
         }
-        self.hulls.begin(self.selected.len(), Vehicle::EXPORT_STRIDE);
+        self.hulls.begin(self.selected.len(), F2Delta::WORDS);
         self.hulls.set_retired(retired);
-        self.lives.begin(self.selected.len() - retired, F2HullLife::WORDS);
+        self.lives.begin(self.life_selected.len(), F2HullLife::WORDS);
         for (i, &r) in self.selected.iter().enumerate() {
-            let v = if i < retired { &st.vehicle.retired[i].1 } else { st.vehicle.get(r).unwrap() };
             let (row, heap) = self.hulls.row(i);
-            row[0] = r.slot as f64; row[1] = r.gen as f64;
-            v.put_export(row, heap);
-            if i >= retired { let (row, heap) = self.lives.row(i - retired); life(r, v).put(row, heap); }
+            self.last[r.slot as usize].delta.value.put(row, heap);
+        }
+        for (i,&r) in self.life_selected.iter().enumerate() {
+            let (row,heap) = self.lives.row(i); life(r,st.vehicle.get(r).unwrap()).put(row,heap);
         }
         self.hulls.finish(); self.lives.finish();
         st.vehicle.retired.clear(); self.dirty.clear();

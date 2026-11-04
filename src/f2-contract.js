@@ -10,6 +10,9 @@ export class F2Counters {
     this.debugCalls = 0;
     this.inputFields = 0;
     this.outputFields = 0;
+    this.inputRegistry = this.inputFiring = this.inputFlight = this.inputWorld = this.inputFlags = this.inputSeats = 0;
+    this.outputHulls = this.outputPads = this.outputLives = this.outputPoses = this.outputLocks = this.outputCollision = 0;
+    this.outputLeases = this.outputUnits = this.outputControls = this.outputTurrets = this.outputRiders = this.outputFiring = this.outputEffects = 0;
   }
   snapshot() { return { ...this }; }
 }

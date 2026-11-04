@@ -60,7 +60,7 @@ fn nearest_cosine(a: &Vector3, e: &Vector3, d: &Vector3) -> f64 {
 }
 
 /// hud-units.js lockSpan: hulls offer their box, units their lazy sphere.
-fn box_span(origin: &Vector3, direction: &Vector3, matrix: &Matrix4, lo: &Vector3, hi: &Vector3) -> (f64, f64) {
+pub(crate) fn box_span(origin: &Vector3, direction: &Vector3, matrix: &Matrix4, lo: &Vector3, hi: &Vector3) -> (f64, f64) {
     let mut inverse = *matrix; inverse.invert();
     let mut o = *origin; o.apply_matrix4(&inverse);
     let mut d = *direction; d.transform_direction(&inverse);
@@ -91,11 +91,23 @@ fn box_span(origin: &Vector3, direction: &Vector3, matrix: &Matrix4, lo: &Vector
     (v8math::acos(v8math::min(1.0, best)), distance)
 }
 
-fn sphere_span(origin: &Vector3, direction: &Vector3, center: &Vector3, radius: f64) -> (f64, f64) {
+pub(crate) fn sphere_span(origin: &Vector3, direction: &Vector3, center: &Vector3, radius: f64) -> (f64, f64) {
     let mut d = *center; d.sub(origin);
     let span = d.length(); let distance = v8math::max(0.0, span - radius);
     if span <= radius { return (0.0, distance); }
     (v8math::max(0.0, v8math::acos(three::clamp(d.dot(direction) / span, -1.0, 1.0)) - v8math::asin(radius / span)), distance)
+}
+
+/// Vehicle.fireSeat and TurretSeats.drive use the same mounted Weapon.update
+/// admission and standing aim. Each caller keeps its own ordered draw stream.
+#[cfg(target_arch = "wasm32")]
+#[allow(clippy::too_many_arguments)]
+pub fn update_mounted(weapon: &mut crate::gen::Weapon, index: u32, class: &crate::combat::defs::WeaponClass, dt: f64,
+    held: bool, pressed: bool, reload: bool, draws: &mut impl crate::combat::weapons::WeaponDraws, shots: &mut Vec<crate::combat::weapons::Shot>) {
+    use crate::combat::weapons::{Aim, Trigger};
+    shots.clear();
+    weapon.update(index, class, dt, true, &Trigger { held, pressed, seed: None, late: 0.0 }, reload,
+        &Aim { stick: 0.0, posture: Some(crate::gen::Posture::Stand), zoomed: false, repair_target: false }, draws, shots);
 }
 
 #[cfg(target_arch = "wasm32")]

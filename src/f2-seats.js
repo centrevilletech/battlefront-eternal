@@ -1,6 +1,7 @@
 // Vehicles' native seat phase. These facades only publish canonical lease and
 // body rows; AI intents remain foreign input, copied once before the latch.
 import * as THREE from 'three';
+import { applyDelta, deltaBuffer } from './f2-delta.js';
 import { SeatLease, seatWeaponPolicy } from './seats.js';
 import { Building } from './props.js';
 import { MirrorPool, Heap } from './sim/runtime.js';
@@ -8,9 +9,8 @@ import { makeHit } from './collision.js';
 import { COMMAND_F2_SEAT, COMMAND_TABLE, KIND_TABLE, KIND_SEAT_LEASE, KIND_UNIT, KIND_ORDNANCE, KIND_EMITTER } from './sim/gen/index.js';
 import { F2SeatIoMirror, F2SeatHeaderMirror, F2SeatUnitInMirror, F2SeatUnitOutMirror, F2SeatCommandMirror, F2SeatResultMirror,
   F2SeatAnswerMirror, F2SeatEffectMirror, F2LatchedMirror, 
-  F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2HullNodeMirror, syncF2HullNode, F2TurretTargetMirror, syncF2TurretHeader, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
+  F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2TurretTargetMirror, syncF2TurretHeader, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
   syncF2SeatIo, putF2SeatHeader, putF2SeatUnitIn, syncF2SeatUnitOut, syncF2SeatEffect, syncF2Latched, putF2SeatSample } from './sim/gen/f2.js';
-import { rigNodes } from './vehicle-phase-data.js';
 import { turretSettings, turretState } from './turrets-sim.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
 import { hasMissileLock, seatLockTarget } from './weapon-targeting.js';
@@ -23,17 +23,13 @@ const WEAPON_STATE = ['level', 'deployed', 'firing', 'timer', 'bottomless', 'per
   'charging', 'held', 'charge', 'limit', 'pattern', 'salvosLeft', 'salvoWait', 'salvoSeed', 'salvoCount', 'lockTargetId', 'lockGeneration', 'lockElapsed', 'lockComplete'];
 
 class LeasePool extends MirrorPool {
-  constructor(owner) {
+  constructor() {
     super(KIND_SEAT_LEASE);
-    this.Mirror = class extends SeatLease {
-      constructor() {
-        super();
-
-      }
-    };
+    this.Mirror = SeatLease;
   }
   create(slot, generation) {
     const lease = super.at(slot, generation);
+    lease.f2Words ??= deltaBuffer();
     if (!this.owner.emitterIds.has(lease.emitter)) this.owner.emitterIds.set(lease.emitter, { slot, generation: generation + this.owner.io.emitterMask });
     return lease;
   }
@@ -75,6 +71,7 @@ export class F2Seats {
     this.leaseRows = new WeakMap();
     this.pool = new LeasePool(this); this.pool.owner = this; this.pool.released = new Map(); this.mounts = new WeakMap(); this.riderClips = new WeakMap(); this.riderSample = { clip: null, pitch: 0, turn: 0, time: null }; this.bridge.refs[KIND_SEAT_LEASE] = this.pool;
     this.emptyHeap = new Heap(); this.header = new F2SeatHeaderMirror(); this.io = new F2SeatIoMirror();
+    this.unitWords = new WeakMap();
     this.unitIn = new F2SeatUnitInMirror(); this.unitOut = new F2SeatUnitOutMirror();
     this.controlIn = { seatUnit: null, driven: false, intent: null };
     this.command = new F2SeatCommandMirror(); this.result = new F2SeatResultMirror();
@@ -90,7 +87,7 @@ export class F2Seats {
     this.header.invert = this.header.flightInvert = false;
     this.hullArgs = { words: this.x.f2_seats_adopt_words(), put: putSeatHullFacts };
     this.facts = new WeakMap(); this.turretRows = new WeakMap();
-    this.hullNode = new F2HullNodeMirror(); this.turretHeader = new F2TurretHeaderMirror(); this.turretEvent = new F2TurretEventMirror();
+    this.turretHeader = new F2TurretHeaderMirror(); this.turretEvent = new F2TurretEventMirror();
     this.turretLifeRow = { turret: null, generation: 0, alive: false, attacker: null, center: new THREE.Vector3(), radius: 0 };
     this.turretBirthArgs = { words: this.x.f2_turret_words(0), put: putF2TurretBirth };
     this.turretLifeArgs = { words: this.x.f2_turret_words(1), put: putF2TurretLife };
@@ -136,6 +133,7 @@ export class F2Seats {
   add(unit) {
     if (!unit?.soldier || unit.walker || this.seen[unit.id] === this.stamp) return;
     this.seen[unit.id] = this.stamp; this.units.push(unit);
+    if (!this.unitWords.has(unit)) this.unitWords.set(unit, deltaBuffer());
   }
   addHull(v) { if (v) for (const seat of v.seats) this.add(seat.lease?.unit); }
 
@@ -180,7 +178,7 @@ export class F2Seats {
   writeHeader(end, words = end) {
     if (end > this.capacity) throw Error('F2 seat input capacity exceeded');
     putF2SeatHeader(this.bridge, this.header, this.bridge.f, this.inputBase, this.emptyHeap);
-    this.phase.counters.inputFields += words;
+    this.phase.counters.inputFields += words; this.phase.counters.inputSeats += words;
   }
   invoke(op, unit = null, hull = null, lease = null, index = 0, options = null, direction = 1, looks = null, scales = null) {
     this.phase.riders.ensure(unit, hull);
@@ -249,7 +247,8 @@ export class F2Seats {
     for (let i = 0; i < n; i++) {
       const at = base + 5 + i * stride;
       const lease = i < retired ? this.pool.retire(f[at], f[at + 1]) : this.pool.create(f[at], f[at + 1]);
-      KIND_TABLE[KIND_SEAT_LEASE].sync(b, f, at, heap, lease);
+      applyDelta(f, at, heap, lease.f2Words);
+      KIND_TABLE[KIND_SEAT_LEASE].sync(b, lease.f2Words, 5, lease.f2Words[2], lease);
       if (this.phase.debug) this.captureLease(lease);
       if (lease.turret && this.crews) {
         if (!this.riderClips.has(lease)) {
@@ -262,16 +261,7 @@ export class F2Seats {
       }
     }
     this.phase.counters.outputFields += n * stride + f[base + 3];
-  }
-  syncNodes() {
-    const b = this.bridge, f = b.f, base = this.io.nodes / 8;
-    if (!base) return;
-    const n = f[base], stride = f[base + 1], heap = base + f[base + 2];
-    for (let i = 0; i < n; i++) {
-      const row = syncF2HullNode(b, f, base + 5 + i * stride, heap, this.hullNode), node = rigNodes(row.hull)[row.node];
-      node.matrix.copy(row.matrix); node.matrixWorld.copy(row.world); node.matrixWorldNeedsUpdate = false;
-    }
-    this.phase.counters.outputFields += n * stride + f[base + 3];
+    this.phase.counters.outputLeases += n * stride + f[base + 3];
   }
   syncBodies() {
     const b = this.bridge, f = b.f;
@@ -282,13 +272,15 @@ export class F2Seats {
       for (let i = 0; i < n; i++) {
         const at = base + 5 + i * stride, unit = b.refs[KIND_UNIT].at(f[at], f[at + 1]), out = this.unitOut;
         out.soldier = unit.soldier; out.intent = unit.intent;
-        syncF2SeatUnitOut(b, f, at, heap, out);
+        const words = this.unitWords.get(unit); applyDelta(f, at, heap, words);
+        syncF2SeatUnitOut(b, words, 5, words[2], out);
         if (unit.seat?.turret) this.mounts.set(unit, unit.seat.turret);
         unit.seat = out.seat; unit.targetable = out.targetable; unit.tickCount = out.tickCount;
         if (unit.combat) { unit.combat.mounted = out.mounted; unit.combat.gunUnderwater = out.gunUnderwater; unit.combat.aimOverride = out.aimOverride; }
         if (out.riderPosed) this.phase.riders.present(unit);
       }
       this.phase.counters.outputFields += n * stride + f[base + 3];
+      this.phase.counters.outputUnits += n * stride + f[base + 3];
     }
     base = this.io.controls / 8;
     if (base) {
@@ -299,12 +291,14 @@ export class F2Seats {
         intent.nextPrimary = intent.previousPrimary = intent.nextSecondary = intent.zoom = false;
       }
       this.phase.counters.outputFields += n * stride + f[base + 3];
+      this.phase.counters.outputControls += n * stride + f[base + 3];
     }
     base = this.io.effects / 8;
     if (base) {
       const n = f[base], stride = f[base + 1], heap = base + f[base + 2];
       for (let i = 0; i < n; i++) this.effect(syncF2SeatEffect(b, f, base + 5 + i * stride, heap, this.effectRow));
       this.phase.counters.outputFields += n * stride + f[base + 3];
+      this.phase.counters.outputEffects += n * stride + f[base + 3];
     }
     this.syncTurrets();
     this.vehicles.ticks = this.io.ticks;
@@ -431,6 +425,7 @@ export class F2Seats {
         }
       }
       this.phase.counters.outputFields += n * stride + f[base + 3];
+      this.phase.counters.outputTurrets += n * stride + f[base + 3];
     }
     base = this.io.events / 8;
     if (base && this.crews) {
