@@ -1965,3 +1965,22 @@ test('native target eligibility keeps health fallback, strict targetability and 
   }
   for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`target eligibility ${i}`);
 });
+
+test('native combat binding factories reset fresh perceptions and retain lead-point output identity', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},ai={world},c={ai},out=new Vector3(5,6,7);
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(9300).fill(2));};
+    const weapon={def:{base:'rifle',ordnance:{base:'bolt',Velocity:70,Gravity:0}}};
+    const target={velocity:new Vector3(1,0,2),aimPoint(v){log('target');v.set(3,1,25);}};
+    const unit={controller:c,alive:true,velocity:new Vector3(.5,0,0),origin(v){log('origin');v.set(0,1,0);},
+      combat:{arsenal:{current(channel){log('current',channel);return i%3===0?null:weapon;}}}};
+    c.unit=i%7===0?null:unit;const binding=classicBinding(ai),reset=Perception.prototype.reset;let p;
+    Perception.prototype.reset=function(){log('reset',this.controller===c);return reset.call(this);};
+    try{p=binding.createPerception(c);}finally{Perception.prototype.reset=reset;}
+    c.perception=p;const result=binding.leadPoint(c,target,.125,out);
+    assert.equal(p.controller,c);assert.equal(p.heap.size,0);assert.equal(p.candidate,null);assert.equal(p.aimer.started,false);
+    return {history,result,point:out.toArray(),fire:[p.fire.channel,p.fire.buttons.map(b=>b.count)]};
+  }
+  for(let i=0;i<128;i++)assert.deepEqual(run(true,i),run(false,i),`combat binding factory ${i}`);
+});
