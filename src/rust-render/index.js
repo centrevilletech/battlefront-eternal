@@ -1,5 +1,5 @@
 // The default Rust battle renderer (rust/bfe-render, built to src/rust-pkg).
-// ?rustOff is a developer comparison switch; ?rust is accepted for old links.
+// ?rustOff skips loading this renderer; ?rust is accepted for old links.
 // Three.js draws unsupported items and takes over after a context loss.
 //
 // It draws inside the near scene's pass, first of its opaque objects (from

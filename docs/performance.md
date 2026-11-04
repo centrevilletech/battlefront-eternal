@@ -939,8 +939,8 @@ material, and vehicles' and props' skinned rigs (`?rustRigs=0` leaves
 those to three, for comparisons). Three.js draws unsupported items and takes over if Rust fails to load or
 the WebGL context is lost. Enhanced features use the same per-item fallback;
 shadow casters still use three.js. `?rust` remains accepted for old links
-and has no effect. `?rustOff` is a developer switch that loads Rust with
-drawing disabled,
+and has no effect. `?rustOff` skips loading the Rust renderer and its
+WebAssembly entirely, for recovery or comparisons.
 `?rustSort` orders the map's buckets by program rather than as three does,
 and `?rustRecord` keeps every call made to it, so that `rust/bfe-native` can
 replay the scene natively.

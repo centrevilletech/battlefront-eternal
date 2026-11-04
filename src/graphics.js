@@ -1,3 +1,4 @@
+import { loadRustRenderer } from "./rust-render/load.js";
 import * as THREE from "three";
 import { FXAAFastShader, FXAAShader } from "./fxaa.js";
 import { Bloom, applyValues, fullScreenPass } from "./render-passes.js";
@@ -254,12 +255,12 @@ export class Graphics {
     this.scene.add(this.background);
     // The default battle renderer shares the WebGL context with three,
     // which draws unsupported items and takes over if Rust is unavailable.
-    // ?rustOff disables Rust drawing for developer comparisons.
+    // ?rustOff skips the Rust renderer entirely for recovery and comparisons.
     this.rust = null;
     this.rustReady = Promise.resolve();
     this.playerRoot = null;
     if (typeof location !== "undefined") {
-      this.rustReady = import("./rust-render/index.js").then((m) => m.createRustRender(this)).then((rust) => { this.rust = rust; })
+      this.rustReady = loadRustRenderer(this, location.search).then((rust) => { this.rust = rust; })
         .catch((error) => console.warn("Rust renderer unavailable:", error));
     }
     this.downsample = fullScreenPass(

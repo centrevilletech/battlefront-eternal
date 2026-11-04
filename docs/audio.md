@@ -222,9 +222,14 @@ from the page and the world worker that already had none to spare. The
 light mix keeps every decision the game makes (which sound, when, how loud,
 the distance curve and the Steam build's falloff, Doppler, the pitch
 glides, the 32 heard voices of 64 and how they are ranked and stolen) and
-sums the result the way a PC of 2004 did, in the browser's own nodes:
+sums the result with the Rust voice engine by default. If WebAssembly is
+unavailable, or `?voices=native` is selected, browser nodes provide the
+fallback. The paths share the same voice decisions and stereo law:
 
-- Each voice is its buffer source and two gains, one into each speaker,
+- The default voice worklet mixes decoded samples in Rust with per-voice
+  levels, pitch glides and stereo gains. It does not create a browser buffer
+  source and gain nodes for each voice.
+- In the browser fallback, each voice is its buffer source and two gains, one into each speaker,
   carrying its level times OpenAL Soft's first-order stereo law for its
   direction (front azimuths widened 1.5 times, as before): three nodes, as
   many as before, with no gain node of its own, no filter, no send and no
