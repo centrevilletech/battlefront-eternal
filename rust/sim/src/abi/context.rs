@@ -4,6 +4,8 @@
 //! a private unwind stops it on a host error, entirely inside Rust. Unrelated
 //! panics retain their payload and propagate to the Rust caller. No method here
 //! calls an extern C export. An eventual foreign boundary must catch panics.
+//! Raw blocks and records are trusted, schema-encoded inputs, just as in the
+//! existing Store API; malformed records may panic. This is not a wire decoder.
 //!
 //! Clones are aliases, not new worlds. Dispose rejects active invocations and
 //! invalidates all aliases; creating a replacement never revives an old handle.
@@ -112,6 +114,12 @@ struct Owner {
     active: Cell<usize>,
 }
 
+/// A handle cannot move to a different thread, even before its first call.
+/// ```compile_fail
+/// use bfe_sim::abi::context::Context;
+/// let context = Context::new();
+/// std::thread::spawn(move || context.dispose().unwrap());
+/// ```
 #[derive(Clone)]
 pub struct Context(Rc<Owner>);
 struct Flight(Context);

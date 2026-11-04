@@ -140,8 +140,10 @@ fn native_contexts_isolate_local_ids_rows_strings_commands_events_and_disposal()
     assert_eq!(b.export(KIND_BOLT as u32, 1).unwrap()[0], 1.0);
     fill(&a, 1);
     let replacement = a.export(KIND_BOLT as u32, 1).unwrap();
-    assert_eq!(replacement[5], slot as f64);
-    assert_ne!(replacement[6], generation as f64);
+    let last = 5 + (replacement[0] as usize - 1) * replacement[1] as usize;
+    assert_eq!(replacement[last], slot as f64);
+    assert_ne!(replacement[last + 1], generation as f64);
+    assert!(!a.retire(KIND_BOLT as u32, slot, generation).unwrap());
     let stale = a.clone();
     a.dispose().unwrap();
     assert_eq!(stale.calls().unwrap_err().kind(), ErrorKind::Disposed);
@@ -340,4 +342,10 @@ fn native_clock_unmatched_panics_propagate_payload_and_release_invocation_guards
     identity_clock(&cx);
     assert_eq!(cx.clock(clock(state(), 0.05)).unwrap().state.tick, 3.0);
     cx.dispose().unwrap();
+}
+
+#[test]
+fn native_raw_relay_rejects_without_calling_an_extern_c_callback() {
+    assert!(!bfe_sim::abi::command_available(COMMAND_RELAY));
+    assert!(bfe_sim::gen::cmd_relay(0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0).is_null());
 }
