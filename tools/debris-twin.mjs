@@ -52,7 +52,9 @@ for (let fixture = 0; fixture < Number(option('fixtures', 18)); fixture++) {
       // Compare the actual query words before serving its result words.
       // No NaN normalization or piece afterstate enters this path.
       const view = new DataView(new ArrayBuffer(8)), bits = n => { view.setFloat64(0, n); return view.getBigUint64(0); };
-      const words = v => [v.at.x, v.at.y, v.at.z, v.ray.x, v.ray.y, v.ray.z, v.far, v.ignore].map(bits);
+      // Read each word directly. A V8 double-elements Array can change a
+      // NaN payload while boxing it, before the comparison even sees it.
+      const words = v => [bits(v.at.x), bits(v.at.y), bits(v.at.z), bits(v.ray.x), bits(v.ray.y), bits(v.ray.z), bits(v.far), bits(v.ignore)];
       assert.deepEqual(words(input), words(saved.input), 'captured collision inputs');
       if (saved.result) {
         hit.distance = saved.result.distance; hit.point.copy(saved.result.point); hit.normal.copy(saved.result.normal); result = hit;
