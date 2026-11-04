@@ -185,7 +185,7 @@ pub trait CrewWorld: SeatWorld {
     fn update_lock(&mut self, turret: usize, dt: f64, origin: &Vector3, dir: &Vector3, lease: Ref<SeatLease>);
     /// Weapon.update(dt, true, { held, pressed }, reload, a standing
     /// soldier's stance): the shots it fires.
-    fn weapon_update(&mut self, turret: usize, dt: f64, held: bool, pressed: bool, reload: bool) -> Vec<Shot>;
+    fn weapon_update(&mut self, turret: usize, dt: f64, held: bool, pressed: bool, reload: bool, out: &mut Vec<Shot>);
     /// Ordnance.fire: the weapon's round from `origin` along `direction`,
     /// the lease's unit's, the turret's body left out, following the
     /// lease's emitter; what it returns, for bind_round.
@@ -516,6 +516,8 @@ pub struct Crews {
     pub latched: Vec<Ref<SeatUnit>>,
     /// Reused snapshot of TurretSeats.update's starting leases.
     pub updating: Vec<Ref<SeatLease>>,
+    /// Caller-owned Weapon.update output, reused across each crew.
+    pub shots: Vec<Shot>,
     /// Whether the system has a collision world (`this.collision`).
     pub collide: bool,
 }
@@ -760,7 +762,9 @@ impl Crews {
             foreign!(self, st, w, w.update_lock(index, dt, &muzzle, &view, r));
         }
         let reload = take_reload(&mut st.seat_lease.get_mut(r).unwrap().input);
-        let shots = foreign!(self, st, w, w.weapon_update(index, dt, held, pressed, reload));
+        let mut shots = std::mem::take(&mut self.shots);
+        shots.clear();
+        foreign!(self, st, w, w.weapon_update(index, dt, held, pressed, reload, &mut shots));
         let mut view = view;
         for (k, shot) in shots.iter().enumerate() {
             let t = &mut self.turrets[turret];
@@ -782,6 +786,7 @@ impl Crews {
             foreign!(self, st, w, w.sound(index, k));
             foreign!(self, st, w, w.fired(index, k, unit, &muzzle, &gun_dir));
         }
+        self.shots = shots;
     }
 
     /// TurretSeats.pose (984): the body at the drum's seat, facing along the

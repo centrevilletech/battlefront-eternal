@@ -27,7 +27,7 @@ struct World {
     expected_empty: Option<Ref<Vehicle>>,
 }
 impl SeatWorld for World {
-    fn publish_hulls(&mut self, st: &Store, hulls: &bfe_sim::seats::hulls::Hulls) {
+    fn publish_hulls(&mut self, st: &mut Store, hulls: &mut bfe_sim::seats::hulls::Hulls) {
         for side in &hulls.hulls {
             let hull = st.vehicle.get(side.vehicle).unwrap();
             for (seat, view) in hull.seats.iter().zip(&hull.seat_leases) {
@@ -83,7 +83,7 @@ impl SeatWorld for World {
 }
 impl CrewWorld for World {
     fn update_lock(&mut self, _: usize, _: f64, _: &Vector3, _: &Vector3, _: Ref<SeatLease>) {}
-    fn weapon_update(&mut self, _: usize, _: f64, _: bool, _: bool, _: bool) -> Vec<Shot> { Vec::new() }
+    fn weapon_update(&mut self, _: usize, _: f64, _: bool, _: bool, _: bool, _: &mut Vec<Shot>) {}
     fn fire(&mut self, _: usize, _: &Vector3, _: &Vector3, _: Option<u32>, _: Ref<SeatLease>, _: usize) -> usize { unreachable!() }
     fn bind_round(&mut self, _: usize, _: usize, _: f64) { unreachable!() }
     fn sound(&mut self, _: usize, _: usize) { unreachable!() }

@@ -97,7 +97,7 @@ pub fn person_lease(lease: &SeatLease, units: &Slab<Unit>) -> bool {
 /// The seat as the AI drives it (SeatUnit) as its lease plays it: whether
 /// a controller drives it, and its own intent (seats.js blankSeatIntent
 /// and what the AI writes there).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SeatControl {
     pub driven: bool,
     pub intent: SeatIntent,
@@ -105,7 +105,7 @@ pub struct SeatControl {
 
 /// A seat's own intent (seats.js blankSeatIntent): the units' intent
 /// without the jet's direction, with the vehicle fields brake, up and down.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SeatIntent {
     pub forward: f64,
     pub right: f64,
