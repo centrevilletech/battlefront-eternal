@@ -27,6 +27,7 @@ const postures = ['stand', 'crouch', 'prone'], airs = [null, 'jump', 'fall', 'th
 const rowContext = { defs: { unitClass: { id: () => 0 }, weapon: { id: () => 0 } } };
 let nextSession = 1;
 const flag = value => value ? 1 : 0;
+const same = (a, b) => a?.length === b.length && b.every((value, i) => Object.is(value, a[i]));
 const descriptor = (object, key) => {
   for (let at = object; at; at = Object.getPrototypeOf(at)) {
     const desc = Object.getOwnPropertyDescriptor(at, key); if (desc) return desc;
@@ -79,33 +80,61 @@ function eligible(s, prediction, input, collision, kind) {
     if (!definitionKeys.every(key => plain(s.def, key) && (s.def[key] == null || numeric(s.def[key])))) return false;
   } else {
     if (!postures.includes(s.posture) || !postures.includes(s.diveFrom) || !airs.includes(s.air)
-      || !numericFields(s.jet, ['jump', 'push', 'recharge', 'cost', 'initial', 'minBorder']) || typeof s.jet.hover !== 'boolean'
+      || !numericFields(s.jet, ['jump', 'push', 'recharge', 'cost', 'initial', 'minBorder']) || !plain(s.jet, 'hover') || typeof s.jet.hover !== 'boolean'
       || !plain(s, 'stepBlocked', true) || typeof s.stepBlocked !== 'boolean') return false;
     if (collision.movement && (!(collision.movement instanceof MovementKernel) || collision.movement.tick !== movementTick)) return false;
   }
   return true;
 }
 
-function config(s, kind) {
-  if (!kind) return { signature: [0], words: [0] };
+function tracksSupported(tracks) {
+  if (Array.isArray(tracks)) {
+    if (Object.getPrototypeOf(tracks) !== Array.prototype || !plain(tracks, 'indexOf') || tracks.indexOf !== Array.prototype.indexOf
+      || !plain(tracks, Symbol.iterator) || tracks[Symbol.iterator] !== Array.prototype[Symbol.iterator]) return false;
+    for (let i = 0; i < tracks.length; i++) if (!plain(tracks, i)) return false;
+  } else if (!(ArrayBuffer.isView(tracks) && Object.getPrototypeOf(tracks) === Int32Array.prototype)
+    || Object.hasOwn(tracks, 'length') || !plain(tracks, 'indexOf') || tracks.indexOf !== Int32Array.prototype.indexOf
+    || !plain(tracks, Symbol.iterator) || tracks[Symbol.iterator] !== Int32Array.prototype[Symbol.iterator]) return false;
+  for (let i = 0; i < tracks.length; i++) if (!Number.isInteger(tracks[i]) || tracks[i] < -1 || tracks[i] > 2147483647) return false;
+  return true;
+}
+function clipEqual(copy, clip) {
+  if (!clip) return copy === null;
+  if (!copy || copy.tracks.length !== clip.tracks.length || copy.data.length !== clip.data.length) return false;
+  for (let i = 0; i < copy.tracks.length; i++) if (!Object.is(copy.tracks[i], clip.tracks[i])) return false;
+  for (let i = 0; i < copy.data.length; i++) if (!Object.is(copy.data[i], clip.data[i])) return false;
+  return true;
+}
+function config(s, kind, owner) {
+  if (!kind) return same(owner.signature, [0]) ? null : { signature: [0], words: [0], clips: null };
   const clips = clipNames.map(name => name === null ? null : s.clips.get(name));
   const values = definitionKeys.flatMap(key => [flag(s.def[key] != null), s.def[key] ?? 0]);
   const signature = [1, s.def, s.clips, ...values];
   for (const c of clips) {
-    if (c && (!Number.isInteger(c.frames) || c.frames <= 0 || !numeric(c.fps) || !(c.data instanceof Float32Array)
-      || !(Array.isArray(c.tracks) || c.tracks instanceof Int32Array) || c.tracks.some(n => !Number.isInteger(n) || n < -1 || n > 2147483647)
-      || c.data.length !== c.tracks.length * c.frames * 7)) return null;
+    if (c && (!['frames', 'fps', 'rootMotion', 'tracks', 'data'].every(key => plain(c, key))
+      || !Number.isInteger(c.frames) || c.frames <= 0 || !numeric(c.fps)
+      || !(ArrayBuffer.isView(c.data) && Object.getPrototypeOf(c.data) === Float32Array.prototype) || Object.hasOwn(c.data, 'length')
+      || !tracksSupported(c.tracks) || c.data.length !== c.tracks.length * c.frames * 7)) return false;
     signature.push(c, c?.frames, c?.fps, c?.tracks, c?.data, c?.rootMotion);
   }
-  return { signature, words() {
-    const words = [1, ...values];
-    for (const c of clips) {
-      words.push(flag(c));
-      if (c) { words.push(c.frames, c.fps, flag(c.rootMotion), c.tracks.length); for (const n of c.tracks) words.push(n);
-        words.push(c.data.length); for (const n of c.data) words.push(n); }
+  if (same(owner.signature, signature) && clips.every((c, i) => clipEqual(owner.clips[i], c))) return null;
+  // Content normally stays fixed, but a replay must also observe edits made
+  // in place between steps. Compare against private copies, not array identity.
+  const words = [1, ...values], copies = [];
+  for (const c of clips) {
+    words.push(flag(c));
+    if (c) {
+      const tracks = [], data = new Float32Array(c.data.length);
+      words.push(c.frames, c.fps, flag(c.rootMotion), c.tracks.length);
+      for (let i = 0; i < c.tracks.length; i++) { tracks.push(c.tracks[i]); words.push(c.tracks[i]); }
+      words.push(data.length);
+      for (let i = 0; i < data.length; i++) { data[i] = c.data[i]; words.push(data[i]); }
+      copies.push({ tracks, data });
+    } else {
+      copies.push(null);
     }
-    return words;
-  } };
+  }
+  return { signature, words, clips: copies };
 }
 function ingress(s, kick, input, dt, collision, kind, prediction, pressed) {
   const flags = collision.bodies.map(body => flag(body.enabled)), words = [collision.rayWorld, kind ? -1 : s.passThrough?.raySlot ?? -1, dt, flags.length, ...flags];
@@ -146,6 +175,8 @@ function publish(s, kick, output, kind, movement) {
 export function createActorPredictionSim(instance, collision, options) {
   return createActorPredictionBridge(bridgeFor(instance), collision, options);
 }
+// The bridge owns one reusable native session per body until bridge.dispose().
+// Wrapper disposal releases its lease; disposing the world must dispose its bridge.
 export function createActorPredictionBridge(bridge, collision, { trace = null } = {}) {
   const x = bridge.x;
   if (!collision?.rays || collision.rays.x !== x) throw Error('actor prediction requires the collision instance shared by its bridge');
@@ -157,7 +188,10 @@ export function createActorPredictionBridge(bridge, collision, { trace = null } 
     owners.delete(owner);
   }
   function run(owner, op, values) {
-    const input = Float64Array.from(values), ptr = x.prediction_actors_room(owner.handle, input.length);
+    live();
+    const input = Float64Array.from(values);
+    live();
+    const ptr = x.prediction_actors_room(owner.handle, input.length);
     bridge.views(); bridge.f.set(input, ptr / 8);
     const ok = x.prediction_actors_run(owner.handle, op);
     bridge.views();
@@ -173,25 +207,29 @@ export function createActorPredictionBridge(bridge, collision, { trace = null } 
     bind(soldier) {
       live();
       let owner = bodies.get(soldier);
-      if (!owner) { owner = { serial: nextSession++, handle: 0, signature: null, busy: false, dropAfter: false, events: [] }; bodies.set(soldier, owner); owners.add(owner); }
+      if (!owner) { owner = { serial: nextSession++, handle: 0, signature: null, clips: null, busy: false, dropAfter: false, events: [] }; bodies.set(soldier, owner); }
       let released = false, steps = 0;
+      const active = () => { live(); if (released) throw Error('actor prediction session is disposed'); };
       return {
         get handle() { return released ? 0 : owner.handle; }, get steps() { return steps; },
         dispose() { released = true; },
         step(prediction, input, dt, pressed = false) {
-          live();
-          if (released) throw Error('actor prediction session is disposed');
+          active();
           if (owner.busy) throw Error('actor prediction session is busy');
           owner.busy = true; owner.events = [];
           try {
             const kind = Object.getPrototypeOf(soldier) === Droideka.prototype ? 1 : 0;
             if (collision.rays?.x !== x || !numeric(dt) || !eligible(soldier, prediction, input, collision, kind)) return false;
-            const setup = config(soldier, kind); if (!setup) return false;
             collision.rayBodies();
+            active();
+            const setup = config(soldier, kind, owner);
+            active();
+            if (setup === false) return false;
             const values = ingress(soldier, prediction.kick, input, dt, collision, kind, prediction, pressed);
-            if (!owner.handle) owner.handle = x.prediction_actors_create();
-            if (!owner.signature || setup.signature.length !== owner.signature.length || setup.signature.some((value, i) => !Object.is(value, owner.signature[i]))) {
-              run(owner, 0, typeof setup.words === 'function' ? setup.words() : setup.words); owner.signature = setup.signature;
+            active();
+            if (!owner.handle) { owner.handle = x.prediction_actors_create(); owners.add(owner); }
+            if (setup) {
+              run(owner, 0, setup.words); owner.signature = setup.signature; owner.clips = setup.clips;
             }
             const output = run(owner, 1, values);
             publish(soldier, prediction.kick, output, kind, Boolean(collision.movement)); steps++;
