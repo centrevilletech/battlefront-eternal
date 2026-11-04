@@ -114,3 +114,10 @@ source submissions versus unique source texts, long tasks, preparation and ready
 times, and per-program registration durations. Use fresh applications in
 interleaved rounds; record whether driver caches were retained. It deliberately
 does not run through the farm performance gate.
+
+The planar mirror case aims from above four water cells and requires Rust mirror
+phase draws and reflection-stage captures; the ocean cases use the ocean's own
+reflection path. Each point records differences outside its control's per-pixel
+amplitude envelope, including differences on pixels where the control was stable.
+Control counts are not used as a blanket pixel budget. Shader pairing compares
+RGB channels, matching the existing presented-frame parity criterion.

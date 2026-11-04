@@ -29,12 +29,14 @@ async function worker() {
     });
     let report;
     try { report = JSON.parse(readFileSync(`${out}/${c.id}.json`)); } catch { report = { error: 'Missing report' }; }
-    results.push({ id: c.id, rc, pass: rc === 0 && report.pass === true, baselinePass: report.baselinePass, valid: report.valid, ownedPixels: report.worstOwnedPixels, threePixels: report.worstRustPixels, controlPct: report.worstControlPct, error: report.error });
+    results.push({ id: c.id, rc, pass: rc === 0 && report.pass === true && report.complete === true, baselinePass: report.baselinePass, valid: report.valid, ownedPixels: report.worstOwnedPixels, threePixels: report.worstRustPixels, controlPct: report.worstControlPct, error: report.error });
     console.log(JSON.stringify(results.at(-1)));
   }
 }
 await Promise.all(Array.from({ length: Math.max(1, Math.min(jobs, cases.length)) }, worker));
 results.sort((a,b) => a.id.localeCompare(b.id));
-const summary = { version: manifest.version, corpusHash: createHash('sha256').update(manifestBytes).digest('hex'), dist, complete: cases.length === manifest.cases.length, cases: results, pass: results.every(r => r.pass), baselinePass: results.every(r => r.baselinePass) };
+const programs = new Set();
+for (const c of cases) { try { const r=JSON.parse(readFileSync(`${out}/${c.id}.json`)); for(const p of r.shaderPrograms || []) if(p.accepted && p.hash) programs.add(p.key); } catch {} }
+const summary = { programs: [...programs].sort(), version: manifest.version, corpusHash: createHash('sha256').update(manifestBytes).digest('hex'), dist, complete: cases.length === manifest.cases.length, cases: results, pass: results.every(r => r.pass), baselinePass: results.every(r => r.baselinePass) };
 writeFileSync(`${out}/summary.json`, JSON.stringify(summary, null, 2));
 process.exitCode = summary.pass ? 0 : 1;

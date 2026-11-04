@@ -2,6 +2,7 @@
 // performance gate. Run in fresh applications with cold/warm cache noted.
 import fs from 'node:fs';
 import { expand } from './manifest.mjs';
+import { shaderSources } from '../../src/render-shaders.js';
 import { connect, loadBattle } from './battle.mjs';
 const manifest = expand(JSON.parse(fs.readFileSync(new URL('./manifest.json', import.meta.url))));
 const testCase = manifest.cases.find(c => c.id === (process.env.BFE_CORPUS_CASE || 'classic-nab2'));
@@ -22,7 +23,16 @@ const c = await connect();
 try {
   const loaded = await loadBattle(c, { settings: testCase.settings, query: testCase.query + (bridge ? '&rustShaderBridge' : ''), extraSrc });
   const metrics = await c.ev(`({load:window.__shaderLoad, programs:__bf.graphics.rust.shaderPrograms || [],enabled:__bf.graphics.rust.enabled,errors:__bf.graphics.rust.errors})`);
-  const result = { case: testCase.id, bridge, loaded, ...metrics };
+  const cacheProbe = process.env.BFE_SHADER_CACHE_PROBE ? await c.ev(`(() => {
+    const g=__bf.graphics,r=g.rust.rust,rows=[];
+    for(const key of ${JSON.stringify(Object.keys(shaderSources))}) {
+      let start=performance.now();const first=r.add_owned_program(key),firstMs=performance.now()-start;
+      start=performance.now();const second=r.add_owned_program(key),cachedMs=performance.now()-start;
+      rows.push({key,firstMs,cachedMs,same:first===second});
+    }
+    g.renderer.resetState();return {rows,error:g.renderer.getContext().getError()};
+  })()`) : null;
+  const result = { cacheProbe, case: testCase.id, bridge, loaded, ...metrics };
   fs.writeFileSync(`${process.env.OUT}/${process.env.LABEL}.json`, JSON.stringify(result, null, 2));
   console.log(JSON.stringify(result));
   if (loaded.error || !loaded.spawned || !metrics.enabled) process.exitCode = 1;

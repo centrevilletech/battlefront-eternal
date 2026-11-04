@@ -548,7 +548,8 @@
       "preset": "high",
       "settings": {
         "waterQuality": "ultra"
-      }
+      },
+      "camera": "water"
     },
     {
       "id": "mirror-kam1",

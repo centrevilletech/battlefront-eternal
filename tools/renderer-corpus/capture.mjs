@@ -2,9 +2,10 @@
 import fs from 'node:fs';
 import { expand } from './manifest.mjs';
 import { connect, loadBattle, settingsFor, GL_STATE, HELPERS_SRC } from './battle.mjs';
+const manifest = expand(JSON.parse(fs.readFileSync(new URL('./manifest.json', import.meta.url))));
 const LABEL = process.env.LABEL || 'enparity', OUT = process.env.OUT || 'renderer-corpus-out';
 const RGBA = process.env.RGBA || OUT;
-const CAPTURES = Number(process.env.CAPTURES || 4), GAP = Number(process.env.GAP || 30);
+const CAPTURES = Number(process.env.CAPTURES || manifest.captures), GAP = Number(process.env.GAP || manifest.gap);
 const MIN_VALID = Number(process.env.MIN_VALID || CAPTURES);
 const WANT_SAMPLES = Number(process.env.WANT_SAMPLES || 2);
 const LIMIT = 0.01;
@@ -18,7 +19,6 @@ const gpuDeaths = () => {
   if (!LOG || !fs.existsSync(LOG)) return null;
   return fs.readFileSync(LOG, 'utf8').split('\n').filter((l) => GPU_DEATH.test(l)).map((l) => l.slice(0, 200));
 };
-const manifest = expand(JSON.parse(fs.readFileSync(new URL('./manifest.json', import.meta.url))));
 const caseId = process.env.BFE_CORPUS_CASE;
 const testCase = manifest.cases.find((c) => c.id === caseId);
 if (!testCase) throw Error('Unknown corpus case ' + caseId);
@@ -60,7 +60,7 @@ const setup = await c.ev(`(async () => { const b = __bf, g = b.graphics, R = b.r
 await c.ev(`(() => { const g = __bf.graphics, R = g.renderer, gl = R.getContext(), T = window.__gatePar, before = g.postSteps;
  g.postSteps = function (...args) {
    if (T.want) { T.stages = {}; const old = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
-     for (const [name, target] of [['far', g.farTarget], ['scene', g.sceneTarget]]) {
+     for (const [name, target] of [['far', g.farTarget], ['scene', g.sceneTarget], ...(g.scene.userData.water?.reflectionFar ? [['reflection',g.scene.userData.water.target],['reflectionFar',g.scene.userData.water.reflectionFar]] : [])]) {
        const buf = new Uint8Array(target.width * target.height * 4);
        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, R.properties.get(target).__webglFramebuffer);
        gl.readPixels(0, 0, target.width, target.height, gl.RGBA, gl.UNSIGNED_BYTE, buf); T.stages[name] = buf;
@@ -74,7 +74,7 @@ await c.ev(`(() => {
  const diff=(a,b)=> {let differing=0,maxDelta=0;for(let i=0;i<a.length;i+=4){let d=0;for(let j=0;j<3;j++)d=Math.max(d,Math.abs(a[i+j]-b[i+j]));if(d){differing++;maxDelta=Math.max(maxDelta,d);}}return {differing,maxDelta};};
  const post=rust.post;
  rust.post=function(renderer,steps) {
-   if(!T.want || !this.active) return post.call(this,renderer,steps);
+   if(!T.want || !this.active || !this.enabled) return post.call(this,renderer,steps);
    const mode=this.ownedShaderSources;
    for(const step of steps) {
      const images={}, drawn={};
@@ -91,7 +91,7 @@ await c.ev(`(() => {
  const hud=rust.coverHud;
  let texture=null,fb=null;
  rust.coverHud=function(renderer,batch) {
-   if(!T.want || !this.active) return hud.call(this,renderer,batch);
+   if(!T.want || !this.active || !this.enabled) return hud.call(this,renderer,batch);
    const w=gl.drawingBufferWidth,h=gl.drawingBufferHeight;
    if(!texture) { texture=gl.createTexture();fb=gl.createFramebuffer(); }
    R.setRenderTarget(null); gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,texture);
@@ -119,21 +119,49 @@ const diff = (A, B) => {
   const px = A.w * A.h;
   return { pixels: px, differing: n, pct: +((100 * n) / px).toFixed(5), maxDelta: max, meanDeltaOfDiffering: n ? +(sum / n).toFixed(2) : 0 };
 };
+// A control is a per-pixel envelope, never just a worst-count allowance.
+const controlResidual = (a, b, c) => {
+  let differing = 0, stablePixels = 0, maxExcess = 0;
+  for (let i=0;i<a.d.length;i+=4) {
+    let delta=0,control=0;
+    for(let j=0;j<3;j++) { delta=Math.max(delta,Math.abs(a.d[i+j]-b.d[i+j]));control=Math.max(control,Math.abs(a.d[i+j]-c.d[i+j])); }
+    if(delta>control) { differing++; if(!control)stablePixels++;maxExcess=Math.max(maxExcess,delta-control); }
+  }
+  return { differing, stablePixels, maxExcess };
+};
 // The share of lit pixels (any channel over 8): a blank or cleared frame is not a capture.
 const lit = (S) => { let n = 0; for (let i = 0; i < S.d.length; i += 64) if (S.d[i] > 8 || S.d[i + 1] > 8 || S.d[i + 2] > 8) n++; return +(n / (S.d.length / 64)).toFixed(3); };
+if (testCase.camera === 'water') await c.ev(`(() => {
+ const b=__bf,g=b.graphics,water=g.scene.userData.water,T=window.__gatePar,V=b.THREE.Vector3;
+ if(!water || water.ocean) throw Error('No planar mirror water');
+ T.place=k=>{const eye=g.camera.position,cells=[...water.cellBounds];cells.sort((a,z)=>((a.min.x+a.max.x)/2-eye.x)**2+((a.min.z+a.max.z)/2-eye.z)**2-((z.min.x+z.max.x)/2-eye.x)**2-((z.min.z+z.max.z)/2-eye.z)**2);const box=cells[k%cells.length];if(!box)throw Error('No water cells');const x=(box.min.x+box.max.x)/2,z=(box.min.z+box.max.z)/2,angle=.9+1.7*k;T.pose={eye:new V(x+Math.cos(angle)*14,water.level+5,z+Math.sin(angle)*14),at:new V(x,water.level,z)};};
+ const aim=c=>{if(T.pose){c.position.copy(T.pose.eye);c.lookAt(T.pose.at);c.updateMatrixWorld();}};
+ const reflect=water.reflect;water.reflect=function(c){aim(c);this.reflectFrames=0;return reflect.call(this,c);};
+ const render=g.render;g.render=function(...a){aim(g.camera);return render.apply(this,a);};return 1;
+})()`);
 const inputHashes = await c.ev(`(async () => {
  const g=__bf.graphics,R=g.renderer,gl=R.getContext();
  const hash=async data=> {const digest=await crypto.subtle.digest('SHA-256',data);return [...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');};
  const text=s=>new TextEncoder().encode(s);
- const shaders=[];
- for(const p of R.info.programs || []) for(const shader of gl.getAttachedShaders(p.program) || []) shaders.push({stage:gl.getShaderParameter(shader,gl.SHADER_TYPE),hash:await hash(text(gl.getShaderSource(shader)))});
+ const shaders=[],programs=[];
+ for(const p of R.info.programs || []) {
+   const attributes=[],uniforms=[];
+   for(let i=0;i<gl.getProgramParameter(p.program,gl.ACTIVE_ATTRIBUTES);i++){const a=gl.getActiveAttrib(p.program,i);attributes.push({name:a.name,type:a.type,size:a.size,location:gl.getAttribLocation(p.program,a.name)});}
+   for(let i=0;i<gl.getProgramParameter(p.program,gl.ACTIVE_UNIFORMS);i++){const u=gl.getActiveUniform(p.program,i);uniforms.push({name:u.name,type:u.type,size:u.size});}
+   const stages=[];
+   for(const shader of gl.getAttachedShaders(p.program) || []){const source=gl.getShaderSource(shader),h=await hash(text(source));shaders.push({stage:gl.getShaderParameter(shader,gl.SHADER_TYPE),hash:h,source});stages.push(h);}
+   programs.push({key:p.cacheKey,stages,attributes,uniforms});
+ }
  const textures=new Set();
  const material=m=> {if(!m)return;for(const u of Object.values(m.uniforms || {}))if(u.value?.isTexture)textures.add(u.value);if(m.map)textures.add(m.map);};
  for(const scene of [g.scene,g.farScene,g.viewScene,__bf.hud.scene]) scene?.traverse(o=>{for(const m of (Array.isArray(o.material)?o.material:[o.material]))material(m);});
  const payloads=[];
  for(const t of textures){const parts=[];const images=[t.image,...(t.mipmaps || [])];for(const im of images){if(!im)continue;if(im.data && ArrayBuffer.isView(im.data))parts.push(await hash(im.data));else if(im.width && im.height && !t.isRenderTargetTexture){try{const c=document.createElement('canvas');c.width=im.width;c.height=im.height;const x=c.getContext('2d');x.drawImage(im,0,0);parts.push(await hash(x.getImageData(0,0,c.width,c.height).data));}catch{parts.push('unreadable');}}}payloads.push({format:t.format,type:t.type,wrap:[t.wrapS,t.wrapT],filter:[t.minFilter,t.magFilter],flip:t.flipY,mips:parts});}
- return {shaders,textures:payloads,textureHash:await hash(text(JSON.stringify(payloads)))};
+ return {shaders,programs,textures:payloads,textureHash:await hash(text(JSON.stringify(payloads)))};
 })()`);
+const shaderDir = `${OUT}/shaders`;
+fs.mkdirSync(shaderDir, { recursive: true });
+for (const shader of inputHashes.shaders) { fs.writeFileSync(`${shaderDir}/${shader.hash}.glsl`, shader.source); delete shader.source; }
 const deathsAtStart = gpuDeaths();
 const points = [];
 let worst = null;
@@ -141,7 +169,7 @@ for (let k = 0; k < CAPTURES; k++) {
   await c.ev(`(async () => { const b = __bf, g = b.graphics, G = window.__gate; g.rust.setActive(true);
     G.key('KeyW', true); window.dispatchEvent(new MouseEvent('mousedown', {button:0,bubbles:true}));
     for (let i = 0; i < ${GAP}; i++) { const f = ${k} * ${GAP} + i; if (f % 90 === 0) G.key('KeyA', true); if (f % 90 === 45) G.key('KeyA', false); G.look(Math.round(9 * Math.sin(f * 0.07)), Math.round(3 * Math.cos(f * 0.05))); await b.lockstep(1 / 60, true); }
-    window.dispatchEvent(new MouseEvent('mouseup', {button:0,bubbles:true})); G.key('KeyW', false); G.key('KeyA', false); return 1; })()`);
+    window.dispatchEvent(new MouseEvent('mouseup', {button:0,bubbles:true})); G.key('KeyW', false); G.key('KeyA', false); window.__gatePar.place?.(${k}); return 1; })()`);
   const shots = {}, meta = {};
   for (const v of ['three', 'bridge', 'rust', 'three2']) {
     const raw = await c.ev(`(async () => { const k = ${k}; const b = __bf, g = b.graphics, G = window.__gate, T = window.__gatePar, gl = b.renderer.getContext();
@@ -191,6 +219,7 @@ for (let k = 0; k < CAPTURES; k++) {
   const valid = why.length === 0;
   const point = { k, valid, why, meta };
   if (shots.three && shots.rust && shots.three2) {
+    point.controlResidual = controlResidual(shots.three, shots.rust, shots.three2);
     point.owned = diff(shots.bridge, shots.rust);
     point.bridge = diff(shots.three, shots.bridge);
     point.rust = diff(shots.three, shots.rust);
@@ -217,6 +246,8 @@ const good = points.filter((p) => p.valid && p.rust && !p.rust.error);
 const sizeOk = setup.buffer[0] === 1600 && setup.buffer[1] === 900 && setup.target[0] === 1600 && setup.target[1] === 900;
 const samplesNote = setup.samples === WANT_SAMPLES ? `${setup.samples} samples` : (setup.supportedSamples || []).includes(WANT_SAMPLES) ? `${setup.samples} samples, not the ${WANT_SAMPLES} asked` : `${setup.samples} samples: the GPU offers ${JSON.stringify(setup.supportedSamples)}, no ${WANT_SAMPLES}`;
 const out = {
+  contract: { version: manifest.version, captures: CAPTURES, gap: GAP, historyFrames: manifest.historyFrames },
+  complete: CAPTURES === manifest.captures && GAP === manifest.gap && MIN_VALID === manifest.captures,
   label: LABEL, query: process.env.Q, loaded, setup, samplesNote, sizeOk,
   emuArgs: process.env.EMU_ARGS || null, gpuDeathsAtStart: deathsAtStart, gpuDeaths: gpuDeaths(),
   inputHashes,
@@ -233,10 +264,11 @@ const out = {
 };
 out.valid = good.length >= MIN_VALID && sizeOk;
 out.worstOwnedPixels = good.length ? Math.max(...good.map(p => p.owned.differing)) : null;
+out.mirrorCovered = testCase.camera !== 'water' || good.every(p => p.meta.rust.rustPhases.includes('mirror') && p.meta.rust.stages.reflection);
 out.exactPairs = good.flatMap(p => p.meta.rust.pairs || []);
 out.worstPairPixels = out.exactPairs.length ? Math.max(...out.exactPairs.map(p => p.differing)) : null;
-out.pass = out.valid && out.shaderPrograms.some(p => p.accepted && p.hash) && out.shaderPrograms.every(p => p.accepted) && out.exactPairs.length > 0 && out.exactPairs.every(p => p.bridge && p.owned && p.differing === 0);
-out.baselinePass = out.valid && good.every(p => p.rust.differing <= 144 || p.rust2.differing === 0);
+out.pass = out.valid && out.mirrorCovered && out.shaderPrograms.some(p => p.accepted && p.hash) && out.shaderPrograms.every(p => p.accepted) && out.exactPairs.length > 0 && out.exactPairs.every(p => p.bridge && p.owned && p.differing === 0);
+out.baselinePass = out.valid && good.every(p => p.rust.differing <= (testCase.preset === 'classic' ? 0 : 144) || p.controlResidual.differing === 0 || p.rust2.differing === 0);
 if (testCase.contextLoss) {
   out.contextLoss = await c.ev(`(async () => { const g=__bf.graphics, gl=g.renderer.getContext(), ext=gl.getExtension('WEBGL_lose_context'); if(!ext) return {supported:false}; ext.loseContext(); await new Promise(r=>setTimeout(r,100)); const lost=g.rust.lost; ext.restoreContext(); await new Promise(r=>setTimeout(r,1500)); await __bf.lockstep(0,true); return {supported:true,lost,active:g.rust.active,enabled:g.rust.enabled,restored:!gl.isContextLost()}; })()`);
   out.pass &&= out.contextLoss.supported && out.contextLoss.lost && !out.contextLoss.enabled && out.contextLoss.restored;
