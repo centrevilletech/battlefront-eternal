@@ -12,7 +12,7 @@ import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse,
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
 import { Agent } from '../src/ai/classic/agents.js';
-import { AttackPatterns, UnitCombatAgent, CoverHelper, boardingClear, inForwardCone, coverReservation, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
+import { AttackPatterns, UnitCombatAgent, CoverHelper, boardingClear, classicBinding, inForwardCone, coverReservation, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
 import { FireControl, clusterState, consumeFire, effectiveRange, expandedRange, forwardSpeed, lowerBand, maxExpandedRange, sensorRange, upperBand, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -1854,4 +1854,97 @@ test('native range inventory traversal closes nested iterators when a range call
     return {history,error};
   }
   assert.deepEqual(run(true),run(false));
+});
+
+test('native combat bindings preserve aim method capture, curves, shared vectors and callback writes', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],held=[],world={aiSim:native?sim:null},ai={world};let binding,nested=false,controller,reads=0;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8800).fill(3));};
+    const returned={direction:true},nestedResult={nested:true},weapon={};
+    const other={unit:{alive:true,team:1,hero:false,forward(out){out.set(7,-0,9);log('nested-forward');}},
+      perception:{aimer:{update(out,dt,curves,w,hero){log('nested-aim',out.toArray(),dt,curves,w,hero);return nestedResult;}}},difficulty:{A:2}};
+    const aimer={get update(){log('update-method');return function(out,dt,curves,w,hero){log('aimer',this===aimer,out.toArray(),dt,curves===difficulty?'own':curves,w===weapon,hero);held.push(out);return returned;};}};
+    const p={aimer,fire:{channel:1,nativeConsume(c,u,w){log('consume',c===controller,u===unit,w===world);if(i%7===0)binding.aimHooked=true;return false;}}};
+    const unit={alive:i%19!==0,team:2,intent:{},get hero(){log('hero');return i%2!==0;},
+      forward(out){out.set(1,2,3);held.push(out);log('forward',out.toArray());if(i%11===0&&!nested){nested=true;binding.updateAim(other,-0);nested=false;}
+        if(i%13===0)controller.perception={aimer:{update(){throw Error('replacement perception used');}},fire:p.fire};},
+      combat:{arsenal:{current(channel){log('weapon',channel);if(i%5===0)unit.intent={changed:true};return weapon;}}}};
+    const difficulty={get A(){log('curve-A');return [1,'2',Infinity,NaN][i%4];},curves(team){log('fallback-curves',this===difficulty,team);return i%3===0?false:{fallback:true};}};
+    controller={unit,perception:p,difficulty};
+    ai.curvesFor=function(team){log('ai-curves',this===ai,team);if(i%17===0)controller.difficulty=null;return [null,0,false,undefined][i%4];};
+    binding=classicBinding(ai);
+    const result=binding.updateAim(controller,.125),values=[result===returned,result===null];
+    controller.perception=p;controller.difficulty=difficulty;unit.alive=true;
+    const aim=binding.aim(controller,.25);values.push(aim===returned,unit.intent.aim===returned,binding.aimHooked);
+    controller.perception=p;controller.difficulty=difficulty;binding.aimHooked=[false,'',0,true][i%4];
+    const intent={};const consumed=binding.consumeFire(controller,unit,.5,intent);values.push(consumed,intent.aim===returned,binding.aimHooked);
+    const one={candidate:1},two={candidate:2};Object.defineProperty(controller,'perception',{configurable:true,get(){log('perception-read',++reads);return reads===1?one:two;}});
+    binding.detachController(controller);values.push(one.candidate,two.candidate);
+    return {history,values,held:held.map(v=>v.toArray())};
+  }
+  for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`combat binding aim ${i}`);
+});
+
+test('native combat binding attaches one captured RNG closure and closes failing weapon iterators', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},ai={world},random=new ClassicRandom(19+i),held=[];let appended=false;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8900).fill(5));};
+    world.randomA={uniform(){log('uniform');return random.uniform();}};
+    const weapons=[];for(let n=0;n<3;n++)weapons.push({set random(draw){log('random-set',n);held.push(draw);if(n===1&&i%7===0)throw Error('weapon setter failed');
+      if(n===0&&!appended&&i%5===0){appended=true;weapons.push({set random(fn){held.push(fn);log('appended-random');}});}world.randomA=null;log('draw',draw());}});
+    const iterable={[Symbol.iterator](){let index=0;log('iterator');return {next(){log('next',index);return index<weapons.length?{value:weapons[index++],done:false}:{done:true};},return(){log('return');return {done:true};}};}};
+    const controller={unit:{combat:{arsenal:{weapons:iterable}}}},binding=classicBinding(ai);let error;
+    try{binding.attachController(controller);}catch(e){error=e.message;}
+    if(i%7===0){assert.equal(error,'weapon setter failed');assert.deepEqual(history.at(-1),['return']);}
+    const same=held.every(fn=>fn===held[0]);return {history,error,same,state:random.state};
+  }
+  for(let i=0;i<512;i++)assert.deepEqual(run(true,i),run(false,i),`combat binding RNG ${i}`);
+});
+
+test('native journal dispatch preserves reference getters, shot fallbacks and deferred readers', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},ai={world};let saved,kindReads=0,sourceReads=0,targetReads=0,aliveReads=0,nested=false;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(9000).fill(7));};
+    const source={id:'source',team:0},fallback={id:'fallback',team:0};
+    const c={notifyShot(s,known,p){log('notify',s.id,known,p?.toArray?.()??p);if(i%13===0&&!nested){nested=true;saved({kind:'damage',target:victim,attackerCharacter:fallback,amount:3});}}};
+    const victim={alive:true,generation:2,team:1,position:new Vector3(4,0,7),controller:c};
+    const shooter={alive:true,generation:1,team:0,position:new Vector3(2,0,1),character:source,controller:{perception:{fire:true},target:{unit:victim,generation:2}}};
+    const sourceRef={get unit(){log('source-unit',++sourceReads);return i%17===0&&sourceReads===2?null:shooter;},generation:i%7===0?'1':1};
+    const targetRef={get unit(){log('target-unit',++targetReads);if(i%11===0)shooter.controller={};return i%5===0?null:victim;},generation:2,
+      get alive(){log('bare-alive',++aliveReads);return i%3===0?aliveReads===1:true;}};
+    world.units={relation(a,b){log('relation',a,b);return a===b?1:-1;}};
+    world.events={reader(){log('reader');return {read(fn){log('read');saved=fn;}};}};
+    const binding=classicBinding(ai);assert.equal(binding.ingest(),undefined);
+    const event={get kind(){log('kind',++kindReads);return i%2===0?'shot':kindReads===1?'unknown':'damage';},
+      get source(){log('source');return sourceRef;},get target(){log('target');return i%23===0?null:targetRef;},
+      get attacker(){log('attacker');return i%7===0?null:sourceRef;},get attackerCharacter(){log('attacker-character');return fallback;},
+      get amount(){log('amount');return i%3===0?'4':4;},get generic(){log('generic');return null;},get typed(){log('typed');return 1;},
+      get known(){log('known');return i%3===0?'yes':false;},get point(){log('point');return [1,2,3];}};
+    saved(event);return history;
+  }
+  for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`combat binding event ${i}`);
+});
+
+test('native grenade bindings preserve captured danger state, scalar coercion and voice notification order', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:20},ai={world},random=new ClassicRandom(71+i),position=new Vector3(1,2,3),owner={};let assigned,stored;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(9100).fill(9));};
+    world.randomA={range(lo,hi){log('range',lo,hi);return random.range(lo,hi);}};
+    world.difficulty={get enemySkill(){log('skill');return i%2===0?14:18;}};
+    const target={kind:0,team:1,generation:3,position:new Vector3(2,0,1),controller:{notifyDanger(p){log('danger',p===position);}}};
+    world.events={emit(kind,fields){log('voice',kind,fields.source.unit===target,fields.event,fields.property);}};
+    world.units={query(p,r,out,filter){log('query',p===position,r,filter(owner),filter(target));out.length=0;out.push(target);}};
+    const state={firstContact:[Infinity,'4',4,NaN][i%4],lastNotify:i%5===0?'1':-1},round={};
+    Object.defineProperty(round,'aiDanger',{get(){log('state');return stored;},set(value){log('assign');assigned=value;stored=i%7===0?{firstContact:999,lastNotify:999}:value;}});
+    stored=i%3===0?null:state;
+    const contact=i%11===0?{valueOf(){log('contact-number');return 2;},toString(){log('contact-string');return '2';}}:i%2===0?'2':2;
+    const binding=classicBinding(ai),result=binding.grenadeUpdate(round,position,owner,contact),used=assigned??state;
+    const value=v=>v===contact&&typeof contact==='object'?'contact':v;
+    return {history,result,state:[value(used.firstContact),used.lastNotify],stored:[value(stored.firstContact),stored.lastNotify],random:random.state};
+  }
+  for(let i=0;i<512;i++)assert.deepEqual(run(true,i),run(false,i),`combat binding danger ${i}`);
 });

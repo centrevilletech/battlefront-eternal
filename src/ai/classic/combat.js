@@ -1524,6 +1524,8 @@ export function inForwardCone(unit, point) {
 // from this module beyond its defaults: classicBinding(ai) entries win.
 
 const aimDesired = new THREE.Vector3();
+const bindingServices = {create:controller=>new Perception(controller), rng:rngA, lead:leadPoint, fire:consumeFire,
+  danger:notifyDanger, emit:emitVo, shot:notifyTargetedShot, damage:notifyDamage, vec, aimDesired};
 
 export function classicBinding(ai) {
   const world = ai.world;
@@ -1534,15 +1536,18 @@ export function classicBinding(ai) {
     // Each bind (spawn): fresh perception, and the shared generator for the
     // bot's weapon spread.
     createPerception(controller) {
+      if(world.aiSim)return world.aiSim.bindings.run(0,binding,world,ai,bindingServices,{controller});
       const p = new Perception(controller);
       p.reset();
       return p;
     },
     attachController(controller) {
+      if(world.aiSim)return world.aiSim.bindings.run(1,binding,world,ai,bindingServices,{controller});
       const arsenal = controller.unit?.combat?.arsenal;
       if (arsenal) useClassicRandom(arsenal, rngA(world));
     },
     detachController(controller) {
+      if(world.aiSim)return world.aiSim.bindings.run(2,binding,world,ai,bindingServices,{controller});
       if (controller.perception) controller.perception.candidate = null;
     },
     // At a scheduler cycle wrap.
@@ -1552,6 +1557,7 @@ export function classicBinding(ai) {
     // Aim state 0: the target led by the AI's accumulated dt (false without
     // a weapon in hand: the scheduler then looks 30 m ahead).
     leadPoint(controller, target, dt, out) {
+      if(world.aiSim)return world.aiSim.bindings.run(3,binding,world,ai,bindingServices,{controller,target,dt,out});
       const unit = controller.unit;
       const weapon = selectedWeapon(unit, controller);
       if (!unit || !weapon) return false;
@@ -1564,6 +1570,7 @@ export function classicBinding(ai) {
     // AI input execution: the fire buttons, and (until the integrator calls
     // aim() after the body moves) the Aimer's direction for intent.aim.
     consumeFire(controller, unit, step, intent) {
+      if(world.aiSim){world.aiSim.bindings.run(4,binding,world,ai,bindingServices,{controller,unit,dt:step,intent});return;}
       consumeFire(controller, unit, world);
       if (!binding.aimHooked && intent) intent.aim = binding.updateAim(controller, step);
     },
@@ -1572,6 +1579,7 @@ export function classicBinding(ai) {
     // in the 2004 game. Writes intent.aim (what becomes aimOverride) and
     // returns it.
     aim(controller, dt) {
+      if(world.aiSim)return world.aiSim.bindings.run(5,binding,world,ai,bindingServices,{controller,dt});
       binding.aimHooked = true;
       const direction = binding.updateAim(controller, dt);
       const intent = controller.unit?.intent;
@@ -1579,6 +1587,7 @@ export function classicBinding(ai) {
       return direction;
     },
     updateAim(controller, dt) {
+      if(world.aiSim)return world.aiSim.bindings.run(6,binding,world,ai,bindingServices,{controller,dt});
       const unit = controller.unit;
       const p = controller.perception;
       if (!unit?.alive || !p) return null;
@@ -1592,6 +1601,7 @@ export function classicBinding(ai) {
     // Call once per step before ai.update.
     reader: world.events?.reader?.() ?? null,
     ingest() {
+      if(world.aiSim)return world.aiSim.bindings.run(7,binding,world,ai,bindingServices,{});
       binding.reader?.read((e) => ingestEvent(world, e));
     },
     // Each simulation step, for each live grenade or sticky round: the
@@ -1599,12 +1609,14 @@ export function classicBinding(ai) {
     // something (Infinity before); the notifier's state lives on the round.
     // The first soldier warned shouts its class FleeSound (a "vo" record).
     grenadeUpdate(round, position, owner, firstContact = Infinity) {
+      if(world.aiSim)return world.aiSim.bindings.run(8,binding,world,ai,bindingServices,{round,position,owner,firstContact});
       const state = (round.aiDanger ||= { firstContact: Infinity, lastNotify: -1 });
       if (firstContact < state.firstContact) state.firstContact = firstContact;
       const skill = world.difficulty?.enemySkill ?? 14;
       return notifyDanger(world, state, position, owner, skill, (u) => emitVo(ai, u, { event: "flee", property: "FleeSound" }));
     },
   };
+  world.aiSim?.bindings.bind(binding);
   return binding;
 }
 

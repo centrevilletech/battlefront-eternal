@@ -32,6 +32,9 @@ mod fire_service_module;
 mod weapon_module;
 #[cfg(target_arch = "wasm32")]
 mod range_module;
+#[cfg(target_arch = "wasm32")]
+mod binding_module;
+mod binding_state_module;
 pub mod control;
 pub mod module;
 mod navigation_module;
