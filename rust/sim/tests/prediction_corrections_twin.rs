@@ -2,6 +2,7 @@
 use bfe_content::{json, Value};
 use bfe_sim::prediction::corrections::Session;
 use std::{
+    collections::BTreeMap,
     io::{BufRead, BufReader},
     path::Path,
     process::{Command, Stdio},
@@ -114,7 +115,8 @@ fn correction_readers_match_js_validation_and_wasm_words() {
             Box::new(BufReader::new(stdout))
         };
     let mut session = Session::default();
-    let mut counts = [0usize; 8];
+    // Restoring a body can also emit nested arsenal operations.
+    let mut counts = BTreeMap::<u32, usize>::new();
     let mut failures = 0;
     for (line, source) in corpus.lines().enumerate() {
         let event = json::parse(&source.unwrap()).unwrap();
@@ -144,7 +146,7 @@ fn correction_readers_match_js_validation_and_wasm_words() {
                 "{label} operation {line} word {word}: {actual:?} != {expected:?}"
             );
         }
-        counts[op as usize] += 1;
+        *counts.entry(op).or_default() += 1;
     }
     if let Some(child) = child {
         let result = child.wait_with_output().unwrap();
@@ -156,10 +158,10 @@ fn correction_readers_match_js_validation_and_wasm_words() {
     }
     if content {
         assert!(
-            counts[4] >= 30
-                && counts[5] >= 30
-                && counts[6] >= 30
-                && counts.iter().sum::<usize>() >= 300
+            counts.get(&4).copied().unwrap_or(0) >= 30
+                && counts.get(&5).copied().unwrap_or(0) >= 30
+                && counts.get(&6).copied().unwrap_or(0) >= 30
+                && counts.values().sum::<usize>() >= 300
         );
         assert_eq!(
             failures, 0,
@@ -167,7 +169,9 @@ fn correction_readers_match_js_validation_and_wasm_words() {
         );
     } else {
         assert!(
-            counts.iter().all(|n| *n > 0) && counts.iter().sum::<usize>() > 2500 && failures > 1000
+            (0..8).all(|op| counts.get(&op).is_some_and(|n| *n > 0))
+                && counts.values().sum::<usize>() > 2500
+                && failures > 1000
         );
     }
     eprintln!("correction reads: operations {counts:?}, {failures} exact errors");

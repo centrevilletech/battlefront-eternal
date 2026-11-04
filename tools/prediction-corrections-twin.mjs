@@ -12,7 +12,8 @@ const words = values => {
   return bytes.toString('hex');
 };
 let traces = [], cases = 0, accepted = 0, rejected = 0;
-const counts = Array(8).fill(0), native = createCorrectionSim(await loadSim(), { trace: event => traces.push(event) });
+// Require all eight body readers while counting nested arsenal reads too.
+const counts = new Map(Array.from({ length: 8 }, (_, op) => [op, 0])), native = createCorrectionSim(await loadSim(), { trace: event => traces.push(event) });
 try {
   for (const { label, descriptor, variation } of correctionCases()) {
     traces = [];
@@ -22,10 +23,10 @@ try {
     for (const trace of traces) {
       const event = { label, op: trace.op, input: words(trace.input), output: words(trace.output), error: trace.error ?? null };
       if (!process.stdout.write(JSON.stringify(event) + '\n')) await once(process.stdout, 'drain');
-      counts[trace.op]++;
+      counts.set(trace.op, (counts.get(trace.op) ?? 0) + 1);
     }
     cases++; if (actual.error) rejected++; else accepted++;
   }
-  assert.ok(accepted > 500 && rejected > 2000 && native.calls > 2500 && counts.every(n => n > 0));
-  console.error(JSON.stringify({ cases, accepted, rejected, operations: native.calls, counts }));
+  assert.ok(accepted > 500 && rejected > 2000 && native.calls > 2500 && [...counts.values()].every(n => n > 0));
+  console.error(JSON.stringify({ cases, accepted, rejected, operations: native.calls, counts: Object.fromEntries(counts) }));
 } finally { native.dispose(); }
