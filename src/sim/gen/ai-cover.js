@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiCoverOp_NAMES = ["scoreStart","forward","rangeWeapon","rangeValues","lower","finish","findStart","query","random","time","draw","available","score"];
+export const AiCoverOp_NAMES = ["scoreStart","forward","rangeWeapon","rangeValues","lower","finish","findStart","query","random","time","draw","available","score","helperTime","helperCapture","helperState","helperStateValue","helperHint","helperReserveInit","helperRenewPrepare","helperReserveHeld","helperRenew","helperRequest","helperFlush","helperGoto","helperFreeze","helperDelay","helperInt","helperAdd","helperMaskStart","helperMask","helperMaskDraw","helperPostureDraw","helperField","helperScore","helperRelease","helperFind","helperArrived","helperSideMask","helperSideForward","helperSidePosition","helperGotoPoint"];
 export const AiCoverOp_INDEX = new Map(AiCoverOp_NAMES.map((name, i) => [name, i]));
 
 export class AiCoverArgsMirror {
@@ -10,6 +10,8 @@ export class AiCoverArgsMirror {
     this.op = "scoreStart";
     this.id = 0;
     this.number = NaN;
+    this.other = NaN;
+    this.point = [NaN, NaN, NaN];
   }
 }
 
@@ -17,6 +19,8 @@ export function syncAiCoverArgs(b, f, at, h, m) {
   m.op = AiCoverOp_NAMES[f[at + 0]];
   m.id = f[at + 1];
   m.number = f[at + 2];
+  m.other = f[at + 3];
+  { const a = (m.point ??= new Array(3)); a[0] = f[at + 4]; a[1] = f[at + 5]; a[2] = f[at + 6]; }
   return m;
 }
 
@@ -24,12 +28,16 @@ export function putAiCoverArgs(b, o, f, at, heap) {
   f[at + 0] = AiCoverOp_INDEX.get(o.op);
   f[at + 1] = o.id;
   f[at + 2] = o.number;
+  f[at + 3] = o.other;
+  { const $v = o.point; f[at + 4] = $v[0]; f[at + 5] = $v[1]; f[at + 6] = $v[2]; }
 }
 
 export function sameAiCoverArgs(a, b) {
   if (!Object.is(a.op, b.op)) return ".op";
   if (!Object.is(a.id, b.id)) return ".id";
   if (!Object.is(a.number, b.number)) return ".number";
+  if (!Object.is(a.other, b.other)) return ".other";
+  if (!sameArray(a.point, b.point, 3)) return ".point";
   return null;
 }
 
@@ -41,6 +49,8 @@ export function exportAiCoverArgs(o, cx) {
   v.op = o.op;
   v.id = o.id;
   v.number = o.number;
+  v.other = o.other;
+  v.point = [...o.point];
   return v;
 }
 

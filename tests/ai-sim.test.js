@@ -745,13 +745,17 @@ test('native cover search retains query priority, reservations and captured rand
 test('native cover fields retain posture, timing and hint identities through helper transitions', async () => {
   const {sim}=await pair();
   function run(native,i) {
-    const history=[],random=new ClassicRandom(171+i),world={aiSim:native?sim:null,time:i/9,randomA:random},ai={world};
+    const history=[],random=new ClassicRandom(171+i),otherRandom=new ClassicRandom(871+i),world={aiSim:native?sim:null,time:i/9},ai={world};
     const c={ai,world,rangeScale:1,unit:{kind:0,position:new Vector3()}};
-    const hint={id:1,position:new Vector3(0,0,5),forward:new Vector3(0,0,1),primaryMask:i%3?7:1,secondaryMask:i%5?7:0,sideMask:i%2?3:0,siblings:[]};
+    const hint={id:1,position:new Vector3(0,0,5),forward:new Vector3([0,-0,.125][i%3],-0,1),primaryMask:i%3?7:1,secondaryMask:i%5?7:0,sideMask:i%2?3:0,siblings:[]};
     const hint2={...hint,id:2,position:new Vector3(2,0,5),siblings:[]};hint.siblings=[hint2];
     const log=(...v)=>{history.push(v);if(native)sim.words(new Array(7500).fill(3));};
+    const stream=(rng,name)=>({int(lo,hi){log('draw',name,lo,hi);const value=rng.int(lo,hi);if(i%23===0 && hi<=2)world.randomA=other;
+      return (hi<=2?i%19===0:i%17===0)?String(value):value;}});
+    const first=stream(random,'first'),other=stream(otherRandom,'other');world.randomA=first;
     const helper={arrived:false,goto(p,options){log('goto',p.toArray(),options);}};
-    const tracker={point:new Vector3(0,0,20),freeze(on,t){log('freeze',on,t);},setDelay(delay,t){log('delay',delay,t);},defaultDelay(t){log('default',t);}};
+    const tracker={point:new Vector3(0,0,20),freeze(on,t){log('freeze',on,t);if(on && i%29===0)cover.deadline='2';},
+      setDelay(delay,t){log('delay',delay,t);if(i%31===0)cover.hint=hint2;},defaultDelay(t){log('default',t);}};
     const agent={ai,world,controller:c,helper,tracker},cover=new CoverHelper(agent);
     world.nav={hints:{query(mask,center,half,cap){log('query',mask,center===c.unit.position,half,cap);return [hint,hint2];}}};
     const snapshots=[],view=()=>[cover.state,cover.pending,cover.hint?.id??cover.hint,cover.posture,cover.deadline,cover.checkAt,cover.reselectAt];
@@ -765,7 +769,7 @@ test('native cover fields retain posture, timing and hint identities through hel
       cover.onTick();snapshots.push(view());
     }
     cover.cleanup();snapshots.push(view());
-    return {history,snapshots,keys:Object.keys(cover),random:random.state};
+    return {history,snapshots,keys:Object.keys(cover),random:[random.state,otherRandom.state]};
   }
   for(let i=0;i<512;i++)assert.deepEqual(run(true,i),run(false,i),`cover helper fields ${i}`);
 });

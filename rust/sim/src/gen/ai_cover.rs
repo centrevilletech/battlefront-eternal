@@ -19,10 +19,39 @@ pub enum AiCoverOp {
     Draw = 10,
     Available = 11,
     Score = 12,
+    HelperTime = 13,
+    HelperCapture = 14,
+    HelperState = 15,
+    HelperStateValue = 16,
+    HelperHint = 17,
+    HelperReserveInit = 18,
+    HelperRenewPrepare = 19,
+    HelperReserveHeld = 20,
+    HelperRenew = 21,
+    HelperRequest = 22,
+    HelperFlush = 23,
+    HelperGoto = 24,
+    HelperFreeze = 25,
+    HelperDelay = 26,
+    HelperInt = 27,
+    HelperAdd = 28,
+    HelperMaskStart = 29,
+    HelperMask = 30,
+    HelperMaskDraw = 31,
+    HelperPostureDraw = 32,
+    HelperField = 33,
+    HelperScore = 34,
+    HelperRelease = 35,
+    HelperFind = 36,
+    HelperArrived = 37,
+    HelperSideMask = 38,
+    HelperSideForward = 39,
+    HelperSidePosition = 40,
+    HelperGotoPoint = 41,
 }
 
 impl AiCoverOp {
-    pub const NAMES: [&'static str; 13] = ["scoreStart", "forward", "rangeWeapon", "rangeValues", "lower", "finish", "findStart", "query", "random", "time", "draw", "available", "score"];
+    pub const NAMES: [&'static str; 42] = ["scoreStart", "forward", "rangeWeapon", "rangeValues", "lower", "finish", "findStart", "query", "random", "time", "draw", "available", "score", "helperTime", "helperCapture", "helperState", "helperStateValue", "helperHint", "helperReserveInit", "helperRenewPrepare", "helperReserveHeld", "helperRenew", "helperRequest", "helperFlush", "helperGoto", "helperFreeze", "helperDelay", "helperInt", "helperAdd", "helperMaskStart", "helperMask", "helperMaskDraw", "helperPostureDraw", "helperField", "helperScore", "helperRelease", "helperFind", "helperArrived", "helperSideMask", "helperSideForward", "helperSidePosition", "helperGotoPoint"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -39,6 +68,35 @@ impl AiCoverOp {
             10 => Some(AiCoverOp::Draw),
             11 => Some(AiCoverOp::Available),
             12 => Some(AiCoverOp::Score),
+            13 => Some(AiCoverOp::HelperTime),
+            14 => Some(AiCoverOp::HelperCapture),
+            15 => Some(AiCoverOp::HelperState),
+            16 => Some(AiCoverOp::HelperStateValue),
+            17 => Some(AiCoverOp::HelperHint),
+            18 => Some(AiCoverOp::HelperReserveInit),
+            19 => Some(AiCoverOp::HelperRenewPrepare),
+            20 => Some(AiCoverOp::HelperReserveHeld),
+            21 => Some(AiCoverOp::HelperRenew),
+            22 => Some(AiCoverOp::HelperRequest),
+            23 => Some(AiCoverOp::HelperFlush),
+            24 => Some(AiCoverOp::HelperGoto),
+            25 => Some(AiCoverOp::HelperFreeze),
+            26 => Some(AiCoverOp::HelperDelay),
+            27 => Some(AiCoverOp::HelperInt),
+            28 => Some(AiCoverOp::HelperAdd),
+            29 => Some(AiCoverOp::HelperMaskStart),
+            30 => Some(AiCoverOp::HelperMask),
+            31 => Some(AiCoverOp::HelperMaskDraw),
+            32 => Some(AiCoverOp::HelperPostureDraw),
+            33 => Some(AiCoverOp::HelperField),
+            34 => Some(AiCoverOp::HelperScore),
+            35 => Some(AiCoverOp::HelperRelease),
+            36 => Some(AiCoverOp::HelperFind),
+            37 => Some(AiCoverOp::HelperArrived),
+            38 => Some(AiCoverOp::HelperSideMask),
+            39 => Some(AiCoverOp::HelperSideForward),
+            40 => Some(AiCoverOp::HelperSidePosition),
+            41 => Some(AiCoverOp::HelperGotoPoint),
             _ => None,
         }
     }
@@ -49,24 +107,30 @@ pub struct AiCoverArgs {
     pub op: AiCoverOp,
     pub id: u32,
     pub number: f64,
+    pub other: f64,
+    pub point: [f64; 3],
 }
 
 impl AiCoverArgs {
-    pub const WORDS: usize = 3;
+    pub const WORDS: usize = 7;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
         row[0] = self.op as u8 as f64;
         row[1] = self.id as f64;
         row[2] = self.number;
+        row[3] = self.other;
+        row[4..4 + 3].copy_from_slice(&self.point);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
         Self {
             op: AiCoverOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             id: word_u32(row[1]),
             number: row[2],
+            other: row[3],
+            point: { let mut a = [0.0; 3]; a.copy_from_slice(&row[4..4 + 3]); a },
         }
     }
 

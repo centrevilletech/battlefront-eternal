@@ -396,6 +396,7 @@ export class CoverHelper extends Fsm {
   }
 
   init(hint) {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,0,hint,reserveHint,releaseHint,coverScore,findCover);
     const t = now(this.world);
     this.hint = hint;
     reserveHint(hint, this.agent.controller.unit, t);
@@ -407,10 +408,12 @@ export class CoverHelper extends Fsm {
   }
 
   renew() {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,1,null,reserveHint,releaseHint,coverScore,findCover);
     reserveHint(this.hint, this.agent.controller.unit, now(this.world));
   }
 
   onEnter() {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,2,null,reserveHint,releaseHint,coverScore,findCover);
     const a = this.agent;
     const t = now(this.world);
     switch (this.state) {
@@ -441,6 +444,7 @@ export class CoverHelper extends Fsm {
   }
 
   onExit() {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,3,null,reserveHint,releaseHint,coverScore,findCover);
     const a = this.agent;
     const t = now(this.world);
     this.posture = 0;
@@ -449,6 +453,7 @@ export class CoverHelper extends Fsm {
   }
 
   onTick() {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,4,null,reserveHint,releaseHint,coverScore,findCover);
     if (this.state === DONE) return;
     const a = this.agent;
     const t = now(this.world);
@@ -498,6 +503,7 @@ export class CoverHelper extends Fsm {
   }
 
   cleanup() {
+    if(this.world?.aiSim)return this.world.aiSim.cover.helper(this,5,null,reserveHint,releaseHint,coverScore,findCover);
     releaseHint(this.hint);
     this.hint = null;
   }
