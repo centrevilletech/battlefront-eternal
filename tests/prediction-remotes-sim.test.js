@@ -27,6 +27,9 @@ test('private recon sessions match exact checkpoints, camera math, query order, 
       }
       if (['wall-crash-and-death', 'fall-below-world-floor', 'health-drain-and-filter', 'destruct-countdown-strike-and-filter'].includes(scenario.name)) assert.equal(a.observation.state.dead, true);
       if (scenario.throwOnFired) { assert.equal(a.shots.length, 1); assert.equal(a.error, a.marker); }
+      if (scenario.privateLevelEdit) assert.deepEqual(a.shots[0].partial.state.weapons.map(w => w.heat),
+        scenario.privateLevelEdit === 'shared' ? [.1, .3] : [0, 0], 'charge levels keep their actual field snapshots');
+      if (scenario.replaceVelocity) assert.equal(a.retainedVelocities.length, 1, 'old velocity remains observable after replacement');
       shots += a.shots.length; queries += a.events.length;
     }
     assert.ok(ticks > 1200 && shots > 100 && queries > 5000);

@@ -165,6 +165,20 @@ export function remoteVelocityReplacementCases() {
   ];
 }
 
+export function remoteEditedLevelCases() {
+  const charged = remoteGun({ MaxPressedTime: .3, HeatPerShot: .5, charges: [{ at: .2 }] });
+  const absent = { ...charged }; delete absent.HeatPerShot;
+  const saved = { index: 0, definition: 1, fields: { charging: true, held: .15 } };
+  return [
+    { name: 'charged-level-keeps-deleted-field', ticks: 20, pattern: 'no-fire', privateLevelEdit: 'delete',
+      definition: { weapons: [charged, remoteStrike()] }, weapons: [saved] },
+    { name: 'base-edit-does-not-rebuild-charged-snapshot', ticks: 20, pattern: 'no-fire', privateLevelEdit: 'base',
+      definition: { weapons: [absent, remoteStrike()] }, weapons: [saved] },
+    { name: 'shared-base-keeps-distinct-charged-snapshots', ticks: 20, pattern: 'no-fire', privateLevelEdit: 'shared',
+      definition: { weapons: [charged, charged] }, weapons: [saved, { ...saved, index: 1 }] },
+  ];
+}
+
 export function remotePredictionCases() {
   const charged = remoteGun({ MaxPressedTime: .3, RoundsPerClip: 50,
     charges: [{ at: .2, ShotsPerSalvo: 2, ShotPatternPitchYaw: [[1, -2], [-1, 2]] }, { at: .7, ShotsPerSalvo: 4, YawSpread: 3 }] });
@@ -195,12 +209,22 @@ export function remotePredictionCases() {
     { name: 'callback-throw-keeps-partial-state', ticks: 40, throwOnFired: 1, mutate: true, definition: { weapons: [partial, remoteStrike()] } },
     { name: 'headless-camera-freshness-and-exit', ticks: 120, camera: false, pattern: 'exit' },
     { name: 'late-gaps-unsent-and-window', ticks: 130, from: 20, gaps: true },
+    ...remoteVelocityReplacementCases(), ...remoteEditedLevelCases(),
   ];
 }
 
 export function runRemotePredictionCase(scenario, { native = null, onQuery = null, onFired = null, before = null, collision = null } = {}) {
   const fixture = createRemoteFixture(scenario, { onQuery, onFired, collision }), { source, droid } = fixture, cache = new RemotePredictionContext();
   const { context, predicted } = cache.acquire(source, droid); fixture.setContext(context);
+  if (scenario.privateLevelEdit) {
+    const [first, second] = predicted.arsenal.weapons;
+    if (scenario.privateLevelEdit === 'delete') delete first.levels[1].HeatPerShot;
+    else if (scenario.privateLevelEdit === 'base') first.levels[0].HeatPerShot = .5;
+    else {
+      second.levels[0] = first.levels[0]; first.levels[1].HeatPerShot = .1; second.levels[1].HeatPerShot = .3;
+      predicted.arsenal.channels[1] = [second];
+    }
+  }
   if (scenario.privateSeed) {
     const weapon = predicted.arsenal.weapons[0]; weapon.salvoSeed = 987; weapon.salvoCount = 8; weapon.salvoRandom = seededRandom(987);
     for (let i = 0; i < 8; i++) weapon.salvoRandom();
