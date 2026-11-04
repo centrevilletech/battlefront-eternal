@@ -17,11 +17,11 @@ const url = server.resolvedUrls.local[0];
 // even when its value is empty. Remove the key from the child environment.
 const reportDir = await mkdtemp(join(tmpdir(), 'renderer-smoke-'));
 const reportPath = join(reportDir, 'report.jsonl');
-const childEnv = { ...process.env, BFE_SMOKE_REPORT: reportPath, ELECTRON_ENABLE_LOGGING: '1' };
+const childEnv = { ...process.env, BFE_SMOKE_REPORT: reportPath, BFE_SMOKE_URL: url, BFE_SMOKE_BACKEND: backend };
 for (const key of Object.keys(childEnv)) if (key.toUpperCase() === 'ELECTRON_RUN_AS_NODE') delete childEnv[key];
 console.log(`Starting Electron for ANGLE ${backend}`);
 try {
-  const child = spawn(electron, [...(process.platform === 'win32' || process.env.BFE_SMOKE_NO_SANDBOX === '1' ? ['--no-sandbox'] : []), '--enable-logging=stderr', fileURLToPath(new URL('../tests/support/renderer-smoke-electron.cjs', import.meta.url)), url, backend], {
+  const child = spawn(electron, [...(process.env.BFE_SMOKE_NO_SANDBOX === '1' ? ['--no-sandbox'] : []), fileURLToPath(new URL('../tests/support/renderer-smoke-electron.cjs', import.meta.url))], {
     stdio: ['ignore', 'pipe', 'pipe'], env: childEnv,
   });
   child.stdout.on('data', (data) => process.stdout.write(data));

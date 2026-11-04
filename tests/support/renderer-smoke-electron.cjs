@@ -5,7 +5,8 @@ report({ stage: 'runtime', electron: process.versions.electron, chrome: process.
 const { app, BrowserWindow } = require('electron');
 if (!process.versions.electron || !app) throw new Error('Renderer smoke requires the Electron app runtime');
 console.log(`Electron app runtime ${process.versions.electron}, Chromium ${process.versions.chrome}`);
-const [url, backend] = process.argv.slice(-2);
+// A URL followed by another argument is rejected by Electron on Windows.
+const url = process.env.BFE_SMOKE_URL, backend = process.env.BFE_SMOKE_BACKEND;
 app.commandLine.appendSwitch('use-gl', 'angle');
 app.commandLine.appendSwitch('use-angle', backend === 'warp' ? 'd3d11-warp' : backend);
 app.commandLine.appendSwitch('ignore-gpu-blocklist');
