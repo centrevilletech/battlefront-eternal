@@ -57,7 +57,7 @@ async function fixture(native, def, options = {}) {
   vs.syncCrews = () => {};
   const v = vs.vehicles[0], crew = units.add(new Crew());
   crew.networkHuman = Boolean(options.network);
-  const lease = new SeatLease({ unit: crew, vehicle: v, index: 0 });
+  const lease = new SeatLease({ unit: crew, team: crew.team, vehicle: v, index: 0 });
   crew.seat = v.seats[0].lease = lease;
   if (options.tow) {
     const cast = collision.cast.bind(collision), target = vs.vehicles[1];
@@ -77,13 +77,15 @@ async function fixture(native, def, options = {}) {
   if (native) {
     vs.fireCrews = vs.updateTethers = v.fireSeat = () => { throw Error('JavaScript mounted phase reached'); };
   }
-  const shots = [];
+  const shots = [], launched = [];
+  o.onLaunch = b => launched.push([b.networkFireChannel, ...b.position.toArray(), ...b.direction.toArray()]);
   vs.onFired = (h, seat, shot, owner, p, d) => shots.push([seat, shot.yaw, shot.pitch, shot.charge, shot.targetId, shot.targetGeneration, ...p.toArray(), ...d.toArray()]);
-  return { vs, o, v, crew, shots, target: vs.vehicles[1], draws: () => draws };
+  return { vs, o, v, crew, shots, launched, target: vs.vehicles[1], draws: () => draws };
 }
 const fields = ['timer', 'clip', 'reserve', 'heat', 'overheated', 'wait', 'reloadLeft', 'salvosLeft', 'salvoWait', 'kick', 'pattern', 'firing'];
-for (const base of ['bolt', 'missile', 'beam', 'multibarrel']) test(`F2 whole phase matches mounted ${base}, reload and heat without game files`, async () => {
-  const def = weaponDefinition(`fixture-${base}`, 0, { ordnance: { class: `fixture-${base}-round`, base: base === 'multibarrel' ? 'bolt' : base, Velocity: 70, LifeSpan: .3 }, HeatPerShot: .2, HeatRecoverRate: .3 });
+for (const base of ['bolt', 'missile', 'beam', 'multibarrel', 'defaultChannel']) test(`F2 whole phase matches mounted ${base}, reload and heat without game files`, async () => {
+  const def = weaponDefinition(`fixture-${base}`, 0, { ordnance: { class: `fixture-${base}-round`, base: base === 'multibarrel' || base === 'defaultChannel' ? 'bolt' : base, Velocity: 70, LifeSpan: .3 }, HeatPerShot: .2, HeatRecoverRate: .3 });
+  if (base === 'defaultChannel') delete def.channel;
   const js = await fixture(false, def, { multibarrel: base === 'multibarrel' }), rust = await fixture(true, def, { multibarrel: base === 'multibarrel' });
   for (let tick = 0; tick < 240; tick++) {
     for (const f of [js, rust]) {
@@ -97,6 +99,7 @@ for (const base of ['bolt', 'missile', 'beam', 'multibarrel']) test(`F2 whole ph
     for (const key of fields) assert.equal(b[key], a[key], `${base} tick ${tick} ${key}`);
     assert.deepEqual(rust.shots, js.shots, `${base} tick ${tick} emission`);
     assert.equal(rust.draws(), js.draws());
+    assert.deepEqual(rust.launched, js.launched, `${base} tick ${tick} launch metadata`);
   }
   assert.ok(js.shots.length > 2);
 });

@@ -62,7 +62,7 @@ export class F2Firing {
       if (w.def.ordnance) this.vs.ordnance.sim.defId(w.def.ordnance);
       const state = { ...w.state, level: w.state.levels.indexOf(w.state.def), admits: false, hasRandom: Boolean(w.state.random), melee: null };
       return { state, ordnance: w.def.ordnance ?? null, tow: w.def.ordnance?.base === 'towcable', range: Math.max(20, w.def.LockOnRange || 0),
-        cableLength: Math.max(10, w.def.ordnance?.CableLength || 60), channel: w.state.channel, relationMask: weaponAI(w.def).relationMask, categoryMask: weaponAI(w.def).categoryMask,
+        cableLength: Math.max(10, w.def.ordnance?.CableLength || 60), channel: w.state.channel ?? 0, relationMask: weaponAI(w.def).relationMask, categoryMask: weaponAI(w.def).categoryMask,
         weaponNode: node(named(w.def.FirePointName)), fallbackNode: node(named(w.aimers[0]?.FirePointName || w.aimers[0]?.node || w.def.FirePointName)),
         directionNodes: w.aimers.map(a => node(named(a.FirePointName))), outside: w.aimers.map(a => num(a.FireOutsideLimits ?? s.settings?.FireOutsideLimits)),
         emitter: (w.muzzles.length ? w.emitter : w.aimers[0]?.emitter ?? w.emitter) ?? s.emitter,
@@ -154,7 +154,7 @@ export class F2Firing {
     out.center.copy(sphere?.center ?? t.position ?? zero);
     if (a.aim && t.aimPoint) t.aimPoint(this.aim); else this.aim.copy(out.center);
     out.alive = Boolean(t.alive); out.eligible = Boolean(eligible);
-    out.relation = this.vs.units.relation(viewer.team, t.team);
+    out.relation = this.vs.units.relation(viewer.aiTarget.team, t.team);
     const def = t.classDef;
     if (Number.isInteger(t.category)) out.category = t.category;
     else if (def) {
