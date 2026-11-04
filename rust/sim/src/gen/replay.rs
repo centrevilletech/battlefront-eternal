@@ -320,6 +320,50 @@ impl WireRecordState {
     }
 }
 
+impl AiScheduleArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiScheduleArgs {
+            op: { let p = format!("{path}.op"); AiScheduleOp::from_u8(name_of(v.get("op"), &AiScheduleOp::NAMES, &p)?).unwrap() },
+            id: { let p = format!("{path}.id"); (int(v.get("id"), &p, 0.0, u32::MAX as f64)? as u32) },
+            number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
+            phase: { let p = format!("{path}.phase"); num(v.get("phase"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Str(AiScheduleOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = Value::Num(self.id as f64); fields.push(("id", x)); }
+        { let x = Value::Num(self.number); fields.push(("number", x)); }
+        { let x = Value::Num(self.phase); fields.push(("phase", x)); }
+        a.object("", fields)
+    }
+}
+
+impl AiScheduleResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(AiScheduleResult {
+            number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
+            flag: { let p = format!("{path}.flag"); boolean(v.get("flag"), &p)? },
+            values: { let p = format!("{path}.values"); { let mut out = Vec::new(); for (i, e) in list(v.get("values"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Num(self.number); fields.push(("number", x)); }
+        { let x = Value::Bool(self.flag); fields.push(("flag", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.values.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("values", x)); }
+        a.object("", fields)
+    }
+}
+
 impl AiUnitRef {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -10676,6 +10720,102 @@ impl WireCapture {
         { let x = { let mut items = Vec::new(); for e in self.records.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("records", x)); }
         { let x = { let mut items = Vec::new(); for e in self.world.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("world", x)); }
         { let x = self.bounds.to_value(cx, a); fields.push(("bounds", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WsMember {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WsMember {
+            id: { let p = format!("{path}.id"); num(v.get("id"), &p)? },
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            tick_count: { let p = format!("{path}.tickCount"); num(v.get("tickCount"), &p)? },
+            walker: { let p = format!("{path}.walker"); boolean(v.get("walker"), &p)? },
+            posture: { let p = format!("{path}.posture"); Posture::from_u8(name_of(v.get("posture"), &Posture::NAMES, &p)?).unwrap() },
+            seat: { let p = format!("{path}.seat"); boolean(v.get("seat"), &p)? },
+            held: { let p = format!("{path}.held"); boolean(v.get("held"), &p)? },
+            removed: { let p = format!("{path}.removed"); boolean(v.get("removed"), &p)? },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            dead: { let p = format!("{path}.dead"); boolean(v.get("dead"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(10);
+        { let x = Value::Num(self.id); fields.push(("id", x)); }
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = Value::Num(self.tick_count); fields.push(("tickCount", x)); }
+        { let x = Value::Bool(self.walker); fields.push(("walker", x)); }
+        { let x = Value::Str(Posture::NAMES[self.posture as usize].to_string()); fields.push(("posture", x)); }
+        { let x = Value::Bool(self.seat); fields.push(("seat", x)); }
+        { let x = Value::Bool(self.held); fields.push(("held", x)); }
+        { let x = Value::Bool(self.removed); fields.push(("removed", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = Value::Bool(self.dead); fields.push(("dead", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WsSeparation {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WsSeparation {
+            members: { let p = format!("{path}.members"); { let mut out = Vec::new(); for (i, e) in list(v.get("members"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(WsMember::from_value(e, cx, &at)?); } out } },
+            player: { let p = format!("{path}.player"); match v.get("player").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("player"), &p)?) } },
+            player_out: { let p = format!("{path}.playerOut"); boolean(v.get("playerOut"), &p)? },
+            global: { let p = format!("{path}.global"); boolean(v.get("global"), &p)? },
+            camera: { let p = format!("{path}.camera"); vec3(v.get("camera"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = { let mut items = Vec::new(); for e in self.members.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("members", x)); }
+        { let x = match &self.player { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("player", x)); }
+        { let x = Value::Bool(self.player_out); fields.push(("playerOut", x)); }
+        { let x = Value::Bool(self.global); fields.push(("global", x)); }
+        { let x = a.vec3(self.camera); fields.push(("camera", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WsSeparated {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WsSeparated {
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            tick_count: { let p = format!("{path}.tickCount"); num(v.get("tickCount"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = Value::Num(self.tick_count); fields.push(("tickCount", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WsSeparationResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WsSeparationResult {
+            members: { let p = format!("{path}.members"); { let mut out = Vec::new(); for (i, e) in list(v.get("members"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(WsSeparated::from_value(e, cx, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = { let mut items = Vec::new(); for e in self.members.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("members", x)); }
         a.object("", fields)
     }
 }

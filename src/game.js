@@ -2308,6 +2308,8 @@ async function start() {
   const pushers = [];
   let push = null;
   function separateSoldiers() {
+    if (game.worldSim) return game.worldSim.separate(units.all(), { player: playerUnit,
+      playerOut: Boolean(driver?.active || gunner.active || combat.dead), global: separationScope.global, camera: simulationCamera.position });
     pushers.length = 0;
     for (const unit of units.all()) {
       if (unit.seat || unit.held || !unit.soldier || unit.removed || !(unit.alive || unit.dead)) continue;
@@ -3778,6 +3780,7 @@ async function start() {
   }) : null;
   game.inputSim = game.battleSim ? (await import("./runtime/input-sim.js")).createInputSim(simInstance) : null;
   game.inputSim?.controls(worldControls);
+  game.worldSim = game.inputSim ? (await import("./runtime/world-sim.js")).createWorldSim(simInstance) : null;
   game.aiSim = aiSim;
   if (!headless) window.__bf = game;
   if (!headless) await startClient();

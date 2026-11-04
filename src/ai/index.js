@@ -157,6 +157,7 @@ export async function createAI(mode, world, options) {
   await classic.ready;
   modules.vehicles?.adaptClassicAI?.(classic.ai);
   options.aiSim?.bindCombat(classic.ai);
+  classic.scheduler = classic.ai.scheduler;
   for (const character of world.spawning.characters) classic.attach(character);
   const combat = classic.ai.combat;
   const spawning = world.spawning;
