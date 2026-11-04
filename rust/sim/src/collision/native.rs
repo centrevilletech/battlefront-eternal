@@ -351,6 +351,9 @@ impl NativeCollision {
             } => {
                 let w = self.valid_world(world)?;
                 self.flags(w, flags)?;
+                if self.state.worlds[w].statics.is_none() {
+                    return Err(invalid("collision world has no fixed set"));
+                }
                 if blockers.is_some_and(|b| b as usize >= self.state.sets.len()) {
                     return Err(invalid("invalid blocker set"));
                 }

@@ -211,6 +211,10 @@ fn native_collision_validation_and_partial_install_leave_next_query_usable() {
         1,
         "the failed install retains its preceding world allocation"
     );
+    assert!(matches!(
+        cx.collision_query(gather(0, None), &[]),
+        Err(CollisionError::Invalid(_))
+    ));
     let c = cx.collision_cache(1, 1.).unwrap();
     assert!(matches!(
         cx.collision_query(gather(0, Some(c)), &[]),
