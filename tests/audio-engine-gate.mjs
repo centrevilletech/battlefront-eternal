@@ -24,7 +24,7 @@
 // Start Vite separately (or set AUDIO_TEST_URL). Set PLAYWRIGHT_MODULE to an
 // installed Playwright module if it isn't in this project's node path.
 // env: VOICES (24), SECONDS (3), PAGES (6), SEEDS (5); MASTER=1 renders the
-// engine's side with its master chain in the module too (?master=rust), and
+// engine's side with its master chain in the module too, as the game does, and
 // BEDS=1 adds a battle's three stream beds to the scene on both sides.
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const base = process.env.AUDIO_TEST_URL || "http://127.0.0.1:18449";
@@ -47,7 +47,7 @@ async function render(browser, quality, engine, sceneSeed) {
     if (m.type() === "error" && !m.location()?.url?.includes("/audio/hrtf/")) errors.push(m.text());
   });
   await page.route("**/__engine-gate__*", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><body></body>" }));
-  await page.goto(`${base}/__engine-gate__${engine ? (MASTER ? "?master=rust" : "") : "?voices=native"}`);
+  await page.goto(`${base}/__engine-gate__${engine ? (MASTER ? "" : "?master=native") : "?voices=native"}`);
   const result = await page.evaluate(
     async ({ voices, seconds, quality, sceneSeed, beds }) => {
       const { AudioEngine } = await import("/src/audio/engine.js");

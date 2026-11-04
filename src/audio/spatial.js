@@ -182,7 +182,7 @@ export class Renderer {
     // mixer once (`uploaded`).
     this.voicesRust = voicesRust();
     this.engine = false;
-    // masterRust (with ?master=rust; tests set it): with the voice engine,
+    // masterRust (unless ?master=native; tests set it): with the voice engine,
     // what follows the mixer renders in its module too: `master`, as built.
     this.masterRust = masterRust();
     this.master = false;

@@ -100,7 +100,7 @@ panner.
 from `rust/audio`, that the worklets run, or null with `?audio=js`, which
 runs their JavaScript instead: the same samples to the bit, for A/B; its
 `engine` is whether the voices play in the module's voice engine, as they
-do unless `?voices=native`, and `master` whether the chain after them does, with `?master=rust`: see "The voice engine"), `streams` (`queues`: the lines waiting),
+do unless `?voices=native`, and `master` whether the chain after them does, unless `?master=native`: see "The voice engine"), `streams` (`queues`: the lines waiting),
 `music`, `vo`, `player`, `soldiers`, `chatter`, `scene`, `ambience`,
 `acoustics`, `data`, and `log` (sounds asked for that don't exist).
 
@@ -599,7 +599,7 @@ the dummy-head decoder the voices keep the browser's HRTF panners. A voice
 that plays through a node of its own (a stream's line said somewhere, the
 audio panel's test) keeps the browser's nodes beside the engine.
 
-With `?master=rust` the enhanced mode's master chain follows the voices
+Unless `?master=native`, the enhanced mode's master chain follows the voices
 into the same module (`rust/audio/src/master.rs`): the reverb and its
 high-pass, the LFE's filters, the clarity EQ and stage, the limiter and
 the volume, in place of three worklets and the browser's nodes between

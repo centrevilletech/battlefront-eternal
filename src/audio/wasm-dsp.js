@@ -36,13 +36,13 @@ export function voicesRust() {
 // Whether the enhanced mode's master chain (the reverb, the LFE, the clarity
 // stage, the limiter and the volume, after the mixer) renders in the mixer's
 // module with its voices (rust/audio/src/master.rs) rather than in the
-// browser's nodes and three more worklets: with ?master=rust, until it has
-// shown what it saves on the low-end laptop.
+// browser's nodes and three more worklets: as it does unless ?master=native,
+// an A/B switch.
 export function masterRust() {
   try {
-    return new URLSearchParams(globalThis.location?.search || "").get("master") === "rust";
+    return new URLSearchParams(globalThis.location?.search || "").get("master") !== "native";
   } catch {
-    return false;
+    return true;
   }
 }
 

@@ -38,8 +38,10 @@ let failed = false;
 async function battle(quality) {
   const errors = [];
   // unit= keeps the spawn screen away: the old default unit, placed at load.
+  // master=native: this taps the browser nodes' preDynamics, which the
+  // master chain in the module does not have.
   const run = await openBattle(browser, {
-    base, query: "map=nab2&unit=rep_inf_jet_trooper", settings: { audioQuality: quality, audioOutput: "stereo", audioDynamics: "home" },
+    base, query: "map=nab2&unit=rep_inf_jet_trooper&master=native", settings: { audioQuality: quality, audioOutput: "stereo", audioDynamics: "home" },
     errors: () => false,
     beforeLoad: (page) => {
       page.on("pageerror", (e) => errors.push(e.message));

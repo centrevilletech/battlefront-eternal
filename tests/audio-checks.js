@@ -845,7 +845,7 @@ export async function checkAudio() {
     }
   }
 
-  // 6e. The master chain in the mixer's module (?master=rust) against the
+  // 6e. The master chain in the mixer's module against the
   // browser's nodes and worklets, the voices in the engine on both sides.
   // Every sum in the chain has two terms on a channel, so the two are equal
   // to the bit, with the room and the volume moving as a battle moves them.
