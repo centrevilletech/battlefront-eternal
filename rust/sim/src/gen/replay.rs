@@ -4857,6 +4857,48 @@ impl PathNode {
     }
 }
 
+impl NetworkLifecycleArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(NetworkLifecycleArgs {
+            op: { let p = format!("{path}.op"); NetworkLifecycleCall::from_u8(name_of(v.get("op"), &NetworkLifecycleCall::NAMES, &p)?).unwrap() },
+            value: { let p = format!("{path}.value"); num(v.get("value"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Str(NetworkLifecycleCall::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = Value::Num(self.value); fields.push(("value", x)); }
+        a.object("", fields)
+    }
+}
+
+impl NetworkLifecycleReply {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(NetworkLifecycleReply {
+            flag: { let p = format!("{path}.flag"); boolean(v.get("flag"), &p)? },
+            other: { let p = format!("{path}.other"); boolean(v.get("other"), &p)? },
+            value: { let p = format!("{path}.value"); num(v.get("value"), &p)? },
+            second: { let p = format!("{path}.second"); num(v.get("second"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
+        { let x = Value::Bool(self.flag); fields.push(("flag", x)); }
+        { let x = Value::Bool(self.other); fields.push(("other", x)); }
+        { let x = Value::Num(self.value); fields.push(("value", x)); }
+        { let x = Value::Num(self.second); fields.push(("second", x)); }
+        a.object("", fields)
+    }
+}
+
 impl Impact {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

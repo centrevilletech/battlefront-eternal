@@ -79,6 +79,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
     if(unit.seat?.vehicle && unit.seat.index===0)unit.seat.vehicle.stickX=unit.seat.vehicle.stickY=0;
   }
   function spawn(p, className = p.className, postName = null) {
+    if (game.worldSim?.networkSpawn) return game.worldSim.networkSpawn({ game, player: p, className, postName, remoteWorld, networkWeapons, relation });
     if (game.battle.gameOver || !game.spawnPort.roster(p.team).some(x => x.className === className)) return false;
     if (p.unit && !p.unit.alive && p.unit.deadTime + 1e-6 < RESPAWN_DELAY) return false;
     const posts = entitySpawnPosts(game);
@@ -124,6 +125,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
   // nothing counts, and his first choice may spawn at once. His body (and so
   // his own corrections) exist; nobody else is sent it while it is removed.
   function unspawn(p) {
+    if (game.worldSim?.networkUnspawn) return game.worldSim.networkUnspawn(game, p);
     const unit = p.unit;
     unit.alive = false; unit.dead = unit.combat.dead = unit.soldier.dead = true; unit.removed = true; unit.targetable = false;
     unit.actor.root.visible = false;
@@ -213,6 +215,7 @@ export function createMultiplayerWorld(game, { maxPlayers = 64, armySize = 32 } 
     },
     player(id) { const p=players.get(id); return p ? { unitId:p.unit?.id ?? game.playerUnit.id, playerId:p.unit?.id ?? game.playerUnit.id,generation:p.unit?.generation ?? 0, team:p.team,className:p.className,spectator:p.spectator,teamSelect:p.teamSelect!==false,tick:game.worldClock.tick } : null; },
     removePlayer(id) {
+      if (game.worldSim?.networkRemove) return game.worldSim.networkRemove(game, players, id, stopInput, remoteWorld);
       const p=players.get(id); if(!p)return;
       p.disconnectedAt = game.worldClock.tick + 1;
       stopInput(p);
