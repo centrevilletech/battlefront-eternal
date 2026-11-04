@@ -124,7 +124,7 @@ export function networkControlPorts(bridge) {
       case 'stopIntent': Object.assign(u.intent, blankSeatIntent(), { flight: {} }); break;
       case 'stopMetadata': u.networkShot = null; u.networkShots = []; u.networkViewTick = null; u.networkInputLeadTicks = null; u.networkPlayoutMaxTicks = null; break;
       case 'driver': flag = Boolean(u.seat?.vehicle && u.seat.index === 0); break;
-      case 'stopSticks': if (game.vehicles?.f2) game.vehicles.f2.seats.resetSticks(u); else u.seat.vehicle.stickX = u.seat.vehicle.stickY = 0; break;
+      case 'stopSticks': if (game?.vehicles?.f2) game.vehicles.f2.seats.resetSticks(u); else u.seat.vehicle.stickX = u.seat.vehicle.stickY = 0; break;
       default: throw Error(`unknown network controls phase ${op}`);
     }
     return { value: number, flag };

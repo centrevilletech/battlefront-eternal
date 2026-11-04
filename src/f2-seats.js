@@ -2,6 +2,7 @@
 // body rows; AI intents remain foreign input, copied once before the latch.
 import * as THREE from 'three';
 import { SeatLease, seatWeaponPolicy } from './seats.js';
+import { Building } from './props.js';
 import { MirrorPool, Heap } from './sim/runtime.js';
 import { makeHit } from './collision.js';
 import { COMMAND_F2_SEAT, COMMAND_TABLE, KIND_TABLE, KIND_SEAT_LEASE, KIND_UNIT, KIND_ORDNANCE, KIND_EMITTER } from './sim/gen/index.js';
@@ -421,6 +422,9 @@ export class F2Seats {
     const generation = t.aiTarget?.generation ?? 0;
     if (!previous || previous.alive === t.alive && previous.attacker === attacker && previous.generation === generation) return;
     previous.alive = t.alive; previous.attacker = attacker; previous.generation = generation;
+    // Building.sphere changes from the construction pad to the built model.
+    // Read that lifecycle geometry directly when a props adapter is attached.
+    previous.radius = Building.prototype.sphere.call(t, previous.center);
     a.turret = t; a.generation = generation; a.alive = t.alive; a.attacker = attacker; a.center.copy(previous.center); a.radius = previous.radius;
     this.bridge.callArgs(this.turretLifeArgs, a); this.x.f2_turret_life();
   }
@@ -486,7 +490,7 @@ export class F2Seats {
     else if (kind === 'boarded') { this.phase.sync(); w.boarded(unit, v, index); }
     else if (kind === 'unboarded') { this.phase.sync(); w.unboarded(unit, v, index, post, reason); }
     else if (kind === 'moved') { this.phase.sync(); w.moved(unit, v, index); }
-    else if (kind === 'kill') { this.phase.sync(); w.kill(unit, attacker); this.prepare(unit, unit?.seat?.vehicle, true); }
+    else if (kind === 'kill') { this.phase.sync(); w.kill(unit, attacker); this.prepare(unit, unit?.seat?.vehicle, false); }
     else if (kind === 'raycast') { this.phase.sync(); answer.value = w.raycast(a.point, a.direction, a.yaw, unit, this.hit)?.distance; }
     else if (kind === 'body' && effect === 'dropped') {
       const point = w.riderDrop(v, index, unit, this.drop); answer.flag = Boolean(point); if (point) answer.point.copy(point);

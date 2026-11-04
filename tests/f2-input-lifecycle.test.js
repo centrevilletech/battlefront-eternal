@@ -13,6 +13,9 @@ import { attachOrdnanceSim, ordnanceTests } from '../src/ordnance-sim.js';
 import { Soldier } from '../src/soldier.js';
 import { seatLook, leaveKilled } from '../src/boarding.js';
 import { loadSim } from '../src/sim/module.js';
+import { predictionVehicle } from '../src/runtime/vehicle-prediction.js';
+import { networkVehicleInput } from '../src/runtime/network-vehicle.js';
+import { CommandControls } from '../src/runtime/commands.js';
 
 function box(w, h, d, y) {
   const geometry = new THREE.BoxGeometry(w, h, d).translate(0, y, 0);
@@ -57,6 +60,7 @@ for (const replacement of [false, true]) {
         seatLook(other, 0, -.7 * 2048, -.2 * 2048);
         system.update(1 / 60);
         other.setHealth(0);
+        assert.equal(other.alive, false, 'an empty hull publishes death before the command returns');
         if (replacement) post.team = 2;
         seatLook(pilot, 0, -.4 * 2048, .1 * 2048);
         system.update(1 / 60);
@@ -118,6 +122,22 @@ test('live F2 board hooks can synchronously board another hull', async () => {
   } finally { system.dispose(); }
 });
 
+test('live F2 private hull replay leaves the native authority input untouched', async () => {
+  const { system } = await fleet(true);
+  try {
+    const v = system.vehicles[0], u = rider(system, 14);
+    u.human = u.networkHuman = true;
+    assert.equal(system.board(u, v), true);
+    const clone = predictionVehicle(v), before = observe(v), controls = new CommandControls();
+    const command = { tick: 1, sequence: 1, epoch: 1, generation: 1, down: [], actions: [], look: [[400, 100]], mouseScale: 1 };
+    controls.accept(command); networkVehicleInput(clone, 0, controls, command);
+    assert.notEqual(clone.seats[0].aimYaw, v.seats[0].aimYaw);
+    assert.deepEqual(observe(v), before);
+    system.update(1 / 60);
+    assert.equal(v.seats[0].aimYaw, before.seats[0][0]);
+  } finally { system.dispose(); }
+});
+
 test('live F2 damage preserves the latest foreign hull rider body at kill entry', async () => {
   const run = async native => {
     const { system } = await fleet(native);
@@ -152,6 +172,30 @@ function turret(x, base = 'bolt') {
     settings: { MaxHealth: 100, TurretNodeName: 'drum', AimerNodeName: 'gun', PilotPosition: 'seat', FirePointName: 'fire' } },
     { built: rig }, {}, null);
 }
+
+test('live F2 turret exits use built bounds after construction and rebuild', async () => {
+  const run = async native => {
+    const { system } = await fleet(native);
+    try {
+      const t = turret(20); t.weapon = null;
+      t.looks.unbuilt = { root: new THREE.Object3D(), model: { sphere: [0, 1, 0, 8] } };
+      t.show('unbuilt');
+      const crews = new TurretSeats({ live: { turrets: [t] }, collision: system.collision });
+      if (native) system.f2.seats.attachTurrets(crews);
+      const results = [];
+      for (let i = 0; i < 2; i++) {
+        t.setHealth(t.maxHealth);
+        const u = rider(system, 30 + i); u.human = u.networkHuman = true;
+        assert.equal(crews.man(u, t), true);
+        assert.equal(crews.leave(u), true);
+        results.push(u.position.toArray());
+        t.setHealth(0);
+      }
+      return results;
+    } finally { system.dispose(); }
+  };
+  assert.deepEqual(await run(true), await run(false));
+});
 
 test('live F2 turret crews place each body before its direct native ordnance call', async () => {
   const { system } = await fleet(true);

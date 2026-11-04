@@ -34,6 +34,8 @@ export function predictionVehicle(source) {
   clone.itemTarget = { ...source.itemTarget, center: source.itemTarget.center.clone() };
   clone.predictionSource = source.predictionSource || source;
   clone.system = Object.create(clone.predictionSource.system);
+  // networkVehicleInput and seatLook replay into this private hull.
+  clone.system.f2 = null;
   clone.system.collision = predictionCollision(clone.predictionSource.system.collision);
   // Its queries go to that view of the collision too, never moving the real collider.
   clone.system.world = new VehiclesWorld(clone.system);
