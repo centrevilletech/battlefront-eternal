@@ -115,6 +115,18 @@ export function playoutCallbackCases() {
     Object.defineProperty(clock.gaps, 'constructor', { value: { get [Symbol.species]() { events.push(['species', clock.measuredKey]); return function (length) { events.push(['allocate', length]); clock.gapCount = 1; clock.margin = 4; return new F64(length); }; } } });
     const result = clock.measure(); return { result: scalar(result), events, state: playoutState(clock) };
   } });
+  cases.push({ name: 'measure:source-sort-does-not-mask-slice-result-sort', native: true, run(native) {
+    const clock = new PlayoutClock({ window: 4 }, { native }), events = [], intrinsic = F64.prototype.sort;
+    clock.gaps.set([4, 3, 2, 1]); clock.gapCount = 4; clock.gaps.sort = intrinsic;
+    const prior = Object.getOwnPropertyDescriptor(F64.prototype, 'sort');
+    Object.defineProperty(F64.prototype, 'sort', { configurable: true, writable: true, value: function () {
+      events.push(['sort-result', this !== clock.gaps, this.length, clock.measuredKey]); clock.gapCount = 1; return [7];
+    } });
+    let result;
+    try { result = clock.measure(); }
+    finally { if (prior) Object.defineProperty(F64.prototype, 'sort', prior); else delete F64.prototype.sort; }
+    return { result: scalar(result), events, state: playoutState(clock) };
+  } });
   cases.push({ name: 'measure:throw-retains-key-and-cached-call-skips-all-work', native: true, run(native) {
     const clock = new PlayoutClock({ window: 3 }, { native }), events = [], token = null; clock.gapCount = 2; clock.gapAt = 1; clock.delay = 7;
     clock.gaps.slice = () => { events.push(['slice', clock.measuredKey]); throw token; };
@@ -174,6 +186,12 @@ export function intervalCallbackCases() {
       const clock = { valueOf() { events.push('clock-value'); return 2; } }, alpha = interval.alpha(clock);
       return { alpha: scalar(alpha), events };
     } },
+    { name: 'interval:needs-sample-rereads-current-before-coercion', run(native) {
+      const interval = new SnapshotInterval({ native }), events = []; let reads = 0;
+      Object.defineProperty(interval, 'current', { get() { events.push(['current', ++reads]); return reads === 1 ? 3 : 1; } });
+      const clock = { valueOf() { events.push('clock-value'); return 2; } };
+      const result = interval.needsSample(clock); return { result, events };
+    } },
     { name: 'interval:apply-selective-publication-and-throw', run(native) {
       const out = [];
       for (const phase of ['previous', 'current', 'none']) {
@@ -198,7 +216,112 @@ export function intervalCallbackCases() {
   ];
 }
 
-export const playoutCases = () => [...playoutNumericCases(), ...playoutCallbackCases(), ...intervalCallbackCases()];
+export function playoutRawCases() {
+  const patterns = [0x7ff0000000000001n, 0xfff0000000000123n, 0x7ff000000000ff00n, 0x7ff8000000000001n, 0xfff8000000000123n, 0n, 0x8000000000000000n,
+    0x7ff0000000000000n, 0xfff0000000000000n, 0x7fefffffffffffffn, 0xffefffffffffffffn];
+  const cases = [];
+  for (const key of ['reset-minDelay', 'arrival-latest', 'arrival-now', 'arrival-arrivedAt', 'arrival-hz', 'arrival-interval', 'arrival-tick', 'measure-margin', 'measure-gap',
+    'advance-clock', 'advance-latest', 'advance-delay', 'advance-hz', 'advance-trim', 'advance-snap', 'advance-waits', 'advance-dt', 'shown']) cases.push({ name: `raw:clock-${key}`, run(native) {
+    return patterns.map(pattern => {
+      const clock = new PlayoutClock({ window: 4 }, { native }); clock.arrive(1, .1);
+      if (key.startsWith('advance-')) { clock.measure = () => {}; Object.assign(clock, { clock: 2, latest: 8, delay: 2, started: true }); }
+      let input;
+      if (key === 'reset-minDelay') clock.minDelay = fromBits(pattern);
+      else if (key === 'measure-margin') { clock.margin = fromBits(pattern); clock.gapCount = 1; clock.gaps[0] = 3; }
+      else if (key === 'measure-gap') { clock.gapCount = 1; seedRing(clock.gaps); new DataView(clock.gaps.buffer).setBigUint64(0, pattern, true); }
+      else if (key === 'shown') clock.clock = fromBits(pattern);
+      else {
+        const field = key.split('-')[1];
+        if (['now', 'tick', 'interval', 'dt'].includes(field)) input = fromBits(pattern);
+        else clock[field] = fromBits(pattern);
+      }
+      const initial = { state: playoutState(clock), input: scalar(input) }; let value;
+      if (key === 'reset-minDelay') value = clock.reset();
+      else if (key.startsWith('arrival-')) {
+        if (key === 'arrival-now') value = clock.arrive(2, input);
+        else if (key === 'arrival-interval') value = clock.arrive(2, .2, input);
+        else if (key === 'arrival-tick') value = clock.arrive(input, .2);
+        else value = clock.arrive(2, .2);
+      } else if (key.startsWith('measure-')) value = clock.measure();
+      else if (key.startsWith('advance-')) value = clock.advance(key === 'advance-dt' ? input : .01);
+      else value = clock.shownTick;
+      return { pattern: pattern.toString(16), initial, value: scalar(value), state: playoutState(clock) };
+    });
+  } });
+  for (const key of ['apply-current', 'apply-tick', 'alpha-current', 'alpha-previous', 'alpha-clock', 'render-clock', 'render-latest']) cases.push({ name: `raw:interval-${key}`, run(native) {
+    return patterns.map(pattern => {
+      const interval = new SnapshotInterval({ native }); interval.previous = 1; interval.current = 3; let input;
+      if (key === 'apply-current' || key === 'alpha-current') interval.current = fromBits(pattern);
+      else if (key === 'alpha-previous') interval.previous = fromBits(pattern);
+      else input = fromBits(pattern);
+      const initial = { state: intervalState(interval), input: scalar(input) }; let value;
+      if (key.startsWith('apply-')) value = interval.apply(key === 'apply-tick' ? input : 5);
+      else if (key.startsWith('alpha-')) value = interval.alpha(key === 'alpha-clock' ? input : 2);
+      else value = renderedViewTick(key === 'render-clock' ? input : 2, key === 'render-latest' ? input : 3, { native });
+      return { pattern: pattern.toString(16), initial, value: scalar(value), state: intervalState(interval) };
+    });
+  } });
+  cases.push({ name: 'raw:finite-overflow-and-zero-rate-boundaries', run(native) {
+    const out = [];
+    for (const hz of [0, -0, Number.MIN_VALUE, Number.MAX_VALUE, -Number.MAX_VALUE]) {
+      const clock = new PlayoutClock({ hz, window: 3 }, { native });
+      clock.arrive(1, -Number.MAX_VALUE); const initial = playoutState(clock);
+      clock.arrive(2, Number.MAX_VALUE, 1); const arrival = playoutState(clock);
+      clock.clock = 2; clock.latest = 4; clock.delay = 2; clock.started = true; clock.measure = () => {};
+      const value = clock.advance(0); out.push({ initial, arrival, value: scalar(value), state: playoutState(clock) });
+    }
+    return out;
+  } });
+  return cases;
+}
+
+export function playoutDescriptorCases() {
+  const cases = [];
+  for (const marker of ['value', 'get', 'set']) cases.push({ name: `descriptor:inherited-${marker}`, run(native) {
+    const clock = new PlayoutClock({ window: 4 }, { native }), interval = new SnapshotInterval({ native }), events = [];
+    clock.gaps.set([2, 4, 1, 3]); clock.gapCount = 4;
+    if (marker === 'value') {
+      Object.defineProperty(clock, 'gapCount', { configurable: true, get() { events.push('count'); return 4; } });
+      Object.defineProperty(interval, 'current', { configurable: true, get() { events.push('current'); return 3; } });
+    }
+    const prior = Object.getOwnPropertyDescriptor(Object.prototype, marker), d = Object.create(null);
+    d.value = marker === 'value' ? 0 : function () { events.push('unexpected-inherited-descriptor-hook'); };
+    d.configurable = true; d.writable = true; Object.defineProperty(Object.prototype, marker, d);
+    let measured, alpha, rendered;
+    try { measured = clock.measure(); alpha = interval.alpha(2); rendered = renderedViewTick(2.5, 3, { native }); }
+    finally { delete Object.prototype[marker]; if (prior) Object.defineProperty(Object.prototype, marker, prior); }
+    return { measured: scalar(measured), alpha: scalar(alpha), rendered: scalar(rendered), events, clock: playoutState(clock), interval: intervalState(interval) };
+  } });
+  for (const kind of ['short-ring', 'long-ring', 'integer-storage']) cases.push({ name: `descriptor:${kind}`, run(native) {
+    const clock = new PlayoutClock({ window: 3 }, { native });
+    clock.gaps = kind === 'integer-storage' ? new Int32Array(3) : new F64(kind === 'short-ring' ? 2 : 5);
+    const ring = clock.gaps, out = [];
+    for (let i = 0; i < 9; i++) { clock.arrive(i, i / 60 + .125 * (i % 3), 1); out.push({ delay: scalar(clock.measure()), state: playoutState(clock), same: clock.gaps === ring }); }
+    return out;
+  } });
+  for (const kind of ['output', 'math', 'geometry', 'slice', 'sort-result', 'species']) cases.push({ name: `descriptor:accessor-${kind}-with-inherited-value`, run(native) {
+    const clock = new PlayoutClock({ window: 4 }, { native }), events = []; clock.gaps.set([2, 4, 1, 3]); clock.gapCount = 4;
+    const cleanups = []; let backing = 2, marker = 0;
+    const change = (target, key, descriptor) => {
+      const prior = Object.getOwnPropertyDescriptor(target, key); Object.defineProperty(target, key, Object.assign(Object.create(null), descriptor));
+      cleanups.push(() => { if (prior) Object.defineProperty(target, key, prior); else delete target[key]; });
+    };
+    if (kind === 'output') change(clock, 'delay', { configurable: true, get() { events.push('delay-get'); return backing; }, set(value) { events.push(['delay-set', value]); backing = value + .25; } });
+    if (kind === 'math') { const original = Math.max; marker = original; change(Math, 'max', { configurable: true, get() { events.push(['math-get', clock.measuredKey]); return original; } }); }
+    if (kind === 'geometry') { const original = Reflect.apply(typed.byteLength.get, clock.gaps, []); change(clock.gaps, 'byteLength', { configurable: true, get() { events.push('geometry-get'); return original; } }); }
+    if (kind === 'slice') { const original = F64.prototype.slice; marker = original; change(clock.gaps, 'slice', { configurable: true, get() { events.push(['slice-get', clock.measuredKey]); return original; } }); }
+    if (kind === 'sort-result') { const original = F64.prototype.sort; clock.gaps.sort = original; marker = original; change(F64.prototype, 'sort', { configurable: true, get() { events.push(['sort-get', clock.measuredKey]); return original; } }); }
+    if (kind === 'species') { marker = F64; change(F64, Symbol.species, { configurable: true, get() { events.push(['species-get', clock.measuredKey]); return F64; } }); }
+    const inherited = Object.getOwnPropertyDescriptor(Object.prototype, 'value'), d = Object.create(null); d.value = marker; d.configurable = true; d.writable = true;
+    Object.defineProperty(Object.prototype, 'value', d); let result;
+    try { result = clock.measure(); }
+    finally { delete Object.prototype.value; if (inherited) Object.defineProperty(Object.prototype, 'value', inherited); for (let i = cleanups.length - 1; i >= 0; i--) cleanups[i](); }
+    return { result: scalar(result), events, backing: scalar(backing), state: playoutState(clock) };
+  } });
+  return cases;
+}
+
+export const playoutCases = () => [...playoutNumericCases(), ...playoutCallbackCases(), ...intervalCallbackCases(), ...playoutRawCases(), ...playoutDescriptorCases()];
 export function runPlayoutCase(scenario, native = null) {
   const calls = native?.calls ?? 0, result = scenario.run(native);
   return { result, calls: (native?.calls ?? 0) - calls };
