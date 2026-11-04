@@ -4,7 +4,7 @@
 import { bridgeFor } from './sim/runtime.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
 import { putWpInput, WpOutputMirror, syncWpOutput } from './sim/gen/weapon-runtime.js';
-import { lockPick } from './weapon-targeting.js';
+import { lockPick, bindWeaponLockRuntime } from './weapon-targeting.js';
 import { legacyRandom } from './ai/random.js';
 
 const spread = legacyRandom('weapon-spread'), swing = legacyRandom('melee-swing');
@@ -33,7 +33,7 @@ export class WeaponSim {
   attach(weapon) {
     const prior = owners.get(weapon);
     if (prior) { if (prior !== this) throw Error('weapon already belongs to another simulation'); return weapon; }
-    registerWeaponClass(this.bridge, weapon.levels[0]); owners.set(weapon, this);
+    registerWeaponClass(this.bridge, weapon.levels[0]); owners.set(weapon, this); bindWeaponLockRuntime(weapon, this);
     weapon.update = (dt, selected, trigger, reload, aim = {}) => this.run(weapon, 'update', {
       dt, selected: Boolean(selected), held: Boolean(trigger.held), pressed: Boolean(trigger.pressed), seed: trigger.seed ?? null,
       late: trigger.late || 0, reload: Boolean(reload), stick: aim.stick, posture: posture(aim.posture), zoomed: Boolean(aim.zoomed), repairTarget: Boolean(aim.repairTarget),
