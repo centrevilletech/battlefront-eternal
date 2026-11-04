@@ -16,13 +16,19 @@
 // a short window is kept. The world running slower than wall time (it drops
 // ticks) moves that bound down, so the page resets the window when a packet
 // reports dropped ticks.
+const nativeModels = new WeakMap();
 export class WorldTickEstimator {
-  constructor({ hz = 60, window = 60 } = {}) {
+  constructor({ hz = 60, window = 60 } = {}, { native = null } = {}) {
     this.hz = hz; this.window = window; this.offsets = new Float64Array(window);
+    if (native) nativeModels.set(this, native);
     this.reset();
   }
-  reset() { this.at = 0; this.count = 0; this.offset = null; this.dropped = null; }
+  reset() {
+    if (nativeModels.get(this)?.estimatorReset(this)) return;
+    this.at = 0; this.count = 0; this.offset = null; this.dropped = null;
+  }
   arrive(tick, now, dropped = 0) {
+    if (nativeModels.get(this)?.estimatorArrive(this, tick, now, dropped)) return;
     if (this.dropped !== null && dropped !== this.dropped) { this.at = 0; this.count = 0; }
     this.dropped = dropped;
     this.offsets[this.at] = tick - now * this.hz; this.at = (this.at + 1) % this.window;
@@ -32,7 +38,10 @@ export class WorldTickEstimator {
     this.offset = best;
   }
   // The world's tick (fractional) at wall time `now`, or null before any packet.
-  estimate(now) { return this.offset === null ? null : this.offset + now * this.hz; }
+  estimate(now) {
+    const result = nativeModels.get(this)?.estimatorEstimate(this, now);
+    return result ? result.value : this.offset === null ? null : this.offset + now * this.hz;
+  }
 }
 
 // The lowest stamp a command sent now may carry and still reach the world
@@ -47,17 +56,20 @@ export class WorldTickEstimator {
 // tick above that floor so each command is produced with that much to
 // spare; `lead` is how far above the newest arrived tick it is.
 export class InputLead {
-  constructor({ hz = 60, window = 60, gapWindow = 120, margin = 1, maxLead = 12, cooldown = 30, recover = false, calm = recover ? 60 : 600, extrapolate = false } = {}) {
+  constructor({ hz = 60, window = 60, gapWindow = 120, margin = 1, maxLead = 12, cooldown = 30, recover = false, calm = recover ? 60 : 600, extrapolate = false } = {}, { native = null } = {}) {
     this.hz = hz; this.margin = margin; this.maxLead = maxLead; this.cooldownAcks = cooldown; this.calmAcks = calm;
     this.recover = recover;
     this.extrapolate = extrapolate;
-    this.estimator = new WorldTickEstimator({ hz, window });
+    this.estimator = new WorldTickEstimator({ hz, window }, { native });
     this.gaps = new Float64Array(gapWindow);
+    if (native) nativeModels.set(this, native);
     this.reset();
   }
   reset() {
     this.estimator.reset();
-    this.gaps.fill(0); this.gapAt = 0; this.gapCount = 0;
+    this.gaps.fill(0);
+    if (nativeModels.get(this)?.leadReset(this)) return;
+    this.gapAt = 0; this.gapCount = 0;
     this.arrivedAt = null; this.arrivedTick = 0; this.latest = 0;
     this.lead = this.margin + 1; this.late = 0; this.worstGap = 0; this.extra = 0; this.cooldown = 0; this.calm = 0; this.measuredKey = -1;
     this.capped = false;
@@ -66,6 +78,7 @@ export class InputLead {
   // count of ticks it has given up.
   arrive(tick, now, dropped = 0) {
     this.estimator.arrive(tick, now, dropped);
+    if (nativeModels.get(this)?.leadArrive(this, tick, now)) return;
     if (tick > this.latest) this.latest = tick;
     if (this.arrivedAt !== null && tick > this.arrivedTick) {
       // Ticks the stream fell behind between this arrival and the last: a
@@ -97,6 +110,7 @@ export class InputLead {
   // margin, which offline would then take two minutes to come down, nor
   // counts against its calm.
   acknowledge(late, elapsedTicks = 1, capped = false) {
+    if (nativeModels.get(this)?.acknowledge(this, late, elapsedTicks, capped)) return;
     const elapsed = Math.max(1, Math.min(60, elapsedTicks));
     if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - elapsed);
     if (late > 0) {
@@ -114,13 +128,18 @@ export class InputLead {
     // lead wide for the whole window. The lead only borrows this as a
     // bounded hint (see target); real upstream lateness is measured
     // directly by acknowledge().
-    const key = this.gapCount * 4096 + this.gapAt;
-    if (key === this.measuredKey) return;
-    this.measuredKey = key;
+    const native = nativeModels.get(this), measured = native?.measureKey(this);
+    const key = measured ? measured.key : this.gapCount * 4096 + this.gapAt;
+    if (measured ? !measured.changed : key === this.measuredKey) return;
+    if (!measured) this.measuredKey = key;
     let gap = 0;
     if (this.gapCount) {
-      const sorted = this.gaps.slice(0, this.gapCount).sort();
-      gap = sorted[Math.min(this.gapCount - 1, Math.floor(this.gapCount * 0.85))];
+      const measured = native?.measure(this);
+      if (measured) gap = measured.gap;
+      else {
+        const sorted = this.gaps.slice(0, this.gapCount).sort();
+        gap = sorted[Math.min(this.gapCount - 1, Math.floor(this.gapCount * 0.85))];
+      }
     }
     this.worstGap = gap;
   }
@@ -131,6 +150,8 @@ export class InputLead {
   target(now, latest = this.latest, roundTripSeconds = 0) {
     this.measure();
     const estimate = this.estimator.estimate(now);
+    const result = nativeModels.get(this)?.target(this, estimate, latest, roundTripSeconds);
+    if (result) return result.value;
     const transit = Math.max(0, Math.min(1, roundTripSeconds)) * this.hz;
     // Arrival gaps mostly measure how bunched the DOWNSTREAM packets land;
     // stamping commands later does not un-bunch them, it only delays his
@@ -245,10 +266,21 @@ export function replayTicks(pending, from, generation, held, apply, initialView 
 // is shown at once (the prediction was wrong, not jittery). Collision state
 // is never offset; only what is drawn.
 export class CorrectionSmoother {
-  constructor({ snap = 1, tau = 0.03 } = {}) { this.snap = snap; this.tau = tau; this.x = this.y = this.z = 0; this.count = 0; this.snaps = 0; this.worst = 0; }
-  reset() { this.x = this.y = this.z = 0; }
+  constructor({ snap = 1, tau = 0.03 } = {}, { native = null } = {}) {
+    this.snap = snap; this.tau = tau; this.x = this.y = this.z = 0; this.count = 0; this.snaps = 0; this.worst = 0;
+    if (native) nativeModels.set(this, native);
+  }
+  reset() {
+    if (nativeModels.get(this)?.smootherReset(this)) return;
+    this.x = this.y = this.z = 0;
+  }
   // The prediction for a tick moved from (ox, oy, oz) to (nx, ny, nz).
   note(ox, oy, oz, nx, ny, nz) {
+    const result = nativeModels.get(this)?.note(this, ox, oy, oz, nx, ny, nz);
+    if (result) {
+      if (result.reset) { this.reset(); this.snaps++; }
+      return result.size;
+    }
     const dx = ox - nx, dy = oy - ny, dz = oz - nz;
     const size = Math.hypot(dx, dy, dz);
     if (size < 1e-6) return 0;
@@ -258,9 +290,14 @@ export class CorrectionSmoother {
     return size;
   }
   decay(dt) {
+    const result = nativeModels.get(this)?.decay(this, dt);
+    if (result) { if (result.reset) this.reset(); return; }
     const k = Math.exp(-Math.max(0, dt) / this.tau);
     this.x *= k; this.y *= k; this.z *= k;
     if (Math.hypot(this.x, this.y, this.z) < 1e-4) this.reset();
   }
-  get length() { return Math.hypot(this.x, this.y, this.z); }
+  get length() {
+    const result = nativeModels.get(this)?.length(this);
+    return result ? result.value : Math.hypot(this.x, this.y, this.z);
+  }
 }
