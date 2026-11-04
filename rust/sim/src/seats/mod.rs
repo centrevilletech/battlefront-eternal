@@ -118,6 +118,10 @@ impl Reason {
 /// What the seats ask of the rest of the battle (src/seats-world.js), each
 /// call as the JavaScript makes it. Units are named by their registry id.
 pub trait SeatWorld {
+    fn publish_hulls(&mut self, _st: &crate::gen::Store, _hulls: &hulls::Hulls) {}
+    fn resume_hulls(&mut self, _st: &mut crate::gen::Store, _hulls: &mut hulls::Hulls) {}
+    fn hull_lease(&mut self, st: &mut crate::gen::Store, lease: SeatLease) -> Ref<SeatLease> { st.seat_lease.insert(lease) }
+
     /// A live crew command publishes its writes before a foreign call and
     /// reads back that call's changes afterwards. The store passed here
     /// is command-local, so an import can reenter the shared simulation.

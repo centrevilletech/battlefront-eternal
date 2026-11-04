@@ -68,6 +68,9 @@ pub struct Hulls {
     /// since this was last emptied, in that order (the module's JavaScript
     /// takes them from its SeatUnits' intents too).
     pub latched: Vec<Ref<SeatUnit>>,
+    /// Reused by latchCrews and destroyedCrew; neither search allocates on a tick.
+    pub pending_exits: Vec<Ref<SeatLease>>,
+    pub pending_deaths: Vec<u32>,
 }
 
 /// Vehicles.vacate's options.
@@ -90,6 +93,17 @@ impl Default for Vacate {
     }
 }
 
+// The live phase uses command-local rows across callbacks. Publish them before
+// a callback and resume from canonical native rows after a reentrant command.
+macro_rules! foreign {
+    ($h:expr, $st:expr, $w:expr, $call:expr) => {{
+        $w.publish_hulls($st, $h);
+        let result = $call;
+        $w.resume_hulls($st, $h);
+        result
+    }};
+}
+
 const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
 const UNIT_SCALE: Vector3 = Vector3::new(1.0, 1.0, 1.0);
 
@@ -106,7 +120,7 @@ pub fn clamp_aim(v: &mut Vehicle, i: usize) {
         return;
     }
     let yaw = v.yaw;
-    let view = v.seat_views[i].clone();
+    let view = &v.seat_views[i];
     let seat = &mut v.seats[i];
     let (low, high) = (view.pitch_limits[0], view.pitch_limits[1]);
     seat.pitch = clamp(seat.pitch, low, high);
@@ -210,7 +224,7 @@ impl Hulls {
         let u = st.unit.get(unit_ref(unit)).expect("the unit");
         let network = network_human(u);
         let lease = new_lease(Some((unit, u.generation)), false, u.team, Some(vref), None, index as f64, role, self.time, self.ticks);
-        let r = st.seat_lease.insert(lease);
+        let r = w.hull_lease(st, lease);
         st.seats.leases.push(r);
         self.made.push(r);
         let v = st.vehicle.get_mut(vref).expect("the hull");
@@ -222,9 +236,10 @@ impl Hulls {
         seat.pitch = if index == 0 && !flying && (!hover || network) { -0.12 } else { 0.0 };
         seat.look_yaw = None;
         seat.look_pitch = None;
-        w.seat_policy(Holder::Hull(self.hulls[hull].index), index, network, true);
+        lease_views(st, vref);
+        foreign!(self, st, w, w.seat_policy(Holder::Hull(self.hulls[hull].index), index, network, true));
         if !network {
-            let c = w.controllable(r, index, role);
+            let c = foreign!(self, st, w, w.controllable(r, index, role));
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         let mut combat = self.facts(unit).combat;
@@ -236,7 +251,7 @@ impl Hulls {
         st.vehicle.get_mut(vref).unwrap().sleeping = Some(false);
         w.sync_rider(r, st.unit.get_mut(unit_ref(unit)).unwrap());
         lease_views(st, vref);
-        w.boarded(unit, Holder::Hull(self.hulls[hull].index), index);
+        foreign!(self, st, w, w.boarded(unit, Holder::Hull(self.hulls[hull].index), index));
         true
     }
 
@@ -358,7 +373,7 @@ impl Hulls {
             w.placed(unit.unwrap(), yaw);
         }
         lease_views(st, vref);
-        w.unboarded(unit, Holder::Hull(self.hulls[hull].index), index, how.post, how.reason);
+        foreign!(self, st, w, w.unboarded(unit, Holder::Hull(self.hulls[hull].index), index, how.post, how.reason));
         true
     }
 
@@ -410,13 +425,14 @@ impl Hulls {
         lease.input.pressed[1] = false;
         lease.input.reload = false;
         lease.input.exit = false;
-        w.seat_policy(Holder::Hull(self.hulls[hull].index), index, human || network, !human);
+        lease_views(st, vref);
+        foreign!(self, st, w, w.seat_policy(Holder::Hull(self.hulls[hull].index), index, human || network, !human));
         if !human && !network {
-            let c = w.controllable(r, index, role);
+            let c = foreign!(self, st, w, w.controllable(r, index, role));
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         lease_views(st, vref);
-        w.moved(unit, Holder::Hull(self.hulls[hull].index), index);
+        foreign!(self, st, w, w.moved(unit, Holder::Hull(self.hulls[hull].index), index));
         r
     }
 
@@ -445,7 +461,8 @@ impl Hulls {
     pub fn destroyed_crew<W: SeatWorld + ?Sized>(&mut self, st: &mut Store, w: &mut W, hull: usize) {
         let vref = self.hulls[hull].vehicle;
         let attacker = self.hulls[hull].last_attacker;
-        let mut dying = Vec::new();
+        let mut dying = std::mem::take(&mut self.pending_deaths);
+        dying.clear();
         let n = st.vehicle.get(vref).unwrap().seats.len();
         for i in 0..n {
             let Some(r) = st.vehicle.get(vref).unwrap().seats[i].lease else { continue };
@@ -460,9 +477,10 @@ impl Hulls {
                 }
             }
         }
-        for unit in dying {
+        for &unit in &dying {
             w.kill(st, super::Seating::Hulls(self), unit, attacker);
         }
+        self.pending_deaths = dying;
         // It runs inside the hull's tick (setHealth), which reads on.
         lease_views(st, vref);
     }
@@ -472,7 +490,8 @@ impl Hulls {
     /// requests are carried out.
     pub fn latch_crews<W: SeatWorld + ?Sized>(&mut self, st: &mut Store, w: &mut W) {
         self.ticks += 1.0;
-        let mut exits = Vec::new();
+        let mut exits = std::mem::take(&mut self.pending_exits);
+        exits.clear();
         for hull in 0..self.hulls.len() {
             let vref = self.hulls[hull].vehicle;
             let n = st.vehicle.get(vref).unwrap().seats.len();
@@ -496,7 +515,7 @@ impl Hulls {
                 }
             }
         }
-        for r in exits {
+        for &r in &exits {
             let lease = st.seat_lease.get(r).unwrap();
             if lease.released {
                 continue;
@@ -507,6 +526,7 @@ impl Hulls {
             };
             self.vacate(st, w, r, Vacate { placement, promote, post, ..Vacate::default() });
         }
+        self.pending_exits = exits;
         // The hulls' tick reads each seat's lease through seatLeases, which
         // JavaScript's getter keeps current.
         for side in &self.hulls {
@@ -519,12 +539,11 @@ impl Hulls {
 /// lease, or for an empty seat an object with nothing in it), made again
 /// from the leases the store holds.
 pub fn lease_views(st: &mut Store, v: Ref<Vehicle>) {
-    let Some(hull) = st.vehicle.get(v) else { return };
-    let views: Vec<SeatLeaseView> = hull
-        .seats
-        .iter()
-        .map(|seat| match seat.lease.and_then(|r| st.seat_lease.get(r)) {
-            Some(lease) => SeatLeaseView {
+    let Some(hull) = st.vehicle.get_mut(v) else { return };
+    hull.seat_leases.clear();
+    for seat in &hull.seats {
+        let view = match seat.lease.and_then(|r| st.seat_lease.get(r)) {
+            Some(lease) if !lease.released => SeatLeaseView {
                 human: Some(lease.human),
                 unit: match lease.unit {
                     Some(u) => Nullable::Value(u),
@@ -537,10 +556,10 @@ pub fn lease_views(st: &mut Store, v: Ref<Vehicle>) {
                 pitch: Some(lease.input.pitch),
                 brake: Some(lease.input.brake),
             },
-            None => SeatLeaseView { unit: Nullable::Undefined, ..SeatLeaseView::default() },
-        })
-        .collect();
-    st.vehicle.get_mut(v).unwrap().seat_leases = views;
+            _ => SeatLeaseView { unit: Nullable::Undefined, ..SeatLeaseView::default() },
+        };
+        hull.seat_leases.push(view);
+    }
 }
 
 /// The lease's unit, by id.

@@ -514,6 +514,8 @@ pub struct Crews {
     /// The seat controls whose intents the updates took edges from (as
     /// Hulls::latched).
     pub latched: Vec<Ref<SeatUnit>>,
+    /// Reused snapshot of TurretSeats.update's starting leases.
+    pub updating: Vec<Ref<SeatLease>>,
     /// Whether the system has a collision world (`this.collision`).
     pub collide: bool,
 }
@@ -686,7 +688,10 @@ impl Crews {
     pub fn update<W: CrewWorld + ?Sized>(&mut self, st: &mut Store, w: &mut W, dt: f64) {
         st.turret_seats.time += dt;
         st.turret_seats.ticks += 1.0;
-        for r in st.turret_seats.leases.clone() {
+        let mut updating = std::mem::take(&mut self.updating);
+        updating.clear();
+        updating.extend_from_slice(&st.turret_seats.leases);
+        for &r in &updating {
             let lease = st.seat_lease.get(r).unwrap();
             let turret = self.turret_of(lease.turret.unwrap());
             if !self.turrets[turret].alive {
@@ -712,6 +717,7 @@ impl Crews {
             }
             self.drive(st, w, r, dt);
         }
+        self.updating = updating;
     }
 
     /// TurretSeats.drive (939): one frame of a bot or a network human at the
