@@ -83,6 +83,7 @@ impl ControllerUnit {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AlertSource {
     Null,
+    Undefined,
     Character(Ref<Character>),
     Unit(Ref<Unit>),
     SeatUnit(Ref<SeatUnit>),
@@ -104,26 +105,28 @@ impl AlertSource {
         row[1..3].fill(0.0);
         match self {
             AlertSource::Null => row[0] = 0.0,
-            AlertSource::Character(r) => { row[0] = 1.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
-            AlertSource::Unit(r) => { row[0] = 2.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
-            AlertSource::SeatUnit(r) => { row[0] = 3.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
-            AlertSource::VehicleTarget(r) => { row[0] = 4.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
-            AlertSource::TurretTarget(r) => { row[0] = 5.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
-            AlertSource::ObjectiveTarget(r) => { row[0] = 6.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
-            AlertSource::ServiceTarget(r) => { row[0] = 7.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::Undefined => row[0] = 1.0,
+            AlertSource::Character(r) => { row[0] = 2.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::Unit(r) => { row[0] = 3.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::SeatUnit(r) => { row[0] = 4.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::VehicleTarget(r) => { row[0] = 5.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::TurretTarget(r) => { row[0] = 6.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::ObjectiveTarget(r) => { row[0] = 7.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
+            AlertSource::ServiceTarget(r) => { row[0] = 8.0; row[1] = r.slot as f64; row[2] = r.gen as f64; }
         }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
         match word_u32(row[0]) {
             0 => AlertSource::Null,
-            1 => AlertSource::Character(Ref::new(word_u32(row[1]), word_u32(row[2]))),
-            2 => AlertSource::Unit(Ref::new(word_u32(row[1]), word_u32(row[2]))),
-            3 => AlertSource::SeatUnit(Ref::new(word_u32(row[1]), word_u32(row[2]))),
-            4 => AlertSource::VehicleTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
-            5 => AlertSource::TurretTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
-            6 => AlertSource::ObjectiveTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
-            7 => AlertSource::ServiceTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            1 => AlertSource::Undefined,
+            2 => AlertSource::Character(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            3 => AlertSource::Unit(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            4 => AlertSource::SeatUnit(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            5 => AlertSource::VehicleTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            6 => AlertSource::TurretTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            7 => AlertSource::ObjectiveTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
+            8 => AlertSource::ServiceTarget(Ref::new(word_u32(row[1]), word_u32(row[2]))),
             _ => AlertSource::default(),
         }
     }

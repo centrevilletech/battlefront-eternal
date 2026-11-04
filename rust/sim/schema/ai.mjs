@@ -26,7 +26,7 @@ export default {
     // What a controller drives (UnitController.unit): nothing, its body,
     // or the seat it sits in.
     ControllerUnit: ['null', 'ref:unit', 'ref:seatUnit'],
-    AlertSource: ['null', 'ref:character', 'ref:unit', 'ref:seatUnit', 'ref:vehicleTarget', 'ref:turretTarget', 'ref:objectiveTarget', 'ref:serviceTarget'],
+    AlertSource: ['null', 'undefined', 'ref:character', 'ref:unit', 'ref:seatUnit', 'ref:vehicleTarget', 'ref:turretTarget', 'ref:objectiveTarget', 'ref:serviceTarget'],
   },
 
   records: {

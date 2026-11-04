@@ -115,13 +115,14 @@ export function exportControllerUnit(x, cx) {
 
 export function variantOfAlertSource(b, x) {
   if (x === null) return 0;
-  if (b?.refs[KIND_CHARACTER].is(x)) return 1;
-  if (b?.refs[KIND_UNIT].is(x)) return 2;
-  if (b?.refs[KIND_SEAT_UNIT].is(x)) return 3;
-  if (b?.refs[KIND_VEHICLE_TARGET].is(x)) return 4;
-  if (b?.refs[KIND_TURRET_TARGET].is(x)) return 5;
-  if (b?.refs[KIND_OBJECTIVE_TARGET].is(x)) return 6;
-  if (b?.refs[KIND_SERVICE_TARGET].is(x)) return 7;
+  if (x === undefined) return 1;
+  if (b?.refs[KIND_CHARACTER].is(x)) return 2;
+  if (b?.refs[KIND_UNIT].is(x)) return 3;
+  if (b?.refs[KIND_SEAT_UNIT].is(x)) return 4;
+  if (b?.refs[KIND_VEHICLE_TARGET].is(x)) return 5;
+  if (b?.refs[KIND_TURRET_TARGET].is(x)) return 6;
+  if (b?.refs[KIND_OBJECTIVE_TARGET].is(x)) return 7;
+  if (b?.refs[KIND_SERVICE_TARGET].is(x)) return 8;
   return -1;
 }
 
@@ -136,13 +137,14 @@ export function whichAlertSource(b, x) {
 export function syncAlertSource(b, f, at, h, current) {
   switch (f[at]) {
     case 0: return null;
-    case 1: return b.refs[KIND_CHARACTER].at(f[at + 1], f[at + 2]);
-    case 2: return b.refs[KIND_UNIT].at(f[at + 1], f[at + 2]);
-    case 3: return b.refs[KIND_SEAT_UNIT].at(f[at + 1], f[at + 2]);
-    case 4: return b.refs[KIND_VEHICLE_TARGET].at(f[at + 1], f[at + 2]);
-    case 5: return b.refs[KIND_TURRET_TARGET].at(f[at + 1], f[at + 2]);
-    case 6: return b.refs[KIND_OBJECTIVE_TARGET].at(f[at + 1], f[at + 2]);
-    case 7: return b.refs[KIND_SERVICE_TARGET].at(f[at + 1], f[at + 2]);
+    case 1: return undefined;
+    case 2: return b.refs[KIND_CHARACTER].at(f[at + 1], f[at + 2]);
+    case 3: return b.refs[KIND_UNIT].at(f[at + 1], f[at + 2]);
+    case 4: return b.refs[KIND_SEAT_UNIT].at(f[at + 1], f[at + 2]);
+    case 5: return b.refs[KIND_VEHICLE_TARGET].at(f[at + 1], f[at + 2]);
+    case 6: return b.refs[KIND_TURRET_TARGET].at(f[at + 1], f[at + 2]);
+    case 7: return b.refs[KIND_OBJECTIVE_TARGET].at(f[at + 1], f[at + 2]);
+    case 8: return b.refs[KIND_SERVICE_TARGET].at(f[at + 1], f[at + 2]);
     default: throw Error('AlertSource: no such variant');
   }
 }
@@ -152,13 +154,13 @@ export function putAlertSource(b, x, f, at, heap) {
   f[at + 1] = 0; f[at + 2] = 0;
   f[at] = i;
   switch (i) {
-    case 1: b.refs[KIND_CHARACTER].put(x, f, at + 1); break;
-    case 2: b.refs[KIND_UNIT].put(x, f, at + 1); break;
-    case 3: b.refs[KIND_SEAT_UNIT].put(x, f, at + 1); break;
-    case 4: b.refs[KIND_VEHICLE_TARGET].put(x, f, at + 1); break;
-    case 5: b.refs[KIND_TURRET_TARGET].put(x, f, at + 1); break;
-    case 6: b.refs[KIND_OBJECTIVE_TARGET].put(x, f, at + 1); break;
-    case 7: b.refs[KIND_SERVICE_TARGET].put(x, f, at + 1); break;
+    case 2: b.refs[KIND_CHARACTER].put(x, f, at + 1); break;
+    case 3: b.refs[KIND_UNIT].put(x, f, at + 1); break;
+    case 4: b.refs[KIND_SEAT_UNIT].put(x, f, at + 1); break;
+    case 5: b.refs[KIND_VEHICLE_TARGET].put(x, f, at + 1); break;
+    case 6: b.refs[KIND_TURRET_TARGET].put(x, f, at + 1); break;
+    case 7: b.refs[KIND_OBJECTIVE_TARGET].put(x, f, at + 1); break;
+    case 8: b.refs[KIND_SERVICE_TARGET].put(x, f, at + 1); break;
   }
 }
 
@@ -171,13 +173,14 @@ export function sameAlertSource(x, y) {
 export function exportAlertSource(x, cx) {
   switch (whichAlertSource(cx, x)) {
     case 0: return null;
-    case 1: return cx.ref("character", x);
-    case 2: return cx.ref("unit", x);
-    case 3: return cx.ref("seatUnit", x);
-    case 4: return cx.ref("vehicleTarget", x);
-    case 5: return cx.ref("turretTarget", x);
-    case 6: return cx.ref("objectiveTarget", x);
-    case 7: return cx.ref("serviceTarget", x);
+    case 1: return undefined;
+    case 2: return cx.ref("character", x);
+    case 3: return cx.ref("unit", x);
+    case 4: return cx.ref("seatUnit", x);
+    case 5: return cx.ref("vehicleTarget", x);
+    case 6: return cx.ref("turretTarget", x);
+    case 7: return cx.ref("objectiveTarget", x);
+    case 8: return cx.ref("serviceTarget", x);
   }
 }
 

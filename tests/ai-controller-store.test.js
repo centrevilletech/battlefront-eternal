@@ -53,6 +53,7 @@ test('AI shot alerts preserve Character and direct unit sources through the stor
   const ai = new ClassicAI({ randomA: new ClassicRandom(1), randomB: new ClassicRandom(2) });
   const character = new Character(0, 1);
   const source = new UnitController(ai, character);
+  ai.controllers.push(source);
   const unit = { id: 0, generation: 3, alive: true, position: new THREE.Vector3() };
   const seat = { generation: 3, alive: true, position: new THREE.Vector3() };
   const bridge = new SimBridge(await loadSim());
@@ -65,6 +66,7 @@ test('AI shot alerts preserve Character and direct unit sources through the stor
     source.shot.known = true;
     source.shot.point.set(-0, 1, 2);
     bridge.write(KIND_CONTROLLER, [source], true);
+    bridge.write(KIND_CLASSIC_AI, [ai], true);
     const [{ object }] = bridge.read(KIND_CONTROLLER);
     assert.equal(KIND_TABLE[KIND_CONTROLLER].same(source, object), null);
     assert.equal(object.shot.source, attacker);
