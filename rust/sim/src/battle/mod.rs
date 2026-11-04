@@ -10,6 +10,8 @@
 //! trap state machine has its own [`traps::World`] for hulls and effects.
 
 pub mod battlefield;
+#[cfg(target_arch = "wasm32")]
+pub mod battlefield_module;
 pub mod human;
 #[cfg(target_arch = "wasm32")]
 pub mod human_module;
