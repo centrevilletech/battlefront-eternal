@@ -256,9 +256,10 @@ export class Graphics {
     // which draws unsupported items and takes over if Rust is unavailable.
     // ?rustOff disables Rust drawing for developer comparisons.
     this.rust = null;
+    this.rustReady = Promise.resolve();
     this.playerRoot = null;
     if (typeof location !== "undefined") {
-      import("./rust-render/index.js").then((m) => m.createRustRender(this)).then((rust) => { this.rust = rust; })
+      this.rustReady = import("./rust-render/index.js").then((m) => m.createRustRender(this)).then((rust) => { this.rust = rust; })
         .catch((error) => console.warn("Rust renderer unavailable:", error));
     }
     this.downsample = fullScreenPass(
@@ -506,6 +507,20 @@ export class Graphics {
     // rest: the programs warmup() still had to make, all at once.
     const rest = this.warmup().programs;
     return { programs: count() - before, rest, ms: performance.now() - started };
+  }
+
+  // Compile() prepares three's programs, but Rust adopts their geometry
+  // and links its own programs when the scene is first drawn. Draw twice
+  // under the loading screen: three establishes the materials on the first
+  // pass, and Rust can take them on the second. Do this before joining a
+  // battle, whose incoming entity records must never wait behind the work.
+  async prepareRenderer(settle, draw) {
+    await this.rustReady;
+    for (let i = 0; i < 2; i++) {
+      this.render(0);
+      draw();
+      await settle();
+    }
   }
 
   // Compile every program the scenes can draw, before play starts. Three
