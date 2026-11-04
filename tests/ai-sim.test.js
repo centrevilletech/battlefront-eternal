@@ -141,6 +141,64 @@ test('native acquired targets preserve candidate identities and cluster cache li
   n.p.candidate=undefined;assert.equal(n.p.candidate,undefined);
 });
 
+test('native deferred sight preserves lifetimes, budgets, point writes and heap swaps', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const world={time:0,tick:0,history:[]},queue=new DeferredLos();
+    if(native)sim.bindLos(queue);
+    const targets=Array.from({length:20},(_,id)=>{
+      const u={id,alive:true,generation:0,kind:id%3===0?0:6,team:2,position:new Vector3(id*.3,0,id),
+        aimPoint(out){world.history.push(['aim',id]);out.copy(this.position);out.y+=.37;},
+      };
+      if(id%2===0)u.origin=function(out){world.history.push(['target-eye',id]);out.copy(this.position);out.y+=1.61;};
+      return u;
+    });
+    const controllers=Array.from({length:8},(_,id)=>{
+      const c={id,generation:0,unit:{id:100+id,alive:true,team:1,origin(out){world.history.push(['eye',id]);out.set(id,-0,0);}}};
+      c.saved=new Perception(c);c.perception=native?sim.bindPerception(c.saved):c.saved;return c;
+    });
+    world.units={relation:(a,b)=>a===b?1:-1,query(at,radius,out,filter){out.length=0;for(const u of targets)if(filter(u))out.push(u);}};
+    world.los=(from,to,unit,target)=>{
+      world.history.push(['los',from.toArray(),to.toArray(),unit.id,target.id,queue.tested]);
+      if(native) {sim.words(new Array(1000).fill(3));sim.x.ai_nav_boundary(2,0,0,0,0);}
+      if(world.tick%17===0)to.x+=.03125;
+      if(world.tick%19===0)target.alive=false;
+      return (world.tick+target.id)%3!==0;
+    };
+    return {world,queue,targets,controllers,first:queue.active};
+  }
+  const j=fixture(false),n=fixture(true),random=new ClassicRandom(411);
+  const ref=r=>r==null?r:[r.unit.id,r.generation];
+  const req=r=>r&&[r.controller.id,r.generation,ref(r.target)];
+  const heap=h=>({count:h.count,dropped:h.dropped,priority:Array.from(h.priority),items:h.items.map(req)});
+  const snapshot=x=>({activeFirst:x.queue.active===x.first,active:heap(x.queue.active),scratch:heap(x.queue.scratch),
+    overflow:x.queue.overflow,tested:x.queue.tested,
+    candidates:x.controllers.map(c=>c.perception&&[ref(c.perception.candidate),c.perception.candidatePoint.toArray()])});
+  for(let i=0;i<384;i++) {
+    for(const x of [j,n]) {
+      x.world.time=i*.41;x.world.tick=i;x.world.history.length=0;
+      for(const c of x.controllers) {c.generation=Math.floor(i/29);c.unit.alive=(i+c.id)%23!==0;c.perception=(i+c.id)%31===0?null:c.saved;if(c.perception && i%7===0)c.perception.candidate=null;}
+      for(const t of x.targets) {t.alive=(i+t.id)%17!==0;t.generation=Math.floor(i/37);}
+    }
+    for(let k=0;k<20;k++) {
+      const ci=random.int(0,7),ti=random.int(0,19),priority=random.int(0,199);
+      for(const x of [j,n]) {
+        const target=x.targets[ti];
+        const r=k%13===0?null:{unit:target,generation:target.generation+(k%7===0?1:0)};
+        assert.equal(x.queue.submit(x.controllers[ci],r,priority),undefined);
+      }
+    }
+    if(i%13===0) {
+      assert.equal(j.queue.drain(j.controllers[i%8]),undefined);assert.equal(n.queue.drain(n.controllers[i%8]),undefined);
+    } else {
+      const budget=[0,.5,1,3,12,Infinity,NaN,-1][i%8];
+      assert.equal(n.queue.service(n.world,budget),j.queue.service(j.world,budget),`service ${i}`);
+    }
+    assert.deepEqual(n.world.history,j.world.history,`queries ${i}`);
+    assert.deepEqual(snapshot(n),snapshot(j),`sight ${i}`);
+  }
+});
+
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {
   const {sim}=await pair();
   function fixture(native) {

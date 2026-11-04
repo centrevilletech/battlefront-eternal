@@ -18,6 +18,42 @@ pub(super) struct CandidateState {
     pub scanned: f64,
 }
 
+pub(super) struct SightQueue {
+    pub active: u32,
+    pub scratch: u32,
+    pub overflow: f64,
+    pub tested: f64,
+}
+
+#[no_mangle]
+pub extern "C" fn ai_los_new(active: u32, scratch: u32, overflow: f64, tested: f64) -> u32 {
+    let s=state();s.sight_queues.push(SightQueue {active,scratch,overflow,tested});(s.sight_queues.len()-1) as u32
+}
+
+#[no_mangle]
+pub extern "C" fn ai_los_field(id: u32, field: u32) -> f64 {
+    let q=&state().sight_queues[id as usize];
+    match field {0=>q.active as f64,1=>q.scratch as f64,2=>q.overflow,3=>q.tested,_=>panic!("invalid sight queue field")}
+}
+
+#[no_mangle]
+pub extern "C" fn ai_los_write(id: u32, field: u32, value: f64) {
+    let q=&mut state().sight_queues[id as usize];
+    match field {0=>q.active=word_u32(value),1=>q.scratch=word_u32(value),2=>q.overflow=value,3=>q.tested=value,_=>panic!("invalid sight queue field")}
+}
+
+#[no_mangle]
+pub extern "C" fn ai_los_submit(id: u32, priority: f64, item: u32) {
+    let s=state();let active=s.sight_queues[id as usize].active;
+    let h=&mut s.heaps[active as usize];
+    let answer=match h.insert(priority,Some(item)) {
+        Inserted::Placed=>0,
+        Inserted::Displaced(old)=>old.unwrap_or(0),
+        Inserted::Dropped=>{s.sight_queues[id as usize].overflow+=1.0;item},
+    };
+    s.out.clear();s.out.extend([answer as f64,h.count as f64,h.dropped]);
+}
+
 #[no_mangle]
 pub extern "C" fn ai_perception_new() -> u32 {
     let s=state();s.perceptions.push(CandidateState::default());(s.perceptions.len()-1) as u32

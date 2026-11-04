@@ -371,14 +371,18 @@ impl AiSightArgs {
         Ok(AiSightArgs {
             op: { let p = format!("{path}.op"); AiSightOp::from_u8(name_of(v.get("op"), &AiSightOp::NAMES, &p)?).unwrap() },
             id: { let p = format!("{path}.id"); (int(v.get("id"), &p, 0.0, u32::MAX as f64)? as u32) },
+            from: { let p = format!("{path}.from"); numbers::<3>(v.get("from"), &p)? },
+            point: { let p = format!("{path}.point"); numbers::<3>(v.get("point"), &p)? },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
         { let x = Value::Str(AiSightOp::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
         { let x = Value::Num(self.id as f64); fields.push(("id", x)); }
+        { let x = { let items = self.from.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("from", x)); }
+        { let x = { let items = self.point.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("point", x)); }
         a.object("", fields)
     }
 }
@@ -390,14 +394,20 @@ impl AiSightResult {
         Ok(AiSightResult {
             number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
             ids: { let p = format!("{path}.ids"); { let mut out = Vec::new(); for (i, e) in list(v.get("ids"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push((int(e, &at, 0.0, u32::MAX as f64)? as u32)); } out } },
+            values: { let p = format!("{path}.values"); { let mut out = Vec::new(); for (i, e) in list(v.get("values"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+            flag: { let p = format!("{path}.flag"); boolean(v.get("flag"), &p)? },
+            point: { let p = format!("{path}.point"); numbers::<3>(v.get("point"), &p)? },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
         { let x = Value::Num(self.number); fields.push(("number", x)); }
         { let x = { let mut items = Vec::new(); for e in self.ids.iter() { let x = Value::Num((*e) as f64); items.push(x); } a.array(items) }; fields.push(("ids", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.values.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("values", x)); }
+        { let x = Value::Bool(self.flag); fields.push(("flag", x)); }
+        { let x = { let items = self.point.iter().map(|&x| Value::Num(x)).collect(); a.array(items) }; fields.push(("point", x)); }
         a.object("", fields)
     }
 }

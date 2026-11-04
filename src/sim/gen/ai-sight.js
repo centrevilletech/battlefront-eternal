@@ -2,30 +2,38 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiSightOp_NAMES = ["cluster","time","query","relation","kind"];
+export const AiSightOp_NAMES = ["cluster","time","query","relation","kind","clearScratch","hasRequest","pop","candidate","keep","swap","targetPoint","targetOrigin","shooterOrigin","los","record"];
 export const AiSightOp_INDEX = new Map(AiSightOp_NAMES.map((name, i) => [name, i]));
 
 export class AiSightArgsMirror {
   constructor() {
     this.op = "cluster";
     this.id = 0;
+    this.from = [NaN, NaN, NaN];
+    this.point = [NaN, NaN, NaN];
   }
 }
 
 export function syncAiSightArgs(b, f, at, h, m) {
   m.op = AiSightOp_NAMES[f[at + 0]];
   m.id = f[at + 1];
+  { const a = (m.from ??= new Array(3)); a[0] = f[at + 2]; a[1] = f[at + 3]; a[2] = f[at + 4]; }
+  { const a = (m.point ??= new Array(3)); a[0] = f[at + 5]; a[1] = f[at + 6]; a[2] = f[at + 7]; }
   return m;
 }
 
 export function putAiSightArgs(b, o, f, at, heap) {
   f[at + 0] = AiSightOp_INDEX.get(o.op);
   f[at + 1] = o.id;
+  { const $v = o.from; f[at + 2] = $v[0]; f[at + 3] = $v[1]; f[at + 4] = $v[2]; }
+  { const $v = o.point; f[at + 5] = $v[0]; f[at + 6] = $v[1]; f[at + 7] = $v[2]; }
 }
 
 export function sameAiSightArgs(a, b) {
   if (!Object.is(a.op, b.op)) return ".op";
   if (!Object.is(a.id, b.id)) return ".id";
+  if (!sameArray(a.from, b.from, 3)) return ".from";
+  if (!sameArray(a.point, b.point, 3)) return ".point";
   return null;
 }
 
@@ -36,6 +44,8 @@ export function exportAiSightArgs(o, cx) {
   cx.seen.set(o, v);
   v.op = o.op;
   v.id = o.id;
+  v.from = [...o.from];
+  v.point = [...o.point];
   return v;
 }
 
@@ -43,23 +53,35 @@ export class AiSightResultMirror {
   constructor() {
     this.number = NaN;
     this.ids = [];
+    this.values = [];
+    this.flag = false;
+    this.point = [NaN, NaN, NaN];
   }
 }
 
 export function syncAiSightResult(b, f, at, h, m) {
   m.number = f[at + 0];
   { const items = (m.ids ??= []), start = h + f[at + 1], n = f[at + 2]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  { const items = (m.values ??= []), start = h + f[at + 3], n = f[at + 4]; items.length = n; for (let i = 0; i < n; i++) { let v = items[i]; { const at = start + i * 1; v = f[at + 0]; } items[i] = v; } }
+  m.flag = f[at + 5] !== 0;
+  { const a = (m.point ??= new Array(3)); a[0] = f[at + 6]; a[1] = f[at + 7]; a[2] = f[at + 8]; }
   return m;
 }
 
 export function putAiSightResult(b, o, f, at, heap) {
   f[at + 0] = o.number;
   heap.items(o.ids, f, at + 1, 1, (f, at, v) => { f[at + 0] = v; });
+  heap.items(o.values, f, at + 3, 1, (f, at, v) => { f[at + 0] = v; });
+  f[at + 5] = o.flag ? 1 : 0;
+  { const $v = o.point; f[at + 6] = $v[0]; f[at + 7] = $v[1]; f[at + 8] = $v[2]; }
 }
 
 export function sameAiSightResult(a, b) {
   if (!Object.is(a.number, b.number)) return ".number";
   if (!sameEach(a.ids, b.ids, (x, y) => Object.is(x, y))) return ".ids";
+  if (!sameEach(a.values, b.values, (x, y) => Object.is(x, y))) return ".values";
+  if (!Object.is(a.flag, b.flag)) return ".flag";
+  if (!sameArray(a.point, b.point, 3)) return ".point";
   return null;
 }
 
@@ -70,5 +92,8 @@ export function exportAiSightResult(o, cx) {
   cx.seen.set(o, v);
   v.number = o.number;
   v.ids = o.ids.map((x) => x);
+  v.values = o.values.map((x) => x);
+  v.flag = o.flag;
+  v.point = [...o.point];
   return v;
 }
