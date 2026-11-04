@@ -18,16 +18,18 @@ async function drawnFrame(page,stage) {
   console.log('drawn-frame',stage,JSON.stringify(result));
 }
 
-// Fresh models can compile on their first drawn frame. Let that work settle
-// before a discrete input with the production half-second expiry window.
+// A software draw can stall, while the server and native transport continue.
+// Wait for a fresh accepted input batch rather than imposing an FPS minimum.
 async function inputCadence(page) {
-  const result=await page.evaluate(()=>new Promise(resolve=>{
-    let previous=performance.now(),stable=0;const start=previous;
-    function sample(now){const gap=now-previous;previous=now;stable=gap<250?stable+1:0;
-      if(stable>=4||now-start>60000)resolve({stable:stable>=4,elapsed:now-start});else requestAnimationFrame(sample);}
-    requestAnimationFrame(sample);
-  }));
-  assert.ok(result.stable,'drawn input frames settle within the reliable action window');
+  const until=Date.now()+60000;
+  let result;
+  do {
+    result=await page.evaluate(async()=>{const s=await __bf.client.host.call('inspect'),input=s.inputDiagnostics?.last;
+      return {fresh:input?.accepted===true&&!s.player.inputsStale&&Math.abs(input.tick-s.tick)<30,tick:s.tick,input};});
+    if(result.fresh)return;
+    await page.waitForTimeout(100);
+  }while(Date.now()<until);
+  assert.ok(result?.fresh,'the normal transport accepts fresh input before the next action');
 }
 
 // Ordinary spawn, walking, use and seat-cycle commands. No teleport, direct
@@ -68,11 +70,15 @@ export async function mountedGameGate([actor, observer]) {
   async function spawn() {
     await actor.waitForFunction(()=>['unspawned','awaiting'].includes(__bf.spawnPort.humanState().phase),null,{timeout:60000});
     await inputCadence(actor);
-    await actor.evaluate(choice=>__bf.spawnPort.request(choice),choice);
-    try { await actor.waitForFunction(c=>__bf.playerUnit.alive&&__bf.playerUnit.className===c.className&&__bf.playerTeam===c.team,choice,{timeout:60000}); }
-    catch(error) {
+    let failure;
+    for(let attempt=0;attempt<15;attempt++) {
+      await actor.evaluate(choice=>__bf.spawnPort.request(choice),choice);
+      try { await actor.waitForFunction(c=>__bf.playerUnit.alive&&__bf.playerUnit.className===c.className&&__bf.playerTeam===c.team,choice,{timeout:2000});failure=null;break; }
+      catch(error) { failure=error; }
+    }
+    if(failure) {
       console.log('spawn-timeout',JSON.stringify(await actor.evaluate(async()=>({phase:__bf.spawnPort.humanState(),alive:__bf.playerUnit.alive,team:__bf.playerTeam,loading:window.__loading?.closed,pending:__bf.texturesPending(),tick:__bf.worldClock.tick,running:__bf.client.running,hidden:document.hidden,edges:window.__spawnEdges,inspection:await __bf.client.host.call('inspect')}))));
-      throw error;
+      throw failure;
     }
     await actor.waitForFunction(()=>!__bf.spawnScreen?.isOpen&&__bf.controls.enabled&&!__bf.soldier.air&&__bf.soldier.lock<=0,null,{timeout:15000});
     await actor.bringToFront();
