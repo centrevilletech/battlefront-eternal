@@ -33,22 +33,26 @@ export function registryContent(data) {
   return { common: data?.common, effects: data?.effects, props: data?.props, vehicles: data?.vehicles, world: data?.world, sides, sideFx };
 }
 
-export function createEntityRegistry(data, { contentEpoch, inputCodes, bindingProfiles, posts = [] } = {}) {
-  if (!Number.isSafeInteger(contentEpoch) || contentEpoch < 1 || contentEpoch > 0xffffffff) throw Error('invalid content epoch');
-  if (!Array.isArray(inputCodes) || inputCodes.length > 128 || new Set(inputCodes).size !== inputCodes.length) throw Error('invalid input-code registry');
-  inputCodes = inputCodes.map(name);
-  if (!(bindingProfiles instanceof Map) || !bindingProfiles.size || bindingProfiles.size > 256) throw Error('invalid binding-profile registry');
-  const profiles = new Map();
-  for (const [id, bindings] of [...bindingProfiles].sort(([a], [b]) => a - b)) {
-    integer(id);
-    if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings) || Object.keys(bindings).length > 32) throw Error('invalid binding profile');
-    const profile = {};
-    for (const action of Object.keys(bindings).sort()) {
-      name(action); const codes = bindings[action];
-      if (!Array.isArray(codes) || codes.length > 8 || codes.some(code => !inputCodes.includes(code))) throw Error('binding code missing from registry');
-      profile[action] = [...codes];
+export function createEntityRegistry(data, { contentEpoch, inputCodes, bindingProfiles, posts = [], native = null } = {}) {
+  let profiles;
+  if (native) ({ inputCodes, profiles } = native.inputs({ contentEpoch, inputCodes, bindingProfiles }));
+  else {
+    if (!Number.isSafeInteger(contentEpoch) || contentEpoch < 1 || contentEpoch > 0xffffffff) throw Error('invalid content epoch');
+    if (!Array.isArray(inputCodes) || inputCodes.length > 128 || new Set(inputCodes).size !== inputCodes.length) throw Error('invalid input-code registry');
+    inputCodes = inputCodes.map(name);
+    if (!(bindingProfiles instanceof Map) || !bindingProfiles.size || bindingProfiles.size > 256) throw Error('invalid binding-profile registry');
+    profiles = new Map();
+    for (const [id, bindings] of [...bindingProfiles].sort(([a], [b]) => a - b)) {
+      integer(id);
+      if (!bindings || typeof bindings !== 'object' || Array.isArray(bindings) || Object.keys(bindings).length > 32) throw Error('invalid binding profile');
+      const profile = {};
+      for (const action of Object.keys(bindings).sort()) {
+        name(action); const codes = bindings[action];
+        if (!Array.isArray(codes) || codes.length > 8 || codes.some(code => !inputCodes.includes(code))) throw Error('binding code missing from registry');
+        profile[action] = [...codes];
+      }
+      profiles.set(id, profile);
     }
-    profiles.set(id, profile);
   }
   const classes = [], weapons = [], content = registryContent(data);
   for (const side of Object.values(content.sides)) for (const [className, definition] of Object.entries(side.units || {})) {
@@ -60,7 +64,8 @@ export function createEntityRegistry(data, { contentEpoch, inputCodes, bindingPr
     for (const seat of definition.seats || []) for (const weapon of seat.weapons || []) weapons.push(weapon.def?.class);
   }
   for (const instance of data?.props?.instances || []) if(instance.weapon?.class) weapons.push(instance.weapon.class);
-  const classTable = table(classes), weaponTable = table(weapons), postTable = table(posts.map(post => typeof post === 'string' ? post : post.name ?? post.desc?.name));
+  const makeTable = native ? native.table : table;
+  const classTable = makeTable(classes), weaponTable = makeTable(weapons), postTable = makeTable(posts.map(post => typeof post === 'string' ? post : post.name ?? post.desc?.name));
   if (!classTable.size) throw Error('entity registry has no classes');
   return { combat: createCombatRegistry(content), contentEpoch, classes: classTable, classIds: reverse(classTable), weapons: weaponTable,
     weaponIds: reverse(weaponTable), posts: postTable, postIds: reverse(postTable), inputCodes, bindingProfiles: profiles };

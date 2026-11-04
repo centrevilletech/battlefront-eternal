@@ -471,6 +471,17 @@ impl Mover {
         }
     }
 
+    /// Scratch retained by a full body correction between replay ticks.
+    pub fn prediction_scratch(&self) -> (f64, V3, bool) {
+        (self.contact_count, self.contact_mean, self.step_blocked)
+    }
+
+    pub fn set_prediction_scratch(&mut self, count: f64, mean: V3, blocked: bool) {
+        self.contact_count = count;
+        self.contact_mean = mean;
+        self.step_blocked = blocked;
+    }
+
     /// The `mode` getter.
     fn mode(&self) -> Mode {
         if self.air == Air::Jet {

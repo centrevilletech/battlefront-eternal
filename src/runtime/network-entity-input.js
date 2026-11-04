@@ -1,3 +1,4 @@
+import { wireInputFor } from './wire-input.js';
 // Fixed registries are part of entity-state-v1, not separately negotiated features.
 export const INPUT_CODES=Object.freeze([...Array.from({length:26},(_,i)=>`Key${String.fromCharCode(65+i)}`),...Array.from({length:10},(_,i)=>`Digit${i}`),...Array.from({length:12},(_,i)=>`F${i+1}`),...Array.from({length:10},(_,i)=>`Numpad${i}`),'Space','Enter','Escape','Tab','Backquote','CapsLock','ShiftLeft','ShiftRight','ControlLeft','ControlRight','AltLeft','AltRight','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Backspace','Delete','Insert','Home','End','PageUp','PageDown','Minus','Equal','BracketLeft','BracketRight','Backslash','Semicolon','Quote','Comma','Period','Slash','NumpadEnter','NumpadAdd','NumpadSubtract','NumpadMultiply','NumpadDivide','NumpadDecimal','Mouse0','Mouse1','Mouse2','Mouse3','Mouse4','WheelUp','WheelDown']);
 export const DEFAULT_BINDING_PROFILES=new Map([[0,Object.freeze({})]]);
@@ -38,7 +39,8 @@ function readView(r,registry){const f=r.u16(),profile=r.u16();if(f>1023||!regist
 const registryDefault={inputCodes:INPUT_CODES,bindingProfiles:DEFAULT_BINDING_PROFILES};
 // Edges have explicit IDs independent of movement sequence. Human spawn uses
 // class/post registry IDs; post=0 means world-selected spawn.
-export function encodeEntityInput({epoch,generation,commands=[],edges=[],snapshotAck=null},registry=registryDefault){
+export function encodeEntityInput(packet,registry=registryDefault){const native=wireInputFor(registry);return native?native.encode(packet,registry,INPUT_ACTIONS):encodeEntityInputJs(packet,registry);}
+export function encodeEntityInputJs({epoch,generation,commands=[],edges=[],snapshotAck=null},registry=registryDefault){
  if(commands.length>8||edges.length>32)throw Error('input count limit');
  if(snapshotAck!==null&&(!Number.isSafeInteger(snapshotAck.epoch)||snapshotAck.epoch<0||snapshotAck.epoch>65535||!Number.isSafeInteger(snapshotAck.tick)||snapshotAck.tick<0||snapshotAck.tick>0xffffffff))throw Error('invalid snapshot ack');
  const w=new Fields(),views=[],indices=[];
@@ -51,7 +53,7 @@ export function encodeEntityInput({epoch,generation,commands=[],edges=[],snapsho
 // A spawn-screen or spectating client with no input still acknowledges
 // snapshots: 10 bytes, magic + epoch + tick, every 100 ms.
 export const SNAPSHOT_ACK_MAGIC=0x31414e42; // 'BNA1'
-export function encodeSnapshotAckKeepalive({epoch,tick}={}){const w=new Fields(new Uint8Array(10));w.u32(SNAPSHOT_ACK_MAGIC);w.u16(epoch);w.u32(tick);return w.bytes.slice(0,10);}
+export function encodeSnapshotAckKeepalive(value={},registry=null){const native=wireInputFor(registry);if(native)return native.keepalive(value);const {epoch,tick}=value;const w=new Fields(new Uint8Array(10));w.u32(SNAPSHOT_ACK_MAGIC);w.u16(epoch);w.u32(tick);return w.bytes.slice(0,10);}
 export function decodeSnapshotAckKeepalive(bytes){if(!(bytes instanceof Uint8Array)||bytes.length!==10)throw Error('invalid snapshot ack keepalive');const r=new Fields(bytes);if(r.u32()!==SNAPSHOT_ACK_MAGIC)throw Error('wrong snapshot ack protocol');return {epoch:r.u16(),tick:r.u32()};}
 export function isSnapshotAckKeepalive(bytes){return bytes instanceof Uint8Array&&bytes.length===10&&new DataView(bytes.buffer,bytes.byteOffset,4).getUint32(0,true)===SNAPSHOT_ACK_MAGIC;}
 export function decodeEntityInput(bytes,registry=registryDefault){if(!(bytes instanceof Uint8Array)||bytes.length>LIMIT)throw Error('input packet exceeds bounds');const r=new Fields(bytes);if(r.u32()!==MAGIC)throw Error('wrong input protocol');const epoch=r.u32(),generation=r.u32(),nv=r.u8(),nc=r.u8(),ne=r.u8(),na=r.u8();if(nv>8||nc>8||ne>32||na>1)throw Error('input count limit');const views=Array.from({length:nv},()=>readView(r,registry)),commands=[],edges=[];for(let n=0;n<nc;n++){const sequence=r.u32(),tick=r.u32(),vi=r.u8(),down=[];if(!views[vi])throw Error('invalid view reference');for(let byte=0;byte<16;byte++){const b=r.u8();for(let bit=0;bit<8;bit++)if(b&(1<<bit)){const code=registry.inputCodes[byte*8+bit];if(!code)throw Error('unknown held input');down.push(code);}}const lookTotal=[r.f64(),r.f64()];if(!lookTotal.every(Number.isFinite))throw Error('invalid cumulative look');commands.push({epoch,generation,sequence,tick,down,lookTotal,actions:[],look:[],...(views[vi].flightSettings||views[vi].gamepad?copyDecodedView(views[vi]):views[vi])});}

@@ -5,6 +5,7 @@ use crate::gen::{PtConfiguration, PtInput, PtResult, PtSettings};
 use std::{ptr::addr_of_mut, rc::Rc};
 static mut CONFIG: Vec<Rc<PtSettings>> = Vec::new();
 fn config() -> &'static mut Vec<Rc<PtSettings>> { unsafe { &mut *addr_of_mut!(CONFIG) } }
+pub(crate) fn settings(index: usize) -> Rc<PtSettings> { config()[index].clone() }
 #[no_mangle]
 pub extern "C" fn turret_words(which: u32) -> u32 { (match which { 0 => PtConfiguration::WORDS, 1 => PtInput::WORDS, 2 => PtResult::WORDS, _ => 0 }) as u32 }
 #[no_mangle]

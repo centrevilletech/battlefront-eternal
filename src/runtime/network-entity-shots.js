@@ -1,7 +1,8 @@
+import { createWireShotCounters } from './wire-shot-counters.js';
 // Actual simulation shots, never trigger presses or predicted effects. A live
 // subscription avoids journal-reader overruns without replacing gameplay hooks.
 export class EntityShotCounters {
- constructor(events,{maxEntities=256}={}){if(!events?.listen||!Number.isSafeInteger(maxEntities)||maxEntities<1)throw Error('invalid shot counter source');this.maxEntities=maxEntities;this.units=new Map();this.overflow=0;this.unlisten=events.listen(event=>this.observe(event));}
+ constructor(events,{maxEntities=256,bridge=null}={}){if(!events?.listen||!Number.isSafeInteger(maxEntities)||maxEntities<1)throw Error('invalid shot counter source');if(bridge)return createWireShotCounters(bridge,events,maxEntities);this.maxEntities=maxEntities;this.units=new Map();this.overflow=0;this.unlisten=events.listen(event=>this.observe(event));}
  observe(event){if(event.kind!=='shot')return;const ref=event.source,unit=ref?.unit,id=unit?.id,generation=ref?.generation;if(!Number.isSafeInteger(id)||!Number.isSafeInteger(generation)||unit.generation!==generation)return;let state=this.units.get(id);if(state&&generation<state.generation)return;if(!state&&this.units.size>=this.maxEntities){this.overflow++;return;}if(!state||state.generation!==generation){state={generation,count:0};this.units.set(id,state);}if(state.count===0xffffffff){this.overflow++;return;}state.count++;}
  counter(unit){const state=this.units.get(unit.id);return state?.generation===unit.generation?state.count:0;}
  reset(){this.units.clear();this.overflow=0;}

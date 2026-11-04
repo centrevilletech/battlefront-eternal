@@ -66,13 +66,19 @@ function weaponId(registry,weapon){
 // kept (a resting or dead player's checkpoint allocates nothing).
 const checkpoint=new Fields(),soldierBody={bytes:new Uint8Array(149)},heldBits=new Uint8Array(16),payloads=new WeakMap();
 soldierBody.view=new DataView(soldierBody.bytes.buffer);
-export function captureOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneration=0,tick,epoch,registry,classId,bindingProfileId=0,held=[],view={},discardedInput=0}){
- requireState(Number.isInteger(unit.team)&&unit.team>=1&&unit.team<=2,'invalid own team');registryChecks(registry,registry.contentEpoch,classId,unit);const mounted=unit.seat?captureMountedControl(unit):null;requireState(vehicle?unit.seat?.vehicle===vehicle&&unit.seat.index===0:!unit.seat||mounted,'pilot lease prerequisite missing');requireState(vehicle?vehicleId>0&&vehicleGeneration>0:vehicleId===0&&vehicleGeneration===0,'vehicle lease prerequisite missing');const combat=unit.combat,arsenal=combat.arsenal;
+export function captureOwnPlayer({unit,vehicle=null,vehicleId=0,vehicleGeneration=0,tick,epoch,registry,classId,bindingProfileId=0,held=[],view={},discardedInput=0,native=null}){
+ requireState(Number.isInteger(unit.team)&&unit.team>=1&&unit.team<=2,'invalid own team');registryChecks(registry,registry.contentEpoch,classId,unit);const mounted=unit.seat?captureMountedControl(unit,native):null;requireState(vehicle?unit.seat?.vehicle===vehicle&&unit.seat.index===0:!unit.seat||mounted,'pilot lease prerequisite missing');requireState(vehicle?vehicleId>0&&vehicleGeneration>0:vehicleId===0&&vehicleGeneration===0,'vehicle lease prerequisite missing');const combat=unit.combat,arsenal=combat.arsenal;
  requireState(Boolean(vehicle)===(mounted?.[0]===VEHICLE_PILOT_CONTROL),'pilot control mode mismatch');
  requireState(!vehicle||mounted&&vehicle.aiTarget?.id===vehicleId&&vehicle.aiTarget.generation===vehicleGeneration,'pilot weapon identity mismatch');
  requireState(registry.bindingProfiles?.has(bindingProfileId),'binding profile prerequisite missing');
  requireState(canonical(view.flightSettings?.bindings)===canonical(registry.bindingProfiles.get(bindingProfileId)),'binding profile mismatch');
- const body=vehicle?(vehicle.flying?captureCompactFlight(vehicle):captureGroundCorrection(vehicle)):unit.walker?captureDroidekaState(unit.soldier):captureCompactSoldierInto(unit.soldier,soldierBody),bodySchema=vehicle?(vehicle.flying?COMPACT_FLIGHT_SCHEMA:GROUND_CORRECTION_SCHEMA):unit.walker?DROIDEKA_BODY_SCHEMA:COMPACT_SOLDIER_SCHEMA,w=checkpoint;w.at=0;
+ const body=vehicle?(vehicle.flying?captureCompactFlight(vehicle,native):captureGroundCorrection(vehicle,native)):unit.walker?captureDroidekaState(unit.soldier,native):captureCompactSoldierInto(unit.soldier,soldierBody,native),bodySchema=vehicle?(vehicle.flying?COMPACT_FLIGHT_SCHEMA:GROUND_CORRECTION_SCHEMA):unit.walker?DROIDEKA_BODY_SCHEMA:COMPACT_SOLDIER_SCHEMA,w=checkpoint;w.at=0;
+ if(native){
+  const remotes=combat.remotes,droid=remotes?.piloted;requireState(!(droid&&mounted),'conflicting own control modes');let remote=null;
+  if(droid){requireState(!vehicle&&typeof remotes.identityFor==='function','recon identity prerequisite missing');const identity=remotes.identityFor(droid);requireState(identity.id<4096,'recon slot out of range');remote={...identity,definitionId:registry.combat.definitionId(droid.def),payload:encodeRemoteCorrection(captureRemoteReplay(remotes,droid),droid,native)};}
+  let payload;try{payload=native.own({unit,body,bodySchema,epoch,registry,classId,vehicleId,vehicleGeneration,bindingProfileId,held,view,discardedInput,mounted,weaponId:weapon=>weaponId(registry,weapon),remote});}catch(error){if(error.message==='held code missing from registry')throw new OwnPlayerPrerequisiteError(error.message);throw error;}
+  const record={kind:'correction',id:unit.id,generation:unit.generation,tick,schema:OWN_PLAYER_SCHEMA,payload};checkCorrectionRecordFits(payload);return record;
+ }
  w.u32(epoch);w.u32(registry.contentEpoch);w.u16(classId);w.u8(uint(unit.team,2));w.u8(bodySchema);w.u32(vehicleId);w.u32(vehicleGeneration);w.u16(body.length);w.raw(body);
  // Both channels and every inventory slot form the weapon replay checkpoint.
  w.number(combat.health);w.u8(combat.dead?1:0);w.number(combat.deathTime??0);w.number(unit.deadTime??0);w.u8(unit.removed?1:0);for(const key of ['rate','hold','offset'])w.number(combat.kick[key]);w.u8(combat.zoomStep);w.number(combat.zoom);w.u8((combat.firstPerson?1:0)|(combat.gunUnderwater?2:0));

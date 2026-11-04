@@ -9,7 +9,7 @@ const cosmeticRandom = () => .5;
 // emitted: damage, projectiles, sounds, lock acquisition and admission stay on
 // the authority. Restore before applying a correction or changing the lease.
 export class MountedWeaponPrediction {
-  constructor() { this.saved = []; this.controls = new CommandControls(); this.tick = 0; }
+  constructor({ native = null } = {}) { this.saved = []; this.controls = new CommandControls(); this.tick = 0; this.native = native; this.nativeSession = null; }
   restore() {
     for (const entry of this.saved) {
       applyValidatedWeaponState(entry);
@@ -17,7 +17,9 @@ export class MountedWeaponPrediction {
     }
     this.saved.length = 0;
     this.tick = 0;
+    this.nativeSession?.dispose(); this.nativeSession = null;
   }
+  dispose() { this.restore(); }
   predict(unit, pending, from, held, view) {
     this.restore();
     const lease = unit?.seat;
@@ -33,6 +35,7 @@ export class MountedWeaponPrediction {
       this.saved.push({ weapon, owner, barrel: owner.barrel, advancesBarrel: !vehicle || Boolean(entry.muzzles?.length), towHeld: Boolean(vehicle?.towHeld?.(entry)), state: decodeWeaponState(captureWeaponState(weapon)) });
     }
     try {
+      if (this.native) this.nativeSession = this.native.createMounted(this.saved);
       this.tick = replayTicks(pending, from, unit.generation, held, (_tick, command) => {
         this.controls.down.clear();
         for (const key of command.down) this.controls.down.add(key);
@@ -44,10 +47,12 @@ export class MountedWeaponPrediction {
           try {
             weapon.random = cosmeticRandom;
             weapon.admitShot = null;
-            const shots = weapon.update(1 / 60, true,
-              { pressed, held: !towHeld && (pressed || this.controls.held(action)) },
-              command.actions.includes('reload'), aim);
-            if (advancesBarrel) owner.barrel += shots.length;
+            const held = !towHeld && (pressed || this.controls.held(action)), reload = command.actions.includes('reload');
+            if (this.nativeSession) this.nativeSession.mounted(this.saved[channel], pressed, held, reload);
+            else {
+              const shots = weapon.update(1 / 60, true, { pressed, held }, reload, aim);
+              if (advancesBarrel) owner.barrel += shots.length;
+            }
           } finally { weapon.random = random; weapon.admitShot = admission; }
         }
       }, view);

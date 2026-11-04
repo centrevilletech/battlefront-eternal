@@ -501,7 +501,7 @@ impl Hull {
     }
 
     /// vehicles.js walk: the walk cycle advanced by a tick.
-    fn walk(&mut self, dt: f64) {
+    pub fn walk(&mut self, dt: f64) {
         let speed = hypot(self.velocity.x, self.velocity.z);
         let (vx, vz, yaw, creature) = (self.velocity.x, self.velocity.z, self.yaw, self.creature);
         let p = self.pose.as_mut().unwrap();

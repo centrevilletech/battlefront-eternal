@@ -148,6 +148,10 @@ let lastNamed = {};
 const everyUnit = (game, cap) => game.units.all().filter((u) => u.soldier && u.combat);
 const seatsAfterKill = (game, cap) => ({ ...seatState(game, cap, { ...lastNamed, units: [...(lastNamed.units ?? []), ...everyUnit(game)] }) });
 const crewsAfterKill = (game, cap) => ({ ...crewState(game, cap, { ...lastNamed, units: [...(lastNamed.units ?? []), ...everyUnit(game)] }) });
+// The death may call back into crews. Check what native crews published
+// before accepting the foreign effects, so readback cannot conceal an
+// incorrect seat release, body pose, aim, or input latch.
+const crewsBeforeKill = (game, cap, args) => crewState(game, cap, { ...lastNamed, units: [...(lastNamed.units ?? []), args[0]] });
 
 // The hulls' seats' boundary: their SeatsWorld's calls, a body stood up
 // (Soldier.spawn's cast: the port runs the units' spawn), and a rider posed
@@ -223,7 +227,7 @@ function turretValue(cap, game, t) {
 // frame names that holds none), the turrets they man (and any named), the
 // units in those seats (and any named) and the seats the AI drives.
 function crewState(game, cap, { leases: namedLeases = [], units: namedUnits = [], turrets: namedTurrets = [] } = {}) {
-  lastNamed = { leases: namedLeases, turrets: namedTurrets };
+  lastNamed = { leases: namedLeases, units: namedUnits, turrets: namedTurrets };
   const ts = game.turretSeats;
   const leases = [...ts.leases];
   for (const lease of namedLeases) if (lease && !leases.includes(lease)) leases.push(lease);
@@ -252,7 +256,7 @@ const crewBoundaries = (game) => {
     ['crews.cast', w, 'cast'],
     ['crews.raycast', w, 'raycast'],
     ['collision.cast', game.collision, 'cast'],
-    ['crews.kill', w, 'kill', crewsAfterKill],
+    ['crews.kill', w, 'kill', crewsAfterKill, crewsBeforeKill],
     ['crews.riderDrop', w, 'riderDrop'],
     ['crews.controllable', w, 'controllable'],
     ['crews.updateLock', w, 'updateLock'],

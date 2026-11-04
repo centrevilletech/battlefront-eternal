@@ -16,7 +16,8 @@ function layout(state, trick) {
 }
 const size = l => 6 + l.numbers.length * 8 + l.vectors.length * 24 + l.quaternions.length * 32 + booleans.length + seatNumbers.length * 9;
 function prerequisite(v) { if (!v.flying || !v.flightConfig || !v.seats?.[0]) throw Error('unsupported compact flight correction'); }
-export function captureCompactFlight(v) {
+export function captureCompactFlight(v, native = null) {
+ if (typeof native?.flight === 'function') return native.flight(v);
  prerequisite(v); const l = layout(v.flightState,v.trick), bytes = new Uint8Array(size(l)), view = new DataView(bytes.buffer); let at = 0;
  const number = (n, nan=false) => { if (!Number.isFinite(n) && !(nan && Number.isNaN(n))) throw Error('nonfinite flight correction'); view.setFloat64(at,n,true); at += 8; };
  for (const [key,values] of Object.entries(enums)) { const n=values.indexOf(v[key]);if(n<0)throw Error(`invalid flight ${key}`);bytes[at++]=n; }

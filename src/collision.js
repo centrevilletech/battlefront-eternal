@@ -76,13 +76,13 @@ function empty(list) {
 // the same answers; null for JavaScript.
 export class CollisionWorld {
   constructor(positions, indices, polygons, terrainPositions, terrainIndices, rays = null) {
-    this.bvh = buildBVH(positions, indices);
+    this.bvh = buildBVH(positions, indices, rays);
     this.polygonOf = polygons;
     this.positions = positions;
     this.indices = indices;
     this.triBounds = triangleBounds(positions, indices);
     this.staticTriangles = new Array(indices.length / 3);
-    this.terrain = terrainIndices?.length ? buildBVH(terrainPositions, terrainIndices) : null;
+    this.terrain = terrainIndices?.length ? buildBVH(terrainPositions, terrainIndices, rays) : null;
     this.terrainGrid = terrainIndices?.length ? new TriangleGrid(terrainPositions, terrainIndices) : null;
     this.lastGround = { x: NaN, z: NaN, top: NaN, hit: false, height: 0, normal: new THREE.Vector3() };
     this.box = new THREE.Box3();
@@ -214,7 +214,7 @@ export class CollisionWorld {
   // polygon number. Starts enabled.
   addBody(positions, indices, polygons, owner = null) {
     const body = {
-      bvh: buildBVH(positions, indices),
+      bvh: buildBVH(positions, indices, this.rays),
       polygonOf: polygons,
       // Polygon numbers of their own, apart from the buildings'.
       offset: (++this.bodySerial) * 0x1000000,
@@ -233,7 +233,7 @@ export class CollisionWorld {
   // Rigid moving bodies share an immutable local-space BVH. Movement updates
   // only the two transforms and the broad-phase bounds, never the triangles.
   createBodyShape(positions, indices, polygons) {
-    const bvh = buildBVH(positions, indices);
+    const bvh = buildBVH(positions, indices, this.rays);
     return { bvh, polygonOf: polygons, localBounds: bvh.getBoundingBox(new THREE.Box3()) };
   }
 
@@ -938,13 +938,13 @@ class TriangleGrid {
   }
 }
 
-function buildBVH(positions, indices) {
+function buildBVH(positions, indices, rays = null) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(indices, 1));
   // Indirect keeps the triangle order, so triangle numbers still match the
   // polygon list.
-  return new MeshBVH(geometry, { indirect: true });
+  return rays?.buildBVH ? rays.buildBVH(geometry) : new MeshBVH(geometry, { indirect: true });
 }
 
 export function makeHit() {

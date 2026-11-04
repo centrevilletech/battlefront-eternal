@@ -29,6 +29,7 @@ pub mod dump;
 pub mod files;
 pub mod gear;
 pub mod intern;
+pub mod bvh;
 pub mod install;
 pub mod js;
 pub mod json;

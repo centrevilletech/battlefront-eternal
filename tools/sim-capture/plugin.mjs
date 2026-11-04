@@ -285,16 +285,22 @@ function shim(target, method, make) {
 function installShims() {
   for (const spec of frameSpecs) {
     spec.labels = [];
-    for (const [label, target, method, extra] of spec.boundaries?.(game) ?? []) {
+    for (const [label, target, method, extra, entry] of spec.boundaries?.(game) ?? []) {
       spec.labels.push(label);
       if (extra) (spec.extras ??= new Map()).set(label, extra);
+      if (entry) (spec.entries ??= new Map()).set(label, entry);
       if (!target || boundaryShims.has(label)) continue;
       boundaryShims.add(label);
       shim(target, method, (base) => function boundary(...args) {
         if (!open.length) return base.apply(this, args);
         const frames = open.filter((f) => f.depth === 0 && f.boundaries.has(label));
         if (!frames.length) return base.apply(this, args);
-        for (const f of frames) { write(RECORD.frame, current, f.spec.name, { k: 'call', f: f.id, n: label, a: args, d: f.pending }); f.pending = []; f.inner = []; f.depth++; }
+        for (const f of frames) {
+          const entry = f.spec.entries?.get(label);
+          write(RECORD.frame, current, f.spec.name, { k: 'call', f: f.id, n: label, a: args, d: f.pending,
+            ...(entry ? { s: stateValue(entry(game, exporter(), args, this)) } : {}) });
+          f.pending = []; f.inner = []; f.depth++;
+        }
         let result, threw = true;
         try { result = base.apply(this, args); threw = false; return result; }
         finally {
@@ -302,7 +308,7 @@ function installShims() {
             f.depth--;
             const extra = f.spec.extras?.get(label);
             write(RECORD.frame, current, f.spec.name, { k: 'ret', f: f.id, n: label, r: threw ? new Omitted('threw') : result,
-              o: args.map((a) => (a && typeof a === 'object' ? a : undefined)), i: f.inner, ...(extra ? { x: stateValue(extra(game, exporter())) } : {}) });
+              o: args.map((a) => (a && typeof a === 'object' ? a : undefined)), i: f.inner, ...(extra ? { x: stateValue(extra(game, exporter(), args, this)) } : {}) });
             writer.whole.clear();
             f.inner = null;
           }

@@ -1,5 +1,6 @@
 // An explosion is an authoritative occurrence, not a client damage instruction.
-export function explosionRecord({id,generation,tick,definitionId,position,wet}) {
+export function explosionRecord({id,generation,tick,definitionId,position,wet,native=null}) {
+ if(native)return native.explosion({id,generation,tick,definitionId,position,wet});
  for(const n of [id,generation,tick,definitionId,tick+18])if(!Number.isSafeInteger(n)||n<0||n>0xffffffff)throw Error('invalid explosion identity');
  if(!Array.isArray(position)||position.length!==3)throw Error('invalid explosion position');
  const payload=new Uint8Array(33),v=new DataView(payload.buffer);

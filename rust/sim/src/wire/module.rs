@@ -151,3 +151,24 @@ pub unsafe extern "C" fn wire_held(
 ) -> *const f64 {
     output((*runtime).encode(tick, epoch, baseline, interval))
 }
+
+/// Transfer already captured semantic records and staggered world fields
+/// without exposing them to JavaScript between the two native owners.
+/// No callback runs while any of these distinct session boxes is borrowed.
+#[no_mangle]
+pub unsafe extern "C" fn wire_capture_produced(
+    runtime: *mut Runtime,
+    source: *const super::capture::Capture,
+    world: *const super::stagger::Stagger,
+) -> *const f64 {
+    let mut input = {
+        let (row, heap) = sim().calls.args();
+        WireCapture::take(row, heap)
+    };
+    input.records = (&*source).held_records();
+    input.world = (&*world).world();
+    let result = (&mut *runtime)
+        .capture(input, &sim().strings)
+        .map(|_| Vec::new());
+    output(result)
+}

@@ -15,7 +15,8 @@ function prerequisite(d) {
       vectors.some(key => !d[key]?.isVector3) || !d.previous?.isVector3 || !d.settled?.isVector3) throw Error('droideka state prerequisite missing');
 }
 
-export function captureDroidekaState(d) {
+export function captureDroidekaState(d, native = null) {
+  if (typeof native?.droideka === 'function') return native.droideka(d);
   prerequisite(d);
   if (!Number.isInteger(d.mode) || d.mode < 0 || d.mode > 13 || !Number.isSafeInteger(d.gun) || d.gun < 0) throw Error('invalid droideka mode or barrel');
   let flags = 0;
