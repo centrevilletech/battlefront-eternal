@@ -864,6 +864,8 @@ const n3 = { x: 0, y: 0, z: 0 };
 const fwd3 = new THREE.Vector3();
 
 export function validateFire(controller, unit, target, world) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native)return native.weaponGuard(3,controller,unit,null,null,null,target);
   const fire = fireOf(controller);
   const weapon = selectedWeapon(unit, controller);
   const aimer = controller.perception?.aimer;
@@ -1008,6 +1010,8 @@ export function sniperYaw(distanceSq) {
 }
 
 export function prepareSpread(controller, unit, weapon) {
+  const native=controller?.ai?.world?.aiSim;
+  if(native){native.weaponGuard(4,controller,unit,null,null,weapon);return;}
   if (!weapon) return;
   weapon.yawSpreadOverride = null;
   if (unit.human || (weapon.def.YawSpread || 0) !== 0 || !sniperWeapon(weapon)) return;

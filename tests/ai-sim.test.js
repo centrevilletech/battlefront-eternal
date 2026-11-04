@@ -10,7 +10,7 @@ import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/ai
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
-import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, pressButton, protectedVeto } from '../src/ai/classic/weapons-ai.js';
+import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, validateFire } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -480,17 +480,20 @@ test('native weapon guards preserve firing geometry, range bounds and changing p
     const history=[],world={aiSim:native?sim:null},c={ai:{world},unit:null,rangeScale:1},point=new Vector3(),lead=new Vector3();let tick=0;
     const weapons=['rifle','melee','rifle','repair','cannon'].map((base,id)=>({def:{base,LockOnRange:40,
       ordnance:{base:id===4?'towcable':'bolt'},ai:{maxRange:60+id*30,extremeRange:200,implicitRange:id%2===0,triggerSingle:id===2,zoomMax:id===2?8:1}}}));
-    const unit=c.unit={kind:0,combat:{arsenal:{current(){history.push(['weapon']);return tick%23===0?null:weapons[tick%weapons.length];}}},
+    const unit=c.unit={kind:0,position:new Vector3(),combat:{arsenal:{current(){history.push(['weapon']);return tick%23===0?null:weapons[tick%weapons.length];}}},
       origin(out){history.push(['origin']);out.set(.3,1.7,-0);if(tick%17===0)point.y+=.125;},
       forward(out){history.push(['forward']);out.set(tick%19===0?.31:0,0,1);if(tick%29===0)c.perception.aimer.direction.x=.27;}};
     const p=c.perception=new Perception(c);if(native)sim.bindPerception(p);
+    unit.controller=c;
+    const target={alive:true,generation:0,position:new Vector3(0,0,20),velocity:new Vector3(.1,0,-.1),
+      aimPoint(out){history.push(['target']);out.copy(this.position);out.y+=1.35;}};
     const humans=Array.from({length:8},(_,id)=>({id,alive:true,generation:0,get sphere(){
       history.push(['sphere',id]);
       if(id===0 && tick%11===0)p.fire.protected.push({unit:humans[7],generation:humans[7].generation});
       if(native){sim.words(new Array(9000).fill(5));sim.x.ai_nav_boundary(2,0,0,0,0);}
       return {center:new Vector3((id-2)*.2,1.7,id*4+5),radius:tick%13===0?0:1};
     }}));
-    return {history,world,c,unit,p,point,lead,weapons,humans,setTick:i=>{tick=i;}};
+    return {history,world,c,unit,p,point,lead,weapons,humans,target,setTick:i=>{tick=i;}};
   }
   const j=fixture(false),n=fixture(true);
   for(let i=0;i<2048;i++) {
@@ -498,15 +501,22 @@ test('native weapon guards preserve firing geometry, range bounds and changing p
       x.setTick(i);x.history.length=0;x.unit.kind=i%7;x.c.rangeScale=[0,.5,1,2,8,NaN][i%6];
       x.point.set((i%19-9)*.17,i%5,10+i%200);x.lead.copy(x.point);x.lead.y+=.03;
       x.p.aimer.direction.set(i%29===0?.12:0,0,i%31===0?-1:1);
+      x.target.alive=i%31!==0;x.target.generation=Math.floor(i/73);x.target.position.z=10+i%180;
+      x.c.target=i%17===0?null:{unit:x.target,generation:x.target.generation+(i%41===0?1:0)};
+      x.unit.human=i%43===0;
+      for(const w of x.weapons){w.sniperScale=i%37===0?-0:i%53===0?NaN:i/17;w.def.YawSpread=[undefined,0,'0',NaN,.01][i%5];}
       for(const h of x.humans){h.alive=(h.id+i)%17!==0;h.generation=Math.floor(i/83);}
       x.p.fire.protected.length=0;
       for(let k=0;k<i%8;k++)x.p.fire.protected.push({unit:x.humans[k],generation:x.humans[k].generation+(i%41===0?1:0)});
-      x.result=[firingCone(x.c,x.unit,x.lead),facingAndRange(x.c,x.unit,x.lead,x.point),protectedVeto(x.c,x.unit,x.weapons[i%x.weapons.length])];
+      x.result=[firingCone(x.c,x.unit,x.lead),facingAndRange(x.c,x.unit,x.lead,x.point),protectedVeto(x.c,x.unit,x.weapons[i%x.weapons.length]),
+        validateFire(x.c,x.unit,i%7===0?x.humans[3]:x.target,x.world)];
+      for(const w of x.weapons)assert.equal(prepareSpread(x.c,x.unit,w),undefined);
     }
     assert.deepEqual(n.result,j.result,`weapon geometry ${i}`);
     assert.deepEqual(n.history,j.history,`weapon queries ${i}`);
     assert.deepEqual(n.point.toArray(),j.point.toArray());
     assert.deepEqual(n.p.fire.protected.map(r=>r.unit.id),j.p.fire.protected.map(r=>r.unit.id));
+    assert.deepEqual(n.weapons.map(w=>w.yawSpreadOverride),j.weapons.map(w=>w.yawSpreadOverride));
   }
 });
 

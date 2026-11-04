@@ -48,6 +48,7 @@ export class AiSim {
     this.fires=new WeakMap();
     this.fireFrames=[];
     this.weaponFrames=[];this.weaponOrigin=new Vector3();this.weaponForward=new Vector3();
+    this.weaponLead=new Vector3();this.weaponPoint=new Vector3();
     this.trackerLead=new Vector3();
     this.ballisticPoint=new Vector3();this.ballisticOrigin=new Vector3();this.ballisticZero=new Vector3();
     bridge.register({aiSight:args=>{
@@ -205,12 +206,12 @@ export class AiSim {
       return result;
     }});
     bridge.register({aiWeapon:args=>{
-      const op=args.op,index=args.index,frame=this.weaponFrames[this.weaponFrames.length-1],{controller:c,unit}=frame;
+      const op=args.op,index=args.index,number=args.number,frame=this.weaponFrames[this.weaponFrames.length-1],{controller:c,unit}=frame;
       const result={flag:false,values:[],point:[0,0,0]};
       if(op==='coneStart') {frame.weapon=selectedWeapon(unit,c);frame.aimer=c.perception?.aimer;result.flag=Boolean(frame.weapon && frame.aimer);}
       else if(op==='origin') {unit.origin(this.weaponOrigin);result.point=this.weaponOrigin.toArray();}
       else if(op==='forward') {unit.forward(this.weaponForward);result.point=this.weaponForward.toArray();}
-      else if(op==='conePoint') {const p=frame.op===1?frame.lead:frame.point;result.point=[p.x,p.y,p.z];}
+      else if(op==='conePoint') {const p=frame.op===0?frame.point:frame.lead;result.point=[p.x,p.y,p.z];}
       else if(op==='coneFacts') result.values=[Number(sniperWeapon(frame.weapon)),unit.kind,Number(frame.weapon.def.base==='melee')];
       else if(op==='aimer') {const p=frame.aimer.direction;result.point=[p.x,p.y,p.z];}
       else if(op==='range') {
@@ -229,6 +230,17 @@ export class AiSim {
           result.values=[Number(Boolean(u?.alive)),u?.generation,tag(u?.generation),r?.generation,tag(r?.generation)];
         }
       } else if(op==='sphere') {const s=frame.human.sphere;result.point=[s.center.x,s.center.y,s.center.z];result.values=[s.radius];}
+      else if(op==='validationStart') {frame.fire=c?.perception?.fire;frame.weapon=selectedWeapon(unit,c);frame.aimer=c.perception?.aimer;result.flag=Boolean(frame.fire && frame.weapon && frame.aimer);}
+      else if(op==='target') {
+        const r=c.target,u=frame.target=r?.unit,tag=v=>v===undefined?0:v===null?2:1;
+        result.values=[Number(Boolean(u?.alive)),u?.generation,tag(u?.generation),r?.generation,tag(r?.generation),Number(u===frame.expected)];
+      } else if(op==='lead') {frame.lead=this.weaponLead;this.leadPoint(0,unit,frame.target,frame.weapon,frame.lead);}
+      else if(op==='targetPoint') {frame.point=this.weaponPoint;frame.target.aimPoint(frame.point);}
+      else if(op==='spreadStart') {
+        if(frame.weapon){frame.weapon.yawSpreadOverride=null;result.flag=!unit.human && (frame.weapon.def.YawSpread||0)===0;}
+      } else if(op==='sniper') result.flag=sniperWeapon(frame.weapon);
+      else if(op==='spreadValues') {const p=unit.position,q=frame.target.position;result.values=[p.x,p.y,p.z,q.x,q.y,q.z,frame.weapon.sniperScale??0];}
+      else if(op==='spreadWrite') frame.weapon.yawSpreadOverride=number;
       else throw Error(`unknown weapon geometry callback ${op}`);
       return result;
     }});
@@ -386,8 +398,8 @@ export class AiSim {
     try {return Boolean(this.x.ai_fire_consume(id));}
     finally {this.fireFrames.pop();}
   }
-  weaponGuard(op,controller,unit,point,lead=null,weapon=null) {
-    this.weaponFrames.push({op,controller,unit,point,lead,weapon});
+  weaponGuard(op,controller,unit,point,lead=null,weapon=null,expected=null) {
+    this.weaponFrames.push({op,controller,unit,point,lead,weapon,expected});
     try {return Boolean(this.x.ai_weapon_guard(op));}
     finally {this.weaponFrames.pop();}
   }

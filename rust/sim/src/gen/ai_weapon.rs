@@ -17,10 +17,18 @@ pub enum AiWeaponOp {
     ProtectionStart = 8,
     Reference = 9,
     Sphere = 10,
+    ValidationStart = 11,
+    Target = 12,
+    Lead = 13,
+    TargetPoint = 14,
+    SpreadStart = 15,
+    Sniper = 16,
+    SpreadValues = 17,
+    SpreadWrite = 18,
 }
 
 impl AiWeaponOp {
-    pub const NAMES: [&'static str; 11] = ["coneStart", "origin", "forward", "conePoint", "coneFacts", "aimer", "range", "rangePoint", "protectionStart", "reference", "sphere"];
+    pub const NAMES: [&'static str; 19] = ["coneStart", "origin", "forward", "conePoint", "coneFacts", "aimer", "range", "rangePoint", "protectionStart", "reference", "sphere", "validationStart", "target", "lead", "targetPoint", "spreadStart", "sniper", "spreadValues", "spreadWrite"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -35,6 +43,14 @@ impl AiWeaponOp {
             8 => Some(AiWeaponOp::ProtectionStart),
             9 => Some(AiWeaponOp::Reference),
             10 => Some(AiWeaponOp::Sphere),
+            11 => Some(AiWeaponOp::ValidationStart),
+            12 => Some(AiWeaponOp::Target),
+            13 => Some(AiWeaponOp::Lead),
+            14 => Some(AiWeaponOp::TargetPoint),
+            15 => Some(AiWeaponOp::SpreadStart),
+            16 => Some(AiWeaponOp::Sniper),
+            17 => Some(AiWeaponOp::SpreadValues),
+            18 => Some(AiWeaponOp::SpreadWrite),
             _ => None,
         }
     }
@@ -44,22 +60,25 @@ impl AiWeaponOp {
 pub struct AiWeaponArgs {
     pub op: AiWeaponOp,
     pub index: u32,
+    pub number: f64,
 }
 
 impl AiWeaponArgs {
-    pub const WORDS: usize = 2;
+    pub const WORDS: usize = 3;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
         row[0] = self.op as u8 as f64;
         row[1] = self.index as f64;
+        row[2] = self.number;
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
         Self {
             op: AiWeaponOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             index: word_u32(row[1]),
+            number: row[2],
         }
     }
 

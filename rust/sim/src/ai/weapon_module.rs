@@ -2,9 +2,10 @@
 //! shapes remain foreign queries on the current battle bridge.
 
 use super::combat::math::{angle,dot32,f,length_sq32,lookup_cos,normalize_or_x};
+use super::combat::weapons_ai::sniper_yaw;
 use crate::gen::{import_ai_weapon,AiWeaponArgs,AiWeaponOp as Op,AiWeaponResult};
 
-fn call(op: Op,index: u32) -> AiWeaponResult {import_ai_weapon(&AiWeaponArgs {op,index})}
+fn call(op: Op,index: u32) -> AiWeaponResult {import_ai_weapon(&AiWeaponArgs {op,index,number:0.0})}
 fn perp(r: [f64;3],d: [f64;3]) -> f64 {
     let x=f(f(r[1]*f(d[2]))-f(r[2]*f(d[1])));
     let y=f(f(r[2]*f(d[0]))-f(r[0]*f(d[2])));
@@ -67,7 +68,27 @@ fn protected() -> bool {
     false
 }
 
+fn target(reference: &[f64]) -> bool {
+    reference[0]!=0.0 && reference[2]==reference[4] && (reference[2]==0.0 || reference[2]==2.0 || reference[1]==reference[3])
+}
+
+fn validate() -> bool {
+    if !call(Op::ValidationStart,0).flag {return false;}
+    let r=call(Op::Target,0).values;
+    if !target(&r) || r[5]==0.0 {return false;}
+    call(Op::Lead,0);call(Op::TargetPoint,0);facing()
+}
+
+fn spread() {
+    if !call(Op::SpreadStart,0).flag || !call(Op::Sniper,0).flag {return;}
+    if !target(&call(Op::Target,0).values) {return;}
+    let v=call(Op::SpreadValues,0).values;
+    let d2=length_sq32(f(v[0]-v[3]),f(v[1]-v[4]),f(v[2]-v[5]));
+    let value=f(f(v[6])*sniper_yaw(d2))*(180.0/std::f64::consts::PI);
+    import_ai_weapon(&AiWeaponArgs {op:Op::SpreadWrite,index:0,number:value});
+}
+
 #[no_mangle]
 pub extern "C" fn ai_weapon_guard(op: u32) -> u32 {
-    (match op {0=>cone(),1=>facing(),2=>protected(),_=>panic!("invalid weapon guard")}) as u32
+    (match op {0=>cone(),1=>facing(),2=>protected(),3=>validate(),4=>{spread();false},_=>panic!("invalid weapon guard")}) as u32
 }

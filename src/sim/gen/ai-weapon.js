@@ -2,30 +2,34 @@
 import * as THREE from "three";
 import { sameArray, sameEach, sameList, sameMap, sameQuat, sameVec } from "../compare.js";
 
-export const AiWeaponOp_NAMES = ["coneStart","origin","forward","conePoint","coneFacts","aimer","range","rangePoint","protectionStart","reference","sphere"];
+export const AiWeaponOp_NAMES = ["coneStart","origin","forward","conePoint","coneFacts","aimer","range","rangePoint","protectionStart","reference","sphere","validationStart","target","lead","targetPoint","spreadStart","sniper","spreadValues","spreadWrite"];
 export const AiWeaponOp_INDEX = new Map(AiWeaponOp_NAMES.map((name, i) => [name, i]));
 
 export class AiWeaponArgsMirror {
   constructor() {
     this.op = "coneStart";
     this.index = 0;
+    this.number = NaN;
   }
 }
 
 export function syncAiWeaponArgs(b, f, at, h, m) {
   m.op = AiWeaponOp_NAMES[f[at + 0]];
   m.index = f[at + 1];
+  m.number = f[at + 2];
   return m;
 }
 
 export function putAiWeaponArgs(b, o, f, at, heap) {
   f[at + 0] = AiWeaponOp_INDEX.get(o.op);
   f[at + 1] = o.index;
+  f[at + 2] = o.number;
 }
 
 export function sameAiWeaponArgs(a, b) {
   if (!Object.is(a.op, b.op)) return ".op";
   if (!Object.is(a.index, b.index)) return ".index";
+  if (!Object.is(a.number, b.number)) return ".number";
   return null;
 }
 
@@ -36,6 +40,7 @@ export function exportAiWeaponArgs(o, cx) {
   cx.seen.set(o, v);
   v.op = o.op;
   v.index = o.index;
+  v.number = o.number;
   return v;
 }
 
