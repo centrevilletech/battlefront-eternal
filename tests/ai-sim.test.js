@@ -12,7 +12,7 @@ import { PriorityHeap, DeferredLos, Perception, TargetTracker, acousticResponse,
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { CommandQueue, Fsm, SourceGoal, UnitController } from '../src/ai/classic/controller.js';
 import { Agent } from '../src/ai/classic/agents.js';
-import { AttackPatterns, CoverHelper, coverReservation, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
+import { AttackPatterns, UnitCombatAgent, CoverHelper, coverReservation, coverScore, dispatch, findCover, rangePolicy } from '../src/ai/classic/combat.js';
 import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, rebuildProtectedHumans, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
@@ -1690,4 +1690,48 @@ test('native direct jets preserve bounded retries, captured streams and mutable 
     return {history,jet:[h.jetStart,h.jetting],position:unit.position.toArray(),rng:[rng.state,randomA.state],queries,draws};
   }
   for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`direct jet ${i}`);
+});
+
+test('native combat-agent initialization retains raw state, vector identities and exit ordering', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null},ai={world},controller={ai,world,unit:{id:1}};
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8200).fill(8));};
+    const target={id:2,alive:i%3!==0,generation:i%5},tracker={assign(t){log('assign',t?.id??null);}};
+    const helper={terminate(){log('terminate-helper');agent.helper=null;}};
+    ai.createHelper=()=>helper;ai.combat={initAgent(a){a.tracker=tracker;}};
+    const goal={mode:[0,1,2,3,'1',null,NaN][i%7],refA:{unit:target,generation:i%5+(i%4===0?1:0)},point:new Vector3(i,-0,i%3===0?'2':3)};
+    const agent=new UnitCombatAgent(controller,goal),start=[agent.state,agent.pending,agent.point.toArray(),agent.hazard.toArray()];
+    agent.alignAt='1';agent.looks=NaN;agent.aligned={value:i};agent.stationary=false;
+    const old=agent.point;agent.point=new Vector3(4,5,6);const current=agent.point;
+    old.x='old';current.x=-0;current.y=i%5===0?null:'7';agent.hazard.z={value:i};
+    assert.equal(agent.point,current);assert.notEqual(agent.point,old);
+    agent.patterns={cleanup(){log('patterns-cleanup');agent.hazard.x=11;},onExit(){log('patterns-exit');agent.state='4';}};
+    agent.state=i%2===0?4:'4';agent.onExit();agent.terminate=()=>log('terminate-agent');agent.exit();
+    return {history,start,old:old.toArray(),point:agent.point.toArray(),hazard:agent.hazard.toArray(),fields:[agent.alignAt,agent.looks,agent.aligned,agent.stationary,agent.state,agent.pending],wantedMode:controller.wantedMode,keys:Object.keys(agent),vectorKeys:Object.keys(agent.point)};
+  }
+  for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`combat agent fields ${i}`);
+});
+
+test('native combat-agent policies preserve mount callbacks, source gates and shield publications', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:5},ai={world};let agent,mounts=0;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8300).fill(9));};
+    const make=(name,kind)=>{const c={ai,world},u=c.unit={name,kind,position:new Vector3(),classDef:{ForwardSpeed:[0,10,20][i%3]},
+      soldier:{shield:i%17===0?null:{on:i%7===0,max:[1,'2',NaN,4][i%4],value:[.5,.75,2,3][i%4]}},forward(out){log('forward',name);out.set(0,0,1);}};
+      let fireA,fireB;Object.defineProperties(c,{fireA:{get:()=>fireA,set(v){log('fireA',name,v);fireA=v;if(i%19===0)agent.controller=other;}},fireB:{get:()=>fireB,set(v){log('fireB',name,v);fireB=v;}}});return c;};
+    const controller=make('first',[0,1,2,3,5,6,'5'][i%7]),other=make('other',0);
+    const tracker={target:i%11===0?null:{id:8},point:new Vector3(0,0,30)};
+    ai.createHelper=()=>null;ai.combat={initAgent(a){a.tracker=tracker;}};
+    ai.vehicles={mountReach:function(unit,p){mounts++;log('reach',unit.name,p.toArray(),this===undefined);if(i%5===0)agent.state=3;if(i%13===0)agent.controller=other;return i%2;}};
+    if(i%23===0)ai.vehicles.mountReach=null;
+    agent=new UnitCombatAgent(controller,null);agent.state=[2,3,4,5,'4',null][i%6];
+    agent.canEngage=s=>{log('engage',s.id);return i%2===0?{accepted:i}:null;};agent.boardPolicy=c=>{log('board-policy',c.id);return i%3===0?'yes':false;};
+    const point=new Vector3(i%3,0,i%2===0?-5:5),source={id:3,get position(){log('source-point');return point;}},candidate={id:4,position:new Vector3(1,0,2)};
+    world.units={query(p,r,out,filter){log('board-query',p.toArray(),r,filter(candidate),filter(agent.controller.unit));out.length=0;}};
+    const results=[agent.acceptsHazard(),agent.acceptsAlert(i%3===0?{}:false,point),agent.acceptsAcoustic(i%29===0?null:source),agent.acceptsBoard(candidate),agent.mountUnreachable(point),agent.raiseShield(controller.unit)];
+    return {history,results,flags:[controller.fireA,controller.fireB,other.fireA,other.fireB],state:agent.state,controller:agent.controller===controller?'first':'other',mounts};
+  }
+  for(let i=0;i<2048;i++)assert.deepEqual(run(true,i),run(false,i),`combat agent policies ${i}`);
 });
