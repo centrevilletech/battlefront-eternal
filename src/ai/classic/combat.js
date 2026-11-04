@@ -846,6 +846,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 4: keep in the band, moving across ------------------------------
 
   bandFlank() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,3,patternScratch);
     if (this.tryCover(4) || this.tryHintJet(4) || this.tryDirectJet(4) || this.tryLostTarget(4)) return;
     const t = now(this.world);
     const was = this.facing;
@@ -934,6 +935,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 5: across the target at optimal range --------------------------------
 
   lateral() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,4,patternScratch);
     if (this.tryCover(5) || this.tryHintJet(5) || this.tryDirectJet(5) || this.tryLostTarget(5)) return;
     const t = now(this.world);
     if (this.lateralAt < t) {
@@ -999,6 +1001,7 @@ export class AttackPatterns extends Fsm {
   // -- pattern 8 (dormant: no stock dispatch selects it): retreat ---------------------
 
   retreat() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,5,patternScratch);
     if (this.tryCover(8) || this.tryHintJet(8) || this.tryDirectJet(8)) return;
     const t = now(this.world);
     if (this.retreatAt < t) {
@@ -1032,6 +1035,7 @@ export class AttackPatterns extends Fsm {
   // made horizontal), clear of barriers, with 40 m of open sky above it, and
   // a clear barrier segment to it; then jet there.
   directJet() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,6,patternScratch);
     const world = this.world;
     const unit = this.controller.unit;
     const nav = world.nav;

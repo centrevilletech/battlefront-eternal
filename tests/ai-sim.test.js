@@ -1643,3 +1643,51 @@ test('native pattern geometry retains shared scratch vectors through nested move
   }
   for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`pattern geometry ${i}`);
 });
+
+test('native band, lateral and retreat patterns preserve shared directions and raw action results', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:20+i/9},ai={world},rng=new ClassicRandom(417+i),next=new ClassicRandom(177+i);let h;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8000).fill(1));};
+    const stream=(r,name)=>({int(lo,hi){log('int',name,lo,hi);const n=r.int(lo,hi);return i%13===0?String(n):n;},range(lo,hi){log('range',name,lo,hi);if(i%17===0)world.randomA=otherRandom;const n=r.range(lo,hi);return i%19===0?String(n):n;}});
+    const original=stream(rng,'first'),otherRandom=stream(next,'other');world.randomA=original;
+    const weapon={def:{base:'rifle',ai:{minRange:i%5,optimalRange:20,maxRange:50,extremeRange:80,implicitRange:false}}};
+    const c={ai,world,rangeScale:1,perception:{fire:{channel:0}}},unit=c.unit={kind:0,position:new Vector3(i%3*10,-0,i%7),
+      combat:{arsenal:{current(){log('weapon');if(i%23===0)other.flank();return i%11===0?null:weapon;}}},forward(out){log('forward');out.set(.125,-0,1);if(i%29===0)other.flank();return out;}};
+    const agent={world,ai,controller:c,helper:{goto(p,o){log('goto',p.toArray(),o);},stop(){log('stop');}},tracker:{point:new Vector3(0,1,10)},
+      facingTarget(angle){log('facing',angle);return [false,true,0,'yes',{}][i%5];}};
+    const other=new AttackPatterns({world,ai,controller:{unit:{kind:0,position:new Vector3()}},helper:{goto(p){log('nested-goto',p.toArray());}},tracker:{point:new Vector3(20,0,-3)}});
+    h=new AttackPatterns(agent);
+    for(const [index,name] of ['tryCover','tryHintJet','tryDirectJet','tryLostTarget'].entries())h[name]=from=>{log(name,from);return i%37===index;};
+    h.face=value=>log('face',value);h.upperBand=()=>{log('upper');return [1,15,40,NaN][i%4];};
+    h.stepToBand=()=>{log('step');if(i%7===0)other.flank();return [false,true,'yes',0][i%4];};
+    h.redirect=(toward,t)=>{log('redirect',toward,t);return {toward,t};};
+    h.facing=[false,true,'yes',0][i%4];h.stepAt=h.bandCheckAt=h.lateralAt=h.retreatAt=[-1,'0',Infinity,NaN][i%4];
+    const results=[h.bandFlank(),h.lateral(),h.retreat()];
+    return {history,results,fields:[h.facing,h.stepAt,h.bandCheckAt,h.lateralAt,h.lateralFacing,h.retreatAt,h.stepped],rng:[rng.state,next.state]};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`band/lateral/retreat ${i}`);
+});
+
+test('native direct jets preserve bounded retries, captured streams and mutable shared query points', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],world={aiSim:native?sim:null,time:i/7,mission:{}},ai={world},rng=new ClassicRandom(571+i),randomA=new ClassicRandom(991+i);let h,queries=0,draws=0;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(8100).fill(5));};
+    world.randomA=randomA;
+    const first={uniform(){draws++;log('draw',draws);world.randomB={uniform(){throw Error('replacement stream used');}};const n=rng.uniform();
+      return i%13===0 && draws%3===2?{valueOf(){throw Error('dropped draw coerced');}}:n;}};world.randomB=first;
+    const unit={kind:0,position:new Vector3(i%3,-0,i%5)},c={unit},otherController={requestJet(p){log('other-jet',p.toArray());}};
+    c.requestJet=i%7===0?undefined:p=>log('jet',p.toArray());
+    const other=new AttackPatterns({world,ai,controller:{unit:{kind:0,position:new Vector3()}},helper:{goto(p){log('nested-goto',p.toArray());}},tracker:{point:new Vector3(2,0,-10)}});
+    const agent={world,ai,controller:c,helper:{goto(p,o){log('goto',p.toArray(),o);if(i%17===0)h.agent={...agent,world:{time:999},controller:otherController};}},tracker:{point:new Vector3()}};
+    h=new AttackPatterns(agent);h.restore=()=>log('restore');
+    world.nav={pointClear(p,u){queries++;log('point',queries,p.toArray(),u===unit);if(i%5===0)unit.position=new Vector3(2,1,3);world.nav={pointClear(){throw Error('replacement navigation used');}};return i%3!==0 && (queries+i)%2===0;},
+      segmentBlocked(p,q,u){log('segment',p.toArray(),q.toArray(),u===unit);return i%11===0;}};
+    world.los=(p,q,u,target)=>{log('los',p.toArray(),q.toArray(),u===unit,target);if(i%19===0)other.flank();else if(i%23===0)p.x+=.25;
+      world.mission.noJetObstacleTest=i%29===0;return i%4!==0;};
+    h.directJet();
+    return {history,jet:[h.jetStart,h.jetting],position:unit.position.toArray(),rng:[rng.state,randomA.state],queries,draws};
+  }
+  for(let i=0;i<1024;i++)assert.deepEqual(run(true,i),run(false,i),`direct jet ${i}`);
+});

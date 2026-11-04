@@ -87,10 +87,29 @@ pub enum AiPatternOp {
     UpperBand = 78,
     GeometryStop = 79,
     Dodge = 80,
+    WasFacing = 81,
+    FacingTarget = 82,
+    StepToBand = 83,
+    Stepped = 84,
+    BandStart = 85,
+    RedirectAction = 86,
+    SideClone = 87,
+    Forward = 88,
+    LateralRange = 89,
+    GeometryRange = 90,
+    AngleValue = 91,
+    DirectStart = 92,
+    DirectPosition = 93,
+    PointClear = 94,
+    Los = 95,
+    JetObstructed = 96,
+    JetMove = 97,
+    JetRequest = 98,
+    DirectTime = 99,
 }
 
 impl AiPatternOp {
-    pub const NAMES: [&'static str; 81] = ["field", "initValue", "request", "flush", "priorCapture", "random", "time", "int", "add", "agent", "state", "stateValue", "stop", "roll", "action", "coverInit", "jetEnter", "delay", "gotoTarget", "vehicleEnter", "stance", "coverExit", "jetExit", "vehicleExit", "vehicleTick", "cleanup", "range", "rangeCompare", "findCover", "reserve", "priorFrom", "jetUnit", "jetJump", "jetBorder", "jetFuel", "jetReady", "jetHints", "hintFind", "sampleTime", "transition", "standingUnit", "speed", "sidestep", "stationary", "face", "helper", "arrived", "stopHelper", "reposition", "redirect", "flank", "coverUpdate", "coverDone", "restore", "fieldTruthy", "plus", "flying", "hintTick", "freshTarget", "agentArrived", "look", "meleeStart", "directClear", "canFollow", "follow", "gotoMelee", "pointRead", "pointWrite", "uniform", "repositionWeapon", "repositionRange", "repositionBands", "rangeDraw", "targetPoint", "geometryStart", "movePoint", "captureMove", "lowerBand", "upperBand", "geometryStop", "dodge"];
+    pub const NAMES: [&'static str; 100] = ["field", "initValue", "request", "flush", "priorCapture", "random", "time", "int", "add", "agent", "state", "stateValue", "stop", "roll", "action", "coverInit", "jetEnter", "delay", "gotoTarget", "vehicleEnter", "stance", "coverExit", "jetExit", "vehicleExit", "vehicleTick", "cleanup", "range", "rangeCompare", "findCover", "reserve", "priorFrom", "jetUnit", "jetJump", "jetBorder", "jetFuel", "jetReady", "jetHints", "hintFind", "sampleTime", "transition", "standingUnit", "speed", "sidestep", "stationary", "face", "helper", "arrived", "stopHelper", "reposition", "redirect", "flank", "coverUpdate", "coverDone", "restore", "fieldTruthy", "plus", "flying", "hintTick", "freshTarget", "agentArrived", "look", "meleeStart", "directClear", "canFollow", "follow", "gotoMelee", "pointRead", "pointWrite", "uniform", "repositionWeapon", "repositionRange", "repositionBands", "rangeDraw", "targetPoint", "geometryStart", "movePoint", "captureMove", "lowerBand", "upperBand", "geometryStop", "dodge", "wasFacing", "facingTarget", "stepToBand", "stepped", "bandStart", "redirectAction", "sideClone", "forward", "lateralRange", "geometryRange", "angleValue", "directStart", "directPosition", "pointClear", "los", "jetObstructed", "jetMove", "jetRequest", "directTime"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -175,6 +194,25 @@ impl AiPatternOp {
             78 => Some(AiPatternOp::UpperBand),
             79 => Some(AiPatternOp::GeometryStop),
             80 => Some(AiPatternOp::Dodge),
+            81 => Some(AiPatternOp::WasFacing),
+            82 => Some(AiPatternOp::FacingTarget),
+            83 => Some(AiPatternOp::StepToBand),
+            84 => Some(AiPatternOp::Stepped),
+            85 => Some(AiPatternOp::BandStart),
+            86 => Some(AiPatternOp::RedirectAction),
+            87 => Some(AiPatternOp::SideClone),
+            88 => Some(AiPatternOp::Forward),
+            89 => Some(AiPatternOp::LateralRange),
+            90 => Some(AiPatternOp::GeometryRange),
+            91 => Some(AiPatternOp::AngleValue),
+            92 => Some(AiPatternOp::DirectStart),
+            93 => Some(AiPatternOp::DirectPosition),
+            94 => Some(AiPatternOp::PointClear),
+            95 => Some(AiPatternOp::Los),
+            96 => Some(AiPatternOp::JetObstructed),
+            97 => Some(AiPatternOp::JetMove),
+            98 => Some(AiPatternOp::JetRequest),
+            99 => Some(AiPatternOp::DirectTime),
             _ => None,
         }
     }

@@ -79,7 +79,7 @@ export class NativePatterns {
       else if(op==='canFollow')result.flag=Boolean(frame.helper.follow);
       else if(op==='follow')frame.helper.follow(frame.target,{mode:0,follow:1});
       else if(op==='gotoMelee'){const helper=frame.helper,point=frame.target.position,options=id===1?{mode:'direct'}:undefined;helper?.goto?.(point,options);}
-      else if(op==='pointRead'){const p=id===4?frame.position:id===5?frame.targetPoint:frame.scratch[['pa','pb','pc','pn'][id]];result.point=[p.x,p.y,p.z];}
+      else if(op==='pointRead'){const p=id===4?frame.position:id===5?frame.targetPoint:id===6?frame.side:frame.scratch[['pa','pb','pc','pn'][id]];result.point=[p.x,p.y,p.z];}
       else if(op==='pointWrite'){const p=frame.scratch[['pa','pb','pc','pn'][id]];if(id===3){p.x=point[0];p.y=point[1];p.z=point[2];}else p.set(...point);}
       else if(op==='uniform'){const n=frame.random.uniform();if(id===0)result.number=n;}
       else if(op==='repositionWeapon'){const c=frame.controller=h.controller,u=frame.unit=c.unit,w=frame.weapon=selectedWeapon(u,c);frame.weaponAi=weaponAI(w?.def);result.flag=Boolean(frame.weaponAi);}
@@ -87,13 +87,32 @@ export class NativePatterns {
       else if(op==='repositionBands')result.values=[frame.optimal,frame.weaponAi.minRange];
       else if(op==='rangeDraw')result.number=frame.random.range(number,other);
       else if(op==='targetPoint')frame.targetPoint=h.agent.tracker.point;
-      else if(op==='geometryStart'){frame.unit=h.controller.unit;frame.targetPoint=h.agent.tracker.point;frame.position=frame.unit.position;}
+      else if(op==='geometryStart'){frame.controller=h.controller;frame.unit=frame.controller.unit;frame.targetPoint=h.agent.tracker.point;frame.position=frame.unit.position;}
       else if(op==='movePoint'){const helper=id===0?h.agent.helper:frame.move;helper?.goto?.(frame.scratch.pa,undefined);}
       else if(op==='captureMove')frame.move=h.agent.helper;
       else if(op==='lowerBand')result.number=lowerBand(frame.unit,h.controller);
       else if(op==='upperBand')result.number=h.upperBand();
       else if(op==='geometryStop')h.agent.helper?.stop?.();
       else if(op==='dodge')h.controller.dodge=number;
+      else if(op==='wasFacing')result.flag=Boolean(h.facing);
+      else if(op==='facingTarget'){const facing=h.agent.facingTarget(number);if(id===0)h.facing=facing;result.flag=Boolean(facing);}
+      else if(op==='stepToBand'){frame.inBand=h.stepToBand();result.flag=Boolean(frame.inBand);}
+      else if(op==='stepped')h.stepped=frame.inBand;
+      else if(op==='bandStart'){const u=frame.unit=h.controller.unit,t=h.agent.tracker.point;result.values=[t.x,u.position.x,t.z,u.position.z];}
+      else if(op==='redirectAction')frame.result=h.redirect(id,number);
+      else if(op==='sideClone')frame.side=frame.scratch.pc.clone();
+      else if(op==='forward'){frame.unit.forward(frame.scratch.pb);frame.scratch.pb.y=0;}
+      else if(op==='lateralRange')result.number=weaponAI(selectedWeapon(frame.unit,frame.controller)?.def)?.optimalRange??0;
+      else if(op==='geometryRange'){frame.draw=h.random.range(number,other);result.flag=typeof frame.draw==='number';if(result.flag)result.number=frame.draw;}
+      else if(op==='angleValue')result.number=frame.draw;
+      else if(op==='directStart'){frame.world=h.world;frame.unit=h.controller.unit;frame.nav=frame.world.nav;frame.random=frame.world.randomB??frame.world.randomA??frame.world.random;}
+      else if(op==='directPosition'){const u=frame.unit;result.point=[u.position.x,u.position.y,u.position.z];}
+      else if(op==='pointClear')result.flag=Boolean(frame.nav?.pointClear?.(frame.scratch.pa,frame.unit)??false);
+      else if(op==='los')result.flag=Boolean(frame.world.los(frame.scratch.pa,frame.scratch.pb,frame.unit,null));
+      else if(op==='jetObstructed')result.flag=Boolean(!frame.world.mission?.noJetObstacleTest && frame.nav?.segmentBlocked?.(frame.unit.position,frame.scratch.pa,frame.unit));
+      else if(op==='jetMove')h.agent.helper?.goto?.(frame.scratch.pa,{mode:'direct'});
+      else if(op==='jetRequest')h.controller.requestJet?.(frame.scratch.pc.set(0,0,0));
+      else if(op==='directTime')result.number=frame.world?.time??0;
       else throw Error(`unknown pattern callback ${op}`);
       return result;
     }});
@@ -114,8 +133,8 @@ export class NativePatterns {
     this.patterns.set(pattern,id);
   }
   geometry(pattern,mode,scratch) {
-    this.bind(pattern);this.frames.push({pattern,scratch});
-    try {const value=this.sim.x.ai_pattern_geometry(this.patterns.get(pattern),mode);return mode===2?Boolean(value):undefined;} finally {this.frames.pop();}
+    this.bind(pattern);const frame={pattern,scratch};this.frames.push(frame);
+    try {const value=this.sim.x.ai_pattern_geometry(this.patterns.get(pattern),mode);return mode===2?Boolean(value):mode===3?frame.result:undefined;} finally {this.frames.pop();}
   }
   run(pattern,mode,value,probability,find,reserve) {
     this.bind(pattern);const frame={pattern,value,probability,find,reserve};this.frames.push(frame);
