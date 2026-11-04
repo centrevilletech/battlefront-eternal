@@ -193,3 +193,131 @@ test('trace close or arbitrary trace throw keeps published values owned and pres
     assert.throws(() => clock.measure(), /disposed/); native.dispose();
   }
 });
+
+test('exceptional phases reject without candidate writes before the original callbacks run once', async () => {
+  const instance = await loadSim(), bits = new DataView(new ArrayBuffer(8));
+  const number = value => typeof value === 'number' ? { number: value, bits: playoutBits(value) } : value;
+  const input = () => { bits.setBigUint64(0, 0xfff8000000000123n, true); return bits.getFloat64(0, true); };
+  const execute = (kind, native) => {
+    const interval = kind === 'apply' || kind === 'alpha';
+    const model = interval ? new SnapshotInterval({ native }) : new PlayoutClock({ window: 4 }, { native });
+    const events = [], observed = new Map(), cleanups = [];
+    let measureCalls = 0, rejected = 0;
+    const state = () => {
+      const snapshot = interval ? intervalState(model) : playoutState(model);
+      for (const [key, cell] of observed) snapshot[key] = number(cell.value);
+      return snapshot;
+    };
+    const event = (name, value) => events.push({ name, value, state: state() });
+    const watch = (keys, reads = false) => {
+      for (const key of keys) {
+        const cell = { value: model[key] }; observed.set(key, cell);
+        Object.defineProperty(model, key, { configurable: true, enumerable: true,
+          get() { if (reads) event(`get:${key}`); return cell.value; },
+          set(value) { event(`set:${key}`, number(value)); cell.value = value; }
+        });
+      }
+    };
+    const math = keys => {
+      for (const key of keys) {
+        const descriptor = Object.getOwnPropertyDescriptor(Math, key), original = descriptor.value;
+        Object.defineProperty(Math, key, { ...descriptor, value(a, b) {
+          event(`math:${key}`, [number(a), number(b)]); return original(a, b);
+        } });
+        cleanups.push(() => Object.defineProperty(Math, key, descriptor));
+      }
+    };
+    const value = kind === 'advance' ? Infinity : input();
+    let method, fallback, operation, observe;
+    if (kind === 'arrival') {
+      Object.assign(model, { latest: 1, arrivedAt: .25, arrivedTick: 1 }); model.gaps.set([1, 2, 3, 4]);
+      new DataView(model.gaps.buffer).setBigUint64(8, 0x7ff0000000000123n, true);
+      method = 'arrive'; fallback = false; operation = () => model.arrive(5, value, 1);
+      observe = () => { watch(['latest', 'gapAt', 'gapCount', 'arrivedAt', 'arrivedTick']); math(['max']); };
+    } else if (kind === 'measure') {
+      Object.assign(model, { gapCount: 4, gapAt: 1, delay: 7 }); model.gaps.set([2, 3, 4, 5]);
+      new DataView(model.gaps.buffer).setBigUint64(24, 0x7ff0000000000123n, true);
+      method = 'measureGap'; fallback = null; operation = () => model.measure();
+      observe = () => {
+        watch(['delay']);
+        const slice = F64.prototype.slice, sort = F64.prototype.sort;
+        model.gaps.slice = function (start, end) {
+          event('slice', [start, end]); const copy = Reflect.apply(slice, this, [start, end]);
+          copy.sort = function () { event('sort', { copy: this !== model.gaps, bytes: playoutRing(this) }); return Reflect.apply(sort, this, []); };
+          return copy;
+        };
+      };
+    } else if (kind === 'advance') {
+      Object.assign(model, { started: true, clock: 1, latest: 4, delay: 3, rate: .6, waits: 2 });
+      model.measure = () => { measureCalls++; event('measure'); model.latest = 10; model.delay = 2; };
+      method = 'advance'; fallback = false; operation = () => model.advance(value);
+      observe = () => { watch(['rate', 'waits', 'clock']); math(['abs', 'min', 'max']); };
+    } else if (kind === 'apply') {
+      model.previous = 2; model.current = 6;
+      method = 'intervalApply'; fallback = false; operation = () => model.apply(value);
+      observe = () => watch(['previous', 'current'], true);
+    } else {
+      model.previous = 3; model.current = 7;
+      method = 'alpha'; fallback = null; operation = () => model.alpha(value);
+      observe = () => { watch(['previous', 'current'], true); math(['min', 'max']); };
+    }
+    const rawInput = () => kind === 'measure' ? playoutRing(model.gaps) : playoutBits(value);
+    const initial = state(), inputBefore = rawInput(), calls = native?.calls ?? 0;
+    if (native) {
+      const original = native[method];
+      native[method] = function (...args) {
+        // Observers are installed only after the real numeric rejection. The
+        // candidate sees ordinary fields, ring methods and Math functions.
+        const before = state(), descriptors = Object.getOwnPropertyDescriptors(model), ring = model.gaps;
+        const beforeCalls = native.calls, beforeEvents = events.length;
+        const result = Reflect.apply(original, native, args);
+        assert.equal(result, fallback, `${kind} rejects the exceptional input`);
+        assert.equal(native.calls, beforeCalls, `${kind} enters no native calculation`);
+        assert.deepEqual(state(), before, `${kind} leaves raw state and ring bytes untouched`);
+        assert.deepEqual(Object.getOwnPropertyDescriptors(model), descriptors, `${kind} leaves property shape untouched`);
+        assert.equal(model.gaps, ring); assert.equal(events.length, beforeEvents);
+        assert.equal(rawInput(), inputBefore);
+        if (kind === 'measure') assert.equal(model.measuredKey, 4 * 4096 + 1, 'the earlier key phase is already published');
+        if (kind === 'advance') assert.equal(measureCalls, 1, 'measure completed exactly once before rejection');
+        rejected++; observe(); return result;
+      };
+      cleanups.push(() => { native[method] = original; });
+    } else observe();
+    let result;
+    try { result = number(operation()); }
+    finally { for (let i = cleanups.length - 1; i >= 0; i--) cleanups[i](); }
+    assert.equal(rawInput(), inputBefore, `${kind} retains raw input bits`);
+    return { result: { initial, input: inputBefore, result, events, final: state(), measureCalls }, rejected, calls: (native?.calls ?? 0) - calls };
+  };
+  for (const kind of ['arrival', 'measure', 'advance', 'apply', 'alpha']) {
+    const native = createPlayoutSim(instance);
+    try {
+      const expected = execute(kind, null), actual = execute(kind, native);
+      assert.deepEqual(actual.result, expected.result, kind);
+      assert.equal(actual.rejected, 1); assert.equal(actual.calls, kind === 'measure' ? 1 : 0);
+      const { events, final, initial, input, measureCalls } = actual.result, names = events.map(e => e.name);
+      if (kind === 'arrival') {
+        assert.deepEqual(names, ['set:latest', 'math:max', 'set:gapAt', 'set:gapCount', 'set:arrivedAt', 'math:max', 'set:arrivedTick']);
+        assert.equal(events[1].state.latest.number, 5); assert.equal(events[2].state.gapAt.number, 0);
+        assert.notEqual(events[2].state.gaps.slice(0, 16), initial.gaps.slice(0, 16));
+        assert.equal(final.gaps.slice(16), initial.gaps.slice(16)); assert.equal(final.arrivedAt.bits, input);
+      } else if (kind === 'measure') {
+        assert.deepEqual(names, ['slice', 'sort', 'set:delay']); assert.deepEqual(events[0].value, [0, 4]);
+        assert.equal(events[0].state.measuredKey.number, 4 * 4096 + 1); assert.equal(events[1].value.copy, true);
+        assert.equal(final.gaps, initial.gaps);
+      } else if (kind === 'advance') {
+        assert.equal(measureCalls, 1);
+        assert.deepEqual(names, ['measure', 'math:abs', 'math:max', 'math:min', 'set:rate', 'set:waits', 'math:max', 'set:clock']);
+        assert.equal(events[6].state.waits.number, 3); assert.equal(events[6].state.clock.number, 1);
+        assert.equal(final.clock.number, 10);
+      } else if (kind === 'apply') {
+        assert.deepEqual(names, ['get:current', 'set:previous', 'set:current']);
+        assert.equal(events[2].state.previous.number, 6); assert.equal(events[2].state.current.number, 6);
+        assert.equal(final.current.bits, input);
+      } else {
+        assert.deepEqual(names, ['get:current', 'get:previous', 'get:current', 'get:previous', 'math:max', 'math:min', 'math:max']);
+        assert.deepEqual(final, initial);
+      }
+    } finally { native.dispose(); }
+  }
+});
