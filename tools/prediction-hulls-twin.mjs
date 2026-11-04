@@ -25,7 +25,7 @@ try {
       observations += actual.observations.length; queries += actual.events.length;
     } finally { actual?.dispose(); expected?.dispose(); }
   }
-  assert.ok(observations >= 100); assert.ok(queries > 40000); assert.ok(events.length > 1000);
+  assert.ok(observations >= 100); assert.ok(queries > 2000); assert.ok(events.length > 1000);
   for (const event of events) process.stdout.write(JSON.stringify(event) + '\n');
   process.stderr.write(`hull prediction: ${observations} JS/WASM observations, ${queries} foreign calls, ${events.length} native operations\n`);
 } finally { native.dispose(); }

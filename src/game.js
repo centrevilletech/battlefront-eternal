@@ -92,16 +92,9 @@ import { pageGpu } from "./gpu-info.js";
 // onProgress(step, loaded, total): the load's progress, for the loading
 // screen (src/shell/loading.js): "data", "world", "shaders", and
 // "textures" with how many of how many have arrived.
-// The battle's instance of the simulation's WebAssembly (src/sim/module.js),
-// which its kernels share, or null (JavaScript, which gives the same
-// answers) if it cannot load here.
+// Each battle requires its own simulation instance; loading failures stop startup.
 async function loadSimInstance() {
-  try {
-    return await (await import("./sim/module.js")).loadSim();
-  } catch (error) {
-    console.warn(`The simulation's WebAssembly did not load (${error?.message ?? error}); its JavaScript answers instead.`);
-    return null;
-  }
+  return (await import("./sim/module.js")).loadSim();
 }
 
 // The battle's store on its instance of the module (src/sim/runtime.js
@@ -163,7 +156,7 @@ async function attachCombatPhase(instance) {
   return sim;
 }
 
-export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null, rays: raysDefault = null, movement: movementDefault = null } = {}) {
+export async function createGame({ query = "", headless = false, savedSettings = {}, onProgress = null } = {}) {
 const { TextureLibrary } = headless ? {} : await import("./textures.js");
 const { DroidekaTrail, JetpackEffects, JetpackNozzles, Foliage, EnvironmentEffects, DROIDEKA_OFFSET, FirstPersonView, Graphics, BattleHud, Controls, HtmlOptionsMenu, createPauseMenu, PageTheme, Water, Weather, Atmosphere, SkyFlyers, Snow, GameAudio, WaterShore, buildWorld } = headless ? {} : await import("./browser-ports.js");
 const params = new URLSearchParams(query);
@@ -470,22 +463,12 @@ async function start() {
     if (hurt > 0) health.damage(hurt);
   };
   const groundPositions = new Float32Array(groundBuf);
-  // The collision's queries in WebAssembly (src/ray-kernel.js), with the
-  // same answers as its JavaScript: ?rays=wasm or ?rays=js decides; else
-  // the caller's default (rays), then, under Node (a dedicated server),
-  // BFE_RAYS=wasm in its environment; else JavaScript. ?movement=wasm or
-  // ?movement=js (else JavaScript after ?rays=js, else the caller's
-  // default): the soldiers' movement there too (src/movement-kernel.js),
-  // the world's ticks and the page's replay of his own soldier alike; it
-  // brings the ray kernel with it.
-  const movement = (params.get("movement") ?? (params.get("rays") === "js" ? "js" : movementDefault)) === "wasm";
   // A world's units on the module (src/units-sim.js), where it asks for
   // them: ?units=rust, or under Node BFE_UNITS=rust. Off by default until
   // units and combat move over together. Its soldiers move through the
   // module's copy of the collision world, so it brings the ray kernel.
   const wantUnits = headless && (params.get("units") ?? globalThis.process?.env?.BFE_UNITS) === "rust";
   const wantPrediction = !headless && params.get("prediction") === "rust";
-  const wantRays = movement || wantUnits || wantPrediction || (params.get("rays") ?? raysDefault ?? globalThis.process?.env?.BFE_RAYS) === "wasm";
   // The page's pose sampling in WebAssembly (src/anim-kernel.js) unless
   // ?anim=js, to the last bit as its JavaScript, which stays the fallback
   // when the module cannot load. The page's poses only: a headless world
@@ -493,12 +476,6 @@ async function start() {
   // and keeps the JavaScript, so its worlds cannot change. Poses made
   // before this take the kernel up as they clear.
   const wantAnim = !headless && params.get("anim") !== "js";
-  // A world's rounds in flight and things lying about on the module
-  // (src/ordnance-sim.js, src/items-sim.js), unless ?sim=js, or under Node
-  // (a dedicated server, the tools) BFE_SIM=js in its environment: the
-  // JavaScript ones, kept for A/B runs and bisecting until the next
-  // subsystem moves over.
-  const wantSim = headless && (params.get("sim") ?? globalThis.process?.env?.BFE_SIM) !== "js";
   // A world's ground hulls on the module (src/vehicles-sim.js), where it asks
   // for them: ?hulls=rust, or under Node BFE_HULLS=rust. Off by default until
   // the hull phase moves whole (flight, seats and fire with it).
@@ -516,9 +493,9 @@ async function start() {
   const wantBattle = headless && (params.get("battle") ?? globalThis.process?.env?.BFE_BATTLE) === "rust";
   const wantAiSim = headless && (params.get("aiSim") ?? globalThis.process?.env?.BFE_AI_SIM) === "rust";
   // The kernels and the store on the battle's one instance of the module.
-  const simInstance = wantRays || wantAnim || wantSim || wantHulls || wantSeats || wantCombat || wantUnits || wantBattle || wantAiSim ? await loadSimInstance() : null;
+  const simInstance = await loadSimInstance();
   const aiSim = wantAiSim && simInstance ? (await import("./ai-sim.js")).attachAiSim(simInstance) : null;
-  const rays = wantRays && simInstance ? await (await import("./ray-kernel.js")).loadRayKernel(simInstance) : null;
+  const rays = await (await import("./ray-kernel.js")).loadRayKernel(simInstance);
   const anim = wantAnim && simInstance ? await (await import("./anim-kernel.js")).loadAnimKernel(simInstance) : null;
   setAnimKernel(anim);
   const collision = new CollisionWorld(
@@ -529,8 +506,6 @@ async function start() {
     new Uint32Array(groundIndexBuf),
     rays,
   );
-  // (Not if the ray kernel did not load: the JavaScript answers for both.)
-  collision.movement = movement && rays ? new (await import("./movement-kernel.js")).MovementKernel(collision) : null;
   // Below the battlefield: KILL_Y, or 10 m under the lowest ground where the
   // ground lies lower (Naboo Plains runs from -95 m down to -140 m, its posts'
   // spawn paths below -110 m).
@@ -942,9 +917,8 @@ async function start() {
     pools: world.mission?.pools,
     explode: (explosion, position, owner) => ordnance.explosion(explosion, position, owner),
   });
-  // The rounds and the items go to the module before any is made
-  // (createGame's wantSim).
-  const simBridge = wantSim && simInstance ? await attachSimStore(simInstance, ordnance, items) : null;
+  // The world hands rounds and items to Rust before any is made.
+  const simBridge = headless ? await attachSimStore(simInstance, ordnance, items) : null;
   // The map's placed power-ups lie where the world put them from the start
   // (src/placed-items.js); the world alone makes them, a page shows records.
   if (headless) spawnPlacedItems(items, propsDef?.items);

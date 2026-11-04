@@ -28,7 +28,7 @@ test('exit airborne bails out beside the craft, at rest; landed he steps out; st
  assert.ok(Math.abs(g.soldier.position.y)<1.5,'landed, he steps out onto the floor');
 });
 test('a landing starts wherever it is asked for: a post under a wing lets it down, one under its fuselage holds it until he lifts off',async()=>{
- const {CollisionWorld}=await import('../src/collision.js');const {stepFlight}=await import('../src/flight/model.js');
+ const {CollisionWorld}=await import('../tools/collision-fixture.mjs');const {stepFlight}=await import('../src/flight/model.js');
  const solid=(...boxes)=>{const pos=[],idx=[];for(const [x,y,z,w,h,d] of boxes){const g=new THREE.BoxGeometry(w,h,d).translate(x,y,z),base=pos.length/3;pos.push(...g.attributes.position.array);idx.push(...[...g.index.array].map(i=>i+base));}return new CollisionWorld(new Float32Array(pos),new Uint32Array(idx),new Uint32Array(idx.length/3));};
  const floor=[0,-1,0,20000,2,20000],wing=[.9,3,0,.4,6,.4],nose=[0,3,1.9,.4,6,.4];// under the hull's right edge; under its nose
  // A craft that hovers (MidSpeed 0, as the LAAT/i and the MAF do), so it

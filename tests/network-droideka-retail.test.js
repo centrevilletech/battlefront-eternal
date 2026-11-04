@@ -6,7 +6,7 @@ import { Vector3 } from 'three';
 import { buildActor } from '../src/actor.js';
 import { loadClips } from '../src/anim.js';
 import { Droideka } from '../src/droideka.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { captureDroidekaState as capture, restoreDroidekaState as restore } from '../src/runtime/network-droideka-state.js';
 const base=resolve(process.env.BFE_ASSET_ROOT||'public','sides/cis/actors/cis_walk_droideka');
 const available=existsSync(base+'.json');

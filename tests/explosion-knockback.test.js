@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { Soldier, ENGINE } from '../src/soldier.js';
 import { PlayerCombat } from '../src/combat.js';
-import { CollisionWorld } from '../src/collision.js';
+import { CollisionWorld } from '../tools/collision-fixture.mjs';
 import { falloff } from '../src/ordnance.js';
 import { captureCompactSoldier, restoreCompactSoldier } from '../src/runtime/network-entity-soldier-compact.js';
 import { captureEntitySoldier, ENTITY_SOLDIER_STATES } from '../src/runtime/network-entity-capture.js';

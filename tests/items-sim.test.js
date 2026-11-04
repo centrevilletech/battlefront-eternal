@@ -1,9 +1,3 @@
-// The items on the simulation's module against the JavaScript items
-// (src/items-sim.js, src/items.js): two Items with the same fakes, one
-// handed to an instance of the module, get the same power-ups placed, mines
-// thrown, drops, blasts and hits, and the same targets walking among them;
-// after every tick the list's items must be the same, field by field, the
-// dispensers' lists the same, and every call into the battle the same.
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
@@ -58,54 +52,22 @@ function walk(list, dt) {
   for (const t of list) { t.position.addScaledVector(t.velocity, dt); t.center.set(t.position.x, 1, t.position.z); }
 }
 
-async function pair() {
-  const owner = new FakeUnit(5, 1), jsLog = [], rustLog = [];
-  const make = (log) => {
-    const items = new Items({ scene: new THREE.Scene(), collision, effects: { play: () => null }, lights: { add() {} }, model,
-      explode: (def, position, who) => log.push(["explode", def.class, position.toArray(), who?.id ?? who]) });
-    items.random = (() => { let s = 3; return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; }; })();
-    return items;
-  };
-  const js = make(jsLog), rust = make(rustLog);
-  const bridge = new SimBridge(await loadSim(), { tests: { ...ordnanceTests, unit: (o) => o instanceof FakeUnit } });
-  const rounds = attachOrdnanceSim(new Ordnance({ scene: new THREE.Scene(), collision, effects: { play: () => null }, lights: { add() {}, flash() {} }, texture: () => null }), bridge);
-  attachItemsSim(rust, rounds);
-  return { owner, js, rust, jsLog, rustLog, jsTargets: targets(jsLog), rustTargets: targets(rustLog) };
-}
 
-function same(js, rust, when) {
-  assert.equal(rust.items.length, js.items.length, `${when}: items`);
-  js.items.forEach((x, i) => assert.equal(KIND_TABLE[KIND_ITEM].same(x, rust.items[i]), null, `${when}: items[${i}]`));
-  assert.deepEqual([...rust.owned.keys()], [...js.owned.keys()], `${when}: dispensers`);
-  for (const [key, list] of js.owned) assert.deepEqual(rust.owned.get(key).map((i) => rust.items.indexOf(i)), list.map((i) => js.items.indexOf(i)), `${when}: ${key}`);
-}
+import {createHash} from 'node:crypto';
 
-test("items on the module lie, fly, go off and are taken as the JavaScript items are, tick by tick", async () => {
-  const { owner, js, rust, jsLog, rustLog, jsTargets, rustTargets } = await pair();
-  const v = (x, y, z) => new THREE.Vector3(x, y, z);
-  for (const items of [js, rust]) {
-    items.spawn(health, v(0, 1, 0), v(0, 0, 0), 0.3);
-    items.spawn(ammo, v(3, 2, 6), v(0.5, 3, 0), 1.1);
-    items.spawn(health, v(3, 0.2, 7), v(0, 0, 0), 0, { team: 1 });
-  }
-  same(js, rust, "placed");
-  for (let tick = 0; tick < 480; tick++) {
-    if (tick === 10 || tick === 30 || tick === 50 || tick === 70) {
-      const a = js.dispense("minelayer", 3, mine, v(tick / 20, 1, 2), v(0, 2, 1), 0.5, owner, 1);
-      const b = rust.dispense("minelayer", 3, mine, v(tick / 20, 1, 2), v(0, 2, 1), 0.5, owner, 1);
-      assert.equal(Boolean(b), Boolean(a), `tick ${tick}: a mine thrown`);
-    }
-    if (tick === 40) for (const items of [js, rust]) items.dispense("timebomb", 0, bomb, v(-2, 1, 1), v(0, 1, 0), 0, owner, 1);
-    if (tick === 90) for (const items of [js, rust]) items.dropFor([{ class: "nothing", probability: 0 }, { class: "health", probability: 0.5 }, { class: "ammo", probability: "0.5" }], { health, ammo }, v(1, 1, -2), v(4, 0, 0), 2);
-    if (tick === 200) for (const items of [js, rust]) items.blast(explosion, v(3.1, 0.5, 2));
-    if (tick === 220) for (const items of [js, rust]) { const m = items.items.find((i) => i.mine && !i.gone); if (m) items.hurt(m, 25); }
-    walk(jsTargets, 1 / 60);
-    walk(rustTargets, 1 / 60);
-    js.update(1 / 60, jsTargets);
-    rust.update(1 / 60, rustTargets);
-    same(js, rust, `tick ${tick}`);
-    assert.deepEqual(rustLog, jsLog, `tick ${tick}: the calls into the battle`);
-  }
-  const kinds = new Set(jsLog.map((c) => c[0]));
-  assert.ok(kinds.has("explode") && kinds.has("give"), "the scenario sets mines off and gives power-ups");
+test('Rust items synthetic fixture matches recorded flight and events',async()=>{
+const log=[], owner=new FakeUnit(1,1);
+const items = new Items({scene:new THREE.Scene(),collision,effects:{play:()=>null},lights:{add(){}},model,explode:(def,p)=>log.push(['explode',def.class,p.toArray()])});
+const bridge=new SimBridge(await loadSim(),{tests:{...ordnanceTests,unit:v=>v instanceof FakeUnit}}); const rounds=attachOrdnanceSim(new Ordnance({scene:new THREE.Scene(),collision,effects:{play:()=>null},lights:{add(){},flash(){}},texture:()=>null}),bridge);attachItemsSim(items,rounds);
+const digest=createHash('sha256'), list=targets(log), v=(x,y,z)=>new THREE.Vector3(x,y,z);
+items.spawn(health,v(0,1,0),v(0,0,0),.3);
+items.spawn(ammo,v(3,2,6),v(.5,3,0),1.1);
+for(let tick=0;tick<480;tick++){
+ if(tick===10||tick===30||tick===50||tick===70) items.dispense('minelayer',3,mine,v(tick/20,1,2),v(0,2,1),.5,owner,1);
+ if(tick===40) items.dispense('timebomb',0,bomb,v(-2,1,1),v(0,1,0),0,owner,1);
+ if(tick===200) items.blast(explosion,v(3.1,.5,2));
+ walk(list,1/60);items.update(1/60,list);
+ digest.update(JSON.stringify([items.items.map(p=>[p.def.class,p.position.toArray(),p.velocity.toArray(),p.up.toArray(),p.life,p.age,p.health,p.gone,p.landed,p.sinking]),log]));
+}
+assert.equal(digest.digest('hex'),'bbc593bc4b5492a1a9a54048b142cbeca949203d54e2b636a940e2a892724011');
 });

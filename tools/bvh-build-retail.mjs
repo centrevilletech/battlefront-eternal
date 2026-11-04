@@ -10,8 +10,7 @@ import { RayKernel } from '../src/ray-kernel.js';
 import { referenceTree, recordFor } from '../tests/fixtures/bvh-build-cases.js';
 
 const args = process.argv.slice(2), option = (name, fallback) => { const at = args.indexOf(`--${name}`); return at < 0 ? fallback : args[at + 1]; };
-const query = new URLSearchParams(option('query', '?map=nab2&side=rep&ai=classic&seed=1&sim=js'));
-query.set('rays', 'wasm');
+const query = new URLSearchParams(option('query', '?map=nab2&side=rep&ai=classic&seed=1'));
 const ticks = Number(option('ticks', 0)), sourceSha = option('source-sha', null), out = option('out', null);
 if (!Number.isInteger(ticks) || ticks < 0 || ticks > 10000) throw Error('Invalid BVH gate tick count');
 const directory = out && path.resolve(out), root = fileURLToPath(new URL('../', import.meta.url));

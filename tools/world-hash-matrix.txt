@@ -66,8 +66,8 @@ R-rhn2-imp-1-view --map rhn2 --side imp --seed 1 --ticks 2400 --view 2.5
 R-tat2-all-1-view --map tat2 --side all --seed 1 --ticks 2400 --view 2.5
 R-tat3-imp-1-view --map tat3 --side imp --seed 1 --ticks 2400 --view 2.5
 R-yav2-all-1-view --map yav2 --side all --seed 1 --ticks 2400 --view 2.5
-K-tat1-rep-1-mvwasm --map tat1 --side rep --seed 1 --ticks 2400 --movement wasm
-K-bes1-rep-1-mvwasm-view --map bes1 --side rep --seed 1 --ticks 2400 --movement wasm --view 2.5
+K-tat1-rep-1-mvwasm --map tat1 --side rep --seed 1 --ticks 2400
+K-bes1-rep-1-mvwasm-view --map bes1 --side rep --seed 1 --ticks 2400 --view 2.5
 M-nab2-rep-1-mount --map nab2 --side rep --seed 1 --ticks 2400 --view 2.5 --mount 300
 M-hot1-all-1-mount --map hot1 --side all --seed 1 --ticks 2400 --view 2.5 --mount 300
 M-bes1-rep-1-mount --map bes1 --side rep --seed 1 --ticks 2400 --view 2.5 --mount 300

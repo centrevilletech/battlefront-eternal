@@ -1,12 +1,11 @@
+import { rustOrdnance, rustItems } from './helpers/rust-simulation.js';
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { Unit, blankIntent } from "../src/units.js";
-import { Ordnance } from "../src/ordnance.js";
 import { LiveObjects } from "../src/props.js";
 import { createServiceCandidates } from "../src/ai/services.js";
 import { dispatch } from "../src/ai/classic/combat.js";
-import { Items } from "../src/items.js";
 
 test("seated bodies leave movement and intent edges to the seat consumer", () => {
   const unit = { removed: false, tickCount: 0, alive: true, seat: {}, intent: blankIntent() };
@@ -25,20 +24,20 @@ test("mounted beams follow their seat emitter while damage remains credited to t
     out.body = body; out.distance = 10; out.point.copy(origin).addScaledVector(dir, 10);
     return out;
   } };
-  const ordnance = new Ordnance({ scene: new THREE.Scene(), collision, effects: { play() {} },
+  const ordnance = rustOrdnance({ scene: new THREE.Scene(), collision, effects: { play() {} },
     lights: { add() {} }, texture: () => null, onHit: (...args) => hits.push(args) });
-  const owner = { alive: true, team: 2 };
+  const owner = { id: 1, generation: 1, alive: true, team: 2 };
   const emitter = { alive: true, matrix: new THREE.Matrix4(), viewDirection: (out) => out.set(1, 0, 0) };
   ordnance.fire({ base: "beam", Damage: 100, LifeSpan: 1 }, new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1), owner, null, body, emitter);
   emitter.matrix.makeTranslation(3, 0, 0);
   const beam = ordnance.beams[0];
-  ordnance.stepBeam(beam, 0.1);
+  ordnance.update(0.1);
   assert.deepEqual(beam.position.toArray(), [3, 1, 0]);
   assert.deepEqual(beam.end.toArray(), [13, 1, 0]);
   assert.ok(hits[0][2] === owner);
   assert.equal(hits[0][1].Damage, 10);
   emitter.alive = false;
-  ordnance.stepBeam(beam, 0.1);
+  ordnance.update(0.1);
   assert.equal(hits.length, 1);
   assert.equal(beam.life, 0);
 });
@@ -80,8 +79,8 @@ test("bot fusion cutters repair their own team independently of the human's side
 });
 
 test("mine limits belong to each soldier life, without merging object owners", () => {
-  const items = new Items({ scene: new THREE.Scene(), collision: {}, effects: {}, lights: {}, model: () => null, explode() {} });
-  const a = { generation: 1 }, b = { generation: 1 };
+  const items = rustItems({ scene: new THREE.Scene(), collision: {}, effects: {}, lights: {}, model: () => null, explode() {} });
+  const a = { id: 1, generation: 1 }, b = { id: 2, generation: 1 };
   const mine = { class: "test_mine", base: "mine" }, point = new THREE.Vector3();
   const drop = (owner) => items.dispense("test_dispenser", 1, mine, point, point, 0, owner, 1);
   const first = drop(a), other = drop(b);
