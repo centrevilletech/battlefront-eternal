@@ -71,14 +71,16 @@ class F2 {
       },
       f2Variant: (a) => {
         const slot = vehicles.slots[a.pad], name = a.name;
-        this.sync();
+        this.sync(true);
         const v = vehicles.variant(slot, name);
         this.withBridge(() => { bridge.write(KIND_VEHICLES, [vehicles]); this.adopt(v); });
         this.bodiesIn();
       },
       f2Life: (a) => {
         const v = vehicles.vehicles[a.hull];
-        this.sync();
+        // A spawn precedes input latching. Reset this hull's aim, keeping
+        // the other hulls' pending look samples until foreignIn consumes them.
+        this.sync(true, v);
         for (const seat of v.seats) for (const w of seat.weapons) { w.state = new Weapon(w.def); w.barrel = 0; }
       },
     });
@@ -218,9 +220,9 @@ class F2 {
     this.counters.inputFields += 2;
   }
 
-  sync(keepAim = false) { return this.withBridge(() => this.syncState(keepAim)); }
+  sync(keepAim = false, resetAim = null) { return this.withBridge(() => this.syncState(keepAim, resetAim)); }
 
-  syncState(keepAim) {
+  syncState(keepAim, resetAim) {
     const b = this.bridge; b.views();
     if (this.descriptor === undefined) return;
     const d = this.descriptor;
@@ -232,7 +234,7 @@ class F2 {
         const at = base + 5 + i * stride;
         const v = target ?? (i < f[base + 4] ? this.pool.retire(f[at], f[at + 1]) : this.pool.at(f[at], f[at + 1]));
         const leases = target ? null : v.seats.map(s => s.lease);
-        const aim = !target && keepAim ? v.seats.map(s => [s.aimYaw, s.pitch, s.lookYaw, s.lookPitch]) : null;
+        const aim = !target && keepAim && v !== resetAim ? v.seats.map(s => [s.aimYaw, s.pitch, s.lookYaw, s.lookPitch]) : null;
         k.sync(b, f, at, h, v);
         if (leases) for (let j = 0; j < leases.length; j++) {
           v.seats[j].lease = leases[j];
