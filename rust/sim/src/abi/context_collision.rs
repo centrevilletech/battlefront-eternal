@@ -36,6 +36,12 @@ impl std::error::Error for CollisionError {}
 type Result<T> = std::result::Result<T, CollisionError>;
 
 impl Context {
+    // The only consumer is the private, callback-free native movement
+    // operation. No public API accepts this closure or lends the State.
+    pub(super) fn movement_collision<T>(&self, world: u32, f: impl FnOnce(&mut crate::collision::State) -> T) -> Result<T> {
+        self.collision_owner(|owner| Ok(f(owner.movement_state(world)?)))
+    }
+
     // Only private, callback-free operations enter this borrow. No API accepts
     // a caller closure or returns a reference to the owner, State or scratch.
     fn collision_owner<T>(&self, f: impl FnOnce(&mut NativeCollision) -> Result<T>) -> Result<T> {

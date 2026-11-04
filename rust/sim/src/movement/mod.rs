@@ -17,7 +17,7 @@ pub mod soldier;
 use crate::collision::spheres::{GatherCache, Gathered};
 use crate::collision::{state, MAX_BODIES};
 use scene::{GroundCache, Scene};
-use soldier::{Air, Input, Mover, Posture, Rest, Trig, PART_CACHES, V3};
+use soldier::{Air, Input, Mover, Posture, Trig, PART_CACHES, V3};
 use std::ptr::addr_of_mut;
 
 // The exchange slots (src/movement-kernel.js mirrors them).
@@ -97,7 +97,7 @@ fn put(v: &mut [f64; IO_LEN], at: usize, value: V3) {
 }
 
 /// The soldier's state from the exchange slots; false if a code is unknown.
-fn load(m: &mut Mover, v: &[f64; IO_LEN]) -> bool {
+pub(crate) fn load(m: &mut Mover, v: &[f64; IO_LEN]) -> bool {
     let (Some(posture), Some(air), Some(dive_from)) = (Posture::from_code(v[POSTURE]), Air::from_code(v[AIR]), Posture::from_code(v[DIVE_FROM])) else {
         return false;
     };
@@ -124,7 +124,7 @@ fn load(m: &mut Mover, v: &[f64; IO_LEN]) -> bool {
     true
 }
 
-fn store(m: &Mover, v: &mut [f64; IO_LEN]) {
+pub(crate) fn store(m: &Mover, v: &mut [f64; IO_LEN]) {
     put(v, POSITION, m.position);
     put(v, SETTLED, m.settled);
     put(v, VELOCITY, m.velocity);
@@ -144,7 +144,7 @@ fn store(m: &Mover, v: &mut [f64; IO_LEN]) {
     v[DAMAGE] = m.collision_damage;
 }
 
-fn input(v: &[f64; IO_LEN]) -> Input {
+pub(crate) fn input(v: &[f64; IO_LEN]) -> Input {
     Input {
         forward: v[FORWARD],
         right: v[RIGHT],
@@ -157,17 +157,6 @@ fn input(v: &[f64; IO_LEN]) -> Input {
     }
 }
 
-/// The rest of a tick, with the turned yaw's sine and cosine in `trig`.
-fn finish(id: u32, rest: Rest, input: &Input, dt: f64, trig: &Trig) {
-    let ms = movers();
-    let s = state();
-    let m = &mut ms.list[id as usize];
-    let world = m.world;
-    let count = s.worlds[world].order.len();
-    let mut scene = Scene { s, world, flags: flags(count), gathered: &mut ms.gathered, caches: &mut ms.caches[id as usize], ground_cache: &mut ms.ground };
-    m.finish(rest, input, dt, trig, &mut scene);
-}
-
 /// One tick of mover `id` from the state it holds (Soldier.tick): the
 /// sines and cosines it reads, as V8 computes them, once each.
 ///
@@ -176,7 +165,17 @@ fn finish(id: u32, rest: Rest, input: &Input, dt: f64, trig: &Trig) {
 /// turned yaw from there on (the jump, the jetpack's kick, every body
 /// sphere's place in the collision pass), and a hovering jet's pitch.
 pub fn advance(id: u32, input: &Input, dt: f64) {
-    let m = &mut movers().list[id as usize];
+    let ms = movers();
+    let s = state();
+    let m = &mut ms.list[id as usize];
+    let world = m.world;
+    let count = s.worlds[world].order.len();
+    let mut scene = Scene { s, world, flags: flags(count), gathered: &mut ms.gathered, caches: &mut ms.caches[id as usize], ground_cache: &mut ms.ground };
+    advance_in(m, input, dt, &mut scene);
+}
+
+/// The same tick using an explicit mover and collision scene.
+pub(crate) fn advance_in(m: &mut Mover, input: &Input, dt: f64, scene: &mut Scene) {
     let yaw = m.aim_yaw;
     let mut trig = Trig { sin0: v8math::sin(yaw), cos0: v8math::cos(yaw), sin_pitch: 0.0, cos_pitch: 0.0, sin1: 0.0, cos1: 0.0 };
     // jetTick's lift and climb read its pitch (a hovering jet's only).
@@ -192,7 +191,7 @@ pub fn advance(id: u32, input: &Input, dt: f64) {
         trig.sin1 = trig.sin0;
         trig.cos1 = trig.cos0;
     }
-    finish(id, rest, input, dt, &trig);
+    m.finish(rest, input, dt, &trig, scene);
 }
 
 /// A new mover of world `world`, its class's numbers set by `class`; its id.
@@ -227,7 +226,11 @@ pub extern "C" fn movement_flags_ptr() -> *mut u8 {
 pub extern "C" fn mover_new(world: u32) -> u32 {
     let v = io();
     let c = &v[CLASS..];
-    new_mover(world as usize, |m| {
+    new_mover(world as usize, |m| set_class(m, c))
+}
+
+/// The class assignments shared by legacy and owned construction.
+pub(crate) fn set_class(m: &mut Mover, c: &[f64]) {
         m.max_speed = c[0];
         m.max_strafe = c[1];
         m.max_jump = c[2];
@@ -244,7 +247,6 @@ pub extern "C" fn mover_new(world: u32) -> u32 {
         m.jet.hover = c[14] != 0.0;
         m.threshold = [c[15], c[16], c[17]];
         m.scale = [c[18], c[19], c[20]];
-    })
 }
 
 /// Soldier.tick for mover `id`: its state, input and dt in the slots. 0:
