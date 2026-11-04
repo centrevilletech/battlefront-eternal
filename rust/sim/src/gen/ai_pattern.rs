@@ -72,10 +72,25 @@ pub enum AiPatternOp {
     CanFollow = 63,
     Follow = 64,
     GotoMelee = 65,
+    PointRead = 66,
+    PointWrite = 67,
+    Uniform = 68,
+    RepositionWeapon = 69,
+    RepositionRange = 70,
+    RepositionBands = 71,
+    RangeDraw = 72,
+    TargetPoint = 73,
+    GeometryStart = 74,
+    MovePoint = 75,
+    CaptureMove = 76,
+    LowerBand = 77,
+    UpperBand = 78,
+    GeometryStop = 79,
+    Dodge = 80,
 }
 
 impl AiPatternOp {
-    pub const NAMES: [&'static str; 66] = ["field", "initValue", "request", "flush", "priorCapture", "random", "time", "int", "add", "agent", "state", "stateValue", "stop", "roll", "action", "coverInit", "jetEnter", "delay", "gotoTarget", "vehicleEnter", "stance", "coverExit", "jetExit", "vehicleExit", "vehicleTick", "cleanup", "range", "rangeCompare", "findCover", "reserve", "priorFrom", "jetUnit", "jetJump", "jetBorder", "jetFuel", "jetReady", "jetHints", "hintFind", "sampleTime", "transition", "standingUnit", "speed", "sidestep", "stationary", "face", "helper", "arrived", "stopHelper", "reposition", "redirect", "flank", "coverUpdate", "coverDone", "restore", "fieldTruthy", "plus", "flying", "hintTick", "freshTarget", "agentArrived", "look", "meleeStart", "directClear", "canFollow", "follow", "gotoMelee"];
+    pub const NAMES: [&'static str; 81] = ["field", "initValue", "request", "flush", "priorCapture", "random", "time", "int", "add", "agent", "state", "stateValue", "stop", "roll", "action", "coverInit", "jetEnter", "delay", "gotoTarget", "vehicleEnter", "stance", "coverExit", "jetExit", "vehicleExit", "vehicleTick", "cleanup", "range", "rangeCompare", "findCover", "reserve", "priorFrom", "jetUnit", "jetJump", "jetBorder", "jetFuel", "jetReady", "jetHints", "hintFind", "sampleTime", "transition", "standingUnit", "speed", "sidestep", "stationary", "face", "helper", "arrived", "stopHelper", "reposition", "redirect", "flank", "coverUpdate", "coverDone", "restore", "fieldTruthy", "plus", "flying", "hintTick", "freshTarget", "agentArrived", "look", "meleeStart", "directClear", "canFollow", "follow", "gotoMelee", "pointRead", "pointWrite", "uniform", "repositionWeapon", "repositionRange", "repositionBands", "rangeDraw", "targetPoint", "geometryStart", "movePoint", "captureMove", "lowerBand", "upperBand", "geometryStop", "dodge"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -145,6 +160,21 @@ impl AiPatternOp {
             63 => Some(AiPatternOp::CanFollow),
             64 => Some(AiPatternOp::Follow),
             65 => Some(AiPatternOp::GotoMelee),
+            66 => Some(AiPatternOp::PointRead),
+            67 => Some(AiPatternOp::PointWrite),
+            68 => Some(AiPatternOp::Uniform),
+            69 => Some(AiPatternOp::RepositionWeapon),
+            70 => Some(AiPatternOp::RepositionRange),
+            71 => Some(AiPatternOp::RepositionBands),
+            72 => Some(AiPatternOp::RangeDraw),
+            73 => Some(AiPatternOp::TargetPoint),
+            74 => Some(AiPatternOp::GeometryStart),
+            75 => Some(AiPatternOp::MovePoint),
+            76 => Some(AiPatternOp::CaptureMove),
+            77 => Some(AiPatternOp::LowerBand),
+            78 => Some(AiPatternOp::UpperBand),
+            79 => Some(AiPatternOp::GeometryStop),
+            80 => Some(AiPatternOp::Dodge),
             _ => None,
         }
     }
@@ -156,26 +186,29 @@ pub struct AiPatternArgs {
     pub id: u32,
     pub number: f64,
     pub other: f64,
+    pub point: [f64; 3],
 }
 
 impl AiPatternArgs {
-    pub const WORDS: usize = 4;
+    pub const WORDS: usize = 7;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        let row: &mut [f64; 7] = (&mut row[..7]).try_into().unwrap();
         row[0] = self.op as u8 as f64;
         row[1] = self.id as f64;
         row[2] = self.number;
         row[3] = self.other;
+        row[4..4 + 3].copy_from_slice(&self.point);
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        let row: &[f64; 7] = (&row[..7]).try_into().unwrap();
         Self {
             op: AiPatternOp::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
             id: word_u32(row[1]),
             number: row[2],
             other: row[3],
+            point: { let mut a = [0.0; 3]; a.copy_from_slice(&row[4..4 + 3]); a },
         }
     }
 
@@ -186,24 +219,30 @@ pub struct AiPatternResult {
     pub flag: bool,
     pub number: f64,
     pub other: f64,
+    pub point: [f64; 3],
+    pub values: Vec<f64>,
 }
 
 impl AiPatternResult {
-    pub const WORDS: usize = 3;
+    pub const WORDS: usize = 8;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
         row[0] = if self.flag { 1.0 } else { 0.0 };
         row[1] = self.number;
         row[2] = self.other;
+        row[3..3 + 3].copy_from_slice(&self.point);
+        { let at = heap.len(); row[6] = at as f64; row[6 + 1] = self.values.len() as f64; heap.resize(at + self.values.len() * 1, 0.0); for (i, e) in self.values.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
         Self {
             flag: row[0] != 0.0,
             number: row[1],
             other: row[2],
+            point: { let mut a = [0.0; 3]; a.copy_from_slice(&row[3..3 + 3]); a },
+            values: { let (at, n) = (word_u32(row[6]) as usize, word_u32(row[6 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
         }
     }
 

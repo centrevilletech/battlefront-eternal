@@ -1620,3 +1620,26 @@ test('native pattern actions preserve movement retries, captured helpers and tra
   }
   for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`pattern actions ${i}`);
 });
+
+test('native pattern geometry retains shared scratch vectors through nested movement callbacks', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],held=[],world={aiSim:native?sim:null,time:5},ai={world},rng=new ClassicRandom(771+i);let nested=false,h,draws=0,reads=0;
+    const log=(...args)=>{history.push(args);if(native)sim.words(new Array(7900).fill(2));};
+    world.randomA={uniform(){const n=rng.uniform();draws++;log('uniform',draws);return i%13===0 && draws%3===2?{valueOf(){throw Error('dropped draw was coerced');}}:n;},
+      int(lo,hi){log('int',lo,hi);const n=rng.int(lo,hi);if(i%23===0)h.side='0';return i%19===0?String(n):n;},range(lo,hi){log('range',lo,hi);return rng.range(lo,hi);}};
+    const move=name=>({goto(p,o){log('goto',name,p.toArray(),o);held.push(p);if(i%29===0)p.x+=.25;},stop(){log('stop',name);}});
+    const unit={kind:[0,2,3,6][i%4],position:new Vector3(i%7-3,-0,i%11-5)},c={ai,world,unit,rangeScale:[.5,1,2][i%3],perception:{fire:{channel:0}}};unit.controller=c;
+    const agent={world,ai,controller:c,helper:move('first'),tracker:{point:new Vector3(i%3*20,1,20)}};
+    const other=new AttackPatterns({world,ai,controller:{unit:{kind:0,position:new Vector3(-2,0,3)}},helper:move('nested'),tracker:{point:new Vector3(5,0,-20)}});
+    other.upperBand=()=>12;
+    const weapon={def:{base:'rifle',ai:{minRange:i%4,optimalRange:[5,15,30,NaN][i%4],maxRange:[10,40,80][i%3],implicitRange:i%5===0,extremeRange:100}}};
+    unit.combat={arsenal:{current(channel){reads++;log('weapon',channel);if(!nested && i%7===0){nested=true;other.stepToBand();nested=false;}
+      if(i%11===0)unit.position.z+=.125;return i%17===0?null:weapon;}}};
+    h=new AttackPatterns(agent);h.toward=[1,3,'1',NaN][i%4];h.side=[0,2,'0',null][i%4];
+    h.upperBand=()=>{log('upper');if(i%5===0){other.flank();}return [5,20,50,NaN][i%4];};
+    h.reposition();h.flank();const inBand=h.stepToBand();
+    return {history,inBand,held:held.map(v=>v.toArray()),oneScratch:held.every(p=>p===held[0]),state:[h.side,h.toward,c.dodge],position:unit.position.toArray(),rng:rng.state,reads};
+  }
+  for(let i=0;i<1536;i++)assert.deepEqual(run(true,i),run(false,i),`pattern geometry ${i}`);
+});

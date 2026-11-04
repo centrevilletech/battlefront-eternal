@@ -12,7 +12,7 @@ fn read(id: u32,field: u32) -> f64 {
 }
 fn request(next: f64) {call(Op::Request,0,next);}
 fn int(current: bool,lo: f64,hi: f64) -> AiPatternResult {
-    import_ai_pattern(&AiPatternArgs {op:Op::Int,id:current as u32,number:lo,other:hi})
+    import_ai_pattern(&AiPatternArgs {op:Op::Int,id:current as u32,number:lo,other:hi,..Default::default()})
 }
 fn sum(t: f64,draw: AiPatternResult) -> f64 {f(if draw.flag {t+draw.number} else {call(Op::Add,0,t).number})}
 fn deadline(t: f64,current: bool,lo: f64,hi: f64) -> f64 {sum(t,int(current,lo,hi))}

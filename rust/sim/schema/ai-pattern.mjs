@@ -7,10 +7,12 @@ export default {
     'jetUnit', 'jetJump', 'jetBorder', 'jetFuel', 'jetReady', 'jetHints', 'hintFind', 'sampleTime', 'transition', 'standingUnit', 'speed', 'sidestep',
     'stationary', 'face', 'helper', 'arrived', 'stopHelper', 'reposition', 'redirect', 'flank',
     'coverUpdate', 'coverDone', 'restore', 'fieldTruthy', 'plus', 'flying', 'hintTick', 'freshTarget',
-    'agentArrived', 'look', 'meleeStart', 'directClear', 'canFollow', 'follow', 'gotoMelee'] },
+    'agentArrived', 'look', 'meleeStart', 'directClear', 'canFollow', 'follow', 'gotoMelee', 'pointRead', 'pointWrite', 'uniform',
+    'repositionWeapon', 'repositionRange', 'repositionBands', 'rangeDraw', 'targetPoint', 'geometryStart',
+    'movePoint', 'captureMove', 'lowerBand', 'upperBand', 'geometryStop', 'dodge'] },
   records: {
-    AiPatternArgs: { op: 'enum:AiPatternOp', id: 'u32', number: 'f64', other: 'f64' },
-    AiPatternResult: { flag: 'bool', number: 'f64', other: 'f64' },
+    AiPatternArgs: { op: 'enum:AiPatternOp', id: 'u32', number: 'f64', other: 'f64', point: 'f64x3' },
+    AiPatternResult: { flag: 'bool', number: 'f64', other: 'f64', point: 'f64x3', values: 'list:f64' },
   },
   imports: { aiPattern: { args: 'AiPatternArgs', result: 'AiPatternResult' } },
 };

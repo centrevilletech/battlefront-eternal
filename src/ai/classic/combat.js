@@ -519,6 +519,7 @@ const pa = new THREE.Vector3();
 const pb = new THREE.Vector3();
 const pc = new THREE.Vector3();
 const pn = { x: 0, y: 0, z: 0 };
+const patternScratch = { pa, pb, pc, pn };
 let cosTight = null;
 let cosWide = null;
 
@@ -821,6 +822,7 @@ export class AttackPatterns extends Fsm {
   // x nudged by 0.0001) at a distance drawn from [Optimal - 0.2 (Optimal -
   // Min), Optimal + 0.2 (effective - Optimal)] from the target's point.
   reposition() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,0,patternScratch);
     const r = this.random;
     const z = f(f(r.uniform() - 0.5) * 2);
     r.uniform(); // y, dropped
@@ -890,6 +892,7 @@ export class AttackPatterns extends Fsm {
   // 30 m across (the side alternating) and 30 m toward (1) or
   // away (3) from the target's point; one time in five also a dive aside.
   flank() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,1,patternScratch);
     const unit = this.controller.unit;
     const T = this.agent.tracker.point;
     const P = unit.position;
@@ -907,6 +910,7 @@ export class AttackPatterns extends Fsm {
   // A 15 m step from the target's point toward the band; true
   // (after stopping) when already in it.
   stepToBand() {
+    if(this.world?.aiSim)return this.world.aiSim.patterns.geometry(this,2,patternScratch);
     const unit = this.controller.unit;
     const T = this.agent.tracker.point;
     const P = unit.position;

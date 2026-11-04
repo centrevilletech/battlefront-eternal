@@ -1,4 +1,4 @@
-import { forwardSpeed } from './ai/classic/weapons-ai.js';
+import { effectiveRange, forwardSpeed, lowerBand, selectedWeapon, weaponAI } from './ai/classic/weapons-ai.js';
 
 const fields=['probability','coverRetry','prior','pathActive','crouch','paused','pauseUntil','toward','side',
   'bandCheckAt','stepAt','facing','stepped','lateralAt','lateralFacing','lastPath','retreatAt','coverHint',
@@ -10,8 +10,8 @@ export class NativePatterns {
   constructor(sim) {
     this.sim=sim;this.frames=[];this.patterns=new WeakMap();
     sim.bridge.register({aiPattern:args=>{
-      const op=args.op,id=args.id,number=args.number,other=args.other,frame=this.frames[this.frames.length-1],h=frame.pattern,a=frame.agent;
-      const result={flag:false,number:0,other:0};
+      const op=args.op,id=args.id,number=args.number,other=args.other,point=[...args.point],frame=this.frames[this.frames.length-1],h=frame.pattern,a=frame.agent;
+      const result={flag:false,number:0,other:0,point:[0,0,0],values:[]};
       if(op==='field')result.number=h[fields[id]];
       else if(op==='initValue')result.number=frame.probability;
       else if(op==='request')h.requestState(id===1?frame.value:id===2?frame.prior:number);
@@ -79,6 +79,21 @@ export class NativePatterns {
       else if(op==='canFollow')result.flag=Boolean(frame.helper.follow);
       else if(op==='follow')frame.helper.follow(frame.target,{mode:0,follow:1});
       else if(op==='gotoMelee'){const helper=frame.helper,point=frame.target.position,options=id===1?{mode:'direct'}:undefined;helper?.goto?.(point,options);}
+      else if(op==='pointRead'){const p=id===4?frame.position:id===5?frame.targetPoint:frame.scratch[['pa','pb','pc','pn'][id]];result.point=[p.x,p.y,p.z];}
+      else if(op==='pointWrite'){const p=frame.scratch[['pa','pb','pc','pn'][id]];if(id===3){p.x=point[0];p.y=point[1];p.z=point[2];}else p.set(...point);}
+      else if(op==='uniform'){const n=frame.random.uniform();if(id===0)result.number=n;}
+      else if(op==='repositionWeapon'){const c=frame.controller=h.controller,u=frame.unit=c.unit,w=frame.weapon=selectedWeapon(u,c);frame.weaponAi=weaponAI(w?.def);result.flag=Boolean(frame.weaponAi);}
+      else if(op==='repositionRange'){frame.optimal=frame.weaponAi.optimalRange;result.number=effectiveRange(frame.unit,frame.controller,frame.weapon.def);}
+      else if(op==='repositionBands')result.values=[frame.optimal,frame.weaponAi.minRange];
+      else if(op==='rangeDraw')result.number=frame.random.range(number,other);
+      else if(op==='targetPoint')frame.targetPoint=h.agent.tracker.point;
+      else if(op==='geometryStart'){frame.unit=h.controller.unit;frame.targetPoint=h.agent.tracker.point;frame.position=frame.unit.position;}
+      else if(op==='movePoint'){const helper=id===0?h.agent.helper:frame.move;helper?.goto?.(frame.scratch.pa,undefined);}
+      else if(op==='captureMove')frame.move=h.agent.helper;
+      else if(op==='lowerBand')result.number=lowerBand(frame.unit,h.controller);
+      else if(op==='upperBand')result.number=h.upperBand();
+      else if(op==='geometryStop')h.agent.helper?.stop?.();
+      else if(op==='dodge')h.controller.dodge=number;
       else throw Error(`unknown pattern callback ${op}`);
       return result;
     }});
@@ -97,6 +112,10 @@ export class NativePatterns {
       pattern[name]=initial;
     });
     this.patterns.set(pattern,id);
+  }
+  geometry(pattern,mode,scratch) {
+    this.bind(pattern);this.frames.push({pattern,scratch});
+    try {const value=this.sim.x.ai_pattern_geometry(this.patterns.get(pattern),mode);return mode===2?Boolean(value):undefined;} finally {this.frames.pop();}
   }
   run(pattern,mode,value,probability,find,reserve) {
     this.bind(pattern);const frame={pattern,value,probability,find,reserve};this.frames.push(frame);
