@@ -172,6 +172,110 @@ impl PaActionKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PqValueKind {
+    #[default] Undefined = 0,
+    Null = 1,
+    Boolean = 2,
+    Number = 3,
+    String = 4,
+}
+
+impl PqValueKind {
+    pub const NAMES: [&'static str; 5] = ["undefined", "null", "boolean", "number", "string"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(PqValueKind::Undefined),
+            1 => Some(PqValueKind::Null),
+            2 => Some(PqValueKind::Boolean),
+            3 => Some(PqValueKind::Number),
+            4 => Some(PqValueKind::String),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PqHealth {
+    #[default] Building = 0,
+    Vehicle = 1,
+    Rebuild = 2,
+    Build = 3,
+}
+
+impl PqHealth {
+    pub const NAMES: [&'static str; 4] = ["building", "vehicle", "rebuild", "build"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(PqHealth::Building),
+            1 => Some(PqHealth::Vehicle),
+            2 => Some(PqHealth::Rebuild),
+            3 => Some(PqHealth::Build),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PqOperation {
+    #[default] Blast = 0,
+    Struck = 1,
+    Repairs = 2,
+    Repair = 3,
+    LockOn = 4,
+    Enterable = 5,
+}
+
+impl PqOperation {
+    pub const NAMES: [&'static str; 6] = ["blast", "struck", "repairs", "repair", "lockOn", "enterable"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(PqOperation::Blast),
+            1 => Some(PqOperation::Struck),
+            2 => Some(PqOperation::Repairs),
+            3 => Some(PqOperation::Repair),
+            4 => Some(PqOperation::LockOn),
+            5 => Some(PqOperation::Enterable),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PqActionKind {
+    #[default] Target = 0,
+    Sphere = 1,
+    Cast = 2,
+    TeamScale = 3,
+    Damage = 4,
+    SetHealth = 5,
+    May = 6,
+}
+
+impl PqActionKind {
+    pub const NAMES: [&'static str; 7] = ["target", "sphere", "cast", "teamScale", "damage", "setHealth", "may"];
+
+    pub fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            0 => Some(PqActionKind::Target),
+            1 => Some(PqActionKind::Sphere),
+            2 => Some(PqActionKind::Cast),
+            3 => Some(PqActionKind::TeamScale),
+            4 => Some(PqActionKind::Damage),
+            5 => Some(PqActionKind::SetHealth),
+            6 => Some(PqActionKind::May),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PbIdentity {
     pub kind: f64,
@@ -1279,6 +1383,396 @@ impl PaActionResult {
             found: row[57] != 0.0,
             root: [row[58], row[58 + 1], row[58 + 2]],
             turn: [row[61], row[61 + 1], row[61 + 2], row[61 + 3]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PqValue {
+    pub kind: PqValueKind,
+    pub number: f64,
+    pub text: StrId,
+}
+
+impl PqValue {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.kind as u8 as f64;
+        row[1] = self.number;
+        row[2] = self.text.0 as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            kind: PqValueKind::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            number: row[1],
+            text: StrId(word_u32(row[2])),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PqDefinition {
+    pub repair: Vec<PqValue>,
+    pub target_vehicle: PqValue,
+    pub target_neutral: PqValue,
+    pub target_enemy: PqValue,
+    pub target_friendly: PqValue,
+    pub range: PqValue,
+    pub angle: PqValue,
+    pub shield_scale: PqValue,
+    pub damage: PqValue,
+    pub inner: PqValue,
+    pub outer: PqValue,
+    pub scales: Vec<PqValue>,
+}
+
+impl PqDefinition {
+    pub const WORDS: usize = 34;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 34] = (&mut row[..34]).try_into().unwrap();
+        { let at = heap.len(); row[0] = at as f64; row[0 + 1] = self.repair.len() as f64; heap.resize(at + self.repair.len() * 3, 0.0); for (i, e) in self.repair.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+        self.target_vehicle.put(&mut row[2..], heap);
+        self.target_neutral.put(&mut row[5..], heap);
+        self.target_enemy.put(&mut row[8..], heap);
+        self.target_friendly.put(&mut row[11..], heap);
+        self.range.put(&mut row[14..], heap);
+        self.angle.put(&mut row[17..], heap);
+        self.shield_scale.put(&mut row[20..], heap);
+        self.damage.put(&mut row[23..], heap);
+        self.inner.put(&mut row[26..], heap);
+        self.outer.put(&mut row[29..], heap);
+        { let at = heap.len(); row[32] = at as f64; row[32 + 1] = self.scales.len() as f64; heap.resize(at + self.scales.len() * 3, 0.0); for (i, e) in self.scales.iter().enumerate() { let mut item = [0.0f64; 3]; { let row = &mut item; e.put(&mut row[0..], heap); } heap[at + i * 3..at + (i + 1) * 3].copy_from_slice(&item); } }
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 34] = (&row[..34]).try_into().unwrap();
+        Self {
+            repair: { let (at, n) = (word_u32(row[0]) as usize, word_u32(row[0 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(PqValue::take(&row[0..], heap)); } out },
+            target_vehicle: PqValue::take(&row[2..], heap),
+            target_neutral: PqValue::take(&row[5..], heap),
+            target_enemy: PqValue::take(&row[8..], heap),
+            target_friendly: PqValue::take(&row[11..], heap),
+            range: PqValue::take(&row[14..], heap),
+            angle: PqValue::take(&row[17..], heap),
+            shield_scale: PqValue::take(&row[20..], heap),
+            damage: PqValue::take(&row[23..], heap),
+            inner: PqValue::take(&row[26..], heap),
+            outer: PqValue::take(&row[29..], heap),
+            scales: { let (at, n) = (word_u32(row[32]) as usize, word_u32(row[32 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 3..at + (i + 1) * 3]; out.push(PqValue::take(&row[0..], heap)); } out },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PqTarget {
+    pub alive: bool,
+    pub state: Option<PbStateName>,
+    pub health_type: Option<PqHealth>,
+    pub health: f64,
+    pub max_health: f64,
+    pub team: f64,
+    pub body: Option<f64>,
+    pub gunner: bool,
+    pub position: Vec3,
+    pub matrix: Mat4,
+}
+
+impl PqTarget {
+    pub const WORDS: usize = 30;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 30] = (&mut row[..30]).try_into().unwrap();
+        row[0] = if self.alive { 1.0 } else { 0.0 };
+        match &self.state { Some(v) => { row[1] = 0.0; row[1 + 1] = (*v) as u8 as f64; } None => { row[1] = 1.0; row[1 + 1..1 + 2].fill(0.0); } }
+        match &self.health_type { Some(v) => { row[3] = 0.0; row[3 + 1] = (*v) as u8 as f64; } None => { row[3] = 1.0; row[3 + 1..3 + 2].fill(0.0); } }
+        row[5] = self.health;
+        row[6] = self.max_health;
+        row[7] = self.team;
+        match &self.body { Some(v) => { row[8] = 0.0; row[8 + 1] = (*v); } None => { row[8] = 1.0; row[8 + 1..8 + 2].fill(0.0); } }
+        row[10] = if self.gunner { 1.0 } else { 0.0 };
+        row[11..11 + 3].copy_from_slice(&self.position);
+        row[14..14 + 16].copy_from_slice(&self.matrix);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 30] = (&row[..30]).try_into().unwrap();
+        Self {
+            alive: row[0] != 0.0,
+            state: if row[1] == 0.0 { Some(PbStateName::from_u8(word_u32(row[1 + 1]) as u8).unwrap_or_default()) } else { None },
+            health_type: if row[3] == 0.0 { Some(PqHealth::from_u8(word_u32(row[3 + 1]) as u8).unwrap_or_default()) } else { None },
+            health: row[5],
+            max_health: row[6],
+            team: row[7],
+            body: if row[8] == 0.0 { Some(row[8 + 1]) } else { None },
+            gunner: row[10] != 0.0,
+            position: [row[11], row[11 + 1], row[11 + 2]],
+            matrix: { let mut m = [0.0; 16]; m.copy_from_slice(&row[14..14 + 16]); m },
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PqState {
+    pub center: Vec3,
+    pub toward: Vec3,
+}
+
+impl PqState {
+    pub const WORDS: usize = 6;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 6] = (&mut row[..6]).try_into().unwrap();
+        row[0..0 + 3].copy_from_slice(&self.center);
+        row[3..3 + 3].copy_from_slice(&self.toward);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 6] = (&row[..6]).try_into().unwrap();
+        Self {
+            center: [row[0], row[0 + 1], row[0 + 2]],
+            toward: [row[3], row[3 + 1], row[3 + 2]],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PqDamage {
+    pub direction: Option<Vec3>,
+    pub amount: f64,
+    pub typed: f64,
+    pub generic: PqValue,
+}
+
+impl PqDamage {
+    pub const WORDS: usize = 9;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 9] = (&mut row[..9]).try_into().unwrap();
+        match &self.direction { Some(v) => { row[0] = 0.0; row[0 + 1..0 + 1 + 3].copy_from_slice(&(*v)); } None => { row[0] = 1.0; row[0 + 1..0 + 4].fill(0.0); } }
+        row[4] = self.amount;
+        row[5] = self.typed;
+        self.generic.put(&mut row[6..], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 9] = (&row[..9]).try_into().unwrap();
+        Self {
+            direction: if row[0] == 0.0 { Some([row[0 + 1], row[0 + 1 + 1], row[0 + 1 + 2]]) } else { None },
+            amount: row[4],
+            typed: row[5],
+            generic: PqValue::take(&row[6..], heap),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PqInput {
+    pub op: PqOperation,
+    pub state: PqState,
+    pub definition: PqDefinition,
+    pub buildings: Vec<f64>,
+    pub vehicles: Vec<f64>,
+    pub turrets: Vec<f64>,
+    pub one: f64,
+    pub building: bool,
+    pub owner: PbIdentity,
+    pub a: Vec3,
+    pub b: Vec3,
+    pub direction: Option<Vec3>,
+    pub team: f64,
+    pub held: bool,
+    pub team_scale: bool,
+    pub may: bool,
+    pub collision: bool,
+}
+
+impl PqInput {
+    pub const WORDS: usize = 66;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 66] = (&mut row[..66]).try_into().unwrap();
+        row[0] = self.op as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        self.definition.put(&mut row[7..], heap);
+        { let at = heap.len(); row[41] = at as f64; row[41 + 1] = self.buildings.len() as f64; heap.resize(at + self.buildings.len() * 1, 0.0); for (i, e) in self.buildings.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[43] = at as f64; row[43 + 1] = self.vehicles.len() as f64; heap.resize(at + self.vehicles.len() * 1, 0.0); for (i, e) in self.vehicles.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        { let at = heap.len(); row[45] = at as f64; row[45 + 1] = self.turrets.len() as f64; heap.resize(at + self.turrets.len() * 1, 0.0); for (i, e) in self.turrets.iter().enumerate() { let mut item = [0.0f64; 1]; { let row = &mut item; row[0] = (*e); } heap[at + i * 1..at + (i + 1) * 1].copy_from_slice(&item); } }
+        row[47] = self.one;
+        row[48] = if self.building { 1.0 } else { 0.0 };
+        self.owner.put(&mut row[49..], heap);
+        row[51..51 + 3].copy_from_slice(&self.a);
+        row[54..54 + 3].copy_from_slice(&self.b);
+        match &self.direction { Some(v) => { row[57] = 0.0; row[57 + 1..57 + 1 + 3].copy_from_slice(&(*v)); } None => { row[57] = 1.0; row[57 + 1..57 + 4].fill(0.0); } }
+        row[61] = self.team;
+        row[62] = if self.held { 1.0 } else { 0.0 };
+        row[63] = if self.team_scale { 1.0 } else { 0.0 };
+        row[64] = if self.may { 1.0 } else { 0.0 };
+        row[65] = if self.collision { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 66] = (&row[..66]).try_into().unwrap();
+        Self {
+            op: PqOperation::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: PqState::take(&row[1..], heap),
+            definition: PqDefinition::take(&row[7..], heap),
+            buildings: { let (at, n) = (word_u32(row[41]) as usize, word_u32(row[41 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            vehicles: { let (at, n) = (word_u32(row[43]) as usize, word_u32(row[43 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            turrets: { let (at, n) = (word_u32(row[45]) as usize, word_u32(row[45 + 1]) as usize); let mut out = Vec::with_capacity(n); for i in 0..n { let row = &heap[at + i * 1..at + (i + 1) * 1]; out.push(row[0]); } out },
+            one: row[47],
+            building: row[48] != 0.0,
+            owner: PbIdentity::take(&row[49..], heap),
+            a: [row[51], row[51 + 1], row[51 + 2]],
+            b: [row[54], row[54 + 1], row[54 + 2]],
+            direction: if row[57] == 0.0 { Some([row[57 + 1], row[57 + 1 + 1], row[57 + 1 + 2]]) } else { None },
+            team: row[61],
+            held: row[62] != 0.0,
+            team_scale: row[63] != 0.0,
+            may: row[64] != 0.0,
+            collision: row[65] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PqResult {
+    pub state: PqState,
+    pub selected: f64,
+    pub flag: bool,
+}
+
+impl PqResult {
+    pub const WORDS: usize = 8;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 8] = (&mut row[..8]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        row[6] = self.selected;
+        row[7] = if self.flag { 1.0 } else { 0.0 };
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 8] = (&row[..8]).try_into().unwrap();
+        Self {
+            state: PqState::take(&row[0..], heap),
+            selected: row[6],
+            flag: row[7] != 0.0,
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PqAction {
+    pub kind: PqActionKind,
+    pub state: PqState,
+    pub index: f64,
+    pub point: Vec3,
+    pub direction: Vec3,
+    pub far: f64,
+    pub ignore: Option<f64>,
+    pub blast: bool,
+    pub lock: bool,
+    pub static_only: bool,
+    pub amount: f64,
+    pub owner: PbIdentity,
+    pub info: Option<PqDamage>,
+    pub value: PqValue,
+}
+
+impl PqAction {
+    pub const WORDS: usize = 36;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 36] = (&mut row[..36]).try_into().unwrap();
+        row[0] = self.kind as u8 as f64;
+        self.state.put(&mut row[1..], heap);
+        row[7] = self.index;
+        row[8..8 + 3].copy_from_slice(&self.point);
+        row[11..11 + 3].copy_from_slice(&self.direction);
+        row[14] = self.far;
+        match &self.ignore { Some(v) => { row[15] = 0.0; row[15 + 1] = (*v); } None => { row[15] = 1.0; row[15 + 1..15 + 2].fill(0.0); } }
+        row[17] = if self.blast { 1.0 } else { 0.0 };
+        row[18] = if self.lock { 1.0 } else { 0.0 };
+        row[19] = if self.static_only { 1.0 } else { 0.0 };
+        row[20] = self.amount;
+        self.owner.put(&mut row[21..], heap);
+        match &self.info { Some(v) => { row[23] = 0.0; v.put(&mut row[23 + 1..], heap); } None => { row[23] = 1.0; row[23 + 1..23 + 10].fill(0.0); } }
+        self.value.put(&mut row[33..], heap);
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 36] = (&row[..36]).try_into().unwrap();
+        Self {
+            kind: PqActionKind::from_u8(word_u32(row[0]) as u8).unwrap_or_default(),
+            state: PqState::take(&row[1..], heap),
+            index: row[7],
+            point: [row[8], row[8 + 1], row[8 + 2]],
+            direction: [row[11], row[11 + 1], row[11 + 2]],
+            far: row[14],
+            ignore: if row[15] == 0.0 { Some(row[15 + 1]) } else { None },
+            blast: row[17] != 0.0,
+            lock: row[18] != 0.0,
+            static_only: row[19] != 0.0,
+            amount: row[20],
+            owner: PbIdentity::take(&row[21..], heap),
+            info: if row[23] == 0.0 { Some(PqDamage::take(&row[23 + 1..], heap)) } else { None },
+            value: PqValue::take(&row[33..], heap),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PqActionResult {
+    pub state: PqState,
+    pub target: Option<PqTarget>,
+    pub point: Vec3,
+    pub number: f64,
+    pub flag: bool,
+    pub found: bool,
+    pub hit_distance: f64,
+    pub hit_owner: f64,
+}
+
+impl PqActionResult {
+    pub const WORDS: usize = 45;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 45] = (&mut row[..45]).try_into().unwrap();
+        self.state.put(&mut row[0..], heap);
+        match &self.target { Some(v) => { row[6] = 0.0; v.put(&mut row[6 + 1..], heap); } None => { row[6] = 1.0; row[6 + 1..6 + 31].fill(0.0); } }
+        row[37..37 + 3].copy_from_slice(&self.point);
+        row[40] = self.number;
+        row[41] = if self.flag { 1.0 } else { 0.0 };
+        row[42] = if self.found { 1.0 } else { 0.0 };
+        row[43] = self.hit_distance;
+        row[44] = self.hit_owner;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 45] = (&row[..45]).try_into().unwrap();
+        Self {
+            state: PqState::take(&row[0..], heap),
+            target: if row[6] == 0.0 { Some(PqTarget::take(&row[6 + 1..], heap)) } else { None },
+            point: [row[37], row[37 + 1], row[37 + 2]],
+            number: row[40],
+            flag: row[41] != 0.0,
+            found: row[42] != 0.0,
+            hit_distance: row[43],
+            hit_owner: row[44],
         }
     }
 

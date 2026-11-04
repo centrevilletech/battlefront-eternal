@@ -909,57 +909,58 @@ pub const IMPORT_PA_ACTION: u32 = 61;
 pub const IMPORT_PB_ACTION: u32 = 62;
 pub const IMPORT_PICKUP: u32 = 63;
 pub const IMPORT_POSTS_QUERY: u32 = 64;
-pub const IMPORT_PROJECTILE: u32 = 65;
-pub const IMPORT_RAYCAST_UNITS: u32 = 66;
-pub const IMPORT_RIDER_MOUNT: u32 = 67;
-pub const IMPORT_ROSTER_ACTION: u32 = 68;
-pub const IMPORT_ROSTER_QUERY: u32 = 69;
-pub const IMPORT_SEAT_CAST: u32 = 70;
-pub const IMPORT_SEAT_CONTROLLABLE: u32 = 71;
-pub const IMPORT_SEAT_CONTROLLER_STATE: u32 = 72;
-pub const IMPORT_SEAT_OVERLAPS: u32 = 73;
-pub const IMPORT_SEAT_POLICY: u32 = 74;
-pub const IMPORT_SHOOTER: u32 = 75;
-pub const IMPORT_SHOT_TICK: u32 = 76;
-pub const IMPORT_SPAWNING_ACTION: u32 = 77;
-pub const IMPORT_SPAWNING_QUERY: u32 = 78;
-pub const IMPORT_SPIN: u32 = 79;
-pub const IMPORT_TRAPS_ACTION: u32 = 80;
-pub const IMPORT_TRAPS_QUERY: u32 = 81;
-pub const IMPORT_UNIT_AIM: u32 = 82;
-pub const IMPORT_UNIT_BODY_EVENT: u32 = 83;
-pub const IMPORT_UNIT_COMBAT: u32 = 84;
-pub const IMPORT_UNIT_DAMAGE: u32 = 85;
-pub const IMPORT_UNIT_REMOTE_STEP: u32 = 86;
-pub const IMPORT_UNIT_REMOVED: u32 = 87;
-pub const IMPORT_UNIT_SAMPLE_MUZZLES: u32 = 88;
-pub const IMPORT_UNIT_SPHERE: u32 = 89;
-pub const IMPORT_UNIT_SPLASH: u32 = 90;
-pub const IMPORT_VEH_AIM_POINT: u32 = 91;
-pub const IMPORT_VEH_AIM_POINTS: u32 = 92;
-pub const IMPORT_VEH_BODY_ENABLED: u32 = 93;
-pub const IMPORT_VEH_CAST: u32 = 94;
-pub const IMPORT_VEH_CLOCK: u32 = 95;
-pub const IMPORT_VEH_DAMAGED: u32 = 96;
-pub const IMPORT_VEH_DESTROYED: u32 = 97;
-pub const IMPORT_VEH_DESTROYED_CREW: u32 = 98;
-pub const IMPORT_VEH_EFFECT: u32 = 99;
-pub const IMPORT_VEH_ENABLE_BODY: u32 = 100;
-pub const IMPORT_VEH_EXPLOSION: u32 = 101;
-pub const IMPORT_VEH_GROUND: u32 = 102;
-pub const IMPORT_VEH_HAS_WATER: u32 = 103;
-pub const IMPORT_VEH_IN_DEATH_REGION: u32 = 104;
-pub const IMPORT_VEH_MOVE_BODY: u32 = 105;
-pub const IMPORT_VEH_PUSH_WALLS: u32 = 106;
-pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 107;
-pub const IMPORT_VEH_RELEASE_CREW: u32 = 108;
-pub const IMPORT_VEH_RESPAWN_CLOCK: u32 = 109;
-pub const IMPORT_VEH_SPRING_POLYGONS: u32 = 110;
-pub const IMPORT_VEH_WATER_LEVEL: u32 = 111;
-pub const IMPORT_VEH_WATER_OVER: u32 = 112;
-pub const IMPORT_WATER_CROSSING: u32 = 113;
-pub const IMPORT_WAVER: u32 = 114;
-pub const IMPORT_NAMES: [&str; 115] = ["", "ask", "battleOver", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "paAction", "pbAction", "pickup", "postsQuery", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver"];
+pub const IMPORT_PQ_ACTION: u32 = 65;
+pub const IMPORT_PROJECTILE: u32 = 66;
+pub const IMPORT_RAYCAST_UNITS: u32 = 67;
+pub const IMPORT_RIDER_MOUNT: u32 = 68;
+pub const IMPORT_ROSTER_ACTION: u32 = 69;
+pub const IMPORT_ROSTER_QUERY: u32 = 70;
+pub const IMPORT_SEAT_CAST: u32 = 71;
+pub const IMPORT_SEAT_CONTROLLABLE: u32 = 72;
+pub const IMPORT_SEAT_CONTROLLER_STATE: u32 = 73;
+pub const IMPORT_SEAT_OVERLAPS: u32 = 74;
+pub const IMPORT_SEAT_POLICY: u32 = 75;
+pub const IMPORT_SHOOTER: u32 = 76;
+pub const IMPORT_SHOT_TICK: u32 = 77;
+pub const IMPORT_SPAWNING_ACTION: u32 = 78;
+pub const IMPORT_SPAWNING_QUERY: u32 = 79;
+pub const IMPORT_SPIN: u32 = 80;
+pub const IMPORT_TRAPS_ACTION: u32 = 81;
+pub const IMPORT_TRAPS_QUERY: u32 = 82;
+pub const IMPORT_UNIT_AIM: u32 = 83;
+pub const IMPORT_UNIT_BODY_EVENT: u32 = 84;
+pub const IMPORT_UNIT_COMBAT: u32 = 85;
+pub const IMPORT_UNIT_DAMAGE: u32 = 86;
+pub const IMPORT_UNIT_REMOTE_STEP: u32 = 87;
+pub const IMPORT_UNIT_REMOVED: u32 = 88;
+pub const IMPORT_UNIT_SAMPLE_MUZZLES: u32 = 89;
+pub const IMPORT_UNIT_SPHERE: u32 = 90;
+pub const IMPORT_UNIT_SPLASH: u32 = 91;
+pub const IMPORT_VEH_AIM_POINT: u32 = 92;
+pub const IMPORT_VEH_AIM_POINTS: u32 = 93;
+pub const IMPORT_VEH_BODY_ENABLED: u32 = 94;
+pub const IMPORT_VEH_CAST: u32 = 95;
+pub const IMPORT_VEH_CLOCK: u32 = 96;
+pub const IMPORT_VEH_DAMAGED: u32 = 97;
+pub const IMPORT_VEH_DESTROYED: u32 = 98;
+pub const IMPORT_VEH_DESTROYED_CREW: u32 = 99;
+pub const IMPORT_VEH_EFFECT: u32 = 100;
+pub const IMPORT_VEH_ENABLE_BODY: u32 = 101;
+pub const IMPORT_VEH_EXPLOSION: u32 = 102;
+pub const IMPORT_VEH_GROUND: u32 = 103;
+pub const IMPORT_VEH_HAS_WATER: u32 = 104;
+pub const IMPORT_VEH_IN_DEATH_REGION: u32 = 105;
+pub const IMPORT_VEH_MOVE_BODY: u32 = 106;
+pub const IMPORT_VEH_PUSH_WALLS: u32 = 107;
+pub const IMPORT_VEH_RAYCAST_UNITS: u32 = 108;
+pub const IMPORT_VEH_RELEASE_CREW: u32 = 109;
+pub const IMPORT_VEH_RESPAWN_CLOCK: u32 = 110;
+pub const IMPORT_VEH_SPRING_POLYGONS: u32 = 111;
+pub const IMPORT_VEH_WATER_LEVEL: u32 = 112;
+pub const IMPORT_VEH_WATER_OVER: u32 = 113;
+pub const IMPORT_WATER_CROSSING: u32 = 114;
+pub const IMPORT_WAVER: u32 = 115;
+pub const IMPORT_NAMES: [&str; 116] = ["", "ask", "battleOver", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "paAction", "pbAction", "pickup", "postsQuery", "pqAction", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -1096,6 +1097,7 @@ extern "C" {
     fn bfe_import_pb_action();
     fn bfe_import_pickup();
     fn bfe_import_posts_query();
+    fn bfe_import_pq_action();
     fn bfe_import_projectile();
     fn bfe_import_raycast_units();
     fn bfe_import_rider_mount();
@@ -1763,6 +1765,16 @@ pub fn import_posts_query(args: &PsQueryArgs) -> PsQueryResult {
     crate::store::calls::import_out(PsQueryArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_posts_query() };
     crate::store::calls::import_in(|row, heap| PsQueryResult::take(row, heap))
+}
+
+/// Asks JavaScript (the import pqAction): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_pq_action(args: &PqAction) -> PqActionResult {
+    crate::store::calls::import_out(PqAction::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_pq_action() };
+    crate::store::calls::import_in(|row, heap| PqActionResult::take(row, heap))
 }
 
 /// Asks JavaScript (the import projectile): its arguments go out in the import block,
