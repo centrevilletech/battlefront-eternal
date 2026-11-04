@@ -6,6 +6,7 @@ export function installReplay() {
   const fb=gl.createFramebuffer();
   const STEP=221,UNIFORM=18,HUD_GROUP=45;
   let depthTarget;
+  const replayTargets=new Map();
   T.records=[];T.blobs={};
   const store=(buf)=>{const key=String(Object.keys(T.blobs).length);T.blobs[key]=buf;return key;};
   const read=(target)=>{
@@ -99,7 +100,10 @@ export function installReplay() {
       let target=null;
       if(row.kind==='post'){
         input[0]=program;
-        if(!row.canvas)target=new b.THREE.WebGLRenderTarget(row.output.w,row.output.h,{type:row.output.bytes===2?b.THREE.HalfFloatType:row.output.bytes===4?b.THREE.FloatType:b.THREE.UnsignedByteType,depthBuffer:false});
+        if(!row.canvas){
+          const key=row.output.w+':'+row.output.h+':'+row.output.bytes;target=replayTargets.get(key);
+          if(!target){target=new b.THREE.WebGLRenderTarget(row.output.w,row.output.h,{type:row.output.bytes===2?b.THREE.HalfFloatType:row.output.bytes===4?b.THREE.FloatType:b.THREE.UnsignedByteType,depthBuffer:false});replayTargets.set(key,target);}
+        }
         if(target)R.initRenderTarget(target);
         input[1]=target?core.byName.post.target(target):-1;
         for(let i=0;i<input[4];i++){const at=5+i*UNIFORM;if(input[at+1]===32 && input[at+2]>=0)input[at+2]=ids.get(input[at+2]);}
@@ -116,7 +120,7 @@ export function installReplay() {
       const actual=read(target),a=T.blobs[actual.blob],e=blobs[row.output.blob];let differing=0,maxDelta=0;
       for(let i=0;i<a.length;i+=4){let d=0;for(let j=0;j<4;j++)d=Math.max(d,Math.abs(a[i+j]-e[i+j]));if(d){differing++;maxDelta=Math.max(maxDelta,d);}}
       delete T.blobs[actual.blob];metrics.push({key:row.key,differing,maxDelta,pixels:a.length/4});
-      target?.dispose();for(const [,s] of created)gl.deleteTexture(s.handle);
+      for(const [,s] of created)gl.deleteTexture(s.handle);
     }
     core.views();core.postInput.set(savedPost);core.hudInput.set(savedHud);for(const [n,a] of Object.entries(savedArrays))core[n].set(a);core.byName.hud.full=true;
     R.resetState();R.setRenderTarget(before);const error=gl.getError();if(error)throw Error('Phase replay GL '+error);
