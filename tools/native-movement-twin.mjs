@@ -41,6 +41,9 @@ for(let tick=0;tick<420;tick++) for(const s of scenes) {
     s.kernel.x.memory.grow(16);assert.equal(old.byteLength,0);assert.deepEqual([s.kernel.x.movement_io_ptr(),s.kernel.x.movement_flags_ptr()],pointers);growths++;
     trace.emit({op:'grow',cx:s.cx});
     for(let n=0;n<80;n++) s.kernel.add(new Soldier(s.world,{}));
+    const p=s.movers[0].position, dense=geometry(new THREE.PlaneGeometry(4,4,48,48).rotateX(-Math.PI/2).translate(p.x,s.cx*4+.01,p.z));
+    dense.polygons=Uint32Array.from({length:dense.i.length/3},(_,i)=>i);
+    s.bodies.push(s.world.addBody(dense.p,dense.i,dense.polygons,{}));
   }
   for(let i=0;i<s.movers.length;i++) {
     const soldier=s.movers[i];
@@ -51,4 +54,4 @@ for(let tick=0;tick<420;tick++) for(const s of scenes) {
     trace.tick(s.kernel,soldier,input,1/60,()=>s.kernel.tick(soldier,input,1/60));
   }
 }
-console.log(JSON.stringify(trace.finish({growths,removals})));
+const summary=trace.finish({growths,removals});assert(summary.maxGather>256);console.log(JSON.stringify(summary));

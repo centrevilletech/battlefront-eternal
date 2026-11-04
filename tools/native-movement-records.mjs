@@ -37,6 +37,7 @@ export class MovementTrace {
   constructor(file, header) {
     this.fd = fs.openSync(file, 'wx'); this.hash = createHash('sha256'); this.lines = 0;
     this.scenes = new Map(); this.twins = new WeakMap(); this.ticks = 0; this.creates = 0; this.bodyChanges = 0;
+    this.postures = new Set(); this.airs = new Set(); this.flags = new Set();
     this.emit({op:'header', ...header});
   }
   emit(value) {
@@ -47,7 +48,9 @@ export class MovementTrace {
     assert(world.rays); assert.equal(world.rayWorld, 0);
     const trees = new Map([[world.bvh, 0]]);
     if (world.terrain) trees.set(world.terrain, 1);
-    scene = {cx, world, trees, bodies:[], placements:[], order:null}; this.scenes.set(world, scene);
+    scene = {cx, world, trees, bodies:[], placements:[], order:null, maxGather:0}; this.scenes.set(world, scene);
+    const gather = world.gather;
+    world.gather = function (...args) { const polygons=gather.apply(this,args); scene.maxGather=Math.max(scene.maxGather,polygons.length); return polygons; };
     this.emit({cx,op:'install',buildings:packed(world.bvh, world.polygonOf),terrain:world.terrain ? packed(world.terrain) : null});
     return scene;
   }
@@ -86,6 +89,7 @@ export class MovementTrace {
         const flags = new Uint8Array(exports.memory.buffer,exports.movement_flags_ptr(),world.bodies.length);
         if (rawFlags) for (let i=0;i<flags.length;i++) if (flags[i]) flags[i]=[1,2,255][i%3];
         const values = () => new Float64Array(exports.memory.buffer,exports.movement_io_ptr(),80);
+        trace.postures.add(values()[21]); trace.airs.add(values()[22]); for (const flag of flags) trace.flags.add(flag);
         const input = f64(values()), enabled = [...flags], code = exports.mover_tick(id), expected = f64(values());
         trace.emit({cx,op:'tick',id,input,flags:enabled,code,expected}); trace.ticks++; return code;
       },
@@ -101,7 +105,7 @@ export class MovementTrace {
     same(reference,soldier,`tick ${this.ticks}`); return result;
   }
   finish(extra={}) {
-    const summary={op:'summary',contexts:this.scenes.size,ticks:this.ticks,creates:this.creates,bodyChanges:this.bodyChanges,...extra};
+    const summary={op:'summary',contexts:this.scenes.size,ticks:this.ticks,creates:this.creates,bodyChanges:this.bodyChanges,postures:[...this.postures],airs:[...this.airs],flags:[...this.flags],maxGather:Math.max(...[...this.scenes.values()].map(s=>s.maxGather)),...extra};
     this.emit(summary); fs.closeSync(this.fd);
     return {...summary,lines:this.lines,sha256:this.hash.digest('hex')};
   }

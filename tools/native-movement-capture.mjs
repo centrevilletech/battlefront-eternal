@@ -18,7 +18,7 @@ if(args.includes('--verify')) {
   console.log(JSON.stringify({verified:m.map,ticks:m.ticks,sha256:m.sha256}));
 } else {
   const file=opt('out'), map=opt('map'), ticks=Number(opt('ticks',240));assert(file&&map);assert(process.env.BFE_COMMIT);
-  const {headlessGame,idleCommand}=await import('./headless-world.mjs');
+  const {headlessGame}=await import('./headless-world.mjs');
   const contentFiles={}, fetch=globalThis.fetch;
   globalThis.fetch=async url=>{
     const file=String(url).split('?')[0].replace(/^\/+/,''), local=path.join(content,file);
@@ -36,8 +36,16 @@ if(args.includes('--verify')) {
   const side=opt('side','rep'), era=['rep','cis'].includes(side)?'cw':'gcw';
   const game=await headlessGame(`?map=${map}&side=${side}&era=${era}&ai=classic&seed=1&rays=wasm&movement=wasm&sim=js&units=js`);
   assert(game.collision.movement);
-  for(let tick=0;tick<ticks;tick++) {now+=1000/60;game.step(idleCommand(game));}
+  const {createLocalServer}=await import('../src/runtime/local-server.js');
+  const server=await createLocalServer(game,{name:'Movement fixture',send(){}});server.welcome();seed=1937;
+  for(let i=0;i<ticks;i++) {
+    now+=1000/60;const tick=game.worldClock.tick+1, phase=i%180;
+    server.world.input(server.id,{epoch:1,sequence:tick,tick,generation:server.actor.unit.generation,down:phase<120?['KeyW']:['KeyA'],actions:[],look:[[Math.round(6*Math.sin(i*.05)),0]]});
+    server.step();await new Promise(resolve=>setImmediate(resolve));
+  }
+  server.dispose?.();
   const summary=trace.finish({map,worldTicks:ticks});assert(summary.ticks>0);assert(summary.contexts===1);
+  if(ticks>=240) {assert(summary.creates>=2);assert(summary.ticks>=ticks*2);}
   const manifest={...summary,file:path.basename(file),source:process.env.BFE_COMMIT,node:process.version,sourceFiles,contentFiles};
   fs.writeFileSync(file+'.json',JSON.stringify(manifest,null,2)+'\n');console.log(JSON.stringify(summary));
 }
