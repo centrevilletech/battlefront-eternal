@@ -213,7 +213,10 @@ const getOf = RandomStreams.prototype.get;
 RandomStreams.prototype.get = function get(name) { const stream = getOf.call(this, name); if (!labels.has(stream)) labels.set(stream, `stream:${name}`); return stream; };
 const mathRandom = Math.random;
 Math.random = function random() { const v = mathRandom(); onDraw('Math.random', v); return v; };
-globalThis.__bfeDraw = { seeded(seed, draws) { return () => { const v = draws(); onDraw(`seeded:${seed}`, v); return v; }; } };
+globalThis.__bfeDraw = {
+  seeded(seed, draws) { return () => { const v = draws(); onDraw(`seeded:${seed}`, v); return v; }; },
+  named(random, name) { labels.set(random, name); },
+};
 
 let current = 0, ticking = false, sampled = false;
 const phaseStack = [];
@@ -391,7 +394,7 @@ export function battle({ game: g, index, options }) {
       ack: options.ack, view: options.view, rays: options.rays, movement: options.movement, ai: options.ai, heroes: options.heroes, query: options.query },
     sample: { every, keep: [...keep].sort((a, b) => a - b) }, phases: PHASE_NAMES, specs: specNames,
     frames: frameSpecs.map((f) => ({ name: f.name, spec: f.spec, kind: f.phase ? 'phase' : 'method', boundaries: f.labels, ...(f.missing ? { missing: true } : {}) })),
-    streams: { A: 'the AI\'s shared generator (ai.randomA)', B: 'the second (ai.randomB)', 'stream:NAME': 'a named stream (RandomStreams)',
+    streams: { A: 'the AI\'s shared generator (ai.randomA)', B: 'the second (ai.randomB)', C: 'the Enhanced aim generator', 'stream:NAME': 'a named stream (RandomStreams)',
       'Math.random': 'the seeded Math.random world-hash installs', 'seeded:SEED': 'a press\'s spread draws (weapons.js seededRandom)', 'anon:N': 'another ClassicRandom, by first draw' } };
   write(RECORD.header, 0, 'header', header);
 }

@@ -243,6 +243,14 @@ function vehiclePolicy(controller, unit, target, switchAllowed, world, out) {
 
 const reservations = new WeakMap();
 
+// A hint's reservation as it stands ({ owner, at } or null), for the
+// simulation capture (tools/sim-capture/ai-combat.mjs); nothing in the game
+// reads it.
+export function coverReservation(hint) {
+  const r = reservations.get(hint);
+  return r ? { owner: r.owner, at: r.at } : null;
+}
+
 function hintAvailable(hint, owner, t) {
   const r = reservations.get(hint);
   return !r || r.owner === owner || !(f(t - r.at) < 3);
