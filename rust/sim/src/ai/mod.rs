@@ -5,6 +5,7 @@
 
 pub mod combat;
 mod aim_module;
+mod fire_module;
 pub mod control;
 pub mod module;
 mod navigation_module;

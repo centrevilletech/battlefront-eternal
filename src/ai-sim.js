@@ -45,6 +45,7 @@ export class AiSim {
     this.sightPoint=new Vector3();this.sightEye=new Vector3();this.sightTargetEye=new Vector3();
     this.scanFound=[];this.scanLook=new Vector3();this.scanAim=new Vector3();
     this.trackers=new WeakMap();this.trackerFrames=[];
+    this.fires=new WeakMap();
     this.trackerLead=new Vector3();
     this.ballisticPoint=new Vector3();this.ballisticOrigin=new Vector3();this.ballisticZero=new Vector3();
     bridge.register({aiSight:args=>{
@@ -295,6 +296,7 @@ export class AiSim {
         perception.heap=this.heap(perception.heap.capacity,perception.heap.priority[0]);
       }
       this.perceptions.set(perception,new NativePerceptionFields(this,perception));
+      this.bindFire(perception.fire);
     }
     return perception;
   }
@@ -311,6 +313,10 @@ export class AiSim {
   bindTracker(tracker) {
     if(!this.trackers.has(tracker))this.trackers.set(tracker,new NativeTrackerFields(this,tracker));
     return tracker;
+  }
+  bindFire(fire) {
+    if(!this.fires.has(fire))this.fires.set(fire,new NativeFireFields(this,fire));
+    return fire;
   }
   selectTarget(id,tracker,world) {
     this.trackerFrames.push({tracker,world});
@@ -383,6 +389,33 @@ export class AiSim {
   words(values) {
     const ptr=this.x.sim_call_room(values.length,0);
     this.bridge.views();this.bridge.f.set(values,ptr/8+HEADER);
+  }
+}
+
+class NativeFireFields {
+  constructor(sim,fire) {
+    const id=sim.x.ai_fire_new();let reference=fire.weaponTarget,serial=-1;
+    const setRef=value=>{
+      reference=value;serial=sim.x.ai_fire_ref(id,value===null?0:value===undefined?1:2,sim.id(value?.unit),value?.generation,
+        value?.generation===undefined?0:value?.generation===null?2:1);
+    };
+    Object.defineProperty(fire,'weaponTarget',{enumerable:true,configurable:true,get:()=>{
+      sim.x.ai_fire_read(id);const v=sim.out();
+      if(v[4]!==serial) {serial=v[4];reference=v[0]===0?null:v[0]===1?undefined:{unit:sim.objects[v[1]],generation:v[3]===0?undefined:v[3]===2?null:v[2]};}
+      return reference;
+    },set:setRef});setRef(reference);
+    const field=(object,name,index,flag=false)=>{
+      const initial=object[name];Object.defineProperty(object,name,{enumerable:true,configurable:true,
+        get:()=>flag?Boolean(sim.x.ai_fire_field(id,index)):sim.x.ai_fire_field(id,index),
+        set:value=>sim.x.ai_fire_write(id,index,flag?Number(Boolean(value)):value)});object[name]=initial;
+    };
+    ['channel','lastRelease','charging','hold','sniperActive','sniperDeadline'].forEach((key,i)=>field(fire,key,i,key==='charging'||key==='sniperActive'));
+    ['state','heatLimit','lastEnd','savedAmmo','count'].forEach((key,i)=>field(fire.burst,key,i+6));
+    for(let i=0;i<2;i++) {
+      const button=fire.buttons[i];field(button,'count',11+i*2);field(button,'code',12+i*2);
+      Object.defineProperty(button,'nativePress',{value:down=>{sim.x.ai_fire_press(id,i,Number(Boolean(down)));return button;}});
+    }
+    fire.reset=()=>{sim.x.ai_fire_reset(id);fire.protected.length=0;};
   }
 }
 

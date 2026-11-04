@@ -10,7 +10,7 @@ import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/ai
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
-import { clusterState, peekClusterState } from '../src/ai/classic/weapons-ai.js';
+import { FireControl, clusterState, peekClusterState, pressButton } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -397,6 +397,31 @@ test('native projectile leading preserves source order, aliases and exact solver
     assert.deepEqual(n.history,j.history,`projectile calls ${i}`);
     assert.deepEqual(n.target.velocity.toArray(),j.target.velocity.toArray());
   }
+});
+
+test('native trigger state preserves button edges, reference identities and partial resets', async () => {
+  const {sim}=await pair(),j=new FireControl(),n=sim.bindFire(new FireControl()),random=new ClassicRandom(614);
+  const buttons=n.buttons,burst=n.burst,protectedRefs=n.protected,units=Array.from({length:8},(_,id)=>({id,generation:id}));
+  const snapshot=fire=>({...fire,buttons:fire.buttons.map(b=>({...b})),burst:{...fire.burst}});
+  for(let i=0;i<4096;i++) {
+    if(i%131===0) {assert.equal(j.reset(),undefined);assert.equal(n.reset(),undefined);}
+    const value=i%59===0?NaN:i%47===0?-0:random.int(-150,150)/3;
+    for(const fire of [j,n]) {
+      fire.channel=i%2;fire.lastRelease=value;fire.charging=i%7===0;fire.hold=i/7;fire.sniperActive=i%11===0;fire.sniperDeadline=i/5;
+      const key=['state','heatLimit','lastEnd','savedAmmo','count'][i%5];fire.burst[key]=value;
+      if(i%17===0)fire.buttons[i%2].count=value;
+      if(i%13===0)fire.buttons[i%2].code=i%4;
+      const target={unit:units[i%8],generation:i%37===0?undefined:units[i%8].generation};fire.weaponTarget=target;
+      assert.equal(fire.weaponTarget,target);assert.equal(fire.weaponTarget,fire.weaponTarget);
+      if(fire.protected.length<8)fire.protected.push(target);
+    }
+    const down=random.int(0,1)!==0,channel=i%2;
+    assert.equal(pressButton(j.buttons[channel],down),j.buttons[channel]);
+    assert.equal(pressButton(n.buttons[channel],down),n.buttons[channel]);
+    assert.deepEqual(snapshot(n),snapshot(j),`trigger state ${i}`);
+    assert.equal(n.buttons,buttons);assert.equal(n.burst,burst);assert.equal(n.protected,protectedRefs);
+  }
+  j.reset();n.reset();assert.deepEqual(snapshot(n),snapshot(j));
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {

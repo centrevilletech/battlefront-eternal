@@ -624,6 +624,7 @@ export function setTarget(controller, unit, target, world) {
 // release turns code 1 into 2).
 
 export function pressButton(button, down) {
+  if(button.nativePress)return button.nativePress(down);
   const c = button.count;
   if (!down) {
     if (c === 0) button.count = -2;
