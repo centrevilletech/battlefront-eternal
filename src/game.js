@@ -2987,15 +2987,15 @@ async function start() {
       // Command stamps follow the worker's estimated clock (reconcile.js);
       // the last acknowledged keys start each replay; small corrections to
       // the predicted body blend away instead of snapping.
-      lead: new InputLead(params.has("network") ? { maxLead: 24, extrapolate: true, recover: true } : {}), target: 0, held: [], heldGeneration: 0,
+      lead: new InputLead(params.has("network") ? { maxLead: 24, extrapolate: true, recover: true } : {}, { native: predictionSim?.reconcile }), target: 0, held: [], heldGeneration: 0,
       // Online, lateness is measured from the server's input-ack (the tick a
       // command actually ran, against the stamp below), not from the 20 Hz
       // correction that later retires it. The stamps the lead's cap set
       // are kept apart: their lateness is the cap's (reconcile.js acknowledge).
       commandStamps: new Map(), cappedStamps: new Set(), leadAck: 0, leadAckTick: 0, leadDropped: 0, entityReceiptAt: 0, entitySentAt: 0, resumedAt: 0,
-      predictionWindow: new PredictionWindow(), remoteReplay: new RemotePredictionContext(), vehicleWindow: new PredictionWindow(), continuationState: new Map(),
-      vehicleSmoother: new CorrectionSmoother({ snap: 3, tau: .05 }),
-      smoother: new CorrectionSmoother({ snap: 2.5, tau: .05 }), predictedTick: 0, predictedPosition: new THREE.Vector3(),
+      predictionWindow: new PredictionWindow(120, { native: predictionSim?.reconcile }), remoteReplay: new RemotePredictionContext(), vehicleWindow: new PredictionWindow(120, { native: predictionSim?.reconcile }), continuationState: new Map(),
+      vehicleSmoother: new CorrectionSmoother({ snap: 3, tau: .05 }, { native: predictionSim?.reconcile }),
+      smoother: new CorrectionSmoother({ snap: 2.5, tau: .05 }, { native: predictionSim?.reconcile }), predictedTick: 0, predictedPosition: new THREE.Vector3(),
       // The worker's own health, from its packets (simulation-worker.js).
       health: null, stepMs: 0, packetMs: 0, packetBytes: 0, healthMax: 0, statsTick: null, statsDropped: 0,
     };
@@ -3203,7 +3203,7 @@ async function start() {
         client.pendingActions.push(command);
       }
       client.pending.push(command);
-      client.pending = retainPredictionCommands(client.pending, tick, playerUnit.generation, commandHistory.epoch);
+      client.pending = retainPredictionCommands(client.pending, tick, playerUnit.generation, commandHistory.epoch, 120, { native: predictionSim?.reconcile });
       batch.push(command);
     }, client.target + 7, { lock: 0.9 });
     if (batch.length) client.host.inputs(batch);
