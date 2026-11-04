@@ -66,7 +66,8 @@ to `reference`, `candidate`, `control`. Then run
 No query or environment option selects a shader implementation.
 
 Set `CDP_PORT`, `BFE_CORPUS_CASE`, `OUT`, `BFE_SETTINGS_FILE` for desktop settings,
-and `BFE_GPU_LOG` for the application log. `BFE_APP_URL` defaults to the desktop
+and `BFE_GPU_LOG` for the application log. `BFE_CORPUS_RAW` optionally places
+transient buffers on local scratch storage instead of the report directory. `BFE_APP_URL` defaults to the desktop
 app URL. Use Node with built-in fetch and WebSocket. Launch at 1600x900 with draws
 enabled and `WARM=12`, `RENDER_WARM=3`. Freeze both distributions before the run.
 `--cases id,id` is an iteration smoke, not the complete gate. The summary records

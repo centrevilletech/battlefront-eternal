@@ -10,7 +10,9 @@ if (!['reference', 'candidate', 'control'].includes(role) || !out) throw Error('
 const testCase = manifest.cases.find(c => c.id === id);
 if (!testCase) throw Error('Unknown corpus case ' + id);
 const dir = `${out}/${id}-${role}`;
+const rawDir = `${process.env.BFE_CORPUS_RAW || out}/${id}-${role}`;
 fs.mkdirSync(dir, { recursive: true });
+fs.mkdirSync(rawDir, { recursive: true });
 const log = process.env.BFE_GPU_LOG;
 const gpuDeaths = () => log && fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(l => /GPU process exited|GPU process isn't usable|GPU process crashed|Lost UI shared context|exit_code=512/i.test(l)) : ['missing GPU log'];
 const c = await connect();
@@ -64,8 +66,8 @@ try {
     })()`);
     for (const [name, stage] of Object.entries(point.stages)) {
       const data=await c.ev(`(() => {const s=window.__corpus.stages[${JSON.stringify(name)}],buf=new Uint8Array(s.buf.buffer);let str='';for(let i=0;i<buf.length;i+=0x8000)str+=String.fromCharCode.apply(null,buf.subarray(i,i+0x8000));return btoa(str);})()`);
-      stage.file=`${k}-${name}.bin`;
-      fs.writeFileSync(`${dir}/${stage.file}`,Buffer.from(data,'base64'));
+      stage.file=`${rawDir}/${k}-${name}.bin`;
+      fs.writeFileSync(stage.file,Buffer.from(data,'base64'));
     }
     result.points.push(point);
     console.log(JSON.stringify({role,k,tick:point.tick,stages:Object.keys(point.stages),errors:point.errors,gl:point.gl}));

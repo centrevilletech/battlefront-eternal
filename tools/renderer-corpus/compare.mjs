@@ -21,7 +21,7 @@ export function compareCase(out,id) {
     for(const name of Object.keys(points[0].stages)){
       const stages=points.map(p=>p?.stages[name]);
       if(stages.some(s=>!s) || stages.some(s=>s.w!==stages[0].w || s.h!==stages[0].h || s.bytes!==stages[0].bytes)){point.valid=false;point.stages[name]={error:'stage layout differs'};continue;}
-      const buffers=roles.map((r,i)=>{const buf=fs.readFileSync(`${out}/${id}-${r}/${stages[i].file}`);return stages[i].bytes===2?new Uint16Array(buf.buffer,buf.byteOffset,buf.length/2):buf;});
+      const buffers=roles.map((r,i)=>{const buf=fs.readFileSync(stages[i].file);return stages[i].bytes===2?new Uint16Array(buf.buffer,buf.byteOffset,buf.length/2):buf;});
       point.stages[name]=compare(...buffers);
     }
     report.points.push(point);
@@ -31,7 +31,7 @@ export function compareCase(out,id) {
   report.pass=report.valid && report.complete && report.points.every(p=>Object.values(p.stages).every(s=>s.residual===0));
   fs.writeFileSync(`${out}/${id}.json`,JSON.stringify(report,null,2));
   // Retail-derived buffers are transient; keep only compact metrics.
-  for(const role of roles){const dir=`${out}/${id}-${role}`;for(const name of fs.readdirSync(dir))if(name.endsWith('.bin'))fs.unlinkSync(`${dir}/${name}`);}
+  for(const role of roles)for(const point of runs[role].points)for(const stage of Object.values(point.stages))fs.unlinkSync(stage.file);
   return report;
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(process.argv[1]).href){const report=compareCase(process.argv[2],process.argv[3]);console.log(JSON.stringify({id:report.id,valid:report.valid,exact:report.exact,pass:report.pass}));process.exitCode=report.pass?0:3;}
