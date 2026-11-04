@@ -61,6 +61,7 @@ fn ai_combat_replay_mutations_are_caught() {
         let capture=capture.unwrap();
         for name in ["UnitCombatAgent.tick","aiCombat.consumeFire","aiCombat.aim","aiCombat.scan","aiCombat.ingest"] {
             for frame in capture.frames(name) {
+                if name!="aiCombat.ingest" && caught[..9].iter().all(|x|*x) {break}
                 let frame=frame.unwrap();
                 if replay_frame(&capture,&frame).is_err() {continue}
                 for (probe,key,zero) in [(4,"roll",false),(5,"aimState",true)] {
