@@ -17,10 +17,7 @@ import { hasMissileLock, seatLockTarget } from './weapon-targeting.js';
 import { weaponAI, categoryOf } from './ai/classic/weapons-ai.js';
 import { legacyRandom } from './ai/random.js';
 import { putSeatHullFacts, putSeatAiControl } from './sim/gen/seats.js';
-
-const WEAPON_STATE = ['level', 'deployed', 'firing', 'timer', 'bottomless', 'perShot', 'clip', 'reserve', 'heat', 'overheated',
-  'floor', 'kick', 'spreadScale', 'sniperScale', 'yawSpreadOverride', 'wait', 'reloadLeft', 'throwTime', 'released', 'hidden',
-  'charging', 'held', 'charge', 'limit', 'pattern', 'salvosLeft', 'salvoWait', 'salvoSeed', 'salvoCount', 'lockTargetId', 'lockGeneration', 'lockElapsed', 'lockComplete'];
+import { copyMountedWeapon } from './vehicle-phase-data.js';
 
 // SeatLease objects are read-only views of generation-qualified occupancies.
 // A released lease remains available to its old beam emitter. Allocating a
@@ -500,7 +497,7 @@ export class F2Seats {
         t.gunYaw = state.gunYaw; t.gunPitch = state.gunPitch; t.barrel = state.barrel;
         t.lease = out.lease; t.gunner = out.gunner?.soldier ?? null;
         if (t.weapon && out.weapon) {
-          for (let k = 0; k < WEAPON_STATE.length; k++) { const key = WEAPON_STATE[k]; t.weapon[key] = out.weapon[key]; }
+          t.weapon.level = out.weapon.level; copyMountedWeapon(t.weapon, out.weapon);
           t.weapon.def = t.weapon.levels[out.weapon.level];
         }
         if (out.posed && out.gunner) {

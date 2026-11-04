@@ -140,3 +140,47 @@ export function flightKeys(out, i) {
   out.rollLock = jn(i.rollLock); out.targetLock = jn(i.targetLock); out.bot = jn(i.bot);
   out.responseCurve = jn(i.responseCurve); out.noAssist = i.steeringAssist === false;
 }
+
+// Vehicle.fireSeat and TurretSeats.drive publish the same mutable Weapon
+// fields. Named stores keep these numeric fields unboxed in V8; iterating a
+// string-key table would allocate boxed numbers for every mounted weapon.
+// Definition, RNG and emitter identities remain with the existing facade.
+export function copyMountedWeapon(out, state) {
+  out.deployed = state.deployed;
+  out.firing = state.firing;
+  out.timer = state.timer;
+  // Ammunition and heat remain observable to supply and HUD readers.
+  out.bottomless = state.bottomless;
+  out.perShot = state.perShot;
+  out.clip = state.clip;
+  out.reserve = state.reserve;
+  out.heat = state.heat;
+  out.overheated = state.overheated;
+  out.floor = state.floor;
+  out.kick = state.kick;
+  // AI modifiers come back with the canonical weapon state.
+  out.spreadScale = state.spreadScale;
+  out.sniperScale = state.sniperScale;
+  out.yawSpreadOverride = state.yawSpreadOverride;
+  // Preserve pending reload, throw and charge clocks between publications.
+  out.wait = state.wait;
+  out.reloadLeft = state.reloadLeft;
+  out.throwTime = state.throwTime;
+  out.released = state.released;
+  out.hidden = state.hidden;
+  out.charging = state.charging;
+  out.held = state.held;
+  out.charge = state.charge;
+  out.limit = state.limit;
+  out.pattern = state.pattern;
+  // Salvo seeds belong to this weapon life, including late network shots.
+  out.salvosLeft = state.salvosLeft;
+  out.salvoWait = state.salvoWait;
+  out.salvoSeed = state.salvoSeed;
+  out.salvoCount = state.salvoCount;
+  // Lock progress is native; JS readers keep only these published scalars.
+  out.lockTargetId = state.lockTargetId;
+  out.lockGeneration = state.lockGeneration;
+  out.lockElapsed = state.lockElapsed;
+  out.lockComplete = state.lockComplete;
+}

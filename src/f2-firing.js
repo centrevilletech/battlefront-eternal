@@ -2,16 +2,13 @@
 // frozen foreign input at latch, publication and ordered presentation at end.
 import { EVENT_TABLE } from './sim/gen/index.js';
 import { Vector3 } from 'three';
-import { rigNodes } from './vehicle-phase-data.js';
+import { rigNodes, copyMountedWeapon } from './vehicle-phase-data.js';
 import { registerWeaponClass } from './weapon-content-sim.js';
 import { seatLockTarget } from './weapon-targeting.js';
 import { categoryOf, weaponAI } from './ai/classic/weapons-ai.js';
 import { putFfBirth, putFfSupply, putFfWeaponInput, putFfWeaponChange, FfInputsLayout, FfWeaponInputLayout, FfWeaponChangeLayout, FfHullOutMirror, FfSeatOutMirror, FfWeaponOutMirror, syncFfHullOut, FfCableOutMirror, syncFfCableOut, FfSupplyResultMirror, syncFfSupplyResult, FfPhaseMirror, syncFfPhase } from './sim/gen/f2-firing.js';
 
 const zero = new Vector3();
-const mutable = ['deployed', 'firing', 'timer', 'bottomless', 'perShot', 'clip', 'reserve', 'heat', 'overheated', 'floor', 'kick',
-  'spreadScale', 'sniperScale', 'yawSpreadOverride', 'wait', 'reloadLeft', 'throwTime', 'released', 'hidden', 'charging', 'held',
-  'charge', 'limit', 'pattern', 'salvosLeft', 'salvoWait', 'salvoSeed', 'salvoCount', 'lockTargetId', 'lockGeneration', 'lockElapsed', 'lockComplete'];
 const num = x => Number.isFinite(parseFloat(x)) ? parseFloat(x) : 0;
 // Vehicle.fireSeat now runs entirely in Rust. This facade supplies immutable
 // weapon/rig bindings, changed AI modifiers and the existing random stream.
@@ -48,7 +45,7 @@ export class F2Firing {
       // use the ordered presentation journal instead.
       f2Fired: a => {
         const w = a.hull.seats[a.seat].weapons[a.weapon].state;
-        for (let i = 0; i < mutable.length; i++) w[mutable[i]] = a.state[mutable[i]];
+        copyMountedWeapon(w, a.state);
         w.def = w.levels[a.state.level]; w.level = a.state.level;
         this.vs.world.fired(a.hull, a.seat, this.shot(a), a.owner, a.origin.clone(), a.direction.clone());
       },
@@ -170,7 +167,7 @@ export class F2Firing {
         if (v.aiTarget.generation !== row.life) continue;
         for (let i = 0; i < row.seats.length; i++) for (let j = 0; j < row.seats[i].weapons.length; j++) {
           const w = v.seats[i].weapons[j], state = row.seats[i].weapons[j];
-          for (let k = 0; k < mutable.length; k++) w.state[mutable[k]] = state.state[mutable[k]];
+          copyMountedWeapon(w.state, state.state);
           w.state.def = w.state.levels[state.state.level]; w.state.level = state.state.level;
           w.barrel = state.barrel;
           for (let k = 0; k < w.muzzles.length; k++) if (state.kicks[k] !== undefined) w.muzzles[k].kickAt = state.kicks[k];
