@@ -4,6 +4,87 @@
 use super::*;
 
 #[derive(Clone, Debug, Default, PartialEq)]
+pub struct FfPhase {
+    pub weapons: u32,
+    pub cables: u32,
+    pub events: u32,
+}
+
+impl FfPhase {
+    pub const WORDS: usize = 3;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        row[0] = self.weapons as f64;
+        row[1] = self.cables as f64;
+        row[2] = self.events as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        Self {
+            weapons: word_u32(row[0]),
+            cables: word_u32(row[1]),
+            events: word_u32(row[2]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FfSupplyResult {
+    pub changed: bool,
+    pub output: u32,
+}
+
+impl FfSupplyResult {
+    pub const WORDS: usize = 2;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 2] = (&mut row[..2]).try_into().unwrap();
+        row[0] = if self.changed { 1.0 } else { 0.0 };
+        row[1] = self.output as f64;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 2] = (&row[..2]).try_into().unwrap();
+        Self {
+            changed: row[0] != 0.0,
+            output: word_u32(row[1]),
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FfSupply {
+    pub hull: Ref<Vehicle>,
+    pub life: f64,
+    pub amount: f64,
+}
+
+impl FfSupply {
+    pub const WORDS: usize = 4;
+
+    pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
+        let row: &mut [f64; 4] = (&mut row[..4]).try_into().unwrap();
+        row[0] = self.hull.slot as f64; row[0 + 1] = self.hull.gen as f64;
+        row[2] = self.life;
+        row[3] = self.amount;
+    }
+
+    pub fn take(row: &[f64], heap: &[f64]) -> Self {
+        let row: &[f64; 4] = (&row[..4]).try_into().unwrap();
+        Self {
+            hull: Ref::new(word_u32(row[0]), word_u32(row[0 + 1])),
+            life: row[2],
+            amount: row[3],
+        }
+    }
+
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FfSeatInput {
     pub aiming: bool,
     pub aim: Vec3,
@@ -400,22 +481,28 @@ impl FfDraw {
 pub struct FfTargetQuery {
     pub index: u32,
     pub viewer: Ref<Vehicle>,
+    pub shapes: bool,
+    pub aim: bool,
 }
 
 impl FfTargetQuery {
-    pub const WORDS: usize = 3;
+    pub const WORDS: usize = 5;
 
     pub fn put(&self, row: &mut [f64], heap: &mut Vec<f64>) {
-        let row: &mut [f64; 3] = (&mut row[..3]).try_into().unwrap();
+        let row: &mut [f64; 5] = (&mut row[..5]).try_into().unwrap();
         row[0] = self.index as f64;
         row[1] = self.viewer.slot as f64; row[1 + 1] = self.viewer.gen as f64;
+        row[3] = if self.shapes { 1.0 } else { 0.0 };
+        row[4] = if self.aim { 1.0 } else { 0.0 };
     }
 
     pub fn take(row: &[f64], heap: &[f64]) -> Self {
-        let row: &[f64; 3] = (&row[..3]).try_into().unwrap();
+        let row: &[f64; 5] = (&row[..5]).try_into().unwrap();
         Self {
             index: word_u32(row[0]),
             viewer: Ref::new(word_u32(row[1]), word_u32(row[1 + 1])),
+            shapes: row[3] != 0.0,
+            aim: row[4] != 0.0,
         }
     }
 

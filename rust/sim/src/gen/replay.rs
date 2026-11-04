@@ -3997,6 +3997,67 @@ impl CbShield {
     }
 }
 
+impl FfPhase {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(FfPhase {
+            weapons: { let p = format!("{path}.weapons"); (int(v.get("weapons"), &p, 0.0, u32::MAX as f64)? as u32) },
+            cables: { let p = format!("{path}.cables"); (int(v.get("cables"), &p, 0.0, u32::MAX as f64)? as u32) },
+            events: { let p = format!("{path}.events"); (int(v.get("events"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Num(self.weapons as f64); fields.push(("weapons", x)); }
+        { let x = Value::Num(self.cables as f64); fields.push(("cables", x)); }
+        { let x = Value::Num(self.events as f64); fields.push(("events", x)); }
+        a.object("", fields)
+    }
+}
+
+impl FfSupplyResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(FfSupplyResult {
+            changed: { let p = format!("{path}.changed"); boolean(v.get("changed"), &p)? },
+            output: { let p = format!("{path}.output"); (int(v.get("output"), &p, 0.0, u32::MAX as f64)? as u32) },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Bool(self.changed); fields.push(("changed", x)); }
+        { let x = Value::Num(self.output as f64); fields.push(("output", x)); }
+        a.object("", fields)
+    }
+}
+
+impl FfSupply {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(FfSupply {
+            hull: { let p = format!("{path}.hull"); Vehicle::ref_in(v.get("hull"), cx, &p)? },
+            life: { let p = format!("{path}.life"); num(v.get("life"), &p)? },
+            amount: { let p = format!("{path}.amount"); num(v.get("amount"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Vehicle::ref_out(self.hull, cx, a); fields.push(("hull", x)); }
+        { let x = Value::Num(self.life); fields.push(("life", x)); }
+        { let x = Value::Num(self.amount); fields.push(("amount", x)); }
+        a.object("", fields)
+    }
+}
+
 impl FfSeatInput {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
@@ -4294,14 +4355,18 @@ impl FfTargetQuery {
         Ok(FfTargetQuery {
             index: { let p = format!("{path}.index"); (int(v.get("index"), &p, 0.0, u32::MAX as f64)? as u32) },
             viewer: { let p = format!("{path}.viewer"); Vehicle::ref_in(v.get("viewer"), cx, &p)? },
+            shapes: { let p = format!("{path}.shapes"); boolean(v.get("shapes"), &p)? },
+            aim: { let p = format!("{path}.aim"); boolean(v.get("aim"), &p)? },
         })
     }
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(4);
         { let x = Value::Num(self.index as f64); fields.push(("index", x)); }
         { let x = Vehicle::ref_out(self.viewer, cx, a); fields.push(("viewer", x)); }
+        { let x = Value::Bool(self.shapes); fields.push(("shapes", x)); }
+        { let x = Value::Bool(self.aim); fields.push(("aim", x)); }
         a.object("", fields)
     }
 }

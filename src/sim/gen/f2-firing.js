@@ -5,6 +5,118 @@ import { KIND_VEHICLE } from "./kinds.js";
 import { WeaponMirror, exportWeapon, putWeapon, sameWeapon, syncWeapon } from "./combat.js";
 import { exportBeamSource, exportOrdnanceOwner, putBeamSource, putOrdnanceOwner, sameBeamSource, sameOrdnanceOwner, syncBeamSource, syncOrdnanceOwner } from "./ordnance.js";
 
+export class FfPhaseMirror {
+  constructor() {
+    this.weapons = 0;
+    this.cables = 0;
+    this.events = 0;
+  }
+}
+
+export function syncFfPhase(b, f, at, h, m) {
+  m.weapons = f[at + 0];
+  m.cables = f[at + 1];
+  m.events = f[at + 2];
+  return m;
+}
+
+export function putFfPhase(b, o, f, at, heap) {
+  f[at + 0] = o.weapons;
+  f[at + 1] = o.cables;
+  f[at + 2] = o.events;
+}
+
+export function sameFfPhase(a, b) {
+  if (!Object.is(a.weapons, b.weapons)) return ".weapons";
+  if (!Object.is(a.cables, b.cables)) return ".cables";
+  if (!Object.is(a.events, b.events)) return ".events";
+  return null;
+}
+
+export function exportFfPhase(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.weapons = o.weapons;
+  v.cables = o.cables;
+  v.events = o.events;
+  return v;
+}
+
+export class FfSupplyResultMirror {
+  constructor() {
+    this.changed = false;
+    this.output = 0;
+  }
+}
+
+export function syncFfSupplyResult(b, f, at, h, m) {
+  m.changed = f[at + 0] !== 0;
+  m.output = f[at + 1];
+  return m;
+}
+
+export function putFfSupplyResult(b, o, f, at, heap) {
+  f[at + 0] = o.changed ? 1 : 0;
+  f[at + 1] = o.output;
+}
+
+export function sameFfSupplyResult(a, b) {
+  if (!Object.is(a.changed, b.changed)) return ".changed";
+  if (!Object.is(a.output, b.output)) return ".output";
+  return null;
+}
+
+export function exportFfSupplyResult(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.changed = o.changed;
+  v.output = o.output;
+  return v;
+}
+
+export class FfSupplyMirror {
+  constructor() {
+    this.hull = null;
+    this.life = NaN;
+    this.amount = NaN;
+  }
+}
+
+export function syncFfSupply(b, f, at, h, m) {
+  m.hull = b.refs[KIND_VEHICLE].at(f[at + 0], f[at + 1]);
+  m.life = f[at + 2];
+  m.amount = f[at + 3];
+  return m;
+}
+
+export function putFfSupply(b, o, f, at, heap) {
+  b.refs[KIND_VEHICLE].put(o.hull, f, at + 0);
+  f[at + 2] = o.life;
+  f[at + 3] = o.amount;
+}
+
+export function sameFfSupply(a, b) {
+  if (!Object.is(a.hull, b.hull)) return ".hull";
+  if (!Object.is(a.life, b.life)) return ".life";
+  if (!Object.is(a.amount, b.amount)) return ".amount";
+  return null;
+}
+
+export function exportFfSupply(o, cx) {
+  let v = cx.seen.get(o);
+  if (v) return v;
+  v = {};
+  cx.seen.set(o, v);
+  v.hull = cx.ref("vehicle", o.hull);
+  v.life = o.life;
+  v.amount = o.amount;
+  return v;
+}
+
 export class FfSeatInputMirror {
   constructor() {
     this.aiming = false;
@@ -572,23 +684,31 @@ export class FfTargetQueryMirror {
   constructor() {
     this.index = 0;
     this.viewer = null;
+    this.shapes = false;
+    this.aim = false;
   }
 }
 
 export function syncFfTargetQuery(b, f, at, h, m) {
   m.index = f[at + 0];
   m.viewer = b.refs[KIND_VEHICLE].at(f[at + 1], f[at + 2]);
+  m.shapes = f[at + 3] !== 0;
+  m.aim = f[at + 4] !== 0;
   return m;
 }
 
 export function putFfTargetQuery(b, o, f, at, heap) {
   f[at + 0] = o.index;
   b.refs[KIND_VEHICLE].put(o.viewer, f, at + 1);
+  f[at + 3] = o.shapes ? 1 : 0;
+  f[at + 4] = o.aim ? 1 : 0;
 }
 
 export function sameFfTargetQuery(a, b) {
   if (!Object.is(a.index, b.index)) return ".index";
   if (!Object.is(a.viewer, b.viewer)) return ".viewer";
+  if (!Object.is(a.shapes, b.shapes)) return ".shapes";
+  if (!Object.is(a.aim, b.aim)) return ".aim";
   return null;
 }
 
@@ -599,6 +719,8 @@ export function exportFfTargetQuery(o, cx) {
   cx.seen.set(o, v);
   v.index = o.index;
   v.viewer = cx.ref("vehicle", o.viewer);
+  v.shapes = o.shapes;
+  v.aim = o.aim;
   return v;
 }
 
