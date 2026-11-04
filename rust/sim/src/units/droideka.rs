@@ -182,6 +182,12 @@ fn enter(id: u32, unit: &mut Unit, mode: f64, carry: f64, world: &mut dyn UnitsW
 /// tick(input, dt) (src/droideka.js:382), on the unit's `input`.
 pub fn tick(id: u32, unit: &mut Unit, dt: f64, world: &mut dyn UnitsWorld, parts: &mut DroidekaParts) {
     let input = unit.input.clone();
+    tick_input(id, unit, &input, dt, world, parts);
+}
+
+/// The same body tick with a caller's input, without changing Unit.input.
+/// The local player's input is separate from his unit's intent/input rows.
+pub fn tick_input(id: u32, unit: &mut Unit, input: &crate::gen::MoveInput, dt: f64, world: &mut dyn UnitsWorld, parts: &mut DroidekaParts) {
     let def = parts.def;
     let clips = parts.clips.clone();
     let d = body(unit);

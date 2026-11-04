@@ -38,6 +38,7 @@
 //! the hull phase uses, which src/units-sim.js sets up when it does not).
 
 use super::droideka;
+use super::muzzles;
 use super::native::{self, DroidekaBody, DroidekaClass};
 use super::soldier::tick_soldier;
 use super::shapes::{Bounds, HitShape};
@@ -153,6 +154,14 @@ pub extern "C" fn units_droideka_attach(unit: u32, class: u32) {
     p.droidekas[unit as usize] = Some(body);
 }
 
+/// A prepared hidden gun hierarchy, before native posing takes ownership.
+#[no_mangle]
+pub extern "C" fn units_muzzle_attach(unit: u32, class: u32) {
+    let parts = DroidekaBody::new(&phase().droideka_classes[class as usize]).parts();
+    let (row, _) = sim().calls.args();
+    muzzles::attach(unit, parts, row);
+}
+
 /// The unit being ticked, or -1 between units (src/units-sim.js tells a
 /// hook of his from one of a command its code started).
 #[no_mangle]
@@ -167,13 +176,14 @@ pub extern "C" fn units_taken() -> i32 {
 }
 
 /// The words of the records src/units-sim.js writes and reads: 0
-/// UnitsPhase, 1 UnitsCombatViews, 2 Combat (a synced unit's combat).
+/// UnitsPhase, 1 UnitsCombatViews, 2 Combat, 3 a local body's MoveInput.
 #[no_mangle]
 pub extern "C" fn units_words(which: u32) -> u32 {
     (match which {
         0 => UnitsPhase::WORDS,
         1 => UnitsCombatViews::WORDS,
         2 => Combat::WORDS,
+        3 => MoveInput::WORDS,
         _ => 0,
     }) as u32
 }
@@ -278,6 +288,38 @@ pub extern "C" fn units_phase() {
     }
 }
 
+/// Soldier.tick or Droideka.tick alone. The caller retains its existing
+/// impact, water, combat, muzzle and removal order around this command.
+#[no_mangle]
+pub extern "C" fn units_body_tick(id: u32, dt: f64) {
+    let input = {
+        let (row, heap) = sim().calls.args();
+        MoveInput::take(row, heap)
+    };
+    let p = phase();
+    let previous = p.current.replace(id);
+    let (combat, world) = (p.combat, p.world);
+    let droideka = p.droidekas.get_mut(id as usize).and_then(Option::take);
+    let (mut unit, c) = cm::take(unit_ref(id));
+    unit.combat = c;
+    let mut w = ModuleWorld { combat, world, remote: false, edges: Edges::default(), droideka };
+    w.move_body(id, &mut unit, &input, dt);
+    if let Some(body) = w.droideka.take() { phase().droidekas[id as usize] = Some(body); }
+    let c = std::mem::take(&mut unit.combat);
+    cm::put(unit_ref(id), unit, c);
+    phase().current = previous;
+    mark(id);
+}
+
+/// The local player's later physical-muzzle sampling point.
+#[no_mangle]
+pub extern "C" fn units_sample_muzzles(id: u32, dt: f64) {
+    let (mut unit, c) = cm::take(unit_ref(id));
+    muzzles::sample(id, &mut unit, dt);
+    cm::put(unit_ref(id), unit, c);
+    mark(id);
+}
+
 fn held(u: &Unit) -> bool {
     matches!(u.held, Nullable::Value(_))
 }
@@ -368,6 +410,22 @@ struct ModuleWorld {
 }
 
 impl ModuleWorld {
+    fn move_body(&mut self, id: u32, unit: &mut Unit, input: &MoveInput, h: f64) {
+        match &mut unit.soldier {
+            UnitBody::Soldier(s) => {
+                let pass_through = match s.pass_through {
+                    Some(body) => vm::collision_world().and_then(|c| c.kernel_slot(body.slot)).map_or(-1, |k| k as i64),
+                    None => -1,
+                };
+                tick_soldier(s, input, h, self.world, pass_through);
+            }
+            UnitBody::Droideka(_) => {
+                let mut parts = self.droideka.as_ref().expect("the droideka's class and clips").parts();
+                droideka::tick_input(id, unit, input, h, self, &mut parts);
+            }
+        }
+    }
+
     /// Runs `f` on his combat, the module's, taken out of the unit.
     fn on_combat(&mut self, id: u32, unit: &mut Unit, f: impl FnOnce(&mut Combat, &mut Unit, &cb::CombatDefs, &Edges, &mut JsWorld)) {
         let defs = cm::defs();
@@ -419,21 +477,8 @@ impl UnitsWorld for ModuleWorld {
     }
 
     fn move_soldier(&mut self, id: u32, unit: &mut Unit, h: f64) {
-        match &mut unit.soldier {
-            UnitBody::Soldier(s) => {
-                // The body he falls through (a rider's mount), as the
-                // kernel numbers it.
-                let pass_through = match s.pass_through {
-                    Some(body) => vm::collision_world().and_then(|c| c.kernel_slot(body.slot)).map_or(-1, |k| k as i64),
-                    None => -1,
-                };
-                tick_soldier(s, &unit.input, h, self.world, pass_through);
-            }
-            UnitBody::Droideka(_) => {
-                let mut parts = self.droideka.as_ref().expect("the droideka's class and clips").parts();
-                droideka::tick(id, unit, h, self, &mut parts);
-            }
-        }
+        let input = unit.input.clone();
+        self.move_body(id, unit, &input, h);
     }
 
     fn damage(&mut self, id: u32, unit: &mut Unit, amount: f64) {
@@ -524,6 +569,8 @@ impl UnitsWorld for ModuleWorld {
     }
 
     fn sample_muzzles(&mut self, id: u32, unit: &mut Unit, h: f64) {
-        out_and_back(id, unit, || import_unit_sample_muzzles(&UnitStep { unit: id as f64, dt: h }));
+        if !muzzles::sample(id, unit, h) {
+            out_and_back(id, unit, || import_unit_sample_muzzles(&UnitStep { unit: id as f64, dt: h }));
+        }
     }
 }

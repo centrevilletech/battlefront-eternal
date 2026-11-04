@@ -807,6 +807,7 @@ impl CombatWorld for JsWorld {
     }
 
     fn next_gun(&mut self, unit: &mut Unit, _combat: &mut Combat) -> Option<Vector3> {
+        if let Some(point) = crate::units::muzzles::next_gun(self.unit as u32, unit) { return point }
         let g = import_combat_next_gun(&CbUnit { unit: self.unit });
         // The body moved on to its next gun (JavaScript's droideka did):
         // the same here.
@@ -820,6 +821,7 @@ impl CombatWorld for JsWorld {
     }
 
     fn gun_at(&mut self, selected: (f64, f64)) -> Option<Vector3> {
+        if let Some(point) = crate::units::muzzles::gun_at(self.unit as u32, selected) { return point }
         let p = import_combat_gun_at(&CbGunAt { unit: self.unit, index: selected.0, barrel: selected.1 });
         p.found.then(|| v(&p.point))
     }
