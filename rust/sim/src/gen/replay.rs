@@ -11117,6 +11117,139 @@ impl WorldEventReply {
     }
 }
 
+impl WorldLocalKeys {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldLocalKeys {
+            forward: { let p = format!("{path}.forward"); num(v.get("forward"), &p)? },
+            right: { let p = format!("{path}.right"); num(v.get("right"), &p)? },
+            turn: { let p = format!("{path}.turn"); num(v.get("turn"), &p)? },
+            jump: { let p = format!("{path}.jump"); boolean(v.get("jump"), &p)? },
+            crouch: { let p = format!("{path}.crouch"); boolean(v.get("crouch"), &p)? },
+            prone: { let p = format!("{path}.prone"); boolean(v.get("prone"), &p)? },
+            r#use: { let p = format!("{path}.use"); match v.get("use").value { Value::Undefined => None, Value::Null => return Err(format!("{}: null where its schema says undefined", &p)), _ => Some(boolean(v.get("use"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(7);
+        { let x = Value::Num(self.forward); fields.push(("forward", x)); }
+        { let x = Value::Num(self.right); fields.push(("right", x)); }
+        { let x = Value::Num(self.turn); fields.push(("turn", x)); }
+        { let x = Value::Bool(self.jump); fields.push(("jump", x)); }
+        { let x = Value::Bool(self.crouch); fields.push(("crouch", x)); }
+        { let x = Value::Bool(self.prone); fields.push(("prone", x)); }
+        { let x = match &self.r#use { Some(v) => Value::Bool((*v)), None => Value::Undefined }; fields.push(("use", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldLocalState {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldLocalState {
+            input: { let p = format!("{path}.input"); WorldLocalKeys::from_value(v.get("input"), cx, &p)? },
+            walker: { let p = format!("{path}.walker"); boolean(v.get("walker"), &p)? },
+            dead: { let p = format!("{path}.dead"); boolean(v.get("dead"), &p)? },
+            remote: { let p = format!("{path}.remote"); boolean(v.get("remote"), &p)? },
+            gunner: { let p = format!("{path}.gunner"); boolean(v.get("gunner"), &p)? },
+            driver: { let p = format!("{path}.driver"); boolean(v.get("driver"), &p)? },
+            removed: { let p = format!("{path}.removed"); boolean(v.get("removed"), &p)? },
+            held: { let p = format!("{path}.held"); boolean(v.get("held"), &p)? },
+            server: { let p = format!("{path}.server"); boolean(v.get("server"), &p)? },
+            auto: { let p = format!("{path}.auto"); boolean(v.get("auto"), &p)? },
+            human_ready: { let p = format!("{path}.humanReady"); boolean(v.get("humanReady"), &p)? },
+            human: { let p = format!("{path}.human"); boolean(v.get("human"), &p)? },
+            death_time: { let p = format!("{path}.deathTime"); num(v.get("deathTime"), &p)? },
+            corpse_linger: { let p = format!("{path}.corpseLinger"); num(v.get("corpseLinger"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(14);
+        { let x = self.input.to_value(cx, a); fields.push(("input", x)); }
+        { let x = Value::Bool(self.walker); fields.push(("walker", x)); }
+        { let x = Value::Bool(self.dead); fields.push(("dead", x)); }
+        { let x = Value::Bool(self.remote); fields.push(("remote", x)); }
+        { let x = Value::Bool(self.gunner); fields.push(("gunner", x)); }
+        { let x = Value::Bool(self.driver); fields.push(("driver", x)); }
+        { let x = Value::Bool(self.removed); fields.push(("removed", x)); }
+        { let x = Value::Bool(self.held); fields.push(("held", x)); }
+        { let x = Value::Bool(self.server); fields.push(("server", x)); }
+        { let x = Value::Bool(self.auto); fields.push(("auto", x)); }
+        { let x = Value::Bool(self.human_ready); fields.push(("humanReady", x)); }
+        { let x = Value::Bool(self.human); fields.push(("human", x)); }
+        { let x = Value::Num(self.death_time); fields.push(("deathTime", x)); }
+        { let x = Value::Num(self.corpse_linger); fields.push(("corpseLinger", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldLocalInput {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldLocalInput {
+            op: { let p = format!("{path}.op"); WorldLocalOperation::from_u8(name_of(v.get("op"), &WorldLocalOperation::NAMES, &p)?).unwrap() },
+            state: { let p = format!("{path}.state"); WorldLocalState::from_value(v.get("state"), cx, &p)? },
+            dt: { let p = format!("{path}.dt"); num(v.get("dt"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Str(WorldLocalOperation::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Num(self.dt); fields.push(("dt", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldLocalArgs {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldLocalArgs {
+            op: { let p = format!("{path}.op"); WorldLocalCall::from_u8(name_of(v.get("op"), &WorldLocalCall::NAMES, &p)?).unwrap() },
+            state: { let p = format!("{path}.state"); WorldLocalState::from_value(v.get("state"), cx, &p)? },
+            dt: { let p = format!("{path}.dt"); num(v.get("dt"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = Value::Str(WorldLocalCall::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Num(self.dt); fields.push(("dt", x)); }
+        a.object("", fields)
+    }
+}
+
+impl WorldLocalReply {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(WorldLocalReply {
+            state: { let p = format!("{path}.state"); WorldLocalState::from_value(v.get("state"), cx, &p)? },
+            value: { let p = format!("{path}.value"); boolean(v.get("value"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Bool(self.value); fields.push(("value", x)); }
+        a.object("", fields)
+    }
+}
+
 impl Battle {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {

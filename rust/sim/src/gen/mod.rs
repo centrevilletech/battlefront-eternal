@@ -980,7 +980,8 @@ pub const IMPORT_WATER_CROSSING: u32 = 120;
 pub const IMPORT_WAVER: u32 = 121;
 pub const IMPORT_WORLD_CLOCK: u32 = 122;
 pub const IMPORT_WORLD_EVENTS: u32 = 123;
-pub const IMPORT_NAMES: [&str; 124] = ["", "aiSchedule", "aiSight", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "predictionHullQuery", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver", "worldClock", "worldEvents"];
+pub const IMPORT_WORLD_LOCAL: u32 = 124;
+pub const IMPORT_NAMES: [&str; 125] = ["", "aiSchedule", "aiSight", "ask", "battleOver", "battlePhaseAction", "battlePhaseQuery", "battleQuery", "battlefieldAction", "battlefieldQuery", "beamLocalOrigin", "beamPose", "blocked", "bounce", "cast", "castMoving", "combatAdmit", "combatArcTargets", "combatBlownApart", "combatCast", "combatDamaged", "combatDied", "combatDispense", "combatDraw", "combatFireRound", "combatFired", "combatGunAt", "combatHurtArc", "combatLightning", "combatLockKey", "combatLockOn", "combatLockPick", "combatMeleeStrike", "combatNextGun", "combatPresent", "combatRemoteEnter", "combatRemoteKill", "combatRemoteLaunch", "combatRemoteOf", "combatRepair", "combatRespawn", "combatShieldHit", "dropRoll", "explode", "explosion", "fatQuery", "give", "gone", "grenadeContact", "historyTick", "hit", "hitUnit", "hsAction", "hsQuery", "impact", "isDroid", "itemCast", "itemModel", "itemRelations", "itemTargets", "itemWaterCrossing", "launch", "missileTarget", "navigateMissile", "ownerKey", "paAction", "pbAction", "pcAction", "pickup", "postsQuery", "pqAction", "predictionHullQuery", "projectile", "raycastUnits", "riderMount", "rosterAction", "rosterQuery", "seatCast", "seatControllable", "seatControllerState", "seatOverlaps", "seatPolicy", "shooter", "shotTick", "spawningAction", "spawningQuery", "spin", "trapsAction", "trapsQuery", "unitAim", "unitBodyEvent", "unitCombat", "unitDamage", "unitRemoteStep", "unitRemoved", "unitSampleMuzzles", "unitSphere", "unitSplash", "vehAimPoint", "vehAimPoints", "vehBodyEnabled", "vehCast", "vehClock", "vehDamaged", "vehDestroyed", "vehDestroyedCrew", "vehEffect", "vehEnableBody", "vehExplosion", "vehGround", "vehHasWater", "vehInDeathRegion", "vehMoveBody", "vehPushWalls", "vehRaycastUnits", "vehReleaseCrew", "vehRespawnClock", "vehSpringPolygons", "vehWaterLevel", "vehWaterOver", "waterCrossing", "waver", "worldClock", "worldEvents", "worldLocal"];
 
 /// Runs the command `code` with the arguments JavaScript wrote in `sim.calls`,
 /// its result written there after it; false for no such command.
@@ -1176,6 +1177,7 @@ extern "C" {
     fn bfe_import_waver();
     fn bfe_import_world_clock();
     fn bfe_import_world_events();
+    fn bfe_import_world_local();
 }
 
 /// Asks JavaScript (the import aiSchedule): its arguments go out in the import block,
@@ -2367,5 +2369,15 @@ pub fn import_world_events(args: &WorldEventArgs) -> WorldEventReply {
     crate::store::calls::import_out(WorldEventArgs::WORDS, |row, heap| args.put(row, heap));
     unsafe { bfe_import_world_events() };
     crate::store::calls::import_in(|row, heap| WorldEventReply::take(row, heap))
+}
+
+/// Asks JavaScript (the import worldLocal): its arguments go out in the import block,
+/// its result comes back there (store::calls). The module only (a native build serves
+/// its boundary from elsewhere: the replay harness, or Rust).
+#[cfg(target_arch = "wasm32")]
+pub fn import_world_local(args: &WorldLocalArgs) -> WorldLocalReply {
+    crate::store::calls::import_out(WorldLocalArgs::WORDS, |row, heap| args.put(row, heap));
+    unsafe { bfe_import_world_local() };
+    crate::store::calls::import_in(|row, heap| WorldLocalReply::take(row, heap))
 }
 
