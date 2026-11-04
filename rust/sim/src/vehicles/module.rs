@@ -999,7 +999,7 @@ impl VehicleWorld for JsWorld {
 
     fn current(&mut self, hull: &Hull) {
         store_hull(hull);
-        if f2::active() { f2::publish(); }
+        if f2::active() { f2::publish_touched(hull.id); }
     }
 
     fn reload(&mut self, hull: &mut Hull) {

@@ -1,11 +1,12 @@
 // One whole ground/flight phase. Ordinary ticks import foreign inputs only.
+import { F2Firing } from './f2-firing.js';
 import * as THREE from 'three';
 import { makeGround, makeHit } from './collision.js';
 import { Weapon } from './weapons.js';
 import { FLIGHT_CLASSES, flightConfig } from './flight/config.js';
 import { MirrorPool } from './sim/runtime.js';
 import { KIND_TABLE, KIND_VEHICLE, KIND_VEHICLES, KIND_BODY, KIND_UNIT, KIND_SEAT_LEASE, KIND_OWNER_SNAPSHOT, VEHICLE_KEYS } from './sim/gen/index.js';
-import { rigNodes, json, classKeys, giveMapRules, pullPose, poseInputs, applyPose, flightNumbers } from './vehicle-phase-data.js';
+import { rigNodes, json, classKeys, giveMapRules, pullPose, applyPose, flightNumbers } from './vehicle-phase-data.js';
 import { putOrdnanceOwner } from './sim/gen/ordnance.js';
 import { ordnanceTests } from './ordnance-sim.js';
 import { F2Counters, F2MirrorCheck, countedF2Exports } from './f2-contract.js';
@@ -54,6 +55,7 @@ class F2 {
     this.detector = new F2MirrorCheck();
     this.kernel = false; this.bodiesVersion = -1; this.colliders = new WeakSet();
     this.looks = new WeakMap();
+    this.firing = new F2Firing(this);
     this.classes = new Set(); this.values = []; this.memberPoint = new THREE.Vector3(); this.aimPoints = [];
     this.hit = makeHit(); this.groundHit = makeGround();
     this.unitHit = { unit: null, distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), part: null };
@@ -80,6 +82,7 @@ class F2 {
         const v = vehicles.vehicles[a.hull];
         this.sync();
         for (const seat of v.seats) for (const w of seat.weapons) { w.state = new Weapon(w.def); w.barrel = 0; }
+        this.firing.adopt(v);
       },
     });
     bridge.write(KIND_VEHICLE, vehicles.vehicles);
@@ -114,6 +117,7 @@ class F2 {
     const values = pullPose(v), at = this.input(values.length);
     b.f.set(values, at);
     if (!this.x.veh_pull(slot, v.aiTarget.generation, values.length)) throw Error('F2 could not retain a vehicle rig');
+    this.firing.adopt(v);
   }
 
   // A hook sees already-published canonical state and sends only commands back.
@@ -149,8 +153,7 @@ class F2 {
     if (this.debug && b.memory.buffer !== memory) throw Error('F2 memory grew during the phase');
     this.sync();
     vs.tickAlpha = Math.max(0, vs.acc / (1 / 120)); vs.presented = false;
-    vs.fireCrews(THREE.MathUtils.clamp(dt, 0, .1));
-    vs.updateTethers();
+    this.firing.drain();
     if (vs.cosmetic !== false) vs.drawTethers(false);
     vs.syncCrews(false);
     if (this.debug) this.check();
@@ -208,14 +211,14 @@ class F2 {
           i.forward ?? NaN, i.right ?? NaN, i.turn ?? NaN, i.pitch ?? NaN, i.brake ? 1 : 0,
           seat.aimYaw, seat.pitch, seat.lookYaw === null ? 0 : 1, seat.lookYaw ?? 0, seat.lookPitch === null ? 0 : 1, seat.lookPitch ?? 0);
       }
-      values.push(v.towTarget, v.towLocal.x, v.towLocal.y, v.towLocal.z, b.strings.id(v.towLeg), v.towAngle, v.towWinding);
-      poseInputs(v, values);
+
     }
     const offset = 3 + vs.slots.length * 2 + 4;
     this.writeInput(values, offset);
     b.f[this.inputBase + this.capacity - 1] = offset;
-    b.f[this.inputBase + this.capacity - 2] = offset + values.length;
-    this.counters.inputFields += 2;
+    const firingWords = this.firing.input(this.inputBase + offset + values.length);
+    b.f[this.inputBase + this.capacity - 2] = offset + values.length + firingWords;
+    this.counters.inputFields += 2 + firingWords;
   }
 
   sync(keepAim = false) { return this.withBridge(() => this.syncState(keepAim)); }
@@ -259,6 +262,7 @@ class F2 {
       }
       this.counters.outputFields += n * lifeStride;
     }
+    this.firing.sync(b.f[d + 13], b.f[d + 14]);
     this.bodiesOut();
     // Pose output is a compact flat record; retained tree state stays in Rust.
     let o = b.f[d + 5] / 8;
@@ -268,18 +272,6 @@ class F2 {
         const v = this.pool.objects[b.f[o]], count = b.f[o + 1]; o += 2;
         applyPose(v, b.f, o); o += count; v.root.updateMatrixWorld(true);
         this.counters.outputFields += count + 2;
-      }
-    }
-    o = b.f[d + 6] / 8;
-    if (o) {
-      const n = b.f[o++];
-      for (let i = 0; i < n; i++, o += 5) {
-        const v = this.pool.objects[b.f[o]];
-        for (const s of v.seats) for (const w of s.weapons) {
-          w.state.lockTargetId = b.f[o + 1]; w.state.lockGeneration = b.f[o + 2];
-          w.state.lockElapsed = b.f[o + 3]; w.state.lockComplete = b.f[o + 4] === 1;
-        }
-        this.counters.outputFields += 5;
       }
     }
     this.vehicles.acc = b.f[d + 7]; this.vehicles.flightAcc = b.f[d + 8]; this.vehicles.time = b.f[d + 9];
@@ -386,6 +378,7 @@ class F2 {
   bodiesOut() {
     if (!this.kernel) return;
     const ptr = this.bridge.f[this.descriptor + 4];
+    if (!ptr) return;
     this.bridge.views();
     const f = this.bridge.f, bodies = this.collision.rays.bodies;
     let o = ptr / 8;

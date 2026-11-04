@@ -1,5 +1,7 @@
 //! Persistent fleet scheduler. The generated slab is canonical; input contains
 //! foreign facts only. No complete vehicle row is imported by an ordinary tick.
+pub mod firing;
+
 use super::*;
 use crate::store::Nullable;
 
@@ -11,6 +13,39 @@ static mut LIVES: Vec<f64> = Vec::new();
 static mut DESCS: Vec<super::super::spawn::SlotDesc> = Vec::new();
 static mut ACC: f64 = 0.0;
 static mut TIME: f64 = 0.0;
+static mut TOUCHED: Option<crate::store::block::Block> = None;
+static mut CHANGED: Vec<Ref<Vehicle>> = Vec::new();
+fn touched() -> &'static mut crate::store::block::Block { unsafe { (*addr_of_mut!(TOUCHED)).get_or_insert_with(Default::default) } }
+fn changed() -> &'static mut Vec<Ref<Vehicle>> { unsafe { &mut *addr_of_mut!(CHANGED) } }
+
+/// Commands and damage hooks expose only the hull they changed. This also
+/// retains reciprocal blast writes until the end of the firing phase.
+pub fn mark_changed(r: Ref<Vehicle>) { if !changed().contains(&r) { changed().push(r); } }
+fn clear_publication() {
+    for i in [2, 3, 4, 5, 6, 11, 13, 14] { desc()[i] = 0.0; }
+}
+fn row_out(r: Ref<Vehicle>, at: usize) {
+    let (row, heap) = touched().row(at);
+    row[0] = r.slot as f64; row[1] = r.gen as f64;
+    sim().store.vehicle.get(r).unwrap().put_export(row, heap);
+}
+pub fn publish_touched(r: Ref<Vehicle>) {
+    mark_changed(r);
+    clear_publication();
+    touched().begin(1, Vehicle::EXPORT_STRIDE); row_out(r, 0); touched().finish();
+    desc()[2] = touched().ptr() as usize as f64;
+    desc()[3] = sim().export(KIND_VEHICLES as u32, 0).unwrap().ptr() as usize as f64;
+    desc()[4] = veh_changes() as usize as f64;
+}
+fn firing_output() {
+    clear_publication();
+    let n = changed().len(); touched().begin(n, Vehicle::EXPORT_STRIDE);
+    for i in 0..n { row_out(changed()[i], i); }
+    touched().finish(); desc()[2] = touched().ptr() as usize as f64;
+    desc()[4] = veh_changes() as usize as f64;
+    desc()[13] = firing::publish() as usize as f64;
+    desc()[14] = firing::cables_ptr() as usize as f64;
+}
 
 pub fn active() -> bool { unsafe { *addr_of_mut!(ACTIVE) } }
 fn io() -> &'static mut Vec<f64> { unsafe { &mut *addr_of_mut!(IO) } }
@@ -30,6 +65,8 @@ pub extern "C" fn f2_init(json: u32, time: f64, acc: f64) -> *const f64 {
         *addr_of_mut!(ACC) = acc;
     }
     io().resize(CAPACITY, 0.0);
+    sim().events.reserve(262144, FfShot::WORDS, 1024);
+    changed().reserve(256); touched().words.reserve(32768); touched().heap.reserve(8192);
     desc()[0] = io().as_mut_ptr() as usize as f64;
     desc()[1] = CAPACITY as f64;
     desc().as_ptr()
@@ -47,6 +84,8 @@ pub fn publish() {
             v.flight_class.map_or(-1.0, |c| c as u8 as f64), v.min_speed.unwrap_or(f64::NAN),
             v.mid_speed.unwrap_or(f64::NAN), v.boost_speed.unwrap_or(f64::NAN), v.speed, v.turn_rate]);
     }
+    desc()[13] = firing::publish() as usize as f64;
+    desc()[14] = firing::cables_ptr() as usize as f64;
     desc()[12] = 9.0;
     desc()[11] = lives.as_ptr() as usize as f64;
     desc()[2] = s.export(KIND_VEHICLE as u32, 0).expect("F2 hull output").ptr() as usize as f64;
@@ -174,12 +213,10 @@ fn foreign() {
             seat.look_yaw = opt(data[o + 15], data[o + 16]); seat.look_pitch = opt(data[o + 17], data[o + 18]);
             o += 19;
         }
-        // Tow state is foreign through step 5.
-        v.tow_target = data[o]; v.tow_local.copy_from_slice(&data[o + 1..o + 4]);
-        v.tow_leg = StrId(data[o + 4] as u32); v.tow_angle = data[o + 5]; v.tow_winding = data[o + 6]; o += 7;
-        let p = poses()[r.slot as usize].as_mut().expect("F2 rig");
-        o += posing::inputs(&mut p.pose, &data[o..]);
+
     }
+    o += firing::inputs(&data[o..]);
+    assert_eq!(o, data.len(), "F2 foreign input length");
 }
 
 #[no_mangle]
@@ -196,6 +233,10 @@ pub extern "C" fn f2_step(dt: f64, tick: f64) {
     unsafe { *addr_of_mut!(ACC) = left; }
     desc()[10] = tick;
     publish();
+    import_f2_posed(&VehNothing {});
+    changed().clear();
+    firing::step(dt, io()[0]);
+    firing_output();
 }
 
 /// Synchronous authoritative writes. Both slab generation and gameplay life
@@ -220,7 +261,7 @@ pub extern "C" fn f2_command(slot: u32, generation: u32, life: f64, code: u32, v
     // A callback may have retired the slot; never resurrect it.
     if !sim().store.vehicle.contains(r) { return 0; }
     store_hull(&hull);
-    publish();
+    publish_touched(r);
     1
 }
 
@@ -239,6 +280,7 @@ pub extern "C" fn f2_retire(slot: u32, generation: u32) -> u32 {
         pad.variants.entries.retain(|(_, v)| *v != r);
     }
     if let Some(p) = poses().get_mut(slot as usize) { *p = None; }
+    firing::retire(r);
     // The last pose belongs to its retired life and cannot be reused.
     unsafe { (*addr_of_mut!(POSED)).clear(); (*addr_of_mut!(LOCKS)).clear(); }
     publish();
