@@ -10,7 +10,7 @@ import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/ai
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
-import { FireControl, clusterState, peekClusterState, pressButton } from '../src/ai/classic/weapons-ai.js';
+import { FireControl, clusterState, consumeFire, peekClusterState, pressButton } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -422,6 +422,56 @@ test('native trigger state preserves button edges, reference identities and part
     assert.equal(n.buttons,buttons);assert.equal(n.burst,burst);assert.equal(n.protected,protectedRefs);
   }
   j.reset();n.reset();assert.deepEqual(snapshot(n),snapshot(j));
+});
+
+test('native fire consumption preserves charge, sniper and burst decisions at shared draws', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const world={time:0,tick:0,history:[]},random=world.randomA=new ClassicRandom(786);
+    const bases=['cannon','cannon','launcher','rifle','rifle','melee','dispenser','shield','grenade','remote','repair','detonator'];
+    const weapons=bases.map((base,id)=>({channel:id%2,rounds:1,clip:40,reserve:80,heat:0,limit:.35,held:0,wait:0,
+      def:{base,MaxPressedTime:id===1||id===8?.6:0,ShotsPerSalvo:id%3+1,HeatPerShot:.05,
+        ordnance:{base:id===1||id===8?'grenade':'bolt',Velocity:100,Gravity:1},
+        ai:{maxRange:100,extremeRange:100,implicitRange:false,triggerSingle:id>=3,zoomMax:id===4?8:1,barrageMin:2,barrageMax:5,barrageDelay:.2}}}));
+    const unit={id:100,alive:true,generation:0,kind:0,team:1,position:new Vector3(),classDef:{},soldier:{zoomed:false},intent:{buttons:[0,0]},
+      origin(out){world.history.push(['eye']);out.set(0,1.7,0);},forward(out){world.history.push(['forward']);out.set(0,0,1);}};
+    unit.combat={arsenal:{weapons,current(channel){world.history.push(['weapon',channel]);return world.tick%41===0?null:weapons[Math.floor(world.tick/19)%weapons.length];}}};
+    const c=unit.controller={unit,ai:{world},fireA:false,fireB:false,target:null};
+    const p=c.perception=new Perception(c);p.aimer.reset(new Vector3(0,0,1));
+    if(native){world.aiSim=sim;sim.bindPerception(p);}
+    const target={id:1,alive:true,generation:0,kind:0,team:2,category:0,position:new Vector3(0,0,20),velocity:new Vector3(),
+      aimPoint(out){world.history.push(['target']);out.set(0,1.35,20);}};
+    const human={id:2,alive:true,generation:0,sphere:{center:new Vector3(0,1.7,10),radius:1}};
+    const snapshot=()=>({fire:{...p.fire,buttons:p.fire.buttons.map(b=>({...b})),burst:{...p.fire.burst},protected:p.fire.protected.map(r=>r.unit.id)},
+      requests:[c.fireA,c.fireB],buttons:[...unit.intent.buttons],spread:weapons.map(w=>w.yawSpreadOverride),random:random.state});
+    for(const name of ['range','int']) {
+      const method=random[name];random[name]=function(lo,hi){
+        world.history.push(['draw',name,lo,hi,snapshot()]);
+        if(native){sim.words(new Array(11000).fill(2));sim.x.ai_nav_boundary(2,0,0,0,0);}
+        if(world.tick%17===0)weapons[Math.floor(world.tick/19)%weapons.length].held=2;
+        return method.call(this,lo,hi);
+      };
+    }
+    world.units={relation:(a,b)=>a===b?1:-1};
+    return {world,unit,c,p,target,human,weapons,snapshot};
+  }
+  const j=fixture(false),n=fixture(true);
+  for(let i=0;i<4096;i++) {
+    for(const x of [j,n]) {
+      x.world.tick=i;x.world.time=i/20;x.world.history.length=0;
+      x.c.fireA=i%7!==0;x.c.fireB=i%5===0;x.c.target=i%13===0?null:{unit:x.target,generation:i%29===0?1:0};
+      x.p.fire.channel=Math.floor(i/19)%2;
+      if(i%227===0)x.p.fire.reset();
+      x.p.fire.protected.length=0;if(i%37===0)x.p.fire.protected.push({unit:x.human,generation:0});
+      const w=x.weapons[Math.floor(i/19)%x.weapons.length];
+      w.charging=i%11<4;w.held=(i%13)/10;w.wait=i%17===0?.01:0;w.reloading=i%31===0;w.busy=i%23===0;w.overheated=i%43===0;
+      w.heat=(i%16)/20;w.clip=40-i%30;w.reserve=i%47===0?Infinity:80;w.bottomless=i%53===0;
+      x.result=consumeFire(x.c,x.unit,x.world);
+    }
+    assert.equal(n.result,j.result,`consume result ${i}`);
+    assert.deepEqual(n.world.history,j.world.history,`consume callbacks ${i}`);
+    assert.deepEqual(n.snapshot(),j.snapshot(),`consume state ${i}`);
+  }
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {

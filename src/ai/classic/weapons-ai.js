@@ -683,6 +683,7 @@ export function arsenalInput(previous, intent, out = null) {
 
 export function consumeFire(controller, unit, world) {
   const fire = fireOf(controller);
+  if(fire?.nativeConsume)return fire.nativeConsume(controller,unit,world);
   if (!fire || !unit) return false;
   const now = world?.time ?? 0;
   const weapon = selectedWeapon(unit, controller);
