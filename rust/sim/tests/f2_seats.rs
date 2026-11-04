@@ -203,7 +203,7 @@ fn classic_exit_checks_ninety_eight_rays_before_its_fallback() {
 }
 
 #[test]
-fn killed_rider_drops_at_the_exposed_seat_and_promotes() {
+fn killed_rider_uses_the_drop_point_and_promotes() {
     let (mut st, mut p, mut w, h) = setup(2);
     let a = unit(&mut st, 1, false); let b = unit(&mut st, 2, false);
     assert!(p.board(&mut st, &mut w, a, h, 0)); assert!(p.board(&mut st, &mut w, b, h, 1));
