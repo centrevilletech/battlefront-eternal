@@ -1,5 +1,6 @@
 // Compare native timing/window decisions in the actual Soldier, mailbox and
 // replay loop. --replay also uses and records the private native replay cursor.
+// --playout joins that cursor with native packet playout and sample brackets.
 // Deterministic network scenarios are correctness checks only.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -13,6 +14,9 @@ import { selectMission } from '../src/mission.js';
 import { loadSim } from '../src/sim/module.js';
 import { createReconcileSim } from '../src/runtime/reconcile-sim.js';
 import { createReplaySim } from '../src/runtime/replay-sim.js';
+import { createPlayoutSim } from '../src/runtime/playout-sim.js';
+import { PlayoutClock } from '../src/runtime/playout.js';
+import { SnapshotInterval, renderedViewTick } from '../src/runtime/snapshot-interval.js';
 import { PredictionWindow, retainPredictionCommands } from '../src/runtime/prediction-window.js';
 import { InputLead, advanceInputClock, replayTicks } from '../src/runtime/reconcile.js';
 import { FixedClock } from '../src/runtime/fixed-clock.js';
@@ -22,7 +26,7 @@ import { Soldier } from '../src/soldier.js';
 import { CollisionWorld } from '../src/collision.js';
 
 const args = process.argv.slice(2), option = name => { const i = args.indexOf(`--${name}`); return i < 0 ? null : args[i + 1]; };
-const replayMode = args.includes('--replay');
+const playoutMode = args.includes('--playout'), replayMode = !playoutMode && args.includes('--replay');
 let revision = option('revision') || process.env.BFE_SOURCE_REVISION;
 if (!revision) try { revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch {}
 assert.match(revision || '', /^[a-f0-9]{40}$/, 'explicit source revision required');
@@ -38,7 +42,7 @@ if (corpusPath) {
   assert.equal(existsSync(corpusPath), false); assert.equal(existsSync(corpusPath + '.manifest.json'), false);
 }
 const descriptor = corpusPath ? openSync(corpusPath, 'wx') : null;
-const corpusHash = createHash('sha256'), opcodes = {}, timingOpcodes = {}, cases = [], owners = new Set();
+const corpusHash = createHash('sha256'), opcodes = {}, timingOpcodes = {}, replayOpcodes = {}, cases = [], owners = new Set();
 let label = '', corpusBytes = 0, operations = 0, exchanges = 0;
 const words = values => {
   const bytes = Buffer.alloc(values.length * 8);
@@ -47,12 +51,6 @@ const words = values => {
 };
 function capture(event) {
   assert.equal(event.error, null, 'valid client native operation');
-  if (replayMode) {
-    assert.ok(Number.isSafeInteger(event.session) && event.session > 0, 'owned replay session');
-    if (event.op === 'create') { assert.equal(owners.has(event.session), false); owners.add(event.session); }
-    else if (event.op === 'drop') { assert.equal(owners.delete(event.session), true, 'release live replay owner'); }
-    else assert.ok(owners.has(event.session), 'exchange belongs to a live replay owner');
-  }
   const line = JSON.stringify({ label, ...(replayMode ? { session: event.session } : {}), op: event.op, input: words(event.input), output: words(event.output), error: null }) + '\n';
   corpusHash.update(line); corpusBytes += Buffer.byteLength(line); operations++;
   if (typeof event.op === 'number') exchanges++;
@@ -62,32 +60,50 @@ function capture(event) {
 const instance = await loadSim();
 const native = createReconcileSim(instance, { trace(event) {
   timingOpcodes[event.op] = (timingOpcodes[event.op] || 0) + 1;
-  if (!replayMode) capture(event);
+  if (!replayMode && !playoutMode) capture(event);
 } });
-const nativeReplay = replayMode ? createReplaySim(instance, { trace: capture }) : null;
+const nativeReplay = replayMode || playoutMode ? createReplaySim(instance, { trace(event) {
+  assert.equal(event.error, null, 'valid private replay operation');
+  assert.ok(Number.isSafeInteger(event.session) && event.session > 0, 'owned replay session');
+  if (event.op === 'create') { assert.equal(owners.has(event.session), false); owners.add(event.session); }
+  else if (event.op === 'drop') { assert.equal(owners.delete(event.session), true, 'release live replay owner'); }
+  else assert.ok(owners.has(event.session), 'exchange belongs to a live replay owner');
+  replayOpcodes[event.op] = (replayOpcodes[event.op] || 0) + 1;
+  if (replayMode) capture(event);
+} }) : null;
+const nativePlayout = playoutMode ? createPlayoutSim(instance, { trace: capture }) : null;
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 function plane() {
   return new CollisionWorld(new Float32Array([-100, 0, -100, 100, 0, -100, 100, 0, 100, -100, 0, 100]),
     new Uint32Array([0, 2, 1, 0, 3, 2]), new Uint32Array([0, 1]));
 }
 function measured(options, native) {
-  const commands = createHash('sha256'), bodies = createHash('sha256'), replay = createHash('sha256'); let commandCount = 0, physicsTicks = 0, replayTicks = 0;
-  const result = measurePrediction({ ...options, native, nativeReplay: native ? nativeReplay : null, observe(kind, value, context) {
+  const commands = createHash('sha256'), bodies = createHash('sha256'), replay = createHash('sha256'), presentation = createHash('sha256'); let commandCount = 0, physicsTicks = 0, replayTicks = 0, presentationFrames = 0;
+  const result = measurePrediction({ ...options, native, nativeReplay: native ? nativeReplay : null, nativePlayout: native ? nativePlayout : null, observe(kind, value, context) {
     if (kind === 'command') { commands.update(JSON.stringify([context, value])); commandCount++; }
     else if (kind === 'physics') { bodies.update(captureCompactSoldier(value)); physicsTicks++; }
     else if (kind === 'replay') { replay.update(JSON.stringify([context, value])); replayTicks++; }
+    else if (kind === 'playout') {
+      const { gaps, ...scalars } = value;
+      presentation.update(JSON.stringify([context, Object.keys(scalars)]));
+      presentation.update(words([context, ...Object.values(scalars).map(value => value === null ? 0 : 1)]));
+      presentation.update(words(Object.values(scalars).map(value => value === null ? 0 : value)));
+      presentation.update(new Uint8Array(gaps.buffer, gaps.byteOffset, gaps.byteLength)); presentationFrames++;
+    }
   } });
   assert.ok(commandCount > 200 && physicsTicks > 200 && replayTicks > 200, 'actual clocks, bodies and replay advanced');
-  return { result, commandCount, physicsTicks, replayTicks, commandSha256: commands.digest('hex'), bodySha256: bodies.digest('hex'), replaySha256: replay.digest('hex') };
+  return { result, commandCount, physicsTicks, replayTicks, presentationFrames, commandSha256: commands.digest('hex'), bodySha256: bodies.digest('hex'), replaySha256: replay.digest('hex'), presentationSha256: presentation.digest('hex') };
 }
 function blackout({ fps, stall }, native) {
   const world = plane(), authority = new Soldier(world, {}), local = new Soldier(world, {}), checker = new Soldier(world, {});
   for (const soldier of [authority, local, checker]) soldier.spawn(0, 0, 0, 0);
   const window = new PredictionWindow(120, { native }), clock = new FixedClock(), lead = new InputLead({ maxLead: 24, extrapolate: true }, { native });
+  const playout = playoutMode ? new PlayoutClock({ minDelay: 6, maxDelay: 18 }, { native: native ? nativePlayout : null }) : null;
+  const interval = playoutMode ? new SnapshotInterval({ native: native ? nativePlayout : null }) : null;
   let mailbox = new InputMailbox(), serverEpoch = 1, serverGeneration = 1, serverIdentity = 17, epoch = 1, generation = 1, identity = 17;
   let pending = [], held = [], sequence = 0, latest = 0, applied = 0, serverTick = 0, nextFrame = 1 / fps, lastFrame = 0;
   let saved = null, oldState = null, predicted = false, staleInjected = false, maxPending = 0, maxReplay = 0, frames = 0, exactCalls = 0, exactMatches = 0;
-  const toServer = [], toClient = [], commands = createHash('sha256'), bodies = createHash('sha256'), checkpoints = createHash('sha256'), replayed = createHash('sha256');
+  const toServer = [], toClient = [], packets = [], commands = createHash('sha256'), bodies = createHash('sha256'), checkpoints = createHash('sha256'), replayed = createHash('sha256'), presentation = createHash('sha256');
   let physicsTicks = 0, replayTicksCount = 0;
   const replay = (role, list, from, life, down, apply) => replayTicks(list, from, life, down, (tick, command, sequences) => {
     replayed.update(JSON.stringify([role, tick, command, sequences])); replayTicksCount++;
@@ -99,6 +115,15 @@ function blackout({ fps, stall }, native) {
     bodies.update(captureCompactSoldier(soldier)); physicsTicks++;
   };
   const queue = (list, item) => { list.push(item); list.sort((a, b) => a.at - b.at); };
+  const applyPacket = (packet, now) => {
+    restoreCompactSoldier(local, packet.state);
+    applied = packet.tick; epoch = packet.epoch; generation = packet.generation; identity = packet.identity;
+    if (!playoutMode) { latest = packet.tick; lead.arrive(packet.tick, now); }
+    while (pending.length && pending[0].sequence <= packet.ack) {
+      const command = pending.shift(); held = command.down;
+      if (command.sequence === packet.ack) lead.acknowledge(packet.ackTick - command.tick, 1, command.capped);
+    }
+  };
   lead.arrive(0, 0);
   for (let micro = 1; micro <= 10 * 7200; micro++) {
     const now = micro / 7200;
@@ -121,13 +146,20 @@ function blackout({ fps, stall }, native) {
     const dt = now - lastFrame; lastFrame = now; frames++;
     if (predicted) restoreCompactSoldier(local, saved);
     while (toClient.length && toClient[0].at <= now) {
-      const packet = toClient.shift(); restoreCompactSoldier(local, packet.state);
-      latest = applied = packet.tick; epoch = packet.epoch; generation = packet.generation; identity = packet.identity;
-      lead.arrive(packet.tick, now);
-      while (pending.length && pending[0].sequence <= packet.ack) {
-        const command = pending.shift(); held = command.down;
-        if (command.sequence === packet.ack) lead.acknowledge(packet.ackTick - command.tick, 1, command.capped);
+      const packet = toClient.shift();
+      if (playout) { latest = packet.tick; lead.arrive(packet.tick, now); playout.arrive(packet.tick, now, 3); packets.push(packet); }
+      else applyPacket(packet, now);
+    }
+    if (playout) {
+      const shown = playout.advance(dt);
+      while (packets.length && interval.needsSample(shown)) {
+        const packet = packets.shift(); applyPacket(packet, now); interval.apply(packet.tick);
       }
+      const values = [now, shown, playout.shownTick, playout.delay, playout.rate, playout.waits,
+        interval.previous, interval.current, interval.alpha(shown), renderedViewTick(shown, latest, { native: native ? nativePlayout : null })];
+      presentation.update(words(values.map(value => value === null ? 0 : 1)));
+      presentation.update(words(values.map(value => value === null ? 0 : value)));
+      presentation.update(new Uint8Array(playout.gaps.buffer, playout.gaps.byteOffset, playout.gaps.byteLength));
     }
     if (serverTick >= 300 && !staleInjected) { restoreCompactSoldier(local, oldState); applied = 60; staleInjected = true; }
     const target = lead.target(now, latest, .1);
@@ -175,6 +207,7 @@ function blackout({ fps, stall }, native) {
   return { fps, stall, sequence, frames, physicsTicks, replayTicks: replayTicksCount, maxPending, maxReplay, exactCalls, exactMatches, epoch, generation, identity,
     commandSha256: commands.digest('hex'), bodySha256: bodies.digest('hex'), checkpointSha256: checkpoints.digest('hex'),
     replaySha256: replayed.digest('hex'),
+    presentationSha256: presentation.digest('hex'),
     finalBody: Array.from(captureCompactSoldier(local)), finalAuthority: Array.from(captureCompactSoldier(authority)) };
 }
 let report, completed = false;
@@ -183,27 +216,34 @@ const requirePhases = (before, phases) => {
   for (const phase of phases) assert.ok((timingOpcodes[phase] || 0) > (before[phase] || 0), `${label} native timing phase ${phase} delegated`);
 };
 const requireReplay = before => {
-  if (!replayMode) return;
-  for (const phase of [0, 1, 2]) assert.ok((opcodes[phase] || 0) > (before[phase] || 0), `${label} native replay phase ${phase} delegated`);
+  if (!nativeReplay) return;
+  for (const phase of [0, 1, 2]) assert.ok((replayOpcodes[phase] || 0) > (before[phase] || 0), `${label} native replay phase ${phase} delegated`);
   assert.equal(owners.size, 0, `${label} every private owner released`);
 };
-const cursorCounts = before => replayMode ? { replayOpcodes: Object.fromEntries(Object.keys(opcodes).map(key => [key, opcodes[key] - (before[key] || 0)])) } : {};
+const requirePlayout = before => {
+  if (playoutMode) for (let phase = 0; phase < 13; phase++) assert.ok((opcodes[phase] || 0) > (before[phase] || 0), `${label} native playout phase ${phase} delegated`);
+};
+const changes = (counts, before) => Object.fromEntries(Object.keys(counts).map(key => [key, counts[key] - (before[key] || 0)]));
+const cursorCounts = (before, playoutBefore) => ({ ...(nativeReplay ? { replayOpcodes: changes(replayOpcodes, before) } : {}),
+  ...(playoutMode ? { playoutOpcodes: changes(opcodes, playoutBefore) } : {}) });
 try {
   for (const fps of [20, 60, 90, 144]) for (const network of [{}, { jitterMs: 30, lossEvery: 7, snapshotLossEvery: 11 }]) {
     label = `plane-${fps}-${network.lossEvery || 0}`;
-    const options = { fps, ...network }, first = native.calls, before = phaseCounts(), cursorBefore = { ...opcodes }, expected = measured(options, null), actual = measured(options, native);
+    const options = { fps, ...network }, first = native.calls, before = phaseCounts(), cursorBefore = { ...replayOpcodes }, playoutBefore = { ...opcodes }, expected = measured(options, null), actual = measured(options, native);
     assert.deepEqual(actual, expected, label); assert.ok(native.calls > first + 100, `${label} native timing delegated`);
     requirePhases(before, [1, 8, 11, 12]);
     requireReplay(cursorBefore);
-    cases.push({ label, ...actual, nativeCalls: native.calls - first, ...cursorCounts(cursorBefore) });
+    requirePlayout(playoutBefore);
+    cases.push({ label, ...actual, nativeCalls: native.calls - first, ...cursorCounts(cursorBefore, playoutBefore) });
   }
   for (const fps of [20, 59.94, 60, 90, 144]) for (const stall of [false, true]) {
     label = `blackout-${fps}-${stall}`;
-    const first = native.calls, before = phaseCounts(), cursorBefore = { ...opcodes }, expected = blackout({ fps, stall }, null), actual = blackout({ fps, stall }, native);
+    const first = native.calls, before = phaseCounts(), cursorBefore = { ...replayOpcodes }, playoutBefore = { ...opcodes }, expected = blackout({ fps, stall }, null), actual = blackout({ fps, stall }, native);
     assert.deepEqual(actual, expected, label); assert.ok(native.calls > first + 100, `${label} native windows delegated`);
     requirePhases(before, [1, 8, 13, 14, 15]);
     requireReplay(cursorBefore);
-    cases.push({ label, ...actual, nativeCalls: native.calls - first, ...cursorCounts(cursorBefore) });
+    requirePlayout(playoutBefore);
+    cases.push({ label, ...actual, nativeCalls: native.calls - first, ...cursorCounts(cursorBefore, playoutBefore) });
   }
   const files = [], loaded = new Map(), query = '?map=nab2&side=rep';
   const manifest = await contentManifest(query, async path => {
@@ -224,17 +264,18 @@ try {
   for (const fps of [60, 144]) {
     label = `content-nab2-${fps}`;
     const options = { fps, jitterMs: 30, lossEvery: 7, snapshotLossEvery: 11, start: spawn.slice(0, 3), yaw: spawn[3] };
-    const first = native.calls, before = phaseCounts(), cursorBefore = { ...opcodes }, expected = measured({ ...options, world: new CollisionWorld(...geometry) }, null), actual = measured({ ...options, world: new CollisionWorld(...geometry) }, native);
+    const first = native.calls, before = phaseCounts(), cursorBefore = { ...replayOpcodes }, playoutBefore = { ...opcodes }, expected = measured({ ...options, world: new CollisionWorld(...geometry) }, null), actual = measured({ ...options, world: new CollisionWorld(...geometry) }, native);
     assert.deepEqual(actual, expected, label); assert.ok(native.calls > first + 100, `${label} authenticated timing delegated`);
     requirePhases(before, [1, 8, 11, 12]);
     requireReplay(cursorBefore);
-    cases.push({ label, ...actual, nativeCalls: native.calls - first, ...cursorCounts(cursorBefore) });
+    requirePlayout(playoutBefore);
+    cases.push({ label, ...actual, nativeCalls: native.calls - first, ...cursorCounts(cursorBefore, playoutBefore) });
   }
   requirePhases({}, [10]);
-  report = { revision, closed: true, kind: replayMode ? 'prediction-replay' : 'prediction-reconcile', cases, caseCount: cases.length,
+  report = { revision, closed: true, kind: playoutMode ? 'prediction-playout' : replayMode ? 'prediction-replay' : 'prediction-reconcile', cases, caseCount: cases.length,
     authentication: { query, manifest, files, fingerprint: 'bfe-content-sha256-' + sha256(JSON.stringify(manifest)) },
-    operations, exchanges, opcodes, timingOpcodes, activeOwners: owners.size, corpusBytes, corpusSha256: corpusHash.digest('hex') };
+    operations, exchanges, opcodes, timingOpcodes, replayOpcodes, activeOwners: owners.size, corpusBytes, corpusSha256: corpusHash.digest('hex') };
   completed = true;
-} finally { nativeReplay?.dispose(); native.dispose(); if (descriptor !== null) closeSync(descriptor); }
+} finally { nativePlayout?.dispose(); nativeReplay?.dispose(); native.dispose(); if (descriptor !== null) closeSync(descriptor); }
 if (completed && corpusPath) writeFileSync(corpusPath + '.manifest.json', JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
 console.log(JSON.stringify(report, null, 2));

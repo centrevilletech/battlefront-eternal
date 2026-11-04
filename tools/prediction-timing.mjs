@@ -20,15 +20,15 @@ import {captureCompactSoldier,restoreCompactSoldier} from '../src/runtime/networ
 import {InputMailbox} from '../src/runtime/transport.js';
 import {FixedClock} from '../src/runtime/fixed-clock.js';
 import {PlayoutClock} from '../src/runtime/playout.js';
-import {SnapshotInterval} from '../src/runtime/snapshot-interval.js';
+import {SnapshotInterval,renderedViewTick} from '../src/runtime/snapshot-interval.js';
 import {InputLead,advanceInputClock,replayTicks,CorrectionSmoother} from '../src/runtime/reconcile.js';
 
-export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=null,rays=null,start=[0,0,0],yaw=0,quantized=false,lossEvery=0,snapshotLossEvery=0,native=null,nativeReplay=null,observe=null}={}) {
+export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=null,rays=null,start=[0,0,0],yaw=0,quantized=false,lossEvery=0,snapshotLossEvery=0,native=null,nativeReplay=null,nativePlayout=null,observe=null}={}) {
  world??=new CollisionWorld(new Float32Array([-100,0,-100,100,0,-100,100,0,100,-100,0,100]),new Uint32Array([0,2,1,0,3,2]),new Uint32Array([0,1]),undefined,undefined,rays);
  if(world.rays&&!world.movement)world.movement=new MovementKernel(world);
  const digest=createHash('sha1'),ticked=new Float64Array(6);
  const server=new Soldier(world,{}),local=new Soldier(world,{});server.spawn(...start,yaw);local.spawn(...start,yaw);
- const mailbox=new InputMailbox(),input=new FixedClock(),lead=new InputLead({maxLead:24,extrapolate:true,recover:true},{native}),playout=new PlayoutClock({minDelay:6,maxDelay:18}),interval=new SnapshotInterval(),presentation=new SoldierPresentation(local),smoother=new CorrectionSmoother({},{native});
+ const mailbox=new InputMailbox(),input=new FixedClock(),lead=new InputLead({maxLead:24,extrapolate:true,recover:true},{native}),playout=new PlayoutClock({minDelay:6,maxDelay:18},{native:nativePlayout}),interval=new SnapshotInterval({native:nativePlayout}),presentation=new SoldierPresentation(local),smoother=new CorrectionSmoother({},{native});
  const toServer=[],toClient=[],packets=[],corrections=[],late=[],stampAhead=[];
  let saved;
  let pending=[],held=[],latest=0,applied=0,sequence=0,predicted=false,predictedTick=0,predictedPosition=local.position.clone(),firstCommand=0,firstVisible=null,firstAck=null,firstConsumed=null,serverTick=0;
@@ -68,6 +68,7 @@ export function measurePrediction({fps=144,rttMs=100,jitterMs=0,seconds=7,world=
    while(pending.length&&pending[0].sequence<=packet.ack){const command=pending.shift();held=command.down;if(command.sequence===packet.ack){lead.acknowledge(packet.ackTick-command.tick);late.push(packet.ackTick-command.tick);}}
    if(firstCommand&&packet.ack>=firstCommand&&firstAck===null)firstAck=now;
   }
+  observe?.('playout',{clock,latest,applied,shown:playout.shownTick,alpha:interval.alpha(clock),viewTick:renderedViewTick(clock,latest,{native:nativePlayout}),previous:interval.previous,current:interval.current,delay:playout.delay,rate:playout.rate,waits:playout.waits,gaps:playout.gaps},now);
   if(pending.length){
    saved=captureCompactSoldier(local);const checkTick=predictedTick>applied?predictedTick:0,previous=predictedPosition.clone();
    predictedTick=replayTicks(pending,applied,1,held,(tick,command,sequences)=>{
