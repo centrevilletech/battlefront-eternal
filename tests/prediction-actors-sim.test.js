@@ -182,3 +182,21 @@ test('disposal during collision preparation happens before native actor entry', 
     assert.deepEqual(actorObservation(actor.soldier, p.kick), before);
   } finally { p.dispose(); native.dispose(); course.dispose(); }
 });
+
+test('edited presentation clip durations do not change private actor motion timing', async () => {
+  const instance = await loadSim(), rays = await loadRayKernel(instance);
+  const run = useNative => {
+    const course = actorCourse(useNative ? rays : null), scenario = { kind: 'droideka', pattern: 'droideka' }, actor = createPredictionActor(scenario, course);
+    for (const clip of actor.clips.values()) clip.duration *= 1.75;
+    const native = useNative ? createActorPredictionSim(instance, course.world) : null;
+    const p = new DroidekaPrediction(actor.soldier, actor.combat, undefined, { native }), observations = [];
+    try {
+      for (let tick = 0; tick < 180; tick++) {
+        p.step(actorInput(scenario, tick), 1 / 60, tick % 37 === 0); observations.push(actorObservation(actor.soldier, p.kick));
+        if (native) assert.equal(p.nativeSession.steps, tick + 1, 'actor motion continues natively using frames and speed');
+      }
+      return observations;
+    } finally { p.dispose(); native?.dispose(); course.dispose(); }
+  };
+  assert.deepEqual(run(true), run(false));
+});
