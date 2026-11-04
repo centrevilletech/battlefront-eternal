@@ -50,6 +50,14 @@ export function createWireBridge(bridge, { trace = null } = {}) {
       read(x.wire_capture(handle));
       return { tick, epoch };
     },
+    captureProduced({ tick, epoch = 1, source, world, bounds = DEFAULT_SNAPSHOT_BOUNDS }) {
+      alive();
+      if (source.bridge !== bridge || world.bridge !== bridge) throw Error('snapshot producers require the same simulation bridge');
+      const sourceHandle = source.nativeHandle, worldHandle = world.nativeHandle;
+      bridge.callArgs(inputs[4], { tick, epoch, records: [], world: [], bounds });
+      read(x.wire_capture_produced(handle, sourceHandle, worldHandle));
+      return { tick, epoch };
+    },
     encodeHeld(current, baseline, { interval = 2 } = {}) {
       alive(); return read(x.wire_held(handle, current.tick, current.epoch, baseline?.tick ?? 0, interval));
     },

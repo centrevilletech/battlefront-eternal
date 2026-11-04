@@ -175,13 +175,16 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
       metrics: { snapshots: 0, datagrams: 0, bytes: 0, cosmeticsDropped: 0, cosmeticsOwedDropped: 0, cosmeticsResent: 0, emptyBaselines: 0, budgetSkips: 0, ownOnly: 0, staleSkips: 0 },
       ownSummariesDue: 0,
     };
-    Object.assign(state, {
-      edges: new EntityEdges({ actor: world.players.get(id), world, client: id, registry, bridge: native ? game.simBridge : null }),
-      outbox: nativeCosmetics ? nativeCosmetics.createOutbox({ range: COSMETIC_RANGE }) : new CosmeticOutbox({ range: COSMETIC_RANGE }),
-      ownSummariesCache: null,
-      inputDiagnostics: { accepted: 0, rejected: 0, reasons: {}, last: {} },
-    });
-    clients.set(id, state);
+    try {
+      state.edges = new EntityEdges({ actor: world.players.get(id), world, client: id, registry, bridge: native ? game.simBridge : null });
+      state.outbox = nativeCosmetics ? nativeCosmetics.createOutbox({ range: COSMETIC_RANGE }) : new CosmeticOutbox({ range: COSMETIC_RANGE });
+      state.ownSummariesCache = null;
+      state.inputDiagnostics = { accepted: 0, rejected: 0, reasons: {}, last: {} };
+      clients.set(id, state);
+    } catch (error) {
+      state.edges?.dispose?.(); state.outbox?.dispose?.(); nativeHost?.remove(id);
+      throw error;
+    }
   }
   function removeClient(id) { const state = clients.get(id); state?.edges.dispose?.(); state?.outbox.dispose?.(); nativeHost?.remove(id); clients.delete(id); }
   function setStarted(id, started) { const s = clients.get(id); if (s) { s.started = Boolean(started); if (s.started) s.heardAt = now(); } }
@@ -255,7 +258,7 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
   function captureSnapshot(tick) {
     const characters = game.battle.characters;
     for (const [slot, c] of characters.entries()) c.rosterSlot = slot;
-    const records = capture.capture(tick);
+    const records = native ? capture.captureNative(tick) : capture.capture(tick);
     // The fields captureWorldSummaries produces for everyone. Skipping the
     // roster when none of its chunks is due and its chunk count (set by the
     // character count) is unchanged publishes exactly what capturing it would.
@@ -282,7 +285,7 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
     for (const u of game.units.all()) if (u.soldier && u.combat && !u.removed && stagger.isFieldDue(tick, UNIT_STATE_SCHEMA, UNIT_STATE_ID + u.id)) unitStates.push(captureUnitState(u, registry, tick, nativePresentation));
     // Stations and tows the stagger would not take now are not built.
     stagger.take(tick, [...common, ...unitStates, ...captureWorldPresentation(game, tick, epoch, (schema, id, stateTeam) => stagger.held(tick, schema, id, stateTeam), nativePresentation)], complete);
-    const snapshot = native ? native.capture({ tick, epoch, records, world: stagger.world() })
+    const snapshot = native ? native.captureProduced({ tick, epoch, source: capture, world: stagger })
       : snapshotFromRecords({ tick, epoch, records, world: stagger.world(), slots, previous: lastSnapshot, spare });
     ring.set(tick, epoch, snapshot);
     nativeHost?.captured(tick);

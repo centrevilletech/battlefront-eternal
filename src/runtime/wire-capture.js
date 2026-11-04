@@ -47,7 +47,7 @@ export class WireEntityCapture {
     return out;
   }
   token(object) { let id = this.tokens.get(object); if (id === undefined) { id = this.nextToken++; this.tokens.set(object, id); } return id; }
-  captureItems(tick) {
+  captureItems(tick, nativeOnly = false) {
     const items = this.game.items;
     if (!items) return [];
     const live = new Set(items.items.filter(item => !item.gone));
@@ -61,9 +61,9 @@ export class WireEntityCapture {
       const record = { ...raw, definitionId: this.registry.combat.definitionId(item.def), position: item.position.toArray(), velocity: item.velocity.toArray(), up: item.up.toArray() };
       this.run(8, { tick, token: pending.slot, record });
     }
-    return this.run(9).records;
+    return nativeOnly ? null : this.run(9).records;
   }
-  captureRemotes(tick) {
+  captureRemotes(tick, nativeOnly = false) {
     const world = this.game.networkRemotes;
     if (!world) return [];
     for (const { droid } of world.droids()) if (!droid.dead) world.identityFor(droid);
@@ -74,11 +74,12 @@ export class WireEntityCapture {
         definitionId: this.registry.combat.definitionId(droid.def), team: droid.team, position: droid.position.toArray(), velocity: droid.velocity.toArray(), yaw: droid.yaw, pitch: droid.pitch, health: droid.health };
       this.run(10, { tick, record, dead: !!droid.dead });
     }
-    return this.run(11).records;
+    return nativeOnly ? null : this.run(11).records;
   }
-  capture(tick) {
-    const records = [...this.captureItems(tick), ...this.captureRemotes(tick)]; this.unsupported = [];
-    this.run(0, { records });
+  capture(tick, nativeOnly = false) {
+    if (nativeOnly) { this.captureItems(tick, true); this.captureRemotes(tick, true); this.run(13); }
+    else { const records = [...this.captureItems(tick), ...this.captureRemotes(tick)]; this.run(0, { records }); }
+    this.unsupported = [];
     for (const unit of this.game.units.all()) {
       if (!unit.soldier || !unit.combat || unit.removed) continue;
       const weapon = unit.combat.arsenal.current(0), classId = required(this.classes, unit.className), weaponId = weapon ? required(this.weapons, weapon.name) : 0;
@@ -112,7 +113,10 @@ export class WireEntityCapture {
         building: this.game.live?.buildings?.indexOf(turret) ?? -1, state: turret.state, team: turret.aiTarget.team,
         health: turret.health, yaw: turret.yaw, pitch: turret.pitch, gunYaw: turret.gunYaw, gunPitch: turret.gunPitch } });
     }
-    return this.run(5, { tick }).records.map(semantic);
+    const result = this.run(nativeOnly ? 12 : 5, { tick });
+    return nativeOnly ? undefined : result.records.map(semantic);
   }
+  captureNative(tick) { this.capture(tick, true); }
+  get nativeHandle() { if (!this.handle) throw Error('entity capture disposed'); return this.handle; }
   dispose() { if (this.handle) { this.bridge.x.wire_capture_source_drop(this.handle); this.handle = 0; } }
 }

@@ -73,3 +73,32 @@ test('native item raw shortcuts retain old samples and survive reentrant registr
   assert.equal(native.definitionCalls.length, js.definitionCalls.length, 'the unchanged item capture does not look up definitions');
   native.capture.dispose();
 });
+
+test('retained native producers feed snapshot bytes without materializing JS records', async () => {
+  const { createWireStaggerBridge } = await import('../src/runtime/wire-host.js');
+  const { SnapshotSlotTable, WorldFieldStagger, snapshotFromRecords } = await import('../src/runtime/snapshot-records.js');
+  const { encodeEntities } = await import('../src/runtime/snapshot-codec.js');
+  const instance = await loadSim(), bridge = bridgeFor(instance), native = fixture(bridge), js = fixture();
+  const wire = createWireBridge(bridge), stagger = createWireStaggerBridge(bridge), referenceStagger = new WorldFieldStagger(), slots = new SnapshotSlotTable();
+  wire.start(); let previous = null;
+  const held = [], encoder = new TextEncoder();
+  for (let tick = 1; tick <= 180; tick++) {
+    step(native, tick); step(js, tick);
+    native.capture.captureNative(tick);
+    const records = js.capture.capture(tick);
+    const fields = [{ schema: 9, id: 7, generation: 1, payload: encoder.encode(JSON.stringify([tick % 9, -0, 'world'])) },
+      { schema: 7, id: 0, generation: 1, payload: encoder.encode(JSON.stringify([0, tick % 3 ? 'built' : 'destroyed', 0, tick % 2])) }];
+    stagger.take(tick, fields, new Set([7, 9])); referenceStagger.take(tick, fields, new Set([7, 9]));
+    const value = wire.captureProduced({ tick, source: native.capture, world: stagger });
+    const expected = snapshotFromRecords({ tick, epoch: 1, records, world: referenceStagger.world(), slots, previous });
+    for (const base of [null, held.at(-1), held.at(-8), held.at(-90)]) {
+      if (base === undefined) continue;
+      assert.deepEqual(wire.encodeHeld(value, base?.value, {interval:tick%3+1}), encodeEntities(expected, base?.expected, {interval:tick%3+1}), `produced ${tick}`);
+    }
+    held.push({ value, expected }); previous = expected;
+    if (tick === 80) instance.exports.memory.grow(2);
+  }
+  const foreign = createWireStaggerBridge(bridgeFor(await loadSim()));
+  assert.throws(() => wire.captureProduced({tick:181,source:native.capture,world:foreign}), /same simulation/);
+  foreign.dispose(); native.capture.dispose(); stagger.dispose(); wire.dispose();
+});

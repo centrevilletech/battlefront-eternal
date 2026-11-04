@@ -98,6 +98,8 @@ export function createWireStaggerBridge(bridge, cadence) {
     alive(); bridge.callArgs(inputs[1], { values: [...schemas] }); return !!x.wire_stagger_schemas(handle, tick, +any);
   }
   const api = {
+    bridge,
+    get nativeHandle() { alive(); return handle; },
     take(tick, records, completeSchemas = new Set()) {
       alive(); const refs = new Map(held);
       const values = records.map(record => {
