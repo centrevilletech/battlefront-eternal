@@ -69,6 +69,15 @@ export function syntheticHull(kind = 'hover', options = {}) {
     v.flightState = 'Flying'; v.position.set(0, 1, 0); v.velocity.set(0, -70, 40); v.airspeed = 80;
     v.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 3); v.captureTick();
   }
+  if (options.targets) {
+    v.flightState = 'Flying'; v.position.set(0, 20, 0); v.velocity.set(0, 0, 50); v.airspeed = 50; v.captureTick();
+    v.seats[0].weapons.push({ state: { lockTargetId: 71, lockGeneration: 6, lockElapsed: 9, lockComplete: true } });
+    const target = (id, x, team, named = true) => ({ id, generation: 2, alive: true, team, position: new THREE.Vector3(x, 20, 200),
+      ...(named ? { aimPoint(out) { return out.copy(this.position); } } : {}) });
+    const targets = [v.aiTarget, target(21, 0, 1), target(22, -1, 2), target(23, 1, 2, false), { ...target(24, 0, 2), alive: false }];
+    system.flightAssists = true;
+    system.units = { all: () => targets, byId: id => targets.find(t => t.id === id), relation: (a, b) => a === b ? 1 : -1, remove() {} };
+  }
   if (options.dead) v.alive = false;
   return result;
 }
@@ -92,6 +101,7 @@ export function hullPredictionCases() {
     { name: 'hover-death-region-disabled-body', kind: 'hover', ticks: 32, batch: 8, options: { deathRegion: true, disabled: true } },
     { name: 'creature-below-world', kind: 'creature', ticks: 20, batch: 5, options: { belowWorld: true } },
     { name: 'flyer-crash-keeps-authority', kind: 'flyer', ticks: 60, batch: 10, options: { crash: true } },
+    { name: 'flyer-target-lock-and-shared-weapons', kind: 'flyer', ticks: 90, batch: 15, options: { targets: true } },
     { name: 'flyer-bounded-flight', kind: 'flyer', ticks: 180, batch: 20, options: { environment: { ceiling: 7,
       bounds: { min: [-10, -300, -10], max: [10, 7, 10] } } } },
     { name: 'sparse-unsent-and-late-input', kind: 'springs', from: 40, ticks: 110, batch: 0, sparse: true },
@@ -103,7 +113,7 @@ export function hullPredictionCases() {
 
 const primitive = value => value === null || ['number', 'boolean', 'string', 'undefined'].includes(typeof value);
 const primitives = object => Object.fromEntries(Object.entries(object).filter(([, value]) => primitive(value)));
-const vectorFields = 'position previous velocity quaternion rotation matrix tickFrom supportNormal flightStart flightEnd flightTrickRight flightPreviousQ flightTickQ flightStartQ flightTrickLoopQ flightTrickEndQ'.split(' ');
+const vectorFields = 'position previous velocity quaternion rotation matrix itemCenter tickFrom supportNormal flightStart flightEnd flightTrickRight flightPreviousQ flightTickQ flightStartQ flightTrickLoopQ flightTrickEndQ flightFrameQ flightLeanQ'.split(' ');
 export function hullObservation(v, history = true) {
   if (!v) return null;
   const scalar = primitives(v);
@@ -111,6 +121,7 @@ export function hullObservation(v, history = true) {
   return { correction: Array.from(v.flying ? captureFlightCorrection(v) : captureGroundCorrection(v)), scalar,
     vectors: Object.fromEntries(vectorFields.filter(key => v[key]?.toArray).map(key => [key, v[key].toArray()])),
     seats: v.seats.map(primitives), wheels: v.wheels.map(primitives), legSide: v.legSide ? [...v.legSide] : null,
+    weaponLocks: v.seats.map(seat => seat.weapons.map(w => ['lockTargetId', 'lockGeneration', 'lockElapsed', 'lockComplete'].map(key => w.state[key]))),
     predictionTick: v.predictionTick,
     path: history ? Array.from(v.predictionPath || [], ([tick, p]) => [tick, p.toArray()]) : null,
     states: history ? Array.from(v.predictionStates || [], ([tick, bytes]) => [tick, bytes && Array.from(bytes)]) : null };
@@ -138,7 +149,18 @@ export function assertPredictionClone(clone, source) {
 // Observe the original collision owner, including the shared body's temporary
 // exclusion. Inputs are copied before a callback can reuse query scratch.
 export function observeHullQueries(source, onQuery = null) {
-  const c = source.system.collision, events = [], originals = new Map();
+  const c = source.system.collision, events = [], originals = new Map(), observers = [];
+  const units = source.system.units;
+  const watch = (object, key, args) => {
+    const original = object[key]; if (typeof original !== 'function') return;
+    object[key] = function (...input) { const event = [key, ...args(input)]; events.push(event); onQuery?.(event, source); return original.apply(this, input); };
+    observers.push(() => { object[key] = original; });
+  };
+  if (units) {
+    const targets = units.all?.() || [];
+    for (const target of targets) watch(target, 'aimPoint', () => [target.id]);
+    for (const key of ['all', 'byId', 'relation']) watch(units, key, input => input);
+  }
   const cacheIds = new Map([...source.wallCaches, ...source.springCaches].filter(Boolean).map((cache, i) => [cache, i]));
   const argsFor = (key, args) => key === 'cast' || key === 'castMoving' ? [args[0].toArray(), args[1].toArray(), args[2], args[4] === source.body]
     : key === 'gather' ? [args[0].toArray(), args[1], args[2], cacheIds.get(args[3]) ?? null]
@@ -155,6 +177,7 @@ export function observeHullQueries(source, onQuery = null) {
   let enabled = source.body.enabled;
   Object.defineProperty(source.body, 'enabled', { configurable: true, get: () => enabled, set(value) { events.push(['enabled', value]); enabled = value; } });
   return { events, dispose() {
+    for (const restore of observers) restore();
     for (const [key, original] of originals) c[key] = original;
     Object.defineProperty(source.body, 'enabled', { configurable: true, writable: true, enumerable: true, value: enabled });
   } };
@@ -171,6 +194,7 @@ export function runHullPredictionCase(scenario, { native = null, create = null, 
     onQuery?.(event, owner);
   }) : null, observations = [], predictions = [];
   const from = scenario.from || 0, pending = Array.from({ length: scenario.ticks }, (_, i) => hullCommand(i + 1, source.flying));
+  if (scenario.options?.targets) for (const c of pending) Object.assign(c, { down: [], look: [], actions: [1, 70].includes(c.tick) ? ['targetLock'] : [] });
   if (scenario.sparse) for (let i = pending.length - 1; i >= 0; i--) {
     if (i % 5 === 0) pending.splice(i, 1);
     else Object.assign(pending[i], { generation: i % 13 === 0 ? 99 : 3, sent: i % 9 !== 0, tick: Math.floor(i / 3) * 3 + 1,
@@ -194,6 +218,7 @@ export function runHullPredictionCase(scenario, { native = null, create = null, 
         assert.deepEqual(source.body.matrix.toArray(), collider); assert.equal(source.body.enabled, enabled);
         const authorityAfter = hullObservation(source);
         if (sharedLegSide) authority.legSide = authorityAfter.legSide;
+        if (source.flying) authority.weaponLocks = authorityAfter.weaponLocks;
         assert.deepEqual(authorityAfter, authority, `${scenario.name} authority preserves clone sharing`);
         if (previous !== source) {
           for (const [at, p] of previous.predictionPath) if (at > tick - 60) assert.equal(next.predictionPath.get(at), p, 'retained path entries keep identity');
@@ -211,7 +236,7 @@ export function runHullPredictionCase(scenario, { native = null, create = null, 
         tick = next.predictionTick;
       }
       const observation = hullObservation(next);
-      if (observation) observation.authorityLegSide = source.legSide ? [...source.legSide] : null;
+      if (observation) { observation.authorityLegSide = source.legSide ? [...source.legSide] : null; observation.authorityWeaponLocks = hullObservation(source).weaponLocks; }
       observations.push(observation); after?.({ source, previous, prediction: next, observations, batch });
       previous = next || previous; held = batch.at(-1)?.down || held;
     }

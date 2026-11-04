@@ -4,7 +4,12 @@ use bfe_content::{json, Value};
 use bfe_sim::gen::OrdnanceOwner;
 use bfe_sim::prediction::hulls::Session;
 use bfe_sim::vehicles::{BodyId, Ground, Hit, Hull, Polygon, VehicleWorld};
-use std::{collections::HashMap, path::Path, process::Command};
+use std::{
+    collections::HashMap,
+    io::{BufRead, BufReader},
+    path::Path,
+    process::{Command, Stdio},
+};
 use three::{Matrix4, Quaternion, Vector3};
 
 fn get<'a>(v: &'a Value, key: &str) -> &'a Value {
@@ -40,27 +45,29 @@ fn equal(actual: &[f64], expected: &[f64], place: &str) {
 #[test]
 fn private_hulls_match_js_and_wasm_with_the_same_queries() {
     let external = std::env::var_os("BFE_HULL_PREDICTION_CORPUS");
-    let corpus = if let Some(path) = &external {
-        std::fs::read_to_string(path).expect("read owned hull prediction corpus")
+    let mut oracle = None;
+    let corpus: Box<dyn BufRead> = if let Some(path) = &external {
+        Box::new(BufReader::new(
+            std::fs::File::open(path).expect("read owned hull prediction corpus"),
+        ))
     } else {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let oracle = Command::new(std::env::var_os("BFE_NODE").unwrap_or_else(|| "node".into()))
+        let mut child = Command::new(std::env::var_os("BFE_NODE").unwrap_or_else(|| "node".into()))
             .arg(root.join("tools/prediction-hulls-twin.mjs"))
             .current_dir(&root)
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .expect("run hull prediction oracle");
-        assert!(
-            oracle.status.success(),
-            "{}",
-            String::from_utf8_lossy(&oracle.stderr)
-        );
-        String::from_utf8(oracle.stdout).expect("hull prediction corpus UTF-8")
+        let stdout = child.stdout.take().unwrap();
+        oracle = Some(child);
+        Box::new(BufReader::new(stdout))
     };
     let mut sessions: HashMap<String, Session> = HashMap::new();
     let mut counts = [0usize; 3];
     let mut queries = 0usize;
     for (line, source) in corpus.lines().enumerate() {
-        let event = json::parse(source).unwrap();
+        let event = json::parse(&source.expect("hull prediction corpus UTF-8")).unwrap();
         let session = sessions
             .entry(text(get(&event, "session")).into())
             .or_default();
@@ -96,6 +103,16 @@ fn private_hulls_match_js_and_wasm_with_the_same_queries() {
         }
         equal(&session.output, &words(get(&event, "output")), &label);
         counts[op as usize] += 1;
+    }
+    if let Some(oracle) = oracle {
+        let result = oracle
+            .wait_with_output()
+            .expect("wait for hull prediction oracle");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
     }
     assert!(sessions.len() >= 8);
     assert!(counts[0] >= 8 && counts[1] >= 8 && counts[2] > 1000);
