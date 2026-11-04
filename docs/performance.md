@@ -936,9 +936,10 @@ guns in his hand, instanced, then what the near scene blends: the map's
 blended buckets and the command posts' holograms and flares, in three's
 order. Its programs are made from the GLSL three compiled for each
 material, and vehicles' and props' skinned rigs (`?rustRigs=0` leaves
-those to three, for comparisons). Three.js draws everything else, and
-everything in a configuration the renderer does not cover (shadows, lamp
-lighting, the temporal upscaler). `?rustOff` loads it switched off,
+those to three, for comparisons), and with shadows on the sun's shadow
+cascades. Three.js draws everything else (see "Shadows, lamps and the
+temporal upscaler" for what an Enhanced frame still leaves to it). `?rustOff`
+loads it switched off,
 `?rustSort` orders the map's buckets by program rather than as three does,
 and `?rustRecord` keeps every call made to it, so that `rust/bfe-native` can
 replay the scene natively.
@@ -961,8 +962,9 @@ boundary, so that each part of the frame can move to it on its own:
 | Post | `post.rs` | `post.js` | post | Soft focus, bloom, composite, FXAA, the upscale (bilinear, spatial, temporal) |
 | HUD | `hud.rs` | `hud.js` | hud | The battle HUD's quads |
 | Water | `water.rs` | `water.js` | transparent | Terrain water among the blended items: Low's textured surface, High and Ultra's tint and reflection passes, the rings, the shore's lapping, the Enhanced ocean's crest spray |
-| Canopies | `canopies.rs` | `canopies.js` | near | The Enhanced tree canopies' leaves |
+| Shadow | `shadow.rs` | `shadow.js` | shadow | The sun's shadow cascades: each cascade's static cache and live map, its casters drawn with three's depth programs |
 | Motion | `motion.rs` | `motion.js` | motion | The temporal upscaler's motion of the bodies that move on their own, and the first-person view's locked mask |
+| Canopies | `canopies.rs` | `canopies.js` | near | The Enhanced tree canopies' leaves |
 
 `core.rs` holds what the passes share: the context and its multi-draw, the
 programs, geometries and textures, the inputs the page writes each frame, a
@@ -972,15 +974,16 @@ passes leave behind them (`GlState`), which is unknown at the start of
 each phase since three draws in between. A phase is one call from the page
 that draws its passes in order: `far_frame` (and `far_mirror_frame` and
 `far_probe_frame`, the far scene from a water mirror's camera and for a sky
-probe's faces), `frame` (the near phase), `transparent_frame`, `view_frame`
-and `post_frame`. Each returns its stats: the five counts the page has always
+probe's faces), `frame` (the near phase), `transparent_frame`, `view_frame`,
+`post_frame`, `motion_frame` and `shadow_frame`. Each returns its stats: the five counts the page has always
 read (world draws, instanced draws, instances, program switches, GL calls),
 then each pass's draws in the table's order. The near phase is called from
 the far scene's image (`graphics.background`'s `onAfterRender`) at the start
 of the near scene's pass, and the transparent phase from the item three
 draws just before its transparent list (see below); `view_frame`,
 `post_frame` and `hud_frame` from their places in `graphics.js` and
-`hud.js`, and `mirror_frame` (the near phase's passes from a mirror camera)
+`hud.js`, `shadow_frame` from each cascade's pass in `graphics.js`, and
+`mirror_frame` (the near phase's passes from a mirror camera)
 from a water reflection's render of the near scene.
 
 On the page, `src/rust-render/index.js` loads the module and keeps the
@@ -1497,6 +1500,95 @@ On the emulator with its draws made no-ops, a water mirror's far scene on
 Kashyyyk: Docks at High, drawn on the same frames alternately by the far
 pass and by three, cost 0.73 ms (median) and 1.01 ms (mean) with the far
 pass against 1.05 and 1.50 ms with three's two renders.
+
+### Shadows, lamps and the temporal upscaler
+
+The renderer covers the configuration a battle starts in, the Enhanced ones
+included (the Balanced and High quality presets have shadows, lamp lighting
+and the temporal upscaler on). A change of any of the three in mid-battle
+gives everything back to three for the rest of it, as the programs made for
+the old configuration would be stale. Within a configuration, a program
+that reads what the renderer can't give it is three's to draw, item by item:
+a draw stays three's, not the frame.
+
+- Shadow receivers. With shadows on, three compiles every zero material of
+  the near scene with its shadow uniforms: each cascade's matrix, the
+  matrix that carries the receiver's plane into it, its slice of the view
+  and its shadow values, and the depth maps. The renderer's programs read
+  them from one uniform block, BfeShadow, written once a frame from the
+  values three would upload to each program; the depth maps are bound on
+  units of their own. shader.rs makes the block only of a program three
+  compiled for shadows, so a Classic program's source is as it was. A world
+  draw's receiveShadow is its mesh's.
+- Lamp lighting. Every lamp source of the map is in one texture, two texels
+  a source (its position and reach, its colour). A DYNAMIC draw reads its
+  four lamps from it by their indices (an instanced or first-person draw
+  from its row, a world draw from uniforms of its own), chosen by
+  local-lights.js as three's onBeforeRender would choose them, with the same
+  per-object cache and occlusion rays.
+- The shadow cascades. graphics.js offers each cascade's pass to the
+  renderer's shadow pass (the static cache the frame its window lands, the
+  live map each frame it is drawn), and three draws one only when the
+  renderer can't draw all of it. The scene is walked as three's shadow pass
+  walks it, once a frame for each set of layers (three walks it for each
+  cascade): what is shown, on the pass camera's layers, casting, in the
+  cascade's frustum, each with its depth material dressed as three's
+  getDepthMaterial dresses it and drawn as three compiled it, over the range
+  three would draw. The renderer draws into a framebuffer of its own over
+  the map's depth texture, cleared, or given the cache's depth as
+  graphics.js copies it. A caster whose geometry the page rewrites (the
+  crowd's shadow mesh, its index packed again as soldiers come and go) is
+  sent again as three sends it, by its update ranges, and an index only as
+  far as the pass draws it: the crowd's mesh draws a tenth of its index.
+- Three's own renders that must still see what the renderer took from it
+  (a cascade three draws itself, the motion vectors while three draws them)
+  run with it shown (`reveal`): each pass shows three what it hid, then
+  hides it again. The shadow pass walks the scene inside it too.
+- The temporal upscaler's jitter needs nothing: the frame block is written
+  after the upscaler has moved the camera's projection, and the page and the
+  renderer cull with the same matrix three does.
+
+Counted draw by draw on the five maps below with the Balanced and High
+quality presets, three draws 4 to 7 of a frame's 105 to 250 draws (2 to 6%):
+the far scene's image, an anchor the renderer draws nothing with, a skinned
+mesh and one other mesh of the near scene, and, where the sky's ships fly
+(Dune Sea; Bespin Platforms at High quality), their motion, which they draw
+themselves. Three drew no shadow cascade.
+
+On the slow-PC emulator (SwiftShader, 1600x900, four samples where the
+settings antialias), at four points of a seeded battle on each of Theed,
+Dune Sea, Bespin Platforms, Hoth and Kashyyyk Docks, the frame drawn with the
+renderer was the same to the pixel as three's with the Balanced preset (its
+jitter fixed and its history reset for each capture), with shadows alone at
+two and at four cascades (the static caches drawn afresh at each capture)
+and with the Classic settings. With lamps alone it was the same on four of
+the maps; on Bespin Platforms, at one point of the four, 1,513 to 1,774
+pixels (0.11 to 0.12%) differed in five runs, by one level for the most
+part, all on the lamp-lit side of the soldier nearest the eye, with or
+without multisampling and bloom; with lamps off there, none did.
+
+With the emulator's draws switched off and its CPU throttled as the laptop
+runs, in one battle, lockstep frames alternating between three alone and the
+renderer (240 each), the median of Graphics.render went (ms):
+
+| Map | Balanced | High quality | Shadow pass, Balanced | Shadow pass, High quality |
+| --- | --- | --- | --- | --- |
+| Theed | 23.8 -> 19.6 | 106.5 -> 85.7 | 4.3 -> 3.4 | 6.1 -> 3.7 |
+| Dune Sea | 20.2 -> 17.5 | 67.2 -> 49.9 | 4.9 -> 3.8 | 7.7 -> 4.8 |
+| Bespin Platforms | 18.7 -> 17.5 | 128.0 -> 105.9 | 4.2 -> 3.5 | 7.2 -> 4.3 |
+| Hoth | 18.9 -> 17.6 | 110.4 -> 102.9 | 5.8 -> 4.4 | 10.8 -> 6.8 |
+| Kashyyyk Docks | 28.2 -> 23.9 | 80.2 -> 63.0 | 6.2 -> 4.6 | 7.9 -> 4.7 |
+
+Three's own draw calls a frame (median) fell from 93-234 to 26-69 with the
+Balanced preset and from 129-264 to 27-77 at High quality. Of what three
+still draws at High quality, the skinned meshes with the DYNAMIC material
+(the soldiers' bodies among them) cost the most: on Theed their 43 draws a
+frame took 21.8 ms of three's near render, the 15 DYNAMIC meshes without a
+skeleton 8.7 ms, nothing else 1 ms. Three sends every uniform of a
+receiver's material again each time the same material draws again
+(materials.js drawsAgain, for each draw's point lights and lamps), the
+shadow arrays included: with three alone, one of those skinned draws cost
+0.57 ms with four cascades against 0.095 ms without shadows.
 
 ## His controls on a slow CPU
 

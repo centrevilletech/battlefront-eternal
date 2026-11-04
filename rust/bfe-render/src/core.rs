@@ -29,6 +29,10 @@ pub const UNIT_LAYERS: u32 = 6; // layerMap0..7: 6..13
 // sampler3D: effects.rs). 22 and 23 are free.
 pub const UNIT_CASCADES: u32 = 16;
 pub const UNIT_LAMPS: u32 = 20;
+// WebGL's own unpack flags (glow has no names for them): three leaves them as
+// its last texture upload set them.
+pub const UNPACK_FLIP_Y_WEBGL: u32 = 0x9240;
+pub const UNPACK_PREMULTIPLY_ALPHA_WEBGL: u32 = 0x9241;
 pub const UNIT_FLAME_NOISE: u32 = 21;
 pub const UNITS: usize = 24;
 const SAMPLERS: &[(&str, u32)] = &[("map", UNIT_MAP), ("farMap", UNIT_FAR), ("bumpMap", UNIT_BUMP), ("boneTexture", UNIT_BONES), ("bfeInstances", UNIT_INSTANCES),
@@ -752,10 +756,17 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             let mut data = vec![0.0f32; rows * LAMP_TABLE_WIDTH * 4];
             data[..self.lamps.len()].copy_from_slice(&self.lamps);
             unsafe {
+                // The rows as they are: three sets these for each texture it
+                // sends and leaves them so, and a table sent just after a lamp's
+                // image (which three flips) came out upside down, its first and
+                // last rows swapped (Bespin Platforms' 1,356 lamps fill three).
+                self.gl.pixel_store_bool(UNPACK_FLIP_Y_WEBGL, false);
+                self.gl.pixel_store_bool(UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+                self.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 4);
                 self.gl.tex_image_2d(glow::TEXTURE_2D, 0, glow::RGBA32F as i32, LAMP_TABLE_WIDTH as i32, rows as i32, 0, glow::RGBA, glow::FLOAT,
                     glow::PixelUnpackData::Slice(Some(bytes(&data))));
             }
-            self.stats.gl_calls += 1;
+            self.stats.gl_calls += 4;
             self.lamps_dirty = false;
         }
     }
