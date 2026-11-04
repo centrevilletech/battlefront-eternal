@@ -1,4 +1,4 @@
-// Two independent legacy WASM scenes, traced for the owned native context
+// Two independent WASM scenes, traced for the owned native context
 // and for isolated legacy native processes. Records contain bits, not JSON
 // floating-point round trips. All geometry comes from synthetic fixtures.
 import assert from 'node:assert/strict';
@@ -71,13 +71,6 @@ async function query(s, name, v, options = {}) {
     n = x.world_candidates(id, options.ignore, +options.staticOnly, +options.movingOnly);
     for (let c = 0; c < n; c++) k.flags()[c] = flags[k.candidates()[c]];
     code = options.movingOnly ? x.world_cast_moving(id, n) : x.world_cast(id, n);
-    const out = { distance: 0, point: new THREE.Vector3(), normal: new THREE.Vector3() };
-    const origin = new THREE.Vector3(...v.slice(0, 3)), direction = new THREE.Vector3(...v.slice(3, 6));
-    const ignore = s.bodies.find(b => b.raySlot === options.ignore);
-    const hit = options.movingOnly ? s.world.castMoving(origin, direction, v[6], out, ignore) : s.world.cast(origin, direction, v[6], out, ignore, options.staticOnly);
-    const expectedCode = !hit ? -2 : hit.body ? hit.body.raySlot : hit.terrain ? -3 : -1;
-    assert.equal(code, expectedCode);
-    if (hit) assert.equal(f64(k.view().slice(10, 17)), f64([hit.distance, ...hit.point.toArray(), ...hit.normal.toArray()]));
   } else if (name === 'gather') {
     n = x.gather_begin(id, options.cache, options.blockers, options.ignore);
     for (let c = 0; c < n; c++) k.flags()[c] = flags[k.candidates()[c]];

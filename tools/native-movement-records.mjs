@@ -1,10 +1,9 @@
-// Trace the existing bridge and compare every soldier tick to its JS core.
+// Trace Rust movement exchange slots for independent native replay.
 // Geometry and exchange values are encoded as bits for native replay.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import * as THREE from 'three';
-import { Soldier } from '../src/soldier.js';
 
 export const hex = a => Buffer.from(a.buffer, a.byteOffset, a.byteLength).toString('hex');
 export const f64 = a => hex(Float64Array.from(a));
@@ -12,9 +11,6 @@ export const digest = data => createHash('sha256').update(data).digest('hex');
 const identity = new THREE.Matrix4().elements;
 const packed = (bvh, polygons = []) => ({ p: hex(bvh.geometry.attributes.position.array), wide: bvh.geometry.attributes.position.array instanceof Float64Array, i: [...bvh.geometry.index.array], polygons: [...polygons] });
 const placement = b => f64([...b.bounds.min.toArray(), ...b.bounds.max.toArray(), ...(b.matrix?.elements ?? identity), ...(b.inverse?.elements ?? identity)]);
-const vectors = ['position','settled','previous','velocity','normal','avoidance'];
-const numbers = ['aimYaw','aimPitch','stateTime','lock','fuel','dive','groundAdjustment','collisionDamage','tickLength','lookX','lookY'];
-const codes = ['posture','air','diveFrom','grounded'];
 
 export class MovementTrace {
   constructor(file, header) {
