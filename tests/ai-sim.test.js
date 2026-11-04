@@ -10,7 +10,7 @@ import { Aimer, dropCorrect, leadPoint, skillCurves } from '../src/ai/classic/ai
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
 import { PriorityHeap, DeferredLos, Perception, TargetTracker, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
-import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI } from '../src/ai/classic/weapons-ai.js';
+import { FireControl, clusterState, consumeFire, facingAndRange, firingCone, peekClusterState, prepareSpread, pressButton, protectedVeto, selectWeapon, setTarget, switchWeapon, validateFire, weaponAI, weaponUtility } from '../src/ai/classic/weapons-ai.js';
 
 const point = (x = 0, y = 0, z = 0) => ({ x, y, z });
 const config = () => ({ schema: 1, map: 'synthetic', graph: null,
@@ -607,6 +607,35 @@ test('native target and weapon transitions preserve masks, references and select
     assert.deepEqual(n.history,j.history,`transition callbacks ${i}`);
     assert.deepEqual(n.arsenal.selected,j.arsenal.selected);
   }
+});
+
+test('native weapon utility preserves exact damage math and callback-visible acceptance', async () => {
+  const {sim}=await pair();
+  function run(native,i) {
+    const history=[],out={ok:true,score:-1,retained:7},world={aiSim:native?sim:null},controller={ai:{world}};
+    const owner={kind:[0,1,2,3,6,7,8][i%7],hero:i%17===0,controller};let healthReads=0;
+    const log=name=>{history.push([name,{...out}]);if(native){sim.words(new Array(7000).fill(4));sim.x.ai_nav_boundary(2,0,0,0,0);}};
+    const blast=(offset)=>({DamageRadiusInner:[0,1,2,-1,NaN,'1.5'][i%6],DamageRadiusOuter:[0,3,8,Infinity,'5'][i%5],
+      Damage:[-0,5,23,NaN,'11'][i%5],PersonScale:i%11===0?null:.25+offset,VehicleScale:.125,BuildingScale:4});
+    const base=['bolt','beam','missile','shell','grenade','sticky','haywire','beacon','unknown'][i%9];
+    const weapon={def:{base:['rifle','cannon','grenade','melee','repair'][i%5],ammo:[0,-1,2,30,NaN,'12'][i%6],
+      ai:{categoryMask:[0xffffffff,1,8,0,NaN][i%5]},
+      ordnance:i%13===0?null:{base,Damage:[0,5,-5,NaN,Infinity,'31'][i%6],PersonScale:.5,VehicleScale:2,
+        ExplosionImpact:i%7===0?null:blast(0),ExplosionExpire:i%11===0?'none':blast(2)}},
+      bottomless:i%31===0,rounds:[undefined,null,0,1,4,NaN][i%6]};
+    const innerWeapon={def:{base:'melee'},rounds:1},innerTarget={kind:0};
+    const target={kind:[0,2,3,6,8,9,7][Math.floor(i/7)%7],trap:i%37===0,
+      get category(){log('category');return [0,1,2,3,4,32,-1][i%7];},
+      get sphere(){log('sphere');if(i%19===0)owner.kind=6;
+        if(i%23===0)weaponUtility(owner,innerWeapon,innerTarget,out);
+        return {radius:[-1,0,1,4,NaN,'3'][i%6]};},
+      combat:{get maxHealth(){log('health');healthReads++;return [1,100,1000,Infinity,NaN,undefined][(i+healthReads)%6];}},
+      classDef:{MaxHealth:i%17===0?undefined:700},maxHealth:80,
+      get velocity(){log('velocity');return i%43===0?null:point(i%17,0,i%3);}};
+    const result=weaponUtility(owner,i%47===0?null:weapon,i%53===0?null:target,out);assert.equal(result,out);
+    return {out,history,ownerKind:owner.kind};
+  }
+  for(let i=0;i<3072;i++)assert.deepEqual(run(true,i),run(false,i),`weapon utility ${i}`);
 });
 
 test('native scheduler preserves callback order, reentry and changing controller collections', async () => {

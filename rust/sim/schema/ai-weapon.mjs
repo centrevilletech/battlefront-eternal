@@ -7,7 +7,9 @@ export default {
     'choiceSpeed', 'choiceGrenade', 'choiceCluster', 'choiceRoll', 'choiceWrite', 'choiceSelected', 'choiceSwitch',
     'switchStart', 'switchChannel', 'switchHasSelect', 'switchSelect', 'switchFallbackIndex', 'switchCurrent',
     'switchCurrentAgain', 'switchDeselect', 'switchWrite', 'setTargetStart', 'setTargetSelected', 'setTargetAi',
-    'setTargetRelation', 'setTargetRelationMask', 'setTargetCategory', 'setTargetReference'] },
+    'setTargetRelation', 'setTargetRelationMask', 'setTargetCategory', 'setTargetReference',
+    'utilityStart', 'utilityHero', 'utilityTrap', 'utilityMask', 'utilityBound', 'utilityDamage', 'utilityBlast',
+    'utilityCapacity', 'utilityHealth', 'utilityOwner', 'utilityType', 'utilityVelocity', 'utilityAccept'] },
   records: {
     AiWeaponArgs: { op: 'enum:AiWeaponOp', index: 'u32', number: 'f64' },
     AiWeaponResult: { flag: 'bool', values: 'list:f64', point: 'f64x3' },

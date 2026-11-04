@@ -336,6 +336,8 @@ const FALLBACK_ORDNANCE = new Set(["beam", "missile", "shell"]);
 
 // Returns { ok, score }. owner/target: units.
 export function weaponUtility(owner, weapon, target, out = { ok: false, score: 0 }) {
+  const native=owner?.controller?.ai?.world?.aiSim;
+  if(native)return native.weaponUtility(owner,weapon,target,out);
   out.ok = false;
   out.score = 0;
   const def = weapon?.def;

@@ -127,9 +127,7 @@ pub extern "C" fn ai_weapon_select(switch_allowed: u32) {
         if !utility.flag {continue;}
         let score=utility.values[0];
         let v=call(Op::ChoiceCapacity,0).values;
-        let clips=if v[0]>0.0 {v[0]} else {3.4028234663852886e38};
-        let rounds=if v[1]!=0.0 {2147483647.0} else {v[2]};
-        let big=f(clips*rounds)>20.0;
+        let big=capacity(&v)>20.0;
         let better=best_score<score;
         let v=call(Op::ChoiceRange,0).values;
         let range=effective_range(&v);
@@ -205,4 +203,64 @@ pub extern "C" fn ai_weapon_target() {
         let v=call(Op::SetTargetReference,0).values;
         ai_fire_ref(id,2,v[0] as u32,v[1],v[2] as u32);
     } else {ai_fire_ref(id,0,0,0.0,0);}
+}
+
+fn capacity(v: &[f64]) -> f64 {
+    let clips=if v[0]>0.0 {v[0]} else {3.4028234663852886e38};
+    let rounds=if v[1]!=0.0 {2147483647.0} else {v[2]};
+    f(clips*rounds)
+}
+
+fn blast(index: u32,radius: f64) -> f64 {
+    let b=call(Op::UtilityBlast,index);
+    if !b.flag {return 0.0;}
+    let v=b.values;
+    let inner=f(v[0]);let outer=f(v[1]);
+    let d=if radius>0.0 {f(2.0-f(radius*0.5))} else {2.0};
+    let fall=if d<inner {1.0} else if d<outer {f(f(outer-d)/f(outer-inner))} else {0.0};
+    let value=f(fall*f(v[2]));
+    f(f(v[3])*value)
+}
+
+fn accept(score: f64) {
+    import_ai_weapon(&AiWeaponArgs {op:Op::UtilityAccept,index:0,number:f(score)});
+}
+
+// weapons-ai.js weaponUtility: immutable content and unit facts are read
+// through the bridge; damage math and acceptance are owned by this call.
+#[no_mangle]
+pub extern "C" fn ai_weapon_utility() {
+    let start=call(Op::UtilityStart,0);
+    if !start.flag {return;}
+    let v=start.values;let owner_soldier=v[0]!=0.0;let target_kind=v[1];let ordnance=v[2]!=0.0;
+    if !ordnance && v[3]!=0.0 && (target_kind==0.0 || target_kind==3.0) {accept(1000.0);return;}
+    if owner_soldier && call(Op::UtilityHero,0).flag {accept(1000.0);return;}
+    if call(Op::UtilityTrap,0).flag {return;}
+    if owner_soldier && target_kind==0.0 {
+        let v=call(Op::UtilityMask,0).values;
+        if v8math::to_uint32(v[0])&(1u32<<(v8math::to_uint32(v[1])&31))==0 {return;}
+    }
+    if !ordnance {return;}
+    let radius=call(Op::UtilityBound,0).values[0];
+    let v=call(Op::UtilityDamage,0).values;
+    let mut damage=f(f(v[0])*f(v[1]));
+    damage=f(blast(0,radius)+damage);
+    damage=f(blast(1,radius)+damage);
+    let cap=capacity(&call(Op::UtilityCapacity,0).values);
+    let value=f((if cap<=50.0 {cap} else {50.0})*damage);
+    let health=f(call(Op::UtilityHealth,0).values[0]);
+    if f(health*0.5)<value {accept(damage);return;}
+    let owner=call(Op::UtilityOwner,0).values[0];
+    if (owner==6.0 || owner==2.0 || owner==8.0 || owner==7.0) && damage>0.0 {accept(damage);return;}
+    if target_kind!=6.0 && target_kind!=2.0 {
+        if !(f(call(Op::UtilityHealth,0).values[0])<3.4028234663852886e38) || !(target_kind==9.0 || target_kind==8.0) {return;}
+    }
+    if !(damage>0.0) {return;}
+    let v=call(Op::UtilityType,0).values;
+    if v[0]!=0.0 {
+        let velocity=call(Op::UtilityVelocity,0);
+        if velocity.flag && length_sq32(velocity.point[0],velocity.point[1],velocity.point[2])<144.0 {accept(damage);}
+        return;
+    }
+    if v[1]!=0.0 {accept(damage);}
 }

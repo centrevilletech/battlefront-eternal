@@ -55,10 +55,23 @@ pub enum AiWeaponOp {
     SetTargetRelationMask = 46,
     SetTargetCategory = 47,
     SetTargetReference = 48,
+    UtilityStart = 49,
+    UtilityHero = 50,
+    UtilityTrap = 51,
+    UtilityMask = 52,
+    UtilityBound = 53,
+    UtilityDamage = 54,
+    UtilityBlast = 55,
+    UtilityCapacity = 56,
+    UtilityHealth = 57,
+    UtilityOwner = 58,
+    UtilityType = 59,
+    UtilityVelocity = 60,
+    UtilityAccept = 61,
 }
 
 impl AiWeaponOp {
-    pub const NAMES: [&'static str; 49] = ["coneStart", "origin", "forward", "conePoint", "coneFacts", "aimer", "range", "rangePoint", "protectionStart", "reference", "sphere", "validationStart", "target", "lead", "targetPoint", "spreadStart", "sniper", "spreadValues", "spreadWrite", "choiceStart", "choiceOrigin", "choiceAim", "choiceWeapon", "choiceUtility", "choiceCapacity", "choiceRange", "choiceSpeed", "choiceGrenade", "choiceCluster", "choiceRoll", "choiceWrite", "choiceSelected", "choiceSwitch", "switchStart", "switchChannel", "switchHasSelect", "switchSelect", "switchFallbackIndex", "switchCurrent", "switchCurrentAgain", "switchDeselect", "switchWrite", "setTargetStart", "setTargetSelected", "setTargetAi", "setTargetRelation", "setTargetRelationMask", "setTargetCategory", "setTargetReference"];
+    pub const NAMES: [&'static str; 62] = ["coneStart", "origin", "forward", "conePoint", "coneFacts", "aimer", "range", "rangePoint", "protectionStart", "reference", "sphere", "validationStart", "target", "lead", "targetPoint", "spreadStart", "sniper", "spreadValues", "spreadWrite", "choiceStart", "choiceOrigin", "choiceAim", "choiceWeapon", "choiceUtility", "choiceCapacity", "choiceRange", "choiceSpeed", "choiceGrenade", "choiceCluster", "choiceRoll", "choiceWrite", "choiceSelected", "choiceSwitch", "switchStart", "switchChannel", "switchHasSelect", "switchSelect", "switchFallbackIndex", "switchCurrent", "switchCurrentAgain", "switchDeselect", "switchWrite", "setTargetStart", "setTargetSelected", "setTargetAi", "setTargetRelation", "setTargetRelationMask", "setTargetCategory", "setTargetReference", "utilityStart", "utilityHero", "utilityTrap", "utilityMask", "utilityBound", "utilityDamage", "utilityBlast", "utilityCapacity", "utilityHealth", "utilityOwner", "utilityType", "utilityVelocity", "utilityAccept"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -111,6 +124,19 @@ impl AiWeaponOp {
             46 => Some(AiWeaponOp::SetTargetRelationMask),
             47 => Some(AiWeaponOp::SetTargetCategory),
             48 => Some(AiWeaponOp::SetTargetReference),
+            49 => Some(AiWeaponOp::UtilityStart),
+            50 => Some(AiWeaponOp::UtilityHero),
+            51 => Some(AiWeaponOp::UtilityTrap),
+            52 => Some(AiWeaponOp::UtilityMask),
+            53 => Some(AiWeaponOp::UtilityBound),
+            54 => Some(AiWeaponOp::UtilityDamage),
+            55 => Some(AiWeaponOp::UtilityBlast),
+            56 => Some(AiWeaponOp::UtilityCapacity),
+            57 => Some(AiWeaponOp::UtilityHealth),
+            58 => Some(AiWeaponOp::UtilityOwner),
+            59 => Some(AiWeaponOp::UtilityType),
+            60 => Some(AiWeaponOp::UtilityVelocity),
+            61 => Some(AiWeaponOp::UtilityAccept),
             _ => None,
         }
     }

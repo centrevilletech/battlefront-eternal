@@ -5,7 +5,7 @@ import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
 import { NativeScheduler } from './ai-scheduler-sim.js';
-import { bindClusterState, chargeWeapon, categoryOf, clusterState, facingAndRange, maxExpandedRange, peekClusterState, prepareSpread, protectedVeto, selectedWeapon, setTarget, sniperWeapon, switchWeapon, validateFire, weaponAI, weaponUtility } from './ai/classic/weapons-ai.js';
+import { bindClusterState, chargeWeapon, categoryOf, clusterState, facingAndRange, maxExpandedRange, peekClusterState, prepareSpread, protectedVeto, selectedWeapon, setTarget, sniperWeapon, switchWeapon, validateFire, weaponAI } from './ai/classic/weapons-ai.js';
 import { recordTarget } from './ai/classic/perception.js';
 import { dropCorrect, isCannon } from './ai/classic/aim.js';
 
@@ -258,7 +258,7 @@ export class AiSim {
           result.values=w?[1,Number(Boolean(w.bottomless)),Number(w.reserve===Infinity),w.clip,w.reserve,w.rounds]:[0];
         }
       } else if(op==='choiceUtility') {
-        const utility=weaponUtility(unit,frame.choiceWeapon,frame.target,this.choiceUtility);
+        const utility=this.weaponUtility(unit,frame.choiceWeapon,frame.target,this.choiceUtility);
         result.flag=utility.ok;result.values=[utility.score];
       } else if(op==='choiceCapacity') {
         const w=frame.choiceWeapon;result.values=[w?.def?.ammo,Number(Boolean(w?.bottomless)),w?.rounds??1];
@@ -295,6 +295,26 @@ export class AiSim {
       else if(op==='setTargetRelationMask') result.values=[frame.ai.relationMask];
       else if(op==='setTargetCategory') result.values=[frame.ai.categoryMask,categoryOf(frame.target)];
       else if(op==='setTargetReference') {const u=frame.target,g=u.generation;result.values=[this.id(u),g,g===undefined?0:g===null?2:1];}
+      else if(op==='utilityStart') {
+        frame.out.ok=false;frame.out.score=0;const def=frame.def=frame.weapon?.def;result.flag=Boolean(def && frame.target);
+        if(result.flag){frame.ordnance=def.ordnance||null;result.values=[Number(unit.kind===0),frame.target.kind,Number(Boolean(frame.ordnance)),Number(def.base==='melee')];}
+      } else if(op==='utilityHero') result.flag=Boolean(unit.hero && isCannon(frame.def));
+      else if(op==='utilityTrap') result.flag=Boolean(frame.target.trap);
+      else if(op==='utilityMask') result.values=[weaponAI(frame.def).categoryMask,categoryOf(frame.target)];
+      else if(op==='utilityBound') {frame.category=categoryOf(frame.target);result.values=[frame.target.sphere?.radius??0];}
+      else if(op==='utilityDamage' || op==='utilityBlast') {
+        const rec=op==='utilityDamage'?frame.ordnance:frame.ordnance[index===0?'ExplosionImpact':'ExplosionExpire'];
+        result.flag=Boolean(rec && typeof rec==='object');
+        if(op==='utilityDamage' || result.flag) {
+          const key=['PersonScale','AnimalScale','DroidScale','VehicleScale','BuildingScale'][frame.category];
+          result.values=op==='utilityDamage'?[rec.Damage||0,key?rec?.[key]??1:1]:[rec.DamageRadiusInner||0,rec.DamageRadiusOuter||0,rec.Damage||0,key?rec?.[key]??1:1];
+        }
+      } else if(op==='utilityCapacity') {const w=frame.weapon;result.values=[w?.def?.ammo,Number(Boolean(w?.bottomless)),w?.rounds??1];}
+      else if(op==='utilityHealth') {const t=frame.target;result.values=[t.combat?.maxHealth??t.classDef?.MaxHealth??t.maxHealth??0];}
+      else if(op==='utilityOwner') result.values=[unit.kind];
+      else if(op==='utilityType') {const base=frame.ordnance.base;result.values=[Number(['grenade','sticky','haywire','beacon'].includes(base)),Number(['beam','missile','shell'].includes(base))];}
+      else if(op==='utilityVelocity') {const v=frame.target.velocity;result.flag=Boolean(v);if(v)result.point=[v.x,v.y,v.z];}
+      else if(op==='utilityAccept') {frame.out.ok=true;frame.out.score=number;}
       else throw Error(`unknown weapon geometry callback ${op}`);
       return result;
     }});
@@ -470,6 +490,11 @@ export class AiSim {
   setWeaponTarget(controller,unit,target,world) {
     this.weaponFrames.push({controller,unit,target,world});
     try {this.x.ai_weapon_target();}
+    finally {this.weaponFrames.pop();}
+  }
+  weaponUtility(unit,weapon,target,out) {
+    this.weaponFrames.push({unit,weapon,target,out});
+    try {this.x.ai_weapon_utility();return out;}
     finally {this.weaponFrames.pop();}
   }
   selectTarget(id,tracker,world) {
