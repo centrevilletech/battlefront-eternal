@@ -104,7 +104,8 @@ fn playout_exchanges_match_live_js_state_and_callback_observations() {
         "every phase must run: {counts:?}"
     );
     if content {
-        assert!(labels.len() >= 20 && total > 1000, "actual client coverage");
+        assert_eq!(labels.len(), 20, "actual client coverage");
+        assert!(total > 1000, "actual client operation coverage");
         for (label, usage) in per_label {
             for op in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] {
                 assert!(usage[op] > 0, "{label} missing phase {op}");
