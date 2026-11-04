@@ -547,14 +547,15 @@ export class RustRender {
   }
 
   // A point inside three's render lists, for a pass that must draw there
-  // (the start of the transparent list...): a mesh three draws with no
-  // fragments (one degenerate triangle, neither tested nor written, never
-  // culled), whose onAfterRender calls back with (renderer, scene, camera).
+  // (the start of the transparent list...): a zero-instance mesh that keeps
+  // its callbacks without a GL draw. It is never culled; onAfterRender calls
+  // back with (renderer, scene, camera).
   // transparent: in the transparent list, else the opaque one; renderOrder:
   // its place in that list, which three sorts by first.
   anchor(scene, { transparent = false, renderOrder = 0 } = {}, callback) {
-    const geometry = new THREE.BufferGeometry();
+    const geometry = new THREE.InstancedBufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(9), 3));
+    geometry.instanceCount = 0;
     const material = new THREE.MeshBasicMaterial({ transparent, colorWrite: false, depthWrite: false, depthTest: false });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = "rust-render anchor";
