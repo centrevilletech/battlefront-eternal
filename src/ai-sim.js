@@ -410,7 +410,7 @@ class NativeExecutor {
     this.control=control; this.path=control.planner.pathOf(path);
     this.values=[];
     for (const [name,index] of [['index',41],['mode',42],['side',43],['complete',44],['status',45],['stationary',46],['best',47],['noProgress',48],['hold',49]]) {
-      Object.defineProperty(this,name,{enumerable:true,get:()=>this.values[index],set:value=>{
+      Object.defineProperty(this,name,{enumerable:true,get:()=>index===44||index===49 ? Boolean(this.values[index]) : this.values[index],set:value=>{
         if (name!=='hold' && name!=='complete') throw Error(`navigation executor ${name} is native`);
         this.values[index]=Boolean(value);
         control.sim.x.ai_nav_control_write(control.id,index,Number(value));
@@ -420,7 +420,6 @@ class NativeExecutor {
   }
   read(words) {
     this.values=words;
-    this.values[44]=Boolean(words[44]); this.values[49]=Boolean(words[49]);
     for (const [i,name] of ['prev','waypoint','next','final','direction','anchor','target'].entries()) {
       const at=50+i*3,point=this[name]; point.x=words[at];point.y=words[at+1];point.z=words[at+2];
     }
