@@ -270,3 +270,107 @@ export function cloudsPass(core) {
 export function underwaterPass(core) {
   return new ScreenPass(core, "underwater", "underwater");
 }
+
+// The Enhanced water's underwater composite (water.js underwaterFog, shown
+// with the eye under the surface at High and Ultra): three draws it last of
+// the near scene's transparent list (its render order the list's highest),
+// right after its hook copies the scene drawn so far (water.captureSurface).
+// The renderer draws it at that very point: the transparent pass runs the
+// pass's atEnd after the list's last draw (its own last segment, or three's
+// last item), where the copy is made as three makes it, then the composite
+// drawn (the underwater phase) with three's program for its material and
+// three's own geometry for it (its uv interpolated as three's are). Three
+// leaves it out of a render whose transparent phase draws it (place(), as
+// three starts the render); until three has drawn it once, and in any other
+// render, three draws it.
+class FogPass {
+  constructor(core) {
+    this.core = core;
+    this.name = "fog";
+    this.phase = "transparent";
+    this.on = true;
+    // Three's programs for the composite's material the renderer has made
+    // its own of, with its geometry: three program -> { id, count }.
+    this.made = new WeakMap();
+    this.pending = null;
+    this.drawn = 0;
+    this.missed = 0;
+  }
+
+  register() {
+    const scene = this.core.graphics?.scene, pass = this;
+    if (!scene) return;
+    const previous = scene.onBeforeRender;
+    scene.onBeforeRender = function (...args) {
+      previous.apply(this, args);
+      pass.place(...args);
+    };
+  }
+
+  composite() {
+    return this.core.graphics?.scene?.userData.water?.underwaterFog ?? null;
+  }
+
+  // As three starts a render of the near scene: the frame's own, the
+  // composite shown, the renderer on in the battle's configuration and its
+  // program the renderer's: three leaves it out.
+  place(renderer, scene, camera, target) {
+    const core = this.core, graphics = core.graphics, fog = this.composite();
+    this.pending = null;
+    if (!fog || scene !== graphics.scene) return;
+    const take = this.on && core.enabled && core.active && !core.lost && fog.visible && fog.parent === scene && camera === graphics.camera
+      && target === graphics.sceneTarget && core.supported() && this.made.has(renderer.properties.get(fog.material).currentProgram);
+    fog.material.visible = !take;
+    if (take) this.pending = { camera, target };
+  }
+
+  // The transparent phase: three's program for the composite made the
+  // renderer's (inside a phase), and, where place() left it out, the list's
+  // end set to draw it.
+  draw(ctx) {
+    const core = this.core, fog = this.composite(), pending = this.pending;
+    this.pending = null;
+    if (!fog) return;
+    const threeProgram = core.renderer.properties.get(fog.material).currentProgram;
+    if (threeProgram && !this.made.has(threeProgram)) {
+      const program = screenProgram(core, fog.material);
+      const geometry = program && fog.geometry.index && !fog.geometry.groups.length ? core.geometry(fog.geometry, { id: program.id, attributes: [["position", 0], ["uv", 1]] }) : null;
+      if (geometry !== null && geometry !== undefined) { this.made.set(threeProgram, { id: geometry, count: fog.geometry.index.count }); ctx.reset = true; }
+    }
+    if (!pending || ctx.camera !== pending.camera || ctx.renderer.getRenderTarget() !== pending.target) return;
+    core.byName.transparent.atEnd = () => this.drawComposite(ctx.renderer, ctx.scene, ctx.camera);
+  }
+
+  // The list's end: the copy, as the composite's hook makes it, then the
+  // composite.
+  drawComposite(renderer, scene, camera) {
+    const core = this.core, fog = this.composite(), water = core.graphics.scene.userData.water;
+    if (!fog || !water || !core.enabled || !core.active) { this.missed++; return; }
+    water.captureSurface(renderer, camera);
+    const program = screenProgram(core, fog.material), geometry = this.made.get(renderer.properties.get(fog.material).currentProgram);
+    if (!program || !geometry || !writeScreenStep(core, 0, program, fog.material, fog, camera, { geometry })) { this.missed++; return; }
+    core.phase("underwater", renderer, scene, camera, false, null, { steps: 1 });
+    this.drawn++;
+  }
+
+  // Off (this pass alone): three draws it.
+  setActive(on) {
+    this.on = on;
+    if (!on) this.show();
+  }
+
+  restore() {
+    this.on = false;
+    this.show();
+  }
+
+  show() {
+    this.pending = null;
+    const fog = this.composite();
+    if (fog) fog.material.visible = true;
+  }
+}
+
+export function fogPass(core) {
+  return new FogPass(core);
+}

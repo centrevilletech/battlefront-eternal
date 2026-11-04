@@ -50,7 +50,7 @@ import { waterPass } from "./water.js";
 import { nearPass } from "./near.js";
 import { canopiesPass } from "./canopies.js";
 import { motionPass } from "./motion.js";
-import { imagePass, cloudsPass, underwaterPass } from "./screen.js";
+import { imagePass, cloudsPass, underwaterPass, fogPass } from "./screen.js";
 import { mirrorPass } from "./mirror.js";
 
 // The views a frame draws, each with a frame block of its own (core.rs
@@ -114,7 +114,9 @@ const PHASES = {
   motion: { view: null, draw: (rust, ctx) => rust.motion_frame(ctx.records) },
   // Full-screen passes three renders on their own (screen.js): the storm's
   // cloud panorama into its target (storm-sky.js), and the Low water's tint
-  // over the finished frame with the eye under the surface (water.js).
+  // over the finished frame with the eye under the surface (water.js); the
+  // underwater phase draws the Enhanced water's underwater composite too, at
+  // the end of the near scene's transparent list (screen.js fog).
   skyClouds: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
   underwater: { view: null, draw: (rust, ctx) => rust.screen_frame(ctx.steps ?? 0) },
 };
@@ -225,7 +227,7 @@ export class RustRender {
     this.phases.farMirror = this.phases.far;
     this.phases.probe = this.phases.far;
     this.byName = {};
-    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, imagePass, cloudsPass, underwaterPass, mirrorPass]) this.addPass(make(this));
+    for (const make of [worldPass, instancesPass, farPass, terrainPass, transparentPass, effectsPass, foliagePass, viewPass, postPass, hudPass, waterPass, nearPass, canopiesPass, seaPass, motionPass, imagePass, cloudsPass, underwaterPass, mirrorPass, fogPass]) this.addPass(make(this));
     // The near phase's hook: first in three's opaque list of the near scene
     // (graphics.background, the far scene's image, is drawn last of it).
     this.nearAnchor = graphics.scene ? this.anchor(graphics.scene, { renderOrder: -1e9 }, (renderer, scene, camera) => this.pass(renderer, scene, camera)) : null;
@@ -585,7 +587,8 @@ export class RustRender {
   // only when three is next used (settle), so that phases drawn one after
   // another reset it once. walked: the transparent list's items as near.js
   // walked the scene for three's render it draws in place of (ctx.walked).
-  phase(name, renderer, scene, camera, defer = false, walked = null) {
+  // values: more of the phase's values (ctx), for its passes and its call.
+  phase(name, renderer, scene, camera, defer = false, walked = null, values = null) {
     if (!this.enabled || !this.active) return;
     if (!this.supported()) { this.restore(); return; }
     const phase = PHASES[name], target = renderer.getRenderTarget();
@@ -593,6 +596,7 @@ export class RustRender {
     // What the passes have written into the renderer's input so far: records
     // and bones, and where each skeleton's bones are.
     const ctx = { renderer, scene, camera, records: 0, bones: 0, skeletons: new Map(), defer, walked };
+    if (values) Object.assign(ctx, values);
     for (const pass of this.phases[name]) pass.draw?.(ctx);
     if (name === "near" && this.recording?.keepFrames > 0) {
       this.recording.keepFrames--;
