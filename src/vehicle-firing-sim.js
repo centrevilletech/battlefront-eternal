@@ -87,6 +87,13 @@ export class VehicleFiringSim {
       case 'spread': data.op = 'spread'; out = args[1]; data.yaw = args[0].yaw ?? NaN; data.pitch = args[0].pitch ?? NaN; break;
       case 'towHeld': data.op = 'tow'; data.tow = args[0].def.ordnance?.base === 'towcable'; break;
     }
+    // Ordinary firing owns distinct scratch vectors. Preserve the public
+    // methods' alias behavior for callers that deliberately share them.
+    if (name === 'spread' && out === v.normal) return original.apply(v, args);
+    if (name === 'beamDirection') {
+      const s = v.seats[data.seat], aim = s.lease?.input?.aim;
+      if (out === v.beamFrom || out === s.target || s.target === v.beamFrom || aim === v.beamFrom) return original.apply(v, args);
+    }
     if (weapon || aimer) {
       let found = false;
       for (let i = 0; i < v.seats.length; i++) for (let j = 0; j < v.seats[i].weapons.length; j++) {

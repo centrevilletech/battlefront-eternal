@@ -7,7 +7,7 @@ import { rigNodes } from '../src/vehicles-sim.js';
 import { MAGIC, RECORD, Writer } from './sim-capture/format.mjs';
 
 const names = ['muzzleOf', 'muzzleOfSeat', 'heldByLimits', 'reticleRay', 'botAim', 'nose', 'shotDirection', 'beamDirection', 'spread', 'towHeld'];
-let game, native, fd, active = false, records = 0, calls = 0, nativeCalls = 0, callbacks = 0, exercised = 0, depth = 0, withBarrels = 0;
+let game, native, fd, active = false, records = 0, calls = 0, nativeCalls = 0, callbacks = 0, exercised = 0, depth = 0, withBarrels = 0, aliases = false, aliasCalls = 0;
 const writer = new Writer();
 function record(kind, data) { if (active) { writer.record(RECORD.frame, ++records, kind, data); fs.writeSync(fd, writer.take()); } }
 function state(v) {
@@ -26,7 +26,10 @@ export function battle(context) {
   for (const name of names) {
     const original = proto[name];
     proto[name] = function (...args) {
-      if (native && game.vehicles.sim?.posed(this)) assert.fail(`native geometry entered JavaScript ${name}`);
+      if (native && game.vehicles.sim?.posed(this)) {
+        if (!aliases) assert.fail(`native geometry entered JavaScript ${name}`);
+        aliasCalls++;
+      }
       calls++; return original.apply(this, args);
     };
   }
@@ -84,6 +87,12 @@ export function ticked(tick) {
       v.beamDirection(seatIndex, iteration % 2 ? w.muzzles[0]?.fireNode ?? null : null, a, v.direction);
       v.reticleRay(seatIndex, v.muzzle, v.direction); v.botAim(seatIndex, v.direction); v.nose(v.muzzle); v.towHeld(w);
     }
+    aliases = true;
+    v.spread({ yaw: .125, pitch: .25 }, v.normal);
+    v.beamDirection(seatIndex, w.muzzles[0]?.fireNode ?? null, a, v.beamFrom);
+    seat.target = v.beamFrom;
+    v.beamDirection(seatIndex, w.muzzles[0]?.fireNode ?? null, a, v.direction);
+    aliases = false;
     active = false; v.system.world.clock = clock; seat.target = target;
     for (const [name, original] of wrappers) v[name] = original;
     for (let i = 0; i < saved.seats.length; i++) for (let j = 0; j < saved.seats[i].length; j++) {
@@ -105,5 +114,5 @@ export function ended() {
   fs.closeSync(fd); assert.ok(exercised > 0 && records >= exercised * 24 * 9 * 2);
   if (withBarrels) assert.ok(callbacks > 0, 'prepared recoil barrels call the clock');
   if (native) assert.ok(nativeCalls > 0);
-  console.error(JSON.stringify({ geometryProbe: { exercised, withBarrels, records, callbacks, javascript: calls, native: nativeCalls } }));
+  console.error(JSON.stringify({ geometryProbe: { exercised, withBarrels, records, callbacks, javascript: calls, native: nativeCalls, aliasFallbacks: aliasCalls } }));
 }
