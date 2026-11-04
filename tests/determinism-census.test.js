@@ -57,6 +57,7 @@ const CENSUS = {
     'src/runtime/network-entity-budget.js': { host: 4 },
     'src/runtime/predicted-shots.js': { page: 1 },
     'src/runtime/snapshot-host.js': { host: 1 },
+    'src/runtime/wire-host.js': { host: 3 }, // entity budget availability, admission and refunds use transport time
     'src/vehicles.js': { page: 1 }, // a page's barrel clock (a world's is its host's)
   },
   'Date.now': {
