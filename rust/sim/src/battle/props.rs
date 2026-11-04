@@ -58,6 +58,9 @@ pub trait World {
     fn damaged(&mut self, building: &mut Building, amount: f64, attacker: Identity, hit: Identity);
     fn served(&mut self, station: &Station, target: &mut Target, gave: u8);
     fn serve_sound(&mut self, station: &Station, first: Option<usize>);
+    /// Publish foreign health/ammo writes before notifications can read
+    /// them. Native callers already share the target table.
+    fn target_changed(&mut self, _target: &Target) {}
 }
 
 pub fn min(a: f64, b: f64) -> f64 {
@@ -226,13 +229,16 @@ impl Station {
                 if first.is_none() { first = Some(target.id); }
                 served |= gave;
                 if target.player { self.served_player = true; }
+                world.target_changed(target);
                 world.served(self, target, gave);
             }
             if truth(supply.vehicle_health) || truth(supply.vehicle_ammo) {
                 for &index in vehicles {
                     let target = &mut targets[index];
                     if target.alive && target.position.distance_to(&supply.position) < supply.radius + target.radius * 0.5 {
-                        served |= Self::serve(supply, target);
+                        let gave = Self::serve(supply, target);
+                        served |= gave;
+                        if gave != 0 { world.target_changed(target); }
                     }
                 }
             }

@@ -14,6 +14,8 @@ const out = option('out', null);
 if (!out) throw Error('props-twin requires --out DIRECTORY');
 fs.mkdirSync(out, { recursive: true });
 const rng = new ClassicRandom(Number(option('seed', 1))), pick = xs => xs[Math.floor(rng.uniform() * xs.length)];
+const module = args.includes('--module') ? await import('../src/props-sim.js') : null;
+const loadSim = module ? (await import('../src/sim/module.js')).loadSim : null;
 const numbers = [0, -0, 1 / 60, 0.1, 1, 10, -5, 100, Infinity, -Infinity, NaN];
 let total = 0;
 for (let r = 0; r < 24; r++) {
@@ -34,6 +36,7 @@ for (let r = 0; r < 24; r++) {
   b.crew = { destroyed() {} };
   if (Kind === Turret) { b.aiTarget = { generation: 1 }; b.onDamaged = () => {}; }
   const game = { live: { buildings: [b] } };
+  if (module) module.attachPropsSim(await loadSim(), game.live);
   identities.set(b, new Handle('building', 0));
   const attacker = {}; identities.set(attacker, new Handle('unit', 42));
   const targets = Array.from({ length: 6 }, (_, i) => ({ position: new THREE.Vector3(4 + [0, 4.999, 5, 0, 1, 0][i], -2, 9),

@@ -18,6 +18,8 @@ pub mod objectives;
 pub mod phase;
 pub mod posts;
 pub mod props;
+#[cfg(target_arch = "wasm32")]
+pub mod props_module;
 pub mod regions;
 pub mod roster;
 pub mod rules;

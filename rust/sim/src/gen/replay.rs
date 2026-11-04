@@ -3448,6 +3448,361 @@ impl FlightMissileArgs {
     }
 }
 
+impl PbIdentity {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbIdentity {
+            kind: { let p = format!("{path}.kind"); num(v.get("kind"), &p)? },
+            id: { let p = format!("{path}.id"); num(v.get("id"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = Value::Num(self.kind); fields.push(("kind", x)); }
+        { let x = Value::Num(self.id); fields.push(("id", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbModel {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbModel {
+            sphere: { let p = format!("{path}.sphere"); match v.get("sphere").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(numbers::<4>(v.get("sphere"), &p)?) } },
+            low: { let p = format!("{path}.low"); match v.get("low").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(vec3(v.get("low"), &p)?) } },
+            high: { let p = format!("{path}.high"); match v.get("high").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(vec3(v.get("high"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(3);
+        { let x = match &self.sphere { Some(v) => { let items = (*v).iter().map(|&x| Value::Num(x)).collect(); a.array(items) }, None => Value::Null }; fields.push(("sphere", x)); }
+        { let x = match &self.low { Some(v) => a.vec3((*v)), None => Value::Null }; fields.push(("low", x)); }
+        { let x = match &self.high { Some(v) => a.vec3((*v)), None => Value::Null }; fields.push(("high", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbSettings {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbSettings {
+            kind: { let p = format!("{path}.kind"); PbKind::from_u8(name_of(v.get("kind"), &PbKind::NAMES, &p)?).unwrap() },
+            max_health: { let p = format!("{path}.maxHealth"); num(v.get("maxHealth"), &p)? },
+            respawn_time: { let p = format!("{path}.respawnTime"); num(v.get("respawnTime"), &p)? },
+            built_add_health: { let p = format!("{path}.builtAddHealth"); num(v.get("builtAddHealth"), &p)? },
+            regenerates: { let p = format!("{path}.regenerates"); boolean(v.get("regenerates"), &p)? },
+            has_destroyed: { let p = format!("{path}.hasDestroyed"); boolean(v.get("hasDestroyed"), &p)? },
+            has_unbuilt: { let p = format!("{path}.hasUnbuilt"); boolean(v.get("hasUnbuilt"), &p)? },
+            has_explosion: { let p = format!("{path}.hasExplosion"); boolean(v.get("hasExplosion"), &p)? },
+            matrix: { let p = format!("{path}.matrix"); mat4(v.get("matrix"), &p)? },
+            models: { let p = format!("{path}.models"); { let mut out = Vec::new(); for (i, e) in list(v.get("models"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(match e.value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &at)), _ => Some(PbModel::from_value(e, cx, &at)?) }); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(10);
+        { let x = Value::Str(PbKind::NAMES[self.kind as usize].to_string()); fields.push(("kind", x)); }
+        { let x = Value::Num(self.max_health); fields.push(("maxHealth", x)); }
+        { let x = Value::Num(self.respawn_time); fields.push(("respawnTime", x)); }
+        { let x = Value::Num(self.built_add_health); fields.push(("builtAddHealth", x)); }
+        { let x = Value::Bool(self.regenerates); fields.push(("regenerates", x)); }
+        { let x = Value::Bool(self.has_destroyed); fields.push(("hasDestroyed", x)); }
+        { let x = Value::Bool(self.has_unbuilt); fields.push(("hasUnbuilt", x)); }
+        { let x = Value::Bool(self.has_explosion); fields.push(("hasExplosion", x)); }
+        { let x = mat4_value(a, self.matrix); fields.push(("matrix", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.models.iter() { let x = match &e { Some(v) => v.to_value(cx, a), None => Value::Null }; items.push(x); } a.array(items) }; fields.push(("models", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbConfiguration {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbConfiguration {
+            buildings: { let p = format!("{path}.buildings"); { let mut out = Vec::new(); for (i, e) in list(v.get("buildings"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(PbSettings::from_value(e, cx, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
+        { let x = { let mut items = Vec::new(); for e in self.buildings.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("buildings", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbState {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbState {
+            state: { let p = format!("{path}.state"); PbStateName::from_u8(name_of(v.get("state"), &PbStateName::NAMES, &p)?).unwrap() },
+            health: { let p = format!("{path}.health"); num(v.get("health"), &p)? },
+            add_health: { let p = format!("{path}.addHealth"); num(v.get("addHealth"), &p)? },
+            last_attacker: { let p = format!("{path}.lastAttacker"); PbIdentity::from_value(v.get("lastAttacker"), cx, &p)? },
+            target_generation: { let p = format!("{path}.targetGeneration"); match v.get("targetGeneration").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("targetGeneration"), &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = Value::Str(PbStateName::NAMES[self.state as usize].to_string()); fields.push(("state", x)); }
+        { let x = Value::Num(self.health); fields.push(("health", x)); }
+        { let x = Value::Num(self.add_health); fields.push(("addHealth", x)); }
+        { let x = self.last_attacker.to_value(cx, a); fields.push(("lastAttacker", x)); }
+        { let x = match &self.target_generation { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("targetGeneration", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbStation {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbStation {
+            building: { let p = format!("{path}.building"); PbState::from_value(v.get("building"), cx, &p)? },
+            mode: { let p = format!("{path}.mode"); PbMode::from_u8(name_of(v.get("mode"), &PbMode::NAMES, &p)?).unwrap() },
+            active: { let p = format!("{path}.active"); num(v.get("active"), &p)? },
+            pulse: { let p = format!("{path}.pulse"); num(v.get("pulse"), &p)? },
+            served_player: { let p = format!("{path}.servedPlayer"); boolean(v.get("servedPlayer"), &p)? },
+            served_health: { let p = format!("{path}.servedHealth"); boolean(v.get("servedHealth"), &p)? },
+            served_ammo: { let p = format!("{path}.servedAmmo"); boolean(v.get("servedAmmo"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(7);
+        { let x = self.building.to_value(cx, a); fields.push(("building", x)); }
+        { let x = Value::Str(PbMode::NAMES[self.mode as usize].to_string()); fields.push(("mode", x)); }
+        { let x = Value::Num(self.active); fields.push(("active", x)); }
+        { let x = Value::Num(self.pulse); fields.push(("pulse", x)); }
+        { let x = Value::Bool(self.served_player); fields.push(("servedPlayer", x)); }
+        { let x = Value::Bool(self.served_health); fields.push(("servedHealth", x)); }
+        { let x = Value::Bool(self.served_ammo); fields.push(("servedAmmo", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbWeapon {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbWeapon {
+            bottomless: { let p = format!("{path}.bottomless"); boolean(v.get("bottomless"), &p)? },
+            ammo: { let p = format!("{path}.ammo"); num(v.get("ammo"), &p)? },
+            clip: { let p = format!("{path}.clip"); num(v.get("clip"), &p)? },
+            per_shot: { let p = format!("{path}.perShot"); num(v.get("perShot"), &p)? },
+            reserve: { let p = format!("{path}.reserve"); num(v.get("reserve"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = Value::Bool(self.bottomless); fields.push(("bottomless", x)); }
+        { let x = Value::Num(self.ammo); fields.push(("ammo", x)); }
+        { let x = Value::Num(self.clip); fields.push(("clip", x)); }
+        { let x = Value::Num(self.per_shot); fields.push(("perShot", x)); }
+        { let x = Value::Num(self.reserve); fields.push(("reserve", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbTarget {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbTarget {
+            id: { let p = format!("{path}.id"); num(v.get("id"), &p)? },
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            vehicle: { let p = format!("{path}.vehicle"); boolean(v.get("vehicle"), &p)? },
+            alive: { let p = format!("{path}.alive"); boolean(v.get("alive"), &p)? },
+            player: { let p = format!("{path}.player"); boolean(v.get("player"), &p)? },
+            radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
+            health: { let p = format!("{path}.health"); num(v.get("health"), &p)? },
+            max_health: { let p = format!("{path}.maxHealth"); num(v.get("maxHealth"), &p)? },
+            weapons: { let p = format!("{path}.weapons"); { let mut out = Vec::new(); for (i, e) in list(v.get("weapons"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(PbWeapon::from_value(e, cx, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(9);
+        { let x = Value::Num(self.id); fields.push(("id", x)); }
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = Value::Bool(self.vehicle); fields.push(("vehicle", x)); }
+        { let x = Value::Bool(self.alive); fields.push(("alive", x)); }
+        { let x = Value::Bool(self.player); fields.push(("player", x)); }
+        { let x = Value::Num(self.radius); fields.push(("radius", x)); }
+        { let x = Value::Num(self.health); fields.push(("health", x)); }
+        { let x = Value::Num(self.max_health); fields.push(("maxHealth", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.weapons.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("weapons", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbSupply {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbSupply {
+            position: { let p = format!("{path}.position"); vec3(v.get("position"), &p)? },
+            radius: { let p = format!("{path}.radius"); num(v.get("radius"), &p)? },
+            delay: { let p = format!("{path}.delay"); num(v.get("delay"), &p)? },
+            health: { let p = format!("{path}.health"); num(v.get("health"), &p)? },
+            ammo: { let p = format!("{path}.ammo"); num(v.get("ammo"), &p)? },
+            vehicle_health: { let p = format!("{path}.vehicleHealth"); num(v.get("vehicleHealth"), &p)? },
+            vehicle_ammo: { let p = format!("{path}.vehicleAmmo"); num(v.get("vehicleAmmo"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(7);
+        { let x = a.vec3(self.position); fields.push(("position", x)); }
+        { let x = Value::Num(self.radius); fields.push(("radius", x)); }
+        { let x = Value::Num(self.delay); fields.push(("delay", x)); }
+        { let x = Value::Num(self.health); fields.push(("health", x)); }
+        { let x = Value::Num(self.ammo); fields.push(("ammo", x)); }
+        { let x = Value::Num(self.vehicle_health); fields.push(("vehicleHealth", x)); }
+        { let x = Value::Num(self.vehicle_ammo); fields.push(("vehicleAmmo", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbInput {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbInput {
+            op: { let p = format!("{path}.op"); PbOperation::from_u8(name_of(v.get("op"), &PbOperation::NAMES, &p)?).unwrap() },
+            index: { let p = format!("{path}.index"); num(v.get("index"), &p)? },
+            state: { let p = format!("{path}.state"); PbState::from_value(v.get("state"), cx, &p)? },
+            crew: { let p = format!("{path}.crew"); boolean(v.get("crew"), &p)? },
+            damaged: { let p = format!("{path}.damaged"); boolean(v.get("damaged"), &p)? },
+            station: { let p = format!("{path}.station"); match v.get("station").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(PbStation::from_value(v.get("station"), cx, &p)?) } },
+            supply: { let p = format!("{path}.supply"); match v.get("supply").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(PbSupply::from_value(v.get("supply"), cx, &p)?) } },
+            value: { let p = format!("{path}.value"); num(v.get("value"), &p)? },
+            attacker: { let p = format!("{path}.attacker"); PbIdentity::from_value(v.get("attacker"), cx, &p)? },
+            hit: { let p = format!("{path}.hit"); PbIdentity::from_value(v.get("hit"), cx, &p)? },
+            targets: { let p = format!("{path}.targets"); { let mut out = Vec::new(); for (i, e) in list(v.get("targets"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(PbTarget::from_value(e, cx, &at)?); } out } },
+            soldiers: { let p = format!("{path}.soldiers"); { let mut out = Vec::new(); for (i, e) in list(v.get("soldiers"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+            vehicles: { let p = format!("{path}.vehicles"); { let mut out = Vec::new(); for (i, e) in list(v.get("vehicles"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(num(e, &at)?); } out } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(13);
+        { let x = Value::Str(PbOperation::NAMES[self.op as usize].to_string()); fields.push(("op", x)); }
+        { let x = Value::Num(self.index); fields.push(("index", x)); }
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = Value::Bool(self.crew); fields.push(("crew", x)); }
+        { let x = Value::Bool(self.damaged); fields.push(("damaged", x)); }
+        { let x = match &self.station { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("station", x)); }
+        { let x = match &self.supply { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("supply", x)); }
+        { let x = Value::Num(self.value); fields.push(("value", x)); }
+        { let x = self.attacker.to_value(cx, a); fields.push(("attacker", x)); }
+        { let x = self.hit.to_value(cx, a); fields.push(("hit", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.targets.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("targets", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.soldiers.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("soldiers", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.vehicles.iter() { let x = Value::Num((*e)); items.push(x); } a.array(items) }; fields.push(("vehicles", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbResult {
+            state: { let p = format!("{path}.state"); PbState::from_value(v.get("state"), cx, &p)? },
+            station: { let p = format!("{path}.station"); match v.get("station").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(PbStation::from_value(v.get("station"), cx, &p)?) } },
+            targets: { let p = format!("{path}.targets"); { let mut out = Vec::new(); for (i, e) in list(v.get("targets"), &p)?.into_iter().enumerate() { let at = format!("{}[{i}]", &p); out.push(PbTarget::from_value(e, cx, &at)?); } out } },
+            number: { let p = format!("{path}.number"); num(v.get("number"), &p)? },
+            point: { let p = format!("{path}.point"); vec3(v.get("point"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(5);
+        { let x = self.state.to_value(cx, a); fields.push(("state", x)); }
+        { let x = match &self.station { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("station", x)); }
+        { let x = { let mut items = Vec::new(); for e in self.targets.iter() { let x = e.to_value(cx, a); items.push(x); } a.array(items) }; fields.push(("targets", x)); }
+        { let x = Value::Num(self.number); fields.push(("number", x)); }
+        { let x = a.vec3(self.point); fields.push(("point", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbAction {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbAction {
+            kind: { let p = format!("{path}.kind"); PbActionKind::from_u8(name_of(v.get("kind"), &PbActionKind::NAMES, &p)?).unwrap() },
+            index: { let p = format!("{path}.index"); num(v.get("index"), &p)? },
+            state: { let p = format!("{path}.state"); match v.get("state").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(PbState::from_value(v.get("state"), cx, &p)?) } },
+            station: { let p = format!("{path}.station"); match v.get("station").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(PbStation::from_value(v.get("station"), cx, &p)?) } },
+            target: { let p = format!("{path}.target"); match v.get("target").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(PbTarget::from_value(v.get("target"), cx, &p)?) } },
+            point: { let p = format!("{path}.point"); vec3(v.get("point"), &p)? },
+            amount: { let p = format!("{path}.amount"); num(v.get("amount"), &p)? },
+            attacker: { let p = format!("{path}.attacker"); PbIdentity::from_value(v.get("attacker"), cx, &p)? },
+            hit: { let p = format!("{path}.hit"); PbIdentity::from_value(v.get("hit"), cx, &p)? },
+            first: { let p = format!("{path}.first"); num(v.get("first"), &p)? },
+            gave: { let p = format!("{path}.gave"); num(v.get("gave"), &p)? },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(11);
+        { let x = Value::Str(PbActionKind::NAMES[self.kind as usize].to_string()); fields.push(("kind", x)); }
+        { let x = Value::Num(self.index); fields.push(("index", x)); }
+        { let x = match &self.state { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("state", x)); }
+        { let x = match &self.station { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("station", x)); }
+        { let x = match &self.target { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("target", x)); }
+        { let x = a.vec3(self.point); fields.push(("point", x)); }
+        { let x = Value::Num(self.amount); fields.push(("amount", x)); }
+        { let x = self.attacker.to_value(cx, a); fields.push(("attacker", x)); }
+        { let x = self.hit.to_value(cx, a); fields.push(("hit", x)); }
+        { let x = Value::Num(self.first); fields.push(("first", x)); }
+        { let x = Value::Num(self.gave); fields.push(("gave", x)); }
+        a.object("", fields)
+    }
+}
+
+impl PbActionResult {
+    /// Its fields from a value (the export of the JavaScript object).
+    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
+        object(v, path)?;
+        Ok(PbActionResult {
+            state: { let p = format!("{path}.state"); match v.get("state").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(PbState::from_value(v.get("state"), cx, &p)?) } },
+            target: { let p = format!("{path}.target"); match v.get("target").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(PbTarget::from_value(v.get("target"), cx, &p)?) } },
+        })
+    }
+
+    /// Its value, as the export of the JavaScript object it stands for.
+    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(2);
+        { let x = match &self.state { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("state", x)); }
+        { let x = match &self.target { Some(v) => v.to_value(cx, a), None => Value::Null }; fields.push(("target", x)); }
+        a.object("", fields)
+    }
+}
+
 impl SeatInput {
     /// Its fields from a value (the export of the JavaScript object).
     pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
