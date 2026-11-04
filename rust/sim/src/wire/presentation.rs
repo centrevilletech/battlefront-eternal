@@ -536,7 +536,7 @@ mod tests {
             event_payload(&words, &strings).unwrap(),
             br#"{"amount":-50,"kind":"blowApart","position":[0,null,1e-7]}"#
         );
-        let unknown_key = strings.intern(&[0xd800]).0;
+        let unknown_key = strings.intern(&[0xd800]);
         let words = [
             3.,
             kind,
