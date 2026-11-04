@@ -62,6 +62,7 @@ export class MovementRequest {
 // fresh (a new serial, so the planner drops the old life's requests).
 export class NavControl {
   constructor(nav, controller = null) {
+    if (new.target === NavControl && nav.nativeControl) return nav.nativeControl(controller);
     this.nav = nav;
     this.planner = nav.planner;
     this.controller = controller;

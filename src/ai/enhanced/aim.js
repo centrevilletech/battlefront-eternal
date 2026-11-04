@@ -190,7 +190,7 @@ export function enhancedCombat(world, { tier = 2, seed = 0 } = {}) {
         skill = 1 + AIM_MODEL.variation * (2 * random.uniform() - 1);
         if (character) skills.set(character, skill);
       }
-      p.enhancedAimer = new EnhancedAimer(random, profile, skill);
+      p.enhancedAimer = world.aiSim?.enhancedAimer(random, profile, skill) ?? new EnhancedAimer(random, profile, skill);
     }
     return p.enhancedAimer;
   }

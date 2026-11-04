@@ -206,6 +206,7 @@ const sameXZ = (a, b) => a.x === b.x && a.z === b.z;
 // - posture: 0 stand, 1 crouch, 2 prone, pressed as the port's toggles
 //   whenever the soldier is on the ground, unlocked and not yet there.
 export function navigationInput(control, unit, intent, dt, aim = null, options = {}) {
+  if (control.nativeInput) return control.nativeInput(unit, intent, dt, aim, options);
   control.attach(unit);
   control.update(dt);
   analogs(unit, control.request, aim, dt, intent, { facing: options.facing, executor: control.executor });
