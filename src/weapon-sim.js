@@ -97,7 +97,10 @@ export class WeaponSim {
     this.publish(w, a.state);
     let value = 0, admission = 0, picked = null;
     switch (kind) {
-      case 'random': case 'seeded': if (first) ctx.random = w.salvoRandom || w.random; value = ctx.random(); break;
+      case 'random': case 'seeded': {
+        if (first) ctx.random = w.salvoRandom || w.random;
+        const random = ctx.random; value = random(); break;
+      }
       case 'legacy': value = (w.melee ? swing : spread)(); break;
       case 'admit': {
         const answer = w.admitShot(w);
