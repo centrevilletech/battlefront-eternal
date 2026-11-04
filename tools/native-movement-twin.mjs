@@ -44,6 +44,8 @@ for(let tick=0;tick<420;tick++) for(const s of scenes) {
     const p=s.movers[0].position, dense=geometry(new THREE.PlaneGeometry(4,4,48,48).rotateX(-Math.PI/2).translate(p.x,s.cx*4+.01,p.z));
     dense.polygons=Uint32Array.from({length:dense.i.length/3},(_,i)=>i);
     s.bodies.push(s.world.addBody(dense.p,dense.i,dense.polygons,{}));
+    // Movement gathers inside Rust; probe the dense output explicitly too.
+    s.world.gather(p,3);
   }
   for(let i=0;i<s.movers.length;i++) {
     const soldier=s.movers[i];
