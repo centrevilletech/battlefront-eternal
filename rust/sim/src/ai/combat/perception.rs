@@ -200,8 +200,12 @@ pub fn target_priority<W: World + ?Sized>(w: &W, unit: Obj, target: Obj, control
 pub fn raw_cost<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj, controller: Option<Obj>) -> f64 {
     let eye = w.origin(unit);
     let at = w.aim_point(target);
+    raw_cost_points(&eye, &at, target_priority(w, unit, target, controller))
+}
+
+pub fn raw_cost_points(eye: &Vector3, at: &Vector3, priority: f64) -> f64 {
     let d = f(v8math::sqrt(length_sq32(f(at.x - eye.x), f(at.y - eye.y), f(at.z - eye.z))));
-    v8math::trunc(d) * (21.0 - target_priority(w, unit, target, controller))
+    v8math::trunc(d) * (21.0 - priority)
 }
 
 // ---------------------------------------------------------------------------
@@ -210,10 +214,14 @@ pub fn raw_cost<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj, controller
 /// perception.js:225 `coneDistanceSq(unit, target)`: the squared distance
 /// to the target's aim point inside the 77.5-degree cone, else -2.
 pub fn cone_distance_sq<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj) -> f64 {
-    let cone_cos = lookup_cos(angle::cone());
     let eye = w.origin(unit);
     let look = w.forward(unit);
     let at = w.aim_point(target);
+    cone_distance_points(&eye, &look, &at)
+}
+
+pub fn cone_distance_points(eye: &Vector3, look: &Vector3, at: &Vector3) -> f64 {
+    let cone_cos = lookup_cos(angle::cone());
     let rx = f(at.x - eye.x);
     let ry = f(at.y - eye.y);
     let rz = f(at.z - eye.z);
@@ -228,7 +236,7 @@ pub fn cone_distance_sq<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj) ->
 }
 
 /// perception.js:243 `POSTURE_RADIUS`.
-fn posture_radius(posture: &str) -> f64 {
+pub fn posture_radius(posture: &str) -> f64 {
     let w = [f(0.7200000286), f(0.4499999881), f(0.8000000119)];
     let h = [f(1.8999999762), f(1.6000000238), f(0.5500000119)];
     let upright = |i: usize| f(v8math::sqrt(f(f(f(2.0 * f(w[i] * w[i]))) + f(0.25 * f(f(h[i] + f(0.2)) * f(h[i] + f(0.2)))))));

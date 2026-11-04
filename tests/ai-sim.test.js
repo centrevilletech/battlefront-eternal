@@ -8,7 +8,7 @@ import { bridgeFor } from '../src/sim/runtime.js';
 import { loadSim } from '../src/sim/module.js';
 import { Aimer, skillCurves } from '../src/ai/classic/aim.js';
 import { AIM_PROFILES, EnhancedAimer } from '../src/ai/enhanced/aim.js';
-import { PriorityHeap, DeferredLos, Perception, recordTarget, thin } from '../src/ai/classic/perception.js';
+import { PriorityHeap, DeferredLos, Perception, recordTarget, scan, thin } from '../src/ai/classic/perception.js';
 import { ClassicScheduler } from '../src/ai/classic/scheduler.js';
 import { clusterState, peekClusterState } from '../src/ai/classic/weapons-ai.js';
 
@@ -196,6 +196,61 @@ test('native deferred sight preserves lifetimes, budgets, point writes and heap 
     }
     assert.deepEqual(n.world.history,j.world.history,`queries ${i}`);
     assert.deepEqual(snapshot(n),snapshot(j),`sight ${i}`);
+  }
+});
+
+test('native sight scans preserve eligibility, query order, geometry and ranked heap state', async () => {
+  const {sim}=await pair();
+  function fixture(native) {
+    const world={time:0,tick:0,history:[]},post={},hull={towTarget:-1,system:{vehicles:[]}};
+    const unit={alive:true,kind:0,team:1,pilot:false,vehicle:hull,classDef:{ForwardSpeed:8},
+      combat:{arsenal:{weapons:[{def:{MaxRange:60,ExtremeRange:400}},{levels:[{MaxRange:150},{MaxRange:220}]}]}},
+      origin(out){world.history.push(['eye']);out.set(world.tick%11,-0,-3);},
+      forward(out){world.history.push(['forward']);out.set(0,0,1);},
+    };
+    const controller={unit,objective:null,rangeScale:1},p=controller.perception=new Perception(controller);
+    if(native)sim.bindPerception(p);
+    const targets=Array.from({length:220},(_,id)=>({id,alive:true,kind:id%11,team:2,generation:0,collisionCategory:0,
+      classDef:{MaxHealth:100},sphere:{radius:(id%5)*.17},soldier:id%11===0?{air:false,posture:'stand'}:null,
+      building:id%17===0?{post}:null,vehicle:{id},
+      position:new Vector3((id%23-11)*3.91,(id%5-2)*.13,(id%41-3)*2.13),
+      aimPoint(out){world.history.push(['aim',id]);out.copy(this.position);out.y+=.43;},
+    }));
+    hull.system.vehicles=targets.map(t=>t.vehicle);
+    world.vehicles={sharedTarget(c){world.history.push(['shared',p.heap.size,p.lastScanCount]);return world.tick%5===0?targets[world.tick%targets.length]:null;}};
+    world.units={
+      relation(a,b){world.history.push(['relation',a,b]);return a===0||b===0?0:a===b?1:-1;},
+      query(at,radius,out,filter){
+        world.history.push(['query',at.toArray(),radius]);out.length=0;
+        for(const t of targets)if(filter(t))out.push(t);
+      },
+    };
+    const dispatch=(c,u,t,secondary,w)=>{
+      world.history.push(['dispatch',t.id,secondary,p.heap.size,p.lastScanCount]);
+      assert.equal(c,controller);assert.equal(u,unit);assert.equal(w,world);
+      if(native) {sim.words(new Array(4000).fill(4));sim.x.ai_nav_boundary(2,0,0,0,0);}
+      if(world.tick%7===0)t.generation++;
+      return {pattern:t.id%3!==0,aux:t.id%5!==0};
+    };
+    return {world,unit,controller,p,targets,post,hull,dispatch};
+  }
+  const j=fixture(false),n=fixture(true);
+  const snapshot=x=>({count:x.p.lastScanCount,heapCount:x.p.heap.count,dropped:x.p.heap.dropped,
+    priority:Array.from(x.p.heap.priority),items:x.p.heap.items.map(r=>r&&[r.unit.id,r.generation])});
+  for(let i=0;i<256;i++) {
+    for(const x of [j,n]) {
+      x.world.tick=i;x.world.history.length=0;x.unit.alive=i%29!==0;x.unit.kind=i%11;x.unit.pilot=i%7===0;
+      x.hull.towTarget=i%220;x.controller.objective=i%3===0?x.post:null;x.controller.rangeScale=[.25,1,2,6][i%4];
+      for(const t of x.targets) {
+        t.alive=(i+t.id)%31!==0;t.team=(i+t.id)%43===0?1:2;t.targetable=(i+t.id)%37===0?false:undefined;
+        t.collisionCategory=(i+t.id)%41===0?16:0;
+        t.combat={maxHealth:[null,100,Infinity,NaN,-Infinity][(i+t.id)%5]};
+        if(t.soldier) {t.soldier.air=i%3===0;t.soldier.posture=['stand','crouch','prone','unknown'][i%4];}
+      }
+    }
+    assert.equal(scan(n.controller,n.world,n.dispatch),scan(j.controller,j.world,j.dispatch),`queued ${i}`);
+    assert.deepEqual(n.world.history,j.world.history,`scan callbacks ${i}`);
+    assert.deepEqual(snapshot(n),snapshot(j),`scan state ${i}`);
   }
 });
 

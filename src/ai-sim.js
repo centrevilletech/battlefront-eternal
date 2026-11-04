@@ -5,7 +5,7 @@ import { bridgeFor } from './sim/runtime.js';
 import { NavControl } from './ai/classic/nav/control.js';
 import { Vector3 } from 'three';
 import { NativeScheduler } from './ai-scheduler-sim.js';
-import { bindClusterState, peekClusterState } from './ai/classic/weapons-ai.js';
+import { bindClusterState, maxExpandedRange, peekClusterState } from './ai/classic/weapons-ai.js';
 import { recordTarget } from './ai/classic/perception.js';
 
 const HEADER = 5;
@@ -42,6 +42,7 @@ export class AiSim {
     this.navigation = null;
     this.perceptions=new WeakMap();this.clusters=new WeakMap();this.sightFrames=[];this.clusterFound=[];this.losViews=new WeakMap();
     this.sightPoint=new Vector3();this.sightEye=new Vector3();this.sightTargetEye=new Vector3();
+    this.scanFound=[];this.scanLook=new Vector3();this.scanAim=new Vector3();
     bridge.register({aiSight:args=>{
       const op=args.op,object=this.objects[args.id],frame=this.sightFrames[this.sightFrames.length-1];
       const from=new Vector3(...args.from),point=new Vector3(...args.point);
@@ -85,6 +86,40 @@ export class AiSim {
         result.flag=Boolean(world.los(this.sightEye,this.sightPoint,frame.unit,frame.target));result.point=this.sightPoint.toArray();
       }
       else if(op==='record') recordTarget(frame.request.controller,frame.target,point,world);
+      else if(op==='scanReady') result.flag=Boolean(frame.unit?.alive && frame.perception);
+      else if(op==='scanClear') frame.perception.heap.clear();
+      else if(op==='scanShared') result.number=this.id(world.vehicles?.sharedTarget?.(frame.controller)??null);
+      else if(op==='scanRange') result.number=maxExpandedRange(frame.unit,frame.controller);
+      else if(op==='scanOrigin') {frame.unit.origin(this.sightEye);result.point=this.sightEye.toArray();}
+      else if(op==='scanQuery') {
+        this.sightEye.copy(point);
+        world.units.query(this.sightEye,from.x,this.scanFound,u=>u!==frame.unit && world.units.relation(frame.unit.team,u.team)<0);
+        result.ids=this.scanFound.map(u=>this.id(u));
+      }
+      else if(op==='scanTarget') {
+        const t=frame.target=object;
+        result.values=[Number(Boolean(t?.alive)),Number(t===frame.unit),Number(t?.targetable===false),t?.combat?.maxHealth??t?.classDef?.MaxHealth??0];
+      }
+      else if(op==='scanRelation') result.number=world.units.relation(frame.unit.team,frame.target.team);
+      else if(op==='scanCollision') result.flag=frame.target.collisionCategory===16;
+      else if(op==='scanForward') {frame.unit.forward(this.scanLook);result.point=this.scanLook.toArray();}
+      else if(op==='scanAim') {frame.target.aimPoint(this.scanAim);result.point=this.scanAim.toArray();}
+      else if(op==='scanBounds') {
+        const t=frame.target,s=t.soldier,posture=s?.air?'stand':s?.posture;
+        result.values=[frame.unit?.kind,t?.kind,Number(Boolean(s)),posture==='crouch'?1:posture==='prone'?2:0,t?.sphere?.radius??0];
+      }
+      else if(op==='scanDispatch') {
+        const e=frame.dispatch(frame.controller,frame.unit,frame.target,false,world);
+        result.values=[Number(Boolean(e.pattern)),Number(Boolean(e.aux))];
+      }
+      else if(op==='scanPriority') {
+        const u=frame.unit,t=frame.target,h=u?.pilot?u.vehicle:null;
+        result.values=[this.id(t?.building?.post),this.id(frame.controller?.objective),Number(Boolean(u?.pilot)),this.id(h),
+          h?.towTarget,this.id(t?.vehicle),this.id(h?.system?.vehicles?.[h?.towTarget]),u.kind,t.kind];
+      }
+      else if(op==='scanInsert') {
+        const t=frame.target;frame.perception.heap.insert(from.x,t?{unit:t,generation:t.generation}:null);
+      }
       else throw Error(`unknown sight callback ${op}`);
       return result;
     }});
@@ -209,8 +244,19 @@ export class AiSim {
     finally {this.sightFrames.pop();}
   }
   bindPerception(perception) {
-    if(!this.perceptions.has(perception))this.perceptions.set(perception,new NativePerceptionFields(this,perception));
+    if(!this.perceptions.has(perception)) {
+      if(!(perception.heap instanceof NativePriorityHeap)) {
+        if(perception.heap.size)throw Error('native perception must bind before scanning');
+        perception.heap=this.heap(perception.heap.capacity,perception.heap.priority[0]);
+      }
+      this.perceptions.set(perception,new NativePerceptionFields(this,perception));
+    }
     return perception;
+  }
+  scan(id,controller,unit,world,dispatch) {
+    this.sightFrames.push({controller,unit,world,dispatch,perception:controller.perception});
+    try {return this.x.ai_sight_scan(id);}
+    finally {this.sightFrames.pop();}
   }
   cluster(target,create=false) {
     const owner=target?.controller??target;
@@ -290,6 +336,7 @@ class NativePerceptionFields {
     ['x','y','z'].forEach((key,index)=>field(perception.candidatePoint,key,index));
     field(perception,'lastScanCount',3);
     Object.defineProperty(perception,'nativeRecordTarget',{value:(controller,target,point,world)=>sim.recordTarget(id,controller,target,point,world)});
+    Object.defineProperty(perception,'nativeScan',{value:(controller,unit,world,dispatch)=>sim.scan(id,controller,unit,world,dispatch)});
   }
 }
 

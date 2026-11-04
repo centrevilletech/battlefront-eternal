@@ -334,6 +334,7 @@ const scanTargets = [];
 export function scan(controller, world, dispatch) {
   const unit = controller.unit;
   const p = controller.perception;
+  if (p?.nativeScan) return p.nativeScan(controller, unit, world, dispatch);
   if (!unit?.alive || !p) return 0;
   p.heap.clear();
   while (scanTargets.length) scanTargets.pop(); // keeps its storage, unlike length = 0
