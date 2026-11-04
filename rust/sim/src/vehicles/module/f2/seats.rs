@@ -81,11 +81,13 @@ impl Seats {
         assert!(!self.crews.turrets.iter().any(|t| t.turret == side.turret));
         self.crews.turrets.push(side);
         self.crews.updating.reserve(self.crews.turrets.len());
+        self.crews.shots.reserve(32);
         self.crews.latched.reserve(self.crews.turrets.len());
-        self.changed.turrets.reserve(1);
-        self.changed.leases.reserve(1);
-        self.changed.units.reserve(1);
-        self.retired.reserve(1);
+        self.changed.turrets.reserve(self.crews.turrets.len());
+        let occupants = self.crews.turrets.len() + self.hulls.pending_exits.capacity();
+        self.changed.leases.reserve(occupants);
+        self.changed.units.reserve(occupants);
+        self.retired.reserve(occupants);
     }
 
     fn hull(&self, st: &Store, target: HullLife) -> Option<usize> {
@@ -304,4 +306,12 @@ impl Seats {
             self.leave_turret(st, world, r, Let { placement: false, reason: Reason::Killed, ..Let::default() })
         }
     }
+}
+
+/// Scalar commands release the instance before any synchronous foreign hook.
+pub fn command(args: crate::gen::F2SeatCommand) -> crate::gen::F2SeatResult {
+    #[cfg(target_arch = "wasm32")]
+    { crate::vehicles::module::f2::live_seats::command(args) }
+    #[cfg(not(target_arch = "wasm32"))]
+    { let _ = args; unreachable!("F2 seat scalar commands require a WASM instance") }
 }

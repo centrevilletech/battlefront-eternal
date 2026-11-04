@@ -573,7 +573,8 @@ impl Crews {
         t.gunner = Some(unit);
         t.yaw_vel = 0.0;
         t.pitch_vel = 0.0;
-        foreign!(self, st, w, w.seat_policy(Holder::Turret(self.turrets[turret].index), 0, network, true));
+        let holder = Holder::Turret(self.turrets[turret].index);
+        foreign!(self, st, w, w.seat_policy(holder, 0, network, true));
         if !network {
             let c = foreign!(self, st, w, w.controllable(r, 0, SeatRole::Gunner));
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
@@ -587,7 +588,8 @@ impl Crews {
         st.turret_seats.leases.push(r);
         self.pose(st, r);
         foreign!(self, st, w, w.crew_posed(r));
-        foreign!(self, st, w, w.boarded(unit, Holder::Turret(self.turrets[turret].index), 0));
+        let holder = Holder::Turret(self.turrets[turret].index);
+        foreign!(self, st, w, w.boarded(unit, holder, 0));
         true
     }
 
@@ -617,7 +619,8 @@ impl Crews {
         let unit = lease.unit.map(|u| u.slot);
         let died = how.kill || how.reason == Reason::Killed;
         let has_body = unit.and_then(|u| st.unit.get(unit_ref(u))).is_some();
-        let fall = if died && has_body { foreign!(self, st, w, w.rider_drop(Holder::Turret(self.turrets[turret].index), 0, unit.unwrap())) } else { None };
+        let holder = Holder::Turret(self.turrets[turret].index);
+        let fall = if died && has_body { foreign!(self, st, w, w.rider_drop(holder, 0, unit.unwrap())) } else { None };
         let mut yaw: Option<f64> = None;
         let mut spot = ExitSpot::default();
         if how.placement && !died && self.collide && has_body {
@@ -669,7 +672,8 @@ impl Crews {
             }
         }
         if !how.kill {
-            foreign!(self, st, w, w.unboarded(unit, Holder::Turret(self.turrets[turret].index), 0, how.post, how.reason));
+            let holder = Holder::Turret(self.turrets[turret].index);
+            foreign!(self, st, w, w.unboarded(unit, holder, 0, how.post, how.reason));
         }
     }
 

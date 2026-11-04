@@ -237,7 +237,8 @@ impl Hulls {
         seat.look_yaw = None;
         seat.look_pitch = None;
         lease_views(st, vref);
-        foreign!(self, st, w, w.seat_policy(Holder::Hull(self.hulls[hull].index), index, network, true));
+        let holder = Holder::Hull(self.hulls[hull].index);
+        foreign!(self, st, w, w.seat_policy(holder, index, network, true));
         if !network {
             let c = foreign!(self, st, w, w.controllable(r, index, role));
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
@@ -251,7 +252,8 @@ impl Hulls {
         st.vehicle.get_mut(vref).unwrap().sleeping = Some(false);
         w.sync_rider(r, st.unit.get_mut(unit_ref(unit)).unwrap());
         lease_views(st, vref);
-        foreign!(self, st, w, w.boarded(unit, Holder::Hull(self.hulls[hull].index), index));
+        let holder = Holder::Hull(self.hulls[hull].index);
+        foreign!(self, st, w, w.boarded(unit, holder, index));
         true
     }
 
@@ -373,7 +375,8 @@ impl Hulls {
             w.placed(unit.unwrap(), yaw);
         }
         lease_views(st, vref);
-        foreign!(self, st, w, w.unboarded(unit, Holder::Hull(self.hulls[hull].index), index, how.post, how.reason));
+        let holder = Holder::Hull(self.hulls[hull].index);
+        foreign!(self, st, w, w.unboarded(unit, holder, index, how.post, how.reason));
         true
     }
 
@@ -426,13 +429,15 @@ impl Hulls {
         lease.input.reload = false;
         lease.input.exit = false;
         lease_views(st, vref);
-        foreign!(self, st, w, w.seat_policy(Holder::Hull(self.hulls[hull].index), index, human || network, !human));
+        let holder = Holder::Hull(self.hulls[hull].index);
+        foreign!(self, st, w, w.seat_policy(holder, index, human || network, !human));
         if !human && !network {
             let c = foreign!(self, st, w, w.controllable(r, index, role));
             st.seat_lease.get_mut(r).unwrap().controllable = Some(c);
         }
         lease_views(st, vref);
-        foreign!(self, st, w, w.moved(unit, Holder::Hull(self.hulls[hull].index), index));
+        let holder = Holder::Hull(self.hulls[hull].index);
+        foreign!(self, st, w, w.moved(unit, holder, index));
         r
     }
 

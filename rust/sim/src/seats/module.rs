@@ -54,6 +54,15 @@ mod native {
 #[cfg(not(target_arch = "wasm32"))]
 use native::*;
 
+/// seats.js placeOnFoot's Soldier.spawn boundary, shared by the live owner.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn stand_up(unit: &mut Unit, x: f64, y: f64, z: f64, yaw: f64) {
+    match &mut unit.soldier {
+        UnitBody::Soldier(s) => s.spawn(x, y, z, yaw, &mut Ground),
+        UnitBody::Droideka(_) => unreachable!("a droideka never sits"),
+    }
+}
+
 /// Vehicles.latchCrews on the store (the command seatLatch): every hull's
 /// stale leases let go, every bot's intent frozen for this update, and the
 /// exits asked for carried out.
