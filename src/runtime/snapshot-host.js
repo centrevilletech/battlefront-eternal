@@ -156,7 +156,7 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
   function ensureRuntime() {
     if (registry) return;
     registry = createEntityRegistry(game.data, { contentEpoch: epoch, inputCodes: INPUT_CODES, bindingProfiles: DEFAULT_BINDING_PROFILES, posts: entityPostNames(game), native: native ? createWireRegistryBridge(game.simBridge) : null });
-    shots = new EntityShotCounters(game.simEvents);
+    shots = new EntityShotCounters(game.simEvents, { bridge: native ? game.simBridge : null });
     combatCapture = new CombatCapture({ tick: () => game.worldClock.tick, definitionId: registry.combat.definitionId, generation: epoch });
     combatDispose = attachCombatCapture(game, combatCapture);
     presentationDispose = attachPresentationCapture(game, combatCapture, registry, nativePresentation);

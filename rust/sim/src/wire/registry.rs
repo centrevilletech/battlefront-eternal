@@ -19,7 +19,7 @@ fn ordered(names: Vec<WrName>, strings: &Strings) -> Result<Vec<WrName>> {
     let mut seen = std::collections::HashSet::new();
     for item in names {
         let id = name(&item, strings)?;
-        if seen.insert(id) {
+        if seen.insert(id.0) {
             ids.push(id);
         }
     }
@@ -47,7 +47,7 @@ pub fn inputs(mut a: WrInputs, strings: &Strings) -> Result<WrResult> {
     if a.codes
         .iter()
         .filter_map(|c| c.value)
-        .any(|id| !seen.insert(id))
+        .any(|id| !seen.insert(id.0))
     {
         return Err("invalid input-code registry");
     }
