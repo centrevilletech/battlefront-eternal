@@ -9,7 +9,7 @@ export default {
   },
   records: {
     // Flat rows let the phase decode one input at a time without temporary lists.
-    F2SeatHeader: { bodies: 'u32', bodyCount: 'u32', weapons: 'u32', weaponCount: 'u32', units: 'u32', unitCount: 'u32', controls: 'u32', controlCount: 'u32', looks: 'u32', lookCount: 'u32', mouseScale: 'f64', invert: 'bool', flightScale: 'f64', flightInvert: 'bool' },
+    F2SeatHeader: { bodies: 'u32', bodyCount: 'u32', units: 'u32', unitCount: 'u32', controls: 'u32', controlCount: 'u32', looks: 'u32', lookCount: 'u32', mouseScale: 'f64', invert: 'bool', flightScale: 'f64', flightInvert: 'bool' },
     F2SeatSample: { dx: 'f64', dy: 'f64' },
     F2SeatUnitIn: { unit: 'ref:unit', generation: 'f64', alive: 'bool', dead: 'bool', human: 'bool', networkHuman: 'bool|undefined', walker: 'bool', team: 'f64', removed: 'bool', hasActor: 'bool', tickCount: 'f64', soldier: 'rec:Soldier', intent: 'rec:Intent', noEnter: 'f64', zoomStep: 'f64', zoom: 'f64', firstPerson: 'bool', blowApart: 'bool', combatDead: 'bool', targetable: 'bool|undefined', mounted: 'bool|undefined', gunUnderwater: 'bool', aimOverride: 'vec3|null|undefined' },
     F2SeatBody: { position: 'vec3', previous: 'vec3', settled: 'vec3', velocity: 'vec3', normal: 'vec3', aimYaw: 'f64', aimPitch: 'f64', air: 'enum:Air|null', posture: 'enum:Posture', grounded: 'bool', dive: 'f64', diveFrom: 'enum:Posture', lock: 'f64', lookX: 'f64', lookY: 'f64', fuel: 'f64', stateTime: 'f64', passThrough: 'ref:body|null' },
@@ -22,12 +22,11 @@ export default {
     F2BodyRef: { body: 'ref:body', kernel: 'u32' },
     F2Bodies: { bodies: 'list:rec:F2BodyRef' },
     F2HullNode: { hull: 'ref:vehicle', node: 'u32', matrix: 'mat4', world: 'mat4' },
-    F2SeatIo: { emitterMask: 'u32', ordnance: 'u32', nodes: 'u32', words: 'u32', input: 'u32', capacity: 'u32', headerWords: 'u32', unitWords: 'u32', controlWords: 'u32', lookWords: 'u32', bodyWords: 'u32', weaponWords: 'u32', leases: 'u32', units: 'u32', controls: 'u32', effects: 'u32', fire: 'u32', turrets: 'u32', events: 'u32', ticks: 'f64', turretTicks: 'f64', turretTime: 'f64' },
+    F2SeatIo: { emitterMask: 'u32', ordnance: 'u32', nodes: 'u32', words: 'u32', input: 'u32', capacity: 'u32', headerWords: 'u32', unitWords: 'u32', controlWords: 'u32', lookWords: 'u32', bodyWords: 'u32', leases: 'u32', units: 'u32', controls: 'u32', effects: 'u32', fire: 'u32', turrets: 'u32', events: 'u32', ticks: 'f64', turretTicks: 'f64', turretTime: 'f64' },
     F2TurretLockLevel: { range: 'f64', on: 'f64', off: 'f64', relationMask: 'u32', categoryMask: 'u32' },
     F2TurretBirth: { life: 'f64', timed: 'bool', locks: 'list:rec:F2TurretLockLevel', settings: 'rec:PtSettings', turret: 'rec:PcTurret', weapon: 'rec:Weapon|null', ordnance: 'def:ordnance|null', channel: 'f64', collide: 'bool' },
     F2TurretLife: { turret: 'ref:turret', generation: 'f64', alive: 'bool', attacker: 'union:Attacker', center: 'vec3', radius: 'f64' },
     F2TurretHeader: { turret: 'ref:turret' },
-    F2TurretInput: { index: 'u32', hasRandom: 'bool', floor: 'f64', spreadScale: 'f64', sniperScale: 'f64', yawSpreadOverride: 'f64|null' },
     F2TurretOut: { header: 'rec:F2TurretHeader', posed: 'bool', state: 'rec:PtState', lease: 'ref:seatLease|null', gunner: 'ref:unit|null', weapon: 'rec:Weapon|null', seatTurn: 'quat', samplePitch: 'f64', sampleTurn: 'f64', sampleTime: 'f64|null' },
     F2TurretDraw: { turret: 'u32' },
     F2TurretTargetQuery: { turret: 'u32', index: 'f64', lease: 'ref:seatLease', shapes: 'bool', aim: 'bool' },

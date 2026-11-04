@@ -4004,8 +4004,6 @@ impl F2SeatHeader {
         Ok(F2SeatHeader {
             bodies: { let p = format!("{path}.bodies"); (int(v.get("bodies"), &p, 0.0, u32::MAX as f64)? as u32) },
             body_count: { let p = format!("{path}.bodyCount"); (int(v.get("bodyCount"), &p, 0.0, u32::MAX as f64)? as u32) },
-            weapons: { let p = format!("{path}.weapons"); (int(v.get("weapons"), &p, 0.0, u32::MAX as f64)? as u32) },
-            weapon_count: { let p = format!("{path}.weaponCount"); (int(v.get("weaponCount"), &p, 0.0, u32::MAX as f64)? as u32) },
             units: { let p = format!("{path}.units"); (int(v.get("units"), &p, 0.0, u32::MAX as f64)? as u32) },
             unit_count: { let p = format!("{path}.unitCount"); (int(v.get("unitCount"), &p, 0.0, u32::MAX as f64)? as u32) },
             controls: { let p = format!("{path}.controls"); (int(v.get("controls"), &p, 0.0, u32::MAX as f64)? as u32) },
@@ -4021,11 +4019,9 @@ impl F2SeatHeader {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(14);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(12);
         { let x = Value::Num(self.bodies as f64); fields.push(("bodies", x)); }
         { let x = Value::Num(self.body_count as f64); fields.push(("bodyCount", x)); }
-        { let x = Value::Num(self.weapons as f64); fields.push(("weapons", x)); }
-        { let x = Value::Num(self.weapon_count as f64); fields.push(("weaponCount", x)); }
         { let x = Value::Num(self.units as f64); fields.push(("units", x)); }
         { let x = Value::Num(self.unit_count as f64); fields.push(("unitCount", x)); }
         { let x = Value::Num(self.controls as f64); fields.push(("controls", x)); }
@@ -4400,7 +4396,6 @@ impl F2SeatIo {
             control_words: { let p = format!("{path}.controlWords"); (int(v.get("controlWords"), &p, 0.0, u32::MAX as f64)? as u32) },
             look_words: { let p = format!("{path}.lookWords"); (int(v.get("lookWords"), &p, 0.0, u32::MAX as f64)? as u32) },
             body_words: { let p = format!("{path}.bodyWords"); (int(v.get("bodyWords"), &p, 0.0, u32::MAX as f64)? as u32) },
-            weapon_words: { let p = format!("{path}.weaponWords"); (int(v.get("weaponWords"), &p, 0.0, u32::MAX as f64)? as u32) },
             leases: { let p = format!("{path}.leases"); (int(v.get("leases"), &p, 0.0, u32::MAX as f64)? as u32) },
             units: { let p = format!("{path}.units"); (int(v.get("units"), &p, 0.0, u32::MAX as f64)? as u32) },
             controls: { let p = format!("{path}.controls"); (int(v.get("controls"), &p, 0.0, u32::MAX as f64)? as u32) },
@@ -4416,7 +4411,7 @@ impl F2SeatIo {
 
     /// Its value, as the export of the JavaScript object it stands for.
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(22);
+        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(21);
         { let x = Value::Num(self.emitter_mask as f64); fields.push(("emitterMask", x)); }
         { let x = Value::Num(self.ordnance as f64); fields.push(("ordnance", x)); }
         { let x = Value::Num(self.nodes as f64); fields.push(("nodes", x)); }
@@ -4428,7 +4423,6 @@ impl F2SeatIo {
         { let x = Value::Num(self.control_words as f64); fields.push(("controlWords", x)); }
         { let x = Value::Num(self.look_words as f64); fields.push(("lookWords", x)); }
         { let x = Value::Num(self.body_words as f64); fields.push(("bodyWords", x)); }
-        { let x = Value::Num(self.weapon_words as f64); fields.push(("weaponWords", x)); }
         { let x = Value::Num(self.leases as f64); fields.push(("leases", x)); }
         { let x = Value::Num(self.units as f64); fields.push(("units", x)); }
         { let x = Value::Num(self.controls as f64); fields.push(("controls", x)); }
@@ -4541,33 +4535,6 @@ impl F2TurretHeader {
     pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
         let mut fields: Vec<(&str, Value)> = Vec::with_capacity(1);
         { let x = cx.ref_out(KIND_TURRET, self.turret); fields.push(("turret", x)); }
-        a.object("", fields)
-    }
-}
-
-impl F2TurretInput {
-    /// Its fields from a value (the export of the JavaScript object).
-    pub fn from_value(v: V, cx: &mut Replay, path: &str) -> Result<Self> {
-        object(v, path)?;
-        Ok(F2TurretInput {
-            index: { let p = format!("{path}.index"); (int(v.get("index"), &p, 0.0, u32::MAX as f64)? as u32) },
-            has_random: { let p = format!("{path}.hasRandom"); boolean(v.get("hasRandom"), &p)? },
-            floor: { let p = format!("{path}.floor"); num(v.get("floor"), &p)? },
-            spread_scale: { let p = format!("{path}.spreadScale"); num(v.get("spreadScale"), &p)? },
-            sniper_scale: { let p = format!("{path}.sniperScale"); num(v.get("sniperScale"), &p)? },
-            yaw_spread_override: { let p = format!("{path}.yawSpreadOverride"); match v.get("yawSpreadOverride").value { Value::Null => None, Value::Undefined => return Err(format!("{}: undefined where its schema says null", &p)), _ => Some(num(v.get("yawSpreadOverride"), &p)?) } },
-        })
-    }
-
-    /// Its value, as the export of the JavaScript object it stands for.
-    pub fn to_value(&self, cx: &mut Replay, a: &mut Arena) -> Value {
-        let mut fields: Vec<(&str, Value)> = Vec::with_capacity(6);
-        { let x = Value::Num(self.index as f64); fields.push(("index", x)); }
-        { let x = Value::Bool(self.has_random); fields.push(("hasRandom", x)); }
-        { let x = Value::Num(self.floor); fields.push(("floor", x)); }
-        { let x = Value::Num(self.spread_scale); fields.push(("spreadScale", x)); }
-        { let x = Value::Num(self.sniper_scale); fields.push(("sniperScale", x)); }
-        { let x = match &self.yaw_spread_override { Some(v) => Value::Num((*v)), None => Value::Null }; fields.push(("yawSpreadOverride", x)); }
         a.object("", fields)
     }
 }

@@ -8,7 +8,7 @@ import { makeHit } from './collision.js';
 import { COMMAND_F2_SEAT, COMMAND_TABLE, KIND_TABLE, KIND_SEAT_LEASE, KIND_UNIT, KIND_ORDNANCE, KIND_EMITTER } from './sim/gen/index.js';
 import { F2SeatIoMirror, F2SeatHeaderMirror, F2SeatUnitInMirror, F2SeatUnitOutMirror, F2SeatCommandMirror, F2SeatResultMirror,
   F2SeatAnswerMirror, F2SeatEffectMirror, F2LatchedMirror, F2SeatFireMirror,
-  F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2TurretInputMirror, F2HullNodeMirror, syncF2HullNode, F2TurretTargetMirror, F2RiderInMirror, putF2RiderIn, syncF2TurretHeader, putF2TurretInput, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
+  F2TurretOutMirror, F2TurretEventMirror, F2TurretHeaderMirror, F2HullNodeMirror, syncF2HullNode, F2TurretTargetMirror, F2RiderInMirror, putF2RiderIn, syncF2TurretHeader, putF2TurretBirth, putF2TurretLife, syncF2TurretOut, syncF2TurretEvent,
   syncF2SeatIo, putF2SeatHeader, putF2SeatUnitIn, syncF2SeatUnitOut, syncF2SeatEffect, syncF2Latched, syncF2SeatFire, putF2SeatSample } from './sim/gen/f2.js';
 import { rigNodes } from './vehicle-phase-data.js';
 import { turretSettings, turretState } from './turrets-sim.js';
@@ -95,7 +95,7 @@ export class F2Seats {
     this.header.invert = this.header.flightInvert = false;
     this.hullArgs = { words: this.x.f2_seats_adopt_words(), put: putSeatHullFacts };
     this.facts = new WeakMap(); this.turretRows = new WeakMap();
-    this.hullNode = new F2HullNodeMirror(); this.turretHeader = new F2TurretHeaderMirror(); this.turretInput = new F2TurretInputMirror(); this.turretEvent = new F2TurretEventMirror();
+    this.hullNode = new F2HullNodeMirror(); this.turretHeader = new F2TurretHeaderMirror(); this.turretEvent = new F2TurretEventMirror();
     this.turretLifeRow = { turret: null, generation: 0, alive: false, attacker: null, center: new THREE.Vector3(), radius: 0 };
     this.turretBirthArgs = { words: this.x.f2_turret_words(0), put: putF2TurretBirth };
     this.turretLifeArgs = { words: this.x.f2_turret_words(1), put: putF2TurretLife };
@@ -178,14 +178,6 @@ export class F2Seats {
       const a = this.controlIn; a.seatUnit = c; a.driven = Boolean(c.controller); a.intent = c.intent;
       putSeatAiControl(b, a, f, this.inputBase + o, this.emptyHeap); o += this.io.controlWords; h.controlCount++;
     }
-    h.weapons = o; h.weaponCount = 0;
-    if (this.crews) for (let i = 0; i < this.crews.turrets.length; i++) {
-      const t = this.crews.turrets[i], w = t.weapon;
-      if (!w || !all && t !== hull) continue;
-      const a = this.turretInput; a.index = i; a.hasRandom = Boolean(w.random); a.floor = w.floor;
-      a.spreadScale = w.spreadScale; a.sniperScale = w.sniperScale; a.yawSpreadOverride = w.yawSpreadOverride;
-      putF2TurretInput(b, a, f, this.inputBase + o, this.emptyHeap); o += this.io.weaponWords; h.weaponCount++;
-    }
     h.looks = o; h.lookCount = 0; h.bodies = o; h.bodyCount = 0;
     this.writeHeader(o);
     return o;
@@ -194,7 +186,7 @@ export class F2Seats {
     this.units.length = 0; this.stamp++;
     for (const v of this.vehicles.vehicles) if (v.alive) this.addHull(v);
     const b = this.bridge, h = this.header; b.views();
-    h.unitCount = h.controlCount = h.weaponCount = h.lookCount = 0;
+    h.unitCount = h.controlCount = h.lookCount = 0;
     let o = this.io.headerWords; h.bodies = o; h.bodyCount = this.units.length;
     for (const unit of this.units) {
       const a = this.riderIn; a.unit = unit; a.generation = unit.generation; a.tickCount = unit.tickCount; a.soldier = unit.soldier;

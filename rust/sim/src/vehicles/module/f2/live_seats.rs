@@ -126,14 +126,6 @@ fn inputs() {
         state().owner.hulls.riders.insert(a.unit.slot, f);
         state().owner.crews.riders.insert(a.unit.slot, f);
     }
-    for i in 0..h.weapon_count as usize {
-        let start = h.weapons as usize + i * F2TurretInput::WORDS;
-        let a = F2TurretInput::take(&state().input[start..start + F2TurretInput::WORDS], &[]);
-        if let Some(w) = state().weapons[a.index as usize].as_mut() {
-            w.state.random = a.has_random; w.state.floor = a.floor; if w.state.kick < a.floor { w.state.kick = a.floor; }
-            w.state.spread_scale = a.spread_scale; w.state.sniper_scale = a.sniper_scale; w.state.yaw_spread_override = a.yaw_spread_override;
-        }
-    }
     for i in 0..h.control_count as usize {
         let start = h.controls as usize + i * SeatAiControl::WORDS;
         let a = SeatAiControl::take(&state().input[start..start + SeatAiControl::WORDS], &[]);
@@ -268,7 +260,7 @@ pub fn publish() -> *const f64 {
     state.fire.finish(); state.fire_rows.clear();
     F2SeatIo { emitter_mask: EMITTER_MASK, ordnance: state.ordnance_output.ptr() as usize as u32, nodes: state.node_output.ptr() as usize as u32, words: F2SeatIo::WORDS as u32, input: state.input.as_mut_ptr() as usize as u32, capacity: INPUT_CAPACITY as u32,
         header_words: F2SeatHeader::WORDS as u32, unit_words: F2SeatUnitIn::WORDS as u32, control_words: SeatAiControl::WORDS as u32,
-        look_words: F2SeatSample::WORDS as u32, body_words: F2RiderIn::WORDS as u32, weapon_words: F2TurretInput::WORDS as u32, leases: state.leases.ptr() as usize as u32, units: state.units.ptr() as usize as u32,
+        look_words: F2SeatSample::WORDS as u32, body_words: F2RiderIn::WORDS as u32, leases: state.leases.ptr() as usize as u32, units: state.units.ptr() as usize as u32,
         controls: state.controls.ptr() as usize as u32, effects: state.effects.ptr() as usize as u32,
         fire: state.fire.ptr() as usize as u32, turrets: state.turret_output.ptr() as usize as u32, events: state.event_output.ptr() as usize as u32, ticks: state.owner.hulls.ticks, turret_ticks: st.turret_seats.ticks, turret_time: st.turret_seats.time }.put(&mut state.io, &mut state.effects.heap);
     state.io.as_ptr()
