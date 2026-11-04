@@ -60,6 +60,25 @@ impl Timeline {
         self.n > 0
     }
 
+    /// Whether the browser works this parameter out a sample at a time in
+    /// the block starting at `frame` (HasSampleAccurateValues): an event in
+    /// or before the block, or two of any kind; a lone setValueAtTime
+    /// already past is a constant, as is a first event after the block.
+    pub fn sample_accurate(&self, frame: u64, rate: f64) -> bool {
+        if self.n == 0 {
+            return false;
+        }
+        let end = (frame + RENDER_QUANTUM as u64) as f64 / rate;
+        let first = self.ev[0];
+        if first.time > end {
+            return false;
+        }
+        if self.n >= 2 {
+            return true;
+        }
+        if first.target { first.time <= end } else { first.time >= frame as f64 / rate }
+    }
+
     /// AudioParam.value set: the intrinsic value at once (the setter then
     /// schedules a setValueAtTime of it, a separate insert).
     pub fn set_value(&mut self, value: f32) {

@@ -33,6 +33,19 @@ export function voicesRust() {
   }
 }
 
+// Whether the enhanced mode's master chain (the reverb, the LFE, the clarity
+// stage, the limiter and the volume, after the mixer) renders in the mixer's
+// module with its voices (rust/audio/src/master.rs) rather than in the
+// browser's nodes and three more worklets: with ?master=rust, until it has
+// shown what it saves on the low-end laptop.
+export function masterRust() {
+  try {
+    return new URLSearchParams(globalThis.location?.search || "").get("master") === "rust";
+  } catch {
+    return false;
+  }
+}
+
 // The compiled module, or null with ?audio=js (also null when it cannot be
 // compiled: the JavaScript worklets then simply run, the same sound).
 export function loadAudioDsp() {

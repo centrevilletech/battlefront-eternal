@@ -520,6 +520,79 @@ test("the voice engine plays the light mix's voices in one worklet, sent what th
   ]);
 });
 
+test("the master chain goes into the mixer's module, and the rest of its graph with it", async () => {
+  const build = async (config, masterRust = true) => {
+    const ctx = new FakeContext({ channels: 8 });
+    const r = new Renderer(ctx);
+    r.voicesRust = true;
+    r.masterRust = masterRust;
+    r.masterVolume = 0.5;
+    await r.load(null, config);
+    await r.configure(config);
+    return { ctx, r };
+  };
+  const { ctx, r } = await build({ quality: "enhanced", output: "5.1", dynamics: "night", mono: false });
+  assert.equal(r.master, true);
+  // One worklet, its output the finished sound; no other in the graph.
+  assert.deepEqual(ctx.nodes.filter((n) => n.kind === "AudioWorkletNode").map((n) => n.name), ["spatial-mixer"]);
+  assert.deepEqual(ctx.nodes.filter((n) => n.kind === "BiquadFilterNode"), []);
+  assert.deepEqual(into(ctx, r.mixer).map((e) => e.to), [ctx.destination]);
+  assert.equal(r.output, r.mixer);
+  // Its last two inputs bring what comes through the browser's nodes.
+  const inputs = r.mixer.options.numberOfInputs;
+  assert.equal(inputs, 66);
+  assert.deepEqual(into(ctx, r.reverbIn).map((e) => [e.to, e.input]), [[r.mixer, inputs - 2]]);
+  assert.deepEqual(into(ctx, r.mix).map((e) => [e.to, e.input]), [[r.mixer, inputs - 1]]);
+  assert.deepEqual(r.mixer.options.outputChannelCount, [6]);
+  // What the worklet is told: the nodes' own parameters.
+  const m = r.mixer.options.processorOptions.master;
+  assert.equal(m.rooms, 0b110111, "the reverb reaches every speaker, the LFE left dry");
+  assert.deepEqual(m.lfe, [3, 120, -3.0103]);
+  assert.deepEqual(m.highpass, [180, -3.0103]);
+  assert.equal(m.eq.length, 3);
+  assert.deepEqual(m.eq[2], [3, 8500, 3, 0.7]);
+  assert.equal(m.clarity.skip, 3);
+  assert.equal(m.dynamics.skip, 3);
+  assert.equal(m.dynamics.threshold, -30);
+  assert.equal(m.volume, 0.5);
+  // A voice in the slots asks for the LFE as ever (update's r.lfe).
+  assert.ok(r.lfe);
+  // The room and the volume reach the worklet.
+  const sent = [];
+  r.mixer.port.postMessage = (message) => sent.push(message);
+  r.setRoom({ decay: 2 });
+  r.setVolume(0.25);
+  assert.deepEqual(sent, [
+    { type: "room", params: { decay: 2 } },
+    { type: "volume", value: 0.25, time: ctx.currentTime },
+  ]);
+  // The limiter's reports, as its worklet's.
+  const reports = [];
+  r.onLimiter = (report) => reports.push(report);
+  r.mixer.port.onmessage({ data: { type: "sync", id: 1 } });
+  r.mixer.port.onmessage({ data: { reduction: -2 } });
+  assert.deepEqual(reports, [{ reduction: -2 }]);
+  // No clarity: no EQ or stage in the chain.
+  const plain = await build({ quality: "enhanced", output: "stereo", dynamics: "normal", mono: false, clarity: false });
+  const options = plain.r.mixer.options.processorOptions.master;
+  assert.deepEqual(options.eq, []);
+  assert.equal(options.clarity, null);
+  assert.equal(options.rooms, -1);
+  assert.equal(options.lfe, null);
+  // The mono fold keeps its nodes, as the switch off does; the light mix
+  // has its own graph.
+  for (const [config, off] of [
+    [{ quality: "enhanced", output: "stereo", dynamics: "normal", mono: true }, true],
+    [{ quality: "enhanced", output: "stereo", dynamics: "normal", mono: false }, false],
+    [{ quality: "original", output: "stereo", dynamics: "normal", mono: false }, true],
+  ]) {
+    const { r } = await build(config, off);
+    assert.equal(r.master, false, JSON.stringify(config));
+    assert.equal(r.engine, true);
+    assert.ok(r.volume);
+  }
+});
+
 test("a voice with a node of its own keeps the browser's nodes beside the voice engine", async () => {
   // A stream's line said somewhere, and the audio panel's test.
   for (const quality of ["original", "enhanced"]) {

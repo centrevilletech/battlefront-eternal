@@ -845,6 +845,134 @@ export async function checkAudio() {
     }
   }
 
+  // 6e. The master chain in the mixer's module (?master=rust) against the
+  // browser's nodes and worklets, the voices in the engine on both sides.
+  // Every sum in the chain has two terms on a channel, so the two are equal
+  // to the bit, with the room and the volume moving as a battle moves them.
+  // (The voices start a few frames in: in the very first block Chromium's
+  // own graph takes the LFE's filters in or not, renders differing in it.)
+  // A third term into the mix, the beds, goes in an order of Chromium's own
+  // (6b), so there the voice engine's second rule holds, -96 dBFS. A voice
+  // that keeps the browser's nodes reaches the reverb and the mix too.
+  {
+    const render = async (masterRust, { channels, output, beds = false, own = false, seconds = 1 }) => {
+      const ctx = new OfflineAudioContext(channels, RATE * seconds, RATE);
+      const pcm = new Int16Array(22050);
+      let seed = 11;
+      const rand = () => ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) / 4294967296) * 2 - 1;
+      for (let i = 0; i < pcm.length; i++) pcm[i] = Math.round(6000 * Math.sin(i / 7) + 3000 * rand());
+      const voices = 8;
+      const name = (i) => `0x0000f${String(i).padStart(3, "0")}`;
+      const manifest = {
+        objects: [
+          { type: "Bus", Name: "0x00000001", Gain: 1 },
+          ...Array.from({ length: voices }, (_, i) => ({
+            type: "SoundProperties", Name: name(i), Bus: "0x00000001", Mode3D: 1, MinDistance: 2, MaxDistance: 400, MuteDistance: 400,
+            RollOff: 1, Looping: 1, Bias: 0.0001, ReverbGain: 0.5, PitchVariation: 0, ModeDoppler: 1, SampleList: [["0x00000100", 1]],
+          })),
+        ],
+        samples: { "0x00000100": [0, pcm.length, 22050] },
+      };
+      const engine = new AudioEngine({ context: ctx });
+      const r = engine.renderer;
+      r.voicesRust = true;
+      r.masterRust = masterRust;
+      r.masterVolume = 0.8;
+      r.setRoom({ room: 0.5, decay: 1.2, reflections: 0.3 });
+      const config = { quality: "enhanced", output, dynamics: "normal", mono: false };
+      await r.load(null, config);
+      await r.configure(config);
+      engine.setData(new SoundData(manifest, pcm.buffer));
+      engine.shape = (voice) => {
+        const e = voice.extra;
+        e.cutoff = voice.distance > 10 ? Math.min(Math.max(20000 / (1 + (voice.distance - 10) / 35), 1800), 20000) : 20000;
+        e.gain = 1;
+        e.send = 1;
+        e.lfe = 1;
+        return e;
+      };
+      const port = r.mixer.port;
+      const waits = new Map();
+      let ids = 0;
+      const before = port.onmessage;
+      port.onmessage = (e) => {
+        if (e.data?.type === "sync") waits.get(e.data.id)?.();
+        else before?.(e);
+      };
+      const sync = () => new Promise((resolve) => waits.set(++ids, resolve) && port.postMessage({ type: "sync", id: ids }));
+      const start = () => {
+        for (let i = 0; i < voices; i++) {
+          const a = (i / voices) * Math.PI * 2;
+          const far = 5 + ((i * 13) % 90);
+          engine.play(name(i), { position: { x: far * Math.sin(a), y: 0, z: far * Math.cos(a) }, loop: true, category: "ambience" });
+        }
+        if (beds) {
+          for (const [count, kind, freq] of [[2, "music", 180], [4, "ambience", 90], [1, "voice", 400]]) {
+            const gain = ctx.createGain();
+            gain.gain.value = 0.6;
+            const bed = r.bed(count, gain, kind);
+            const split = ctx.createChannelMerger(count);
+            for (let c = 0; c < count; c++) {
+              const src = sine(ctx, freq * (c + 1), 0.1);
+              src.connect(split, 0, c);
+              src.start(ctx.currentTime);
+            }
+            split.connect(bed.input);
+          }
+        }
+        if (own) {
+          const line = sine(ctx, 300, 0.2);
+          const out = r.voice({ mode3D: 1 }, true);
+          out.attach(line);
+          out.update({ x: -0.6, y: 0, z: -0.8 }, 8, 0, { send: 0.7, cutoff: 6000 });
+          line.start(ctx.currentTime);
+        }
+      };
+      const step = (k) => {
+        const t = k / 60;
+        if (k === 3) start();
+        engine.setListener({ x: 3 * Math.sin(t), y: 1.6, z: Math.sin(t * 0.3) }, { x: -Math.sin(t * 0.8), y: 0, z: -Math.cos(t * 0.8) }, { x: 0, y: 1, z: 0 });
+        if (k === 20) r.setRoom({ room: 0.2, decay: 0.6, reverbDelay: 0.05, density: 0.7 });
+        if (k === 30) r.setVolume(0.4);
+        engine.update(1 / 60);
+      };
+      step(0);
+      for (let k = 1; k / 60 < seconds; k++) {
+        ctx.suspend((Math.round(((k / 60) * RATE) / 128) * 128) / RATE).then(async () => {
+          step(k);
+          await sync();
+          ctx.resume();
+        });
+      }
+      await sync();
+      const out = await ctx.startRendering();
+      return { channels: Array.from({ length: channels }, (_, c) => out.getChannelData(c)), master: r.master, limiter: r.limiter };
+    };
+    const compare = (a, b) => {
+      let differ = 0;
+      let largest = 0;
+      let peak = 0;
+      a.channels.forEach((channel, c) => {
+        for (let i = 0; i < channel.length; i++) {
+          if (!Object.is(channel[i], b.channels[c][i])) differ++;
+          largest = Math.max(largest, Math.abs(channel[i] - b.channels[c][i]));
+          peak = Math.max(peak, Math.abs(b.channels[c][i]));
+        }
+      });
+      return { differ, largest: db(largest), peak, master: b.master, nodes: a.master };
+    };
+    for (const scene of [
+      { channels: 2, output: "stereo" },
+      { channels: 6, output: "5.1" },
+    ]) {
+      const got = compare(await render(false, scene), await render(true, scene));
+      assert(`master chain in the module, ${scene.output}: the browser's nodes' samples, bit for bit`, got.master && !got.nodes && got.differ === 0 && got.peak > 0.01, got);
+    }
+    const scene = { channels: 2, output: "stereo", beds: true, own: true };
+    const got = compare(await render(false, scene), await render(true, scene));
+    assert("master chain in the module: beds and a voice of its own within -96 dBFS", got.master && !got.nodes && got.largest < -96 && got.peak > 0.01, got);
+  }
+
   // 7. The headphone decoder. The encoder's harmonics against the values
   // tools/make_binaural.py checked against spaudiopy (written with the
   // filters), spread keeping the energy, and the decoded ears: a source on

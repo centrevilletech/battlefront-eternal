@@ -1,6 +1,6 @@
 import { Target } from "./automation.js";
 import { ALSOFT, ALSOFT_STREAM_ANGLES, LAYOUTS, alsoftStereo, autoLayout } from "./layouts.js";
-import { loadAudioDsp, voicesRust } from "./wasm-dsp.js";
+import { loadAudioDsp, masterRust, voicesRust } from "./wasm-dsp.js";
 
 // Where sound goes once it leaves a voice: the output layout, the panning,
 // the reverb, the LFE, and the master chain.
@@ -83,6 +83,8 @@ const BUTTERWORTH_Q = -3.0103;
 // The voice engine's commands (rust/audio/src/voices.rs), each code then its
 // slot and arguments.
 const VOICE = { START: 1, GAIN_SET: 2, GAIN: 3, RATE: 4, CUTOFF: 5, SEND: 6, RELEASE: 7, STOP: 8, SIDE_SET: 9, SIDE: 10, CANCEL: 11, STOP_AT: 12 };
+// A filter's kind as the master chain takes it (rust/audio/src/master.rs).
+const FILTER_KINDS = { lowpass: 0, highpass: 1, peaking: 2, highshelf: 3 };
 
 // The dynamics profiles. The game's mix is authored to full scale (a gun at
 // arm's length peaks near 0 dBFS; a battle on Theed plays at about -14 LUFS
@@ -159,6 +161,10 @@ export class Renderer {
     // mixer once (`uploaded`).
     this.voicesRust = voicesRust();
     this.engine = false;
+    // masterRust (with ?master=rust; tests set it): with the voice engine,
+    // what follows the mixer renders in its module too: `master`, as built.
+    this.masterRust = masterRust();
+    this.master = false;
     this.engineGen = 0;
     this.commands = [];
     this.flushQueued = false;
@@ -284,6 +290,7 @@ export class Renderer {
     this.pair = null;
     // (No voice engine without a mixer; set again below when built.)
     this.engine = false;
+    this.master = false;
     if (this.light) return this.buildLight();
     // Headphones: the ambisonic decoder when enhanced and loaded, else an
     // HRTF panner per voice.
@@ -320,14 +327,18 @@ export class Renderer {
     // The voice engine needs the module, and takes the enhanced voices that
     // go to a mixer slot (not those of the browser's HRTF panners).
     this.engine = Boolean(this.dsp) && enhanced && !this.hrtf && this.voicesRust;
+    // The master chain follows the engine into the module, on speakers; the
+    // binaural decoder's convolvers, and the mono fold, keep their nodes.
+    this.master = this.engine && this.masterRust && !this.binaural && !config.mono;
     this.engineGen += 1;
     this.commands.length = 0;
     this.uploaded = new Set();
+    const master = this.master;
     this.mixer = keep(
       new AudioWorkletNode(ctx, "spatial-mixer", {
-        numberOfInputs: SLOTS,
-        numberOfOutputs: this.engine ? 3 : 2,
-        outputChannelCount: this.engine ? [feeds, 1, 1] : [feeds, 1],
+        numberOfInputs: master ? SLOTS + 2 : SLOTS,
+        numberOfOutputs: master ? 1 : this.engine ? 3 : 2,
+        outputChannelCount: master ? [feeds] : this.engine ? [feeds, 1, 1] : [feeds, 1],
         processorOptions: {
           channels: feeds,
           law,
@@ -336,9 +347,38 @@ export class Renderer {
           decoder: this.alsoft,
           ...(this.dsp ? { dsp: this.dsp } : {}),
           ...(this.engine ? { engine: { q: BUTTERWORTH_Q } } : {}),
+          ...(master ? { master: this.masterOptions(layout) } : {}),
         },
       }),
     );
+    // The reverb's send, summed: one mono channel.
+    this.reverbIn = keep(ctx.createGain());
+    this.reverbIn.channelCount = 1;
+    this.reverbIn.channelCountMode = "explicit";
+    if (master) {
+      // Everything after the mixer is in its module. What still comes
+      // through the browser's nodes (a voice's own send, the beds, a voice
+      // with no slot) joins there, through its last two inputs; its output
+      // is the finished sound.
+      this.reverbIn.connect(this.mixer, 0, SLOTS);
+      this.mix.connect(this.mixer, 0, SLOTS + 1);
+      this.mixer.connect(dest);
+      this.mixer.port.onmessage = (e) => e.data?.reduction !== undefined && this.onLimiter?.(e.data);
+      for (const v of this.voices) v.slot = -1;
+      for (const b of this.beds) b.slots = [];
+      this.slots = Array.from({ length: SLOTS }, (_, i) => SLOTS - 1 - i);
+      this.lfe = layout.lfe >= 0;
+      this.reverb = null;
+      this.reverbHP = null;
+      this.limiter = null;
+      this.volume = null;
+      this.preDynamics = null;
+      this.output = this.mixer;
+      if (this.meterOn) this.meter(true);
+      for (const v of this.voices) v.rebuild();
+      for (const b of this.beds) b.rebuild();
+      return;
+    }
     if (this.binaural) {
       // Each ambisonic channel through its pair of ear filters, summed.
       const split = keep(ctx.createChannelSplitter(AMBI_CHANNELS));
@@ -376,9 +416,6 @@ export class Renderer {
     }
 
     // The reverb: one mono send in, every speaker out (the LFE left dry).
-    this.reverbIn = keep(ctx.createGain());
-    this.reverbIn.channelCount = 1;
-    this.reverbIn.channelCountMode = "explicit";
     // The engine's voices' sends, summed, are the mixer's third output.
     if (this.engine) this.mixer.connect(this.reverbIn, 2);
     const rooms = layout.speakers.map((s) => (s ? 1 : 0));
@@ -508,6 +545,29 @@ export class Renderer {
     for (const b of this.beds) b.rebuild();
   }
 
+  // The master chain for the mixer's module, the same parameters as the
+  // nodes and worklets of build() take below (the enhanced mode's).
+  masterOptions(layout) {
+    const ctx = this.ctx;
+    const config = this.config;
+    const clarity = config.clarity !== false;
+    const dynamics = DYNAMICS[config.dynamics] || DYNAMICS.normal;
+    return {
+      ceiling: -1,
+      release: 0.08,
+      dynamics: { ...dynamics, skip: layout.lfe },
+      room: this.roomParams,
+      highpass: [REVERB_LOW_CUT, BUTTERWORTH_Q],
+      // The channels the reverb reaches, a bit each.
+      rooms: layout.lfe >= 0 ? layout.speakers.reduce((mask, s, c) => (s ? mask | (1 << c) : mask), 0) : -1,
+      lfe: layout.lfe >= 0 ? [layout.lfe, LFE_CUTOFF, BUTTERWORTH_Q] : null,
+      eq: clarity ? CLARITY_EQ.map(([type, frequency, gain, Q]) => [FILTER_KINDS[type], Math.min(frequency, ctx.sampleRate * 0.45), gain, Q]) : [],
+      clarity: clarity ? { skip: layout.lfe, level: 10 ** (CLARITY_LEVEL / 20) } : null,
+      volume: this.masterVolume ?? 1,
+      time: ctx.currentTime,
+    };
+  }
+
   // The original on stereo speakers, light: the game's voices summed as a
   // PC of 2004 summed them, each a gain to each speaker carrying its level
   // and OpenAL Soft's stereo law for its direction, so the image is the
@@ -622,7 +682,8 @@ export class Renderer {
 
   setVolume(v) {
     this.masterVolume = v;
-    this.volume?.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
+    if (this.master) this.mixer.port.postMessage({ type: "volume", value: v, time: this.ctx.currentTime });
+    else this.volume?.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05);
   }
 
   // A loudness meter on the output (for the overlay and the tests).
@@ -654,7 +715,8 @@ export class Renderer {
 
   setRoom(params) {
     this.roomParams = { ...this.roomParams, ...params };
-    this.reverb?.port.postMessage(params);
+    if (this.master) this.mixer.port.postMessage({ type: "room", params });
+    else this.reverb?.port.postMessage(params);
   }
 
   // A voice's way out. Returns { attach(node), update(...), dispose() }.
