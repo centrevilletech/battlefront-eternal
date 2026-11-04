@@ -31,4 +31,7 @@ pub mod rules;
 pub mod spawning;
 pub mod stats;
 pub mod traps;
+pub mod turrets;
+#[cfg(target_arch = "wasm32")]
+pub mod turrets_module;
 pub mod world;
