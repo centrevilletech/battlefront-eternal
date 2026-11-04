@@ -125,8 +125,10 @@ export function chooseSharedBaselines(tick, acks, max = MAX_SHARED_BASELINES) {
 export const MAX_LOCAL_INTERVAL = 3;
 export function createSnapshotHost({ game, world, wire = globalThis.process?.env?.BFE_WIRE === 'rust', epoch = 1, local = false, stateBytesPerSecond, staleAfterMs = local ? Infinity : STALE_AFTER_MS, now = () => performance.now() } = {}) {
   if (!game || !world) throw Error('snapshot host requires a game and a multiplayer world');
+  if (wire && !game.simBridge) throw Error('native snapshot host requires the shared simulation bridge');
+  const budget = local ? Infinity : readStateBudget({ stateBytesPerSecond }).bytesPerSecond;
+  if (!(staleAfterMs > 0)) throw Error('invalid stale client time');
   const native = wire && game.simBridge ? createWireBridge(game.simBridge) : null;
-  if (wire && !native) throw Error('native snapshot host requires the shared simulation bridge');
   native?.start();
   const nativePresentation = native ? createWirePresentationBridge(game.simBridge) : null;
   const nativeCosmetics = native ? createWireCosmeticsBridge(game.simBridge) : null;
@@ -140,8 +142,6 @@ export function createSnapshotHost({ game, world, wire = globalThis.process?.env
   let interval = local ? 1 : 2;
   function setLocalInterval(ticks) { if (nativeHost) { nativeHost.setLocalInterval(ticks); interval = nativeHost.interval; } else if (local) interval = Math.max(1, Math.min(MAX_LOCAL_INTERVAL, Math.floor(ticks) || 1)); }
   // A local client shares the process: no link to protect.
-  const budget = local ? Infinity : readStateBudget({ stateBytesPerSecond }).bytesPerSecond;
-  if (!(staleAfterMs > 0)) throw Error('invalid stale client time');
   const nativeHost = native ? createWireHostBridge(game.simBridge, { local, budget, staleAfterMs, epoch }) : null;
   const clients = new Map();
   // A snapshot leaving the ring hands its entries to the next captures.
