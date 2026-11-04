@@ -20,7 +20,9 @@ const BLOCK = 128;
 const only = process.argv.slice(2);
 const wanted = (name) => !only.length || only.some((o) => name.includes(o));
 
-// A worklet file's processor class, with the worklet globals stubbed.
+// A worklet file's processor class (its first: spatial-mixer.js also
+// registers the light mix's voice engine, which has no JavaScript to
+// compare), with the worklet globals stubbed.
 function loadProcessor(file, rate = RATE) {
   const code = fs.readFileSync(new URL(`../src/audio/worklets/${file}`, import.meta.url), "utf8");
   let Processor = null;
@@ -32,7 +34,7 @@ function loadProcessor(file, rate = RATE) {
         this.port = { onmessage: null, messages: [], postMessage(m) { this.messages.push(m); } };
       }
     },
-    registerProcessor: (name, cls) => { Processor = cls; },
+    registerProcessor: (name, cls) => { Processor ??= cls; },
   };
   vm.runInNewContext(code, sandbox, { filename: file });
   assert(Processor, `${file} registered a processor`);
@@ -42,6 +44,15 @@ function loadProcessor(file, rate = RATE) {
 const math = {
   js_sin: Math.sin, js_cos: Math.cos, js_tan: Math.tan, js_asin: Math.asin,
   js_atan2: Math.atan2, js_exp: Math.exp, js_pow: Math.pow, js_log10: Math.log10,
+  // The compressor's, a block's worth at a call (as limiter.js gives them).
+  js_log10s: (at, n) => {
+    const a = new Float64Array(x.memory.buffer, at, n);
+    for (let i = 0; i < n; i++) a[i] = Math.log10(a[i]);
+  },
+  js_pow10s: (at, n) => {
+    const a = new Float64Array(x.memory.buffer, at, n);
+    for (let i = 0; i < n; i++) a[i] = Math.pow(10, a[i]);
+  },
 };
 const dsp = await WebAssembly.instantiate(Buffer.from(AUDIO_DSP_WASM, "base64"), { env: math });
 const x = dsp.instance.exports;

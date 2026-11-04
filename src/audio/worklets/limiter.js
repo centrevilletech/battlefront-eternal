@@ -39,7 +39,22 @@ function dspExports(options) {
   const m = options?.processorOptions?.dsp;
   if (!m) return null;
   try {
-    return new WebAssembly.Instance(m, { env: DSP_MATH }).exports;
+    // The compressor's math, a block's worth in one call out of the module
+    // (a call a value costs the audio thread several times the math): each
+    // of the n doubles at `at` in place.
+    let x = null;
+    let heap = new Float64Array(0);
+    const doubles = () => (heap.length ? heap : (heap = new Float64Array(x.memory.buffer)));
+    const js_log10s = (at, n) => {
+      const a = doubles();
+      for (let i = at >>> 3, end = i + n; i < end; i++) a[i] = Math.log10(a[i]);
+    };
+    const js_pow10s = (at, n) => {
+      const a = doubles();
+      for (let i = at >>> 3, end = i + n; i < end; i++) a[i] = Math.pow(10, a[i]);
+    };
+    x = new WebAssembly.Instance(m, { env: { ...DSP_MATH, js_log10s, js_pow10s } }).exports;
+    return x;
   } catch {
     return null;
   }

@@ -15,7 +15,8 @@
 //! itself, and WebAssembly has none unless asked for. What is left is
 //! sin, cos, tan, asin, atan2, exp, pow and log10, whose last bit is the
 //! math library's: this module imports them from its host, so in the
-//! browser they are V8's own, the ones the JavaScript calls. A native
+//! browser they are V8's own, the ones the JavaScript calls (log10 and
+//! powers of 10 also a block's worth at a call, for the compressor). A native
 //! host gives its own (here, the standard library's), whose last bit may
 //! differ; nothing else about a native build changes. Math.min and
 //! Math.max are `js_min` and `js_max` below, which keep JavaScript's
@@ -31,12 +32,16 @@
 
 use std::ptr::addr_of_mut;
 
+pub mod biquad;
 pub mod clarity;
 pub mod limiter;
+pub mod master;
 pub mod meter;
 pub mod mixer;
 pub mod reverb;
 pub mod stabilizer;
+pub mod timeline;
+pub mod voices;
 
 /// A block of samples handed to a processor: `channels` runs of `frames`
 /// f32 samples, one after another (channel-major). Inputs are read widened
@@ -124,6 +129,8 @@ pub mod host {
             pub fn js_exp(x: f64) -> f64;
             pub fn js_pow(x: f64, y: f64) -> f64;
             pub fn js_log10(x: f64) -> f64;
+            pub fn js_log10s(at: *mut f64, n: u32);
+            pub fn js_pow10s(at: *mut f64, n: u32);
         }
     }
 
@@ -184,6 +191,26 @@ pub mod host {
         #[cfg(not(target_arch = "wasm32"))]
         x.log10()
     }
+    /// Each value's log10 in place, in one call out of the module.
+    #[inline(always)]
+    pub fn log10_each(v: &mut [f64]) {
+        #[cfg(target_arch = "wasm32")]
+        unsafe { ffi::js_log10s(v.as_mut_ptr(), v.len() as u32) }
+        #[cfg(not(target_arch = "wasm32"))]
+        for x in v {
+            *x = x.log10();
+        }
+    }
+    /// 10 to each value in place, in one call out of the module.
+    #[inline(always)]
+    pub fn pow10_each(v: &mut [f64]) {
+        #[cfg(target_arch = "wasm32")]
+        unsafe { ffi::js_pow10s(v.as_mut_ptr(), v.len() as u32) }
+        #[cfg(not(target_arch = "wasm32"))]
+        for x in v {
+            *x = 10f64.powf(*x);
+        }
+    }
 }
 
 // The WebAssembly skin: handles, staged buffers, and one process call per
@@ -207,9 +234,28 @@ impl<T> Staged<T> {
     }
 }
 
+// A master chain and its staging: the inputs bound for it (the send's, a
+// block; the mix's, a block a channel) and whether each came, its output,
+// and f64 slots for its parameters.
+struct MasterStaged {
+    chain: master::Master,
+    channels: usize,
+    bus: Vec<f32>,
+    flags: [u8; 2],
+    out: Vec<f32>,
+    io: [f64; 16],
+}
+
 #[derive(Default)]
 struct State {
     mixers: Vec<Staged<mixer::Mixer>>,
+    // A mixer's voice engine, by the mixer's handle (?voices=rust).
+    engines: Vec<Option<voices::Engine>>,
+    // The light mix's voice engines and their output (left, then right).
+    lights: Vec<(voices::Engine, Vec<f32>)>,
+    // A mixer's master chain (?master=rust, the enhanced mode), by the
+    // mixer's handle.
+    masters: Vec<Option<MasterStaged>>,
     reverbs: Vec<Staged<reverb::Reverb>>,
     stabilizers: Vec<Staged<stabilizer::Stabilizer>>,
     limiters: Vec<Staged<limiter::Limiter>>,
@@ -264,7 +310,73 @@ pub extern "C" fn mixer_new(slots: u32, channels: u32) -> u32 {
         (channels as usize + 1) * FRAMES,
         slots as usize,
     ));
+    s.engines.push(None);
+    s.masters.push(None);
     (s.mixers.len() - 1) as u32
+}
+
+/// Gives the mixer a voice engine (src/voices.rs): voices it renders into
+/// its slots itself, at the context's `rate`, with the lowpass's Q in dB;
+/// x86=1 fills automation as Chromium's x86 build does.
+#[no_mangle]
+pub extern "C" fn mixer_engine(h: u32, rate: f64, q_db: f64, x86: u32) {
+    let s = state();
+    let slots = s.mixers[h as usize].present.len();
+    s.engines[h as usize] = Some(voices::Engine::new(rate, slots, q_db, x86 != 0));
+}
+
+/// How many of the mixer's slots, from the first, the browser's inputs feed
+/// (the worklet stages only those); the rest are the engine's alone.
+#[no_mangle]
+pub extern "C" fn mixer_inputs(h: u32, inputs: u32) {
+    if let Some(e) = &mut state().engines[h as usize] {
+        e.set_inputs(inputs as usize);
+    }
+}
+
+/// Room for sample `id` (`frames` f32 at `rate`) in the mixer's engine, to
+/// fill at the pointer.
+#[no_mangle]
+pub extern "C" fn mixer_sample(h: u32, id: u32, frames: u32, rate: f64) -> *mut f32 {
+    match &mut state().engines[h as usize] {
+        Some(e) => e.sample_storage(id as usize, frames as usize, rate).as_mut_ptr(),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Room for `len` command numbers, to fill before mixer_commands.
+#[no_mangle]
+pub extern "C" fn mixer_commands_ptr(h: u32, len: u32) -> *mut f64 {
+    match &mut state().engines[h as usize] {
+        Some(e) => e.command_storage(len as usize).as_mut_ptr(),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// The voices' commands (voices.rs: START, GAIN, ...), applied at once.
+#[no_mangle]
+pub extern "C" fn mixer_commands(h: u32, len: u32) {
+    if let Some(e) = &mut state().engines[h as usize] {
+        e.apply_commands(len as usize);
+    }
+}
+
+/// The context frame the next block starts at (the worklet's currentFrame),
+/// before mixer_process.
+#[no_mangle]
+pub extern "C" fn mixer_frame(h: u32, frame: f64) {
+    if let Some(e) = &mut state().engines[h as usize] {
+        e.frame = frame;
+    }
+}
+
+/// The engine's reverb send for the last block (128 f32).
+#[no_mangle]
+pub extern "C" fn mixer_send(h: u32) -> *mut f32 {
+    match &mut state().engines[h as usize] {
+        Some(e) => e.send.as_mut_ptr(),
+        None => std::ptr::null_mut(),
+    }
 }
 
 /// The mixer's per-slot present flags (1 where an input is connected).
@@ -342,7 +454,12 @@ pub extern "C" fn mixer_start(h: u32, slot: u32) { state().mixers[h as usize].pr
 /// has_lfe is 1.
 #[no_mangle]
 pub extern "C" fn mixer_process(h: u32, out_channels: u32, has_lfe: u32) {
-    let st = &mut state().mixers[h as usize];
+    let s = state();
+    let st = &mut s.mixers[h as usize];
+    // The engine's voices into their slots first, as if they came in.
+    if let Some(e) = &mut s.engines[h as usize] {
+        e.render(&mut st.input, &mut st.present);
+    }
     let oc = out_channels as usize;
     let (main, rest) = st.output.split_at_mut(oc * FRAMES);
     let mut out = BlockMut { data: main, channels: oc, frames: FRAMES };
@@ -355,6 +472,166 @@ pub extern "C" fn mixer_process(h: u32, out_channels: u32, has_lfe: u32) {
     }
     st.input = input;
     st.present = present;
+}
+
+/// Gives the mixer the enhanced mode's master chain (src/master.rs): its
+/// `channels`, the limiter's ceiling (dB), release and lookahead (s), and
+/// x86=1 as for the engine. The rest is set by the master_ calls below.
+#[no_mangle]
+pub extern "C" fn master_new(h: u32, rate: f64, channels: u32, ceiling: f64, release: f64, lookahead: f64, x86: u32) {
+    let n = channels as usize;
+    state().masters[h as usize] = Some(MasterStaged {
+        chain: master::Master::new(rate, n, ceiling, release, lookahead, x86 != 0),
+        channels: n,
+        bus: vec![0.0; (1 + n) * FRAMES],
+        flags: [0; 2],
+        out: vec![0.0; n * FRAMES],
+        io: [0.0; 16],
+    });
+}
+
+fn master(h: u32) -> &'static mut MasterStaged {
+    state().masters[h as usize].as_mut().expect("no master chain")
+}
+
+/// The master chain's f64 slots: the reverb's parameters (0-10, the mask
+/// in 11) before master_room, the limiter's dynamics (0-6, the mask in 7)
+/// before master_dynamics; the limiter's gain reduction in 0 after a
+/// master_process that reports one.
+#[no_mangle]
+pub extern "C" fn master_io(h: u32) -> *mut f64 { master(h).io.as_mut_ptr() }
+
+/// The inputs' staging: the send's block, then the mix's channels.
+#[no_mangle]
+pub extern "C" fn master_bus(h: u32) -> *mut f32 { master(h).bus.as_mut_ptr() }
+
+/// Whether the send's input and the mix's came this block (1 each).
+#[no_mangle]
+pub extern "C" fn master_flags(h: u32) -> *mut u8 { master(h).flags.as_mut_ptr() }
+
+/// The chain's output: a block a channel.
+#[no_mangle]
+pub extern "C" fn master_out(h: u32) -> *mut f32 { master(h).out.as_mut_ptr() }
+
+/// The reverb's parameters from io (initial=1: in force at once).
+#[no_mangle]
+pub extern "C" fn master_room(h: u32, initial: u32) {
+    let m = master(h);
+    let mut p = [0.0; reverb::PARAM_COUNT];
+    p.copy_from_slice(&m.io[..reverb::PARAM_COUNT]);
+    let mask = m.io[reverb::PARAM_COUNT] as u32;
+    m.chain.room(&p, mask, initial != 0);
+}
+
+/// The limiter's dynamics profile from io.
+#[no_mangle]
+pub extern "C" fn master_dynamics(h: u32) {
+    let m = master(h);
+    let mut d = [0.0; limiter::DYNAMICS_COUNT];
+    d.copy_from_slice(&m.io[..limiter::DYNAMICS_COUNT]);
+    let mask = m.io[limiter::DYNAMICS_COUNT] as u32;
+    m.chain.dynamics(&d, mask);
+}
+
+#[no_mangle]
+pub extern "C" fn master_highpass(h: u32, frequency: f32, q: f32) { master(h).chain.set_highpass(frequency, q); }
+
+/// The channels the reverb reaches, a bit each.
+#[no_mangle]
+pub extern "C" fn master_rooms(h: u32, mask: u32) { master(h).chain.set_rooms(mask); }
+
+#[no_mangle]
+pub extern "C" fn master_lfe(h: u32, channel: u32, cutoff: f32, q: f32) { master(h).chain.set_lfe(channel as usize, cutoff, q); }
+
+/// One more clarity EQ stage (kind: 0 lowpass, 1 highpass, 2 peaking, 3
+/// highshelf).
+#[no_mangle]
+pub extern "C" fn master_eq(h: u32, kind: u32, frequency: f32, gain: f32, q: f32) { master(h).chain.add_eq(master::kind(kind), frequency, gain, q); }
+
+/// The clarity stage (skip: the LFE's index, or -1) at its level.
+#[no_mangle]
+pub extern "C" fn master_clarity(h: u32, skip: i32, level: f32) { master(h).chain.set_clarity(skip as i64, level); }
+
+/// The master volume, at the next block (the engine's frame): set=1 sets
+/// its value at context time `at`, as AudioParam.value, else a
+/// setTargetAtTime with time constant `tau`.
+#[no_mangle]
+pub extern "C" fn master_volume(h: u32, value: f32, tau: f64, at: f64, set: u32) {
+    let s = state();
+    let frame = s.engines[h as usize].as_ref().map_or(0.0, |e| e.frame);
+    s.masters[h as usize].as_mut().expect("no master chain").chain.volume(value, tau, at, set != 0, frame);
+}
+
+/// The chain over the block mixer_process just rendered (its speaker feeds,
+/// its LFE send when has_lfe is 1, its engine's reverb send), into
+/// master_out; 1 when the limiter has a report (io 0), else 0.
+#[no_mangle]
+pub extern "C" fn master_process(h: u32, has_lfe: u32) -> u32 {
+    let s = state();
+    let mixer = &s.mixers[h as usize];
+    let e = s.engines[h as usize].as_ref().expect("no voice engine");
+    let m = s.masters[h as usize].as_mut().expect("no master chain");
+    let n = m.channels;
+    let feeds = &mixer.output[..n * FRAMES];
+    let lfe = if has_lfe != 0 { Some(&mixer.output[n * FRAMES..(n + 1) * FRAMES]) } else { None };
+    let (send_in, mix_in) = m.bus.split_at(FRAMES);
+    let send_in = if m.flags[0] != 0 { Some(send_in) } else { None };
+    let mix_in = if m.flags[1] != 0 { Some(mix_in) } else { None };
+    match m.chain.process(feeds, lfe, &e.send, send_in, mix_in, e.frame as u64 - FRAMES as u64, &mut m.out) {
+        Some(reduction) => {
+            m.io[0] = reduction;
+            1
+        }
+        None => 0,
+    }
+}
+
+/// The light mix's voice engine (?voices=rust): `slots` voices at the
+/// context's `rate`, each through two speaker gains into a stereo output;
+/// x86=1 fills automation as Chromium's x86 build does.
+#[no_mangle]
+pub extern "C" fn light_new(slots: u32, rate: f64, x86: u32) -> u32 {
+    let s = state();
+    // (No lowpass in the light mix: its Q is unused.)
+    s.lights.push((voices::Engine::new(rate, slots as usize, 0.0, x86 != 0), vec![0.0; 2 * FRAMES]));
+    (s.lights.len() - 1) as u32
+}
+
+/// Room for sample `id` (`frames` f32 at `rate`), to fill at the pointer.
+#[no_mangle]
+pub extern "C" fn light_sample(h: u32, id: u32, frames: u32, rate: f64) -> *mut f32 {
+    state().lights[h as usize].0.sample_storage(id as usize, frames as usize, rate).as_mut_ptr()
+}
+
+/// Room for `len` command numbers, to fill before light_commands.
+#[no_mangle]
+pub extern "C" fn light_commands_ptr(h: u32, len: u32) -> *mut f64 {
+    state().lights[h as usize].0.command_storage(len as usize).as_mut_ptr()
+}
+
+/// The voices' commands (voices.rs: START, SIDE_SET, ...), applied at once.
+#[no_mangle]
+pub extern "C" fn light_commands(h: u32, len: u32) {
+    state().lights[h as usize].0.apply_commands(len as usize);
+}
+
+/// The context frame the next block starts at (the worklet's currentFrame).
+#[no_mangle]
+pub extern "C" fn light_frame(h: u32, frame: f64) {
+    state().lights[h as usize].0.frame = frame;
+}
+
+/// One block into the output (light_out).
+#[no_mangle]
+pub extern "C" fn light_process(h: u32) {
+    let (engine, out) = &mut state().lights[h as usize];
+    engine.render_light(out);
+}
+
+/// The output: 128 f32 of the left speaker, then 128 of the right.
+#[no_mangle]
+pub extern "C" fn light_out(h: u32) -> *mut f32 {
+    state().lights[h as usize].1.as_mut_ptr()
 }
 
 /// A room reverb at `rate` with `channels` of output signs. Its input
