@@ -22,11 +22,11 @@
 // Output 0 is the speaker feeds (or the ambisonic channels); output 1 (mono)
 // is the LFE send, which the main thread low-passes and adds to the LFE
 // channel. With the master chain (processorOptions.master, the enhanced
-// mode unless ?master=native: rust/audio/src/master.rs) the module carries
-// on from there, and output 0 is the finished sound: the reverb, the LFE,
-// the clarity stage, the limiter and the volume, the last two inputs
-// (after the slots) bringing what still comes through the browser's nodes,
-// reverb sends and the mix's beds.
+// mode with ?master=rust: rust/audio/src/master.rs) the module carries on
+// from there, and output 0 is the finished sound: the reverb, the LFE, the
+// clarity stage, the limiter and the volume, the last two inputs bringing
+// what still comes through the browser's nodes, reverb sends and the mix's
+// beds.
 
 const BLOCK = 128;
 
