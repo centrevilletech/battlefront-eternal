@@ -53,7 +53,7 @@ function vector(value) {
 }
 function numbers(array, length) { return (Array.isArray(array) || ArrayBuffer.isView(array)) && array.length === length && Array.from(array).every(numeric); }
 function eligible(s, prediction, input, collision, kind) {
-  if (!['updateKick', 'kick', 'shieldEquipped', 'gunUnderwater'].every(key => plain(prediction, key))
+  if (!['soldier', 'updateKick', 'kick', 'shieldEquipped', 'gunUnderwater'].every(key => plain(prediction, key)) || prediction.soldier !== s
     || !['world', 'pitchLimits', 'collisionRule', 'jet', 'air', 'diveFrom', 'posture', 'passThrough'].every(key => {
       if (kind && key === 'posture') return true;
       return plain(s, key);
@@ -75,6 +75,7 @@ function eligible(s, prediction, input, collision, kind) {
   if (kind) {
     if (!Number.isInteger(s.mode) || s.mode < 0 || s.mode > 13 || !['reverse', 'dead'].every(key => plain(s, key, true) && typeof s[key] === 'boolean')
       || !plain(s, 'shield') || !plain(s, 'air') || !plain(s, 'def') || !plain(s, 'clips')
+      || !['onDeathBlast', 'onExploded'].every(key => plain(s, key, true))
       || !(s.clips instanceof Map) || s.clips.get !== Map.prototype.get) return false;
     if (s.shield && (!numericFields(s.shield, ['value', 'max', 'drain', 'refill']) || !plain(s.shield, 'on', true) || typeof s.shield.on !== 'boolean')) return false;
     if (!definitionKeys.every(key => plain(s.def, key) && (s.def[key] == null || numeric(s.def[key])))) return false;
@@ -219,7 +220,9 @@ export function createActorPredictionBridge(bridge, collision, { trace = null } 
           owner.busy = true; owner.events = [];
           try {
             const kind = Object.getPrototypeOf(soldier) === Droideka.prototype ? 1 : 0;
-            if (collision.rays?.x !== x || !numeric(dt) || !eligible(soldier, prediction, input, collision, kind)) return false;
+            const supported = collision.rays?.x === x && numeric(dt) && eligible(soldier, prediction, input, collision, kind);
+            active();
+            if (!supported) return false;
             collision.rayBodies();
             active();
             const setup = config(soldier, kind, owner);
